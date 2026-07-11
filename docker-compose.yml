@@ -1,0 +1,67 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: zcontrol-backend
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    env_file:
+      - .env
+    environment:
+      # 监听 IPv6 双栈
+      HOST: "::"
+      # 容器内 SQLite 路径，需与 volumes 挂载保持一致
+      DATABASE_URL: /app/data/dev.sqlite
+      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
+      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
+      JWT_ACCESS_EXPIRES_IN: ${JWT_ACCESS_EXPIRES_IN:-15m}
+      JWT_REFRESH_EXPIRES_IN: ${JWT_REFRESH_EXPIRES_IN:-7d}
+    volumes:
+      # 持久化 SQLite 数据库文件
+      - backend-data:/app/data
+    networks:
+      - app-network
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # 留空表示使用 window.location.origin，适合 Nginx 反向代理场景
+        VITE_API_URL: ${VITE_API_URL:-}
+    container_name: zcontrol-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+  # 可选：PostgreSQL 服务。如需使用，请取消注释并修改后端 data-source.ts 与 .env 中的 DATABASE_URL。
+  # db:
+  #   image: postgres:alpine
+  #   container_name: zcontrol-db
+  #   restart: unless-stopped
+  #   env_file:
+  #     - .env
+  #   environment:
+  #     POSTGRES_USER: ${POSTGRES_USER:-postgres}
+  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change_me}
+  #     POSTGRES_DB: ${POSTGRES_DB:-zcontrol}
+  #   volumes:
+  #     - postgres-data:/var/lib/postgresql/data
+  #   ports:
+  #     - "5432:5432"
+  #   networks:
+  #     - app-network
+
+volumes:
+  backend-data:
+  # postgres-data:
+
+networks:
+  app-network:
+    driver: bridge

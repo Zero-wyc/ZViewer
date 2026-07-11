@@ -1,0 +1,20 @@
+{
+  "name": "zcontrol",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-based remote control platform with WebRTC screen sharing.",
+  "workspaces": [
+    "frontend",
+    "backend"
+  ],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w backend\" \"npm run dev -w frontend\" --kill-others",
+    "dev:backend": "npm run dev -w backend",
+    "dev:frontend": "npm run dev -w frontend",
+    "build": "npm run build -ws",
+    "lint": "npm run lint -w frontend"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

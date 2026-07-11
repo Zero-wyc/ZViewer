@@ -1,0 +1,64 @@
+1. 综合 API 库（开发首选）
+bilibili-api (Python) —— 最全面的 Python 调用库
+
+    仓库：nemo2011/bilibili-api（原 MoyuScript/bilibili-api 的活跃分支）
+    覆盖范围：视频、番剧、直播、动态、专栏、用户、音频等
+    登录支持：通过 Credential 类传入 SESSDATA、bili_jct 等 Cookie 实现登录态操作
+    弹幕支持：连接直播弹幕 WebSocket 服务器、下载视频弹幕、字幕文件
+    特点：全异步操作，支持代理绕过风控，代码注释详细
+
+bpi-rs (Rust) —— Rust 版 SDK，接口超全
+
+    仓库：Yuelioi/bpi-rs
+    覆盖 322 个 API，涵盖视频、直播、弹幕、搜索、会员、登录等
+    登录支持：Account 结构体 / Cookie 字符串 / 扫码登录
+    特点：类型安全，Cookie 自动管理，IDE 内联提示友好
+
+2. 命令行下载/解析工具
+BBDown (C#) —— 功能强大的命令行下载器
+
+    仓库：nilaoda/BBDown
+    支持登录：扫码登录网页账号、云视听小电视账号，或手动加载 Cookie/Token
+    视频解析：支持普通视频、番剧、电影、课程、合集、收藏夹等
+    弹幕支持：可下载弹幕（--download-danmaku），支持外挂字幕转换
+    其他：支持 TV 端 / APP 端 / 国际版多解析模式，杜比视界/全景声，多线程下载
+
+bilili (Python) —— 番剧+视频下载器
+
+    支持视频（含番剧）下载和弹幕下载（ASS/XML 格式）
+    需配合 FFmpeg 使用
+
+bilitool (Python) —— 持久化登录 + 下载工具库
+
+    仓库：timerring/bilitool
+    支持持久化登录（扫码后保存凭证）、视频下载、上传，提供 CLI 和库两种调用方式
+
+3. GUI 桌面端工具
+downkyi (哔哩下载姬，C#) —— 带界面的全能下载器
+
+    支持二维码登录
+    支持 8K、HDR、杜比视界画质
+    支持批量下载、弹幕获取、字幕下载、音频提取、去水印
+    底层使用 aria2c 多线程下载 + FFmpeg 混流
+
+4. 弹幕专项工具
+
+    BiLiBiLi_DanMu_Crawling (HengXin666/BiLiBiLi_DanMu_Crawling)：爬取历史/全弹幕，支持高级弹幕和 Bas 弹幕，最优请求算法不丢失弹幕，支持 Docker 部署
+    bdanmaku (UlyssesZh/bdanmaku)：mpv 插件，可正确显示 Bilibili 弹幕（配合 yt-dlp 播放）
+    ass-danmaku (tiansh/ass-danmaku)：Firefox 扩展，可将 B 站弹幕下载为 ASS 格式
+
+5. 基于 API 的上层应用
+bilibili-mcp (adoresever/bilibili-mcp)
+
+    基于 bilibili-api-python 封装的 MCP Server
+    支持 AI 工具调用：扫码登录、搜索视频、获取评论/字幕/弹幕、发评论、上传视频等
+
+推荐组合
+表格
+需求场景	推荐方案
+想自己开发/二次开发	bilibili-api (Python) 或 bpi-rs (Rust)
+命令行下载+弹幕	BBDown
+图形界面下载	downkyi
+只需要弹幕解析/播放	bdanmaku + mpv + yt-dlp
+集成到 AI 工作流	bilibili-mcp
+如果你需要现成的、可直接部署的网页端解析方案（而非本地工具），GitHub 上这类项目较少且容易失效，通常需要基于上述 API 库自行搭建。
