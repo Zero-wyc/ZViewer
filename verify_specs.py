@@ -213,4 +213,10 @@ async def run():
         await page.mouse.move(700, 400)
         await asyncio.sleep(0.5)
         await asyncio.sleep(3.5)
-        hidden1 = not await controls_visible
+        hidden1 = not await controls_visible(page)
+        log(f"静止 3 秒后控制栏隐藏: {hidden1}")
+        await page.mouse.move(701, 401)
+        await asyncio.sleep(0.5)
+        visible1 = await controls_visible(page)
+        log(f"移动鼠标后控制栏恢复: {visible1}")
+        await page.screenshot(path=SCREENSHOT
