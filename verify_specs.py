@@ -219,4 +219,9 @@ async def run():
         await asyncio.sleep(0.5)
         visible1 = await controls_visible(page)
         log(f"移动鼠标后控制栏恢复: {visible1}")
-        await page.screenshot(path=SCREENSHOT
+        await page.screenshot(path=SCREENSHOT_DIR / "player-controls-hidden-verification.png")
+        log("底栏隐藏状态截图已保存")
+
+        # 确保控制栏显示后再点击隐藏按钮
+        await page.mouse.move(702, 402)
+        await
