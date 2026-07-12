@@ -207,4 +207,10 @@ async def run():
 
         # 5. 验证底栏自动隐藏与隐藏按钮
         log("验证控制栏自动隐藏")
-        # 先移出播放器区域，
+        # 先移出播放器区域，再移入以触发 mouseenter
+        await page.mouse.move(50, 400)
+        await asyncio.sleep(0.2)
+        await page.mouse.move(700, 400)
+        await asyncio.sleep(0.5)
+        await asyncio.sleep(3.5)
+        hidden1 = not await controls_visible
