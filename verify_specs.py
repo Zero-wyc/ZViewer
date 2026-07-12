@@ -224,4 +224,8 @@ async def run():
 
         # 确保控制栏显示后再点击隐藏按钮
         await page.mouse.move(702, 402)
-        await
+        await asyncio.sleep(0.3)
+        await page.click('button[aria-label="隐藏控制栏"]')
+        await asyncio.sleep(0.3)
+        hidden2 = not await controls_visible(page)
+        log(f"点击
