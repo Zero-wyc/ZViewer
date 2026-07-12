@@ -44,6 +44,11 @@ interface RoomLayoutProps {
    * 未提供时，自动判断为 `mode === 'screen-share' && store.isSharing`。
    */
   sharingActive?: boolean
+  /**
+   * CSS 模拟的网页全屏状态（由播放器组件如 WatchTogetherPanel 提升）。
+   * 用于在网页全屏时隐藏底部卡片等页面元素。
+   */
+  webFullscreen?: boolean
 }
 
 const MODE_LABELS: Record<RoomMode, string> = {
@@ -68,17 +73,18 @@ export function RoomLayout({
   p2pEnabled,
   onToggleP2P,
   sharingActive,
+  webFullscreen = false,
 }: RoomLayoutProps) {
   const navigate = useNavigate()
   const handleBack = onBack ?? (() => navigate('/'))
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const toggleRightPanel = () => setIsRightPanelOpen((open) => !open)
 
-  // 检测浏览器网页全屏状态：全屏时右侧面板采用悬浮覆盖，非全屏时为固定侧边栏
-  const [isWebFullscreen, setIsWebFullscreen] = useState(false)
+  // 检测浏览器原生全屏状态：原生全屏时右侧面板采用悬浮覆盖，非全屏时为固定侧边栏
+  const [isNativeFullscreen, setIsNativeFullscreen] = useState(false)
   useEffect(() => {
     const handleFullscreenChange = () => {
-      setIsWebFullscreen(!!document.fullscreenElement)
+      setIsNativeFullscreen(!!document.fullscreenElement)
     }
     document.addEventListener('fullscreenchange', handleFullscreenChange)
     handleFullscreenChange()
@@ -232,17 +238,17 @@ export function RoomLayout({
 
   // 右侧评论/弹幕面板：
   // - 非全屏：固定宽度侧边栏（320px），位于视频右侧，不挤压播放器宽度
-  // - 网页全屏：悬浮层覆盖在视频区域上方
+  // - 原生全屏：悬浮层覆盖在视频区域上方
   const rightPanelNode = (
     <div
       className={cn(
-        'glass-strong flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--glass-border)] transition-all duration-200 ease-in-out',
-        isWebFullscreen
-          ? 'absolute inset-y-0 right-0 z-20 w-[80%] max-w-[320px]'
-          : 'w-[320px] flex-shrink-0',
-        isWebFullscreen && !isRightPanelOpen && 'translate-x-full',
-        !isWebFullscreen && !isRightPanelOpen && 'w-0 opacity-0'
-      )}
+          'glass-strong flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--glass-border)] transition-all duration-200 ease-in-out',
+          isNativeFullscreen
+            ? 'absolute inset-y-0 right-0 z-20 w-[80%] max-w-[320px]'
+            : 'w-[320px] flex-shrink-0',
+          isNativeFullscreen && !isRightPanelOpen && 'translate-x-full',
+          !isNativeFullscreen && !isRightPanelOpen && 'w-0 opacity-0'
+        )}
     >
       {effectiveRightPanel}
     </div>
@@ -259,8 +265,8 @@ export function RoomLayout({
   }
 
   return (
-    <div className="flex h-[calc(100vh-64px)] flex-col items-center overflow-hidden px-4 py-6">
-      <Card className="relative flex w-full max-w-6xl flex-1 flex-col overflow-hidden min-h-0">
+    <div className="flex min-h-[calc(100vh-64px)] flex-col items-center overflow-y-auto px-4 py-6">
+      <Card className="relative flex w-full max-w-6xl flex-none flex-col overflow-hidden min-h-0">
         {/* 顶部工具栏：返回、模式切换、右侧操作在同一行，避免 absolute 重叠 */}
         <div className="z-30 flex flex-none items-center justify-between gap-2 px-4 pt-4 pb-2">
           <Button
@@ -307,23 +313,25 @@ export function RoomLayout({
           </Title>
         )}
 
-        <div className="relative mt-4 flex min-h-0 flex-1 overflow-hidden">
+        <div className="relative mt-4 flex min-h-0 flex-none overflow-hidden">
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <div
               className={cn(
                 'relative h-full w-full overflow-hidden rounded-lg bg-black',
-                !isWebFullscreen && 'aspect-video'
+                !isNativeFullscreen && 'aspect-video'
               )}
             >
               {renderMainContent()}
-              {isWebFullscreen && rightPanelNode}
+              {isNativeFullscreen && rightPanelNode}
             </div>
           </div>
-          {!isWebFullscreen && rightPanelNode}
+          {!isNativeFullscreen && rightPanelNode}
         </div>
+      </Card>
 
-        {controls && !isWebFullscreen && (
-          <div className="flex-none overflow-y-auto border-t border-[var(--md-sys-color-outline)] px-4 py-3 mt-2 max-h-[160px]">
+      {controls && !webFullscreen && !isNativeFullscreen && (
+        <Card className="w-full max-w-6xl flex-none mt-4 overflow-hidden">
+          <div className="px-4 py-3">
             {(() => {
               const controlChildren = flattenChildren(controls)
               if (controlChildren.length === 1) {
@@ -343,8 +351,8 @@ export function RoomLayout({
               )
             })()}
           </div>
-        )}
-      </Card>
+        </Card>
+      )}
     </div>
   )
 }

@@ -9,7 +9,8 @@ function getAuthHeaders(): Record<string, string> {
 }
 
 function isBilibiliMediaUrl(url: string): boolean {
-  return /bilivideo/i.test(url)
+  // 覆盖 B站 各类 CDN 域名：官方 bilivideo、P2P/mcdn、第三方边缘节点等
+  return /(?:bilivideo|hdslb|mountaintoys|mcdn|upos|bstatic)/i.test(url)
 }
 
 /**

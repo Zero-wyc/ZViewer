@@ -28,6 +28,7 @@ function RoomPage() {
   const { socket } = useSocket()
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
+  const [isWebFullscreen, setIsWebFullscreen] = useState(false)
 
   // 将 URL 中的房间号同步到 store，确保刷新或直接访问房间链接时
   // MoviePushPanel 等依赖 store.roomId 的组件能正常工作。
@@ -132,7 +133,12 @@ function RoomPage() {
   if (role === 'host') {
     const mainContent =
       mode === 'watch-together' ? (
-        <WatchTogetherPanel roomId={roomId} isHost />
+        <WatchTogetherPanel
+          roomId={roomId}
+          isHost
+          isWebFullscreen={isWebFullscreen}
+          onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+        />
       ) : (
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
@@ -158,6 +164,7 @@ function RoomPage() {
         rightPanel={<CommentPanel socket={socket} roomId={roomId} />}
         peerConnection={hostPeerConnection}
         controls={controls}
+        webFullscreen={isWebFullscreen}
       />
     )
   }

@@ -237,7 +237,8 @@ export const VideoControls = forwardRef<
     container?.addEventListener('mouseleave', handleMouseLeave)
     controls?.addEventListener('mousemove', handleMouseMove)
     controls?.addEventListener('mouseenter', handleMouseEnter)
-    controls?.addEventListener('mouseleave', handleMouseLeave)
+    // 隐藏控制栏后会将其设为 pointer-events-none，controls 的 mouseleave 会被触发并立即重新显示，
+    // 因此不监听 controls 的 mouseleave，仅依赖 container 的 mouseleave。
     document.addEventListener('mousedown', handleGlobalActivity)
     document.addEventListener('keydown', handleGlobalActivity)
 
@@ -247,7 +248,6 @@ export const VideoControls = forwardRef<
       container?.removeEventListener('mouseleave', handleMouseLeave)
       controls?.removeEventListener('mousemove', handleMouseMove)
       controls?.removeEventListener('mouseenter', handleMouseEnter)
-      controls?.removeEventListener('mouseleave', handleMouseLeave)
       document.removeEventListener('mousedown', handleGlobalActivity)
       document.removeEventListener('keydown', handleGlobalActivity)
       clearIdleTimer()

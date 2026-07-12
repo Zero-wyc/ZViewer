@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Monitor } from 'lucide-react'
 import { Text } from '@/components/ui/Typography'
@@ -25,11 +25,21 @@ import { cn } from '@/lib/utils'
 interface WatchTogetherPanelProps {
   roomId: string
   isHost: boolean
+  /**
+   * 受控的网页全屏状态。提供时组件将使用外部状态替代内部 state。
+   */
+  isWebFullscreen?: boolean
+  /**
+   * 受控的网页全屏切换回调。提供时组件将调用外部回调替代内部 state 切换。
+   */
+  onToggleWebFullscreen?: () => void
 }
 
 export function WatchTogetherPanel({
   roomId,
   isHost,
+  isWebFullscreen: controlledWebFullscreen,
+  onToggleWebFullscreen: controlledToggleWebFullscreen,
 }: WatchTogetherPanelProps) {
   const { socket } = useSocket()
   const setMode = useRoomStore((state) => state.setMode)
@@ -62,17 +72,34 @@ export function WatchTogetherPanel({
   const danmakuItemsRef = useRef<BilibiliDanmakuItem[]>([])
   const loadedTracksRef = useRef<Set<string>>(new Set())
   const [danmakuEnabled, setDanmakuEnabled] = useState(true)
-  const [isWebFullscreen, setIsWebFullscreen] = useState(false)
+  const [internalWebFullscreen, setInternalWebFullscreen] = useState(false)
+  const isWebFullscreen = controlledWebFullscreen ?? internalWebFullscreen
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(
     null
   )
+
+  const toggleWebFullscreen = useCallback(() => {
+    if (controlledToggleWebFullscreen) {
+      controlledToggleWebFullscreen()
+    } else {
+      setInternalWebFullscreen((prev) => !prev)
+    }
+  }, [controlledToggleWebFullscreen])
+
+  const exitWebFullscreen = useCallback(() => {
+    if (controlledWebFullscreen) {
+      controlledToggleWebFullscreen?.()
+    } else {
+      setInternalWebFullscreen(false)
+    }
+  }, [controlledWebFullscreen, controlledToggleWebFullscreen])
 
   // 网页全屏模式下按 ESC 退出
   useEffect(() => {
     if (!isWebFullscreen) return
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        setIsWebFullscreen(false)
+        exitWebFullscreen()
       }
     }
     document.addEventListener('keydown', handleKeyDown)
@@ -388,7 +415,7 @@ export function WatchTogetherPanel({
                 forceSync()
               }}
               isWebFullscreen={isWebFullscreen}
-              onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+              onToggleWebFullscreen={toggleWebFullscreen}
               subtitleEnabled={subtitles.subtitleEnabled}
               subtitleTracks={subtitles.subtitleTracks}
               activeTrackIndex={subtitles.activeTrackIndex}
