@@ -78,41 +78,44 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
     useConnectionStats(pc, mode)
 
   return (
-    <Card className="w-full mt-4 p-4 text-left">
-      <div className="flex items-center gap-2 mb-3">
-        <Activity className="h-4 w-4" style={{ color: 'var(--md-sys-color-primary)' }} />
-        <Paragraph className="m-0 text-sm font-medium">连接统计</Paragraph>
+    <Card className="w-full p-6 text-left">
+      <div className="flex items-center gap-2 mb-4">
+        <Activity
+          className="h-5 w-5"
+          style={{ color: 'var(--md-sys-color-primary)' }}
+        />
+        <Paragraph className="m-0 text-base font-medium">连接统计</Paragraph>
       </div>
-      <Space wrap className="gap-2 mb-3">
+      <Space wrap className="gap-2 mb-4 text-base">
         <Tag color={getModeColor(stats.mode)}>{getModeText(stats.mode)}</Tag>
         <Tag color={getConnectionStateColor(stats.connectionState)}>
           {getConnectionStateText(stats.connectionState)}
         </Tag>
       </Space>
-      <div className="grid grid-cols-2 gap-3 text-sm">
-        <div>
-          <Text type="secondary">视频分辨率</Text>
-          <Paragraph className="m-0 font-mono">
+      <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3 lg:grid-cols-6">
+        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
+          <Text type="secondary" className="text-sm">视频分辨率</Text>
+          <Paragraph className="m-0 font-mono text-base font-semibold">
             {stats.resolution
               ? `${stats.resolution.width} x ${stats.resolution.height}`
               : '-'}
           </Paragraph>
         </div>
-        <div>
-          <Text type="secondary">帧率</Text>
-          <Paragraph className="m-0 font-mono">
+        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
+          <Text type="secondary" className="text-sm">帧率</Text>
+          <Paragraph className="m-0 font-mono text-base font-semibold">
             {stats.frameRate === null ? '-' : `${stats.frameRate} fps`}
           </Paragraph>
         </div>
-        <div>
-          <Text type="secondary">码率</Text>
-          <Paragraph className="m-0 font-mono">
+        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
+          <Text type="secondary" className="text-sm">码率</Text>
+          <Paragraph className="m-0 font-mono text-base font-semibold">
             {formatBitrate(stats.bitrate)}
           </Paragraph>
         </div>
-        <div>
-          <Text type="secondary">已收/已发数据包</Text>
-          <Paragraph className="m-0 font-mono">
+        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
+          <Text type="secondary" className="text-sm">已收/已发数据包</Text>
+          <Paragraph className="m-0 font-mono text-base font-semibold">
             {stats.packetsReceived !== null
               ? formatNumber(stats.packetsReceived)
               : stats.packetsSent !== null
@@ -120,15 +123,15 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
                 : '-'}
           </Paragraph>
         </div>
-        <div>
-          <Text type="secondary">丢包数</Text>
-          <Paragraph className="m-0 font-mono">
+        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
+          <Text type="secondary" className="text-sm">丢包数</Text>
+          <Paragraph className="m-0 font-mono text-base font-semibold">
             {formatNumber(stats.packetsLost)}
           </Paragraph>
         </div>
-        <div>
-          <Text type="secondary">丢包率</Text>
-          <Paragraph className="m-0 font-mono">
+        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
+          <Text type="secondary" className="text-sm">丢包率</Text>
+          <Paragraph className="m-0 font-mono text-base font-semibold">
             {formatPacketLoss(stats.packetLossRate)}
           </Paragraph>
         </div>

@@ -12,7 +12,10 @@ export interface InputProps extends Omit<
 }
 
 export const Input = forwardRef<HTMLInputElement, InputProps>(
-  ({ label, error, size = 'md', variant = 'outlined', className, ...props }, ref) => {
+  (
+    { label, error, size = 'md', variant = 'outlined', className, ...props },
+    ref
+  ) => {
     const sizes = {
       sm: 'px-2.5 py-1.5 text-xs',
       md: 'px-3 py-2 text-sm',
@@ -39,11 +42,16 @@ export const Input = forwardRef<HTMLInputElement, InputProps>(
             'w-full rounded-[var(--md-sys-shape-corner)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:outline-none disabled:cursor-not-allowed disabled:bg-[var(--md-sys-color-surface-container)] disabled:opacity-60',
             sizes[size],
             variants[variant],
-            error && 'border-[var(--md-sys-color-error)] focus:border-[var(--md-sys-color-error)] focus:ring-[var(--md-sys-color-error)]'
+            error &&
+              'border-[var(--md-sys-color-error)] focus:border-[var(--md-sys-color-error)] focus:ring-[var(--md-sys-color-error)]'
           )}
           {...props}
         />
-        {error && <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">{error}</p>}
+        {error && (
+          <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">
+            {error}
+          </p>
+        )}
       </div>
     )
   }

@@ -23,7 +23,7 @@ export interface Viewer {
   username?: string
 }
 
-export type RoomMode = 'screen-share' | 'watch-together' | 'bili-compat'
+export type RoomMode = 'screen-share' | 'watch-together'
 
 export type MovieSourceType =
   'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'smb' | string

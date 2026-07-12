@@ -81,44 +81,53 @@ function extractItems(data: unknown, baseUrl: string): OpenListEntry[] {
   return entries;
 }
 
+const DEFAULT_TIMEOUT = 10000; // 10 秒
+
 export async function fetchOpenListIndex(indexUrl: string): Promise<OpenListIndex> {
-  const response = await fetch(indexUrl, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`获取 OpenList 索引失败: ${response.status}`);
-  }
-
-  const text = await response.text();
-  let data: unknown;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT);
   try {
-    data = JSON.parse(text);
-  } catch {
-    // 尝试从文本中提取 URL（每行一个）
-    const lines = text
-      .split('\n')
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0);
-    if (lines.some((line) => isMediaUrl(line))) {
-      data = lines.map((line) => ({ name: line.split('/').pop() || '未命名', url: line }));
-    } else {
-      throw new Error('OpenList 索引格式错误');
+    const response = await fetch(indexUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      },
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(`获取 OpenList 索引失败: ${response.status}`);
     }
-  }
 
-  const items = extractItems(data, indexUrl);
-  if (items.length === 0) {
-    throw new Error('未从 OpenList 索引中解析到媒体条目');
-  }
+    const text = await response.text();
+    let data: unknown;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      // 尝试从文本中提取 URL（每行一个）
+      const lines = text
+        .split('\n')
+        .map((line) => line.trim())
+        .filter((line) => line.length > 0);
+      if (lines.some((line) => isMediaUrl(line))) {
+        data = lines.map((line) => ({ name: line.split('/').pop() || '未命名', url: line }));
+      } else {
+        throw new Error('OpenList 索引格式错误');
+      }
+    }
 
-  let title: string | undefined;
-  if (data && typeof data === 'object' && !Array.isArray(data)) {
-    const obj = data as Record<string, unknown>;
-    title = typeof obj.title === 'string' ? obj.title : undefined;
-  }
+    const items = extractItems(data, indexUrl);
+    if (items.length === 0) {
+      throw new Error('未从 OpenList 索引中解析到媒体条目');
+    }
 
-  return { title, items };
+    let title: string | undefined;
+    if (data && typeof data === 'object' && !Array.isArray(data)) {
+      const obj = data as Record<string, unknown>;
+      title = typeof obj.title === 'string' ? obj.title : undefined;
+    }
+
+    return { title, items };
+  } finally {
+    clearTimeout(timer);
+  }
 }

@@ -1,4 +1,11 @@
-import { useRef, useState, useEffect, useCallback } from 'react'
+import {
+  useRef,
+  useState,
+  useEffect,
+  useCallback,
+  forwardRef,
+  useImperativeHandle,
+} from 'react'
 import {
   Play,
   Pause,
@@ -15,6 +22,8 @@ import {
   Captions,
   Upload,
   Plus,
+  PanelBottomClose,
+  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -25,6 +34,11 @@ import { useVideoControls } from './useVideoControls'
 import { cn } from '@/lib/utils'
 import type { SubtitleTrack } from '@/hooks/useSubtitles'
 import { DanmakuStylePanel } from '@/modules/room/watch-together/DanmakuStylePanel'
+import {
+  getBilibiliParseOptions,
+  setBilibiliParseOptions,
+  type BilibiliCodec,
+} from '@/modules/room/watch-together/resolveSource'
 import type {
   DanmakuStyleState,
   DanmakuTypeFilters,
@@ -49,7 +63,7 @@ export interface VideoControlsProps {
   onSync?: () => void
   containerRef?: React.RefObject<HTMLElement | null>
   isWebFullscreen?: boolean
-  onWebFullscreenToggle?: () => void
+  onToggleWebFullscreen?: () => void
   // 字幕
   subtitleEnabled?: boolean
   subtitleTracks?: SubtitleTrack[]
@@ -77,7 +91,7 @@ export function VideoControls({
   onSync,
   containerRef,
   isWebFullscreen: externalWebFullscreen,
-  onWebFullscreenToggle,
+  onToggleWebFullscreen,
   subtitleEnabled,
   subtitleTracks,
   activeTrackIndex,
@@ -164,9 +178,7 @@ export function VideoControls({
     setSubtitleUrlInput('')
   }
 
-  const handleSubtitleFileChange = (
-    e: React.ChangeEvent<HTMLInputElement>
-  ) => {
+  const handleSubtitleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
     onAddSubtitleFile?.(file)
@@ -277,7 +289,7 @@ export function VideoControls({
   }
 
   const handleWebFullscreen = () => {
-    onWebFullscreenToggle?.()
+    onToggleWebFullscreen?.()
   }
 
   const handleSendDanmaku = () => {
@@ -504,7 +516,8 @@ export function VideoControls({
               size="sm"
               className={cn(
                 iconBtnClass,
-                settingsOpen && 'bg-[var(--md-sys-color-surface-container-highest)]'
+                settingsOpen &&
+                  'bg-[var(--md-sys-color-surface-container-highest)]'
               )}
               aria-label="设置"
               aria-expanded={settingsOpen}
@@ -687,9 +700,7 @@ export function VideoControls({
                       style={danmakuStyle}
                       setStyle={onDanmakuStyleChange ?? (() => {})}
                       setFilters={onDanmakuFilterChange ?? (() => {})}
-                      setAdvancedStyle={
-                        onDanmakuAdvancedChange ?? (() => {})
-                      }
+                      setAdvancedStyle={onDanmakuAdvancedChange ?? (() => {})}
                       resetStyle={onResetDanmakuStyle ?? (() => {})}
                     />
                   </>

@@ -5,6 +5,7 @@ export interface BilibiliDanmakuItem {
   mode: number;
   color: number;
   size: number;
+  sendTime?: number;
 }
 
 const DEFAULT_USER_AGENT =
@@ -51,10 +52,11 @@ export async function getDanmaku(cid: number): Promise<BilibiliDanmakuItem[]> {
     const mode = parseInt(parts[1], 10);
     const size = parseInt(parts[2], 10);
     const color = parseInt(parts[3], 10);
+    const sendTime = parts[4] ? parseInt(parts[4], 10) : undefined;
     const id = parts[7] ?? `${Date.now()}-${danmaku.length}`;
     const content = decodeXmlEntities(match[2]);
 
-    danmaku.push({ id, content, time, mode, color, size });
+    danmaku.push({ id, content, time, mode, color, size, sendTime });
   }
 
   return danmaku;

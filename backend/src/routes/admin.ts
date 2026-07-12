@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { IsNull } from 'typeorm';
 import { AppDataSource } from '../data-source';
-import { User } from '../entities/User';
+import { User, type UserRole } from '../entities/User';
 import { Room } from '../entities/Room';
 import { Session } from '../entities/Session';
 import { SystemSettings } from '../entities/SystemSettings';
@@ -19,8 +19,20 @@ function adminOnly(
   res: import('express').Response,
   next: import('express').NextFunction,
 ) {
-  if (req.user?.role !== 'admin') {
+  if (req.user?.role !== 'root' && req.user?.role !== 'admin') {
     res.status(403).json({ success: false, message: '无权限：仅管理员可操作' });
+    return;
+  }
+  next();
+}
+
+function rootOnly(
+  req: AuthenticatedRequest,
+  res: import('express').Response,
+  next: import('express').NextFunction,
+) {
+  if (req.user?.role !== 'root') {
+    res.status(403).json({ success: false, message: '无权限：仅 root 可操作' });
     return;
   }
   next();
@@ -42,7 +54,7 @@ router.get(
     try {
       const users = await userRepository().find({
         order: { createdAt: 'DESC' },
-        select: ['id', 'username', 'role', 'createdAt', 'updatedAt'],
+        select: ['id', 'username', 'role', 'status', 'createdAt', 'updatedAt'],
       });
       res.json({
         success: true,
@@ -50,6 +62,7 @@ router.get(
           id: u.id,
           username: u.username,
           role: u.role,
+          status: u.status,
           createdAt: u.createdAt.toISOString(),
           updatedAt: u.updatedAt.toISOString(),
         })),
@@ -61,9 +74,10 @@ router.get(
   },
 );
 
-/** 修改用户角色 */
+/** 修改用户角色（root 可操作，禁止修改 root 本身） */
 router.patch(
   '/users/:id/role',
+  rootOnly,
   async (
     req: AuthenticatedRequest,
     res: import('express').Response,
@@ -75,8 +89,9 @@ router.patch(
         res.status(400).json({ success: false, message: '用户 ID 不正确' });
         return;
       }
-      if (role !== 'admin' && role !== 'user') {
-        res.status(400).json({ success: false, message: '角色必须是 admin 或 user' });
+      const allowedRoles: UserRole[] = ['admin', 'user'];
+      if (!allowedRoles.includes(role)) {
+        res.status(400).json({ success: false, message: '角色必须是 admin / user' });
         return;
       }
 
@@ -87,13 +102,10 @@ router.patch(
         return;
       }
 
-      // 禁止修改最后一个管理员为普通用户
-      if (user.role === 'admin' && role === 'user') {
-        const adminCount = await userRepo.count({ where: { role: 'admin' } });
-        if (adminCount <= 1) {
-          res.status(400).json({ success: false, message: '不能降级唯一的管理员' });
-          return;
-        }
+      // root 身份只能属于用户名 root，且不能被修改
+      if (user.role === 'root' || user.username === 'root') {
+        res.status(400).json({ success: false, message: '不能修改 root 账户' });
+        return;
       }
 
       user.role = role;
@@ -106,9 +118,47 @@ router.patch(
   },
 );
 
+/** 审核通过用户（将 pending guest 提升为 user） */
+router.post(
+  '/users/:id/approve',
+  rootOnly,
+  async (
+    req: AuthenticatedRequest,
+    res: import('express').Response,
+  ): Promise<void> => {
+    try {
+      const id = Number(req.params.id);
+      if (Number.isNaN(id)) {
+        res.status(400).json({ success: false, message: '用户 ID 不正确' });
+        return;
+      }
+      const userRepo = userRepository();
+      const user = await userRepo.findOneBy({ id });
+      if (!user) {
+        res.status(404).json({ success: false, message: '用户不存在' });
+        return;
+      }
+      if (user.role === 'root' || user.username === 'root') {
+        res.status(400).json({ success: false, message: '不能修改 root 账户' });
+        return;
+      }
+      user.status = 'active';
+      if (user.role === 'guest') {
+        user.role = 'user';
+      }
+      await userRepo.save(user);
+      res.json({ success: true, user: { id: user.id, username: user.username, role: user.role, status: user.status } });
+    } catch (err) {
+      console.error('admin approve user error:', err);
+      res.status(500).json({ success: false, message: '审核用户失败' });
+    }
+  },
+);
+
 /** 删除用户 */
 router.delete(
   '/users/:id',
+  rootOnly,
   async (
     req: AuthenticatedRequest,
     res: import('express').Response,
@@ -127,12 +177,9 @@ router.delete(
         return;
       }
 
-      if (user.role === 'admin') {
-        const adminCount = await userRepo.count({ where: { role: 'admin' } });
-        if (adminCount <= 1) {
-          res.status(400).json({ success: false, message: '不能删除唯一的管理员' });
-          return;
-        }
+      if (user.role === 'root' || user.username === 'root') {
+        res.status(400).json({ success: false, message: '不能删除 root 账户' });
+        return;
       }
 
       await userRepo.remove(user);
@@ -178,6 +225,7 @@ router.get(
             hasPassword: !!room.password,
             viewerCount,
             sharerOnline: !!sharer,
+            ownerUserId: room.ownerUserId,
             lastAccessedAt: room.lastAccessedAt.toISOString(),
             createdAt: room.createdAt.toISOString(),
             updatedAt: room.updatedAt.toISOString(),
@@ -193,7 +241,7 @@ router.get(
   },
 );
 
-/** 强制关闭房间 */
+/** 强制关闭房间（root 可删除任意房间；admin 只能删除自己创建的房间） */
 router.delete(
   '/rooms/:roomId',
   async (
@@ -215,12 +263,15 @@ router.delete(
         return;
       }
 
-      await roomRepo.update({ roomId }, { status: 'closed' });
-      await sessionRepository().update(
-        { roomId, endedAt: IsNull() },
-        { endedAt: new Date() },
-      );
+      if (
+        req.user?.role !== 'root' &&
+        !(req.user?.role === 'admin' && room.ownerUserId === req.user?.userId)
+      ) {
+        res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可关闭该房间' });
+        return;
+      }
 
+      await deleteRoomAndRelations(roomId);
       res.json({ success: true });
     } catch (err) {
       console.error('admin close room error:', err);
@@ -229,9 +280,10 @@ router.delete(
   },
 );
 
-/** 批量删除房间 */
+/** 批量删除房间（仅 root） */
 router.post(
   '/rooms/batch-delete',
+  rootOnly,
   async (
     req: AuthenticatedRequest,
     res: import('express').Response,
@@ -265,9 +317,10 @@ router.post(
   },
 );
 
-/** 删除所有房间 */
+/** 删除所有房间（仅 root） */
 router.post(
   '/rooms/delete-all',
+  rootOnly,
   async (
     _req: AuthenticatedRequest,
     res: import('express').Response,
@@ -294,11 +347,11 @@ router.post(
   },
 );
 
-/** 一键清理当前无人使用的房间 */
+/** 一键清理当前无人使用的房间（root 可全部清理；admin 只能清理自己创建的房间） */
 router.post(
   '/rooms/cleanup-unused',
   async (
-    _req: AuthenticatedRequest,
+    req: AuthenticatedRequest,
     res: import('express').Response,
   ): Promise<void> => {
     try {
@@ -308,6 +361,10 @@ router.post(
 
       let count = 0;
       for (const room of rooms) {
+        const isOwner = room.ownerUserId === req.user?.userId;
+        if (req.user?.role !== 'root' && !(req.user?.role === 'admin' && isOwner)) {
+          continue;
+        }
         const activeSessions = await sessionRepo.count({
           where: [
             { roomId: room.roomId, role: 'sharer', endedAt: IsNull() },

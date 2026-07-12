@@ -1,62 +1,107 @@
 # ZViewer
 
-一个基于 WebRTC 的浏览器远程控制 / 屏幕共享平台。
+多人同步追番、观影与远程共享平台。
 
 ## 项目简介
 
-ZViewer 允许分享端创建一个房间，观看端申请加入并经分享端同意后，通过 WebRTC 建立 P2P 连接，实现低延迟的远程观看与控制。项目包含独立的前后端服务：
+ZViewer 是一款面向番剧与视频爱好者的一体化观影工具：
+
+- **一起看房间**：创建或加入房间，与好友同步观看番剧、电影与视频，实时收发评论与弹幕。
+- **屏幕共享 / 远程共享**：分享端可共享屏幕或视频画面，观看端经授权后低延迟观看。
+- **多源番剧解析**：支持 Bilibili、ani-subs 订阅源、Kazumi 规则源等多种番剧获取方式。
+- **实时互动**：评论、弹幕、播放状态同步、房主控制、弹幕轨道实时列表。
+- **GitHub CDN 加速**：内置 `https://github.cdn.zero251.xyz/` 加速代理，更快拉取订阅与规则。
+- **一键更新**：自动检测 GitHub 仓库变更，通过 CDN 拉取最新版本并更新。
+
+项目包含独立的前后端服务：
 
 - **frontend**：Vite + React + TypeScript 构建的 Web 界面。
-- **backend**：Node.js + TypeScript + Express + Socket.IO 负责房间管理、信令转发与数据库持久化。
+- **backend**：Node.js + TypeScript + Express + Socket.IO 负责房间管理、信令、番剧解析与数据库持久化。
 
 ## 技术栈
 
-- 前端：React 18、TypeScript、Vite、Socket.IO Client、Zustand、Ant Design
+- 前端：React 18、TypeScript、Vite、Socket.IO Client、Zustand、Tailwind CSS
 - 后端：Node.js、Express、Socket.IO、TypeORM、better-sqlite3
-- 部署：Docker、Docker Compose、Nginx、Let's Encrypt
+- 部署：Docker、Docker Compose、Nginx
 
 ## 默认管理员
 
-系统首次启动时会自动创建默认管理员账号：
+系统首次启动时会自动创建默认超级管理员账号：
 
 - **用户名**：`root`
 - **密码**：`root`
 
-> 生产环境部署后，请尽快登录并修改默认管理员密码。
+> 生产环境部署后，请尽快登录并修改默认 root 密码。
 
-## 登录与权限
+## 权限与注册制度
 
-- **普通用户**：可自行注册，注册后仅拥有观看权限，不能创建房间。
-- **管理员**：拥有创建房间、管理用户等完整权限。
-- 分享端创建房间后，观看端需申请加入，经分享端同意后方可建立 WebRTC 连接。
+系统采用四层权限模型：
 
-## 帧率 / 码率 / 音频
+| 角色 | 说明 | 权限 |
+|---|---|---|
+| `root`（超级管理员） | 唯一用户名 `root`，不可被其他账户授予 | 可创建/控制/删除任意房间，可绕过房间密码，可审核用户、修改任意用户角色、删除任意用户 |
+| `admin`（管理员） | 由 root 授予 | 可创建房间并完全控制自己创建的房间（新增/删除影片、修改房间名称），但**不能**删除他人房间 |
+| `user`（普通用户） | 注册并审核通过后获得 | 可加入房间观看、发送评论与弹幕，无法创建房间或管理影片 |
+| `guest`（游客） | 未登录时的默认身份 | 可加入房间观看、发送评论与弹幕，无法创建房间；注册后进入待审核状态 |
 
-分享端支持灵活的媒体配置：
+### 注册审核
 
-- **帧率**：支持 `30 / 60 / 90 / 120 / 144 / 240` fps，可根据网络与场景选择。
-- **最大码率**：支持自定义最大码率（Mbps），平衡画质与带宽占用。
-- **音频**：支持共享**系统音频**与**麦克风**，可单独开启或关闭。
+- 新用户注册后，角色为 `guest`，状态为 `pending`（待审核）。
+- 待审核用户无法创建房间，登录时会提示“账号正在审核中”。
+- 只有 root 可以在「权限管理」页面审核通过用户，审核后自动升级为 `user`。
 
-## IPv6
+### 房间权限
 
-后端默认监听 `::`，同时支持 IPv4 与 IPv6 双栈访问。Docker 部署时无需额外配置即可通过 IPv6 访问。
+- 任何人（含游客）均可加入允许进入的房间，发送评论与弹幕。
+- 仅 root 和房间创建者（admin）可管理房间影片、修改房间名称、关闭房间。
+- root 可进入任意房间（包括有密码的房间）并接管控制权。
 
-## P2P 直连
+## 番剧与视频源
 
-除房间模式外，系统还提供**直连模式**：
+ZViewer 支持多种视频来源：
 
-- 双方通过手动**复制 / 粘贴 SDP 直连码**完成 P2P 协商。
-- 同一局域网内可直接建立 P2P 连接，无需经过服务器中转。
-- 适用于无公网服务器或临时点对点使用的场景。
+- **Bilibili**：解析 BV 号或视频链接，支持 DASH 音视频合并播放。
+- **ani-subs 订阅**：通过自定义 JSON 订阅源聚合 web-selector 与 RSS 番剧资源。
+- **Kazumi 规则**：导入 Kazumi 插件规则，使用 XPath/CSS 选择器解析第三方站点。
+- **直链 / 本地**：支持 MP4、WebDAV、FTP、SMB、OpenList 等直链播放。
 
-## 评论 / 弹幕 / 批注
+在「权限管理 → 基础设置」中可在线浏览 GitHub 仓库并快速导入 ani-subs / Kazumi 源地址。
 
-观看端与分享端支持丰富的实时互动：
+## GitHub CDN 加速
 
-- **评论**：观看端可发送文字评论，所有在线人员实时可见。
-- **弹幕**：评论可一键投送为弹幕，以滚动形式在视频画面上展示。
-- **批注**：观看端可在视频画面上直接绘制批注，分享端实时同步显示。
+内置 CDN 代理 `https://github.cdn.zero251.xyz/`，使用时直接在后面跟上仓库/文件路径即可：
+
+```
+https://github.cdn.zero251.xyz/Zero-wyc/ZViewer/main/README.md
+```
+
+ani-subs 订阅、Kazumi 规则、一键更新等功能均已默认通过该 CDN 加速访问。
+
+## 一键更新
+
+在「权限管理 → 基础设置 → 版本更新」中：
+
+1. 点击「检查更新」获取 GitHub 仓库 `https://github.com/Zero-wyc/ZViewer` 最新提交。
+2. 若发现新版本，点击「一键更新」即可通过 CDN 拉取最新代码并自动替换、重启服务。
+
+> 更新功能需要服务具备写入当前目录的权限，生产环境建议提前备份数据。
+
+## Windows 一键启动
+
+项目根目录提供 `start-prod.bat`，双击即可一键启动生产环境前后端服务：
+
+```bat
+start-prod.bat
+```
+
+脚本会自动：
+
+1. 检查 Node.js 环境。
+2. 安装根目录、前端、后端依赖。
+3. 构建前端与后端。
+4. 以后台方式启动后端 API 与前端生产预览服务。
+
+关闭时再次运行脚本或手动结束相关 Node 进程。
 
 ## 本地开发
 
@@ -141,7 +186,7 @@ sudo install -m 0755 -d /etc/apt/keyrings
 curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /etc/apt/keyrings/docker.gpg
 sudo chmod a+r /etc/apt/keyrings/docker.gpg
 
-echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/sources.list.d/docker.list > /dev/null
 
 sudo apt update
 sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
@@ -153,7 +198,7 @@ sudo apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin d
 
 ```bash
 cd ~
-git clone https://your-repo.git ZViewer
+git clone https://github.com/Zero-wyc/ZViewer.git ZViewer
 cd ZViewer
 ```
 
@@ -308,3 +353,11 @@ Docker 部署时 SQLite 数据库位于 `/app/data/dev.sqlite`，并通过 `back
 docker volume ls
 docker inspect zcontrol_backend-data
 ```
+
+### Bilibili 解析失败
+
+Bilibili 视频解析依赖登录态与 WBI 签名。如遇解析失败：
+
+- 检查后端是否正确携带 Referer 等请求头。
+- 封面与视频地址通过后端代理获取，避免 CORS 与防盗链问题。
+- 大会员专享内容会提示“无权限播放，可能需要大会员”。

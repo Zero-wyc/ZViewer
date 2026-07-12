@@ -77,13 +77,10 @@ export function useP2PTunnel({
     remotePeerIdRef.current = remotePeerId ?? null
   }, [remotePeerId])
 
-  const updateStatus = useCallback(
-    (next: P2PStatus, didFallback = false) => {
-      setP2pStatus(next)
-      onStatusChangeRef.current?.(next, didFallback)
-    },
-    []
-  )
+  const updateStatus = useCallback((next: P2PStatus, didFallback = false) => {
+    setP2pStatus(next)
+    onStatusChangeRef.current?.(next, didFallback)
+  }, [])
 
   const clearIceTimeout = useCallback(() => {
     if (iceTimeoutRef.current) {
@@ -139,9 +136,7 @@ export function useP2PTunnel({
   useEffect(() => {
     if (!socket) return
 
-    const handleSignalOffer = async (
-      envelope: SignalEnvelope<unknown>
-    ) => {
+    const handleSignalOffer = async (envelope: SignalEnvelope<unknown>) => {
       if (!isP2PSignal(envelope.data) || !envelope.data.sdp) return
       if (role !== 'receiver') return
       remotePeerIdRef.current = envelope.from
@@ -149,7 +144,10 @@ export function useP2PTunnel({
       const pc = pcRef.current
       if (!pc) {
         // PC 尚未创建：缓存 offer，等 enableP2P 后处理
-        pendingOfferRef.current = { from: envelope.from, sdp: envelope.data.sdp }
+        pendingOfferRef.current = {
+          from: envelope.from,
+          sdp: envelope.data.sdp,
+        }
         return
       }
 
@@ -177,9 +175,7 @@ export function useP2PTunnel({
       }
     }
 
-    const handleSignalAnswer = async (
-      envelope: SignalEnvelope<unknown>
-    ) => {
+    const handleSignalAnswer = async (envelope: SignalEnvelope<unknown>) => {
       if (!isP2PSignal(envelope.data) || !envelope.data.sdp) return
       if (role !== 'sender') return
 
@@ -205,9 +201,7 @@ export function useP2PTunnel({
       const pc = pcRef.current
       if (!pc) return
       try {
-        await pc.addIceCandidate(
-          new RTCIceCandidate(envelope.data.candidate)
-        )
+        await pc.addIceCandidate(new RTCIceCandidate(envelope.data.candidate))
       } catch (err) {
         console.warn('[useP2PTunnel] add ice candidate error:', err)
       }
@@ -231,9 +225,7 @@ export function useP2PTunnel({
       pendingOfferRef.current = null
       try {
         if (pc.signalingState === 'stable') {
-          await pc.setRemoteDescription(
-            new RTCSessionDescription(pending.sdp)
-          )
+          await pc.setRemoteDescription(new RTCSessionDescription(pending.sdp))
           const answer = await pc.createAnswer()
           await pc.setLocalDescription(answer)
           socket.emit('signal-answer', {

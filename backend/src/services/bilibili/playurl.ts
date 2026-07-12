@@ -3,6 +3,8 @@ import { getWbiKeys, signParams, clearWbiKeyCache } from './wbi';
 
 export interface DashMediaTrack {
   baseUrl: string;
+  /** B站 返回的备用播放地址列表。 */
+  backupUrl?: string[];
   bandwidth: number;
   codecs: string;
   id: number;
@@ -34,7 +36,11 @@ export interface BilibiliPlayUrlResult {
 }
 
 interface RawDashMedia {
-  baseUrl: string;
+  baseUrl?: string;
+  base_url?: string;
+  /** B站 通常会返回备用播放地址，可能指向不同 CDN。 */
+  backupUrl?: string[];
+  backup_url?: string[];
   id: number;
   codecs: string;
   bandwidth: number;
@@ -58,6 +64,8 @@ interface RawPlayUrlData {
 export interface GetPlayUrlOptions {
   qn?: number;
   fnval?: number;
+  /** 优先返回 URL 中包含该字符串的 CDN 轨道。 */
+  preferCdn?: string;
 }
 
 export class NoPermissionError extends Error {
@@ -68,7 +76,9 @@ export class NoPermissionError extends Error {
 }
 
 const DEFAULT_QN = 127;
-const DEFAULT_FNVAL = 4048;
+// 仅请求 DASH + 4K，不开启 AV1/HEVC/HDR/杜比等高级格式，
+// 确保返回的轨道能被绝大多数浏览器原生解码。
+const DEFAULT_FNVAL = 80;
 const DEFAULT_FOURK = 1;
 
 /** B站 清晰度 qn -> 标签/分辨率兜底映射。 */
@@ -102,9 +112,70 @@ function sortByBandwidthDesc<T extends { bandwidth: number }>(tracks?: T[]): T[]
   return [...tracks].sort((a, b) => b.bandwidth - a.bandwidth);
 }
 
+/**
+ * 对 DASH 轨道按 preferred CDN 排序：URL 包含 preferCdn 的轨道排在前面。
+ * 没有任何匹配时保持原有排序。
+ */
+function sortTracksByPreferredCdn<T extends { baseUrl: string }>(
+  tracks: T[] | undefined,
+  preferCdn: string,
+): T[] {
+  if (!tracks || tracks.length === 0) return [];
+  const lower = preferCdn.toLowerCase();
+  const preferred: T[] = [];
+  const others: T[] = [];
+  for (const track of tracks) {
+    if (track.baseUrl.toLowerCase().includes(lower)) {
+      preferred.push(track);
+    } else {
+      others.push(track);
+    }
+  }
+  return preferred.length > 0 ? [...preferred, ...others] : tracks;
+}
+
+/**
+ * 判断 codec 是否为兼容性最好的 H.264 (avc)。
+ */
+function isAvcCodec(codecs?: string): boolean {
+  return typeof codecs === 'string' && /^avc\d/i.test(codecs.trim());
+}
+
+/**
+ * 对 DASH 轨道排序：优先保留 H.264 轨道并按带宽降序，
+ * 若没有 H.264 轨道则回退到原始排序。
+ */
+function sortDashTracks<T extends { bandwidth: number; codecs: string }>(
+  tracks?: T[],
+): T[] {
+  const sorted = sortByBandwidthDesc(tracks);
+  const avcTracks = sorted.filter((t) => isAvcCodec(t.codecs));
+  return avcTracks.length > 0 ? avcTracks : sorted;
+}
+
+/**
+ * 部分网络环境无法连接 B站 mcdn P2P CDN 的 8082 端口，
+ * 去掉该端口让请求走默认 443 端口，提升连通率。
+ */
+function rewriteMcdnPort(url: string): string {
+  try {
+    const parsed = new URL(url);
+    if (parsed.hostname.endsWith('.mcdn.bilivideo.cn') && parsed.port === '8082') {
+      parsed.port = '';
+      return parsed.toString();
+    }
+  } catch {
+    // 非法 URL 直接返回原值
+  }
+  return url;
+}
+
 function normalizeDashMedia(track: RawDashMedia): DashMediaTrack {
+  const baseUrl = track.baseUrl ?? track.base_url ?? '';
+  const backupUrls = track.backupUrl ?? track.backup_url;
   return {
-    baseUrl: track.baseUrl,
+    baseUrl: rewriteMcdnPort(baseUrl),
+    backupUrl: backupUrls?.map(rewriteMcdnPort),
     bandwidth: track.bandwidth,
     codecs: track.codecs,
     id: track.id,
@@ -154,7 +225,7 @@ function normalizePlayUrlData(
   );
 
   if (data.dash?.video?.length) {
-    const video = sortByBandwidthDesc(data.dash.video.map(normalizeDashMedia));
+    const video = sortDashTracks(data.dash.video.map(normalizeDashMedia));
     const audio = sortByBandwidthDesc(data.dash.audio?.map(normalizeDashMedia));
     return {
       format: 'dash',
@@ -212,7 +283,14 @@ async function getPlayUrlWbi(
     { cookie },
   );
 
-  return normalizePlayUrlData(res.data, options?.qn ?? DEFAULT_QN);
+  const result = normalizePlayUrlData(res.data, options?.qn ?? DEFAULT_QN);
+  if (result && options?.preferCdn) {
+    result.video = sortTracksByPreferredCdn(result.video, options.preferCdn);
+    result.audio = sortTracksByPreferredCdn(result.audio, options.preferCdn);
+    result.bestVideo = result.video?.[0];
+    result.bestAudio = result.audio?.[0];
+  }
+  return result;
 }
 
 /**
@@ -238,7 +316,14 @@ async function getPlayUrlLegacy(
     { cookie },
   );
 
-  return normalizePlayUrlData(res.data, options?.qn ?? DEFAULT_QN);
+  const result = normalizePlayUrlData(res.data, options?.qn ?? DEFAULT_QN);
+  if (result && options?.preferCdn) {
+    result.video = sortTracksByPreferredCdn(result.video, options.preferCdn);
+    result.audio = sortTracksByPreferredCdn(result.audio, options.preferCdn);
+    result.bestVideo = result.video?.[0];
+    result.bestAudio = result.audio?.[0];
+  }
+  return result;
 }
 
 function isPermissionError(err: unknown): boolean {

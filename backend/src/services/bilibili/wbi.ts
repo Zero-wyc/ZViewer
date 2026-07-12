@@ -20,8 +20,8 @@ interface WbiKeyPair {
 
 /** 按 Cookie 缓存 WBI 密钥，避免登录态与匿名态混用。 */
 const cachedKeys = new Map<string, WbiKeyPair>();
-/** 密钥有效期 12 小时，B站 nav 接口返回的密钥相对稳定。 */
-const KEY_TTL_SECONDS = 12 * 60 * 60;
+/** 密钥有效期 30 分钟，缓存缺失或签名校验失败时会自动刷新。 */
+const KEY_TTL_SECONDS = 30 * 60;
 
 function getCookieCacheKey(cookie?: string): string {
   if (!cookie) return 'anonymous';
@@ -90,19 +90,10 @@ export function signParams(
 }
 
 /**
- * 从 B站 web nav 接口获取 WBI 图片地址，并提取/缓存 imgKey、subKey。
- * 缓存按 Cookie 隔离，避免匿名请求与登录请求使用同一套 WBI key。
+ * 从 B站 web nav 接口获取 WBI 图片地址，并提取 imgKey、subKey。
+ * 本函数直接请求接口，不处理缓存；调用方应通过 getWbiKeys 使用 30 分钟内存缓存。
  */
 export async function fetchWbiKeys(cookie?: string): Promise<WbiKeyPair> {
-  const cacheKey = getCookieCacheKey(cookie);
-  const cached = cachedKeys.get(cacheKey);
-  if (cached) {
-    const now = Math.floor(Date.now() / 1000);
-    if (now - cached.fetchedAt < KEY_TTL_SECONDS) {
-      return cached;
-    }
-  }
-
   interface NavData {
     wbi_img?: {
       img_url: string;
@@ -129,21 +120,30 @@ export async function fetchWbiKeys(cookie?: string): Promise<WbiKeyPair> {
     throw new Error('无法从 WBI 图片 URL 中提取 key');
   }
 
-  const pair: WbiKeyPair = {
+  return {
     imgKey,
     subKey,
     fetchedAt: Math.floor(Date.now() / 1000),
   };
-  cachedKeys.set(cacheKey, pair);
-
-  return pair;
 }
 
 /**
- * 获取当前缓存的 WBI key，未缓存时自动拉取。
+ * 获取当前缓存的 WBI key，未缓存或缓存过期时自动拉取。
+ * 提供 30 分钟内存缓存，按 Cookie 隔离；签名校验失败时可通过 clearWbiKeyCache
+ * 清除缓存，下次调用将自动刷新密钥。
  */
 export async function getWbiKeys(cookie?: string): Promise<{ imgKey: string; subKey: string }> {
+  const cacheKey = getCookieCacheKey(cookie);
+  const cached = cachedKeys.get(cacheKey);
+  if (cached) {
+    const now = Math.floor(Date.now() / 1000);
+    if (now - cached.fetchedAt < KEY_TTL_SECONDS) {
+      return { imgKey: cached.imgKey, subKey: cached.subKey };
+    }
+  }
+
   const pair = await fetchWbiKeys(cookie);
+  cachedKeys.set(cacheKey, pair);
   return { imgKey: pair.imgKey, subKey: pair.subKey };
 }
 

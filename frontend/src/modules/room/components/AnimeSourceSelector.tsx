@@ -38,7 +38,9 @@ export function AnimeSourceSelector({
   const [selectedSource, setSelectedSource] = useState('')
   const [keyword, setKeyword] = useState('')
   const [searchResults, setSearchResults] = useState<AnimeSearchResult[]>([])
-  const [episodesMap, setEpisodesMap] = useState<Record<string, AnimeEpisode[]>>({})
+  const [episodesMap, setEpisodesMap] = useState<
+    Record<string, AnimeEpisode[]>
+  >({})
   const [expandedId, setExpandedId] = useState<string | null>(null)
   const [loadingSources, setLoadingSources] = useState(false)
   const [searching, setSearching] = useState(false)
@@ -106,10 +108,7 @@ export function AnimeSourceSelector({
 
       setLoadingEpisodes(true)
       try {
-        const episodes = await getAnimeEpisodes(
-          result.source,
-          result.id
-        )
+        const episodes = await getAnimeEpisodes(result.source, result.id)
         setEpisodesMap((prev) => ({ ...prev, [result.id]: episodes }))
       } catch (err) {
         console.error('[AnimeSourceSelector] load episodes error:', err)
@@ -194,9 +193,14 @@ export function AnimeSourceSelector({
 
         <div className="mb-3 flex items-center justify-between">
           <Text type="secondary" className="text-xs">
-            {searchResults.length > 0 ? `共 ${searchResults.length} 条结果` : '输入关键词开始搜索'}
+            {searchResults.length > 0
+              ? `共 ${searchResults.length} 条结果`
+              : '输入关键词开始搜索'}
           </Text>
-          <div className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5" style={{ borderColor: 'var(--md-sys-color-outline)' }}>
+          <div
+            className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+            style={{ borderColor: 'var(--md-sys-color-outline)' }}
+          >
             <button
               type="button"
               onClick={() => {
@@ -205,8 +209,14 @@ export function AnimeSourceSelector({
               }}
               className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
               style={{
-                backgroundColor: viewMode === 'list' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                color: viewMode === 'list' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                backgroundColor:
+                  viewMode === 'list'
+                    ? 'var(--md-sys-color-primary-container)'
+                    : 'transparent',
+                color:
+                  viewMode === 'list'
+                    ? 'var(--md-sys-color-on-primary-container)'
+                    : 'var(--md-sys-color-on-surface)',
               }}
               aria-label="列表视图"
               title="列表视图"
@@ -222,8 +232,14 @@ export function AnimeSourceSelector({
               }}
               className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
               style={{
-                backgroundColor: viewMode === 'tile' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                color: viewMode === 'tile' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                backgroundColor:
+                  viewMode === 'tile'
+                    ? 'var(--md-sys-color-primary-container)'
+                    : 'transparent',
+                color:
+                  viewMode === 'tile'
+                    ? 'var(--md-sys-color-on-primary-container)'
+                    : 'var(--md-sys-color-on-surface)',
               }}
               aria-label="平铺视图"
               title="平铺视图"
@@ -270,22 +286,31 @@ export function AnimeSourceSelector({
                       alt={result.title}
                       className={cn(
                         'flex-shrink-0 rounded-md object-cover',
-                        viewMode === 'tile' ? 'aspect-[3/4] w-full' : 'h-[120px] w-[90px]'
+                        viewMode === 'tile'
+                          ? 'aspect-[3/4] w-full'
+                          : 'h-[120px] w-[90px]'
                       )}
                     />
                   ) : (
                     <div
                       className={cn(
                         'flex flex-shrink-0 items-center justify-center rounded-md',
-                        viewMode === 'tile' ? 'aspect-[3/4] w-full' : 'h-[120px] w-[90px]'
+                        viewMode === 'tile'
+                          ? 'aspect-[3/4] w-full'
+                          : 'h-[120px] w-[90px]'
                       )}
                       style={{
-                        backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                        backgroundColor:
+                          'var(--md-sys-color-surface-container-high)',
                       }}
                     >
                       <Tv
-                        className={viewMode === 'tile' ? 'h-10 w-10' : 'h-8 w-8'}
-                        style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                        className={
+                          viewMode === 'tile' ? 'h-10 w-10' : 'h-8 w-8'
+                        }
+                        style={{
+                          color: 'var(--md-sys-color-on-surface-variant)',
+                        }}
                       />
                     </div>
                   )}
@@ -304,7 +329,9 @@ export function AnimeSourceSelector({
                         type="secondary"
                         className={cn(
                           'm-0 text-xs',
-                          viewMode === 'tile' ? 'mt-1 line-clamp-2' : 'mt-1 line-clamp-2'
+                          viewMode === 'tile'
+                            ? 'mt-1 line-clamp-2'
+                            : 'mt-1 line-clamp-2'
                         )}
                         title={result.description}
                       >
@@ -338,14 +365,17 @@ export function AnimeSourceSelector({
                         <button
                           key={episode.id}
                           type="button"
-                          onClick={() => void handleSelectEpisode(result, episode)}
+                          onClick={() =>
+                            void handleSelectEpisode(result, episode)
+                          }
                           disabled={!!resolving}
                           className="flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] border border-transparent p-2 text-left transition-all hover:border-[var(--md-sys-color-primary)] hover:bg-[var(--md-sys-color-primary-container)] disabled:opacity-60"
                         >
                           <div
                             className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-xs font-medium"
                             style={{
-                              backgroundColor: 'var(--md-sys-color-primary-container)',
+                              backgroundColor:
+                                'var(--md-sys-color-primary-container)',
                               color: 'var(--md-sys-color-primary)',
                             }}
                           >
@@ -362,7 +392,9 @@ export function AnimeSourceSelector({
                           ) : (
                             <Play
                               className="h-3 w-3 flex-shrink-0"
-                              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                              style={{
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                              }}
                             />
                           )}
                         </button>

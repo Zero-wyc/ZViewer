@@ -57,7 +57,12 @@ export default function LoginPage() {
         success: boolean
         accessToken?: string
         refreshToken?: string
-        user?: { id: string; username: string; role: string }
+        user?: {
+          id: string
+          username: string
+          role: string
+          status?: 'active' | 'pending'
+        }
         message?: string
       }
 
@@ -65,7 +70,8 @@ export default function LoginPage() {
         login(data.accessToken, data.refreshToken, {
           id: data.user.id,
           username: data.user.username,
-          role: data.user.role as 'admin' | 'user' | 'guest',
+          role: data.user.role as import('@/store/authStore').UserRole,
+          status: data.user.status,
         })
         message.success(isLogin ? '登录成功' : '注册成功')
         navigate(from || '/', { replace: true })
@@ -101,7 +107,7 @@ export default function LoginPage() {
           <Paragraph type="secondary" className="m-0 mt-2">
             {isLogin
               ? '管理员账号可创建共享房间'
-              : '普通用户可加入房间观看，无法创建房间'}
+              : '注册后需 root 审核通过，方可成为普通用户'}
           </Paragraph>
         </div>
 

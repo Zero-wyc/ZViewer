@@ -27,7 +27,6 @@ export interface DanmakuStyleState {
   filters: DanmakuTypeFilters
   scaleWithScreen: boolean
   avoidSubtitle: boolean
-  avoidCollision: boolean
   displayArea: number
   opacity: number
   fontSize: number
@@ -44,7 +43,6 @@ export const DEFAULT_DANMAKU_STYLE: DanmakuStyleState = {
   },
   scaleWithScreen: true,
   avoidSubtitle: false,
-  avoidCollision: true,
   displayArea: 0.75,
   opacity: 1,
   fontSize: 25,

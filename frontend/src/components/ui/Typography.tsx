@@ -22,7 +22,11 @@ export function Title({
 
   return (
     <Tag
-      className={cn('text-[var(--md-sys-color-on-surface)]', sizes[level], className)}
+      className={cn(
+        'text-[var(--md-sys-color-on-surface)]',
+        sizes[level],
+        className
+      )}
       {...props}
     >
       {children}

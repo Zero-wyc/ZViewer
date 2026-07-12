@@ -24,8 +24,7 @@ export function Tag({
       'bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)] border-[var(--md-sys-color-tertiary)]',
     danger:
       'bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)] border-[var(--md-sys-color-error)]',
-    cyan:
-      'text-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]',
+    cyan: 'text-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]',
     purple:
       'text-[var(--md-sys-color-tertiary)] border-[var(--md-sys-color-tertiary)]',
   }

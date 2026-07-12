@@ -27,6 +27,7 @@ export interface BilibiliDanmakuItem {
   mode: number
   color: number
   size: number
+  sendTime?: number
 }
 
 export async function fetchBilibiliDanmaku(
@@ -228,7 +229,14 @@ export class DanmakuEngineAdapter {
     if (isBlocked(text, mode, this.blockKeywords, this.blockModes)) return
     if (
       isBlockedByType(
-        { id: '', content: text, time: 0, mode, color: options?.color ?? 0xffffff, size: options?.size ?? 25 },
+        {
+          id: '',
+          content: text,
+          time: 0,
+          mode,
+          color: options?.color ?? 0xffffff,
+          size: options?.size ?? 25,
+        },
         this.filters
       )
     )
@@ -355,12 +363,26 @@ export class DanmakuEngineAdapter {
     const speed = this.baseSpeed * Math.max(0.25, Math.min(3, factor))
     if (this.danmaku) {
       ;(this.danmaku as unknown as { speed: number }).speed = speed
+      // 速度变更后清空已渲染弹幕，使当前时间轴重新以新速度发射，
+      // 避免旧速度弹幕继续残留导致用户感知不到调节效果。
+      this.danmaku.clear()
+      this.emitted.clear()
     }
   }
 
   setStyle(options: DanmakuStyleOptions): void {
+    let shouldRefresh = false
     if (typeof options.fontSize === 'number' && options.fontSize > 0) {
-      this.baseFontSize = options.fontSize
+      if (this.baseFontSize !== options.fontSize) {
+        this.baseFontSize = options.fontSize
+        shouldRefresh = true
+      }
+    }
+    if (typeof options.scaleWithScreen === 'boolean') {
+      if (this.scaleWithScreen !== options.scaleWithScreen) {
+        this.scaleWithScreen = options.scaleWithScreen
+        shouldRefresh = true
+      }
     }
     if (Array.isArray(options.blockKeywords)) {
       this.blockKeywords = options.blockKeywords.filter(
@@ -376,8 +398,12 @@ export class DanmakuEngineAdapter {
     if (options.advanced) {
       this.advanced = { ...this.advanced, ...options.advanced }
     }
-    if (typeof options.scaleWithScreen === 'boolean') {
-      this.scaleWithScreen = options.scaleWithScreen
+
+    if (shouldRefresh && this.danmaku) {
+      // 字号/屏幕缩放变更后清空已渲染弹幕，
+      // 让当前时间窗口的弹幕立即以新样式重新出现。
+      this.danmaku.clear()
+      this.emitted.clear()
     }
   }
 

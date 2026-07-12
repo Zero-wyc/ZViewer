@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useParams, useSearchParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
 import { useSocket } from '@/hooks/useSocket'
@@ -9,23 +9,25 @@ import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import { CommentPanel } from '@/components/CommentPanel'
+import { ConnectionStatsPanel } from '@/components/ConnectionStatsPanel'
 import { SharePage, WatchPage } from '@/modules/room/screen-sharing'
 
-// 房间模式类型扩展：包含 bili-compat（store 的 RoomMode 类型暂未更新，本地扩展）
-type RoomMode = 'screen-share' | 'watch-together' | 'bili-compat'
+import type { RoomMode } from '@/store/roomStore'
 
 function RoomPage() {
   const { roomId } = useParams<{ roomId?: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const role = searchParams.get('role')
   const modeParam = searchParams.get('mode') as RoomMode | null
-  const storeMode = useRoomStore((state) => state.mode) as RoomMode
+  const storeMode = useRoomStore((state) => state.mode)
   const setMode = useRoomStore((state) => state.setMode)
   const setRoomId = useRoomStore((state) => state.setRoomId)
   const setRoomName = useRoomStore((state) => state.setRoomName)
   const modeSyncedRef = useRef(false)
   const prevStoreModeRef = useRef(storeMode)
   const { socket } = useSocket()
+  const [hostPeerConnection, setHostPeerConnection] =
+    useState<RTCPeerConnection | null>(null)
 
   // 将 URL 中的房间号同步到 store，确保刷新或直接访问房间链接时
   // MoviePushPanel 等依赖 store.roomId 的组件能正常工作。
@@ -39,8 +41,7 @@ function RoomPage() {
   // 同步完成后以 store/socket 实时状态为准，确保模式切换后 UI 正确跟随。
   useEffect(() => {
     if (modeParam) {
-      // store.setMode 类型暂未包含 bili-compat，此处类型断言为兼容字段
-      setMode(modeParam as 'screen-share' | 'watch-together')
+      setMode(modeParam)
     }
     modeSyncedRef.current = true
   }, [modeParam, setMode])
@@ -81,7 +82,7 @@ function RoomPage() {
           // 刷新后 roomStore 已重置为默认值，若 URL 未携带 mode，
           // 则使用后端返回的房间真实模式，避免默认回退到 screen-share。
           if (response.mode && !modeParam) {
-            setMode(response.mode as 'screen-share' | 'watch-together')
+            setMode(response.mode)
             const next = new URLSearchParams(searchParams)
             next.set('mode', response.mode)
             setSearchParams(next, { replace: true })
@@ -127,15 +128,27 @@ function RoomPage() {
     return <RoomPanel />
   }
 
-  // 房主：使用 RoomLayout，根据模式渲染对应播放器；
-  // bili-compat 模式由 RoomLayout 内部直接渲染 BiliCompatPlayer，mainContent 传 null
+  // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (role === 'host') {
     const mainContent =
       mode === 'watch-together' ? (
         <WatchTogetherPanel roomId={roomId} isHost />
-      ) : mode === 'screen-share' ? (
-        <SharePage />
-      ) : null
+      ) : (
+        <SharePage
+          onStatsPeerConnectionChange={setHostPeerConnection}
+        />
+      )
+
+    const controls =
+      mode === 'screen-share' ? (
+        <ConnectionStatsPanel pc={hostPeerConnection} mode="server" />
+      ) : (
+        <>
+          <RoomInfoPanel roomId={roomId} isHost />
+          <MovieListPanel isHost />
+          <MoviePushPanel isHost />
+        </>
+      )
 
     return (
       <RoomLayout
@@ -143,19 +156,8 @@ function RoomPage() {
         isHost
         mainContent={mainContent}
         rightPanel={<CommentPanel socket={socket} roomId={roomId} />}
-        controls={
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <div className="glass-card min-w-0 overflow-hidden p-4">
-              <RoomInfoPanel roomId={roomId} isHost />
-            </div>
-            <div className="glass-card min-w-0 overflow-hidden p-4">
-              <MovieListPanel isHost />
-            </div>
-            <div className="glass-card min-w-0 overflow-hidden p-4">
-              <MoviePushPanel isHost />
-            </div>
-          </div>
-        }
+        peerConnection={hostPeerConnection}
+        controls={controls}
       />
     )
   }

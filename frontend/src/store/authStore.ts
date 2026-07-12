@@ -1,10 +1,13 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 
+export type UserRole = 'root' | 'admin' | 'user' | 'guest'
+
 export interface User {
   id: string
   username: string
-  role: 'admin' | 'user' | 'guest'
+  role: UserRole
+  status?: 'active' | 'pending'
 }
 
 export type AutoLoginStatus = 'idle' | 'pending' | 'done'

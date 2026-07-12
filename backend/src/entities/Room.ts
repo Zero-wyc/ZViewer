@@ -10,7 +10,7 @@ import { Session } from './Session';
 import { Movie } from './Movie';
 
 export type RoomStatus = 'active' | 'closed';
-export type RoomMode = 'screen-share' | 'watch-together' | 'bili-compat';
+export type RoomMode = 'screen-share' | 'watch-together';
 
 @Entity()
 export class Room {
@@ -32,11 +32,14 @@ export class Room {
   @Column({ type: 'simple-enum', enum: ['active', 'closed'], default: 'active' })
   status!: RoomStatus;
 
-  @Column({ type: 'simple-enum', enum: ['screen-share', 'watch-together', 'bili-compat'], default: 'screen-share' })
+  @Column({ type: 'simple-enum', enum: ['screen-share', 'watch-together'], default: 'screen-share' })
   mode!: RoomMode;
 
   @Column({ type: 'boolean', default: true })
   requireApproval!: boolean;
+
+  @Column({ type: 'integer', nullable: true })
+  ownerUserId!: number | null;
 
   @CreateDateColumn()
   createdAt!: Date;

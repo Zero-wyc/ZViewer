@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Activity, Cpu, Gauge, Layers, Radio, Signal, Waypoints } from 'lucide-react'
+import {
+  Activity,
+  Cpu,
+  Gauge,
+  Layers,
+  Radio,
+  Signal,
+  Waypoints,
+} from 'lucide-react'
 import { Switch } from '@/components/ui/Switch'
 import { Tag } from '@/components/ui/Tag'
 import { Text, Paragraph } from '@/components/ui/Typography'
@@ -147,7 +155,9 @@ function getP2PStatusLabel(status: P2PStatus): string {
   }
 }
 
-function getP2PStatusColor(status: P2PStatus): 'default' | 'primary' | 'success' | 'danger' {
+function getP2PStatusColor(
+  status: P2PStatus
+): 'default' | 'primary' | 'success' | 'danger' {
   switch (status) {
     case 'idle':
       return 'default'
@@ -221,7 +231,10 @@ export function SharingStatusPanel({
   // 接收房间内 P2P 模式广播：同步开关状态（房主以外的成员仅同步显示）
   useEffect(() => {
     if (!socket) return
-    const handleP2PModeChange = (data: { roomId: string; enabled: boolean }) => {
+    const handleP2PModeChange = (data: {
+      roomId: string
+      enabled: boolean
+    }) => {
       if (!roomId || data.roomId !== roomId) return
       if (data.enabled) {
         void enableP2P()
@@ -237,9 +250,7 @@ export function SharingStatusPanel({
 
   // 真正展示给统计面板的 PC：P2P 启用时切换为 p2pPC
   const displayPC = p2pTunnelEnabled ? p2pPC : pc
-  const displaySharingMode: SharingMode = p2pTunnelEnabled
-    ? 'p2p'
-    : sharingMode
+  const displaySharingMode: SharingMode = p2pTunnelEnabled ? 'p2p' : sharingMode
 
   // SharingStatusPanel 内部始终使用 server 模式（旧 ConnectionMode 用于 tag 展示），
   // 真正的共享模式由 sharingMode 字段表达
@@ -266,9 +277,7 @@ export function SharingStatusPanel({
   const switchChecked = p2pTunnelEnabled || p2pEnabledProp || false
 
   return (
-    <div
-      className="glass-card flex h-full w-full flex-col gap-3 rounded-2xl p-4"
-    >
+    <div className="glass-card flex h-full w-full flex-col gap-3 rounded-2xl p-4">
       {/* 标题栏 */}
       <div className="flex items-center gap-2">
         <span
@@ -280,9 +289,7 @@ export function SharingStatusPanel({
         >
           <Activity className="h-4 w-4" />
         </span>
-        <Paragraph className="m-0 text-sm font-semibold">
-          共享情况
-        </Paragraph>
+        <Paragraph className="m-0 text-sm font-semibold">共享情况</Paragraph>
       </div>
 
       {/* 状态标签 */}
@@ -319,13 +326,8 @@ export function SharingStatusPanel({
             style={{ color: 'var(--md-sys-color-secondary)' }}
           />
           <div className="leading-tight">
-            <Paragraph className="m-0 text-xs font-medium">
-              P2P 直连
-            </Paragraph>
-            <Text
-              type="secondary"
-              className="text-[10px] opacity-70"
-            >
+            <Paragraph className="m-0 text-xs font-medium">P2P 直连</Paragraph>
+            <Text type="secondary" className="text-[10px] opacity-70">
               {p2pTunnelEnabled
                 ? getP2PStatusLabel(p2pStatus)
                 : fallbackNotice

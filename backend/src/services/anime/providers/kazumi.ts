@@ -6,6 +6,7 @@ import {
 } from '../types';
 import { DOMParser } from '@xmldom/xmldom';
 import * as xpath from 'xpath';
+import { proxyGitHubUrl } from '../../../utils/githubCdn';
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -322,11 +323,12 @@ export function createKazumiProvider(
 }
 
 export async function fetchKazumiRule(url: string): Promise<KazumiRule> {
-  const res = await fetch(url, {
+  const proxiedUrl = proxyGitHubUrl(url);
+  const res = await fetch(proxiedUrl, {
     headers: { 'User-Agent': DEFAULT_USER_AGENT },
   });
   if (!res.ok) {
-    throw new Error(`获取规则失败 [${res.status}]: ${url}`);
+    throw new Error(`获取规则失败 [${res.status}]: ${proxiedUrl}`);
   }
   const data = (await res.json()) as KazumiRule;
   if (!data.name || !data.baseURL || !data.searchURL) {

@@ -163,8 +163,11 @@ export function VideoStatsMenu({
   const isWebRtc = sourceType === 'webrtc'
 
   // 复用现有 useConnectionStats，仅在 WebRTC 时启用
-  const { stats: connStats, formatBitrate, formatPacketLoss } =
-    useConnectionStats(isWebRtc ? pc ?? null : null, 'server')
+  const {
+    stats: connStats,
+    formatBitrate,
+    formatPacketLoss,
+  } = useConnectionStats(isWebRtc ? (pc ?? null) : null, 'server')
 
   // MSE 帧率采样
   const mseFramesRef = useRef<{ frames: number; time: number } | null>(null)
@@ -268,7 +271,15 @@ export function VideoStatsMenu({
       url,
       sourceLabel: SOURCE_LABELS[sourceType],
     }
-  }, [videoElement, pc, isWebRtc, sourceType, connStats, formatBitrate, formatPacketLoss])
+  }, [
+    videoElement,
+    pc,
+    isWebRtc,
+    sourceType,
+    connStats,
+    formatBitrate,
+    formatPacketLoss,
+  ])
 
   // 始终持有最新 computeStats 引用，避免频繁重建监听器
   const computeStatsRef = useRef(computeStats)
@@ -385,10 +396,14 @@ export function VideoStatsMenu({
       ),
       playbackQuality: videoElement.getVideoPlaybackQuality?.() ?? null,
       webkitVideoDecodedByteCount: (
-        videoElement as HTMLVideoElement & { webkitVideoDecodedByteCount?: number }
+        videoElement as HTMLVideoElement & {
+          webkitVideoDecodedByteCount?: number
+        }
       ).webkitVideoDecodedByteCount,
       webkitAudioDecodedByteCount: (
-        videoElement as HTMLVideoElement & { webkitAudioDecodedByteCount?: number }
+        videoElement as HTMLVideoElement & {
+          webkitAudioDecodedByteCount?: number
+        }
       ).webkitAudioDecodedByteCount,
       pc: pc
         ? {

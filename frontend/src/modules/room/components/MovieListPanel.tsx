@@ -33,7 +33,9 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
   const roomId = useRoomStore((state) => state.roomId)
   const removeMovie = useRoomStore((state) => state.removeMovie)
   const updateMovie = useRoomStore((state) => state.updateMovie)
-  const setPendingQualityChange = useRoomStore((state) => state.setPendingQualityChange)
+  const setPendingQualityChange = useRoomStore(
+    (state) => state.setPendingQualityChange
+  )
   const mode = useRoomStore((state) => state.mode)
   const [search, setSearch] = useState('')
   const [removingId, setRemovingId] = useState<number | null>(null)
@@ -178,21 +180,34 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
                   >
                     {movie.title}
                   </Paragraph>
-                  <Tag color="primary" className="mt-1 inline-flex min-w-0 max-w-full truncate">
+                  <Tag
+                    color="primary"
+                    className="mt-1 inline-flex min-w-0 max-w-full truncate"
+                  >
                     {SOURCE_LABELS[movie.sourceType] || movie.sourceType}
                   </Tag>
-                  {movie.sourceType === 'bilibili' && movie.acceptQuality && movie.acceptQuality.length > 0 && (
-                    <Select
-                      className="mt-1 [&_select]:h-7 [&_select]:py-0.5 [&_select]:pl-2 [&_select]:pr-1 [&_select]:text-xs"
-                      value={String(movie.currentQn ?? movie.acceptQuality[0]?.id)}
-                      options={movie.acceptQuality.map((q) => ({
-                        label: q.resolution ? `${q.label} · ${q.resolution}` : q.label,
-                        value: String(q.id),
-                      }))}
-                      disabled={!isHost || isScreenShare || qualityLoadingId === movie.id}
-                      onChange={(value) => handleQualityChange(movie, value)}
-                    />
-                  )}
+                  {movie.sourceType === 'bilibili' &&
+                    movie.acceptQuality &&
+                    movie.acceptQuality.length > 0 && (
+                      <Select
+                        className="mt-1 [&_select]:h-7 [&_select]:py-0.5 [&_select]:pl-2 [&_select]:pr-1 [&_select]:text-xs"
+                        value={String(
+                          movie.currentQn ?? movie.acceptQuality[0]?.id
+                        )}
+                        options={movie.acceptQuality.map((q) => ({
+                          label: q.resolution
+                            ? `${q.label} · ${q.resolution}`
+                            : q.label,
+                          value: String(q.id),
+                        }))}
+                        disabled={
+                          !isHost ||
+                          isScreenShare ||
+                          qualityLoadingId === movie.id
+                        }
+                        onChange={(value) => handleQualityChange(movie, value)}
+                      />
+                    )}
                 </div>
                 <Button
                   variant={isActive ? 'primary' : 'secondary'}

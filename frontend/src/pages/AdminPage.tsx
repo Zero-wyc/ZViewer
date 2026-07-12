@@ -8,11 +8,12 @@ import {
   Power,
   RefreshCw,
   Lock,
-  Unlock,
   LayoutDashboard,
   LayoutGrid,
   List,
   Settings,
+  Download,
+  UserCheck,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -23,6 +24,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { ConfirmModal } from '@/components/ui/Modal'
 import { Switch } from '@/components/ui/Switch'
 import { InputNumber } from '@/components/ui/InputNumber'
+import { Select } from '@/components/ui/Select'
 import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
@@ -30,7 +32,8 @@ import { useAuthStore } from '@/store/authStore'
 interface AdminUser {
   id: number
   username: string
-  role: 'admin' | 'user'
+  role: 'root' | 'admin' | 'user' | 'guest'
+  status: 'active' | 'pending'
   createdAt: string
 }
 
@@ -46,6 +49,15 @@ interface AdminRoom {
   sharerOnline: boolean
   createdAt: string
   lastAccessedAt: string
+}
+
+interface UpdateInfo {
+  currentVersion: string
+  remoteVersion: string
+  hasUpdate: boolean
+  commitMessage: string
+  commitUrl: string
+  publishedAt: string
 }
 
 interface AdminSettings {
@@ -84,6 +96,7 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [userDelete, setUserDelete] = useState<AdminUser | null>(null)
+  const [userApprove, setUserApprove] = useState<AdminUser | null>(null)
   const [roomClose, setRoomClose] = useState<AdminRoom | null>(null)
   const [cleanupConfirm, setCleanupConfirm] = useState(false)
   const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set())
@@ -95,6 +108,9 @@ export default function AdminPage() {
     const saved = localStorage.getItem('admin-rooms-view-mode')
     return saved === 'tile' ? 'tile' : 'list'
   })
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
+  const [updateLoading, setUpdateLoading] = useState(false)
+  const [applyLoading, setApplyLoading] = useState(false)
 
   const authHeaders = {
     Authorization: `Bearer ${accessToken}`,
@@ -178,18 +194,75 @@ export default function AdminPage() {
     }
   }
 
+  const checkUpdate = async () => {
+    setUpdateLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/system/update/check`, {
+        headers: authHeaders,
+      })
+      const data = (await res.json()) as {
+        success: boolean
+        info?: UpdateInfo
+        message?: string
+      }
+      if (data.success && data.info) {
+        setUpdateInfo(data.info)
+        if (data.info.hasUpdate) {
+          message.info('发现新版本')
+        } else {
+          message.success('当前已是最新版本')
+        }
+      } else {
+        message.error(data.message ?? '检查更新失败')
+      }
+    } catch (err) {
+      console.error('[AdminPage] check update error:', err)
+      message.error('检查更新失败')
+    } finally {
+      setUpdateLoading(false)
+    }
+  }
+
+  const handleApplyUpdate = async () => {
+    setApplyLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/system/update/apply`, {
+        method: 'POST',
+        headers: authHeaders,
+      })
+      const data = (await res.json()) as {
+        success: boolean
+        message?: string
+      }
+      if (data.success) {
+        message.success(data.message ?? '更新已触发')
+      } else {
+        message.error(data.message ?? '更新失败')
+      }
+    } catch (err) {
+      console.error('[AdminPage] apply update error:', err)
+      message.error('更新失败')
+    } finally {
+      setApplyLoading(false)
+    }
+  }
+
   useEffect(() => {
     if (!accessToken) return
     if (activeTab === 'settings') {
       void loadSettings()
+      void checkUpdate()
     } else {
       void loadData()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, accessToken])
 
-  const handleToggleRole = async (targetUser: AdminUser) => {
-    const nextRole = targetUser.role === 'admin' ? 'user' : 'admin'
+  const handleChangeRole = async (
+    targetUser: AdminUser,
+    nextRole: AdminUser['role']
+  ) => {
+    if (targetUser.role === nextRole) return
     try {
       const res = await fetch(
         `${API_URL}/api/admin/users/${targetUser.id}/role`,
@@ -201,16 +274,46 @@ export default function AdminPage() {
       )
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
+        const roleLabelMap: Record<AdminUser['role'], string> = {
+          root: '超级管理员',
+          admin: '管理员',
+          user: '普通用户',
+          guest: '游客',
+        }
         message.success(
-          `已将 ${targetUser.username} 设为 ${nextRole === 'admin' ? '管理员' : '普通用户'}`
+          `已将 ${targetUser.username} 设为 ${roleLabelMap[nextRole]}`
         )
         await fetchUsers()
       } else {
         message.error(data.message ?? '操作失败')
       }
     } catch (err) {
-      console.error('[AdminPage] toggle role error:', err)
+      console.error('[AdminPage] change role error:', err)
       message.error('修改角色失败')
+    }
+  }
+
+  const handleApproveUser = async () => {
+    if (!userApprove) return
+    try {
+      const res = await fetch(
+        `${API_URL}/api/admin/users/${userApprove.id}/approve`,
+        {
+          method: 'POST',
+          headers: authHeaders,
+        }
+      )
+      const data = (await res.json()) as { success: boolean; message?: string }
+      if (data.success) {
+        message.success('已审核通过该用户')
+        setUserApprove(null)
+        await fetchUsers()
+      } else {
+        message.error(data.message ?? '审核失败')
+      }
+    } catch (err) {
+      console.error('[AdminPage] approve user error:', err)
+      message.error('审核用户失败')
     }
   }
 
@@ -483,7 +586,10 @@ export default function AdminPage() {
             <Space>
               {activeTab === 'rooms' && (
                 <>
-                  <div className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5" style={{ borderColor: 'var(--md-sys-color-outline)' }}>
+                  <div
+                    className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+                    style={{ borderColor: 'var(--md-sys-color-outline)' }}
+                  >
                     <button
                       type="button"
                       onClick={() => {
@@ -492,8 +598,14 @@ export default function AdminPage() {
                       }}
                       className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
                       style={{
-                        backgroundColor: roomViewMode === 'list' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                        color: roomViewMode === 'list' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                        backgroundColor:
+                          roomViewMode === 'list'
+                            ? 'var(--md-sys-color-primary-container)'
+                            : 'transparent',
+                        color:
+                          roomViewMode === 'list'
+                            ? 'var(--md-sys-color-on-primary-container)'
+                            : 'var(--md-sys-color-on-surface)',
                       }}
                       aria-label="列表视图"
                       title="列表视图"
@@ -509,8 +621,14 @@ export default function AdminPage() {
                       }}
                       className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
                       style={{
-                        backgroundColor: roomViewMode === 'tile' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                        color: roomViewMode === 'tile' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                        backgroundColor:
+                          roomViewMode === 'tile'
+                            ? 'var(--md-sys-color-primary-container)'
+                            : 'transparent',
+                        color:
+                          roomViewMode === 'tile'
+                            ? 'var(--md-sys-color-on-primary-container)'
+                            : 'var(--md-sys-color-on-surface)',
                       }}
                       aria-label="平铺视图"
                       title="平铺视图"
@@ -574,63 +692,111 @@ export default function AdminPage() {
                 <Text type="secondary">暂无用户</Text>
               </div>
             ) : (
-              users.map((u) => (
-                <div
-                  key={u.id}
-                  className="flex flex-col gap-3 rounded-[var(--md-sys-shape-corner)] border p-4 transition-colors sm:flex-row sm:items-center sm:justify-between"
-                  style={{
-                    borderColor: 'var(--md-sys-color-outline)',
-                    backgroundColor:
-                      'var(--md-sys-color-surface-container-high)',
-                  }}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-2">
-                      <span className="truncate font-medium text-[var(--md-sys-color-on-surface)]">
-                        {u.username}
-                      </span>
-                      {u.role === 'admin' ? (
-                        <Tag color="primary">
-                          <Shield className="mr-1 inline h-3 w-3" />
-                          管理员
+              users.map((u) => {
+                const isRootUser = u.role === 'root' || u.username === 'root'
+                const roleLabelMap: Record<AdminUser['role'], string> = {
+                  root: '超级管理员',
+                  admin: '管理员',
+                  user: '普通用户',
+                  guest: '游客',
+                }
+                const roleColorMap: Record<
+                  AdminUser['role'],
+                  | 'default'
+                  | 'primary'
+                  | 'success'
+                  | 'warning'
+                  | 'danger'
+                  | 'cyan'
+                  | 'purple'
+                > = {
+                  root: 'primary',
+                  admin: 'cyan',
+                  user: 'default',
+                  guest: 'default',
+                }
+                return (
+                  <div
+                    key={u.id}
+                    className="flex flex-col gap-3 rounded-[var(--md-sys-shape-corner)] border p-4 transition-colors sm:flex-row sm:items-center sm:justify-between"
+                    style={{
+                      borderColor: 'var(--md-sys-color-outline)',
+                      backgroundColor:
+                        'var(--md-sys-color-surface-container-high)',
+                    }}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="truncate font-medium text-[var(--md-sys-color-on-surface)]">
+                          {u.username}
+                        </span>
+                        <Tag color={roleColorMap[u.role]}>
+                          {u.role === 'root' || u.role === 'admin' ? (
+                            <Shield className="mr-1 inline h-3 w-3" />
+                          ) : null}
+                          {roleLabelMap[u.role]}
                         </Tag>
-                      ) : (
-                        <Tag color="default">普通用户</Tag>
-                      )}
-                    </div>
-                    <Text type="secondary" className="text-xs">
-                      创建于 {formatDate(u.createdAt)}
-                    </Text>
-                  </div>
-                  <Space className="shrink-0">
-                    <Button
-                      variant="secondary"
-                      size="sm"
-                      icon={
-                        u.role === 'admin' ? (
-                          <Unlock className="h-4 w-4" />
+                        {u.status === 'pending' ? (
+                          <Tag color="warning">待审核</Tag>
                         ) : (
-                          <Shield className="h-4 w-4" />
-                        )
-                      }
-                      onClick={() => handleToggleRole(u)}
-                      disabled={isSelf(u)}
-                      title={isSelf(u) ? '不能修改自己的角色' : undefined}
-                    >
-                      {u.role === 'admin' ? '降级为用户' : '设为管理员'}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      icon={<Trash2 className="h-4 w-4" />}
-                      onClick={() => setUserDelete(u)}
-                      disabled={isSelf(u)}
-                    >
-                      删除
-                    </Button>
-                  </Space>
-                </div>
-              ))
+                          <Tag color="success">正常</Tag>
+                        )}
+                      </div>
+                      <Text type="secondary" className="text-xs">
+                        创建于 {formatDate(u.createdAt)}
+                      </Text>
+                    </div>
+                    <Space className="shrink-0">
+                      {u.status === 'pending' && (
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={<UserCheck className="h-4 w-4" />}
+                          onClick={() => setUserApprove(u)}
+                          disabled={isRootUser}
+                        >
+                          审核
+                        </Button>
+                      )}
+                      {isRootUser ? (
+                        <div
+                          className="flex w-32 items-center justify-center rounded-[var(--md-sys-shape-corner)] border px-3 py-2 text-sm"
+                          style={{
+                            borderColor: 'var(--md-sys-color-outline)',
+                            backgroundColor:
+                              'var(--md-sys-color-surface-container-highest)',
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          超级管理员
+                        </div>
+                      ) : (
+                        <Select
+                          className="w-32"
+                          value={u.role}
+                          disabled={isSelf(u)}
+                          options={[
+                            { label: '管理员', value: 'admin' },
+                            { label: '普通用户', value: 'user' },
+                          ]}
+                          onChange={(value) =>
+                            handleChangeRole(u, value as AdminUser['role'])
+                          }
+                        />
+                      )}
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        icon={<Trash2 className="h-4 w-4" />}
+                        onClick={() => setUserDelete(u)}
+                        disabled={isRootUser || isSelf(u)}
+                      >
+                        删除
+                      </Button>
+                    </Space>
+                  </div>
+                )
+              })
             )}
           </div>
         ) : activeTab === 'rooms' ? (
@@ -655,7 +821,8 @@ export default function AdminPage() {
                   }
                   style={{
                     borderColor: 'var(--md-sys-color-outline)',
-                    backgroundColor: 'var(--md-sys-color-surface-container-low)',
+                    backgroundColor:
+                      'var(--md-sys-color-surface-container-low)',
                   }}
                 >
                   <input
@@ -667,9 +834,7 @@ export default function AdminPage() {
                     }
                     onChange={(e) => {
                       if (e.target.checked) {
-                        setSelectedRoomIds(
-                          new Set(rooms.map((r) => r.roomId))
-                        )
+                        setSelectedRoomIds(new Set(rooms.map((r) => r.roomId)))
                       } else {
                         setSelectedRoomIds(new Set())
                       }
@@ -764,15 +929,20 @@ export default function AdminPage() {
                           {room.sharerOnline ? '在线' : '离线'}
                           {roomViewMode === 'tile' ? <br /> : ' · '}创建于{' '}
                           {formatDate(room.createdAt)}
-                          {roomViewMode === 'tile' ? <br /> : ' · '}最后访问{' '}
-                          {formatDate(room.lastAccessedAt)}
+                          {roomViewMode === 'tile' ? (
+                            <br />
+                          ) : (
+                            ' · '
+                          )}最后访问 {formatDate(room.lastAccessedAt)}
                         </Text>
                       </div>
                     </div>
                     <Button
                       variant="danger"
                       size="sm"
-                      className={roomViewMode === 'tile' ? 'mt-auto w-full' : ''}
+                      className={
+                        roomViewMode === 'tile' ? 'mt-auto w-full' : ''
+                      }
                       icon={<Power className="h-4 w-4" />}
                       onClick={(e) => {
                         e.stopPropagation()
@@ -867,14 +1037,17 @@ export default function AdminPage() {
 
                 <div className="mb-6">
                   <AniSubsGithubBrowser
-                    existingUrls={settings.dataSourceConfig?.aniSubsSubscriptions || []}
+                    existingUrls={
+                      settings.dataSourceConfig?.aniSubsSubscriptions || []
+                    }
                     onAddUrls={(urls) =>
                       setSettings((prev) => ({
                         ...prev,
                         dataSourceConfig: {
                           ...prev.dataSourceConfig,
                           aniSubsSubscriptions: [
-                            ...(prev.dataSourceConfig?.aniSubsSubscriptions || []),
+                            ...(prev.dataSourceConfig?.aniSubsSubscriptions ||
+                              []),
                             ...urls,
                           ],
                         },
@@ -894,9 +1067,9 @@ export default function AdminPage() {
                     rows={4}
                     className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
                     placeholder="https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/DM84.json"
-                    value={(
-                      settings.dataSourceConfig?.kazumiRules || []
-                    ).join('\n')}
+                    value={(settings.dataSourceConfig?.kazumiRules || []).join(
+                      '\n'
+                    )}
                     onChange={(e) =>
                       setSettings((prev) => ({
                         ...prev,
@@ -911,7 +1084,8 @@ export default function AdminPage() {
                     }
                   />
                   <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    修改后保存即可自动加载 Kazumi XPath 规则源；规则中 useWebview 的源可能无法直接解析播放
+                    修改后保存即可自动加载 Kazumi XPath 规则源；规则中
+                    useWebview 的源可能无法直接解析播放
                   </p>
                 </div>
 
@@ -933,6 +1107,97 @@ export default function AdminPage() {
                       }))
                     }
                   />
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  版本更新
+                </Title>
+                <div
+                  className="mb-6 rounded-[var(--md-sys-shape-corner)] border p-4"
+                  style={{
+                    borderColor: 'var(--md-sys-color-outline)',
+                    backgroundColor: 'var(--md-sys-color-surface-container)',
+                  }}
+                >
+                  {updateLoading ? (
+                    <div className="py-4">
+                      <Spinner tip="检查更新中..." size={24} />
+                    </div>
+                  ) : updateInfo ? (
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Text className="text-sm">
+                          当前版本：
+                          <span className="font-mono text-[var(--md-sys-color-on-surface-variant)]">
+                            {updateInfo.currentVersion.slice(0, 7)}
+                          </span>
+                        </Text>
+                        <Text className="text-sm">
+                          远程版本：
+                          <span className="font-mono text-[var(--md-sys-color-on-surface-variant)]">
+                            {updateInfo.remoteVersion.slice(0, 7)}
+                          </span>
+                        </Text>
+                      </div>
+                      {updateInfo.publishedAt && (
+                        <Text type="secondary" className="text-xs">
+                          提交时间：
+                          {new Date(updateInfo.publishedAt).toLocaleString(
+                            'zh-CN'
+                          )}
+                        </Text>
+                      )}
+                      {updateInfo.commitMessage && (
+                        <Text className="text-xs leading-relaxed">
+                          {updateInfo.commitMessage.split('\n')[0]}
+                        </Text>
+                      )}
+                      <div className="flex items-center gap-2 pt-2">
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          icon={<Download className="h-4 w-4" />}
+                          onClick={handleApplyUpdate}
+                          loading={applyLoading}
+                          disabled={applyLoading || !updateInfo.hasUpdate}
+                        >
+                          {updateInfo.hasUpdate ? '一键更新' : '已是最新'}
+                        </Button>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={checkUpdate}
+                          disabled={updateLoading}
+                        >
+                          重新检测
+                        </Button>
+                        {updateInfo.commitUrl && (
+                          <a
+                            href={updateInfo.commitUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-xs text-[var(--md-sys-color-primary)] hover:underline"
+                          >
+                            查看提交
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between py-2">
+                      <Text type="secondary" className="text-sm">
+                        未获取版本信息
+                      </Text>
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={checkUpdate}
+                        disabled={updateLoading}
+                      >
+                        检查更新
+                      </Button>
+                    </div>
+                  )}
                 </div>
 
                 <Button
@@ -961,6 +1226,19 @@ export default function AdminPage() {
       >
         确定要删除用户 <strong>{userDelete?.username}</strong>{' '}
         吗？此操作不可撤销。
+      </ConfirmModal>
+
+      <ConfirmModal
+        open={!!userApprove}
+        onClose={() => setUserApprove(null)}
+        title="审核用户"
+        onOk={handleApproveUser}
+        onCancel={() => setUserApprove(null)}
+        okText="通过审核"
+        cancelText="取消"
+      >
+        确定通过 <strong>{userApprove?.username}</strong>{' '}
+        的注册申请吗？审核后该用户将变为普通用户并可正常使用。
       </ConfirmModal>
 
       <ConfirmModal

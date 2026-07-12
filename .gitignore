@@ -12,3 +12,5 @@ __pycache__/
 .next/
 coverage/
 .trae/
+.update-temp/
+apply-update.bat

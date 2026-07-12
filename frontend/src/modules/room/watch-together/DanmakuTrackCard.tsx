@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { Plus, Trash2, Film, Search } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -10,11 +10,8 @@ import { message } from '@/components/ui/message'
 import { fetchBilibiliDanmaku } from './danmakuEngine'
 import { DanmakuSearchModal, type DanmakuSource } from './DanmakuSearchModal'
 import { useDanmakuStore } from '@/store/danmakuStore'
-import { useRoomStore } from '@/store/roomStore'
-import { cn } from '@/lib/utils'
 
 const BV_REGEX = /^BV[0-9A-Za-z]{10}$/
-const WINDOW_SIZE = 5 // 秒
 
 const DANMAKU_SOURCE_OPTIONS = [
   { label: 'B站视频', value: 'bilibili' },
@@ -27,22 +24,6 @@ function isValidBvid(input: string): boolean {
   return BV_REGEX.test(input.trim())
 }
 
-function getDanmakuTypeLabel(
-  mode: number,
-  color: number
-): { label: string; variant: 'default' | 'primary' | 'warning' | 'success' } {
-  if (mode === 5) return { label: '顶部', variant: 'primary' }
-  if (mode === 4) return { label: '底部', variant: 'primary' }
-  if (color !== 16777215) return { label: '彩色', variant: 'warning' }
-  return { label: '滚动', variant: 'default' }
-}
-
-function formatTime(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = Math.floor(seconds % 60)
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-
 export function DanmakuTrackCard() {
   const tracks = useDanmakuStore((state) => state.tracks)
   const addTrack = useDanmakuStore((state) => state.addTrack)
@@ -53,49 +34,6 @@ export function DanmakuTrackCard() {
   const [loading, setLoading] = useState(false)
   const [searchOpen, setSearchOpen] = useState(false)
   const [danmakuSource, setDanmakuSource] = useState<DanmakuSource>('bilibili')
-
-  const currentTime = useRoomStore((state) => state.watchTogether.currentTime)
-  const realtimeListRef = useRef<HTMLDivElement>(null)
-
-  const realtimeDanmaku = useMemo(() => {
-    const list: {
-      id: string
-      content: string
-      time: number
-      actualTime: number
-      trackLabel: string
-      mode: number
-      color: number
-    }[] = []
-
-    tracks.forEach((track) => {
-      track.items.forEach((item) => {
-        const actualTime = item.time + track.offset
-        if (
-          actualTime >= currentTime - WINDOW_SIZE &&
-          actualTime <= currentTime + WINDOW_SIZE
-        ) {
-          list.push({
-            id: `${track.trackId}-${item.id}`,
-            content: item.content,
-            time: item.time,
-            actualTime,
-            trackLabel: track.label,
-            mode: item.mode ?? 1,
-            color: item.color ?? 16777215,
-          })
-        }
-      })
-    })
-
-    return list.sort((a, b) => a.actualTime - b.actualTime)
-  }, [tracks, currentTime])
-
-  useEffect(() => {
-    const el = realtimeListRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [realtimeDanmaku])
 
   const handleAdd = async () => {
     const bvid = input.trim()
@@ -226,71 +164,6 @@ export function DanmakuTrackCard() {
               </Text>
             </div>
           ))}
-        </div>
-      </div>
-
-      <div
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden rounded-[var(--md-sys-shape-corner)] border p-2"
-        style={{
-          backgroundColor: 'var(--md-sys-color-surface-container-high)',
-          borderColor: 'var(--md-sys-color-outline-variant)',
-        }}
-      >
-        <Text className="text-xs font-medium">实时弹幕</Text>
-        <div ref={realtimeListRef} className="flex-1 overflow-y-auto pr-1">
-          {realtimeDanmaku.length === 0 ? (
-            <Text type="secondary" className="text-center text-xs">
-              当前时段暂无弹幕
-            </Text>
-          ) : (
-            <Space direction="vertical" className="w-full" size="sm">
-              {realtimeDanmaku.map((item) => {
-                const type = getDanmakuTypeLabel(item.mode, item.color)
-                return (
-                  <div
-                    key={item.id}
-                    className="flex items-start gap-2 rounded-md border p-2"
-                    style={{
-                      backgroundColor: 'var(--md-sys-color-surface-container)',
-                      borderColor: 'var(--md-sys-color-outline-variant)',
-                    }}
-                  >
-                    <Text type="secondary" className="shrink-0 text-[10px]">
-                      {formatTime(item.actualTime)}
-                    </Text>
-                    <span
-                      className="shrink-0 rounded px-1 py-0.5 text-[10px]"
-                      style={{
-                        backgroundColor:
-                          'var(--md-sys-color-surface-container-highest)',
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      {item.trackLabel}
-                    </span>
-                    <Text className="flex-1 break-words text-xs">
-                      {item.content}
-                    </Text>
-                    <span
-                      className={cn(
-                        'shrink-0 rounded px-1 py-0.5 text-[10px]',
-                        type.variant === 'primary' &&
-                          'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]',
-                        type.variant === 'warning' &&
-                          'bg-[var(--md-sys-color-tertiary-container)] text-[var(--md-sys-color-on-tertiary-container)]',
-                        type.variant === 'success' &&
-                          'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]',
-                        type.variant === 'default' &&
-                          'bg-[var(--md-sys-color-surface-container-highest)] text-[var(--md-sys-color-on-surface-variant)]'
-                      )}
-                    >
-                      {type.label}
-                    </span>
-                  </div>
-                )
-              })}
-            </Space>
-          )}
         </div>
       </div>
 

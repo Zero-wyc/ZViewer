@@ -21,13 +21,14 @@ import { ConfirmModal } from '@/components/ui/Modal'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
-import { ConnectionStatsPanel } from '@/components/ConnectionStatsPanel'
 import { DanmakuLayer } from '@/components/DanmakuLayer'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 
 interface SharePageProps {
   className?: string
   style?: React.CSSProperties
+  /** 将当前用于统计的 RTCPeerConnection 提升给父组件 */
+  onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
 }
 
 interface SignalPayload<T> {
@@ -56,7 +57,11 @@ const FRAME_RATE_OPTIONS = [
   { label: '240 fps', value: 240 },
 ]
 
-function SharePage({ className, style }: SharePageProps) {
+function SharePage({
+  className,
+  style,
+  onStatsPeerConnectionChange,
+}: SharePageProps) {
   const { roomId } = useParams<{ roomId?: string }>()
   const navigate = useNavigate()
   const { socket, connected } = useSocket()
@@ -84,6 +89,9 @@ function SharePage({ className, style }: SharePageProps) {
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
   const readyViewerIdsRef = useRef<Set<string>>(new Set())
+  const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(
+    new Map()
+  )
 
   const updateConnectionCount = useCallback(() => {
     setConnectionCount(peerConnectionsRef.current.size)
@@ -98,6 +106,7 @@ function SharePage({ className, style }: SharePageProps) {
     })
     peerConnectionsRef.current.clear()
     readyViewerIdsRef.current.clear()
+    pendingIceCandidatesRef.current.clear()
     setStatsPeerConnection(null)
     updateConnectionCount()
   }, [updateConnectionCount])
@@ -122,7 +131,17 @@ function SharePage({ className, style }: SharePageProps) {
       }
 
       if (peerConnectionsRef.current.has(viewerSocketId)) {
-        return peerConnectionsRef.current.get(viewerSocketId) ?? null
+        const existing = peerConnectionsRef.current.get(viewerSocketId)
+        if (
+          existing &&
+          existing.connectionState !== 'closed' &&
+          existing.signalingState !== 'closed'
+        ) {
+          return existing
+        }
+        existing?.close()
+        peerConnectionsRef.current.delete(viewerSocketId)
+        pendingIceCandidatesRef.current.delete(viewerSocketId)
       }
 
       const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
@@ -190,16 +209,14 @@ function SharePage({ className, style }: SharePageProps) {
 
       // 避免在 signalingState 非 stable 时重复创建 offer
       if (pc.signalingState !== 'stable') {
-        console.log(
-          '[SharePage] skip offer, pc not stable:',
-          pc.signalingState
-        )
+        console.log('[SharePage] skip offer, pc not stable:', pc.signalingState)
         return
       }
 
       try {
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
+        console.log('[SharePage] sending offer to', viewerSocketId)
         socket.emit('signal-offer', {
           to: viewerSocketId,
           data: offer,
@@ -287,6 +304,11 @@ function SharePage({ className, style }: SharePageProps) {
       })
 
       // 为已加入且已就绪的观看者立即创建并发送 offer
+      console.log(
+        '[SharePage] stream ready, sending offers to',
+        readyViewerIdsRef.current.size,
+        'viewer(s)'
+      )
       readyViewerIdsRef.current.forEach((viewerSocketId) => {
         void createAndSendOffer(viewerSocketId)
       })
@@ -382,6 +404,19 @@ function SharePage({ className, style }: SharePageProps) {
       if (!pc) return
       try {
         await pc.setRemoteDescription(new RTCSessionDescription(data.data))
+        console.log('[SharePage] answer set, processing queued candidates')
+        const pending = pendingIceCandidatesRef.current.get(data.from) ?? []
+        pendingIceCandidatesRef.current.delete(data.from)
+        for (const candidate of pending) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          } catch (candidateErr) {
+            console.error(
+              '[SharePage] add queued ice candidate error:',
+              candidateErr
+            )
+          }
+        }
       } catch (err) {
         console.error('[SharePage] set remote description error:', err)
         message.error('处理远端应答失败')
@@ -394,6 +429,17 @@ function SharePage({ className, style }: SharePageProps) {
       const pc = peerConnectionsRef.current.get(data.from)
       if (!pc) return
       try {
+        if (!pc.remoteDescription) {
+          console.log(
+            '[SharePage] queuing ice candidate for',
+            data.from,
+            'until remote description is set'
+          )
+          const pending = pendingIceCandidatesRef.current.get(data.from) ?? []
+          pending.push(data.data)
+          pendingIceCandidatesRef.current.set(data.from, pending)
+          return
+        }
         await pc.addIceCandidate(new RTCIceCandidate(data.data))
       } catch (err) {
         console.error('[SharePage] add ice candidate error:', err)
@@ -450,13 +496,13 @@ function SharePage({ className, style }: SharePageProps) {
         peerConnectionsRef.current.delete(data.viewerSocketId)
         updateConnectionCount()
         const nextPc = peerConnectionsRef.current.values().next().value as
-          | RTCPeerConnection
-          | undefined
+          RTCPeerConnection | undefined
         setStatsPeerConnection((prev) =>
           prev === pc ? (nextPc ?? null) : prev
         )
       }
       readyViewerIdsRef.current.delete(data.viewerSocketId)
+      pendingIceCandidatesRef.current.delete(data.viewerSocketId)
       setViewerIds((prev) => prev.filter((id) => id !== data.viewerSocketId))
     }
 
@@ -497,9 +543,7 @@ function SharePage({ className, style }: SharePageProps) {
     video.srcObject = stream
     video
       .play()
-      .catch((err) =>
-        console.error('[SharePage] local video play error:', err)
-      )
+      .catch((err) => console.error('[SharePage] local video play error:', err))
   }, [localStreamState])
 
   useEffect(() => {
@@ -510,6 +554,10 @@ function SharePage({ className, style }: SharePageProps) {
     }
   }, [stopLocalStream, cleanupConnections])
 
+  useEffect(() => {
+    onStatsPeerConnectionChange?.(statsPeerConnection)
+  }, [statsPeerConnection, onStatsPeerConnectionChange])
+
   const handleCopy = () => {
     const url = `${window.location.origin}/room/${currentRoomId}`
     navigator.clipboard.writeText(url).then(() => {
@@ -518,7 +566,7 @@ function SharePage({ className, style }: SharePageProps) {
   }
 
   const mediaSettingsCard = (
-    <Card className="w-full max-w-md text-left">
+    <Card className="w-full max-w-md min-w-[280px] max-h-full !overflow-y-auto text-left">
       <Space direction="vertical" className="w-full" size="sm">
         <Space align="center" size="sm">
           <Settings2 className="h-4 w-4 text-[var(--md-sys-color-on-surface-variant)]" />
@@ -574,10 +622,7 @@ function SharePage({ className, style }: SharePageProps) {
   if (!currentRoomId) {
     return (
       <div
-        className={cn(
-          'flex h-full items-center justify-center p-6',
-          className
-        )}
+        className={cn('flex h-full items-center justify-center p-6', className)}
         style={style}
       >
         <Paragraph type="secondary">房间号不存在，请重新创建房间</Paragraph>
@@ -598,11 +643,7 @@ function SharePage({ className, style }: SharePageProps) {
             style={{ opacity: isPaused ? 0.6 : 1 }}
           />
           <DanmakuLayer socket={socket} />
-          <AnnotationLayer
-            socket={socket}
-            roomId={currentRoomId}
-            readOnly
-          />
+          <AnnotationLayer socket={socket} roomId={currentRoomId} readOnly />
           {isPaused && (
             <div className="absolute inset-0 flex items-center justify-center rounded-lg bg-black/60">
               <Paragraph className="m-0 text-white">
@@ -663,11 +704,10 @@ function SharePage({ className, style }: SharePageProps) {
                 在线观众：{viewerIds.length} / {connectionCount} 连接
               </Tag>
             </div>
-            <ConnectionStatsPanel pc={statsPeerConnection} mode="server" />
           </div>
         </>
       ) : (
-        <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+        <div className="flex h-full min-h-min flex-col items-center justify-start gap-4 overflow-y-auto p-6 text-center">
           <Paragraph type="secondary" className="m-0">
             房间号
           </Paragraph>

@@ -82,10 +82,7 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
             }}
           />
           <div
-            className={cn(
-              'absolute rounded-full',
-              isSm ? 'h-1' : 'h-1.5'
-            )}
+            className={cn('absolute rounded-full', isSm ? 'h-1' : 'h-1.5')}
             style={{
               width: `${percent}%`,
               backgroundColor: 'var(--md-sys-color-primary)',

@@ -8,27 +8,42 @@ import {
   LogOut,
   Tv,
   RefreshCw,
+  KeyRound,
+  AtSign,
+  Pencil,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { Input } from '@/components/ui/Input'
+import { Space } from '@/components/ui/Space'
 import { Avatar } from '@/components/ui/Avatar'
 import { Modal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
 import { Title, Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
-import { useAuthStore } from '@/store/authStore'
+import { useAuthStore, type User as AuthUser } from '@/store/authStore'
 import {
   getBilibiliQrCode,
   pollBilibiliQrCode,
   getBilibiliUserInfo,
   logoutBilibili,
+  buildBilibiliImageProxyUrl,
   type BilibiliUserInfo,
 } from '@/modules/room/watch-together/resolveSource'
 import MountManager from '@/modules/profile/MountManager'
 
+const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
+const API_URL = rawApiUrl || window.location.origin
+
 export default function ProfilePage() {
   const navigate = useNavigate()
-  const { user } = useAuthStore()
+  const { user, setUser, accessToken } = useAuthStore()
+
+  useEffect(() => {
+    if (user?.role === 'guest') {
+      navigate('/', { replace: true })
+    }
+  }, [user, navigate])
 
   const [bilibiliUser, setBilibiliUser] = useState<BilibiliUserInfo | null>(
     null
@@ -41,6 +56,15 @@ export default function ProfilePage() {
   const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isPollingRef = useRef(false)
   const qrRetryCountRef = useRef(0)
+
+  const [oldPassword, setOldPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmPassword, setConfirmPassword] = useState('')
+  const [passwordLoading, setPasswordLoading] = useState(false)
+
+  const [newUsername, setNewUsername] = useState('')
+  const [usernameLoading, setUsernameLoading] = useState(false)
+  const [editInfoModalOpen, setEditInfoModalOpen] = useState(false)
 
   const loadBilibiliUser = useCallback(async () => {
     const info = await getBilibiliUserInfo()
@@ -147,6 +171,91 @@ export default function ProfilePage() {
     }
   }, [])
 
+  const handleChangePassword = useCallback(async () => {
+    if (!oldPassword || !newPassword) {
+      message.warning('请填写原密码和新密码')
+      return
+    }
+    if (newPassword !== confirmPassword) {
+      message.error('两次输入的新密码不一致')
+      return
+    }
+    if (newPassword.length < 4) {
+      message.error('新密码至少 4 位')
+      return
+    }
+    setPasswordLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/auth/password`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ oldPassword, newPassword }),
+      })
+      const data = (await res.json()) as {
+        success: boolean
+        message?: string
+      }
+      if (data.success) {
+        message.success('密码修改成功')
+        setOldPassword('')
+        setNewPassword('')
+        setConfirmPassword('')
+      } else {
+        message.error(data.message ?? '修改失败')
+      }
+    } catch {
+      message.error('修改密码失败')
+    } finally {
+      setPasswordLoading(false)
+    }
+  }, [oldPassword, newPassword, confirmPassword, accessToken])
+
+  const openEditInfoModal = useCallback(() => {
+    setOldPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+    setNewUsername('')
+    setEditInfoModalOpen(true)
+  }, [])
+
+  const handleChangeUsername = useCallback(async () => {
+    const trimmed = newUsername.trim()
+    if (!trimmed) {
+      message.warning('请输入新用户名')
+      return
+    }
+    setUsernameLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/auth/username`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ username: trimmed }),
+      })
+      const data = (await res.json()) as {
+        success: boolean
+        message?: string
+        user?: AuthUser
+      }
+      if (data.success && data.user) {
+        message.success('用户名修改成功')
+        setUser(data.user)
+        setNewUsername('')
+      } else {
+        message.error(data.message ?? '修改失败')
+      }
+    } catch {
+      message.error('修改用户名失败')
+    } finally {
+      setUsernameLoading(false)
+    }
+  }, [newUsername, accessToken, setUser])
+
   useEffect(() => {
     return () => {
       stopQrPolling()
@@ -216,16 +325,26 @@ export default function ProfilePage() {
               <Text className="text-sm font-medium">ZViewer 账号</Text>
             </div>
             <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <Avatar size="md" alt={user.username} />
-                <div>
-                  <p className="text-base font-medium text-[var(--md-sys-color-on-surface)]">
-                    {user.username}
-                  </p>
-                  <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    用户 ID: {user.id}
-                  </p>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-3">
+                  <Avatar size="md" alt={user.username} />
+                  <div>
+                    <p className="text-base font-medium text-[var(--md-sys-color-on-surface)]">
+                      {user.username}
+                    </p>
+                    <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                      用户 ID: {user.id}
+                    </p>
+                  </div>
                 </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<Pencil className="h-4 w-4" />}
+                  onClick={openEditInfoModal}
+                >
+                  编辑信息
+                </Button>
               </div>
               <div
                 className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
@@ -284,7 +403,7 @@ export default function ProfilePage() {
                 <div className="flex items-center gap-3">
                   <Avatar
                     size="md"
-                    src={bilibiliUser.avatar}
+                    src={buildBilibiliImageProxyUrl(bilibiliUser.avatar)}
                     alt={bilibiliUser.name}
                   />
                   <div className="min-w-0 flex-1">
@@ -390,6 +509,100 @@ export default function ProfilePage() {
             <Button variant="primary" size="sm" onClick={handleOpenQrModal}>
               重新获取二维码
             </Button>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        open={editInfoModalOpen}
+        onClose={() => setEditInfoModalOpen(false)}
+        title="编辑账号信息"
+        footer={
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setEditInfoModalOpen(false)}
+          >
+            关闭
+          </Button>
+        }
+      >
+        <div className="flex w-[320px] flex-col gap-5 sm:w-[360px]">
+          <div>
+            <div className="mb-3 flex items-center gap-2">
+              <KeyRound className="h-4 w-4 text-[var(--md-sys-color-primary)]" />
+              <Text className="text-sm font-medium">修改密码</Text>
+            </div>
+            <Space direction="vertical" className="w-full" size="sm">
+              <Input
+                type="password"
+                size="sm"
+                placeholder="原密码"
+                value={oldPassword}
+                onChange={(e) => setOldPassword(e.target.value)}
+              />
+              <Input
+                type="password"
+                size="sm"
+                placeholder="新密码"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+              />
+              <Input
+                type="password"
+                size="sm"
+                placeholder="确认新密码"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    void handleChangePassword()
+                  }
+                }}
+              />
+              <Button
+                variant="primary"
+                size="sm"
+                loading={passwordLoading}
+                icon={<KeyRound className="h-4 w-4" />}
+                onClick={() => void handleChangePassword()}
+              >
+                修改密码
+              </Button>
+            </Space>
+          </div>
+
+          {user.role === 'root' && (
+            <div className="border-t border-[var(--md-sys-color-outline-variant)] pt-4">
+              <div className="mb-3 flex items-center gap-2">
+                <AtSign className="h-4 w-4 text-[var(--md-sys-color-primary)]" />
+                <Text className="text-sm font-medium">修改用户名</Text>
+              </div>
+              <Space direction="vertical" className="w-full" size="sm">
+                <Input
+                  size="sm"
+                  placeholder="新用户名"
+                  value={newUsername}
+                  onChange={(e) => setNewUsername(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void handleChangeUsername()
+                    }
+                  }}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  loading={usernameLoading}
+                  icon={<AtSign className="h-4 w-4" />}
+                  onClick={() => void handleChangeUsername()}
+                >
+                  修改用户名
+                </Button>
+              </Space>
+            </div>
           )}
         </div>
       </Modal>

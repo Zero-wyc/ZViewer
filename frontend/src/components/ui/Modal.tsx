@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './Button'
@@ -29,8 +30,13 @@ export function Modal({
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [open, onClose])
 
-  return open ? (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  if (!open) return null
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center p-4"
+      style={{ zIndex: 999 }}
+    >
       <div
         className="absolute inset-0 bg-black/40 backdrop-blur-sm"
         onClick={onClose}
@@ -42,7 +48,8 @@ export function Modal({
           className
         )}
         style={{
-          boxShadow: '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
+          boxShadow:
+            '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
         }}
       >
         <div className="flex items-start justify-between">
@@ -69,8 +76,9 @@ export function Modal({
           </div>
         )}
       </div>
-    </div>
-  ) : null
+    </div>,
+    document.body
+  )
 }
 
 export interface ConfirmModalProps extends Omit<ModalProps, 'footer'> {

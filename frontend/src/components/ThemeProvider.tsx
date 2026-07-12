@@ -1,6 +1,11 @@
 import { useEffect } from 'react'
-import { useThemeStore, radiusPresetToPx, RADIUS_PRESETS } from '@/store/themeStore'
+import {
+  useThemeStore,
+  radiusPresetToPx,
+  RADIUS_PRESETS,
+} from '@/store/themeStore'
 import { getThemeColors } from '@/lib/monet'
+import { DEFAULT_SEED } from '@/lib/themes'
 
 /**
  * 玻璃拟态相关变量名集合，用于在卸载时统一清理。
@@ -25,6 +30,14 @@ const RADIUS_VARS = [
 ]
 
 /**
+ * 校验字符串是否为合法 hex 颜色（支持 3/6/8 位，可带 # 前缀）。
+ */
+function isValidHexColor(color: string): boolean {
+  if (typeof color !== 'string') return false
+  return /^#?([0-9a-fA-F]{3}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(color.trim())
+}
+
+/**
  * 由玻璃强度计算边框不透明度，确保边框始终可见但不过于突兀。
  */
 function glassBorderAlpha(strength: number): number {
@@ -37,7 +50,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   // 根据当前种子色与深浅模式生成并应用 Material You CSS 变量
   useEffect(() => {
     const root = document.documentElement
-    const result = getThemeColors(sourceColor, isDark)
+    const safeSourceColor = isValidHexColor(sourceColor)
+      ? sourceColor
+      : DEFAULT_SEED
+    const result = getThemeColors(safeSourceColor, isDark)
     const colors = result?.exportedColors ?? {}
 
     Object.entries(colors).forEach(([key, value]) => {
@@ -48,7 +64,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const radiusPx = radiusPresetToPx(radius)
     root.style.setProperty('--md-sys-shape-corner', `${radiusPx}px`)
     RADIUS_PRESETS.forEach((preset) => {
-      root.style.setProperty(`--md-sys-radius-${preset.value}`, `${preset.px}px`)
+      root.style.setProperty(
+        `--md-sys-radius-${preset.value}`,
+        `${preset.px}px`
+      )
     })
     root.style.setProperty('--glass-strength', String(glassStrength))
     root.style.setProperty('--glass-blur', '12px')
@@ -61,7 +80,10 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     )
 
     const glassStrongStrength = Math.min(0.95, glassStrength + 0.25)
-    root.style.setProperty('--glass-strong-strength', String(glassStrongStrength))
+    root.style.setProperty(
+      '--glass-strong-strength',
+      String(glassStrongStrength)
+    )
 
     // 同步 .dark 类到 html 元素
     if (isDark) {

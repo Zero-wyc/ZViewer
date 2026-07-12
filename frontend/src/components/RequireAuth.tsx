@@ -1,12 +1,17 @@
 import { Navigate, useLocation } from 'react-router-dom'
-import { useAuthStore } from '@/store/authStore'
+import { useAuthStore, type UserRole } from '@/store/authStore'
 
 interface RequireAuthProps {
   children: React.ReactNode
   adminOnly?: boolean
+  forbiddenRoles?: UserRole[]
 }
 
-export function RequireAuth({ children, adminOnly = false }: RequireAuthProps) {
+export function RequireAuth({
+  children,
+  adminOnly = false,
+  forbiddenRoles,
+}: RequireAuthProps) {
   const { isAuthenticated, user, autoLoginStatus } = useAuthStore()
   const location = useLocation()
 
@@ -18,7 +23,11 @@ export function RequireAuth({ children, adminOnly = false }: RequireAuthProps) {
     return <Navigate to="/login" state={{ from: location }} replace />
   }
 
-  if (adminOnly && user?.role !== 'admin') {
+  if (adminOnly && user?.role !== 'root' && user?.role !== 'admin') {
+    return <Navigate to="/" state={{ from: location }} replace />
+  }
+
+  if (forbiddenRoles && user?.role && forbiddenRoles.includes(user.role)) {
     return <Navigate to="/" state={{ from: location }} replace />
   }
 

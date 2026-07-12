@@ -12,7 +12,7 @@ import { IsNull, LessThan } from 'typeorm';
 import { AppDataSource } from './data-source';
 import { Room } from './entities/Room';
 import { Session } from './entities/Session';
-import { User } from './entities/User';
+import { User, type UserRole } from './entities/User';
 import { Comment } from './entities/Comment';
 import { SystemSettings } from './entities/SystemSettings';
 import { Movie as MovieEntity } from './entities/Movie';
@@ -22,6 +22,7 @@ import streamRoutes from './routes/stream';
 import danmakuRoutes from './routes/danmaku';
 import animeSourcesRoutes from './routes/animeSources';
 import userMountsRoutes from './routes/userMounts';
+import updaterRoutes from './routes/updater';
 import { createRoomsRouter } from './routes/rooms';
 import { verifyAccessToken } from './middleware/auth';
 
@@ -52,24 +53,9 @@ interface Movie {
   createdAt: number;
 }
 
-interface BiliCompatState {
-  currentTime: number;
-  paused: boolean;
-  url: string;
-  bvid: string | null;
-  lastUpdate: number;
-}
-
-interface BiliCompatViewerState {
-  currentTime: number;
-  lastUpdate: number;
-}
-
 interface RoomRuntimeState {
   movies: Movie[];
   currentMovieId: string | null;
-  biliCompatState?: BiliCompatState;
-  biliCompatViewerStates?: Map<string, BiliCompatViewerState>;
 }
 
 const roomStates = new Map<string, RoomRuntimeState>();
@@ -78,13 +64,6 @@ const roomStates = new Map<string, RoomRuntimeState>();
 const HOST_RECONNECT_GRACE_MS = 10_000;
 const hostReconnectTimers = new Map<string, NodeJS.Timeout>();
 
-// B站兼容模式：5 秒周期同步检查 + 3 秒偏差阈值
-const BILI_COMPAT_SYNC_INTERVAL_MS = 5_000;
-const BILI_COMPAT_DRIFT_THRESHOLD_SEC = 3;
-// 观众状态超过此时间未上报，则不计入同步检查
-const BILI_COMPAT_VIEWER_STALE_MS = 15_000;
-const biliCompatSyncTimers = new Map<string, NodeJS.Timeout>();
-
 function getRoomState(roomId: string): RoomRuntimeState {
   if (!roomStates.has(roomId)) {
     roomStates.set(roomId, { movies: [], currentMovieId: null });
@@ -92,58 +71,7 @@ function getRoomState(roomId: string): RoomRuntimeState {
   return roomStates.get(roomId)!;
 }
 
-function stopBiliCompatSyncTimer(roomId: string) {
-  const timer = biliCompatSyncTimers.get(roomId);
-  if (timer) {
-    clearInterval(timer);
-    biliCompatSyncTimers.delete(roomId);
-  }
-}
-
-function startBiliCompatSyncTimer(io: SocketIOServer, roomId: string) {
-  stopBiliCompatSyncTimer(roomId);
-  const timer = setInterval(() => {
-    void checkBiliCompatSync(io, roomId);
-  }, BILI_COMPAT_SYNC_INTERVAL_MS);
-  biliCompatSyncTimers.set(roomId, timer);
-}
-
-function checkBiliCompatSync(io: SocketIOServer, roomId: string) {
-  const state = roomStates.get(roomId);
-  if (!state?.biliCompatState) return;
-  const hostState = state.biliCompatState;
-  const viewers = state.biliCompatViewerStates;
-  if (!viewers || viewers.size === 0) return;
-
-  const now = Date.now();
-  const elapsedSec = hostState.paused
-    ? 0
-    : (now - hostState.lastUpdate) / 1000;
-  const expectedHostTime = hostState.currentTime + elapsedSec;
-
-  for (const [socketId, viewerState] of viewers) {
-    if (now - viewerState.lastUpdate > BILI_COMPAT_VIEWER_STALE_MS) continue;
-    const drift = Math.abs(viewerState.currentTime - expectedHostTime);
-    if (drift > BILI_COMPAT_DRIFT_THRESHOLD_SEC) {
-      io.to(socketId).emit('bili-compat-seek', {
-        currentTime: expectedHostTime,
-        paused: hostState.paused,
-      });
-    }
-  }
-}
-
-function clearBiliCompatState(roomId: string) {
-  stopBiliCompatSyncTimer(roomId);
-  const state = roomStates.get(roomId);
-  if (state) {
-    state.biliCompatState = undefined;
-    state.biliCompatViewerStates = undefined;
-  }
-}
-
 function deleteRoomState(roomId: string) {
-  stopBiliCompatSyncTimer(roomId);
   roomStates.delete(roomId);
 }
 
@@ -265,10 +193,17 @@ async function seedRootAdmin() {
     const root = userRepo.create({
       username: 'root',
       passwordHash: bcrypt.hashSync('root', 10),
-      role: 'admin',
+      role: 'root',
+      status: 'active',
     });
     await userRepo.save(root);
-    console.log('Default admin user created: root / root');
+    console.log('Default root user created: root / root');
+  } else if (existing.role !== 'root') {
+    // 迁移旧版管理员为 root
+    existing.role = 'root';
+    existing.status = 'active';
+    await userRepo.save(existing);
+    console.log('Existing root user role migrated to root');
   }
 }
 
@@ -325,6 +260,7 @@ async function bootstrap() {
   app.use('/api/stream/anime', animeSourcesRoutes);
   app.use('/api/stream', streamRoutes);
   app.use('/api/users/mounts', userMountsRoutes);
+  app.use('/api/system/update', updaterRoutes);
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
@@ -371,11 +307,13 @@ async function bootstrap() {
     socket.on(
       'create-room',
       async (
-        payload: { name?: string; password?: string; maxViewers?: number; requireApproval?: boolean; mode?: 'screen-share' | 'watch-together' | 'bili-compat' },
-        callback: (response: { success: boolean; roomId?: string; mode?: 'screen-share' | 'watch-together' | 'bili-compat'; message?: string }) => void,
+        payload: { name?: string; password?: string; maxViewers?: number; requireApproval?: boolean; mode?: 'screen-share' | 'watch-together' },
+        callback: (response: { success: boolean; roomId?: string; mode?: 'screen-share' | 'watch-together'; message?: string }) => void,
       ) => {
         try {
-          if (socket.data.role !== 'admin') {
+          const userId: number = socket.data.userId;
+          const role: UserRole = socket.data.role;
+          if (role !== 'root' && role !== 'admin') {
             return callback({ success: false, message: '无权限：仅管理员可创建房间' });
           }
 
@@ -391,6 +329,7 @@ async function bootstrap() {
             status: 'active',
             mode: payload.mode ?? 'screen-share',
             requireApproval: payload.requireApproval ?? true,
+            ownerUserId: userId || null,
           });
           await roomRepo.save(room);
           await roomRepo.update({ roomId }, { lastAccessedAt: new Date() });
@@ -415,10 +354,12 @@ async function bootstrap() {
       'register-host',
       async (
         payload: { roomId: string },
-        callback: (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together' | 'bili-compat'; name?: string | null }) => void,
+        callback: (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together'; name?: string | null }) => void,
       ) => {
         try {
-          if (socket.data.role !== 'admin') {
+          const userId: number = socket.data.userId;
+          const role: UserRole = socket.data.role;
+          if (role !== 'root' && role !== 'admin') {
             return callback({ success: false, message: '无权限：仅管理员可注册为房主' });
           }
 
@@ -431,6 +372,13 @@ async function bootstrap() {
           }
           if (room.status !== 'active') {
             return callback({ success: false, message: '房间已关闭' });
+          }
+          if (
+            role !== 'root' &&
+            room.ownerUserId !== null &&
+            room.ownerUserId !== userId
+          ) {
+            return callback({ success: false, message: '无权限：仅 root 可接管他人创建的房间' });
           }
 
           // 取消可能存在的关闭房间定时器
@@ -479,14 +427,18 @@ async function bootstrap() {
         callback: (response: { success: boolean; message?: string }) => void,
       ) => {
         try {
-          if (socket.data.role !== 'admin') {
-            return callback({ success: false, message: '无权限：仅管理员可修改房间名称' });
-          }
-
+          const userId: number = socket.data.userId;
+          const role: UserRole = socket.data.role;
           const roomRepo = getRoomRepository();
           const room = await roomRepo.findOneBy({ roomId: payload.roomId });
           if (!room) {
             return callback({ success: false, message: '房间不存在' });
+          }
+          if (
+            role !== 'root' &&
+            !(role === 'admin' && room.ownerUserId === userId)
+          ) {
+            return callback({ success: false, message: '无权限：仅 root 或房间创建者可修改房间名称' });
           }
 
           const trimmed = payload.name?.trim();
@@ -514,7 +466,7 @@ async function bootstrap() {
       'request-join',
       async (
         payload: { roomId: string; password?: string },
-        callback: (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together' | 'bili-compat' }) => void,
+        callback: (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together' }) => void,
       ) => {
         try {
           const roomRepo = getRoomRepository();
@@ -527,7 +479,12 @@ async function bootstrap() {
           if (room.status !== 'active') {
             return callback({ success: false, message: '房间已关闭' });
           }
-          if (room.password && room.password !== (payload.password ?? '')) {
+          const role: UserRole = socket.data.role;
+          if (
+            role !== 'root' &&
+            room.password &&
+            room.password !== (payload.password ?? '')
+          ) {
             return callback({ success: false, message: '密码错误' });
           }
 
@@ -571,12 +528,14 @@ async function bootstrap() {
             io.to(socket.id).emit('movie-list', { movies: roomState.movies });
             io.to(socket.id).emit('current-movie', { movieId: roomState.currentMovieId });
 
+            console.log(`[request-join] viewer=${socket.id} auto-joined room=${payload.roomId}`);
             io.to(sharer.socketId).emit('viewer-joined', {
               viewerSocketId: socket.id,
             });
             return callback({ success: true, message: '已加入房间', mode: room.mode });
           }
 
+          console.log(`[request-join] viewer=${socket.id} waiting approval room=${payload.roomId}`);
           io.to(sharer.socketId).emit('join-request', {
             viewerSocketId: socket.id,
           });
@@ -636,6 +595,7 @@ async function bootstrap() {
           io.to(payload.viewerSocketId).emit('movie-list', { movies: roomState.movies });
           io.to(payload.viewerSocketId).emit('current-movie', { movieId: roomState.currentMovieId });
 
+          console.log(`[approve-join] viewer=${payload.viewerSocketId} approved by sharer=${socket.id} room=${sharer.roomId}`);
           io.to(sharer.socketId).emit('viewer-joined', {
             viewerSocketId: payload.viewerSocketId,
           });
@@ -711,8 +671,10 @@ async function bootstrap() {
       ) => {
         const roomId = await validateSignalPair(socket, payload.to);
         if (!roomId) {
+          console.warn(`[signal-offer] pair validation failed from=${socket.id} to=${payload.to}`);
           return callback?.({ success: false, message: '不在同一房间' });
         }
+        console.log(`[signal-offer] relay from=${socket.id} to=${payload.to} room=${roomId}`);
         io.to(payload.to).emit('signal-offer', {
           from: socket.id,
           data: payload.data,
@@ -729,8 +691,10 @@ async function bootstrap() {
       ) => {
         const roomId = await validateSignalPair(socket, payload.to);
         if (!roomId) {
+          console.warn(`[signal-answer] pair validation failed from=${socket.id} to=${payload.to}`);
           return callback?.({ success: false, message: '不在同一房间' });
         }
+        console.log(`[signal-answer] relay from=${socket.id} to=${payload.to} room=${roomId}`);
         io.to(payload.to).emit('signal-answer', {
           from: socket.id,
           data: payload.data,
@@ -747,6 +711,7 @@ async function bootstrap() {
       ) => {
         const roomId = await validateSignalPair(socket, payload.to);
         if (!roomId) {
+          console.warn(`[signal-ice-candidate] pair validation failed from=${socket.id} to=${payload.to}`);
           return callback?.({ success: false, message: '不在同一房间' });
         }
         io.to(payload.to).emit('signal-ice-candidate', {
@@ -777,6 +742,7 @@ async function bootstrap() {
           return callback?.({ success: false, message: '分享端不在线' });
         }
 
+        console.log(`[viewer-ready] forward from viewer=${socket.id} to sharer=${sharer.socketId} room=${payload.roomId}`);
         io.to(sharer.socketId).emit('viewer-ready', {
           from: socket.id,
         });
@@ -1029,10 +995,18 @@ async function bootstrap() {
     socket.on(
       'update-room-mode',
       async (
-        payload: { roomId: string; mode: 'screen-share' | 'watch-together' | 'bili-compat' },
-        callback: (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together' | 'bili-compat' }) => void,
+        payload: { roomId: string; mode: 'screen-share' | 'watch-together' },
+        callback: (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together' }) => void,
       ) => {
+        const respond = (response: { success: boolean; message?: string; mode?: 'screen-share' | 'watch-together' }) => {
+          if (typeof callback === 'function') {
+            callback(response);
+          }
+        };
+
         try {
+          console.log(`[update-room-mode] start socketId=${socket.id} roomId=${payload.roomId} mode=${payload.mode}`);
+
           const sessionRepo = getSessionRepository();
           const roomRepo = getRoomRepository();
           const sharer = await sessionRepo.findOneBy({
@@ -1041,223 +1015,29 @@ async function bootstrap() {
             endedAt: IsNull(),
           });
           if (!sharer || sharer.roomId !== payload.roomId) {
-            return callback({ success: false, message: '无权限切换房间模式' });
+            console.warn(`[update-room-mode] permission denied socketId=${socket.id} roomId=${payload.roomId} sharerRoomId=${sharer?.roomId}`);
+            return respond({ success: false, message: '无权限切换房间模式' });
           }
 
           const room = await roomRepo.findOneBy({ roomId: payload.roomId });
           if (!room) {
-            return callback({ success: false, message: '房间不存在' });
+            console.warn(`[update-room-mode] room not found socketId=${socket.id} roomId=${payload.roomId}`);
+            return respond({ success: false, message: '房间不存在' });
           }
 
-          const previousMode = room.mode;
           await roomRepo.update({ roomId: payload.roomId }, { mode: payload.mode });
 
-          // 处理 bili-compat 模式切换：进入时初始化状态并启动同步计时器，离开时清理
-          if (payload.mode === 'bili-compat') {
-            const roomState = getRoomState(payload.roomId);
-            if (!roomState.biliCompatState) {
-              roomState.biliCompatState = {
-                currentTime: 0,
-                paused: true,
-                url: '',
-                bvid: null,
-                lastUpdate: Date.now(),
-              };
-            }
-            if (!roomState.biliCompatViewerStates) {
-              roomState.biliCompatViewerStates = new Map();
-            }
-            startBiliCompatSyncTimer(io, payload.roomId);
-          } else if (previousMode === 'bili-compat') {
-            clearBiliCompatState(payload.roomId);
-          }
+          respond({ success: true, mode: payload.mode });
 
-          io.to(payload.roomId).emit('room-mode-changed', { mode: payload.mode });
-          callback({ success: true, mode: payload.mode });
+          try {
+            io.to(payload.roomId).emit('room-mode-changed', { mode: payload.mode });
+            console.log(`[update-room-mode] broadcasted roomId=${payload.roomId} mode=${payload.mode}`);
+          } catch (emitErr) {
+            console.error(`[update-room-mode] broadcast failed socketId=${socket.id} roomId=${payload.roomId}`, emitErr);
+          }
         } catch (err) {
-          console.error('update-room-mode error:', err);
-          callback({ success: false, message: '切换房间模式失败' });
-        }
-      },
-    );
-
-    // B站兼容模式：房主上报当前播放状态，服务端存储并广播给房间内其他成员
-    socket.on(
-      'bili-compat-host-state',
-      async (
-        payload: {
-          roomId: string;
-          currentTime: number;
-          paused: boolean;
-          url: string;
-          bvid: string | null;
-        },
-        callback?: (response: { success: boolean; message?: string }) => void,
-      ) => {
-        try {
-          const sessionRepo = getSessionRepository();
-          const sharer = await sessionRepo.findOneBy({
-            socketId: socket.id,
-            role: 'sharer',
-            endedAt: IsNull(),
-          });
-          if (!sharer || sharer.roomId !== payload.roomId) {
-            return callback?.({ success: false, message: '无权限上报状态' });
-          }
-
-          const roomState = getRoomState(payload.roomId);
-          roomState.biliCompatState = {
-            currentTime: payload.currentTime,
-            paused: payload.paused,
-            url: payload.url,
-            bvid: payload.bvid,
-            lastUpdate: Date.now(),
-          };
-          if (!roomState.biliCompatViewerStates) {
-            roomState.biliCompatViewerStates = new Map();
-          }
-
-          socket.to(payload.roomId).emit('bili-compat-state', {
-            currentTime: payload.currentTime,
-            paused: payload.paused,
-            url: payload.url,
-            bvid: payload.bvid,
-          });
-
-          // 启动/重置 5 秒同步检查计时器
-          startBiliCompatSyncTimer(io, payload.roomId);
-          callback?.({ success: true });
-        } catch (err) {
-          console.error('bili-compat-host-state error:', err);
-          callback?.({ success: false, message: '上报状态失败' });
-        }
-      },
-    );
-
-    // B站兼容模式：观众定期上报自己进度，服务端比对偏差，超过阈值时下发 seek
-    socket.on(
-      'bili-compat-viewer-state',
-      async (
-        payload: { roomId: string; currentTime: number },
-        callback?: (response: { success: boolean; message?: string }) => void,
-      ) => {
-        try {
-          if (!socket.rooms.has(payload.roomId)) {
-            return callback?.({ success: false, message: '不在该房间中' });
-          }
-
-          const roomState = getRoomState(payload.roomId);
-          if (!roomState.biliCompatState) {
-            return callback?.({ success: false, message: '房主状态未就绪' });
-          }
-
-          if (!roomState.biliCompatViewerStates) {
-            roomState.biliCompatViewerStates = new Map();
-          }
-          const now = Date.now();
-          roomState.biliCompatViewerStates.set(socket.id, {
-            currentTime: payload.currentTime,
-            lastUpdate: now,
-          });
-
-          const hostState = roomState.biliCompatState;
-          const elapsedSec = hostState.paused
-            ? 0
-            : (now - hostState.lastUpdate) / 1000;
-          const expectedHostTime = hostState.currentTime + elapsedSec;
-          const drift = Math.abs(payload.currentTime - expectedHostTime);
-          if (drift > BILI_COMPAT_DRIFT_THRESHOLD_SEC) {
-            io.to(socket.id).emit('bili-compat-seek', {
-              currentTime: expectedHostTime,
-              paused: hostState.paused,
-            });
-          }
-
-          callback?.({ success: true });
-        } catch (err) {
-          console.error('bili-compat-viewer-state error:', err);
-          callback?.({ success: false, message: '上报状态失败' });
-        }
-      },
-    );
-
-    // B站兼容模式：房主 seek/pause/play 动作，立即广播给所有观众
-    socket.on(
-      'bili-compat-host-action',
-      async (
-        payload: {
-          roomId: string;
-          action: 'seek' | 'pause' | 'play';
-          currentTime: number;
-        },
-        callback?: (response: { success: boolean; message?: string }) => void,
-      ) => {
-        try {
-          const sessionRepo = getSessionRepository();
-          const sharer = await sessionRepo.findOneBy({
-            socketId: socket.id,
-            role: 'sharer',
-            endedAt: IsNull(),
-          });
-          if (!sharer || sharer.roomId !== payload.roomId) {
-            return callback?.({ success: false, message: '无权限发送动作' });
-          }
-
-          // 同步更新本地状态，保证后续 viewer-state 比对基于最新动作
-          const roomState = getRoomState(payload.roomId);
-          if (roomState.biliCompatState) {
-            roomState.biliCompatState.currentTime = payload.currentTime;
-            roomState.biliCompatState.paused = payload.action === 'pause';
-            roomState.biliCompatState.lastUpdate = Date.now();
-          }
-
-          socket.to(payload.roomId).emit('bili-compat-action', {
-            action: payload.action,
-            currentTime: payload.currentTime,
-          });
-          callback?.({ success: true });
-        } catch (err) {
-          console.error('bili-compat-host-action error:', err);
-          callback?.({ success: false, message: '发送动作失败' });
-        }
-      },
-    );
-
-    // B站兼容模式：观众加入或切换模式时请求当前房主状态
-    socket.on(
-      'bili-compat-join',
-      async (
-        payload: { roomId: string },
-        callback?: (response: { success: boolean; message?: string }) => void,
-      ) => {
-        try {
-          if (!socket.rooms.has(payload.roomId)) {
-            return callback?.({ success: false, message: '不在该房间中' });
-          }
-
-          const roomState = getRoomState(payload.roomId);
-          if (!roomState.biliCompatState) {
-            return callback?.({ success: false, message: '房主状态未就绪' });
-          }
-
-          const state = roomState.biliCompatState;
-          // 根据已播放时长推算当前时间，避免下发陈旧 currentTime
-          const now = Date.now();
-          const elapsedSec = state.paused
-            ? 0
-            : (now - state.lastUpdate) / 1000;
-          const expectedTime = state.currentTime + elapsedSec;
-
-          io.to(socket.id).emit('bili-compat-state', {
-            currentTime: expectedTime,
-            paused: state.paused,
-            url: state.url,
-            bvid: state.bvid,
-          });
-          callback?.({ success: true });
-        } catch (err) {
-          console.error('bili-compat-join error:', err);
-          callback?.({ success: false, message: '加入同步失败' });
+          console.error(`[update-room-mode] error socketId=${socket.id} roomId=${payload.roomId} mode=${payload.mode}`, err);
+          respond({ success: false, message: '切换房间模式失败' });
         }
       },
     );
@@ -1569,11 +1349,6 @@ async function bootstrap() {
             { socketId: socket.id, role: 'viewer', endedAt: IsNull() },
             { endedAt: new Date() },
           );
-          // 清理 B站兼容模式下的观众状态条目，避免 Map 残留导致下次同步检查误判
-          const viewerState = roomStates.get(session.roomId);
-          if (viewerState?.biliCompatViewerStates) {
-            viewerState.biliCompatViewerStates.delete(socket.id);
-          }
           const sharer = await sessionRepo.findOneBy({
             roomId: session.roomId,
             role: 'sharer',

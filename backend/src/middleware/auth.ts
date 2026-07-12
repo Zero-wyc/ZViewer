@@ -1,9 +1,12 @@
 import type { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 
+import type { UserRole } from '../entities/User';
+
 export interface JwtPayload {
   userId: number;
-  role: 'admin' | 'user';
+  role: UserRole;
+  username?: string;
 }
 
 export interface AuthenticatedRequest extends Request {
@@ -19,8 +22,8 @@ const JWT_ACCESS_EXPIRES_IN: jwt.SignOptions['expiresIn'] =
 const JWT_REFRESH_EXPIRES_IN: jwt.SignOptions['expiresIn'] =
   (process.env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions['expiresIn']) || '7d';
 
-export function generateTokens(userId: number, role: 'admin' | 'user') {
-  const payload = { userId, role };
+export function generateTokens(userId: number, role: UserRole, username?: string) {
+  const payload: JwtPayload = { userId, role, username };
   const accessToken = jwt.sign(payload, JWT_ACCESS_SECRET, {
     expiresIn: JWT_ACCESS_EXPIRES_IN,
   });

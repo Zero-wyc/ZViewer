@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   Palette,
   LogOut,
+  LogIn,
   Sun,
   Moon,
   Check,
@@ -11,6 +12,7 @@ import {
   UserCircle,
   LayoutDashboard,
   ChevronDown,
+  Image,
 } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import {
@@ -20,6 +22,7 @@ import {
 } from '@/store/themeStore'
 import { Avatar } from '@/components/ui/Avatar'
 import { Slider } from '@/components/ui/Slider'
+import { BackgroundSettingsModal } from '@/components/BackgroundSettingsModal'
 import { PRESET_SEEDS } from '@/lib/themes'
 import { cn } from '@/lib/utils'
 
@@ -37,6 +40,7 @@ export function Header() {
   } = useThemeStore()
   const [themeOpen, setThemeOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
+  const [backgroundModalOpen, setBackgroundModalOpen] = useState(false)
   const themeRef = useRef<HTMLDivElement>(null)
   const userRef = useRef<HTMLDivElement>(null)
 
@@ -73,21 +77,25 @@ export function Header() {
     to?: string
     onClick?: () => void
   }[] = [
-    {
-      icon: <UserCircle className="w-4 h-4" />,
-      label: '个人中心',
-      to: '/profile',
-    },
+    ...(user?.role !== 'guest'
+      ? [
+          {
+            icon: <UserCircle className="w-4 h-4" />,
+            label: '个人中心',
+            to: '/profile',
+          },
+        ]
+      : []),
     {
       icon: <LayoutDashboard className="w-4 h-4" />,
       label: '房间列表',
       to: '/rooms',
     },
-    ...(user?.role === 'admin'
+    ...(user?.role === 'admin' || user?.role === 'root'
       ? [
           {
             icon: <Shield className="w-4 h-4" />,
-            label: '管理后台',
+            label: '权限管理',
             to: '/admin',
           },
         ]
@@ -98,15 +106,11 @@ export function Header() {
     <>
       <header className="glass fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3">
         <Link to="/" className="flex items-center gap-2">
-          <div
-            className="w-8 h-8 rounded-[var(--md-sys-shape-corner)] flex items-center justify-center font-bold text-lg"
-            style={{
-              backgroundColor: 'var(--md-sys-color-primary)',
-              color: 'var(--md-sys-color-on-primary)',
-            }}
-          >
-            Z
-          </div>
+          <img
+            src="/favicon.jpg"
+            alt="ZViewer"
+            className="w-8 h-8 rounded-[var(--md-sys-shape-corner)] object-cover"
+          />
           <span className="font-semibold text-base text-[var(--md-sys-color-on-surface)]">
             ZViewer
           </span>
@@ -299,6 +303,18 @@ export function Header() {
                     onChange={(v) => setGlassStrength(v / 100)}
                   />
                 </div>
+
+                {/* 自定义背景入口 */}
+                <button
+                  onClick={() => setBackgroundModalOpen(true)}
+                  className="mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-on-surface)] transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                  style={{
+                    border: '1px solid var(--md-sys-color-outline)',
+                  }}
+                >
+                  <Image className="w-4 h-4 text-[var(--md-sys-color-primary)]" />
+                  <span className="flex-1 text-left">自定义背景</span>
+                </button>
               </div>
             )}
           </div>
@@ -351,7 +367,11 @@ export function Header() {
                         {user.username}
                       </p>
                       <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                        {user.role === 'admin' ? '管理员' : '普通用户'}
+                        {user.role === 'root'
+                          ? '超级管理员'
+                          : user.role === 'admin'
+                            ? '管理员'
+                            : '普通用户'}
                       </p>
                     </div>
                   </div>
@@ -406,13 +426,24 @@ export function Header() {
                     }}
                   />
 
-                  <button
-                    onClick={handleLogout}
-                    className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-error)] transition-all hover:bg-[var(--md-sys-color-error-container)]"
-                  >
-                    <LogOut className="w-4 h-4" />
-                    退出登录
-                  </button>
+                  {user.role === 'guest' ? (
+                    <Link
+                      to="/login"
+                      onClick={() => setUserOpen(false)}
+                      className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-primary)] transition-all hover:bg-[var(--md-sys-color-primary-container)]"
+                    >
+                      <LogIn className="w-4 h-4" />
+                      登录
+                    </Link>
+                  ) : (
+                    <button
+                      onClick={handleLogout}
+                      className="flex items-center gap-2.5 w-full px-2.5 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-error)] transition-all hover:bg-[var(--md-sys-color-error-container)]"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      退出登录
+                    </button>
+                  )}
                 </div>
               )}
             </div>
@@ -422,6 +453,12 @@ export function Header() {
 
       {/* 顶部占位，避免内容被 fixed header 遮挡 */}
       <div style={{ height: '64px' }} />
+
+      <BackgroundSettingsModal
+        key={backgroundModalOpen ? 'background-open' : 'background-closed'}
+        open={backgroundModalOpen}
+        onClose={() => setBackgroundModalOpen(false)}
+      />
     </>
   )
 }

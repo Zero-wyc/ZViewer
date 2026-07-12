@@ -22,7 +22,9 @@ export function Switch({ label, className, checked, ...props }: SwitchProps) {
         <div
           className={cn(
             'h-5 w-9 rounded-full transition-colors',
-            checked ? 'bg-[var(--md-sys-color-primary)]' : 'bg-[var(--md-sys-color-outline-variant)]'
+            checked
+              ? 'bg-[var(--md-sys-color-primary)]'
+              : 'bg-[var(--md-sys-color-outline-variant)]'
           )}
         />
         <div

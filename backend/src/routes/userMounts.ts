@@ -5,6 +5,9 @@ import {
   authenticateToken,
   AuthenticatedRequest,
 } from '../middleware/auth';
+import { listWebDAVDirectory } from '../services/webdav';
+import { listFTPDirectory } from '../services/ftp';
+import { fetchOpenListIndex } from '../services/openlist';
 
 const router = Router();
 
@@ -65,6 +68,30 @@ function validateMountPayload(body: Record<string, unknown>): {
   return { valid: true, data: payload };
 }
 
+async function testMountConnectivity(mount: Partial<UserMount>): Promise<void> {
+  if (mount.type === 'webdav') {
+    await listWebDAVDirectory({
+      serverUrl: mount.serverUrl!,
+      path: mount.path || '/',
+      username: mount.username || undefined,
+      password: mount.password || undefined,
+    });
+  } else if (mount.type === 'ftp') {
+    await listFTPDirectory({
+      serverUrl: mount.serverUrl!,
+      path: mount.path || '/',
+      port: mount.port || undefined,
+      username: mount.username || undefined,
+      password: mount.password || undefined,
+    });
+  } else if (mount.type === 'openlist') {
+    const result = await fetchOpenListIndex(mount.indexUrl!);
+    if (result.items.length === 0) {
+      throw new Error('OpenList 索引未解析到任何媒体条目');
+    }
+  }
+}
+
 router.use(authenticateToken);
 
 router.get(
@@ -101,6 +128,18 @@ router.post(
       const validation = validateMountPayload(req.body);
       if (!validation.valid) {
         res.status(400).json({ success: false, message: validation.message });
+        return;
+      }
+
+      try {
+        await testMountConnectivity(validation.data);
+      } catch (err) {
+        res.status(400).json({
+          success: false,
+          message:
+            '挂载不可访问: ' +
+            (err instanceof Error ? err.message : String(err)),
+        });
         return;
       }
 
@@ -148,6 +187,22 @@ router.put(
         return;
       }
 
+      const testPayload = { ...validation.data };
+      if (mount.type !== 'openlist' && !testPayload.password && mount.password) {
+        testPayload.password = mount.password;
+      }
+      try {
+        await testMountConnectivity(testPayload);
+      } catch (err) {
+        res.status(400).json({
+          success: false,
+          message:
+            '挂载不可访问: ' +
+            (err instanceof Error ? err.message : String(err)),
+        });
+        return;
+      }
+
       repo.merge(mount, validation.data);
       await repo.save(mount);
 
@@ -190,5 +245,64 @@ router.delete(
     }
   },
 );
+
+router.get('/:id/browse', async (
+  req: AuthenticatedRequest,
+  res: import('express').Response,
+): Promise<void> => {
+  try {
+    const id = Number(req.params.id);
+    if (Number.isNaN(id)) {
+      res.status(400).json({ success: false, message: '挂载 ID 不正确' });
+      return;
+    }
+
+    const repo = userMountRepository();
+    const mount = await repo.findOneBy({ id, userId: req.user!.userId });
+    if (!mount) {
+      res.status(404).json({ success: false, message: '挂载不存在' });
+      return;
+    }
+
+    const browsePath = typeof req.query.path === 'string' ? req.query.path : undefined;
+    let entries;
+    if (mount.type === 'webdav') {
+      entries = await listWebDAVDirectory({
+        serverUrl: mount.serverUrl!,
+        path: mount.path || '/',
+        username: mount.username || undefined,
+        password: mount.password || undefined,
+      }, browsePath);
+    } else if (mount.type === 'ftp') {
+      entries = await listFTPDirectory({
+        serverUrl: mount.serverUrl!,
+        path: mount.path || '/',
+        port: mount.port || undefined,
+        username: mount.username || undefined,
+        password: mount.password || undefined,
+      }, browsePath);
+    } else if (mount.type === 'openlist') {
+      const result = await fetchOpenListIndex(mount.indexUrl!);
+      entries = result.items.map((item) => ({
+        name: item.name,
+        type: 'file' as const,
+        path: item.url,
+        url: item.url,
+        size: item.size,
+      }));
+    } else {
+      res.status(400).json({ success: false, message: '不支持的挂载类型' });
+      return;
+    }
+
+    res.json({ success: true, entries });
+  } catch (err) {
+    console.error('browse mount error:', err);
+    res.status(500).json({
+      success: false,
+      message: err instanceof Error ? err.message : '浏览挂载失败',
+    });
+  }
+});
 
 export default router;

@@ -1,9 +1,4 @@
-import {
-  useEffect,
-  useRef,
-  forwardRef,
-  useImperativeHandle,
-} from 'react'
+import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import type { Socket } from 'socket.io-client'
 import type { BilibiliDanmakuItem } from '@/modules/room/watch-together/danmakuEngine'
 import {
@@ -115,7 +110,9 @@ export const DanmakuLayer = forwardRef<DanmakuLayerHandle, DanmakuLayerProps>(
     const stageRef = useRef<HTMLDivElement>(null)
     const engineRef = useRef<DanmakuEngineAdapter | null>(null)
     // 引擎初始化前暂存的实时弹幕队列
-    const pendingDanmakuRef = useRef<{ text: string; options?: SendDanmakuOptions }[]>([])
+    const pendingDanmakuRef = useRef<
+      { text: string; options?: SendDanmakuOptions }[]
+    >([])
     // 保持最新的 onDanmakuClick 引用，避免重建引擎
     const onDanmakuClickRef = useRef(onDanmakuClick)
 
@@ -252,7 +249,14 @@ export const DanmakuLayer = forwardRef<DanmakuLayerHandle, DanmakuLayerProps>(
         advanced: advancedStyle,
         scaleWithScreen,
       })
-    }, [fontSize, blockKeywords, blockModes, filters, advancedStyle, scaleWithScreen])
+    }, [
+      fontSize,
+      blockKeywords,
+      blockModes,
+      filters,
+      advancedStyle,
+      scaleWithScreen,
+    ])
 
     // 视频时间轴同步：timeupdate -> setTime, seeked -> seek
     useEffect(() => {

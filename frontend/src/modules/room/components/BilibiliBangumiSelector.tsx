@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Tv, Play, ChevronDown, ChevronUp, LayoutGrid, List, Search } from 'lucide-react'
+import {
+  Tv,
+  Play,
+  ChevronDown,
+  ChevronUp,
+  LayoutGrid,
+  List,
+  Search,
+} from 'lucide-react'
 
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Spinner } from '@/components/ui/Spinner'
@@ -182,7 +190,10 @@ export function BilibiliBangumiSelector({
                 className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] py-2 pl-9 pr-3 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
               />
             </div>
-            <div className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5 shrink-0" style={{ borderColor: 'var(--md-sys-color-outline)' }}>
+            <div
+              className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5 shrink-0"
+              style={{ borderColor: 'var(--md-sys-color-outline)' }}
+            >
               <button
                 type="button"
                 onClick={() => {
@@ -191,8 +202,14 @@ export function BilibiliBangumiSelector({
                 }}
                 className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
                 style={{
-                  backgroundColor: viewMode === 'list' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                  color: viewMode === 'list' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                  backgroundColor:
+                    viewMode === 'list'
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'transparent',
+                  color:
+                    viewMode === 'list'
+                      ? 'var(--md-sys-color-on-primary-container)'
+                      : 'var(--md-sys-color-on-surface)',
                 }}
                 aria-label="列表视图"
                 title="列表视图"
@@ -208,8 +225,14 @@ export function BilibiliBangumiSelector({
                 }}
                 className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
                 style={{
-                  backgroundColor: viewMode === 'tile' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                  color: viewMode === 'tile' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                  backgroundColor:
+                    viewMode === 'tile'
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'transparent',
+                  color:
+                    viewMode === 'tile'
+                      ? 'var(--md-sys-color-on-primary-container)'
+                      : 'var(--md-sys-color-on-surface)',
                 }}
                 aria-label="平铺视图"
                 title="平铺视图"
@@ -248,9 +271,7 @@ export function BilibiliBangumiSelector({
                   onClick={() => handleToggleBangumi(bangumi)}
                   className={cn(
                     'flex w-full gap-3 p-3 text-left sm:p-4',
-                    viewMode === 'tile'
-                      ? 'flex-col'
-                      : 'flex-row gap-4'
+                    viewMode === 'tile' ? 'flex-col' : 'flex-row gap-4'
                   )}
                 >
                   {bangumi.cover ? (
@@ -278,7 +299,9 @@ export function BilibiliBangumiSelector({
                       }}
                     >
                       <Tv
-                        className={viewMode === 'tile' ? 'h-10 w-10' : 'h-8 w-8'}
+                        className={
+                          viewMode === 'tile' ? 'h-10 w-10' : 'h-8 w-8'
+                        }
                         style={{
                           color: 'var(--md-sys-color-on-surface-variant)',
                         }}

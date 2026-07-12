@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  FolderOpen,
   HardDrive,
   Globe,
   Link,
@@ -23,11 +24,13 @@ import {
   createUserMount,
   deleteUserMount,
   getUserMounts,
+  testUserMount,
   updateUserMount,
   type MountFormPayload,
   type MountType,
   type UserMount,
 } from './mountApi'
+import MountBrowserModal from './MountBrowserModal'
 
 const TYPE_OPTIONS = [
   { label: 'WebDAV', value: 'webdav' },
@@ -153,7 +156,10 @@ export default function MountManager() {
   const [submitting, setSubmitting] = useState(false)
   const [formValues, setFormValues] = useState<FormValues>(EMPTY_FORM)
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [submitError, setSubmitError] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<UserMount | null>(null)
+  const [browsingMount, setBrowsingMount] = useState<UserMount | null>(null)
+  const [testing, setTesting] = useState(false)
 
   const loadMounts = useCallback(async () => {
     setLoading(true)
@@ -175,6 +181,7 @@ export default function MountManager() {
     setEditingMount(null)
     setFormValues(EMPTY_FORM)
     setErrors({})
+    setSubmitError('')
     setModalOpen(true)
   }, [])
 
@@ -182,6 +189,7 @@ export default function MountManager() {
     setEditingMount(mount)
     setFormValues(mountToFormValues(mount))
     setErrors({})
+    setSubmitError('')
     setModalOpen(true)
   }, [])
 
@@ -200,7 +208,7 @@ export default function MountManager() {
         return next
       })
     },
-    [],
+    []
   )
 
   const handleSubmit = useCallback(async () => {
@@ -210,6 +218,7 @@ export default function MountManager() {
       return
     }
 
+    setSubmitError('')
     setSubmitting(true)
     try {
       const payload = formValuesToPayload(formValues)
@@ -223,7 +232,9 @@ export default function MountManager() {
       await loadMounts()
       closeModal()
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '保存挂载失败')
+      const msg = err instanceof Error ? err.message : '保存挂载失败'
+      setSubmitError(msg)
+      message.error(msg)
     } finally {
       setSubmitting(false)
     }
@@ -241,6 +252,25 @@ export default function MountManager() {
       setDeleteTarget(null)
     }
   }, [deleteTarget, loadMounts])
+
+  const handleTest = useCallback(async () => {
+    const validationErrors = validateForm(formValues)
+    if (Object.keys(validationErrors).length > 0) {
+      setErrors(validationErrors)
+      return
+    }
+
+    setTesting(true)
+    try {
+      const payload = formValuesToPayload(formValues)
+      await testUserMount(payload, editingMount?.id)
+      message.success('连接成功')
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '连接测试失败')
+    } finally {
+      setTesting(false)
+    }
+  }, [formValues, editingMount])
 
   const showServerFields =
     formValues.type === 'webdav' || formValues.type === 'ftp'
@@ -279,9 +309,7 @@ export default function MountManager() {
               <Tag color={TYPE_COLORS[mount.type]}>
                 {TYPE_LABELS[mount.type]}
               </Tag>
-              <Text className="truncate text-sm font-medium">
-                {mount.name}
-              </Text>
+              <Text className="truncate text-sm font-medium">{mount.name}</Text>
             </div>
             {subtitle && (
               <div className="flex items-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
@@ -304,6 +332,14 @@ export default function MountManager() {
             <Button
               variant="ghost"
               size="sm"
+              icon={<FolderOpen className="h-4 w-4" />}
+              onClick={() => setBrowsingMount(mount)}
+            >
+              浏览
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
               icon={<Pencil className="h-4 w-4" />}
               onClick={() => openEditModal(mount)}
             >
@@ -321,7 +357,7 @@ export default function MountManager() {
         </div>
       )
     },
-    [openEditModal],
+    [openEditModal]
   )
 
   const footer = useMemo(
@@ -329,6 +365,14 @@ export default function MountManager() {
       <>
         <Button variant="secondary" size="sm" onClick={closeModal}>
           取消
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          loading={testing}
+          onClick={handleTest}
+        >
+          测试连接
         </Button>
         <Button
           variant="primary"
@@ -340,7 +384,7 @@ export default function MountManager() {
         </Button>
       </>
     ),
-    [closeModal, handleSubmit, submitting],
+    [closeModal, handleSubmit, submitting, handleTest, testing]
   )
 
   return (
@@ -400,9 +444,7 @@ export default function MountManager() {
             options={TYPE_OPTIONS}
             value={formValues.type}
             disabled={!!editingMount}
-            onChange={(value) =>
-              updateField('type', value as MountType)
-            }
+            onChange={(value) => updateField('type', value as MountType)}
           />
           <Input
             label="挂载名称"
@@ -433,7 +475,10 @@ export default function MountManager() {
                   max={65535}
                   value={formValues.port ? Number(formValues.port) : undefined}
                   onChange={(value) =>
-                    updateField('port', value !== undefined ? String(value) : '')
+                    updateField(
+                      'port',
+                      value !== undefined ? String(value) : ''
+                    )
                   }
                   error={errors.port}
                 />
@@ -452,11 +497,7 @@ export default function MountManager() {
               />
               <InputPassword
                 label="密码"
-                placeholder={
-                  editingMount
-                    ? '留空将清空原密码'
-                    : '可选'
-                }
+                placeholder={editingMount ? '留空将清空原密码' : '可选'}
                 value={formValues.password}
                 onChange={(e) => updateField('password', e.target.value)}
               />
@@ -479,6 +520,11 @@ export default function MountManager() {
               />
             </>
           )}
+          {submitError && (
+            <div className="rounded border border-[var(--md-sys-color-error)] bg-[var(--md-sys-color-error-container)] px-3 py-2 text-xs text-[var(--md-sys-color-on-error-container)]">
+              {submitError}
+            </div>
+          )}
         </div>
       </Modal>
 
@@ -492,6 +538,12 @@ export default function MountManager() {
       >
         确定要删除挂载「{deleteTarget?.name}」吗？删除后不可恢复。
       </ConfirmModal>
+
+      <MountBrowserModal
+        mount={browsingMount}
+        open={!!browsingMount}
+        onClose={() => setBrowsingMount(null)}
+      />
     </div>
   )
 }

@@ -207,7 +207,9 @@ Form.Item = function FormItem({
       ) : (
         childNode
       )}
-      {error && <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">{error}</p>}
+      {error && (
+        <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">{error}</p>
+      )}
     </div>
   )
 }

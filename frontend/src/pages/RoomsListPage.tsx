@@ -30,7 +30,7 @@ interface RoomItem {
   hasPassword: boolean
   viewerCount: number
   sharerOnline: boolean
-  mode: 'screen-share' | 'watch-together' | 'bili-compat'
+  mode: 'screen-share' | 'watch-together'
   lastAccessedAt: string
   createdAt: string
 }
@@ -111,7 +111,6 @@ export default function RoomsListPage() {
 
   const getModeLabel = (mode: RoomItem['mode']) => {
     if (mode === 'watch-together') return '一起看'
-    if (mode === 'bili-compat') return 'B站兼容'
     return '屏幕共享'
   }
 
@@ -147,7 +146,10 @@ export default function RoomsListPage() {
         <Space justify="between" align="center" className="mb-4">
           <Text type="secondary">共 {rooms.length} 个房间</Text>
           <Space>
-            <div className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5" style={{ borderColor: 'var(--md-sys-color-outline)' }}>
+            <div
+              className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+              style={{ borderColor: 'var(--md-sys-color-outline)' }}
+            >
               <button
                 type="button"
                 onClick={() => {
@@ -156,8 +158,14 @@ export default function RoomsListPage() {
                 }}
                 className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
                 style={{
-                  backgroundColor: viewMode === 'list' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                  color: viewMode === 'list' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                  backgroundColor:
+                    viewMode === 'list'
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'transparent',
+                  color:
+                    viewMode === 'list'
+                      ? 'var(--md-sys-color-on-primary-container)'
+                      : 'var(--md-sys-color-on-surface)',
                 }}
                 aria-label="列表视图"
                 title="列表视图"
@@ -173,8 +181,14 @@ export default function RoomsListPage() {
                 }}
                 className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
                 style={{
-                  backgroundColor: viewMode === 'tile' ? 'var(--md-sys-color-primary-container)' : 'transparent',
-                  color: viewMode === 'tile' ? 'var(--md-sys-color-on-primary-container)' : 'var(--md-sys-color-on-surface)',
+                  backgroundColor:
+                    viewMode === 'tile'
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'transparent',
+                  color:
+                    viewMode === 'tile'
+                      ? 'var(--md-sys-color-on-primary-container)'
+                      : 'var(--md-sys-color-on-surface)',
                 }}
                 aria-label="平铺视图"
                 title="平铺视图"

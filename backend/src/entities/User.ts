@@ -6,7 +6,8 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'root' | 'admin' | 'user' | 'guest';
+export type UserStatus = 'active' | 'pending';
 
 @Entity()
 export class User {
@@ -19,8 +20,11 @@ export class User {
   @Column()
   passwordHash!: string;
 
-  @Column({ type: 'simple-enum', enum: ['admin', 'user'], default: 'user' })
+  @Column({ type: 'simple-enum', enum: ['root', 'admin', 'user', 'guest'], default: 'guest' })
   role!: UserRole;
+
+  @Column({ type: 'simple-enum', enum: ['active', 'pending'], default: 'pending' })
+  status!: UserStatus;
 
   @CreateDateColumn()
   createdAt!: Date;

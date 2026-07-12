@@ -450,7 +450,10 @@ export function AnnotationToolbar({
               className="h-6 w-6 rounded-full border border-slate-300 focus:outline-none focus:ring-2 focus:ring-offset-1"
               style={{
                 backgroundColor: c,
-                boxShadow: color === c ? '0 0 0 2px var(--md-sys-color-primary)' : 'none',
+                boxShadow:
+                  color === c
+                    ? '0 0 0 2px var(--md-sys-color-primary)'
+                    : 'none',
               }}
               aria-label={`选择颜色 ${c}`}
             />

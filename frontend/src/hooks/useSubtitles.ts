@@ -146,13 +146,14 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
   // 观众：接收房主的字幕广播
   useEffect(() => {
     if (!socket || isHost) return
-    const handler = (payload: Partial<SubtitleBroadcastPayload> | undefined) => {
+    const handler = (
+      payload: Partial<SubtitleBroadcastPayload> | undefined
+    ) => {
       if (!payload) return
       setState((prev) => ({
         subtitleEnabled: payload.enabled ?? prev.subtitleEnabled,
         subtitleTracks: payload.tracks ?? prev.subtitleTracks,
-        activeTrackIndex:
-          payload.activeIndex ?? prev.activeTrackIndex,
+        activeTrackIndex: payload.activeIndex ?? prev.activeTrackIndex,
         subtitleFontSize: payload.fontSize ?? prev.subtitleFontSize,
       }))
     }

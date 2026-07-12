@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/Button'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
+import { proxyGitHubUrl } from '@/utils/githubCdn'
 
 interface GithubContentItem {
   name: string
@@ -44,7 +45,9 @@ function parseGithubRepoUrl(input: string): {
   }
 
   // 支持 https://github.com/owner/repo 或 https://github.com/owner/repo/path
-  const repoMatch = trimmed.match(/^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/(.*))?$/)
+  const repoMatch = trimmed.match(
+    /^https?:\/\/github\.com\/([^/]+)\/([^/]+)(?:\/(.*))?$/
+  )
   if (repoMatch) {
     return {
       owner: repoMatch[1],
@@ -68,7 +71,12 @@ function parseGithubRepoUrl(input: string): {
   return null
 }
 
-function buildRawUrl(owner: string, repo: string, branch: string, path: string): string {
+function buildRawUrl(
+  owner: string,
+  repo: string,
+  branch: string,
+  path: string
+): string {
   return `https://raw.githubusercontent.com/${owner}/${repo}/refs/heads/${branch}/${path}`
 }
 
@@ -94,7 +102,9 @@ export function AniSubsGithubBrowser({
     async (path: string) => {
       const info = parseGithubRepoUrl(repoInput)
       if (!info) {
-        setError('无法解析 GitHub 仓库地址，请使用 https://github.com/owner/repo 格式')
+        setError(
+          '无法解析 GitHub 仓库地址，请使用 https://github.com/owner/repo 格式'
+        )
         return
       }
 
@@ -102,7 +112,9 @@ export function AniSubsGithubBrowser({
       setError('')
       try {
         const apiPath = path ? `/${encodeURIComponent(path)}` : ''
-        const url = `https://api.github.com/repos/${info.owner}/${info.repo}/contents${apiPath}?ref=${info.branch}`
+        const url = proxyGitHubUrl(
+          `https://api.github.com/repos/${info.owner}/${info.repo}/contents${apiPath}?ref=${info.branch}`
+        )
         const res = await fetch(url, {
           headers: {
             Accept: 'application/vnd.github+json',
@@ -136,8 +148,10 @@ export function AniSubsGithubBrowser({
 
   const handleAddFile = (item: GithubContentItem) => {
     if (!parsed) return
-    const rawUrl =
-      item.download_url || buildRawUrl(parsed.owner, parsed.repo, parsed.branch, item.path)
+    const rawUrl = proxyGitHubUrl(
+      item.download_url ||
+        buildRawUrl(parsed.owner, parsed.repo, parsed.branch, item.path)
+    )
     if (existingUrls.includes(rawUrl)) {
       message.info('该订阅地址已存在')
       return
@@ -148,16 +162,20 @@ export function AniSubsGithubBrowser({
 
   const handleAddAllJson = () => {
     if (!parsed) return
-    const jsonFiles = items.filter((item) => item.type === 'file' && item.name.endsWith('.json'))
+    const jsonFiles = items.filter(
+      (item) => item.type === 'file' && item.name.endsWith('.json')
+    )
     if (jsonFiles.length === 0) {
       message.info('当前目录没有 JSON 文件')
       return
     }
     const newUrls = jsonFiles
       .map((item) =>
-        item.download_url
-          ? item.download_url
-          : buildRawUrl(parsed.owner, parsed.repo, parsed.branch, item.path)
+        proxyGitHubUrl(
+          item.download_url
+            ? item.download_url
+            : buildRawUrl(parsed.owner, parsed.repo, parsed.branch, item.path)
+        )
       )
       .filter((url) => !existingUrls.includes(url))
     if (newUrls.length === 0) {
@@ -180,7 +198,10 @@ export function AniSubsGithubBrowser({
       }}
     >
       <div className="mb-3 flex items-center gap-2">
-        <Globe className="h-4 w-4" style={{ color: 'var(--md-sys-color-primary)' }} />
+        <Globe
+          className="h-4 w-4"
+          style={{ color: 'var(--md-sys-color-primary)' }}
+        />
         <Text className="text-sm font-medium">{title}</Text>
       </div>
 
@@ -270,7 +291,9 @@ export function AniSubsGithubBrowser({
                     <FileJson
                       className={cn(
                         'h-4 w-4 flex-shrink-0',
-                        isJson ? 'text-[var(--md-sys-color-tertiary)]' : 'text-[var(--md-sys-color-on-surface-variant)]'
+                        isJson
+                          ? 'text-[var(--md-sys-color-tertiary)]'
+                          : 'text-[var(--md-sys-color-on-surface-variant)]'
                       )}
                     />
                   )}

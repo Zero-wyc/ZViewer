@@ -14,10 +14,12 @@ import {
 } from './msePlayer'
 import {
   resolveBilibili,
+  getBilibiliParseOptions,
   type QualityOption,
 } from './resolveSource'
 
-export type SourceType = 'url' | 'webdav' | 'ftp' | 'openlist' | 'smb' | 'bilibili' | string
+export type SourceType =
+  'url' | 'webdav' | 'ftp' | 'openlist' | 'smb' | 'bilibili' | string
 
 export type { QualityOption }
 
@@ -53,6 +55,22 @@ export function useWatchTogether({
   const lastBroadcastTimeRef = useRef(0)
   const restoredRef = useRef(false)
   const lastLoadedMovieRef = useRef<{ id: number; url: string } | null>(null)
+
+  // 使用用户本地持久化的 B站解析偏好（编码 / CDN）重新解析
+  const resolveBilibiliWithOptions = useCallback(
+    async (
+      url: string,
+      qn?: number,
+      onProgress?: (step: string, message: string) => void
+    ) => {
+      const options = getBilibiliParseOptions()
+      return resolveBilibili(url, qn, onProgress, {
+        fnval: options.fnval,
+        preferCdn: options.preferCdn,
+      })
+    },
+    []
+  )
 
   // 清晰度状态：当前选中的 qn、可用列表、切换中标记
   const [currentQuality, setCurrentQuality] = useState<number | null>(null)
@@ -122,7 +140,7 @@ export function useWatchTogether({
                 try {
                   resetVideoElement(video)
                   cleanupMedia()
-                  const resolved = await resolveBilibili(movie.url)
+                  const resolved = await resolveBilibiliWithOptions(movie.url)
                   if (resolved.videoUrl && resolved.audioUrl) {
                     const retried = await loadMse(
                       resolved.videoUrl,
@@ -305,7 +323,7 @@ export function useWatchTogether({
       const shouldPlay = !video.paused
 
       try {
-        const resolved = await resolveBilibili(
+        const resolved = await resolveBilibiliWithOptions(
           movie.url,
           qualityId,
           (_step, msg) => setResolvingMessage(msg)
@@ -359,8 +377,98 @@ export function useWatchTogether({
         setResolvingMessage('')
       }
     },
-    [socket, roomId, videoRef, currentQuality, applySourceToVideo, setWatchTogether]
+    [
+      socket,
+      roomId,
+      videoRef,
+      currentQuality,
+      applySourceToVideo,
+      setWatchTogether,
+    ],
   )
+
+  // 房主：重新解析当前 B站 视频（用于解析偏好变更后即时生效）
+  const reloadBilibili = useCallback(async () => {
+    const video = videoRef.current
+    if (!video || !isHostRef.current) return
+
+    const state = useRoomStore.getState().watchTogether
+    if (state.sourceType !== 'bilibili') return
+
+    const storeState = useRoomStore.getState()
+    const movie = storeState.movies.find(
+      (m) => m.id === storeState.currentMovieId
+    )
+    if (!movie?.url) return
+
+    setIsResolving(true)
+    setResolvingMessage('正在重新解析...')
+    suppressEventsRef.current = true
+
+    const preserveTime = video.currentTime
+    const shouldPlay = !video.paused
+
+    try {
+      const resolved = await resolveBilibiliWithOptions(
+        movie.url,
+        currentQuality ?? movie.currentQn,
+        (_step, msg) => setResolvingMessage(msg)
+      )
+      if (!resolved.videoUrl) {
+        throw new Error('未获取到对应清晰度的播放地址')
+      }
+
+      const newState: WatchTogetherState = {
+        ...state,
+        sourceUrl: resolved.videoUrl,
+        audioUrl: resolved.audioUrl,
+        videoCodec: resolved.videoCodec,
+        audioCodec: resolved.audioCodec,
+        format: resolved.format,
+        currentQn: resolved.currentQn ?? currentQuality ?? movie.currentQn,
+        acceptQuality: resolved.acceptQuality,
+      }
+      setWatchTogether(newState)
+
+      await applySourceToVideo(video, newState)
+      video.currentTime = preserveTime
+      if (shouldPlay) {
+        video.play().catch(() => {})
+      }
+
+      setCurrentQuality(newState.currentQn ?? null)
+      setAvailableQualities(newState.acceptQuality ?? [])
+
+      broadcastState(newState)
+    } catch (err) {
+      console.error('[useWatchTogether] 重新解析 B站 视频失败:', err)
+      message.error(err instanceof Error ? err.message : '重新解析失败')
+      try {
+        await applySourceToVideo(video, state)
+        if (preserveTime > 0) {
+          video.currentTime = preserveTime
+        }
+        if (shouldPlay) {
+          video.play().catch(() => {})
+        }
+      } catch {
+        // 忽略恢复失败
+      }
+    } finally {
+      suppressEventsRef.current = false
+      setIsSwitchingQuality(false)
+      setIsResolving(false)
+      setResolvingMessage('')
+    }
+  }, [
+    videoRef,
+    currentQuality,
+    applySourceToVideo,
+    setWatchTogether,
+    broadcastState,
+    roomId,
+    socket,
+  ])
 
   // 观众：接收房主的 quality-change 事件，自动切换到对应清晰度。
   useEffect(() => {
@@ -396,7 +504,7 @@ export function useWatchTogether({
       const shouldPlay = !video.paused
 
       try {
-        const resolved = await resolveBilibili(
+        const resolved = await resolveBilibiliWithOptions(
           movie.url,
           payload.quality,
           (_step, msg) => setResolvingMessage(msg)
@@ -502,10 +610,7 @@ export function useWatchTogether({
         setCurrentQuality(newState.currentQn ?? null)
         setAvailableQualities(newState.acceptQuality ?? [])
       } catch (err) {
-        console.error(
-          '[useWatchTogether] 应用列表触发的清晰度切换失败:',
-          err
-        )
+        console.error('[useWatchTogether] 应用列表触发的清晰度切换失败:', err)
         try {
           await applySourceToVideo(video, existingState)
           if (preserveTime > 0) {
@@ -574,7 +679,7 @@ export function useWatchTogether({
         setIsResolving(true)
         setResolvingMessage('正在初始化解析...')
         try {
-          const resolved = await resolveBilibili(
+          const resolved = await resolveBilibiliWithOptions(
             movie.url,
             movie.currentQn,
             (_step, msg) => setResolvingMessage(msg)
@@ -898,5 +1003,7 @@ export function useWatchTogether({
     // B站 解析进度
     isResolving,
     resolvingMessage,
+    // B站 重新解析
+    reloadBilibili,
   }
 }

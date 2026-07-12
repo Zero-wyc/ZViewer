@@ -12,6 +12,7 @@ import { useAuthStore } from '@/store/authStore'
 import { cn } from '@/lib/utils'
 import type { Socket } from 'socket.io-client'
 import { DanmakuTrackCard } from '@/modules/room/watch-together/DanmakuTrackCard'
+import { RealtimeDanmakuCard } from '@/modules/room/watch-together/RealtimeDanmakuCard'
 
 export interface CommentItem {
   id: number
@@ -57,7 +58,9 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
   const [input, setInput] = useState('')
   const [sending, setSending] = useState(false)
   const [sendAsDanmaku, setSendAsDanmaku] = useState(false)
-  const [rightPanelTab, setRightPanelTab] = useState<'comments' | 'danmaku'>('comments')
+  const [rightPanelTab, setRightPanelTab] = useState<
+    'comments' | 'tracks' | 'realtime'
+  >('comments')
   const listRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -135,32 +138,36 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
   }
 
   const handleSendComment = () => handleSend(sendAsDanmaku)
-  const handleSendDanmaku = () => handleSend(true)
 
   return (
     <div className="flex h-full flex-col gap-3 p-4">
       <SegmentedToggle
         options={[
           { value: 'comments', label: '评论区' },
-          { value: 'danmaku', label: '弹幕轨道' },
+          { value: 'tracks', label: '弹幕轨道' },
+          { value: 'realtime', label: '实时弹幕' },
         ]}
         value={rightPanelTab}
         onChange={(v) => setRightPanelTab(v as typeof rightPanelTab)}
       />
-      <div className="flex-1 min-h-0 overflow-hidden">
+      <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
         {rightPanelTab === 'comments' ? (
           <div className="flex h-full flex-col gap-3">
             <div
               ref={listRef}
               className="flex-1 min-h-0 overflow-y-auto rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] p-3"
-              style={{ backgroundColor: 'var(--md-sys-color-surface-container)' }}
+              style={{
+                backgroundColor: 'var(--md-sys-color-surface-container)',
+              }}
             >
               <Space direction="vertical" className="w-full" size="sm">
                 {comments.length === 0 && (
                   <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
                     <MessagesSquare
                       className="h-8 w-8 opacity-40"
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     />
                     <Text type="secondary" className="text-center text-xs">
                       暂无评论，快来第一条吧
@@ -199,7 +206,8 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
                               <span
                                 className="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium"
                                 style={{
-                                  backgroundColor: 'var(--md-sys-color-primary)',
+                                  backgroundColor:
+                                    'var(--md-sys-color-primary)',
                                   color: 'var(--md-sys-color-on-primary)',
                                 }}
                               >
@@ -227,7 +235,9 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
                                 { roomId, content: comment.content },
                                 (response: SendCommentResponse) => {
                                   if (!response.success) {
-                                    message.error(response.message ?? '弹幕发送失败')
+                                    message.error(
+                                      response.message ?? '弹幕发送失败'
+                                    )
                                   }
                                 }
                               )
@@ -265,26 +275,18 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
                 发送
               </Button>
             </Space>
-            <Space className="w-full" size="sm">
+            <div className="flex items-center">
               <Switch
                 label="以弹幕形式发送"
                 checked={sendAsDanmaku}
                 onChange={(e) => setSendAsDanmaku(e.target.checked)}
               />
-              <Button
-                variant="secondary"
-                size="sm"
-                className="flex-1"
-                icon={<MessageSquareQuote className="h-4 w-4" />}
-                onClick={handleSendDanmaku}
-                disabled={!input.trim() || sending}
-              >
-                以弹幕形式发送
-              </Button>
-            </Space>
+            </div>
           </div>
-        ) : (
+        ) : rightPanelTab === 'tracks' ? (
           <DanmakuTrackCard />
+        ) : (
+          <RealtimeDanmakuCard />
         )}
       </div>
     </div>

@@ -52,7 +52,9 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
           const params = new URLSearchParams(window.location.search)
           params.set('role', 'host')
           params.set('mode', mode)
-          navigate(`/room/${response.roomId}?${params.toString()}`, { replace: true })
+          navigate(`/room/${response.roomId}?${params.toString()}`, {
+            replace: true,
+          })
           onModeSelected?.(mode)
         } else {
           message.error(response.message || '创建房间失败')

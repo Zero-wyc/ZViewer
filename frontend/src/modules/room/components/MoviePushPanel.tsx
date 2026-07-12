@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Link2, QrCode, LogOut, FileVideo, User, Plus, Search } from 'lucide-react'
+import {
+  Link2,
+  QrCode,
+  LogOut,
+  FileVideo,
+  User,
+  Plus,
+  Search,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
@@ -34,6 +42,7 @@ import {
   type AnimeEpisode,
   resolveAnimeEpisode,
 } from '@/modules/room/watch-together/resolveSource'
+import MountBrowserModal from '@/modules/profile/MountBrowserModal'
 import {
   fetchMounts,
   type MountType,
@@ -59,6 +68,11 @@ function extractTitleFromUrl(url: string) {
   } catch {
     return url
   }
+}
+
+function normalizeMountPath(path: string): string {
+  if (!path) return path
+  return path.trim().replace(/^\/+/, '/')
 }
 
 interface MoviePushPanelProps {
@@ -103,6 +117,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   // 已保存挂载
   const [mounts, setMounts] = useState<UserMount[]>([])
   const [selectedMountId, setSelectedMountId] = useState<string>('')
+  const [browsingMount, setBrowsingMount] = useState<UserMount | null>(null)
 
   const [bilibiliLoggedIn, setBilibiliLoggedIn] = useState(false)
   const [bilibiliUser, setBilibiliUser] = useState<BilibiliUserInfo | null>(
@@ -336,27 +351,53 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     const mount = mounts.find((m) => m.id === id)
     if (!mount) return
     if (sourceType === 'webdav') {
-      setWebdav({
+      setWebdav((prev) => ({
+        ...prev,
         serverUrl: mount.serverUrl || '',
-        path: mount.path || '',
+        path: normalizeMountPath(mount.path || ''),
         username: mount.username || '',
         password: mount.password || '',
-      })
+      }))
     } else if (sourceType === 'ftp') {
-      setFtp({
+      setFtp((prev) => ({
+        ...prev,
         serverUrl: mount.serverUrl || '',
         port: mount.port ?? 21,
-        path: mount.path || '',
+        path: normalizeMountPath(mount.path || ''),
         username: mount.username || '',
         password: mount.password || '',
-      })
+      }))
     } else if (sourceType === 'openlist') {
-      setOpenlistUrl(mount.indexUrl || '')
+      const url = mount.indexUrl || ''
+      setOpenlistUrl(url)
       setOpenlistDirectLink(mount.directLink)
       setOpenlistEntries([])
       setSelectedOpenlistUrl('')
+      if (url) {
+        setLoading(true)
+        resolveOpenList(url)
+          .then((result) => {
+            setOpenlistEntries(result.items)
+            if (result.items.length > 0) {
+              setSelectedOpenlistUrl(result.items[0].url)
+            }
+          })
+          .catch((err) => {
+            message.error(err instanceof Error ? err.message : '解析 OpenList 失败')
+          })
+          .finally(() => setLoading(false))
+      }
     }
   }
+
+  const handleSelectFileFromMount = useCallback((path: string) => {
+    const normalizedPath = normalizeMountPath(path)
+    if (sourceType === 'webdav') {
+      setWebdav((prev) => ({ ...prev, path: normalizedPath }))
+    } else if (sourceType === 'ftp') {
+      setFtp((prev) => ({ ...prev, path: normalizedPath }))
+    }
+  }, [sourceType])
 
   const resetForm = () => {
     setUrl('')
@@ -600,6 +641,18 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             options={getMountOptions('webdav')}
             onChange={handleMountSelect}
           />
+          {selectedMountId && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const mount = mounts.find((m) => m.id === Number(selectedMountId))
+                if (mount) setBrowsingMount(mount)
+              }}
+            >
+              浏览文件
+            </Button>
+          )}
           <Input
             size="sm"
             value={webdav.serverUrl}
@@ -612,7 +665,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             size="sm"
             value={webdav.path}
             onChange={(e) =>
-              setWebdav((prev) => ({ ...prev, path: e.target.value }))
+              setWebdav((prev) => ({
+                ...prev,
+                path: normalizeMountPath(e.target.value),
+              }))
             }
             placeholder="文件路径，如 /movies/video.mp4"
           />
@@ -646,6 +702,18 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             options={getMountOptions('ftp')}
             onChange={handleMountSelect}
           />
+          {selectedMountId && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const mount = mounts.find((m) => m.id === Number(selectedMountId))
+                if (mount) setBrowsingMount(mount)
+              }}
+            >
+              浏览文件
+            </Button>
+          )}
           <Input
             size="sm"
             value={ftp.serverUrl}
@@ -670,7 +738,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             size="sm"
             value={ftp.path}
             onChange={(e) =>
-              setFtp((prev) => ({ ...prev, path: e.target.value }))
+              setFtp((prev) => ({
+                ...prev,
+                path: normalizeMountPath(e.target.value),
+              }))
             }
             placeholder="文件路径，如 /movies/video.mp4"
           />
@@ -1022,6 +1093,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           )}
         </div>
       </Modal>
+
+      <MountBrowserModal
+        mount={browsingMount}
+        open={!!browsingMount}
+        onClose={() => setBrowsingMount(null)}
+        onSelectFile={handleSelectFileFromMount}
+        selectable
+      />
     </>
   )
 }

@@ -35,7 +35,8 @@ export const InputPassword = forwardRef<HTMLInputElement, InputPasswordProps>(
             className={cn(
               'w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--md-sys-color-surface-container)] disabled:opacity-60',
               sizes[size],
-              error && 'border-[var(--md-sys-color-error)] focus:border-[var(--md-sys-color-error)] focus:ring-[var(--md-sys-color-error)]'
+              error &&
+                'border-[var(--md-sys-color-error)] focus:border-[var(--md-sys-color-error)] focus:ring-[var(--md-sys-color-error)]'
             )}
             {...props}
           />
@@ -52,7 +53,11 @@ export const InputPassword = forwardRef<HTMLInputElement, InputPasswordProps>(
             )}
           </button>
         </div>
-        {error && <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">{error}</p>}
+        {error && (
+          <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">
+            {error}
+          </p>
+        )}
       </div>
     )
   }

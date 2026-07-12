@@ -65,6 +65,13 @@ function parseAcceptQuality(value: string | null): QualityOption[] | null {
   }
 }
 
+function canControlRoom(req: AuthenticatedRequest, room: Room): boolean {
+  const role = req.user?.role;
+  if (role === 'root') return true;
+  if (role === 'admin' && room.ownerUserId === req.user?.userId) return true;
+  return false;
+}
+
 function serializeMovie(movie: Movie): MovieDto {
   return {
     id: movie.id,
@@ -156,16 +163,11 @@ export function createRoomsRouter(io: SocketIOServer): Router {
     },
   );
 
-  // PUT /api/rooms/:roomId/name - 修改房间名称（管理员）
+  // PUT /api/rooms/:roomId/name - 修改房间名称（仅 root 或房间创建者）
   router.put(
     '/:roomId/name',
     async (req: AuthenticatedRequest, res: Response) => {
       try {
-        if (req.user?.role !== 'admin') {
-          res.status(403).json({ success: false, message: '无权限：仅管理员可修改房间名称' });
-          return;
-        }
-
         const roomId = req.params.roomId as string;
         const { name } = req.body as { name?: unknown };
         const trimmed = typeof name === 'string' ? name.trim() : '';
@@ -178,6 +180,11 @@ export function createRoomsRouter(io: SocketIOServer): Router {
         const room = await roomRepo.findOneBy({ roomId });
         if (!room) {
           res.status(404).json({ success: false, message: '房间不存在' });
+          return;
+        }
+
+        if (!canControlRoom(req, room)) {
+          res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可修改房间名称' });
           return;
         }
 
@@ -211,12 +218,22 @@ export function createRoomsRouter(io: SocketIOServer): Router {
     },
   );
 
-  // POST /api/rooms/:roomId/movies - 新增影片
+  // POST /api/rooms/:roomId/movies - 新增影片（仅 root 或房间创建者）
   router.post(
     '/:roomId/movies',
     async (req: AuthenticatedRequest, res: Response) => {
       try {
         const roomId = req.params.roomId as string;
+        const room = await roomRepository().findOneBy({ roomId });
+        if (!room) {
+          res.status(404).json({ success: false, message: '房间不存在' });
+          return;
+        }
+        if (!canControlRoom(req, room)) {
+          res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可新增影片' });
+          return;
+        }
+
         const {
           url,
           title,
@@ -267,12 +284,6 @@ export function createRoomsRouter(io: SocketIOServer): Router {
           return;
         }
 
-        const room = await roomRepository().findOneBy({ roomId });
-        if (!room) {
-          res.status(404).json({ success: false, message: '房间不存在' });
-          return;
-        }
-
         const existing = await movieRepository().find({
           where: { roomId },
           order: { order: 'DESC' },
@@ -318,7 +329,7 @@ export function createRoomsRouter(io: SocketIOServer): Router {
     },
   );
 
-  // POST /api/rooms/:roomId/movies/reorder - 批量重排序
+  // POST /api/rooms/:roomId/movies/reorder - 批量重排序（仅 root 或房间创建者）
   router.post(
     '/:roomId/movies/reorder',
     async (req: AuthenticatedRequest, res: Response) => {
@@ -336,6 +347,10 @@ export function createRoomsRouter(io: SocketIOServer): Router {
         const room = await roomRepository().findOneBy({ roomId });
         if (!room) {
           res.status(404).json({ success: false, message: '房间不存在' });
+          return;
+        }
+        if (!canControlRoom(req, room)) {
+          res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可重排序影片' });
           return;
         }
 
@@ -356,13 +371,23 @@ export function createRoomsRouter(io: SocketIOServer): Router {
     },
   );
 
-  // PUT /api/rooms/:roomId/movies/:movieId - 更新影片
+  // PUT /api/rooms/:roomId/movies/:movieId - 更新影片（仅 root 或房间创建者）
   router.put(
     '/:roomId/movies/:movieId',
     async (req: AuthenticatedRequest, res: Response) => {
       try {
         const roomId = req.params.roomId as string;
         const movieId = Number(req.params.movieId);
+        const room = await roomRepository().findOneBy({ roomId });
+        if (!room) {
+          res.status(404).json({ success: false, message: '房间不存在' });
+          return;
+        }
+        if (!canControlRoom(req, room)) {
+          res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可更新影片' });
+          return;
+        }
+
         const {
           url,
           title,
@@ -463,13 +488,23 @@ export function createRoomsRouter(io: SocketIOServer): Router {
     },
   );
 
-  // DELETE /api/rooms/:roomId/movies/:movieId - 删除影片
+  // DELETE /api/rooms/:roomId/movies/:movieId - 删除影片（仅 root 或房间创建者）
   router.delete(
     '/:roomId/movies/:movieId',
     async (req: AuthenticatedRequest, res: Response) => {
       try {
         const roomId = req.params.roomId as string;
         const movieId = Number(req.params.movieId);
+        const room = await roomRepository().findOneBy({ roomId });
+        if (!room) {
+          res.status(404).json({ success: false, message: '房间不存在' });
+          return;
+        }
+        if (!canControlRoom(req, room)) {
+          res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可删除影片' });
+          return;
+        }
+
         const movie = await movieRepository().findOneBy({
           id: movieId,
           roomId,

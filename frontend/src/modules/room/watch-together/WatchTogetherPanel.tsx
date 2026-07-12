@@ -14,11 +14,9 @@ import {
 import { VideoControls } from '@/components/VideoPlayer/VideoControls'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
-import {
-  fetchBilibiliDanmaku,
-  type BilibiliDanmakuItem,
-} from './danmakuEngine'
+import { fetchBilibiliDanmaku, type BilibiliDanmakuItem } from './danmakuEngine'
 import { ConfirmModal } from '@/components/ui/Modal'
+import { cn } from '@/lib/utils'
 
 interface WatchTogetherPanelProps {
   roomId: string
@@ -62,6 +60,20 @@ export function WatchTogetherPanel({
   const [videoElement, setVideoElement] = useState<HTMLVideoElement | null>(
     null
   )
+
+  // 网页全屏模式下按 ESC 退出
+  useEffect(() => {
+    if (!isWebFullscreen) return
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsWebFullscreen(false)
+      }
+    }
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+    }
+  }, [isWebFullscreen])
 
   const tracks = useDanmakuStore((state) => state.tracks)
   const style = useDanmakuStore((state) => state.style)
@@ -236,9 +248,11 @@ export function WatchTogetherPanel({
     <>
       <div
         ref={videoContainerRef}
-        className={`relative h-full w-full ${
-          isWebFullscreen ? 'fixed inset-0 z-50' : ''
-        }`}
+        className={cn(
+          isWebFullscreen
+            ? 'fixed inset-0 z-[100] h-screen w-screen'
+            : 'relative h-full w-full'
+        )}
       >
         <video
           ref={(node) => {
@@ -358,9 +372,7 @@ export function WatchTogetherPanel({
                   forceSync()
                 }}
                 isWebFullscreen={isWebFullscreen}
-                onWebFullscreenToggle={() =>
-                  setIsWebFullscreen((prev) => !prev)
-                }
+                onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
                 subtitleEnabled={subtitles.subtitleEnabled}
                 subtitleTracks={subtitles.subtitleTracks}
                 activeTrackIndex={subtitles.activeTrackIndex}

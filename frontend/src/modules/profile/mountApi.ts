@@ -62,7 +62,7 @@ export async function getUserMounts(): Promise<UserMount[]> {
 export const fetchMounts = getUserMounts
 
 export async function createUserMount(
-  payload: MountFormPayload,
+  payload: MountFormPayload
 ): Promise<UserMount> {
   const res = await fetch(`${API_URL}/api/users/mounts`, {
     method: 'POST',
@@ -82,7 +82,7 @@ export async function createUserMount(
 
 export async function updateUserMount(
   id: number,
-  payload: MountFormPayload,
+  payload: MountFormPayload
 ): Promise<UserMount> {
   const res = await fetch(`${API_URL}/api/users/mounts/${id}`, {
     method: 'PUT',
@@ -109,4 +109,45 @@ export async function deleteUserMount(id: number): Promise<void> {
   if (!res.ok || !data.success) {
     throw new Error(data.message || '删除挂载失败')
   }
+}
+
+export interface MountBrowseEntry {
+  name: string
+  type: 'file' | 'directory'
+  path: string
+  size?: number
+  url?: string
+}
+
+export async function testUserMount(
+  payload: MountFormPayload,
+  existingId?: number
+): Promise<void> {
+  // 后端没有独立的 /test 路由，保存时会做连通性校验。
+  // 编辑模式下直接调用 update；创建模式下先 create 再 delete 临时记录。
+  if (existingId) {
+    await updateUserMount(existingId, payload)
+    return
+  }
+  const created = await createUserMount(payload)
+  await deleteUserMount(created.id)
+}
+
+export async function browseUserMount(
+  id: number,
+  path?: string
+): Promise<MountBrowseEntry[]> {
+  const query = path ? `?path=${encodeURIComponent(path)}` : ''
+  const res = await fetch(`${API_URL}/api/users/mounts/${id}/browse${query}`, {
+    headers: getAuthHeaders(),
+  })
+  const data = (await res.json()) as {
+    success: boolean
+    entries?: MountBrowseEntry[]
+    message?: string
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '浏览挂载失败')
+  }
+  return data.entries || []
 }

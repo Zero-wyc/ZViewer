@@ -6,6 +6,7 @@ import {
 } from '../types';
 import { load } from 'cheerio';
 import { createRssAnimeProvider } from './rss';
+import { proxyGitHubUrl } from '../../../utils/githubCdn';
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
@@ -463,14 +464,15 @@ export function createAniSubsWebSelectorProvider(
 export async function fetchAniSubsSubscription(
   url: string,
 ): Promise<AniSubsSubscription> {
-  const res = await fetch(url, {
+  const proxiedUrl = proxyGitHubUrl(url);
+  const res = await fetch(proxiedUrl, {
     headers: {
       'User-Agent': DEFAULT_USER_AGENT,
       Accept: 'application/json',
     },
   });
   if (!res.ok) {
-    throw new Error(`获取 ani-subs 订阅失败 [${res.status}]: ${url}`);
+    throw new Error(`获取 ani-subs 订阅失败 [${res.status}]: ${proxiedUrl}`);
   }
   return res.json() as Promise<AniSubsSubscription>;
 }

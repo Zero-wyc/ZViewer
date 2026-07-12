@@ -46,7 +46,6 @@ export function Avatar({
         <img
           src={src}
           alt={alt || 'avatar'}
-          crossOrigin="anonymous"
           className="h-full w-full object-cover"
           onError={() => setError(true)}
         />

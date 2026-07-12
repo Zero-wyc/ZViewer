@@ -9,7 +9,7 @@ import {
 import { Layout } from '@/components/Layout'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { RequireAuth } from '@/components/RequireAuth'
-import { useAuthStore } from '@/store/authStore'
+import { useAuthStore, type User } from '@/store/authStore'
 import HomePage from '@/pages/HomePage'
 import LoginPage from '@/pages/LoginPage'
 import RoomPage from '@/modules/room/RoomPage'
@@ -35,10 +35,7 @@ function AuthInitializer() {
   useEffect(() => {
     const isAuthFailure = (status: number) => status === 401 || status === 403
     const MAX_RETRIES = 8
-    const AUTO_LOGIN_MAX_RETRIES = 5
-    const AUTO_LOGIN_RETRY_INTERVAL = 1500
     let attempts = 0
-    let autoLoginAttempts = 0
 
     const clearRetryTimer = () => {
       if (retryTimerRef.current) {
@@ -47,47 +44,35 @@ function AuthInitializer() {
       }
     }
 
-    const attemptAutoLogin = async () => {
-      setAutoLoginStatus('pending')
+    const fetchGuestToken = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/auth/login`, {
+        const res = await fetch(`${API_URL}/api/auth/guest`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ username: 'root', password: 'root' }),
         })
         const data = (await res.json()) as {
           success: boolean
           accessToken?: string
           refreshToken?: string
-          user?: { id: string; username: string; role: string }
+          user?: {
+            id: string
+            username: string
+            role: string
+            status?: 'active' | 'pending'
+          }
         }
         if (res.ok && data.success && data.accessToken && data.user) {
           login(data.accessToken, data.refreshToken || '', {
             id: data.user.id,
             username: data.user.username,
-            role: data.user.role as 'admin' | 'user' | 'guest',
+            role: data.user.role as User['role'],
+            status: data.user.status,
           })
-          return
-        }
-        if (!res.ok && isAuthFailure(res.status)) {
+        } else {
           setAutoLoginStatus('done')
-          return
         }
-        if (data.success === false) {
-          setAutoLoginStatus('done')
-          return
-        }
-        throw new Error(`auto login failed: ${res.status}`)
       } catch (err) {
-        console.warn('[AuthInitializer] auto login attempt failed:', err)
-        if (autoLoginAttempts < AUTO_LOGIN_MAX_RETRIES) {
-          autoLoginAttempts += 1
-          retryTimerRef.current = setTimeout(
-            attemptAutoLogin,
-            AUTO_LOGIN_RETRY_INTERVAL
-          )
-          return
-        }
+        console.warn('[AuthInitializer] guest token fetch failed:', err)
         setAutoLoginStatus('done')
       }
     }
@@ -102,25 +87,28 @@ function AuthInitializer() {
         })
         const data = (await res.json()) as {
           success: boolean
-          user?: { id: string; username: string; role: string }
+          user?: {
+            id: string
+            username: string
+            role: string
+            status?: 'active' | 'pending'
+          }
         }
         if (res.ok && data.success && data.user) {
           setUser({
             id: data.user.id,
             username: data.user.username,
-            role: data.user.role as 'admin' | 'user' | 'guest',
+            role: data.user.role as User['role'],
+            status: data.user.status,
           })
           return
         }
         if (!res.ok && isAuthFailure(res.status)) {
-          // 令牌过期并非用户主动退出，使用默认账号重新登录
           expireSession()
-          autoLoginAttempts = 0
-          void attemptAutoLogin()
+          void fetchGuestToken()
           return
         }
       } catch (err) {
-        // 网络不可达时不应清除登录态，等待后端启动或 socket 认证失败后再处理
         console.warn('[AuthInitializer] validate network error:', err)
         if (attempts < MAX_RETRIES) {
           retryTimerRef.current = setTimeout(validate, 2000)
@@ -130,8 +118,7 @@ function AuthInitializer() {
 
       if (!refreshToken) {
         expireSession()
-        autoLoginAttempts = 0
-        void attemptAutoLogin()
+        void fetchGuestToken()
         return
       }
 
@@ -144,22 +131,26 @@ function AuthInitializer() {
         const data = (await res.json()) as {
           success: boolean
           accessToken?: string
-          user?: { id: string; username: string; role: string }
+          user?: {
+            id: string
+            username: string
+            role: string
+            status?: 'active' | 'pending'
+          }
         }
         if (res.ok && data.success && data.accessToken && data.user) {
           login(data.accessToken, refreshToken, {
             id: data.user.id,
             username: data.user.username,
-            role: data.user.role as 'admin' | 'user' | 'guest',
+            role: data.user.role as User['role'],
+            status: data.user.status,
           })
         } else if (!res.ok && isAuthFailure(res.status)) {
           expireSession()
-          autoLoginAttempts = 0
-          void attemptAutoLogin()
+          void fetchGuestToken()
         } else if (data.success === false) {
           expireSession()
-          autoLoginAttempts = 0
-          void attemptAutoLogin()
+          void fetchGuestToken()
         }
       } catch (err) {
         console.warn('[AuthInitializer] refresh network error:', err)
@@ -170,10 +161,8 @@ function AuthInitializer() {
     }
 
     if (!accessToken) {
-      // 无论是否主动退出，只要当前没有有效令牌就尝试默认账号自动登录
       if (autoLoginStatus !== 'pending') {
-        autoLoginAttempts = 0
-        void attemptAutoLogin()
+        void fetchGuestToken()
       }
       return () => {
         clearRetryTimer()
@@ -243,7 +232,7 @@ function App() {
           <Route
             path="/profile"
             element={
-              <RequireAuth>
+              <RequireAuth forbiddenRoles={['guest']}>
                 <ProfilePage />
               </RequireAuth>
             }

@@ -39,20 +39,10 @@ import {
 } from '@/components/AnnotationLayer'
 
 type JoinStatus =
-  | 'idle'
-  | 'joining'
-  | 'approved'
-  | 'rejected'
-  | 'closed'
-  | 'password-required'
+  'idle' | 'joining' | 'approved' | 'rejected' | 'closed' | 'password-required'
 
 type ConnectionState =
-  | 'new'
-  | 'connecting'
-  | 'connected'
-  | 'disconnected'
-  | 'failed'
-  | 'closed'
+  'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed'
 
 interface SignalPayload<T> {
   from: string
@@ -90,7 +80,9 @@ function WatchPage() {
   const { socket, connected } = useSocket()
   const setStoreMode = useRoomStore((state) => state.setMode)
   const setRoomName = useRoomStore((state) => state.setRoomName)
-  const [roomMode, setRoomMode] = useState<'screen-share' | 'watch-together' | null>(null)
+  const [roomMode, setRoomMode] = useState<
+    'screen-share' | 'watch-together' | null
+  >(null)
   const [joinStatus, setJoinStatus] = useState<JoinStatus>('idle')
   const [connectionState, setConnectionState] = useState<ConnectionState>('new')
   const [hasRemoteStream, setHasRemoteStream] = useState(false)
@@ -132,6 +124,7 @@ function WatchPage() {
   const processingOfferRef = useRef(false)
   const isCreatingPcRef = useRef(false)
   const mergedStreamRef = useRef<MediaStream | null>(null)
+  const pendingIceCandidatesRef = useRef<RTCIceCandidateInit[]>([])
 
   const cleanupPeerConnection = useCallback(() => {
     const pc = pcRef.current
@@ -148,6 +141,7 @@ function WatchPage() {
     mergedStreamRef.current = null
     hasJoinedRef.current = false
     isCreatingPcRef.current = false
+    pendingIceCandidatesRef.current = []
     setConnectionState('closed')
     setHasRemoteStream(false)
     setRemoteStreamState(null)
@@ -342,11 +336,15 @@ function WatchPage() {
     const handleJoinApproved = (data: {
       roomId: string
       name?: string | null
+      mode?: 'screen-share' | 'watch-together'
     }) => {
       if (data.name) {
         setRoomName(data.name)
       }
-      if (roomMode === 'watch-together') {
+      const mode = data.mode ?? roomMode ?? 'screen-share'
+      setRoomMode(mode)
+      setStoreMode(mode)
+      if (mode === 'watch-together') {
         if (hasJoinedRef.current) {
           setJoinStatus('approved')
           return
@@ -445,10 +443,28 @@ function WatchPage() {
           pc.signalingState
         )
 
+        // 处理在 setRemoteDescription 之前到达的 ICE candidate
+        const pending = pendingIceCandidatesRef.current
+        pendingIceCandidatesRef.current = []
+        for (const candidate of pending) {
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(candidate))
+          } catch (candidateErr) {
+            console.error(
+              '[WatchPage] add queued ice candidate error:',
+              candidateErr
+            )
+          }
+        }
+
         const answer = await pc.createAnswer()
         console.log('[WatchPage] created answer')
         await pc.setLocalDescription(answer)
-        console.log('[WatchPage] after setLocalDescription, state:', pc.signalingState)
+        console.log(
+          '[WatchPage] after setLocalDescription, state:',
+          pc.signalingState
+        )
+        console.log('[WatchPage] sending answer to', data.from)
         socket.emit('signal-answer', {
           to: data.from,
           data: answer,
@@ -467,6 +483,13 @@ function WatchPage() {
       const pc = pcRef.current
       if (!pc) return
       try {
+        if (!pc.remoteDescription) {
+          console.log(
+            '[WatchPage] queuing ice candidate until remote description is set'
+          )
+          pendingIceCandidatesRef.current.push(data.data)
+          return
+        }
         await pc.addIceCandidate(new RTCIceCandidate(data.data))
       } catch (err) {
         console.error('[WatchPage] add ice candidate error:', err)
@@ -507,7 +530,7 @@ function WatchPage() {
     return () => {
       remoteStreamRef.current?.getTracks().forEach((track) => track.stop())
       remoteStreamRef.current = null
-      // eslint-disable-next-line react-hooks/exhaustive-deps
+
       const videoElement = videoRef.current
       if (videoElement) {
         videoElement.srcObject = null

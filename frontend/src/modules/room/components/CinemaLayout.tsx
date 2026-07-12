@@ -18,7 +18,7 @@ export function CinemaLayout({
 }: CinemaLayoutProps) {
   return (
     <div
-      className="flex-1 flex items-center justify-center p-4 lg:p-6"
+      className="flex h-[calc(100vh-64px)] items-center justify-center p-4 lg:p-6"
       style={{ backgroundColor: 'var(--md-sys-color-surface)' }}
     >
       <Card className="relative flex h-full w-full max-w-[1600px] flex-col overflow-hidden">
@@ -70,7 +70,7 @@ export function CinemaLayout({
 
           {/* 右侧聊天区 */}
           <div
-            className="hidden w-[340px] flex-col overflow-hidden rounded-2xl border lg:flex"
+            className="hidden w-[340px] flex-shrink-0 flex-col overflow-hidden rounded-2xl border lg:flex"
             style={{
               backgroundColor: 'var(--md-sys-color-surface-container)',
               borderColor: 'var(--md-sys-color-outline-variant)',

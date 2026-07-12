@@ -52,6 +52,48 @@ const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
 /**
+ * 测试一组媒体 URL 是否可被后端正常访问，返回第一个可达的 URL。
+ * 使用 HEAD + Range 请求，对所有候选 URL 并行检测，接受 2xx/3xx/405 等表示网络可达的响应。
+ */
+async function findReachableMediaUrl(
+  primaryUrl: string,
+  backupUrls?: string[],
+): Promise<string | null> {
+  const candidates = [primaryUrl, ...(backupUrls || [])].filter(Boolean);
+  if (candidates.length === 0) return null;
+
+  const checkUrl = async (url: string): Promise<string | null> => {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 4000);
+      const response = await fetch(url, {
+        method: 'HEAD',
+        signal: controller.signal,
+        headers: {
+          Referer: 'https://www.bilibili.com',
+          Origin: 'https://www.bilibili.com',
+          'User-Agent': DEFAULT_USER_AGENT,
+          Range: 'bytes=0-0',
+        },
+      });
+      clearTimeout(timeout);
+      // 2xx/3xx 直接成功；405 Method Not Allowed 也表示服务器可达
+      if (response.ok || response.status === 405) {
+        console.log('[bilibili] 选择可达 URL:', url, 'status:', response.status);
+        return url;
+      }
+      console.warn('[bilibili] URL 返回非成功状态:', url, response.status);
+    } catch (err) {
+      console.warn('[bilibili] URL 不可达:', url, (err as Error).message);
+    }
+    return null;
+  };
+
+  const results = await Promise.all(candidates.map(checkUrl));
+  return results.find((url) => url !== null) ?? null;
+}
+
+/**
  * 从响应头中提取 Set-Cookie 中的 Cookie 名值对，合并为单一字符串。
  */
 function parseSetCookieHeader(headers: Headers): string {
@@ -737,14 +779,29 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
       ? Number(req.query.qn.trim())
       : undefined;
 
+  const fnval =
+    typeof req.query.fnval === 'string' && req.query.fnval.trim()
+      ? Number(req.query.fnval.trim())
+      : undefined;
+
+  const preferCdn =
+    typeof req.query.preferCdn === 'string' && req.query.preferCdn.trim()
+      ? req.query.preferCdn.trim()
+      : undefined;
+
   // 启用 NDJSON 流式响应，让前端实时看到解析进度
   res.setHeader('Content-Type', 'application/x-ndjson');
   res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
+  // 流式错误响应使用短连接，避免浏览器因 keep-alive 连接被服务端提前关闭而报 abort
+  res.setHeader('Connection', 'close');
   res.setHeader('X-Accel-Buffering', 'no');
+  res.setHeader('Transfer-Encoding', 'chunked');
 
   const send = (payload: ResolveProgressMessage) => {
     res.write(JSON.stringify(payload) + '\n');
+    if (typeof (res as unknown as { flush?: () => void }).flush === 'function') {
+      (res as unknown as { flush: () => void }).flush();
+    }
   };
 
   const sendError = (message: string, code?: string) => {
@@ -779,7 +836,11 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
     }
 
     send({ status: 'parsing', step: 'playurl', message: '正在获取播放地址...' });
-    let playUrl = await getPlayUrl(info.bvid, info.cid, cookie, { qn });
+    let playUrl = await getPlayUrl(info.bvid, info.cid, cookie, {
+      qn,
+      fnval,
+      preferCdn,
+    });
     if (!playUrl) {
       sendError('无法获取播放地址，可能需要大会员', 'NO_PERMISSION');
       return;
@@ -805,6 +866,8 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
       send({ status: 'parsing', step: 'quality', message: '正在匹配可用清晰度...' });
       const refetched = await getPlayUrl(info.bvid, info.cid, cookie, {
         qn: effectiveQn,
+        fnval,
+        preferCdn,
       });
       if (refetched) {
         playUrl = refetched;
@@ -827,14 +890,58 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
     send({ status: 'parsing', step: 'finish', message: '解析完成，正在加载播放器...' });
 
     if (playUrl.format === 'dash' && playUrl.bestVideo) {
+      send({ status: 'parsing', step: 'cdn', message: '正在选择可用 CDN...' });
+
+      let videoUrl = await findReachableMediaUrl(
+        playUrl.bestVideo.baseUrl,
+        playUrl.bestVideo.backupUrl,
+      );
+      let audioUrl = playUrl.bestAudio
+        ? await findReachableMediaUrl(
+            playUrl.bestAudio.baseUrl,
+            playUrl.bestAudio.backupUrl,
+          )
+        : null;
+
+      // DASH 所有 CDN 均不可达时，降级尝试 MP4 直链
+      if (!videoUrl) {
+        send({ status: 'parsing', step: 'fallback', message: 'DASH 地址不可用，尝试 MP4 直链...' });
+        const mp4PlayUrl = await getPlayUrl(info.bvid, info.cid, cookie, {
+          qn: effectiveQn,
+          fnval: 1,
+          preferCdn,
+        });
+        if (mp4PlayUrl?.format === 'mp4' && mp4PlayUrl.durl?.[0]?.url) {
+          const mp4Url = await findReachableMediaUrl(mp4PlayUrl.durl[0].url);
+          if (mp4Url) {
+            send({
+              success: true,
+              status: 'done',
+              title: info.title,
+              duration: info.duration,
+              cid: info.cid,
+              videoUrl: mp4Url,
+              format: 'mp4',
+              loggedIn: !!cookie,
+              vipStatus: isVip ? 1 : 0,
+              ...qualityPayload,
+            });
+            res.end();
+            return;
+          }
+        }
+        sendError('当前网络无法访问 B站 媒体服务器，请稍后重试');
+        return;
+      }
+
       send({
         success: true,
         status: 'done',
         title: info.title,
         duration: info.duration,
         cid: info.cid,
-        videoUrl: playUrl.bestVideo.baseUrl,
-        audioUrl: playUrl.bestAudio?.baseUrl,
+        videoUrl,
+        audioUrl: audioUrl ?? undefined,
         videoCodec: playUrl.bestVideo.codecs,
         audioCodec: playUrl.bestAudio?.codecs,
         format: 'dash',
@@ -847,13 +954,19 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
     }
 
     if (playUrl.format === 'mp4' && playUrl.durl?.length) {
+      send({ status: 'parsing', step: 'cdn', message: '正在选择可用 CDN...' });
+      const mp4Url = await findReachableMediaUrl(playUrl.durl[0].url);
+      if (!mp4Url) {
+        sendError('当前网络无法访问 B站 媒体服务器，请稍后重试');
+        return;
+      }
       send({
         success: true,
         status: 'done',
         title: info.title,
         duration: info.duration,
         cid: info.cid,
-        videoUrl: playUrl.durl[0].url,
+        videoUrl: mp4Url,
         format: 'mp4',
         loggedIn: !!cookie,
         vipStatus: isVip ? 1 : 0,

@@ -92,13 +92,6 @@ export function DanmakuStylePanel({
             onChange={(e) => setStyle({ avoidSubtitle: e.target.checked })}
           />
         </div>
-        <div className="flex items-center justify-between py-0.5">
-          <Text className="text-xs">智能防挡弹幕</Text>
-          <Switch
-            checked={style.avoidCollision}
-            onChange={(e) => setStyle({ avoidCollision: e.target.checked })}
-          />
-        </div>
       </Space>
 
       <Slider
@@ -180,14 +173,14 @@ export function DanmakuStylePanel({
             onChange={(v) => setAdvancedStyle({ shadowBlur: v })}
           />
           <Slider
-        label="同屏密度"
-        value={style.advanced.density}
-        min={0.1}
-        max={2}
-        step={0.05}
-        valueFormatter={(v) => `${Math.round(v * 100)}%`}
-        onChange={(v) => setAdvancedStyle({ density: v })}
-      />
+            label="同屏密度"
+            value={style.advanced.density}
+            min={0.1}
+            max={2}
+            step={0.05}
+            valueFormatter={(v) => `${Math.round(v * 100)}%`}
+            onChange={(v) => setAdvancedStyle({ density: v })}
+          />
         </Space>
       )}
     </div>
