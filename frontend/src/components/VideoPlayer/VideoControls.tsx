@@ -5,6 +5,7 @@ import {
   useCallback,
   forwardRef,
   useImperativeHandle,
+  type ForwardedRef,
 } from 'react'
 import {
   Play,
@@ -80,33 +81,48 @@ export interface VideoControlsProps {
   onDanmakuFilterChange?: (updates: Partial<DanmakuTypeFilters>) => void
   onDanmakuAdvancedChange?: (updates: Partial<DanmakuAdvancedStyle>) => void
   onResetDanmakuStyle?: () => void
+  // B站 解析设置
+  sourceType?: string
+  onReloadBilibili?: () => void
 }
 
-export function VideoControls({
-  video,
-  isHost,
-  isDanmakuEnabled,
-  onToggleDanmaku,
-  onSendDanmaku,
-  onSync,
-  containerRef,
-  isWebFullscreen: externalWebFullscreen,
-  onToggleWebFullscreen,
-  subtitleEnabled,
-  subtitleTracks,
-  activeTrackIndex,
-  subtitleFontSize,
-  onToggleSubtitles,
-  onSelectSubtitleTrack,
-  onAddSubtitleUrl,
-  onAddSubtitleFile,
-  onChangeSubtitleFontSize,
-  danmakuStyle,
-  onDanmakuStyleChange,
-  onDanmakuFilterChange,
-  onDanmakuAdvancedChange,
-  onResetDanmakuStyle,
-}: VideoControlsProps) {
+export interface VideoControlsHandle {
+  showControls: () => void
+}
+
+export const VideoControls = forwardRef<
+  VideoControlsHandle,
+  VideoControlsProps
+>(function VideoControls(
+  {
+    video,
+    isHost,
+    isDanmakuEnabled,
+    onToggleDanmaku,
+    onSendDanmaku,
+    onSync,
+    containerRef,
+    isWebFullscreen: externalWebFullscreen,
+    onToggleWebFullscreen,
+    subtitleEnabled,
+    subtitleTracks,
+    activeTrackIndex,
+    subtitleFontSize,
+    onToggleSubtitles,
+    onSelectSubtitleTrack,
+    onAddSubtitleUrl,
+    onAddSubtitleFile,
+    onChangeSubtitleFontSize,
+    danmakuStyle,
+    onDanmakuStyleChange,
+    onDanmakuFilterChange,
+    onDanmakuAdvancedChange,
+    onResetDanmakuStyle,
+    sourceType,
+    onReloadBilibili,
+  }: VideoControlsProps,
+  ref: ForwardedRef<VideoControlsHandle>
+) {
   const {
     isPlaying,
     currentTime,
@@ -143,6 +159,109 @@ export function VideoControls({
   const [subtitleUrlInput, setSubtitleUrlInput] = useState('')
   const settingsRef = useRef<HTMLDivElement>(null)
   const subtitleFileInputRef = useRef<HTMLInputElement>(null)
+
+  // 控制栏显隐：默认显示，静止 3 秒后自动隐藏
+  const [controlsVisible, setControlsVisible] = useState(true)
+  const controlsRef = useRef<HTMLDivElement>(null)
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const mouseOverRef = useRef(false)
+  const settingsOpenRef = useRef(settingsOpen)
+  const codecRef = useRef<BilibiliCodec>('auto')
+  const cdnDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // B站 解析设置本地状态
+  const initialParseOptions = getBilibiliParseOptions()
+  const [bilibiliCodec, setBilibiliCodec] = useState<BilibiliCodec>(
+    initialParseOptions.codec
+  )
+  const [bilibiliCdn, setBilibiliCdn] = useState(
+    initialParseOptions.preferCdn ?? ''
+  )
+
+  useEffect(() => {
+    settingsOpenRef.current = settingsOpen
+  }, [settingsOpen])
+
+  const clearIdleTimer = useCallback(() => {
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current)
+      idleTimerRef.current = null
+    }
+  }, [])
+
+  const scheduleHide = useCallback(() => {
+    clearIdleTimer()
+    if (settingsOpenRef.current) return
+    if (!mouseOverRef.current) return
+    idleTimerRef.current = setTimeout(() => {
+      setControlsVisible(false)
+    }, 3000)
+  }, [clearIdleTimer])
+
+  useImperativeHandle(ref, () => ({
+    showControls: () => {
+      setControlsVisible(true)
+      if (mouseOverRef.current) {
+        scheduleHide()
+      }
+    },
+  }))
+
+  useEffect(() => {
+    const container = containerRef?.current
+    const controls = controlsRef.current
+
+    const handleMouseMove = () => {
+      setControlsVisible(true)
+      scheduleHide()
+    }
+    const handleMouseEnter = () => {
+      mouseOverRef.current = true
+      setControlsVisible(true)
+      scheduleHide()
+    }
+    const handleMouseLeave = () => {
+      mouseOverRef.current = false
+      clearIdleTimer()
+      setControlsVisible(true)
+    }
+    const handleGlobalActivity = () => {
+      setControlsVisible(true)
+      if (mouseOverRef.current) {
+        scheduleHide()
+      }
+    }
+
+    container?.addEventListener('mousemove', handleMouseMove)
+    container?.addEventListener('mouseenter', handleMouseEnter)
+    container?.addEventListener('mouseleave', handleMouseLeave)
+    controls?.addEventListener('mousemove', handleMouseMove)
+    controls?.addEventListener('mouseenter', handleMouseEnter)
+    controls?.addEventListener('mouseleave', handleMouseLeave)
+    document.addEventListener('mousedown', handleGlobalActivity)
+    document.addEventListener('keydown', handleGlobalActivity)
+
+    return () => {
+      container?.removeEventListener('mousemove', handleMouseMove)
+      container?.removeEventListener('mouseenter', handleMouseEnter)
+      container?.removeEventListener('mouseleave', handleMouseLeave)
+      controls?.removeEventListener('mousemove', handleMouseMove)
+      controls?.removeEventListener('mouseenter', handleMouseEnter)
+      controls?.removeEventListener('mouseleave', handleMouseLeave)
+      document.removeEventListener('mousedown', handleGlobalActivity)
+      document.removeEventListener('keydown', handleGlobalActivity)
+      clearIdleTimer()
+    }
+  }, [containerRef, scheduleHide, clearIdleTimer])
+
+  useEffect(() => {
+    return () => {
+      clearIdleTimer()
+      if (cdnDebounceRef.current) {
+        clearTimeout(cdnDebounceRef.current)
+      }
+    }
+  }, [clearIdleTimer])
 
   useEffect(() => {
     if (!settingsOpen) return
@@ -306,11 +425,63 @@ export function VideoControls({
     }
   }
 
+  const handleHideControls = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    setControlsVisible(false)
+    clearIdleTimer()
+  }
+
+  const handleCodecChange = (value: string) => {
+    const codec = value as BilibiliCodec
+    setBilibiliCodec(codec)
+    codecRef.current = codec
+    setBilibiliParseOptions({
+      codec,
+      preferCdn: bilibiliCdn.trim() || undefined,
+    })
+    if (sourceType === 'bilibili') {
+      onReloadBilibili?.()
+    }
+  }
+
+  const saveCdnPreference = useCallback(
+    (value: string) => {
+      if (cdnDebounceRef.current) {
+        clearTimeout(cdnDebounceRef.current)
+      }
+      cdnDebounceRef.current = setTimeout(() => {
+        const trimmed = value.trim()
+        setBilibiliParseOptions({
+          codec: codecRef.current,
+          preferCdn: trimmed || undefined,
+        })
+        if (sourceType === 'bilibili') {
+          onReloadBilibili?.()
+        }
+      }, 500)
+    },
+    [sourceType, onReloadBilibili]
+  )
+
+  const handleCdnChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value
+    setBilibiliCdn(value)
+    saveCdnPreference(value)
+  }
+
   const iconBtnClass =
     'h-8 w-8 shrink-0 p-0 text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
 
+  const HideIcon = PanelBottomClose || ChevronDown
+
   return (
-    <div className="absolute bottom-0 left-0 right-0 z-20 p-3">
+    <div
+      ref={controlsRef}
+      className={cn(
+        'absolute bottom-0 left-0 right-0 z-20 p-3 transition-opacity duration-300',
+        !controlsVisible && 'opacity-0 pointer-events-none'
+      )}
+    >
       <div
         className={cn(
           'glass-strong flex flex-col gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 shadow-lg',
@@ -705,9 +876,61 @@ export function VideoControls({
                     />
                   </>
                 )}
+
+                {sourceType === 'bilibili' && (
+                  <>
+                    <div
+                      className="my-3 border-t"
+                      style={{
+                        borderColor:
+                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
+                      }}
+                    />
+                    <div className="mb-2 flex items-center gap-2">
+                      <span
+                        className="text-xs font-semibold"
+                        style={{ color: 'var(--md-sys-color-on-surface)' }}
+                      >
+                        B站 解析设置
+                      </span>
+                    </div>
+                    <div className="flex flex-col gap-2">
+                      <Select
+                        label="编码格式"
+                        className="[&_select]:h-8 [&_select]:py-1"
+                        options={[
+                          { label: '自动', value: 'auto' },
+                          { label: 'H.264', value: 'avc' },
+                          { label: 'HEVC', value: 'hevc' },
+                          { label: 'AV1', value: 'av1' },
+                        ]}
+                        value={bilibiliCodec}
+                        onChange={handleCodecChange}
+                        disabled={!isHost}
+                      />
+                      <Input
+                        label="CDN 偏好"
+                        size="sm"
+                        value={bilibiliCdn}
+                        onChange={handleCdnChange}
+                        placeholder="如 upos（留空为自动）"
+                        disabled={!isHost}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             )}
           </div>
+
+          <Button
+            variant="ghost"
+            size="sm"
+            className={iconBtnClass}
+            aria-label="隐藏控制栏"
+            onClick={handleHideControls}
+            icon={<HideIcon className="h-5 w-5" />}
+          />
 
           <Button
             variant="ghost"
@@ -740,4 +963,4 @@ export function VideoControls({
       </div>
     </div>
   )
-}
+})

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Monitor } from 'lucide-react'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
@@ -11,7 +12,10 @@ import {
   DanmakuLayer,
   type DanmakuLayerHandle,
 } from '@/components/DanmakuLayer'
-import { VideoControls } from '@/components/VideoPlayer/VideoControls'
+import {
+  VideoControls,
+  type VideoControlsHandle,
+} from '@/components/VideoPlayer/VideoControls'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
 import { fetchBilibiliDanmaku, type BilibiliDanmakuItem } from './danmakuEngine'
@@ -36,6 +40,7 @@ export function WatchTogetherPanel({
     forceSync,
     isResolving,
     resolvingMessage,
+    reloadBilibili,
   } = useWatchTogether({
     roomId,
     isHost,
@@ -51,6 +56,7 @@ export function WatchTogetherPanel({
   }>({ open: false, viewerSocketId: '' })
 
   const videoContainerRef = useRef<HTMLDivElement | null>(null)
+  const videoControlsRef = useRef<VideoControlsHandle | null>(null)
   const danmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
   // 缓存已加载的 B站 弹幕，用于弹幕开关重新开启时重新加载
   const danmakuItemsRef = useRef<BilibiliDanmakuItem[]>([])
@@ -244,40 +250,47 @@ export function WatchTogetherPanel({
     setConfirmJoin({ open: false, viewerSocketId: '' })
   }
 
-  return (
-    <>
-      <div
-        ref={videoContainerRef}
-        className={cn(
-          isWebFullscreen
-            ? 'fixed inset-0 z-[100] h-screen w-screen'
-            : 'relative h-full w-full'
-        )}
-      >
-        <video
-          ref={(node) => {
-            videoRef.current = node
-            setVideoElement(node)
-          }}
-          className="h-full w-full object-contain"
-          playsInline
-          preload="metadata"
-          crossOrigin="anonymous"
-        >
-          {/* 字幕轨道挂载：mode 由 textTracks effect 根据 subtitleEnabled 控制 */}
-          {subtitles.subtitleTracks.map((t, i) => (
-            <track
-              key={`${t.url}-${i}`}
-              kind="subtitles"
-              src={t.url}
-              label={t.label}
-              srcLang={t.lang || 'zh'}
-            />
-          ))}
-        </video>
+  const handleShowControls = () => {
+    videoControlsRef.current?.showControls()
+  }
 
-        {/* 字幕样式：使用 Monet 主题变量，字号可调、底色半透明 */}
-        <style>{`
+  const videoContainer = (
+    <div
+      ref={videoContainerRef}
+      className={cn(
+        isWebFullscreen ? 'fixed inset-0 z-[100]' : 'relative h-full w-full'
+      )}
+      style={
+        isWebFullscreen ? { width: '100dvw', height: '100dvh' } : undefined
+      }
+      onMouseMove={handleShowControls}
+      onMouseEnter={handleShowControls}
+      onClick={handleShowControls}
+    >
+      <video
+        ref={(node) => {
+          videoRef.current = node
+          setVideoElement(node)
+        }}
+        className="h-full w-full object-contain"
+        playsInline
+        preload="metadata"
+        crossOrigin="anonymous"
+      >
+        {/* 字幕轨道挂载：mode 由 textTracks effect 根据 subtitleEnabled 控制 */}
+        {subtitles.subtitleTracks.map((t, i) => (
+          <track
+            key={`${t.url}-${i}`}
+            kind="subtitles"
+            src={t.url}
+            label={t.label}
+            srcLang={t.lang || 'zh'}
+          />
+        ))}
+      </video>
+
+      {/* 字幕样式：使用 Monet 主题变量，字号可调、底色半透明 */}
+      <style>{`
           video::cue {
             font-size: ${subtitles.subtitleFontSize}px;
             background-color: rgba(var(--md-sys-color-surface-container-rgb), var(--glass-strength));
@@ -286,112 +299,122 @@ export function WatchTogetherPanel({
           }
         `}</style>
 
-        {isResolving && (
-          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm">
-            <Spinner size={32} />
-            <Text className="text-sm">
-              {resolvingMessage || '正在解析视频...'}
-            </Text>
-          </div>
-        )}
+      {isResolving && (
+        <div className="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-black/70 backdrop-blur-sm">
+          <Spinner size={32} />
+          <Text className="text-sm">
+            {resolvingMessage || '正在解析视频...'}
+          </Text>
+        </div>
+      )}
 
-        <VideoStatsMenu
-          videoElement={videoElement}
-          sourceType={
-            watchTogether.sourceType === 'bilibili' ? 'bilibili' : 'custom'
-          }
-        />
+      <VideoStatsMenu
+        videoElement={videoElement}
+        sourceType={
+          watchTogether.sourceType === 'bilibili' ? 'bilibili' : 'custom'
+        }
+      />
 
-        {!watchTogether.sourceUrl && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-            <div className="glass-strong flex h-20 w-20 items-center justify-center rounded-full">
-              <Monitor
-                className="h-10 w-10 opacity-70"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
-              />
-            </div>
-            <Text className="text-sm">
-              {isHost ? '请在下方添加并播放影片' : '等待房主播放影片'}
-            </Text>
-          </div>
-        )}
-
-        {watchTogether.sourceUrl && (
-          <>
-            <DanmakuLayer
-              ref={danmakuLayerRef}
-              socket={socket}
-              videoElement={videoElement}
-              enabled={danmakuEnabled}
-              opacity={style.opacity}
-              displayArea={style.displayArea}
-              density={style.advanced.density}
-              speed={style.speed}
-              scaleWithScreen={style.scaleWithScreen}
-              filters={style.filters}
-              advancedStyle={style.advanced}
-              fontSize={style.fontSize}
+      {!watchTogether.sourceUrl && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
+          <div className="glass-strong flex h-20 w-20 items-center justify-center rounded-full">
+            <Monitor
+              className="h-10 w-10 opacity-70"
+              style={{ color: 'var(--md-sys-color-on-surface)' }}
             />
-            <div className="absolute bottom-0 left-0 right-0 z-20">
-              <VideoControls
-                video={videoElement}
-                containerRef={videoContainerRef}
-                isHost={isHost}
-                isDanmakuEnabled={danmakuEnabled}
-                onToggleDanmaku={() => setDanmakuEnabled((prev) => !prev)}
-                onSendDanmaku={(text) => {
-                  const trimmed = text.trim()
-                  if (!trimmed) return
+          </div>
+          <Text className="text-sm">
+            {isHost ? '请在下方添加并播放影片' : '等待房主播放影片'}
+          </Text>
+        </div>
+      )}
 
-                  // 本地弹幕层即时显示，不依赖 socket 状态
-                  const item: BilibiliDanmakuItem = {
-                    id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                    content: trimmed,
-                    time: videoRef.current?.currentTime ?? 0,
-                    mode: 1,
-                    color: 16777215,
-                    size: 25,
-                  }
+      {watchTogether.sourceUrl && (
+        <>
+          <DanmakuLayer
+            ref={danmakuLayerRef}
+            socket={socket}
+            videoElement={videoElement}
+            enabled={danmakuEnabled}
+            opacity={style.opacity}
+            displayArea={style.displayArea}
+            density={style.advanced.density}
+            speed={style.speed}
+            scaleWithScreen={style.scaleWithScreen}
+            filters={style.filters}
+            advancedStyle={style.advanced}
+            fontSize={style.fontSize}
+          />
+          <div className="absolute bottom-0 left-0 right-0 z-20">
+            <VideoControls
+              ref={videoControlsRef}
+              video={videoElement}
+              containerRef={videoContainerRef}
+              isHost={isHost}
+              sourceType={watchTogether.sourceType}
+              onReloadBilibili={reloadBilibili}
+              isDanmakuEnabled={danmakuEnabled}
+              onToggleDanmaku={() => setDanmakuEnabled((prev) => !prev)}
+              onSendDanmaku={(text) => {
+                const trimmed = text.trim()
+                if (!trimmed) return
 
-                  danmakuLayerRef.current?.addDanmaku(item)
+                // 本地弹幕层即时显示，不依赖 socket 状态
+                const item: BilibiliDanmakuItem = {
+                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                  content: trimmed,
+                  time: videoRef.current?.currentTime ?? 0,
+                  mode: 1,
+                  color: 16777215,
+                  size: 25,
+                }
 
-                  // socket 可用时再发送到聊天区
-                  if (!socket) return
-                  socket.emit(
-                    'send-comment',
-                    { roomId, content: trimmed, isDanmaku: true },
-                    (response: { success: boolean; message?: string }) => {
-                      if (!response.success) {
-                        message.error(response.message ?? '弹幕发送失败')
-                      }
+                danmakuLayerRef.current?.addDanmaku(item)
+
+                // socket 可用时再发送到聊天区
+                if (!socket) return
+                socket.emit(
+                  'send-comment',
+                  { roomId, content: trimmed, isDanmaku: true },
+                  (response: { success: boolean; message?: string }) => {
+                    if (!response.success) {
+                      message.error(response.message ?? '弹幕发送失败')
                     }
-                  )
-                }}
-                onSync={() => {
-                  if (!isHost) return
-                  forceSync()
-                }}
-                isWebFullscreen={isWebFullscreen}
-                onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-                subtitleEnabled={subtitles.subtitleEnabled}
-                subtitleTracks={subtitles.subtitleTracks}
-                activeTrackIndex={subtitles.activeTrackIndex}
-                subtitleFontSize={subtitles.subtitleFontSize}
-                onToggleSubtitles={subtitles.setEnabled}
-                onSelectSubtitleTrack={subtitles.setActiveTrack}
-                onAddSubtitleUrl={subtitles.addTrackFromUrl}
-                onAddSubtitleFile={subtitles.addTrackFromFile}
-                onChangeSubtitleFontSize={subtitles.setFontSize}
-                danmakuStyle={style}
-                onDanmakuStyleChange={setStyle}
-                onDanmakuFilterChange={setFilters}
-                onDanmakuAdvancedChange={setAdvancedStyle}
-                onResetDanmakuStyle={resetStyle}
-              />
-            </div>
-          </>
-        )}
-      </div>
+                  }
+                )
+              }}
+              onSync={() => {
+                if (!isHost) return
+                forceSync()
+              }}
+              isWebFullscreen={isWebFullscreen}
+              onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+              subtitleEnabled={subtitles.subtitleEnabled}
+              subtitleTracks={subtitles.subtitleTracks}
+              activeTrackIndex={subtitles.activeTrackIndex}
+              subtitleFontSize={subtitles.subtitleFontSize}
+              onToggleSubtitles={subtitles.setEnabled}
+              onSelectSubtitleTrack={subtitles.setActiveTrack}
+              onAddSubtitleUrl={subtitles.addTrackFromUrl}
+              onAddSubtitleFile={subtitles.addTrackFromFile}
+              onChangeSubtitleFontSize={subtitles.setFontSize}
+              danmakuStyle={style}
+              onDanmakuStyleChange={setStyle}
+              onDanmakuFilterChange={setFilters}
+              onDanmakuAdvancedChange={setAdvancedStyle}
+              onResetDanmakuStyle={resetStyle}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  )
+
+  return (
+    <>
+      {isWebFullscreen
+        ? createPortal(videoContainer, document.body)
+        : videoContainer}
 
       <ConfirmModal
         open={confirmJoin.open}

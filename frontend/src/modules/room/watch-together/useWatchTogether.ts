@@ -384,7 +384,7 @@ export function useWatchTogether({
       currentQuality,
       applySourceToVideo,
       setWatchTogether,
-    ],
+    ]
   )
 
   // 房主：重新解析当前 B站 视频（用于解析偏好变更后即时生效）
