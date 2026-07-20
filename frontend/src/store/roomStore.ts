@@ -128,7 +128,14 @@ async function parseResponse<T>(res: Response): Promise<T> {
 export interface WatchTogetherState {
   sourceUrl: string
   sourceType:
-    'url' | 'webdav' | 'ftp' | 'openlist' | 'smb' | 'bilibili' | string
+    | 'url'
+    | 'webdav'
+    | 'ftp'
+    | 'openlist'
+    | 'smb'
+    | 'bilibili'
+    | 'anime'
+    | string
   audioUrl?: string
   format?: MediaFormat
   videoCodec?: string
@@ -140,6 +147,29 @@ export interface WatchTogetherState {
   duration: number
   currentQn?: number
   acceptQuality?: { id: number; label: string; resolution?: string }[]
+  /** 源指定的防盗链 headers（Referer/UA 等），由后端 resolve 返回 */
+  headers?: Record<string, string>
+  /** 是否为预览源（未加入影片列表的临时播放） */
+  isPreview?: boolean
+  /** 预览源的显示标题 */
+  previewTitle?: string
+}
+
+/**
+ * 预览播放请求：由 MoviePushPanel 等外部组件写入 store，
+ * useWatchTogether 通过 effect 监听并调用内部 previewPlay 方法执行实际加载。
+ * 用于解耦 UI 触发点与 useWatchTogether（后者在 WatchTogetherPanel 内部调用）。
+ */
+export interface PreviewPlayRequest {
+  url: string
+  title?: string
+  sourceType?: string
+  format?: MediaFormat
+  audioUrl?: string
+  videoCodec?: string
+  audioCodec?: string
+  headers?: Record<string, string>
+  duration?: number
 }
 
 interface RoomState {
@@ -161,6 +191,8 @@ interface RoomState {
   movies: Movie[]
   currentMovieId: number | null
   pendingQualityChange: { movieId: number; resolved: ResolvedSource } | null
+  /** 待处理的预览播放请求（由 MoviePushPanel 触发，useWatchTogether 消费） */
+  pendingPreviewPlay: PreviewPlayRequest | null
   setRoomId: (id: string) => void
   setRoomName: (name: string) => void
   setPassword: (password: string) => void
@@ -182,6 +214,7 @@ interface RoomState {
   setPendingQualityChange: (
     value: { movieId: number; resolved: ResolvedSource } | null
   ) => void
+  setPendingPreviewPlay: (value: PreviewPlayRequest | null) => void
   reset: () => void
   // REST API
   fetchMovies: (roomId: string) => Promise<void>
@@ -261,6 +294,7 @@ const defaultState = {
   movies: [],
   currentMovieId: null,
   pendingQualityChange: null,
+  pendingPreviewPlay: null,
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -346,6 +380,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setMovies: (movies) => set({ movies }),
   setCurrentMovieId: (id) => set({ currentMovieId: id }),
   setPendingQualityChange: (value) => set({ pendingQualityChange: value }),
+  setPendingPreviewPlay: (value) => set({ pendingPreviewPlay: value }),
   reset: () => set({ ...defaultState }),
 
   // REST API 调用：成功后由后端 socket 广播 movie-list 刷新本地 state；

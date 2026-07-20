@@ -148,10 +148,20 @@ export async function getAnimeEpisodes(
   return data.episodes
 }
 
+export interface ResolvedAnimeSource {
+  url: string
+  headers?: Record<string, string>
+  format?: MediaFormat
+  audioUrl?: string
+  videoCodec?: string
+  audioCodec?: string
+  duration?: number
+}
+
 export async function resolveAnimeEpisode(
   source: string,
   episode: AnimeEpisode
-): Promise<{ url: string; headers?: Record<string, string> }> {
+): Promise<ResolvedAnimeSource> {
   const res = await fetch(`${API_URL}/api/stream/anime/resolve`, {
     method: 'POST',
     headers: {
@@ -165,11 +175,60 @@ export async function resolveAnimeEpisode(
     message?: string
     url?: string
     headers?: Record<string, string>
+    format?: MediaFormat
+    audioUrl?: string
+    videoCodec?: string
+    audioCodec?: string
+    duration?: number
   }
   if (!res.ok || !data.success || !data.url) {
     throw new Error(data.message || '解析番剧播放地址失败')
   }
-  return { url: data.url, headers: data.headers }
+  return {
+    url: data.url,
+    headers: data.headers,
+    format: data.format,
+    audioUrl: data.audioUrl,
+    videoCodec: data.videoCodec,
+    audioCodec: data.audioCodec,
+    duration: data.duration,
+  }
+}
+
+/**
+ * 构建番剧源代理 URL，将防盗链 headers 编码到查询参数中。
+ * 浏览器无法直接设置 video.src 的 Referer/UA，需走后端代理。
+ */
+export function buildAnimeProxyUrl(
+  url: string,
+  headers?: Record<string, string>
+): string {
+  if (!headers || Object.keys(headers).length === 0) return url
+  const params = new URLSearchParams({ url })
+  if (headers.Referer) params.set('referer', headers.Referer)
+  if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])
+  if (headers.Origin) params.set('origin', headers.Origin)
+  if (headers.Cookie) params.set('cookie', headers.Cookie)
+  return `${API_URL}/api/stream/anime/proxy?${params.toString()}`
+}
+
+/**
+ * 判断 URL 是否需要走代理：
+ * - 携带防盗链 headers（Referer/UA 等）：浏览器无法直接设置，必须代理
+ * - 跨域：浏览器 video 元素虽允许跨域播放，但部分 CDN 会拒绝无 CORS 头的请求，
+ *   走代理可避免控制台噪音与潜在失败
+ */
+export function needsProxy(
+  url: string,
+  headers?: Record<string, string>
+): boolean {
+  if (headers && Object.keys(headers).length > 0) return true
+  try {
+    const target = new URL(url, API_URL)
+    return target.origin !== API_URL
+  } catch {
+    return false
+  }
 }
 
 export interface FollowingBangumi {

@@ -7,6 +7,8 @@ import {
   createAudioSync,
   resetVideoElement,
   waitForMetadata,
+  attachHlsStream,
+  attachFlvStream,
 } from '@/modules/room/watch-together/msePlayer'
 import type { WatchTogetherState } from '../types'
 import { safePlay } from '../safePlay'
@@ -54,6 +56,7 @@ export function useVideoSource({
 }: UseVideoSourceOptions): UseVideoSourceReturn {
   const mseBlobUrlRef = useRef<string | null>(null)
   const audioSyncRef = useRef<(() => void) | null>(null)
+  const streamCleanupRef = useRef<(() => void) | null>(null)
   const restoredRef = useRef(false)
   // 跟踪当前已应用到 video 元素的原始 sourceUrl（非 blob URL）。
   // 房主每 500ms 广播一次 state，观众端若每次都 resetVideoElement + load，
@@ -68,6 +71,10 @@ export function useVideoSource({
     if (audioSyncRef.current) {
       audioSyncRef.current()
       audioSyncRef.current = null
+    }
+    if (streamCleanupRef.current) {
+      streamCleanupRef.current()
+      streamCleanupRef.current = null
     }
   }, [])
 
@@ -139,6 +146,14 @@ export function useVideoSource({
             await waitForMetadata(video)
             audioSyncRef.current = createAudioSync(video, audioUrl)
           }
+        } else if (state.format === 'hls') {
+          // HLS (m3u8)：Safari 原生支持，其他浏览器通过 hls.js
+          streamCleanupRef.current = attachHlsStream(video, state.sourceUrl)
+          await waitForMetadata(video)
+        } else if (state.format === 'flv') {
+          // FLV：通过 flv.js
+          streamCleanupRef.current = attachFlvStream(video, state.sourceUrl)
+          await waitForMetadata(video)
         } else {
           video.src = state.sourceUrl
           video.load()

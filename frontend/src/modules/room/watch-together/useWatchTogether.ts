@@ -91,6 +91,8 @@ export function useWatchTogether({
     fetchMovies,
     pendingQualityChange,
     setPendingQualityChange,
+    pendingPreviewPlay,
+    setPendingPreviewPlay,
   } = useRoomStore()
   const isHostRef = useRef(isHost)
   const suppressEventsRef = useRef(false)
@@ -214,8 +216,60 @@ export function useWatchTogether({
       setCurrentMovieId(payload.movieId)
     }
 
+    // 观众端：接收房主广播的预览源，直接加载播放（不经过影片列表）
+    const handlePreviewSource = (payload: {
+      source: {
+        url: string
+        title?: string
+        sourceType?: string
+        format?: MediaFormat
+        audioUrl?: string
+        videoCodec?: string
+        audioCodec?: string
+        headers?: Record<string, string>
+        duration?: number
+      }
+    }) => {
+      if (isHostRef.current) return
+      const video = videoRef.current
+      if (!video) return
+
+      const { source } = payload
+      const newState: WatchTogetherState = {
+        sourceUrl: source.url,
+        sourceType: source.sourceType || 'anime',
+        audioUrl: source.audioUrl,
+        format: source.format as MediaFormat | undefined,
+        videoCodec: source.videoCodec,
+        audioCodec: source.audioCodec,
+        isPlaying: true,
+        currentTime: 0,
+        playbackRate: watchTogether.playbackRate,
+        duration: source.duration ?? 0,
+        headers: source.headers,
+        isPreview: true,
+        previewTitle: source.title,
+      }
+      setWatchTogether(newState)
+      suppressEventsRef.current = true
+      void applySourceToVideo(video, newState)
+        .then(() => {
+          video.currentTime = 0
+          if (video.paused) {
+            void safePlay(video)
+          }
+          suppressEventsRef.current = false
+        })
+        .catch((err: unknown) => {
+          console.error('[useWatchTogether] 观众端预览源加载失败:', err)
+          suppressEventsRef.current = false
+          message.error(err instanceof Error ? err.message : '预览源加载失败')
+        })
+    }
+
     socket.on(SOCKET_EVENT.MOVIE_LIST, handleMovieList)
     socket.on(SOCKET_EVENT.CURRENT_MOVIE, handleCurrentMovie)
+    socket.on(SOCKET_EVENT.PREVIEW_SOURCE, handlePreviewSource)
 
     // 房间加入/刷新时优先通过 REST 接口加载影片列表
     fetchMovies(roomId).catch((err) => {
@@ -226,8 +280,22 @@ export function useWatchTogether({
     return () => {
       socket.off(SOCKET_EVENT.MOVIE_LIST, handleMovieList)
       socket.off(SOCKET_EVENT.CURRENT_MOVIE, handleCurrentMovie)
+      socket.off(SOCKET_EVENT.PREVIEW_SOURCE, handlePreviewSource)
     }
-  }, [socket, roomId, setMovies, setCurrentMovieId, fetchMovies])
+  }, [
+    socket,
+    roomId,
+    setMovies,
+    setCurrentMovieId,
+    fetchMovies,
+    applySourceToVideo,
+    broadcastState,
+    sendControl,
+    suppressEventsRef,
+    videoRef,
+    watchTogether.playbackRate,
+    setWatchTogether,
+  ])
 
   // 根据当前视频源类型计算可用清晰度列表。
   // B站 DASH 流使用后端返回的真实 acceptQuality；其他单源类型返回空数组，由 UI 隐藏选择器。
@@ -606,6 +674,101 @@ export function useWatchTogether({
     watchTogether.sourceUrl,
   ])
 
+  /**
+   * 房主端：播放预览源（不写入影片列表，直接加载并广播给观众）。
+   * 用于 ani-subs / Kazumi 等番剧源选集后的实时播放。
+   */
+  const previewPlay = useCallback(
+    (params: {
+      url: string
+      title?: string
+      sourceType?: string
+      format?: MediaFormat
+      audioUrl?: string
+      videoCodec?: string
+      audioCodec?: string
+      headers?: Record<string, string>
+      duration?: number
+    }) => {
+      const video = videoRef.current
+      if (!video) return
+
+      const newState: WatchTogetherState = {
+        sourceUrl: params.url,
+        sourceType: params.sourceType || 'anime',
+        audioUrl: params.audioUrl,
+        format: params.format,
+        videoCodec: params.videoCodec,
+        audioCodec: params.audioCodec,
+        isPlaying: true,
+        currentTime: 0,
+        playbackRate: watchTogether.playbackRate,
+        duration: params.duration ?? 0,
+        headers: params.headers,
+        isPreview: true,
+        previewTitle: params.title,
+      }
+
+      setWatchTogether(newState)
+      // 清除当前影片标记，避免 loadMovie effect 触发覆盖预览源
+      setCurrentMovieId(null)
+
+      suppressEventsRef.current = true
+      void applySourceToVideo(video, newState)
+        .then(() => {
+          video.currentTime = 0
+          if (video.paused) {
+            void safePlay(video)
+          }
+          suppressEventsRef.current = false
+          // 广播给观众
+          broadcastState(newState)
+          // 通过专用事件通知观众加载预览源
+          socket?.emit('play-preview-source', {
+            roomId,
+            source: {
+              url: params.url,
+              title: params.title,
+              sourceType: params.sourceType,
+              format: params.format,
+              audioUrl: params.audioUrl,
+              videoCodec: params.videoCodec,
+              audioCodec: params.audioCodec,
+              headers: params.headers,
+              duration: params.duration,
+            },
+          })
+        })
+        .catch((err: unknown) => {
+          console.error('[useWatchTogether] previewPlay 加载失败:', err)
+          suppressEventsRef.current = false
+          message.error(err instanceof Error ? err.message : '预览源加载失败')
+        })
+    },
+    [
+      videoRef,
+      watchTogether.playbackRate,
+      setWatchTogether,
+      setCurrentMovieId,
+      applySourceToVideo,
+      broadcastState,
+      socket,
+      roomId,
+      suppressEventsRef,
+    ]
+  )
+
+  // 监听 pendingPreviewPlay：由 MoviePushPanel 等外部组件触发，
+  // 通过 store 解耦后在此消费，调用内部 previewPlay 执行实际加载与广播。
+  // 捕获后立即清除 pending，防止 previewPlay 内部 setWatchTogether
+  // 触发重新渲染导致 effect 重复触发、多次 applySourceToVideo 并发。
+  useEffect(() => {
+    if (!pendingPreviewPlay) return
+    const payload = pendingPreviewPlay
+    setPendingPreviewPlay(null)
+    previewPlay(payload)
+  }, [pendingPreviewPlay, previewPlay, setPendingPreviewPlay])
+
   return {
     watchTogether,
     setWatchTogether,
@@ -617,6 +780,7 @@ export function useWatchTogether({
     suppressEventsRef,
     applySourceToVideo,
     cleanupMedia,
+    previewPlay,
     // 清晰度相关
     currentQuality: quality.currentQuality,
     availableQualities: quality.availableQualities,

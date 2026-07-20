@@ -14,3 +14,13 @@ coverage/
 .trae/
 .update-temp/
 apply-update.bat
+
+# 数据库文件（含 B 站 cookie、用户密码哈希等敏感数据，禁止提交/打包）
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+
+# 生产服务运行时状态
+.prod.pids.json
+.prod.ports.json

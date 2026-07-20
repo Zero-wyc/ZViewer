@@ -3,6 +3,7 @@ import {
   AnimeSearchResult,
   AnimeEpisode,
   AnimePlaybackUrl,
+  AnimeMediaFormat,
 } from '../types';
 import { load } from 'cheerio';
 import { createRssAnimeProvider } from './rss';
@@ -164,11 +165,23 @@ function matchChannelName(name: string, pattern?: string): boolean {
   }
 }
 
+function detectMediaFormat(url: string): AnimeMediaFormat {
+  const lower = url.toLowerCase().split('?')[0];
+  if (lower.endsWith('.m3u8')) return 'hls';
+  if (lower.endsWith('.flv')) return 'flv';
+  if (lower.endsWith('.mp4')) return 'mp4';
+  // 兜底：URL 中包含特征字符串
+  if (lower.includes('.m3u8')) return 'hls';
+  if (lower.includes('.flv')) return 'flv';
+  if (lower.includes('.mp4')) return 'mp4';
+  return 'unknown';
+}
+
 function findVideoUrl(
   html: string,
   config: NonNullable<AniSubsSearchConfig['matchVideo']>,
   pageUrl: string,
-): { url: string; headers?: Record<string, string> } | null {
+): { url: string; headers?: Record<string, string>; format?: AnimeMediaFormat } | null {
   const regex = new RegExp(config.matchVideoUrl, 'gi');
   const match = regex.exec(html);
   if (!match) return null;
@@ -194,13 +207,13 @@ function findVideoUrl(
   if (config.addHeadersToVideo?.origin) {
     headers.Origin = config.addHeadersToVideo.origin;
   }
-  return { url, headers };
+  return { url, headers, format: detectMediaFormat(url) };
 }
 
 async function resolveVideoUrl(
   episodeUrl: string,
   config: NonNullable<AniSubsSearchConfig['matchVideo']>,
-): Promise<{ url: string; headers?: Record<string, string> } | null> {
+): Promise<{ url: string; headers?: Record<string, string>; format?: AnimeMediaFormat } | null> {
   const html = await fetchHtml(episodeUrl, config.cookies);
   let result = findVideoUrl(html, config, episodeUrl);
   if (result) return result;
@@ -456,6 +469,7 @@ export function createAniSubsWebSelectorProvider(
       return {
         url: result.url,
         headers: result.headers,
+        format: result.format,
       };
     },
   };

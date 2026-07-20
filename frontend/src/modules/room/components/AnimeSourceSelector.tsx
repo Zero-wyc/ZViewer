@@ -10,7 +10,6 @@ import {
   getAnimeSources,
   searchAnime,
   getAnimeEpisodes,
-  resolveAnimeEpisode,
   type AnimeSearchResult,
   type AnimeEpisode,
   type AnimeSource,
@@ -45,7 +44,10 @@ export function AnimeSourceSelector({
   const [loadingSources, setLoadingSources] = useState(false)
   const [searching, setSearching] = useState(false)
   const [loadingEpisodes, setLoadingEpisodes] = useState(false)
-  const [resolving, setResolving] = useState<string | null>(null)
+  // 已选集 ID：用于在等待 MoviePushPanel 解析时显示加载反馈
+  const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(
+    null
+  )
   const [viewMode, setViewMode] = useState<'list' | 'tile'>(() => {
     const saved = localStorage.getItem('anime-source-selector-view-mode')
     return saved === 'tile' ? 'tile' : 'list'
@@ -68,6 +70,13 @@ export function AnimeSourceSelector({
       })
       .finally(() => setLoadingSources(false))
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在 open 变化时加载，不依赖 selectedSource
+  }, [open])
+
+  // 关闭弹窗时清理临时状态，下次打开为初始视图
+  useEffect(() => {
+    if (open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 关闭时清理选中态
+    setSelectedEpisodeId(null)
   }, [open])
 
   const sourceOptions = useMemo(
@@ -123,23 +132,18 @@ export function AnimeSourceSelector({
   )
 
   const handleSelectEpisode = useCallback(
-    async (result: AnimeSearchResult, episode: AnimeEpisode) => {
+    (result: AnimeSearchResult, episode: AnimeEpisode) => {
       if (disabled) {
         message.info('当前不可用')
         return
       }
-      setResolving(episode.id)
-      try {
-        await resolveAnimeEpisode(result.source, episode)
-        const title = `${result.title} - ${episode.title}`
-        onSelectEpisode(result.source, episode, title)
-        onOpenChange(false)
-      } catch (err) {
-        console.error('[AnimeSourceSelector] resolve error:', err)
-        message.error(err instanceof Error ? err.message : '解析播放地址失败')
-      } finally {
-        setResolving(null)
-      }
+      // 仅负责选中反馈，实际解析由 MoviePushPanel 完成（避免重复 resolveAnimeEpisode 调用）
+      setSelectedEpisodeId(episode.id)
+      const title = `${result.title} - ${episode.title}`
+      onSelectEpisode(result.source, episode, title)
+      onOpenChange(false)
+      // 关闭后清理选中态，下次打开时为初始状态
+      setTimeout(() => setSelectedEpisodeId(null), 500)
     },
     [disabled, onSelectEpisode, onOpenChange]
   )
@@ -260,6 +264,36 @@ export function AnimeSourceSelector({
               : 'flex flex-col gap-3'
           )}
         >
+          {/* 空状态：未搜索 / 搜索中 / 无结果 */}
+          {searchResults.length === 0 && (
+            <div
+              className={cn(
+                'flex items-center justify-center',
+                viewMode === 'tile' ? 'col-span-full' : 'w-full'
+              )}
+            >
+              <div className="flex flex-col items-center gap-2 py-12 text-center">
+                {searching ? (
+                  <Loader2 className="h-6 w-6 animate-spin text-[var(--md-sys-color-primary)]" />
+                ) : (
+                  <Tv
+                    className="h-8 w-8"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  />
+                )}
+                <Paragraph type="secondary" className="m-0 text-xs">
+                  {searching
+                    ? '正在搜索...'
+                    : keyword
+                      ? '暂无结果，换个关键词试试'
+                      : '输入关键词开始搜索番剧'}
+                </Paragraph>
+              </div>
+            </div>
+          )}
+
           {searchResults.map((result) => {
             const expanded = expandedId === result.id
             const episodes = episodesMap[result.id] || []
@@ -367,10 +401,8 @@ export function AnimeSourceSelector({
                         <button
                           key={episode.id}
                           type="button"
-                          onClick={() =>
-                            void handleSelectEpisode(result, episode)
-                          }
-                          disabled={!!resolving}
+                          onClick={() => handleSelectEpisode(result, episode)}
+                          disabled={!!selectedEpisodeId}
                           className="flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] border border-transparent p-2 text-left transition-all hover:border-[var(--md-sys-color-primary)] hover:bg-[var(--md-sys-color-primary-container)] disabled:opacity-60"
                         >
                           <div
@@ -389,7 +421,7 @@ export function AnimeSourceSelector({
                           >
                             {episode.title}
                           </span>
-                          {resolving === episode.id ? (
+                          {selectedEpisodeId === episode.id ? (
                             <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
                           ) : (
                             <Play

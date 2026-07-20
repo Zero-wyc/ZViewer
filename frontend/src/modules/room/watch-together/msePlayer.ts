@@ -1,4 +1,6 @@
 import { useAuthStore } from '@/store/authStore'
+import Hls from 'hls.js'
+import flvjs from 'flv.js'
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const API_URL = rawApiUrl || window.location.origin
@@ -544,5 +546,94 @@ export function createAudioSync(
     video.removeEventListener('timeupdate', onTimeUpdate)
     audio.pause()
     audio.src = ''
+  }
+}
+
+/**
+ * 使用 hls.js 将 m3u8 流挂载到 <video> 元素。
+ * Safari 原生支持 HLS（直接设置 src），其他浏览器通过 hls.js 附加。
+ * 返回的 cleanup 函数用于卸载 hls 实例并清理资源。
+ */
+export function attachHlsStream(
+  video: HTMLVideoElement,
+  url: string
+): () => void {
+  resetVideoElement(video)
+
+  // Safari 原生支持 HLS
+  if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    video.src = url
+    video.load()
+    return () => {
+      try {
+        video.pause()
+      } catch {
+        // ignore
+      }
+      video.removeAttribute('src')
+      video.load()
+    }
+  }
+
+  if (!Hls.isSupported()) {
+    throw new Error('当前浏览器不支持 HLS 播放且 hls.js 不可用')
+  }
+
+  const hls = new Hls({
+    enableWorker: true,
+    lowLatencyMode: false,
+  })
+  hls.attachMedia(video)
+  hls.on(Hls.Events.MEDIA_ATTACHED, () => {
+    hls.loadSource(url)
+  })
+
+  return () => {
+    try {
+      hls.destroy()
+    } catch {
+      // ignore
+    }
+  }
+}
+
+/**
+ * 使用 flv.js 将 FLV 流挂载到 <video> 元素。
+ * 返回的 cleanup 函数用于卸载 flv 实例并清理资源。
+ */
+export function attachFlvStream(
+  video: HTMLVideoElement,
+  url: string
+): () => void {
+  if (!flvjs.isSupported()) {
+    throw new Error('当前浏览器不支持 FLV 播放且 flv.js 不可用')
+  }
+
+  resetVideoElement(video)
+
+  const player = flvjs.createPlayer(
+    {
+      type: 'flv',
+      url,
+      isLive: false,
+      cors: true,
+    },
+    {
+      enableWorker: false,
+      lazyLoad: false,
+    }
+  )
+  player.attachMediaElement(video)
+  player.load()
+
+  return () => {
+    try {
+      player.pause()
+      player.unload()
+      player.detachMediaElement()
+      player.destroy()
+    } catch {
+      // ignore
+    }
   }
 }

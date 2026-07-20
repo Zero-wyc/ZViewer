@@ -3,6 +3,7 @@ import {
   AnimeSearchResult,
   AnimeEpisode,
   AnimePlaybackUrl,
+  AnimeMediaFormat,
 } from '../types';
 import { DOMParser } from '@xmldom/xmldom';
 import * as xpath from 'xpath';
@@ -143,10 +144,21 @@ function extractEpisodeNumber(name: string): number {
   return Number.isNaN(n) ? 0 : n;
 }
 
+function detectMediaFormat(url: string): AnimeMediaFormat {
+  const lower = url.toLowerCase().split('?')[0];
+  if (lower.endsWith('.m3u8')) return 'hls';
+  if (lower.endsWith('.flv')) return 'flv';
+  if (lower.endsWith('.mp4')) return 'mp4';
+  if (lower.includes('.m3u8')) return 'hls';
+  if (lower.includes('.flv')) return 'flv';
+  if (lower.includes('.mp4')) return 'mp4';
+  return 'unknown';
+}
+
 async function resolveVideoUrl(
   episodeUrl: string,
   rule: KazumiRule,
-): Promise<{ url: string; headers?: Record<string, string> } | null> {
+): Promise<{ url: string; headers?: Record<string, string>; format?: AnimeMediaFormat } | null> {
   const html = await fetchHtml(episodeUrl, {
     userAgent: rule.userAgent,
     referer: rule.referer || rule.baseURL,
@@ -166,7 +178,7 @@ async function resolveVideoUrl(
     for (const match of matches) {
       const url = absolute(match[1] || match[0]);
       if (url && (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.flv'))) {
-        return { url };
+        return { url, format: detectMediaFormat(url) };
       }
     }
   }
@@ -180,7 +192,8 @@ async function resolveVideoUrl(
   for (const pattern of configPatterns) {
     const match = pattern.exec(html);
     if (match?.[1]) {
-      return { url: absolute(match[1]) };
+      const url = absolute(match[1]);
+      return { url, format: detectMediaFormat(url) };
     }
   }
 
@@ -198,7 +211,7 @@ async function resolveVideoUrl(
         for (const match of matches) {
           const url = absolute(match[1] || match[0]);
           if (url && (url.includes('.m3u8') || url.includes('.mp4') || url.includes('.flv'))) {
-            return { url };
+            return { url, format: detectMediaFormat(url) };
           }
         }
       }
@@ -317,6 +330,7 @@ export function createKazumiProvider(
       return {
         url: result.url,
         headers: Object.keys(headers).length > 0 ? headers : undefined,
+        format: result.format,
       };
     },
   };

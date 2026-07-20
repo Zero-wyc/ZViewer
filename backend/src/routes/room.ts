@@ -713,6 +713,48 @@ export function registerRoomHandlers(io: SocketIOServer): void {
       },
     );
 
+    // --- 播放预览源（不写入影片列表，直接广播播放状态） ---
+    socket.on(
+      'play-preview-source',
+      async (
+        payload: {
+          roomId: string;
+          source: {
+            url: string;
+            title?: string;
+            sourceType?: string;
+            format?: string;
+            audioUrl?: string;
+            videoCodec?: string;
+            audioCodec?: string;
+            headers?: Record<string, string>;
+            duration?: number;
+          };
+        },
+        callback?: (response: { success: boolean; message?: string }) => void,
+      ) => {
+        try {
+          if (
+            socket.data.role !== 'sharer' &&
+            !(await isRoomHost(socket, payload.roomId))
+          ) {
+            return callback?.({ success: false, message: '无权限播放影片' });
+          }
+
+          const roomState = getRoomState(payload.roomId);
+          // 预览源清除当前影片标记，仅广播播放状态
+          roomState.currentMovieId = null;
+          io.to(payload.roomId).emit('preview-source', {
+            source: payload.source,
+          });
+          callback?.({ success: true });
+        } catch (err) {
+          console.error('play-preview-source error:', err);
+          callback?.({ success: false, message: '播放预览源失败' });
+        }
+      },
+    );
+
     // --- 请求房间播放列表 ---
     socket.on(
       'request-movie-list',

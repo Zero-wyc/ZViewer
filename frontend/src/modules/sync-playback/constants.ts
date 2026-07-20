@@ -25,6 +25,8 @@ export const SOCKET_EVENT = {
   CURRENT_MOVIE: 'current-movie',
   /** 请求当前播放影片 */
   REQUEST_CURRENT_MOVIE: 'request-current-movie',
+  /** 房主播放预览源（不写入影片列表，直接广播播放状态） */
+  PREVIEW_SOURCE: 'preview-source',
   /** 房主心跳：定时广播当前播放进度与播放状态，用于观众端离线检测 */
   HOST_HEARTBEAT: 'host-heartbeat',
   /** 观众加入房间通知（后端转发给房主） */

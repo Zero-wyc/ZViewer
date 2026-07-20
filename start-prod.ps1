@@ -196,8 +196,9 @@ function Write-PidsFile {
 }
 
 function Test-PortInUse {
+    # 仅检查 Listen 状态，避免 TIME_WAIT / CloseWait 等残留连接造成误判
     param([int]$LocalPort)
-    $conn = Get-NetTCPConnection -LocalPort $LocalPort -ErrorAction SilentlyContinue | Select-Object -First 1
+    $conn = Get-NetTCPConnection -LocalPort $LocalPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
     return $null -ne $conn
 }
 
@@ -211,21 +212,23 @@ function Get-ProcessByIdSafe {
 }
 
 function Stop-ProcessGraceful {
-    # 先 taskkill /T（含子进程）友好结束，超时再 force
-    param([int]$ProcessId, [int]$TimeoutSec = 3)
+    # 终止进程及其所有子进程。
+    # node / vite 后台进程 detached 于控制台，taskkill 不带 /F 发送的信号对它们无效；
+    # Stop-Process -Force 又只杀单个 PID 不杀子进程，会导致 vite fork 的监听子进程残留。
+    # 因此统一使用 taskkill /T /F 一次性强制终止整个进程树。
+    param([int]$ProcessId, [int]$TimeoutSec = 5)
     $proc = Get-ProcessByIdSafe -ProcessId $ProcessId
     if (-not $proc) {
         Write-Host "  进程 PID $ProcessId 不存在或已结束"
         return $false
     }
     $name = $proc.ProcessName
-    # 1. 优雅关闭（taskkill 不带 /F，发送 CTRL_BREAK 之类）
+
+    # 1. 优雅尝试：taskkill /T（不带 /F），给进程一个清理机会
     try {
-        # Start-Process -PassThru 拿到的 PID 可能是 stub，先尝试直接 Stop-Process 不带 -Force
-        # 但 node 后台进程对 Stop-Process 不带 Force 不响应，所以直接用 taskkill /T 优雅尝试
         & taskkill /PID $ProcessId /T 2>&1 | Out-Null
     } catch {}
-    $deadline = (Get-Date).AddSeconds($TimeoutSec)
+    $deadline = (Get-Date).AddSeconds(2)
     while ((Get-Date) -lt $deadline) {
         if (-not (Get-ProcessByIdSafe -ProcessId $ProcessId)) {
             Write-Host "  已结束进程 PID $ProcessId ($name)"
@@ -233,7 +236,22 @@ function Stop-ProcessGraceful {
         }
         Start-Sleep -Milliseconds 200
     }
-    # 2. 超时强制结束
+
+    # 2. 强制终止整个进程树（/T = 含子进程，/F = 强制）
+    try {
+        & taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
+    } catch {}
+    # 等待进程真正消失
+    $deadline2 = (Get-Date).AddSeconds($TimeoutSec)
+    while ((Get-Date) -lt $deadline2) {
+        if (-not (Get-ProcessByIdSafe -ProcessId $ProcessId)) {
+            Write-Host "  已强制结束进程 PID $ProcessId ($name)" -ForegroundColor Yellow
+            return $true
+        }
+        Start-Sleep -Milliseconds 200
+    }
+
+    # 3. 最后兜底：Stop-Process -Force
     try {
         Stop-Process -Id $ProcessId -Force -ErrorAction Stop
         Write-Host "  已强制结束进程 PID $ProcessId ($name)" -ForegroundColor Yellow
@@ -303,20 +321,46 @@ function Get-PidByPort {
 }
 
 function Stop-ServiceByPidOrPort {
-    # 优先用 PID 停止；PID 失效则按端口查找
+    # 优先用 PID 停止；PID 失效或停止后端口仍被占用则按端口查找。
+    # vite preview / node 会 fork 子进程实际监听端口，杀父 PID 后子进程可能仍占用端口，
+    # 因此必须以端口释放为最终判据，而不是仅看 PID 是否消失。
     param([int]$ProcessId, [int]$LocalPort)
     $proc = Get-ProcessByIdSafe -ProcessId $ProcessId
     if ($proc) {
         Stop-ProcessGraceful -ProcessId $ProcessId | Out-Null
-        return
-    }
-    # PID 不存在，按端口查找
-    $realPid = Get-PidByPort -LocalPort $LocalPort -TimeoutMs 500
-    if ($realPid) {
-        Write-Host "  PID $ProcessId 已失效，按端口 $LocalPort 查找到真实 PID $realPid" -ForegroundColor Yellow
-        Stop-ProcessGraceful -ProcessId $realPid | Out-Null
     } else {
-        Write-Host "  PID $ProcessId 不存在，端口 $LocalPort 也未监听" -ForegroundColor Yellow
+        Write-Host "  PID $ProcessId 不存在" -ForegroundColor Yellow
+    }
+
+    # 验证端口是否真的释放。vite/node 的子进程可能仍在监听。
+    if ($LocalPort -gt 0) {
+        # 短暂等待端口释放
+        $waitDeadline = (Get-Date).AddSeconds(1)
+        while ((Get-Date) -lt $waitDeadline) {
+            if (-not (Test-PortInUse -LocalPort $LocalPort)) { break }
+            Start-Sleep -Milliseconds 200
+        }
+
+        if (Test-PortInUse -LocalPort $LocalPort) {
+            # 端口仍被占用，按端口查找真实监听进程并强杀整个进程树
+            $realPid = Get-PidByPort -LocalPort $LocalPort -TimeoutMs 500
+            if ($realPid) {
+                if ($realPid -ne $ProcessId) {
+                    Write-Host "  端口 $LocalPort 仍被 PID $realPid 占用（PID $ProcessId 的子进程），按端口清理..." -ForegroundColor Yellow
+                } else {
+                    Write-Host "  PID $ProcessId 仍占用端口 $LocalPort，再次强制清理..." -ForegroundColor Yellow
+                }
+                Stop-ProcessGraceful -ProcessId $realPid | Out-Null
+
+                # 最终验证
+                if (Test-PortInUse -LocalPort $LocalPort) {
+                    $stillPid = Get-PidByPort -LocalPort $LocalPort -TimeoutMs 500
+                    if ($stillPid) {
+                        Write-Host "  端口 $LocalPort 仍被 PID $stillPid 占用，请手动结束" -ForegroundColor Red
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -520,7 +564,20 @@ function Invoke-Stop {
         Remove-Item $pidsFile -Force -ErrorAction SilentlyContinue
         Write-Host "  已清理 PID 文件"
     } else {
-        Write-Host "  未找到 PID 文件，服务未通过本脚本启动（不按端口清理，避免误杀 dev server）" -ForegroundColor Yellow
+        Write-Host "  未找到 PID 文件，尝试按端口清理（仅清理监听进程，dev server 也会被停止）..." -ForegroundColor Yellow
+        # 读取持久化端口配置；若无配置则使用参数默认值
+        $savedPorts = Read-PortsFile
+        $bePort = if ($savedPorts) { $savedPorts.backend } else { $Port }
+        $fePort = if ($savedPorts) { $savedPorts.frontend } else { $FrontendPort }
+        foreach ($p in @($bePort, $fePort)) {
+            if ($p -gt 0 -and (Test-PortInUse -LocalPort $p)) {
+                $realPid = Get-PidByPort -LocalPort $p -TimeoutMs 500
+                if ($realPid) {
+                    Write-Host "  端口 $p 被 PID $realPid 占用，停止该进程..."
+                    Stop-ProcessGraceful -ProcessId $realPid | Out-Null
+                }
+            }
+        }
     }
     Write-Host ""
     Write-Host "服务已停止" -ForegroundColor Green

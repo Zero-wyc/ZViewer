@@ -36,6 +36,8 @@ import {
   type FTPParams,
   type AnimeEpisode,
   resolveAnimeEpisode,
+  buildAnimeProxyUrl,
+  needsProxy,
 } from '@/modules/room/watch-together/resolveSource'
 import {
   resolveBilibiliWithOptions,
@@ -92,6 +94,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const addMovie = useRoomStore((state) => state.addMovie)
   const fetchMovies = useRoomStore((state) => state.fetchMovies)
   const setCurrentMovieId = useRoomStore((state) => state.setCurrentMovieId)
+  const setPendingPreviewPlay = useRoomStore(
+    (state) => state.setPendingPreviewPlay
+  )
   const roomId = useRoomStore((state) => state.roomId)
   const [sourceType, setSourceType] = useState<SourceType>('bilibili')
   const [url, setUrl] = useState('')
@@ -319,21 +324,47 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setLoading(true)
       try {
         const resolved = await resolveAnimeEpisode(sourceId, episode)
-        const movieUrl = resolved.url
-        await addMovie(roomId, {
-          url: movieUrl,
+
+        // 防盗链处理：若返回 headers（Referer/UA 等），走后端代理 URL
+        // 浏览器无法为 video.src 设置 Referer/UA，必须代理
+        const finalUrl = needsProxy(resolved.url, resolved.headers)
+          ? buildAnimeProxyUrl(resolved.url, resolved.headers)
+          : resolved.url
+
+        // 1. 触发实时预览播放（通过 store 解耦 useWatchTogether）
+        //    代理 URL 已包含防盗链信息，无需再传 headers
+        setPendingPreviewPlay({
+          url: finalUrl,
+          title,
+          sourceType: 'anime',
+          format: resolved.format,
+          audioUrl: resolved.audioUrl,
+          videoCodec: resolved.videoCodec,
+          audioCodec: resolved.audioCodec,
+          duration: resolved.duration,
+        })
+
+        // 2. 同时异步加入影片列表（不阻塞预览播放）
+        //    后端广播 movie-list 后由 useWatchTogether 自动刷新本地缓存
+        void addMovie(roomId, {
+          url: finalUrl,
           title,
           source: 'anime',
+          audioUrl: resolved.audioUrl,
+          format: resolved.format,
+          videoCodec: resolved.videoCodec,
+          audioCodec: resolved.audioCodec,
+          duration: resolved.duration,
         })
-        await fetchMovies(roomId)
-        const movie = useRoomStore
-          .getState()
-          .movies.find((m) => m.url === movieUrl)
-        if (movie) {
-          setCurrentMovieId(movie.id)
-          socket?.emit('play-movie', { roomId, movieId: movie.id })
-        }
-        message.success('已加载番剧集数')
+          .then(() => fetchMovies(roomId))
+          .catch((err) => {
+            console.error(
+              '[MoviePushPanel] addMovie/fetchMovies after preview failed:',
+              err
+            )
+          })
+
+        message.success('已开始播放并加入列表')
       } catch (err) {
         console.error('[MoviePushPanel] select anime episode error:', err)
         message.error(err instanceof Error ? err.message : '加载番剧集数失败')
@@ -341,7 +372,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         setLoading(false)
       }
     },
-    [isHost, roomId, addMovie, fetchMovies, setCurrentMovieId, socket]
+    [isHost, roomId, addMovie, fetchMovies, setPendingPreviewPlay]
   )
 
   useEffect(() => {
