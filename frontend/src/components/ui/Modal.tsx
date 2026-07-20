@@ -1,8 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './Button'
+
+const MODAL_ANIMATION_DURATION = 400
 
 export interface ModalProps {
   open: boolean
@@ -21,16 +23,41 @@ export function Modal({
   footer,
   className,
 }: ModalProps) {
+  const [visible, setVisible] = useState(open)
+  const [exiting, setExiting] = useState(false)
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const prevOpenRef = useRef(open)
+
   useEffect(() => {
-    if (!open) return
+    if (open && !prevOpenRef.current) {
+      setVisible(true)
+      setExiting(false)
+    } else if (!open && prevOpenRef.current) {
+      setExiting(true)
+      closeTimerRef.current = setTimeout(() => {
+        setVisible(false)
+        setExiting(false)
+      }, MODAL_ANIMATION_DURATION)
+    }
+    prevOpenRef.current = open
+
+    return () => {
+      if (closeTimerRef.current) {
+        clearTimeout(closeTimerRef.current)
+      }
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!visible) return
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKeyDown)
     return () => document.removeEventListener('keydown', onKeyDown)
-  }, [open, onClose])
+  }, [visible, onClose])
 
-  if (!open) return null
+  if (!visible) return null
 
   return createPortal(
     <div
@@ -38,13 +65,17 @@ export function Modal({
       style={{ zIndex: 999 }}
     >
       <div
-        className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+        className={cn(
+          'absolute inset-0 bg-black/40 backdrop-blur-sm',
+          exiting ? 'zen-modal-backdrop-exit' : 'zen-modal-backdrop-enter'
+        )}
         onClick={onClose}
         aria-hidden="true"
       />
       <div
         className={cn(
           'glass-strong relative z-10 w-full max-w-md rounded-[var(--md-sys-shape-corner)] p-6 shadow-lg',
+          exiting ? 'zen-modal-content-exit' : 'zen-modal-content-enter',
           className
         )}
         style={{
@@ -62,7 +93,7 @@ export function Modal({
           )}
           <button
             onClick={onClose}
-            className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
+            className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
           >
             <X className="h-4 w-4" />
           </button>

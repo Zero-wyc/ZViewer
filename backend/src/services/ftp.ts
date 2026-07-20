@@ -79,7 +79,10 @@ export async function statFTPFile(
   );
 }
 
-export function createFTPReadStream(params: FTPConnectionParams): Readable {
+export function createFTPReadStream(
+  params: FTPConnectionParams,
+  startAt = 0,
+): Readable {
   const passThrough = new PassThrough();
   const client = new Client();
   client.ftp.verbose = false;
@@ -96,7 +99,9 @@ export function createFTPReadStream(params: FTPConnectionParams): Readable {
       secure,
     })
     .then(async () => {
-      await client.downloadTo(passThrough, params.path);
+      // basic-ftp 的 downloadTo 第三参数 startAt 支持 Range 起始偏移，
+      // 内部使用 REST 命令，video 元素 seek 时可按需拉取片段
+      await client.downloadTo(passThrough, params.path, startAt);
     })
     .catch((err) => {
       passThrough.destroy(err);
@@ -137,12 +142,20 @@ export async function listFTPDirectory(
           secure,
         });
 
+        // 计算要列出的目录：
+        // - 若 targetPath 提供，直接使用（前端传回的绝对路径，如 /folder1/subfolder）
+        // - 否则使用 mount.path（默认 /）
+        // 注意：原逻辑在 params.path 不以 / 结尾时会取父目录，这会导致
+        // mount.path='/videos' 时实际列出根目录而非 /videos，属于 bug，此处修正。
         const dir = targetPath
           ? targetPath
-          : params.path.endsWith('/')
+          : params.path && params.path.trim()
             ? params.path
-            : params.path.split('/').slice(0, -1).join('/') || '/';
-        const list = await client.list(dir);
+            : '/';
+        // 先 cd 到目标目录，再 list 不带参数（某些 FTP 服务器不支持 LIST 绝对路径，
+        // 但都支持 CWD + LIST 组合）
+        await client.cd(dir);
+        const list = await client.list();
         return list
           .filter((item) => item.name !== '.' && item.name !== '..')
           .map((item) => ({

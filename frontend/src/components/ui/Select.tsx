@@ -26,11 +26,13 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             {label}
           </label>
         )}
-        <div className="relative">
+        <div className="relative group">
           <select
             ref={ref}
             className={cn(
-              'w-full appearance-none rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 pr-8 text-sm text-[var(--md-sys-color-on-surface)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--md-sys-color-surface-container)] disabled:opacity-60',
+              'zen-input-glow w-full appearance-none rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 pr-8 text-sm text-[var(--md-sys-color-on-surface)] cursor-pointer focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)] disabled:cursor-not-allowed disabled:bg-[var(--md-sys-color-surface-container)] disabled:opacity-60',
+              'transition-all duration-200',
+              'hover:border-[var(--md-sys-color-primary)] hover:shadow-sm',
               error &&
                 'border-[var(--md-sys-color-error)] focus:border-[var(--md-sys-color-error)] focus:ring-[var(--md-sys-color-error)]'
             )}
@@ -43,7 +45,14 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
               </option>
             ))}
           </select>
-          <ChevronDown className="pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--md-sys-color-on-surface-variant)]" />
+          <ChevronDown
+            className={cn(
+              'pointer-events-none absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--md-sys-color-on-surface-variant)]',
+              'transition-transform duration-300',
+              'group-hover:text-[var(--md-sys-color-primary)]',
+              'group-focus-within:rotate-180 group-focus-within:text-[var(--md-sys-color-primary)]'
+            )}
+          />
         </div>
         {error && (
           <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">

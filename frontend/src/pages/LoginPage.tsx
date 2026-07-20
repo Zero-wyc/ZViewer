@@ -9,6 +9,24 @@ import { Space } from '@/components/ui/Space'
 import { Title, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
+import { cn } from '@/lib/utils'
+
+const Fade = ({
+  children,
+  delay = 0,
+  className,
+}: {
+  children: React.ReactNode
+  delay?: number
+  className?: string
+}) => (
+  <div
+    className={cn('zen-stagger-fade-up', className)}
+    style={{ '--stagger-delay': `${delay}ms` } as React.CSSProperties}
+  >
+    {children}
+  </div>
+)
 
 interface AuthForm {
   username: string
@@ -90,96 +108,108 @@ export default function LoginPage() {
     <div className="flex-1 flex items-center justify-center p-6">
       <Card className="w-full max-w-sm">
         <div className="text-center mb-6">
-          <div
-            className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto mb-4"
-            style={{
-              backgroundColor: 'var(--md-sys-color-primary-container)',
-              color: 'var(--md-sys-color-on-primary-container)',
-              boxShadow:
-                '0 8px 24px -6px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent)',
-            }}
-          >
-            <Shield className="w-6 h-6" />
-          </div>
-          <Title level={3} className="m-0">
-            {isLogin ? '登录 ZViewer' : '注册账号'}
-          </Title>
-          <Paragraph type="secondary" className="m-0 mt-2">
-            {isLogin
-              ? '管理员账号可创建共享房间'
-              : '注册后需 root 审核通过，方可成为普通用户'}
-          </Paragraph>
+          <Fade delay={80} className="inline-block">
+            <div
+              className="w-12 h-12 rounded-xl flex items-center justify-center mx-auto"
+              style={{
+                backgroundColor: 'var(--md-sys-color-primary-container)',
+                color: 'var(--md-sys-color-on-primary-container)',
+                boxShadow:
+                  '0 8px 24px -6px color-mix(in srgb, var(--md-sys-color-primary) 30%, transparent)',
+              }}
+            >
+              <Shield className="w-6 h-6" />
+            </div>
+          </Fade>
+          <Fade delay={120} key={`login-title-${mode}`}>
+            <Title level={3} className="m-0 mt-4">
+              {isLogin ? '登录 ZViewer' : '注册账号'}
+            </Title>
+            <Paragraph type="secondary" className="m-0 mt-2">
+              {isLogin
+                ? '管理员账号可创建共享房间'
+                : '注册后需 root 审核通过，方可成为普通用户'}
+            </Paragraph>
+          </Fade>
         </div>
 
         <form onSubmit={handleSubmit}>
           <Space direction="vertical" className="w-full">
-            <Input
-              label="用户名"
-              type="text"
-              value={form.username}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, username: e.target.value }))
-              }
-              placeholder="请输入用户名"
-              size="lg"
-            />
+            <Fade delay={180} className="w-full">
+              <Input
+                label="用户名"
+                type="text"
+                value={form.username}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, username: e.target.value }))
+                }
+                placeholder="请输入用户名"
+                size="lg"
+              />
+            </Fade>
 
-            <InputPassword
-              label="密码"
-              value={form.password}
-              onChange={(e) =>
-                setForm((prev) => ({ ...prev, password: e.target.value }))
-              }
-              placeholder={isLogin ? '请输入密码' : '至少 4 位密码'}
-              size="lg"
-            />
+            <Fade delay={220} className="w-full">
+              <InputPassword
+                label="密码"
+                value={form.password}
+                onChange={(e) =>
+                  setForm((prev) => ({ ...prev, password: e.target.value }))
+                }
+                placeholder={isLogin ? '请输入密码' : '至少 4 位密码'}
+                size="lg"
+              />
+            </Fade>
 
-            <Button
-              variant="primary"
-              type="submit"
-              block
-              loading={loading}
-              icon={
-                isLogin ? (
-                  <LogIn className="w-4 h-4" />
-                ) : (
-                  <UserPlus className="w-4 h-4" />
-                )
-              }
-              className="mt-2"
-            >
-              {isLogin ? '登录' : '注册'}
-            </Button>
+            <Fade delay={280} className="w-full">
+              <Button
+                variant="primary"
+                type="submit"
+                block
+                loading={loading}
+                icon={
+                  isLogin ? (
+                    <LogIn className="w-4 h-4" />
+                  ) : (
+                    <UserPlus className="w-4 h-4" />
+                  )
+                }
+                className="mt-2"
+              >
+                {isLogin ? '登录' : '注册'}
+              </Button>
+            </Fade>
           </Space>
         </form>
 
-        <div className="mt-6 text-center">
-          {isLogin ? (
-            <Paragraph type="secondary" className="text-xs m-0">
-              还没有账号？{' '}
-              <button
-                type="button"
-                onClick={() => setMode('register')}
-                className="underline hover:opacity-80"
-                style={{ color: 'var(--md-sys-color-primary)' }}
-              >
-                注册账号
-              </button>
-            </Paragraph>
-          ) : (
-            <Paragraph type="secondary" className="text-xs m-0">
-              已有账号？{' '}
-              <button
-                type="button"
-                onClick={() => setMode('login')}
-                className="underline hover:opacity-80"
-                style={{ color: 'var(--md-sys-color-primary)' }}
-              >
-                返回登录
-              </button>
-            </Paragraph>
-          )}
-        </div>
+        <Fade delay={340} key={`login-switch-${mode}`}>
+          <div className="mt-6 text-center">
+            {isLogin ? (
+              <Paragraph type="secondary" className="text-xs m-0">
+                还没有账号？{' '}
+                <button
+                  type="button"
+                  onClick={() => setMode('register')}
+                  className="underline hover:opacity-80"
+                  style={{ color: 'var(--md-sys-color-primary)' }}
+                >
+                  注册账号
+                </button>
+              </Paragraph>
+            ) : (
+              <Paragraph type="secondary" className="text-xs m-0">
+                已有账号？{' '}
+                <button
+                  type="button"
+                  onClick={() => setMode('login')}
+                  className="underline hover:opacity-80"
+                  style={{ color: 'var(--md-sys-color-primary)' }}
+                >
+                  返回登录
+                </button>
+              </Paragraph>
+            )}
+          </div>
+        </Fade>
       </Card>
     </div>
   )

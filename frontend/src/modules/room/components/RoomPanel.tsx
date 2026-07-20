@@ -18,8 +18,11 @@ interface RoomPanelProps {
 export function RoomPanel({ onModeSelected }: RoomPanelProps) {
   const navigate = useNavigate()
   const { socket, connected } = useSocket()
-  const { setMode, setRoomId } = useRoomStore()
-  const [selectedMode, setSelectedMode] = useState<RoomMode>('screen-share')
+  const { setMode, setRoomId, mode: storeMode } = useRoomStore()
+  // 默认模式从 store 读取，不再从 URL 读取 mode 参数。
+  // 模式切换由后端房间状态管理，URL 只保留 /room/:roomId 形式。
+  const initialMode: RoomMode = storeMode || 'watch-together'
+  const [selectedMode, setSelectedMode] = useState<RoomMode>(initialMode)
   const [creating, setCreating] = useState(false)
   const [requireApproval, setRequireApproval] = useState(true)
   const [password, setPassword] = useState('')
@@ -48,14 +51,18 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
           setRoomId(response.roomId)
           setMode(response.mode || selectedMode)
           message.success('房间创建成功')
-          const mode = response.mode || selectedMode
-          const params = new URLSearchParams(window.location.search)
-          params.set('role', 'host')
-          params.set('mode', mode)
-          navigate(`/room/${response.roomId}?${params.toString()}`, {
+          // 在 sessionStorage 中标记当前用户为该房间的房主，
+          // 刷新页面后 RoomPage 据此判断身份并走 register-host 流程。
+          // URL 保持干净：/room/:roomId，不带任何查询参数。
+          try {
+            sessionStorage.setItem('zcontrol-host-room', response.roomId)
+          } catch {
+            // sessionStorage 不可用时忽略，仅影响刷新后身份判断
+          }
+          navigate(`/room/${response.roomId}`, {
             replace: true,
           })
-          onModeSelected?.(mode)
+          onModeSelected?.(response.mode || selectedMode)
         } else {
           message.error(response.message || '创建房间失败')
         }

@@ -63,7 +63,7 @@ export function DanmakuTrackCard() {
 
   return (
     <div
-      className="flex h-full flex-col gap-3 rounded-[var(--md-sys-shape-corner)] border p-3"
+      className="flex h-full min-h-0 flex-col gap-3 rounded-[var(--md-sys-shape-corner)] border p-3"
       style={{
         backgroundColor: 'var(--md-sys-color-surface-container)',
         borderColor: 'var(--md-sys-color-outline-variant)',

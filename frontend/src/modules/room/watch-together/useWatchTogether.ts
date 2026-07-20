@@ -7,16 +7,34 @@ import {
   type MovieDto,
   mapDtoToMovie,
 } from '@/store/roomStore'
+import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
+import { type QualityOption } from './resolveSource'
+import { useBilibiliQuality } from '@/modules/bilibili/useBilibiliQuality'
 import {
-  createMseMediaUrl,
-  createAudioSync,
-  resetVideoElement,
-} from './msePlayer'
-import {
-  resolveBilibili,
-  getBilibiliParseOptions,
-  type QualityOption,
-} from './resolveSource'
+  useHostBroadcast,
+  useViewerStateSync,
+  useHostStateRequest,
+  useVideoEventBindings,
+  useHostHeartbeat,
+  useViewerHeartbeat,
+  useViewerList,
+  useTrackSync,
+  useVideoSource,
+  SOCKET_EVENT,
+  safePlay,
+} from '@/modules/sync-playback'
+import { type MediaFormat } from '@/lib/mediaFormat'
+
+// 格式化跳转时间用于提示信息（mm:ss 或 h:mm:ss）
+function formatSeekTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  const mm = m.toString().padStart(2, '0')
+  const ss = s.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
 
 export type SourceType =
   'url' | 'webdav' | 'ftp' | 'openlist' | 'smb' | 'bilibili' | string
@@ -27,12 +45,40 @@ interface UseWatchTogetherOptions {
   roomId: string
   isHost: boolean
   videoRef: React.RefObject<HTMLVideoElement | null>
+  /**
+   * 房主刷新/重连恢复时由后端返回的最近一次播放状态。
+   * 提供时，loadMovie 加载完成后若 currentMovieId 与之匹配，
+   * 则将 currentTime 设置为 initialPlayback.currentTime 并强制暂停（不自动播放）。
+   */
+  initialPlayback?: {
+    currentTime: number
+    isPlaying: boolean
+    playbackRate: number
+    duration?: number
+    sourceUrl?: string
+    sourceType?: string
+    audioUrl?: string
+    format?: MediaFormat
+    videoCodec?: string
+    audioCodec?: string
+    cid?: number
+    currentQn?: number
+    currentMovieId?: number
+    updatedAt: number
+  } | null
 }
 
+/**
+ * 一起看聚合 Hook：组合 useVideoSource（视频源管理）与 useSyncPlayback（同步核心），
+ * 并保留 B站 清晰度切换、影片列表/当前影片同步、pendingQualityChange 消费等业务逻辑。
+ *
+ * 对外导出签名与重构前完全一致，WatchTogetherPanel.tsx 无需修改。
+ */
 export function useWatchTogether({
   roomId,
   isHost,
   videoRef,
+  initialPlayback,
 }: UseWatchTogetherOptions) {
   const { socket } = useSocket()
   const {
@@ -48,155 +94,112 @@ export function useWatchTogether({
   } = useRoomStore()
   const isHostRef = useRef(isHost)
   const suppressEventsRef = useRef(false)
-  const lastStateRef = useRef<WatchTogetherState | null>(null)
-  const mediaUrlRef = useRef<string | null>(null)
-  const audioCleanupRef = useRef<(() => void) | null>(null)
-  const seekDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const lastBroadcastTimeRef = useRef(0)
-  const restoredRef = useRef(false)
   const lastLoadedMovieRef = useRef<{ id: number; url: string } | null>(null)
-
-  // 使用用户本地持久化的 B站解析偏好（编码 / CDN）重新解析
-  const resolveBilibiliWithOptions = useCallback(
-    async (
-      url: string,
-      qn?: number,
-      onProgress?: (step: string, message: string) => void
-    ) => {
-      const options = getBilibiliParseOptions()
-      return resolveBilibili(url, qn, onProgress, {
-        fnval: options.fnval,
-        preferCdn: options.preferCdn,
-      })
-    },
-    []
-  )
-
-  // 清晰度状态：当前选中的 qn、可用列表、切换中标记
-  const [currentQuality, setCurrentQuality] = useState<number | null>(null)
-  const [availableQualities, setAvailableQualities] = useState<QualityOption[]>(
-    []
-  )
-  const [isSwitchingQuality, setIsSwitchingQuality] = useState(false)
+  // 房主刷新恢复：用于在 loadMovie 完成后应用 initialPlayback.currentTime 并暂停
+  // 通过 ref 暂存，避免修改 effect 依赖导致 loadMovie 重新触发
+  // 采用 latest ref pattern：每次渲染同步，确保 loadMovie 内部读到最新值
+  const initialPlaybackRef = useRef(initialPlayback)
+  useEffect(() => {
+    initialPlaybackRef.current = initialPlayback
+  }, [initialPlayback])
+  const appliedPlaybackRef = useRef(false)
 
   // B站 视频解析进度：用于在播放器上显示后台解析过程
   const [isResolving, setIsResolving] = useState(false)
   const [resolvingMessage, setResolvingMessage] = useState('')
 
-  const cleanupMedia = useCallback(() => {
-    if (mediaUrlRef.current) {
-      URL.revokeObjectURL(mediaUrlRef.current)
-      mediaUrlRef.current = null
-    }
-    if (audioCleanupRef.current) {
-      audioCleanupRef.current()
-      audioCleanupRef.current = null
-    }
-  }, [])
-
-  // 将指定状态中的视频源应用到 video 元素（含 MSE DASH 处理）。
-  // 供房主加载、观众同步以及组件重新挂载时恢复使用。
-  const applySourceToVideo = useCallback(
-    async (video: HTMLVideoElement, state: WatchTogetherState) => {
-      if (!state.sourceUrl) return
-
-      // 先 detach 旧的 MediaSource，再清理 blob URL，避免 revoke 正在 attached 的 URL 导致 Format error
-      resetVideoElement(video)
-      cleanupMedia()
-
-      if (state.format === 'dash' || state.audioUrl) {
-        const audioUrl = state.audioUrl || ''
-        if (!audioUrl) {
-          if (video.src !== state.sourceUrl) {
-            video.src = state.sourceUrl
-            video.load()
-          }
-          return
-        }
-
-        const loadMse = async (
-          videoUrl: string,
-          audioUrl: string,
-          isRetry: boolean
-        ): Promise<boolean> => {
-          try {
-            const blobUrl = await createMseMediaUrl(
-              video,
-              videoUrl,
-              audioUrl,
-              state.videoCodec,
-              state.audioCodec
-            )
-            mediaUrlRef.current = blobUrl
-            return true
-          } catch (err) {
-            // B站 DASH 地址过期较快，允许重新解析后重试一次 MSE 合并
-            if (!isRetry && state.sourceType === 'bilibili') {
-              const storeState = useRoomStore.getState()
-              const movie = storeState.movies.find(
-                (m) => m.id === storeState.currentMovieId
-              )
-              if (movie?.url) {
-                try {
-                  resetVideoElement(video)
-                  cleanupMedia()
-                  const resolved = await resolveBilibiliWithOptions(movie.url)
-                  if (resolved.videoUrl && resolved.audioUrl) {
-                    const retried = await loadMse(
-                      resolved.videoUrl,
-                      resolved.audioUrl,
-                      true
-                    )
-                    if (retried) {
-                      storeState.setWatchTogether({
-                        sourceUrl: resolved.videoUrl,
-                        audioUrl: resolved.audioUrl,
-                        videoCodec: resolved.videoCodec,
-                        audioCodec: resolved.audioCodec,
-                        format: resolved.format,
-                        cid: resolved.cid,
-                        duration: resolved.duration ?? state.duration,
-                      })
-                    }
-                    return retried
-                  }
-                } catch (resolveErr) {
-                  console.warn(
-                    '[useWatchTogether] 重新解析 B站 失败:',
-                    resolveErr
-                  )
-                }
-              }
-            }
-            return false
-          }
-        }
-
-        const success = await loadMse(state.sourceUrl, audioUrl, false)
-        if (!success) {
-          // DASH 源的 sourceUrl 是 m4s 片段，不能直接作为 video.src 播放，
-          // 直接赋值会导致 MEDIA_ELEMENT_ERROR: Format error。
-          if (state.format === 'dash') {
-            throw new Error('MSE 合并失败，DASH 源无法直接播放')
-          }
-          console.warn('[useWatchTogether] MSE 合并失败，降级为音频同步')
-          if (video.src !== state.sourceUrl) {
-            video.src = state.sourceUrl
-            video.load()
-          }
-          audioCleanupRef.current = createAudioSync(video, audioUrl)
-        }
-      } else if (video.src !== state.sourceUrl) {
-        video.src = state.sourceUrl
-        video.load()
-      }
-    },
-    [cleanupMedia]
-  )
-
   useEffect(() => {
     isHostRef.current = isHost
   }, [isHost])
+
+  // 1. 视频源管理：applySourceToVideo / cleanupMedia / restoredRef
+  const { applySourceToVideo, cleanupMedia } = useVideoSource({
+    videoRef,
+    suppressEventsRef,
+    watchTogether,
+    isHostRef,
+  })
+
+  // 2. 同步核心（分离式架构：8 个单一职责 hooks）
+  // 房主：状态广播 + 控制指令 + forceSync（浅比较优化跳过等价状态广播）
+  const { broadcastState, sendControl, forceSync } = useHostBroadcast({
+    roomId,
+    isHostRef,
+    videoRef,
+  })
+
+  // 观众：接收房主 state/control 事件，串行化 applySourceToVideo（Bug #8 修复），
+  // 自适应 seek 跟随阈值（高倍速下放大阈值避免抖动）
+  useViewerStateSync({
+    roomId,
+    isHostRef,
+    videoRef,
+    suppressEventsRef,
+    setWatchTogether,
+    applySourceToVideo,
+  })
+
+  // 房主：响应观众的 watch-together-request-state 请求
+  useHostStateRequest({
+    roomId,
+    isHostRef,
+    videoRef,
+  })
+
+  // 房主：绑定 video 元素事件（play/pause/seeked/ratechange/timeupdate）
+  // 节流广播 + seek 防抖，通过 useRoomStore.getState() 读最新源字段避免闭包失效
+  useVideoEventBindings({
+    isHostRef,
+    videoRef,
+    suppressEventsRef,
+    setWatchTogether,
+    broadcastState,
+    sendControl,
+  })
+
+  // 房主：每 2s 广播心跳（后端新增转发 handler，修复观众端误报房主离线的 bug）
+  useHostHeartbeat({
+    roomId,
+    isHostRef,
+    videoRef,
+  })
+
+  // 观众：监听房主心跳，6s 未收到则判定离线；同时监听 host-disconnected 立即暂停
+  useViewerHeartbeat({
+    isHostRef,
+    videoRef,
+  })
+
+  // 房主与观众：同步在线观众列表（viewer-joined / viewer-left）
+  useViewerList()
+
+  // 弹幕/字幕轨道同步（合并事件 track-change，后端新增转发 handler 修复功能失效 bug）
+  const {
+    broadcastDanmakuTrackChange,
+    broadcastSubtitleTrackChange,
+    setSubtitleTrackIndex,
+    subtitleTrackIndex,
+    danmakuTrackId,
+    onDanmakuTrackChange,
+    onSubtitleTrackChange,
+  } = useTrackSync({
+    roomId,
+    isHostRef,
+  })
+
+  // B站 清晰度切换统一 Hook：封装 currentQuality/availableQualities/isSwitchingQuality
+  // 状态及房主/观众/列表触发的切换逻辑。
+  // 协议精简（v2）：不再传 socket/roomId，清晰度切换通过 broadcastState 推送完整 state 同步。
+  const quality = useBilibiliQuality({
+    videoRef,
+    isHostRef,
+    suppressEventsRef,
+    applySourceToVideo,
+    setWatchTogether,
+    broadcastState,
+    setIsResolving,
+    setResolvingMessage,
+  })
 
   // 监听影片列表与当前播放影片的同步事件
   useEffect(() => {
@@ -211,102 +214,40 @@ export function useWatchTogether({
       setCurrentMovieId(payload.movieId)
     }
 
-    socket.on('movie-list', handleMovieList)
-    socket.on('current-movie', handleCurrentMovie)
+    socket.on(SOCKET_EVENT.MOVIE_LIST, handleMovieList)
+    socket.on(SOCKET_EVENT.CURRENT_MOVIE, handleCurrentMovie)
 
     // 房间加入/刷新时优先通过 REST 接口加载影片列表
     fetchMovies(roomId).catch((err) => {
       console.error('[useWatchTogether] fetchMovies error:', err)
     })
-    socket.emit('request-current-movie', { roomId })
+    socket.emit(SOCKET_EVENT.REQUEST_CURRENT_MOVIE, { roomId })
 
     return () => {
-      socket.off('movie-list', handleMovieList)
-      socket.off('current-movie', handleCurrentMovie)
+      socket.off(SOCKET_EVENT.MOVIE_LIST, handleMovieList)
+      socket.off(SOCKET_EVENT.CURRENT_MOVIE, handleCurrentMovie)
     }
   }, [socket, roomId, setMovies, setCurrentMovieId, fetchMovies])
-
-  // 房主：将本地状态广播给房间
-  const broadcastState = useCallback(
-    (state: WatchTogetherState) => {
-      if (!socket || !isHostRef.current) return
-      const serialized = JSON.stringify(state)
-      if (serialized === JSON.stringify(lastStateRef.current)) return
-      lastStateRef.current = state
-      socket.emit('watch-together-state', { roomId, state })
-    },
-    [socket, roomId]
-  )
-
-  // 房主：发送控制事件（播放/暂停/进度/倍速）
-  const sendControl = useCallback(
-    (action: 'play' | 'pause' | 'seek' | 'rate', value?: number) => {
-      if (!socket || !isHostRef.current) return
-      socket.emit('watch-together-control', { roomId, action, value })
-    },
-    [socket, roomId]
-  )
-
-  // 房主：强制广播当前状态，用于手动同步
-  const forceSync = useCallback(() => {
-    if (!socket || !isHostRef.current) return
-    const video = videoRef.current
-    const state = useRoomStore.getState().watchTogether
-    const hasLoadedSource = video && video.currentSrc !== ''
-    const newState: WatchTogetherState = {
-      sourceUrl: state.sourceUrl,
-      sourceType: state.sourceType,
-      audioUrl: state.audioUrl,
-      format: state.format,
-      videoCodec: state.videoCodec,
-      audioCodec: state.audioCodec,
-      cid: state.cid,
-      isPlaying: hasLoadedSource ? !video.paused : state.isPlaying,
-      currentTime: hasLoadedSource ? video.currentTime : state.currentTime,
-      playbackRate: hasLoadedSource ? video.playbackRate : state.playbackRate,
-      duration: hasLoadedSource
-        ? video.duration || state.duration
-        : state.duration,
-    }
-    lastStateRef.current = newState
-    socket.emit('watch-together-state', { roomId, state: newState })
-  }, [socket, roomId, videoRef])
 
   // 根据当前视频源类型计算可用清晰度列表。
   // B站 DASH 流使用后端返回的真实 acceptQuality；其他单源类型返回空数组，由 UI 隐藏选择器。
   useEffect(() => {
-    const state = watchTogether
-    if (
-      state.sourceType === 'bilibili' &&
-      state.format === 'dash' &&
-      state.sourceUrl
-    ) {
-      setAvailableQualities(state.acceptQuality ?? [])
-      setCurrentQuality((prev) => prev ?? state.currentQn ?? null)
-    } else {
-      setAvailableQualities([])
-      setCurrentQuality(null)
-    }
-    // 切源时重置切换中标记，避免上一源的切换状态被遗留
-    setIsSwitchingQuality(false)
+    quality.syncFromState(watchTogether)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 依赖已按字段列出，无需整个 watchTogether
   }, [
     watchTogether.sourceType,
     watchTogether.format,
     watchTogether.sourceUrl,
     watchTogether.acceptQuality,
     watchTogether.currentQn,
+    quality.syncFromState,
   ])
 
   // 房主：切换清晰度。重新解析对应 qn 的 URL、attach MSE 流并保留进度，同时广播给观众。
   const changeQuality = useCallback(
     async (qualityId: number) => {
-      const video = videoRef.current
-      if (!video || !isHostRef.current) return
-      if (qualityId === currentQuality) return
-
-      // 仅 B站 DASH 流支持清晰度切换
-      const state = useRoomStore.getState().watchTogether
-      if (state.sourceType !== 'bilibili' || state.format !== 'dash') return
+      if (!isHostRef.current) return
+      if (qualityId === quality.currentQuality) return
 
       const storeState = useRoomStore.getState()
       const movie = storeState.movies.find(
@@ -314,77 +255,12 @@ export function useWatchTogether({
       )
       if (!movie?.url) return
 
-      setIsSwitchingQuality(true)
-      setIsResolving(true)
-      setResolvingMessage('正在切换清晰度...')
-      suppressEventsRef.current = true
-
-      const preserveTime = video.currentTime
-      const shouldPlay = !video.paused
-
-      try {
-        const resolved = await resolveBilibiliWithOptions(
-          movie.url,
-          qualityId,
-          (_step, msg) => setResolvingMessage(msg)
-        )
-        if (!resolved.videoUrl) {
-          throw new Error('未获取到对应清晰度的播放地址')
-        }
-
-        const newState: WatchTogetherState = {
-          ...state,
-          sourceUrl: resolved.videoUrl,
-          audioUrl: resolved.audioUrl,
-          videoCodec: resolved.videoCodec,
-          audioCodec: resolved.audioCodec,
-          format: resolved.format,
-          currentQn: resolved.currentQn ?? qualityId,
-          acceptQuality: resolved.acceptQuality,
-        }
-        setWatchTogether(newState)
-
-        await applySourceToVideo(video, newState)
-        video.currentTime = preserveTime
-        if (shouldPlay) {
-          video.play().catch(() => {})
-        }
-
-        setCurrentQuality(qualityId)
-
-        // 广播 quality-change 事件给观众
-        if (socket) {
-          socket.emit('quality-change', { roomId, quality: qualityId })
-        }
-      } catch (err) {
-        console.error('[useWatchTogether] 切换清晰度失败:', err)
-        // 切换失败时回退到原 source（尽力恢复）
-        try {
-          await applySourceToVideo(video, state)
-          if (preserveTime > 0) {
-            video.currentTime = preserveTime
-          }
-          if (shouldPlay) {
-            video.play().catch(() => {})
-          }
-        } catch {
-          // 忽略恢复失败
-        }
-      } finally {
-        suppressEventsRef.current = false
-        setIsSwitchingQuality(false)
-        setIsResolving(false)
-        setResolvingMessage('')
-      }
+      await quality.applyQualityChange(movie, qualityId, {
+        broadcast: true,
+        message: '正在切换清晰度...',
+      })
     },
-    [
-      socket,
-      roomId,
-      videoRef,
-      currentQuality,
-      applySourceToVideo,
-      setWatchTogether,
-    ]
+    [quality]
   )
 
   // 房主：重新解析当前 B站 视频（用于解析偏好变更后即时生效）
@@ -411,7 +287,7 @@ export function useWatchTogether({
     try {
       const resolved = await resolveBilibiliWithOptions(
         movie.url,
-        currentQuality ?? movie.currentQn,
+        quality.currentQuality ?? movie.currentQn,
         (_step, msg) => setResolvingMessage(msg)
       )
       if (!resolved.videoUrl) {
@@ -425,7 +301,8 @@ export function useWatchTogether({
         videoCodec: resolved.videoCodec,
         audioCodec: resolved.audioCodec,
         format: resolved.format,
-        currentQn: resolved.currentQn ?? currentQuality ?? movie.currentQn,
+        currentQn:
+          resolved.currentQn ?? quality.currentQuality ?? movie.currentQn,
         acceptQuality: resolved.acceptQuality,
       }
       setWatchTogether(newState)
@@ -433,11 +310,11 @@ export function useWatchTogether({
       await applySourceToVideo(video, newState)
       video.currentTime = preserveTime
       if (shouldPlay) {
-        video.play().catch(() => {})
+        void safePlay(video)
       }
 
-      setCurrentQuality(newState.currentQn ?? null)
-      setAvailableQualities(newState.acceptQuality ?? [])
+      quality.setCurrentQuality(newState.currentQn ?? null)
+      quality.setAvailableQualities(newState.acceptQuality ?? [])
 
       broadcastState(newState)
     } catch (err) {
@@ -449,200 +326,69 @@ export function useWatchTogether({
           video.currentTime = preserveTime
         }
         if (shouldPlay) {
-          video.play().catch(() => {})
+          void safePlay(video)
         }
       } catch {
         // 忽略恢复失败
       }
     } finally {
       suppressEventsRef.current = false
-      setIsSwitchingQuality(false)
+      quality.setIsSwitchingQuality(false)
       setIsResolving(false)
       setResolvingMessage('')
     }
-  }, [
-    videoRef,
-    currentQuality,
-    applySourceToVideo,
-    setWatchTogether,
-    broadcastState,
-    roomId,
-    socket,
-  ])
+  }, [videoRef, quality, applySourceToVideo, setWatchTogether, broadcastState])
 
-  // 观众：接收房主的 quality-change 事件，自动切换到对应清晰度。
-  useEffect(() => {
-    if (!socket || isHostRef.current) return
-
-    const handleQualityChange = async (payload: { quality: number }) => {
-      const video = videoRef.current
-      if (!video) {
-        setCurrentQuality(payload.quality)
-        return
-      }
-
-      const state = useRoomStore.getState().watchTogether
-      if (state.sourceType !== 'bilibili' || state.format !== 'dash') {
-        setCurrentQuality(payload.quality)
-        return
-      }
-
-      const movie = useRoomStore
-        .getState()
-        .movies.find((m) => m.id === useRoomStore.getState().currentMovieId)
-      if (!movie?.url) {
-        setCurrentQuality(payload.quality)
-        return
-      }
-
-      setIsSwitchingQuality(true)
-      setIsResolving(true)
-      setResolvingMessage('正在同步清晰度...')
-      suppressEventsRef.current = true
-
-      const preserveTime = video.currentTime
-      const shouldPlay = !video.paused
-
-      try {
-        const resolved = await resolveBilibiliWithOptions(
-          movie.url,
-          payload.quality,
-          (_step, msg) => setResolvingMessage(msg)
-        )
-        if (!resolved.videoUrl) {
-          throw new Error('未获取到对应清晰度的播放地址')
-        }
-
-        const newState: WatchTogetherState = {
-          ...state,
-          sourceUrl: resolved.videoUrl,
-          audioUrl: resolved.audioUrl,
-          videoCodec: resolved.videoCodec,
-          audioCodec: resolved.audioCodec,
-          format: resolved.format,
-          currentQn: resolved.currentQn ?? payload.quality,
-          acceptQuality: resolved.acceptQuality,
-        }
-        setWatchTogether(newState)
-
-        await applySourceToVideo(video, newState)
-        video.currentTime = preserveTime
-        if (shouldPlay) {
-          video.play().catch(() => {})
-        }
-        setCurrentQuality(payload.quality)
-      } catch (err) {
-        console.error('[useWatchTogether] 观众端切换清晰度失败:', err)
-        try {
-          await applySourceToVideo(video, state)
-          if (preserveTime > 0) {
-            video.currentTime = preserveTime
-          }
-          if (shouldPlay) {
-            video.play().catch(() => {})
-          }
-        } catch {
-          // 忽略恢复失败
-        }
-      } finally {
-        suppressEventsRef.current = false
-        setIsSwitchingQuality(false)
-        setIsResolving(false)
-        setResolvingMessage('')
-      }
-    }
-
-    socket.on('quality-change', handleQualityChange)
-    return () => {
-      socket.off('quality-change', handleQualityChange)
-    }
-  }, [socket, roomId, videoRef, applySourceToVideo])
+  // 观众：清晰度切换通过 watch-together-state.currentQn 同步。
+  // 旧版使用独立的 quality-change 事件，但后端无转发 handler 导致功能失效；
+  // 重构后移除该事件，房主切换清晰度时通过 applyQualityChange 内的
+  // broadcastState(newState) 立即推送完整状态（含 currentQn），
+  // 观众端 useViewerStateSync 接收后由 quality.syncFromState 自动更新 UI。
+  // 见下方 syncFromState effect（依赖 watchTogether.currentQn）。
 
   // 响应 MovieListPanel 触发的清晰度切换请求：若对应影片正在播放，立即应用新源。
   useEffect(() => {
     if (!pendingQualityChange) return
 
-    const applyPendingQuality = async () => {
+    // 立即捕获并清除 pending，防止 applyQualityChange 执行期间
+    // setWatchTogether 触发重新渲染导致 quality 对象变化、effect 重复触发、
+    // 多个 applyQualityChange 并发执行造成 MSE 流冲突白屏。
+    const pending = pendingQualityChange
+    setPendingQualityChange(null)
+
+    const applyPending = async () => {
       const video = videoRef.current
-      if (!video) {
-        setPendingQualityChange(null)
-        return
-      }
+      if (!video) return
 
-      if (pendingQualityChange.movieId !== currentMovieId) {
-        setPendingQualityChange(null)
-        return
-      }
+      if (pending.movieId !== currentMovieId) return
 
-      const existingState = useRoomStore.getState().watchTogether
-      const preserveTime = video.currentTime
-      const shouldPlay = !video.paused
+      const storeState = useRoomStore.getState()
+      const movie = storeState.movies.find((m) => m.id === pending.movieId)
+      if (!movie) return
 
-      const resolved = pendingQualityChange.resolved
-      const newState: WatchTogetherState = {
-        ...existingState,
-        sourceUrl: resolved.videoUrl,
-        audioUrl: resolved.audioUrl,
-        videoCodec: resolved.videoCodec,
-        audioCodec: resolved.audioCodec,
-        format: resolved.format,
-        cid: resolved.cid,
-        duration: resolved.duration ?? existingState.duration,
-        currentQn: resolved.currentQn,
-        acceptQuality: resolved.acceptQuality,
-        playbackRate: existingState.playbackRate,
-        isPlaying: shouldPlay,
-        currentTime: preserveTime,
-      }
-
-      suppressEventsRef.current = true
-
-      try {
-        setWatchTogether(newState)
-        await applySourceToVideo(video, newState)
-        video.currentTime = preserveTime
-        if (shouldPlay) {
-          video.play().catch(() => {})
-        }
-        if (isHostRef.current) {
-          broadcastState(newState)
-        }
-        setCurrentQuality(newState.currentQn ?? null)
-        setAvailableQualities(newState.acceptQuality ?? [])
-      } catch (err) {
-        console.error('[useWatchTogether] 应用列表触发的清晰度切换失败:', err)
-        try {
-          await applySourceToVideo(video, existingState)
-          if (preserveTime > 0) {
-            video.currentTime = preserveTime
-          }
-          if (shouldPlay) {
-            video.play().catch(() => {})
-          }
-        } catch {
-          // 忽略恢复失败
-        }
-        message.warning('切换清晰度失败，已恢复为原清晰度')
-      } finally {
-        suppressEventsRef.current = false
-        setPendingQualityChange(null)
-      }
+      await quality.applyQualityChange(movie, undefined, {
+        broadcast: isHostRef.current,
+        resolved: pending.resolved,
+        message: '正在应用清晰度...',
+      })
     }
 
-    void applyPendingQuality()
+    void applyPending()
   }, [
     pendingQualityChange,
     currentMovieId,
-    videoRef,
-    setWatchTogether,
-    applySourceToVideo,
-    broadcastState,
+    quality,
     setPendingQualityChange,
+    videoRef,
   ])
 
   // currentMovieId 变化时自动加载对应影片到 video 元素
+  // 仅房主执行加载逻辑：房主解析视频源并广播给观众。
+  // 观众端完全依赖 handleState 接收房主广播的 sourceUrl/audioUrl 进行 MSE attach，
+  // 不独立解析（避免与房主状态冲突导致黑屏）。
   useEffect(() => {
     if (!currentMovieId) return
+    if (!isHostRef.current) return
     const movie = movies.find((m) => m.id === currentMovieId)
     if (!movie) return
 
@@ -694,19 +440,35 @@ export function useWatchTogether({
           currentQn = resolved.currentQn ?? movie.currentQn
           acceptQuality = resolved.acceptQuality ?? movie.acceptQuality
           if (acceptQuality?.length) {
-            setAvailableQualities(acceptQuality)
+            quality.setAvailableQualities(acceptQuality)
           }
-          setCurrentQuality(currentQn ?? acceptQuality?.[0]?.id ?? null)
+          quality.setCurrentQuality(currentQn ?? acceptQuality?.[0]?.id ?? null)
         } catch (err) {
-          console.error(
-            '[useWatchTogether] 解析 B站 视频失败，使用已有地址重试:',
-            err
-          )
+          console.error('[useWatchTogether] 解析 B站 视频失败:', err)
           message.error(err instanceof Error ? err.message : 'B站视频解析失败')
+          // 解析失败时 movie.url 是 BV 页面地址（非媒体 URL），
+          // 若继续用作 sourceUrl 会导致 MSE 把 HTML 当作 m4s 解析抛 ParseError，
+          // 进而 suppressEventsRef 永久卡死、房主无法广播 → 观众端永久黑屏。
+          suppressEventsRef.current = false
+          return
         } finally {
           setIsResolving(false)
           setResolvingMessage('')
         }
+      }
+
+      // 房主刷新恢复：若 initialPlayback.currentMovieId 与当前加载的影片 ID 匹配，
+      // 则使用 initialPlayback.currentTime 替代 0，并强制暂停而非自动播放。
+      // B站 URL 每次解析都会变，因此通过 currentMovieId 匹配而非 sourceUrl。
+      const recovery = initialPlaybackRef.current
+      const isRecovery =
+        !appliedPlaybackRef.current &&
+        !!recovery &&
+        typeof recovery.currentMovieId === 'number' &&
+        recovery.currentMovieId === movie.id
+      const recoveryTime = isRecovery ? recovery!.currentTime : 0
+      if (isRecovery) {
+        appliedPlaybackRef.current = true
       }
 
       const newState: WatchTogetherState = {
@@ -717,29 +479,55 @@ export function useWatchTogether({
         videoCodec,
         audioCodec,
         cid,
-        isPlaying: true,
-        currentTime: 0,
-        playbackRate: watchTogether.playbackRate,
+        isPlaying: isRecovery ? false : true,
+        currentTime: recoveryTime,
+        playbackRate: isRecovery
+          ? (recovery!.playbackRate ?? watchTogether.playbackRate)
+          : watchTogether.playbackRate,
         duration,
         currentQn,
         acceptQuality,
       }
 
       setWatchTogether(newState)
-      void applySourceToVideo(video, newState).then(() => {
-        video.currentTime = 0
-        if (video.paused) {
-          video.play().catch(() => {
-            // 浏览器自动播放策略可能阻止播放
-          })
-        }
-        suppressEventsRef.current = false
+      void applySourceToVideo(video, newState)
+        .then(() => {
+          if (isRecovery && recoveryTime > 0) {
+            // 恢复进度：seek 到目标时间并强制暂停
+            try {
+              video.currentTime = recoveryTime
+            } catch {
+              // ignore
+            }
+            video.pause()
+            suppressEventsRef.current = false
+            if (isHostRef.current) {
+              broadcastState(newState)
+              sendControl('pause')
+            }
+            message.info(`已恢复到 ${formatSeekTime(recoveryTime)}（已暂停）`)
+          } else {
+            video.currentTime = 0
+            if (video.paused) {
+              void safePlay(video)
+            }
+            suppressEventsRef.current = false
 
-        if (isHostRef.current) {
-          broadcastState(newState)
-          sendControl('play')
-        }
-      })
+            if (isHostRef.current) {
+              broadcastState(newState)
+              sendControl('play')
+            }
+          }
+        })
+        .catch((err: unknown) => {
+          // MSE attach 失败时必须释放 suppressEventsRef，否则房主端
+          // play/pause/seek/timeupdate 事件全部被吞，broadcastState 永不调用，
+          // 观众端 appliedSourceUrlRef 永远不更新，导致永久黑屏。
+          console.error('[useWatchTogether] applySourceToVideo 失败:', err)
+          suppressEventsRef.current = false
+          // 向用户展示错误（如不支持的视频格式），避免黑屏无反馈
+          message.error(err instanceof Error ? err.message : '视频源加载失败')
+        })
     }
 
     void loadMovie()
@@ -752,229 +540,8 @@ export function useWatchTogether({
     applySourceToVideo,
     broadcastState,
     sendControl,
-  ])
-
-  // 观众：接收房主的状态同步与控制事件
-  useEffect(() => {
-    if (!socket || isHostRef.current) return
-
-    const handleState = (payload: { state: WatchTogetherState }) => {
-      const state = payload.state
-      suppressEventsRef.current = true
-      setWatchTogether(state)
-
-      const video = videoRef.current
-      if (!video) {
-        suppressEventsRef.current = false
-        return
-      }
-
-      void applySourceToVideo(video, state)
-
-      // 仅在差异较大时更新进度，避免抖动；seek 由 control 事件立即同步
-      if (Math.abs(video.currentTime - state.currentTime) > 1.5) {
-        video.currentTime = state.currentTime
-      }
-      if (video.playbackRate !== state.playbackRate) {
-        video.playbackRate = state.playbackRate
-      }
-      if (state.isPlaying && video.paused) {
-        video.play().catch(() => {
-          // 浏览器自动播放策略可能阻止播放
-        })
-      } else if (!state.isPlaying && !video.paused) {
-        video.pause()
-      }
-      suppressEventsRef.current = false
-    }
-
-    const handleControl = (payload: {
-      action: 'play' | 'pause' | 'seek' | 'rate'
-      value?: number
-    }) => {
-      const video = videoRef.current
-      if (!video) return
-      suppressEventsRef.current = true
-      switch (payload.action) {
-        case 'play':
-          video.play().catch(() => {})
-          break
-        case 'pause':
-          video.pause()
-          break
-        case 'seek':
-          if (typeof payload.value === 'number') {
-            video.currentTime = payload.value
-          }
-          break
-        case 'rate':
-          if (typeof payload.value === 'number') {
-            video.playbackRate = payload.value
-          }
-          break
-      }
-      suppressEventsRef.current = false
-    }
-
-    socket.on('watch-together-state', handleState)
-    socket.on('watch-together-control', handleControl)
-
-    // 刚加入时请求当前状态
-    socket.emit('watch-together-request-state', { roomId })
-
-    return () => {
-      socket.off('watch-together-state', handleState)
-      socket.off('watch-together-control', handleControl)
-    }
-  }, [socket, roomId, videoRef, setWatchTogether, applySourceToVideo])
-
-  // 房主：响应观众的状态请求，广播当前状态
-  useEffect(() => {
-    if (!socket || !isHostRef.current) return
-
-    const handleRequestState = () => {
-      const video = videoRef.current
-      const state = useRoomStore.getState().watchTogether
-      // 若 video 元素尚未完成源恢复（例如房主刚切回一起看模式），
-      // 回退到 roomStore 中保存的状态，避免把观众重置到 00:00。
-      const hasLoadedSource = video && video.currentSrc !== ''
-      const newState: WatchTogetherState = {
-        sourceUrl: state.sourceUrl,
-        sourceType: state.sourceType,
-        audioUrl: state.audioUrl,
-        format: state.format,
-        videoCodec: state.videoCodec,
-        audioCodec: state.audioCodec,
-        cid: state.cid,
-        isPlaying: hasLoadedSource ? !video.paused : state.isPlaying,
-        currentTime: hasLoadedSource ? video.currentTime : state.currentTime,
-        playbackRate: hasLoadedSource ? video.playbackRate : state.playbackRate,
-        duration: hasLoadedSource
-          ? video.duration || state.duration
-          : state.duration,
-      }
-      lastStateRef.current = newState
-      socket.emit('watch-together-state', { roomId, state: newState })
-    }
-
-    socket.on('watch-together-request-state', handleRequestState)
-    return () => {
-      socket.off('watch-together-request-state', handleRequestState)
-    }
-  }, [socket, roomId, videoRef])
-
-  // 组件重新挂载（或 videoRef 首次可用）时，从 roomStore 恢复视频源。
-  // 通过 restoredRef 保证每个挂载周期只恢复一次，避免与 handleLoad / handleState 重复加载。
-  useEffect(() => {
-    const video = videoRef.current
-    const state = useRoomStore.getState().watchTogether
-    if (!video || !state.sourceUrl || restoredRef.current) return
-
-    restoredRef.current = true
-    suppressEventsRef.current = true
-    void applySourceToVideo(video, state).then(() => {
-      if (state.currentTime > 0) {
-        video.currentTime = state.currentTime
-      }
-      if (video.playbackRate !== state.playbackRate) {
-        video.playbackRate = state.playbackRate
-      }
-      if (state.isPlaying && video.paused) {
-        video.play().catch(() => {
-          // 浏览器自动播放策略可能阻止播放
-        })
-      }
-      suppressEventsRef.current = false
-    })
-  }, [watchTogether.sourceUrl, applySourceToVideo, videoRef])
-
-  // 绑定 video 元素事件：房主操作时广播状态
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video || !isHostRef.current) return
-
-    const updateState = (forceBroadcast = false) => {
-      if (suppressEventsRef.current) return
-      const state: WatchTogetherState = {
-        sourceUrl: watchTogether.sourceUrl,
-        sourceType: watchTogether.sourceType,
-        audioUrl: watchTogether.audioUrl,
-        format: watchTogether.format,
-        videoCodec: watchTogether.videoCodec,
-        audioCodec: watchTogether.audioCodec,
-        cid: watchTogether.cid,
-        isPlaying: !video.paused,
-        currentTime: video.currentTime,
-        playbackRate: video.playbackRate,
-        duration: video.duration || watchTogether.duration,
-      }
-      setWatchTogether(state)
-      const now = Date.now()
-      if (forceBroadcast || now - lastBroadcastTimeRef.current > 1000) {
-        broadcastState(state)
-        lastBroadcastTimeRef.current = now
-      }
-    }
-
-    const handlePlay = () => {
-      if (suppressEventsRef.current) return
-      sendControl('play')
-      updateState(true)
-    }
-    const handlePause = () => {
-      if (suppressEventsRef.current) return
-      sendControl('pause')
-      updateState(true)
-    }
-    const handleSeeked = () => {
-      if (suppressEventsRef.current) return
-      if (seekDebounceRef.current) {
-        clearTimeout(seekDebounceRef.current)
-      }
-      seekDebounceRef.current = setTimeout(() => {
-        sendControl('seek', video.currentTime)
-        updateState(true)
-      }, 200)
-    }
-    const handleRateChange = () => {
-      if (suppressEventsRef.current) return
-      sendControl('rate', video.playbackRate)
-      updateState(true)
-    }
-    const handleTimeUpdate = () => {
-      if (suppressEventsRef.current) return
-      updateState(false)
-    }
-
-    video.addEventListener('play', handlePlay)
-    video.addEventListener('pause', handlePause)
-    video.addEventListener('seeked', handleSeeked)
-    video.addEventListener('ratechange', handleRateChange)
-    video.addEventListener('timeupdate', handleTimeUpdate)
-
-    return () => {
-      video.removeEventListener('play', handlePlay)
-      video.removeEventListener('pause', handlePause)
-      video.removeEventListener('seeked', handleSeeked)
-      video.removeEventListener('ratechange', handleRateChange)
-      video.removeEventListener('timeupdate', handleTimeUpdate)
-      if (seekDebounceRef.current) {
-        clearTimeout(seekDebounceRef.current)
-      }
-    }
-  }, [
-    videoRef,
-    watchTogether.sourceUrl,
-    watchTogether.sourceType,
-    watchTogether.cid,
-    watchTogether.audioUrl,
-    watchTogether.format,
-    watchTogether.videoCodec,
-    watchTogether.audioCodec,
-    broadcastState,
-    sendControl,
-    setWatchTogether,
-    watchTogether.duration,
+    quality,
+    suppressEventsRef,
   ])
 
   // 组件卸载或切换房间时释放 MSE blob URL 与音频同步资源
@@ -983,6 +550,61 @@ export function useWatchTogether({
       cleanupMedia()
     }
   }, [cleanupMedia])
+
+  // Bug #14 修复：B站 CDN 地址 deadline 过期后，MSE 流式下载 fetch 会返回 403，
+  // 播放器进入 stalled 状态。监听 video 的 stalled/error 事件，
+  // 房主端自动触发 reloadBilibili 重新解析新地址（带 5s 去抖动 + 单次重试限制）。
+  useEffect(() => {
+    if (!isHostRef.current) return
+    const video = videoRef.current
+    if (!video) return
+
+    const state = useRoomStore.getState().watchTogether
+    if (state.sourceType !== 'bilibili') return
+
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null
+    let lastReloadAt = 0
+    const RELOAD_COOLDOWN_MS = 10000 // 同一影片 10s 内最多重新解析一次，避免死循环
+
+    const triggerReload = () => {
+      const now = Date.now()
+      if (now - lastReloadAt < RELOAD_COOLDOWN_MS) {
+        console.log(
+          '[useWatchTogether] stalled/error 已在冷却期内，跳过重新解析'
+        )
+        return
+      }
+      lastReloadAt = now
+      console.log('[useWatchTogether] 检测到播放停滞，自动重新解析 B站 视频')
+      void reloadBilibili()
+    }
+
+    const handleStalled = () => {
+      if (suppressEventsRef.current) return
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(triggerReload, 5000)
+    }
+    const handleError = () => {
+      if (suppressEventsRef.current) return
+      if (debounceTimer) clearTimeout(debounceTimer)
+      debounceTimer = setTimeout(triggerReload, 2000)
+    }
+
+    video.addEventListener('stalled', handleStalled)
+    video.addEventListener('error', handleError)
+
+    return () => {
+      if (debounceTimer) clearTimeout(debounceTimer)
+      video.removeEventListener('stalled', handleStalled)
+      video.removeEventListener('error', handleError)
+    }
+  }, [
+    videoRef,
+    reloadBilibili,
+    suppressEventsRef,
+    watchTogether.sourceType,
+    watchTogether.sourceUrl,
+  ])
 
   return {
     watchTogether,
@@ -996,14 +618,22 @@ export function useWatchTogether({
     applySourceToVideo,
     cleanupMedia,
     // 清晰度相关
-    currentQuality,
-    availableQualities,
-    isSwitchingQuality,
+    currentQuality: quality.currentQuality,
+    availableQualities: quality.availableQualities,
+    isSwitchingQuality: quality.isSwitchingQuality,
     changeQuality,
     // B站 解析进度
     isResolving,
     resolvingMessage,
     // B站 重新解析
     reloadBilibili,
+    // 轨道同步（合并事件）
+    broadcastDanmakuTrackChange,
+    broadcastSubtitleTrackChange,
+    setSubtitleTrackIndex,
+    subtitleTrackIndex,
+    danmakuTrackId,
+    onDanmakuTrackChange,
+    onSubtitleTrackChange,
   }
 }

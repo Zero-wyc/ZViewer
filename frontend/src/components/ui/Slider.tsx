@@ -35,6 +35,7 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
     ref
   ) => {
     const [dragging, setDragging] = useState(false)
+    const [hovering, setHovering] = useState(false)
     const clamped = Math.min(max, Math.max(min, value))
     const percent = useMemo(
       () => ((clamped - min) / (max - min)) * 100,
@@ -60,32 +61,52 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
         {(label || showValue) && (
           <div
             className={cn(
-              'flex items-center justify-between text-[var(--md-sys-color-on-surface-variant)]',
-              isSm ? 'mb-1 text-[10px]' : 'mb-1.5 text-xs'
+              'flex items-center justify-between text-[var(--md-sys-color-on-surface-variant)] transition-colors',
+              isSm ? 'mb-1 text-[10px]' : 'mb-1.5 text-xs',
+              (dragging || hovering) && 'text-[var(--md-sys-color-primary)]'
             )}
           >
             {label && <span>{label}</span>}
             {showValue && (
-              <span className="tabular-nums">{format(clamped)}</span>
+              <span
+                className={cn(
+                  'tabular-nums transition-transform',
+                  dragging && 'scale-110'
+                )}
+              >
+                {format(clamped)}
+              </span>
             )}
           </div>
         )}
-        <div className={cn('relative flex items-center', isSm ? 'h-4' : 'h-5')}>
+        <div
+          className={cn('relative flex items-center', isSm ? 'h-4' : 'h-5')}
+          onMouseEnter={() => setHovering(true)}
+          onMouseLeave={() => setHovering(false)}
+        >
           <div
             className={cn(
-              'absolute w-full rounded-full',
+              'absolute w-full rounded-full transition-colors duration-200',
               isSm ? 'h-1' : 'h-1.5'
             )}
             style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
+              backgroundColor: hovering
+                ? 'color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent)'
+                : 'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
             }}
           />
           <div
-            className={cn('absolute rounded-full', isSm ? 'h-1' : 'h-1.5')}
+            className={cn(
+              'absolute rounded-full transition-all duration-150',
+              isSm ? 'h-1' : 'h-1.5'
+            )}
             style={{
               width: `${percent}%`,
               backgroundColor: 'var(--md-sys-color-primary)',
+              boxShadow:
+                dragging || hovering
+                  ? '0 0 8px color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent)'
+                  : 'none',
             }}
           />
           <input
@@ -110,14 +131,17 @@ export const Slider = forwardRef<HTMLInputElement, SliderProps>(
           />
           <div
             className={cn(
-              'pointer-events-none absolute rounded-full border-2 shadow transition-transform',
+              'pointer-events-none absolute rounded-full border-2 shadow transition-all duration-200',
               isSm ? 'h-3 w-3' : 'h-4 w-4',
-              'bg-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]',
-              dragging && 'scale-125'
+              'bg-[var(--md-sys-color-primary)] border-[var(--md-sys-color-primary)]'
             )}
             style={{
               left: `${percent}%`,
-              transform: `translateX(-50%) ${dragging ? 'scale(1.3)' : 'scale(1)'}`,
+              transform: `translateX(-50%) scale(${dragging ? 1.3 : hovering ? 1.1 : 1})`,
+              boxShadow:
+                dragging || hovering
+                  ? '0 0 0 4px color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent), 0 0 12px color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent)'
+                  : 'none',
             }}
           />
         </div>

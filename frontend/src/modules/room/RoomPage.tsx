@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
 import { useSocket } from '@/hooks/useSocket'
 import { RoomPanel } from '@/modules/room/components/RoomPanel'
@@ -9,22 +9,89 @@ import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import { CommentPanel } from '@/components/CommentPanel'
-import { ConnectionStatsPanel } from '@/components/ConnectionStatsPanel'
-import { SharePage, WatchPage } from '@/modules/room/screen-sharing'
+import { Spinner } from '@/components/ui/Spinner'
+import { SharePage, WatchPage } from '@/modules/screen-sharing'
+import type { MediaFormat } from '@/lib/mediaFormat'
 
 import type { RoomMode } from '@/store/roomStore'
 
+// sessionStorage key：标记当前用户是哪个房间的房主。
+// 房主创建房间时写入，RoomPage 据此判断身份并走 register-host 流程。
+// 刷新页面后仍可恢复身份，URL 无需携带 role/mode 参数。
+const HOST_ROOM_KEY = 'zcontrol-host-room'
+
+function isHostOfRoom(roomId: string): boolean {
+  try {
+    return sessionStorage.getItem(HOST_ROOM_KEY) === roomId
+  } catch {
+    return false
+  }
+}
+
+function clearHostRoomMark(roomId: string) {
+  try {
+    if (sessionStorage.getItem(HOST_ROOM_KEY) === roomId) {
+      sessionStorage.removeItem(HOST_ROOM_KEY)
+    }
+  } catch {
+    // ignore
+  }
+}
+
 function RoomPage() {
   const { roomId } = useParams<{ roomId?: string }>()
-  const [searchParams, setSearchParams] = useSearchParams()
-  const role = searchParams.get('role')
-  const modeParam = searchParams.get('mode') as RoomMode | null
+  // 身份判断：仅通过 sessionStorage 标记判断房主身份，URL 不再携带 role/mode 参数。
+  // 房主创建房间时写入 sessionStorage，刷新后仍可识别；观众进入时 sessionStorage 无标记。
+  const isHost = roomId ? isHostOfRoom(roomId) : false
+
   const storeMode = useRoomStore((state) => state.mode)
   const setMode = useRoomStore((state) => state.setMode)
+  const setShareMethod = useRoomStore((state) => state.setShareMethod)
   const setRoomId = useRoomStore((state) => state.setRoomId)
   const setRoomName = useRoomStore((state) => state.setRoomName)
-  const modeSyncedRef = useRef(false)
-  const prevStoreModeRef = useRef(storeMode)
+  const resetRoomStore = useRoomStore((state) => state.reset)
+
+  // 房主刷新/重连恢复时由后端返回的最近一次播放状态
+  const [recoveredPlayback, setRecoveredPlayback] = useState<{
+    currentTime: number
+    isPlaying: boolean
+    playbackRate: number
+    duration?: number
+    sourceUrl?: string
+    sourceType?: string
+    audioUrl?: string
+    format?: MediaFormat
+    videoCodec?: string
+    audioCodec?: string
+    cid?: number
+    currentQn?: number
+    currentMovieId?: number
+    updatedAt: number
+  } | null>(null)
+  // 房主 register-host 是否已完成回调。
+  // 必须等待回调完成后再渲染 WatchTogetherPanel，确保 useWatchTogether 挂载时
+  // initialPlayback 已可用，避免 fetchMovies/current-movie 先到达导致 loadMovie
+  // effect 在 initialPlayback=null 时执行，从而丢失播放进度恢复。
+  const [hostRegistered, setHostRegistered] = useState(false)
+
+  // roomId 变化（包括从有值变为无值，即返回主页）或组件卸载时重置 roomStore，
+  // 避免旧房间的 movies/currentMovieId/watchTogether 残留导致下次创建新房间时
+  // useWatchTogether 加载旧影片，看起来像"进入旧房间"。
+  const prevRoomIdRef = useRef(roomId)
+  useEffect(() => {
+    // roomId 变化时重置（不包括首次挂载）
+    if (prevRoomIdRef.current !== roomId) {
+      resetRoomStore()
+      setHostRegistered(false)
+      setRecoveredPlayback(null)
+      prevRoomIdRef.current = roomId
+    }
+  }, [roomId, resetRoomStore])
+  useEffect(() => {
+    return () => {
+      resetRoomStore()
+    }
+  }, [resetRoomStore])
   const { socket } = useSocket()
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
@@ -38,33 +105,9 @@ function RoomPage() {
     }
   }, [roomId, setRoomId])
 
-  // 首次进入房间时，将 URL 中的 mode 同步到 store；
-  // 同步完成后以 store/socket 实时状态为准，确保模式切换后 UI 正确跟随。
-  useEffect(() => {
-    if (modeParam) {
-      setMode(modeParam)
-    }
-    modeSyncedRef.current = true
-  }, [modeParam, setMode])
-
-  // 模式切换后同步更新 URL，避免地址栏停留在旧 mode。
-  // 通过 prevStoreModeRef 忽略首次同步导致的 storeMode 默认值，避免在 store
-  // 尚未应用 URL mode 时就错误地把地址栏改写为默认模式。
-  useEffect(() => {
-    if (!modeSyncedRef.current) return
-    if (prevStoreModeRef.current === storeMode) return
-    prevStoreModeRef.current = storeMode
-    if (modeParam === storeMode) return
-    if (!roomId) return
-
-    const next = new URLSearchParams(searchParams)
-    next.set('mode', storeMode)
-    setSearchParams(next, { replace: true })
-  }, [storeMode, modeParam, roomId, searchParams, setSearchParams])
-
   // 房主刷新或重连后，重新声明房主身份以恢复 sharer 会话
   useEffect(() => {
-    if (role !== 'host' || !roomId || !socket) return
+    if (!isHost || !roomId || !socket) return
 
     const registerHost = () => {
       socket.emit(
@@ -74,23 +117,52 @@ function RoomPage() {
           success: boolean
           message?: string
           mode?: RoomMode
+          shareMethod?: 'webrtc' | 'stream-push'
           name?: string | null
+          playback?: {
+            currentTime: number
+            isPlaying: boolean
+            playbackRate: number
+            duration?: number
+            sourceUrl?: string
+            sourceType?: string
+            audioUrl?: string
+            format?: MediaFormat
+            videoCodec?: string
+            audioCodec?: string
+            cid?: number
+            currentQn?: number
+            currentMovieId?: number
+            updatedAt: number
+          }
         }) => {
           if (!response?.success) {
             console.warn('[RoomPage] register-host failed:', response?.message)
+            // 房主身份恢复失败（房间被关闭/被接管等）：清除本地标记，回退到观众流程
+            clearHostRoomMark(roomId)
+            // 即使失败也标记为已完成，避免 WatchTogetherPanel 永远不渲染
+            setHostRegistered(true)
             return
           }
-          // 刷新后 roomStore 已重置为默认值，若 URL 未携带 mode，
-          // 则使用后端返回的房间真实模式，避免默认回退到 screen-share。
-          if (response.mode && !modeParam) {
+          // 使用后端返回的房间真实模式，避免 store 默认值 screen-share 导致 UI 错误。
+          // 模式不再写入 URL，由后端房间状态唯一确定。
+          if (response.mode) {
             setMode(response.mode)
-            const next = new URLSearchParams(searchParams)
-            next.set('mode', response.mode)
-            setSearchParams(next, { replace: true })
           }
           if (response.name) {
             setRoomName(response.name)
           }
+          // 同步房间的 shareMethod（screen-share 子模式）
+          if (response.shareMethod) {
+            setShareMethod(response.shareMethod)
+          }
+          // 房主刷新恢复：保存 playback 传给 WatchTogetherPanel 应用
+          if (response.playback) {
+            setRecoveredPlayback(response.playback)
+          }
+          // 标记 register-host 已完成，WatchTogetherPanel 可以渲染
+          // 必须在 setRecoveredPlayback 之后设置，确保渲染时 initialPlayback 已就绪
+          setHostRegistered(true)
         }
       )
     }
@@ -110,19 +182,9 @@ function RoomPage() {
       socket.off('connect', registerHost)
       socket.off('room-name-updated', handleRoomNameUpdated)
     }
-  }, [
-    role,
-    roomId,
-    socket,
-    modeParam,
-    searchParams,
-    setMode,
-    setSearchParams,
-    setRoomName,
-  ])
+  }, [isHost, roomId, socket, setMode, setShareMethod, setRoomName])
 
-  // eslint-disable-next-line react-hooks/refs
-  const mode = modeSyncedRef.current ? storeMode : modeParam || storeMode
+  const mode = storeMode
 
   // 无房间号时展示创建面板，让房主选择共享方案
   if (!roomId) {
@@ -130,25 +192,32 @@ function RoomPage() {
   }
 
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
-  if (role === 'host') {
+  if (isHost) {
     const mainContent =
       mode === 'watch-together' ? (
-        <WatchTogetherPanel
-          roomId={roomId}
-          isHost
-          isWebFullscreen={isWebFullscreen}
-          onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-        />
+        // 等待 register-host 回调完成后再渲染 WatchTogetherPanel，
+        // 确保 useWatchTogether 挂载时 initialPlayback 已可用，
+        // 避免 fetchMovies/current-movie 先到达导致 loadMovie effect
+        // 在 initialPlayback=null 时执行而丢失播放进度恢复。
+        hostRegistered ? (
+          <WatchTogetherPanel
+            roomId={roomId}
+            isHost
+            isWebFullscreen={isWebFullscreen}
+            onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+            initialPlayback={recoveredPlayback}
+          />
+        ) : (
+          <div className="flex h-full w-full items-center justify-center">
+            <Spinner tip="正在恢复房间..." size={32} />
+          </div>
+        )
       ) : (
-        <SharePage
-          onStatsPeerConnectionChange={setHostPeerConnection}
-        />
+        <SharePage onStatsPeerConnectionChange={setHostPeerConnection} />
       )
 
     const controls =
-      mode === 'screen-share' ? (
-        <ConnectionStatsPanel pc={hostPeerConnection} mode="server" />
-      ) : (
+      mode === 'screen-share' ? null : (
         <>
           <RoomInfoPanel roomId={roomId} isHost />
           <MovieListPanel isHost />
@@ -161,7 +230,13 @@ function RoomPage() {
         roomId={roomId}
         isHost
         mainContent={mainContent}
-        rightPanel={<CommentPanel socket={socket} roomId={roomId} />}
+        rightPanel={
+          <CommentPanel
+            socket={socket}
+            roomId={roomId}
+            commentsOnly={mode === 'screen-share'}
+          />
+        }
         peerConnection={hostPeerConnection}
         controls={controls}
         webFullscreen={isWebFullscreen}

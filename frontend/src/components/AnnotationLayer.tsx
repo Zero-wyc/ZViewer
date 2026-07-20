@@ -144,7 +144,9 @@ export const AnnotationLayer = forwardRef<
   )
 
   const drawStrokeRef = useRef(drawStroke)
-  drawStrokeRef.current = drawStroke
+  useEffect(() => {
+    drawStrokeRef.current = drawStroke
+  }, [drawStroke])
 
   const resizeCanvas = useCallback(() => {
     const canvas = canvasRef.current

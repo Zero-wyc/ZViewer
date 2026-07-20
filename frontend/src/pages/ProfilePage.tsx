@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   User,
   Shield,
   QrCode,
@@ -12,6 +11,7 @@ import {
   AtSign,
   Pencil,
 } from 'lucide-react'
+import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
@@ -30,7 +30,7 @@ import {
   buildBilibiliImageProxyUrl,
   type BilibiliUserInfo,
 } from '@/modules/room/watch-together/resolveSource'
-import MountManager from '@/modules/profile/MountManager'
+import MountManager from '@/modules/mounts/MountManager'
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const API_URL = rawApiUrl || window.location.origin
@@ -270,22 +270,14 @@ export default function ProfilePage() {
     )
   }
 
-  const isAdmin = user.role === 'admin'
+  const isAdmin = user.role === 'admin' || user.role === 'root'
 
   return (
     <div className="flex-1 p-4 sm:p-6">
-      <Card className="mx-auto w-full max-w-2xl">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft className="h-4 w-4" />}
-          onClick={() => navigate(-1)}
-          className="absolute left-4 top-4"
-        >
-          返回
-        </Button>
+      <Card className="relative mx-auto w-full max-w-2xl">
+        <PageBackButton to={-1} />
 
-        <div className="mb-8 text-center">
+        <div className="mb-6 pt-8 text-center">
           <div
             className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
             style={{

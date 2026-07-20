@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Select } from '@/components/ui/Select'
+import { Dropdown } from '@/components/ui/Dropdown'
 import { Space } from '@/components/ui/Space'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Modal } from '@/components/ui/Modal'
@@ -23,10 +23,7 @@ import { BilibiliBangumiSelector } from './BilibiliBangumiSelector'
 import { AnimeSourceSelector } from './AnimeSourceSelector'
 import {
   resolveBilibili,
-  resolveWebDAV,
   resolveFTP,
-  resolveOpenList,
-  buildOpenListProxyUrl,
   buildBilibiliVideoUrl,
   buildBilibiliImageProxyUrl,
   getBilibiliQrCode,
@@ -36,18 +33,29 @@ import {
   logoutBilibili,
   type BilibiliUserInfo,
   type ResolvedSource,
-  type WebDAVParams,
   type FTPParams,
-  type OpenListEntry,
   type AnimeEpisode,
   resolveAnimeEpisode,
 } from '@/modules/room/watch-together/resolveSource'
-import MountBrowserModal from '@/modules/profile/MountBrowserModal'
 import {
-  fetchMounts,
+  resolveBilibiliWithOptions,
+  filterQualitiesByVip,
+} from '@/modules/bilibili/bilibiliApi'
+import {
+  resolveOpenList,
+  buildOpenListProxyUrl,
+} from '@/modules/openlist/openlistApi'
+import OpenListBrowser from '@/modules/openlist/OpenListBrowser'
+import { resolveWebDAV, buildWebDAVProxyUrl } from '@/modules/webdav/webdavApi'
+import MountBrowser from '@/modules/mounts/MountBrowser'
+import WebDAVBrowser from '@/modules/webdav/WebDAVBrowser'
+import { resolveFTP as resolveFTPNew } from '@/modules/ftp/ftpApi'
+import type { MediaFormat } from '@/lib/mediaFormat'
+import {
+  fetchAllMounts,
+  type UnionMount,
   type MountType,
-  type UserMount,
-} from '@/modules/profile/mountApi'
+} from '@/modules/mounts'
 
 type SourceType = 'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'anime'
 
@@ -96,12 +104,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [resolveProgress, setResolveProgress] = useState<string>('')
 
   // WebDAV / FTP / OpenList 表单状态
-  const [webdav, setWebdav] = useState<WebDAVParams>({
+  const [webdav, setWebdav] = useState<{
+    serverUrl: string
+    path: string
+  }>({
     serverUrl: '',
     path: '',
-    username: '',
-    password: '',
   })
+  const [webdavDirectLink, setWebdavDirectLink] = useState(false)
   const [ftp, setFtp] = useState<FTPParams>({
     serverUrl: '',
     path: '',
@@ -109,15 +119,18 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     username: '',
     password: '',
   })
-  const [openlistUrl, setOpenlistUrl] = useState('')
-  const [openlistEntries, setOpenlistEntries] = useState<OpenListEntry[]>([])
-  const [selectedOpenlistUrl, setSelectedOpenlistUrl] = useState('')
-  const [openlistDirectLink, setOpenlistDirectLink] = useState(false)
+  const [openlist, setOpenlist] = useState<{
+    serverUrl: string
+    path: string
+  }>({
+    serverUrl: '',
+    path: '',
+  })
 
   // 已保存挂载
-  const [mounts, setMounts] = useState<UserMount[]>([])
+  const [mounts, setMounts] = useState<UnionMount[]>([])
   const [selectedMountId, setSelectedMountId] = useState<string>('')
-  const [browsingMount, setBrowsingMount] = useState<UserMount | null>(null)
+  const [browsingMount, setBrowsingMount] = useState<UnionMount | null>(null)
 
   const [bilibiliLoggedIn, setBilibiliLoggedIn] = useState(false)
   const [bilibiliUser, setBilibiliUser] = useState<BilibiliUserInfo | null>(
@@ -135,9 +148,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const qrRetryCountRef = useRef(0)
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- sourceType 变化时重置状态
     setResolvedMovie(null)
-    setOpenlistEntries([])
-    setSelectedOpenlistUrl('')
+    setOpenlist({ serverUrl: '', path: '' })
     setSelectedMountId('')
     if (sourceType !== 'bilibili') return
     getBilibiliLoginStatus().then((loggedIn) => {
@@ -153,6 +166,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   }, [sourceType])
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 头像变化时重置错误状态
     setAvatarError(false)
   }, [bilibiliUser?.avatar])
 
@@ -331,7 +345,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   )
 
   useEffect(() => {
-    fetchMounts()
+    fetchAllMounts()
       .then((data) => setMounts(data))
       .catch((err) => {
         console.error('[MoviePushPanel] fetch mounts error:', err)
@@ -351,13 +365,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     const mount = mounts.find((m) => m.id === id)
     if (!mount) return
     if (sourceType === 'webdav') {
-      setWebdav((prev) => ({
-        ...prev,
+      setWebdav({
         serverUrl: mount.serverUrl || '',
         path: normalizeMountPath(mount.path || ''),
-        username: mount.username || '',
-        password: mount.password || '',
-      }))
+      })
+      setWebdavDirectLink(mount.directLink)
     } else if (sourceType === 'ftp') {
       setFtp((prev) => ({
         ...prev,
@@ -365,52 +377,43 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         port: mount.port ?? 21,
         path: normalizeMountPath(mount.path || ''),
         username: mount.username || '',
-        password: mount.password || '',
+        // 密码由后端挂载配置内部管理，列表接口不返回密码
+        password: '',
       }))
     } else if (sourceType === 'openlist') {
-      const url = mount.indexUrl || ''
-      setOpenlistUrl(url)
-      setOpenlistDirectLink(mount.directLink)
-      setOpenlistEntries([])
-      setSelectedOpenlistUrl('')
-      if (url) {
-        setLoading(true)
-        resolveOpenList(url)
-          .then((result) => {
-            setOpenlistEntries(result.items)
-            if (result.items.length > 0) {
-              setSelectedOpenlistUrl(result.items[0].url)
-            }
-          })
-          .catch((err) => {
-            message.error(err instanceof Error ? err.message : '解析 OpenList 失败')
-          })
-          .finally(() => setLoading(false))
-      }
+      setOpenlist({
+        serverUrl: mount.serverUrl || '',
+        path: normalizeMountPath(mount.path || ''),
+      })
     }
   }
 
-  const handleSelectFileFromMount = useCallback((path: string) => {
-    const normalizedPath = normalizeMountPath(path)
-    if (sourceType === 'webdav') {
-      setWebdav((prev) => ({ ...prev, path: normalizedPath }))
-    } else if (sourceType === 'ftp') {
-      setFtp((prev) => ({ ...prev, path: normalizedPath }))
-    }
-  }, [sourceType])
+  const handleSelectFileFromMount = useCallback(
+    (path: string) => {
+      const normalizedPath = normalizeMountPath(path)
+      if (sourceType === 'webdav') {
+        setWebdav((prev) => ({ ...prev, path: normalizedPath }))
+      } else if (sourceType === 'ftp') {
+        setFtp((prev) => ({ ...prev, path: normalizedPath }))
+      } else if (sourceType === 'openlist') {
+        setOpenlist((prev) => ({ ...prev, path: normalizedPath }))
+      }
+    },
+    [sourceType]
+  )
 
   const resetForm = () => {
     setUrl('')
     setResolvedMovie(null)
     setSelectedMountId('')
-    setWebdav({ serverUrl: '', path: '', username: '', password: '' })
+    setWebdav({ serverUrl: '', path: '' })
+    setWebdavDirectLink(false)
     setFtp({ serverUrl: '', path: '', port: 21, username: '', password: '' })
-    setOpenlistUrl('')
-    setOpenlistEntries([])
-    setSelectedOpenlistUrl('')
-    setOpenlistDirectLink(false)
+    setOpenlist({ serverUrl: '', path: '' })
   }
 
+  // 仅 bilibili 需要 handleResolve：解析后显示清晰度选择器，再点"添加"
+  // webdav/ftp/openlist/mp4 的 resolve+add 已合并到 handleAddMovie
   const handleResolve = async () => {
     if (!isHost) {
       message.info('只有房主可以添加影片')
@@ -420,67 +423,21 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       message.error('未连接房间')
       return
     }
+    if (sourceType !== 'bilibili') return
+    if (!url.trim()) {
+      message.warning('请输入视频地址')
+      return
+    }
 
     setLoading(true)
     setResolveProgress('正在初始化解析...')
     try {
-      if (sourceType === 'bilibili') {
-        if (!url.trim()) {
-          message.warning('请输入视频地址')
-          return
-        }
-        const resolved = await resolveBilibili(
-          url.trim(),
-          undefined,
-          (_step, msg) => setResolveProgress(msg)
-        )
-        setResolvedMovie(resolved)
-      } else if (sourceType === 'mp4') {
-        if (!url.trim()) {
-          message.warning('请输入视频地址')
-          return
-        }
-        const movieUrl = url.trim()
-        const title = extractTitleFromUrl(movieUrl)
-        await addMovie(roomId, { url: movieUrl, title, source: 'mp4' })
-        resetForm()
-        message.success('影片已添加')
-      } else if (sourceType === 'webdav') {
-        if (!webdav.serverUrl.trim() || !webdav.path.trim()) {
-          message.warning('请填写服务器地址与路径')
-          return
-        }
-        const resolved = await resolveWebDAV({
-          serverUrl: webdav.serverUrl.trim(),
-          path: webdav.path.trim(),
-          username: webdav.username || undefined,
-          password: webdav.password || undefined,
-        })
-        setResolvedMovie(resolved)
-      } else if (sourceType === 'ftp') {
-        if (!ftp.serverUrl.trim() || !ftp.path.trim()) {
-          message.warning('请填写服务器地址与路径')
-          return
-        }
-        const resolved = await resolveFTP({
-          serverUrl: ftp.serverUrl.trim(),
-          path: ftp.path.trim(),
-          port: ftp.port,
-          username: ftp.username || undefined,
-          password: ftp.password || undefined,
-        })
-        setResolvedMovie(resolved)
-      } else if (sourceType === 'openlist') {
-        if (!openlistUrl.trim()) {
-          message.warning('请输入 OpenList 索引 URL')
-          return
-        }
-        const result = await resolveOpenList(openlistUrl.trim())
-        setOpenlistEntries(result.items)
-        if (result.items.length > 0) {
-          setSelectedOpenlistUrl(result.items[0].url)
-        }
-      }
+      const resolved = await resolveBilibili(
+        url.trim(),
+        undefined,
+        (_step, msg) => setResolveProgress(msg)
+      )
+      setResolvedMovie(resolved)
     } catch (err) {
       console.error('[MoviePushPanel] resolve error:', err)
       message.error(err instanceof Error ? err.message : '解析失败')
@@ -498,8 +455,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     setQualityLoading(true)
     setResolveProgress('正在切换清晰度...')
     try {
-      const resolved = await resolveBilibili(url.trim(), qn, (_step, msg) =>
-        setResolveProgress(msg)
+      const resolved = await resolveBilibiliWithOptions(
+        url.trim(),
+        qn,
+        (_step, msg) => setResolveProgress(msg)
       )
       setResolvedMovie(resolved)
     } catch (err) {
@@ -511,6 +470,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     }
   }
 
+  // 统一添加影片：对 webdav/ftp/openlist/mp4 合并 resolve+add 为单步操作
+  // bilibili 仍走两步：先 handleResolve 解析 → 选清晰度 → handleAddMovie 添加
   const handleAddMovie = async () => {
     if (!isHost) {
       message.info('只有房主可以添加影片')
@@ -520,12 +481,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       message.error('未连接房间')
       return
     }
-    if (sourceType === 'bilibili' && !resolvedMovie) {
-      message.error('请先解析视频')
-      return
-    }
 
     setLoading(true)
+    setResolveProgress('正在添加影片...')
     try {
       if (sourceType === 'bilibili' && resolvedMovie) {
         const title = resolvedMovie.title || url.trim()
@@ -544,42 +502,123 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         })
         resetForm()
         message.success('影片已添加')
-      } else if (
-        (sourceType === 'webdav' || sourceType === 'ftp') &&
-        resolvedMovie
-      ) {
-        const params = sourceType === 'webdav' ? webdav : ftp
-        const title = resolvedMovie.title || extractTitleFromUrl(params.path)
+      } else if (sourceType === 'mp4') {
+        if (!url.trim()) {
+          message.warning('请输入视频地址')
+          return
+        }
+        const movieUrl = url.trim()
+        const title = extractTitleFromUrl(movieUrl)
+        await addMovie(roomId, { url: movieUrl, title, source: 'mp4' })
+        resetForm()
+        message.success('影片已添加')
+      } else if (sourceType === 'webdav') {
+        if (!webdav.path.trim()) {
+          message.warning('请填写文件路径')
+          return
+        }
+        let title: string
+        let movieUrl: string
+        let format: MediaFormat = 'mp4'
+        let duration: number | undefined
+
+        if (webdavDirectLink) {
+          if (!webdav.serverUrl.trim()) {
+            message.warning('请填写服务器地址')
+            return
+          }
+          movieUrl = `${webdav.serverUrl.trim()}${webdav.path.trim()}`
+          title = extractTitleFromUrl(webdav.path.trim())
+        } else {
+          const mountId = Number(selectedMountId)
+          if (!mountId) {
+            message.warning('请选择已保存的 WebDAV 挂载')
+            return
+          }
+          setResolveProgress('正在解析 WebDAV 文件...')
+          const resolved = await resolveWebDAV(mountId, webdav.path.trim())
+          title = resolved.title || extractTitleFromUrl(webdav.path.trim())
+          movieUrl = buildWebDAVProxyUrl(mountId, webdav.path.trim())
+          format = resolved.format
+          duration = resolved.duration
+        }
         await addMovie(roomId, {
-          url: resolvedMovie.videoUrl,
+          url: movieUrl,
           title,
-          source: sourceType,
-          format: resolvedMovie.format,
-          duration: resolvedMovie.duration,
-          serverUrl: params.serverUrl.trim(),
-          path: params.path.trim(),
-          username: params.username || undefined,
-          password: params.password || undefined,
+          source: 'webdav',
+          format,
+          duration,
+          serverUrl: webdav.serverUrl.trim() || undefined,
+          path: webdav.path.trim(),
+          directLink: webdavDirectLink,
+        })
+        resetForm()
+        message.success('影片已添加')
+      } else if (sourceType === 'ftp') {
+        if (!ftp.serverUrl.trim() || !ftp.path.trim()) {
+          message.warning('请填写服务器地址与路径')
+          return
+        }
+        setResolveProgress('正在解析 FTP 文件...')
+        // 优先使用已保存挂载的新 API；手动填写时回退到旧 API
+        const mountId = Number(selectedMountId)
+        let title: string
+        let movieUrl: string
+        let format: MediaFormat = 'mp4'
+
+        if (mountId) {
+          const resolved = await resolveFTPNew(mountId, ftp.path.trim())
+          title = resolved.title || extractTitleFromUrl(ftp.path.trim())
+          movieUrl = resolved.videoUrl
+          format = resolved.format
+        } else {
+          const resolved = await resolveFTP({
+            serverUrl: ftp.serverUrl.trim(),
+            path: ftp.path.trim(),
+            port: ftp.port,
+            username: ftp.username || undefined,
+            password: ftp.password || undefined,
+          })
+          title = resolved.title || extractTitleFromUrl(ftp.path.trim())
+          movieUrl = resolved.videoUrl
+          format = resolved.format
+        }
+        await addMovie(roomId, {
+          url: movieUrl,
+          title,
+          source: 'ftp',
+          format,
+          serverUrl: ftp.serverUrl.trim(),
+          path: ftp.path.trim(),
+          username: ftp.username || undefined,
+          password: ftp.password || undefined,
         })
         resetForm()
         message.success('影片已添加')
       } else if (sourceType === 'openlist') {
-        if (!selectedOpenlistUrl) {
-          message.error('请选择 OpenList 条目')
+        if (!openlist.path.trim()) {
+          message.warning('请填写文件路径')
           return
         }
-        const entry = openlistEntries.find(
-          (item) => item.url === selectedOpenlistUrl
-        )
-        const title = entry?.name || extractTitleFromUrl(selectedOpenlistUrl)
+        const mountId = Number(selectedMountId)
+        if (!mountId) {
+          message.warning('请选择已保存的 OpenList 挂载')
+          return
+        }
+        setResolveProgress('正在解析 OpenList 文件...')
+        const resolved = await resolveOpenList(mountId, openlist.path.trim())
+        const title =
+          resolved.title || extractTitleFromUrl(openlist.path.trim())
+        const movieUrl = buildOpenListProxyUrl(mountId, openlist.path.trim())
         await addMovie(roomId, {
-          url: openlistDirectLink
-            ? selectedOpenlistUrl
-            : buildOpenListProxyUrl(selectedOpenlistUrl),
+          url: movieUrl,
           title,
           source: 'openlist',
-          serverUrl: openlistUrl.trim(),
-          directLink: openlistDirectLink,
+          format: resolved.format,
+          duration: resolved.duration,
+          serverUrl: openlist.serverUrl.trim() || undefined,
+          path: openlist.path.trim(),
+          directLink: false,
         })
         resetForm()
         message.success('影片已添加')
@@ -589,19 +628,74 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       message.error(err instanceof Error ? err.message : '添加影片失败')
     } finally {
       setLoading(false)
+      setResolveProgress('')
     }
   }
 
-  const canAdd =
-    sourceType === 'bilibili'
-      ? !!resolvedMovie
-      : sourceType === 'webdav' || sourceType === 'ftp'
-        ? !!resolvedMovie
-        : sourceType === 'openlist'
-          ? openlistEntries.length > 0
-          : sourceType === 'anime'
-            ? false
-            : true
+  // bilibili 需要先解析再选清晰度；anime 有独立搜索弹窗；其他源点击"添加"直接 resolve+add
+  const renderActionButton = () => {
+    if (sourceType === 'anime') {
+      return (
+        <Button
+          variant="primary"
+          size="sm"
+          block
+          loading={loading}
+          icon={<Search className="h-4 w-4" />}
+          onClick={() => setAnimeOpen(true)}
+          disabled={!isHost}
+        >
+          搜索番剧
+        </Button>
+      )
+    }
+
+    if (sourceType === 'bilibili') {
+      if (resolvedMovie) {
+        return (
+          <Button
+            variant="primary"
+            size="sm"
+            block
+            loading={loading}
+            icon={<Plus className="h-4 w-4" />}
+            onClick={handleAddMovie}
+            disabled={!isHost}
+          >
+            添加
+          </Button>
+        )
+      }
+      return (
+        <Button
+          variant="primary"
+          size="sm"
+          block
+          loading={loading}
+          icon={<Link2 className="h-4 w-4" />}
+          onClick={() => void handleResolve()}
+          disabled={!isHost}
+        >
+          解析
+        </Button>
+      )
+    }
+
+    // mp4 / webdav / ftp / openlist：单步"添加"
+    return (
+      <Button
+        variant="primary"
+        size="sm"
+        block
+        loading={loading}
+        icon={<Plus className="h-4 w-4" />}
+        onClick={() => void handleAddMovie()}
+        disabled={!isHost}
+      >
+        添加
+      </Button>
+    )
+  }
 
   const renderSourceForm = () => {
     const getMountOptions = (type: MountType) => [
@@ -625,7 +719,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              void handleResolve()
+              // bilibili 走解析流程，mp4 直接添加
+              void (sourceType === 'bilibili'
+                ? handleResolve()
+                : handleAddMovie())
             }
           }}
         />
@@ -635,7 +732,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     if (sourceType === 'webdav') {
       return (
         <Space direction="vertical" className="w-full" size="sm">
-          <Select
+          <Dropdown
             label="使用已保存的 WebDAV 挂载"
             value={selectedMountId}
             options={getMountOptions('webdav')}
@@ -646,7 +743,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               variant="secondary"
               size="sm"
               onClick={() => {
-                const mount = mounts.find((m) => m.id === Number(selectedMountId))
+                const mount = mounts.find(
+                  (m) => m.id === Number(selectedMountId)
+                )
                 if (mount) setBrowsingMount(mount)
               }}
             >
@@ -659,7 +758,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             onChange={(e) =>
               setWebdav((prev) => ({ ...prev, serverUrl: e.target.value }))
             }
-            placeholder="WebDAV 服务器地址，如 https://example.com/dav"
+            placeholder="WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
           />
           <Input
             size="sm"
@@ -672,22 +771,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             }
             placeholder="文件路径，如 /movies/video.mp4"
           />
-          <Input
-            size="sm"
-            value={webdav.username}
-            onChange={(e) =>
-              setWebdav((prev) => ({ ...prev, username: e.target.value }))
-            }
-            placeholder="用户名（可选）"
-          />
-          <Input
-            size="sm"
-            type="password"
-            value={webdav.password}
-            onChange={(e) =>
-              setWebdav((prev) => ({ ...prev, password: e.target.value }))
-            }
-            placeholder="密码（可选）"
+          <Dropdown
+            value={webdavDirectLink ? 'direct' : 'proxy'}
+            options={[
+              { value: 'proxy', label: '服务器转发' },
+              { value: 'direct', label: '直链直连' },
+            ]}
+            onChange={(value) => setWebdavDirectLink(value === 'direct')}
           />
         </Space>
       )
@@ -696,7 +786,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     if (sourceType === 'ftp') {
       return (
         <Space direction="vertical" className="w-full" size="sm">
-          <Select
+          <Dropdown
             label="使用已保存的 FTP 挂载"
             value={selectedMountId}
             options={getMountOptions('ftp')}
@@ -707,7 +797,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               variant="secondary"
               size="sm"
               onClick={() => {
-                const mount = mounts.find((m) => m.id === Number(selectedMountId))
+                const mount = mounts.find(
+                  (m) => m.id === Number(selectedMountId)
+                )
                 if (mount) setBrowsingMount(mount)
               }}
             >
@@ -779,48 +871,53 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     if (sourceType === 'openlist') {
       return (
         <Space direction="vertical" className="w-full" size="sm">
-          <Select
+          <Dropdown
             label="使用已保存的 OpenList 挂载"
             value={selectedMountId}
             options={getMountOptions('openlist')}
             onChange={handleMountSelect}
           />
+          {selectedMountId && (
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => {
+                const mount = mounts.find(
+                  (m) => m.id === Number(selectedMountId)
+                )
+                if (mount) setBrowsingMount(mount)
+              }}
+            >
+              浏览文件
+            </Button>
+          )}
           <Input
             size="sm"
-            value={openlistUrl}
-            onChange={(e) => {
-              setOpenlistUrl(e.target.value)
-              setOpenlistEntries([])
-              setSelectedOpenlistUrl('')
-            }}
-            placeholder="OpenList 索引 URL"
+            value={openlist.serverUrl}
+            onChange={(e) =>
+              setOpenlist((prev) => ({ ...prev, serverUrl: e.target.value }))
+            }
+            placeholder="OpenList 服务器地址（仅手动填写时需要，已选挂载自动填充）"
+          />
+          <Input
+            size="sm"
+            value={openlist.path}
+            onChange={(e) =>
+              setOpenlist((prev) => ({
+                ...prev,
+                path: normalizeMountPath(e.target.value),
+              }))
+            }
+            placeholder="文件路径，如 /movies/video.mp4"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
-                void handleResolve()
+                void handleAddMovie()
               }
             }}
           />
-          {openlistEntries.length > 0 && (
-            <>
-              <Select
-                value={selectedOpenlistUrl}
-                options={openlistEntries.map((item) => ({
-                  label: item.name,
-                  value: item.url,
-                }))}
-                onChange={(value) => setSelectedOpenlistUrl(value)}
-              />
-              <Select
-                value={openlistDirectLink ? 'direct' : 'proxy'}
-                options={[
-                  { value: 'proxy', label: '服务器转发' },
-                  { value: 'direct', label: '直链直连' },
-                ]}
-                onChange={(value) => setOpenlistDirectLink(value === 'direct')}
-              />
-            </>
-          )}
+          {/* OpenList 始终使用服务器转发模式：WebDAV 路径不是可播放直链，
+              直连会被浏览器 ORB 策略阻止，必须通过后端代理处理认证与 CORS */}
         </Space>
       )
     }
@@ -833,7 +930,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       <Space direction="vertical" className="h-full w-full" size="sm">
         <Text className="text-sm font-medium">添加影片</Text>
 
-        <Select
+        <Dropdown
           value={sourceType}
           options={SOURCE_OPTIONS}
           onChange={(value) => setSourceType(value as SourceType)}
@@ -841,62 +938,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
         {renderSourceForm()}
 
-        {sourceType === 'bilibili' && resolvedMovie ? (
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            loading={loading}
-            icon={<Plus className="h-4 w-4" />}
-            onClick={handleAddMovie}
-            disabled={!isHost}
-          >
-            添加
-          </Button>
-        ) : sourceType === 'anime' ? (
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            loading={loading}
-            icon={<Search className="h-4 w-4" />}
-            onClick={() => setAnimeOpen(true)}
-            disabled={!isHost}
-          >
-            搜索番剧
-          </Button>
-        ) : (
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            loading={loading}
-            icon={<Link2 className="h-4 w-4" />}
-            onClick={() => void handleResolve()}
-            disabled={!isHost}
-          >
-            {sourceType === 'bilibili' ||
-            sourceType === 'webdav' ||
-            sourceType === 'ftp' ||
-            sourceType === 'openlist'
-              ? '解析'
-              : '添加'}
-          </Button>
-        )}
-
-        {canAdd && sourceType !== 'bilibili' && sourceType !== 'mp4' && (
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            loading={loading}
-            icon={<Plus className="h-4 w-4" />}
-            onClick={() => void handleAddMovie()}
-            disabled={!isHost}
-          >
-            添加
-          </Button>
-        )}
+        {renderActionButton()}
 
         {resolveProgress && (
           <div
@@ -915,11 +957,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         {sourceType === 'bilibili' &&
           resolvedMovie?.acceptQuality &&
           resolvedMovie.acceptQuality.length > 0 && (
-            <Select
+            <Dropdown
               value={String(
                 resolvedMovie.currentQn ?? resolvedMovie.acceptQuality[0]?.id
               )}
-              options={resolvedMovie.acceptQuality.map((q) => ({
+              options={filterQualitiesByVip(
+                resolvedMovie.acceptQuality,
+                bilibiliUser?.vipStatus === 1
+              ).map((q) => ({
                 label: q.resolution ? `${q.label} · ${q.resolution}` : q.label,
                 value: String(q.id),
               }))}
@@ -1094,13 +1139,31 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         </div>
       </Modal>
 
-      <MountBrowserModal
-        mount={browsingMount}
-        open={!!browsingMount}
-        onClose={() => setBrowsingMount(null)}
-        onSelectFile={handleSelectFileFromMount}
-        selectable
-      />
+      {browsingMount?.type === 'webdav' ? (
+        <WebDAVBrowser
+          mountId={browsingMount.id}
+          open={!!browsingMount}
+          onClose={() => setBrowsingMount(null)}
+          onSelectFile={handleSelectFileFromMount}
+          selectable
+        />
+      ) : browsingMount?.type === 'openlist' ? (
+        <OpenListBrowser
+          mountId={browsingMount.id}
+          open={!!browsingMount}
+          onClose={() => setBrowsingMount(null)}
+          onSelectFile={handleSelectFileFromMount}
+          selectable
+        />
+      ) : (
+        <MountBrowser
+          mount={browsingMount}
+          open={!!browsingMount}
+          onClose={() => setBrowsingMount(null)}
+          onSelectFile={handleSelectFileFromMount}
+          selectable
+        />
+      )}
     </>
   )
 }

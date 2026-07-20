@@ -26,6 +26,11 @@ export interface CommentItem {
 interface CommentPanelProps {
   socket: Socket | null
   roomId: string
+  /**
+   * 仅显示评论区（隐藏弹幕轨道 / 实时弹幕 Tab）。
+   * 投屏模式下弹幕轨道与实时弹幕无意义，仅 watch-together 模式启用。
+   */
+  commentsOnly?: boolean
 }
 
 interface SendCommentResponse {
@@ -52,7 +57,11 @@ function getInitials(name: string) {
   return name.slice(0, 2).toUpperCase()
 }
 
-export function CommentPanel({ socket, roomId }: CommentPanelProps) {
+export function CommentPanel({
+  socket,
+  roomId,
+  commentsOnly = false,
+}: CommentPanelProps) {
   const currentUser = useAuthStore((state) => state.user)
   const [comments, setComments] = useState<CommentItem[]>([])
   const [input, setInput] = useState('')
@@ -140,19 +149,21 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
   const handleSendComment = () => handleSend(sendAsDanmaku)
 
   return (
-    <div className="flex h-full flex-col gap-3 p-4">
-      <SegmentedToggle
-        options={[
-          { value: 'comments', label: '评论区' },
-          { value: 'tracks', label: '弹幕轨道' },
-          { value: 'realtime', label: '实时弹幕' },
-        ]}
-        value={rightPanelTab}
-        onChange={(v) => setRightPanelTab(v as typeof rightPanelTab)}
-      />
+    <div className="flex h-full min-h-0 flex-col gap-3 p-4">
+      {!commentsOnly && (
+        <SegmentedToggle
+          options={[
+            { value: 'comments', label: '评论区' },
+            { value: 'tracks', label: '弹幕轨道' },
+            { value: 'realtime', label: '实时弹幕' },
+          ]}
+          value={rightPanelTab}
+          onChange={(v) => setRightPanelTab(v as typeof rightPanelTab)}
+        />
+      )}
       <div className="flex-1 min-h-0 min-w-0 overflow-hidden">
-        {rightPanelTab === 'comments' ? (
-          <div className="flex h-full flex-col gap-3">
+        {commentsOnly || rightPanelTab === 'comments' ? (
+          <div className="flex h-full min-h-0 flex-col gap-3">
             <div
               ref={listRef}
               className="flex-1 min-h-0 overflow-y-auto rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] p-3"
@@ -174,15 +185,20 @@ export function CommentPanel({ socket, roomId }: CommentPanelProps) {
                     </Text>
                   </div>
                 )}
-                {comments.map((comment) => (
+                {comments.map((comment, idx) => (
                   <div
                     key={comment.id}
                     className={cn(
-                      'rounded-[var(--md-sys-shape-corner)] border p-3 transition-all hover:shadow-sm',
+                      'zen-comment-enter rounded-[var(--md-sys-shape-corner)] border p-3 transition-all hover:shadow-sm hover:-translate-y-0.5',
                       comment.isDanmaku
                         ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]'
                         : 'border-transparent bg-[var(--md-sys-color-surface-container-high)] hover:border-[var(--md-sys-color-outline-variant)]'
                     )}
+                    style={
+                      {
+                        '--item-delay': `${Math.min(idx, 8) * 40}ms`,
+                      } as React.CSSProperties
+                    }
                   >
                     <div className="flex items-start gap-2">
                       <Avatar

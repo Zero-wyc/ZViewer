@@ -53,6 +53,7 @@ export function AnimeSourceSelector({
 
   useEffect(() => {
     if (!open) return
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开时加载数据源
     setLoadingSources(true)
     getAnimeSources()
       .then((data) => {
@@ -66,6 +67,7 @@ export function AnimeSourceSelector({
         message.error(err instanceof Error ? err.message : '加载番剧数据源失败')
       })
       .finally(() => setLoadingSources(false))
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅在 open 变化时加载，不依赖 selectedSource
   }, [open])
 
   const sourceOptions = useMemo(

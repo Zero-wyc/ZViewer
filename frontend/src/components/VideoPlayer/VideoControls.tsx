@@ -7,6 +7,7 @@ import {
   useImperativeHandle,
   type ForwardedRef,
 } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Play,
   Pause,
@@ -14,17 +15,17 @@ import {
   VolumeX,
   Settings,
   Maximize,
-  Maximize2,
   Minimize2,
   MessageSquare,
   MessageSquareX,
   Send,
   RotateCcw,
-  Captions,
   Upload,
   Plus,
   PanelBottomClose,
   ChevronDown,
+  Hand,
+  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -35,11 +36,6 @@ import { useVideoControls } from './useVideoControls'
 import { cn } from '@/lib/utils'
 import type { SubtitleTrack } from '@/hooks/useSubtitles'
 import { DanmakuStylePanel } from '@/modules/room/watch-together/DanmakuStylePanel'
-import {
-  getBilibiliParseOptions,
-  setBilibiliParseOptions,
-  type BilibiliCodec,
-} from '@/modules/room/watch-together/resolveSource'
 import type {
   DanmakuStyleState,
   DanmakuTypeFilters,
@@ -58,6 +54,11 @@ const RATE_OPTIONS = [
 export interface VideoControlsProps {
   video: HTMLVideoElement | null
   isHost: boolean
+  /**
+   * 只读模式：观众端启用，隐藏所有可操作控件，
+   * 仅显示进度条（不可拖动）、当前时间/总时长，并显示「由房主控制」提示。
+   */
+  readOnly?: boolean
   isDanmakuEnabled: boolean
   onToggleDanmaku: () => void
   onSendDanmaku?: (text: string) => void
@@ -81,9 +82,27 @@ export interface VideoControlsProps {
   onDanmakuFilterChange?: (updates: Partial<DanmakuTypeFilters>) => void
   onDanmakuAdvancedChange?: (updates: Partial<DanmakuAdvancedStyle>) => void
   onResetDanmakuStyle?: () => void
-  // B站 解析设置
-  sourceType?: string
-  onReloadBilibili?: () => void
+  /**
+   * 观众端（readOnly=true）拖动进度条松开时触发。
+   * 观众端不会直接 seek video.currentTime，而是通过此回调向房主申请跳转。
+   * 仅在 readOnly=true 且 isHost=false 时有效。
+   */
+  onRequestSeek?: (time: number) => void
+  /**
+   * 观众端（readOnly=true）点击「申请暂停」按钮时触发。
+   * 仅在 readOnly=true 且 isHost=false 时有效。
+   */
+  onRequestPause?: () => void
+  /**
+   * 房主端「自动通过申请」开关状态。开启后所有 seek/pause 申请自动通过。
+   * 仅 isHost=true 时有效。
+   */
+  autoApproveRequests?: boolean
+  /**
+   * 房主端切换「自动通过申请」开关。
+   * 仅 isHost=true 时有效。
+   */
+  onToggleAutoApprove?: () => void
 }
 
 export interface VideoControlsHandle {
@@ -97,13 +116,12 @@ export const VideoControls = forwardRef<
   {
     video,
     isHost,
+    readOnly = false,
     isDanmakuEnabled,
     onToggleDanmaku,
     onSendDanmaku,
     onSync,
     containerRef,
-    isWebFullscreen: externalWebFullscreen,
-    onToggleWebFullscreen,
     subtitleEnabled,
     subtitleTracks,
     activeTrackIndex,
@@ -118,8 +136,10 @@ export const VideoControls = forwardRef<
     onDanmakuFilterChange,
     onDanmakuAdvancedChange,
     onResetDanmakuStyle,
-    sourceType,
-    onReloadBilibili,
+    onRequestSeek,
+    onRequestPause,
+    autoApproveRequests,
+    onToggleAutoApprove,
   }: VideoControlsProps,
   ref: ForwardedRef<VideoControlsHandle>
 ) {
@@ -151,13 +171,24 @@ export const VideoControls = forwardRef<
   })
   const trackRef = useRef<HTMLDivElement>(null)
 
-  const isWebFullscreen = externalWebFullscreen ?? false
-
   // 设置菜单（字幕）
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [settingsExpandDown, setSettingsExpandDown] = useState(false)
+  // 设置面板坐标（fixed 定位，脱离父容器 overflow-hidden 约束）
+  const [settingsPos, setSettingsPos] = useState<{
+    top?: number
+    bottom?: number
+    left?: number
+    maxHeight: number
+  }>({ maxHeight: 480 })
   const [subtitleUrlInput, setSubtitleUrlInput] = useState('')
+  // 设置面板当前激活 Tab：字幕 / 弹幕（默认弹幕，使用频率更高）
+  const [settingsTab, setSettingsTab] = useState<'subtitle' | 'danmaku'>(
+    'danmaku'
+  )
+  // 字幕加载器（URL 输入 + 文件上传）默认折叠
+  const [showSubtitleLoader, setShowSubtitleLoader] = useState(false)
   const settingsRef = useRef<HTMLDivElement>(null)
+  const settingsPanelRef = useRef<HTMLDivElement>(null)
   const subtitleFileInputRef = useRef<HTMLInputElement>(null)
 
   // 控制栏显隐：默认显示，静止 3 秒后自动隐藏
@@ -166,17 +197,6 @@ export const VideoControls = forwardRef<
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mouseOverRef = useRef(false)
   const settingsOpenRef = useRef(settingsOpen)
-  const codecRef = useRef<BilibiliCodec>('auto')
-  const cdnDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  // B站 解析设置本地状态
-  const initialParseOptions = getBilibiliParseOptions()
-  const [bilibiliCodec, setBilibiliCodec] = useState<BilibiliCodec>(
-    initialParseOptions.codec
-  )
-  const [bilibiliCdn, setBilibiliCdn] = useState(
-    initialParseOptions.preferCdn ?? ''
-  )
 
   useEffect(() => {
     settingsOpenRef.current = settingsOpen
@@ -257,30 +277,51 @@ export const VideoControls = forwardRef<
   useEffect(() => {
     return () => {
       clearIdleTimer()
-      if (cdnDebounceRef.current) {
-        clearTimeout(cdnDebounceRef.current)
-      }
     }
   }, [clearIdleTimer])
 
   useEffect(() => {
     if (!settingsOpen) return
     const onMouseDown = (e: MouseEvent) => {
-      if (
-        settingsRef.current &&
-        !settingsRef.current.contains(e.target as Node)
-      ) {
+      // 面板已迁移为 fixed 定位，不再是 settingsRef 的子节点，
+      // 因此需要同时检查按钮和面板两个 ref，否则点击面板内任意滑块/
+      // Switch/Input 都会触发 setSettingsOpen(false)，导致弹幕样式
+      // 等设置无法操作。
+      const target = e.target as Node
+      const inside =
+        (settingsRef.current && settingsRef.current.contains(target)) ||
+        (settingsPanelRef.current && settingsPanelRef.current.contains(target))
+      if (!inside) {
         setSettingsOpen(false)
       }
     }
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setSettingsOpen(false)
     }
+    // 窗口尺寸变化时关闭面板：避免坐标错位（fixed 定位不再跟随按钮）
+    const onResize = () => setSettingsOpen(false)
+    // 滚动时关闭面板（避免 fixed 定位与按钮错位），
+    // 但忽略面板自身的内部滚动（面板 overflow-y-auto）。
+    const onScroll = (e: Event) => {
+      const target = e.target as Node | null
+      if (
+        target &&
+        settingsPanelRef.current &&
+        settingsPanelRef.current.contains(target)
+      ) {
+        return
+      }
+      setSettingsOpen(false)
+    }
     document.addEventListener('mousedown', onMouseDown)
     document.addEventListener('keydown', onKeyDown)
+    window.addEventListener('resize', onResize)
+    window.addEventListener('scroll', onScroll, true)
     return () => {
       document.removeEventListener('mousedown', onMouseDown)
       document.removeEventListener('keydown', onKeyDown)
+      window.removeEventListener('resize', onResize)
+      window.removeEventListener('scroll', onScroll, true)
     }
   }, [settingsOpen])
 
@@ -335,23 +376,41 @@ export const VideoControls = forwardRef<
   }
 
   const handleTrackMouseDown = (e: React.MouseEvent) => {
-    if (!isHost || !duration || !video) return
+    if (!duration || !video) return
+    // 房主：直接 seek；观众（readOnly）：拖动结束后改走 onRequestSeek 申请
+    if (!isHost && !readOnly) return
+    if (readOnly && !onRequestSeek) return
     e.preventDefault()
-    const time = computeTimeFromEvent(e.clientX)
-    // eslint-disable-next-line react-hooks/immutability
-    video.currentTime = time
-    setTooltip((prev) => ({ ...prev, visible: true, dragging: true }))
+    // 拖动期间只更新 tooltip 显示的目标时间，不立即 seek。
+    // 原实现每次 mousemove 都设置 video.currentTime，
+    // 浏览器要不断解码新位置的视频帧（MSE DASH 流还要重新下载 m4s 分片），
+    // 严重阻塞主线程导致整个网页卡顿。
+    // 改为：拖动结束时才执行一次 seek，拖动过程仅更新 UI。
+    const startTime = computeTimeFromEvent(e.clientX)
+    setTooltip((prev) => ({
+      ...prev,
+      visible: true,
+      dragging: true,
+      time: startTime,
+    }))
 
     const handleMouseMove = (ev: MouseEvent) => {
       const t = computeTimeFromEvent(ev.clientX)
-      if (video) video.currentTime = t
+      // 仅更新 tooltip，不 seek
+      setTooltip((prev) => ({ ...prev, time: t }))
     }
 
     const handleMouseUp = (ev: MouseEvent) => {
       window.removeEventListener('mousemove', handleMouseMove)
       window.removeEventListener('mouseup', handleMouseUp)
       const t = computeTimeFromEvent(ev.clientX)
-      if (video) video.currentTime = t
+      if (readOnly) {
+        // 观众端：不直接 seek，向房主申请
+        onRequestSeek?.(t)
+      } else if (isHost && video) {
+        // 房主端：松开时才执行一次 seek
+        video.currentTime = t
+      }
       setTooltip((prev) => ({ ...prev, dragging: false }))
     }
 
@@ -374,14 +433,12 @@ export const VideoControls = forwardRef<
   const handleRateChange = (value: string) => {
     const rate = Number(value)
     if (video && isHost) {
-      // eslint-disable-next-line react-hooks/immutability
       video.playbackRate = rate
     }
   }
 
   const handleVolumeChange = (v: number) => {
     if (video) {
-      // eslint-disable-next-line react-hooks/immutability
       video.volume = v
       video.muted = v === 0
     }
@@ -389,7 +446,6 @@ export const VideoControls = forwardRef<
 
   const handleToggleMute = () => {
     if (!video) return
-    // eslint-disable-next-line react-hooks/immutability
     video.muted = !video.muted
   }
 
@@ -405,10 +461,6 @@ export const VideoControls = forwardRef<
     } catch (err) {
       console.error('[VideoControls] fullscreen error:', err)
     }
-  }
-
-  const handleWebFullscreen = () => {
-    onToggleWebFullscreen?.()
   }
 
   const handleSendDanmaku = () => {
@@ -429,44 +481,6 @@ export const VideoControls = forwardRef<
     e.stopPropagation()
     setControlsVisible(false)
     clearIdleTimer()
-  }
-
-  const handleCodecChange = (value: string) => {
-    const codec = value as BilibiliCodec
-    setBilibiliCodec(codec)
-    codecRef.current = codec
-    setBilibiliParseOptions({
-      codec,
-      preferCdn: bilibiliCdn.trim() || undefined,
-    })
-    if (sourceType === 'bilibili') {
-      onReloadBilibili?.()
-    }
-  }
-
-  const saveCdnPreference = useCallback(
-    (value: string) => {
-      if (cdnDebounceRef.current) {
-        clearTimeout(cdnDebounceRef.current)
-      }
-      cdnDebounceRef.current = setTimeout(() => {
-        const trimmed = value.trim()
-        setBilibiliParseOptions({
-          codec: codecRef.current,
-          preferCdn: trimmed || undefined,
-        })
-        if (sourceType === 'bilibili') {
-          onReloadBilibili?.()
-        }
-      }, 500)
-    },
-    [sourceType, onReloadBilibili]
-  )
-
-  const handleCdnChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value
-    setBilibiliCdn(value)
-    saveCdnPreference(value)
   }
 
   const iconBtnClass =
@@ -500,16 +514,19 @@ export const VideoControls = forwardRef<
           aria-valuemin={0}
           aria-valuemax={Math.floor(duration)}
           aria-valuenow={Math.floor(currentTime)}
-          tabIndex={isHost ? 0 : -1}
+          // 只读模式下不可聚焦
+          tabIndex={readOnly ? -1 : isHost ? 0 : -1}
           className={cn(
             'group relative h-5 cursor-default select-none py-2',
-            isHost && 'cursor-pointer'
+            // 房主直接 seek；观众端 readOnly 模式下可拖动申请跳转
+            (isHost || (readOnly && onRequestSeek)) && 'cursor-pointer'
           )}
           onMouseDown={handleTrackMouseDown}
           onMouseMove={handleTrackMouseMove}
           onMouseLeave={handleTrackMouseLeave}
           onKeyDown={(e) => {
-            if (!isHost || !duration || !video) return
+            // 只读模式下禁用键盘快捷键
+            if (readOnly || !isHost || !duration || !video) return
             const step = e.shiftKey ? 10 : 5
             let nextTime = currentTime
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
@@ -526,7 +543,6 @@ export const VideoControls = forwardRef<
               nextTime = duration
             }
             if (nextTime !== currentTime) {
-              // eslint-disable-next-line react-hooks/immutability
               video.currentTime = nextTime
             }
           }}
@@ -549,15 +565,29 @@ export const VideoControls = forwardRef<
           <div
             className="absolute top-1/2 h-1.5 -translate-y-1/2 rounded-full"
             style={{
-              width: `${progressPercent}%`,
+              // 拖动期间 fill 跟随 tooltip.time 显示目标位置，
+              // 避免 video.currentTime 还在原位时 fill 不动让用户感觉拖动没反应
+              width: `${
+                tooltip.dragging && duration
+                  ? (tooltip.time / duration) * 100
+                  : progressPercent
+              }%`,
               backgroundColor: 'var(--md-sys-color-primary)',
             }}
           />
-          {isHost && (
+          {(isHost || readOnly) && (
             <div
-              className="absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary)] opacity-0 shadow transition-all group-hover:opacity-100"
+              className={cn(
+                'absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary)] shadow transition-all',
+                // 房主：默认隐藏 hover 显示；观众 readOnly 模式下：常驻显示以提示可拖动申请跳转
+                readOnly ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              )}
               style={{
-                left: `${progressPercent}%`,
+                left: `${
+                  tooltip.dragging && duration
+                    ? (tooltip.time / duration) * 100
+                    : progressPercent
+                }%`,
                 transform: `translate(-50%, -50%) ${
                   tooltip.dragging ? 'scale(1.3)' : 'scale(1)'
                 }`,
@@ -579,22 +609,39 @@ export const VideoControls = forwardRef<
         </div>
 
         {/* 控制行 */}
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-nowrap items-center gap-2">
           {/* 左侧：播放、时间 */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={iconBtnClass}
-            disabled={!isHost}
-            onClick={handleTogglePlay}
-            icon={
-              isPlaying ? (
-                <Pause className="h-5 w-5" />
-              ) : (
-                <Play className="h-5 w-5" />
-              )
-            }
-          />
+          {!readOnly && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconBtnClass}
+              disabled={!isHost}
+              onClick={handleTogglePlay}
+              icon={
+                isPlaying ? (
+                  <Pause className="h-5 w-5" />
+                ) : (
+                  <Play className="h-5 w-5" />
+                )
+              }
+            />
+          )}
+
+          {/* 观众端 readOnly 模式：常驻显示「申请暂停」按钮。
+              不依赖本地 isPlaying 条件 —— 观众端 video 元素可能因浏览器自动播放策略、
+              MSE 加载延迟等处于 paused 状态，即使房主在播放 isPlaying 也可能为 false，
+              导致按钮被禁用无法申请。让观众随时可点击，由房主端决定是否处理。 */}
+          {readOnly && onRequestPause && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconBtnClass}
+              onClick={onRequestPause}
+              aria-label="申请暂停"
+              icon={<Hand className="h-5 w-5" />}
+            />
+          )}
 
           <span
             className="shrink-0 min-w-[5.5rem] text-xs tabular-nums"
@@ -618,7 +665,10 @@ export const VideoControls = forwardRef<
             }
           />
 
-          <div className="flex min-w-[10rem] flex-1 items-center gap-1">
+          {/* 弹幕输入框 + 发送按钮：房主和观众都可用。
+              弹幕发送通过 onSendDanmaku 回调，本地先 addDanmaku 即时显示，
+              再经 socket 广播到聊天区。观众发送的弹幕对所有人生效（这是弹幕本身的语义）。 */}
+          <div className="flex min-w-0 flex-1 items-center gap-1">
             <Input
               size="sm"
               value={danmakuInput}
@@ -638,14 +688,19 @@ export const VideoControls = forwardRef<
           </div>
 
           {/* 右侧：倍速、音量、设置、全屏 */}
-          <Select
-            className="w-20 shrink-0"
-            options={RATE_OPTIONS}
-            value={String(playbackRate)}
-            onChange={handleRateChange}
-            disabled={!isHost}
-          />
+          {!readOnly && (
+            <Select
+              className="w-20 shrink-0"
+              options={RATE_OPTIONS}
+              value={String(playbackRate)}
+              onChange={handleRateChange}
+              disabled={!isHost}
+            />
+          )}
 
+          {/* 音量控件：房主和观众都可用。
+              音量是纯本地状态（仅修改 video.volume / video.muted），
+              不通过 socket 广播，观众调节音量只影响自己。 */}
           <div className="flex shrink-0 items-center gap-1">
             <Button
               variant="ghost"
@@ -672,15 +727,39 @@ export const VideoControls = forwardRef<
             </div>
           </div>
 
-          <Button
-            variant="ghost"
-            size="sm"
-            className={iconBtnClass}
-            disabled={!isHost}
-            onClick={onSync}
-            icon={<RotateCcw className="h-5 w-5" />}
-          />
+          {!readOnly && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconBtnClass}
+              disabled={!isHost}
+              onClick={onSync}
+              icon={<RotateCcw className="h-5 w-5" />}
+            />
+          )}
 
+          {/* 房主端：「自动通过申请」开关。开启后所有 seek/pause 申请自动通过，无需手动确认 */}
+          {!readOnly && isHost && onToggleAutoApprove && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={cn(
+                iconBtnClass,
+                autoApproveRequests &&
+                  'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
+              )}
+              aria-label={
+                autoApproveRequests ? '关闭自动通过申请' : '开启自动通过申请'
+              }
+              aria-pressed={autoApproveRequests}
+              onClick={onToggleAutoApprove}
+              icon={<Zap className="h-5 w-5" />}
+            />
+          )}
+
+          {/* 设置面板：房主和观众都可用。
+              - 房主：字幕 + 弹幕 两个 Tab（字幕为全局同步）
+              - 观众：仅弹幕 Tab（弹幕样式为本地状态，不影响其他人） */}
           <div ref={settingsRef} className="relative shrink-0">
             <Button
               variant="ghost"
@@ -696,231 +775,255 @@ export const VideoControls = forwardRef<
               onClick={() => {
                 const next = !settingsOpen
                 if (next && settingsRef.current) {
+                  // 用 fixed 定位面板，避免父容器 overflow-hidden 裁切。
+                  // 根据按钮位置 + 视口可用空间动态计算坐标与最大高度。
                   const rect = settingsRef.current.getBoundingClientRect()
-                  const spaceAbove = rect.top
-                  const spaceBelow = window.innerHeight - rect.bottom
-                  setSettingsExpandDown(spaceBelow >= spaceAbove)
+                  const GAP = 8
+                  const spaceBelow = window.innerHeight - rect.bottom - GAP
+                  const spaceAbove = rect.top - GAP
+                  const expandDown = spaceBelow >= spaceAbove
+                  // 面板宽度上限：留 16px 边距
+                  const width = Math.min(288, window.innerWidth - 16)
+                  // 左侧坐标：默认右对齐按钮，但若溢出左侧则贴左边
+                  let left = rect.right - width
+                  if (left < 8) left = 8
+                  if (left + width > window.innerWidth - 8) {
+                    left = window.innerWidth - 8 - width
+                  }
+                  const maxHeight = Math.max(
+                    240,
+                    expandDown ? spaceBelow : spaceAbove
+                  )
+                  setSettingsPos({
+                    top: expandDown ? rect.bottom + GAP : undefined,
+                    bottom: expandDown
+                      ? undefined
+                      : window.innerHeight - rect.top + GAP,
+                    left,
+                    maxHeight,
+                  })
                 }
                 setSettingsOpen(next)
               }}
             />
-            {settingsOpen && (
-              <div
-                className={cn(
-                  'glass-strong absolute right-0 z-30 max-h-[70vh] w-72 overflow-y-auto rounded-[var(--md-sys-shape-corner)] border border-[var(--glass-border)] p-3 shadow-lg',
-                  settingsExpandDown ? 'top-full mt-2' : 'bottom-full mb-2'
-                )}
-                style={{
-                  boxShadow:
-                    '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-shadow) 40%, transparent)',
-                }}
-              >
-                <div className="mb-2 flex items-center gap-2">
-                  <Captions
-                    className="h-4 w-4"
-                    style={{ color: 'var(--md-sys-color-primary)' }}
-                  />
-                  <span
-                    className="text-xs font-semibold"
-                    style={{ color: 'var(--md-sys-color-on-surface)' }}
-                  >
-                    字幕
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between py-1">
-                  <span
-                    className="text-xs"
-                    style={{
-                      color: 'var(--md-sys-color-on-surface-variant)',
-                    }}
-                  >
-                    启用字幕
-                  </span>
-                  <Switch
-                    checked={!!subtitleEnabled}
-                    disabled={!isHost}
-                    onChange={(e) => onToggleSubtitles?.(e.target.checked)}
-                  />
-                </div>
-
-                {subtitleEnabled &&
-                  subtitleTracks &&
-                  subtitleTracks.length > 0 && (
-                    <div className="mt-2">
-                      <div
-                        className="mb-1 text-[11px]"
-                        style={{
-                          color: 'var(--md-sys-color-on-surface-variant)',
-                        }}
-                      >
-                        字幕轨道
-                      </div>
-                      <Select
-                        className="[&_select]:h-8 [&_select]:py-1"
-                        options={subtitleTrackOptions}
-                        value={String(activeTrackIndex ?? -1)}
-                        onChange={(v) => onSelectSubtitleTrack?.(Number(v))}
-                        disabled={!isHost}
-                      />
+            {settingsOpen &&
+              createPortal(
+                <div
+                  ref={settingsPanelRef}
+                  className={cn(
+                    'glass-strong fixed z-[200] overflow-y-auto rounded-[var(--md-sys-shape-corner)] border border-[var(--glass-border)] p-2.5 shadow-lg'
+                  )}
+                  style={{
+                    top: settingsPos.top,
+                    bottom: settingsPos.bottom,
+                    left: settingsPos.left,
+                    width: Math.min(260, window.innerWidth - 16),
+                    maxHeight: settingsPos.maxHeight,
+                    boxShadow:
+                      '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-shadow) 40%, transparent)',
+                  }}
+                >
+                  {/* 紧凑 Tab 切换：字幕 / 弹幕
+                    - 房主：显示双 Tab（字幕为全局同步）
+                    - 观众：隐藏 Tab，仅显示「弹幕」标题（字幕由房主控制）
+                    - 弹幕样式未启用（danmakuStyle 为空）：仅显示「字幕」标题 */}
+                  {danmakuStyle && isHost ? (
+                    <div
+                      className="mb-2 grid grid-cols-2 gap-1 rounded-[var(--md-sys-radius-small)] p-0.5"
+                      style={{
+                        backgroundColor:
+                          'color-mix(in srgb, var(--md-sys-color-surface-container-highest) 70%, transparent)',
+                      }}
+                    >
+                      {(['subtitle', 'danmaku'] as const).map((tab) => (
+                        <button
+                          key={tab}
+                          type="button"
+                          onClick={() => setSettingsTab(tab)}
+                          className={cn(
+                            'rounded-[var(--md-sys-radius-small)] py-1 text-[11px] font-medium transition-colors',
+                            settingsTab === tab
+                              ? 'bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-primary)] shadow-sm'
+                              : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+                          )}
+                        >
+                          {tab === 'subtitle' ? '字幕' : '弹幕'}
+                        </button>
+                      ))}
+                    </div>
+                  ) : danmakuStyle && !isHost ? (
+                    // 观众端：仅弹幕样式可用，显示「弹幕」标题（无 Tab 切换）
+                    <div
+                      className="mb-1.5 text-[11px] font-semibold"
+                      style={{ color: 'var(--md-sys-color-on-surface)' }}
+                    >
+                      弹幕
+                    </div>
+                  ) : (
+                    <div
+                      className="mb-1.5 text-[11px] font-semibold"
+                      style={{ color: 'var(--md-sys-color-on-surface)' }}
+                    >
+                      字幕
                     </div>
                   )}
 
-                {isHost && subtitleEnabled && (
-                  <>
-                    <div
-                      className="mt-3 border-t pt-2"
-                      style={{
-                        borderColor:
-                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
-                      }}
-                    >
-                      <div
-                        className="mb-1 text-[11px]"
-                        style={{
-                          color: 'var(--md-sys-color-on-surface-variant)',
-                        }}
-                      >
-                        加载字幕 URL（.vtt）
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <Input
-                          size="sm"
-                          value={subtitleUrlInput}
-                          onChange={(e) => setSubtitleUrlInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              handleAddSubtitleUrl()
-                            }
+                  {/* 内容区：
+                    - 房主端选中字幕 Tab（或无弹幕样式数据）：显示字幕内容
+                    - 观众端：强制显示弹幕样式面板（字幕由房主控制，不展示字幕 Tab） */}
+                  {isHost && (settingsTab === 'subtitle' || !danmakuStyle) ? (
+                    <>
+                      <div className="flex items-center justify-between py-0.5">
+                        <span
+                          className="text-[11px]"
+                          style={{
+                            color: 'var(--md-sys-color-on-surface-variant)',
                           }}
-                          placeholder="https://example.com/sub.vtt"
-                          className="flex-1"
-                        />
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          className="h-8 w-8 shrink-0 p-0"
-                          disabled={!subtitleUrlInput.trim()}
-                          onClick={handleAddSubtitleUrl}
-                          icon={<Plus className="h-4 w-4" />}
+                        >
+                          启用字幕
+                        </span>
+                        <Switch
+                          checked={!!subtitleEnabled}
+                          disabled={!isHost}
+                          onChange={(e) =>
+                            onToggleSubtitles?.(e.target.checked)
+                          }
                         />
                       </div>
-                    </div>
 
-                    <div className="mt-2">
-                      <input
-                        ref={subtitleFileInputRef}
-                        type="file"
-                        accept=".vtt,.srt"
-                        className="hidden"
-                        onChange={handleSubtitleFileChange}
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 w-full justify-center gap-1 text-xs"
-                        icon={<Upload className="h-3.5 w-3.5" />}
-                        onClick={() => subtitleFileInputRef.current?.click()}
-                      >
-                        上传字幕文件
-                      </Button>
-                    </div>
+                      {subtitleEnabled &&
+                        subtitleTracks &&
+                        subtitleTracks.length > 0 && (
+                          <div className="mt-1.5">
+                            <Select
+                              className="[&_select]:h-7 [&_select]:py-0.5 [&_select]:text-[11px]"
+                              options={subtitleTrackOptions}
+                              value={String(activeTrackIndex ?? -1)}
+                              onChange={(v) =>
+                                onSelectSubtitleTrack?.(Number(v))
+                              }
+                              disabled={!isHost}
+                            />
+                          </div>
+                        )}
 
-                    <div
-                      className="mt-3 border-t pt-2"
-                      style={{
-                        borderColor:
-                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
-                      }}
-                    >
-                      <Slider
-                        label="字幕字号"
-                        value={subtitleFontSize ?? 20}
-                        min={12}
-                        max={36}
-                        step={1}
-                        valueFormatter={(v) => `${v}px`}
-                        onChange={(v) => onChangeSubtitleFontSize?.(v)}
-                      />
-                    </div>
-                  </>
-                )}
+                      {isHost && subtitleEnabled && (
+                        <>
+                          <div
+                            className="mt-2 border-t pt-1.5"
+                            style={{
+                              borderColor:
+                                'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
+                            }}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => setShowSubtitleLoader((v) => !v)}
+                              className="flex w-full items-center justify-between rounded-[var(--md-sys-radius-small)] px-1 py-0.5 text-[11px] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                              style={{
+                                color: 'var(--md-sys-color-on-surface-variant)',
+                              }}
+                            >
+                              <span>加载字幕 URL / 文件</span>
+                              <ChevronDown
+                                className={cn(
+                                  'h-3 w-3 transition-transform',
+                                  showSubtitleLoader && 'rotate-180'
+                                )}
+                              />
+                            </button>
+                            {showSubtitleLoader && (
+                              <div className="mt-1.5 space-y-1.5">
+                                <div className="flex items-center gap-1">
+                                  <Input
+                                    size="sm"
+                                    value={subtitleUrlInput}
+                                    onChange={(e) =>
+                                      setSubtitleUrlInput(e.target.value)
+                                    }
+                                    onKeyDown={(e) => {
+                                      if (e.key === 'Enter') {
+                                        e.preventDefault()
+                                        handleAddSubtitleUrl()
+                                      }
+                                    }}
+                                    placeholder="https://.../sub.vtt"
+                                    className="flex-1"
+                                  />
+                                  <Button
+                                    variant="primary"
+                                    size="sm"
+                                    className="h-7 w-7 shrink-0 p-0"
+                                    disabled={!subtitleUrlInput.trim()}
+                                    onClick={handleAddSubtitleUrl}
+                                    icon={<Plus className="h-3.5 w-3.5" />}
+                                  />
+                                </div>
+                                <input
+                                  ref={subtitleFileInputRef}
+                                  type="file"
+                                  accept=".vtt,.srt"
+                                  className="hidden"
+                                  onChange={handleSubtitleFileChange}
+                                />
+                                <Button
+                                  variant="secondary"
+                                  size="sm"
+                                  className="h-7 w-full justify-center gap-1 text-[11px]"
+                                  icon={<Upload className="h-3 w-3" />}
+                                  onClick={() =>
+                                    subtitleFileInputRef.current?.click()
+                                  }
+                                >
+                                  上传字幕文件
+                                </Button>
+                              </div>
+                            )}
+                          </div>
 
-                {!isHost && (
-                  <div
-                    className="mt-2 text-[10px]"
-                    style={{
-                      color: 'var(--md-sys-color-on-surface-variant)',
-                    }}
-                  >
-                    字幕由房主控制
-                  </div>
-                )}
+                          <div
+                            className="mt-2 border-t pt-1.5"
+                            style={{
+                              borderColor:
+                                'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
+                            }}
+                          >
+                            <Slider
+                              label="字号"
+                              value={subtitleFontSize ?? 20}
+                              min={12}
+                              max={36}
+                              step={1}
+                              valueFormatter={(v) => `${v}px`}
+                              onChange={(v) => onChangeSubtitleFontSize?.(v)}
+                            />
+                          </div>
+                        </>
+                      )}
 
-                {danmakuStyle && (
-                  <>
-                    <div
-                      className="my-3 border-t"
-                      style={{
-                        borderColor:
-                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
-                      }}
-                    />
+                      {!isHost && (
+                        <div
+                          className="mt-1.5 text-[10px]"
+                          style={{
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          字幕由房主控制
+                        </div>
+                      )}
+                    </>
+                  ) : (
                     <DanmakuStylePanel
-                      style={danmakuStyle}
+                      style={danmakuStyle!}
                       setStyle={onDanmakuStyleChange ?? (() => {})}
                       setFilters={onDanmakuFilterChange ?? (() => {})}
                       setAdvancedStyle={onDanmakuAdvancedChange ?? (() => {})}
                       resetStyle={onResetDanmakuStyle ?? (() => {})}
                     />
-                  </>
-                )}
-
-                {sourceType === 'bilibili' && (
-                  <>
-                    <div
-                      className="my-3 border-t"
-                      style={{
-                        borderColor:
-                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
-                      }}
-                    />
-                    <div className="mb-2 flex items-center gap-2">
-                      <span
-                        className="text-xs font-semibold"
-                        style={{ color: 'var(--md-sys-color-on-surface)' }}
-                      >
-                        B站 解析设置
-                      </span>
-                    </div>
-                    <div className="flex flex-col gap-2">
-                      <Select
-                        label="编码格式"
-                        className="[&_select]:h-8 [&_select]:py-1"
-                        options={[
-                          { label: '自动', value: 'auto' },
-                          { label: 'H.264', value: 'avc' },
-                          { label: 'HEVC', value: 'hevc' },
-                          { label: 'AV1', value: 'av1' },
-                        ]}
-                        value={bilibiliCodec}
-                        onChange={handleCodecChange}
-                        disabled={!isHost}
-                      />
-                      <Input
-                        label="CDN 偏好"
-                        size="sm"
-                        value={bilibiliCdn}
-                        onChange={handleCdnChange}
-                        placeholder="如 upos（留空为自动）"
-                        disabled={!isHost}
-                      />
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
+                  )}
+                </div>,
+                document.body
+              )}
           </div>
 
           <Button
@@ -930,20 +1033,6 @@ export const VideoControls = forwardRef<
             aria-label="隐藏控制栏"
             onClick={handleHideControls}
             icon={<HideIcon className="h-5 w-5" />}
-          />
-
-          <Button
-            variant="ghost"
-            size="sm"
-            className={iconBtnClass}
-            onClick={handleWebFullscreen}
-            icon={
-              isWebFullscreen ? (
-                <Minimize2 className="h-5 w-5" />
-              ) : (
-                <Maximize2 className="h-5 w-5" />
-              )
-            }
           />
 
           <Button

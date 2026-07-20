@@ -104,14 +104,35 @@ export function RealtimeDanmakuCard() {
     if (!activeItem) return
 
     const el = itemRefs.current.get(activeItem.id)
-    if (!el) return
+    const list = listRef.current
+    if (!el || !list) return
 
-    el.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+    // 仅在 listRef 内部滚动，避免 scrollIntoView 冒泡到外层
+    // overflow-y-auto 容器（如 RoomLayout 根容器）导致整个页面跳动、
+    // 视频元素被推出视口从而引发黑屏与布局错位。
+    // 同时用 rAF 延迟一帧，确保切换 tab 时 listRef 已完成布局测量。
+    const alignIntoList = () => {
+      const listRect = list.getBoundingClientRect()
+      const elRect = el.getBoundingClientRect()
+      // 防御性：tab 切换瞬间 list 可能尚未完成布局（高度为 0），
+      // 此时 getBoundingClientRect 返回的 rect 无意义，跳过避免错误滚动
+      if (listRect.height <= 0 || elRect.height <= 0) return
+      // 顶部超出：向上滚动让 el 顶部对齐 list 顶部（留 4px 边距）
+      if (elRect.top < listRect.top) {
+        list.scrollTop -= listRect.top - elRect.top - 4
+      } else if (elRect.bottom > listRect.bottom) {
+        // 底部超出：向下滚动让 el 底部对齐 list 底部
+        list.scrollTop += elRect.bottom - listRect.bottom + 4
+      }
+    }
+
+    const rafId = requestAnimationFrame(alignIntoList)
+    return () => cancelAnimationFrame(rafId)
   }, [allDanmaku, activeIndex, isUserScrolling])
 
   return (
     <div
-      className="flex h-full min-w-0 flex-col gap-2 rounded-[var(--md-sys-shape-corner)] border p-2"
+      className="flex h-full min-h-0 min-w-0 flex-col gap-2 rounded-[var(--md-sys-shape-corner)] border p-2"
       style={{
         backgroundColor: 'var(--md-sys-color-surface-container)',
         borderColor: 'var(--md-sys-color-outline-variant)',

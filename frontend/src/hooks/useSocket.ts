@@ -1,22 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { io, type Socket } from 'socket.io-client'
 import { useAuthStore } from '@/store/authStore'
+import { refreshAccessToken, isAuthErrorMessage } from '@/lib/tokenRefresh'
 
 // 生产环境通过 Nginx 反向代理，默认使用当前域名即可；
 // 开发环境可通过 .env 文件设置 VITE_API_URL=http://localhost:3000
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const SERVER_URL = rawApiUrl || window.location.origin
-
-function isAuthError(message: string): boolean {
-  return (
-    message.includes('未提供认证令牌') ||
-    message.includes('认证令牌无效') ||
-    message.includes('authentication') ||
-    message.includes('token') ||
-    message.includes('unauthorized') ||
-    message.includes('not authenticated')
-  )
-}
 
 let globalSocket: Socket | null = null
 let currentToken: string | null = null
@@ -43,7 +33,11 @@ function getSocket(token: string): Socket {
 }
 
 export function useSocket() {
-  const { accessToken, logout } = useAuthStore()
+  const accessToken = useAuthStore((s) => s.accessToken)
+  const logout = useAuthStore((s) => s.logout)
+
+  // 防止 connect_error 触发多次并发 refresh
+  const isRefreshingRef = useRef(false)
 
   // token 变化时重新创建 socket 实例；同 token 下全局复用，避免路由切换导致断连
   const socket = useMemo(() => {
@@ -64,15 +58,35 @@ export function useSocket() {
     if (!socket.connected) {
       socket.connect()
     }
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 初始化连接状态
     setConnected(socket.connected)
 
     const onConnect = () => setConnected(true)
     const onDisconnect = () => setConnected(false)
-    const onConnectError = (err: Error) => {
+    const onConnectError = async (err: Error) => {
       console.error('[useSocket] connection error:', err.message)
-      if (isAuthError(err.message)) {
-        console.warn('Socket 认证失败，请重新登录')
-        logout()
+
+      // 认证类错误（access token 过期）：先尝试 refresh，refresh 成功后用新 token 重连；
+      // 只有 refresh 也失败才真正 logout。
+      // 这样服务器重启 / access token 过期场景下用户不会丢失会话。
+      if (isAuthErrorMessage(err.message) && !isRefreshingRef.current) {
+        isRefreshingRef.current = true
+        try {
+          const newToken = await refreshAccessToken()
+          if (newToken) {
+            // refresh 成功：accessToken 已更新到 store，
+            // useMemo 会创建新 socket；这里主动断开旧 socket 让新 socket 重连
+            console.log('[useSocket] token refreshed, reconnecting socket')
+            socket.disconnect()
+            // 当前 effect 会在 accessToken 变化后重新订阅新 socket
+          } else {
+            // refresh 失败：refresh token 也过期/无效，才真正登出
+            console.warn('[useSocket] refresh failed, logging out')
+            logout()
+          }
+        } finally {
+          isRefreshingRef.current = false
+        }
       }
       setConnected(false)
     }

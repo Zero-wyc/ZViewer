@@ -12,8 +12,17 @@
   --glass-strength: 0.6;
   --glass-blur: 12px;
 
+  /* 动画曲线系统：统一管理，便于全局调整 */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-expo: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-in-out-circ: cubic-bezier(0.85, 0, 0.15, 1);
+  --ease-soft: cubic-bezier(0.4, 0, 0.2, 1);
+
   /* 字体与排版基准 */
-  --md-sys-font-family: 'Bricolage Grotesque', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --md-sys-font-family:
+    'Bricolage Grotesque', ui-sans-serif, system-ui, -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
   font-family: var(--md-sys-font-family);
   line-height: 1.5;
   font-weight: 400;
@@ -38,7 +47,9 @@ body {
   margin: 0;
   background-color: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
-  transition: background-color 300ms ease-in-out, color 300ms ease-in-out;
+  transition:
+    background-color 400ms var(--ease-out-expo),
+    color 400ms var(--ease-out-expo);
 }
 
 /* 表单控件继承字体，避免不同浏览器默认字体错乱 */
@@ -55,17 +66,27 @@ select {
 * {
   transition-property: background-color, border-color, color, opacity;
   transition-duration: 300ms;
-  transition-timing-function: ease-in-out;
+  transition-timing-function: var(--ease-out-expo);
 }
 
 /* 滚动条样式 - 跟随当前深浅模式 */
 html {
   scrollbar-width: thin;
-  scrollbar-color: color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent) transparent;
+  scrollbar-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 10%,
+      transparent
+    )
+    transparent;
 }
 
 html.dark {
-  scrollbar-color: color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent) transparent;
+  scrollbar-color: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) 10%,
+      transparent
+    )
+    transparent;
 }
 
 /* 禁用视频元素的过渡效果 */
@@ -84,32 +105,50 @@ video {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 10%,
+    transparent
+  );
   border-radius: 3px;
+  transition: background 200ms ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent);
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-primary) 35%,
+    transparent
+  );
 }
 
 /* 玻璃拟态工具类 */
 @layer components {
   .glass {
-    background: rgba(var(--md-sys-color-surface-container-rgb), var(--glass-strength));
+    background: rgba(
+      var(--md-sys-color-surface-container-rgb),
+      var(--glass-strength)
+    );
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     border: 1px solid var(--glass-border);
   }
 
   .glass-strong {
-    background: rgba(var(--md-sys-color-surface-container-rgb), var(--glass-strong-strength));
+    background: rgba(
+      var(--md-sys-color-surface-container-rgb),
+      var(--glass-strong-strength)
+    );
     backdrop-filter: blur(calc(var(--glass-blur) + 4px));
     -webkit-backdrop-filter: blur(calc(var(--glass-blur) + 4px));
     border: 1px solid var(--glass-border);
   }
 
   .glass-card {
-    background: rgba(var(--md-sys-color-surface-container-rgb), var(--glass-strength));
+    background: rgba(
+      var(--md-sys-color-surface-container-rgb),
+      var(--glass-strength)
+    );
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     border: 1px solid var(--glass-border);
@@ -134,168 +173,314 @@ video {
 .zen-rings {
   position: absolute;
   border-radius: 9999px;
-  border: 1px solid color-mix(in srgb, var(--md-sys-color-outline) 20%, transparent);
+  border: 1px solid
+    color-mix(in srgb, var(--md-sys-color-outline) 20%, transparent);
   pointer-events: none;
 }
 
-/* 右侧媒体元素切换动画 */
-@keyframes zen-exit {
-  0% {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0px);
-  }
-  100% {
-    opacity: 0;
-    transform: translateX(-30px) scale(0.95);
-    filter: blur(8px);
-  }
-}
+/* =====================================================
+   ZViewer 动画系统 v3 (精简版)
+   设计原则：
+   - 优先使用 opacity + 轻量 transform，避免 filter blur
+   - 不使用 3D perspective / rotateX / rotateY / rotate
+   - 持续时间控制在 200~400ms，节奏明快
+   - 支持 [data-reduced-motion="true"] 进一步压缩
+   ===================================================== */
 
-@keyframes zen-enter {
+/* ---------- 页面路由过渡 ---------- */
+/* 仅用 opacity 淡入，避免 transform 与子元素 stagger 动画叠加导致"偏移后回正" */
+@keyframes zen-page-enter {
   0% {
     opacity: 0;
-    transform: translateX(30px) scale(0.95);
-    filter: blur(8px);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
-    filter: blur(0px);
   }
 }
 
-.zen-anim-exit {
-  animation: zen-exit 0.4s ease-in-out forwards;
-}
-
-.zen-anim-enter {
-  animation: zen-enter 0.4s ease-in-out forwards;
-}
-
-/* 入场排序揭示动画 */
-@keyframes zen-entrance-reveal {
+@keyframes zen-page-exit {
   0% {
-    opacity: 0;
-    transform: translateY(16px) scale(0.94);
-  }
-  60% {
-    opacity: var(--card-opacity, 1);
-    transform: translateY(-3px) scale(1.015);
+    opacity: 1;
   }
   100% {
-    opacity: var(--card-opacity, 1);
-    transform: translateY(0) scale(1);
+    opacity: 0;
   }
 }
 
-.zen-entrance-reveal {
-  animation: zen-entrance-reveal 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+.zen-page-enter {
+  animation: zen-page-enter 0.35s var(--ease-out-expo) both;
+  will-change: opacity;
+}
+
+.zen-page-exit {
+  animation: zen-page-exit 0.2s var(--ease-in-expo) forwards;
+  will-change: opacity;
+}
+
+/* ---------- 通用容器/卡片交错入场 ---------- */
+@keyframes zen-stagger-fade-up {
+  0% {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.zen-stagger-fade-up {
+  opacity: 0;
+  animation: zen-stagger-fade-up 0.4s var(--ease-out-expo) both;
+  animation-delay: var(--stagger-delay, 0ms);
   will-change: transform, opacity;
-  backface-visibility: hidden;
 }
 
-/* Loading 页面淡入淡出动画 */
-@keyframes zen-loader-enter {
+/* ---------- 列表项进入/退出 ---------- */
+@keyframes zen-item-enter {
   0% {
     opacity: 0;
-    filter: blur(8px);
+    transform: translateX(-8px);
   }
   100% {
     opacity: 1;
-    filter: blur(0px);
+    transform: translateX(0);
   }
 }
 
-@keyframes zen-loader-exit {
+@keyframes zen-item-exit {
   0% {
     opacity: 1;
-    filter: blur(0px);
+    transform: scale(1);
   }
   100% {
     opacity: 0;
-    filter: blur(8px);
+    transform: scale(0.94) translateX(-12px);
   }
 }
 
-.zen-loader-enter {
-  animation: zen-loader-enter 0.4s ease-in-out forwards;
+.zen-item-enter {
+  animation: zen-item-enter 0.32s var(--ease-out-expo) both;
+  animation-delay: var(--item-delay, 0ms);
+  will-change: transform, opacity;
 }
 
-.zen-loader-exit {
-  animation: zen-loader-exit 0.4s ease-in-out forwards;
+.zen-item-exit {
+  animation: zen-item-exit 0.28s var(--ease-in-expo) forwards;
+  pointer-events: none;
+  will-change: transform, opacity;
 }
 
-/* 左侧文字切换动画 - 左右切换 + 逐字高斯模糊 + 逐字从下方升起 */
-@keyframes zen-char-exit-left {
-  0% { opacity: 1; transform: translateX(0); filter: blur(0px); }
-  100% { opacity: 0; transform: translateX(-30px); filter: blur(4px); }
+/* ---------- 卡片删除动画 ---------- */
+@keyframes zen-card-delete {
+  0% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.9) translateY(4px);
+  }
 }
 
-@keyframes zen-char-exit-right {
-  0% { opacity: 1; transform: translateX(0); filter: blur(0px); }
-  100% { opacity: 0; transform: translateX(30px); filter: blur(4px); }
+.zen-card-delete {
+  animation: zen-card-delete 0.32s var(--ease-in-expo) forwards;
+  pointer-events: none;
 }
 
-@keyframes zen-char-enter {
-  0% { opacity: 0; transform: translateY(20px); filter: blur(4px); }
-  100% { opacity: 1; transform: translateY(0); filter: blur(0px); }
+/* ---------- 按钮微交互 ---------- */
+@keyframes zen-btn-glow-pulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0
+        color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent),
+      0 4px 12px -4px
+        color-mix(in srgb, var(--md-sys-color-primary) 28%, transparent);
+  }
+  50% {
+    box-shadow:
+      0 0 16px 2px
+        color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent),
+      0 6px 16px -4px
+        color-mix(in srgb, var(--md-sys-color-primary) 32%, transparent);
+  }
 }
 
-.zen-char-anim-exit-left {
-  animation: zen-char-exit-left 0.5s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+@keyframes zen-ripple {
+  0% {
+    transform: translate(-50%, -50%) scale(0);
+    opacity: 0.5;
+  }
+  100% {
+    transform: translate(-50%, -50%) scale(2.6);
+    opacity: 0;
+  }
 }
 
-.zen-char-anim-exit-right {
-  animation: zen-char-exit-right 0.5s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+.zen-btn {
+  position: relative;
+  overflow: hidden;
+  transition:
+    transform 0.18s var(--ease-soft),
+    box-shadow 0.22s var(--ease-out-expo),
+    background-color 0.22s ease,
+    border-color 0.22s ease,
+    color 0.22s ease;
+  will-change: transform;
 }
 
-.zen-char-anim-enter {
-  animation: zen-char-enter 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+/* 鼠标位置感知的高光层 */
+.zen-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent) 0%,
+    transparent 50%
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+  pointer-events: none;
 }
 
-/* 左侧块级元素左右切换动画 */
-@keyframes zen-block-exit-left {
-  0% { opacity: 1; transform: translateX(0); filter: blur(0px); }
-  100% { opacity: 0; transform: translateX(-30px); filter: blur(4px); }
+.zen-btn:hover::before {
+  opacity: 1;
 }
 
-@keyframes zen-block-exit-right {
-  0% { opacity: 1; transform: translateX(0); filter: blur(0px); }
-  100% { opacity: 0; transform: translateX(30px); filter: blur(4px); }
+.zen-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 4px 14px -4px
+      color-mix(in srgb, var(--md-sys-color-primary) 28%, transparent);
 }
 
-@keyframes zen-block-enter-left {
-  0% { opacity: 0; transform: translateX(-30px); filter: blur(4px); }
-  100% { opacity: 1; transform: translateX(0); filter: blur(0px); }
+.zen-btn:active {
+  transform: translateY(0) scale(0.98);
+  transition-duration: 0.08s;
 }
 
-@keyframes zen-block-enter-right {
-  0% { opacity: 0; transform: translateX(30px); filter: blur(4px); }
-  100% { opacity: 1; transform: translateX(0); filter: blur(0px); }
+.zen-btn-primary:hover {
+  animation: zen-btn-glow-pulse 2.4s ease-in-out infinite;
 }
 
-.zen-block-anim-exit-left {
-  animation: zen-block-exit-left 0.5s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+.zen-ripple-effect {
+  position: absolute;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.18) 50%,
+    transparent 80%
+  );
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  animation: zen-ripple 0.6s var(--ease-out-expo) forwards;
 }
 
-.zen-block-anim-exit-right {
-  animation: zen-block-exit-right 0.5s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+/* ---------- 卡片轻量 hover + spotlight ---------- */
+.zen-card {
+  position: relative;
+  transition:
+    transform 0.28s var(--ease-out-expo),
+    box-shadow 0.28s var(--ease-out-expo),
+    border-color 0.22s ease;
+  will-change: transform;
 }
 
-.zen-block-anim-enter-left {
-  animation: zen-block-enter-left 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+/* spotlight 鼠标位置感知光晕（需要 JS 设置 --mx/--my） */
+.zen-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: radial-gradient(
+    circle at var(--mx, 50%) var(--my, 50%),
+    color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent) 0%,
+    transparent 40%
+  );
+  opacity: 0;
+  transition: opacity 0.28s ease;
+  pointer-events: none;
+  z-index: 1;
 }
 
-.zen-block-anim-enter-right {
-  animation: zen-block-enter-right 0.55s cubic-bezier(0.16, 1, 0.3, 1) both;
+.zen-card:hover {
+  transform: translateY(-3px);
+  box-shadow:
+    0 12px 28px -12px
+      color-mix(in srgb, var(--md-sys-color-shadow) 26%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent);
 }
 
-/* 面板弹窗进入动画：从上方轻微缩入并淡入 */
-@keyframes zen-panel-enter {
+.zen-card:hover::after {
+  opacity: 1;
+}
+
+/* ---------- 流光边框（用于强调元素） ---------- */
+@keyframes zen-border-flow {
+  0%,
+  100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+}
+
+.zen-border-flow {
+  position: relative;
+}
+
+.zen-border-flow::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  padding: 1px;
+  background: linear-gradient(
+    120deg,
+    var(--md-sys-color-primary),
+    var(--md-sys-color-tertiary),
+    var(--md-sys-color-secondary),
+    var(--md-sys-color-primary)
+  );
+  background-size: 300% 100%;
+  animation: zen-border-flow 4s ease-in-out infinite;
+  -webkit-mask:
+    linear-gradient(#fff 0 0) content-box,
+    linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* ---------- Modal 进入/退出 ---------- */
+@keyframes zen-modal-backdrop-enter {
   0% {
     opacity: 0;
-    transform: translateY(-12px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes zen-modal-backdrop-exit {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes zen-modal-content-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
   }
   100% {
     opacity: 1;
@@ -303,48 +488,397 @@ video {
   }
 }
 
-.zen-panel-enter {
-  animation: zen-panel-enter 0.25s cubic-bezier(0.16, 1, 0.3, 1) both;
+@keyframes zen-modal-content-exit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(8px) scale(0.97);
+  }
 }
 
-/* 左侧编辑模式切换动画 */
-@keyframes zen-edit-exit {
-  0% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0px); }
-  100% { opacity: 0; transform: translateY(-12px) scale(0.98); filter: blur(6px); }
+.zen-modal-backdrop-enter {
+  animation: zen-modal-backdrop-enter 0.25s var(--ease-out-expo) forwards;
 }
 
-@keyframes zen-edit-enter {
-  0% { opacity: 0; transform: translateY(12px) scale(0.98); filter: blur(6px); }
-  100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0px); }
+.zen-modal-backdrop-exit {
+  animation: zen-modal-backdrop-exit 0.2s var(--ease-in-expo) forwards;
 }
 
-.zen-edit-exit {
-  animation: zen-edit-exit 0.4s cubic-bezier(0.7, 0, 0.84, 0) forwards;
+.zen-modal-content-enter {
+  animation: zen-modal-content-enter 0.32s var(--ease-out-expo) both;
+  will-change: transform, opacity;
 }
 
-.zen-edit-enter {
-  animation: zen-edit-enter 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+.zen-modal-content-exit {
+  animation: zen-modal-content-exit 0.2s var(--ease-in-expo) forwards;
+  will-change: transform, opacity;
 }
 
-/* 几何背景装饰动画 */
+/* ---------- Toast / Message 动画 ---------- */
+@keyframes zen-toast-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(40px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes zen-toast-exit {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+    max-height: 200px;
+    margin-bottom: 12px;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(32px) scale(0.96);
+    max-height: 0;
+    margin-bottom: 0;
+  }
+}
+
+@keyframes zen-toast-progress {
+  0% {
+    width: 100%;
+  }
+  100% {
+    width: 0%;
+  }
+}
+
+.zen-toast-enter {
+  animation: zen-toast-enter 0.32s var(--ease-out-expo) both;
+  will-change: transform, opacity;
+}
+
+.zen-toast-exit {
+  animation: zen-toast-exit 0.28s var(--ease-in-expo) forwards;
+  overflow: hidden;
+  will-change: transform, opacity, max-height;
+}
+
+.zen-toast-progress {
+  animation: zen-toast-progress linear forwards;
+  animation-duration: var(--toast-duration, 3000ms);
+}
+
+/* ---------- 下拉菜单 / Popover 动画 ---------- */
+@keyframes zen-dropdown-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes zen-dropdown-exit {
+  0% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.97);
+  }
+}
+
+.zen-dropdown-enter {
+  animation: zen-dropdown-enter 0.24s var(--ease-out-expo) both;
+  transform-origin: top right;
+  will-change: transform, opacity;
+}
+
+.zen-dropdown-exit {
+  animation: zen-dropdown-exit 0.16s var(--ease-in-expo) forwards;
+  transform-origin: top right;
+  will-change: transform, opacity;
+}
+
+/* 下拉菜单内部子项交错入场 */
+@keyframes zen-dropdown-item-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.zen-dropdown-item {
+  animation: zen-dropdown-item-enter 0.24s var(--ease-out-expo) both;
+  animation-delay: var(--item-delay, 0ms);
+}
+
+/* ---------- 输入框 focus 光晕（流光边框） ---------- */
+@keyframes zen-input-flow {
+  0% {
+    background-position: 0% 50%;
+  }
+  100% {
+    background-position: 200% 50%;
+  }
+}
+
+.zen-input-glow {
+  transition:
+    border-color 0.22s ease,
+    box-shadow 0.22s ease;
+  position: relative;
+}
+
+.zen-input-glow:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px
+    color-mix(in srgb, var(--md-sys-color-primary) 16%, transparent);
+}
+
+/* ---------- Spinner ---------- */
+@keyframes zen-spinner-orbit {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes zen-spinner-orbit-reverse {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
+}
+
+@keyframes zen-spinner-pulse {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.95);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes zen-spinner-ring-expand {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1.2);
+    opacity: 0;
+  }
+}
+
+.zen-spinner-orbit {
+  animation: zen-spinner-orbit 1.4s linear infinite;
+}
+
+.zen-spinner-orbit-reverse {
+  animation: zen-spinner-orbit-reverse 2s linear infinite;
+}
+
+.zen-spinner-pulse {
+  animation: zen-spinner-pulse 1.6s ease-in-out infinite;
+}
+
+.zen-spinner-ring-expand {
+  animation: zen-spinner-ring-expand 1.8s var(--ease-out-expo) infinite;
+}
+
+/* ---------- SegmentedToggle / Switch 滑动 ---------- */
+@keyframes zen-switch-knob-on {
+  0% {
+    transform: translateX(0) scale(1);
+  }
+  100% {
+    transform: translateX(var(--switch-travel, 16px)) scale(1);
+  }
+}
+
+@keyframes zen-switch-knob-off {
+  0% {
+    transform: translateX(var(--switch-travel, 16px)) scale(1);
+  }
+  100% {
+    transform: translateX(0) scale(1);
+  }
+}
+
+.zen-switch-knob-on {
+  animation: zen-switch-knob-on 0.26s var(--ease-out-expo) forwards;
+}
+
+.zen-switch-knob-off {
+  animation: zen-switch-knob-off 0.26s var(--ease-out-expo) forwards;
+}
+
+/* ---------- 脉冲与呼吸效果 ---------- */
+@keyframes zen-pulse-ring {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.7;
+  }
+  100% {
+    transform: scale(1.7);
+    opacity: 0;
+  }
+}
+
+.zen-pulse-ring::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: inherit;
+  border: 2px solid currentColor;
+  animation: zen-pulse-ring 1.6s var(--ease-out-expo) infinite;
+  opacity: 0;
+}
+
+/* ---------- 骨架屏 shimmer ---------- */
+@keyframes zen-skeleton-shimmer {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.zen-skeleton {
+  position: relative;
+  overflow: hidden;
+  background: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 6%,
+    transparent
+  );
+}
+
+.zen-skeleton::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent),
+    transparent
+  );
+  transform: translateX(-100%);
+  animation: zen-skeleton-shimmer 1.6s infinite;
+}
+
+/* ---------- 文字高亮入场 ---------- */
+@keyframes zen-text-reveal {
+  0% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.zen-text-reveal {
+  animation: zen-text-reveal 0.35s var(--ease-out-expo) both;
+  animation-delay: var(--text-delay, 0ms);
+}
+
+/* ---------- 文字流光（用于强调标题） ---------- */
+@keyframes zen-text-shimmer {
+  0% {
+    background-position: -200% center;
+  }
+  100% {
+    background-position: 200% center;
+  }
+}
+
+.zen-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--md-sys-color-on-surface) 0%,
+    var(--md-sys-color-primary) 50%,
+    var(--md-sys-color-on-surface) 100%
+  );
+  background-size: 200% auto;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: zen-text-shimmer 4s linear infinite;
+}
+
+/* ---------- 滚动触发通用类 ---------- */
+.zen-on-scroll {
+  opacity: 0;
+  transform: translateY(12px);
+  transition:
+    opacity 0.4s var(--ease-out-expo),
+    transform 0.4s var(--ease-out-expo);
+}
+
+.zen-on-scroll.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* ---------- 几何背景装饰动画 ---------- */
 @keyframes zen-geo-rotate {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 @keyframes zen-geo-rotate-reverse {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(-360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(-360deg);
+  }
 }
 
 @keyframes zen-geo-breathe {
-  0%, 100% { transform: scale(1); opacity: 0.7; }
-  50% { transform: scale(1.04); opacity: 0.85; }
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.7;
+  }
+  50% {
+    transform: scale(1.04);
+    opacity: 0.85;
+  }
 }
 
 @keyframes zen-geo-float {
-  0%, 100% { transform: translateY(0) rotate(0deg); }
-  50% { transform: translateY(-16px) rotate(3deg); }
+  0%,
+  100% {
+    transform: translateY(0) rotate(0deg);
+  }
+  50% {
+    transform: translateY(-16px) rotate(3deg);
+  }
 }
 
 .zen-geo-rotate-slow {
@@ -363,56 +897,186 @@ video {
   animation: zen-geo-float 10s ease-in-out infinite;
 }
 
-/* 卡片删除淡出动画：缩放并轻微旋转，配合边框粒子绽放 */
-@keyframes zen-card-delete {
+/* ---------- 评论项进入动画 ---------- */
+@keyframes zen-comment-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(-8px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+.zen-comment-enter {
+  animation: zen-comment-enter 0.32s var(--ease-out-expo) both;
+  animation-delay: var(--item-delay, 0ms);
+  will-change: transform, opacity;
+}
+
+/* ---------- 数值变化高亮（用于在线人数等数字更新） ---------- */
+@keyframes zen-value-flash {
+  0% {
+    color: var(--md-sys-color-on-surface);
+    transform: scale(1);
+  }
+  30% {
+    color: var(--md-sys-color-primary);
+    transform: scale(1.1);
+  }
+  100% {
+    color: var(--md-sys-color-on-surface);
+    transform: scale(1);
+  }
+}
+
+.zen-value-flash {
+  animation: zen-value-flash 0.5s var(--ease-out-expo);
+  display: inline-block;
+}
+
+/* ---------- 通知卡片滑入 ---------- */
+@keyframes zen-notification-enter {
+  0% {
+    opacity: 0;
+    transform: translateX(40px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes zen-notification-exit {
   0% {
     opacity: 1;
-    transform: scale(1) rotate(0deg);
-  }
-  60% {
-    opacity: 0.3;
-    transform: scale(0.92) rotate(2deg);
+    transform: translateX(0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: scale(0.85) rotate(4deg);
+    transform: translateX(48px) scale(0.96);
   }
 }
 
-.zen-card-delete {
-  animation: zen-card-delete 650ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  pointer-events: none;
+.zen-notification-enter {
+  animation: zen-notification-enter 0.34s var(--ease-out-expo) both;
+  will-change: transform, opacity;
 }
 
-/* 左侧栏文字/图片删除动画 */
-@keyframes zen-sidebar-delete {
-  0% {
-    opacity: 1;
-    transform: scale(1) translateX(0);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.92) translateX(-12px);
-  }
+.zen-notification-exit {
+  animation: zen-notification-exit 0.26s var(--ease-in-expo) forwards;
+  will-change: transform, opacity;
 }
 
-.zen-sidebar-delete {
-  animation: zen-sidebar-delete 400ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  pointer-events: none;
+/* ---------- 标签 hover 微动画 ---------- */
+.zen-tag-hover {
+  transition:
+    transform 0.2s var(--ease-out-expo),
+    box-shadow 0.2s var(--ease-out-expo);
 }
 
-/* 删除卡片炫彩粒子爆开动效 */
-@keyframes particle-explode {
-  0% {
-    transform: translate(-50%, -50%) scale(0);
-    opacity: 1;
-  }
-  20% {
-    transform: translate(-50%, -50%) scale(1.2);
-    opacity: 1;
-  }
-  100% {
-    transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0.2);
-    opacity: 0;
+.zen-tag-hover:hover {
+  transform: translateY(-1px);
+}
+
+/* ---------- Avatar hover 微动画 ---------- */
+.zen-avatar-hover {
+  transition:
+    transform 0.24s var(--ease-out-expo),
+    box-shadow 0.24s var(--ease-out-expo);
+}
+
+.zen-avatar-hover:hover {
+  transform: scale(1.06);
+  box-shadow:
+    0 4px 12px -3px
+      color-mix(in srgb, var(--md-sys-color-primary) 26%, transparent);
+}
+
+/* ---------- 3D 倾斜工具类（配合 useTilt hook 使用） ---------- */
+.zen-tilt {
+  transition: transform 0.2s var(--ease-out-expo);
+  will-change: transform;
+}
+
+.zen-tilt-inner {
+  transition: transform 0.2s var(--ease-out-expo);
+}
+
+/* =====================================================
+   精简动画模式：[data-reduced-motion="true"] 时启用
+   - 去除 stagger 延时（--item-delay / --stagger-delay 归零）
+   - 压缩动画持续时间为 150ms
+   - 去除 hover scale / translateY
+   - 去除装饰层（::before / ::after）
+   - 仅保留基础 opacity 淡入
+   ===================================================== */
+[data-reduced-motion='true'] .zen-stagger-fade-up,
+[data-reduced-motion='true'] .zen-item-enter,
+[data-reduced-motion='true'] .zen-dropdown-item,
+[data-reduced-motion='true'] .zen-comment-enter,
+[data-reduced-motion='true'] .zen-text-reveal {
+  animation-delay: 0ms !important;
+  animation-duration: 0.18s !important;
+}
+
+[data-reduced-motion='true'] .zen-page-enter,
+[data-reduced-motion='true'] .zen-page-exit,
+[data-reduced-motion='true'] .zen-modal-content-enter,
+[data-reduced-motion='true'] .zen-modal-content-exit,
+[data-reduced-motion='true'] .zen-modal-backdrop-enter,
+[data-reduced-motion='true'] .zen-modal-backdrop-exit,
+[data-reduced-motion='true'] .zen-toast-enter,
+[data-reduced-motion='true'] .zen-toast-exit,
+[data-reduced-motion='true'] .zen-dropdown-enter,
+[data-reduced-motion='true'] .zen-dropdown-exit,
+[data-reduced-motion='true'] .zen-notification-enter,
+[data-reduced-motion='true'] .zen-notification-exit,
+[data-reduced-motion='true'] .zen-card-delete {
+  animation-duration: 0.18s !important;
+}
+
+/* 精简模式：去除 hover transform / 装饰层 */
+[data-reduced-motion='true'] .zen-card:hover,
+[data-reduced-motion='true'] .zen-btn:hover,
+[data-reduced-motion='true'] .zen-tag-hover:hover,
+[data-reduced-motion='true'] .zen-avatar-hover:hover {
+  transform: none !important;
+}
+
+[data-reduced-motion='true'] .zen-card::after,
+[data-reduced-motion='true'] .zen-btn::before,
+[data-reduced-motion='true'] .zen-border-flow::before {
+  display: none !important;
+}
+
+/* 精简模式：去除 primary 按钮的脉冲呼吸光晕 */
+[data-reduced-motion='true'] .zen-btn-primary:hover {
+  animation: none !important;
+}
+
+/* 精简模式：减弱 input focus 光环 */
+[data-reduced-motion='true'] .zen-input-glow:focus {
+  box-shadow: 0 0 0 2px
+    color-mix(in srgb, var(--md-sys-color-primary) 14%, transparent) !important;
+}
+
+/* 精简模式：去除背景图呼吸动画 */
+[data-reduced-motion='true'] .zen-geo-breathe,
+[data-reduced-motion='true'] .zen-geo-float,
+[data-reduced-motion='true'] .zen-geo-rotate-slow,
+[data-reduced-motion='true'] .zen-geo-rotate-slow-reverse {
+  animation: none !important;
+}
+
+/* ---------- 减少动效偏好支持 ---------- */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
   }
 }

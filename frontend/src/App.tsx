@@ -1,21 +1,17 @@
 import { useEffect, useRef } from 'react'
-import {
-  Routes,
-  Route,
-  Navigate,
-  useParams,
-  useLocation,
-} from 'react-router-dom'
+import { Routes, Route, Navigate, useParams } from 'react-router-dom'
 import { Layout } from '@/components/Layout'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { RequireAuth } from '@/components/RequireAuth'
 import { useAuthStore, type User } from '@/store/authStore'
+import { refreshAccessToken } from '@/lib/tokenRefresh'
 import HomePage from '@/pages/HomePage'
 import LoginPage from '@/pages/LoginPage'
 import RoomPage from '@/modules/room/RoomPage'
 import AdminPage from '@/pages/AdminPage'
 import ProfilePage from '@/pages/ProfilePage'
 import RoomsListPage from '@/pages/RoomsListPage'
+import JoinByRoomIdPage from '@/pages/JoinByRoomIdPage'
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const API_URL = rawApiUrl || window.location.origin
@@ -23,10 +19,8 @@ const API_URL = rawApiUrl || window.location.origin
 function AuthInitializer() {
   const {
     accessToken,
-    refreshToken,
     expireSession,
     setUser,
-    login,
     autoLoginStatus,
     setAutoLoginStatus,
   } = useAuthStore()
@@ -62,12 +56,17 @@ function AuthInitializer() {
           }
         }
         if (res.ok && data.success && data.accessToken && data.user) {
-          login(data.accessToken, data.refreshToken || '', {
+          // 注意：guest 不需要持久化登录，直接 setUser + setTokens 即可。
+          // 这里复用 login 把 autoLoginStatus 置为 'done'，避免重复触发。
+          const { setTokens } = useAuthStore.getState()
+          setTokens(data.accessToken, data.refreshToken || '')
+          setUser({
             id: data.user.id,
             username: data.user.username,
             role: data.user.role as User['role'],
             status: data.user.status,
           })
+          setAutoLoginStatus('done')
         } else {
           setAutoLoginStatus('done')
         }
@@ -103,60 +102,49 @@ function AuthInitializer() {
           })
           return
         }
+        // access token 过期/无效（401/403）：尝试 refresh，不直接 expireSession
         if (!res.ok && isAuthFailure(res.status)) {
-          expireSession()
-          void fetchGuestToken()
+          const newToken = await refreshAccessToken()
+          if (newToken) {
+            // refresh 成功 → 用新 token 再验证一次用户信息
+            try {
+              const retryRes = await fetch(`${API_URL}/api/auth/me`, {
+                headers: { Authorization: `Bearer ${newToken}` },
+              })
+              const retryData = (await retryRes.json()) as {
+                success: boolean
+                user?: {
+                  id: string
+                  username: string
+                  role: string
+                  status?: 'active' | 'pending'
+                }
+              }
+              if (retryRes.ok && retryData.success && retryData.user) {
+                setUser({
+                  id: retryData.user.id,
+                  username: retryData.user.username,
+                  role: retryData.user.role as User['role'],
+                  status: retryData.user.status,
+                })
+              }
+            } catch {
+              // refresh 后 /auth/me 网络失败：不登出，等待下次重试
+            }
+          } else {
+            // refresh 也失败：refresh token 过期/无效，才真正登出
+            expireSession()
+            void fetchGuestToken()
+          }
           return
         }
       } catch (err) {
         console.warn('[AuthInitializer] validate network error:', err)
+        // 网络错误（服务器重启中）→ 不 expireSession，等待重试
         if (attempts < MAX_RETRIES) {
           retryTimerRef.current = setTimeout(validate, 2000)
         }
         return
-      }
-
-      if (!refreshToken) {
-        expireSession()
-        void fetchGuestToken()
-        return
-      }
-
-      try {
-        const res = await fetch(`${API_URL}/api/auth/refresh`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken }),
-        })
-        const data = (await res.json()) as {
-          success: boolean
-          accessToken?: string
-          user?: {
-            id: string
-            username: string
-            role: string
-            status?: 'active' | 'pending'
-          }
-        }
-        if (res.ok && data.success && data.accessToken && data.user) {
-          login(data.accessToken, refreshToken, {
-            id: data.user.id,
-            username: data.user.username,
-            role: data.user.role as User['role'],
-            status: data.user.status,
-          })
-        } else if (!res.ok && isAuthFailure(res.status)) {
-          expireSession()
-          void fetchGuestToken()
-        } else if (data.success === false) {
-          expireSession()
-          void fetchGuestToken()
-        }
-      } catch (err) {
-        console.warn('[AuthInitializer] refresh network error:', err)
-        if (attempts < MAX_RETRIES) {
-          retryTimerRef.current = setTimeout(validate, 2000)
-        }
       }
     }
 
@@ -174,31 +162,22 @@ function AuthInitializer() {
     return () => {
       clearRetryTimer()
     }
-  }, [
-    accessToken,
-    refreshToken,
-    login,
-    expireSession,
-    setUser,
-    autoLoginStatus,
-    setAutoLoginStatus,
-  ])
+  }, [accessToken, expireSession, setUser, autoLoginStatus, setAutoLoginStatus])
 
   return null
 }
 
 function ShareRedirect() {
+  // 旧链接 /share/:roomId 兼容：直接跳转到 /room/:roomId（不带任何参数）
+  // 房主身份由 sessionStorage 标记判断，URL 保持干净
   const { roomId } = useParams<{ roomId?: string }>()
-  const { search } = useLocation()
-  const params = new URLSearchParams(search)
-  params.set('role', 'host')
-  return <Navigate to={`/room/${roomId ?? ''}?${params.toString()}`} replace />
+  return <Navigate to={`/room/${roomId ?? ''}`} replace />
 }
 
 function WatchRedirect() {
+  // 旧链接 /watch/:roomId 兼容：直接跳转到 /room/:roomId
   const { roomId } = useParams<{ roomId?: string }>()
-  const { search } = useLocation()
-  return <Navigate to={`/room/${roomId ?? ''}${search}`} replace />
+  return <Navigate to={`/room/${roomId ?? ''}`} replace />
 }
 
 function App() {
@@ -242,6 +221,14 @@ function App() {
             element={
               <RequireAuth>
                 <RoomsListPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/join"
+            element={
+              <RequireAuth>
+                <JoinByRoomIdPage />
               </RequireAuth>
             }
           />

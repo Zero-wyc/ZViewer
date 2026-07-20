@@ -143,6 +143,7 @@ export function DanmakuSearchModal({
 
   useEffect(() => {
     if (defaultSource && defaultSource !== source) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步 defaultSource 到内部状态
       setSource(defaultSource)
     }
   }, [defaultSource, source])

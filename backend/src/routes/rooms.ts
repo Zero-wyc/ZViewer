@@ -9,6 +9,7 @@ import {
   authenticateToken,
   AuthenticatedRequest,
 } from '../middleware/auth';
+import { getRoomState, type Movie as RuntimeMovie } from '../services/room/state';
 
 const movieRepository = () => AppDataSource.getRepository(Movie);
 const roomRepository = () => AppDataSource.getRepository(Room);
@@ -106,6 +107,35 @@ async function broadcastMovieList(
     where: { roomId },
     order: { order: 'ASC', id: 'ASC' },
   });
+
+  // 同步数据库影片到内存运行时状态（roomState.movies）
+  // 必要性：REST API 添加/删除/重排影片只操作数据库，不会更新 roomState.movies。
+  // 若不同步，play-movie 事件在 roomState.movies 中找不到影片，导致
+  // currentMovieId 永远不被设置，进而 watch-together-state 保存的
+  // playback.currentMovieId 为 undefined，房主刷新后无法恢复播放进度。
+  const roomState = getRoomState(roomId);
+  const runtimeMovies: RuntimeMovie[] = movies.map((m) => ({
+    id: m.id,
+    sourceType: (m.source || 'mp4') as RuntimeMovie['sourceType'],
+    title: m.title,
+    url: m.url,
+    cid: m.cid ?? undefined,
+    duration: m.duration ?? undefined,
+    audioUrl: m.audioUrl ?? undefined,
+    videoCodec: m.videoCodec ?? undefined,
+    audioCodec: m.audioCodec ?? undefined,
+    format: (m.format as 'dash' | 'mp4') ?? undefined,
+    createdAt: m.createdAt.getTime(),
+  }));
+  roomState.movies = runtimeMovies;
+  // 如果当前播放的影片已不在列表中，清空 currentMovieId
+  if (
+    roomState.currentMovieId != null &&
+    !runtimeMovies.some((m) => m.id === roomState.currentMovieId)
+  ) {
+    roomState.currentMovieId = null;
+  }
+
   io.to(roomId).emit('movie-list', {
     movies: movies.map(serializeMovie),
   });

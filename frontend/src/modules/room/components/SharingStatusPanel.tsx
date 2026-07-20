@@ -18,7 +18,7 @@ import { useSocket } from '@/hooks/useSocket'
 import {
   useConnectionStats,
   type SharingMode,
-} from '@/hooks/useConnectionStats'
+} from '@/modules/screen-sharing/hooks/useConnectionStats'
 import { useP2PTunnel, type P2PStatus } from '@/hooks/useP2PTunnel'
 
 export interface SharingStatusPanelProps {

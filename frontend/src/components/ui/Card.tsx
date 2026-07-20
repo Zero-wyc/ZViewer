@@ -1,4 +1,5 @@
 import { cn } from '@/lib/utils'
+import { useSpotlight } from '@/hooks/useAnimations'
 
 export interface CardProps extends React.HTMLAttributes<HTMLDivElement> {
   children: React.ReactNode
@@ -9,8 +10,12 @@ export function Card({
   children,
   className,
   elevation = 'low',
+  disableAnimation = false,
   ...props
-}: CardProps) {
+}: CardProps & { disableAnimation?: boolean }) {
+  // spotlight：仅对启用动画的卡片启用鼠标位置感知光晕
+  const spotlightRef = useSpotlight<HTMLDivElement>()
+
   const shadows = {
     none: 'shadow-none',
     low: 'shadow-sm',
@@ -20,10 +25,11 @@ export function Card({
 
   return (
     <div
+      ref={disableAnimation ? undefined : spotlightRef}
       className={cn(
-        'glass-card relative overflow-hidden p-6 transition-all',
+        'glass-card relative overflow-hidden p-6',
         shadows[elevation],
-        'hover:shadow-md',
+        !disableAnimation && 'zen-card',
         className
       )}
       {...props}

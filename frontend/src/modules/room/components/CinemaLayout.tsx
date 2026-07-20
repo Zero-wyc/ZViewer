@@ -3,9 +3,17 @@ import { Card } from '@/components/ui/Card'
 
 interface CinemaLayoutProps {
   children: ReactNode
-  roomInfoPanel: ReactNode
-  movieListPanel: ReactNode
-  moviePushPanel: ReactNode
+  /** 房间信息面板（watch-together 模式使用） */
+  roomInfoPanel?: ReactNode
+  /** 影片列表面板（watch-together 模式使用） */
+  movieListPanel?: ReactNode
+  /** 添加影片面板（watch-together 模式使用） */
+  moviePushPanel?: ReactNode
+  /**
+   * 投屏状态面板（screen-share 模式使用）。
+   * 提供时替代三列网格，底部仅渲染此面板（与房主端布局一致）。
+   */
+  statsPanel?: ReactNode
   chatPanel: ReactNode
 }
 
@@ -14,8 +22,36 @@ export function CinemaLayout({
   roomInfoPanel,
   movieListPanel,
   moviePushPanel,
+  statsPanel,
   chatPanel,
 }: CinemaLayoutProps) {
+  // 底部卡片容器统一样式
+  const cardContainerClass = 'rounded-2xl border p-4'
+  const cardContainerStyle = {
+    backgroundColor: 'var(--md-sys-color-surface-container)',
+    borderColor: 'var(--md-sys-color-outline-variant)',
+  }
+
+  // 底部内容：screen-share 模式下只渲染 statsPanel；
+  // watch-together 模式渲染三列网格（roomInfo / movieList / moviePush）
+  const bottomContent = statsPanel ? (
+    <div className="rounded-2xl border p-4" style={cardContainerStyle}>
+      {statsPanel}
+    </div>
+  ) : (
+    <div className="grid flex-shrink-0 grid-cols-1 gap-4 lg:grid-cols-3">
+      <div className={cardContainerClass} style={cardContainerStyle}>
+        {roomInfoPanel}
+      </div>
+      <div className={cardContainerClass} style={cardContainerStyle}>
+        {movieListPanel}
+      </div>
+      <div className={cardContainerClass} style={cardContainerStyle}>
+        {moviePushPanel}
+      </div>
+    </div>
+  )
+
   return (
     <div
       className="flex h-[calc(100vh-64px)] items-center justify-center p-4 lg:p-6"
@@ -36,36 +72,8 @@ export function CinemaLayout({
               {children}
             </div>
 
-            {/* 底部信息/控制/添加区 */}
-            <div className="grid flex-shrink-0 grid-cols-1 gap-4 lg:grid-cols-3">
-              <div
-                className="rounded-2xl border p-4"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container)',
-                  borderColor: 'var(--md-sys-color-outline-variant)',
-                }}
-              >
-                {roomInfoPanel}
-              </div>
-              <div
-                className="rounded-2xl border p-4"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container)',
-                  borderColor: 'var(--md-sys-color-outline-variant)',
-                }}
-              >
-                {movieListPanel}
-              </div>
-              <div
-                className="rounded-2xl border p-4"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container)',
-                  borderColor: 'var(--md-sys-color-outline-variant)',
-                }}
-              >
-                {moviePushPanel}
-              </div>
-            </div>
+            {/* 底部信息/控制/添加区（或投屏状态面板） */}
+            {bottomContent}
           </div>
 
           {/* 右侧聊天区 */}

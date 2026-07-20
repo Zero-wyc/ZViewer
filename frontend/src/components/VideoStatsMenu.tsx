@@ -4,12 +4,20 @@ import { Activity, Copy, Terminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Tag } from '@/components/ui/Tag'
 import { message } from '@/components/ui/message'
-import { useConnectionStats } from '@/hooks/useConnectionStats'
+import { useConnectionStats } from '@/modules/screen-sharing/hooks/useConnectionStats'
 
 export interface VideoStatsMenuProps {
   videoElement: HTMLVideoElement | null
   pc?: RTCPeerConnection | null
   sourceType: 'bilibili' | 'custom' | 'webrtc'
+  /** MSE 路径下由调用方提供的真实视频编码（如 avc/hevc/av1），避免依赖非标准 API */
+  videoCodec?: string
+  /** MSE 路径下的真实播放地址（避免显示 blob: URL） */
+  sourceUrl?: string
+  /** 当前清晰度 qn（B站） */
+  currentQuality?: number | null
+  /** 可用清晰度列表（B站） */
+  availableQualities?: { id: number; label: string; resolution?: string }[]
 }
 
 interface Position {
@@ -28,6 +36,8 @@ interface VideoStats {
   bufferHealth: string
   url: string
   sourceLabel: string
+  /** 当前清晰度标签（B站） */
+  quality: string
 }
 
 const SOURCE_LABELS: Record<VideoStatsMenuProps['sourceType'], string> = {
@@ -47,6 +57,7 @@ const LOADING_STATS: VideoStats = {
   bufferHealth: '-',
   url: '',
   sourceLabel: '',
+  quality: '-',
 }
 
 function formatMs(value: number | null): string {
@@ -154,6 +165,10 @@ export function VideoStatsMenu({
   videoElement,
   pc,
   sourceType,
+  videoCodec,
+  sourceUrl,
+  currentQuality,
+  availableQualities,
 }: VideoStatsMenuProps) {
   const [open, setOpen] = useState(false)
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 })
@@ -171,14 +186,29 @@ export function VideoStatsMenu({
 
   // MSE 帧率采样
   const mseFramesRef = useRef<{ frames: number; time: number } | null>(null)
-  // MSE 码率采样（按 bufferedEnd 增量 × 8 估算）
-  const mseBufferedRef = useRef<{ end: number; time: number } | null>(null)
+  // MSE 码率采样（按 webkitVideoDecodedByteCount 增量 × 8 估算）
+  const mseBytesRef = useRef<{ bytes: number; time: number } | null>(null)
 
   const computeStats = useCallback(async (): Promise<VideoStats | null> => {
     const video = videoElement
     if (!video) return null
 
-    const url = video.currentSrc || video.src || ''
+    /**
+     * 将 B站 qn 映射为人类可读清晰度标签。
+     */
+    const resolveQualityLabel = (): string => {
+      if (currentQuality == null) return '-'
+      const match = availableQualities?.find((q) => q.id === currentQuality)
+      if (match) {
+        return match.resolution
+          ? `${match.label} (${match.resolution})`
+          : match.label
+      }
+      return String(currentQuality)
+    }
+
+    // 优先使用调用方传入的真实播放地址，避免 MSE blob: URL 对用户无意义
+    const url = sourceUrl || video.currentSrc || video.src || ''
 
     if (isWebRtc) {
       const extras = await readWebRtcExtras(pc ?? null)
@@ -209,11 +239,13 @@ export function VideoStatsMenu({
           bufferHealth != null ? formatSeconds(bufferHealth) : '直播流无缓冲',
         url,
         sourceLabel: SOURCE_LABELS[sourceType],
+        quality: '-',
       }
     }
 
     // MSE (bilibili / custom)
-    const codec = getVideoCodec(video)
+    // 优先使用调用方传入的 codec（来自解析结果），避免依赖非标准 videoTracks[0].codec
+    const codec = videoCodec || getVideoCodec(video)
     const width = video.videoWidth
     const height = video.videoHeight
 
@@ -238,15 +270,20 @@ export function VideoStatsMenu({
       }
     }
 
-    // 码率：按 bufferedEnd 增量 × 8 估算（任务规范）
+    // 码率：通过 webkitVideoDecodedByteCount 增量 × 8 / dt 估算（Chrome 系支持）
+    // 旧实现用 bufferedEnd（秒）当字节，结果完全错误。
     let bitrateStr = '-'
-    const bufferedEnd = getBufferedEnd(video)
+    const decodedBytes = (
+      video as HTMLVideoElement & {
+        webkitVideoDecodedByteCount?: number
+      }
+    ).webkitVideoDecodedByteCount
     const now = performance.now()
-    const prevBuf = mseBufferedRef.current
-    if (prevBuf) {
-      const dt = (now - prevBuf.time) / 1000
+    const prevBytes = mseBytesRef.current
+    if (typeof decodedBytes === 'number' && prevBytes) {
+      const dt = (now - prevBytes.time) / 1000
       if (dt > 0) {
-        const delta = bufferedEnd - prevBuf.end
+        const delta = decodedBytes - prevBytes.bytes
         if (delta > 0) {
           const kbps = (delta * 8) / dt / 1000
           if (Number.isFinite(kbps) && kbps > 0) {
@@ -255,8 +292,11 @@ export function VideoStatsMenu({
         }
       }
     }
-    mseBufferedRef.current = { end: bufferedEnd, time: now }
+    if (typeof decodedBytes === 'number') {
+      mseBytesRef.current = { bytes: decodedBytes, time: now }
+    }
 
+    const bufferedEnd = getBufferedEnd(video)
     const bufferHealth = bufferedEnd > 0 ? bufferedEnd - video.currentTime : 0
 
     return {
@@ -270,6 +310,7 @@ export function VideoStatsMenu({
       bufferHealth: bufferHealth > 0 ? formatSeconds(bufferHealth) : '0 s',
       url,
       sourceLabel: SOURCE_LABELS[sourceType],
+      quality: resolveQualityLabel(),
     }
   }, [
     videoElement,
@@ -279,6 +320,10 @@ export function VideoStatsMenu({
     connStats,
     formatBitrate,
     formatPacketLoss,
+    videoCodec,
+    sourceUrl,
+    currentQuality,
+    availableQualities,
   ])
 
   // 始终持有最新 computeStats 引用，避免频繁重建监听器
@@ -345,6 +390,7 @@ export function VideoStatsMenu({
   // video 元素失效时关闭
   useEffect(() => {
     if (!videoElement) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- video 元素失效时清理状态
       setOpen(false)
       setStats(null)
     }
@@ -358,9 +404,11 @@ export function VideoStatsMenu({
       `URL: ${stats.url || '-'}`,
       `编码: ${stats.codec}`,
       `分辨率: ${stats.resolution}`,
-      `帧率: ${stats.frameRate}`,
-      `码率: ${stats.bitrate}`,
     ]
+    if (sourceType === 'bilibili') {
+      lines.push(`清晰度: ${stats.quality}`)
+    }
+    lines.push(`帧率: ${stats.frameRate}`, `码率: ${stats.bitrate}`)
     if (isWebRtc) {
       lines.push(`丢包率: ${stats.packetLossRate}`)
       lines.push(`RTT: ${stats.rtt}`)
@@ -374,7 +422,7 @@ export function VideoStatsMenu({
       console.error('[VideoStatsMenu] copy error:', err)
       message.error('复制失败，请检查浏览器剪贴板权限')
     }
-  }, [stats, isWebRtc])
+  }, [stats, isWebRtc, sourceType])
 
   const handleOpenDevPanel = useCallback(() => {
     if (!videoElement) return
@@ -482,6 +530,9 @@ export function VideoStatsMenu({
       <div className="flex flex-col gap-1.5 text-xs">
         <StatsRow label="编码" value={displayStats.codec} />
         <StatsRow label="分辨率" value={displayStats.resolution} />
+        {sourceType === 'bilibili' && (
+          <StatsRow label="清晰度" value={displayStats.quality} />
+        )}
         <StatsRow label="帧率" value={displayStats.frameRate} />
         <StatsRow label="码率" value={displayStats.bitrate} />
         {isWebRtc && (

@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   Copy,
   Eye,
   Link2,
@@ -10,6 +8,7 @@ import {
   PictureInPicture,
   PictureInPicture2,
 } from 'lucide-react'
+import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Space } from '@/components/ui/Space'
@@ -17,7 +16,7 @@ import { Title, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
-import { ConnectionStatsPanel } from '@/components/ConnectionStatsPanel'
+import { ConnectionStatsPanel } from '@/modules/screen-sharing/components/ConnectionStatsPanel'
 
 const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }]
 
@@ -93,7 +92,6 @@ function parseSignal(text: string): DirectSignalData | null {
 }
 
 function DirectWatchPage() {
-  const navigate = useNavigate()
   const [step, setStep] = useState<WatchStep>('idle')
   const [offerCode, setOfferCode] = useState('')
   const [answerCode, setAnswerCode] = useState('')
@@ -280,16 +278,11 @@ function DirectWatchPage() {
   return (
     <div className="flex-1 flex items-center justify-center p-6">
       <Card className="relative w-full max-w-2xl text-center">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft className="h-4 w-4" />}
-          onClick={() => navigate('/')}
-          className="absolute left-4 top-4"
-        >
-          返回
-        </Button>
-        <Title level={3}>直连观看</Title>
+        <PageBackButton to="/" />
+
+        <Title level={3} className="pt-8">
+          直连观看
+        </Title>
         <Paragraph type="secondary">
           粘贴分享端提供的直连码，生成应答码并回传即可建立 P2P 连接。
         </Paragraph>

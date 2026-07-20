@@ -26,7 +26,6 @@ export interface DanmakuAdvancedStyle {
 export interface DanmakuStyleState {
   filters: DanmakuTypeFilters
   scaleWithScreen: boolean
-  avoidSubtitle: boolean
   displayArea: number
   opacity: number
   fontSize: number
@@ -41,8 +40,9 @@ export const DEFAULT_DANMAKU_STYLE: DanmakuStyleState = {
     color: true,
     advanced: true,
   },
-  scaleWithScreen: true,
-  avoidSubtitle: false,
+  // 默认不随屏幕缩放：弹幕字号固定为用户设置的 fontSize，
+  // 不根据视频容器尺寸自动放大，避免不同分辨率下字号不可预测
+  scaleWithScreen: false,
   displayArea: 0.75,
   opacity: 1,
   fontSize: 25,
@@ -144,7 +144,17 @@ export const useDanmakuStore = create<DanmakuState>()(
     }),
     {
       name: 'danmaku-storage',
+      version: 1,
       partialize: (state) => ({ style: state.style }),
+      migrate: (persisted: unknown): Partial<DanmakuState> => {
+        const data = (persisted ?? {}) as Partial<DanmakuState>
+        const style = { ...(data.style ?? {}) } as Record<string, unknown>
+        // v0 -> v1: 清除已删除的 avoidSubtitle 字段，
+        // 并重置 scaleWithScreen 让其回退到新默认值 false
+        delete style.avoidSubtitle
+        delete style.scaleWithScreen
+        return { ...data, style: style as unknown as DanmakuStyleState }
+      },
     }
   )
 )

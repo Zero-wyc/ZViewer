@@ -3,7 +3,6 @@ import { ChevronDown, RotateCcw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Switch } from '@/components/ui/Switch'
 import { Slider } from '@/components/ui/Slider'
-import { Space } from '@/components/ui/Space'
 import { Text } from '@/components/ui/Typography'
 import { Input } from '@/components/ui/Input'
 import type {
@@ -40,27 +39,27 @@ export function DanmakuStylePanel({
   const [advancedOpen, setAdvancedOpen] = useState(false)
 
   return (
-    <div className="flex flex-col gap-3">
-      <div className="mb-1 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
           <Sparkles
-            className="h-4 w-4"
+            className="h-3.5 w-3.5"
             style={{ color: 'var(--md-sys-color-primary)' }}
           />
-          <Text className="text-xs font-semibold">弹幕样式</Text>
+          <Text className="text-[11px] font-semibold">弹幕样式</Text>
         </div>
         <Button
           variant="ghost"
           size="sm"
-          className="h-6 px-2 text-[10px]"
-          icon={<RotateCcw className="h-3 w-3" />}
+          className="h-5 px-1.5 text-[10px]"
+          icon={<RotateCcw className="h-2.5 w-2.5" />}
           onClick={resetStyle}
         >
           重置
         </Button>
       </div>
 
-      <div className="grid grid-cols-4 gap-1.5">
+      <div className="grid grid-cols-4 gap-1">
         {FILTER_BUTTONS.map(({ key, label }) => {
           const active = style.filters[key]
           return (
@@ -68,7 +67,7 @@ export function DanmakuStylePanel({
               key={key}
               variant={active ? 'primary' : 'secondary'}
               size="sm"
-              className="h-7 px-1 text-[11px]"
+              className="h-6 px-0.5 text-[10px]"
               onClick={() => setFilters({ [key]: !active })}
             >
               {label}
@@ -77,22 +76,13 @@ export function DanmakuStylePanel({
         })}
       </div>
 
-      <Space direction="vertical" className="w-full" size="sm">
-        <div className="flex items-center justify-between py-0.5">
-          <Text className="text-xs">随屏幕缩放</Text>
-          <Switch
-            checked={style.scaleWithScreen}
-            onChange={(e) => setStyle({ scaleWithScreen: e.target.checked })}
-          />
-        </div>
-        <div className="flex items-center justify-between py-0.5">
-          <Text className="text-xs">防挡字幕</Text>
-          <Switch
-            checked={style.avoidSubtitle}
-            onChange={(e) => setStyle({ avoidSubtitle: e.target.checked })}
-          />
-        </div>
-      </Space>
+      <div className="flex items-center justify-between py-0.5">
+        <Text className="text-[11px]">随屏幕缩放</Text>
+        <Switch
+          checked={style.scaleWithScreen}
+          onChange={(e) => setStyle({ scaleWithScreen: e.target.checked })}
+        />
+      </div>
 
       <Slider
         label="显示区域"
@@ -115,7 +105,7 @@ export function DanmakuStylePanel({
       />
 
       <Slider
-        label="弹幕字号"
+        label="字号"
         value={style.fontSize}
         min={12}
         max={36}
@@ -125,7 +115,7 @@ export function DanmakuStylePanel({
       />
 
       <Slider
-        label="弹幕速度"
+        label="速度"
         value={style.speed}
         min={0.5}
         max={2}
@@ -137,17 +127,17 @@ export function DanmakuStylePanel({
       <button
         type="button"
         onClick={() => setAdvancedOpen((prev) => !prev)}
-        className="flex items-center justify-between rounded-[var(--md-sys-radius-small)] px-1 py-1 text-xs transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+        className="flex items-center justify-between rounded-[var(--md-sys-radius-small)] px-1 py-0.5 text-[11px] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
         style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
       >
         <span>高级设置</span>
         <ChevronDown
-          className={`h-3.5 w-3.5 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
+          className={`h-3 w-3 transition-transform ${advancedOpen ? 'rotate-180' : ''}`}
         />
       </button>
 
       {advancedOpen && (
-        <Space direction="vertical" className="w-full" size="sm">
+        <div className="flex flex-col gap-1.5">
           <Input
             size="sm"
             label="字体"
@@ -155,7 +145,7 @@ export function DanmakuStylePanel({
             onChange={(e) => setAdvancedStyle({ fontFamily: e.target.value })}
           />
           <Slider
-            label="描边宽度"
+            label="描边"
             value={style.advanced.strokeWidth}
             min={0}
             max={3}
@@ -164,7 +154,7 @@ export function DanmakuStylePanel({
             onChange={(v) => setAdvancedStyle({ strokeWidth: v })}
           />
           <Slider
-            label="阴影模糊"
+            label="阴影"
             value={style.advanced.shadowBlur}
             min={0}
             max={8}
@@ -173,7 +163,7 @@ export function DanmakuStylePanel({
             onChange={(v) => setAdvancedStyle({ shadowBlur: v })}
           />
           <Slider
-            label="同屏密度"
+            label="密度"
             value={style.advanced.density}
             min={0.1}
             max={2}
@@ -181,7 +171,7 @@ export function DanmakuStylePanel({
             valueFormatter={(v) => `${Math.round(v * 100)}%`}
             onChange={(v) => setAdvancedStyle({ density: v })}
           />
-        </Space>
+        </div>
       )}
     </div>
   )

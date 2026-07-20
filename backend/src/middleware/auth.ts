@@ -18,9 +18,9 @@ const JWT_ACCESS_SECRET =
 const JWT_REFRESH_SECRET =
   process.env.JWT_REFRESH_SECRET || 'dev-refresh-secret-change-in-production';
 const JWT_ACCESS_EXPIRES_IN: jwt.SignOptions['expiresIn'] =
-  (process.env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions['expiresIn']) || '15m';
+  (process.env.JWT_ACCESS_EXPIRES_IN as jwt.SignOptions['expiresIn']) || '1h';
 const JWT_REFRESH_EXPIRES_IN: jwt.SignOptions['expiresIn'] =
-  (process.env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions['expiresIn']) || '7d';
+  (process.env.JWT_REFRESH_EXPIRES_IN as jwt.SignOptions['expiresIn']) || '30d';
 
 export function generateTokens(userId: number, role: UserRole, username?: string) {
   const payload: JwtPayload = { userId, role, username };

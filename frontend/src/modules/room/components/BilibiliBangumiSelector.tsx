@@ -78,11 +78,13 @@ export function BilibiliBangumiSelector({
   }, [bangumiList])
 
   useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect -- 打开时加载番剧列表 */
     if (isControlled && open) {
       void fetchBangumiList()
     } else if (!isControlled && internalOpen) {
       void fetchBangumiList()
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [isControlled, open, internalOpen, fetchBangumiList])
 
   const handleToggleBangumi = async (bangumi: FollowingBangumi) => {

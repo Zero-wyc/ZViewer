@@ -25,13 +25,14 @@ export function Avatar({
   }
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- src 变化时重置错误状态
     setError(false)
   }, [src])
 
   return (
     <div
       className={cn(
-        'relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full',
+        'zen-avatar-hover relative inline-flex shrink-0 items-center justify-center overflow-hidden rounded-full',
         sizes[size],
         className
       )}

@@ -4,6 +4,7 @@ import type {
   ResolvedSource,
   QualityOption,
 } from '@/modules/room/watch-together/resolveSource'
+import type { MediaFormat } from '@/lib/mediaFormat'
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
 const API_URL = rawApiUrl || window.location.origin
@@ -20,10 +21,22 @@ function getAuthHeaders(): Record<string, string> {
 
 export interface Viewer {
   socketId: string
+  userId?: number
   username?: string
+  // socket.data.role: 'root' | 'admin' | 'user' | 'guest'
+  role?: string
+  // 是否被禁言（由房主端基于 mutedViewerIds 计算）
+  muted?: boolean
 }
 
 export type RoomMode = 'screen-share' | 'watch-together'
+export type ShareMethod = 'webrtc' | 'stream-push'
+
+export interface RoomSettings {
+  password: string | null
+  maxViewers: number
+  requireApproval: boolean
+}
 
 export type MovieSourceType =
   'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'smb' | string
@@ -49,7 +62,8 @@ export interface Movie {
   audioUrl?: string
   videoCodec?: string
   audioCodec?: string
-  format?: 'dash' | 'mp4'
+  /** 媒体容器格式。FTP/WebDAV/OpenList 可能返回 mkv/avi 等浏览器不支持的格式。 */
+  format?: MediaFormat
   quality?: string
   // 持久化的清晰度信息
   currentQn?: number
@@ -116,7 +130,7 @@ export interface WatchTogetherState {
   sourceType:
     'url' | 'webdav' | 'ftp' | 'openlist' | 'smb' | 'bilibili' | string
   audioUrl?: string
-  format?: 'mp4' | 'dash'
+  format?: MediaFormat
   videoCodec?: string
   audioCodec?: string
   cid?: number
@@ -134,7 +148,13 @@ interface RoomState {
   password: string
   maxViewers: number
   mode: RoomMode
+  // 投屏模式（mode === 'screen-share'）下的子模式
+  shareMethod: ShareMethod
   viewers: Viewer[]
+  // 被禁言观众 userId 列表（仅房主维护，观众端不展示）
+  mutedViewerIds: number[]
+  // 房间运行时设置（密码/上限/审批开关）
+  roomSettings: RoomSettings
   isSharing: boolean
   isPaused: boolean
   watchTogether: WatchTogetherState
@@ -146,9 +166,14 @@ interface RoomState {
   setPassword: (password: string) => void
   setMaxViewers: (max: number) => void
   setMode: (mode: RoomMode) => void
+  setShareMethod: (method: ShareMethod) => void
   addViewer: (viewer: Viewer) => void
   removeViewer: (viewerSocketId: string) => void
   setViewers: (viewers: Viewer[]) => void
+  setMutedViewerIds: (ids: number[]) => void
+  addMutedViewer: (userId: number) => void
+  removeMutedViewer: (userId: number) => void
+  setRoomSettings: (settings: Partial<RoomSettings>) => void
   setIsSharing: (value: boolean) => void
   setIsPaused: (value: boolean) => void
   setWatchTogether: (state: Partial<WatchTogetherState>) => void
@@ -214,8 +239,15 @@ const defaultState = {
   roomName: '',
   password: '',
   maxViewers: 10,
-  mode: 'screen-share' as RoomMode,
+  mode: 'watch-together' as RoomMode,
+  shareMethod: 'webrtc' as ShareMethod,
   viewers: [],
+  mutedViewerIds: [] as number[],
+  roomSettings: {
+    password: null as string | null,
+    maxViewers: 10,
+    requireApproval: true,
+  } as RoomSettings,
   isSharing: false,
   isPaused: false,
   watchTogether: {
@@ -238,17 +270,73 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setPassword: (password) => set({ password }),
   setMaxViewers: (max) => set({ maxViewers: max }),
   setMode: (mode) => set({ mode }),
+  setShareMethod: (method) => set({ shareMethod: method }),
   addViewer: (viewer) =>
-    set((state) => ({
-      viewers: state.viewers.some((v) => v.socketId === viewer.socketId)
-        ? state.viewers
-        : [...state.viewers, viewer],
-    })),
+    set((state) => {
+      if (state.viewers.some((v) => v.socketId === viewer.socketId)) {
+        return {}
+      }
+      const muted =
+        viewer.userId != null
+          ? state.mutedViewerIds.includes(viewer.userId)
+          : false
+      return { viewers: [...state.viewers, { ...viewer, muted }] }
+    }),
   removeViewer: (socketId) =>
     set((state) => ({
       viewers: state.viewers.filter((v) => v.socketId !== socketId),
     })),
-  setViewers: (viewers) => set({ viewers }),
+  setViewers: (viewers) =>
+    set((state) => ({
+      viewers: viewers.map((v) => ({
+        ...v,
+        muted:
+          v.userId != null ? state.mutedViewerIds.includes(v.userId) : false,
+      })),
+    })),
+  setMutedViewerIds: (ids) =>
+    set((state) => ({
+      mutedViewerIds: ids,
+      viewers: state.viewers.map((v) => ({
+        ...v,
+        muted: v.userId != null ? ids.includes(v.userId) : false,
+      })),
+    })),
+  addMutedViewer: (userId) =>
+    set((state) => {
+      if (state.mutedViewerIds.includes(userId)) return {}
+      const ids = [...state.mutedViewerIds, userId]
+      return {
+        mutedViewerIds: ids,
+        viewers: state.viewers.map((v) => ({
+          ...v,
+          muted: v.userId != null ? ids.includes(v.userId) : false,
+        })),
+      }
+    }),
+  removeMutedViewer: (userId) =>
+    set((state) => {
+      if (!state.mutedViewerIds.includes(userId)) return {}
+      const ids = state.mutedViewerIds.filter((id) => id !== userId)
+      return {
+        mutedViewerIds: ids,
+        viewers: state.viewers.map((v) => ({
+          ...v,
+          muted: v.userId != null ? ids.includes(v.userId) : false,
+        })),
+      }
+    }),
+  setRoomSettings: (settings) =>
+    set((state) => ({
+      roomSettings: { ...state.roomSettings, ...settings },
+      // 同步顶层 maxViewers/password 用于历史调用方
+      ...(settings.maxViewers !== undefined
+        ? { maxViewers: settings.maxViewers }
+        : {}),
+      ...(settings.password !== undefined
+        ? { password: settings.password ?? '' }
+        : {}),
+    })),
   setIsSharing: (value) => set({ isSharing: value }),
   setIsPaused: (value) => set({ isPaused: value }),
   setWatchTogether: (updates) =>

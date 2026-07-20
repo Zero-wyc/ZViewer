@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   Users,
   Shield,
   Trash2,
@@ -15,6 +14,7 @@ import {
   Download,
   UserCheck,
 } from 'lucide-react'
+import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Space } from '@/components/ui/Space'
@@ -249,12 +249,14 @@ export default function AdminPage() {
 
   useEffect(() => {
     if (!accessToken) return
+    /* eslint-disable react-hooks/set-state-in-effect -- tab 切换时加载对应数据 */
     if (activeTab === 'settings') {
       void loadSettings()
       void checkUpdate()
     } else {
       void loadData()
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab, accessToken])
 
@@ -490,18 +492,10 @@ export default function AdminPage() {
 
   return (
     <div className="flex-1 p-4 sm:p-6">
-      <Card className="mx-auto w-full max-w-6xl">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft className="h-4 w-4" />}
-          onClick={() => navigate('/')}
-          className="absolute left-4 top-4"
-        >
-          返回
-        </Button>
+      <Card className="relative mx-auto w-full max-w-6xl">
+        <PageBackButton to="/" />
 
-        <div className="mb-6 text-center">
+        <div className="mb-6 pt-8 text-center">
           <div
             className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
             style={{

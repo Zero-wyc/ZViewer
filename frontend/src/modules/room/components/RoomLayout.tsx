@@ -1,4 +1,12 @@
-import { type ReactNode, Children, Fragment, isValidElement, useEffect, useRef, useState } from 'react'
+import {
+  type ReactNode,
+  Children,
+  Fragment,
+  isValidElement,
+  useEffect,
+  useRef,
+  useState,
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft, PanelRight, PanelRightClose } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -11,7 +19,7 @@ import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
 import { useSocket } from '@/hooks/useSocket'
 import { SharingStatusPanel } from '@/modules/room/components/SharingStatusPanel'
-import type { SharingMode } from '@/hooks/useConnectionStats'
+import type { SharingMode } from '@/modules/screen-sharing/hooks/useConnectionStats'
 
 interface RoomLayoutProps {
   /** 房间 ID，用于模式切换 socket 事件 */
@@ -76,7 +84,18 @@ export function RoomLayout({
   webFullscreen = false,
 }: RoomLayoutProps) {
   const navigate = useNavigate()
-  const handleBack = onBack ?? (() => navigate('/'))
+  const { socket } = useSocket()
+  const defaultBack = () => {
+    // 房主返回主页时关闭旧房间，避免 socket 仍 joined 到旧 room、
+    // 旧 sharer session 残留，导致下次创建新房间时收到旧房间事件。
+    if (socket && isHost) {
+      socket.emit('close-room', () => {
+        /* ack，无需提示 */
+      })
+    }
+    navigate('/')
+  }
+  const handleBack = onBack ?? defaultBack
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true)
   const toggleRightPanel = () => setIsRightPanelOpen((open) => !open)
 
@@ -93,10 +112,10 @@ export function RoomLayout({
     }
   }, [])
 
-  const { socket } = useSocket()
   const roomMode = useRoomStore((state) => state.mode)
   const setMode = useRoomStore((state) => state.setMode)
   const storeIsSharing = useRoomStore((state) => state.isSharing)
+  const storeShareMethod = useRoomStore((state) => state.shareMethod)
 
   // 模式切换加载占位：房主点击切换后等待后端确认期间显示 Spinner
   const [isModeSwitching, setIsModeSwitching] = useState(false)
@@ -109,6 +128,17 @@ export function RoomLayout({
 
   const isSharing =
     sharingActive ?? (roomMode === 'screen-share' && storeIsSharing)
+
+  // 是否使用 aspect-video（16:9）布局。
+  // - watch-together：始终 aspect-video
+  // - screen-share + webrtc：仅 isSharing 时 aspect-video
+  // - screen-share + stream-push：
+  //   - 观众端始终 aspect-video（拉流播放器）
+  //   - 房主端 StreamPushPage 用 min-h-[480px]（未推流时显示配置 UI）
+  const useAspectRatio =
+    roomMode === 'watch-together' ||
+    (roomMode === 'screen-share' &&
+      (storeShareMethod === 'stream-push' ? !isHost : isSharing))
 
   // 监听 room-mode-changed：观众端跟随房主切换无需刷新；
   // 同时清除本地加载占位（房主切换完成后）。
@@ -238,17 +268,22 @@ export function RoomLayout({
 
   // 右侧评论/弹幕面板：
   // - 非全屏：固定宽度侧边栏（320px），位于视频右侧，不挤压播放器宽度
+  //   关键：maxHeight 限制让侧栏不会因内容过多而反向撑大视频行容器，
+  //   从而避免触发外层 RoomLayout overflow-y-auto 整页滚动导致视频黑屏。
   // - 原生全屏：悬浮层覆盖在视频区域上方
   const rightPanelNode = (
     <div
       className={cn(
-          'glass-strong flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--glass-border)] transition-all duration-200 ease-in-out',
-          isNativeFullscreen
-            ? 'absolute inset-y-0 right-0 z-20 w-[80%] max-w-[320px]'
-            : 'w-[320px] flex-shrink-0',
-          isNativeFullscreen && !isRightPanelOpen && 'translate-x-full',
-          !isNativeFullscreen && !isRightPanelOpen && 'w-0 opacity-0'
-        )}
+        'glass-strong flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--glass-border)] transition-all duration-200 ease-in-out',
+        isNativeFullscreen
+          ? 'absolute inset-y-0 right-0 z-20 w-[80%] max-w-[320px]'
+          : 'w-[320px] flex-shrink-0',
+        isNativeFullscreen && !isRightPanelOpen && 'translate-x-full',
+        !isNativeFullscreen && !isRightPanelOpen && 'w-0 opacity-0'
+      )}
+      style={
+        !isNativeFullscreen ? { maxHeight: 'calc(100vh - 220px)' } : undefined
+      }
     >
       {effectiveRightPanel}
     </div>
@@ -272,6 +307,7 @@ export function RoomLayout({
           <Button
             variant="ghost"
             size="sm"
+            disableAnimation
             icon={<ArrowLeft className="h-4 w-4" />}
             onClick={handleBack}
             className="glass flex-shrink-0 border px-3"
@@ -318,7 +354,8 @@ export function RoomLayout({
             <div
               className={cn(
                 'relative h-full w-full overflow-hidden rounded-lg bg-black',
-                !isNativeFullscreen && 'aspect-video'
+                !isNativeFullscreen &&
+                  (useAspectRatio ? 'aspect-video' : 'min-h-[480px]')
               )}
             >
               {renderMainContent()}

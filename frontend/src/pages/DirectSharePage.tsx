@@ -1,20 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import {
-  ArrowLeft,
-  Copy,
-  Monitor,
-  Power,
-  Link2,
-  CheckCircle2,
-} from 'lucide-react'
+import { Copy, Monitor, Power, Link2, CheckCircle2 } from 'lucide-react'
+import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Space } from '@/components/ui/Space'
 import { Title, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { message } from '@/components/ui/message'
-import { ConnectionStatsPanel } from '@/components/ConnectionStatsPanel'
+import { ConnectionStatsPanel } from '@/modules/screen-sharing/components/ConnectionStatsPanel'
 
 const ICE_SERVERS: RTCIceServer[] = [{ urls: 'stun:stun.l.google.com:19302' }]
 
@@ -80,7 +73,6 @@ function parseSignal(text: string): DirectSignalData | null {
 }
 
 function DirectSharePage() {
-  const navigate = useNavigate()
   const [step, setStep] = useState<ShareStep>('idle')
   const [offerCode, setOfferCode] = useState('')
   const [answerCode, setAnswerCode] = useState('')
@@ -234,16 +226,11 @@ function DirectSharePage() {
   return (
     <div className="flex-1 flex items-center justify-center p-6">
       <Card className="relative w-full max-w-2xl text-center">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft className="h-4 w-4" />}
-          onClick={() => navigate('/')}
-          className="absolute left-4 top-4"
-        >
-          返回
-        </Button>
-        <Title level={3}>直连共享</Title>
+        <PageBackButton to="/" />
+
+        <Title level={3} className="pt-8">
+          直连共享
+        </Title>
         <Paragraph type="secondary">
           无需服务器，通过手动交换 SDP/ICE 实现一对一 P2P 共享。
         </Paragraph>

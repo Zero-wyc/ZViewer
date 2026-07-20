@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft,
   LayoutDashboard,
   LayoutGrid,
   List,
@@ -11,6 +10,7 @@ import {
   PlayCircle,
   Shield,
 } from 'lucide-react'
+import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Space } from '@/components/ui/Space'
@@ -19,6 +19,24 @@ import { Tag } from '@/components/ui/Tag'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
+import { cn } from '@/lib/utils'
+
+const Fade = ({
+  children,
+  delay = 0,
+  className,
+}: {
+  children: React.ReactNode
+  delay?: number
+  className?: string
+}) => (
+  <div
+    className={cn('zen-stagger-fade-up', className)}
+    style={{ '--stagger-delay': `${delay}ms` } as React.CSSProperties}
+  >
+    {children}
+  </div>
+)
 
 interface RoomItem {
   id: number
@@ -47,7 +65,7 @@ export default function RoomsListPage() {
     const saved = localStorage.getItem('rooms-list-view-mode')
     return saved === 'tile' ? 'tile' : 'list'
   })
-  const isAdmin = user?.role === 'admin'
+  const isAdmin = user?.role === 'admin' || user?.role === 'root'
 
   const authHeaders = {
     Authorization: `Bearer ${accessToken}`,
@@ -116,113 +134,129 @@ export default function RoomsListPage() {
 
   return (
     <div className="flex-1 p-4 sm:p-6">
-      <Card className="mx-auto w-full max-w-5xl">
-        <Button
-          variant="ghost"
-          size="sm"
-          icon={<ArrowLeft className="h-4 w-4" />}
-          onClick={() => navigate('/')}
-          className="absolute left-4 top-4"
-        >
-          返回
-        </Button>
+      <Card className="relative mx-auto w-full max-w-5xl">
+        <PageBackButton to="/" />
 
-        <div className="mb-6 text-center">
-          <div
-            className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-            style={{
-              backgroundColor: 'var(--md-sys-color-primary-container)',
-              color: 'var(--md-sys-color-on-primary-container)',
-            }}
-          >
-            <LayoutDashboard className="h-6 w-6" />
-          </div>
-          <Title level={3} className="m-0">
-            房间列表
-          </Title>
-          <Text type="secondary">浏览并加入当前可用的房间</Text>
+        <div className="mb-6 pt-8 text-center">
+          <Fade delay={80} className="inline-block">
+            <div
+              className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+              style={{
+                backgroundColor: 'var(--md-sys-color-primary-container)',
+                color: 'var(--md-sys-color-on-primary-container)',
+              }}
+            >
+              <LayoutDashboard className="h-6 w-6" />
+            </div>
+          </Fade>
+          <Fade delay={120}>
+            <Title level={3} className="m-0">
+              房间列表
+            </Title>
+            <Text type="secondary">浏览并加入当前可用的房间</Text>
+          </Fade>
         </div>
 
-        <Space justify="between" align="center" className="mb-4">
-          <Text type="secondary">共 {rooms.length} 个房间</Text>
-          <Space>
+        <Fade delay={160}>
+          <Space justify="between" align="center" className="mb-4">
             <div
-              className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
-              style={{ borderColor: 'var(--md-sys-color-outline)' }}
+              className="flex items-center gap-1.5 rounded-[var(--md-sys-shape-corner)] border px-3 py-1.5 text-sm font-medium"
+              style={{
+                borderColor: 'var(--md-sys-color-outline)',
+                backgroundColor: 'var(--md-sys-color-surface-container-low)',
+                color: 'var(--md-sys-color-on-surface-variant)',
+              }}
             >
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode('list')
-                  localStorage.setItem('rooms-list-view-mode', 'list')
-                }}
-                className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
-                style={{
-                  backgroundColor:
-                    viewMode === 'list'
-                      ? 'var(--md-sys-color-primary-container)'
-                      : 'transparent',
-                  color:
-                    viewMode === 'list'
-                      ? 'var(--md-sys-color-on-primary-container)'
-                      : 'var(--md-sys-color-on-surface)',
-                }}
-                aria-label="列表视图"
-                title="列表视图"
+              <span>共</span>
+              <span
+                className="min-w-[1.25rem] text-center font-semibold"
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
               >
-                <List className="h-4 w-4" />
-                <span className="hidden sm:inline">列表</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setViewMode('tile')
-                  localStorage.setItem('rooms-list-view-mode', 'tile')
-                }}
-                className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
-                style={{
-                  backgroundColor:
-                    viewMode === 'tile'
-                      ? 'var(--md-sys-color-primary-container)'
-                      : 'transparent',
-                  color:
-                    viewMode === 'tile'
-                      ? 'var(--md-sys-color-on-primary-container)'
-                      : 'var(--md-sys-color-on-surface)',
-                }}
-                aria-label="平铺视图"
-                title="平铺视图"
-              >
-                <LayoutGrid className="h-4 w-4" />
-                <span className="hidden sm:inline">平铺</span>
-              </button>
+                {rooms.length}
+              </span>
+              <span>个房间</span>
             </div>
-            {isAdmin && (
-              <Button
-                variant="primary"
-                size="sm"
-                icon={<Shield className="h-4 w-4" />}
-                onClick={() => navigate('/admin')}
+            <Space>
+              <div
+                className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+                style={{ borderColor: 'var(--md-sys-color-outline)' }}
               >
-                管理后台
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode('list')
+                    localStorage.setItem('rooms-list-view-mode', 'list')
+                  }}
+                  className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
+                  style={{
+                    backgroundColor:
+                      viewMode === 'list'
+                        ? 'var(--md-sys-color-primary-container)'
+                        : 'transparent',
+                    color:
+                      viewMode === 'list'
+                        ? 'var(--md-sys-color-on-primary-container)'
+                        : 'var(--md-sys-color-on-surface)',
+                  }}
+                  aria-label="列表视图"
+                  title="列表视图"
+                >
+                  <List className="h-4 w-4" />
+                  <span className="hidden sm:inline">列表</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode('tile')
+                    localStorage.setItem('rooms-list-view-mode', 'tile')
+                  }}
+                  className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1.5 text-sm font-medium transition-all"
+                  style={{
+                    backgroundColor:
+                      viewMode === 'tile'
+                        ? 'var(--md-sys-color-primary-container)'
+                        : 'transparent',
+                    color:
+                      viewMode === 'tile'
+                        ? 'var(--md-sys-color-on-primary-container)'
+                        : 'var(--md-sys-color-on-surface)',
+                  }}
+                  aria-label="平铺视图"
+                  title="平铺视图"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                  <span className="hidden sm:inline">平铺</span>
+                </button>
+              </div>
+              {isAdmin && (
+                <Button
+                  variant="primary"
+                  size="sm"
+                  icon={<Shield className="h-4 w-4" />}
+                  onClick={() => navigate('/admin')}
+                >
+                  管理后台
+                </Button>
+              )}
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<RefreshCw className="h-4 w-4" />}
+                onClick={loadData}
+                disabled={loading}
+              >
+                刷新
               </Button>
-            )}
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<RefreshCw className="h-4 w-4" />}
-              onClick={loadData}
-              disabled={loading}
-            >
-              刷新
-            </Button>
+            </Space>
           </Space>
-        </Space>
+        </Fade>
 
         {loading ? (
-          <div className="py-12">
-            <Spinner tip="加载中..." size={32} />
-          </div>
+          <Fade delay={200}>
+            <div className="py-12">
+              <Spinner tip="加载中..." size={32} />
+            </div>
+          </Fade>
         ) : (
           <div
             className={
@@ -232,23 +266,29 @@ export default function RoomsListPage() {
             }
           >
             {rooms.length === 0 ? (
-              <div className="col-span-full py-12 text-center">
-                <Text type="secondary">暂无可用房间</Text>
-              </div>
+              <Fade delay={200} className="col-span-full">
+                <div className="col-span-full py-12 text-center">
+                  <Text type="secondary">暂无可用房间</Text>
+                </div>
+              </Fade>
             ) : (
-              rooms.map((room) => (
+              rooms.map((room, idx) => (
                 <div
                   key={room.id}
-                  className={
+                  className={cn(
+                    'zen-stagger-fade-up',
                     viewMode === 'tile'
                       ? 'flex flex-col gap-3 rounded-[var(--md-sys-shape-corner)] border p-4 transition-colors'
                       : 'flex flex-col gap-3 rounded-[var(--md-sys-shape-corner)] border p-4 transition-colors sm:flex-row sm:items-center sm:justify-between'
+                  )}
+                  style={
+                    {
+                      borderColor: 'var(--md-sys-color-outline)',
+                      backgroundColor:
+                        'var(--md-sys-color-surface-container-high)',
+                      '--stagger-delay': `${200 + idx * 45}ms`,
+                    } as React.CSSProperties
                   }
-                  style={{
-                    borderColor: 'var(--md-sys-color-outline)',
-                    backgroundColor:
-                      'var(--md-sys-color-surface-container-high)',
-                  }}
                 >
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-wrap items-center gap-2">
@@ -298,7 +338,15 @@ export default function RoomsListPage() {
                     size="sm"
                     className={viewMode === 'tile' ? 'mt-auto w-full' : ''}
                     icon={<PlayCircle className="h-4 w-4" />}
-                    onClick={() => navigate(`/room/${room.roomId}`)}
+                    onClick={() =>
+                      navigate(`/room/${room.roomId}`, {
+                        state: {
+                          fromList: true,
+                          hasPassword: room.hasPassword,
+                          name: room.name,
+                        },
+                      })
+                    }
                     disabled={room.status !== 'active'}
                   >
                     加入房间

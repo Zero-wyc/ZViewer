@@ -1,5 +1,10 @@
 import { bilibiliFetch } from './client';
 import { getWbiKeys, signParams, clearWbiKeyCache } from './wbi';
+import {
+  computeFnval,
+  QN_QUALITY_MAP,
+  DEFAULT_QN,
+} from './permission';
 
 export interface DashMediaTrack {
   baseUrl: string;
@@ -66,6 +71,8 @@ export interface GetPlayUrlOptions {
   fnval?: number;
   /** 优先返回 URL 中包含该字符串的 CDN 轨道。 */
   preferCdn?: string;
+  /** 是否为大会员，用于动态计算 fnval。 */
+  isVip?: boolean;
 }
 
 export class NoPermissionError extends Error {
@@ -75,29 +82,7 @@ export class NoPermissionError extends Error {
   }
 }
 
-const DEFAULT_QN = 127;
-// 仅请求 DASH + 4K，不开启 AV1/HEVC/HDR/杜比等高级格式，
-// 确保返回的轨道能被绝大多数浏览器原生解码。
-const DEFAULT_FNVAL = 80;
 const DEFAULT_FOURK = 1;
-
-/** B站 清晰度 qn -> 标签/分辨率兜底映射。 */
-const QN_QUALITY_MAP: Record<number, { label: string; resolution?: string }> = {
-  127: { label: '8K 超高清', resolution: '7680x4320' },
-  126: { label: '杜比视界', resolution: '3840x2160' },
-  125: { label: 'HDR 真彩', resolution: '3840x2160' },
-  120: { label: '4K 超清', resolution: '3840x2160' },
-  116: { label: '1080P60', resolution: '1920x1080' },
-  112: { label: '1080P+', resolution: '1920x1080' },
-  80: { label: '1080P', resolution: '1920x1080' },
-  74: { label: '720P60', resolution: '1280x720' },
-  64: { label: '720P', resolution: '1280x720' },
-  32: { label: '480P', resolution: '854x480' },
-  16: { label: '360P', resolution: '640x360' },
-};
-
-/** 大会员专属清晰度 qn 列表。 */
-export const VIP_ONLY_QNS = [112, 116, 120, 125, 126, 127];
 
 function buildQueryString(params: Record<string, string>): string {
   return Object.entries(params)
@@ -263,14 +248,17 @@ async function getPlayUrlWbi(
   cookie?: string,
   options?: GetPlayUrlOptions,
 ): Promise<BilibiliPlayUrlResult | null> {
+  const isVip = options?.isVip ?? false;
+  const effectiveQn = options?.qn ?? DEFAULT_QN;
+  const effectiveFnval = options?.fnval ?? computeFnval(isVip, effectiveQn);
   const { imgKey, subKey } = await getWbiKeys(cookie);
   const signed = signParams(
     {
       bvid,
       cid: String(cid),
-      qn: String(options?.qn ?? DEFAULT_QN),
+      qn: String(effectiveQn),
       fnver: '0',
-      fnval: String(options?.fnval ?? DEFAULT_FNVAL),
+      fnval: String(effectiveFnval),
       fourk: String(DEFAULT_FOURK),
     },
     imgKey,
@@ -283,7 +271,7 @@ async function getPlayUrlWbi(
     { cookie },
   );
 
-  const result = normalizePlayUrlData(res.data, options?.qn ?? DEFAULT_QN);
+  const result = normalizePlayUrlData(res.data, effectiveQn);
   if (result && options?.preferCdn) {
     result.video = sortTracksByPreferredCdn(result.video, options.preferCdn);
     result.audio = sortTracksByPreferredCdn(result.audio, options.preferCdn);
@@ -302,12 +290,15 @@ async function getPlayUrlLegacy(
   cookie?: string,
   options?: GetPlayUrlOptions,
 ): Promise<BilibiliPlayUrlResult | null> {
+  const isVip = options?.isVip ?? false;
+  const effectiveQn = options?.qn ?? DEFAULT_QN;
+  const effectiveFnval = options?.fnval ?? computeFnval(isVip, effectiveQn);
   const params = new URLSearchParams({
     bvid,
     cid: String(cid),
-    qn: String(options?.qn ?? DEFAULT_QN),
+    qn: String(effectiveQn),
     fnver: '0',
-    fnval: String(options?.fnval ?? DEFAULT_FNVAL),
+    fnval: String(effectiveFnval),
     fourk: String(DEFAULT_FOURK),
   });
 
@@ -316,7 +307,7 @@ async function getPlayUrlLegacy(
     { cookie },
   );
 
-  const result = normalizePlayUrlData(res.data, options?.qn ?? DEFAULT_QN);
+  const result = normalizePlayUrlData(res.data, effectiveQn);
   if (result && options?.preferCdn) {
     result.video = sortTracksByPreferredCdn(result.video, options.preferCdn);
     result.audio = sortTracksByPreferredCdn(result.audio, options.preferCdn);
