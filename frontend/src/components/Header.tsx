@@ -26,6 +26,8 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
+import { message } from '@/components/ui/message'
+import { apiFetch, API_URL } from '@/lib/api'
 import { PRESET_SEEDS } from '@/lib/themes'
 import { cn } from '@/lib/utils'
 
@@ -162,9 +164,20 @@ export function Header() {
     return () => window.removeEventListener('mousedown', handleClick)
   }, [userOpen])
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setUserOpen(false)
-    logout()
+    try {
+      // 调用后端清除 httpOnly cookie（access_token / refresh_token）
+      await apiFetch(`${API_URL}/api/auth/logout`, {
+        method: 'POST',
+      })
+    } catch (err) {
+      // 后端调用失败也继续登出前端状态，避免用户卡在已登录状态
+      console.warn('[Header] logout API failed:', err)
+      message.error('退出登录请求失败，已强制清除本地状态')
+    } finally {
+      logout()
+    }
   }
 
   const menuItems: {

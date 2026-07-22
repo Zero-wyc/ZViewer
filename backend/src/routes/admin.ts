@@ -7,6 +7,8 @@ import { Session } from '../entities/Session';
 import { SystemSettings } from '../entities/SystemSettings';
 import { getSystemSettings, deleteRoomAndRelations } from '../index';
 import { clearAnimeProvidersCache } from '../services/anime';
+import { clearCache as clearKazumiCache } from '../services/kazumi';
+import { clearCache as clearAniSubsCache } from '../services/anisubs';
 import {
   authenticateToken,
   AuthenticatedRequest,
@@ -454,6 +456,8 @@ router.put(
       if (dataSourceConfig !== undefined) {
         settings.dataSourceConfig = dataSourceConfig as Record<string, unknown>;
         clearAnimeProvidersCache();
+        clearKazumiCache();
+        clearAniSubsCache();
       }
       await settingsRepo.save(settings);
 

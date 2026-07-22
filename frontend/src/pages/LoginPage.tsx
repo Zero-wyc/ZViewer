@@ -9,6 +9,7 @@ import { Space } from '@/components/ui/Space'
 import { Title, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
+import { apiFetch, API_URL } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const Fade = ({
@@ -36,7 +37,7 @@ interface AuthForm {
 type AuthMode = 'login' | 'register'
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
+void rawApiUrl
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -66,15 +67,13 @@ export default function LoginPage() {
     setLoading(true)
     try {
       const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register'
-      const res = await fetch(`${API_URL}${endpoint}`, {
+      const res = await apiFetch(`${API_URL}${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
       const data = (await res.json()) as {
         success: boolean
-        accessToken?: string
-        refreshToken?: string
         user?: {
           id: string
           username: string
@@ -84,8 +83,8 @@ export default function LoginPage() {
         message?: string
       }
 
-      if (data.success && data.accessToken && data.refreshToken && data.user) {
-        login(data.accessToken, data.refreshToken, {
+      if (data.success && data.user) {
+        login({
           id: data.user.id,
           username: data.user.username,
           role: data.user.role as import('@/store/authStore').UserRole,

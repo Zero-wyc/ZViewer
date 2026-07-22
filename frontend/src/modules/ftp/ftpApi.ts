@@ -1,4 +1,4 @@
-import { useAuthStore } from '@/store/authStore'
+import { apiFetch, API_URL } from '@/lib/api'
 import type {
   FTPMount,
   FTPMountFormPayload,
@@ -8,30 +8,17 @@ import type {
 } from './types'
 import type { MediaFormat } from '@/lib/mediaFormat'
 
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
-
 export interface FTPTestResult {
   success: boolean
   itemCount: number
 }
 
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
 function jsonHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    ...getAuthHeaders(),
-  }
+  return { 'Content-Type': 'application/json' }
 }
 
 export async function getFTPMounts(): Promise<FTPMount[]> {
-  const res = await fetch(`${API_URL}/api/ftp/mounts`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/ftp/mounts`)
   const data = (await res.json()) as {
     success: boolean
     mounts?: FTPMount[]
@@ -46,7 +33,7 @@ export async function getFTPMounts(): Promise<FTPMount[]> {
 export async function createFTPMount(
   payload: FTPMountFormPayload
 ): Promise<FTPMount> {
-  const res = await fetch(`${API_URL}/api/ftp/mounts`, {
+  const res = await apiFetch(`${API_URL}/api/ftp/mounts`, {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify(payload),
@@ -66,7 +53,7 @@ export async function updateFTPMount(
   id: number,
   payload: FTPMountFormPayload
 ): Promise<FTPMount> {
-  const res = await fetch(`${API_URL}/api/ftp/mounts/${id}`, {
+  const res = await apiFetch(`${API_URL}/api/ftp/mounts/${id}`, {
     method: 'PUT',
     headers: jsonHeaders(),
     body: JSON.stringify(payload),
@@ -83,9 +70,8 @@ export async function updateFTPMount(
 }
 
 export async function deleteFTPMount(id: number): Promise<void> {
-  const res = await fetch(`${API_URL}/api/ftp/mounts/${id}`, {
+  const res = await apiFetch(`${API_URL}/api/ftp/mounts/${id}`, {
     method: 'DELETE',
-    headers: getAuthHeaders(),
   })
   const data = (await res.json()) as { success: boolean; message?: string }
   if (!res.ok || !data.success) {
@@ -96,7 +82,7 @@ export async function deleteFTPMount(id: number): Promise<void> {
 export async function testFTPMount(
   params: FTPConnectionParams
 ): Promise<FTPTestResult> {
-  const res = await fetch(`${API_URL}/api/ftp/mounts/test`, {
+  const res = await apiFetch(`${API_URL}/api/ftp/mounts/test`, {
     method: 'POST',
     headers: jsonHeaders(),
     body: JSON.stringify(params),
@@ -120,9 +106,7 @@ export async function browseFTPMount(
   path?: string
 ): Promise<FTPDirectoryEntry[]> {
   const query = path ? `?path=${encodeURIComponent(path)}` : ''
-  const res = await fetch(`${API_URL}/api/ftp/mounts/${id}/browse${query}`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/ftp/mounts/${id}/browse${query}`)
   const data = (await res.json()) as {
     success: boolean
     entries?: FTPDirectoryEntry[]
@@ -142,9 +126,7 @@ export async function resolveFTP(
     mountId: String(mountId),
     path,
   }).toString()
-  const res = await fetch(`${API_URL}/api/ftp/resolve?${query}`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/ftp/resolve?${query}`)
   const data = (await res.json()) as {
     success: boolean
     message?: string

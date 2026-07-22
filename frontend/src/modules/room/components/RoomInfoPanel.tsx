@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect } from 'react'
 import {
   Users,
   Settings,
@@ -14,14 +14,16 @@ import {
   Crown,
   Shield,
   Lock,
-  Unlock,
   UserCheck,
+  Zap,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
+import { Switch } from '@/components/ui/Switch'
+import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
@@ -79,6 +81,10 @@ export function RoomInfoPanel({
   const addMutedViewer = useRoomStore((state) => state.addMutedViewer)
   const removeMutedViewer = useRoomStore((state) => state.removeMutedViewer)
   const setRoomSettings = useRoomStore((state) => state.setRoomSettings)
+  const autoApproveRequests = useRoomStore((state) => state.autoApproveRequests)
+  const toggleAutoApproveRequests = useRoomStore(
+    (state) => state.toggleAutoApproveRequests
+  )
   const currentUserId = useAuthStore((state) => state.user?.id)
 
   const [showUsers, setShowUsers] = useState(false)
@@ -431,201 +437,249 @@ export function RoomInfoPanel({
     )
   }
 
-  const tabItems = useMemo(
-    () => [
-      { key: 'info' as const, label: '房间信息', icon: Settings },
-      { key: 'viewers' as const, label: '观众管理', icon: Users },
-      { key: 'permissions' as const, label: '权限说明', icon: Shield },
-    ],
-    []
-  )
-
   return (
     <>
-      <Space direction="vertical" className="h-full w-full" size="sm">
-        <div className="flex items-center gap-2">
+      <div className="glass-card zen-card flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
+        {/* 卡片头部：图标 + 标题 + 连接状态 */}
+        <div className="flex items-center gap-2.5 border-b border-[var(--glass-border)] px-4 py-3">
           <div
-            className="flex h-2 w-2 rounded-full"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
             style={{
-              backgroundColor: connected
-                ? 'var(--md-sys-color-tertiary)'
-                : 'var(--md-sys-color-error)',
+              background:
+                'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
             }}
-          />
-          <Text className="text-xs font-medium">
-            {connected ? '已连接' : '未连接'}
-          </Text>
-          <Text type="secondary" className="text-xs">
-            {connected ? 'OPEN' : 'CLOSED'}
-          </Text>
+          >
+            <Settings
+              className="h-4 w-4"
+              style={{ color: 'var(--md-sys-color-primary)' }}
+            />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Text className="text-sm font-semibold leading-tight">
+              房间状态
+            </Text>
+            <div className="flex items-center gap-1.5">
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{
+                  backgroundColor: connected
+                    ? 'var(--md-sys-color-tertiary)'
+                    : 'var(--md-sys-color-error)',
+                  boxShadow: connected
+                    ? '0 0 6px var(--md-sys-color-tertiary)'
+                    : 'none',
+                }}
+              />
+              <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+                {connected ? '已连接' : '未连接'}
+              </Text>
+            </div>
+          </div>
           {isHost && (
             <span
-              className="ml-auto flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium"
+              className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
               style={{
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent)',
-                color: 'var(--md-sys-color-primary)',
+                background:
+                  'linear-gradient(135deg, var(--md-sys-color-primary), color-mix(in srgb, var(--md-sys-color-primary) 70%, var(--md-sys-color-tertiary)))',
+                color: 'var(--md-sys-color-on-primary)',
               }}
             >
-              <Crown className="h-3 w-3" />
+              <Crown className="h-2.5 w-2.5" />
               房主
             </span>
           )}
         </div>
 
-        <div className="flex items-center gap-2">
-          <Text type="secondary" className="text-xs">
-            房间名称
-          </Text>
-          {isEditingName ? (
-            <div className="flex flex-1 items-center gap-1">
-              <Input
-                size="sm"
-                value={editingNameValue}
-                onChange={(e) => setEditingNameValue(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    void handleSaveName()
-                  } else if (e.key === 'Escape') {
-                    handleCancelEditName()
-                  }
-                }}
-                disabled={savingName}
-                className="min-w-0 flex-1"
-              />
-              <Button
-                variant="primary"
-                size="sm"
-                className="h-7 w-7 shrink-0 p-0"
-                loading={savingName}
-                disabled={savingName}
-                onClick={() => void handleSaveName()}
-                icon={<Check className="h-3.5 w-3.5" />}
-              />
+        {/* 卡片内容 */}
+        <div className="flex min-h-0 flex-1 flex-col gap-3 px-4 py-3">
+          {/* 房间名称 */}
+          <div className="flex flex-col gap-1">
+            <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+              房间名称
+            </Text>
+            {isEditingName ? (
+              <div className="flex flex-1 items-center gap-1">
+                <Input
+                  size="sm"
+                  value={editingNameValue}
+                  onChange={(e) => setEditingNameValue(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      void handleSaveName()
+                    } else if (e.key === 'Escape') {
+                      handleCancelEditName()
+                    }
+                  }}
+                  disabled={savingName}
+                  className="min-w-0 flex-1"
+                />
+                <Button
+                  variant="primary"
+                  size="sm"
+                  className="h-7 w-7 shrink-0 p-0"
+                  loading={savingName}
+                  disabled={savingName}
+                  onClick={() => void handleSaveName()}
+                  icon={<Check className="h-3.5 w-3.5" />}
+                />
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="h-7 w-7 shrink-0 p-0"
+                  disabled={savingName}
+                  onClick={handleCancelEditName}
+                  icon={<X className="h-3.5 w-3.5" />}
+                />
+              </div>
+            ) : (
+              <div className="flex min-w-0 items-center gap-1">
+                <span
+                  className="truncate text-sm font-medium"
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
+                  title={roomName || roomId}
+                >
+                  {roomName || '未命名房间'}
+                </span>
+                {isHost && (
+                  <button
+                    onClick={() => setIsEditingName(true)}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
+                    style={{ color: 'var(--md-sys-color-primary)' }}
+                    title="修改房间名称"
+                  >
+                    <Pencil className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 房间 ID */}
+          <div className="flex flex-col gap-1">
+            <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+              房间 ID
+            </Text>
+            <button
+              onClick={handleCopyRoomId}
+              className="flex items-center gap-1.5 self-start rounded-[var(--md-sys-shape-corner)] px-2 py-1 text-xs font-medium transition-all hover:translate-y-[-1px]"
+              style={{
+                color: 'var(--md-sys-color-primary)',
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent)',
+              }}
+              title="点击复制"
+            >
+              {roomId}
+              <Copy className="h-3 w-3" />
+            </button>
+          </div>
+
+          {/* 操作按钮组 */}
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Share2 className="h-3.5 w-3.5" />}
+              onClick={handleCopyLink}
+            >
+              分享
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              icon={<Users className="h-3.5 w-3.5" />}
+              onClick={() => setShowUsers(true)}
+            >
+              在线 ({viewers.length})
+            </Button>
+            {isHost && (
               <Button
                 variant="secondary"
                 size="sm"
-                className="h-7 w-7 shrink-0 p-0"
-                disabled={savingName}
-                onClick={handleCancelEditName}
-                icon={<X className="h-3.5 w-3.5" />}
-              />
-            </div>
-          ) : (
-            <div className="flex min-w-0 flex-1 items-center gap-1">
-              <span
-                className="truncate text-xs font-medium"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
-                title={roomName || roomId}
+                icon={<Settings className="h-3.5 w-3.5" />}
+                onClick={() => setShowSettings(true)}
               >
-                {roomName || '未命名房间'}
-              </span>
-              {isHost && (
-                <button
-                  onClick={() => setIsEditingName(true)}
-                  className="flex h-5 w-5 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
+                设置
+              </Button>
+            )}
+            {isHost && (
+              <Button
+                variant={autoApproveRequests ? 'primary' : 'secondary'}
+                size="sm"
+                icon={<Zap className="h-3.5 w-3.5" />}
+                onClick={() => {
+                  toggleAutoApproveRequests()
+                  message.info(
+                    autoApproveRequests
+                      ? '已关闭自动通过申请'
+                      : '已开启自动通过申请'
+                  )
+                }}
+                title="开启后，seek / 暂停 / 继续播放 申请将自动通过"
+              >
+                {autoApproveRequests ? '自动通过：开' : '自动通过：关'}
+              </Button>
+            )}
+          </div>
+
+          {/* 房主端在线观众列表 */}
+          {isHost && (
+            <div className="flex min-h-0 flex-1 flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
+                <Users
+                  className="h-3.5 w-3.5"
                   style={{ color: 'var(--md-sys-color-primary)' }}
-                  title="修改房间名称"
+                />
+                <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+                  在线观众（{viewers.length}）
+                </Text>
+              </div>
+              {viewers.length === 0 ? (
+                <div
+                  className="flex items-center justify-center rounded-[var(--md-sys-shape-corner)] py-3"
+                  style={{
+                    backgroundColor:
+                      'var(--md-sys-color-surface-container-high)',
+                  }}
                 >
-                  <Pencil className="h-3 w-3" />
-                </button>
+                  <Text type="secondary" className="text-xs">
+                    暂无在线观众
+                  </Text>
+                </div>
+              ) : (
+                <div className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto">
+                  {viewers.map((viewer) => (
+                    <div
+                      key={viewer.socketId}
+                      className="flex items-center gap-1.5 rounded-[var(--md-sys-shape-corner)] px-2 py-1.5 transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                      style={{
+                        backgroundColor:
+                          'var(--md-sys-color-surface-container-high)',
+                      }}
+                    >
+                      <MessageSquare
+                        className="h-3 w-3 shrink-0"
+                        style={{ color: 'var(--md-sys-color-primary)' }}
+                      />
+                      <Text className="truncate text-xs">
+                        {viewer.username || viewer.socketId.slice(0, 8)}
+                      </Text>
+                      <RoleBadge role={viewer.role} />
+                      {viewer.muted && (
+                        <VolumeX
+                          className="ml-auto h-3 w-3 shrink-0"
+                          style={{ color: 'var(--md-sys-color-error)' }}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
           )}
         </div>
-
-        <div className="flex items-center gap-2">
-          <Text type="secondary" className="text-xs">
-            房间 ID
-          </Text>
-          <button
-            onClick={handleCopyRoomId}
-            className="flex items-center gap-1 rounded px-1.5 py-0.5 text-xs font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
-            style={{ color: 'var(--md-sys-color-primary)' }}
-            title="点击复制"
-          >
-            {roomId}
-            <Copy className="h-3 w-3" />
-          </button>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Share2 className="h-3.5 w-3.5" />}
-            onClick={handleCopyLink}
-          >
-            分享链接
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<Users className="h-3.5 w-3.5" />}
-            onClick={() => setShowUsers(true)}
-          >
-            在线 ({viewers.length})
-          </Button>
-          {isHost && (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Settings className="h-3.5 w-3.5" />}
-              onClick={() => setShowSettings(true)}
-            >
-              设置
-            </Button>
-          )}
-        </div>
-
-        {isHost && (
-          <div className="flex flex-col gap-1.5">
-            <div className="flex items-center gap-1.5">
-              <Users
-                className="h-3.5 w-3.5"
-                style={{ color: 'var(--md-sys-color-primary)' }}
-              />
-              <Text type="secondary" className="text-xs">
-                在线观众（{viewers.length}）
-              </Text>
-            </div>
-            {viewers.length === 0 ? (
-              <Text type="secondary" className="text-xs">
-                暂无在线观众
-              </Text>
-            ) : (
-              <div className="flex flex-col gap-1">
-                {viewers.map((viewer) => (
-                  <div
-                    key={viewer.socketId}
-                    className="flex items-center gap-1.5 rounded px-2 py-1"
-                    style={{
-                      backgroundColor:
-                        'var(--md-sys-color-surface-container-high)',
-                    }}
-                  >
-                    <MessageSquare
-                      className="h-3 w-3 shrink-0"
-                      style={{ color: 'var(--md-sys-color-primary)' }}
-                    />
-                    <Text className="truncate text-xs">
-                      {viewer.username || viewer.socketId.slice(0, 8)}
-                    </Text>
-                    <RoleBadge role={viewer.role} />
-                    {viewer.muted && (
-                      <VolumeX
-                        className="ml-auto h-3 w-3 shrink-0"
-                        style={{ color: 'var(--md-sys-color-error)' }}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </Space>
+      </div>
 
       <Modal
         open={showUsers}
@@ -647,113 +701,160 @@ export function RoomInfoPanel({
         open={showSettings}
         onClose={() => setShowSettings(false)}
         title="房间设置"
-        className="max-w-lg"
+        className="max-w-2xl"
       >
         <div className="flex flex-col gap-4">
           {/* Tab 切换 */}
-          <div className="flex items-center gap-1 border-b border-[var(--md-sys-color-outline-variant)] pb-2">
-            {tabItems.map((tab) => {
-              const Icon = tab.icon
-              const active = settingsTab === tab.key
-              return (
-                <button
-                  key={tab.key}
-                  onClick={() => setSettingsTab(tab.key)}
-                  className="flex items-center gap-1.5 rounded-t px-3 py-1.5 text-xs font-medium transition-colors"
-                  style={{
-                    color: active
-                      ? 'var(--md-sys-color-primary)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                    borderBottom: active
-                      ? '2px solid var(--md-sys-color-primary)'
-                      : '2px solid transparent',
-                  }}
-                >
-                  <Icon className="h-3.5 w-3.5" />
-                  {tab.label}
-                </button>
-              )
-            })}
-          </div>
+          <SegmentedToggle
+            options={[
+              { value: 'info', label: '房间信息' },
+              { value: 'viewers', label: '观众管理' },
+              { value: 'permissions', label: '权限说明' },
+            ]}
+            value={settingsTab}
+            onChange={(v) => setSettingsTab(v as SettingsTab)}
+          />
 
-          {/* Tab 内容 */}
+          {/* 房间信息 Tab */}
           {settingsTab === 'info' && (
-            <Space direction="vertical" className="w-full" size="sm">
-              <div className="flex flex-col gap-1">
-                <Text className="text-xs font-medium">房间密码</Text>
-                <Input
-                  size="sm"
-                  value={passwordValue}
-                  onChange={(e) => setPasswordValue(e.target.value)}
-                  placeholder="留空表示无密码"
-                  disabled={!isHost || savingSettings}
-                />
-                <Text type="secondary" className="text-[10px]">
-                  设置后，观众加入需输入密码。root 账户无需密码。
-                </Text>
-              </div>
-              <div className="flex flex-col gap-1">
-                <Text className="text-xs font-medium">观众上限</Text>
-                <Input
-                  size="sm"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={maxViewersValue}
-                  onChange={(e) =>
-                    setMaxViewersValue(parseInt(e.target.value, 10) || 1)
-                  }
-                  disabled={!isHost || savingSettings}
-                />
-              </div>
+            <div className="flex flex-col gap-3">
+              {/* 房间密码 */}
               <div
-                className="flex items-center justify-between rounded px-2 py-1.5"
+                className="rounded-[var(--md-sys-shape-corner)] border p-3"
                 style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
                 }}
               >
-                <div className="flex items-center gap-1.5">
-                  {requireApprovalValue ? (
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
+                    }}
+                  >
                     <Lock
-                      className="h-3.5 w-3.5"
+                      className="h-4 w-4"
                       style={{ color: 'var(--md-sys-color-primary)' }}
                     />
-                  ) : (
-                    <Unlock
-                      className="h-3.5 w-3.5"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    />
-                  )}
-                  <Text className="text-xs">需要房主审批</Text>
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">房间密码</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      PASSWORD
+                    </Text>
+                  </div>
                 </div>
-                <button
-                  onClick={() =>
+                <div className="mt-2.5 flex flex-col gap-1">
+                  <Input
+                    size="sm"
+                    value={passwordValue}
+                    onChange={(e) => setPasswordValue(e.target.value)}
+                    placeholder="留空表示无密码"
+                    disabled={!isHost || savingSettings}
+                  />
+                  <Text type="secondary" className="text-[10px]">
+                    设置后，观众加入需输入密码。root 账户无需密码。
+                  </Text>
+                </div>
+              </div>
+
+              {/* 观众上限 */}
+              <div
+                className="rounded-[var(--md-sys-shape-corner)] border p-3"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-secondary) 18%, transparent))',
+                    }}
+                  >
+                    <Users
+                      className="h-4 w-4"
+                      style={{ color: 'var(--md-sys-color-tertiary)' }}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">观众上限</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      MAX VIEWERS
+                    </Text>
+                  </div>
+                </div>
+                <div className="mt-2.5">
+                  <Input
+                    size="sm"
+                    type="number"
+                    min={1}
+                    max={100}
+                    value={maxViewersValue}
+                    onChange={(e) =>
+                      setMaxViewersValue(parseInt(e.target.value, 10) || 1)
+                    }
+                    disabled={!isHost || savingSettings}
+                  />
+                </div>
+              </div>
+
+              {/* 审批开关 */}
+              <div
+                className="flex items-center justify-between rounded-[var(--md-sys-shape-corner)] border p-3"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-secondary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent))',
+                    }}
+                  >
+                    <Shield
+                      className="h-4 w-4"
+                      style={{ color: 'var(--md-sys-color-secondary)' }}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">需要房主审批</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      APPROVAL REQUIRED
+                    </Text>
+                  </div>
+                </div>
+                <Switch
+                  checked={requireApprovalValue}
+                  onChange={(e) =>
                     isHost &&
                     !savingSettings &&
-                    setRequireApprovalValue((prev) => !prev)
+                    setRequireApprovalValue(e.target.checked)
                   }
                   disabled={!isHost || savingSettings}
-                  className="relative h-5 w-9 rounded-full transition-colors disabled:cursor-not-allowed"
-                  style={{
-                    backgroundColor: requireApprovalValue
-                      ? 'var(--md-sys-color-primary)'
-                      : 'var(--md-sys-color-surface-container-highest)',
-                  }}
-                >
-                  <span
-                    className="absolute top-0.5 h-4 w-4 rounded-full bg-white transition-all"
-                    style={{
-                      left: requireApprovalValue ? '18px' : '2px',
-                    }}
-                  />
-                </button>
+                />
               </div>
+
+              {/* 保存按钮 */}
               {isHost && (
                 <Button
                   variant="primary"
-                  size="sm"
                   block
                   loading={savingSettings}
                   disabled={savingSettings}
@@ -762,13 +863,17 @@ export function RoomInfoPanel({
                   保存设置
                 </Button>
               )}
-            </Space>
+            </div>
           )}
 
+          {/* 观众管理 Tab */}
           {settingsTab === 'viewers' && (
-            <Space direction="vertical" className="w-full" size="sm">
+            <div className="flex flex-col gap-2">
               <div className="flex items-center justify-between">
-                <Text className="text-xs font-medium">
+                <Text
+                  type="secondary"
+                  className="text-[10px] uppercase tracking-wide"
+                >
                   在线观众（{viewers.length}）
                 </Text>
                 <Text type="secondary" className="text-[10px]">
@@ -776,68 +881,167 @@ export function RoomInfoPanel({
                 </Text>
               </div>
               {viewers.length === 0 ? (
-                <Paragraph type="secondary" className="text-sm">
-                  暂无在线观众
-                </Paragraph>
+                <div
+                  className="flex h-32 items-center justify-center rounded-[var(--md-sys-shape-corner)] border"
+                  style={{
+                    backgroundColor:
+                      'var(--md-sys-color-surface-container-high)',
+                    borderColor: 'var(--md-sys-color-outline-variant)',
+                  }}
+                >
+                  <Text type="secondary" className="text-xs">
+                    暂无在线观众
+                  </Text>
+                </div>
               ) : (
-                viewers.map((viewer) => renderViewerItem(viewer, true))
+                <div className="flex flex-col gap-1.5">
+                  {viewers.map((viewer) =>
+                    renderViewerItem(viewer, true)
+                  )}
+                </div>
               )}
-            </Space>
+            </div>
           )}
 
+          {/* 权限说明 Tab */}
           {settingsTab === 'permissions' && (
-            <Space direction="vertical" className="w-full" size="sm">
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <Crown
-                    className="h-3.5 w-3.5"
-                    style={{ color: 'var(--md-sys-color-primary)' }}
-                  />
-                  <Text className="text-xs font-medium">房主（分享端）</Text>
+            <div className="flex flex-col gap-3">
+              {/* 房主 */}
+              <div
+                className="rounded-[var(--md-sys-shape-corner)] border p-3"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
+                    }}
+                  >
+                    <Crown
+                      className="h-4 w-4"
+                      style={{ color: 'var(--md-sys-color-primary)' }}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">房主（分享端）</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      HOST
+                    </Text>
+                  </div>
                 </div>
-                <Text type="secondary" className="ml-5 text-[11px]">
+                <Text
+                  type="secondary"
+                  className="mt-2 text-[11px] leading-relaxed"
+                >
                   创建房间或被转交房主身份的用户。可踢出 /
                   禁言观众、转交房主、修改房间设置与名称、控制播放。
                 </Text>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <UserCheck
-                    className="h-3.5 w-3.5"
-                    style={{ color: 'var(--md-sys-color-tertiary)' }}
-                  />
-                  <Text className="text-xs font-medium">观众</Text>
+
+              {/* 观众 */}
+              <div
+                className="rounded-[var(--md-sys-shape-corner)] border p-3"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-secondary) 18%, transparent))',
+                    }}
+                  >
+                    <UserCheck
+                      className="h-4 w-4"
+                      style={{ color: 'var(--md-sys-color-tertiary)' }}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">观众</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      VIEWER
+                    </Text>
+                  </div>
                 </div>
-                <Text type="secondary" className="ml-5 text-[11px]">
+                <Text
+                  type="secondary"
+                  className="mt-2 text-[11px] leading-relaxed"
+                >
                   加入房间的用户。可观看影片、发送评论与弹幕（未被禁言时）。无法管理房间或其他观众。
                 </Text>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <Shield
-                    className="h-3.5 w-3.5"
-                    style={{ color: 'var(--md-sys-color-error)' }}
-                  />
-                  <Text className="text-xs font-medium">角色权限层级</Text>
+
+              {/* 角色权限层级 */}
+              <div
+                className="rounded-[var(--md-sys-shape-corner)] border p-3"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      background:
+                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-error) 22%, transparent), color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent))',
+                    }}
+                  >
+                    <Shield
+                      className="h-4 w-4"
+                      style={{ color: 'var(--md-sys-color-error)' }}
+                    />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">角色权限层级</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      ROLE HIERARCHY
+                    </Text>
+                  </div>
                 </div>
-                <div className="ml-5 flex flex-col gap-0.5 text-[11px]">
-                  <Text type="secondary">
-                    • <RoleBadge role="root" />{' '}
-                    拥有最高权限，可创建房间、接管任意房间
-                  </Text>
-                  <Text type="secondary">
-                    • <RoleBadge role="admin" /> 可创建房间、管理自己创建的房间
-                  </Text>
-                  <Text type="secondary">
-                    • <RoleBadge role="user" /> 普通注册用户，可加入房间观看
-                  </Text>
-                  <Text type="secondary">
-                    • <RoleBadge role="guest" />{' '}
-                    游客，仅可观看，不能被转交为房主
-                  </Text>
+                <div className="mt-2.5 flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <RoleBadge role="root" />
+                    <Text type="secondary">
+                      拥有最高权限，可创建房间、接管任意房间
+                    </Text>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <RoleBadge role="admin" />
+                    <Text type="secondary">
+                      可创建房间、管理自己创建的房间
+                    </Text>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <RoleBadge role="user" />
+                    <Text type="secondary">普通注册用户，可加入房间观看</Text>
+                  </div>
+                  <div className="flex items-center gap-2 text-[11px]">
+                    <RoleBadge role="guest" />
+                    <Text type="secondary">
+                      游客，仅可观看，不能被转交为房主
+                    </Text>
+                  </div>
                 </div>
               </div>
-            </Space>
+            </div>
           )}
         </div>
       </Modal>

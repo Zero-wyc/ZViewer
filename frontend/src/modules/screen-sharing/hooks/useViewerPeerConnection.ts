@@ -16,6 +16,12 @@ interface UseViewerPeerConnectionOptions {
     hasVideo: boolean
     hasAudio: boolean
   }) => void
+  /**
+   * 外部传入的 video 元素挂载版本号（每次 video 元素从 null 变为有值时自增）。
+   * 用于在 video 元素挂载后触发 stream 重新绑定，避免 mode 切换时 video 元素挂载晚于
+   * ontrack 触发导致 stream 永远绑不上 video 的问题。
+   */
+  videoMountedVersion?: number
 }
 
 interface UseViewerPeerConnectionResult {
@@ -59,7 +65,8 @@ interface UseViewerPeerConnectionResult {
 export function useViewerPeerConnection(
   options: UseViewerPeerConnectionOptions
 ): UseViewerPeerConnectionResult {
-  const { socket, roomId, videoRef, onTrackReady } = options
+  const { socket, roomId, videoRef, onTrackReady, videoMountedVersion } =
+    options
 
   const [pc, setPc] = useState<RTCPeerConnection | null>(null)
   const [mergedStream, setMergedStream] = useState<MediaStream | null>(null)
@@ -352,11 +359,16 @@ export function useViewerPeerConnection(
     create()
   }, [cleanup, create])
 
-  // video 元素自动绑定 srcObject 并尝试播放（mergedStream 或 videoVersion 变化时触发）
+  // video 元素自动绑定 srcObject 并尝试播放（mergedStream / videoVersion / videoMountedVersion 变化时触发）
+  // videoMountedVersion 用于在 video 元素挂载后触发重新绑定，避免 mode 切换时 video 元素挂载晚于
+  // ontrack 触发导致 stream 永远绑不上 video 的问题。
   useEffect(() => {
     const video = videoRef.current
     const stream = mergedStream
     if (!video || !stream) return
+
+    // 仅当 video.srcObject 与 stream 不一致时才重新绑定，避免重复触发
+    if (video.srcObject === stream) return
 
     video.srcObject = stream
     autoplayAttemptedRef.current = false
@@ -405,7 +417,7 @@ export function useViewerPeerConnection(
       video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       unmuteHandlers.forEach((cleanupFn) => cleanupFn())
     }
-  }, [mergedStream, videoVersion, videoRef])
+  }, [mergedStream, videoVersion, videoMountedVersion, videoRef])
 
   // 卸载时清理 PC 与 stream 资源
   useEffect(() => {

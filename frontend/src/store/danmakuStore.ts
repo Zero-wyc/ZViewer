@@ -1,12 +1,15 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import type { BilibiliDanmakuItem } from '@/modules/room/watch-together/danmakuEngine'
+import type { DanmakuItem, DanmakuSource } from '@/modules/danmaku/types'
 
 export interface DanmakuTrack {
   trackId: string
   label: string
-  items: BilibiliDanmakuItem[]
+  source: DanmakuSource
+  items: DanmakuItem[]
   offset: number
+  /** 是否暂时隐藏该轨道的弹幕 */
+  hidden?: boolean
 }
 
 export interface DanmakuTypeFilters {
@@ -62,12 +65,14 @@ interface DanmakuState {
   addTrack: (
     trackId: string,
     label: string,
-    items: BilibiliDanmakuItem[],
+    source: DanmakuSource,
+    items: DanmakuItem[],
     offset?: number
   ) => void
   removeTrack: (trackId: string) => void
   updateTrackOffset: (trackId: string, offset: number) => void
-  setDefaultTrack: (items: BilibiliDanmakuItem[]) => void
+  toggleTrackHidden: (trackId: string) => void
+  setDefaultTrack: (items: DanmakuItem[]) => void
   setStyle: (updates: Partial<DanmakuStyleState>) => void
   setFilters: (updates: Partial<DanmakuTypeFilters>) => void
   setAdvancedStyle: (updates: Partial<DanmakuAdvancedStyle>) => void
@@ -80,12 +85,13 @@ export const useDanmakuStore = create<DanmakuState>()(
       tracks: [],
       style: DEFAULT_DANMAKU_STYLE,
 
-      addTrack: (trackId, label, items, offset = 0) => {
+      addTrack: (trackId, label, source, items, offset = 0) => {
         set((state) => {
           const exists = state.tracks.findIndex((t) => t.trackId === trackId)
           const next: DanmakuTrack = {
             trackId,
             label,
+            source,
             items: [...items].sort((a, b) => a.time - b.time),
             offset,
           }
@@ -112,8 +118,16 @@ export const useDanmakuStore = create<DanmakuState>()(
         }))
       },
 
+      toggleTrackHidden: (trackId) => {
+        set((state) => ({
+          tracks: state.tracks.map((t) =>
+            t.trackId === trackId ? { ...t, hidden: !t.hidden } : t
+          ),
+        }))
+      },
+
       setDefaultTrack: (items) => {
-        get().addTrack('default', '当前视频', items, 0)
+        get().addTrack('default', '当前视频', 'bilibili', items, 0)
       },
 
       setStyle: (updates) => {

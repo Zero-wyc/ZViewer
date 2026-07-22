@@ -1,6 +1,6 @@
-import { useAuthStore } from '@/store/authStore'
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import type { MediaFormat } from '@/lib/mediaFormat'
+import { apiFetch, API_URL } from '@/lib/api'
 
 // Bilibili 模块化后的 re-export：保持向后兼容
 // 类型与解析偏好
@@ -17,6 +17,8 @@ export {
   getBilibiliParseOptions,
   setBilibiliParseOptions,
   codecToFnval,
+  BILIBILI_CDN_OPTIONS,
+  type BilibiliCdnOption,
 } from '@/modules/bilibili/parseOptions'
 // Bilibili API 函数
 export {
@@ -28,14 +30,6 @@ export {
   getBilibiliLoginStatus,
   logoutBilibili,
 } from '@/modules/bilibili/bilibiliApi'
-
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-export const API_URL = rawApiUrl || window.location.origin
-
-export function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
 
 export interface FTPParams {
   serverUrl: string
@@ -53,9 +47,7 @@ export async function resolveFTP(params: FTPParams): Promise<ResolvedSource> {
     ...(params.password ? { password: params.password } : {}),
     ...(params.port ? { port: String(params.port) } : {}),
   }).toString()
-  const res = await fetch(`${API_URL}/api/stream/resolve-ftp?${query}`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/stream/resolve-ftp?${query}`)
   const data = (await res.json()) as {
     success: boolean
     message?: string
@@ -96,9 +88,7 @@ export interface AnimeSource {
 }
 
 export async function getAnimeSources(): Promise<AnimeSource[]> {
-  const res = await fetch(`${API_URL}/api/stream/anime/sources`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/stream/anime/sources`)
   const data = (await res.json()) as {
     success: boolean
     message?: string
@@ -114,9 +104,8 @@ export async function searchAnime(
   source: string,
   keyword: string
 ): Promise<AnimeSearchResult[]> {
-  const res = await fetch(
-    `${API_URL}/api/stream/anime/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`,
-    { headers: getAuthHeaders() }
+  const res = await apiFetch(
+    `${API_URL}/api/stream/anime/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`
   )
   const data = (await res.json()) as {
     success: boolean
@@ -133,9 +122,8 @@ export async function getAnimeEpisodes(
   source: string,
   identifier: string
 ): Promise<AnimeEpisode[]> {
-  const res = await fetch(
-    `${API_URL}/api/stream/anime/episodes?source=${encodeURIComponent(source)}&identifier=${encodeURIComponent(identifier)}`,
-    { headers: getAuthHeaders() }
+  const res = await apiFetch(
+    `${API_URL}/api/stream/anime/episodes?source=${encodeURIComponent(source)}&identifier=${encodeURIComponent(identifier)}`
   )
   const data = (await res.json()) as {
     success: boolean
@@ -162,10 +150,9 @@ export async function resolveAnimeEpisode(
   source: string,
   episode: AnimeEpisode
 ): Promise<ResolvedAnimeSource> {
-  const res = await fetch(`${API_URL}/api/stream/anime/resolve`, {
+  const res = await apiFetch(`${API_URL}/api/stream/anime/resolve`, {
     method: 'POST',
     headers: {
-      ...getAuthHeaders(),
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ source, episode }),
@@ -240,9 +227,7 @@ export interface FollowingBangumi {
 }
 
 export async function getFollowingBangumi(): Promise<FollowingBangumi[]> {
-  const res = await fetch(`${API_URL}/api/stream/bilibili/following-bangumi`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/stream/bilibili/following-bangumi`)
   const data = (await res.json()) as {
     success: boolean
     message?: string
@@ -264,9 +249,8 @@ export interface BangumiEpisode {
 export async function getBangumiEpisodes(
   seasonId: number
 ): Promise<BangumiEpisode[]> {
-  const res = await fetch(
-    `${API_URL}/api/stream/bilibili/bangumi-episodes?seasonId=${encodeURIComponent(seasonId)}`,
-    { headers: getAuthHeaders() }
+  const res = await apiFetch(
+    `${API_URL}/api/stream/bilibili/bangumi-episodes?seasonId=${encodeURIComponent(seasonId)}`
   )
   const data = (await res.json()) as {
     success: boolean
@@ -293,4 +277,27 @@ export function buildBilibiliVideoUrl(bvid: string): string {
 export function buildBilibiliImageProxyUrl(originalUrl: string): string {
   if (!originalUrl) return ''
   return `${API_URL}/api/stream/proxy-image?url=${encodeURIComponent(originalUrl)}`
+}
+
+/**
+ * 判断 URL 是否为 B站 CDN 图片地址（hdslb.com / bilivideo.com / biliimg.com 等）。
+ * 用于决定是否需要走 proxy-image 代理绕过防盗链 / ORB 限制。
+ */
+export function isBilibiliImageUrl(url: string): boolean {
+  if (!url) return false
+  try {
+    const parsed = new URL(url)
+    return [
+      'hdslb.com',
+      'bilivideo.com',
+      'biliimg.com',
+      'bilibili.com',
+    ].some(
+      (domain) =>
+        parsed.hostname === domain ||
+        parsed.hostname.endsWith(`.${domain}`)
+    )
+  } catch {
+    return false
+  }
 }

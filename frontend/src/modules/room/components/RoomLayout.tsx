@@ -200,7 +200,11 @@ export function RoomLayout({
     socket.emit(
       'update-room-mode',
       { roomId, mode: targetMode },
-      (response: { success: boolean; message?: string; mode?: RoomMode }) => {
+      (response: {
+        success: boolean
+        message?: string
+        data?: { mode?: RoomMode }
+      }) => {
         if (switchingRef.current?.id !== nextId) {
           return
         }
@@ -209,8 +213,10 @@ export function RoomLayout({
         }
         switchingRef.current = null
 
-        if (response.success && response.mode) {
-          setMode(response.mode)
+        // 后端 AckResponse 标准格式：mode 在 data 字段内
+        const mode = response.data?.mode
+        if (response.success && mode) {
+          setMode(mode)
         } else {
           message.error(response.message ?? '切换模式失败')
         }
@@ -219,7 +225,7 @@ export function RoomLayout({
     )
   }
 
-  // 共享状态下用「共享情况」面板替代影片列表与观看影片控件
+  // 共享状态下：侧栏显示「共享情况」面板，评论区（rightPanel）移动到下方 controls 区域
   const effectiveRightPanel = isSharing ? (
     <SharingStatusPanel
       pc={peerConnection}
@@ -231,6 +237,18 @@ export function RoomLayout({
   ) : (
     rightPanel
   )
+
+  // 共享状态下：将评论区（rightPanel）追加到下方 controls 区域与原 controls 合并渲染
+  const effectiveControls = isSharing
+    ? controls
+      ? (
+          <>
+            {controls}
+            {rightPanel}
+          </>
+        )
+      : rightPanel
+    : controls
 
   // 根据当前模式渲染主区域：切换中显示加载占位，否则渲染调用方传入的 mainContent
   const renderMainContent = () => {
@@ -267,23 +285,29 @@ export function RoomLayout({
   )
 
   // 右侧评论/弹幕面板：
-  // - 非全屏：固定宽度侧边栏（320px），位于视频右侧，不挤压播放器宽度
-  //   关键：maxHeight 限制让侧栏不会因内容过多而反向撑大视频行容器，
-  //   从而避免触发外层 RoomLayout overflow-y-auto 整页滚动导致视频黑屏。
-  // - 原生全屏：悬浮层覆盖在视频区域上方
+  // - 非全屏：固定宽度侧边栏（320px），独立卡片式设计（圆角 + 边框 + 阴影），
+  //   与视频区域保持 gap 间距，maxHeight 限制防止内容过多撑大容器。
+  // - 原生全屏：悬浮卡片从右侧滑入，带圆角和强阴影。
   const rightPanelNode = (
     <div
       className={cn(
-        'glass-strong flex min-h-0 min-w-0 flex-col overflow-hidden border-l border-[var(--glass-border)] transition-all duration-200 ease-in-out',
+        'flex min-h-0 min-w-0 flex-col overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)]',
         isNativeFullscreen
-          ? 'absolute inset-y-0 right-0 z-20 w-[80%] max-w-[320px]'
-          : 'w-[320px] flex-shrink-0',
+          ? 'glass-strong absolute inset-y-0 right-0 z-20 w-[85%] max-w-[340px] rounded-l-2xl border-l'
+          : 'w-[320px] flex-shrink-0 self-stretch rounded-xl border',
         isNativeFullscreen && !isRightPanelOpen && 'translate-x-full',
-        !isNativeFullscreen && !isRightPanelOpen && 'w-0 opacity-0'
+        !isNativeFullscreen && !isRightPanelOpen && 'w-0 scale-x-95 opacity-0'
       )}
-      style={
-        !isNativeFullscreen ? { maxHeight: 'calc(100vh - 220px)' } : undefined
-      }
+      style={{
+        backgroundColor: 'var(--md-sys-color-surface-container)',
+        borderColor: 'var(--md-sys-color-outline-variant)',
+        boxShadow: isNativeFullscreen
+          ? '0 8px 32px -4px rgba(0, 0, 0, 0.3)'
+          : isRightPanelOpen
+            ? '0 2px 12px -4px rgba(0, 0, 0, 0.08)'
+            : 'none',
+        maxHeight: isNativeFullscreen ? undefined : 'calc(100vh - 220px)',
+      }}
     >
       {effectiveRightPanel}
     </div>
@@ -323,22 +347,25 @@ export function RoomLayout({
           <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
 
           <div className="flex flex-shrink-0 items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={
-                isRightPanelOpen ? (
-                  <PanelRightClose className="h-4 w-4" />
-                ) : (
-                  <PanelRight className="h-4 w-4" />
-                )
-              }
+            <button
               onClick={toggleRightPanel}
               aria-label={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
               aria-expanded={isRightPanelOpen}
+              title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+              className="glass flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
+              style={{
+                borderColor: 'var(--md-sys-color-outline-variant)',
+                color: isRightPanelOpen
+                  ? 'var(--md-sys-color-primary)'
+                  : 'var(--md-sys-color-on-surface-variant)',
+              }}
             >
-              侧栏
-            </Button>
+              {isRightPanelOpen ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRight className="h-4 w-4" />
+              )}
+            </button>
             {headerActions}
           </div>
         </div>
@@ -349,14 +376,27 @@ export function RoomLayout({
           </Title>
         )}
 
-        <div className="relative mt-4 flex min-h-0 flex-none overflow-hidden">
+        <div
+          className={cn(
+            'relative mt-4 flex min-h-0 flex-none overflow-hidden transition-[gap] duration-300',
+            isRightPanelOpen ? 'gap-3' : 'gap-0'
+          )}
+        >
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
             <div
               className={cn(
-                'relative h-full w-full overflow-hidden rounded-lg bg-black',
-                !isNativeFullscreen &&
-                  (useAspectRatio ? 'aspect-video' : 'min-h-[480px]')
+                'relative w-full overflow-hidden rounded-lg bg-black',
+                isNativeFullscreen
+                  ? 'h-full'
+                  : useAspectRatio
+                    ? 'aspect-video'
+                    : 'h-full min-h-[480px]'
               )}
+              style={{
+                maxHeight: isNativeFullscreen
+                  ? undefined
+                  : 'calc(100vh - 220px)',
+              }}
             >
               {renderMainContent()}
               {isNativeFullscreen && rightPanelNode}
@@ -366,29 +406,27 @@ export function RoomLayout({
         </div>
       </Card>
 
-      {controls && !webFullscreen && !isNativeFullscreen && (
-        <Card className="w-full max-w-6xl flex-none mt-4 overflow-hidden">
-          <div className="px-4 py-3">
-            {(() => {
-              const controlChildren = flattenChildren(controls)
-              if (controlChildren.length === 1) {
-                return controlChildren[0]
-              }
+      {effectiveControls && !webFullscreen && !isNativeFullscreen && (
+        <div className="w-full max-w-6xl flex-none mt-4">
+          {(() => {
+            const controlChildren = flattenChildren(effectiveControls)
+            if (controlChildren.length === 1) {
+              // 共享状态下评论区单独在下方时限制高度，避免无限撑开
               return (
-                <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-                  {controlChildren.map((child, index) => (
-                    <Card
-                      key={index}
-                      className="rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container)] p-4"
-                    >
-                      {child}
-                    </Card>
-                  ))}
+                <div className={isSharing ? 'h-[500px]' : 'h-full'}>
+                  {controlChildren[0]}
                 </div>
               )
-            })()}
-          </div>
-        </Card>
+            }
+            return (
+              <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+                {controlChildren.map((child, index) => (
+                  <Fragment key={index}>{child}</Fragment>
+                ))}
+              </div>
+            )
+          })()}
+        </div>
       )}
     </div>
   )

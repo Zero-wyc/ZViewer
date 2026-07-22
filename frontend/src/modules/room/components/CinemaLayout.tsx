@@ -39,7 +39,7 @@ export function CinemaLayout({
       {statsPanel}
     </div>
   ) : (
-    <div className="grid flex-shrink-0 grid-cols-1 gap-4 lg:grid-cols-3">
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
       <div className={cardContainerClass} style={cardContainerStyle}>
         {roomInfoPanel}
       </div>
@@ -54,17 +54,18 @@ export function CinemaLayout({
 
   return (
     <div
-      className="flex h-[calc(100vh-64px)] items-center justify-center p-4 lg:p-6"
+      className="min-h-[calc(100vh-64px)] p-4 lg:p-6"
       style={{ backgroundColor: 'var(--md-sys-color-surface)' }}
     >
-      <Card className="relative flex h-full w-full max-w-[1600px] flex-col overflow-hidden">
-        <div className="flex flex-1 gap-4 overflow-hidden p-4">
+      <Card className="relative mx-auto flex w-full max-w-[1600px] flex-col overflow-hidden">
+        <div className="flex flex-col gap-4 p-4 lg:flex-row">
           {/* 主区域 */}
-          <div className="flex min-w-0 flex-1 flex-col gap-4 overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col gap-4">
             {/* 播放器区域 */}
             <div
-              className="relative min-h-[50vh] flex-1 overflow-hidden rounded-2xl lg:min-h-[60vh]"
+              className="relative w-full overflow-hidden rounded-2xl"
               style={{
+                aspectRatio: '16 / 9',
                 backgroundColor: '#000',
                 borderColor: 'var(--md-sys-color-outline-variant)',
               }}
@@ -78,13 +79,13 @@ export function CinemaLayout({
 
           {/* 右侧聊天区 */}
           <div
-            className="hidden w-[340px] flex-shrink-0 flex-col overflow-hidden rounded-2xl border lg:flex"
+            className="w-full flex-shrink-0 rounded-2xl border lg:w-[340px]"
             style={{
               backgroundColor: 'var(--md-sys-color-surface-container)',
               borderColor: 'var(--md-sys-color-outline-variant)',
             }}
           >
-            <div className="flex-1 overflow-hidden p-4">{chatPanel}</div>
+            <div className="p-4">{chatPanel}</div>
           </div>
         </div>
       </Card>

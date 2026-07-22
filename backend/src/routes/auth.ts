@@ -6,6 +6,9 @@ import {
   generateTokens,
   verifyRefreshToken,
   authenticateToken,
+  setAuthCookies,
+  setAccessTokenCookie,
+  clearAuthCookies,
   AuthenticatedRequest,
 } from '../middleware/auth';
 
@@ -53,6 +56,7 @@ router.post(
       await userRepository().save(user);
 
       const tokens = generateTokens(user.id, user.role, user.username);
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
       res.status(201).json({
         success: true,
         ...tokens,
@@ -102,6 +106,7 @@ router.post(
       }
 
       const tokens = generateTokens(user.id, user.role, user.username);
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
       res.json({
         success: true,
         ...tokens,
@@ -126,8 +131,13 @@ router.post(
     res: import('express').Response,
   ): Promise<void> => {
     try {
-      const { refreshToken } = req.body;
-      if (typeof refreshToken !== 'string' || !refreshToken) {
+      // 优先从 cookie 读取 refresh_token（httpOnly，前端无法读取）
+      // 兼容旧 body.refreshToken 字段以便过渡期不破坏老客户端
+      const refreshToken =
+        (req.cookies?.refresh_token as string | undefined) ||
+        (typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : '');
+
+      if (!refreshToken) {
         res.status(401).json({ success: false, message: '未提供刷新令牌' });
         return;
       }
@@ -135,6 +145,7 @@ router.post(
       const payload = verifyRefreshToken(refreshToken);
       if (payload.userId === 0 && payload.role === 'guest') {
         const { accessToken } = generateTokens(0, 'guest', 'guest');
+        setAccessTokenCookie(res, accessToken);
         res.json({ success: true, accessToken });
         return;
       }
@@ -149,11 +160,21 @@ router.post(
       }
 
       const { accessToken } = generateTokens(user.id, user.role, user.username);
+      setAccessTokenCookie(res, accessToken);
       res.json({ success: true, accessToken });
     } catch (err) {
       console.error('refresh error:', err);
       res.status(403).json({ success: false, message: '刷新令牌无效或已过期' });
     }
+  },
+);
+
+/** 登出：清空 auth cookie。前端调用此接口后浏览器立即清除 token。 */
+router.post(
+  '/logout',
+  (_req: import('express').Request, res: import('express').Response): void => {
+    clearAuthCookies(res);
+    res.json({ success: true, message: '已退出登录' });
   },
 );
 
@@ -306,6 +327,7 @@ router.post(
   ): Promise<void> => {
     try {
       const tokens = generateTokens(0, 'guest', 'guest');
+      setAuthCookies(res, tokens.accessToken, tokens.refreshToken);
       res.json({
         success: true,
         ...tokens,

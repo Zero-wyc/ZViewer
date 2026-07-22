@@ -199,7 +199,7 @@ npm run dev:frontend
 开发端口：
 
 - 前端：http://localhost:5174（Vite dev server）
-- 后端：http://localhost:3000
+- 后端：http://localhost:3333
 
 前端开发时默认通过 Vite 代理连接后端，无需额外配置 `VITE_API_URL`。
 

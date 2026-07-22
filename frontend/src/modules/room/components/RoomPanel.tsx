@@ -42,27 +42,27 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
       },
       (response: {
         success: boolean
-        roomId?: string
-        mode?: RoomMode
+        data?: { roomId: string; mode?: RoomMode }
         message?: string
       }) => {
         setCreating(false)
-        if (response.success && response.roomId) {
-          setRoomId(response.roomId)
-          setMode(response.mode || selectedMode)
+        const roomId = response.data?.roomId
+        if (response.success && roomId) {
+          setRoomId(roomId)
+          setMode(response.data?.mode || selectedMode)
           message.success('房间创建成功')
           // 在 sessionStorage 中标记当前用户为该房间的房主，
           // 刷新页面后 RoomPage 据此判断身份并走 register-host 流程。
           // URL 保持干净：/room/:roomId，不带任何查询参数。
           try {
-            sessionStorage.setItem('zcontrol-host-room', response.roomId)
+            sessionStorage.setItem('zcontrol-host-room', roomId)
           } catch {
             // sessionStorage 不可用时忽略，仅影响刷新后身份判断
           }
-          navigate(`/room/${response.roomId}`, {
+          navigate(`/room/${roomId}`, {
             replace: true,
           })
-          onModeSelected?.(response.mode || selectedMode)
+          onModeSelected?.(response.data?.mode || selectedMode)
         } else {
           message.error(response.message || '创建房间失败')
         }

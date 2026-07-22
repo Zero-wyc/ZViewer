@@ -3,13 +3,14 @@
 
 <#
 .SYNOPSIS
-  ZViewer 生产服务统一管理脚本
+  ZControl 生产服务统一管理脚本
 .DESCRIPTION
-  支持子命令：start | stop | restart | status | logs | help
+  直接使用已构建的代码（backend/dist / frontend/dist）启动服务，不执行构建。
+  支持子命令：start | stop | restart | status | logs | port | menu | help
   适配 npm workspaces（根目录统一安装依赖）。
 .EXAMPLE
   .\start-prod.ps1 start
-  .\start-prod.ps1 start -SkipBuild -Port 3001
+  .\start-prod.ps1 start -Port 3001
   .\start-prod.ps1 stop
   .\start-prod.ps1 restart
   .\start-prod.ps1 status
@@ -25,11 +26,8 @@ param(
     [ValidateSet('backend', 'frontend', '')]
     [string]$Target = '',
 
-    [switch]$SkipBuild,
     [switch]$ForceDeps,            # 强制重新安装依赖（默认跳过已安装）
-    [switch]$AutoBuild,            # 智能构建：产物新于源代码时自动跳过（默认行为）
-    [switch]$NoAutoBuild,          # 禁用智能构建跳过，强制构建
-    [int]$Port = 3000,
+    [int]$Port = 3333,
     [int]$FrontendPort = 4173,
     [string]$Database
 )
@@ -68,7 +66,6 @@ function Test-CommandInstalled {
 
 function Test-DepsInstalled {
     # npm workspaces：根目录 node_modules 存在 + 关键依赖存在即视为已安装
-    # 注意：dist 是构建产物，不应作为依赖判断条件
     $rootNodeModules = Join-Path $script:rootDir "node_modules"
     $expressPath = Join-Path $script:rootDir "node_modules\express"
     $vitePath = Join-Path $script:rootDir "node_modules\vite"
@@ -121,7 +118,6 @@ function Read-PidsFile {
 # ============ 端口配置 ============
 
 function Read-PortsFile {
-    # 读取持久化的端口配置，返回 @{ backend=<int>; frontend=<int> } 或 $null
     if (-not (Test-Path $portsFile)) { return $null }
     try {
         $obj = Get-Content $portsFile -Raw | ConvertFrom-Json
@@ -145,7 +141,6 @@ function Write-PortsFile {
 }
 
 function Test-PortValid {
-    # 校验端口：1-65535 整数；可选检查是否已被占用
     param([int]$Port, [switch]$CheckInUse)
     if ($Port -lt 1 -or $Port -gt 65535) {
         Write-Host "  端口 $Port 不合法（需 1-65535）" -ForegroundColor Red
@@ -162,7 +157,6 @@ function Test-PortValid {
 }
 
 function Read-PortInput {
-    # 交互式读取端口输入，带默认值与校验
     param([string]$Prompt, [int]$DefaultValue, [switch]$CheckInUse)
     while ($true) {
         $input = Read-Host "$Prompt (默认 $DefaultValue，留空使用默认)"
@@ -266,43 +260,32 @@ function Test-BackendBuilt {
     return Test-Path (Join-Path $backendDir "dist/index.js")
 }
 
-function Test-BuildUpToDate {
-    # 智能构建跳过：检测构建产物是否新于所有源代码文件
-    # 返回 $true = 可跳过构建，$false = 需要重新构建
-    param(
-        [string]$ProjectDir,   # backend / frontend 目录
-        [string]$Artifact      # 构建产物路径（如 dist/index.js / dist/index.html）
-    )
+function Test-FrontendBuilt {
+    return Test-Path (Join-Path $frontendDir "dist/index.html")
+}
 
-    # 产物不存在，必须构建
-    if (-not (Test-Path $Artifact)) { return $false }
-
-    $artifactItem = Get-Item $Artifact -ErrorAction SilentlyContinue
-    if (-not $artifactItem) { return $false }
-    $artifactTime = $artifactItem.LastWriteTime
-
-    # 检查 src 目录下所有源代码文件，任一新于产物则需重新构建
-    $srcDir = Join-Path $ProjectDir "src"
-    if (Test-Path $srcDir -PathType Container) {
-        $newerFiles = Get-ChildItem -Path $srcDir -Recurse -File -ErrorAction SilentlyContinue |
-            Where-Object { $_.LastWriteTime -gt $artifactTime } |
-            Select-Object -First 1
-        if ($newerFiles) { return $false }
+function Assert-BuiltArtifacts {
+    # 启动前检查构建产物是否存在。本脚本不执行构建，必须由 release-zip.ps1 或手动 npm run build 生成。
+    Write-Host "[3/4] 检查构建产物 ..."
+    $backendOk = Test-BackendBuilt
+    $frontendOk = Test-FrontendBuilt
+    if ($backendOk -and $frontendOk) {
+        Write-Host "  构建产物已就绪：backend/dist/index.js / frontend/dist/index.html" -ForegroundColor Green
+        return
     }
 
-    # 检查关键配置文件
-    $configFiles = @('package.json', 'tsconfig.json', 'vite.config.ts', 'vite.config.js')
-    foreach ($cfg in $configFiles) {
-        $cfgPath = Join-Path $ProjectDir $cfg
-        if (Test-Path $cfgPath) {
-            $cfgItem = Get-Item $cfgPath -ErrorAction SilentlyContinue
-            if ($cfgItem -and $cfgItem.LastWriteTime -gt $artifactTime) {
-                return $false
-            }
-        }
+    Write-Host "  构建产物缺失：" -ForegroundColor Red
+    if (-not $backendOk) {
+        Write-Host "    - backend/dist/index.js 不存在" -ForegroundColor Red
     }
-
-    return $true
+    if (-not $frontendOk) {
+        Write-Host "    - frontend/dist/index.html 不存在" -ForegroundColor Red
+    }
+    Write-Host ""
+    Write-Host "  本脚本不执行构建，请先通过以下方式之一生成构建产物：" -ForegroundColor Yellow
+    Write-Host "    1. 运行打包脚本：.\release-zip.ps1（会自动构建并打包）" -ForegroundColor Cyan
+    Write-Host "    2. 手动构建：npm run build" -ForegroundColor Cyan
+    throw "构建产物缺失，无法启动服务"
 }
 
 function Get-PidByPort {
@@ -367,7 +350,7 @@ function Stop-ServiceByPidOrPort {
 # ============ 命令实现 ============
 
 function Invoke-Start {
-    Write-Title "ZViewer 生产服务启动"
+    Write-Title "ZControl 生产服务启动"
 
     # 端口已在主入口统一解析（命令行参数 > 配置文件 > 默认值）
     Write-Host "  后端端口：$Port"
@@ -389,7 +372,7 @@ function Invoke-Start {
     }
 
     # 1. 检查环境
-    Write-Host "[1/5] 检查环境 ..."
+    Write-Host "[1/4] 检查环境 ..."
     $nodeCmd = Test-CommandInstalled "node"
     $npmCmd = Test-CommandInstalled "npm"
     Write-Host "  Node.js: $( & $nodeCmd.Source --version )"
@@ -398,70 +381,17 @@ function Invoke-Start {
     # 2. 安装依赖（npm workspaces：只在根目录装一次）
     $depsInstalled = Test-DepsInstalled
     if ($depsInstalled -and -not $ForceDeps) {
-        Write-Host "[2/5] 依赖已安装，跳过（如需重装加 -ForceDeps）" -ForegroundColor Green
+        Write-Host "[2/4] 依赖已安装，跳过（如需重装加 -ForceDeps）" -ForegroundColor Green
     } else {
-        Write-Host "[2/5] 安装依赖 ..."
+        Write-Host "[2/4] 安装依赖 ..."
         Install-ProjectDependencies
     }
 
-    # 3. 构建（智能跳过：产物新于源代码时自动跳过；-NoAutoBuild 强制构建；-SkipBuild 完全跳过）
-    $backendArtifact = Join-Path $backendDir "dist/index.js"
-    $frontendArtifact = Join-Path $frontendDir "dist/index.html"
-    if ($SkipBuild) {
-        Write-Host "[3/5] 跳过构建（-SkipBuild）" -ForegroundColor Yellow
-    } elseif (-not $NoAutoBuild) {
-        # 智能跳过：产物新于所有源代码时跳过
-        $backendUpToDate = Test-BuildUpToDate -ProjectDir $backendDir -Artifact $backendArtifact
-        $frontendUpToDate = Test-BuildUpToDate -ProjectDir $frontendDir -Artifact $frontendArtifact
-        if ($backendUpToDate -and $frontendUpToDate) {
-            Write-Host "[3/5] 构建产物已是最新（源代码未修改），跳过构建" -ForegroundColor Green
-        } else {
-            if (-not $backendUpToDate) {
-                Write-Host "[3/5] 构建后端 ..."
-                Push-Location $backendDir
-                try {
-                    npm run build
-                    if ($LASTEXITCODE -ne 0) { throw "后端构建失败" }
-                } finally { Pop-Location }
-            } else {
-                Write-Host "[3/5] 后端产物已最新，跳过"
-            }
-            if (-not $frontendUpToDate) {
-                Write-Host "[3/5] 构建前端 ..."
-                Push-Location $frontendDir
-                try {
-                    npm run build
-                    if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
-                } finally { Pop-Location }
-            } else {
-                Write-Host "[3/5] 前端产物已最新，跳过"
-            }
-        }
-    } else {
-        Write-Host "[3/5] 构建后端 ..."
-        Push-Location $backendDir
-        try {
-            npm run build
-            if ($LASTEXITCODE -ne 0) { throw "后端构建失败" }
-        } finally { Pop-Location }
+    # 3. 检查构建产物（本脚本不执行构建，必须由 release-zip.ps1 或手动 npm run build 生成）
+    Assert-BuiltArtifacts
 
-        Write-Host "[3/5] 构建前端 ..."
-        Push-Location $frontendDir
-        try {
-            npm run build
-            if ($LASTEXITCODE -ne 0) { throw "前端构建失败" }
-        } finally { Pop-Location }
-    }
-
-    # 4. 确认产物
-    Write-Host "[4/5] 检查构建产物 ..."
-    if (-not (Test-BackendBuilt)) {
-        throw "未找到 backend/dist/index.js，请先构建（去掉 -SkipBuild）"
-    }
-    Write-Host "  产物存在: backend/dist/index.js"
-
-    # 5. 启动服务
-    Write-Host "[5/5] 启动服务 ..."
+    # 4. 启动服务
+    Write-Host "[4/4] 启动服务 ..."
     $env:PORT = "$Port"
     $env:NODE_ENV = "production"
     if ($Database) { $env:DATABASE_URL = $Database }
@@ -550,7 +480,7 @@ function Invoke-Start {
 }
 
 function Invoke-Stop {
-    Write-Title "ZViewer 生产服务停止"
+    Write-Title "ZControl 生产服务停止"
     $existing = Read-PidsFile
     if ($existing) {
         if ($existing.backend -and $existing.backend.pid) {
@@ -585,16 +515,15 @@ function Invoke-Stop {
 }
 
 function Invoke-Restart {
-    Write-Title "ZViewer 生产服务重启"
+    Write-Title "ZControl 生产服务重启"
     Invoke-Stop
     Start-Sleep -Seconds 1
-    # 重启不重新构建
-    $script:SkipBuild = $true
+    # 重启直接使用已构建的代码，不执行构建
     Invoke-Start
 }
 
 function Invoke-Status {
-    Write-Title "ZViewer 生产服务状态"
+    Write-Title "ZControl 生产服务状态"
 
     # 端口已在主入口统一解析（命令行参数 > 配置文件 > 默认值）
     $savedPorts = Read-PortsFile  # 仅用于显示配置文件状态
@@ -650,6 +579,19 @@ function Invoke-Status {
     } else {
         Write-Host "    $FrontendPort : 空闲" -ForegroundColor Green
     }
+
+    Write-Host ""
+    Write-Host "  构建产物状态:"
+    if (Test-BackendBuilt) {
+        Write-Host "    backend/dist/index.js : 存在" -ForegroundColor Green
+    } else {
+        Write-Host "    backend/dist/index.js : 缺失" -ForegroundColor Red
+    }
+    if (Test-FrontendBuilt) {
+        Write-Host "    frontend/dist/index.html : 存在" -ForegroundColor Green
+    } else {
+        Write-Host "    frontend/dist/index.html : 缺失" -ForegroundColor Red
+    }
     Write-Host ""
 }
 
@@ -658,7 +600,7 @@ function Invoke-Logs {
     if (-not $LogTarget) { $LogTarget = 'backend' }
     $logFile = if ($LogTarget -eq 'frontend') { $frontendLog } else { $backendLog }
     $errFile = if ($LogTarget -eq 'frontend') { $frontendErrLog } else { $backendErrLog }
-    Write-Title "ZViewer 日志 - $LogTarget"
+    Write-Title "ZControl 日志 - $LogTarget"
     if (-not (Test-Path $logFile) -and -not (Test-Path $errFile)) {
         Write-Host "  日志文件不存在：$logFile" -ForegroundColor Yellow
         Write-Host "  提示：服务可能尚未启动"
@@ -684,41 +626,38 @@ function Invoke-Logs {
 }
 
 function Show-Help {
-    Write-Title "ZViewer 生产服务管理脚本"
+    Write-Title "ZControl 生产服务管理脚本"
     Write-Host "用法："
     Write-Host "  .\start-prod.ps1 <command> [options]"
     Write-Host ""
     Write-Host "命令："
-    Write-Host "  start     构建并启动服务"
+    Write-Host "  start     启动服务（使用已构建的代码，不执行构建）"
     Write-Host "  stop      停止服务"
     Write-Host "  restart   重启服务（不重新构建）"
-    Write-Host "  status    查看服务状态"
+    Write-Host "  status    查看服务状态（含构建产物检查）"
     Write-Host "  logs      查看日志（默认 backend，可选 frontend）"
     Write-Host "  port      交互式修改端口配置（持久化到 .prod.ports.json）"
     Write-Host "  menu      交互式菜单（双击 .bat 默认进入）"
     Write-Host "  help      显示此帮助"
     Write-Host ""
     Write-Host "选项："
-    Write-Host "  -SkipBuild          跳过构建步骤"
-    Write-Host "  -AutoBuild          智能构建：产物新于源代码时自动跳过（默认行为）"
-    Write-Host "  -NoAutoBuild        禁用智能构建跳过，强制构建"
     Write-Host "  -ForceDeps          强制重新安装依赖（默认跳过已安装）"
-    Write-Host "  -Port <int>         后端端口（默认 3000，优先级高于配置文件）"
+    Write-Host "  -Port <int>         后端端口（默认 3333，优先级高于配置文件）"
     Write-Host "  -FrontendPort <int> 前端端口（默认 4173，优先级高于配置文件）"
     Write-Host "  -Database <url>     数据库 URL"
+    Write-Host ""
+    Write-Host "注意：本脚本不执行构建。启动前请确保："
+    Write-Host "  - backend/dist/index.js 存在"
+    Write-Host "  - frontend/dist/index.html 存在"
+    Write-Host "  如需构建并打包，请使用 release-zip.ps1"
     Write-Host ""
     Write-Host "端口优先级："
     Write-Host "  命令行参数 > .prod.ports.json 配置文件 > 默认值"
     Write-Host "  使用 port 子命令或菜单第 7 项可交互式修改并持久化端口"
     Write-Host ""
-    Write-Host "构建优先级："
-    Write-Host "  -SkipBuild > -NoAutoBuild > 智能跳过（默认）"
-    Write-Host "  智能跳过：检测 dist/ 产物时间戳新于 src/ 所有源代码时自动跳过"
-    Write-Host ""
     Write-Host "示例："
     Write-Host "  .\start-prod.ps1 start"
-    Write-Host "  .\start-prod.ps1 start -SkipBuild -Port 3001"
-    Write-Host "  .\start-prod.ps1 start -NoAutoBuild    # 强制重新构建"
+    Write-Host "  .\start-prod.ps1 start -Port 3001"
     Write-Host "  .\start-prod.ps1 port"
     Write-Host "  .\start-prod.ps1 logs frontend"
     Write-Host ""
@@ -739,7 +678,7 @@ function Invoke-Menu {
     while ($true) {
         Write-Host ""
         Write-Host "========================================" -ForegroundColor Cyan
-        Write-Host "  ZViewer 生产服务管理" -ForegroundColor Cyan
+        Write-Host "  ZControl 生产服务管理" -ForegroundColor Cyan
         Write-Host "========================================" -ForegroundColor Cyan
         Write-Host "  1. 启动服务"
         Write-Host "  2. 停止服务"
@@ -778,7 +717,7 @@ function Invoke-Menu {
 function Invoke-Port {
     # 交互式端口配置：读取/修改后端、前端端口，持久化到 .prod.ports.json
     # 下次 start 时自动读取（命令行 -Port / -FrontendPort 参数优先级更高）
-    Write-Title "ZViewer 端口配置"
+    Write-Title "ZControl 端口配置"
 
     # 非交互式环境检测
     if ([Console]::IsInputRedirected) {

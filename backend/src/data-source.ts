@@ -8,13 +8,14 @@ import { BilibiliCredential } from './entities/BilibiliCredential';
 import { Movie } from './entities/Movie';
 import { UserMount } from './entities/UserMount';
 import { SystemSettings } from './entities/SystemSettings';
+import { PlaybackState } from './entities/PlaybackState';
 
 export const AppDataSource = new DataSource({
   type: 'better-sqlite3',
   database: process.env.DATABASE_URL || 'dev.sqlite',
   synchronize: true,
   logging: process.env.NODE_ENV === 'development',
-  entities: [Room, Session, User, Comment, BilibiliCredential, Movie, UserMount, SystemSettings],
+  entities: [Room, Session, User, Comment, BilibiliCredential, Movie, UserMount, SystemSettings, PlaybackState],
   migrations: [],
   subscribers: [],
 });

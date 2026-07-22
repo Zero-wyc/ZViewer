@@ -9,7 +9,7 @@ import {
   authenticateToken,
   AuthenticatedRequest,
 } from '../middleware/auth';
-import { getRoomState, type Movie as RuntimeMovie } from '../services/room/state';
+import { roomStateService } from '../modules/room/room-state.service';
 
 const movieRepository = () => AppDataSource.getRepository(Movie);
 const roomRepository = () => AppDataSource.getRepository(Room);
@@ -108,15 +108,15 @@ async function broadcastMovieList(
     order: { order: 'ASC', id: 'ASC' },
   });
 
-  // 同步数据库影片到内存运行时状态（roomState.movies）
-  // 必要性：REST API 添加/删除/重排影片只操作数据库，不会更新 roomState.movies。
-  // 若不同步，play-movie 事件在 roomState.movies 中找不到影片，导致
+  // 同步数据库影片到新架构 roomStateService（modules/room/room-state.service.ts）
+  // 必要性：REST API 添加/删除/重排影片只操作数据库，不会更新 roomStateService。
+  // 若不同步，play-movie 事件在 roomStateService.getMovies 中找不到影片，导致
   // currentMovieId 永远不被设置，进而 watch-together-state 保存的
   // playback.currentMovieId 为 undefined，房主刷新后无法恢复播放进度。
-  const roomState = getRoomState(roomId);
-  const runtimeMovies: RuntimeMovie[] = movies.map((m) => ({
+  const runtimeMovies = movies.map((m) => ({
     id: m.id,
-    sourceType: (m.source || 'mp4') as RuntimeMovie['sourceType'],
+    roomId,
+    sourceType: (m.source || 'mp4') as 'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'smb',
     title: m.title,
     url: m.url,
     cid: m.cid ?? undefined,
@@ -125,15 +125,16 @@ async function broadcastMovieList(
     videoCodec: m.videoCodec ?? undefined,
     audioCodec: m.audioCodec ?? undefined,
     format: (m.format as 'dash' | 'mp4') ?? undefined,
-    createdAt: m.createdAt.getTime(),
   }));
-  roomState.movies = runtimeMovies;
+  roomStateService.setMovies(roomId, runtimeMovies);
+
   // 如果当前播放的影片已不在列表中，清空 currentMovieId
+  const currentMovieId = roomStateService.getCurrentMovieId(roomId);
   if (
-    roomState.currentMovieId != null &&
-    !runtimeMovies.some((m) => m.id === roomState.currentMovieId)
+    currentMovieId != null &&
+    !runtimeMovies.some((m) => m.id === currentMovieId)
   ) {
-    roomState.currentMovieId = null;
+    roomStateService.setCurrentMovie(roomId, null);
   }
 
   io.to(roomId).emit('movie-list', {

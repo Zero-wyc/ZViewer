@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
+import { useRoomStore, type StreamStatus } from '@/store/roomStore'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import {
@@ -18,12 +19,12 @@ import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useViewerPeerConnection } from '../hooks/useViewerPeerConnection'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
-import { useStreamPush } from '../hooks/useStreamPush'
+import { useStreamStatus, useShareMethod } from '../hooks/useStreamPush'
 import { buildFlvUrl } from '../streamPushApi'
 import { JoinRoomForm } from './JoinRoomForm'
 import { RemoteVideoPlayer } from './RemoteVideoPlayer'
 import { WatchControlsBar } from './WatchControlsBar'
-import { FlvPlayer } from './FlvPlayer'
+import { FlvPlayer, type FlvStatistics } from './FlvPlayer'
 import { ConnectionStatsPanel } from './ConnectionStatsPanel'
 import { StreamStatusPanel } from './StreamStatusPanel'
 import type { JoinFormValues } from '../types'
@@ -37,6 +38,82 @@ declare global {
     readonly pictureInPictureEnabled: boolean
     exitPictureInPicture(): Promise<void>
   }
+}
+
+/**
+ * stream-push 子模式独立查看器。
+ *
+ * 将 flvStats 状态隔离在组件内部，避免 flv.js 每秒统计回调
+ * 触发父组件 WatchPage 重渲染（导致掉帧和网页卡顿）。
+ */
+interface StreamPushViewerProps {
+  streamKey: string
+  streamStatus: StreamStatus
+  onStatusChange: (status: 'playing' | 'offline') => void
+  chatPanel: ReactNode
+}
+
+function StreamPushViewer({
+  streamKey,
+  streamStatus,
+  onStatusChange,
+  chatPanel,
+}: StreamPushViewerProps) {
+  const [flvStats, setFlvStats] = useState<FlvStatistics | null>(null)
+  const flvUrl = useMemo(() => buildFlvUrl(streamKey), [streamKey])
+
+  const handleStatusChange = useCallback(
+    (status: 'connecting' | 'playing' | 'error' | 'stopped') => {
+      if (status === 'playing') onStatusChange('playing')
+      else if (status === 'error' || status === 'stopped') onStatusChange('offline')
+    },
+    [onStatusChange]
+  )
+
+  const playerContent = (
+    <div className="relative h-full w-full">
+      {!streamKey ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
+          <div className="text-base font-medium text-[var(--md-sys-color-error)]">
+            推流密钥未获取
+          </div>
+          <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
+            请等待房主切换为 OBS 推流模式后重试
+          </div>
+        </div>
+      ) : streamStatus === 'offline' ? (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
+          <div className="text-base font-medium text-[var(--md-sys-color-on-surface-variant)]">
+            主播未推流
+          </div>
+          <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
+            请等待房主开始 OBS 推流
+          </div>
+        </div>
+      ) : (
+        <FlvPlayer
+          src={flvUrl}
+          muted
+          autoPlay
+          onStatusChange={handleStatusChange}
+          onStatistics={setFlvStats}
+        />
+      )}
+    </div>
+  )
+
+  return (
+    <CinemaLayout
+      children={playerContent}
+      statsPanel={
+        <StreamStatusPanel
+          streamStatus={streamStatus}
+          statistics={flvStats}
+        />
+      }
+      chatPanel={chatPanel}
+    />
+  )
 }
 
 function WatchPage() {
@@ -127,6 +204,7 @@ function WatchPage() {
     socket,
     roomId,
     videoRef,
+    videoMountedVersion: videoVersion,
   })
 
   // 同步 create/cleanup 到 ref，供 useJoinRoom 回调使用
@@ -145,11 +223,25 @@ function WatchPage() {
   })
 
   // 3.5 推流子模式状态（仅 screen-share + stream-push 时使用）
-  const { shareMethod, streamStatus } = useStreamPush({
-    socket,
-    roomId: roomId ?? '',
-    isHost: false,
-  })
+  const streamStatus = useStreamStatus(socket, roomId ?? '')
+  const setStreamStatus = useRoomStore((state) => state.setStreamStatus)
+  const { shareMethod } = useShareMethod(socket, roomId ?? '', false)
+  const streamKey = useRoomStore((state) => state.streamKey)
+
+  // stream-push 子模式：缓存 chatPanel 和 status 回调，避免 StreamPushViewer 因 props 变化重渲染
+  const handleStreamStatusChange = useCallback(
+    (status: 'playing' | 'offline') => {
+      if (status === 'playing') setStreamStatus('live')
+      else setStreamStatus('offline')
+    },
+    [setStreamStatus]
+  )
+  const streamPushChatPanel = useMemo(
+    () => (
+      <CommentPanel socket={socket} roomId={roomId ?? ''} commentsOnly />
+    ),
+    [socket, roomId]
+  )
 
   // 3.7 订阅 sharer-ready 事件：房主开始共享时触发，观众重建 PC 并重发 viewer-ready
   useEffect(() => {
@@ -185,9 +277,15 @@ function WatchPage() {
 
     const interval = setInterval(() => {
       if (video.videoWidth && video.videoHeight)
-        setVideoResolution({
-          width: video.videoWidth,
-          height: video.videoHeight,
+        setVideoResolution((prev) => {
+          if (
+            prev &&
+            prev.width === video.videoWidth &&
+            prev.height === video.videoHeight
+          ) {
+            return prev // 分辨率未变化，返回 prev 避免触发重渲染
+          }
+          return { width: video.videoWidth, height: video.videoHeight }
         })
     }, 1000)
 
@@ -273,33 +371,14 @@ function WatchPage() {
 
   // 7.2 已加入且 roomMode === 'screen-share'：保持原有 CinemaLayout
   if (joinStatus === 'approved' && roomMode === 'screen-share') {
-    // screen-share + stream-push 子模式：使用 FlvPlayer 拉流播放
+    // screen-share + stream-push 子模式：使用 StreamPushViewer 隔离 flvStats 状态
     if (shareMethod === 'stream-push') {
-      const flvUrl = buildFlvUrl(roomId ?? '')
-      const playerContent = (
-        <div className="relative h-full w-full">
-          {streamStatus === 'offline' ? (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
-              <div className="text-base font-medium text-[var(--md-sys-color-on-surface-variant)]">
-                主播未推流
-              </div>
-              <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                请等待房主开始 OBS 推流
-              </div>
-            </div>
-          ) : (
-            <FlvPlayer src={flvUrl} muted={isMuted} autoPlay />
-          )}
-        </div>
-      )
-
       return (
-        <CinemaLayout
-          children={playerContent}
-          statsPanel={<StreamStatusPanel streamStatus={streamStatus} />}
-          chatPanel={
-            <CommentPanel socket={socket} roomId={roomId ?? ''} commentsOnly />
-          }
+        <StreamPushViewer
+          streamKey={streamKey ?? roomId ?? ''}
+          streamStatus={streamStatus}
+          onStatusChange={handleStreamStatusChange}
+          chatPanel={streamPushChatPanel}
         />
       )
     }

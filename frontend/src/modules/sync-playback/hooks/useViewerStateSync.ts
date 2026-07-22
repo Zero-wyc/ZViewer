@@ -2,9 +2,16 @@ import { useEffect, useRef } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
+import { useRoomStore } from '@/store/roomStore'
 import type { WatchTogetherState, StatePayload, ControlPayload } from '../types'
-import { SOCKET_EVENT, SEEK_FOLLOW_THRESHOLD } from '../constants'
+import { SOCKET_EVENT } from '../constants'
 import { safePlay } from '../safePlay'
+import {
+  shouldSeekToHost,
+  needsMseReloadForSeek,
+  isMseStream,
+  reloadMseAtTime,
+} from '../services'
 
 export interface UseViewerStateSyncOptions {
   roomId: string
@@ -14,8 +21,11 @@ export interface UseViewerStateSyncOptions {
   setWatchTogether: (state: WatchTogetherState) => void
   applySourceToVideo: (
     video: HTMLVideoElement,
-    state: WatchTogetherState
+    state: WatchTogetherState,
+    startTime?: number
   ) => Promise<void>
+  /** 已应用 sourceUrl 的 ref，seek 到未缓冲区域时重置以允许重新加载 */
+  appliedSourceUrlRef: MutableRefObject<string | null>
 }
 
 export type UseViewerStateSyncReturn = void
@@ -33,13 +43,16 @@ export type UseViewerStateSyncReturn = void
  *    用 isApplyingRef 锁 + pendingStateRef 缓存最新 state，串行处理。
  *
  * 2. **自适应 seek 跟随阈值**：
- *    旧实现使用固定 0.5s 阈值，在 2x/4x 倍速下会高频 seek 导致抖动。
- *    新实现按播放倍速自适应：`max(0.5, playbackRate * 0.5)`，
- *    2x 倍速下阈值变为 1s，4x 倍速下变为 2s。
+ *    使用 `shouldSeekToHost` 服务函数按播放倍速自适应判断是否需要 seek，
+ *    避免高倍速下高频 seek 抖动。
  *
- * 3. **加入房间时主动请求初始状态**：
- *    观众挂载该 Hook 后立即 emit `watch-together-request-state`，
- *    房主通过 useHostStateRequest 响应。
+ * 3. **seek 到未缓冲区域的重新加载**：
+ *    观众端跟随房主 seek 时，若目标位置不在缓冲范围内且为 MSE 流，
+ *    调用 reloadMseAtTime 重新创建 MSE 流。用 isReloadingRef 锁防止并发。
+ *
+ * 4. **初始状态请求由 usePlaybackStateRequest 负责**：
+ *    该 Hook 仅处理实时 state/control 事件，加入房间时的初始状态请求
+ *    由 usePlaybackStateRequest 通过 ack 直接从服务器获取推算后的状态。
  */
 export function useViewerStateSync({
   roomId,
@@ -48,12 +61,15 @@ export function useViewerStateSync({
   suppressEventsRef,
   setWatchTogether,
   applySourceToVideo,
+  appliedSourceUrlRef,
 }: UseViewerStateSyncOptions): UseViewerStateSyncReturn {
   const { socket } = useSocket()
 
   // Bug #8 修复：handleState 串行化处理
   const isApplyingRef = useRef(false)
   const pendingStateRef = useRef<WatchTogetherState | null>(null)
+  // seek 重新加载锁：防止 reloadMseAtTime 期间重复触发
+  const isReloadingRef = useRef(false)
 
   useEffect(() => {
     if (!socket || isHostRef.current) return
@@ -89,15 +105,43 @@ export function useViewerStateSync({
             return
           }
 
-          // 自适应 seek 跟随阈值：高倍速下放大阈值避免高频 seek 抖动
-          const adaptiveThreshold = Math.max(
-            SEEK_FOLLOW_THRESHOLD,
-            s.playbackRate * 0.5
-          )
+          // 自适应 seek 跟随：使用 shouldSeekToHost 服务函数判断是否需要 seek
           if (
-            Math.abs(currentVideo.currentTime - s.currentTime) >
-            adaptiveThreshold
+            shouldSeekToHost(
+              currentVideo.currentTime,
+              s.currentTime,
+              s.playbackRate
+            )
           ) {
+            // 仅 seek 到过去已清理区域才需要 reload；
+            // 未来未缓冲区域 MSE 会继续下载，浏览器自然等待
+            if (
+              !isReloadingRef.current &&
+              needsMseReloadForSeek(currentVideo, s.currentTime) &&
+              isMseStream(s) &&
+              s.sourceUrl
+            ) {
+              isReloadingRef.current = true
+              useRoomStore.getState().setReloadingState(true, s.currentTime)
+              void reloadMseAtTime({
+                video: currentVideo,
+                targetTime: s.currentTime,
+                state: s,
+                applySourceToVideo,
+                appliedSourceUrlRef,
+                suppressEventsRef,
+              })
+                .then((result) => {
+                  if (!result.success && result.message) {
+                    message.warning(result.message)
+                  }
+                })
+                .finally(() => {
+                  isReloadingRef.current = false
+                  useRoomStore.getState().setReloadingState(false, null)
+                })
+            }
+          } else {
             currentVideo.currentTime = s.currentTime
           }
           if (currentVideo.playbackRate !== s.playbackRate) {
@@ -135,6 +179,44 @@ export function useViewerStateSync({
     const handleControl = (payload: ControlPayload) => {
       const video = videoRef.current
       if (!video) return
+
+      // seek 到未缓冲区域：交给 reloadMseAtTime 处理（内部管理 suppressEventsRef）
+      if (
+        payload.action === 'seek' &&
+        typeof payload.value === 'number' &&
+        !isReloadingRef.current
+      ) {
+        const targetTime = payload.value
+        const state = useRoomStore.getState().watchTogether
+        if (
+          needsMseReloadForSeek(video, targetTime) &&
+          isMseStream(state) &&
+          state.sourceUrl
+        ) {
+          isReloadingRef.current = true
+          useRoomStore.getState().setReloadingState(true, targetTime)
+          void reloadMseAtTime({
+            video,
+            targetTime,
+            state,
+            applySourceToVideo,
+            appliedSourceUrlRef,
+            suppressEventsRef,
+          })
+            .then((result) => {
+              if (!result.success && result.message) {
+                message.warning(result.message)
+              }
+            })
+            .finally(() => {
+              isReloadingRef.current = false
+              useRoomStore.getState().setReloadingState(false, null)
+            })
+          return
+        }
+      }
+
+      // 普通控制：使用 suppressEventsRef 包围，防止本地事件回环
       suppressEventsRef.current = true
       switch (payload.action) {
         case 'play':
@@ -160,8 +242,7 @@ export function useViewerStateSync({
     socket.on(SOCKET_EVENT.STATE, handleState)
     socket.on(SOCKET_EVENT.CONTROL, handleControl)
 
-    // 刚加入时请求当前状态
-    socket.emit(SOCKET_EVENT.REQUEST_STATE, { roomId })
+    // 初始状态请求由 usePlaybackStateRequest 通过 ack 直接获取（不在此处重复 emit）
 
     return () => {
       socket.off(SOCKET_EVENT.STATE, handleState)
@@ -175,5 +256,6 @@ export function useViewerStateSync({
     applySourceToVideo,
     suppressEventsRef,
     isHostRef,
+    appliedSourceUrlRef,
   ])
 }

@@ -1,7 +1,4 @@
-import {
-  API_URL,
-  getAuthHeaders,
-} from '@/modules/room/watch-together/resolveSource'
+import { apiFetch, API_URL } from '@/lib/api'
 import { getBilibiliParseOptions } from './parseOptions'
 import type {
   BilibiliQrData,
@@ -43,9 +40,7 @@ function normalizeBilibiliImageUrl(url: string): string {
 }
 
 export async function getBilibiliQrCode(): Promise<BilibiliQrData> {
-  const res = await fetch(`${API_URL}/api/stream/bilibili/qr`, {
-    headers: getAuthHeaders(),
-  })
+  const res = await apiFetch(`${API_URL}/api/stream/bilibili/qr`)
   const data = (await res.json()) as {
     success: boolean
     message?: string
@@ -66,9 +61,8 @@ export async function getBilibiliQrCode(): Promise<BilibiliQrData> {
 export async function pollBilibiliQrCode(
   qrcodeKey: string
 ): Promise<{ status: number; message: string; loggedIn: boolean }> {
-  const res = await fetch(
-    `${API_URL}/api/stream/bilibili/qr/poll?qrcode_key=${encodeURIComponent(qrcodeKey)}`,
-    { headers: getAuthHeaders() }
+  const res = await apiFetch(
+    `${API_URL}/api/stream/bilibili/qr/poll?qrcode_key=${encodeURIComponent(qrcodeKey)}`
   )
   const data = (await res.json()) as {
     success: boolean
@@ -88,9 +82,7 @@ export async function pollBilibiliQrCode(
 
 export async function getBilibiliLoginStatus(): Promise<boolean> {
   try {
-    const res = await fetch(`${API_URL}/api/stream/bilibili/login-status`, {
-      headers: getAuthHeaders(),
-    })
+    const res = await apiFetch(`${API_URL}/api/stream/bilibili/login-status`)
     const data = (await res.json()) as { success: boolean; loggedIn?: boolean }
     return !!data.loggedIn
   } catch {
@@ -99,17 +91,14 @@ export async function getBilibiliLoginStatus(): Promise<boolean> {
 }
 
 export async function logoutBilibili(): Promise<void> {
-  await fetch(`${API_URL}/api/stream/bilibili/logout`, {
+  await apiFetch(`${API_URL}/api/stream/bilibili/logout`, {
     method: 'POST',
-    headers: getAuthHeaders(),
   })
 }
 
 export async function getBilibiliUserInfo(): Promise<BilibiliUserInfo | null> {
   try {
-    const res = await fetch(`${API_URL}/api/stream/bilibili/user-info`, {
-      headers: getAuthHeaders(),
-    })
+    const res = await apiFetch(`${API_URL}/api/stream/bilibili/user-info`)
     const data = (await res.json()) as {
       success: boolean
       name?: string
@@ -214,7 +203,7 @@ export async function resolveBilibili(
   if (options?.preferCdn) {
     fetchUrl += `&preferCdn=${encodeURIComponent(options.preferCdn)}`
   }
-  const res = await fetch(fetchUrl, { headers: getAuthHeaders() })
+  const res = await apiFetch(fetchUrl)
   const contentType = res.headers.get('content-type') || ''
 
   if (contentType.includes('application/x-ndjson')) {

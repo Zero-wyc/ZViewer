@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { Monitor } from 'lucide-react'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { Spinner } from '@/components/ui/Spinner'
@@ -18,7 +17,8 @@ import {
 } from '@/components/VideoPlayer/VideoControls'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
-import { fetchBilibiliDanmaku, type BilibiliDanmakuItem } from './danmakuEngine'
+import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
+import type { DanmakuItem } from '@/modules/danmaku/types'
 import {
   RequestNotification,
   type RequestNotificationItem,
@@ -65,7 +65,9 @@ interface WatchTogetherPanelProps {
     audioCodec?: string
     cid?: number
     currentQn?: number
+    acceptQuality?: { id: number; label: string; resolution?: string }[]
     currentMovieId?: number
+    headers?: Record<string, string>
     updatedAt: number
   } | null
 }
@@ -79,6 +81,9 @@ export function WatchTogetherPanel({
 }: WatchTogetherPanelProps) {
   const { socket } = useSocket()
   const setMode = useRoomStore((state) => state.setMode)
+  // MSE reload 状态：进度条覆盖 + 加载动画
+  const isReloading = useRoomStore((state) => state.isReloading)
+  const reloadTargetTime = useRoomStore((state) => state.reloadTargetTime)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const {
     watchTogether,
@@ -117,15 +122,24 @@ export function WatchTogetherPanel({
     viewerUsername?: string
   } | null>(null)
 
+  // 房主端：观众申请继续播放（null 表示无待处理请求）
+  const [playRequest, setPlayRequest] = useState<{
+    viewerSocketId: string
+    viewerUsername?: string
+  } | null>(null)
+
   // 观众端：拖动进度条申请跳转时显示「等待房主确认」提示，避免重复申请
   const [seekPending, setSeekPending] = useState(false)
 
   // 观众端：申请暂停时显示「等待房主确认」提示，避免重复申请
   const [pausePending, setPausePending] = useState(false)
 
-  // 房主端：「自动通过申请」开关。开启后所有 seek/pause 申请自动通过，无需手动确认。
+  // 观众端：申请继续播放时显示「等待房主确认」提示，避免重复申请
+  const [playPending, setPlayPending] = useState(false)
+
+  // 房主端：「自动通过申请」开关。从 roomStore 读取，方便 RoomInfoPanel 共享。
   // 使用 latest ref pattern 让 socket handler 始终读到最新值。
-  const [autoApproveRequests, setAutoApproveRequests] = useState(false)
+  const autoApproveRequests = useRoomStore((state) => state.autoApproveRequests)
   const autoApproveRef = useRef(autoApproveRequests)
   useEffect(() => {
     autoApproveRef.current = autoApproveRequests
@@ -135,7 +149,7 @@ export function WatchTogetherPanel({
   const videoControlsRef = useRef<VideoControlsHandle | null>(null)
   const danmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
   // 缓存已加载的 B站 弹幕，用于弹幕开关重新开启时重新加载
-  const danmakuItemsRef = useRef<BilibiliDanmakuItem[]>([])
+  const danmakuItemsRef = useRef<DanmakuItem[]>([])
   const loadedTracksRef = useRef<Set<string>>(new Set())
   const [danmakuEnabled, setDanmakuEnabled] = useState(true)
   const [internalWebFullscreen, setInternalWebFullscreen] = useState(false)
@@ -237,7 +251,7 @@ export function WatchTogetherPanel({
       danmakuLayerRef.current?.clear()
       return
     }
-    fetchBilibiliDanmaku(cid)
+    fetchBilibiliDanmakuByCid(cid)
       .then((items) => {
         // 缓存 items，用于弹幕开关重新开启时重新加载
         danmakuItemsRef.current = items
@@ -272,6 +286,9 @@ export function WatchTogetherPanel({
     if (!layer) return
     const current = new Set<string>()
     tracks.forEach((track) => {
+      if (track.hidden) {
+        return
+      }
       layer.loadDanmakuTrack(track.trackId, track.items, track.offset)
       current.add(track.trackId)
     })
@@ -426,6 +443,48 @@ export function WatchTogetherPanel({
     }
   }, [socket, isHost, roomId])
 
+  // 房主：处理观众申请继续播放
+  useEffect(() => {
+    if (!socket || !isHost) return
+
+    const handlePlayRequest = (data: {
+      viewerSocketId: string
+      viewerUsername?: string
+    }) => {
+      if (!data?.viewerSocketId) return
+      // 自动通过开关开启时，直接执行同意逻辑，不弹确认框
+      if (autoApproveRef.current) {
+        const video = videoRef.current
+        if (video) {
+          void video.play().catch(() => {
+            /* 浏览器自动播放策略可能拒绝，忽略 */
+          })
+        }
+        socket.emit(
+          'play-response',
+          {
+            roomId,
+            viewerSocketId: data.viewerSocketId,
+            accept: true,
+          },
+          () => {
+            /* ack */
+          }
+        )
+        return
+      }
+      setPlayRequest({
+        viewerSocketId: data.viewerSocketId,
+        viewerUsername: data.viewerUsername,
+      })
+    }
+
+    socket.on('play-request', handlePlayRequest)
+    return () => {
+      socket.off('play-request', handlePlayRequest)
+    }
+  }, [socket, isHost, roomId])
+
   // 观众：监听房主对 seek 申请的回应
   useEffect(() => {
     if (!socket || isHost) return
@@ -463,6 +522,26 @@ export function WatchTogetherPanel({
     socket.on('pause-response', handlePauseResponse)
     return () => {
       socket.off('pause-response', handlePauseResponse)
+    }
+  }, [socket, isHost])
+
+  // 观众：监听房主对继续播放申请的回应
+  useEffect(() => {
+    if (!socket || isHost) return
+
+    const handlePlayResponse = (data: { accept: boolean }) => {
+      setPlayPending(false)
+      if (data?.accept) {
+        message.success('房主已同意继续播放')
+        // 实际 play 由房主广播的 watch-together-state/control 同步执行
+      } else {
+        message.info('房主拒绝了您的继续播放申请')
+      }
+    }
+
+    socket.on('play-response', handlePlayResponse)
+    return () => {
+      socket.off('play-response', handlePlayResponse)
     }
   }, [socket, isHost])
 
@@ -587,6 +666,42 @@ export function WatchTogetherPanel({
     setPauseRequest(null)
   }
 
+  // 房主：同意观众的继续播放申请 —— 本地 play 后由 useSyncPlayback 广播 state 同步给所有观众
+  const handleAcceptPlay = () => {
+    if (!playRequest) return
+    const { viewerSocketId } = playRequest
+    if (!socket || !viewerSocketId) return
+    const video = videoRef.current
+    if (video) {
+      void video.play().catch(() => {
+        /* 浏览器自动播放策略可能拒绝，忽略 */
+      })
+    }
+    socket.emit(
+      'play-response',
+      { roomId, viewerSocketId, accept: true },
+      () => {
+        /* 回应仅用于 ack，无需提示 */
+      }
+    )
+    setPlayRequest(null)
+  }
+
+  // 房主：拒绝观众的继续播放申请
+  const handleRejectPlay = () => {
+    if (!playRequest) return
+    const { viewerSocketId } = playRequest
+    if (!socket || !viewerSocketId) return
+    socket.emit(
+      'play-response',
+      { roomId, viewerSocketId, accept: false },
+      () => {
+        /* 回应仅用于 ack */
+      }
+    )
+    setPlayRequest(null)
+  }
+
   // 观众：拖动进度条后向房主申请跳转
   const handleRequestSeek = useCallback(
     (time: number) => {
@@ -627,14 +742,66 @@ export function WatchTogetherPanel({
     )
   }, [socket, isHost, roomId, pausePending])
 
-  // 房主：切换「自动通过申请」开关
-  const handleToggleAutoApprove = useCallback(() => {
-    setAutoApproveRequests((prev) => {
-      const next = !prev
-      message.info(next ? '已开启自动通过申请' : '已关闭自动通过申请')
-      return next
-    })
+  // 观众：向房主申请继续播放
+  const handleRequestPlay = useCallback(() => {
+    if (!socket || isHost || playPending) return
+    setPlayPending(true)
+    socket.emit(
+      'play-request',
+      { roomId },
+      (response: { success: boolean; message?: string }) => {
+        if (!response.success) {
+          setPlayPending(false)
+          message.error(response.message || '申请继续播放失败')
+        } else {
+          message.info('已发送继续播放申请，等待房主确认')
+        }
+      }
+    )
+  }, [socket, isHost, roomId, playPending])
+
+  // 以下三个 useCallback 用于稳定传给 VideoControls 的回调引用，
+  // 配合 VideoControls 的 React.memo 避免父组件 re-render 时子组件连锁重渲染。
+  const handleToggleDanmaku = useCallback(() => {
+    setDanmakuEnabled((prev) => !prev)
   }, [])
+
+  const handleSendDanmaku = useCallback(
+    (text: string) => {
+      const trimmed = text.trim()
+      if (!trimmed) return
+
+      // 本地弹幕层即时显示，不依赖 socket 状态
+      const item: DanmakuItem = {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        content: trimmed,
+        time: videoRef.current?.currentTime ?? 0,
+        mode: 1,
+        color: 16777215,
+        size: 25,
+      }
+
+      danmakuLayerRef.current?.addDanmaku(item)
+
+      // socket 可用时再发送到聊天区
+      if (!socket) return
+      socket.emit(
+        'send-comment',
+        { roomId, content: trimmed, isDanmaku: true },
+        (response: { success: boolean; message?: string }) => {
+          if (!response.success) {
+            message.error(response.message ?? '弹幕发送失败')
+          }
+        }
+      )
+    },
+    [socket, roomId]
+  )
+
+  const handleSync = useCallback(() => {
+    if (!isHost) return
+    forceSync()
+  }, [isHost, forceSync])
 
   const handleShowControls = () => {
     videoControlsRef.current?.showControls()
@@ -693,6 +860,15 @@ export function WatchTogetherPanel({
         </div>
       )}
 
+      {isReloading && (
+        <div className="absolute inset-0 z-30 flex items-center justify-center">
+          <div className="zen-overlay-fade-in glass-strong flex flex-col items-center gap-3 rounded-[var(--md-sys-shape-corner)] border border-[var(--glass-border)] px-8 py-6 shadow-lg">
+            <Spinner size={32} />
+            <Text className="text-sm">正在加载目标位置...</Text>
+          </div>
+        </div>
+      )}
+
       <VideoStatsMenu
         videoElement={videoElement}
         sourceType={
@@ -706,13 +882,12 @@ export function WatchTogetherPanel({
 
       {!watchTogether.sourceUrl && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
-          <div className="glass-strong flex h-20 w-20 items-center justify-center rounded-full">
-            <Monitor
-              className="h-10 w-10 opacity-70"
-              style={{ color: 'var(--md-sys-color-on-surface)' }}
-            />
-          </div>
-          <Text className="text-sm">
+          <img
+            src="/player-empty.jpg"
+            alt="等待播放"
+            className="h-32 w-32 rounded-[var(--md-sys-shape-corner)] object-cover"
+          />
+          <Text className="text-sm text-white">
             {isHost ? '请在下方添加并播放影片' : '等待房主播放影片'}
           </Text>
         </div>
@@ -743,46 +918,18 @@ export function WatchTogetherPanel({
               // 观众端启用只读模式：隐藏所有可操作控件，仅显示进度条与时间
               readOnly={!isHost}
               isDanmakuEnabled={danmakuEnabled}
-              onToggleDanmaku={() => setDanmakuEnabled((prev) => !prev)}
-              onSendDanmaku={(text) => {
-                const trimmed = text.trim()
-                if (!trimmed) return
-
-                // 本地弹幕层即时显示，不依赖 socket 状态
-                const item: BilibiliDanmakuItem = {
-                  id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-                  content: trimmed,
-                  time: videoRef.current?.currentTime ?? 0,
-                  mode: 1,
-                  color: 16777215,
-                  size: 25,
-                }
-
-                danmakuLayerRef.current?.addDanmaku(item)
-
-                // socket 可用时再发送到聊天区
-                if (!socket) return
-                socket.emit(
-                  'send-comment',
-                  { roomId, content: trimmed, isDanmaku: true },
-                  (response: { success: boolean; message?: string }) => {
-                    if (!response.success) {
-                      message.error(response.message ?? '弹幕发送失败')
-                    }
-                  }
-                )
-              }}
-              onSync={() => {
-                if (!isHost) return
-                forceSync()
-              }}
+              onToggleDanmaku={handleToggleDanmaku}
+              onSendDanmaku={handleSendDanmaku}
+              onSync={handleSync}
               // 观众端 readOnly 模式下拖动进度条触发申请跳转
               onRequestSeek={isHost ? undefined : handleRequestSeek}
               // 观众端 readOnly 模式下点击申请暂停
               onRequestPause={isHost ? undefined : handleRequestPause}
-              // 房主端「自动通过申请」开关
-              autoApproveRequests={isHost ? autoApproveRequests : undefined}
-              onToggleAutoApprove={isHost ? handleToggleAutoApprove : undefined}
+              // 观众端 readOnly 模式下点击申请继续播放
+              onRequestPlay={isHost ? undefined : handleRequestPlay}
+              // 观众端申请暂停/继续播放的 pending 状态，用于禁用按钮避免重复申请
+              pausePending={isHost ? undefined : pausePending}
+              playPending={isHost ? undefined : playPending}
               isWebFullscreen={isWebFullscreen}
               onToggleWebFullscreen={toggleWebFullscreen}
               subtitleEnabled={subtitles.subtitleEnabled}
@@ -799,6 +946,7 @@ export function WatchTogetherPanel({
               onDanmakuFilterChange={setFilters}
               onDanmakuAdvancedChange={setAdvancedStyle}
               onResetDanmakuStyle={resetStyle}
+              timeOverride={isReloading ? reloadTargetTime : null}
             />
           </div>
         </>
@@ -877,11 +1025,34 @@ export function WatchTogetherPanel({
       ),
     })
   }
+  if (playRequest) {
+    // eslint-disable-next-line react-hooks/refs -- 回调在用户点击时才执行，不在 render 中读取 ref
+    requestNotifications.push({
+      id: 'play',
+      title: '播放申请',
+      okText: '同意',
+      cancelText: '拒绝',
+      onOk: handleAcceptPlay,
+      onCancel: handleRejectPlay,
+      autoCloseMs: 12000,
+      content: (
+        <>
+          观众{' '}
+          <span style={{ color: 'var(--md-sys-color-primary)' }}>
+            {playRequest.viewerUsername ||
+              playRequest.viewerSocketId.slice(0, 8)}
+          </span>{' '}
+          申请继续播放
+        </>
+      ),
+    })
+  }
 
   const handleCloseNotification = (id: string) => {
     if (id === 'join') setConfirmJoin(null)
     else if (id === 'seek') setSeekRequest(null)
     else if (id === 'pause') setPauseRequest(null)
+    else if (id === 'play') setPlayRequest(null)
   }
 
   return (

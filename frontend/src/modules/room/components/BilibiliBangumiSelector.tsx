@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Tv,
   Play,
@@ -56,6 +56,9 @@ export function BilibiliBangumiSelector({
     return saved === 'tile' ? 'tile' : 'list'
   })
   const [searchKeyword, setSearchKeyword] = useState('')
+  // 标记是否已请求过追番列表，避免空列表时 fetchBangumiList 依赖 bangumiList
+  // 导致 useCallback 重建 → useEffect 重触发 → 无限加载
+  const fetchedRef = useRef(false)
 
   useEffect(() => {
     getBilibiliLoginStatus()
@@ -64,7 +67,8 @@ export function BilibiliBangumiSelector({
   }, [])
 
   const fetchBangumiList = useCallback(async () => {
-    if (bangumiList.length > 0) return
+    if (fetchedRef.current) return
+    fetchedRef.current = true
     setLoadingBangumi(true)
     try {
       const list = await getFollowingBangumi()
@@ -72,10 +76,11 @@ export function BilibiliBangumiSelector({
     } catch (err) {
       console.error('[BilibiliBangumiSelector] fetch bangumi error:', err)
       message.error(err instanceof Error ? err.message : '获取关注番剧失败')
+      fetchedRef.current = false
     } finally {
       setLoadingBangumi(false)
     }
-  }, [bangumiList])
+  }, [])
 
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- 打开时加载番剧列表 */

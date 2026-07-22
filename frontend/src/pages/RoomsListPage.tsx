@@ -19,6 +19,7 @@ import { Tag } from '@/components/ui/Tag'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
+import { apiFetch, API_URL } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 const Fade = ({
@@ -54,11 +55,11 @@ interface RoomItem {
 }
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
+void rawApiUrl
 
 export default function RoomsListPage() {
   const navigate = useNavigate()
-  const { accessToken, user } = useAuthStore()
+  const { isAuthenticated, user } = useAuthStore()
   const [rooms, setRooms] = useState<RoomItem[]>([])
   const [loading, setLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'tile'>(() => {
@@ -68,12 +69,11 @@ export default function RoomsListPage() {
   const isAdmin = user?.role === 'admin' || user?.role === 'root'
 
   const authHeaders = {
-    Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
   }
 
   const fetchRooms = async () => {
-    const res = await fetch(`${API_URL}/api/rooms`, {
+    const res = await apiFetch(`${API_URL}/api/rooms`, {
       headers: authHeaders,
     })
     const data = (await res.json()) as {
@@ -101,7 +101,7 @@ export default function RoomsListPage() {
   }
 
   useEffect(() => {
-    if (!accessToken) return
+    if (!isAuthenticated) return
     let cancelled = false
     const load = async () => {
       setLoading(true)
@@ -123,7 +123,7 @@ export default function RoomsListPage() {
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accessToken])
+  }, [isAuthenticated])
 
   const formatDate = (iso: string) => new Date(iso).toLocaleString('zh-CN')
 

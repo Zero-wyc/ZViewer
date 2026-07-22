@@ -2,20 +2,11 @@ import { useCallback, useEffect, useRef } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import { useRoomStore } from '@/store/roomStore'
 import { message } from '@/components/ui/message'
-import {
-  createMseMediaUrl,
-  createAudioSync,
-  resetVideoElement,
-  waitForMetadata,
-  attachHlsStream,
-  attachFlvStream,
-} from '@/modules/room/watch-together/msePlayer'
+import { usePlayerSource } from '@/modules/player'
+import type { PlayerSource } from '@/modules/player'
 import type { WatchTogetherState } from '../types'
 import { safePlay } from '../safePlay'
-import {
-  isBrowserPlayableFormat,
-  getUnsupportedFormatMessage,
-} from '@/lib/mediaFormat'
+import { needsMseReloadForSeek, isMseStream, reloadMseAtTime } from '../services'
 
 export interface UseVideoSourceOptions {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -29,19 +20,27 @@ export interface UseVideoSourceOptions {
 export interface UseVideoSourceReturn {
   applySourceToVideo: (
     video: HTMLVideoElement,
-    state: WatchTogetherState
+    state: WatchTogetherState,
+    startTime?: number
   ) => Promise<void>
   cleanupMedia: () => void
   restoredRef: MutableRefObject<boolean>
+  /** 已应用 sourceUrl 的 ref，供观众端 seek 逻辑使用 */
+  appliedSourceUrlRef: MutableRefObject<string | null>
 }
 
 /**
  * 视频源管理 Hook：负责将 WatchTogetherState 中的视频源应用到 <video> 元素，
  * 包括 MSE DASH 合并、音频同步、以及组件挂载时的源恢复。
  *
+ * 底层使用 player 模块的 usePlayerSource 进行引擎选择与 attach。
+ * 本 Hook 在其之上扩展：
+ * 1. WatchTogetherState → PlayerSource 字段映射
+ * 2. 组件挂载时的源恢复（依赖 roomStore，仅观众端或无待加载影片时执行）
+ * 3. seek 到未缓冲区域时的 MSE 流重新加载
+ *
  * 观众端不再独立解析 B站 视频，所有源类型统一使用房主广播的
  * sourceUrl/audioUrl 进行 MSE attach，避免凭证不一致与 CDN 限流。
- * 内部维护 mseBlobUrlRef / audioSyncRef 用于资源清理，
  * restoredRef 保证每个挂载周期只恢复一次源，避免与 handleLoad / handleState 重复加载。
  *
  * 房主端在挂载时若 roomStore 中存在 currentMovieId，跳过恢复 effect，
@@ -54,29 +53,26 @@ export function useVideoSource({
   watchTogether,
   isHostRef,
 }: UseVideoSourceOptions): UseVideoSourceReturn {
-  const mseBlobUrlRef = useRef<string | null>(null)
-  const audioSyncRef = useRef<(() => void) | null>(null)
-  const streamCleanupRef = useRef<(() => void) | null>(null)
+  const { attachSource, cleanup, appliedSourceUrlRef } = usePlayerSource({
+    videoRef,
+  })
   const restoredRef = useRef(false)
-  // 跟踪当前已应用到 video 元素的原始 sourceUrl（非 blob URL）。
-  // 房主每 500ms 广播一次 state，观众端若每次都 resetVideoElement + load，
-  // 会导致视频不断重置黑屏。此处通过对比 sourceUrl 避免重复加载。
-  const appliedSourceUrlRef = useRef<string | null>(null)
 
-  const cleanupMedia = useCallback(() => {
-    if (mseBlobUrlRef.current) {
-      URL.revokeObjectURL(mseBlobUrlRef.current)
-      mseBlobUrlRef.current = null
-    }
-    if (audioSyncRef.current) {
-      audioSyncRef.current()
-      audioSyncRef.current = null
-    }
-    if (streamCleanupRef.current) {
-      streamCleanupRef.current()
-      streamCleanupRef.current = null
-    }
-  }, [])
+  // WatchTogetherState → PlayerSource 字段映射
+  // PlayerSource 是引擎 attach 所需的最小字段集，从 WatchTogetherState 中抽取
+  const toPlayerSource = useCallback(
+    (state: WatchTogetherState): PlayerSource => ({
+      url: state.sourceUrl,
+      audioUrl: state.audioUrl,
+      format: state.format,
+      videoCodec: state.videoCodec,
+      audioCodec: state.audioCodec,
+      headers: state.headers,
+    }),
+    []
+  )
+
+  const cleanupMedia = cleanup
 
   // 将指定状态中的视频源应用到 video 元素（含 MSE DASH 处理）。
   // 供房主加载、观众同步以及组件重新挂载时恢复使用。
@@ -85,89 +81,15 @@ export function useVideoSource({
   //   - 其他格式（如 mp4）：直接设置 video.src
   // 观众端不再独立调用 B站 解析接口，直接复用房主广播的地址。
   const applySourceToVideo = useCallback(
-    async (video: HTMLVideoElement, state: WatchTogetherState) => {
+    async (video: HTMLVideoElement, state: WatchTogetherState, startTime?: number) => {
       if (!state.sourceUrl) return
-
-      // 同一 sourceUrl 不重复加载：观众端每 500ms 收到一次 state，
-      // 若每次都 resetVideoElement + load 会不断重置视频导致黑屏。
-      if (appliedSourceUrlRef.current === state.sourceUrl) {
-        return
+      const source = toPlayerSource(state)
+      if (startTime !== undefined && startTime > 0) {
+        source.startTime = startTime
       }
-
-      // 格式预检：浏览器 <video> 仅原生支持 mp4/webm/mov，DASH 通过 MSE 支持。
-      // mkv/avi/flv/wmv/ts 等容器直接赋值给 video.src 会抛 NotSupportedError，
-      // 部分浏览器还会将 video.src 置空导致黑屏无反馈。这里提前抛错，
-      // 由调用方（loadMovie/恢复 effect）展示 message.error 提示用户。
-      // 预检放在更新 appliedSourceUrlRef 之前，失败时不污染"已应用"标记，
-      // 后续若用户切换到支持的格式仍可正常加载。
-      if (state.format && !isBrowserPlayableFormat(state.format)) {
-        throw new Error(getUnsupportedFormatMessage(state.format))
-      }
-
-      const previousUrl = appliedSourceUrlRef.current
-      appliedSourceUrlRef.current = state.sourceUrl
-
-      // 先 detach 旧的 MediaSource，再清理 blob URL，避免 revoke 正在 attached 的 URL 导致 Format error
-      resetVideoElement(video)
-      cleanupMedia()
-
-      try {
-        if (state.format === 'dash' || state.audioUrl) {
-          const audioUrl = state.audioUrl || ''
-          if (!audioUrl) {
-            video.src = state.sourceUrl
-            video.load()
-            // Bug #7 修复：等待 metadata 加载完成，
-            // 否则调用方 .then() 中设置 currentTime 会被浏览器丢弃（readyState < 1）
-            await waitForMetadata(video)
-            return
-          }
-
-          try {
-            const blobUrl = await createMseMediaUrl(
-              video,
-              state.sourceUrl,
-              audioUrl,
-              state.videoCodec,
-              state.audioCodec
-            )
-            mseBlobUrlRef.current = blobUrl
-          } catch (err) {
-            // DASH 源的 sourceUrl 是 m4s 片段，不能直接作为 video.src 播放，
-            // 直接赋值会导致 MEDIA_ELEMENT_ERROR: Format error。
-            if (state.format === 'dash') {
-              throw new Error('MSE 合并失败，DASH 源无法直接播放', {
-                cause: err,
-              })
-            }
-            console.warn('[useVideoSource] MSE 合并失败，降级为音频同步:', err)
-            video.src = state.sourceUrl
-            video.load()
-            await waitForMetadata(video)
-            audioSyncRef.current = createAudioSync(video, audioUrl)
-          }
-        } else if (state.format === 'hls') {
-          // HLS (m3u8)：Safari 原生支持，其他浏览器通过 hls.js
-          streamCleanupRef.current = attachHlsStream(video, state.sourceUrl)
-          await waitForMetadata(video)
-        } else if (state.format === 'flv') {
-          // FLV：通过 flv.js
-          streamCleanupRef.current = attachFlvStream(video, state.sourceUrl)
-          await waitForMetadata(video)
-        } else {
-          video.src = state.sourceUrl
-          video.load()
-          // Bug #7 修复：非 MSE 直链同样需要等待 metadata，
-          // 观众端 handleState 在 .then() 中设置的 currentTime 才会生效
-          await waitForMetadata(video)
-        }
-      } catch (err) {
-        // 加载失败时回滚 appliedSourceUrlRef，允许下次重试
-        appliedSourceUrlRef.current = previousUrl
-        throw err
-      }
+      await attachSource(video, source)
     },
-    [cleanupMedia]
+    [attachSource, toPlayerSource]
   )
 
   // 组件重新挂载（或 videoRef 首次可用）时，从 roomStore 恢复视频源。
@@ -222,9 +144,65 @@ export function useVideoSource({
     isHostRef,
   ])
 
+  // seek 到未缓冲区域时的处理：
+  // 当用户回退到 SourceBuffer 中已被清理的位置时，视频会卡死（没有数据可播放）。
+  // 此时需要重新创建 MSE 流（从头下载），加载到目标位置后 seek。
+  // 仅对 MSE 流（DASH / 含 audioUrl）生效，普通 mp4 直链由浏览器原生处理。
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+
+    let isReloading = false
+
+    const handleSeeking = () => {
+      if (suppressEventsRef.current) return
+      if (isReloading) return
+
+      const targetTime = video.currentTime
+      // 仅 seek 到过去已清理区域才需要 reload；
+      // seek 到未来未缓冲区域时 MSE 会继续下载，浏览器自然等待，无需 reload
+      if (!needsMseReloadForSeek(video, targetTime)) return
+
+      // seek 到已清理区域，需要重新加载
+      const storeState = useRoomStore.getState()
+      const state = storeState.watchTogether
+      // 仅 MSE 流需要处理；普通 mp4 直链浏览器会自动处理 seek
+      if (!isMseStream(state) || !state.sourceUrl) return
+
+      isReloading = true
+      // 写入 store：VideoControls 读取 reloadTargetTime 显示进度条位置（避免归零），
+      // WatchTogetherPanel 读取 isReloading 展示加载动画
+      storeState.setReloadingState(true, targetTime)
+
+      void reloadMseAtTime({
+        video,
+        targetTime,
+        state,
+        applySourceToVideo,
+        appliedSourceUrlRef,
+        suppressEventsRef,
+      })
+        .then((result) => {
+          if (!result.success && result.message) {
+            message.warning(result.message)
+          }
+        })
+        .finally(() => {
+          isReloading = false
+          useRoomStore.getState().setReloadingState(false, null)
+        })
+    }
+
+    video.addEventListener('seeking', handleSeeking)
+    return () => {
+      video.removeEventListener('seeking', handleSeeking)
+    }
+  }, [videoRef, applySourceToVideo, suppressEventsRef, appliedSourceUrlRef])
+
   return {
     applySourceToVideo,
     cleanupMedia,
     restoredRef,
+    appliedSourceUrlRef,
   }
 }

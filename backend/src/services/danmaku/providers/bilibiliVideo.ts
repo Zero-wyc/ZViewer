@@ -3,8 +3,13 @@ import {
   DanmakuSearchResult,
   DanmakuEpisode,
   DanmakuItem,
+  DanmakuProviderContext,
 } from '../types';
-import { getVideoInfo } from '../../bilibili/video';
+import {
+  getVideoInfo,
+  searchVideos,
+  type BilibiliSearchVideo,
+} from '../../bilibili/video';
 import { getDanmaku } from '../../bilibili/danmaku';
 
 function extractBvid(input: string): string | null {
@@ -15,37 +20,108 @@ function extractBvid(input: string): string | null {
   return null;
 }
 
+/** 最大并行获取视频统计信息的数量，避免过多并发请求触发风控 */
+const MAX_STAT_FETCH = 10;
+
+/**
+ * 将搜索结果转换为 DanmakuSearchResult（不含 like/coin，需后续补充）。
+ */
+function searchVideoToResult(item: BilibiliSearchVideo): DanmakuSearchResult {
+  return {
+    id: item.bvid,
+    title: item.title,
+    cover: item.pic,
+    description: item.author,
+    source: 'bilibili',
+    stats: {
+      play: item.play,
+      danmaku: item.danmaku,
+      favorites: item.favorites,
+      reply: item.review,
+    },
+    extra: { bvid: item.bvid, aid: item.aid },
+  };
+}
+
 export const bilibiliVideoDanmakuProvider: DanmakuSourceProvider = {
   name: '哔哩哔哩视频',
 
-  async search(keyword: string): Promise<DanmakuSearchResult[]> {
+  async search(keyword: string, ctx?: DanmakuProviderContext): Promise<DanmakuSearchResult[]> {
+    const cookie = ctx?.cookie;
     const bvid = extractBvid(keyword);
-    if (!bvid) {
+
+    // BV/av 号：直接获取视频信息（含完整 stat）
+    if (bvid) {
+      const info = await getVideoInfo(bvid, cookie);
+      if (!info) {
+        return [];
+      }
+      return [
+        {
+          id: info.bvid,
+          title: info.title,
+          cover: info.pic,
+          source: 'bilibili',
+          stats: info.stat
+            ? {
+                play: info.stat.view,
+                danmaku: info.stat.danmaku,
+                favorites: info.stat.favorite,
+                like: info.stat.like,
+                coin: info.stat.coin,
+                reply: info.stat.reply,
+              }
+            : undefined,
+          extra: { bvid: info.bvid, aid: info.aid },
+        },
+      ];
+    }
+
+    // 普通关键词：调用搜索 API 获取视频列表
+    const searchResults = await searchVideos(keyword, cookie);
+    if (searchResults.length === 0) {
       return [];
     }
 
-    const info = await getVideoInfo(bvid);
-    if (!info) {
-      return [];
-    }
+    // 搜索 API 不返回 like/coin，并行调用 view 接口补充统计数据
+    // 限制并发数量避免触发风控，超出部分仅使用搜索 API 的基础数据
+    const toFetch = searchResults.slice(0, MAX_STAT_FETCH);
+    const statResults = await Promise.allSettled(
+      toFetch.map((item) => getVideoInfo(item.bvid, cookie)),
+    );
 
-    return [
-      {
-        id: info.bvid,
-        title: info.title,
-        source: 'bilibili',
-        extra: { bvid: info.bvid, aid: info.aid },
+    const results: DanmakuSearchResult[] = searchResults.map(
+      (item, index) => {
+        const base = searchVideoToResult(item);
+        if (index < MAX_STAT_FETCH) {
+          const statResult = statResults[index];
+          if (statResult.status === 'fulfilled' && statResult.value?.stat) {
+            const stat = statResult.value.stat;
+            base.stats = {
+              play: stat.view,
+              danmaku: stat.danmaku,
+              favorites: stat.favorite,
+              like: stat.like,
+              coin: stat.coin,
+              reply: stat.reply,
+            };
+          }
+        }
+        return base;
       },
-    ];
+    );
+
+    return results;
   },
 
-  async getEpisodes(identifier: string): Promise<DanmakuEpisode[]> {
+  async getEpisodes(identifier: string, ctx?: DanmakuProviderContext): Promise<DanmakuEpisode[]> {
+    const cookie = ctx?.cookie;
     const bvid = extractBvid(identifier);
     if (!bvid) {
       throw new Error('无法解析 BV 号');
     }
 
-    const info = await getVideoInfo(bvid);
+    const info = await getVideoInfo(bvid, cookie);
     if (!info) {
       throw new Error('获取视频信息失败');
     }
@@ -69,7 +145,7 @@ export const bilibiliVideoDanmakuProvider: DanmakuSourceProvider = {
     }));
   },
 
-  async getDanmaku(episode: DanmakuEpisode): Promise<DanmakuItem[]> {
+  async getDanmaku(episode: DanmakuEpisode, _ctx?: DanmakuProviderContext): Promise<DanmakuItem[]> {
     const cid = episode.playbackParams.cid;
     if (typeof cid !== 'number') {
       throw new Error('缺少 cid 参数');

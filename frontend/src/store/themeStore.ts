@@ -137,7 +137,10 @@ export const useThemeStore = create<ThemeState>()(
         radius: state.radius,
         glassStrength: state.glassStrength,
         reducedMotion: state.reducedMotion,
-        backgroundImage: state.backgroundImage,
+        // 仅持久化 URL 图片，不持久化 base64 数据（避免 localStorage 配额溢出）
+        backgroundImage: state.backgroundImage?.startsWith('data:')
+          ? null
+          : state.backgroundImage,
         backgroundBlur: state.backgroundBlur,
         backgroundOpacity: state.backgroundOpacity,
         backgroundPositionX: state.backgroundPositionX,

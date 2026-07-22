@@ -1,6 +1,6 @@
 import { useEffect, useRef, forwardRef, useImperativeHandle } from 'react'
 import type { Socket } from 'socket.io-client'
-import type { BilibiliDanmakuItem } from '@/modules/room/watch-together/danmakuEngine'
+import type { DanmakuItem } from '@/modules/danmaku/types'
 import {
   DanmakuEngineAdapter,
   type SendDanmakuOptions,
@@ -20,11 +20,11 @@ export interface DanmakuLayerHandle {
   /** 立即发送一条弹幕到舞台 */
   sendDanmaku: (text: string, options?: SendDanmakuOptions) => void
   /** 批量加载时间轴弹幕（B站格式，内部转换为 danmaku.js comment 格式并过滤） */
-  loadTimelineDanmaku: (danmakuList: BilibiliDanmakuItem[]) => void
+  loadTimelineDanmaku: (danmakuList: DanmakuItem[]) => void
   /** 加载一条弹幕轨道 */
   loadDanmakuTrack: (
     trackId: string,
-    danmakuList: BilibiliDanmakuItem[],
+    danmakuList: DanmakuItem[],
     offset?: number
   ) => void
   /** 移除一条弹幕轨道 */
@@ -41,7 +41,7 @@ export interface DanmakuLayerHandle {
    * @deprecated 旧版本兼容：通过 B站 弹幕项发送弹幕。
    * 内部转换为 sendDanmaku 调用。
    */
-  addDanmaku: (item: BilibiliDanmakuItem) => void
+  addDanmaku: (item: DanmakuItem) => void
 }
 
 export interface DanmakuLayerProps {
@@ -259,12 +259,23 @@ export const DanmakuLayer = forwardRef<DanmakuLayerHandle, DanmakuLayerProps>(
     ])
 
     // 视频时间轴同步：timeupdate -> setTime, seeked -> seek
+    // timeupdate 每秒触发 4-8 次，用 rAF 节流合并到每帧一次，
+    // 避免 danmaku.js 引擎每秒 4-8 次重绘所有弹幕抢占 MSE 解码主线程。
     useEffect(() => {
       if (!videoElement) return
+      let rafId: number | null = null
       const handleTimeUpdate = () => {
-        engineRef.current?.setTime(videoElement.currentTime)
+        if (rafId !== null) return
+        rafId = requestAnimationFrame(() => {
+          rafId = null
+          engineRef.current?.setTime(videoElement.currentTime)
+        })
       }
       const handleSeeked = () => {
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId)
+          rafId = null
+        }
         engineRef.current?.seek(videoElement.currentTime)
       }
       videoElement.addEventListener('timeupdate', handleTimeUpdate)
@@ -272,6 +283,7 @@ export const DanmakuLayer = forwardRef<DanmakuLayerHandle, DanmakuLayerProps>(
       return () => {
         videoElement.removeEventListener('timeupdate', handleTimeUpdate)
         videoElement.removeEventListener('seeked', handleSeeked)
+        if (rafId !== null) cancelAnimationFrame(rafId)
       }
     }, [videoElement])
 
@@ -333,7 +345,7 @@ export const DanmakuLayer = forwardRef<DanmakuLayerHandle, DanmakuLayerProps>(
         syncTime: (time) => {
           engineRef.current?.setTime(time)
         },
-        addDanmaku: (item: BilibiliDanmakuItem) => {
+        addDanmaku: (item: DanmakuItem) => {
           sendOrEnqueue(item.content, {
             color: item.color,
             mode: item.mode,

@@ -27,11 +27,11 @@ export function Layout({ children }: { children: React.ReactNode }) {
         color: 'var(--md-sys-color-on-surface)',
       }}
     >
-      {/* 自定义背景图片层：缓慢呼吸动画 */}
+      {/* 自定义背景图片层 */}
       {/* 浅色主题且未设置自定义背景时，使用默认背景图片 */}
       {(backgroundImage || (!isDark && '/Nacho3.jpg')) && (
         <div
-          className="fixed inset-0 -z-10 pointer-events-none zen-geo-breathe"
+          className="fixed inset-0 -z-10 pointer-events-none"
           style={{
             backgroundImage: `url(${backgroundImage || '/Nacho3.jpg'})`,
             backgroundSize: 'cover',
@@ -41,7 +41,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
               ? backgroundOpacity
               : Math.min(backgroundOpacity, 0.85),
             transform: `scale(${backgroundScale}) rotate(${backgroundRotate}deg)`,
-            animationDuration: '20s',
           }}
         />
       )}

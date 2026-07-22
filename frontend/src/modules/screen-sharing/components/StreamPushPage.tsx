@@ -6,8 +6,7 @@ import { Text, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { Card } from '@/components/ui/Card'
 import { message } from '@/components/ui/message'
-import type { Socket } from 'socket.io-client'
-import type { StreamStatus } from '../hooks/useStreamPush'
+import { useRoomStore } from '@/store/roomStore'
 import {
   buildFlvUrl,
   downloadObsConfig,
@@ -17,8 +16,6 @@ import { FlvPlayer } from './FlvPlayer'
 
 interface StreamPushPageProps {
   roomId: string
-  socket: Socket | null
-  streamStatus: StreamStatus
   className?: string
   style?: React.CSSProperties
 }
@@ -28,20 +25,23 @@ interface StreamPushPageProps {
  * - 显示推流地址与流密钥
  * - 提供一键下载 OBS 配置文件
  * - 拉流预览（房主自检推流是否成功）
- * - 显示推流状态
+ * - 显示推流状态（从 roomStore 读取，单一数据源）
  */
 export function StreamPushPage({
   roomId,
-  streamStatus,
   className,
   style,
 }: StreamPushPageProps) {
+  const streamStatus = useRoomStore((state) => state.streamStatus)
+  const streamKey = useRoomStore((state) => state.streamKey)
+  const setStreamStatus = useRoomStore((state) => state.setStreamStatus)
   const navigate = useNavigate()
   const [downloading, setDownloading] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
 
   const rtmpUrl = getRtmpPushUrl()
-  const flvUrl = buildFlvUrl(roomId)
+  const effectiveStreamKey = streamKey ?? roomId
+  const flvUrl = buildFlvUrl(effectiveStreamKey)
 
   const handleDownloadConfig = useCallback(async () => {
     setDownloading(true)
@@ -58,17 +58,17 @@ export function StreamPushPage({
   }, [roomId])
 
   const handleCopyRtmp = useCallback(() => {
-    const fullText = `${rtmpUrl}/${roomId}`
+    const fullText = `${rtmpUrl}/${effectiveStreamKey}`
     navigator.clipboard
       .writeText(fullText)
       .then(() => message.success('推流地址已复制'))
-  }, [rtmpUrl, roomId])
+  }, [rtmpUrl, effectiveStreamKey])
 
   const handleCopyStreamKey = useCallback(() => {
     navigator.clipboard
-      .writeText(roomId)
+      .writeText(effectiveStreamKey)
       .then(() => message.success('流密钥已复制'))
-  }, [roomId])
+  }, [effectiveStreamKey])
 
   return (
     <div
@@ -115,7 +115,7 @@ export function StreamPushPage({
           </Paragraph>
           <div className="flex items-center gap-2">
             <Text className="flex-1 truncate rounded px-3 py-1.5 font-mono text-sm">
-              {roomId}
+              {effectiveStreamKey}
             </Text>
             <Button
               size="sm"
@@ -126,6 +126,12 @@ export function StreamPushPage({
               复制密钥
             </Button>
           </div>
+          {!streamKey && (
+            <Paragraph type="danger" className="m-0 text-xs">
+              未获取到独立推流密钥，当前显示的是房间号。请先点击「下载 OBS
+              配置文件」重新导入，或刷新页面后再试。
+            </Paragraph>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-2 pt-2">
@@ -149,7 +155,19 @@ export function StreamPushPage({
 
       {previewMode && (
         <Card className="aspect-video w-full overflow-hidden p-0">
-          <FlvPlayer src={flvUrl} muted autoPlay />
+          <FlvPlayer
+            src={flvUrl}
+            muted
+            autoPlay
+            onStatusChange={(status) => {
+              // 兜底：当拉流预览实际播放时，同步推流状态为 live
+              if (status === 'playing') {
+                setStreamStatus('live')
+              } else if (status === 'error' || status === 'stopped') {
+                setStreamStatus('offline')
+              }
+            }}
+          />
         </Card>
       )}
 

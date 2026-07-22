@@ -1,13 +1,25 @@
-import { Radio, Loader2, AlertCircle } from 'lucide-react'
+import { memo } from 'react'
+import {
+  Radio,
+  Loader2,
+  AlertCircle,
+  Gauge,
+  MonitorPlay,
+  Activity,
+  Zap,
+  Wifi,
+  Film,
+} from 'lucide-react'
 import { Card } from '@/components/ui/Card'
-import { Space } from '@/components/ui/Space'
-import { Text, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
-import type { StreamStatus } from '../hooks/useStreamPush'
+import type { StreamStatus } from '@/store/roomStore'
+import type { FlvStatistics } from './FlvPlayer'
 
 interface StreamStatusPanelProps {
   /** 推流状态 */
   streamStatus: StreamStatus
+  /** flv.js 拉流统计信息 */
+  statistics?: FlvStatistics | null
 }
 
 function getStatusText(status: StreamStatus): string {
@@ -63,56 +75,153 @@ function getStatusIcon(status: StreamStatus) {
   }
 }
 
+/** 计算丢帧率百分比 */
+function calcDropRate(stats: FlvStatistics | null | undefined): string {
+  if (!stats || stats.totalVideoFrames === 0) return '0.0%'
+  return ((stats.droppedVideoFrames / stats.totalVideoFrames) * 100).toFixed(1) + '%'
+}
+
+/** 统计卡片 */
+function StatCard({
+  icon,
+  label,
+  value,
+  sub,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  sub?: string
+}) {
+  return (
+    <div className="flex items-center gap-3 rounded-xl bg-[var(--md-sys-color-surface-container-highest)] p-3">
+      <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-[var(--md-sys-color-surface-container-high)]">
+        {icon}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+          {label}
+        </div>
+        <div className="truncate font-mono text-sm font-semibold">
+          {value}
+        </div>
+        {sub && (
+          <div className="truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+            {sub}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 /**
  * 推流状态面板（stream-push 子模式使用）。
  *
- * 与 ConnectionStatsPanel 风格一致，但显示的是 OBS 推流状态而非 WebRTC 连接统计。
- * stream-push 模式下观众端通过 FlvPlayer 拉流，无 RTCPeerConnection，
- * 因此不能用 ConnectionStatsPanel，改用此面板显示推流状态。
+ * 显示 OBS 推流状态和 flv.js 拉流实时统计（码率、帧率、丢帧等）。
+ * 使用 React.memo 优化：statistics 每秒更新时仅重渲染本组件，不影响父组件。
  */
-export function StreamStatusPanel({ streamStatus }: StreamStatusPanelProps) {
+export const StreamStatusPanel = memo(function StreamStatusPanel({
+  streamStatus,
+  statistics,
+}: StreamStatusPanelProps) {
+  const isLive = streamStatus === 'live'
+  const hasStats = isLive && !!statistics
+
   return (
-    <Card className="w-full p-6 text-left">
-      <div className="mb-4 flex items-center gap-2">
-        {getStatusIcon(streamStatus)}
-        <Paragraph className="m-0 text-base font-medium">推流状态</Paragraph>
-      </div>
-      <Space wrap className="mb-4 gap-2 text-base">
-        <Tag color="primary">OBS 推流模式</Tag>
-        <Tag color={getStatusColor(streamStatus)}>
-          {getStatusText(streamStatus)}
-        </Tag>
-      </Space>
-      <div className="grid grid-cols-1 gap-4 text-sm md:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
-          <Text type="secondary" className="text-sm">
-            播放方式
-          </Text>
-          <Paragraph className="m-0 font-mono text-base font-semibold">
-            HTTP-FLV 拉流
-          </Paragraph>
+    <Card className="w-full p-4 text-left">
+      {/* 卡片头部 */}
+      <div className="mb-3 flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-[var(--md-sys-color-primary)] to-[var(--md-sys-color-tertiary)]">
+          <MonitorPlay className="h-4.5 w-4.5 text-white" />
         </div>
-        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
-          <Text type="secondary" className="text-sm">
-            当前状态
-          </Text>
-          <Paragraph className="m-0 font-mono text-base font-semibold">
+        <div>
+          <div className="text-sm font-semibold">推流状态</div>
+          <div className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+            Stream Push Monitor
+          </div>
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {getStatusIcon(streamStatus)}
+          <Tag color={getStatusColor(streamStatus)}>
             {getStatusText(streamStatus)}
-          </Paragraph>
+          </Tag>
         </div>
-        <div className="rounded-lg bg-[var(--md-sys-color-surface-container-highest)] p-4">
-          <Text type="secondary" className="text-sm">
-            提示
-          </Text>
-          <Paragraph className="m-0 text-sm">
-            {streamStatus === 'live'
-              ? '房主正在推流，正常播放中'
+      </div>
+
+      {/* 统计网格 */}
+      <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-4">
+        <StatCard
+          icon={
+            <Zap
+              className="h-4.5 w-4.5"
+              style={{ color: 'var(--md-sys-color-primary)' }}
+            />
+          }
+          label="总码率"
+          value={hasStats ? `${statistics!.videoDataRate + statistics!.audioDataRate} kbps` : '--'}
+          sub={
+            hasStats
+              ? `视频 ${statistics!.videoDataRate} / 音频 ${statistics!.audioDataRate}`
+              : '等待推流'
+          }
+        />
+        <StatCard
+          icon={
+            <Film
+              className="h-4.5 w-4.5"
+              style={{ color: 'var(--md-sys-color-tertiary)' }}
+            />
+          }
+          label="帧率"
+          value={hasStats ? `${statistics!.fps} fps` : '--'}
+          sub="实时帧率"
+        />
+        <StatCard
+          icon={
+            <Wifi
+              className="h-4.5 w-4.5"
+              style={{ color: 'var(--md-sys-color-secondary)' }}
+            />
+          }
+          label="下载速度"
+          value={hasStats ? `${statistics!.speed} KB/s` : '--'}
+          sub="网络拉流速度"
+        />
+        <StatCard
+          icon={
+            <Activity
+              className="h-4.5 w-4.5"
+              style={{
+                color: hasStats && statistics!.droppedVideoFrames > 0
+                  ? 'var(--md-sys-color-error)'
+                  : 'var(--md-sys-color-primary)'
+              }}
+            />
+          }
+          label="丢帧率"
+          value={hasStats ? calcDropRate(statistics) : '--'}
+          sub={
+            hasStats
+              ? `${statistics!.droppedVideoFrames} / ${statistics!.totalVideoFrames} 帧`
+              : '丢帧 / 总帧'
+          }
+        />
+      </div>
+
+      {/* 提示信息 */}
+      <div className="mt-3 rounded-lg bg-[var(--md-sys-color-surface-container-high)] px-3 py-2">
+        <div className="flex items-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <Gauge className="h-3.5 w-3.5 flex-shrink-0" />
+          <span>
+            {isLive
+              ? '房主正在推流，HTTP-FLV 拉流播放中'
               : streamStatus === 'offline'
                 ? '等待房主开始 OBS 推流'
                 : '正在获取推流状态...'}
-          </Paragraph>
+          </span>
         </div>
       </div>
     </Card>
   )
-}
+})

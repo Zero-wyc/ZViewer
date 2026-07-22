@@ -2,14 +2,6 @@ import { AnimeSourceProvider } from './types';
 import { bilibiliBangumiAnimeProvider } from './providers/bilibiliBangumi';
 import { createRssAnimeProvider } from './providers/rss';
 import { createThirdPartyAnimeProvider } from './providers/thirdParty';
-import {
-  fetchAniSubsSubscription,
-  buildAniSubsProvidersFromSubscription,
-} from './providers/aniSubs';
-import {
-  fetchKazumiRule,
-  createKazumiProvider,
-} from './providers/kazumi';
 import { AppDataSource } from '../../data-source';
 import { SystemSettings } from '../../entities/SystemSettings';
 
@@ -52,7 +44,6 @@ export interface DataSourceConfig {
   rssSources?: RssSourceEntry[];
   thirdPartySources?: ThirdPartySourceEntry[];
   aniSubsSubscriptions?: string[];
-  kazumiRules?: string[];
 }
 
 let cachedProviders: Record<string, AnimeSourceProvider> | null = null;
@@ -72,17 +63,6 @@ function parseDataSourceConfig(raw: unknown): DataSourceConfig {
   }
   return raw as DataSourceConfig;
 }
-
-const DEFAULT_ANI_SUBS_SUBSCRIPTIONS = [
-  'https://sub.creamycake.org/v1/css1.json',
-  'https://sub.creamycake.org/v1/bt1.json',
-];
-
-const DEFAULT_KAZUMI_RULES = [
-  'https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/DM84.json',
-  'https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/7sefun.json',
-  'https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/enlie.json',
-];
 
 export async function buildAnimeProviders(
   config: DataSourceConfig,
@@ -115,36 +95,6 @@ export async function buildAnimeProviders(
           },
         );
       }
-    }
-  }
-
-  const aniSubsUrls = Array.isArray(config.aniSubsSubscriptions)
-    ? config.aniSubsSubscriptions
-    : DEFAULT_ANI_SUBS_SUBSCRIPTIONS;
-
-  for (const url of aniSubsUrls) {
-    if (!url || typeof url !== 'string') continue;
-    try {
-      const subscription = await fetchAniSubsSubscription(url);
-      const subsProviders = buildAniSubsProvidersFromSubscription(subscription);
-      Object.assign(providers, subsProviders);
-    } catch (err) {
-      console.error(`[anime] 加载 ani-subs 订阅失败: ${url}`, err);
-    }
-  }
-
-  const kazumiUrls = Array.isArray(config.kazumiRules)
-    ? config.kazumiRules
-    : DEFAULT_KAZUMI_RULES;
-
-  for (const url of kazumiUrls) {
-    if (!url || typeof url !== 'string') continue;
-    try {
-      const rule = await fetchKazumiRule(url);
-      const sourceId = `kazumi_${rule.name}`;
-      providers[sourceId] = createKazumiProvider(sourceId, rule);
-    } catch (err) {
-      console.error(`[anime] 加载 Kazumi 规则失败: ${url}`, err);
     }
   }
 

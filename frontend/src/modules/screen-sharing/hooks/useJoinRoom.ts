@@ -68,6 +68,8 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
   } = options
 
   const setStoreMode = useRoomStore((state) => state.setMode)
+  const setShareMethod = useRoomStore((state) => state.setShareMethod)
+  const setStreamKey = useRoomStore((state) => state.setStreamKey)
   const resetRoomStore = useRoomStore((state) => state.reset)
 
   const [joinStatus, setJoinStatus] = useState<JoinStatus>('idle')
@@ -123,9 +125,17 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
         { roomId: targetRoomId, password },
         (response: RequestJoinResponse) => {
           if (response.success) {
-            const mode = response.mode ?? 'screen-share'
+            // AckResponse 标准格式：mode 在 data 字段内
+            const mode = response.data?.mode ?? 'screen-share'
             setRoomMode(mode)
             setStoreMode(mode)
+            // 同步子模式与推流密钥（stream-push 子模式使用）
+            if (response.data?.shareMethod) {
+              setShareMethod(response.data.shareMethod)
+            }
+            if (response.data?.streamKey !== undefined) {
+              setStreamKey(response.data.streamKey)
+            }
             if (mode === 'watch-together') {
               if (response.message === '已加入房间') {
                 hasJoinedRef.current = true
@@ -159,7 +169,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
         }
       )
     },
-    [socket, connected, setStoreMode]
+    [socket, connected, setStoreMode, setShareMethod, setStreamKey]
   )
 
   // roomId 变化时自动加入房间（autoJoin=false 时跳过，等待手动 requestJoin）
@@ -214,6 +224,13 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
       const mode = data.mode ?? roomMode ?? 'screen-share'
       setRoomMode(mode)
       setStoreMode(mode)
+      // 同步子模式与推流密钥（stream-push 子模式使用）
+      if (data.shareMethod) {
+        setShareMethod(data.shareMethod)
+      }
+      if (data.streamKey !== undefined) {
+        setStreamKey(data.streamKey)
+      }
       if (mode === 'watch-together') {
         if (hasJoinedRef.current) {
           setJoinStatus('approved')
@@ -267,7 +284,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
       socket.off('room-name-updated', handleRoomNameUpdated)
       socket.off('room-mode-changed', handleRoomModeChanged)
     }
-  }, [socket, roomMode, joinStatus, setStoreMode])
+  }, [socket, roomMode, joinStatus, setStoreMode, setShareMethod, setStreamKey])
 
   return {
     joinStatus,

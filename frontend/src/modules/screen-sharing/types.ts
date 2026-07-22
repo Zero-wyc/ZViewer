@@ -14,11 +14,16 @@ export type JoinStatus =
 export type ConnectionState =
   'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed'
 
-/** request-join 回调响应 */
+/** request-join 回调响应（AckResponse 标准格式：业务数据在 data 字段内） */
 export interface RequestJoinResponse {
   success: boolean
   message?: string
-  mode?: RoomMode
+  data?: {
+    mode?: RoomMode
+    shareMethod?: 'webrtc' | 'stream-push'
+    /** OBS 推流密钥（stream-push 子模式专用） */
+    streamKey?: string | null
+  }
 }
 
 /** approve-join 回调响应 */
@@ -38,6 +43,10 @@ export interface JoinApprovedPayload {
   roomId: string
   name?: string | null
   mode?: RoomMode
+  /** 投屏子模式（screen-share 模式下使用） */
+  shareMethod?: 'webrtc' | 'stream-push'
+  /** OBS 推流密钥（stream-push 子模式专用） */
+  streamKey?: string | null
 }
 
 /** join-rejected 事件 payload */

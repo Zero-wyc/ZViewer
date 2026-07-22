@@ -34,9 +34,9 @@ export interface RequestNotificationProps {
 }
 
 /**
- * 房主端右下角申请通知组件。
+ * 房主端顶部居中申请通知组件。
  *
- * 替代原 ConfirmModal 居中弹窗：观众申请（加入/跳转/暂停）从播放器右下角
+ * 替代原 ConfirmModal 居中弹窗：观众申请（加入/跳转/暂停）从屏幕顶部居中
  * 滑入显示，不遮挡正在观看的内容。多条通知垂直堆叠，最新一条在底部。
  *
  * - 自动超时：默认 8s 后自动按「拒绝」处理（避免遗漏堆积）
@@ -69,7 +69,7 @@ export function RequestNotification({
 
   return createPortal(
     <div
-      className="fixed bottom-4 right-4 z-[300] flex w-80 max-w-[calc(100vw-2rem)] flex-col gap-2"
+      className="fixed top-4 left-1/2 z-[300] flex w-96 max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col gap-2"
       style={{ pointerEvents: 'none', perspective: '800px' }}
     >
       {items.map((item) => (
@@ -142,15 +142,15 @@ function NotificationCard({ item, onClose }: NotificationCardProps) {
         </div>
       )}
 
-      <div className="p-3">
+      <div className="p-4">
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-1.5">
             <ChevronRight
-              className="h-3.5 w-3.5 shrink-0"
+              className="h-4 w-4 shrink-0"
               style={{ color: 'var(--md-sys-color-primary)' }}
             />
             <span
-              className="text-xs font-semibold"
+              className="text-sm font-semibold"
               style={{ color: 'var(--md-sys-color-on-surface)' }}
             >
               {item.title}
@@ -162,22 +162,22 @@ function NotificationCard({ item, onClose }: NotificationCardProps) {
             aria-label="关闭"
             className="rounded-[var(--md-sys-radius-small)] p-0.5 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
           >
-            <X className="h-3.5 w-3.5" />
+            <X className="h-4 w-4" />
           </button>
         </div>
 
         <div
-          className="mt-1.5 text-xs leading-relaxed"
+          className="mt-2 text-sm leading-relaxed"
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         >
           {item.content}
         </div>
 
-        <div className="mt-2.5 flex items-center justify-end gap-2">
+        <div className="mt-3 flex items-center justify-end gap-2">
           <Button
             variant="secondary"
             size="sm"
-            className="h-7 px-2.5 text-[11px]"
+            className="h-8 px-3 text-xs"
             onClick={() => handleAction(false)}
           >
             {item.cancelText ?? '拒绝'}
@@ -185,8 +185,8 @@ function NotificationCard({ item, onClose }: NotificationCardProps) {
           <Button
             variant="primary"
             size="sm"
-            className="h-7 px-2.5 text-[11px]"
-            icon={<Check className="h-3 w-3" />}
+            className="h-8 px-3 text-xs"
+            icon={<Check className="h-3.5 w-3.5" />}
             onClick={() => handleAction(true)}
           >
             {item.okText ?? '同意'}

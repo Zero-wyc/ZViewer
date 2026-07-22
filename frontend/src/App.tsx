@@ -4,7 +4,7 @@ import { Layout } from '@/components/Layout'
 import { ThemeProvider } from '@/components/ThemeProvider'
 import { RequireAuth } from '@/components/RequireAuth'
 import { useAuthStore, type User } from '@/store/authStore'
-import { refreshAccessToken } from '@/lib/tokenRefresh'
+import { apiFetch } from '@/lib/api'
 import HomePage from '@/pages/HomePage'
 import LoginPage from '@/pages/LoginPage'
 import RoomPage from '@/modules/room/RoomPage'
@@ -13,21 +13,11 @@ import ProfilePage from '@/pages/ProfilePage'
 import RoomsListPage from '@/pages/RoomsListPage'
 import JoinByRoomIdPage from '@/pages/JoinByRoomIdPage'
 
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
-
 function AuthInitializer() {
-  const {
-    accessToken,
-    expireSession,
-    setUser,
-    autoLoginStatus,
-    setAutoLoginStatus,
-  } = useAuthStore()
+  const { setUser, setAutoLoginStatus } = useAuthStore()
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
-    const isAuthFailure = (status: number) => status === 401 || status === 403
     const MAX_RETRIES = 8
     let attempts = 0
 
@@ -38,51 +28,15 @@ function AuthInitializer() {
       }
     }
 
+    /**
+     * 拉取匿名 guest token 并设置 user。
+     * 无论用户之前是否登出，guest 是默认降级身份，始终可用。
+     */
     const fetchGuestToken = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/auth/guest`, {
+        const res = await apiFetch('/api/auth/guest', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-        })
-        const data = (await res.json()) as {
-          success: boolean
-          accessToken?: string
-          refreshToken?: string
-          user?: {
-            id: string
-            username: string
-            role: string
-            status?: 'active' | 'pending'
-          }
-        }
-        if (res.ok && data.success && data.accessToken && data.user) {
-          // 注意：guest 不需要持久化登录，直接 setUser + setTokens 即可。
-          // 这里复用 login 把 autoLoginStatus 置为 'done'，避免重复触发。
-          const { setTokens } = useAuthStore.getState()
-          setTokens(data.accessToken, data.refreshToken || '')
-          setUser({
-            id: data.user.id,
-            username: data.user.username,
-            role: data.user.role as User['role'],
-            status: data.user.status,
-          })
-          setAutoLoginStatus('done')
-        } else {
-          setAutoLoginStatus('done')
-        }
-      } catch (err) {
-        console.warn('[AuthInitializer] guest token fetch failed:', err)
-        setAutoLoginStatus('done')
-      }
-    }
-
-    const validate = async () => {
-      clearRetryTimer()
-      attempts += 1
-
-      try {
-        const res = await fetch(`${API_URL}/api/auth/me`, {
-          headers: { Authorization: `Bearer ${accessToken}` },
         })
         const data = (await res.json()) as {
           success: boolean
@@ -100,69 +54,74 @@ function AuthInitializer() {
             role: data.user.role as User['role'],
             status: data.user.status,
           })
-          return
-        }
-        // access token 过期/无效（401/403）：尝试 refresh，不直接 expireSession
-        if (!res.ok && isAuthFailure(res.status)) {
-          const newToken = await refreshAccessToken()
-          if (newToken) {
-            // refresh 成功 → 用新 token 再验证一次用户信息
-            try {
-              const retryRes = await fetch(`${API_URL}/api/auth/me`, {
-                headers: { Authorization: `Bearer ${newToken}` },
-              })
-              const retryData = (await retryRes.json()) as {
-                success: boolean
-                user?: {
-                  id: string
-                  username: string
-                  role: string
-                  status?: 'active' | 'pending'
-                }
-              }
-              if (retryRes.ok && retryData.success && retryData.user) {
-                setUser({
-                  id: retryData.user.id,
-                  username: retryData.user.username,
-                  role: retryData.user.role as User['role'],
-                  status: retryData.user.status,
-                })
-              }
-            } catch {
-              // refresh 后 /auth/me 网络失败：不登出，等待下次重试
-            }
-          } else {
-            // refresh 也失败：refresh token 过期/无效，才真正登出
-            expireSession()
-            void fetchGuestToken()
-          }
-          return
         }
       } catch (err) {
+        console.warn('[AuthInitializer] guest token fetch failed:', err)
+      } finally {
+        // 无论成功失败都标记为 done，避免 UI 永久卡在"正在校验登录状态"
+        setAutoLoginStatus('done')
+      }
+    }
+
+    /**
+     * 调用 /api/auth/me 验证当前会话。
+     * apiFetch 内部会在 401 时自动调 /api/auth/refresh，refresh 成功后自动重试原请求。
+     * 所以这里只要 res.ok 即可视为会话有效。
+     */
+    const validate = async () => {
+      clearRetryTimer()
+      attempts += 1
+
+      try {
+        const res = await apiFetch('/api/auth/me')
+        const data = (await res.json()) as {
+          success: boolean
+          user?: {
+            id: string
+            username: string
+            role: string
+            status?: 'active' | 'pending'
+          }
+        }
+        if (res.ok && data.success && data.user) {
+          setUser({
+            id: data.user.id,
+            username: data.user.username,
+            role: data.user.role as User['role'],
+            status: data.user.status,
+          })
+          setAutoLoginStatus('done')
+          return
+        }
+
+        // 任何非成功响应（401/403/500 等）→ 降级为 guest
+        // 注意：apiFetch 内部可能已经调过 expireSession，这里不重复调用
+        void fetchGuestToken()
+        return
+      } catch (err) {
         console.warn('[AuthInitializer] validate network error:', err)
-        // 网络错误（服务器重启中）→ 不 expireSession，等待重试
+        // 网络错误（服务器重启中）→ 重试，重试耗尽后降级为 guest
         if (attempts < MAX_RETRIES) {
           retryTimerRef.current = setTimeout(validate, 2000)
+        } else {
+          void fetchGuestToken()
         }
         return
       }
     }
 
-    if (!accessToken) {
-      if (autoLoginStatus !== 'pending') {
-        void fetchGuestToken()
-      }
-      return () => {
-        clearRetryTimer()
-      }
-    }
-
+    // 应用启动时：始终尝试 /auth/me（cookie 自动带上）。
+    // 有 access_token cookie 且未过期 → 恢复登录
+    // access_token 过期但 refresh_token 有效 → apiFetch 自动 refresh 后重试
+    // 都没有 → 降级为 guest
+    // 注意：不再检查 hasLoggedOut —— guest 是默认匿名身份，即使登出后也应自动降级
     void validate()
 
     return () => {
       clearRetryTimer()
     }
-  }, [accessToken, expireSession, setUser, autoLoginStatus, setAutoLoginStatus])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   return null
 }

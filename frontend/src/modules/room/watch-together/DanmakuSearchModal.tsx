@@ -1,123 +1,49 @@
-import { useState, useMemo, useEffect } from 'react'
-import { Search, Loader2, Tv, PlayCircle, ChevronLeft } from 'lucide-react'
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+} from 'react'
+import {
+  Search,
+  Loader2,
+  Tv,
+  PlayCircle,
+  ChevronLeft,
+  Play,
+  ThumbsUp,
+  Coins,
+  ListVideo,
+  Plus,
+  X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
-import { Modal } from '@/components/ui/Modal'
 import { Space } from '@/components/ui/Space'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
-import { useAuthStore } from '@/store/authStore'
+import { Modal } from '@/components/ui/Modal'
 import { useDanmakuStore } from '@/store/danmakuStore'
-import type { BilibiliDanmakuItem } from './danmakuEngine'
+import {
+  searchDanmaku,
+  getDanmakuEpisodes,
+  fetchDanmaku,
+} from '@/modules/danmaku/api'
+import { buildBilibiliImageProxyUrl, isBilibiliImageUrl } from './resolveSource'
+import {
+  DANMAKU_SOURCE_OPTIONS,
+  type DanmakuSource,
+  type DanmakuSearchResult,
+  type DanmakuEpisode,
+} from '@/modules/danmaku/types'
 
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
-
-export type DanmakuSource =
-  'bilibili' | 'bilibili_bangumi' | 'bahamut' | 'dandanplay'
-
-interface DanmakuSearchResult {
-  identifier: string
-  title: string
-  description?: string
-  cover?: string
-}
-
-interface DanmakuEpisode {
-  id: string
-  title: string
-}
-
-interface DanmakuPayload {
-  time: number
-  mode: number
-  color: number
-  content: string
-}
-
-const SOURCE_OPTIONS = [
-  { label: 'B站视频', value: 'bilibili' },
-  { label: 'B站番剧', value: 'bilibili_bangumi' },
-  { label: '巴哈姆特', value: 'bahamut' },
-  { label: '弹弹play', value: 'dandanplay' },
-]
-
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
-async function searchDanmaku(
-  source: DanmakuSource,
-  keyword: string
-): Promise<DanmakuSearchResult[]> {
-  const res = await fetch(
-    `${API_URL}/api/stream/danmaku/search?source=${encodeURIComponent(
-      source
-    )}&keyword=${encodeURIComponent(keyword)}`,
-    { headers: getAuthHeaders() }
-  )
-  const data = (await res.json()) as {
-    success: boolean
-    results?: DanmakuSearchResult[]
-    message?: string
-  }
-  if (!res.ok || !data.success || !Array.isArray(data.results)) {
-    throw new Error(data.message || '搜索弹幕失败')
-  }
-  return data.results
-}
-
-async function getDanmakuEpisodes(
-  source: DanmakuSource,
-  identifier: string
-): Promise<DanmakuEpisode[]> {
-  const res = await fetch(
-    `${API_URL}/api/stream/danmaku/episodes?source=${encodeURIComponent(
-      source
-    )}&identifier=${encodeURIComponent(identifier)}`,
-    { headers: getAuthHeaders() }
-  )
-  const data = (await res.json()) as {
-    success: boolean
-    episodes?: DanmakuEpisode[]
-    message?: string
-  }
-  if (!res.ok || !data.success || !Array.isArray(data.episodes)) {
-    throw new Error(data.message || '获取集数失败')
-  }
-  return data.episodes
-}
-
-async function fetchDanmaku(
-  source: DanmakuSource,
-  episode: DanmakuEpisode
-): Promise<BilibiliDanmakuItem[]> {
-  const res = await fetch(`${API_URL}/api/stream/danmaku/fetch`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      ...getAuthHeaders(),
-    },
-    body: JSON.stringify({ source, episode }),
-  })
-  const data = (await res.json()) as {
-    success: boolean
-    danmaku?: DanmakuPayload[]
-    message?: string
-  }
-  if (!res.ok || !data.success || !Array.isArray(data.danmaku)) {
-    throw new Error(data.message || '获取弹幕失败')
-  }
-  return data.danmaku.map((item, index) => ({
-    id: `${source}:${episode.id}:${index}`,
-    content: item.content,
-    time: item.time,
-    mode: item.mode,
-    color: item.color,
-    size: 25,
-  }))
+/** 格式化数字：万 / 亿 */
+function formatCount(n: number | undefined): string {
+  if (n == null) return '-'
+  if (n >= 1_0000_0000) return `${(n / 1_0000_0000).toFixed(1)}亿`
+  if (n >= 1_0000) return `${(n / 1_0000).toFixed(1)}万`
+  return String(n)
 }
 
 interface DanmakuSearchModalProps {
@@ -125,6 +51,8 @@ interface DanmakuSearchModalProps {
   onClose: () => void
   defaultSource?: DanmakuSource
   onSourceChange?: (source: DanmakuSource) => void
+  /** 打开弹窗时预填的关键词，传入后会自动触发搜索 */
+  initialKeyword?: string
 }
 
 type Step = 'search' | 'episodes'
@@ -134,6 +62,7 @@ export function DanmakuSearchModal({
   onClose,
   defaultSource,
   onSourceChange,
+  initialKeyword,
 }: DanmakuSearchModalProps) {
   const addTrack = useDanmakuStore((state) => state.addTrack)
 
@@ -158,31 +87,51 @@ export function DanmakuSearchModal({
 
   const hasResult = results.length > 0
 
-  const handleSearch = async () => {
+  const performSearch = useCallback(
+    async (searchSource: DanmakuSource, searchKeyword: string) => {
+      setLoading(true)
+      setResults([])
+      setSelectedResult(null)
+      setEpisodes([])
+      setStep('search')
+      try {
+        const list = await searchDanmaku(searchSource, searchKeyword)
+        setResults(list)
+        if (list.length === 0) {
+          message.info('未找到相关结果')
+        }
+      } catch (err) {
+        console.error('[DanmakuSearchModal] search error:', err)
+        message.error(err instanceof Error ? err.message : '搜索失败')
+      } finally {
+        setLoading(false)
+      }
+    },
+    []
+  )
+
+  const handleSearch = () => {
     const trimmed = keyword.trim()
     if (!trimmed) {
       message.warning('请输入搜索关键词')
       return
     }
-
-    setLoading(true)
-    setResults([])
-    setSelectedResult(null)
-    setEpisodes([])
-    setStep('search')
-    try {
-      const list = await searchDanmaku(source, trimmed)
-      setResults(list)
-      if (list.length === 0) {
-        message.info('未找到相关结果')
-      }
-    } catch (err) {
-      console.error('[DanmakuSearchModal] search error:', err)
-      message.error(err instanceof Error ? err.message : '搜索失败')
-    } finally {
-      setLoading(false)
-    }
+    void performSearch(source, trimmed)
   }
+
+  // 弹窗打开时若有 initialKeyword，自动填入并触发搜索
+  const lastAutoSearchRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (open && initialKeyword && lastAutoSearchRef.current !== initialKeyword) {
+      lastAutoSearchRef.current = initialKeyword
+      setKeyword(initialKeyword)
+      const searchSource = defaultSource ?? 'bilibili'
+      void performSearch(searchSource, initialKeyword)
+    }
+    if (!open) {
+      lastAutoSearchRef.current = null
+    }
+  }, [open, initialKeyword, defaultSource, performSearch])
 
   const handleSelectResult = async (result: DanmakuSearchResult) => {
     setSelectedResult(result)
@@ -211,7 +160,7 @@ export function DanmakuSearchModal({
     try {
       const items = await fetchDanmaku(source, episode)
       const label = `${selectedResult.title} · ${episode.title}`
-      addTrack(trackId, label, items, 0)
+      addTrack(trackId, label, source, items, 0)
       message.success(`已添加 ${label} 弹幕轨道（共 ${items.length} 条）`)
       onClose()
     } catch (err) {
@@ -233,177 +182,275 @@ export function DanmakuSearchModal({
     onClose()
   }
 
-  const modalTitle = useMemo(() => {
-    if (step === 'episodes' && selectedResult) {
-      return (
-        <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 w-7 shrink-0 p-0"
-            onClick={handleBack}
-            icon={<ChevronLeft className="h-4 w-4" />}
-          />
-          <span>选择集数</span>
-        </div>
-      )
-    }
-    return '搜索弹幕'
-  }, [step, selectedResult])
+  const modalTitle = '搜索弹幕'
+
+  // 右侧集数面板是否展开（step === 'episodes'）
+  const episodesOpen = step === 'episodes' && !!selectedResult
 
   return (
     <Modal
       open={open}
       onClose={handleClose}
       title={modalTitle}
-      className="max-w-lg"
+      className="max-w-4xl"
     >
-      <div className="flex flex-col gap-4">
-        {step === 'search' && (
-          <>
-            <Space className="w-full" size="sm" align="end">
-              <Select
-                label="数据源"
-                value={source}
-                options={SOURCE_OPTIONS}
-                onChange={(value) => {
-                  const newSource = value as DanmakuSource
-                  setSource(newSource)
-                  onSourceChange?.(newSource)
-                }}
-                className="w-36 shrink-0"
-              />
-              <Input
-                label="关键词"
-                value={keyword}
-                onChange={(e) => setKeyword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault()
-                    handleSearch()
-                  }
-                }}
-                placeholder="输入番剧/视频名称"
-                className="flex-1"
-              />
-              <Button
-                variant="primary"
-                size="md"
-                className="h-9 w-9 shrink-0 p-0"
-                loading={loading}
-                disabled={!keyword.trim() || loading}
-                onClick={handleSearch}
-                icon={
-                  loading ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Search className="h-4 w-4" />
-                  )
+      <div
+        className="grid h-[70vh] gap-3"
+        style={{
+          gridTemplateColumns: episodesOpen
+            ? '1fr 340px'
+            : '1fr 0fr',
+          transition: 'grid-template-columns 0.4s var(--ease-out-expo)',
+        }}
+      >
+        {/* 左栏：搜索区（常驻显示） */}
+        <div className="flex min-w-0 flex-col gap-3">
+          <Space className="w-full" size="sm" align="end">
+            <Select
+              label="数据源"
+              value={source}
+              options={DANMAKU_SOURCE_OPTIONS}
+              onChange={(value) => {
+                const newSource = value as DanmakuSource
+                setSource(newSource)
+                onSourceChange?.(newSource)
+              }}
+              className="w-36 shrink-0"
+            />
+            <Input
+              label="关键词"
+              value={keyword}
+              onChange={(e) => setKeyword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  handleSearch()
                 }
-              />
-            </Space>
+              }}
+              placeholder="输入番剧/视频名称或 BV 号"
+              className="flex-1"
+            />
+            <Button
+              variant="primary"
+              size="md"
+              className="h-9 w-9 shrink-0 p-0"
+              loading={loading}
+              disabled={!keyword.trim() || loading}
+              onClick={handleSearch}
+              icon={
+                loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Search className="h-4 w-4" />
+                )
+              }
+            />
+          </Space>
 
-            <div className="flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
-              {!hasResult && !loading && (
+          <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+            {!hasResult && !loading && (
+              <div
+                className="flex flex-1 flex-col items-center justify-center gap-2 rounded-[var(--md-sys-shape-corner)] border p-6 text-center"
+                style={{
+                  backgroundColor:
+                    'var(--md-sys-color-surface-container-high)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <Search className="h-8 w-8 opacity-40" />
+                <Text type="secondary" className="text-xs">
+                  输入关键词并搜索以查找弹幕源
+                </Text>
+              </div>
+            )}
+
+            {results.map((result) => {
+              const stats = result.stats
+              // B站 CDN 封面有防盗链 + ORB 限制，按 URL 域名判断是否走代理
+              // （巴哈姆特等源也可能热链 B站 CDN 图片）
+              const coverUrl = result.cover
+                ? isBilibiliImageUrl(result.cover)
+                  ? buildBilibiliImageProxyUrl(result.cover)
+                  : result.cover
+                : ''
+              const isActive = selectedResult?.identifier === result.identifier
+              return (
                 <div
-                  className="flex flex-col items-center justify-center gap-2 rounded-[var(--md-sys-shape-corner)] border p-6 text-center"
-                  style={{
-                    backgroundColor:
-                      'var(--md-sys-color-surface-container-high)',
-                    borderColor: 'var(--md-sys-color-outline-variant)',
-                  }}
-                >
-                  <Search className="h-8 w-8 opacity-40" />
-                  <Text type="secondary" className="text-xs">
-                    输入关键词并搜索以查找弹幕源
-                  </Text>
-                </div>
-              )}
-
-              {results.map((result) => (
-                <button
                   key={result.identifier}
-                  type="button"
-                  onClick={() => handleSelectResult(result)}
-                  className="flex items-start gap-3 rounded-[var(--md-sys-shape-corner)] border p-2.5 text-left transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                  className="flex items-start gap-3 rounded-[var(--md-sys-shape-corner)] border p-2.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]"
                   style={{
-                    backgroundColor:
-                      'var(--md-sys-color-surface-container-high)',
-                    borderColor: 'var(--md-sys-color-outline-variant)',
+                    backgroundColor: isActive
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'var(--md-sys-color-surface-container-high)',
+                    borderColor: isActive
+                      ? 'var(--md-sys-color-primary)'
+                      : 'var(--md-sys-color-outline-variant)',
                   }}
                 >
+                  {/* 封面 */}
                   <div
-                    className="flex h-16 w-12 shrink-0 items-center justify-center overflow-hidden rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-highest)]"
+                    className="flex h-16 w-24 shrink-0 items-center justify-center overflow-hidden rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-highest)]"
                     style={{
-                      backgroundImage: result.cover
-                        ? `url(${result.cover})`
+                      backgroundImage: coverUrl
+                        ? `url(${coverUrl})`
                         : undefined,
                       backgroundSize: 'cover',
                       backgroundPosition: 'center',
                     }}
                   >
-                    {!result.cover && <Tv className="h-5 w-5 opacity-40" />}
+                    {!coverUrl && <Tv className="h-5 w-5 opacity-40" />}
                   </div>
-                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                    <Text className="truncate text-sm font-medium">
+
+                  {/* 标题 + 统计 */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <Text className="line-clamp-2 text-sm font-medium leading-tight">
                       {result.title}
                     </Text>
                     {result.description && (
-                      <Text type="secondary" className="line-clamp-2 text-xs">
+                      <Text
+                        type="secondary"
+                        className="line-clamp-1 text-[11px] leading-tight"
+                      >
                         {result.description}
                       </Text>
                     )}
+                    {stats && (
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                        <span className="flex items-center gap-0.5">
+                          <Play className="h-3 w-3" />
+                          {formatCount(stats.play)}
+                        </span>
+                        <span className="flex items-center gap-0.5">
+                          <ThumbsUp className="h-3 w-3" />
+                          {formatCount(stats.like)}
+                        </span>
+                        <span className="flex items-center gap-0.5">
+                          <Coins className="h-3 w-3" />
+                          {formatCount(stats.coin)}
+                        </span>
+                        <span className="flex items-center gap-0.5">
+                          <ListVideo className="h-3 w-3" />
+                          {formatCount(stats.danmaku)}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                </button>
-              ))}
-            </div>
-          </>
-        )}
 
-        {step === 'episodes' && (
-          <div className="flex max-h-80 flex-col gap-2 overflow-y-auto pr-1">
-            {episodes.length === 0 && !loading && (
-              <Text type="secondary" className="py-6 text-center text-xs">
-                暂无可用集数
-              </Text>
-            )}
-            {episodes.map((episode) => (
-              <div
-                key={episode.id}
-                className="flex items-center justify-between gap-3 rounded-[var(--md-sys-shape-corner)] border p-3"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                  borderColor: 'var(--md-sys-color-outline-variant)',
-                }}
-              >
-                <div className="flex min-w-0 items-center gap-2">
-                  <PlayCircle className="h-4 w-4 shrink-0 opacity-60" />
-                  <Text className="truncate text-sm">{episode.title}</Text>
+                  {/* 右侧添加按钮 */}
+                  <Button
+                    variant={isActive ? 'secondary' : 'primary'}
+                    size="sm"
+                    className="h-8 w-8 shrink-0 p-0"
+                    onClick={() => handleSelectResult(result)}
+                    icon={
+                      isActive ? (
+                        <ChevronLeft className="h-4 w-4" />
+                      ) : (
+                        <Plus className="h-4 w-4" />
+                      )
+                    }
+                  />
                 </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  className="h-7 shrink-0 px-2.5 text-xs"
-                  loading={addingEpisodeId === episode.id}
-                  disabled={!!addingEpisodeId}
-                  onClick={() => handleAddEpisode(episode)}
-                >
-                  添加
-                </Button>
-              </div>
-            ))}
+              )
+            })}
           </div>
-        )}
+        </div>
 
-        {loading && (
-          <div className="flex items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            <Text type="secondary" className="text-xs">
-              加载中…
-            </Text>
-          </div>
-        )}
+        {/* 右栏：集数面板（从右侧滑入） */}
+        <div
+          className="flex min-w-0 flex-col overflow-hidden"
+          style={{
+            opacity: episodesOpen ? 1 : 0,
+            transform: episodesOpen
+              ? 'translateX(0)'
+              : 'translateX(16px)',
+            transition:
+              'opacity 0.32s var(--ease-out-expo), transform 0.4s var(--ease-out-expo)',
+          }}
+        >
+          {episodesOpen && (
+            <div className="flex h-full flex-col border-l border-[var(--md-sys-color-outline-variant)] pl-3">
+            <div className="flex items-center justify-between gap-2 pb-2">
+              <div className="flex min-w-0 flex-col">
+                <Text
+                  type="secondary"
+                  className="text-[10px] uppercase tracking-wide"
+                >
+                  选择集数
+                </Text>
+                <Text className="truncate text-sm font-medium">
+                  {selectedResult?.title}
+                </Text>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 w-7 shrink-0 p-0"
+                onClick={handleBack}
+                icon={<X className="h-4 w-4" />}
+              />
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-1">
+              {episodes.length === 0 && !loading && (
+                <div className="flex flex-1 items-center justify-center">
+                  <Text type="secondary" className="text-xs">
+                    暂无可用集数
+                  </Text>
+                </div>
+              )}
+              {episodes.map((episode) => (
+                <div
+                  key={episode.id}
+                  className="flex items-center justify-between gap-3 rounded-[var(--md-sys-shape-corner)] border p-3"
+                  style={{
+                    backgroundColor:
+                      'var(--md-sys-color-surface-container-high)',
+                    borderColor: 'var(--md-sys-color-outline-variant)',
+                  }}
+                >
+                  <div className="flex min-w-0 items-center gap-2">
+                    <PlayCircle className="h-4 w-4 shrink-0 opacity-60" />
+                    <Text className="truncate text-sm">
+                      {episode.title}
+                    </Text>
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    className="h-7 shrink-0 px-2.5 text-xs"
+                    loading={addingEpisodeId === episode.id}
+                    disabled={!!addingEpisodeId}
+                    onClick={() => handleAddEpisode(episode)}
+                  >
+                    添加
+                  </Button>
+                </div>
+              ))}
+
+              {loading && (
+                <div className="flex items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Text type="secondary" className="text-xs">
+                    加载中…
+                  </Text>
+                </div>
+              )}
+            </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {/* 左栏 loading 指示（独立于右侧面板） */}
+      {loading && step === 'search' && (
+        <div className="mt-2 flex items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          <Text type="secondary" className="text-xs">
+            加载中…
+          </Text>
+        </div>
+      )}
     </Modal>
   )
 }

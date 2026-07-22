@@ -1,54 +1,15 @@
-import { useAuthStore } from '@/store/authStore'
 import Danmaku from 'danmaku'
 import type {
   DanmakuAdvancedStyle,
   DanmakuTypeFilters,
 } from '@/store/danmakuStore'
+import type { DanmakuItem } from '@/modules/danmaku/types'
 
 type DanmakuComment = {
   text?: string
   mode?: 'ltr' | 'rtl' | 'top' | 'bottom'
   time?: number
   style?: Partial<CSSStyleDeclaration> | CanvasRenderingContext2D
-}
-
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
-
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken
-  return token ? { Authorization: `Bearer ${token}` } : {}
-}
-
-export interface BilibiliDanmakuItem {
-  id: string
-  content: string
-  time: number
-  mode: number
-  color: number
-  size: number
-  sendTime?: number
-}
-
-export async function fetchBilibiliDanmaku(
-  cidOrBvid: number | string
-): Promise<BilibiliDanmakuItem[]> {
-  const key = typeof cidOrBvid === 'number' ? 'cid' : 'bvid'
-  const res = await fetch(
-    `${API_URL}/api/stream/bilibili/danmaku?${key}=${encodeURIComponent(
-      String(cidOrBvid)
-    )}`,
-    { headers: getAuthHeaders() }
-  )
-  const data = (await res.json()) as {
-    success: boolean
-    danmaku?: BilibiliDanmakuItem[]
-    message?: string
-  }
-  if (!res.ok || !data.success || !data.danmaku) {
-    throw new Error(data.message || '获取 B站 弹幕失败')
-  }
-  return data.danmaku
 }
 
 export interface SendDanmakuOptions {
@@ -68,7 +29,7 @@ export interface DanmakuStyleOptions {
 }
 
 export interface DanmakuTrackData {
-  items: BilibiliDanmakuItem[]
+  items: DanmakuItem[]
   offset: number
 }
 
@@ -119,7 +80,7 @@ function isBlocked(
 }
 
 function isBlockedByType(
-  item: BilibiliDanmakuItem,
+  item: DanmakuItem,
   filters: DanmakuTypeFilters
 ): boolean {
   const isScroll = [1, 2, 3, 6].includes(item.mode)
@@ -207,7 +168,7 @@ export class DanmakuEngineAdapter {
     return style
   }
 
-  private convertBiliItem(item: BilibiliDanmakuItem): DanmakuComment {
+  private convertBiliItem(item: DanmakuItem): DanmakuComment {
     const mode = mapBiliModeToDanmakuJs(item.mode)
     return {
       text: item.content,
@@ -254,15 +215,11 @@ export class DanmakuEngineAdapter {
     this.danmaku.emit(emitParams)
   }
 
-  loadTimelineDanmaku(items: BilibiliDanmakuItem[]): void {
+  loadTimelineDanmaku(items: DanmakuItem[]): void {
     this.loadDanmakuTrack('default', items, 0)
   }
 
-  loadDanmakuTrack(
-    trackId: string,
-    comments: BilibiliDanmakuItem[],
-    offset = 0
-  ): void {
+  loadDanmakuTrack(trackId: string, comments: DanmakuItem[], offset = 0): void {
     this.tracks.set(trackId, {
       items: [...comments].sort((a, b) => a.time - b.time),
       offset,

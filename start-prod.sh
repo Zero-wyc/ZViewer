@@ -16,7 +16,7 @@ FRONTEND_LOG="$ROOT_DIR/frontend-prod.log"
 FRONTEND_ERR_LOG="$ROOT_DIR/frontend-prod.err.log"
 
 # 默认端口（可被 .prod.ports.json 或命令行参数覆盖）
-DEFAULT_PORT=3000
+DEFAULT_PORT=3333
 DEFAULT_FRONTEND_PORT=4173
 PORT=""
 FRONTEND_PORT=""
@@ -51,7 +51,7 @@ usage() {
   --auto-build           智能构建：产物新于源代码时自动跳过（默认行为）
   --no-auto-build        禁用智能构建跳过，强制构建
   --force-deps           强制重新安装依赖（默认跳过已安装）
-  -p, --port <int>       后端端口（默认 3000，优先级高于配置文件）
+  -p, --port <int>       后端端口（默认 3333，优先级高于配置文件）
   --frontend-port <int>  前端端口（默认 4173，优先级高于配置文件）
   -d, --database <url>   数据库 URL
 

@@ -17,6 +17,6 @@ RUN npm run build
 # 创建数据库持久化目录
 RUN mkdir -p /app/data
 
-EXPOSE 3000
+EXPOSE 3333
 
 CMD ["node", "dist/index.js"]

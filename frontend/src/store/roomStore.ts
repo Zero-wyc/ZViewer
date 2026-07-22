@@ -1,22 +1,14 @@
 import { create } from 'zustand'
-import { useAuthStore } from '@/store/authStore'
+import { apiFetch, API_URL } from '@/lib/api'
 import type {
   ResolvedSource,
   QualityOption,
 } from '@/modules/room/watch-together/resolveSource'
 import type { MediaFormat } from '@/lib/mediaFormat'
+import type { WatchTogetherState } from '@/modules/sync-playback/types'
 
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
-
-function getAuthHeaders(): Record<string, string> {
-  const token = useAuthStore.getState().accessToken
-  return token
-    ? {
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      }
-    : { 'Content-Type': 'application/json' }
+function jsonHeaders(): Record<string, string> {
+  return { 'Content-Type': 'application/json' }
 }
 
 export interface Viewer {
@@ -31,6 +23,9 @@ export interface Viewer {
 
 export type RoomMode = 'screen-share' | 'watch-together'
 export type ShareMethod = 'webrtc' | 'stream-push'
+
+/** OBS 推流状态 */
+export type StreamStatus = 'live' | 'offline' | 'unknown'
 
 export interface RoomSettings {
   password: string | null
@@ -125,35 +120,9 @@ async function parseResponse<T>(res: Response): Promise<T> {
   return data
 }
 
-export interface WatchTogetherState {
-  sourceUrl: string
-  sourceType:
-    | 'url'
-    | 'webdav'
-    | 'ftp'
-    | 'openlist'
-    | 'smb'
-    | 'bilibili'
-    | 'anime'
-    | string
-  audioUrl?: string
-  format?: MediaFormat
-  videoCodec?: string
-  audioCodec?: string
-  cid?: number
-  isPlaying: boolean
-  currentTime: number
-  playbackRate: number
-  duration: number
-  currentQn?: number
-  acceptQuality?: { id: number; label: string; resolution?: string }[]
-  /** 源指定的防盗链 headers（Referer/UA 等），由后端 resolve 返回 */
-  headers?: Record<string, string>
-  /** 是否为预览源（未加入影片列表的临时播放） */
-  isPreview?: boolean
-  /** 预览源的显示标题 */
-  previewTitle?: string
-}
+// WatchTogetherState 的唯一权威定义在 sync-playback/types.ts，
+// 此处 re-export 以保持向后兼容的导入路径（`import type { WatchTogetherState } from '@/store/roomStore'`）。
+export type { WatchTogetherState }
 
 /**
  * 预览播放请求：由 MoviePushPanel 等外部组件写入 store，
@@ -193,6 +162,41 @@ interface RoomState {
   pendingQualityChange: { movieId: number; resolved: ResolvedSource } | null
   /** 待处理的预览播放请求（由 MoviePushPanel 触发，useWatchTogether 消费） */
   pendingPreviewPlay: PreviewPlayRequest | null
+  /**
+   * 待处理的 B站 重新解析请求计数器（由 BilibiliParseSettings 触发，useWatchTogether 消费）。
+   * 使用计数器而非布尔值，确保连续多次触发都能被消费（每次 set 都会使值变化）。
+   */
+  pendingReloadBilibili: number
+  /**
+   * MSE 流重新加载（seek 到未缓冲区域）状态。
+   * - isReloading=true 期间进度条显示 reloadTargetTime 而非 video.currentTime（避免归零）
+   * - 同时在播放器上展示加载动画
+   * 纯 UI 状态，不广播到后端。房主与观众端各自独立维护。
+   */
+  isReloading: boolean
+  reloadTargetTime: number | null
+  /**
+   * 房主端「自动通过申请」开关。
+   * 开启后，seek / 暂停 / 继续播放 申请自动通过，无需手动确认。
+   * 放在 roomStore 中，方便 RoomInfoPanel 与 WatchTogetherPanel 共享。
+   */
+  autoApproveRequests: boolean
+  /** OBS 推流状态（stream-push 子模式专用）。
+   * - live：NMS 已收到推流
+   * - offline：NMS 未收到推流或推流已结束
+   * - unknown：初始状态，尚未收到 stream-status 事件
+   * 放在 roomStore 中实现单一数据源，供 SharePage、WatchPage、StreamStatusPanel 等组件共享。
+   */
+  streamStatus: StreamStatus
+  setStreamStatus: (status: StreamStatus) => void
+  /**
+   * OBS 推流密钥（stream-push 子模式专用）。
+   * 与 roomId 分离，用于 OBS 推流码和 HTTP-FLV 拉流 URL。
+   */
+  streamKey: string | null
+  setStreamKey: (key: string | null) => void
+  setReloadingState: (isReloading: boolean, targetTime: number | null) => void
+  toggleAutoApproveRequests: () => void
   setRoomId: (id: string) => void
   setRoomName: (name: string) => void
   setPassword: (password: string) => void
@@ -215,6 +219,8 @@ interface RoomState {
     value: { movieId: number; resolved: ResolvedSource } | null
   ) => void
   setPendingPreviewPlay: (value: PreviewPlayRequest | null) => void
+  /** 触发一次 B站 重新解析（计数器递增） */
+  triggerReloadBilibili: () => void
   reset: () => void
   // REST API
   fetchMovies: (roomId: string) => Promise<void>
@@ -295,6 +301,12 @@ const defaultState = {
   currentMovieId: null,
   pendingQualityChange: null,
   pendingPreviewPlay: null,
+  pendingReloadBilibili: 0,
+  isReloading: false,
+  reloadTargetTime: null,
+  autoApproveRequests: false,
+  streamStatus: 'unknown' as StreamStatus,
+  streamKey: null,
 }
 
 export const useRoomStore = create<RoomState>((set, get) => ({
@@ -305,6 +317,8 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setMaxViewers: (max) => set({ maxViewers: max }),
   setMode: (mode) => set({ mode }),
   setShareMethod: (method) => set({ shareMethod: method }),
+  setStreamStatus: (status) => set({ streamStatus: status }),
+  setStreamKey: (key) => set({ streamKey: key }),
   addViewer: (viewer) =>
     set((state) => {
       if (state.viewers.some((v) => v.socketId === viewer.socketId)) {
@@ -381,16 +395,21 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setCurrentMovieId: (id) => set({ currentMovieId: id }),
   setPendingQualityChange: (value) => set({ pendingQualityChange: value }),
   setPendingPreviewPlay: (value) => set({ pendingPreviewPlay: value }),
+  triggerReloadBilibili: () =>
+    set((state) => ({
+      pendingReloadBilibili: state.pendingReloadBilibili + 1,
+    })),
+  setReloadingState: (isReloading, targetTime) =>
+    set({ isReloading, reloadTargetTime: targetTime }),
+  toggleAutoApproveRequests: () =>
+    set((state) => ({ autoApproveRequests: !state.autoApproveRequests })),
   reset: () => set({ ...defaultState }),
 
   // REST API 调用：成功后由后端 socket 广播 movie-list 刷新本地 state；
   // 失败时抛出错误，调用方负责提示用户且不更新本地 state。
   fetchMovies: async (roomId) => {
-    const res = await fetch(
-      `${API_URL}/api/rooms/${encodeURIComponent(roomId)}/movies`,
-      {
-        headers: getAuthHeaders(),
-      }
+    const res = await apiFetch(
+      `${API_URL}/api/rooms/${encodeURIComponent(roomId)}/movies`
     )
     const data = await parseResponse<{
       success: boolean
@@ -404,11 +423,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 
   addMovie: async (roomId, payload) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `${API_URL}/api/rooms/${encodeURIComponent(roomId)}/movies`,
       {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: jsonHeaders(),
         body: JSON.stringify(payload),
       }
     )
@@ -424,11 +443,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 
   updateMovie: async (roomId, movieId, payload) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `${API_URL}/api/rooms/${encodeURIComponent(roomId)}/movies/${movieId}`,
       {
         method: 'PUT',
-        headers: getAuthHeaders(),
+        headers: jsonHeaders(),
         body: JSON.stringify(payload),
       }
     )
@@ -442,11 +461,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 
   removeMovie: async (roomId, movieId) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `${API_URL}/api/rooms/${encodeURIComponent(roomId)}/movies/${movieId}`,
       {
         method: 'DELETE',
-        headers: getAuthHeaders(),
       }
     )
     const data = await parseResponse<{ success: boolean; message?: string }>(
@@ -463,11 +481,11 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   },
 
   reorderMovies: async (roomId, orderedIds) => {
-    const res = await fetch(
+    const res = await apiFetch(
       `${API_URL}/api/rooms/${encodeURIComponent(roomId)}/movies/reorder`,
       {
         method: 'POST',
-        headers: getAuthHeaders(),
+        headers: jsonHeaders(),
         body: JSON.stringify({ orderedIds }),
       }
     )

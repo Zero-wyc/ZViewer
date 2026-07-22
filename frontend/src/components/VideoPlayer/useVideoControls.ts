@@ -41,9 +41,11 @@ const videoStateCache = new WeakMap<HTMLVideoElement, VideoState>()
 function areVideoStatesEqual(a: VideoState, b: VideoState): boolean {
   return (
     a.isPlaying === b.isPlaying &&
-    a.currentTime === b.currentTime &&
+    // currentTime 降到 0.1s 精度，避免 timeupdate 每秒 4-8 次浮点变化触发 re-render
+    Math.round(a.currentTime * 10) === Math.round(b.currentTime * 10) &&
     a.duration === b.duration &&
-    a.bufferedPercent === b.bufferedPercent &&
+    // bufferedPercent 降到整数精度，MSE appendBuffer 时每 1-2s 才触发一次
+    Math.round(a.bufferedPercent) === Math.round(b.bufferedPercent) &&
     a.volume === b.volume &&
     a.isMuted === b.isMuted &&
     a.playbackRate === b.playbackRate
@@ -77,6 +79,18 @@ function subscribeToVideo(
 ) {
   if (!video) return () => {}
 
+  // rAF 节流：合并同一帧内多个事件（timeupdate + progress）为一次 callback，
+  // 避免每秒 4-8 次 timeupdate 叠加 progress 事件导致高频 re-render。
+  // 离散事件（play/pause/ratechange 等）也走 rAF，延迟一帧无感知但减少抖动。
+  let rafId: number | null = null
+  const scheduleCallback = () => {
+    if (rafId !== null) return
+    rafId = requestAnimationFrame(() => {
+      rafId = null
+      callback()
+    })
+  }
+
   const events = [
     'play',
     'pause',
@@ -87,9 +101,12 @@ function subscribeToVideo(
     'ratechange',
     'volumechange',
   ]
-  events.forEach((event) => video.addEventListener(event, callback))
+  events.forEach((event) => video.addEventListener(event, scheduleCallback))
   return () => {
-    events.forEach((event) => video.removeEventListener(event, callback))
+    events.forEach((event) =>
+      video.removeEventListener(event, scheduleCallback)
+    )
+    if (rafId !== null) cancelAnimationFrame(rafId)
   }
 }
 

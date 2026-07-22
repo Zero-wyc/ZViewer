@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Monitor } from 'lucide-react'
+import { Monitor, Copy, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { ConfirmModal } from '@/components/ui/Modal'
+import { RequestNotification } from '@/components/ui/RequestNotification'
+import type { RequestNotificationItem } from '@/components/ui/RequestNotification'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
@@ -14,7 +16,7 @@ import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { useLocalMediaStream } from '../hooks/useLocalMediaStream'
 import { useHostPeerConnections } from '../hooks/useHostPeerConnections'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
-import { useStreamPush } from '../hooks/useStreamPush'
+import { useStreamStatus, useShareMethod } from '../hooks/useStreamPush'
 import { MediaSettingsCard } from './MediaSettingsCard'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
@@ -44,11 +46,12 @@ function SharePage({
   const currentRoomId = roomId ?? ''
 
   // 推流子模式状态（房主端独有）
-  const { shareMethod, streamStatus, updateShareMethod } = useStreamPush({
+  const streamStatus = useStreamStatus(socket, currentRoomId)
+  const { shareMethod, updateShareMethod } = useShareMethod(
     socket,
-    roomId: currentRoomId,
-    isHost: true,
-  })
+    currentRoomId,
+    true,
+  )
 
   const handleShareMethodChange = useCallback(
     (value: string) => {
@@ -73,20 +76,34 @@ function SharePage({
   const [shareMicrophone, setShareMicrophone] = useState(false)
   const [closing, setClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  // 观众加入审批：投屏模式下与一起看模式行为一致，弹通知卡由房主手动同意/拒绝
+  const [confirmJoin, setConfirmJoin] = useState<{
+    viewerSocketId: string
+  } | null>(null)
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   // onStreamEnded 需引用下方 hook 返回的 stop/cleanupPeerConnections，用 ref 转发避免循环依赖
   const handleStreamEndedRef = useRef<() => void>(() => {})
 
-  const { stream, micStream, isSharing, isPaused, start, stop, pause, resume } =
-    useLocalMediaStream({
-      frameRate,
-      maxBitrateMbps,
-      shareSystemAudio,
-      shareMicrophone,
-      onStreamEnded: () => handleStreamEndedRef.current(),
-      localVideoRef,
-    })
+  const {
+    stream,
+    micStream,
+    isSharing,
+    starting,
+    isPaused,
+    error: mediaError,
+    start,
+    stop,
+    pause,
+    resume,
+  } = useLocalMediaStream({
+    frameRate,
+    maxBitrateMbps,
+    shareSystemAudio,
+    shareMicrophone,
+    onStreamEnded: () => handleStreamEndedRef.current(),
+    localVideoRef,
+  })
 
   const {
     connectionCount,
@@ -146,21 +163,13 @@ function SharePage({
     [setMode, stop, cleanupPeerConnections]
   )
 
-  const handleCloseRoom = useCallback(() => {
-    if (!socket) return
-    setClosing(true)
+  // 结束共享：仅停止本地媒体流与 PeerConnection，不关闭房间。
+  // 房主回到未共享状态（显示房间号和「开始共享」按钮），可重新开始共享或切换到一起看模式。
+  // 关闭房间由导航栏返回 / 时由 RoomLayout defaultBack 触发 close-room 事件完成。
+  const handleStopSharing = useCallback(() => {
     stop()
     cleanupPeerConnections()
-    socket.emit('close-room', (response: CloseRoomResponse) => {
-      setClosing(false)
-      if (response.success) {
-        message.success('房间已关闭')
-        navigate('/', { replace: true })
-      } else {
-        message.error(response.message ?? '关闭房间失败')
-      }
-    })
-  }, [socket, stop, cleanupPeerConnections, navigate])
+  }, [stop, cleanupPeerConnections])
 
   const handleClearAnnotations = useCallback(() => {
     if (!socket || !currentRoomId) return
@@ -179,6 +188,27 @@ function SharePage({
       .then(() => message.success('观看链接已复制'))
   }, [currentRoomId])
 
+  const handleCopyError = useCallback(() => {
+    if (!mediaError) return
+    navigator.clipboard
+      .writeText(mediaError)
+      .then(() => message.success('错误详情已复制，可粘贴给管理员'))
+      .catch(() => message.error('复制失败，请手动选择文本复制'))
+  }, [mediaError])
+
+  // 检测是否在 iframe 中（如 IDE 内置预览），用于显示「在新窗口打开」按钮
+  const inIframe = (() => {
+    try {
+      return window.self !== window.top
+    } catch {
+      return true
+    }
+  })()
+
+  const handleOpenInNewWindow = useCallback(() => {
+    window.open(window.location.href, '_blank', 'noopener,noreferrer')
+  }, [])
+
   const handleTogglePause = useCallback(() => {
     if (isPaused) resume()
     else pause()
@@ -196,22 +226,76 @@ function SharePage({
     onRoomModeChanged: handleRoomModeChanged,
   })
 
-  // 房主端单独订阅 join-request（自动 approve-join），保持 useSignalingChannel 通用性
+  // 房主端单独订阅 join-request：弹通知卡由房主手动同意/拒绝（与一起看模式行为一致）
   useEffect(() => {
     if (!socket) return
     const handleJoinRequest = (data: { viewerSocketId: string }) => {
-      socket.emit(
-        'approve-join',
-        { viewerSocketId: data.viewerSocketId },
-        (response: { success: boolean; message?: string }) => {
-          if (!response.success)
-            message.error(response.message ?? '允许加入失败')
-        }
-      )
+      setConfirmJoin({ viewerSocketId: data.viewerSocketId })
     }
     socket.on('join-request', handleJoinRequest)
     return () => void socket.off('join-request', handleJoinRequest)
   }, [socket])
+
+  const handleApproveJoin = useCallback(() => {
+    if (!confirmJoin || !socket) return
+    const viewerSocketId = confirmJoin.viewerSocketId
+    socket.emit(
+      'approve-join',
+      { viewerSocketId },
+      (response: { success: boolean; message?: string }) => {
+        if (response.success) {
+          message.success('已允许加入')
+        } else {
+          message.error(response.message ?? '允许加入失败')
+        }
+      }
+    )
+    setConfirmJoin(null)
+  }, [confirmJoin, socket])
+
+  const handleRejectJoin = useCallback(() => {
+    if (!confirmJoin || !socket) return
+    const viewerSocketId = confirmJoin.viewerSocketId
+    socket.emit(
+      'reject-join',
+      { viewerSocketId },
+      (response: { success: boolean; message?: string }) => {
+        if (response.success) {
+          message.info('已拒绝加入')
+        } else {
+          message.error(response.message ?? '拒绝失败')
+        }
+      }
+    )
+    setConfirmJoin(null)
+  }, [confirmJoin, socket])
+
+  // 房主端：将观众加入请求汇总为右下角通知列表（与 WatchTogetherPanel 行为一致）
+  const joinRequestNotifications: RequestNotificationItem[] = []
+  if (confirmJoin) {
+    joinRequestNotifications.push({
+      id: 'join',
+      title: '观看请求',
+      okText: '允许',
+      cancelText: '拒绝',
+      onOk: handleApproveJoin,
+      onCancel: handleRejectJoin,
+      autoCloseMs: 12000,
+      content: (
+        <>
+          有观看者请求加入房间（
+          <span style={{ color: 'var(--md-sys-color-primary)' }}>
+            {confirmJoin.viewerSocketId.slice(0, 8)}
+          </span>
+          ），是否允许？
+        </>
+      ),
+    })
+  }
+
+  const handleCloseJoinNotification = useCallback((id: string) => {
+    if (id === 'join') setConfirmJoin(null)
+  }, [])
 
   useEffect(() => {
     onStatsPeerConnectionChange?.(statsPeerConnection)
@@ -273,11 +357,7 @@ function SharePage({
 
       {shareMethod === 'stream-push' ? (
         <div className="h-full w-full pt-16">
-          <StreamPushPage
-            roomId={currentRoomId}
-            socket={socket}
-            streamStatus={streamStatus}
-          />
+          <StreamPushPage roomId={currentRoomId} />
         </div>
       ) : isSharing ? (
         <>
@@ -337,9 +417,58 @@ function SharePage({
             variant="primary"
             icon={<Monitor className="h-5 w-5" />}
             onClick={start}
+            loading={starting}
+            disabled={starting || closing}
           >
-            开始共享
+            {starting ? '正在请求权限...' : '开始共享'}
           </Button>
+          {inIframe && (
+            <div
+              className="m-0 max-w-md rounded px-3 py-2 text-xs"
+              style={{
+                backgroundColor: 'var(--md-sys-color-tertiary-container)',
+              }}
+            >
+              <Paragraph type="secondary" className="m-0 mb-2 text-xs">
+                检测到当前页面运行在嵌入式预览（iframe）环境中，屏幕共享功能可能被浏览器限制。建议在新窗口中打开本页面：
+              </Paragraph>
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<ExternalLink className="h-3.5 w-3.5" />}
+                onClick={handleOpenInNewWindow}
+              >
+                在新窗口打开
+              </Button>
+            </div>
+          )}
+          {mediaError && (
+            <div
+              className="relative m-0 max-w-md rounded px-3 py-2 text-xs"
+              style={{
+                backgroundColor: 'var(--md-sys-color-error-container)',
+              }}
+            >
+              <Paragraph
+                type="danger"
+                className="m-0 whitespace-pre-line pr-8 text-xs"
+              >
+                {mediaError}
+              </Paragraph>
+              <button
+                type="button"
+                onClick={handleCopyError}
+                className="absolute right-2 top-2 rounded p-1 opacity-70 hover:opacity-100"
+                style={{
+                  color: 'var(--md-sys-color-on-error-container)',
+                  backgroundColor: 'transparent',
+                }}
+                title="复制错误详情"
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
           <Paragraph type="secondary" className="m-0 max-w-md text-xs">
             将链接发送给观看方，对方打开后即可自动加入房间观看。
           </Paragraph>
@@ -351,15 +480,20 @@ function SharePage({
         onClose={() => setConfirmClose(false)}
         onOk={() => {
           setConfirmClose(false)
-          handleCloseRoom()
+          handleStopSharing()
         }}
         onCancel={() => setConfirmClose(false)}
         title="结束共享"
         okText="确认结束"
         cancelText="取消"
       >
-        结束共享将断开所有观众的连接并关闭房间，确定要结束吗？
+        结束共享将停止屏幕共享并断开观众连接，房间仍会保留，您可以重新开始共享或切换到一起看模式。
       </ConfirmModal>
+
+      <RequestNotification
+        items={joinRequestNotifications}
+        onClose={handleCloseJoinNotification}
+      />
     </div>
   )
 }

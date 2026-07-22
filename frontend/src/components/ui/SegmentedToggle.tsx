@@ -60,7 +60,7 @@ export function SegmentedToggle({
     >
       {/* 滑动指示器（带光晕） */}
       <div
-        className="absolute top-1 bottom-1 rounded-full transition-all duration-500 ease-[cubic-bezier(0.34,1.56,0.64,1)] shadow-md ring-1 ring-[var(--md-sys-color-outline-variant)]"
+        className="absolute top-1 bottom-1 rounded-full transition-all duration-300 ease-[cubic-bezier(0.2,0,0,1)] shadow-md ring-1 ring-[var(--md-sys-color-outline-variant)]"
         style={{
           left: indicatorStyle.left,
           width: indicatorStyle.width,

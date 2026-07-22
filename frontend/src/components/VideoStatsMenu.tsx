@@ -38,6 +38,8 @@ interface VideoStats {
   sourceLabel: string
   /** 当前清晰度标签（B站） */
   quality: string
+  /** 当前 CDN 提供商标签（B站 DASH 流根据 URL 子串识别） */
+  cdnProvider: string
 }
 
 const SOURCE_LABELS: Record<VideoStatsMenuProps['sourceType'], string> = {
@@ -58,6 +60,36 @@ const LOADING_STATS: VideoStats = {
   url: '',
   sourceLabel: '',
   quality: '-',
+  cdnProvider: '-',
+}
+
+/**
+ * 从 B站 DASH 流 URL 中识别 CDN 提供商。
+ *
+ * B站 playurl 返回的 DASH 轨道 baseUrl 形如：
+ *   https://upos-sz-mirrorcosbilibili.bilivideo.com/...  → 腾讯云
+ *   https://upos-sz-mirroralibilibili.bilivideo.com/...  → 阿里云
+ *   https://upos-sz-mirrorhwbilibili.bilivideo.com/...   → 华为云
+ *   https://xxxxx.mcdn.bilivideo.cn:8082/...             → P2P CDN
+ *   https://upos-sz-mirror*.bilivideo.com/...            → 主站 CDN
+ *
+ * 与前端 parseOptions.ts 中的 BILIBILI_CDN_OPTIONS 保持一致的匹配规则。
+ */
+function detectBilibiliCdnProvider(url: string): string {
+  if (!url) return '-'
+  const lower = url.toLowerCase()
+  if (lower.includes('.mcdn.bilivideo.cn')) return 'P2P CDN'
+  if (lower.includes('mirrorali') || lower.includes('alibilibili'))
+    return '阿里云'
+  if (lower.includes('mirrorcos') || lower.includes('cosbilibili'))
+    return '腾讯云'
+  if (lower.includes('mirrorhw') || lower.includes('hwbilibili'))
+    return '华为云'
+  if (lower.includes('upos-sz-mirror') || lower.includes('upos-sz'))
+    return '主站 CDN'
+  if (lower.includes('bilivideo.com') || lower.includes('bilivideo.cn'))
+    return 'B站 CDN'
+  return '未知'
 }
 
 function formatMs(value: number | null): string {
@@ -240,6 +272,7 @@ export function VideoStatsMenu({
         url,
         sourceLabel: SOURCE_LABELS[sourceType],
         quality: '-',
+        cdnProvider: '-',
       }
     }
 
@@ -311,6 +344,8 @@ export function VideoStatsMenu({
       url,
       sourceLabel: SOURCE_LABELS[sourceType],
       quality: resolveQualityLabel(),
+      cdnProvider:
+        sourceType === 'bilibili' ? detectBilibiliCdnProvider(url) : '-',
     }
   }, [
     videoElement,
@@ -532,6 +567,9 @@ export function VideoStatsMenu({
         <StatsRow label="分辨率" value={displayStats.resolution} />
         {sourceType === 'bilibili' && (
           <StatsRow label="清晰度" value={displayStats.quality} />
+        )}
+        {sourceType === 'bilibili' && (
+          <StatsRow label="CDN 源" value={displayStats.cdnProvider} />
         )}
         <StatsRow label="帧率" value={displayStats.frameRate} />
         <StatsRow label="码率" value={displayStats.bitrate} />

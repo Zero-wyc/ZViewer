@@ -28,7 +28,8 @@ export interface BilibiliQualityContext {
   suppressEventsRef: MutableRefObject<boolean>
   applySourceToVideo: (
     video: HTMLVideoElement,
-    state: WatchTogetherState
+    state: WatchTogetherState,
+    startTime?: number
   ) => Promise<void>
   setWatchTogether: (state: WatchTogetherState) => void
   broadcastState: (state: WatchTogetherState) => void

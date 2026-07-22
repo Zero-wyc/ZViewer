@@ -29,6 +29,11 @@ export const SOCKET_EVENT = {
   PREVIEW_SOURCE: 'preview-source',
   /** 房主心跳：定时广播当前播放进度与播放状态，用于观众端离线检测 */
   HOST_HEARTBEAT: 'host-heartbeat',
+  /**
+   * 服务器心跳：房主离线期间由服务器每 2s 广播，携带推算后的播放状态。
+   * 观众端据此继续播放，不因房主断开而暂停。
+   */
+  SERVER_HEARTBEAT: 'server-heartbeat',
   /** 观众加入房间通知（后端转发给房主） */
   VIEWER_JOINED: 'viewer-joined',
   /** 观众离开房间通知（后端转发给房主） */

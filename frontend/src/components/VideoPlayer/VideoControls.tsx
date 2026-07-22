@@ -5,6 +5,7 @@ import {
   useCallback,
   forwardRef,
   useImperativeHandle,
+  memo,
   type ForwardedRef,
 } from 'react'
 import { createPortal } from 'react-dom'
@@ -25,7 +26,7 @@ import {
   PanelBottomClose,
   ChevronDown,
   Hand,
-  Zap,
+  EyeOff,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -50,6 +51,17 @@ const RATE_OPTIONS = [
   { label: '1.5x', value: '1.5' },
   { label: '2x', value: '2' },
 ]
+
+// 格式化秒数为 mm:ss 或 h:mm:ss（纯函数，组件内多处复用）
+function formatTooltipTime(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
+  const h = Math.floor(seconds / 3600)
+  const m = Math.floor((seconds % 3600) / 60)
+  const s = Math.floor(seconds % 60)
+  const mm = m.toString().padStart(2, '0')
+  const ss = s.toString().padStart(2, '0')
+  return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
+}
 
 export interface VideoControlsProps {
   video: HTMLVideoElement | null
@@ -94,25 +106,32 @@ export interface VideoControlsProps {
    */
   onRequestPause?: () => void
   /**
-   * 房主端「自动通过申请」开关状态。开启后所有 seek/pause 申请自动通过。
-   * 仅 isHost=true 时有效。
+   * 观众端（readOnly=true）点击「申请继续播放」按钮时触发。
+   * 仅在 readOnly=true 且 isHost=false 时有效。
    */
-  autoApproveRequests?: boolean
+  onRequestPlay?: () => void
   /**
-   * 房主端切换「自动通过申请」开关。
-   * 仅 isHost=true 时有效。
+   * 观众端申请暂停的 pending 状态。true 时禁用按钮避免重复申请。
    */
-  onToggleAutoApprove?: () => void
+  pausePending?: boolean
+  /**
+   * 观众端申请继续播放的 pending 状态。true 时禁用按钮避免重复申请。
+   */
+  playPending?: boolean
+  /**
+   * MSE reload 期间覆盖显示的时间（秒）。
+   * 提供（>= 0）时进度条/时间文本使用此值而非 video.currentTime，
+   * 避免 reloadMseAtTime 内部 resetVideoElement 导致 currentTime 归零、进度条跳到开头。
+   */
+  timeOverride?: number | null
 }
 
 export interface VideoControlsHandle {
   showControls: () => void
 }
 
-export const VideoControls = forwardRef<
-  VideoControlsHandle,
-  VideoControlsProps
->(function VideoControls(
+export const VideoControls = memo(
+  forwardRef<VideoControlsHandle, VideoControlsProps>(function VideoControls(
   {
     video,
     isHost,
@@ -138,8 +157,10 @@ export const VideoControls = forwardRef<
     onResetDanmakuStyle,
     onRequestSeek,
     onRequestPause,
-    autoApproveRequests,
-    onToggleAutoApprove,
+    onRequestPlay,
+    pausePending,
+    playPending,
+    timeOverride,
   }: VideoControlsProps,
   ref: ForwardedRef<VideoControlsHandle>
 ) {
@@ -156,6 +177,16 @@ export const VideoControls = forwardRef<
     formattedDuration,
     progressPercent,
   } = useVideoControls(video)
+
+  // MSE reload 期间使用 timeOverride 覆盖显示值，避免 video.currentTime 归零导致进度条跳到开头
+  const hasOverride = typeof timeOverride === 'number' && timeOverride >= 0
+  const displayCurrentTime = hasOverride ? (timeOverride as number) : currentTime
+  const displayProgressPercent = hasOverride && duration
+    ? (Math.min(duration, timeOverride as number) / duration) * 100
+    : progressPercent
+  const displayFormattedCurrentTime = hasOverride
+    ? formatTooltipTime(timeOverride as number)
+    : formattedCurrentTime
 
   const [danmakuInput, setDanmakuInput] = useState('')
   const [tooltip, setTooltip] = useState<{
@@ -191,12 +222,18 @@ export const VideoControls = forwardRef<
   const settingsPanelRef = useRef<HTMLDivElement>(null)
   const subtitleFileInputRef = useRef<HTMLInputElement>(null)
 
-  // 控制栏显隐：默认显示，静止 3 秒后自动隐藏
+  // 控制栏显隐：
+  // - 自动隐藏模式（autoHide=true，长按隐藏按钮 0.3s 切换进入）：鼠标静止 2s 自动隐藏，移动后恢复
+  // - 默认（autoHide=false）：永久显示；单击隐藏按钮一次性隐藏，鼠标移动后永久恢复
   const [controlsVisible, setControlsVisible] = useState(true)
+  const [autoHide, setAutoHide] = useState(false)
   const controlsRef = useRef<HTMLDivElement>(null)
   const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const mouseOverRef = useRef(false)
   const settingsOpenRef = useRef(settingsOpen)
+  const autoHideRef = useRef(false)
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFiredRef = useRef(false)
 
   useEffect(() => {
     settingsOpenRef.current = settingsOpen
@@ -213,9 +250,11 @@ export const VideoControls = forwardRef<
     clearIdleTimer()
     if (settingsOpenRef.current) return
     if (!mouseOverRef.current) return
+    // 仅自动隐藏模式开启时调度；默认模式永久显示
+    if (!autoHideRef.current) return
     idleTimerRef.current = setTimeout(() => {
       setControlsVisible(false)
-    }, 3000)
+    }, 2000)
   }, [clearIdleTimer])
 
   useImperativeHandle(ref, () => ({
@@ -356,16 +395,6 @@ export const VideoControls = forwardRef<
     [duration]
   )
 
-  const formatTooltipTime = (seconds: number) => {
-    if (!Number.isFinite(seconds) || seconds < 0) return '00:00'
-    const h = Math.floor(seconds / 3600)
-    const m = Math.floor((seconds % 3600) / 60)
-    const s = Math.floor(seconds % 60)
-    const mm = m.toString().padStart(2, '0')
-    const ss = s.toString().padStart(2, '0')
-    return h > 0 ? `${h}:${mm}:${ss}` : `${mm}:${ss}`
-  }
-
   const handleTogglePlay = () => {
     if (!video || !isHost) return
     if (video.paused) {
@@ -477,10 +506,52 @@ export const VideoControls = forwardRef<
     }
   }
 
-  const handleHideControls = (e: React.MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation()
-    setControlsVisible(false)
+  // 切换自动隐藏模式（长按隐藏按钮 0.3s 触发）
+  const toggleAutoHide = useCallback(() => {
+    const next = !autoHideRef.current
+    autoHideRef.current = next
+    setAutoHide(next)
     clearIdleTimer()
+    if (next) {
+      // 进入自动隐藏：先确保可见，2s 后隐藏
+      setControlsVisible(true)
+      idleTimerRef.current = setTimeout(() => {
+        setControlsVisible(false)
+      }, 2000)
+    } else {
+      // 退出自动隐藏：永久显示
+      setControlsVisible(true)
+    }
+  }, [clearIdleTimer])
+
+  // 隐藏按钮 pointer 事件：长按 0.3s 切换自动隐藏模式
+  const handleHidePointerDown = () => {
+    longPressFiredRef.current = false
+    longPressTimerRef.current = setTimeout(() => {
+      longPressFiredRef.current = true
+      toggleAutoHide()
+    }, 300)
+  }
+
+  const cancelLongPress = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current)
+      longPressTimerRef.current = null
+    }
+  }
+
+  // 单击：一次性隐藏并退出自动隐藏模式（鼠标移动后永久恢复）
+  const handleHideClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    e.stopPropagation()
+    if (longPressFiredRef.current) {
+      // 长按已处理，抑制本次 click
+      longPressFiredRef.current = false
+      return
+    }
+    autoHideRef.current = false
+    setAutoHide(false)
+    clearIdleTimer()
+    setControlsVisible(false)
   }
 
   const iconBtnClass =
@@ -513,7 +584,7 @@ export const VideoControls = forwardRef<
           aria-label="视频进度"
           aria-valuemin={0}
           aria-valuemax={Math.floor(duration)}
-          aria-valuenow={Math.floor(currentTime)}
+          aria-valuenow={Math.floor(displayCurrentTime)}
           // 只读模式下不可聚焦
           tabIndex={readOnly ? -1 : isHost ? 0 : -1}
           className={cn(
@@ -528,13 +599,13 @@ export const VideoControls = forwardRef<
             // 只读模式下禁用键盘快捷键
             if (readOnly || !isHost || !duration || !video) return
             const step = e.shiftKey ? 10 : 5
-            let nextTime = currentTime
+            let nextTime = displayCurrentTime
             if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') {
               e.preventDefault()
-              nextTime = Math.max(0, currentTime - step)
+              nextTime = Math.max(0, displayCurrentTime - step)
             } else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') {
               e.preventDefault()
-              nextTime = Math.min(duration, currentTime + step)
+              nextTime = Math.min(duration, displayCurrentTime + step)
             } else if (e.key === 'Home') {
               e.preventDefault()
               nextTime = 0
@@ -542,7 +613,7 @@ export const VideoControls = forwardRef<
               e.preventDefault()
               nextTime = duration
             }
-            if (nextTime !== currentTime) {
+            if (nextTime !== displayCurrentTime) {
               video.currentTime = nextTime
             }
           }}
@@ -570,7 +641,7 @@ export const VideoControls = forwardRef<
               width: `${
                 tooltip.dragging && duration
                   ? (tooltip.time / duration) * 100
-                  : progressPercent
+                  : displayProgressPercent
               }%`,
               backgroundColor: 'var(--md-sys-color-primary)',
             }}
@@ -586,7 +657,7 @@ export const VideoControls = forwardRef<
                 left: `${
                   tooltip.dragging && duration
                     ? (tooltip.time / duration) * 100
-                    : progressPercent
+                    : displayProgressPercent
                 }%`,
                 transform: `translate(-50%, -50%) ${
                   tooltip.dragging ? 'scale(1.3)' : 'scale(1)'
@@ -628,18 +699,31 @@ export const VideoControls = forwardRef<
             />
           )}
 
-          {/* 观众端 readOnly 模式：常驻显示「申请暂停」按钮。
+          {/* 观众端 readOnly 模式：常驻显示「申请暂停」和「申请继续播放」按钮。
               不依赖本地 isPlaying 条件 —— 观众端 video 元素可能因浏览器自动播放策略、
               MSE 加载延迟等处于 paused 状态，即使房主在播放 isPlaying 也可能为 false，
-              导致按钮被禁用无法申请。让观众随时可点击，由房主端决定是否处理。 */}
+              导致按钮被禁用无法申请。让观众随时可点击，由房主端决定是否处理。
+              pending 期间禁用按钮避免重复申请。 */}
           {readOnly && onRequestPause && (
             <Button
               variant="ghost"
               size="sm"
               className={iconBtnClass}
               onClick={onRequestPause}
+              disabled={pausePending}
               aria-label="申请暂停"
               icon={<Hand className="h-5 w-5" />}
+            />
+          )}
+          {readOnly && onRequestPlay && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className={iconBtnClass}
+              onClick={onRequestPlay}
+              disabled={playPending}
+              aria-label="申请继续播放"
+              icon={<Play className="h-5 w-5" />}
             />
           )}
 
@@ -647,7 +731,7 @@ export const VideoControls = forwardRef<
             className="shrink-0 min-w-[5.5rem] text-xs tabular-nums"
             style={{ color: 'var(--md-sys-color-on-surface)' }}
           >
-            {formattedCurrentTime} / {formattedDuration}
+            {displayFormattedCurrentTime} / {formattedDuration}
           </span>
 
           {/* 中间：弹幕开关、输入、发送 */}
@@ -691,6 +775,7 @@ export const VideoControls = forwardRef<
           {!readOnly && (
             <Select
               className="w-20 shrink-0"
+              size="sm"
               options={RATE_OPTIONS}
               value={String(playbackRate)}
               onChange={handleRateChange}
@@ -738,24 +823,6 @@ export const VideoControls = forwardRef<
             />
           )}
 
-          {/* 房主端：「自动通过申请」开关。开启后所有 seek/pause 申请自动通过，无需手动确认 */}
-          {!readOnly && isHost && onToggleAutoApprove && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={cn(
-                iconBtnClass,
-                autoApproveRequests &&
-                  'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]'
-              )}
-              aria-label={
-                autoApproveRequests ? '关闭自动通过申请' : '开启自动通过申请'
-              }
-              aria-pressed={autoApproveRequests}
-              onClick={onToggleAutoApprove}
-              icon={<Zap className="h-5 w-5" />}
-            />
-          )}
 
           {/* 设置面板：房主和观众都可用。
               - 房主：字幕 + 弹幕 两个 Tab（字幕为全局同步）
@@ -896,7 +963,7 @@ export const VideoControls = forwardRef<
                         subtitleTracks.length > 0 && (
                           <div className="mt-1.5">
                             <Select
-                              className="[&_select]:h-7 [&_select]:py-0.5 [&_select]:text-[11px]"
+                              size="sm"
                               options={subtitleTrackOptions}
                               value={String(activeTrackIndex ?? -1)}
                               onChange={(v) =>
@@ -1029,10 +1096,27 @@ export const VideoControls = forwardRef<
           <Button
             variant="ghost"
             size="sm"
-            className={iconBtnClass}
-            aria-label="隐藏控制栏"
-            onClick={handleHideControls}
-            icon={<HideIcon className="h-5 w-5" />}
+            className={cn(
+              iconBtnClass,
+              autoHide && 'text-[var(--md-sys-color-primary)]'
+            )}
+            title={
+              autoHide
+                ? '自动隐藏已开启（长按切换）'
+                : '单击隐藏 · 长按切换自动隐藏'
+            }
+            aria-label={autoHide ? '退出自动隐藏' : '隐藏控制栏'}
+            onPointerDown={handleHidePointerDown}
+            onPointerUp={cancelLongPress}
+            onPointerLeave={cancelLongPress}
+            onClick={handleHideClick}
+            icon={
+              autoHide ? (
+                <EyeOff className="h-5 w-5" />
+              ) : (
+                <HideIcon className="h-5 w-5" />
+              )
+            }
           />
 
           <Button
@@ -1053,3 +1137,4 @@ export const VideoControls = forwardRef<
     </div>
   )
 })
+)

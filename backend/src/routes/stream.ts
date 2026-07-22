@@ -986,12 +986,9 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response) => {
       },
     });
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader(
-      'Access-Control-Allow-Headers',
-      'Authorization, Content-Type, Range',
-    );
-    res.setHeader('Access-Control-Expose-Headers', 'Content-Range, Accept-Ranges');
+    // CORS 头由全局 cors 中间件统一处理（反射 Origin + credentials: true）
+    // 手动设置 Access-Control-Allow-Origin: * 会与 credentials: 'include' 冲突，
+    // 导致浏览器拒绝响应（net::ERR_FAILED）
 
     if (!upstream.ok) {
       res.status(upstream.status);

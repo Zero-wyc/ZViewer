@@ -47,6 +47,7 @@ function RoomPage() {
   const storeMode = useRoomStore((state) => state.mode)
   const setMode = useRoomStore((state) => state.setMode)
   const setShareMethod = useRoomStore((state) => state.setShareMethod)
+  const setStreamKey = useRoomStore((state) => state.setStreamKey)
   const setRoomId = useRoomStore((state) => state.setRoomId)
   const setRoomName = useRoomStore((state) => state.setRoomName)
   const resetRoomStore = useRoomStore((state) => state.reset)
@@ -65,7 +66,9 @@ function RoomPage() {
     audioCodec?: string
     cid?: number
     currentQn?: number
+    acceptQuality?: { id: number; label: string; resolution?: string }[]
     currentMovieId?: number
+    headers?: Record<string, string>
     updatedAt: number
   } | null>(null)
   // 房主 register-host 是否已完成回调。
@@ -116,24 +119,29 @@ function RoomPage() {
         (response: {
           success: boolean
           message?: string
-          mode?: RoomMode
-          shareMethod?: 'webrtc' | 'stream-push'
-          name?: string | null
-          playback?: {
-            currentTime: number
-            isPlaying: boolean
-            playbackRate: number
-            duration?: number
-            sourceUrl?: string
-            sourceType?: string
-            audioUrl?: string
-            format?: MediaFormat
-            videoCodec?: string
-            audioCodec?: string
-            cid?: number
-            currentQn?: number
-            currentMovieId?: number
-            updatedAt: number
+          data?: {
+            mode?: RoomMode
+            shareMethod?: 'webrtc' | 'stream-push'
+            name?: string | null
+            streamKey?: string | null
+            playback?: {
+              currentTime: number
+              isPlaying: boolean
+              playbackRate: number
+              duration?: number
+              sourceUrl?: string
+              sourceType?: string
+              audioUrl?: string
+              format?: MediaFormat
+              videoCodec?: string
+              audioCodec?: string
+              cid?: number
+              currentQn?: number
+              acceptQuality?: { id: number; label: string; resolution?: string }[]
+              currentMovieId?: number
+              headers?: Record<string, string>
+              updatedAt: number
+            }
           }
         }) => {
           if (!response?.success) {
@@ -144,21 +152,27 @@ function RoomPage() {
             setHostRegistered(true)
             return
           }
+          // AckResponse 标准格式：业务数据在 data 字段内
+          const data = response.data
           // 使用后端返回的房间真实模式，避免 store 默认值 screen-share 导致 UI 错误。
           // 模式不再写入 URL，由后端房间状态唯一确定。
-          if (response.mode) {
-            setMode(response.mode)
+          if (data?.mode) {
+            setMode(data.mode)
           }
-          if (response.name) {
-            setRoomName(response.name)
+          if (data?.name) {
+            setRoomName(data.name)
           }
           // 同步房间的 shareMethod（screen-share 子模式）
-          if (response.shareMethod) {
-            setShareMethod(response.shareMethod)
+          if (data?.shareMethod) {
+            setShareMethod(data.shareMethod)
+          }
+          // 同步推流密钥（stream-push 子模式使用）
+          if (data?.streamKey !== undefined) {
+            setStreamKey(data.streamKey)
           }
           // 房主刷新恢复：保存 playback 传给 WatchTogetherPanel 应用
-          if (response.playback) {
-            setRecoveredPlayback(response.playback)
+          if (data?.playback) {
+            setRecoveredPlayback(data.playback)
           }
           // 标记 register-host 已完成，WatchTogetherPanel 可以渲染
           // 必须在 setRecoveredPlayback 之后设置，确保渲染时 initialPlayback 已就绪
@@ -182,7 +196,7 @@ function RoomPage() {
       socket.off('connect', registerHost)
       socket.off('room-name-updated', handleRoomNameUpdated)
     }
-  }, [isHost, roomId, socket, setMode, setShareMethod, setRoomName])
+  }, [isHost, roomId, socket, setMode, setShareMethod, setStreamKey, setRoomName])
 
   const mode = storeMode
 

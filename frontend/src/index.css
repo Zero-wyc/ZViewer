@@ -521,7 +521,7 @@ video {
 @keyframes zen-toast-enter {
   0% {
     opacity: 0;
-    transform: translateX(40px) scale(0.96);
+    transform: translateX(100vw) scale(0.96);
   }
   100% {
     opacity: 1;
@@ -538,7 +538,7 @@ video {
   }
   100% {
     opacity: 0;
-    transform: translateX(32px) scale(0.96);
+    transform: translateX(-100vw) scale(0.96);
     max-height: 0;
     margin-bottom: 0;
   }
@@ -600,6 +600,60 @@ video {
 
 .zen-dropdown-exit {
   animation: zen-dropdown-exit 0.16s var(--ease-in-expo) forwards;
+  transform-origin: top right;
+  will-change: transform, opacity;
+}
+
+/* ---------- 覆盖层淡入（中央卡片，无全屏遮罩） ----------
+   用于 MSE reload / 解析等加载指示：避免 backdrop-blur 在主线程繁忙时
+   占用 GPU 合成线程导致 Spinner 丢帧。 */
+@keyframes zen-overlay-fade-in {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.zen-overlay-fade-in {
+  animation: zen-overlay-fade-in 0.22s var(--ease-out-expo) both;
+  will-change: transform, opacity;
+}
+
+/* 从左侧弹出的面板动画（用于自定义背景二级面板） */
+@keyframes zen-panel-enter-left {
+  0% {
+    opacity: 0;
+    transform: translateX(12px) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes zen-panel-exit-left {
+  0% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(8px) scale(0.97);
+  }
+}
+
+.zen-panel-enter-left {
+  animation: zen-panel-enter-left 0.24s var(--ease-out-expo) both;
+  transform-origin: top right;
+  will-change: transform, opacity;
+}
+
+.zen-panel-exit-left {
+  animation: zen-panel-exit-left 0.16s var(--ease-in-expo) forwards;
   transform-origin: top right;
   will-change: transform, opacity;
 }
@@ -940,22 +994,22 @@ video {
 @keyframes zen-notification-enter {
   0% {
     opacity: 0;
-    transform: translateX(40px) scale(0.96);
+    transform: translateY(-24px) scale(0.96);
   }
   100% {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateY(0) scale(1);
   }
 }
 
 @keyframes zen-notification-exit {
   0% {
     opacity: 1;
-    transform: translateX(0) scale(1);
+    transform: translateY(0) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translateX(48px) scale(0.96);
+    transform: translateY(-24px) scale(0.96);
   }
 }
 
@@ -1033,6 +1087,7 @@ video {
 [data-reduced-motion='true'] .zen-dropdown-exit,
 [data-reduced-motion='true'] .zen-notification-enter,
 [data-reduced-motion='true'] .zen-notification-exit,
+[data-reduced-motion='true'] .zen-overlay-fade-in,
 [data-reduced-motion='true'] .zen-card-delete {
   animation-duration: 0.18s !important;
 }

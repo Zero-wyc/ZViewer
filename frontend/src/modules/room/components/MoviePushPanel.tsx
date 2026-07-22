@@ -7,6 +7,7 @@ import {
   User,
   Plus,
   Search,
+  Crown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -20,7 +21,20 @@ import { message } from '@/components/ui/message'
 import { useRoomStore } from '@/store/roomStore'
 import { useSocket } from '@/hooks/useSocket'
 import { BilibiliBangumiSelector } from './BilibiliBangumiSelector'
-import { AnimeSourceSelector } from './AnimeSourceSelector'
+import { AniSubsSelector } from '@/modules/anisubs/AniSubsSelector'
+import {
+  resolveAniSubsEpisode,
+  buildAniSubsProxyUrl,
+  needsAniSubsProxy,
+  type AniSubsEpisode,
+} from '@/modules/anisubs'
+import { KazumiSelector } from '@/modules/kazumi/KazumiSelector'
+import {
+  resolveKazumiEpisode,
+  buildKazumiProxyUrl,
+  needsKazumiProxy,
+  type KazumiEpisode,
+} from '@/modules/kazumi'
 import {
   resolveBilibili,
   resolveFTP,
@@ -34,10 +48,6 @@ import {
   type BilibiliUserInfo,
   type ResolvedSource,
   type FTPParams,
-  type AnimeEpisode,
-  resolveAnimeEpisode,
-  buildAnimeProxyUrl,
-  needsProxy,
 } from '@/modules/room/watch-together/resolveSource'
 import {
   resolveBilibiliWithOptions,
@@ -59,7 +69,7 @@ import {
   type MountType,
 } from '@/modules/mounts'
 
-type SourceType = 'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'anime'
+type SourceType = 'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'anime' | 'kazumi'
 
 const SOURCE_OPTIONS = [
   { value: 'bilibili', label: '哔哩哔哩' },
@@ -68,6 +78,7 @@ const SOURCE_OPTIONS = [
   { value: 'ftp', label: 'FTP' },
   { value: 'openlist', label: 'OpenList' },
   { value: 'anime', label: 'ani-subs 番剧源' },
+  { value: 'kazumi', label: 'Kazumi 番剧源' },
 ]
 
 function extractTitleFromUrl(url: string) {
@@ -144,6 +155,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [avatarError, setAvatarError] = useState(false)
   const [bangumiOpen, setBangumiOpen] = useState(false)
   const [animeOpen, setAnimeOpen] = useState(false)
+  const [kazumiOpen, setKazumiOpen] = useState(false)
   const [qrModalOpen, setQrModalOpen] = useState(false)
   const [qrDataUrl, setQrDataUrl] = useState('')
   const [qrStatus, setQrStatus] = useState(0)
@@ -311,7 +323,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   )
 
   const handleSelectAnimeEpisode = useCallback(
-    async (sourceId: string, episode: AnimeEpisode, title: string) => {
+    async (sourceId: string, episode: AniSubsEpisode, title: string) => {
       if (!isHost) {
         message.info('只有房主可以播放影片')
         return
@@ -323,12 +335,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
       setLoading(true)
       try {
-        const resolved = await resolveAnimeEpisode(sourceId, episode)
+        const resolved = await resolveAniSubsEpisode(sourceId, episode)
 
         // 防盗链处理：若返回 headers（Referer/UA 等），走后端代理 URL
         // 浏览器无法为 video.src 设置 Referer/UA，必须代理
-        const finalUrl = needsProxy(resolved.url, resolved.headers)
-          ? buildAnimeProxyUrl(resolved.url, resolved.headers)
+        const finalUrl = needsAniSubsProxy(resolved.url, resolved.headers)
+          ? buildAniSubsProxyUrl(resolved.url, resolved.headers)
           : resolved.url
 
         // 1. 触发实时预览播放（通过 store 解耦 useWatchTogether）
@@ -338,10 +350,6 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           title,
           sourceType: 'anime',
           format: resolved.format,
-          audioUrl: resolved.audioUrl,
-          videoCodec: resolved.videoCodec,
-          audioCodec: resolved.audioCodec,
-          duration: resolved.duration,
         })
 
         // 2. 同时异步加入影片列表（不阻塞预览播放）
@@ -350,11 +358,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           url: finalUrl,
           title,
           source: 'anime',
-          audioUrl: resolved.audioUrl,
           format: resolved.format,
-          videoCodec: resolved.videoCodec,
-          audioCodec: resolved.audioCodec,
-          duration: resolved.duration,
         })
           .then(() => fetchMovies(roomId))
           .catch((err) => {
@@ -367,6 +371,57 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         message.success('已开始播放并加入列表')
       } catch (err) {
         console.error('[MoviePushPanel] select anime episode error:', err)
+        message.error(err instanceof Error ? err.message : '加载番剧集数失败')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [isHost, roomId, addMovie, fetchMovies, setPendingPreviewPlay]
+  )
+
+  const handleSelectKazumiEpisode = useCallback(
+    async (sourceId: string, episode: KazumiEpisode, title: string) => {
+      if (!isHost) {
+        message.info('只有房主可以播放影片')
+        return
+      }
+      if (!roomId) {
+        message.error('未连接房间')
+        return
+      }
+
+      setLoading(true)
+      try {
+        const resolved = await resolveKazumiEpisode(sourceId, episode)
+
+        const finalUrl = needsKazumiProxy(resolved.url, resolved.headers)
+          ? buildKazumiProxyUrl(resolved.url, resolved.headers)
+          : resolved.url
+
+        setPendingPreviewPlay({
+          url: finalUrl,
+          title,
+          sourceType: 'kazumi',
+          format: resolved.format,
+        })
+
+        void addMovie(roomId, {
+          url: finalUrl,
+          title,
+          source: 'kazumi',
+          format: resolved.format,
+        })
+          .then(() => fetchMovies(roomId))
+          .catch((err) => {
+            console.error(
+              '[MoviePushPanel] addMovie/fetchMovies after kazumi preview failed:',
+              err
+            )
+          })
+
+        message.success('已开始播放并加入列表')
+      } catch (err) {
+        console.error('[MoviePushPanel] select kazumi episode error:', err)
         message.error(err instanceof Error ? err.message : '加载番剧集数失败')
       } finally {
         setLoading(false)
@@ -681,6 +736,22 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       )
     }
 
+    if (sourceType === 'kazumi') {
+      return (
+        <Button
+          variant="primary"
+          size="sm"
+          block
+          loading={loading}
+          icon={<Search className="h-4 w-4" />}
+          onClick={() => setKazumiOpen(true)}
+          disabled={!isHost}
+        >
+          搜索番剧
+        </Button>
+      )
+    }
+
     if (sourceType === 'bilibili') {
       if (resolvedMovie) {
         return (
@@ -899,6 +970,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       )
     }
 
+    if (sourceType === 'kazumi') {
+      return (
+        <div className="rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] p-3">
+          <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+            从 Kazumi XPath 规则源搜索番剧并选择集数播放。
+          </Text>
+        </div>
+      )
+    }
+
     if (sourceType === 'openlist') {
       return (
         <Space direction="vertical" className="w-full" size="sm">
@@ -958,164 +1039,212 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
   return (
     <>
-      <Space direction="vertical" className="h-full w-full" size="sm">
-        <Text className="text-sm font-medium">添加影片</Text>
-
-        <Dropdown
-          value={sourceType}
-          options={SOURCE_OPTIONS}
-          onChange={(value) => setSourceType(value as SourceType)}
-        />
-
-        {renderSourceForm()}
-
-        {renderActionButton()}
-
-        {resolveProgress && (
+      <div className="glass-card zen-card flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
+        {/* 卡片头部：图标 + 标题 */}
+        <div className="flex items-center gap-2.5 border-b border-[var(--glass-border)] px-4 py-3">
           <div
-            className="flex items-center gap-2 rounded-lg border px-3 py-2 text-xs"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
             style={{
-              backgroundColor: 'var(--md-sys-color-primary-container)',
-              borderColor: 'var(--md-sys-color-outline-variant)',
-              color: 'var(--md-sys-color-on-primary-container)',
+              background:
+                'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-secondary) 18%, transparent))',
             }}
           >
-            <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
-            <Text className="text-xs">{resolveProgress}</Text>
-          </div>
-        )}
-
-        {sourceType === 'bilibili' &&
-          resolvedMovie?.acceptQuality &&
-          resolvedMovie.acceptQuality.length > 0 && (
-            <Dropdown
-              value={String(
-                resolvedMovie.currentQn ?? resolvedMovie.acceptQuality[0]?.id
-              )}
-              options={filterQualitiesByVip(
-                resolvedMovie.acceptQuality,
-                bilibiliUser?.vipStatus === 1
-              ).map((q) => ({
-                label: q.resolution ? `${q.label} · ${q.resolution}` : q.label,
-                value: String(q.id),
-              }))}
-              onChange={(value) => void handleQualityChange(value)}
-              disabled={qualityLoading || !isHost}
+            <Plus
+              className="h-4 w-4"
+              style={{ color: 'var(--md-sys-color-primary)' }}
             />
+          </div>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <Text className="text-sm font-semibold leading-tight">
+              添加影片
+            </Text>
+            <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+              选择来源并添加
+            </Text>
+          </div>
+        </div>
+
+        {/* 卡片内容 */}
+        <div className="flex min-h-0 flex-1 flex-col gap-2.5 px-4 py-3">
+          <Dropdown
+            value={sourceType}
+            options={SOURCE_OPTIONS}
+            onChange={(value) => setSourceType(value as SourceType)}
+          />
+
+          {renderSourceForm()}
+
+          {renderActionButton()}
+
+          {resolveProgress && (
+            <div
+              className="flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-xs"
+              style={{
+                backgroundColor: 'var(--md-sys-color-primary-container)',
+                color: 'var(--md-sys-color-on-primary-container)',
+              }}
+            >
+              <span className="inline-block h-3.5 w-3.5 animate-spin rounded-full border-2 border-current border-t-transparent" />
+              <Text className="text-xs">{resolveProgress}</Text>
+            </div>
           )}
 
-        {sourceType === 'bilibili' && (
-          <div className="glass rounded-lg p-2">
-            <div className="flex items-center gap-2">
-              <FileVideo
-                className="h-4 w-4"
-                style={{ color: 'var(--md-sys-color-primary)' }}
+          {sourceType === 'bilibili' &&
+            resolvedMovie?.acceptQuality &&
+            resolvedMovie.acceptQuality.length > 0 && (
+              <Dropdown
+                value={String(
+                  resolvedMovie.currentQn ?? resolvedMovie.acceptQuality[0]?.id
+                )}
+                options={filterQualitiesByVip(
+                  resolvedMovie.acceptQuality,
+                  bilibiliUser?.vipStatus === 1
+                ).map((q) => ({
+                  label: q.resolution ? `${q.label} · ${q.resolution}` : q.label,
+                  value: String(q.id),
+                }))}
+                onChange={(value) => void handleQualityChange(value)}
+                disabled={qualityLoading || !isHost}
               />
-              <Text className="text-xs">B站 登录状态</Text>
-            </div>
+            )}
+
+          {sourceType === 'bilibili' && (
             <div
-              className="mt-2 flex flex-wrap items-center gap-2 rounded-md p-1 transition-colors hover:cursor-pointer hover:bg-[var(--md-sys-color-surface-container-high)]"
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                if (bilibiliLoggedIn && bilibiliUser) {
-                  setBangumiOpen(true)
-                } else {
-                  handleOpenQrModal()
-                }
+              className="rounded-[var(--md-sys-shape-corner)] p-2.5"
+              style={{
+                backgroundColor:
+                  'var(--md-sys-color-surface-container-high)',
               }}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
+            >
+              <div className="flex items-center gap-2">
+                <FileVideo
+                  className="h-3.5 w-3.5"
+                  style={{ color: 'var(--md-sys-color-primary)' }}
+                />
+                <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+                  B站 登录状态
+                </Text>
+              </div>
+              <div
+                className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--md-sys-shape-corner)] p-1 transition-colors hover:cursor-pointer hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                role="button"
+                tabIndex={0}
+                onClick={() => {
                   if (bilibiliLoggedIn && bilibiliUser) {
                     setBangumiOpen(true)
                   } else {
                     handleOpenQrModal()
                   }
-                }
-              }}
-            >
-              {bilibiliLoggedIn && bilibiliUser ? (
-                <>
-                  {avatarError || !bilibiliUser.avatar ? (
-                    <div
-                      className="flex h-6 w-6 items-center justify-center rounded-full"
-                      style={{
-                        backgroundColor:
-                          'var(--md-sys-color-surface-container-high)',
-                        border: '1px solid var(--md-sys-color-outline)',
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    if (bilibiliLoggedIn && bilibiliUser) {
+                      setBangumiOpen(true)
+                    } else {
+                      handleOpenQrModal()
+                    }
+                  }
+                }}
+              >
+                {bilibiliLoggedIn && bilibiliUser ? (
+                  <>
+                    {avatarError || !bilibiliUser.avatar ? (
+                      <div
+                        className="flex h-6 w-6 items-center justify-center rounded-full"
+                        style={{
+                          backgroundColor:
+                            'var(--md-sys-color-surface-container)',
+                          border: '1px solid var(--md-sys-color-outline-variant)',
+                        }}
+                      >
+                        <User className="h-3.5 w-3.5" />
+                      </div>
+                    ) : (
+                      <img
+                        src={buildBilibiliImageProxyUrl(bilibiliUser.avatar)}
+                        alt={bilibiliUser.name}
+                        className="h-6 w-6 rounded-full object-cover"
+                        onError={() => setAvatarError(true)}
+                      />
+                    )}
+                    <Text className="text-xs">{bilibiliUser.name}</Text>
+                    {bilibiliUser.vipStatus === 1 ? (
+                      <Tag color="warning" className="shrink-0 px-1.5 py-0 text-[10px]">
+                        <Crown className="mr-0.5 h-3 w-3" />
+                        大会员
+                      </Tag>
+                    ) : (
+                      <Tag color="default" className="shrink-0 px-1.5 py-0 text-[10px]">
+                        普通账号
+                      </Tag>
+                    )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-6 px-2 text-xs"
+                      icon={<LogOut className="h-3 w-3" />}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleLogoutBilibili()
                       }}
                     >
-                      <User className="h-4 w-4" />
-                    </div>
-                  ) : (
-                    <img
-                      src={buildBilibiliImageProxyUrl(bilibiliUser.avatar)}
-                      alt={bilibiliUser.name}
-                      className="h-6 w-6 rounded-full object-cover"
-                      onError={() => setAvatarError(true)}
-                    />
-                  )}
-                  <Text className="text-xs">{bilibiliUser.name}</Text>
-                  {bilibiliUser.vipStatus === 1 && (
-                    <Tag color="warning" className="px-1.5 py-0 text-[10px]">
-                      大会员
-                    </Tag>
-                  )}
+                      退出
+                    </Button>
+                  </>
+                ) : (
                   <Button
-                    variant="ghost"
+                    variant="secondary"
                     size="sm"
                     className="h-6 px-2 text-xs"
-                    icon={<LogOut className="h-3 w-3" />}
+                    icon={<QrCode className="h-3 w-3" />}
                     onClick={(e) => {
                       e.stopPropagation()
-                      handleLogoutBilibili()
+                      handleOpenQrModal()
                     }}
                   >
-                    退出
+                    扫码登录 B站
                   </Button>
-                </>
-              ) : (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="h-6 px-2 text-xs"
-                  icon={<QrCode className="h-3 w-3" />}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleOpenQrModal()
-                  }}
-                >
-                  扫码登录 B站
-                </Button>
-              )}
+                )}
+              </div>
+              <Paragraph type="secondary" className="m-0 mt-1.5 text-[11px]">
+                {bilibiliLoggedIn
+                  ? bilibiliUser?.vipStatus === 1
+                    ? '大会员账号，可解析 4K / 1080P 高码率等专属画质'
+                    : '已登录，可解析高画质视频'
+                  : '未登录时只能解析低画质或试看片段'}
+              </Paragraph>
             </div>
-            <Paragraph type="secondary" className="m-0 mt-2 text-xs">
-              {bilibiliLoggedIn
-                ? '已登录，可解析高画质视频'
-                : '未登录时只能解析低画质或试看片段'}
-            </Paragraph>
-          </div>
-        )}
+          )}
+        </div>
+      </div>
 
-        {sourceType === 'bilibili' && (
-          <BilibiliBangumiSelector
-            open={bangumiOpen}
-            onOpenChange={setBangumiOpen}
-            onSelectEpisode={handleSelectBangumiEpisode}
-            disabled={!isHost}
-          />
-        )}
+      {sourceType === 'bilibili' && (
+        <BilibiliBangumiSelector
+          open={bangumiOpen}
+          onOpenChange={setBangumiOpen}
+          onSelectEpisode={handleSelectBangumiEpisode}
+          disabled={!isHost}
+        />
+      )}
 
-        {sourceType === 'anime' && (
-          <AnimeSourceSelector
-            open={animeOpen}
-            onOpenChange={setAnimeOpen}
-            onSelectEpisode={handleSelectAnimeEpisode}
-            disabled={!isHost}
-          />
-        )}
-      </Space>
+      {sourceType === 'anime' && (
+        <AniSubsSelector
+          open={animeOpen}
+          onOpenChange={setAnimeOpen}
+          onSelectEpisode={handleSelectAnimeEpisode}
+          disabled={!isHost}
+        />
+      )}
+
+      {sourceType === 'kazumi' && (
+        <KazumiSelector
+          open={kazumiOpen}
+          onOpenChange={setKazumiOpen}
+          onSelectEpisode={handleSelectKazumiEpisode}
+          disabled={!isHost}
+        />
+      )}
 
       <Modal
         open={qrModalOpen}

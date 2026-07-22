@@ -45,6 +45,14 @@ export class Room {
   @Column({ type: 'simple-enum', enum: ['webrtc', 'stream-push'], default: 'webrtc' })
   shareMethod!: ShareMethod;
 
+  /**
+   * OBS 推流子模式（stream-push）的推流密钥。
+   * 与 roomId 分离，提高安全性；生成后保持不变，除非手动重置。
+   * webrtc 模式下此字段为 null。
+   */
+  @Column({ type: 'varchar', nullable: true })
+  streamKey!: string | null;
+
   @Column({ type: 'boolean', default: true })
   requireApproval!: boolean;
 
@@ -58,6 +66,14 @@ export class Room {
    */
   @Column({ type: 'text', default: '[]' })
   mutedViewers!: string;
+
+  /**
+   * 已被房主批准进入的观众 user ID 列表（JSON 数组持久化）。
+   * 一旦被批准，观众刷新页面或切换模式后无需再次审批即可直接进入房间。
+   * 仅对已登录用户有效（guest 无 userId，每次仍需审批）。
+   */
+  @Column({ type: 'text', default: '[]' })
+  approvedViewers!: string;
 
   @CreateDateColumn()
   createdAt!: Date;

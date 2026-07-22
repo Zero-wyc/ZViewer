@@ -28,6 +28,7 @@ import { Select } from '@/components/ui/Select'
 import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
+import { apiFetch, API_URL } from '@/lib/api'
 
 interface AdminUser {
   id: number
@@ -77,11 +78,12 @@ interface AdminSettings {
 }
 
 const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
+// 注：API_URL 从 lib/api 重新导出，避免重复定义
+void rawApiUrl
 
 export default function AdminPage() {
   const navigate = useNavigate()
-  const { accessToken, user } = useAuthStore()
+  const { isAuthenticated, user } = useAuthStore()
   const [activeTab, setActiveTab] = useState<'users' | 'rooms' | 'settings'>(
     'users'
   )
@@ -113,12 +115,11 @@ export default function AdminPage() {
   const [applyLoading, setApplyLoading] = useState(false)
 
   const authHeaders = {
-    Authorization: `Bearer ${accessToken}`,
     'Content-Type': 'application/json',
   }
 
   const fetchUsers = async () => {
-    const res = await fetch(`${API_URL}/api/admin/users`, {
+    const res = await apiFetch(`${API_URL}/api/admin/users`, {
       headers: authHeaders,
     })
     const data = (await res.json()) as {
@@ -134,7 +135,7 @@ export default function AdminPage() {
   }
 
   const fetchRooms = async () => {
-    const res = await fetch(`${API_URL}/api/admin/rooms`, {
+    const res = await apiFetch(`${API_URL}/api/admin/rooms`, {
       headers: authHeaders,
     })
     const data = (await res.json()) as {
@@ -151,7 +152,7 @@ export default function AdminPage() {
   }
 
   const fetchSettings = async () => {
-    const res = await fetch(`${API_URL}/api/admin/settings`, {
+    const res = await apiFetch(`${API_URL}/api/admin/settings`, {
       headers: authHeaders,
     })
     const data = (await res.json()) as {
@@ -197,7 +198,7 @@ export default function AdminPage() {
   const checkUpdate = async () => {
     setUpdateLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/system/update/check`, {
+      const res = await apiFetch(`${API_URL}/api/system/update/check`, {
         headers: authHeaders,
       })
       const data = (await res.json()) as {
@@ -226,7 +227,7 @@ export default function AdminPage() {
   const handleApplyUpdate = async () => {
     setApplyLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/system/update/apply`, {
+      const res = await apiFetch(`${API_URL}/api/system/update/apply`, {
         method: 'POST',
         headers: authHeaders,
       })
@@ -248,7 +249,7 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    if (!accessToken) return
+    if (!isAuthenticated) return
     /* eslint-disable react-hooks/set-state-in-effect -- tab 切换时加载对应数据 */
     if (activeTab === 'settings') {
       void loadSettings()
@@ -258,7 +259,7 @@ export default function AdminPage() {
     }
     /* eslint-enable react-hooks/set-state-in-effect */
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab, accessToken])
+  }, [activeTab, isAuthenticated])
 
   const handleChangeRole = async (
     targetUser: AdminUser,
@@ -266,7 +267,7 @@ export default function AdminPage() {
   ) => {
     if (targetUser.role === nextRole) return
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_URL}/api/admin/users/${targetUser.id}/role`,
         {
           method: 'PATCH',
@@ -298,7 +299,7 @@ export default function AdminPage() {
   const handleApproveUser = async () => {
     if (!userApprove) return
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_URL}/api/admin/users/${userApprove.id}/approve`,
         {
           method: 'POST',
@@ -322,10 +323,13 @@ export default function AdminPage() {
   const handleDeleteUser = async () => {
     if (!userDelete) return
     try {
-      const res = await fetch(`${API_URL}/api/admin/users/${userDelete.id}`, {
-        method: 'DELETE',
-        headers: authHeaders,
-      })
+      const res = await apiFetch(
+        `${API_URL}/api/admin/users/${userDelete.id}`,
+        {
+          method: 'DELETE',
+          headers: authHeaders,
+        }
+      )
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
         message.success('已删除用户')
@@ -343,7 +347,7 @@ export default function AdminPage() {
   const handleCloseRoom = async () => {
     if (!roomClose) return
     try {
-      const res = await fetch(
+      const res = await apiFetch(
         `${API_URL}/api/admin/rooms/${roomClose.roomId}`,
         {
           method: 'DELETE',
@@ -368,7 +372,7 @@ export default function AdminPage() {
     if (selectedRoomIds.size === 0) return
     setBatchDeleteLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/admin/rooms/batch-delete`, {
+      const res = await apiFetch(`${API_URL}/api/admin/rooms/batch-delete`, {
         method: 'POST',
         headers: authHeaders,
         body: JSON.stringify({ roomIds: Array.from(selectedRoomIds) }),
@@ -397,7 +401,7 @@ export default function AdminPage() {
   const handleDeleteAllRooms = async () => {
     setDeleteAllLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/admin/rooms/delete-all`, {
+      const res = await apiFetch(`${API_URL}/api/admin/rooms/delete-all`, {
         method: 'POST',
         headers: authHeaders,
       })
@@ -425,7 +429,7 @@ export default function AdminPage() {
   const handleSaveSettings = async () => {
     setSavingSettings(true)
     try {
-      const res = await fetch(`${API_URL}/api/admin/settings`, {
+      const res = await apiFetch(`${API_URL}/api/admin/settings`, {
         method: 'PUT',
         headers: authHeaders,
         body: JSON.stringify({
@@ -458,7 +462,7 @@ export default function AdminPage() {
   const handleCleanupUnusedRooms = async () => {
     setCleanupLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/admin/rooms/cleanup-unused`, {
+      const res = await apiFetch(`${API_URL}/api/admin/rooms/cleanup-unused`, {
         method: 'POST',
         headers: authHeaders,
       })
@@ -992,59 +996,6 @@ export default function AdminPage() {
                       setSettings((prev) => ({
                         ...prev,
                         autoDeleteAfterHours: value ?? 1,
-                      }))
-                    }
-                  />
-                </div>
-
-                <Title level={5} className="mb-4 mt-6">
-                  番剧数据源订阅
-                </Title>
-                <div className="mb-4">
-                  <label className="mb-1.5 block text-sm font-medium text-[var(--md-sys-color-on-surface-variant)]">
-                    ani-subs 订阅地址（每行一个，留空使用默认）
-                  </label>
-                  <textarea
-                    rows={4}
-                    className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
-                    placeholder="https://sub.creamycake.org/v1/css1.json\nhttps://sub.creamycake.org/v1/bt1.json"
-                    value={(
-                      settings.dataSourceConfig?.aniSubsSubscriptions || []
-                    ).join('\n')}
-                    onChange={(e) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        dataSourceConfig: {
-                          ...prev.dataSourceConfig,
-                          aniSubsSubscriptions: e.target.value
-                            .split('\n')
-                            .map((s) => s.trim())
-                            .filter(Boolean),
-                        },
-                      }))
-                    }
-                  />
-                  <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    修改后保存即可自动加载 ani-subs 的 web-selector 与 RSS 源
-                  </p>
-                </div>
-
-                <div className="mb-6">
-                  <AniSubsGithubBrowser
-                    existingUrls={
-                      settings.dataSourceConfig?.aniSubsSubscriptions || []
-                    }
-                    onAddUrls={(urls) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        dataSourceConfig: {
-                          ...prev.dataSourceConfig,
-                          aniSubsSubscriptions: [
-                            ...(prev.dataSourceConfig?.aniSubsSubscriptions ||
-                              []),
-                            ...urls,
-                          ],
-                        },
                       }))
                     }
                   />

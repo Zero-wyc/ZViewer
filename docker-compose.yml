@@ -6,7 +6,7 @@ services:
     container_name: zcontrol-backend
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "3333:3333"
     env_file:
       - .env
     environment:

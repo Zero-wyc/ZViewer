@@ -2,8 +2,8 @@ import { useEffect } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
-import type { WatchTogetherState } from '../types'
 import { SOCKET_EVENT } from '../constants'
+import { buildStateFromVideo } from '../services'
 
 export interface UseHostStateRequestOptions {
   roomId: string
@@ -24,6 +24,7 @@ export type UseHostStateRequestReturn = void
  *
  * 注意：若 video 元素尚未完成源恢复（例如房主刚切回一起看模式），
  * 回退到 roomStore 中保存的状态，避免把观众重置到 00:00。
+ * 状态构建统一使用 `buildStateFromVideo` 服务函数。
  */
 export function useHostStateRequest({
   roomId,
@@ -37,26 +38,8 @@ export function useHostStateRequest({
 
     const handleRequestState = () => {
       const video = videoRef.current
-      const state = useRoomStore.getState().watchTogether
-      const hasLoadedSource = video && video.currentSrc !== ''
-      const newState: WatchTogetherState = {
-        sourceUrl: state.sourceUrl,
-        sourceType: state.sourceType,
-        audioUrl: state.audioUrl,
-        format: state.format,
-        videoCodec: state.videoCodec,
-        audioCodec: state.audioCodec,
-        cid: state.cid,
-        isPlaying: hasLoadedSource ? !video.paused : state.isPlaying,
-        currentTime: hasLoadedSource ? video.currentTime : state.currentTime,
-        playbackRate: hasLoadedSource ? video.playbackRate : state.playbackRate,
-        duration: hasLoadedSource
-          ? video.duration || state.duration
-          : state.duration,
-        // Bug #12 修复：补齐 currentQn / acceptQuality 字段
-        currentQn: state.currentQn,
-        acceptQuality: state.acceptQuality,
-      }
+      const storeState = useRoomStore.getState().watchTogether
+      const newState = buildStateFromVideo(video, storeState)
       socket.emit(SOCKET_EVENT.STATE, { roomId, state: newState })
     }
 

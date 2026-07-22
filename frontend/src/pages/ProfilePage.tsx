@@ -10,6 +10,7 @@ import {
   KeyRound,
   AtSign,
   Pencil,
+  Crown,
 } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
@@ -19,6 +20,7 @@ import { Space } from '@/components/ui/Space'
 import { Avatar } from '@/components/ui/Avatar'
 import { Modal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
+import { Tag } from '@/components/ui/Tag'
 import { Title, Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { useAuthStore, type User as AuthUser } from '@/store/authStore'
@@ -31,13 +33,11 @@ import {
   type BilibiliUserInfo,
 } from '@/modules/room/watch-together/resolveSource'
 import MountManager from '@/modules/mounts/MountManager'
-
-const rawApiUrl = (import.meta.env.VITE_API_URL || '').replace(/\/$/, '')
-const API_URL = rawApiUrl || window.location.origin
+import { apiFetch, API_URL } from '@/lib/api'
 
 export default function ProfilePage() {
   const navigate = useNavigate()
-  const { user, setUser, accessToken } = useAuthStore()
+  const { user, setUser } = useAuthStore()
 
   useEffect(() => {
     if (user?.role === 'guest') {
@@ -186,10 +186,9 @@ export default function ProfilePage() {
     }
     setPasswordLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/auth/password`, {
+      const res = await apiFetch(`${API_URL}/api/auth/password`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ oldPassword, newPassword }),
@@ -211,7 +210,7 @@ export default function ProfilePage() {
     } finally {
       setPasswordLoading(false)
     }
-  }, [oldPassword, newPassword, confirmPassword, accessToken])
+  }, [oldPassword, newPassword, confirmPassword])
 
   const openEditInfoModal = useCallback(() => {
     setOldPassword('')
@@ -229,10 +228,9 @@ export default function ProfilePage() {
     }
     setUsernameLoading(true)
     try {
-      const res = await fetch(`${API_URL}/api/auth/username`, {
+      const res = await apiFetch(`${API_URL}/api/auth/username`, {
         method: 'PATCH',
         headers: {
-          Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ username: trimmed }),
@@ -254,7 +252,7 @@ export default function ProfilePage() {
     } finally {
       setUsernameLoading(false)
     }
-  }, [newUsername, accessToken, setUser])
+  }, [newUsername, setUser])
 
   useEffect(() => {
     return () => {
@@ -399,13 +397,25 @@ export default function ProfilePage() {
                     alt={bilibiliUser.name}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-base font-medium text-[var(--md-sys-color-on-surface)]">
-                      {bilibiliUser.name}
-                    </p>
-                    <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      已绑定 B站 账号
-                    </p>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <p className="truncate text-base font-medium text-[var(--md-sys-color-on-surface)]">
+                    {bilibiliUser.name}
+                  </p>
+                  {bilibiliUser.vipStatus === 1 ? (
+                    <Tag color="warning" className="shrink-0 px-1.5 py-0 text-[10px]">
+                      <Crown className="mr-0.5 h-3 w-3" />
+                      大会员
+                    </Tag>
+                  ) : (
+                    <Tag color="default" className="shrink-0 px-1.5 py-0 text-[10px]">
+                      普通账号
+                    </Tag>
+                  )}
+                </div>
+                <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                  已绑定 B站 账号
+                </p>
+              </div>
                 </div>
                 <Button
                   variant="danger"

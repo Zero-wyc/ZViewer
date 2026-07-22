@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useRef, useCallback } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import {
   Play,
   Trash2,
@@ -9,7 +9,6 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Space } from '@/components/ui/Space'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { Select } from '@/components/ui/Select'
@@ -24,6 +23,7 @@ import {
 import {
   getBilibiliParseOptions,
   setBilibiliParseOptions,
+  BILIBILI_CDN_OPTIONS,
   type BilibiliCodec,
 } from '@/modules/room/watch-together/resolveSource'
 import { cn } from '@/lib/utils'
@@ -44,7 +44,8 @@ const SOURCE_LABELS: Record<string, string> = {
 /**
  * B站解析设置子组件：编码格式 + CDN 偏好。
  *
- * 折叠展开式，默认收起。修改后立即写入 localStorage 持久化；
+ * 折叠展开式，默认收起。修改后立即写入 localStorage 持久化，
+ * 并通过 triggerReloadBilibili 触发当前 B站 影片的重新解析（应用新偏好）。
  * 仅当当前影片为 bilibili 源时显示，避免无关影片看到不相关设置。
  * 所有 B站 影片共享同一份解析偏好（localStorage 单 key 存储）。
  */
@@ -53,13 +54,10 @@ function BilibiliParseSettings({ movieId }: { movieId: number }) {
   const initial = getBilibiliParseOptions()
   const [codec, setCodec] = useState<BilibiliCodec>(initial.codec)
   const [cdn, setCdn] = useState(initial.preferCdn ?? '')
-  const cdnDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (cdnDebounceRef.current) clearTimeout(cdnDebounceRef.current)
-    }
-  }, [])
+  const triggerReloadBilibili = useRoomStore(
+    (state) => state.triggerReloadBilibili
+  )
+  const currentMovieId = useRoomStore((state) => state.currentMovieId)
 
   const handleCodecChange = useCallback(
     (value: string) => {
@@ -69,23 +67,27 @@ function BilibiliParseSettings({ movieId }: { movieId: number }) {
         codec: next,
         preferCdn: cdn.trim() || undefined,
       })
+      // 仅当当前正在播放的就是本影片时才触发重载，避免影响其他影片
+      if (currentMovieId === movieId) {
+        triggerReloadBilibili()
+      }
     },
-    [cdn]
+    [cdn, currentMovieId, movieId, triggerReloadBilibili]
   )
 
+  // CDN 选择为下拉菜单，选项均为预定义关键词，无需防抖
   const handleCdnChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value
+    (value: string) => {
       setCdn(value)
-      if (cdnDebounceRef.current) clearTimeout(cdnDebounceRef.current)
-      cdnDebounceRef.current = setTimeout(() => {
-        setBilibiliParseOptions({
-          codec,
-          preferCdn: value.trim() || undefined,
-        })
-      }, 500)
+      setBilibiliParseOptions({
+        codec,
+        preferCdn: value || undefined,
+      })
+      if (currentMovieId === movieId) {
+        triggerReloadBilibili()
+      }
     },
-    [codec]
+    [codec, currentMovieId, movieId, triggerReloadBilibili]
   )
 
   return (
@@ -119,7 +121,7 @@ function BilibiliParseSettings({ movieId }: { movieId: number }) {
         >
           <Select
             label="编码格式"
-            className="[&_select]:h-7 [&_select]:py-0.5 [&_select]:pl-2 [&_select]:pr-1 [&_select]:text-xs"
+            size="sm"
             options={[
               { label: '自动', value: 'auto' },
               { label: 'H.264', value: 'avc' },
@@ -129,12 +131,15 @@ function BilibiliParseSettings({ movieId }: { movieId: number }) {
             value={codec}
             onChange={handleCodecChange}
           />
-          <Input
+          <Select
             label="CDN 偏好"
             size="sm"
+            options={BILIBILI_CDN_OPTIONS.map((opt) => ({
+              label: opt.label,
+              value: opt.value,
+            }))}
             value={cdn}
             onChange={handleCdnChange}
-            placeholder="如 upos（留空为自动）"
           />
         </div>
       )}
@@ -247,167 +252,216 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
   }
 
   return (
-    <Space direction="vertical" className="min-w-0 h-full w-full" size="sm">
-      <div className="flex items-center justify-between">
-        <Text className="text-sm font-medium">
-          影片列表 ({filteredMovies.length})
-        </Text>
-      </div>
-
-      {isScreenShare && (
+    <div className="glass-card zen-card flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
+      {/* 卡片头部：图标 + 标题 + 影片数量 */}
+      <div className="flex items-center gap-2.5 border-b border-[var(--glass-border)] px-4 py-3">
         <div
-          className="glass flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] p-2"
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
           style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-secondary-container) calc(var(--glass-strength) * 100%), transparent)',
+            background:
+              'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent))',
           }}
         >
-          <Monitor
-            className="h-4 w-4 flex-shrink-0"
-            style={{ color: 'var(--md-sys-color-secondary)' }}
+          <Film
+            className="h-4 w-4"
+            style={{ color: 'var(--md-sys-color-tertiary)' }}
           />
-          <Paragraph type="secondary" className="m-0 text-xs">
-            当前为远程共享模式，影片播放已暂停
-          </Paragraph>
         </div>
-      )}
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Text className="text-sm font-semibold leading-tight">
+            影片列表
+          </Text>
+          <Text type="secondary" className="text-[10px] uppercase tracking-wide">
+            {filteredMovies.length} 部影片
+          </Text>
+        </div>
+      </div>
 
-      <Input
-        size="sm"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="搜索影片…"
-      />
+      {/* 卡片内容 */}
+      <div className="flex min-h-0 flex-1 flex-col gap-2.5 px-4 py-3">
+        {isScreenShare && (
+          <div
+            className="flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] p-2"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-secondary-container) calc(var(--glass-strength) * 100%), transparent)',
+            }}
+          >
+            <Monitor
+              className="h-4 w-4 flex-shrink-0"
+              style={{ color: 'var(--md-sys-color-secondary)' }}
+            />
+            <Paragraph type="secondary" className="m-0 text-xs">
+              当前为远程共享模式，影片播放已暂停
+            </Paragraph>
+          </div>
+        )}
 
-      <div className="glass min-h-[120px] max-h-[220px] min-w-0 flex-1 overflow-hidden overflow-y-auto rounded-[var(--md-sys-shape-corner)] p-2">
-        <Space direction="vertical" className="min-w-0 w-full" size="sm">
+        <Input
+          size="sm"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="搜索影片…"
+        />
+
+        {/* 影片列表滚动区域 */}
+        <div className="min-h-[120px] min-w-0 flex-1 overflow-y-auto rounded-[var(--md-sys-shape-corner)]">
           {filteredMovies.length === 0 && (
-            <div className="flex flex-col items-center justify-center gap-2 py-6 text-center">
-              <Film
-                className="h-6 w-6 opacity-40"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              />
+            <div className="flex flex-col items-center justify-center gap-2 py-8 text-center">
+              <div
+                className="flex h-10 w-10 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor:
+                    'var(--md-sys-color-surface-container-high)',
+                }}
+              >
+                <Film
+                  className="h-5 w-5 opacity-40"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                />
+              </div>
               <Paragraph type="secondary" className="m-0 text-xs">
                 {search ? '未找到匹配的影片' : '暂无影片，请在右侧添加'}
               </Paragraph>
             </div>
           )}
-          {filteredMovies.map((movie, idx) => {
-            const isActive = movie.id === currentMovieId
-            return (
-              <div
-                key={movie.id}
-                className={cn(
-                  'zen-item-enter rounded-[var(--md-sys-shape-corner)] border p-2 transition-all',
-                  isActive
-                    ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)] shadow-sm'
-                    : 'border-transparent bg-[var(--md-sys-color-surface-container-high)] hover:-translate-y-0.5 hover:border-[var(--md-sys-color-outline-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)] hover:shadow-md'
-                )}
-                style={
-                  {
-                    '--item-delay': `${idx * 50}ms`,
-                  } as React.CSSProperties
-                }
-              >
+          <div className="flex flex-col gap-1.5">
+            {filteredMovies.map((movie, idx) => {
+              const isActive = movie.id === currentMovieId
+              return (
                 <div
-                  draggable={false}
+                  key={movie.id}
                   className={cn(
-                    'grid items-center gap-2',
-                    isHost
-                      ? 'grid-cols-[auto_1fr_auto_auto]'
-                      : 'grid-cols-[auto_1fr]'
+                    'zen-item-enter rounded-[var(--md-sys-shape-corner)] border p-2.5 transition-all',
+                    isActive
+                      ? 'border-[var(--md-sys-color-primary)] shadow-md'
+                      : 'border-transparent hover:-translate-y-0.5 hover:border-[var(--md-sys-color-outline-variant)] hover:shadow-md'
                   )}
+                  style={
+                    {
+                      '--item-delay': `${idx * 50}ms`,
+                      backgroundColor: isActive
+                        ? 'var(--md-sys-color-primary-container)'
+                        : 'var(--md-sys-color-surface-container-high)',
+                    } as React.CSSProperties
+                  }
                 >
-                  <Film
-                    className="h-4 w-4 flex-shrink-0"
-                    style={{ color: 'var(--md-sys-color-primary)' }}
-                  />
-                  <div className="min-w-0 overflow-hidden">
-                    <Paragraph
-                      className="m-0 truncate text-xs font-medium"
-                      title={movie.title}
+                  <div
+                    draggable={false}
+                    className={cn(
+                      'grid items-center gap-2',
+                      isHost
+                        ? 'grid-cols-[auto_1fr_auto_auto]'
+                        : 'grid-cols-[auto_1fr]'
+                    )}
+                  >
+                    <div
+                      className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                      style={{
+                        background: isActive
+                          ? 'var(--md-sys-color-primary)'
+                          : 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+                      }}
                     >
-                      {movie.title}
-                    </Paragraph>
-                    <Tag
-                      color="primary"
-                      className="mt-1 inline-flex min-w-0 max-w-full truncate"
-                    >
-                      {SOURCE_LABELS[movie.sourceType] || movie.sourceType}
-                    </Tag>
-                    {isHost &&
-                      movie.sourceType === 'bilibili' &&
-                      movie.acceptQuality &&
-                      movie.acceptQuality.length > 0 && (
-                        <Select
-                          className="mt-1 [&_select]:h-7 [&_select]:py-0.5 [&_select]:pl-2 [&_select]:pr-1 [&_select]:text-xs"
-                          value={String(
-                            movie.currentQn ?? movie.acceptQuality[0]?.id
-                          )}
-                          options={filterQualitiesByVip(
-                            movie.acceptQuality,
-                            bilibiliVip
-                          ).map((q) => ({
-                            label: q.resolution
-                              ? `${q.label} · ${q.resolution}`
-                              : q.label,
-                            value: String(q.id),
-                          }))}
-                          disabled={
-                            !isHost ||
-                            isScreenShare ||
-                            qualityLoadingId === movie.id
-                          }
-                          onChange={(value) =>
-                            handleQualityChange(movie, value)
-                          }
-                        />
-                      )}
+                      <Film
+                        className="h-3 w-3"
+                        style={{
+                          color: isActive
+                            ? 'var(--md-sys-color-on-primary)'
+                            : 'var(--md-sys-color-primary)',
+                        }}
+                      />
+                    </div>
+                    <div className="min-w-0 overflow-hidden">
+                      <Paragraph
+                        className="m-0 truncate text-xs font-medium"
+                        title={movie.title}
+                      >
+                        {movie.title}
+                      </Paragraph>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <Tag
+                          color="primary"
+                          className="inline-flex min-w-0 max-w-full truncate"
+                        >
+                          {SOURCE_LABELS[movie.sourceType] || movie.sourceType}
+                        </Tag>
+                      </div>
+                      {isHost &&
+                        movie.sourceType === 'bilibili' &&
+                        movie.acceptQuality &&
+                        movie.acceptQuality.length > 0 && (
+                          <Select
+                            className="mt-1.5"
+                            size="sm"
+                            value={String(
+                              movie.currentQn ?? movie.acceptQuality[0]?.id
+                            )}
+                            options={filterQualitiesByVip(
+                              movie.acceptQuality,
+                              bilibiliVip
+                            ).map((q) => ({
+                              label: q.resolution
+                                ? `${q.label} · ${q.resolution}`
+                                : q.label,
+                              value: String(q.id),
+                            }))}
+                            disabled={
+                              !isHost ||
+                              isScreenShare ||
+                              qualityLoadingId === movie.id
+                            }
+                            onChange={(value) =>
+                              handleQualityChange(movie, value)
+                            }
+                          />
+                        )}
+                    </div>
+                    {isHost && (
+                      <Button
+                        variant={isActive ? 'primary' : 'secondary'}
+                        size="sm"
+                        className="h-7 flex-shrink-0 px-2"
+                        icon={<Play className="h-3.5 w-3.5" />}
+                        onClick={() => handlePlay(movie.id)}
+                        disabled={!isHost || isScreenShare}
+                        title={
+                          isScreenShare
+                            ? '远程共享模式下不可播放'
+                            : isHost
+                              ? '播放'
+                              : '仅房主可播放'
+                        }
+                      />
+                    )}
+                    {isHost && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 flex-shrink-0 px-2"
+                        icon={<Trash2 className="h-3.5 w-3.5" />}
+                        onClick={() => handleRemove(movie.id)}
+                        loading={removingId === movie.id}
+                        disabled={!isHost || isScreenShare}
+                        title={
+                          isScreenShare
+                            ? '远程共享模式下不可删除'
+                            : isHost
+                              ? '删除'
+                              : '仅房主可删除'
+                        }
+                      />
+                    )}
                   </div>
-                  {isHost && (
-                    <Button
-                      variant={isActive ? 'primary' : 'secondary'}
-                      size="sm"
-                      className="h-7 flex-shrink-0 px-2"
-                      icon={<Play className="h-3.5 w-3.5" />}
-                      onClick={() => handlePlay(movie.id)}
-                      disabled={!isHost || isScreenShare}
-                      title={
-                        isScreenShare
-                          ? '远程共享模式下不可播放'
-                          : isHost
-                            ? '播放'
-                            : '仅房主可播放'
-                      }
-                    />
-                  )}
-                  {isHost && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="h-7 flex-shrink-0 px-2"
-                      icon={<Trash2 className="h-3.5 w-3.5" />}
-                      onClick={() => handleRemove(movie.id)}
-                      loading={removingId === movie.id}
-                      disabled={!isHost || isScreenShare}
-                      title={
-                        isScreenShare
-                          ? '远程共享模式下不可删除'
-                          : isHost
-                            ? '删除'
-                            : '仅房主可删除'
-                      }
-                    />
+                  {isHost && movie.sourceType === 'bilibili' && (
+                    <BilibiliParseSettings movieId={movie.id} />
                   )}
                 </div>
-                {isHost && movie.sourceType === 'bilibili' && (
-                  <BilibiliParseSettings movieId={movie.id} />
-                )}
-              </div>
-            )
-          })}
-        </Space>
+              )
+            })}
+          </div>
+        </div>
       </div>
-    </Space>
+    </div>
   )
 }
