@@ -1,3 +1,5 @@
+
+
 # ZViewer
 
 > 多人同步观影、追番与远程共享平台。
@@ -381,8 +383,8 @@ ZViewer/
 | `CORS_ORIGIN` | CORS 允许来源，多个用逗号分隔 | `*` |
 | `JWT_ACCESS_SECRET` | Access Token 密钥（生产必须修改） | — |
 | `JWT_REFRESH_SECRET` | Refresh Token 密钥（生产必须修改） | — |
-| `JWT_ACCESS_EXPIRES_IN` | Access Token 有效期 | `15m` |
-| `JWT_REFRESH_EXPIRES_IN` | Refresh Token 有效期 | `7d` |
+| `JWT_ACCESS_EXPIRES_IN` | Access Token 有效期 | `1h` |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh Token 有效期 | `30d` |
 | `RTMP_PORT` | RTMP 推流端口 | `3334` |
 | `HTTP_FLV_PORT` | HTTP-FLV 拉流端口 | `3335` |
 
