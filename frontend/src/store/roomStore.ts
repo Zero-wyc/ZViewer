@@ -66,13 +66,6 @@ export interface Movie {
   path?: string | null
   username?: string | null
   directLink?: boolean
-  /**
-   * 影片级 FFmpeg WASM 引擎标记。
-   * 添加影片时勾选「启用 FFmpeg WASM 引擎」且检测到需要（DTS 等不兼容
-   * 音轨转码）时为 true。播放时为 wasm 转码的实际触发条件——需与全局
-   * audioTranscodeEnabled 许可开关同时满足才启用 wasm 引擎。
-   */
-  wasmEngine?: boolean
   // 以下为前端解析得到的临时字段（不持久化到后端）
   cid?: number
   duration?: number
@@ -118,8 +111,6 @@ export interface MovieDto {
   path: string | null
   username: string | null
   directLink: boolean
-  /** 影片级 FFmpeg WASM 引擎标记（添加时勾选并检测到需要时为 true） */
-  wasmEngine: boolean | null
   /** ani-subs 番剧源元数据（仅 source='anime' 时有值） */
   sourceMeta: AniSubsSourceMeta | null
   order: number
@@ -140,7 +131,6 @@ export function mapDtoToMovie(dto: MovieDto): Movie {
     path: dto.path,
     username: dto.username,
     directLink: dto.directLink,
-    wasmEngine: dto.wasmEngine ?? false,
     audioUrl: dto.audioUrl ?? undefined,
     format: (dto.format as Movie['format']) ?? undefined,
     videoCodec: dto.videoCodec ?? undefined,
@@ -333,7 +323,6 @@ interface RoomState {
       username?: string
       password?: string
       directLink?: boolean
-      wasmEngine?: boolean
       sourceMeta?: AniSubsSourceMeta | null
     }
   ) => Promise<void>
@@ -360,7 +349,6 @@ interface RoomState {
       username?: string
       password?: string
       directLink?: boolean
-      wasmEngine?: boolean
       sourceMeta?: AniSubsSourceMeta | null
     }
   ) => Promise<void>

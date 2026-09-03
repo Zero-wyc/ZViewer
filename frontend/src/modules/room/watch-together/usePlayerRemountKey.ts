@@ -2,7 +2,7 @@
  * 影片切换时强制重挂载播放器的 key 生成器。
  *
  * 背景：视频列表中切换不同添加方式的影片（如 Bilibili DASH → WebDAV MKV）
- * 意味着跨引擎切换（dashjs → wasm-engine 等）。旧引擎的 MSE SourceBuffer /
+ * 意味着跨引擎切换（dashjs → playsvideo 等）。旧引擎的 MSE SourceBuffer /
  * 转码 worker / fetch 流即使经过 cleanup，残留状态仍可能与新引擎冲突导致
  * 播放器卡死。为 WatchTogetherPanel 绑定本 hook 返回的 key，切换影片时
  * 整个播放器（ArtPlayer 实例 + video 元素 + 全部业务 Hook）随 key 重挂载，

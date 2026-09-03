@@ -8,7 +8,29 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // playsvideo 0.4.x 依赖 kzahel/mediabunny 的 integration fork（支持字幕轨 API），
+      // 该 fork 无法从 npm 正常安装（npm 上的 1.38.1 是旧发布版，与分支源码不一致），
+      // 因此 vendored 到 ./vendor/mediabunny（见 vendor/fetch-mediabunny.mjs，含 DTS 本地补丁）。
+      // alias 让 'mediabunny' 直接解析到本地副本，dev 与 build 行为一致，
+      // 不依赖 npm overrides / lockfile 的解析结果。
+      mediabunny: path.resolve(__dirname, './vendor/mediabunny'),
     },
+    // vendor 副本是纯 ESM 源码树，保留默认解析即可
+    dedupe: ['mediabunny'],
+  },
+  optimizeDeps: {
+    // 关键：playsvideo 内部用 `new Worker(new URL('./worker.js', import.meta.url))` 创建
+    // 播放/转码 worker。esbuild 的 dep 预打包会原样保留这个表达式，却不把 worker.js 输出成
+    // 独立文件，导致 dev 下请求 /node_modules/.vite/deps/worker.js 404 → worker.onerror
+    // → "Playback worker crashed"（生产构建无此问题，Rollup + Vite worker 插件处理正常）。
+    // 排除后改由 Vite 自己的管线处理，worker 会被正确单独打包，resolve.alias 也照样生效。
+    exclude: ['playsvideo'],
+  },
+  worker: {
+    format: 'es',
+  },
+  build: {
+    assetsInlineLimit: 0, // 不内联 wasm，确保 ffmpeg-core.wasm 作为独立资源正确加载
   },
   server: {
     port: 5174,

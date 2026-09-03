@@ -1,0 +1,17 @@
+{
+  "name": "mediabunny",
+  "version": "1.38.1",
+  "type": "module",
+  "description": "本地 vendored 副本：kzahel/mediabunny@integration 分支源码（playsvideo 0.4.x 依赖的 fork），并叠加 DTS 支持本地补丁（见 matroska/ebml.js / matroska/matroska-demuxer.js / codec.js 中的 [本地补丁] 标记）。用 frontend/vendor/fetch-mediabunny.mjs 可重新抓取（抓完需重打 DTS 补丁）。",
+  "main": "dist/modules/src/index.js",
+  "module": "dist/modules/src/index.js",
+  "exports": {
+    ".": {
+      "import": "./dist/modules/src/index.js"
+    }
+  },
+  "browser": {
+    "./dist/modules/src/node.js": false
+  },
+  "sideEffects": false
+}

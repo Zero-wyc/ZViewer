@@ -121,11 +121,11 @@ export class Movie {
   directLink!: boolean;
 
   /**
-   * 影片级 FFmpeg WASM 引擎标记。
+   * 影片级转码引擎标记（已废弃，仅保留数据库列避免迁移）。
    *
-   * 添加影片时勾选「启用 FFmpeg WASM 引擎」且检测到需要（DTS 等不兼容
-   * 音轨需浏览器内转码）时置 true。播放时为 wasm 转码的实际触发条件——
-   * 需与全局 audioTranscodeEnabled 许可开关同时满足才启用 wasm 引擎。
+   * 原为「添加影片时勾选且检测到需要（DTS 等不兼容音轨）」的触发条件。
+   * 自研 wasm 引擎移除后，playsvideo 的启用改由前端 `shouldUsePlaysVideo`
+   * 依据容器与音轨编码自行判定，不再读取本字段。
    */
   @Column({ type: 'boolean', default: false })
   wasmEngine!: boolean;

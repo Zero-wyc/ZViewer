@@ -27,7 +27,6 @@ import { useCliAgent } from '@/hooks/useCliAgent'
 import { useRoomStore } from '@/store/roomStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { useCliAgentStore } from '@/store/cliAgentStore'
-import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import {
   DanmakuLayer,
@@ -135,14 +134,6 @@ export function WatchTogetherCore({
     (state) =>
       state.movies.find((m) => m.id === state.currentMovieId)?.path ?? null
   )
-  // 当前影片的 WASM 引擎标记（添加影片时勾选并检测到需要时为 true）：
-  // 与全局 audioTranscodeEnabled 开关为 AND 关系——全局开关只做许可，
-  // 影片级勾选才是实际触发条件，两者同时满足才走 wasm 转码
-  const currentMovieWasmEngine = useRoomStore(
-    (state) =>
-      state.movies.find((m) => m.id === state.currentMovieId)?.wasmEngine ??
-      false
-  )
   const {
     watchTogether,
     setWatchTogether,
@@ -169,9 +160,6 @@ export function WatchTogetherCore({
   // - webdav / openlist 中转或直链：前端 MKV demux 提取（直链时这是
   //   唯一路径，失败静默）
   // - emby / jellyfin：其自带字幕接口，不受直链/中转限制
-  const audioTranscodeEnabled = useSystemSettingsStore(
-    (s) => s.audioTranscodeEnabled
-  )
   const embeddedSource: EmbeddedSource | null = (() => {
     if (currentMovieSourceType === 'server-files' && currentMoviePath) {
       return { kind: 'server-files', path: currentMoviePath }
@@ -210,8 +198,8 @@ export function WatchTogetherCore({
   // 浏览器 <video> 仅支持 AAC/MP3/Opus/FLAC 等少数音频编码。
   // DTS/AC3/EAC3 等编码的处理方式：
   // - emby/jellyfin 源：resolve 阶段自动切换为远端媒体服务器转码 HLS
-  // - MKV 源 + 「浏览器端音频转码」开关开启：ffmpeg.wasm 在浏览器内实时
-  //   转码为 AAC（中转与直链均支持，无需服务端 FFmpeg）
+  // - 浏览器端转码引擎（playsvideo）：在浏览器内重封装容器并将不兼容
+  //   音轨实时转码为 AAC（中转与直链均支持，无需服务端 FFmpeg）
   // - 开关关闭：直推原始流，视频可能无声——提示用户到管理后台开启开关。
   const BROWSER_SUPPORTED_AUDIO = new Set([
     'aac',
@@ -235,37 +223,17 @@ export function WatchTogetherCore({
       currentMovieSourceType === 'emby' ||
       currentMovieSourceType === 'jellyfin'
     ) {
-      if (audioTranscodeEnabled) {
-        addPlayerNotice(
-          `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，已由媒体服务器转码为 AAC`,
-          'info'
-        )
-      } else {
-        addPlayerNotice(
-          `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，当前未开启音频转码，可能无声。如需声音请在管理后台「基础设置 → FFmpeg 引擎」开启音频转码开关`,
-          'error'
-        )
-      }
+      addPlayerNotice(
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，已由媒体服务器转码为 AAC`,
+        'info'
+      )
     } else {
-      // 本地文件 / WebDAV / OpenList / FTP / 直链源：浏览器端 wasm 转码
-      // 需全局开关（许可）+ 影片级 wasmEngine 标记（添加影片时勾选并检测到
-      // 需要）同时满足；只开全局开关不会对未勾选的影片自动转码。
-      if (audioTranscodeEnabled && currentMovieWasmEngine) {
-        addPlayerNotice(
-          `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，正在使用 ffmpeg.wasm 在浏览器内实时转码为 AAC（首次加载约需 30MB 转码核心）`,
-          'info'
-        )
-      } else if (currentMovieWasmEngine) {
-        addPlayerNotice(
-          `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，本片已标记需要转码，但管理后台「浏览器端音频转码」开关未开启（该开关为全局许可），可能无声。请管理员在「基础设置 → FFmpeg 引擎」开启后重试`,
-          'error'
-        )
-      } else {
-        addPlayerNotice(
-          `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，本片未启用浏览器端转码，可能无声。如需声音请在添加影片时勾选「启用 FFmpeg WASM 引擎」`,
-          'error'
-        )
-      }
+      // 本地文件 / WebDAV / OpenList / FTP / 直链源：playsvideo 引擎会
+      // 在起播时探测并自行决定直通或转码，无需任何开关许可。
+      addPlayerNotice(
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，playsvideo 引擎正在浏览器内实时转码为 AAC`,
+        'info'
+      )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
@@ -273,14 +241,13 @@ export function WatchTogetherCore({
     watchTogether.audioCodec,
     currentMovieId,
     currentMovieSourceType,
-    audioTranscodeEnabled,
-    currentMovieWasmEngine,
   ])
 
   // ── 切换影片时自动搜索同目录字幕 + 内嵌字幕 ──────────────
   // 当房主切换到新影片时，清空旧字幕并：
   // - WebDAV/FTP/OpenList/服务器文件：在影片所在目录中搜索同名字幕文件
-  // - 服务器文件：额外探测并提取视频内嵌字幕轨道
+  // - 服务器文件/挂载源：额外探测并提取视频内嵌字幕轨道（自研前端
+  //   MKV demux 提取器，与播放引擎解耦——只要文件 URL 就能跑）
   // 其他源类型（如 bilibili）仅清空旧字幕。
   // 观众端不搜索外挂字幕（跟随房主广播），但同样本地提取内嵌字幕
   // （seek 感知：观众跟随房主跳转后字幕秒级可用，不依赖房主广播快照）。
@@ -298,10 +265,7 @@ export function WatchTogetherCore({
     // 内嵌字幕探测需预取数 MB 文件头并占用同源连接（HTTP/1.1 同源仅
     // 6 并发），延迟到视频首帧拉流之后发起，避免拖慢初次加载
     let embeddedTimer: ReturnType<typeof setTimeout> | undefined
-    if (
-      currentMovieSourceType === 'server-files' &&
-      currentMoviePath
-    ) {
+    if (currentMovieSourceType === 'server-files' && currentMoviePath) {
       embeddedTimer = setTimeout(() => {
         void subtitles.loadEmbeddedSubtitles(
           currentMoviePath,

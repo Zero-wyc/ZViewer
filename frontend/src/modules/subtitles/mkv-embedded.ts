@@ -4,7 +4,7 @@
  * 技术选型：MatroskaDemuxer 流式解复用而非 ffmpeg.wasm——
  * ffmpeg.wasm 必须把整个文件载入 WASM 堆（上限约 2GB），GB 级影片直接
  * 不可行；而 MKV 内嵌文本字幕本身就是「每帧一个文本块」，demux 即提取。
- * 复用 wasm-engine 的解复用器：
+ * 复用 lib/mkv 的流式解复用器（自研，与播放引擎解耦）：
  * - 探测：Range 拉取文件头（几 MB 内含 Tracks 元素）→ 字幕轨列表
  * - 提取（小文件）：全量流式扫描 → 收集目标轨帧 → zlib 解压（如有）→ 组装
  * - 提取（大文件）：稀疏 Range 扫描——Cues 锚点分段（含 CueTime），
@@ -19,8 +19,8 @@
  * S_TEXT/WEBVTT（按 SRT 兜底）。位图字幕（PGS/VOBSUB）标记不支持，
  * 前端无可行提取路径（后端 ffmpeg 已移除，无回退）。
  */
-import { MatroskaDemuxer, type DemuxedFrame, type DemuxedTrack } from '@/modules/player/wasm-engine/demuxer/matroska-demuxer'
-import { TRACK_TYPE } from '@/modules/player/wasm-engine/demuxer/ebml'
+import { MatroskaDemuxer, type DemuxedFrame, type DemuxedTrack } from '@/lib/mkv/matroska-demuxer'
+import { TRACK_TYPE } from '@/lib/mkv/ebml'
 
 /** 探测时最多预取的头部字节数（Tracks 元素必须在其中收齐） */
 const PROBE_HEAD_BYTES = 4 * 1024 * 1024

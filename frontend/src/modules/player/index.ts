@@ -12,12 +12,17 @@
  * │   ├── hls-engine.ts           HLS 引擎（hls.js / Safari 原生）
  * │   ├── flv-engine.ts           FLV 引擎（flv.js）
  * │   ├── direct-engine.ts        Direct 引擎（浏览器原生播放）
+ * │   ├── playsvideo-engine.ts    playsvideo 引擎（容器重封装 + 音轨转码）
+ * │   ├── playsvideo-subtitle-bridge.ts  内嵌字幕 → ParsedCue[] 桥接
  * │   └── dash/                   DashPlayer 实现（虚拟 MPD + sidx 解析）
  * ├── services/
  * │   ├── audio-sync.ts           独立 Audio 元素音频同步
  * │   └── url-proxy.ts            B站 CDN 代理检测
  * └── index.ts                    本文件：公共 API 入口
  * ```
+ *
+ * 内嵌字幕完全由 playsvideo 提取，经 playsvideo-subtitle-bridge 转成
+ * ParsedCue[] 交回上层字幕管线；播放器模块内不含字幕解析逻辑。
  */
 
 // 引擎
@@ -25,8 +30,11 @@ export { dashEngine } from './engines/dash-engine'
 export { hlsEngine } from './engines/hls-engine'
 export { flvEngine } from './engines/flv-engine'
 export { directEngine } from './engines/direct-engine'
-export { wasmEngine, isWasmEngineSupported } from './wasm-engine/engine'
-export { selectEngine } from './engine-selector'
+export {
+  playsVideoEngine,
+  isPlaysVideoSupported,
+} from './engines/playsvideo-engine'
+export { selectEngine, shouldUsePlaysVideo } from './engine-selector'
 
 // 工具函数
 export { resetVideoElement, waitForMetadata } from './utils'

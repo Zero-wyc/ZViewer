@@ -13,7 +13,6 @@ import { JellyfinClient, JellyfinError } from '../services/jellyfin-client';
 import { detectMediaFormat } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, proxyHttpUpstream } from '../services/proxy';
 import { upgradeToHttpsIfNeeded } from '../services/url-utils';
-import { getSystemSettings } from '../services/system-settings';
 
 const router = Router();
 
@@ -304,8 +303,8 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
       !!audioStream &&
       !!audioStream.Codec &&
       !BROWSER_SUPPORTED_AUDIO.has(audioStream.Codec.toLowerCase());
-    const settings = await getSystemSettings();
-    const needsAudioTranscode = audioIncompatible && settings.audioTranscodeEnabled;
+    // 不兼容即转码：与 emby.ts 一致，不再设全局开关门控
+    const needsAudioTranscode = audioIncompatible;
 
     const format = needsAudioTranscode ? 'hls' : detectMediaFormat(source.Path ?? title);
     const transcodeQuery = needsAudioTranscode ? '&at=1' : '';
@@ -325,7 +324,6 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
       duration: 0,
       audioCodec,
       needsAudioTranscode,
-      audioTranscodeDisabled: audioIncompatible && !settings.audioTranscodeEnabled,
       jellyfin: { itemId, container: source.Container ?? '' },
     });
   } catch (err) {

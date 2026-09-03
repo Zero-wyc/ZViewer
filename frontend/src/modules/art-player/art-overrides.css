@@ -238,17 +238,3 @@
 [data-reduced-motion='true'] .zart-controlbar-exit {
   animation-duration: 0.18s !important;
 }
-
-/* wasm 转码核心下载中：不确定进度条往返动画（CoreDownloadBadge） */
-@keyframes core-progress-indeterminate {
-  0% {
-    left: -33%;
-  }
-  100% {
-    left: 100%;
-  }
-}
-
-.core-progress-indeterminate {
-  animation: core-progress-indeterminate 1.2s ease-in-out infinite;
-}

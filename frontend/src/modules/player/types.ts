@@ -7,7 +7,7 @@
 import type { MediaFormat } from '@/lib/mediaFormat'
 
 /** 引擎类型标识 */
-export type EngineType = 'hls' | 'flv' | 'direct' | 'dash' | 'wasm'
+export type EngineType = 'hls' | 'flv' | 'direct' | 'dash' | 'playsvideo'
 
 /**
  * seek 操作返回结果（公共类型，供 MSE / DASH 等引擎实现共享）。
@@ -68,14 +68,6 @@ export interface PlayerSource {
   audioCodec?: string
   /** 防盗链 headers（由后端 resolve 返回，走代理时使用） */
   headers?: Record<string, string>
-  /**
-   * 影片级 FFmpeg WASM 引擎标记。
-   *
-   * 添加影片时勾选「启用 FFmpeg WASM 引擎」并检测到需要（DTS 等不兼容
-   * 音轨）时为 true：wasm 转码的实际触发条件，需与全局
-   * audioTranscodeEnabled 许可开关同时满足（AND 关系）才启用 wasm 引擎。
-   */
-  wasmEngine?: boolean
   /**
    * 从特定时间附近开始加载（仅 MSE 引擎使用）。
    *

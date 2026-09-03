@@ -456,9 +456,6 @@ router.get(
           dashDisabled: settings.dashDisabled,
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
-          audioTranscodeEnabled: settings.audioTranscodeEnabled,
-          wasmCoreSource: settings.wasmCoreSource,
-          wasmCoreCustomUrl: settings.wasmCoreCustomUrl,
         },
       });
     } catch (err) {
@@ -476,7 +473,7 @@ router.put(
     res: import('express').Response,
   ): Promise<void> => {
     try {
-      const { autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, audioTranscodeEnabled, wasmCoreSource, wasmCoreCustomUrl } = req.body;
+      const { autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl } = req.body;
 
       if (typeof autoDeleteInactiveRooms !== 'boolean') {
         res.status(400).json({
@@ -550,38 +547,6 @@ router.put(
         });
         return;
       }
-      if (audioTranscodeEnabled !== undefined && typeof audioTranscodeEnabled !== 'boolean') {
-        res.status(400).json({
-          success: false,
-          message: 'audioTranscodeEnabled 必须是布尔值',
-        });
-        return;
-      }
-      const allowedWasmSources = ['author', 'server', 'custom'];
-      if (wasmCoreSource !== undefined && !allowedWasmSources.includes(wasmCoreSource)) {
-        res.status(400).json({
-          success: false,
-          message: 'wasmCoreSource 必须是 author / server / custom 之一',
-        });
-        return;
-      }
-      if (wasmCoreCustomUrl !== undefined && typeof wasmCoreCustomUrl !== 'string') {
-        res.status(400).json({
-          success: false,
-          message: 'wasmCoreCustomUrl 必须是字符串',
-        });
-        return;
-      }
-      if (wasmCoreSource === 'custom') {
-        const url = (wasmCoreCustomUrl ?? '').trim();
-        if (!/^https?:\/\//i.test(url)) {
-          res.status(400).json({
-            success: false,
-            message: '自定义 wasm 核心链接必须是以 http(s):// 开头的有效 URL',
-          });
-          return;
-        }
-      }
       const settingsRepo = AppDataSource.getRepository(SystemSettings);
       const settings = await getSystemSettings();
       settings.autoDeleteInactiveRooms = autoDeleteInactiveRooms;
@@ -610,15 +575,6 @@ router.put(
       if (cdnProxyUrl !== undefined) {
         settings.cdnProxyUrl = cdnProxyUrl.trim();
       }
-      if (audioTranscodeEnabled !== undefined) {
-        settings.audioTranscodeEnabled = audioTranscodeEnabled;
-      }
-      if (wasmCoreSource !== undefined) {
-        settings.wasmCoreSource = wasmCoreSource as 'author' | 'server' | 'custom';
-      }
-      if (wasmCoreCustomUrl !== undefined) {
-        settings.wasmCoreCustomUrl = wasmCoreCustomUrl.trim();
-      }
       await settingsRepo.save(settings);
 
       res.json({
@@ -633,9 +589,6 @@ router.put(
           dashDisabled: settings.dashDisabled,
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
-          audioTranscodeEnabled: settings.audioTranscodeEnabled,
-          wasmCoreSource: settings.wasmCoreSource,
-          wasmCoreCustomUrl: settings.wasmCoreCustomUrl,
         },
       });
     } catch (err) {

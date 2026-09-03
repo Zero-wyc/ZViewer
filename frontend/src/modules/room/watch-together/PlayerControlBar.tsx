@@ -28,10 +28,6 @@ import {
 import { cn, formatDuration } from '@/lib/utils'
 import { DanmakuInput } from '@/components/VideoPlayer/parts/DanmakuInput'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
-import {
-  useWasmCoreProgress,
-  type WasmCoreProgress,
-} from '@/modules/player/wasm-engine/core-progress-store'
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const VOLUME_STORAGE_KEY = 'zc-player-volume'
@@ -236,71 +232,6 @@ interface PlayerControlBarProps {
   onToggleHideMode?: () => void
 }
 
-/**
- * wasm 转码核心下载徽标。
- *
- * 首次播放含 DTS 等音轨的 MKV 时，浏览器需下载约 31MB 的 ffmpeg.wasm
- * 核心才能出声；此期间视频被刻意阻塞起播（避免有声画不同步的黑屏期），
- * 控制栏用本徽标展示下载动画与进度。下载完成后由 player 清空进度 → 组件消失。
- */
-function CoreDownloadBadge({ progress }: { progress: WasmCoreProgress }) {
-  const pct =
-    progress.total && progress.total > 0
-      ? Math.min(100, (progress.loaded / progress.total) * 100)
-      : null
-  const loadedMB = (progress.loaded / 1024 / 1024).toFixed(1)
-  const totalMB = progress.total
-    ? (progress.total / 1024 / 1024).toFixed(1)
-    : null
-
-  return (
-    <div
-      className="flex items-center gap-2 rounded-full border border-[var(--glass-border)] bg-[var(--md-sys-color-primary-container)] px-2.5 py-1"
-      title="首次播放需要下载音频转码引擎（完成后将有声音）"
-    >
-      {/* 加载动画 */}
-      <svg
-        className="h-3.5 w-3.5 shrink-0 animate-spin text-[var(--md-sys-color-on-primary-container)]"
-        viewBox="0 0 24 24"
-        fill="none"
-      >
-        <circle
-          className="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="4"
-        />
-        <path
-          className="opacity-90"
-          fill="currentColor"
-          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-        />
-      </svg>
-      {/* 文案与百分比/字节 */}
-      <span className="whitespace-nowrap text-[11px] font-medium tabular-nums text-[var(--md-sys-color-on-primary-container)]">
-        {totalMB
-          ? `转码引擎 ${pct?.toFixed(0)}%（${loadedMB}/${totalMB}MB）`
-          : `转码引擎 ${loadedMB}MB`}
-      </span>
-      {/* 迷你不确定/确定进度条 */}
-      {pct !== null ? (
-        <div className="relative hidden h-1 w-16 overflow-hidden rounded-full bg-[var(--md-sys-color-on-primary-container)]/20 md:block">
-          <div
-            className="absolute left-0 top-0 h-full rounded-full bg-[var(--md-sys-color-primary)] transition-[width] duration-200 ease-linear"
-            style={{ width: `${pct}%` }}
-          />
-        </div>
-      ) : (
-        <div className="relative hidden h-1 w-16 overflow-hidden rounded-full bg-[var(--md-sys-color-on-primary-container)]/20 md:block">
-          <div className="core-progress-indeterminate absolute top-0 h-full w-1/3 rounded-full bg-[var(--md-sys-color-primary)]" />
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function PlayerControlBar({
   isHost,
   hostOffline = false,
@@ -329,8 +260,6 @@ export function PlayerControlBar({
   onToggleHideMode,
 }: PlayerControlBarProps) {
   const currentTime = useVideoCurrentTime(videoRef)
-  // wasm 转码核心下载进度（仅 MKV+DTS 场景激活，其余恒为 null）
-  const coreProgress = useWasmCoreProgress((s) => s.progress)
   const duration = useVideoDuration(videoRef, watchTogether.duration)
   const progress =
     duration > 0 ? Math.min(1, Math.max(0, currentTime / duration)) : 0
@@ -663,11 +592,6 @@ export function PlayerControlBar({
 
         {/* 控制按钮行 */}
         <div className="flex items-center gap-1 md:gap-1.5">
-          {/* wasm 转码核心下载进度：首次播放 DTS 等音轨时出现，完成后消失 */}
-          {coreProgress !== null && (
-            <CoreDownloadBadge progress={coreProgress} />
-          )}
-
           {/* 播放 / 暂停 */}
           <ControlButton
             label={

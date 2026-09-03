@@ -3,28 +3,6 @@ import { apiFetch, safeJson } from '@/lib/api'
 
 export type RegistrationMode = 'open' | 'approval' | 'closed'
 export type RoomCreationMode = 'admin-only' | 'all-users'
-export type WasmCoreSource = 'author' | 'server' | 'custom'
-
-/** 作者提供的 ffmpeg.wasm 核心 CDN 直链（wasmCoreSource=author 时使用） */
-export const AUTHOR_WASM_CORE_URL =
-  'https://github.cdn.zero251.xyz/Zero-wyc/ZViewer/main/frontend/public/ffmpeg/ffmpeg-core.wasm'
-
-/**
- * 解析当前设置下 wasm 核心的实际下载 URL。
- * - author：作者 CDN 直链
- * - server：服务器 /ffmpeg 静态路由
- * - custom：自定义直链（无效时回退服务器路由）
- */
-export function resolveWasmCoreUrl(): string {
-  const { wasmCoreSource, wasmCoreCustomUrl } =
-    useSystemSettingsStore.getState()
-  if (wasmCoreSource === 'author') return AUTHOR_WASM_CORE_URL
-  if (wasmCoreSource === 'custom') {
-    const url = wasmCoreCustomUrl.trim()
-    if (/^https?:\/\//i.test(url)) return url
-  }
-  return '/ffmpeg/ffmpeg-core.wasm'
-}
 
 export interface SystemSettings {
   autoDeleteInactiveRooms: boolean
@@ -39,12 +17,6 @@ export interface SystemSettings {
   cdnAccelerate: boolean
   /** CDN 代理地址（如 https://gh-proxy.com），对所有 GitHub 请求使用前缀代理 */
   cdnProxyUrl: string
-  /** 音频转码全局许可开关：Emby/Jellyfin 源由其媒体服务器转码；其余来源需影片级勾选 wasmEngine 才触发前端 ffmpeg.wasm 转码 */
-  audioTranscodeEnabled: boolean
-  /** wasm 转码核心（约 32MB）下载来源：author=作者 CDN 直链 / server=服务器中转 / custom=自定义直链 */
-  wasmCoreSource: WasmCoreSource
-  /** 自定义 wasm 核心直链（wasmCoreSource=custom 时生效） */
-  wasmCoreCustomUrl: string
   dataSourceConfig?: Record<string, unknown> | null
 }
 
@@ -73,9 +45,6 @@ const DEFAULT_SETTINGS: SystemSettings = {
   dashDisabled: true,
   cdnAccelerate: false,
   cdnProxyUrl: 'https://gh-proxy.com',
-  audioTranscodeEnabled: false,
-  wasmCoreSource: 'author',
-  wasmCoreCustomUrl: '',
   dataSourceConfig: null,
 }
 

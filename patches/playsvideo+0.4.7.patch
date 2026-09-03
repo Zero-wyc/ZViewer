@@ -1,0 +1,91 @@
+diff --git a/node_modules/playsvideo/dist/pipeline/demux.js b/node_modules/playsvideo/dist/pipeline/demux.js
+index d2bdd9e..f534658 100644
+--- a/node_modules/playsvideo/dist/pipeline/demux.js
++++ b/node_modules/playsvideo/dist/pipeline/demux.js
+@@ -55,7 +55,15 @@ async function demuxInput(input) {
+     if (audioTrack) {
+         audioDecoderConfig = await audioTrack.getDecoderConfig();
+     }
+-    const subtitleTracks = await getSubtitleTrackInfos(input);
++    let subtitleTracks = [];
++    try {
++        subtitleTracks = await getSubtitleTrackInfos(input);
++    } catch {
++        // 上游 mediabunny（>=1.40）的 Input 不再暴露字幕轨（getSubtitleTracks
++        // 是 kzahel fork 的私有 API）。字幕探测失败绝不能拖垮整个 demux——
++        // 否则这里抛错会让 DemuxResult 连同 audioSink 一起丢失，视频变成
++        // 无声播放。降级为无字幕轨。
++    }
+     return {
+         input,
+         duration,
+diff --git a/node_modules/playsvideo/dist/pipeline/subtitle.js b/node_modules/playsvideo/dist/pipeline/subtitle.js
+index 29fd811..eb09187 100644
+--- a/node_modules/playsvideo/dist/pipeline/subtitle.js
++++ b/node_modules/playsvideo/dist/pipeline/subtitle.js
+@@ -1,4 +1,64 @@
+-import { formatCuesToWebVTT } from 'mediabunny';
++/**
++ * 本地补丁：上游 mediabunny（>=1.40）移除了 fork 分支私有的
++ * formatCuesToWebVTT，此处按 kzahel/mediabunny@integration 原实现内联，
++ * 使 playsvideo 0.4.7 可直接搭配 registry 上游使用。逻辑照搬，勿改。
++ */
++const formatSubtitleTimestamp = (timestamp) => {
++    const hours = Math.floor(timestamp / (60 * 60 * 1000));
++    const minutes = Math.floor((timestamp % (60 * 60 * 1000)) / (60 * 1000));
++    const seconds = Math.floor((timestamp % (60 * 1000)) / 1000);
++    const milliseconds = timestamp % 1000;
++    return (
++        hours.toString().padStart(2, '0') +
++        ':' +
++        minutes.toString().padStart(2, '0') +
++        ':' +
++        seconds.toString().padStart(2, '0') +
++        '.' +
++        milliseconds.toString().padStart(3, '0')
++    );
++};
++
++const extractTextFromAssCue = (text) => {
++    if (text.startsWith('Dialogue:') || text.startsWith('Comment:')) {
++        const colonIndex = text.indexOf(':');
++        if (colonIndex === -1) return text;
++        const afterColon = text.substring(colonIndex + 1);
++        const parts = afterColon.split(',');
++        if (parts.length >= 10) {
++            return parts.slice(9).join(',');
++        }
++    }
++    const parts = text.split(',');
++    if (parts.length >= 8) {
++        const firstPart = parts[0] && parts[0].trim();
++        const secondPart = parts[1] && parts[1].trim();
++        if (firstPart && !isNaN(parseInt(firstPart))) {
++            if (secondPart && !isNaN(parseInt(secondPart)) && parts.length >= 9) {
++                return parts.slice(8).join(',');
++            } else if (parts.length >= 8) {
++                return parts.slice(7).join(',');
++            }
++        }
++    }
++    return text;
++};
++
++const formatCuesToWebVTT = (cues, preamble) => {
++    let result = preamble || 'WEBVTT\n';
++    if (!result.endsWith('\n\n')) {
++        result += '\n';
++    }
++    const formattedCues = cues.map((cue) => {
++        const startTime = formatSubtitleTimestamp(cue.timestamp * 1000);
++        const endTime = formatSubtitleTimestamp(
++            (cue.timestamp + cue.duration) * 1000
++        );
++        const text = extractTextFromAssCue(cue.text);
++        return `${startTime} --> ${endTime}\n${text}`;
++    });
++    return result + formattedCues.join('\n\n');
++};
+ /** Discover subtitle tracks from a demuxed input. Cheap — reads only metadata, no cue extraction. */
+ export async function getSubtitleTrackInfos(input) {
+     const tracks = await input.getSubtitleTracks();

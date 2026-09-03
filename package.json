@@ -16,7 +16,8 @@
     "start": "node scripts/start.js",
     "build:exe": "node scripts/build-exe.js",
     "build:backend-exe": "node scripts/build-exe.js",
-    "build:all": "node build-all.js"
+    "build:all": "node build-all.js",
+    "postinstall": "patch-package"
   },
   "pkg": {
     "assets": [
@@ -27,7 +28,8 @@
   "devDependencies": {
     "@playwright/test": "^1.62.0",
     "@yao-pkg/pkg": "^6.22.0",
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "patch-package": "^8.0.1"
   },
   "dependencies": {
     "@types/multer": "^2.2.0",
@@ -46,5 +48,8 @@
   "bugs": {
     "url": "https://github.com/Zero-wyc/ZViewer/issues"
   },
-  "homepage": "https://github.com/Zero-wyc/ZViewer#readme"
+  "homepage": "https://github.com/Zero-wyc/ZViewer#readme",
+  "overrides": {
+    "mediabunny": "file:frontend/vendor/mediabunny"
+  }
 }

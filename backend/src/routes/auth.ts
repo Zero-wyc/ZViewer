@@ -338,10 +338,6 @@ router.get(
           roomCreationMode: settings.roomCreationMode,
           betaFeaturesEnabled: settings.betaFeaturesEnabled,
           dashDisabled: settings.dashDisabled,
-          audioTranscodeEnabled: settings.audioTranscodeEnabled,
-          // wasm 核心下载来源：观众端播放器加载 ffmpeg.wasm 时同样需要
-          wasmCoreSource: settings.wasmCoreSource,
-          wasmCoreCustomUrl: settings.wasmCoreCustomUrl,
         },
       });
     } catch (err) {

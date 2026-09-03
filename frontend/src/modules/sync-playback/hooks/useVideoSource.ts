@@ -177,12 +177,6 @@ function toPlayerSource(
     // MSE 引擎需用此值显式设置 mediaSource.duration
     duration: state.duration,
   }
-  // 影片级 WASM 引擎标记：从 roomStore 的影片数据读取（经 socket 同步，观众也有）
-  {
-    const movieId = useRoomStore.getState().currentMovieId
-    const movie = movieId != null ? useRoomStore.getState().movies.find((m) => m.id === movieId) : undefined
-    if (movie?.wasmEngine) source.wasmEngine = true
-  }
   if (startTime !== undefined && startTime > 0) {
     source.startTime = startTime
   }

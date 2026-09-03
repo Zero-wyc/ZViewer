@@ -9,8 +9,7 @@
     "preview": "vite preview",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
-    "postinstall": "node scripts/copy-ffmpeg-core.mjs"
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\""
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -32,9 +31,6 @@
     "vite": "^8.1.1"
   },
   "dependencies": {
-    "@ffmpeg/core": "^0.12.10",
-    "@ffmpeg/ffmpeg": "^0.12.15",
-    "@ffmpeg/util": "^0.12.2",
     "@material/material-color-utilities": "^0.4.0",
     "@swarmcloud/dashjs": "^0.10.0",
     "artplayer": "^5.4.0",
@@ -44,7 +40,8 @@
     "flv.js": "^1.6.2",
     "hls.js": "^1.6.16",
     "lucide-react": "^1.23.0",
-    "mp4-muxer": "^5.2.2",
+    "mediabunny": "file:vendor/mediabunny",
+    "playsvideo": "^0.4.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.4",

@@ -100,7 +100,6 @@ function formatBytes(bytes: number): string {
 
 type RegistrationMode = 'open' | 'approval' | 'closed'
 type RoomCreationMode = 'admin-only' | 'all-users'
-type WasmCoreSource = 'author' | 'server' | 'custom'
 
 interface AdminSettings {
   autoDeleteInactiveRooms: boolean
@@ -111,9 +110,6 @@ interface AdminSettings {
   dashDisabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
-  audioTranscodeEnabled: boolean
-  wasmCoreSource: WasmCoreSource
-  wasmCoreCustomUrl: string
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]
@@ -145,9 +141,6 @@ export default function AdminPage() {
     dashDisabled: false,
     cdnAccelerate: false,
     cdnProxyUrl: 'https://gh-proxy.com',
-    audioTranscodeEnabled: false,
-    wasmCoreSource: 'author',
-    wasmCoreCustomUrl: '',
   })
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -767,9 +760,6 @@ export default function AdminPage() {
         dashDisabled: settings.dashDisabled,
         cdnAccelerate: settings.cdnAccelerate,
         cdnProxyUrl: settings.cdnProxyUrl,
-        audioTranscodeEnabled: settings.audioTranscodeEnabled,
-        wasmCoreSource: settings.wasmCoreSource,
-        wasmCoreCustomUrl: settings.wasmCoreCustomUrl,
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig
@@ -1514,68 +1504,6 @@ export default function AdminPage() {
                     开启后，服务器端 B站 解析将强制使用 MP4 模式，不再返回 DASH
                     流。仅影响服务器端解析，不影响 CLI 代理的 DASH 模式。
                   </p>
-                </div>
-
-                <Title level={5} className="mb-4 mt-6">
-                  FFmpeg 引擎
-                </Title>
-                <div className="mb-4">
-                  <Switch
-                    label="允许浏览器端音频转码（ffmpeg.wasm）"
-                    checked={settings.audioTranscodeEnabled}
-                    onChange={(e) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        audioTranscodeEnabled: e.target.checked,
-                      }))
-                    }
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    全局许可开关：仅允许房主在添加影片时勾选「启用 FFmpeg
-                    WASM 引擎」（添加时检测 DTS/AC3/EAC3
-                    等不兼容音轨并标记）。两者同时开启后，播放该片才会在浏览器内用
-                    ffmpeg.wasm 实时转码为 AAC（首次加载约 30MB
-                    转码核心）。本开关单独开启不会对任何影片自动转码；关闭则所有影片直推，不兼容音轨可能无声。
-                  </p>
-                </div>
-                <div className="mb-6 max-w-md">
-                  <Select
-                    label="wasm 引擎下载来源"
-                    value={settings.wasmCoreSource}
-                    options={[
-                      { label: '作者直链（推荐）', value: 'author' },
-                      { label: '服务器中转', value: 'server' },
-                      { label: '自定义链接', value: 'custom' },
-                    ]}
-                    onChange={(value) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        wasmCoreSource: value as WasmCoreSource,
-                      }))
-                    }
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    转码核心（约 32MB
-                    wasm）的下载地址。作者直链与自定义链接不占用服务器带宽，直链加载失败时自动回退服务器中转。更改后需刷新页面生效。
-                  </p>
-                  {settings.wasmCoreSource === 'custom' && (
-                    <div className="mt-3">
-                      <Input
-                        placeholder="https://example.com/ffmpeg-core.wasm"
-                        value={settings.wasmCoreCustomUrl}
-                        onChange={(e) =>
-                          setSettings((prev) => ({
-                            ...prev,
-                            wasmCoreCustomUrl: e.target.value,
-                          }))
-                        }
-                      />
-                      <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                        指向 ffmpeg-core.wasm 的完整直链（需 http(s)://
-                        开头，且目标服务器允许跨域访问）。
-                      </p>
-                    </div>
-                  )}
                 </div>
 
                 <Title level={5} className="mb-4 mt-6">

@@ -85,11 +85,10 @@ export interface MovieDto {
   /** 是否为直链 */
   directLink?: boolean;
   /**
-   * 影片级 FFmpeg WASM 引擎标记。
+   * 影片级转码引擎标记（已废弃，保留字段以兼容既有数据）。
    *
-   * 添加影片时勾选并检测到需要（DTS 等不兼容音轨转码）时为 true。
-   * 播放时为 wasm 转码的实际触发条件——需与全局 audioTranscodeEnabled
-   * 许可开关同时满足才启用 wasm 引擎。
+   * playsvideo 的启用现由前端 `shouldUsePlaysVideo` 依据容器与音轨编码
+   * 自行判定，不再依赖本字段。
    */
   wasmEngine?: boolean;
   /**

@@ -21,11 +21,15 @@
  */
 import { useCallback, useRef } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
-import { selectEngine, resetVideoElement, directEngine } from '@/modules/player'
+import {
+  selectEngine,
+  shouldUsePlaysVideo,
+  resetVideoElement,
+  directEngine,
+} from '@/modules/player'
 import type { PlayerSource, PlayerController } from '@/modules/player'
-import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
-/** 引擎实例直查表（仅回退场景使用；selectEngine 不应返回 wasm 的兜底） */
+/** 引擎实例直查表（仅回退场景使用；selectEngine 不应返回 playsvideo 的兜底） */
 const ENGINES = { direct: directEngine } as const
 import {
   isBrowserPlayableFormat,
@@ -137,15 +141,10 @@ export function usePlayerSource(
         cleanup()
         resetVideoElement(video)
         appliedSourceUrlRef.current = source.url
-        // 「浏览器端音频转码」：全局开关仅做许可（管理员允许），影片级
-        // wasmEngine 标记（添加影片时勾选并检测到需要）才是实际触发条件，
-        // 两者同时满足才启用 wasm 引擎——避免全局开关一开所有 MKV 都走转码。
-        const wasmEnabled =
-          useSystemSettingsStore.getState().audioTranscodeEnabled &&
-          source.wasmEngine === true
-        let engine = selectEngine(source, {
-          wasmAudioTranscodeEnabled: wasmEnabled,
-        })
+        // playsvideo 的启用由 shouldUsePlaysVideo 依据容器/音轨与浏览器
+        // 能力决定，不受任何开关门控（自研引擎已移除，playsvideo 是唯一
+        // 的浏览器端重封装与转码路径）。
+        let engine = selectEngine(source)
         try {
           const result = await engine.attach(video, source)
           if (result.blobUrl) {
@@ -154,17 +153,23 @@ export function usePlayerSource(
           engineCleanupRef.current = result.cleanup
           playerRef.current = result.player ?? null
         } catch (err) {
-          // wasm 引擎失败（视频轨 MSE 不支持 / 媒体流不可达等）时自动回退
-          // direct 原生播放：宁可无声也不能让整段视频放不出来。
-          if (engine.type !== 'wasm') throw err
+          // playsvideo 引擎失败（容器不支持 / 探测超时 / 媒体流不可达等）
+          // 时自动回退 direct 原生播放：宁可无声也不能让整段视频放不出来。
+          if (engine.type !== 'playsvideo') throw err
           console.warn(
-            '[usePlayerSource] wasm 引擎挂载失败，回退原生播放:',
+            '[usePlayerSource] playsvideo 引擎挂载失败，回退原生播放:',
             err
           )
           resetVideoElement(video)
-          engine = selectEngine({ ...source, format: undefined }, {})
-          if (engine.type === 'wasm') {
-            // 防御：selectEngine 不应再返回 wasm，此处兜底直取 direct
+          // 回退要彻底回到原生：连音轨编码一并清掉，否则 DTS 等不兼容
+          // 编码会让 selectEngine 再次选中 playsvideo，形成自我回退死循环。
+          engine = selectEngine({
+            ...source,
+            format: undefined,
+            audioCodec: undefined,
+          })
+          if (engine.type === 'playsvideo') {
+            // 防御：selectEngine 不应再返回 playsvideo，此处兜底直取 direct
             engine = ENGINES.direct
           }
           const result2 = await engine.attach(video, source)
@@ -195,9 +200,16 @@ export function usePlayerSource(
       }
 
       // 格式预检：浏览器 <video> 仅原生支持 mp4/webm/mov/mkv，DASH 通过 MSE 支持。
-      // mkv 需 Chrome 91+ 且编码为 H.264/AAC。avi/flv/wmv/ts 等容器直接赋值会抛 NotSupportedError。
+      // mkv 需 Chrome 91+ 且编码为 H.264/AAC。avi/wmv/ts 等容器直接赋值会抛 NotSupportedError。
+      //
+      // 但 avi/ts/wmv 可由 playsvideo 重封装为 fMP4 播放，因此不能一律拒绝——
+      // 仅当「playsvideo 不会接管本源」时才判定为不可播。
       // 预检放在更新 appliedSourceUrlRef 之前，失败时不污染"已应用"标记。
-      if (source.format && !isBrowserPlayableFormat(source.format)) {
+      if (
+        source.format &&
+        !isBrowserPlayableFormat(source.format) &&
+        !shouldUsePlaysVideo(source)
+      ) {
         throw new Error(getUnsupportedFormatMessage(source.format))
       }
 
