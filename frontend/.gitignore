@@ -12,6 +12,12 @@ dist
 dist-ssr
 *.local
 
+# vendored mediabunny fork 的源码必须入库（依赖声明为 file:vendor/mediabunny，
+# CI 上 npm ci + vite 构建都需要它）；上面的 `dist` 规则会误伤这里的 dist，
+# 用反忽略放行
+!vendor/mediabunny/dist/
+!vendor/mediabunny/dist/**
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
