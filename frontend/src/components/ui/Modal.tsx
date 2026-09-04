@@ -124,7 +124,8 @@ export function Modal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-hidden text-sm text-[var(--md-sys-color-on-surface-variant)]">
+        {/* 内容超出可用高度（小屏）时出滚动条，而不是被裁掉 */}
+        <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto text-sm text-[var(--md-sys-color-on-surface-variant)]">
           {children}
         </div>
         {footer && (
