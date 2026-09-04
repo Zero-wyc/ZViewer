@@ -30,6 +30,7 @@ import { InputNumber } from '@/components/ui/InputNumber'
 import { Select } from '@/components/ui/Select'
 import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { message } from '@/components/ui/message'
+import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
 import { useAuthStore } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { apiFetch, getApiUrl } from '@/lib/api'
@@ -124,6 +125,7 @@ interface AdminSettings {
 }
 
 export default function AdminPage() {
+  useHideBodyScrollbar()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuthStore()
   const { invalidate: invalidateSystemSettings } = useSystemSettingsStore()

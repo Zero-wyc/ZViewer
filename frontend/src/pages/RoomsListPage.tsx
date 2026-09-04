@@ -20,6 +20,7 @@ import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
 
 const Fade = ({
   children,
@@ -54,6 +55,7 @@ interface RoomItem {
 }
 
 export default function RoomsListPage() {
+  useHideBodyScrollbar()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuthStore()
   const [rooms, setRooms] = useState<RoomItem[]>([])
