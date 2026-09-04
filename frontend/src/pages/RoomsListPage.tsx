@@ -144,7 +144,7 @@ export default function RoomsListPage() {
 
   return (
     <div className="flex-1 p-4 sm:p-6">
-      <Card className="relative mx-auto w-full max-w-5xl">
+      <Card className="relative mx-auto w-full max-w-6xl">
         <PageBackButton to="/" />
 
         <div className="mb-6 pt-8 text-center">
