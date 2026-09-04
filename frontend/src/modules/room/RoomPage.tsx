@@ -6,6 +6,7 @@ import { useDanmakuStore } from '@/store/danmakuStore'
 import { setClientLoggerRoomId } from '@/lib/clientLogger'
 import { useSocket } from '@/hooks/useSocket'
 import { VoiceChatPanel } from '@/modules/voice-chat'
+import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
 import { RoomPanel } from '@/modules/room/components/RoomPanel'
 import { WatchTogetherPanel } from '@/modules/room/watch-together/WatchTogetherPanel'
 import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemountKey'
@@ -337,6 +338,9 @@ function RoomPage() {
     />
   )
 
+  // 左下角流量统计（本机 HTTP 流量；root 额外展示服务端网卡流量）
+  const trafficPanel = <TrafficPanel />
+
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (isHost) {
     const mainContent =
@@ -405,6 +409,7 @@ function RoomPage() {
           webFullscreen={isWebFullscreen}
         />
         {voiceChatPanel}
+        {trafficPanel}
       </>
     )
   }
@@ -414,6 +419,7 @@ function RoomPage() {
     <>
       <WatchPage />
       {voiceChatPanel}
+      {trafficPanel}
     </>
   )
 }

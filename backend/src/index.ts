@@ -37,6 +37,7 @@ import embyRoutes from './routes/emby';
 import jellyfinRoutes from './routes/jellyfin';
 import subtitlesRoutes from './routes/subtitles';
 import updaterRoutes from './routes/updater';
+import statsRoutes from './routes/stats';
 import clientLogsRoutes from './routes/client-logs';
 import cliRoutes from './routes/cli';
 import { createRoomsRouter } from './routes/rooms';
@@ -297,6 +298,7 @@ async function bootstrap() {
   app.use('/api/ftp', ftpRoutes);
   app.use('/api/subtitles', subtitlesRoutes);
   app.use('/api/system/update', updaterRoutes);
+  app.use('/api/stats', statsRoutes);
   app.use('/api/stream-push', streamPushRouter);
 
   app.get('/health', (_req, res) => {
