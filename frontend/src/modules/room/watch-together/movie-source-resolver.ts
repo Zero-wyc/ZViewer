@@ -17,6 +17,7 @@ import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import type { QualityOption } from './resolveSource'
+import { buildServerFileProxyUrl } from '@/modules/server-files/serverFilesApi'
 import {
   resolveAniSubsEpisode,
   buildAniSubsProxyUrl,
@@ -296,8 +297,29 @@ export async function resolveMovieSource({
   }
 
   // 非 B站 源：直接使用影片记录字段（Movie 类型不含 headers，见 roomStore）
+  // server-files 源特殊处理：movie.url 是添加者（房主）按其自身 API 地址拼的
+  // 绝对代理 URL，随影片记录广播给所有观众——外网/跨域观众的浏览器拿到的
+  // 是房主的内网地址，无法访问导致播放失败。此处按「当前客户端自己」的
+  // API 地址重建代理 URL（文件路径保存在 movie.path），内外网各自可达。
   // format 兜底：旧数据可能未存储 format 字段（直链 m3u8/flv 等），
-  // 通过 detectMediaFormat 从 URL 扩展名自动推断，确保选择正确的播放引擎。
+  // 通过 detectMediaFormat 从路径扩展名自动推断，确保选择正确的播放引擎。
+  if (sourceType === 'server-files' && movie.path) {
+    return {
+      sourceUrl: buildServerFileProxyUrl(movie.path),
+      audioUrl: movie.audioUrl,
+      format: movie.format || detectMediaFormat(movie.path),
+      videoCodec: movie.videoCodec,
+      audioCodec: movie.audioCodec,
+      cid: movie.cid,
+      duration: movie.duration || 0,
+      currentQn: movie.currentQn,
+      acceptQuality: movie.acceptQuality,
+      headers: undefined,
+      reusedRecoveryUrl: false,
+    }
+  }
+
+  // 其余源：format 兜底从 URL 扩展名自动推断
   const inferredFormat = movie.format || detectMediaFormat(movie.url)
   return {
     sourceUrl: movie.url,
