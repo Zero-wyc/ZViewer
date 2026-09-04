@@ -249,7 +249,7 @@ function HomePage() {
             )}
             {connected ? (
               <div
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
                 style={{
                   backgroundColor:
                     'color-mix(in srgb, var(--md-sys-color-secondary) 12%, transparent)',
@@ -263,7 +263,7 @@ function HomePage() {
               </div>
             ) : isConnecting ? (
               <div
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
                 style={{
                   backgroundColor:
                     'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
@@ -277,7 +277,7 @@ function HomePage() {
               </div>
             ) : (
               <div
-                className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
                 style={{
                   backgroundColor:
                     'color-mix(in srgb, var(--md-sys-color-error) 12%, transparent)',
