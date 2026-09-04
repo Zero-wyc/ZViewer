@@ -54,6 +54,22 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
         setCreating(false)
         const roomId = response.data?.roomId
         if (response.success && roomId) {
+          // 若之前有一个保持中的房间（主动离开但未退出），创建新房间意味着
+          // 真正放弃旧房间：旧房间房主此时 emit host-leave 进入宽限期。
+          // 必须在 resetRoomStore() 清掉 activeRoomId 之前读取。
+          try {
+            const prevActive = useRoomStore.getState().activeRoomId
+            if (
+              prevActive &&
+              sessionStorage.getItem('zcontrol-host-room') === prevActive
+            ) {
+              socket?.emit('host-leave', () => {
+                /* ack */
+              })
+            }
+          } catch {
+            // ignore
+          }
           // 创建新房间前先重置 store，清除上一个房间的 movies/currentMovieId 等残留状态。
           // RoomPage 的 reset effect 是异步的（在渲染后执行），如果不在这里同步清理，
           // navigate 后 MovieListPanel 等组件会在 reset 前渲染一帧旧数据。

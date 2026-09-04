@@ -2,24 +2,27 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { DoorOpen, X } from 'lucide-react'
 import { useRoomStore } from '@/store/roomStore'
+import { useSocket } from '@/hooks/useSocket'
 import { cn } from '@/lib/utils'
 
 /**
  * "回到房间"浮动入口。
  *
- * 当用户进入过房间后导航到其他页面（如个人中心、房间列表）时，
- * 在右上角显示一个浮动按钮，点击即可快速回到房间。
+ * 当用户进入过房间后不在房间页面时（无论是不离开房间导航到其他页面，
+ * 还是主动离开房间），在右上角显示一个浮动按钮，点击即可快速回到房间。
  *
  * 工作原理：
  * - RoomPage 挂载时设置 roomStore.activeRoomId
- * - 用户导航到非 /room/:roomId 页面时，RoomPage 卸载但 activeRoomId 保留
+ * - 「主动离开房间」与「导航到其他页面」都保留 activeRoomId
  * - 此组件检测到 activeRoomId 存在且当前不在房间路由，显示浮动入口
  * - 用户点击"回到房间"导航回 /room/:activeRoomId
- * - 用户点击关闭按钮调用 exitRoom() 清除房间状态（等同于退出房间）
+ * - 用户点击关闭按钮才真正退出：房主 emit host-leave（进入宽限期）+
+ *   exitRoom() 清除本地状态；进入/创建新房间时也会自动释放旧房间
  */
 export function ReturnToRoomButton() {
   const location = useLocation()
   const navigate = useNavigate()
+  const { socket } = useSocket()
   const activeRoomId = useRoomStore((state) => state.activeRoomId)
   const roomName = useRoomStore((state) => state.roomName)
   const exitRoom = useRoomStore((state) => state.exitRoom)
@@ -63,6 +66,20 @@ export function ReturnToRoomButton() {
 
   const handleExit = (e: React.MouseEvent) => {
     e.stopPropagation()
+    // 真正退出：房主此时才 emit host-leave（房间进入 10 分钟宽限期后关闭，
+    // 期间可通过房间链接重新进入恢复房主身份），并清除本地房间状态。
+    try {
+      if (
+        activeRoomId &&
+        sessionStorage.getItem('zcontrol-host-room') === activeRoomId
+      ) {
+        socket?.emit('host-leave', () => {
+          /* ack */
+        })
+      }
+    } catch {
+      // ignore
+    }
     exitRoom()
   }
 

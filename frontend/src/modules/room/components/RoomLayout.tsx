@@ -104,8 +104,9 @@ export function RoomLayout({
   const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
   const { socket } = useSocket()
   // defaultBack 由 guardNavigate 统一处理：
-  // 在房间内时弹出确认对话框，确认后执行 exitRoom + 房主 host-leave + navigate。
-  // 房主离开后房间保留 10 分钟（与断线一致），观众进入自主控制模式，房主可重连恢复。
+  // 在房间内时弹出确认对话框，确认后仅导航离开——房间保持运行，
+  // activeRoomId 保留，右上角显示「回到房间」入口；
+  // 进入/创建新房间时才真正释放旧房间（见 RoomPage 挂载逻辑）。
   const defaultBack = () => guardNavigate('/')
   const handleBack = onBack ?? defaultBack
   // 移动端默认收起侧栏，给视频留出更多空间；桌面端默认展开

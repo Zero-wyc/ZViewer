@@ -141,16 +141,25 @@ function RoomPage() {
   // MoviePushPanel 等依赖 store.roomId 的组件能正常工作。
   // 同时设置 activeRoomId，用于"不离开房间"功能：导航到其他页面时保留房间标记。
   useEffect(() => {
-    if (roomId) {
-      setRoomId(roomId)
-      setActiveRoomId(roomId)
-      setClientLoggerRoomId(roomId)
-      setDanmakuRoomId(roomId)
-      void loadDanmakuTracks(roomId)
-      void loadDanmakuMeta(roomId)
+    if (!roomId) return
+    // 进入与当前活跃房间不同的房间（切换/创建新房间）时，先真正释放旧房间：
+    // 若用户是旧房间的房主，此时才 emit host-leave（房间进入 10 分钟宽限期）。
+    // 「主动离开房间」不再释放——离开后房间保持运行，可从右上角按钮返回。
+    const prevActive = useRoomStore.getState().activeRoomId
+    if (prevActive && prevActive !== roomId && isHostOfRoom(prevActive)) {
+      socket?.emit('host-leave', () => {
+        /* ack */
+      })
     }
+    setRoomId(roomId)
+    setActiveRoomId(roomId)
+    setClientLoggerRoomId(roomId)
+    setDanmakuRoomId(roomId)
+    void loadDanmakuTracks(roomId)
+    void loadDanmakuMeta(roomId)
   }, [
     roomId,
+    socket,
     setRoomId,
     setActiveRoomId,
     setDanmakuRoomId,

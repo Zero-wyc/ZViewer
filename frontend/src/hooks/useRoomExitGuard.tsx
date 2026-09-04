@@ -18,7 +18,6 @@
 import { useState, useCallback } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
-import { useSocket } from '@/hooks/useSocket'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { LogOut } from 'lucide-react'
@@ -26,9 +25,7 @@ import { LogOut } from 'lucide-react'
 export function useRoomExitGuard() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { socket } = useSocket()
   const activeRoomId = useRoomStore((state) => state.activeRoomId)
-  const exitRoom = useRoomStore((state) => state.exitRoom)
 
   const [confirmOpen, setConfirmOpen] = useState(false)
   const [pendingPath, setPendingPath] = useState<string | null>(null)
@@ -57,30 +54,21 @@ export function useRoomExitGuard() {
     [needsGuard, navigate]
   )
 
-  /** 确认离开：房主离开房间（保留房间进入重连宽限期），清除本地状态，导航到目标路径 */
+  /**
+   * 确认离开：仅导航到目标路径，**不销毁房间状态**。
+   *
+   * - 房间保持运行：房主 socket 保持注册（观众不受影响，播放继续由
+   *   房主驱动）；观众端的加入状态同样保留。
+   * - activeRoomId 保留 → 右上角显示「回到房间」浮动按钮，点击即返回。
+   * - 只有进入/创建另一个房间时，才会真正释放当前房间（见 RoomPage
+   *   的挂载逻辑：旧房间房主此时才 emit host-leave 进入宽限期）。
+   */
   const confirmExit = useCallback(() => {
     setConfirmOpen(false)
-    // 房主主动离开时 emit host-leave：与断线一致，房间保留 10 分钟
-    // 期间观众进入自主控制模式，房主可通过重新进入房间页面恢复
-    if (socket && activeRoomId) {
-      // 通过 sessionStorage 判断是否为房主
-      try {
-        const isHost =
-          sessionStorage.getItem('zcontrol-host-room') === activeRoomId
-        if (isHost) {
-          socket.emit('host-leave', () => {
-            /* ack */
-          })
-        }
-      } catch {
-        // ignore
-      }
-    }
-    exitRoom()
     const target = pendingPath ?? '/'
     setPendingPath(null)
     navigate(target)
-  }, [socket, activeRoomId, exitRoom, pendingPath, navigate])
+  }, [pendingPath, navigate])
 
   /** 取消离开 */
   const cancelExit = useCallback(() => {
@@ -122,7 +110,7 @@ export function useRoomExitGuard() {
             确定要离开当前房间吗？
           </p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
-            离开后将断开与房间的连接。房主离开后房间将保留 10 分钟，期间观众可继续观看并自主控制播放，房主可重新进入房间恢复。
+            房间会继续保持运行，你随时可以通过右上角的「回到房间」按钮返回。进入或创建新房间时，当前房间才会真正退出。
           </p>
         </div>
       </div>
