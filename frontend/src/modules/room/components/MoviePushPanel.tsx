@@ -527,6 +527,29 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     }
   }
 
+  // 切换到挂载型来源（或挂载列表加载完成）时，自动预选该类型的第一个挂载；
+  // 当前选中项不属于该类型时同样重选，避免下拉框显示空值。
+  // 选「手动填写」后不强制回弹（selectedMountId 不在依赖里，仅随类型/列表变化触发）
+  useEffect(() => {
+    const mountTypes: SourceType[] = [
+      'webdav',
+      'ftp',
+      'openlist',
+      'emby',
+      'jellyfin',
+    ]
+    if (!mountTypes.includes(sourceType)) return
+    const current = mounts.find((m) => String(m.id) === selectedMountId)
+    if (current && current.type === sourceType) return
+    const first = mounts.find((m) => m.type === (sourceType as MountType))
+    if (first) {
+      handleMountSelect(String(first.id))
+    } else if (selectedMountId) {
+      setSelectedMountId('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceType, mounts])
+
   const handleSelectFilesFromMount = useCallback(
     async (paths: string[]) => {
       if (!isHost) {
@@ -1252,14 +1275,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               浏览文件
             </Button>
           )}
-          <Input
-            size="sm"
-            value={webdav.serverUrl}
-            onChange={(e) =>
-              setWebdav((prev) => ({ ...prev, serverUrl: e.target.value }))
-            }
-            placeholder="WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
-          />
+          {!selectedMountId && (
+            <Input
+              size="sm"
+              value={webdav.serverUrl}
+              onChange={(e) =>
+                setWebdav((prev) => ({ ...prev, serverUrl: e.target.value }))
+              }
+              placeholder="WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
+            />
+          )}
           <Input
             size="sm"
             value={webdav.path}
@@ -1269,16 +1294,22 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 path: normalizeMountPath(e.target.value),
               }))
             }
-            placeholder="文件路径，如 /movies/video.mp4"
+            placeholder={
+              selectedMountId
+                ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
+                : '文件路径，如 /movies/video.mp4'
+            }
           />
-          <Dropdown
-            value={isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'}
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连', disabled: isWebdavInternal },
-            ]}
-            onChange={(value) => setWebdavDirectLink(value === 'direct')}
-          />
+          {!selectedMountId && (
+            <Dropdown
+              value={isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'}
+              options={[
+                { value: 'proxy', label: '服务器转发' },
+                { value: 'direct', label: '直链直连', disabled: isWebdavInternal },
+              ]}
+              onChange={(value) => setWebdavDirectLink(value === 'direct')}
+            />
+          )}
           {isWebdavInternal && (
             <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
@@ -1311,26 +1342,47 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               浏览文件
             </Button>
           )}
-          <Input
-            size="sm"
-            value={ftp.serverUrl}
-            onChange={(e) =>
-              setFtp((prev) => ({ ...prev, serverUrl: e.target.value }))
-            }
-            placeholder="FTP 服务器地址，如 ftp.example.com"
-          />
-          <Input
-            size="sm"
-            type="number"
-            value={String(ftp.port)}
-            onChange={(e) =>
-              setFtp((prev) => ({
-                ...prev,
-                port: Number(e.target.value) || 21,
-              }))
-            }
-            placeholder="端口，默认 21"
-          />
+          {!selectedMountId && (
+            <>
+              <Input
+                size="sm"
+                value={ftp.serverUrl}
+                onChange={(e) =>
+                  setFtp((prev) => ({ ...prev, serverUrl: e.target.value }))
+                }
+                placeholder="FTP 服务器地址，如 ftp.example.com"
+              />
+              <Input
+                size="sm"
+                type="number"
+                value={String(ftp.port)}
+                onChange={(e) =>
+                  setFtp((prev) => ({
+                    ...prev,
+                    port: Number(e.target.value) || 21,
+                  }))
+                }
+                placeholder="端口，默认 21"
+              />
+              <Input
+                size="sm"
+                value={ftp.username}
+                onChange={(e) =>
+                  setFtp((prev) => ({ ...prev, username: e.target.value }))
+                }
+                placeholder="用户名（可选）"
+              />
+              <Input
+                size="sm"
+                type="password"
+                value={ftp.password}
+                onChange={(e) =>
+                  setFtp((prev) => ({ ...prev, password: e.target.value }))
+                }
+                placeholder="密码（可选）"
+              />
+            </>
+          )}
           <Input
             size="sm"
             value={ftp.path}
@@ -1340,24 +1392,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 path: normalizeMountPath(e.target.value),
               }))
             }
-            placeholder="文件路径，如 /movies/video.mp4"
-          />
-          <Input
-            size="sm"
-            value={ftp.username}
-            onChange={(e) =>
-              setFtp((prev) => ({ ...prev, username: e.target.value }))
+            placeholder={
+              selectedMountId
+                ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
+                : '文件路径，如 /movies/video.mp4'
             }
-            placeholder="用户名（可选）"
-          />
-          <Input
-            size="sm"
-            type="password"
-            value={ftp.password}
-            onChange={(e) =>
-              setFtp((prev) => ({ ...prev, password: e.target.value }))
-            }
-            placeholder="密码（可选）"
           />
         </Space>
       )
@@ -1406,14 +1445,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               浏览文件
             </Button>
           )}
-          <Input
-            size="sm"
-            value={openlist.serverUrl}
-            onChange={(e) =>
-              setOpenlist((prev) => ({ ...prev, serverUrl: e.target.value }))
-            }
-            placeholder="OpenList 服务器地址（直链模式必填，已选挂载自动填充）"
-          />
+          {!selectedMountId && (
+            <Input
+              size="sm"
+              value={openlist.serverUrl}
+              onChange={(e) =>
+                setOpenlist((prev) => ({ ...prev, serverUrl: e.target.value }))
+              }
+              placeholder="OpenList 服务器地址（直链模式必填，已选挂载自动填充）"
+            />
+          )}
           <Input
             size="sm"
             value={openlist.path}
@@ -1423,7 +1464,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 path: normalizeMountPath(e.target.value),
               }))
             }
-            placeholder="文件路径，如 /movies/video.mp4"
+            placeholder={
+              selectedMountId
+                ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
+                : '文件路径，如 /movies/video.mp4'
+            }
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
@@ -1431,14 +1476,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               }
             }}
           />
-          <Dropdown
-            value={isOpenlistInternal ? 'proxy' : openlistDirectLink ? 'direct' : 'proxy'}
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连', disabled: isOpenlistInternal },
-            ]}
-            onChange={(value) => setOpenlistDirectLink(value === 'direct')}
-          />
+          {!selectedMountId && (
+            <Dropdown
+              value={isOpenlistInternal ? 'proxy' : openlistDirectLink ? 'direct' : 'proxy'}
+              options={[
+                { value: 'proxy', label: '服务器转发' },
+                { value: 'direct', label: '直链直连', disabled: isOpenlistInternal },
+              ]}
+              onChange={(value) => setOpenlistDirectLink(value === 'direct')}
+            />
+          )}
           {isOpenlistInternal && (
             <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
@@ -1472,31 +1519,35 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               浏览 Emby 媒体库
             </Button>
           )}
-          <Input
-            size="sm"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="粘贴 Emby itemId（可选，一般通过浏览选择）"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void handleAddMovie()
-              }
-            }}
-          />
-          <Dropdown
-            label="播放方式"
-            value={embyDirectLink ? 'direct' : 'proxy'}
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连' },
-            ]}
-            onChange={(value) => setEmbyDirectLink(value === 'direct')}
-          />
+          {!selectedMountId && (
+            <Input
+              size="sm"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="粘贴 Emby itemId（可选，一般通过浏览选择）"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleAddMovie()
+                }
+              }}
+            />
+          )}
+          {!selectedMountId && (
+            <Dropdown
+              label="播放方式"
+              value={embyDirectLink ? 'direct' : 'proxy'}
+              options={[
+                { value: 'proxy', label: '服务器转发' },
+                { value: 'direct', label: '直链直连' },
+              ]}
+              onChange={(value) => setEmbyDirectLink(value === 'direct')}
+            />
+          )}
           <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            选择挂载后点击「浏览 Emby 媒体库」逐级选择电影 /
-            剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问
-            Emby 服务器。
+            {selectedMountId
+              ? '已选择挂载，点击「浏览 Emby 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。'
+              : '选择挂载后点击「浏览 Emby 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问 Emby 服务器。'}
           </Text>
         </Space>
       )
@@ -1526,31 +1577,35 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               浏览 Jellyfin 媒体库
             </Button>
           )}
-          <Input
-            size="sm"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="粘贴 Jellyfin itemId（可选，一般通过浏览选择）"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void handleAddMovie()
-              }
-            }}
-          />
-          <Dropdown
-            label="播放方式"
-            value={jellyfinDirectLink ? 'direct' : 'proxy'}
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连' },
-            ]}
-            onChange={(value) => setJellyfinDirectLink(value === 'direct')}
-          />
+          {!selectedMountId && (
+            <Input
+              size="sm"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="粘贴 Jellyfin itemId（可选，一般通过浏览选择）"
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleAddMovie()
+                }
+              }}
+            />
+          )}
+          {!selectedMountId && (
+            <Dropdown
+              label="播放方式"
+              value={jellyfinDirectLink ? 'direct' : 'proxy'}
+              options={[
+                { value: 'proxy', label: '服务器转发' },
+                { value: 'direct', label: '直链直连' },
+              ]}
+              onChange={(value) => setJellyfinDirectLink(value === 'direct')}
+            />
+          )}
           <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            选择挂载后点击「浏览 Jellyfin 媒体库」逐级选择电影 /
-            剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问
-            Jellyfin 服务器。
+            {selectedMountId
+              ? '已选择挂载，点击「浏览 Jellyfin 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。'
+              : '选择挂载后点击「浏览 Jellyfin 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问 Jellyfin 服务器。'}
           </Text>
         </Space>
       )
