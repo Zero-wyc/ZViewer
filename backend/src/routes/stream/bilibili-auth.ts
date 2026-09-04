@@ -160,6 +160,22 @@ router.get('/bilibili/login-status', async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// 获取当前绑定的 B站 Cookie（仅返回用户自己的凭据，供「复制 Cookie」功能使用）
+router.get('/bilibili/cookie', async (req: AuthenticatedRequest, res) => {
+  try {
+    const userId = req.user?.userId;
+    const cookie = await getUserCookie(userId);
+    if (!cookie) {
+      res.json({ success: false, message: '未登录 B站' });
+      return;
+    }
+    res.json({ success: true, cookie });
+  } catch (err) {
+    console.error('bilibili cookie error:', err);
+    res.status(500).json({ success: false, message: '获取 Cookie 失败' });
+  }
+});
+
 // Cookie 登录 B站（手动粘贴 Cookie）
 router.post('/bilibili/cookie-login', async (req: AuthenticatedRequest, res) => {
   const userId = req.user?.userId;

@@ -34,6 +34,7 @@ import {
   getBilibiliUserInfo,
   logoutBilibili,
   loginBilibiliWithCookie,
+  getBilibiliCookie,
   buildBilibiliImageProxyUrl,
   type BilibiliUserInfo,
 } from '@/modules/room/watch-together/resolveSource'
@@ -88,6 +89,7 @@ export default function ProfilePage() {
   const [cookieModalOpen, setCookieModalOpen] = useState(false)
   const [cookieInput, setCookieInput] = useState('')
   const [cookieLoading, setCookieLoading] = useState(false)
+  const [cookieCopyLoading, setCookieCopyLoading] = useState(false)
 
   // B站视频下载 Popup（root 限定，位于「刷新绑定状态」旁）
   const [biliDownloadOpen, setBiliDownloadOpen] = useState(false)
@@ -208,6 +210,36 @@ export default function ProfilePage() {
       message.success('已退出 B站 登录')
     } catch {
       message.error('退出 B站 登录失败')
+    }
+  }, [])
+
+  const handleCopyCookie = useCallback(async () => {
+    setCookieCopyLoading(true)
+    try {
+      const cookie = await getBilibiliCookie()
+      if (!cookie) {
+        message.warning('未获取到 Cookie，请重新登录 B站')
+        return
+      }
+      // HTTPS 下用 Clipboard API；HTTP 局域网环境会缺失 navigator.clipboard，
+      // 回退到临时 textarea + execCommand 方案
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(cookie)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = cookie
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      message.success('Cookie 已复制到剪贴板')
+    } catch {
+      message.error('复制 Cookie 失败')
+    } finally {
+      setCookieCopyLoading(false)
     }
   }, [])
 
@@ -554,15 +586,26 @@ export default function ProfilePage() {
                       </p>
                     </div>
                   </div>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    icon={<LogOut className="h-4 w-4" />}
-                    onClick={handleLogoutBilibili}
-                    className="shrink-0"
-                  >
-                    退登
-                  </Button>
+                  <div className="flex shrink-0 gap-2">
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      icon={<Cookie className="h-4 w-4" />}
+                      onClick={handleCopyCookie}
+                      loading={cookieCopyLoading}
+                      title="复制当前绑定的 B站 Cookie（可用于其他设备登录或备份）"
+                    >
+                      复制 Cookie
+                    </Button>
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      icon={<LogOut className="h-4 w-4" />}
+                      onClick={handleLogoutBilibili}
+                    >
+                      退登
+                    </Button>
+                  </div>
                 </div>
               </div>
             ) : (

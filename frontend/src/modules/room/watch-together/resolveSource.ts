@@ -26,6 +26,7 @@ export {
   getBilibiliLoginStatus,
   loginBilibiliWithCookie,
   logoutBilibili,
+  getBilibiliCookie,
 } from '@/modules/bilibili/bilibiliApi'
 
 export interface FTPParams {

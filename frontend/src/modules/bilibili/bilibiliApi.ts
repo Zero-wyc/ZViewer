@@ -96,6 +96,20 @@ export async function logoutBilibili(): Promise<void> {
 }
 
 /**
+ * 获取当前绑定的 B站 Cookie（用户自己的凭据，供「复制 Cookie」使用）。
+ * 未登录时返回空字符串。
+ */
+export async function getBilibiliCookie(): Promise<string> {
+  try {
+    const res = await apiFetch('/api/stream/bilibili/cookie')
+    const data = (await res.json()) as { success: boolean; cookie?: string }
+    return data.success && data.cookie ? data.cookie : ''
+  } catch {
+    return ''
+  }
+}
+
+/**
  * 使用 Cookie 字符串登录 B站。
  *
  * 用户手动粘贴从浏览器复制的 B站 Cookie，
