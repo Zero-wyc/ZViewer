@@ -121,7 +121,19 @@ export default function RoomsListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  const formatDate = (iso: string) => new Date(iso).toLocaleString('zh-CN')
+  /** 创建时间：<24h 显示相对时间（X小时X分钟前），≥24h 显示准确时间 */
+  const formatDate = (iso: string) => {
+    const diffMs = Date.now() - new Date(iso).getTime()
+    if (diffMs >= 24 * 60 * 60 * 1000) {
+      return new Date(iso).toLocaleString('zh-CN')
+    }
+    const totalMinutes = Math.floor(diffMs / 60000)
+    if (totalMinutes < 1) return '刚刚'
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    if (hours === 0) return `${minutes}分钟前`
+    return minutes > 0 ? `${hours}小时${minutes}分钟前` : `${hours}小时前`
+  }
 
   const getModeLabel = (mode: RoomItem['mode']) => {
     if (mode === 'watch-together') return '一起看'
