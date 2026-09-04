@@ -69,7 +69,11 @@ export const useAuthStore = create<AuthState>()(
         set({
           user: null,
           isAuthenticated: false,
-          autoLoginStatus: 'done',
+          // 注意：这里绝不能置为 'done'——调用方（AuthInitializer）随后会
+          // 异步降级为 guest，此期间 RequireAuth 依赖 'idle' 持续等待；
+          // 若提前置 'done'，RequireAuth 会立即把首访用户重定向到 /login，
+          // 导致「带房间链接首次访问进不了房间，第二次才能进」。
+          autoLoginStatus: 'idle',
           hasLoggedOut: false,
         }),
     }),
