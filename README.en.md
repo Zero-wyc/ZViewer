@@ -74,7 +74,7 @@ English | **[中文](README.md)**
 
 - **Native subtitle system**: directly parses SRT / ASS / SSA / VTT / SMI / SUB and renders with HTML/CSS — no WebVTT conversion, higher style fidelity.
 - **Browser-side embedded subtitle extraction**: text subtitle tracks inside MKV containers are extracted directly in the browser (custom MKV demux with sparse scanning that skips audio/video payload) — subtitles appear in seconds even for multi-gigabyte files, no server-side FFmpeg required.
-- **Browser-side audio transcode (ffmpeg.wasm)**: browser-incompatible audio tracks (DTS / AC3 / EAC3, etc.) can be transcoded to AAC in real time in the browser (requires the global permission in the admin panel plus a per-movie opt-in; off by default).
+- **Browser-side playback engine (playsvideo)**: containers such as MKV / AVI / TS / WMV are automatically remuxed to fMP4 in the browser; browser-incompatible audio tracks (DTS / AC3 / EAC3, etc.) are transcoded to AAC in real time in the browser. Fully automatic — **no admin-panel toggles required** — and the transcode core ships with the frontend assets, so no server-side FFmpeg is needed.
 
 ### Real-Time Interaction
 
