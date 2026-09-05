@@ -20,6 +20,7 @@ import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { formatRecentTime } from '@/lib/formatTime'
 import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
 
 const Fade = ({
@@ -123,19 +124,8 @@ export default function RoomsListPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAuthenticated])
 
-  /** 创建时间：<24h 显示相对时间（X小时X分钟前），≥24h 显示准确时间 */
-  const formatDate = (iso: string) => {
-    const diffMs = Date.now() - new Date(iso).getTime()
-    if (diffMs >= 24 * 60 * 60 * 1000) {
-      return new Date(iso).toLocaleString('zh-CN')
-    }
-    const totalMinutes = Math.floor(diffMs / 60000)
-    if (totalMinutes < 1) return '刚刚'
-    const hours = Math.floor(totalMinutes / 60)
-    const minutes = totalMinutes % 60
-    if (hours === 0) return `${minutes}分钟前`
-    return minutes > 0 ? `${hours}小时${minutes}分钟前` : `${hours}小时前`
-  }
+  /** 创建时间：<24h 显示相对时间，≥24h 显示准确时间（公共 formatRecentTime） */
+  const formatDate = formatRecentTime
 
   const getModeLabel = (mode: RoomItem['mode']) => {
     if (mode === 'watch-together') return '一起看'

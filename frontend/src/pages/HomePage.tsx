@@ -18,6 +18,7 @@ import { Title, Paragraph } from '@/components/ui/Typography'
 import { useAuthStore } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useSocket } from '@/hooks/useSocket'
+import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
 import { cn } from '@/lib/utils'
 
 const Fade = ({
@@ -38,6 +39,8 @@ const Fade = ({
 )
 
 function HomePage() {
+  // 隐藏浏览器最右侧滚动条（复用房间列表/管理后台的视觉隐藏方案）
+  useHideBodyScrollbar()
   const navigate = useNavigate()
   const { user, autoLoginStatus } = useAuthStore()
   const { connected } = useSocket()

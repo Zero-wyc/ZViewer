@@ -586,25 +586,27 @@ export default function ProfilePage() {
                       </p>
                     </div>
                   </div>
-                  <div className="flex shrink-0 gap-2">
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    {/* 图标按钮：窄卡片下避免与用户名区争抢宽度导致文字竖排 */}
                     <Button
                       variant="secondary"
                       size="sm"
+                      className="w-8 justify-center px-0"
                       icon={<Cookie className="h-4 w-4" />}
                       onClick={handleCopyCookie}
                       loading={cookieCopyLoading}
                       title="复制当前绑定的 B站 Cookie（可用于其他设备登录或备份）"
-                    >
-                      复制 Cookie
-                    </Button>
+                      aria-label="复制 Cookie"
+                    />
                     <Button
                       variant="danger"
                       size="sm"
+                      className="w-8 justify-center px-0"
                       icon={<LogOut className="h-4 w-4" />}
                       onClick={handleLogoutBilibili}
-                    >
-                      退登
-                    </Button>
+                      title="退出 B站 登录"
+                      aria-label="退登"
+                    />
                   </div>
                 </div>
               </div>
