@@ -235,6 +235,10 @@ type RequestOptions = Omit<RequestInit, 'headers'> & {
  *
  * sessionExpired 标志：refresh 失败后置位，阻止后续请求反复尝试 refresh（级联失败）。
  * 重新登录或页面刷新后自动重置（模块重新加载）。
+ *
+ * 导出供播放器使用：媒体 URL（appendAuthToken）嵌入的 access token 过期导致
+ * 引擎 attach 401/403 时，播放器可强制 refresh 后重试（媒体请求不走 apiFetch，
+ * 无法享受其内置的自动 refresh 机制）。
  */
 let inflightRefresh: Promise<boolean> | null = null
 let sessionExpired = false
@@ -244,7 +248,7 @@ export function resetSessionExpired(): void {
   sessionExpired = false
 }
 
-async function refreshAccessToken(): Promise<boolean> {
+export async function refreshAccessToken(): Promise<boolean> {
   // session 已知过期 → 不再尝试 refresh，避免级联失败
   if (sessionExpired) return false
   if (inflightRefresh) return inflightRefresh

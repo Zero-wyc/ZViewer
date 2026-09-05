@@ -19,7 +19,7 @@
  * 该 Hook 是引擎无关的：不关心是房主还是观众，也不依赖 WatchTogetherState。
  * 调用方（如 sync-playback/useVideoSource）负责传入 PlayerSource 与处理副作用。
  */
-import { useCallback, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import {
   selectEngine,
@@ -28,6 +28,7 @@ import {
   directEngine,
 } from '@/modules/player'
 import type { PlayerSource, PlayerController } from '@/modules/player'
+import { refreshAccessToken } from '@/lib/api'
 
 /** 引擎实例直查表（仅回退场景使用；selectEngine 不应返回 playsvideo 的兜底） */
 const ENGINES = { direct: directEngine } as const
@@ -35,6 +36,18 @@ import {
   isBrowserPlayableFormat,
   getUnsupportedFormatMessage,
 } from '@/lib/mediaFormat'
+
+/**
+ * 判断引擎错误是否为鉴权失效（401/403）。
+ *
+ * 媒体 URL（appendAuthToken）嵌入的 access token 过期时，playsvideo
+ * worker 的取流错误为 `Error fetching <url>: 403 Forbidden`；这类错误
+ * 可通过刷新 token 后重试自愈（媒体请求不走 apiFetch，无内置刷新）。
+ */
+function isAuthExpiredError(err: unknown): boolean {
+  const msg = err instanceof Error ? err.message : String(err)
+  return /\b(401|403)\b/.test(msg)
+}
 
 export interface UsePlayerSourceOptions {
   videoRef: RefObject<HTMLVideoElement | null>
@@ -83,8 +96,7 @@ export interface UsePlayerSourceReturn {
 }
 
 export function usePlayerSource(
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  _options: UsePlayerSourceOptions
+  options: UsePlayerSourceOptions
 ): UsePlayerSourceReturn {
   const blobUrlRef = useRef<string | null>(null)
   const engineCleanupRef = useRef<(() => void) | null>(null)
@@ -97,6 +109,20 @@ export function usePlayerSource(
   // forceReload 合并：多次调用只执行最新 source 的一次重载
   const pendingReloadRef = useRef<PlayerSource | null>(null)
   const reloadScheduledRef = useRef(false)
+  // attachInner 的稳定自引用：token 刷新后的递归重试需要引用自身，
+  // 直接在 useCallback 内访问自身会触发 eslint no-use-before-define。
+  const attachInnerRef = useRef<
+    (
+      video: HTMLVideoElement,
+      source: PlayerSource,
+      authRetried?: boolean
+    ) => Promise<void>
+  >(async () => {})
+  // 卸载标记：切换影片时 WatchTogetherPanel 按 key 整体重挂载
+  // （usePlayerRemountKey），旧面板的 loadMovie effect 已启动的 attach
+  // 会在卸载后继续完成。没有该标记时，attach 会把引擎挂到已被 React
+  // 移除的游离 video 上，其声音持续输出（每切一次片泄漏一个声音源）。
+  const mountedRef = useRef(true)
 
   /** 将操作排入串行队列（前驱无论成败都继续执行） */
   const enqueue = useCallback(<T>(task: () => Promise<T>): Promise<T> => {
@@ -140,7 +166,11 @@ export function usePlayerSource(
    * 切换顺序：先 cleanup 旧引擎（中断其下载），再 reset video，最后 attach 新引擎。
    */
   const attachInner = useCallback(
-    async (video: HTMLVideoElement, source: PlayerSource): Promise<void> => {
+    async (
+      video: HTMLVideoElement,
+      source: PlayerSource,
+      authRetried = false
+    ): Promise<void> => {
       const previousUrl = appliedSourceUrlRef.current
       try {
         // cleanup 会清空 appliedSourceUrlRef（引擎销毁后旧标记失效），
@@ -154,43 +184,115 @@ export function usePlayerSource(
         let engine = selectEngine(source)
         try {
           const result = await engine.attach(video, source)
+          if (!mountedRef.current) {
+            // 组件已卸载（影片切换重挂载）：attach 在游离 video 上完成，
+            // 立即销毁引擎防止其继续输出声音（引擎内部可能已起播）。
+            try {
+              result.cleanup?.()
+            } catch {
+              /* ignore */
+            }
+            return
+          }
           if (result.blobUrl) {
             blobUrlRef.current = result.blobUrl
           }
           engineCleanupRef.current = result.cleanup
           playerRef.current = result.player ?? null
         } catch (err) {
-          // playsvideo 引擎失败（容器不支持 / 探测超时 / 媒体流不可达等）
-          // 时自动回退 direct 原生播放：宁可无声也不能让整段视频放不出来。
-          if (engine.type !== 'playsvideo') throw err
-          console.warn(
-            '[usePlayerSource] playsvideo 引擎挂载失败，回退原生播放:',
-            err
-          )
-          resetVideoElement(video)
-          // 回退要彻底回到原生：连音轨编码一并清掉，否则 DTS 等不兼容
-          // 编码会让 selectEngine 再次选中 playsvideo，形成自我回退死循环。
-          engine = selectEngine({
-            ...source,
-            format: undefined,
-            audioCodec: undefined,
-          })
-          if (engine.type === 'playsvideo') {
-            // 防御：selectEngine 不应再返回 playsvideo，此处兜底直取 direct
-            engine = ENGINES.direct
+          // 鉴权失效：媒体 URL（appendAuthToken）嵌入的 access token 过期，
+          // 引擎取流报 401/403。媒体请求不走 apiFetch（无内置刷新），
+          // 此处强制 refresh 后重试一次；引擎内 appendAuthToken 实时读取
+          // localStorage，重试自动携带新 token。authRetried 防止无限循环。
+          if (isAuthExpiredError(err) && !authRetried) {
+            const refreshed = await refreshAccessToken()
+            if (refreshed) {
+              console.warn(
+                '[usePlayerSource] 媒体请求鉴权失效，token 已刷新，重试 attach'
+              )
+              return attachInnerRef.current(video, source, true)
+            }
           }
-          const result2 = await engine.attach(video, source)
-          if (result2.blobUrl) {
-            blobUrlRef.current = result2.blobUrl
+          if (
+            source.mkvFastPath &&
+            engine.type === 'direct' &&
+            !source.forcePlaysVideo
+          ) {
+            // MKV 快速路径：原生 attach 失败（metadata 就绪前 error 事件，
+            // 如 HEVC-10bit 视频编码 Chrome 原生不支持）时回退 playsvideo
+            // 重封装管线。与下方 onNativeError 监听器互补：那个覆盖
+            // attach 成功后的播放期 error，这里覆盖 attach 期间的 error。
+            console.warn(
+              '[usePlayerSource] MKV 原生 attach 失败，回退 playsvideo 管线:',
+              err
+            )
+            source.forcePlaysVideo = true
+            resetVideoElement(video)
+            const pipelineSource: PlayerSource = {
+              ...source,
+              forcePlaysVideo: true,
+            }
+            const pipelineEngine = selectEngine(pipelineSource)
+            const result = await pipelineEngine.attach(video, pipelineSource)
+            if (!mountedRef.current) {
+              try {
+                result.cleanup?.()
+              } catch {
+                /* ignore */
+              }
+              return
+            }
+            if (result.blobUrl) {
+              blobUrlRef.current = result.blobUrl
+            }
+            engineCleanupRef.current = result.cleanup
+            playerRef.current = result.player ?? null
+          } else if (engine.type === 'playsvideo') {
+            // playsvideo 引擎失败（容器不支持 / 探测超时 / 媒体流不可达等）
+            // 时自动回退 direct 原生播放：宁可无声也不能让整段视频放不出来。
+            console.warn(
+              '[usePlayerSource] playsvideo 引擎挂载失败，回退原生播放:',
+              err
+            )
+            resetVideoElement(video)
+            // 回退要彻底回到原生：连音轨编码一并清掉，否则 DTS 等不兼容
+            // 编码会让 selectEngine 再次选中 playsvideo，形成自我回退死循环。
+            engine = selectEngine({
+              ...source,
+              format: undefined,
+              audioCodec: undefined,
+            })
+            if (engine.type === 'playsvideo') {
+              // 防御：selectEngine 不应再返回 playsvideo，此处兜底直取 direct
+              engine = ENGINES.direct
+            }
+            const result2 = await engine.attach(video, source)
+            if (!mountedRef.current) {
+              try {
+                result2.cleanup?.()
+              } catch {
+                /* ignore */
+              }
+              return
+            }
+            if (result2.blobUrl) {
+              blobUrlRef.current = result2.blobUrl
+            }
+            engineCleanupRef.current = result2.cleanup
+            playerRef.current = result2.player ?? null
+          } else {
+            throw err
           }
-          engineCleanupRef.current = result2.cleanup
-          playerRef.current = result2.player ?? null
         }
 
         // MKV 快速路径：原生播放失败（video.error，如编码变体不受支持）
         // 时自动回退 playsvideo 管线。监听器一次性，换源/清理时移除；
         // 触发过的源对象会被置 forcePlaysVideo，防止重复回退。
-        if (source.mkvFastPath && engine.type === 'direct' && !source.forcePlaysVideo) {
+        if (
+          source.mkvFastPath &&
+          engine.type === 'direct' &&
+          !source.forcePlaysVideo
+        ) {
           const onNativeError = () => {
             if (appliedSourceUrlRef.current !== source.url) return
             video.removeEventListener('error', onNativeError)
@@ -205,6 +307,7 @@ export function usePlayerSource(
             source.forcePlaysVideo = true
             void enqueue(async () => {
               if (appliedSourceUrlRef.current !== source.url) return
+              if (!mountedRef.current) return
               cleanup()
               resetVideoElement(video)
               appliedSourceUrlRef.current = source.url
@@ -214,6 +317,14 @@ export function usePlayerSource(
               }
               const pipelineEngine = selectEngine(pipelineSource)
               const result = await pipelineEngine.attach(video, pipelineSource)
+              if (!mountedRef.current) {
+                try {
+                  result.cleanup?.()
+                } catch {
+                  /* ignore */
+                }
+                return
+              }
               if (result.blobUrl) {
                 blobUrlRef.current = result.blobUrl
               }
@@ -227,7 +338,7 @@ export function usePlayerSource(
                   /* ignore */
                 }
               }
-              if (wasPlaying) {
+              if (wasPlaying && mountedRef.current) {
                 void video.play().catch(() => {})
               }
             })
@@ -246,6 +357,37 @@ export function usePlayerSource(
     },
     [cleanup, enqueue]
   )
+  // 更新稳定自引用（commit 后同步，供 token 刷新重试递归调用；
+  // attach 由用户交互触发，晚于首次 effect 执行，无空窗）
+  useEffect(() => {
+    attachInnerRef.current = attachInner
+  }, [attachInner])
+
+  // 卸载感知：组件卸载（影片切换重挂载）后，进行中的 attach 完成时
+  // 依据 mountedRef 拒绝落地并立即销毁引擎，防止游离 video 持续发声。
+  // 卸载的同时清理引擎资源并暂停游离 video（React 已将其移出 DOM，
+  // 浏览器不会因移出而停止播放）。
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      const video = options.videoRef.current
+      if (video) {
+        try {
+          video.pause()
+        } catch {
+          /* ignore */
+        }
+      }
+      cleanup()
+      if (video) {
+        resetVideoElement(video)
+      }
+    }
+    // cleanup 是稳定引用（依赖为空）；_options.videoRef 是 RefObject，
+    // 卸载时读取一次即弃，无需纳入依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const attachSource = useCallback(
     async (video: HTMLVideoElement, source: PlayerSource) => {

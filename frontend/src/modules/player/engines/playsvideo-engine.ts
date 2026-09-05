@@ -66,6 +66,47 @@ import {
  */
 const READY_TIMEOUT_MS = 60_000
 
+/** TEMP-DIAG：临时诊断 hook，定位 endOfStream 调用来源（修复后移除） */
+let diagInstalled = false
+function installMediaSourceDiagnostics(): void {
+  if (diagInstalled || typeof MediaSource === 'undefined') return
+  diagInstalled = true
+  const proto = MediaSource.prototype as unknown as Record<string, unknown>
+  const wrap = (name: string, extra: () => unknown) => {
+    const orig = proto[name] as (...a: unknown[]) => unknown
+    if (typeof orig !== 'function') return
+    proto[name] = function (this: MediaSource, ...args: unknown[]) {
+      console.error(
+        `[MS-DIAG] ${name} readyState=${this.readyState}`,
+        new Error('trace'),
+        extra()
+      )
+      return orig.apply(this, args)
+    }
+  }
+  wrap('endOfStream', () => '')
+  wrap('removeSourceBuffer', () => '')
+  const origSetDuration = Object.getOwnPropertyDescriptor(
+    MediaSource.prototype,
+    'duration'
+  )?.set
+  if (origSetDuration) {
+    Object.defineProperty(MediaSource.prototype, 'duration', {
+      set(this: MediaSource, v: number) {
+        console.error(
+          `[MS-DIAG] duration=${v} readyState=${this.readyState}`,
+          new Error('trace')
+        )
+        origSetDuration.call(this, v)
+      },
+      get:
+        Object.getOwnPropertyDescriptor(MediaSource.prototype, 'duration')
+          ?.get ?? (() => undefined),
+      configurable: true,
+    })
+  }
+}
+
 /** 判断当前浏览器是否具备 playsvideo 引擎的运行条件（MSE + Worker） */
 export function isPlaysVideoSupported(): boolean {
   if (typeof window === 'undefined') return false
@@ -135,6 +176,7 @@ class PlaysVideoController implements PlayerController {
     if (!isPlaysVideoSupported()) {
       throw new Error('浏览器不支持 MSE/WebWorker，无法启用浏览器端转码')
     }
+    installMediaSourceDiagnostics()
 
     // 结束旧世代（切换 / 重载场景）
     this.cleanup()

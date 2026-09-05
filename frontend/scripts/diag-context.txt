@@ -1,0 +1,166 @@
+[2026-09-05T12:49:15.618Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 1 pending=0
+[2026-09-05T12:49:15.618Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=1 url=seg-1.m4s
+[2026-09-05T12:49:15.618Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=0
+[2026-09-05T12:49:15.634Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 1 arrived latency=15.8ms size=6601871 pending=0
+[2026-09-05T12:49:15.635Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:15.635Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=1 size=6601871
+[2026-09-05T12:49:15.708Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 2 pending=0
+[2026-09-05T12:49:15.708Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=2 url=seg-2.m4s
+[2026-09-05T12:49:15.708Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=1
+[2026-09-05T12:49:15.716Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 2 arrived latency=8.3ms size=7092514 pending=0
+[2026-09-05T12:49:15.718Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:15.718Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=2 size=7092514
+[2026-09-05T12:49:15.727Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 3 pending=0
+[2026-09-05T12:49:15.727Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=3 url=seg-3.m4s
+[2026-09-05T12:49:15.727Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=2
+[2026-09-05T12:49:15.906Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 3 arrived latency=178.9ms size=5618893 pending=0
+[2026-09-05T12:49:15.907Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:15.907Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=3 size=5618893
+[2026-09-05T12:49:15.913Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 4 pending=0
+[2026-09-05T12:49:15.913Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=4 url=seg-4.m4s
+[2026-09-05T12:49:15.913Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=3
+[2026-09-05T12:49:16.064Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 4 arrived latency=151.8ms size=6556992 pending=0
+[2026-09-05T12:49:16.065Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:16.065Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=4 size=6556992
+[2026-09-05T12:49:16.071Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 5 pending=0
+[2026-09-05T12:49:16.071Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=5 url=seg-5.m4s
+[2026-09-05T12:49:16.071Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=4
+[2026-09-05T12:49:16.077Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 5 arrived latency=5.9ms size=5767521 pending=0
+[2026-09-05T12:49:16.077Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:16.077Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=5 size=5767521
+[2026-09-05T12:49:16.083Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 6 pending=0
+[2026-09-05T12:49:16.083Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=6 url=seg-6.m4s
+[2026-09-05T12:49:16.083Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=5
+[2026-09-05T12:49:16.466Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 6 arrived latency=382.9ms size=6755140 pending=0
+[2026-09-05T12:49:16.466Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:16.466Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=6 size=6755140
+[2026-09-05T12:49:16.484Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 7 pending=0
+[2026-09-05T12:49:16.484Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=7 url=seg-7.m4s
+[2026-09-05T12:49:16.484Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=6
+[2026-09-05T12:49:16.748Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 7 arrived latency=264.5ms size=6065453 pending=0
+[2026-09-05T12:49:16.749Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:16.749Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=7 size=6065453
+[2026-09-05T12:49:16.756Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 8 pending=0
+[2026-09-05T12:49:16.756Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=8 url=seg-8.m4s
+[2026-09-05T12:49:16.756Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=7
+[2026-09-05T12:49:17.162Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 8 arrived latency=406.2ms size=6968985 pending=0
+[2026-09-05T12:49:17.163Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.163Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=8 size=6968985
+[2026-09-05T12:49:17.186Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 9 pending=0
+[2026-09-05T12:49:17.186Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=9 url=seg-9.m4s
+[2026-09-05T12:49:17.186Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=8
+[2026-09-05T12:49:17.452Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 9 arrived latency=265.6ms size=5594209 pending=0
+[2026-09-05T12:49:17.453Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.453Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=9 size=5594209
+[2026-09-05T12:49:17.470Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 10 pending=0
+[2026-09-05T12:49:17.470Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=10 url=seg-10.m4s
+[2026-09-05T12:49:17.470Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=9
+[2026-09-05T12:49:17.540Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 10 arrived latency=70.6ms size=5282797 pending=0
+[2026-09-05T12:49:17.541Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.541Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=10 size=5282797
+[2026-09-05T12:49:17.547Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 11 pending=0
+[2026-09-05T12:49:17.547Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=11 url=seg-11.m4s
+[2026-09-05T12:49:17.547Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=10
+[2026-09-05T12:49:17.625Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 11 arrived latency=77.9ms size=6727072 pending=0
+[2026-09-05T12:49:17.626Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.626Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=11 size=6727072
+[2026-09-05T12:49:17.721Z] [INFO ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [useSubtitles] 前端提取内嵌字幕不可用（非 MKV / 位图字幕轨 / CORS 拒绝），跳过自动加载
+[2026-09-05T12:49:17.743Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 12 pending=0
+[2026-09-05T12:49:17.743Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=12 url=seg-12.m4s
+[2026-09-05T12:49:17.744Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=11
+[2026-09-05T12:49:17.754Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 12 arrived latency=10.6ms size=5488486 pending=0
+[2026-09-05T12:49:17.755Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.755Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=12 size=5488486
+[2026-09-05T12:49:17.803Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 13 pending=0
+[2026-09-05T12:49:17.803Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=13 url=seg-13.m4s
+[2026-09-05T12:49:17.803Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=12
+[2026-09-05T12:49:17.832Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 13 arrived latency=29.1ms size=7230736 pending=0
+[2026-09-05T12:49:17.833Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.834Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=13 size=7230736
+[2026-09-05T12:49:17.882Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 14 pending=0
+[2026-09-05T12:49:17.882Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=14 url=seg-14.m4s
+[2026-09-05T12:49:17.882Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=13
+[2026-09-05T12:49:17.956Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 14 arrived latency=73.4ms size=5900735 pending=0
+[2026-09-05T12:49:17.956Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:17.956Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=14 size=5900735
+[2026-09-05T12:49:17.965Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 15 pending=0
+[2026-09-05T12:49:17.965Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=15 url=seg-15.m4s
+[2026-09-05T12:49:17.965Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=14
+[2026-09-05T12:49:18.121Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 15 arrived latency=155.9ms size=6544810 pending=0
+[2026-09-05T12:49:18.123Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.123Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=15 size=6544810
+[2026-09-05T12:49:18.150Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 16 pending=0
+[2026-09-05T12:49:18.150Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=16 url=seg-16.m4s
+[2026-09-05T12:49:18.150Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=15
+[2026-09-05T12:49:18.222Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 16 arrived latency=72.0ms size=5369207 pending=0
+[2026-09-05T12:49:18.223Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.223Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=16 size=5369207
+[2026-09-05T12:49:18.235Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 17 pending=0
+[2026-09-05T12:49:18.235Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=17 url=seg-17.m4s
+[2026-09-05T12:49:18.235Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=16
+[2026-09-05T12:49:18.499Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 17 arrived latency=264.6ms size=6786347 pending=0
+[2026-09-05T12:49:18.500Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.500Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=17 size=6786347
+[2026-09-05T12:49:18.507Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 18 pending=0
+[2026-09-05T12:49:18.507Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=18 url=seg-18.m4s
+[2026-09-05T12:49:18.507Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=17
+[2026-09-05T12:49:18.548Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 18 arrived latency=41.4ms size=5626558 pending=0
+[2026-09-05T12:49:18.549Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.549Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=18 size=5626558
+[2026-09-05T12:49:18.554Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 19 pending=0
+[2026-09-05T12:49:18.554Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=19 url=seg-19.m4s
+[2026-09-05T12:49:18.554Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=18
+[2026-09-05T12:49:18.644Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 19 arrived latency=89.9ms size=6083900 pending=0
+[2026-09-05T12:49:18.645Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.645Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=19 size=6083900
+[2026-09-05T12:49:18.653Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 20 pending=0
+[2026-09-05T12:49:18.653Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=20 url=seg-20.m4s
+[2026-09-05T12:49:18.653Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=19
+[2026-09-05T12:49:18.709Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 20 arrived latency=56.3ms size=6992390 pending=0
+[2026-09-05T12:49:18.710Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.710Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=20 size=6992390
+[2026-09-05T12:49:18.725Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 21 pending=0
+[2026-09-05T12:49:18.726Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=21 url=seg-21.m4s
+[2026-09-05T12:49:18.726Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=20
+[2026-09-05T12:49:18.785Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 21 arrived latency=59.5ms size=5397224 pending=0
+[2026-09-05T12:49:18.786Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.786Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=21 size=5397224
+[2026-09-05T12:49:18.797Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] req seg 22 pending=0
+[2026-09-05T12:49:18.797Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADING sn=22 url=seg-22.m4s
+[2026-09-05T12:49:18.797Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=21
+[2026-09-05T12:49:18.798Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] seg 22 arrived latency=1.2ms size=6252860 pending=0
+[2026-09-05T12:49:18.799Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:49:18.799Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_LOADED sn=22 size=6252860
+[2026-09-05T12:49:18.809Z] [LOG  ] [room=KJIkSt1s url=http://localhost:5174/room/KJIkSt1s] [engine] hls FRAG_BUFFERED sn=22
+[2026-09-05T12:50:42.258Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] open url=/api/openlist/stream?movieId=2&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJ1c2VySWQiOjEsInJvbGUiOiJyb290IiwidXNlcm5hbWUiOiJyb290IiwiaWF0IjoxNzg4NjEyNTE5LCJleHAiOjE3ODg2MTYxMTl9.2qmlOkO-nI1whTdTZ24OFSrEbdTcWfEoY5UYsBtzOTk
+[2026-09-05T12:50:42.258Z] [INFO ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [playsvideo-subtitles] 轨道「未命名轨道」取回 0 条 cue
+[2026-09-05T12:50:43.276Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] playback selection: mode=hls hls-video-supported The remux/HLS path can play the source video codec.
+[2026-09-05T12:50:43.276Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] playback selection: mode=hls hls-audio-supported The remux/HLS path can keep the source audio codec without transcoding.
+[2026-09-05T12:50:43.276Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] playback selection: mode=hls selected-hls Recommended HLS playback because no higher-preference direct option was supported.
+[2026-09-05T12:50:43.276Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] pipeline: selected remux/HLS playback
+[2026-09-05T12:50:45.460Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] ready segments=231 dur=1372.0s
+[2026-09-05T12:50:45.460Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] subtitle-status: No embedded subtitles
+[2026-09-05T12:50:45.462Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls MANIFEST_PARSED levels=1
+[2026-09-05T12:50:45.562Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADING sn=initSegment url=init.mp4
+[2026-09-05T12:50:45.563Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] req seg 0 pending=0
+[2026-09-05T12:50:45.563Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADING sn=0 url=seg-0.m4s
+[2026-09-05T12:50:45.564Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] seg 0 arrived latency=1.6ms size=7051210 pending=0
+[2026-09-05T12:50:45.565Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:50:45.566Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:50:45.566Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADED sn=0 size=7051210
+[2026-09-05T12:50:45.636Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls ERROR fatal=false type=mediaError details=bufferAppendingError message=audiovideo SourceBuffer error. MediaSource readyState: ended
+[2026-09-05T12:50:45.637Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls ERROR fatal=false type=mediaError details=bufferAppendError message=audiovideo SourceBuffer error. MediaSource readyState: ended
+[2026-09-05T12:50:45.641Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] req seg 0 pending=0
+[2026-09-05T12:50:45.642Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADING sn=0 url=seg-0.m4s
+[2026-09-05T12:50:45.701Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] seg 0 arrived latency=59.5ms size=7051210 pending=0
+[2026-09-05T12:50:45.701Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:50:45.702Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:50:45.702Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADED sn=0 size=7051210
+[2026-09-05T12:50:45.702Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls ERROR fatal=false type=mediaError details=bufferAppendingError message=audiovideo SourceBuffer error. MediaSource readyState: ended
+[2026-09-05T12:50:45.703Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls ERROR fatal=false type=mediaError details=bufferAppendError message=audiovideo SourceBuffer error. MediaSource readyState: ended
+[2026-09-05T12:50:45.703Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] req seg 0 pending=0
+[2026-09-05T12:50:45.704Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADING sn=0 url=seg-0.m4s
+[2026-09-05T12:50:45.727Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] seg 0 arrived latency=23.3ms size=7051210 pending=0
+[2026-09-05T12:50:45.727Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:50:45.727Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls BUFFER_APPENDING type=audiovideo
+[2026-09-05T12:50:45.727Z] [LOG  ] [room=J9818COu url=http://localhost:5174/room/J9818COu] [engine] hls FRAG_LOADED sn=0 size=7051210

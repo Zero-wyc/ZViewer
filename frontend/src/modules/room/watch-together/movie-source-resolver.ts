@@ -310,14 +310,20 @@ export async function resolveMovieSource({
   // MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时，跳过
   // playsvideo 重封装管线直接原生播放（瞬时起播、暂停即静音）；原生
   // 失败（video.error）由 usePlayerSource 自动回退管线，能力不损失。
+  // 视频编码同样参与判定：Chrome 对 MKV 的原生支持仅限 H.264 视频，
+  // HEVC（尤其 10bit）必然 NotSupportedError，有元数据时提前避开
+  // 一次注定失败的原生尝试；videoCodec 缺失（server-files 源不探测）
+  // 时不阻止快速路径，由 attach 失败回退兜底。
   // DTS/AC3/EAC3/FLAC 等编码仍走管线（重封装或浏览器端转码）。
-  // format 兜底：旧数据可能未存储 format 字段（直链 m3u8/flv 等），
-  // 通过 detectMediaFormat 从路径扩展名自动推断，确保选择正确的播放引擎。
   if (sourceType === 'server-files' && movie.path) {
     const format = movie.format || detectMediaFormat(movie.path)
     const audio = (movie.audioCodec || '').toLowerCase()
+    const video = (movie.videoCodec || '').toLowerCase()
+    const videoNativeSafe = !video || video.includes('avc') || video.includes('h264')
     const browserSafeAudio =
-      format === 'mkv' && ['aac', 'mp3', 'opus', 'vorbis'].includes(audio)
+      format === 'mkv' &&
+      videoNativeSafe &&
+      ['aac', 'mp3', 'opus', 'vorbis'].includes(audio)
     return {
       sourceUrl: buildServerFileProxyUrl(movie.path),
       audioUrl: movie.audioUrl,
