@@ -92,6 +92,13 @@ export interface MovieDto {
    */
   wasmEngine?: boolean;
   /**
+   * 影片级浏览器播放引擎（playsvideo）开关。
+   * - true：允许该影片走浏览器端重封装/转码管线（默认）
+   * - false：强制原生直连播放
+   * 需与系统级 playsvideoEnabled 开关同时开启才启用。
+   */
+  playsvideoEnabled?: boolean;
+  /**
    * ani-subs 番剧源元数据。
    *
    * 存储 sourceId 和 episode 信息，用于播放时重新解析播放地址。

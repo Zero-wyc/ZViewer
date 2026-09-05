@@ -131,6 +131,15 @@ export class Movie {
   wasmEngine!: boolean;
 
   /**
+   * 影片级浏览器播放引擎（playsvideo）开关。
+   * - true：允许该影片走浏览器端 playsvideo 重封装/转码管线（默认）
+   * - false：强制原生直连播放，不兼容编码将无声或无法播放
+   * 需与系统级 playsvideoEnabled 开关同时开启才启用（两级任一关闭即直推）。
+   */
+  @Column({ type: 'boolean', default: true })
+  playsvideoEnabled!: boolean;
+
+  /**
    * ani-subs 番剧源元数据（JSON 字符串）。
    *
    * 存储 sourceId 和 episode 信息，用于播放时重新解析播放地址。

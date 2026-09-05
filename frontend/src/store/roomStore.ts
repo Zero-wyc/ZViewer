@@ -66,6 +66,8 @@ export interface Movie {
   path?: string | null
   username?: string | null
   directLink?: boolean
+  /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
+  playsvideoEnabled?: boolean
   // 以下为前端解析得到的临时字段（不持久化到后端）
   cid?: number
   duration?: number
@@ -111,6 +113,8 @@ export interface MovieDto {
   path: string | null
   username: string | null
   directLink: boolean
+  /** 影片级浏览器播放引擎（playsvideo）开关 */
+  playsvideoEnabled?: boolean
   /** ani-subs 番剧源元数据（仅 source='anime' 时有值） */
   sourceMeta: AniSubsSourceMeta | null
   order: number
@@ -131,6 +135,7 @@ export function mapDtoToMovie(dto: MovieDto): Movie {
     path: dto.path,
     username: dto.username,
     directLink: dto.directLink,
+    playsvideoEnabled: dto.playsvideoEnabled !== false,
     audioUrl: dto.audioUrl ?? undefined,
     format: (dto.format as Movie['format']) ?? undefined,
     videoCodec: dto.videoCodec ?? undefined,
@@ -171,6 +176,8 @@ export interface PreviewPlayRequest {
   audioCodec?: string
   headers?: Record<string, string>
   duration?: number
+  /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
+  playsvideoEnabled?: boolean
 }
 
 interface RoomState {
@@ -323,6 +330,8 @@ interface RoomState {
       username?: string
       password?: string
       directLink?: boolean
+      /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
+      playsvideoEnabled?: boolean
       sourceMeta?: AniSubsSourceMeta | null
     }
   ) => Promise<void>

@@ -20,6 +20,7 @@ const DEFAULT_SETTINGS: Partial<SystemSettings> = {
   cdnAccelerate: false,
   cdnProxyUrl: 'https://gh-proxy.com',
   embeddedSubtitleEnabled: true,
+  playsvideoEnabled: true,
 };
 
 /**

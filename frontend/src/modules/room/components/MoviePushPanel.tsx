@@ -149,7 +149,7 @@ interface MoviePushPanelProps {
 export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const userRole = useAuthStore((state) => state.user?.role)
   const { betaFeaturesEnabled, fetchSettings } = useSystemSettingsStore()
-  const addMovie = useRoomStore((state) => state.addMovie)
+  const addMovieStore = useRoomStore((state) => state.addMovie)
   const fetchMovies = useRoomStore((state) => state.fetchMovies)
   const setPendingPreviewPlay = useRoomStore(
     (state) => state.setPendingPreviewPlay
@@ -159,8 +159,18 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [qualityLoading, setQualityLoading] = useState(false)
-  // 「启用转码引擎」勾选项已移除：playsvideo 的启用现由播放时的
-  // shouldUsePlaysVideo 依据容器与音轨编码自动判定，无需添加影片时勾选。
+  // 影片级浏览器播放引擎（playsvideo）开关：默认开启，关闭后该影片
+  // 强制原生直连播放（不兼容编码将无声）。与系统级开关两级门控。
+  const [playsvideoEnabled, setPlaysvideoEnabled] = useState(true)
+  // 包装 store 的 addMovie：为本面板全部添加路径统一注入 playsvideoEnabled，
+  // 调用点无需逐个传参。roomId 已在闭包内固定，保持原调用签名不变。
+  const addMovie = useCallback(
+    (
+      _roomId: string,
+      payload: Omit<Parameters<typeof addMovieStore>[1], 'playsvideoEnabled'>
+    ) => addMovieStore(_roomId, { ...payload, playsvideoEnabled }),
+    [addMovieStore, playsvideoEnabled]
+  )
   const [resolvedMovie, setResolvedMovie] = useState<ResolvedSource | null>(
     null
   )
@@ -377,6 +387,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           title,
           sourceType: 'anime',
           format: resolved.format,
+          playsvideoEnabled,
         })
 
         // 2. 同时异步加入影片列表（不阻塞预览播放）
@@ -411,7 +422,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         setLoading(false)
       }
     },
-    [isHost, roomId, addMovie, fetchMovies, setPendingPreviewPlay]
+    [
+      isHost,
+      roomId,
+      addMovie,
+      fetchMovies,
+      setPendingPreviewPlay,
+      playsvideoEnabled,
+    ]
   )
 
   const handleSelectKazumiEpisode = useCallback(
@@ -438,6 +456,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           title,
           sourceType: 'kazumi',
           format: resolved.format,
+          playsvideoEnabled,
         })
 
         void addMovie(roomId, {
@@ -462,7 +481,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         setLoading(false)
       }
     },
-    [isHost, roomId, addMovie, fetchMovies, setPendingPreviewPlay]
+    [
+      isHost,
+      roomId,
+      addMovie,
+      fetchMovies,
+      setPendingPreviewPlay,
+      playsvideoEnabled,
+    ]
   )
 
   useEffect(() => {
@@ -495,7 +521,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setWebdavDirectLink(
         rawDirectLink && !isInternalOpenListServer(mount.serverUrl || '')
           ? true
-          : false,
+          : false
       )
     } else if (sourceType === 'ftp') {
       setFtp((prev) => ({
@@ -517,7 +543,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setOpenlistDirectLink(
         rawDirectLink && !isInternalOpenListServer(mount.serverUrl || '')
           ? true
-          : false,
+          : false
       )
     } else if (sourceType === 'emby') {
       // emby 使用挂载自带的 API Key / 账号配置，无需回填表单字段
@@ -578,8 +604,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             // 内网地址强制使用服务器转发（浏览器无法直连内网服务器）
             const isDirect =
               sourceType === 'webdav'
-                ? (isWebdavInternal ? false : webdavDirectLink)
-                : (isOpenlistInternal ? false : openlistDirectLink)
+                ? isWebdavInternal
+                  ? false
+                  : webdavDirectLink
+                : isOpenlistInternal
+                  ? false
+                  : openlistDirectLink
             const serverUrl =
               (sourceType === 'webdav'
                 ? webdav.serverUrl
@@ -755,7 +785,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         } catch (cliErr) {
           // CLI 代理解析失败：连接失败或后端返回错误，自动回退到服务器端解析
           if (cliErr instanceof CliConnectionError) {
-            console.warn('[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析')
+            console.warn(
+              '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
+            )
           } else if (cliErr instanceof CliResolveError) {
             message.warning(`${cliErr.message}，已回退到服务器端解析`)
           }
@@ -810,7 +842,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           )
         } catch (cliErr) {
           if (cliErr instanceof CliConnectionError) {
-            console.warn('[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析')
+            console.warn(
+              '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
+            )
           } else if (cliErr instanceof CliResolveError) {
             message.warning(`${cliErr.message}，已回退到服务器端解析`)
           }
@@ -863,7 +897,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           )
         } catch (cliErr) {
           if (cliErr instanceof CliConnectionError) {
-            console.warn('[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析')
+            console.warn(
+              '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
+            )
           } else if (cliErr instanceof CliResolveError) {
             message.warning(`${cliErr.message}，已回退到服务器端解析`)
           }
@@ -946,8 +982,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         // 内网地址强制使用服务器转发（浏览器无法直连内网服务器）
         const isDirect =
           sourceType === 'webdav'
-            ? (isWebdavInternal ? false : webdavDirectLink)
-            : (isOpenlistInternal ? false : openlistDirectLink)
+            ? isWebdavInternal
+              ? false
+              : webdavDirectLink
+            : isOpenlistInternal
+              ? false
+              : openlistDirectLink
         const mountPath = (
           sourceType === 'webdav' ? webdav.path : openlist.path
         ).trim()
@@ -1301,10 +1341,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             }
           />
           <Dropdown
-            value={isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'}
+            value={
+              isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'
+            }
             options={[
               { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连', disabled: isWebdavInternal },
+              {
+                value: 'direct',
+                label: '直链直连',
+                disabled: isWebdavInternal,
+              },
             ]}
             onChange={(value) => setWebdavDirectLink(value === 'direct')}
           />
@@ -1475,10 +1521,20 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             }}
           />
           <Dropdown
-            value={isOpenlistInternal ? 'proxy' : openlistDirectLink ? 'direct' : 'proxy'}
+            value={
+              isOpenlistInternal
+                ? 'proxy'
+                : openlistDirectLink
+                  ? 'direct'
+                  : 'proxy'
+            }
             options={[
               { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连', disabled: isOpenlistInternal },
+              {
+                value: 'direct',
+                label: '直链直连',
+                disabled: isOpenlistInternal,
+              },
             ]}
             onChange={(value) => setOpenlistDirectLink(value === 'direct')}
           />
@@ -1685,6 +1741,47 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
           {renderActionButton()}
 
+          {/* 浏览器转码引擎开关：仅挂载/文件类源显示。B站 源解析出的
+              MP4/DASH 浏览器必定原生可播，无转码需求，隐藏开关避免困惑。 */}
+          {sourceType !== 'bilibili' && (
+            <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
+              <div className="min-w-0">
+                <Text className="block text-xs font-medium">
+                  浏览器转码引擎
+                </Text>
+                <Text
+                  type="secondary"
+                  className="block text-[11px] leading-snug mt-0.5"
+                >
+                  开启：MKV/DTS
+                  等非常规格式由浏览器端重封装/转码播放。关闭：强制原生直连，不兼容编码将无声。
+                </Text>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={playsvideoEnabled}
+                disabled={!isHost}
+                onClick={() => setPlaysvideoEnabled((prev) => !prev)}
+                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  backgroundColor: playsvideoEnabled
+                    ? 'var(--md-sys-color-primary)'
+                    : 'var(--md-sys-color-outline)',
+                }}
+              >
+                <span
+                  className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
+                  style={{
+                    transform: playsvideoEnabled
+                      ? 'translateX(18px)'
+                      : 'translateX(2px)',
+                  }}
+                />
+              </button>
+            </div>
+          )}
+
           {resolveProgress && (
             <div
               className="flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] px-3 py-2 text-xs"
@@ -1759,9 +1856,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   B站 登录状态
                 </Text>
               </div>
-              <div
-                className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--md-sys-shape-corner)] p-1"
-              >
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--md-sys-shape-corner)] p-1">
                 {bilibiliLoggedIn && bilibiliUser ? (
                   <>
                     {avatarError || !bilibiliUser.avatar ? (

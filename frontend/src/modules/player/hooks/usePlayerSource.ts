@@ -233,6 +233,11 @@ export function usePlayerSource(
               forcePlaysVideo: true,
             }
             const pipelineEngine = selectEngine(pipelineSource)
+            if (pipelineEngine.type === 'direct') {
+              // 引擎被两级开关禁用（系统级/影片级任一关闭）：回退目标
+              // 不可用，尊重用户选择不启动管线，保持原生失败结果抛错。
+              throw err
+            }
             const result = await pipelineEngine.attach(video, pipelineSource)
             if (!mountedRef.current) {
               try {
@@ -316,6 +321,11 @@ export function usePlayerSource(
                 forcePlaysVideo: true,
               }
               const pipelineEngine = selectEngine(pipelineSource)
+              if (pipelineEngine.type === 'direct') {
+                // 引擎被两级开关禁用：不回退，保持原生失败状态（黑屏由
+                // video.error 呈现），用户可选择重新开启引擎后重载。
+                return
+              }
               const result = await pipelineEngine.attach(video, pipelineSource)
               if (!mountedRef.current) {
                 try {

@@ -962,6 +962,8 @@ export function useWatchTogether({
           getBilibiliParseOptions(movie.id).bufferMode === true,
         // MKV 快速路径：原生友好编码（AAC/MP3/Opus 音轨）直接原生播放
         mkvFastPath: r.mkvFastPath ?? false,
+        // 影片级浏览器播放引擎开关（添加影片时设置），随状态广播给观众
+        playsvideoEnabled: r.playsvideoEnabled !== false,
       })
 
       // 4. attach 并恢复进度 / 自动播放 / 广播
@@ -1228,6 +1230,8 @@ export function useWatchTogether({
       audioCodec?: string
       headers?: Record<string, string>
       duration?: number
+      /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
+      playsvideoEnabled?: boolean
     }) => {
       const video = videoRef.current
       if (!video) return
@@ -1250,6 +1254,8 @@ export function useWatchTogether({
         playbackRate: watchTogether.playbackRate,
         duration: params.duration ?? 0,
         headers: params.headers,
+        // 预览源同样遵循影片级浏览器播放引擎开关（添加面板统一传入）
+        playsvideoEnabled: params.playsvideoEnabled !== false,
         isPreview: true,
         previewTitle: params.title,
       }

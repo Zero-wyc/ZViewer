@@ -66,6 +66,11 @@ export interface ResolvedMovieSource {
    * 跳过 playsvideo 重封装管线直接原生播放（原生失败自动回退管线）。
    */
   mkvFastPath?: boolean
+  /**
+   * 影片级浏览器播放引擎（playsvideo）开关（添加影片时设置）。
+   * false 时强制原生直连播放，需与系统级开关同时开启才启用管线。
+   */
+  playsvideoEnabled?: boolean
 }
 
 export interface ResolveMovieSourceOptions {
@@ -250,6 +255,37 @@ export async function resolveAnimeOnline(
 }
 
 /**
+ * 计算 MKV 快速路径标记（原生播放直通判定）。
+ *
+ * 适用于所有挂载源（server-files / webdav / openlist / ftp / smb /
+ * emby / jellyfin 等）：音视频编码均为浏览器原生友好时，跳过
+ * playsvideo 重封装管线直接原生播放（瞬时起播、暂停即静音）；
+ * 原生失败（video.error）由 usePlayerSource 自动回退管线，能力不损失。
+ *
+ * - 视频：Chrome 对 MKV 的原生支持仅限 H.264（AVC），HEVC（尤其 10bit）
+ *   必然 NotSupportedError，有元数据时提前避开一次注定失败的原生尝试；
+ * - 音频：DTS/AC3/EAC3/FLAC 等编码需 playsvideo 转码，仅
+ *   AAC/MP3/Opus/Vorbis 允许直通；
+ * - 编码元数据缺失时 audioCodec 不在白名单内，保守走 playsvideo
+ *   （server-files 源历史行为：videoCodec 缺失不阻止，由 attach
+ *   失败回退兜底）。
+ */
+function computeMkvFastPath(
+  format: MediaFormat | undefined,
+  videoCodec: string | undefined,
+  audioCodec: string | undefined
+): boolean {
+  if (format !== 'mkv') return false
+  const video = (videoCodec || '').toLowerCase()
+  const videoNativeSafe =
+    !video || video.includes('avc') || video.includes('h264')
+  if (!videoNativeSafe) return false
+  return ['aac', 'mp3', 'opus', 'vorbis'].includes(
+    (audioCodec || '').toLowerCase()
+  )
+}
+
+/**
  * 解析影片的播放源。
  *
  * - B站 源：在线解析 playurl（带解析进度回调）；
@@ -306,24 +342,8 @@ export async function resolveMovieSource({
   // 绝对代理 URL，随影片记录广播给所有观众——外网/跨域观众的浏览器拿到的
   // 是房主的内网地址，无法访问导致播放失败。此处按「当前客户端自己」的
   // API 地址重建代理 URL（文件路径保存在 movie.path），内外网各自可达。
-  //
-  // MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时，跳过
-  // playsvideo 重封装管线直接原生播放（瞬时起播、暂停即静音）；原生
-  // 失败（video.error）由 usePlayerSource 自动回退管线，能力不损失。
-  // 视频编码同样参与判定：Chrome 对 MKV 的原生支持仅限 H.264 视频，
-  // HEVC（尤其 10bit）必然 NotSupportedError，有元数据时提前避开
-  // 一次注定失败的原生尝试；videoCodec 缺失（server-files 源不探测）
-  // 时不阻止快速路径，由 attach 失败回退兜底。
-  // DTS/AC3/EAC3/FLAC 等编码仍走管线（重封装或浏览器端转码）。
   if (sourceType === 'server-files' && movie.path) {
     const format = movie.format || detectMediaFormat(movie.path)
-    const audio = (movie.audioCodec || '').toLowerCase()
-    const video = (movie.videoCodec || '').toLowerCase()
-    const videoNativeSafe = !video || video.includes('avc') || video.includes('h264')
-    const browserSafeAudio =
-      format === 'mkv' &&
-      videoNativeSafe &&
-      ['aac', 'mp3', 'opus', 'vorbis'].includes(audio)
     return {
       sourceUrl: buildServerFileProxyUrl(movie.path),
       audioUrl: movie.audioUrl,
@@ -336,11 +356,19 @@ export async function resolveMovieSource({
       acceptQuality: movie.acceptQuality,
       headers: undefined,
       reusedRecoveryUrl: false,
-      mkvFastPath: browserSafeAudio,
+      mkvFastPath: computeMkvFastPath(
+        format,
+        movie.videoCodec,
+        movie.audioCodec
+      ),
+      playsvideoEnabled: movie.playsvideoEnabled !== false,
     }
   }
 
-  // 其余源：format 兜底从 URL 扩展名自动推断
+  // 其余源（webdav / openlist / ftp / smb / emby / jellyfin / url 等）：
+  // format 兜底从 URL 扩展名自动推断。MKV 快速路径判定与 server-files
+  // 一致：原生友好编码直通原生播放，跨域 URL 由 direct 引擎的代理策略
+  // （直连失败回退服务器代理）兜底，原生失败再回退 playsvideo 管线。
   const inferredFormat = movie.format || detectMediaFormat(movie.url)
   return {
     sourceUrl: movie.url,
@@ -354,5 +382,11 @@ export async function resolveMovieSource({
     acceptQuality: movie.acceptQuality,
     headers: undefined,
     reusedRecoveryUrl: false,
+    mkvFastPath: computeMkvFastPath(
+      inferredFormat,
+      movie.videoCodec,
+      movie.audioCodec
+    ),
+    playsvideoEnabled: movie.playsvideoEnabled !== false,
   }
 }

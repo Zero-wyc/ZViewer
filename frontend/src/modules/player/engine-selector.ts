@@ -23,6 +23,7 @@ import {
   isPlaysVideoSupported,
 } from './engines/playsvideo-engine'
 import { needsBrowserTranscode } from '@/lib/audioCodecs'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 /** 所有引擎实例（单例，无需重复创建） */
 const ENGINES: Record<string, PlayerEngine> = {
@@ -44,7 +45,9 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
 /**
  * 判断该源是否应交给 playsvideo 引擎。
  *
- * 判定不受任何开关门控——只要浏览器具备运行条件（MSE + Worker）即生效：
+ * 判定前提：系统级开关（管理后台「基础设置」的 playsvideoEnabled）与
+ * 影片级开关（添加影片时的 playsvideoEnabled）均开启——任一关闭即
+ * 强制原生直连播放。之后只要浏览器具备运行条件（MSE + Worker）即生效：
  *
  * 1. **avi / ts / wmv** —— 浏览器无法原生打开，只能重封装。
  * 2. **mkv** —— 一律交给 playsvideo。理由有二：浏览器对 MKV 的原生支持
@@ -60,6 +63,14 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
  */
 export function shouldUsePlaysVideo(source: PlayerSource): boolean {
   if (!isPlaysVideoSupported()) return false
+  // 两级开关：系统级（管理后台「基础设置」）与影片级（添加影片时设置）
+  // 任一关闭即强制原生直连播放，**包括 forcePlaysVideo 回退路径**——
+  // 用户明确关闭引擎后，原生失败不再回退管线（宁可失败也不启动
+  // 被禁用的引擎）。
+  const systemEnabled =
+    useSystemSettingsStore.getState().playsvideoEnabled !== false
+  if (!systemEnabled) return false
+  if (source.playsvideoEnabled === false) return false
   // MKV 快速路径：编解码原生友好时先尝试 <video> 原生播放，
   // 原生失败由 usePlayerSource 置 forcePlaysVideo 回退管线
   if (source.forcePlaysVideo) return true

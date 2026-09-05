@@ -60,6 +60,16 @@ export class SystemSettings {
   embeddedSubtitleEnabled!: boolean;
 
   /**
+   * 浏览器播放引擎（playsvideo）全局开关。
+   * - true：MKV/AVI/TS 等容器或 DTS/AC3/FLAC 等音轨由浏览器端
+   *   playsvideo 引擎重封装/转码播放（默认，兼容性最佳）
+   * - false：全部走原生直连播放，不兼容的编码将无声或无法播放
+   * （需影片级开关同时开启才启用，两级任一关闭即直推）
+   */
+  @Column({ type: 'boolean', default: true })
+  playsvideoEnabled!: boolean;
+
+  /**
    * CDN 代理地址（含协议前缀），如 https://gh-proxy.com。
    * 仅在 cdnAccelerate 为 true 时生效，对所有 GitHub 请求（api.github.com、
    * github.com、objects.githubusercontent.com）统一使用前缀代理方式。

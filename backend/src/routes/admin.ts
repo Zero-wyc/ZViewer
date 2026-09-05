@@ -456,6 +456,7 @@ router.get(
           dashDisabled: settings.dashDisabled,
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
+          playsvideoEnabled: settings.playsvideoEnabled,
         },
       });
     } catch (err) {
@@ -473,7 +474,7 @@ router.put(
     res: import('express').Response,
   ): Promise<void> => {
     try {
-      const { autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl } = req.body;
+      const { autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled } = req.body;
 
       if (typeof autoDeleteInactiveRooms !== 'boolean') {
         res.status(400).json({
@@ -540,6 +541,13 @@ router.put(
         });
         return;
       }
+      if (playsvideoEnabled !== undefined && typeof playsvideoEnabled !== 'boolean') {
+        res.status(400).json({
+          success: false,
+          message: 'playsvideoEnabled 必须是布尔值',
+        });
+        return;
+      }
       if (cdnProxyUrl !== undefined && typeof cdnProxyUrl !== 'string') {
         res.status(400).json({
           success: false,
@@ -572,6 +580,9 @@ router.put(
       if (cdnAccelerate !== undefined) {
         settings.cdnAccelerate = cdnAccelerate;
       }
+      if (playsvideoEnabled !== undefined) {
+        settings.playsvideoEnabled = playsvideoEnabled;
+      }
       if (cdnProxyUrl !== undefined) {
         settings.cdnProxyUrl = cdnProxyUrl.trim();
       }
@@ -589,6 +600,7 @@ router.put(
           dashDisabled: settings.dashDisabled,
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
+          playsvideoEnabled: settings.playsvideoEnabled,
         },
       });
     } catch (err) {

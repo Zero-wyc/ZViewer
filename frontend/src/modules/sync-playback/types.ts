@@ -75,6 +75,12 @@ export interface WatchTogetherState {
    * 跳过 playsvideo 重封装管线直接原生播放（原生失败自动回退管线）。
    */
   mkvFastPath?: boolean
+  /**
+   * 影片级浏览器播放引擎（playsvideo）开关（添加影片时设置并随状态广播）。
+   * false 时强制原生直连播放；需与系统级开关（systemSettingsStore）
+   * 同时开启才启用 playsvideo 管线。
+   */
+  playsvideoEnabled?: boolean
 }
 
 /** 房主发出的控制动作 */

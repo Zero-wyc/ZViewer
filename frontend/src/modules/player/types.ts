@@ -126,6 +126,14 @@ export interface PlayerSource {
    * MKV 快速路径原生失败后，回退重挂载时置位以绕过快速路径判定。
    */
   forcePlaysVideo?: boolean
+  /**
+   * 影片级浏览器播放引擎（playsvideo）开关（添加影片时设置）。
+   * - true（默认）：允许 playsvideo 管线
+   * - false：强制原生直连播放（mkvFastPath 一并失效）
+   * 需与系统级 playsvideoEnabled（systemSettingsStore）同时开启，
+   * 任一关闭时 shouldUsePlaysVideo 返回 false。
+   */
+  playsvideoEnabled?: boolean
 }
 
 /**

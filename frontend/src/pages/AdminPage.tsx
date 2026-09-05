@@ -31,6 +31,7 @@ import { Select } from '@/components/ui/Select'
 import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { message } from '@/components/ui/message'
 import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
+import { formatRecentTime } from '@/lib/formatTime'
 import { useAuthStore } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { apiFetch, getApiUrl } from '@/lib/api'
@@ -109,6 +110,7 @@ interface AdminSettings {
   roomCreationMode: RoomCreationMode
   betaFeaturesEnabled: boolean
   dashDisabled: boolean
+  playsvideoEnabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
   dataSourceConfig?: {
@@ -141,6 +143,7 @@ export default function AdminPage() {
     roomCreationMode: 'admin-only',
     betaFeaturesEnabled: false,
     dashDisabled: false,
+    playsvideoEnabled: true,
     cdnAccelerate: false,
     cdnProxyUrl: 'https://gh-proxy.com',
   })
@@ -760,6 +763,7 @@ export default function AdminPage() {
         roomCreationMode: settings.roomCreationMode,
         betaFeaturesEnabled: settings.betaFeaturesEnabled,
         dashDisabled: settings.dashDisabled,
+        playsvideoEnabled: settings.playsvideoEnabled,
         cdnAccelerate: settings.cdnAccelerate,
         cdnProxyUrl: settings.cdnProxyUrl,
       }
@@ -826,7 +830,10 @@ export default function AdminPage() {
 
   const isSelf = (targetUser: AdminUser) => user?.id === String(targetUser.id)
 
+  /** 用户列表/最后访问：精确时间（管理审计需要） */
   const formatDate = (iso: string) => new Date(iso).toLocaleString('zh-CN')
+  /** 房间创建时间：<24h 相对时间，≥24h 精确时间 */
+  const formatRoomCreatedAt = formatRecentTime
 
   return (
     <div className="flex-1 p-4 sm:p-6">
@@ -1309,7 +1316,7 @@ export default function AdminPage() {
                           {roomViewMode === 'tile' ? <br /> : ' · '}
                           分享端{room.sharerOnline ? '在线' : '离线'}
                           {roomViewMode === 'tile' ? <br /> : ' · '}
-                          创建于 {formatDate(room.createdAt)}
+                          创建于 {formatRoomCreatedAt(room.createdAt)}
                           {roomViewMode === 'tile' ? <br /> : ' · '}
                           最后访问 {formatDate(room.lastAccessedAt)}
                         </Text>
@@ -1505,6 +1512,28 @@ export default function AdminPage() {
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     开启后，服务器端 B站 解析将强制使用 MP4 模式，不再返回 DASH
                     流。仅影响服务器端解析，不影响 CLI 代理的 DASH 模式。
+                  </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  播放引擎
+                </Title>
+                <div className="mb-6">
+                  <Switch
+                    label="启用浏览器播放引擎（playsvideo）"
+                    checked={settings.playsvideoEnabled}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        playsvideoEnabled: e.target.checked,
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    开启后，MKV/AVI/TS 等容器或 DTS/AC3/FLAC
+                    等音轨由浏览器端重封装/转码播放（兼容性最佳）。
+                    关闭后全部原生直连播放，不兼容的编码将无声或无法播放。
+                    影片级开关（添加影片时）需同时开启才会启用。
                   </p>
                 </div>
 

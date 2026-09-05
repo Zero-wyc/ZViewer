@@ -13,6 +13,8 @@ export interface SystemSettings {
   betaFeaturesEnabled: boolean
   /** 禁用服务器端 DASH 模式，强制 MP4（仅服务器端，不影响 CLI） */
   dashDisabled: boolean
+  /** 浏览器播放引擎（playsvideo）全局开关：关闭后全部原生直连播放 */
+  playsvideoEnabled: boolean
   /** 更新 CDN 加速开关：true 时更新检测和下载走 CDN 代理 */
   cdnAccelerate: boolean
   /** CDN 代理地址（如 https://gh-proxy.com），对所有 GitHub 请求使用前缀代理 */
@@ -43,6 +45,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   roomCreationMode: 'admin-only',
   betaFeaturesEnabled: false,
   dashDisabled: true,
+  playsvideoEnabled: true,
   cdnAccelerate: false,
   cdnProxyUrl: 'https://gh-proxy.com',
   dataSourceConfig: null,
