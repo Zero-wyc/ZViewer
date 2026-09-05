@@ -112,6 +112,20 @@ export interface PlayerSource {
    * 各客户端独立启用，无需房主协调，SwarmCloud tracker 自动发现房间内 peer。
    */
   p2pEnabled?: boolean
+  /**
+   * MKV 快速路径：编解码为浏览器原生友好组合（AAC/MP3/Opus 音轨等）时，
+   * 跳过 playsvideo 重封装管线，直接用 <video> 原生播放。
+   * 由 movie-source-resolver 依据 ffprobe 的音轨信息设置。
+   *
+   * 原生失败（video.error，如编码变体不受支持）时由 usePlayerSource
+   * 自动回退到 playsvideo 管线（forcePlaysVideo），能力不损失。
+   */
+  mkvFastPath?: boolean
+  /**
+   * 强制使用 playsvideo 管线（内部回退标记，不由业务代码设置）。
+   * MKV 快速路径原生失败后，回退重挂载时置位以绕过快速路径判定。
+   */
+  forcePlaysVideo?: boolean
 }
 
 /**

@@ -60,10 +60,12 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
  */
 export function shouldUsePlaysVideo(source: PlayerSource): boolean {
   if (!isPlaysVideoSupported()) return false
-
+  // MKV 快速路径：编解码原生友好时先尝试 <video> 原生播放，
+  // 原生失败由 usePlayerSource 置 forcePlaysVideo 回退管线
+  if (source.forcePlaysVideo) return true
   const format = source.format
   if (format && (REMUX_ONLY_FORMATS as string[]).includes(format)) return true
-  if (format === 'mkv') return true
+  if (format === 'mkv') return !source.mkvFastPath
 
   return !!source.audioCodec && needsBrowserTranscode(source.audioCodec)
 }

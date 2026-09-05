@@ -70,6 +70,11 @@ export interface WatchTogetherState {
    * - 观众端：收到状态后独立缓存，缓存期间不应用 isPlaying，完成后跳转房主 currentTime
    */
   bufferMode?: boolean
+  /**
+   * MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时置位，
+   * 跳过 playsvideo 重封装管线直接原生播放（原生失败自动回退管线）。
+   */
+  mkvFastPath?: boolean
 }
 
 /** 房主发出的控制动作 */

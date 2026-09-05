@@ -174,6 +174,9 @@ function toPlayerSource(
     videoCodec: state.videoCodec,
     audioCodec: state.audioCodec,
     headers: state.headers,
+    // MKV 快速路径：原生友好编码跳过重封装管线直接原生播放
+    // （原生失败由 usePlayerSource 自动回退 playsvideo 管线）
+    mkvFastPath: state.mkvFastPath,
     // 传入后端权威时长：B站 fMP4 流的 mvhd.duration 为 0，
     // MSE 引擎需用此值显式设置 mediaSource.duration
     duration: state.duration,

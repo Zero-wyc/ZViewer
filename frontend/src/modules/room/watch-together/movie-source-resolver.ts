@@ -61,6 +61,11 @@ export interface ResolvedMovieSource {
    * resolveBilibiliOnline 重新解析后重试。
    */
   reusedRecoveryUrl: boolean
+  /**
+   * MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时置位，
+   * 跳过 playsvideo 重封装管线直接原生播放（原生失败自动回退管线）。
+   */
+  mkvFastPath?: boolean
 }
 
 export interface ResolveMovieSourceOptions {
@@ -301,13 +306,22 @@ export async function resolveMovieSource({
   // 绝对代理 URL，随影片记录广播给所有观众——外网/跨域观众的浏览器拿到的
   // 是房主的内网地址，无法访问导致播放失败。此处按「当前客户端自己」的
   // API 地址重建代理 URL（文件路径保存在 movie.path），内外网各自可达。
+  //
+  // MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时，跳过
+  // playsvideo 重封装管线直接原生播放（瞬时起播、暂停即静音）；原生
+  // 失败（video.error）由 usePlayerSource 自动回退管线，能力不损失。
+  // DTS/AC3/EAC3/FLAC 等编码仍走管线（重封装或浏览器端转码）。
   // format 兜底：旧数据可能未存储 format 字段（直链 m3u8/flv 等），
   // 通过 detectMediaFormat 从路径扩展名自动推断，确保选择正确的播放引擎。
   if (sourceType === 'server-files' && movie.path) {
+    const format = movie.format || detectMediaFormat(movie.path)
+    const audio = (movie.audioCodec || '').toLowerCase()
+    const browserSafeAudio =
+      format === 'mkv' && ['aac', 'mp3', 'opus', 'vorbis'].includes(audio)
     return {
       sourceUrl: buildServerFileProxyUrl(movie.path),
       audioUrl: movie.audioUrl,
-      format: movie.format || detectMediaFormat(movie.path),
+      format,
       videoCodec: movie.videoCodec,
       audioCodec: movie.audioCodec,
       cid: movie.cid,
@@ -316,6 +330,7 @@ export async function resolveMovieSource({
       acceptQuality: movie.acceptQuality,
       headers: undefined,
       reusedRecoveryUrl: false,
+      mkvFastPath: browserSafeAudio,
     }
   }
 

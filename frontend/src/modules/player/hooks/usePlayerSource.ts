@@ -90,6 +90,8 @@ export function usePlayerSource(
   const engineCleanupRef = useRef<(() => void) | null>(null)
   const appliedSourceUrlRef = useRef<string | null>(null)
   const playerRef = useRef<PlayerController | null>(null)
+  // MKV 快速路径的原生 error 监听器清理（新 attach 前移除旧的，防累积）
+  const mkvErrorCleanupRef = useRef<(() => void) | null>(null)
   // 串行操作队列：所有 attach / reload 依次执行，杜绝并发互相 abort
   const queueRef = useRef<Promise<unknown>>(Promise.resolve())
   // forceReload 合并：多次调用只执行最新 source 的一次重载
@@ -110,6 +112,11 @@ export function usePlayerSource(
     if (blobUrlRef.current) {
       URL.revokeObjectURL(blobUrlRef.current)
       blobUrlRef.current = null
+    }
+    // 移除 MKV 快速路径的原生 error 监听器（换源/清理时不再需要）
+    if (mkvErrorCleanupRef.current) {
+      mkvErrorCleanupRef.current()
+      mkvErrorCleanupRef.current = null
     }
     const engineCleanup = engineCleanupRef.current
     engineCleanupRef.current = null
@@ -179,13 +186,65 @@ export function usePlayerSource(
           engineCleanupRef.current = result2.cleanup
           playerRef.current = result2.player ?? null
         }
+
+        // MKV 快速路径：原生播放失败（video.error，如编码变体不受支持）
+        // 时自动回退 playsvideo 管线。监听器一次性，换源/清理时移除；
+        // 触发过的源对象会被置 forcePlaysVideo，防止重复回退。
+        if (source.mkvFastPath && engine.type === 'direct' && !source.forcePlaysVideo) {
+          const onNativeError = () => {
+            if (appliedSourceUrlRef.current !== source.url) return
+            video.removeEventListener('error', onNativeError)
+            if (mkvErrorCleanupRef.current === removeNativeError) {
+              mkvErrorCleanupRef.current = null
+            }
+            const atTime = video.currentTime
+            const wasPlaying = !video.paused
+            console.warn(
+              '[usePlayerSource] MKV 原生播放失败（video error），回退 playsvideo 管线'
+            )
+            source.forcePlaysVideo = true
+            void enqueue(async () => {
+              if (appliedSourceUrlRef.current !== source.url) return
+              cleanup()
+              resetVideoElement(video)
+              appliedSourceUrlRef.current = source.url
+              const pipelineSource: PlayerSource = {
+                ...source,
+                forcePlaysVideo: true,
+              }
+              const pipelineEngine = selectEngine(pipelineSource)
+              const result = await pipelineEngine.attach(video, pipelineSource)
+              if (result.blobUrl) {
+                blobUrlRef.current = result.blobUrl
+              }
+              engineCleanupRef.current = result.cleanup
+              playerRef.current = result.player ?? null
+              // 恢复回退前的播放位置与播放状态
+              if (atTime > 0) {
+                try {
+                  video.currentTime = atTime
+                } catch {
+                  /* ignore */
+                }
+              }
+              if (wasPlaying) {
+                void video.play().catch(() => {})
+              }
+            })
+          }
+          const removeNativeError = () => {
+            video.removeEventListener('error', onNativeError)
+          }
+          video.addEventListener('error', onNativeError)
+          mkvErrorCleanupRef.current = removeNativeError
+        }
       } catch (err) {
         // 加载失败时回滚 appliedSourceUrlRef，允许下次重试
         appliedSourceUrlRef.current = previousUrl
         throw err
       }
     },
-    [cleanup]
+    [cleanup, enqueue]
   )
 
   const attachSource = useCallback(

@@ -960,6 +960,8 @@ export function useWatchTogether({
           sourceType === 'bilibili' &&
           r.format === 'dash' &&
           getBilibiliParseOptions(movie.id).bufferMode === true,
+        // MKV 快速路径：原生友好编码（AAC/MP3/Opus 音轨）直接原生播放
+        mkvFastPath: r.mkvFastPath ?? false,
       })
 
       // 4. attach 并恢复进度 / 自动播放 / 广播
