@@ -788,10 +788,12 @@ async function resolveEmbyContext(movie: Movie): Promise<{
   return { client, itemId: movie.path, userId };
 }
 
-/** Emby 字幕 codec → 提取后缀与前端解析格式。 */
+/** Emby 字幕 codec → 提取后缀与前端解析格式。
+ *  注意：Emby 的 Subtitles Stream 端点按扩展名路由转封装输出，
+ *  裸 `/Stream`（无扩展名）会 404——srt 也必须显式带 `.srt` 后缀。 */
 function mapEmbySubtitleFormat(
   codec: string,
-): { ext?: string; format: 'srt' | 'ass' | 'vtt' } {
+): { ext: string; format: 'srt' | 'ass' | 'vtt' } {
   switch (codec) {
     case 'ass':
     case 'ssa':
@@ -801,7 +803,7 @@ function mapEmbySubtitleFormat(
     case 'srt':
     case 'subrip':
     default:
-      return { ext: undefined, format: 'srt' };
+      return { ext: 'srt', format: 'srt' };
   }
 }
 
