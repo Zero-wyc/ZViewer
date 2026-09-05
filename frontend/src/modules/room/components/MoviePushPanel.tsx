@@ -1300,16 +1300,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 : '文件路径，如 /movies/video.mp4'
             }
           />
-          {!selectedMountId && (
-            <Dropdown
-              value={isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'}
-              options={[
-                { value: 'proxy', label: '服务器转发' },
-                { value: 'direct', label: '直链直连', disabled: isWebdavInternal },
-              ]}
-              onChange={(value) => setWebdavDirectLink(value === 'direct')}
-            />
-          )}
+          <Dropdown
+            value={isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'}
+            options={[
+              { value: 'proxy', label: '服务器转发' },
+              { value: 'direct', label: '直链直连', disabled: isWebdavInternal },
+            ]}
+            onChange={(value) => setWebdavDirectLink(value === 'direct')}
+          />
           {isWebdavInternal && (
             <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
@@ -1476,16 +1474,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               }
             }}
           />
-          {!selectedMountId && (
-            <Dropdown
-              value={isOpenlistInternal ? 'proxy' : openlistDirectLink ? 'direct' : 'proxy'}
-              options={[
-                { value: 'proxy', label: '服务器转发' },
-                { value: 'direct', label: '直链直连', disabled: isOpenlistInternal },
-              ]}
-              onChange={(value) => setOpenlistDirectLink(value === 'direct')}
-            />
-          )}
+          <Dropdown
+            value={isOpenlistInternal ? 'proxy' : openlistDirectLink ? 'direct' : 'proxy'}
+            options={[
+              { value: 'proxy', label: '服务器转发' },
+              { value: 'direct', label: '直链直连', disabled: isOpenlistInternal },
+            ]}
+            onChange={(value) => setOpenlistDirectLink(value === 'direct')}
+          />
           {isOpenlistInternal && (
             <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
@@ -1533,17 +1529,15 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               }}
             />
           )}
-          {!selectedMountId && (
-            <Dropdown
-              label="播放方式"
-              value={embyDirectLink ? 'direct' : 'proxy'}
-              options={[
-                { value: 'proxy', label: '服务器转发' },
-                { value: 'direct', label: '直链直连' },
-              ]}
-              onChange={(value) => setEmbyDirectLink(value === 'direct')}
-            />
-          )}
+          <Dropdown
+            label="播放方式"
+            value={embyDirectLink ? 'direct' : 'proxy'}
+            options={[
+              { value: 'proxy', label: '服务器转发' },
+              { value: 'direct', label: '直链直连' },
+            ]}
+            onChange={(value) => setEmbyDirectLink(value === 'direct')}
+          />
           <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
             {selectedMountId
               ? '已选择挂载，点击「浏览 Emby 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。'
@@ -1591,17 +1585,15 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               }}
             />
           )}
-          {!selectedMountId && (
-            <Dropdown
-              label="播放方式"
-              value={jellyfinDirectLink ? 'direct' : 'proxy'}
-              options={[
-                { value: 'proxy', label: '服务器转发' },
-                { value: 'direct', label: '直链直连' },
-              ]}
-              onChange={(value) => setJellyfinDirectLink(value === 'direct')}
-            />
-          )}
+          <Dropdown
+            label="播放方式"
+            value={jellyfinDirectLink ? 'direct' : 'proxy'}
+            options={[
+              { value: 'proxy', label: '服务器转发' },
+              { value: 'direct', label: '直链直连' },
+            ]}
+            onChange={(value) => setJellyfinDirectLink(value === 'direct')}
+          />
           <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
             {selectedMountId
               ? '已选择挂载，点击「浏览 Jellyfin 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。'
