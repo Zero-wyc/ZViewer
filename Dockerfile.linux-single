@@ -2,10 +2,17 @@ FROM debian:bullseye-slim
 
 # procps: 提供 pgrep，供 Docker 更新脚本在 pidfile 缺失时回退定位后端进程
 # xz-utils: 提供 xz 解压支持，tar -xf *.tar.xz 需要 xz 命令
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates \
-    procps \
-    xz-utils \
+# apt 重试：deb.debian.org 的 Fastly CDN 各节点索引与包池可能短暂不一致
+# （索引里有旧版包但池里已更新 → 404），失败后重刷索引再试，最多 3 次
+RUN apt-get update \
+    && ok=0; for i in 1 2 3; do \
+         if apt-get install -y --no-install-recommends \
+              ca-certificates \
+              procps \
+              xz-utils; then ok=1; break; fi; \
+         sleep 5; \
+         apt-get update; \
+       done; [ "$ok" = "1" ] \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
