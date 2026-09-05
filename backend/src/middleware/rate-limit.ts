@@ -68,6 +68,16 @@ export function createLoginFailLimiter() {
   };
 }
 
+/**
+ * 登录失败锁定开关。
+ *
+ * 默认关闭（应用户要求移除账号临时锁定）。部署在公网且需要防暴力破解时，
+ * 设置环境变量 ENABLE_LOGIN_LOCK=true 重新启用：
+ *   - loginPreCheck 恢复锁定期 429 拦截
+ *   - recordLoginFailure 恢复失败计数
+ */
+const LOGIN_LOCK_ENABLED = process.env.ENABLE_LOGIN_LOCK === 'true';
+
 /** 全局单例（模块级 Map 保证跨请求共享状态） */
 const loginFailStore = createLoginFailLimiter();
 
@@ -89,6 +99,10 @@ export function loginPreCheck(
   res: Response,
   next: import('express').NextFunction,
 ): void {
+  if (!LOGIN_LOCK_ENABLED) {
+    next();
+    return;
+  }
   const remaining = loginFailStore.check(failKey(req));
   if (remaining !== null) {
     res.status(429).json({
@@ -100,8 +114,9 @@ export function loginPreCheck(
   next();
 }
 
-/** 登录失败后调用（由路由处理器在返回 401 前触发） */
+/** 登录失败后调用（由路由处理器在返回 401 前触发）；锁定关闭时不计数 */
 export function recordLoginFailure(req: Request): void {
+  if (!LOGIN_LOCK_ENABLED) return;
   loginFailStore.recordFailure(failKey(req));
 }
 
