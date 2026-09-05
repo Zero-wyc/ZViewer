@@ -7,7 +7,9 @@ import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { DanmakuSearchModal } from './DanmakuSearchModal'
 import { useDanmakuStore } from '@/store/danmakuStore'
+import { useRoomStore } from '@/store/roomStore'
 import { cn } from '@/lib/utils'
+import { extractMediaTitle } from '@/lib/mediaTitleParser'
 import { getDanmakuEpisodes, fetchDanmaku } from '@/modules/danmaku/api'
 import type { DanmakuSource } from '@/modules/danmaku/types'
 
@@ -100,8 +102,30 @@ export function DanmakuTrackCard() {
     }
   }
 
+  /**
+   * 从当前播放影片的文件名解析影视名，作为搜索弹窗的默认关键词。
+   *
+   * 挂载源（server-files/webdav/emby 等）的 movie.title 通常就是原始
+   * 文件名（含发布组/分辨率/编码噪声），直接搜索命中率极低；经
+   * extractMediaTitle 提炼后得到「影视名」，弹幕站点命中率显著更高。
+   * B站 源的 title 是官方标题，同样适用（解析器对正常标题是幂等的）。
+   *
+   * @returns 解析结果；无当前影片或解析为空时返回 undefined（不预填）
+   */
+  const resolveDefaultKeyword = (): string | undefined => {
+    const { currentMovieId, movies } = useRoomStore.getState()
+    if (currentMovieId == null) return undefined
+    const movie = movies.find((m) => m.id === currentMovieId)
+    if (!movie) return undefined
+    // 优先用 title（添加时已从文件名提炼），fallback 到 path/url 的文件名
+    const source = movie.title || movie.path || movie.url || ''
+    if (!source) return undefined
+    const parsed = extractMediaTitle(source).trim()
+    return parsed || undefined
+  }
+
   const handleOpenSearch = () => {
-    setModalInitialKeyword(undefined)
+    setModalInitialKeyword(resolveDefaultKeyword())
     setSearchOpen(true)
   }
 
