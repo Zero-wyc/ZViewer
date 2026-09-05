@@ -23,6 +23,7 @@ import {
   SOCKET_EVENT,
   safePlay,
 } from '@/modules/sync-playback'
+import { wasUserPaused } from '@/modules/player/services/pause-intent'
 import { createSuppressRef, resetSuppression } from '@/modules/sync-playback/suppression'
 import { type MediaFormat } from '@/lib/mediaFormat'
 import {
@@ -990,13 +991,23 @@ export function useWatchTogether({
           message.info(`已恢复到 ${formatDuration(recoveryTime)}（已暂停）`)
         } else {
           video.currentTime = 0
-          if (video.paused) {
+          // 用户在管线运行期间（MKV 的 playsvideo attach 可达 5-10s）按了
+          // 暂停时，不得强制起播，否则出现「已暂停但仍有声音输出」。
+          // 仅当用户没有暂停意图、且视频未在播放时才补 play。
+          const userPaused = wasUserPaused(video)
+          if (!video.paused && !userPaused) {
+            // 已由引擎自动起播，无需处理
+          } else if (!userPaused) {
             void safePlay(video)
           }
           suppressEventsRef.current = false
           if (isHostRef.current) {
-            broadcastState(state)
-            sendControl('play')
+            // 用户暂停了加载中的影片：广播暂停态，观众同步暂停
+            const broadcast = userPaused
+              ? { ...state, isPlaying: false }
+              : state
+            broadcastState(broadcast)
+            sendControl(userPaused ? 'pause' : 'play')
           }
         }
       }

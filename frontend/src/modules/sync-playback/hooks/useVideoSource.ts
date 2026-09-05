@@ -23,6 +23,7 @@ import { message } from '@/components/ui/message'
 import { usePlayerSource } from '@/modules/player'
 import type { PlayerSource } from '@/modules/player'
 import { waitForMetadata } from '@/modules/player/utils'
+import { wasUserPaused } from '@/modules/player/services/pause-intent'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import { buildCliProxyUrl } from '@/modules/bilibili/cliApi'
 import {
@@ -372,8 +373,9 @@ export function useVideoSource({
         if (video.playbackRate !== state.playbackRate) {
           video.playbackRate = state.playbackRate
         }
-        if (state.isPlaying && video.paused) {
-          // 组件挂载恢复源时同样需要处理自动播放策略
+        // 组件挂载恢复源时同样需要处理自动播放策略；
+        // 用户在 attach 期间（MKV 管线可达数秒）按了暂停时不强制起播
+        if (state.isPlaying && video.paused && !wasUserPaused(video)) {
           void safePlay(video)
         }
         suppressEventsRef.current = false
