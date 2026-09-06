@@ -25,13 +25,11 @@ import {
   selectEngine,
   shouldUsePlaysVideo,
   resetVideoElement,
-  directEngine,
 } from '@/modules/player'
 import type { PlayerSource, PlayerController } from '@/modules/player'
 import { refreshAccessToken } from '@/lib/api'
+import { formatVideoLoadError } from '@/modules/player/utils'
 
-/** 引擎实例直查表（仅回退场景使用；selectEngine 不应返回 playsvideo 的兜底） */
-const ENGINES = { direct: directEngine } as const
 import {
   isBrowserPlayableFormat,
   getUnsupportedFormatMessage,
@@ -181,7 +179,7 @@ export function usePlayerSource(
         // playsvideo 的启用由 shouldUsePlaysVideo 依据容器/音轨与浏览器
         // 能力决定，不受任何开关门控（自研引擎已移除，playsvideo 是唯一
         // 的浏览器端重封装与转码路径）。
-        let engine = selectEngine(source)
+        const engine = selectEngine(source)
         try {
           const result = await engine.attach(video, source)
           if (!mountedRef.current) {
@@ -234,9 +232,14 @@ export function usePlayerSource(
             }
             const pipelineEngine = selectEngine(pipelineSource)
             if (pipelineEngine.type === 'direct') {
-              // 引擎被两级开关禁用（系统级/影片级任一关闭）：回退目标
-              // 不可用，尊重用户选择不启动管线，保持原生失败结果抛错。
-              throw err
+              // 引擎被两级开关禁用（系统级/影片级任一关闭）：尊重用户
+              // 选择不启动管线，回退路径不存在，直接抛出带开启引导的
+              // 错误（经调用方 message.error 展示），而非静默黑屏。
+              throw new Error(
+                `原生播放失败：${formatVideoLoadError(video.error?.code)}。` +
+                  '可在「系统设置」或该影片的解析设置中开启「浏览器转码引擎」后重试',
+                { cause: err }
+              )
             }
             const result = await pipelineEngine.attach(video, pipelineSource)
             if (!mountedRef.current) {
@@ -253,38 +256,16 @@ export function usePlayerSource(
             engineCleanupRef.current = result.cleanup
             playerRef.current = result.player ?? null
           } else if (engine.type === 'playsvideo') {
-            // playsvideo 引擎失败（容器不支持 / 探测超时 / 媒体流不可达等）
-            // 时自动回退 direct 原生播放：宁可无声也不能让整段视频放不出来。
-            console.warn(
-              '[usePlayerSource] playsvideo 引擎挂载失败，回退原生播放:',
-              err
+            // playsvideo 引擎失败（容器不支持 / 探测超时 / 媒体流不可达
+            // 等）：不再静默回退原生播放——回退原生会造成无声（DTS 等编
+            // 码）或再次解码失败的困惑体验，直接抛错由调用方提示，用户
+            // 可选择重载影片或关闭引擎改用原生。
+            throw new Error(
+              `浏览器转码引擎（playsvideo）播放失败：${
+                err instanceof Error ? err.message : String(err)
+              }，可尝试重载影片`,
+              { cause: err }
             )
-            resetVideoElement(video)
-            // 回退要彻底回到原生：连音轨编码一并清掉，否则 DTS 等不兼容
-            // 编码会让 selectEngine 再次选中 playsvideo，形成自我回退死循环。
-            engine = selectEngine({
-              ...source,
-              format: undefined,
-              audioCodec: undefined,
-            })
-            if (engine.type === 'playsvideo') {
-              // 防御：selectEngine 不应再返回 playsvideo，此处兜底直取 direct
-              engine = ENGINES.direct
-            }
-            const result2 = await engine.attach(video, source)
-            if (!mountedRef.current) {
-              try {
-                result2.cleanup?.()
-              } catch {
-                /* ignore */
-              }
-              return
-            }
-            if (result2.blobUrl) {
-              blobUrlRef.current = result2.blobUrl
-            }
-            engineCleanupRef.current = result2.cleanup
-            playerRef.current = result2.player ?? null
           } else {
             throw err
           }
@@ -322,8 +303,9 @@ export function usePlayerSource(
               }
               const pipelineEngine = selectEngine(pipelineSource)
               if (pipelineEngine.type === 'direct') {
-                // 引擎被两级开关禁用：不回退，保持原生失败状态（黑屏由
-                // video.error 呈现），用户可选择重新开启引擎后重载。
+                // 引擎被两级开关禁用：不回退，保持原生失败状态。播放期
+                // 失败的提示由 useWatchTogether 的全局 error 监听负责
+                // （延迟判定：回退重挂载中的 error 不会误报）。
                 return
               }
               const result = await pipelineEngine.attach(video, pipelineSource)

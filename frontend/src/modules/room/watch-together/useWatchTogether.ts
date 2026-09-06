@@ -1234,30 +1234,49 @@ export function useWatchTogether({
     watchTogether.sourceUrl,
   ])
 
-  // 挂载直链源（noProxyFallback）的播放期 error 提示。
-  // 直链模式不回退服务器代理：attach 阶段的失败由 loadMovie 的 catch
-  // 提示（直连失败直接抛出可读错误）；播放期中断（如 OpenList 签名过期、
-  // 源站断流）无任何回退路径，黑屏前在此给出原因提示。
+  // 非 B站源的播放期 error 提示。
+  // 播放引擎已无自动回退（原生失败不静默转管线、playsvideo 失败不回退
+  // 原生、挂载直链失败不回退服务器代理），播放期中断没有任何恢复路径，
+  // 黑屏前在此给出原因提示。
   // - attach 成功后 1s 内的 error 仍属加载阶段，由 attach 的 catch 负责，跳过
-  // - 3s 时间窗去重：seek 重建等场景的连续 error 事件只提示一次
+  // - 延迟 1.5s 死亡判定：MKV 原生失败会回退 playsvideo 管线重挂载
+  //   （video 重新 load，networkState 离开 EMPTY），此时不提示；
+  //   1.5s 后仍未重新加载（networkState EMPTY + readyState 0）才是真中断
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
     if (watchTogether.sourceType === 'bilibili') return
-    if (!watchTogether.noProxyFallback) return
 
-    let lastNotifiedAt = 0
+    let deathCheckTimer: ReturnType<typeof setTimeout> | null = null
     const handleError = () => {
       if (suppressEventsRef.current) return
-      const now = Date.now()
-      if (now - lastAttachOkAtRef.current < 1000) return
-      if (now - lastNotifiedAt < 3000) return
-      lastNotifiedAt = now
-      const reason = formatVideoLoadError(video.error?.code)
-      message.error(`直链播放中断：${reason}。可尝试重载或重新添加影片`)
+      if (Date.now() - lastAttachOkAtRef.current < 1000) return
+      if (deathCheckTimer) return
+      deathCheckTimer = setTimeout(() => {
+        deathCheckTimer = null
+        // 回退管线重挂载中（正在重新加载）：不提示。
+        // 换源场景由 effect 依赖 sourceUrl 重建时的 cleanup 清除本 timer。
+        if (
+          video.networkState !== 0 /* NETWORK_EMPTY */ ||
+          video.readyState !== 0 /* HAVE_NOTHING */
+        )
+          return
+        const reason = formatVideoLoadError(video.error?.code)
+        if (watchTogether.noProxyFallback) {
+          message.error(`直链播放中断：${reason}。可尝试重载或重新添加影片`)
+        } else {
+          message.error(`播放中断：${reason}。可尝试重载影片`)
+        }
+      }, 1500)
     }
     video.addEventListener('error', handleError)
-    return () => video.removeEventListener('error', handleError)
+    return () => {
+      video.removeEventListener('error', handleError)
+      if (deathCheckTimer) {
+        clearTimeout(deathCheckTimer)
+        deathCheckTimer = null
+      }
+    }
     // suppressEventsRef / lastAttachOkAtRef 为 ref 引用，监听器闭包内实时
     // 读取 .current，无需纳入依赖数组重建
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 同上
