@@ -102,12 +102,43 @@ export function isRelativeUrl(url: string): boolean {
 /**
  * 判断 URL 是否为本地 CLI 代理地址（如 http://127.0.0.1:9333/proxy?url=...）。
  *
+ * 同时覆盖 127.0.0.1 与 localhost 两种写法（CLI Agent 注册地址两者皆可）。
+ *
  * CLI 代理是跨域地址，不需要 credentials（Cookie），
  * 且 dash.js 的 setXHRWithCredentials 会导致 CORS 拒绝。
  */
 export function isCliProxyUrl(url: string): boolean {
   if (!url) return false
-  return url.startsWith('http://127.0.0.1:') && url.includes('/proxy?url=')
+  return (
+    (url.startsWith('http://127.0.0.1:') ||
+      url.startsWith('http://localhost:')) &&
+    url.includes('/proxy?url=')
+  )
+}
+
+/**
+ * 将「同主机不同 origin」的本站 API 绝对地址改写为相对路径。
+ *
+ * 部署不一致场景（如页面 https 但自定义 API_URL 为 http://同域:3333）下，
+ * 本站 API 的绝对 http 地址会被下方混合内容分支误包一层服务器代理——
+ * 语义错误（代理再请求自己）且多一跳。同主机的 /api/ 路径必然是本站
+ * 后端，改写为相对路径后由浏览器以当前 origin 直连（同域携带 cookie），
+ * token 由 appendAuthToken 附加。
+ *
+ * @returns 改写后的相对路径；非本站 API 绝对地址返回 null
+ */
+function rewriteSameHostApiUrl(url: string): string | null {
+  try {
+    const u = new URL(url)
+    if (u.protocol === window.location.protocol) return null
+    if (u.hostname.toLowerCase() !== window.location.hostname.toLowerCase()) {
+      return null
+    }
+    if (!u.pathname.startsWith('/api/')) return null
+    return `${u.pathname}${u.search}`
+  } catch {
+    return null
+  }
 }
 
 /** 从 localStorage 读取当前 access token（SSR / 非浏览器环境返回空串）。 */
@@ -195,6 +226,18 @@ export function resolveProxyUrl(
   // 相对路径（/api/webdav/...）：自动走本站后端，同样附加 token
   if (isRelativeUrl(url)) return appendAuthToken(url)
 
+  // CLI 本地代理（http://127.0.0.1:9333/proxy?url=...）：原样直连。
+  // 127.0.0.1 / localhost 是浏览器信任的 potentially trustworthy origin，
+  // https 页面直连 http://127.0.0.1 **不受混合内容限制**；若漏判落入下方
+  // 混合内容分支会被包成服务器代理，而服务器根本访问不到用户本机，
+  // CLI 高画质代理会整体失效。
+  if (isCliProxyUrl(url)) return url
+
+  // 同主机不同 origin 的本站 API 绝对地址：改写为相对路径直连
+  // （部署不一致场景，如页面 https 但自定义 API_URL 为 http://同域）
+  const sameHostApi = rewriteSameHostApiUrl(url)
+  if (sameHostApi) return appendAuthToken(sameHostApi)
+
   const hasHeaders = !!(headers && Object.keys(headers).length > 0)
   const isBili = isBilibiliMediaUrl(url)
 
@@ -230,8 +273,9 @@ export function resolveProxyUrl(
 
   // 混合内容防护：https 页面下，浏览器会把 http 跨域资源强制升级为 https
   // 请求；对不支持 TLS 的源（如 NAS 的 http 端口）必然握手失败
-  // （ERR_CONNECTION_CLOSED），白等一次直连超时只会拖慢起播。
-  // 此时直接走服务器代理（后端转发，无协议限制）。
+  // （ERR_SSL_PROTOCOL_ERROR / ERR_CONNECTION_CLOSED），白等一次直连超时
+  // 只会拖慢起播。此时直接走服务器代理（后端转发，无协议限制）。
+  // 例外：127.0.0.1 / localhost 是浏览器信任源，已在上方 CLI 分支直连放行。
   if (window.location.protocol === 'https:') {
     try {
       if (new URL(url).protocol === 'http:') {
