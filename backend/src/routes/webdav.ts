@@ -28,7 +28,6 @@ import {
 import { isInternalOpenListServer } from '../services/openlist-errors';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, pipeRangeStream } from '../services/proxy';
-import { upgradeToHttpsIfNeeded } from '../services/url-utils';
 
 export interface MountRouterOptions {
   /** 挂载类型（'webdav' | 'openlist'） */
@@ -550,7 +549,8 @@ export function createMountRouter(opts: MountRouterOptions): Router {
           mount.password || undefined,
           targetPath,
         );
-        res.json({ success: true, directUrl: upgradeToHttpsIfNeeded(req, alistDirectUrl) });
+        // 不做 http→https 协议升级（同 openlist.ts：非 TLS 端口升级后直连与代理均失败）
+        res.json({ success: true, directUrl: alistDirectUrl });
         return;
       } catch (err) {
         // 明确是 AList 服务器但路径/凭证有问题：直接报错，不回退拼接
@@ -591,7 +591,8 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         mount.username || undefined,
         mount.password || undefined,
       );
-      res.json({ success: true, directUrl: upgradeToHttpsIfNeeded(req, directUrl) });
+      // 不做 http→https 协议升级（同 openlist.ts：非 TLS 端口升级后直连与代理均失败）
+      res.json({ success: true, directUrl });
     } catch (err) {
       console.error(`[${logTag}] direct-url error:`, err);
       res.status(500).json({ success: false, message: `获取 ${displayName} 直链失败` });

@@ -12,7 +12,6 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { JellyfinClient, JellyfinError } from '../services/jellyfin-client';
 import { detectMediaFormat } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, proxyHttpUpstream } from '../services/proxy';
-import { upgradeToHttpsIfNeeded } from '../services/url-utils';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
 const router = Router();
@@ -311,12 +310,11 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
     const format = needsAudioTranscode ? 'hls' : detectMediaFormat(source.Path ?? title);
     const transcodeQuery = needsAudioTranscode ? '&at=1' : '';
     const proxyUrl = `/api/jellyfin/proxy?mountId=${mountId}&path=${encodeURIComponent(itemId)}${transcodeQuery}`;
-    const directUrl = upgradeToHttpsIfNeeded(
-      req,
-      needsAudioTranscode
-        ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-        : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`,
-    );
+    // 不做 http→https 协议升级：非 TLS 端口升级后直连与代理均失败，
+    // HTTPS 页面下的 http 跨域源由前端 url-proxy 统一决策直接走服务器代理
+    const directUrl = needsAudioTranscode
+      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
+      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
     res.json({
       success: true,
       title,

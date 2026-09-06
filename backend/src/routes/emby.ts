@@ -20,7 +20,6 @@ import {
 } from '../services/emby-client';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, proxyHttpUpstream } from '../services/proxy';
-import { upgradeToHttpsIfNeeded } from '../services/url-utils';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
 const router = Router();
@@ -408,12 +407,11 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
 
     // 直连 URL（浏览器直连 Emby，要求前端可访问 Emby 服务器）
     // 需要音频转码时改为 Emby 官方转码播放列表（HLS，服务端强制音频 AAC）
-    const directUrl = upgradeToHttpsIfNeeded(
-      req,
-      needsAudioTranscode
-        ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-        : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`,
-    );
+    // 不做 http→https 协议升级：非 TLS 端口升级后直连与代理均失败，
+    // HTTPS 页面下的 http 跨域源由前端 url-proxy 统一决策直接走服务器代理
+    const directUrl = needsAudioTranscode
+      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
+      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
 
     res.json({
       success: true,

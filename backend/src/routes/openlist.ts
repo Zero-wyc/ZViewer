@@ -42,7 +42,6 @@ import {
 import { hashAlistPassword, isAlistHashedPassword } from '../services/openlist-client';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { proxyHttpUpstream } from '../services/proxy/http-proxy';
-import { upgradeToHttpsIfNeeded } from '../services/url-utils';
 import { TtlCache } from '../utils/ttl-cache';
 
 const router = Router();
@@ -537,7 +536,10 @@ router.get('/direct-url', async (req: AuthenticatedRequest, res: Response): Prom
         mount.password || undefined,
         targetPath,
       );
-      res.json({ success: true, directUrl: upgradeToHttpsIfNeeded(req, directUrl) });
+      // 不做 http→https 协议升级：5000 等非 TLS 端口会被升级出 https 直链，
+      // 直连握手失败且回退代理时后端同样失败（502）。HTTPS 页面下的 http
+      // 跨域源由前端 url-proxy 统一决策直接走服务器代理。
+      res.json({ success: true, directUrl });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
       const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
