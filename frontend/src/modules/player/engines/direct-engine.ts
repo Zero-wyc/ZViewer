@@ -120,6 +120,32 @@ function canFallbackToProxy(url: string): boolean {
   return true
 }
 
+/**
+ * 挂载直链源的前置校验：HTTPS 页面下的 http 直链必然失败。
+ *
+ * 浏览器混合内容策略会把 http 资源强制升级到同端口 https，源站不支持
+ * TLS 时 TLS 握手必然失败（ERR_SSL_PROTOCOL_ERROR）——与其静默等浏览器
+ * 报一个泛化的 media error，不如在发请求前直接给出可操作的修复指引
+ * （直链模式不回退服务器中转）。
+ *
+ * @throws Error 带修复指引的错误；非该场景正常返回
+ */
+function assertDirectLinkReachable(targetUrl: string, noProxyFallback: boolean): void {
+  if (!noProxyFallback) return
+  if (window.location.protocol !== 'https:') return
+  let u: URL
+  try {
+    u = new URL(targetUrl)
+  } catch {
+    return
+  }
+  if (u.protocol !== 'http:') return
+  throw new Error(
+    `直链播放失败：挂载源站为 HTTP（${u.host}），HTTPS 页面下浏览器会强制升级协议导致无法直连。` +
+      '解决方式：为源站配置 HTTPS（如反向代理）后重新保存挂载，或删除影片后改用服务器转发模式重新添加'
+  )
+}
+
 export const directEngine: PlayerEngine = {
   type: 'direct',
 
@@ -140,6 +166,10 @@ export const directEngine: PlayerEngine = {
         noProxyFallback: source.noProxyFallback === true,
       }
     )
+
+    // 挂载直链源前置校验：HTTPS 页面下的 http 直链必然失败，
+    // 发请求前直接给出可操作的修复指引（零网络往返，不回退中转）
+    assertDirectLinkReachable(targetUrl, source.noProxyFallback === true)
 
     // 尝试加载视频：直连失败时回退到服务器代理（绕过跨域防盗链 / CORS）。
     // 挂载直链模式（noProxyFallback）例外：设计意图是源站直传、服务器零
