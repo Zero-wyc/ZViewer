@@ -355,6 +355,10 @@ export async function getUpdateInfo(
 /**
  * 流式下载文件，支持重定向跟随与进度回调。
  *
+ * CDN 模式（cdnConfig 存在）失败不回退直连：用户明确选择 CDN 加速后，
+ * 静默切换直连会绕过用户的网络决策（如直连 GitHub 被墙导致卡死），
+ * 失败直接报错并在错误信息中引导用户调整设置。
+ *
  * @param url       下载地址
  * @param dest      目标文件路径
  * @param onProgress 进度回调（每收到一段数据触发一次），参数为已接收字节数和总字节数
@@ -365,8 +369,11 @@ function downloadFile(
   dest: string,
   onProgress?: (received: number, total: number) => void,
   cdnConfig?: CdnConfig,
-  originalUrl?: string,
 ): Promise<void> {
+  // CDN 模式下的失败提示后缀：引导用户关闭 CDN 加速而非静默直连
+  const cdnHint = cdnConfig?.proxyUrl
+    ? '（CDN 加速节点不可用，可在更新设置中关闭 CDN 加速后重试）'
+    : '';
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
     const req = https.get(url, { timeout: 300_000 }, (res) => {
@@ -384,32 +391,13 @@ function downloadFile(
         if (cdnConfig?.proxyUrl) {
           redirectUrl = applyCdnToUrl(redirectUrl, cdnConfig.proxyUrl);
         }
-        downloadFile(redirectUrl, dest, onProgress, cdnConfig, originalUrl)
-          .then(resolve)
-          .catch(reject);
-        return;
-      }
-      // CDN 代理失败（403/5xx）：自动回退到直连 GitHub
-      if (
-        cdnConfig?.proxyUrl &&
-        originalUrl &&
-        url !== originalUrl &&
-        res.statusCode &&
-        (res.statusCode === 403 || res.statusCode >= 500)
-      ) {
-        file.close();
-        try { fs.unlinkSync(dest); } catch { /* ignore */ }
-        res.resume();
-        console.warn(
-          `[updater] CDN 下载失败 HTTP ${res.statusCode}, 回退到直连: ${originalUrl}`,
-        );
-        downloadFile(originalUrl, dest, onProgress, undefined, originalUrl)
+        downloadFile(redirectUrl, dest, onProgress, cdnConfig)
           .then(resolve)
           .catch(reject);
         return;
       }
       if (res.statusCode && res.statusCode >= 400) {
-        reject(new Error(`下载失败 HTTP ${res.statusCode}: ${url}`));
+        reject(new Error(`下载失败 HTTP ${res.statusCode}: ${url}${cdnHint}`));
         return;
       }
       // 从响应头读取总大小（可能不存在）
@@ -425,33 +413,13 @@ function downloadFile(
       });
     });
     req.on('error', (err) => {
-      // CDN 代理网络错误：回退到直连 GitHub
-      if (cdnConfig?.proxyUrl && originalUrl && url !== originalUrl) {
-        file.close();
-        try { fs.unlinkSync(dest); } catch { /* ignore */ }
-        console.warn(
-          `[updater] CDN 下载网络错误, 回退到直连: ${originalUrl}`,
-        );
-        downloadFile(originalUrl, dest, onProgress, undefined, originalUrl)
-          .then(resolve)
-          .catch(reject);
-        return;
-      }
-      reject(err);
+      // CDN 模式不回退直连：网络错误直接失败并附 CDN 引导提示
+      reject(new Error(`下载网络错误: ${err.message}${cdnHint}`));
     });
     req.on('timeout', () => {
       req.destroy();
-      // CDN 代理超时：回退到直连 GitHub
-      if (cdnConfig?.proxyUrl && originalUrl && url !== originalUrl) {
-        file.close();
-        try { fs.unlinkSync(dest); } catch { /* ignore */ }
-        console.warn('[updater] CDN 下载超时, 回退到直连');
-        downloadFile(originalUrl, dest, onProgress, undefined, originalUrl)
-          .then(resolve)
-          .catch(reject);
-        return;
-      }
-      reject(new Error('下载超时'));
+      // CDN 模式不回退直连：超时直接失败并附 CDN 引导提示
+      reject(new Error(`下载超时${cdnHint}`));
     });
   });
 }
@@ -957,7 +925,6 @@ async function applyUpdateFromArchive(
   archiveFilename: string,
   onStage?: (event: UpdateStageEvent) => void,
   cdnConfig?: CdnConfig,
-  originalUrl?: string,
 ): Promise<{ success: boolean; message: string }> {
   const root = projectRoot();
   const tempDir = path.join(root, '.update-temp');
@@ -972,10 +939,10 @@ async function applyUpdateFromArchive(
   try {
     // 写入压缩包
     if (typeof archiveData === 'string') {
-      // archiveData 是 URL，需要下载（带进度），透传 CDN 配置与原始 URL
+      // archiveData 是 URL，需要下载（带进度），透传 CDN 配置
       await downloadFile(archiveData, archivePath, (received, total) => {
         if (onStage) onStage({ stage: 'downloading', received, total });
-      }, cdnConfig, originalUrl);
+      }, cdnConfig);
     } else {
       fs.writeFileSync(archivePath, archiveData);
     }
@@ -1082,22 +1049,15 @@ export async function applyUpdate(
     : undefined;
 
   // 对 downloadUrl 应用 CDN 代理前缀（覆盖 github.com 等所有 GitHub 域名）
-  const originalDownloadUrl = info.downloadUrl;
-  let downloadUrl = originalDownloadUrl;
+  let downloadUrl = info.downloadUrl;
   if (cdnConfig?.proxyUrl) {
     downloadUrl = applyCdnToUrl(downloadUrl, cdnConfig.proxyUrl);
     console.log(`[updater] CDN 加速: ${cdnConfig.proxyUrl}`);
   }
 
   // downloadFile 在 302 重定向跟随后也会对重定向 URL 应用 CDN 代理前缀；
-  // 传入 originalDownloadUrl 用于 CDN 代理失败时自动回退直连
-  return applyUpdateFromArchive(
-    downloadUrl,
-    info.assetName,
-    onStage,
-    cdnConfig,
-    originalDownloadUrl,
-  );
+  // CDN 模式失败不回退直连，直接报错并引导用户调整 CDN 设置
+  return applyUpdateFromArchive(downloadUrl, info.assetName, onStage, cdnConfig);
 }
 
 /**
