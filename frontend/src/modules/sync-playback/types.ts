@@ -81,6 +81,12 @@ export interface WatchTogetherState {
    * 同时开启才启用 playsvideo 管线。
    */
   playsvideoEnabled?: boolean
+  /**
+   * 挂载直链模式（movie.directLink，添加影片时设置并随状态广播）。
+   * true 时直连失败不回退服务器代理，直接向用户提示错误——
+   * 保持"源站直传、服务器零媒体流量"的直链语义。
+   */
+  noProxyFallback?: boolean
 }
 
 /** 房主发出的控制动作 */

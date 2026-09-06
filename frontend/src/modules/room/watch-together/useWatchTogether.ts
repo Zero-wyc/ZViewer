@@ -24,6 +24,7 @@ import {
   safePlay,
 } from '@/modules/sync-playback'
 import { wasUserPaused } from '@/modules/player/services/pause-intent'
+import { formatVideoLoadError } from '@/modules/player/utils'
 import {
   createSuppressRef,
   resetSuppression,
@@ -187,6 +188,11 @@ export function useWatchTogether({
   const lastAutoReloadAtRef = useRef(0)
   const autoReloadCountRef = useRef(0)
   const autoReloadNotifiedRef = useRef(false)
+
+  // 最近一次成功 attach 完成的时间戳。挂载直链源的播放期 error 提示
+  // 以此区分阶段：attach 阶段的失败由 loadMovie 的 catch message.error
+  // 提示，播放期中断（如 OpenList 签名过期）才由全局 error 监听提示。
+  const lastAttachOkAtRef = useRef(0)
 
   // loadMovie 失败信息与重试令牌：失败时在播放器上显示"重试"入口，
   // retryLoadMovie 清除 lastLoadedMovieRef 并递增令牌重新触发加载 effect。
@@ -972,6 +978,8 @@ export function useWatchTogether({
         mkvFastPath: r.mkvFastPath ?? false,
         // 影片级浏览器播放引擎开关（添加影片时设置），随状态广播给观众
         playsvideoEnabled: r.playsvideoEnabled !== false,
+        // 挂载直链模式：直连失败不回退服务器代理，直接提示错误
+        noProxyFallback: r.noProxyFallback ?? false,
       })
 
       // 4. attach 并恢复进度 / 自动播放 / 广播
@@ -984,6 +992,8 @@ export function useWatchTogether({
         const startTime =
           isRecovery && recoveryTime > 0 ? recoveryTime : undefined
         await applySourceToVideo(video, state, startTime, blobs)
+        // attach 成功：记录时间戳供挂载直链源的播放期 error 提示区分阶段
+        lastAttachOkAtRef.current = Date.now()
         // attach 已完成但本次加载已过期（新加载进行中）：不再恢复进度/广播/动
         // suppressEventsRef（由新流程管理），避免旧状态覆盖新影片
         if (loadSeqRef.current !== seq) return
@@ -1222,6 +1232,40 @@ export function useWatchTogether({
     suppressEventsRef,
     watchTogether.sourceType,
     watchTogether.sourceUrl,
+  ])
+
+  // 挂载直链源（noProxyFallback）的播放期 error 提示。
+  // 直链模式不回退服务器代理：attach 阶段的失败由 loadMovie 的 catch
+  // 提示（直连失败直接抛出可读错误）；播放期中断（如 OpenList 签名过期、
+  // 源站断流）无任何回退路径，黑屏前在此给出原因提示。
+  // - attach 成功后 1s 内的 error 仍属加载阶段，由 attach 的 catch 负责，跳过
+  // - 3s 时间窗去重：seek 重建等场景的连续 error 事件只提示一次
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    if (watchTogether.sourceType === 'bilibili') return
+    if (!watchTogether.noProxyFallback) return
+
+    let lastNotifiedAt = 0
+    const handleError = () => {
+      if (suppressEventsRef.current) return
+      const now = Date.now()
+      if (now - lastAttachOkAtRef.current < 1000) return
+      if (now - lastNotifiedAt < 3000) return
+      lastNotifiedAt = now
+      const reason = formatVideoLoadError(video.error?.code)
+      message.error(`直链播放中断：${reason}。可尝试重载或重新添加影片`)
+    }
+    video.addEventListener('error', handleError)
+    return () => video.removeEventListener('error', handleError)
+    // suppressEventsRef / lastAttachOkAtRef 为 ref 引用，监听器闭包内实时
+    // 读取 .current，无需纳入依赖数组重建
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 同上
+  }, [
+    videoRef,
+    watchTogether.sourceType,
+    watchTogether.sourceUrl,
+    watchTogether.noProxyFallback,
   ])
 
   /**

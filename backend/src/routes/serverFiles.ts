@@ -39,6 +39,7 @@ import {
 import {
   resolveBilibiliVideo,
   extractBvid,
+  expandBilibiliShortLink,
   normalizeResolveError,
   type ResolveProgress,
 } from '../services/bilibili/resolver';
@@ -758,7 +759,9 @@ async function downloadToFile(
  * FFmpeg 合并）已随服务器端 FFmpeg 一并移除，请使用 CLI 模式下载高画质。
  */
 router.post('/bilibili-download', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const url = typeof req.body.url === 'string' ? req.body.url.trim() : '';
+  const rawUrl = typeof req.body.url === 'string' ? req.body.url.trim() : '';
+  // 短链展开：b23.tv 等分享短链先 302 展开为完整视频地址再校验/解析
+  const url = await expandBilibiliShortLink(rawUrl);
   const targetDir = typeof req.body.targetDir === 'string' ? req.body.targetDir.trim() : '';
   const filename = typeof req.body.filename === 'string' ? req.body.filename.trim() : '';
   const qn =

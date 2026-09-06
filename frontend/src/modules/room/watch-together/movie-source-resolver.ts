@@ -71,6 +71,11 @@ export interface ResolvedMovieSource {
    * false 时强制原生直连播放，需与系统级开关同时开启才启用管线。
    */
   playsvideoEnabled?: boolean
+  /**
+   * 挂载直链模式（movie.directLink）：直连失败不回退服务器代理，
+   * 直接向用户提示错误，保持"源站直传、服务器零媒体流量"的直链语义。
+   */
+  noProxyFallback?: boolean
 }
 
 export interface ResolveMovieSourceOptions {
@@ -177,16 +182,19 @@ function mapResolvedSourceToMovieSource(
  * 缓存 key 含 qn / preferMp4 / CLI 代理地址，任一维度变化自动失效。
  */
 const BILIBILI_RESOLVE_CACHE_TTL_MS = 5 * 60 * 1000
-const bilibiliResolveCache = new Map<string, {
-  resolved: ResolvedMovieSource
-  expiresAt: number
-}>()
+const bilibiliResolveCache = new Map<
+  string,
+  {
+    resolved: ResolvedMovieSource
+    expiresAt: number
+  }
+>()
 
 function buildBilibiliResolveCacheKey(
   movieId: number,
   qn: number | null | undefined,
   preferMp4: boolean,
-  cliProxyUrl: string | null,
+  cliProxyUrl: string | null
 ): string {
   return `${movieId}|${qn ?? '-'}|${preferMp4 ? 'mp4' : 'dash'}|${cliProxyUrl ?? 'server'}`
 }
@@ -230,7 +238,7 @@ export async function resolveBilibiliOnline(
     movie.id,
     movie.currentQn,
     effectivePreferMp4,
-    proxyUrl,
+    proxyUrl
   )
   if (!forceRefresh) {
     const cached = bilibiliResolveCache.get(cacheKey)
@@ -433,6 +441,7 @@ export async function resolveMovieSource({
   // format 兜底从 URL 扩展名自动推断。MKV 快速路径判定与 server-files
   // 一致：原生友好编码直通原生播放，跨域 URL 由 direct 引擎的代理策略
   // （直连失败回退服务器代理）兜底，原生失败再回退 playsvideo 管线。
+  // 挂载直链模式（directLink）例外：直连失败不回退服务器代理，直接提示。
   const inferredFormat = movie.format || detectMediaFormat(movie.url)
   return {
     sourceUrl: movie.url,
@@ -452,5 +461,6 @@ export async function resolveMovieSource({
       movie.audioCodec
     ),
     playsvideoEnabled: movie.playsvideoEnabled !== false,
+    noProxyFallback: movie.directLink === true,
   }
 }

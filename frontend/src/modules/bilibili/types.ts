@@ -48,6 +48,12 @@ export interface ResolvedSource {
   pages?: BilibiliVideoPage[]
   /** 当前播放的分集序号（从 1 开始，默认 1） */
   currentPage?: number
+  /**
+   * 展开短链后的完整视频地址（后端解析时对 b23.tv 等短链 302 展开）。
+   * 非短链输入时与用户输入一致。添加影片时用它替换原始短链，
+   * 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性。
+   */
+  resolvedUrl?: string
 }
 
 export interface BilibiliQrData {
@@ -86,6 +92,8 @@ export interface ResolveProgressLine {
   pages?: BilibiliVideoPage[]
   /** 当前播放的分集序号（从 1 开始） */
   currentPage?: number
+  /** 展开短链后的完整视频地址（后端解析时对 b23.tv 等短链 302 展开） */
+  resolvedUrl?: string
 }
 
 export interface BilibiliParseOptions {

@@ -5,6 +5,30 @@
  */
 
 /**
+ * 将 video.error 的 MediaError code 映射为面向用户的可读文案。
+ *
+ * code 参照 HTMLMediaElement 规范：
+ * 1 MEDIA_ERR_ABORTED / 2 MEDIA_ERR_NETWORK / 3 MEDIA_ERR_DECODE /
+ * 4 MEDIA_ERR_SRC_NOT_SUPPORTED。
+ * 直链模式（noProxyFallback）失败时直接将映射文案展示给用户，
+ * 不再自动回退服务器代理。
+ */
+export function formatVideoLoadError(code?: number): string {
+  switch (code) {
+    case 1:
+      return '视频加载被中止'
+    case 2:
+      return '网络错误：无法连接到源站，请检查网络或源站可达性'
+    case 3:
+      return '解码失败：视频编码不受当前浏览器支持'
+    case 4:
+      return '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）'
+    default:
+      return '未知媒体错误'
+  }
+}
+
+/**
  * 在切换 MediaSource / blob URL 前彻底重置 video 元素，
  * 避免旧的 MediaSource 仍在 attached 状态导致 Format error。
  */

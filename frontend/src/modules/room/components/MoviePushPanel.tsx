@@ -159,16 +159,24 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [url, setUrl] = useState('')
   const [loading, setLoading] = useState(false)
   const [qualityLoading, setQualityLoading] = useState(false)
-  // 影片级浏览器播放引擎（playsvideo）开关：默认开启，关闭后该影片
-  // 强制原生直连播放（不兼容编码将无声）。与系统级开关两级门控。
-  const [playsvideoEnabled, setPlaysvideoEnabled] = useState(true)
+  // 影片级浏览器播放引擎（playsvideo）开关：默认关闭——强制原生直连播放
+  // （不兼容编码将无声），需要 MKV/DTS 等非常规格式重封装/转码时手动开启。
+  // 与系统级开关两级门控。
+  const [playsvideoEnabled, setPlaysvideoEnabled] = useState(false)
   // 包装 store 的 addMovie：为本面板全部添加路径统一注入 playsvideoEnabled，
   // 调用点无需逐个传参。roomId 已在闭包内固定，保持原调用签名不变。
+  // B站 源保持启用：开关本就不显示（解析出的 MP4/DASH 必定原生可播），
+  // 且保留原生失败时的 playsvideo 管线回退保险；其余源跟随面板开关。
   const addMovie = useCallback(
     (
       _roomId: string,
       payload: Omit<Parameters<typeof addMovieStore>[1], 'playsvideoEnabled'>
-    ) => addMovieStore(_roomId, { ...payload, playsvideoEnabled }),
+    ) =>
+      addMovieStore(_roomId, {
+        ...payload,
+        playsvideoEnabled:
+          payload.source === 'bilibili' ? true : playsvideoEnabled,
+      }),
     [addMovieStore, playsvideoEnabled]
   )
   const [resolvedMovie, setResolvedMovie] = useState<ResolvedSource | null>(
@@ -986,8 +994,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     try {
       if (sourceType === 'bilibili' && resolvedMovie) {
         const title = resolvedMovie.title || url.trim()
+        // 存展开后的完整地址：短链（b23.tv 等）由后端解析时 302 展开，
+        // 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性
+        const movieUrl = resolvedMovie.resolvedUrl || url.trim()
         await addMovie(roomId, {
-          url: url.trim(),
+          url: movieUrl,
           title,
           source: 'bilibili',
           audioUrl: resolvedMovie.audioUrl,

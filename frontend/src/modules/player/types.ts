@@ -134,6 +134,13 @@ export interface PlayerSource {
    * 任一关闭时 shouldUsePlaysVideo 返回 false。
    */
   playsvideoEnabled?: boolean
+  /**
+   * 挂载直链模式（movie.directLink）：直连失败时**不回退服务器代理**，
+   * 直接把错误抛给调用方提示用户。
+   * 直链模式的设计意图是源站直传（服务器零媒体流量），静默转代理
+   * 会让服务器带宽悄悄跑满，且掩盖了源站/直链本身的问题。
+   */
+  noProxyFallback?: boolean
 }
 
 /**

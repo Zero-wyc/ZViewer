@@ -180,6 +180,8 @@ function toPlayerSource(
     // 影片级浏览器播放引擎开关（添加影片时设置），与系统级开关一起
     // 在 shouldUsePlaysVideo 中决定是否启用 playsvideo 管线
     playsvideoEnabled: state.playsvideoEnabled,
+    // 挂载直链模式：直连失败不回退服务器代理，直接提示错误
+    noProxyFallback: state.noProxyFallback,
     // 传入后端权威时长：B站 fMP4 流的 mvhd.duration 为 0，
     // MSE 引擎需用此值显式设置 mediaSource.duration
     duration: state.duration,

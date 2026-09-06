@@ -31,12 +31,12 @@ const BILIBILI_MEDIA_HOST_SUFFIXES = [
   'mountaintoys.cn',
   'pili-video.com',
   'boss-pgc.com',
-] as const;
+] as const
 
 /** akamaized 为共享 CDN，仅精确白名单 B站 海外边缘节点 */
 const BILIBILI_MEDIA_HOST_EXACT: readonly string[] = [
   'upos-hz-mirrorakam.akamaized.net',
-];
+]
 
 /**
  * 判断 URL 是否为 B站 CDN 媒体地址。
@@ -62,7 +62,7 @@ export function isBilibiliMediaUrl(url: string): boolean {
     }
     return (
       BILIBILI_MEDIA_HOST_SUFFIXES.some(
-        (domain) => host === domain || host.endsWith(`.${domain}`),
+        (domain) => host === domain || host.endsWith(`.${domain}`)
       ) || BILIBILI_MEDIA_HOST_EXACT.includes(host)
     )
   } catch {
@@ -73,12 +73,18 @@ export function isBilibiliMediaUrl(url: string): boolean {
 /**
  * 判断 URL 是否为本站自身地址（API、blob、data 协议等），
  * 这些地址无需代理，直接由浏览器请求。
+ *
+ * 使用 origin（协议+域名+端口）级比较而非仅 hostname：
+ * 同域名不同端口的服务（如 OpenList 的 http://domain:5000 直链）不是
+ * 本站后端，误判会绕过「https 页面下 http 源走代理」的决策——浏览器
+ * 将 http 强制升级为 https 后对非 TLS 端口握手失败，且引擎回退代理
+ * 也会被 isLocalUrl 拦截，导致直链彻底无法播放。
  */
 export function isLocalUrl(url: string): boolean {
   try {
     const u = new URL(url, window.location.origin)
     if (u.protocol === 'blob:' || u.protocol === 'data:') return true
-    return u.hostname.toLowerCase() === window.location.hostname.toLowerCase()
+    return u.origin === window.location.origin
   } catch {
     return false
   }

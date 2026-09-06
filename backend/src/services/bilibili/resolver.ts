@@ -46,6 +46,10 @@ export interface ResolveProgress {
  */
 const MP4_MAX_QN = 64; // 720P
 
+/** B站 请求 UA（与 client.ts / cdn.ts 一致，短链展开请求也使用） */
+const DEFAULT_USER_AGENT =
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+
 /**
  * 收窄清晰度列表到 MP4 支持的范围（qn ≤ MP4_MAX_QN）。
  *
@@ -146,6 +150,12 @@ export interface ResolveResult {
   pages?: ResolvePageInfo[];
   /** 当前播放的分集序号（从 1 开始，默认 1） */
   currentPage?: number;
+  /**
+   * 展开短链后的完整视频地址（非短链输入时与入参 url 一致）。
+   * 前端存影片时用它替换原始短链（如 b23.tv/xxx），
+   * 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性。
+   */
+  resolvedUrl: string;
 }
 
 export class ResolveError extends Error {
@@ -164,6 +174,53 @@ export function extractBvid(input: string): string | null {
   const avMatch = input.match(/av(\d+)/i);
   if (avMatch) return avMatch[1];
   return null;
+}
+
+/** B站 短链域名（host 精确匹配，小写） */
+const BILIBILI_SHORT_LINK_HOSTS = new Set(['b23.tv', 'bili2233.cn']);
+
+/**
+ * 展开 B站 短链（如 https://b23.tv/RGkO5sW）为完整视频地址。
+ *
+ * 短链对分享链接返回 302 重定向到 www.bilibili.com/video/BVxxx?p=N
+ * （可能附带分 P 与分享来源参数）。通过跟随重定向读取最终 URL 展开，
+ * 使 extractBvid 与分 P 参数解析能继续工作。
+ *
+ * 展开失败（网络 / 超时 / 非法重定向）时原样返回输入，
+ * 由后续解析流程按原始地址报错，不因短链服务抖动放大失败。
+ */
+export async function expandBilibiliShortLink(input: string): Promise<string> {
+  let parsed: URL;
+  try {
+    parsed = new URL(input);
+  } catch {
+    return input;
+  }
+  if (!BILIBILI_SHORT_LINK_HOSTS.has(parsed.hostname.toLowerCase())) {
+    return input;
+  }
+  try {
+    // GET + redirect: 'follow'：Response.url 即重定向后的最终地址。
+    // 取到最终 URL 后立即释放响应体（无需内容，避免下载整页 HTML）。
+    const res = await fetch(parsed.toString(), {
+      method: 'GET',
+      redirect: 'follow',
+      headers: { 'user-agent': DEFAULT_USER_AGENT },
+      signal: AbortSignal.timeout(8000),
+    });
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* ignore */
+    }
+    if (res.url && /^https?:\/\//.test(res.url)) {
+      console.log('[bilibili-resolver] 短链已展开:', input, '->', res.url);
+      return res.url;
+    }
+  } catch (err) {
+    console.warn('[bilibili-resolver] 短链展开失败，使用原地址继续:', err);
+  }
+  return input;
 }
 
 async function fetchVideoInfo(bvid: string, cookie?: string) {
@@ -309,12 +366,25 @@ async function fallbackToMp4(
 export async function resolveBilibiliVideo(
   opts: ResolveOptions,
 ): Promise<ResolveResult> {
-  const { url, cookie, qn, codec, onProgress, preferMp4, page, cid, skipCdnCheck, forceDash } = opts;
+  const { url: rawUrl, cookie, qn, codec, onProgress, preferMp4, page, cid, skipCdnCheck, forceDash } = opts;
+
+  // 短链展开：b23.tv 等分享短链 302 到完整视频地址（可能带 ?p=N 分集参数）
+  const url = await expandBilibiliShortLink(rawUrl);
 
   const bvid = extractBvid(url);
   if (!bvid) {
     throw new ResolveError('无法解析 B站 BV 号', 'INVALID_INPUT');
   }
+
+  // 短链 / 分享链接常带 ?p=N 分集参数：page 未显式指定时作为默认分集
+  let urlPage: number | undefined;
+  try {
+    const p = Number(new URL(url).searchParams.get('p'));
+    if (Number.isFinite(p) && p > 0) urlPage = p;
+  } catch {
+    /* 非法 URL 忽略分集参数 */
+  }
+  const effectivePage = page ?? urlPage;
 
   const emit = (step: string, message: string) => {
     onProgress?.({ status: 'parsing', step, message });
@@ -337,8 +407,8 @@ export async function resolveBilibiliVideo(
   // 多 P 视频每个分集有独立的 cid 和 m4s 文件，必须用对应 cid 请求 playurl
   let effectiveCid = info.cid;
   let currentPage = 1;
-  if (page && page > 0 && info.pages && info.pages.length > 0) {
-    const pageIndex = Math.min(page - 1, info.pages.length - 1);
+  if (effectivePage && effectivePage > 0 && info.pages && info.pages.length > 0) {
+    const pageIndex = Math.min(effectivePage - 1, info.pages.length - 1);
     const targetPage = info.pages[pageIndex];
     if (targetPage && targetPage.cid) {
       effectiveCid = targetPage.cid;
@@ -404,6 +474,7 @@ export async function resolveBilibiliVideo(
         acceptQuality: mp4AcceptQuality,
         pages: pagesInfo,
         currentPage,
+        resolvedUrl: url,
       };
     }
     throw new ResolveError(
@@ -541,6 +612,7 @@ export async function resolveBilibiliVideo(
           acceptQuality: mp4AcceptQuality,
           pages: pagesInfo,
           currentPage,
+          resolvedUrl: url,
         };
       }
       throw new ResolveError(
@@ -564,6 +636,7 @@ export async function resolveBilibiliVideo(
       acceptQuality,
       pages: pagesInfo,
       currentPage,
+      resolvedUrl: url,
     };
   }
 
@@ -601,6 +674,7 @@ export async function resolveBilibiliVideo(
       acceptQuality: mp4AcceptQuality,
       pages: pagesInfo,
       currentPage,
+      resolvedUrl: url,
     };
   }
 

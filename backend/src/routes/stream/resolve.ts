@@ -15,6 +15,7 @@ import { getDanmaku } from '../../services/bilibili/danmaku';
 import {
   resolveBilibiliVideo,
   extractBvid,
+  expandBilibiliShortLink,
   normalizeResolveError,
   type ResolveProgress,
   type ResolvePageInfo,
@@ -46,6 +47,8 @@ interface ResolveProgressMessage {
   pages?: ResolvePageInfo[];
   /** 当前播放的分集序号（从 1 开始） */
   currentPage?: number;
+  /** 展开短链后的完整视频地址（b23.tv 等短链 302 展开，非短链时与输入一致） */
+  resolvedUrl?: string;
 }
 
 /**
@@ -86,12 +89,15 @@ class NdjsonWriter {
 }
 
 router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
-  const url = req.query.url;
+  const rawUrl = req.query.url;
   const userId = req.user?.userId;
-  if (typeof url !== 'string' || !url.trim()) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) {
     res.status(400).json({ success: false, message: '缺少视频链接' });
     return;
   }
+
+  // 短链展开：b23.tv 等分享短链先 302 展开为完整视频地址再校验/解析
+  const url = await expandBilibiliShortLink(rawUrl.trim());
 
   // 提前校验 BV 号，避免进入流式响应后才返回 400
   if (!extractBvid(url)) {
@@ -169,6 +175,7 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
       acceptQuality: result.acceptQuality,
       pages: result.pages,
       currentPage: result.currentPage,
+      resolvedUrl: result.resolvedUrl,
     });
     writer.end();
   } catch (err) {

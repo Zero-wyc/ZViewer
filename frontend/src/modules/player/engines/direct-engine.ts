@@ -17,7 +17,7 @@
  * 并存储到 video.dataset.serverDuration 供 useVideoDuration 回退使用。
  */
 import type { PlayerEngine, PlayerSource, EngineAttachResult } from '../types'
-import { resetVideoElement } from '../utils'
+import { resetVideoElement, formatVideoLoadError } from '../utils'
 import {
   resolveProxyUrl,
   buildProxyUrl,
@@ -45,8 +45,9 @@ function waitForMetadataOrError(video: HTMLVideoElement): Promise<void> {
     }
     const onError = () => {
       cleanup()
-      const code = video.error?.code
-      reject(new Error(`video load error (code=${code ?? 'unknown'})`))
+      // 抛出面向用户的可读文案：直链模式（noProxyFallback）不回退代理，
+      // 该错误会经 message.error 直接展示给用户
+      reject(new Error(formatVideoLoadError(video.error?.code)))
     }
     video.addEventListener('loadedmetadata', onLoaded, { once: true })
     video.addEventListener('error', onError, { once: true })
@@ -101,8 +102,12 @@ export const directEngine: PlayerEngine = {
       }
     })()
 
-    // 尝试加载视频：直连失败时回退到服务器代理（绕过跨域防盗链 / CORS）
-    const fallback = canFallbackToProxy(targetUrl)
+    // 尝试加载视频：直连失败时回退到服务器代理（绕过跨域防盗链 / CORS）。
+    // 挂载直链模式（noProxyFallback）例外：设计意图是源站直传、服务器零
+    // 媒体流量，静默转代理会让服务器带宽跑满并掩盖直链本身的问题，
+    // 失败直接抛错由调用方提示用户。
+    const fallback =
+      source.noProxyFallback !== true && canFallbackToProxy(targetUrl)
 
     const loadOnce = async (url: string): Promise<void> => {
       video.src = url
@@ -113,7 +118,15 @@ export const directEngine: PlayerEngine = {
     try {
       await loadOnce(targetUrl)
     } catch (err) {
-      if (!fallback) throw err
+      if (!fallback) {
+        if (source.noProxyFallback === true) {
+          console.warn(
+            '[direct-engine] 直链模式：直连失败，不回退服务器代理:',
+            err
+          )
+        }
+        throw err
+      }
       console.warn('[direct-engine] 直连失败，回退到服务器代理:', err)
       resetVideoElement(video)
       const proxyUrl = buildProxyUrl(source.url)

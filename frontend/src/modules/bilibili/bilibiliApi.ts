@@ -185,6 +185,7 @@ function mapResolvedBilibili(data: ResolveProgressLine): ResolvedSource {
     vipStatus: data.vipStatus,
     pages: data.pages,
     currentPage: data.currentPage,
+    resolvedUrl: data.resolvedUrl,
   }
 }
 
