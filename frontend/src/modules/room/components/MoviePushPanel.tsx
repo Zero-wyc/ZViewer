@@ -732,6 +732,50 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     ]
   )
 
+  // 本地服务器文件批量添加：与挂载浏览（handleSelectFilesFromMount）行为对齐，
+  // 浏览选中后直接逐个 resolve + addMovie，不再回填路径输入框
+  const handleSelectFilesFromServer = useCallback(
+    async (paths: string[]) => {
+      if (!isHost) {
+        message.info('只有房主可以添加影片')
+        return
+      }
+      if (!roomId) {
+        message.error('未连接房间')
+        return
+      }
+
+      setLoading(true)
+      setResolveProgress(`正在批量解析 ${paths.length} 个文件...`)
+      try {
+        let added = 0
+        for (const path of paths) {
+          const normalizedPath = path.trim()
+          const resolved = await resolveServerFile(normalizedPath)
+          const movieUrl = buildServerFileProxyUrl(normalizedPath)
+          await addMovie(roomId, {
+            url: movieUrl,
+            title: resolved.title,
+            source: 'server-files',
+            format: resolved.format as MediaFormat,
+            path: normalizedPath,
+            duration: resolved.duration ?? undefined,
+            audioCodec: resolved.audioCodec ?? undefined,
+          })
+          added++
+        }
+        message.success(`已添加 ${added} 部影片`)
+      } catch (err) {
+        console.error('[MoviePushPanel] batch add server files error:', err)
+        message.error(err instanceof Error ? err.message : '批量添加失败')
+      } finally {
+        setLoading(false)
+        setResolveProgress('')
+      }
+    },
+    [isHost, roomId, addMovie]
+  )
+
   const resetForm = () => {
     setUrl('')
     setResolvedMovie(null)
@@ -1674,7 +1718,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             size="sm"
             value={serverFilePath}
             onChange={(e) => setServerFilePath(e.target.value)}
-            placeholder="文件路径，如 /movies/video.mp4（可点击上方按钮选择）"
+            placeholder="手动输入路径，或点击上方按钮浏览选择（支持多选批量添加）"
             onKeyDown={(e) => {
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault()
@@ -2035,8 +2079,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       <ServerFilesBrowser
         open={serverFilesBrowserOpen}
         onClose={() => setServerFilesBrowserOpen(false)}
-        onSelectFile={(path) => setServerFilePath(path)}
-        selectable
+        onConfirm={handleSelectFilesFromServer}
       />
 
       {sourceType === 'bilibili' && resolvedMovie?.pages && (

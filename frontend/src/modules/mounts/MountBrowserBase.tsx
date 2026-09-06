@@ -234,8 +234,8 @@ export default function MountBrowserBase<T extends DirectoryEntry>({
   const loadingSkeletons = (
     <>
       <div className="mb-4 h-5 w-2/3 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
-      <div className="grid h-[420px] grid-cols-2 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)]">
-        <div className="flex flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 p-3">
+      <div className="grid h-[420px] grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] md:grid-cols-2">
+        <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 p-3 md:flex">
           <div className="mb-3 h-4 w-16 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
           <div className="flex-1 space-y-1 overflow-hidden">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -348,9 +348,9 @@ export default function MountBrowserBase<T extends DirectoryEntry>({
               </Button>
             </div>
 
-            <div className="grid h-[420px] grid-cols-2 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm">
-              {/* 左侧：上级目录 */}
-              <div className="flex min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60">
+            <div className="grid h-[420px] grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm md:grid-cols-2">
+              {/* 左侧：上级目录（小屏单栏时隐藏，导航由面包屑承担） */}
+              <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
                 <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
                   上级目录
                 </div>
