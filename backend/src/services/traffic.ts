@@ -106,13 +106,17 @@ async function readWindowsNetstat(): Promise<NicSample | null> {
     timeout: 4000,
     windowsHide: true,
   });
-  // 输出结构固定：接口统计标题 → 空行 → 已接收/已发送表头 → 空行 → 字节数行
-  // 中英文系统表头文字不同，因此直接找第一条「两个纯数字」的行
+  // 输出结构固定：接口统计标题 → 空行 → 已接收/已发送表头 → 空行 → 字节数行。
+  // 表头文字随系统语言变化（英文 Bytes / 中文 字节），且标签与数字同行
+  // （如 "Bytes 1,857,485,134 424,213,945"），因此匹配「标签 + 两个纯数字」
+  // 的行：恰好 3 个字段、后两列剥离千分位分隔符后均为有限数字。
+  // 接口统计部分的其他行（Unicast packets 4 列 / Unknown protocols 数字在最后）
+  // 均不满足该特征，IPv4/IPv6 统计部分列数更多，均不会误匹配。
   for (const line of stdout.split('\n')) {
-    const m = line.trim().match(/^([\d.,\s]+)\s+([\d.,\s]+)$/);
-    if (!m) continue;
-    const rx = Number(m[1].replace(/[.,\s]/g, ''));
-    const tx = Number(m[2].replace(/[.,\s]/g, ''));
+    const cols = line.trim().split(/\s+/);
+    if (cols.length !== 3) continue;
+    const rx = Number(cols[1].replace(/[.,]/g, ''));
+    const tx = Number(cols[2].replace(/[.,]/g, ''));
     if (Number.isFinite(rx) && Number.isFinite(tx) && rx + tx > 0) {
       return { rx, tx };
     }
