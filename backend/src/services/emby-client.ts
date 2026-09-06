@@ -8,6 +8,8 @@
  * 视频流代理由 routes/emby.ts 复用 services/proxy/http-proxy.ts 完成。
  */
 
+import { normalizeServerUrlWithScheme } from './network-utils';
+
 const DEFAULT_TIMEOUT_MS = 10000;
 
 /** Emby 客户端标识头（所有请求都需要，登录请求尤其必需） */
@@ -103,8 +105,10 @@ export class EmbyError extends Error {
 }
 
 function normalizeServerUrl(url: string): string {
-  const trimmed = url.trim().replace(/\/+$/, '');
-  return trimmed.length > 0 ? trimmed : 'http://localhost:8096';
+  // 统一走 network-utils：补默认 scheme（用户输入裸地址 `192.168.1.5:8096`
+  // 时若不补 http://，运行时 new URL 会把 "192.168.1.5:" 当非法 scheme 抛错）
+  const normalized = normalizeServerUrlWithScheme(url);
+  return normalized.length > 0 ? normalized : 'http://localhost:8096';
 }
 
 export class EmbyClient {

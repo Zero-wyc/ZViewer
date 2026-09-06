@@ -163,9 +163,16 @@ export async function resolveServerFile(
   }
 }
 
-/** 构建服务器文件代理播放 URL（供 MoviePushPanel 直接拼装，免去 resolve 请求）。 */
+/**
+ * 构建服务器文件代理播放 URL（供 MoviePushPanel 直接拼装，免去 resolve 请求）。
+ *
+ * 使用相对路径而非 getApiUrl() 绝对地址：影片 URL 会随记录广播给所有观众，
+ * 绝对地址依赖添加者的 API 部署地址，跨域/内外网观众拿到的是无法访问的地址；
+ * 相对路径在任何客户端都解析到「该客户端自己可达」的同源后端
+ * （dev 由 vite proxy 转发，生产由后端同源托管）。
+ */
 export function buildServerFileProxyUrl(path: string): string {
-  return `${getApiUrl()}/api/server-files/proxy?path=${encodeURIComponent(path)}`
+  return `/api/server-files/proxy?path=${encodeURIComponent(path)}`
 }
 
 // ============ 根目录管理 ============

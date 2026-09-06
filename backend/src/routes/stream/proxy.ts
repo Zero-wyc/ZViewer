@@ -13,6 +13,35 @@ import { proxyHttpUpstream } from '../../services/proxy';
 
 const BILIBILI_REFERER = 'https://www.bilibili.com';
 
+/**
+ * B站媒体 CDN 域名白名单（host 精确或子域后缀匹配），
+ * 与 services/bilibili/cdn.ts 的 HTTPS_CAPABLE_BILIBILI_DOMAINS 及前端
+ * url-proxy.ts 保持一致。旧实现是子串正则，任何含 mcdn/akamaized 等子串
+ * 的第三方域名都会被误加 B站 Referer。
+ */
+const BILIBILI_MEDIA_HOST_SUFFIXES = [
+  'bilibili.com',
+  'bilivideo.com',
+  'hdslb.com',
+  'biliimg.com',
+  'bstatic.com',
+  'mountaintoys.cn',
+  'pili-video.com',
+  'boss-pgc.com',
+];
+
+/** akamaized 为共享 CDN，仅精确白名单 B站 海外边缘节点 */
+const BILIBILI_MEDIA_HOST_EXACT = ['upos-hz-mirrorakam.akamaized.net'];
+
+function isBilibiliMediaHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    BILIBILI_MEDIA_HOST_SUFFIXES.some(
+      (domain) => host === domain || host.endsWith(`.${domain}`),
+    ) || BILIBILI_MEDIA_HOST_EXACT.includes(host)
+  );
+}
+
 const allowedImageDomains = [
   'bilibili.com',
   'hdslb.com',
@@ -83,10 +112,7 @@ const router = Router().get(
     let isBilibiliUrl = false;
     try {
       const parsed = new URL(trimmedUrl);
-      isBilibiliUrl =
-        /(?:bilibili|bilivideo|hdslb|mcdn|upos|bstatic|akamaized|pili-video|boss-pgc)/i.test(
-          parsed.hostname,
-        );
+      isBilibiliUrl = isBilibiliMediaHost(parsed.hostname);
     } catch {
       // URL 解析失败时不添加 B站 headers
     }

@@ -170,16 +170,49 @@ function mapResolvedSourceToMovieSource(
 }
 
 /**
+ * B站 解析结果短 TTL 缓存。
+ *
+ * B站 playurl 解析涉及上游多跳请求，房主反复重载 / 观众加入 / 清晰度重试
+ * 都会触发全量解析。B站 CDN URL 官方有效期约 2-3 小时，分钟级缓存完全安全。
+ * 缓存 key 含 qn / preferMp4 / CLI 代理地址，任一维度变化自动失效。
+ */
+const BILIBILI_RESOLVE_CACHE_TTL_MS = 5 * 60 * 1000
+const bilibiliResolveCache = new Map<string, {
+  resolved: ResolvedMovieSource
+  expiresAt: number
+}>()
+
+function buildBilibiliResolveCacheKey(
+  movieId: number,
+  qn: number | null | undefined,
+  preferMp4: boolean,
+  cliProxyUrl: string | null,
+): string {
+  return `${movieId}|${qn ?? '-'}|${preferMp4 ? 'mp4' : 'dash'}|${cliProxyUrl ?? 'server'}`
+}
+
+/** 强制绕过缓存时（旧 URL 已失败），清掉该影片的全部缓存条目避免膨胀 */
+function purgeBilibiliResolveCache(movieId: number): void {
+  const prefix = `${movieId}|`
+  for (const key of Array.from(bilibiliResolveCache.keys())) {
+    if (key.startsWith(prefix)) bilibiliResolveCache.delete(key)
+  }
+}
+
+/**
  * 在线解析 B站 视频 playurl。
  * 独立导出供「复用旧 URL 失败后的回退重新解析」复用。
  *
  * 若该影片启用了 CLI 代理且本地 CLI 在线，则通过 CLI 使用用户自己的 Cookie
  * 解析高画质地址；否则回退到服务端解析。
+ *
+ * 结果带 5 分钟 TTL 缓存；forceRefresh 为 true 时绕过缓存并清空旧条目
+ * （用于复用旧 URL 失败后的强制重新解析——缓存的正是刚失败的 URL）。
  */
 export async function resolveBilibiliOnline(
   movie: Movie,
   onProgress?: (step: string, message: string) => void,
-  options?: { preferMp4?: boolean }
+  options?: { preferMp4?: boolean; forceRefresh?: boolean }
 ): Promise<ResolvedMovieSource> {
   const parsePrefs = getBilibiliParseOptions(movie.id)
   const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
@@ -192,6 +225,24 @@ export async function resolveBilibiliOnline(
     throw new Error('CLI 代理未连接，请先启动本地 zcontrol-cli')
   }
 
+  const forceRefresh = options?.forceRefresh === true
+  const cacheKey = buildBilibiliResolveCacheKey(
+    movie.id,
+    movie.currentQn,
+    effectivePreferMp4,
+    proxyUrl,
+  )
+  if (!forceRefresh) {
+    const cached = bilibiliResolveCache.get(cacheKey)
+    if (cached && cached.expiresAt > Date.now()) {
+      console.log('[movie-source-resolver] B站 解析命中缓存:', cacheKey)
+      return cached.resolved
+    }
+  } else {
+    purgeBilibiliResolveCache(movie.id)
+  }
+
+  let resolvedSource: ResolvedMovieSource
   if (proxyUrl) {
     const bvid = extractBvid(movie.url)
     if (bvid && movie.cid) {
@@ -203,17 +254,31 @@ export async function resolveBilibiliOnline(
         effectivePreferMp4,
         forceDash
       )
-      return mapResolvedSourceToMovieSource(resolved, movie)
+      resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
+    } else {
+      const resolved = await resolveBilibiliWithOptions(
+        movie.url,
+        movie.currentQn,
+        onProgress,
+        { preferMp4: effectivePreferMp4 }
+      )
+      resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
     }
+  } else {
+    const resolved = await resolveBilibiliWithOptions(
+      movie.url,
+      movie.currentQn,
+      onProgress,
+      { preferMp4: effectivePreferMp4 }
+    )
+    resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
   }
 
-  const resolved = await resolveBilibiliWithOptions(
-    movie.url,
-    movie.currentQn,
-    onProgress,
-    { preferMp4: effectivePreferMp4 }
-  )
-  return mapResolvedSourceToMovieSource(resolved, movie)
+  bilibiliResolveCache.set(cacheKey, {
+    resolved: resolvedSource,
+    expiresAt: Date.now() + BILIBILI_RESOLVE_CACHE_TTL_MS,
+  })
+  return resolvedSource
 }
 
 /**
@@ -338,10 +403,9 @@ export async function resolveMovieSource({
   }
 
   // 非 B站 源：直接使用影片记录字段（Movie 类型不含 headers，见 roomStore）
-  // server-files 源特殊处理：movie.url 是添加者（房主）按其自身 API 地址拼的
-  // 绝对代理 URL，随影片记录广播给所有观众——外网/跨域观众的浏览器拿到的
-  // 是房主的内网地址，无法访问导致播放失败。此处按「当前客户端自己」的
-  // API 地址重建代理 URL（文件路径保存在 movie.path），内外网各自可达。
+  // server-files 源按「当前客户端」重建代理 URL：旧记录可能存的是添加者的
+  // 绝对 API 地址，外网/跨域观众无法访问；重建为相对路径后所有客户端都
+  // 指向各自可达的同源后端（文件路径保存在 movie.path）。
   if (sourceType === 'server-files' && movie.path) {
     const format = movie.format || detectMediaFormat(movie.path)
     return {

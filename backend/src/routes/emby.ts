@@ -21,6 +21,7 @@ import {
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, proxyHttpUpstream } from '../services/proxy';
 import { upgradeToHttpsIfNeeded } from '../services/url-utils';
+import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
 const router = Router();
 
@@ -208,7 +209,8 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       userId: req.user!.userId,
       type: 'emby',
       name: name.trim(),
-      serverUrl: serverUrl.trim(),
+      // 规范化后落库：补 scheme 避免运行时 new URL 抛错
+      serverUrl: normalizeServerUrlWithScheme(serverUrl),
       apiKey: typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : null,
       username: typeof username === 'string' && username.trim() ? username.trim() : null,
       password: typeof password === 'string' && password ? password : null,
@@ -245,7 +247,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     const { name, serverUrl, apiKey, username, password, directLink } = req.body ?? {};
     if (typeof name === 'string' && name.trim()) mount.name = name.trim();
     if (typeof serverUrl === 'string' && serverUrl.trim()) {
-      mount.serverUrl = serverUrl.trim();
+      mount.serverUrl = normalizeServerUrlWithScheme(serverUrl);
       mount.embyUserId = null; // 服务器变更后 userId 需重新获取
     }
     if (apiKey !== undefined) mount.apiKey = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : null;
@@ -462,6 +464,8 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
       },
       cors: 'wildcard',
       defaultContentType: audioTranscode ? 'application/x-mpegURL' : 'video/mp4',
+      // 转码冷启动：Emby 需先启动 ffmpeg 转码才吐出首个分片，30s 默认超时会误杀
+      timeoutMs: audioTranscode ? 90_000 : undefined,
       logTag: audioTranscode ? 'emby-proxy-transcode' : 'emby-proxy',
       errorMessage: 'Emby 视频流代理失败',
     });
@@ -524,6 +528,8 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
       },
       cors: 'wildcard',
       defaultContentType: audioTranscode ? 'application/x-mpegURL' : 'video/mp4',
+      // 转码冷启动：Emby 需先启动 ffmpeg 转码才吐出首个分片，30s 默认超时会误杀
+      timeoutMs: audioTranscode ? 90_000 : undefined,
       logTag: audioTranscode ? 'emby-stream-transcode' : 'emby-stream',
       errorMessage: 'Emby 视频流代理失败',
     });

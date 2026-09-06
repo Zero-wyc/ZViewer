@@ -15,6 +15,7 @@
 
 import { Request, Response } from 'express';
 import { Readable, Transform } from 'node:stream';
+import { isInternalNetworkHost } from '../network-utils';
 
 /** 将字节数格式化为人类可读单位 */
 function formatBytes(bytes: number): string {
@@ -103,37 +104,30 @@ function buildUpstreamHeaders(
   if (h.referer && h.referer.trim()) headers.Referer = h.referer;
   if (h.origin && h.origin.trim()) headers.Origin = h.origin;
   if (h.cookie && h.cookie.trim()) headers.Cookie = h.cookie;
-  if (req.headers.range) headers.Range = req.headers.range;
+  // Range 头归一：极端场景下 req.headers.range 可能是 string[]（重复头），
+  // 直接传给 fetch 会抛 TypeError，取首个值兜底。
+  const rangeValue = Array.isArray(req.headers.range)
+    ? req.headers.range[0]
+    : req.headers.range;
+  if (rangeValue) headers.Range = rangeValue;
+  // 条件请求头透传：ETag/Last-Modified 已通过白名单回传给客户端，
+  // 补传协商请求头以激活 304 协商缓存（否则透传的 ETag 是"死头"）。
+  const ifNoneMatch = Array.isArray(req.headers['if-none-match'])
+    ? req.headers['if-none-match'][0]
+    : req.headers['if-none-match'];
+  if (ifNoneMatch) headers['If-None-Match'] = ifNoneMatch;
+  const ifRange = Array.isArray(req.headers['if-range'])
+    ? req.headers['if-range'][0]
+    : req.headers['if-range'];
+  if (ifRange) headers['If-Range'] = ifRange;
   return headers;
 }
 
-/**
- * 判断 host 是否为私网地址。
- *
- * 私网 NAS（Emby/Jellyfin/WebDAV 等）常被误配成 https scheme，
- * 而媒体端口（如 Emby 的 8096）实际只提供 http，TLS 握手必然失败。
- * 仅私网目标允许 https→http 自动降级重试，公网 https 上下游保持严格。
- */
-function isPrivateHost(hostname: string): boolean {
-  if (hostname.toLowerCase().endsWith('.local')) return true;
-  const m = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(hostname);
-  if (!m) return false;
-  const a = Number(m[1]);
-  const b = Number(m[2]);
-  return (
-    a === 10 ||
-    a === 127 ||
-    (a === 192 && b === 168) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 169 && b === 254)
-  );
-}
-
-/** https 上游是否允许降级 http 重试（仅私网目标） */
+/** https 上游是否允许降级 http 重试（仅内网目标，判定统一走 network-utils） */
 function shouldDowngradeToHttp(url: string): boolean {
   try {
     const u = new URL(url);
-    return u.protocol === 'https:' && isPrivateHost(u.hostname);
+    return u.protocol === 'https:' && isInternalNetworkHost(u.hostname);
   } catch {
     return false;
   }
@@ -169,42 +163,60 @@ export async function proxyHttpUpstream(
   const rangeHeader = req.headers.range as string | undefined;
 
   // 客户端断连 / 超时统一中断上游
-  const controller = new AbortController();
+  let controller = new AbortController();
+  let abortedByTimeout = false;
   // 超时只覆盖「连接 + 等待响应头」阶段：fetch resolve 后即取消，
   // 开放式 Range 下载（bytes=0-）的 body 传输可能持续数分钟，不应被超时中断。
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  let timeout = setTimeout(() => {
+    abortedByTimeout = true;
+    controller.abort();
+  }, timeoutMs);
   res.on('close', () => {
     if (!res.writableFinished) controller.abort();
   });
 
-  // 实际请求的上游 URL：私网 https 失败时会降级 http 重试（catch 分支更新）
+  // 实际请求的上游 URL：内网 https 失败时会降级 http 重试（catch 分支更新）
   let requestUrl = url;
+  // 是否已降级过：降级重试只允许一次，重试再失败直接按网络异常处理
+  let hasDowngraded = false;
 
   try {
+    const startUpstreamFetch = () =>
+      fetch(requestUrl, {
+        method: req.method,
+        headers: buildUpstreamHeaders(req, h),
+        signal: controller.signal,
+      });
+
     // 转发原始 HTTP 方法：HEAD 请求转发为 HEAD（避免上游下载整个视频体），
     // GET 请求转发为 GET（含 Range 头时上游返回 206 部分内容）。
-    const upstream = await fetch(requestUrl, {
-      method: req.method,
-      headers: buildUpstreamHeaders(req, h),
-      signal: controller.signal,
-    }).catch(async (fetchErr: unknown) => {
-      const isAbort = fetchErr instanceof Error && fetchErr.name === 'AbortError';
-      // 私网 https 上游 TLS/网络失败：scheme 配错（端口实际是 http）场景自愈，
-      // 降级 http 同端口重试一次；重试再失败则抛回外层按网络异常处理。
-      if (!isAbort && shouldDowngradeToHttp(requestUrl)) {
-        requestUrl = requestUrl.replace(/^https:\/\//i, 'http://');
-        const reason =
-          fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
-        console.warn(
-          `[${logTag}] https 上游失败（${reason}），降级 http 重试: ${requestUrl.slice(0, 100)}`
-        );
-        return fetch(requestUrl, {
-          method: req.method,
-          headers: buildUpstreamHeaders(req, h),
-          signal: controller.signal,
-        });
-      }
-      throw fetchErr;
+    const upstream = await startUpstreamFetch().catch(async (fetchErr: unknown) => {
+      const isAbort =
+        fetchErr instanceof Error && fetchErr.name === 'AbortError';
+      const isTimeoutAbort = isAbort && abortedByTimeout;
+      const downgradable = shouldDowngradeToHttp(requestUrl);
+      if (hasDowngraded || !downgradable) throw fetchErr;
+      // 客户端主动断连导致的中断：重试无意义，直接抛回
+      if (isAbort && !isTimeoutAbort) throw fetchErr;
+      // 覆盖两类内网 scheme 配错症状（NAS 媒体端口只提供 http 却配成 https）：
+      // 1. 快速失败：ECONNREFUSED / 证书校验错误；
+      // 2. TLS 握手挂死直到超时（AbortError）——最常见的配错表现。
+      hasDowngraded = true;
+      requestUrl = requestUrl.replace(/^https:\/\//i, 'http://');
+      const reason =
+        fetchErr instanceof Error ? fetchErr.message : String(fetchErr);
+      console.warn(
+        `[${logTag}] https 上游失败（${reason}），降级 http 重试: ${requestUrl.slice(0, 100)}`,
+      );
+      // 重建超时与中断控制器：旧 controller 已 abort，旧计时器已触发
+      clearTimeout(timeout);
+      controller = new AbortController();
+      abortedByTimeout = false;
+      timeout = setTimeout(() => {
+        abortedByTimeout = true;
+        controller.abort();
+      }, timeoutMs);
+      return startUpstreamFetch();
     });
     // 响应头已到达，取消连接阶段超时；body 传输阶段由客户端断连检测兜底
     clearTimeout(timeout);
@@ -218,6 +230,12 @@ export async function proxyHttpUpstream(
         `[${logTag}] proxy ${upstream.status} ${formatBytes(bytesSent)} ${Date.now() - startTime}ms range=${rangeHeader || '-'} ${requestUrl.slice(0, 100)}`,
       );
       res.status(upstream.status);
+      // 透传语义头：如 416 的 Content-Range: bytes */size（RFC 9110 要求），
+      // 让客户端能感知分片边界；若一个头都不透传，Range 语义完全丢失。
+      for (const name of PASSTHROUGH_HEADERS) {
+        const value = upstream.headers.get(name);
+        if (value) res.setHeader(name, value);
+      }
       res.end();
       return;
     }

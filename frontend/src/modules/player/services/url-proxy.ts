@@ -18,6 +18,27 @@
  */
 
 /**
+ * B站媒体 CDN 域名白名单（host 精确或子域后缀匹配）。
+ * 与后端 services/bilibili/cdn.ts 的 HTTPS_CAPABLE_BILIBILI_DOMAINS 保持一致。
+ * 旧实现是子串正则（/mcdn|upos|akamaized/ 等），任何域名含这些子串都会误判。
+ */
+const BILIBILI_MEDIA_HOST_SUFFIXES = [
+  'bilibili.com',
+  'bilivideo.com',
+  'hdslb.com',
+  'biliimg.com',
+  'bstatic.com',
+  'mountaintoys.cn',
+  'pili-video.com',
+  'boss-pgc.com',
+] as const;
+
+/** akamaized 为共享 CDN，仅精确白名单 B站 海外边缘节点 */
+const BILIBILI_MEDIA_HOST_EXACT: readonly string[] = [
+  'upos-hz-mirrorakam.akamaized.net',
+];
+
+/**
  * 判断 URL 是否为 B站 CDN 媒体地址。
  *
  * 覆盖 B站 各类 CDN 域名：官方 bilivideo、P2P/mcdn、第三方边缘节点、akamaized 海外节点等。
@@ -39,9 +60,10 @@ export function isBilibiliMediaUrl(url: string): boolean {
     ) {
       return false
     }
-    // 已知 B站 CDN/页面域名
-    return /(?:bilibili|bilivideo|hdslb|mountaintoys|mcdn|upos|bstatic|akamaized|pili-video|boss-pgc)/i.test(
-      host
+    return (
+      BILIBILI_MEDIA_HOST_SUFFIXES.some(
+        (domain) => host === domain || host.endsWith(`.${domain}`),
+      ) || BILIBILI_MEDIA_HOST_EXACT.includes(host)
     )
   } catch {
     return false

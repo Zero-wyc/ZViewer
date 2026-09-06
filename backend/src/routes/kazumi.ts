@@ -22,6 +22,7 @@ import {
   normalizeEpisode,
 } from '../services/kazumi';
 import { proxyHttpUpstream } from '../services/proxy';
+import { isInternalServerUrl } from '../services/network-utils';
 
 const router = Router();
 
@@ -33,6 +34,13 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response) => {
   const url = req.query.url;
   if (typeof url !== 'string' || !url.trim()) {
     res.status(400).json({ success: false, message: '缺少 url 参数' });
+    return;
+  }
+
+  // SSRF 防护：本代理允许客户端携带任意 Cookie/Referer 头转发，
+  // 不得被用于探测内网服务；数据源均为公网站点，拦截无业务影响。
+  if (isInternalServerUrl(url.trim())) {
+    res.status(403).json({ success: false, message: '不允许代理内网地址' });
     return;
   }
 

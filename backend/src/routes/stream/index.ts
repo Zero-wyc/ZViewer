@@ -6,7 +6,6 @@
  *   bilibili-auth.ts    /bilibili/qr、login-status、logout、user-info、番剧关注/集数
  *   resolve.ts          /resolve-bilibili（NDJSON 流式解析）、/bilibili/danmaku
  *   ftp.ts              /resolve-ftp、/proxy-ftp（query 直连参数）
- *   legacy-redirects.ts /resolve-webdav 等 301 兼容重定向
  *
  * 挂载顺序注意：/proxy-image 供 img 标签使用、免认证，必须先于 authenticateToken 注册。
  */
@@ -17,7 +16,6 @@ import mediaProxyRouter, { imageProxyRouter } from './proxy';
 import bilibiliAuthRouter from './bilibili-auth';
 import resolveRouter from './resolve';
 import ftpRouter from './ftp';
-import legacyRedirectsRouter from './legacy-redirects';
 
 const router = Router();
 
@@ -30,6 +28,5 @@ router.use(bilibiliAuthRouter);
 router.use(resolveRouter);
 router.use(mediaProxyRouter);
 router.use(ftpRouter);
-router.use(legacyRedirectsRouter);
 
 export default router;

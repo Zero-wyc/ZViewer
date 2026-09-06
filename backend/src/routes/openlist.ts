@@ -43,6 +43,7 @@ import { hashAlistPassword, isAlistHashedPassword } from '../services/openlist-c
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { proxyHttpUpstream } from '../services/proxy/http-proxy';
 import { upgradeToHttpsIfNeeded } from '../services/url-utils';
+import { TtlCache } from '../utils/ttl-cache';
 
 const router = Router();
 const userMountRepository = () => AppDataSource.getRepository(UserMount);
@@ -57,8 +58,15 @@ interface RawUrlCacheEntry {
   expireAt: number;
 }
 
-/** raw_url 缓存（按 movieId|path 维度，5 分钟 TTL） */
-const rawUrlCache = new Map<string, RawUrlCacheEntry>();
+/**
+ * raw_url 缓存（按 movieId|path 维度，5 分钟 TTL）。
+ * 使用 TtlCache（LRU 上限）替代无界 Map：过期惰性清理 + 容量超限按最久未使用淘汰，
+ * 避免长期运行（多房间多影片）下缓存条目只增不减。
+ */
+const rawUrlCache = new TtlCache<RawUrlCacheEntry>({
+  ttlMs: 5 * 60 * 1000,
+  maxSize: 500,
+});
 const RAW_URL_TTL_MS = 5 * 60 * 1000;
 
 /**
@@ -74,9 +82,8 @@ async function getCachedRawUrl(
   path: string,
   cacheKey: string,
 ): Promise<RawUrlCacheEntry> {
-  const now = Date.now();
   const cached = rawUrlCache.get(cacheKey);
-  if (cached && cached.expireAt > now) {
+  if (cached) {
     return cached;
   }
 
@@ -85,7 +92,7 @@ async function getCachedRawUrl(
     rawUrl: info.rawUrl,
     name: info.name,
     size: info.size,
-    expireAt: now + RAW_URL_TTL_MS,
+    expireAt: Date.now() + RAW_URL_TTL_MS,
   };
   rawUrlCache.set(cacheKey, entry);
   return entry;
@@ -639,14 +646,26 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
         cacheKey,
       );
     } catch (err) {
-      const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
-      res.status(status).json({
-        success: false,
-        message: extractErrorMessage(err, '打开 OpenList 流失败'),
-        code,
-      });
-      return;
+      // 缓存可能已失效（raw_url 签名过期），清理后重试一次（与 /stream 行为对齐）
+      invalidateRawUrlCache(cacheKey);
+      try {
+        entry = await getCachedRawUrl(
+          mount.serverUrl,
+          mount.username || undefined,
+          mount.password || undefined,
+          targetPath,
+          cacheKey,
+        );
+      } catch (err2) {
+        const code = err2 instanceof OpenListError ? err2.code : 'UNREACHABLE';
+        const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+        res.status(status).json({
+          success: false,
+          message: extractErrorMessage(err2, '打开 OpenList 流失败'),
+          code,
+        });
+        return;
+      }
     }
 
     // 透传 raw_url（HTTP GET + Range 透传）
@@ -693,12 +712,17 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
       return;
     }
 
+    // 规范化服务器地址（OpenList 自动补 /dav / 补 scheme）
+    // 必须在凭证回退查询之前：挂载表存的 serverUrl 是 normalize 后的地址，
+    // 若用未 normalize 的 movie.serverUrl 匹配会因 /dav 后缀差异而落空。
+    const normalizedServerUrl = normalizeOpenListServerUrl(movie.serverUrl);
+
     // 凭证回退：Movie 表可能未存储 username/password（旧数据），从 UserMount 表补全
     let username = movie.username || undefined;
     let password = movie.password || undefined;
     if (!username || !password) {
       const mount = await userMountRepository().findOneBy({
-        serverUrl: movie.serverUrl,
+        serverUrl: normalizedServerUrl,
         type: 'openlist',
       });
       if (mount) {
@@ -706,9 +730,6 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
         password = password || mount.password || undefined;
       }
     }
-
-    // 规范化服务器地址（OpenList 自动补 /dav）
-    const normalizedServerUrl = normalizeOpenListServerUrl(movie.serverUrl);
 
     // 获取 raw_url（带缓存）
     const cacheKey = `movie:${movieId}`;

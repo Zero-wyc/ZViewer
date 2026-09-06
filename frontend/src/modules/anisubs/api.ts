@@ -97,6 +97,10 @@ export async function resolveAniSubsEpisode(
 /**
  * 构建代理 URL，将防盗链 headers 编码到查询参数中。
  * 浏览器无法直接设置 video.src 的 Referer/UA，需走后端代理。
+ *
+ * 使用相对路径：解析 URL 仅在运行时使用（每次播放重新解析，不入库），
+ * 相对路径在所有客户端都指向各自同源后端，跨域部署下不会产生
+ * 「指向他人 API 地址」的自代理环。
  */
 export function buildAniSubsProxyUrl(
   url: string,
@@ -108,7 +112,7 @@ export function buildAniSubsProxyUrl(
   if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])
   if (headers.Origin) params.set('origin', headers.Origin)
   if (headers.Cookie) params.set('cookie', headers.Cookie)
-  return `${getBaseUrl()}/proxy?${params.toString()}`
+  return `/api/stream/anisubs/proxy?${params.toString()}`
 }
 
 /**

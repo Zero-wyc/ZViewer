@@ -24,7 +24,10 @@ import {
   safePlay,
 } from '@/modules/sync-playback'
 import { wasUserPaused } from '@/modules/player/services/pause-intent'
-import { createSuppressRef, resetSuppression } from '@/modules/sync-playback/suppression'
+import {
+  createSuppressRef,
+  resetSuppression,
+} from '@/modules/sync-playback/suppression'
 import { type MediaFormat } from '@/lib/mediaFormat'
 import {
   resolveMovieSource,
@@ -546,6 +549,8 @@ export function useWatchTogether({
         }
         const resolvedOptions = options ?? {
           preferMp4: getEffectivePreferMp4(movie.id),
+          // 用户主动触发重载（切清晰度/播放模式）：绕过解析缓存取新地址
+          forceRefresh: true,
         }
         const resolved = await resolveBilibiliOnline(
           movie,
@@ -847,7 +852,9 @@ export function useWatchTogether({
     lastLoadedMovieRef.current = { id: movie.id, url: movie.url }
 
     /** 带解析进度 UI 的在线解析（B站），读取 localStorage 中该影片的播放模式偏好 */
-    const resolveOnline = async (): Promise<ResolvedMovieSource> => {
+    const resolveOnline = async (
+      forceRefresh = false
+    ): Promise<ResolvedMovieSource> => {
       setIsResolving(true)
       try {
         const parsePrefs = getBilibiliParseOptions(movie.id)
@@ -856,6 +863,7 @@ export function useWatchTogether({
         }
         return await resolveBilibiliOnline(movie, undefined, {
           preferMp4: getEffectivePreferMp4(movie.id),
+          forceRefresh,
         })
       } finally {
         setIsResolving(false)
@@ -1055,7 +1063,8 @@ export function useWatchTogether({
         if (resolved.reusedRecoveryUrl) {
           console.log('[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析')
           try {
-            const reResolved = await resolveOnline()
+            // 旧 URL 已失效（403/404 deadline 过期），必须绕过解析缓存强制取新地址
+            const reResolved = await resolveOnline(true)
             if (loadSeqRef.current !== seq) return
             if (reResolved.acceptQuality?.length) {
               quality.setAvailableQualities(reResolved.acceptQuality)
