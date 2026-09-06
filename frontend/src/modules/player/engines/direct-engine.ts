@@ -28,6 +28,8 @@ import {
   isLocalUrl,
   isRelativeUrl,
   isCliProxyUrl,
+  getHttpUpgradeCandidate,
+  noteHttpUpgradeFailed,
 } from '../services/url-proxy'
 
 /** metadata 等待超时（毫秒）：网络挂起时兜底，避免 attach 永久 pending */
@@ -128,15 +130,32 @@ export const directEngine: PlayerEngine = {
     source: PlayerSource
   ): Promise<EngineAttachResult> {
     resetVideoElement(video)
-    // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式决定
-    const targetUrl = resolveProxyUrl(source.url, source.headers, source.format)
+    // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式决定。
+    // 挂载直链模式（noProxyFallback）跳过混合内容代理分支，保持源站直传语义
+    const targetUrl = resolveProxyUrl(
+      source.url,
+      source.headers,
+      source.format,
+      {
+        noProxyFallback: source.noProxyFallback === true,
+      }
+    )
+
+    // http 跨域源在 https 页面下的 TLS 升级直连候选：源站支持 TLS
+    // （http/https 双栈）则零服务器带宽直连；不支持则毫秒级 SSL 握手快速
+    // 失败，回退代理并缓存 host（后续同 host 直接代理，无重复失败往返）
+    const upgradeCandidate =
+      source.noProxyFallback === true
+        ? null
+        : getHttpUpgradeCandidate(source.url)
 
     // 尝试加载视频：直连失败时回退到服务器代理（绕过跨域防盗链 / CORS）。
     // 挂载直链模式（noProxyFallback）例外：设计意图是源站直传、服务器零
     // 媒体流量，静默转代理会让服务器带宽跑满并掩盖直链本身的问题，
     // 失败直接抛错由调用方提示用户。
     const fallback =
-      source.noProxyFallback !== true && canFallbackToProxy(targetUrl)
+      upgradeCandidate !== null ||
+      (source.noProxyFallback !== true && canFallbackToProxy(targetUrl))
 
     const loadOnce = async (url: string): Promise<void> => {
       video.src = url
@@ -145,8 +164,13 @@ export const directEngine: PlayerEngine = {
     }
 
     try {
-      await loadOnce(targetUrl)
+      await loadOnce(upgradeCandidate ?? targetUrl)
     } catch (err) {
+      if (upgradeCandidate) {
+        // TLS 升级失败（源站不支持 HTTPS）：缓存 host，后续同 host
+        // 由 resolveProxyUrl 直接代理，不再重复失败往返
+        noteHttpUpgradeFailed(source.url)
+      }
       if (!fallback) {
         if (source.noProxyFallback === true) {
           console.warn(
@@ -158,15 +182,20 @@ export const directEngine: PlayerEngine = {
       }
       console.warn('[direct-engine] 直连失败，回退到服务器代理:', err)
       resetVideoElement(video)
+      // 混合内容升级场景的 targetUrl 已是代理 URL；普通直连场景按原始 URL 构造
+      const fallbackUrl = upgradeCandidate
+        ? targetUrl
+        : buildProxyUrl(source.url)
       try {
-        await loadOnce(buildProxyUrl(source.url))
+        await loadOnce(fallbackUrl)
       } catch (proxyErr) {
-        // 包装两次失败上下文：首次直连错误挂在 cause 上，避免诊断信息断链
+        // 包装两次失败上下文：cause 挂回退代理的错误（symptom 因果），
+        // 首次直连错误已由上方 console.warn 记录
         throw new Error(
           `直连失败且回退代理仍失败：${
             proxyErr instanceof Error ? proxyErr.message : String(proxyErr)
           }`,
-          { cause: err }
+          { cause: proxyErr }
         )
       }
     }

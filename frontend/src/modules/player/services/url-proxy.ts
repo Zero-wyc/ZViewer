@@ -151,6 +151,60 @@ function getStoredToken(): string {
 }
 
 /**
+ * http 源在 https 页面下的 TLS 升级失败缓存（会话级，host 粒度）。
+ *
+ * http 跨域源被浏览器 auto-upgrade 到 https 后，源站不支持 TLS 时快速
+ * 失败（ERR_SSL_PROTOCOL_ERROR）。记录失败的 host 后，同 host 的后续
+ * 播放跳过升级尝试直接走代理，避免每次起播多一次失败往返；
+ * 支持 TLS 的 http 源（http/https 双栈服务）升级成功，保持直连——
+ * 服务器零媒体带宽。
+ */
+const httpUpgradeFailedHosts = new Set<string>()
+
+/** 页面为 https 且 URL 为 http 协议（混合内容候选） */
+function isMixedContentCandidate(url: string): boolean {
+  if (window.location.protocol !== 'https:') return false
+  try {
+    return new URL(url).protocol === 'http:'
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 获取 http 源的「TLS 升级直连候选」——direct 引擎专用。
+ *
+ * http 跨域源在 https 页面下由浏览器 auto-upgrade：源站支持 TLS 则直连
+ * 成功（零服务器带宽）；不支持则毫秒级 SSL 握手快速失败，由引擎回退
+ * 代理并记录 host 失败缓存。仅对有回退能力的 direct 引擎启用（dash 等
+ * 无回退引擎保持 resolveProxyUrl 的保守代理决策，避免升级失败即整体
+ * 播放失败）。本站 / 相对路径 / CLI 代理地址不适用。
+ *
+ * @returns 升级候选（原始 http URL）；不适用时返回 null
+ */
+export function getHttpUpgradeCandidate(url: string): string | null {
+  if (!url || isLocalUrl(url) || isRelativeUrl(url) || isCliProxyUrl(url)) {
+    return null
+  }
+  if (!isMixedContentCandidate(url)) return null
+  try {
+    if (httpUpgradeFailedHosts.has(new URL(url).host)) return null
+    return url
+  } catch {
+    return null
+  }
+}
+
+/** 记录 http 源 TLS 升级失败（host 级会话缓存，后续同 host 直接代理） */
+export function noteHttpUpgradeFailed(url: string): void {
+  try {
+    httpUpgradeFailedHosts.add(new URL(url).host)
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
  * 为本站 /api/ 路径 URL（相对或绝对）附加 access token 查询参数。
  *
  * HTTP 环境下后端不写 auth cookie（浏览器禁止非 Secure cookie 场景），
@@ -209,12 +263,15 @@ export function buildProxyUrl(url: string): string {
  * @param url 原始视频流 URL
  * @param headers 可选的防盗链 headers（由后端 resolve 返回）
  * @param format 源格式（'mp4' / 'dash' / 'm4s' / 'm3u8' / 'flv' 等），影响 B站 URL 代理决策
+ * @param options noProxyFallback：挂载直链模式——跳过混合内容代理分支，
+ *   保持源站直传语义（浏览器升级失败由引擎直接抛错提示，不静默转代理）
  * @returns 实际请求的 URL（原 URL 或代理 URL）
  */
 export function resolveProxyUrl(
   url: string,
   headers?: Record<string, string>,
-  format?: string
+  format?: string,
+  options?: { noProxyFallback?: boolean }
 ): string {
   if (!url) return url
 
@@ -275,15 +332,31 @@ export function resolveProxyUrl(
   // 请求；对不支持 TLS 的源（如 NAS 的 http 端口）必然握手失败
   // （ERR_SSL_PROTOCOL_ERROR / ERR_CONNECTION_CLOSED），白等一次直连超时
   // 只会拖慢起播。此时直接走服务器代理（后端转发，无协议限制）。
-  // 例外：127.0.0.1 / localhost 是浏览器信任源，已在上方 CLI 分支直连放行。
-  if (window.location.protocol === 'https:') {
+  // 例外：
+  // - 127.0.0.1 / localhost 是浏览器信任源，已在上方 CLI 分支直连放行；
+  // - 挂载直链模式（noProxyFallback）跳过本分支：保持源站直传语义，
+  //   升级失败由 direct 引擎直接抛错提示，不静默转代理；
+  // - 同 host 曾升级失败的源（会话缓存）直接代理，避免重复失败往返；
+  //   未缓存的 http 源仍返回原 URL，由 direct 引擎先试升级（失败回退
+  //   代理并记录缓存）——http/https 双栈的源因此得以零带宽直连。
+  if (
+    window.location.protocol === 'https:' &&
+    options?.noProxyFallback !== true
+  ) {
     try {
       if (new URL(url).protocol === 'http:') {
-        console.warn(
-          '[url-proxy] https 页面下的 http 跨域源会被浏览器强制升级而失败，走服务器代理:',
-          url.slice(0, 80)
-        )
-        return buildProxyUrl(url)
+        if (httpUpgradeFailedHosts.has(new URL(url).host)) {
+          console.warn(
+            '[url-proxy] http 源 host 曾 TLS 升级失败（会话缓存），走服务器代理:',
+            url.slice(0, 80)
+          )
+          return buildProxyUrl(url)
+        }
+        // 未缓存的 http 源：返回原 URL 交由 direct 引擎先试浏览器升级。
+        // dash 等无回退引擎调用时不会经过 getHttpUpgradeCandidate——
+        // 但该类源不应存在 http 形态（B站 DASH 恒为 https CDN），保持
+        // 直连返回与旧行为的差异由 direct 引擎的回退链兜底。
+        return url
       }
     } catch {
       /* 非法 URL，按原策略继续 */
