@@ -98,3 +98,53 @@ export async function ensureHttpsProbe(mount: UserMount): Promise<boolean | null
   }
   return result;
 }
+
+/**
+ * 挂载保存时的 HTTPS 能力探测与提示。
+ *
+ * 直链模式 + http 源：同步探测（阻塞至多 5s）——探测结果决定响应
+ * warning：源站不支持 TLS 时直链在 HTTPS 页面下无法播放（浏览器混合
+ * 内容策略强制升级协议后握手失败），提示用户配置 HTTPS 或改为服务器
+ * 中转。其余组合异步探测持久化（不阻塞保存响应）。
+ *
+ * @returns 响应携带的 warning 文案；无需提示时返回 null
+ */
+export async function probeForMountSave(
+  mount: UserMount,
+): Promise<string | null> {
+  const isHttpSource =
+    !!mount.serverUrl && mount.serverUrl.startsWith('http://');
+  if (mount.directLink && isHttpSource) {
+    const probe =
+      mount.httpsDirect === null || mount.httpsDirect === undefined
+        ? await probeHttpsCapability(mount.serverUrl!)
+        : mount.httpsDirect;
+    mount.httpsDirect = probe;
+    try {
+      await AppDataSource.getRepository(UserMount).save(mount);
+    } catch {
+      /* ignore */
+    }
+    if (probe === false) {
+      let host = mount.serverUrl || '';
+      try {
+        host = new URL(mount.serverUrl!).host;
+      } catch {
+        /* 保留原值 */
+      }
+      return `挂载源站不支持 HTTPS（${host}），HTTPS 页面下直链将无法播放。请为源站配置 HTTPS（如反向代理）后重新保存，或改为服务器中转模式`;
+    }
+    return null;
+  }
+  // 非直链或 https 源：异步探测持久化（不阻塞保存响应）
+  if (isHttpSource) {
+    void probeHttpsCapability(mount.serverUrl!)
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return AppDataSource.getRepository(UserMount).save(mount);
+      })
+      .catch(() => {});
+  }
+  return null;
+}

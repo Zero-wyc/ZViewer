@@ -1,4 +1,4 @@
-// 统一挂载表单：按挂载类型渲染对应模块的表单字段
+﻿// 统一挂载表单：按挂载类型渲染对应模块的表单字段
 // 调用各模块独立的 create/update/test API
 import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/Button'
@@ -273,29 +273,33 @@ export default function MountFormModal({
         }
         const label = type === 'webdav' ? 'WebDAV' : 'OpenList'
         if (editingMount) {
-          if (type === 'webdav') {
-            await updateWebDAVMount(editingMount.id, {
-              ...payload,
-              type: 'webdav',
-              port:
-                portNum !== null && Number.isFinite(portNum) ? portNum : null,
-            })
-          } else {
-            await updateOpenListMount(editingMount.id, payload)
-          }
+          const saved =
+            type === 'webdav'
+              ? await updateWebDAVMount(editingMount.id, {
+                  ...payload,
+                  type: 'webdav',
+                  port:
+                    portNum !== null && Number.isFinite(portNum)
+                      ? portNum
+                      : null,
+                })
+              : await updateOpenListMount(editingMount.id, payload)
           message.success(`${label} 挂载更新成功`)
+          if (saved.warning) message.warning(saved.warning)
         } else {
-          if (type === 'webdav') {
-            await createWebDAVMount({
-              ...payload,
-              type: 'webdav',
-              port:
-                portNum !== null && Number.isFinite(portNum) ? portNum : null,
-            })
-          } else {
-            await createOpenListMount(payload)
-          }
+          const saved =
+            type === 'webdav'
+              ? await createWebDAVMount({
+                  ...payload,
+                  type: 'webdav',
+                  port:
+                    portNum !== null && Number.isFinite(portNum)
+                      ? portNum
+                      : null,
+                })
+              : await createOpenListMount(payload)
           message.success(`${label} 挂载添加成功`)
+          if (saved.warning) message.warning(saved.warning)
         }
       } else if (type === 'emby') {
         const payload = {
@@ -307,11 +311,13 @@ export default function MountFormModal({
           directLink,
         }
         if (editingMount) {
-          await updateEmbyMount(editingMount.id, payload)
+          const saved = await updateEmbyMount(editingMount.id, payload)
           message.success('Emby 挂载更新成功')
+          if (saved.warning) message.warning(saved.warning)
         } else {
-          await createEmbyMount(payload)
+          const saved = await createEmbyMount(payload)
           message.success('Emby 挂载添加成功')
+          if (saved.warning) message.warning(saved.warning)
         }
       } else if (type === 'jellyfin') {
         const payload = {
@@ -323,11 +329,13 @@ export default function MountFormModal({
           directLink,
         }
         if (editingMount) {
-          await updateJellyfinMount(editingMount.id, payload)
+          const saved = await updateJellyfinMount(editingMount.id, payload)
           message.success('Jellyfin 挂载更新成功')
+          if (saved.warning) message.warning(saved.warning)
         } else {
-          await createJellyfinMount(payload)
+          const saved = await createJellyfinMount(payload)
           message.success('Jellyfin 挂载添加成功')
+          if (saved.warning) message.warning(saved.warning)
         }
       } else {
         const payload = {
@@ -474,7 +482,9 @@ export default function MountFormModal({
           <>
             <Switch
               label="使用直链播放（不经过服务端转发）"
-              checked={isWebdavOrOpenlistInternal ? false : formValues.directLink}
+              checked={
+                isWebdavOrOpenlistInternal ? false : formValues.directLink
+              }
               disabled={isWebdavOrOpenlistInternal}
               onChange={(e) => updateField('directLink', e.target.checked)}
             />

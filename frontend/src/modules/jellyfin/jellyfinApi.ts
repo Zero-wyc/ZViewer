@@ -33,7 +33,7 @@ export async function getJellyfinMounts(): Promise<JellyfinMount[]> {
 
 export async function createJellyfinMount(
   payload: JellyfinMountFormPayload
-): Promise<JellyfinMount> {
+): Promise<JellyfinMount & { warning?: string }> {
   const res = await apiFetch('/api/jellyfin/mounts', {
     method: 'POST',
     headers: jsonHeaders(),
@@ -43,17 +43,18 @@ export async function createJellyfinMount(
     success: boolean
     mount?: JellyfinMount
     message?: string
+    warning?: string
   }
   if (!res.ok || !data.success || !data.mount) {
     throw new Error(data.message || '创建 Jellyfin 挂载失败')
   }
-  return data.mount
+  return { ...data.mount, warning: data.warning }
 }
 
 export async function updateJellyfinMount(
   id: number,
   payload: JellyfinMountFormPayload
-): Promise<JellyfinMount> {
+): Promise<JellyfinMount & { warning?: string }> {
   const res = await apiFetch(`/api/jellyfin/mounts/${id}`, {
     method: 'PUT',
     headers: jsonHeaders(),
@@ -63,11 +64,12 @@ export async function updateJellyfinMount(
     success: boolean
     mount?: JellyfinMount
     message?: string
+    warning?: string
   }
   if (!res.ok || !data.success || !data.mount) {
     throw new Error(data.message || '更新 Jellyfin 挂载失败')
   }
-  return data.mount
+  return { ...data.mount, warning: data.warning }
 }
 
 export async function deleteJellyfinMount(id: number): Promise<void> {

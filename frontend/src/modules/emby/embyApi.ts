@@ -33,7 +33,7 @@ export async function getEmbyMounts(): Promise<EmbyMount[]> {
 
 export async function createEmbyMount(
   payload: EmbyMountFormPayload
-): Promise<EmbyMount> {
+): Promise<EmbyMount & { warning?: string }> {
   const res = await apiFetch('/api/emby/mounts', {
     method: 'POST',
     headers: jsonHeaders(),
@@ -43,17 +43,18 @@ export async function createEmbyMount(
     success: boolean
     mount?: EmbyMount
     message?: string
+    warning?: string
   }
   if (!res.ok || !data.success || !data.mount) {
     throw new Error(data.message || '创建 Emby 挂载失败')
   }
-  return data.mount
+  return { ...data.mount, warning: data.warning }
 }
 
 export async function updateEmbyMount(
   id: number,
   payload: EmbyMountFormPayload
-): Promise<EmbyMount> {
+): Promise<EmbyMount & { warning?: string }> {
   const res = await apiFetch(`/api/emby/mounts/${id}`, {
     method: 'PUT',
     headers: jsonHeaders(),
@@ -63,11 +64,12 @@ export async function updateEmbyMount(
     success: boolean
     mount?: EmbyMount
     message?: string
+    warning?: string
   }
   if (!res.ok || !data.success || !data.mount) {
     throw new Error(data.message || '更新 Emby 挂载失败')
   }
-  return data.mount
+  return { ...data.mount, warning: data.warning }
 }
 
 export async function deleteEmbyMount(id: number): Promise<void> {

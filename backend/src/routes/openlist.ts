@@ -32,7 +32,7 @@ import {
   extractErrorMessage,
   ensureHttpsProbe,
   maybeUpgradeDirectUrl,
-  probeHttpsCapability,
+  probeForMountSave,
 } from '../modules/shared/mount-utils';
 import {
   normalizeOpenListServerUrl,
@@ -239,15 +239,9 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       userId: req.user!.userId,
     } as UserMount);
     await repo.save(mount);
-    // 配置期 HTTPS 能力探测（异步，不阻塞保存响应）：结果随挂载持久化，
-    // direct-url 据此决定直链协议；探测未完成时 direct-url 会惰性补探
-    void probeHttpsCapability(mount.serverUrl || '')
-      .then((result) => {
-        if (result === null) return;
-        mount.httpsDirect = result;
-        return repo.save(mount);
-      })
-      .catch(() => {});
+    // 直链模式 + http 源：同步探测并返回 warning（源站不支持 TLS 时提示
+    // 配置 HTTPS 或改为服务器中转）；其余组合异步探测持久化
+    const httpsWarning = await probeForMountSave(mount);
 
     res.status(201).json({
       success: true,
@@ -255,7 +249,9 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       // 告知前端：内网挂载被强制中转
       ...(effectiveDirectLink !== (directLink === true)
         ? { warning: '检测到内网地址，已强制使用服务器中转模式' }
-        : {}),
+        : httpsWarning
+          ? { warning: httpsWarning }
+          : {}),
     });
   } catch (err) {
     console.error('[openlist] create mount error:', err);
@@ -334,14 +330,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     // serverUrl 变更时重置探测结果（旧值对应旧地址）
     if (serverChanged) mount.httpsDirect = null;
     await repo.save(mount);
-    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
-    void probeHttpsCapability(mount.serverUrl || '')
-      .then((result) => {
-        if (result === null) return;
-        mount.httpsDirect = result;
-        return repo.save(mount);
-      })
-      .catch(() => {});
+    const httpsWarning = await probeForMountSave(mount);
 
     res.json({
       success: true,
@@ -349,7 +338,9 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
       // 告知前端：内网挂载被强制中转
       ...(effectiveDirectLink !== requestedDirectLink
         ? { warning: '检测到内网地址，已强制使用服务器中转模式' }
-        : {}),
+        : httpsWarning
+          ? { warning: httpsWarning }
+          : {}),
     });
   } catch (err) {
     console.error('[openlist] update mount error:', err);

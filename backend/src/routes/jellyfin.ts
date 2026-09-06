@@ -9,7 +9,7 @@ import {
   extractErrorMessage,
   ensureHttpsProbe,
   maybeUpgradeDirectUrl,
-  probeHttpsCapability,
+  probeForMountSave,
 } from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../data-source';
@@ -171,15 +171,12 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       directLink: directLink === true,
     });
     await repo.save(mount);
-    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
-    void probeHttpsCapability(mount.serverUrl || '')
-      .then((result) => {
-        if (result === null) return;
-        mount.httpsDirect = result;
-        return repo.save(mount);
-      })
-      .catch(() => {});
-    res.status(201).json({ success: true, mount: stripPassword(mount) });
+    const httpsWarning = await probeForMountSave(mount);
+    res.status(201).json({
+      success: true,
+      mount: stripPassword(mount),
+      ...(httpsWarning ? { warning: httpsWarning } : {}),
+    });
   } catch (err) {
     console.error('[jellyfin] create mount error:', err);
     res.status(500).json({ success: false, message: '创建 Jellyfin 挂载失败' });
@@ -216,15 +213,12 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
       mount.embyUserId = session.userId || null;
     } catch { /* 保持原样 */ }
     await repo.save(mount);
-    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
-    void probeHttpsCapability(mount.serverUrl || '')
-      .then((result) => {
-        if (result === null) return;
-        mount.httpsDirect = result;
-        return repo.save(mount);
-      })
-      .catch(() => {});
-    res.json({ success: true, mount: stripPassword(mount) });
+    const httpsWarning = await probeForMountSave(mount);
+    res.json({
+      success: true,
+      mount: stripPassword(mount),
+      ...(httpsWarning ? { warning: httpsWarning } : {}),
+    });
   } catch (err) {
     console.error('[jellyfin] update mount error:', err);
     res.status(500).json({ success: false, message: '更新 Jellyfin 挂载失败' });

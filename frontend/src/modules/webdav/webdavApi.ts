@@ -42,8 +42,11 @@ export interface MountApi<
   TResolved extends ResolvedSourceBase,
 > {
   getMounts: () => Promise<TMount[]>
-  createMount: (payload: TForm) => Promise<TMount>
-  updateMount: (id: number, payload: TForm) => Promise<TMount>
+  createMount: (payload: TForm) => Promise<TMount & { warning?: string }>
+  updateMount: (
+    id: number,
+    payload: TForm
+  ) => Promise<TMount & { warning?: string }>
   deleteMount: (id: number) => Promise<void>
   testMount: (
     params: TConnection
@@ -83,7 +86,7 @@ export function createMountApi<
       return data.mounts || []
     },
 
-    async createMount(payload: TForm): Promise<TMount> {
+    async createMount(payload: TForm): Promise<TMount & { warning?: string }> {
       const res = await apiFetch(`${basePath}/mounts`, {
         method: 'POST',
         headers: jsonHeaders(),
@@ -93,14 +96,18 @@ export function createMountApi<
         success: boolean
         mount?: TMount
         message?: string
+        warning?: string
       }
       if (!res.ok || !data.success || !data.mount) {
         throw new Error(data.message || `创建 ${label} 挂载失败`)
       }
-      return data.mount
+      return { ...data.mount, warning: data.warning }
     },
 
-    async updateMount(id: number, payload: TForm): Promise<TMount> {
+    async updateMount(
+      id: number,
+      payload: TForm
+    ): Promise<TMount & { warning?: string }> {
       const res = await apiFetch(`${basePath}/mounts/${id}`, {
         method: 'PUT',
         headers: jsonHeaders(),
@@ -110,11 +117,12 @@ export function createMountApi<
         success: boolean
         mount?: TMount
         message?: string
+        warning?: string
       }
       if (!res.ok || !data.success || !data.mount) {
         throw new Error(data.message || `更新 ${label} 挂载失败`)
       }
-      return data.mount
+      return { ...data.mount, warning: data.warning }
     },
 
     async deleteMount(id: number): Promise<void> {
