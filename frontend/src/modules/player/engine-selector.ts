@@ -11,7 +11,8 @@
  * 5. 其他 → Direct 引擎（浏览器原生播放 mp4/webm 等）
  *
  * 注：自研 MSE 引擎已移除（曾长期不可达：所有含独立音频轨的源统一由
- *    dash.js 引擎处理，失败时降级为 direct + audio-sync）。
+ *    dash.js 引擎处理；历史上的 direct + audio-sync 双元素降级经源追溯
+ *    确认为死代码，已随 audio-sync.ts 一并移除）。
  */
 import type { PlayerEngine, PlayerSource } from './types'
 import { dashEngine } from './engines/dash-engine'

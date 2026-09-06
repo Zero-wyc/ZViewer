@@ -5,7 +5,7 @@
  *
  * 核心职责：
  * 1. 引擎选择与 attach（MSE / HLS / FLV / Direct）
- * 2. 资源清理（blobUrl / audioSync / engine cleanup）
+ * 2. 资源清理（blobUrl / engine cleanup）
  * 3. appliedSourceUrl 跟踪：避免同一源被重复加载
  * 4. 全量操作串行化：attach / forceReload 进入同一条 Promise 队列，
  *    天然消除并发 attach 互相 abort 的问题
@@ -63,7 +63,7 @@ export interface UsePlayerSourceReturn {
    * @returns Promise 在 metadata 就绪后 resolve（readyState >= 1）
    */
   attachSource: (video: HTMLVideoElement, source: PlayerSource) => Promise<void>
-  /** 清理所有引擎资源（blobUrl / audioSync / engine cleanup） */
+  /** 清理所有引擎资源（blobUrl / engine cleanup） */
   cleanup: () => void
   /** 当前已应用的 sourceUrl（用于去重与 seek-to-unbuffered 逻辑） */
   appliedSourceUrlRef: MutableRefObject<string | null>

@@ -16,7 +16,6 @@
  * │   ├── playsvideo-subtitle-bridge.ts  内嵌字幕 → ParsedCue[] 桥接
  * │   └── dash/                   DashPlayer 实现（虚拟 MPD + sidx 解析）
  * ├── services/
- * │   ├── audio-sync.ts           独立 Audio 元素音频同步
  * │   └── url-proxy.ts            B站 CDN 代理检测
  * └── index.ts                    本文件：公共 API 入口
  * ```
@@ -40,7 +39,6 @@ export { selectEngine, shouldUsePlaysVideo } from './engine-selector'
 export { resetVideoElement, waitForMetadata } from './utils'
 
 // 服务（供高级用例直接调用）
-export { createAudioSync } from './services/audio-sync'
 export {
   isBilibiliMediaUrl,
   buildProxyUrl,
