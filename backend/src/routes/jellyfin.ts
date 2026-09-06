@@ -4,7 +4,13 @@
  * 与 emby.ts 结构一致，但 type 为 'jellyfin'，Jellyfin 是 Emby 开源分支，API 完全兼容。
  * 分离式架构：REST 客户端在 services/jellyfin-client.ts（重导出 emby-client）。
  */
-import { stripPassword, extractErrorMessage } from '../modules/shared/mount-utils';
+import {
+  stripPassword,
+  extractErrorMessage,
+  ensureHttpsProbe,
+  maybeUpgradeDirectUrl,
+  probeHttpsCapability,
+} from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../data-source';
 import { UserMount } from '../entities/UserMount';
@@ -165,6 +171,14 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       directLink: directLink === true,
     });
     await repo.save(mount);
+    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+    void probeHttpsCapability(mount.serverUrl || '')
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return repo.save(mount);
+      })
+      .catch(() => {});
     res.status(201).json({ success: true, mount: stripPassword(mount) });
   } catch (err) {
     console.error('[jellyfin] create mount error:', err);
@@ -191,6 +205,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     if (typeof serverUrl === 'string' && serverUrl.trim()) {
       mount.serverUrl = normalizeServerUrlWithScheme(serverUrl);
       mount.embyUserId = null;
+      mount.httpsDirect = null; // 服务器变更后 HTTPS 能力需重新探测
     }
     if (apiKey !== undefined) mount.apiKey = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : null;
     if (username !== undefined) mount.username = typeof username === 'string' && username.trim() ? username.trim() : null;
@@ -201,6 +216,14 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
       mount.embyUserId = session.userId || null;
     } catch { /* 保持原样 */ }
     await repo.save(mount);
+    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+    void probeHttpsCapability(mount.serverUrl || '')
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return repo.save(mount);
+      })
+      .catch(() => {});
     res.json({ success: true, mount: stripPassword(mount) });
   } catch (err) {
     console.error('[jellyfin] update mount error:', err);
@@ -310,11 +333,13 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
     const format = needsAudioTranscode ? 'hls' : detectMediaFormat(source.Path ?? title);
     const transcodeQuery = needsAudioTranscode ? '&at=1' : '';
     const proxyUrl = `/api/jellyfin/proxy?mountId=${mountId}&path=${encodeURIComponent(itemId)}${transcodeQuery}`;
-    // 不做 http→https 协议升级：非 TLS 端口升级后直连与代理均失败，
-    // HTTPS 页面下的 http 跨域源由前端 url-proxy 统一决策直接走服务器代理
-    const directUrl = needsAudioTranscode
+    // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
+    // （浏览器直连零带宽）；否则保持 http，HTTPS 页面下走服务器代理
+    const directUrlRaw = needsAudioTranscode
       ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
       : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
+    const httpsDirect = await ensureHttpsProbe(mount);
+    const directUrl = maybeUpgradeDirectUrl(directUrlRaw, httpsDirect);
     res.json({
       success: true,
       title,

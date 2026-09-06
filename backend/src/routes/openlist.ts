@@ -27,7 +27,13 @@ import { AppDataSource } from '../data-source';
 import { UserMount } from '../entities/UserMount';
 import { Movie } from '../entities/Movie';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
-import { stripPassword, extractErrorMessage } from '../modules/shared/mount-utils';
+import {
+  stripPassword,
+  extractErrorMessage,
+  ensureHttpsProbe,
+  maybeUpgradeDirectUrl,
+  probeHttpsCapability,
+} from '../modules/shared/mount-utils';
 import {
   normalizeOpenListServerUrl,
   isInternalOpenListServer,
@@ -233,6 +239,15 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       userId: req.user!.userId,
     } as UserMount);
     await repo.save(mount);
+    // 配置期 HTTPS 能力探测（异步，不阻塞保存响应）：结果随挂载持久化，
+    // direct-url 据此决定直链协议；探测未完成时 direct-url 会惰性补探
+    void probeHttpsCapability(mount.serverUrl || '')
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return repo.save(mount);
+      })
+      .catch(() => {});
 
     res.status(201).json({
       success: true,
@@ -316,7 +331,17 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
       mount.password = nextPassword;
     }
     mount.directLink = effectiveDirectLink;
+    // serverUrl 变更时重置探测结果（旧值对应旧地址）
+    if (serverChanged) mount.httpsDirect = null;
     await repo.save(mount);
+    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+    void probeHttpsCapability(mount.serverUrl || '')
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return repo.save(mount);
+      })
+      .catch(() => {});
 
     res.json({
       success: true,
@@ -536,10 +561,15 @@ router.get('/direct-url', async (req: AuthenticatedRequest, res: Response): Prom
         mount.password || undefined,
         targetPath,
       );
-      // 不做 http→https 协议升级：5000 等非 TLS 端口会被升级出 https 直链，
-      // 直连握手失败且回退代理时后端同样失败（502）。HTTPS 页面下的 http
-      // 跨域源由前端 url-proxy 统一决策直接走服务器代理。
-      res.json({ success: true, directUrl });
+      // 配置期探测的 HTTPS 能力：源站支持 TLS（http/https 双栈）时将 http
+      // 直链升级为 https——浏览器直连不受混合内容限制，零服务器带宽；
+      // 不支持或未探测（旧数据，此处惰性补探测并写回）时保持 http 直链，
+      // HTTPS 页面下由前端 url-proxy 统一决策走服务器代理。
+      const httpsDirect = await ensureHttpsProbe(mount);
+      res.json({
+        success: true,
+        directUrl: maybeUpgradeDirectUrl(directUrl, httpsDirect),
+      });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
       const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;

@@ -8,7 +8,13 @@
  * - 解析播放地址（直连 URL 或本服务代理 URL）
  * - 代理播放流（复用 services/proxy/http-proxy.ts）
  */
-import { stripPassword, extractErrorMessage } from '../modules/shared/mount-utils';
+import {
+  stripPassword,
+  extractErrorMessage,
+  ensureHttpsProbe,
+  maybeUpgradeDirectUrl,
+  probeHttpsCapability,
+} from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../data-source';
 import { UserMount } from '../entities/UserMount';
@@ -217,6 +223,14 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       directLink: directLink === true,
     });
     await repo.save(mount);
+    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+    void probeHttpsCapability(mount.serverUrl || '')
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return repo.save(mount);
+      })
+      .catch(() => {});
     res.status(201).json({ success: true, mount: stripPassword(mount) });
   } catch (err) {
     console.error('[emby] create mount error:', err);
@@ -248,6 +262,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     if (typeof serverUrl === 'string' && serverUrl.trim()) {
       mount.serverUrl = normalizeServerUrlWithScheme(serverUrl);
       mount.embyUserId = null; // 服务器变更后 userId 需重新获取
+      mount.httpsDirect = null; // 服务器变更后 HTTPS 能力需重新探测
     }
     if (apiKey !== undefined) mount.apiKey = typeof apiKey === 'string' && apiKey.trim() ? apiKey.trim() : null;
     if (username !== undefined) mount.username = typeof username === 'string' && username.trim() ? username.trim() : null;
@@ -263,6 +278,14 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     }
 
     await repo.save(mount);
+    // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+    void probeHttpsCapability(mount.serverUrl || '')
+      .then((result) => {
+        if (result === null) return;
+        mount.httpsDirect = result;
+        return repo.save(mount);
+      })
+      .catch(() => {});
     res.json({ success: true, mount: stripPassword(mount) });
   } catch (err) {
     console.error('[emby] update mount error:', err);
@@ -407,11 +430,13 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
 
     // 直连 URL（浏览器直连 Emby，要求前端可访问 Emby 服务器）
     // 需要音频转码时改为 Emby 官方转码播放列表（HLS，服务端强制音频 AAC）
-    // 不做 http→https 协议升级：非 TLS 端口升级后直连与代理均失败，
-    // HTTPS 页面下的 http 跨域源由前端 url-proxy 统一决策直接走服务器代理
-    const directUrl = needsAudioTranscode
+    // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
+    // （浏览器直连零带宽）；否则保持 http，HTTPS 页面下走服务器代理
+    const directUrlRaw = needsAudioTranscode
       ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
       : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
+    const httpsDirect = await ensureHttpsProbe(mount);
+    const directUrl = maybeUpgradeDirectUrl(directUrlRaw, httpsDirect);
 
     res.json({
       success: true,

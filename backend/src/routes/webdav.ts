@@ -7,7 +7,13 @@
  * - directUrlFallback：WebDAV 在 AList API 失败时回退拼接直链，OpenList 不回退
  * - includeSize：OpenList resolve 返回文件大小
  */
-import { stripPassword, extractErrorMessage } from '../modules/shared/mount-utils';
+import {
+  stripPassword,
+  extractErrorMessage,
+  ensureHttpsProbe,
+  maybeUpgradeDirectUrl,
+  probeHttpsCapability,
+} from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
 import { AppDataSource } from '../data-source';
 import { UserMount } from '../entities/UserMount';
@@ -200,6 +206,14 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         userId: req.user!.userId,
       } as UserMount);
       await repo.save(mount);
+      // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+      void probeHttpsCapability(mount.serverUrl || '')
+        .then((result) => {
+          if (result === null) return;
+          mount.httpsDirect = result;
+          return repo.save(mount);
+        })
+        .catch(() => {});
 
       res.status(201).json({
         success: true,
@@ -265,6 +279,8 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       }
 
       mount.name = name.trim();
+      // serverUrl 变更时重置探测结果（旧值对应旧地址）
+      if (mount.serverUrl !== params.serverUrl) mount.httpsDirect = null;
       mount.serverUrl = params.serverUrl;
       mount.path = params.path;
       mount.username = params.username || null;
@@ -273,6 +289,14 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       }
       mount.directLink = resolveDirectLinkWithInternalCheck(params.serverUrl, directLink === true);
       await repo.save(mount);
+      // 配置期 HTTPS 能力探测（异步）：结果随挂载持久化，direct-url 惰性补探兜底
+      void probeHttpsCapability(mount.serverUrl || '')
+        .then((result) => {
+          if (result === null) return;
+          mount.httpsDirect = result;
+          return repo.save(mount);
+        })
+        .catch(() => {});
 
       res.json({
         success: true,
@@ -549,8 +573,13 @@ export function createMountRouter(opts: MountRouterOptions): Router {
           mount.password || undefined,
           targetPath,
         );
-        // 不做 http→https 协议升级（同 openlist.ts：非 TLS 端口升级后直连与代理均失败）
-        res.json({ success: true, directUrl: alistDirectUrl });
+        // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
+        // （浏览器直连零带宽）；否则保持 http，播放时走服务器代理
+        const httpsDirect = await ensureHttpsProbe(mount);
+        res.json({
+          success: true,
+          directUrl: maybeUpgradeDirectUrl(alistDirectUrl, httpsDirect),
+        });
         return;
       } catch (err) {
         // 明确是 AList 服务器但路径/凭证有问题：直接报错，不回退拼接
@@ -591,8 +620,12 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         mount.username || undefined,
         mount.password || undefined,
       );
-      // 不做 http→https 协议升级（同 openlist.ts：非 TLS 端口升级后直连与代理均失败）
-      res.json({ success: true, directUrl });
+      // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
+      const httpsDirect = await ensureHttpsProbe(mount);
+      res.json({
+        success: true,
+        directUrl: maybeUpgradeDirectUrl(directUrl, httpsDirect),
+      });
     } catch (err) {
       console.error(`[${logTag}] direct-url error:`, err);
       res.status(500).json({ success: false, message: `获取 ${displayName} 直链失败` });
