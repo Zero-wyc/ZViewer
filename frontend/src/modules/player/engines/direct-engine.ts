@@ -7,14 +7,18 @@
  * 代理策略由 url-proxy.ts 统一控制（分离式架构）：
  * - B站 DASH m4s / 带防盗链 headers 的源走服务器代理
  * - 其他源（B站 MP4 直链 / webdav / ftp / 用户直链）直连
- * - 直连失败时（跨域防盗链 / CORS / 403），自动回退到服务器代理重试
+ * - 直连失败时（跨域防盗链 / CORS / 403），自动回退到服务器代理重试；
+ *   挂载直链模式（noProxyFallback）不回退，直接抛可读错误
  *
- * attach 在 metadata 就绪后 resolve，cleanup 无需额外操作
- * （video 元素本身由调用方管理）。
+ * attach 在 metadata 就绪后 resolve。metadata 等待带超时保护：网络挂起
+ * （连接 hang 住不返回也不报错）时 reject 兜底，避免永久 pending 卡死
+ * 上层的串行操作队列（换源 / 重载全部排队等待）。
  *
  * 对于转码流（fragmented MP4），video.duration 可能为 Infinity。
- * 引擎会先发 HEAD 请求获取 X-Content-Duration header，
- * 并存储到 video.dataset.serverDuration 供 useVideoDuration 回退使用。
+ * HEAD 时长探测采用惰性策略：普通源 99% 没有 X-Content-Duration header，
+ * 无条件探测属于浪费请求；仅在检测到 Infinity 后对最终加载 URL（回退
+ * 代理后为 proxyUrl）补发 HEAD，结果写入 video.dataset.serverDuration
+ * 供 useVideoDuration 回退使用。
  */
 import type { PlayerEngine, PlayerSource, EngineAttachResult } from '../types'
 import { resetVideoElement, formatVideoLoadError } from '../utils'
@@ -26,16 +30,34 @@ import {
   isCliProxyUrl,
 } from '../services/url-proxy'
 
+/** metadata 等待超时（毫秒）：网络挂起时兜底，避免 attach 永久 pending */
+const METADATA_TIMEOUT_MS = 30_000
+
+/** HEAD 时长探测超时（毫秒） */
+const HEAD_TIMEOUT_MS = 5_000
+
 /**
- * 等待 video metadata 就绪或 error 事件。
+ * 等待 video metadata 就绪或 error 事件，带超时保护。
  *
- * 与 utils.waitForMetadata 不同，本函数同时监听 error 事件，
- * 加载失败时 reject 而非永久 pending，使调用方可捕获并回退重试。
+ * 与 utils.waitForMetadata 不同，本函数额外处理两类异常路径：
+ * - error 事件：加载失败时 reject 而非永久 pending（文案经
+ *   formatVideoLoadError 映射，直链模式下直接展示给用户）
+ * - 超时：网络挂起（无 error 也无 metadata）时 reject 兜底，
+ *   让上层串行队列得以继续、代理回退链路得以执行
  */
 function waitForMetadataOrError(video: HTMLVideoElement): Promise<void> {
   if (video.readyState >= 1) return Promise.resolve()
   return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      cleanup()
+      reject(
+        new Error(
+          `加载超时：源站 ${Math.round(METADATA_TIMEOUT_MS / 1000)}s 无响应`
+        )
+      )
+    }, METADATA_TIMEOUT_MS)
     const cleanup = () => {
+      clearTimeout(timer)
       video.removeEventListener('loadedmetadata', onLoaded)
       video.removeEventListener('error', onError)
     }
@@ -52,6 +74,35 @@ function waitForMetadataOrError(video: HTMLVideoElement): Promise<void> {
     video.addEventListener('loadedmetadata', onLoaded, { once: true })
     video.addEventListener('error', onError, { once: true })
   })
+}
+
+/**
+ * 补发 HEAD 请求探测 X-Content-Duration（转码流时长兜底）。
+ *
+ * 惰性探测：仅在加载完成后发现 duration 为 Infinity 时调用——
+ * 普通源没有该 header，无条件探测属于浪费请求；对最终加载的 URL
+ * （回退代理后为 proxyUrl）发请求，避免对直连 URL 探测因 CORS 失败
+ * 导致结果丢失。失败或超时静默跳过。
+ */
+async function probeContentDuration(
+  url: string,
+  video: HTMLVideoElement
+): Promise<void> {
+  try {
+    const res = await fetch(url, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(HEAD_TIMEOUT_MS),
+    })
+    const contentDuration = res.headers.get('X-Content-Duration')
+    if (contentDuration) {
+      const d = parseFloat(contentDuration)
+      if (Number.isFinite(d) && d > 0) {
+        video.dataset.serverDuration = d.toString()
+      }
+    }
+  } catch {
+    // HEAD 请求失败（CORS 限制 / 超时），静默跳过
+  }
 }
 
 /**
@@ -80,28 +131,6 @@ export const directEngine: PlayerEngine = {
     // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式决定
     const targetUrl = resolveProxyUrl(source.url, source.headers, source.format)
 
-    // 先发 HEAD 请求尝试获取 X-Content-Duration（转码流场景）。
-    // HEAD 与正式加载并行执行且带 5s 超时：慢代理/挂起的 HEAD 不推迟首帧，
-    // 失败或超时静默跳过（转码流时长回退由 X-Content-Duration header 探测路径兜底）。
-    // 相对路径直接使用（浏览器用当前页面 origin 解析，同域请求携带 cookie）
-    const headPromise = (async () => {
-      try {
-        const headRes = await fetch(targetUrl, {
-          method: 'HEAD',
-          signal: AbortSignal.timeout(5000),
-        })
-        const contentDuration = headRes.headers.get('X-Content-Duration')
-        if (contentDuration) {
-          const d = parseFloat(contentDuration)
-          if (Number.isFinite(d) && d > 0) {
-            video.dataset.serverDuration = d.toString()
-          }
-        }
-      } catch {
-        // HEAD 请求失败（CORS 限制 / 超时），静默跳过
-      }
-    })()
-
     // 尝试加载视频：直连失败时回退到服务器代理（绕过跨域防盗链 / CORS）。
     // 挂载直链模式（noProxyFallback）例外：设计意图是源站直传、服务器零
     // 媒体流量，静默转代理会让服务器带宽跑满并掩盖直链本身的问题，
@@ -129,15 +158,24 @@ export const directEngine: PlayerEngine = {
       }
       console.warn('[direct-engine] 直连失败，回退到服务器代理:', err)
       resetVideoElement(video)
-      const proxyUrl = buildProxyUrl(source.url)
-      await loadOnce(proxyUrl)
+      try {
+        await loadOnce(buildProxyUrl(source.url))
+      } catch (proxyErr) {
+        // 包装两次失败上下文：首次直连错误挂在 cause 上，避免诊断信息断链
+        throw new Error(
+          `直连失败且回退代理仍失败：${
+            proxyErr instanceof Error ? proxyErr.message : String(proxyErr)
+          }`,
+          { cause: err }
+        )
+      }
     }
-    // 仅当原生时长不可用（转码流 duration=Infinity）时才等待 HEAD 结算：
-    // 普通直链/代理源没有 X-Content-Duration，无条件等待会白等至多 5s
-    // （慢代理下 HEAD 还要回源验证），显著拖慢首帧。普通源的 HEAD 结果
-    // 后台写入 dataset 即可（消费方仅在 duration 异常时才依赖它）。
+
+    // 惰性时长探测：仅当原生时长不可用（转码流 duration=Infinity）时补发
+    // HEAD；对最终加载的 URL（video.src 解析后的绝对地址）探测，普通源
+    // 不发任何额外请求
     if (!Number.isFinite(video.duration) || video.duration === Infinity) {
-      await headPromise
+      await probeContentDuration(video.src, video)
     }
 
     return {
