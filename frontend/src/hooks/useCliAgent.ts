@@ -9,6 +9,31 @@ export const CLI_HEALTH_URL = `http://127.0.0.1:${CLI_DEFAULT_PORT}/health`
 /** 健康检查轮询间隔（毫秒） */
 const HEALTH_POLL_INTERVAL_MS = 5000
 
+/**
+ * 当前页面是否运行在浏览器本地环境。
+ *
+ * 127.0.0.1 指向的是「访问者自己的设备」：远程/公网访问（https 页面或
+ * 非本机地址）时轮询无意义——手机等设备上必然连接拒绝，只会刷屏报错。
+ * 仅 http 本地页面（localhost / 私网 IP）才执行本地 CLI 健康检查。
+ */
+function isLocalPage(): boolean {
+  if (typeof window === 'undefined') return false
+  const { protocol, hostname } = window.location
+  if (protocol === 'https:') return false
+  const h = hostname.toLowerCase()
+  if (h === 'localhost' || h === '[::1]' || h.endsWith('.local')) return true
+  const m = /^(\d{1,3})\.(\d{1,3})\.\d{1,3}\.\d{1,3}$/.exec(h)
+  if (!m) return false
+  const a = Number(m[1])
+  const b = Number(m[2])
+  return (
+    a === 10 ||
+    a === 127 ||
+    (a === 192 && b === 168) ||
+    (a === 172 && b >= 16 && b <= 31)
+  )
+}
+
 interface CliAgentAvailablePayload {
   socketId: string
   proxyUrl: string
@@ -90,10 +115,15 @@ export function useCliAgent(roomId: string | undefined) {
     socket.emit('cli-list-agents', roomId)
   }, [socket, connected, roomId, setIsLoadingAgents])
 
-  // 1. 本地健康检查轮询
+  // 1. 本地健康检查轮询（仅浏览器本地页面；远程访问时 127.0.0.1 指向
+  //    访问者自己的设备，轮询必然失败且刷屏报错，直接跳过）
   useEffect(() => {
     if (!roomId) {
       reset()
+      return
+    }
+    if (!isLocalPage()) {
+      setLocalOnline(false, null)
       return
     }
 
@@ -113,7 +143,7 @@ export function useCliAgent(roomId: string | undefined) {
         healthAbortRef.current = null
       }
     }
-  }, [roomId, checkHealth, reset])
+  }, [roomId, checkHealth, reset, setLocalOnline])
 
   // 1b. 定期向后端刷新代理列表，避免 CLI 重连或前端挂载时机导致 agents 为空。
   // 同时用户启用 CLI 后也能更快感知到代理上线。

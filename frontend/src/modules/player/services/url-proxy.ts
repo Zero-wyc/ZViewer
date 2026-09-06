@@ -200,6 +200,24 @@ export function resolveProxyUrl(
     return url
   }
 
+  // 混合内容防护：https 页面下，浏览器会把 http 跨域资源强制升级为 https
+  // 请求；对不支持 TLS 的源（如 NAS 的 http 端口）必然握手失败
+  // （ERR_CONNECTION_CLOSED），白等一次直连超时只会拖慢起播。
+  // 此时直接走服务器代理（后端转发，无协议限制）。
+  if (window.location.protocol === 'https:') {
+    try {
+      if (new URL(url).protocol === 'http:') {
+        console.warn(
+          '[url-proxy] https 页面下的 http 跨域源会被浏览器强制升级而失败，走服务器代理:',
+          url.slice(0, 80)
+        )
+        return buildProxyUrl(url)
+      }
+    } catch {
+      /* 非法 URL，按原策略继续 */
+    }
+  }
+
   // 其他跨域 URL：直连源站，服务器零流量
   return url
 }
