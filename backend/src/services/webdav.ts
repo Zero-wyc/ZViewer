@@ -1,6 +1,7 @@
 import { Connection, BasicAuthenticator } from 'webdav-client';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
+import { TtlCache } from '../utils/ttl-cache';
 
 const DEFAULT_TIMEOUT = 10000; // 10 秒
 
@@ -440,8 +441,12 @@ export async function createWebDAVReadStreamWithRange(
 }
 
 // 目录缓存：key=`${mountId}:${targetPath || params.path}`
-const webdavDirCache = new Map<string, { data: WebDAVDirectoryEntry[]; cachedAt: number }>();
-const WEBDAV_CACHE_TTL_MS = 60 * 1000; // 60 秒
+// 使用 TtlCache（LRU 上限）替代无界 Map：条目存整个目录列表（远大于单条 stat），
+// 浏览过的每个目录 60s TTL 过期后若无容量控制会永久残留。
+const webdavDirCache = new TtlCache<WebDAVDirectoryEntry[]>({
+  ttlMs: 60 * 1000,
+  maxSize: 300,
+});
 
 // 优先读缓存，缓存过期或不存在时调用 listWebDAVDirectory
 export async function listWebDAVDirectoryCached(
@@ -450,13 +455,12 @@ export async function listWebDAVDirectoryCached(
   targetPath?: string,
 ): Promise<WebDAVDirectoryEntry[]> {
   const cacheKey = `${mountId}:${targetPath || params.path}`;
-  const now = Date.now();
   const cached = webdavDirCache.get(cacheKey);
-  if (cached && now - cached.cachedAt < WEBDAV_CACHE_TTL_MS) {
-    return cached.data;
+  if (cached) {
+    return cached;
   }
 
   const data = await listWebDAVDirectory(params, targetPath);
-  webdavDirCache.set(cacheKey, { data, cachedAt: now });
+  webdavDirCache.set(cacheKey, data);
   return data;
 }

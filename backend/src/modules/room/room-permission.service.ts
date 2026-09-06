@@ -25,6 +25,10 @@ interface PermissionCacheEntry {
 /** 权限校验缓存 TTL（毫秒） */
 const PERMISSION_CACHE_TTL_MS = 5000;
 
+/** 权限缓存容量上限：key 含 socketId（每次重连都是新 key，断连后旧条目
+ * 永不再被读取，惰性过期清理对它们无效），超限顺带清理过期 + 兜底全清。 */
+const PERMISSION_CACHE_MAX_ENTRIES = 1000;
+
 /**
  * 房间权限服务。
  *
@@ -49,9 +53,20 @@ export class RoomPermissionService {
   }
 
   private setCache(key: string, result: boolean): void {
+    const now = Date.now();
+    // 容量控制：socketId 维度的旧条目断连后永不再被 get，无法靠惰性清理回收。
+    // 超限时先清理全部过期条目，仍超限则全清（5s TTL 下缓存重建成本可忽略）。
+    if (this.permissionCache.size >= PERMISSION_CACHE_MAX_ENTRIES) {
+      for (const [k, v] of this.permissionCache) {
+        if (now > v.expiresAt) this.permissionCache.delete(k);
+      }
+      if (this.permissionCache.size >= PERMISSION_CACHE_MAX_ENTRIES) {
+        this.permissionCache.clear();
+      }
+    }
     this.permissionCache.set(key, {
       result,
-      expiresAt: Date.now() + PERMISSION_CACHE_TTL_MS,
+      expiresAt: now + PERMISSION_CACHE_TTL_MS,
     });
   }
 

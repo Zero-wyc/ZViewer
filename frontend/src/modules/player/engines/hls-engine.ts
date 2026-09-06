@@ -145,6 +145,13 @@ export const hlsEngine: PlayerEngine = {
         enableWorker: true,
         lowLatencyMode: false,
         loader: createProxyLoader(),
+        // 内存控制：hls.js 默认 maxMaxBufferLength=600s、backBufferLength=Infinity——
+        // 已播数据永不清理，长视频播放 1-2 小时后 MSE SourceBuffer 累积到 GB 级内存。
+        // 前向缓冲 30s 保证平滑，硬上限 120s 兜底极低码率，已播仅保留 90s
+        // （seek 回看 90s 内秒开，更早的位置会重新拉取分片）。
+        maxBufferLength: 30,
+        maxMaxBufferLength: 120,
+        backBufferLength: 90,
       })
 
       // 先注册事件监听器，再调用 attachMedia

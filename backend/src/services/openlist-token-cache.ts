@@ -5,9 +5,8 @@
  * synctv 为每个用户维护独立的 token 缓存，token 在有效期内复用，
  * 避免每次 /stream 请求都重新调用 /api/auth/login。
  *
- * 本实现采用进程内 Map + TTL 策略：
+ * 本实现采用 TtlCache（TTL + LRU 上限）策略：
  * - key: `${apiBaseUrl}|${username}`（匿名访问用 apiBaseUrl）
- * - value: { token, expireAt }
  * - TTL 12 小时（AList 默认 48h，取较短值确保过期前主动刷新）
  * - 401 时调用 invalidate() 失效缓存，下次请求重新登录
  *
@@ -16,19 +15,25 @@
 import { alistLogin, toApiBaseUrl, type AlistLoginMode } from './openlist-client';
 import { OpenListError } from './openlist-errors';
 import { normalizeOpenListServerUrl } from './openlist-errors';
+import { TtlCache } from '../utils/ttl-cache';
 
 /** Token 缓存条目 */
 interface TokenCacheEntry {
   token: string;
-  /** 过期时间戳（毫秒） */
-  expireAt: number;
 }
 
 /** Token TTL（12 小时） */
 const TOKEN_TTL_MS = 12 * 60 * 60 * 1000;
 
-/** 进程内 token 缓存 */
-const tokenCache = new Map<string, TokenCacheEntry>();
+/**
+ * 进程内 token 缓存。
+ * 使用 TtlCache（LRU 上限）替代无界 Map：每个 serverUrl|username 组合一条，
+ * 长期运行下挂载增删后过期条目不会被清理，LRU 上限兜底。
+ */
+const tokenCache = new TtlCache<TokenCacheEntry>({
+  ttlMs: TOKEN_TTL_MS,
+  maxSize: 200,
+});
 
 /** 生成缓存 key */
 function cacheKey(apiBaseUrl: string, username: string): string {
@@ -63,8 +68,7 @@ export async function getOpenListToken(
   // 检查缓存
   const key = cacheKey(apiBaseUrl, user);
   const cached = tokenCache.get(key);
-  const now = Date.now();
-  if (cached && cached.expireAt > now) {
+  if (cached) {
     return cached.token;
   }
 
@@ -74,7 +78,7 @@ export async function getOpenListToken(
   }
 
   const token = await alistLogin(apiBaseUrl, user, password, mode);
-  tokenCache.set(key, { token, expireAt: now + TOKEN_TTL_MS });
+  tokenCache.set(key, { token });
   return token;
 }
 
