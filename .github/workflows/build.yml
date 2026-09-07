@@ -16,9 +16,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  # 防重复构建闸门：仅 main push 时运行；tag push / 手动触发直接跳过
+  # 防重复构建闸门：必须在所有触发方式下都运行（不可用 if 跳过——
+  # needs 的 job 被跳过时，下游 job 会因隐式 success() 级联跳过，
+  # 导致 tag 正式版构建也被吞掉）。触发类型判断放在脚本内部：
+  # 仅 main push 且 HEAD 已被 v* tag 指向时输出 skip=true
   gate:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     outputs:
       skip: ${{ steps.gate.outputs.skip }}
@@ -37,7 +39,8 @@ jobs:
         shell: bash
         run: |
           SKIP=false
-          if git tag --points-at HEAD | grep -q '^v'; then
+          if [ "${GITHUB_REF}" = "refs/heads/main" ] \
+            && git tag --points-at HEAD | grep -q '^v'; then
             SKIP=true
             echo "HEAD 已被版本 tag 指向（$(git tag --points-at HEAD | grep '^v' | tr '\n' ' ')），正式版构建将接管，跳过 dev 构建"
           fi
@@ -45,7 +48,9 @@ jobs:
 
   build:
     needs: gate
-    # gate 检测到 HEAD 已有 v* tag 时跳过（gate 自身被跳过时 outputs 为空，正常构建）
+    # gate 始终运行并输出 skip，此处条件可安全求值：
+    # - main push 且 HEAD 已打 tag → skip=true 跳过（正式版接管）
+    # - main push 未打 tag / tag push / 手动触发 → skip=false 正常构建
     if: needs.gate.outputs.skip != 'true'
     strategy:
       matrix:
