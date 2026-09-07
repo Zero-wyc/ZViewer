@@ -1,5 +1,4 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
-import type { MutableRefObject } from 'react'
 import { formatDuration } from '@/lib/utils'
 import { useShallow } from 'zustand/react/shallow'
 import { useSocket } from '@/hooks/useSocket'
@@ -133,15 +132,10 @@ export function useWatchTogether({
   // 事件抑制采用计数式实现：多个异步流程（attach/恢复/seek/缓冲下载）重叠时，
   // 任一流程完成只释放自己的一次抑制，不再误伤其他进行中的流程
   // （旧单布尔实现存在"先完成者提前释放抑制窗口"导致事件泄漏广播的问题）。
-  // 必须用 useRef 持有：直接调用 createSuppressRef() 会在每次渲染时创建
-  // 全新对象（count 归零），导致抑制状态跨渲染丢失 + effect 因引用变化不断重订阅。
-  const suppressInstanceRef = useRef<MutableRefObject<boolean> | undefined>(
-    undefined
-  )
-  if (!suppressInstanceRef.current) {
-    suppressInstanceRef.current = createSuppressRef()
-  }
-  const suppressEventsRef = suppressInstanceRef.current
+  // useState 惰性初始化持有：initializer 仅首渲染执行一次，引用跨渲染稳定
+  // （直接调用 createSuppressRef() 会每次渲染创建全新对象，count 归零），
+  // 且不在渲染期间读写 ref（react-hooks v6 refs 规则）。
+  const [suppressEventsRef] = useState(createSuppressRef)
   const lastLoadedMovieRef = useRef<{ id: number; url: string } | null>(null)
   // 房主刷新恢复：用于在 loadMovie 完成后应用 initialPlayback.currentTime 并暂停
   // 通过 ref 暂存，避免修改 effect 依赖导致 loadMovie 重新触发
@@ -486,6 +480,13 @@ export function useWatchTogether({
   )
 
   // 房主：重新解析当前 B站 视频（用于解析偏好变更后即时生效）
+  // 自引用断开：finish 收尾闭包需补跑忙期间到达的最新请求，直接引用
+  // 自身 const 会触发声明前访问（react-hooks v6），以 ref 持有最新实现
+  //（与 usePlayerSource 的 attachInnerRef 同模式；补跑发生在 commit 后的
+  // 异步回调中，晚于 effect 同步，无空窗）。
+  const reloadBilibiliRef = useRef<
+    (options?: { preferMp4?: boolean }) => Promise<void>
+  >(async () => {})
   const reloadBilibili = useCallback(
     async (options?: { preferMp4?: boolean }) => {
       // 并发重入保护：上一次解析仍在进行中（含超时未返回的挂起场景）时不并发执行，
@@ -506,7 +507,7 @@ export function useWatchTogether({
         if (pendingBilibiliRerunRef.current) {
           const pending = pendingBilibiliRerunRef.current
           pendingBilibiliRerunRef.current = null
-          void reloadBilibili(pending.options)
+          void reloadBilibiliRef.current(pending.options)
         }
       }
 
@@ -653,8 +654,14 @@ export function useWatchTogether({
       setWatchTogether,
       broadcastState,
       fetchBlobsForBufferModeLocal,
+      roomId,
+      suppressEventsRef,
     ]
   )
+  // 同步自引用（commit 后生效；finish 补跑均在异步回调中，晚于 commit）
+  useEffect(() => {
+    reloadBilibiliRef.current = reloadBilibili
+  }, [reloadBilibili])
 
   // 响应 BilibiliParseSettings 中 codec / CDN 偏好变更触发的重新解析请求。
   // 计数器模式：每次 triggerReloadBilibili() 都会递增 pendingReloadBilibili，
