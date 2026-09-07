@@ -41,7 +41,11 @@ const OPUS_SUPPORTED =
     'undefined'
 
 export interface VoiceMember {
+  /** 音频路由 key（服务器按当前连接分配） */
   socketId: string
+  /** 登录用户 ID；游客为 0（身份展示与重连顶替判定由服务器完成） */
+  userId: number
+  /** 显示名（服务器下发：登录用户为真实用户名，游客为客户端昵称） */
   username?: string
   speaking?: boolean
 }
@@ -186,7 +190,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   const levelRafRef = useRef<number | null>(null)
 
   // 监听（反送）相关 refs
-  const localMonitorAudioRef = useRef<HTMLAudioElement | null>(null)
   const monitorStreamRef = useRef<MediaStream | null>(null)
 
   // 通用 refs
@@ -306,6 +309,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
   // ==================== 接收端播放 ====================
 
+  // playAudioChunk 与 ensurePeerPlayback 相互引用（解码输出 → 播放 →
+  // 懒建播放链路 → 创建解码器），直接互引会触发声明前访问
+  // （react-hooks v6）。以 ref 持有播放函数断开循环，解码器 output
+  // 回调（异步触发，晚于 commit）经 ref 调用最新实现。
+  const playAudioChunkRef = useRef<
+    (socketId: string, pcmData: Float32Array, sampleRate: number) => void
+  >(() => {})
+
   /** 为远端用户创建播放链路（含 Opus 解码器） */
   const ensurePeerPlayback = useCallback(
     (socketId: string): PeerPlaybackState | null => {
@@ -355,7 +366,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
                 audioData.copyTo(float32, { planeIndex: 0 })
               }
 
-              playAudioChunk(socketId, float32, audioData.sampleRate)
+              playAudioChunkRef.current(socketId, float32, audioData.sampleRate)
               audioData.close()
             },
             error: (e: DOMException) => {
@@ -466,28 +477,32 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   }, [])
 
   // ==================== 监听（反送） ====================
+  // 反送 audio 元素不存 ref（react-hooks v6 不允许在回调中修改 ref 持有的
+  // DOM 值属性），以 data 标记 + DOM 查询定位，行为等价。
 
   const stopMonitor = useCallback(() => {
-    const audioEl = localMonitorAudioRef.current
+    const audioEl = document.querySelector<HTMLAudioElement>(
+      'audio[data-voice-monitor="self"]'
+    )
     if (audioEl) {
       audioEl.pause()
       audioEl.srcObject = null
       audioEl.remove()
-      localMonitorAudioRef.current = null
     }
   }, [])
 
   const startMonitor = useCallback(() => {
     const stream = monitorStreamRef.current
     if (!stream) return
-    let audioEl = localMonitorAudioRef.current
+    let audioEl = document.querySelector<HTMLAudioElement>(
+      'audio[data-voice-monitor="self"]'
+    )
     if (!audioEl) {
       audioEl = document.createElement('audio')
       audioEl.autoplay = true
       audioEl.muted = false
       audioEl.dataset.voiceMonitor = 'self'
       document.body.appendChild(audioEl)
-      localMonitorAudioRef.current = audioEl
     }
     if (audioEl.srcObject !== stream) {
       audioEl.srcObject = stream
@@ -761,16 +776,17 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       masterGainRef.current = masterGain
 
       // 6. 发送 voice-join 到服务器
+      // username 作为游客昵称兜底（登录用户服务器优先采用 token 中的用户名）
       const response = await new Promise<
-        | { success: true; members: string[] }
+        | { success: true; members: VoiceMember[] }
         | { success: false; message: string }
       >((resolve) => {
         currentSocket.emit(
           'voice-join',
-          { roomId: currentRoomId },
+          { roomId: currentRoomId, username },
           (
             res:
-              | { success: true; members: string[] }
+              | { success: true; members: VoiceMember[] }
               | { success: false; message: string }
           ) => resolve(res)
         )
@@ -788,18 +804,19 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       setJoining(false)
 
       const currentSocketId = currentSocket.id
-      const initialMembers: VoiceMember[] = response.members.map((id) => ({
-        socketId: id,
-        username: id.slice(0, 6),
-      }))
+      const initialMembers: VoiceMember[] = [...response.members]
       if (currentSocketId) {
-        initialMembers.unshift({ socketId: currentSocketId, username })
+        initialMembers.unshift({
+          socketId: currentSocketId,
+          userId: -1,
+          username,
+        })
       }
       setMembers(initialMembers)
 
       // 为已有成员创建播放链路
-      response.members.forEach((id) => {
-        ensurePeerPlayback(id)
+      response.members.forEach((m) => {
+        ensurePeerPlayback(m.socketId)
       })
 
       // 启动电平检测
@@ -976,7 +993,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   )
 
   const handleVoiceUserJoined = useCallback(
-    (payload: { socketId: string }) => {
+    (payload: { socketId: string; userId?: number; username?: string }) => {
       const currentSocketId = socketRef.current?.id
       const currentRoomId = roomIdRef.current
       const currentSocket = socketRef.current
@@ -984,11 +1001,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       setMembers((prev) => {
         if (prev.some((m) => m.socketId === payload.socketId)) return prev
+        // 同一登录用户重连顶替：服务器已广播旧 socketId 的离开事件并清理
+        // 对应条目，此处仅需追加新连接
         return [
           ...prev,
           {
             socketId: payload.socketId,
-            username: payload.socketId.slice(0, 6),
+            userId: payload.userId ?? 0,
+            username: payload.username,
           },
         ]
       })
@@ -1013,7 +1033,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   )
 
   const handleVoiceUserLeft = useCallback(
-    (payload: { socketId: string }) => {
+    (payload: { socketId: string; userId?: number; username?: string }) => {
       cleanupPeerPlayback(payload.socketId)
       setMembers((prev) => prev.filter((m) => m.socketId !== payload.socketId))
     },

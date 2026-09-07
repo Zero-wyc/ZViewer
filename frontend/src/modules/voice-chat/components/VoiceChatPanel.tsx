@@ -11,7 +11,7 @@ import {
   Volume2,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { useVoiceChat } from '../hooks/useVoiceChat'
+import { useVoiceChat, type VoiceMember } from '../hooks/useVoiceChat'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Slider } from '@/components/ui/Slider'
@@ -55,6 +55,14 @@ export function VoiceChatPanel({
 
   const memberCount = members.length
   const isMe = (socketId: string) => socketId === socket?.id
+  /** 成员显示名：登录用户为真实用户名；游客（userId=0）加短后缀消歧义 */
+  const displayName = (member: VoiceMember, me: boolean) => {
+    if (me) return '我'
+    const name = member.username?.trim()
+    if (name && member.userId > 0) return name
+    if (name && name !== '游客' && name !== 'guest') return name
+    return `游客 ${member.socketId.slice(0, 4).toUpperCase()}`
+  }
 
   return createPortal(
     <div
@@ -183,7 +191,7 @@ export function VoiceChatPanel({
                         )}
                       </div>
                       <span className="shrink-0 truncate text-xs font-medium text-[var(--md-sys-color-on-surface)]">
-                        {me ? '我' : member.username || '观众'}
+                        {displayName(member, me)}
                       </span>
                       {/* 横向实时音量条 */}
                       <div className="flex h-1.5 flex-1 items-center overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-high)]">
