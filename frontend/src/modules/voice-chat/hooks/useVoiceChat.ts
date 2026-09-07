@@ -41,11 +41,8 @@ const TARGET_BUFFER_BASE_SEC = 0.04
 /** 标准语音帧长（秒）：AudioWorklet 20ms/帧，用于计算到达间隔偏差 */
 const VOICE_FRAME_SEC = 0.02
 
-/** 水位追赶：超过目标此余量后启用 1.05x 微加速消耗积压（秒） */
-const CATCHUP_THRESHOLD_SEC = 0.08
-
-/** 追赶播放速率（1.05x ≈ 每秒消化 47ms 积压，听感无感知） */
-const CATCHUP_PLAYBACK_RATE = 1.05
+/** 水位超标阈值：超过目标此余量后丢帧消耗积压（秒） */
+const DROP_THRESHOLD_SEC = 0.08
 
 /** 极端积压硬重置阈值（秒）：超过则直接丢帧重建时间线 */
 const BACKLOG_RESET_SEC = 0.5
@@ -245,6 +242,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   const micGainNodeRef = useRef<GainNode | null>(null)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
   const silenceGainRef = useRef<GainNode | null>(null)
+  /** 反送链路独立增益：闭麦时静音反送（micGain 保持影响上行电平与电平条） */
+  const monitorGainRef = useRef<GainNode | null>(null)
 
   // Opus 编码器相关 refs
   const audioEncoderRef = useRef<AudioEncoder | null>(null)
@@ -303,14 +302,15 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
   useEffect(() => {
     micEnabledRef.current = micEnabled
-    // 通知 AudioWorklet 启用/禁用采集
+    // 通知 AudioWorklet 启用/禁用采集（发送拦截）
     if (workletNodeRef.current?.port) {
       workletNodeRef.current.port.postMessage({ enabled: micEnabled })
     }
-    // 同时控制本地 track
-    localStreamRef.current?.getAudioTracks().forEach((track) => {
-      track.enabled = micEnabled
-    })
+    // 反送随麦克风开关静音。不动 track.enabled：禁用 track 会重置
+    // 浏览器 AGC/NS/AEC 状态，重开瞬间电平爬升，首句听感异常
+    if (monitorGainRef.current) {
+      monitorGainRef.current.gain.value = micEnabled ? 1 : 0
+    }
   }, [micEnabled])
 
   useEffect(() => {
@@ -614,15 +614,21 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         timeline = now + targetBuffer
       }
 
-      // 水位追赶：显著高于目标时 1.05x 微加速消耗积压（听感无感知），
-      // 替代直接丢帧；仅在极端积压（>0.5s）才硬重置
+      // 水位控制：显著高于目标时丢弃当前帧（时间线照常推进，
+      // 每丢一帧水位回落一个帧长）。
+      // 不可用 playbackRate 加速追赶：AudioBufferSourceNode 变速会
+      // 同时变调（1.05x ≈ +0.84 半音），开麦首句突发积压时整句被
+      // 变调播放约 1.6 秒，听感"非常奇怪"；20ms 丢帧空洞在语音流中
+      // 几乎不可闻，远优于变调
       const bufferAhead = timeline - now
-      const rate =
-        bufferAhead > targetBuffer + CATCHUP_THRESHOLD_SEC
-          ? CATCHUP_PLAYBACK_RATE
-          : 1
-      if (rate !== 1) {
-        source.playbackRate.value = rate
+      if (bufferAhead > targetBuffer + DROP_THRESHOLD_SEC) {
+        try {
+          source.disconnect()
+        } catch {
+          // ignore
+        }
+        state.nextStartTime = timeline + audioBuffer.duration
+        return
       }
 
       const startTime = Math.max(now + targetBuffer, timeline)
@@ -631,8 +637,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         state.pendingSources.delete(source)
       }
       source.start(startTime)
-      // 追赶时块实际占用时间线 = 时长 / 速率
-      state.nextStartTime = startTime + audioBuffer.duration / rate
+      state.nextStartTime = startTime + audioBuffer.duration
 
       // 极端积压（追赶无法覆盖的突发）：丢弃已排队未播的旧块再重置
       // 时间线。实时语音宁可断 0.5s 音，也不能让新旧时间线重叠播放
@@ -776,6 +781,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         // ignore
       }
       micGainNodeRef.current = null
+      monitorGainRef.current = null
     }
 
     // 停止本地流
@@ -841,9 +847,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       })
       localStreamRef.current = stream
 
-      stream.getAudioTracks().forEach((track) => {
-        track.enabled = micEnabled
-      })
+      // track 保持常开：禁用 track.enabled 会重置浏览器 AGC/NS/AEC
+      // 状态，重开瞬间电平爬升导致首句听感异常；发送拦截由 worklet
+      // 承担，反送静音由 monitorGain 承担
 
       // 2. 创建采集 AudioContext + AudioWorklet
       // sampleRate 强制锁定 48kHz：AudioContext 选项是强制的（浏览器自动
@@ -871,14 +877,20 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       workletNode.connect(silenceGain)
       silenceGain.connect(captureCtx.destination)
 
-      // 同时创建反送流（从 micGain 输出）
+      // 同时创建反送流（micGain → monitorGain → destination）。
+      // monitorGain 独立于 micGain：闭麦时仅静音反送，micGain 继续
+      // 驱动 worklet 输入与本地电平检测
       const monitorDestination = captureCtx.createMediaStreamDestination()
-      micGain.connect(monitorDestination)
+      const monitorGain = captureCtx.createGain()
+      monitorGain.gain.value = micEnabledRef.current ? 1 : 0
+      micGain.connect(monitorGain)
+      monitorGain.connect(monitorDestination)
       monitorStreamRef.current = monitorDestination.stream
 
       await captureCtx.resume()
       audioContextRef.current = captureCtx
       micGainNodeRef.current = micGain
+      monitorGainRef.current = monitorGain
       workletNodeRef.current = workletNode
       silenceGainRef.current = silenceGain
 
@@ -1097,7 +1109,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     }
   }, [
     joining,
-    micEnabled,
     username,
     ensurePeerPlayback,
     cleanupAll,

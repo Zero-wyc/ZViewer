@@ -27,8 +27,11 @@ class VoiceProcessor extends AudioWorkletProcessor {
   }
 
   process(inputs) {
-    // 麦克风禁用时不采集，避免发送静音数据浪费带宽
+    // 麦克风禁用时不采集，避免发送静音数据浪费带宽。
+    // 同时清空半帧残留：重开麦克风后的第一帧必须是全新样本，
+    // 否则会拼接"闭麦前的旧音频尾巴 + 新音频"产生爆音
     if (!this._enabled) {
+      this._offset = 0
       return true
     }
 
