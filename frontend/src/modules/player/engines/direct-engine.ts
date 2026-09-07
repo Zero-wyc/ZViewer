@@ -22,13 +22,7 @@
  */
 import type { PlayerEngine, PlayerSource, EngineAttachResult } from '../types'
 import { resetVideoElement, formatVideoLoadError } from '../utils'
-import {
-  resolveProxyUrl,
-  buildProxyUrl,
-  isLocalUrl,
-  isRelativeUrl,
-  isCliProxyUrl,
-} from '../services/url-proxy'
+import { resolveMediaRoute, buildProxyUrl } from '../services/url-proxy'
 
 /** metadata 等待超时（毫秒）：网络挂起时兜底，避免 attach 永久 pending */
 const METADATA_TIMEOUT_MS = 30_000
@@ -106,21 +100,6 @@ async function probeContentDuration(
 }
 
 /**
- * 判断 URL 是否可以回退到服务器代理。
- *
- * 仅对跨域 URL 有效：
- * - 本站 URL / 相对路径 / blob / data：无需代理
- * - CLI 代理 URL：已是本地代理
- * - 已包装的代理 URL：避免重复代理
- */
-function canFallbackToProxy(url: string): boolean {
-  if (!url) return false
-  if (isLocalUrl(url) || isRelativeUrl(url) || isCliProxyUrl(url)) return false
-  if (url.includes('/api/stream/proxy')) return false
-  return true
-}
-
-/**
  * 挂载直链源的前置校验：HTTPS 页面下的 http 直链必然失败。
  *
  * 浏览器混合内容策略会把 http 资源强制升级到同端口 https，源站不支持
@@ -130,7 +109,10 @@ function canFallbackToProxy(url: string): boolean {
  *
  * @throws Error 带修复指引的错误；非该场景正常返回
  */
-function assertDirectLinkReachable(targetUrl: string, noProxyFallback: boolean): void {
+function assertDirectLinkReachable(
+  targetUrl: string,
+  noProxyFallback: boolean
+): void {
   if (!noProxyFallback) return
   if (window.location.protocol !== 'https:') return
   let u: URL
@@ -154,18 +136,15 @@ export const directEngine: PlayerEngine = {
     source: PlayerSource
   ): Promise<EngineAttachResult> {
     resetVideoElement(video)
-    // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式决定。
+    // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式一次性决策
+    // 「最终请求地址」与「直连失败是否允许回退服务器代理」。
     // 挂载直链模式（noProxyFallback）跳过混合内容代理分支，保持源站直传语义；
     // http 源的 TLS 能力已在挂载配置期探测（httpsDirect），http 直链到达
     // 播放层即源站不支持 TLS，由 url-proxy 决策走服务器代理
-    const targetUrl = resolveProxyUrl(
-      source.url,
-      source.headers,
-      source.format,
-      {
-        noProxyFallback: source.noProxyFallback === true,
-      }
-    )
+    const route = resolveMediaRoute(source.url, source.headers, source.format, {
+      noProxyFallback: source.noProxyFallback === true,
+    })
+    const targetUrl = route.url
 
     // 挂载直链源前置校验：HTTPS 页面下的 http 直链必然失败，
     // 发请求前直接给出可操作的修复指引（零网络往返，不回退中转）
@@ -175,8 +154,7 @@ export const directEngine: PlayerEngine = {
     // 挂载直链模式（noProxyFallback）例外：设计意图是源站直传、服务器零
     // 媒体流量，静默转代理会让服务器带宽跑满并掩盖直链本身的问题，
     // 失败直接抛错由调用方提示用户。
-    const fallback =
-      source.noProxyFallback !== true && canFallbackToProxy(targetUrl)
+    const fallback = source.noProxyFallback !== true && route.allowFallback
 
     const loadOnce = async (url: string): Promise<void> => {
       video.src = url

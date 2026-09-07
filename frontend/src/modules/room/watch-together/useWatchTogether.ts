@@ -24,7 +24,6 @@ import {
   safePlay,
 } from '@/modules/sync-playback'
 import { wasUserPaused } from '@/modules/player/services/pause-intent'
-import { formatVideoLoadError } from '@/modules/player/utils'
 import {
   createSuppressRef,
   resetSuppression,
@@ -188,11 +187,6 @@ export function useWatchTogether({
   const lastAutoReloadAtRef = useRef(0)
   const autoReloadCountRef = useRef(0)
   const autoReloadNotifiedRef = useRef(false)
-
-  // 最近一次成功 attach 完成的时间戳。挂载直链源的播放期 error 提示
-  // 以此区分阶段：attach 阶段的失败由 loadMovie 的 catch message.error
-  // 提示，播放期中断（如 OpenList 签名过期）才由全局 error 监听提示。
-  const lastAttachOkAtRef = useRef(0)
 
   // loadMovie 失败信息与重试令牌：失败时在播放器上显示"重试"入口，
   // retryLoadMovie 清除 lastLoadedMovieRef 并递增令牌重新触发加载 effect。
@@ -992,8 +986,6 @@ export function useWatchTogether({
         const startTime =
           isRecovery && recoveryTime > 0 ? recoveryTime : undefined
         await applySourceToVideo(video, state, startTime, blobs)
-        // attach 成功：记录时间戳供挂载直链源的播放期 error 提示区分阶段
-        lastAttachOkAtRef.current = Date.now()
         // attach 已完成但本次加载已过期（新加载进行中）：不再恢复进度/广播/动
         // suppressEventsRef（由新流程管理），避免旧状态覆盖新影片
         if (loadSeqRef.current !== seq) return
@@ -1232,59 +1224,6 @@ export function useWatchTogether({
     suppressEventsRef,
     watchTogether.sourceType,
     watchTogether.sourceUrl,
-  ])
-
-  // 非 B站源的播放期 error 提示。
-  // 播放引擎已无自动回退（原生失败不静默转管线、playsvideo 失败不回退
-  // 原生、挂载直链失败不回退服务器代理），播放期中断没有任何恢复路径，
-  // 黑屏前在此给出原因提示。
-  // - attach 成功后 1s 内的 error 仍属加载阶段，由 attach 的 catch 负责，跳过
-  // - 延迟 1.5s 死亡判定：MKV 原生失败会回退 playsvideo 管线重挂载
-  //   （video 重新 load，networkState 离开 EMPTY），此时不提示；
-  //   1.5s 后仍未重新加载（networkState EMPTY + readyState 0）才是真中断
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    if (watchTogether.sourceType === 'bilibili') return
-
-    let deathCheckTimer: ReturnType<typeof setTimeout> | null = null
-    const handleError = () => {
-      if (suppressEventsRef.current) return
-      if (Date.now() - lastAttachOkAtRef.current < 1000) return
-      if (deathCheckTimer) return
-      deathCheckTimer = setTimeout(() => {
-        deathCheckTimer = null
-        // 回退管线重挂载中（正在重新加载）：不提示。
-        // 换源场景由 effect 依赖 sourceUrl 重建时的 cleanup 清除本 timer。
-        if (
-          video.networkState !== 0 /* NETWORK_EMPTY */ ||
-          video.readyState !== 0 /* HAVE_NOTHING */
-        )
-          return
-        const reason = formatVideoLoadError(video.error?.code)
-        if (watchTogether.noProxyFallback) {
-          message.error(`直链播放中断：${reason}。可尝试重载或重新添加影片`)
-        } else {
-          message.error(`播放中断：${reason}。可尝试重载影片`)
-        }
-      }, 1500)
-    }
-    video.addEventListener('error', handleError)
-    return () => {
-      video.removeEventListener('error', handleError)
-      if (deathCheckTimer) {
-        clearTimeout(deathCheckTimer)
-        deathCheckTimer = null
-      }
-    }
-    // suppressEventsRef / lastAttachOkAtRef 为 ref 引用，监听器闭包内实时
-    // 读取 .current，无需纳入依赖数组重建
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- 同上
-  }, [
-    videoRef,
-    watchTogether.sourceType,
-    watchTogether.sourceUrl,
-    watchTogether.noProxyFallback,
   ])
 
   /**

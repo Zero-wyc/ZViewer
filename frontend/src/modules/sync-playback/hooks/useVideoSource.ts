@@ -127,6 +127,25 @@ async function ensureViewerLocalOverride(
   }
 }
 
+/**
+ * 将观众本地覆盖源合并进房主广播状态（CLI 清晰度覆盖与本地偏好独立解析共用）。
+ */
+function withViewerOverride(
+  state: WatchTogetherState,
+  resolved: ResolvedSource
+): WatchTogetherState {
+  return {
+    ...state,
+    sourceUrl: resolved.videoUrl,
+    audioUrl: resolved.audioUrl,
+    format: resolved.format,
+    videoCodec: resolved.videoCodec,
+    audioCodec: resolved.audioCodec,
+    duration: resolved.duration ?? state.duration,
+    currentQn: resolved.currentQn,
+  }
+}
+
 export interface UseVideoSourceOptions {
   videoRef: RefObject<HTMLVideoElement | null>
   suppressEventsRef: MutableRefObject<boolean>
@@ -280,8 +299,21 @@ export function useVideoSource({
   watchTogether,
   isHostRef,
 }: UseVideoSourceOptions): UseVideoSourceReturn {
+  // 播放期错误提示（usePlayerSource 统一判定后回调）：
+  // B站源由 useWatchTogether 的 stalled/error 自动重载链路负责，此处过滤
+  const handlePlaybackError = useCallback(
+    (err: Error) => {
+      const state = useRoomStore.getState().watchTogether
+      if (state.sourceType === 'bilibili') return
+      if (suppressEventsRef.current) return
+      message.error(err.message)
+    },
+    [suppressEventsRef]
+  )
+
   const { attachSource, cleanup, seekTo, forceReload } = usePlayerSource({
     videoRef,
+    onPlaybackError: handlePlaybackError,
   })
   const restoredRef = useRef(false)
 
@@ -309,34 +341,16 @@ export function useVideoSource({
       if (!isHostRef.current) {
         const storeState = useRoomStore.getState()
         const currentMovieId = storeState.currentMovieId
-        // 优先使用已有的本地覆盖（CLI 清晰度覆盖或本地偏好解析结果）
-        const existingOverride = storeState.viewerCliResolvedSource
-        if (existingOverride && existingOverride.movieId === currentMovieId) {
-          effectiveState = {
-            ...state,
-            sourceUrl: existingOverride.resolved.videoUrl,
-            audioUrl: existingOverride.resolved.audioUrl,
-            format: existingOverride.resolved.format,
-            videoCodec: existingOverride.resolved.videoCodec,
-            audioCodec: existingOverride.resolved.audioCodec,
-            duration: existingOverride.resolved.duration ?? state.duration,
-            currentQn: existingOverride.resolved.currentQn,
-          }
-        } else {
-          // 没有覆盖且本地偏好与房主不一致时，尝试独立解析
-          const localOverride = await ensureViewerLocalOverride(state)
-          if (localOverride && localOverride.movieId === currentMovieId) {
-            effectiveState = {
-              ...state,
-              sourceUrl: localOverride.resolved.videoUrl,
-              audioUrl: localOverride.resolved.audioUrl,
-              format: localOverride.resolved.format,
-              videoCodec: localOverride.resolved.videoCodec,
-              audioCodec: localOverride.resolved.audioCodec,
-              duration: localOverride.resolved.duration ?? state.duration,
-              currentQn: localOverride.resolved.currentQn,
-            }
-          }
+        // 优先复用已有本地覆盖（CLI 清晰度覆盖或本地偏好解析结果）；
+        // 无匹配覆盖时按本地偏好独立解析（ensureViewerLocalOverride
+        // 内部同样会复用满足格式条件的既有覆盖）
+        const existing = storeState.viewerCliResolvedSource
+        const override =
+          existing && existing.movieId === currentMovieId
+            ? existing
+            : await ensureViewerLocalOverride(state)
+        if (override && override.movieId === currentMovieId) {
+          effectiveState = withViewerOverride(state, override.resolved)
         }
       }
 

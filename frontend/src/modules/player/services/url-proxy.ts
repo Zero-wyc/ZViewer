@@ -192,16 +192,33 @@ export function buildProxyUrl(url: string): string {
 }
 
 /**
- * 统一代理策略：根据 URL 特征与源格式决定最终请求地址。
+ * 统一媒体路由决策结果。
+ */
+export interface ResolvedMediaRoute {
+  /** 实际请求的 URL（原 URL 或代理 URL） */
+  url: string
+  /**
+   * 直连失败时是否允许回退服务器代理。
+   * 本站 / 相对路径 / CLI 代理 / 已包装的代理 URL 无回退意义（false）；
+   * 跨域直连 URL 允许一次代理重试（true）。
+   */
+  allowFallback: boolean
+}
+
+/**
+ * 统一代理策略：根据 URL 特征与源格式一次性决策「最终请求地址」与
+ * 「直连失败时是否允许回退服务器代理」。
  *
  * 决策矩阵：
  * | URL 类型                | format=mp4            | format=dash / m4s    |
  * |------------------------|----------------------|---------------------|
- * | 本站 API / blob / data | 直连                  | 直连                |
- * | 相对路径（/api/...）     | 直连                  | 直连                |
+ * | 本站 API / blob / data | 直连（不可回退）       | 直连（不可回退）     |
+ * | 相对路径（/api/...）     | 直连（不可回退）       | 直连（不可回退）     |
+ * | CLI 本地代理            | 直连（不可回退）       | 直连（不可回退）     |
  * | 带防盗链 headers        | 服务器代理             | 服务器代理           |
- * | B站 CDN URL            | 直连（HTML5 接口无防盗链）| 服务器代理（m4s 有防盗链）|
- * | 其他跨域 URL            | 直连                  | 直连                |
+ * | B站 CDN URL            | 直连（可回退代理）      | 服务器代理（m4s 防盗链）|
+ * | http 跨域（https 页面） | 服务器代理             | 服务器代理           |
+ * | 其他跨域 URL            | 直连（可回退代理）      | 直连（可回退代理）    |
  *
  * 注意：format 已知时直接按 format 判断，不使用 URL 特征 fallback。
  * 避免 MP4 URL 中碰巧包含 /dash/ 或 .m4s 时被误判为 DASH 流走服务器代理。
@@ -211,35 +228,39 @@ export function buildProxyUrl(url: string): string {
  * @param format 源格式（'mp4' / 'dash' / 'm4s' / 'm3u8' / 'flv' 等），影响 B站 URL 代理决策
  * @param options noProxyFallback：挂载直链模式——跳过混合内容代理分支，
  *   保持源站直传语义（浏览器升级失败由引擎直接抛错提示，不静默转代理）
- * @returns 实际请求的 URL（原 URL 或代理 URL）
  */
-export function resolveProxyUrl(
+export function resolveMediaRoute(
   url: string,
   headers?: Record<string, string>,
   format?: string,
   options?: { noProxyFallback?: boolean }
-): string {
-  if (!url) return url
+): ResolvedMediaRoute {
+  if (!url) return { url, allowFallback: false }
 
   // 本站 URL / blob / data 协议：永不代理。
   // /api/ 路径需附加 token：HTTP 环境下无 auth cookie，
   // 媒体标签无法设置 Authorization header，必须通过查询参数认证。
-  if (isLocalUrl(url)) return appendAuthToken(url)
+  if (isLocalUrl(url))
+    return { url: appendAuthToken(url), allowFallback: false }
 
   // 相对路径（/api/webdav/...）：自动走本站后端，同样附加 token
-  if (isRelativeUrl(url)) return appendAuthToken(url)
+  if (isRelativeUrl(url)) {
+    return { url: appendAuthToken(url), allowFallback: false }
+  }
 
   // CLI 本地代理（http://127.0.0.1:9333/proxy?url=...）：原样直连。
   // 127.0.0.1 / localhost 是浏览器信任的 potentially trustworthy origin，
   // https 页面直连 http://127.0.0.1 **不受混合内容限制**；若漏判落入下方
   // 混合内容分支会被包成服务器代理，而服务器根本访问不到用户本机，
   // CLI 高画质代理会整体失效。
-  if (isCliProxyUrl(url)) return url
+  if (isCliProxyUrl(url)) return { url, allowFallback: false }
 
   // 同主机不同 origin 的本站 API 绝对地址：改写为相对路径直连
   // （部署不一致场景，如页面 https 但自定义 API_URL 为 http://同域）
   const sameHostApi = rewriteSameHostApiUrl(url)
-  if (sameHostApi) return appendAuthToken(sameHostApi)
+  if (sameHostApi) {
+    return { url: appendAuthToken(sameHostApi), allowFallback: false }
+  }
 
   const hasHeaders = !!(headers && Object.keys(headers).length > 0)
   const isBili = isBilibiliMediaUrl(url)
@@ -251,10 +272,9 @@ export function resolveProxyUrl(
       format,
       hasHeaders,
     })
-    return buildProxyUrl(url)
+    return { url: buildProxyUrl(url), allowFallback: false }
   }
 
-  // B站 DASH m4s 流：有防盗链 + 无 CORS，必须走服务器代理
   if (isBili) {
     // format 已知时直接按 format 判断，不使用 URL 特征 fallback，
     // 避免 MP4 URL 中碰巧包含 /dash/ 或 .m4s 时被误判为 DASH 流走服务器代理。
@@ -267,11 +287,12 @@ export function resolveProxyUrl(
           url.toLowerCase().includes('/dash/')))
 
     if (isDashStream) {
-      return buildProxyUrl(url)
+      // B站 DASH m4s 流：有防盗链 + 无 CORS，必须走服务器代理
+      return { url: buildProxyUrl(url), allowFallback: false }
     }
-    // B站 MP4 直链（platform=html5 接口）：无防盗链，可直接播放
-    // 服务器零流量
-    return url
+    // B站 MP4 直链（platform=html5 接口）：无防盗链，可直接播放，
+    // 服务器零流量；直连失败（签名过期等）允许一次代理重试
+    return { url, allowFallback: true }
   }
 
   // 混合内容防护：https 页面下，浏览器会把 http 跨域资源强制升级为 https
@@ -294,13 +315,28 @@ export function resolveProxyUrl(
           '[url-proxy] https 页面下的 http 跨域源（源站不支持 TLS，配置期已探测），走服务器代理:',
           url.slice(0, 80)
         )
-        return buildProxyUrl(url)
+        return { url: buildProxyUrl(url), allowFallback: false }
       }
     } catch {
       /* 非法 URL，按原策略继续 */
     }
   }
 
-  // 其他跨域 URL：直连源站，服务器零流量
-  return url
+  // 其他跨域 URL：直连源站，服务器零流量；直连失败允许一次代理重试
+  return { url, allowFallback: true }
+}
+
+/**
+ * 统一代理策略（仅返回最终请求地址）。
+ * 由 {@link resolveMediaRoute} 决策；仅需 URL 不关心回退资格的调用方使用。
+ *
+ * @returns 实际请求的 URL（原 URL 或代理 URL）
+ */
+export function resolveProxyUrl(
+  url: string,
+  headers?: Record<string, string>,
+  format?: string,
+  options?: { noProxyFallback?: boolean }
+): string {
+  return resolveMediaRoute(url, headers, format, options).url
 }
