@@ -1041,7 +1041,39 @@ export function RoomInfoPanel({
                   className="mt-2 text-[11px] leading-relaxed"
                 >
                   创建房间或被转交房主身份的用户。可踢出 /
-                  禁言观众、转交房主、修改房间设置与名称、控制播放。
+                  禁言观众、任命房管、转交房主、修改房间设置与名称、控制播放。
+                </Text>
+              </div>
+
+              {/* 房管 */}
+              <div className="glass rounded-[var(--md-sys-shape-corner)] p-3">
+                <div className="flex items-center gap-2.5">
+                  <div
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                    style={{
+                      backgroundColor: 'var(--md-sys-color-tertiary-container)',
+                      color: 'var(--md-sys-color-on-tertiary-container)',
+                    }}
+                  >
+                    <Shield className="h-4 w-4" />
+                  </div>
+                  <div className="flex min-w-0 flex-col">
+                    <Text className="text-sm font-medium">房管（协管员）</Text>
+                    <Text
+                      type="secondary"
+                      className="text-[10px] uppercase tracking-wide"
+                    >
+                      MODERATOR
+                    </Text>
+                  </div>
+                </div>
+                <Text
+                  type="secondary"
+                  className="mt-2 text-[11px] leading-relaxed"
+                >
+                  由房主任命的登录用户（上限 10 名）。可协助管理影片（切换 /
+                  删除）、踢出与禁言观众、管理语音（语音禁言 /
+                  移出语音）；不可操作房主、其他房管与管理员，不可转交房主或修改房间设置。
                 </Text>
               </div>
 
