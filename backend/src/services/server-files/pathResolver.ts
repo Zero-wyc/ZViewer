@@ -55,10 +55,29 @@ export function getUploadsRoot(): RootInfo {
 }
 
 /**
+ * 根目录注册表缓存（TTL + 主动失效）。
+ *
+ * 流式代理（GET /proxy）在浏览器 seek / 预取时会被高频调用，
+ * 每次都查 ServerFolder 全表（sqljs 同步执行）会阻塞事件循环、
+ * 拖慢所有进行中的媒体流。目录配置极少变化，短 TTL 缓存 +
+ * 增删改端点主动失效即可同时满足读取性能与配置即时生效。
+ */
+const REGISTRY_TTL_MS = 30_000;
+let registryCache: { at: number; registry: RootRegistry } | null = null;
+
+/** 失效根目录注册表缓存（新增/修改/删除自定义目录后调用）。 */
+export function invalidateRootRegistry(): void {
+  registryCache = null;
+}
+
+/**
  * 加载所有根目录到注册表（uploads 根 + 数据库中的自定义根）。
  * 供 serverFiles 路由与音轨探测等需要解析服务器文件路径的模块共用。
  */
 export async function loadRootRegistry(): Promise<RootRegistry> {
+  if (registryCache && Date.now() - registryCache.at < REGISTRY_TTL_MS) {
+    return registryCache.registry;
+  }
   const map: RootRegistry = new Map();
   map.set(UPLOADS_ROOT_KEY, getUploadsRoot());
   const folders = await AppDataSource.getRepository(ServerFolder).find({
@@ -73,6 +92,7 @@ export async function loadRootRegistry(): Promise<RootRegistry> {
       readonly: !!f.readonly,
     });
   }
+  registryCache = { at: Date.now(), registry: map };
   return map;
 }
 

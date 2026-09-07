@@ -21,6 +21,7 @@ import { Router, Request, Response } from 'express';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
+import type { Stats } from 'node:fs';
 import { createWriteStream } from 'node:fs';
 import multer from 'multer';
 import { AppDataSource } from '../data-source';
@@ -33,6 +34,7 @@ import {
   resolveSafePath,
   toPrefixedPath,
   loadRootRegistry,
+  invalidateRootRegistry,
   basename,
   type RootRegistry,
 } from '../services/server-files/pathResolver';
@@ -222,6 +224,7 @@ router.delete('/roots/:id', async (req: AuthenticatedRequest, res: Response): Pr
       return;
     }
     await folderRepo().remove(entity);
+    invalidateRootRegistry();
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({
@@ -237,7 +240,7 @@ router.get('/browse', async (req: AuthenticatedRequest, res: Response): Promise<
   try {
     const roots = await loadRootRegistry();
     const { abs, root } = resolveSafePath(req.query.path as string | undefined, roots);
-    let stat;
+    let stat: Stats | null;
     try {
       stat = await fsp.stat(abs);
     } catch {
@@ -562,7 +565,13 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
     }
     const roots = await loadRootRegistry();
     const { abs: targetAbs } = resolveSafePath(target, roots);
-    if (!fs.existsSync(targetAbs) || fs.statSync(targetAbs).isDirectory()) {
+    let stat: Stats | null;
+    try {
+      stat = await fsp.stat(targetAbs);
+    } catch {
+      stat = null;
+    }
+    if (!stat || stat.isDirectory()) {
       res.status(404).json({ success: false, message: '文件不存在' });
       return;
     }
@@ -579,7 +588,7 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
       format,
       audioCodec: null,
       duration: null,
-      size: fs.statSync(targetAbs).size,
+      size: stat.size,
     });
   } catch (err) {
     res.status(400).json({
@@ -606,13 +615,18 @@ router.head('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<
     }
     const roots = await loadRootRegistry();
     const { abs: targetAbs } = resolveSafePath(target, roots);
-    if (!fs.existsSync(targetAbs) || fs.statSync(targetAbs).isDirectory()) {
+    let stat: Stats | null;
+    try {
+      stat = await fsp.stat(targetAbs);
+    } catch {
+      stat = null;
+    }
+    if (!stat || stat.isDirectory()) {
       res.status(404).end();
       return;
     }
 
     const format = detectMediaFormat(target);
-    const stat = fs.statSync(targetAbs);
     setWildcardCors(res);
     res.setHeader('Content-Type', getContentType(format));
     res.setHeader('Accept-Ranges', 'bytes');
@@ -626,6 +640,15 @@ router.head('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<
   }
 });
 
+/**
+ * 流式读取块大小：默认 64KB 对高码率视频（10-40Mbps）需要每秒数百次
+ * read→pipe 调度，事件循环被 sqljs 同步写 / 弹幕广播等占用几毫秒时
+ * 供流即断，浏览器缓冲耗尽表现为偶发卡顿。1MB 块将调度次数降低 16 倍，
+ * 配合 pipe 背压（socket 写缓冲满时暂停读取）内存占用可控
+ * （每并发流在途一个 chunk）。
+ */
+const STREAM_HIGH_WATER_MARK = 1024 * 1024;
+
 router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const target = typeof req.query.path === 'string' ? req.query.path : '';
@@ -635,12 +658,20 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
     }
     const roots = await loadRootRegistry();
     const { abs: targetAbs } = resolveSafePath(target, roots);
-    if (!fs.existsSync(targetAbs) || fs.statSync(targetAbs).isDirectory()) {
+    // 单次异步 stat 替代 existsSync + statSync 两次同步 IO：
+    // Range 请求在 seek / 预取时高频到达，同步 stat（机械盘 / 网络根目录
+    // 下可达几十毫秒）会阻塞事件循环，拖慢所有进行中的媒体流
+    let stat: Stats | null;
+    try {
+      stat = await fsp.stat(targetAbs);
+    } catch {
+      stat = null;
+    }
+    if (!stat || stat.isDirectory()) {
       res.status(404).json({ success: false, message: '文件不存在' });
       return;
     }
 
-    const stat = fs.statSync(targetAbs);
     const fileSize = stat.size;
     const rangeHeader = req.headers.range;
     const format = detectMediaFormat(target);
@@ -658,7 +689,11 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
       }
       const start = parsed?.start ?? 0;
       const end = parsed?.end ?? fileSize - 1;
-      const stream = fs.createReadStream(targetAbs, { start, end });
+      const stream = fs.createReadStream(targetAbs, {
+        start,
+        end,
+        highWaterMark: STREAM_HIGH_WATER_MARK,
+      });
       pipeRangeStream(res, {
         stream,
         contentType: getContentType(format),
@@ -670,7 +705,9 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
         errorMessage: '文件读取失败',
       });
     } else {
-      const stream = fs.createReadStream(targetAbs);
+      const stream = fs.createReadStream(targetAbs, {
+        highWaterMark: STREAM_HIGH_WATER_MARK,
+      });
       pipeRangeStream(res, {
         stream,
         contentType: getContentType(format),
