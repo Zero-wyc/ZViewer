@@ -75,6 +75,23 @@ export class Room {
   @Column({ type: 'text', default: '[]' })
   approvedViewers!: string;
 
+  /**
+   * 房管（协管员）user ID 列表（JSON 数组持久化）。
+   * 房管由房主任命，可执行影片管理、成员管理（禁言/踢出，含语音），
+   * 不可任命/撤销房管、不可转交房主、不可修改房间设置。
+   * 房主本人始终拥有全部权限，不在此列表中。
+   */
+  @Column({ type: 'text', default: '[]' })
+  moderators!: string;
+
+  /**
+   * 语音禁言的 user ID 列表（JSON 数组持久化）。
+   * 被语音禁言的用户加入语音后发言（音频中转）被服务器直接丢弃，
+   * 仍可收听。仅登录用户可持久化；游客禁言为会话级（内存）。
+   */
+  @Column({ type: 'text', default: '[]' })
+  voiceMuted!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 

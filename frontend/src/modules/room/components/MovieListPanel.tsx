@@ -30,6 +30,13 @@ import { cn } from '@/lib/utils'
 
 interface MovieListPanelProps {
   isHost: boolean
+  /**
+   * 影片管理权限（房管）：可切换/删除影片。
+   * 与 isHost 分离：isHost 还控制订阅方向（房主广播 vs 观众订阅）与
+   * B站清晰度/分集重解析（走房主 pendingQualityChange 消费链路），
+   * 这些保持房主专属，房管不接管。
+   */
+  canManage?: boolean
 }
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -55,7 +62,10 @@ const FORMAT_LABELS: Record<string, string> = {
   ts: 'TS',
 }
 
-export function MovieListPanel({ isHost }: MovieListPanelProps) {
+export function MovieListPanel({
+  isHost,
+  canManage = false,
+}: MovieListPanelProps) {
   const { socket } = useSocket()
   const movies = useRoomStore((state) => state.movies)
   const currentMovieId = useRoomStore((state) => state.currentMovieId)
@@ -110,8 +120,8 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
   }, [movies, search])
 
   const handlePlay = (movieId: number) => {
-    if (!isHost) {
-      message.info('只有房主可以切换影片')
+    if (!isHost && !canManage) {
+      message.info('只有房主或房管可以切换影片')
       return
     }
     if (!socket) {
@@ -123,8 +133,8 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
   }
 
   const handleRemove = async (movieId: number) => {
-    if (!isHost) {
-      message.info('只有房主可以删除影片')
+    if (!isHost && !canManage) {
+      message.info('只有房主或房管可以删除影片')
       return
     }
     if (!roomId) {
@@ -387,7 +397,7 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
                   draggable={false}
                   className={cn(
                     'grid items-center gap-2',
-                    isHost
+                    isHost || canManage
                       ? 'grid-cols-[auto_1fr_auto_auto]'
                       : 'grid-cols-[auto_1fr]'
                   )}
@@ -482,24 +492,24 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
                         />
                       )}
                   </div>
-                  {isHost && (
+                  {(isHost || canManage) && (
                     <Button
                       variant={isActive ? 'primary' : 'secondary'}
                       size="sm"
                       className="h-7 flex-shrink-0 px-2"
                       icon={<Play className="h-3.5 w-3.5" />}
                       onClick={() => handlePlay(movie.id)}
-                      disabled={!isHost || isScreenShare}
+                      disabled={(!isHost && !canManage) || isScreenShare}
                       title={
                         isScreenShare
                           ? '远程共享模式下不可播放'
-                          : isHost
+                          : isHost || canManage
                             ? '播放'
-                            : '仅房主可播放'
+                            : '仅房主或房管可播放'
                       }
                     />
                   )}
-                  {isHost && (
+                  {(isHost || canManage) && (
                     <Button
                       variant="ghost"
                       size="sm"
@@ -507,13 +517,13 @@ export function MovieListPanel({ isHost }: MovieListPanelProps) {
                       icon={<Trash2 className="h-3.5 w-3.5" />}
                       onClick={() => handleRemove(movie.id)}
                       loading={removingId === movie.id}
-                      disabled={!isHost || isScreenShare}
+                      disabled={(!isHost && !canManage) || isScreenShare}
                       title={
                         isScreenShare
                           ? '远程共享模式下不可删除'
-                          : isHost
+                          : isHost || canManage
                             ? '删除'
-                            : '仅房主可删除'
+                            : '仅房主或房管可删除'
                       }
                     />
                   )}

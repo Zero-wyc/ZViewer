@@ -125,6 +125,11 @@ function RoomPage() {
   ])
   const { socket } = useSocket()
   const username = useAuthStore((state) => state.user?.username)
+  const currentUserId = useAuthStore((state) => state.user?.id)
+  const moderators = useRoomStore((state) => state.moderators)
+  // 房管观众：可管理影片与成员（含语音），后端同步的 moderators 列表判定
+  const isModerator =
+    currentUserId != null && moderators.includes(Number(currentUserId))
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
@@ -344,6 +349,7 @@ function RoomPage() {
       roomId={roomId}
       username={username}
       isHost={isHost}
+      canManageVoice={isHost || isModerator}
     />
   )
 

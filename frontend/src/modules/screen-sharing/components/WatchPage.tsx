@@ -18,6 +18,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
+import { useAuthStore } from '@/store/authStore'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import { CommentPanel } from '@/components/CommentPanel'
@@ -26,6 +27,7 @@ import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemo
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
+import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import { useShareMethod } from '../hooks/useShareMethod'
@@ -73,6 +75,11 @@ function WatchPage() {
   const { shareMethod } = useShareMethod(socket, roomId ?? '', false)
   const streamKey = useRoomStore((state) => state.streamKey)
   const exitRoom = useRoomStore((state) => state.exitRoom)
+  const moderators = useRoomStore((state) => state.moderators)
+  const currentUserId = useAuthStore((state) => state.user?.id)
+  // 房管观众：可管理影片与成员（含语音），由服务器同步的 moderators 判定
+  const isModerator =
+    currentUserId != null && moderators.includes(Number(currentUserId))
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
@@ -102,10 +109,15 @@ function WatchPage() {
         controls={
           <>
             <RoomInfoPanel roomId={roomId ?? ''} isHost={false} />
-            <MovieListPanel isHost={false} />
+            <MovieListPanel isHost={false} canManage={isModerator} />
+            {isModerator && <MoviePushPanel isHost={isModerator} />}
           </>
         }
-        controlLabels={['房间状态', '影片列表']}
+        controlLabels={
+          isModerator
+            ? ['房间状态', '影片列表', '添加影片']
+            : ['房间状态', '影片列表']
+        }
         webFullscreen={isWebFullscreen}
       />
     )

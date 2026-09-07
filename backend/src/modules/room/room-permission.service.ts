@@ -83,6 +83,7 @@ export class RoomPermissionService {
     if (socketId && roomId) {
       this.permissionCache.delete(this.cacheKey(socketId, roomId, 'isRoomHost'));
       this.permissionCache.delete(this.cacheKey(socketId, roomId, 'isInRoom'));
+      this.permissionCache.delete(this.cacheKey(socketId, roomId, 'isRoomModerator'));
       return;
     }
     for (const key of this.permissionCache.keys()) {
@@ -276,6 +277,84 @@ export class RoomPermissionService {
     } catch {
       return false;
     }
+  }
+
+  /**
+   * 检查 socket 是否为指定房间的房管（协管员）。
+   *
+   * 房管由房主任命（Room.moderators，userId JSON 数组），
+   * 可执行影片管理、成员管理（禁言/踢出，含语音）。
+   * 房主不在 moderators 列表中（房主身份由 ownerUserId/session 判定）。
+   */
+  async isRoomModerator(socket: Socket, roomId: string): Promise<boolean> {
+    const key = this.cacheKey(socket.id, roomId, 'isRoomModerator');
+    const cached = this.getCached(key);
+    if (cached !== null) return cached;
+
+    const userId: number | undefined = socket.data?.userId;
+    if (!userId || userId <= 0) {
+      this.setCache(key, false);
+      return false;
+    }
+
+    const roomRepo = AppDataSource.getRepository(Room);
+    const room = await roomRepo.findOneBy({ roomId });
+    let result = false;
+    if (room) {
+      try {
+        const moderators: number[] = JSON.parse(room.moderators || '[]');
+        result = moderators.includes(userId);
+      } catch {
+        result = false;
+      }
+    }
+    this.setCache(key, result);
+    return result;
+  }
+
+  /**
+   * 检查 socket 是否为指定房间的房主或房管。
+   *
+   * 用于管理类权限点（禁言/踢出/影片管理等）：
+   * 房主与房管均可执行；播放控制广播链路仍为房主专属。
+   */
+  async isRoomHostOrModerator(socket: Socket, roomId: string): Promise<boolean> {
+    if (await this.isRoomHost(socket, roomId)) return true;
+    return this.isRoomModerator(socket, roomId);
+  }
+
+  /**
+   * 获取房间房管 userId 列表。
+   */
+  async getModerators(roomId: string): Promise<number[]> {
+    const roomRepo = AppDataSource.getRepository(Room);
+    const room = await roomRepo.findOneBy({ roomId });
+    if (!room) return [];
+    try {
+      return JSON.parse(room.moderators || '[]');
+    } catch {
+      return [];
+    }
+  }
+
+  /**
+   * 设置房间房管列表（仅房主操作端点调用）。
+   * 同步失效该房间的权限缓存，确保房管变更立即生效。
+   */
+  async setModerators(roomId: string, moderators: number[]): Promise<void> {
+    const roomRepo = AppDataSource.getRepository(Room);
+    const room = await roomRepo.findOneBy({ roomId });
+    if (!room) return;
+    room.moderators = JSON.stringify(moderators);
+    await roomRepo.save(room);
+    this.invalidatePermissionCache(undefined, roomId);
+  }
+
+  /**
+   * 失效房管缓存（appoint/dismiss 后由调用方触发广播前调用）。
+   */
+  invalidateModeratorCache(roomId: string): void {
+    this.invalidatePermissionCache(undefined, roomId);
   }
 }
 

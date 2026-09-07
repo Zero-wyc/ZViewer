@@ -48,6 +48,8 @@ export interface VoiceMember {
   /** 显示名（服务器下发：登录用户为真实用户名，游客为客户端昵称） */
   username?: string
   speaking?: boolean
+  /** 是否被语音禁言（仅 voice-join 应答时由服务器填充，供初始化标记） */
+  muted?: boolean
 }
 
 export interface UseVoiceChatOptions {
@@ -93,6 +95,17 @@ export interface UseVoiceChatResult {
   setMicVolume: (value: number) => void
   /** 每个成员的实时音量电平 0~1（key 为 socketId，本地为 'self'） */
   audioLevels: Map<string, number>
+  /** 语音禁言/解禁某成员（房主/房管） */
+  muteVoiceMember: (
+    socketId: string,
+    muted: boolean
+  ) => Promise<{ success: boolean; message?: string }>
+  /** 踢出某成员的语音（房主/房管，60s 冷却） */
+  kickVoiceMember: (
+    socketId: string
+  ) => Promise<{ success: boolean; message?: string }>
+  /** 语音禁言状态（key 为 socketId，服务器广播同步） */
+  voiceMutedBySocket: Set<string>
 }
 
 // ==================== 工具函数 ====================
@@ -166,6 +179,10 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     new Map()
   )
   const [audioLevels, setAudioLevels] = useState<Map<string, number>>(new Map())
+  /** 语音禁言成员集合（key 为 socketId，join 应答初始化 + 广播增量同步） */
+  const [voiceMutedBySocket, setVoiceMutedBySocket] = useState<Set<string>>(
+    new Set()
+  )
 
   // 音频采集与处理相关 refs
   const localStreamRef = useRef<MediaStream | null>(null)
@@ -602,6 +619,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     setMicVolumeState(1)
     setPeerLatencies(new Map())
     setAudioLevels(new Map())
+    setVoiceMutedBySocket(new Set())
   }, [cleanupPeerPlayback, stopMonitor, stopLevelDetection])
 
   // ==================== 加入/离开 ====================
@@ -813,6 +831,12 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         })
       }
       setMembers(initialMembers)
+
+      // 初始化禁言标记（join 应答携带，后续由 voice-muted-changed 增量同步）
+      const mutedIds = response.members
+        .filter((m) => m.muted)
+        .map((m) => m.socketId)
+      setVoiceMutedBySocket(new Set(mutedIds))
 
       // 为已有成员创建播放链路
       response.members.forEach((m) => {
@@ -1036,9 +1060,85 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     (payload: { socketId: string; userId?: number; username?: string }) => {
       cleanupPeerPlayback(payload.socketId)
       setMembers((prev) => prev.filter((m) => m.socketId !== payload.socketId))
+      setVoiceMutedBySocket((prev) => {
+        if (!prev.has(payload.socketId)) return prev
+        const next = new Set(prev)
+        next.delete(payload.socketId)
+        return next
+      })
     },
     [cleanupPeerPlayback]
   )
+
+  // ==================== 语音管理（房主/房管） ====================
+
+  const handleVoiceMutedChanged = useCallback(
+    (payload: {
+      socketId: string
+      userId: number
+      username?: string
+      muted: boolean
+    }) => {
+      if (!payload || typeof payload.socketId !== 'string') return
+      setVoiceMutedBySocket((prev) => {
+        const next = new Set(prev)
+        if (payload.muted) {
+          next.add(payload.socketId)
+        } else {
+          next.delete(payload.socketId)
+        }
+        return next
+      })
+      // 自己被禁言/解禁时提示
+      const mySocketId = socketRef.current?.id
+      if (mySocketId && payload.socketId === mySocketId) {
+        if (payload.muted) {
+          message.warning('您已被管理员语音禁言')
+        } else {
+          message.success('语音禁言已解除')
+        }
+      }
+    },
+    []
+  )
+
+  const handleVoiceKicked = useCallback(() => {
+    // 被踢出语音：本地直接执行完整离开流程（停止采集/清理播放链路）
+    message.error('您已被管理员移出语音')
+    leave()
+  }, [leave])
+
+  /** 语音禁言/解禁某成员 */
+  const muteVoiceMember = useCallback((socketId: string, muted: boolean) => {
+    const currentSocket = socketRef.current
+    const currentRoomId = roomIdRef.current
+    if (!currentSocket || !currentRoomId) {
+      return Promise.resolve({ success: false, message: '未连接' })
+    }
+    return new Promise<{ success: boolean; message?: string }>((resolve) => {
+      currentSocket.emit(
+        'voice-mute',
+        { roomId: currentRoomId, socketId, muted },
+        (res: { success: boolean; message?: string }) => resolve(res)
+      )
+    })
+  }, [])
+
+  /** 踢出某成员的语音 */
+  const kickVoiceMember = useCallback((socketId: string) => {
+    const currentSocket = socketRef.current
+    const currentRoomId = roomIdRef.current
+    if (!currentSocket || !currentRoomId) {
+      return Promise.resolve({ success: false, message: '未连接' })
+    }
+    return new Promise<{ success: boolean; message?: string }>((resolve) => {
+      currentSocket.emit(
+        'voice-kick',
+        { roomId: currentRoomId, socketId },
+        (res: { success: boolean; message?: string }) => resolve(res)
+      )
+    })
+  }, [])
 
   useEffect(() => {
     if (!socket) return
@@ -1047,12 +1147,16 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     socket.on('voice-codec-config', handleVoiceCodecConfig)
     socket.on('voice-user-joined', handleVoiceUserJoined)
     socket.on('voice-user-left', handleVoiceUserLeft)
+    socket.on('voice-muted-changed', handleVoiceMutedChanged)
+    socket.on('voice-kicked', handleVoiceKicked)
 
     return () => {
       socket.off('voice-audio-data', handleVoiceAudioData)
       socket.off('voice-codec-config', handleVoiceCodecConfig)
       socket.off('voice-user-joined', handleVoiceUserJoined)
       socket.off('voice-user-left', handleVoiceUserLeft)
+      socket.off('voice-muted-changed', handleVoiceMutedChanged)
+      socket.off('voice-kicked', handleVoiceKicked)
     }
   }, [
     socket,
@@ -1060,6 +1164,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     handleVoiceCodecConfig,
     handleVoiceUserJoined,
     handleVoiceUserLeft,
+    handleVoiceMutedChanged,
+    handleVoiceKicked,
   ])
 
   // 组件卸载或房间变化时自动离开
@@ -1089,5 +1195,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     micVolume,
     setMicVolume,
     audioLevels,
+    muteVoiceMember,
+    kickVoiceMember,
+    voiceMutedBySocket,
   }
 }

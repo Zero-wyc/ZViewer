@@ -44,7 +44,9 @@ export class PreviewHandler implements SocketEventHandler {
       'play-preview-source',
       async (payload: PreviewSourcePayload, callback?: AckCallback) => {
         try {
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+          if (
+            !(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))
+          ) {
             return safeAck(callback, { success: false, message: '无权限播放影片' });
           }
 

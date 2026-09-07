@@ -44,6 +44,12 @@ interface MuteViewerPayload {
   userId: number;
 }
 
+/** appoint-moderator / dismiss-moderator 事件 payload */
+interface ModeratorPayload {
+  roomId: string;
+  userId: number;
+}
+
 /** transfer-host 事件 payload */
 interface TransferHostPayload {
   roomId: string;
@@ -96,6 +102,13 @@ export class ViewerManagementHandler implements SocketEventHandler {
             streamKey: room?.streamKey ?? null,
             name: room?.name ?? null,
           });
+
+          // 推送房管列表（权限 UI 初始化）
+          await viewerListService.sendModerators(
+            io,
+            sharer.roomId,
+            payload.viewerSocketId,
+          );
 
           // 推送影片列表与当前播放影片
           io.to(payload.viewerSocketId).emit('movie-list', {
@@ -175,16 +188,36 @@ export class ViewerManagementHandler implements SocketEventHandler {
       },
     );
 
-    // --- 踢出观众：仅 sharer ---
+    // --- 踢出观众：房主或房管（房管不可踢房主/其他房管） ---
     socket.on(
       'kick-viewer',
       async (payload: KickViewerPayload, callback: AckCallback) => {
         try {
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
-            return safeAck(callback, {
-              success: false,
-              message: '无权限：仅房主可踢人',
-            });
+          const isHost = await roomPermissionService.isRoomHost(socket, payload.roomId);
+          if (!isHost) {
+            const isModerator = await roomPermissionService.isRoomModerator(
+              socket,
+              payload.roomId,
+            );
+            if (!isModerator) {
+              return safeAck(callback, {
+                success: false,
+                message: '无权限：仅房主或房管可踢人',
+              });
+            }
+            // 房管防篡权：目标为房主或房管时拒绝
+            const targetSocket = io.sockets.sockets.get(payload.viewerSocketId);
+            const targetUserId: number | undefined = targetSocket?.data?.userId;
+            const [room, moderators] = await Promise.all([
+              AppDataSource.getRepository(Room).findOneBy({ roomId: payload.roomId }),
+              roomPermissionService.getModerators(payload.roomId),
+            ]);
+            if (targetUserId && room && room.ownerUserId === targetUserId) {
+              return safeAck(callback, { success: false, message: '不能踢出房主' });
+            }
+            if (targetUserId && moderators.includes(targetUserId)) {
+              return safeAck(callback, { success: false, message: '不能踢出房管' });
+            }
           }
 
           // 调用 viewerService 踢出（含发 viewer-kicked、endViewerSession、disconnect）
@@ -244,15 +277,17 @@ export class ViewerManagementHandler implements SocketEventHandler {
       },
     );
 
-    // --- 解除禁言：仅 sharer ---
+    // --- 解除禁言：房主或房管 ---
     socket.on(
       'unmute-viewer',
       async (payload: MuteViewerPayload, callback: AckCallback) => {
         try {
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+          if (
+            !(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))
+          ) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主可解禁',
+              message: '无权限：仅房主或房管可解禁',
             });
           }
 
@@ -331,6 +366,94 @@ export class ViewerManagementHandler implements SocketEventHandler {
         } catch (err) {
           console.error('[transfer-host] error:', err);
           return safeAck(callback, { success: false, message: '转交房主失败' });
+        }
+      },
+    );
+
+    // --- 任命房管：仅房主 ---
+    socket.on(
+      'appoint-moderator',
+      async (payload: ModeratorPayload, callback: AckCallback) => {
+        try {
+          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+            return safeAck(callback, {
+              success: false,
+              message: '无权限：仅房主可任命房管',
+            });
+          }
+
+          // 房管必须为登录用户（userId > 0），游客无法被任命
+          if (!payload.userId || payload.userId <= 0) {
+            return safeAck(callback, {
+              success: false,
+              message: '不能任命游客为房管',
+            });
+          }
+
+          // 不能任命房主本人（房主天然拥有全部权限）
+          const room = await AppDataSource.getRepository(Room).findOneBy({
+            roomId: payload.roomId,
+          });
+          if (room && room.ownerUserId === payload.userId) {
+            return safeAck(callback, {
+              success: false,
+              message: '房主无需任命',
+            });
+          }
+
+          const moderators = await roomPermissionService.getModerators(
+            payload.roomId,
+          );
+          if (moderators.includes(payload.userId)) {
+            return safeAck(callback, { success: true });
+          }
+          moderators.push(payload.userId);
+          await roomPermissionService.setModerators(payload.roomId, moderators);
+
+          // 广播给房间内所有成员，前端更新房管标记与权限 UI
+          io.to(payload.roomId).emit('moderators-changed', {
+            roomId: payload.roomId,
+            moderators,
+          });
+
+          return safeAck(callback, { success: true, data: { moderators } });
+        } catch (err) {
+          console.error('[appoint-moderator] error:', err);
+          return safeAck(callback, { success: false, message: '任命房管失败' });
+        }
+      },
+    );
+
+    // --- 撤销房管：仅房主 ---
+    socket.on(
+      'dismiss-moderator',
+      async (payload: ModeratorPayload, callback: AckCallback) => {
+        try {
+          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+            return safeAck(callback, {
+              success: false,
+              message: '无权限：仅房主可撤销房管',
+            });
+          }
+
+          const moderators = await roomPermissionService.getModerators(
+            payload.roomId,
+          );
+          if (!moderators.includes(payload.userId)) {
+            return safeAck(callback, { success: true });
+          }
+          const next = moderators.filter((id) => id !== payload.userId);
+          await roomPermissionService.setModerators(payload.roomId, next);
+
+          io.to(payload.roomId).emit('moderators-changed', {
+            roomId: payload.roomId,
+            moderators: next,
+          });
+
+          return safeAck(callback, { success: true, data: { moderators: next } });
+        } catch (err) {
+          console.error('[dismiss-moderator] error:', err);
+          return safeAck(callback, { success: false, message: '撤销房管失败' });
         }
       },
     );

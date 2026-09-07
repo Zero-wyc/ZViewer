@@ -13,6 +13,7 @@ import type {
   ViewerDto,
   ViewerJoinedPayload,
 } from '../shared';
+import { roomPermissionService } from '../room/room-permission.service';
 import { viewerService } from './viewer.service';
 
 /**
@@ -43,6 +44,22 @@ export class ViewerListService {
     socketId: string,
   ): void {
     io.to(roomId).emit('viewer-left', { viewerSocketId: socketId });
+  }
+
+  /**
+   * 给指定 socket 推送当前房间房管列表（moderators-changed 事件）。
+   *
+   * 观众进入房间时（免审批 / 白名单 / 批准三种入口）调用，
+   * 使其本地权限判断（房管 UI / 管理按钮可见性）拿到初始列表；
+   * 后续变更由 appoint/dismiss 广播增量同步。
+   */
+  async sendModerators(
+    io: SocketIOServer,
+    roomId: string,
+    toSocketId: string,
+  ): Promise<void> {
+    const moderators = await roomPermissionService.getModerators(roomId);
+    io.to(toSocketId).emit('moderators-changed', { roomId, moderators });
   }
 
   /**

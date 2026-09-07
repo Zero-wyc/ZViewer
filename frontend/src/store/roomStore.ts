@@ -200,6 +200,14 @@ interface RoomState {
   viewers: Viewer[]
   // 被禁言观众 userId 列表（仅房主维护，观众端不展示）
   mutedViewerIds: number[]
+  /**
+   * 房管（协管员）userId 列表（全员同步）。
+   * 观众进入房间时由服务器推送初始列表（moderators-changed 事件），
+   * 房主任命/撤销时广播增量更新。房管可执行影片管理、成员管理
+   * （禁言/踢出，含语音），不可转交房主/修改房间设置。
+   */
+  moderators: number[]
+  setModerators: (moderators: number[]) => void
   // 房间运行时设置（密码/上限/审批开关）
   roomSettings: RoomSettings
   isSharing: boolean
@@ -375,6 +383,7 @@ const defaultState = {
   shareMethod: 'webrtc' as ShareMethod,
   viewers: [],
   mutedViewerIds: [] as number[],
+  moderators: [] as number[],
   roomSettings: {
     password: null as string | null,
     maxViewers: 10,
@@ -413,6 +422,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   ...defaultState,
   setRoomId: (id) => set({ roomId: id }),
   setRoomName: (name) => set({ roomName: name }),
+  setModerators: (moderators) => set({ moderators }),
   setPassword: (password) => set({ password }),
   setMaxViewers: (max) => set({ maxViewers: max }),
   setMode: (mode) => set({ mode }),

@@ -40,8 +40,10 @@ export class MovieListHandler implements SocketEventHandler {
         callback?: AckCallback,
       ) => {
         try {
-          // 权限校验：仅房主可添加影片
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+          // 权限校验：房主或房管可添加影片
+          if (
+            !(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))
+          ) {
             return safeAck(callback, { success: false, message: '无权限添加影片' });
           }
 
@@ -63,7 +65,9 @@ export class MovieListHandler implements SocketEventHandler {
         callback?: AckCallback,
       ) => {
         try {
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+          if (
+            !(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))
+          ) {
             return safeAck(callback, { success: false, message: '无权限移除影片' });
           }
 
@@ -101,7 +105,9 @@ export class MovieListHandler implements SocketEventHandler {
         callback?: AckCallback,
       ) => {
         try {
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+          if (
+            !(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))
+          ) {
             return safeAck(callback, { success: false, message: '无权限播放影片' });
           }
 

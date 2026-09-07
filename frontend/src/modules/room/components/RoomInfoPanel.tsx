@@ -82,6 +82,8 @@ export function RoomInfoPanel({
   const addMutedViewer = useRoomStore((state) => state.addMutedViewer)
   const removeMutedViewer = useRoomStore((state) => state.removeMutedViewer)
   const setRoomSettings = useRoomStore((state) => state.setRoomSettings)
+  const moderators = useRoomStore((state) => state.moderators)
+  const setModerators = useRoomStore((state) => state.setModerators)
   const autoApproveRequests = useRoomStore((state) => state.autoApproveRequests)
   const toggleAutoApproveRequests = useRoomStore(
     (state) => state.toggleAutoApproveRequests
@@ -114,6 +116,11 @@ export function RoomInfoPanel({
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步 isHostProp 到内部状态
     setIsHost(isHostProp)
   }, [isHostProp])
+
+  // 当前用户是否为房管（房主身份由 sessionStorage 标记判定，
+  // 房管身份由服务器同步的 moderators 列表判定）
+  const isModerator =
+    currentUserId != null && moderators.includes(Number(currentUserId))
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步 roomName 到编辑框
@@ -193,22 +200,46 @@ export function RoomInfoPanel({
       // 退出房间由全局导航处理
     }
 
+    const handleModeratorsChanged = (payload: {
+      roomId: string
+      moderators: number[]
+    }) => {
+      if (!payload || !Array.isArray(payload.moderators)) return
+      const prev = useRoomStore.getState().moderators
+      setModerators(payload.moderators)
+      // 自己被任命/撤销房管时给出提示
+      if (currentUserId != null) {
+        const wasModerator = prev.includes(Number(currentUserId))
+        const isNowModerator = payload.moderators.includes(
+          Number(currentUserId)
+        )
+        if (!wasModerator && isNowModerator) {
+          message.success('您已被任命为房管')
+        } else if (wasModerator && !isNowModerator) {
+          message.info('您的房管权限已被撤销')
+        }
+      }
+    }
+
     socket.on('viewer-muted', handleViewerMuted)
     socket.on('host-transferred', handleHostTransferred)
     socket.on('room-settings-updated', handleRoomSettingsUpdated)
     socket.on('viewer-kicked', handleViewerKicked)
+    socket.on('moderators-changed', handleModeratorsChanged)
 
     return () => {
       socket.off('viewer-muted', handleViewerMuted)
       socket.off('host-transferred', handleHostTransferred)
       socket.off('room-settings-updated', handleRoomSettingsUpdated)
       socket.off('viewer-kicked', handleViewerKicked)
+      socket.off('moderators-changed', handleModeratorsChanged)
     }
   }, [
     socket,
     addMutedViewer,
     removeMutedViewer,
     setRoomSettings,
+    setModerators,
     currentUserId,
   ])
 
@@ -315,6 +346,28 @@ export function RoomInfoPanel({
     )
   }
 
+  // 房主任命/撤销房管（仅房主可操作）
+  const handleToggleModerator = (userId: number, username?: string) => {
+    if (!socket) return
+    const isModerator = moderators.includes(userId)
+    const event = isModerator ? 'dismiss-moderator' : 'appoint-moderator'
+    socket.emit(
+      event,
+      { roomId, userId },
+      (response: { success: boolean; message?: string }) => {
+        if (response.success) {
+          message.success(
+            isModerator
+              ? `已撤销 ${username || '该用户'} 的房管权限`
+              : `已任命 ${username || '该用户'} 为房管`
+          )
+        } else {
+          message.error(response.message || '操作失败')
+        }
+      }
+    )
+  }
+
   const handleSaveSettings = () => {
     if (!socket) return
     const trimmedPwd = passwordValue.trim()
@@ -368,11 +421,16 @@ export function RoomInfoPanel({
       viewer.userId != null &&
       currentUserId != null &&
       String(viewer.userId) === String(currentUserId)
+    const viewerIsModerator =
+      viewer.userId != null && moderators.includes(Number(viewer.userId))
+    // 管理权限（禁言/踢出/房管任命）：房主或房管
     const canManage =
       withActions &&
-      isHost &&
+      (isHost || isModerator) &&
       !isSelf && // 不能操作自己
       viewer.role !== 'root' // 不能对 root 操作
+    // 房管额外限制：不可操作房主或其他房管（与后端校验一致）
+    const canActOnTarget = isHost || !viewerIsModerator
     return (
       <div
         key={viewer.socketId}
@@ -388,6 +446,19 @@ export function RoomInfoPanel({
               {viewer.username || viewer.socketId.slice(0, 8)}
             </Text>
             <RoleBadge role={viewer.role} />
+            {viewerIsModerator && (
+              <span
+                className="shrink-0 flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] font-medium"
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--md-sys-color-tertiary) 15%, transparent)',
+                  color: 'var(--md-sys-color-tertiary)',
+                }}
+              >
+                <Shield className="h-2.5 w-2.5" />
+                房管
+              </span>
+            )}
             {isMuted && (
               <span
                 className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium"
@@ -411,7 +482,8 @@ export function RoomInfoPanel({
           <div className="flex shrink-0 items-center gap-1">
             <button
               onClick={() => handleToggleMute(viewer.userId, isMuted)}
-              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
+              disabled={!canActOnTarget}
+              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
               style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               title={isMuted ? '解除禁言' : '禁言'}
             >
@@ -421,22 +493,46 @@ export function RoomInfoPanel({
                 <VolumeX className="h-3.5 w-3.5" />
               )}
             </button>
-            <button
-              onClick={() =>
-                setTransferTarget({
-                  socketId: viewer.socketId,
-                  username: viewer.username,
-                })
-              }
-              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
-              style={{ color: 'var(--md-sys-color-tertiary)' }}
-              title="转交房主"
-            >
-              <Crown className="h-3.5 w-3.5" />
-            </button>
+            {/* 房管任命/撤销：仅房主可见（仅登录用户可被任命） */}
+            {isHost && viewer.userId != null && viewer.userId > 0 && (
+              <button
+                onClick={() =>
+                  handleToggleModerator(Number(viewer.userId), viewer.username)
+                }
+                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
+                style={{ color: 'var(--md-sys-color-tertiary)' }}
+                title={viewerIsModerator ? '撤销房管' : '任命房管'}
+              >
+                <Shield
+                  className="h-3.5 w-3.5"
+                  style={
+                    viewerIsModerator
+                      ? { color: 'var(--md-sys-color-tertiary)' }
+                      : undefined
+                  }
+                />
+              </button>
+            )}
+            {/* 转交房主：仅房主可见 */}
+            {isHost && (
+              <button
+                onClick={() =>
+                  setTransferTarget({
+                    socketId: viewer.socketId,
+                    username: viewer.username,
+                  })
+                }
+                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
+                style={{ color: 'var(--md-sys-color-tertiary)' }}
+                title="转交房主"
+              >
+                <Crown className="h-3.5 w-3.5" />
+              </button>
+            )}
             <button
               onClick={() => handleKick(viewer.socketId)}
-              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
+              disabled={!canActOnTarget}
+              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
               style={{ color: 'var(--md-sys-color-error)' }}
               title="移出房间"
             >
@@ -499,6 +595,19 @@ export function RoomInfoPanel({
             >
               <Crown className="h-2.5 w-2.5" />
               房主
+            </span>
+          )}
+          {!isHost && isModerator && (
+            <span
+              className="flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold"
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-tertiary) 15%, transparent)',
+                color: 'var(--md-sys-color-tertiary)',
+              }}
+            >
+              <Shield className="h-2.5 w-2.5" />
+              房管
             </span>
           )}
         </div>

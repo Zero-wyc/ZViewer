@@ -269,6 +269,8 @@ export class ViewerJoinHandler implements SocketEventHandler {
                 payload.roomId,
                 socket.id,
               );
+              // 推送房管列表（权限 UI 初始化）
+              await viewerListService.sendModerators(io, payload.roomId, socket.id);
 
               return safeAck(callback, {
                 success: true,
