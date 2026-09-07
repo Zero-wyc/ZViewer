@@ -152,6 +152,12 @@ interface PeerPlaybackState {
   lastReceiveTime: number
   /** 延迟检测：发送端附带的时间戳 → 接收端计算差值 */
   lastLatency: number
+  /**
+   * 已调度未播完的音频块。积压重置时必须显式 stop：
+   * 仅重置 nextStartTime 会让旧时间线上已 start() 的块继续播放，
+   * 与新时间线重叠（听感为回声/金属声）。
+   */
+  pendingSources: Set<AudioBufferSourceNode>
   /** Opus 解码器（WebCodecs 模式下每个远端用户独立） */
   decoder?: AudioDecoder
   /** 解码器是否已配置（收到 codec description 后才为 true） */
@@ -362,6 +368,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         queueLength: 0,
         lastReceiveTime: 0,
         lastLatency: 0,
+        pendingSources: new Set(),
       }
 
       // Opus 模式下创建解码器
@@ -450,22 +457,44 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       const now = ctx.currentTime
       // jitter buffer：第一个块延迟播放，后续块无缝接续
       const startTime = Math.max(now + JITTER_BUFFER_DELAY, state.nextStartTime)
+      state.pendingSources.add(source)
+      source.onended = () => {
+        state.pendingSources.delete(source)
+      }
       source.start(startTime)
       state.nextStartTime = startTime + audioBuffer.duration
       state.queueLength = Math.max(0, state.queueLength - 1)
 
-      // 如果队列积压过多，重置 nextStartTime 以减少延迟
+      // 积压超过阈值：丢弃已排队未播的旧块再重置时间线。
+      // 实时语音宁可断 0.5s 音，也不能让新旧时间线重叠播放（回声）
       if (state.nextStartTime - now > 0.5) {
+        for (const s of state.pendingSources) {
+          try {
+            s.stop()
+          } catch {
+            // ignore：已播完/已停止的块
+          }
+        }
+        state.pendingSources.clear()
         state.nextStartTime = now + JITTER_BUFFER_DELAY
       }
     },
     [ensurePeerPlayback]
   )
 
-  /** 清理指定远端用户的播放状态（含解码器） */
+  /** 清理指定远端用户的播放状态（含解码器与未播完的音频块） */
   const cleanupPeerPlayback = useCallback((socketId: string) => {
     const state = peerStatesRef.current.get(socketId)
     if (state) {
+      // 停止未播完的音频块（避免成员离开后残留声音）
+      for (const s of state.pendingSources) {
+        try {
+          s.stop()
+        } catch {
+          // ignore
+        }
+      }
+      state.pendingSources.clear()
       // 关闭解码器
       if (state.decoder) {
         try {
@@ -812,9 +841,10 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       if ('message' in response) {
         message.error(response.message ?? '加入语音聊天失败')
-        stream.getTracks().forEach((track) => track.stop())
-        localStreamRef.current = null
-        setJoining(false)
+        // 此时 captureCtx/playbackCtx/encoder/worklet 均已创建，
+        // 必须完整清理（Chrome 每页 AudioContext 上限约 6 个，
+        // 泄漏累积后 join 会静默失败）
+        cleanupAll()
         return
       }
 
@@ -849,15 +879,16 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     } catch (err) {
       console.error('[voice] join error:', err)
       message.error('无法获取麦克风权限或加入语音失败')
-      localStreamRef.current?.getTracks().forEach((track) => track.stop())
-      localStreamRef.current = null
-      setJoining(false)
+      // 中途任一步骤异常（如 addModule 失败）都可能已创建 AudioContext，
+      // 统一走完整清理避免泄漏
+      cleanupAll()
     }
   }, [
     joining,
     micEnabled,
     username,
     ensurePeerPlayback,
+    cleanupAll,
     setupLocalAnalyser,
     startLevelDetection,
   ])
@@ -1167,6 +1198,68 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     handleVoiceMutedChanged,
     handleVoiceKicked,
   ])
+
+  // socket.io 断线重连后 socket.id 变化：服务器 voiceMembers 表中无新连接
+  // 的条目，上行音频会被服务器静默丢弃（自己听得到别人、别人听不到自己，
+  // 面板却仍显示已连接）。已加入状态下自动重新 voice-join——轻量重加入：
+  // 复用既有采集/编码/播放链路，不重新获取麦克风。
+  useEffect(() => {
+    if (!socket) return
+
+    const handleReconnect = () => {
+      if (!joinedRef.current) return
+      const currentRoomId = roomIdRef.current
+      if (!currentRoomId) return
+
+      socket.emit(
+        'voice-join',
+        { roomId: currentRoomId, username: usernameRef.current },
+        (
+          res:
+            | { success: true; members: VoiceMember[] }
+            | { success: false; message: string }
+        ) => {
+          if ('message' in res) {
+            // 重加入被拒（如被踢冷却期内）：彻底离开语音
+            message.error(res.message)
+            leave()
+            return
+          }
+          // 重建成员列表（自己的 socketId 已变化，远端条目不变）
+          const initialMembers: VoiceMember[] = [...res.members]
+          if (socket.id) {
+            initialMembers.unshift({
+              socketId: socket.id,
+              userId: -1,
+              username: usernameRef.current,
+            })
+          }
+          setMembers(initialMembers)
+          // 同步禁言标记与播放链路
+          const mutedIds = res.members
+            .filter((m) => m.muted)
+            .map((m) => m.socketId)
+          setVoiceMutedBySocket(new Set(mutedIds))
+          res.members.forEach((m) => {
+            ensurePeerPlayback(m.socketId)
+          })
+          // 重发编解码器配置：其他端为新 socketId 重建了解码器，需重新配置
+          if (OPUS_SUPPORTED && codecDescriptionRef.current) {
+            socket.emit('voice-codec-config', {
+              roomId: currentRoomId,
+              description: codecDescriptionRef.current,
+            })
+          }
+          message.info('语音已重新连接')
+        }
+      )
+    }
+
+    socket.on('connect', handleReconnect)
+    return () => {
+      socket.off('connect', handleReconnect)
+    }
+  }, [socket, leave, ensurePeerPlayback])
 
   // 组件卸载或房间变化时自动离开
   useEffect(() => {
