@@ -32,6 +32,12 @@ const OPUS_SAMPLE_RATE = 48_000
 /** 接收端 jitter buffer 初始延迟（秒） */
 const JITTER_BUFFER_DELAY = 0.06
 
+/** 解码器错误重建节流间隔（防 error 死循环） */
+const DECODER_REBUILD_THROTTLE_MS = 10_000
+
+/** 编码器错误重建节流间隔（防 error 死循环） */
+const ENCODER_REBUILD_THROTTLE_MS = 10_000
+
 /** 检测浏览器是否支持 WebCodecs AudioEncoder/AudioDecoder */
 const OPUS_SUPPORTED =
   typeof window !== 'undefined' &&
@@ -121,7 +127,7 @@ function float32ToInt16(float32: Float32Array): Int16Array {
 }
 
 /** Int16Array → Float32Array（PCM 回退模式使用） */
-function int16ToFloat32(int16: Int16Array): Float32Array {
+function int16ToFloat32(int16: Int16Array): Float32Array<ArrayBuffer> {
   const float32 = new Float32Array(int16.length)
   for (let i = 0; i < int16.length; i++) {
     float32[i] = int16[i] / 0x8000
@@ -146,18 +152,18 @@ interface PeerPlaybackState {
   analyser: AnalyserNode
   /** 下一个音频块的开始播放时间（AudioContext.currentTime 基准） */
   nextStartTime: number
-  /** 播放队列长度（用于 jitter buffer 管理） */
-  queueLength: number
-  /** 最近一次收到数据的时间戳（用于延迟检测） */
-  lastReceiveTime: number
-  /** 延迟检测：发送端附带的时间戳 → 接收端计算差值 */
-  lastLatency: number
   /**
    * 已调度未播完的音频块。积压重置时必须显式 stop：
    * 仅重置 nextStartTime 会让旧时间线上已 start() 的块继续播放，
    * 与新时间线重叠（听感为回声/金属声）。
    */
   pendingSources: Set<AudioBufferSourceNode>
+  /** 延迟检测：发送端附带的时间戳 → 接收端计算差值 */
+  lastLatency: number
+  /** 对方流的 codec description（错误重建解码器时复用） */
+  codecDescription?: ArrayBuffer
+  /** 解码器上次重建时间戳（防 error 死循环） */
+  decoderRebuildAt?: number
   /** Opus 解码器（WebCodecs 模式下每个远端用户独立） */
   decoder?: AudioDecoder
   /** 解码器是否已配置（收到 codec description 后才为 true） */
@@ -207,8 +213,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   const masterGainRef = useRef<GainNode | null>(null)
   const peerStatesRef = useRef<Map<string, PeerPlaybackState>>(new Map())
 
-  // 音量电平分析相关 refs
-  const analyserContextRef = useRef<AudioContext | null>(null)
+  // 音量电平分析相关 refs（本地 analyser 挂在 captureCtx 的 micGain 后，
+  // 不再单独建 AudioContext：省一个上下文配额，且电平反映 micVolume，
+  // 与远端成员实际听到的音量一致）
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
   const levelRafRef = useRef<number | null>(null)
 
@@ -224,6 +231,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   const micVolumeRef = useRef(micVolume)
   const micEnabledRef = useRef(true)
   const joinedRef = useRef(false)
+  /** 自己是否被语音禁言（服务器广播同步；禁言期间停止上行发送） */
+  const selfMutedRef = useRef(false)
 
   useEffect(() => {
     globalVolumeRef.current = globalVolume
@@ -280,18 +289,15 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   }, [])
 
   const setupLocalAnalyser = useCallback(() => {
-    const stream = localStreamRef.current
-    if (!stream) return
+    const ctx = audioContextRef.current
+    const micGain = micGainNodeRef.current
+    if (!ctx || !micGain) return
     try {
-      if (!analyserContextRef.current) {
-        analyserContextRef.current = new AudioContext()
-      }
-      const ctx = analyserContextRef.current
-      const source = ctx.createMediaStreamSource(stream)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       analyser.smoothingTimeConstant = 0.6
-      source.connect(analyser)
+      // 挂在 micGain 之后：电平随麦克风音量实时变化，与远端听感一致
+      micGain.connect(analyser)
       localAnalyserRef.current = analyser
     } catch (err) {
       console.warn('[voice] setup local analyser error:', err)
@@ -337,8 +343,92 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   // （react-hooks v6）。以 ref 持有播放函数断开循环，解码器 output
   // 回调（异步触发，晚于 commit）经 ref 调用最新实现。
   const playAudioChunkRef = useRef<
-    (socketId: string, pcmData: Float32Array, sampleRate: number) => void
+    (
+      socketId: string,
+      pcmData: Float32Array<ArrayBuffer>,
+      sampleRate: number
+    ) => void
   >(() => {})
+
+  /**
+   * 为指定远端用户创建 Opus 解码器。
+   * 具名函数表达式：error 回调可自引用实现"节流重建"——解码器出错后
+   * 关闭旧的并用缓存的 codec description 重建（10s 节流防死循环），
+   * 避免错误后链路静默失效。
+   */
+  const createPeerDecoder = useCallback(function createDecoder(
+    socketId: string
+  ): AudioDecoder | null {
+    const rebuild = () => {
+      const state = peerStatesRef.current.get(socketId)
+      if (!state) return
+      const nowTs = Date.now()
+      if (
+        state.decoderRebuildAt &&
+        nowTs - state.decoderRebuildAt < DECODER_REBUILD_THROTTLE_MS
+      ) {
+        return
+      }
+      state.decoderRebuildAt = nowTs
+      try {
+        state.decoder?.close()
+      } catch {
+        // ignore：可能已关闭
+      }
+      const next = createDecoder(socketId)
+      if (!next) return
+      if (state.codecDescription) {
+        try {
+          next.configure({
+            codec: 'opus',
+            sampleRate: OPUS_SAMPLE_RATE,
+            numberOfChannels: 1,
+            description: state.codecDescription,
+          })
+          state.decoderConfigured = true
+        } catch (err) {
+          console.error(
+            '[voice] failed to configure rebuilt decoder for',
+            socketId,
+            err
+          )
+        }
+      }
+      state.decoder = next
+    }
+
+    try {
+      return new AudioDecoder({
+        output: (audioData: AudioData) => {
+          const numFrames = audioData.numberOfFrames
+          let float32: Float32Array<ArrayBuffer>
+          try {
+            // 根据 AudioData 格式提取 PCM 数据
+            if (audioData.format === 's16-planar') {
+              const int16 = new Int16Array(numFrames)
+              audioData.copyTo(int16, { planeIndex: 0 })
+              float32 = int16ToFloat32(int16)
+            } else {
+              // f32-planar 或其他格式
+              float32 = new Float32Array(numFrames)
+              audioData.copyTo(float32, { planeIndex: 0 })
+            }
+            playAudioChunkRef.current(socketId, float32, audioData.sampleRate)
+          } finally {
+            // copyTo 异常时也必须释放，否则 AudioData 泄漏
+            audioData.close()
+          }
+        },
+        error: (e: DOMException) => {
+          console.error('[voice] AudioDecoder error for', socketId, e)
+          rebuild()
+        },
+      })
+    } catch (err) {
+      console.error('[voice] failed to create AudioDecoder:', err)
+      return null
+    }
+  }, [])
 
   /** 为远端用户创建播放链路（含 Opus 解码器） */
   const ensurePeerPlayback = useCallback(
@@ -365,49 +455,20 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         gainNode,
         analyser,
         nextStartTime: 0,
-        queueLength: 0,
-        lastReceiveTime: 0,
         lastLatency: 0,
         pendingSources: new Set(),
       }
 
-      // Opus 模式下创建解码器
+      // Opus 模式下创建解码器（error 时内部自动节流重建）
       if (OPUS_SUPPORTED) {
-        try {
-          const decoder = new AudioDecoder({
-            output: (audioData: AudioData) => {
-              const numFrames = audioData.numberOfFrames
-              let float32: Float32Array
-
-              // 根据 AudioData 格式提取 PCM 数据
-              if (audioData.format === 's16-planar') {
-                const int16 = new Int16Array(numFrames)
-                audioData.copyTo(int16, { planeIndex: 0 })
-                float32 = int16ToFloat32(int16)
-              } else {
-                // f32-planar 或其他格式
-                float32 = new Float32Array(numFrames)
-                audioData.copyTo(float32, { planeIndex: 0 })
-              }
-
-              playAudioChunkRef.current(socketId, float32, audioData.sampleRate)
-              audioData.close()
-            },
-            error: (e: DOMException) => {
-              console.error('[voice] AudioDecoder error for', socketId, e)
-            },
-          })
-          state.decoder = decoder as unknown as AudioDecoder
-          state.decoderConfigured = false
-        } catch (err) {
-          console.error('[voice] failed to create AudioDecoder:', err)
-        }
+        state.decoder = createPeerDecoder(socketId) ?? undefined
+        state.decoderConfigured = false
       }
 
       peerStatesRef.current.set(socketId, state)
       return state
     },
-    []
+    [createPeerDecoder]
   )
 
   /** 配置远端用户的 Opus 解码器 */
@@ -415,6 +476,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     (socketId: string, description: ArrayBuffer | null) => {
       const state = peerStatesRef.current.get(socketId)
       if (!state || !state.decoder) return
+
+      // 缓存 description：解码器错误重建时需要重新 configure
+      if (description) {
+        state.codecDescription = description
+      }
 
       try {
         const config: AudioDecoderConfig = {
@@ -436,19 +502,19 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
   /** 播放收到的 PCM 音频块 */
   const playAudioChunk = useCallback(
-    (socketId: string, pcmData: Float32Array, sampleRate: number) => {
+    (
+      socketId: string,
+      pcmData: Float32Array<ArrayBuffer>,
+      sampleRate: number
+    ) => {
       const ctx = playbackContextRef.current
       if (!ctx) return
       const state = ensurePeerPlayback(socketId)
       if (!state) return
 
-      state.lastReceiveTime = Date.now()
-
-      // 创建 AudioBuffer
+      // 创建 AudioBuffer（copyToChannel 内部拷贝数据，无需先复制一份）
       const audioBuffer = ctx.createBuffer(1, pcmData.length, sampleRate)
-      // 拷贝到新数组确保 ArrayBuffer 支持（TS 5.7+ 类型要求）
-      const pcm = new Float32Array(pcmData)
-      audioBuffer.copyToChannel(pcm, 0)
+      audioBuffer.copyToChannel(pcmData, 0)
 
       const source = ctx.createBufferSource()
       source.buffer = audioBuffer
@@ -463,7 +529,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       }
       source.start(startTime)
       state.nextStartTime = startTime + audioBuffer.duration
-      state.queueLength = Math.max(0, state.queueLength - 1)
 
       // 积压超过阈值：丢弃已排队未播的旧块再重置时间线。
       // 实时语音宁可断 0.5s 音，也不能让新旧时间线重叠播放（回声）
@@ -631,14 +696,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     playbackContextRef.current = null
     masterGainRef.current = null
 
-    // 关闭分析 AudioContext
+    // 本地 analyser 随 captureCtx 关闭自动释放，仅清引用
     localAnalyserRef.current = null
-    try {
-      analyserContextRef.current?.close()
-    } catch {
-      // ignore
-    }
-    analyserContextRef.current = null
 
     setMembers([])
     setJoined(false)
@@ -649,6 +708,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     setPeerLatencies(new Map())
     setAudioLevels(new Map())
     setVoiceMutedBySocket(new Set())
+    selfMutedRef.current = false
   }, [cleanupPeerPlayback, stopMonitor, stopLevelDetection])
 
   // ==================== 加入/离开 ====================
@@ -716,68 +776,92 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       // 3. Opus 编码器设置（WebCodecs 模式）
       if (OPUS_SUPPORTED) {
-        try {
-          const encoder = new AudioEncoder({
-            output: (
-              chunk: EncodedAudioChunk,
-              metadata: EncodedAudioChunkMetadata
-            ) => {
-              // 处理编解码器配置（description）
-              if (metadata?.decoderConfig?.description) {
-                const descBuf = bufferSourceToArrayBuffer(
-                  metadata.decoderConfig.description as
-                    ArrayBuffer | ArrayBufferView
-                )
-                codecDescriptionRef.current = descBuf
+        // 编码器错误重建节流（error 后状态为 closed，不重建则上行永久静默）
+        let lastEncoderRebuildAt = 0
+        const setupEncoder = (): AudioEncoder | null => {
+          try {
+            const encoder = new AudioEncoder({
+              output: (
+                chunk: EncodedAudioChunk,
+                metadata: EncodedAudioChunkMetadata
+              ) => {
+                // 处理编解码器配置（description）
+                if (metadata?.decoderConfig?.description) {
+                  const descBuf = bufferSourceToArrayBuffer(
+                    metadata.decoderConfig.description as
+                      ArrayBuffer | ArrayBufferView
+                  )
+                  codecDescriptionRef.current = descBuf
 
-                // 发送编解码器配置给房间内其他成员
-                currentSocket.emit('voice-codec-config', {
+                  // 发送编解码器配置给房间内其他成员（必须送达，不用 volatile）
+                  currentSocket.emit('voice-codec-config', {
+                    roomId: currentRoomId,
+                    description: descBuf,
+                  })
+                }
+
+                // 拷贝编码后的 Opus 数据
+                const chunkData = new ArrayBuffer(chunk.byteLength)
+                chunk.copyTo(chunkData)
+
+                // 发送编码后的音频。volatile：socket 拥堵时允许丢弃该帧
+                // （实时语音丢一帧只是 20ms 静音，排队则延迟持续膨胀）
+                currentSocket.volatile.emit('voice-audio-data', {
                   roomId: currentRoomId,
-                  description: descBuf,
+                  data: chunkData,
+                  timestamp: Date.now(),
+                  mediaTs: chunk.timestamp,
+                  encoded: true,
                 })
-              }
+              },
+              error: (e: DOMException) => {
+                console.error('[voice] AudioEncoder error:', e)
+                if (
+                  Date.now() - lastEncoderRebuildAt <
+                  ENCODER_REBUILD_THROTTLE_MS
+                ) {
+                  return
+                }
+                lastEncoderRebuildAt = Date.now()
+                try {
+                  encoder.close()
+                } catch {
+                  // ignore：可能已关闭
+                }
+                const next = setupEncoder()
+                if (next) {
+                  audioEncoderRef.current = next
+                  console.warn('[voice] AudioEncoder rebuilt after error')
+                }
+              },
+            })
 
-              // 拷贝编码后的 Opus 数据
-              const chunkData = new ArrayBuffer(chunk.byteLength)
-              chunk.copyTo(chunkData)
-
-              // 发送编码后的音频
-              currentSocket.emit('voice-audio-data', {
-                roomId: currentRoomId,
-                data: chunkData,
-                timestamp: Date.now(),
-                mediaTs: chunk.timestamp,
-                encoded: true,
-              })
-            },
-            error: (e: DOMException) => {
-              console.error('[voice] AudioEncoder error:', e)
-            },
-          })
-
-          encoder.configure({
-            codec: 'opus',
-            sampleRate: OPUS_SAMPLE_RATE,
-            numberOfChannels: 1,
-            bitrate: OPUS_BITRATE,
-          })
-
-          audioEncoderRef.current = encoder
-          encoderTimestampRef.current = 0
-          console.log('[voice] Opus encoder configured at', OPUS_BITRATE, 'bps')
-        } catch (err) {
-          console.error(
-            '[voice] failed to create AudioEncoder, falling back to PCM:',
-            err
-          )
-          audioEncoderRef.current = null
+            encoder.configure({
+              codec: 'opus',
+              sampleRate: OPUS_SAMPLE_RATE,
+              numberOfChannels: 1,
+              bitrate: OPUS_BITRATE,
+            })
+            return encoder
+          } catch (err) {
+            console.error(
+              '[voice] failed to create AudioEncoder, falling back to PCM:',
+              err
+            )
+            return null
+          }
         }
+        audioEncoderRef.current = setupEncoder()
+        encoderTimestampRef.current = 0
+        console.log('[voice] Opus encoder configured at', OPUS_BITRATE, 'bps')
       }
 
       // 4. AudioWorklet 数据回调 → 编码/发送
       workletNode.port.onmessage = (e: MessageEvent) => {
         const arrayBuffer = e.data as ArrayBuffer
         if (!arrayBuffer || !joinedRef.current || !micEnabledRef.current) return
+        // 自己被禁言：不上行（服务器仍兜底校验，此处省编码与带宽）
+        if (selfMutedRef.current) return
 
         const float32 = new Float32Array(arrayBuffer)
 
@@ -801,9 +885,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             console.error('[voice] encode error:', err)
           }
         } else {
-          // PCM 回退模式：直接发送 Int16 数据
+          // PCM 回退模式：直接发送 Int16 数据（volatile：拥堵允许丢帧）
           const int16 = float32ToInt16(float32)
-          currentSocket.emit('voice-audio-data', {
+          currentSocket.volatile.emit('voice-audio-data', {
             roomId: currentRoomId,
             data: int16.buffer,
             sampleRate: captureCtx.sampleRate,
@@ -825,7 +909,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       // 6. 发送 voice-join 到服务器
       // username 作为游客昵称兜底（登录用户服务器优先采用 token 中的用户名）
       const response = await new Promise<
-        | { success: true; members: VoiceMember[] }
+        | { success: true; members: VoiceMember[]; selfMuted?: boolean }
         | { success: false; message: string }
       >((resolve) => {
         currentSocket.emit(
@@ -833,7 +917,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
           { roomId: currentRoomId, username },
           (
             res:
-              | { success: true; members: VoiceMember[] }
+              | {
+                  success: true
+                  members: VoiceMember[]
+                  selfMuted?: boolean
+                }
               | { success: false; message: string }
           ) => resolve(res)
         )
@@ -866,6 +954,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       const mutedIds = response.members
         .filter((m) => m.muted)
         .map((m) => m.socketId)
+      // 自己的禁言状态（服务器持久化，重进房间仍生效）：控制上行 + UI 标记
+      selfMutedRef.current = response.selfMuted === true
+      if (response.selfMuted && currentSocketId) {
+        mutedIds.push(currentSocketId)
+      }
       setVoiceMutedBySocket(new Set(mutedIds))
 
       // 为已有成员创建播放链路
@@ -1120,9 +1213,10 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         }
         return next
       })
-      // 自己被禁言/解禁时提示
+      // 自己被禁言/解禁时提示，并控制上行发送开关
       const mySocketId = socketRef.current?.id
       if (mySocketId && payload.socketId === mySocketId) {
+        selfMutedRef.current = payload.muted
         if (payload.muted) {
           message.warning('您已被管理员语音禁言')
         } else {
@@ -1216,7 +1310,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         { roomId: currentRoomId, username: usernameRef.current },
         (
           res:
-            | { success: true; members: VoiceMember[] }
+            | {
+                success: true
+                members: VoiceMember[]
+                selfMuted?: boolean
+              }
             | { success: false; message: string }
         ) => {
           if ('message' in res) {
@@ -1235,10 +1333,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             })
           }
           setMembers(initialMembers)
-          // 同步禁言标记与播放链路
+          // 同步禁言标记与播放链路（含自己的持久化禁言状态）
           const mutedIds = res.members
             .filter((m) => m.muted)
             .map((m) => m.socketId)
+          selfMutedRef.current = res.selfMuted === true
+          if (res.selfMuted && socket.id) {
+            mutedIds.push(socket.id)
+          }
           setVoiceMutedBySocket(new Set(mutedIds))
           res.members.forEach((m) => {
             ensurePeerPlayback(m.socketId)

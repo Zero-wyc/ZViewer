@@ -66,6 +66,13 @@ export interface VoiceMemberInfo {
 const voiceMembers = new Map<string, Map<string, VoiceMemberEntry>>();
 
 /**
+ * socketId → 成员定位（roomId + 身份键）反向索引。
+ * 音频/配置包每秒 50 次/成员到达，凭此 O(1) 校验成员身份，
+ * 避免每包线性扫描成员表。与 voiceMembers 同生命周期维护。
+ */
+const socketIndex = new Map<string, { roomId: string; key: string }>();
+
+/**
  * 每个房间的语音禁言集合（内存镜像，与 Room.voiceMuted 持久化同步）。
  * 元素为身份键：登录用户 user:{userId}（持久化），游客 socket:{socketId}（会话级）。
  * 首个成员加入房间语音时从 DB 惰性加载。
@@ -159,6 +166,7 @@ function removeMember(
   if (!entry) return null;
 
   members.delete(key);
+  socketIndex.delete(entry.socketId);
   if (members.size === 0) {
     voiceMembers.delete(roomId);
   }
@@ -169,17 +177,12 @@ function removeMember(
 
 /**
  * 按 socketId 移除成员（voice-leave / disconnect 清理路径）。
- * 语音房间成员数受房间人数上限约束（个位数），线性扫描成本可忽略。
+ * 经反向索引 O(1) 定位，无需扫描成员表。
  */
 function removeBySocketId(io: SocketIOServer, socket: Socket, roomId: string): void {
-  const members = voiceMembers.get(roomId);
-  if (!members) return;
-  for (const [key, entry] of members) {
-    if (entry.socketId === socket.id) {
-      removeMember(io, roomId, key);
-      return;
-    }
-  }
+  const idx = socketIndex.get(socket.id);
+  if (!idx || idx.roomId !== roomId) return;
+  removeMember(io, roomId, idx.key);
 }
 
 /**
@@ -223,7 +226,7 @@ export class VoiceChatHandler implements SocketEventHandler {
         payload: { roomId: string; username?: string },
         callback?: (
           response:
-            | { success: true; members: VoiceMemberInfo[] }
+            | { success: true; members: VoiceMemberInfo[]; selfMuted?: boolean }
             | { success: false; message: string },
         ) => void,
       ) => {
@@ -260,11 +263,19 @@ export class VoiceChatHandler implements SocketEventHandler {
           const existing = members.get(key);
           if (existing && existing.socketId === socket.id) {
             // 幂等重入：已用同一连接加入
+            const mutedSet = voiceMutedKeys.get(roomId);
             return callback?.({
               success: true,
               members: [...members.values()]
                 .filter((m) => m.socketId !== socket.id)
-                .map(toInfo),
+                .map((m) => ({
+                  ...toInfo(m),
+                  muted:
+                    mutedSet?.has(
+                      m.userId > 0 ? `user:${m.userId}` : `socket:${m.socketId}`,
+                    ) ?? false,
+                })),
+              selfMuted: mutedSet?.has(key) ?? false,
             });
           }
 
@@ -281,6 +292,7 @@ export class VoiceChatHandler implements SocketEventHandler {
             joinedAt: Date.now(),
           };
           members.set(key, entry);
+          socketIndex.set(socket.id, { roomId, key });
           socket.to(roomId).emit('voice-user-joined', toInfo(entry));
           console.log(`[voice] ${username}(${key}) joined room ${roomId}`);
 
@@ -295,6 +307,8 @@ export class VoiceChatHandler implements SocketEventHandler {
             members: [...members.values()]
               .filter((m) => m.socketId !== socket.id)
               .map(toInfoWithMute),
+            // 自己的禁言状态（登录用户持久化，重进房间仍生效）
+            selfMuted: mutedSet?.has(key) ?? false,
           });
         })();
       },
@@ -322,23 +336,17 @@ export class VoiceChatHandler implements SocketEventHandler {
       encoded?: boolean;
     }) => {
       try {
-        const members = voiceMembers.get(payload.roomId);
-        if (!members) return;
-        // 校验发送者确为该房间语音成员（按 socketId 匹配当前连接）
-        let entry: VoiceMemberEntry | null = null;
-        for (const m of members.values()) {
-          if (m.socketId === socket.id) {
-            entry = m;
-            break;
-          }
-        }
-        if (!entry) return;
+        // O(1) 校验发送者确为该房间语音成员（反向索引）
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) return;
 
         // 语音禁言：服务器侧直接丢弃（客户端无法绕过），仍可收听
         const mutedSet = voiceMutedKeys.get(payload.roomId);
-        if (mutedSet?.has(memberKeyOf(socket))) return;
+        if (mutedSet?.has(idx.key)) return;
 
-        socket.to(payload.roomId).emit('voice-audio-data', {
+        // volatile：实时音频帧允许在服务器/客户端拥堵时丢弃，
+        // 避免排队造成端到端延迟持续膨胀
+        socket.volatile.to(payload.roomId).emit('voice-audio-data', {
           from: socket.id,
           data: payload.data,
           sampleRate: payload.sampleRate,
@@ -354,19 +362,12 @@ export class VoiceChatHandler implements SocketEventHandler {
     // --- 语音编解码器配置转发 ---
     socket.on('voice-codec-config', (payload: { roomId: string; description: ArrayBuffer }) => {
       try {
-        const members = voiceMembers.get(payload.roomId);
-        if (!members) return;
-        let isMember = false;
-        for (const entry of members.values()) {
-          if (entry.socketId === socket.id) {
-            isMember = true;
-            break;
-          }
-        }
-        if (!isMember) return;
+        // O(1) 校验成员身份（反向索引）
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) return;
         // 被禁言者的编码配置同样不转发（无音频可解码）
         const mutedSet = voiceMutedKeys.get(payload.roomId);
-        if (mutedSet?.has(memberKeyOf(socket))) return;
+        if (mutedSet?.has(idx.key)) return;
 
         socket.to(payload.roomId).emit('voice-codec-config', {
           from: socket.id,
@@ -392,18 +393,13 @@ export class VoiceChatHandler implements SocketEventHandler {
             return callback?.({ success: false, message: '无权限：仅房主或房管可操作' });
           }
 
-          // 定位目标成员条目
+          // 经反向索引 O(1) 定位目标成员
           const members = voiceMembers.get(roomId);
-          if (!members) {
+          const targetIdx = socketIndex.get(payload.socketId);
+          if (!members || !targetIdx || targetIdx.roomId !== roomId) {
             return callback?.({ success: false, message: '目标不在语音中' });
           }
-          let target: VoiceMemberEntry | null = null;
-          for (const entry of members.values()) {
-            if (entry.socketId === payload.socketId) {
-              target = entry;
-              break;
-            }
-          }
+          const target = members.get(targetIdx.key);
           if (!target) {
             return callback?.({ success: false, message: '目标不在语音中' });
           }
@@ -423,14 +419,12 @@ export class VoiceChatHandler implements SocketEventHandler {
             }
           }
 
-          const targetKey =
-            target.userId > 0 ? `user:${target.userId}` : `socket:${target.socketId}`;
           await loadVoiceMuted(roomId);
           const mutedSet = voiceMutedKeys.get(roomId) ?? new Set<string>();
           if (payload.muted) {
-            mutedSet.add(targetKey);
+            mutedSet.add(targetIdx.key);
           } else {
-            mutedSet.delete(targetKey);
+            mutedSet.delete(targetIdx.key);
           }
           voiceMutedKeys.set(roomId, mutedSet);
 
@@ -468,19 +462,13 @@ export class VoiceChatHandler implements SocketEventHandler {
             return callback?.({ success: false, message: '无权限：仅房主或房管可操作' });
           }
 
+          // 经反向索引 O(1) 定位目标成员
           const members = voiceMembers.get(roomId);
-          if (!members) {
+          const targetIdx = socketIndex.get(payload.socketId);
+          if (!members || !targetIdx || targetIdx.roomId !== roomId) {
             return callback?.({ success: false, message: '目标不在语音中' });
           }
-          let target: VoiceMemberEntry | null = null;
-          let targetKey = '';
-          for (const [key, entry] of members) {
-            if (entry.socketId === payload.socketId) {
-              target = entry;
-              targetKey = key;
-              break;
-            }
-          }
+          const target = members.get(targetIdx.key);
           if (!target) {
             return callback?.({ success: false, message: '目标不在语音中' });
           }
@@ -502,10 +490,10 @@ export class VoiceChatHandler implements SocketEventHandler {
 
           // 通知被踢者（前端自动断开采集与 UI 状态）
           io.to(target.socketId).emit('voice-kicked', { roomId });
-          // 移除成员并广播离开
-          removeMember(io, roomId, targetKey);
+          // 移除成员并广播离开（removeMember 内部同步清理反向索引）
+          removeMember(io, roomId, targetIdx.key);
           // 冷却期内禁止重新加入（防反复骚扰）
-          voiceKickCooldown.set(targetKey, Date.now() + VOICE_KICK_COOLDOWN_MS);
+          voiceKickCooldown.set(targetIdx.key, Date.now() + VOICE_KICK_COOLDOWN_MS);
 
           callback?.({ success: true });
         } catch (err) {
