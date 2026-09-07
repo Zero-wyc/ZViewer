@@ -480,19 +480,23 @@ export function RoomInfoPanel({
         </div>
         {canManage && (
           <div className="flex shrink-0 items-center gap-1">
-            <button
-              onClick={() => handleToggleMute(viewer.userId, isMuted)}
-              disabled={!canActOnTarget}
-              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
-              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              title={isMuted ? '解除禁言' : '禁言'}
-            >
-              {isMuted ? (
-                <Volume2 className="h-3.5 w-3.5" />
-              ) : (
-                <VolumeX className="h-3.5 w-3.5" />
-              )}
-            </button>
+            {/* 禁言按 userId 存储，游客共享 userId=0 会误伤全体游客，
+                游客行不显示禁言按钮（引导使用踢出） */}
+            {viewer.userId != null && viewer.userId > 0 && (
+              <button
+                onClick={() => handleToggleMute(viewer.userId, isMuted)}
+                disabled={!canActOnTarget}
+                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                title={isMuted ? '解除禁言' : '禁言'}
+              >
+                {isMuted ? (
+                  <Volume2 className="h-3.5 w-3.5" />
+                ) : (
+                  <VolumeX className="h-3.5 w-3.5" />
+                )}
+              </button>
+            )}
             {/* 房管任命/撤销：仅房主可见（仅登录用户可被任命） */}
             {isHost && viewer.userId != null && viewer.userId > 0 && (
               <button

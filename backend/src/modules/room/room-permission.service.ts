@@ -324,6 +324,30 @@ export class RoomPermissionService {
   }
 
   /**
+   * 房管防篡权校验：房管是否可对目标用户执行管理操作。
+   *
+   * 规则：房管不可操作房主（room.ownerUserId）与其他房管（moderators），
+   * 也不可操作 root 用户（系统管理员）。房主本人不受此限制。
+   *
+   * @returns null 表示可操作；否则为拒绝原因（用于 ack message）
+   */
+  async canModeratorActOn(
+    roomId: string,
+    targetUserId: number | undefined,
+    targetRole?: UserRole,
+  ): Promise<string | null> {
+    if (targetRole === 'root') return '不能对管理员操作';
+    if (!targetUserId || targetUserId <= 0) return null; // 游客可被操作
+    const [room, moderators] = await Promise.all([
+      AppDataSource.getRepository(Room).findOneBy({ roomId }),
+      this.getModerators(roomId),
+    ]);
+    if (room && room.ownerUserId === targetUserId) return '不能对房主操作';
+    if (moderators.includes(targetUserId)) return '不能对房管操作';
+    return null;
+  }
+
+  /**
    * 获取房间房管 userId 列表。
    */
   async getModerators(roomId: string): Promise<number[]> {

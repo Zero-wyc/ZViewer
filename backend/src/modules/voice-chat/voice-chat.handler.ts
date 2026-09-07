@@ -404,18 +404,14 @@ export class VoiceChatHandler implements SocketEventHandler {
             return callback?.({ success: false, message: '目标不在语音中' });
           }
 
-          // 房管不可操作房主/其他房管（防篡权）
-          const isHost = await roomPermissionService.isRoomHost(socket, roomId);
-          if (!isHost) {
-            const [room, moderators] = await Promise.all([
-              AppDataSource.getRepository(Room).findOneBy({ roomId }),
-              roomPermissionService.getModerators(roomId),
-            ]);
-            if (target.userId > 0 && room && room.ownerUserId === target.userId) {
-              return callback?.({ success: false, message: '不能对房主操作' });
-            }
-            if (target.userId > 0 && moderators.includes(target.userId)) {
-              return callback?.({ success: false, message: '不能对房管操作' });
+          // 房管不可操作房主/其他房管/root（防篡权，统一走 canModeratorActOn）
+          if (!(await roomPermissionService.isRoomHost(socket, roomId))) {
+            const denial = await roomPermissionService.canModeratorActOn(
+              roomId,
+              target.userId > 0 ? target.userId : undefined,
+            );
+            if (denial) {
+              return callback?.({ success: false, message: denial });
             }
           }
 
@@ -473,18 +469,14 @@ export class VoiceChatHandler implements SocketEventHandler {
             return callback?.({ success: false, message: '目标不在语音中' });
           }
 
-          // 房管不可操作房主/其他房管（防篡权）
-          const isHost = await roomPermissionService.isRoomHost(socket, roomId);
-          if (!isHost) {
-            const [room, moderators] = await Promise.all([
-              AppDataSource.getRepository(Room).findOneBy({ roomId }),
-              roomPermissionService.getModerators(roomId),
-            ]);
-            if (target.userId > 0 && room && room.ownerUserId === target.userId) {
-              return callback?.({ success: false, message: '不能对房主操作' });
-            }
-            if (target.userId > 0 && moderators.includes(target.userId)) {
-              return callback?.({ success: false, message: '不能对房管操作' });
+          // 房管不可操作房主/其他房管/root（防篡权，统一走 canModeratorActOn）
+          if (!(await roomPermissionService.isRoomHost(socket, roomId))) {
+            const denial = await roomPermissionService.canModeratorActOn(
+              roomId,
+              target.userId > 0 ? target.userId : undefined,
+            );
+            if (denial) {
+              return callback?.({ success: false, message: denial });
             }
           }
 

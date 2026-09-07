@@ -12,8 +12,10 @@
  * - approve-join 复用 roomSessionService.admitViewer，消除与 request-join 的代码重复
  */
 import type { Server as SocketIOServer, Socket } from 'socket.io';
+import { IsNull } from 'typeorm';
 import { AppDataSource } from '../../../data-source';
 import { Room } from '../../../entities/Room';
+import { Session } from '../../../entities/Session';
 import type { UserRole } from '../../../entities/User';
 import {
   type AckCallback,
@@ -188,35 +190,27 @@ export class ViewerManagementHandler implements SocketEventHandler {
       },
     );
 
-    // --- 踢出观众：房主或房管（房管不可踢房主/其他房管） ---
+    // --- 踢出观众：房主或房管（防篡权校验统一走 canModeratorActOn） ---
     socket.on(
       'kick-viewer',
       async (payload: KickViewerPayload, callback: AckCallback) => {
         try {
-          const isHost = await roomPermissionService.isRoomHost(socket, payload.roomId);
-          if (!isHost) {
-            const isModerator = await roomPermissionService.isRoomModerator(
-              socket,
-              payload.roomId,
-            );
-            if (!isModerator) {
-              return safeAck(callback, {
-                success: false,
-                message: '无权限：仅房主或房管可踢人',
-              });
-            }
-            // 房管防篡权：目标为房主或房管时拒绝
+          if (!(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))) {
+            return safeAck(callback, {
+              success: false,
+              message: '无权限：仅房主或房管可踢人',
+            });
+          }
+          // 房管防篡权：不可踢房主/其他房管/root（房主不受限）
+          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
             const targetSocket = io.sockets.sockets.get(payload.viewerSocketId);
-            const targetUserId: number | undefined = targetSocket?.data?.userId;
-            const [room, moderators] = await Promise.all([
-              AppDataSource.getRepository(Room).findOneBy({ roomId: payload.roomId }),
-              roomPermissionService.getModerators(payload.roomId),
-            ]);
-            if (targetUserId && room && room.ownerUserId === targetUserId) {
-              return safeAck(callback, { success: false, message: '不能踢出房主' });
-            }
-            if (targetUserId && moderators.includes(targetUserId)) {
-              return safeAck(callback, { success: false, message: '不能踢出房管' });
+            const denial = await roomPermissionService.canModeratorActOn(
+              payload.roomId,
+              targetSocket?.data?.userId,
+              targetSocket?.data?.role,
+            );
+            if (denial) {
+              return safeAck(callback, { success: false, message: denial });
             }
           }
 
@@ -245,16 +239,36 @@ export class ViewerManagementHandler implements SocketEventHandler {
       },
     );
 
-    // --- 禁言观众：仅 sharer ---
+    // --- 禁言观众：房主或房管 ---
     socket.on(
       'mute-viewer',
       async (payload: MuteViewerPayload, callback: AckCallback) => {
         try {
-          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+          if (!(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主可禁言',
+              message: '无权限：仅房主或房管可禁言',
             });
+          }
+
+          // 禁言按 userId 存储，游客共享 userId=0 会误伤全体游客，
+          // 拒绝并引导使用踢出
+          if (!payload.userId || payload.userId <= 0) {
+            return safeAck(callback, {
+              success: false,
+              message: '游客无法单独禁言，请使用踢出',
+            });
+          }
+
+          // 房管防篡权：不可禁言房主/其他房管/root（房主不受限）
+          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+            const denial = await roomPermissionService.canModeratorActOn(
+              payload.roomId,
+              payload.userId,
+            );
+            if (denial) {
+              return safeAck(callback, { success: false, message: denial });
+            }
           }
 
           await viewerService.setMuted(
@@ -347,8 +361,9 @@ export class ViewerManagementHandler implements SocketEventHandler {
             });
           }
 
-          // 调用 transferHost 完成角色与 owner 切换（事务保证原子性）
-          await roomSessionService.transferHost(
+          // 调用 transferHost 完成角色与 owner 切换（事务保证原子性；
+          // 若新房主原为房管，事务内同步从 moderators 移除）
+          const nextModerators = await roomSessionService.transferHost(
             payload.roomId,
             payload.viewerSocketId,
             socket.id,
@@ -361,6 +376,14 @@ export class ViewerManagementHandler implements SocketEventHandler {
             oldHostSocketId: socket.id,
             newOwnerUserId,
           });
+
+          // 房管列表有变化时同步广播（前端更新房管徽标）
+          if (nextModerators) {
+            io.to(payload.roomId).emit('moderators-changed', {
+              roomId: payload.roomId,
+              moderators: nextModerators,
+            });
+          }
 
           return safeAck(callback, { success: true });
         } catch (err) {
@@ -407,6 +430,30 @@ export class ViewerManagementHandler implements SocketEventHandler {
           if (moderators.includes(payload.userId)) {
             return safeAck(callback, { success: true });
           }
+
+          // 目标必须在房间内（在线观众/sharer session 中存在）
+          const isTargetInRoom = await AppDataSource.getRepository(Session)
+            .findOneBy({
+              roomId: payload.roomId,
+              userId: payload.userId,
+              endedAt: IsNull(),
+            });
+          if (!isTargetInRoom) {
+            return safeAck(callback, {
+              success: false,
+              message: '目标用户不在房间内',
+            });
+          }
+
+          // 房管人数上限（防止滥用，房间人数本身受 maxViewers 约束）
+          const MAX_MODERATORS = 10;
+          if (moderators.length >= MAX_MODERATORS) {
+            return safeAck(callback, {
+              success: false,
+              message: `房管人数已达上限（${MAX_MODERATORS}）`,
+            });
+          }
+
           moderators.push(payload.userId);
           await roomPermissionService.setModerators(payload.roomId, moderators);
 

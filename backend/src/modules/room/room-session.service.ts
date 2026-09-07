@@ -248,16 +248,21 @@ export class RoomSessionService {
    * 转交房主：将原 sharer 降级为 viewer，将指定 viewer 升级为 sharer。
    *
    * 使用事务保证原子性（修复旧架构无事务包裹的问题）。
+   * 若新房主原为房管，同步从 moderators 移除（房主天然拥有全部权限，
+   * 保留条目会让前端给新房主显示"房管"徽标并残留脏数据）。
+   *
+   * @returns 清理后的 moderators 列表（无变化时返回 null，调用方无需广播）
    */
   async transferHost(
     roomId: string,
     newSharerSocketId: string,
     oldSharerSocketId: string,
     newOwnerUserId: number,
-  ): Promise<void> {
+  ): Promise<number[] | null> {
     const sessionRepo = AppDataSource.getRepository(Session);
     const roomRepo = AppDataSource.getRepository(Room);
 
+    let nextModerators: number[] | null = null;
     await AppDataSource.transaction(async (manager) => {
       // 原房主降级为 viewer
       await manager.update(
@@ -271,12 +276,30 @@ export class RoomSessionService {
         { socketId: newSharerSocketId, role: 'viewer' },
         { role: 'sharer' },
       );
-      // 更新房间 owner
-      await manager.update(Room, { roomId }, { ownerUserId: newOwnerUserId });
+      // 更新房间 owner；若新房主原为房管则从 moderators 移除
+      const room = await manager.findOne(Room, { where: { roomId } });
+      if (room) {
+        if (newOwnerUserId != null) {
+          let moderators: number[] = [];
+          try {
+            moderators = JSON.parse(room.moderators || '[]');
+          } catch {
+            moderators = [];
+          }
+          if (moderators.includes(newOwnerUserId)) {
+            moderators = moderators.filter((id) => id !== newOwnerUserId);
+            room.moderators = JSON.stringify(moderators);
+            nextModerators = moderators;
+          }
+        }
+        room.ownerUserId = newOwnerUserId;
+        await manager.save(Room, room);
+      }
     });
     // 失效权限缓存：新旧房主的权限缓存应即时清除
     roomPermissionService.invalidatePermissionCache(oldSharerSocketId, roomId);
     roomPermissionService.invalidatePermissionCache(newSharerSocketId, roomId);
+    return nextModerators;
   }
 }
 
