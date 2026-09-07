@@ -3,6 +3,9 @@
 #   1. push 到 main 分支 → 构建并发布到 GitHub Releases (prerelease tag: latest)
 #   2. push tag (v*) → 构建并发布到 GitHub Releases (正式版)
 #   3. 手动触发（workflow_dispatch）→ 仅构建 + 上传 artifact
+# 防双跑：发版时一次推送同时包含 main 与 tag（或先推 main 再推 tag）会触发
+# 两次 workflow。gate job 在 main 推送时检测 HEAD 是否已被 v* tag 指向，
+# 是则跳过 dev 构建（同 commit 的正式版构建会接管）。
 
 name: Build Single-File (Windows + Linux)
 
@@ -13,7 +16,37 @@ on:
   workflow_dispatch:
 
 jobs:
+  # 防重复构建闸门：仅 main push 时运行；tag push / 手动触发直接跳过
+  gate:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.gate.outputs.skip }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      # 再拉一次最新 tag，缩小竞态窗口（checkout 后、检测前 tag 才到远端的情况）
+      - name: Refresh tags
+        run: git fetch --tags --force origin
+
+      - name: Check if HEAD is tagged
+        id: gate
+        shell: bash
+        run: |
+          SKIP=false
+          if git tag --points-at HEAD | grep -q '^v'; then
+            SKIP=true
+            echo "HEAD 已被版本 tag 指向（$(git tag --points-at HEAD | grep '^v' | tr '\n' ' ')），正式版构建将接管，跳过 dev 构建"
+          fi
+          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
   build:
+    needs: gate
+    # gate 检测到 HEAD 已有 v* tag 时跳过（gate 自身被跳过时 outputs 为空，正常构建）
+    if: needs.gate.outputs.skip != 'true'
     strategy:
       matrix:
         include:
