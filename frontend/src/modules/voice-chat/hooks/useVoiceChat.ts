@@ -29,8 +29,32 @@ const OPUS_BITRATE = 128_000
 /** Opus 编码采样率 */
 const OPUS_SAMPLE_RATE = 48_000
 
-/** 接收端 jitter buffer 初始延迟（秒） */
-const JITTER_BUFFER_DELAY = 0.06
+/** 接收端 jitter buffer 初始目标水位（秒），自适应下限 */
+const TARGET_BUFFER_MIN_SEC = 0.06
+
+/** jitter buffer 目标水位上限（秒）：抖动再大也不超过 */
+const TARGET_BUFFER_MAX_SEC = 0.3
+
+/** 目标水位基线（秒）：2×抖动 EWMA 之上再加的固定余量 */
+const TARGET_BUFFER_BASE_SEC = 0.04
+
+/** 标准语音帧长（秒）：AudioWorklet 20ms/帧，用于计算到达间隔偏差 */
+const VOICE_FRAME_SEC = 0.02
+
+/** 水位追赶：超过目标此余量后启用 1.05x 微加速消耗积压（秒） */
+const CATCHUP_THRESHOLD_SEC = 0.08
+
+/** 追赶播放速率（1.05x ≈ 每秒消化 47ms 积压，听感无感知） */
+const CATCHUP_PLAYBACK_RATE = 1.05
+
+/** 极端积压硬重置阈值（秒）：超过则直接丢帧重建时间线 */
+const BACKLOG_RESET_SEC = 0.5
+
+/** 电平条采样频率（ms）：12.5Hz 足够平滑，远低于 rAF 的 60Hz */
+const LEVEL_SAMPLE_INTERVAL_MS = 80
+
+/** 电平变化发布阈值：变化低于此值不触发 setState（0~1 尺度） */
+const LEVEL_CHANGE_THRESHOLD = 0.03
 
 /** 解码器错误重建节流间隔（防 error 死循环） */
 const DECODER_REBUILD_THROTTLE_MS = 10_000
@@ -158,8 +182,15 @@ interface PeerPlaybackState {
    * 与新时间线重叠（听感为回声/金属声）。
    */
   pendingSources: Set<AudioBufferSourceNode>
-  /** 延迟检测：发送端附带的时间戳 → 接收端计算差值 */
-  lastLatency: number
+  /**
+   * 自适应 jitter buffer 目标水位（秒）：基于到达抖动 EWMA 动态计算，
+   * 网络稳→低水位低延迟，抖动大→自动抬升防 underrun。
+   */
+  targetBufferSec: number
+  /** 上次音频块到达时刻（performance.now，计算到达间隔） */
+  lastArrivalAt: number
+  /** 到达间隔偏差的 EWMA（秒）：|实际间隔 - 标准帧长| 的指数滑动平均 */
+  jitterEwma: number
   /** 对方流的 codec description（错误重建解码器时复用） */
   codecDescription?: ArrayBuffer
   /** 解码器上次重建时间戳（防 error 死循环） */
@@ -217,7 +248,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   // 不再单独建 AudioContext：省一个上下文配额，且电平反映 micVolume，
   // 与远端成员实际听到的音量一致）
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
-  const levelRafRef = useRef<number | null>(null)
+  const levelTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 监听（反送）相关 refs
   const monitorStreamRef = useRef<MediaStream | null>(null)
@@ -305,33 +336,52 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   }, [])
 
   const startLevelDetection = useCallback(() => {
-    if (levelRafRef.current) return
+    if (levelTimerRef.current) return
+
+    // 上一轮发布的电平快照：与当前采样比较，全部成员变化都低于阈值
+    // 时跳过 setState（无人说话时 0 渲染，此前 rAF 60Hz 每帧重渲染）
+    let lastPublished = new Map<string, number>()
 
     const tick = () => {
-      const levels = new Map<string, number>()
+      const current = new Map<string, number>()
 
       // 本地电平
       if (localAnalyserRef.current && micVolumeRef.current > 0) {
         const level = getLevelFromAnalyser(localAnalyserRef.current)
-        levels.set('self', micEnabledRef.current ? level : 0)
+        current.set('self', micEnabledRef.current ? level : 0)
       }
 
       // 远端电平
       peerStatesRef.current.forEach((state, socketId) => {
-        levels.set(socketId, getLevelFromAnalyser(state.analyser))
+        current.set(socketId, getLevelFromAnalyser(state.analyser))
       })
 
-      setAudioLevels(levels)
-      levelRafRef.current = requestAnimationFrame(tick)
+      // 变化检测：新成员、离开成员或任一成员变化超阈值 → 发布
+      let changed = current.size !== lastPublished.size
+      if (!changed) {
+        current.forEach((level, key) => {
+          const last = lastPublished.get(key)
+          if (
+            last === undefined ||
+            Math.abs(level - last) > LEVEL_CHANGE_THRESHOLD
+          ) {
+            changed = true
+          }
+        })
+      }
+      if (changed) {
+        lastPublished = current
+        setAudioLevels(current)
+      }
     }
 
-    levelRafRef.current = requestAnimationFrame(tick)
+    levelTimerRef.current = setInterval(tick, LEVEL_SAMPLE_INTERVAL_MS)
   }, [getLevelFromAnalyser])
 
   const stopLevelDetection = useCallback(() => {
-    if (levelRafRef.current) {
-      cancelAnimationFrame(levelRafRef.current)
-      levelRafRef.current = null
+    if (levelTimerRef.current) {
+      clearInterval(levelTimerRef.current)
+      levelTimerRef.current = null
     }
     setAudioLevels(new Map())
   }, [])
@@ -455,8 +505,10 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         gainNode,
         analyser,
         nextStartTime: 0,
-        lastLatency: 0,
         pendingSources: new Set(),
+        targetBufferSec: TARGET_BUFFER_MIN_SEC,
+        lastArrivalAt: 0,
+        jitterEwma: 0,
       }
 
       // Opus 模式下创建解码器（error 时内部自动节流重建）
@@ -521,18 +573,58 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       source.connect(state.gainNode)
 
       const now = ctx.currentTime
-      // jitter buffer：第一个块延迟播放，后续块无缝接续
-      const startTime = Math.max(now + JITTER_BUFFER_DELAY, state.nextStartTime)
+
+      // ---- 自适应 jitter buffer：到达抖动 EWMA → 目标水位 ----
+      const arrivalNow = performance.now()
+      if (state.lastArrivalAt > 0) {
+        const intervalSec = (arrivalNow - state.lastArrivalAt) / 1000
+        // 间隔异常大（暂停/对方静音后恢复）不纳入统计
+        if (intervalSec > 0 && intervalSec < 0.5) {
+          const deviation = Math.abs(intervalSec - VOICE_FRAME_SEC)
+          state.jitterEwma = state.jitterEwma * 0.9 + deviation * 0.1
+        }
+      }
+      state.lastArrivalAt = arrivalNow
+      const targetBuffer = Math.min(
+        TARGET_BUFFER_MAX_SEC,
+        Math.max(
+          TARGET_BUFFER_MIN_SEC,
+          2 * state.jitterEwma + TARGET_BUFFER_BASE_SEC
+        )
+      )
+      state.targetBufferSec = targetBuffer
+
+      // ---- 时间线调度 ----
+      // underrun：上一块已播完而新块迟到（时间线落后于当前时刻）→
+      // 以目标水位重新起播，给后续包留缓冲
+      let timeline = state.nextStartTime
+      if (timeline < now) {
+        timeline = now + targetBuffer
+      }
+
+      // 水位追赶：显著高于目标时 1.05x 微加速消耗积压（听感无感知），
+      // 替代直接丢帧；仅在极端积压（>0.5s）才硬重置
+      const bufferAhead = timeline - now
+      const rate =
+        bufferAhead > targetBuffer + CATCHUP_THRESHOLD_SEC
+          ? CATCHUP_PLAYBACK_RATE
+          : 1
+      if (rate !== 1) {
+        source.playbackRate.value = rate
+      }
+
+      const startTime = Math.max(now + targetBuffer, timeline)
       state.pendingSources.add(source)
       source.onended = () => {
         state.pendingSources.delete(source)
       }
       source.start(startTime)
-      state.nextStartTime = startTime + audioBuffer.duration
+      // 追赶时块实际占用时间线 = 时长 / 速率
+      state.nextStartTime = startTime + audioBuffer.duration / rate
 
-      // 积压超过阈值：丢弃已排队未播的旧块再重置时间线。
-      // 实时语音宁可断 0.5s 音，也不能让新旧时间线重叠播放（回声）
-      if (state.nextStartTime - now > 0.5) {
+      // 极端积压（追赶无法覆盖的突发）：丢弃已排队未播的旧块再重置
+      // 时间线。实时语音宁可断 0.5s 音，也不能让新旧时间线重叠播放
+      if (state.nextStartTime - now > BACKLOG_RESET_SEC) {
         for (const s of state.pendingSources) {
           try {
             s.stop()
@@ -541,7 +633,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
           }
         }
         state.pendingSources.clear()
-        state.nextStartTime = now + JITTER_BUFFER_DELAY
+        state.nextStartTime = now + targetBuffer
       }
     },
     [ensurePeerPlayback]
@@ -1056,13 +1148,23 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
   // ==================== 延迟检测 ====================
 
+  // 采样本地播放缓冲水位（nextStartTime - currentTime）作为延迟指标：
+  // 完全本地可测，不受收发双方系统时钟偏差影响（此前用 Date.now 差值，
+  // 跨机器时钟偏移可达秒级，显示基本不可信），且直接反映真实听感延迟
   useEffect(() => {
     if (!joined) return
     const timer = setInterval(() => {
+      const ctx = playbackContextRef.current
+      if (!ctx) return
+      const now = ctx.currentTime
       const next = new Map<string, number>()
       peerStatesRef.current.forEach((state, socketId) => {
-        if (state.lastLatency > 0) {
-          next.set(socketId, state.lastLatency)
+        // 只统计有活跃播放时间线的成员（nextStartTime > 0 表示已收到音频）
+        if (state.nextStartTime > 0) {
+          next.set(
+            socketId,
+            Math.max(0, Math.round((state.nextStartTime - now) * 1000))
+          )
         }
       })
       setPeerLatencies(next)
@@ -1098,13 +1200,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     }) => {
       if (!joinedRef.current) return
       if (payload.from === socketRef.current?.id) return
-
-      // 计算延迟（客户端时钟差，仅作参考）
-      const latency = Date.now() - payload.timestamp
-      const state = peerStatesRef.current.get(payload.from)
-      if (state) {
-        state.lastLatency = Math.max(0, latency)
-      }
 
       if (payload.encoded && OPUS_SUPPORTED) {
         // Opus 模式：解码后播放
