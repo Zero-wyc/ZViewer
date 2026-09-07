@@ -170,6 +170,18 @@ function bufferSourceToArrayBuffer(
   ) as ArrayBuffer
 }
 
+/** 字节级比较两个 ArrayBuffer 是否相同（codec-config 去重用） */
+function isArrayBufferEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
+  if (a === b) return true
+  if (a.byteLength !== b.byteLength) return false
+  const va = new Uint8Array(a)
+  const vb = new Uint8Array(b)
+  for (let i = 0; i < va.length; i++) {
+    if (va[i] !== vb[i]) return false
+  }
+  return true
+}
+
 /** 接收端每个远端用户的播放状态 */
 interface PeerPlaybackState {
   gainNode: GainNode
@@ -834,7 +846,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       })
 
       // 2. 创建采集 AudioContext + AudioWorklet
-      const captureCtx = new AudioContext()
+      // sampleRate 强制锁定 48kHz：AudioContext 选项是强制的（浏览器自动
+      // 插入重采样器）。若跟随硬件默认（macOS/部分声卡为 44.1kHz），
+      // FRAME_SIZE=960 实际帧长变为 21.77ms，与 Opus 20ms 内部帧不齐，
+      // 会产生周期性爆音/变速感（仅部分设备复现，极难排查）
+      const captureCtx = new AudioContext({ sampleRate: OPUS_SAMPLE_RATE })
       await captureCtx.audioWorklet.addModule('/voice-processor.js')
 
       const source = captureCtx.createMediaStreamSource(stream)
@@ -883,13 +899,23 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
                     metadata.decoderConfig.description as
                       ArrayBuffer | ArrayBufferView
                   )
-                  codecDescriptionRef.current = descBuf
 
-                  // 发送编解码器配置给房间内其他成员（必须送达，不用 volatile）
-                  currentSocket.emit('voice-codec-config', {
-                    roomId: currentRoomId,
-                    description: descBuf,
-                  })
+                  // 去重：与上次已广播的配置字节级比较，相同则不重发。
+                  // 部分 Chrome 版本对 Opus 每个 output 都附带 description，
+                  // 不去重会每秒广播 50 个冗余配置（N 人房间再 ×N-1 下发）。
+                  // 新加入成员的配置送达由 voice-user-joined 触发重发覆盖
+                  if (
+                    !codecDescriptionRef.current ||
+                    !isArrayBufferEqual(codecDescriptionRef.current, descBuf)
+                  ) {
+                    codecDescriptionRef.current = descBuf
+
+                    // 发送编解码器配置给房间内其他成员（必须送达，不用 volatile）
+                    currentSocket.emit('voice-codec-config', {
+                      roomId: currentRoomId,
+                      description: descBuf,
+                    })
+                  }
                 }
 
                 // 拷贝编码后的 Opus 数据
@@ -989,8 +1015,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         }
       }
 
-      // 5. 创建接收端播放 AudioContext
-      const playbackCtx = new AudioContext()
+      // 5. 创建接收端播放 AudioContext（同样锁定 48kHz：解码输出为 48kHz，
+      // 不匹配时 WebAudio 会隐式重采样，引入额外延迟与质量损失）
+      const playbackCtx = new AudioContext({ sampleRate: OPUS_SAMPLE_RATE })
       const masterGain = playbackCtx.createGain()
       masterGain.gain.value = globalVolumeRef.current
       masterGain.connect(playbackCtx.destination)
@@ -1206,9 +1233,13 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         const peerState = ensurePeerPlayback(payload.from)
         if (!peerState?.decoder) return
 
-        // 如果解码器尚未配置，尝试无 description 配置
+        // 如果解码器尚未配置（音频先于 codec-config 到达），先无 description
+        // 兜底配置——Opus 帧自描述可直接解码；不可用本端编码器的 description
+        // （OpusHead 的 pre-skip 等参数跨浏览器可能不同，且会被缓存进
+        // state.codecDescription 污染后续解码器重建）。对端真正的
+        // voice-codec-config 到达后会正式配置覆盖
         if (!peerState.decoderConfigured) {
-          configurePeerDecoder(payload.from, codecDescriptionRef.current)
+          configurePeerDecoder(payload.from, null)
         }
 
         try {
