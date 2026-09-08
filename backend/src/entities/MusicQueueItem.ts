@@ -27,9 +27,19 @@ export class MusicQueueItem {
   @Column()
   roomId!: string;
 
-  /** 网易云歌曲 ID */
+  /** 音频来源：ncm=网易云（默认，经 /song/url/v1 解析）；siren=塞壬唱片
+   *  （明日方舟 Monster Siren，经其公开 API 解析直链） */
+  @Column({ type: 'text', default: 'ncm' })
+  source!: string;
+
+  /** 网易云歌曲 ID（ncm 来源使用；siren 来源为 0） */
   @Column({ type: 'integer' })
   songId!: number;
+
+  /** 来源方歌曲标识（siren 的 cid 为字符串如 "018f7efdc4"，integer 存不下；
+   *  ncm 来源为 null，用 songId） */
+  @Column({ type: 'text', nullable: true })
+  sourceId!: string | null;
 
   /** 歌曲名 */
   @Column({ type: 'text' })
