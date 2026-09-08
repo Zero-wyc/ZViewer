@@ -130,7 +130,13 @@ export default function AdminPage() {
   useHideBodyScrollbar()
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuthStore()
-  const { invalidate: invalidateSystemSettings } = useSystemSettingsStore()
+  const {
+    invalidate: invalidateSystemSettings,
+    // 重命名为避免与下方本地 fetchSettings（拉管理员完整设置）混淆：
+    // 这是 systemSettingsStore 的公开设置拉取，供 RoomPanel/WatchPage
+    // 等消费方读取 betaFeaturesEnabled
+    fetchSettings: fetchPublicSettings,
+  } = useSystemSettingsStore()
   const [activeTab, setActiveTab] = useState<'users' | 'rooms' | 'settings'>(
     'users'
   )
@@ -785,7 +791,11 @@ export default function AdminPage() {
         if (data.settings) {
           setSettings(data.settings)
         }
+        // invalidate 仅清除缓存标记，store 里仍是旧值——必须立即重拉，
+        // 否则保存后导航到房间页时 RoomPanel/WatchPage 读到的
+        // betaFeaturesEnabled 等字段还是开启前的值（App 启动只拉一次）
         invalidateSystemSettings()
+        void fetchPublicSettings()
       } else {
         message.error(data.message ?? '保存失败')
       }
