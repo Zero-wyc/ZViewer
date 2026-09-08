@@ -1,0 +1,865 @@
+import { useCallback, useEffect, useMemo, useRef } from 'react'
+import type { Socket } from 'socket.io-client'
+import { useShallow } from 'zustand/react/shallow'
+import { getApiUrl } from '@/lib/api'
+import { appendAuthToken } from '@/modules/player/services/url-proxy'
+import { message } from '@/components/ui/message'
+import { useMusicStore } from '../store'
+import type {
+  MusicControlRequest,
+  MusicControlResponse,
+  MusicQueueItem,
+  MusicSyncState,
+  PlayMode,
+} from '../types'
+
+/** Socket 事件名（与后端 MusicSyncHandler 约定，见 spec「音乐播放同步」节） */
+const MUSIC_EVENT = {
+  /** 房主广播播放状态（换曲/播放暂停/进度/播放模式） */
+  SYNC_STATE: 'music:sync-state',
+  /** 房主心跳（每 2s，携带完整 MusicSyncState） */
+  HOST_HEARTBEAT: 'music:host-heartbeat',
+  /** 队列变更后全房间广播完整队列 */
+  QUEUE_CHANGED: 'music:queue-changed',
+  /** 观众控制申请（观众 → 房主） */
+  CONTROL_REQUEST: 'music:control-request',
+  /** 控制申请应答（房主 → 申请者） */
+  CONTROL_RESPONSE: 'music:control-response',
+} as const
+
+/** 房主心跳广播间隔（毫秒） */
+const HOST_HEARTBEAT_INTERVAL_MS = 2000
+
+/** 观众判定房主离线的心跳超时（毫秒） */
+const HOST_OFFLINE_TIMEOUT_MS = 5000
+
+/** 观众进度对齐阈值（秒）：与房主进度差超过该值才 seek */
+const SYNC_ALIGN_THRESHOLD_SEC = 2
+
+/** 音频流音质（spec：固定 exhigh，VIP 降级链由后端处理） */
+const STREAM_LEVEL = 'exhigh'
+
+/** 控制动作的中文描述（房主端申请提示文案） */
+const CONTROL_ACTION_TEXT: Record<MusicControlRequest['action'], string> = {
+  pause: '暂停',
+  play: '继续播放',
+  next: '切换下一首',
+  prev: '切换上一首',
+}
+
+/**
+ * 构建音频流代理地址。
+ * 使用 getApiUrl() 实时读取（自定义后端地址变更后立即生效），
+ * 并附加 access token（媒体元素请求无法携带 Authorization 头，
+ * HTTP 部署场景下后端从查询参数读取 token）。
+ */
+function buildStreamUrl(songId: number): string {
+  return appendAuthToken(
+    `${getApiUrl()}/api/music/stream?songId=${songId}&level=${STREAM_LEVEL}`
+  )
+}
+
+/** Fisher-Yates 洗牌（返回打乱后的新数组） */
+function shuffleIds(ids: number[]): number[] {
+  const arr = ids.slice()
+  for (let i = 0; i < arr.length; i++) {
+    const j = Math.floor(Math.random() * (i + 1))
+    const t = arr[i]
+    arr[i] = arr[j]
+    arr[j] = t
+  }
+  return arr
+}
+
+/** 判断两组 songId 是否为同一集合（多重集比较，忽略顺序） */
+function isSameIdSet(a: number[], b: number[]): boolean {
+  if (a.length !== b.length) return false
+  const sa = [...a].sort((x, y) => x - y)
+  const sb = [...b].sort((x, y) => x - y)
+  return sa.every((id, i) => id === sb[i])
+}
+
+export interface UseListenTogetherOptions {
+  socket: Socket | null
+  roomId: string | undefined
+  /** 是否为房主（房主为同步源：直接控制 + 广播 + 心跳） */
+  isHost: boolean
+  /** 当前用户名（观众申请控制时随请求发送，房主提示文案用） */
+  username?: string
+}
+
+export interface UseListenTogetherResult {
+  /** 播放/暂停切换（拥有直接控制权时生效，否则由 UI 走申请流程） */
+  togglePlay: () => void
+  /** 下一首（按播放模式计算目标） */
+  next: () => void
+  /** 上一首（按播放模式计算目标） */
+  prev: () => void
+  /** 跳转到指定进度（秒） */
+  seek: (sec: number) => void
+  /** 切换播放模式（房主切换并广播同步） */
+  setPlayMode: (mode: PlayMode) => void
+  /** 播放指定曲目（房主点击队列切歌） */
+  playSong: (songId: number) => void
+  /** 观众：向房主申请控制（暂停/继续/切歌） */
+  requestControl: (action: MusicControlRequest['action']) => void
+  /** 房主：通过观众当前的控制申请（执行动作 + 应答申请者） */
+  approveControl: () => void
+  /** 房主：拒绝观众当前的控制申请（仅应答申请者） */
+  rejectControl: () => void
+  /** 当前播放的队列条目（queue + currentSongId 计算，无播放时 null） */
+  currentSong: MusicQueueItem | null
+  /** 是否拥有直接控制权（房主或房主离线时的观众） */
+  canControl: boolean
+  /** 房主是否离线（观众端心跳超时判定） */
+  hostOffline: boolean
+  /** 播放器左上角提示文字（自动消失逻辑由组件实现） */
+  syncNotice: string | null
+  /** 设置提示文字（null 清除） */
+  setSyncNotice: (notice: string | null) => void
+}
+
+/**
+ * 一起听核心 Hook：音频播放引擎 + 房主/观众同步。
+ *
+ * 结构对齐 useWatchTogether（socket 事件注册、房主/观众分支、
+ * 心跳、申请制、房主离线判定 hostOffline → canControl），但大幅简化：
+ * - 音频元素惰性创建（useRef 持有，不挂 DOM），src 走 /api/music/stream 代理
+ * - 房主：togglePlay/next/prev/seek/setPlayMode 直接操作 audio 并广播
+ *   'music:sync-state'；ended 按 playMode 自动切歌；每 2s 心跳
+ * - 观众：监听 sync-state/心跳对齐（进度差 >2s 才 seek）；
+ *   5s 未收到心跳置 hostOffline（收到即恢复）；控制走申请制
+ * - 随机模式：Fisher-Yates 洗牌序列存 ref，一轮结束重新洗牌
+ *   （参考 Hydrogen utils/player/queue.js 的思路实现的简版）
+ */
+export function useListenTogether({
+  socket,
+  roomId,
+  isHost,
+  username,
+}: UseListenTogetherOptions): UseListenTogetherResult {
+  const { queue, currentSongId, hostOffline, syncNotice, setSyncNotice } =
+    useMusicStore(
+      useShallow((s) => ({
+        queue: s.queue,
+        currentSongId: s.currentSongId,
+        hostOffline: s.hostOffline,
+        syncNotice: s.syncNotice,
+        setSyncNotice: s.setSyncNotice,
+      }))
+    )
+
+  // ===== Refs =====
+  /** 音频元素（惰性创建，不挂 DOM） */
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  /** 换曲后的起始进度（loadedmetadata 时应用） */
+  const pendingSeekRef = useRef(0)
+  /** 随机模式洗牌序列（songId 列表；null 表示待重建） */
+  const shuffleListRef = useRef<number[] | null>(null)
+  /** 当前曲目在洗牌序列中的位置（-1 表示尚未开始） */
+  const shufflePosRef = useRef(-1)
+  /** 观众最近一次收到房主心跳的时间戳（0 表示尚未开始计时，由离线判定 effect 初始化） */
+  const lastHeartbeatAtRef = useRef(0)
+  /** 房主端待审批的观众申请 */
+  const pendingControlRef = useRef<MusicControlRequest | null>(null)
+  // latest ref 模式：事件回调经 ref 读取最新身份
+  const socketRef = useRef(socket)
+  const roomIdRef = useRef(roomId)
+  const isHostRef = useRef(isHost)
+  const usernameRef = useRef(username)
+
+  useEffect(() => {
+    socketRef.current = socket
+    roomIdRef.current = roomId
+    isHostRef.current = isHost
+    usernameRef.current = username
+  }, [socket, roomId, isHost, username])
+
+  /** 惰性获取 audio 元素（首次使用时创建，不挂 DOM） */
+  const getAudio = useCallback(() => {
+    if (!audioRef.current) {
+      const audio = new Audio()
+      audio.preload = 'auto'
+      audioRef.current = audio
+    }
+    return audioRef.current
+  }, [])
+
+  /**
+   * 房主：广播当前同步状态。
+   * overrides 用于操作后立即广播时纠正 audio 事件异步生效的时间差
+   * （如 play() 尚未生效时 audio.paused 仍为 true）。
+   */
+  const broadcastSyncState = useCallback(
+    (overrides?: Partial<MusicSyncState>) => {
+      const currentSocket = socketRef.current
+      const currentRoomId = roomIdRef.current
+      if (!currentSocket || !currentRoomId || !isHostRef.current) return
+      const audio = audioRef.current
+      const { currentSongId, playMode } = useMusicStore.getState()
+      const payload: MusicSyncState = {
+        trackSongId: currentSongId,
+        isPlaying: audio ? !audio.paused : false,
+        positionSec: audio ? audio.currentTime : 0,
+        playMode,
+        updatedAt: Date.now(),
+        ...overrides,
+      }
+      currentSocket.emit(MUSIC_EVENT.SYNC_STATE, {
+        roomId: currentRoomId,
+        ...payload,
+      })
+    },
+    []
+  )
+
+  /**
+   * 随机模式：确保洗牌序列与当前队列一致。
+   * 队列变化或锚点漂移（房主手动点歌）时重建/重锚，
+   * 重建时将当前曲目置于序列头部。
+   */
+  const ensureShuffleList = useCallback(() => {
+    const { queue, currentSongId } = useMusicStore.getState()
+    const queueIds = queue.map((item) => item.songId)
+    if (queueIds.length === 0) {
+      shuffleListRef.current = null
+      shufflePosRef.current = -1
+      return
+    }
+    const list = shuffleListRef.current
+    if (list && isSameIdSet(list, queueIds)) {
+      // 队列未变：校验位置仍指向当前曲目（手动切歌会使锚点漂移）
+      if (currentSongId == null) {
+        shufflePosRef.current = -1
+        return
+      }
+      const idx = list.indexOf(currentSongId)
+      // 当前曲目不在队列（被删除）→ 从序列头部重新开始
+      shufflePosRef.current = idx >= 0 ? idx : -1
+      return
+    }
+    // 队列变化或首次进入随机模式：重新洗牌，当前曲目置于头部
+    const nextList = shuffleIds(queueIds)
+    if (currentSongId != null) {
+      const curIdx = nextList.indexOf(currentSongId)
+      if (curIdx > 0) {
+        nextList.splice(curIdx, 1)
+        nextList.unshift(currentSongId)
+      }
+      shufflePosRef.current = curIdx >= 0 ? 0 : -1
+    } else {
+      shufflePosRef.current = -1
+    }
+    shuffleListRef.current = nextList
+  }, [])
+
+  /**
+   * 按播放模式计算切歌目标（next/prev 共用）。
+   * - sequence / repeat-one：手动切歌按队列顺序循环
+   *   （repeat-one 仅影响 ended 自动重播当前曲目）
+   * - shuffle：沿洗牌序列推进，一轮结束重新洗牌
+   *   （新一轮避免以刚播放的曲目开头，参考 Hydrogen avoidFirstSongId）
+   */
+  const computeTargetSongId = useCallback(
+    (direction: 'next' | 'prev'): number | null => {
+      const { queue, currentSongId, playMode } = useMusicStore.getState()
+      if (queue.length === 0) return null
+
+      if (playMode !== 'shuffle') {
+        const ids = queue.map((item) => item.songId)
+        if (ids.length === 1) return ids[0]
+        const idx = currentSongId == null ? -1 : ids.indexOf(currentSongId)
+        if (idx === -1) return ids[0]
+        if (direction === 'next') {
+          return ids[(idx + 1) % ids.length]
+        }
+        return ids[(idx - 1 + ids.length) % ids.length]
+      }
+
+      // 随机模式
+      ensureShuffleList()
+      const list = shuffleListRef.current
+      if (!list || list.length === 0) return null
+      if (list.length === 1) return list[0]
+      if (direction === 'next') {
+        if (shufflePosRef.current >= list.length - 1) {
+          // 一轮结束：重新洗牌，避免新一轮以刚播放的曲目开头
+          const nextList = shuffleIds(list)
+          if (currentSongId != null && nextList[0] === currentSongId) {
+            const swapIdx = nextList.findIndex((id) => id !== currentSongId)
+            if (swapIdx > 0) {
+              const t = nextList[0]
+              nextList[0] = nextList[swapIdx]
+              nextList[swapIdx] = t
+            }
+          }
+          shuffleListRef.current = nextList
+          shufflePosRef.current = 0
+          return nextList[0]
+        }
+        shufflePosRef.current += 1
+        return list[shufflePosRef.current]
+      }
+      // prev：沿序列回退；已在序列头部时回到当前曲目开头
+      if (shufflePosRef.current > 0) {
+        shufflePosRef.current -= 1
+        return list[shufflePosRef.current]
+      }
+      return currentSongId
+    },
+    [ensureShuffleList]
+  )
+
+  /** 加载指定曲目（positionSec 为起始进度；shouldPlay 控制起播状态） */
+  const loadAndPlaySong = useCallback(
+    (songId: number, positionSec: number, shouldPlay: boolean) => {
+      const audio = getAudio()
+      const url = buildStreamUrl(songId)
+      useMusicStore.getState().setCurrentSong(songId)
+      if (audio.src === url && audio.readyState >= 1) {
+        // 同一曲目且元数据已就绪（重播/循环）：直接 seek
+        try {
+          audio.currentTime = positionSec
+        } catch {
+          // ignore
+        }
+      } else {
+        // 新曲目或仍在加载：记录起始进度，待 loadedmetadata 后应用
+        pendingSeekRef.current = positionSec
+        if (audio.src !== url) {
+          audio.src = url
+          audio.load()
+        }
+      }
+      if (shouldPlay) {
+        void audio.play().catch(() => {
+          // 自动播放策略拒绝等：静默处理，播放状态由 audio 事件镜像
+        })
+      } else {
+        audio.pause()
+      }
+    },
+    [getAudio]
+  )
+
+  /** 切歌核心：按播放模式计算目标并加载播放；房主额外广播同步状态 */
+  const switchSong = useCallback(
+    (direction: 'next' | 'prev') => {
+      const target = computeTargetSongId(direction)
+      if (target == null) return
+      loadAndPlaySong(target, 0, true)
+      if (isHostRef.current) {
+        // play() 异步生效，广播时显式携带目标状态避免时间差
+        broadcastSyncState({
+          trackSongId: target,
+          isPlaying: true,
+          positionSec: 0,
+        })
+      }
+    },
+    [computeTargetSongId, loadAndPlaySong, broadcastSyncState]
+  )
+
+  /** 拥有直接控制权的判定（房主或房主离线时的观众） */
+  const hasControl = useCallback(
+    () => isHostRef.current || useMusicStore.getState().hostOffline,
+    []
+  )
+
+  /** 播放/暂停切换（房主或房主离线时直接生效；房主额外广播） */
+  const togglePlay = useCallback(() => {
+    if (!hasControl()) return
+    if (useMusicStore.getState().currentSongId == null) return
+    const audio = getAudio()
+    const wantPlay = audio.paused
+    if (wantPlay) {
+      void audio.play().catch(() => {
+        message.error('播放失败，请重试')
+      })
+    } else {
+      audio.pause()
+    }
+    if (isHostRef.current) {
+      broadcastSyncState({
+        isPlaying: wantPlay,
+        positionSec: audio.currentTime,
+      })
+    }
+  }, [getAudio, broadcastSyncState, hasControl])
+
+  /** 下一首（按播放模式计算目标） */
+  const next = useCallback(() => {
+    if (!hasControl()) return
+    switchSong('next')
+  }, [switchSong, hasControl])
+
+  /** 上一首（按播放模式计算目标） */
+  const prev = useCallback(() => {
+    if (!hasControl()) return
+    switchSong('prev')
+  }, [switchSong, hasControl])
+
+  /** 跳转到指定进度（秒） */
+  const seek = useCallback(
+    (sec: number) => {
+      if (!hasControl()) return
+      const audio = getAudio()
+      const target = Math.max(0, Number.isFinite(sec) ? sec : 0)
+      try {
+        audio.currentTime = target
+      } catch {
+        // ignore：元数据未就绪
+      }
+      if (isHostRef.current) {
+        broadcastSyncState({ positionSec: target })
+      }
+    },
+    [getAudio, broadcastSyncState, hasControl]
+  )
+
+  /** 切换播放模式（房主切换并广播；洗牌序列标记待重建） */
+  const setPlayMode = useCallback(
+    (mode: PlayMode) => {
+      if (!hasControl()) return
+      useMusicStore.getState().setPlayMode(mode)
+      shuffleListRef.current = null
+      if (isHostRef.current) {
+        broadcastSyncState({ playMode: mode })
+      }
+    },
+    [broadcastSyncState, hasControl]
+  )
+
+  /** 播放指定曲目（房主点击队列切歌） */
+  const playSong = useCallback(
+    (songId: number) => {
+      if (!hasControl()) return
+      loadAndPlaySong(songId, 0, true)
+      if (isHostRef.current) {
+        broadcastSyncState({
+          trackSongId: songId,
+          isPlaying: true,
+          positionSec: 0,
+        })
+      }
+    },
+    [loadAndPlaySong, broadcastSyncState, hasControl]
+  )
+
+  /** 观众：向房主申请控制（房主在线且自己无直接控制权时） */
+  const requestControl = useCallback(
+    (action: MusicControlRequest['action']) => {
+      const currentSocket = socketRef.current
+      const currentRoomId = roomIdRef.current
+      if (!currentSocket || !currentRoomId) return
+      // 房主或房主离线时拥有直接控制权，无需申请
+      if (hasControl()) return
+      currentSocket.emit(MUSIC_EVENT.CONTROL_REQUEST, {
+        roomId: currentRoomId,
+        action,
+        from: currentSocket.id ?? '',
+        username: usernameRef.current,
+      })
+    },
+    [hasControl]
+  )
+
+  /** 房主：执行审批通过的动作（房主是同步源，执行后广播使全房间对齐） */
+  const executeHostAction = useCallback(
+    (action: MusicControlRequest['action']) => {
+      const audio = getAudio()
+      switch (action) {
+        case 'pause':
+          audio.pause()
+          broadcastSyncState({
+            isPlaying: false,
+            positionSec: audio.currentTime,
+          })
+          break
+        case 'play':
+          if (useMusicStore.getState().currentSongId == null) return
+          void audio.play().catch(() => {
+            // ignore：自动播放策略拒绝
+          })
+          broadcastSyncState({
+            isPlaying: true,
+            positionSec: audio.currentTime,
+          })
+          break
+        case 'next':
+          switchSong('next')
+          break
+        case 'prev':
+          switchSong('prev')
+          break
+      }
+    },
+    [getAudio, switchSong, broadcastSyncState]
+  )
+
+  /**
+   * 观众：执行审批通过的动作（本地操作）。
+   * 随机模式下观众本地洗牌序列可能与房主不一致，
+   * 房主随后广播的 sync-state 会以权威 trackSongId 校正。
+   */
+  const executeLocalAction = useCallback(
+    (action: MusicControlRequest['action']) => {
+      const audio = getAudio()
+      switch (action) {
+        case 'play':
+          void audio.play().catch(() => {
+            // ignore
+          })
+          break
+        case 'pause':
+          audio.pause()
+          break
+        case 'next':
+          switchSong('next')
+          break
+        case 'prev':
+          switchSong('prev')
+          break
+      }
+    },
+    [getAudio, switchSong]
+  )
+
+  /** 房主：通过当前观众申请（执行动作 + 定向应答申请者 + 清除提示） */
+  const approveControl = useCallback(() => {
+    const request = pendingControlRef.current
+    pendingControlRef.current = null
+    useMusicStore.getState().setSyncNotice(null)
+    if (!request) return
+    executeHostAction(request.action)
+    socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
+      roomId: roomIdRef.current,
+      approved: true,
+      action: request.action,
+      from: request.from,
+    })
+  }, [executeHostAction])
+
+  /** 房主：拒绝当前观众申请（定向应答申请者 + 清除提示） */
+  const rejectControl = useCallback(() => {
+    const request = pendingControlRef.current
+    pendingControlRef.current = null
+    useMusicStore.getState().setSyncNotice(null)
+    if (!request) return
+    socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
+      roomId: roomIdRef.current,
+      approved: false,
+      action: request.action,
+      from: request.from,
+    })
+  }, [])
+
+  /**
+   * 观众：应用房主广播/心跳携带的同步状态。
+   * - trackSongId 变化 → 换源加载（从房主进度起播/暂停）
+   * - isPlaying 变化 → play/pause
+   * - 进度差 >2s → seek 对齐（小差异让音频自然播放）
+   * - playMode → 同步到 store
+   */
+  const applyViewerSync = useCallback(
+    (payload: MusicSyncState) => {
+      const store = useMusicStore.getState()
+      const audio = getAudio()
+      const trackSongId =
+        typeof payload.trackSongId === 'number' ? payload.trackSongId : null
+
+      // 1. 曲目变化 → 换源加载
+      if (trackSongId !== store.currentSongId) {
+        if (trackSongId == null) {
+          // 房主停止/清空播放
+          audio.pause()
+          store.setCurrentSong(null)
+          return
+        }
+        loadAndPlaySong(trackSongId, payload.positionSec, payload.isPlaying)
+        if (store.playMode !== payload.playMode) {
+          store.setPlayMode(payload.playMode)
+        }
+        return
+      }
+
+      // 2. 同曲目：播放状态对齐
+      if (store.isPlaying !== payload.isPlaying) {
+        if (payload.isPlaying) {
+          void audio.play().catch(() => {
+            // 自动播放策略拒绝：保持暂停，等待后续心跳或用户交互
+          })
+        } else {
+          audio.pause()
+        }
+      }
+
+      // 3. 进度对齐：差值超过阈值才 seek，避免高频打断
+      if (
+        Math.abs(audio.currentTime - payload.positionSec) >
+        SYNC_ALIGN_THRESHOLD_SEC
+      ) {
+        try {
+          audio.currentTime = payload.positionSec
+        } catch {
+          // ignore：元数据未就绪
+        }
+      }
+
+      // 4. 播放模式同步（仅状态镜像，不影响本地播放推进）
+      if (store.playMode !== payload.playMode) {
+        store.setPlayMode(payload.playMode)
+      }
+    },
+    [getAudio, loadAndPlaySong]
+  )
+
+  /** 曲目自然播完：按播放模式自动切歌（仅房主或房主离线时推进） */
+  const handleEnded = useCallback(() => {
+    const { playMode, hostOffline } = useMusicStore.getState()
+    // 房主在线时观众不自行推进：本地先结束属于缓冲差异，等待房主广播
+    if (!isHostRef.current && !hostOffline) return
+    const audio = getAudio()
+    if (playMode === 'repeat-one') {
+      // 单曲循环：回到开头重播
+      try {
+        audio.currentTime = 0
+      } catch {
+        // ignore
+      }
+      void audio.play().catch(() => {
+        // ignore
+      })
+      if (isHostRef.current) {
+        broadcastSyncState({ positionSec: 0, isPlaying: true })
+      }
+      return
+    }
+    // 顺序循环 / 随机：切换下一首
+    switchSong('next')
+  }, [getAudio, switchSong, broadcastSyncState])
+
+  // 音频元素事件绑定：进度/播放状态镜像、换曲起始进度、结束自动切歌
+  useEffect(() => {
+    const audio = getAudio()
+    const handleTimeUpdate = () => {
+      useMusicStore.getState().setPositionSec(audio.currentTime)
+    }
+    const handlePlay = () => {
+      useMusicStore.getState().setPlaying(true)
+    }
+    const handlePause = () => {
+      useMusicStore.getState().setPlaying(false)
+    }
+    const handleLoadedMetadata = () => {
+      // 换曲后的起始进度（如观众从房主进度起播）
+      if (pendingSeekRef.current > 0) {
+        try {
+          audio.currentTime = pendingSeekRef.current
+        } catch {
+          // ignore
+        }
+        pendingSeekRef.current = 0
+      }
+    }
+    const handleError = () => {
+      // 流加载失败（无版权/纯 VIP 未登录/解析失败等后端结构化错误）
+      console.error(
+        '[useListenTogether] 音频流加载失败:',
+        audio.error?.code,
+        audio.error?.message
+      )
+      message.error('音频加载失败，请稍后重试或切换其他曲目')
+    }
+
+    audio.addEventListener('timeupdate', handleTimeUpdate)
+    audio.addEventListener('play', handlePlay)
+    audio.addEventListener('pause', handlePause)
+    audio.addEventListener('ended', handleEnded)
+    audio.addEventListener('loadedmetadata', handleLoadedMetadata)
+    audio.addEventListener('error', handleError)
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate)
+      audio.removeEventListener('play', handlePlay)
+      audio.removeEventListener('pause', handlePause)
+      audio.removeEventListener('ended', handleEnded)
+      audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
+      audio.removeEventListener('error', handleError)
+    }
+  }, [getAudio, handleEnded])
+
+  // 房主心跳：每 2s 广播当前 MusicSyncState（观众据此对齐进度并判定房主在线）
+  useEffect(() => {
+    if (!socket || !roomId || !isHost) return
+    const timer = setInterval(() => {
+      const audio = audioRef.current
+      const { currentSongId, playMode } = useMusicStore.getState()
+      const payload: MusicSyncState = {
+        trackSongId: currentSongId,
+        isPlaying: audio ? !audio.paused : false,
+        positionSec: audio ? audio.currentTime : 0,
+        playMode,
+        updatedAt: Date.now(),
+      }
+      socket.emit(MUSIC_EVENT.HOST_HEARTBEAT, { roomId, ...payload })
+    }, HOST_HEARTBEAT_INTERVAL_MS)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [socket, roomId, isHost])
+
+  // 观众：房主离线判定——超时未收到心跳置 hostOffline，收到即恢复（见事件监听）
+  useEffect(() => {
+    if (!socket || !roomId || isHost) return
+    // 加入时重置计时，给予首个心跳的宽限期
+    lastHeartbeatAtRef.current = Date.now()
+    const timer = setInterval(() => {
+      if (
+        Date.now() - lastHeartbeatAtRef.current > HOST_OFFLINE_TIMEOUT_MS &&
+        !useMusicStore.getState().hostOffline
+      ) {
+        useMusicStore.getState().setHostOffline(true)
+      }
+    }, 1000)
+    return () => {
+      clearInterval(timer)
+    }
+  }, [socket, roomId, isHost])
+
+  // Socket 事件监听：观众同步 / 队列变更 / 控制申请与应答
+  useEffect(() => {
+    if (!socket || !roomId) return
+
+    // 观众：房主广播的同步状态
+    const handleSyncState = (payload: MusicSyncState & { roomId?: string }) => {
+      if (!payload || isHostRef.current) return
+      // 防御：仅接受当前房间的事件（切换房间时旧事件残留）
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      applyViewerSync(payload)
+    }
+
+    // 观众：房主心跳（重置离线计时 + 状态对齐）
+    const handleHostHeartbeat = (
+      payload: MusicSyncState & { roomId?: string }
+    ) => {
+      if (!payload || isHostRef.current) return
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      lastHeartbeatAtRef.current = Date.now()
+      const store = useMusicStore.getState()
+      if (store.hostOffline) {
+        store.setHostOffline(false)
+      }
+      applyViewerSync(payload)
+    }
+
+    // 全员：队列变更（后端广播完整队列）
+    const handleQueueChanged = (payload: {
+      items?: MusicQueueItem[]
+      roomId?: string
+    }) => {
+      if (!payload || !Array.isArray(payload.items)) return
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      useMusicStore.getState().setQueue(payload.items)
+      // 队列变化使洗牌序列失效：标记待重建（下次随机切歌时惰性重建）
+      shuffleListRef.current = null
+    }
+
+    // 房主：观众控制申请 → 播放器左上角提示 + 待审批
+    const handleControlRequest = (
+      payload: MusicControlRequest & { roomId?: string }
+    ) => {
+      if (!payload || !isHostRef.current) return
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      const action = payload.action
+      if (
+        action !== 'pause' &&
+        action !== 'play' &&
+        action !== 'next' &&
+        action !== 'prev'
+      ) {
+        return
+      }
+      if (!payload.from) return
+      pendingControlRef.current = {
+        action,
+        from: payload.from,
+        username: payload.username,
+      }
+      const who = payload.username || '观众'
+      useMusicStore
+        .getState()
+        .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT[action]}`)
+    }
+
+    // 观众：控制申请应答（approved 时执行对应本地操作）
+    const handleControlResponse = (
+      payload: MusicControlResponse & { roomId?: string }
+    ) => {
+      if (!payload || isHostRef.current) return
+      if (!payload.approved) return
+      // 防御：仅处理发给自己的应答（后端定向下发时天然满足）
+      if (payload.from && socket.id && payload.from !== socket.id) return
+      executeLocalAction(payload.action)
+    }
+
+    socket.on(MUSIC_EVENT.SYNC_STATE, handleSyncState)
+    socket.on(MUSIC_EVENT.HOST_HEARTBEAT, handleHostHeartbeat)
+    socket.on(MUSIC_EVENT.QUEUE_CHANGED, handleQueueChanged)
+    socket.on(MUSIC_EVENT.CONTROL_REQUEST, handleControlRequest)
+    socket.on(MUSIC_EVENT.CONTROL_RESPONSE, handleControlResponse)
+
+    return () => {
+      socket.off(MUSIC_EVENT.SYNC_STATE, handleSyncState)
+      socket.off(MUSIC_EVENT.HOST_HEARTBEAT, handleHostHeartbeat)
+      socket.off(MUSIC_EVENT.QUEUE_CHANGED, handleQueueChanged)
+      socket.off(MUSIC_EVENT.CONTROL_REQUEST, handleControlRequest)
+      socket.off(MUSIC_EVENT.CONTROL_RESPONSE, handleControlResponse)
+    }
+  }, [socket, roomId, applyViewerSync, executeLocalAction])
+
+  // 卸载/离开：释放音频资源、清理内部状态
+  //（store 不在此重置，由 Task 6 的离开房间流程统一调用 reset）
+  useEffect(() => {
+    return () => {
+      const audio = audioRef.current
+      if (audio) {
+        audio.pause()
+        audio.srcObject = null
+        audio.removeAttribute('src')
+        audio.load()
+      }
+      audioRef.current = null
+      pendingSeekRef.current = 0
+      shuffleListRef.current = null
+      shufflePosRef.current = -1
+      pendingControlRef.current = null
+    }
+  }, [])
+
+  // 当前播放的队列条目（queue + currentSongId 计算）
+  const currentSong = useMemo(() => {
+    if (currentSongId == null) return null
+    return queue.find((item) => item.songId === currentSongId) ?? null
+  }, [queue, currentSongId])
+
+  /** 是否拥有直接控制权（房主或房主离线时的观众，按钮 label 由 UI 层处理） */
+  const canControl = isHost || hostOffline
+
+  return {
+    togglePlay,
+    next,
+    prev,
+    seek,
+    setPlayMode,
+    playSong,
+    requestControl,
+    approveControl,
+    rejectControl,
+    currentSong,
+    canControl,
+    hostOffline,
+    syncNotice,
+    setSyncNotice,
+  }
+}

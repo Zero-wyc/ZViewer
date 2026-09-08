@@ -5,6 +5,7 @@ import { Session } from './entities/Session';
 import { User } from './entities/User';
 import { Comment } from './entities/Comment';
 import { BilibiliCredential } from './entities/BilibiliCredential';
+import { NcmCredential } from './entities/NcmCredential';
 import { Movie } from './entities/Movie';
 import { UserMount } from './entities/UserMount';
 import { SystemSettings } from './entities/SystemSettings';
@@ -26,7 +27,7 @@ export const AppDataSource = new DataSource({
   useLocalForage: false,
   synchronize: true,
   logging: process.env.NODE_ENV === 'development',
-  entities: [Room, Session, User, Comment, BilibiliCredential, Movie, UserMount, SystemSettings, PlaybackState, ServerFolder, DanmakuTrack, RoomDanmakuMeta, AuditLog],
+  entities: [Room, Session, User, Comment, BilibiliCredential, NcmCredential, Movie, UserMount, SystemSettings, PlaybackState, ServerFolder, DanmakuTrack, RoomDanmakuMeta, AuditLog],
   migrations: [],
   subscribers: [],
 });

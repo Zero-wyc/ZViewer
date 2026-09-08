@@ -30,6 +30,7 @@ import animeSourcesRoutes from './routes/animeSources';
 import anisubsRoutes from './routes/anisubs';
 import kazumiRoutes from './routes/kazumi';
 import serverFilesRoutes from './routes/serverFiles';
+import musicRoutes from './routes/music';
 import { createMountRouter } from './routes/webdav';
 import openlistRoutes from './routes/openlist';
 import ftpRoutes from './routes/ftp';
@@ -77,6 +78,10 @@ import { CliHandler } from './modules/cli';
 import { nmsService, StreamPushHandler, streamPushRouter } from './modules/stream-push';
 import { SignalingHandler, ViewerEventsHandler } from './modules/webrtc-signaling';
 import { VoiceChatHandler } from './modules/voice-chat';
+import {
+  startNcmApiService,
+  stopNcmApiService,
+} from './modules/music/ncm-api.service';
 import { ensureUploadsRoot } from './services/server-files/pathResolver';
 import {
   AVATARS_DIR,
@@ -283,6 +288,8 @@ async function bootstrap() {
   app.use('/api/stream/anisubs', anisubsRoutes);
   app.use('/api/stream/kazumi', kazumiRoutes);
   app.use('/api/server-files', serverFilesRoutes);
+  // 一起听音乐模块：NCM API 通用转发 / 登录态 / 音频流代理（可选鉴权，游客可匿名调用）
+  app.use('/api/music', musicRoutes);
   app.use('/api/stream', streamRoutes);
   // CLI 本地代理端点：供 zcontrol-cli 使用，使用用户自己的 Cookie 解析高画质
   app.use('/api/cli', cliRoutes);
@@ -300,6 +307,14 @@ async function bootstrap() {
   app.use('/api/system/update', updaterRoutes);
   app.use('/api/stats', statsRoutes);
   app.use('/api/stream-push', streamPushRouter);
+
+  // 启动 NCM API 内部服务（一起听音乐模块，绑定 127.0.0.1）：
+  // 失败不阻塞主服务，音乐相关接口将返回 503 降级
+  try {
+    await startNcmApiService();
+  } catch (err) {
+    console.error('[music] NCM API 内部服务启动失败，音乐功能不可用:', err);
+  }
 
   app.get('/health', (_req, res) => {
     res.json({
@@ -548,6 +563,11 @@ async function bootstrap() {
       stopNms();
     } catch (err) {
       console.error('[NMS] graceful shutdown error:', err);
+    }
+    try {
+      stopNcmApiService();
+    } catch (err) {
+      console.error('[music] NCM API graceful shutdown error:', err);
     }
     process.exit(0);
   };
