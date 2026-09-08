@@ -20,6 +20,7 @@ import { Comment } from './entities/Comment';
 import { SystemSettings } from './entities/SystemSettings';
 import { Movie as MovieEntity } from './entities/Movie';
 import { PlaybackState } from './entities/PlaybackState';
+import { MusicQueueItem } from './entities/MusicQueueItem';
 import { PROJECT_ROOT } from './services/paths';
 import { proxyHttpUpstream } from './services/proxy/http-proxy';
 import authRoutes from './routes/auth';
@@ -82,6 +83,7 @@ import {
   startNcmApiService,
   stopNcmApiService,
 } from './modules/music/ncm-api.service';
+import { MusicSyncHandler, clearMusicSyncState } from './modules/music/MusicSyncHandler';
 import { ensureUploadsRoot } from './services/server-files/pathResolver';
 import {
   AVATARS_DIR,
@@ -101,9 +103,12 @@ export async function deleteRoomAndRelations(
   const movieRepo = AppDataSource.getRepository(MovieEntity);
   const commentRepo = AppDataSource.getRepository(Comment);
   const playbackStateRepo = AppDataSource.getRepository(PlaybackState);
+  const musicQueueRepo = AppDataSource.getRepository(MusicQueueItem);
 
   // 清理运行时状态（通过 RoomStateService 而非直接操作全局 Map）
   roomStateService.delete(roomId);
+  // 清理一起听的音乐同步内存状态（队列条目随下方关联数据删除）
+  clearMusicSyncState(roomId);
 
   // 结束所有未结束会话
   await sessionRepo.update(
@@ -117,6 +122,7 @@ export async function deleteRoomAndRelations(
   await movieRepo.delete({ roomId });
   await commentRepo.delete({ roomId });
   await playbackStateRepo.delete({ roomId });
+  await musicQueueRepo.delete({ roomId });
 
   // 删除房间
   await roomRepo.delete({ roomId });
@@ -483,7 +489,9 @@ async function bootstrap() {
     .add(new SignalingHandler())
     .add(new ViewerEventsHandler())
     // 语音聊天服务器中转（从 signaling.ts 中分离）
-    .add(new VoiceChatHandler());
+    .add(new VoiceChatHandler())
+    // 一起听音乐同步（队列 CRUD / 播放状态与心跳转发 / 观众申请制）
+    .add(new MusicSyncHandler());
 
   // 挂载新模块的 REST 路由
   app.use('/api/rooms', createMovieRouter(io));

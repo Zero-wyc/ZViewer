@@ -17,6 +17,7 @@ import { Router, type Response, type NextFunction } from 'express';
 import { Readable } from 'node:stream';
 import { AppDataSource } from '../data-source';
 import { NcmCredential } from '../entities/NcmCredential';
+import { Room } from '../entities/Room';
 import {
   type AuthenticatedRequest,
   extractAccessToken,
@@ -520,15 +521,18 @@ async function proxyAudioStream(
 /**
  * GET /api/music/stream?songId=&level=&roomId= - 音频流代理。
  *
- * 1. 以当前用户 cookie（或匿名）调内部服务 /song/url/v1 解析直链，
+ * 1. 凭证回退链（spec「房主登录后全房间可播 VIP」）：
+ *    当前用户有 NcmCredential 用之；否则请求带 roomId 时查 Room 表
+ *    ownerUserId，房主有凭证则借用其凭证解析。stream 请求来自 <audio>
+ *    标签无法携带 Authorization 头，token 从 query 读取（optionalAuth），
+ *    观众未登录/无凭证时经 roomId 仍可播 VIP 曲目。
+ * 2. 以解析到的 cookie（或匿名）调内部服务 /song/url/v1 解析直链，
  *    url 为 null 时沿降级链 lossless→exhigh→higher→standard 依次重试
  *    （从请求 level 开始；带 freeTrialInfo 的试听直链视为不可用）
- * 2. 全链失败时错误分类：freeTrialInfo → VIP_REQUIRED；
+ * 3. 全链失败时错误分类：freeTrialInfo → VIP_REQUIRED；
  *    /check/music 判定无版权 → NO_COPYRIGHT；其余 → RESOLVE_FAILED
- * 3. 直链 hostname 必须匹配 *.music.126.net（防 SSRF），否则 RESOLVE_FAILED
- * 4. 流式转发（Range/206 透传）
- *
- * roomId 参数为预留（后续观众复用房主登录态解析时使用），当前不参与逻辑。
+ * 4. 直链 hostname 必须匹配 *.music.126.net（防 SSRF），否则 RESOLVE_FAILED
+ * 5. 流式转发（Range/206 透传）
  */
 router.get(
   '/stream',
@@ -562,7 +566,22 @@ router.get(
         chainStart >= 0 ? chainStart : 0,
       );
 
-      const credential = await loadCredential(req.user?.userId);
+      // 凭证回退链：当前用户凭证 → 房主凭证（请求带 roomId 时）。
+      // 实现 spec「房主登录网易云后全房间可播 VIP」：观众自己未登录/
+      // 无凭证时，借用房主的持久化凭证解析直链。
+      let credential = await loadCredential(req.user?.userId);
+      if (!credential) {
+        const roomId =
+          typeof req.query.roomId === 'string' ? req.query.roomId : '';
+        if (roomId) {
+          const room = await AppDataSource.getRepository(Room).findOneBy({
+            roomId,
+          });
+          if (room?.ownerUserId) {
+            credential = await loadCredential(room.ownerUserId);
+          }
+        }
+      }
       const cookieHeader = credential
         ? toCookieHeader(credential.cookies)
         : '';

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { useShallow } from 'zustand/react/shallow'
 import { getApiUrl } from '@/lib/api'
@@ -25,7 +25,20 @@ const MUSIC_EVENT = {
   CONTROL_REQUEST: 'music:control-request',
   /** 控制申请应答（房主 → 申请者） */
   CONTROL_RESPONSE: 'music:control-response',
+  /** 加入房间时查询当前队列 + 最新同步状态（ack 返回） */
+  GET_STATE: 'music:get-state',
 } as const
+
+/**
+ * music:get-state 的 ack 应答（与后端 MusicSyncHandler 契约一致）。
+ * syncState 为服务端缓存的房主最新同步状态（房间从未播放时为 null）。
+ */
+interface GetStateResponse {
+  success: boolean
+  message?: string
+  queue?: MusicQueueItem[]
+  syncState?: MusicSyncState | null
+}
 
 /** 房主心跳广播间隔（毫秒） */
 const HOST_HEARTBEAT_INTERVAL_MS = 2000
@@ -47,15 +60,33 @@ const CONTROL_ACTION_TEXT: Record<MusicControlRequest['action'], string> = {
   prev: '切换上一首',
 }
 
+/** 音乐本地音量持久化 key（与视频播放器的 zc-player-volume 相互独立） */
+const VOLUME_STORAGE_KEY = 'zc-music-volume'
+
+/** 读取持久化的本地音量（0-1，无效/缺失时回退 1） */
+function loadPersistedVolume(): number {
+  try {
+    const saved = localStorage.getItem(VOLUME_STORAGE_KEY)
+    if (!saved) return 1
+    const v = parseFloat(saved)
+    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1
+  } catch {
+    return 1
+  }
+}
+
 /**
  * 构建音频流代理地址。
  * 使用 getApiUrl() 实时读取（自定义后端地址变更后立即生效），
  * 并附加 access token（媒体元素请求无法携带 Authorization 头，
  * HTTP 部署场景下后端从查询参数读取 token）。
+ * 携带 roomId：当前用户无网易云凭证时，后端回退用房主凭证解析
+ * （spec「房主登录后全房间可播 VIP」）。
  */
-function buildStreamUrl(songId: number): string {
+function buildStreamUrl(songId: number, roomId: string | undefined): string {
+  const roomParam = roomId ? `&roomId=${encodeURIComponent(roomId)}` : ''
   return appendAuthToken(
-    `${getApiUrl()}/api/music/stream?songId=${songId}&level=${STREAM_LEVEL}`
+    `${getApiUrl()}/api/music/stream?songId=${songId}&level=${STREAM_LEVEL}${roomParam}`
   )
 }
 
@@ -117,6 +148,10 @@ export interface UseListenTogetherResult {
   syncNotice: string | null
   /** 设置提示文字（null 清除） */
   setSyncNotice: (notice: string | null) => void
+  /** 本地播放音量（0-1，仅本地生效不参与房间同步） */
+  volume: number
+  /** 设置本地播放音量（0-1，持久化到 localStorage；0 视为静音） */
+  setVolume: (volume: number) => void
 }
 
 /**
@@ -149,6 +184,9 @@ export function useListenTogether({
       }))
     )
 
+  // 本地音量（仅本地生效；创建 audio 元素时应用，见 getAudio）
+  const [volume, setVolumeState] = useState(loadPersistedVolume)
+
   // ===== Refs =====
   /** 音频元素（惰性创建，不挂 DOM） */
   const audioRef = useRef<HTMLAudioElement | null>(null)
@@ -162,6 +200,8 @@ export function useListenTogether({
   const lastHeartbeatAtRef = useRef(0)
   /** 房主端待审批的观众申请 */
   const pendingControlRef = useRef<MusicControlRequest | null>(null)
+  /** 本地音量镜像（getAudio 创建元素时读取，避免依赖 state） */
+  const volumeRef = useRef(volume)
   // latest ref 模式：事件回调经 ref 读取最新身份
   const socketRef = useRef(socket)
   const roomIdRef = useRef(roomId)
@@ -173,13 +213,16 @@ export function useListenTogether({
     roomIdRef.current = roomId
     isHostRef.current = isHost
     usernameRef.current = username
-  }, [socket, roomId, isHost, username])
+    volumeRef.current = volume
+  }, [socket, roomId, isHost, username, volume])
 
-  /** 惰性获取 audio 元素（首次使用时创建，不挂 DOM） */
+  /** 惰性获取 audio 元素（首次使用时创建，不挂 DOM；创建时应用持久化音量） */
   const getAudio = useCallback(() => {
     if (!audioRef.current) {
       const audio = new Audio()
       audio.preload = 'auto'
+      audio.muted = volumeRef.current === 0
+      audio.volume = volumeRef.current
       audioRef.current = audio
     }
     return audioRef.current
@@ -314,7 +357,7 @@ export function useListenTogether({
   const loadAndPlaySong = useCallback(
     (songId: number, positionSec: number, shouldPlay: boolean) => {
       const audio = getAudio()
-      const url = buildStreamUrl(songId)
+      const url = buildStreamUrl(songId, roomIdRef.current)
       useMusicStore.getState().setCurrentSong(songId)
       if (audio.src === url && audio.readyState >= 1) {
         // 同一曲目且元数据已就绪（重播/循环）：直接 seek
@@ -446,6 +489,27 @@ export function useListenTogether({
     [loadAndPlaySong, broadcastSyncState, hasControl]
   )
 
+  /** 设置本地播放音量（0-1，持久化 localStorage；仅本地生效不参与同步） */
+  const setVolume = useCallback(
+    (value: number) => {
+      const clamped = Math.min(
+        1,
+        Math.max(0, Number.isFinite(value) ? value : 0)
+      )
+      const audio = getAudio()
+      audio.muted = clamped === 0
+      audio.volume = clamped
+      volumeRef.current = clamped
+      setVolumeState(clamped)
+      try {
+        localStorage.setItem(VOLUME_STORAGE_KEY, String(clamped))
+      } catch {
+        // ignore：隐私模式等场景写入失败可忽略
+      }
+    },
+    [getAudio]
+  )
+
   /** 观众：向房主申请控制（房主在线且自己无直接控制权时） */
   const requestControl = useCallback(
     (action: MusicControlRequest['action']) => {
@@ -460,6 +524,10 @@ export function useListenTogether({
         from: currentSocket.id ?? '',
         username: usernameRef.current,
       })
+      // 观众端即时反馈（应答到达后会被同意/拒绝文案覆盖）
+      useMusicStore
+        .getState()
+        .setSyncNotice(`已向房主申请${CONTROL_ACTION_TEXT[action]}`)
     },
     [hasControl]
   )
@@ -727,6 +795,25 @@ export function useListenTogether({
     }
   }, [socket, roomId, isHost])
 
+  // 加入房间时查询初始状态：队列 + 服务端缓存的最新同步状态。
+  // 观众据此立即对齐当前播放；房主断线重连后据此恢复自己的播放进度
+  //（服务端缓存的就是房主最后广播的状态）。
+  useEffect(() => {
+    if (!socket || !roomId) return
+    socket.emit(MUSIC_EVENT.GET_STATE, { roomId }, (res: GetStateResponse) => {
+      if (!res?.success) return
+      if (Array.isArray(res.queue)) {
+        useMusicStore.getState().setQueue(res.queue)
+        // 队列变化使洗牌序列失效：标记待重建
+        shuffleListRef.current = null
+      }
+      if (res.syncState) {
+        // 按同步状态恢复本地播放（换曲加载/播放状态/进度/播放模式）
+        applyViewerSync(res.syncState)
+      }
+    })
+  }, [socket, roomId, applyViewerSync])
+
   // Socket 事件监听：观众同步 / 队列变更 / 控制申请与应答
   useEffect(() => {
     if (!socket || !roomId) return
@@ -792,15 +879,32 @@ export function useListenTogether({
         .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT[action]}`)
     }
 
-    // 观众：控制申请应答（approved 时执行对应本地操作）
+    // 观众：控制申请应答（approved 时执行对应本地操作，并提示结果）
     const handleControlResponse = (
       payload: MusicControlResponse & { roomId?: string }
     ) => {
       if (!payload || isHostRef.current) return
-      if (!payload.approved) return
       // 防御：仅处理发给自己的应答（后端定向下发时天然满足）
       if (payload.from && socket.id && payload.from !== socket.id) return
-      executeLocalAction(payload.action)
+      const action = payload.action
+      if (
+        action !== 'pause' &&
+        action !== 'play' &&
+        action !== 'next' &&
+        action !== 'prev'
+      ) {
+        return
+      }
+      if (payload.approved) {
+        useMusicStore
+          .getState()
+          .setSyncNotice(`房主已同意${CONTROL_ACTION_TEXT[action]}`)
+        executeLocalAction(action)
+      } else {
+        useMusicStore
+          .getState()
+          .setSyncNotice(`房主已拒绝${CONTROL_ACTION_TEXT[action]}`)
+      }
     }
 
     socket.on(MUSIC_EVENT.SYNC_STATE, handleSyncState)
@@ -861,5 +965,7 @@ export function useListenTogether({
     hostOffline,
     syncNotice,
     setSyncNotice,
+    volume,
+    setVolume,
   }
 }
