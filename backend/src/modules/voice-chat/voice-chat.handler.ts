@@ -344,9 +344,10 @@ export class VoiceChatHandler implements SocketEventHandler {
         const mutedSet = voiceMutedKeys.get(payload.roomId);
         if (mutedSet?.has(idx.key)) return;
 
-        // volatile：实时音频帧允许在服务器/客户端拥堵时丢弃，
-        // 避免排队造成端到端延迟持续膨胀
-        socket.volatile.to(payload.roomId).emit('voice-audio-data', {
+        // 不用 volatile：中转丢帧无法恢复（播放实时消耗、发送实时生产），
+        // 只会持续排空接收端 jitter buffer 造成频繁 underrun（实测每 1~2s
+        // 一次）。排队转发的突发延迟由接收端 jitter buffer 吸收
+        socket.to(payload.roomId).emit('voice-audio-data', {
           from: socket.id,
           data: payload.data,
           sampleRate: payload.sampleRate,

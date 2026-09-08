@@ -947,9 +947,12 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
                 const chunkData = new ArrayBuffer(chunk.byteLength)
                 chunk.copyTo(chunkData)
 
-                // 发送编码后的音频。volatile：socket 拥堵时允许丢弃该帧
-                // （实时语音丢一帧只是 20ms 静音，排队则延迟持续膨胀）
-                currentSocket.volatile.emit('voice-audio-data', {
+                // 发送编码后的音频。不用 volatile：volatile 在 socket 忙于
+                // 写入时静默丢帧，而播放以实时速度消耗、发送也以实时速度
+                // 生产，丢掉的帧永远无法补回，只能持续排空 jitter buffer
+                // （实测每 1~2s 一次 underrun）。排队发送的突发延迟由
+                // 接收端 jitter buffer 吸收
+                currentSocket.emit('voice-audio-data', {
                   roomId: currentRoomId,
                   data: chunkData,
                   timestamp: Date.now(),
@@ -1028,9 +1031,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             console.error('[voice] encode error:', err)
           }
         } else {
-          // PCM 回退模式：直接发送 Int16 数据（volatile：拥堵允许丢帧）
+          // PCM 回退模式：直接发送 Int16 数据（同样不用 volatile，理由同上）
           const int16 = float32ToInt16(float32)
-          currentSocket.volatile.emit('voice-audio-data', {
+          currentSocket.emit('voice-audio-data', {
             roomId: currentRoomId,
             data: int16.buffer,
             sampleRate: captureCtx.sampleRate,
