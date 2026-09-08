@@ -22,8 +22,8 @@ export class MusicQueueItem {
   @PrimaryGeneratedColumn()
   id!: number;
 
-  /** 所属房间 ID */
-  @Index()
+  /** 所属房间 ID（索引由实体级 @Index(['roomId']) 定义，列级不再重复声明，
+   *  否则 synchronize 生成两条同名 CREATE INDEX 导致建表失败） */
   @Column()
   roomId!: string;
 
