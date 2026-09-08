@@ -41,9 +41,6 @@ const TARGET_BUFFER_BASE_SEC = 0.04
 /** 标准语音帧长（秒）：AudioWorklet 20ms/帧，用于计算到达间隔偏差 */
 const VOICE_FRAME_SEC = 0.02
 
-/** 水位超标阈值：超过目标此余量后丢帧消耗积压（秒） */
-const DROP_THRESHOLD_SEC = 0.08
-
 /** 极端积压硬重置阈值（秒）：超过则直接丢帧重建时间线 */
 const BACKLOG_RESET_SEC = 0.5
 
@@ -191,14 +188,13 @@ interface PeerPlaybackState {
    * 与新时间线重叠（听感为回声/金属声）。
    */
   pendingSources: Set<AudioBufferSourceNode>
-  /**
-   * 自适应 jitter buffer 目标水位（秒）：基于到达抖动 EWMA 动态计算，
-   * 网络稳→低水位低延迟，抖动大→自动抬升防 underrun。
-   */
-  targetBufferSec: number
   /** 上次音频块到达时刻（performance.now，计算到达间隔） */
   lastArrivalAt: number
-  /** 到达间隔偏差的 EWMA（秒）：|实际间隔 - 标准帧长| 的指数滑动平均 */
+  /**
+   * 到达间隔偏差的 EWMA（秒）：|实际间隔 - 标准帧长| 的指数滑动平均。
+   * 用于计算 underrun 重起播时的目标水位（网络稳→低水位低延迟，
+   * 抖动大→自动抬升防 underrun）。正常播放为纯排队，不做水位干预
+   */
   jitterEwma: number
   /** 对方流的 codec description（错误重建解码器时复用） */
   codecDescription?: ArrayBuffer
@@ -518,7 +514,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         analyser,
         nextStartTime: 0,
         pendingSources: new Set(),
-        targetBufferSec: TARGET_BUFFER_MIN_SEC,
         lastArrivalAt: 0,
         jitterEwma: 0,
       }
@@ -604,7 +599,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
           2 * state.jitterEwma + TARGET_BUFFER_BASE_SEC
         )
       )
-      state.targetBufferSec = targetBuffer
 
       // ---- 时间线调度 ----
       // underrun：上一块已播完而新块迟到（时间线落后于当前时刻）→
@@ -614,23 +608,13 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         timeline = now + targetBuffer
       }
 
-      // 水位控制：显著高于目标时丢弃当前帧（时间线照常推进，
-      // 每丢一帧水位回落一个帧长）。
-      // 不可用 playbackRate 加速追赶：AudioBufferSourceNode 变速会
-      // 同时变调（1.05x ≈ +0.84 半音），开麦首句突发积压时整句被
-      // 变调播放约 1.6 秒，听感"非常奇怪"；20ms 丢帧空洞在语音流中
-      // 几乎不可闻，远优于变调
-      const bufferAhead = timeline - now
-      if (bufferAhead > targetBuffer + DROP_THRESHOLD_SEC) {
-        try {
-          source.disconnect()
-        } catch {
-          // ignore
-        }
-        state.nextStartTime = timeline + audioBuffer.duration
-        return
-      }
-
+      // 纯排队播放：Socket.IO 消息是批量到达的（浏览器事件循环 +
+      // 网络帧合并，一次常涌入 5~10 帧），瞬时水位偏高是正常排队
+      // 现象而非积压——时间线以 20ms/帧匀速消化，帧会按时播出。
+      // 不可丢帧或 playbackRate 追赶：丢帧会把批量到达误判为积压，
+      // 一批 10 帧丢 5 帧（50% 音频消失，全程断断续续）；变速则
+      // 同时变调（+0.84 半音），首句听感异常。真正的极端积压
+      // （网络中断恢复，>0.5s）由下方硬重置兜底
       const startTime = Math.max(now + targetBuffer, timeline)
       state.pendingSources.add(source)
       source.onended = () => {
@@ -639,8 +623,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       source.start(startTime)
       state.nextStartTime = startTime + audioBuffer.duration
 
-      // 极端积压（追赶无法覆盖的突发）：丢弃已排队未播的旧块再重置
-      // 时间线。实时语音宁可断 0.5s 音，也不能让新旧时间线重叠播放
+      // 极端积压（网络中断后恢复的突发批量）：丢弃已排队未播的旧块
+      // 再重置时间线。实时语音宁可断 0.5s 音，也不能让新旧时间线
+      // 重叠播放
       if (state.nextStartTime - now > BACKLOG_RESET_SEC) {
         for (const s of state.pendingSources) {
           try {
