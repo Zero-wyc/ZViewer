@@ -29,14 +29,20 @@ const OPUS_BITRATE = 128_000
 /** Opus 编码采样率 */
 const OPUS_SAMPLE_RATE = 48_000
 
-/** 接收端 jitter buffer 初始目标水位（秒），自适应下限 */
-const TARGET_BUFFER_MIN_SEC = 0.06
+/**
+ * 接收端 jitter buffer 目标水位下限（秒）。
+ * 播放调度与解码回调都跑在主线程，而房间页同时运行播放器/弹幕/
+ * 评论，主线程 100~300ms 的卡顿是常态——下限必须能吸收典型卡顿，
+ * 否则每次卡顿都排空播放队列产生可闻断音。150ms 是语音通话的
+ * 常规缓冲水平（WebRTC 同量级），延迟代价可接受
+ */
+const TARGET_BUFFER_MIN_SEC = 0.15
 
 /** jitter buffer 目标水位上限（秒）：抖动再大也不超过 */
-const TARGET_BUFFER_MAX_SEC = 0.3
+const TARGET_BUFFER_MAX_SEC = 0.4
 
 /** 目标水位基线（秒）：2×抖动 EWMA 之上再加的固定余量 */
-const TARGET_BUFFER_BASE_SEC = 0.04
+const TARGET_BUFFER_BASE_SEC = 0.1
 
 /** 标准语音帧长（秒）：AudioWorklet 20ms/帧，用于计算到达间隔偏差 */
 const VOICE_FRAME_SEC = 0.02
@@ -583,8 +589,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       // ---- 自适应 jitter buffer：到达抖动 EWMA → 目标水位 ----
       const arrivalNow = performance.now()
+      // 上一帧到达间隔（ms）：供下方 underrun 判定"连续语音中的卡顿"
+      const prevIntervalMs =
+        state.lastArrivalAt > 0 ? arrivalNow - state.lastArrivalAt : 0
       if (state.lastArrivalAt > 0) {
-        const intervalSec = (arrivalNow - state.lastArrivalAt) / 1000
+        const intervalSec = prevIntervalMs / 1000
         // 间隔异常大（暂停/对方静音后恢复）不纳入统计
         if (intervalSec > 0 && intervalSec < 0.5) {
           const deviation = Math.abs(intervalSec - VOICE_FRAME_SEC)
@@ -601,21 +610,30 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       )
 
       // ---- 时间线调度 ----
-      // underrun：上一块已播完而新块迟到（时间线落后于当前时刻）→
-      // 以目标水位重新起播，给后续包留缓冲
+      // underrun：时间线落后于当前时刻（主线程卡顿/网络突发把队列排空）
+      // → 以目标水位重新起播。帧仍在密集到达时发生即为真实卡顿，
+      // debug 级日志便于排查（静音后恢复的正常起播不记录）
       let timeline = state.nextStartTime
       if (timeline < now) {
+        if (prevIntervalMs > 0 && prevIntervalMs < 150) {
+          console.debug(
+            `[voice] underrun during continuous speech ` +
+              `(deficit ${Math.round((now - timeline) * 1000)}ms, ` +
+              `buffer target ${Math.round(targetBuffer * 1000)}ms)`
+          )
+        }
         timeline = now + targetBuffer
       }
 
-      // 纯排队播放：Socket.IO 消息是批量到达的（浏览器事件循环 +
-      // 网络帧合并，一次常涌入 5~10 帧），瞬时水位偏高是正常排队
-      // 现象而非积压——时间线以 20ms/帧匀速消化，帧会按时播出。
-      // 不可丢帧或 playbackRate 追赶：丢帧会把批量到达误判为积压，
-      // 一批 10 帧丢 5 帧（50% 音频消失，全程断断续续）；变速则
-      // 同时变调（+0.84 半音），首句听感异常。真正的极端积压
-      // （网络中断恢复，>0.5s）由下方硬重置兜底
-      const startTime = Math.max(now + targetBuffer, timeline)
+      // 纯排队播放：时间线只进不退，也绝不向前跳。
+      // - Socket.IO 消息批量到达是常态（一次涌入 5~10 帧），瞬时水位
+      //   偏高是正常排队而非积压，时间线以 20ms/帧匀速消化，不可丢帧
+      //   或变速追赶（丢帧断续、变速变调）
+      // - 不可用 max(now + targetBuffer, timeline)：targetBuffer 随抖动
+      //   EWMA 波动抬升时会把已排队的时间线整体前推，每次抬升插入
+      //   (新水位 - 旧水位) 的静音空洞，反复抬升 → 反复插洞 → 持续
+      //   卡顿。水位只在 underrun 重起播时生效
+      const startTime = timeline
       state.pendingSources.add(source)
       source.onended = () => {
         state.pendingSources.delete(source)
