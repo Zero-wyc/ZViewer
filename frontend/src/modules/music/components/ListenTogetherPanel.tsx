@@ -85,8 +85,9 @@ export function ListenTogetherPanel({
   isWebFullscreen,
 }: ListenTogetherPanelProps) {
   // 页面级集成：RoomPage/WatchPage 用 MusicPlayerProvider 包裹整个 RoomLayout，
-  // 使侧栏 MusicQueuePanel 与主播放器共享同一引擎。此时直接复用外层实例，
-  // 避免嵌套 Provider 重复创建音频引擎（双引擎会导致侧栏切歌与主播放器不同步）。
+  // 使主区域框架（MusicAppShell）与此完整播放器覆盖层共享同一引擎。
+  // 此时直接复用外层实例，避免嵌套 Provider 重复创建音频引擎
+  //（双引擎会导致切歌与主播放器不同步）。
   const outerPlayer = useContext(MusicPlayerContext)
   if (outerPlayer) {
     return (
@@ -140,10 +141,15 @@ function ListenTogetherInner({
   const lyricScrollRef = useRef<HTMLDivElement>(null)
   const lyricLineRefs = useRef<Array<HTMLDivElement | null>>([])
 
-  // 切歌时请求歌词（请求期间保留旧词避免闪烁，失败/纯音乐时清空）
+  // 切歌时请求歌词（请求期间保留旧词避免闪烁，失败/纯音乐时清空；
+  // 塞壬曲目 songId=0 无歌词，直接清空避免无效请求）
   const songId = currentSong?.songId
   useEffect(() => {
-    if (songId == null) return
+    if (songId == null || songId <= 0) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 塞壬曲目无歌词，由曲目切换状态机驱动清空
+      setLyricLines([])
+      return
+    }
     let cancelled = false
     const loadLyric = async () => {
       try {

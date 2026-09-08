@@ -7,8 +7,8 @@
  * - 右区（自适应）：歌手（单行截断）+ 时长（右对齐）；行尾操作组常驻占位
  *
  * 两种使用模式：
- * - 搜索模式（MusicSearchPanel）：hover 序号列显示 Plus 添加按钮
- * - 队列模式（MusicQueuePanel）：hover 显示 Play 切歌按钮 / 当前播放 EQ 动画
+ * - 添加模式（搜索/每日推荐/云盘等页面）：hover 序号列显示 Plus 添加按钮
+ * - 队列模式（MusicQueuePopup）：当前播放行 EQ 频谱动画
  *
  * 交互差异由调用方通过 hoverAction / onHoverAction / actions 等 props 注入，
  * 本组件只负责排版与三态切换，不含任何业务逻辑。

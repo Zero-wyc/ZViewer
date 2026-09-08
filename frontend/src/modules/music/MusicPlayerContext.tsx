@@ -1,9 +1,10 @@
 /**
  * 音乐播放器 Context Provider。
  *
- * 让侧栏面板（队列切歌等）与主播放器共享同一份 useListenTogether 实例
- * （单一音频引擎 + 同一 socket 监听）。由 ListenTogetherPanel 挂载；
- * MusicQueuePanel 等经 useMusicPlayer()（../hooks/useMusicPlayer）消费。
+ * 让主区域框架（MusicAppShell：队列弹窗切歌/完整播放器覆盖层）与
+ * 播放引擎共享同一份 useListenTogether 实例（单一音频引擎 + 同一 socket 监听）。
+ * 由 RoomPage/WatchPage 包裹 RoomLayout 挂载；各消费方经 useMusicPlayer()
+ * （../hooks/useMusicPlayer）读取。
  */
 import type { Socket } from 'socket.io-client'
 import { useListenTogether } from './hooks/useListenTogether'

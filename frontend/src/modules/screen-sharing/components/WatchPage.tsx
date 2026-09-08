@@ -29,12 +29,9 @@ import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import {
-  ListenTogetherPanel,
-  MusicSearchPanel,
-  MusicQueuePanel,
+  MusicAppShell,
   MusicBetaNotice,
   MusicPlayerProvider,
-  useMusicStore,
 } from '@/modules/music'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useJoinRoom } from '../hooks/useJoinRoom'
@@ -94,8 +91,6 @@ function WatchPage() {
   const betaFeaturesEnabled = useSystemSettingsStore(
     (state) => state.betaFeaturesEnabled
   )
-  // 一起听：当前播放曲目（队列面板高亮传入）
-  const currentSongId = useMusicStore((state) => state.currentSongId)
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
@@ -147,8 +142,8 @@ function WatchPage() {
       return <MusicBetaNotice />
     }
     return (
-      // Provider 包裹整个布局，让侧栏队列面板与主播放器共享同一音频引擎
-      //（ListenTogetherPanel 检测到外层实例后复用，不重复创建引擎）
+      // Provider 包裹整个布局，让主区域框架（MusicAppShell）与完整播放器
+      // 覆盖层共享同一音频引擎（MusicAppShell 检测到外层实例后复用）
       <MusicPlayerProvider
         socket={socket}
         roomId={roomId}
@@ -159,11 +154,13 @@ function WatchPage() {
           roomId={roomId ?? ''}
           isHost={false}
           mainContent={
-            <ListenTogetherPanel
+            <MusicAppShell
               socket={socket}
               roomId={roomId ?? ''}
               isHost={false}
               username={username}
+              // 房管观众可管理队列（添加/删除），普通观众仅浏览
+              canManage={isModerator}
             />
           }
           rightPanel={
@@ -173,25 +170,9 @@ function WatchPage() {
               commentsOnly={false}
             />
           }
-          controls={
-            <>
-              <RoomInfoPanel roomId={roomId ?? ''} isHost={false} />
-              {/* 观众可浏览搜索结果与队列；房管额外拥有添加/删除/排序权限 */}
-              <MusicSearchPanel
-                socket={socket}
-                roomId={roomId}
-                canManage={isModerator}
-              />
-              <MusicQueuePanel
-                socket={socket}
-                roomId={roomId}
-                isHost={false}
-                canManage={isModerator}
-                currentSongId={currentSongId}
-              />
-            </>
-          }
-          controlLabels={['房间状态', '搜索歌曲', '播放队列']}
+          // 搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗）
+          controls={<RoomInfoPanel roomId={roomId ?? ''} isHost={false} />}
+          controlLabels={['房间状态']}
         />
       </MusicPlayerProvider>
     )

@@ -21,12 +21,9 @@ import { SharePage, WatchPage } from '@/modules/screen-sharing'
 import type { P2PStateSnapshot } from '@/modules/screen-sharing/components/WebrtcSharePage'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import {
-  ListenTogetherPanel,
-  MusicSearchPanel,
-  MusicQueuePanel,
+  MusicAppShell,
   MusicBetaNotice,
   MusicPlayerProvider,
-  useMusicStore,
 } from '@/modules/music'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
@@ -143,8 +140,6 @@ function RoomPage() {
   const betaFeaturesEnabled = useSystemSettingsStore(
     (state) => state.betaFeaturesEnabled
   )
-  // 一起听：当前播放曲目（队列面板高亮传入）
-  const currentSongId = useMusicStore((state) => state.currentSongId)
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
@@ -399,16 +394,19 @@ function RoomPage() {
           </div>
         )
       ) : isListenTogether ? (
-        // 一起听：音频引擎由外层 MusicPlayerProvider 持有（见下方包裹），
+        // 一起听：主区域为 Hydrogen 完整应用框架（顶导航 + 内容页 + 底部 widget），
+        // 音频引擎由外层 MusicPlayerProvider 持有（见下方包裹），
         // 不需要播放器 remount key，切换影片等场景由音乐模块自管理
         musicBetaClosed ? (
           <MusicBetaNotice />
         ) : (
-          <ListenTogetherPanel
+          <MusicAppShell
             socket={socket}
             roomId={roomId}
             isHost
             username={username}
+            // 房主天然拥有队列管理权限（添加/切歌/删除）
+            canManage
           />
         )
       ) : (
@@ -422,22 +420,8 @@ function RoomPage() {
       mode === 'screen-share' ? (
         <RoomInfoPanel roomId={roomId} isHost />
       ) : isListenTogether ? (
-        musicBetaClosed ? (
-          <RoomInfoPanel roomId={roomId} isHost />
-        ) : (
-          <>
-            <RoomInfoPanel roomId={roomId} isHost />
-            {/* 房主天然拥有队列管理权限（搜索添加/切歌/排序/删除） */}
-            <MusicSearchPanel socket={socket} roomId={roomId} canManage />
-            <MusicQueuePanel
-              socket={socket}
-              roomId={roomId}
-              isHost
-              canManage
-              currentSongId={currentSongId}
-            />
-          </>
-        )
+        // 一起听：搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗）
+        <RoomInfoPanel roomId={roomId} isHost />
       ) : (
         <>
           <RoomInfoPanel roomId={roomId} isHost />
@@ -450,9 +434,7 @@ function RoomPage() {
       mode === 'screen-share'
         ? ['房间状态']
         : isListenTogether
-          ? musicBetaClosed
-            ? ['房间状态']
-            : ['房间状态', '搜索歌曲', '播放队列']
+          ? ['房间状态']
           : ['房间状态', '影片列表', '添加影片']
 
     const roomLayout = (
@@ -481,8 +463,9 @@ function RoomPage() {
 
     return (
       <>
-        {/* 一起听：Provider 包裹整个布局，让侧栏队列面板与主播放器
-            共享同一音频引擎（ListenTogetherPanel 检测到外层实例后复用） */}
+        {/* 一起听：Provider 包裹整个布局，让主区域框架（MusicAppShell）
+            与完整播放器覆盖层共享同一音频引擎（MusicAppShell 检测到
+            外层实例后复用） */}
         {isListenTogether && !musicBetaClosed ? (
           <MusicPlayerProvider
             socket={socket}

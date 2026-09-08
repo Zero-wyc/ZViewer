@@ -8,6 +8,9 @@
  * - `music:control-request` / `music:control-response`：观众申请制控制
  */
 
+/** 曲目来源：网易云 / 塞壬唱片（Monster Siren） */
+export type MusicSource = 'ncm' | 'siren'
+
 /** 网易云歌曲（搜索结果条目） */
 export interface NcmSong {
   /** 网易云歌曲 ID */
@@ -32,8 +35,15 @@ export interface MusicQueueItem {
   id: number
   /** 所属房间 ID */
   roomId: string
-  /** 网易云歌曲 ID */
+  /** 网易云歌曲 ID（塞壬条目固定为 0，真实标识见 sourceId） */
   songId: number
+  /**
+   * 曲目来源（ncm=网易云 / siren=塞壬唱片）。
+   * 新数据必有；对旧广播数据缺省视为 'ncm'（配合 itemSource() 兜底）。
+   */
+  source?: MusicSource
+  /** 塞壬歌曲 cid（source='siren' 时必填；ncm 条目为 null/缺省） */
+  sourceId?: string | null
   /** 歌曲名 */
   name: string
   /** 艺术家（拼接字符串） */
@@ -44,7 +54,7 @@ export interface MusicQueueItem {
   cover: string
   /** 时长（毫秒） */
   durationMs: number
-  /** 是否 VIP 歌曲 */
+  /** 是否 VIP 歌曲（塞壬条目恒 false） */
   vip: boolean
   /** 队列内排序序号（小在前） */
   order: number
@@ -57,8 +67,12 @@ export type PlayMode = 'sequence' | 'repeat-one' | 'shuffle'
 
 /** 房间音乐同步状态（房主广播与心跳共用的状态快照） */
 export interface MusicSyncState {
-  /** 当前曲目 songId（null 表示未在播放） */
+  /** 当前曲目 songId（null 表示未在播放；塞壬条目固定 0） */
   trackSongId: number | null
+  /** 当前曲目来源（缺省视为 ncm，兼容旧广播/旧后端） */
+  trackSource?: MusicSource
+  /** 塞壬曲目 cid（trackSource='siren' 时为 cid 字符串） */
+  trackSourceId?: string | null
   /** 是否正在播放 */
   isPlaying: boolean
   /** 播放进度（秒） */
@@ -97,4 +111,91 @@ export interface NcmLoginStatus {
   nickname?: string
   /** 登录账号头像 */
   avatarUrl?: string
+}
+
+// ==================== 页面数据类型（Hydrogen 首页各区块 / 塞壬唱片） ====================
+
+/** 首页轮播图条目（GET /api/music/ncm/banner → banners[]） */
+export interface NcmBannerItem {
+  /** 轮播图（ipad 端为 pic，部分端为 imageUrl） */
+  pic?: string
+  imageUrl?: string
+  titleColor?: string
+  typeTitle?: string
+  targetType?: number
+  targetId?: number
+  url?: string
+}
+
+/** 推荐歌单卡片（GET /personalized?limit=10 → result[]） */
+export interface NcmPlaylistCard {
+  id: number
+  name: string
+  picUrl: string
+  playCount?: number
+}
+
+/** 推荐歌手卡片（GET /top/artists?limit=50 → artists[]，前端随机取 5） */
+export interface NcmArtistCard {
+  id: number
+  name: string
+  img1v1Url: string
+}
+
+/** 最新专辑卡片（GET /album/new?area=all&limit=10 → albums[]） */
+export interface NcmAlbumCard {
+  id: number
+  name: string
+  picUrl: string
+  /** 艺人（结构为 { name }，宽松可选） */
+  artist?: { name?: string }
+}
+
+/** 排行榜卡片（GET /toplist → list[]，取 Hydrogen 同款索引 0,3,8,11,15） */
+export interface NcmToplistCard {
+  id: number
+  name: string
+  coverImgUrl: string
+  updateFrequency?: string
+}
+
+/** 最新音乐条目（GET /personal/newsong → data[]） */
+export interface NcmNewSongCard {
+  id: number
+  name: string
+  picUrl: string
+  /** 艺人（旧结构 artists / 新结构 ar） */
+  artists?: Array<{ name?: string }>
+  ar?: Array<{ name?: string }>
+  /** 内嵌歌曲对象（部分响应把元数据挂在 song 下） */
+  song?: { artists?: Array<{ name?: string }>; duration?: number }
+  duration?: number
+  dt?: number
+}
+
+/** 塞壬唱片专辑（GET /api/music/siren/albums → data[]） */
+export interface SirenAlbum {
+  cid: string
+  name: string
+  cover: string
+  intro?: string
+}
+
+/** 塞壬唱片歌曲（专辑详情 songs 内条目，duration 单位为秒） */
+export interface SirenSong {
+  cid: string
+  name: string
+  /** 艺人列表（宽松：可能缺失） */
+  artists?: Array<{ name?: string }>
+  /** 时长（秒） */
+  duration?: number
+}
+
+/**
+ * 塞壬专辑详情（GET /siren/album/{cid}/detail → data）。
+ * songs 字段结构宽松：可能在 data.songs 或 data 内联，按数组宽松解析。
+ */
+export interface SirenAlbumDetail {
+  album?: (SirenAlbum & Record<string, unknown>) | null
+  songs?: SirenSong[]
 }

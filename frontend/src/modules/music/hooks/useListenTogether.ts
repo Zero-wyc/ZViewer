@@ -4,11 +4,17 @@ import { useShallow } from 'zustand/react/shallow'
 import { getApiUrl } from '@/lib/api'
 import { appendAuthToken } from '@/modules/player/services/url-proxy'
 import { message } from '@/components/ui/message'
-import { useMusicStore } from '../store'
+import {
+  useMusicStore,
+  musicItemKey,
+  itemSource,
+  parseMusicKey,
+} from '../store'
 import type {
   MusicControlRequest,
   MusicControlResponse,
   MusicQueueItem,
+  MusicSource,
   MusicSyncState,
   PlayMode,
 } from '../types'
@@ -76,23 +82,43 @@ function loadPersistedVolume(): number {
 }
 
 /**
- * 构建音频流代理地址。
+ * 构建音频流代理地址（按曲目来源分支）。
  * 使用 getApiUrl() 实时读取（自定义后端地址变更后立即生效），
  * 并附加 access token（媒体元素请求无法携带 Authorization 头，
  * HTTP 部署场景下后端从查询参数读取 token）。
  * 携带 roomId：当前用户无网易云凭证时，后端回退用房主凭证解析
- * （spec「房主登录后全房间可播 VIP」）。
+ * （spec「房主登录后全房间可播 VIP」；塞壬为公开 API 不需要）。
+ * - ncm：`?songId=<id>&level=exhigh`
+ * - siren：`?source=siren&sourceId=<cid>`
  */
-function buildStreamUrl(songId: number, roomId: string | undefined): string {
+function buildStreamUrl(
+  item: MusicQueueItem,
+  roomId: string | undefined
+): string {
   const roomParam = roomId ? `&roomId=${encodeURIComponent(roomId)}` : ''
+  if (item.source === 'siren') {
+    return appendAuthToken(
+      `${getApiUrl()}/api/music/stream?source=siren&sourceId=${encodeURIComponent(
+        item.sourceId ?? ''
+      )}${roomParam}`
+    )
+  }
   return appendAuthToken(
-    `${getApiUrl()}/api/music/stream?songId=${songId}&level=${STREAM_LEVEL}${roomParam}`
+    `${getApiUrl()}/api/music/stream?songId=${item.songId}&level=${STREAM_LEVEL}${roomParam}`
   )
 }
 
-/** Fisher-Yates 洗牌（返回打乱后的新数组） */
-function shuffleIds(ids: number[]): number[] {
-  const arr = ids.slice()
+/** 从房主广播的同步状态解析曲目 key（trackSource 缺省视为 ncm，兼容旧广播） */
+function syncKeyOf(payload: MusicSyncState): string | null {
+  if (payload.trackSource === 'siren') {
+    return payload.trackSourceId ? `siren:${payload.trackSourceId}` : null
+  }
+  return payload.trackSongId != null ? `ncm:${payload.trackSongId}` : null
+}
+
+/** Fisher-Yates 洗牌（返回打乱后的新数组；元素为曲目 key） */
+function shuffleKeys(keys: string[]): string[] {
+  const arr = keys.slice()
   for (let i = 0; i < arr.length; i++) {
     const j = Math.floor(Math.random() * (i + 1))
     const t = arr[i]
@@ -102,11 +128,11 @@ function shuffleIds(ids: number[]): number[] {
   return arr
 }
 
-/** 判断两组 songId 是否为同一集合（多重集比较，忽略顺序） */
-function isSameIdSet(a: number[], b: number[]): boolean {
+/** 判断两组曲目 key 是否为同一集合（多重集比较，忽略顺序） */
+function isSameKeySet(a: string[], b: string[]): boolean {
   if (a.length !== b.length) return false
-  const sa = [...a].sort((x, y) => x - y)
-  const sb = [...b].sort((x, y) => x - y)
+  const sa = [...a].sort()
+  const sb = [...b].sort()
   return sa.every((id, i) => id === sb[i])
 }
 
@@ -130,15 +156,15 @@ export interface UseListenTogetherResult {
   seek: (sec: number) => void
   /** 切换播放模式（房主切换并广播同步） */
   setPlayMode: (mode: PlayMode) => void
-  /** 播放指定曲目（房主点击队列切歌） */
-  playSong: (songId: number) => void
+  /** 播放指定曲目（按队列条目，替代 songId 签名） */
+  playSong: (item: MusicQueueItem) => void
   /** 观众：向房主申请控制（暂停/继续/切歌） */
   requestControl: (action: MusicControlRequest['action']) => void
   /** 房主：通过观众当前的控制申请（执行动作 + 应答申请者） */
   approveControl: () => void
   /** 房主：拒绝观众当前的控制申请（仅应答申请者） */
   rejectControl: () => void
-  /** 当前播放的队列条目（queue + currentSongId 计算，无播放时 null） */
+  /** 当前播放的队列条目（queue + currentKey 匹配，无播放时 null） */
   currentSong: MusicQueueItem | null
   /** 是否拥有直接控制权（房主或房主离线时的观众） */
   canControl: boolean
@@ -173,11 +199,11 @@ export function useListenTogether({
   isHost,
   username,
 }: UseListenTogetherOptions): UseListenTogetherResult {
-  const { queue, currentSongId, hostOffline, syncNotice, setSyncNotice } =
+  const { queue, currentKey, hostOffline, syncNotice, setSyncNotice } =
     useMusicStore(
       useShallow((s) => ({
         queue: s.queue,
-        currentSongId: s.currentSongId,
+        currentKey: s.currentKey,
         hostOffline: s.hostOffline,
         syncNotice: s.syncNotice,
         setSyncNotice: s.setSyncNotice,
@@ -192,8 +218,8 @@ export function useListenTogether({
   const audioRef = useRef<HTMLAudioElement | null>(null)
   /** 换曲后的起始进度（loadedmetadata 时应用） */
   const pendingSeekRef = useRef(0)
-  /** 随机模式洗牌序列（songId 列表；null 表示待重建） */
-  const shuffleListRef = useRef<number[] | null>(null)
+  /** 随机模式洗牌序列（曲目 key 列表；null 表示待重建） */
+  const shuffleListRef = useRef<string[] | null>(null)
   /** 当前曲目在洗牌序列中的位置（-1 表示尚未开始） */
   const shufflePosRef = useRef(-1)
   /** 观众最近一次收到房主心跳的时间戳（0 表示尚未开始计时，由离线判定 effect 初始化） */
@@ -229,31 +255,83 @@ export function useListenTogether({
   }, [])
 
   /**
+   * 构造同步状态快照（broadcastSyncState 与房主心跳共用）。
+   * trackSource/trackSourceId 从当前队列条目取（匹配不到时从 key 解析兜底），
+   * trackSongId 塞壬条目固定 0（后端 pickSyncState 对缺省 source 兼容为 ncm）。
+   */
+  const buildSyncPayload = useCallback((): MusicSyncState => {
+    const audio = audioRef.current
+    const store = useMusicStore.getState()
+    const currentItem =
+      store.queue.find((q) => musicItemKey(q) === store.currentKey) ?? null
+    const parsed = parseMusicKey(store.currentKey)
+    const trackSource: MusicSource = currentItem
+      ? itemSource(currentItem)
+      : (parsed?.source ?? 'ncm')
+    return {
+      trackSongId: parsed ? parsed.songId : null,
+      trackSource,
+      trackSourceId:
+        trackSource === 'siren'
+          ? (currentItem?.sourceId ?? parsed?.id ?? null)
+          : null,
+      isPlaying: audio ? !audio.paused : false,
+      positionSec: audio ? audio.currentTime : 0,
+      playMode: store.playMode,
+      updatedAt: Date.now(),
+    }
+  }, [])
+
+  /**
    * 房主：广播当前同步状态。
    * overrides 用于操作后立即广播时纠正 audio 事件异步生效的时间差
-   * （如 play() 尚未生效时 audio.paused 仍为 true）。
+   * （如 play() 尚未生效时 audio.paused 仍为 true）；
+   * keyOverride 用于换曲时强制以目标曲目广播（audio.src 尚未设置）。
    */
   const broadcastSyncState = useCallback(
-    (overrides?: Partial<MusicSyncState>) => {
+    (overrides?: {
+      /** 强制以指定 key 作为当前曲目广播（换曲时 audio 事件尚未生效） */
+      keyOverride?: string | null
+      isPlaying?: boolean
+      positionSec?: number
+      playMode?: PlayMode
+    }) => {
       const currentSocket = socketRef.current
       const currentRoomId = roomIdRef.current
       if (!currentSocket || !currentRoomId || !isHostRef.current) return
-      const audio = audioRef.current
-      const { currentSongId, playMode } = useMusicStore.getState()
-      const payload: MusicSyncState = {
-        trackSongId: currentSongId,
-        isPlaying: audio ? !audio.paused : false,
-        positionSec: audio ? audio.currentTime : 0,
-        playMode,
-        updatedAt: Date.now(),
-        ...overrides,
+      const payload = buildSyncPayload()
+      if (overrides?.keyOverride !== undefined) {
+        const targetKey = overrides.keyOverride
+        const parsed = parseMusicKey(targetKey)
+        const currentItem =
+          useMusicStore
+            .getState()
+            .queue.find((q) => musicItemKey(q) === targetKey) ?? null
+        const trackSource: MusicSource = currentItem
+          ? itemSource(currentItem)
+          : (parsed?.source ?? 'ncm')
+        payload.trackSongId = parsed ? parsed.songId : null
+        payload.trackSource = trackSource
+        payload.trackSourceId =
+          trackSource === 'siren'
+            ? (currentItem?.sourceId ?? parsed?.id ?? null)
+            : null
+      }
+      if (overrides?.isPlaying !== undefined) {
+        payload.isPlaying = overrides.isPlaying
+      }
+      if (overrides?.positionSec !== undefined) {
+        payload.positionSec = overrides.positionSec
+      }
+      if (overrides?.playMode !== undefined) {
+        payload.playMode = overrides.playMode
       }
       currentSocket.emit(MUSIC_EVENT.SYNC_STATE, {
         roomId: currentRoomId,
         ...payload,
       })
     },
-    []
+    [buildSyncPayload]
   )
 
   /**
@@ -262,32 +340,32 @@ export function useListenTogether({
    * 重建时将当前曲目置于序列头部。
    */
   const ensureShuffleList = useCallback(() => {
-    const { queue, currentSongId } = useMusicStore.getState()
-    const queueIds = queue.map((item) => item.songId)
-    if (queueIds.length === 0) {
+    const { queue, currentKey } = useMusicStore.getState()
+    const queueKeys = queue.map((item) => musicItemKey(item))
+    if (queueKeys.length === 0) {
       shuffleListRef.current = null
       shufflePosRef.current = -1
       return
     }
     const list = shuffleListRef.current
-    if (list && isSameIdSet(list, queueIds)) {
+    if (list && isSameKeySet(list, queueKeys)) {
       // 队列未变：校验位置仍指向当前曲目（手动切歌会使锚点漂移）
-      if (currentSongId == null) {
+      if (currentKey == null) {
         shufflePosRef.current = -1
         return
       }
-      const idx = list.indexOf(currentSongId)
+      const idx = list.indexOf(currentKey)
       // 当前曲目不在队列（被删除）→ 从序列头部重新开始
       shufflePosRef.current = idx >= 0 ? idx : -1
       return
     }
     // 队列变化或首次进入随机模式：重新洗牌，当前曲目置于头部
-    const nextList = shuffleIds(queueIds)
-    if (currentSongId != null) {
-      const curIdx = nextList.indexOf(currentSongId)
+    const nextList = shuffleKeys(queueKeys)
+    if (currentKey != null) {
+      const curIdx = nextList.indexOf(currentKey)
       if (curIdx > 0) {
         nextList.splice(curIdx, 1)
-        nextList.unshift(currentSongId)
+        nextList.unshift(currentKey)
       }
       shufflePosRef.current = curIdx >= 0 ? 0 : -1
     } else {
@@ -297,39 +375,45 @@ export function useListenTogether({
   }, [])
 
   /**
-   * 按播放模式计算切歌目标（next/prev 共用）。
+   * 按播放模式计算切歌目标条目（next/prev 共用）。
    * - sequence / repeat-one：手动切歌按队列顺序循环
    *   （repeat-one 仅影响 ended 自动重播当前曲目）
    * - shuffle：沿洗牌序列推进，一轮结束重新洗牌
    *   （新一轮避免以刚播放的曲目开头，参考 Hydrogen avoidFirstSongId）
    */
-  const computeTargetSongId = useCallback(
-    (direction: 'next' | 'prev'): number | null => {
-      const { queue, currentSongId, playMode } = useMusicStore.getState()
+  const computeTargetSong = useCallback(
+    (direction: 'next' | 'prev'): MusicQueueItem | null => {
+      const { queue, currentKey, playMode } = useMusicStore.getState()
       if (queue.length === 0) return null
 
+      const findByKey = (key: string | null): MusicQueueItem | null =>
+        key == null
+          ? null
+          : (queue.find((item) => musicItemKey(item) === key) ?? null)
+
       if (playMode !== 'shuffle') {
-        const ids = queue.map((item) => item.songId)
-        if (ids.length === 1) return ids[0]
-        const idx = currentSongId == null ? -1 : ids.indexOf(currentSongId)
-        if (idx === -1) return ids[0]
-        if (direction === 'next') {
-          return ids[(idx + 1) % ids.length]
-        }
-        return ids[(idx - 1 + ids.length) % ids.length]
+        const keys = queue.map((item) => musicItemKey(item))
+        if (keys.length === 1) return queue[0]
+        const idx = currentKey == null ? -1 : keys.indexOf(currentKey)
+        if (idx === -1) return queue[0]
+        const targetKey =
+          direction === 'next'
+            ? keys[(idx + 1) % keys.length]
+            : keys[(idx - 1 + keys.length) % keys.length]
+        return findByKey(targetKey)
       }
 
       // 随机模式
       ensureShuffleList()
       const list = shuffleListRef.current
       if (!list || list.length === 0) return null
-      if (list.length === 1) return list[0]
+      if (list.length === 1) return findByKey(list[0])
       if (direction === 'next') {
         if (shufflePosRef.current >= list.length - 1) {
           // 一轮结束：重新洗牌，避免新一轮以刚播放的曲目开头
-          const nextList = shuffleIds(list)
-          if (currentSongId != null && nextList[0] === currentSongId) {
-            const swapIdx = nextList.findIndex((id) => id !== currentSongId)
+          const nextList = shuffleKeys(list)
+          if (currentKey != null && nextList[0] === currentKey) {
+            const swapIdx = nextList.findIndex((k) => k !== currentKey)
             if (swapIdx > 0) {
               const t = nextList[0]
               nextList[0] = nextList[swapIdx]
@@ -338,27 +422,27 @@ export function useListenTogether({
           }
           shuffleListRef.current = nextList
           shufflePosRef.current = 0
-          return nextList[0]
+          return findByKey(nextList[0])
         }
         shufflePosRef.current += 1
-        return list[shufflePosRef.current]
+        return findByKey(list[shufflePosRef.current])
       }
       // prev：沿序列回退；已在序列头部时回到当前曲目开头
       if (shufflePosRef.current > 0) {
         shufflePosRef.current -= 1
-        return list[shufflePosRef.current]
+        return findByKey(list[shufflePosRef.current])
       }
-      return currentSongId
+      return findByKey(currentKey)
     },
     [ensureShuffleList]
   )
 
-  /** 加载指定曲目（positionSec 为起始进度；shouldPlay 控制起播状态） */
+  /** 加载指定队列条目（positionSec 为起始进度；shouldPlay 控制起播状态） */
   const loadAndPlaySong = useCallback(
-    (songId: number, positionSec: number, shouldPlay: boolean) => {
+    (item: MusicQueueItem, positionSec: number, shouldPlay: boolean) => {
       const audio = getAudio()
-      const url = buildStreamUrl(songId, roomIdRef.current)
-      useMusicStore.getState().setCurrentSong(songId)
+      const url = buildStreamUrl(item, roomIdRef.current)
+      useMusicStore.getState().setCurrentKey(musicItemKey(item))
       if (audio.src === url && audio.readyState >= 1) {
         // 同一曲目且元数据已就绪（重播/循环）：直接 seek
         try {
@@ -388,19 +472,20 @@ export function useListenTogether({
   /** 切歌核心：按播放模式计算目标并加载播放；房主额外广播同步状态 */
   const switchSong = useCallback(
     (direction: 'next' | 'prev') => {
-      const target = computeTargetSongId(direction)
-      if (target == null) return
+      const target = computeTargetSong(direction)
+      if (!target) return
+      const targetKey = musicItemKey(target)
       loadAndPlaySong(target, 0, true)
       if (isHostRef.current) {
         // play() 异步生效，广播时显式携带目标状态避免时间差
         broadcastSyncState({
-          trackSongId: target,
+          keyOverride: targetKey,
           isPlaying: true,
           positionSec: 0,
         })
       }
     },
-    [computeTargetSongId, loadAndPlaySong, broadcastSyncState]
+    [computeTargetSong, loadAndPlaySong, broadcastSyncState]
   )
 
   /** 拥有直接控制权的判定（房主或房主离线时的观众） */
@@ -412,7 +497,7 @@ export function useListenTogether({
   /** 播放/暂停切换（房主或房主离线时直接生效；房主额外广播） */
   const togglePlay = useCallback(() => {
     if (!hasControl()) return
-    if (useMusicStore.getState().currentSongId == null) return
+    if (useMusicStore.getState().currentKey == null) return
     const audio = getAudio()
     const wantPlay = audio.paused
     if (wantPlay) {
@@ -473,14 +558,14 @@ export function useListenTogether({
     [broadcastSyncState, hasControl]
   )
 
-  /** 播放指定曲目（房主点击队列切歌） */
+  /** 播放指定队列条目（房主点击队列/FM 切歌；条目可不带 id/order，仅要求可定位来源） */
   const playSong = useCallback(
-    (songId: number) => {
+    (item: MusicQueueItem) => {
       if (!hasControl()) return
-      loadAndPlaySong(songId, 0, true)
+      loadAndPlaySong(item, 0, true)
       if (isHostRef.current) {
         broadcastSyncState({
-          trackSongId: songId,
+          keyOverride: musicItemKey(item),
           isPlaying: true,
           positionSec: 0,
         })
@@ -545,7 +630,7 @@ export function useListenTogether({
           })
           break
         case 'play':
-          if (useMusicStore.getState().currentSongId == null) return
+          if (useMusicStore.getState().currentKey == null) return
           void audio.play().catch(() => {
             // ignore：自动播放策略拒绝
           })
@@ -624,7 +709,7 @@ export function useListenTogether({
 
   /**
    * 观众：应用房主广播/心跳携带的同步状态。
-   * - trackSongId 变化 → 换源加载（从房主进度起播/暂停）
+   * - 曲目 key 变化（按 trackSource+trackSourceId 匹配，缺省视为 ncm）→ 换源加载
    * - isPlaying 变化 → play/pause
    * - 进度差 >2s → seek 对齐（小差异让音频自然播放）
    * - playMode → 同步到 store
@@ -633,18 +718,22 @@ export function useListenTogether({
     (payload: MusicSyncState) => {
       const store = useMusicStore.getState()
       const audio = getAudio()
-      const trackSongId =
-        typeof payload.trackSongId === 'number' ? payload.trackSongId : null
+      const trackKey = syncKeyOf(payload)
 
-      // 1. 曲目变化 → 换源加载
-      if (trackSongId !== store.currentSongId) {
-        if (trackSongId == null) {
+      // 1. 曲目变化 → 换源加载（按 key 从队列匹配条目，ncm/siren 统一路径）
+      if (trackKey !== store.currentKey) {
+        if (trackKey == null) {
           // 房主停止/清空播放
           audio.pause()
-          store.setCurrentSong(null)
+          store.setCurrentKey(null)
           return
         }
-        loadAndPlaySong(trackSongId, payload.positionSec, payload.isPlaying)
+        const item = store.queue.find((q) => musicItemKey(q) === trackKey)
+        if (!item) {
+          // 队列尚未包含该曲目（房主端临时条目/广播竞态）：跳过对齐等待下一次心跳
+          return
+        }
+        loadAndPlaySong(item, payload.positionSec, payload.isPlaying)
         if (store.playMode !== payload.playMode) {
           store.setPlayMode(payload.playMode)
         }
@@ -761,21 +850,13 @@ export function useListenTogether({
   useEffect(() => {
     if (!socket || !roomId || !isHost) return
     const timer = setInterval(() => {
-      const audio = audioRef.current
-      const { currentSongId, playMode } = useMusicStore.getState()
-      const payload: MusicSyncState = {
-        trackSongId: currentSongId,
-        isPlaying: audio ? !audio.paused : false,
-        positionSec: audio ? audio.currentTime : 0,
-        playMode,
-        updatedAt: Date.now(),
-      }
+      const payload = buildSyncPayload()
       socket.emit(MUSIC_EVENT.HOST_HEARTBEAT, { roomId, ...payload })
     }, HOST_HEARTBEAT_INTERVAL_MS)
     return () => {
       clearInterval(timer)
     }
-  }, [socket, roomId, isHost])
+  }, [socket, roomId, isHost, buildSyncPayload])
 
   // 观众：房主离线判定——超时未收到心跳置 hostOffline，收到即恢复（见事件监听）
   useEffect(() => {
@@ -941,11 +1022,11 @@ export function useListenTogether({
     }
   }, [])
 
-  // 当前播放的队列条目（queue + currentSongId 计算）
+  // 当前播放的队列条目（queue + currentKey 匹配）
   const currentSong = useMemo(() => {
-    if (currentSongId == null) return null
-    return queue.find((item) => item.songId === currentSongId) ?? null
-  }, [queue, currentSongId])
+    if (currentKey == null) return null
+    return queue.find((item) => musicItemKey(item) === currentKey) ?? null
+  }, [queue, currentKey])
 
   /** 是否拥有直接控制权（房主或房主离线时的观众，按钮 label 由 UI 层处理） */
   const canControl = isHost || hostOffline
