@@ -641,6 +641,16 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     [ensurePeerPlayback]
   )
 
+  // 断开循环引用的 ref 必须在此赋值：解码器 output 回调经
+  // playAudioChunkRef 调用真正的播放实现。漏掉此赋值时 ref 保持
+  // 初始的空函数，解码出的所有音频被静默丢弃——双向完全无声且
+  // 控制台无任何报错（Opus 解码本身正常）。
+  // effect 时序安全：解码器仅在 join()（用户触发、含 getUserMedia
+  // 等待）中创建，音频输出必然晚于本 effect 执行
+  useEffect(() => {
+    playAudioChunkRef.current = playAudioChunk
+  }, [playAudioChunk])
+
   /** 清理指定远端用户的播放状态（含解码器与未播完的音频块） */
   const cleanupPeerPlayback = useCallback((socketId: string) => {
     const state = peerStatesRef.current.get(socketId)
@@ -1087,7 +1097,28 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       startLevelDetection()
     } catch (err) {
       console.error('[voice] join error:', err)
-      message.error('无法获取麦克风权限或加入语音失败')
+      // 按具体原因提示，避免把所有失败都归为"权限问题"
+      if (!navigator.mediaDevices?.getUserMedia) {
+        // HTTP 非安全上下文（局域网 IP 直连）或 iframe 未授权
+        message.error(
+          '当前环境不支持麦克风采集，请通过 HTTPS 或 localhost 访问'
+        )
+      } else {
+        const name = (err as { name?: string })?.name ?? ''
+        if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+          message.error('麦克风权限被拒绝，请在浏览器地址栏权限中允许后重试')
+        } else if (
+          name === 'NotFoundError' ||
+          name === 'DevicesNotFoundError'
+        ) {
+          message.error('未找到可用的麦克风设备')
+        } else {
+          message.error(
+            '加入语音失败：' +
+              (err instanceof Error ? err.message : String(err))
+          )
+        }
+      }
       // 中途任一步骤异常（如 addModule 失败）都可能已创建 AudioContext，
       // 统一走完整清理避免泄漏
       cleanupAll()
