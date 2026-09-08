@@ -55,6 +55,7 @@ export type { NcmQrStatus, UseNcmLoginResult } from './hooks/useNcmLogin'
 // UI 组件
 export { ListenTogetherPanel } from './components/ListenTogetherPanel'
 export type { ListenTogetherPanelProps } from './components/ListenTogetherPanel'
+export { MusicBetaNotice } from './components/ListenTogetherPanel'
 export { MusicSearchPanel } from './components/MusicSearchPanel'
 export type { MusicSearchPanelProps } from './components/MusicSearchPanel'
 export { MusicQueuePanel } from './components/MusicQueuePanel'

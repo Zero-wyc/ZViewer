@@ -26,7 +26,10 @@ import {
   EyeOff,
 } from 'lucide-react'
 import { cn, formatDuration } from '@/lib/utils'
-import { clearUserPaused, markUserPaused } from '@/modules/player/services/pause-intent'
+import {
+  clearUserPaused,
+  markUserPaused,
+} from '@/modules/player/services/pause-intent'
 import { DanmakuInput } from '@/components/VideoPlayer/parts/DanmakuInput'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
 

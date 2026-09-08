@@ -17,7 +17,10 @@ const BUILTIN_FONTS: FontOption[] = [
   { label: '楷体', value: "'KaiTi', 'Kaiti SC', serif" },
   { label: '仿宋', value: "'FangSong', 'Fangsong SC', serif" },
   { label: '苹方', value: "'PingFang SC', sans-serif" },
-  { label: '思源黑体', value: "'Source Han Sans SC', 'Noto Sans SC', sans-serif" },
+  {
+    label: '思源黑体',
+    value: "'Source Han Sans SC', 'Noto Sans SC', sans-serif",
+  },
   { label: '思源宋体', value: "'Source Han Serif SC', 'Noto Serif SC', serif" },
   { label: 'Segoe UI', value: "'Segoe UI', sans-serif" },
   { label: 'Arial', value: 'Arial, sans-serif' },
@@ -103,7 +106,12 @@ export function FontPickerPanel({
     }
   }, [loadingSystem])
 
-  const renderItem = (key: string, label: string, fontFamily: string, active: boolean) => (
+  const renderItem = (
+    key: string,
+    label: string,
+    fontFamily: string,
+    active: boolean
+  ) => (
     <button
       key={key}
       type="button"
@@ -115,7 +123,10 @@ export function FontPickerPanel({
           : 'text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
       )}
     >
-      <span className="truncate" style={{ fontFamily: fontFamily || undefined }}>
+      <span
+        className="truncate"
+        style={{ fontFamily: fontFamily || undefined }}
+      >
         {label}
       </span>
       {active && <Check className="h-3.5 w-3.5 shrink-0" />}

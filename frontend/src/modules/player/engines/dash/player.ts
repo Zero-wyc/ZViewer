@@ -949,7 +949,6 @@ ${timelineEntries}
         </SegmentTimeline>
 ${segmentUrls}
       </SegmentList>`
-
     } else if (sidxRange) {
       // fallback: SegmentBase + indexRange
       const sidxStart = parseInt(sidxRange.split('-')[0], 10)

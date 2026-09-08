@@ -76,9 +76,14 @@ interface RoomLayoutProps {
 const MODE_LABELS: Record<RoomMode, string> = {
   'watch-together': '一起看',
   'screen-share': '投屏',
+  'listen-together': '一起听',
 }
 
-const MODE_ORDER: RoomMode[] = ['watch-together', 'screen-share']
+const MODE_ORDER: RoomMode[] = [
+  'watch-together',
+  'screen-share',
+  'listen-together',
+]
 
 export function RoomLayout({
   roomId,

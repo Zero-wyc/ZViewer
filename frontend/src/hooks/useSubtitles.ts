@@ -462,7 +462,9 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
                     },
                   ],
                   subtitleEnabled: true,
-                  activeTrackIndex: activate ? trackIndex : prev.activeTrackIndex,
+                  activeTrackIndex: activate
+                    ? trackIndex
+                    : prev.activeTrackIndex,
                 }
                 return next
               }
@@ -537,7 +539,9 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       // mkv-embedded 的 fetch 无法携带 Authorization 头，
       // 本站 /api/ URL 必须附加 token query（与播放引擎 appendAuthToken 一致），
       // 否则 401 → 探测失败显示「未检测到内嵌字幕」。直链 URL 原样返回。
-      const url = appendAuthToken(sourceUrl ?? buildServerFileProxyUrl(filePath))
+      const url = appendAuthToken(
+        sourceUrl ?? buildServerFileProxyUrl(filePath)
+      )
 
       // 防并行重入：同一 URL 加载中（首路还在探测）或已完成时，
       // StrictMode/effect 重跑的二次调用直接跳过，避免重复建轨
@@ -828,7 +832,10 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       // 观众本地调描边：标记偏好，后续房主广播不覆盖此选择
       if (!isHost) viewerPrefTouchedRef.current = true
       setState((prev) => {
-        const next: SubtitleState = { ...prev, subtitleStrokeWidth: strokeWidth }
+        const next: SubtitleState = {
+          ...prev,
+          subtitleStrokeWidth: strokeWidth,
+        }
         broadcast(next)
         return next
       })
@@ -882,7 +889,7 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       setState((prev) => ({
         subtitleEnabled: touched
           ? prev.subtitleEnabled
-          : payload.enabled ?? prev.subtitleEnabled,
+          : (payload.enabled ?? prev.subtitleEnabled),
         // 轨道数据：以房主广播为基准（数量/顺序/新增/清空均跟随房主，
         // 房主手动上传的轨道由此同步给观众）；仅当本地同索引轨道 label
         // 一致且 cues 更多（观众本地流式提取进度领先房主快照）时保留
@@ -900,28 +907,28 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
           : prev.subtitleTracks,
         activeTrackIndex: touched
           ? prev.activeTrackIndex
-          : payload.activeIndex ?? prev.activeTrackIndex,
+          : (payload.activeIndex ?? prev.activeTrackIndex),
         subtitleFontSize: touched
           ? prev.subtitleFontSize
-          : payload.fontSize ?? prev.subtitleFontSize,
+          : (payload.fontSize ?? prev.subtitleFontSize),
         subtitleOffset: touched
           ? prev.subtitleOffset
-          : payload.offset ?? prev.subtitleOffset,
+          : (payload.offset ?? prev.subtitleOffset),
         subtitleShiftX: touched
           ? prev.subtitleShiftX
-          : payload.shiftX ?? prev.subtitleShiftX,
+          : (payload.shiftX ?? prev.subtitleShiftX),
         subtitleShiftY: touched
           ? prev.subtitleShiftY
-          : payload.shiftY ?? prev.subtitleShiftY,
+          : (payload.shiftY ?? prev.subtitleShiftY),
         subtitleStrokeWidth: touched
           ? prev.subtitleStrokeWidth
-          : payload.strokeWidth ?? prev.subtitleStrokeWidth,
+          : (payload.strokeWidth ?? prev.subtitleStrokeWidth),
         subtitleShadowBlur: touched
           ? prev.subtitleShadowBlur
-          : payload.shadowBlur ?? prev.subtitleShadowBlur,
+          : (payload.shadowBlur ?? prev.subtitleShadowBlur),
         subtitleFontFamily: touched
           ? prev.subtitleFontFamily
-          : payload.fontFamily ?? prev.subtitleFontFamily,
+          : (payload.fontFamily ?? prev.subtitleFontFamily),
       }))
     }
     socket.on('subtitle-update', handler)

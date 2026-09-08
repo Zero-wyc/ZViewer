@@ -10,7 +10,7 @@ import { Session } from './Session';
 import { Movie } from './Movie';
 
 export type RoomStatus = 'active' | 'closed';
-export type RoomMode = 'screen-share' | 'watch-together';
+export type RoomMode = 'screen-share' | 'watch-together' | 'listen-together';
 export type ShareMethod = 'webrtc' | 'stream-push';
 
 @Entity()
@@ -33,7 +33,11 @@ export class Room {
   @Column({ type: 'simple-enum', enum: ['active', 'closed'], default: 'active' })
   status!: RoomStatus;
 
-  @Column({ type: 'simple-enum', enum: ['screen-share', 'watch-together'], default: 'screen-share' })
+  @Column({
+    type: 'simple-enum',
+    enum: ['screen-share', 'watch-together', 'listen-together'],
+    default: 'screen-share',
+  })
   mode!: RoomMode;
 
   /**

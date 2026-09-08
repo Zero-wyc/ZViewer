@@ -28,6 +28,15 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
+import {
+  ListenTogetherPanel,
+  MusicSearchPanel,
+  MusicQueuePanel,
+  MusicBetaNotice,
+  MusicPlayerProvider,
+  useMusicStore,
+} from '@/modules/music'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import { useShareMethod } from '../hooks/useShareMethod'
@@ -77,9 +86,16 @@ function WatchPage() {
   const exitRoom = useRoomStore((state) => state.exitRoom)
   const moderators = useRoomStore((state) => state.moderators)
   const currentUserId = useAuthStore((state) => state.user?.id)
+  const username = useAuthStore((state) => state.user?.username)
   // 房管观众：可管理影片与成员（含语音），由服务器同步的 moderators 判定
   const isModerator =
     currentUserId != null && moderators.includes(Number(currentUserId))
+  // Beta 功能开关：一起听模式渲染的门控（spec「Beta 门控」）
+  const betaFeaturesEnabled = useSystemSettingsStore(
+    (state) => state.betaFeaturesEnabled
+  )
+  // 一起听：当前播放曲目（队列面板高亮传入）
+  const currentSongId = useMusicStore((state) => state.currentSongId)
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
@@ -120,6 +136,64 @@ function WatchPage() {
         }
         webFullscreen={isWebFullscreen}
       />
+    )
+  }
+
+  // 3.1b 已加入且 roomMode === 'listen-together'：一起听（Beta 门控）
+  if (joinStatus === 'approved' && roomMode === 'listen-together') {
+    // Beta 未开启：降级提示页，不渲染任何音乐 UI
+    //（防御直接 URL / 管理员关闭开关后的存量房间场景）
+    if (!betaFeaturesEnabled) {
+      return <MusicBetaNotice />
+    }
+    return (
+      // Provider 包裹整个布局，让侧栏队列面板与主播放器共享同一音频引擎
+      //（ListenTogetherPanel 检测到外层实例后复用，不重复创建引擎）
+      <MusicPlayerProvider
+        socket={socket}
+        roomId={roomId}
+        isHost={false}
+        username={username}
+      >
+        <RoomLayout
+          roomId={roomId ?? ''}
+          isHost={false}
+          mainContent={
+            <ListenTogetherPanel
+              socket={socket}
+              roomId={roomId ?? ''}
+              isHost={false}
+              username={username}
+            />
+          }
+          rightPanel={
+            <CommentPanel
+              socket={socket}
+              roomId={roomId ?? ''}
+              commentsOnly={false}
+            />
+          }
+          controls={
+            <>
+              <RoomInfoPanel roomId={roomId ?? ''} isHost={false} />
+              {/* 观众可浏览搜索结果与队列；房管额外拥有添加/删除/排序权限 */}
+              <MusicSearchPanel
+                socket={socket}
+                roomId={roomId}
+                canManage={isModerator}
+              />
+              <MusicQueuePanel
+                socket={socket}
+                roomId={roomId}
+                isHost={false}
+                canManage={isModerator}
+                currentSongId={currentSongId}
+              />
+            </>
+          }
+          controlLabels={['房间状态', '搜索歌曲', '播放队列']}
+        />
+      </MusicPlayerProvider>
     )
   }
 

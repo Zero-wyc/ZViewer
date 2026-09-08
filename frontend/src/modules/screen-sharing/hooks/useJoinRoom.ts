@@ -150,7 +150,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
             if (response.data?.streamKey !== undefined) {
               setStreamKey(response.data.streamKey)
             }
-            if (mode === 'watch-together') {
+            if (mode === 'watch-together' || mode === 'listen-together') {
               if (response.message === '已加入房间') {
                 hasJoinedRef.current = true
                 setJoinStatus('approved')
@@ -253,7 +253,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
       if (data.streamKey !== undefined) {
         setStreamKey(data.streamKey)
       }
-      if (mode === 'watch-together') {
+      if (mode === 'watch-together' || mode === 'listen-together') {
         if (hasJoinedRef.current) {
           setJoinStatus('approved')
           return

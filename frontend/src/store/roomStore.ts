@@ -8,6 +8,7 @@ import type { BilibiliVideoPage } from '@/modules/bilibili/types'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import type { AniSubsEpisode } from '@/modules/anisubs/types'
+import { useMusicStore } from '@/modules/music/store'
 
 /**
  * ani-subs 番剧源元数据。
@@ -37,7 +38,7 @@ export interface Viewer {
   muted?: boolean
 }
 
-export type RoomMode = 'screen-share' | 'watch-together'
+export type RoomMode = 'screen-share' | 'watch-together' | 'listen-together'
 export type ShareMethod = 'webrtc' | 'stream-push'
 
 /** OBS 推流状态 */
@@ -521,8 +522,17 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   toggleAutoApproveRequests: () =>
     set((state) => ({ autoApproveRequests: !state.autoApproveRequests })),
   setActiveRoomId: (id) => set({ activeRoomId: id }),
-  exitRoom: () => set({ ...defaultState }),
-  reset: () => set({ ...defaultState }),
+  exitRoom: () => {
+    set({ ...defaultState })
+    // 离开房间时同步重置一起听模块状态（队列/播放镜像/提示等），
+    // 避免进入下一个房间时残留上一房间的音乐状态
+    useMusicStore.getState().reset()
+  },
+  reset: () => {
+    set({ ...defaultState })
+    // 同上：roomStore 重置（切换房间/创建新房间）时联动清理音乐状态
+    useMusicStore.getState().reset()
+  },
 
   // REST API 调用：成功后由后端 socket 广播 movie-list 刷新本地 state；
   // 失败时抛出错误，调用方负责提示用户且不更新本地 state。

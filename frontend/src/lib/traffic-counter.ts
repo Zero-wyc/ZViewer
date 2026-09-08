@@ -42,7 +42,8 @@ export function installTrafficCounter(): void {
         if (e.startTime < start - 50) continue
         starts.shift()
         if (starts.length === 0) pendingNoLength.delete(e.name)
-        const size = e.transferSize || e.encodedBodySize || e.decodedBodySize || 0
+        const size =
+          e.transferSize || e.encodedBodySize || e.decodedBodySize || 0
         if (size > 0) counters.downTotal += size
       }
     })
@@ -117,10 +118,7 @@ function patchFetch(): void {
 }
 
 function patchXHR(): void {
-  const proto = XMLHttpRequest.prototype as unknown as Record<
-    string,
-    unknown
-  >
+  const proto = XMLHttpRequest.prototype as unknown as Record<string, unknown>
   const originalOpen = proto.open as (...args: unknown[]) => void
   const originalSend = proto.send as (body?: unknown) => void
 

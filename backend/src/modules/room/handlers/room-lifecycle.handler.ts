@@ -40,7 +40,7 @@ interface CreateRoomPayload {
   password?: string;
   maxViewers?: number;
   requireApproval?: boolean;
-  mode?: 'screen-share' | 'watch-together';
+  mode?: 'screen-share' | 'watch-together' | 'listen-together';
 }
 
 /** admin-close-room 事件 payload */

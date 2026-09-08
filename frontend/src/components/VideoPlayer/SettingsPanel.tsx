@@ -335,8 +335,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   style={{ fontFamily: subtitleFontFamily || undefined }}
                 >
                   {subtitleFontFamily
-                    ? subtitleFontFamily.replace(/["']/g, '').split(',')[0]?.trim() ||
-                      '自定义'
+                    ? subtitleFontFamily
+                        .replace(/["']/g, '')
+                        .split(',')[0]
+                        ?.trim() || '自定义'
                     : '默认'}
                 </span>
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
@@ -446,7 +448,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
         )}
 
         {/* 内容：房主与观众均显示字幕设置（观众少加载类功能） */}
-        {(settingsTab === 'subtitle' || !danmakuStyle) ? (
+        {settingsTab === 'subtitle' || !danmakuStyle ? (
           <>
             <div className="flex items-center justify-between py-0.5">
               <span
@@ -497,114 +499,76 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     仅房主可见。观众的字幕数据来自房主广播，无需也无权加载，
                     其中「浏览目录」明确不向观众开放 */}
                 {isHost && (
-                <div
-                  className="mt-1 border-t pt-1"
-                  style={{
-                    borderColor:
-                      'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowSubtitleLoader((v) => !v)
-                      setBrowserOpen(false)
+                  <div
+                    className="mt-1 border-t pt-1"
+                    style={{
+                      borderColor:
+                        'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
                     }}
-                    className="flex w-full items-center justify-between rounded-md px-1 py-0.5 text-xs transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                    style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                   >
-                    <span>加载字幕</span>
-                    <ChevronDown
-                      className={cn(
-                        'h-3 w-3 transition-transform',
-                        showSubtitleLoader && 'rotate-180'
-                      )}
-                    />
-                  </button>
-                  {showSubtitleLoader && (
-                    <div className="mt-1 space-y-1">
-                      <div className="flex items-center gap-1">
-                        <Input
-                          size="sm"
-                          value={subtitleUrlInput}
-                          onChange={(e) => setSubtitleUrlInput(e.target.value)}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault()
-                              handleAddSubtitleUrl()
-                            }
-                          }}
-                          placeholder="https://.../sub.vtt 或 .srt/.ass"
-                          className="flex-1"
-                        />
-                        <Button
-                          variant="primary"
-                          size="sm"
-                          className="h-7 w-7 shrink-0 p-0"
-                          disabled={!subtitleUrlInput.trim()}
-                          onClick={handleAddSubtitleUrl}
-                          icon={<Plus className="h-3.5 w-3.5" />}
-                        />
-                      </div>
-                      <input
-                        ref={subtitleFileInputRef}
-                        type="file"
-                        accept=".vtt,.srt,.ass,.ssa,.smi,.sami,.sub"
-                        className="hidden"
-                        onChange={handleSubtitleFileChange}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowSubtitleLoader((v) => !v)
+                        setBrowserOpen(false)
+                      }}
+                      className="flex w-full items-center justify-between rounded-md px-1 py-0.5 text-xs transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
+                    >
+                      <span>加载字幕</span>
+                      <ChevronDown
+                        className={cn(
+                          'h-3 w-3 transition-transform',
+                          showSubtitleLoader && 'rotate-180'
+                        )}
                       />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-7 w-full justify-center gap-1 text-xs"
-                        icon={<Upload className="h-3 w-3" />}
-                        onClick={() => subtitleFileInputRef.current?.click()}
-                      >
-                        上传文件
-                      </Button>
-                      {canAutoSearchSubtitles && onAutoSearchSubtitles && (
-                        <>
-                          <div
-                            className="border-t pt-1"
-                            style={{
-                              borderColor:
-                                'color-mix(in srgb, var(--md-sys-color-outline) 20%, transparent)',
+                    </button>
+                    {showSubtitleLoader && (
+                      <div className="mt-1 space-y-1">
+                        <div className="flex items-center gap-1">
+                          <Input
+                            size="sm"
+                            value={subtitleUrlInput}
+                            onChange={(e) =>
+                              setSubtitleUrlInput(e.target.value)
+                            }
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                handleAddSubtitleUrl()
+                              }
                             }}
+                            placeholder="https://.../sub.vtt 或 .srt/.ass"
+                            className="flex-1"
                           />
                           <Button
-                            variant="secondary"
+                            variant="primary"
                             size="sm"
-                            className="h-7 w-full justify-center gap-1 text-xs"
-                            disabled={autoSearching}
-                            icon={
-                              autoSearching ? (
-                                <Loader2 className="h-3 w-3 animate-spin" />
-                              ) : (
-                                <ScanSearch className="h-3 w-3" />
-                              )
-                            }
-                            onClick={handleAutoSearch}
-                          >
-                            {autoSearching ? '搜索中...' : '自动识别字幕'}
-                          </Button>
-                          {autoSearchMsg && (
-                            <div
-                              className="text-center text-[10px]"
-                              style={{
-                                color:
-                                  autoSearchMsg === '搜索失败'
-                                    ? 'var(--md-sys-color-error)'
-                                    : 'var(--md-sys-color-on-surface-variant)',
-                              }}
-                            >
-                              {autoSearchMsg}
-                            </div>
-                          )}
-                        </>
-                      )}
-                      {canLoadEmbeddedSubtitles &&
-                        onListEmbeddedTracks &&
-                        onExtractEmbeddedTrack && (
+                            className="h-7 w-7 shrink-0 p-0"
+                            disabled={!subtitleUrlInput.trim()}
+                            onClick={handleAddSubtitleUrl}
+                            icon={<Plus className="h-3.5 w-3.5" />}
+                          />
+                        </div>
+                        <input
+                          ref={subtitleFileInputRef}
+                          type="file"
+                          accept=".vtt,.srt,.ass,.ssa,.smi,.sami,.sub"
+                          className="hidden"
+                          onChange={handleSubtitleFileChange}
+                        />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="h-7 w-full justify-center gap-1 text-xs"
+                          icon={<Upload className="h-3 w-3" />}
+                          onClick={() => subtitleFileInputRef.current?.click()}
+                        >
+                          上传文件
+                        </Button>
+                        {canAutoSearchSubtitles && onAutoSearchSubtitles && (
                           <>
                             <div
                               className="border-t pt-1"
@@ -617,94 +581,141 @@ export function SettingsPanel(props: SettingsPanelProps) {
                               variant="secondary"
                               size="sm"
                               className="h-7 w-full justify-center gap-1 text-xs"
-                              disabled={embeddedListLoading || embeddedLoading}
+                              disabled={autoSearching}
                               icon={
-                                embeddedListLoading ? (
+                                autoSearching ? (
                                   <Loader2 className="h-3 w-3 animate-spin" />
                                 ) : (
-                                  <FileText className="h-3 w-3" />
+                                  <ScanSearch className="h-3 w-3" />
                                 )
                               }
-                              onClick={handleListEmbedded}
+                              onClick={handleAutoSearch}
                             >
-                              {embeddedListLoading ? '检测中...' : '内嵌字幕轨道'}
+                              {autoSearching ? '搜索中...' : '自动识别字幕'}
                             </Button>
-                            {embeddedTracks.length > 0 && (
-                              <div className="mt-1 flex flex-col gap-0.5">
-                                <div
-                                  className="text-[11px] font-medium uppercase tracking-wide"
-                                  style={{
-                                    color:
-                                      'var(--md-sys-color-on-surface-variant)',
-                                  }}
-                                >
-                                  可提取轨道
-                                </div>
-                                {embeddedTracks.map((t) => {
-                                  const extracting = extractingIndex === t.index
-                                  return (
-                                    <button
-                                      key={t.index}
-                                      type="button"
-                                      disabled={embeddedLoading}
-                                      onClick={() => handleExtractEmbedded(t)}
-                                      className={cn(
-                                        'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
-                                        extracting
-                                          ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                                          : 'text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
-                                      )}
-                                    >
-                                      <span className="truncate">
-                                        {t.label}
-                                      </span>
-                                      <span className="ml-auto shrink-0 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                                        {t.codecName}
-                                      </span>
-                                      {extracting && (
-                                        <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
-                                      )}
-                                    </button>
-                                  )
-                                })}
-                              </div>
-                            )}
-                            {embeddedMsg && (
+                            {autoSearchMsg && (
                               <div
                                 className="text-center text-[10px]"
                                 style={{
                                   color:
-                                    embeddedMsg === '提取失败' ||
-                                    embeddedMsg === '检测失败'
+                                    autoSearchMsg === '搜索失败'
                                       ? 'var(--md-sys-color-error)'
                                       : 'var(--md-sys-color-on-surface-variant)',
                                 }}
                               >
-                                {embeddedMsg}
+                                {autoSearchMsg}
                               </div>
                             )}
                           </>
                         )}
-                      {canAutoSearchSubtitles &&
-                        browseMovieId != null &&
-                        onAddSubtitleContent && (
-                          <Button
-                            variant={browserOpen ? 'primary' : 'secondary'}
-                            size="sm"
-                            className="h-7 w-full justify-center gap-1 text-xs"
-                            icon={<FolderOpen className="h-3 w-3" />}
-                            onClick={() => {
-                              setBrowserOpen((v) => !v)
-                              setAdvancedOpen(false)
-                              setFontPanelOpen(false)
-                            }}
-                          >
-                            {browserOpen ? '关闭浏览' : '浏览目录'}
-                          </Button>
-                        )}
-                    </div>
-                  )}
-                </div>
+                        {canLoadEmbeddedSubtitles &&
+                          onListEmbeddedTracks &&
+                          onExtractEmbeddedTrack && (
+                            <>
+                              <div
+                                className="border-t pt-1"
+                                style={{
+                                  borderColor:
+                                    'color-mix(in srgb, var(--md-sys-color-outline) 20%, transparent)',
+                                }}
+                              />
+                              <Button
+                                variant="secondary"
+                                size="sm"
+                                className="h-7 w-full justify-center gap-1 text-xs"
+                                disabled={
+                                  embeddedListLoading || embeddedLoading
+                                }
+                                icon={
+                                  embeddedListLoading ? (
+                                    <Loader2 className="h-3 w-3 animate-spin" />
+                                  ) : (
+                                    <FileText className="h-3 w-3" />
+                                  )
+                                }
+                                onClick={handleListEmbedded}
+                              >
+                                {embeddedListLoading
+                                  ? '检测中...'
+                                  : '内嵌字幕轨道'}
+                              </Button>
+                              {embeddedTracks.length > 0 && (
+                                <div className="mt-1 flex flex-col gap-0.5">
+                                  <div
+                                    className="text-[11px] font-medium uppercase tracking-wide"
+                                    style={{
+                                      color:
+                                        'var(--md-sys-color-on-surface-variant)',
+                                    }}
+                                  >
+                                    可提取轨道
+                                  </div>
+                                  {embeddedTracks.map((t) => {
+                                    const extracting =
+                                      extractingIndex === t.index
+                                    return (
+                                      <button
+                                        key={t.index}
+                                        type="button"
+                                        disabled={embeddedLoading}
+                                        onClick={() => handleExtractEmbedded(t)}
+                                        className={cn(
+                                          'flex items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs transition-colors',
+                                          extracting
+                                            ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                                            : 'text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                                        )}
+                                      >
+                                        <span className="truncate">
+                                          {t.label}
+                                        </span>
+                                        <span className="ml-auto shrink-0 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                                          {t.codecName}
+                                        </span>
+                                        {extracting && (
+                                          <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+                                        )}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                              )}
+                              {embeddedMsg && (
+                                <div
+                                  className="text-center text-[10px]"
+                                  style={{
+                                    color:
+                                      embeddedMsg === '提取失败' ||
+                                      embeddedMsg === '检测失败'
+                                        ? 'var(--md-sys-color-error)'
+                                        : 'var(--md-sys-color-on-surface-variant)',
+                                  }}
+                                >
+                                  {embeddedMsg}
+                                </div>
+                              )}
+                            </>
+                          )}
+                        {canAutoSearchSubtitles &&
+                          browseMovieId != null &&
+                          onAddSubtitleContent && (
+                            <Button
+                              variant={browserOpen ? 'primary' : 'secondary'}
+                              size="sm"
+                              className="h-7 w-full justify-center gap-1 text-xs"
+                              icon={<FolderOpen className="h-3 w-3" />}
+                              onClick={() => {
+                                setBrowserOpen((v) => !v)
+                                setAdvancedOpen(false)
+                                setFontPanelOpen(false)
+                              }}
+                            >
+                              {browserOpen ? '关闭浏览' : '浏览目录'}
+                            </Button>
+                          )}
+                      </div>
+                    )}
+                  </div>
                 )}
                 {/* 高级设置入口（字号 / 时间偏移 / 水平位移 / 字体在延伸面板中） */}
                 {(onChangeSubtitleFontSize ||

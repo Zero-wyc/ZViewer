@@ -1429,10 +1429,7 @@ export function WatchTogetherCore({
       const target = e.target as Node
       // portal 到 body 的浮动菜单（如 FontPicker 下拉）虽在 anchor 外，
       // 但点击它们不应关闭设置面板（否则菜单瞬间卸载无法选中）
-      if (
-        target instanceof Element &&
-        target.closest?.('[data-portal-menu]')
-      ) {
+      if (target instanceof Element && target.closest?.('[data-portal-menu]')) {
         return
       }
       if (

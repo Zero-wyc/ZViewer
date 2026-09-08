@@ -19,7 +19,11 @@
  * S_TEXT/WEBVTT（按 SRT 兜底）。位图字幕（PGS/VOBSUB）标记不支持，
  * 前端无可行提取路径（后端 ffmpeg 已移除，无回退）。
  */
-import { MatroskaDemuxer, type DemuxedFrame, type DemuxedTrack } from '@/lib/mkv/matroska-demuxer'
+import {
+  MatroskaDemuxer,
+  type DemuxedFrame,
+  type DemuxedTrack,
+} from '@/lib/mkv/matroska-demuxer'
 import { TRACK_TYPE } from '@/lib/mkv/ebml'
 
 /** 探测时最多预取的头部字节数（Tracks 元素必须在其中收齐） */
@@ -249,7 +253,10 @@ interface ParsedElement {
 }
 
 /** 在缓冲内解析元素头（ID + Size VINT）；数据不足返回 null。 */
-function parseElementHeader(buf: Uint8Array, off: number): ParsedElement | null {
+function parseElementHeader(
+  buf: Uint8Array,
+  off: number
+): ParsedElement | null {
   const idv = readVintBytes(buf, off, true)
   if (!idv) return null
   const szv = readVintBytes(buf, off + idv.length, false)
@@ -330,7 +337,11 @@ export async function extractMkvSubtitleTracks(
   const trackMap = new Map<number, DemuxedTrack>()
   for (const n of trackNumbers) {
     const t = tracks.find((x) => x.trackNumber === n)
-    if (t && t.trackType === TRACK_TYPE.SUBTITLE && isTextSubtitleCodec(t.codecId)) {
+    if (
+      t &&
+      t.trackType === TRACK_TYPE.SUBTITLE &&
+      isTextSubtitleCodec(t.codecId)
+    ) {
       trackMap.set(n, t)
     }
   }
@@ -399,7 +410,11 @@ async function extractFullStream(
     onFrame: (f: DemuxedFrame) => {
       const list = framesByTrack.get(f.trackNumber)
       if (list) {
-        list.push({ timestampMs: f.timestampMs, durationMs: f.durationMs, data: f.data })
+        list.push({
+          timestampMs: f.timestampMs,
+          durationMs: f.durationMs,
+          data: f.data,
+        })
       }
     },
   })
@@ -505,7 +520,10 @@ class SparseWindow {
   }
 }
 
-async function sparseReadVint(w: SparseWindow, pos: number): Promise<{ value: number; length: number }> {
+async function sparseReadVint(
+  w: SparseWindow,
+  pos: number
+): Promise<{ value: number; length: number }> {
   const first = (await w.read(pos, 1))[0]!
   if (first === 0) throw new Error(`块链解析错误 @${pos}：VINT 首字节为 0`)
   let len = 1
@@ -521,7 +539,10 @@ async function sparseReadVint(w: SparseWindow, pos: number): Promise<{ value: nu
   return { value, length: len }
 }
 
-async function sparseReadElemId(w: SparseWindow, pos: number): Promise<{ id: number; length: number }> {
+async function sparseReadElemId(
+  w: SparseWindow,
+  pos: number
+): Promise<{ id: number; length: number }> {
   const first = (await w.read(pos, 1))[0]!
   if (first === 0) throw new Error(`块链解析错误 @${pos}：元素 ID 首字节为 0`)
   let len = 1
@@ -537,7 +558,11 @@ async function sparseReadElemId(w: SparseWindow, pos: number): Promise<{ id: num
   return { id, length: len }
 }
 
-async function sparseReadUint(w: SparseWindow, pos: number, len: number): Promise<number> {
+async function sparseReadUint(
+  w: SparseWindow,
+  pos: number,
+  len: number
+): Promise<number> {
   const bytes = await w.read(pos, len)
   let v = 0
   for (let i = 0; i < len; i++) v = v * 256 + bytes[i]!
@@ -577,12 +602,21 @@ async function extractSparse(
       // 不检查会导致 294 个锚点逐个失败（数百次无效请求级联）
       if (opts.signal?.aborted) throw new Error('提取已中止')
       const pt = opts.getPriorityTime?.() ?? null
-      const i = scheduler.pick(pt != null && Number.isFinite(pt) ? pt * 1000 : null)
+      const i = scheduler.pick(
+        pt != null && Number.isFinite(pt) ? pt * 1000 : null
+      )
       if (i < 0) break
       const start = anchors[i]!.pos
       const next = i + 1 < total ? anchors[i + 1]!.pos : size
       try {
-        await walkAnchorSegment(w, start, next, trackMap, framesByTrack, tsScaleMs)
+        await walkAnchorSegment(
+          w,
+          start,
+          next,
+          trackMap,
+          framesByTrack,
+          tsScaleMs
+        )
       } catch (err) {
         // abort 引起的失败不是解析失败：不计数、不重试下一个锚点
         if (opts.signal?.aborted) throw err
@@ -594,14 +628,17 @@ async function extractSparse(
           `[mkv-embedded] 锚点区间 #${i} 解析失败，跳过：`,
           err instanceof Error ? err.message : err
         )
-      }      w.invalidate()
+      }
+      w.invalidate()
       done++
       opts.onProgress?.(Math.min(99, Math.round((done / total) * 100)))
     }
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(SPARSE_CONCURRENCY, total) }, () => runWorker())
+    Array.from({ length: Math.min(SPARSE_CONCURRENCY, total) }, () =>
+      runWorker()
+    )
   )
   opts.onProgress?.(100)
   // 并行 worker 乱序完成 → 按时间戳重排（稳定排序保持同帧序）
@@ -634,8 +671,7 @@ async function walkAnchorSegment(
     const sz = await sparseReadVint(w, cur + id.length)
     const dataStart = cur + id.length + sz.length
     // unknown size（流式写入尾段）兜底为区间终点
-    const elSize =
-      sz.value >= 0xffffffffffffff ? segEnd - dataStart : sz.value
+    const elSize = sz.value >= 0xffffffffffffff ? segEnd - dataStart : sz.value
     if (elSize <= 0) throw new Error(`@${cur} 元素尺寸异常（size=${elSize}）`)
     if (id.id === 0x1f43b675) {
       // Cluster：块链收集（nextBoundary 传 Cluster 自身结束位置）
@@ -669,7 +705,9 @@ async function walkClusterIntoAsync(
   // Cluster 元素头
   const id = await sparseReadElemId(w, clusterStart)
   if (id.id !== 0x1f43b675) {
-    throw new Error(`@${clusterStart} 不是 Cluster 元素（0x${id.id.toString(16)}）`)
+    throw new Error(
+      `@${clusterStart} 不是 Cluster 元素（0x${id.id.toString(16)}）`
+    )
   }
   const sz = await sparseReadVint(w, clusterStart + id.length)
   const unknownSize = sz.value >= 0xffffffffffffff
@@ -705,7 +743,7 @@ async function walkClusterIntoAsync(
     const elSize =
       elSz.value >= 0xffffffffffffff ? nextBoundary - dataStart : elSz.value
     if (elSize < 0) break
-    let nextCur = dataStart + elSize
+    const nextCur = dataStart + elSize
     if (nextCur <= cur) break // 防御：解析异常时避免死循环
 
     if (elId.id === 0xa3) {
@@ -786,7 +824,9 @@ async function parseSparseBlock(
   if (!trackMap.has(trackVint.value)) return // 非目标轨：算术跳过
   const lacing = (flags & 0x06) >> 1
   if (lacing !== 0) {
-    console.warn(`[mkv-embedded] 字幕块使用 lacing（不支持），跳过 @${dataStart}`)
+    console.warn(
+      `[mkv-embedded] 字幕块使用 lacing（不支持），跳过 @${dataStart}`
+    )
     return
   }
   const data = await w.read(dataStart + frameHeaderLen, payloadLen)
@@ -822,7 +862,11 @@ function parseCuesAnchors(
       tail[i + 3] === 0x6b
     ) {
       const szv = readVintBytes(tail, i + 4, false)
-      if (szv && szv.value > 0 && szv.value <= tail.length - i - 4 - szv.length) {
+      if (
+        szv &&
+        szv.value > 0 &&
+        szv.value <= tail.length - i - 4 - szv.length
+      ) {
         cuesOff = i
         break
       }
@@ -848,7 +892,8 @@ function parseCuesAnchors(
         if (!child || child.end < 0 || child.end > el.end) break
         if (child.id === 0xb3) {
           let v = 0
-          for (let i = 0; i < child.size; i++) v = v * 256 + tail[child.dataStart + i]!
+          for (let i = 0; i < child.size; i++)
+            v = v * 256 + tail[child.dataStart + i]!
           cueTime = v * tsScaleMs
         } else if (child.id === 0xb7) {
           // CueTrackPositions：内含 CueClusterPosition(0xF1)
@@ -858,7 +903,8 @@ function parseCuesAnchors(
             if (!g || g.end < 0 || g.end > child.end) break
             if (g.id === 0xf1 && g.size <= 8) {
               let v = 0
-              for (let i = 0; i < g.size; i++) v = v * 256 + tail[g.dataStart + i]!
+              for (let i = 0; i < g.size; i++)
+                v = v * 256 + tail[g.dataStart + i]!
               positions.push(segmentDataStart + v)
             }
             r = g.end
@@ -925,7 +971,9 @@ function createAnchorScheduler(anchors: CueAnchor[]): {
 /** DecompressionStream('deflate') = zlib（RFC1950）封装 */
 async function inflateZlib(data: Uint8Array): Promise<Uint8Array> {
   const ds = new DecompressionStream('deflate')
-  const stream = new Blob([data as unknown as BlobPart]).stream().pipeThrough(ds)
+  const stream = new Blob([data as unknown as BlobPart])
+    .stream()
+    .pipeThrough(ds)
   const buf = await new Response(stream).arrayBuffer()
   return new Uint8Array(buf)
 }
@@ -994,8 +1042,7 @@ export async function streamMkvSubtitleTrack(
   if (track.contentCompAlgo !== 0 && track.contentCompAlgo !== 1) {
     throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
   }
-  const isAss =
-    track.codecId === 'S_TEXT/ASS' || track.codecId === 'S_TEXT/SSA'
+  const isAss = track.codecId === 'S_TEXT/ASS' || track.codecId === 'S_TEXT/SSA'
   const needInflate = track.contentCompAlgo === 1
 
   const pending: RawSubtitleFrame[] = []
@@ -1016,12 +1063,11 @@ export async function streamMkvSubtitleTrack(
     const parts: string[] = []
     for (let i = 0; i < pending.length; i++) {
       const f = pending[i]!
-      const nextTs =
-        i + 1 < pending.length ? pending[i + 1]!.timestampMs : null
+      const nextTs = i + 1 < pending.length ? pending[i + 1]!.timestampMs : null
       const end =
         f.durationMs && f.durationMs > 0
           ? f.timestampMs + f.durationMs
-          : nextTs ?? f.timestampMs + 3000
+          : (nextTs ?? f.timestampMs + 3000)
       if (isAss) {
         const raw = utf8.decode(f.data)
         // 去掉 ReadOrder 和 Layer 前两字段（到第二个逗号）：
@@ -1069,7 +1115,11 @@ export async function streamMkvSubtitleTrack(
     const demuxer = new MatroskaDemuxer({
       onFrame: (f: DemuxedFrame) => {
         if (f.trackNumber === trackNumber) {
-          pending.push({ timestampMs: f.timestampMs, durationMs: f.durationMs, data: f.data })
+          pending.push({
+            timestampMs: f.timestampMs,
+            durationMs: f.durationMs,
+            data: f.data,
+          })
         }
       },
     })
@@ -1164,7 +1214,9 @@ export async function streamMkvSubtitleTrack(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(SPARSE_CONCURRENCY, total) }, () => runWorker())
+    Array.from({ length: Math.min(SPARSE_CONCURRENCY, total) }, () =>
+      runWorker()
+    )
   )
   await flush()
   opts.onProgress?.(100)

@@ -182,7 +182,12 @@ export function useViewerStateSync({
         // 传入 state.currentTime 作为 startTime：引擎（DashPlayer）从该时间对应
         // 的字节位置开始下载，而非从文件头顺序下载到目标位置才播放
         // （房主切清晰度/换片时观众从房主当前进度起播，避免长缓冲）。
-        await applySourceToVideo(video, state, state.currentTime || undefined, blobs)
+        await applySourceToVideo(
+          video,
+          state,
+          state.currentTime || undefined,
+          blobs
+        )
         // applySourceToVideo 后视频元素可能已替换，重新获取
         const currentVideo = videoRef.current
         if (!currentVideo) return

@@ -154,9 +154,7 @@ function stripBracketSegments(s: string): string {
   const trimmed = stripped.trim()
   if (trimmed) return trimmed
   // 全部在括号里（如「[名字].mkv」）：取第一个括号段内容
-  const m = s.match(
-    /\[([^\]]*)\]|\(([^)]*)\)|（([^）]*)）|【([^】]*)】/
-  )
+  const m = s.match(/\[([^\]]*)\]|\(([^)]*)\)|（([^）]*)）|【([^】]*)】/)
   const inner = m ? (m[1] ?? m[2] ?? m[3] ?? m[4] ?? '') : ''
   return inner.trim()
 }

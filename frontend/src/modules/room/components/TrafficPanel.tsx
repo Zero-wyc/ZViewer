@@ -107,20 +107,21 @@ export function TrafficPanel() {
     }
   }, [isRoot, expanded])
 
-  const rows: { label: string; total: number; speed: number; down: boolean }[] = [
-    {
-      label: '下载',
-      total: local.downTotal,
-      speed: speeds.downSpeed,
-      down: true,
-    },
-    {
-      label: '上传',
-      total: local.upTotal,
-      speed: speeds.upSpeed,
-      down: false,
-    },
-  ]
+  const rows: { label: string; total: number; speed: number; down: boolean }[] =
+    [
+      {
+        label: '下载',
+        total: local.downTotal,
+        speed: speeds.downSpeed,
+        down: true,
+      },
+      {
+        label: '上传',
+        total: local.upTotal,
+        speed: speeds.upSpeed,
+        down: false,
+      },
+    ]
 
   return createPortal(
     <div
@@ -209,8 +210,18 @@ export function TrafficPanel() {
                 <>
                   {(
                     [
-                      { label: '下载', bytes: server.rxBytes, speed: server.rxSpeed, down: true },
-                      { label: '上传', bytes: server.txBytes, speed: server.txSpeed, down: false },
+                      {
+                        label: '下载',
+                        bytes: server.rxBytes,
+                        speed: server.rxSpeed,
+                        down: true,
+                      },
+                      {
+                        label: '上传',
+                        bytes: server.txBytes,
+                        speed: server.txSpeed,
+                        down: false,
+                      },
                     ] as const
                   ).map((row) => (
                     <div

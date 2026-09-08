@@ -519,12 +519,15 @@ export function BilibiliParseSettings({
                 <div
                   className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 rounded-lg p-1.5 text-[10px]"
                   style={{
-                    backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                    backgroundColor:
+                      'var(--md-sys-color-surface-container-high)',
                   }}
                 >
                   <div className="flex items-center justify-between">
                     <span
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     >
                       ↓HTTP
                     </span>
@@ -534,7 +537,9 @@ export function BilibiliParseSettings({
                   </div>
                   <div className="flex items-center justify-between">
                     <span
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     >
                       ↓P2P
                     </span>
@@ -544,7 +549,9 @@ export function BilibiliParseSettings({
                   </div>
                   <div className="flex items-center justify-between">
                     <span
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     >
                       ↑P2P
                     </span>
@@ -554,7 +561,9 @@ export function BilibiliParseSettings({
                   </div>
                   <div className="flex items-center justify-between">
                     <span
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     >
                       速度
                     </span>

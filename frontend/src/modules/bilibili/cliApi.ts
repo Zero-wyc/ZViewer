@@ -148,9 +148,7 @@ export async function resolveBilibiliViaCli(
   try {
     data = (await res.json()) as CliResolveResponse
   } catch {
-    throw new CliResolveError(
-      `CLI 代理返回了无效响应（HTTP ${res.status}）`
-    )
+    throw new CliResolveError(`CLI 代理返回了无效响应（HTTP ${res.status}）`)
   }
 
   if (!res.ok || data.success === false || !data.videoUrl) {

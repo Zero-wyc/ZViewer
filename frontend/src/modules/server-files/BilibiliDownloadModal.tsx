@@ -644,9 +644,7 @@ export function BilibiliDownloadModal({
                         <div className="flex items-center justify-between text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
                           <span>{formatSize(received)}</span>
                           <span>
-                            {total > 0
-                              ? `共 ${formatSize(total)}`
-                              : '大小未知'}
+                            {total > 0 ? `共 ${formatSize(total)}` : '大小未知'}
                           </span>
                         </div>
                       </>

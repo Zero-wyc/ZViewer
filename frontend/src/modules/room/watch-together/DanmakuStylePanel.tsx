@@ -219,8 +219,10 @@ export function DanmakuAdvancedSettings({
             style={{ fontFamily: style.advanced.fontFamily || undefined }}
           >
             {style.advanced.fontFamily
-              ? style.advanced.fontFamily.replace(/["']/g, '').split(',')[0]?.trim() ||
-                '自定义'
+              ? style.advanced.fontFamily
+                  .replace(/["']/g, '')
+                  .split(',')[0]
+                  ?.trim() || '自定义'
               : '默认'}
           </span>
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />

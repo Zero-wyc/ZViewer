@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Monitor, Users, ArrowRight } from 'lucide-react'
+import { Monitor, Users, Music, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Space } from '@/components/ui/Space'
@@ -8,6 +8,7 @@ import { Title, Paragraph } from '@/components/ui/Typography'
 import { Switch } from '@/components/ui/Switch'
 import { Input } from '@/components/ui/Input'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
 
@@ -32,6 +33,10 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
   const [creating, setCreating] = useState(false)
   const [requireApproval, setRequireApproval] = useState(false)
   const [password, setPassword] = useState('')
+  // Beta 功能开关：开启后才显示"一起听"入口（spec「Beta 门控」）
+  const betaFeaturesEnabled = useSystemSettingsStore(
+    (state) => state.betaFeaturesEnabled
+  )
 
   const handleCreateRoom = () => {
     if (!socket || !connected) {
@@ -174,6 +179,40 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
                 同步播放视频，支持直链、WebDAV、SMB 与 B站
               </Paragraph>
             </button>
+
+            {/* 一起听（Beta）：仅系统级 Beta 开关开启时显示（spec「Beta 门控」） */}
+            {betaFeaturesEnabled && (
+              <button
+                onClick={() => setSelectedMode('listen-together')}
+                className="relative text-left p-5 rounded-2xl border-2 transition-all"
+                style={{
+                  borderColor:
+                    selectedMode === 'listen-together'
+                      ? 'var(--md-sys-color-primary)'
+                      : 'var(--md-sys-color-outline-variant)',
+                  backgroundColor:
+                    selectedMode === 'listen-together'
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'var(--glass-bg)',
+                }}
+              >
+                <div
+                  className="w-12 h-12 rounded-xl flex items-center justify-center mb-3"
+                  style={{
+                    backgroundColor: 'var(--md-sys-color-primary)',
+                    color: 'var(--md-sys-color-on-primary)',
+                  }}
+                >
+                  <Music className="h-6 w-6" />
+                </div>
+                <Title level={5} className="m-0">
+                  一起听
+                </Title>
+                <Paragraph type="secondary" className="m-0 mt-1 text-xs">
+                  同步播放网易云音乐，全房间共享歌单与歌词
+                </Paragraph>
+              </button>
+            )}
           </div>
 
           <div

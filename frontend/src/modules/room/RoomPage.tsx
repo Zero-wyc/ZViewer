@@ -20,6 +20,15 @@ import { message } from '@/components/ui/message'
 import { SharePage, WatchPage } from '@/modules/screen-sharing'
 import type { P2PStateSnapshot } from '@/modules/screen-sharing/components/WebrtcSharePage'
 import type { MediaFormat } from '@/lib/mediaFormat'
+import {
+  ListenTogetherPanel,
+  MusicSearchPanel,
+  MusicQueuePanel,
+  MusicBetaNotice,
+  MusicPlayerProvider,
+  useMusicStore,
+} from '@/modules/music'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 import type { RoomMode } from '@/store/roomStore'
 
@@ -130,6 +139,12 @@ function RoomPage() {
   // 房管观众：可管理影片与成员（含语音），后端同步的 moderators 列表判定
   const isModerator =
     currentUserId != null && moderators.includes(Number(currentUserId))
+  // Beta 功能开关：一起听模式入口与渲染的门控（spec「Beta 门控」）
+  const betaFeaturesEnabled = useSystemSettingsStore(
+    (state) => state.betaFeaturesEnabled
+  )
+  // 一起听：当前播放曲目（队列面板高亮传入）
+  const currentSongId = useMusicStore((state) => state.currentSongId)
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
@@ -358,6 +373,11 @@ function RoomPage() {
 
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (isHost) {
+    // 一起听模式：Beta 未开启时降级为提示页，不渲染任何音乐 UI
+    //（创建入口已由 RoomPanel 门控隐藏，此处防御直接 URL / 关闭开关后的存量房间）
+    const isListenTogether = mode === 'listen-together'
+    const musicBetaClosed = isListenTogether && !betaFeaturesEnabled
+
     const mainContent =
       mode === 'watch-together' ? (
         // 等待 register-host 回调完成后再渲染 WatchTogetherPanel，
@@ -378,6 +398,19 @@ function RoomPage() {
             <Spinner tip="正在恢复房间..." size={32} />
           </div>
         )
+      ) : isListenTogether ? (
+        // 一起听：音频引擎由外层 MusicPlayerProvider 持有（见下方包裹），
+        // 不需要播放器 remount key，切换影片等场景由音乐模块自管理
+        musicBetaClosed ? (
+          <MusicBetaNotice />
+        ) : (
+          <ListenTogetherPanel
+            socket={socket}
+            roomId={roomId}
+            isHost
+            username={username}
+          />
+        )
       ) : (
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
@@ -388,6 +421,23 @@ function RoomPage() {
     const controls =
       mode === 'screen-share' ? (
         <RoomInfoPanel roomId={roomId} isHost />
+      ) : isListenTogether ? (
+        musicBetaClosed ? (
+          <RoomInfoPanel roomId={roomId} isHost />
+        ) : (
+          <>
+            <RoomInfoPanel roomId={roomId} isHost />
+            {/* 房主天然拥有队列管理权限（搜索添加/切歌/排序/删除） */}
+            <MusicSearchPanel socket={socket} roomId={roomId} canManage />
+            <MusicQueuePanel
+              socket={socket}
+              roomId={roomId}
+              isHost
+              canManage
+              currentSongId={currentSongId}
+            />
+          </>
+        )
       ) : (
         <>
           <RoomInfoPanel roomId={roomId} isHost />
@@ -396,33 +446,55 @@ function RoomPage() {
         </>
       )
 
+    const controlLabels =
+      mode === 'screen-share'
+        ? ['房间状态']
+        : isListenTogether
+          ? musicBetaClosed
+            ? ['房间状态']
+            : ['房间状态', '搜索歌曲', '播放队列']
+          : ['房间状态', '影片列表', '添加影片']
+
+    const roomLayout = (
+      <RoomLayout
+        roomId={roomId}
+        isHost
+        mainContent={mainContent}
+        rightPanel={
+          <CommentPanel
+            socket={socket}
+            roomId={roomId}
+            commentsOnly={mode === 'screen-share'}
+          />
+        }
+        peerConnection={hostPeerConnection}
+        p2pEnabled={p2pState.enabled}
+        p2pPC={p2pState.pc}
+        p2pStatus={p2pState.status}
+        p2pFallbackNotice={p2pState.fallbackNotice}
+        onToggleP2P={p2pState.toggle}
+        controls={controls}
+        controlLabels={controlLabels}
+        webFullscreen={isWebFullscreen}
+      />
+    )
+
     return (
       <>
-        <RoomLayout
-          roomId={roomId}
-          isHost
-          mainContent={mainContent}
-          rightPanel={
-            <CommentPanel
-              socket={socket}
-              roomId={roomId}
-              commentsOnly={mode === 'screen-share'}
-            />
-          }
-          peerConnection={hostPeerConnection}
-          p2pEnabled={p2pState.enabled}
-          p2pPC={p2pState.pc}
-          p2pStatus={p2pState.status}
-          p2pFallbackNotice={p2pState.fallbackNotice}
-          onToggleP2P={p2pState.toggle}
-          controls={controls}
-          controlLabels={
-            mode === 'screen-share'
-              ? ['房间状态']
-              : ['房间状态', '影片列表', '添加影片']
-          }
-          webFullscreen={isWebFullscreen}
-        />
+        {/* 一起听：Provider 包裹整个布局，让侧栏队列面板与主播放器
+            共享同一音频引擎（ListenTogetherPanel 检测到外层实例后复用） */}
+        {isListenTogether && !musicBetaClosed ? (
+          <MusicPlayerProvider
+            socket={socket}
+            roomId={roomId}
+            isHost
+            username={username}
+          >
+            {roomLayout}
+          </MusicPlayerProvider>
+        ) : (
+          roomLayout
+        )}
         {voiceChatPanel}
         {trafficPanel}
       </>

@@ -100,9 +100,5 @@ export interface BilibiliDownloadCallbacks {
   /** 解析阶段进度（step + message） */
   onParsing?: (step: string, message: string) => void
   /** 下载阶段进度（received/total/percent） */
-  onDownloading?: (
-    received: number,
-    total: number,
-    percent: number
-  ) => void
+  onDownloading?: (received: number, total: number, percent: number) => void
 }

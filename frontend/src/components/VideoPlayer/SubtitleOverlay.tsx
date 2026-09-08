@@ -54,7 +54,9 @@ const LINE_SLOT_STEP = 9
  * 策略：按 line 升序遍历，每条 cue 分配到不低于前一条（+ 步进）的槽位，
  * 使重叠的 cue 垂直依次排列；无重叠的 cue 保持原始位置不变。
  */
-function layoutCues(cues: ParsedCue[]): Array<ParsedCue & { resolvedLine: number }> {
+function layoutCues(
+  cues: ParsedCue[]
+): Array<ParsedCue & { resolvedLine: number }> {
   const sorted = [...cues].sort((a, b) => (a.line ?? 100) - (b.line ?? 100))
   const result: Array<ParsedCue & { resolvedLine: number }> = []
   for (const cue of sorted) {

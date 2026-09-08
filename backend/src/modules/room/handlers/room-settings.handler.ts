@@ -30,7 +30,7 @@ interface UpdateRoomNamePayload {
 /** update-room-mode 事件 payload */
 interface UpdateRoomModePayload {
   roomId: string;
-  mode: 'screen-share' | 'watch-together';
+  mode: 'screen-share' | 'watch-together' | 'listen-together';
 }
 
 /** update-room-settings 事件 payload */
