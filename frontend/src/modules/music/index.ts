@@ -15,9 +15,11 @@
  * │   ├── useNcmLogin.ts          网易云扫码登录（key/create/check 轮询状态机）
  * │   └── useMusicPlayer.ts       播放器 Context 消费 Hook（含 context 定义）
  * └── components/
- *     ├── ListenTogetherPanel.tsx 主区域播放器（封面/歌词/控制条）
+ *     ├── ListenTogetherPanel.tsx 主区域播放器（Hydrogen 播放卡 + 歌词面板）
+ *     ├── SongRow.tsx           歌曲列表行共享组件（Hydrogen 裸列表行 + EQ 动画）
  *     ├── MusicSearchPanel.tsx   歌曲搜索 + 队列添加 + 网易云登录
- *     └── MusicQueuePanel.tsx    播放队列（切歌/删除/排序）
+ *     ├── MusicQueuePanel.tsx    播放队列（切歌/删除/排序）
+ *     └── MusicBetaNotice.tsx   Beta 未开启降级提示页
  * ```
  */
 
@@ -55,11 +57,13 @@ export type { NcmQrStatus, UseNcmLoginResult } from './hooks/useNcmLogin'
 // UI 组件
 export { ListenTogetherPanel } from './components/ListenTogetherPanel'
 export type { ListenTogetherPanelProps } from './components/ListenTogetherPanel'
-export { MusicBetaNotice } from './components/ListenTogetherPanel'
+export { MusicBetaNotice } from './components/MusicBetaNotice'
 export { MusicSearchPanel } from './components/MusicSearchPanel'
 export type { MusicSearchPanelProps } from './components/MusicSearchPanel'
 export { MusicQueuePanel } from './components/MusicQueuePanel'
 export type { MusicQueuePanelProps } from './components/MusicQueuePanel'
+export { SongRow, EqBars } from './components/SongRow'
+export type { SongRowProps } from './components/SongRow'
 
 // 工具
 export { mergeLyrics } from './utils/lrc'

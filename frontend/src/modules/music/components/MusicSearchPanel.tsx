@@ -1,12 +1,17 @@
 /**
  * 歌曲搜索面板（侧栏）：搜索网易云歌曲并添加到房间播放队列。
  *
+ * 排版套用 Hydrogen LibrarySongList 裸列表范式：
+ * - 卡片头保留项目骨架（Music 图标 8x8 渐变容器 + MUSIC SEARCH 副标题）
+ * - 搜索框保留（12px 边距）
+ * - 结果区无卡片行包裹、靠行 hover 背景区分；「歌曲」小节标题 + SongRow 列表
+ *   （搜索模式：hover 序号列显示 Plus 添加按钮，点击 onAdd + 「已添加」态 2s）
+ * - 底部网易云登录区与二维码弹窗逻辑全保留（useNcmLogin 驱动）
+ *
  * - 搜索：GET /api/music/ncm/cloudsearch?keywords=&limit=30（回车手动触发）
- * - 添加：canManage（房主/房管）时行尾 Plus 按钮 emit `music:queue-upsert`：
+ * - 添加：canManage（房主/房管）时 emit `music:queue-upsert`：
  *   `{ roomId, item: { songId, name, artist, album, cover, durationMs, vip } }`
  *   （后端 MusicSyncHandler 契约，变更后经 `music:queue-changed` 广播完整队列）
- * - 底部网易云登录区：surface-container-high 圆角 inset，扫码二维码弹窗
- *   （顶部出现、无全屏遮罩、圆角），状态机由 useNcmLogin 驱动
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -29,6 +34,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
 import { useNcmLogin } from '../hooks/useNcmLogin'
 import type { NcmSong } from '../types'
+import { SongRow } from './SongRow'
 import { cn } from '@/lib/utils'
 
 export interface MusicSearchPanelProps {
@@ -84,7 +90,7 @@ export function MusicSearchPanel({
   /** 已添加状态自动恢复的定时器（卸载时清理） */
   const addedTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set())
 
-  // 二维码登录弹窗
+  // 二维码登录弹窗（loginStatus 由 useNcmLogin 从 music store 共享，供 VIP 灰化判断）
   const [qrOpen, setQrOpen] = useState(false)
   const { qrImg, status, startLogin, stopPolling, loginStatus, logout } =
     useNcmLogin()
@@ -214,7 +220,7 @@ export function MusicSearchPanel({
 
   return (
     <div className="glass-card zen-card flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
-      {/* 卡片头部：图标 + 标题 */}
+      {/* 卡片头部：图标 + 标题（项目骨架保留） */}
       <div className="flex items-center gap-2.5 border-b border-[var(--glass-border)] px-4 py-3">
         <div
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
@@ -240,8 +246,8 @@ export function MusicSearchPanel({
       </div>
 
       {/* 卡片内容 */}
-      <div className="zen-scroll flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-3 py-3">
-        {/* 搜索框（回车触发手动搜索，无防抖） */}
+      <div className="zen-scroll flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-3">
+        {/* 搜索框（回车触发手动搜索，无防抖；12px 边距） */}
         <div className="flex items-center gap-2">
           <Input
             size="sm"
@@ -268,8 +274,13 @@ export function MusicSearchPanel({
           />
         </div>
 
-        {/* 搜索结果列表 */}
-        <div className="flex min-h-[120px] flex-1 flex-col gap-1">
+        {/* 搜索结果区：Hydrogen 式裸列表（无卡片行包裹，靠 hover 背景区分） */}
+        <div className="flex min-h-[120px] flex-1 flex-col">
+          {results.length > 0 && (
+            <span className="px-2 pb-1 text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+              歌曲
+            </span>
+          )}
           {results.length === 0 && (
             <div className="flex flex-1 flex-col items-center justify-center gap-2 py-8 text-center">
               <div
@@ -290,96 +301,32 @@ export function MusicSearchPanel({
               </Paragraph>
             </div>
           )}
-          {results.map((song) => {
+          {results.map((song, idx) => {
             const added = addedSongIds.has(song.songId)
             return (
-              <div
+              <SongRow
                 key={song.songId}
-                className="glass zen-item-enter flex items-center gap-2.5 rounded-[var(--md-sys-shape-corner)] border border-transparent p-2 transition-all hover:-translate-y-0.5 hover:border-[var(--md-sys-color-outline-variant)] hover:shadow-md"
-              >
-                {/* 封面缩略图 */}
-                {song.cover ? (
-                  <img
-                    src={song.cover}
-                    alt={song.name}
-                    className="h-9 w-9 shrink-0 rounded-[var(--md-sys-shape-corner)] object-cover"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                    style={{
-                      backgroundColor:
-                        'var(--md-sys-color-surface-container-high)',
-                    }}
-                  >
-                    <Music
-                      className="h-4 w-4"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    />
-                  </div>
-                )}
-                {/* 歌名 / 歌手 - 专辑 / 时长 + VIP */}
-                <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <Paragraph
-                    className="m-0 truncate text-sm font-medium"
-                    title={song.name}
-                  >
-                    {song.name}
-                  </Paragraph>
-                  <div className="flex items-center gap-1.5">
-                    <Text
-                      type="secondary"
-                      className="truncate text-xs"
-                      title={`${song.artist}${song.album ? ` - ${song.album}` : ''}`}
-                    >
-                      {song.artist}
-                      {song.album ? ` - ${song.album}` : ''}
-                    </Text>
-                  </div>
-                  <div className="flex items-center gap-1.5">
-                    <Text type="secondary" className="text-[10px] tabular-nums">
-                      {formatDurationMs(song.durationMs)}
-                    </Text>
-                    {song.vip && (
-                      <span
-                        className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium"
-                        style={{
-                          backgroundColor:
-                            'color-mix(in srgb, var(--md-sys-color-tertiary) 15%, transparent)',
-                          color: 'var(--md-sys-color-tertiary)',
-                        }}
-                      >
-                        VIP
-                      </span>
-                    )}
-                  </div>
-                </div>
-                {/* 添加按钮（房主/房管） */}
-                {canManage && (
-                  <Button
-                    variant={added ? 'primary' : 'secondary'}
-                    size="sm"
-                    className="h-7 w-7 shrink-0 px-0"
-                    icon={
-                      added ? (
-                        <Check className="h-3.5 w-3.5" />
-                      ) : (
-                        <Plus className="h-3.5 w-3.5" />
-                      )
-                    }
-                    onClick={() => handleAdd(song)}
-                    title={added ? '已添加' : '添加到队列'}
-                  />
-                )}
-              </div>
+                index={idx + 1}
+                name={song.name}
+                artist={song.artist}
+                duration={formatDurationMs(song.durationMs)}
+                vip={song.vip}
+                disabled={song.vip && !loginStatus.loggedIn}
+                hoverAction={
+                  added ? (
+                    <Check className="h-[18px] w-[18px] text-[var(--md-sys-color-primary)]" />
+                  ) : (
+                    <Plus className="h-[18px] w-[18px]" />
+                  )
+                }
+                hoverActionLabel={added ? '已添加' : '添加到队列'}
+                onHoverAction={() => handleAdd(song)}
+              />
             )
           })}
         </div>
 
-        {/* 网易云登录区（surface-container-high 圆角 inset） */}
+        {/* 网易云登录区（surface-container-high 圆角 inset，逻辑保留） */}
         <div
           className="rounded-[var(--md-sys-shape-corner)] p-2.5"
           style={{
@@ -451,7 +398,7 @@ export function MusicSearchPanel({
         </div>
       </div>
 
-      {/* 扫码登录二维码弹窗：顶部出现、无全屏遮罩、圆角 */}
+      {/* 扫码登录二维码弹窗：顶部出现、无全屏遮罩、圆角（逻辑保留） */}
       {qrOpen &&
         createPortal(
           <>

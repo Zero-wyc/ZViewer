@@ -1174,6 +1174,78 @@ video {
   animation: none !important;
 }
 
+/* ---------- 一起听：歌曲行 EQ 均衡动画（Hydrogen playing-eq 范式） ----------
+   4 根竖条以不同周期/延迟交错 scaleY 跳动，模拟频谱；
+   .zen-eq-paused 时 animation-play-state: paused 冻结当前帧 */
+@keyframes zen-eq-bar {
+  0% {
+    transform: scaleY(0.28);
+  }
+  35% {
+    transform: scaleY(1);
+  }
+  70% {
+    transform: scaleY(0.45);
+  }
+  100% {
+    transform: scaleY(0.28);
+  }
+}
+
+.zen-eq-bar {
+  width: 3px;
+  border-radius: 1px;
+  background-color: currentColor;
+  transform-origin: bottom;
+  animation: zen-eq-bar 1s ease-in-out infinite;
+}
+
+.zen-eq-bar:nth-child(1) {
+  animation-duration: 0.9s;
+  animation-delay: 0.05s;
+}
+
+.zen-eq-bar:nth-child(2) {
+  animation-duration: 1.15s;
+  animation-delay: 0.12s;
+}
+
+.zen-eq-bar:nth-child(3) {
+  animation-duration: 0.95s;
+  animation-delay: 0s;
+}
+
+.zen-eq-bar:nth-child(4) {
+  animation-duration: 1.25s;
+  animation-delay: 0.18s;
+}
+
+.zen-eq-paused .zen-eq-bar {
+  animation-play-state: paused;
+}
+
+/* 减少动效偏好：EQ 竖条完全静止 */
+@media (prefers-reduced-motion: reduce) {
+  .zen-eq-bar {
+    animation: none !important;
+    transform: scaleY(0.6);
+  }
+}
+
+/* ---------- 一起听：封面背景淡入（切歌时 backdrop 过渡） ---------- */
+@keyframes zen-cover-fade {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.zen-cover-fade {
+  animation: zen-cover-fade 0.35s ease;
+}
+
 /* ---------- 减少动效偏好支持 ---------- */
 @media (prefers-reduced-motion: reduce) {
   *,

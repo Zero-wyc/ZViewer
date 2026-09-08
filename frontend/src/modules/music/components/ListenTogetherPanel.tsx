@@ -1,9 +1,18 @@
 /**
- * 一起听主区域面板（房主与观众共用）。
+ * 一起听主区域面板（房主与观众共用，Hydrogen MusicPlayer.vue + Player.vue 范式）。
  *
- * 布局：上下两段——上部左侧方形封面 + 右侧歌词滚动区（高亮当前行并平滑滚动，
- * 原文下方小字显示翻译）；下部控制条（进度条 / 上一首 / 播放暂停 / 下一首 /
- * 播放模式（仅房主） / 音量竖条）。
+ * 整页布局（flex 横排居中）：
+ * - 毛玻璃封面背景（backdrop）：封面图 absolute 铺满 120%（-10% 偏移），
+ *   blur(50px) saturate(140%) brightness(1.08) scale(1.08)，上叠 surface 30%
+ *   遮罩；无封面时不渲染，切歌时淡入淡出
+ * - 左侧播放卡（42vh 宽）：半透明 surface 50% + backdrop-blur，rounded-2xl，
+ *   四角 L 形角标装饰；内容自上而下：封面（正方形占满卡宽）/ 歌名歌手 /
+ *   时间行 + 进度条 / 三键控制行 / 音量横条滑块
+ * - 右侧歌词面板（flex-1，与左卡间距约 50px）：lrc.ts 解析 + 二分查找高亮，
+ *   当前行 on-surface、其余 on-surface-variant 淡化；翻译为同行下方小字；
+ *   播放模式按钮（仅房主）置于歌词面板左上角
+ * - 提示区（页面左上角 absolute）：房主离线提示 / syncNotice（房主审批带
+ *   通过/拒绝小按钮，5s 自动消失），文字提示非弹窗
  *
  * 播放引擎与同步逻辑由 MusicPlayerProvider 持有（内部 useListenTogether），
  * 本组件经 useMusicPlayer 消费；观众无直接控制权时控制按钮走申请制
@@ -26,17 +35,11 @@ import {
   Repeat,
   Repeat1,
   Shuffle,
-  Volume2,
-  VolumeX,
   Check,
   X,
-  ArrowLeft,
 } from 'lucide-react'
-import { useNavigate } from 'react-router-dom'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
-import { Text, Paragraph } from '@/components/ui/Typography'
-import { Button } from '@/components/ui/Button'
 import { useMusicStore } from '../store'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
@@ -49,7 +52,7 @@ export interface ListenTogetherPanelProps {
   roomId: string
   isHost: boolean
   username?: string
-  /** 网页全屏模式（放大封面与歌词排版） */
+  /** 网页全屏模式（放大左右留白排版） */
   isWebFullscreen?: boolean
 }
 
@@ -99,46 +102,6 @@ export function ListenTogetherPanel({
     >
       <ListenTogetherInner isHost={isHost} isWebFullscreen={isWebFullscreen} />
     </MusicPlayerProvider>
-  )
-}
-
-/**
- * Beta 功能未开启时的降级提示页（spec「Beta 门控」）。
- *
- * 应用场景：管理员关闭 Beta 后，用户通过直链/刷新访问 listen-together
- * 房间时，房主端与观众端均渲染此提示页（不渲染任何音乐 UI）。
- * 创建入口已由 RoomPanel 门控隐藏，此处仅防御直接 URL 场景。
- */
-export function MusicBetaNotice() {
-  const navigate = useNavigate()
-  return (
-    <div className="glass-card flex flex-1 flex-col items-center justify-center gap-4 p-6">
-      <div
-        className="flex h-16 w-16 items-center justify-center rounded-full"
-        style={{ backgroundColor: 'var(--glass-bg)' }}
-      >
-        <Music
-          className="h-8 w-8 opacity-40"
-          style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-        />
-      </div>
-      <Text className="text-sm font-medium">该功能处于 Beta 阶段未开放</Text>
-      <Text type="secondary" className="text-xs">
-        请等待管理员开启 Beta 功能
-      </Text>
-      <Button
-        variant="ghost"
-        icon={<ArrowLeft className="h-4 w-4" />}
-        onClick={() => navigate('/')}
-        className="glass border"
-        style={{
-          borderColor: 'var(--md-sys-color-outline-variant)',
-          color: 'var(--md-sys-color-on-surface)',
-        }}
-      >
-        返回首页
-      </Button>
-    </div>
   )
 }
 
@@ -242,7 +205,7 @@ function ListenTogetherInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
-  // ===== 进度条 =====
+  // ===== 进度条（细滑块，primary 色；canControl 可拖动 seek，观众只读） =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
   const progressRatio =
     durationSec > 0 ? Math.min(1, Math.max(0, positionSec / durationSec)) : 0
@@ -280,7 +243,7 @@ function ListenTogetherInner({
     [canControl, durationSec, seek, computeTimeFromClientX]
   )
 
-  // ===== 控制按钮 =====
+  // ===== 控制按钮（观众点击走申请，房主/房主离线 canControl 直接控制） =====
   const handlePlayPause = useCallback(() => {
     if (canControl) {
       togglePlay()
@@ -307,51 +270,26 @@ function ListenTogetherInner({
     setPlayMode(nextMode)
   }, [playMode, setPlayMode])
 
-  // ===== 音量竖条（hover 弹出，对齐播放器控制栏惯例） =====
-  const [volumeOpen, setVolumeOpen] = useState(false)
-  const volumeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ===== 音量横条滑块（仅本地生效不参与房间同步） =====
   const volumeTrackRef = useRef<HTMLDivElement>(null)
-
-  const openVolume = useCallback(() => {
-    if (volumeCloseTimerRef.current) {
-      clearTimeout(volumeCloseTimerRef.current)
-      volumeCloseTimerRef.current = null
-    }
-    setVolumeOpen(true)
-  }, [])
-
-  const scheduleCloseVolume = useCallback(() => {
-    if (volumeCloseTimerRef.current) clearTimeout(volumeCloseTimerRef.current)
-    volumeCloseTimerRef.current = setTimeout(() => setVolumeOpen(false), 200)
-  }, [])
-
-  useEffect(() => {
-    const timerRef = volumeCloseTimerRef
-    return () => {
-      if (timerRef.current) clearTimeout(timerRef.current)
-    }
-  }, [])
-
-  const handleVolumePointer = useCallback(
-    (clientY: number) => {
-      const el = volumeTrackRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const ratio = Math.min(
-        1,
-        Math.max(0, (rect.bottom - clientY) / rect.height)
-      )
-      setVolume(ratio)
-    },
-    [setVolume]
-  )
 
   const handleVolumePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault()
       e.stopPropagation()
-      handleVolumePointer(e.clientY)
-      const handleMove = (ev: PointerEvent) => handleVolumePointer(ev.clientY)
+      const compute = (clientX: number) => {
+        const el = volumeTrackRef.current
+        if (!el) return
+        const rect = el.getBoundingClientRect()
+        if (rect.width <= 0) return
+        const ratio = Math.min(
+          1,
+          Math.max(0, (clientX - rect.left) / rect.width)
+        )
+        setVolume(ratio)
+      }
+      compute(e.clientX)
+      const handleMove = (ev: PointerEvent) => compute(ev.clientX)
       const handleUp = () => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
@@ -359,7 +297,7 @@ function ListenTogetherInner({
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
     },
-    [handleVolumePointer]
+    [setVolume]
   )
 
   const PlayModeIcon =
@@ -368,363 +306,395 @@ function ListenTogetherInner({
       : playMode === 'shuffle'
         ? Shuffle
         : Repeat
-  const VolumeIcon = volume === 0 ? VolumeX : Volume2
-
-  const iconBtn =
-    'flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] active:scale-95'
 
   // ===== 渲染 =====
   const queueEmpty = queue.length === 0
+  const cover = currentSong?.cover
 
   return (
     <div className="glass-card zen-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
-      {/* ===== 主区域 ===== */}
-      <div className="relative flex min-h-0 flex-1 gap-6 p-4 md:p-6">
-        {/* 左上角提示区：房主离线提示 + syncNotice（含房主审批按钮） */}
-        <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2">
-          {hostOffline && !canControl && (
-            <div
-              className="pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-              style={{
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-tertiary) 15%, transparent)',
-                color: 'var(--md-sys-color-tertiary)',
-              }}
-            >
-              房主已离开，您可以自主控制播放
-            </div>
-          )}
-          {syncNotice && (
-            <div
-              className="pointer-events-auto flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium"
-              style={{
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
-                color: 'var(--md-sys-color-on-surface)',
-              }}
-            >
-              <span>{syncNotice}</span>
-              {isHost && (
-                <span className="flex items-center gap-1">
-                  <button
-                    type="button"
-                    onClick={approveControl}
-                    className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                    style={{ color: 'var(--md-sys-color-primary)' }}
-                    title="通过申请"
-                  >
-                    <Check className="h-3 w-3" />
-                    通过
-                  </button>
-                  <button
-                    type="button"
-                    onClick={rejectControl}
-                    className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                    style={{ color: 'var(--md-sys-color-error)' }}
-                    title="拒绝申请"
-                  >
-                    <X className="h-3 w-3" />
-                    拒绝
-                  </button>
-                </span>
-              )}
-            </div>
-          )}
+      {/* ===== 毛玻璃封面背景（无封面时不渲染，切歌时淡入淡出） ===== */}
+      {cover && (
+        <div
+          key={songId}
+          className="zen-cover-fade pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
+          aria-hidden="true"
+        >
+          <img
+            src={cover}
+            alt=""
+            className="h-full w-full object-cover"
+            style={{
+              filter: 'blur(50px) saturate(140%) brightness(1.08)',
+              transform: 'scale(1.08)',
+            }}
+            onError={(e) => {
+              e.currentTarget.parentElement?.style.setProperty(
+                'display',
+                'none'
+              )
+            }}
+          />
+          <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--md-sys-color-surface)_30%,transparent)]" />
         </div>
+      )}
 
-        {queueEmpty ? (
-          /* 空队列：主区域居中空状态 */
-          <div className="flex flex-1 flex-col items-center justify-center gap-3">
-            <div
-              className="flex h-16 w-16 items-center justify-center rounded-full"
-              style={{ backgroundColor: 'var(--glass-bg)' }}
-            >
-              <Music
-                className="h-8 w-8 opacity-40"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              />
-            </div>
-            <Text className="text-sm font-medium">还没有歌曲</Text>
-            <Text type="secondary" className="text-xs">
-              在右侧面板搜索添加
-            </Text>
+      {/* ===== 左上角提示区：房主离线提示 + syncNotice（含房主审批按钮） ===== */}
+      <div className="pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2">
+        {hostOffline && !canControl && (
+          <div
+            className="pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-tertiary) 15%, transparent)',
+              color: 'var(--md-sys-color-tertiary)',
+            }}
+          >
+            房主已离开，您可以自主控制播放
           </div>
-        ) : (
-          <>
-            {/* 左侧封面（正方形 rounded-large；小屏隐藏，歌名信息保留在歌词区顶部） */}
-            <div className="hidden shrink-0 md:block">
-              <div
-                className={cn(
-                  'relative aspect-square overflow-hidden rounded-2xl',
-                  isWebFullscreen ? 'w-64 lg:w-72' : 'w-48 lg:w-56'
-                )}
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                }}
-              >
-                {currentSong?.cover ? (
-                  <img
-                    src={currentSong.cover}
-                    alt={currentSong.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <div className="flex h-full w-full items-center justify-center">
-                    <Music
-                      className="h-10 w-10 opacity-40"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    />
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* 右侧：歌名信息 + 歌词滚动区 */}
-            <div className="relative flex min-w-0 flex-1 flex-col">
-              <div className="shrink-0 pb-3 text-center">
-                <Paragraph
-                  className="m-0 truncate text-lg font-semibold leading-tight"
-                  title={currentSong?.name}
+        )}
+        {syncNotice && (
+          <div
+            className="pointer-events-auto flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+              color: 'var(--md-sys-color-on-surface)',
+            }}
+          >
+            <span>{syncNotice}</span>
+            {isHost && (
+              <span className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={approveControl}
+                  className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                  style={{ color: 'var(--md-sys-color-primary)' }}
+                  title="通过申请"
                 >
-                  {currentSong?.name ?? '等待播放'}
-                </Paragraph>
-                <Text
-                  type="secondary"
-                  className="mt-0.5 block truncate text-xs"
+                  <Check className="h-3 w-3" />
+                  通过
+                </button>
+                <button
+                  type="button"
+                  onClick={rejectControl}
+                  className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                  style={{ color: 'var(--md-sys-color-error)' }}
+                  title="拒绝申请"
                 >
-                  {currentSong?.artist ?? ' '}
-                </Text>
-              </div>
-
-              <div
-                ref={lyricScrollRef}
-                className="zen-scroll min-h-0 flex-1 overflow-y-auto"
-              >
-                {lyricLines.length === 0 ? (
-                  <div className="flex h-full items-center justify-center">
-                    <Text type="secondary" className="text-sm">
-                      纯音乐，请欣赏
-                    </Text>
-                  </div>
-                ) : (
-                  <div className="flex flex-col items-center gap-5 pb-[35%] pt-[30%]">
-                    {lyricLines.map((line, i) => {
-                      const active = i === activeLyricIndex
-                      return (
-                        <div
-                          key={`${line.time}-${i}`}
-                          ref={(el) => {
-                            lyricLineRefs.current[i] = el
-                          }}
-                          className="max-w-full px-4 text-center transition-all duration-300"
-                        >
-                          <p
-                            className={cn(
-                              'm-0 leading-relaxed transition-colors',
-                              active
-                                ? 'text-base font-medium text-[var(--md-sys-color-primary)]'
-                                : 'text-sm text-[var(--md-sys-color-on-surface-variant)]'
-                            )}
-                          >
-                            {line.text}
-                          </p>
-                          {line.translation && (
-                            <p
-                              className={cn(
-                                'm-0 mt-0.5 text-xs leading-relaxed transition-colors',
-                                active
-                                  ? 'text-[var(--md-sys-color-primary)] opacity-80'
-                                  : 'text-[var(--md-sys-color-on-surface-variant)] opacity-60'
-                              )}
-                            >
-                              {line.translation}
-                            </p>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </div>
-          </>
+                  <X className="h-3 w-3" />
+                  拒绝
+                </button>
+              </span>
+            )}
+          </div>
         )}
       </div>
 
-      {/* ===== 控制条 ===== */}
-      <div
-        className="glass shrink-0 border-t border-[var(--glass-border)] px-4 py-3"
-        style={{ backgroundColor: 'var(--glass-bg)' }}
-      >
-        {/* 进度条：canControl 可拖动 seek，观众只读 */}
-        <div
-          ref={progressRef}
-          role="slider"
-          aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
-          aria-valuemin={0}
-          aria-valuemax={Math.round(durationSec)}
-          aria-valuenow={Math.round(positionSec)}
-          aria-disabled={!canControl}
-          className={cn(
-            'group relative h-1.5 w-full overflow-visible rounded-full transition-all',
-            canControl && 'cursor-pointer hover:h-2'
-          )}
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent)',
-          }}
-          onPointerDown={handleProgressPointerDown}
-        >
+      {queueEmpty ? (
+        /* 空队列：主区域居中空状态 */
+        <div className="relative z-[1] flex flex-1 flex-col items-center justify-center gap-3">
           <div
-            className="absolute left-0 top-0 h-full rounded-full bg-[var(--md-sys-color-primary)] transition-[width] duration-100"
-            style={{ width: `${progressRatio * 100}%` }}
-          />
+            className="flex h-16 w-16 items-center justify-center rounded-full"
+            style={{ backgroundColor: 'var(--glass-bg)' }}
+          >
+            <Music
+              className="h-8 w-8 opacity-40"
+              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+            />
+          </div>
+          <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
+            还没有歌曲
+          </span>
+          <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+            在右侧面板搜索添加
+          </span>
+        </div>
+      ) : (
+        /* ===== 主内容：左播放卡 + 右歌词面板 ===== */
+        <div
+          className={cn(
+            'relative z-[1] flex min-h-0 flex-1 items-stretch justify-center',
+            isWebFullscreen ? 'px-8 py-6' : 'px-4 py-4 md:px-6'
+          )}
+        >
+          {/* ===== 左侧播放卡（42vh 宽，高撑满主区，Hydrogen 核心视觉） ===== */}
           <div
             className={cn(
-              'absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full border-2 bg-[var(--md-sys-color-on-primary)] shadow transition-opacity duration-150',
-              canControl ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+              'relative mr-[50px] flex w-[42vh] max-w-[calc(100%-2rem)]',
+              'shrink-0 flex-col rounded-2xl p-4',
+              'bg-[color-mix(in_srgb,var(--md-sys-color-surface)_50%,transparent)] backdrop-blur'
             )}
-            style={{
-              left: `calc(${progressRatio * 100}% - 5px)`,
-              borderColor: 'var(--md-sys-color-primary)',
-            }}
-          />
-        </div>
-
-        {/* 按钮行：上一首 / 播放暂停 / 下一首 / 时间 / 歌名 / 播放模式（房主）/ 音量 */}
-        <div className="mt-2 flex items-center gap-2">
-          <button
-            type="button"
-            className={iconBtn}
-            onClick={handlePrev}
-            title={canControl ? '上一首' : '向房主申请切换上一首'}
-            aria-label="上一首"
           >
-            <SkipBack className="h-5 w-5" />
-          </button>
+            {/* 四角 L 形角标装饰（Hydrogen c-border：4vh L 形，inset 8px） */}
+            <span
+              className="pointer-events-none absolute left-2 top-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-l-2 border-t-2"
+              style={{
+                borderColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
+              }}
+              aria-hidden="true"
+            />
+            <span
+              className="pointer-events-none absolute right-2 top-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-r-2 border-t-2"
+              style={{
+                borderColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
+              }}
+              aria-hidden="true"
+            />
+            <span
+              className="pointer-events-none absolute bottom-2 right-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-b-2 border-r-2"
+              style={{
+                borderColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
+              }}
+              aria-hidden="true"
+            />
+            <span
+              className="pointer-events-none absolute bottom-2 left-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-b-2 border-l-2"
+              style={{
+                borderColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
+              }}
+              aria-hidden="true"
+            />
 
-          <button
-            type="button"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full transition-all hover:scale-105 active:scale-95"
-            style={{
-              backgroundColor: 'var(--md-sys-color-primary)',
-              color: 'var(--md-sys-color-on-primary)',
-              boxShadow:
-                '0 2px 8px -2px color-mix(in srgb, var(--md-sys-color-primary) 50%, transparent)',
-            }}
-            onClick={handlePlayPause}
-            title={
-              canControl
-                ? isPlaying
-                  ? '暂停'
-                  : '播放'
-                : isPlaying
-                  ? '申请暂停'
-                  : '申请继续播放'
-            }
-            aria-label="播放或暂停"
-          >
-            {isPlaying ? (
-              <Pause className="h-5 w-5" />
-            ) : (
-              <Play className="ml-0.5 h-5 w-5" />
-            )}
-          </button>
-
-          <button
-            type="button"
-            className={iconBtn}
-            onClick={handleNext}
-            title={canControl ? '下一首' : '向房主申请切换下一首'}
-            aria-label="下一首"
-          >
-            <SkipForward className="h-5 w-5" />
-          </button>
-
-          {/* 时间：当前 / 总时长 */}
-          <div className="select-none px-1 text-xs font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
-            <span>{formatDuration(positionSec)}</span>
-            <span className="mx-0.5 opacity-60">/</span>
-            <span className="opacity-80">{formatDuration(durationSec)}</span>
-          </div>
-
-          {/* 中间：当前歌名（truncate） */}
-          <div className="hidden min-w-0 flex-1 items-center justify-center sm:flex">
-            <Text
-              type="secondary"
-              className="max-w-full truncate text-xs"
-              title={currentSong?.name}
-            >
-              {currentSong ? `${currentSong.name} · ${currentSong.artist}` : ''}
-            </Text>
-          </div>
-
-          {/* 播放模式（仅房主）：顺序循环 / 单曲循环 / 随机 轮换 */}
-          {isHost && (
-            <button
-              type="button"
-              className={iconBtn}
-              onClick={handleTogglePlayMode}
-              title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
-              aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
-            >
-              <PlayModeIcon
-                className="h-5 w-5"
-                style={
-                  playMode !== 'sequence'
-                    ? { color: 'var(--md-sys-color-primary)' }
-                    : undefined
-                }
-              />
-            </button>
-          )}
-
-          {/* 音量：hover 弹出竖条滑块 */}
-          <div
-            className="relative flex items-center"
-            onMouseEnter={openVolume}
-            onMouseLeave={scheduleCloseVolume}
-          >
-            <button
-              type="button"
-              className={iconBtn}
-              onClick={() => setVolume(volume === 0 ? 0.5 : 0)}
-              title={volume === 0 ? '取消静音' : '静音'}
-              aria-label={volume === 0 ? '取消静音' : '静音'}
-            >
-              <VolumeIcon className="h-5 w-5" />
-            </button>
-            {volumeOpen && (
-              <div
-                className="absolute bottom-full left-1/2 z-30 mb-2 flex -translate-x-1/2 flex-col items-center gap-2 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2 pb-3 pt-4 shadow-lg"
-                onMouseEnter={openVolume}
-                onMouseLeave={scheduleCloseVolume}
-              >
-                <span className="w-5 text-center text-[11px] font-medium text-[var(--md-sys-color-on-surface)]">
-                  {Math.round(volume * 100)}
-                </span>
+            {/* 封面：正方形占满卡宽（空间不足时等比收缩居中） */}
+            <div className="flex min-h-0 flex-1 items-center justify-center p-3">
+              {cover ? (
+                <img
+                  src={cover}
+                  alt={currentSong?.name ?? ''}
+                  className="aspect-square max-h-full w-full rounded-lg object-cover"
+                />
+              ) : (
                 <div
-                  ref={volumeTrackRef}
-                  role="slider"
-                  aria-label="音量"
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                  aria-valuenow={Math.round(volume * 100)}
-                  className="relative h-24 w-1.5 cursor-pointer rounded-full bg-[var(--md-sys-color-on-surface)]/20"
-                  onPointerDown={handleVolumePointerDown}
+                  className="flex aspect-square w-full items-center justify-center rounded-lg"
+                  style={{
+                    backgroundColor:
+                      'var(--md-sys-color-surface-container-high)',
+                  }}
                 >
-                  <div
-                    className="absolute bottom-0 left-0 right-0 rounded-full bg-[var(--md-sys-color-primary)]"
-                    style={{ height: `${volume * 100}%` }}
+                  <Music
+                    className="h-10 w-10 opacity-40"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
                   />
                 </div>
+              )}
+            </div>
+
+            {/* 歌曲信息：歌名 + 歌手 */}
+            <div className="shrink-0 px-3">
+              <div
+                className="truncate text-xl font-bold leading-tight text-[var(--md-sys-color-on-surface)]"
+                title={currentSong?.name}
+              >
+                {currentSong?.name ?? '等待播放'}
+              </div>
+              <div className="mt-1 truncate text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                {currentSong?.artist ?? ' '}
+              </div>
+            </div>
+
+            {/* 进度区：时间行 + 细滑块（canControl 可拖动 seek，观众只读） */}
+            <div className="mt-3 shrink-0 px-3">
+              <div className="flex items-center justify-between text-xs tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+                <span>{formatDuration(positionSec)}</span>
+                <span>{formatDuration(durationSec)}</span>
+              </div>
+              <div
+                ref={progressRef}
+                role="slider"
+                aria-label={
+                  canControl ? '播放进度' : '播放进度（仅房主可拖动）'
+                }
+                aria-valuemin={0}
+                aria-valuemax={Math.round(durationSec)}
+                aria-valuenow={Math.round(positionSec)}
+                aria-disabled={!canControl}
+                className={cn(
+                  'group relative mt-1.5 h-1 rounded-full transition-all',
+                  canControl && 'cursor-pointer'
+                )}
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent)',
+                }}
+                onPointerDown={handleProgressPointerDown}
+              >
+                <div
+                  className="absolute left-0 top-0 h-full rounded-full bg-[var(--md-sys-color-primary)]"
+                  style={{ width: `${progressRatio * 100}%` }}
+                />
+                <div
+                  className={cn(
+                    'absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--md-sys-color-primary)] transition-opacity duration-150',
+                    canControl
+                      ? 'opacity-100'
+                      : 'opacity-0 group-hover:opacity-100'
+                  )}
+                  style={{
+                    left: `calc(${progressRatio * 100}% - 5px)`,
+                  }}
+                />
+              </div>
+            </div>
+
+            {/* 控制行：居中三键（上一首 / 播放暂停 / 下一首） */}
+            <div className="mt-3 flex shrink-0 items-center justify-evenly px-3">
+              <button
+                type="button"
+                className="flex h-[22px] w-[22px] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                onClick={handlePrev}
+                title={canControl ? '上一首' : '向房主申请切换上一首'}
+                aria-label="上一首"
+              >
+                <SkipBack className="h-[22px] w-[22px]" />
+              </button>
+              <button
+                type="button"
+                className="flex h-[28px] w-[28px] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                onClick={handlePlayPause}
+                title={
+                  canControl
+                    ? isPlaying
+                      ? '暂停'
+                      : '播放'
+                    : isPlaying
+                      ? '申请暂停'
+                      : '申请继续播放'
+                }
+                aria-label="播放或暂停"
+              >
+                {isPlaying ? (
+                  <Pause className="h-[28px] w-[28px]" />
+                ) : (
+                  <Play className="ml-0.5 h-[28px] w-[28px]" />
+                )}
+              </button>
+              <button
+                type="button"
+                className="flex h-[22px] w-[22px] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                onClick={handleNext}
+                title={canControl ? '下一首' : '向房主申请切换下一首'}
+                aria-label="下一首"
+              >
+                <SkipForward className="h-[22px] w-[22px]" />
+              </button>
+            </div>
+
+            {/* 音量区：横条滑块 + VOLUME 标签与百分比 */}
+            <div className="mt-3 shrink-0 px-3 pb-1">
+              <div
+                ref={volumeTrackRef}
+                role="slider"
+                aria-label="音量"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(volume * 100)}
+                className="relative h-1 cursor-pointer rounded-full"
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent)',
+                }}
+                onPointerDown={handleVolumePointerDown}
+              >
+                <div
+                  className="absolute left-0 top-0 h-full rounded-full bg-[var(--md-sys-color-primary)]"
+                  style={{ width: `${volume * 100}%` }}
+                />
+              </div>
+              <div className="mt-1.5 flex items-center justify-between text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+                <span>VOLUME</span>
+                <span className="tabular-nums">{Math.round(volume * 100)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* ===== 右侧歌词面板（flex-1） ===== */}
+          <div className="relative flex h-full min-w-0 flex-1 flex-col">
+            {/* 播放模式按钮（仅房主，歌词面板左上角） */}
+            {isHost && (
+              <div className="shrink-0 pb-2">
+                <button
+                  type="button"
+                  className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-all hover:opacity-70 active:scale-90"
+                  onClick={handleTogglePlayMode}
+                  title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
+                  aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
+                >
+                  <PlayModeIcon
+                    className="h-5 w-5"
+                    style={
+                      playMode !== 'sequence'
+                        ? { color: 'var(--md-sys-color-primary)' }
+                        : undefined
+                    }
+                  />
+                </button>
               </div>
             )}
+
+            {/* 歌词滚动区（当前行高亮 + 平滑滚动中央偏上） */}
+            <div
+              ref={lyricScrollRef}
+              className="zen-scroll min-h-0 flex-1 overflow-y-auto"
+            >
+              {lyricLines.length === 0 ? (
+                <div className="flex h-full items-center justify-center">
+                  <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                    纯音乐，请欣赏
+                  </span>
+                </div>
+              ) : (
+                <div className="flex flex-col items-start pb-[35%] pt-[30%]">
+                  {lyricLines.map((line, i) => {
+                    const active = i === activeLyricIndex
+                    return (
+                      <div
+                        key={`${line.time}-${i}`}
+                        ref={(el) => {
+                          lyricLineRefs.current[i] = el
+                        }}
+                        className={cn(
+                          'max-w-full px-6 py-3 text-left transition-colors duration-300',
+                          isWebFullscreen && 'px-8'
+                        )}
+                      >
+                        <p
+                          className={cn(
+                            'm-0 leading-relaxed',
+                            active
+                              ? 'text-lg font-medium text-[var(--md-sys-color-on-surface)]'
+                              : 'text-base text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_60%,transparent)]'
+                          )}
+                        >
+                          {line.text}
+                        </p>
+                        {line.translation && (
+                          <p
+                            className={cn(
+                              'm-0 mt-1 text-sm leading-relaxed',
+                              active
+                                ? 'text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_80%,transparent)]'
+                                : 'text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_50%,transparent)]'
+                            )}
+                          >
+                            {line.translation}
+                          </p>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }
