@@ -180,6 +180,7 @@ export function MusicSearchPage({
             <SongRow
               key={song.songId}
               index={idx + 1}
+              cover={song.cover}
               name={song.name}
               artist={song.artist}
               duration={formatDurationMs(song.durationMs)}

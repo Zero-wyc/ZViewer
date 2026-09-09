@@ -1,9 +1,11 @@
 /**
  * 歌曲列表行共享组件（Hydrogen LibrarySongList.vue 范式）。
  *
- * 行结构：42px 高，flex 横排 space-between，px-2；hover 整行浅背景。
+ * 行结构：42px 高（有封面缩略图时 56px），flex 横排 space-between，px-2；
+ * hover 整行浅背景。
  * - 左区 55%：序号列 26px 三态叠放（默认序号 / 行 hover 显示操作按钮 /
- *   当前播放行显示 EQ 频谱动画）+ 歌名（14px 单行截断）+ VIP 描边小标签
+ *   当前播放行显示 EQ 频谱动画）+ 封面缩略图（可选 40px，网易云新版列表范式）+
+ *   歌名（14px 单行截断）+ VIP 描边小标签
  * - 右区（自适应）：歌手（单行截断）+ 时长（右对齐）；行尾操作组常驻占位
  *
  * 两种使用模式：
@@ -41,6 +43,8 @@ export interface SongRowProps {
   name: string
   /** 歌手（右区左 70%，单行截断） */
   artist: string
+  /** 封面缩略图 URL（可选；40px 圆角方形显示在歌名前，网易云 CDN 自动 80x80 裁剪） */
+  cover?: string
   /** 时长文本（右区右 30%，右对齐，如 "3:45"） */
   duration: string
   /** 是否 VIP 歌曲（歌名后描边小标签） */
@@ -68,10 +72,17 @@ export interface SongRowProps {
 /** 序号列三态切换的过渡时长（对齐 Hydrogen opacity 0.12s ease） */
 const STATE_TRANSITION = 'transition-opacity duration-100 ease-in-out'
 
+/** 网易云 CDN 封面缩略地址：https 化 + 80x80 裁剪参数（40px 显示 @2x） */
+function coverThumb(url: string): string {
+  const https = url.replace('http://', 'https://')
+  return `${https}${https.includes('?') ? '&' : '?'}param=80y80`
+}
+
 export function SongRow({
   index,
   name,
   artist,
+  cover,
   duration,
   vip,
   active,
@@ -95,7 +106,8 @@ export function SongRow({
   return (
     <div
       className={cn(
-        'group flex h-[42px] shrink-0 items-center justify-between px-2 transition-colors duration-200',
+        'group flex shrink-0 items-center justify-between px-2 transition-colors duration-200',
+        cover ? 'h-[56px]' : 'h-[42px]',
         'hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_5%,transparent)]',
         active &&
           'bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_5%,transparent)]',
@@ -154,8 +166,25 @@ export function SongRow({
             </span>
           )}
         </div>
+        {/* 封面缩略图（可选）：40px 圆角方形，加载中浅底占位 */}
+        {cover ? (
+          <img
+            src={coverThumb(cover)}
+            alt=""
+            aria-hidden="true"
+            loading="lazy"
+            decoding="async"
+            draggable={false}
+            className="ml-[14px] h-10 w-10 shrink-0 rounded bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] object-cover"
+          />
+        ) : null}
         {/* 歌名 + VIP 描边小标签 */}
-        <span className="ml-[14px] flex min-w-0 flex-1 items-center gap-1">
+        <span
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-1',
+            cover ? 'ml-3' : 'ml-[14px]'
+          )}
+        >
           <span
             className={cn(
               'min-w-0 truncate text-sm font-medium text-[var(--md-sys-color-on-surface)]',
