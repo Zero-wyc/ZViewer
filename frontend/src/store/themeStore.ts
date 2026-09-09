@@ -58,10 +58,16 @@ interface ThemeState {
 
   /** 自定义背景图片（URL 或 Base64），null 表示未设置 */
   backgroundImage: string | null
-  /** 背景模糊度，0~20px */
+  /** 背景模糊度（一起看 / 投屏 / 其他页面），0~20px */
   backgroundBlur: number
-  /** 背景透明度，0~1 */
+  /** 一起听模式的背景模糊度（独立调节），0~20px */
+  listenTogetherBlur: number
+  /** 背景透明度，0~1（历史字段：面板已改为白/黑遮罩调节，不再暴露） */
   backgroundOpacity: number
+  /** 白遮罩强度，0~1（盖在背景图上方、内容层下方） */
+  backgroundWhiteOverlay: number
+  /** 黑遮罩强度，0~1（盖在背景图上方、内容层下方） */
+  backgroundBlackOverlay: number
   /** 背景水平位置，-100~100% */
   backgroundPositionX: number
   /** 背景垂直位置，-100~100% */
@@ -76,6 +82,7 @@ interface ThemeState {
     glassStrength: number
     glassBlur: number
     backgroundBlur: number
+    listenTogetherBlur: number
   }
 
   /** 设置种子颜色 */
@@ -98,8 +105,14 @@ interface ThemeState {
   setBackgroundImage: (value: string | null) => void
   /** 设置背景模糊度 */
   setBackgroundBlur: (value: number) => void
+  /** 设置一起听模式的背景模糊度 */
+  setListenTogetherBlur: (value: number) => void
   /** 设置背景透明度 */
   setBackgroundOpacity: (value: number) => void
+  /** 设置白遮罩强度 */
+  setBackgroundWhiteOverlay: (value: number) => void
+  /** 设置黑遮罩强度 */
+  setBackgroundBlackOverlay: (value: number) => void
   /** 设置背景水平位置 */
   setBackgroundPositionX: (value: number) => void
   /** 设置背景垂直位置 */
@@ -122,7 +135,10 @@ export const useThemeStore = create<ThemeState>()(
       disableHoverTransform: false,
       backgroundImage: null,
       backgroundBlur: 0,
+      listenTogetherBlur: 0,
       backgroundOpacity: 1,
+      backgroundWhiteOverlay: 0,
+      backgroundBlackOverlay: 0,
       backgroundPositionX: 0,
       backgroundPositionY: 0,
       backgroundScale: 1,
@@ -131,6 +147,7 @@ export const useThemeStore = create<ThemeState>()(
         glassStrength: 0.6,
         glassBlur: 12,
         backgroundBlur: 0,
+        listenTogetherBlur: 0,
       },
 
       setSourceColor: (color: string) => set({ sourceColor: color }),
@@ -149,10 +166,12 @@ export const useThemeStore = create<ThemeState>()(
                 glassStrength: state.glassStrength,
                 glassBlur: state.glassBlur,
                 backgroundBlur: state.backgroundBlur,
+                listenTogetherBlur: state.listenTogetherBlur,
               },
               glassStrength: 1,
               glassBlur: 0,
               backgroundBlur: 0,
+              listenTogetherBlur: 0,
             }
           }
           // 关闭精简动画：恢复之前保存的参数
@@ -162,6 +181,7 @@ export const useThemeStore = create<ThemeState>()(
             glassStrength: prev.glassStrength,
             glassBlur: prev.glassBlur,
             backgroundBlur: prev.backgroundBlur,
+            listenTogetherBlur: prev.listenTogetherBlur,
           }
         }),
       setBackgroundImage: (value: string | null) =>
@@ -169,8 +189,14 @@ export const useThemeStore = create<ThemeState>()(
       setDisableHoverTransform: (value: boolean) =>
         set({ disableHoverTransform: value }),
       setBackgroundBlur: (value: number) => set({ backgroundBlur: value }),
+      setListenTogetherBlur: (value: number) =>
+        set({ listenTogetherBlur: value }),
       setBackgroundOpacity: (value: number) =>
         set({ backgroundOpacity: value }),
+      setBackgroundWhiteOverlay: (value: number) =>
+        set({ backgroundWhiteOverlay: value }),
+      setBackgroundBlackOverlay: (value: number) =>
+        set({ backgroundBlackOverlay: value }),
       setBackgroundPositionX: (value: number) =>
         set({ backgroundPositionX: value }),
       setBackgroundPositionY: (value: number) =>
@@ -191,7 +217,10 @@ export const useThemeStore = create<ThemeState>()(
         // 自定义背景同时持久化 URL 与 base64 数据（用户上传图片在 5MB 限制内）
         backgroundImage: state.backgroundImage,
         backgroundBlur: state.backgroundBlur,
+        listenTogetherBlur: state.listenTogetherBlur,
         backgroundOpacity: state.backgroundOpacity,
+        backgroundWhiteOverlay: state.backgroundWhiteOverlay,
+        backgroundBlackOverlay: state.backgroundBlackOverlay,
         backgroundPositionX: state.backgroundPositionX,
         backgroundPositionY: state.backgroundPositionY,
         backgroundScale: state.backgroundScale,

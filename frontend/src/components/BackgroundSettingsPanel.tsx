@@ -18,7 +18,10 @@ type TabKey = 'url' | 'upload'
 interface BackgroundConfig {
   backgroundImage: string | null
   backgroundBlur: number
+  listenTogetherBlur: number
   backgroundOpacity: number
+  backgroundWhiteOverlay: number
+  backgroundBlackOverlay: number
   backgroundPositionX: number
   backgroundPositionY: number
   backgroundScale: number
@@ -28,7 +31,10 @@ interface BackgroundConfig {
 const DEFAULT_CONFIG: BackgroundConfig = {
   backgroundImage: null,
   backgroundBlur: 0,
+  listenTogetherBlur: 0,
   backgroundOpacity: 1,
+  backgroundWhiteOverlay: 0,
+  backgroundBlackOverlay: 0,
   backgroundPositionX: 0,
   backgroundPositionY: 0,
   backgroundScale: 1,
@@ -55,7 +61,10 @@ export function BackgroundSettingsPanel({
   const savedConfigRef = useRef<BackgroundConfig>({
     backgroundImage: store.backgroundImage,
     backgroundBlur: store.backgroundBlur,
+    listenTogetherBlur: store.listenTogetherBlur,
     backgroundOpacity: store.backgroundOpacity,
+    backgroundWhiteOverlay: store.backgroundWhiteOverlay,
+    backgroundBlackOverlay: store.backgroundBlackOverlay,
     backgroundPositionX: store.backgroundPositionX,
     backgroundPositionY: store.backgroundPositionY,
     backgroundScale: store.backgroundScale,
@@ -70,7 +79,10 @@ export function BackgroundSettingsPanel({
     savedConfigRef.current = {
       backgroundImage: store.backgroundImage,
       backgroundBlur: store.backgroundBlur,
+      listenTogetherBlur: store.listenTogetherBlur,
       backgroundOpacity: store.backgroundOpacity,
+      backgroundWhiteOverlay: store.backgroundWhiteOverlay,
+      backgroundBlackOverlay: store.backgroundBlackOverlay,
       backgroundPositionX: store.backgroundPositionX,
       backgroundPositionY: store.backgroundPositionY,
       backgroundScale: store.backgroundScale,
@@ -87,7 +99,10 @@ export function BackgroundSettingsPanel({
   const applyToStore = (config: BackgroundConfig) => {
     store.setBackgroundImage(config.backgroundImage)
     store.setBackgroundBlur(config.backgroundBlur)
+    store.setListenTogetherBlur(config.listenTogetherBlur)
     store.setBackgroundOpacity(config.backgroundOpacity)
+    store.setBackgroundWhiteOverlay(config.backgroundWhiteOverlay)
+    store.setBackgroundBlackOverlay(config.backgroundBlackOverlay)
     store.setBackgroundPositionX(config.backgroundPositionX)
     store.setBackgroundPositionY(config.backgroundPositionY)
     store.setBackgroundScale(config.backgroundScale)
@@ -281,24 +296,42 @@ export function BackgroundSettingsPanel({
             </div>
           )}
 
-          {/* 预览 */}
+          {/* 预览（含遮罩效果，与 Layout 实际渲染一致） */}
           {previewImage && (
-            <div
-              className="mt-3 h-24 w-full overflow-hidden rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-cover bg-center bg-[var(--glass-bg)]"
-              style={{
-                backgroundImage: `url(${previewImage})`,
-                filter: `blur(${store.backgroundBlur}px)`,
-                opacity: store.backgroundOpacity,
-                // 位置由 transform: translate 控制，与 Layout 实际渲染保持一致
-                transform: `translate(${store.backgroundPositionX / 2}%, ${store.backgroundPositionY / 2}%) scale(${store.backgroundScale}) rotate(${store.backgroundRotate}deg)`,
-              }}
-            />
+            <div className="relative mt-3 h-24 w-full overflow-hidden rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)]">
+              <div
+                className="h-full w-full bg-cover bg-center"
+                style={{
+                  backgroundImage: `url(${previewImage})`,
+                  filter: `blur(${store.backgroundBlur}px)`,
+                  opacity: store.backgroundOpacity,
+                  // 位置由 transform: translate 控制，与 Layout 实际渲染保持一致
+                  transform: `translate(${store.backgroundPositionX / 2}%, ${store.backgroundPositionY / 2}%) scale(${store.backgroundScale}) rotate(${store.backgroundRotate}deg)`,
+                }}
+              />
+              {store.backgroundWhiteOverlay > 0 && (
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    backgroundColor: `rgba(255, 255, 255, ${store.backgroundWhiteOverlay})`,
+                  }}
+                />
+              )}
+              {store.backgroundBlackOverlay > 0 && (
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    backgroundColor: `rgba(0, 0, 0, ${store.backgroundBlackOverlay})`,
+                  }}
+                />
+              )}
+            </div>
           )}
 
           {/* 参数滑块 */}
           <div className="mt-3 space-y-2 px-2">
             <Slider
-              label="背景模糊度"
+              label="背景模糊（一起看 / 投屏）"
               value={store.backgroundBlur}
               min={0}
               max={20}
@@ -307,19 +340,38 @@ export function BackgroundSettingsPanel({
               onChange={store.setBackgroundBlur}
               disabled={store.reducedMotion}
             />
+            <Slider
+              label="一起听模式模糊"
+              value={store.listenTogetherBlur}
+              min={0}
+              max={20}
+              step={1}
+              valueFormatter={(v) => `${v}px`}
+              onChange={store.setListenTogetherBlur}
+              disabled={store.reducedMotion}
+            />
             {store.reducedMotion && (
               <p className="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
                 精简动画已关闭背景模糊
               </p>
             )}
             <Slider
-              label="透明度"
-              value={Math.round(store.backgroundOpacity * 100)}
+              label="白遮罩"
+              value={Math.round(store.backgroundWhiteOverlay * 100)}
               min={0}
               max={100}
               step={1}
               valueFormatter={(v) => `${v}%`}
-              onChange={(v) => store.setBackgroundOpacity(v / 100)}
+              onChange={(v) => store.setBackgroundWhiteOverlay(v / 100)}
+            />
+            <Slider
+              label="黑遮罩"
+              value={Math.round(store.backgroundBlackOverlay * 100)}
+              min={0}
+              max={100}
+              step={1}
+              valueFormatter={(v) => `${v}%`}
+              onChange={(v) => store.setBackgroundBlackOverlay(v / 100)}
             />
             <Slider
               label="水平位置"
