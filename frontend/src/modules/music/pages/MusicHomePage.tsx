@@ -72,9 +72,11 @@ function withCoverParam(url: string | undefined, param: string): string {
   return `${url.replace('http://', 'https://')}?param=${param}`
 }
 
-/** 最新音乐条目 → NcmSong（artists 旧结构 artists / 新结构 ar 兼容） */
+/** 最新音乐条目 → NcmSong（artists 旧结构 artists / 新结构 ar 兼容；
+ *  关联对象在部分 NCM 服务下会序列化为空串等异常形态，逐个 Array.isArray 校验） */
 function mapNewSong(item: NcmNewSongCard): NcmSong {
-  const artists = item.artists ?? item.ar ?? item.song?.artists ?? []
+  const artists =
+    [item.artists, item.ar, item.song?.artists].find(Array.isArray) ?? []
   return {
     songId: item.id,
     name: item.name,
@@ -128,9 +130,10 @@ export function MusicHomePage({
         // 静默降级：区块空态
       })
 
-    // 最新音乐（/personalized/newsong 响应：{ code, result: [...] }）
+    // 最新音乐（/personalized/newsong 响应：{ code, result: [...] }；
+    // 注意路径是 personalized/newsong，写成 personal/newsong 会被上游 502）
     void apiGet<{ result?: NcmNewSongCard[] }>(
-      '/api/music/ncm/personal/newsong?limit=10'
+      '/api/music/ncm/personalized/newsong?limit=10'
     )
       .then(({ data }) => {
         if (Array.isArray(data?.result)) {
@@ -579,9 +582,11 @@ function NewestSongList({
                   >
                     {song.name}
                   </div>
-                  <div className="truncate text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                    {song.artist}
-                  </div>
+                  {song.artist && (
+                    <div className="truncate text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                      {song.artist}
+                    </div>
+                  )}
                 </div>
               </div>
               <button
