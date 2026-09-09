@@ -119,10 +119,12 @@ function ShellInner({
 }) {
   const page = useMusicStore((s) => s.page)
   const playerOverlayOpen = useMusicStore((s) => s.playerOverlayOpen)
+  const playerOverlayClosing = useMusicStore((s) => s.playerOverlayClosing)
   const queuePopupOpen = useMusicStore((s) => s.queuePopupOpen)
   const loginModalOpen = useMusicStore((s) => s.loginModalOpen)
-  const setPlayerOverlayOpen = useMusicStore((s) => s.setPlayerOverlayOpen)
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
+  // 带滑出动画的覆盖层关闭（0.5s 滑出后卸载）
+  const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
 
   const {
     approveControl,
@@ -236,16 +238,23 @@ function ShellInner({
         )}
       </div>
 
-      {/* ===== 完整播放器覆盖层（ListenTogetherPanel 复用外层引擎） ===== */}
+      {/* ===== 完整播放器覆盖层（ListenTogetherPanel 复用外层引擎；
+          整页从视口底部滑入 / 滑出，对应 Hydrogen .player 过渡） ===== */}
       {playerOverlayOpen && (
-        <div className="zen-page-enter absolute inset-0 z-40">
+        <div
+          className={
+            playerOverlayClosing
+              ? 'player-slide-out absolute inset-0 z-40'
+              : 'player-slide-in absolute inset-0 z-40'
+          }
+        >
           <ListenTogetherPanel
             socket={socket}
             roomId={roomId}
             isHost={isHost}
             username={username}
           />
-          {/* 右上角收起按钮（回到应用主框架） */}
+          {/* 右上角收起按钮（滑出动画结束后卸载） */}
           <button
             type="button"
             className="absolute right-4 top-4 z-[70] flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
@@ -253,7 +262,7 @@ function ShellInner({
               backgroundColor:
                 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
             }}
-            onClick={() => setPlayerOverlayOpen(false)}
+            onClick={closePlayerOverlay}
             title="收起播放器"
             aria-label="收起播放器"
           >

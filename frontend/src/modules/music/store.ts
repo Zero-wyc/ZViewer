@@ -86,6 +86,8 @@ export interface MusicState {
   searchKeywords: string
   /** 完整播放器覆盖层（ListenTogetherPanel）开关 */
   playerOverlayOpen: boolean
+  /** 完整播放器覆盖层滑出动画进行中（先播 0.5s 滑出再卸载） */
+  playerOverlayClosing: boolean
   /** 队列弹窗（MusicQueuePopup）开关 */
   queuePopupOpen: boolean
   /** 网易云扫码登录弹窗开关 */
@@ -114,6 +116,8 @@ export interface MusicState {
   setSearchKeywords: (keywords: string) => void
   /** 设置完整播放器覆盖层开关 */
   setPlayerOverlayOpen: (open: boolean) => void
+  /** 带滑出动画关闭完整播放器覆盖层（0.5s 后卸载） */
+  closePlayerOverlay: () => void
   /** 设置队列弹窗开关 */
   setQueuePopupOpen: (open: boolean) => void
   /** 设置登录弹窗开关 */
@@ -135,6 +139,7 @@ const defaultState = {
   page: 'home' as MusicPage,
   searchKeywords: '',
   playerOverlayOpen: false,
+  playerOverlayClosing: false,
   queuePopupOpen: false,
   loginModalOpen: false,
 }
@@ -160,6 +165,14 @@ export const useMusicStore = create<MusicState>((set) => ({
   setPage: (page) => set({ page }),
   setSearchKeywords: (keywords) => set({ searchKeywords: keywords }),
   setPlayerOverlayOpen: (open) => set({ playerOverlayOpen: open }),
+  /** 带滑出动画关闭完整播放器覆盖层：先标记 closing（0.5s 滑出动画），
+   *  动画结束后真正卸载（对应 Hydrogen .player-leave 过渡） */
+  closePlayerOverlay: () => {
+    set({ playerOverlayClosing: true })
+    setTimeout(() => {
+      set({ playerOverlayOpen: false, playerOverlayClosing: false })
+    }, 500)
+  },
   setQueuePopupOpen: (open) => set({ queuePopupOpen: open }),
   setLoginModalOpen: (open) => set({ loginModalOpen: open }),
   reset: () => set({ ...defaultState }),

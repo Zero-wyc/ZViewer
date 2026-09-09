@@ -1,16 +1,21 @@
 /**
- * 一起听主区域面板（房主与观众共用，Hydrogen MusicPlayer.vue + Player.vue 范式）。
+ * 一起听完整播放器（点击底栏封面展开，Hydrogen MusicPlayer.vue + Player.vue
+ * + Lyric.vue 的 React 1:1 复刻）。
  *
- * 整页布局（flex 横排居中）：
+ * 整页布局（flex 横排居中，Hydrogen .music-player 骨架）：
  * - 毛玻璃封面背景（backdrop）：封面图 absolute 铺满 120%（-10% 偏移），
  *   blur(50px) saturate(140%) brightness(1.08) scale(1.08)，上叠 surface 30%
  *   遮罩；无封面时不渲染，切歌时淡入淡出
- * - 左侧播放卡（42vh 宽）：半透明 surface 50% + backdrop-blur，rounded-2xl，
- *   四角 L 形角标装饰；内容自上而下：封面（正方形占满卡宽）/ 歌名歌手 /
- *   时间行 + 进度条 / 三键控制行 / 音量横条滑块
- * - 右侧歌词面板（flex-1，与左卡间距约 50px）：lrc.ts 解析 + 二分查找高亮，
- *   当前行 on-surface、其余 on-surface-variant 淡化；翻译为同行下方小字；
- *   播放模式按钮（仅房主）置于歌词面板左上角
+ * - 左侧播放卡（42vh 宽，无圆角）：半透明白卡 + backdrop 模糊，入场动画
+ *   player-card-in（0.7s delay 0.2s：先展开宽度至 42vh，再纵向展开至满高）；
+ *   四角黑色实心方块（1.5vh，出界 0.75vh）+ 封面 L 形角标（4vh，1vh→0 内缩，
+ *   延迟 0.65s）；内容自上而下：封面（max-height 38vh）/ 歌名（黑块滑入遮字
+ *   切歌动画 + 跑马灯）/ 歌手（小方点 + 名）/ 时间行 + 进度条（1.3vh 黑条 +
+ *   0.5px 描边）/ 三键控制（5vh）/ 音量滑块 + VOLUME 标签
+ * - song-control 悬浮工具栏：卡片 hover 时「信号灯」闪烁显形（0.3s 闪三下），
+ *   竖排：喜欢（NCM 登录）/ 播放队列 / 播放模式（房主）/ 翻译开关 / 收起
+ * - 右侧歌词面板（flex-1，与左卡间距 50px）：PlayerLyricPanel（黑色高亮条、
+ *   补偿式平滑滚动、手动滚动暂停、点击行 seek、间奏倒计时、Lyric-Area 占位）
  * - 提示区（页面左上角 absolute）：房主离线提示 / syncNotice（房主审批带
  *   通过/拒绝小按钮，5s 自动消失），文字提示非弹窗
  *
@@ -27,16 +32,20 @@ import {
   useState,
 } from 'react'
 import {
+  ChevronDown,
+  Heart,
+  Languages,
+  ListMusic,
   Music,
-  Play,
   Pause,
-  SkipBack,
-  SkipForward,
+  Play,
   Repeat,
   Repeat1,
   Shuffle,
-  Check,
+  SkipBack,
+  SkipForward,
   X,
+  Check,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
@@ -46,6 +55,9 @@ import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
+import { OverflowMarquee } from './OverflowMarquee'
+import { PlayerLyricPanel } from './PlayerLyricPanel'
+import { MusicQueuePopup } from './MusicQueuePopup'
 
 export interface ListenTogetherPanelProps {
   socket: Socket | null
@@ -60,6 +72,19 @@ export interface ListenTogetherPanelProps {
 interface NcmLyricResponse {
   lrc?: { lyric?: string }
   tlyric?: { lyric?: string }
+}
+
+/** 网易云 /account 响应（宽松解析 uid） */
+interface NcmAccountResponse {
+  data?: { account?: { id?: number } }
+  account?: { id?: number }
+  profile?: { userId?: number }
+}
+
+/** 网易云 /likelist 响应（宽松解析 ids） */
+interface NcmLikelistResponse {
+  data?: { ids?: number[] }
+  ids?: number[]
 }
 
 /** syncNotice 自动消失时长（毫秒） */
@@ -91,7 +116,12 @@ export function ListenTogetherPanel({
   const outerPlayer = useContext(MusicPlayerContext)
   if (outerPlayer) {
     return (
-      <ListenTogetherInner isHost={isHost} isWebFullscreen={isWebFullscreen} />
+      <ListenTogetherInner
+        socket={socket}
+        roomId={roomId}
+        isHost={isHost}
+        isWebFullscreen={isWebFullscreen}
+      />
     )
   }
   return (
@@ -101,15 +131,24 @@ export function ListenTogetherPanel({
       isHost={isHost}
       username={username}
     >
-      <ListenTogetherInner isHost={isHost} isWebFullscreen={isWebFullscreen} />
+      <ListenTogetherInner
+        socket={socket}
+        roomId={roomId}
+        isHost={isHost}
+        isWebFullscreen={isWebFullscreen}
+      />
     </MusicPlayerProvider>
   )
 }
 
 function ListenTogetherInner({
+  socket,
+  roomId,
   isHost,
   isWebFullscreen,
 }: {
+  socket: Socket | null
+  roomId: string
   isHost: boolean
   isWebFullscreen?: boolean
 }) {
@@ -134,22 +173,46 @@ function ListenTogetherInner({
     setVolume,
   } = useMusicPlayer()
 
+  const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
+  const queuePopupOpen = useMusicStore((s) => s.queuePopupOpen)
+  const setQueuePopupOpen = useMusicStore((s) => s.setQueuePopupOpen)
+  const loginStatus = useMusicStore((s) => s.loginStatus)
+
   const queue = useMusicStore((s) => s.queue)
 
-  // ===== 歌词 =====
-  const [lyricLines, setLyricLines] = useState<LyricLine[]>([])
-  const lyricScrollRef = useRef<HTMLDivElement>(null)
-  const lyricLineRefs = useRef<Array<HTMLDivElement | null>>([])
-
-  // 切歌时请求歌词（请求期间保留旧词避免闪烁，失败/纯音乐时清空；
-  // 塞壬曲目 songId=0 无歌词，直接清空避免无效请求）
   const songId = currentSong?.songId
+  const cover = currentSong?.cover
+
+  // ===== 歌词加载状态（区分 无歌词/纯音乐/正常 三态 + 首帧防闪烁） =====
+  const [lyricLines, setLyricLines] = useState<LyricLine[]>([])
+  const [emptyMode, setEmptyMode] = useState<'none' | 'pure' | null>(null)
+  const [lyricRevealed, setLyricRevealed] = useState(false)
+  // 切歌动画（歌名黑块滑入遮字）
+  const [songSwitching, setSongSwitching] = useState(false)
+  // 喜欢（乐观状态）
+  const [liked, setLiked] = useState(false)
+  const [likeBusy, setLikeBusy] = useState(false)
+
+  // ===== 切歌驱动的同步重置（render 期调整状态，替代 effect 内同步 setState）：
+  // 歌词清空走防闪烁隐藏（Hydrogen 切歌 lyricShow=false 同语义）、
+  // 黑块滑入、喜欢乐观态重置；塞壬曲目直接进入 Lyric-Area 占位 =====
+  const [prevSongId, setPrevSongId] = useState<number | null | undefined>(
+    songId
+  )
+  if (prevSongId !== songId) {
+    setPrevSongId(songId)
+    setLyricLines([])
+    const noLyricSong = songId == null || songId <= 0
+    setEmptyMode(noLyricSong ? 'none' : null)
+    setLyricRevealed(noLyricSong)
+    setSongSwitching(songId != null)
+    setLiked(false)
+  }
+
+  // ===== 歌词请求（异步回调内 setState；重置已在 render 期完成） =====
   useEffect(() => {
-    if (songId == null || songId <= 0) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 塞壬曲目无歌词，由曲目切换状态机驱动清空
-      setLyricLines([])
-      return
-    }
+    // 塞壬曲目（songId=0）无歌词：render 期已置 Lyric-Area 占位
+    if (songId == null || songId <= 0) return
     let cancelled = false
     const loadLyric = async () => {
       try {
@@ -157,12 +220,33 @@ function ListenTogetherInner({
           `/api/music/ncm/lyric?id=${songId}`
         )
         if (cancelled) return
-        setLyricLines(
-          mergeLyrics(data?.lrc?.lyric ?? '', data?.tlyric?.lyric ?? '')
-        )
+        const raw = data?.lrc?.lyric ?? ''
+        if (!raw.trim()) {
+          // 接口无歌词 → Lyric-Area 占位装饰
+          setLyricLines([])
+          setEmptyMode('none')
+        } else if (raw.includes('纯音乐')) {
+          // 纯音乐 → 单行占位（Hydrogen buildPureMusicRows）
+          setLyricLines([])
+          setEmptyMode('pure')
+        } else {
+          setLyricLines(mergeLyrics(raw, data?.tlyric?.lyric ?? ''))
+          setEmptyMode(null)
+        }
       } catch (err) {
         console.error('[ListenTogetherPanel] 获取歌词失败:', err)
-        if (!cancelled) setLyricLines([])
+        if (!cancelled) {
+          setLyricLines([])
+          setEmptyMode('none')
+        }
+      }
+      if (!cancelled) {
+        // 双帧等待布局稳定后再显示（防首帧错位闪烁）
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            if (!cancelled) setLyricRevealed(true)
+          })
+        )
       }
     }
     void loadLyric()
@@ -170,6 +254,47 @@ function ListenTogetherInner({
       cancelled = true
     }
   }, [songId])
+
+  // ===== 切歌黑块滑出定时（700ms 后滑出露出新歌名） =====
+  useEffect(() => {
+    if (!songSwitching) return
+    const timer = setTimeout(() => setSongSwitching(false), 700)
+    return () => clearTimeout(timer)
+  }, [songSwitching])
+
+  // ===== 喜欢状态查询（/account 取 uid → /likelist 取 ids；异步回调内 setState） =====
+  const canLike =
+    loginStatus.loggedIn &&
+    currentSong?.source !== 'siren' &&
+    songId != null &&
+    songId > 0
+
+  useEffect(() => {
+    if (!canLike || songId == null) return
+    let cancelled = false
+    const query = async () => {
+      try {
+        const acc = await apiGet<NcmAccountResponse>(
+          `/api/music/ncm/account?timestamp=${Date.now()}`
+        )
+        if (cancelled) return
+        const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
+        if (!uid) return
+        const list = await apiGet<NcmLikelistResponse>(
+          `/api/music/ncm/likelist?uid=${uid}&timestamp=${Date.now()}`
+        )
+        if (cancelled) return
+        const ids = list?.data?.ids ?? []
+        if (Array.isArray(ids)) setLiked(ids.includes(songId))
+      } catch {
+        // 静默失败：按钮仍可点（乐观更新），仅初始状态未知
+      }
+    }
+    void query()
+    return () => {
+      cancelled = true
+    }
+  }, [canLike, songId])
 
   /** 当前高亮歌词行（最后一个 time <= positionSec + 提前量的行，二分查找） */
   const activeLyricIndex = useMemo(() => {
@@ -190,16 +315,23 @@ function ListenTogetherInner({
     return ans
   }, [lyricLines, positionSec])
 
-  // 高亮行变化时平滑滚动到容器中央偏上（只滚动歌词容器，不影响页面）
-  useEffect(() => {
-    if (activeLyricIndex < 0) return
-    const container = lyricScrollRef.current
-    const el = lyricLineRefs.current[activeLyricIndex]
-    if (!container || !el) return
-    const target =
-      el.offsetTop - container.clientHeight * 0.4 + el.clientHeight / 2
-    container.scrollTo({ top: Math.max(0, target), behavior: 'smooth' })
-  }, [activeLyricIndex])
+  // ===== 喜欢（Hydrogen likeSong：NCM 登录且非塞壬曲目可见） =====
+  const handleLike = useCallback(async () => {
+    if (!canLike || songId == null || likeBusy) return
+    const nextLiked = !liked
+    setLiked(nextLiked)
+    setLikeBusy(true)
+    try {
+      await apiGet(
+        `/api/music/ncm/like?id=${songId}&like=${nextLiked}&timestamp=${Date.now()}`
+      )
+    } catch {
+      // 失败回滚乐观状态
+      setLiked(!nextLiked)
+    } finally {
+      setLikeBusy(false)
+    }
+  }, [canLike, songId, liked, likeBusy])
 
   // ===== syncNotice：5s 自动消失 =====
   useEffect(() => {
@@ -211,7 +343,7 @@ function ListenTogetherInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
-  // ===== 进度条（细滑块，primary 色；canControl 可拖动 seek，观众只读） =====
+  // ===== 进度条（Hydrogen 样式：1.3vh 黑条 + 0.5px 描边；canControl 可拖动） =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
   const progressRatio =
     durationSec > 0 ? Math.min(1, Math.max(0, positionSec / durationSec)) : 0
@@ -268,6 +400,14 @@ function ListenTogetherInner({
     else requestControl('prev')
   }, [canControl, prev, requestControl])
 
+  /** 歌词行 seek（观众无控制权时不可用，与进度条一致） */
+  const handleLyricSeek = useCallback(
+    (time: number) => {
+      if (canControl) seek(time)
+    },
+    [canControl, seek]
+  )
+
   /** 播放模式轮换（仅房主，切换后广播同步） */
   const handleTogglePlayMode = useCallback(() => {
     const idx = PLAY_MODE_ORDER.indexOf(playMode)
@@ -306,6 +446,9 @@ function ListenTogetherInner({
     [setVolume]
   )
 
+  // ===== 翻译显示开关（Hydrogen lyricType） =====
+  const [showTranslation, setShowTranslation] = useState(true)
+
   const PlayModeIcon =
     playMode === 'repeat-one'
       ? Repeat1
@@ -315,10 +458,11 @@ function ListenTogetherInner({
 
   // ===== 渲染 =====
   const queueEmpty = queue.length === 0
-  const cover = currentSong?.cover
+  const songName = currentSong?.name ?? '一起听'
+  const artist = currentSong?.artist ?? ''
 
   return (
-    <div className="glass-card zen-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
+    <div className="relative h-full min-w-0 overflow-hidden">
       {/* ===== 毛玻璃封面背景（无封面时不渲染，切歌时淡入淡出） ===== */}
       {cover && (
         <div
@@ -397,6 +541,19 @@ function ListenTogetherInner({
         )}
       </div>
 
+      {/* ===== 队列弹窗（Player 页内挂载：与底栏共享 queuePopupOpen 状态，
+          从悬浮条原位置附近向上弹出） ===== */}
+      {queuePopupOpen && (
+        <div className="absolute bottom-[130px] right-[45px] z-50 h-0">
+          <MusicQueuePopup
+            socket={socket}
+            roomId={roomId}
+            isHost={isHost}
+            canManage={isHost}
+          />
+        </div>
+      )}
+
       {queueEmpty ? (
         /* 空队列：主区域居中空状态 */
         <div className="relative z-[1] flex flex-1 flex-col items-center justify-center gap-3">
@@ -413,291 +570,344 @@ function ListenTogetherInner({
             还没有歌曲
           </span>
           <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            在右侧面板搜索添加
+            在主框架搜索添加
           </span>
         </div>
       ) : (
-        /* ===== 主内容：左播放卡 + 右歌词面板 ===== */
+        /* ===== 主内容：左播放卡 + 右歌词面板（Hydrogen .music-player 两栏） ===== */
         <div
           className={cn(
-            'relative z-[1] flex min-h-0 flex-1 items-stretch justify-center',
-            isWebFullscreen ? 'px-8 py-6' : 'px-4 py-4 md:px-6'
+            'relative z-[1] flex h-full min-h-0 items-stretch justify-center',
+            isWebFullscreen
+              ? 'px-[60px] pb-[50px] pt-8'
+              : 'px-[45px] pb-[45px] pt-6'
           )}
         >
-          {/* ===== 左侧播放卡（42vh 宽，高撑满主区，Hydrogen 核心视觉） ===== */}
+          {/* ===== 左侧播放卡（42vh 宽，无圆角，入场动画先宽后高） ===== */}
           <div
-            className={cn(
-              'relative mr-[50px] flex w-[42vh] max-w-[calc(100%-2rem)]',
-              'shrink-0 flex-col rounded-2xl p-4',
-              'bg-[color-mix(in_srgb,var(--md-sys-color-surface)_50%,transparent)] backdrop-blur'
-            )}
+            className="player-card-in group relative z-[1] flex max-w-[calc(100%-2rem)] shrink-0 flex-col"
+            style={{
+              // 半透明白卡（Hydrogen rgba(255,255,255,0.35) 的 M3 主题适配）
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+              padding: '16px 12px 4vh',
+            }}
           >
-            {/* 四角 L 形角标装饰（Hydrogen c-border：4vh L 形，inset 8px） */}
+            {/* 四角黑色实心方块装饰（Hydrogen .border：1.5vh，出界 0.75vh） */}
             <span
-              className="pointer-events-none absolute left-2 top-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-l-2 border-t-2"
-              style={{
-                borderColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
-              }}
+              className="pointer-events-none absolute -left-[0.75vh] -top-[0.75vh] z-[100] h-[1.5vh] w-[1.5vh]"
+              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
               aria-hidden="true"
             />
             <span
-              className="pointer-events-none absolute right-2 top-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-r-2 border-t-2"
-              style={{
-                borderColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
-              }}
+              className="pointer-events-none absolute -right-[0.75vh] -top-[0.75vh] z-[100] h-[1.5vh] w-[1.5vh]"
+              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
               aria-hidden="true"
             />
             <span
-              className="pointer-events-none absolute bottom-2 right-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-b-2 border-r-2"
-              style={{
-                borderColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
-              }}
+              className="pointer-events-none absolute -bottom-[0.75vh] -right-[0.75vh] z-[100] h-[1.5vh] w-[1.5vh]"
+              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
               aria-hidden="true"
             />
             <span
-              className="pointer-events-none absolute bottom-2 left-2 h-[4vh] max-h-8 w-[4vh] max-w-8 border-b-2 border-l-2"
-              style={{
-                borderColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
-              }}
+              className="pointer-events-none absolute -bottom-[0.75vh] -left-[0.75vh] z-[100] h-[1.5vh] w-[1.5vh]"
+              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
               aria-hidden="true"
             />
 
-            {/* 封面：正方形占满卡宽（空间不足时等比收缩居中） */}
-            <div className="flex min-h-0 flex-1 items-center justify-center p-3">
-              {cover ? (
-                <img
-                  src={cover}
-                  alt={currentSong?.name ?? ''}
-                  className="aspect-square max-h-full w-full rounded-lg object-cover"
-                />
-              ) : (
-                <div
-                  className="flex aspect-square w-full items-center justify-center rounded-lg"
-                  style={{
-                    backgroundColor:
-                      'var(--md-sys-color-surface-container-high)',
-                  }}
-                >
-                  <Music
-                    className="h-10 w-10 opacity-40"
+            {/* 封面（max-height 38vh + 轻阴影）+ L 形角标内缩动画 */}
+            <div className="relative shrink-0 p-[1.5vh]">
+              <div
+                className="relative overflow-hidden"
+                style={{ boxShadow: '0 0 8px 0 rgba(0, 0, 0, 0.05)' }}
+              >
+                {cover ? (
+                  <img
+                    src={cover}
+                    alt={currentSong?.name ?? ''}
+                    className="block w-full object-cover"
+                    style={{ maxHeight: '38vh' }}
+                  />
+                ) : (
+                  <div
+                    className="flex aspect-square w-full items-center justify-center"
                     style={{
-                      color: 'var(--md-sys-color-on-surface-variant)',
+                      backgroundColor:
+                        'var(--md-sys-color-surface-container-high)',
+                    }}
+                  >
+                    <Music
+                      className="h-10 w-10 opacity-40"
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
+                    />
+                  </div>
+                )}
+              </div>
+              {/* L 形角标 ×4（4vh，1vh → 0 内缩，延迟 0.65s） */}
+              <span
+                className="c-border-in pointer-events-none absolute left-0 top-0 h-[4vh] w-[4vh] border-l-2 border-t-2"
+                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                aria-hidden="true"
+              />
+              <span
+                className="c-border-in pointer-events-none absolute right-0 top-0 h-[4vh] w-[4vh] border-r-2 border-t-2"
+                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                aria-hidden="true"
+              />
+              <span
+                className="c-border-in pointer-events-none absolute bottom-0 right-0 h-[4vh] w-[4vh] border-b-2 border-r-2"
+                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                aria-hidden="true"
+              />
+              <span
+                className="c-border-in pointer-events-none absolute bottom-0 left-0 h-[4vh] w-[4vh] border-b-2 border-l-2"
+                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                aria-hidden="true"
+              />
+            </div>
+
+            {/* 歌曲信息：歌名（黑块滑入遮字 + 跑马灯）+ 歌手（小方点 + 名） */}
+            <div className="shrink-0 px-[1.5vh] pt-[1vh]">
+              {/* 歌名行（Hydrogen .music-name-lable 黑色滑块切歌动画） */}
+              <div className="relative min-w-0">
+                <OverflowMarquee
+                  text={songName}
+                  className="text-[2.4vh] font-bold leading-[2.9vh] text-[var(--md-sys-color-on-surface)]"
+                />
+                {/* 黑色滑块：默认藏在左侧（露 5px 小方块），切歌时滑入遮住整行 */}
+                <span
+                  aria-hidden="true"
+                  className="absolute left-0 top-0 h-[2.9vh] w-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.12,1)]"
+                  style={{
+                    backgroundColor: 'var(--md-sys-color-on-surface)',
+                    transform: songSwitching
+                      ? 'translateX(0)'
+                      : 'translateX(calc(-100% + 5px))',
+                  }}
+                />
+              </div>
+              {/* 歌手行（Hydrogen .music-author-lable 小方点 + 作者名） */}
+              <div className="mt-[0.6vh] flex min-w-0 items-center gap-2">
+                <span
+                  className="relative block h-2 w-2 shrink-0"
+                  style={{ border: '0.5px solid rgb(105, 105, 105)' }}
+                  aria-hidden="true"
+                >
+                  <span
+                    className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2"
+                    style={{
+                      backgroundColor: 'var(--md-sys-color-on-surface)',
+                    }}
+                  />
+                </span>
+                <span className="min-w-0 truncate text-[1.4vh] text-[var(--md-sys-color-on-surface-variant)]">
+                  {artist || ' '}
+                </span>
+              </div>
+            </div>
+
+            {/* 控制区（Hydrogen .player-control：进度 / 三键 / 音量 纵向分布） */}
+            <div className="flex min-h-0 flex-1 flex-col justify-between px-[1.5vh] pb-[1vh] pt-[1.5vh]">
+              {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
+              <div className="shrink-0">
+                <div className="flex items-center justify-between text-[1.5vh] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]">
+                  <span>{formatDuration(positionSec)}</span>
+                  <span>{formatDuration(durationSec)}</span>
+                </div>
+                <div
+                  ref={progressRef}
+                  role="slider"
+                  aria-label={
+                    canControl ? '播放进度' : '播放进度（仅房主可拖动）'
+                  }
+                  aria-valuemin={0}
+                  aria-valuemax={Math.round(durationSec)}
+                  aria-valuenow={Math.round(positionSec)}
+                  aria-disabled={!canControl}
+                  className={cn(
+                    'relative mt-[1vh] h-[1.3vh]',
+                    canControl && 'cursor-pointer'
+                  )}
+                  style={{
+                    boxShadow:
+                      'inset 0 0 0 0.5px var(--md-sys-color-on-surface)',
+                  }}
+                  onPointerDown={handleProgressPointerDown}
+                >
+                  <div
+                    className="absolute left-0 top-0 h-full"
+                    style={{
+                      width: `${progressRatio * 100}%`,
+                      backgroundColor: 'var(--md-sys-color-on-surface)',
                     }}
                   />
                 </div>
-              )}
-            </div>
+              </div>
 
-            {/* 歌曲信息：歌名 + 歌手 */}
-            <div className="shrink-0 px-3">
-              <div
-                className="truncate text-xl font-bold leading-tight text-[var(--md-sys-color-on-surface)]"
-                title={currentSong?.name}
-              >
-                {currentSong?.name ?? '等待播放'}
-              </div>
-              <div className="mt-1 truncate text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                {currentSong?.artist ?? ' '}
-              </div>
-            </div>
-
-            {/* 进度区：时间行 + 细滑块（canControl 可拖动 seek，观众只读） */}
-            <div className="mt-3 shrink-0 px-3">
-              <div className="flex items-center justify-between text-xs tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                <span>{formatDuration(positionSec)}</span>
-                <span>{formatDuration(durationSec)}</span>
-              </div>
-              <div
-                ref={progressRef}
-                role="slider"
-                aria-label={
-                  canControl ? '播放进度' : '播放进度（仅房主可拖动）'
-                }
-                aria-valuemin={0}
-                aria-valuemax={Math.round(durationSec)}
-                aria-valuenow={Math.round(positionSec)}
-                aria-disabled={!canControl}
-                className={cn(
-                  'group relative mt-1.5 h-1 rounded-full transition-all',
-                  canControl && 'cursor-pointer'
-                )}
-                style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent)',
-                }}
-                onPointerDown={handleProgressPointerDown}
-              >
-                <div
-                  className="absolute left-0 top-0 h-full rounded-full bg-[var(--md-sys-color-primary)]"
-                  style={{ width: `${progressRatio * 100}%` }}
-                />
-                <div
-                  className={cn(
-                    'absolute top-1/2 h-2.5 w-2.5 -translate-y-1/2 rounded-full bg-[var(--md-sys-color-primary)] transition-opacity duration-150',
-                    canControl
-                      ? 'opacity-100'
-                      : 'opacity-0 group-hover:opacity-100'
-                  )}
-                  style={{
-                    left: `calc(${progressRatio * 100}% - 5px)`,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* 控制行：居中三键（上一首 / 播放暂停 / 下一首） */}
-            <div className="mt-3 flex shrink-0 items-center justify-evenly px-3">
-              <button
-                type="button"
-                className="flex h-[22px] w-[22px] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                onClick={handlePrev}
-                title={canControl ? '上一首' : '向房主申请切换上一首'}
-                aria-label="上一首"
-              >
-                <SkipBack className="h-[22px] w-[22px]" />
-              </button>
-              <button
-                type="button"
-                className="flex h-[28px] w-[28px] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                onClick={handlePlayPause}
-                title={
-                  canControl
-                    ? isPlaying
-                      ? '暂停'
-                      : '播放'
-                    : isPlaying
-                      ? '申请暂停'
-                      : '申请继续播放'
-                }
-                aria-label="播放或暂停"
-              >
-                {isPlaying ? (
-                  <Pause className="h-[28px] w-[28px]" />
-                ) : (
-                  <Play className="ml-0.5 h-[28px] w-[28px]" />
-                )}
-              </button>
-              <button
-                type="button"
-                className="flex h-[22px] w-[22px] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                onClick={handleNext}
-                title={canControl ? '下一首' : '向房主申请切换下一首'}
-                aria-label="下一首"
-              >
-                <SkipForward className="h-[22px] w-[22px]" />
-              </button>
-            </div>
-
-            {/* 音量区：横条滑块 + VOLUME 标签与百分比 */}
-            <div className="mt-3 shrink-0 px-3 pb-1">
-              <div
-                ref={volumeTrackRef}
-                role="slider"
-                aria-label="音量"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(volume * 100)}
-                className="relative h-1 cursor-pointer rounded-full"
-                style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-on-surface) 16%, transparent)',
-                }}
-                onPointerDown={handleVolumePointerDown}
-              >
-                <div
-                  className="absolute left-0 top-0 h-full rounded-full bg-[var(--md-sys-color-primary)]"
-                  style={{ width: `${volume * 100}%` }}
-                />
-              </div>
-              <div className="mt-1.5 flex items-center justify-between text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                <span>VOLUME</span>
-                <span className="tabular-nums">{Math.round(volume * 100)}</span>
-              </div>
-            </div>
-          </div>
-
-          {/* ===== 右侧歌词面板（flex-1） ===== */}
-          <div className="relative flex h-full min-w-0 flex-1 flex-col">
-            {/* 播放模式按钮（仅房主，歌词面板左上角） */}
-            {isHost && (
-              <div className="shrink-0 pb-2">
+              {/* 三键控制（5vh，active 缩放 0.9） */}
+              <div className="flex shrink-0 items-center justify-evenly">
                 <button
                   type="button"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-all hover:opacity-70 active:scale-90"
+                  className="flex h-[5vh] w-[5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  onClick={handlePrev}
+                  title={canControl ? '上一首' : '向房主申请切换上一首'}
+                  aria-label="上一首"
+                >
+                  <SkipBack className="h-[5vh] w-[5vh]" />
+                </button>
+                <button
+                  type="button"
+                  className="flex h-[5vh] w-[5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  onClick={handlePlayPause}
+                  title={
+                    canControl
+                      ? isPlaying
+                        ? '暂停'
+                        : '播放'
+                      : isPlaying
+                        ? '申请暂停'
+                        : '申请继续播放'
+                  }
+                  aria-label="播放或暂停"
+                >
+                  {isPlaying ? (
+                    <Pause className="h-[5vh] w-[5vh]" />
+                  ) : (
+                    <Play className="h-[5vh] w-[5vh]" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  className="flex h-[5vh] w-[5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  onClick={handleNext}
+                  title={canControl ? '下一首' : '向房主申请切换下一首'}
+                  aria-label="下一首"
+                >
+                  <SkipForward className="h-[5vh] w-[5vh]" />
+                </button>
+              </div>
+
+              {/* 音量区（滑块与进度同款 + VOLUME 标签与百分比） */}
+              <div className="shrink-0">
+                <div
+                  ref={volumeTrackRef}
+                  role="slider"
+                  aria-label="音量"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={Math.round(volume * 100)}
+                  className="relative h-[1.3vh] cursor-pointer"
+                  style={{
+                    boxShadow:
+                      'inset 0 0 0 0.5px var(--md-sys-color-on-surface)',
+                  }}
+                  onPointerDown={handleVolumePointerDown}
+                >
+                  <div
+                    className="absolute left-0 top-0 h-full"
+                    style={{
+                      width: `${volume * 100}%`,
+                      backgroundColor: 'var(--md-sys-color-on-surface)',
+                    }}
+                  />
+                </div>
+                <div className="mt-[1vh] flex items-center justify-between text-[1.5vh] font-bold text-[var(--md-sys-color-on-surface)]">
+                  <span className="tracking-widest">VOLUME</span>
+                  <span className="tabular-nums">
+                    {Math.round(volume * 100)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* song-control 悬浮工具栏（卡片 hover 时「信号灯」闪烁显形）：
+                喜欢（NCM 登录）/ 播放队列 / 播放模式（房主）/ 翻译开关 / 收起 */}
+            <div className="pointer-events-none absolute bottom-[2vh] right-2 z-[10] flex flex-col items-center gap-[2.2vh] opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:animate-[song-control-in_0.3s_both] group-hover:opacity-100">
+              {canLike && (
+                <button
+                  type="button"
+                  onClick={() => void handleLike()}
+                  className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                  title={liked ? '取消喜欢' : '喜欢这首歌'}
+                  aria-label={liked ? '取消喜欢' : '喜欢'}
+                >
+                  <Heart
+                    className="h-[2.5vh] w-[2.5vh]"
+                    style={{
+                      color: liked
+                        ? 'var(--md-sys-color-error)'
+                        : 'var(--md-sys-color-on-surface)',
+                      fill: liked ? 'var(--md-sys-color-error)' : 'none',
+                    }}
+                  />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setQueuePopupOpen(true)}
+                className="flex h-[2.5vh] w-[2.5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                title="播放队列"
+                aria-label="播放队列"
+              >
+                <ListMusic className="h-[2.5vh] w-[2.5vh]" />
+              </button>
+              {isHost && (
+                <button
+                  type="button"
                   onClick={handleTogglePlayMode}
+                  className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
                   aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
                 >
                   <PlayModeIcon
-                    className="h-5 w-5"
-                    style={
-                      playMode !== 'sequence'
-                        ? { color: 'var(--md-sys-color-primary)' }
-                        : undefined
-                    }
+                    className="h-[2.5vh] w-[2.5vh]"
+                    style={{ color: 'var(--md-sys-color-on-surface)' }}
                   />
                 </button>
-              </div>
-            )}
-
-            {/* 歌词滚动区（当前行高亮 + 平滑滚动中央偏上） */}
-            <div
-              ref={lyricScrollRef}
-              className="zen-scroll min-h-0 flex-1 overflow-y-auto"
-            >
-              {lyricLines.length === 0 ? (
-                <div className="flex h-full items-center justify-center">
-                  <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                    纯音乐，请欣赏
-                  </span>
-                </div>
-              ) : (
-                <div className="flex flex-col items-start pb-[35%] pt-[30%]">
-                  {lyricLines.map((line, i) => {
-                    const active = i === activeLyricIndex
-                    return (
-                      <div
-                        key={`${line.time}-${i}`}
-                        ref={(el) => {
-                          lyricLineRefs.current[i] = el
-                        }}
-                        className={cn(
-                          'max-w-full px-6 py-3 text-left transition-colors duration-300',
-                          isWebFullscreen && 'px-8'
-                        )}
-                      >
-                        <p
-                          className={cn(
-                            'm-0 leading-relaxed',
-                            active
-                              ? 'text-lg font-medium text-[var(--md-sys-color-on-surface)]'
-                              : 'text-base text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_60%,transparent)]'
-                          )}
-                        >
-                          {line.text}
-                        </p>
-                        {line.translation && (
-                          <p
-                            className={cn(
-                              'm-0 mt-1 text-sm leading-relaxed',
-                              active
-                                ? 'text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_80%,transparent)]'
-                                : 'text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_50%,transparent)]'
-                            )}
-                          >
-                            {line.translation}
-                          </p>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
               )}
+              <button
+                type="button"
+                onClick={() => setShowTranslation((v) => !v)}
+                className={cn(
+                  'flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90'
+                )}
+                style={{
+                  color: showTranslation
+                    ? 'var(--md-sys-color-on-surface)'
+                    : 'var(--md-sys-color-on-surface-variant)',
+                }}
+                title={showTranslation ? '隐藏翻译' : '显示翻译'}
+                aria-label="切换翻译显示"
+              >
+                <Languages className="h-[2.5vh] w-[2.5vh]" />
+              </button>
+              <button
+                type="button"
+                onClick={closePlayerOverlay}
+                className="flex h-[2.5vh] w-[2.5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                title="收起播放器"
+                aria-label="收起播放器"
+              >
+                <ChevronDown className="h-[2.5vh] w-[2.5vh]" />
+              </button>
             </div>
+          </div>
+
+          {/* ===== 右侧歌词面板（flex-1，与左卡间距 50px） ===== */}
+          <div className="ml-[50px] flex h-full min-w-0 flex-1 flex-col">
+            <PlayerLyricPanel
+              lines={lyricLines}
+              activeIndex={activeLyricIndex}
+              positionSec={positionSec}
+              emptyMode={emptyMode}
+              revealed={lyricRevealed}
+              showTranslation={showTranslation}
+              onSeek={handleLyricSeek}
+            />
           </div>
         </div>
       )}

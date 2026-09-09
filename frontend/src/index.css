@@ -1283,3 +1283,154 @@ body[data-no-hover-transform='true'] .zen-tag-hover:hover,
 body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   transform: none !important;
 }
+
+/* =====================================================
+   一起听完整播放器（Hydrogen MusicPlayer/Player/Lyric 复刻动画）
+   ===================================================== */
+
+/* 覆盖层整页滑入/滑出（App.vue .player 过渡：0.5s 从视口底滑入） */
+@keyframes player-slide-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes player-slide-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+.player-slide-in {
+  animation: player-slide-in 0.5s cubic-bezier(0.14, 0.91, 0.58, 1) both;
+}
+.player-slide-out {
+  animation: player-slide-out 0.5s cubic-bezier(0.14, 0.91, 0.58, 1) both;
+}
+
+/* 播放卡入场（Player.vue .player-in）：先展开宽度（35% 处达到 42vh），
+   再纵向展开至满高并淡入；0.7s 延迟 0.2s */
+@keyframes player-card-in {
+  0% {
+    width: 0;
+    height: 0;
+    opacity: 0;
+  }
+  35% {
+    width: 42vh;
+    height: 0;
+  }
+  100% {
+    width: 42vh;
+    height: 100%;
+    opacity: 1;
+  }
+}
+.player-card-in {
+  animation: player-card-in 0.7s 0.2s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+
+/* 封面 L 形角标内缩（Player.vue .c-border：1vh → 0，延迟 0.65s） */
+@keyframes c-border-in {
+  from {
+    inset: 1vh;
+  }
+  to {
+    inset: 0;
+  }
+}
+.c-border-in {
+  animation: c-border-in 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+
+/* 悬浮工具栏「信号灯」显形（.song-control：0.3s 内快速闪三下后常显） */
+@keyframes song-control-in {
+  0%,
+  10% {
+    opacity: 0;
+  }
+  20%,
+  30% {
+    opacity: 1;
+  }
+  40%,
+  50% {
+    opacity: 0;
+  }
+  60%,
+  70% {
+    opacity: 1;
+  }
+  80%,
+  90% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.song-control-in {
+  animation: song-control-in 0.3s both;
+}
+
+/* 无歌词占位（Lyric.vue .lyric-nodata）：对角线从中心展开至 38% */
+@keyframes lyric-nodata-grow {
+  from {
+    width: 0;
+    height: 0;
+  }
+  to {
+    width: 38%;
+    height: 38%;
+  }
+}
+.lyric-nodata-grow {
+  animation: lyric-nodata-grow 0.8s 0.5s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+
+/* 无歌词占位文字（"Lyric-Area"）：0.4s 内闪烁三下后常显 */
+@keyframes lyric-nodata-tip {
+  0%,
+  10% {
+    opacity: 0;
+  }
+  20%,
+  30% {
+    opacity: 1;
+  }
+  40%,
+  50% {
+    opacity: 0;
+  }
+  60%,
+  70% {
+    opacity: 1;
+  }
+  80%,
+  90% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+.lyric-nodata-tip {
+  animation: lyric-nodata-tip 0.4s both;
+}
+
+/* 间奏等待块的旋转菱形装饰 */
+@keyframes interlude-diamond-rotate {
+  from {
+    transform: rotate(45deg);
+  }
+  to {
+    transform: rotate(405deg);
+  }
+}
+.interlude-diamond {
+  animation: interlude-diamond-rotate 2.4s linear infinite;
+}
