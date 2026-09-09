@@ -158,7 +158,7 @@ function ShellInner({
   const pageProps = { socket, roomId, canManage }
 
   return (
-    <div className="relative mt-16 flex h-[calc(100vh-64px)] min-w-0 flex-col overflow-hidden">
+    <div className="relative flex h-screen min-w-0 flex-col overflow-hidden">
       {/* ===== 左上角提示区：房主离线 + syncNotice（含房主审批按钮） ===== */}
       <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2">
         {hostOffline && !canControl && (
@@ -212,7 +212,8 @@ function ShellInner({
       </div>
 
       {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧）。
-          mt-16 为全局 Header（fixed）预留空间：底板从其下方开始铺满到视口底 ===== */}
+          底板占满全屏（h-screen）：听模式下全局 Header 默认隐藏，顶栏位置
+          由本导航填充；Header 经横条触发显示时以 fixed 悬浮覆盖，不推挤 ===== */}
       <MusicTopNav
         isHost={isHost}
         modeSwitchSlot={topNavExtra}
