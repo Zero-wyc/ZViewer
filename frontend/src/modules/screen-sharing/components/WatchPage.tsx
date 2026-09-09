@@ -170,9 +170,10 @@ function WatchPage() {
               commentsOnly={false}
             />
           }
-          // 搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗）
-          controls={<RoomInfoPanel roomId={roomId ?? ''} isHost={false} />}
-          controlLabels={['房间状态']}
+          // 搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗）；
+          // 房间状态改为左下角悬浮按钮（RoomPage 的 trafficPanel topSlot 统一提供）
+          controls={undefined}
+          controlLabels={undefined}
         />
       </MusicPlayerProvider>
     )

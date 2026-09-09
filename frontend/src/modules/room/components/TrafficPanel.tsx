@@ -6,7 +6,7 @@
  *
  * 交互与右下角的语音聊天面板一致：点击圆形按钮展开，再点收起。
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { Activity, ArrowDown, ArrowUp, ChevronDown, Server } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
@@ -40,13 +40,21 @@ function formatSpeed(bytesPerSecond: number): string {
   return `${formatBytes(bytesPerSecond)}/s`
 }
 
-export function TrafficPanel() {
+export function TrafficPanel({
+  topSlot,
+}: {
+  /** 额外的悬浮操作插槽（如一起听的房间状态按钮）：渲染在流量按钮上方，
+   *  与展开面板同列堆叠（父级 flex-col + gap-3），展开互不遮挡 */
+  topSlot?: ReactNode
+} = {}) {
   const [expanded, setExpanded] = useState(false)
   const [local, setLocal] = useState<LocalTraffic>({ downTotal: 0, upTotal: 0 })
   const [speeds, setSpeeds] = useState({ downSpeed: 0, upSpeed: 0 })
   const [server, setServer] = useState<ServerTraffic | null>(null)
   const [serverAvailable, setServerAvailable] = useState(true)
-  const prevLocalRef = useRef({ ...local, at: Date.now() })
+  // 上一次本地采样基线：在 effect 内惰性初始化（Date.now() 属于副作用，
+  // 不能出现在 render 期的 useRef 初始值中）
+  const prevLocalRef = useRef<(LocalTraffic & { at: number }) | null>(null)
 
   const user = useAuthStore((s) => s.user)
   const isRoot = user?.role === 'root'
@@ -54,10 +62,12 @@ export function TrafficPanel() {
   // 安装全局流量打点（幂等）+ 本地速度采样（1s 差分，EMA 平滑）
   useEffect(() => {
     installTrafficCounter()
+    prevLocalRef.current = { ...getLocalTraffic(), at: Date.now() }
     const timer = setInterval(() => {
       const now = Date.now()
       const current = getLocalTraffic()
       const prev = prevLocalRef.current
+      if (!prev) return
       const dt = (now - prev.at) / 1000
       if (dt > 0.2) {
         const rawDown = Math.max(0, (current.downTotal - prev.downTotal) / dt)
@@ -272,6 +282,9 @@ export function TrafficPanel() {
           </div>
         </div>
       )}
+
+      {/* 额外悬浮操作（如一起听的房间状态按钮）：位于流量按钮上方 */}
+      {topSlot}
 
       {/* 悬浮触发按钮 */}
       {!expanded && (

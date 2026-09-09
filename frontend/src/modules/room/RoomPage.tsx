@@ -12,6 +12,7 @@ import { WatchTogetherPanel } from '@/modules/room/watch-together/WatchTogetherP
 import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemountKey'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
+import { RoomInfoFab } from '@/modules/room/components/RoomInfoFab'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import { CommentPanel } from '@/components/CommentPanel'
@@ -363,8 +364,18 @@ function RoomPage() {
     />
   )
 
-  // 左下角流量统计（本机 HTTP 流量；root 额外展示服务端网卡流量）
-  const trafficPanel = <TrafficPanel />
+  // 左下角流量统计（本机 HTTP 流量；root 额外展示服务端网卡流量）。
+  // 一起听模式：房间状态面板不在下方控制卡片行，改为悬浮按钮
+  // （经 topSlot 渲染在流量按钮上方，房主/观众两侧共用本定义）
+  const trafficPanel = (
+    <TrafficPanel
+      topSlot={
+        mode === 'listen-together' ? (
+          <RoomInfoFab roomId={roomId} isHost={isHost} />
+        ) : undefined
+      }
+    />
+  )
 
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (isHost) {
@@ -419,10 +430,7 @@ function RoomPage() {
     const controls =
       mode === 'screen-share' ? (
         <RoomInfoPanel roomId={roomId} isHost />
-      ) : isListenTogether ? (
-        // 一起听：搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗）
-        <RoomInfoPanel roomId={roomId} isHost />
-      ) : (
+      ) : isListenTogether ? undefined : ( // 房间状态改为左下角悬浮按钮（见 trafficPanel 的 topSlot） // 一起听：搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗），
         <>
           <RoomInfoPanel roomId={roomId} isHost />
           <MovieListPanel isHost />
@@ -434,7 +442,8 @@ function RoomPage() {
       mode === 'screen-share'
         ? ['房间状态']
         : isListenTogether
-          ? ['房间状态']
+          ? // 一起听：下方无控制卡片行
+            undefined
           : ['房间状态', '影片列表', '添加影片']
 
     const roomLayout = (
