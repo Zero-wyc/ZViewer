@@ -75,7 +75,11 @@ import { cn } from '@/lib/utils'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 
 export function Header() {
-  const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
+  const {
+    guardNavigate,
+    confirmModal: exitGuardModal,
+    needsGuard,
+  } = useRoomExitGuard()
   const { user, logout, isAuthenticated } = useAuthStore()
   const {
     isDark,
@@ -318,6 +322,9 @@ export function Header() {
       : []),
   ]
 
+  /** 房间内点击这些页面入口时改为新标签页打开（不打断房间会话，无需离开确认） */
+  const NEW_TAB_NAV_PATHS = new Set(['/profile', '/rooms', '/admin'])
+
   return (
     <>
       <header className="glass fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3">
@@ -334,14 +341,6 @@ export function Header() {
             ZViewer
           </span>
         </button>
-
-        {/* 中央槽位：页面可经 createPortal 注入内容（如房间模式切换滑块），
-            脚本按 id 查找挂载点；无注入内容时空占位，布局不受影响。
-            移动端隐藏（Header 右侧按钮密集，避免溢出） */}
-        <div
-          id="header-center-slot"
-          className="hidden flex-1 justify-center px-2 md:flex"
-        />
 
         <div className="flex items-center gap-1.5">
           <a
@@ -821,11 +820,18 @@ export function Header() {
                           key={item.label}
                           onClick={() => {
                             setUserOpen(false)
-                            if (item.to) {
-                              guardNavigate(item.to)
-                            } else {
+                            if (!item.to) {
                               item.onClick?.()
+                              return
                             }
+                            // 房间内点击页面入口 → 新标签页打开：
+                            // 不打断当前房间会话，也无需「离开房间」确认；
+                            // 非房间页时保持常规应用内导航
+                            if (needsGuard && NEW_TAB_NAV_PATHS.has(item.to)) {
+                              window.open(item.to, '_blank')
+                              return
+                            }
+                            guardNavigate(item.to)
                           }}
                           className={className}
                           style={itemStyle}

@@ -27,6 +27,8 @@ import type { P2PStatus } from '@/modules/p2p/types'
 import { MODE_LABELS, MODE_ORDER } from './useRoomModeSwitch'
 
 interface RoomLayoutProps {
+  /** 是否房主：房主可切换模式，观众只显示当前模式标签 */
+  isHost: boolean
   title?: string
   onBack?: () => void
   headerActions?: ReactNode
@@ -66,8 +68,10 @@ interface RoomLayoutProps {
    * 用于在网页全屏时隐藏底部卡片等页面元素。
    */
   webFullscreen?: boolean
-  /** 模式切换进行中（页面级 hook 状态）：主区域加载占位。
-   *  模式切换滑块已上移至全局 Header 中央槽位（页面 portal 注入） */
+  /** 模式切换回调（页面级 useRoomModeSwitch 提供）：
+   *  一起看/投屏时顶栏滑块触发；一起听时滑块已移至音乐顶导航 */
+  onSwitchMode?: (mode: RoomMode) => void
+  /** 模式切换进行中（页面级 hook 状态）：主区域加载占位 + 滑块禁用 */
   isModeSwitching?: boolean
 }
 
@@ -80,9 +84,9 @@ interface RoomModeSwitchBarProps {
 }
 
 /**
- * 房间模式切换栏：房主显示三模式滑块（当前模式高亮），观众只显示当前模式标签。
- * 渲染于全局 Header 中央槽位（fixed 最顶部栏），由 RoomPage/WatchPage
- * 经 useHeaderCenterSlot + createPortal 注入。
+ * 顶部模式切换栏：房主显示三模式滑块（当前模式高亮），观众只显示当前模式标签。
+ * 一起看/投屏时渲染于 RoomLayout 顶栏；一起听时注入音乐顶导航
+ * （MusicTopNav 的 modeSwitchSlot，位于账户按钮左侧）。
  */
 export function RoomModeSwitchBar({
   isHost,
@@ -115,6 +119,7 @@ export function RoomModeSwitchBar({
 }
 
 export function RoomLayout({
+  isHost,
   title,
   onBack,
   headerActions,
@@ -132,6 +137,7 @@ export function RoomLayout({
   onToggleP2P,
   sharingActive,
   webFullscreen = false,
+  onSwitchMode,
   isModeSwitching = false,
 }: RoomLayoutProps) {
   const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
@@ -213,6 +219,17 @@ export function RoomLayout({
 
     return mainContent
   }
+
+  // 顶部模式切换栏：渲染于顶栏中段（一起看/投屏）。
+  // 一起听模式滑块移至音乐顶导航（MusicTopNav 的 modeSwitchSlot），
+  // 由调用方经 MusicAppShell 的 topNavExtra 注入，此处不再渲染。
+  const modeSwitchBar = (
+    <RoomModeSwitchBar
+      isHost={isHost}
+      onSwitch={onSwitchMode}
+      isSwitching={isModeSwitching}
+    />
+  )
 
   // 右侧评论/弹幕面板：
   // - 桌面端：固定宽度侧边栏（320px），独立卡片式设计（圆角 + 边框 + 阴影）。
@@ -298,8 +315,7 @@ export function RoomLayout({
 
   const roomContent = (
     <>
-      {/* 顶部工具栏：返回、右侧操作在同一行（模式切换滑块已上移至全局
-          Header 中央槽位，由页面经 useHeaderCenterSlot portal 注入） */}
+      {/* 顶部工具栏：返回、模式切换、右侧操作在同一行，避免 absolute 重叠 */}
       <div className="z-30 flex flex-none items-center justify-between gap-2 px-2 pt-3 pb-2 md:px-4 md:pt-4">
         <Button
           variant="ghost"
@@ -315,6 +331,12 @@ export function RoomLayout({
         >
           返回
         </Button>
+
+        {/* 顶部模式切换栏（玻璃拟态 + Monet 主题变量，当前模式高亮）：
+            一起听模式下移至音乐顶导航，此处隐藏（返回按钮独占左，右侧操作收尾） */}
+        {!hideRightPanel && (
+          <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
+        )}
 
         <div className="flex flex-shrink-0 items-center gap-2">
           {!hideRightPanel && (

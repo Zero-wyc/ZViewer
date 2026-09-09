@@ -14,7 +14,6 @@
  * WebRTC 和 OBS 推流的业务逻辑互不感知，各自在子组件中独立实现。
  */
 import { useState } from 'react'
-import { createPortal } from 'react-dom'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
@@ -39,7 +38,6 @@ import {
 } from '@/modules/music'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
-import { useHeaderCenterSlot } from '@/hooks/useHeaderCenterSlot'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import { useShareMethod } from '../hooks/useShareMethod'
@@ -104,51 +102,42 @@ function WatchPage() {
   // 退出守卫：一起听底板化后无 RoomLayout 顶栏返回按钮，返回改由音乐顶导航
   // 承担（guardNavigate 在房间内弹出确认）；其他模式仍用 RoomLayout 内置守卫
   const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
-  // 全局 Header 中央槽位（fixed 最顶部栏）：当前模式标签注入点
-  // （观众无切换权限，RoomModeSwitchBar 以 isHost=false 渲染只读标签）
-  const headerCenterSlot = useHeaderCenterSlot()
-  const modeSwitchPortal =
-    headerCenterSlot != null
-      ? createPortal(<RoomModeSwitchBar isHost={false} />, headerCenterSlot)
-      : null
 
   // 3.1 已加入且 roomMode === 'watch-together'：观众使用与房主统一的 RoomLayout
   if (joinStatus === 'approved' && roomMode === 'watch-together') {
     return (
-      <>
-        {modeSwitchPortal}
-        <RoomLayout
-          mainContent={
-            <WatchTogetherPanel
-              key={playerRemountKey}
-              roomId={roomId ?? ''}
-              isHost={false}
-              isWebFullscreen={isWebFullscreen}
-              onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-            />
-          }
-          rightPanel={
-            <CommentPanel
-              socket={socket}
-              roomId={roomId ?? ''}
-              commentsOnly={false}
-            />
-          }
-          controls={
-            <>
-              <RoomInfoPanel roomId={roomId ?? ''} isHost={false} />
-              <MovieListPanel isHost={false} canManage={isModerator} />
-              {isModerator && <MoviePushPanel isHost={isModerator} />}
-            </>
-          }
-          controlLabels={
-            isModerator
-              ? ['房间状态', '影片列表', '添加影片']
-              : ['房间状态', '影片列表']
-          }
-          webFullscreen={isWebFullscreen}
-        />
-      </>
+      <RoomLayout
+        isHost={false}
+        mainContent={
+          <WatchTogetherPanel
+            key={playerRemountKey}
+            roomId={roomId ?? ''}
+            isHost={false}
+            isWebFullscreen={isWebFullscreen}
+            onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
+          />
+        }
+        rightPanel={
+          <CommentPanel
+            socket={socket}
+            roomId={roomId ?? ''}
+            commentsOnly={false}
+          />
+        }
+        controls={
+          <>
+            <RoomInfoPanel roomId={roomId ?? ''} isHost={false} />
+            <MovieListPanel isHost={false} canManage={isModerator} />
+            {isModerator && <MoviePushPanel isHost={isModerator} />}
+          </>
+        }
+        controlLabels={
+          isModerator
+            ? ['房间状态', '影片列表', '添加影片']
+            : ['房间状态', '影片列表']
+        }
+        webFullscreen={isWebFullscreen}
+      />
     )
   }
 
@@ -157,37 +146,31 @@ function WatchPage() {
     // Beta 未开启：降级提示页，不渲染任何音乐 UI
     //（防御直接 URL / 管理员关闭开关后的存量房间场景）
     if (!betaFeaturesEnabled) {
-      return (
-        <>
-          {modeSwitchPortal}
-          <MusicBetaNotice />
-        </>
-      )
+      return <MusicBetaNotice />
     }
     return (
-      <>
-        {modeSwitchPortal}
-        {/* 一起听：Hydrogen 应用框架作为整页底板，不再套 RoomLayout 外框；
-            Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎；
-            返回改由音乐顶导航按钮承担（房间内弹出确认后离开） */}
-        <MusicPlayerProvider
+      // 一起听：Hydrogen 应用框架作为整页底板，不再套 RoomLayout 外框；
+      // Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎；
+      // 返回改由音乐顶导航按钮承担（房间内弹出确认后离开）
+      <MusicPlayerProvider
+        socket={socket}
+        roomId={roomId}
+        isHost={false}
+        username={username}
+      >
+        <MusicAppShell
           socket={socket}
-          roomId={roomId}
+          roomId={roomId ?? ''}
           isHost={false}
           username={username}
-        >
-          <MusicAppShell
-            socket={socket}
-            roomId={roomId ?? ''}
-            isHost={false}
-            username={username}
-            // 房管观众可管理队列（添加/删除），普通观众仅浏览
-            canManage={isModerator}
-            onBack={() => guardNavigate('/')}
-          />
-          {exitGuardModal}
-        </MusicPlayerProvider>
-      </>
+          // 房管观众可管理队列（添加/删除），普通观众仅浏览
+          canManage={isModerator}
+          // 当前模式标签注入音乐顶导航（与房主滑块位置一致）
+          topNavExtra={<RoomModeSwitchBar isHost={false} />}
+          onBack={() => guardNavigate('/')}
+        />
+        {exitGuardModal}
+      </MusicPlayerProvider>
     )
   }
 

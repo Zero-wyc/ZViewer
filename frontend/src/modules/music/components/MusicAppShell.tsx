@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, type ReactNode } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
@@ -40,6 +40,8 @@ export interface MusicAppShellProps {
   username?: string
   /** 队列管理权限（房主/房管），决定内容页添加按钮可见性 */
   canManage?: boolean
+  /** 注入顶导航右侧的额外元素（如房间模式切换滑块/标签） */
+  topNavExtra?: ReactNode
   /** 返回回调（退出房间入口）：底板化后无 RoomLayout 顶栏，经顶导航返回按钮触发 */
   onBack?: () => void
   /** 模式切换进行中：底板上渲染全屏加载占位 */
@@ -55,6 +57,7 @@ export function MusicAppShell({
   isHost,
   username,
   canManage = false,
+  topNavExtra,
   onBack,
   isModeSwitching = false,
 }: MusicAppShellProps) {
@@ -69,6 +72,7 @@ export function MusicAppShell({
         isHost={isHost}
         username={username}
         canManage={canManage}
+        topNavExtra={topNavExtra}
         onBack={onBack}
         isModeSwitching={isModeSwitching}
       />
@@ -87,6 +91,7 @@ export function MusicAppShell({
         isHost={isHost}
         username={username}
         canManage={canManage}
+        topNavExtra={topNavExtra}
         onBack={onBack}
         isModeSwitching={isModeSwitching}
       />
@@ -100,6 +105,7 @@ function ShellInner({
   isHost,
   username,
   canManage,
+  topNavExtra,
   onBack,
   isModeSwitching,
 }: {
@@ -108,6 +114,7 @@ function ShellInner({
   isHost: boolean
   username?: string
   canManage: boolean
+  topNavExtra?: ReactNode
   onBack?: () => void
   isModeSwitching: boolean
 }) {
@@ -204,8 +211,12 @@ function ShellInner({
           playerOverlayOpen && 'scale-[0.92]'
         )}
       >
-        {/* ===== 顶部导航（返回按钮承担退出房间入口） ===== */}
-        <MusicTopNav isHost={isHost} onBack={onBack} />
+        {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧） ===== */}
+        <MusicTopNav
+          isHost={isHost}
+          modeSwitchSlot={topNavExtra}
+          onBack={onBack}
+        />
 
         {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
         <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
