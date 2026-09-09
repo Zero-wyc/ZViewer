@@ -321,11 +321,11 @@ function LyricRow({
               : 'color-mix(in srgb, var(--md-sys-color-on-surface) 60%, transparent)',
           }}
         >
-          <p className="m-0 truncate text-[20px] font-bold leading-[1.5]">
+          <p className="m-0 break-words text-[20px] font-bold leading-[1.5]">
             {line.text}
           </p>
           {showTranslation && line.translation && (
-            <p className="m-0 truncate text-[14px] font-bold leading-[1.5] opacity-80">
+            <p className="m-0 break-words text-[14px] font-bold leading-[1.5] opacity-80">
               {line.translation}
             </p>
           )}

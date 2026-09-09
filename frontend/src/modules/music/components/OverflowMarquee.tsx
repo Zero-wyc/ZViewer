@@ -41,7 +41,8 @@ export function OverflowMarquee({
         const wrap = wrapRef.current
         const inner = innerRef.current
         if (!wrap || !inner) return
-        const textWidth = inner.scrollWidth / 2 - LOOP_GAP_PX
+        // inner = 文本A + 36px 间隙 + 文本B，单份文本宽度 = (总宽 - 间隙) / 2
+        const textWidth = (inner.scrollWidth - LOOP_GAP_PX) / 2
         const isOverflow = textWidth - wrap.clientWidth > OVERFLOW_THRESHOLD_PX
         setOverflowing(isOverflow)
         setRunId((n) => n + 1)

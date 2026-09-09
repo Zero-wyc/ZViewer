@@ -16,6 +16,7 @@ import { useContext, useEffect, type ReactNode } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
+import { cn } from '@/lib/utils'
 import { useMusicStore } from '../store'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
@@ -203,30 +204,48 @@ function ShellInner({
         )}
       </div>
 
-      {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧） ===== */}
-      <MusicTopNav
-        isHost={isHost}
-        modeSwitchSlot={topNavExtra}
-        onBack={onBack}
-      />
-
-      {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
-      <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
-        {page === 'home' && <MusicHomePage {...pageProps} />}
-        {page === 'search' && <MusicSearchPage {...pageProps} />}
-        {page === 'daily' && <MusicDailyPage {...pageProps} />}
-        {page === 'fm' && (
-          <MusicFmPage socket={socket} roomId={roomId} canManage={canManage} />
+      {/* ===== 主界面（Hydrogen .home 过渡：打开完整播放器时缩小让位） ===== */}
+      <div
+        className={cn(
+          'flex min-h-0 flex-1 flex-col transition-transform duration-500 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
+          playerOverlayOpen && 'scale-[0.92]'
         )}
-        {page === 'mymusic' && <MusicMyPage {...pageProps} />}
-        {page === 'cloud' && <MusicCloudPage {...pageProps} />}
-        {page === 'siren' && <MusicSirenPage {...pageProps} />}
-      </main>
+      >
+        {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧） ===== */}
+        <MusicTopNav
+          isHost={isHost}
+          modeSwitchSlot={topNavExtra}
+          onBack={onBack}
+        />
+
+        {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
+        <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
+          {page === 'home' && <MusicHomePage {...pageProps} />}
+          {page === 'search' && <MusicSearchPage {...pageProps} />}
+          {page === 'daily' && <MusicDailyPage {...pageProps} />}
+          {page === 'fm' && (
+            <MusicFmPage
+              socket={socket}
+              roomId={roomId}
+              canManage={canManage}
+            />
+          )}
+          {page === 'mymusic' && <MusicMyPage {...pageProps} />}
+          {page === 'cloud' && <MusicCloudPage {...pageProps} />}
+          {page === 'siren' && <MusicSirenPage {...pageProps} />}
+        </main>
+      </div>
 
       {/* ===== 底部悬浮播放条（Hydrogen .musicWidget 范式）：fixed 水平居中 +
           底距 35px + 定宽 722px，阴影托起悬浮感；脱离文档流后不再挤压内容页，
-          队列弹窗仍相对本容器从播放条上方弹出 ===== */}
-      <div className="fixed bottom-[35px] left-1/2 z-30 w-[722px] max-w-[calc(100%-2rem)] -translate-x-1/2">
+          队列弹窗仍相对本容器从播放条上方弹出。打开完整播放器时整条下滑消失
+          （Hydrogen .widget-leave：bottom → -70px） ===== */}
+      <div
+        className={cn(
+          'fixed left-1/2 z-30 w-[722px] max-w-[calc(100%-2rem)] -translate-x-1/2 transition-[bottom] duration-500 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
+          playerOverlayOpen ? 'bottom-[-70px]' : 'bottom-[35px]'
+        )}
+      >
         <MusicWidgetBar />
         {queuePopupOpen && (
           <MusicQueuePopup
@@ -253,6 +272,7 @@ function ShellInner({
             roomId={roomId}
             isHost={isHost}
             username={username}
+            canManage={canManage}
           />
           {/* 右上角收起按钮（滑出动画结束后卸载） */}
           <button
