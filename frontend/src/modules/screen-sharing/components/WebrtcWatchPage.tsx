@@ -376,7 +376,6 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
 
   return (
     <RoomLayout
-      isHost={false}
       mainContent={playerContent}
       peerConnection={pc}
       sharingRole="receiver"

@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { setClientLoggerRoomId } from '@/lib/clientLogger'
 import { useSocket } from '@/hooks/useSocket'
+import { useHeaderCenterSlot } from '@/hooks/useHeaderCenterSlot'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 import { VoiceChatPanel } from '@/modules/voice-chat'
 import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
@@ -134,14 +136,16 @@ function RoomPage() {
     setDanmakuMeta,
   ])
   const { socket } = useSocket()
-  // 房间模式切换（房主 emit + ack/超时/断线兜底）：状态上移到页面级，
-  // 滑块既渲染在 RoomLayout 顶栏（一起看/投屏），一起听时也注入音乐顶导航
-  // （MusicAppShell → MusicTopNav 的 modeSwitchSlot），两处共用同一份状态
+  // 房间模式切换（房主 emit + ack/超时/断线兜底）：状态上移到页面级；
+  // 滑块统一经 useHeaderCenterSlot portal 注入全局 Header 中央槽位（最顶部栏），
+  // 所有模式（一起看/投屏/一起听）共用同一份状态与同一渲染位置
   const { isModeSwitching, handleSwitchMode } = useRoomModeSwitch(
     socket,
     roomId ?? '',
     isHost
   )
+  // 全局 Header 中央槽位（fixed 最顶部栏）：模式切换滑块的注入点
+  const headerCenterSlot = useHeaderCenterSlot()
   // 退出守卫：一起听底板化后无 RoomLayout 顶栏返回按钮，返回改由音乐顶导航
   // 承担（guardNavigate 在房间内弹出确认）；其他模式仍用 RoomLayout 内置守卫
   const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
@@ -399,6 +403,19 @@ function RoomPage() {
     const isListenTogether = mode === 'listen-together'
     const musicBetaClosed = isListenTogether && !betaFeaturesEnabled
 
+    // 模式切换滑块 → 全局 Header 中央槽位（fixed 最顶部栏，所有模式统一位置）
+    const modeSwitchPortal =
+      headerCenterSlot != null
+        ? createPortal(
+            <RoomModeSwitchBar
+              isHost
+              onSwitch={handleSwitchMode}
+              isSwitching={isModeSwitching}
+            />,
+            headerCenterSlot
+          )
+        : null
+
     // 一起听（Beta 开启）：Hydrogen 应用框架升级为整页底板——不再套 RoomLayout
     // 外框（玻璃卡片 + 顶部工具栏），语音/流量悬浮面板照常叠加；返回改由音乐
     // 顶导航按钮承担（房间内弹出确认后离开）
@@ -419,19 +436,12 @@ function RoomPage() {
               username={username}
               // 房主天然拥有队列管理权限（添加/切歌/删除）
               canManage
-              // 模式切换滑块注入音乐顶导航（替代 RoomLayout 顶栏位置）
-              topNavExtra={
-                <RoomModeSwitchBar
-                  isHost
-                  onSwitch={handleSwitchMode}
-                  isSwitching={isModeSwitching}
-                />
-              }
               isModeSwitching={isModeSwitching}
               onBack={() => guardNavigate('/')}
             />
             {exitGuardModal}
           </MusicPlayerProvider>
+          {modeSwitchPortal}
           {voiceChatPanel}
           {trafficPanel}
         </>
@@ -489,7 +499,6 @@ function RoomPage() {
 
     const roomLayout = (
       <RoomLayout
-        isHost
         mainContent={mainContent}
         rightPanel={
           <CommentPanel
@@ -507,7 +516,6 @@ function RoomPage() {
         controls={controls}
         controlLabels={controlLabels}
         webFullscreen={isWebFullscreen}
-        onSwitchMode={handleSwitchMode}
         isModeSwitching={isModeSwitching}
       />
     )
@@ -515,6 +523,7 @@ function RoomPage() {
     // 到达此处的听模式只剩 Beta 关闭降级（提示页，不依赖音乐引擎），无需 Provider
     return (
       <>
+        {modeSwitchPortal}
         {roomLayout}
         {voiceChatPanel}
         {trafficPanel}

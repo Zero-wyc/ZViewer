@@ -335,6 +335,14 @@ export function Header() {
           </span>
         </button>
 
+        {/* 中央槽位：页面可经 createPortal 注入内容（如房间模式切换滑块），
+            脚本按 id 查找挂载点；无注入内容时空占位，布局不受影响。
+            移动端隐藏（Header 右侧按钮密集，避免溢出） */}
+        <div
+          id="header-center-slot"
+          className="hidden flex-1 justify-center px-2 md:flex"
+        />
+
         <div className="flex items-center gap-1.5">
           <a
             href="https://github.com/Zero-wyc/ZViewer"
