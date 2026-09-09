@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect, useState, type ReactNode } from 'react'
+import { useContext, useEffect, type ReactNode } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
@@ -126,8 +126,6 @@ function ShellInner({
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
   // 带滑出动画的覆盖层关闭（0.5s 滑出后卸载）
   const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
-  /** 悬浮顶栏是否展开（顶部横条 hover 触发，移开顶栏收起） */
-  const [topNavVisible, setTopNavVisible] = useState(false)
 
   const {
     approveControl,
@@ -153,7 +151,7 @@ function ShellInner({
   const pageProps = { socket, roomId, canManage }
 
   return (
-    <div className="relative flex h-[calc(100vh-64px)] min-w-0 flex-col overflow-hidden">
+    <div className="relative mt-16 flex h-[calc(100vh-64px)] min-w-0 flex-col overflow-hidden">
       {/* ===== 左上角提示区：房主离线 + syncNotice（含房主审批按钮） ===== */}
       <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2">
         {hostOffline && !canControl && (
@@ -206,76 +204,26 @@ function ShellInner({
         )}
       </div>
 
-      {/* ===== 主界面（Hydrogen .home 过渡：打开完整播放器时缩小让位） ===== */}
-      <div
-        className={cn(
-          'relative flex min-h-0 flex-1 flex-col transition-transform duration-500 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
-          playerOverlayOpen && 'scale-[0.92]'
-        )}
-      >
-        {/* ===== 悬浮顶栏（默认隐藏，鼠标悬停顶部中间横条展开）：
-            absolute 悬浮不推挤内容页；完整播放器打开时不渲染 ===== */}
-        {!playerOverlayOpen && (
-          <>
-            {/* 触发横条（顶部中间，常驻）：hover 展开悬浮顶栏，顶栏显示后隐藏 */}
-            <button
-              type="button"
-              aria-label="显示顶栏"
-              className={cn(
-                'absolute left-1/2 top-0 z-[46] h-1.5 w-36 -translate-x-1/2 rounded-b-[4px] transition-all duration-300 hover:h-2',
-                topNavVisible && 'pointer-events-none opacity-0'
-              )}
-              style={{
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
-              }}
-              onMouseEnter={() => setTopNavVisible(true)}
-            />
-            {/* 悬浮顶栏本体（玻璃底 + 阴影，从顶部滑入 / 上滑收起） */}
-            <div
-              className={cn(
-                'absolute inset-x-0 top-0 z-[45] transition-all duration-300 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
-                topNavVisible
-                  ? 'translate-y-0 opacity-100'
-                  : '-translate-y-full opacity-0'
-              )}
-              style={{
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent)',
-                backdropFilter: 'blur(20px)',
-                WebkitBackdropFilter: 'blur(20px)',
-                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
-              }}
-              onMouseEnter={() => setTopNavVisible(true)}
-              onMouseLeave={() => setTopNavVisible(false)}
-            >
-              {/* 顶部导航（返回 + 模式切换滑块/标签注入右侧） */}
-              <MusicTopNav
-                isHost={isHost}
-                modeSwitchSlot={topNavExtra}
-                onBack={onBack}
-              />
-            </div>
-          </>
-        )}
+      {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧）。
+          mt-16 为全局 Header（fixed）预留空间：底板从其下方开始铺满到视口底 ===== */}
+      <MusicTopNav
+        isHost={isHost}
+        modeSwitchSlot={topNavExtra}
+        onBack={onBack}
+      />
 
-        {/* ===== 内容页（flex-1 滚动，多页切换；悬浮顶栏不占位、底部让位给悬浮播放条） ===== */}
-        <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
-          {page === 'home' && <MusicHomePage {...pageProps} />}
-          {page === 'search' && <MusicSearchPage {...pageProps} />}
-          {page === 'daily' && <MusicDailyPage {...pageProps} />}
-          {page === 'fm' && (
-            <MusicFmPage
-              socket={socket}
-              roomId={roomId}
-              canManage={canManage}
-            />
-          )}
-          {page === 'mymusic' && <MusicMyPage {...pageProps} />}
-          {page === 'cloud' && <MusicCloudPage {...pageProps} />}
-          {page === 'siren' && <MusicSirenPage {...pageProps} />}
-        </main>
-      </div>
+      {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
+      <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
+        {page === 'home' && <MusicHomePage {...pageProps} />}
+        {page === 'search' && <MusicSearchPage {...pageProps} />}
+        {page === 'daily' && <MusicDailyPage {...pageProps} />}
+        {page === 'fm' && (
+          <MusicFmPage socket={socket} roomId={roomId} canManage={canManage} />
+        )}
+        {page === 'mymusic' && <MusicMyPage {...pageProps} />}
+        {page === 'cloud' && <MusicCloudPage {...pageProps} />}
+        {page === 'siren' && <MusicSirenPage {...pageProps} />}
+      </main>
 
       {/* ===== 底部悬浮播放条（Hydrogen .musicWidget 范式）：fixed 水平居中 +
           底距 35px + 定宽 722px，阴影托起悬浮感；脱离文档流后不再挤压内容页，

@@ -39,6 +39,7 @@ const GithubIcon = ({ className }: { className?: string }) => (
   </svg>
 )
 import { useAuthStore } from '@/store/authStore'
+import { useRoomStore } from '@/store/roomStore'
 import {
   apiFetch,
   getCustomApiUrl,
@@ -80,6 +81,11 @@ export function Header() {
     confirmModal: exitGuardModal,
     needsGuard,
   } = useRoomExitGuard()
+  const roomMode = useRoomStore((s) => s.mode)
+  /** 一起听模式（沉浸）：全局顶栏默认隐藏，顶部中间横条触发显示 */
+  const immersive = roomMode === 'listen-together'
+  /** 鼠标悬停触发的显示状态 */
+  const [hoverVisible, setHoverVisible] = useState(false)
   const { user, logout, isAuthenticated } = useAuthStore()
   const {
     isDark,
@@ -103,6 +109,17 @@ export function Header() {
   const [userClosing, setUserClosing] = useState(false)
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false)
   const [serverModalOpen, setServerModalOpen] = useState(false)
+
+  // 任一菜单/弹窗打开时锁定顶栏（鼠标移动到 portal 内容会触发根元素
+  // mouseleave，不锁定会把还开着的菜单连顶栏一起收走）
+  const menuLocked =
+    themeOpen ||
+    themeClosing ||
+    userOpen ||
+    userClosing ||
+    backgroundModalOpen ||
+    serverModalOpen
+  const headerShown = !immersive || hoverVisible || menuLocked
   const [customApiUrl, setCustomApiUrlState] = useState(getCustomApiUrl())
   const [customSocketUrl, setCustomSocketUrlState] =
     useState(getCustomSocketUrl())
@@ -327,7 +344,31 @@ export function Header() {
 
   return (
     <>
-      <header className="glass fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3">
+      {/* 一起听模式触发横条：顶栏隐藏时常驻顶部中间，hover / 点击展开顶栏；
+          顶栏显示后隐藏（避免色块压在顶栏上） */}
+      {immersive && !headerShown && (
+        <button
+          type="button"
+          aria-label="显示顶栏"
+          className="fixed left-1/2 top-0 z-[49] h-1.5 w-36 -translate-x-1/2 rounded-b-[4px] transition-all duration-300 hover:h-2"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
+          }}
+          onMouseEnter={() => setHoverVisible(true)}
+          onClick={() => setHoverVisible(true)}
+        />
+      )}
+      <header
+        className={cn(
+          'glass fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 transition-transform duration-300 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
+          immersive && !headerShown && '-translate-y-full'
+        )}
+        onMouseEnter={() => setHoverVisible(true)}
+        onMouseLeave={() => {
+          if (!menuLocked) setHoverVisible(false)
+        }}
+      >
         <button
           onClick={() => guardNavigate('/')}
           className="relative z-50 flex items-center gap-2 cursor-pointer"
