@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect, type ReactNode } from 'react'
+import { useContext, useEffect, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
