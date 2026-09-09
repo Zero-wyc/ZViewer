@@ -32,6 +32,7 @@ import { MusicFmPage } from '../pages/MusicFmPage'
 import { MusicMyPage } from '../pages/MusicMyPage'
 import { MusicCloudPage } from '../pages/MusicCloudPage'
 import { MusicSirenPage } from '../pages/MusicSirenPage'
+import { useNcmLogin } from '../hooks/useNcmLogin'
 
 export interface MusicAppShellProps {
   socket: Socket | null
@@ -126,6 +127,12 @@ function ShellInner({
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
   // 带滑出动画的覆盖层关闭（0.5s 滑出后卸载）
   const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
+
+  // 挂载时恢复网易云登录态：useNcmLogin 挂载即调 /api/music/login/status 并
+  // 写入 useMusicStore。登录态是内存态（刷新即丢），而扫码弹窗（hook 的唯一
+  // 挂载点）未打开前无人恢复——导致后端凭据明明存在（个人中心直查显示已登录），
+  // 听页面账户菜单/登录门却显示未登录。壳层挂载即恢复，页面内容即可用。
+  useNcmLogin()
 
   const {
     approveControl,
