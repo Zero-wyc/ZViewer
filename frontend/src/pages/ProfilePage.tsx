@@ -613,31 +613,13 @@ export default function ProfilePage() {
               </div>
               <Text className="text-sm font-medium">账号绑定</Text>
 
-              {/* 平台切换按钮（M3 segmented 胶囊）：紧贴标题右侧，展示已绑定的网易云 / B站账号 */}
+              {/* 平台切换按钮（M3 segmented 胶囊）：紧贴标题右侧，展示已绑定的 B站 / 网易云账号 */}
               <div
                 className="flex items-center rounded-full p-0.5"
                 style={{
                   backgroundColor: 'var(--md-sys-color-surface-container)',
                 }}
               >
-                <button
-                  type="button"
-                  onClick={() => setBindPlatform('ncm')}
-                  className="flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium transition-all"
-                  style={
-                    bindPlatform === 'ncm'
-                      ? {
-                          backgroundColor:
-                            'var(--md-sys-color-tertiary-container)',
-                          color: 'var(--md-sys-color-on-tertiary-container)',
-                        }
-                      : {
-                          color: 'var(--md-sys-color-on-surface-variant)',
-                        }
-                  }
-                >
-                  网易云
-                </button>
                 <button
                   type="button"
                   onClick={() => setBindPlatform('bilibili')}
@@ -656,6 +638,24 @@ export default function ProfilePage() {
                 >
                   哔哩哔哩
                 </button>
+                <button
+                  type="button"
+                  onClick={() => setBindPlatform('ncm')}
+                  className="flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium transition-all"
+                  style={
+                    bindPlatform === 'ncm'
+                      ? {
+                          backgroundColor:
+                            'var(--md-sys-color-tertiary-container)',
+                          color: 'var(--md-sys-color-on-tertiary-container)',
+                        }
+                      : {
+                          color: 'var(--md-sys-color-on-surface-variant)',
+                        }
+                  }
+                >
+                  网易云
+                </button>
               </div>
             </div>
 
@@ -670,7 +670,10 @@ export default function ProfilePage() {
                   <div className="flex min-w-0 flex-1 items-center gap-3">
                     <Avatar
                       size="md"
-                      src={ncmLoginInfo.avatarUrl ?? undefined}
+                      src={ncmLoginInfo.avatarUrl?.replace(
+                        'http://',
+                        'https://'
+                      )}
                       alt={ncmLoginInfo.nickname ?? '网易云音乐'}
                     />
                     <div className="min-w-0 flex-1">

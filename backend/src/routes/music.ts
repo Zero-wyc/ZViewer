@@ -396,7 +396,27 @@ router.get(
   '/login/status',
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
     try {
-      const credential = await loadCredential(req.user?.userId);
+      let credential = await loadCredential(req.user?.userId);
+      // 扫码登录落库时响应不含账号资料（/login/qr/check 只返回 code），
+      // 旧凭据可能缺昵称/头像：用凭据 cookie 实时调 /user/account 补全并回写
+      if (credential && (!credential.nickname || !credential.avatarUrl)) {
+        try {
+          const cookieHeader = toCookieHeader(credential.cookies);
+          if (cookieHeader) {
+            const { body } = await callNcmApi('/user/account', cookieHeader);
+            const profile = extractProfile(body);
+            if (profile) {
+              credential.nickname = profile.nickname ?? credential.nickname;
+              credential.avatarUrl = profile.avatarUrl ?? credential.avatarUrl;
+              await AppDataSource.getRepository(NcmCredential).save(
+                credential,
+              );
+            }
+          }
+        } catch (err) {
+          console.warn('[music] login/status 账号资料补全失败:', err);
+        }
+      }
       res.json({
         loggedIn: !!credential,
         nickname: credential?.nickname ?? null,
