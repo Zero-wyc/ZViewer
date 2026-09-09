@@ -15,6 +15,8 @@ import {
   Trash2,
   Download,
   Cookie,
+  Link2,
+  Music,
 } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
@@ -41,6 +43,7 @@ import {
 import MountManager from '@/modules/mounts/MountManager'
 import ServerFileManager from '@/modules/server-files/ServerFileManager'
 import { BilibiliDownloadModal } from '@/modules/server-files/BilibiliDownloadModal'
+import { useNcmLogin, type NcmQrStatus } from '@/modules/music'
 import { apiFetch } from '@/lib/api'
 
 /** 构建头像完整 URL（后端返回相对路径，前端拼接 API_URL） */
@@ -97,6 +100,72 @@ export default function ProfilePage() {
   const [oldPassword, setOldPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+
+  // ===== 账号绑定（网易云 / B站 平台切换） =====
+  const [bindPlatform, setBindPlatform] = useState<'ncm' | 'bilibili'>(
+    'bilibili'
+  )
+  /** 网易云登录状态查询进行中（避免「未绑定」闪现） */
+  const [ncmChecking, setNcmChecking] = useState(true)
+  const [ncmQrModalOpen, setNcmQrModalOpen] = useState(false)
+  // 网易云扫码登录（与一起听模块共享 useMusicStore 登录态，后端凭据同一份）
+  const {
+    qrImg: ncmQrImg,
+    status: ncmQrStatus,
+    startLogin: ncmStartLogin,
+    stopPolling: ncmStopPolling,
+    loginStatus: ncmLoginInfo,
+    fetchLoginStatus: ncmFetchLoginStatus,
+    logout: ncmLogout,
+  } = useNcmLogin()
+
+  /** 网易云扫码状态文案 */
+  const NCM_QR_STATUS_TEXT: Record<NcmQrStatus, string> = {
+    idle: '准备中…',
+    generating: '正在生成二维码…',
+    waiting: '请使用网易云音乐 App 扫码登录',
+    scanned: '已扫码，请在手机上确认',
+    success: '登录成功',
+    error: '生成二维码失败，请重试',
+  }
+
+  // 进入页面时主动查询网易云登录状态（useMusicStore 是内存态，刷新即丢）
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      await ncmFetchLoginStatus()
+      if (!cancelled) setNcmChecking(false)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [ncmFetchLoginStatus])
+
+  // 扫码成功：提示并延迟关闭登录弹窗（留出成功反馈的阅读时间）
+  useEffect(() => {
+    if (ncmQrStatus !== 'success') return
+    message.success('网易云音乐登录成功')
+    const timer = setTimeout(() => {
+      setNcmQrModalOpen(false)
+      ncmStopPolling()
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [ncmQrStatus, ncmStopPolling])
+
+  const handleOpenNcmQr = useCallback(() => {
+    setNcmQrModalOpen(true)
+    void ncmStartLogin()
+  }, [ncmStartLogin])
+
+  const handleCloseNcmQr = useCallback(() => {
+    setNcmQrModalOpen(false)
+    ncmStopPolling()
+  }, [ncmStopPolling])
+
+  const handleNcmLogout = useCallback(async () => {
+    await ncmLogout()
+    message.success('已退出网易云音乐登录')
+  }, [ncmLogout])
   const [passwordLoading, setPasswordLoading] = useState(false)
 
   const [newUsername, setNewUsername] = useState('')
@@ -458,7 +527,7 @@ export default function ProfilePage() {
             个人中心
           </Title>
           <Text type="secondary">
-            管理您的 ZViewer 账号、挂载配置与 B站 绑定
+            管理您的 ZViewer 账号、挂载配置与网易云 / B站 账号绑定
           </Text>
         </div>
 
@@ -531,22 +600,132 @@ export default function ProfilePage() {
             </div>
           </div>
 
-          {/* B站 绑定状态 */}
+          {/* 账号绑定（网易云 / B站，平台切换展示） */}
           <div className="glass-card p-4">
-            <div className="mb-3 flex items-center gap-2">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <div
+                  className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                  style={{
+                    backgroundColor: 'var(--md-sys-color-tertiary-container)',
+                    color: 'var(--md-sys-color-on-tertiary-container)',
+                  }}
+                >
+                  <Link2 className="h-4 w-4" />
+                </div>
+                <Text className="text-sm font-medium">账号绑定</Text>
+              </div>
+
+              {/* 平台切换按钮（M3 segmented 胶囊）：展示已绑定的网易云 / B站账号 */}
               <div
-                className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                className="flex items-center rounded-full p-0.5"
                 style={{
-                  backgroundColor: 'var(--md-sys-color-tertiary-container)',
-                  color: 'var(--md-sys-color-on-tertiary-container)',
+                  backgroundColor: 'var(--md-sys-color-surface-container)',
                 }}
               >
-                <Tv className="h-4 w-4" />
+                <button
+                  type="button"
+                  onClick={() => setBindPlatform('ncm')}
+                  className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-all"
+                  style={
+                    bindPlatform === 'ncm'
+                      ? {
+                          backgroundColor:
+                            'var(--md-sys-color-tertiary-container)',
+                          color: 'var(--md-sys-color-on-tertiary-container)',
+                        }
+                      : {
+                          color: 'var(--md-sys-color-on-surface-variant)',
+                        }
+                  }
+                >
+                  <Music className="h-3.5 w-3.5" />
+                  网易云
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBindPlatform('bilibili')}
+                  className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-all"
+                  style={
+                    bindPlatform === 'bilibili'
+                      ? {
+                          backgroundColor:
+                            'var(--md-sys-color-tertiary-container)',
+                          color: 'var(--md-sys-color-on-tertiary-container)',
+                        }
+                      : {
+                          color: 'var(--md-sys-color-on-surface-variant)',
+                        }
+                  }
+                >
+                  <Tv className="h-3.5 w-3.5" />
+                  哔哩哔哩
+                </button>
               </div>
-              <Text className="text-sm font-medium">B站 绑定状态</Text>
             </div>
 
-            {bilibiliLoading ? (
+            {bindPlatform === 'ncm' ? (
+              /* ===== 网易云面板 ===== */
+              ncmChecking ? (
+                <div className="py-4">
+                  <Spinner tip="加载中..." size={28} />
+                </div>
+              ) : ncmLoginInfo.loggedIn ? (
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="flex min-w-0 flex-1 items-center gap-3">
+                    <Avatar
+                      size="md"
+                      src={ncmLoginInfo.avatarUrl ?? undefined}
+                      alt={ncmLoginInfo.nickname ?? '网易云音乐'}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 items-center gap-2">
+                        <p className="min-w-0 truncate text-base font-medium text-[var(--md-sys-color-on-surface)]">
+                          {ncmLoginInfo.nickname ?? '网易云音乐用户'}
+                        </p>
+                        <Tag
+                          color="cyan"
+                          className="shrink-0 px-1.5 py-0 text-[10px]"
+                        >
+                          <Music className="mr-0.5 h-3 w-3" />
+                          网易云
+                        </Tag>
+                      </div>
+                      <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                        已绑定网易云音乐账号
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-1.5">
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      className="w-8 justify-center px-0"
+                      icon={<LogOut className="h-4 w-4" />}
+                      onClick={() => void handleNcmLogout()}
+                      title="退出网易云音乐登录"
+                      aria-label="退登"
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  <Paragraph type="secondary" className="m-0 text-sm">
+                    未绑定网易云音乐账号
+                  </Paragraph>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      icon={<QrCode className="h-4 w-4" />}
+                      onClick={handleOpenNcmQr}
+                    >
+                      扫码登录网易云
+                    </Button>
+                  </div>
+                </div>
+              )
+            ) : bilibiliLoading ? (
               <div className="py-4">
                 <Spinner tip="加载中..." size={28} />
               </div>
@@ -648,9 +827,11 @@ export default function ProfilePage() {
           </div>
         )}
 
-        {!bilibiliLoading && bilibiliUser && (
+        {(bindPlatform === 'ncm'
+          ? !ncmChecking && ncmLoginInfo.loggedIn
+          : !bilibiliLoading && bilibiliUser) && (
           <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end sm:gap-2">
-            {betaFeaturesEnabled && (
+            {bindPlatform === 'bilibili' && betaFeaturesEnabled && (
               <Button
                 variant="ghost"
                 size="sm"
@@ -664,7 +845,11 @@ export default function ProfilePage() {
               variant="secondary"
               size="sm"
               icon={<RefreshCw className="h-4 w-4" />}
-              onClick={() => void loadBilibiliUser()}
+              onClick={() =>
+                void (bindPlatform === 'ncm'
+                  ? ncmFetchLoginStatus()
+                  : loadBilibiliUser())
+              }
             >
               刷新绑定状态
             </Button>
@@ -777,6 +962,63 @@ export default function ProfilePage() {
             }}
             disabled={cookieLoading}
           />
+        </div>
+      </Modal>
+
+      {/* 网易云扫码登录 Modal（与一起听模块共用 useNcmLogin 与后端凭据） */}
+      <Modal
+        open={ncmQrModalOpen}
+        onClose={handleCloseNcmQr}
+        title="扫码登录网易云音乐"
+        footer={
+          <Button variant="secondary" size="sm" onClick={handleCloseNcmQr}>
+            关闭
+          </Button>
+        }
+      >
+        <div className="flex flex-col items-center gap-4">
+          {ncmQrImg ? (
+            <img
+              src={ncmQrImg}
+              alt="网易云音乐登录二维码"
+              className="rounded-lg border"
+              style={{
+                width: 200,
+                height: 200,
+                borderColor: 'var(--md-sys-color-outline-variant)',
+              }}
+            />
+          ) : (
+            <div
+              className="glass rounded-lg flex items-center justify-center"
+              style={{
+                width: 200,
+                height: 200,
+              }}
+            >
+              <Spinner tip="正在生成二维码…" size={28} />
+            </div>
+          )}
+          <Paragraph
+            className={`m-0 text-sm ${
+              ncmQrStatus === 'success'
+                ? 'text-[var(--md-sys-color-secondary)]'
+                : ncmQrStatus === 'error'
+                  ? 'text-[var(--md-sys-color-error)]'
+                  : ''
+            }`}
+          >
+            {NCM_QR_STATUS_TEXT[ncmQrStatus]}
+          </Paragraph>
+          {ncmQrStatus === 'error' && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void ncmStartLogin()}
+            >
+              重新获取二维码
+            </Button>
+          )}
         </div>
       </Modal>
 
