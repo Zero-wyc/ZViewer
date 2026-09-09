@@ -5,7 +5,6 @@ import {
   Shield,
   QrCode,
   LogOut,
-  Tv,
   RefreshCw,
   KeyRound,
   AtSign,
@@ -624,7 +623,7 @@ export default function ProfilePage() {
                 <button
                   type="button"
                   onClick={() => setBindPlatform('ncm')}
-                  className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-all"
+                  className="flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium transition-all"
                   style={
                     bindPlatform === 'ncm'
                       ? {
@@ -637,13 +636,12 @@ export default function ProfilePage() {
                         }
                   }
                 >
-                  <Music className="h-3.5 w-3.5" />
                   网易云
                 </button>
                 <button
                   type="button"
                   onClick={() => setBindPlatform('bilibili')}
-                  className="flex items-center gap-1 rounded-full px-3 py-1 text-xs font-medium transition-all"
+                  className="flex items-center rounded-full px-2.5 py-1 text-[11px] font-medium transition-all"
                   style={
                     bindPlatform === 'bilibili'
                       ? {
@@ -656,7 +654,6 @@ export default function ProfilePage() {
                         }
                   }
                 >
-                  <Tv className="h-3.5 w-3.5" />
                   哔哩哔哩
                 </button>
               </div>
