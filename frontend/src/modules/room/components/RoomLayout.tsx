@@ -14,10 +14,8 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Title } from '@/components/ui/Typography'
 import { Spinner } from '@/components/ui/Spinner'
-import { message } from '@/components/ui/message'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
-import { useSocket } from '@/hooks/useSocket'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 import { SharingStatusPanel } from '@/modules/room/components/SharingStatusPanel'
 import {
@@ -26,10 +24,9 @@ import {
 } from '@/lib/fullscreen-utils'
 import type { SharingMode } from '@/modules/screen-sharing/hooks/useConnectionStats'
 import type { P2PStatus } from '@/modules/p2p/types'
+import { MODE_LABELS, MODE_ORDER } from './useRoomModeSwitch'
 
 interface RoomLayoutProps {
-  /** 房间 ID，用于模式切换 socket 事件 */
-  roomId: string
   /** 是否房主：房主可切换模式，观众只显示当前模式标签 */
   isHost: boolean
   title?: string
@@ -71,22 +68,57 @@ interface RoomLayoutProps {
    * 用于在网页全屏时隐藏底部卡片等页面元素。
    */
   webFullscreen?: boolean
+  /** 模式切换回调（页面级 useRoomModeSwitch 提供）：
+   *  一起看/投屏时顶栏滑块触发；一起听时滑块已移至音乐顶导航 */
+  onSwitchMode?: (mode: RoomMode) => void
+  /** 模式切换进行中（页面级 hook 状态）：主区域加载占位 + 滑块禁用 */
+  isModeSwitching?: boolean
 }
 
-const MODE_LABELS: Record<RoomMode, string> = {
-  'watch-together': '一起看',
-  'screen-share': '投屏',
-  'listen-together': '一起听',
+interface RoomModeSwitchBarProps {
+  isHost: boolean
+  /** 切换回调（观众只显示标签，无交互，可缺省） */
+  onSwitch?: (mode: RoomMode) => void
+  /** 切换进行中：滑块禁用 */
+  isSwitching?: boolean
 }
 
-const MODE_ORDER: RoomMode[] = [
-  'watch-together',
-  'screen-share',
-  'listen-together',
-]
+/**
+ * 顶部模式切换栏：房主显示三模式滑块（当前模式高亮），观众只显示当前模式标签。
+ * 一起看/投屏时渲染于 RoomLayout 顶栏；一起听时注入音乐顶导航
+ * （MusicTopNav 的 modeSwitchSlot，位于账户按钮左侧）。
+ */
+export function RoomModeSwitchBar({
+  isHost,
+  onSwitch,
+  isSwitching = false,
+}: RoomModeSwitchBarProps) {
+  const roomMode = useRoomStore((state) => state.mode)
+  if (isHost) {
+    return (
+      <SegmentedToggle
+        options={MODE_ORDER.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+        value={roomMode}
+        onChange={(value) => onSwitch?.(value as RoomMode)}
+        disabled={isSwitching}
+        className="[&_button]:px-2.5 [&_button]:py-1 md:[&_button]:px-4 md:[&_button]:py-1.5"
+      />
+    )
+  }
+  return (
+    <div
+      className="glass-strong rounded-full border border-[var(--md-sys-color-outline)] px-4 py-1.5 text-xs font-medium shadow-lg ring-1 ring-[var(--md-sys-color-outline-variant)]/40"
+      style={{
+        backgroundColor: 'var(--md-sys-color-primary)',
+        color: 'var(--md-sys-color-on-primary)',
+      }}
+    >
+      {MODE_LABELS[roomMode]}
+    </div>
+  )
+}
 
 export function RoomLayout({
-  roomId,
   isHost,
   title,
   onBack,
@@ -105,9 +137,10 @@ export function RoomLayout({
   onToggleP2P,
   sharingActive,
   webFullscreen = false,
+  onSwitchMode,
+  isModeSwitching = false,
 }: RoomLayoutProps) {
   const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
-  const { socket } = useSocket()
   // defaultBack 由 guardNavigate 统一处理：
   // 在房间内时弹出确认对话框，确认后仅导航离开——房间保持运行，
   // activeRoomId 保留，右上角显示「回到房间」入口；
@@ -136,108 +169,13 @@ export function RoomLayout({
   // 一起听模式：无评论区/弹幕轨道/实时弹幕——整个右侧面板与展开按钮
   // 一并隐藏（房主/观众两侧共用本布局，一处生效）
   const hideRightPanel = roomMode === 'listen-together'
-  const setMode = useRoomStore((state) => state.setMode)
   const storeIsSharing = useRoomStore((state) => state.isSharing)
-
-  // 模式切换加载占位：房主点击切换后等待后端确认期间显示 Spinner
-  const [isModeSwitching, setIsModeSwitching] = useState(false)
-
-  // 用于保护模式切换过程中的竞态：记录当前请求的 id 与超时定时器
-  const switchingRef = useRef<{
-    id: number
-    timer: ReturnType<typeof setTimeout> | null
-  } | null>(null)
 
   const isSharing =
     sharingActive ?? (roomMode === 'screen-share' && storeIsSharing)
 
   // 播放器容器使用固定高度（calc(100vh - 220px)），不使用 aspect-video，
   // 避免右侧面板内容撑开导致播放器高度变化。
-
-  // 监听 room-mode-changed：观众端跟随房主切换无需刷新；
-  // 同时清除本地加载占位（房主切换完成后）。
-  useEffect(() => {
-    if (!socket) return
-
-    const handleRoomModeChanged = (data: { mode: RoomMode }) => {
-      setMode(data.mode)
-      setIsModeSwitching(false)
-    }
-
-    const handleDisconnect = () => {
-      if (switchingRef.current) {
-        if (switchingRef.current.timer) {
-          clearTimeout(switchingRef.current.timer)
-        }
-        switchingRef.current = null
-        setIsModeSwitching(false)
-        message.error('连接已断开，请刷新页面后重试')
-      }
-    }
-
-    socket.on('room-mode-changed', handleRoomModeChanged)
-    socket.on('disconnect', handleDisconnect)
-
-    return () => {
-      if (switchingRef.current?.timer) {
-        clearTimeout(switchingRef.current.timer)
-      }
-      switchingRef.current = null
-      setIsModeSwitching(false)
-      socket.off('room-mode-changed', handleRoomModeChanged)
-      socket.off('disconnect', handleDisconnect)
-    }
-  }, [socket, setMode])
-
-  const handleSwitchMode = (targetMode: RoomMode) => {
-    if (!socket || !isHost || targetMode === roomMode || isModeSwitching) {
-      return
-    }
-
-    const nextId = (switchingRef.current?.id ?? 0) + 1
-    if (switchingRef.current?.timer) {
-      clearTimeout(switchingRef.current.timer)
-    }
-    switchingRef.current = { id: nextId, timer: null }
-    setIsModeSwitching(true)
-
-    const timer = setTimeout(() => {
-      if (switchingRef.current?.id === nextId) {
-        switchingRef.current = null
-        setIsModeSwitching(false)
-        message.error('切换超时，请重试')
-      }
-    }, 5000)
-
-    switchingRef.current.timer = timer
-
-    socket.emit(
-      'update-room-mode',
-      { roomId, mode: targetMode },
-      (response: {
-        success: boolean
-        message?: string
-        data?: { mode?: RoomMode }
-      }) => {
-        if (switchingRef.current?.id !== nextId) {
-          return
-        }
-        if (switchingRef.current.timer) {
-          clearTimeout(switchingRef.current.timer)
-        }
-        switchingRef.current = null
-
-        // 后端 AckResponse 标准格式：mode 在 data 字段内
-        const mode = response.data?.mode
-        if (response.success && mode) {
-          setMode(mode)
-        } else {
-          message.error(response.message ?? '切换模式失败')
-        }
-        setIsModeSwitching(false)
-      }
-    )
-  }
 
   // 共享状态下：侧栏显示「共享情况」面板，评论区（rightPanel）移动到下方 controls 区域
   const effectiveRightPanel = isSharing ? (
@@ -282,26 +220,15 @@ export function RoomLayout({
     return mainContent
   }
 
-  // 顶部模式切换栏：房主显示两个按钮（当前模式高亮），观众只显示当前模式标签
-  // 使用 Google Monet 主题变量 + 玻璃拟态效果 + 增强边框
-  const modeSwitchBar = isHost ? (
-    <SegmentedToggle
-      options={MODE_ORDER.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
-      value={roomMode}
-      onChange={(value) => handleSwitchMode(value as RoomMode)}
-      disabled={isModeSwitching}
-      className="[&_button]:px-2.5 [&_button]:py-1 md:[&_button]:px-4 md:[&_button]:py-1.5"
+  // 顶部模式切换栏：渲染于顶栏中段（一起看/投屏）。
+  // 一起听模式滑块移至音乐顶导航（MusicTopNav 的 modeSwitchSlot），
+  // 由调用方经 MusicAppShell 的 topNavExtra 注入，此处不再渲染。
+  const modeSwitchBar = (
+    <RoomModeSwitchBar
+      isHost={isHost}
+      onSwitch={onSwitchMode}
+      isSwitching={isModeSwitching}
     />
-  ) : (
-    <div
-      className="glass-strong rounded-full border border-[var(--md-sys-color-outline)] px-4 py-1.5 text-xs font-medium shadow-lg ring-1 ring-[var(--md-sys-color-outline-variant)]/40"
-      style={{
-        backgroundColor: 'var(--md-sys-color-primary)',
-        color: 'var(--md-sys-color-on-primary)',
-      }}
-    >
-      {MODE_LABELS[roomMode]}
-    </div>
   )
 
   // 右侧评论/弹幕面板：
@@ -405,8 +332,11 @@ export function RoomLayout({
           返回
         </Button>
 
-        {/* 顶部模式切换栏（玻璃拟态 + Monet 主题变量，当前模式高亮 primary 色） */}
-        <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
+        {/* 顶部模式切换栏（玻璃拟态 + Monet 主题变量，当前模式高亮）：
+            一起听模式下移至音乐顶导航，此处隐藏（返回按钮独占左，右侧操作收尾） */}
+        {!hideRightPanel && (
+          <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
+        )}
 
         <div className="flex flex-shrink-0 items-center gap-2">
           {!hideRightPanel && (

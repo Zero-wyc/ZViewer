@@ -11,6 +11,8 @@ import { RoomPanel } from '@/modules/room/components/RoomPanel'
 import { WatchTogetherPanel } from '@/modules/room/watch-together/WatchTogetherPanel'
 import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemountKey'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
+import { RoomModeSwitchBar } from '@/modules/room/components/RoomLayout'
+import { useRoomModeSwitch } from '@/modules/room/components/useRoomModeSwitch'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { RoomInfoFab } from '@/modules/room/components/RoomInfoFab'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
@@ -131,6 +133,14 @@ function RoomPage() {
     setDanmakuMeta,
   ])
   const { socket } = useSocket()
+  // 房间模式切换（房主 emit + ack/超时/断线兜底）：状态上移到页面级，
+  // 滑块既渲染在 RoomLayout 顶栏（一起看/投屏），一起听时也注入音乐顶导航
+  // （MusicAppShell → MusicTopNav 的 modeSwitchSlot），两处共用同一份状态
+  const { isModeSwitching, handleSwitchMode } = useRoomModeSwitch(
+    socket,
+    roomId ?? '',
+    isHost
+  )
   const username = useAuthStore((state) => state.user?.username)
   const currentUserId = useAuthStore((state) => state.user?.id)
   const moderators = useRoomStore((state) => state.moderators)
@@ -418,6 +428,14 @@ function RoomPage() {
             username={username}
             // 房主天然拥有队列管理权限（添加/切歌/删除）
             canManage
+            // 模式切换滑块注入音乐顶导航（替代 RoomLayout 顶栏位置）
+            topNavExtra={
+              <RoomModeSwitchBar
+                isHost
+                onSwitch={handleSwitchMode}
+                isSwitching={isModeSwitching}
+              />
+            }
           />
         )
       ) : (
@@ -448,7 +466,6 @@ function RoomPage() {
 
     const roomLayout = (
       <RoomLayout
-        roomId={roomId}
         isHost
         mainContent={mainContent}
         rightPanel={
@@ -467,6 +484,8 @@ function RoomPage() {
         controls={controls}
         controlLabels={controlLabels}
         webFullscreen={isWebFullscreen}
+        onSwitchMode={handleSwitchMode}
+        isModeSwitching={isModeSwitching}
       />
     )
 

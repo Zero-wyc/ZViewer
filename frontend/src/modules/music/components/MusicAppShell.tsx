@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, type ReactNode } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { useMusicStore } from '../store'
@@ -38,6 +38,8 @@ export interface MusicAppShellProps {
   username?: string
   /** 队列管理权限（房主/房管），决定内容页添加按钮可见性 */
   canManage?: boolean
+  /** 注入顶导航右侧的额外元素（如房间模式切换滑块/标签） */
+  topNavExtra?: ReactNode
 }
 
 /** syncNotice 自动消失时长（毫秒，与 ListenTogetherPanel 一致） */
@@ -49,6 +51,7 @@ export function MusicAppShell({
   isHost,
   username,
   canManage = false,
+  topNavExtra,
 }: MusicAppShellProps) {
   // 页面级集成：RoomPage/WatchPage 用 MusicPlayerProvider 包裹整个 RoomLayout，
   // shell 直接复用外层实例；独立使用时自建 Provider（避免双引擎）。
@@ -61,6 +64,7 @@ export function MusicAppShell({
         isHost={isHost}
         username={username}
         canManage={canManage}
+        topNavExtra={topNavExtra}
       />
     )
   }
@@ -77,6 +81,7 @@ export function MusicAppShell({
         isHost={isHost}
         username={username}
         canManage={canManage}
+        topNavExtra={topNavExtra}
       />
     </MusicPlayerProvider>
   )
@@ -88,12 +93,14 @@ function ShellInner({
   isHost,
   username,
   canManage,
+  topNavExtra,
 }: {
   socket: Socket | null
   roomId: string
   isHost: boolean
   username?: string
   canManage: boolean
+  topNavExtra?: ReactNode
 }) {
   const page = useMusicStore((s) => s.page)
   const playerOverlayOpen = useMusicStore((s) => s.playerOverlayOpen)
@@ -179,8 +186,8 @@ function ShellInner({
         )}
       </div>
 
-      {/* ===== 顶部导航 ===== */}
-      <MusicTopNav isHost={isHost} />
+      {/* ===== 顶部导航（topNavExtra：房间模式切换滑块/标签注入右侧） ===== */}
+      <MusicTopNav isHost={isHost} modeSwitchSlot={topNavExtra} />
 
       {/* ===== 内容页（flex-1 滚动，多页切换） ===== */}
       <main className="zen-scroll min-h-0 flex-1 overflow-y-auto">

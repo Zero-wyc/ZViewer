@@ -10,7 +10,7 @@
  *   点击弹出深色小菜单（M3 适配：on-surface 底 + surface 字 + 四角白点装饰），
  *   选项：账号信息（昵称）/ 退出登录或账号登录 / 房主可见的 VIP 提示
  */
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Search, User } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
@@ -20,6 +20,8 @@ import { cn } from '@/lib/utils'
 export interface MusicTopNavProps {
   /** 是否为房主（房主侧菜单显示「登录网易云后全房间可播 VIP」提示） */
   isHost: boolean
+  /** 右侧额外插槽（如房间模式切换滑块/标签）：渲染在账户按钮左侧 */
+  modeSwitchSlot?: ReactNode
 }
 
 /** 导航链接定义（顺序与 Hydrogen primary-nav + header-router-right 一致） */
@@ -39,7 +41,7 @@ const CORNER_DOTS = [
   'left-1 bottom-1',
 ] as const
 
-export function MusicTopNav({ isHost }: MusicTopNavProps) {
+export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
   const page = useMusicStore((s) => s.page)
   const setPage = useMusicStore((s) => s.setPage)
   const setSearchKeywords = useMusicStore((s) => s.setSearchKeywords)
@@ -122,7 +124,8 @@ export function MusicTopNav({ isHost }: MusicTopNavProps) {
         })}
       </nav>
 
-      {/* ===== 右：账户（头像/图标 + app-option 小菜单） ===== */}
+      {/* ===== 右：模式切换插槽（一起听时由调用方注入滑块/标签）+ 账户 ===== */}
+      {modeSwitchSlot}
       <div className="relative shrink-0">
         <button
           type="button"
