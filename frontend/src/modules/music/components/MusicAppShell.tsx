@@ -15,6 +15,7 @@
 import { useContext, useEffect, type ReactNode } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
+import { Spinner } from '@/components/ui/Spinner'
 import { useMusicStore } from '../store'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
@@ -40,6 +41,10 @@ export interface MusicAppShellProps {
   canManage?: boolean
   /** 注入顶导航右侧的额外元素（如房间模式切换滑块/标签） */
   topNavExtra?: ReactNode
+  /** 返回回调（退出房间入口）：底板化后无 RoomLayout 顶栏，经顶导航返回按钮触发 */
+  onBack?: () => void
+  /** 模式切换进行中：底板上渲染全屏加载占位 */
+  isModeSwitching?: boolean
 }
 
 /** syncNotice 自动消失时长（毫秒，与 ListenTogetherPanel 一致） */
@@ -52,6 +57,8 @@ export function MusicAppShell({
   username,
   canManage = false,
   topNavExtra,
+  onBack,
+  isModeSwitching = false,
 }: MusicAppShellProps) {
   // 页面级集成：RoomPage/WatchPage 用 MusicPlayerProvider 包裹整个 RoomLayout，
   // shell 直接复用外层实例；独立使用时自建 Provider（避免双引擎）。
@@ -65,6 +72,8 @@ export function MusicAppShell({
         username={username}
         canManage={canManage}
         topNavExtra={topNavExtra}
+        onBack={onBack}
+        isModeSwitching={isModeSwitching}
       />
     )
   }
@@ -82,6 +91,8 @@ export function MusicAppShell({
         username={username}
         canManage={canManage}
         topNavExtra={topNavExtra}
+        onBack={onBack}
+        isModeSwitching={isModeSwitching}
       />
     </MusicPlayerProvider>
   )
@@ -94,6 +105,8 @@ function ShellInner({
   username,
   canManage,
   topNavExtra,
+  onBack,
+  isModeSwitching,
 }: {
   socket: Socket | null
   roomId: string
@@ -101,6 +114,8 @@ function ShellInner({
   username?: string
   canManage: boolean
   topNavExtra?: ReactNode
+  onBack?: () => void
+  isModeSwitching: boolean
 }) {
   const page = useMusicStore((s) => s.page)
   const playerOverlayOpen = useMusicStore((s) => s.playerOverlayOpen)
@@ -133,7 +148,7 @@ function ShellInner({
   const pageProps = { socket, roomId, canManage }
 
   return (
-    <div className="glass-card zen-card relative flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
+    <div className="relative flex h-[calc(100vh-64px)] min-w-0 flex-col overflow-hidden">
       {/* ===== 左上角提示区：房主离线 + syncNotice（含房主审批按钮） ===== */}
       <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2">
         {hostOffline && !canControl && (
@@ -186,8 +201,12 @@ function ShellInner({
         )}
       </div>
 
-      {/* ===== 顶部导航（topNavExtra：房间模式切换滑块/标签注入右侧） ===== */}
-      <MusicTopNav isHost={isHost} modeSwitchSlot={topNavExtra} />
+      {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧） ===== */}
+      <MusicTopNav
+        isHost={isHost}
+        modeSwitchSlot={topNavExtra}
+        onBack={onBack}
+      />
 
       {/* ===== 内容页（flex-1 滚动，多页切换） ===== */}
       <main className="zen-scroll min-h-0 flex-1 overflow-y-auto">
@@ -244,6 +263,19 @@ function ShellInner({
       {/* ===== 网易云扫码登录弹窗 ===== */}
       {loginModalOpen && (
         <MusicQrLoginModal onClose={() => setLoginModalOpen(false)} />
+      )}
+
+      {/* ===== 模式切换加载占位：ack 确认前遮住整个底板（与 RoomLayout 主区域一致） ===== */}
+      {isModeSwitching && (
+        <div
+          className="absolute inset-0 z-[90] flex items-center justify-center"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-surface) 80%, transparent)',
+          }}
+        >
+          <Spinner tip="正在切换模式..." size={32} />
+        </div>
       )}
     </div>
   )

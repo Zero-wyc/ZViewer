@@ -5,6 +5,7 @@ import { useAuthStore } from '@/store/authStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { setClientLoggerRoomId } from '@/lib/clientLogger'
 import { useSocket } from '@/hooks/useSocket'
+import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 import { VoiceChatPanel } from '@/modules/voice-chat'
 import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
 import { RoomPanel } from '@/modules/room/components/RoomPanel'
@@ -141,6 +142,9 @@ function RoomPage() {
     roomId ?? '',
     isHost
   )
+  // 退出守卫：一起听底板化后无 RoomLayout 顶栏返回按钮，返回改由音乐顶导航
+  // 承担（guardNavigate 在房间内弹出确认）；其他模式仍用 RoomLayout 内置守卫
+  const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
   const username = useAuthStore((state) => state.user?.username)
   const currentUserId = useAuthStore((state) => state.user?.id)
   const moderators = useRoomStore((state) => state.moderators)
@@ -389,10 +393,50 @@ function RoomPage() {
 
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (isHost) {
-    // 一起听模式：Beta 未开启时降级为提示页，不渲染任何音乐 UI
+    // 一起听模式：Beta 未开启时降级为提示页（仍套 RoomLayout，顶栏滑块可切回
+    // 其他模式）；Beta 开启时 MusicAppShell 作为整页底板直接渲染（见下方分支）。
     //（创建入口已由 RoomPanel 门控隐藏，此处防御直接 URL / 关闭开关后的存量房间）
     const isListenTogether = mode === 'listen-together'
     const musicBetaClosed = isListenTogether && !betaFeaturesEnabled
+
+    // 一起听（Beta 开启）：Hydrogen 应用框架升级为整页底板——不再套 RoomLayout
+    // 外框（玻璃卡片 + 顶部工具栏），语音/流量悬浮面板照常叠加；返回改由音乐
+    // 顶导航按钮承担（房间内弹出确认后离开）
+    if (isListenTogether && !musicBetaClosed) {
+      return (
+        <>
+          {/* Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎 */}
+          <MusicPlayerProvider
+            socket={socket}
+            roomId={roomId}
+            isHost
+            username={username}
+          >
+            <MusicAppShell
+              socket={socket}
+              roomId={roomId}
+              isHost
+              username={username}
+              // 房主天然拥有队列管理权限（添加/切歌/删除）
+              canManage
+              // 模式切换滑块注入音乐顶导航（替代 RoomLayout 顶栏位置）
+              topNavExtra={
+                <RoomModeSwitchBar
+                  isHost
+                  onSwitch={handleSwitchMode}
+                  isSwitching={isModeSwitching}
+                />
+              }
+              isModeSwitching={isModeSwitching}
+              onBack={() => guardNavigate('/')}
+            />
+            {exitGuardModal}
+          </MusicPlayerProvider>
+          {voiceChatPanel}
+          {trafficPanel}
+        </>
+      )
+    }
 
     const mainContent =
       mode === 'watch-together' ? (
@@ -415,29 +459,8 @@ function RoomPage() {
           </div>
         )
       ) : isListenTogether ? (
-        // 一起听：主区域为 Hydrogen 完整应用框架（顶导航 + 内容页 + 底部 widget），
-        // 音频引擎由外层 MusicPlayerProvider 持有（见下方包裹），
-        // 不需要播放器 remount key，切换影片等场景由音乐模块自管理
-        musicBetaClosed ? (
-          <MusicBetaNotice />
-        ) : (
-          <MusicAppShell
-            socket={socket}
-            roomId={roomId}
-            isHost
-            username={username}
-            // 房主天然拥有队列管理权限（添加/切歌/删除）
-            canManage
-            // 模式切换滑块注入音乐顶导航（替代 RoomLayout 顶栏位置）
-            topNavExtra={
-              <RoomModeSwitchBar
-                isHost
-                onSwitch={handleSwitchMode}
-                isSwitching={isModeSwitching}
-              />
-            }
-          />
-        )
+        // 一起听 Beta 关闭：降级提示页（RoomLayout 顶栏滑块可切回其他模式）
+        <MusicBetaNotice />
       ) : (
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
@@ -489,23 +512,10 @@ function RoomPage() {
       />
     )
 
+    // 到达此处的听模式只剩 Beta 关闭降级（提示页，不依赖音乐引擎），无需 Provider
     return (
       <>
-        {/* 一起听：Provider 包裹整个布局，让主区域框架（MusicAppShell）
-            与完整播放器覆盖层共享同一音频引擎（MusicAppShell 检测到
-            外层实例后复用） */}
-        {isListenTogether && !musicBetaClosed ? (
-          <MusicPlayerProvider
-            socket={socket}
-            roomId={roomId}
-            isHost
-            username={username}
-          >
-            {roomLayout}
-          </MusicPlayerProvider>
-        ) : (
-          roomLayout
-        )}
+        {roomLayout}
         {voiceChatPanel}
         {trafficPanel}
       </>

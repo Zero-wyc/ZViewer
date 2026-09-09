@@ -37,6 +37,7 @@ import {
   MusicPlayerProvider,
 } from '@/modules/music'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import { useShareMethod } from '../hooks/useShareMethod'
@@ -98,6 +99,10 @@ function WatchPage() {
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
 
+  // 退出守卫：一起听底板化后无 RoomLayout 顶栏返回按钮，返回改由音乐顶导航
+  // 承担（guardNavigate 在房间内弹出确认）；其他模式仍用 RoomLayout 内置守卫
+  const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
+
   // 3.1 已加入且 roomMode === 'watch-together'：观众使用与房主统一的 RoomLayout
   if (joinStatus === 'approved' && roomMode === 'watch-together') {
     return (
@@ -144,40 +149,27 @@ function WatchPage() {
       return <MusicBetaNotice />
     }
     return (
-      // Provider 包裹整个布局，让主区域框架（MusicAppShell）与完整播放器
-      // 覆盖层共享同一音频引擎（MusicAppShell 检测到外层实例后复用）
+      // 一起听：Hydrogen 应用框架作为整页底板，不再套 RoomLayout 外框；
+      // Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎；
+      // 返回改由音乐顶导航按钮承担（房间内弹出确认后离开）
       <MusicPlayerProvider
         socket={socket}
         roomId={roomId}
         isHost={false}
         username={username}
       >
-        <RoomLayout
+        <MusicAppShell
+          socket={socket}
+          roomId={roomId ?? ''}
           isHost={false}
-          mainContent={
-            <MusicAppShell
-              socket={socket}
-              roomId={roomId ?? ''}
-              isHost={false}
-              username={username}
-              // 房管观众可管理队列（添加/删除），普通观众仅浏览
-              canManage={isModerator}
-              // 当前模式标签注入音乐顶导航（与房主滑块位置一致）
-              topNavExtra={<RoomModeSwitchBar isHost={false} />}
-            />
-          }
-          rightPanel={
-            <CommentPanel
-              socket={socket}
-              roomId={roomId ?? ''}
-              commentsOnly={false}
-            />
-          }
-          // 搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗）；
-          // 房间状态改为左下角悬浮按钮（RoomPage 的 trafficPanel topSlot 统一提供）
-          controls={undefined}
-          controlLabels={undefined}
+          username={username}
+          // 房管观众可管理队列（添加/删除），普通观众仅浏览
+          canManage={isModerator}
+          // 当前模式标签注入音乐顶导航（与房主滑块位置一致）
+          topNavExtra={<RoomModeSwitchBar isHost={false} />}
+          onBack={() => guardNavigate('/')}
         />
+        {exitGuardModal}
       </MusicPlayerProvider>
     )
   }

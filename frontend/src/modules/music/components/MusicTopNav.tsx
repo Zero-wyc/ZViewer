@@ -11,7 +11,7 @@
  *   选项：账号信息（昵称）/ 退出登录或账号登录 / 房主可见的 VIP 提示
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { Search, User } from 'lucide-react'
+import { ArrowLeft, Search, User } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
 import type { MusicPage } from '../store'
@@ -22,6 +22,8 @@ export interface MusicTopNavProps {
   isHost: boolean
   /** 右侧额外插槽（如房间模式切换滑块/标签）：渲染在账户按钮左侧 */
   modeSwitchSlot?: ReactNode
+  /** 返回回调：底板化后（无 RoomLayout 顶栏）由顶导航承担退出房间的入口 */
+  onBack?: () => void
 }
 
 /** 导航链接定义（顺序与 Hydrogen primary-nav + header-router-right 一致） */
@@ -41,7 +43,11 @@ const CORNER_DOTS = [
   'left-1 bottom-1',
 ] as const
 
-export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
+export function MusicTopNav({
+  isHost,
+  modeSwitchSlot,
+  onBack,
+}: MusicTopNavProps) {
   const page = useMusicStore((s) => s.page)
   const setPage = useMusicStore((s) => s.setPage)
   const setSearchKeywords = useMusicStore((s) => s.setSearchKeywords)
@@ -72,6 +78,23 @@ export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
+      {/* ===== 返回（底板化后承担退出房间入口；与搜索框同高的圆形图标按钮） ===== */}
+      {onBack && (
+        <button
+          type="button"
+          onClick={onBack}
+          className="glass flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-opacity hover:opacity-70 active:scale-90"
+          style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+          title="返回"
+          aria-label="返回"
+        >
+          <ArrowLeft
+            className="h-4 w-4"
+            style={{ color: 'var(--md-sys-color-on-surface)' }}
+          />
+        </button>
+      )}
+
       {/* ===== 左：搜索框（widget-search 式圆角输入） ===== */}
       <div
         className="flex h-8 w-44 shrink-0 items-center gap-1.5 rounded-full px-3"
