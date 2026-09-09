@@ -1,5 +1,10 @@
 /**
- * 底部播放控制栏（Hydrogen MusicWidget 范式，shell 内固定底部）。
+ * 底部播放控制栏（Hydrogen MusicWidget 悬浮范式，fixed 居中悬浮于底部）。
+ *
+ * 悬浮形态（移植 Hydrogen .musicWidget 规格）：
+ * fixed 水平居中 + 底距 35px + 定宽 722px + 弥散阴影为唯一悬浮感来源；
+ * 容器由 MusicAppShell 提供（fixed bottom-[35px] left-1/2 -translate-x-1/2），
+ * 本组件只负责卡片本体（M3 适配：glass 玻璃质感 + 圆角）。
  *
  * 结构：
  * - 顶部细进度条：absolute -top-[3px]，h-1 hover:h-2 过渡，primary 填充；
@@ -129,11 +134,11 @@ export function MusicWidgetBar() {
 
   return (
     <div
-      className="relative h-[72px] shrink-0 border-t"
+      className="glass-card relative h-[72px]"
       style={{
-        backgroundColor: 'var(--md-sys-color-surface-container)',
-        borderColor:
-          'color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)',
+        // 悬浮感核心（Hydrogen 暗色 --shadow 规格）：比 glass-card 默认阴影
+        // 更弥散更深，覆盖其内置 box-shadow
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
       }}
     >
       {/* ===== 顶部细进度条（hover 加粗并显示时间） ===== */}
