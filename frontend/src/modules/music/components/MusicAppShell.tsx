@@ -31,7 +31,6 @@ import { MusicDailyPage } from '../pages/MusicDailyPage'
 import { MusicFmPage } from '../pages/MusicFmPage'
 import { MusicMyPage } from '../pages/MusicMyPage'
 import { MusicCloudPage } from '../pages/MusicCloudPage'
-import { MusicSirenPage } from '../pages/MusicSirenPage'
 import { useNcmLogin } from '../hooks/useNcmLogin'
 
 export interface MusicAppShellProps {
@@ -230,7 +229,6 @@ function ShellInner({
         )}
         {page === 'mymusic' && <MusicMyPage {...pageProps} />}
         {page === 'cloud' && <MusicCloudPage {...pageProps} />}
-        {page === 'siren' && <MusicSirenPage {...pageProps} />}
       </main>
 
       {/* ===== 底部悬浮播放条（Hydrogen .musicWidget 范式）：fixed 水平居中 +

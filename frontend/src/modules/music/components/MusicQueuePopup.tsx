@@ -142,7 +142,7 @@ export function MusicQueuePopup({
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <ListMusicIcon />
             <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              队列为空，去搜索或塞壬唱片添加歌曲
+              队列为空，去搜索添加歌曲
             </span>
           </div>
         ) : (

@@ -8,9 +8,6 @@
  * - `music:control-request` / `music:control-response`：观众申请制控制
  */
 
-/** 曲目来源：网易云 / 塞壬唱片（Monster Siren） */
-export type MusicSource = 'ncm' | 'siren'
-
 /** 网易云歌曲（搜索结果条目） */
 export interface NcmSong {
   /** 网易云歌曲 ID */
@@ -29,21 +26,14 @@ export interface NcmSong {
   vip: boolean
 }
 
-/** 房间播放队列条目（与后端 MusicQueueItem 实体对应） */
+/** 房间播放队列条目（与后端 MusicQueueItemPayload 对齐） */
 export interface MusicQueueItem {
   /** 队列条目 ID（后端实体主键，队列内唯一） */
   id: number
   /** 所属房间 ID */
   roomId: string
-  /** 网易云歌曲 ID（塞壬条目固定为 0，真实标识见 sourceId） */
+  /** 网易云歌曲 ID */
   songId: number
-  /**
-   * 曲目来源（ncm=网易云 / siren=塞壬唱片）。
-   * 新数据必有；对旧广播数据缺省视为 'ncm'（配合 itemSource() 兜底）。
-   */
-  source?: MusicSource
-  /** 塞壬歌曲 cid（source='siren' 时必填；ncm 条目为 null/缺省） */
-  sourceId?: string | null
   /** 歌曲名 */
   name: string
   /** 艺术家（拼接字符串） */
@@ -54,7 +44,7 @@ export interface MusicQueueItem {
   cover: string
   /** 时长（毫秒） */
   durationMs: number
-  /** 是否 VIP 歌曲（塞壬条目恒 false） */
+  /** 是否 VIP 歌曲（未登录时不可播放） */
   vip: boolean
   /** 队列内排序序号（小在前） */
   order: number
@@ -67,12 +57,8 @@ export type PlayMode = 'sequence' | 'repeat-one' | 'shuffle'
 
 /** 房间音乐同步状态（房主广播与心跳共用的状态快照） */
 export interface MusicSyncState {
-  /** 当前曲目 songId（null 表示未在播放；塞壬条目固定 0） */
+  /** 当前曲目 songId（null 表示未在播放） */
   trackSongId: number | null
-  /** 当前曲目来源（缺省视为 ncm，兼容旧广播/旧后端） */
-  trackSource?: MusicSource
-  /** 塞壬曲目 cid（trackSource='siren' 时为 cid 字符串） */
-  trackSourceId?: string | null
   /** 是否正在播放 */
   isPlaying: boolean
   /** 播放进度（秒） */
@@ -113,7 +99,7 @@ export interface NcmLoginStatus {
   avatarUrl?: string
 }
 
-// ==================== 页面数据类型（Hydrogen 首页各区块 / 塞壬唱片） ====================
+// ==================== 页面数据类型（Hydrogen 首页各区块） ====================
 
 /** 首页轮播图条目（GET /api/music/ncm/banner → banners[]） */
 export interface NcmBannerItem {
@@ -171,31 +157,4 @@ export interface NcmNewSongCard {
   song?: { artists?: Array<{ name?: string }>; duration?: number }
   duration?: number
   dt?: number
-}
-
-/** 塞壬唱片专辑（GET /api/music/siren/albums → data[]） */
-export interface SirenAlbum {
-  cid: string
-  name: string
-  cover: string
-  intro?: string
-}
-
-/** 塞壬唱片歌曲（专辑详情 songs 内条目，duration 单位为秒） */
-export interface SirenSong {
-  cid: string
-  name: string
-  /** 艺人列表（宽松：可能缺失） */
-  artists?: Array<{ name?: string }>
-  /** 时长（秒） */
-  duration?: number
-}
-
-/**
- * 塞壬专辑详情（GET /siren/album/{cid}/detail → data）。
- * songs 字段结构宽松：可能在 data.songs 或 data 内联，按数组宽松解析。
- */
-export interface SirenAlbumDetail {
-  album?: (SirenAlbum & Record<string, unknown>) | null
-  songs?: SirenSong[]
 }

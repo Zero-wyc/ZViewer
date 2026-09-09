@@ -47,12 +47,8 @@ type ControlAction = (typeof CONTROL_ACTIONS)[number];
  * 与前端 MusicSyncState 对齐）。
  */
 export interface MusicSyncStatePayload {
-  /** 当前曲目 songId（ncm 来源；null 表示未在播放） */
+  /** 当前曲目 songId（null 表示未在播放） */
   trackSongId: number | null;
-  /** 当前曲目来源：ncm=网易云（默认，兼容旧前端）；siren=塞壬唱片 */
-  trackSource: 'ncm' | 'siren';
-  /** 当前曲目来源方标识（siren 的 cid 字符串；ncm 为 null） */
-  trackSourceId: string | null;
   /** 是否正在播放 */
   isPlaying: boolean;
   /** 播放进度（秒） */
@@ -71,10 +67,6 @@ export interface MusicQueueItemPayload {
   id: number;
   roomId: string;
   songId: number;
-  /** 音频来源：ncm=网易云（默认）；siren=塞壬唱片（songId 为塞壬 cid） */
-  source: 'ncm' | 'siren';
-  /** 来源方歌曲标识（siren cid 字符串；ncm 为 null） */
-  sourceId: string | null;
   name: string;
   artist: string;
   album: string;
@@ -88,9 +80,6 @@ export interface MusicQueueItemPayload {
 /** music:queue-upsert 携带的歌曲元数据（搜索结果条目） */
 interface MusicQueueUpsertItem {
   songId: number;
-  source?: 'ncm' | 'siren';
-  /** siren 来源的 cid 字符串（必填）；ncm 忽略 */
-  sourceId?: string | null;
   name: string;
   artist: string;
   album: string;
@@ -154,23 +143,11 @@ function pickSyncState(payload: unknown): MusicSyncStatePayload | null {
   ) {
     return null;
   }
-  // 来源字段（兼容旧前端不携带的情况：默认 ncm）
-  const trackSource =
-    v.trackSource === 'siren' ? 'siren' : 'ncm';
-  const rawSourceId = v.trackSourceId == null ? null : v.trackSourceId;
-  if (rawSourceId !== null && typeof rawSourceId !== 'string') {
-    return null;
-  }
   if (typeof v.updatedAt !== 'number' || !Number.isFinite(v.updatedAt)) {
     return null;
   }
   return {
     trackSongId,
-    trackSource,
-    trackSourceId:
-      trackSource === 'siren' && typeof rawSourceId === 'string'
-        ? rawSourceId
-        : null,
     isPlaying: v.isPlaying,
     positionSec: v.positionSec,
     playMode: v.playMode,
@@ -180,27 +157,15 @@ function pickSyncState(payload: unknown): MusicSyncStatePayload | null {
 
 /**
  * 校验 queue-upsert 携带的歌曲元数据（不合法返回 false）。
- * siren 来源：songId 允许为 0（cid 是字符串，存 sourceId），sourceId 必填；
- * ncm 来源：songId 必须为正整数。
+ * songId 必须为正整数。
  */
 function isUpsertItemValid(item: unknown): item is MusicQueueUpsertItem {
   if (!item || typeof item !== 'object') return false;
   const v = item as Record<string, unknown>;
-  const isSiren = v.source === 'siren';
-  if (isSiren) {
-    if (
-      typeof v.sourceId !== 'string' ||
-      v.sourceId.length === 0 ||
-      v.sourceId.length > 128
-    ) {
-      return false;
-    }
-  }
   const songIdOk =
     typeof v.songId === 'number' &&
     Number.isInteger(v.songId) &&
-    v.songId >= 0 &&
-    (isSiren || v.songId > 0);
+    v.songId > 0;
   return (
     songIdOk &&
     typeof v.name === 'string' &&
@@ -225,12 +190,18 @@ function isControlAction(action: unknown): action is ControlAction {
   );
 }
 
-/** 读取房间完整队列（按 order 升序） */
-function loadQueue(roomId: string): Promise<MusicQueueItem[]> {
-  return AppDataSource.getRepository(MusicQueueItem).find({
+/** 读取房间完整队列（按 order 升序）。
+ *  塞壬支持已移除：songId<=0 的历史条目（旧塞壬数据）直接删除并不返回 */
+async function loadQueue(roomId: string): Promise<MusicQueueItem[]> {
+  const items = await AppDataSource.getRepository(MusicQueueItem).find({
     where: { roomId },
     order: { order: 'ASC' },
   });
+  const stale = items.filter((i) => i.songId <= 0);
+  if (stale.length > 0) {
+    await AppDataSource.getRepository(MusicQueueItem).remove(stale);
+  }
+  return items.filter((i) => i.songId > 0);
 }
 
 /**
@@ -269,8 +240,6 @@ async function buildQueuePayload(
     id: item.id,
     roomId: item.roomId,
     songId: item.songId,
-    source: item.source === 'siren' ? 'siren' : 'ncm',
-    sourceId: item.sourceId ?? null,
     name: item.name,
     artist: item.artist,
     album: item.album,
@@ -357,13 +326,6 @@ export class MusicSyncHandler implements SocketEventHandler {
             repo.create({
               roomId,
               songId: payload.item.songId,
-              source: payload.item.source === 'siren' ? 'siren' : 'ncm',
-              sourceId:
-                payload.item.source === 'siren' &&
-                typeof payload.item.sourceId === 'string' &&
-                payload.item.sourceId
-                  ? payload.item.sourceId
-                  : null,
               name: payload.item.name,
               artist: payload.item.artist,
               album: payload.item.album,

@@ -4,7 +4,7 @@
  * - 权限：canManage（房主/房管）才能 emit `music:queue-upsert`
  * - 载荷：`{ roomId, item }`（后端 MusicSyncHandler 契约，变更后经
  *   `music:queue-changed` 广播完整队列）
- * - 行内「已添加」态：以曲目 key（ncm:<songId> / siren:<cid>）记录，2s 自动恢复
+ * - 行内「已添加」态：以曲目 key（ncm:<songId>）记录，2s 自动恢复
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
@@ -13,12 +13,8 @@ import type { NcmSong } from '../types'
 
 /** `music:queue-upsert` 的 item 载荷（与后端 MusicSyncHandler 契约对应） */
 export interface QueueUpsertItem {
-  /** 网易云歌曲 ID（塞壬条目固定 0） */
+  /** 网易云歌曲 ID */
   songId: number
-  /** 曲目来源（ncm=网易云 / siren=塞壬唱片） */
-  source?: 'ncm' | 'siren'
-  /** 塞壬歌曲 cid（siren 时必填） */
-  sourceId?: string | null
   name: string
   artist: string
   album: string
@@ -31,8 +27,6 @@ export interface QueueUpsertItem {
 export function songToUpsertItem(song: NcmSong): QueueUpsertItem {
   return {
     songId: song.songId,
-    source: 'ncm',
-    sourceId: null,
     name: song.name,
     artist: song.artist,
     album: song.album,
@@ -44,16 +38,14 @@ export function songToUpsertItem(song: NcmSong): QueueUpsertItem {
 
 /** 已添加态的 key（与队列条目 key 同构） */
 export function upsertItemKey(item: QueueUpsertItem): string {
-  return item.source === 'siren'
-    ? `siren:${item.sourceId ?? ''}`
-    : `ncm:${item.songId}`
+  return `ncm:${item.songId}`
 }
 
 /** 「已添加」行内态的展示时长（毫秒） */
 const ADDED_STATE_MS = 2000
 
 export interface UseQueueAddResult {
-  /** 已添加态集合（key: ncm:<songId> / siren:<cid>） */
+  /** 已添加态集合（key: ncm:<songId>） */
   addedKeys: Set<string>
   /** 添加到队列（无权限/未连接房间时提示并忽略） */
   add: (item: QueueUpsertItem) => void

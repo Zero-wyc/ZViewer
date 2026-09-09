@@ -4,17 +4,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { getApiUrl } from '@/lib/api'
 import { appendAuthToken } from '@/modules/player/services/url-proxy'
 import { message } from '@/components/ui/message'
-import {
-  useMusicStore,
-  musicItemKey,
-  itemSource,
-  parseMusicKey,
-} from '../store'
+import { useMusicStore, musicItemKey, parseMusicKey } from '../store'
 import type {
   MusicControlRequest,
   MusicControlResponse,
   MusicQueueItem,
-  MusicSource,
   MusicSyncState,
   PlayMode,
 } from '../types'
@@ -82,37 +76,26 @@ function loadPersistedVolume(): number {
 }
 
 /**
- * 构建音频流代理地址（按曲目来源分支）。
+ * 构建音频流代理地址。
  * 使用 getApiUrl() 实时读取（自定义后端地址变更后立即生效），
  * 并附加 access token（媒体元素请求无法携带 Authorization 头，
  * HTTP 部署场景下后端从查询参数读取 token）。
  * 携带 roomId：当前用户无网易云凭证时，后端回退用房主凭证解析
- * （spec「房主登录后全房间可播 VIP」；塞壬为公开 API 不需要）。
- * - ncm：`?songId=<id>&level=exhigh`
- * - siren：`?source=siren&sourceId=<cid>`
+ * （spec「房主登录后全房间可播 VIP」）。
+ * 地址格式：`?songId=<id>&level=exhigh`
  */
 function buildStreamUrl(
   item: MusicQueueItem,
   roomId: string | undefined
 ): string {
   const roomParam = roomId ? `&roomId=${encodeURIComponent(roomId)}` : ''
-  if (item.source === 'siren') {
-    return appendAuthToken(
-      `${getApiUrl()}/api/music/stream?source=siren&sourceId=${encodeURIComponent(
-        item.sourceId ?? ''
-      )}${roomParam}`
-    )
-  }
   return appendAuthToken(
     `${getApiUrl()}/api/music/stream?songId=${item.songId}&level=${STREAM_LEVEL}${roomParam}`
   )
 }
 
-/** 从房主广播的同步状态解析曲目 key（trackSource 缺省视为 ncm，兼容旧广播） */
+/** 从房主广播的同步状态解析曲目 key */
 function syncKeyOf(payload: MusicSyncState): string | null {
-  if (payload.trackSource === 'siren') {
-    return payload.trackSourceId ? `siren:${payload.trackSourceId}` : null
-  }
   return payload.trackSongId != null ? `ncm:${payload.trackSongId}` : null
 }
 
@@ -256,25 +239,13 @@ export function useListenTogether({
 
   /**
    * 构造同步状态快照（broadcastSyncState 与房主心跳共用）。
-   * trackSource/trackSourceId 从当前队列条目取（匹配不到时从 key 解析兜底），
-   * trackSongId 塞壬条目固定 0（后端 pickSyncState 对缺省 source 兼容为 ncm）。
    */
   const buildSyncPayload = useCallback((): MusicSyncState => {
     const audio = audioRef.current
     const store = useMusicStore.getState()
-    const currentItem =
-      store.queue.find((q) => musicItemKey(q) === store.currentKey) ?? null
     const parsed = parseMusicKey(store.currentKey)
-    const trackSource: MusicSource = currentItem
-      ? itemSource(currentItem)
-      : (parsed?.source ?? 'ncm')
     return {
       trackSongId: parsed ? parsed.songId : null,
-      trackSource,
-      trackSourceId:
-        trackSource === 'siren'
-          ? (currentItem?.sourceId ?? parsed?.id ?? null)
-          : null,
       isPlaying: audio ? !audio.paused : false,
       positionSec: audio ? audio.currentTime : 0,
       playMode: store.playMode,
@@ -303,19 +274,7 @@ export function useListenTogether({
       if (overrides?.keyOverride !== undefined) {
         const targetKey = overrides.keyOverride
         const parsed = parseMusicKey(targetKey)
-        const currentItem =
-          useMusicStore
-            .getState()
-            .queue.find((q) => musicItemKey(q) === targetKey) ?? null
-        const trackSource: MusicSource = currentItem
-          ? itemSource(currentItem)
-          : (parsed?.source ?? 'ncm')
         payload.trackSongId = parsed ? parsed.songId : null
-        payload.trackSource = trackSource
-        payload.trackSourceId =
-          trackSource === 'siren'
-            ? (currentItem?.sourceId ?? parsed?.id ?? null)
-            : null
       }
       if (overrides?.isPlaying !== undefined) {
         payload.isPlaying = overrides.isPlaying
@@ -709,7 +668,7 @@ export function useListenTogether({
 
   /**
    * 观众：应用房主广播/心跳携带的同步状态。
-   * - 曲目 key 变化（按 trackSource+trackSourceId 匹配，缺省视为 ncm）→ 换源加载
+   * - 曲目 key 变化（trackSongId 匹配）→ 换源加载
    * - isPlaying 变化 → play/pause
    * - 进度差 >2s → seek 对齐（小差异让音频自然播放）
    * - playMode → 同步到 store
@@ -720,7 +679,7 @@ export function useListenTogether({
       const audio = getAudio()
       const trackKey = syncKeyOf(payload)
 
-      // 1. 曲目变化 → 换源加载（按 key 从队列匹配条目，ncm/siren 统一路径）
+      // 1. 曲目变化 → 换源加载（按 key 从队列匹配条目）
       if (trackKey !== store.currentKey) {
         if (trackKey == null) {
           // 房主停止/清空播放

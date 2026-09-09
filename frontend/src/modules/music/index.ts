@@ -20,9 +20,8 @@
  * │   ├── MusicSearchPage.tsx     搜索页（cloudsearch + SongRow 列表）
  * │   ├── MusicDailyPage.tsx      每日推荐（需登录）
  * │   ├── MusicFmPage.tsx         私人漫游（Hydrogen PersonalFM 范式）
- * │   ├── MusicMyPage.tsx         我的音乐（歌单网格 + 内嵌展开）
+ * │   ├── MusicMyPage.tsx         我的音乐（左侧栏 + 详情视图）
  * │   ├── MusicCloudPage.tsx      云盘（simpleSong → SongRow）
- * │   ├── MusicSirenPage.tsx      塞壬唱片（专辑网格 + 详情）
  * │   └── MusicLoginGate.tsx      登录提示卡 + 页面区块头
  * └── components/
  *     ├── MusicAppShell.tsx       主区域根（顶导航 + 内容页 + 底部 widget + 队列弹窗）
@@ -40,7 +39,6 @@
 export type {
   NcmSong,
   MusicQueueItem,
-  MusicSource,
   PlayMode,
   MusicSyncState,
   MusicControlRequest,
@@ -52,13 +50,10 @@ export type {
   NcmAlbumCard,
   NcmToplistCard,
   NcmNewSongCard,
-  SirenAlbum,
-  SirenSong,
-  SirenAlbumDetail,
 } from './types'
 
 // Store
-export { useMusicStore, musicItemKey, itemSource, parseMusicKey } from './store'
+export { useMusicStore, musicItemKey, parseMusicKey } from './store'
 export type { MusicState, MusicPage } from './store'
 
 // Context（播放器面板间共享实例）

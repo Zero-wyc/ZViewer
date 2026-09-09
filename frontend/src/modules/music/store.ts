@@ -1,10 +1,5 @@
 import { create } from 'zustand'
-import type {
-  MusicQueueItem,
-  PlayMode,
-  NcmLoginStatus,
-  MusicSource,
-} from './types'
+import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 
 /**
  * 一起听模块全局状态。
@@ -12,49 +7,34 @@ import type {
  * 说明：
  * - queue / currentKey / isPlaying / playMode 为房间同步状态的本地镜像，
  *   由 useListenTogether 依据 socket 事件与 audio 元素事件维护
- * - currentKey 为当前曲目的权威标识（`ncm:<songId>` / `siren:<cid>`），
- *   与队列条目匹配；currentSongId 为 ncm 兼容字段（siren 播放时为 0）
+ * - currentKey 为当前曲目的权威标识（`ncm:<songId>`），与队列条目匹配；
+ *   currentSongId 为其兼容字段
  * - positionSec 为本地 audio 进度镜像（timeupdate 驱动），供进度条/歌词消费
  * - hostOffline 为观众端的房主离线判定（心跳超时），决定 canControl
  * - loginStatus 由 useNcmLogin 维护
- * - syncNotice 为播放器左上角提示文字（观众申请等），自动消失逻辑由组件实现
+ * - syncNotice 为播放器左上角提示文字（自动消失逻辑由组件实现）
  * - page / playerOverlayOpen / queuePopupOpen / loginModalOpen 为 Hydrogen
  *   主框架的 UI 状态（顶部导航多页切换 / 完整播放器覆盖层 / 队列弹窗 / 登录弹窗）
  */
 
 /** 主区域页面标识（MusicAppShell 内容区多页切换） */
-export type MusicPage =
-  'home' | 'fm' | 'cloud' | 'mymusic' | 'siren' | 'search' | 'daily'
+export type MusicPage = 'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'daily'
 
-/**
- * 构造队列条目的权威 key（与 MusicSyncHandler 广播契约对应）。
- * - ncm 条目：`ncm:<songId>`
- * - siren 条目：`siren:<sourceId>`（songId 恒 0）
- */
+/** 构造队列条目的权威 key（`ncm:<songId>`） */
 export function musicItemKey(item: MusicQueueItem): string {
-  if (item.source === 'siren') return `siren:${item.sourceId ?? ''}`
   return `ncm:${item.songId}`
 }
 
-/** 条目来源兜底（旧广播数据缺省视为 ncm） */
-export function itemSource(item: MusicQueueItem): MusicSource {
-  return item.source === 'siren' ? 'siren' : 'ncm'
-}
-
-/** 从 key 解析来源与标识（无法解析时返回 null） */
+/** 从 key 解析来源与标识（无法解析时返回 null）。
+ *  siren: 前缀为塞壬支持移除前的历史数据，解析为 null（不可播放） */
 export function parseMusicKey(
   key: string | null | undefined
-): { source: MusicSource; id: string; songId: number } | null {
+): { source: 'ncm'; id: string; songId: number } | null {
   if (!key) return null
   if (key.startsWith('ncm:')) {
     const songId = Number(key.slice(4))
     if (!Number.isFinite(songId)) return null
     return { source: 'ncm', id: String(songId), songId }
-  }
-  if (key.startsWith('siren:')) {
-    const id = key.slice(6)
-    if (!id) return null
-    return { source: 'siren', id, songId: 0 }
   }
   return null
 }
@@ -62,9 +42,9 @@ export function parseMusicKey(
 export interface MusicState {
   /** 房间播放队列（按 order 升序） */
   queue: MusicQueueItem[]
-  /** 当前播放曲目的权威 key（`ncm:<songId>` / `siren:<cid>`，null 表示未播放） */
+  /** 当前播放曲目的权威 key（`ncm:<songId>`，null 表示未播放） */
   currentKey: string | null
-  /** ncm 兼容字段：当前曲目 songId（siren 播放时为 0，null 表示未播放） */
+  /** 兼容字段：当前曲目 songId（null 表示未播放） */
   currentSongId: number | null
   /** 是否正在播放（audio 元素事件镜像） */
   isPlaying: boolean
@@ -149,7 +129,6 @@ export const useMusicStore = create<MusicState>((set) => ({
   setQueue: (items) =>
     set({ queue: [...items].sort((a, b) => a.order - b.order) }),
   setCurrentKey: (key) => {
-    // ncm 兼容字段：解析 key 前缀；siren 曲目 songId 恒 0
     const parsed = parseMusicKey(key)
     set({
       currentKey: key,

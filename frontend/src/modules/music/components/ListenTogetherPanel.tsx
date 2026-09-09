@@ -203,7 +203,7 @@ function ListenTogetherInner({
 
   // ===== 切歌驱动的同步重置（render 期调整状态，替代 effect 内同步 setState）：
   // 歌词清空走防闪烁隐藏（Hydrogen 切歌 lyricShow=false 同语义）、
-  // 黑块滑入、喜欢乐观态重置；塞壬曲目直接进入 Lyric-Area 占位 =====
+  // 黑块滑入、喜欢乐观态重置 =====
   const [prevSongId, setPrevSongId] = useState<number | null | undefined>(
     songId
   )
@@ -219,7 +219,6 @@ function ListenTogetherInner({
 
   // ===== 歌词请求（异步回调内 setState；重置已在 render 期完成） =====
   useEffect(() => {
-    // 塞壬曲目（songId=0）无歌词：render 期已置 Lyric-Area 占位
     if (songId == null || songId <= 0) return
     let cancelled = false
     const loadLyric = async () => {
@@ -270,12 +269,9 @@ function ListenTogetherInner({
     return () => clearTimeout(timer)
   }, [songSwitching])
 
-  // ===== 喜欢状态查询（/account 取 uid → /likelist 取 ids；异步回调内 setState） =====
-  const canLike =
-    loginStatus.loggedIn &&
-    currentSong?.source !== 'siren' &&
-    songId != null &&
-    songId > 0
+  // ===== 喜欢（Hydrogen likeSong：NCM 登录后可见） =====
+  // 查询当前喜欢状态（/account 取 uid → /likelist 取 ids；异步回调内 setState）
+  const canLike = loginStatus.loggedIn && songId != null && songId > 0
 
   useEffect(() => {
     if (!canLike || songId == null) return

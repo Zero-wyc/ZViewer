@@ -3,7 +3,7 @@
  *
  * 结构：左搜索框 + 中导航链接组 + 右账户菜单
  * - 搜索框（widget-search 式）：圆角输入，回车 → page='search' 并存关键词到 store
- * - 导航链接：首页/私人漫游/云盘/我的音乐/塞壬唱片；当前页 on-surface、
+ * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
  *   其余 on-surface-variant/60，18px font-medium，间距 clamp(37px,3vw,40px)，
  *   hover opacity-0.7
  * - 账户（app-option 范式）：已登录显示头像圆图，未登录显示 User 图标；
@@ -32,7 +32,6 @@ const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
   { key: 'fm', label: '私人漫游' },
   { key: 'cloud', label: '云盘' },
   { key: 'mymusic', label: '我的音乐' },
-  { key: 'siren', label: '塞壬唱片' },
 ]
 
 /** app-option 菜单四角白点位置（Hydrogen option-style 装饰） */

@@ -142,8 +142,6 @@ export function MusicFmPage({ socket, roomId }: MusicFmPageProps) {
         id: -1,
         roomId: roomId,
         songId: song.songId,
-        source: 'ncm',
-        sourceId: null,
         name: song.name,
         artist: song.artist,
         album: song.album,

@@ -4,13 +4,10 @@
  * 挂载在 /api/music 下，提供以下端点：
  * - ANY  /api/music/ncm/*       通用转发：注入当前用户持久化的网易云 cookie，
  *                               转发到内部 NCM API 服务（127.0.0.1），浏览器不直连网易云
- * - GET  /api/music/siren/*     塞壬唱片（Monster Siren）API 转发：明日方舟官方
- *                               音乐平台的公开接口（无 CORS 头，浏览器不能直连）
  * - GET  /api/music/login/status 查询当前用户的网易云登录状态
  * - POST /api/music/logout       删除当前用户持久化的网易云凭证
- * - GET  /api/music/stream       音频流代理：ncm 来源先调 /song/url/v1 解析直链
- *                               （含音质降级链）；siren 来源调塞壬 /song/{cid}。
- *                               校验直链域名后流式转发（支持 Range/206）
+ * - GET  /api/music/stream       音频流代理：先调 /song/url/v1 解析直链
+ *                               （含音质降级链），校验直链域名后流式转发（支持 Range/206）
  *
  * 鉴权模型：可选鉴权——携带有效 token 时注入 req.user（登录态转发用），
  * 未登录 / 游客（userId=0）也放行，以匿名（无 cookie）方式调用 NCM API。
@@ -357,38 +354,6 @@ router.use(
   },
 );
 
-// ==================== 塞壬唱片转发 /api/music/siren/* ====================
-
-/**
- * 塞壬唱片 API 转发：/api/music/siren/<path> → monster-siren.hypergryph.com/api/<path>。
- *
- * 塞壬为明日方舟官方音乐平台的公开 API（无鉴权、无跨域头），浏览器无法
- * 直连（CORS），必须由服务端转发。仅允许 GET（全部端点均为只读查询）。
- */
-router.use(
-  '/siren',
-  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    if (req.method !== 'GET') {
-      res
-        .status(405)
-        .json({ code: 'METHOD_NOT_ALLOWED', message: '仅支持 GET 转发' });
-      return;
-    }
-    try {
-      const rawUrl = req.url || '/';
-      const queryIndex = rawUrl.indexOf('?');
-      const rawPath = queryIndex >= 0 ? rawUrl.slice(0, queryIndex) : rawUrl;
-      const data = await callSirenApi(rawPath || '/');
-      res.json(data);
-    } catch (err) {
-      console.error('[music] siren 转发失败:', err);
-      res
-        .status(502)
-        .json({ code: 'UPSTREAM_ERROR', message: '塞壬唱片接口请求失败' });
-    }
-  },
-);
-
 // ==================== 登录状态 / 退出 ====================
 
 /** GET /api/music/login/status - 查询当前用户的网易云登录状态 */
@@ -463,42 +428,6 @@ const AUDIO_STREAM_HIGH_WATER_MARK = 1024 * 1024;
 function isNcmAudioHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host === 'music.126.net' || host.endsWith('.music.126.net');
-}
-
-// ==================== 塞壬唱片（Monster Siren） ====================
-
-/** 塞壬唱片公开 API 基址（明日方舟官方音乐平台，无需鉴权） */
-const SIREN_API_BASE = 'https://monster-siren.hypergryph.com/api';
-
-/** 塞壬音频/资源 CDN 域名白名单（防 SSRF） */
-function isSirenHost(hostname: string): boolean {
-  const host = hostname.toLowerCase();
-  return host === 'hypergryph.com' || host.endsWith('.hypergryph.com');
-}
-
-/**
- * 调用塞壬唱片 API 并返回 data 字段（其响应约定 { code: 0, data }）。
- * 失败抛错；带 30s 内存缓存的意义不大（数据极少变化），直接透传即可。
- */
-async function callSirenApi(path: string): Promise<Record<string, unknown>> {
-  const url = `${SIREN_API_BASE}${path.startsWith('/') ? path : `/${path}`}`;
-  const upstream = await fetch(url, {
-    headers: { Accept: 'application/json, text/plain, */*' },
-  });
-  const text = await upstream.text();
-  let body: unknown = null;
-  try {
-    body = text ? JSON.parse(text) : null;
-  } catch {
-    throw new Error('塞壬唱片接口返回了无法解析的响应');
-  }
-  const b = body as Record<string, unknown> | null;
-  if (!b || b.code !== 0 || b.data === undefined) {
-    throw new Error(
-      typeof b?.msg === 'string' ? b.msg : '塞壬唱片接口请求失败',
-    );
-  }
-  return b.data as Record<string, unknown>;
 }
 
 /** 提取 /song/url/v1 响应中 data[0]（失败返回 null） */
@@ -634,57 +563,10 @@ async function proxyAudioStream(
  *    /check/music 判定无版权 → NO_COPYRIGHT；其余 → RESOLVE_FAILED
  * 4. 直链 hostname 必须匹配 *.music.126.net（防 SSRF），否则 RESOLVE_FAILED
  * 5. 流式转发（Range/206 透传）
- *
- * 塞壬分支（source=siren）：从 sourceId（cid 字符串）解析直链，
- * 白名单 *.hypergryph.com，不涉及 NCM 凭证。
  */
 router.get(
   '/stream',
   async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-    // 塞壬唱片分支（置于 songId 校验之前：siren 的 cid 是字符串且 songId=0）：
-    // source=siren → 调塞壬 /song/{cid} 解析直链（公开 API，无登录态概念，
-    // 不走 NCM 凭证回退链），校验 *.hypergryph.com 白名单后转发
-    if (req.query.source === 'siren') {
-      const sourceId =
-        typeof req.query.sourceId === 'string' ? req.query.sourceId.trim() : '';
-      if (
-        !sourceId ||
-        sourceId.length > 128 ||
-        !/^[0-9a-zA-Z_-]+$/.test(sourceId)
-      ) {
-        res
-          .status(400)
-          .json({ code: 'INVALID_PARAMS', message: 'sourceId 参数无效' });
-        return;
-      }
-      try {
-        const song = await callSirenApi(
-          `/song/${encodeURIComponent(sourceId)}`,
-        );
-        const sourceUrl = song.sourceUrl;
-        if (typeof sourceUrl !== 'string' || !sourceUrl) {
-          res
-            .status(404)
-            .json({ code: 'RESOLVE_FAILED', message: '塞壬歌曲无法解析' });
-          return;
-        }
-        const parsed = new URL(sourceUrl);
-        if (!isSirenHost(parsed.hostname)) {
-          res
-            .status(502)
-            .json({ code: 'RESOLVE_FAILED', message: '塞壬直链域名不在白名单' });
-          return;
-        }
-        await proxyAudioStream(req, res, sourceUrl);
-      } catch (err) {
-        console.error('[music] siren stream error:', err);
-        res
-          .status(502)
-          .json({ code: 'RESOLVE_FAILED', message: '塞壬歌曲解析失败' });
-      }
-      return;
-    }
-
     const songId = Number(req.query.songId);
     if (!Number.isInteger(songId) || songId <= 0) {
       res
