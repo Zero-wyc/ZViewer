@@ -601,7 +601,7 @@ export default function ProfilePage() {
 
           {/* 账号绑定（网易云 / B站，平台切换展示） */}
           <div className="glass-card p-4">
-            <div className="mb-3 flex items-center gap-3">
+            <div className="mb-3 flex items-center gap-4">
               <div
                 className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
                 style={{

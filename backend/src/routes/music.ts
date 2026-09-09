@@ -267,8 +267,18 @@ router.use(
         }
       }
 
-      // 注入当前用户持久化的网易云 cookie
-      const credential = await loadCredential(req.user?.userId);
+      // 注入当前用户持久化的网易云 cookie。
+      // 扫码登录三接口（key/create/check）必须在无 cookie 的干净上下文调用：
+      // 网易云以请求携带的 cookie 判定当前登录态，注入旧凭据（尤其是已过期
+      // 的 MUSIC_U）会让登录二维码轮询异常（800 循环）导致扫码无效；
+      // check 成功（803）响应的 Set-Cookie 仍走下方持久化逻辑正常落库。
+      const isQrLoginPath =
+        ncmPath === '/login/qr/key' ||
+        ncmPath === '/login/qr/create' ||
+        ncmPath === '/login/qr/check';
+      const credential = isQrLoginPath
+        ? null
+        : await loadCredential(req.user?.userId);
       const cookieHeader = credential ? toCookieHeader(credential.cookies) : '';
 
       const upstream = await fetch(target, {
