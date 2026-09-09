@@ -10,8 +10,10 @@
  * WatchPage 分发器根据 roomMode + shareMethod 决定渲染本组件或 StreamPushViewer。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
+import { useHeaderCenterSlot } from '@/hooks/useHeaderCenterSlot'
 import { cn } from '@/lib/utils'
 import {
   isIOSDevice,
@@ -23,7 +25,10 @@ import {
   type AnnotationTool,
 } from '@/components/AnnotationLayer'
 import { CommentPanel } from '@/components/CommentPanel'
-import { RoomLayout } from '@/modules/room/components/RoomLayout'
+import {
+  RoomLayout,
+  RoomModeSwitchBar,
+} from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useP2PTunnel } from '@/modules/p2p'
@@ -77,6 +82,13 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   const [showAnnotationToolbar, setShowAnnotationToolbar] = useState(false)
   const annotationRef = useRef<{ clear: () => void }>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
+
+  // 当前模式标签 → 全局 Header 中央槽位（观众只读标签，无切换权限）
+  const headerCenterSlot = useHeaderCenterSlot()
+  const modeSwitchPortal =
+    headerCenterSlot != null
+      ? createPortal(<RoomModeSwitchBar isHost={false} />, headerCenterSlot)
+      : null
 
   // WebRTC 播放器舞台 ref（用于控制栏自动隐藏）
   const webrtcStageRef = useRef<HTMLDivElement | null>(null)
@@ -375,21 +387,26 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   )
 
   return (
-    <RoomLayout
-      mainContent={playerContent}
-      peerConnection={pc}
-      sharingRole="receiver"
-      sharingActive
-      p2pEnabled={p2pEnabled}
-      p2pPC={p2pPC}
-      p2pStatus={p2pStatus}
-      p2pFallbackNotice={p2pFallbackNotice}
-      onToggleP2P={handleToggleP2P}
-      webFullscreen={isWebFullscreen}
-      rightPanel={<CommentPanel socket={socket} roomId={roomId} commentsOnly />}
-      controls={<RoomInfoPanel roomId={roomId} isHost={false} />}
-      controlLabels={['房间状态']}
-    />
+    <>
+      {modeSwitchPortal}
+      <RoomLayout
+        mainContent={playerContent}
+        peerConnection={pc}
+        sharingRole="receiver"
+        sharingActive
+        p2pEnabled={p2pEnabled}
+        p2pPC={p2pPC}
+        p2pStatus={p2pStatus}
+        p2pFallbackNotice={p2pFallbackNotice}
+        onToggleP2P={handleToggleP2P}
+        webFullscreen={isWebFullscreen}
+        rightPanel={
+          <CommentPanel socket={socket} roomId={roomId} commentsOnly />
+        }
+        controls={<RoomInfoPanel roomId={roomId} isHost={false} />}
+        controlLabels={['房间状态']}
+      />
+    </>
   )
 }
 
