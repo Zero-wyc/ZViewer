@@ -133,6 +133,9 @@ export function RoomLayout({
   }, [])
 
   const roomMode = useRoomStore((state) => state.mode)
+  // 一起听模式：无评论区/弹幕轨道/实时弹幕——整个右侧面板与展开按钮
+  // 一并隐藏（房主/观众两侧共用本布局，一处生效）
+  const hideRightPanel = roomMode === 'listen-together'
   const setMode = useRoomStore((state) => state.setMode)
   const storeIsSharing = useRoomStore((state) => state.isSharing)
 
@@ -307,7 +310,8 @@ export function RoomLayout({
   //   的 translateX 与占位区 width 共同完成，避免直接对 panel 做 width/scale。
   // - 移动端：从右侧滑入的全宽抽屉，覆盖在视频区域上方，避免 320px 超出窄屏。
   // - 原生全屏：悬浮卡片从右侧滑入，带圆角和强阴影。
-  const rightPanelNode = (
+  // - 一起听模式：不渲染（hideRightPanel）。
+  const rightPanelNode = hideRightPanel ? null : (
     <div
       className={cn(
         'flex min-h-0 min-w-0 flex-col overflow-hidden',
@@ -405,25 +409,27 @@ export function RoomLayout({
         <div className="flex flex-1 justify-center px-2">{modeSwitchBar}</div>
 
         <div className="flex flex-shrink-0 items-center gap-2">
-          <button
-            onClick={toggleRightPanel}
-            aria-label={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
-            aria-expanded={isRightPanelOpen}
-            title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
-            className="glass hidden h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95 md:flex"
-            style={{
-              borderColor: 'var(--md-sys-color-outline-variant)',
-              color: isRightPanelOpen
-                ? 'var(--md-sys-color-primary)'
-                : 'var(--md-sys-color-on-surface-variant)',
-            }}
-          >
-            {isRightPanelOpen ? (
-              <PanelRightClose className="h-4 w-4" />
-            ) : (
-              <PanelRight className="h-4 w-4" />
-            )}
-          </button>
+          {!hideRightPanel && (
+            <button
+              onClick={toggleRightPanel}
+              aria-label={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+              aria-expanded={isRightPanelOpen}
+              title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+              className="glass hidden h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95 md:flex"
+              style={{
+                borderColor: 'var(--md-sys-color-outline-variant)',
+                color: isRightPanelOpen
+                  ? 'var(--md-sys-color-primary)'
+                  : 'var(--md-sys-color-on-surface-variant)',
+              }}
+            >
+              {isRightPanelOpen ? (
+                <PanelRightClose className="h-4 w-4" />
+              ) : (
+                <PanelRight className="h-4 w-4" />
+              )}
+            </button>
+          )}
           {headerActions}
         </div>
       </div>
@@ -450,15 +456,18 @@ export function RoomLayout({
           </div>
         </div>
         {/* 移动端抽屉背景遮罩：点击可关闭侧栏 */}
-        {!isNativeFullscreen && !webFullscreen && isRightPanelOpen && (
-          <div
-            className="absolute inset-0 z-10 bg-black/50 md:hidden"
-            aria-hidden="true"
-            onClick={() => setIsRightPanelOpen(false)}
-          />
-        )}
+        {!isNativeFullscreen &&
+          !webFullscreen &&
+          !hideRightPanel &&
+          isRightPanelOpen && (
+            <div
+              className="absolute inset-0 z-10 bg-black/50 md:hidden"
+              aria-hidden="true"
+              onClick={() => setIsRightPanelOpen(false)}
+            />
+          )}
         {/* 右侧占位区：仅桌面端显示，宽度动画与绝对定位面板同步滑动 */}
-        {!isNativeFullscreen && !webFullscreen && (
+        {!isNativeFullscreen && !webFullscreen && !hideRightPanel && (
           <div
             className={cn(
               'hidden flex-shrink-0 overflow-hidden transition-all duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block',
@@ -468,7 +477,7 @@ export function RoomLayout({
           />
         )}
         {/* 右侧面板：移动端为全宽抽屉覆盖在视频上方，桌面端为固定宽度侧边栏 */}
-        {!isNativeFullscreen && !webFullscreen && (
+        {!isNativeFullscreen && !webFullscreen && !hideRightPanel && (
           <div
             className={cn(
               'pointer-events-none fixed inset-y-0 right-0 z-[9999] w-full overflow-hidden transition-transform duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:absolute md:top-0 md:h-full md:w-[320px]',
@@ -549,27 +558,30 @@ export function RoomLayout({
                             </button>
                           ))}
                         </div>
-                        <button
-                          onClick={toggleRightPanel}
-                          aria-label={
-                            isRightPanelOpen ? '收起侧栏' : '展开侧栏'
-                          }
-                          aria-expanded={isRightPanelOpen}
-                          title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
-                          className="glass flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
-                          style={{
-                            borderColor: 'var(--md-sys-color-outline-variant)',
-                            color: isRightPanelOpen
-                              ? 'var(--md-sys-color-primary)'
-                              : 'var(--md-sys-color-on-surface-variant)',
-                          }}
-                        >
-                          {isRightPanelOpen ? (
-                            <PanelRightClose className="h-4 w-4" />
-                          ) : (
-                            <PanelRight className="h-4 w-4" />
-                          )}
-                        </button>
+                        {!hideRightPanel && (
+                          <button
+                            onClick={toggleRightPanel}
+                            aria-label={
+                              isRightPanelOpen ? '收起侧栏' : '展开侧栏'
+                            }
+                            aria-expanded={isRightPanelOpen}
+                            title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+                            className="glass flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
+                            style={{
+                              borderColor:
+                                'var(--md-sys-color-outline-variant)',
+                              color: isRightPanelOpen
+                                ? 'var(--md-sys-color-primary)'
+                                : 'var(--md-sys-color-on-surface-variant)',
+                            }}
+                          >
+                            {isRightPanelOpen ? (
+                              <PanelRightClose className="h-4 w-4" />
+                            ) : (
+                              <PanelRight className="h-4 w-4" />
+                            )}
+                          </button>
+                        )}
                       </div>
                     )}
                     <div
