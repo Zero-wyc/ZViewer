@@ -42,8 +42,6 @@ export interface MusicAppShellProps {
   canManage?: boolean
   /** 注入顶导航右侧的额外元素（如房间模式切换滑块/标签） */
   topNavExtra?: ReactNode
-  /** 返回回调（退出房间入口）：底板化后无 RoomLayout 顶栏，经顶导航返回按钮触发 */
-  onBack?: () => void
   /** 模式切换进行中：底板上渲染全屏加载占位 */
   isModeSwitching?: boolean
 }
@@ -58,7 +56,6 @@ export function MusicAppShell({
   username,
   canManage = false,
   topNavExtra,
-  onBack,
   isModeSwitching = false,
 }: MusicAppShellProps) {
   // 页面级集成：RoomPage/WatchPage 用 MusicPlayerProvider 包裹整个 RoomLayout，
@@ -73,7 +70,6 @@ export function MusicAppShell({
         username={username}
         canManage={canManage}
         topNavExtra={topNavExtra}
-        onBack={onBack}
         isModeSwitching={isModeSwitching}
       />
     )
@@ -92,7 +88,6 @@ export function MusicAppShell({
         username={username}
         canManage={canManage}
         topNavExtra={topNavExtra}
-        onBack={onBack}
         isModeSwitching={isModeSwitching}
       />
     </MusicPlayerProvider>
@@ -106,7 +101,6 @@ function ShellInner({
   username,
   canManage,
   topNavExtra,
-  onBack,
   isModeSwitching,
 }: {
   socket: Socket | null
@@ -115,7 +109,6 @@ function ShellInner({
   username?: string
   canManage: boolean
   topNavExtra?: ReactNode
-  onBack?: () => void
   isModeSwitching: boolean
 }) {
   const page = useMusicStore((s) => s.page)
@@ -210,14 +203,10 @@ function ShellInner({
         )}
       </div>
 
-      {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧）。
+      {/* ===== 顶部导航（模式切换滑块/标签注入右侧）。
           底板占满全屏（h-screen）：听模式下全局 Header 默认隐藏，顶栏位置
           由本导航填充；Header 经横条触发显示时以 fixed 悬浮覆盖，不推挤 ===== */}
-      <MusicTopNav
-        isHost={isHost}
-        modeSwitchSlot={topNavExtra}
-        onBack={onBack}
-      />
+      <MusicTopNav isHost={isHost} modeSwitchSlot={topNavExtra} />
 
       {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
       <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">

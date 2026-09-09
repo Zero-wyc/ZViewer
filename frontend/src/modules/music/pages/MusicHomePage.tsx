@@ -128,13 +128,13 @@ export function MusicHomePage({
         // 静默降级：区块空态
       })
 
-    // 最新音乐
-    void apiGet<{ data?: NcmNewSongCard[] }>(
+    // 最新音乐（/personalized/newsong 响应：{ code, result: [...] }）
+    void apiGet<{ result?: NcmNewSongCard[] }>(
       '/api/music/ncm/personal/newsong?limit=10'
     )
       .then(({ data }) => {
-        if (Array.isArray(data?.data)) {
-          setNewSongs(data.data.map(mapNewSong).filter((s) => s.songId > 0))
+        if (Array.isArray(data?.result)) {
+          setNewSongs(data.result.map(mapNewSong).filter((s) => s.songId > 0))
         }
       })
       .catch(() => {})
@@ -466,7 +466,7 @@ function DailyRecommendation() {
           aria-hidden="true"
         />
         <span
-          className="flex-1 select-none text-center text-[3.2vw] font-bold leading-none"
+          className="flex-1 select-none whitespace-nowrap text-center text-[2.7vw] font-bold leading-none"
           style={{
             color: 'transparent',
             WebkitTextStrokeWidth: '1px',
@@ -475,7 +475,7 @@ function DailyRecommendation() {
         >
           每日推荐
         </span>
-        <span className="absolute left-0 right-0 top-1/2 -translate-y-[1.9vw] text-center text-[9px] font-bold uppercase tracking-[0.25em] text-[var(--md-sys-color-on-surface-variant)]">
+        <span className="absolute left-0 right-0 top-1/2 -translate-y-[1.6vw] whitespace-nowrap text-center text-[9px] font-bold uppercase tracking-[0.18em] text-[var(--md-sys-color-on-surface-variant)]">
           Daily Recommendation
         </span>
       </div>
@@ -540,12 +540,12 @@ function NewestSongList({
   return (
     <div className="relative w-[24.4vw] min-w-[260px] shrink-0">
       {/* 标题（与 Banner 头部同高对齐） */}
-      <span className="absolute -top-[2.2vw] left-0 text-xl font-bold text-[var(--md-sys-color-on-surface)]">
+      <span className="absolute -top-[2.2vw] left-0 text-2xl font-bold text-[var(--md-sys-color-on-surface)]">
         最新音乐
       </span>
       <div className="flex max-h-[13.7vw] min-h-[220px] flex-col overflow-y-auto [scrollbar-width:none]">
         {songs.length === 0 && (
-          <div className="flex h-full min-h-[160px] items-center justify-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="flex h-full min-h-[160px] items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
             暂无最新音乐
           </div>
         )}
@@ -574,12 +574,12 @@ function NewestSongList({
                 />
                 <div className="ml-[1vw] min-w-0 flex-1 text-left">
                   <div
-                    className="truncate text-sm font-medium text-[var(--md-sys-color-on-surface)]"
+                    className="truncate text-base font-medium text-[var(--md-sys-color-on-surface)]"
                     title={song.name}
                   >
                     {song.name}
                   </div>
-                  <div className="truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                  <div className="truncate text-sm text-[var(--md-sys-color-on-surface-variant)]">
                     {song.artist}
                   </div>
                 </div>
@@ -653,7 +653,7 @@ function RecBlock({
         />
       </div>
       {/* CN 大标题 */}
-      <h3 className="mt-1 text-xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)]">
+      <h3 className="mt-1 text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)]">
         {titleCN}
       </h3>
 
@@ -688,7 +688,7 @@ function RecBlock({
             {/* 名称（两行截断） */}
             <div
               className={cn(
-                'mt-1.5 line-clamp-2 break-all text-sm font-bold leading-snug text-[var(--md-sys-color-on-surface)]',
+                'mt-1.5 line-clamp-2 break-all text-base font-bold leading-snug text-[var(--md-sys-color-on-surface)]',
                 item.circle && 'text-center'
               )}
               title={item.name}
@@ -699,7 +699,7 @@ function RecBlock({
             {item.sub && (
               <div
                 className={cn(
-                  'mt-0.5 truncate text-xs text-[var(--md-sys-color-on-surface-variant)]',
+                  'mt-0.5 truncate text-sm text-[var(--md-sys-color-on-surface-variant)]',
                   item.circle && 'text-center'
                 )}
               >

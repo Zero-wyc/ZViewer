@@ -208,12 +208,12 @@ export function MusicWidgetBar() {
         {/* 歌名 + 歌手（单行截断；无歌时「一起听」占位） */}
         <div className="w-40 min-w-0 select-text md:w-48">
           <div
-            className="truncate text-sm font-medium text-[var(--md-sys-color-on-surface)]"
+            className="truncate text-base font-medium text-[var(--md-sys-color-on-surface)]"
             title={currentSong?.name}
           >
             {currentSong?.name ?? '一起听'}
           </div>
-          <div className="truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
             {currentSong?.artist ?? ''}
           </div>
         </div>

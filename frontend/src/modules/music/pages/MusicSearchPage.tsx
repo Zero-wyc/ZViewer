@@ -167,7 +167,7 @@ export function MusicSearchPage({
                 />
               )}
             </div>
-            <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+            <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
               {searched
                 ? '未找到相关歌曲，换个关键词试试'
                 : '在顶部搜索框输入关键词搜索网易云歌曲'}

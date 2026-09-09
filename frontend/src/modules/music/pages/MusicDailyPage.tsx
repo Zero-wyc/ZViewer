@@ -116,13 +116,13 @@ export function MusicDailyPage({
 
       <div className="mt-4 flex min-h-[240px] flex-1 flex-col">
         {loading && (
-          <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             正在获取每日推荐…
           </div>
         )}
         {!loading && songs.length === 0 && (
-          <div className="flex flex-1 items-center justify-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="flex flex-1 items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
             今日暂无推荐歌曲
           </div>
         )}

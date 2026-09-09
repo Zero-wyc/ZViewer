@@ -126,7 +126,7 @@ export function SongRow({
           {/* 态一：默认序号（非当前行且非 hover 时可见） */}
           <span
             className={cn(
-              'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-sm tabular-nums text-[var(--md-sys-color-on-surface-variant)]',
+              'absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-base tabular-nums text-[var(--md-sys-color-on-surface-variant)]',
               STATE_TRANSITION,
               showIndex ? 'opacity-100' : 'opacity-0'
             )}
@@ -187,7 +187,7 @@ export function SongRow({
         >
           <span
             className={cn(
-              'min-w-0 truncate text-sm font-medium text-[var(--md-sys-color-on-surface)]',
+              'min-w-0 truncate text-base font-medium text-[var(--md-sys-color-on-surface)]',
               active && 'text-[var(--md-sys-color-primary)]'
             )}
           >
@@ -209,10 +209,10 @@ export function SongRow({
 
       {/* ===== 右区（flex-1）：歌手 + 时长 ===== */}
       <div className="flex min-w-0 flex-1 items-center">
-        <span className="min-w-0 flex-1 truncate text-sm text-[var(--md-sys-color-on-surface-variant)]">
+        <span className="min-w-0 flex-1 truncate text-base text-[var(--md-sys-color-on-surface-variant)]">
           {artist}
         </span>
-        <span className="ml-2 w-[30%] shrink-0 text-right text-sm tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+        <span className="ml-2 w-[30%] shrink-0 text-right text-base tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
           {duration}
         </span>
       </div>

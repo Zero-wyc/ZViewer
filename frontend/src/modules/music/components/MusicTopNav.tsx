@@ -2,16 +2,16 @@
  * 顶部导航（Hydrogen Home.vue header 范式）。
  *
  * 结构：左搜索框 + 中导航链接组 + 右账户菜单
- * - 搜索框（widget-search 式）：圆角输入，回车 → page='search' 并存关键词到 store
+ * - 搜索框（widget-search 式）：描边圆角输入，回车 → page='search' 并存关键词到 store
  * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
- *   其余 on-surface-variant/60，18px font-medium，间距 clamp(37px,3vw,40px)，
+ *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
  * - 账户（app-option 范式）：已登录显示头像圆图，未登录显示 User 图标；
  *   点击弹出深色小菜单（M3 适配：on-surface 底 + surface 字 + 四角白点装饰），
  *   选项：账号信息（昵称）/ 退出登录或账号登录 / 房主可见的 VIP 提示
  */
 import { useEffect, useState, type ReactNode } from 'react'
-import { ArrowLeft, Search, User } from 'lucide-react'
+import { Search, User } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
 import type { MusicPage } from '../store'
@@ -22,8 +22,6 @@ export interface MusicTopNavProps {
   isHost: boolean
   /** 右侧额外插槽（如房间模式切换滑块/标签）：渲染在账户按钮左侧 */
   modeSwitchSlot?: ReactNode
-  /** 返回回调：底板化后（无 RoomLayout 顶栏）由顶导航承担退出房间的入口 */
-  onBack?: () => void
 }
 
 /** 导航链接定义（顺序与 Hydrogen primary-nav + header-router-right 一致） */
@@ -42,11 +40,7 @@ const CORNER_DOTS = [
   'left-1 bottom-1',
 ] as const
 
-export function MusicTopNav({
-  isHost,
-  modeSwitchSlot,
-  onBack,
-}: MusicTopNavProps) {
+export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
   const page = useMusicStore((s) => s.page)
   const setPage = useMusicStore((s) => s.setPage)
   const setSearchKeywords = useMusicStore((s) => s.setSearchKeywords)
@@ -77,33 +71,17 @@ export function MusicTopNav({
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 返回（底板化后承担退出房间入口；与搜索框同高的圆形图标按钮） ===== */}
-      {onBack && (
-        <button
-          type="button"
-          onClick={onBack}
-          className="glass flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-opacity hover:opacity-70 active:scale-90"
-          style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
-          title="返回"
-          aria-label="返回"
-        >
-          <ArrowLeft
-            className="h-4 w-4"
-            style={{ color: 'var(--md-sys-color-on-surface)' }}
-          />
-        </button>
-      )}
-
-      {/* ===== 左：搜索框（widget-search 式圆角输入） ===== */}
+      {/* ===== 左：搜索框（widget-search 式描边圆角输入） ===== */}
       <div
-        className="flex h-8 w-44 shrink-0 items-center gap-1.5 rounded-full px-3"
+        className="flex h-9 w-56 shrink-0 items-center gap-1.5 rounded-full border px-3"
         style={{
           backgroundColor:
-            'color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent)',
+            'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+          borderColor: 'var(--md-sys-color-outline-variant)',
         }}
       >
         <Search
-          className="h-3.5 w-3.5 shrink-0"
+          className="h-4 w-4 shrink-0"
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         />
         <input
@@ -112,7 +90,7 @@ export function MusicTopNav({
           onKeyDown={handleSearchKeyDown}
           placeholder="搜索音乐"
           aria-label="搜索音乐"
-          className="min-w-0 flex-1 bg-transparent text-xs outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
           style={{ color: 'var(--md-sys-color-on-surface)' }}
         />
       </div>
@@ -130,7 +108,7 @@ export function MusicTopNav({
               type="button"
               onClick={() => setPage(item.key)}
               className={cn(
-                'shrink-0 text-lg font-medium transition-opacity hover:opacity-70',
+                'shrink-0 text-xl font-medium transition-opacity hover:opacity-70',
                 active ? 'opacity-100' : 'opacity-60'
               )}
               style={{
@@ -151,7 +129,7 @@ export function MusicTopNav({
       <div className="relative shrink-0">
         <button
           type="button"
-          className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full transition-opacity hover:opacity-80"
+          className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full transition-opacity hover:opacity-80"
           style={{
             border:
               '1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
@@ -168,7 +146,7 @@ export function MusicTopNav({
             />
           ) : (
             <User
-              className="h-4 w-4 translate-y-[1px]"
+              className="h-5 w-5 translate-y-[1px]"
               style={{ color: 'var(--md-sys-color-on-surface)' }}
             />
           )}
@@ -177,7 +155,7 @@ export function MusicTopNav({
         {/* app-option 小菜单（深色底 + 四角白点装饰，M3 适配 on-surface 底） */}
         {menuOpen && (
           <div
-            className="zen-dropdown-enter absolute right-0 top-9 z-[2001] w-[104px]"
+            className="zen-dropdown-enter absolute right-0 top-11 z-[2001] w-[104px]"
             style={{
               backgroundColor:
                 'color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent)',

@@ -5,7 +5,6 @@ import { useAuthStore } from '@/store/authStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { setClientLoggerRoomId } from '@/lib/clientLogger'
 import { useSocket } from '@/hooks/useSocket'
-import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 import { VoiceChatPanel } from '@/modules/voice-chat'
 import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
 import { RoomPanel } from '@/modules/room/components/RoomPanel'
@@ -142,9 +141,8 @@ function RoomPage() {
     roomId ?? '',
     isHost
   )
-  // 退出守卫：一起听底板化后无 RoomLayout 顶栏返回按钮，返回改由音乐顶导航
-  // 承担（guardNavigate 在房间内弹出确认）；其他模式仍用 RoomLayout 内置守卫
-  const { guardNavigate, confirmModal: exitGuardModal } = useRoomExitGuard()
+  // 其他模式仍用 RoomLayout 内置守卫；一起听底板无返回按钮（全局 Header 悬浮
+  // 显示后自带离开入口）
   const username = useAuthStore((state) => state.user?.username)
   const currentUserId = useAuthStore((state) => state.user?.id)
   const moderators = useRoomStore((state) => state.moderators)
@@ -400,8 +398,7 @@ function RoomPage() {
     const musicBetaClosed = isListenTogether && !betaFeaturesEnabled
 
     // 一起听（Beta 开启）：Hydrogen 应用框架升级为整页底板——不再套 RoomLayout
-    // 外框（玻璃卡片 + 顶部工具栏），语音/流量悬浮面板照常叠加；返回改由音乐
-    // 顶导航按钮承担（房间内弹出确认后离开）
+    // 外框（玻璃卡片 + 顶部工具栏），语音/流量悬浮面板照常叠加
     if (isListenTogether && !musicBetaClosed) {
       return (
         <>
@@ -428,9 +425,7 @@ function RoomPage() {
                 />
               }
               isModeSwitching={isModeSwitching}
-              onBack={() => guardNavigate('/')}
             />
-            {exitGuardModal}
           </MusicPlayerProvider>
           {voiceChatPanel}
           {trafficPanel}

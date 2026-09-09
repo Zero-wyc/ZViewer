@@ -23,17 +23,17 @@ export function MusicLoginGate({ hint }: { hint?: string }) {
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         />
       </div>
-      <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
+      <span className="text-base font-medium text-[var(--md-sys-color-on-surface)]">
         请先登录网易云音乐
       </span>
       {hint && (
-        <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+        <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
           {hint}
         </span>
       )}
       <button
         type="button"
-        className="mt-1 px-4 py-1.5 text-xs font-medium text-[var(--md-sys-color-surface)] transition-opacity hover:opacity-80"
+        className="mt-1 px-4 py-1.5 text-sm font-medium text-[var(--md-sys-color-surface)] transition-opacity hover:opacity-80"
         style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
         onClick={() => setLoginModalOpen(true)}
       >
@@ -76,7 +76,7 @@ export function PageBlockHeader({
         />
         {children}
       </div>
-      <h3 className="mt-1 text-xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)]">
+      <h3 className="mt-1 text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)]">
         {titleCN}
       </h3>
     </div>

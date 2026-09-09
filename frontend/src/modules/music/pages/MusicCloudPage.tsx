@@ -115,7 +115,7 @@ export function MusicCloudPage({
 
       <div className="mt-4 flex min-h-[240px] flex-1 flex-col">
         {loading && (
-          <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             正在获取云盘歌曲…
           </div>
@@ -126,7 +126,7 @@ export function MusicCloudPage({
               className="h-6 w-6 opacity-40"
               style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
             />
-            <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+            <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
               云盘暂无歌曲
             </span>
           </div>

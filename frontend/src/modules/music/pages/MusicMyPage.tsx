@@ -451,13 +451,13 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
 
       <div className="mt-4 flex min-h-[240px] flex-1 flex-col">
         {detailLoading && (
-          <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
             正在获取歌曲…
           </div>
         )}
         {!detailLoading && detailSongs.length === 0 && (
-          <div className="flex flex-1 items-center justify-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
+          <div className="flex flex-1 items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
             暂无歌曲
           </div>
         )}
@@ -489,7 +489,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
         {detailHasMore && (
           <div
             ref={sentinelRef}
-            className="flex h-12 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]"
+            className="flex h-12 items-center justify-center gap-2 text-sm text-[var(--md-sys-color-on-surface-variant)]"
           >
             {detailLoadingMore ? (
               <>
@@ -575,7 +575,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {/* ===== 歌单（我创建的 / 我收藏的） ===== */}
           {listType1 === 0 &&
             (playlistsLoading ? (
-              <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 正在获取…
               </div>
@@ -612,7 +612,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {/* ===== 收藏（专辑 / 歌手 / MV / 电台） ===== */}
           {listType1 === 1 &&
             (subLoading ? (
-              <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 正在获取…
               </div>
