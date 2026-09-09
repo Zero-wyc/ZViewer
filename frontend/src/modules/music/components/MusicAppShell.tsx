@@ -126,6 +126,8 @@ function ShellInner({
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
   // 带滑出动画的覆盖层关闭（0.5s 滑出后卸载）
   const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
+  /** 悬浮顶栏是否展开（顶部横条 hover 触发，移开顶栏收起） */
+  const [topNavVisible, setTopNavVisible] = useState(false)
 
   const {
     approveControl,
@@ -207,18 +209,57 @@ function ShellInner({
       {/* ===== 主界面（Hydrogen .home 过渡：打开完整播放器时缩小让位） ===== */}
       <div
         className={cn(
-          'flex min-h-0 flex-1 flex-col transition-transform duration-500 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
+          'relative flex min-h-0 flex-1 flex-col transition-transform duration-500 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
           playerOverlayOpen && 'scale-[0.92]'
         )}
       >
-        {/* ===== 顶部导航（返回 + 模式切换滑块/标签注入右侧） ===== */}
-        <MusicTopNav
-          isHost={isHost}
-          modeSwitchSlot={topNavExtra}
-          onBack={onBack}
-        />
+        {/* ===== 悬浮顶栏（默认隐藏，鼠标悬停顶部中间横条展开）：
+            absolute 悬浮不推挤内容页；完整播放器打开时不渲染 ===== */}
+        {!playerOverlayOpen && (
+          <>
+            {/* 触发横条（顶部中间，常驻）：hover 展开悬浮顶栏，顶栏显示后隐藏 */}
+            <button
+              type="button"
+              aria-label="显示顶栏"
+              className={cn(
+                'absolute left-1/2 top-0 z-[46] h-1.5 w-36 -translate-x-1/2 rounded-b-[4px] transition-all duration-300 hover:h-2',
+                topNavVisible && 'pointer-events-none opacity-0'
+              )}
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
+              }}
+              onMouseEnter={() => setTopNavVisible(true)}
+            />
+            {/* 悬浮顶栏本体（玻璃底 + 阴影，从顶部滑入 / 上滑收起） */}
+            <div
+              className={cn(
+                'absolute inset-x-0 top-0 z-[45] transition-all duration-300 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
+                topNavVisible
+                  ? 'translate-y-0 opacity-100'
+                  : '-translate-y-full opacity-0'
+              )}
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-surface) 90%, transparent)',
+                backdropFilter: 'blur(20px)',
+                WebkitBackdropFilter: 'blur(20px)',
+                boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)',
+              }}
+              onMouseEnter={() => setTopNavVisible(true)}
+              onMouseLeave={() => setTopNavVisible(false)}
+            >
+              {/* 顶部导航（返回 + 模式切换滑块/标签注入右侧） */}
+              <MusicTopNav
+                isHost={isHost}
+                modeSwitchSlot={topNavExtra}
+                onBack={onBack}
+              />
+            </div>
+          </>
+        )}
 
-        {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
+        {/* ===== 内容页（flex-1 滚动，多页切换；悬浮顶栏不占位、底部让位给悬浮播放条） ===== */}
         <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
           {page === 'home' && <MusicHomePage {...pageProps} />}
           {page === 'search' && <MusicSearchPage {...pageProps} />}
