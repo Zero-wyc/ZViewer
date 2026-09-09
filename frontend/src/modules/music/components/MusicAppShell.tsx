@@ -230,7 +230,7 @@ function ShellInner({
           playerOverlayOpen ? 'bottom-[-70px]' : 'bottom-[35px]'
         )}
       >
-        <MusicWidgetBar />
+        <MusicWidgetBar socket={socket} roomId={roomId} canManage={canManage} />
         {queuePopupOpen && (
           <MusicQueuePopup
             socket={socket}
