@@ -602,21 +602,19 @@ export default function ProfilePage() {
 
           {/* 账号绑定（网易云 / B站，平台切换展示） */}
           <div className="glass-card p-4">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="flex items-center gap-2">
-                <div
-                  className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                  style={{
-                    backgroundColor: 'var(--md-sys-color-tertiary-container)',
-                    color: 'var(--md-sys-color-on-tertiary-container)',
-                  }}
-                >
-                  <Link2 className="h-4 w-4" />
-                </div>
-                <Text className="text-sm font-medium">账号绑定</Text>
+            <div className="mb-3 flex items-center gap-3">
+              <div
+                className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-tertiary-container)',
+                  color: 'var(--md-sys-color-on-tertiary-container)',
+                }}
+              >
+                <Link2 className="h-4 w-4" />
               </div>
+              <Text className="text-sm font-medium">账号绑定</Text>
 
-              {/* 平台切换按钮（M3 segmented 胶囊）：展示已绑定的网易云 / B站账号 */}
+              {/* 平台切换按钮（M3 segmented 胶囊）：紧贴标题右侧，展示已绑定的网易云 / B站账号 */}
               <div
                 className="flex items-center rounded-full p-0.5"
                 style={{
