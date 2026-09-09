@@ -174,18 +174,22 @@ export function MusicWidgetBar() {
 
       {/* ===== 左：封面缩略图 + 歌曲信息 ===== */}
       <div className="absolute left-4 top-1/2 flex min-w-0 -translate-y-1/2 items-center gap-2">
-        {/* 封面：点击打开完整播放器覆盖层（hover 上箭头遮罩） */}
+        {/* 封面：点击打开完整播放器覆盖层（hover 上箭头遮罩）；无歌时禁用 */}
         <button
           type="button"
-          className="group/cover relative h-11 w-11 shrink-0 overflow-hidden border"
+          disabled={!cover}
+          className={cn(
+            'group/cover relative h-11 w-11 shrink-0 overflow-hidden border',
+            cover ? 'cursor-pointer' : 'cursor-default'
+          )}
           style={{
             borderColor:
               'color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)',
             backgroundColor: 'var(--md-sys-color-surface-container-high)',
           }}
-          onClick={() => setPlayerOverlayOpen(true)}
-          title="打开完整播放器"
-          aria-label="打开完整播放器"
+          onClick={cover ? () => setPlayerOverlayOpen(true) : undefined}
+          title={cover ? '打开完整播放器' : undefined}
+          aria-label={cover ? '打开完整播放器' : undefined}
         >
           {cover ? (
             <img src={cover} alt="" className="h-full w-full object-cover" />
@@ -195,15 +199,17 @@ export function MusicWidgetBar() {
               style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
             />
           )}
-          {/* hover 遮罩 + 上箭头（Hydrogen open-player 范式） */}
-          <span
-            className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover/cover:opacity-100"
-            style={{
-              backgroundColor: 'color-mix(in srgb, black 50%, transparent)',
-            }}
-          >
-            <ChevronUp className="h-4 w-4 text-white" />
-          </span>
+          {/* hover 遮罩 + 上箭头（Hydrogen open-player 范式；无歌不渲染） */}
+          {cover && (
+            <span
+              className="absolute inset-0 flex items-center justify-center opacity-0 transition-opacity duration-200 group-hover/cover:opacity-100"
+              style={{
+                backgroundColor: 'color-mix(in srgb, black 50%, transparent)',
+              }}
+            >
+              <ChevronUp className="h-4 w-4 text-white" />
+            </span>
+          )}
         </button>
         {/* 歌名 + 歌手（单行截断；无歌时「一起听」占位） */}
         <div className="w-40 min-w-0 select-text md:w-48">

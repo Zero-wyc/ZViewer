@@ -345,12 +345,13 @@ export function Header() {
   return (
     <>
       {/* 一起听模式触发横条：顶栏隐藏时常驻顶部中间，hover / 点击展开顶栏；
-          顶栏显示后隐藏（避免色块压在顶栏上） */}
+          顶栏显示后隐藏（避免色块压在顶栏上）。z-[39] 低于完整播放器覆盖层
+          （MusicAppShell z-40）：播放器页打开时横条被盖住，不再悬浮其上 */}
       {immersive && !headerShown && (
         <button
           type="button"
           aria-label="显示顶栏"
-          className="fixed left-1/2 top-0 z-[49] h-1.5 w-36 -translate-x-1/2 rounded-b-[4px] transition-all duration-300 hover:h-2"
+          className="fixed left-1/2 top-0 z-[39] h-1.5 w-36 -translate-x-1/2 rounded-b-[4px] transition-all duration-300 hover:h-2"
           style={{
             backgroundColor:
               'color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
@@ -928,8 +929,10 @@ export function Header() {
         </div>
       </header>
 
-      {/* 顶部占位，避免内容被 fixed header 遮挡 */}
-      <div style={{ height: '64px' }} />
+      {/* 顶部占位，避免内容被 fixed header 遮挡。听模式沉浸不占位：顶栏
+          悬浮显示不推挤内容（translate 动画），取消占位让 h-screen 底板
+          （含播放器覆盖层）真正从视口顶部开始 */}
+      {!immersive && <div style={{ height: '64px' }} />}
 
       <Modal
         open={serverModalOpen}
