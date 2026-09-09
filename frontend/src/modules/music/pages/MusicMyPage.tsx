@@ -177,6 +177,15 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   const [detail, setDetail] = useState<DetailState | null>(null)
   const [detailSongs, setDetailSongs] = useState<NcmSong[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
+  // ===== 歌单详情分页缓加载（首次 50 首，滚动到底部继续加载） =====
+  /** 是否还有更多分页（歌单详情用） */
+  const [detailHasMore, setDetailHasMore] = useState(false)
+  /** 追加分页加载中 */
+  const [detailLoadingMore, setDetailLoadingMore] = useState(false)
+  /** 追加加载防重入（IntersectionObserver 可能多次触发） */
+  const loadingMoreRef = useRef(false)
+  /** 滚动到底部的哨兵元素（进入视口即触发下一页） */
+  const sentinelRef = useRef<HTMLDivElement>(null)
 
   const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
 
@@ -281,19 +290,29 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     }
   }, [])
 
-  /** 打开详情（歌单 / 专辑 / 歌手）：按 kind 拉对应接口的歌曲列表 */
+  /** 打开详情（歌单 / 专辑 / 歌手）：按 kind 拉对应接口的歌曲列表。
+   *  歌单首次只取 50 首（offset=0），剩余由滚动到底部触发追加加载 */
   const loadDetail = useCallback((d: DetailState) => {
     setDetail(d)
     setDetailSongs([])
     setDetailLoading(true)
+    setDetailHasMore(false)
+    setDetailLoadingMore(false)
+    loadingMoreRef.current = false
     void (async () => {
       try {
         if (d.kind === 'playlist') {
-          const { data } = await apiGet<{ songs?: PlaylistTrackItem[] }>(
-            `/api/music/ncm/playlist/track/all?id=${d.id}&limit=50`
-          )
+          const { data } = await apiGet<{
+            songs?: PlaylistTrackItem[]
+            total?: number
+          }>(`/api/music/ncm/playlist/track/all?id=${d.id}&limit=50&offset=0`)
           if (!Array.isArray(data?.songs)) throw new Error('歌单详情获取失败')
-          setDetailSongs(data.songs.map(mapTrack).filter((s) => s.songId > 0))
+          const songs = data.songs.map(mapTrack).filter((s) => s.songId > 0)
+          setDetailSongs(songs)
+          // total 是原始曲目总数（未过滤前 songs 长度与之一致），与已加载数
+          // 比较决定是否还有下一页
+          const total = Number.isFinite(data?.total) ? (data?.total ?? 0) : 0
+          setDetailHasMore(total > songs.length && songs.length > 0)
         } else if (d.kind === 'album') {
           const { data } = await apiGet<{
             album?: { name?: string; picUrl?: string }
@@ -325,7 +344,54 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   const closeDetail = useCallback(() => {
     setDetail(null)
     setDetailSongs([])
+    setDetailHasMore(false)
+    setDetailLoadingMore(false)
+    loadingMoreRef.current = false
   }, [])
+
+  /** 滚动到底部：追加加载歌单下一页（每页 50 首） */
+  const loadMoreDetail = useCallback(async () => {
+    const d = detail
+    if (!d || d.kind !== 'playlist' || !detailHasMore || loadingMoreRef.current)
+      return
+    loadingMoreRef.current = true
+    setDetailLoadingMore(true)
+    try {
+      const offset = detailSongs.length
+      const { data } = await apiGet<{
+        songs?: PlaylistTrackItem[]
+        total?: number
+      }>(
+        `/api/music/ncm/playlist/track/all?id=${d.id}&limit=50&offset=${offset}`
+      )
+      if (!Array.isArray(data?.songs)) throw new Error('歌单详情追加加载失败')
+      const next = data.songs.map(mapTrack).filter((s) => s.songId > 0)
+      setDetailSongs((prev) => [...prev, ...next])
+      const total = Number.isFinite(data?.total) ? (data?.total ?? 0) : 0
+      // 已加载（原始顺序）达到 total 或本页为空时停止
+      setDetailHasMore(offset + next.length < total && next.length > 0)
+    } catch (err) {
+      console.error('[MusicMyPage] 歌单追加加载失败:', err)
+      message.error('加载更多歌曲失败，请稍后重试')
+    } finally {
+      loadingMoreRef.current = false
+      setDetailLoadingMore(false)
+    }
+  }, [detail, detailHasMore, detailSongs.length])
+
+  // 哨兵进入视口（接近列表底部）→ 追加下一页
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el || !detailHasMore) return
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((e) => e.isIntersecting)) void loadMoreDetail()
+      },
+      { rootMargin: '400px' }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [detailHasMore, loadMoreDetail])
 
   if (!loginStatus.loggedIn) {
     return (
@@ -418,6 +484,22 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             />
           )
         })}
+        {/* 分页缓加载哨兵：滚动到底部（接近 400px 内）自动追加下一页 */}
+        {detailHasMore && (
+          <div
+            ref={sentinelRef}
+            className="flex h-12 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]"
+          >
+            {detailLoadingMore ? (
+              <>
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                正在加载更多歌曲…
+              </>
+            ) : (
+              <span>继续下滑加载更多</span>
+            )}
+          </div>
+        )}
       </div>
     </div>
   ) : (
