@@ -440,32 +440,207 @@ export function useListenTogether({
   const preloadRef = useRef<HTMLAudioElement | null>(null)
   const gaplessPlayback = useMusicSettingsStore((s) => s.gaplessPlayback)
 
+  // ===== 音频事件处理器（元素无关化，Hydrogen preparePlaybackSwitch 的等价基础） =====
+  /** ended 处理器的最新实现（handleEnded 随 switchSong 依赖重建，经 ref 间接调用） */
+  const endedHandlerRef = useRef<() => void>(() => {})
+
+  /**
+   * 六个音频生命周期事件的稳定 handler 集合（useState 惰性初始化，仅创建一次；
+   * 项目 lint 规则禁止 render 期读写 ref，故不用 useRef 惰性初始化）。
+   * 全部经 e.currentTarget / ref 访问状态（不捕获具体元素实例），
+   * 因此同一组监听器可安全地在「主播放元素 ↔ 预载元素」之间迁移（升格时迁移）。
+   */
+  const [audioHandlers] = useState<{
+    timeupdate: (e: Event) => void
+    play: () => void
+    pause: () => void
+    ended: () => void
+    loadedmetadata: (e: Event) => void
+    error: (e: Event) => void
+  }>(() => ({
+    timeupdate: (e) => {
+      const el = e.currentTarget as HTMLAudioElement
+      useMusicStore.getState().setPositionSec(el.currentTime)
+    },
+    play: () => {
+      useMusicStore.getState().setPlaying(true)
+    },
+    pause: () => {
+      useMusicStore.getState().setPlaying(false)
+    },
+    ended: () => {
+      endedHandlerRef.current()
+    },
+    loadedmetadata: (e) => {
+      // 换曲后的起始进度（如观众从房主进度起播）
+      const el = e.currentTarget as HTMLAudioElement
+      if (pendingSeekRef.current > 0) {
+        try {
+          el.currentTime = pendingSeekRef.current
+        } catch {
+          // ignore
+        }
+        pendingSeekRef.current = 0
+      }
+    },
+    error: (e) => {
+      // 流加载失败（无版权/纯 VIP 未登录/解析失败等后端结构化错误）
+      const el = e.currentTarget as HTMLAudioElement
+      console.error(
+        '[useListenTogether] 音频流加载失败:',
+        el.error?.code,
+        el.error?.message
+      )
+      message.error('音频加载失败，请稍后重试或切换其他曲目')
+    },
+  }))
+
+  /** 在指定音频元素上挂载生命周期事件（初始化/升格共用） */
+  const attachAudioHandlers = useCallback(
+    (el: HTMLAudioElement) => {
+      el.addEventListener('timeupdate', audioHandlers.timeupdate)
+      el.addEventListener('play', audioHandlers.play)
+      el.addEventListener('pause', audioHandlers.pause)
+      el.addEventListener('ended', audioHandlers.ended)
+      el.addEventListener('loadedmetadata', audioHandlers.loadedmetadata)
+      el.addEventListener('error', audioHandlers.error)
+    },
+    [audioHandlers]
+  )
+
+  /** 从指定音频元素上卸载生命周期事件（升格时从旧主元素移除） */
+  const detachAudioHandlers = useCallback(
+    (el: HTMLAudioElement) => {
+      el.removeEventListener('timeupdate', audioHandlers.timeupdate)
+      el.removeEventListener('play', audioHandlers.play)
+      el.removeEventListener('pause', audioHandlers.pause)
+      el.removeEventListener('ended', audioHandlers.ended)
+      el.removeEventListener('loadedmetadata', audioHandlers.loadedmetadata)
+      el.removeEventListener('error', audioHandlers.error)
+    },
+    [audioHandlers]
+  )
+
+  /** 复位指定音频元素：停止并释放已缓冲的流资源（Hydrogen unload 等价） */
+  const resetAudioElement = useCallback((el: HTMLAudioElement) => {
+    el.pause()
+    el.removeAttribute('src')
+    try {
+      // 空源 load()：中止当前加载并释放缓冲（MDN 推荐的资源释放方式）
+      el.load()
+    } catch {
+      // ignore
+    }
+  }, [])
+
   // 预缓冲下一首：提前建立 HTTP/媒体缓存，切歌时近乎零等待
-  // （Hydrogen gaplessPlayback 的 Web 等价实现）
+  //（Hydrogen gaplessPlayback 的 Web 等价实现；封面预取不受开关限制，资源极轻）
   useEffect(() => {
-    if (!gaplessPlayback) {
-      preloadRef.current?.pause()
-      preloadRef.current = null
+    const target = peekNextSong()
+    // 封面预取：提前拉取下一首封面进 HTTP 缓存（Hydrogen prefetchSongAssets 封面部分；
+    // 同 URL 重复预取由浏览器 HTTP 缓存兜底，不产生额外网络请求）
+    if (target?.cover) {
+      const img = new Image()
+      img.src = target.cover
+    }
+    const targetUrl = target ? buildStreamUrl(target, roomIdRef.current) : null
+    // 幂等复用（Hydrogen 同 key 同 quality 复用）：目标未变且预载元素健康时
+    // 保留已缓冲进度，避免队列重排等无关变化触发重复加载
+    const existing = preloadRef.current
+    if (
+      gaplessPlayback &&
+      targetUrl != null &&
+      existing != null &&
+      existing.src === targetUrl &&
+      existing.error == null
+    ) {
       return
     }
-    const target = peekNextSong()
-    if (!target) return
+    // 退役旧预载元素：停止并释放已缓冲的流资源
+    //（若已被升格为主播放元素，preloadRef 已在升格时被消费置 null，不在此误停主播放）
+    if (existing) {
+      resetAudioElement(existing)
+    }
+    preloadRef.current = null
+    if (!gaplessPlayback || !target || targetUrl == null) return
     const el = new Audio()
     el.preload = 'auto'
-    el.src = buildStreamUrl(target, roomIdRef.current)
-    preloadRef.current?.pause()
+    // 预载元素同步主元素的音量/静音（升格接管时仍会再校准一次）
+    const currentAudio = audioRef.current
+    if (currentAudio) {
+      el.volume = currentAudio.volume
+      el.muted = currentAudio.muted
+    }
+    el.src = targetUrl
     preloadRef.current = el
     return () => {
-      el.pause()
+      // 该元素已被升格为主播放元素时（preloadRef 不再指向它），绝不能暂停
+      if (preloadRef.current === el) {
+        el.pause()
+        preloadRef.current = null
+      }
     }
-  }, [gaplessPlayback, peekNextSong, currentKey, queue, playMode])
+  }, [
+    gaplessPlayback,
+    peekNextSong,
+    currentKey,
+    queue,
+    playMode,
+    resetAudioElement,
+  ])
 
-  /** 加载指定队列条目（positionSec 为起始进度；shouldPlay 控制起播状态） */
+  /** 加载指定队列条目（positionSec 为起始进度；shouldPlay 控制起播状态）。
+   *  预载升格（Hydrogen play() 的 takeGaplessPreloadForCurrentSong 思路）：
+   *  预载元素已缓冲同一首歌（同流 URL 且数据就绪、无错误）时，把预载元素
+   *  直接升格为主播放元素并迁移事件监听——零网络/零加载等待；
+   *  未命中预载时走原路径（主元素重新 load）。 */
   const loadAndPlaySong = useCallback(
     (item: MusicQueueItem, positionSec: number, shouldPlay: boolean) => {
       const audio = getAudio()
       const url = buildStreamUrl(item, roomIdRef.current)
       useMusicStore.getState().setCurrentKey(musicItemKey(item))
+
+      // ===== 预载升格路径 =====
+      // 条件：同一 URL（流地址稳定：同 songId/level/roomId/token）、
+      // readyState ≥ HAVE_FUTURE_DATA（可连续播放）、无加载错误
+      const preloaded = preloadRef.current
+      if (
+        preloaded != null &&
+        preloaded !== audio &&
+        preloaded.src === url &&
+        preloaded.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA &&
+        preloaded.error == null
+      ) {
+        // 1) 事件迁移：先从旧主元素摘除（避免 pause 触发暂停状态镜像）
+        detachAudioHandlers(audio)
+        // 2) 停止旧播放（事件已摘除，不会误镜像暂停状态）
+        audio.pause()
+        // 3) 挂载事件并接管角色；预载槽消费置空（预载 effect 会重新预载下一首）
+        attachAudioHandlers(preloaded)
+        audioRef.current = preloaded
+        preloadRef.current = null
+        // 4) 同步音量/静音（主元素是音量设置的权威来源）
+        preloaded.volume = audio.volume
+        preloaded.muted = audio.muted
+        // 5) 元数据已就绪（readyState 校验），起始进度直接生效
+        if (positionSec > 0) {
+          try {
+            preloaded.currentTime = positionSec
+          } catch {
+            // ignore
+          }
+        }
+        if (shouldPlay) {
+          void preloaded.play().catch(() => {
+            // 自动播放策略拒绝等：静默处理，播放状态由 audio 事件镜像
+          })
+        } else {
+          preloaded.pause()
+        }
+        return
+      }
+
+      // ===== 原路径（未命中预载） =====
       if (audio.src === url && audio.readyState >= 1) {
         // 同一曲目且元数据已就绪（重播/循环）：直接 seek
         try {
@@ -489,7 +664,7 @@ export function useListenTogether({
         audio.pause()
       }
     },
-    [getAudio]
+    [getAudio, attachAudioHandlers, detachAudioHandlers]
   )
 
   /** 切歌核心：按播放模式计算目标并加载播放；房主额外广播同步状态 */
@@ -819,55 +994,18 @@ export function useListenTogether({
     switchSong('next')
   }, [getAudio, switchSong, broadcastSyncState])
 
-  // 音频元素事件绑定：进度/播放状态镜像、换曲起始进度、结束自动切歌
+  // 音频元素事件绑定：handler 集合元素无关（升格时随元素迁移），此处只做
+  // 初始主元素的挂载/卸载；ended 经 endedHandlerRef 间接调用最新实现
   useEffect(() => {
     const audio = getAudio()
-    const handleTimeUpdate = () => {
-      useMusicStore.getState().setPositionSec(audio.currentTime)
-    }
-    const handlePlay = () => {
-      useMusicStore.getState().setPlaying(true)
-    }
-    const handlePause = () => {
-      useMusicStore.getState().setPlaying(false)
-    }
-    const handleLoadedMetadata = () => {
-      // 换曲后的起始进度（如观众从房主进度起播）
-      if (pendingSeekRef.current > 0) {
-        try {
-          audio.currentTime = pendingSeekRef.current
-        } catch {
-          // ignore
-        }
-        pendingSeekRef.current = 0
-      }
-    }
-    const handleError = () => {
-      // 流加载失败（无版权/纯 VIP 未登录/解析失败等后端结构化错误）
-      console.error(
-        '[useListenTogether] 音频流加载失败:',
-        audio.error?.code,
-        audio.error?.message
-      )
-      message.error('音频加载失败，请稍后重试或切换其他曲目')
-    }
+    attachAudioHandlers(audio)
+    return () => detachAudioHandlers(audio)
+  }, [getAudio, attachAudioHandlers, detachAudioHandlers])
 
-    audio.addEventListener('timeupdate', handleTimeUpdate)
-    audio.addEventListener('play', handlePlay)
-    audio.addEventListener('pause', handlePause)
-    audio.addEventListener('ended', handleEnded)
-    audio.addEventListener('loadedmetadata', handleLoadedMetadata)
-    audio.addEventListener('error', handleError)
-
-    return () => {
-      audio.removeEventListener('timeupdate', handleTimeUpdate)
-      audio.removeEventListener('play', handlePlay)
-      audio.removeEventListener('pause', handlePause)
-      audio.removeEventListener('ended', handleEnded)
-      audio.removeEventListener('loadedmetadata', handleLoadedMetadata)
-      audio.removeEventListener('error', handleError)
-    }
-  }, [getAudio, handleEnded])
+  // 同步 ended 处理器的最新实现（handleEnded 随 switchSong 依赖重建）
+  useEffect(() => {
+    endedHandlerRef.current = () => handleEnded()
+  }, [handleEnded])
 
   // 房主心跳：每 2s 广播当前 MusicSyncState（观众据此对齐进度并判定房主在线）
   useEffect(() => {
