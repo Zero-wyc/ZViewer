@@ -11,7 +11,6 @@ import { RoomPanel } from '@/modules/room/components/RoomPanel'
 import { WatchTogetherPanel } from '@/modules/room/watch-together/WatchTogetherPanel'
 import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemountKey'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
-import { RoomModeSwitchBar } from '@/modules/room/components/RoomLayout'
 import { useRoomModeSwitch } from '@/modules/room/components/useRoomModeSwitch'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { RoomInfoFab } from '@/modules/room/components/RoomInfoFab'
@@ -416,14 +415,12 @@ function RoomPage() {
               username={username}
               // 房主天然拥有队列管理权限（添加/切歌/删除）
               canManage
-              // 模式切换滑块注入音乐顶导航（替代 RoomLayout 顶栏位置）
-              topNavExtra={
-                <RoomModeSwitchBar
-                  isHost
-                  onSwitch={handleSwitchMode}
-                  isSwitching={isModeSwitching}
-                />
-              }
+              // 房间模式切换已收入账户菜单（M3 menu 内「房间模式」分组）
+              roomModeMenu={{
+                isHost: true,
+                onSwitch: handleSwitchMode,
+                isSwitching: isModeSwitching,
+              }}
               isModeSwitching={isModeSwitching}
             />
           </MusicPlayerProvider>

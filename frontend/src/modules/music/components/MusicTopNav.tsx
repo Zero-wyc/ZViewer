@@ -8,23 +8,57 @@
  * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
- * - 账户（app-option 范式）：已登录显示头像圆图，未登录显示 User 图标；
- *   点击弹出深色小菜单（M3 适配：on-surface 底 + surface 字 + 四角白点装饰），
- *   选项：账号信息（昵称）/ 设置 / 退出登录或账号登录 / 房主可见的 VIP 提示
+ * - 账户菜单（M3 menu 规范）：surface-container 底 + elevation-2 阴影 +
+ *   4dp 圆角；账号信息行（头像+昵称）→ 分隔线 → 房间模式分组（一起看/
+ *   投屏/一起听，当前项 trailing check，房主可切换、观众只读展示）→
+ *   分隔线 → 设置 → 退出登录（error 色）/ 账号登录；房主未登录时底部
+ *   追加「登录网易云后全房间可播 VIP」辅助提示
  */
-import { useEffect, useState, type ReactNode } from 'react'
-import { Search, User } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import {
+  Cast,
+  Check,
+  LogIn,
+  LogOut,
+  MonitorPlay,
+  Music,
+  Search,
+  Settings,
+  User,
+} from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
 import { useMusicSettingsStore } from '../store-settings'
 import type { MusicPage } from '../store'
+import { useRoomStore, type RoomMode } from '@/store/roomStore'
+import {
+  MODE_LABELS,
+  MODE_ORDER,
+} from '@/modules/room/components/useRoomModeSwitch'
 import { cn } from '@/lib/utils'
+
+/** 菜单内「房间模式」分组的注入状态（由 MusicAppShell 透传） */
+export interface RoomModeMenuState {
+  /** 房主可切换模式；观众只读展示当前模式 */
+  isHost: boolean
+  /** 模式切换回调（页面级 useRoomModeSwitch 提供） */
+  onSwitch?: (mode: RoomMode) => void
+  /** 切换进行中：模式选项禁用 */
+  isSwitching?: boolean
+}
 
 export interface MusicTopNavProps {
   /** 是否为房主（房主侧菜单显示「登录网易云后全房间可播 VIP」提示） */
   isHost: boolean
-  /** 右侧额外插槽（如房间模式切换滑块/标签）：渲染在账户按钮左侧 */
-  modeSwitchSlot?: ReactNode
+  /** 房间模式切换分组（房间内提供；独立音乐页不传则隐藏该分组） */
+  roomModeMenu?: RoomModeMenuState
+}
+
+/** 菜单内房间模式项的 leading 图标（一起看/投屏/一起听） */
+const MODE_ICONS: Record<RoomMode, typeof MonitorPlay> = {
+  'watch-together': MonitorPlay,
+  'screen-share': Cast,
+  'listen-together': Music,
 }
 
 /** 导航链接定义（顺序与 Hydrogen primary-nav + header-router-right 一致） */
@@ -35,20 +69,22 @@ const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
   { key: 'mymusic', label: '我的音乐' },
 ]
 
-/** app-option 菜单四角白点位置（Hydrogen option-style 装饰） */
-const CORNER_DOTS = [
-  'left-1 top-1',
-  'right-1 top-1',
-  'right-1 bottom-1',
-  'left-1 bottom-1',
-] as const
-
-export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
+export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const page = useMusicStore((s) => s.page)
   const setPage = useMusicStore((s) => s.setPage)
   const setSearchKeywords = useMusicStore((s) => s.setSearchKeywords)
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
   const loginStatus = useMusicStore((s) => s.loginStatus)
+  /** 当前房间模式（菜单内「房间模式」分组展示/切换） */
+  const roomMode = useRoomStore((s) => s.mode)
+
+  /** 菜单内切换房间模式（房主；观众项只读） */
+  const handleMenuModeSwitch = (mode: RoomMode) => {
+    if (!roomModeMenu?.isHost || roomModeMenu.isSwitching) return
+    setMenuOpen(false)
+    if (mode === roomMode) return
+    roomModeMenu.onSwitch?.(mode)
+  }
 
   /** 搜索框本地输入（回车才写入 store，避免每次击键切页） */
   const [keyword, setKeyword] = useState('')
@@ -227,8 +263,7 @@ export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
         })}
       </nav>
 
-      {/* ===== 右：模式切换插槽（一起听时由调用方注入滑块/标签）+ 账户 ===== */}
-      {modeSwitchSlot}
+      {/* ===== 右：账户菜单（房间模式切换已收入菜单内分组） ===== */}
       <div className="relative shrink-0">
         <button
           type="button"
@@ -255,90 +290,184 @@ export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
           )}
         </button>
 
-        {/* app-option 小菜单（深色底 + 四角白点装饰，M3 适配 on-surface 底） */}
+        {/* M3 menu：surface-container 底 + elevation-2 阴影 + 4dp 圆角；
+            结构：账号信息行 → 房间模式分组 → 设置 → 退出登录/账号登录 */}
         {menuOpen && (
           <div
-            className="zen-dropdown-enter absolute right-0 top-11 z-[2001] w-[104px]"
+            className="zen-dropdown-enter absolute right-0 top-11 z-[2001] w-60 origin-top-right rounded"
             style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent)',
+              backgroundColor: 'var(--md-sys-color-surface-container)',
+              border:
+                '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent)',
+              boxShadow:
+                '0 2px 6px 2px color-mix(in srgb, var(--md-sys-color-shadow) 15%, transparent), 0 1px 2px 0 color-mix(in srgb, var(--md-sys-color-shadow) 30%, transparent)',
             }}
+            role="menu"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {/* 四角白点装饰 */}
-            {CORNER_DOTS.map((pos) => (
+            {/* 账号信息行（header，非操作项）：头像 + 昵称 */}
+            <div
+              className="flex items-center gap-3 px-4 pb-2.5 pt-3"
+              title={loginStatus.nickname ?? '未登录'}
+            >
+              {loginStatus.loggedIn && loginStatus.avatarUrl ? (
+                <img
+                  src={loginStatus.avatarUrl}
+                  alt={loginStatus.nickname ?? '网易云账号'}
+                  className="h-6 w-6 shrink-0 rounded-full object-cover"
+                />
+              ) : (
+                <User
+                  className="h-5 w-5 shrink-0"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                />
+              )}
               <span
-                key={pos}
-                className={cn('absolute h-1 w-1', pos)}
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface)',
-                }}
-                aria-hidden="true"
-              />
-            ))}
-            <div className="py-2">
-              {/* 账号信息（昵称，非操作项） */}
-              <div
-                className="truncate px-3.5 py-1.5 text-xs font-medium"
-                style={{ color: 'var(--md-sys-color-surface)' }}
-                title={loginStatus.nickname ?? '未登录'}
+                className="min-w-0 flex-1 truncate text-sm font-medium"
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
               >
                 {loginStatus.loggedIn
                   ? (loginStatus.nickname ?? '已登录')
                   : '未登录'}
-              </div>
-              {/* 设置（Hydrogen app-option 菜单同名入口） */}
+              </span>
+            </div>
+            <div
+              className="mx-2 h-px"
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
+              }}
+            />
+
+            {/* 房间模式分组（房间内提供 roomModeMenu 时渲染） */}
+            {roomModeMenu && (
+              <>
+                <div
+                  className="px-4 pb-1 pt-2 text-[11px] font-medium tracking-wide"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                >
+                  房间模式
+                </div>
+                {roomModeMenu.isHost ? (
+                  MODE_ORDER.map((m) => {
+                    const ModeIcon = MODE_ICONS[m]
+                    const active = m === roomMode
+                    return (
+                      <button
+                        key={m}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        disabled={roomModeMenu.isSwitching}
+                        onClick={() => handleMenuModeSwitch(m)}
+                        className={cn(
+                          'flex h-12 w-full items-center gap-3 px-4 text-sm transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]',
+                          roomModeMenu.isSwitching &&
+                            'cursor-not-allowed opacity-60'
+                        )}
+                        style={{ color: 'var(--md-sys-color-on-surface)' }}
+                      >
+                        <ModeIcon
+                          className="h-5 w-5 shrink-0"
+                          style={{
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        />
+                        <span className="flex-1 text-left">
+                          {MODE_LABELS[m]}
+                        </span>
+                        {active && (
+                          <Check
+                            className="h-4 w-4 shrink-0"
+                            style={{ color: 'var(--md-sys-color-primary)' }}
+                          />
+                        )}
+                      </button>
+                    )
+                  })
+                ) : (
+                  <div
+                    className="flex h-12 items-center gap-3 px-4 text-sm"
+                    style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                    title="由房主控制模式切换"
+                  >
+                    {(() => {
+                      const CurrentIcon = MODE_ICONS[roomMode]
+                      return <CurrentIcon className="h-5 w-5 shrink-0" />
+                    })()}
+                    <span className="flex-1">{MODE_LABELS[roomMode]}</span>
+                  </div>
+                )}
+                <div
+                  className="mx-2 my-1 h-px"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
+                  }}
+                />
+              </>
+            )}
+
+            {/* 设置（Hydrogen app-option 菜单同名入口） */}
+            <button
+              type="button"
+              className="flex h-12 w-full items-center gap-3 px-4 text-sm transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]"
+              style={{ color: 'var(--md-sys-color-on-surface)' }}
+              onClick={() => {
+                setMenuOpen(false)
+                setPage('settings')
+              }}
+            >
+              <Settings
+                className="h-5 w-5 shrink-0"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              />
+              <span className="flex-1 text-left">设置</span>
+            </button>
+            {/* 退出登录（error 色）/ 账号登录 */}
+            {loginStatus.loggedIn ? (
               <button
                 type="button"
-                className="w-full px-3.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
-                style={{ color: 'var(--md-sys-color-surface)' }}
+                className="flex h-12 w-full items-center gap-3 px-4 text-sm transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-error)_12%,transparent)]"
+                style={{ color: 'var(--md-sys-color-error)' }}
                 onClick={() => {
                   setMenuOpen(false)
-                  setPage('settings')
+                  // 退出登录：删除后端持久化凭证并清空本地登录态
+                  void apiPost('/api/music/logout').catch(() => {
+                    // 网络失败也清空本地态（与 useNcmLogin.logout 行为一致）
+                  })
+                  useMusicStore.getState().setLoginStatus({ loggedIn: false })
                 }}
               >
-                设置
+                <LogOut className="h-5 w-5 shrink-0" />
+                <span className="flex-1 text-left">退出登录</span>
               </button>
-              {/* 退出登录 / 账号登录 */}
-              {loginStatus.loggedIn ? (
-                <button
-                  type="button"
-                  className="w-full px-3.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
-                  style={{ color: 'var(--md-sys-color-surface)' }}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    // 退出登录：删除后端持久化凭证并清空本地登录态
-                    void apiPost('/api/music/logout').catch(() => {
-                      // 网络失败也清空本地态（与 useNcmLogin.logout 行为一致）
-                    })
-                    useMusicStore.getState().setLoginStatus({ loggedIn: false })
-                  }}
-                >
-                  退出登录
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  className="w-full px-3.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
-                  style={{ color: 'var(--md-sys-color-surface)' }}
-                  onClick={() => {
-                    setMenuOpen(false)
-                    setLoginModalOpen(true)
-                  }}
-                >
-                  账号登录
-                </button>
-              )}
-              {/* 仅房主可见提示 */}
-              {isHost && !loginStatus.loggedIn && (
-                <div
-                  className="px-3.5 pb-1 pt-1 text-[10px] leading-snug opacity-70"
-                  style={{ color: 'var(--md-sys-color-surface)' }}
-                >
-                  登录网易云后全房间可播 VIP
-                </div>
-              )}
-            </div>
+            ) : (
+              <button
+                type="button"
+                className="flex h-12 w-full items-center gap-3 px-4 text-sm transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]"
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
+                onClick={() => {
+                  setMenuOpen(false)
+                  setLoginModalOpen(true)
+                }}
+              >
+                <LogIn
+                  className="h-5 w-5 shrink-0"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                />
+                <span className="flex-1 text-left">账号登录</span>
+              </button>
+            )}
+            {/* 仅房主可见辅助提示 */}
+            {isHost && !loginStatus.loggedIn && (
+              <div
+                className="px-4 pb-2.5 pt-1 text-[11px] leading-snug"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              >
+                登录网易云后全房间可播 VIP
+              </div>
+            )}
           </div>
         )}
       </div>

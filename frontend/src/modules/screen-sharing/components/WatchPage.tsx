@@ -24,10 +24,7 @@ import { Text } from '@/components/ui/Typography'
 import { CommentPanel } from '@/components/CommentPanel'
 import { WatchTogetherPanel } from '@/modules/room/watch-together/WatchTogetherPanel'
 import { usePlayerRemountKey } from '@/modules/room/watch-together/usePlayerRemountKey'
-import {
-  RoomLayout,
-  RoomModeSwitchBar,
-} from '@/modules/room/components/RoomLayout'
+import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
@@ -161,8 +158,8 @@ function WatchPage() {
           username={username}
           // 房管观众可管理队列（添加/删除），普通观众仅浏览
           canManage={isModerator}
-          // 当前模式标签注入音乐顶导航（与房主滑块位置一致）
-          topNavExtra={<RoomModeSwitchBar isHost={false} />}
+          // 观众：账户菜单内只读展示当前房间模式（切换由房主控制）
+          roomModeMenu={{ isHost: false }}
         />
       </MusicPlayerProvider>
     )

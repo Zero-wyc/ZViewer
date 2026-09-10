@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect, type ReactNode } from 'react'
+import { useContext, useEffect } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
@@ -21,7 +21,7 @@ import { useMusicStore } from '../store'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { ListenTogetherPanel } from './ListenTogetherPanel'
-import { MusicTopNav } from './MusicTopNav'
+import { MusicTopNav, type RoomModeMenuState } from './MusicTopNav'
 import { MusicWidgetBar } from './MusicWidgetBar'
 import { MusicQueuePopup } from './MusicQueuePopup'
 import { MusicQrLoginModal } from './MusicQrLoginModal'
@@ -41,8 +41,8 @@ export interface MusicAppShellProps {
   username?: string
   /** 队列管理权限（房主/房管），决定内容页添加按钮可见性 */
   canManage?: boolean
-  /** 注入顶导航右侧的额外元素（如房间模式切换滑块/标签） */
-  topNavExtra?: ReactNode
+  /** 账户菜单内的「房间模式」分组（房间内提供；独立音乐页不传则隐藏） */
+  roomModeMenu?: RoomModeMenuState
   /** 模式切换进行中：底板上渲染全屏加载占位 */
   isModeSwitching?: boolean
 }
@@ -56,7 +56,7 @@ export function MusicAppShell({
   isHost,
   username,
   canManage = false,
-  topNavExtra,
+  roomModeMenu,
   isModeSwitching = false,
 }: MusicAppShellProps) {
   // 页面级集成：RoomPage/WatchPage 用 MusicPlayerProvider 包裹整个 RoomLayout，
@@ -70,7 +70,7 @@ export function MusicAppShell({
         isHost={isHost}
         username={username}
         canManage={canManage}
-        topNavExtra={topNavExtra}
+        roomModeMenu={roomModeMenu}
         isModeSwitching={isModeSwitching}
       />
     )
@@ -88,7 +88,7 @@ export function MusicAppShell({
         isHost={isHost}
         username={username}
         canManage={canManage}
-        topNavExtra={topNavExtra}
+        roomModeMenu={roomModeMenu}
         isModeSwitching={isModeSwitching}
       />
     </MusicPlayerProvider>
@@ -101,7 +101,7 @@ function ShellInner({
   isHost,
   username,
   canManage,
-  topNavExtra,
+  roomModeMenu,
   isModeSwitching,
 }: {
   socket: Socket | null
@@ -109,7 +109,7 @@ function ShellInner({
   isHost: boolean
   username?: string
   canManage: boolean
-  topNavExtra?: ReactNode
+  roomModeMenu?: RoomModeMenuState
   isModeSwitching: boolean
 }) {
   const page = useMusicStore((s) => s.page)
@@ -207,7 +207,7 @@ function ShellInner({
       {/* ===== 顶部导航（模式切换滑块/标签注入右侧）。
           底板占满全屏（h-screen）：听模式下全局 Header 默认隐藏，顶栏位置
           由本导航填充；Header 经横条触发显示时以 fixed 悬浮覆盖，不推挤 ===== */}
-      <MusicTopNav isHost={isHost} modeSwitchSlot={topNavExtra} />
+      <MusicTopNav isHost={isHost} roomModeMenu={roomModeMenu} />
 
       {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
       <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
