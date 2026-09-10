@@ -4,7 +4,8 @@
  * - 普通用户：本次会话的浏览器 HTTP 下载/上传流量（总量 + 即时速度）
  * - root 用户：额外展示服务端网卡级收发流量（轮询 /api/stats/traffic）
  *
- * 交互与右下角的语音聊天面板一致：点击圆形按钮展开，再点收起。
+ * 交互与右下角的语音聊天面板一致：点击圆形按钮展开，再点收起；
+ * 嵌入模式（embedded）渲染纯面板内容，供一起听右侧工具坞（MusicSideDock）复用。
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
@@ -42,10 +43,14 @@ function formatSpeed(bytesPerSecond: number): string {
 
 export function TrafficPanel({
   topSlot,
+  embedded = false,
 }: {
-  /** 额外的悬浮操作插槽（如一起听的房间状态按钮）：渲染在流量按钮上方，
+  /** 额外的悬浮操作插槽（如一起看的房间状态按钮）：渲染在流量按钮上方，
    *  与展开面板同列堆叠（父级 flex-col + gap-3），展开互不遮挡 */
   topSlot?: ReactNode
+  /** 嵌入模式（一起听右侧工具坞）：不 portal / 不渲染触发按钮，直接渲染
+   *  展开态面板并填满父容器，收起按钮隐藏（显隐由工具坞 Tab 控制） */
+  embedded?: boolean
 } = {}) {
   const [expanded, setExpanded] = useState(false)
   const [local, setLocal] = useState<LocalTraffic>({ downTotal: 0, upTotal: 0 })
@@ -84,8 +89,10 @@ export function TrafficPanel({
   }, [])
 
   // root：轮询服务端网卡流量；403/501 等错误则隐藏该区块
+  //（悬浮模式展开时轮询；嵌入模式下工具坞常显，始终轮询）
+  const active = expanded || embedded
   useEffect(() => {
-    if (!isRoot || !expanded) return
+    if (!isRoot || !active) return
     let cancelled = false
     const poll = async () => {
       try {
@@ -115,7 +122,7 @@ export function TrafficPanel({
       cancelled = true
       clearInterval(timer)
     }
-  }, [isRoot, expanded])
+  }, [isRoot, active])
 
   const rows: { label: string; total: number; speed: number; down: boolean }[] =
     [
@@ -133,6 +140,154 @@ export function TrafficPanel({
       },
     ]
 
+  /** 展开态面板内容（悬浮模式与嵌入模式共用；嵌入模式填满父容器） */
+  const panel = (
+    <div
+      className={cn(
+        'glass-card flex flex-col overflow-hidden p-3',
+        embedded ? 'h-full w-full' : 'zen-modal-content-enter w-64'
+      )}
+    >
+      {/* 标题栏 */}
+      <div className="mb-2 flex items-center gap-2">
+        <div
+          className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+          style={{
+            backgroundColor: 'var(--md-sys-color-primary-container)',
+            color: 'var(--md-sys-color-on-primary-container)',
+          }}
+        >
+          <Activity className="h-4 w-4" />
+        </div>
+        <div className="flex flex-1 flex-col">
+          <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
+            流量统计
+          </span>
+          <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+            本次会话 · HTTP
+          </span>
+        </div>
+        {!embedded && (
+          <button
+            onClick={() => setExpanded(false)}
+            className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+
+      {/* 本机流量 */}
+      {rows.map((row) => (
+        <div
+          key={row.label}
+          className="mb-1.5 flex items-center gap-2 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5"
+        >
+          <div
+            className={cn(
+              'flex h-6 w-6 items-center justify-center rounded-full',
+              row.down
+                ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+            )}
+          >
+            {row.down ? (
+              <ArrowDown className="h-3.5 w-3.5" />
+            ) : (
+              <ArrowUp className="h-3.5 w-3.5" />
+            )}
+          </div>
+          <div className="flex flex-1 flex-col">
+            <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              {row.label}
+            </span>
+            <span className="text-sm font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
+              {formatBytes(row.total)}
+            </span>
+          </div>
+          <span className="text-xs font-medium tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+            {formatSpeed(row.speed)}
+          </span>
+        </div>
+      ))}
+
+      {/* 服务端流量（仅 root） */}
+      {isRoot && (
+        <>
+          <div className="my-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+            <Server className="h-3 w-3" />
+            服务端网卡
+          </div>
+          {serverAvailable && server ? (
+            <>
+              {(
+                [
+                  {
+                    label: '下载',
+                    bytes: server.rxBytes,
+                    speed: server.rxSpeed,
+                    down: true,
+                  },
+                  {
+                    label: '上传',
+                    bytes: server.txBytes,
+                    speed: server.txSpeed,
+                    down: false,
+                  },
+                ] as const
+              ).map((row) => (
+                <div
+                  key={row.label}
+                  className="mb-1.5 flex items-center gap-2 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5"
+                >
+                  <div
+                    className={cn(
+                      'flex h-6 w-6 items-center justify-center rounded-full',
+                      row.down
+                        ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                        : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
+                    )}
+                  >
+                    {row.down ? (
+                      <ArrowDown className="h-3.5 w-3.5" />
+                    ) : (
+                      <ArrowUp className="h-3.5 w-3.5" />
+                    )}
+                  </div>
+                  <div className="flex flex-1 flex-col">
+                    <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                      服务端{row.label}
+                    </span>
+                    <span className="text-sm font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
+                      {formatBytes(row.bytes)}
+                    </span>
+                  </div>
+                  <span className="text-xs font-medium tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+                    {formatSpeed(row.speed)}
+                  </span>
+                </div>
+              ))}
+              <div className="text-center text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                系统开机以来的全部网卡流量
+              </div>
+            </>
+          ) : (
+            <div className="rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              当前平台不支持服务端流量统计
+            </div>
+          )}
+        </>
+      )}
+
+      <div className="mt-1 text-center text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+        统计本次会话的 HTTP 流量（不含 WebSocket）
+      </div>
+    </div>
+  )
+
+  // 嵌入模式（一起听右侧工具坞）：直接渲染展开态面板，显隐由工具坞控制
+  if (embedded) return panel
+
   return createPortal(
     <div
       className={cn(
@@ -141,149 +296,9 @@ export function TrafficPanel({
       )}
     >
       {/* 展开的流量面板 */}
-      {expanded && (
-        <div
-          className={cn(
-            'glass-card flex w-64 flex-col overflow-hidden p-3',
-            'zen-modal-content-enter'
-          )}
-        >
-          {/* 标题栏 */}
-          <div className="mb-2 flex items-center gap-2">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-              style={{
-                backgroundColor: 'var(--md-sys-color-primary-container)',
-                color: 'var(--md-sys-color-on-primary-container)',
-              }}
-            >
-              <Activity className="h-4 w-4" />
-            </div>
-            <div className="flex flex-1 flex-col">
-              <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-                流量统计
-              </span>
-              <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                本次会话 · HTTP
-              </span>
-            </div>
-            <button
-              onClick={() => setExpanded(false)}
-              className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </button>
-          </div>
+      {expanded && panel}
 
-          {/* 本机流量 */}
-          {rows.map((row) => (
-            <div
-              key={row.label}
-              className="mb-1.5 flex items-center gap-2 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5"
-            >
-              <div
-                className={cn(
-                  'flex h-6 w-6 items-center justify-center rounded-full',
-                  row.down
-                    ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                    : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
-                )}
-              >
-                {row.down ? (
-                  <ArrowDown className="h-3.5 w-3.5" />
-                ) : (
-                  <ArrowUp className="h-3.5 w-3.5" />
-                )}
-              </div>
-              <div className="flex flex-1 flex-col">
-                <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  {row.label}
-                </span>
-                <span className="text-sm font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
-                  {formatBytes(row.total)}
-                </span>
-              </div>
-              <span className="text-xs font-medium tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                {formatSpeed(row.speed)}
-              </span>
-            </div>
-          ))}
-
-          {/* 服务端流量（仅 root） */}
-          {isRoot && (
-            <>
-              <div className="my-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                <Server className="h-3 w-3" />
-                服务端网卡
-              </div>
-              {serverAvailable && server ? (
-                <>
-                  {(
-                    [
-                      {
-                        label: '下载',
-                        bytes: server.rxBytes,
-                        speed: server.rxSpeed,
-                        down: true,
-                      },
-                      {
-                        label: '上传',
-                        bytes: server.txBytes,
-                        speed: server.txSpeed,
-                        down: false,
-                      },
-                    ] as const
-                  ).map((row) => (
-                    <div
-                      key={row.label}
-                      className="mb-1.5 flex items-center gap-2 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5"
-                    >
-                      <div
-                        className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded-full',
-                          row.down
-                            ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                            : 'bg-[var(--md-sys-color-secondary-container)] text-[var(--md-sys-color-on-secondary-container)]'
-                        )}
-                      >
-                        {row.down ? (
-                          <ArrowDown className="h-3.5 w-3.5" />
-                        ) : (
-                          <ArrowUp className="h-3.5 w-3.5" />
-                        )}
-                      </div>
-                      <div className="flex flex-1 flex-col">
-                        <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                          服务端{row.label}
-                        </span>
-                        <span className="text-sm font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
-                          {formatBytes(row.bytes)}
-                        </span>
-                      </div>
-                      <span className="text-xs font-medium tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                        {formatSpeed(row.speed)}
-                      </span>
-                    </div>
-                  ))}
-                  <div className="text-center text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                    系统开机以来的全部网卡流量
-                  </div>
-                </>
-              ) : (
-                <div className="rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  当前平台不支持服务端流量统计
-                </div>
-              )}
-            </>
-          )}
-
-          <div className="mt-1 text-center text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-            统计本次会话的 HTTP 流量（不含 WebSocket）
-          </div>
-        </div>
-      )}
-
-      {/* 额外悬浮操作（如一起听的房间状态按钮）：位于流量按钮上方 */}
+      {/* 额外悬浮操作（如一起看的房间状态按钮）：位于流量按钮上方 */}
       {topSlot}
 
       {/* 悬浮触发按钮 */}

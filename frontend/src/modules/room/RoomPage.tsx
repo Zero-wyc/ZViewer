@@ -27,7 +27,6 @@ import {
   MusicBetaNotice,
   MusicPlayerProvider,
 } from '@/modules/music'
-import { useMusicStore } from '@/modules/music/store'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 import type { RoomMode } from '@/store/roomStore'
@@ -153,11 +152,6 @@ function RoomPage() {
   const betaFeaturesEnabled = useSystemSettingsStore(
     (state) => state.betaFeaturesEnabled
   )
-  // 播放器覆盖层（歌词页）展示期间隐藏悬浮面板（语音/流量/房间入口）：
-  // 覆盖层为全屏沉浸视图，悬浮面板会破坏沉浸感；关闭滑出动画期间保持隐藏
-  const playerOverlayOpen = useMusicStore((s) => s.playerOverlayOpen)
-  const playerOverlayClosing = useMusicStore((s) => s.playerOverlayClosing)
-  const musicOverlayShown = playerOverlayOpen || playerOverlayClosing
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
@@ -430,9 +424,6 @@ function RoomPage() {
               isModeSwitching={isModeSwitching}
             />
           </MusicPlayerProvider>
-          {/* 播放器覆盖层（歌词页）打开期间隐藏悬浮面板，保持沉浸 */}
-          {!musicOverlayShown && voiceChatPanel}
-          {!musicOverlayShown && trafficPanel}
         </>
       )
     }
