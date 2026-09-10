@@ -211,7 +211,7 @@ export function PlayerLyricPanel({
   return (
     <div
       ref={scrollRef}
-      className="relative min-h-0 flex-1 overflow-y-auto"
+      className="hide-scrollbar relative min-h-0 flex-1 overflow-y-auto"
       style={{ visibility: revealed ? 'visible' : 'hidden' }}
     >
       {/* 空态：无歌词 → Lyric-Area 装饰（对角线展开 + 文字闪烁三下） */}

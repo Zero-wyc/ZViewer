@@ -458,6 +458,7 @@ function ListenTogetherInner({
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const audioVisualizer = useMusicSettingsStore((s) => s.audioVisualizer)
+  const level = useMusicSettingsStore((s) => s.level)
   const lyricSize = useMusicSettingsStore((s) => s.lyricSize)
   const tlyricSize = useMusicSettingsStore((s) => s.tlyricSize)
   const rlyricSize = useMusicSettingsStore((s) => s.rlyricSize)
@@ -873,11 +874,11 @@ function ListenTogetherInner({
               </div>
 
               {/* song-control 悬浮工具栏（Hydrogen .song-control：绝对定位悬出
-                  卡片右侧 50px，正好落在左卡与右卡的间隙内；hover 卡片时
-                  「信号灯」闪烁显形）。图标集为原版 SVG：罗马音 / 翻译 / 原词
+                  卡片右侧 50px，正好落在左卡与右卡的间隙内；常显，hover 卡片时
+                  重播「信号灯」闪烁动画）。图标集为原版 SVG：罗马音 / 翻译 / 原词
                   三开关（有对应歌词数据才显示）+ 喜欢 + 播放模式（房主）+
                   播放队列 + 收起 */}
-              <div className="pointer-events-none absolute bottom-[2vh] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[3vh] opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:animate-[song-control-in_0.3s_both] group-hover:opacity-100">
+              <div className="absolute bottom-[2vh] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[3vh] group-hover:animate-[song-control-in_0.3s_both]">
                 {hasRomaLyric && (
                   <button
                     type="button"
@@ -1002,6 +1003,23 @@ function ListenTogetherInner({
           </div>
         </div>
       )}
+
+      {/* 音质标识（Hydrogen 右下角 music-quality：当前音质档位大写 + 方块装饰） */}
+      <div className="pointer-events-none absolute bottom-4 right-6 z-[6] flex items-center gap-1.5">
+        <span
+          className="text-xs font-medium tracking-wide"
+          style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+        >
+          {level.toUpperCase()}
+        </span>
+        <span
+          className="h-2 w-2"
+          style={{
+            border: '1px solid var(--md-sys-color-on-surface-variant)',
+          }}
+          aria-hidden="true"
+        />
+      </div>
     </div>
   )
 }
