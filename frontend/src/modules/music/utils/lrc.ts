@@ -5,7 +5,7 @@
  * 输出按时间升序的歌词行数组，翻译按时间戳合并到对应原文行。
  */
 
-/** 单行歌词（含可选翻译） */
+/** 单行歌词（含可选翻译与罗马音） */
 export interface LyricLine {
   /** 该行起始时间（秒） */
   time: number
@@ -13,6 +13,8 @@ export interface LyricLine {
   text: string
   /** 翻译文本（无翻译时缺省） */
   translation?: string
+  /** 罗马音文本（无罗马音时缺省，/lyric rlyric） */
+  roman?: string
 }
 
 /** 时间标签：[mm:ss]、[mm:ss.xx]、[mm:ss.xxx]（分最多 3 位，毫秒 1-3 位） */
@@ -59,19 +61,18 @@ function parseLrcText(lrc: string): LyricLine[] {
 }
 
 /**
- * 合并原文歌词与翻译歌词（翻译按时间戳匹配，容差 50ms）。
- * 同一行匹配到多条翻译时以 " / " 拼接。
+ * 合并辅助歌词（翻译 / 罗马音）到主歌词：按时间戳匹配（容差 50ms），
+ * 同一行匹配到多条时以 " / " 拼接。
  */
-export function mergeLyrics(
-  original: string,
-  translation?: string | null
-): LyricLine[] {
-  const main = parseLrcText(original)
-  if (!translation) return main
-  const trans = parseLrcText(translation)
-  if (main.length === 0 || trans.length === 0) return main
-
-  for (const t of trans) {
+function mergeAuxLyrics(
+  main: LyricLine[],
+  auxLrc: string | null | undefined,
+  key: 'translation' | 'roman'
+): void {
+  if (!auxLrc) return
+  const aux = parseLrcText(auxLrc)
+  if (main.length === 0 || aux.length === 0) return
+  for (const t of aux) {
     let best: LyricLine | null = null
     let bestDiff = Number.POSITIVE_INFINITY
     for (const m of main) {
@@ -84,10 +85,22 @@ export function mergeLyrics(
       if (m.time > t.time + TRANSLATION_MATCH_TOLERANCE_SEC) break
     }
     if (best && bestDiff <= TRANSLATION_MATCH_TOLERANCE_SEC) {
-      best.translation = best.translation
-        ? `${best.translation} / ${t.text}`
-        : t.text
+      const current = best[key]
+      best[key] = current ? `${current} / ${t.text}` : t.text
     }
   }
+}
+
+/**
+ * 合并原文歌词与翻译 / 罗马音歌词（均按时间戳匹配，容差 50ms）。
+ */
+export function mergeLyrics(
+  original: string,
+  translation?: string | null,
+  roman?: string | null
+): LyricLine[] {
+  const main = parseLrcText(original)
+  mergeAuxLyrics(main, translation, 'translation')
+  mergeAuxLyrics(main, roman, 'roman')
   return main
 }

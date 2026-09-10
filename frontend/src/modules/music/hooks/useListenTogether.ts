@@ -5,6 +5,7 @@ import { getApiUrl } from '@/lib/api'
 import { appendAuthToken } from '@/modules/player/services/url-proxy'
 import { message } from '@/components/ui/message'
 import { useMusicStore, musicItemKey, parseMusicKey } from '../store'
+import { useMusicSettingsStore, normalizeMusicLevel } from '../store-settings'
 import type {
   MusicControlRequest,
   MusicControlResponse,
@@ -49,8 +50,8 @@ const HOST_OFFLINE_TIMEOUT_MS = 5000
 /** 观众进度对齐阈值（秒）：与房主进度差超过该值才 seek */
 const SYNC_ALIGN_THRESHOLD_SEC = 2
 
-/** 音频流音质（spec：固定 exhigh，VIP 降级链由后端处理） */
-const STREAM_LEVEL = 'exhigh'
+/** 音频流音质兜底值（实际档位从音乐设置 store 读取，设置页可改） */
+const FALLBACK_STREAM_LEVEL = 'exhigh'
 
 /** 控制动作的中文描述（房主端申请提示文案） */
 const CONTROL_ACTION_TEXT: Record<MusicControlRequest['action'], string> = {
@@ -82,6 +83,8 @@ function loadPersistedVolume(): number {
  * HTTP 部署场景下后端从查询参数读取 token）。
  * 携带 roomId：当前用户无网易云凭证时，后端回退用房主凭证解析
  * （spec「房主登录后全房间可播 VIP」）。
+ * 音质档位从音乐设置 store 实时读取（设置页「音质选择」即时生效）；
+ * 非法档位回退 exhigh。
  * 地址格式：`?songId=<id>&level=exhigh`
  */
 function buildStreamUrl(
@@ -89,8 +92,11 @@ function buildStreamUrl(
   roomId: string | undefined
 ): string {
   const roomParam = roomId ? `&roomId=${encodeURIComponent(roomId)}` : ''
+  const level = normalizeMusicLevel(
+    useMusicSettingsStore.getState().level || FALLBACK_STREAM_LEVEL
+  )
   return appendAuthToken(
-    `${getApiUrl()}/api/music/stream?songId=${item.songId}&level=${STREAM_LEVEL}${roomParam}`
+    `${getApiUrl()}/api/music/stream?songId=${item.songId}&level=${level}${roomParam}`
   )
 }
 
@@ -182,16 +188,23 @@ export function useListenTogether({
   isHost,
   username,
 }: UseListenTogetherOptions): UseListenTogetherResult {
-  const { queue, currentKey, hostOffline, syncNotice, setSyncNotice } =
-    useMusicStore(
-      useShallow((s) => ({
-        queue: s.queue,
-        currentKey: s.currentKey,
-        hostOffline: s.hostOffline,
-        syncNotice: s.syncNotice,
-        setSyncNotice: s.setSyncNotice,
-      }))
-    )
+  const {
+    queue,
+    currentKey,
+    playMode,
+    hostOffline,
+    syncNotice,
+    setSyncNotice,
+  } = useMusicStore(
+    useShallow((s) => ({
+      queue: s.queue,
+      currentKey: s.currentKey,
+      playMode: s.playMode,
+      hostOffline: s.hostOffline,
+      syncNotice: s.syncNotice,
+      setSyncNotice: s.setSyncNotice,
+    }))
+  )
 
   // 本地音量（仅本地生效；创建 audio 元素时应用，见 getAudio）
   const [volume, setVolumeState] = useState(loadPersistedVolume)
@@ -395,6 +408,57 @@ export function useListenTogether({
     },
     [ensureShuffleList]
   )
+
+  /**
+   * 预载目标窥探（无缝衔接用）：与 computeTargetSong('next') 相同的解析逻辑，
+   * 但不推进洗牌指针（避免预载导致真实切歌跳过一首）。一轮洗牌末尾不预载
+   * （下一首需重新洗牌，peek 结果不稳定）。
+   */
+  const peekNextSong = useCallback((): MusicQueueItem | null => {
+    const { queue, currentKey, playMode } = useMusicStore.getState()
+    if (queue.length === 0) return null
+    if (playMode === 'repeat-one') return null
+    if (playMode !== 'shuffle') {
+      const keys = queue.map((item) => musicItemKey(item))
+      if (keys.length === 1) return queue[0]
+      const idx = currentKey == null ? -1 : keys.indexOf(currentKey)
+      if (idx === -1) return queue[0]
+      const targetKey = keys[(idx + 1) % keys.length]
+      return queue.find((item) => musicItemKey(item) === targetKey) ?? null
+    }
+    const list = shuffleListRef.current
+    if (!list || list.length === 0) return null
+    if (list.length === 1) {
+      return queue.find((item) => musicItemKey(item) === list[0]) ?? null
+    }
+    if (shufflePosRef.current >= list.length - 1) return null
+    const nextKey = list[shufflePosRef.current + 1]
+    return queue.find((item) => musicItemKey(item) === nextKey) ?? null
+  }, [])
+
+  /** 无缝衔接（设置：歌曲无缝衔接）的预缓冲 audio 元素 */
+  const preloadRef = useRef<HTMLAudioElement | null>(null)
+  const gaplessPlayback = useMusicSettingsStore((s) => s.gaplessPlayback)
+
+  // 预缓冲下一首：提前建立 HTTP/媒体缓存，切歌时近乎零等待
+  // （Hydrogen gaplessPlayback 的 Web 等价实现）
+  useEffect(() => {
+    if (!gaplessPlayback) {
+      preloadRef.current?.pause()
+      preloadRef.current = null
+      return
+    }
+    const target = peekNextSong()
+    if (!target) return
+    const el = new Audio()
+    el.preload = 'auto'
+    el.src = buildStreamUrl(target, roomIdRef.current)
+    preloadRef.current?.pause()
+    preloadRef.current = el
+    return () => {
+      el.pause()
+    }
+  }, [gaplessPlayback, peekNextSong, currentKey, queue, playMode])
 
   /** 加载指定队列条目（positionSec 为起始进度；shouldPlay 控制起播状态） */
   const loadAndPlaySong = useCallback(

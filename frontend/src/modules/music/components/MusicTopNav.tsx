@@ -1,19 +1,22 @@
 /**
  * 顶部导航（Hydrogen Home.vue header 范式）。
  *
- * 结构：左搜索框 + 中导航链接组 + 右账户菜单
- * - 搜索框（widget-search 式）：描边圆角输入，回车 → page='search' 并存关键词到 store
+ * 结构：左搜索框（含联想下拉） + 中导航链接组 + 右账户菜单
+ * - 搜索框（widget-search 式）：描边圆角输入；输入时防抖 350ms 调
+ *   /cloudsearch 拉取联想建议（条目数 = 设置「搜索下拉条目数量」），
+ *   点击建议 → 写入关键词并跳搜索页；回车 → page='search' 并存关键词
  * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
  * - 账户（app-option 范式）：已登录显示头像圆图，未登录显示 User 图标；
  *   点击弹出深色小菜单（M3 适配：on-surface 底 + surface 字 + 四角白点装饰），
- *   选项：账号信息（昵称）/ 退出登录或账号登录 / 房主可见的 VIP 提示
+ *   选项：账号信息（昵称）/ 设置 / 退出登录或账号登录 / 房主可见的 VIP 提示
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import { Search, User } from 'lucide-react'
-import { apiPost } from '@/lib/api'
+import { apiGet, apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
+import { useMusicSettingsStore } from '../store-settings'
 import type { MusicPage } from '../store'
 import { cn } from '@/lib/utils'
 
@@ -51,6 +54,12 @@ export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
   const [keyword, setKeyword] = useState('')
   /** 账户菜单展开态 */
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 搜索联想（设置：搜索下拉条目数量；Hydrogen search-assist） */
+  const searchAssistLimit = useMusicSettingsStore((s) => s.searchAssistLimit)
+  const [assistItems, setAssistItems] = useState<
+    Array<{ id: number; name: string; artist: string }>
+  >([])
+  const [assistOpen, setAssistOpen] = useState(false)
 
   // 账户菜单打开时点击外部关闭（透明捕获层，同 Hydrogen app-option 交互）
   useEffect(() => {
@@ -60,39 +69,133 @@ export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
     return () => window.removeEventListener('pointerdown', close)
   }, [menuOpen])
 
+  // 搜索联想：输入防抖 350ms → /cloudsearch 联想建议（数量随设置）。
+  // 空关键词的清空在 onChange 事件内完成（render 期/effect 体内不做同步 setState）
+  useEffect(() => {
+    let cancelled = false
+    const kw = keyword.trim()
+    if (!kw) return
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const { data } = await apiGet<{
+            result?: {
+              songs?: Array<{
+                id: number
+                name: string
+                artists?: Array<{ name?: string }>
+              }>
+            }
+          }>(
+            `/api/music/ncm/cloudsearch?keywords=${encodeURIComponent(kw)}&limit=${searchAssistLimit}`
+          )
+          if (cancelled) return
+          const songs = Array.isArray(data?.result?.songs)
+            ? data.result.songs
+            : []
+          setAssistItems(
+            songs.slice(0, searchAssistLimit).map((s) => ({
+              id: s.id,
+              name: s.name,
+              artist: (s.artists ?? [])
+                .map((a) => a.name)
+                .filter(Boolean)
+                .join(' / '),
+            }))
+          )
+          setAssistOpen(songs.length > 0)
+        } catch {
+          // 联想失败静默（不阻塞手动回车搜索）
+        }
+      })()
+    }, 350)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [keyword, searchAssistLimit])
+
+  /** 点击联想建议：写入关键词并跳搜索页 */
+  const pickAssist = (name: string) => {
+    setAssistOpen(false)
+    setSearchKeywords(name)
+    setPage('search')
+  }
+
   /** 回车搜索：写入关键词并切到搜索页 */
   const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter' || e.shiftKey) return
     const kw = keyword.trim()
     if (!kw) return
+    setAssistOpen(false)
     setSearchKeywords(kw)
     setPage('search')
   }
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：搜索框（widget-search 式描边圆角输入） ===== */}
-      <div
-        className="flex h-9 w-56 shrink-0 items-center gap-1.5 rounded-full border px-3"
-        style={{
-          backgroundColor:
-            'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
-          borderColor: 'var(--md-sys-color-outline-variant)',
-        }}
-      >
-        <Search
-          className="h-4 w-4 shrink-0"
-          style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-        />
-        <input
-          value={keyword}
-          onChange={(e) => setKeyword(e.target.value)}
-          onKeyDown={handleSearchKeyDown}
-          placeholder="搜索音乐"
-          aria-label="搜索音乐"
-          className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
-          style={{ color: 'var(--md-sys-color-on-surface)' }}
-        />
+      {/* ===== 左：搜索框（widget-search 式描边圆角输入 + 联想下拉） ===== */}
+      <div className="relative shrink-0">
+        <div
+          className="flex h-9 w-56 items-center gap-1.5 rounded-full border px-3"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+            borderColor: 'var(--md-sys-color-outline-variant)',
+          }}
+        >
+          <Search
+            className="h-4 w-4 shrink-0"
+            style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+          />
+          <input
+            value={keyword}
+            onChange={(e) => {
+              setKeyword(e.target.value)
+              // 清空输入时同步收起联想（事件内 setState 合规）
+              if (!e.target.value.trim()) {
+                setAssistItems([])
+                setAssistOpen(false)
+              }
+            }}
+            onKeyDown={handleSearchKeyDown}
+            onBlur={() => setAssistOpen(false)}
+            placeholder="搜索音乐"
+            aria-label="搜索音乐"
+            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
+            style={{ color: 'var(--md-sys-color-on-surface)' }}
+          />
+        </div>
+        {/* 搜索联想下拉（Hydrogen search-assist；条目数随设置） */}
+        {assistOpen && assistItems.length > 0 && (
+          <div
+            className="zen-dropdown-enter absolute left-0 top-11 z-[2001] w-72 overflow-hidden rounded-lg py-1"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-surface-container) 96%, transparent)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+              border:
+                '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent)',
+            }}
+          >
+            {assistItems.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => pickAssist(item.name)}
+                className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]"
+              >
+                <span className="min-w-0 flex-1 truncate text-sm text-[var(--md-sys-color-on-surface)]">
+                  {item.name}
+                </span>
+                <span className="max-w-[40%] truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                  {item.artist}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* ===== 中：导航链接组 ===== */}
@@ -184,6 +287,18 @@ export function MusicTopNav({ isHost, modeSwitchSlot }: MusicTopNavProps) {
                   ? (loginStatus.nickname ?? '已登录')
                   : '未登录'}
               </div>
+              {/* 设置（Hydrogen app-option 菜单同名入口） */}
+              <button
+                type="button"
+                className="w-full px-3.5 py-1.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
+                style={{ color: 'var(--md-sys-color-surface)' }}
+                onClick={() => {
+                  setMenuOpen(false)
+                  setPage('settings')
+                }}
+              >
+                设置
+              </button>
               {/* 退出登录 / 账号登录 */}
               {loginStatus.loggedIn ? (
                 <button

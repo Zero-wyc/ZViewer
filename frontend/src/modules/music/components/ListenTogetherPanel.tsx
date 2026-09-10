@@ -50,6 +50,7 @@ import {
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { useMusicStore } from '../store'
+import { useMusicSettingsStore } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
@@ -58,6 +59,7 @@ import { cn, formatDuration } from '@/lib/utils'
 import { OverflowMarquee } from './OverflowMarquee'
 import { PlayerLyricPanel } from './PlayerLyricPanel'
 import { MusicQueuePopup } from './MusicQueuePopup'
+import { EqBars } from './SongRow'
 
 export interface ListenTogetherPanelProps {
   socket: Socket | null
@@ -74,6 +76,7 @@ export interface ListenTogetherPanelProps {
 interface NcmLyricResponse {
   lrc?: { lyric?: string }
   tlyric?: { lyric?: string }
+  rlyric?: { lyric?: string }
 }
 
 /** 网易云 /account 响应（宽松解析 uid） */
@@ -237,7 +240,9 @@ function ListenTogetherInner({
           setLyricLines([])
           setEmptyMode('pure')
         } else {
-          setLyricLines(mergeLyrics(raw, data?.tlyric?.lyric ?? ''))
+          setLyricLines(
+            mergeLyrics(raw, data?.tlyric?.lyric ?? '', data?.rlyric?.lyric)
+          )
           setEmptyMode(null)
         }
       } catch (err) {
@@ -450,8 +455,16 @@ function ListenTogetherInner({
     [setVolume]
   )
 
-  // ===== 翻译显示开关（Hydrogen lyricType） =====
-  const [showTranslation, setShowTranslation] = useState(true)
+  // ===== 设置驱动（Hydrogen settingsStore 消费点） =====
+  const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
+  const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
+  const audioVisualizer = useMusicSettingsStore((s) => s.audioVisualizer)
+  const showTranslation = useMusicSettingsStore((s) => s.showSongTranslation)
+  const lyricSize = useMusicSettingsStore((s) => s.lyricSize)
+  const tlyricSize = useMusicSettingsStore((s) => s.tlyricSize)
+  const rlyricSize = useMusicSettingsStore((s) => s.rlyricSize)
+  const lyricInterlude = useMusicSettingsStore((s) => s.lyricInterlude)
+  const setSettings = useMusicSettingsStore((s) => s.set)
 
   const PlayModeIcon =
     playMode === 'repeat-one'
@@ -467,8 +480,9 @@ function ListenTogetherInner({
 
   return (
     <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
-      {/* ===== 毛玻璃封面背景（无封面时不渲染，切歌时淡入淡出） ===== */}
-      {cover && (
+      {/* ===== 毛玻璃封面背景（设置：开启背景封面模糊；无封面时不渲染，
+          切歌时淡入淡出） ===== */}
+      {cover && coverBlur && (
         <div
           key={songId}
           className="zen-cover-fade pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
@@ -755,6 +769,16 @@ function ListenTogetherInner({
                       }}
                     />
                   </div>
+
+                  {/* 音频可视化（设置：音频可视化 → EQ 频谱动画于进度条下方） */}
+                  {audioVisualizer && (
+                    <div
+                      className="flex shrink-0 items-center justify-center pt-[0.6vh]"
+                      style={{ color: 'var(--md-sys-color-on-surface)' }}
+                    >
+                      <EqBars paused={!isPlaying} />
+                    </div>
+                  )}
                 </div>
 
                 {/* 三键控制（5vh，active 缩放 0.9） */}
@@ -879,7 +903,9 @@ function ListenTogetherInner({
                 )}
                 <button
                   type="button"
-                  onClick={() => setShowTranslation((v) => !v)}
+                  onClick={() =>
+                    setSettings({ showSongTranslation: !showTranslation })
+                  }
                   className={cn(
                     'flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90'
                   )}
@@ -916,6 +942,11 @@ function ListenTogetherInner({
               emptyMode={emptyMode}
               revealed={lyricRevealed}
               showTranslation={showTranslation}
+              lyricSize={lyricSize}
+              tlyricSize={tlyricSize}
+              rlyricSize={rlyricSize}
+              interludeThresholdSec={lyricInterlude}
+              lyricBlur={lyricBlur}
               onSeek={handleLyricSeek}
             />
           </div>

@@ -28,8 +28,6 @@ const AUTO_SCROLL_EASING = 'cubic-bezier(0.4, 0, 0.12, 1)'
 const FOLLOW_TOP_OFFSET_PX = 260
 /** 手动滚动空闲（ms）：无操作后恢复自动跟随 */
 const MANUAL_SCROLL_IDLE_MS = 1000
-/** 间奏判定阈值（秒） */
-const INTERLUDE_THRESHOLD_SEC = 13
 /** 间奏块收起预留（秒）：接近下一行时提前收起 */
 const INTERLUDE_END_LEAD_SEC = 0.8
 
@@ -41,8 +39,18 @@ export interface PlayerLyricPanelProps {
   emptyMode: 'none' | 'pure' | null
   /** 是否已就绪（首帧防闪烁：false 时内容 visibility hidden） */
   revealed: boolean
-  /** 是否显示翻译行（Hydrogen lyricType 开关） */
+  /** 是否显示翻译行（设置：显示歌曲翻译） */
   showTranslation: boolean
+  /** 原文字号（px，设置：歌词字体大小） */
+  lyricSize?: number
+  /** 翻译字号（px，设置：歌词翻译字体大小） */
+  tlyricSize?: number
+  /** 罗马音字号（px，设置：罗马歌词字体大小） */
+  rlyricSize?: number
+  /** 间奏倒计时阈值（秒，设置：歌词间奏等待时间） */
+  interludeThresholdSec?: number
+  /** 歌词模糊：非当前行 blur（当前行保持清晰；设置：开启歌词模糊） */
+  lyricBlur?: boolean
   /** 点击歌词行跳转进度（秒） */
   onSeek: (time: number) => void
 }
@@ -72,6 +80,11 @@ export function PlayerLyricPanel({
   emptyMode,
   revealed,
   showTranslation,
+  lyricSize = 20,
+  tlyricSize = 14,
+  rlyricSize = 12,
+  interludeThresholdSec = 13,
+  lyricBlur = false,
   onSeek,
 }: PlayerLyricPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -171,20 +184,21 @@ export function PlayerLyricPanel({
     }
   }, [computeTargetTop, animateScrollTo])
 
-  // 间奏等待：当前行结束到下一行的间隔 ≥ 13s 时，显示倒计时装饰块
+  // 间奏等待：当前行结束到下一行的间隔 ≥ 阈值（设置：歌词间奏等待时间）时，
+  // 显示倒计时装饰块
   const interlude = useMemo(() => {
     const line = lines[activeIndex]
     const next = lines[activeIndex + 1]
     if (!line || !next) return null
     const end = estimateLineEndSec(line, next.time)
     const gap = next.time - end
-    if (gap < INTERLUDE_THRESHOLD_SEC) return null
+    if (gap < interludeThresholdSec) return null
     const remaining = next.time - positionSec
     return {
       show: positionSec > end && remaining > INTERLUDE_END_LEAD_SEC,
       remaining: Math.max(1, Math.ceil(remaining)),
     }
-  }, [lines, activeIndex, positionSec])
+  }, [lines, activeIndex, positionSec, interludeThresholdSec])
 
   const showNodata = emptyMode === 'none'
 
@@ -231,6 +245,10 @@ export function PlayerLyricPanel({
               active
               untimed
               showTranslation={showTranslation}
+              lyricSize={lyricSize}
+              tlyricSize={tlyricSize}
+              rlyricSize={rlyricSize}
+              lyricBlur={lyricBlur}
               onSeek={onSeek}
               interlude={null}
             />
@@ -252,6 +270,10 @@ export function PlayerLyricPanel({
                   line={line}
                   active={active}
                   showTranslation={showTranslation}
+                  lyricSize={lyricSize}
+                  tlyricSize={tlyricSize}
+                  rlyricSize={rlyricSize}
+                  lyricBlur={lyricBlur}
                   onSeek={onSeek}
                   interlude={lineInterlude}
                 />
@@ -265,12 +287,16 @@ export function PlayerLyricPanel({
   )
 }
 
-/** 单行歌词（黑色高亮条 + 文本反色放大 + 可选翻译 + 间奏装饰块） */
+/** 单行歌词（黑色高亮条 + 文本反色放大 + 可选翻译/罗马音 + 间奏装饰块） */
 function LyricRow({
   line,
   active,
   untimed = false,
   showTranslation = true,
+  lyricSize = 20,
+  tlyricSize = 14,
+  rlyricSize = 12,
+  lyricBlur = false,
   onSeek,
   interlude,
 }: {
@@ -280,6 +306,12 @@ function LyricRow({
   untimed?: boolean
   /** 是否显示翻译行 */
   showTranslation?: boolean
+  /** 原文 / 翻译 / 罗马音字号（px，设置驱动） */
+  lyricSize?: number
+  tlyricSize?: number
+  rlyricSize?: number
+  /** 非当前行模糊（设置：开启歌词模糊） */
+  lyricBlur?: boolean
   onSeek: (time: number) => void
   interlude: { show: boolean; remaining: number } | null
 }) {
@@ -307,11 +339,10 @@ function LyricRow({
             transitionDuration: active ? '620ms' : '550ms',
           }}
         />
-        {/* 文本层：当前行放大 1.15 + 右移 26px + 反色 */}
+        {/* 文本层：当前行放大 1.15 + 右移 26px + 反色；开启歌词模糊时非当前行 blur */}
         <div
           className={cn(
-            'relative z-[1] min-w-0',
-            'transition-transform duration-[400ms] ease-[cubic-bezier(0.3,0,0.12,1)]'
+            'relative z-[1] min-w-0 transition-[filter,transform,color] duration-[400ms] ease-[cubic-bezier(0.3,0,0.12,1)]'
           )}
           style={{
             transform: active ? 'scale(1.15) translateX(26px)' : 'scale(1)',
@@ -319,14 +350,29 @@ function LyricRow({
             color: active
               ? 'var(--md-sys-color-surface)'
               : 'color-mix(in srgb, var(--md-sys-color-on-surface) 60%, transparent)',
+            filter: !active && lyricBlur ? 'blur(2.5px)' : 'blur(0px)',
           }}
         >
-          <p className="m-0 break-words text-[20px] font-bold leading-[1.5]">
+          <p
+            className="m-0 break-words font-bold leading-[1.5]"
+            style={{ fontSize: lyricSize }}
+          >
             {line.text}
           </p>
           {showTranslation && line.translation && (
-            <p className="m-0 break-words text-[14px] font-bold leading-[1.5] opacity-80">
+            <p
+              className="m-0 break-words font-bold leading-[1.5] opacity-80"
+              style={{ fontSize: tlyricSize }}
+            >
               {line.translation}
+            </p>
+          )}
+          {line.roman && (
+            <p
+              className="m-0 break-words font-bold leading-[1.5] opacity-60"
+              style={{ fontSize: rlyricSize }}
+            >
+              {line.roman}
             </p>
           )}
         </div>
