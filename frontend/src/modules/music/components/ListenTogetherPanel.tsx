@@ -31,22 +31,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import {
-  ChevronDown,
-  Heart,
-  Languages,
-  ListMusic,
-  Music,
-  Pause,
-  Play,
-  Repeat,
-  Repeat1,
-  Shuffle,
-  SkipBack,
-  SkipForward,
-  X,
-  Check,
-} from 'lucide-react'
+import { ChevronDown, ListMusic, Music, X, Check } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { useMusicStore } from '../store'
@@ -60,6 +45,20 @@ import { OverflowMarquee } from './OverflowMarquee'
 import { PlayerLyricPanel } from './PlayerLyricPanel'
 import { MusicQueuePopup } from './MusicQueuePopup'
 import { EqBars } from './SongRow'
+import {
+  ControlNextIcon,
+  ControlPauseIcon,
+  ControlPlayIcon,
+  ControlPrevIcon,
+  LikeFilledIcon,
+  LikeOutlineIcon,
+  ModeRepeatOneIcon,
+  ModeSequenceIcon,
+  ModeShuffleIcon,
+  OriginalLyricIcon,
+  RomanLyricIcon,
+  TransLyricIcon,
+} from './PlayerControlIcons'
 
 export interface ListenTogetherPanelProps {
   socket: Socket | null
@@ -459,19 +458,35 @@ function ListenTogetherInner({
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const audioVisualizer = useMusicSettingsStore((s) => s.audioVisualizer)
-  const showTranslation = useMusicSettingsStore((s) => s.showSongTranslation)
   const lyricSize = useMusicSettingsStore((s) => s.lyricSize)
   const tlyricSize = useMusicSettingsStore((s) => s.tlyricSize)
   const rlyricSize = useMusicSettingsStore((s) => s.rlyricSize)
   const lyricInterlude = useMusicSettingsStore((s) => s.lyricInterlude)
-  const setSettings = useMusicSettingsStore((s) => s.set)
+  const defaultShowTrans = useMusicSettingsStore((s) => s.showSongTranslation)
 
+  // ===== 歌词类型开关（Hydrogen lyricType：original / trans / roma）：
+  // 翻译初值取自设置「显示歌曲翻译」；切换为播放器内即时态，不写回设置 =====
+  const [lyricOriginal, setLyricOriginal] = useState(true)
+  const [lyricTrans, setLyricTrans] = useState(defaultShowTrans)
+  const [lyricRoma, setLyricRoma] = useState(false)
+  const showTranslation = lyricTrans
+
+  /** 播放模式图标（原版 SVG 三态：顺序 / 单曲循环 / 随机） */
   const PlayModeIcon =
     playMode === 'repeat-one'
-      ? Repeat1
+      ? ModeRepeatOneIcon
       : playMode === 'shuffle'
-        ? Shuffle
-        : Repeat
+        ? ModeShuffleIcon
+        : ModeSequenceIcon
+
+  // 歌词类型可用性（song-control 三开关的显示条件：当前歌有对应歌词数据才显示）
+  const hasOriginalLyric = lyricLines.some((l) => l.text.trim() !== '')
+  const hasTransLyric = lyricLines.some(
+    (l) => l.translation != null && l.translation.trim() !== ''
+  )
+  const hasRomaLyric = lyricLines.some(
+    (l) => l.roman != null && l.roman.trim() !== ''
+  )
 
   // ===== 渲染 =====
   const queueEmpty = queue.length === 0
@@ -781,7 +796,8 @@ function ListenTogetherInner({
                   )}
                 </div>
 
-                {/* 三键控制（5vh，active 缩放 0.9） */}
+                {/* 三键控制（5vh，原版线条式 SVG：< 形箭头 / 描边三角 / 双竖线；
+                    active 缩放 0.9） */}
                 <div className="flex shrink-0 items-center justify-evenly">
                   <button
                     type="button"
@@ -790,7 +806,7 @@ function ListenTogetherInner({
                     title={canControl ? '上一首' : '向房主申请切换上一首'}
                     aria-label="上一首"
                   >
-                    <SkipBack className="h-[5vh] w-[5vh]" />
+                    <ControlPrevIcon className="h-[5vh] w-[5vh]" />
                   </button>
                   <button
                     type="button"
@@ -808,9 +824,9 @@ function ListenTogetherInner({
                     aria-label="播放或暂停"
                   >
                     {isPlaying ? (
-                      <Pause className="h-[5vh] w-[5vh]" />
+                      <ControlPauseIcon className="h-[5vh] w-[5vh]" />
                     ) : (
-                      <Play className="h-[5vh] w-[5vh]" />
+                      <ControlPlayIcon className="h-[5vh] w-[5vh]" />
                     )}
                   </button>
                   <button
@@ -820,7 +836,7 @@ function ListenTogetherInner({
                     title={canControl ? '下一首' : '向房主申请切换下一首'}
                     aria-label="下一首"
                   >
-                    <SkipForward className="h-[5vh] w-[5vh]" />
+                    <ControlNextIcon className="h-[5vh] w-[5vh]" />
                   </button>
                 </div>
 
@@ -856,26 +872,90 @@ function ListenTogetherInner({
                 </div>
               </div>
 
-              {/* song-control 悬浮工具栏（卡片 hover 时「信号灯」闪烁显形）：
-                喜欢（NCM 登录）/ 播放队列 / 播放模式（房主）/ 翻译开关 / 收起 */}
-              <div className="pointer-events-none absolute bottom-[2vh] right-2 z-[10] flex flex-col items-center gap-[2.2vh] opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:animate-[song-control-in_0.3s_both] group-hover:opacity-100">
+              {/* song-control 悬浮工具栏（Hydrogen .song-control：绝对定位悬出
+                  卡片右侧 50px，正好落在左卡与右卡的间隙内；hover 卡片时
+                  「信号灯」闪烁显形）。图标集为原版 SVG：罗马音 / 翻译 / 原词
+                  三开关（有对应歌词数据才显示）+ 喜欢 + 播放模式（房主）+
+                  播放队列 + 收起 */}
+              <div className="pointer-events-none absolute bottom-[2vh] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[3vh] opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:animate-[song-control-in_0.3s_both] group-hover:opacity-100">
+                {hasRomaLyric && (
+                  <button
+                    type="button"
+                    onClick={() => setLyricRoma((v) => !v)}
+                    className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                    style={{
+                      color: lyricRoma
+                        ? 'var(--md-sys-color-on-surface)'
+                        : 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                    title={lyricRoma ? '隐藏罗马音' : '显示罗马音'}
+                    aria-label="切换罗马音显示"
+                  >
+                    <RomanLyricIcon className="h-[2.5vh] w-[2.5vh]" />
+                  </button>
+                )}
+                {hasTransLyric && (
+                  <button
+                    type="button"
+                    onClick={() => setLyricTrans((v) => !v)}
+                    className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                    style={{
+                      color: lyricTrans
+                        ? 'var(--md-sys-color-on-surface)'
+                        : 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                    title={lyricTrans ? '隐藏翻译' : '显示翻译'}
+                    aria-label="切换翻译显示"
+                  >
+                    <TransLyricIcon className="h-[2.5vh] w-[2.5vh]" />
+                  </button>
+                )}
+                {hasOriginalLyric && (
+                  <button
+                    type="button"
+                    onClick={() => setLyricOriginal((v) => !v)}
+                    className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                    style={{
+                      color: lyricOriginal
+                        ? 'var(--md-sys-color-on-surface)'
+                        : 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                    title={lyricOriginal ? '隐藏原词' : '显示原词'}
+                    aria-label="切换原词显示"
+                  >
+                    <OriginalLyricIcon className="h-[2.5vh] w-[2.5vh]" />
+                  </button>
+                )}
                 {canLike && (
                   <button
                     type="button"
                     onClick={() => void handleLike()}
                     className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                    style={{
+                      color: liked
+                        ? 'var(--md-sys-color-error)'
+                        : 'var(--md-sys-color-on-surface)',
+                    }}
                     title={liked ? '取消喜欢' : '喜欢这首歌'}
                     aria-label={liked ? '取消喜欢' : '喜欢'}
                   >
-                    <Heart
-                      className="h-[2.5vh] w-[2.5vh]"
-                      style={{
-                        color: liked
-                          ? 'var(--md-sys-color-error)'
-                          : 'var(--md-sys-color-on-surface)',
-                        fill: liked ? 'var(--md-sys-color-error)' : 'none',
-                      }}
-                    />
+                    {liked ? (
+                      <LikeFilledIcon className="h-[2.5vh] w-[2.5vh]" />
+                    ) : (
+                      <LikeOutlineIcon className="h-[2.5vh] w-[2.5vh]" />
+                    )}
+                  </button>
+                )}
+                {isHost && (
+                  <button
+                    type="button"
+                    onClick={handleTogglePlayMode}
+                    className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                    style={{ color: 'var(--md-sys-color-on-surface)' }}
+                    title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
+                    aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
+                  >
+                    <PlayModeIcon className="h-[2.5vh] w-[2.5vh]" />
                   </button>
                 )}
                 <button
@@ -886,38 +966,6 @@ function ListenTogetherInner({
                   aria-label="播放队列"
                 >
                   <ListMusic className="h-[2.5vh] w-[2.5vh]" />
-                </button>
-                {isHost && (
-                  <button
-                    type="button"
-                    onClick={handleTogglePlayMode}
-                    className="flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                    title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
-                    aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
-                  >
-                    <PlayModeIcon
-                      className="h-[2.5vh] w-[2.5vh]"
-                      style={{ color: 'var(--md-sys-color-on-surface)' }}
-                    />
-                  </button>
-                )}
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSettings({ showSongTranslation: !showTranslation })
-                  }
-                  className={cn(
-                    'flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90'
-                  )}
-                  style={{
-                    color: showTranslation
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={showTranslation ? '隐藏翻译' : '显示翻译'}
-                  aria-label="切换翻译显示"
-                >
-                  <Languages className="h-[2.5vh] w-[2.5vh]" />
                 </button>
                 <button
                   type="button"
@@ -942,6 +990,8 @@ function ListenTogetherInner({
               emptyMode={emptyMode}
               revealed={lyricRevealed}
               showTranslation={showTranslation}
+              showOriginal={lyricOriginal}
+              showRoman={lyricRoma}
               lyricSize={lyricSize}
               tlyricSize={tlyricSize}
               rlyricSize={rlyricSize}

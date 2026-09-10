@@ -37,6 +37,12 @@ import { apiGet } from '@/lib/api'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { OverflowMarquee } from './OverflowMarquee'
+import {
+  ControlNextIcon,
+  ControlPauseIcon,
+  ControlPlayIcon,
+  ControlPrevIcon,
+} from './PlayerControlIcons'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
@@ -51,70 +57,6 @@ export interface MusicWidgetBarProps {
 
 /** 播放模式循环顺序（Hydrogen changePlayMode 3 态） */
 const PLAY_MODE_ORDER: PlayMode[] = ['sequence', 'repeat-one', 'shuffle']
-
-/** Hydrogen 控制键线条 SVG（viewBox 200，stroke 8）原样移植 */
-function ControlPrevIcon() {
-  return (
-    <svg viewBox="0 0 200 200" className="h-5 w-5" aria-hidden="true">
-      <path
-        d="M133.56,105.98L66.78,0L0,106 "
-        transform="translate(35.22 44.36) rotate(-90 66.78 53)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={8}
-      />
-    </svg>
-  )
-}
-
-function ControlNextIcon() {
-  return (
-    <svg viewBox="0 0 200 200" className="h-5 w-5" aria-hidden="true">
-      <path
-        d="M133.56,105.98L66.78,0L0,106 "
-        transform="translate(35.22 44.36) rotate(90 66.78 53)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={8}
-      />
-    </svg>
-  )
-}
-
-function ControlPlayIcon() {
-  return (
-    <svg viewBox="0 0 200 200" className="h-5 w-5" aria-hidden="true">
-      <path
-        d="M11.79,132L164.21,132L88,0L11.79,132Z "
-        transform="translate(0 12) rotate(90 88 88)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={8}
-      />
-    </svg>
-  )
-}
-
-function ControlPauseIcon() {
-  return (
-    <svg viewBox="0 0 200 200" className="h-5 w-5" aria-hidden="true">
-      <path
-        d="M0,0L0,152 "
-        transform="translate(48 24)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={8}
-      />
-      <path
-        d="M0,0L0,152 "
-        transform="translate(152 24)"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={8}
-      />
-    </svg>
-  )
-}
 
 export function MusicWidgetBar({
   socket = null,
@@ -425,7 +367,7 @@ export function MusicWidgetBar({
             title={canControl ? '上一首' : '向房主申请切换上一首'}
             aria-label="上一首"
           >
-            <ControlPrevIcon />
+            <ControlPrevIcon className="h-5 w-5" />
           </button>
           <button
             type="button"
@@ -442,7 +384,11 @@ export function MusicWidgetBar({
             }
             aria-label="播放或暂停"
           >
-            {isPlaying ? <ControlPauseIcon /> : <ControlPlayIcon />}
+            {isPlaying ? (
+              <ControlPauseIcon className="h-5 w-5" />
+            ) : (
+              <ControlPlayIcon className="h-5 w-5" />
+            )}
           </button>
           <button
             type="button"
@@ -451,7 +397,7 @@ export function MusicWidgetBar({
             title={canControl ? '下一首' : '向房主申请切换下一首'}
             aria-label="下一首"
           >
-            <ControlNextIcon />
+            <ControlNextIcon className="h-5 w-5" />
           </button>
         </div>
 

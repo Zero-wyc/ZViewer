@@ -39,8 +39,12 @@ export interface PlayerLyricPanelProps {
   emptyMode: 'none' | 'pure' | null
   /** 是否已就绪（首帧防闪烁：false 时内容 visibility hidden） */
   revealed: boolean
-  /** 是否显示翻译行（设置：显示歌曲翻译） */
+  /** 是否显示翻译行（播放器内翻译开关） */
   showTranslation: boolean
+  /** 是否显示原词行（播放器内原词开关；关闭时仅显示翻译/罗马音） */
+  showOriginal?: boolean
+  /** 是否显示罗马音行（播放器内罗马音开关） */
+  showRoman?: boolean
   /** 原文字号（px，设置：歌词字体大小） */
   lyricSize?: number
   /** 翻译字号（px，设置：歌词翻译字体大小） */
@@ -80,6 +84,8 @@ export function PlayerLyricPanel({
   emptyMode,
   revealed,
   showTranslation,
+  showOriginal = true,
+  showRoman = true,
   lyricSize = 20,
   tlyricSize = 14,
   rlyricSize = 12,
@@ -245,6 +251,8 @@ export function PlayerLyricPanel({
               active
               untimed
               showTranslation={showTranslation}
+              showOriginal={showOriginal}
+              showRoman={showRoman}
               lyricSize={lyricSize}
               tlyricSize={tlyricSize}
               rlyricSize={rlyricSize}
@@ -270,6 +278,8 @@ export function PlayerLyricPanel({
                   line={line}
                   active={active}
                   showTranslation={showTranslation}
+                  showOriginal={showOriginal}
+                  showRoman={showRoman}
                   lyricSize={lyricSize}
                   tlyricSize={tlyricSize}
                   rlyricSize={rlyricSize}
@@ -287,12 +297,14 @@ export function PlayerLyricPanel({
   )
 }
 
-/** 单行歌词（黑色高亮条 + 文本反色放大 + 可选翻译/罗马音 + 间奏装饰块） */
+/** 单行歌词（黑色高亮条 + 文本反色放大 + 可选原词/翻译/罗马音 + 间奏装饰块） */
 function LyricRow({
   line,
   active,
   untimed = false,
   showTranslation = true,
+  showOriginal = true,
+  showRoman = true,
   lyricSize = 20,
   tlyricSize = 14,
   rlyricSize = 12,
@@ -306,6 +318,10 @@ function LyricRow({
   untimed?: boolean
   /** 是否显示翻译行 */
   showTranslation?: boolean
+  /** 是否显示原词行 */
+  showOriginal?: boolean
+  /** 是否显示罗马音行 */
+  showRoman?: boolean
   /** 原文 / 翻译 / 罗马音字号（px，设置驱动） */
   lyricSize?: number
   tlyricSize?: number
@@ -353,12 +369,14 @@ function LyricRow({
             filter: !active && lyricBlur ? 'blur(2.5px)' : 'blur(0px)',
           }}
         >
-          <p
-            className="m-0 break-words font-bold leading-[1.5]"
-            style={{ fontSize: lyricSize }}
-          >
-            {line.text}
-          </p>
+          {showOriginal && (
+            <p
+              className="m-0 break-words font-bold leading-[1.5]"
+              style={{ fontSize: lyricSize }}
+            >
+              {line.text}
+            </p>
+          )}
           {showTranslation && line.translation && (
             <p
               className="m-0 break-words font-bold leading-[1.5] opacity-80"
@@ -367,7 +385,7 @@ function LyricRow({
               {line.translation}
             </p>
           )}
-          {line.roman && (
+          {showRoman && line.roman && (
             <p
               className="m-0 break-words font-bold leading-[1.5] opacity-60"
               style={{ fontSize: rlyricSize }}
