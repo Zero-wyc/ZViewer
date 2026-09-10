@@ -258,7 +258,7 @@ export function MusicWidgetBar({
 
   return (
     <div
-      className="glass-card relative h-[65px]"
+      className="glass-card relative flex h-[65px] items-center"
       style={{
         // 悬浮感核心（Hydrogen 暗色 --shadow 规格）：比 glass-card 默认阴影
         // 更弥散更深，覆盖其内置 box-shadow
