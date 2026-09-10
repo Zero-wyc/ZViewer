@@ -1,7 +1,8 @@
 /**
  * 顶部导航（Hydrogen Home.vue header 范式）。
  *
- * 结构：左搜索框（含联想下拉） + 中导航链接组 + 右账户菜单
+ * 结构：左搜索框（含联想下拉，定宽 224px） + 中导航链接组（flex-1 居中，
+ * 左右两区等宽保证导航组相对视口真正水平居中） + 右账户菜单（定宽 224px）
  * - 搜索框（widget-search 式）：描边圆角输入；输入时防抖 350ms 调
  *   /cloudsearch 拉取联想建议（条目数 = 设置「搜索下拉条目数量」），
  *   点击建议 → 写入关键词并跳搜索页；回车 → page='search' 并存关键词
@@ -164,8 +165,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：搜索框（widget-search 式描边圆角输入 + 联想下拉） ===== */}
-      <div className="relative shrink-0">
+      {/* ===== 左：搜索框（widget-search 式描边圆角输入 + 联想下拉）；
+          定宽 224px 与右区对称，保证中间导航组真正水平居中 ===== */}
+      <div className="relative w-56 shrink-0">
         <div
           className="flex h-9 w-56 items-center gap-1.5 rounded-full border px-3"
           style={{
@@ -257,8 +259,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
         })}
       </nav>
 
-      {/* ===== 右：账户菜单（房间模式切换已收入菜单内分组） ===== */}
-      <div className="relative shrink-0">
+      {/* ===== 右：账户菜单（房间模式切换已收入菜单内分组）；定宽 224px
+          与左区搜索框对称，头像靠右对齐，保证中间导航组真正水平居中 ===== */}
+      <div className="relative flex w-56 shrink-0 items-center justify-end">
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full transition-opacity hover:opacity-80"

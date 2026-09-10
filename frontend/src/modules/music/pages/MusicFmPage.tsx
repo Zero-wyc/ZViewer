@@ -15,10 +15,14 @@
  *   trigger（MODE code + 当前模式名 + 箭头）→ 下拉（MODE SELECT 标题 +
  *   3 列网格 5 模式按钮，切角 7px，active 黑底白字；SCENE_RCMD 追加
  *   虚线分隔的子场景行）；切模式即时按新数据源重拉候选池
- * - 封面轮播（fm-cover-carousel）：三槽（left/right 168px、半透明 0.52 +
- *   center 246px），槽为相框样式（6/8px padding + 1px 边框）+ 图 1px 边框；
- *   center 播放遮罩（64px 黑 72% + blur、hover scale 1.04）；side 上下渐变
- *   遮罩；空槽虚线 placeholder（NO PREV / NEXT LOADING / NO NEXT）。
+ * - 封面轮播（fm-cover-carousel）：三槽（桌面 left/right 168px、半透明
+ *   0.52 + center 246px、间距 50px），槽为相框样式（6/8px padding + 1px
+ *   边框）+ 图 1px 边框；尺寸由 zen-fm-track/zen-fm-slot CSS 变量驱动，
+ *   ≤900px 断点缩为 124/212/间距 12（Hydrogen 移动断点）、≤640px 再缩为
+ *   104/188/10，窄视口下不再溢出裁剪；center 播放遮罩（64px 黑 72% +
+ *   blur、hover scale 1.04）；side 上下渐变遮罩；空槽虚线 placeholder
+ *   （NO PREV / NEXT LOADING / NO NEXT）。右槽候选排除当前曲，避免
+ *   center/right 两槽同 key 渲染错乱。
  *   **切歌 FLIP 位移动画**：切换前捕获各槽 offsetLeft，渲染后反向位移再
  *   过渡回位（1.5s cubic-bezier(0.16,1,0.3,1)）；新进入槽按方向
  *   translateX(±20px) scale(0.97) 淡入
@@ -105,6 +109,48 @@ const COVER_SHIFT_DURATION_MS = 1500
 const COVER_SHIFT_EASING = 'cubic-bezier(0.16, 1, 0.3, 1)'
 /** 开场动画总时长（Hydrogen PANEL_INTRO_DURATION_MS + BUFFER） */
 const PANEL_INTRO_TOTAL_MS = 1540
+
+/** 轮播布局（Hydrogen .fm-cover-track/.fm-cover-slot：CSS 变量驱动尺寸，
+ *  桌面侧卡 168 / 中卡 246 / 间距 50；≤900px 断点缩为 124/212/12，
+ *  ≤640px 再缩为 104/188/10，保证窄视口下面板内容区不再溢出裁剪） */
+const FM_LAYOUT_STYLE = `
+.zen-fm-track {
+  --fm-side-size: 168px;
+  --fm-center-size: 246px;
+  --fm-slot-pad: 6px;
+  --fm-center-pad: 8px;
+  --fm-gap: 50px;
+  gap: var(--fm-gap);
+}
+.zen-fm-slot {
+  width: var(--fm-side-size);
+  height: var(--fm-side-size);
+  padding: var(--fm-slot-pad);
+  opacity: 0.52;
+  z-index: 2;
+}
+.zen-fm-slot[data-role='center'] {
+  width: var(--fm-center-size);
+  height: var(--fm-center-size);
+  padding: var(--fm-center-pad);
+  opacity: 1;
+  z-index: 4;
+}
+@media (max-width: 900px) {
+  .zen-fm-track {
+    --fm-side-size: 124px;
+    --fm-center-size: 212px;
+    --fm-gap: 12px;
+  }
+}
+@media (max-width: 640px) {
+  .zen-fm-track {
+    --fm-side-size: 104px;
+    --fm-center-size: 188px;
+    --fm-gap: 10px;
+  }
+}
+`
 
 /** 开场动画 keyframes（Hydrogen fm-outline-grow / corner-reveal / content-reveal） */
 const FM_INTRO_STYLE = `
@@ -494,15 +540,24 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     [captureSlotPositions]
   )
 
-  /** 播放下一首：候选池出队 → upsert + playSong（带 FLIP 位移） */
+  /** 播放下一首：候选池出队 → upsert + playSong（带 FLIP 位移）。
+   *  出队目标必须排除当前曲（首屏拉取 / handlePrev 回池都会让 pool 含 current，
+   *  若不排除会导致 center/right 两槽渲染同一首歌、React key 重复渲染错乱） */
   const handleNext = useCallback(() => {
     if (!canControl) return
-    const [next, ...rest] = pool
-    if (!next) {
+    const nextIdx = pool.findIndex((s) => s.songId !== current?.songId)
+    if (nextIdx < 0) {
       refillPoolIfNeeded({ showPending: true })
       message.info('漫游候选获取中，请稍后再试')
       return
     }
+    const next = pool[nextIdx]
+    // 出队下一首的同时移除旧 current：首屏拉取（current=池首）与模式切换重拉
+    // 都会让池残留 current，切歌后它会同时命中 left 槽（history 末尾）与
+    // right 槽（池首个非当前曲），两槽同 key 渲染错乱成四卡、封面偏离中间
+    const rest = pool.filter(
+      (s, i) => i !== nextIdx && s.songId !== current?.songId
+    )
     shiftCover('next', () => {
       setPool(rest)
       if (rest.length < FM_POOL_LOW_WATER) refillPoolIfNeeded()
@@ -511,7 +566,10 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     playFmSong(next)
   }, [canControl, pool, current, shiftCover, playFmSong, refillPoolIfNeeded])
 
-  /** 上一首：沿已播放历史回退（带 FLIP 位移） */
+  /** 上一首：沿已播放历史回退（带 FLIP 位移）。
+   *  被打断的当前曲放回池头供续播（后续 next 按“池首个非当前曲”继续）；
+   *  回退成为新 center 的 prev 若意外残留在池中则移除，保证池与
+   *  {current ∪ history} 无交集，三槽 key 恒不重复 */
   const handlePrev = useCallback(() => {
     if (!canControl) return
     if (history.length === 0) {
@@ -521,7 +579,10 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     const prev = history[history.length - 1]
     shiftCover('prev', () => {
       setHistory((list) => list.slice(0, -1))
-      if (current) setPool((p) => [current, ...p])
+      setPool((p) => {
+        const merged = current ? [current, ...p] : p
+        return merged.filter((s) => s.songId !== prev.songId)
+      })
     })
     playFmSong(prev)
   }, [canControl, history, current, shiftCover, playFmSong])
@@ -608,7 +669,9 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
 
   // ===== 三槽槽位推导（Hydrogen coverTrackItems） =====
   const prevCandidate = history.length > 0 ? history[history.length - 1] : null
-  const nextCandidate = pool.length > 0 ? pool[0] : null
+  // 右槽候选排除当前曲：首屏拉取（current=首条且池含首条）与 handlePrev
+  // 回池都会让 pool[0] === current，若不排除 center/right 槽 key 重复
+  const nextCandidate = pool.find((s) => s.songId !== current?.songId) ?? null
   const currentIdKey = current?.songId ?? 'none'
   const slots: CoverSlot[] = [
     prevCandidate
@@ -678,7 +741,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
 
   return (
     <div className="flex min-h-full justify-center px-6 pb-[118px] pt-3 md:px-8">
-      <style>{FM_INTRO_STYLE}</style>
+      <style>{`${FM_LAYOUT_STYLE}${FM_INTRO_STYLE}`}</style>
       {/* ===== fm-panel 面板（半透明底 + 四角方块 + 开场动画） ===== */}
       <div
         className={cn(
@@ -990,9 +1053,10 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
           {showContent && (
             <div className="flex flex-col items-center gap-[26px]">
               <div className="flex flex-col items-center gap-[18px]">
-                {/* fm-cover-carousel：三槽轮播（FLIP 位移动画） */}
+                {/* fm-cover-carousel：三槽轮播（FLIP 位移动画；尺寸走
+                    zen-fm-track/zen-fm-slot CSS 变量，窄视口断点自动缩卡） */}
                 <div className="w-[min(760px,100%)] overflow-hidden">
-                  <div className="relative flex min-h-[262px] items-center justify-center gap-[50px]">
+                  <div className="zen-fm-track relative flex min-h-[262px] items-center justify-center">
                     {slots.map((slot) => {
                       const isCenter = slot.role === 'center'
                       const playingThis =
@@ -1018,18 +1082,13 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
                             }
                           }}
                           className={cn(
-                            'relative shrink-0 transition-colors duration-200',
-                            isCenter ? 'z-[4]' : 'z-[2]',
+                            'zen-fm-slot relative shrink-0 transition-colors duration-200',
                             slot.clickable && 'cursor-pointer'
                           )}
                           style={{
-                            width: isCenter ? 246 : 168,
-                            height: isCenter ? 246 : 168,
-                            padding: isCenter ? 8 : 6,
                             border: `1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 22%, transparent)`,
                             backgroundColor:
                               'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
-                            opacity: isCenter ? 1 : 0.52,
                             borderStyle: slot.song == null ? 'dashed' : 'solid',
                             willChange: 'transform, opacity',
                             backfaceVisibility: 'hidden',

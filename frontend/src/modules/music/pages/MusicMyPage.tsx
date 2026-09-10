@@ -28,9 +28,9 @@
  *   （点击弹出 700×400 毛玻璃描述面板，metro 先宽后高展开动画 + 四角
  *   白点闪烁）+ SEARCH 歌曲过滤框
  * - 「播放全部」分隔行：描边三角 + 12px 文字 + 0.5px 延伸线 + PLAYALL 小字
- * - 歌曲列表：SongRow（Hydrogen 歌单详情列表无封面缩略图，不传 cover），
- *   歌单分页缓加载（首次 50 首，滚动到底追加）；容器 scrollbar-gutter
- *   stable 保持宽度稳定
+ * - 歌曲列表：SongRow（歌名前 40px 封面缩略图，与搜索/每日推荐/云盘页
+ *   一致传 cover，网易云 CDN 80x80 裁剪），歌单分页缓加载（首次 50 首，
+ *   滚动到底追加）；容器 scrollbar-gutter stable 保持宽度稳定
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Loader2, Plus, ListMusic, Search } from 'lucide-react'
@@ -788,6 +788,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               index={idx + 1}
               name={song.name}
               artist={song.artist}
+              cover={song.cover}
               duration={formatDurationMs(song.durationMs)}
               vip={song.vip}
               disabled={song.vip && !loginStatus.loggedIn}
