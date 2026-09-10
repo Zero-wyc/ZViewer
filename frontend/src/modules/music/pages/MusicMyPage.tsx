@@ -29,7 +29,8 @@
  *   白点闪烁）+ SEARCH 歌曲过滤框
  * - 「播放全部」分隔行：描边三角 + 12px 文字 + 0.5px 延伸线 + PLAYALL 小字
  * - 歌曲列表：SongRow（歌名前 40px 封面缩略图，与搜索/每日推荐/云盘页
- *   一致传 cover，网易云 CDN 80x80 裁剪），歌单分页缓加载（首次 50 首，
+ *   一致传 cover，网易云 CDN 80x80 裁剪），双击行 = 插入当前队列并立即播放
+ *   （queue-upsert + playSong，与 FM 页同范式），歌单分页缓加载（首次 50 首，
  *   滚动到底追加）；容器 scrollbar-gutter stable 保持宽度稳定
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -39,6 +40,7 @@ import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
+import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
 import { cn } from '@/lib/utils'
@@ -263,6 +265,31 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   const [introOpen, setIntroOpen] = useState(false)
 
   const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
+  const { playSong } = useMusicPlayer()
+
+  /** 双击歌曲行：插入当前队列并立即播放（与 FM 页播放同范式：
+   *  queue-upsert 入队 → playSong 立即播放；无控制权/未连房间时静默降级） */
+  const handleRowDoubleClick = (song: NcmSong) => {
+    if (song.vip && !loginStatus.loggedIn) return
+    if (!roomId) {
+      message.error('未连接房间')
+      return
+    }
+    add(songToUpsertItem(song))
+    playSong({
+      id: -1,
+      roomId,
+      songId: song.songId,
+      name: song.name,
+      artist: song.artist,
+      album: song.album,
+      cover: song.cover,
+      durationMs: song.durationMs,
+      vip: song.vip,
+      order: 0,
+      addedBy: '',
+    })
+  }
 
   // 登录后：/user/account 拿 uid → /user/playlist + /user/subcount + /likelist
   useEffect(() => {
@@ -801,6 +828,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               }
               hoverActionLabel={added ? '已添加' : '添加到队列'}
               onHoverAction={() => add(songToUpsertItem(song))}
+              onRowDoubleClick={() => handleRowDoubleClick(song)}
             />
           )
         })}

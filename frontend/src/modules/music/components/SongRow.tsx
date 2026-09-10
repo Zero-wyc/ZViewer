@@ -13,7 +13,8 @@
  * - 队列模式（MusicQueuePopup）：当前播放行 EQ 频谱动画
  *
  * 交互差异由调用方通过 hoverAction / onHoverAction / actions 等 props 注入，
- * 本组件只负责排版与三态切换，不含任何业务逻辑。
+ * 本组件只负责排版与三态切换，不含任何业务逻辑；行双击（onRowDoubleClick）
+ * 由歌单/专辑详情页注入「插入队列并立即播放」，行内按钮的 dblclick 不冒泡。
  */
 import { useState, type ReactNode } from 'react'
 import { cn } from '@/lib/utils'
@@ -63,6 +64,8 @@ export interface SongRowProps {
   onHoverAction?: () => void
   /** 行点击回调（队列模式房主切歌） */
   onRowClick?: () => void
+  /** 行双击回调（歌单/专辑详情：双击插入队列并立即播放） */
+  onRowDoubleClick?: () => void
   /** 行点击提示（title） */
   rowTitle?: string
   /** 行尾管理操作组（canManage 时传入，行 hover 淡入） */
@@ -92,6 +95,7 @@ export function SongRow({
   hoverActionLabel,
   onHoverAction,
   onRowClick,
+  onRowDoubleClick,
   rowTitle,
   actions,
 }: SongRowProps) {
@@ -117,6 +121,7 @@ export function SongRow({
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       onClick={onRowClick}
+      onDoubleClick={onRowDoubleClick}
       title={rowTitle}
     >
       {/* ===== 左区（55%）：序号列 + 歌名 ===== */}
@@ -147,6 +152,8 @@ export function SongRow({
                 e.stopPropagation()
                 onHoverAction()
               }}
+              // 双击按钮时不要冒泡触发行的双击播放
+              onDoubleClick={(e) => e.stopPropagation()}
               aria-label={hoverActionLabel}
               title={hoverActionLabel}
             >
@@ -226,6 +233,7 @@ export function SongRow({
             hovered && 'opacity-100'
           )}
           onClick={(e) => e.stopPropagation()}
+          onDoubleClick={(e) => e.stopPropagation()}
         >
           {actions}
         </div>
