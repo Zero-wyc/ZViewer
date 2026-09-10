@@ -7,12 +7,12 @@
  * - 鼠标移出 320ms 后自动收起（延迟避免从把手移动到面板途中误收）；
  * - 点击竖线可切换显隐（触屏设备无 hover 时的兜底交互）。
  *
- * 侧边栏内部为三个 Tab 分段切换，三个面板常挂载（hidden 切换）：
- * useVoiceChat 的语音连接与 RoomInfoPanel 的房间监听不因切 Tab 而中断。
+ * 侧边栏内部为三个面板纵向堆叠、同时可见（各自保留标题栏与高度上限，
+ * 超出部分在侧边栏容器内滚动）；面板常挂载：useVoiceChat 的语音连接与
+ * RoomInfoPanel 的房间监听不因滚动位置而中断。
  * 完整播放器覆盖层打开时由 MusicAppShell 门控整坞卸载，保持沉浸。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Activity, Headphones, Settings } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { VoiceChatPanel } from '@/modules/voice-chat/components/VoiceChatPanel'
 import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
@@ -28,18 +28,6 @@ interface MusicSideDockProps {
   canManage: boolean
 }
 
-type DockTab = 'room' | 'voice' | 'traffic'
-
-const DOCK_TABS: Array<{
-  key: DockTab
-  label: string
-  icon: typeof Headphones
-}> = [
-  { key: 'room', label: '房间状态', icon: Settings },
-  { key: 'voice', label: '语音聊天', icon: Headphones },
-  { key: 'traffic', label: '流量统计', icon: Activity },
-]
-
 /** 鼠标移出后的收起延迟：覆盖「把手 → 面板」之间的空隙移动与误滑出 */
 const DOCK_CLOSE_DELAY_MS = 320
 
@@ -51,7 +39,6 @@ export function MusicSideDock({
   canManage,
 }: MusicSideDockProps) {
   const [open, setOpen] = useState(false)
-  const [tab, setTab] = useState<DockTab>('room')
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const clearCloseTimer = useCallback(() => {
@@ -106,7 +93,7 @@ export function MusicSideDock({
         }}
       />
 
-      {/* 悬浮侧边栏：三 Tab + 常挂载面板（hidden 切换，保持语音/房间监听） */}
+      {/* 悬浮侧边栏：三面板纵向堆叠同时可见（各自高度上限 + 容器滚动兜底） */}
       <aside
         aria-hidden={!open}
         onMouseEnter={handleEnter}
@@ -119,7 +106,7 @@ export function MusicSideDock({
             : 'pointer-events-none translate-x-6 opacity-0'
         )}
         style={{
-          maxHeight: 'min(680px, calc(100vh - 120px))',
+          maxHeight: 'min(760px, calc(100vh - 100px))',
           backgroundColor:
             'color-mix(in srgb, var(--md-sys-color-surface-container) 94%, transparent)',
           border:
@@ -127,43 +114,10 @@ export function MusicSideDock({
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
         }}
       >
-        {/* Tab 分段头 */}
-        <div
-          className="flex shrink-0 gap-1 border-b p-2"
-          style={{
-            borderColor:
-              'color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent)',
-          }}
-        >
-          {DOCK_TABS.map(({ key, label, icon: Icon }) => {
-            const active = tab === key
-            return (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setTab(key)}
-                className={cn(
-                  'flex flex-1 items-center justify-center gap-1.5 rounded-[var(--md-sys-radius-small)] px-2 py-1.5 text-xs font-medium transition-colors',
-                  active
-                    ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                    : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]'
-                )}
-              >
-                <Icon className="h-3.5 w-3.5 shrink-0" />
-                {label}
-              </button>
-            )
-          })}
-        </div>
-
-        {/* 内容区：三面板常挂载，hidden 切换避免语音连接/房间监听中断 */}
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2">
-          <div
-            className={cn(
-              'flex min-h-0 flex-1 flex-col',
-              tab === 'voice' ? '' : 'hidden'
-            )}
-          >
+        {/* 内容区：三面板纵向堆叠、常挂载（保持语音连接/房间监听） */}
+        <div className="zen-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
+          {/* 语音聊天（成员较多时面板内部滚动，高度上限保护后面面板可见性） */}
+          <div className="flex min-h-0 shrink-0 flex-col">
             <VoiceChatPanel
               embedded
               socket={socket}
@@ -172,20 +126,12 @@ export function MusicSideDock({
               canManageVoice={canManage}
             />
           </div>
-          <div
-            className={cn(
-              'flex min-h-0 flex-1 flex-col',
-              tab === 'room' ? '' : 'hidden'
-            )}
-          >
+          {/* 房间状态（成员/设置较多，内部滚动） */}
+          <div className="max-h-[min(56vh,460px)] shrink-0 overflow-y-auto">
             <RoomInfoPanel roomId={roomId} isHost={isHost} />
           </div>
-          <div
-            className={cn(
-              'flex min-h-0 flex-1 flex-col',
-              tab === 'traffic' ? '' : 'hidden'
-            )}
-          >
+          {/* 流量统计（内容较少，自适应高度） */}
+          <div className="shrink-0">
             <TrafficPanel embedded />
           </div>
         </div>

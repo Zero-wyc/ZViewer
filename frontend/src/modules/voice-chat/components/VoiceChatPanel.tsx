@@ -77,12 +77,15 @@ export function VoiceChatPanel({
     return `游客 ${member.socketId.slice(0, 4).toUpperCase()}`
   }
 
-  /** 展开态面板内容（悬浮模式与嵌入模式共用；嵌入模式填满父容器） */
+  /** 展开态面板内容（悬浮模式与嵌入模式共用；嵌入模式在工具坞内纵向堆叠，
+   *  高度自适应并设上限：成员较多时面板内部滚动，不影响相邻面板可见性） */
   const panel = (
     <div
       className={cn(
         'glass-card flex flex-col overflow-hidden p-3',
-        embedded ? 'h-full w-full' : 'zen-modal-content-enter w-64'
+        embedded
+          ? 'w-full max-h-[min(50vh,420px)]'
+          : 'zen-modal-content-enter w-64'
       )}
       style={
         embedded ? undefined : { maxHeight: 'min(420px, calc(100vh - 160px))' }
