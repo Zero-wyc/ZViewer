@@ -120,6 +120,23 @@ export function Header() {
     backgroundModalOpen ||
     serverModalOpen
   const headerShown = !immersive || hoverVisible || menuLocked
+
+  // 菜单/弹窗全部关闭后复位悬停显隐：菜单开启期间根元素 mouseleave 被抑制，
+  // 用户在屏幕中部用外部点击关闭菜单（或菜单内向 portal 区域外移动鼠标）时
+  // 不会产生 mouseleave 事件，hoverVisible 会残留 true，导致顶栏在二级菜单
+  // 收回后不再自动隐藏。因此 menuLocked 从 true → false 时强制收起一次。
+  const wasMenuLockedRef = useRef(false)
+  useEffect(() => {
+    if (menuLocked) {
+      wasMenuLockedRef.current = true
+      return
+    }
+    if (wasMenuLockedRef.current) {
+      wasMenuLockedRef.current = false
+      setHoverVisible(false)
+    }
+  }, [menuLocked])
+
   const [customApiUrl, setCustomApiUrlState] = useState(getCustomApiUrl())
   const [customSocketUrl, setCustomSocketUrlState] =
     useState(getCustomSocketUrl())
