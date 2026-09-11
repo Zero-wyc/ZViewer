@@ -448,6 +448,79 @@ router.post(
   },
 );
 
+// ==================== 专辑全量歌曲 ====================
+
+/**
+ * GET /api/music/album/full?id= - 专辑详情（含全量歌曲补齐）
+ *
+ * 网易云 /api/v1/album/{id} 在部分登录态（cookie 携带 MUSIC_U）下会把
+ * songs 截断（如仅返回 50 首），匿名/Web 身份则返回全量；响应中的
+ * album.size 为专辑歌曲总数。参照 Hydrogen 歌单 hydration 的补齐思路：
+ * 主请求带用户 cookie（保留 privileges/fee 等登录态字段），当
+ * songs.length < album.size 时改用无 cookie 的匿名上下文再请求一次，
+ * 匿名结果歌曲数更多则整单采用，否则回退主结果。
+ */
+router.get(
+  '/album/full',
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const id = Number(req.query.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      res
+        .status(400)
+        .json({ code: 'BAD_REQUEST', message: '缺少有效的专辑 id' });
+      return;
+    }
+    const base = getNcmApiBase();
+    if (!base) {
+      res
+        .status(503)
+        .json({ code: 'NCM_UNAVAILABLE', message: 'NCM 服务未启动' });
+      return;
+    }
+    try {
+      const credential = await loadCredential(req.user?.userId);
+      const cookieHeader = credential ? toCookieHeader(credential.cookies) : '';
+      const primary = await callNcmApi(`/album?id=${id}`, cookieHeader);
+      const body = primary.body as
+        | { album?: { size?: number }; songs?: unknown[] }
+        | null;
+      if (!body) {
+        res
+          .status(502)
+          .json({ code: 'UPSTREAM_ERROR', message: 'NCM 服务返回了无法解析的响应' });
+        return;
+      }
+      const size = Number(body.album?.size) || 0;
+      const songs = Array.isArray(body.songs) ? body.songs : [];
+      // 截断检测：songs 少于专辑总数 → 匿名上下文补齐
+      if (size > songs.length) {
+        try {
+          const anonymous = await callNcmApi(`/album?id=${id}`, '');
+          const anonBody = anonymous.body as
+            | { album?: { size?: number }; songs?: unknown[] }
+            | null;
+          const anonSongs = Array.isArray(anonBody?.songs)
+            ? anonBody.songs
+            : [];
+          if (anonSongs.length > songs.length) {
+            res.status(200).json(anonBody);
+            return;
+          }
+        } catch (err) {
+          // 补齐失败：回退主结果
+          console.warn('[music] 专辑匿名补齐失败:', err);
+        }
+      }
+      res.status(200).json(body);
+    } catch (err) {
+      console.error('[music] 专辑详情获取失败:', err);
+      res
+        .status(502)
+        .json({ code: 'UPSTREAM_ERROR', message: '专辑详情获取失败' });
+    }
+  },
+);
+
 // ==================== 登录状态 / 退出 ====================
 
 /** GET /api/music/login/status - 查询当前用户的网易云登录状态 */

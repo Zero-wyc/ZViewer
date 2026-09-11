@@ -442,6 +442,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             description: pl?.description,
           })
         } else if (d.kind === 'album') {
+          // 走后端补齐端点：网易云在部分登录态下会把 /album 的 songs 截断
+          //（如仅 50 首），后端检测 songs.length < album.size 时用匿名
+          // 上下文补齐全量（Hydrogen 歌单 hydration 的等价思路）
           const { data } = await apiGet<{
             album?: {
               name?: string
@@ -451,7 +454,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               artists?: Array<{ name?: string }>
             }
             songs?: PlaylistTrackItem[]
-          }>(`/api/music/ncm/album?id=${d.id}`)
+          }>(`/api/music/album/full?id=${d.id}`)
           if (!Array.isArray(data?.songs)) throw new Error('专辑详情获取失败')
           setDetailSongs(data.songs.map(mapTrack).filter((s) => s.songId > 0))
           const alb = data?.album
