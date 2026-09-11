@@ -1367,6 +1367,34 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 
+/* 添加到歌单弹窗：宽→高依次展开（Hydrogen .add-fade；
+   容器 left:50% + translateX(-50%) 定位，动画需保留平移） */
+@keyframes cloud-add-in {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(0.6, 0.02);
+  }
+  55% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1, 0.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1, 1);
+  }
+}
+
+/* 添加到歌单弹窗：边缘白色装饰块闪烁（Hydrogen .add-style） */
+@keyframes cloud-add-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.15;
+  }
+}
+
 /* 悬浮工具栏「信号灯」显形（.song-control：0.3s 内快速闪三下后常显） */
 @keyframes song-control-in {
   0%,
