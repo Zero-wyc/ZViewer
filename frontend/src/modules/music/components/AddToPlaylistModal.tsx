@@ -1,5 +1,7 @@
 /**
- * 「添加到我的歌单」弹窗（Hydrogen ContextMenu.add-to-playlist 1:1 复刻）。
+ * 「添加到我的歌单」弹窗（Hydrogen ContextMenu.add-to-playlist 结构复刻，
+ * 视觉采用项目玻璃拟态 UI：glass-card 半透明面板 + MD 主题 token，
+ * 深浅色主题自适应）。
  *
  * 由底部播放条 / 完整播放器的「加号圆圈」按钮触发（Hydrogen MusicWidget
  * addToPlaylist → otherStore.addPlaylistShow 同范式）：
@@ -12,11 +14,11 @@
  * - 创建新歌单并添加：POST /playlist/create { name, privacy? } →
  *   成功后直接对新建歌单执行加入（Hydrogen createAndAdd 同流程）
  *
- * UI（Hydrogen 同款，固定深黑配色）：底部锚定播放条上方的深黑面板
- * （rgb(15,15,15)，300×500）+ 居中标题 + 左上 ADD 大字水印 + 边缘白色
- * 闪烁装饰块 + 自建歌单滚动列表（45px 方形封面 + 14px 粗体白字歌单名，
- * hover 灰底）+「创建新歌单并添加」行（白色描边方块加号；展开内联表单：
- * 标题输入 + 隐私歌单勾选 + 完成/取消）；点蒙层关闭；打开时宽→高依次展开。
+ * 结构（Hydrogen 同款）：底部锚定播放条上方的面板（300 宽）+ 居中标题 +
+ * 左上 ADD 大字水印 + 边缘闪烁装饰块 + 自建歌单滚动列表（45px 方形封面 +
+ * 14px 粗体歌单名，hover 浅描边底）+「创建新歌单并添加」行（描边方块加号；
+ * 展开内联表单：标题输入 + 隐私歌单勾选 + 完成/取消）；点蒙层关闭；
+ * 打开时宽→高依次展开。
  */
 import { useCallback, useEffect, useState } from 'react'
 import { Check, Loader2, Plus } from 'lucide-react'
@@ -179,56 +181,67 @@ export function AddToPlaylistModal({
   if (!open || !song) return null
 
   return (
-    /* 全屏蒙层（Hydrogen rgba(0,0,0,0.05)，极淡，仅捕捉点击关闭） */
+    /* 全屏蒙层（半透明压暗，仅捕捉点击关闭） */
     <div
       className="fixed inset-0 z-[90]"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.05)' }}
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.25)' }}
       onClick={onClose}
     >
-      {/* 深黑面板：底部锚定播放条上方，居中 300 宽，宽→高依次展开 */}
+      {/* 玻璃拟态面板：底部锚定播放条上方，居中 300 宽，宽→高依次展开 */}
       <div
-        className="absolute flex flex-col overflow-hidden"
+        className="glass-card absolute flex flex-col overflow-hidden"
         style={{
           left: '50%',
           bottom: 124,
           width: 300,
           height: 'min(500px, calc(100vh - 160px))',
-          backgroundColor: 'rgb(15, 15, 15)',
           animation: 'cloud-add-in 0.4s cubic-bezier(0.34, 1.2, 0.4, 1) both',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* 边缘白色装饰块（闪烁，Hydrogen .add-style） */}
+        {/* 边缘装饰块（闪烁，Hydrogen .add-style，主题色描边） */}
         <span
-          className="pointer-events-none absolute left-3 top-3 z-[2] h-[9px] w-[9px] bg-white"
-          style={{ animation: 'cloud-add-flash 2.2s ease-in-out infinite' }}
+          className="pointer-events-none absolute left-3 top-3 z-[2] h-[9px] w-[9px]"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
+            animation: 'cloud-add-flash 2.2s ease-in-out infinite',
+          }}
           aria-hidden="true"
         />
         <span
-          className="pointer-events-none absolute right-3 top-3 z-[2] h-[9px] w-[9px] bg-white"
+          className="pointer-events-none absolute right-3 top-3 z-[2] h-[9px] w-[9px]"
           style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
             animation: 'cloud-add-flash 2.2s ease-in-out 0.4s infinite',
           }}
           aria-hidden="true"
         />
         <span
-          className="pointer-events-none absolute bottom-2 left-1/2 z-[2] h-[9px] w-[9px] -translate-x-1/2 bg-white"
+          className="pointer-events-none absolute bottom-2 left-1/2 z-[2] h-[9px] w-[9px] -translate-x-1/2"
           style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
             animation: 'cloud-add-flash 2.2s ease-in-out 0.8s infinite',
           }}
           aria-hidden="true"
         />
 
-        {/* 左上 ADD 大字水印 */}
+        {/* 左上 ADD 大字水印（主题色低透明度） */}
         <div
-          className="pointer-events-none absolute left-5 top-9 select-none text-[64px] font-bold leading-none text-white opacity-[0.07]"
+          className="pointer-events-none absolute left-5 top-9 select-none text-[64px] font-bold leading-none opacity-[0.08]"
+          style={{ color: 'var(--md-sys-color-on-surface)' }}
           aria-hidden="true"
         >
           ADD
         </div>
 
         {/* 标题 */}
-        <div className="relative z-[1] mt-7 shrink-0 text-center text-[15px] font-bold text-white">
+        <div
+          className="relative z-[1] mt-7 shrink-0 text-center text-[15px] font-bold"
+          style={{ color: 'var(--md-sys-color-on-surface)' }}
+        >
           添加到我的歌单
         </div>
 
@@ -238,29 +251,45 @@ export function AddToPlaylistModal({
           style={{ scrollbarWidth: 'none' }}
         >
           {loadState === 'loading' && (
-            <div className="flex items-center justify-center gap-2 py-10 text-xs text-white/60">
+            <div
+              className="flex items-center justify-center gap-2 py-10 text-xs"
+              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+            >
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
               正在获取歌单…
             </div>
           )}
           {loadState === 'error' && (
-            <div className="py-10 text-center text-xs text-white/60">
+            <div
+              className="py-10 text-center text-xs"
+              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+            >
               歌单获取失败，请重试
             </div>
           )}
           {loadState === 'ready' && (
             <>
-              {/* 创建新歌单并添加（Hydrogen .create-playlist：白色描边方块加号） */}
+              {/* 创建新歌单并添加（Hydrogen .create-playlist：描边方块加号） */}
               {!createActive ? (
                 <button
                   type="button"
                   onClick={() => setCreateActive(true)}
-                  className="flex w-full items-center gap-4 py-2 text-left transition-colors hover:bg-[rgba(53,53,53,0.7)]"
+                  className="flex w-full items-center gap-4 rounded-[var(--md-sys-radius-small)] py-2 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]"
                 >
-                  <span className="flex h-[45px] w-[45px] shrink-0 items-center justify-center border-2 border-white/90">
-                    <Plus className="h-5 w-5 text-white" />
+                  <span
+                    className="flex h-[45px] w-[45px] shrink-0 items-center justify-center border-2"
+                    style={{
+                      borderColor:
+                        'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
+                      color: 'var(--md-sys-color-on-surface)',
+                    }}
+                  >
+                    <Plus className="h-5 w-5" />
                   </span>
-                  <span className="truncate text-sm font-bold text-white">
+                  <span
+                    className="truncate text-sm font-bold"
+                    style={{ color: 'var(--md-sys-color-on-surface)' }}
+                  >
                     创建新歌单并添加
                   </span>
                 </button>
@@ -276,25 +305,41 @@ export function AddToPlaylistModal({
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') void createAndAdd()
                     }}
-                    className="h-9 w-full border border-white/60 bg-[rgba(255,255,255,0.08)] px-2.5 text-xs text-white outline-none placeholder:text-white/40 focus:border-white"
+                    className="h-9 w-full border bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] px-2.5 text-xs outline-none"
+                    style={{
+                      borderColor:
+                        'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
+                      color: 'var(--md-sys-color-on-surface)',
+                    }}
+                    onFocus={(e) => {
+                      e.currentTarget.style.borderColor =
+                        'var(--md-sys-color-on-surface)'
+                    }}
+                    onBlur={(e) => {
+                      e.currentTarget.style.borderColor =
+                        'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)'
+                    }}
                   />
                   <button
                     type="button"
                     onClick={() => setPrivacy((v) => !v)}
-                    className="flex items-center gap-1.5 text-xs text-white/80 transition-colors hover:text-white"
+                    className="flex items-center gap-1.5 text-xs transition-colors"
+                    style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                   >
                     <span
                       className="flex h-3.5 w-3.5 items-center justify-center border"
                       style={{
-                        borderColor: 'rgba(255, 255, 255, 0.85)',
-                        backgroundColor: privacy ? '#ffffff' : 'transparent',
+                        borderColor: 'var(--md-sys-color-on-surface)',
+                        backgroundColor: privacy
+                          ? 'var(--md-sys-color-on-surface)'
+                          : 'transparent',
+                        color: privacy
+                          ? 'var(--md-sys-color-surface)'
+                          : 'transparent',
                       }}
                     >
                       {privacy && (
-                        <Check
-                          className="h-2.5 w-2.5 text-black"
-                          strokeWidth={3}
-                        />
+                        <Check className="h-2.5 w-2.5" strokeWidth={3} />
                       )}
                     </span>
                     设置为隐私歌单
@@ -304,7 +349,11 @@ export function AddToPlaylistModal({
                       type="button"
                       disabled={!newTitle.trim() || creating}
                       onClick={() => void createAndAdd()}
-                      className="flex flex-1 items-center justify-center gap-1 bg-white py-1.5 text-xs font-bold text-black transition-opacity hover:opacity-85 disabled:opacity-40"
+                      className="flex flex-1 items-center justify-center gap-1 rounded-[var(--md-sys-radius-small)] py-1.5 text-xs font-bold transition-opacity hover:opacity-85 disabled:opacity-40"
+                      style={{
+                        backgroundColor: 'var(--md-sys-color-primary)',
+                        color: 'var(--md-sys-color-on-primary)',
+                      }}
                     >
                       {creating && <Loader2 className="h-3 w-3 animate-spin" />}
                       完成
@@ -316,7 +365,10 @@ export function AddToPlaylistModal({
                         setNewTitle('')
                         setPrivacy(false)
                       }}
-                      className="flex-1 py-1.5 text-xs text-white/60 transition-colors hover:text-white"
+                      className="flex-1 rounded-[var(--md-sys-radius-small)] py-1.5 text-xs transition-colors hover:opacity-70"
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     >
                       取消
                     </button>
@@ -335,9 +387,17 @@ export function AddToPlaylistModal({
                     onClick={() =>
                       void addToPlaylist(item.id, getPlaylistDisplayName(item))
                     }
-                    className="flex w-full items-center gap-4 py-2.5 text-left transition-colors hover:bg-[rgba(53,53,53,0.7)] disabled:opacity-70"
+                    className="flex w-full items-center gap-4 rounded-[var(--md-sys-radius-small)] py-2.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] disabled:opacity-70"
                   >
-                    <span className="h-[45px] w-[45px] shrink-0 overflow-hidden border border-white/25 bg-[rgba(255,255,255,0.06)]">
+                    <span
+                      className="h-[45px] w-[45px] shrink-0 overflow-hidden border"
+                      style={{
+                        borderColor:
+                          'color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
+                        backgroundColor:
+                          'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+                      }}
+                    >
                       {item.coverImgUrl ? (
                         <img
                           src={`${item.coverImgUrl}?param=90y90`}
@@ -347,19 +407,28 @@ export function AddToPlaylistModal({
                         />
                       ) : null}
                     </span>
-                    <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-bold text-white">
-                      <span className="truncate">
+                    <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-bold">
+                      <span
+                        className="truncate"
+                        style={{ color: 'var(--md-sys-color-on-surface)' }}
+                      >
                         {getPlaylistDisplayName(item)}
                       </span>
                       {adding && (
-                        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-white" />
+                        <Loader2
+                          className="h-3.5 w-3.5 shrink-0 animate-spin"
+                          style={{ color: 'var(--md-sys-color-on-surface)' }}
+                        />
                       )}
                     </span>
                   </button>
                 )
               })}
               {playlists.length === 0 && (
-                <div className="py-8 text-center text-xs text-white/50">
+                <div
+                  className="py-8 text-center text-xs"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                >
                   暂无自建歌单
                 </div>
               )}
