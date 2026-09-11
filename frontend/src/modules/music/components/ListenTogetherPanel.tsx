@@ -622,7 +622,7 @@ function ListenTogetherInner({
               内层 .player（100%×100% overflow hidden）承载半透明背景与内容 ===== */}
           <div
             className="player-card-in group relative z-[1] w-[42vh] max-w-[calc(100%-2rem)] shrink-0"
-            style={{ padding: '16px 12px 4vh' }}
+            style={{ padding: '4vh 12px' }}
           >
             {/* 四角黑色实心方块装饰（Hydrogen .border：1.5vh，出界 0.75vh） */}
             <span
