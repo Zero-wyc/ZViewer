@@ -18,8 +18,10 @@
  *   - music-volume（120px）：7px 描边滑条（border 1px + 0.5px shadow）+
  *     上方 VOLUME 标签（8px）与数字；仅本地生效
  *   - music-other（230px，space-evenly，5 × 20px 图标）：喜欢（描边心/红心，
- *     NCM 登录可见）、加入队列（圆圈加号，canManage）、专辑（唱片，暂未开放
- *     跳转）、播放模式（顺序/单曲/随机 3 态循环，canControl）、队列弹窗
+ *     NCM 登录可见）、添加到歌单（圆圈加号，Hydrogen addToPlaylist：弹窗选择
+ *     自建歌单后 POST /playlist/tracks，个人操作登录即可）、专辑（唱片，
+ *     Hydrogen toAlbum：解析当前歌 al.id 跳转专辑详情页）、播放模式
+ *     （顺序/单曲/随机 3 态循环，canControl）、队列弹窗
  * - widget-back：右上角 5px 圆点装饰（Hydrogen 同款）
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -32,8 +34,8 @@ import {
   Repeat1,
   Shuffle,
 } from 'lucide-react'
-import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
+import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { OverflowMarquee } from './OverflowMarquee'
@@ -43,26 +45,14 @@ import {
   ControlPlayIcon,
   ControlPrevIcon,
 } from './PlayerControlIcons'
-import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
+import { AddToPlaylistModal } from './AddToPlaylistModal'
 import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
-
-export interface MusicWidgetBarProps {
-  /** 队列添加所需：房间 socket（不传则隐藏加入队列按钮） */
-  socket?: Socket | null
-  roomId?: string
-  /** 队列管理权限（房主/房管） */
-  canManage?: boolean
-}
 
 /** 播放模式循环顺序（Hydrogen changePlayMode 3 态） */
 const PLAY_MODE_ORDER: PlayMode[] = ['sequence', 'repeat-one', 'shuffle']
 
-export function MusicWidgetBar({
-  socket = null,
-  roomId,
-  canManage = false,
-}: MusicWidgetBarProps) {
+export function MusicWidgetBar() {
   const {
     togglePlay,
     next,
@@ -81,9 +71,9 @@ export function MusicWidgetBar({
 
   const setPlayerOverlayOpen = useMusicStore((s) => s.setPlayerOverlayOpen)
   const setQueuePopupOpen = useMusicStore((s) => s.setQueuePopupOpen)
+  const setPendingAlbumDetail = useMusicStore((s) => s.setPendingAlbumDetail)
+  const setPage = useMusicStore((s) => s.setPage)
   const loginStatus = useMusicStore((s) => s.loginStatus)
-
-  const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
 
   // ===== 进度条（细滑块；canControl 可拖动 seek，观众只读展示） =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
@@ -235,14 +225,36 @@ export function MusicWidgetBar({
     }
   }, [canLike, songId, liked, likeBusy])
 
-  // ===== 加入队列（Hydrogen 加号圆圈的 ZViewer 语义：当前歌加入房间队列） =====
-  const songAdded = currentSong
-    ? addedKeys.has(`ncm:${currentSong.songId}`)
-    : false
-  const handleAddQueue = useCallback(() => {
-    if (!canManage || !currentSong || songAdded) return
-    add(songToUpsertItem(currentSong))
-  }, [canManage, currentSong, songAdded, add])
+  // ===== 添加到歌单（Hydrogen addToPlaylist：弹窗选择自建歌单，
+  //       个人操作 NCM 登录即可，不依赖房主/房管权限） =====
+  const [addPlaylistOpen, setAddPlaylistOpen] = useState(false)
+
+  // ===== 专辑跳转（Hydrogen toAlbum：解析当前歌的专辑 ID 后跳转专辑详情页） =====
+  const handleToAlbum = useCallback(async () => {
+    if (!currentSong || currentSong.songId <= 0) return
+    try {
+      const { data } = await apiGet<{
+        songs?: Array<{ al?: { id?: number; name?: string; picUrl?: string } }>
+      }>(
+        `/api/music/ncm/song/detail?ids=${currentSong.songId}&timestamp=${Date.now()}`
+      )
+      const album = data?.songs?.[0]?.al
+      if (!album?.id) {
+        message.info('该歌曲暂无专辑信息')
+        return
+      }
+      // 写入待打开详情并切到我的音乐页（详情页由 MusicMyPage 消费打开）
+      setPendingAlbumDetail({
+        id: album.id,
+        name: album.name || '专辑',
+        cover: album.picUrl,
+      })
+      setPage('mymusic')
+    } catch (err) {
+      console.error('[MusicWidgetBar] 专辑解析失败:', err)
+      message.info('该歌曲暂无专辑信息')
+    }
+  }, [currentSong, setPendingAlbumDetail, setPage])
 
   const cover = currentSong?.cover
   const songName = currentSong?.name ?? '一起听'
@@ -455,28 +467,26 @@ export function MusicWidgetBar({
               )}
             </button>
           )}
-          {/* 加入队列（圆圈加号，canManage 有歌可见；已加入变实心点） */}
-          {canManage && currentSong && (
+          {/* 添加到歌单（圆圈加号，Hydrogen addToPlaylist：NCM 登录且有歌可见） */}
+          {loginStatus.loggedIn && currentSong && (
             <button
               type="button"
-              className={cn(
-                'flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90',
-                songAdded && 'opacity-50'
-              )}
-              onClick={handleAddQueue}
-              title={songAdded ? '已在队列中' : '加入播放队列'}
-              aria-label={songAdded ? '已在队列中' : '加入播放队列'}
+              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
+              onClick={() => setAddPlaylistOpen(true)}
+              title="添加到我的歌单"
+              aria-label="添加到我的歌单"
             >
               <CirclePlus className="h-5 w-5" />
             </button>
           )}
-          {/* 专辑（唱片）：跳转暂未开放，保留外观 */}
+          {/* 专辑（唱片）：解析当前歌专辑并跳转详情页（Hydrogen toAlbum） */}
           {currentSong && (
             <button
               type="button"
-              className="flex h-5 w-5 cursor-default items-center justify-center text-[var(--md-sys-color-on-surface)] opacity-70"
-              title="查看专辑（暂未开放）"
-              aria-label="查看专辑（暂未开放）"
+              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
+              onClick={() => void handleToAlbum()}
+              title="查看专辑"
+              aria-label="查看专辑"
             >
               <Disc3 className="h-5 w-5" />
             </button>
@@ -520,6 +530,17 @@ export function MusicWidgetBar({
         className="absolute right-1.5 top-1.5 h-[5px] w-[5px] rounded-full"
         style={{ backgroundColor: 'rgba(160, 160, 160, 0.7)' }}
         aria-hidden="true"
+      />
+
+      {/* 添加到我的歌单弹窗（Hydrogen ContextMenu.add-to-playlist） */}
+      <AddToPlaylistModal
+        open={addPlaylistOpen}
+        song={
+          currentSong
+            ? { songId: currentSong.songId, name: currentSong.name }
+            : null
+        }
+        onClose={() => setAddPlaylistOpen(false)}
       />
     </div>
   )

@@ -515,6 +515,24 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     [loadDetail]
   )
 
+  // 播放条「查看专辑」跨页跳转：消费待打开的专辑详情
+  //（Hydrogen toAlbum 路由跳转的等价实现：WidgetBar 写入 store 并切页，
+  // 本页挂载后消费打开，先清空防重复打开）
+  const pendingAlbumDetail = useMusicStore((s) => s.pendingAlbumDetail)
+  const setPendingAlbumDetail = useMusicStore((s) => s.setPendingAlbumDetail)
+  useEffect(() => {
+    if (!pendingAlbumDetail) return
+    const target = pendingAlbumDetail
+    setPendingAlbumDetail(null)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部跳转目标消费，打开详情触发数据加载
+    openDetail({
+      kind: 'album',
+      id: target.id,
+      name: target.name,
+      cover: target.cover,
+    })
+  }, [pendingAlbumDetail, setPendingAlbumDetail, openDetail])
+
   /** 后退（view-control 左箭头）：加载历史上一条，不压栈 */
   const goBack = useCallback(() => {
     if (history.index <= 0) return

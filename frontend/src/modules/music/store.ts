@@ -73,6 +73,8 @@ export interface MusicState {
   queuePopupOpen: boolean
   /** 网易云扫码登录弹窗开关 */
   loginModalOpen: boolean
+  /** 待打开的专辑详情（播放条「查看专辑」跨页跳转目标；我的音乐页消费后置空） */
+  pendingAlbumDetail: { id: number; name: string; cover?: string } | null
 
   // ===== Actions =====
   /** 覆盖队列（按 order 升序排序后写入） */
@@ -103,6 +105,10 @@ export interface MusicState {
   setQueuePopupOpen: (open: boolean) => void
   /** 设置登录弹窗开关 */
   setLoginModalOpen: (open: boolean) => void
+  /** 设置待打开的专辑详情（null 清除；写入后应切页到 mymusic 消费） */
+  setPendingAlbumDetail: (
+    d: { id: number; name: string; cover?: string } | null
+  ) => void
   /** 重置为初始状态（离开房间时调用） */
   reset: () => void
 }
@@ -123,6 +129,7 @@ const defaultState = {
   playerOverlayClosing: false,
   queuePopupOpen: false,
   loginModalOpen: false,
+  pendingAlbumDetail: null,
 }
 
 export const useMusicStore = create<MusicState>((set) => ({
@@ -155,5 +162,6 @@ export const useMusicStore = create<MusicState>((set) => ({
   },
   setQueuePopupOpen: (open) => set({ queuePopupOpen: open }),
   setLoginModalOpen: (open) => set({ loginModalOpen: open }),
+  setPendingAlbumDetail: (d) => set({ pendingAlbumDetail: d }),
   reset: () => set({ ...defaultState }),
 }))

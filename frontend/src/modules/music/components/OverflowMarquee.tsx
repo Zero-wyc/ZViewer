@@ -86,13 +86,22 @@ export function OverflowMarquee({
         className="flex w-max items-center whitespace-nowrap will-change-transform"
       >
         <span className="block">{text}</span>
-        {/* 循环体间隙 + 第二份文本（无缝循环用，视觉上首尾相接） */}
+        {/* 循环体间隙 + 第二份文本（无缝循环用，视觉上首尾相接）。
+            未溢出时保持占位但不可见（visibility 不影响 scrollWidth 测量），
+            否则短文本时第二份会进入可视区，出现「歌名重复显示」 */}
         <span
           className="block"
-          style={{ width: LOOP_GAP_PX }}
+          style={{
+            width: LOOP_GAP_PX,
+            visibility: overflowing ? 'visible' : 'hidden',
+          }}
           aria-hidden="true"
         />
-        <span className="block" aria-hidden="true">
+        <span
+          className="block"
+          style={{ visibility: overflowing ? 'visible' : 'hidden' }}
+          aria-hidden="true"
+        >
           {text}
         </span>
       </div>
