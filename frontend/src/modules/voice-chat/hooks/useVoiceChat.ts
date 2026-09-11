@@ -50,6 +50,53 @@ const VOICE_FRAME_SEC = 0.02
 /** 极端积压硬重置阈值（秒）：超过则直接丢帧重建时间线 */
 const BACKLOG_RESET_SEC = 0.5
 
+/**
+ * 移动端（手机网页）检测：iPhone/Android/旧 iPad UA 直接命中；
+ * 新版 iPad UA 与 macOS 相同，由多点触控数区分
+ */
+const IS_MOBILE =
+  typeof navigator !== 'undefined' &&
+  (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent) ||
+    (/Macintosh/i.test(navigator.userAgent) &&
+      typeof navigator.maxTouchPoints === 'number' &&
+      navigator.maxTouchPoints > 1))
+
+/**
+ * 移动端弱化语音参数：手机上行带宽与抖动远差于桌面，高码率/高缓冲下
+ * 实测音频严重断续。码率降至 32kbps（Opus 语音模式 32k 可懂度良好），
+ * jitter buffer 放宽以吸收移动网络的高抖动与切换基站突刺，
+ * 积压硬重置阈值同步放宽（0.3s 起播水位下 0.5s 积压阈值会频繁触发重置）
+ */
+const MOBILE_OPUS_BITRATE = 32_000
+const MOBILE_BUFFER_MIN_SEC = 0.3
+const MOBILE_BUFFER_MAX_SEC = 0.6
+const MOBILE_BUFFER_BASE_SEC = 0.2
+const MOBILE_BACKLOG_RESET_SEC = 1.0
+
+/**
+ * 上行背压阈值：底层 WebSocket 写入积压超过该字节数（≈50 包/约 1 秒）
+ * 时丢弃当前帧。Socket.IO 的发送队列无限增长，弱网/网络切换时不丢帧
+ * 会让上行流越拖越迟（延迟持续累积直到会话性质卡死），
+ * 实时语义下丢帧远优于积压；同时防止语音帧挤占同 socket 的业务消息
+ */
+const UPLINK_QUEUE_LIMIT_BYTES = 16 * 1024
+
+/**
+ * 读取 socket 底层 engine.io WebSocket 的未发送积压字节数。
+ * transport 非 WebSocket（轮询）或访问失败时返回 0（不丢帧）
+ */
+function getUplinkBacklogBytes(io: unknown): number {
+  try {
+    const ioTyped = io as
+      | { engine?: { transport?: { ws?: { bufferedAmount?: number } } } }
+      | null
+      | undefined
+    return ioTyped?.engine?.transport?.ws?.bufferedAmount ?? 0
+  } catch {
+    return 0
+  }
+}
+
 /** 电平条采样频率（ms）：12.5Hz 足够平滑，远低于 rAF 的 60Hz */
 const LEVEL_SAMPLE_INTERVAL_MS = 80
 
@@ -240,6 +287,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
   // 音频采集与处理相关 refs
   const localStreamRef = useRef<MediaStream | null>(null)
+  /** 切后台恢复回调（join 注册、cleanupAll 移除） */
+  const visibilityResumeHandlerRef = useRef<(() => void) | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const micGainNodeRef = useRef<GainNode | null>(null)
   const workletNodeRef = useRef<AudioWorkletNode | null>(null)
@@ -601,12 +650,24 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         }
       }
       state.lastArrivalAt = arrivalNow
+      // 移动端放宽 jitter buffer：手机网络的抖动与基站切换突刺远大于桌面，
+      // 桌面档位会让起播水位频繁被击穿（underrun → 重置 → 再 underrun
+      // 的断续循环），这就是移动端"严重卡顿"的直接听感来源
+      const bufferMin = IS_MOBILE
+        ? MOBILE_BUFFER_MIN_SEC
+        : TARGET_BUFFER_MIN_SEC
+      const bufferMax = IS_MOBILE
+        ? MOBILE_BUFFER_MAX_SEC
+        : TARGET_BUFFER_MAX_SEC
+      const bufferBase = IS_MOBILE
+        ? MOBILE_BUFFER_BASE_SEC
+        : TARGET_BUFFER_BASE_SEC
+      const backlogResetSec = IS_MOBILE
+        ? MOBILE_BACKLOG_RESET_SEC
+        : BACKLOG_RESET_SEC
       const targetBuffer = Math.min(
-        TARGET_BUFFER_MAX_SEC,
-        Math.max(
-          TARGET_BUFFER_MIN_SEC,
-          2 * state.jitterEwma + TARGET_BUFFER_BASE_SEC
-        )
+        bufferMax,
+        Math.max(bufferMin, 2 * state.jitterEwma + bufferBase)
       )
 
       // ---- 时间线调度 ----
@@ -644,7 +705,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       // 极端积压（网络中断后恢复的突发批量）：丢弃已排队未播的旧块
       // 再重置时间线。实时语音宁可断 0.5s 音，也不能让新旧时间线
       // 重叠播放
-      if (state.nextStartTime - now > BACKLOG_RESET_SEC) {
+      if (state.nextStartTime - now > backlogResetSec) {
         for (const s of state.pendingSources) {
           try {
             s.stop()
@@ -832,6 +893,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     setAudioLevels(new Map())
     setVoiceMutedBySocket(new Set())
     selfMutedRef.current = false
+    // 移除切后台恢复监听
+    if (visibilityResumeHandlerRef.current) {
+      document.removeEventListener(
+        'visibilitychange',
+        visibilityResumeHandlerRef.current
+      )
+      visibilityResumeHandlerRef.current = null
+    }
   }, [cleanupPeerPlayback, stopMonitor, stopLevelDetection])
 
   // ==================== 加入/离开 ====================
@@ -986,7 +1055,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               codec: 'opus',
               sampleRate: OPUS_SAMPLE_RATE,
               numberOfChannels: 1,
-              bitrate: OPUS_BITRATE,
+              // 移动端降码率：手机上行窄，128kbps 会被排队吞掉，
+              // 32kbps 是 Opus 语音模式在移动网络的常规档位
+              bitrate: IS_MOBILE ? MOBILE_OPUS_BITRATE : OPUS_BITRATE,
             })
             return encoder
           } catch (err) {
@@ -999,7 +1070,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         }
         audioEncoderRef.current = setupEncoder()
         encoderTimestampRef.current = 0
-        console.log('[voice] Opus encoder configured at', OPUS_BITRATE, 'bps')
+        console.log(
+          '[voice] Opus encoder configured at',
+          IS_MOBILE ? MOBILE_OPUS_BITRATE : OPUS_BITRATE,
+          'bps'
+        )
       }
 
       // 4. AudioWorklet 数据回调 → 编码/发送
@@ -1008,6 +1083,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         if (!arrayBuffer || !joinedRef.current || !micEnabledRef.current) return
         // 自己被禁言：不上行（服务器仍兜底校验，此处省编码与带宽）
         if (selfMutedRef.current) return
+        // 上行背压：底层 WebSocket 写入积压超过阈值时丢弃当前帧。
+        // 弱网/基站切换下不丢帧会让发送队列无限堆积，延迟单调累积
+        // 直到整段语音迟到到不可用，还会挤占同 socket 的业务消息
+        if (
+          getUplinkBacklogBytes(currentSocket.io) > UPLINK_QUEUE_LIMIT_BYTES
+        ) {
+          return
+        }
 
         const float32 = new Float32Array(arrayBuffer)
 
@@ -1085,6 +1168,25 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       setJoined(true)
       setJoining(false)
+
+      // 移动端切后台时系统会 suspend AudioContext（iOS 尤甚），回前台
+      // 若不显式 resume，采集与播放都会停摆，表现为严重卡顿/完全无声。
+      // document-level 监听跨 join/leave 生命周期在 join 成功段注册
+      const handleVisibilityResume = () => {
+        if (document.visibilityState !== 'visible') return
+        for (const ctx of [
+          audioContextRef.current,
+          playbackContextRef.current,
+        ]) {
+          if (ctx && ctx.state === 'suspended') {
+            void ctx.resume().catch(() => {
+              // ignore：恢复失败由后续状态变化兜底
+            })
+          }
+        }
+      }
+      visibilityResumeHandlerRef.current = handleVisibilityResume
+      document.addEventListener('visibilitychange', handleVisibilityResume)
 
       const currentSocketId = currentSocket.id
       const initialMembers: VoiceMember[] = [...response.members]
