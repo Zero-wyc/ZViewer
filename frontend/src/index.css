@@ -1347,6 +1347,26 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   animation: c-border-in 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
 }
 
+/* 云盘：上传框斜条纹滚动（Hydrogen .upload-animation，
+   -45deg 条纹周期 20px → 水平循环位移 20/√2 ≈ 28.28px） */
+@keyframes cloud-upload-stripes {
+  to {
+    background-position: 28.28px 0;
+  }
+}
+
+/* 云盘：分类六宫格选中四角框显形（Hydrogen .type-selected） */
+@keyframes cloud-corner-in {
+  from {
+    opacity: 0;
+    transform: scale(1.4);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 /* 悬浮工具栏「信号灯」显形（.song-control：0.3s 内快速闪三下后常显） */
 @keyframes song-control-in {
   0%,

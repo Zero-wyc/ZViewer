@@ -354,6 +354,100 @@ router.use(
   },
 );
 
+// ==================== 云盘上传 ====================
+
+/**
+ * POST /api/music/cloud/upload - 云盘上传（multipart 原样流式转发到内部 NCM /cloud）
+ *
+ * 通用 /ncm 转发把 POST body 当 JSON 处理，无法承载 multipart 文件；此处保持
+ * 原始 multipart（Content-Type 边界原样透传），把请求体流式 pipe 给内部 NCM
+ * 服务的 /cloud 端点（neteasecloudmusicapi 的多步上传封装：check → nos token →
+ * 上传 → publish），并注入当前用户 cookie。全局仅有 express.json 中间件，
+ * multipart 请求体不会被消费，可安全以流转发。
+ */
+router.post(
+  '/cloud/upload',
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const base = getNcmApiBase();
+    if (!base) {
+      res
+        .status(503)
+        .json({ code: 'NCM_UNAVAILABLE', message: 'NCM 服务未启动' });
+      return;
+    }
+    const credential = await loadCredential(req.user?.userId);
+    if (!credential) {
+      res
+        .status(401)
+        .json({ code: 'NCM_NOT_LOGGED_IN', message: '请先登录网易云账号' });
+      return;
+    }
+    const contentType = req.headers['content-type'];
+    if (!contentType || !contentType.includes('multipart/form-data')) {
+      res
+        .status(400)
+        .json({ code: 'BAD_REQUEST', message: '需要 multipart/form-data 上传请求' });
+      return;
+    }
+    try {
+      const target = `${base}/cloud?timestamp=${Date.now()}`;
+      const upstream = await fetch(target, {
+        method: 'POST',
+        headers: {
+          Cookie: toCookieHeader(credential.cookies),
+          'Content-Type': contentType,
+        },
+        body: Readable.toWeb(req) as unknown as ReadableStream<Uint8Array>,
+        // @ts-expect-error undici 流式 body 需要 duplex 声明
+        duplex: 'half',
+      });
+
+      const setCookies = upstream.headers.getSetCookie();
+      const text = await upstream.text();
+      let body: unknown = null;
+      let parsed = false;
+      try {
+        body = text ? JSON.parse(text) : null;
+        parsed = true;
+      } catch {
+        body = null;
+      }
+      if (!parsed) {
+        console.warn(`[music] 云盘上传响应非 JSON: ${upstream.status}`);
+        res
+          .status(502)
+          .json({ code: 'UPSTREAM_ERROR', message: 'NCM 服务返回了无法解析的响应' });
+        return;
+      }
+
+      // 上传链路可能刷新登录态 cookie，同通用转发逻辑持久化（游客不持久化）
+      const userId = req.user?.userId ?? 0;
+      if (userId > 0 && setCookies.length > 0 && hasLoginCookies(setCookies)) {
+        const existing = credential
+          ? (() => {
+              try {
+                const arr = JSON.parse(credential.cookies) as unknown;
+                return Array.isArray(arr)
+                  ? arr.filter((c): c is string => typeof c === 'string')
+                  : [];
+              } catch {
+                return [];
+              }
+            })()
+          : [];
+        await persistCookies(userId, mergeCookies(existing, setCookies), body);
+      }
+
+      res.status(upstream.status).json(body);
+    } catch (err) {
+      console.error('[music] 云盘上传转发失败:', err);
+      res
+        .status(502)
+        .json({ code: 'UPSTREAM_ERROR', message: '云盘上传请求失败' });
+    }
+  },
+);
+
 // ==================== 登录状态 / 退出 ====================
 
 /** GET /api/music/login/status - 查询当前用户的网易云登录状态 */
