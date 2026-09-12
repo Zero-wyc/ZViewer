@@ -7,7 +7,8 @@
  *
  * 事件契约（与前端 frontend/src/modules/music/hooks/useListenTogether.ts
  * 及 types.ts 完全对齐，字段名不可改动）：
- * - music:queue-upsert    房主/房管 add 歌曲（append 尾部）→ 广播 music:queue-changed
+ * - music:queue-upsert    房主/房管 add 歌曲（append 尾部；afterCurrent 时
+ *                         插入当前播放曲目之后并右移后续 order）→ 广播 music:queue-changed
  * - music:queue-remove    房主/房管删除歌曲（order 压实）→ 广播 music:queue-changed
  * - music:queue-reorder   房主/房管拖拽排序（按 ids 顺序重排 order）→ 广播 music:queue-changed
  * - music:queue-clear     房主/房管清空队列 → 广播 music:queue-changed（空队列）
@@ -286,11 +287,15 @@ export class MusicSyncHandler implements SocketEventHandler {
   register(socket: Socket, io: SocketIOServer): void {
     // ==================== 队列管理（房主/房管） ====================
 
-    // --- 添加歌曲到队列尾部 ---
+    // --- 添加歌曲到队列（默认尾部；afterCurrent 插到当前播放下一首） ---
     socket.on(
       'music:queue-upsert',
       async (
-        payload: { roomId: string; item: MusicQueueUpsertItem },
+        payload: {
+          roomId: string;
+          item: MusicQueueUpsertItem;
+          afterCurrent?: boolean;
+        },
         callback?: AckCallback,
       ) => {
         try {
@@ -318,11 +323,28 @@ export class MusicSyncHandler implements SocketEventHandler {
           }
 
           const repo = AppDataSource.getRepository(MusicQueueItem);
-          // append 到队列尾部：order = 当前最大 + 1
-          const last = await repo.findOne({
-            where: { roomId },
-            order: { order: 'DESC' },
-          });
+          const items = await loadQueue(roomId);
+
+          // afterCurrent：按房间最新同步状态的 trackSongId 定位当前播放条目，
+          // 插入其后（把 ≥ 新 order 的既有条目 order 整体右移 1 压留空位）
+          let order = (items[items.length - 1]?.order ?? 0) + 1;
+          let insertAfterIndex = -1;
+          if (payload.afterCurrent === true) {
+            const trackSongId = musicSyncStates.get(roomId)?.trackSongId;
+            if (trackSongId != null) {
+              insertAfterIndex = items.findIndex(
+                (it) => it.songId === trackSongId,
+              );
+            }
+          }
+          if (insertAfterIndex >= 0) {
+            order = items[insertAfterIndex].order + 1;
+            for (let i = insertAfterIndex; i < items.length; i++) {
+              items[i].order += 1;
+              await repo.save(items[i]);
+            }
+          }
+
           await repo.save(
             repo.create({
               roomId,
@@ -333,7 +355,7 @@ export class MusicSyncHandler implements SocketEventHandler {
               cover: payload.item.cover ?? null,
               durationMs: Math.round(payload.item.durationMs),
               vip: payload.item.vip,
-              order: (last?.order ?? 0) + 1,
+              order,
               addedBy: socket.data?.userId ?? 0,
             }),
           );

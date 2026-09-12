@@ -215,7 +215,9 @@ export function MusicSearchPage({
               vip={song.vip}
               disabled={song.vip && !loginStatus.loggedIn}
               onPlayNow={() => handlePlayNow(song)}
-              onRowDoubleClick={() => add(songToUpsertItem(song))}
+              onRowDoubleClick={() =>
+                add(songToUpsertItem(song), { afterCurrent: true })
+              }
               rowTitle="双击添加到队列，hover 序号点击立即播放"
             />
           )

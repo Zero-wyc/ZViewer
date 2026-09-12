@@ -47,8 +47,9 @@ const ADDED_STATE_MS = 2000
 export interface UseQueueAddResult {
   /** 已添加态集合（key: ncm:<songId>） */
   addedKeys: Set<string>
-  /** 添加到队列（无权限/未连接房间时提示并忽略） */
-  add: (item: QueueUpsertItem) => void
+  /** 添加到队列（无权限/未连接房间时提示并忽略）；
+      afterCurrent：添加到当前播放歌曲的下一首（默认队列尾部） */
+  add: (item: QueueUpsertItem, opts?: { afterCurrent?: boolean }) => void
 }
 
 export function useQueueAdd(
@@ -71,7 +72,7 @@ export function useQueueAdd(
   }, [])
 
   const add = useCallback(
-    (item: QueueUpsertItem) => {
+    (item: QueueUpsertItem, opts?: { afterCurrent?: boolean }) => {
       if (!canManage) {
         message.info('只有房主或房管可以添加歌曲')
         return
@@ -82,7 +83,7 @@ export function useQueueAdd(
       }
       socket.emit(
         'music:queue-upsert',
-        { roomId, item },
+        { roomId, item, afterCurrent: opts?.afterCurrent ?? false },
         (response: { success?: boolean; message?: string }) => {
           if (response && response.success === false) {
             message.error(response.message || '添加歌曲失败')
