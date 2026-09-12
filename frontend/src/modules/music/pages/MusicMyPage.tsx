@@ -537,6 +537,10 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               const likeIds = Array.isArray(likeRes.data?.ids)
                 ? likeRes.data.ids
                 : []
+              // 原生顺序优先：track/all 首屏就是歌单原生排序（首屏 100 首
+              // 与网易客户端展示一致，第一首为最早红心的歌曲）。likelist
+              // 红心 id 全量缓存进 ref，仅当原生 offset 分页给不出后续页
+              // （v6 对主歌单受限）时，在滚动追加处用它补齐剩余歌曲。
               if (likeIds.length === 0) {
                 // 红心列表也拿不到：交由滚动哨兵兜底（保持旧行为）
                 setDetailHydration({
@@ -547,34 +551,12 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 setDetailHasMore(true)
                 return
               }
-              // 缓加载：首屏仅前 100 首（song/detail 单批），剩余滚动到底续取；
-              // likelist 返回的是红心时间倒序（最新在前），而网易云「我喜欢的
-              // 音乐」原生排序为红心正序（最早红心在最前），此处反转为正序；
-              // song/detail 的批内返回顺序可能与传入 ids 不一致，合并时按
-              // ids 传入顺序重排，保证列表顺序与红心时间线完全一致。
-              const orderedLikeIds = [...likeIds].reverse()
-              likedIdsRef.current = { id: d.id, ids: orderedLikeIds }
-              const likeTotal = orderedLikeIds.length
-              setDetailSongs([]) // 红心顺序与 track/all 首屏可能不一致，统一重建
-              const pageIds = orderedLikeIds.slice(0, PLAYLIST_PAGE_SIZE)
-              const first = await apiGet<{
-                songs?: PlaylistTrackItem[]
-              }>(`/api/music/ncm/song/detail?ids=${pageIds.join(',')}`).catch(
-                () => ({
-                  data: undefined,
-                })
-              )
-              if (token !== detailTokenRef.current) return
-              const firstSongs = orderByIds(
-                pageIds,
-                Array.isArray(first.data?.songs) ? first.data.songs : []
-              ).map(mapTrack)
-              setDetailSongs(firstSongs)
-              setDetailHasMore(likeTotal > firstSongs.length)
+              likedIdsRef.current = { id: d.id, ids: likeIds }
+              setDetailHasMore(likeIds.length > songs.length)
               setDetailHydration({
-                total: likeTotal,
-                loaded: firstSongs.length,
-                status: firstSongs.length > 0 ? 'completed' : 'failed',
+                total: likeIds.length || total,
+                loaded: songs.length,
+                status: songs.length > 0 ? 'completed' : 'failed',
               })
               return
             }
@@ -737,34 +719,51 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     try {
       const offset = detailSongs.length
       let next: NcmSong[] = []
-      // 「我喜欢的音乐」：从红心 id 缓存取下一片段（track/all offset
-      // 对主歌单完全失效，必须走 song/detail）
+      // 「我喜欢的音乐」：优先走原生 offset 分页（顺序正确）；
+      // 原生接口对主歌单受限（后续页为空）时，才用红心 id 补齐剩余歌曲。
       if (likedIdsRef.current && likedIdsRef.current.id === d.id) {
         const likeIds = likedIdsRef.current.ids
-        const ids = likeIds.slice(offset, offset + PLAYLIST_PAGE_SIZE).join(',')
-        if (!ids) {
-          setDetailHasMore(false)
+        const native = await apiGet<{
+          songs?: PlaylistTrackItem[]
+          total?: number
+        }>(
+          `/api/music/ncm/playlist/track/all?id=${d.id}&limit=${PLAYLIST_PAGE_SIZE}&offset=${offset}`
+        ).catch(() => ({ data: undefined }))
+        if (Array.isArray(native.data?.songs) && native.data.songs.length > 0) {
+          // 原生分页可用：直接沿用歌单原生顺序追加
+          next = native.data.songs.map(mapTrack).filter((s) => s.songId > 0)
+          setDetailHasMore(
+            offset + next.length < likeIds.length && next.length > 0
+          )
           setDetailHydration((prev) => ({
             ...prev,
+            loaded: offset + next.length,
             status: 'completed',
           }))
-          return
+        } else {
+          // 原生分页受限：以红心 id 为准补齐「尚未加载」的剩余歌曲
+          //（likelist 顺序为红心时间线，官方排序回退到该顺序）
+          const loadedIds = new Set(detailSongs.map((s) => s.songId))
+          const remaining = likeIds.filter((id) => !loadedIds.has(id))
+          if (remaining.length === 0) {
+            setDetailHasMore(false)
+            setDetailHydration((prev) => ({ ...prev, status: 'completed' }))
+            return
+          }
+          const batchIds = remaining.slice(0, PLAYLIST_PAGE_SIZE)
+          const { data } = await apiGet<{
+            songs?: PlaylistTrackItem[]
+          }>(`/api/music/ncm/song/detail?ids=${batchIds.join(',')}`)
+          if (!Array.isArray(data?.songs))
+            throw new Error('歌单详情追加加载失败')
+          next = orderByIds(batchIds, data.songs).map(mapTrack)
+          setDetailHasMore(remaining.length > PLAYLIST_PAGE_SIZE)
+          setDetailHydration((prev) => ({
+            ...prev,
+            loaded: likeIds.length - remaining.length + next.length,
+            status: 'completed',
+          }))
         }
-        const { data } = await apiGet<{
-          songs?: PlaylistTrackItem[]
-        }>(`/api/music/ncm/song/detail?ids=${ids}`)
-        if (!Array.isArray(data?.songs)) throw new Error('歌单详情追加加载失败')
-        next = orderByIds(
-          likeIds.slice(offset, offset + PLAYLIST_PAGE_SIZE),
-          data.songs
-        ).map(mapTrack)
-        // 是否还有下一批由红心 id 片段余量决定（与本批过滤结果无关）
-        setDetailHasMore(offset + PLAYLIST_PAGE_SIZE < likeIds.length)
-        setDetailHydration((prev) => ({
-          ...prev,
-          loaded: offset + next.length,
-          status: 'completed',
-        }))
       } else {
         const { data } = await apiGet<{
           songs?: PlaylistTrackItem[]
@@ -791,7 +790,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       loadingMoreRef.current = false
       setDetailLoadingMore(false)
     }
-  }, [detail, detailHasMore, detailSongs.length, detailHydration.total])
+  }, [detail, detailHasMore, detailSongs, detailHydration.total])
 
   // 哨兵进入视口（接近列表底部）→ 追加下一页
   useEffect(() => {
