@@ -66,10 +66,12 @@ export function AddToPlaylistModal({
     setLoadState('loading')
     void (async () => {
       try {
+        // 注意端点是 /user/account（Hydrogen getUserProfile 同款），
+        // 新版 NCM API 包的 /account 端点已被移除（返回 404）
         const acc = await apiGet<{
           account?: { id?: number }
           profile?: { userId?: number }
-        }>(`/api/music/ncm/account?timestamp=${Date.now()}`)
+        }>(`/api/music/ncm/user/account?timestamp=${Date.now()}`)
         const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
         if (!uid) throw new Error('未获取到用户 ID')
         const sub = await apiGet<{ createdPlaylistCount?: number }>(
