@@ -262,11 +262,18 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：搜索框（项目玻璃拟态语言）：glass 底 + 主题模糊度 +
-          圆角描边，聚焦 150→190px 加宽；居中输入。下拉面板（热榜/建议）
-          毛玻璃 + 四角框线 + 序号条目。外层定宽 w-56 与右区对称，
-          保证中间导航组真正水平居中 ===== */}
-      <div className="relative w-56 shrink-0">
+      {/* ===== 左：ZMUSIC 标识 + 搜索框（项目玻璃拟态语言）：glass 底 +
+          主题模糊度 + 圆角描边，聚焦 150→190px 加宽；居中输入。下拉面板
+          （热榜/建议）毛玻璃 + 四角框线 + 序号条目 ===== */}
+      <span
+        aria-hidden="true"
+        className="shrink-0 select-none pr-1 text-[15px] font-extrabold italic tracking-[3px]"
+        style={{ color: 'var(--md-sys-color-on-surface)' }}
+        title="ZMUSIC"
+      >
+        ZMUSIC
+      </span>
+      <div className="relative shrink-0">
         <div
           className={cn(
             'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
