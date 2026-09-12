@@ -98,8 +98,10 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const [menuOpen, setMenuOpen] = useState(false)
   /** 搜索联想条数上限（设置「搜索下拉条目数量」；Hydrogen searchAssistLimit 同名配置） */
   const searchAssistLimit = useMusicSettingsStore((s) => s.searchAssistLimit)
-  /** 聚焦态（驱动容器 150→190px 加宽动画，Hydrogen searchShow 同语义） */
+  /** 聚焦态（驱动容器加宽动画，Hydrogen searchShow 同语义） */
   const [focused, setFocused] = useState(false)
+  /** 悬停可见态：默认隐藏，鼠标移入左侧悬停区才显示搜索框 */
+  const [searchVisible, setSearchVisible] = useState(false)
   /** 下拉条目（热榜/建议共用关键词列表） */
   const [assistItems, setAssistItems] = useState<string[]>([])
   /** 面板模式：空输入 = 热搜榜 / 有输入 = 建议（Hydrogen currentTitle 数据源） */
@@ -225,10 +227,11 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     else void loadHotList()
   }
 
-  /** 失焦：收起面板与高亮 */
+  /** 失焦：收起面板与高亮；鼠标已划出悬停区则一并隐藏搜索框 */
   const handleSearchBlur = () => {
     setFocused(false)
     setActiveIndex(-1)
+    setSearchVisible(false)
   }
 
   /** 执行搜索：写入关键词并跳搜索页（Hydrogen searchInfo 同语义） */
@@ -262,65 +265,67 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：网易云图标 + 搜索框。搜索框（项目玻璃拟态语言）：
-          glass 底 + 主题模糊度 + 圆角描边，聚焦 150→190px 加宽；居中输入。
-          下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目。外层定宽 w-56
-          与右区对称，保证中间导航组真正水平居中 ===== */}
-      <div className="relative flex w-56 shrink-0 items-center gap-2.5">
-        {/* 网易云图标（Hydrogen netease-music.png 同资源，标注音源） */}
-        <img
-          src="/netease-music.png"
-          alt="网易云音乐"
-          title="网易云音乐"
-          className="h-6 w-6 shrink-0"
-          draggable={false}
-        />
-        <div className="relative flex-1">
-          <div
-            className={cn(
-              'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
-              focused ? 'w-full' : 'w-[calc(100%-8px)]'
-            )}
-            style={{
-              borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
-              borderColor: focused
-                ? 'var(--md-sys-color-primary)'
-                : 'var(--glass-border)',
+      {/* ===== 左：搜索框（项目玻璃拟态语言）：glass 底 + 主题模糊度 +
+          圆角描边，聚焦 220→260px 加宽；居中输入。默认隐藏，鼠标移入
+          悬停区（w-56 定宽与右区对称，保证中间导航组真正水平居中）才
+          淡入显示。下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目 ===== */}
+      <div
+        className="group relative w-56 shrink-0"
+        onMouseEnter={() => setSearchVisible(true)}
+        onMouseLeave={() => {
+          // 未聚焦（或已失焦）时才收起，避免鼠标短暂划出打断输入
+          if (
+            !searchInputRef.current ||
+            document.activeElement !== searchInputRef.current
+          ) {
+            setSearchVisible(false)
+          }
+        }}
+      >
+        <div
+          className={cn(
+            'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color,opacity] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
+            focused ? 'w-[260px]' : 'w-[220px]',
+            !searchVisible && 'pointer-events-none opacity-0'
+          )}
+          style={{
+            borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
+            borderColor: focused
+              ? 'var(--md-sys-color-primary)'
+              : 'var(--glass-border)',
+          }}
+        >
+          <input
+            ref={searchInputRef}
+            value={keyword}
+            onChange={(e) => {
+              setKeyword(e.target.value)
+              // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
+              if (!e.target.value.trim()) {
+                requestSeqRef.current++
+                if (focused) void loadHotList()
+              }
             }}
-          >
-            <input
-              ref={searchInputRef}
-              value={keyword}
-              onChange={(e) => {
-                setKeyword(e.target.value)
-                // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
-                if (!e.target.value.trim()) {
-                  requestSeqRef.current++
-                  if (focused) void loadHotList()
-                }
-              }}
-              onKeyDown={handleSearchKeyDown}
-              onFocus={handleSearchFocus}
-              onBlur={handleSearchBlur}
-              onCompositionStart={() => setIsComposing(true)}
-              onCompositionEnd={() => setIsComposing(false)}
-              placeholder="SEARCH"
-              aria-label="搜索音乐"
-              spellCheck={false}
-              className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
-              style={{
-                color: 'var(--md-sys-color-on-surface)',
-                caretColor: 'var(--md-sys-color-on-surface)',
-              }}
-            />
-          </div>
+            onKeyDown={handleSearchKeyDown}
+            onFocus={handleSearchFocus}
+            onBlur={handleSearchBlur}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
+            placeholder="SEARCH"
+            aria-label="搜索音乐"
+            spellCheck={false}
+            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+            style={{
+              color: 'var(--md-sys-color-on-surface)',
+              caretColor: 'var(--md-sys-color-on-surface)',
+            }}
+          />
         </div>
 
-        {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议），
-            锚定在网易云图标右侧的搜索框起点 */}
+        {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议） */}
         {focused && (
           <div
-            className="zen-dropdown-enter absolute left-[34px] top-[34px] z-[2001] w-[260px] px-3 pb-2 pt-[10px]"
+            className="zen-dropdown-enter absolute left-0 top-[34px] z-[2001] w-[260px] px-3 pb-2 pt-[10px]"
             style={{
               backgroundColor:
                 'color-mix(in srgb, var(--md-sys-color-surface-container) 82%, transparent)',
