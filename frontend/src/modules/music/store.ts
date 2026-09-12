@@ -75,6 +75,13 @@ export interface MusicState {
   loginModalOpen: boolean
   /** 待打开的专辑详情（播放条「查看专辑」跨页跳转目标；我的音乐页消费后置空） */
   pendingAlbumDetail: { id: number; name: string; cover?: string } | null
+  /** 跨页跳转到「我的音乐」的详情打开目标（主页卡片：歌单/专辑/歌手/每日推荐） */
+  pendingMyDetail: {
+    kind: 'playlist' | 'album' | 'artist' | 'rec'
+    id: number
+    name: string
+    cover?: string
+  } | null
 
   // ===== Actions =====
   /** 覆盖队列（按 order 升序排序后写入） */
@@ -109,6 +116,15 @@ export interface MusicState {
   setPendingAlbumDetail: (
     d: { id: number; name: string; cover?: string } | null
   ) => void
+  /** 设置跨页详情打开目标（null 清除；写入后应切页到 mymusic 消费） */
+  setPendingMyDetail: (
+    d: {
+      kind: 'playlist' | 'album' | 'artist' | 'rec'
+      id: number
+      name: string
+      cover?: string
+    } | null
+  ) => void
   /** 重置为初始状态（离开房间时调用） */
   reset: () => void
 }
@@ -130,6 +146,7 @@ const defaultState = {
   queuePopupOpen: false,
   loginModalOpen: false,
   pendingAlbumDetail: null,
+  pendingMyDetail: null,
 }
 
 export const useMusicStore = create<MusicState>((set) => ({
@@ -163,5 +180,6 @@ export const useMusicStore = create<MusicState>((set) => ({
   setQueuePopupOpen: (open) => set({ queuePopupOpen: open }),
   setLoginModalOpen: (open) => set({ loginModalOpen: open }),
   setPendingAlbumDetail: (d) => set({ pendingAlbumDetail: d }),
+  setPendingMyDetail: (d) => set({ pendingMyDetail: d }),
   reset: () => set({ ...defaultState }),
 }))

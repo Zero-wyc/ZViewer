@@ -45,6 +45,7 @@ import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
 import { cn } from '@/lib/utils'
 import { MusicLoginGate, PageBlockHeader } from './MusicLoginGate'
+import { MusicDailyPanel } from './MusicDailyPage'
 
 export interface MusicMyPageProps {
   socket: Socket | null
@@ -189,9 +190,9 @@ function mapTrack(song: PlaylistTrackItem): NcmSong {
   }
 }
 
-/** 右侧详情状态（歌单 / 专辑 / 歌手） */
+/** 右侧详情状态（歌单 / 专辑 / 歌手 / 每日推荐） */
 interface DetailState {
-  kind: 'playlist' | 'album' | 'artist'
+  kind: 'playlist' | 'album' | 'artist' | 'rec'
   id: number
   name: string
   cover?: string
@@ -397,11 +398,15 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     setDetail(d)
     setDetailMeta(null)
     setDetailSongs([])
-    setDetailLoading(true)
     setDetailHasMore(false)
-    setDetailLoadingMore(false)
     setFilterKeyword('')
     setIntroOpen(false)
+    if (d.kind === 'rec') {
+      // 每日推荐：数据由 MusicDailyPanel 组件自行拉取加载
+      return
+    }
+    setDetailLoading(true)
+    setDetailLoadingMore(false)
     loadingMoreRef.current = false
     void (async () => {
       try {
@@ -523,6 +528,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   // 本页挂载后消费打开，先清空防重复打开）
   const pendingAlbumDetail = useMusicStore((s) => s.pendingAlbumDetail)
   const setPendingAlbumDetail = useMusicStore((s) => s.setPendingAlbumDetail)
+  // 主页卡片（歌单/专辑/歌手/每日推荐）跨页打开目标（Hydrogen 路由跳转等价实现）
+  const pendingMyDetail = useMusicStore((s) => s.pendingMyDetail)
+  const setPendingMyDetail = useMusicStore((s) => s.setPendingMyDetail)
   useEffect(() => {
     if (!pendingAlbumDetail) return
     const target = pendingAlbumDetail
@@ -535,6 +543,13 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       cover: target.cover,
     })
   }, [pendingAlbumDetail, setPendingAlbumDetail, openDetail])
+  useEffect(() => {
+    if (!pendingMyDetail) return
+    const target = pendingMyDetail
+    setPendingMyDetail(null)
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部跳转目标消费，打开详情触发数据加载
+    openDetail(target)
+  }, [pendingMyDetail, setPendingMyDetail, openDetail])
 
   /** 后退（view-control 左箭头）：加载历史上一条，不压栈 */
   const goBack = useCallback(() => {
@@ -643,299 +658,303 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       : `共${detail?.info ?? `${detailSongs.length} 首`} - ${totalMinutes}分钟`
 
   // ===== 详情视图（右侧内容区，Hydrogen LibraryDetail 1:1） =====
-  const detailView = detail ? (
-    <div className="flex min-h-0 flex-1 flex-col">
-      {/* ===== view-control：后退 / 前进双箭头（实心 chevron 32px） ===== */}
-      <div className="ml-[-8px] flex h-8 shrink-0 items-center">
-        <button
-          type="button"
-          onClick={goBack}
-          disabled={history.index <= 0}
-          className="mr-5 flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-45 disabled:hover:opacity-45 disabled:active:scale-100"
-          title="后退"
-          aria-label="后退"
-        >
-          <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
-            <path
-              d="M716.608 1010.112L218.88 512.384 717.376 13.888l45.248 45.248-453.248 453.248 452.48 452.48z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
-        <button
-          type="button"
-          onClick={goForward}
-          disabled={history.index >= history.list.length - 1}
-          className="flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-45 disabled:hover:opacity-45 disabled:active:scale-100"
-          title="前进"
-          aria-label="前进"
-        >
-          <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
-            <path
-              d="M264.896 1010.112l497.728-497.728L264.128 13.888 218.88 59.136l453.248 453.248-452.48 452.48z"
-              fill="currentColor"
-            />
-          </svg>
-        </button>
-      </div>
-
-      {/* ===== library-introduce：大封面 + 信息列 + 右上角列 ===== */}
-      <div className="flex w-full shrink-0 justify-between">
-        <div className="flex w-[calc(100%-130px)] min-w-0 items-start">
-          {/* 大封面（150px，0.5px 边框 + 弥散阴影） */}
-          <div
-            className="mr-2.5 h-[150px] w-[150px] shrink-0 overflow-hidden"
-            style={{
-              border:
-                '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent)',
-              boxShadow: '0 0 6px 1px rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            {detail.cover && (
-              <img
-                src={detail.cover}
-                alt={detail.name}
-                className="h-full w-full object-cover"
-                draggable={false}
-              />
-            )}
-          </div>
-          {/* 信息列（名称 22px 两行 / 创建者 12px / 数量行 11px / 操作行占位） */}
-          <div className="flex min-w-0 flex-1 flex-col items-start justify-around self-stretch py-1">
-            <h2
-              className="line-clamp-2 w-[90%] break-all text-[22px] font-bold leading-tight text-[var(--md-sys-color-on-surface)]"
-              title={detail.name}
-            >
-              {detail.name}
-            </h2>
-            <div className="w-full min-w-0">
-              {detailMeta?.creator && (
-                <div className="truncate text-xs text-[var(--md-sys-color-on-surface)]">
-                  {detailMeta.creator}
-                </div>
-              )}
-              <div className="truncate text-[11px] font-bold text-[var(--md-sys-color-on-surface-variant)]">
-                {numText}
-              </div>
-              {/* 操作行占位（Hydrogen 收藏/下载行；ZViewer 仅保留 SEARCH） */}
-              <div className="mt-2.5 min-h-[34px] w-full" />
-            </div>
-          </div>
-        </div>
-
-        {/* 右上角列（130px）：创建时间框 + 查看详情 + SEARCH 过滤框 */}
-        <div className="flex w-[130px] shrink-0 flex-col items-stretch">
-          {(detail.kind !== 'artist' || detailMeta?.timeLabel) && (
-            <div
-              className="flex h-4 items-center justify-center whitespace-nowrap border px-1 text-[10px] font-bold text-[var(--md-sys-color-on-surface)]"
-              style={{
-                borderColor: 'var(--md-sys-color-on-surface)',
-              }}
-              title={detail.kind === 'album' ? '发行时间' : '创建时间'}
-            >
-              {detail.kind === 'album' ? '发行时间' : '创建时间'}{' '}
-              {detailMeta?.timeLabel ?? '—'}
-            </div>
-          )}
+  // 每日推荐：整区替换为日推面板（Hydrogen /mymusic/playlist/rec 同款展示）
+  const detailView =
+    detail?.kind === 'rec' ? (
+      <MusicDailyPanel socket={socket} roomId={roomId} canManage={canManage} />
+    ) : detail ? (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {/* ===== view-control：后退 / 前进双箭头（实心 chevron 32px） ===== */}
+        <div className="ml-[-8px] flex h-8 shrink-0 items-center">
           <button
             type="button"
-            className="mt-1.5 h-4 bg-[var(--md-sys-color-on-surface)] text-[10px] font-bold text-[var(--md-sys-color-surface)] transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_80%,transparent)]"
-            onClick={() => setIntroOpen(true)}
-            title="查看详情"
+            onClick={goBack}
+            disabled={history.index <= 0}
+            className="mr-5 flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-45 disabled:hover:opacity-45 disabled:active:scale-100"
+            title="后退"
+            aria-label="后退"
           >
-            查看详情
-          </button>
-          {/* 歌曲过滤（Hydrogen SongFilterInput SEARCH，居中文本） */}
-          <div
-            className="mt-2 flex h-8 w-full items-center gap-1.5 rounded-full border px-2.5"
-            style={{
-              borderColor: 'var(--md-sys-color-outline-variant)',
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent)',
-            }}
-          >
-            <Search
-              className="h-3.5 w-3.5 shrink-0"
-              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-            />
-            <input
-              value={filterKeyword}
-              onChange={(e) => setFilterKeyword(e.target.value)}
-              placeholder="SEARCH"
-              aria-label="过滤歌曲"
-              className="min-w-0 flex-1 bg-transparent text-center text-xs outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
-              style={{ color: 'var(--md-sys-color-on-surface)' }}
-            />
-          </div>
-        </div>
-      </div>
-
-      {/* ===== library-option：播放全部分隔行 ===== */}
-      <div className="shrink-0 px-1 pt-[15px]">
-        <div className="my-2.5 flex items-center">
-          <button
-            type="button"
-            className="flex shrink-0 items-center transition-opacity hover:opacity-60"
-            onClick={handlePlayAll}
-            title="播放全部（加入队列）"
-          >
-            {/* 描边三角播放图标（17px，Hydrogen playall 同款） */}
-            <svg
-              viewBox="0 0 200 200"
-              className="h-[17px] w-[17px]"
-              aria-hidden="true"
-            >
+            <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
               <path
-                d="M11.79,132L164.21,132L88,0L11.79,132Z "
-                transform="translate(0 12) rotate(90 88 88)"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={8}
+                d="M716.608 1010.112L218.88 512.384 717.376 13.888l45.248 45.248-453.248 453.248 452.48 452.48z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+          <button
+            type="button"
+            onClick={goForward}
+            disabled={history.index >= history.list.length - 1}
+            className="flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-45 disabled:hover:opacity-45 disabled:active:scale-100"
+            title="前进"
+            aria-label="前进"
+          >
+            <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
+              <path
+                d="M264.896 1010.112l497.728-497.728L264.128 13.888 218.88 59.136l453.248 453.248-452.48 452.48z"
+                fill="currentColor"
+              />
+            </svg>
+          </button>
+        </div>
+
+        {/* ===== library-introduce：大封面 + 信息列 + 右上角列 ===== */}
+        <div className="flex w-full shrink-0 justify-between">
+          <div className="flex w-[calc(100%-130px)] min-w-0 items-start">
+            {/* 大封面（150px，0.5px 边框 + 弥散阴影） */}
+            <div
+              className="mr-2.5 h-[150px] w-[150px] shrink-0 overflow-hidden"
+              style={{
+                border:
+                  '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent)',
+                boxShadow: '0 0 6px 1px rgba(0, 0, 0, 0.03)',
+              }}
+            >
+              {detail.cover && (
+                <img
+                  src={detail.cover}
+                  alt={detail.name}
+                  className="h-full w-full object-cover"
+                  draggable={false}
+                />
+              )}
+            </div>
+            {/* 信息列（名称 22px 两行 / 创建者 12px / 数量行 11px / 操作行占位） */}
+            <div className="flex min-w-0 flex-1 flex-col items-start justify-around self-stretch py-1">
+              <h2
+                className="line-clamp-2 w-[90%] break-all text-[22px] font-bold leading-tight text-[var(--md-sys-color-on-surface)]"
+                title={detail.name}
+              >
+                {detail.name}
+              </h2>
+              <div className="w-full min-w-0">
+                {detailMeta?.creator && (
+                  <div className="truncate text-xs text-[var(--md-sys-color-on-surface)]">
+                    {detailMeta.creator}
+                  </div>
+                )}
+                <div className="truncate text-[11px] font-bold text-[var(--md-sys-color-on-surface-variant)]">
+                  {numText}
+                </div>
+                {/* 操作行占位（Hydrogen 收藏/下载行；ZViewer 仅保留 SEARCH） */}
+                <div className="mt-2.5 min-h-[34px] w-full" />
+              </div>
+            </div>
+          </div>
+
+          {/* 右上角列（130px）：创建时间框 + 查看详情 + SEARCH 过滤框 */}
+          <div className="flex w-[130px] shrink-0 flex-col items-stretch">
+            {(detail.kind !== 'artist' || detailMeta?.timeLabel) && (
+              <div
+                className="flex h-4 items-center justify-center whitespace-nowrap border px-1 text-[10px] font-bold text-[var(--md-sys-color-on-surface)]"
+                style={{
+                  borderColor: 'var(--md-sys-color-on-surface)',
+                }}
+                title={detail.kind === 'album' ? '发行时间' : '创建时间'}
+              >
+                {detail.kind === 'album' ? '发行时间' : '创建时间'}{' '}
+                {detailMeta?.timeLabel ?? '—'}
+              </div>
+            )}
+            <button
+              type="button"
+              className="mt-1.5 h-4 bg-[var(--md-sys-color-on-surface)] text-[10px] font-bold text-[var(--md-sys-color-surface)] transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_80%,transparent)]"
+              onClick={() => setIntroOpen(true)}
+              title="查看详情"
+            >
+              查看详情
+            </button>
+            {/* 歌曲过滤（Hydrogen SongFilterInput SEARCH，居中文本） */}
+            <div
+              className="mt-2 flex h-8 w-full items-center gap-1.5 rounded-full border px-2.5"
+              style={{
+                borderColor: 'var(--md-sys-color-outline-variant)',
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent)',
+              }}
+            >
+              <Search
+                className="h-3.5 w-3.5 shrink-0"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              />
+              <input
+                value={filterKeyword}
+                onChange={(e) => setFilterKeyword(e.target.value)}
+                placeholder="SEARCH"
+                aria-label="过滤歌曲"
+                className="min-w-0 flex-1 bg-transparent text-center text-xs outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
                 style={{ color: 'var(--md-sys-color-on-surface)' }}
               />
-            </svg>
-            <span className="mx-[5px] whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
-              播放全部
-            </span>
-          </button>
-          <div
-            className="h-px min-w-4 flex-1"
-            style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 35%, transparent)',
-            }}
-          />
-          <span className="ml-1 text-[8px] font-bold tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
-            PLAYALL
-          </span>
+            </div>
+          </div>
         </div>
-      </div>
 
-      {/* ===== 歌曲列表（内滚，scrollbar-gutter stable 防宽度抖动） ===== */}
-      <div
-        ref={listScrollRef}
-        className="zen-scroll min-h-0 flex-1 overflow-y-auto pt-3"
-        style={{ scrollbarGutter: 'stable' }}
-      >
-        {detailLoading && (
-          <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            正在获取歌曲…
-          </div>
-        )}
-        {!detailLoading && filteredSongs.length === 0 && (
-          <div className="flex flex-1 items-center justify-center py-10 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            {kw !== '' ? '未找到相关歌曲' : '暂无歌曲'}
-          </div>
-        )}
-        {filteredSongs.map((song, idx) => {
-          return (
-            <SongRow
-              key={song.songId}
-              index={idx + 1}
-              name={song.name}
-              artist={song.artist}
-              cover={song.cover}
-              duration={formatDurationMs(song.durationMs)}
-              vip={song.vip}
-              disabled={song.vip && !loginStatus.loggedIn}
-              onPlayNow={() => handlePlayNow(song)}
-              onRowDoubleClick={() => add(songToUpsertItem(song))}
-              rowTitle="双击添加到队列，hover 序号点击立即播放"
-            />
-          )
-        })}
-        {/* 分页缓加载哨兵：滚动到底部（接近 400px 内）自动追加下一页 */}
-        {detailHasMore && (
-          <div
-            ref={sentinelRef}
-            className="flex h-12 items-center justify-center gap-2 text-sm text-[var(--md-sys-color-on-surface-variant)]"
-          >
-            {detailLoadingMore ? (
-              <>
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在加载更多歌曲…
-              </>
-            ) : (
-              <span>继续下滑加载更多</span>
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* ===== 查看详情弹窗（Hydrogen introduce-detail：700×400 毛玻璃，
-          metro 先宽后高展开 + 四角白点闪烁 + 右上 X 延迟浮现） ===== */}
-      <style>{INTRODUCE_STYLE}</style>
-      {introOpen && (
-        <div
-          className="fixed left-1/2 top-1/2 z-[998] flex -translate-x-1/2 -translate-y-1/2 overflow-hidden"
-          style={{
-            backgroundColor: 'rgba(0, 0, 0, 0.66)',
-            backdropFilter: 'blur(18px) saturate(120%)',
-            WebkitBackdropFilter: 'blur(18px) saturate(120%)',
-            border: '1px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
-            width: 0,
-            height: 0,
-            padding: 0,
-            animation:
-              'zen-introduce-in 0.6s 0.3s cubic-bezier(0.3, 0.79, 0.55, 0.99) forwards',
-          }}
-          role="dialog"
-          aria-label="详情描述"
-        >
-          <div className="h-full w-full overflow-y-auto">
-            <p className="text-sm font-semibold leading-relaxed text-white/90 [text-indent:2em]">
-              {detailMeta?.description || '暂无描述'}
-            </p>
-          </div>
-          {/* 四角白点（9px，闪烁后常显） */}
-          <span
-            className="absolute -left-1 -top-1 h-[9px] w-[9px] bg-white/90 opacity-0"
-            style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
-            aria-hidden="true"
-          />
-          <span
-            className="absolute -right-1 -top-1 h-[9px] w-[9px] bg-white/90 opacity-0"
-            style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
-            aria-hidden="true"
-          />
-          <span
-            className="absolute -bottom-1 -right-1 h-[9px] w-[9px] bg-white/90 opacity-0"
-            style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
-            aria-hidden="true"
-          />
-          <span
-            className="absolute -bottom-1 -left-1 h-[9px] w-[9px] bg-white/90 opacity-0"
-            style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
-            aria-hidden="true"
-          />
-          <button
-            type="button"
-            className="absolute right-[15px] top-[15px] h-6 w-6 opacity-0 transition-opacity hover:opacity-80"
-            style={{ animation: 'zen-introduce-close 0.1s 0.6s forwards' }}
-            onClick={() => setIntroOpen(false)}
-            title="关闭"
-            aria-label="关闭详情"
-          >
-            <svg
-              viewBox="0 0 1024 1024"
-              className="h-full w-full"
-              aria-hidden="true"
+        {/* ===== library-option：播放全部分隔行 ===== */}
+        <div className="shrink-0 px-1 pt-[15px]">
+          <div className="my-2.5 flex items-center">
+            <button
+              type="button"
+              className="flex shrink-0 items-center transition-opacity hover:opacity-60"
+              onClick={handlePlayAll}
+              title="播放全部（加入队列）"
             >
-              <path
-                d="M576 512l277.333333 277.333333-64 64-277.333333-277.333333L234.666667 853.333333 170.666667 789.333333l277.333333-277.333333L170.666667 234.666667 234.666667 170.666667l277.333333 277.333333L789.333333 170.666667 853.333333 234.666667 576 512z"
-                fill="#ffffff"
-              />
-            </svg>
-          </button>
+              {/* 描边三角播放图标（17px，Hydrogen playall 同款） */}
+              <svg
+                viewBox="0 0 200 200"
+                className="h-[17px] w-[17px]"
+                aria-hidden="true"
+              >
+                <path
+                  d="M11.79,132L164.21,132L88,0L11.79,132Z "
+                  transform="translate(0 12) rotate(90 88 88)"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth={8}
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
+                />
+              </svg>
+              <span className="mx-[5px] whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
+                播放全部
+              </span>
+            </button>
+            <div
+              className="h-px min-w-4 flex-1"
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 35%, transparent)',
+              }}
+            />
+            <span className="ml-1 text-[8px] font-bold tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
+              PLAYALL
+            </span>
+          </div>
         </div>
-      )}
-    </div>
-  ) : (
-    /* ===== 默认空态（Hydrogen NONE：对角线 + 闪烁文字 + 四角方块） ===== */
-    <MyMusicEmpty />
-  )
+
+        {/* ===== 歌曲列表（内滚，scrollbar-gutter stable 防宽度抖动） ===== */}
+        <div
+          ref={listScrollRef}
+          className="zen-scroll min-h-0 flex-1 overflow-y-auto pt-3"
+          style={{ scrollbarGutter: 'stable' }}
+        >
+          {detailLoading && (
+            <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              正在获取歌曲…
+            </div>
+          )}
+          {!detailLoading && filteredSongs.length === 0 && (
+            <div className="flex flex-1 items-center justify-center py-10 text-sm text-[var(--md-sys-color-on-surface-variant)]">
+              {kw !== '' ? '未找到相关歌曲' : '暂无歌曲'}
+            </div>
+          )}
+          {filteredSongs.map((song, idx) => {
+            return (
+              <SongRow
+                key={song.songId}
+                index={idx + 1}
+                name={song.name}
+                artist={song.artist}
+                cover={song.cover}
+                duration={formatDurationMs(song.durationMs)}
+                vip={song.vip}
+                disabled={song.vip && !loginStatus.loggedIn}
+                onPlayNow={() => handlePlayNow(song)}
+                onRowDoubleClick={() => add(songToUpsertItem(song))}
+                rowTitle="双击添加到队列，hover 序号点击立即播放"
+              />
+            )
+          })}
+          {/* 分页缓加载哨兵：滚动到底部（接近 400px 内）自动追加下一页 */}
+          {detailHasMore && (
+            <div
+              ref={sentinelRef}
+              className="flex h-12 items-center justify-center gap-2 text-sm text-[var(--md-sys-color-on-surface-variant)]"
+            >
+              {detailLoadingMore ? (
+                <>
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  正在加载更多歌曲…
+                </>
+              ) : (
+                <span>继续下滑加载更多</span>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* ===== 查看详情弹窗（Hydrogen introduce-detail：700×400 毛玻璃，
+          metro 先宽后高展开 + 四角白点闪烁 + 右上 X 延迟浮现） ===== */}
+        <style>{INTRODUCE_STYLE}</style>
+        {introOpen && (
+          <div
+            className="fixed left-1/2 top-1/2 z-[998] flex -translate-x-1/2 -translate-y-1/2 overflow-hidden"
+            style={{
+              backgroundColor: 'rgba(0, 0, 0, 0.66)',
+              backdropFilter: 'blur(18px) saturate(120%)',
+              WebkitBackdropFilter: 'blur(18px) saturate(120%)',
+              border: '1px solid rgba(255, 255, 255, 0.12)',
+              boxShadow: '0 10px 30px rgba(0, 0, 0, 0.45)',
+              width: 0,
+              height: 0,
+              padding: 0,
+              animation:
+                'zen-introduce-in 0.6s 0.3s cubic-bezier(0.3, 0.79, 0.55, 0.99) forwards',
+            }}
+            role="dialog"
+            aria-label="详情描述"
+          >
+            <div className="h-full w-full overflow-y-auto">
+              <p className="text-sm font-semibold leading-relaxed text-white/90 [text-indent:2em]">
+                {detailMeta?.description || '暂无描述'}
+              </p>
+            </div>
+            {/* 四角白点（9px，闪烁后常显） */}
+            <span
+              className="absolute -left-1 -top-1 h-[9px] w-[9px] bg-white/90 opacity-0"
+              style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
+              aria-hidden="true"
+            />
+            <span
+              className="absolute -right-1 -top-1 h-[9px] w-[9px] bg-white/90 opacity-0"
+              style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
+              aria-hidden="true"
+            />
+            <span
+              className="absolute -bottom-1 -right-1 h-[9px] w-[9px] bg-white/90 opacity-0"
+              style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
+              aria-hidden="true"
+            />
+            <span
+              className="absolute -bottom-1 -left-1 h-[9px] w-[9px] bg-white/90 opacity-0"
+              style={{ animation: 'zen-introduce-corner 0.4s forwards' }}
+              aria-hidden="true"
+            />
+            <button
+              type="button"
+              className="absolute right-[15px] top-[15px] h-6 w-6 opacity-0 transition-opacity hover:opacity-80"
+              style={{ animation: 'zen-introduce-close 0.1s 0.6s forwards' }}
+              onClick={() => setIntroOpen(false)}
+              title="关闭"
+              aria-label="关闭详情"
+            >
+              <svg
+                viewBox="0 0 1024 1024"
+                className="h-full w-full"
+                aria-hidden="true"
+              >
+                <path
+                  d="M576 512l277.333333 277.333333-64 64-277.333333-277.333333L234.666667 853.333333 170.666667 789.333333l277.333333-277.333333L170.666667 234.666667 234.666667 170.666667l277.333333 277.333333L789.333333 170.666667 853.333333 234.666667 576 512z"
+                  fill="#ffffff"
+                />
+              </svg>
+            </button>
+          </div>
+        )}
+      </div>
+    ) : (
+      /* ===== 默认空态（Hydrogen NONE：对角线 + 闪烁文字 + 四角方块） ===== */
+      <MyMusicEmpty />
+    )
 
   // ===== 页面骨架（Hydrogen 内滚架构：页面不滚，左栏 / 右区各自内滚） =====
   return (

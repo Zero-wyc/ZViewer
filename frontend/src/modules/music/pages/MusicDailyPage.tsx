@@ -285,7 +285,22 @@ html.dark .zrec-container {
 }
 `
 
+/** 独立页面：内容包一层页面级内边距容器 */
 export function MusicDailyPage({
+  socket,
+  roomId,
+  canManage,
+}: MusicDailyPageProps) {
+  return (
+    <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
+      <MusicDailyPanel socket={socket} roomId={roomId} canManage={canManage} />
+    </div>
+  )
+}
+
+/** 每日推荐内容面板（可独立页面展示，也可嵌入「我的音乐」右侧详情区；
+    Hydrogen 路由 /mymusic/playlist/rec 的等价形态） */
+export function MusicDailyPanel({
   socket,
   roomId,
   canManage,
@@ -555,7 +570,7 @@ export function MusicDailyPage({
 
   if (!loginStatus.loggedIn) {
     return (
-      <div className="zrec-container flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
+      <div className="zrec-container flex min-w-0 flex-1 flex-col">
         <h1>每日推荐歌曲</h1>
         <span className="zrec-subtitle">
           根据你的音乐口味生成，每天6:00更新
@@ -566,7 +581,7 @@ export function MusicDailyPage({
   }
 
   return (
-    <div className="zrec-container flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
+    <div className="zrec-container flex min-w-0 flex-1 flex-col">
       <style>{REC_STYLE}</style>
       {/* ===== 头部（Hydrogen .rec-header 结构） ===== */}
       <h1>每日推荐歌曲</h1>

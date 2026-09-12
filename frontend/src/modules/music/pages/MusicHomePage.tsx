@@ -202,6 +202,7 @@ export function MusicHomePage({
         <RecBlock
           titleEN="RECOMMENDED SONG LIST"
           titleCN="推荐歌单"
+          kind="playlist"
           items={playlists.map((p) => ({
             id: p.id,
             name: p.name,
@@ -213,6 +214,7 @@ export function MusicHomePage({
         <RecBlock
           titleEN="RECOMMENDED ARTISTS"
           titleCN="推荐歌手"
+          kind="artist"
           items={artists.map((a) => ({
             id: a.id,
             name: a.name,
@@ -224,6 +226,7 @@ export function MusicHomePage({
         <RecBlock
           titleEN="NEWEST ALBUM"
           titleCN="最新专辑"
+          kind="album"
           items={albums.map((a) => ({
             id: a.id,
             name: a.name,
@@ -235,6 +238,7 @@ export function MusicHomePage({
         <RecBlock
           titleEN="TOP LIST"
           titleCN="排行榜"
+          kind="album"
           items={toplists.map((t) => ({
             id: t.id,
             name: t.name,
@@ -430,6 +434,7 @@ function HomeBanner({ banners }: { banners: NcmBannerItem[] }) {
 
 function DailyRecommendation() {
   const setPage = useMusicStore((s) => s.setPage)
+  const setPendingMyDetail = useMusicStore((s) => s.setPendingMyDetail)
   /** 日期数字 M.D（每天零点后刷新） */
   const [dateText, setDateText] = useState('')
 
@@ -443,6 +448,12 @@ function DailyRecommendation() {
     return () => clearInterval(timer)
   }, [])
 
+  /** 点击跳转「我的音乐」并打开每日推荐详情（Hydrogen /mymusic/playlist/rec） */
+  const openDaily = () => {
+    setPendingMyDetail({ kind: 'rec', id: 0, name: '每日推荐歌曲' })
+    setPage('mymusic')
+  }
+
   return (
     <button
       type="button"
@@ -451,7 +462,7 @@ function DailyRecommendation() {
         backgroundColor:
           'color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent)',
       }}
-      onClick={() => setPage('daily')}
+      onClick={openDaily}
       title="查看每日推荐"
     >
       {/* 左区：L 形角标 + 描边空心大字 + 英文小字 */}
@@ -626,12 +637,28 @@ export interface RecCardItem {
 function RecBlock({
   titleEN,
   titleCN,
+  kind,
   items,
 }: {
   titleEN: string
   titleCN: string
+  /** 卡片点击打开的详情类型（我的音乐页详情区） */
+  kind: 'playlist' | 'album' | 'artist'
   items: RecCardItem[]
 }) {
+  const setPage = useMusicStore((s) => s.setPage)
+  const setPendingMyDetail = useMusicStore((s) => s.setPendingMyDetail)
+
+  /** 点击卡片跳转「我的音乐」并打开对应详情（Hydrogen 路由跳转等价） */
+  const openDetail = (item: RecCardItem) => {
+    setPendingMyDetail({
+      kind,
+      id: item.id,
+      name: item.name,
+    })
+    setPage('mymusic')
+  }
+
   // 数据未到/接口失败：静默降级，不渲染区块（与 Hydrogen 空数据处理一致）
   if (items.length === 0) return null
 
@@ -665,7 +692,12 @@ function RecBlock({
       {/* 5 列网格（小屏 3 列） */}
       <div className="mt-3 grid grid-cols-3 gap-x-12 gap-y-8 xl:grid-cols-5">
         {items.map((item) => (
-          <div key={item.id} className="min-w-0">
+          <div
+            key={item.id}
+            className="min-w-0 cursor-pointer"
+            onClick={() => openDetail(item)}
+            title={`查看${titleCN}：${item.name}`}
+          >
             {/* 封面（歌手圆形；hover 上浮阴影；MVP 静态展示） */}
             <div
               className={cn(
