@@ -233,10 +233,13 @@ export function PlayerLyricPanel({
   }, [])
 
   /** 取消进行中的补偿动画，preserveVisualPosition 时先把剩余位移固化进
-   *  scrollTop（视觉位置不变）；Hydrogen cancelLyricScrollAnimation 同款 */
+   *  scrollTop（视觉位置不变）；Hydrogen cancelLyricScrollAnimation 同款。
+   *  cancel 后同步清除内联 transform 起点（Firefox 首帧保险值，见
+   *  animateScrollTo 注释），避免动画失效后残留位移跳变 */
   const cancelScrollAnim = useCallback(
     (preserveVisualPosition: boolean) => {
       const container = scrollRef.current
+      const content = contentRef.current
       const prevAnim = scrollAnimRef.current
       if (!prevAnim) return
       if (preserveVisualPosition && container) {
@@ -250,6 +253,7 @@ export function PlayerLyricPanel({
       } catch {
         // ignore：已结束/已取消
       }
+      if (content) content.style.transform = ''
       scrollAnimRef.current = null
       scrollAnimTargetRef.current = null
     },
@@ -263,6 +267,11 @@ export function PlayerLyricPanel({
    *   仪式性 setState 风暴下不会反复重启动画
    * - 打断旧动画前固化剩余位移（StrictMode 双执行幂等无跳变）
    * - WAAPI 生命周期挂 token 属主校验，过期回调不误清新动画
+   * - Firefox 兼容：动画激活前同步写内联 transform 起点——Firefox 中
+   *   布局后创建的 WAAPI 动画其初始关键帧可能下一帧才应用，那一帧
+   *   scrollTop 已瞬移而补偿未生效，列表会闪跳一帧；内联样式当帧
+   *   生效堵住空窗，动画激活后（Animation origin 优先级高于内联样式）
+   *   接管，结束时清除
    */
   const animateScrollTo = useCallback(
     (targetTop: number) => {
@@ -293,6 +302,9 @@ export function PlayerLyricPanel({
 
       const animationToken = ++scrollAnimTokenRef.current
       scrollAnimTargetRef.current = normalizedTargetTop
+      // Firefox 首帧保险：先同步写补偿起点再瞬移 scrollTop，
+      // 保证同一帧 paint 时补偿 transform 必然生效
+      content.style.transform = `translate3d(0, ${delta}px, 0)`
       container.scrollTop = normalizedTargetTop
 
       try {
@@ -311,6 +323,8 @@ export function PlayerLyricPanel({
           if (animationToken !== scrollAnimTokenRef.current) return
           scrollAnimRef.current = null
           scrollAnimTargetRef.current = null
+          // 动画结束后 fill both 仍覆盖内联样式，清除保险值保持 DOM 干净
+          if (contentRef.current) contentRef.current.style.transform = ''
         }
         animation.oncancel = () => {
           if (animationToken !== scrollAnimTokenRef.current) return
@@ -319,6 +333,8 @@ export function PlayerLyricPanel({
         }
         scrollAnimRef.current = animation
       } catch {
+        // WAAPI 创建失败（极老浏览器）：退化为无动画直接定位
+        content.style.transform = ''
         scrollAnimRef.current = null
         scrollAnimTargetRef.current = null
       }
@@ -472,7 +488,12 @@ export function PlayerLyricPanel({
     <div
       ref={scrollRef}
       className="hide-scrollbar relative min-h-0 flex-1 overflow-y-auto"
-      style={{ visibility: revealed ? 'visible' : 'hidden' }}
+      style={{
+        visibility: revealed ? 'visible' : 'hidden',
+        // Firefox 滚动锚定防护：溢出锚定会对手动 scrollTop 瞬移 +
+        // 内容层 transform 动画做自动补偿，把滚动位置"拉回"造成跳动
+        overflowAnchor: 'none',
+      }}
     >
       {/* 空态：无歌词 → Lyric-Area 装饰（Hydrogen .lyric-nodata 布局：
           左下 / 右上两条对角线 38% 展开，文字居中闪烁三下常显） */}
