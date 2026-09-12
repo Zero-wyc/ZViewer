@@ -143,7 +143,9 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       };
 
       try {
-        const entries = await listWebDAVDirectory(params, '/');
+        // 同时校验挂载 path 可访问性：只测根目录时 path 填错也能
+        // "测试通过"，实际浏览/播放才发现问题
+        const entries = await listWebDAVDirectory(params, params.path || '/');
         res.json({
           success: true,
           itemCount: entries.length,
@@ -182,9 +184,9 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         password: typeof password === 'string' && password ? password : undefined,
       };
 
-      // 测试连通性
+      // 测试连通性（含挂载 path 可访问性）
       try {
-        await listWebDAVDirectory(params, '/');
+        await listWebDAVDirectory(params, params.path || '/');
       } catch (err) {
         res.status(400).json({
           success: false,
@@ -261,9 +263,9 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         password: (typeof password === 'string' && password) || mount.password || undefined,
       };
 
-      // 测试连通性
+      // 测试连通性（含挂载 path 可访问性）
       try {
-        await listWebDAVDirectory(params, '/');
+        await listWebDAVDirectory(params, params.path || '/');
       } catch (err) {
         res.status(400).json({
           success: false,

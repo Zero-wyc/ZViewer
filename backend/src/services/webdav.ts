@@ -3,13 +3,20 @@ import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { TtlCache } from '../utils/ttl-cache';
 
-const DEFAULT_TIMEOUT = 10000; // 10 秒
+const DEFAULT_TIMEOUT = 10000; // 10 秒（各调用按操作类型显式放宽）
 
-function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+function withTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+  timeoutMs: number = DEFAULT_TIMEOUT,
+): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new WebDAVError(`${label} 超时`, 'TIMEOUT')), DEFAULT_TIMEOUT),
+      setTimeout(
+        () => reject(new WebDAVError(`${label} 超时`, 'TIMEOUT')),
+        timeoutMs,
+      ),
     ),
   ]);
 }
@@ -29,15 +36,59 @@ function wrapWebDAVError(err: unknown): WebDAVError {
   if (err instanceof WebDAVError) return err;
   const message = err instanceof Error ? err.message : String(err);
   const lower = message.toLowerCase();
+  const code = (err as { code?: string })?.code;
 
-  if (lower.includes('timeout') || lower.includes('超时')) {
+  if (lower.includes('timeout')) {
     return new WebDAVError('WebDAV 请求超时', 'TIMEOUT');
   }
-  if (lower.includes('401') || lower.includes('unauthorized') || lower.includes('auth')) {
-    return new WebDAVError('WebDAV 认证失败，请检查用户名和密码', 'AUTH_FAILED');
+  if (
+    lower.includes('certificate') ||
+    lower.includes('ssl') ||
+    lower.includes('tls') ||
+    lower.includes('self-signed') ||
+    lower.includes('self_signed') ||
+    lower.includes('cert_altname') ||
+    lower.includes('unable_to_verify')
+  ) {
+    return new WebDAVError(
+      'WebDAV HTTPS 证书验证失败（自签名证书或主机名不匹配）',
+      'TLS_FAILED',
+    );
   }
-  if (lower.includes('404') || lower.includes('not found') || lower.includes('不存在') || lower.includes('object not found')) {
+  if (
+    lower.includes('401') ||
+    lower.includes('unauthorized') ||
+    lower.includes('auth') ||
+    lower.includes('403') ||
+    lower.includes('forbidden') ||
+    code === '401' ||
+    code === '403'
+  ) {
+    return new WebDAVError(
+      'WebDAV 认证/权限失败，请检查用户名和密码（部分服务器仅支持 Digest 认证或对 Basic 认证限制写入源）',
+      'AUTH_FAILED',
+    );
+  }
+  if (
+    lower.includes('404') ||
+    lower.includes('not found') ||
+    lower.includes('不存在') ||
+    lower.includes('object not found') ||
+    code === '404'
+  ) {
     return new WebDAVError('文件不存在或路径错误', 'NOT_FOUND');
+  }
+  if (
+    lower.includes('econnrefused') ||
+    lower.includes('ehostunreach') ||
+    lower.includes('enetunreach') ||
+    lower.includes('enotfound') ||
+    lower.includes('getaddrinfo')
+  ) {
+    return new WebDAVError(
+      'WebDAV 服务器不可达，请检查地址与端口',
+      'UNREACHABLE',
+    );
   }
   return new WebDAVError(message, 'UNREACHABLE');
 }
@@ -157,12 +208,34 @@ function createConnection(params: WebDAVConnectionParams): Connection {
   // webdav-client 库不会自动根据 username/password 发送 Basic Auth 头，
   // 必须显式传入 authenticator 才会在请求中添加 Authorization 头。
   const hasCredentials = !!(params.username || params.password);
-  return new Connection({
+  const connection = new Connection({
     url: normalizeServerUrl(params.serverUrl),
     username: params.username || undefined,
     password: params.password || undefined,
     authenticator: hasCredentials ? new BasicAuthenticator() : undefined,
   });
+
+  // TLS 自签名证书兼容：NAS（群晖/威联通）与大量自建服务器使用自签名或
+  // 域名/主机名不匹配的证书，request 库默认校验必然握手失败。webdav-client
+  // 未暴露 request 库选项，但每个请求都会经过实例的 wrapRequestOptions（
+  // d.ts 中为 protected，此处实例级覆盖），其返回对象原样传给 request 库，
+  // 在此注入 strictSSL: false 放开证书校验，仅影响本连接的出站请求
+  const patchable = connection as unknown as {
+    wrapRequestOptions?: (
+      options: Record<string, unknown>,
+      lastResponse?: unknown,
+    ) => Record<string, unknown>;
+  };
+  if (typeof patchable.wrapRequestOptions === 'function') {
+    const original = patchable.wrapRequestOptions.bind(patchable);
+    patchable.wrapRequestOptions = (options, lastResponse) => {
+      const wrapped = original.call(patchable, options, lastResponse);
+      wrapped.strictSSL = false;
+      return wrapped;
+    };
+  }
+
+  return connection;
 }
 
 export async function statWebDAVFile(
@@ -225,6 +298,7 @@ export async function statWebDAVFile(
         }
       })(),
       'WebDAV 连接',
+      20_000,
     );
   } catch (err) {
     throw wrapWebDAVError(err);
@@ -333,6 +407,7 @@ export async function listWebDAVDirectory(
         }
       })(),
       'WebDAV 连接',
+      30_000,
     );
   } catch (err) {
     throw wrapWebDAVError(err);
@@ -414,7 +489,11 @@ export async function createWebDAVReadStreamWithRange(
   // info.path 可能是 fallback 修正后的服务器真名路径，流请求必须与其一致
   const streamPath = info.path || params.path;
 
-  if (!rangeHeader || !rangeHeader.trim()) {
+  // fileSize 未知/为 0（部分服务器 getProperties 缺失或不一致）时禁止发
+  // Range 请求：video 元素发来的 bytes=0- 会被解释成 bytes=0--1，上游
+  // 返回 416 导致播放/seek 全挂；退化为不带 Range 的全量 GET（状态 200），
+  // 浏览器自行处理并可继续 seek（后端 Range 透传在下次请求重试）
+  if (!rangeHeader?.trim() || fileSize <= 0) {
     const stream = createWebDAVReadStream({ ...params, path: streamPath });
     return { stream, fileSize, start: 0, end: fileSize - 1 };
   }
