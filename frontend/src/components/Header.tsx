@@ -807,7 +807,7 @@ export function Header() {
                   <div
                     ref={userMenuRef}
                     className={cn(
-                      'glass-strong fixed w-56 rounded-[20px] p-2',
+                      'glass-strong fixed w-52 rounded-[var(--md-sys-shape-corner)] p-1.5 shadow-lg',
                       userClosing ? 'zen-dropdown-exit' : 'zen-dropdown-enter'
                     )}
                     style={{
@@ -819,22 +819,16 @@ export function Header() {
                     }}
                   >
                     <div
-                      className="zen-dropdown-item flex items-center gap-3 px-3 py-3 rounded-[14px]"
+                      className="zen-dropdown-item flex items-center gap-2 px-2.5 py-2 rounded-[var(--md-sys-shape-corner)]"
                       style={
                         {
-                          backgroundColor:
-                            'var(--md-sys-color-surface-container-highest)',
-                          border:
-                            '1px solid color-mix(in srgb, var(--md-sys-color-outline) 25%, transparent)',
-                          boxShadow:
-                            '0 2px 10px -4px color-mix(in srgb, var(--md-sys-color-primary) 20%, transparent)',
+                          backgroundColor: 'var(--glass-bg)',
                           '--item-delay': '0ms',
                         } as React.CSSProperties
                       }
                     >
                       <Avatar
-                        size="lg"
-                        className="ring-2 ring-[color-mix(in_srgb,var(--md-sys-color-surface-bright)_80%,transparent)] ring-offset-1 ring-offset-[var(--md-sys-color-surface-container-highest)]"
+                        size="md"
                         alt={user.username}
                         src={
                           user.avatar
@@ -845,10 +839,10 @@ export function Header() {
                         }
                       />
                       <div className="min-w-0 flex-1">
-                        <p className="text-sm font-semibold text-[var(--md-sys-color-on-surface)] truncate">
+                        <p className="text-sm font-medium text-[var(--md-sys-color-on-surface)] truncate">
                           {user.username}
                         </p>
-                        <p className="mt-0.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                        <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
                           {user.role === 'root'
                             ? '超级管理员'
                             : user.role === 'admin'
@@ -859,7 +853,7 @@ export function Header() {
                     </div>
 
                     <div
-                      className="h-px mx-2 my-2"
+                      className="h-px mx-1 my-1.5"
                       style={{
                         backgroundColor:
                           'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
@@ -869,14 +863,14 @@ export function Header() {
                     {menuItems.map((item, idx) => {
                       const content = (
                         <>
-                          <span className="text-[var(--md-sys-color-primary)]">
+                          <span className="text-[var(--md-sys-color-on-surface-variant)]">
                             {item.icon}
                           </span>
                           {item.label}
                         </>
                       )
                       const className =
-                        'zen-dropdown-item flex items-center gap-3 w-full px-3 py-2.5 rounded-[12px] text-sm text-[var(--md-sys-color-on-surface)] transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] hover:translate-x-0.5'
+                        'zen-dropdown-item flex items-center gap-2.5 w-full px-2.5 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-on-surface)] transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] hover:translate-x-0.5'
                       const itemStyle = {
                         '--item-delay': `${(idx + 1) * 50}ms`,
                       } as React.CSSProperties
@@ -907,7 +901,7 @@ export function Header() {
                     })}
 
                     <div
-                      className="h-px mx-2 my-2"
+                      className="h-px mx-1 my-1.5"
                       style={{
                         backgroundColor:
                           'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
@@ -920,7 +914,7 @@ export function Header() {
                           setUserOpen(false)
                           guardNavigate('/login')
                         }}
-                        className="zen-dropdown-item flex items-center gap-3 w-full px-3 py-2.5 rounded-[12px] text-sm text-[var(--md-sys-color-primary)] transition-all hover:bg-[var(--md-sys-color-primary-container)] hover:translate-x-0.5"
+                        className="zen-dropdown-item flex items-center gap-2.5 w-full px-2.5 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-primary)] transition-all hover:bg-[var(--md-sys-color-primary-container)] hover:translate-x-0.5"
                         style={
                           {
                             '--item-delay': `${(menuItems.length + 1) * 50}ms`,
@@ -933,7 +927,7 @@ export function Header() {
                     ) : (
                       <button
                         onClick={handleLogout}
-                        className="zen-dropdown-item flex items-center gap-3 w-full px-3 py-2.5 rounded-[12px] text-sm text-[var(--md-sys-color-error)] transition-all hover:bg-[var(--md-sys-color-error-container)] hover:translate-x-0.5"
+                        className="zen-dropdown-item flex items-center gap-2.5 w-full px-2.5 py-2 rounded-[var(--md-sys-shape-corner)] text-sm text-[var(--md-sys-color-error)] transition-all hover:bg-[var(--md-sys-color-error-container)] hover:translate-x-0.5"
                         style={
                           {
                             '--item-delay': `${(menuItems.length + 1) * 50}ms`,
