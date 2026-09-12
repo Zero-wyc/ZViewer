@@ -925,10 +925,11 @@ function ListenTogetherInner({
                   <div className={cn('min-w-0', songSwitching && 'opacity-0')}>
                     <OverflowMarquee
                       text={songName}
-                      className="text-[2.4vh] font-bold leading-[2.9vh] text-[var(--md-sys-color-on-surface)]"
+                      className="pl-[1.5vh] text-[2.4vh] font-bold leading-[2.9vh] text-[var(--md-sys-color-on-surface)]"
                     />
                   </div>
-                  {/* 黑色滑块：默认完全藏在左侧，切歌时滑入遮住整行 */}
+                  {/* 黑色滑块：默认藏在左侧（露 5px 竖条，Hydrogen music-name-lable
+                      原版样式；文字缩进 1.5vh 与竖条留出间隙），切歌时滑入遮住整行 */}
                   <span
                     aria-hidden="true"
                     className="absolute left-0 top-0 h-[2.9vh] w-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.12,1)]"
@@ -936,7 +937,7 @@ function ListenTogetherInner({
                       backgroundColor: 'var(--md-sys-color-on-surface)',
                       transform: songSwitching
                         ? 'translateX(0)'
-                        : 'translateX(-100%)',
+                        : 'translateX(calc(-100% + 5px))',
                     }}
                   />
                 </div>
