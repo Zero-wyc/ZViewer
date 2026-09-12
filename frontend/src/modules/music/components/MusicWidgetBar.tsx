@@ -279,37 +279,38 @@ export function MusicWidgetBar() {
       }}
     >
       {/* ===== 顶部细进度条（hover 加粗并左上角显示时间） ===== */}
-      {/* 定位（Hydrogen .music-progress-container 方案）：容器贴卡片顶边 top-0，
-          内层条 translateY(-50%) 骑在边缘上 —— 主体贴合面板、不再整体悬空出界；
-          hover 13px 时以顶边为轴向两侧对称扩展，时间显示移至条上方避免遮挡 */}
-      <div className="pointer-events-none absolute top-0 left-0 right-0">
-        <div
-          ref={progressRef}
-          role="slider"
-          aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
-          aria-valuemin={0}
-          aria-valuemax={Math.round(durationSec)}
-          aria-valuenow={Math.round(positionSec)}
-          aria-disabled={!canControl}
-          className={cn(
-            'pointer-events-auto group relative h-[2.5px] transition-all duration-200 hover:h-[13px]',
-            canControl && 'cursor-pointer'
-          )}
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-            transform: 'translateY(-50%)',
-          }}
-          onPointerDown={handleProgressPointerDown}
-        >
+      {/* 定位：条体完全置于面板内（不再 translateY(-50%) 骑边），外层用
+          顶部圆角 + overflow-hidden 的裁剪容器包住，hover 加粗后不会
+          超出控制栏圆角 UI；时间标签位于裁剪容器之外，避免被裁掉 */}
+      <div className="pointer-events-none absolute top-0 left-0 right-0 group">
+        <div className="overflow-hidden rounded-t-[var(--md-sys-shape-corner)]">
           <div
-            className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
-            style={{ width: `${progressRatio * 100}%` }}
-          />
-          {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条上方悬浮） */}
-          <div className="pointer-events-none absolute left-1 -top-5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
-            {formatDuration(positionSec)} / {formatDuration(durationSec)}
+            ref={progressRef}
+            role="slider"
+            aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
+            aria-valuemin={0}
+            aria-valuemax={Math.round(durationSec)}
+            aria-valuenow={Math.round(positionSec)}
+            aria-disabled={!canControl}
+            className={cn(
+              'pointer-events-auto relative h-[2.5px] transition-all duration-200 hover:h-[13px]',
+              canControl && 'cursor-pointer'
+            )}
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
+            }}
+            onPointerDown={handleProgressPointerDown}
+          >
+            <div
+              className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
+              style={{ width: `${progressRatio * 100}%` }}
+            />
           </div>
+        </div>
+        {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条上方悬浮） */}
+        <div className="pointer-events-none absolute left-1 top-1.5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
+          {formatDuration(positionSec)} / {formatDuration(durationSec)}
         </div>
       </div>
 
