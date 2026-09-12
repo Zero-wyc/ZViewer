@@ -34,7 +34,7 @@
  *   滚动到底追加）；容器 scrollbar-gutter stable 保持宽度稳定
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Check, Loader2, Plus, ListMusic, Search } from 'lucide-react'
+import { Loader2, ListMusic, Search } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
@@ -264,12 +264,12 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   // ===== 查看详情弹窗 =====
   const [introOpen, setIntroOpen] = useState(false)
 
-  const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
+  const { add } = useQueueAdd(socket, roomId, canManage)
   const { playSong } = useMusicPlayer()
 
-  /** 双击歌曲行：插入当前队列并立即播放（与 FM 页播放同范式：
-   *  queue-upsert 入队 → playSong 立即播放；无控制权/未连房间时静默降级） */
-  const handleRowDoubleClick = (song: NcmSong) => {
+  /** 序号按钮「立即播放」：queue-upsert 入队 → playSong 立即播放
+   *  （与 FM 页播放同范式；无控制权/未连房间时静默降级） */
+  const handlePlayNow = (song: NcmSong) => {
     if (song.vip && !loginStatus.loggedIn) return
     if (!roomId) {
       message.error('未连接房间')
@@ -829,7 +829,6 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           </div>
         )}
         {filteredSongs.map((song, idx) => {
-          const added = addedKeys.has(`ncm:${song.songId}`)
           return (
             <SongRow
               key={song.songId}
@@ -840,16 +839,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               duration={formatDurationMs(song.durationMs)}
               vip={song.vip}
               disabled={song.vip && !loginStatus.loggedIn}
-              hoverAction={
-                added ? (
-                  <Check className="h-[18px] w-[18px] text-[var(--md-sys-color-primary)]" />
-                ) : (
-                  <Plus className="h-[18px] w-[18px]" />
-                )
-              }
-              hoverActionLabel={added ? '已添加' : '添加到队列'}
-              onHoverAction={() => add(songToUpsertItem(song))}
-              onRowDoubleClick={() => handleRowDoubleClick(song)}
+              onPlayNow={() => handlePlayNow(song)}
+              onRowDoubleClick={() => add(songToUpsertItem(song))}
+              rowTitle="双击添加到队列，hover 序号点击立即播放"
             />
           )
         })}

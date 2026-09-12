@@ -3,14 +3,15 @@
  *
  * - 未登录 → 登录提示卡（MusicLoginGate，扫码弹窗经 store.loginModalOpen）
  * - 已登录 → GET /api/music/ncm/recommend/songs 的 dailySongs 用 SongRow 列表
- *   （与搜索页同交互：canManage hover Plus 添加，「已添加」2s 态）
+ *   （双击行「添加到队列」，hover 序号列播放按钮「立即播放」）
  */
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Plus } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
+import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
@@ -53,7 +54,35 @@ export function MusicDailyPage({
   const [songs, setSongs] = useState<NcmSong[]>([])
   const [loading, setLoading] = useState(false)
 
-  const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
+  const { add } = useQueueAdd(socket, roomId, canManage)
+  const { playSong } = useMusicPlayer()
+
+  /** 序号按钮「立即播放」：queue-upsert 入队 → playSong 立即播放
+   *  （与搜索页/我的音乐页同范式；VIP 未登录/未连房间时提示并忽略） */
+  const handlePlayNow = (song: NcmSong) => {
+    if (song.vip && !loginStatus.loggedIn) {
+      message.info('VIP 歌曲需登录后播放')
+      return
+    }
+    if (!roomId) {
+      message.error('未连接房间')
+      return
+    }
+    add(songToUpsertItem(song))
+    playSong({
+      id: -1,
+      roomId,
+      songId: song.songId,
+      name: song.name,
+      artist: song.artist,
+      album: song.album,
+      cover: song.cover,
+      durationMs: song.durationMs,
+      vip: song.vip,
+      order: 0,
+      addedBy: '',
+    })
+  }
 
   // 登录后拉取每日推荐（30 首）
   useEffect(() => {
@@ -127,7 +156,6 @@ export function MusicDailyPage({
           </div>
         )}
         {songs.map((song, idx) => {
-          const added = addedKeys.has(`ncm:${song.songId}`)
           return (
             <SongRow
               key={song.songId}
@@ -138,15 +166,9 @@ export function MusicDailyPage({
               duration={formatDurationMs(song.durationMs)}
               vip={song.vip}
               disabled={song.vip && !loginStatus.loggedIn}
-              hoverAction={
-                added ? (
-                  <Check className="h-[18px] w-[18px] text-[var(--md-sys-color-primary)]" />
-                ) : (
-                  <Plus className="h-[18px] w-[18px]" />
-                )
-              }
-              hoverActionLabel={added ? '已添加' : '添加到队列'}
-              onHoverAction={() => add(songToUpsertItem(song))}
+              onPlayNow={() => handlePlayNow(song)}
+              onRowDoubleClick={() => add(songToUpsertItem(song))}
+              rowTitle="双击添加到队列，hover 序号点击立即播放"
             />
           )
         })}

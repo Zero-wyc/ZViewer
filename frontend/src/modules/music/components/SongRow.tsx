@@ -8,15 +8,15 @@
  *   歌名（14px 单行截断）+ VIP 描边小标签
  * - 右区（自适应）：歌手（单行截断）+ 时长（右对齐）；行尾操作组常驻占位
  *
- * 两种使用模式：
- * - 添加模式（搜索/每日推荐/云盘等页面）：hover 序号列显示 Plus 添加按钮
+ * - 播放模式（搜索/每日推荐/歌单详情等页面）：双击行「添加到队列」，
+ *   hover 序号列显示播放按钮，点击「立即播放」；当前播放行 EQ 频谱动画
  * - 队列模式（MusicQueuePopup）：当前播放行 EQ 频谱动画
  *
- * 交互差异由调用方通过 hoverAction / onHoverAction / actions 等 props 注入，
- * 本组件只负责排版与三态切换，不含任何业务逻辑；行双击（onRowDoubleClick）
- * 由歌单/专辑详情页注入「插入队列并立即播放」，行内按钮的 dblclick 不冒泡。
+ * 交互由调用方通过 onPlayNow / onRowDoubleClick / actions 等 props 注入，
+ * 本组件只负责排版与三态切换，不含任何业务逻辑；行内按钮的 dblclick 不冒泡。
  */
 import { useState, type ReactNode } from 'react'
+import { Play } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /** EQ 频谱动画（4 根 3px 竖条交错跳动，primary 色由父级 currentColor 决定） */
@@ -56,15 +56,11 @@ export interface SongRowProps {
   playing?: boolean
   /** 禁用态（整体 opacity-70 灰化，如 VIP 未登录不可播） */
   disabled?: boolean
-  /** hover 序号列显示的操作图标（搜索模式 Plus/Check，队列模式 Play） */
-  hoverAction?: ReactNode
-  /** hover 操作按钮的可访问名称（aria-label 与 title） */
-  hoverActionLabel?: string
-  /** hover 操作按钮点击回调（不传则 hover 时仍显示序号） */
-  onHoverAction?: () => void
+  /** 序号列 hover 按钮点击回调（立即播放；不传则 hover 时仍显示序号） */
+  onPlayNow?: () => void
   /** 行点击回调（队列模式房主切歌） */
   onRowClick?: () => void
-  /** 行双击回调（歌单/专辑详情：双击插入队列并立即播放） */
+  /** 行双击回调（双击添加到队列） */
   onRowDoubleClick?: () => void
   /** 行点击提示（title） */
   rowTitle?: string
@@ -91,9 +87,7 @@ export function SongRow({
   active,
   playing,
   disabled,
-  hoverAction,
-  hoverActionLabel,
-  onHoverAction,
+  onPlayNow,
   onRowClick,
   onRowDoubleClick,
   rowTitle,
@@ -102,9 +96,9 @@ export function SongRow({
   // 行 hover 状态（对齐 Hydrogen hoverRowKey：驱动序号列三态切换）
   const [hovered, setHovered] = useState(false)
 
-  // 序号列三态互斥显示：hover → 操作按钮；非 hover 时当前行 → EQ；其余 → 序号
+  // 序号列三态互斥显示：hover → 播放按钮；非 hover 时当前行 → EQ；其余 → 序号
   const showIndex = !hovered && !active
-  const showHoverBtn = hovered && onHoverAction != null
+  const showPlayBtn = hovered && onPlayNow != null
   const showEq = !hovered && active
 
   return (
@@ -138,26 +132,26 @@ export function SongRow({
           >
             {index}
           </span>
-          {/* 态二：行 hover 显示操作按钮（18px 图标；未配置回调时不渲染） */}
-          {onHoverAction != null && (
+          {/* 态二：行 hover 显示「立即播放」按钮（18px 图标；未配置回调时不渲染） */}
+          {onPlayNow != null && (
             <button
               type="button"
               className={cn(
                 'absolute left-1/2 top-1/2 flex h-[22px] w-[22px] -translate-x-1/2 -translate-y-1/2 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity duration-150 hover:opacity-70 active:scale-90',
-                showHoverBtn
+                showPlayBtn
                   ? 'pointer-events-auto opacity-100'
                   : 'pointer-events-none opacity-0'
               )}
               onClick={(e) => {
                 e.stopPropagation()
-                onHoverAction()
+                onPlayNow()
               }}
-              // 双击按钮时不要冒泡触发行的双击播放
+              // 双击按钮时不要冒泡触发行的双击加队列
               onDoubleClick={(e) => e.stopPropagation()}
-              aria-label={hoverActionLabel}
-              title={hoverActionLabel}
+              aria-label="立即播放"
+              title="立即播放"
             >
-              {hoverAction}
+              <Play className="h-[18px] w-[18px]" />
             </button>
           )}
           {/* 态三：当前播放行显示 EQ 频谱动画（primary 色，暂停时静止） */}

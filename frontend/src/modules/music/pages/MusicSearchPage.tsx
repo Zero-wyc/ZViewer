@@ -4,14 +4,15 @@
  * - 顶部区块头 + 大标题「搜索内容：xxx」（关键词来自顶部导航写入的 store）
  * - 关键词变化自动触发搜索：GET /api/music/ncm/search?keywords=&limit=30
  *   （cloudsearch 结构；老端点 /cloudsearch 兜底，逻辑迁移自 MusicSearchPanel）
- * - SongRow 裸列表：canManage hover Plus 添加，「已添加」2s 态（useQueueAdd）
+ * - SongRow 裸列表：双击行「添加到队列」，hover 序号列播放按钮「立即播放」
  */
 import { useEffect, useState } from 'react'
-import { Check, Loader2, Music, Plus, SearchX } from 'lucide-react'
+import { Loader2, Music, SearchX } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
+import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
@@ -84,7 +85,35 @@ export function MusicSearchPage({
   /** 是否已发起过搜索（区分初始空态与无结果空态） */
   const [searched, setSearched] = useState(false)
 
-  const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
+  const { add } = useQueueAdd(socket, roomId, canManage)
+  const { playSong } = useMusicPlayer()
+
+  /** 序号按钮「立即播放」：queue-upsert 入队 → playSong 立即播放
+   *  （与我的音乐页同范式；VIP 未登录/未连房间时提示并忽略） */
+  const handlePlayNow = (song: NcmSong) => {
+    if (song.vip && !loginStatus.loggedIn) {
+      message.info('VIP 歌曲需登录后播放')
+      return
+    }
+    if (!roomId) {
+      message.error('未连接房间')
+      return
+    }
+    add(songToUpsertItem(song))
+    playSong({
+      id: -1,
+      roomId,
+      songId: song.songId,
+      name: song.name,
+      artist: song.artist,
+      album: song.album,
+      cover: song.cover,
+      durationMs: song.durationMs,
+      vip: song.vip,
+      order: 0,
+      addedBy: '',
+    })
+  }
 
   // 关键词变化自动搜索（顶部导航回车写入 store；/search 失败时 /cloudsearch 兜底）
   useEffect(() => {
@@ -175,7 +204,6 @@ export function MusicSearchPage({
           </div>
         )}
         {results.map((song, idx) => {
-          const added = addedKeys.has(`ncm:${song.songId}`)
           return (
             <SongRow
               key={song.songId}
@@ -186,15 +214,9 @@ export function MusicSearchPage({
               duration={formatDurationMs(song.durationMs)}
               vip={song.vip}
               disabled={song.vip && !loginStatus.loggedIn}
-              hoverAction={
-                added ? (
-                  <Check className="h-[18px] w-[18px] text-[var(--md-sys-color-primary)]" />
-                ) : (
-                  <Plus className="h-[18px] w-[18px]" />
-                )
-              }
-              hoverActionLabel={added ? '已添加' : '添加到队列'}
-              onHoverAction={() => add(songToUpsertItem(song))}
+              onPlayNow={() => handlePlayNow(song)}
+              onRowDoubleClick={() => add(songToUpsertItem(song))}
+              rowTitle="双击添加到队列，hover 序号点击立即播放"
             />
           )
         })}
