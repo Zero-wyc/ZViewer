@@ -33,6 +33,10 @@ import type {
   NcmToplistCard,
 } from '../types'
 import { cn } from '@/lib/utils'
+import {
+  BreakingNewsModal,
+  prefetchBreakingNewsDetails,
+} from '../components/BreakingNewsModal'
 
 export interface MusicHomePageProps {
   socket: Socket | null
@@ -141,10 +145,13 @@ export function MusicHomePage({
     if (loadedRef.current) return
     loadedRef.current = true
 
-    // Banner（ipad 端轮播图，透传 banners 数组）
+    // Banner（ipad 端轮播图，透传 banners 数组）+ idle 预取详情（点击秒开）
     void apiGet<{ banners?: NcmBannerItem[] }>('/api/music/ncm/banner')
       .then(({ data }) => {
-        if (Array.isArray(data?.banners)) setBanners(data.banners)
+        if (Array.isArray(data?.banners)) {
+          setBanners(data.banners)
+          prefetchBreakingNewsDetails(data.banners)
+        }
       })
       .catch(() => {
         // 静默降级：区块空态
@@ -201,13 +208,16 @@ export function MusicHomePage({
       .catch(() => {})
   }, [])
 
+  /** 点击 banner 打开的 BREAKING NEWS 详情弹窗目标（Hydrogen open-breaking-news 等价） */
+  const [bnBanner, setBnBanner] = useState<NcmBannerItem | null>(null)
+
   return (
     <div className="flex min-h-full flex-col">
       <style>{BANNER_TIMER_STYLE}</style>
 
       {/* ===== page-header：Banner + 每日推荐 + 最新音乐（三卡横排） ===== */}
       <div className="flex flex-wrap items-start justify-between gap-6 px-6 pt-[2.8vw] md:px-8">
-        <HomeBanner banners={banners} />
+        <HomeBanner banners={banners} onOpen={setBnBanner} />
         <DailyRecommendation />
         <NewestSongList
           songs={newSongs}
@@ -268,13 +278,29 @@ export function MusicHomePage({
           }))}
         />
       </div>
+
+      {/* BREAKING NEWS 详情弹窗（Hydrogen BreakingNewsDetailModal 等价） */}
+      <BreakingNewsModal
+        banner={bnBanner}
+        socket={socket}
+        roomId={roomId}
+        canManage={canManage}
+        onClose={() => setBnBanner(null)}
+      />
     </div>
   )
 }
 
 // ==================== Banner（35vw 轮播） ====================
 
-function HomeBanner({ banners }: { banners: NcmBannerItem[] }) {
+function HomeBanner({
+  banners,
+  onOpen,
+}: {
+  banners: NcmBannerItem[]
+  /** 点击轮播图：打开 BREAKING NEWS 详情弹窗（Hydrogen bannerItem 等价） */
+  onOpen: (banner: NcmBannerItem) => void
+}) {
   /** 横向偏移（每张 35vw；末尾补首图实现无缝回卷） */
   const [offsetIndex, setOffsetIndex] = useState(0)
   /** 回卷归零期间禁用过渡（避免从补位首图反向滚回第一张的可见回滚） */
@@ -406,8 +432,9 @@ function HomeBanner({ banners }: { banners: NcmBannerItem[] }) {
               key={`${item.pic ?? item.imageUrl ?? 'banner'}-${i}`}
               src={withCoverParam(item.pic ?? item.imageUrl, '720y280')}
               alt=""
-              className="h-full w-full shrink-0 object-cover"
+              className="h-full w-full shrink-0 object-cover hover:cursor-pointer"
               draggable={false}
+              onClick={() => onOpen(item)}
             />
           ))}
         </div>

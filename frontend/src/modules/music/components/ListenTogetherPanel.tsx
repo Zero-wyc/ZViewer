@@ -897,24 +897,25 @@ function ListenTogetherInner({
                     </div>
                   )}
                 </div>
-                {/* L 形角标 ×4（4vh，1vh → 0 内缩，延迟 0.65s） */}
+                {/* 封面四角括号（Hydrogen Player.vue .c-border1..4：L 形，
+                    各角独立贴合动画，不裁剪出界 0.75vh 类似左卡四角方块） */}
                 <span
-                  className="c-border-in pointer-events-none absolute left-0 top-0 h-[4vh] w-[4vh] border-l-2 border-t-2"
+                  className="c-border-in-tl pointer-events-none absolute left-0 top-0 h-[4vh] w-[4vh] border-l-2 border-t-2"
                   style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
                   aria-hidden="true"
                 />
                 <span
-                  className="c-border-in pointer-events-none absolute right-0 top-0 h-[4vh] w-[4vh] border-r-2 border-t-2"
+                  className="c-border-in-tr pointer-events-none absolute right-0 top-0 h-[4vh] w-[4vh] border-r-2 border-t-2"
                   style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
                   aria-hidden="true"
                 />
                 <span
-                  className="c-border-in pointer-events-none absolute bottom-0 right-0 h-[4vh] w-[4vh] border-b-2 border-r-2"
+                  className="c-border-in-br pointer-events-none absolute bottom-0 right-0 h-[4vh] w-[4vh] border-b-2 border-r-2"
                   style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
                   aria-hidden="true"
                 />
                 <span
-                  className="c-border-in pointer-events-none absolute bottom-0 left-0 h-[4vh] w-[4vh] border-b-2 border-l-2"
+                  className="c-border-in-bl pointer-events-none absolute bottom-0 left-0 h-[4vh] w-[4vh] border-b-2 border-l-2"
                   style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
                   aria-hidden="true"
                 />

@@ -1334,17 +1334,52 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   animation: player-card-in 0.7s 0.2s cubic-bezier(0.4, 0, 0.12, 1) both;
 }
 
-/* 封面 L 形角标内缩（Player.vue .c-border：1vh → 0，延迟 0.65s） */
-@keyframes c-border-in {
+/* 封面四角括号贴合动画（Player.vue .c-border1/.c-border2/.c-border3/.c-border4
+   复刻：各角独立 keyframe，从 1vh 内缩位置回到贴合角，延迟 0.65s；
+   用 transform 而非 inset，避免 inset 覆盖定位导致角标被拉伸成长边框） */
+@keyframes c-border-in-tl {
   from {
-    inset: 1vh;
+    transform: translate(1vh, 1vh);
   }
   to {
-    inset: 0;
+    transform: translate(0, 0);
   }
 }
-.c-border-in {
-  animation: c-border-in 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
+@keyframes c-border-in-tr {
+  from {
+    transform: translate(-1vh, 1vh);
+  }
+  to {
+    transform: translate(0, 0);
+  }
+}
+@keyframes c-border-in-br {
+  from {
+    transform: translate(-1vh, -1vh);
+  }
+  to {
+    transform: translate(0, 0);
+  }
+}
+@keyframes c-border-in-bl {
+  from {
+    transform: translate(1vh, -1vh);
+  }
+  to {
+    transform: translate(0, 0);
+  }
+}
+.c-border-in-tl {
+  animation: c-border-in-tl 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+.c-border-in-tr {
+  animation: c-border-in-tr 0.2s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+.c-border-in-br {
+  animation: c-border-in-br 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+.c-border-in-bl {
+  animation: c-border-in-bl 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
 }
 
 /* 云盘：上传框斜条纹滚动（Hydrogen .upload-animation，
