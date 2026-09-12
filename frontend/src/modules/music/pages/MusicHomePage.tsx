@@ -83,9 +83,10 @@ const BANNER_TIMER_STYLE = `
   100% { opacity: 1; }
 }
 `
-/** 每日推荐标题两态文案（Hydrogen showMoreTitle 原文：不均匀空格是设计语言） */
-const REC_TITLE = '每 日推 荐'
-const REC_TITLE_MORE = '查 看详 情'
+/** 每日推荐标题两态文案（Hydrogen showMoreTitle 原文，宽字符自然折成两行：
+ *  第一行「每 日」/ 第二行「推 荐」，不均匀空格是设计语言） */
+const REC_TITLE = '每 日\n推 荐'
+const REC_TITLE_MORE = '查 看\n详 情'
 
 /** 网易云封面 CDN 尺寸参数（按 Hydrogen 各区块的取图尺寸） */
 function withCoverParam(url: string | undefined, param: string): string {
@@ -509,7 +510,7 @@ function DailyRecommendation({
       const month = `${now.getMonth() + 1}`.padStart(2, '0')
       const day = `${now.getDate()}`.padStart(2, '0')
 
-      setDateText(`${month} ${day}`)
+      setDateText(`${month}\n${day}`)
       scheduleNext()
     }
     refreshDate()
@@ -623,12 +624,12 @@ function DailyRecommendation({
           style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
           aria-hidden="true"
         />
-        {/* 描边空心大字（3.7vw Heavy，透明填充 + 1px 描边；
-            key 随两态切换重挂，重启动画） */}
+        {/* 描边空心大字（3.7vw Heavy，两行折行排版：第一行「每 日」/
+            第二行「推 荐」，Hydrogen 宽字符自然折行等价；key 随两态切换重挂） */}
         <span
           key={showMore ? 'more' : 'rec'}
           className={cn(
-            'flex-1 select-none whitespace-nowrap text-center text-[3.7vw] font-bold leading-none',
+            'flex-1 select-none whitespace-pre-line text-center text-[3.7vw] font-bold leading-[1.2]',
             showMore && '[animation:zen-music-rec-titleswap_0.1s]'
           )}
           style={{
@@ -639,8 +640,8 @@ function DailyRecommendation({
         >
           {showMore ? REC_TITLE_MORE : REC_TITLE}
         </span>
-        {/* 英文小字（0.7vw，绝对定位水平充满居中，Hydrogen rec-title-en） */}
-        <span className="absolute left-0 right-0 whitespace-nowrap text-center text-[0.7vw] font-extrabold tracking-[0.18em] text-[var(--md-sys-color-on-surface-variant)]">
+        {/* 英文小字（0.7vw，绝对定位居中于两行大字之间，Hydrogen rec-title-en） */}
+        <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 whitespace-nowrap text-center text-[0.7vw] font-extrabold tracking-[0.18em] text-[var(--md-sys-color-on-surface-variant)]">
           DAILY RECOMMENDATION
         </span>
       </div>
@@ -678,7 +679,7 @@ function DailyRecommendation({
 
       {/* 右区：大号日期数字（4.7vw Gilroy 等价 4.7vw 粗体）+ 右上小圆点 */}
       <div className="mr-[1.5vw] flex w-[35%] items-center">
-        <span className="select-none text-[4.7vw] font-extrabold leading-none tabular-nums text-[var(--md-sys-color-on-surface)]">
+        <span className="select-none whitespace-pre-line text-[4.7vw] font-extrabold leading-none tabular-nums text-[var(--md-sys-color-on-surface)]">
           {dateText}
         </span>
       </div>
