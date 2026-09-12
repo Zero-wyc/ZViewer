@@ -622,13 +622,13 @@ function ListenTogetherInner({
           </span>
         </div>
       ) : (
-        /* ===== 主内容：左播放卡 + 右歌词面板（Hydrogen .music-player 两栏） ===== */
+        /* ===== 主内容：左播放卡 + 右歌词面板（Hydrogen .music-player 两栏，
+            纵向 padding 对齐 Hydrogen 95px/60px，卡高=减去该 padding 的内容区） ===== */
         <div
           className={cn(
             'relative z-[1] flex h-full min-h-0 items-stretch justify-center',
-            isWebFullscreen
-              ? 'px-[60px] pb-[50px] pt-8'
-              : 'px-[45px] pb-[45px] pt-6'
+            'pb-[60px] pt-[95px]',
+            isWebFullscreen ? 'px-[60px]' : 'px-[45px]'
           )}
         >
           {/* ===== 左侧播放卡（Hydrogen .player-container 两层结构）：
@@ -636,7 +636,7 @@ function ListenTogetherInner({
               内层 .player（100%×100% overflow hidden）承载半透明背景与内容 ===== */}
           <div
             className="player-card-in group relative z-[1] w-[42vh] max-w-[calc(100%-2rem)] shrink-0"
-            style={{ padding: '4vh 12px' }}
+            style={{ padding: '16px 12px', paddingBottom: '4vh' }}
           >
             {/* 四角黑色实心方块装饰（Hydrogen .border：1.5vh，出界 0.75vh） */}
             <span
