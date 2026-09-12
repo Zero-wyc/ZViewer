@@ -2,26 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ===== 播放器页原版字体（Hydrogen 同款） ===== */
-@font-face {
-  font-family: 'Gilroy-ExtraBold';
-  src: url('/fonts/Gilroy-ExtraBold.woff') format('woff');
-  font-weight: 800;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'Bender-Bold';
-  src: url('/fonts/Bender-Bold.woff') format('woff');
-  font-weight: 700;
-  font-display: swap;
-}
-@font-face {
-  font-family: 'SourceHanSansCN-Bold';
-  src: url('/fonts/SourceHanSansCN-Bold.woff2') format('woff2');
-  font-weight: 700;
-  font-display: swap;
-}
-
 /* 控制卡片内容区统一滚动条样式：细轨道、圆角 thumb、悬停增强 */
 /* overscroll-behavior: contain 防止滚动到边界时事件冒泡到父级滚动容器 */
 .zen-scroll {

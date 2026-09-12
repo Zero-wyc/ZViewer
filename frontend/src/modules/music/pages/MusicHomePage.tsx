@@ -5,11 +5,9 @@
  * - Banner（35vw×13.7vw 轮播）：BREAKING NEWS 黑条小标（M3 适配 on-surface 底
  *   + surface 字）+ 右侧计时圆点动画 + 下方横条选择器（active 变宽变高）；
  *   3s 自动轮播、hover 暂停；点击轮播图无动作
- * - Recommendation（27vw×13.6vw 半透明卡）：左侧描边空心大字「每 日推 荐」
- * （3.7vw，hover 闪烁动画切换为「查 看详 情」）+ 上下 L 形角标装饰 +
- *   0.7vw 英文小字 + 中间棋盘格播放按钮（click.stop → 登录校验 +
- *   /recommend/songs 拉取 → 全量入队并播放首曲；未登录弹网易云登录框）+
- *   右侧大号日期（MM DD，零点定时 + focus/visibility 兜底刷新）+ 右上小圆点
+ * - Recommendation（27vw×13.6vw 半透明卡）：左侧描边空心大字「每日推荐」
+ *   （-webkit-text-stroke 1px on-surface，透明填充）+ 上下 L 形角标装饰 +
+ *   中间棋盘格播放按钮（点击 → 打开我的音乐页的每日推荐详情）+ 右侧大号日期（M.D）+ 右上小圆点
  * - NewestSong（24.4vw 窄列表）：标题「最新音乐」+ 封面 3.45vw + 歌名/歌手 +
  *   行尾播放按钮（canManage 添加入队），行间 on-surface/10 底边线
  * - RecBlock ×4（推荐歌单/推荐歌手/最新专辑/排行榜）：区块头 = 黑底白字 EN 小标
@@ -83,7 +81,7 @@ const BANNER_TIMER_STYLE = `
   100% { opacity: 1; }
 }
 `
-/** 每日推荐标题两态文案（Hydrogen showMoreTitle 原文，宽字符自然折成两行：
+/** 每日推荐标题两态文案（Hydrogen showMoreTitle 原文，折两行：
  *  第一行「每 日」/ 第二行「推 荐」，不均匀空格是设计语言） */
 const REC_TITLE = '每 日\n推 荐'
 const REC_TITLE_MORE = '查 看\n详 情'
@@ -210,11 +208,7 @@ export function MusicHomePage({
       {/* ===== page-header：Banner + 每日推荐 + 最新音乐（三卡横排） ===== */}
       <div className="flex flex-wrap items-start justify-between gap-6 px-6 pt-[2.8vw] md:px-8">
         <HomeBanner banners={banners} />
-        <DailyRecommendation
-          socket={socket}
-          roomId={roomId}
-          canManage={canManage}
-        />
+        <DailyRecommendation />
         <NewestSongList
           songs={newSongs}
           socket={socket}
@@ -458,144 +452,60 @@ function HomeBanner({ banners }: { banners: NcmBannerItem[] }) {
 
 // ==================== 每日推荐（27vw 半透明卡） ====================
 
-/** /recommend/songs 响应（当日日推，data.dailySongs；line 结构同 MusicDailyPage） */
-interface RecSongsResponse {
-  data?: {
-    dailySongs?: Array<{
-      id: number
-      name: string
-      ar?: Array<{ name?: string }>
-      al?: { picUrl?: string; name?: string }
-      dt?: number
-      fee?: number
-    }>
-  }
-}
-
-function DailyRecommendation({
-  socket,
-  roomId,
-  canManage,
-}: {
-  socket: Socket | null
-  roomId?: string
-  canManage: boolean
-}) {
+function DailyRecommendation() {
   const setPage = useMusicStore((s) => s.setPage)
   const setPendingMyDetail = useMusicStore((s) => s.setPendingMyDetail)
-  const { add } = useQueueAdd(socket, roomId, canManage)
-  const { playSong } = useMusicPlayer()
-  /** 日期文本「MM DD」（Hydrogen recTime：月份与天数各 padStart(2) 空格分隔） */
+  /** 日期「MM\nDD」两行（Hydrogen recTime：月份与天数各 padStart(2)） */
   const [dateText, setDateText] = useState('')
-  /** hover 态：标题「每日推荐」↔「查看详情」切换（Hydrogen showMore 同名语义） */
+  /** hover 态：大字「每 日/推 荐」↔「查 看/详 情」切换（Hydrogen showMore） */
   const [showMore, setShowMore] = useState(false)
-  /** 零点定时器（Hydrogen dateRefreshTimer 同名） */
-  const dateTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // 日期刷新（Hydrogen scheduleDateRefresh + refreshRecommendationDate 1:1 平移：
-  // 排程下一个零点 +100ms 兜底，睡眠唤醒经 focus / visibilitychange 兜底刷新）
+  // 日期排程刷新至下一个零点（+100ms 兜底），睡眠唤醒经 focus/visibility 补刷
   useEffect(() => {
-    const scheduleNext = () => {
-      const now = new Date()
-      const nextMidnight = new Date(
-        now.getFullYear(),
-        now.getMonth(),
-        now.getDate() + 1
-      )
-      const delay = Math.max(nextMidnight.getTime() - now.getTime() + 100, 1000)
-      dateTimerRef.current = setTimeout(refreshDate, delay)
-    }
-    const refreshDate = () => {
+    const refresh = () => {
       const now = new Date()
       const month = `${now.getMonth() + 1}`.padStart(2, '0')
       const day = `${now.getDate()}`.padStart(2, '0')
 
       setDateText(`${month}\n${day}`)
-      scheduleNext()
+      const nextMidnight = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + 1
+      )
+      return Math.max(nextMidnight.getTime() - now.getTime() + 100, 1000)
     }
-    refreshDate()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const schedule = () => {
+      timer = setTimeout(() => {
+        refresh()
+        schedule()
+      }, refresh())
+    }
+
+    refresh()
+    schedule()
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        if (dateTimerRef.current) clearTimeout(dateTimerRef.current)
-        refreshDate()
+        if (timer) clearTimeout(timer)
+        timer = undefined
+        refresh()
+        schedule()
       }
     }
-    window.addEventListener('focus', refreshDate)
+    window.addEventListener('focus', refresh)
     document.addEventListener('visibilitychange', handleVisibility)
     return () => {
-      if (dateTimerRef.current) clearTimeout(dateTimerRef.current)
-      window.removeEventListener('focus', refreshDate)
+      if (timer) clearTimeout(timer)
+      window.removeEventListener('focus', refresh)
       document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [])
 
-  /** 点击卡片跳转「我的音乐」并打开每日推荐详情（Hydrogen /mymusic/playlist/rec） */
+  /** 点击跳转「我的音乐」并打开每日推荐详情（Hydrogen /mymusic/playlist/rec） */
   const openDaily = () => {
     setPendingMyDetail({ kind: 'rec', id: 0, name: '每日推荐歌曲' })
     setPage('mymusic')
-  }
-
-  /** 中区播放（Hydrogen playRecAll 等价）：登录校验 → /recommend/songs →
-   *  全量入队并立即播放第一首；未登录提示+打开网易云登录弹窗 */
-  const playRecAll = async (e: React.MouseEvent) => {
-    e.stopPropagation()
-    if (!useMusicStore.getState().loginStatus.loggedIn) {
-      message.warning('请先登录网易云账号')
-      useMusicStore.getState().setLoginModalOpen(true)
-      return
-    }
-    if (!roomId) {
-      message.error('未连接房间')
-      return
-    }
-    if (!canManage) {
-      message.info('仅房主 / 房管可添加队列')
-      return
-    }
-    try {
-      const { data } = await apiGet<RecSongsResponse>(
-        '/api/music/ncm/recommend/songs'
-      )
-      const raw = Array.isArray(data?.data?.dailySongs)
-        ? (data?.data?.dailySongs ?? [])
-        : []
-      const songs = raw
-        .map((s) => ({
-          songId: s.id,
-          name: s.name,
-          artist: (s.ar ?? [])
-            .map((a) => a.name)
-            .filter(Boolean)
-            .join(' / '),
-          album: s.al?.name ?? '',
-          cover: s.al?.picUrl ?? '',
-          durationMs: s.dt ?? 0,
-          vip: s.fee === 1 || s.fee === 4,
-        }))
-        .filter((s) => s.songId > 0)
-      if (songs.length === 0) {
-        message.info('今日暂无每日推荐歌曲')
-        return
-      }
-      songs.forEach((s) => add(songToUpsertItem(s)))
-      playSong({
-        id: -1,
-        roomId,
-        songId: songs[0].songId,
-        name: songs[0].name,
-        artist: songs[0].artist,
-        album: songs[0].album,
-        cover: songs[0].cover,
-        durationMs: songs[0].durationMs,
-        vip: songs[0].vip,
-        order: 0,
-        addedBy: '',
-      })
-      message.success(`已加入每日推荐 ${songs.length} 首并开始播放`)
-    } catch (err) {
-      console.error('[MusicHomePage] 每日推荐播放全部失败:', err)
-      message.error('每日推荐获取失败，请稍后重试')
-    }
   }
 
   return (
@@ -610,26 +520,30 @@ function DailyRecommendation({
       onClick={openDaily}
       title="查看每日推荐"
     >
-      {/* 左区：L 形角标 + 描边空心大字（hover 切「查看详情」+ 闪烁动画）+ 英文小字 */}
-      <div className="relative ml-[2vw] flex w-[50%] items-center">
+      {/*
+        左区几何（复刻 Hydrogen Recommendation.vue，不重叠版）：
+        卡高 13.6vw，两行大字 3.2vw×1.22×2 ≈ 7.8vw 垂直居中 → 上下各余 ≈2.9vw；
+        角标 1.8vw 从 top/bottom 0.9vw 到 2.7vw，与文字区不侵入；
+        文字容器 px-[1.7vw] 让行端避让角标水平延伸。
+      */}
+      <div className="relative ml-[2vw] flex w-[50%] min-w-0 items-center justify-center px-[1.7vw]">
         {/* 上 L 形角标（rec-title-border1） */}
         <span
-          className="absolute left-0 top-[1vw] h-[2.2vw] w-[2.2vw] border-l-2 border-t-2"
+          className="absolute left-0 top-[0.9vw] h-[1.8vw] w-[1.8vw] border-l-2 border-t-2"
           style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
           aria-hidden="true"
         />
         {/* 下 L 形角标（rec-title-border2） */}
         <span
-          className="absolute bottom-[1vw] right-0 h-[2.2vw] w-[2.2vw] border-b-2 border-r-2"
+          className="absolute bottom-[0.9vw] right-0 h-[1.8vw] w-[1.8vw] border-b-2 border-r-2"
           style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
           aria-hidden="true"
         />
-        {/* 描边空心大字（3.7vw Heavy，两行折行排版：第一行「每 日」/
-            第二行「推 荐」，Hydrogen 宽字符自然折行等价；key 随两态切换重挂） */}
+        {/* 描边空心大字（3.2vw，两行折行；key 随两态切换重挂重启动画） */}
         <span
           key={showMore ? 'more' : 'rec'}
           className={cn(
-            'flex-1 select-none whitespace-pre-line text-center text-[3.7vw] font-bold leading-[1.2]',
+            'flex-1 select-none whitespace-pre-line text-center text-[3.2vw] font-bold leading-[1.22]',
             showMore && '[animation:zen-music-rec-titleswap_0.1s]'
           )}
           style={{
@@ -640,51 +554,44 @@ function DailyRecommendation({
         >
           {showMore ? REC_TITLE_MORE : REC_TITLE}
         </span>
-        {/* 英文小字（0.7vw，绝对定位居中于两行大字之间，Hydrogen rec-title-en） */}
-        <span className="absolute left-0 right-0 top-1/2 -translate-y-1/2 whitespace-nowrap text-center text-[0.7vw] font-extrabold tracking-[0.18em] text-[var(--md-sys-color-on-surface-variant)]">
+        {/* 英文小字（居中于两行之间，Hydrogen rec-title-en 0.7vw→0.55vw 收紧） */}
+        <span className="absolute left-0 right-0 top-1/2 flex -translate-y-1/2 justify-center whitespace-nowrap font-bold text-[max(0.55vw,7px)] text-[var(--md-sys-color-on-surface-variant)]">
           DAILY RECOMMENDATION
         </span>
       </div>
 
-      {/* 中区：棋盘格播放按钮（黑棋盘 5px 平铺 + 白三角，8s 平移动画；
-          click.stop 播放全部，不触发卡片跳转 —— Hydrogen @click.stop 同语义） */}
+      {/* 中区：棋盘格播放按钮（黑棋盘 5px 平铺 + 白三角，8s 平移动画） */}
       <div className="ml-[1vw] flex w-[15%] items-center">
-        <button
-          type="button"
-          className="relative flex h-[3.5vw] min-h-8 w-[3.5vw] min-w-8 items-center justify-center transition-transform duration-200 hover:scale-110 active:scale-100"
+        <span
+          className="relative flex h-[3.5vw] min-h-8 w-[3.5vw] min-w-8 items-center justify-center"
           style={{
             backgroundImage:
               'linear-gradient(135deg, transparent 25%, color-mix(in srgb, var(--md-sys-color-on-surface) 70%, transparent) 0, color-mix(in srgb, var(--md-sys-color-on-surface) 70%, transparent) 50%, transparent 0, transparent 75%, color-mix(in srgb, var(--md-sys-color-on-surface) 70%, transparent) 0)',
             backgroundSize: '5px 5px',
-            opacity: 0.7,
+            opacity: 0.85,
             animation: 'zen-music-rec-checker 8s linear infinite',
           }}
-          onClick={(e) => {
-            void playRecAll(e)
-          }}
-          title="播放全部"
-          aria-label="播放全部每日推荐"
         >
-          {/* 四角小方块装饰（rec-play-border ×4，偏移 -0.1vw 折半） */}
+          {/* 四角小方块装饰 */}
           <span className="absolute -left-[3px] -top-[3px] h-1 w-1 bg-[var(--md-sys-color-on-surface)]" />
           <span className="absolute -right-[3px] -top-[3px] h-1 w-1 bg-[var(--md-sys-color-on-surface)]" />
           <span className="absolute -bottom-[3px] -right-[3px] h-1 w-1 bg-[var(--md-sys-color-on-surface)]" />
           <span className="absolute -bottom-[3px] -left-[3px] h-1 w-1 bg-[var(--md-sys-color-on-surface)]" />
           <Play
-            className="h-[1.6vw] min-h-4 w-[1.6vw] min-w-4 fill-current"
+            className="h-[1.6vw] min-h-4 w-[1.6vw] min-w-4 fill-current transition-transform duration-200 hover:scale-110"
             style={{ color: 'var(--md-sys-color-surface)' }}
           />
-        </button>
+        </span>
       </div>
 
-      {/* 右区：大号日期数字（4.7vw Gilroy 等价 4.7vw 粗体）+ 右上小圆点 */}
+      {/* 右区：大号日期两行 + 右上小圆点 */}
       <div className="mr-[1.5vw] flex w-[35%] items-center">
-        <span className="select-none whitespace-pre-line text-[4.7vw] font-extrabold leading-none tabular-nums text-[var(--md-sys-color-on-surface)]">
+        <span className="select-none whitespace-pre-line text-[3.9vw] font-bold leading-[1.05] tabular-nums text-[var(--md-sys-color-on-surface)]">
           {dateText}
         </span>
       </div>
       <span
-        className="absolute right-[1vw] top-[1vw] h-[0.7vw] min-h-2 w-[0.7vw] min-w-2 rounded-full opacity-70"
+        className="absolute right-[1vw] top-[1vw] h-[0.6vw] min-h-2 w-[0.6vw] min-w-2 rounded-full opacity-70"
         style={{
           backgroundColor:
             'color-mix(in srgb, var(--md-sys-color-on-surface-variant) 70%, transparent)',

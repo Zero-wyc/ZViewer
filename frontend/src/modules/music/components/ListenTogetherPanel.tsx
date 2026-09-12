@@ -519,28 +519,6 @@ function ListenTogetherInner({
 
   return (
     <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
-      {/* ===== 左上角品牌标题（Hydrogen .globalWidget：left45/top22，
-          Gilroy-ExtraBold 28px + 右侧虚线延伸至页缘） ===== */}
-      <div className="pointer-events-none absolute left-[45px] top-[22px] z-[15] flex w-[calc(100%-90px)] items-center gap-6">
-        <span
-          className="whitespace-nowrap text-[28px] leading-none"
-          style={{
-            fontFamily: "'Gilroy-ExtraBold', sans-serif",
-            color: 'var(--md-sys-color-on-surface)',
-          }}
-        >
-          Hydrogen
-        </span>
-        <span
-          className="flex-1 border-t-2 border-dashed"
-          style={{
-            borderColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 55%, transparent)',
-          }}
-          aria-hidden="true"
-        />
-      </div>
-
       {/* ===== 毛玻璃封面背景（设置：开启背景封面模糊；无封面时不渲染，
           切歌时淡入淡出） ===== */}
       {cover && coverBlur && (
@@ -943,17 +921,14 @@ function ListenTogetherInner({
               {/* 歌曲信息：歌名（黑块滑入遮字 + 跑马灯）+ 歌手（小方点 + 名） */}
               <div className="shrink-0 px-[1.5vh] pt-[1vh]">
                 {/* 歌名行（Hydrogen .info-music:first-child：pb 1.2vh + overflow 隐藏） */}
-                <div
-                  className="relative min-w-0 overflow-hidden pb-[1.2vh]"
-                  style={{ fontFamily: "'SourceHanSansCN-Bold', sans-serif" }}
-                >
+                <div className="relative min-w-0 overflow-hidden pb-[1.2vh]">
                   <div className={cn('min-w-0', songSwitching && 'opacity-0')}>
                     <OverflowMarquee
                       text={songName}
                       className="text-[2.4vh] font-bold leading-[2.9vh] text-[var(--md-sys-color-on-surface)]"
                     />
                   </div>
-                  {/* 黑色滑块：默认藏在左侧（露 5px 小方块），切歌时滑入遮住整行 */}
+                  {/* 黑色滑块：默认完全藏在左侧，切歌时滑入遮住整行 */}
                   <span
                     aria-hidden="true"
                     className="absolute left-0 top-0 h-[2.9vh] w-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.12,1)]"
@@ -961,7 +936,7 @@ function ListenTogetherInner({
                       backgroundColor: 'var(--md-sys-color-on-surface)',
                       transform: songSwitching
                         ? 'translateX(0)'
-                        : 'translateX(calc(-100% + 5px))',
+                        : 'translateX(-100%)',
                     }}
                   />
                 </div>
@@ -988,10 +963,7 @@ function ListenTogetherInner({
               <div className="flex min-h-0 flex-1 flex-col justify-between px-[1.5vh] pb-[1vh] pt-[1.5vh]">
                 {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
                 <div className="shrink-0">
-                  <div
-                    className="flex items-center justify-between text-[1.5vh] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]"
-                    style={{ fontFamily: "'Bender-Bold', sans-serif" }}
-                  >
+                  <div className="flex items-center justify-between text-[1.5vh] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]">
                     <span>{formatDuration(positionSec)}</span>
                     <span>{formatDuration(durationSec)}</span>
                   </div>
@@ -1101,10 +1073,7 @@ function ListenTogetherInner({
                       }}
                     />
                   </div>
-                  <div
-                    className="mt-[1vh] flex items-center justify-between text-[1.5vh] font-bold text-[var(--md-sys-color-on-surface)]"
-                    style={{ fontFamily: "'Bender-Bold', sans-serif" }}
-                  >
+                  <div className="mt-[1vh] flex items-center justify-between text-[1.5vh] font-bold text-[var(--md-sys-color-on-surface)]">
                     <span className="tracking-widest">VOLUME</span>
                     <span className="tabular-nums">
                       {Math.round(volume * 100)}
