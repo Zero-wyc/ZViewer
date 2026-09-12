@@ -6,8 +6,9 @@
  * 卡片本体（M3 适配：glass 玻璃质感 + 圆角）。
  *
  * 结构（Hydrogen flex row：左信息区自适应 + 右固定 476px）：
- * - 顶部细进度条：absolute -top-[3px]，2.5px → hover 13px 过渡，primary 填充；
- *   hover 显示「当前 / 总时长」白字（9px，左上角，Hydrogen .music-time）；
+ * - 顶部细进度条：absolute top-0 + translateY(-50%) 骑边定位（Hydrogen
+ *   .music-progress-container 方案），2.5px → hover 13px 过渡，primary 填充；
+ *   hover 显示「当前 / 总时长」白字（9px，条上方悬浮，Hydrogen .music-time）；
  *   canControl 可拖动 seek，观众只读
  * - 左 music-info（ml 17px）：封面 45px（0.5px 边框，点击 → 完整播放器覆盖层；
  *   hover 黑色遮罩 + 上箭头从底部滑入，Hydrogen .open-player）+ 歌名（14px bold，
@@ -278,7 +279,10 @@ export function MusicWidgetBar() {
       }}
     >
       {/* ===== 顶部细进度条（hover 加粗并左上角显示时间） ===== */}
-      <div className="pointer-events-none absolute -top-[3px] left-0 right-0">
+      {/* 定位（Hydrogen .music-progress-container 方案）：容器贴卡片顶边 top-0，
+          内层条 translateY(-50%) 骑在边缘上 —— 主体贴合面板、不再整体悬空出界；
+          hover 13px 时以顶边为轴向两侧对称扩展，时间显示移至条上方避免遮挡 */}
+      <div className="pointer-events-none absolute top-0 left-0 right-0">
         <div
           ref={progressRef}
           role="slider"
@@ -294,6 +298,7 @@ export function MusicWidgetBar() {
           style={{
             backgroundColor:
               'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
+            transform: 'translateY(-50%)',
           }}
           onPointerDown={handleProgressPointerDown}
         >
@@ -301,8 +306,8 @@ export function MusicWidgetBar() {
             className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
             style={{ width: `${progressRatio * 100}%` }}
           />
-          {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px 左上角） */}
-          <div className="pointer-events-none absolute left-1 top-0 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
+          {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条上方悬浮） */}
+          <div className="pointer-events-none absolute left-1 -top-5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
             {formatDuration(positionSec)} / {formatDuration(durationSec)}
           </div>
         </div>
