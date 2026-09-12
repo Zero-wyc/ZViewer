@@ -16,11 +16,13 @@
  * 数据：进入页面并行拉取全部接口；任一失败静默降级（该区块空态），不打断整页。
  */
 import { useEffect, useRef, useState } from 'react'
-import { Check, Play } from 'lucide-react'
+import { Play } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
+import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
+import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import type {
   NcmAlbumCard,
   NcmArtistCard,
@@ -550,6 +552,37 @@ function NewestSongList({
   canManage: boolean
 }) {
   const { addedKeys, add } = useQueueAdd(socket, roomId, canManage)
+  const currentKey = useMusicStore((s) => s.currentKey)
+  const { playSong, togglePlay, canControl } = useMusicPlayer()
+
+  /** 点击播放：当前曲目切换播放/暂停；否则入队后立即播放 */
+  const handlePlay = (song: NcmSong) => {
+    if (`ncm:${song.songId}` === currentKey) {
+      if (canControl) togglePlay()
+      else message.info('由房主控制播放')
+      return
+    }
+    if (!roomId) {
+      message.error('未连接房间')
+      return
+    }
+    if (!addedKeys.has(`ncm:${song.songId}`)) {
+      add(songToUpsertItem(song))
+    }
+    playSong({
+      id: -1,
+      roomId,
+      songId: song.songId,
+      name: song.name,
+      artist: song.artist,
+      album: song.album,
+      cover: song.cover,
+      durationMs: song.durationMs,
+      vip: song.vip,
+      order: 0,
+      addedBy: '',
+    })
+  }
 
   return (
     <div className="relative w-[24.4vw] min-w-[260px] shrink-0">
@@ -564,8 +597,7 @@ function NewestSongList({
           </div>
         )}
         {songs.map((song, i) => {
-          const key = `ncm:${song.songId}`
-          const added = addedKeys.has(key)
+          const isCurrent = `ncm:${song.songId}` === currentKey
           return (
             <div
               key={song.songId}
@@ -603,17 +635,11 @@ function NewestSongList({
               <button
                 type="button"
                 className="ml-2 flex h-[2vw] min-h-6 w-[2vw] min-w-6 shrink-0 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform duration-200 hover:opacity-70 active:scale-75"
-                onClick={() =>
-                  added ? undefined : add(songToUpsertItem(song))
-                }
-                title={added ? '已添加到队列' : '添加到队列'}
-                aria-label={added ? '已添加到队列' : '添加到队列'}
+                onClick={() => handlePlay(song)}
+                title={isCurrent ? '播放/暂停' : '播放'}
+                aria-label={isCurrent ? '播放或暂停' : '播放'}
               >
-                {added ? (
-                  <Check className="h-[1.3vw] min-h-4 w-[1.3vw] min-w-4 text-[var(--md-sys-color-primary)]" />
-                ) : (
-                  <Play className="h-[1.3vw] min-h-4 w-[1.3vw] min-w-4 fill-current" />
-                )}
+                <Play className="h-[1.3vw] min-h-4 w-[1.3vw] min-w-4 fill-current" />
               </button>
             </div>
           )
