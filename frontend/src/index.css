@@ -1425,7 +1425,8 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   animation: song-control-in 0.3s both;
 }
 
-/* 无歌词占位（Lyric.vue .lyric-nodata）：对角线从中心展开至 38% */
+/* 无歌词占位（Lyric.vue .lyric-nodata）：对角线从中心展开至 38%
+   （缓动与 Hydrogen 一致 cubic-bezier(0.32,0.81,0.56,0.98)） */
 @keyframes lyric-nodata-grow {
   from {
     width: 0;
@@ -1437,10 +1438,11 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 .lyric-nodata-grow {
-  animation: lyric-nodata-grow 0.8s 0.5s cubic-bezier(0.4, 0, 0.12, 1) both;
+  animation: lyric-nodata-grow 0.8s 0.5s cubic-bezier(0.32, 0.81, 0.56, 0.98) both;
 }
 
-/* 无歌词占位文字（"Lyric-Area"）：0.4s 内闪烁三下后常显 */
+/* 无歌词占位文字（"Lyric-Area"）：0.1s 内闪烁三下后常显（Hydrogen
+   nodata-open2：10% 粒度的开关帧 + 1.3s 延迟入场） */
 @keyframes lyric-nodata-tip {
   0%,
   10% {
@@ -1467,18 +1469,64 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 .lyric-nodata-tip {
-  animation: lyric-nodata-tip 0.4s both;
+  animation: lyric-nodata-tip 0.1s 1.3s both;
 }
 
-/* 间奏等待块的旋转菱形装饰 */
+/* 间奏等待块的旋转菱形装饰（Hydrogen diamond-rotate：45°→135° 转 90°，
+   1.6s 延迟 0.6s 循环，cubic-bezier(0.3,0,0.12,1)） */
 @keyframes interlude-diamond-rotate {
-  from {
+  0% {
     transform: rotate(45deg);
   }
-  to {
-    transform: rotate(405deg);
+  50% {
+    transform: rotate(135deg);
+  }
+  100% {
+    transform: rotate(135deg);
   }
 }
 .interlude-diamond {
-  animation: interlude-diamond-rotate 2.4s linear infinite;
+  animation: interlude-diamond-rotate 1.6s 0.6s cubic-bezier(0.3, 0, 0.12, 1)
+    infinite;
+}
+
+/* 歌词行外层（Hydrogen .lyric-line）：间奏块高度变化时行高平滑过渡 */
+.lyric-row-transition {
+  transition: 0.58s cubic-bezier(0.4, 0, 0.12, 1);
+}
+
+/* 歌词行文本（Hydrogen .line 内 original/trans/roma）：
+   失焦过渡 0.5s，高亮过渡 0.4s（双时长，cubic-bezier(0.3,0,0.12,1)） */
+.lyric-text {
+  transition: transform 0.5s cubic-bezier(0.3, 0, 0.12, 1),
+    color 0.5s cubic-bezier(0.3, 0, 0.12, 1);
+}
+.lyric-text-active {
+  transition-duration: 0.4s;
+}
+
+/* 歌词行按下交互（Hydrogen .line:active）：整行 scale(0.9) + 模糊清零 */
+.lyric-line-active:active {
+  transform: scale(0.9);
+  filter: blur(0) !important;
+}
+
+/* 间奏等待块（Hydrogen .music-interlude）：收起态（高度 0 + 缩放 0 +
+   透明 0，弹性收起曲线 cubic-bezier(1,-0.49,0.61,0.36)）；
+   .open 展开态 80px（0.8s cubic-bezier(0.3,0,0.12,1)） */
+.lyric-interlude-block {
+  width: 240px;
+  height: 0;
+  padding-left: 25px;
+  opacity: 0;
+  transform: scale(0);
+  overflow: hidden;
+  transition: 0.8s cubic-bezier(1, -0.49, 0.61, 0.36);
+}
+.lyric-interlude-block.open {
+  padding-top: 10px;
+  height: 80px;
+  opacity: 1;
+  transform: scale(1);
+  transition: 0.8s cubic-bezier(0.3, 0, 0.12, 1);
 }

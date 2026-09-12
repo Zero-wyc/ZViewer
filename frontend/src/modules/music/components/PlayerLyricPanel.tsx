@@ -3,16 +3,24 @@
  *
  * 复刻要点：
  * - 行样式：原文 20px / 翻译 14px 加粗，padding 10px 130px 10px 25px，
- *   行距 10px；点击行 seek（无时间戳行不可点），hover 行背景 4.5% 淡色
+ *   行距 10px；点击行 seek（无时间戳行不可点），hover 行背景 4.5% 淡色，
+ *   按下行整体 scale(0.9)（Hydrogen .line:active）
  * - 当前行：黑色高亮条从左侧滑入盖住整行（hilight，translateX(-101%)→0，
- *   0.62s cubic-bezier(0.3,0,0.12,1)），行文字放大 1.15 + 右移 26px 并反色
+ *   滑入 0.62s / 滑出 0.55s cubic-bezier(0.3,0,0.12,1)），行文字放大 1.15 +
+ *   右移 26px 并反色（高亮过渡 0.4s / 失焦过渡 0.5s，双时长）
+ * - 手动滚动模式：非当前行文字 scale(1.05)（Hydrogen .lyric-inactive）
  * - 滚动：补偿式平滑动画——scrollTop 直接设为目标值，同时内容层以 WAAPI
  *   施加反向 translateY（delta→0，580ms cubic-bezier(0.4,0,0.12,1)），
  *   视觉平滑且瞬时定位不撕裂；当前行锚定在容器顶部 260px 处
- * - 手动滚动：wheel 打断动画进入手动模式，1s 无操作后强制回到当前行
- * - 间奏等待：当前行演唱结束点到下一行间隔 ≥ 13s 时，行下方展开 80px
- *   黑色装饰块（旋转菱形 + THE REMAINING TIME 倒计时）
- * - 空态：无歌词显示 Lyric-Area 对角线装饰 + 闪烁文字；纯音乐显示占位行
+ * - 间奏等待（1:1 复刻 .music-interlude）：当前行演唱结束到下一行间隔
+ *   ≥ 阈值时，行下方展开 80px 黑色装饰块（高度 0→80 + scale + 透明度
+ *   0.8s 展开动画；收起走弹性曲线 cubic-bezier(1,-0.49,0.61,0.36)，
+ *   切行时立即折叠 = fast-close）：左侧 28px 旋转菱形（45°→135°，1.6s
+ *   延迟 0.6s 循环）+ 右侧三角标 + THE REMAINING TIME 倒计时 +
+ *   MUSIC INTERLUDE 黑底标题（内嵌频谱竖线 SVG 装饰）+ 4px 进度条
+ * - 空态：无歌词显示 Lyric-Area——左下/右上两条对角线 38% 展开
+ *   （0.8s 延迟 0.5s cubic-bezier(0.32,0.81,0.56,0.98)）+ 文字
+ *   0.1s 延迟 1.3s 内闪烁三下常显；纯音乐显示占位行
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { LyricLine } from '../utils/lrc'
@@ -97,7 +105,7 @@ export function PlayerLyricPanel({
   const contentRef = useRef<HTMLDivElement>(null)
   /** 进行中的滚动补偿动画（手动滚动/组件更新时取消） */
   const scrollAnimRef = useRef<Animation | null>(null)
-  /** 手动滚动模式：wheel 打断自动跟随，空闲后恢复 */
+  /** 手动滚动模式：wheel 打断自动跟随，空闲后恢复（非当前行文字 scale 1.05） */
   const [manualMode, setManualMode] = useState(false)
   const manualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   /** 记录上次同步的 activeIndex，避免同 index 重复动画 */
@@ -190,8 +198,9 @@ export function PlayerLyricPanel({
     }
   }, [computeTargetTop, animateScrollTo])
 
-  // 间奏等待：当前行结束到下一行的间隔 ≥ 阈值（设置：歌词间奏等待时间）时，
-  // 显示倒计时装饰块
+  // 间奏等待（Hydrogen handleInterludeOnIndexChange/OnProgress 的等价实现）：
+  // 当前行结束到下一行的间隔 ≥ 阈值（设置：歌词间奏等待时间）时展示倒计时，
+  // 剩余时间 ≤ 收起预留（0.8s）时提前收起（INTERLUDE_EXIT 预留）
   const interlude = useMemo(() => {
     const line = lines[activeIndex]
     const next = lines[activeIndex + 1]
@@ -214,31 +223,29 @@ export function PlayerLyricPanel({
       className="hide-scrollbar relative min-h-0 flex-1 overflow-y-auto"
       style={{ visibility: revealed ? 'visible' : 'hidden' }}
     >
-      {/* 空态：无歌词 → Lyric-Area 装饰（对角线展开 + 文字闪烁三下） */}
+      {/* 空态：无歌词 → Lyric-Area 装饰（Hydrogen .lyric-nodata 布局：
+          左下 / 右上两条对角线 38% 展开，文字居中闪烁三下常显） */}
       {showNodata ? (
-        <div className="flex h-full flex-col items-center justify-center gap-3">
+        <div className="relative h-full w-full">
           <div
-            className="lyric-nodata-grow"
+            className="lyric-nodata-grow absolute bottom-[4%] left-[4%]"
             style={{
               background:
                 'linear-gradient(to top right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
             }}
             aria-hidden="true"
           />
-          <span
-            className="lyric-nodata-tip text-[16px] font-bold tracking-wider text-[var(--md-sys-color-on-surface)]"
-            style={{ color: 'var(--md-sys-color-on-surface)' }}
-          >
-            Lyric-Area
-          </span>
           <div
-            className="lyric-nodata-grow"
+            className="lyric-nodata-grow absolute right-[4%] top-[4%]"
             style={{
               background:
                 'linear-gradient(to bottom right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
             }}
             aria-hidden="true"
           />
+          <span className="lyric-nodata-tip absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[16px] font-bold tracking-wider">
+            Lyric-Area
+          </span>
         </div>
       ) : (
         <div ref={contentRef}>
@@ -259,6 +266,7 @@ export function PlayerLyricPanel({
               lyricBlur={lyricBlur}
               onSeek={onSeek}
               interlude={null}
+              manualInactive={false}
             />
           )}
           {emptyMode === null &&
@@ -286,6 +294,7 @@ export function PlayerLyricPanel({
                   lyricBlur={lyricBlur}
                   onSeek={onSeek}
                   interlude={lineInterlude}
+                  manualInactive={manualMode}
                 />
               )
             })}
@@ -311,6 +320,7 @@ function LyricRow({
   lyricBlur = false,
   onSeek,
   interlude,
+  manualInactive,
 }: {
   line: LyricLine
   active: boolean
@@ -330,16 +340,21 @@ function LyricRow({
   lyricBlur?: boolean
   onSeek: (time: number) => void
   interlude: { show: boolean; remaining: number } | null
+  /** 手动滚动模式：非当前行文字 scale(1.05)（Hydrogen .lyric-inactive） */
+  manualInactive?: boolean
 }) {
   const clickable = !untimed
   return (
-    <div data-lyric-row className="mb-[10px]">
+    <div
+      data-lyric-row
+      className="lyric-row-transition mb-[10px] w-full text-left"
+    >
       <div
         role={clickable ? 'button' : undefined}
         tabIndex={clickable ? 0 : undefined}
         onClick={clickable ? () => onSeek(line.time) : undefined}
         className={cn(
-          'relative overflow-hidden px-[130px] py-[10px] pl-[25px] transition-colors duration-300',
+          'lyric-line-active relative flex origin-left flex-col items-start overflow-hidden px-[130px] py-[10px] pl-[25px]',
           clickable &&
             'cursor-pointer hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_4.5%,transparent)]'
         )}
@@ -347,7 +362,7 @@ function LyricRow({
         {/* 黑色高亮条：藏在左侧，当前行滑入盖住整行 */}
         <span
           aria-hidden="true"
-          className="absolute inset-0 z-0 w-full transition-transform duration-[550ms] ease-[cubic-bezier(0.3,0,0.12,1)]"
+          className="absolute inset-0 z-0 w-full transition-transform ease-[cubic-bezier(0.3,0,0.12,1)]"
           style={{
             backgroundColor: 'var(--md-sys-color-on-surface)',
             transform: active ? 'translateX(0)' : 'translateX(-101%)',
@@ -355,65 +370,165 @@ function LyricRow({
             transitionDuration: active ? '620ms' : '550ms',
           }}
         />
-        {/* 文本层：当前行放大 1.15 + 右移 26px + 反色；开启歌词模糊时非当前行 blur */}
+        {/* 文本层：当前行放大 1.15 + 右移 26px + 反色；
+            手动滚动模式非当前行 scale(1.05)（Hydrogen .lyric-inactive）；
+            开启歌词模糊时非当前行 blur */}
         <div
-          className={cn(
-            'relative z-[1] min-w-0 transition-[filter,transform,color] duration-[400ms] ease-[cubic-bezier(0.3,0,0.12,1)]'
-          )}
+          className={cn('relative z-[1] min-w-0 origin-left')}
           style={{
-            transform: active ? 'scale(1.15) translateX(26px)' : 'scale(1)',
-            transformOrigin: 'left center',
             color: active
               ? 'var(--md-sys-color-surface)'
-              : 'color-mix(in srgb, var(--md-sys-color-on-surface) 60%, transparent)',
+              : 'var(--md-sys-color-on-surface)',
             filter: !active && lyricBlur ? 'blur(2.5px)' : 'blur(0px)',
           }}
         >
           {showOriginal && (
             <p
-              className="m-0 break-words font-bold leading-[1.5]"
-              style={{ fontSize: lyricSize }}
+              className={cn(
+                'lyric-text m-0 break-words font-bold leading-[1.5]',
+                active && 'lyric-text-active'
+              )}
+              style={{
+                fontSize: lyricSize,
+                transform: active
+                  ? 'scale(1.15) translateX(26px)'
+                  : manualInactive
+                    ? 'scale(1.05)'
+                    : 'scale(1)',
+              }}
             >
               {line.text}
             </p>
           )}
           {showTranslation && line.translation && (
             <p
-              className="m-0 break-words font-bold leading-[1.5] opacity-80"
-              style={{ fontSize: tlyricSize }}
+              className={cn(
+                'lyric-text m-0 break-words font-bold leading-[1.5]',
+                active && 'lyric-text-active'
+              )}
+              style={{
+                fontSize: tlyricSize,
+                transform: active
+                  ? 'scale(1.15) translateX(26px)'
+                  : manualInactive
+                    ? 'scale(1.05)'
+                    : 'scale(1)',
+              }}
             >
               {line.translation}
             </p>
           )}
           {showRoman && line.roman && (
             <p
-              className="m-0 break-words font-bold leading-[1.5] opacity-60"
-              style={{ fontSize: rlyricSize }}
+              className={cn(
+                'lyric-text m-0 break-words font-bold leading-[1.5]',
+                active && 'lyric-text-active'
+              )}
+              style={{
+                fontSize: rlyricSize,
+                transform: active
+                  ? 'scale(1.15) translateX(26px)'
+                  : manualInactive
+                    ? 'scale(1.05)'
+                    : 'scale(1)',
+              }}
             >
               {line.roman}
             </p>
           )}
         </div>
       </div>
-      {/* 间奏等待装饰块：80px 黑色块 + 旋转菱形 + 倒计时 */}
-      {interlude?.show && (
+      {/* 间奏等待装饰块（Hydrogen .music-interlude 1:1）：块在当前行下方
+          常驻（间奏行期间），由 open class 驱动高度 0↔80px 展开动画——
+          展开 0.8s cubic-bezier(0.3,0,0.12,1)，收起走弹性曲线
+          cubic-bezier(1,-0.49,0.61,0.36)；切行时块整体卸载 = fast-close */}
+      {interlude && (
         <div
-          className="mx-[25px] flex h-20 items-center gap-3 px-[26px]"
-          style={{
-            backgroundColor: 'var(--md-sys-color-on-surface)',
-            color: 'var(--md-sys-color-surface)',
-          }}
+          className={cn(
+            'lyric-interlude-block relative left-0 flex flex-row items-center justify-center',
+            interlude.show && 'open'
+          )}
         >
-          <span
-            className="interlude-diamond block h-3 w-3"
-            style={{
-              backgroundColor: 'var(--md-sys-color-surface)',
-            }}
-            aria-hidden="true"
-          />
-          <span className="text-sm font-bold tracking-wider tabular-nums">
-            THE REMAINING TIME: {interlude.remaining}
-          </span>
+          <div className="flex flex-row items-center justify-center">
+            <div className="mr-[15px]">
+              <span
+                className="interlude-diamond relative block h-[28px] w-[28px] border-2"
+                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+              >
+                <span
+                  className="absolute left-1/2 top-1/2 block h-[85%] w-[85%] -translate-x-1/2 -translate-y-1/2"
+                  style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
+                  aria-hidden="true"
+                />
+              </span>
+            </div>
+            <div className="relative flex w-full flex-col overflow-hidden">
+              <span
+                className="absolute right-0 top-px h-0 w-0 border-l-[6px] border-l-transparent"
+                style={{
+                  borderTop: '6px solid var(--md-sys-color-on-surface)',
+                }}
+                aria-hidden="true"
+              />
+              <span
+                className="whitespace-nowrap text-[8px] font-bold tabular-nums"
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
+              >
+                THE REMAINING TIME: {interlude.remaining}
+              </span>
+              <div
+                className="mt-[2px] flex w-full flex-row items-center justify-between whitespace-nowrap px-1 py-0"
+                style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
+              >
+                <span
+                  className="text-[10px] font-bold"
+                  style={{ color: 'var(--md-sys-color-surface)' }}
+                >
+                  MUSIC INTERLUDE
+                </span>
+                {/* 频谱竖线装饰（Hydrogen title-style SVG 1:1 等价） */}
+                <svg
+                  width="49"
+                  height="8"
+                  viewBox="0 0 49 8"
+                  fill="none"
+                  aria-hidden="true"
+                >
+                  {[
+                    [1, 3],
+                    [5, 1],
+                    [8, 2],
+                    [12, 2],
+                    [16, 1],
+                    [19, 2],
+                    [23, 2],
+                    [27, 1],
+                    [30, 2],
+                    [34, 1],
+                    [40, 3],
+                    [43, 1],
+                    [46, 1],
+                    [48, 1],
+                  ].map(([x, w]) => (
+                    <line
+                      key={x}
+                      x1={x}
+                      y1="0"
+                      x2={x}
+                      y2="8"
+                      stroke="var(--md-sys-color-surface)"
+                      strokeWidth={w}
+                    />
+                  ))}
+                </svg>
+              </div>
+              <div
+                className="mt-[3px] h-[4px] w-full"
+                style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
+                aria-hidden="true"
+              />
+            </div>
+          </div>
         </div>
       )}
     </div>
