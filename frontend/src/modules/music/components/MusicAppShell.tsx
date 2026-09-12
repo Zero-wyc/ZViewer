@@ -272,20 +272,23 @@ function ShellInner({
             username={username}
             canManage={canManage}
           />
-          {/* 右上角收起按钮（滑出动画结束后卸载） */}
-          <button
-            type="button"
-            className="absolute right-4 top-4 z-[70] flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-            style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
-            }}
-            onClick={closePlayerOverlay}
-            title="收起播放器"
-            aria-label="收起播放器"
-          >
-            <ChevronDown className="h-5 w-5" />
-          </button>
+          {/* 右上角收起按钮（滑出动画结束后卸载）：默认隐藏，
+              鼠标移到其区域上方才显示（键盘聚焦时同样显示） */}
+          <div className="group/hide absolute right-4 top-4 z-[70] h-16 w-16">
+            <button
+              type="button"
+              className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] opacity-0 transition-opacity group-focus-within/hide:opacity-100 group-hover/hide:opacity-100 active:scale-90"
+              style={{
+                backgroundColor:
+                  'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+              }}
+              onClick={closePlayerOverlay}
+              title="收起播放器"
+              aria-label="收起播放器"
+            >
+              <ChevronDown className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       )}
 
