@@ -320,6 +320,8 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   }
 
   // 登录后：/user/account 拿 uid → /user/playlist + /user/subcount + /likelist
+  /** 网易云 uid 缓存（「我喜欢的音乐」红心回退路径复用） */
+  const userUidRef = useRef<number | null>(null)
   useEffect(() => {
     if (!loginStatus.loggedIn) return
     let cancelled = false
@@ -332,7 +334,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
         }>('/api/music/ncm/user/account')
         const uid = acc.data?.profile?.userId
         if (!uid) throw new Error('获取网易云账号失败')
-        // 并行：歌单列表 / 创建与收藏数量 / 红心列表（同步「我喜欢的音乐」数量）
+        if (!cancelled) userUidRef.current = uid
         const [pl, sub, like] = await Promise.all([
           apiGet<{ playlist?: UserPlaylistItem[] }>(
             `/api/music/ncm/user/playlist?uid=${uid}`
@@ -434,207 +436,336 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
 
   /** 加载详情（歌曲列表 + 元信息）；歌单首屏 PLAYLIST_PAGE_SIZE，
    *  其余分页由后台水合并发补齐（Hydrogen hydratePlaylistRemaining 等价） */
-  const loadDetail = useCallback((d: DetailState) => {
-    // 代际令牌推进：作废上一详情仍在跑的后台水合（Hydrogen token 同语义）
-    const token = ++detailTokenRef.current
-    setDetail(d)
-    setDetailMeta(null)
-    setDetailSongs([])
-    setDetailHasMore(false)
-    setDetailHydration({ total: 0, loaded: 0, status: 'idle' })
-    setFilterKeyword('')
-    setIntroOpen(false)
-    if (d.kind === 'rec') {
-      // 每日推荐：数据由 MusicDailyPanel 组件自行拉取加载
-      return
-    }
-    setDetailLoading(true)
-    setDetailLoadingMore(false)
-    loadingMoreRef.current = false
-    void (async () => {
-      try {
-        if (d.kind === 'playlist') {
-          const [trackRes, infoRes] = await Promise.all([
-            apiGet<{
-              songs?: PlaylistTrackItem[]
-              total?: number
-            }>(
-              `/api/music/ncm/playlist/track/all?id=${d.id}&limit=${PLAYLIST_PAGE_SIZE}&offset=0`
-            ),
-            apiGet<{
-              playlist?: {
-                createTime?: number
-                creator?: { nickname?: string }
-                description?: string
+  const loadDetail = useCallback(
+    (d: DetailState) => {
+      // 代际令牌推进：作废上一详情仍在跑的后台水合（Hydrogen token 同语义）
+      const token = ++detailTokenRef.current
+      setDetail(d)
+      setDetailMeta(null)
+      setDetailSongs([])
+      setDetailHasMore(false)
+      setDetailHydration({ total: 0, loaded: 0, status: 'idle' })
+      setFilterKeyword('')
+      setIntroOpen(false)
+      if (d.kind === 'rec') {
+        // 每日推荐：数据由 MusicDailyPanel 组件自行拉取加载
+        return
+      }
+      setDetailLoading(true)
+      setDetailLoadingMore(false)
+      loadingMoreRef.current = false
+      void (async () => {
+        try {
+          if (d.kind === 'playlist') {
+            const [trackRes, infoRes] = await Promise.all([
+              apiGet<{
+                songs?: PlaylistTrackItem[]
+                total?: number
+              }>(
+                `/api/music/ncm/playlist/track/all?id=${d.id}&limit=${PLAYLIST_PAGE_SIZE}&offset=0`
+              ),
+              apiGet<{
+                playlist?: {
+                  createTime?: number
+                  creator?: { nickname?: string }
+                  description?: string
+                }
+              }>(`/api/music/ncm/playlist/detail?id=${d.id}`).catch(() => ({
+                data: undefined,
+              })),
+            ])
+            if (!Array.isArray(trackRes.data?.songs))
+              throw new Error('歌单详情获取失败')
+            if (token !== detailTokenRef.current) return
+            const songs = trackRes.data.songs
+              .map(mapTrack)
+              .filter((s) => s.songId > 0)
+            setDetailSongs(songs)
+            // total 取自并行请求的 /playlist/detail 的 trackCount
+            //（/playlist/track/all 底层是 song/detail 响应，没有 total 字段）
+            const total = Number.isFinite(infoRes.data?.playlist?.trackCount)
+              ? (infoRes.data?.playlist?.trackCount ?? 0)
+              : Number.isFinite(trackRes.data?.total)
+                ? (trackRes.data?.total ?? 0)
+                : 0
+            const pl = infoRes.data?.playlist
+            setDetailMeta({
+              timeLabel: pl?.createTime ? formatDate(pl.createTime) : undefined,
+              creator: pl?.creator?.nickname,
+              description: pl?.description,
+            })
+            // ===== 「我喜欢的音乐」红心回退（Hydrogen usePlaylistSync 同源）：
+            //       v6/playlist/detail 对 specialType=5 主歌单被网易限制
+            //       （trackIds/tracks 为空），offset 分页拿不到任何后续页；
+            //       改用 likelist 红心 id 全量 → song/detail 分批（100/批）组装。
+            //       注意：/playlist/track/all 响应没有 total 字段，不能用
+            //       total<=songs.length 判断提前完成，必须先判红心歌单。
+            const knownMeta = [
+              ...createdPlaylists,
+              ...subscribedPlaylists,
+            ].find((p) => p.id === d.id)
+            const isLikedList =
+              knownMeta?.specialType === 5 ||
+              knownMeta?.name === '我喜欢的音乐' ||
+              songs.length === 0
+            if (isLikedList) {
+              // uid：优先登录数据流缓存的 uid；缺失时兜底再取一次
+              let uid = userUidRef.current
+              if (!uid) {
+                const acc = await apiGet<{
+                  profile?: { userId?: number; nickname?: string }
+                }>('/api/music/ncm/user/account').catch(() => ({ data: null }))
+                uid = acc.data?.profile?.userId ?? null
               }
-            }>(`/api/music/ncm/playlist/detail?id=${d.id}`).catch(() => ({
-              data: undefined,
-            })),
-          ])
-          if (!Array.isArray(trackRes.data?.songs))
-            throw new Error('歌单详情获取失败')
-          if (token !== detailTokenRef.current) return
-          const songs = trackRes.data.songs
-            .map(mapTrack)
-            .filter((s) => s.songId > 0)
-          setDetailSongs(songs)
-          // total 是原始曲目总数（未过滤前 songs 长度与之一致），与已加载数
-          // 比较决定是否还有下一页
-          const total = Number.isFinite(trackRes.data?.total)
-            ? (trackRes.data?.total ?? 0)
-            : 0
-          const pl = infoRes.data?.playlist
-          setDetailMeta({
-            timeLabel: pl?.createTime ? formatDate(pl.createTime) : undefined,
-            creator: pl?.creator?.nickname,
-            description: pl?.description,
-          })
-          if (total <= songs.length) {
+              const likeRes = uid
+                ? await apiGet<{ ids?: number[] }>(
+                    `/api/music/ncm/likelist?uid=${uid}`
+                  ).catch(() => ({ data: undefined }))
+                : { data: undefined }
+              const likeIds = Array.isArray(likeRes.data?.ids)
+                ? likeRes.data.ids
+                : []
+              if (likeIds.length === 0) {
+                // 红心列表也拿不到：交由滚动哨兵兜底（保持旧行为）
+                setDetailHydration({
+                  total: total || songs.length,
+                  loaded: songs.length,
+                  status: 'failed',
+                })
+                setDetailHasMore(true)
+                return
+              }
+              const likeTotal = likeIds.length
+              // 首屏已加载的歌曲（若恰为前 100）丢弃，红心全量按原始顺序重建
+              setDetailSongs([])
+              setDetailHydration({
+                total: likeTotal,
+                loaded: 0,
+                status: 'loading',
+              })
+              const likedQueue: number[] = []
+              for (let o = 0; o < likeIds.length; o += PLAYLIST_PAGE_SIZE) {
+                likedQueue.push(o)
+              }
+              const likedPages = new Map<number, PlaylistTrackItem[]>()
+              let likedLoaded = 0
+              let likedFailed = false
+              const likedAdvance = (
+                o: number,
+                batchSongs: PlaylistTrackItem[]
+              ) => {
+                likedPages.set(o, batchSongs)
+                likedLoaded = Math.min(
+                  likeTotal,
+                  likedLoaded + batchSongs.length
+                )
+                setDetailHydration({
+                  total: likeTotal,
+                  loaded: likedLoaded,
+                  status: 'loading',
+                })
+              }
+              const likedMerge = () => {
+                setDetailSongs(
+                  [...likedPages.keys()]
+                    .sort((a, b) => a - b)
+                    .flatMap((o) => likedPages.get(o) ?? [])
+                    .map(mapTrack)
+                    .filter((s) => s.songId > 0)
+                )
+              }
+              const likedWorker = async () => {
+                while (likedQueue.length > 0) {
+                  if (token !== detailTokenRef.current) return
+                  const o = likedQueue.shift()
+                  if (o === undefined) return
+                  const ids = likeIds.slice(o, o + PLAYLIST_PAGE_SIZE).join(',')
+                  const { data } = await apiGet<{
+                    songs?: PlaylistTrackItem[]
+                  }>(`/api/music/ncm/song/detail?ids=${ids}`).catch(() => ({
+                    data: undefined,
+                  }))
+                  // 批次间小间隔：song/detail 全量水合请求量大，节流防风控
+                  await new Promise((r) => setTimeout(r, 150))
+                  if (token !== detailTokenRef.current) return
+                  if (Array.isArray(data?.songs)) {
+                    likedAdvance(o, data.songs)
+                    likedMerge()
+                  } else {
+                    likedFailed = true
+                  }
+                }
+              }
+              const likedWorkerCount = Math.min(
+                PLAYLIST_HYDRATION_CONCURRENCY,
+                likedQueue.length
+              )
+              await Promise.all(
+                Array.from({ length: likedWorkerCount }, () => likedWorker())
+              )
+              if (token !== detailTokenRef.current) return
+              if (likedFailed) {
+                setDetailHydration((prev) => ({ ...prev, status: 'failed' }))
+                setDetailHasMore(true)
+              } else {
+                setDetailHydration({
+                  total: likeTotal,
+                  loaded: likedLoaded,
+                  status: 'completed',
+                })
+              }
+              return
+            }
+
+            // ===== 后台水合其余分页（Hydrogen hydratePlaylistRemaining 平移：
+            //       offset 队列 + 并发 worker；页面无序返回按 offset 排序后合并；
+            //       失败页计入 failed 并回退滚动哨兵分页加载兜底） =====
             setDetailHasMore(false)
             setDetailHydration({
               total,
               loaded: songs.length,
-              status: 'completed',
-            })
-            return
-          }
-          // ===== 后台水合其余分页（Hydrogen hydratePlaylistRemaining 平移：
-          //       offset 队列 + 并发 worker；页面无序返回按 offset 排序后合并；
-          //       失败页计入 failed 并回退滚动哨兵分页加载兜底） =====
-          setDetailHasMore(false)
-          setDetailHydration({ total, loaded: songs.length, status: 'loading' })
-          const offsets: number[] = []
-          for (
-            let offset = PLAYLIST_PAGE_SIZE;
-            offset < total;
-            offset += PLAYLIST_PAGE_SIZE
-          ) {
-            offsets.push(offset)
-          }
-          const queue = offsets.slice()
-          /** offset → 该页歌曲（按 offset 重排后合并显示） */
-          const pages = new Map<number, PlaylistTrackItem[]>()
-          let loadedCount = Math.min(songs.length, total)
-          let failed = false
-          const mergePages = () => {
-            setDetailSongs([
-              ...songs,
-              ...[...pages.keys()]
-                .sort((a, b) => a - b)
-                .flatMap((o) => pages.get(o) ?? [])
-                .map(mapTrack)
-                .filter((s) => s.songId > 0),
-            ])
-          }
-          const advance = (offset: number, pageSongs: PlaylistTrackItem[]) => {
-            pages.set(offset, pageSongs)
-            loadedCount = Math.min(total, loadedCount + pageSongs.length)
-            setDetailHydration({
-              total,
-              loaded: loadedCount,
               status: 'loading',
             })
-          }
-          const worker = async () => {
-            while (queue.length > 0) {
-              if (token !== detailTokenRef.current) return
-              const offset = queue.shift()
-              if (offset === undefined) return
-              const { data } = await apiGet<{
-                songs?: PlaylistTrackItem[]
-                total?: number
-              }>(
-                `/api/music/ncm/playlist/track/all?id=${d.id}&limit=${PLAYLIST_PAGE_SIZE}&offset=${offset}`
-              ).catch(() => ({ data: undefined }))
-              if (token !== detailTokenRef.current) return
-              if (Array.isArray(data?.songs)) {
-                advance(offset, data.songs)
-                mergePages()
-              } else {
-                failed = true
+            const offsets: number[] = []
+            for (
+              let offset = PLAYLIST_PAGE_SIZE;
+              offset < total;
+              offset += PLAYLIST_PAGE_SIZE
+            ) {
+              offsets.push(offset)
+            }
+            const queue = offsets.slice()
+            /** offset → 该页歌曲（按 offset 重排后合并显示） */
+            const pages = new Map<number, PlaylistTrackItem[]>()
+            let loadedCount = Math.min(songs.length, total)
+            let failed = false
+            const mergePages = () => {
+              setDetailSongs([
+                ...songs,
+                ...[...pages.keys()]
+                  .sort((a, b) => a - b)
+                  .flatMap((o) => pages.get(o) ?? [])
+                  .map(mapTrack)
+                  .filter((s) => s.songId > 0),
+              ])
+            }
+            const advance = (
+              offset: number,
+              pageSongs: PlaylistTrackItem[]
+            ) => {
+              pages.set(offset, pageSongs)
+              loadedCount = Math.min(total, loadedCount + pageSongs.length)
+              setDetailHydration({
+                total,
+                loaded: loadedCount,
+                status: 'loading',
+              })
+            }
+            const worker = async () => {
+              while (queue.length > 0) {
+                if (token !== detailTokenRef.current) return
+                const offset = queue.shift()
+                if (offset === undefined) return
+                const { data } = await apiGet<{
+                  songs?: PlaylistTrackItem[]
+                  total?: number
+                }>(
+                  `/api/music/ncm/playlist/track/all?id=${d.id}&limit=${PLAYLIST_PAGE_SIZE}&offset=${offset}`
+                ).catch(() => ({ data: undefined }))
+                if (token !== detailTokenRef.current) return
+                if (Array.isArray(data?.songs)) {
+                  advance(offset, data.songs)
+                  mergePages()
+                } else {
+                  failed = true
+                }
               }
             }
-          }
-          const workerCount = Math.min(
-            PLAYLIST_HYDRATION_CONCURRENCY,
-            queue.length
-          )
-          await Promise.all(Array.from({ length: workerCount }, () => worker()))
-          if (token !== detailTokenRef.current) return
-          if (failed) {
-            // 水合失败：回退滚动哨兵分页加载继续补齐（兜底路径）
-            setDetailHydration((prev) => ({ ...prev, status: 'failed' }))
-            setDetailHasMore(true)
+            const workerCount = Math.min(
+              PLAYLIST_HYDRATION_CONCURRENCY,
+              queue.length
+            )
+            await Promise.all(
+              Array.from({ length: workerCount }, () => worker())
+            )
+            if (token !== detailTokenRef.current) return
+            if (failed) {
+              // 水合失败：回退滚动哨兵分页加载继续补齐（兜底路径）
+              setDetailHydration((prev) => ({ ...prev, status: 'failed' }))
+              setDetailHasMore(true)
+            } else {
+              setDetailHydration({
+                total,
+                loaded: Math.min(loadedCount, total),
+                status: 'completed',
+              })
+            }
+          } else if (d.kind === 'album') {
+            // 走后端补齐端点：网易云在部分登录态下会把 /album 的 songs 截断
+            //（如仅 50 首），后端检测 songs.length < album.size 时用匿名
+            // 上下文补齐全量（Hydrogen 歌单 hydration 的等价思路）
+            const { data } = await apiGet<{
+              album?: {
+                name?: string
+                picUrl?: string
+                publishTime?: number
+                description?: string
+                artists?: Array<{ name?: string }>
+              }
+              songs?: PlaylistTrackItem[]
+            }>(`/api/music/album/full?id=${d.id}`)
+            if (!Array.isArray(data?.songs)) throw new Error('专辑详情获取失败')
+            setDetailSongs(data.songs.map(mapTrack).filter((s) => s.songId > 0))
+            const alb = data?.album
+            setDetailMeta({
+              timeLabel: alb?.publishTime
+                ? formatDate(alb.publishTime)
+                : undefined,
+              creator: (alb?.artists ?? [])
+                .map((a) => a.name)
+                .filter(Boolean)
+                .join(' / '),
+              description: alb?.description,
+            })
           } else {
-            setDetailHydration({
-              total,
-              loaded: Math.min(loadedCount, total),
-              status: 'completed',
+            const { data } = await apiGet<{
+              artist?: {
+                name?: string
+                img1v1Url?: string
+                alias?: string[]
+                musicSize?: number
+                albumSize?: number
+                mvSize?: number
+                briefDesc?: string
+              }
+              hotSongs?: PlaylistTrackItem[]
+            }>(`/api/music/ncm/artists?id=${d.id}`)
+            if (!Array.isArray(data?.hotSongs))
+              throw new Error('歌手热门单曲获取失败')
+            setDetailSongs(
+              data.hotSongs.map(mapTrack).filter((s) => s.songId > 0)
+            )
+            const art = data?.artist
+            setDetailMeta({
+              creator: (art?.alias ?? []).filter(Boolean).join(' · '),
+              numText:
+                art != null
+                  ? `${art.musicSize ?? 0}首歌 · ${art.albumSize ?? 0}张专辑 · ${art.mvSize ?? 0}个MV`
+                  : undefined,
+              description: art?.briefDesc,
             })
           }
-        } else if (d.kind === 'album') {
-          // 走后端补齐端点：网易云在部分登录态下会把 /album 的 songs 截断
-          //（如仅 50 首），后端检测 songs.length < album.size 时用匿名
-          // 上下文补齐全量（Hydrogen 歌单 hydration 的等价思路）
-          const { data } = await apiGet<{
-            album?: {
-              name?: string
-              picUrl?: string
-              publishTime?: number
-              description?: string
-              artists?: Array<{ name?: string }>
-            }
-            songs?: PlaylistTrackItem[]
-          }>(`/api/music/album/full?id=${d.id}`)
-          if (!Array.isArray(data?.songs)) throw new Error('专辑详情获取失败')
-          setDetailSongs(data.songs.map(mapTrack).filter((s) => s.songId > 0))
-          const alb = data?.album
-          setDetailMeta({
-            timeLabel: alb?.publishTime
-              ? formatDate(alb.publishTime)
-              : undefined,
-            creator: (alb?.artists ?? [])
-              .map((a) => a.name)
-              .filter(Boolean)
-              .join(' / '),
-            description: alb?.description,
-          })
-        } else {
-          const { data } = await apiGet<{
-            artist?: {
-              name?: string
-              img1v1Url?: string
-              alias?: string[]
-              musicSize?: number
-              albumSize?: number
-              mvSize?: number
-              briefDesc?: string
-            }
-            hotSongs?: PlaylistTrackItem[]
-          }>(`/api/music/ncm/artists?id=${d.id}`)
-          if (!Array.isArray(data?.hotSongs))
-            throw new Error('歌手热门单曲获取失败')
-          setDetailSongs(
-            data.hotSongs.map(mapTrack).filter((s) => s.songId > 0)
-          )
-          const art = data?.artist
-          setDetailMeta({
-            creator: (art?.alias ?? []).filter(Boolean).join(' · '),
-            numText:
-              art != null
-                ? `${art.musicSize ?? 0}首歌 · ${art.albumSize ?? 0}张专辑 · ${art.mvSize ?? 0}个MV`
-                : undefined,
-            description: art?.briefDesc,
-          })
+        } catch (err) {
+          console.error('[MusicMyPage] 详情获取失败:', err)
+          message.error('详情获取失败，请稍后重试')
+        } finally {
+          setDetailLoading(false)
         }
-      } catch (err) {
-        console.error('[MusicMyPage] 详情获取失败:', err)
-        message.error('详情获取失败，请稍后重试')
-      } finally {
-        setDetailLoading(false)
-      }
-    })()
-  }, [])
+      })()
+      // 「我喜欢的音乐」回退需要按 id 匹配歌单元数据（specialType/name）
+    },
+    [createdPlaylists, subscribedPlaylists]
+  )
 
   /** 用户点击左栏条目打开详情：截断前进分支并压入历史栈 */
   const openDetail = useCallback(
