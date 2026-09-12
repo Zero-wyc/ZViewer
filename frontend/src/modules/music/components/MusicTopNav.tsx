@@ -270,7 +270,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
           悬停区（w-56 定宽与右区对称，保证中间导航组真正水平居中）才
           淡入显示。下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目 ===== */}
       <div
-        className="group relative w-56 shrink-0"
+        className="group relative h-10 w-56 shrink-0"
         onMouseEnter={() => setSearchVisible(true)}
         onMouseLeave={() => {
           // 未聚焦（或已失焦）时才收起，避免鼠标短暂划出打断输入
