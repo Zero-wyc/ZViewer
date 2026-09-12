@@ -22,7 +22,15 @@
  *   （0.8s 延迟 0.5s cubic-bezier(0.32,0.81,0.56,0.98)）+ 文字
  *   0.1s 延迟 1.3s 内闪烁三下常显；纯音乐显示占位行
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import type { LyricLine } from '../utils/lrc'
 import { cn } from '@/lib/utils'
 
@@ -157,9 +165,12 @@ export function PlayerLyricPanel({
     )
   }, [])
 
-  // activeIndex 变化 → 自动跟随滚动（手动模式下不动画；防闪烁 revealed
-  // 就绪后也会同步一次，保证切歌后滚动位置正确）
-  useEffect(() => {
+  // activeIndex 变化 → 自动跟随滚动。必须用 useLayoutEffect（DOM commit 后、
+  // 浏览器 paint 前同步执行，等价 Hydrogen watch flush:'post' 的"DOM patch 后
+  // 立即启动跟随动画"）：useEffect 在 paint 之后才跑，会多等一帧导致
+  // "高亮先跳、视图后追"的闪动撕裂感（Hydrogen 注释明确点过这一坑）。
+  // 手动模式下不动画；防闪烁 revealed 就绪后也会同步一次，保证切歌后位置正确
+  useLayoutEffect(() => {
     if (activeIndex < 0 || manualMode || !revealed) return
     lastSyncedIndexRef.current = activeIndex
     const target = computeTargetTop(activeIndex)
@@ -306,8 +317,10 @@ export function PlayerLyricPanel({
   )
 }
 
-/** 单行歌词（黑色高亮条 + 文本反色放大 + 可选原词/翻译/罗马音 + 间奏装饰块） */
-function LyricRow({
+/** 单行歌词（黑色高亮条 + 文本反色放大 + 可选原词/翻译/罗马音 + 间奏装饰块）。
+ *  memo：positionSec 高频更新（间奏倒计时依赖它），若全列表行都重渲染会
+ *  拉长 paint 帧加剧行切换的视觉撕裂；memo 后仅 active 切换的两行渲染 */
+const LyricRow = memo(function LyricRow({
   line,
   active,
   untimed = false,
@@ -533,4 +546,4 @@ function LyricRow({
       )}
     </div>
   )
-}
+})
