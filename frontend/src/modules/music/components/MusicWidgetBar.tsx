@@ -278,11 +278,10 @@ export function MusicWidgetBar() {
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
       }}
     >
-      {/* ===== 顶部细进度条（hover 加粗并左上角显示时间） ===== */}
-      {/* 定位（Hydrogen .music-progress-container 方案）：条体中心骑在卡片
-          顶边上（translateY(-50%)），与顶边零缝隙，hover 13px 以顶边为轴
-          对称扩展；水平方向左右各缩进一个圆角半径，加粗外露的一半也在
-          圆角区域之外；z-10 提升图层，加粗时盖住封面缩略图 */}
+      {/* ===== 顶部细进度条（hover 向下加粗并显示时间） ===== */}
+      {/* 定位：条体紧贴卡片顶边（top-0，贴 border 内侧零缝隙），hover 13px
+          只向下扩展，完全在控制栏面板内不越界；水平方向左右各缩进一个
+          圆角半径，两端不进圆角区域；z-10 提升图层，加粗时盖住封面缩略图 */}
       <div
         className="pointer-events-none absolute top-0 right-0 left-0 z-10 group"
         style={{
@@ -305,7 +304,6 @@ export function MusicWidgetBar() {
           style={{
             backgroundColor:
               'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-            transform: 'translateY(-50%)',
           }}
           onPointerDown={handleProgressPointerDown}
         >
@@ -313,8 +311,8 @@ export function MusicWidgetBar() {
             className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
             style={{ width: `${progressRatio * 100}%` }}
           />
-          {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条上方悬浮） */}
-          <div className="pointer-events-none absolute left-1 -top-5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
+          {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条内上方） */}
+          <div className="pointer-events-none absolute left-1 top-1.5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
             {formatDuration(positionSec)} / {formatDuration(durationSec)}
           </div>
         </div>
