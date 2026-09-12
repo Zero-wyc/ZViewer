@@ -3,13 +3,12 @@
  *
  * 结构：左搜索框（含联想下拉，外层定宽 224px 与右区对称） + 中导航链接组
  * （flex-1 居中） + 右账户菜单（定宽 224px）
- * - 搜索框（Hydrogen SearchInput 范式一比一）：无圆角无底色，四角 L 形
- *   边框 + 四角外小方块装饰，居中输入、聚焦加宽动画；聚焦空输入展示
- *   热搜榜（/search/hot/detail，单次缓存），输入 220ms 防抖后并发三源
- *   建议合并去重（/search/suggest mobile + /search/suggest/pc + web，
- *   条目数 = 设置「搜索下拉条目数量」）；键盘 ↑↓ 循环高亮、Enter 选中
- *   高亮项或直接搜索，中文输入法组合态忽略；点击建议 → 写入关键词并
- *   跳搜索页；回车 → page='search' 并存关键词
+ * - 搜索框（项目玻璃拟态语言）：glass 半透明底 + 主题模糊度 + 圆角描边，
+ *   聚焦加宽并高亮描边；聚焦空输入展示热搜榜（/search/hot/detail，单次
+ *   缓存），输入 220ms 防抖后并发三源建议合并去重（/search/suggest
+ *   mobile + /search/suggest/pc + web，条目数 = 设置「搜索下拉条目数量」）；
+ *   键盘 ↑↓ 循环高亮、Enter 选中高亮项或直接搜索，中文输入法组合态忽略；
+ *   点击建议 → 写入关键词并跳搜索页；回车 → page='search' 并存关键词
  * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
@@ -67,22 +66,6 @@ const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
   { key: 'cloud', label: '云盘' },
   { key: 'mymusic', label: '我的音乐' },
 ]
-
-/** 搜索框四角 L 形边框（Hydrogen .search-border1~4：8px 见方、两条 2px 边） */
-const SEARCH_CORNERS = [
-  'left-0 top-0 border-l-2 border-t-2',
-  'right-0 top-0 border-r-2 border-t-2',
-  'right-0 bottom-0 border-r-2 border-b-2',
-  'left-0 bottom-0 border-l-2 border-b-2',
-] as const
-
-/** 搜索框四角外小方块（Hydrogen .search-border5~8：4px 实心、角点外扩 2px） */
-const SEARCH_DOTS = [
-  '-left-[2px] -top-[2px]',
-  '-right-[2px] -top-[2px]',
-  '-right-[2px] -bottom-[2px]',
-  '-left-[2px] -bottom-[2px]',
-] as const
 
 /** 下拉面板四角框线（Hydrogen .assist-corner1~4：7px 见方、1px 边） */
 const PANEL_CORNERS = [
@@ -279,16 +262,22 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：搜索框（Hydrogen SearchInput 一比一）：无圆角无底色，四角
-          L 形 2px 边框 + 四角外 4px 小方块，居中输入、聚焦 150→190px 加宽；
-          下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目。外层定宽 w-56
-          与右区对称，保证中间导航组真正水平居中 ===== */}
+      {/* ===== 左：搜索框（项目玻璃拟态语言）：glass 底 + 主题模糊度 +
+          圆角描边，聚焦 150→190px 加宽；居中输入。下拉面板（热榜/建议）
+          毛玻璃 + 四角框线 + 序号条目。外层定宽 w-56 与右区对称，
+          保证中间导航组真正水平居中 ===== */}
       <div className="relative w-56 shrink-0">
         <div
           className={cn(
-            'absolute left-0 top-1/2 flex h-[26px] -translate-y-1/2 items-center transition-[width] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
+            'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
             focused ? 'w-[190px]' : 'w-[150px]'
           )}
+          style={{
+            borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
+            borderColor: focused
+              ? 'var(--md-sys-color-primary)'
+              : 'var(--glass-border)',
+          }}
         >
           <input
             ref={searchInputRef}
@@ -306,36 +295,15 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
             onBlur={handleSearchBlur}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
-            placeholder="SEARCH"
+            placeholder="搜索音乐"
             aria-label="搜索音乐"
             spellCheck={false}
-            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none"
             style={{
               color: 'var(--md-sys-color-on-surface)',
               caretColor: 'var(--md-sys-color-on-surface)',
             }}
           />
-          {/* 四角 L 形边框（Hydrogen .search-border1~4） */}
-          {SEARCH_CORNERS.map((pos) => (
-            <span
-              key={`corner-${pos}`}
-              aria-hidden="true"
-              className={cn(
-                'pointer-events-none absolute h-2 w-2 border-solid',
-                pos
-              )}
-              style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-            />
-          ))}
-          {/* 四角外小方块（Hydrogen .search-border5~8） */}
-          {SEARCH_DOTS.map((pos) => (
-            <span
-              key={`dot-${pos}`}
-              aria-hidden="true"
-              className={cn('pointer-events-none absolute h-1 w-1', pos)}
-              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
-            />
-          ))}
         </div>
 
         {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议） */}
