@@ -919,12 +919,14 @@ function ListenTogetherInner({
 
               {/* 歌曲信息：歌名（黑块滑入遮字 + 跑马灯）+ 歌手（小方点 + 名） */}
               <div className="shrink-0 px-[1.5vh] pt-[1vh]">
-                {/* 歌名行（Hydrogen .music-name-lable 黑色滑块切歌动画） */}
-                <div className="relative min-w-0">
-                  <OverflowMarquee
-                    text={songName}
-                    className="text-[2.4vh] font-bold leading-[2.9vh] text-[var(--md-sys-color-on-surface)]"
-                  />
+                {/* 歌名行（Hydrogen .info-music:first-child：pb 1.2vh + overflow 隐藏） */}
+                <div className="relative min-w-0 overflow-hidden pb-[1.2vh]">
+                  <div className={cn('min-w-0', songSwitching && 'opacity-0')}>
+                    <OverflowMarquee
+                      text={songName}
+                      className="text-[2.4vh] font-bold leading-[2.9vh] text-[var(--md-sys-color-on-surface)]"
+                    />
+                  </div>
                   {/* 黑色滑块：默认藏在左侧（露 5px 小方块），切歌时滑入遮住整行 */}
                   <span
                     aria-hidden="true"
@@ -937,21 +939,20 @@ function ListenTogetherInner({
                     }}
                   />
                 </div>
-                {/* 歌手行（Hydrogen .music-author-lable 小方点 + 作者名） */}
-                <div className="mt-[0.6vh] flex min-w-0 items-center gap-2">
+                {/* 歌手行（Hydrogen .music-author-lable：top1px/left-2px 小方框
+                    套 4px 中心点 rgb(105,105,105)；文本 10px 左距 10px） */}
+                <div className="relative flex min-w-0 items-center">
                   <span
-                    className="relative block h-2 w-2 shrink-0"
+                    className="pointer-events-none absolute -left-[2px] top-[1px] block h-2 w-2 shrink-0"
                     style={{ border: '0.5px solid rgb(105, 105, 105)' }}
                     aria-hidden="true"
                   >
                     <span
                       className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2"
-                      style={{
-                        backgroundColor: 'var(--md-sys-color-on-surface)',
-                      }}
+                      style={{ backgroundColor: 'rgb(105, 105, 105)' }}
                     />
                   </span>
-                  <span className="min-w-0 truncate text-[1.4vh] text-[var(--md-sys-color-on-surface-variant)]">
+                  <span className="ml-[10px] min-w-0 truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
                     {artist || ' '}
                   </span>
                 </div>
