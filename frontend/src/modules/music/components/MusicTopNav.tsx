@@ -1,11 +1,15 @@
 /**
  * 顶部导航（Hydrogen Home.vue header 范式）。
  *
- * 结构：左搜索框（含联想下拉，定宽 224px） + 中导航链接组（flex-1 居中，
- * 左右两区等宽保证导航组相对视口真正水平居中） + 右账户菜单（定宽 224px）
- * - 搜索框（widget-search 式）：描边圆角输入；输入时防抖 350ms 调
- *   /cloudsearch 拉取联想建议（条目数 = 设置「搜索下拉条目数量」），
- *   点击建议 → 写入关键词并跳搜索页；回车 → page='search' 并存关键词
+ * 结构：左搜索框（含联想下拉，外层定宽 224px 与右区对称） + 中导航链接组
+ * （flex-1 居中） + 右账户菜单（定宽 224px）
+ * - 搜索框（Hydrogen SearchInput 范式一比一）：无圆角无底色，四角 L 形
+ *   边框 + 四角外小方块装饰，居中输入、聚焦加宽动画；聚焦空输入展示
+ *   热搜榜（/search/hot/detail，单次缓存），输入 220ms 防抖后并发三源
+ *   建议合并去重（/search/suggest mobile + /search/suggest/pc + web，
+ *   条目数 = 设置「搜索下拉条目数量」）；键盘 ↑↓ 循环高亮、Enter 选中
+ *   高亮项或直接搜索，中文输入法组合态忽略；点击建议 → 写入关键词并
+ *   跳搜索页；回车 → page='search' 并存关键词
  * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
@@ -15,8 +19,8 @@
  *   分隔线 → 设置 → 退出登录（error 色）/ 账号登录；房主未登录时底部
  *   追加「登录网易云后全房间可播 VIP」辅助提示
  */
-import { useEffect, useState } from 'react'
-import { Search, User } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { User } from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
 import { useMusicSettingsStore } from '../store-settings'
@@ -64,6 +68,30 @@ const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
   { key: 'mymusic', label: '我的音乐' },
 ]
 
+/** 搜索框四角 L 形边框（Hydrogen .search-border1~4：8px 见方、两条 2px 边） */
+const SEARCH_CORNERS = [
+  'left-0 top-0 border-l-2 border-t-2',
+  'right-0 top-0 border-r-2 border-t-2',
+  'right-0 bottom-0 border-r-2 border-b-2',
+  'left-0 bottom-0 border-l-2 border-b-2',
+] as const
+
+/** 搜索框四角外小方块（Hydrogen .search-border5~8：4px 实心、角点外扩 2px） */
+const SEARCH_DOTS = [
+  '-left-[2px] -top-[2px]',
+  '-right-[2px] -top-[2px]',
+  '-right-[2px] -bottom-[2px]',
+  '-left-[2px] -bottom-[2px]',
+] as const
+
+/** 下拉面板四角框线（Hydrogen .assist-corner1~4：7px 见方、1px 边） */
+const PANEL_CORNERS = [
+  'left-[3px] top-[3px] border-l border-t',
+  'right-[3px] top-[3px] border-r border-t',
+  'right-[3px] bottom-[3px] border-r border-b',
+  'left-[3px] bottom-[3px] border-l border-b',
+] as const
+
 export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const page = useMusicStore((s) => s.page)
   const setPage = useMusicStore((s) => s.setPage)
@@ -85,12 +113,25 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const [keyword, setKeyword] = useState('')
   /** 账户菜单展开态 */
   const [menuOpen, setMenuOpen] = useState(false)
-  /** 搜索联想（设置：搜索下拉条目数量；Hydrogen search-assist） */
+  /** 搜索联想条数上限（设置「搜索下拉条目数量」；Hydrogen searchAssistLimit 同名配置） */
   const searchAssistLimit = useMusicSettingsStore((s) => s.searchAssistLimit)
-  const [assistItems, setAssistItems] = useState<
-    Array<{ id: number; name: string; artist: string }>
-  >([])
-  const [assistOpen, setAssistOpen] = useState(false)
+  /** 聚焦态（驱动容器 150→190px 加宽动画，Hydrogen searchShow 同语义） */
+  const [focused, setFocused] = useState(false)
+  /** 下拉条目（热榜/建议共用关键词列表） */
+  const [assistItems, setAssistItems] = useState<string[]>([])
+  /** 面板模式：空输入 = 热搜榜 / 有输入 = 建议（Hydrogen currentTitle 数据源） */
+  const [assistMode, setAssistMode] = useState<'hot' | 'suggest'>('hot')
+  const [assistLoading, setAssistLoading] = useState(false)
+  /** 键盘/鼠标共用的高亮条目下标（-1 无） */
+  const [activeIndex, setActiveIndex] = useState(-1)
+  /** 中文输入法组合态（期间忽略方向键/回车） */
+  const [isComposing, setIsComposing] = useState(false)
+  /** 热榜单次加载缓存（Hydrogen hotLoaded 同语义，不重复请求） */
+  const hotCacheRef = useRef<string[] | null>(null)
+  /** 建议请求竞态序号（过期响应丢弃） */
+  const requestSeqRef = useRef(0)
+  const searchInputRef = useRef<HTMLInputElement | null>(null)
+  const assistBodyRef = useRef<HTMLDivElement | null>(null)
 
   // 账户菜单打开时点击外部关闭（透明捕获层，同 Hydrogen app-option 交互）
   useEffect(() => {
@@ -100,132 +141,318 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     return () => window.removeEventListener('pointerdown', close)
   }, [menuOpen])
 
-  // 搜索联想：输入防抖 350ms → /cloudsearch 联想建议（数量随设置）。
-  // 空关键词的清空在 onChange 事件内完成（render 期/effect 体内不做同步 setState）
-  useEffect(() => {
-    let cancelled = false
-    const kw = keyword.trim()
-    if (!kw) return
-    const timer = setTimeout(() => {
-      void (async () => {
-        try {
-          const { data } = await apiGet<{
-            result?: {
-              songs?: Array<{
-                id: number
-                name: string
-                artists?: Array<{ name?: string }>
-              }>
-            }
-          }>(
-            `/api/music/ncm/cloudsearch?keywords=${encodeURIComponent(kw)}&limit=${searchAssistLimit}`
-          )
-          if (cancelled) return
-          const songs = Array.isArray(data?.result?.songs)
-            ? data.result.songs
-            : []
-          setAssistItems(
-            songs.slice(0, searchAssistLimit).map((s) => ({
-              id: s.id,
-              name: s.name,
-              artist: (s.artists ?? [])
-                .map((a) => a.name)
-                .filter(Boolean)
-                .join(' / '),
-            }))
-          )
-          setAssistOpen(songs.length > 0)
-        } catch {
-          // 联想失败静默（不阻塞手动回车搜索）
-        }
-      })()
-    }, 350)
-    return () => {
-      cancelled = true
-      clearTimeout(timer)
+  /** 热搜榜拉取（Hydrogen fetchHotList：/search/hot/detail，单次缓存） */
+  const loadHotList = useCallback(async () => {
+    if (hotCacheRef.current) {
+      setAssistMode('hot')
+      setAssistItems(hotCacheRef.current.slice(0, searchAssistLimit))
+      setAssistLoading(false)
+      return
     }
-  }, [keyword, searchAssistLimit])
+    setAssistLoading(true)
+    try {
+      const { data } = await apiGet<{
+        data?: Array<{ searchWord?: string }>
+      }>(`/api/music/ncm/search/hot/detail?timestamp=${Date.now()}`)
+      const words = (Array.isArray(data?.data) ? data.data : [])
+        .map((item) =>
+          typeof item.searchWord === 'string' ? item.searchWord.trim() : ''
+        )
+        .filter(Boolean)
+      hotCacheRef.current = words
+      setAssistItems(words.slice(0, searchAssistLimit))
+      setAssistMode('hot')
+    } catch {
+      setAssistItems([])
+    } finally {
+      setAssistLoading(false)
+    }
+  }, [searchAssistLimit])
 
-  /** 点击联想建议：写入关键词并跳搜索页 */
-  const pickAssist = (name: string) => {
-    setAssistOpen(false)
-    setSearchKeywords(name)
-    setPage('search')
+  /** 建议三源并发合并（Hydrogen fetchSuggestList：mobile → pc → web 顺序去重） */
+  const loadSuggestList = useCallback(
+    async (kw: string) => {
+      const seq = ++requestSeqRef.current
+      setAssistLoading(true)
+      const encoded = encodeURIComponent(kw)
+      const [mobile, pc, web] = await Promise.allSettled([
+        apiGet<{ result?: { allMatch?: Array<{ keyword?: string }> } }>(
+          `/api/music/ncm/search/suggest?keywords=${encoded}&type=mobile&timestamp=${Date.now()}`
+        ),
+        apiGet<{ data?: { suggests?: Array<{ keyword?: string }> } }>(
+          `/api/music/ncm/search/suggest/pc?keyword=${encoded}&timestamp=${Date.now()}`
+        ),
+        apiGet<{ result?: { allMatch?: Array<{ keyword?: string }> } }>(
+          `/api/music/ncm/search/suggest?keywords=${encoded}&type=web&timestamp=${Date.now()}`
+        ),
+      ])
+      // 竞态保护：只接受最新一次请求的结果
+      if (seq !== requestSeqRef.current) return
+      const merged: string[] = []
+      const seen = new Set<string>()
+      const push = (item: { keyword?: string } | undefined) => {
+        const word = item?.keyword?.trim()
+        if (!word || merged.length >= searchAssistLimit) return
+        const key = word.toLowerCase()
+        if (seen.has(key)) return
+        seen.add(key)
+        merged.push(word)
+      }
+      if (mobile.status === 'fulfilled')
+        (mobile.value.data?.result?.allMatch ?? []).forEach(push)
+      if (pc.status === 'fulfilled')
+        (pc.value.data?.data?.suggests ?? []).forEach(push)
+      if (web.status === 'fulfilled')
+        (web.value.data?.result?.allMatch ?? []).forEach(push)
+      setAssistItems(merged)
+      setAssistMode('suggest')
+      setAssistLoading(false)
+    },
+    [searchAssistLimit]
+  )
+
+  // 建议防抖：输入 220ms 后拉建议；清空输入即取消在途请求（Hydrogen
+  // SUGGEST_DEBOUNCE_MS 同值；空输入回退热榜由 focus/onChange 处理）
+  useEffect(() => {
+    const kw = keyword.trim()
+    if (!kw) {
+      requestSeqRef.current++
+      return
+    }
+    const timer = setTimeout(() => {
+      void loadSuggestList(kw)
+    }, 220)
+    return () => clearTimeout(timer)
+  }, [keyword, loadSuggestList])
+
+  // 键盘高亮项滚动跟随（Hydrogen setActiveAssistIndex 的 scrollIntoView）
+  useEffect(() => {
+    if (activeIndex < 0) return
+    assistBodyRef.current
+      ?.querySelector<HTMLElement>(`[data-assist-index="${activeIndex}"]`)
+      ?.scrollIntoView({ block: 'nearest' })
+  }, [activeIndex])
+
+  /** 聚焦：展示面板；空输入拉热榜、有输入刷新建议 */
+  const handleSearchFocus = () => {
+    setFocused(true)
+    setActiveIndex(-1)
+    const kw = keyword.trim()
+    if (kw) void loadSuggestList(kw)
+    else void loadHotList()
   }
 
-  /** 回车搜索：写入关键词并切到搜索页 */
-  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key !== 'Enter' || e.shiftKey) return
-    const kw = keyword.trim()
-    if (!kw) return
-    setAssistOpen(false)
-    setSearchKeywords(kw)
+  /** 失焦：收起面板与高亮 */
+  const handleSearchBlur = () => {
+    setFocused(false)
+    setActiveIndex(-1)
+  }
+
+  /** 执行搜索：写入关键词并跳搜索页（Hydrogen searchInfo 同语义） */
+  const runSearch = (kw: string) => {
+    const value = kw.trim()
+    if (!value) return
+    setKeyword(value)
+    setSearchKeywords(value)
     setPage('search')
+    searchInputRef.current?.blur()
+  }
+
+  /** 键盘导航：↑↓ 循环高亮，Enter 选中高亮项或直接搜索；输入法组合态忽略 */
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (isComposing || e.nativeEvent.isComposing) return
+    const count = assistItems.length
+    if (e.key === 'ArrowDown' && count > 0) {
+      e.preventDefault()
+      setActiveIndex((i) => (i + 1) % count)
+    } else if (e.key === 'ArrowUp' && count > 0) {
+      e.preventDefault()
+      setActiveIndex((i) => (i - 1 + count) % count)
+    } else if (e.key === 'Enter') {
+      const target =
+        activeIndex >= 0 && activeIndex < count
+          ? assistItems[activeIndex]
+          : keyword
+      runSearch(target)
+    }
   }
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：搜索框（widget-search 式描边圆角输入 + 联想下拉）；
-          定宽 224px 与右区对称，保证中间导航组真正水平居中 ===== */}
+      {/* ===== 左：搜索框（Hydrogen SearchInput 一比一）：无圆角无底色，四角
+          L 形 2px 边框 + 四角外 4px 小方块，居中输入、聚焦 150→190px 加宽；
+          下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目。外层定宽 w-56
+          与右区对称，保证中间导航组真正水平居中 ===== */}
       <div className="relative w-56 shrink-0">
         <div
-          className="flex h-9 w-56 items-center gap-1.5 rounded-full border px-3"
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
-            borderColor: 'var(--md-sys-color-outline-variant)',
-          }}
+          className={cn(
+            'absolute left-0 top-1/2 flex h-[26px] -translate-y-1/2 items-center transition-[width] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
+            focused ? 'w-[190px]' : 'w-[150px]'
+          )}
         >
-          <Search
-            className="h-4 w-4 shrink-0"
-            style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-          />
           <input
+            ref={searchInputRef}
             value={keyword}
             onChange={(e) => {
               setKeyword(e.target.value)
-              // 清空输入时同步收起联想（事件内 setState 合规）
+              // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
               if (!e.target.value.trim()) {
-                setAssistItems([])
-                setAssistOpen(false)
+                requestSeqRef.current++
+                if (focused) void loadHotList()
               }
             }}
             onKeyDown={handleSearchKeyDown}
-            onBlur={() => setAssistOpen(false)}
-            placeholder="搜索音乐"
+            onFocus={handleSearchFocus}
+            onBlur={handleSearchBlur}
+            onCompositionStart={() => setIsComposing(true)}
+            onCompositionEnd={() => setIsComposing(false)}
+            placeholder="SEARCH"
             aria-label="搜索音乐"
-            className="min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
-            style={{ color: 'var(--md-sys-color-on-surface)' }}
+            spellCheck={false}
+            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+            style={{
+              color: 'var(--md-sys-color-on-surface)',
+              caretColor: 'var(--md-sys-color-on-surface)',
+            }}
           />
+          {/* 四角 L 形边框（Hydrogen .search-border1~4） */}
+          {SEARCH_CORNERS.map((pos) => (
+            <span
+              key={`corner-${pos}`}
+              aria-hidden="true"
+              className={cn(
+                'pointer-events-none absolute h-2 w-2 border-solid',
+                pos
+              )}
+              style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+            />
+          ))}
+          {/* 四角外小方块（Hydrogen .search-border5~8） */}
+          {SEARCH_DOTS.map((pos) => (
+            <span
+              key={`dot-${pos}`}
+              aria-hidden="true"
+              className={cn('pointer-events-none absolute h-1 w-1', pos)}
+              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
+            />
+          ))}
         </div>
-        {/* 搜索联想下拉（Hydrogen search-assist；条目数随设置） */}
-        {assistOpen && assistItems.length > 0 && (
+
+        {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议） */}
+        {focused && (
           <div
-            className="zen-dropdown-enter absolute left-0 top-11 z-[2001] w-72 overflow-hidden rounded-lg py-1"
+            className="zen-dropdown-enter absolute left-0 top-[34px] z-[2001] w-[260px] px-3 pb-2 pt-[10px]"
             style={{
               backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-surface-container) 96%, transparent)',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+                'color-mix(in srgb, var(--md-sys-color-surface-container) 82%, transparent)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
               border:
-                '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent)',
+                '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
             }}
           >
-            {assistItems.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => pickAssist(item.name)}
-                className="flex w-full items-baseline gap-2 px-3 py-1.5 text-left transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]"
-              >
-                <span className="min-w-0 flex-1 truncate text-sm text-[var(--md-sys-color-on-surface)]">
-                  {item.name}
-                </span>
-                <span className="max-w-[40%] truncate text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  {item.artist}
-                </span>
-              </button>
+            {/* 面板四角框线（Hydrogen .assist-corner1~4） */}
+            {PANEL_CORNERS.map((pos) => (
+              <span
+                key={`panel-corner-${pos}`}
+                aria-hidden="true"
+                className={cn(
+                  'pointer-events-none absolute h-[7px] w-[7px]',
+                  pos
+                )}
+                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+              />
             ))}
+            {/* 头部：标题 + [数量] + 分隔线（Hydrogen .assist-header） */}
+            <div className="flex items-center gap-1">
+              <span
+                className="font-mono text-[11px] font-bold tracking-[1.2px]"
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
+              >
+                {assistMode === 'hot' ? 'HOT SEARCH' : 'SUGGESTIONS'}
+              </span>
+              {assistItems.length > 0 && (
+                <span
+                  className="font-mono text-[11px] tracking-[1px]"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                >
+                  [{assistItems.length}]
+                </span>
+              )}
+              <div
+                className="ml-1 h-px flex-1"
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--md-sys-color-on-surface) 70%, transparent)',
+                }}
+              />
+            </div>
+            {/* 条目区（Hydrogen .assist-body） */}
+            <div
+              ref={assistBodyRef}
+              className="mt-1 max-h-[300px] overflow-y-auto"
+            >
+              {assistLoading ? (
+                <div
+                  className="py-2 font-mono text-[10px] tracking-[1px]"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                >
+                  LOADING...
+                </div>
+              ) : assistItems.length === 0 ? (
+                <div
+                  className="py-2 font-mono text-[10px] tracking-[1px]"
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                >
+                  {assistMode === 'hot' ? 'NO HOT SEARCH' : 'NO SUGGESTION'}
+                </div>
+              ) : (
+                assistItems.map((word, index) => {
+                  const active = index === activeIndex
+                  return (
+                    <button
+                      key={`${word}-${index}`}
+                      type="button"
+                      data-assist-index={index}
+                      onMouseDown={(e) => e.preventDefault()}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onClick={() => runSearch(word)}
+                      className="grid w-full grid-cols-[34px_1fr] items-center bg-no-repeat text-left"
+                      style={{
+                        minHeight: '32px',
+                        backgroundImage:
+                          'linear-gradient(90deg, color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent) 0%, color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent) 100%)',
+                        backgroundSize: active ? '100% 100%' : '0% 100%',
+                        transition:
+                          'background-size .68s cubic-bezier(0.08, 0.88, 0.18, 1), color .28s ease',
+                      }}
+                    >
+                      <span
+                        className="px-2 text-right font-mono text-[10px] tracking-[1px]"
+                        style={{
+                          color: active
+                            ? 'var(--md-sys-color-surface)'
+                            : 'var(--md-sys-color-on-surface-variant)',
+                        }}
+                      >
+                        {String(index + 1).padStart(2, '0')}
+                      </span>
+                      <span
+                        className="min-w-0 truncate pr-3 text-[13px] font-bold"
+                        style={{
+                          color: active
+                            ? 'var(--md-sys-color-surface)'
+                            : 'var(--md-sys-color-on-surface)',
+                        }}
+                      >
+                        {word}
+                      </span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
           </div>
         )}
       </div>
