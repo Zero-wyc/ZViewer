@@ -93,6 +93,11 @@ export function AudioVisualizer({
     }
 
     /** captureStream 旁路 tap：当前主元素 → 独立 AudioContext → analyser */
+    const resumeCtx = () => {
+      if (rig && rig.ctx.state === 'suspended') {
+        void rig.ctx.resume().catch(() => {})
+      }
+    }
     const attachAnalyser = () => {
       const el = getAudioRef.current()
       if (!el || el === attachedElement) return
@@ -120,9 +125,7 @@ export function AudioVisualizer({
         scheduleRetryAttach()
         return
       }
-      if (rig?.ctx.state === 'suspended') {
-        void rig.ctx.resume().catch(() => {})
-      }
+      resumeCtx()
       if (!rig) {
         try {
           const ctx = new Ctor()
@@ -136,6 +139,8 @@ export function AudioVisualizer({
             analyser,
             data: new Uint8Array(new ArrayBuffer(analyser.frequencyBinCount)),
           }
+          // 新建后同样唤醒（无手势上下文创建时会挂起，静音数据主因）
+          resumeCtx()
         } catch {
           scheduleRetryAttach()
           return
@@ -212,6 +217,8 @@ export function AudioVisualizer({
         resetRig()
         attachAnalyser()
       }
+      // 持续唤醒兜底（resume 需用户手势上下文；播放本身即手势驱动）
+      resumeCtx()
       const next = buildLevels()
       if (next) {
         emptyFrames = 0
