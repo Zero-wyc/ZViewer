@@ -21,6 +21,7 @@
  * 打开时宽→高依次展开。
  */
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { Check, Loader2, Plus } from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
@@ -182,7 +183,10 @@ export function AddToPlaylistModal({
 
   if (!open || !song) return null
 
-  return (
+  // createPortal 到 body：避免被 MusicWidgetBar 的 glass-card（backdrop-filter
+  // 祖先）包裹 —— backdrop-filter 祖先会成为后代的 backdrop root，
+  // 导致面板模糊无法采样到页面背景而丢失
+  return createPortal(
     /* 全屏蒙层（半透明压暗，仅捕捉点击关闭） */
     <div
       className="fixed inset-0 z-[90]"
@@ -438,6 +442,7 @@ export function AddToPlaylistModal({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
