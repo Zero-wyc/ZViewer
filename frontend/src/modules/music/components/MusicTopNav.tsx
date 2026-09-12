@@ -262,61 +262,65 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
 
   return (
     <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
-      {/* ===== 左：ZMUSIC 标识 + 搜索框（项目玻璃拟态语言）：glass 底 +
-          主题模糊度 + 圆角描边，聚焦 150→190px 加宽；居中输入。下拉面板
-          （热榜/建议）毛玻璃 + 四角框线 + 序号条目 ===== */}
-      <span
-        aria-hidden="true"
-        className="shrink-0 select-none pr-1 text-[15px] font-extrabold italic tracking-[3px]"
-        style={{ color: 'var(--md-sys-color-on-surface)' }}
-        title="ZMUSIC"
-      >
-        ZMUSIC
-      </span>
-      <div className="relative shrink-0">
-        <div
-          className={cn(
-            'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
-            focused ? 'w-[260px]' : 'w-[220px]'
-          )}
-          style={{
-            borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
-            borderColor: focused
-              ? 'var(--md-sys-color-primary)'
-              : 'var(--glass-border)',
-          }}
-        >
-          <input
-            ref={searchInputRef}
-            value={keyword}
-            onChange={(e) => {
-              setKeyword(e.target.value)
-              // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
-              if (!e.target.value.trim()) {
-                requestSeqRef.current++
-                if (focused) void loadHotList()
-              }
-            }}
-            onKeyDown={handleSearchKeyDown}
-            onFocus={handleSearchFocus}
-            onBlur={handleSearchBlur}
-            onCompositionStart={() => setIsComposing(true)}
-            onCompositionEnd={() => setIsComposing(false)}
-            placeholder="SEARCH"
-            aria-label="搜索音乐"
-            spellCheck={false}
-            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+      {/* ===== 左：网易云图标 + 搜索框。搜索框（项目玻璃拟态语言）：
+          glass 底 + 主题模糊度 + 圆角描边，聚焦 150→190px 加宽；居中输入。
+          下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目。外层定宽 w-56
+          与右区对称，保证中间导航组真正水平居中 ===== */}
+      <div className="relative flex w-56 shrink-0 items-center gap-2.5">
+        {/* 网易云图标（Hydrogen netease-music.png 同资源，标注音源） */}
+        <img
+          src="/netease-music.png"
+          alt="网易云音乐"
+          title="网易云音乐"
+          className="h-6 w-6 shrink-0"
+          draggable={false}
+        />
+        <div className="relative flex-1">
+          <div
+            className={cn(
+              'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
+              focused ? 'w-full' : 'w-[calc(100%-8px)]'
+            )}
             style={{
-              color: 'var(--md-sys-color-on-surface)',
-              caretColor: 'var(--md-sys-color-on-surface)',
+              borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
+              borderColor: focused
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--glass-border)',
             }}
-          />
+          >
+            <input
+              ref={searchInputRef}
+              value={keyword}
+              onChange={(e) => {
+                setKeyword(e.target.value)
+                // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
+                if (!e.target.value.trim()) {
+                  requestSeqRef.current++
+                  if (focused) void loadHotList()
+                }
+              }}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              placeholder="SEARCH"
+              aria-label="搜索音乐"
+              spellCheck={false}
+              className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+              style={{
+                color: 'var(--md-sys-color-on-surface)',
+                caretColor: 'var(--md-sys-color-on-surface)',
+              }}
+            />
+          </div>
         </div>
 
-        {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议） */}
+        {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议），
+            锚定在网易云图标右侧的搜索框起点 */}
         {focused && (
           <div
-            className="zen-dropdown-enter absolute left-0 top-[34px] z-[2001] w-[260px] px-3 pb-2 pt-[10px]"
+            className="zen-dropdown-enter absolute left-[34px] top-[34px] z-[2001] w-[260px] px-3 pb-2 pt-[10px]"
             style={{
               backgroundColor:
                 'color-mix(in srgb, var(--md-sys-color-surface-container) 82%, transparent)',
