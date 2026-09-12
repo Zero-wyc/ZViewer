@@ -143,27 +143,84 @@ export function PlayerLyricPanel({
     )
   }, [])
 
-  /** 补偿式平滑滚动：scrollTop 瞬时到位 + 内容层反向位移补偿（580ms 回落） */
-  const animateScrollTo = useCallback((targetTop: number) => {
-    const container = scrollRef.current
+  /** 读取内容层当前实际 translateY（含 WAAPI 动画进行中的插值）。
+   *  Hydrogen getLyricContentVisualShiftY 同款：优先 DOMMatrix，回退矩阵解析 */
+  const getContentShiftY = useCallback((): number => {
     const content = contentRef.current
-    if (!container || !content) return
-    const delta = container.scrollTop - targetTop
-    if (Math.abs(delta) < SCROLL_SYNC_TOLERANCE_PX) return
-    scrollAnimRef.current?.cancel()
-    container.scrollTop = targetTop
-    scrollAnimRef.current = content.animate(
-      [
-        { transform: `translate3d(0, ${delta}px, 0)` },
-        { transform: 'translate3d(0, 0, 0)' },
-      ],
-      {
-        duration: AUTO_SCROLL_DURATION_MS,
-        easing: AUTO_SCROLL_EASING,
-        fill: 'both',
+    if (!content) return 0
+    const transform = getComputedStyle(content).transform
+    if (!transform || transform === 'none') return 0
+    try {
+      if (typeof DOMMatrixReadOnly === 'function') {
+        return new DOMMatrixReadOnly(transform).m42 || 0
       }
-    )
+    } catch {
+      // fall through
+    }
+    const m3d = transform.match(/^matrix3d\((.+)\)$/)
+    if (m3d) {
+      const v = m3d[1].split(',').map((s) => Number(s.trim()))
+      return Number.isFinite(v[13]) ? v[13] : 0
+    }
+    const m = transform.match(/^matrix\((.+)\)$/)
+    if (m) {
+      const v = m[1].split(',').map((s) => Number(s.trim()))
+      return Number.isFinite(v[5]) ? v[5] : 0
+    }
+    return 0
   }, [])
+
+  /** 取消进行中的补偿动画，preserveVisualPosition 时先把剩余位移固化进
+   *  scrollTop（视觉位置不变）；Hydrogen cancelLyricScrollMotion 同款 */
+  const cancelScrollAnim = useCallback(
+    (preserveVisualPosition: boolean) => {
+      const container = scrollRef.current
+      const prevAnim = scrollAnimRef.current
+      if (!prevAnim) return
+      if (preserveVisualPosition && container) {
+        const shiftY = getContentShiftY()
+        if (Math.abs(shiftY) > 0.1) {
+          container.scrollTop = Math.max(0, container.scrollTop - shiftY)
+        }
+      }
+      try {
+        prevAnim.cancel()
+      } catch {
+        // ignore：已结束/已取消
+      }
+      scrollAnimRef.current = null
+    },
+    [getContentShiftY]
+  )
+
+  /** 补偿式平滑滚动：scrollTop 瞬时到位 + 内容层反向位移补偿（580ms 回落）。
+   *  取消进行中的旧动画前先把其剩余位移固化进 scrollTop（视觉不变），
+   *  保证任意时刻打断无跳变——含 React StrictMode 下 layoutEffect 双执行：
+   *  第二次调用把刚创建动画的初始位移固化回 scrollTop，再以相同 delta
+   *  重建动画，幂等无跳变 */
+  const animateScrollTo = useCallback(
+    (targetTop: number) => {
+      const container = scrollRef.current
+      const content = contentRef.current
+      if (!container || !content) return
+      cancelScrollAnim(true)
+      const delta = container.scrollTop - targetTop
+      if (Math.abs(delta) < SCROLL_SYNC_TOLERANCE_PX) return
+      container.scrollTop = targetTop
+      scrollAnimRef.current = content.animate(
+        [
+          { transform: `translate3d(0, ${delta}px, 0)` },
+          { transform: 'translate3d(0, 0, 0)' },
+        ],
+        {
+          duration: AUTO_SCROLL_DURATION_MS,
+          easing: AUTO_SCROLL_EASING,
+          fill: 'both',
+        }
+      )
+    },
+    [cancelScrollAnim]
+  )
 
   // activeIndex 变化 → 自动跟随滚动。必须用 useLayoutEffect（DOM commit 后、
   // 浏览器 paint 前同步执行，等价 Hydrogen watch flush:'post' 的"DOM patch 后
@@ -178,18 +235,21 @@ export function PlayerLyricPanel({
     animateScrollTo(target)
   }, [activeIndex, manualMode, revealed, computeTargetTop, animateScrollTo])
 
-  // 切歌（lines 变化）时重置同步缓存并取消进行中的补偿动画（ref 操作）
+  // 切歌（lines 变化）时重置同步缓存并取消进行中的补偿动画（ref 操作；
+  // 面板此时处于防闪烁隐藏态，无需视觉固位）
   useEffect(() => {
     lastSyncedIndexRef.current = -1
-    scrollAnimRef.current?.cancel()
-  }, [lines])
+    cancelScrollAnim(false)
+  }, [lines, cancelScrollAnim])
 
   // 手动滚动：wheel 打断动画 + 进入手动模式，空闲 1s 后强制回到当前行
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
     const handleWheel = () => {
-      scrollAnimRef.current?.cancel()
+      // 视觉固位取消：用户手动滚动打断动画时不发生列表跳变
+      // （Hydrogen enterManualScrollMode preserveVisualPosition 同款）
+      cancelScrollAnim(true)
       setManualMode(true)
       if (manualTimerRef.current) clearTimeout(manualTimerRef.current)
       manualTimerRef.current = setTimeout(() => {
@@ -207,7 +267,7 @@ export function PlayerLyricPanel({
       container.removeEventListener('wheel', handleWheel)
       if (manualTimerRef.current) clearTimeout(manualTimerRef.current)
     }
-  }, [computeTargetTop, animateScrollTo])
+  }, [computeTargetTop, animateScrollTo, cancelScrollAnim])
 
   // 间奏等待（Hydrogen handleInterludeOnIndexChange/OnProgress 的等价实现）：
   // 当前行结束到下一行的间隔 ≥ 阈值（设置：歌词间奏等待时间）时展示倒计时，
