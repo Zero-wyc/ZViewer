@@ -46,6 +46,12 @@ import { PlayerLyricPanel } from './PlayerLyricPanel'
 import { MusicQueuePopup } from './MusicQueuePopup'
 import { EqBars } from './SongRow'
 import {
+  SongCommentsPanel,
+  COMMENT_TOTAL_EVENT,
+  getCommentCountBadge,
+  getCommentTargetKey,
+} from './SongCommentsPanel'
+import {
   ControlNextIcon,
   ControlPauseIcon,
   ControlPlayIcon,
@@ -93,6 +99,11 @@ interface NcmLikelistResponse {
 
 /** syncNotice 自动消失时长（毫秒） */
 const SYNC_NOTICE_AUTO_DISMISS_MS = 5000
+
+/** 评论数徽章胶囊宽度（Hydrogen commentCountBadgeWidth 简化：首字符 13.8，后续每字符约 +7） */
+function badgeWidth(text: string): number {
+  return 13.8 + Math.max(0, text.length - 1) * 7
+}
 
 /** 歌词高亮提前量（秒）：接近下一行时间标签前即切换高亮 */
 const LYRIC_ADVANCE_SEC = 0.2
@@ -192,6 +203,18 @@ function ListenTogetherInner({
 
   const songId = currentSong?.songId
   const cover = currentSong?.cover
+
+  // ===== 右面板模式（Hydrogen rightPanelMode：0 歌词 / 1 评论区） =====
+  const [rightPanelMode, setRightPanelMode] = useState<0 | 1>(0)
+  /** 评论数徽章（SongCommentsPanel 广播缓存，万位缩写） */
+  const [commentBadge, setCommentBadge] = useState('0')
+  useEffect(() => {
+    const refresh = () =>
+      setCommentBadge(getCommentCountBadge(getCommentTargetKey(songId ?? -1)))
+    refresh()
+    window.addEventListener(COMMENT_TOTAL_EVENT, refresh)
+    return () => window.removeEventListener(COMMENT_TOTAL_EVENT, refresh)
+  }, [songId])
 
   // ===== 歌词加载状态（区分 无歌词/纯音乐/正常 三态 + 首帧防闪烁） =====
   const [lyricLines, setLyricLines] = useState<LyricLine[]>([])
@@ -733,6 +756,83 @@ function ListenTogetherInner({
                   <PlayModeIcon className="h-[2.5vh] w-[2.5vh]" />
                 </button>
               )}
+              {/* 歌词/评论切换（Hydrogen comment-icon：气泡 + 数量胶囊徽章） */}
+              {songId != null && songId > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setRightPanelMode((v) => (v === 0 ? 1 : 0))}
+                  className="relative flex h-[2.5vh] w-[2.5vh] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
+                  style={{
+                    color:
+                      rightPanelMode === 1
+                        ? 'var(--md-sys-color-on-surface)'
+                        : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                  title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}
+                  aria-label="切换歌词/评论区"
+                >
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="h-full w-full overflow-visible"
+                    aria-hidden="true"
+                  >
+                    <path
+                      d="M6.4 5.5h8.3a2.8 2.8 0 0 1 2.8 2.8v5a2.8 2.8 0 0 1-2.8 2.8H9.3l-3.8 3v-3h-.3a2.8 2.8 0 0 1-2.8-2.8v-5a2.8 2.8 0 0 1 2.8-2.8h1.2z"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      opacity={rightPanelMode === 1 ? 1 : 0.5}
+                    />
+                    <line
+                      x1="7.2"
+                      y1="9.9"
+                      x2="13.3"
+                      y2="9.9"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      strokeLinecap="round"
+                      opacity={rightPanelMode === 1 ? 1 : 0.5}
+                    />
+                    <line
+                      x1="7.2"
+                      y1="12.6"
+                      x2="11.4"
+                      y2="12.6"
+                      stroke="currentColor"
+                      strokeWidth={1.5}
+                      strokeLinecap="round"
+                      opacity={rightPanelMode === 1 ? 1 : 0.5}
+                    />
+                    {/* 评论数徽章（Hydrogen comment-count-pill） */}
+                    {commentBadge !== '0' && (
+                      <>
+                        <rect
+                          x={24 - badgeWidth(commentBadge)}
+                          y={0.7}
+                          width={badgeWidth(commentBadge)}
+                          height={9.2}
+                          rx={4.6}
+                          fill="var(--md-sys-color-on-surface)"
+                          opacity={0.96}
+                        />
+                        <text
+                          x={24 - badgeWidth(commentBadge) / 2}
+                          y={5.35}
+                          textAnchor="middle"
+                          dominantBaseline="middle"
+                          fill="var(--md-sys-color-surface)"
+                          fontSize={6.8}
+                          fontWeight={700}
+                        >
+                          {commentBadge}
+                        </text>
+                      </>
+                    )}
+                  </svg>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setQueuePopupOpen(true)}
@@ -983,24 +1083,29 @@ function ListenTogetherInner({
           </div>
 
           {/* ===== 右侧歌词面板（Hydrogen .right-panel：宽度固定计算
-              calc(100% - 42vh - 50px)，卡片入场动画展开时面板保持不动） ===== */}
+              calc(100% - 42vh - 50px)，卡片入场动画展开时面板保持不动；
+              评论模式下整区替换为歌曲评论区，Hydrogen rightPanelMode=1） ===== */}
           <div className="ml-[50px] flex h-full w-[calc(100%-42vh-50px)] min-w-0 flex-col">
-            <PlayerLyricPanel
-              lines={lyricLines}
-              activeIndex={activeLyricIndex}
-              positionSec={positionSec}
-              emptyMode={emptyMode}
-              revealed={lyricRevealed}
-              showTranslation={showTranslation}
-              showOriginal={lyricOriginal}
-              showRoman={lyricRoma}
-              lyricSize={lyricSize}
-              tlyricSize={tlyricSize}
-              rlyricSize={rlyricSize}
-              interludeThresholdSec={lyricInterlude}
-              lyricBlur={lyricBlur}
-              onSeek={handleLyricSeek}
-            />
+            {rightPanelMode === 1 ? (
+              <SongCommentsPanel />
+            ) : (
+              <PlayerLyricPanel
+                lines={lyricLines}
+                activeIndex={activeLyricIndex}
+                positionSec={positionSec}
+                emptyMode={emptyMode}
+                revealed={lyricRevealed}
+                showTranslation={showTranslation}
+                showOriginal={lyricOriginal}
+                showRoman={lyricRoma}
+                lyricSize={lyricSize}
+                tlyricSize={tlyricSize}
+                rlyricSize={rlyricSize}
+                interludeThresholdSec={lyricInterlude}
+                lyricBlur={lyricBlur}
+                onSeek={handleLyricSeek}
+              />
+            )}
           </div>
         </div>
       )}
