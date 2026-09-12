@@ -18,7 +18,7 @@
  * 评论总数写入模块缓存（getCommentCountBadge 供播放器切换按钮徽章）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
@@ -37,9 +37,15 @@ interface NcmComment {
   showFloorComment?: { replyCount?: number }
 }
 
-/** /comment/new 响应（后端通用转发原样返回 NCM 结构） */
+/** /comment/new 响应（后端通用转发原样返回 NCM 结构；新版接口包 data 层） */
 interface CommentNewResponse {
   code?: number
+  data?: {
+    comments?: NcmComment[]
+    totalCount?: number
+    hasMore?: boolean
+    cursor?: string
+  }
   comments?: NcmComment[]
   totalCount?: number
   hasMore?: boolean
@@ -495,13 +501,29 @@ export function SongCommentsPanel() {
             latest.status === 'fulfilled' ? latest.value.data : null
           const hotRes = hot.status === 'fulfilled' ? hot.value.data : null
 
-          if (latestRes && latestRes.code === 200) {
-            setComments(latestRes.comments ?? [])
-            setTotal(toPositiveInt(latestRes.totalCount))
-            setHasMore(!!latestRes.hasMore)
-            hasMoreRef.current = !!latestRes.hasMore
+          // 归一化（Hydrogen normalizeCommentNewResponse /comment 新版接口把
+          // comments/totalCount/hasMore/cursor 包在 data 字段内）
+          const latestBody =
+            latestRes && typeof latestRes === 'object'
+              ? (latestRes.data ?? latestRes)
+              : null
+          const hotBody =
+            hotRes && typeof hotRes === 'object'
+              ? (hotRes.data ?? hotRes)
+              : null
+
+          if (
+            latestRes &&
+            latestRes.code === 200 &&
+            latestBody &&
+            Array.isArray(latestBody.comments)
+          ) {
+            setComments(latestBody.comments)
+            setTotal(toPositiveInt(latestBody.totalCount))
+            setHasMore(!!latestBody.hasMore)
+            hasMoreRef.current = !!latestBody.hasMore
             paginationRef.current = {
-              cursor: latestRes.cursor ?? '',
+              cursor: latestBody.cursor ?? '',
               pageNo: 2,
             }
             succeeded = true
@@ -512,8 +534,13 @@ export function SongCommentsPanel() {
             hasMoreRef.current = false
             paginationRef.current = { cursor: '', pageNo: 1 }
           }
-          if (hotRes && hotRes.code === 200) {
-            setHotComments(hotRes.comments ?? [])
+          if (
+            hotRes &&
+            hotRes.code === 200 &&
+            hotBody &&
+            Array.isArray(hotBody.comments)
+          ) {
+            setHotComments(hotBody.comments)
             succeeded = true
           } else {
             setHotComments([])
@@ -523,9 +550,16 @@ export function SongCommentsPanel() {
           const res = await apiGet<CommentNewResponse>(
             `/api/music/ncm/comment/new?id=${songId}&type=0&sortType=3&pageSize=${COMMENTS_PAGE_SIZE}&pageNo=${pageNo}${cursor ? `&cursor=${cursor}` : ''}&timestamp=${Date.now()}`
           )
-          const body = res.data
-          if (body && body.code === 200) {
-            const incoming = body.comments ?? []
+          const outer = res.data
+          const body =
+            outer && typeof outer === 'object' ? (outer.data ?? outer) : null
+          if (
+            outer &&
+            outer.code === 200 &&
+            body &&
+            Array.isArray(body.comments)
+          ) {
+            const incoming = body.comments
             setComments((prev) => [...prev, ...incoming])
             setTotal(toPositiveInt(body.totalCount))
             const next = !!body.hasMore && incoming.length > 0
@@ -585,15 +619,9 @@ export function SongCommentsPanel() {
     }
     setSubmitting(true)
     try {
-      const { data } = await apiPost<{ code?: number }>(
-        `/api/music/ncm/comment?timestamp=${Date.now()}`,
-        {
-          id: songId,
-          content,
-          t: 1,
-          type: 0,
-          ...(replyingTo ? { commentId: replyingTo.comment.commentId } : {}),
-        }
+      // Hydrogen postMusicComment 实际走 GET /comment（t:1 发送 / type:0 歌曲）
+      const { data } = await apiGet<{ code?: number }>(
+        `/api/music/ncm/comment?id=${songId}&content=${encodeURIComponent(content)}&t=1&type=0${replyingTo ? `&commentId=${replyingTo.comment.commentId}` : ''}&timestamp=${Date.now()}`
       )
       if (data && data.code === 200) {
         message.success('评论发送成功')
