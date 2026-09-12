@@ -13,10 +13,10 @@
  * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
- * - 账户菜单（M3 menu 规范）：surface-container 底 + elevation-2 阴影 +
- *   4dp 圆角；账号信息行（头像+昵称）→ 分隔线 → 房间模式分组（一起看/
- *   投屏/一起听，当前项 trailing check，房主可切换、观众只读展示）→
- *   分隔线 → 设置 → 退出登录（error 色）/ 账号登录；房主未登录时底部
+ * - 账户菜单（玻璃拟态 glass-card）：半透明底 + 主题模糊度 backdrop-filter +
+ *   细描边 + 四角点装饰；账号信息行（头像+昵称）→ 分隔线 → 房间模式分组
+ *   （一起看/投屏/一起听，当前项实心方块指示，房主可切换、观众只读展示）→
+ *   分隔线 → 设置 → 退出登录 / 账号登录；房主未登录时底部
  *   追加「登录网易云后全房间可播 VIP」辅助提示
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -514,24 +514,24 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
           )}
         </button>
 
-        {/* app-option 菜单（Hydrogen 深色底 + 四角白点装饰，与底板 UI 同语言）：
+        {/* app-option 菜单（玻璃拟态 glass-card + 四角点装饰）：
             账号信息行 → 房间模式分组 → 设置 → 退出登录/账号登录 */}
         {menuOpen && (
           <div
-            className="zen-dropdown-enter absolute right-0 top-11 z-[2001] w-[168px] origin-top-right"
-            style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent)',
-            }}
+            className="zen-dropdown-enter glass-card absolute right-0 top-11 z-[2001] w-[168px] origin-top-right"
+            style={{ boxShadow: '0 8px 24px rgba(0, 0, 0, 0.18)' }}
             role="menu"
             onPointerDown={(e) => e.stopPropagation()}
           >
-            {/* 四角白点装饰（Hydrogen option-style 标志元素） */}
+            {/* 四角点装饰（Hydrogen option-style 标志元素） */}
             {CORNER_DOTS.map((pos) => (
               <span
                 key={pos}
                 className={cn('absolute h-1 w-1', pos)}
-                style={{ backgroundColor: 'var(--md-sys-color-surface)' }}
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--md-sys-color-on-surface) 65%, transparent)',
+                }}
                 aria-hidden="true"
               />
             ))}
@@ -550,12 +550,12 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 ) : (
                   <User
                     className="h-4 w-4 shrink-0"
-                    style={{ color: 'var(--md-sys-color-surface)' }}
+                    style={{ color: 'var(--md-sys-color-on-surface)' }}
                   />
                 )}
                 <span
                   className="min-w-0 flex-1 truncate text-xs font-medium"
-                  style={{ color: 'var(--md-sys-color-surface)' }}
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
                 >
                   {loginStatus.loggedIn
                     ? (loginStatus.nickname ?? '已登录')
@@ -566,7 +566,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 className="mx-2 my-1 h-px"
                 style={{
                   backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-surface) 14%, transparent)',
+                    'color-mix(in srgb, var(--md-sys-color-on-surface) 14%, transparent)',
                 }}
               />
 
@@ -577,7 +577,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                     className="px-3.5 pb-1 text-[10px] font-medium tracking-wide"
                     style={{
                       color:
-                        'color-mix(in srgb, var(--md-sys-color-surface) 60%, transparent)',
+                        'color-mix(in srgb, var(--md-sys-color-on-surface) 60%, transparent)',
                     }}
                   >
                     房间模式
@@ -596,14 +596,14 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                           className={cn(
                             'flex h-8 w-full items-center gap-2 px-3.5 text-left text-xs font-medium transition-colors',
                             !active &&
-                              'hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]',
+                              'hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]',
                             roomModeMenu.isSwitching &&
                               'cursor-not-allowed opacity-60'
                           )}
                           style={{
                             color: active
-                              ? 'var(--md-sys-color-surface)'
-                              : 'color-mix(in srgb, var(--md-sys-color-surface) 62%, transparent)',
+                              ? 'var(--md-sys-color-on-surface)'
+                              : 'color-mix(in srgb, var(--md-sys-color-on-surface) 62%, transparent)',
                           }}
                         >
                           {/* 当前模式实心小方块指示（Hydrogen 选中标记语言） */}
@@ -611,7 +611,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                             className={cn(MODE_MARKER, 'shrink-0')}
                             style={{
                               backgroundColor: active
-                                ? 'var(--md-sys-color-surface)'
+                                ? 'var(--md-sys-color-on-surface)'
                                 : 'transparent',
                             }}
                             aria-hidden="true"
@@ -627,14 +627,14 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                       className="flex h-8 items-center gap-2 px-3.5 text-xs font-medium"
                       style={{
                         color:
-                          'color-mix(in srgb, var(--md-sys-color-surface) 80%, transparent)',
+                          'color-mix(in srgb, var(--md-sys-color-on-surface) 80%, transparent)',
                       }}
                       title="由房主控制模式切换"
                     >
                       <span
                         className={cn(MODE_MARKER, 'shrink-0')}
                         style={{
-                          backgroundColor: 'var(--md-sys-color-surface)',
+                          backgroundColor: 'var(--md-sys-color-on-surface)',
                         }}
                         aria-hidden="true"
                       />
@@ -647,7 +647,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                     className="mx-2 my-1 h-px"
                     style={{
                       backgroundColor:
-                        'color-mix(in srgb, var(--md-sys-color-surface) 14%, transparent)',
+                        'color-mix(in srgb, var(--md-sys-color-on-surface) 14%, transparent)',
                     }}
                   />
                 </>
@@ -656,8 +656,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               {/* 设置（Hydrogen app-option 菜单同名入口） */}
               <button
                 type="button"
-                className="flex h-8 w-full items-center px-3.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
-                style={{ color: 'var(--md-sys-color-surface)' }}
+                className="flex h-8 w-full items-center px-3.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
+                style={{ color: 'var(--md-sys-color-on-surface)' }}
                 onClick={() => {
                   setMenuOpen(false)
                   setPage('settings')
@@ -669,8 +669,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               {loginStatus.loggedIn ? (
                 <button
                   type="button"
-                  className="flex h-8 w-full items-center px-3.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
-                  style={{ color: 'var(--md-sys-color-surface)' }}
+                  className="flex h-8 w-full items-center px-3.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
                   onClick={() => {
                     setMenuOpen(false)
                     // 退出登录：删除后端持久化凭证并清空本地登录态
@@ -685,8 +685,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               ) : (
                 <button
                   type="button"
-                  className="flex h-8 w-full items-center px-3.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-surface)_14%,transparent)]"
-                  style={{ color: 'var(--md-sys-color-surface)' }}
+                  className="flex h-8 w-full items-center px-3.5 text-left text-xs font-medium transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
                   onClick={() => {
                     setMenuOpen(false)
                     setLoginModalOpen(true)
@@ -701,7 +701,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   className="px-3.5 pb-1 pt-1.5 text-[10px] leading-snug"
                   style={{
                     color:
-                      'color-mix(in srgb, var(--md-sys-color-surface) 55%, transparent)',
+                      'color-mix(in srgb, var(--md-sys-color-on-surface) 55%, transparent)',
                   }}
                 >
                   登录网易云后全房间可播 VIP
