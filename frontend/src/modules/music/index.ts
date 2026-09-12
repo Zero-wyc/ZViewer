@@ -18,7 +18,7 @@
  * ├── pages/
  * │   ├── MusicHomePage.tsx       首页（Banner + 每日推荐 + 最新音乐 + 推荐区块）
  * │   ├── MusicSearchPage.tsx     搜索页（cloudsearch + SongRow 列表）
- * │   ├── MusicDailyPage.tsx      每日推荐（需登录）
+ * │   ├── MusicDailyPage.tsx      每日推荐面板（嵌入我的音乐详情区，需登录）
  * │   ├── MusicFmPage.tsx         私人漫游（Hydrogen PersonalFM 范式）
  * │   ├── MusicMyPage.tsx         我的音乐（左侧栏 + 详情视图）
  * │   ├── MusicCloudPage.tsx      云盘（simpleSong → SongRow）

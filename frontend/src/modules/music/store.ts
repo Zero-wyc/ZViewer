@@ -19,7 +19,7 @@ import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 
 /** 主区域页面标识（MusicAppShell 内容区多页切换） */
 export type MusicPage =
-  'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'daily' | 'settings'
+  'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'settings'
 
 /** 构造队列条目的权威 key（`ncm:<songId>`） */
 export function musicItemKey(item: MusicQueueItem): string {

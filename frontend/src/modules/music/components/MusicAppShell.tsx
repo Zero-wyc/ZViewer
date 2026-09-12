@@ -28,7 +28,6 @@ import { MusicSideDock } from './MusicSideDock'
 import { MusicQrLoginModal } from './MusicQrLoginModal'
 import { MusicHomePage } from '../pages/MusicHomePage'
 import { MusicSearchPage } from '../pages/MusicSearchPage'
-import { MusicDailyPage } from '../pages/MusicDailyPage'
 import { MusicFmPage } from '../pages/MusicFmPage'
 import { MusicMyPage } from '../pages/MusicMyPage'
 import { MusicCloudPage } from '../pages/MusicCloudPage'
@@ -214,7 +213,6 @@ function ShellInner({
       <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
         {page === 'home' && <MusicHomePage {...pageProps} />}
         {page === 'search' && <MusicSearchPage {...pageProps} />}
-        {page === 'daily' && <MusicDailyPage {...pageProps} />}
         {page === 'fm' && (
           <MusicFmPage socket={socket} roomId={roomId} canManage={canManage} />
         )}

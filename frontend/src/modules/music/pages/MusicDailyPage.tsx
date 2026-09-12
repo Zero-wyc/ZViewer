@@ -1,5 +1,7 @@
 /**
- * 每日推荐页（Hydrogen RecommendSongs.vue 一比一复刻）。
+ * 每日推荐面板（Hydrogen RecommendSongs.vue 一比一复刻；Hydrogen 的
+ * /mymusic/playlist/rec 在 ZViewer 中作为「我的音乐」详情区面板：
+ * 见 MusicMyPage 的 rec 详情分支，主页每日推荐卡片跳转打开）。
  *
  * 结构复刻：
  * - 头部：h1「每日推荐歌曲」+ 副标「根据你的音乐口味生成，每天6:00更新」
@@ -12,7 +14,7 @@
  *
  * 播放逻辑复刻（Hydrogen play / playAll 的 ZViewer 范式映射）：
  * - 单首歌（hover 播放按钮 / 双击行）：若是当前播放曲目则 togglePlay
- *   暂停/恢复，否则 queue-upsert 入队 → playSong 立即播放（shouldBlockRestrictedPlayback 同款 VIP 拦截）
+ *   暂停/恢复，否则 queue-upsert 入队 → playSong 立即播放
  * - 播放全部：addToList('rec') → addSong 首首 的 ZViewer 语义 =
  *   全量入队 → playSong 首首播放
  *
@@ -34,7 +36,7 @@ import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
 import { MusicLoginGate } from './MusicLoginGate'
 
-export interface MusicDailyPageProps {
+export interface MusicDailyPanelProps {
   socket: Socket | null
   roomId?: string
   /** 队列管理权限（房主/房管）才能添加歌曲 */
@@ -285,26 +287,13 @@ html.dark .zrec-container {
 }
 `
 
-/** 独立页面：内容包一层页面级内边距容器 */
-export function MusicDailyPage({
-  socket,
-  roomId,
-  canManage,
-}: MusicDailyPageProps) {
-  return (
-    <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
-      <MusicDailyPanel socket={socket} roomId={roomId} canManage={canManage} />
-    </div>
-  )
-}
-
-/** 每日推荐内容面板（可独立页面展示，也可嵌入「我的音乐」右侧详情区；
+/** 每日推荐内容面板（嵌入「我的音乐」右侧详情区；
     Hydrogen 路由 /mymusic/playlist/rec 的等价形态） */
 export function MusicDailyPanel({
   socket,
   roomId,
   canManage,
-}: MusicDailyPageProps) {
+}: MusicDailyPanelProps) {
   const loginStatus = useMusicStore((s) => s.loginStatus)
   const currentKey = useMusicStore((s) => s.currentKey)
   const { add } = useQueueAdd(socket, roomId, canManage)
