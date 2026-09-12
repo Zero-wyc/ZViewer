@@ -525,8 +525,10 @@ function DailyRecommendation() {
         卡高 13.6vw，两行大字 3.2vw×1.22×2 ≈ 7.8vw 垂直居中 → 上下各余 ≈2.9vw；
         角标 1.8vw 从 top/bottom 0.9vw 到 2.7vw，与文字区不侵入；
         文字容器 px-[1.7vw] 让行端避让角标水平延伸。
+        注意：左区必须 self-stretch 占满整卡高度，角标 top/bottom 才是相对
+        卡片边缘定位（外层 items-center 会把容器收缩为文字高度导致重叠）。
       */}
-      <div className="relative ml-[2vw] flex w-[50%] min-w-0 items-center justify-center px-[1.7vw]">
+      <div className="relative ml-[2vw] flex w-[50%] min-w-0 items-center self-stretch justify-center px-[1.7vw]">
         {/* 上 L 形角标（rec-title-border1） */}
         <span
           className="absolute left-0 top-[0.9vw] h-[1.8vw] w-[1.8vw] border-l-2 border-t-2"
