@@ -513,11 +513,15 @@ function RoomPage() {
   }
 
   // 观众：统一由 WatchPage 处理加入与模式切换
+  // 一起听模式（Beta 开启）：WatchPage 渲染 MusicAppShell，其内嵌的
+  // MusicSideDock（右缘竖线把手 hover 滑出）已包含语音聊天 / 房间状态 /
+  // 流量统计三面板；不再叠加独立悬浮面板，与房主端同形态
+  const audienceInMusic = mode === 'listen-together' && betaFeaturesEnabled
   return (
     <>
       <WatchPage />
-      {voiceChatPanel}
-      {trafficPanel}
+      {!audienceInMusic && voiceChatPanel}
+      {!audienceInMusic && trafficPanel}
     </>
   )
 }
