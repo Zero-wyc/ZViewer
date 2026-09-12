@@ -270,7 +270,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
         <div
           className={cn(
             'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
-            focused ? 'w-[190px]' : 'w-[150px]'
+            focused ? 'w-[260px]' : 'w-[220px]'
           )}
           style={{
             borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
@@ -295,10 +295,10 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
             onBlur={handleSearchBlur}
             onCompositionStart={() => setIsComposing(true)}
             onCompositionEnd={() => setIsComposing(false)}
-            placeholder="搜索音乐"
+            placeholder="SEARCH"
             aria-label="搜索音乐"
             spellCheck={false}
-            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none"
+            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
             style={{
               color: 'var(--md-sys-color-on-surface)',
               caretColor: 'var(--md-sys-color-on-surface)',
