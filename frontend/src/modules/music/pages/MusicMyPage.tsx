@@ -19,6 +19,8 @@
  * - 数据：歌单 = /user/playlist（按 /user/subcount 的创建/收藏数量切两段）；
  *   收藏 = /album/sublist、/artist/sublist、/mv/sublist、/dj/sublist；
  *   下载管理 / 本地管理为 Web 环境空态提示
+ * - 默认详情：登录且无跨页跳转目标时自动打开「我喜欢的音乐」歌单（红心
+ *   数量经 /likelist 覆盖 trackCount），左栏首批数据就绪即在 effect 内触发
  *
  * 右侧内容区（Hydrogen LibraryDetail 1:1）：
  * - 前进/后退双箭头（32px，实心 chevron，无历史 opacity-45）
@@ -227,6 +229,14 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     UserPlaylistItem[]
   >([])
   const [playlistsLoading, setPlaylistsLoading] = useState(false)
+  /** 登录后待默认打开的「我喜欢的音乐」歌单（由数据 effect 写入、详情区消费打开） */
+  const [favoritePlaylist, setFavoritePlaylist] =
+    useState<UserPlaylistItem | null>(null)
+  /** 挂载时是否存在跨页跳转目标（存在则默认详情让位给跳转目标，只判定挂载时刻） */
+  const hasPendingOnMountRef = useRef(
+    !!useMusicStore.getState().pendingMyDetail ||
+      !!useMusicStore.getState().pendingAlbumDetail
+  )
 
   // ===== 收藏数据（切到收藏 Tab 时按需拉取并缓存） =====
   const [subAlbums, setSubAlbums] = useState<SubAlbumItem[]>([])
@@ -337,6 +347,18 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           )
         setCreatedPlaylists(markFavorite(created))
         setSubscribedPlaylists(markFavorite(subscribed))
+        // 默认打开「我喜欢的音乐」歌单详情（跨页跳转目标存在时让位，
+        //仅在尚无详情时打开，避免覆盖用户当前浏览的详情）
+        const favorite =
+          markFavorite(created).find(
+            (p) => p.specialType === 5 || p.name === '我喜欢的音乐'
+          ) ??
+          markFavorite(subscribed).find(
+            (p) => p.specialType === 5 || p.name === '我喜欢的音乐'
+          )
+        if (favorite && !hasPendingOnMountRef.current) {
+          setFavoritePlaylist(favorite)
+        }
       } catch (err) {
         console.error('[MusicMyPage] 我的音乐获取失败:', err)
         if (!cancelled) {
@@ -550,6 +572,21 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部跳转目标消费，打开详情触发数据加载
     openDetail(target)
   }, [pendingMyDetail, setPendingMyDetail, openDetail])
+
+  // 登录后默认打开「我喜欢的音乐」歌单详情（一次性消费，跨页跳转已让位）
+  useEffect(() => {
+    if (!favoritePlaylist) return
+    const target = favoritePlaylist
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 默认目标消费，打开详情触发数据加载
+    setFavoritePlaylist(null)
+    openDetail({
+      kind: 'playlist',
+      id: target.id,
+      name: target.name,
+      cover: cdnImg(target.coverImgUrl, 300),
+      info: `${target.trackCount ?? 0} 首`,
+    })
+  }, [favoritePlaylist, openDetail])
 
   /** 后退（view-control 左箭头）：加载历史上一条，不压栈 */
   const goBack = useCallback(() => {

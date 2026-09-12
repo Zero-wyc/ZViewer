@@ -134,7 +134,7 @@ export const useThemeStore = create<ThemeState>()(
       reducedMotion: false,
       disableHoverTransform: false,
       backgroundImage: null,
-      backgroundBlur: 0,
+      backgroundBlur: 13,
       listenTogetherBlur: 0,
       backgroundOpacity: 1,
       backgroundWhiteOverlay: 0,
@@ -146,7 +146,7 @@ export const useThemeStore = create<ThemeState>()(
       _reducedMotionPrev: {
         glassStrength: 0.6,
         glassBlur: 12,
-        backgroundBlur: 0,
+        backgroundBlur: 13,
         listenTogetherBlur: 0,
       },
 

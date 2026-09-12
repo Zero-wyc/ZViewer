@@ -25,12 +25,15 @@ export interface MusicQueuePopupProps {
   isHost: boolean
   /** 队列管理权限（房主/房管）可删除 */
   canManage: boolean
+  /** 弹出位置：top = 向上弹出（widget 上方）；side = 从锚点左侧弹出（全屏播放器） */
+  placement?: 'top' | 'side'
 }
 
 export function MusicQueuePopup({
   socket,
   roomId,
   canManage,
+  placement = 'top',
 }: MusicQueuePopupProps) {
   const queue = useMusicStore((s) => s.queue)
   const currentKey = useMusicStore((s) => s.currentKey)
@@ -82,8 +85,15 @@ export function MusicQueuePopup({
   }
 
   return (
-    <div className="glass-card zen-stagger-fade-up absolute bottom-[calc(100%+8px)] right-2 z-50 flex h-96 w-80 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] shadow-lg">
-      {/* ===== 头部：当前播放 (N) + 定位 + 关闭 ===== */}
+    <div
+      className={cn(
+        'glass-card zen-stagger-fade-up absolute z-50 flex h-96 w-80 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] shadow-lg',
+        placement === 'top'
+          ? 'bottom-[calc(100%+8px)] right-2'
+          : 'bottom-0 right-[calc(100%+14px)]'
+      )}
+    >
+      {/* ===== 头部：当前播放 (N) + 清空 + 定位 + 关闭 ===== */}
       <div className="flex shrink-0 items-center justify-between pl-4 pr-3 pt-3">
         <div className="flex items-baseline gap-1.5">
           <span className="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
@@ -94,6 +104,32 @@ export function MusicQueuePopup({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {canManage && (
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-40"
+              disabled={queue.length === 0}
+              onClick={() => {
+                if (!socket || !roomId) {
+                  message.error('未连接房间')
+                  return
+                }
+                socket.emit(
+                  'music:queue-clear',
+                  { roomId },
+                  (response: { success?: boolean; message?: string }) => {
+                    if (response && response.success === false) {
+                      message.error(response.message || '清空队列失败')
+                    }
+                  }
+                )
+              }}
+              title="清空队列"
+              aria-label="清空队列"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90"

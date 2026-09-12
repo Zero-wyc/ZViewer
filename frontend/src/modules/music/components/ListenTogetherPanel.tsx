@@ -598,18 +598,7 @@ function ListenTogetherInner({
         )}
       </div>
 
-      {/* ===== 队列弹窗（Player 页内挂载：与底栏共享 queuePopupOpen 状态，
-          从悬浮条原位置附近向上弹出） ===== */}
-      {queuePopupOpen && (
-        <div className="absolute bottom-[130px] right-[45px] z-50 h-0">
-          <MusicQueuePopup
-            socket={socket}
-            roomId={roomId}
-            isHost={isHost}
-            canManage={canManage ?? isHost}
-          />
-        </div>
-      )}
+      {/* 队列弹窗不再挂于此处：挂到 song-control 队列按钮旁（下方 song-control 内） */}
 
       {queueEmpty ? (
         /* 空队列：主区域居中空状态 */
@@ -833,15 +822,27 @@ function ListenTogetherInner({
                   </svg>
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setQueuePopupOpen(true)}
-                className="flex h-[2.5vh] w-[2.5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                title="播放队列"
-                aria-label="播放队列"
-              >
-                <ListMusic className="h-[2.5vh] w-[2.5vh]" />
-              </button>
+              {/* 播放队列（弹窗侧挂到按钮左侧，避免被面板底部估算偏移错位） */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setQueuePopupOpen(true)}
+                  className="flex h-[2.5vh] w-[2.5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  title="播放队列"
+                  aria-label="播放队列"
+                >
+                  <ListMusic className="h-[2.5vh] w-[2.5vh]" />
+                </button>
+                {queuePopupOpen && (
+                  <MusicQueuePopup
+                    socket={socket}
+                    roomId={roomId}
+                    isHost={isHost}
+                    canManage={canManage ?? isHost}
+                    placement="side"
+                  />
+                )}
+              </div>
               <button
                 type="button"
                 onClick={closePlayerOverlay}

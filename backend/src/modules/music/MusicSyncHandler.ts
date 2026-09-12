@@ -10,6 +10,7 @@
  * - music:queue-upsert    房主/房管 add 歌曲（append 尾部）→ 广播 music:queue-changed
  * - music:queue-remove    房主/房管删除歌曲（order 压实）→ 广播 music:queue-changed
  * - music:queue-reorder   房主/房管拖拽排序（按 ids 顺序重排 order）→ 广播 music:queue-changed
+ * - music:queue-clear     房主/房管清空队列 → 广播 music:queue-changed（空队列）
  * - music:queue-changed   全房间广播 { roomId, items: MusicQueueItemPayload[] }（完整队列，按 order 升序）
  * - music:sync-state      房主广播播放状态 → socket.to(roomId) 转发给其他成员
  * - music:host-heartbeat  房主每 2s 心跳（携带完整同步状态）→ 转发；同时更新内存快照
@@ -398,6 +399,43 @@ export class MusicSyncHandler implements SocketEventHandler {
         } catch (err) {
           console.error('[music:queue-remove] error:', err);
           safeAck(callback, { success: false, message: '删除歌曲失败' });
+        }
+      },
+    );
+
+    // --- 清空队列（仅房主/房管；删除后广播空队列） ---
+    socket.on(
+      'music:queue-clear',
+      async (
+        payload: { roomId: string },
+        callback?: AckCallback,
+      ) => {
+        try {
+          const roomId = payload?.roomId;
+          if (
+            typeof roomId !== 'string' ||
+            !roomId ||
+            !isSocketInRoom(socket, roomId)
+          ) {
+            return safeAck(callback, { success: false, message: '不在该房间中' });
+          }
+          if (
+            !(await roomPermissionService.isRoomHostOrModerator(socket, roomId))
+          ) {
+            return safeAck(callback, {
+              success: false,
+              message: '无权限：仅房主或房管可管理队列',
+            });
+          }
+
+          const repo = AppDataSource.getRepository(MusicQueueItem);
+          await repo.delete({ roomId });
+
+          await broadcastQueue(io, roomId);
+          safeAck(callback, { success: true });
+        } catch (err) {
+          console.error('[music:queue-clear] error:', err);
+          safeAck(callback, { success: false, message: '清空队列失败' });
         }
       },
     );

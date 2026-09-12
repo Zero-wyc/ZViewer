@@ -30,7 +30,7 @@ interface BackgroundConfig {
 
 const DEFAULT_CONFIG: BackgroundConfig = {
   backgroundImage: null,
-  backgroundBlur: 0,
+  backgroundBlur: 13,
   listenTogetherBlur: 0,
   backgroundOpacity: 1,
   backgroundWhiteOverlay: 0,
