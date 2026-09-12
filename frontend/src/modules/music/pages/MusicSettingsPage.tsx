@@ -28,7 +28,6 @@ import { ChevronDown, User } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
-import { Slider } from '@/components/ui/Slider'
 import {
   DEFAULT_MUSIC_SETTINGS,
   MUSIC_LEVEL_OPTIONS,
@@ -139,6 +138,91 @@ function SettingNumberInput({
       className="h-[34px] w-[200px] bg-transparent text-center text-[13px] font-bold outline-none transition-opacity hover:opacity-80"
       style={{ color: 'var(--md-sys-color-on-surface)' }}
     />
+  )
+}
+
+/** 滑块（设置页黑白极简风格：细灰轨道 + 黑色实心方块滑块，
+    拖动时 thumb 上方显示数值黑块气泡，与 toggle/黑块滑入视觉语言一致） */
+function SettingSlider({
+  value,
+  min,
+  max,
+  step = 1,
+  format,
+  onCommit,
+}: {
+  value: number
+  min: number
+  max: number
+  step?: number
+  format: (v: number) => string
+  onCommit: (v: number) => void
+}) {
+  const [dragging, setDragging] = useState(false)
+  const clamped = Math.min(max, Math.max(min, value))
+  const percent = ((clamped - min) / (max - min)) * 100
+  return (
+    <div
+      className="relative h-[34px] w-[200px]"
+      onMouseEnter={() => setDragging(true)}
+      onMouseLeave={() => setDragging(false)}
+    >
+      {/* 数值气泡（hover / 拖动时显示在 thumb 上方） */}
+      <span
+        aria-hidden="true"
+        className={cn(
+          'absolute -top-[22px] z-[2] -translate-x-1/2 whitespace-nowrap px-1.5 py-[2px] text-[10px] font-bold text-[var(--md-sys-color-surface)] transition-opacity',
+          dragging ? 'opacity-100' : 'opacity-0'
+        )}
+        style={{
+          left: `${percent}%`,
+          backgroundColor: 'var(--md-sys-color-on-surface)',
+        }}
+      >
+        {format(clamped)}
+      </span>
+      {/* 轨道（浅色细线）+ 已填充段（实心黑线）+ 方块 thumb */}
+      <div className="absolute inset-x-0 top-1/2 h-[2px] -translate-y-1/2">
+        <span
+          className="absolute inset-0 h-full w-full"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)',
+          }}
+        />
+        <span
+          className="absolute left-0 top-0 h-full"
+          style={{
+            width: `${percent}%`,
+            backgroundColor: 'var(--md-sys-color-on-surface)',
+          }}
+        />
+      </div>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'pointer-events-none absolute top-1/2 h-[14px] w-[8px] -translate-x-1/2 -translate-y-1/2 transition-transform',
+          dragging ? 'scale-110' : 'scale-100'
+        )}
+        style={{
+          left: `${percent}%`,
+          backgroundColor: 'var(--md-sys-color-on-surface)',
+        }}
+      />
+      {/* 原生 range（透明覆盖捕获拖动） */}
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={clamped}
+        onChange={(e) => onCommit(Number(e.target.value))}
+        onMouseDown={() => setDragging(true)}
+        onMouseUp={() => setDragging(false)}
+        aria-label="滑块设置"
+        className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent opacity-0"
+      />
+    </div>
   )
 }
 
@@ -460,25 +544,21 @@ export function MusicSettingsPage() {
           </SettingOption>
           {/* 当前歌词行遮罩透明度 / 模糊度（滑块） */}
           <SettingOption name="歌词遮罩透明度">
-            <Slider
+            <SettingSlider
               value={settings.lyricMaskOpacity}
               min={0}
               max={100}
-              step={1}
-              className="w-[200px]"
-              valueFormatter={(v) => `${v}%`}
-              onChange={(v) => setSettings({ lyricMaskOpacity: v })}
+              format={(v) => `${v}%`}
+              onCommit={(v) => setSettings({ lyricMaskOpacity: v })}
             />
           </SettingOption>
           <SettingOption name="歌词遮罩模糊度">
-            <Slider
+            <SettingSlider
               value={settings.lyricMaskBlur}
               min={0}
               max={20}
-              step={1}
-              className="w-[200px]"
-              valueFormatter={(v) => `${v}px`}
-              onChange={(v) => setSettings({ lyricMaskBlur: v })}
+              format={(v) => `${v}px`}
+              onCommit={(v) => setSettings({ lyricMaskBlur: v })}
             />
           </SettingOption>
           {/* 显示歌曲翻译（直接切换） */}
