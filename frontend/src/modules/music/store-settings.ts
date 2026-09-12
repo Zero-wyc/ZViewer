@@ -34,6 +34,10 @@ export interface MusicSettings {
   coverBlur: boolean
   /** 歌词模糊（非当前行 blur，当前行保持清晰） */
   lyricBlur: boolean
+  /** 当前歌词行高亮遮罩透明度（%，0-100，100=不透明黑条） */
+  lyricMaskOpacity: number
+  /** 当前歌词行高亮遮罩模糊度（px，0 关闭） */
+  lyricMaskBlur: number
   /** 显示歌曲翻译（/lyric tlyric） */
   showSongTranslation: boolean
   /** 歌曲无缝衔接（预缓冲下一首音频） */
@@ -56,6 +60,8 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   level: 'lossless',
   coverBlur: true,
   lyricBlur: false,
+  lyricMaskOpacity: 100,
+  lyricMaskBlur: 0,
   showSongTranslation: true,
   gaplessPlayback: false,
   audioVisualizer: false,

@@ -28,6 +28,7 @@ import { ChevronDown, User } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
+import { Slider } from '@/components/ui/Slider'
 import {
   DEFAULT_MUSIC_SETTINGS,
   MUSIC_LEVEL_OPTIONS,
@@ -455,6 +456,29 @@ export function MusicSettingsPage() {
               onToggle={() =>
                 toggleWithConfirm('lyricBlur', PERFORMANCE_CONFIRM_MESSAGE)
               }
+            />
+          </SettingOption>
+          {/* 当前歌词行遮罩透明度 / 模糊度（滑块） */}
+          <SettingOption name="歌词遮罩透明度">
+            <Slider
+              value={settings.lyricMaskOpacity}
+              min={0}
+              max={100}
+              step={1}
+              className="w-[200px]"
+              valueFormatter={(v) => `${v}%`}
+              onChange={(v) => setSettings({ lyricMaskOpacity: v })}
+            />
+          </SettingOption>
+          <SettingOption name="歌词遮罩模糊度">
+            <Slider
+              value={settings.lyricMaskBlur}
+              min={0}
+              max={20}
+              step={1}
+              className="w-[200px]"
+              valueFormatter={(v) => `${v}px`}
+              onChange={(v) => setSettings({ lyricMaskBlur: v })}
             />
           </SettingOption>
           {/* 显示歌曲翻译（直接切换） */}

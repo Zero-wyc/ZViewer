@@ -76,6 +76,10 @@ export interface PlayerLyricPanelProps {
   interludeThresholdSec?: number
   /** 歌词模糊：非当前行 blur（当前行保持清晰；设置：开启歌词模糊） */
   lyricBlur?: boolean
+  /** 当前行高亮遮罩不透明度（0-1，设置：歌词遮罩透明度） */
+  lyricMaskOpacity?: number
+  /** 当前行高亮遮罩模糊半径（px，设置：歌词遮罩模糊度） */
+  lyricMaskBlur?: number
   /** 点击歌词行跳转进度（秒） */
   onSeek: (time: number) => void
 }
@@ -112,6 +116,8 @@ export function PlayerLyricPanel({
   rlyricSize = 12,
   interludeThresholdSec = 13,
   lyricBlur = false,
+  lyricMaskOpacity = 1,
+  lyricMaskBlur = 0,
   onSeek,
 }: PlayerLyricPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -541,6 +547,8 @@ export function PlayerLyricPanel({
               tlyricSize={tlyricSize}
               rlyricSize={rlyricSize}
               lyricBlur={lyricBlur}
+              lyricMaskOpacity={lyricMaskOpacity}
+              lyricMaskBlur={lyricMaskBlur}
               onSeek={onSeek}
               interlude={null}
               manualInactive={false}
@@ -569,6 +577,8 @@ export function PlayerLyricPanel({
                   tlyricSize={tlyricSize}
                   rlyricSize={rlyricSize}
                   lyricBlur={lyricBlur}
+                  lyricMaskOpacity={lyricMaskOpacity}
+                  lyricMaskBlur={lyricMaskBlur}
                   onSeek={onSeek}
                   interlude={lineInterlude}
                   manualInactive={manualMode}
@@ -601,6 +611,8 @@ const LyricRow = memo(function LyricRow({
   tlyricSize = 14,
   rlyricSize = 12,
   lyricBlur = false,
+  lyricMaskOpacity = 1,
+  lyricMaskBlur = 0,
   onSeek,
   interlude,
   manualInactive,
@@ -621,6 +633,9 @@ const LyricRow = memo(function LyricRow({
   rlyricSize?: number
   /** 非当前行模糊（设置：开启歌词模糊） */
   lyricBlur?: boolean
+  /** 当前行高亮遮罩不透明度 / 模糊半径（设置驱动） */
+  lyricMaskOpacity?: number
+  lyricMaskBlur?: number
   onSeek: (time: number) => void
   interlude: { show: boolean; remaining: number } | null
   /** 手动滚动模式：非当前行文字 scale(1.05)（Hydrogen .lyric-inactive） */
@@ -642,12 +657,14 @@ const LyricRow = memo(function LyricRow({
             'cursor-pointer hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_4.5%,transparent)]'
         )}
       >
-        {/* 黑色高亮条：藏在左侧，当前行滑入盖住整行 */}
+        {/* 黑色高亮条：藏在左侧，当前行滑入盖住整行（透明度/模糊度可设置） */}
         <span
           aria-hidden="true"
           className="absolute inset-0 z-0 w-full transition-transform ease-[cubic-bezier(0.3,0,0.12,1)]"
           style={{
             backgroundColor: 'var(--md-sys-color-on-surface)',
+            opacity: lyricMaskOpacity,
+            filter: lyricMaskBlur > 0 ? `blur(${lyricMaskBlur}px)` : undefined,
             transform: active ? 'translateX(0)' : 'translateX(-101%)',
             // 当前行的高亮条稍慢进场（Hydrogen .hilight-active 0.62s）
             transitionDuration: active ? '620ms' : '550ms',

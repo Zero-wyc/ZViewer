@@ -480,6 +480,8 @@ function ListenTogetherInner({
   // ===== 设置驱动（Hydrogen settingsStore 消费点） =====
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
+  const lyricMaskOpacity = useMusicSettingsStore((s) => s.lyricMaskOpacity)
+  const lyricMaskBlur = useMusicSettingsStore((s) => s.lyricMaskBlur)
   const audioVisualizer = useMusicSettingsStore((s) => s.audioVisualizer)
   const level = useMusicSettingsStore((s) => s.level)
   const lyricSize = useMusicSettingsStore((s) => s.lyricSize)
@@ -1106,6 +1108,8 @@ function ListenTogetherInner({
                 rlyricSize={rlyricSize}
                 interludeThresholdSec={lyricInterlude}
                 lyricBlur={lyricBlur}
+                lyricMaskOpacity={lyricMaskOpacity / 100}
+                lyricMaskBlur={lyricMaskBlur}
                 onSeek={handleLyricSeek}
               />
             )}
