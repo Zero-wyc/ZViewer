@@ -167,6 +167,8 @@ export interface UseListenTogetherResult {
   volume: number
   /** 设置本地播放音量（0-1，持久化到 localStorage；0 视为静音） */
   setVolume: (volume: number) => void
+  /** 当前主音频元素（惰性创建；预载升格时会被替换，可视化消费方需感知） */
+  getAudio: () => HTMLAudioElement | null
 }
 
 /**
@@ -1209,5 +1211,6 @@ export function useListenTogether({
     setSyncNotice,
     volume,
     setVolume,
+    getAudio,
   }
 }

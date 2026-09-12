@@ -44,7 +44,7 @@ import { cn, formatDuration } from '@/lib/utils'
 import { OverflowMarquee } from './OverflowMarquee'
 import { PlayerLyricPanel } from './PlayerLyricPanel'
 import { MusicQueuePopup } from './MusicQueuePopup'
-import { EqBars } from './SongRow'
+import { AudioVisualizer } from './AudioVisualizer'
 import {
   SongCommentsPanel,
   COMMENT_TOTAL_EVENT,
@@ -192,6 +192,7 @@ function ListenTogetherInner({
     playMode,
     volume,
     setVolume,
+    getAudio,
   } = useMusicPlayer()
 
   const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
@@ -999,13 +1000,17 @@ function ListenTogetherInner({
                     />
                   </div>
 
-                  {/* 音频可视化（设置：音频可视化 → EQ 频谱动画于进度条下方） */}
+                  {/* 音频可视化（设置：音频可视化 → 真实频谱于进度条下方；
+                      captureStream 旁路 WebAudio analyser，Hydrogen 同思路） */}
                   {audioVisualizer && (
                     <div
                       className="flex shrink-0 items-center justify-center pt-[0.6vh]"
                       style={{ color: 'var(--md-sys-color-on-surface)' }}
                     >
-                      <EqBars paused={!isPlaying} />
+                      <AudioVisualizer
+                        getAudio={getAudio}
+                        playing={isPlaying}
+                      />
                     </div>
                   )}
                 </div>
