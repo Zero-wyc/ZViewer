@@ -40,8 +40,13 @@ const SCROLL_SYNC_TOLERANCE_PX = 2
 const AUTO_SCROLL_DURATION_MS = 580
 /** 自动滚动缓动 */
 const AUTO_SCROLL_EASING = 'cubic-bezier(0.4, 0, 0.12, 1)'
-/** 当前行锚定位置：容器顶部偏移（px） */
+/** 当前行锚定位置：容器顶部偏移（px，Hydrogen LYRIC_FOLLOW_TOP_OFFSET_PX） */
 const FOLLOW_TOP_OFFSET_PX = 260
+/** 底部留白基线（px，Hydrogen LYRIC_FOLLOW_BOTTOM_GUTTER_PX） */
+const FOLLOW_BOTTOM_GUTTER_PX = 180
+/** 可视边距（px，Hydrogen LYRIC_FOLLOW_VISIBLE_GUTTER_PX）：
+ *  行高超出容器时收缩锚定偏移，保证当前行至少露出这么多 */
+const FOLLOW_VISIBLE_GUTTER_PX = 24
 /** 手动滚动空闲（ms）：无操作后恢复自动跟随 */
 const MANUAL_SCROLL_IDLE_MS = 1000
 /** 间奏块收起预留（秒）：接近下一行时提前收起 */
@@ -111,13 +116,25 @@ export function PlayerLyricPanel({
 }: PlayerLyricPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
-  /** 进行中的滚动补偿动画（手动滚动/组件更新时取消） */
+  /** 进行中的滚动补偿动画（Hydrogen lyricContentAnimation） */
   const scrollAnimRef = useRef<Animation | null>(null)
+  /** 进行中动画的目标 scrollTop（2px 容错守卫，防同目标重启） */
+  const scrollAnimTargetRef = useRef<number | null>(null)
+  /** 动画令牌：onfinish/oncancel 属主校验（Hydrogen lyricScrollAnimationToken） */
+  const scrollAnimTokenRef = useRef(0)
   /** 手动滚动模式：wheel 打断自动跟随，空闲后恢复（非当前行文字 scale 1.05） */
   const [manualMode, setManualMode] = useState(false)
+  const manualModeRef = useRef(false)
   const manualTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  /** 记录上次同步的 activeIndex，避免同 index 重复动画 */
-  const lastSyncedIndexRef = useRef(-1)
+  /** 当前 activeIndex 镜像（Hydrogen lycCurrentIndex：sync 内读取，不进依赖） */
+  const activeIndexRef = useRef(activeIndex)
+  /**
+   * 顶部/底部动态留白（Hydrogen lyricTopSpacerHeight/lyricBottomSpacerHeight，
+   * CSS transition height 0.3s）：随当前行高与容器尺寸 clamp，
+   * 保证当前行总能锚定在可视区内且末行可滚动到位
+   */
+  const [topSpacer, setTopSpacer] = useState(FOLLOW_TOP_OFFSET_PX)
+  const [bottomSpacer, setBottomSpacer] = useState(FOLLOW_BOTTOM_GUTTER_PX)
   /** 切歌（lines 变化）时退出手动模式（render 期调整，替代 effect 内同步 setState） */
   const [prevLines, setPrevLines] = useState(lines)
   if (prevLines !== lines) {
@@ -125,23 +142,68 @@ export function PlayerLyricPanel({
     setManualMode(false)
   }
 
-  /** 计算当前行的目标 scrollTop（行顶锚定到容器顶部 260px 处，clamp 到底） */
-  const computeTargetTop = useCallback((index: number): number | null => {
-    const container = scrollRef.current
-    const content = contentRef.current
-    if (!container || !content) return null
-    const rows = content.querySelectorAll<HTMLElement>('[data-lyric-row]')
-    const row = rows[index]
-    if (!row) return null
-    const containerRect = container.getBoundingClientRect()
-    const rowRect = row.getBoundingClientRect()
-    const currentTop = rowRect.top - containerRect.top + container.scrollTop
-    const maxTop = container.scrollHeight - container.clientHeight
-    return Math.min(
-      Math.max(currentTop - FOLLOW_TOP_OFFSET_PX, 0),
-      Math.max(0, maxTop)
-    )
-  }, [])
+  /**
+   * 当前行锚定偏移 clamp（Hydrogen getLyricFollowTopOffset）：行高超过
+   * 容器可视高度 - 24px 边距时收缩锚定偏移，保证行内容仍可见
+   */
+  const getFollowTopOffset = useCallback(
+    (container: HTMLElement, wrapperHeight: number): number => {
+      const maxVisibleTop = Math.max(
+        0,
+        container.clientHeight - wrapperHeight - FOLLOW_VISIBLE_GUTTER_PX
+      )
+      return Math.min(FOLLOW_TOP_OFFSET_PX, maxVisibleTop)
+    },
+    []
+  )
+
+  /** 更新动态 spacer（Hydrogen updateLyricScrollSpacers 同款） */
+  const updateSpacers = useCallback(
+    (wrapperHeight = 0) => {
+      const container = scrollRef.current
+      if (!container) return
+      const followTopOffset = getFollowTopOffset(container, wrapperHeight)
+      setTopSpacer(followTopOffset)
+      setBottomSpacer(
+        Math.max(
+          FOLLOW_BOTTOM_GUTTER_PX,
+          container.clientHeight - followTopOffset - wrapperHeight
+        )
+      )
+    },
+    [getFollowTopOffset]
+  )
+
+  /**
+   * 当前行目标 scrollTop（Hydrogen getLyricContentMetrics）。
+   * 关键差异：用 offsetTop 布局测量——它不受内容层 WAAPI transform 影响；
+   * getBoundingClientRect 会被进行中的动画位移污染，测出错误目标
+   * 导致每次换行"重新定位"卡顿。同时顺带更新动态 spacer
+   */
+  const getMetrics = useCallback(
+    (index: number): { targetScrollTop: number } | null => {
+      const container = scrollRef.current
+      const content = contentRef.current
+      if (!container || !content) return null
+      const rows = content.querySelectorAll<HTMLElement>('[data-lyric-row]')
+      const row = rows[index]
+      if (!row) return null
+      const wrapperHeight = row.offsetHeight
+      const followTopOffset = getFollowTopOffset(container, wrapperHeight)
+      updateSpacers(wrapperHeight)
+      const maxScrollTop = Math.max(
+        0,
+        container.scrollHeight - container.clientHeight
+      )
+      return {
+        targetScrollTop: Math.min(
+          maxScrollTop,
+          Math.max(0, row.offsetTop - followTopOffset)
+        ),
+      }
+    },
+    [getFollowTopOffset, updateSpacers]
+  )
 
   /** 读取内容层当前实际 translateY（含 WAAPI 动画进行中的插值）。
    *  Hydrogen getLyricContentVisualShiftY 同款：优先 DOMMatrix，回退矩阵解析 */
@@ -171,7 +233,7 @@ export function PlayerLyricPanel({
   }, [])
 
   /** 取消进行中的补偿动画，preserveVisualPosition 时先把剩余位移固化进
-   *  scrollTop（视觉位置不变）；Hydrogen cancelLyricScrollMotion 同款 */
+   *  scrollTop（视觉位置不变）；Hydrogen cancelLyricScrollAnimation 同款 */
   const cancelScrollAnim = useCallback(
     (preserveVisualPosition: boolean) => {
       const container = scrollRef.current
@@ -189,77 +251,174 @@ export function PlayerLyricPanel({
         // ignore：已结束/已取消
       }
       scrollAnimRef.current = null
+      scrollAnimTargetRef.current = null
     },
     [getContentShiftY]
   )
 
-  /** 补偿式平滑滚动：scrollTop 瞬时到位 + 内容层反向位移补偿（580ms 回落）。
-   *  取消进行中的旧动画前先把其剩余位移固化进 scrollTop（视觉不变），
-   *  保证任意时刻打断无跳变——含 React StrictMode 下 layoutEffect 双执行：
-   *  第二次调用把刚创建动画的初始位移固化回 scrollTop，再以相同 delta
-   *  重建动画，幂等无跳变 */
+  /**
+   * 补偿式平滑滚动（Hydrogen animateLyricScrollTop 1:1）：
+   * scrollTop 瞬时到位 + 内容层反向位移补偿（580ms 回落）。
+   * - 目标容错守卫：进行中动画的目标与新目标差 ≤ 2px 时不重启，
+   *   仪式性 setState 风暴下不会反复重启动画
+   * - 打断旧动画前固化剩余位移（StrictMode 双执行幂等无跳变）
+   * - WAAPI 生命周期挂 token 属主校验，过期回调不误清新动画
+   */
   const animateScrollTo = useCallback(
     (targetTop: number) => {
       const container = scrollRef.current
       const content = contentRef.current
       if (!container || !content) return
-      cancelScrollAnim(true)
-      const delta = container.scrollTop - targetTop
-      if (Math.abs(delta) < SCROLL_SYNC_TOLERANCE_PX) return
-      container.scrollTop = targetTop
-      scrollAnimRef.current = content.animate(
-        [
-          { transform: `translate3d(0, ${delta}px, 0)` },
-          { transform: 'translate3d(0, 0, 0)' },
-        ],
-        {
-          duration: AUTO_SCROLL_DURATION_MS,
-          easing: AUTO_SCROLL_EASING,
-          fill: 'both',
+
+      const normalizedTargetTop = Math.max(0, Number(targetTop) || 0)
+      if (
+        scrollAnimRef.current !== null &&
+        scrollAnimTargetRef.current !== null &&
+        Math.abs(scrollAnimTargetRef.current - normalizedTargetTop) <=
+          SCROLL_SYNC_TOLERANCE_PX
+      ) {
+        return
+      }
+
+      if (scrollAnimRef.current) {
+        cancelScrollAnim(true)
+      }
+
+      const delta = normalizedTargetTop - container.scrollTop
+      if (Math.abs(delta) <= SCROLL_SYNC_TOLERANCE_PX) {
+        scrollAnimTargetRef.current = null
+        container.scrollTop = normalizedTargetTop
+        return
+      }
+
+      const animationToken = ++scrollAnimTokenRef.current
+      scrollAnimTargetRef.current = normalizedTargetTop
+      container.scrollTop = normalizedTargetTop
+
+      try {
+        const animation = content.animate(
+          [
+            { transform: `translate3d(0, ${delta}px, 0)` },
+            { transform: 'translate3d(0, 0, 0)' },
+          ],
+          {
+            duration: AUTO_SCROLL_DURATION_MS,
+            easing: AUTO_SCROLL_EASING,
+            fill: 'both',
+          }
+        )
+        animation.onfinish = () => {
+          if (animationToken !== scrollAnimTokenRef.current) return
+          scrollAnimRef.current = null
+          scrollAnimTargetRef.current = null
         }
-      )
+        animation.oncancel = () => {
+          if (animationToken !== scrollAnimTokenRef.current) return
+          scrollAnimRef.current = null
+          scrollAnimTargetRef.current = null
+        }
+        scrollAnimRef.current = animation
+      } catch {
+        scrollAnimRef.current = null
+        scrollAnimTargetRef.current = null
+      }
     },
     [cancelScrollAnim]
   )
 
-  // activeIndex 变化 → 自动跟随滚动。必须用 useLayoutEffect（DOM commit 后、
-  // 浏览器 paint 前同步执行，等价 Hydrogen watch flush:'post' 的"DOM patch 后
-  // 立即启动跟随动画"）：useEffect 在 paint 之后才跑，会多等一帧导致
-  // "高亮先跳、视图后追"的闪动撕裂感（Hydrogen 注释明确点过这一坑）。
-  // 手动模式下不动画；防闪烁 revealed 就绪后也会同步一次，保证切歌后位置正确
-  useLayoutEffect(() => {
-    if (activeIndex < 0 || manualMode || !revealed) return
-    lastSyncedIndexRef.current = activeIndex
-    const target = computeTargetTop(activeIndex)
-    if (target == null) return
-    animateScrollTo(target)
-  }, [activeIndex, manualMode, revealed, computeTargetTop, animateScrollTo])
+  /**
+   * 滚动位置同步（Hydrogen syncLyricPosition 1:1）：
+   * behavior 'smooth' 走补偿动画 / 'auto' 直接定位；force 越过手动模式。
+   * 无激活行（-1）时按 force 滚回顶部
+   */
+  const syncLyricPosition = useCallback(
+    ({ behavior = 'auto', force = false } = {}) => {
+      const container = scrollRef.current
+      if (!container) return
+      if (!force && manualModeRef.current) return
 
-  // 切歌（lines 变化）时重置同步缓存并取消进行中的补偿动画（ref 操作；
-  // 面板此时处于防闪烁隐藏态，无需视觉固位）
+      const targetIndex = activeIndexRef.current
+      if (targetIndex < 0) {
+        updateSpacers()
+        if (force) {
+          if (behavior === 'smooth') {
+            animateScrollTo(0)
+          } else {
+            cancelScrollAnim(false)
+            container.scrollTop = 0
+          }
+        }
+        return
+      }
+
+      const metrics = getMetrics(targetIndex)
+      if (!metrics) return
+
+      if (
+        Math.abs(container.scrollTop - metrics.targetScrollTop) <=
+        SCROLL_SYNC_TOLERANCE_PX
+      ) {
+        if (force && behavior !== 'smooth') {
+          cancelScrollAnim(false)
+          container.scrollTop = metrics.targetScrollTop
+        }
+        return
+      }
+
+      if (behavior === 'smooth') {
+        animateScrollTo(metrics.targetScrollTop)
+      } else {
+        cancelScrollAnim(false)
+        container.scrollTop = metrics.targetScrollTop
+      }
+    },
+    [updateSpacers, getMetrics, animateScrollTo, cancelScrollAnim]
+  )
+
+  // activeIndex 变化 → 平滑跟随（Hydrogen currentLyricIndex watcher 同语义：
+  // "DOM patch 后立即启动跟随动画，避免多等一帧导致高亮先跳、视图后追"）。
+  // useLayoutEffect 在 paint 前同步执行；manualMode 走 ref 不进依赖，
+  // 由 syncLyricPosition 内部判定（与 Hydrogen isManualScrollActive 一致）
+  useLayoutEffect(() => {
+    activeIndexRef.current = activeIndex
+    syncLyricPosition({ behavior: 'smooth' })
+  }, [activeIndex, syncLyricPosition])
+
+  // 防闪烁揭示完成（revealed false→true）→ 强制 auto 定位一次
+  //（Hydrogen setDefaultStyle → syncLyricPosition force auto）
+  useLayoutEffect(() => {
+    if (!revealed) return
+    syncLyricPosition({ behavior: 'auto', force: true })
+  }, [revealed, syncLyricPosition])
+
+  // 切歌（lines 变化）时取消进行中的补偿动画并退出手动模式 ref
+  //（面板此时处于防闪烁隐藏态，无需视觉固位）
   useEffect(() => {
-    lastSyncedIndexRef.current = -1
+    manualModeRef.current = false
     cancelScrollAnim(false)
   }, [lines, cancelScrollAnim])
 
-  // 手动滚动：wheel 打断动画 + 进入手动模式，空闲 1s 后强制回到当前行
+  // manualMode state 变化时同步 ref（timer 回调/sync 内读取用）
+  useEffect(() => {
+    manualModeRef.current = manualMode
+  }, [manualMode])
+
+  // 手动滚动：wheel 固位打断动画 + 进入手动模式，空闲 1s 后强制回到当前行
+  //（Hydrogen enterManualScrollMode）
   useEffect(() => {
     const container = scrollRef.current
     if (!container) return
     const handleWheel = () => {
       // 视觉固位取消：用户手动滚动打断动画时不发生列表跳变
-      // （Hydrogen enterManualScrollMode preserveVisualPosition 同款）
       cancelScrollAnim(true)
+      manualModeRef.current = true
       setManualMode(true)
       if (manualTimerRef.current) clearTimeout(manualTimerRef.current)
       manualTimerRef.current = setTimeout(() => {
+        manualTimerRef.current = null
+        manualModeRef.current = false
         setManualMode(false)
-        // 强制回到当前行（无视 lastSynced 缓存）
-        const idx = lastSyncedIndexRef.current
-        if (idx >= 0) {
-          const target = computeTargetTop(idx)
-          if (target != null) animateScrollTo(target)
-        }
+        syncLyricPosition({ behavior: 'smooth', force: true })
       }, MANUAL_SCROLL_IDLE_MS)
     }
     container.addEventListener('wheel', handleWheel, { passive: true })
@@ -267,7 +426,28 @@ export function PlayerLyricPanel({
       container.removeEventListener('wheel', handleWheel)
       if (manualTimerRef.current) clearTimeout(manualTimerRef.current)
     }
-  }, [computeTargetTop, animateScrollTo, cancelScrollAnim])
+  }, [syncLyricPosition, cancelScrollAnim])
+
+  // 容器尺寸变化 → rAF 防抖后强制重新测量与定位（Hydrogen
+  // ResizeObserver → scheduleLayout → applyLyricLayout auto）
+  useEffect(() => {
+    const container = scrollRef.current
+    if (!container) return
+    let raf = 0
+    const scheduleResync = () => {
+      if (raf) cancelAnimationFrame(raf)
+      raf = requestAnimationFrame(() => {
+        raf = 0
+        syncLyricPosition({ behavior: 'auto', force: true })
+      })
+    }
+    const observer = new ResizeObserver(scheduleResync)
+    observer.observe(container)
+    return () => {
+      observer.disconnect()
+      if (raf) cancelAnimationFrame(raf)
+    }
+  }, [syncLyricPosition])
 
   // 间奏等待（Hydrogen handleInterludeOnIndexChange/OnProgress 的等价实现）：
   // 当前行结束到下一行的间隔 ≥ 阈值（设置：歌词间奏等待时间）时展示倒计时，
@@ -319,9 +499,14 @@ export function PlayerLyricPanel({
           </span>
         </div>
       ) : (
-        <div ref={contentRef}>
-          {/* 顶部锚定留白：当前行定位在容器顶部 260px 处 */}
-          <div style={{ height: FOLLOW_TOP_OFFSET_PX }} aria-hidden="true" />
+        <div ref={contentRef} className="lyric-content">
+          {/* 顶部动态锚定留白（Hydrogen .lyric-spacer：随当前行高与容器
+              尺寸自适应，height 0.3s 过渡） */}
+          <div
+            className="lyric-spacer"
+            style={{ height: topSpacer }}
+            aria-hidden="true"
+          />
           {/* 纯音乐：单行占位（time 0 即高亮，不可点） */}
           {emptyMode === 'pure' && (
             <LyricRow
@@ -369,8 +554,12 @@ export function PlayerLyricPanel({
                 />
               )
             })}
-          {/* 底部留白：最后一行也能锚定到 260px 位置 */}
-          <div style={{ height: 180 }} aria-hidden="true" />
+          {/* 底部动态留白（Hydrogen .lyric-spacer：保证末行也能锚定到位） */}
+          <div
+            className="lyric-spacer"
+            style={{ height: bottomSpacer }}
+            aria-hidden="true"
+          />
         </div>
       )}
     </div>

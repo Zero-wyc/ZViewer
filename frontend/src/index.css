@@ -1495,6 +1495,21 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   transition: 0.58s cubic-bezier(0.4, 0, 0.12, 1);
 }
 
+/* 歌词内容层（Hydrogen .lyric-content）：WAAPI 补偿动画载体 */
+.lyric-content {
+  width: 100%;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+}
+
+/* 歌词动态留白（Hydrogen .lyric-spacer）：随当前行高/容器尺寸自适应 */
+.lyric-spacer {
+  width: 100%;
+  flex: none;
+  pointer-events: none;
+  transition: height 0.3s;
+}
+
 /* 歌词行文本（Hydrogen .line 内 original/trans/roma）：
    失焦过渡 0.5s，高亮过渡 0.4s（双时长，cubic-bezier(0.3,0,0.12,1)） */
 .lyric-text {
