@@ -17,7 +17,8 @@ export function ncmVipLabel(
   vipType?: number | null,
   vipStatus?: number | null
 ): string {
-  if (vipType === 11) return 'SVIP'
+  // 11 / 110：黑胶 SVIP（110 为 /user/account profile.vipType 的黑胶 SVIP 值）
+  if (vipType === 11 || vipType === 110) return 'SVIP'
   if (vipType === 10) return 'VIP'
   if (vipStatus != null && vipStatus > 0) return 'VIP'
   if (vipType != null || vipStatus != null) return '普通'
