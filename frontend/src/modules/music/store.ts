@@ -127,6 +127,9 @@ export interface MusicState {
   ) => void
   /** 重置为初始状态（离开房间时调用） */
   reset: () => void
+  /** 仅重置房间播放相关状态（queue/当前曲目/进度/播放标志），
+   *  保留登录态与 UI 状态（音乐页卸载时调用，不清网易云登录） */
+  resetPlayback: () => void
 }
 
 const defaultState = {
@@ -182,4 +185,15 @@ export const useMusicStore = create<MusicState>((set) => ({
   setPendingAlbumDetail: (d) => set({ pendingAlbumDetail: d }),
   setPendingMyDetail: (d) => set({ pendingMyDetail: d }),
   reset: () => set({ ...defaultState }),
+  resetPlayback: () =>
+    set({
+      queue: [],
+      currentKey: null,
+      currentSongId: null,
+      isPlaying: false,
+      positionSec: 0,
+      playMode: 'sequence',
+      hostOffline: false,
+      syncNotice: null,
+    }),
 }))

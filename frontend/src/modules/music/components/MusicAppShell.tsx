@@ -147,6 +147,16 @@ function ShellInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
+  // 卸载/离开音乐页：重置播放状态（清队列/停播/对齐标记），保留登录态与
+  // UI 状态（页面、覆盖层开关等）。引擎内部分配资源在 useListenTogether
+  // 的卸载 effect 释放；store 仅走轻量 resetPlayback，不触发全量 reset
+  //（后者由离开房间流程统一处理）。
+  useEffect(() => {
+    return () => {
+      useMusicStore.getState().resetPlayback()
+    }
+  }, [])
+
   /** 内容页共享 props（队列添加需要 socket/roomId/canManage） */
   const pageProps = { socket, roomId, canManage }
 

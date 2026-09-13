@@ -50,6 +50,27 @@ const HOST_OFFLINE_TIMEOUT_MS = 5000
 /** 观众进度对齐阈值（秒）：与房主进度差超过该值才 seek */
 const SYNC_ALIGN_THRESHOLD_SEC = 2
 
+/** 传输延迟补偿上限（秒）：updatedAt 与本地时钟偏差超过该值视为时钟不同源，
+ *  放弃补偿（防止两台机器系统时间差导致进度被推到离谱位置） */
+const SYNC_COMPENSATION_MAX_SEC = 10
+
+/**
+ * 按 updatedAt 外推当前进度（传输延迟补偿）：
+ * payload.positionSec 是房主构建快照那一刻的进度，观众收到时已过去
+ * 网络传输 + 排队延迟；播放中按 elapsed 外推，暂停态原样返回。
+ * updatedAt 缺失/时钟倒挂/偏差超限时退回原始值（跨设备系统时钟不同源）。
+ */
+function compensatePositionSec(payload: MusicSyncState): number {
+  if (!payload.isPlaying || !Number.isFinite(payload.updatedAt)) {
+    return payload.positionSec
+  }
+  const elapsed = (Date.now() - payload.updatedAt) / 1000
+  if (elapsed <= 0 || elapsed > SYNC_COMPENSATION_MAX_SEC) {
+    return payload.positionSec
+  }
+  return payload.positionSec + elapsed
+}
+
 /** 音频流音质兜底值（实际档位从音乐设置 store 读取，设置页可改） */
 const FALLBACK_STREAM_LEVEL = 'exhigh'
 
@@ -926,6 +947,8 @@ export function useListenTogether({
       const store = useMusicStore.getState()
       const audio = getAudio()
       const trackKey = syncKeyOf(payload)
+      // 传输延迟补偿后的目标进度（暂停态/时钟异常时即原值）
+      const targetPositionSec = compensatePositionSec(payload)
 
       // 1. 曲目变化 → 换源加载（按 key 从队列匹配条目）
       if (trackKey !== store.currentKey) {
@@ -940,7 +963,7 @@ export function useListenTogether({
           // 队列尚未包含该曲目（房主端临时条目/广播竞态）：跳过对齐等待下一次心跳
           return
         }
-        loadAndPlaySong(item, payload.positionSec, payload.isPlaying)
+        loadAndPlaySong(item, targetPositionSec, payload.isPlaying)
         if (store.playMode !== payload.playMode) {
           store.setPlayMode(payload.playMode)
         }
@@ -960,11 +983,11 @@ export function useListenTogether({
 
       // 3. 进度对齐：差值超过阈值才 seek，避免高频打断
       if (
-        Math.abs(audio.currentTime - payload.positionSec) >
+        Math.abs(audio.currentTime - targetPositionSec) >
         SYNC_ALIGN_THRESHOLD_SEC
       ) {
         try {
-          audio.currentTime = payload.positionSec
+          audio.currentTime = targetPositionSec
         } catch {
           // ignore：元数据未就绪
         }
@@ -1049,20 +1072,42 @@ export function useListenTogether({
   // 加入房间时查询初始状态：队列 + 服务端缓存的最新同步状态。
   // 观众据此立即对齐当前播放；房主断线重连后据此恢复自己的播放进度
   //（服务端缓存的就是房主最后广播的状态）。
+  // 重连后主动重发：socket.io v4 重连复用同一 Socket 实例，依赖 socket/roomId
+  // 的 effect 不会重新执行，需监听 connect 事件（首连也触发，用 marker 跳过
+  // —— 首次查询由下方依赖 effect 负责，避免双发）
   useEffect(() => {
     if (!socket || !roomId) return
-    socket.emit(MUSIC_EVENT.GET_STATE, { roomId }, (res: GetStateResponse) => {
-      if (!res?.success) return
-      if (Array.isArray(res.queue)) {
-        useMusicStore.getState().setQueue(res.queue)
-        // 队列变化使洗牌序列失效：标记待重建
-        shuffleListRef.current = null
-      }
-      if (res.syncState) {
-        // 按同步状态恢复本地播放（换曲加载/播放状态/进度/播放模式）
-        applyViewerSync(res.syncState)
-      }
-    })
+    let hasInitial = false
+    const requestGetState = () => {
+      socket.emit(
+        MUSIC_EVENT.GET_STATE,
+        { roomId },
+        (res: GetStateResponse) => {
+          if (!res?.success) return
+          if (Array.isArray(res.queue)) {
+            useMusicStore.getState().setQueue(res.queue)
+            // 队列变化使洗牌序列失效：标记待重建
+            shuffleListRef.current = null
+          }
+          if (res.syncState) {
+            // 按同步状态恢复本地播放（换曲加载/播放状态/进度/播放模式）
+            applyViewerSync(res.syncState)
+          }
+        }
+      )
+    }
+    requestGetState()
+    hasInitial = true
+
+    const handleConnect = () => {
+      // 首次 connect 由上面的直接调用覆盖；仅断线重连后重发
+      if (!hasInitial) return
+      requestGetState()
+    }
+    socket.on('connect', handleConnect)
+    return () => {
+      socket.off('connect', handleConnect)
+    }
   }, [socket, roomId, applyViewerSync])
 
   // Socket 事件监听：观众同步 / 队列变更 / 控制申请与应答
