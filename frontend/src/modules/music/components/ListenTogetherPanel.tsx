@@ -1251,8 +1251,18 @@ function ListenTogetherInner({
 
           {/* ===== 右侧歌词面板（Hydrogen .right-panel：宽度固定计算
               calc(100% - 42vh - 50px)，卡片入场动画展开时面板保持不动；
-              评论模式下整区替换为歌曲评论区，Hydrogen rightPanelMode=1） ===== */}
-          <div className="ml-[50px] flex h-full w-[calc(100%-42vh-50px)] min-w-0 flex-col">
+              评论模式下整区替换为歌曲评论区，Hydrogen rightPanelMode=1；
+              与左侧播放器卡同款半透明 surface + backdrop 模糊，
+              避免无封面/未开封面模糊时被上层纯色背景盖住） ===== */}
+          <div
+            className="ml-[50px] flex h-full w-[calc(100%-42vh-50px)] min-w-0 flex-col"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+              backdropFilter: 'blur(12px)',
+              WebkitBackdropFilter: 'blur(12px)',
+            }}
+          >
             {rightPanelMode === 1 ? (
               <SongCommentsPanel />
             ) : (
