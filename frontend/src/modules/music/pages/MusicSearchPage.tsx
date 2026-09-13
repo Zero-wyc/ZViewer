@@ -63,13 +63,18 @@ function mapSong(song: CloudsearchSong): NcmSong {
   }
 }
 
-/** 毫秒时长格式化为 m:ss */
+/**
+ * 歌曲时长格式化（对齐 Hydrogen songTime）：
+ * 毫秒 → mm:ss，超过 1 小时 → HH:mm:ss，无数据 → '--:--'
+ */
 function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '0:00'
+  if (!Number.isFinite(ms) || ms <= 0) return '--:--'
   const totalSec = Math.floor(ms / 1000)
-  const m = Math.floor(totalSec / 60)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
   const s = totalSec % 60
-  return `${m}:${String(s).padStart(2, '0')}`
+  const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+  return h > 0 ? `${String(h).padStart(2, '0')}:${mmss}` : mmss
 }
 
 export function MusicSearchPage({
