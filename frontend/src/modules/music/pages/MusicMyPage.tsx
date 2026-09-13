@@ -38,7 +38,7 @@
  *   走 offset 分页，不做后台并发水合；容器 scrollbar-gutter stable 保持宽度稳定
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, ListMusic, Search } from 'lucide-react'
+import { Loader2, ListMusic } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
@@ -979,26 +979,28 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             >
               查看详情
             </button>
-            {/* 歌曲过滤（Hydrogen SongFilterInput SEARCH，居中文本） */}
+            {/* 歌曲过滤（Hydrogen SongFilterInput compact 1:1：
+                右上/左下 6px 缺角 + 1px 细边框 + 纯 CSS 放大镜，
+                hover/focus-within 边框与图标变亮，聚焦时 placeholder 隐藏） */}
             <div
-              className="mt-2 flex h-8 w-full items-center gap-1.5 rounded-full border px-2.5"
+              className="song-search-box mt-2 flex h-6 w-full items-center border px-2.5 transition-colors duration-200 hover:border-[var(--md-sys-color-on-surface)] focus-within:border-[var(--md-sys-color-on-surface)]"
               style={{
                 borderColor: 'var(--md-sys-color-outline-variant)',
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 5%, transparent)',
+                clipPath:
+                  'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
               }}
             >
-              <Search
-                className="h-3.5 w-3.5 shrink-0"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              />
+              <span className="song-search-icon" aria-hidden="true" />
               <input
                 value={filterKeyword}
                 onChange={(e) => setFilterKeyword(e.target.value)}
                 placeholder="SEARCH"
                 aria-label="过滤歌曲"
-                className="min-w-0 flex-1 bg-transparent text-center text-xs outline-none placeholder:text-[color:color-mix(in_srgb,var(--md-sys-color-on-surface-variant)_70%,transparent)]"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
+                className="min-w-0 flex-1 bg-transparent pl-[10px] text-xs tracking-[0.3px] outline-none placeholder:tracking-[0.6px] focus:placeholder:text-transparent"
+                style={{
+                  color: 'var(--md-sys-color-on-surface)',
+                  fontSize: 12,
+                }}
               />
             </div>
           </div>

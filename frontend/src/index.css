@@ -26,6 +26,43 @@
   font-display: swap;
 }
 
+/* 歌单搜索过滤框（Hydrogen SongFilterInput compact 1:1）：
+   纯 CSS 放大镜（圆环 + 45° 柄），随 hover/focus-within 变亮 */
+.song-search-box:hover .song-search-icon,
+.song-search-box:focus-within .song-search-icon {
+  border-color: var(--md-sys-color-on-surface);
+}
+.song-search-box:hover .song-search-icon::after,
+.song-search-box:focus-within .song-search-icon::after {
+  background-color: var(--md-sys-color-on-surface);
+}
+.song-search-icon {
+  position: absolute;
+  left: 8px;
+  top: 50%;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--md-sys-color-on-surface-variant);
+  border-radius: 50%;
+  transform: translateY(-58%);
+  pointer-events: none;
+  z-index: 1;
+  opacity: 0.9;
+  transition: border-color 0.2s ease;
+}
+.song-search-icon::after {
+  content: '';
+  position: absolute;
+  right: -4px;
+  bottom: -2px;
+  width: 6px;
+  height: 1.5px;
+  background-color: var(--md-sys-color-on-surface-variant);
+  transform: rotate(45deg);
+  transform-origin: center;
+  transition: background-color 0.2s ease;
+}
+
 /* 控制卡片内容区统一滚动条样式：细轨道、圆角 thumb、悬停增强 */
 /* overscroll-behavior: contain 防止滚动到边界时事件冒泡到父级滚动容器 */
 .zen-scroll {
