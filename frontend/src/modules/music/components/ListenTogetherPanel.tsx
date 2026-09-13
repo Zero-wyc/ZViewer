@@ -81,6 +81,8 @@ export interface ListenTogetherPanelProps {
 interface NcmLyricResponse {
   lrc?: { lyric?: string }
   tlyric?: { lyric?: string }
+  /** 罗马音官方字段名；rlyric 为旧命名兜底 */
+  romalrc?: { lyric?: string }
   rlyric?: { lyric?: string }
 }
 
@@ -264,7 +266,11 @@ function ListenTogetherInner({
           setEmptyMode('pure')
         } else {
           setLyricLines(
-            mergeLyrics(raw, data?.tlyric?.lyric ?? '', data?.rlyric?.lyric)
+            mergeLyrics(
+              raw,
+              data?.tlyric?.lyric ?? '',
+              data?.romalrc?.lyric ?? data?.rlyric?.lyric
+            )
           )
           setEmptyMode(null)
         }
