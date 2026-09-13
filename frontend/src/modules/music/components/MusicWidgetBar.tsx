@@ -94,18 +94,28 @@ export function MusicWidgetBar() {
     [durationSec]
   )
 
+  /**
+   * 拖动进度（仅 canControl；观众只读展示）。
+   * Hydrogen「广播值—实际值分离 + 松手才 transition」模式：拖动期间只更新
+   * 本地预览值（进度条即时跟手、宽度无过渡），松手后才真 seek，随后位置值
+   * 变化以 0.5s transition 平滑补间（对应 vue-slider :duration=0.5）。
+   */
+  const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
   const handleProgressPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!canControl || durationSec <= 0) return
       e.preventDefault()
       e.stopPropagation()
-      seek(computeTimeFromClientX(e.clientX))
+      setDragPreviewSec(computeTimeFromClientX(e.clientX))
       const handleMove = (ev: PointerEvent) => {
-        seek(computeTimeFromClientX(ev.clientX))
+        setDragPreviewSec(computeTimeFromClientX(ev.clientX))
       }
-      const handleUp = () => {
+      const handleUp = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
+        seek(computeTimeFromClientX(ev.clientX))
+        // 松手即清预览：宽度从拖动终点以 0.5s transition 平滑到 seek 值
+        setDragPreviewSec(null)
       }
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
@@ -137,12 +147,16 @@ export function MusicWidgetBar() {
   }, [canControl, playMode, setPlayMode])
 
   // ===== 音量横条滑块（仅本地生效不参与房间同步） =====
+  // Hydrogen vue-slider :duration=0.3 等价：非拖动变化 0.3s 平滑补间，
+  // 拖动期间即时跟手（无过渡）
   const volumeTrackRef = useRef<HTMLDivElement>(null)
+  const [volumeDragging, setVolumeDragging] = useState(false)
 
   const handleVolumePointerDown = useCallback(
     (e: React.PointerEvent) => {
       e.preventDefault()
       e.stopPropagation()
+      setVolumeDragging(true)
       const compute = (clientX: number) => {
         const el = volumeTrackRef.current
         if (!el) return
@@ -159,6 +173,7 @@ export function MusicWidgetBar() {
       const handleUp = () => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
+        setVolumeDragging(false)
       }
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
@@ -309,7 +324,15 @@ export function MusicWidgetBar() {
         >
           <div
             className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
-            style={{ width: `${progressRatio * 100}%` }}
+            style={{
+              // 拖动预览即时跟手；松手后 0.5s 平滑补间（同 ListenTogetherPanel）
+              width: `${
+                (dragPreviewSec != null && durationSec > 0
+                  ? Math.min(1, Math.max(0, dragPreviewSec / durationSec))
+                  : progressRatio) * 100
+              }%`,
+              transition: dragPreviewSec != null ? 'none' : 'width 0.5s linear',
+            }}
           />
           {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条内上方） */}
           <div className="pointer-events-none absolute left-1 top-1.5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
@@ -442,7 +465,10 @@ export function MusicWidgetBar() {
             >
               <div
                 className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-on-surface)]"
-                style={{ width: `${volume * 100}%` }}
+                style={{
+                  width: `${volume * 100}%`,
+                  transition: volumeDragging ? 'none' : 'width 0.3s linear',
+                }}
               />
             </div>
             <div className="absolute -top-[10px] left-0 flex items-center">
