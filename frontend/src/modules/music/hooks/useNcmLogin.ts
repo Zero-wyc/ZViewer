@@ -8,19 +8,26 @@ import type { NcmLoginStatus } from '../types'
 const QR_POLL_INTERVAL_MS = 1500
 
 /**
- * 网易云会员类型文案（组合 vipType + vipStatus）：
- * NCM profile.vipType 对部分黑胶/音乐包会员不反映实际状态（返回 0），
- * 后端已用 /vip/info 归一并回传 vipStatus 兜底。
- * 11=黑胶 SVIP / 10=VIP / vipStatus==1=VIP / 其余=普通；未知返回空串。
+ * 网易云会员类型文案（组合 vipType + vipStatus，仅两档：VIP / 普通）：
+ * vipStatus==1 兜底；其余（已登录未开通）显示普通；未知返回空串。
+ */
+/**
+ * 网易云会员类型文案（组合 vipType + vipStatus，仅两档：VIP / 普通）：
+ * 10/11/110（普通 VIP / 黑胶 / 黑胶 SVIP）统一显示 VIP，
+ * vipStatus==1 兜底；其余（已登录未开通）显示普通；未知返回空串。
  */
 export function ncmVipLabel(
   vipType?: number | null,
   vipStatus?: number | null
 ): string {
-  // 11 / 110：黑胶 SVIP（110 为 /user/account profile.vipType 的黑胶 SVIP 值）
-  if (vipType === 11 || vipType === 110) return 'SVIP'
-  if (vipType === 10) return 'VIP'
-  if (vipStatus != null && vipStatus > 0) return 'VIP'
+  if (
+    vipType === 10 ||
+    vipType === 11 ||
+    vipType === 110 ||
+    (vipStatus != null && vipStatus > 0)
+  ) {
+    return 'VIP'
+  }
   if (vipType != null || vipStatus != null) return '普通'
   return ''
 }

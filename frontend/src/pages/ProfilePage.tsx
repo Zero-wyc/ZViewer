@@ -691,32 +691,23 @@ export default function ProfilePage() {
                           <Music className="mr-0.5 h-3 w-3" />
                           网易云
                         </Tag>
-                        {/* 会员类型标签（普通/VIP/SVIP） */}
-                        {ncmVipText &&
-                          (ncmVipText === 'SVIP' ? (
-                            <Tag
-                              color="purple"
-                              className="shrink-0 px-1.5 py-0 text-[10px]"
-                            >
-                              <Crown className="mr-0.5 h-3 w-3" />
-                              SVIP
-                            </Tag>
-                          ) : ncmVipText === 'VIP' ? (
-                            <Tag
-                              color="warning"
-                              className="shrink-0 px-1.5 py-0 text-[10px]"
-                            >
-                              <Crown className="mr-0.5 h-3 w-3" />
-                              VIP
-                            </Tag>
-                          ) : (
-                            <Tag
-                              color="default"
-                              className="shrink-0 px-1.5 py-0 text-[10px]"
-                            >
-                              普通账号
-                            </Tag>
-                          ))}
+                        {/* 会员类型标签（两档：VIP / 普通账号） */}
+                        {ncmVipText === 'VIP' ? (
+                          <Tag
+                            color="warning"
+                            className="shrink-0 px-1.5 py-0 text-[10px]"
+                          >
+                            <Crown className="mr-0.5 h-3 w-3" />
+                            VIP
+                          </Tag>
+                        ) : ncmVipText ? (
+                          <Tag
+                            color="default"
+                            className="shrink-0 px-1.5 py-0 text-[10px]"
+                          >
+                            普通账号
+                          </Tag>
+                        ) : null}
                       </div>
                       <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
                         已绑定网易云音乐账号
