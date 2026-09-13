@@ -62,6 +62,13 @@
   transform-origin: center;
   transition: background-color 0.2s ease;
 }
+/* SEARCH placeholder 与输入文字同为黑色；聚焦后隐藏（组件内 focus:placeholder 处理） */
+.song-search-box input::placeholder {
+  color: var(--md-sys-color-on-surface);
+  font-size: 12px;
+  letter-spacing: 0.6px;
+  font-weight: bold;
+}
 
 /* 控制卡片内容区统一滚动条样式：细轨道、圆角 thumb、悬停增强 */
 /* overscroll-behavior: contain 防止滚动到边界时事件冒泡到父级滚动容器 */

@@ -996,7 +996,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 onChange={(e) => setFilterKeyword(e.target.value)}
                 placeholder="SEARCH"
                 aria-label="过滤歌曲"
-                className="min-w-0 flex-1 bg-transparent pl-[10px] text-xs tracking-[0.3px] outline-none placeholder:tracking-[0.6px] focus:placeholder:text-transparent"
+                className="min-w-0 flex-1 bg-transparent pl-[10px] text-xs tracking-[0.3px] outline-none focus:placeholder:text-transparent"
                 style={{
                   color: 'var(--md-sys-color-on-surface)',
                   fontSize: 12,
