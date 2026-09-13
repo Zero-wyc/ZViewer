@@ -150,7 +150,7 @@ async function loadCredential(
 /** 从 NCM 响应体提取网易云账号资料（兼容 body.profile 与 body.data.profile 两种结构） */
 function extractProfile(
   body: unknown,
-): { nickname: string | null; avatarUrl: string | null } | null {
+): { nickname: string | null; avatarUrl: string | null; vipType: number | null } | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
   let raw: unknown = b.profile;
@@ -165,8 +165,9 @@ function extractProfile(
   const p = raw as Record<string, unknown>;
   const nickname = typeof p.nickname === 'string' ? p.nickname : null;
   const avatarUrl = typeof p.avatarUrl === 'string' ? p.avatarUrl : null;
+  const vipType = typeof p.vipType === 'number' ? p.vipType : null;
   if (!nickname && !avatarUrl) return null;
-  return { nickname, avatarUrl };
+  return { nickname, avatarUrl, vipType };
 }
 
 /**
@@ -185,6 +186,7 @@ async function persistCookies(
     existing.cookies = JSON.stringify(mergedCookies);
     if (profile?.nickname) existing.nickname = profile.nickname;
     if (profile?.avatarUrl) existing.avatarUrl = profile.avatarUrl;
+    if (profile?.vipType != null) existing.vipType = profile.vipType;
     await repo.save(existing);
   } else {
     await repo.save(
@@ -193,6 +195,7 @@ async function persistCookies(
         cookies: JSON.stringify(mergedCookies),
         nickname: profile?.nickname ?? null,
         avatarUrl: profile?.avatarUrl ?? null,
+        vipType: profile?.vipType ?? null,
       }),
     );
   }
@@ -568,8 +571,14 @@ router.get(
     try {
       let credential = await loadCredential(req.user?.userId);
       // 扫码登录落库时响应不含账号资料（/login/qr/check 只返回 code），
-      // 旧凭据可能缺昵称/头像：用凭据 cookie 实时调 /user/account 补全并回写
-      if (credential && (!credential.nickname || !credential.avatarUrl)) {
+      // 旧凭据可能缺昵称/头像/会员类型：用凭据 cookie 实时调 /user/account
+      // 补全并回写
+      if (
+        credential &&
+        (!credential.nickname ||
+          !credential.avatarUrl ||
+          credential.vipType == null)
+      ) {
         try {
           const cookieHeader = toCookieHeader(credential.cookies);
           if (cookieHeader) {
@@ -578,6 +587,7 @@ router.get(
             if (profile) {
               credential.nickname = profile.nickname ?? credential.nickname;
               credential.avatarUrl = profile.avatarUrl ?? credential.avatarUrl;
+              credential.vipType = profile.vipType ?? credential.vipType;
               await AppDataSource.getRepository(NcmCredential).save(
                 credential,
               );
@@ -591,6 +601,7 @@ router.get(
         loggedIn: !!credential,
         nickname: credential?.nickname ?? null,
         avatarUrl: credential?.avatarUrl ?? null,
+        vipType: credential?.vipType ?? null,
       });
     } catch (err) {
       console.error('[music] login/status error:', err);

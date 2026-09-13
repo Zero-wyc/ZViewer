@@ -42,7 +42,7 @@ import {
 import MountManager from '@/modules/mounts/MountManager'
 import ServerFileManager from '@/modules/server-files/ServerFileManager'
 import { BilibiliDownloadModal } from '@/modules/server-files/BilibiliDownloadModal'
-import { useNcmLogin, type NcmQrStatus } from '@/modules/music'
+import { useNcmLogin, ncmVipLabel, type NcmQrStatus } from '@/modules/music'
 import { apiFetch } from '@/lib/api'
 
 /** 构建头像完整 URL（后端返回相对路径，前端拼接 API_URL） */
@@ -688,6 +688,32 @@ export default function ProfilePage() {
                           <Music className="mr-0.5 h-3 w-3" />
                           网易云
                         </Tag>
+                        {/* 会员类型标签（NCM vipType：普通/VIP/SVIP） */}
+                        {ncmVipLabel(ncmLoginInfo.vipType) &&
+                          (ncmVipLabel(ncmLoginInfo.vipType) === 'SVIP' ? (
+                            <Tag
+                              color="purple"
+                              className="shrink-0 px-1.5 py-0 text-[10px]"
+                            >
+                              <Crown className="mr-0.5 h-3 w-3" />
+                              SVIP
+                            </Tag>
+                          ) : ncmVipLabel(ncmLoginInfo.vipType) === 'VIP' ? (
+                            <Tag
+                              color="warning"
+                              className="shrink-0 px-1.5 py-0 text-[10px]"
+                            >
+                              <Crown className="mr-0.5 h-3 w-3" />
+                              VIP
+                            </Tag>
+                          ) : (
+                            <Tag
+                              color="default"
+                              className="shrink-0 px-1.5 py-0 text-[10px]"
+                            >
+                              普通账号
+                            </Tag>
+                          ))}
                       </div>
                       <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
                         已绑定网易云音乐账号

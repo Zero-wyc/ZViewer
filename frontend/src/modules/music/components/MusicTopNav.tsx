@@ -31,6 +31,7 @@ import {
   MODE_ORDER,
 } from '@/modules/room/components/useRoomModeSwitch'
 import { cn } from '@/lib/utils'
+import { ncmVipLabel } from '../hooks/useNcmLogin'
 
 /** 菜单内「房间模式」分组的注入状态（由 MusicAppShell 透传） */
 export interface RoomModeMenuState {
@@ -550,7 +551,11 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   className="text-xs"
                   style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                 >
-                  {loginStatus.loggedIn ? '网易云账号' : '尚未登录网易云'}
+                  {loginStatus.loggedIn
+                    ? ncmVipLabel(loginStatus.vipType)
+                      ? `网易云账号 · ${ncmVipLabel(loginStatus.vipType)}`
+                      : '网易云账号'
+                    : '尚未登录网易云'}
                 </p>
               </div>
             </div>

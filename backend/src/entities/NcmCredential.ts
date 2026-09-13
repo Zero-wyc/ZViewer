@@ -33,6 +33,10 @@ export class NcmCredential {
   @Column({ type: 'text', nullable: true })
   avatarUrl!: string | null;
 
+  /** 网易云会员类型（profile.vipType：0=普通 / 10=VIP / 11=SVIP） */
+  @Column({ type: 'integer', nullable: true })
+  vipType!: number | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

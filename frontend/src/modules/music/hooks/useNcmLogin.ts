@@ -7,6 +7,17 @@ import type { NcmLoginStatus } from '../types'
 /** 二维码扫码状态轮询间隔（毫秒） */
 const QR_POLL_INTERVAL_MS = 1500
 
+/**
+ * 网易云会员类型文案（NCM profile.vipType 约定）：
+ * 0=普通 / 10=VIP（普通会员）/ 11=SVIP；未登录/未知返回空字符串。
+ */
+export function ncmVipLabel(vipType?: number | null): string {
+  if (vipType === 11) return 'SVIP'
+  if (vipType === 10) return 'VIP'
+  if (vipType != null) return '普通'
+  return ''
+}
+
 /** /login/qr/check 状态码（网易云约定） */
 const QR_STATUS_CODE = {
   /** 二维码已失效（需重新生成） */
@@ -101,6 +112,7 @@ export function useNcmLogin(): UseNcmLoginResult {
         loggedIn?: boolean
         nickname?: string
         avatarUrl?: string
+        vipType?: number | null
         profile?: { nickname?: string; avatarUrl?: string }
       }>(`/api/music/login/status?timestamp=${Date.now()}`)
       if (!ok || !data) return
@@ -116,6 +128,7 @@ export function useNcmLogin(): UseNcmLoginResult {
         loggedIn: data.loggedIn ?? false,
         nickname: data.profile?.nickname ?? data.nickname,
         avatarUrl: data.profile?.avatarUrl ?? data.avatarUrl,
+        vipType: typeof data.vipType === 'number' ? data.vipType : null,
       })
     } catch (err) {
       console.error('[useNcmLogin] 查询登录状态失败:', err)

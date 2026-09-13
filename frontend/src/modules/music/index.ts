@@ -69,7 +69,7 @@ export type {
   UseListenTogetherResult,
 } from './hooks/useListenTogether'
 
-export { useNcmLogin } from './hooks/useNcmLogin'
+export { useNcmLogin, ncmVipLabel } from './hooks/useNcmLogin'
 export type { NcmQrStatus, UseNcmLoginResult } from './hooks/useNcmLogin'
 
 export { useQueueAdd, songToUpsertItem } from './hooks/useQueueAdd'
