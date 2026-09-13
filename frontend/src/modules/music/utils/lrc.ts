@@ -15,6 +15,12 @@ export interface LyricLine {
   translation?: string
   /** 罗马音文本（无罗马音时缺省，/lyric rlyric） */
   roman?: string
+  /** 偏移前的原始时间（秒，applyLyricLineOffsets 写入） */
+  lyricLineOriginalTime?: number
+  /** 偏移判定行 key（applyLyricLineOffsets 写入） */
+  lyricLineKey?: string
+  /** 当前行命中的偏移（秒，applyLyricLineOffsets 写入） */
+  lyricLineOffsetSec?: number
 }
 
 /** 时间标签：[mm:ss]、[mm:ss.xx]、[mm:ss.xxx]（分最多 3 位，毫秒 1-3 位） */

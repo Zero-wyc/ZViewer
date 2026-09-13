@@ -39,6 +39,14 @@ import { useMusicSettingsStore } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
+import {
+  applyLyricLineOffsets,
+  buildNextLyricLineOffsetStore,
+  getLyricOffsetSongKey,
+  loadLyricLineOffsetStore,
+  saveLyricLineOffsetStore,
+  type LyricLineOffsetStore,
+} from '../utils/lyricLineOffset'
 import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
 import { OverflowMarquee } from './OverflowMarquee'
@@ -223,6 +231,11 @@ function ListenTogetherInner({
   const [lyricLines, setLyricLines] = useState<LyricLine[]>([])
   const [emptyMode, setEmptyMode] = useState<'none' | 'pure' | null>(null)
   const [lyricRevealed, setLyricRevealed] = useState(false)
+  // 歌词单行偏移仓库（"song:.songId" → { lineKey → offsetSec }，
+  // localStorage 持久化，跨会话生效；Hydrogen playerStore.lyricLineOffsets 同语义）
+  const [lineOffsetStore, setLineOffsetStore] = useState<LyricLineOffsetStore>(
+    () => loadLyricLineOffsetStore()
+  )
   // 切歌动画（歌名黑块滑入遮字）
   const [songSwitching, setSongSwitching] = useState(false)
   // 喜欢（乐观状态）
@@ -282,12 +295,17 @@ function ListenTogetherInner({
         }
       }
       if (!cancelled) {
-        // 双帧等待布局稳定后再显示（防首帧错位闪烁）
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            if (!cancelled) setLyricRevealed(true)
-          })
-        )
+        // 反闪烁（Hydrogen prepareLyricReveal）：等字体加载完成 + 双帧布局
+        // 稳定后再显示歌词区（字体就绪超时 1.5s 兜底，避免阻塞展示）
+        const fontsReady = document.fonts?.ready ?? Promise.resolve()
+        const timeout = new Promise((resolve) => setTimeout(resolve, 1500))
+        Promise.race([fontsReady, timeout]).then(() => {
+          requestAnimationFrame(() =>
+            requestAnimationFrame(() => {
+              if (!cancelled) setLyricRevealed(true)
+            })
+          )
+        })
       }
     }
     void loadLyric()
@@ -334,16 +352,49 @@ function ListenTogetherInner({
     }
   }, [canLike, songId])
 
+  /** 带偏移的显示行（原时间 − 行偏移，强制单调防倒序，右键菜单数据源） */
+  const displayLyricLines = useMemo(
+    () =>
+      applyLyricLineOffsets(
+        lyricLines,
+        lineOffsetStore,
+        getLyricOffsetSongKey(songId)
+      ),
+    [lyricLines, lineOffsetStore, songId]
+  )
+
+  /** 行偏移更新：delta>0 提前 / delta<0 延后 / delta=0 重置为本行已生效偏移的负值 */
+  const handleUpdateLineOffset = useCallback(
+    (line: LyricLine, deltaSec: number) => {
+      const songKey = getLyricOffsetSongKey(songId)
+      const lineKey = line.lyricLineKey
+      if (!songKey || !lineKey) return
+      const current = line.lyricLineOffsetSec ?? 0
+      const nextOffset = deltaSec !== 0 ? current + deltaSec : -current
+      setLineOffsetStore((prev) => {
+        const next = buildNextLyricLineOffsetStore(
+          prev,
+          songKey,
+          lineKey,
+          nextOffset
+        )
+        saveLyricLineOffsetStore(next)
+        return next
+      })
+    },
+    [songId]
+  )
+
   /** 当前高亮歌词行（最后一个 time <= positionSec + 提前量的行，二分查找） */
   const activeLyricIndex = useMemo(() => {
-    if (lyricLines.length === 0) return -1
+    if (displayLyricLines.length === 0) return -1
     let ans = -1
     let lo = 0
-    let hi = lyricLines.length - 1
+    let hi = displayLyricLines.length - 1
     const target = positionSec + LYRIC_ADVANCE_SEC
     while (lo <= hi) {
       const mid = (lo + hi) >> 1
-      if (lyricLines[mid].time <= target) {
+      if (displayLyricLines[mid].time <= target) {
         ans = mid
         lo = mid + 1
       } else {
@@ -351,7 +402,7 @@ function ListenTogetherInner({
       }
     }
     return ans
-  }, [lyricLines, positionSec])
+  }, [displayLyricLines, positionSec])
 
   // ===== 喜欢（Hydrogen likeSong：NCM 登录且非塞壬曲目可见） =====
   const handleLike = useCallback(async () => {
@@ -1135,7 +1186,7 @@ function ListenTogetherInner({
               <SongCommentsPanel />
             ) : (
               <PlayerLyricPanel
-                lines={lyricLines}
+                lines={displayLyricLines}
                 activeIndex={activeLyricIndex}
                 positionSec={positionSec}
                 emptyMode={emptyMode}
@@ -1151,28 +1202,13 @@ function ListenTogetherInner({
                 lyricMaskOpacity={lyricMaskOpacity / 100}
                 lyricMaskBlur={lyricMaskBlur}
                 onSeek={handleLyricSeek}
+                onUpdateLineOffset={handleUpdateLineOffset}
+                qualityLabel={level}
               />
             )}
           </div>
         </div>
       )}
-
-      {/* 音质标识（Hydrogen 右下角 music-quality：当前音质档位大写 + 方块装饰） */}
-      <div className="pointer-events-none absolute bottom-4 right-6 z-[6] flex items-center gap-1.5">
-        <span
-          className="text-xs font-medium tracking-wide"
-          style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-        >
-          {level.toUpperCase()}
-        </span>
-        <span
-          className="h-2 w-2"
-          style={{
-            border: '1px solid var(--md-sys-color-on-surface-variant)',
-          }}
-          aria-hidden="true"
-        />
-      </div>
     </div>
   )
 }

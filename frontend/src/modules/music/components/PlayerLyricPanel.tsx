@@ -32,6 +32,7 @@ import {
   useState,
 } from 'react'
 import type { LyricLine } from '../utils/lrc'
+import { formatLyricLineOffset } from '../utils/lyricLineOffset'
 import { cn } from '@/lib/utils'
 
 /** 滚动同步容差（px）：目标差值小于该值不做动画 */
@@ -49,8 +50,13 @@ const FOLLOW_BOTTOM_GUTTER_PX = 180
 const FOLLOW_VISIBLE_GUTTER_PX = 24
 /** 手动滚动空闲（ms）：无操作后恢复自动跟随 */
 const MANUAL_SCROLL_IDLE_MS = 1000
+/** 歌词行右键偏移菜单单次步长（秒，Hydrogen LYRIC_LINE_OFFSET_STEP_SEC） */
+const LINE_OFFSET_STEP_SEC = 0.5
 /** 间奏块收起预留（秒）：接近下一行时提前收起 */
 const INTERLUDE_END_LEAD_SEC = 0.8
+/** 偏移菜单尺寸（px，Hydrogen 190×~170，用于点击位置 clamp） */
+const OFFSET_MENU_WIDTH = 190
+const OFFSET_MENU_HEIGHT = 170
 
 export interface PlayerLyricPanelProps {
   lines: LyricLine[]
@@ -82,6 +88,10 @@ export interface PlayerLyricPanelProps {
   lyricMaskBlur?: number
   /** 点击歌词行跳转进度（秒） */
   onSeek: (time: number) => void
+  /** 歌词行右键更新本行偏移（deltaSec: >0 提前 / <0 延后）；提供本回调即启用右键菜单 */
+  onUpdateLineOffset?: (line: LyricLine, deltaSec: number) => void
+  /** 音质角标（Hydrogen .song-quality，右下角） */
+  qualityLabel?: string
 }
 
 /** 估算一行歌词的演唱结束时间（秒）。
@@ -119,6 +129,8 @@ export function PlayerLyricPanel({
   lyricMaskOpacity = 1,
   lyricMaskBlur = 0,
   onSeek,
+  onUpdateLineOffset,
+  qualityLabel,
 }: PlayerLyricPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const contentRef = useRef<HTMLDivElement>(null)
@@ -141,12 +153,60 @@ export function PlayerLyricPanel({
    */
   const [topSpacer, setTopSpacer] = useState(FOLLOW_TOP_OFFSET_PX)
   const [bottomSpacer, setBottomSpacer] = useState(FOLLOW_BOTTOM_GUTTER_PX)
-  /** 切歌（lines 变化）时退出手动模式（render 期调整，替代 effect 内同步 setState） */
+  // ===== 歌词行右键偏移菜单（Hydrogen showLineOffsetMenu：固定定位、
+  // 位置 clamp 防溢出、点外部关闭） =====
+  const [offsetMenu, setOffsetMenu] = useState<{
+    x: number
+    y: number
+    line: LyricLine
+  } | null>(null)
+  /** 切歌（lines 变化）时退出手动模式，并关闭行偏移菜单（render 期调整） */
   const [prevLines, setPrevLines] = useState(lines)
   if (prevLines !== lines) {
     setPrevLines(lines)
     setManualMode(false)
+    if (offsetMenu != null) setOffsetMenu(null)
   }
+  const offsetMenuRef = useRef<HTMLDivElement>(null)
+  const showLineOffsetMenu = useCallback(
+    (event: React.MouseEvent, line: LyricLine) => {
+      if (!onUpdateLineOffset || line.lyricLineKey == null) return
+      event.preventDefault()
+      const x = Math.min(
+        event.clientX,
+        Math.max(8, window.innerWidth - OFFSET_MENU_WIDTH - 8)
+      )
+      const y = Math.min(
+        event.clientY,
+        Math.max(8, window.innerHeight - OFFSET_MENU_HEIGHT - 8)
+      )
+      setOffsetMenu({ x: Math.max(8, x), y: Math.max(8, y), line })
+    },
+    [onUpdateLineOffset]
+  )
+  useEffect(() => {
+    if (!offsetMenu) return
+    const handleMouseDown = (event: MouseEvent) => {
+      if (offsetMenuRef.current?.contains(event.target as Node)) return
+      setOffsetMenu(null)
+    }
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [offsetMenu])
+  const handleUpdateLineOffset = useCallback(
+    (deltaSec: number) => {
+      const target = offsetMenu?.line
+      if (!onUpdateLineOffset || !target) return
+      const current = target.lyricLineOffsetSec ?? 0
+      if (deltaSec !== 0) {
+        onUpdateLineOffset(target, deltaSec)
+      } else {
+        onUpdateLineOffset(target, -current)
+      }
+      setOffsetMenu(null)
+    },
+    [offsetMenu, onUpdateLineOffset]
+  )
 
   /**
    * 当前行锚定偏移 clamp（Hydrogen getLyricFollowTopOffset）：行高超过
@@ -491,106 +551,209 @@ export function PlayerLyricPanel({
   const showNodata = emptyMode === 'none'
 
   return (
-    <div
-      ref={scrollRef}
-      className="hide-scrollbar relative min-h-0 flex-1 overflow-y-auto"
-      style={{
-        visibility: revealed ? 'visible' : 'hidden',
-        // Firefox 滚动锚定防护：溢出锚定会对手动 scrollTop 瞬移 +
-        // 内容层 transform 动画做自动补偿，把滚动位置"拉回"造成跳动
-        overflowAnchor: 'none',
-      }}
-    >
-      {/* 空态：无歌词 → Lyric-Area 装饰（Hydrogen .lyric-nodata 布局：
+    <div className="relative flex min-h-0 flex-1 flex-col">
+      <div
+        ref={scrollRef}
+        className="hide-scrollbar relative min-h-0 flex-1 overflow-y-auto"
+        style={{
+          visibility: revealed ? 'visible' : 'hidden',
+          // Firefox 滚动锚定防护：溢出锚定会对手动 scrollTop 瞬移 +
+          // 内容层 transform 动画做自动补偿，把滚动位置"拉回"造成跳动
+          overflowAnchor: 'none',
+        }}
+      >
+        {/* 空态：无歌词 → Lyric-Area 装饰（Hydrogen .lyric-nodata 布局：
           左下 / 右上两条对角线 38% 展开，文字居中闪烁三下常显） */}
-      {showNodata ? (
-        <div className="relative h-full w-full">
-          <div
-            className="lyric-nodata-grow absolute bottom-[4%] left-[4%]"
-            style={{
-              background:
-                'linear-gradient(to top right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
-            }}
-            aria-hidden="true"
-          />
-          <div
-            className="lyric-nodata-grow absolute right-[4%] top-[4%]"
-            style={{
-              background:
-                'linear-gradient(to bottom right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
-            }}
-            aria-hidden="true"
-          />
-          <span className="lyric-nodata-tip absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[16px] font-bold tracking-wider">
-            Lyric-Area
-          </span>
-        </div>
-      ) : (
-        <div ref={contentRef} className="lyric-content">
-          {/* 顶部动态锚定留白（Hydrogen .lyric-spacer：随当前行高与容器
+        {showNodata ? (
+          <div className="relative h-full w-full">
+            <div
+              className="lyric-nodata-grow absolute bottom-[4%] left-[4%]"
+              style={{
+                background:
+                  'linear-gradient(to top right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
+              }}
+              aria-hidden="true"
+            />
+            <div
+              className="lyric-nodata-grow absolute right-[4%] top-[4%]"
+              style={{
+                background:
+                  'linear-gradient(to bottom right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
+              }}
+              aria-hidden="true"
+            />
+            <span className="lyric-nodata-tip absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 whitespace-nowrap text-[16px] font-bold tracking-wider">
+              Lyric-Area
+            </span>
+          </div>
+        ) : (
+          <div ref={contentRef} className="lyric-content">
+            {/* 顶部动态锚定留白（Hydrogen .lyric-spacer：随当前行高与容器
               尺寸自适应，height 0.3s 过渡） */}
-          <div
-            className="lyric-spacer"
-            style={{ height: topSpacer }}
-            aria-hidden="true"
-          />
-          {/* 纯音乐：单行占位（time 0 即高亮，不可点） */}
-          {emptyMode === 'pure' && (
-            <LyricRow
-              line={{ time: 0, text: '纯音乐，请欣赏' }}
-              active
-              untimed
-              showTranslation={showTranslation}
-              showOriginal={showOriginal}
-              showRoman={showRoman}
-              lyricSize={lyricSize}
-              tlyricSize={tlyricSize}
-              rlyricSize={rlyricSize}
-              lyricBlur={lyricBlur}
-              lyricMaskOpacity={lyricMaskOpacity}
-              lyricMaskBlur={lyricMaskBlur}
-              onSeek={onSeek}
-              interlude={null}
-              manualInactive={false}
+            <div
+              className="lyric-spacer"
+              style={{ height: topSpacer }}
+              aria-hidden="true"
+            />
+            {/* 纯音乐：单行占位（time 0 即高亮，不可点） */}
+            {emptyMode === 'pure' && (
+              <LyricRow
+                line={{ time: 0, text: '纯音乐，请欣赏' }}
+                active
+                untimed
+                showTranslation={showTranslation}
+                showOriginal={showOriginal}
+                showRoman={showRoman}
+                lyricSize={lyricSize}
+                tlyricSize={tlyricSize}
+                rlyricSize={rlyricSize}
+                lyricBlur={lyricBlur}
+                lyricMaskOpacity={lyricMaskOpacity}
+                lyricMaskBlur={lyricMaskBlur}
+                onSeek={onSeek}
+                interlude={null}
+                manualInactive={false}
+              />
+            )}
+            {emptyMode === null &&
+              lines.map((line, i) => {
+                const active = i === activeIndex
+                // 间奏块仅渲染在当前行下方
+                const lineInterlude =
+                  active && interlude
+                    ? {
+                        show: interlude.show,
+                        remaining: interlude.remaining,
+                      }
+                    : null
+                return (
+                  <LyricRow
+                    key={`${line.time}-${i}`}
+                    line={line}
+                    active={active}
+                    showTranslation={showTranslation}
+                    showOriginal={showOriginal}
+                    showRoman={showRoman}
+                    lyricSize={lyricSize}
+                    tlyricSize={tlyricSize}
+                    rlyricSize={rlyricSize}
+                    lyricBlur={lyricBlur}
+                    lyricMaskOpacity={lyricMaskOpacity}
+                    lyricMaskBlur={lyricMaskBlur}
+                    onSeek={onSeek}
+                    onContextMenu={(e) => showLineOffsetMenu(e, line)}
+                    interlude={lineInterlude}
+                    manualInactive={manualMode}
+                  />
+                )
+              })}
+            {/* 底部动态留白（Hydrogen .lyric-spacer：保证末行也能锚定到位） */}
+            <div
+              className="lyric-spacer"
+              style={{ height: bottomSpacer }}
+              aria-hidden="true"
+            />
+          </div>
+        )}
+      </div>
+
+      {/* 音质角标（Hydrogen .song-quality：右下角黑字档位） */}
+      {qualityLabel && (
+        <span
+          className="pointer-events-none absolute bottom-1 right-3 z-[6] text-[1.5vh] font-bold leading-none tracking-wide"
+          style={{ color: 'var(--md-sys-color-on-surface)' }}
+        >
+          {qualityLabel.toUpperCase()}
+        </span>
+      )}
+
+      {/* 四角定位边框装饰（Hydrogen .border border1~4 1:1：
+          1.5vh 方框贴四角，右下角框多一颗中心点） */}
+      {(
+        [
+          ['top-1 left-1', false],
+          ['top-1 right-1', false],
+          ['bottom-1 right-1', true],
+          ['bottom-1 left-1', false],
+        ] as const
+      ).map(([posClass, withDot]) => (
+        <span
+          key={posClass}
+          aria-hidden="true"
+          className={`pointer-events-none absolute z-[5] h-[1.5vh] w-[1.5vh] ${posClass}`}
+          style={{ border: '1px solid var(--md-sys-color-on-surface)' }}
+        >
+          {withDot && (
+            <span
+              className="absolute left-1/2 top-1/2 block h-[33%] w-[33%] -translate-x-1/2 -translate-y-1/2"
+              style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
             />
           )}
-          {emptyMode === null &&
-            lines.map((line, i) => {
-              const active = i === activeIndex
-              // 间奏块仅渲染在当前行下方
-              const lineInterlude =
-                active && interlude
-                  ? {
-                      show: interlude.show,
-                      remaining: interlude.remaining,
-                    }
-                  : null
-              return (
-                <LyricRow
-                  key={`${line.time}-${i}`}
-                  line={line}
-                  active={active}
-                  showTranslation={showTranslation}
-                  showOriginal={showOriginal}
-                  showRoman={showRoman}
-                  lyricSize={lyricSize}
-                  tlyricSize={tlyricSize}
-                  rlyricSize={rlyricSize}
-                  lyricBlur={lyricBlur}
-                  lyricMaskOpacity={lyricMaskOpacity}
-                  lyricMaskBlur={lyricMaskBlur}
-                  onSeek={onSeek}
-                  interlude={lineInterlude}
-                  manualInactive={manualMode}
-                />
-              )
-            })}
-          {/* 底部动态留白（Hydrogen .lyric-spacer：保证末行也能锚定到位） */}
-          <div
-            className="lyric-spacer"
-            style={{ height: bottomSpacer }}
+        </span>
+      ))}
+
+      {/* 歌词行右键偏移菜单（Hydrogen .lyric-line-offset-menu 1:1） */}
+      {offsetMenu && onUpdateLineOffset && (
+        <div
+          ref={offsetMenuRef}
+          className="fixed z-50 select-none overflow-hidden"
+          style={{
+            left: offsetMenu.x,
+            top: offsetMenu.y,
+            width: OFFSET_MENU_WIDTH,
+            backgroundColor: 'rgba(32, 32, 32, 0.96)',
+            border: '1px solid rgba(255, 255, 255, 0.16)',
+            boxShadow: '0 14px 34px rgba(0, 0, 0, 0.28)',
+            backdropFilter: 'blur(14px)',
+            color: '#fff',
+          }}
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {/* OFFSET 底纹大字（Hydrogen ::before） */}
+          <span
             aria-hidden="true"
-          />
+            className="pointer-events-none absolute -bottom-1 right-2 text-[34px] font-bold tracking-normal"
+            style={{ color: 'rgba(255, 255, 255, 0.035)' }}
+          >
+            OFFSET
+          </span>
+          <div className="flex items-baseline justify-between px-3 pt-3">
+            <span className="text-[12px] font-bold">歌词偏移</span>
+            <span className="text-[10px] font-bold tracking-widest opacity-40">
+              OFFSET
+            </span>
+          </div>
+          <div className="px-3 pb-2 pt-1 text-[11px] opacity-80">
+            {formatLyricLineOffset(offsetMenu.line.lyricLineOffsetSec ?? 0)}
+          </div>
+          <div className="flex flex-col pb-2">
+            <button
+              type="button"
+              className="flex items-baseline justify-between px-3 py-1.5 text-[12px] font-bold transition-colors hover:bg-[rgba(255,255,255,0.08)]"
+              onClick={() => handleUpdateLineOffset(LINE_OFFSET_STEP_SEC)}
+            >
+              <span>提前 0.5 秒</span>
+              <span className="text-[10px] opacity-40">EARLIER</span>
+            </button>
+            <button
+              type="button"
+              className="flex items-baseline justify-between px-3 py-1.5 text-[12px] font-bold transition-colors hover:bg-[rgba(255,255,255,0.08)]"
+              onClick={() => handleUpdateLineOffset(-LINE_OFFSET_STEP_SEC)}
+            >
+              <span>延后 0.5 秒</span>
+              <span className="text-[10px] opacity-40">LATER</span>
+            </button>
+            <button
+              type="button"
+              className="flex items-baseline justify-between px-3 py-1.5 text-[12px] font-bold transition-colors hover:bg-[rgba(255,255,255,0.08)]"
+              onClick={() => handleUpdateLineOffset(0)}
+            >
+              <span>重置本行偏移</span>
+              <span className="text-[10px] opacity-40">RESET</span>
+            </button>
+          </div>
         </div>
       )}
     </div>
@@ -614,6 +777,7 @@ const LyricRow = memo(function LyricRow({
   lyricMaskOpacity = 1,
   lyricMaskBlur = 0,
   onSeek,
+  onContextMenu,
   interlude,
   manualInactive,
 }: {
@@ -637,6 +801,8 @@ const LyricRow = memo(function LyricRow({
   lyricMaskOpacity?: number
   lyricMaskBlur?: number
   onSeek: (time: number) => void
+  /** 行右键（歌词偏移菜单入口） */
+  onContextMenu?: (event: React.MouseEvent) => void
   interlude: { show: boolean; remaining: number } | null
   /** 手动滚动模式：非当前行文字 scale(1.05)（Hydrogen .lyric-inactive） */
   manualInactive?: boolean
@@ -651,6 +817,7 @@ const LyricRow = memo(function LyricRow({
         role={clickable ? 'button' : undefined}
         tabIndex={clickable ? 0 : undefined}
         onClick={clickable ? () => onSeek(line.time) : undefined}
+        onContextMenu={onContextMenu}
         className={cn(
           'lyric-line-active relative flex origin-left flex-col items-start overflow-hidden px-[130px] py-[10px] pl-[25px]',
           clickable &&
