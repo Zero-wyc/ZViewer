@@ -961,7 +961,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           <div className="flex w-[130px] shrink-0 flex-col items-stretch">
             {(detail.kind !== 'artist' || detailMeta?.timeLabel) && (
               <div
-                className="flex h-4 items-center justify-center whitespace-nowrap border px-1 text-[10px] font-bold text-[var(--md-sys-color-on-surface)]"
+                className="flex h-6 items-center justify-center whitespace-nowrap border px-1 text-[10px] font-bold text-[var(--md-sys-color-on-surface)]"
                 style={{
                   borderColor: 'var(--md-sys-color-on-surface)',
                 }}
@@ -973,7 +973,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             )}
             <button
               type="button"
-              className="mt-1.5 h-4 bg-[var(--md-sys-color-on-surface)] text-[10px] font-bold text-[var(--md-sys-color-surface)] transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_80%,transparent)]"
+              className="mt-1.5 h-6 bg-[var(--md-sys-color-on-surface)] text-[10px] font-bold text-[var(--md-sys-color-surface)] transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_80%,transparent)]"
               onClick={() => setIntroOpen(true)}
               title="查看详情"
             >
