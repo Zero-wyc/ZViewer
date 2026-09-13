@@ -28,12 +28,7 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { MovieListPanel } from '@/modules/room/components/MovieListPanel'
 import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
-import {
-  MusicAppShell,
-  MusicBetaNotice,
-  MusicPlayerProvider,
-} from '@/modules/music'
-import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
 import { useJoinRoom } from '../hooks/useJoinRoom'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import { useShareMethod } from '../hooks/useShareMethod'
@@ -87,10 +82,6 @@ function WatchPage() {
   // 房管观众：可管理影片与成员（含语音），由服务器同步的 moderators 判定
   const isModerator =
     currentUserId != null && moderators.includes(Number(currentUserId))
-  // Beta 功能开关：一起听模式渲染的门控（spec「Beta 门控」）
-  const betaFeaturesEnabled = useSystemSettingsStore(
-    (state) => state.betaFeaturesEnabled
-  )
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
@@ -135,13 +126,8 @@ function WatchPage() {
     )
   }
 
-  // 3.1b 已加入且 roomMode === 'listen-together'：一起听（Beta 门控）
+  // 3.1b 已加入且 roomMode === 'listen-together'：一起听（默认可用，无需 Beta 开关）
   if (joinStatus === 'approved' && roomMode === 'listen-together') {
-    // Beta 未开启：降级提示页，不渲染任何音乐 UI
-    //（防御直接 URL / 管理员关闭开关后的存量房间场景）
-    if (!betaFeaturesEnabled) {
-      return <MusicBetaNotice />
-    }
     return (
       // 一起听：Hydrogen 应用框架作为整页底板，不再套 RoomLayout 外框；
       // Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎

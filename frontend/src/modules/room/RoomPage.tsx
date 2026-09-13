@@ -22,13 +22,8 @@ import { message } from '@/components/ui/message'
 import { SharePage, WatchPage } from '@/modules/screen-sharing'
 import type { P2PStateSnapshot } from '@/modules/screen-sharing/components/WebrtcSharePage'
 import type { MediaFormat } from '@/lib/mediaFormat'
-import {
-  MusicAppShell,
-  MusicBetaNotice,
-  MusicPlayerProvider,
-} from '@/modules/music'
+import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
 import { MusicSideDock } from '@/modules/music/components/MusicSideDock'
-import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 import type { RoomMode } from '@/store/roomStore'
 
@@ -149,10 +144,6 @@ function RoomPage() {
   // 房管观众：可管理影片与成员（含语音），后端同步的 moderators 列表判定
   const isModerator =
     currentUserId != null && moderators.includes(Number(currentUserId))
-  // Beta 功能开关：一起听模式入口与渲染的门控（spec「Beta 门控」）
-  const betaFeaturesEnabled = useSystemSettingsStore(
-    (state) => state.betaFeaturesEnabled
-  )
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
@@ -391,15 +382,13 @@ function RoomPage() {
 
   // 房主：使用 RoomLayout，根据模式渲染对应播放器
   if (isHost) {
-    // 一起听模式：Beta 未开启时降级为提示页（仍套 RoomLayout，顶栏滑块可切回
-    // 其他模式）；Beta 开启时 MusicAppShell 作为整页底板直接渲染（见下方分支）。
-    //（创建入口已由 RoomPanel 门控隐藏，此处防御直接 URL / 关闭开关后的存量房间）
+    // 一起听模式：MusicAppShell 作为整页底板直接渲染（默认可用，无需
+    // Beta 开关）；语音/流量悬浮面板照常叠加
     const isListenTogether = mode === 'listen-together'
-    const musicBetaClosed = isListenTogether && !betaFeaturesEnabled
 
-    // 一起听（Beta 开启）：Hydrogen 应用框架升级为整页底板——不再套 RoomLayout
-    // 外框（玻璃卡片 + 顶部工具栏），语音/流量悬浮面板照常叠加
-    if (isListenTogether && !musicBetaClosed) {
+    // 一起听：Hydrogen 应用框架升级为整页底板——不再套 RoomLayout
+    // 外框（玻璃卡片 + 顶部工具栏）
+    if (isListenTogether) {
       return (
         <>
           {/* Provider 包裹底板与完整播放器覆盖层，共享同一音频引擎 */}
@@ -449,9 +438,6 @@ function RoomPage() {
             <Spinner tip="正在恢复房间..." size={32} />
           </div>
         )
-      ) : isListenTogether ? (
-        // 一起听 Beta 关闭：降级提示页（RoomLayout 顶栏滑块可切回其他模式）
-        <MusicBetaNotice />
       ) : (
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
@@ -514,13 +500,13 @@ function RoomPage() {
   }
 
   // 观众：统一由 WatchPage 处理加入与模式切换
-  // - 一起听模式（Beta 开启）：WatchPage 渲染 MusicAppShell，其内嵌的
+  // - 一起听模式：WatchPage 渲染 MusicAppShell，其内嵌的
   //   MusicSideDock（右缘竖线把手 hover 滑出）已包含语音聊天 / 房间状态 /
-  //   流量统计三面板，不再额外叠加
+  //   流量统计三面板，不再额外叠加（默认可用，无需 Beta 开关）
   // - 其他模式（一起看 / 投屏）：原来靠独立的悬浮语音面板 + 流量面板，
   //   现与房主端（一起听）同形态——统一挂 MusicSideDock 三面板工具坞
   //   （右缘竖线把手 hover 滑出、悬浮不挤压内容）
-  const audienceInMusic = mode === 'listen-together' && betaFeaturesEnabled
+  const audienceInMusic = mode === 'listen-together'
   return (
     <>
       <WatchPage />
