@@ -663,7 +663,7 @@ export function PlayerLyricPanel({
           className="pointer-events-none absolute bottom-1 right-3 z-[6] text-[1.5vh] font-bold leading-none tracking-wide"
           style={{ color: 'var(--md-sys-color-on-surface)' }}
         >
-          {qualityLabel.toUpperCase()}
+          {qualityLabel}
         </span>
       )}
 

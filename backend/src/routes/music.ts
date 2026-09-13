@@ -950,4 +950,203 @@ router.get(
   },
 );
 
+/** 歌曲音质元数据缓存（song-quality 端点）：上游 sr/br/type/level，
+ *  sr 缺失时对 flac 兜底探测（见 resolveFlacSampleRate），TTL 与直链一致 */
+const QUALITY_META_TTL_MS = 15 * 60 * 1000;
+const QUALITY_META_CACHE_MAX = 500;
+interface SongQualityMeta {
+  sr: number;
+  br: number;
+  type: string;
+  level: string;
+}
+const qualityMetaCache = new Map<
+  string,
+  { expireAt: number; meta: SongQualityMeta }
+>();
+
+function getQualityMetaCache(
+  key: string,
+): SongQualityMeta | null {
+  const hit = qualityMetaCache.get(key);
+  if (!hit) return null;
+  if (Date.now() >= hit.expireAt) {
+    qualityMetaCache.delete(key);
+    return null;
+  }
+  return hit.meta;
+}
+
+function setQualityMetaCache(
+  key: string,
+  meta: SongQualityMeta,
+): void {
+  if (qualityMetaCache.size >= QUALITY_META_CACHE_MAX) {
+    const now = Date.now();
+    for (const [k, v] of qualityMetaCache) {
+      if (now >= v.expireAt) qualityMetaCache.delete(k);
+    }
+    if (qualityMetaCache.size >= QUALITY_META_CACHE_MAX)
+      qualityMetaCache.clear();
+  }
+  qualityMetaCache.set(key, {
+    expireAt: Date.now() + QUALITY_META_TTL_MS,
+    meta,
+  });
+}
+
+/**
+ * FLAC SAMPLE_RATE 兜底探测：NCM 上游 /song/url/v1 的 data[0] 未必带 sr
+ * 字段，对 flac 解析首部 STREAMINFO 块（采样率 20 bit）读取真实采样率。
+ * 仅请求 CDN 首部 64KB（Range），失败静默返回 0。
+ */
+async function resolveFlacSampleRate(audioUrl: string): Promise<number> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const res = await fetch(audioUrl.replace(/^http:\/\//i, 'https://'), {
+      headers: { Range: 'bytes=0-65535', 'User-Agent': DEFAULT_PROXY_UA },
+      signal: controller.signal,
+    });
+    clearTimeout(timeout);
+    const buf = Buffer.from(await res.arrayBuffer());
+    // 行头：'fLaC'(4B) + 块头(4B，块类型 0=STREAMINFO) + 数据
+    if (buf.length < 44 || buf.toString('ascii', 0, 4) !== 'fLaC') return 0;
+    if ((buf[4] & 0x7f) !== 0) return 0;
+    // STREAMINFO 数据相对数据起始：前 10 字节为块/帧尺寸字段，
+    // 第 10-12 字节为 20-bit 采样率（大端）
+    const off = 8 + 10;
+    const sr =
+      (buf[off] << 12) | (buf[off + 1] << 4) | (buf[off + 2] >> 4);
+    return Number.isFinite(sr) && sr > 0 ? sr : 0;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * GET /api/music/song-quality：当前歌曲实际解析音质元数据。
+ *
+ * 复用 /stream 的解析链（凭证回退 + QUALITY_CHAIN 降级），
+ * 返回 /song/url/v1 data[0] 透传的 sr（采样率 Hz）/br（比特率 bps）/
+ * type（文件格式）/level（实际生效档位）。全部结果缓存 15 分钟。
+ * 响应：{ success, songId, level, sr, br, type }
+ */
+router.get(
+  '/song-quality',
+  async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+    const songId = Number(req.query.songId);
+    if (!Number.isInteger(songId) || songId <= 0) {
+      res
+        .status(400)
+        .json({ code: 'INVALID_PARAMS', message: 'songId 参数无效' });
+      return;
+    }
+    const base = getNcmApiBase();
+    if (!base) {
+      res
+        .status(503)
+        .json({ code: 'NCM_UNAVAILABLE', message: 'NCM 服务未启动' });
+      return;
+    }
+    try {
+      const requestedLevel =
+        typeof req.query.level === 'string' && req.query.level
+          ? req.query.level
+          : 'exhigh';
+      const chainStart = (QUALITY_CHAIN as readonly string[]).indexOf(
+        requestedLevel,
+      );
+      const levels = (QUALITY_CHAIN as readonly string[]).slice(
+        chainStart >= 0 ? chainStart : 0,
+      );
+
+      // 凭证回退链与 /stream 一致：当前用户 → 房主（请求带 roomId 时）
+      let credential = await loadCredential(req.user?.userId);
+      if (!credential) {
+        const roomId =
+          typeof req.query.roomId === 'string' ? req.query.roomId : '';
+        if (roomId) {
+          const room = await AppDataSource.getRepository(Room).findOneBy({
+            roomId,
+          });
+          if (room?.ownerUserId) {
+            credential = await loadCredential(room.ownerUserId);
+          }
+        }
+      }
+      const credKey = String(credential?.userId ?? req.user?.userId ?? 0);
+
+      const cacheKey = `${credKey}:${requestedLevel}:${songId}`;
+      const cached = getQualityMetaCache(cacheKey);
+      if (cached) {
+        res.json({ success: true, songId, cached: true, ...cached });
+        return;
+      }
+
+      // 与 /stream 同构的降级链解析（仅取元数据，不获取音频）
+      let resolved: Record<string, unknown> | null = null;
+      let lastData: Record<string, unknown> | null = null;
+      for (const level of levels) {
+        const result = await callNcmApi(
+          `/song/url/v1?id=${songId}&level=${level}`,
+          credential ? toCookieHeader(credential.cookies) : '',
+        );
+        const data = extractSongUrlData(result.body);
+        if (!data) continue;
+        lastData = data;
+        const url = data.url;
+        if (typeof url === 'string' && url && data.freeTrialInfo == null) {
+          resolved = data;
+          break;
+        }
+      }
+      if (!resolved) {
+        if (lastData && lastData.freeTrialInfo != null) {
+          res
+            .status(403)
+            .json({ code: 'VIP_REQUIRED', message: '需要登录网易云 VIP 账号' });
+          return;
+        }
+        res
+          .status(502)
+          .json({ code: 'RESOLVE_FAILED', message: '音质信息解析失败' });
+        return;
+      }
+
+      const readPositiveInt = (obj: Record<string, unknown>, key: string) => {
+        const v = obj[key];
+        return typeof v === 'number' && Number.isFinite(v) && v > 0
+          ? Math.round(v)
+          : 0;
+      };
+      const type =
+        typeof resolved.type === 'string' ? resolved.type : '';
+      const levelStr =
+        typeof resolved.level === 'string' ? resolved.level : requestedLevel;
+      let sr = readPositiveInt(resolved, 'sr');
+      const br = readPositiveInt(resolved, 'br');
+      // 上游缺 sr 时对 flac 走 STREAMINFO 探测兜底
+      if (sr === 0 && type.toLowerCase() === 'flac') {
+        sr = await resolveFlacSampleRate((resolved as { url: string }).url);
+      }
+      const meta: SongQualityMeta = {
+        sr,
+        br,
+        type,
+        level: levelStr,
+      };
+      setQualityMetaCache(cacheKey, meta);
+      res.json({ success: true, songId, ...meta });
+    } catch (err) {
+      console.error('[music] song-quality error:', err);
+      if (!res.headersSent) {
+        res
+          .status(502)
+          .json({ code: 'UPSTREAM_ERROR', message: '音质信息获取失败' });
+      }
+    }
+  },
+);
+
 export default router;

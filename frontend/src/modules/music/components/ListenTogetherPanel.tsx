@@ -586,6 +586,62 @@ function ListenTogetherInner({
     (l) => l.roman != null && l.roman.trim() !== ''
   )
 
+  // ===== 实际音质元数据（Hydrogen song-quality 角标：真实采样率/比特率）。
+  // 复用 /stream 同构解析链的后端 /song-quality 端点；失败静默回退设置档位 =====
+  const [songQuality, setSongQuality] = useState<{
+    sr: number
+    br: number
+    level: string
+  } | null>(null)
+  // 切歌时清空（render 期调整，替代 effect 内同步 setState）
+  const [prevQualitySongId, setPrevQualitySongId] = useState<number | null>(
+    typeof songId === 'number' ? songId : -1
+  )
+  if (prevQualitySongId !== songId) {
+    setPrevQualitySongId(typeof songId === 'number' ? songId : -1)
+    setSongQuality(null)
+  }
+  useEffect(() => {
+    if (songId == null || songId <= 0) {
+      return
+    }
+    let cancelled = false
+    void (async () => {
+      try {
+        const { data } = await apiGet<{
+          success?: boolean
+          sr?: number
+          br?: number
+          level?: string
+        }>(`/api/music/song-quality?songId=${songId}&level=${level}`)
+        if (!cancelled) {
+          setSongQuality({
+            sr: typeof data?.sr === 'number' ? data.sr : 0,
+            br: typeof data?.br === 'number' ? data.br : 0,
+            level: typeof data?.level === 'string' ? data.level : '',
+          })
+        }
+      } catch {
+        if (!cancelled) setSongQuality(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [songId, level])
+
+  /** 音质角标文案（Hydrogen Lyric.vue：`${sr/1000}KHz/${br/1000}Kbps/LEVEL`，
+   *  缺失的字段段自动隐藏；上游解析失败时仅显示设置档位） */
+  const qualityLabel = useMemo(() => {
+    const parts: string[] = []
+    if (songQuality && songQuality.sr > 0)
+      parts.push(`${songQuality.sr / 1000}KHz`)
+    if (songQuality && songQuality.br > 0)
+      parts.push(`${Math.round(songQuality.br / 1000)}Kbps`)
+    parts.push((songQuality?.level || level).toUpperCase())
+    return parts.join('/')
+  }, [songQuality, level])
+
   // ===== 渲染 =====
   const queueEmpty = queue.length === 0
   const songName = currentSong?.name ?? '一起听'
@@ -1203,7 +1259,7 @@ function ListenTogetherInner({
                 lyricMaskBlur={lyricMaskBlur}
                 onSeek={handleLyricSeek}
                 onUpdateLineOffset={handleUpdateLineOffset}
-                qualityLabel={level}
+                qualityLabel={qualityLabel}
               />
             )}
           </div>
