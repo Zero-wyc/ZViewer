@@ -121,7 +121,7 @@ export function MovieListPanel({
 
   const handlePlay = (movieId: number) => {
     if (!isHost && !canManage) {
-      message.info('只有房主或房管可以切换影片')
+      message.info('没有影片管理权限')
       return
     }
     if (!socket) {
@@ -505,7 +505,7 @@ export function MovieListPanel({
                           ? '远程共享模式下不可播放'
                           : isHost || canManage
                             ? '播放'
-                            : '仅房主或房管可播放'
+                            : '没有影片切换权限'
                       }
                     />
                   )}
@@ -523,7 +523,7 @@ export function MovieListPanel({
                           ? '远程共享模式下不可删除'
                           : isHost || canManage
                             ? '删除'
-                            : '仅房主或房管可删除'
+                            : '没有影片删除权限'
                       }
                     />
                   )}

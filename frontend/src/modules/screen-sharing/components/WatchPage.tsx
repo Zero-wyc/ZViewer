@@ -19,6 +19,10 @@ import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
+import {
+  useSystemSettingsStore,
+  canRoomViewerPerform,
+} from '@/store/systemSettingsStore'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import { CommentPanel } from '@/components/CommentPanel'
@@ -78,10 +82,18 @@ function WatchPage() {
   const exitRoom = useRoomStore((state) => state.exitRoom)
   const moderators = useRoomStore((state) => state.moderators)
   const currentUserId = useAuthStore((state) => state.user?.id)
+  const role = useAuthStore((state) => state.user?.role)
+  const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
   const username = useAuthStore((state) => state.user?.username)
   // 房管观众：可管理影片与成员（含语音），由服务器同步的 moderators 判定
   const isModerator =
     currentUserId != null && moderators.includes(Number(currentUserId))
+  // 权限矩阵 UI 门控（与后端 canViewerPerform 同语义）：普通用户勾选后
+  // 也能见到对应的影片/队列按钮；真正的校验仍由后端执行
+  const movieOpts = { isHost: false, isModerator, role }
+  const canManageMovie = canRoomViewerPerform(matrix, 'manageMovie', movieOpts)
+  const canAddMovie = canRoomViewerPerform(matrix, 'addMovie', movieOpts)
+  const canManageQueue = canRoomViewerPerform(matrix, 'musicQueue', movieOpts)
 
   // 切换影片时强制整个播放器重挂载（与房主端一致，跨引擎切换彻底清理）
   const playerRemountKey = usePlayerRemountKey()
@@ -112,12 +124,12 @@ function WatchPage() {
         controls={
           <>
             <RoomInfoPanel roomId={roomId ?? ''} isHost={false} />
-            <MovieListPanel isHost={false} canManage={isModerator} />
-            {isModerator && <MoviePushPanel isHost={isModerator} />}
+            <MovieListPanel isHost={false} canManage={canManageMovie} />
+            {canAddMovie && <MoviePushPanel isHost={canAddMovie} />}
           </>
         }
         controlLabels={
-          isModerator
+          canManageMovie
             ? ['房间状态', '影片列表', '添加影片']
             : ['房间状态', '影片列表']
         }
@@ -142,8 +154,8 @@ function WatchPage() {
           roomId={roomId ?? ''}
           isHost={false}
           username={username}
-          // 房管观众可管理队列（添加/删除），普通观众仅浏览
-          canManage={isModerator}
+          // 有队列管理权限的观众可添加/删除歌曲，其他观众仅浏览
+          canManage={canManageQueue}
           // 观众：账户菜单内只读展示当前房间模式（切换由房主控制）
           roomModeMenu={{ isHost: false }}
         />

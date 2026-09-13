@@ -74,7 +74,7 @@ export function useQueueAdd(
   const add = useCallback(
     (item: QueueUpsertItem, opts?: { afterCurrent?: boolean }) => {
       if (!canManage) {
-        message.info('只有房主或房管可以添加歌曲')
+        message.info('没有队列管理权限')
         return
       }
       if (!socket || !roomId) {

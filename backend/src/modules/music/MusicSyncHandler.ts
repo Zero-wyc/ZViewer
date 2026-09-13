@@ -307,12 +307,10 @@ export class MusicSyncHandler implements SocketEventHandler {
           ) {
             return safeAck(callback, { success: false, message: '不在该房间中' });
           }
-          if (
-            !(await roomPermissionService.isRoomHostOrModerator(socket, roomId))
-          ) {
+          if (!(await roomPermissionService.canViewerPerform(socket, roomId, 'musicQueue'))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可管理队列',
+              message: '无权限：没有队列管理权限',
             });
           }
           if (!isUpsertItemValid(payload.item)) {
@@ -385,12 +383,10 @@ export class MusicSyncHandler implements SocketEventHandler {
           ) {
             return safeAck(callback, { success: false, message: '不在该房间中' });
           }
-          if (
-            !(await roomPermissionService.isRoomHostOrModerator(socket, roomId))
-          ) {
+          if (!(await roomPermissionService.canViewerPerform(socket, roomId, 'musicQueue'))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可管理队列',
+              message: '无权限：没有队列管理权限',
             });
           }
           if (
@@ -441,12 +437,10 @@ export class MusicSyncHandler implements SocketEventHandler {
           ) {
             return safeAck(callback, { success: false, message: '不在该房间中' });
           }
-          if (
-            !(await roomPermissionService.isRoomHostOrModerator(socket, roomId))
-          ) {
+          if (!(await roomPermissionService.canViewerPerform(socket, roomId, 'musicQueue'))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可管理队列',
+              message: '无权限：没有队列管理权限',
             });
           }
 
@@ -478,12 +472,10 @@ export class MusicSyncHandler implements SocketEventHandler {
           ) {
             return safeAck(callback, { success: false, message: '不在该房间中' });
           }
-          if (
-            !(await roomPermissionService.isRoomHostOrModerator(socket, roomId))
-          ) {
+          if (!(await roomPermissionService.canViewerPerform(socket, roomId, 'musicQueue'))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可管理队列',
+              message: '无权限：没有队列管理权限',
             });
           }
 

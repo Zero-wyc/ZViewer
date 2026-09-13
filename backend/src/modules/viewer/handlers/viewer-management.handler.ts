@@ -195,10 +195,10 @@ export class ViewerManagementHandler implements SocketEventHandler {
       'kick-viewer',
       async (payload: KickViewerPayload, callback: AckCallback) => {
         try {
-          if (!(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))) {
+          if (!(await roomPermissionService.canViewerPerform(socket, payload.roomId, 'kickViewer'))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可踢人',
+              message: '无权限：没有踢人权限',
             });
           }
           // 房管防篡权：不可踢房主/其他房管/root（房主不受限）
@@ -244,10 +244,10 @@ export class ViewerManagementHandler implements SocketEventHandler {
       'mute-viewer',
       async (payload: MuteViewerPayload, callback: AckCallback) => {
         try {
-          if (!(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))) {
+          if (!(await roomPermissionService.canViewerPerform(socket, payload.roomId, 'muteViewer'))) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可禁言',
+              message: '无权限：没有禁言权限',
             });
           }
 
@@ -297,11 +297,15 @@ export class ViewerManagementHandler implements SocketEventHandler {
       async (payload: MuteViewerPayload, callback: AckCallback) => {
         try {
           if (
-            !(await roomPermissionService.isRoomHostOrModerator(socket, payload.roomId))
+            !(await roomPermissionService.canViewerPerform(
+              socket,
+              payload.roomId,
+              'muteViewer',
+            ))
           ) {
             return safeAck(callback, {
               success: false,
-              message: '无权限：仅房主或房管可解禁',
+              message: '无权限：没有解禁权限',
             });
           }
 

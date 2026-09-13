@@ -339,6 +339,7 @@ router.get(
           betaFeaturesEnabled: settings.betaFeaturesEnabled,
           dashDisabled: settings.dashDisabled,
           playsvideoEnabled: settings.playsvideoEnabled,
+          roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
     } catch (err) {

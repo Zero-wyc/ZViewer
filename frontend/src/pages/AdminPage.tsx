@@ -103,11 +103,35 @@ function formatBytes(bytes: number): string {
 type RegistrationMode = 'open' | 'approval' | 'closed'
 type RoomCreationMode = 'admin-only' | 'all-users'
 
+/** 房间权限矩阵角色字段 */
+type MatrixRoleField = 'moderator' | 'admin' | 'user'
+/** 房间权限矩阵动作 key（与后端 MATRIX_ACTIONS 严格一致） */
+const MATRIX_ACTIONS = [
+  { key: 'addMovie', label: '添加影片' },
+  { key: 'manageMovie', label: '移除 / 切换影片' },
+  { key: 'musicQueue', label: '音乐队列管理（加歌 / 删歌 / 清空 / 排序）' },
+  { key: 'kickViewer', label: '踢出成员' },
+  { key: 'muteViewer', label: '禁言 / 解禁成员' },
+] as const
+const MATRIX_ROLES: Array<{
+  key: MatrixRoleField
+  label: string
+}> = [
+  { key: 'moderator', label: '房管' },
+  { key: 'admin', label: '管理员' },
+  { key: 'user', label: '普通用户' },
+]
+type PermissionMatrix = Record<
+  string,
+  Partial<Record<MatrixRoleField, boolean>>
+>
+
 interface AdminSettings {
   autoDeleteInactiveRooms: boolean
   autoDeleteAfterHours: number
   registrationMode: RegistrationMode
   roomCreationMode: RoomCreationMode
+  roomPermissionMatrix: PermissionMatrix | null
   betaFeaturesEnabled: boolean
   dashDisabled: boolean
   playsvideoEnabled: boolean
@@ -147,6 +171,7 @@ export default function AdminPage() {
     autoDeleteAfterHours: 24,
     registrationMode: 'approval',
     roomCreationMode: 'admin-only',
+    roomPermissionMatrix: null,
     betaFeaturesEnabled: false,
     dashDisabled: false,
     playsvideoEnabled: true,
@@ -775,6 +800,10 @@ export default function AdminPage() {
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig
+      }
+      // 权限矩阵：始终传递（编辑即产生当前矩阵；null 表示全部走缺省默认）
+      if (settings.roomPermissionMatrix) {
+        payload.roomPermissionMatrix = settings.roomPermissionMatrix
       }
       const res = await apiFetch('/api/admin/settings', {
         method: 'PUT',
@@ -1421,6 +1450,92 @@ export default function AdminPage() {
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     切换为「所有登录用户」后，普通用户也可在主页点击「开始共享」创建房间；游客始终不能创建房间。
                   </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  房间权限管理
+                </Title>
+                <div className="mb-6 max-w-2xl">
+                  <p className="mb-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    勾选各角色（在房间中作为观众时）可执行的动作；房主始终拥有全部权限，root
+                    始终放行，不参与勾选。未勾选时按默认：房管与管理员允许、普通用户禁止。
+                  </p>
+                  <div
+                    className="overflow-x-auto rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)]"
+                    style={{
+                      borderColor: 'var(--md-sys-color-outline-variant)',
+                    }}
+                  >
+                    <table className="w-full border-collapse text-sm">
+                      <thead>
+                        <tr
+                          style={{
+                            backgroundColor:
+                              'var(--md-sys-color-surface-container-high)',
+                          }}
+                        >
+                          <th className="border-collapse px-3 py-2 text-left font-medium text-[var(--md-sys-color-on-surface-variant)]">
+                            动作
+                          </th>
+                          {MATRIX_ROLES.map((r) => (
+                            <th
+                              key={r.key}
+                              className="border-collapse px-3 py-2 text-center font-medium text-[var(--md-sys-color-on-surface-variant)]"
+                            >
+                              {r.label}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {MATRIX_ACTIONS.map((action) => (
+                          <tr
+                            key={action.key}
+                            className="border-t"
+                            style={{
+                              borderColor:
+                                'var(--md-sys-color-outline-variant)',
+                            }}
+                          >
+                            <td className="px-3 py-2 text-[var(--md-sys-color-on-surface)]">
+                              {action.label}
+                            </td>
+                            {MATRIX_ROLES.map((role) => (
+                              <td
+                                key={role.key}
+                                className="px-3 py-2 text-center"
+                              >
+                                <input
+                                  type="checkbox"
+                                  className="h-4 w-4 cursor-pointer"
+                                  checked={
+                                    settings.roomPermissionMatrix?.[
+                                      action.key
+                                    ]?.[role.key] ??
+                                    (role.key === 'user' ? false : true)
+                                  }
+                                  onChange={(e) =>
+                                    setSettings((prev) => ({
+                                      ...prev,
+                                      roomPermissionMatrix: {
+                                        ...prev.roomPermissionMatrix,
+                                        [action.key]: {
+                                          ...prev.roomPermissionMatrix?.[
+                                            action.key
+                                          ],
+                                          [role.key]: e.target.checked,
+                                        },
+                                      },
+                                    }))
+                                  }
+                                />
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </div>
 
                 <Title level={5} className="mb-4 mt-6">

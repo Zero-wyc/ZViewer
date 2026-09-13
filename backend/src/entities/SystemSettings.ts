@@ -31,6 +31,20 @@ export class SystemSettings {
   @Column({ type: 'text', default: 'admin-only' })
   roomCreationMode!: 'admin-only' | 'all-users';
 
+  /**
+   * 房间可执行动作权限矩阵（管理员在设置页勾选配置）。
+   * - key：动作（addMovie 添加影片 / manageMovie 移除与切换影片 /
+   *   musicQueue 音乐队列管理 / kickViewer 踢出成员 / muteViewer 禁言成员）
+   * - value：观众角色层是否允许（moderator 房管 / admin 系统管理员 /
+   *   user 普通用户）。房主（owner）始终允许，root 始终允许。
+   * - null / 字段缺省：按兼容默认值（房管+管理员允许、普通用户不允许）
+   */
+  @Column({ type: 'json', nullable: true })
+  roomPermissionMatrix!: Record<
+    string,
+    { moderator?: boolean; admin?: boolean; user?: boolean }
+  > | null;
+
   @Column({ type: 'boolean', default: false })
   betaFeaturesEnabled!: boolean;
 

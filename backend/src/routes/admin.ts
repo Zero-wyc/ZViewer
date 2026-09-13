@@ -457,6 +457,7 @@ router.get(
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
+          roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
     } catch (err) {
@@ -474,7 +475,32 @@ router.put(
     res: import('express').Response,
   ): Promise<void> => {
     try {
-      const { autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled } = req.body;
+      const {
+        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomPermissionMatrix,
+      } = req.body;
+      // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
+      const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
+      const MATRIX_FIELDS = ['moderator', 'admin', 'user'];
+      if (
+        roomPermissionMatrix !== undefined &&
+        roomPermissionMatrix !== null &&
+        (typeof roomPermissionMatrix !== 'object' || Array.isArray(roomPermissionMatrix) ||
+          Object.entries(roomPermissionMatrix).some(
+            ([k, v]) =>
+              !MATRIX_ACTIONS.includes(k) ||
+              typeof v !== 'object' ||
+              v === null ||
+              Object.entries(v as Record<string, unknown>).some(
+                ([f, b]) => !MATRIX_FIELDS.includes(f) || typeof b !== 'boolean',
+              ),
+          ))
+      ) {
+        res.status(400).json({
+          success: false,
+          message: 'roomPermissionMatrix 格式无效',
+        });
+        return;
+      }
 
       if (typeof autoDeleteInactiveRooms !== 'boolean') {
         res.status(400).json({
@@ -586,6 +612,10 @@ router.put(
       if (cdnProxyUrl !== undefined) {
         settings.cdnProxyUrl = cdnProxyUrl.trim();
       }
+      if (roomPermissionMatrix !== undefined) {
+        settings.roomPermissionMatrix =
+          roomPermissionMatrix as SystemSettings['roomPermissionMatrix'];
+      }
       await settingsRepo.save(settings);
 
       res.json({
@@ -601,6 +631,7 @@ router.put(
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
+          roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
     } catch (err) {

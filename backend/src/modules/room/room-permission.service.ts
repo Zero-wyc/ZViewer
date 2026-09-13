@@ -111,6 +111,48 @@ export class RoomPermissionService {
   }
 
   /**
+   * 房内可执行动作矩阵判定（管理员设置页可勾选配置）。
+   *
+   * 角色优先级（自上而下短路）：
+   * 1. 房主（isRoomHost）：始终允许（房主是房间唯一内容源，不受矩阵约束）
+   * 2. root：始终允许（系统超管）
+   * 3. 房管 / admin / 普通 user：查 SystemSettings.roomPermissionMatrix
+   *    对应动作的对应角色开关；矩阵未覆盖的字段/动作用兼容默认值
+   *    （moderator ✓ / admin ✓ / user ✗，与矩阵功能上线前行为一致）。
+   *
+   * @param action 动作 key（addMovie / manageMovie / musicQueue / kickViewer / muteViewer）
+   */
+  async canViewerPerform(
+    socket: Socket,
+    roomId: string,
+    action: string,
+  ): Promise<boolean> {
+    if (await this.isRoomHost(socket, roomId)) return true;
+    const role: UserRole = socket.data?.role;
+    if (role === 'root') return true;
+    const [settingsRow, modRole] = await Promise.all([
+      AppDataSource.getRepository(SystemSettings)
+        .findOne({ order: { id: 'ASC' } })
+        .catch(() => null),
+      this.isRoomModerator(socket, roomId),
+    ]);
+    if (modRole) return this.matrixAllow(settingsRow, action, 'moderator');
+    if (role === 'admin') return this.matrixAllow(settingsRow, action, 'admin');
+    if (role === 'user') return this.matrixAllow(settingsRow, action, 'user');
+    return false; // guest
+  }
+
+  /** 读取矩阵开关，缺省兼容默认（moderator/admin 允许，user 拒绝） */
+  private matrixAllow(
+    settings: SystemSettings | null,
+    action: string,
+    field: 'moderator' | 'admin' | 'user',
+  ): boolean {
+    if (field === 'user') return settings?.roomPermissionMatrix?.[action]?.user === true;
+    return settings?.roomPermissionMatrix?.[action]?.[field] !== false;
+  }
+
+  /**
    * 检查 socket 是否为指定房间的活跃房主（sharer）。
    *
    * @param socket 客户端 socket

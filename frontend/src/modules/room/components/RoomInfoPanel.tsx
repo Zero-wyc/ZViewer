@@ -27,6 +27,10 @@ import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
+import {
+  useSystemSettingsStore,
+  canRoomViewerPerform,
+} from '@/store/systemSettingsStore'
 import { cn } from '@/lib/utils'
 
 interface RoomInfoPanelProps {
@@ -89,6 +93,8 @@ export function RoomInfoPanel({
     (state) => state.toggleAutoApproveRequests
   )
   const currentUserId = useAuthStore((state) => state.user?.id)
+  const role = useAuthStore((state) => state.user?.role)
+  const matrix = useSystemSettingsStore((state) => state.roomPermissionMatrix)
 
   const [showUsers, setShowUsers] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -423,12 +429,39 @@ export function RoomInfoPanel({
       String(viewer.userId) === String(currentUserId)
     const viewerIsModerator =
       viewer.userId != null && moderators.includes(Number(viewer.userId))
-    // 管理权限（禁言/踢出/房管任命）：房主或房管
+    // 管理权限（禁言/踢出/房管任命）：房主，或权限矩阵允许的观众
     const canManage =
       withActions &&
-      (isHost || isModerator) &&
       !isSelf && // 不能操作自己
-      viewer.role !== 'root' // 不能对 root 操作
+      viewer.role !== 'root' && // 不能对 root 操作
+      (isHost ||
+        canRoomViewerPerform(matrix, 'muteViewer', {
+          isHost,
+          isModerator,
+          role,
+        }) ||
+        canRoomViewerPerform(matrix, 'kickViewer', {
+          isHost,
+          isModerator,
+          role,
+        }))
+    // 禁言 / 踢出分别按矩阵判定（与后端 canViewerPerform 同语义）
+    const canMuteTarget =
+      (isHost ||
+        canRoomViewerPerform(matrix, 'muteViewer', {
+          isHost,
+          isModerator,
+          role,
+        })) &&
+      viewer.userId != null &&
+      viewer.userId > 0
+    const canKickTarget =
+      isHost ||
+      canRoomViewerPerform(matrix, 'kickViewer', {
+        isHost,
+        isModerator,
+        role,
+      })
     // 房管额外限制：不可操作房主或其他房管（与后端校验一致）
     const canActOnTarget = isHost || !viewerIsModerator
     return (
@@ -482,7 +515,7 @@ export function RoomInfoPanel({
           <div className="flex shrink-0 items-center gap-1">
             {/* 禁言按 userId 存储，游客共享 userId=0 会误伤全体游客，
                 游客行不显示禁言按钮（引导使用踢出） */}
-            {viewer.userId != null && viewer.userId > 0 && (
+            {canMuteTarget && (
               <button
                 onClick={() => handleToggleMute(viewer.userId, isMuted)}
                 disabled={!canActOnTarget}
@@ -533,15 +566,17 @@ export function RoomInfoPanel({
                 <Crown className="h-3.5 w-3.5" />
               </button>
             )}
-            <button
-              onClick={() => handleKick(viewer.socketId)}
-              disabled={!canActOnTarget}
-              className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
-              style={{ color: 'var(--md-sys-color-error)' }}
-              title="移出房间"
-            >
-              <UserX className="h-3.5 w-3.5" />
-            </button>
+            {canKickTarget && canManage && (
+              <button
+                onClick={() => handleKick(viewer.socketId)}
+                disabled={!canActOnTarget}
+                className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
+                style={{ color: 'var(--md-sys-color-error)' }}
+                title="移出房间"
+              >
+                <UserX className="h-3.5 w-3.5" />
+              </button>
+            )}
           </div>
         )}
       </div>
