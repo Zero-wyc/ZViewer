@@ -657,11 +657,15 @@ export function PlayerLyricPanel({
         )}
       </div>
 
-      {/* 音质角标（Hydrogen .song-quality：右下角黑字档位） */}
+      {/* 音质角标（Hydrogen .song-quality：1.5vh Bender-Bold 黑字；
+          右侧留出四角边框盒的宽度防重叠） */}
       {qualityLabel && (
         <span
-          className="pointer-events-none absolute bottom-1 right-3 z-[6] text-[1.5vh] font-bold leading-none tracking-wide"
-          style={{ color: 'var(--md-sys-color-on-surface)' }}
+          className="pointer-events-none absolute bottom-1 right-[2.2vh] z-[6] text-[1.5vh] leading-none tracking-wide"
+          style={{
+            color: 'var(--md-sys-color-on-surface)',
+            fontFamily: "'Bender-Bold', 'SourceHanSansCN-Bold', sans-serif",
+          }}
         >
           {qualityLabel}
         </span>

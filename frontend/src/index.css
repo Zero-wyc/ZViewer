@@ -2,6 +2,30 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Hydrogen 自定义字体注册（public/fonts；font-display swap 异步就绪，
+ * 供歌词页音质角标（Bender-Bold）与评论面板等按字族名直接引用） */
+@font-face {
+  font-family: 'Bender-Bold';
+  src: url('/fonts/Bender-Bold.woff') format('woff');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Gilroy-ExtraBold';
+  src: url('/fonts/Gilroy-ExtraBold.woff') format('woff');
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SourceHanSansCN-Bold';
+  src: url('/fonts/SourceHanSansCN-Bold.woff2') format('woff2');
+  font-weight: bold;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* 控制卡片内容区统一滚动条样式：细轨道、圆角 thumb、悬停增强 */
 /* overscroll-behavior: contain 防止滚动到边界时事件冒泡到父级滚动容器 */
 .zen-scroll {
