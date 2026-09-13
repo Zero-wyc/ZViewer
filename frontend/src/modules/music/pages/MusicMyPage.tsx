@@ -985,7 +985,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             <div
               className="song-search-box mt-2 flex h-6 w-full items-center border px-2.5 transition-colors duration-200 hover:border-[var(--md-sys-color-on-surface)] focus-within:border-[var(--md-sys-color-on-surface)]"
               style={{
-                borderColor: 'var(--md-sys-color-outline-variant)',
+                borderColor: 'var(--md-sys-color-on-surface)',
                 clipPath:
                   'polygon(0 0, calc(100% - 6px) 0, 100% 6px, 100% 100%, 6px 100%, 0 calc(100% - 6px))',
               }}
