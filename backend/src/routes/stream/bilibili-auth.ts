@@ -477,4 +477,49 @@ router.get('/bilibili/bangumi-episodes', async (req: AuthenticatedRequest, res: 
   }
 });
 
+// 查询视频信息（添加视频弹窗「搜索」）：按 BV 号取 x/web-interface/view
+router.get('/bilibili/view', async (req: AuthenticatedRequest, res) => {
+  const bvid = req.query.bvid;
+  if (typeof bvid !== 'string' || !/^BV[0-9A-Za-z]{10}$/.test(bvid.trim())) {
+    res.status(400).json({ success: false, message: 'BV 号格式无效' });
+    return;
+  }
+  const userId = req.user?.userId;
+  const cookie = (await getUserCookie(userId)) || undefined;
+  try {
+    const data = await bilibiliFetch<{
+      title: string;
+      pic: string;
+      cid: number;
+      duration: number;
+      owner?: { name?: string };
+      pages?: { page: number; part: string; cid: number }[];
+    }>(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid.trim()}`, {
+      cookie,
+    });
+
+    const v = data.data;
+    res.json({
+      success: true,
+      bvid: bvid.trim(),
+      title: v.title || '',
+      pic: normalizeBilibiliImageUrl(v.pic || ''),
+      duration: v.duration || 0,
+      upName: v.owner?.name || '',
+      cid: v.cid || 0,
+      pages: (v.pages || []).map((p) => ({
+        page: p.page,
+        part: p.part || '',
+        cid: p.cid,
+      })),
+    });
+  } catch (err) {
+    console.error('[bilibili] view error:', err instanceof Error ? err.message : err,);
+    res.status(502).json({
+      success: false,
+      message: err instanceof Error ? err.message : '获取视频信息失败',
+    });
+  }
+});
+
 export default router;

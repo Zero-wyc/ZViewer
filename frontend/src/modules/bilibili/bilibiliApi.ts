@@ -169,6 +169,45 @@ export async function getBilibiliUserInfo(): Promise<BilibiliUserInfo | null> {
   }
 }
 
+/** 「添加视频」弹窗搜索结果（x/web-interface/view 精简透传） */
+export interface BilibiliVideoViewInfo {
+  bvid: string
+  title: string
+  pic: string
+  duration: number
+  upName: string
+  cid: number
+  pages: { page: number; part: string; cid: number }[]
+}
+
+/**
+ * 按 BV 号查询视频信息（添加视频弹窗「搜索」）。
+ * 匿名可查；已登录 B站 时带用户 Cookie（部分视频需登录可见）。
+ */
+export async function getBilibiliVideoView(
+  bvid: string
+): Promise<BilibiliVideoViewInfo> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/view?bvid=${encodeURIComponent(bvid)}`
+  )
+  const data = (await res.json()) as BilibiliVideoViewInfo & {
+    success: boolean
+    message?: string
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取视频信息失败')
+  }
+  return {
+    bvid: data.bvid,
+    title: data.title,
+    pic: data.pic,
+    duration: data.duration,
+    upName: data.upName,
+    cid: data.cid,
+    pages: data.pages ?? [],
+  }
+}
+
 function mapResolvedBilibili(data: ResolveProgressLine): ResolvedSource {
   return {
     title: data.title,

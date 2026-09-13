@@ -31,7 +31,7 @@ import {
   useRef,
   useState,
 } from 'react'
-import { ChevronDown, ListMusic, Music, X, Check } from 'lucide-react'
+import { ChevronDown, ListMusic, Music, X, Check, Film } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { useMusicStore } from '../store'
@@ -52,6 +52,7 @@ import { cn, formatDuration } from '@/lib/utils'
 import { OverflowMarquee } from './OverflowMarquee'
 import { PlayerLyricPanel } from './PlayerLyricPanel'
 import { MusicQueuePopup } from './MusicQueuePopup'
+import { MusicVideoModal } from './MusicVideoModal'
 import { AudioVisualizer } from './AudioVisualizer'
 import {
   SongCommentsPanel,
@@ -567,6 +568,8 @@ function ListenTogetherInner({
   const [lyricOriginal, setLyricOriginal] = useState(true)
   const [lyricTrans, setLyricTrans] = useState(defaultShowTrans)
   const [lyricRoma, setLyricRoma] = useState(false)
+  // 添加视频弹窗（Hydrogen playerStore.addMusicVideo 开关同语义）
+  const [showMusicVideo, setShowMusicVideo] = useState(false)
   const showTranslation = lyricTrans
 
   /** 播放模式图标（原版 SVG 三态：顺序 / 单曲循环 / 随机） */
@@ -952,6 +955,18 @@ function ListenTogetherInner({
                   </svg>
                 </button>
               )}
+              {/* 添加视频（Hydrogen Player.vue toAddMusicVideo 入口） */}
+              {songId != null && songId > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowMusicVideo(true)}
+                  className="flex h-[2.5vh] w-[2.5vh] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  title="添加视频"
+                  aria-label="添加视频"
+                >
+                  <Film className="h-[2.5vh] w-[2.5vh]" />
+                </button>
+              )}
               {/* 播放队列（弹窗侧挂到按钮左侧，避免被面板底部估算偏移错位） */}
               <div className="relative">
                 <button
@@ -1264,6 +1279,13 @@ function ListenTogetherInner({
             )}
           </div>
         </div>
+      )}
+      {/* 添加视频弹窗（Hydrogen MusicVideo：无全屏遮罩，绝对居中于播放页） */}
+      {showMusicVideo && (
+        <MusicVideoModal
+          songName={songName}
+          onClose={() => setShowMusicVideo(false)}
+        />
       )}
     </div>
   )
