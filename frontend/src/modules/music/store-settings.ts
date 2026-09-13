@@ -30,6 +30,11 @@ export const MUSIC_LEVEL_OPTIONS = [
 export interface MusicSettings {
   /** 播放音质（网易云 level 参数；后端 stream 按档位降级取流） */
   level: string
+  /**
+   * 音源直连（直链模式）：开启后 <audio> 直连网易云 CDN 直链，
+   * 服务器仅承担解析请求不再转发音频流；直链失效自动回退代理流
+   */
+  directSource: boolean
   /** 播放器毛玻璃封面背景（关闭后覆盖层仅剩纯色底） */
   coverBlur: boolean
   /** 歌词模糊（非当前行 blur，当前行保持清晰） */
@@ -58,6 +63,7 @@ export interface MusicSettings {
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   level: 'lossless',
+  directSource: false,
   coverBlur: true,
   lyricBlur: false,
   lyricMaskOpacity: 100,

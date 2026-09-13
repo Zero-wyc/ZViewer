@@ -524,6 +524,15 @@ export function MusicSettingsPage() {
               onChange={(v) => setSettings({ level: v })}
             />
           </SettingOption>
+          {/* 音源直连（直链模式，默认关闭） */}
+          <SettingOption name="音源直连">
+            <SettingToggle
+              on={settings.directSource}
+              onToggle={() =>
+                setSettings({ directSource: !settings.directSource })
+              }
+            />
+          </SettingOption>
           {/* 背景封面模糊（性能类：开启需确认） */}
           <SettingOption name="开启背景封面模糊">
             <SettingToggle

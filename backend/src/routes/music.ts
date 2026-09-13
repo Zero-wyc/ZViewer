@@ -29,6 +29,44 @@ import { DEFAULT_PROXY_UA } from '../services/proxy/http-proxy';
 
 const router = Router();
 
+// ==================== 直链缓存 ====================
+
+/**
+ * 直链模式解析结果缓存（songId+level+凭证归属 → CDN 直链）。
+ * 直链模式（/stream?direct=1）下把解析到的 CDN 直链以 JSON 返回给客户端，
+ * 由 <audio> 直连网易云 CDN，服务器不承担音频流量；多条观众的同一首歌
+ * 共享同一份解析结果（解析接口自身有频控）。直链签名有效期约 20-30 分钟，
+ * 按 15 分钟 TTL 过期后重新解析；客户端加载失败时自动回退代理流。
+ */
+const DIRECT_URL_TTL_MS = 15 * 60 * 1000;
+const DIRECT_URL_CACHE_MAX = 500;
+const directUrlCache = new Map<string, { url: string; expireAt: number }>();
+
+function getDirectUrlCache(key: string): string | null {
+  const hit = directUrlCache.get(key);
+  if (!hit) return null;
+  if (Date.now() >= hit.expireAt) {
+    directUrlCache.delete(key);
+    return null;
+  }
+  return hit.url;
+}
+
+function setDirectUrlCache(key: string, url: string): void {
+  // 简单防膨胀：超限时先清过期项，仍超限则清空重建
+  if (directUrlCache.size >= DIRECT_URL_CACHE_MAX) {
+    const now = Date.now();
+    for (const [k, v] of directUrlCache) {
+      if (now >= v.expireAt) directUrlCache.delete(k);
+    }
+    if (directUrlCache.size >= DIRECT_URL_CACHE_MAX) directUrlCache.clear();
+  }
+  directUrlCache.set(key, {
+    url,
+    expireAt: Date.now() + DIRECT_URL_TTL_MS,
+  });
+}
+
 // ==================== 可选鉴权 ====================
 
 /**
@@ -783,6 +821,32 @@ router.get(
         ? toCookieHeader(credential.cookies)
         : '';
 
+      // 直链模式（direct=1）：设置开关开启时 <audio> 直连网易云 CDN，
+      // 服务器仅承担「解析直链」的轻量请求，不再转发音频流。
+      const directMode = req.query.direct === '1';
+
+      // 凭证回退链：当前用户凭证 → 房主凭证（请求带 roomId 时）。
+      // 实现 spec「房主登录网易云后全房间可播 VIP」：观众自己未登录/
+      // 无凭证时，借用房主的持久化凭证解析直链。
+      const directCredKey = String(
+        credential?.userId ?? req.user?.userId ?? 0
+      );
+      if (directMode) {
+        // 先查缓存（key 含凭证归属：VIP 直链只发给经同一凭证链解析的请求）
+        const cached = getDirectUrlCache(
+          `${directCredKey}:${requestedLevel}:${songId}`
+        );
+        if (cached) {
+          res.json({
+            success: true,
+            url: cached,
+            level: requestedLevel,
+            cached: true,
+          });
+          return;
+        }
+      }
+
       // 沿降级链解析直链；记录最后一次响应的 data 供错误分类
       let resolved: Record<string, unknown> | null = null;
       let lastData: Record<string, unknown> | null = null;
@@ -852,6 +916,25 @@ router.get(
           code: 'RESOLVE_FAILED',
           message: '歌曲播放地址解析失败',
         });
+        return;
+      }
+
+      // 直链模式：返回解析到的 CDN 直链（<audio> 直连）；同时落缓存。
+      // http 直链在 https 页面下会被 mixed content 拦截，统一改写为
+      // https 后再返回与缓存（网易云 CDN 对 https 请求同样有效）
+      if (directMode) {
+        const safeUrl = audioUrl.replace(/^http:\/\//i, 'https://');
+        // 实际解析档位可能与请求档位不同（降级链），按实际档位缓存
+        const resolvedLevel =
+          typeof resolved.level === 'string' ? resolved.level : requestedLevel;
+        setDirectUrlCache(
+          `${directCredKey}:${resolvedLevel}:${songId}`,
+          safeUrl,
+        );
+        // 以 302 重定向把 CDN 直链交给 <audio> 直连（媒体元素自动跟随，
+        // Range/206 请求头原样带到 CDN）；直链过期/失效时客户端
+        // error 回退到 direct=0 的代理流
+        res.redirect(302, safeUrl);
         return;
       }
 
