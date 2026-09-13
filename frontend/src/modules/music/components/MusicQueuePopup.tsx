@@ -25,8 +25,9 @@ export interface MusicQueuePopupProps {
   isHost: boolean
   /** 队列管理权限（房主/房管）可删除 */
   canManage: boolean
-  /** 弹出位置：top = 向上弹出（widget 上方）；side = 从锚点左侧弹出（全屏播放器） */
-  placement?: 'top' | 'side'
+  /** 弹出位置：top = 向上弹出（widget 上方）；side = 从锚点左侧弹出（全屏播放器）；
+   *  sheet = 固定底部居中（手机竖屏：侧挂会出屏） */
+  placement?: 'top' | 'side' | 'sheet'
 }
 
 export function MusicQueuePopup({
@@ -90,7 +91,11 @@ export function MusicQueuePopup({
         'glass-card zen-stagger-fade-up absolute z-50 flex h-96 w-80 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] shadow-lg',
         placement === 'top'
           ? 'bottom-[calc(100%+8px)] right-2'
-          : 'bottom-0 right-[calc(100%+14px)]'
+          : placement === 'side'
+            ? 'bottom-0 right-[calc(100%+14px)]'
+            : // sheet：手机竖屏固定底部居中（overlay 容器带 transform，
+              // fixed 实际相对全屏覆盖层定位，效果等同视口居中）
+              'fixed inset-x-0 bottom-[calc(88px+env(safe-area-inset-bottom))] mx-auto h-[min(24rem,55dvh)]'
       )}
     >
       {/* ===== 头部：当前播放 (N) + 清空 + 定位 + 关闭 ===== */}

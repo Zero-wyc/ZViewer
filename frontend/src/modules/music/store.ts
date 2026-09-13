@@ -21,6 +21,16 @@ import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 export type MusicPage =
   'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'settings'
 
+/** 观众同步回执（房主端左下角「xx 已同步」提示条目） */
+export interface MusicSyncAck {
+  /** 唯一标识（渲染 key + 过期清理） */
+  id: number
+  /** 已同步的观众用户名 */
+  username: string
+  /** 入列时间戳（毫秒，过期清理用） */
+  at: number
+}
+
 /** 构造队列条目的权威 key（`ncm:<songId>`） */
 export function musicItemKey(item: MusicQueueItem): string {
   return `ncm:${item.songId}`
@@ -59,6 +69,8 @@ export interface MusicState {
   loginStatus: NcmLoginStatus
   /** 播放器左上角提示文字（自动消失逻辑放组件） */
   syncNotice: string | null
+  /** 观众同步回执列表（房主端左下角「xx 已同步」，组件负责过期清理） */
+  syncAcks: MusicSyncAck[]
 
   // ===== UI 状态（Hydrogen 主框架） =====
   /** 主区域当前页面 */
@@ -100,6 +112,10 @@ export interface MusicState {
   setLoginStatus: (status: NcmLoginStatus) => void
   /** 设置播放器提示文字（null 清除） */
   setSyncNotice: (notice: string | null) => void
+  /** 追加一条观众同步回执（房主端；超出上限丢弃最旧的） */
+  pushSyncAck: (username: string) => void
+  /** 清理过期的同步回执（at 早于 now - ttlMs 的条目） */
+  pruneSyncAcks: (ttlMs: number) => void
   /** 切换主区域页面 */
   setPage: (page: MusicPage) => void
   /** 设置搜索关键词 */
@@ -142,6 +158,7 @@ const defaultState = {
   hostOffline: false,
   loginStatus: { loggedIn: false } as NcmLoginStatus,
   syncNotice: null as string | null,
+  syncAcks: [] as MusicSyncAck[],
   page: 'home' as MusicPage,
   searchKeywords: '',
   playerOverlayOpen: false,
@@ -169,6 +186,21 @@ export const useMusicStore = create<MusicState>((set) => ({
   setHostOffline: (offline) => set({ hostOffline: offline }),
   setLoginStatus: (status) => set({ loginStatus: status }),
   setSyncNotice: (notice) => set({ syncNotice: notice }),
+  pushSyncAck: (username) =>
+    set((s) => {
+      const next: MusicSyncAck[] = [
+        ...s.syncAcks,
+        { id: Date.now() + Math.random(), username, at: Date.now() },
+      ]
+      // 上限 4 条：多人同时同步完成时提示区不会无限堆叠
+      return { syncAcks: next.slice(-4) }
+    }),
+  pruneSyncAcks: (ttlMs) =>
+    set((s) => {
+      const cutoff = Date.now() - ttlMs
+      const next = s.syncAcks.filter((ack) => ack.at > cutoff)
+      return next.length === s.syncAcks.length ? s : { syncAcks: next }
+    }),
   setPage: (page) => set({ page }),
   setSearchKeywords: (keywords) => set({ searchKeywords: keywords }),
   setPlayerOverlayOpen: (open) => set({ playerOverlayOpen: open }),
@@ -195,5 +227,6 @@ export const useMusicStore = create<MusicState>((set) => ({
       playMode: 'sequence',
       hostOffline: false,
       syncNotice: null,
+      syncAcks: [],
     }),
 }))

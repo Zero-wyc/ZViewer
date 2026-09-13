@@ -43,7 +43,8 @@ export function MusicLoginGate({ hint }: { hint?: string }) {
   )
 }
 
-/** 页面区块头（黑底白字 EN 小标 + 灰色延伸线，与首页 RecBlock 同范式） */
+/** 页面区块头（黑底白字 EN 小标 + 灰色延伸线，与首页 RecBlock 同范式；
+ *  手机端黑条收缩为文字宽度，避免 20vw 定宽溢出小屏） */
 export function PageBlockHeader({
   titleEN,
   titleCN,
@@ -58,7 +59,7 @@ export function PageBlockHeader({
     <div>
       <div className="flex items-center">
         <span
-          className="mr-1.5 w-[20vw] min-w-[140px] shrink-0 py-px pl-1 text-[10px] font-bold uppercase tracking-widest"
+          className="mr-1.5 w-[20vw] min-w-[140px] shrink-0 py-px pl-1 text-[10px] font-bold uppercase tracking-widest max-md:w-auto max-md:min-w-0 max-md:pr-2"
           style={{
             backgroundColor: 'var(--md-sys-color-on-surface)',
             color: 'var(--md-sys-color-surface)',

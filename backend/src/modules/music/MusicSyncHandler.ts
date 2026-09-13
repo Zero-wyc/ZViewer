@@ -17,6 +17,8 @@
  * - music:host-heartbeat  房主每 2s 心跳（携带完整同步状态）→ 转发；同时更新内存快照
  * - music:control-request 观众申请控制 → 仅转发给房主（附加申请者 socketId/用户名）
  * - music:control-response 房主应答 → 定向转发给申请者（回传 from 供其校验）
+ * - music:sync-ack        观众切歌同步成功回执 → 仅转发给房主（附加用户名，
+ *                         供房主左下角「xx 已同步」提示）
  * - music:get-state       观众/重连房主 join 房间后查询当前队列 + 最新同步状态（ack 返回）
  *
  * 状态恢复：与 watch-together 的 playbackMemoryService 不同，音乐同步状态
@@ -632,6 +634,37 @@ export class MusicSyncHandler implements SocketEventHandler {
         } catch (err) {
           console.error('[music:control-request] error:', err);
           safeAck(callback, { success: false, message: '申请控制失败' });
+        }
+      },
+    );
+
+    // --- 观众同步回执（切歌同步成功） → 仅转发给房主 ---
+    socket.on(
+      'music:sync-ack',
+      async (payload: { roomId: string }, callback?: AckCallback) => {
+        try {
+          const roomId = payload?.roomId;
+          if (
+            typeof roomId !== 'string' ||
+            !roomId ||
+            !isSocketInRoom(socket, roomId)
+          ) {
+            return safeAck(callback, { success: false, message: '不在该房间中' });
+          }
+          // 房主不在线时无处转发（观众端此时自主控制，通常不会回执；静默成功）
+          const sharer = await roomSessionService.getSharer(roomId);
+          if (!sharer) {
+            return safeAck(callback, { success: true });
+          }
+          // username 以服务器侧 socket 身份为准（防伪造）
+          io.to(sharer.socketId).emit('music:sync-ack', {
+            roomId,
+            username: socket.data?.username,
+          });
+          safeAck(callback, { success: true });
+        } catch (err) {
+          console.error('[music:sync-ack] error:', err);
+          safeAck(callback, { success: false, message: '同步回执转发失败' });
         }
       },
     );

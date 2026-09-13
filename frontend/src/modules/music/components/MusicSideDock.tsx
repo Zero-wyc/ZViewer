@@ -85,7 +85,7 @@ export function MusicSideDock({
             setOpen((v) => !v)
           }
         }}
-        className="fixed right-0 top-1/2 z-[45] h-28 w-[5px] -translate-y-1/2 cursor-pointer rounded-l-md transition-colors duration-200"
+        className="fixed right-0 top-1/2 z-[45] h-28 w-[5px] -translate-y-1/2 cursor-pointer rounded-l-md transition-colors duration-200 max-md:h-44 max-md:w-[14px]"
         style={{
           backgroundColor: open
             ? 'var(--md-sys-color-primary)'

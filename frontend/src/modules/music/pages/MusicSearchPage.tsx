@@ -165,7 +165,7 @@ export function MusicSearchPage({
   }, [keywords])
 
   return (
-    <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
+    <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
       {/* 顶部：view-control 范式标题 */}
       <PageBlockHeader
         titleEN="SEARCH RESULT"

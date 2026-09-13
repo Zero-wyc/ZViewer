@@ -45,6 +45,7 @@ import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
 import { cn } from '@/lib/utils'
@@ -241,6 +242,9 @@ interface DetailMeta {
 
 export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   const loginStatus = useMusicStore((s) => s.loginStatus)
+  // 手机端：双栏改「库列表 ↔ 详情」两视图切换（左栏 262px + 详情在
+  // 393px 视口下必然互相挤压溢出）
+  const isMobile = useIsMobile()
 
   // ===== 左侧栏状态机（Hydrogen listType1/listType2） =====
   const [listType1, setListType1] = useState(0)
@@ -837,7 +841,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
 
   if (!loginStatus.loggedIn) {
     return (
-      <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
+      <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
         <PageBlockHeader titleEN="MY MUSIC" titleCN="我的音乐" />
         <MusicLoginGate hint="登录后查看我的歌单" />
       </div>
@@ -879,7 +883,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       <MusicDailyPanel socket={socket} roomId={roomId} canManage={canManage} />
     ) : detail ? (
       <div className="flex min-h-0 flex-1 flex-col">
-        {/* ===== view-control：后退 / 前进双箭头（实心 chevron 32px） ===== */}
+        {/* ===== view-control：后退 / 前进双箭头（实心 chevron 32px）；
+            手机端追加「返回列表」——两视图切换模式下回到库列表，
+            不受详情历史栈限制 ===== */}
         <div className="ml-[-8px] flex h-8 shrink-0 items-center">
           <button
             type="button"
@@ -911,14 +917,32 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               />
             </svg>
           </button>
+          {isMobile && (
+            <button
+              type="button"
+              onClick={() => setDetail(null)}
+              className="ml-3 flex items-center gap-1 text-xs font-bold text-[var(--md-sys-color-on-surface)] transition-opacity active:opacity-60"
+              title="返回歌单列表"
+            >
+              <svg viewBox="0 0 1024 1024" className="h-3 w-3" aria-hidden="true">
+                <path
+                  d="M716.608 1010.112L218.88 512.384 717.376 13.888l45.248 45.248-453.248 453.248 452.48 452.48z"
+                  fill="currentColor"
+                />
+              </svg>
+              返回列表
+            </button>
+          )}
         </div>
 
-        {/* ===== library-introduce：大封面 + 信息列 + 右上角列 ===== */}
+        {/* ===== library-introduce：大封面 + 信息列 + 右上角列。
+            手机端：右上 130px 列（创建时间/查看详情/SEARCH 过滤）隐藏，
+            信息列占满全宽，封面缩至 96px ===== */}
         <div className="flex w-full shrink-0 justify-between">
-          <div className="flex w-[calc(100%-130px)] min-w-0 items-start">
+          <div className="flex w-[calc(100%-130px)] min-w-0 items-start max-md:w-full">
             {/* 大封面（150px，0.5px 边框 + 弥散阴影） */}
             <div
-              className="mr-2.5 h-[150px] w-[150px] shrink-0 overflow-hidden"
+              className="mr-2.5 h-[150px] w-[150px] shrink-0 overflow-hidden max-md:h-24 max-md:w-24"
               style={{
                 border:
                   '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 18%, transparent)',
@@ -957,8 +981,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             </div>
           </div>
 
-          {/* 右上角列（130px）：创建时间框 + 查看详情 + SEARCH 过滤框 */}
-          <div className="flex w-[130px] shrink-0 flex-col items-stretch">
+          {/* 右上角列（130px）：创建时间框 + 查看详情 + SEARCH 过滤框；
+              手机端隐藏（130px 在小屏会挤碎信息列） */}
+          <div className="flex w-[130px] shrink-0 flex-col items-stretch max-md:hidden">
             {(detail.kind !== 'artist' || detailMeta?.timeLabel) && (
               <div
                 className="flex h-6 items-center justify-center whitespace-nowrap border px-1 text-[10px] font-bold text-[var(--md-sys-color-on-surface)]"
@@ -1181,11 +1206,18 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       <MyMusicEmpty />
     )
 
-  // ===== 页面骨架（Hydrogen 内滚架构：页面不滚，左栏 / 右区各自内滚） =====
+  // ===== 页面骨架（Hydrogen 内滚架构：页面不滚，左栏 / 右区各自内滚）。
+  //      手机端两视图切换：无详情只显示库列表全宽，有详情只显示详情全宽 =====
   return (
-    <div className="flex h-full min-h-0 px-6 pt-6 md:px-8">
-      {/* ===== 左侧栏（Hydrogen .music-library：宽 262px，静态布局无 sticky） ===== */}
-      <div className="flex w-[262px] min-h-0 shrink-0 flex-col">
+    <div className="flex h-full min-h-0 px-6 pt-6 md:px-8 max-md:px-3 max-md:pt-3">
+      {/* ===== 左侧栏（Hydrogen .music-library：宽 262px，静态布局无 sticky；
+          手机端全宽，打开详情时隐藏让位） ===== */}
+      <div
+        className={cn(
+          'flex w-[262px] min-h-0 shrink-0 flex-col max-md:w-full',
+          isMobile && detail && 'hidden'
+        )}
+      >
         {/* 双层 Tab（Hydrogen LibraryType：一级 16px 加粗 + 3px 黑色激活条 +
             0.5px 细分隔线；二级 12px 随一级切换） */}
         <div className="shrink-0 pt-2.5">
@@ -1404,8 +1436,14 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
         </div>
       </div>
 
-      {/* ===== 右侧内容区（Hydrogen .library-view：margin-left 50px） ===== */}
-      <div className="ml-[50px] flex min-h-0 min-w-0 flex-1 flex-col">
+      {/* ===== 右侧内容区（Hydrogen .library-view：margin-left 50px；
+          手机端全宽，无详情时隐藏——库列表视图独占） ===== */}
+      <div
+        className={cn(
+          'ml-[50px] flex min-h-0 min-w-0 flex-1 flex-col max-md:ml-0',
+          isMobile && !detail && 'hidden'
+        )}
+      >
         {detailView}
       </div>
     </div>

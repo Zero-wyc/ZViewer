@@ -41,6 +41,7 @@ import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
+import { useIsTouch } from '@/hooks/useMediaQuery'
 import type { NcmSong } from '../types'
 import { MusicLoginGate } from './MusicLoginGate'
 
@@ -288,6 +289,8 @@ export function MusicCloudPage({
   canManage,
 }: MusicCloudPageProps) {
   const loginStatus = useMusicStore((s) => s.loginStatus)
+  // 触屏判定：无双击手势，文件名单击即播放
+  const isTouch = useIsTouch()
 
   const [cloudData, setCloudData] = useState<CloudData | null>(null)
   const [loading, setLoading] = useState(false)
@@ -619,16 +622,18 @@ export function MusicCloudPage({
 
   if (!loginStatus.loggedIn) {
     return (
-      <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
+      <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
         <MusicLoginGate hint="登录后查看网易云云盘歌曲" />
       </div>
     )
   }
 
   return (
-    <div className="flex h-[calc(100vh-190px)] min-h-[540px] w-full gap-8 px-6 pt-6 md:px-8">
+    // 桌面：定高双栏各自内滚；手机端改单列自然流（分类卡 → 上传框 → 文件列表
+    // 依次堆叠，整页随 main 滚动，列表不再内部滚动）
+    <div className="flex h-[calc(100vh-190px)] min-h-[540px] w-full gap-8 px-6 pt-6 md:px-8 max-md:h-auto max-md:min-h-0 max-md:flex-col max-md:gap-5 max-md:px-4 max-md:pt-4">
       {/* ==================== 左栏 ==================== */}
-      <div className="flex w-[55%] min-w-[320px] max-w-[450px] shrink-0 flex-col">
+      <div className="flex w-[55%] min-w-[320px] max-w-[450px] shrink-0 flex-col max-md:w-full max-md:min-w-0 max-md:max-w-none">
         {/* 「我的云盘」标题（黑色小方块 tip + 标题） */}
         <div className="flex shrink-0 items-center gap-2">
           <span
@@ -991,8 +996,9 @@ export function MusicCloudPage({
           </button>
         </div>
 
-        {/* 列表（滚动；行：封面 + 文件名 + 时间/大小 + 复选框，双击播放） */}
-        <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pt-1">
+        {/* 列表（滚动；行：封面 + 文件名 + 时间/大小 + 复选框，双击播放；
+            手机端整页滚动，容器给最小高度保证空态可见） */}
+        <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pt-1 max-md:min-h-[240px]">
           {loading && (
             <div
               className="flex items-center gap-2 px-2 py-3 text-sm"
@@ -1056,8 +1062,14 @@ export function MusicCloudPage({
                       </span>
                     )}
                   </div>
-                  {/* 文件名（副标题为原始文件名）+ 时间 / 大小 */}
-                  <div className="min-w-0 flex-1">
+                  {/* 文件名（副标题为原始文件名）+ 时间 / 大小；
+                      触屏没有双击，点文件名即播放（桌面行为不变） */}
+                  <div
+                    className="min-w-0 flex-1"
+                    onClick={
+                      isTouch ? () => handleRowDoubleClick(item) : undefined
+                    }
+                  >
                     <div
                       className="truncate text-sm font-medium"
                       style={{ color: 'var(--md-sys-color-on-surface)' }}
@@ -1092,7 +1104,7 @@ export function MusicCloudPage({
                       e.stopPropagation()
                       toggleSelect(item)
                     }}
-                    className="flex h-4 w-4 shrink-0 items-center justify-center border transition-colors"
+                    className="flex h-4 w-4 shrink-0 items-center justify-center border transition-colors max-md:h-6 max-md:w-6"
                     style={{
                       borderColor: 'var(--md-sys-color-on-surface)',
                       backgroundColor: selected

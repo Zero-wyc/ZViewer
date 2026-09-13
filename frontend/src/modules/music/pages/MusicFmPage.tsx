@@ -740,12 +740,14 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     !showContent && (loading || (!loadFailed && current == null))
 
   return (
-    <div className="flex min-h-full justify-center px-6 pb-[118px] pt-3 md:px-8">
+    // 手机端：外层留白收窄 + 底距叠加安全区（播放条悬浮让位不变）
+    <div className="flex min-h-full justify-center px-6 pb-[118px] pt-3 md:px-8 max-md:px-3 max-md:pb-[calc(96px+env(safe-area-inset-bottom))]">
       <style>{`${FM_LAYOUT_STYLE}${FM_INTRO_STYLE}`}</style>
-      {/* ===== fm-panel 面板（半透明底 + 四角方块 + 开场动画） ===== */}
+      {/* ===== fm-panel 面板（半透明底 + 四角方块 + 开场动画；
+          手机端内边距 34px 收窄为 16px） ===== */}
       <div
         className={cn(
-          'relative w-full max-w-[900px] overflow-hidden px-[34px] pb-6 pt-6',
+          'relative w-full max-w-[900px] overflow-hidden px-[34px] pb-6 pt-6 max-md:px-4',
           'min-h-[max(650px,calc(100vh-64px-140px))]'
         )}
         style={{
@@ -827,8 +829,9 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
           />
         </div>
 
-        {/* ===== MODE 切换面板（右上角，切角按钮 + 下拉） ===== */}
-        <div className="absolute right-[22px] top-[18px] z-[8] flex w-[360px] max-w-[calc(100vw-72px)] flex-col items-end">
+        {/* ===== MODE 切换面板（右上角，切角按钮 + 下拉；
+            手机端按钮收窄并贴边，标题区留出右侧空间） ===== */}
+        <div className="absolute right-[22px] top-[18px] z-[8] flex w-[360px] max-w-[calc(100vw-72px)] flex-col items-end max-md:right-3 max-md:top-3 max-md:max-w-[220px]">
           <button
             type="button"
             disabled={loading || modeSwitching}
@@ -977,8 +980,8 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
               : undefined,
           }}
         >
-          {/* ===== fm-header（居中） ===== */}
-          <div className="mb-7 text-center">
+          {/* ===== fm-header（居中；手机端下移避开右上 MODE 按钮） ===== */}
+          <div className="mb-7 text-center max-md:mb-5 max-md:pt-10">
             <span
               className="inline-block px-3 py-1 text-xs tracking-[1px]"
               style={{

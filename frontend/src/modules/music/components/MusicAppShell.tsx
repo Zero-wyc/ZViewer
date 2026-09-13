@@ -50,6 +50,9 @@ export interface MusicAppShellProps {
 /** syncNotice 自动消失时长（毫秒，与 ListenTogetherPanel 一致） */
 const SYNC_NOTICE_AUTO_DISMISS_MS = 5000
 
+/** 观众同步回执展示时长（毫秒）：超时后从左下角提示区移除 */
+const SYNC_ACK_TTL_MS = 4000
+
 export function MusicAppShell({
   socket,
   roomId,
@@ -147,6 +150,16 @@ function ShellInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
+  // 观众同步回执（左下角「xx 已同步」）：最新一条入列 TTL 后统一清理过期项
+  const syncAcks = useMusicStore((s) => s.syncAcks)
+  useEffect(() => {
+    if (syncAcks.length === 0) return
+    const timer = setTimeout(() => {
+      useMusicStore.getState().pruneSyncAcks(SYNC_ACK_TTL_MS)
+    }, SYNC_ACK_TTL_MS)
+    return () => clearTimeout(timer)
+  }, [syncAcks])
+
   // 卸载/离开音乐页：重置播放状态（清队列/停播/对齐标记），保留登录态与
   // UI 状态（页面、覆盖层开关等）。引擎内部分配资源在 useListenTogether
   // 的卸载 effect 释放；store 仅走轻量 resetPlayback，不触发全量 reset
@@ -161,9 +174,34 @@ function ShellInner({
   const pageProps = { socket, roomId, canManage }
 
   return (
-    <div className="relative flex h-screen min-w-0 flex-col overflow-hidden">
+    // 高度用 100dvh：移动浏览器地址栏收展时 h-screen(100vh) 会造成底部
+    // 播放条被遮挡/跳动；不支持的旧浏览器声明无效，回退 h-screen 类
+    <div
+      className="relative flex h-screen min-w-0 flex-col overflow-hidden"
+      style={{ height: '100dvh' }}
+    >
+      {/* ===== 左下角观众同步回执：观众完成切歌同步后回执，房主在此
+          看到「xx 已同步」——刻意做得极浅（opacity 0.25）极小（10px），
+          存在感弱不干扰主内容；每条淡入，4s 后自动消失 ===== */}
+      {syncAcks.length > 0 && (
+        <div className="pointer-events-none absolute bottom-2 left-3 z-[60] flex flex-col items-start gap-0.5">
+          {syncAcks.map((ack) => (
+            <span
+              key={ack.id}
+              className="zen-cover-fade text-[10px] font-medium leading-4"
+              style={{
+                color: 'var(--md-sys-color-on-surface)',
+                opacity: 0.25,
+              }}
+            >
+              {ack.username} 已同步
+            </span>
+          ))}
+        </div>
+      )}
+
       {/* ===== 左上角提示区：房主离线 + syncNotice（含房主审批按钮） ===== */}
-      <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2">
+      <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3">
         {hostOffline && !canControl && (
           <div
             className="pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
@@ -219,8 +257,9 @@ function ShellInner({
           由本导航填充；Header 经横条触发显示时以 fixed 悬浮覆盖，不推挤 ===== */}
       <MusicTopNav isHost={isHost} roomModeMenu={roomModeMenu} />
 
-      {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条） ===== */}
-      <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px]">
+      {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条，
+          手机端底距收窄并叠加 iOS 安全区） ===== */}
+      <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px] max-md:pb-[calc(96px+env(safe-area-inset-bottom))]">
         {page === 'home' && <MusicHomePage {...pageProps} />}
         {page === 'search' && <MusicSearchPage {...pageProps} />}
         {page === 'fm' && (
@@ -238,7 +277,10 @@ function ShellInner({
       <div
         className={cn(
           'fixed left-1/2 z-30 w-[722px] max-w-[calc(100%-2rem)] -translate-x-1/2 transition-[bottom] duration-500 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
-          playerOverlayOpen ? 'bottom-[-70px]' : 'bottom-[35px]'
+          // 手机端：底距收窄贴边 + iOS 安全区（原 35px 悬浮距小屏浪费空间）
+          playerOverlayOpen
+            ? 'bottom-[-70px]'
+            : 'bottom-[35px] max-md:bottom-[calc(10px+env(safe-area-inset-bottom))]'
         )}
       >
         <MusicWidgetBar />
@@ -283,11 +325,12 @@ function ShellInner({
             canManage={canManage}
           />
           {/* 右上角收起按钮（滑出动画结束后卸载）：默认隐藏，
-              鼠标移到其区域上方才显示（键盘聚焦时同样显示） */}
-          <div className="group/hide absolute right-4 top-4 z-[70] h-16 w-16">
+              鼠标移到其区域上方才显示（键盘聚焦/触屏设备常显——
+              手机无 hover，若仅 hover 显形会导致覆盖层无法收起） */}
+          <div className="group/hide absolute right-4 top-4 z-[70] h-16 w-16 max-md:right-3 max-md:top-3">
             <button
               type="button"
-              className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] opacity-0 transition-opacity group-focus-within/hide:opacity-100 group-hover/hide:opacity-100 active:scale-90"
+              className="lt-touch-visible flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] opacity-0 transition-opacity group-focus-within/hide:opacity-100 group-hover/hide:opacity-100 active:scale-90"
               style={{
                 backgroundColor:
                   'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',

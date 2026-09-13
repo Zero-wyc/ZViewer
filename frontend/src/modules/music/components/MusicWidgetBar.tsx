@@ -293,17 +293,20 @@ export function MusicWidgetBar() {
         boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
       }}
     >
-      {/* ===== 顶部细进度条（hover 向下加粗并显示时间） ===== */}
-      {/* 定位：条体紧贴卡片顶边（top-0，贴 border 内侧零缝隙），hover 13px
-          只向下扩展，完全在控制栏面板内不越界；水平方向左右各缩进一个
-          圆角半径，两端不进圆角区域；z-10 提升图层，加粗时盖住封面缩略图 */}
+      {/* ===== 底部细进度条（hover / 拖动时向上加粗并显示时间） ===== */}
+      {/* 定位：条体紧贴卡片底边（bottom-0，贴 border 内侧零缝隙），加粗 13px
+          只向上扩展（容器锚定底边、高度增长自动向上伸展），完全在控制栏
+          面板内不越界；水平方向左右各缩进一个圆角半径，两端不进圆角区域；
+          z-10 提升图层。默认恒为 2.5px 细条（手机端不再常驻展开） */}
       <div
-        className="pointer-events-none absolute top-0 right-0 left-0 z-10 group"
+        className="pointer-events-none absolute bottom-0 right-0 left-0 z-10 group"
         style={{
           left: 'var(--md-sys-shape-corner)',
           right: 'var(--md-sys-shape-corner)',
         }}
       >
+        {/* 命中层：桌面高度随视觉条，手机端固定 14px 透明热区（2.5px 薄条
+            触屏难点中）；seek 比例按宽度计算，与视觉条一致 */}
         <div
           ref={progressRef}
           role="slider"
@@ -313,36 +316,47 @@ export function MusicWidgetBar() {
           aria-valuenow={Math.round(positionSec)}
           aria-disabled={!canControl}
           className={cn(
-            'pointer-events-auto relative h-[2.5px] transition-all duration-200 hover:h-[13px]',
+            // touch-slider：触屏拖动时禁止页面滚动（pointer 监听挂在 window）
+            'touch-slider pointer-events-auto relative w-full',
             canControl && 'cursor-pointer'
           )}
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-          }}
           onPointerDown={handleProgressPointerDown}
         >
+          {/* 视觉条：默认 2.5px，hover（桌面）/拖动中（含触屏）加粗至 13px */}
           <div
-            className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
+            className={cn(
+              'relative w-full transition-all duration-200 group-hover:h-[13px]',
+              dragPreviewSec != null ? 'h-[13px]' : 'h-[2.5px]'
+            )}
             style={{
-              // 拖动预览即时跟手；松手后 0.5s 平滑补间（同 ListenTogetherPanel）
-              width: `${
-                (dragPreviewSec != null && durationSec > 0
-                  ? Math.min(1, Math.max(0, dragPreviewSec / durationSec))
-                  : progressRatio) * 100
-              }%`,
-              transition: dragPreviewSec != null ? 'none' : 'width 0.5s linear',
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
             }}
-          />
-          {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条内上方） */}
-          <div className="pointer-events-none absolute left-1 top-1.5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
-            {formatDuration(positionSec)} / {formatDuration(durationSec)}
+          >
+            <div
+              className="absolute left-0 top-0 h-full bg-[var(--md-sys-color-primary)]"
+              style={{
+                // 拖动预览即时跟手；松手后 0.5s 平滑补间（同 ListenTogetherPanel）
+                width: `${
+                  (dragPreviewSec != null && durationSec > 0
+                    ? Math.min(1, Math.max(0, dragPreviewSec / durationSec))
+                    : progressRatio) * 100
+                }%`,
+                transition:
+                  dragPreviewSec != null ? 'none' : 'width 0.5s linear',
+              }}
+            />
+            {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条内上方）；
+                手机端默认不显示准确时间（定位经拖动预览展示） */}
+            <div className="pointer-events-none absolute left-1 top-1.5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
+              {formatDuration(positionSec)} / {formatDuration(durationSec)}
+            </div>
           </div>
         </div>
       </div>
 
       {/* ===== 左：封面缩略图 + 歌曲信息（Hydrogen .music-info） ===== */}
-      <div className="ml-[17px] flex min-w-0 flex-1 items-center">
+      <div className="ml-[17px] flex min-w-0 flex-1 items-center max-md:ml-3">
         {/* 封面：点击打开完整播放器覆盖层；hover 黑色遮罩 + 箭头从底部滑入 */}
         <button
           type="button"
@@ -389,8 +403,9 @@ export function MusicWidgetBar() {
             </span>
           )}
         </button>
-        {/* 歌名（OverflowMarquee 跑马灯，Hydrogen .music-name 14px bold）+ 歌手 */}
-        <div className="ml-2 w-[175px] min-w-0 select-text">
+        {/* 歌名（OverflowMarquee 跑马灯，Hydrogen .music-name 14px bold）+ 歌手；
+            手机端自适应宽度（固定 175px 会挤压右侧控制区） */}
+        <div className="ml-2 w-[175px] min-w-0 select-text max-md:w-auto max-md:flex-1 max-md:max-w-[150px]">
           <OverflowMarquee
             text={songName}
             className="block h-[18px] text-[14px] font-bold leading-[18px] text-[var(--md-sys-color-on-surface)]"
@@ -401,10 +416,12 @@ export function MusicWidgetBar() {
         </div>
       </div>
 
-      {/* ===== 右：控制键 + 音量 + 功能图标（Hydrogen .music-right 476px 定宽） ===== */}
-      <div className="flex w-[476px] max-w-[calc(100%-245px)] shrink-0 items-center">
+      {/* ===== 右：控制键 + 音量 + 功能图标（Hydrogen .music-right 476px 定宽；
+          手机端改自适应：隐藏音量条（手机用系统音量/完整播放器内调节）
+          与次要图标，避免定宽溢出小屏） ===== */}
+      <div className="flex w-[476px] max-w-[calc(100%-245px)] shrink-0 items-center max-md:w-auto max-md:max-w-none">
         {/* music-control（126px）：prev / play-pause / next（线条式 SVG） */}
-        <div className="flex w-[126px] shrink-0 items-center px-[18px]">
+        <div className="flex w-[126px] shrink-0 items-center px-[18px] max-md:w-auto max-md:px-1">
           <button
             type="button"
             className="flex h-6 w-6 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
@@ -416,7 +433,7 @@ export function MusicWidgetBar() {
           </button>
           <button
             type="button"
-            className="mx-[15px] flex h-6 w-6 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
+            className="mx-[15px] flex h-6 w-6 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:mx-[7px]"
             onClick={handlePlayPause}
             title={
               canControl
@@ -446,8 +463,9 @@ export function MusicWidgetBar() {
           </button>
         </div>
 
-        {/* music-volume（120px）：7px 描边滑条 + 上方 VOLUME 标签与数字 */}
-        <div className="w-[120px] shrink-0">
+        {/* music-volume（120px）：7px 描边滑条 + 上方 VOLUME 标签与数字；
+            手机端隐藏（小屏放不下，音量经系统/完整播放器调节） */}
+        <div className="w-[120px] shrink-0 max-md:hidden">
           <div className="relative h-[7px]">
             <div
               ref={volumeTrackRef}
@@ -485,8 +503,9 @@ export function MusicWidgetBar() {
           </div>
         </div>
 
-        {/* music-other（230px，space-evenly）：喜欢 / 加入队列 / 专辑 / 模式 / 队列 */}
-        <div className="flex w-[230px] shrink-0 items-center justify-evenly">
+        {/* music-other（230px，space-evenly）：喜欢 / 加入队列 / 专辑 / 模式 / 队列；
+            手机端仅保留喜欢/队列，并给右缘留出呼吸间距（原贴边太挤） */}
+        <div className="flex w-[230px] shrink-0 items-center justify-evenly max-md:w-auto max-md:gap-3 max-md:pr-3.5">
           {/* 喜欢（描边心 / 红心，NCM 登录且有歌可见） */}
           {canLike && (
             <button
@@ -503,11 +522,12 @@ export function MusicWidgetBar() {
               )}
             </button>
           )}
-          {/* 添加到歌单（圆圈加号，Hydrogen addToPlaylist：NCM 登录且有歌可见） */}
+          {/* 添加到歌单（圆圈加号，Hydrogen addToPlaylist：NCM 登录且有歌可见；
+              手机端隐藏——入口保留在完整播放器内） */}
           {loginStatus.loggedIn && currentSong && (
             <button
               type="button"
-              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
+              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
               onClick={() => setAddPlaylistOpen(true)}
               title="添加到我的歌单"
               aria-label="添加到我的歌单"
@@ -515,11 +535,12 @@ export function MusicWidgetBar() {
               <CirclePlus className="h-5 w-5" />
             </button>
           )}
-          {/* 专辑（唱片）：解析当前歌专辑并跳转详情页（Hydrogen toAlbum） */}
+          {/* 专辑（唱片）：解析当前歌专辑并跳转详情页（Hydrogen toAlbum；
+              手机端隐藏——入口保留在完整播放器内） */}
           {currentSong && (
             <button
               type="button"
-              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
+              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
               onClick={() => void handleToAlbum()}
               title="查看专辑"
               aria-label="查看专辑"
@@ -527,11 +548,12 @@ export function MusicWidgetBar() {
               <Disc3 className="h-5 w-5" />
             </button>
           )}
-          {/* 播放模式（顺序 / 单曲循环 / 随机 3 态循环；仅直接控制权可切） */}
+          {/* 播放模式（顺序 / 单曲循环 / 随机 3 态循环；仅直接控制权可切；
+              手机端隐藏——入口保留在完整播放器工具行内） */}
           <button
             type="button"
             className={cn(
-              'flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90',
+              'flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden',
               !canControl && 'cursor-default opacity-50'
             )}
             onClick={cyclePlayMode}

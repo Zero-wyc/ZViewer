@@ -1380,8 +1380,11 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   animation: player-slide-out 0.5s cubic-bezier(0.14, 0.91, 0.58, 1) both;
 }
 
-/* 播放卡入场（Player.vue .player-in）：先展开宽度（35% 处达到 42vh），
-   再纵向展开至满高并淡入；0.7s 延迟 0.2s */
+/* 播放卡入场（Player.vue .player-in）：先展开宽度（35% 处达到目标宽），
+   再纵向展开至满高并淡入；0.7s 延迟 0.2s。
+   目标宽用 --lt-card-w 变量（组件容器上定义 clamp(280px,42vh,480px)）：
+   桌面端 42vh 落在 clamp 区间内观感不变，横屏矮窗口（手机横屏 vh≈4px）
+   不会把卡片压成一条细线，超高桌面则封顶 480px */
 @keyframes player-card-in {
   0% {
     width: 0;
@@ -1389,11 +1392,11 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
     opacity: 0;
   }
   35% {
-    width: 42vh;
+    width: var(--lt-card-w, 42vh);
     height: 0;
   }
   100% {
-    width: 42vh;
+    width: var(--lt-card-w, 42vh);
     height: 100%;
     opacity: 1;
   }
@@ -1448,6 +1451,74 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
 }
 .c-border-in-bl {
   animation: c-border-in-bl 0.3s 0.65s cubic-bezier(0.4, 0, 0.12, 1) both;
+}
+
+/* =====================================================
+   一起听模块：移动端 / 触屏适配
+   ===================================================== */
+
+/* 触控滑条：进度条 / 音量条拖动时禁止触发页面滚动与文本选择
+   （pointer 拖拽监听在 window 上，touch-action 缺失会导致手机上
+   边拖边滚）；桌面端 touch-action: none 无副作用，统一常挂 */
+.touch-slider {
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* 手机竖屏：播放卡入场动画改为淡入上移（原 keyframe 硬编码 42vh
+   宽度展开，竖屏单列下卡片是全宽，宽度动画会先收窄再弹开，观感破碎） */
+@keyframes player-card-in-mobile {
+  0% {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (max-width: 767.98px) and (orientation: portrait) {
+  .player-card-in {
+    animation-name: player-card-in-mobile;
+    animation-duration: 0.5s;
+    animation-delay: 0.1s;
+  }
+}
+
+/* 移动端性能兜底：毛玻璃 blur 在低端手机 GPU 上开销大，
+   播放卡/歌词面板/封面背景的模糊度降档（覆盖组件内联样式） */
+@media (max-width: 767.98px) {
+  .lt-blur-surface {
+    backdrop-filter: blur(8px) !important;
+    -webkit-backdrop-filter: blur(8px) !important;
+  }
+  .lt-cover-backdrop img {
+    filter: blur(28px) saturate(140%) brightness(1.08) !important;
+  }
+}
+
+/* 触屏设备：hover 才显形的控件改为常显（覆盖层收起按钮等） */
+@media (pointer: coarse) {
+  .lt-touch-visible {
+    opacity: 1 !important;
+  }
+}
+
+/* 手机竖屏歌词视图入场（歌词按钮切换）：淡入 + 轻微上移，缓动与项目
+   歌词/面板动画语言一致（cubic-bezier(0.3,0,0.12,1)，参照 fm-content-reveal） */
+@keyframes lt-lyric-view-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.lt-lyric-view-in {
+  animation: lt-lyric-view-in 0.45s cubic-bezier(0.3, 0, 0.12, 1) both;
 }
 
 /* 云盘：上传框斜条纹滚动（Hydrogen .upload-animation，

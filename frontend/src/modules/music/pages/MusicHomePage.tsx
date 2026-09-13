@@ -215,8 +215,9 @@ export function MusicHomePage({
     <div className="flex min-h-full flex-col">
       <style>{BANNER_TIMER_STYLE}</style>
 
-      {/* ===== page-header：Banner + 每日推荐 + 最新音乐（三卡横排） ===== */}
-      <div className="flex flex-wrap items-start justify-between gap-6 px-6 pt-[2.8vw] md:px-8">
+      {/* ===== page-header：Banner + 每日推荐 + 最新音乐（三卡横排；
+          手机竖屏改单列堆叠，卡片全宽） ===== */}
+      <div className="flex flex-wrap items-start justify-between gap-6 px-6 pt-[2.8vw] md:px-8 max-md:flex-col max-md:gap-9 max-md:px-4 max-md:pt-8">
         <HomeBanner banners={banners} onOpen={setBnBanner} />
         <DailyRecommendation />
         <NewestSongList
@@ -227,8 +228,8 @@ export function MusicHomePage({
         />
       </div>
 
-      {/* ===== page-content：4 个推荐区块 ===== */}
-      <div className="mt-10 flex flex-col gap-10 px-6 pb-32 md:px-8">
+      {/* ===== page-content：4 个推荐区块（手机端收窄留白与网格间距） ===== */}
+      <div className="mt-10 flex flex-col gap-10 px-6 pb-32 md:px-8 max-md:mt-8 max-md:gap-8 max-md:px-4 max-md:pb-28">
         <RecBlock
           titleEN="RECOMMENDED SONG LIST"
           titleCN="推荐歌单"
@@ -360,10 +361,10 @@ function HomeBanner({
   }, [snap, offsetIndex])
 
   if (banners.length === 0) {
-    // 空态占位（保持 35vw 版面避免布局跳动）
+    // 空态占位（保持 35vw 版面避免布局跳动；手机端全宽 38vw 高）
     return (
       <div
-        className="h-[13.7vw] w-[35vw] min-w-[280px] shrink-0 rounded-sm"
+        className="h-[13.7vw] w-[35vw] min-w-[280px] shrink-0 rounded-sm max-md:h-[38vw] max-md:w-full max-md:min-w-0"
         style={{
           backgroundColor:
             'color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent)',
@@ -375,7 +376,7 @@ function HomeBanner({
   const track = [...banners, banners[0]]
 
   return (
-    <div className="relative w-[35vw] min-w-[280px] shrink-0">
+    <div className="relative w-[35vw] min-w-[280px] shrink-0 max-md:w-full max-md:min-w-0">
       {/* 头部：BREAKING NEWS 黑条 + 计时圆点 */}
       <div className="absolute -top-[1.6vw] left-0 right-0 flex items-center justify-between">
         <span
@@ -413,16 +414,17 @@ function HomeBanner({
         </div>
       </div>
 
-      {/* 轮播图（hover 暂停；点击无动作） */}
+      {/* 轮播图（hover 暂停；点击无动作）；位移用百分比（每张 = 容器 100%），
+          桌面 35vw 与手机全宽通吃，不再绑死 35vw */}
       <div
-        className="relative h-[13.7vw] min-h-[110px] overflow-hidden"
+        className="relative h-[13.7vw] min-h-[110px] overflow-hidden max-md:h-[38vw] max-md:min-h-0"
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
       >
         <div
           className="absolute left-0 top-0 flex h-full w-full flex-row"
           style={{
-            transform: `translateX(-${offsetIndex * 35}vw)`,
+            transform: `translateX(-${offsetIndex * 100}%)`,
             // 回卷归零期间禁用过渡（瞬时归零），其余切换均 0.8s 平移
             transition: snap ? 'none' : 'transform 0.8s ease',
           }}
@@ -537,7 +539,7 @@ function DailyRecommendation() {
 
   return (
     <div
-      className="relative flex h-[13.6vw] min-h-[110px] w-[27vw] min-w-[240px] shrink-0 cursor-pointer items-center"
+      className="relative flex h-[13.6vw] min-h-[110px] w-[27vw] min-w-[240px] shrink-0 cursor-pointer items-center max-md:h-24 max-md:w-full max-md:min-w-0"
       style={{
         backgroundColor:
           'color-mix(in srgb, var(--md-sys-color-on-surface) 4%, transparent)',
@@ -555,16 +557,16 @@ function DailyRecommendation() {
         注意：左区必须 self-stretch 占满整卡高度，角标 top/bottom 才是相对
         卡片边缘定位（外层 items-center 会把容器收缩为文字高度导致重叠）。
       */}
-      <div className="relative ml-[2vw] flex w-[50%] min-w-0 items-center self-stretch justify-center px-[1.7vw]">
+      <div className="relative ml-[2vw] flex w-[50%] min-w-0 items-center self-stretch justify-center px-[1.7vw] max-md:ml-5 max-md:px-3">
         {/* 上 L 形角标（rec-title-border1） */}
         <span
-          className="absolute left-0 top-[0.9vw] h-[1.8vw] w-[1.8vw] border-l-2 border-t-2"
+          className="absolute left-0 top-[0.9vw] h-[1.8vw] w-[1.8vw] border-l-2 border-t-2 max-md:top-1.5 max-md:h-4 max-md:w-4"
           style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
           aria-hidden="true"
         />
         {/* 下 L 形角标（rec-title-border2） */}
         <span
-          className="absolute bottom-[0.9vw] right-0 h-[1.8vw] w-[1.8vw] border-b-2 border-r-2"
+          className="absolute bottom-[0.9vw] right-0 h-[1.8vw] w-[1.8vw] border-b-2 border-r-2 max-md:bottom-1.5 max-md:h-4 max-md:w-4"
           style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
           aria-hidden="true"
         />
@@ -572,7 +574,7 @@ function DailyRecommendation() {
         <span
           key={showMore ? 'more' : 'rec'}
           className={cn(
-            'flex-1 select-none whitespace-pre-line text-center text-[3.2vw] font-bold leading-[1.22]',
+            'flex-1 select-none whitespace-pre-line text-center text-[3.2vw] font-bold leading-[1.22] max-md:text-[22px]',
             showMore && '[animation:zen-music-rec-titleswap_0.1s]'
           )}
           style={{
@@ -614,8 +616,8 @@ function DailyRecommendation() {
       </div>
 
       {/* 右区：大号日期两行 + 右上小圆点 */}
-      <div className="mr-[1.5vw] flex w-[35%] items-center">
-        <span className="select-none whitespace-pre-line text-[3.9vw] font-bold leading-[1.05] tabular-nums text-[var(--md-sys-color-on-surface)]">
+      <div className="mr-[1.5vw] flex w-[35%] items-center max-md:mr-5">
+        <span className="select-none whitespace-pre-line text-[3.9vw] font-bold leading-[1.05] tabular-nums text-[var(--md-sys-color-on-surface)] max-md:text-[26px]">
           {dateText}
         </span>
       </div>
@@ -678,12 +680,12 @@ function NewestSongList({
   }
 
   return (
-    <div className="relative w-[24.4vw] min-w-[260px] shrink-0">
-      {/* 标题（与 Banner 头部同高对齐） */}
-      <span className="absolute -top-[2.2vw] left-0 text-2xl font-bold text-[var(--md-sys-color-on-surface)]">
+    <div className="relative w-[24.4vw] min-w-[260px] shrink-0 max-md:w-full max-md:min-w-0">
+      {/* 标题（与 Banner 头部同高对齐；手机端堆叠后上移让出标题空间） */}
+      <span className="absolute -top-[2.2vw] left-0 text-2xl font-bold text-[var(--md-sys-color-on-surface)] max-md:-top-7">
         最新音乐
       </span>
-      <div className="flex max-h-[13.7vw] min-h-[220px] flex-col overflow-y-auto [scrollbar-width:none]">
+      <div className="flex max-h-[13.7vw] min-h-[220px] flex-col overflow-y-auto [scrollbar-width:none] max-md:max-h-[248px] max-md:min-h-0">
         {songs.length === 0 && (
           <div className="flex h-full min-h-[160px] items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
             暂无最新音乐
@@ -695,7 +697,7 @@ function NewestSongList({
             <div
               key={song.songId}
               className={cn(
-                'group flex items-center justify-between py-[0.55vw]',
+                'group flex items-center justify-between py-[0.55vw] max-md:py-2',
                 i < songs.length - 1 && 'border-b',
                 'hover:opacity-90'
               )}
@@ -708,7 +710,7 @@ function NewestSongList({
                 <img
                   src={song.cover}
                   alt=""
-                  className="h-[3.45vw] min-h-9 w-[3.45vw] min-w-9 shrink-0 object-cover"
+                  className="h-[3.45vw] min-h-9 w-[3.45vw] min-w-9 shrink-0 object-cover max-md:h-11 max-md:w-11"
                   draggable={false}
                 />
                 <div className="ml-[1vw] min-w-0 flex-1 text-left">
@@ -727,12 +729,12 @@ function NewestSongList({
               </div>
               <button
                 type="button"
-                className="ml-2 flex h-[2vw] min-h-6 w-[2vw] min-w-6 shrink-0 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform duration-200 hover:opacity-70 active:scale-75"
+                className="ml-2 flex h-[2vw] min-h-6 w-[2vw] min-w-6 shrink-0 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform duration-200 hover:opacity-70 active:scale-75 max-md:h-9 max-md:w-9"
                 onClick={() => handlePlay(song)}
                 title={isCurrent ? '播放/暂停' : '播放'}
                 aria-label={isCurrent ? '播放或暂停' : '播放'}
               >
-                <Play className="h-[1.3vw] min-h-4 w-[1.3vw] min-w-4 fill-current" />
+                <Play className="h-[1.3vw] min-h-4 w-[1.3vw] min-w-4 fill-current max-md:h-5 max-md:w-5" />
               </button>
             </div>
           )
@@ -783,10 +785,10 @@ function RecBlock({
 
   return (
     <section>
-      {/* 区块头：黑底白字 EN 小标 + 灰色延伸线 */}
+      {/* 区块头：黑底白字 EN 小标 + 灰色延伸线（手机端黑条收缩为文字宽度） */}
       <div className="flex items-center">
         <span
-          className="mr-1.5 w-[20vw] min-w-[140px] shrink-0 py-px pl-1 text-[10px] font-bold uppercase tracking-widest"
+          className="mr-1.5 w-[20vw] min-w-[140px] shrink-0 py-px pl-1 text-[10px] font-bold uppercase tracking-widest max-md:w-auto max-md:min-w-0 max-md:pr-2"
           style={{
             backgroundColor: 'var(--md-sys-color-on-surface)',
             color: 'var(--md-sys-color-surface)',
@@ -808,8 +810,8 @@ function RecBlock({
         {titleCN}
       </h3>
 
-      {/* 5 列网格（小屏 3 列） */}
-      <div className="mt-3 grid grid-cols-3 gap-x-12 gap-y-8 xl:grid-cols-5">
+      {/* 5 列网格（小屏 3 列；手机端收窄栅格间距） */}
+      <div className="mt-3 grid grid-cols-3 gap-x-12 gap-y-8 xl:grid-cols-5 max-md:gap-x-4 max-md:gap-y-6">
         {items.map((item) => (
           <div
             key={item.id}

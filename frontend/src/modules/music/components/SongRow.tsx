@@ -17,6 +17,7 @@
  */
 import { useState, type ReactNode } from 'react'
 import { Play } from 'lucide-react'
+import { useIsTouch } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/utils'
 
 /** EQ 频谱动画（4 根 3px 竖条交错跳动，primary 色由父级 currentColor 决定） */
@@ -95,10 +96,14 @@ export function SongRow({
 }: SongRowProps) {
   // 行 hover 状态（对齐 Hydrogen hoverRowKey：驱动序号列三态切换）
   const [hovered, setHovered] = useState(false)
+  // 触屏无 hover：「立即播放」按钮常显（序号列让位），否则手机上无法播放
+  const isTouch = useIsTouch()
+  const touchPlay = isTouch && onPlayNow != null
 
-  // 序号列三态互斥显示：hover → 播放按钮；非 hover 时当前行 → EQ；其余 → 序号
-  const showIndex = !hovered && !active
-  const showPlayBtn = hovered && onPlayNow != null
+  // 序号列三态互斥显示：触屏/hover → 播放按钮；非 hover 时当前行 → EQ；
+  // 其余 → 序号（触屏下当前行仍显示 EQ，暂停走底栏/播放器）
+  const showIndex = !hovered && !active && !touchPlay
+  const showPlayBtn = (hovered || (touchPlay && !active)) && onPlayNow != null
   const showEq = !hovered && active
 
   return (

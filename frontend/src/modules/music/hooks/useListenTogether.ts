@@ -26,6 +26,8 @@ const MUSIC_EVENT = {
   CONTROL_REQUEST: 'music:control-request',
   /** 控制申请应答（房主 → 申请者） */
   CONTROL_RESPONSE: 'music:control-response',
+  /** 观众切歌同步成功回执（观众 → 房主，房主左下角「xx 已同步」提示） */
+  SYNC_ACK: 'music:sync-ack',
   /** 加入房间时查询当前队列 + 最新同步状态（ack 返回） */
   GET_STATE: 'music:get-state',
 } as const
@@ -967,6 +969,14 @@ export function useListenTogether({
         if (store.playMode !== payload.playMode) {
           store.setPlayMode(payload.playMode)
         }
+        // 同步回执：观众完成换曲同步后告知房主（左下角「xx 已同步」提示）。
+        // 仅在曲目真正切换的分支发送——心跳同曲对齐不会重复发送；
+        // 房主重连自恢复（isHost）不发
+        if (!isHostRef.current) {
+          socketRef.current?.emit(MUSIC_EVENT.SYNC_ACK, {
+            roomId: roomIdRef.current,
+          })
+        }
         return
       }
 
@@ -1203,11 +1213,19 @@ export function useListenTogether({
       }
     }
 
+    // 房主：观众切歌同步回执 → 左下角「xx 已同步」提示（过期清理在组件）
+    const handleSyncAck = (payload: { roomId?: string; username?: string }) => {
+      if (!payload || !isHostRef.current) return
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      useMusicStore.getState().pushSyncAck(payload.username || '观众')
+    }
+
     socket.on(MUSIC_EVENT.SYNC_STATE, handleSyncState)
     socket.on(MUSIC_EVENT.HOST_HEARTBEAT, handleHostHeartbeat)
     socket.on(MUSIC_EVENT.QUEUE_CHANGED, handleQueueChanged)
     socket.on(MUSIC_EVENT.CONTROL_REQUEST, handleControlRequest)
     socket.on(MUSIC_EVENT.CONTROL_RESPONSE, handleControlResponse)
+    socket.on(MUSIC_EVENT.SYNC_ACK, handleSyncAck)
 
     return () => {
       socket.off(MUSIC_EVENT.SYNC_STATE, handleSyncState)
@@ -1215,6 +1233,7 @@ export function useListenTogether({
       socket.off(MUSIC_EVENT.QUEUE_CHANGED, handleQueueChanged)
       socket.off(MUSIC_EVENT.CONTROL_REQUEST, handleControlRequest)
       socket.off(MUSIC_EVENT.CONTROL_RESPONSE, handleControlResponse)
+      socket.off(MUSIC_EVENT.SYNC_ACK, handleSyncAck)
     }
   }, [socket, roomId, applyViewerSync, executeLocalAction])
 

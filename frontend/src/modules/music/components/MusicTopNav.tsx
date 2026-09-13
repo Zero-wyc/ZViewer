@@ -20,7 +20,7 @@
  *   追加「登录网易云后全房间可播 VIP」辅助提示
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LogIn, LogOut, Settings, User } from 'lucide-react'
+import { LogIn, LogOut, Search, Settings, User, X } from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
 import { useMusicSettingsStore } from '../store-settings'
@@ -30,6 +30,7 @@ import {
   MODE_LABELS,
   MODE_ORDER,
 } from '@/modules/room/components/useRoomModeSwitch'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/utils'
 import { ncmVipLabel } from '../hooks/useNcmLogin'
 
@@ -99,6 +100,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const [focused, setFocused] = useState(false)
   /** 悬停可见态：默认隐藏，鼠标移入左侧悬停区才显示搜索框 */
   const [searchVisible, setSearchVisible] = useState(false)
+  /** 手机端搜索：触屏无 hover，点击搜索图标唤出全宽搜索层 */
+  const isMobile = useIsMobile()
+  const [mobileSearchOpen, setMobileSearchOpen] = useState(false)
   /** 下拉条目（热榜/建议共用关键词列表） */
   const [assistItems, setAssistItems] = useState<string[]>([])
   /** 面板模式：空输入 = 热搜榜 / 有输入 = 建议（Hydrogen currentTitle 数据源） */
@@ -224,14 +228,16 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     else void loadHotList()
   }
 
-  /** 失焦：收起面板与高亮；鼠标已划出悬停区则一并隐藏搜索框 */
+  /** 失焦：收起面板与高亮；鼠标已划出悬停区则一并隐藏搜索框
+      （手机端搜索层保持打开——由关闭按钮控制，避免点建议/滚列表误关） */
   const handleSearchBlur = () => {
     setFocused(false)
     setActiveIndex(-1)
-    setSearchVisible(false)
+    if (!isMobile) setSearchVisible(false)
   }
 
-  /** 执行搜索：写入关键词并跳搜索页（Hydrogen searchInfo 同语义） */
+  /** 执行搜索：写入关键词并跳搜索页（Hydrogen searchInfo 同语义）；
+      手机端搜索完成即收起搜索层 */
   const runSearch = (kw: string) => {
     const value = kw.trim()
     if (!value) return
@@ -239,6 +245,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     setSearchKeywords(value)
     setPage('search')
     searchInputRef.current?.blur()
+    setMobileSearchOpen(false)
   }
 
   /** 键盘导航：↑↓ 循环高亮，Enter 选中高亮项或直接搜索；输入法组合态忽略 */
@@ -260,12 +267,132 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     }
   }
 
+  /** 搜索联想面板（Hydrogen .search-assist：热榜/建议）。桌面悬停搜索框与
+      手机全宽搜索层共用同一份内容，仅定位不同（手机端横铺满宽） */
+  const assistPanel = (
+    <div
+      className={cn(
+        'zen-dropdown-enter absolute z-[2001] px-3 pb-2 pt-[10px]',
+        isMobile
+          ? 'left-3 right-3 top-[54px] w-auto'
+          : 'left-0 top-[34px] w-[260px]'
+      )}
+      style={{
+        backgroundColor:
+          'color-mix(in srgb, var(--md-sys-color-surface-container) 82%, transparent)',
+        backdropFilter: 'blur(12px)',
+        WebkitBackdropFilter: 'blur(12px)',
+        border:
+          '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent)',
+        boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+      }}
+    >
+      {/* 面板四角框线（Hydrogen .assist-corner1~4） */}
+      {PANEL_CORNERS.map((pos) => (
+        <span
+          key={`panel-corner-${pos}`}
+          aria-hidden="true"
+          className={cn('pointer-events-none absolute h-[7px] w-[7px]', pos)}
+          style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+        />
+      ))}
+      {/* 头部：标题 + [数量] + 分隔线（Hydrogen .assist-header） */}
+      <div className="flex items-center gap-1">
+        <span
+          className="font-mono text-[11px] font-bold tracking-[1.2px]"
+          style={{ color: 'var(--md-sys-color-on-surface)' }}
+        >
+          {assistMode === 'hot' ? 'HOT SEARCH' : 'SUGGESTIONS'}
+        </span>
+        {assistItems.length > 0 && (
+          <span
+            className="font-mono text-[11px] tracking-[1px]"
+            style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+          >
+            [{assistItems.length}]
+          </span>
+        )}
+        <div
+          className="ml-1 h-px flex-1"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-on-surface) 70%, transparent)',
+          }}
+        />
+      </div>
+      {/* 条目区（Hydrogen .assist-body） */}
+      <div ref={assistBodyRef} className="mt-1 max-h-[300px] overflow-y-auto">
+        {assistLoading ? (
+          <div
+            className="py-2 font-mono text-[10px] tracking-[1px]"
+            style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+          >
+            LOADING...
+          </div>
+        ) : assistItems.length === 0 ? (
+          <div
+            className="py-2 font-mono text-[10px] tracking-[1px]"
+            style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+          >
+            {assistMode === 'hot' ? 'NO HOT SEARCH' : 'NO SUGGESTION'}
+          </div>
+        ) : (
+          assistItems.map((word, index) => {
+            const active = index === activeIndex
+            return (
+              <button
+                key={`${word}-${index}`}
+                type="button"
+                data-assist-index={index}
+                onMouseDown={(e) => e.preventDefault()}
+                onMouseEnter={() => setActiveIndex(index)}
+                onClick={() => runSearch(word)}
+                className="grid w-full grid-cols-[34px_1fr] items-center bg-no-repeat text-left"
+                style={{
+                  minHeight: '32px',
+                  backgroundImage:
+                    'linear-gradient(90deg, color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent) 0%, color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent) 100%)',
+                  backgroundSize: active ? '100% 100%' : '0% 100%',
+                  transition:
+                    'background-size .68s cubic-bezier(0.08, 0.88, 0.18, 1), color .28s ease',
+                }}
+              >
+                <span
+                  className="px-2 text-right font-mono text-[10px] tracking-[1px]"
+                  style={{
+                    color: active
+                      ? 'var(--md-sys-color-surface)'
+                      : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                >
+                  {String(index + 1).padStart(2, '0')}
+                </span>
+                <span
+                  className="min-w-0 truncate pr-3 text-[13px] font-bold"
+                  style={{
+                    color: active
+                      ? 'var(--md-sys-color-surface)'
+                      : 'var(--md-sys-color-on-surface)',
+                  }}
+                >
+                  {word}
+                </span>
+              </button>
+            )
+          })
+        )}
+      </div>
+    </div>
+  )
+
   return (
-    <header className="flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8">
+    <header className="relative flex shrink-0 items-center gap-4 px-6 pt-4 pb-2 md:px-8 max-md:gap-2 max-md:px-3 max-md:pt-3 max-md:pb-1.5">
       {/* ===== 左：搜索框（项目玻璃拟态语言）：glass 底 + 主题模糊度 +
           圆角描边，聚焦 220→260px 加宽；居中输入。默认隐藏，鼠标移入
           悬停区（w-56 定宽与右区对称，保证中间导航组真正水平居中）才
-          淡入显示。下拉面板（热榜/建议）毛玻璃 + 四角框线 + 序号条目 ===== */}
+          淡入显示。手机端不渲染（触屏无 hover 唤不出），改下方搜索
+          图标 + 全宽搜索层 ===== */}
+      {!isMobile && (
       <div
         className="group relative h-10 w-56 shrink-0"
         onMouseEnter={() => setSearchVisible(true)}
@@ -319,128 +446,106 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
           />
         </div>
 
-        {/* 搜索辅助面板（Hydrogen .search-assist：热榜/建议） */}
-        {focused && (
+        {/* 搜索辅助面板（共享 assistPanel：热榜/建议） */}
+        {focused && assistPanel}
+      </div>
+      )}
+
+      {/* ===== 手机端：搜索图标（触屏无 hover，点击唤出全宽搜索层）；
+          与右区头像同为 36px 圆钮，保证导航组居中对称 ===== */}
+      {isMobile && (
+        <button
+          type="button"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity active:scale-90"
+          style={{
+            border:
+              '1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
+          }}
+          onClick={() => setMobileSearchOpen(true)}
+          aria-label="搜索音乐"
+          title="搜索音乐"
+        >
+          <Search
+            className="h-5 w-5"
+            style={{ color: 'var(--md-sys-color-on-surface)' }}
+          />
+        </button>
+      )}
+
+      {/* ===== 手机端全宽搜索层：覆盖顶栏（毛玻璃底），输入框 + 关闭按钮 +
+          联想面板；聚焦空输入拉热榜、输入拉建议，搜索完成自动收起 ===== */}
+      {isMobile && mobileSearchOpen && (
+        <div
+          className="absolute inset-0 z-[2002] flex items-center gap-2 px-3 pb-2 pt-3"
+          style={{
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent)',
+            backdropFilter: 'blur(12px)',
+            WebkitBackdropFilter: 'blur(12px)',
+          }}
+        >
           <div
-            className="zen-dropdown-enter absolute left-0 top-[34px] z-[2001] w-[260px] px-3 pb-2 pt-[10px]"
+            className="glass flex h-9 min-w-0 flex-1 items-center overflow-hidden"
             style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-surface-container) 82%, transparent)',
-              backdropFilter: 'blur(12px)',
-              WebkitBackdropFilter: 'blur(12px)',
-              border:
-                '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 70%, transparent)',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.25)',
+              borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
+              borderColor: focused
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--glass-border)',
             }}
           >
-            {/* 面板四角框线（Hydrogen .assist-corner1~4） */}
-            {PANEL_CORNERS.map((pos) => (
-              <span
-                key={`panel-corner-${pos}`}
-                aria-hidden="true"
-                className={cn(
-                  'pointer-events-none absolute h-[7px] w-[7px]',
-                  pos
-                )}
-                style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-              />
-            ))}
-            {/* 头部：标题 + [数量] + 分隔线（Hydrogen .assist-header） */}
-            <div className="flex items-center gap-1">
-              <span
-                className="font-mono text-[11px] font-bold tracking-[1.2px]"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
-              >
-                {assistMode === 'hot' ? 'HOT SEARCH' : 'SUGGESTIONS'}
-              </span>
-              {assistItems.length > 0 && (
-                <span
-                  className="font-mono text-[11px] tracking-[1px]"
-                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                >
-                  [{assistItems.length}]
-                </span>
-              )}
-              <div
-                className="ml-1 h-px flex-1"
-                style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-on-surface) 70%, transparent)',
-                }}
-              />
-            </div>
-            {/* 条目区（Hydrogen .assist-body） */}
-            <div
-              ref={assistBodyRef}
-              className="mt-1 max-h-[300px] overflow-y-auto"
-            >
-              {assistLoading ? (
-                <div
-                  className="py-2 font-mono text-[10px] tracking-[1px]"
-                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                >
-                  LOADING...
-                </div>
-              ) : assistItems.length === 0 ? (
-                <div
-                  className="py-2 font-mono text-[10px] tracking-[1px]"
-                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                >
-                  {assistMode === 'hot' ? 'NO HOT SEARCH' : 'NO SUGGESTION'}
-                </div>
-              ) : (
-                assistItems.map((word, index) => {
-                  const active = index === activeIndex
-                  return (
-                    <button
-                      key={`${word}-${index}`}
-                      type="button"
-                      data-assist-index={index}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => runSearch(word)}
-                      className="grid w-full grid-cols-[34px_1fr] items-center bg-no-repeat text-left"
-                      style={{
-                        minHeight: '32px',
-                        backgroundImage:
-                          'linear-gradient(90deg, color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent) 0%, color-mix(in srgb, var(--md-sys-color-on-surface) 92%, transparent) 100%)',
-                        backgroundSize: active ? '100% 100%' : '0% 100%',
-                        transition:
-                          'background-size .68s cubic-bezier(0.08, 0.88, 0.18, 1), color .28s ease',
-                      }}
-                    >
-                      <span
-                        className="px-2 text-right font-mono text-[10px] tracking-[1px]"
-                        style={{
-                          color: active
-                            ? 'var(--md-sys-color-surface)'
-                            : 'var(--md-sys-color-on-surface-variant)',
-                        }}
-                      >
-                        {String(index + 1).padStart(2, '0')}
-                      </span>
-                      <span
-                        className="min-w-0 truncate pr-3 text-[13px] font-bold"
-                        style={{
-                          color: active
-                            ? 'var(--md-sys-color-surface)'
-                            : 'var(--md-sys-color-on-surface)',
-                        }}
-                      >
-                        {word}
-                      </span>
-                    </button>
-                  )
-                })
-              )}
-            </div>
+            <input
+              ref={searchInputRef}
+              autoFocus
+              value={keyword}
+              onChange={(e) => {
+                setKeyword(e.target.value)
+                if (!e.target.value.trim()) {
+                  requestSeqRef.current++
+                  if (focused) void loadHotList()
+                }
+              }}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              enterKeyHint="search"
+              placeholder="搜索歌曲、歌手"
+              aria-label="搜索音乐"
+              spellCheck={false}
+              className="h-full w-full bg-transparent px-3 text-left text-[14px] outline-none placeholder:font-normal"
+              style={{
+                color: 'var(--md-sys-color-on-surface)',
+                caretColor: 'var(--md-sys-color-on-surface)',
+              }}
+            />
           </div>
-        )}
-      </div>
+          <button
+            type="button"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-opacity active:scale-90"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+            }}
+            onClick={() => {
+              setMobileSearchOpen(false)
+              setFocused(false)
+              setActiveIndex(-1)
+            }}
+            aria-label="关闭搜索"
+          >
+            <X
+              className="h-5 w-5"
+              style={{ color: 'var(--md-sys-color-on-surface)' }}
+            />
+          </button>
+          {focused && assistPanel}
+        </div>
+      )}
 
-      {/* ===== 中：导航链接组 ===== */}
+      {/* ===== 中：导航链接组（手机端字号/间距收窄更优雅） ===== */}
       <nav
-        className="flex min-w-0 flex-1 items-center justify-center gap-[clamp(18px,3vw,40px)]"
+        className="flex min-w-0 flex-1 items-center justify-center gap-[clamp(18px,3vw,40px)] max-md:gap-3"
         aria-label="音乐页面导航"
       >
         {NAV_ITEMS.map((item) => {
@@ -451,7 +556,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               type="button"
               onClick={() => setPage(item.key)}
               className={cn(
-                'shrink-0 text-xl font-medium transition-opacity hover:opacity-70',
+                'md:text-xl shrink-0 font-medium transition-opacity hover:opacity-70 max-md:text-[14px]',
                 active ? 'opacity-100' : 'opacity-60'
               )}
               style={{
@@ -468,8 +573,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
       </nav>
 
       {/* ===== 右：账户菜单（房间模式切换已收入菜单内分组）；定宽 224px
-          与左区搜索框对称，头像靠右对齐，保证中间导航组真正水平居中 ===== */}
-      <div className="relative flex w-56 shrink-0 items-center justify-end">
+          与左区搜索框对称，头像靠右对齐，保证中间导航组真正水平居中；
+          手机端收窄为仅头像宽度（左侧搜索同宽对称） ===== */}
+      <div className="relative flex w-56 shrink-0 items-center justify-end max-md:w-9">
         <button
           type="button"
           className="flex h-9 w-9 items-center justify-center overflow-hidden rounded-full transition-opacity hover:opacity-80"
