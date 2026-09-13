@@ -118,6 +118,9 @@ export default function ProfilePage() {
     logout: ncmLogout,
   } = useNcmLogin()
 
+  /** 网易云会员类型文案（普通/VIP/SVIP；未登录或未知为空串） */
+  const ncmVipText = ncmVipLabel(ncmLoginInfo.vipType, ncmLoginInfo.vipStatus)
+
   /** 网易云扫码状态文案 */
   const NCM_QR_STATUS_TEXT: Record<NcmQrStatus, string> = {
     idle: '准备中…',
@@ -688,9 +691,9 @@ export default function ProfilePage() {
                           <Music className="mr-0.5 h-3 w-3" />
                           网易云
                         </Tag>
-                        {/* 会员类型标签（NCM vipType：普通/VIP/SVIP） */}
-                        {ncmVipLabel(ncmLoginInfo.vipType) &&
-                          (ncmVipLabel(ncmLoginInfo.vipType) === 'SVIP' ? (
+                        {/* 会员类型标签（普通/VIP/SVIP） */}
+                        {ncmVipText &&
+                          (ncmVipText === 'SVIP' ? (
                             <Tag
                               color="purple"
                               className="shrink-0 px-1.5 py-0 text-[10px]"
@@ -698,7 +701,7 @@ export default function ProfilePage() {
                               <Crown className="mr-0.5 h-3 w-3" />
                               SVIP
                             </Tag>
-                          ) : ncmVipLabel(ncmLoginInfo.vipType) === 'VIP' ? (
+                          ) : ncmVipText === 'VIP' ? (
                             <Tag
                               color="warning"
                               className="shrink-0 px-1.5 py-0 text-[10px]"

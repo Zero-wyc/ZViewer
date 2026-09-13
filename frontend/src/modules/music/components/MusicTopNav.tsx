@@ -552,8 +552,11 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                 >
                   {loginStatus.loggedIn
-                    ? ncmVipLabel(loginStatus.vipType)
-                      ? `网易云账号 · ${ncmVipLabel(loginStatus.vipType)}`
+                    ? ncmVipLabel(loginStatus.vipType, loginStatus.vipStatus)
+                      ? `网易云账号 · ${ncmVipLabel(
+                          loginStatus.vipType,
+                          loginStatus.vipStatus
+                        )}`
                       : '网易云账号'
                     : '尚未登录网易云'}
                 </p>

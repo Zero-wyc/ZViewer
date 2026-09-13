@@ -8,13 +8,19 @@ import type { NcmLoginStatus } from '../types'
 const QR_POLL_INTERVAL_MS = 1500
 
 /**
- * 网易云会员类型文案（NCM profile.vipType 约定）：
- * 0=普通 / 10=VIP（普通会员）/ 11=SVIP；未登录/未知返回空字符串。
+ * 网易云会员类型文案（组合 vipType + vipStatus）：
+ * NCM profile.vipType 对部分黑胶/音乐包会员不反映实际状态（返回 0），
+ * 后端已用 /vip/info 归一并回传 vipStatus 兜底。
+ * 11=黑胶 SVIP / 10=VIP / vipStatus==1=VIP / 其余=普通；未知返回空串。
  */
-export function ncmVipLabel(vipType?: number | null): string {
+export function ncmVipLabel(
+  vipType?: number | null,
+  vipStatus?: number | null
+): string {
   if (vipType === 11) return 'SVIP'
   if (vipType === 10) return 'VIP'
-  if (vipType != null) return '普通'
+  if (vipStatus != null && vipStatus > 0) return 'VIP'
+  if (vipType != null || vipStatus != null) return '普通'
   return ''
 }
 
@@ -113,6 +119,7 @@ export function useNcmLogin(): UseNcmLoginResult {
         nickname?: string
         avatarUrl?: string
         vipType?: number | null
+        vipStatus?: number | null
         profile?: { nickname?: string; avatarUrl?: string }
       }>(`/api/music/login/status?timestamp=${Date.now()}`)
       if (!ok || !data) return
@@ -129,6 +136,7 @@ export function useNcmLogin(): UseNcmLoginResult {
         nickname: data.profile?.nickname ?? data.nickname,
         avatarUrl: data.profile?.avatarUrl ?? data.avatarUrl,
         vipType: typeof data.vipType === 'number' ? data.vipType : null,
+        vipStatus: typeof data.vipStatus === 'number' ? data.vipStatus : null,
       })
     } catch (err) {
       console.error('[useNcmLogin] 查询登录状态失败:', err)

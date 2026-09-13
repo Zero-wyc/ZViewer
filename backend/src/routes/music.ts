@@ -147,10 +147,18 @@ async function loadCredential(
   return AppDataSource.getRepository(NcmCredential).findOneBy({ userId });
 }
 
-/** 从 NCM 响应体提取网易云账号资料（兼容 body.profile 与 body.data.profile 两种结构） */
+/** 从 NCM 响应体提取网易云账号资料（兼容 body.profile 与 body.data.profile 两种结构）。
+ *  另取 vipStatus / redVipLevel 供 VIP 判定兜底（profile.vipType 对部分黑胶
+ *  会员不反映实际会员状态，Hydrogen 用 /vip/info 判定同因）。 */
 function extractProfile(
   body: unknown,
-): { nickname: string | null; avatarUrl: string | null; vipType: number | null } | null {
+): {
+  nickname: string | null;
+  avatarUrl: string | null;
+  vipType: number | null;
+  vipStatus: number | null;
+  redVipLevel: number | null;
+} | null {
   if (!body || typeof body !== 'object') return null;
   const b = body as Record<string, unknown>;
   let raw: unknown = b.profile;
@@ -166,8 +174,11 @@ function extractProfile(
   const nickname = typeof p.nickname === 'string' ? p.nickname : null;
   const avatarUrl = typeof p.avatarUrl === 'string' ? p.avatarUrl : null;
   const vipType = typeof p.vipType === 'number' ? p.vipType : null;
+  const vipStatus = typeof p.vipStatus === 'number' ? p.vipStatus : null;
+  const redVipLevel =
+    typeof p.redVipLevel === 'number' ? p.redVipLevel : null;
   if (!nickname && !avatarUrl) return null;
-  return { nickname, avatarUrl, vipType };
+  return { nickname, avatarUrl, vipType, vipStatus, redVipLevel };
 }
 
 /**
@@ -187,6 +198,7 @@ async function persistCookies(
     if (profile?.nickname) existing.nickname = profile.nickname;
     if (profile?.avatarUrl) existing.avatarUrl = profile.avatarUrl;
     if (profile?.vipType != null) existing.vipType = profile.vipType;
+    if (profile?.vipStatus != null) existing.vipStatus = profile.vipStatus;
     await repo.save(existing);
   } else {
     await repo.save(
@@ -196,6 +208,7 @@ async function persistCookies(
         nickname: profile?.nickname ?? null,
         avatarUrl: profile?.avatarUrl ?? null,
         vipType: profile?.vipType ?? null,
+        vipStatus: profile?.vipStatus ?? null,
       }),
     );
   }
@@ -571,13 +584,12 @@ router.get(
     try {
       let credential = await loadCredential(req.user?.userId);
       // 扫码登录落库时响应不含账号资料（/login/qr/check 只返回 code），
-      // 旧凭据可能缺昵称/头像/会员类型：用凭据 cookie 实时调 /user/account
-      // 补全并回写
+      // 旧凭据可能缺昵称/头像/会员信息：用凭据 cookie 实时调 /user/account
+      // 补全并回写。vipType==0（未开通字段值）同样触发刷新——购买的会员
+      // 会因存量缓存被误判为普通用户。
       if (
         credential &&
-        (!credential.nickname ||
-          !credential.avatarUrl ||
-          credential.vipType == null)
+        (credential.vipType == null || credential.vipType === 0)
       ) {
         try {
           const cookieHeader = toCookieHeader(credential.cookies);
@@ -588,10 +600,41 @@ router.get(
               credential.nickname = profile.nickname ?? credential.nickname;
               credential.avatarUrl = profile.avatarUrl ?? credential.avatarUrl;
               credential.vipType = profile.vipType ?? credential.vipType;
-              await AppDataSource.getRepository(NcmCredential).save(
-                credential,
-              );
+              credential.vipStatus = profile.vipStatus ?? credential.vipStatus;
             }
+            // profile.vipType 仍为 0/缺省：黑胶/音乐包会员部分场景不从
+            // vipType 反映（Hydrogen 亦另查 /vip/info）。redVipLevel>0 或
+            // SVIP 图标 → 归一 vipType 10/11 与 vipStatus=1
+            if (credential.vipType == null || credential.vipType === 0) {
+              const vipRes = await callNcmApi('/vip/info', cookieHeader);
+              const vipData =
+                vipRes.body && typeof vipRes.body === 'object'
+                  ? (
+                      (vipRes.body as Record<string, unknown>).data as
+                        | Record<string, unknown>
+                        | undefined
+                    )
+                  : undefined;
+              if (vipData && typeof vipData === 'object') {
+                const redVipLevel =
+                  typeof vipData.redVipLevel === 'number'
+                    ? vipData.redVipLevel
+                    : 0;
+                const iconUrl =
+                  typeof vipData.redVipDynamicIconUrl === 'string'
+                    ? (vipData.redVipDynamicIconUrl as string)
+                    : '';
+                const active = redVipLevel > 0 || iconUrl !== '';
+                const svip = iconUrl.toLowerCase().includes('svip');
+                credential.vipStatus = active ? 1 : 0;
+                if (active) {
+                  credential.vipType = svip ? 11 : 10;
+                } else if (profile?.vipType != null) {
+                  credential.vipType = profile.vipType;
+                }
+              }
+            }
+            await AppDataSource.getRepository(NcmCredential).save(credential);
           }
         } catch (err) {
           console.warn('[music] login/status 账号资料补全失败:', err);
@@ -602,6 +645,7 @@ router.get(
         nickname: credential?.nickname ?? null,
         avatarUrl: credential?.avatarUrl ?? null,
         vipType: credential?.vipType ?? null,
+        vipStatus: credential?.vipStatus ?? null,
       });
     } catch (err) {
       console.error('[music] login/status error:', err);

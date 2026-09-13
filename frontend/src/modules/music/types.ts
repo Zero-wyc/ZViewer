@@ -97,8 +97,10 @@ export interface NcmLoginStatus {
   nickname?: string
   /** 登录账号头像 */
   avatarUrl?: string
-  /** 网易云会员类型（profile.vipType：0=普通 / 10=VIP / 11=SVIP） */
+  /** 网易云会员类型（0=未开通 / 10=VIP / 11=黑胶 SVIP） */
   vipType?: number | null
+  /** 会员激活标记（0/1；vipType 与实际状态不一致时以此兜底） */
+  vipStatus?: number | null
 }
 
 // ==================== 页面数据类型（Hydrogen 首页各区块） ====================

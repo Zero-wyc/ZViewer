@@ -33,9 +33,14 @@ export class NcmCredential {
   @Column({ type: 'text', nullable: true })
   avatarUrl!: string | null;
 
-  /** 网易云会员类型（profile.vipType：0=普通 / 10=VIP / 11=SVIP） */
+  /** 网易云会员类型（profile.vipType：0=未开通 / 10=音乐包 VIP / 11=黑胶；
+   *  /vip/info 兜底解析后归一为 10=VIP / 11=SVIP（SVIP 图标含 svip）） */
   @Column({ type: 'integer', nullable: true })
   vipType!: number | null;
+
+  /** 会员激活标记（profile.vipStatus 或 /vip/info redVipLevel>0 归一 0/1） */
+  @Column({ type: 'integer', nullable: true })
+  vipStatus!: number | null;
 
   @UpdateDateColumn()
   updatedAt!: Date;
