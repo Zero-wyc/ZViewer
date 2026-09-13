@@ -32,7 +32,7 @@ export interface MusicSettings {
   level: string
   /**
    * 音源直连（直链模式）：开启后 <audio> 直连网易云 CDN 直链，
-   * 服务器仅承担解析请求不再转发音频流；直链失效自动回退代理流
+   * 服务器仅承担解析请求不再转发音频流；直链失效直接报错不回退
    */
   directSource: boolean
   /** 播放器毛玻璃封面背景（关闭后覆盖层仅剩纯色底） */

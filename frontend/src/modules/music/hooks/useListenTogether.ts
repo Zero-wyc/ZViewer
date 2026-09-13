@@ -95,9 +95,9 @@ function buildStreamUrl(
   const level = normalizeMusicLevel(
     useMusicSettingsStore.getState().level || FALLBACK_STREAM_LEVEL
   )
-  // 直链模式（设置「音源直连」）：请后端返回 CDN 直链 JSON，
-  // <audio> 直连网易云、服务器不走音频流；加载失败时回退去掉
-  // direct 参数的代理流（error 处理器内置回退逻辑）
+  // 直链模式（设置「音源直连」）：请后端 302 重定向到 CDN 直链，
+  // <audio> 直连网易云、服务器不走音频流；加载失败直接报错
+  //（设置项为开关，关闭后走代理流）
   const directParam = useMusicSettingsStore.getState().directSource
     ? '&direct=1'
     : ''
@@ -451,8 +451,6 @@ export function useListenTogether({
   // ===== 音频事件处理器（元素无关化，Hydrogen preparePlaybackSwitch 的等价基础） =====
   /** ended 处理器的最新实现（handleEnded 随 switchSong 依赖重建，经 ref 间接调用） */
   const endedHandlerRef = useRef<() => void>(() => {})
-  /** 直链回退护栏：已回退重试过的 src（防直链持续失效导致回退循环） */
-  const directFallbackRef = useRef<string | null>(null)
 
   /**
    * 六个音频生命周期事件的稳定 handler 集合（useState 惰性初始化，仅创建一次；
@@ -494,26 +492,9 @@ export function useListenTogether({
       }
     },
     error: (e) => {
-      // 流加载失败（无版权/纯 VIP 未登录/解析失败等后端结构化错误）
+      // 流加载失败（无版权/纯 VIP 未登录/解析失败等后端结构化错误；
+      // 直链模式下 CDN 链接过期/失效同样在此报错，不回退代理流）
       const el = e.currentTarget as HTMLAudioElement
-      // 直链回退：直链模式的 CDN 链接过期/失效（音频元素报错）时，
-      // 把地址中的 direct=1 改为 direct=0 走代理流重试一次。
-      // 每个「曲目+level」只回退一次（directFallbackRef 防循环）；
-      // 注意媒体元素 302 跟随后 el.src 仍是原始 /stream 地址，可直接改参
-      const src = el.src || ''
-      if (src.includes('direct=1')) {
-        const retryKey = `${src}`
-        if (directFallbackRef.current !== retryKey) {
-          directFallbackRef.current = retryKey
-          console.warn('[useListenTogether] 直链加载失败，回退代理流重试')
-          el.src = src.replace('direct=1', 'direct=0')
-          el.load()
-          if (!el.paused || el.currentTime > 0) {
-            void el.play().catch(() => {})
-          }
-          return
-        }
-      }
       console.error(
         '[useListenTogether] 音频流加载失败:',
         el.error?.code,
@@ -626,8 +607,6 @@ export function useListenTogether({
     (item: MusicQueueItem, positionSec: number, shouldPlay: boolean) => {
       const audio = getAudio()
       const url = buildStreamUrl(item, roomIdRef.current)
-      // 换曲（URL 变化）时重置直链回退护栏，允许新曲目各回退一次
-      if (audio.src !== url) directFallbackRef.current = null
       useMusicStore.getState().setCurrentKey(musicItemKey(item))
 
       // ===== 预载升格路径 =====
