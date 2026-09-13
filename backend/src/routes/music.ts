@@ -602,9 +602,10 @@ router.get(
               credential.vipType = profile.vipType ?? credential.vipType;
               credential.vipStatus = profile.vipStatus ?? credential.vipStatus;
             }
-            // profile.vipType 仍为 0/缺省：黑胶/音乐包会员部分场景不从
-            // vipType 反映（Hydrogen 亦另查 /vip/info）。redVipLevel>0 或
-            // SVIP 图标 → 归一 vipType 10/11 与 vipStatus=1
+            // profile.vipType 仍为 0/缺省：调 /vip/info 以三档会员对象
+            // （associator 黑胶 / musicPackage 音乐包 / redplus 黑胶 PLUS）
+            // 判定实际会员状态。每档含 vipCode/expireTime/iconUrl；
+            // expireTime > now 即在有效期；SVIP 由会员图标 URL 含 'svip' 判定
             if (credential.vipType == null || credential.vipType === 0) {
               const vipRes = await callNcmApi('/vip/info', cookieHeader);
               const vipData =
@@ -616,22 +617,47 @@ router.get(
                     )
                   : undefined;
               if (vipData && typeof vipData === 'object') {
-                const redVipLevel =
+                const now = Date.now();
+                // 兼容字段（部分上游版本存在）：redVipLevel / SVIP 动态图标
+                const legacyRedVipLevel =
                   typeof vipData.redVipLevel === 'number'
                     ? vipData.redVipLevel
                     : 0;
-                const iconUrl =
-                  typeof vipData.redVipDynamicIconUrl === 'string'
-                    ? (vipData.redVipDynamicIconUrl as string)
+                const legacyIconUrl =
+                  typeof (vipData as Record<string, unknown>)
+                    .redVipDynamicIconUrl === 'string'
+                    ? ((vipData as Record<string, unknown>)
+                        .redVipDynamicIconUrl as string)
                     : '';
-                const active = redVipLevel > 0 || iconUrl !== '';
-                const svip = iconUrl.toLowerCase().includes('svip');
+                let active = legacyRedVipLevel > 0 || legacyIconUrl !== '';
+                let svip = legacyIconUrl.toLowerCase().includes('svip');
+                for (const slotKey of [
+                  'associator',
+                  'musicPackage',
+                  'redplus',
+                ]) {
+                  const slot = (vipData as Record<string, unknown>)[slotKey];
+                  if (!slot || typeof slot !== 'object') continue;
+                  const s = slot as Record<string, unknown>;
+                  const vipCode =
+                    typeof s.vipCode === 'number' ? s.vipCode : 0;
+                  const expireTime =
+                    typeof s.expireTime === 'number' ? s.expireTime : 0;
+                  const slotIcon =
+                    typeof s.iconUrl === 'string' ? s.iconUrl : '';
+                  if (expireTime > now || (expireTime === 0 && vipCode > 0)) {
+                    active = true;
+                    if (slotIcon.toLowerCase().includes('svip')) svip = true;
+                  }
+                }
+                // 只要有任一档会员在有效期内即按 VIP 展示；SVIP 图标优先
                 credential.vipStatus = active ? 1 : 0;
                 if (active) {
                   credential.vipType = svip ? 11 : 10;
                 } else if (profile?.vipType != null) {
                   credential.vipType = profile.vipType;
                 }
+                if (credential.vipStatus == null) credential.vipStatus = 0;
               }
             }
             await AppDataSource.getRepository(NcmCredential).save(credential);
