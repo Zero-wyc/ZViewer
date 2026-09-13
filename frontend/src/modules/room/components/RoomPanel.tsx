@@ -101,7 +101,7 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
 
   return (
     <div className="flex-1 flex items-center justify-center p-6">
-      <Card className="w-full max-w-2xl">
+      <Card className="w-full max-w-4xl">
         <div className="text-center mb-6">
           <Title level={3} className="m-0">
             创建房间
@@ -112,7 +112,7 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
         </div>
 
         <Space direction="vertical" className="w-full">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <button
               onClick={() => setSelectedMode('screen-share')}
               className="relative text-left p-5 rounded-2xl border-2 transition-all"
