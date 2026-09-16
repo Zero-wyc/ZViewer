@@ -924,7 +924,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               className="ml-3 flex items-center gap-1 text-xs font-bold text-[var(--md-sys-color-on-surface)] transition-opacity active:opacity-60"
               title="返回歌单列表"
             >
-              <svg viewBox="0 0 1024 1024" className="h-3 w-3" aria-hidden="true">
+              <svg
+                viewBox="0 0 1024 1024"
+                className="h-3 w-3"
+                aria-hidden="true"
+              >
                 <path
                   d="M716.608 1010.112L218.88 512.384 717.376 13.888l45.248 45.248-453.248 453.248 452.48 452.48z"
                   fill="currentColor"
@@ -1102,7 +1106,10 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 disabled={song.vip && !loginStatus.loggedIn}
                 onPlayNow={() => handlePlayNow(song)}
                 onRowDoubleClick={() =>
-                  add(songToUpsertItem(song), { afterCurrent: true })
+                  add(songToUpsertItem(song), {
+                    afterCurrent: true,
+                    notify: true,
+                  })
                 }
                 rowTitle="双击添加到队列，hover 序号点击立即播放"
               />

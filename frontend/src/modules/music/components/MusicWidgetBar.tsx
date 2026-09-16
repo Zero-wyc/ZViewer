@@ -34,12 +34,14 @@ import {
   Repeat,
   Repeat1,
   Shuffle,
+  ListEnd,
 } from 'lucide-react'
-import { apiGet } from '@/lib/api'
+import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { OverflowMarquee } from './OverflowMarquee'
+import { BiliFavCollectModal } from './BiliFavCollectModal'
 import {
   ControlNextIcon,
   ControlPauseIcon,
@@ -50,8 +52,14 @@ import { AddToPlaylistModal } from './AddToPlaylistModal'
 import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
 
-/** 播放模式循环顺序（Hydrogen changePlayMode 3 态） */
-const PLAY_MODE_ORDER: PlayMode[] = ['sequence', 'repeat-one', 'shuffle']
+/** 播放模式循环顺序（Hydrogen changePlayMode 扩展 4 态；order = 按顺序播放，
+ *  不循环，B站 推荐连播仅此模式启用） */
+const PLAY_MODE_ORDER: PlayMode[] = [
+  'sequence',
+  'order',
+  'repeat-one',
+  'shuffle',
+]
 
 export function MusicWidgetBar() {
   const {
@@ -196,7 +204,7 @@ export function MusicWidgetBar() {
         const acc = await apiGet<{
           account?: { id?: number }
           profile?: { userId?: number }
-        }>(`/api/music/ncm/account?timestamp=${Date.now()}`)
+        }>(`/api/music/ncm/user/account?timestamp=${Date.now()}`)
         if (cancelled) return
         const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
         if (!uid) return
@@ -245,6 +253,48 @@ export function MusicWidgetBar() {
   //       个人操作 NCM 登录即可，不依赖房主/房管权限） =====
   const [addPlaylistOpen, setAddPlaylistOpen] = useState(false)
 
+  // ===== B站 歌状态：当前播放为 B站 视频时，控制栏「添加到歌单」切换为
+  // 「添加到哔哩哔哩收藏夹」（弹窗选择收藏夹），「专辑」切换为红心
+  // （一键收藏到 B站「Music」收藏夹，不存在自动创建） =====
+  const isBiliSong = currentSong?.biliBvid != null
+  const [biliFavModalOpen, setBiliFavModalOpen] = useState(false)
+  const [biliCollecting, setBiliCollecting] = useState(false)
+  /** 已收藏到「Music」收藏夹的视频 bvid（本地会话记忆；切到其他视频空心） */
+  const [biliCollectedBvid, setBiliCollectedBvid] = useState<string | null>(
+    null
+  )
+  const biliCollected =
+    isBiliSong && currentSong?.biliBvid === biliCollectedBvid
+  const handleCollectToMusic = useCallback(async () => {
+    const bvid = currentSong?.biliBvid
+    if (!bvid || biliCollecting) return
+    // 已收藏过：本地提示，避免重复请求
+    if (bvid === biliCollectedBvid) {
+      message.info('已收藏到「Music」收藏夹')
+      return
+    }
+    setBiliCollecting(true)
+    try {
+      const { data, ok } = await apiPost<{
+        success?: boolean
+        message?: string
+        folderTitle?: string
+      }>('/api/stream/bilibili/fav/collect', {
+        bvid,
+        folderTitle: 'Music',
+      })
+      if (!ok || data?.success === false) {
+        throw new Error(data?.message || '收藏失败')
+      }
+      setBiliCollectedBvid(bvid)
+      message.success(`已收藏到「${data?.folderTitle || 'Music'}」`)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '收藏失败')
+    } finally {
+      setBiliCollecting(false)
+    }
+  }, [currentSong, biliCollecting, biliCollectedBvid])
+
   // ===== 专辑跳转（Hydrogen toAlbum：解析当前歌的专辑 ID 后跳转专辑详情页） =====
   const handleToAlbum = useCallback(async () => {
     if (!currentSong || currentSong.songId <= 0) return
@@ -276,13 +326,15 @@ export function MusicWidgetBar() {
   const songName = currentSong?.name ?? '一起听'
   const artist = currentSong?.artist ?? ''
 
-  /** 播放模式图标（3 态） */
+  /** 播放模式图标（4 态） */
   const PlayModeIcon =
     playMode === 'repeat-one'
       ? Repeat1
       : playMode === 'shuffle'
         ? Shuffle
-        : Repeat
+        : playMode === 'order'
+          ? ListEnd
+          : Repeat
 
   return (
     <div
@@ -523,33 +575,67 @@ export function MusicWidgetBar() {
             </button>
           )}
           {/* 添加到歌单（圆圈加号，Hydrogen addToPlaylist：NCM 登录且有歌可见；
-              手机端隐藏——入口保留在完整播放器内） */}
-          {loginStatus.loggedIn && currentSong && (
+              手机端隐藏——入口保留在完整播放器内）。
+              B站 歌时切换为「添加到哔哩哔哩我的收藏夹」（弹窗选择收藏夹） */}
+          {(isBiliSong
+            ? currentSong?.biliBvid != null
+            : loginStatus.loggedIn && currentSong != null) && (
             <button
               type="button"
               className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
-              onClick={() => setAddPlaylistOpen(true)}
-              title="添加到我的歌单"
-              aria-label="添加到我的歌单"
+              onClick={() =>
+                isBiliSong
+                  ? setBiliFavModalOpen(true)
+                  : setAddPlaylistOpen(true)
+              }
+              title={isBiliSong ? '添加到哔哩哔哩收藏夹' : '添加到我的歌单'}
+              aria-label={
+                isBiliSong ? '添加到哔哩哔哩收藏夹' : '添加到我的歌单'
+              }
             >
               <CirclePlus className="h-5 w-5" />
             </button>
           )}
           {/* 专辑（唱片）：解析当前歌专辑并跳转详情页（Hydrogen toAlbum；
-              手机端隐藏——入口保留在完整播放器内） */}
-          {currentSong && (
-            <button
-              type="button"
-              className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
-              onClick={() => void handleToAlbum()}
-              title="查看专辑"
-              aria-label="查看专辑"
-            >
-              <Disc3 className="h-5 w-5" />
-            </button>
-          )}
-          {/* 播放模式（顺序 / 单曲循环 / 随机 3 态循环；仅直接控制权可切；
-              手机端隐藏——入口保留在完整播放器工具行内） */}
+              手机端隐藏——入口保留在完整播放器内）。
+              B站 歌时切换为红心：一键收藏当前视频到 B站「Music」收藏夹 */}
+          {currentSong &&
+            (isBiliSong ? (
+              <button
+                type="button"
+                className="flex h-5 w-5 items-center justify-center transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
+                onClick={() => void handleCollectToMusic()}
+                disabled={biliCollecting}
+                title={
+                  biliCollected
+                    ? '已收藏到哔哩哔哩「Music」收藏夹'
+                    : '收藏到哔哩哔哩「Music」收藏夹'
+                }
+                aria-label={
+                  biliCollected
+                    ? '已收藏到哔哩哔哩 Music 收藏夹'
+                    : '收藏到哔哩哔哩 Music 收藏夹'
+                }
+              >
+                <Heart
+                  className={cn('h-5 w-5', biliCollecting && 'animate-pulse')}
+                  fill={biliCollected ? '#E5404F' : 'none'}
+                  stroke={biliCollected ? 'none' : 'currentColor'}
+                />
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
+                onClick={() => void handleToAlbum()}
+                title="查看专辑"
+                aria-label="查看专辑"
+              >
+                <Disc3 className="h-5 w-5" />
+              </button>
+            ))}
+          {/* 播放模式（顺序循环 / 按顺序播放 / 单曲循环 / 随机 4 态循环；
+              仅直接控制权可切；手机端隐藏——入口保留在完整播放器工具行内） */}
           <button
             type="button"
             className={cn(
@@ -561,9 +647,11 @@ export function MusicWidgetBar() {
               canControl
                 ? playMode === 'sequence'
                   ? '顺序循环'
-                  : playMode === 'repeat-one'
-                    ? '单曲循环'
-                    : '随机播放'
+                  : playMode === 'order'
+                    ? '按顺序播放'
+                    : playMode === 'repeat-one'
+                      ? '单曲循环'
+                      : '随机播放'
                 : '仅房主可切换播放模式'
             }
             aria-label="切换播放模式"
@@ -590,7 +678,7 @@ export function MusicWidgetBar() {
         aria-hidden="true"
       />
 
-      {/* 添加到我的歌单弹窗（Hydrogen ContextMenu.add-to-playlist） */}
+      {/* 添加到我的歌单弹窗（Hydrogen ContextMenu.add-to-playlist；NCM 歌） */}
       <AddToPlaylistModal
         open={addPlaylistOpen}
         song={
@@ -599,6 +687,14 @@ export function MusicWidgetBar() {
             : null
         }
         onClose={() => setAddPlaylistOpen(false)}
+      />
+
+      {/* B站 收藏夹选择弹窗（B站 歌的「添加到哔哩哔哩收藏夹」） */}
+      <BiliFavCollectModal
+        open={biliFavModalOpen}
+        bvid={currentSong?.biliBvid ?? ''}
+        onCollected={(bvid) => setBiliCollectedBvid(bvid)}
+        onClose={() => setBiliFavModalOpen(false)}
       />
     </div>
   )

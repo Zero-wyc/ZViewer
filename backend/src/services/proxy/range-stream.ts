@@ -19,7 +19,20 @@ export interface ParsedRange {
 }
 
 /**
- * 解析 `bytes=start-end` 请求头。
+ * 单个 Range 响应的最大分片长度（字节，默认 8MB）。
+ *
+ * 客户端（浏览器 <video>）的探测性请求常为开放式（`bytes=0-`）或显式全量
+ * （`bytes=0-<size-1>`）。若原样透传，服务端会把整个数百 MB～数 GB 的文件
+ * 一次性推向客户端——客户端通常在解析完 moov/缓冲足够后立即断开，已传输的
+ * 部分即成为无效流量（实测日志中单次 709MB 传输即由此产生；用户 seek/关闭
+ * 时的浪费更常见）。限制为固定分片后，客户端会按 Content-Range 继续请求后续
+ * 分片，播放行为完全不变，但单次最大浪费被限制在分片大小内。
+ */
+export const MAX_RANGE_CHUNK_BYTES = 8 * 1024 * 1024;
+
+/**
+ * 解析 `bytes=start-end` 请求头，并把分片长度收敛到 MAX_RANGE_CHUNK_BYTES
+ * （见该常量的流量说明；尾部 suffix 请求 `bytes=-N` 不受影响）。
  * @returns 解析结果；无 Range 头返回 null；格式非法或越界返回 'invalid'。
  */
 export function parseRangeHeader(
@@ -32,7 +45,9 @@ export function parseRangeHeader(
   const start = match[1] ? parseInt(match[1], 10) : 0;
   const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
   if (start >= fileSize || start > end) return 'invalid';
-  return { start, end: Math.min(end, fileSize - 1) };
+  // 限制单片长度：开放式（bytes=start-）与超长区间都截断为 8MB 分片
+  const cappedEnd = Math.min(end, start + MAX_RANGE_CHUNK_BYTES - 1);
+  return { start, end: Math.min(cappedEnd, fileSize - 1) };
 }
 
 /**
@@ -118,12 +133,14 @@ export function pipeRangeStream(
     return;
   }
 
-  // 客户端断连：销毁上游流，停止无用读取
-  res.on('close', () => {
-    if (!res.writableFinished && !stream.destroyed) {
-      stream.destroy();
-    }
-  });
+  // 客户端断连：销毁上游流，停止无用读取（「用户下线后流量仍在跑」的关键防护）。
+  // 注意：Node 的 pipe 在目标关闭时只 unpipe、不销毁源流，必须显式 destroy；
+  // close 与 error 都覆盖（网络异常/客户端强杀不会触发 close 的完成分支）。
+  const destroyUpstream = () => {
+    if (!res.writableFinished && !stream.destroyed) stream.destroy();
+  };
+  res.on('close', destroyUpstream);
+  res.on('error', destroyUpstream);
 
   stream.on('error', (err) => {
     console.error(`[${logTag}] proxy stream error:`, err);

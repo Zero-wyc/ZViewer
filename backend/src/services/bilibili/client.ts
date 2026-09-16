@@ -123,7 +123,14 @@ export async function bilibiliFetch<T = unknown>(
         throw new Error(`B站 API 请求失败 [${res.status}] ${res.statusText}: ${url}`);
       }
 
-      const json = (await res.json()) as BilibiliResponse<T>;
+      // 接口失效/风控时 B站 可能返回 HTML 错误页，res.json() 会抛出
+      // "Unexpected token '<'"——这里转为可读错误并走重试逻辑
+      let json: BilibiliResponse<T>;
+      try {
+        json = (await res.json()) as BilibiliResponse<T>;
+      } catch {
+        throw new Error(`B站 接口返回异常响应（非 JSON）: ${url}`);
+      }
 
       if (json.code !== 0) {
         throw new Error(

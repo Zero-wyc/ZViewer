@@ -46,6 +46,8 @@ import {
   getOpenListUserMe,
 } from '../services/openlist';
 import { hashAlistPassword, isAlistHashedPassword } from '../services/openlist-client';
+// StreamMovieError：影片不存在等业务错误单行 warn + 精确状态码（避免重试风暴刷屏）
+import { StreamMovieError } from '../services/proxy';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { proxyHttpUpstream } from '../services/proxy/http-proxy';
 import { TtlCache } from '../utils/ttl-cache';
@@ -798,6 +800,17 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
       errorMessage: 'OpenList 影片流错误',
     });
   } catch (err) {
+    // 业务错误（影片不存在/未挂载）：单行 warn + 精确状态码，避免客户端
+    // 重试风暴把完整堆栈刷进日志
+    if (err instanceof StreamMovieError) {
+      console.warn(`[openlist] stream ${err.code} ${err.status}: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(err.status).json({ success: false, message: err.message, code: err.code });
+      } else {
+        res.destroy();
+      }
+      return;
+    }
     console.error('[openlist] stream error:', err);
     if (!res.headersSent) {
       res.status(502).json({ success: false, message: '代理 OpenList 影片失败' });

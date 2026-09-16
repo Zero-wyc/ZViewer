@@ -23,7 +23,6 @@ import { SharePage, WatchPage } from '@/modules/screen-sharing'
 import type { P2PStateSnapshot } from '@/modules/screen-sharing/components/WebrtcSharePage'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
-import { MusicSideDock } from '@/modules/music/components/MusicSideDock'
 
 import type { RoomMode } from '@/store/roomStore'
 
@@ -503,21 +502,22 @@ function RoomPage() {
   // - 一起听模式：WatchPage 渲染 MusicAppShell，其内嵌的
   //   MusicSideDock（右缘竖线把手 hover 滑出）已包含语音聊天 / 房间状态 /
   //   流量统计三面板，不再额外叠加（默认可用，无需 Beta 开关）
-  // - 其他模式（一起看 / 投屏）：原来靠独立的悬浮语音面板 + 流量面板，
-  //   现与房主端（一起听）同形态——统一挂 MusicSideDock 三面板工具坞
-  //   （右缘竖线把手 hover 滑出、悬浮不挤压内容）
+  // - 一起看 / 投屏：与房主端同形态——左下角流量监控 + 右下角语音聊天
+  //   独立悬浮面板（此前用 MusicSideDock 右缘竖线把手，观众难以发现入口）
   const audienceInMusic = mode === 'listen-together'
+  // 观众（一起看/投屏）的流量面板：topSlot 挂房间状态悬浮按钮，
+  // 保住原 MusicSideDock 工具坞中的房间状态入口
+  const audienceTrafficPanel = (
+    <TrafficPanel topSlot={<RoomInfoFab roomId={roomId} isHost={isHost} />} />
+  )
   return (
     <>
       <WatchPage />
       {!audienceInMusic && (
-        <MusicSideDock
-          socket={socket}
-          roomId={roomId}
-          username={username}
-          isHost={false}
-          canManage={isModerator}
-        />
+        <>
+          {voiceChatPanel}
+          {audienceTrafficPanel}
+        </>
       )}
     </>
   )

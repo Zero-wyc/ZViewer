@@ -1,7 +1,15 @@
 type MessageType = 'success' | 'info' | 'warning' | 'error'
 
+/** 确认类提示的操作按钮（点击后提示窗关闭并执行回调） */
+export interface MessageAction {
+  label: string
+  onClick: () => void
+}
+
 interface MessageOptions {
   duration?: number
+  /** 操作按钮组（提供时替代右上角关闭按钮，用于非模态确认提示） */
+  actions?: MessageAction[]
 }
 
 const svgs: Record<MessageType, string> = {
@@ -107,13 +115,33 @@ function show(
   text.textContent = content
   el.appendChild(text)
 
-  const closeBtn = document.createElement('button')
-  closeBtn.className =
-    'ml-2 rounded p-0.5 transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]'
-  closeBtn.innerHTML =
-    '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
-  closeBtn.onclick = () => remove(el)
-  el.appendChild(closeBtn)
+  if (options.actions?.length) {
+    // 确认类提示：操作按钮组替代关闭按钮（描边跟随类型色，非模态不影响其他操作）
+    const row = document.createElement('span')
+    row.className = 'ml-1 flex shrink-0 items-center gap-1.5'
+    for (const action of options.actions) {
+      const btn = document.createElement('button')
+      btn.type = 'button'
+      btn.textContent = action.label
+      btn.className =
+        'rounded-full px-2.5 py-0.5 text-xs font-bold leading-4 transition-opacity hover:opacity-70'
+      btn.style.border = '1px solid currentColor'
+      btn.onclick = () => {
+        remove(el)
+        action.onClick()
+      }
+      row.appendChild(btn)
+    }
+    el.appendChild(row)
+  } else {
+    const closeBtn = document.createElement('button')
+    closeBtn.className =
+      'ml-2 rounded p-0.5 transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]'
+    closeBtn.innerHTML =
+      '<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
+    closeBtn.onclick = () => remove(el)
+    el.appendChild(closeBtn)
+  }
 
   const progress = document.createElement('div')
   progress.className =
@@ -181,4 +209,11 @@ export const message = {
     show(content, 'warning', options),
   error: (content: string, options?: MessageOptions) =>
     show(content, 'error', options),
+  /** 非模态确认提示：与普通提示同窗口样式（顶部居中、不影响其他 UI 操作），
+   *  带操作按钮组，停留更久（默认 8s）供用户选择 */
+  confirm: (
+    content: string,
+    actions: MessageAction[],
+    options?: MessageOptions
+  ) => show(content, 'info', { duration: 8000, ...options, actions }),
 }

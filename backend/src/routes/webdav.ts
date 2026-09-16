@@ -33,7 +33,12 @@ import {
 } from '../services/openlist';
 import { isInternalOpenListServer } from '../services/openlist-errors';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
-import { resolveUserMount, resolveMovieStream, pipeRangeStream } from '../services/proxy';
+import {
+  resolveUserMount,
+  resolveMovieStream,
+  pipeRangeStream,
+  StreamMovieError,
+} from '../services/proxy';
 
 export interface MountRouterOptions {
   /** 挂载类型（'webdav' | 'openlist'） */
@@ -684,7 +689,27 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         errorCode: 'UNREACHABLE',
       });
     } catch (err) {
-      console.error(`[${logTag}] stream error:`, err);
+      // 业务错误（影片不存在/未挂载）单行 warn：这类错误会被客户端重试放大
+      // （实测 3 天 3717 次），完整堆栈会把日志撑到数 MB
+      if (err instanceof StreamMovieError) {
+        console.warn(
+          `[${logTag}] stream ${err.code} ${err.status}: ${err.message} (movieId=${req.query.movieId})`,
+        );
+      } else {
+        console.error(`[${logTag}] stream error:`, err);
+      }
+      if (err instanceof StreamMovieError) {
+        if (!res.headersSent) {
+          res.status(err.status).json({
+            success: false,
+            message: err.message,
+            code: err.code,
+          });
+        } else {
+          res.destroy();
+        }
+        return;
+      }
       if (!res.headersSent) {
         res.status(502).json({ success: false, message: `代理 ${displayName} 影片失败` });
       } else {

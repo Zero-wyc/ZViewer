@@ -27,6 +27,7 @@ import { MusicQueuePopup } from './MusicQueuePopup'
 import { MusicSideDock } from './MusicSideDock'
 import { MusicQrLoginModal } from './MusicQrLoginModal'
 import { MusicHomePage } from '../pages/MusicHomePage'
+import { MusicBilibiliPage } from '../pages/MusicBilibiliPage'
 import { MusicSearchPage } from '../pages/MusicSearchPage'
 import { MusicFmPage } from '../pages/MusicFmPage'
 import { MusicMyPage } from '../pages/MusicMyPage'
@@ -267,6 +268,14 @@ function ShellInner({
         )}
         {page === 'mymusic' && <MusicMyPage {...pageProps} />}
         {page === 'cloud' && <MusicCloudPage {...pageProps} />}
+        {page === 'bilibili' && (
+          <MusicBilibiliPage
+            socket={socket}
+            roomId={roomId}
+            isHost={isHost}
+            canManage={canManage}
+          />
+        )}
         {page === 'settings' && <MusicSettingsPage />}
       </main>
 

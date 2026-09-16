@@ -39,11 +39,20 @@ import { safeAck } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
 import { roomSessionService } from '../room/room-session.service';
 
-/** 播放模式（与前端 music/types.ts 的 PlayMode 对齐） */
-type MusicPlayMode = 'sequence' | 'repeat-one' | 'shuffle';
+/** 播放模式（与前端 music/types.ts 的 PlayMode 对齐；
+ *  order = 按顺序播放，不循环，B站 推荐连播仅此模式启用） */
+type MusicPlayMode = 'sequence' | 'order' | 'repeat-one' | 'shuffle';
 
-/** 合法的控制申请动作（与前端 MusicControlRequest['action'] 对齐） */
-const CONTROL_ACTIONS = ['pause', 'play', 'next', 'prev'] as const;
+/** 合法的控制申请动作（与前端 MusicControlRequest['action'] 对齐）；
+ *  addQueue = 观众申请添加音频到播放队列（携带 item 载荷，房主端按
+ *  「自动通过」开关决定代理入队或拒绝） */
+const CONTROL_ACTIONS = [
+  'pause',
+  'play',
+  'next',
+  'prev',
+  'addQueue',
+] as const;
 type ControlAction = (typeof CONTROL_ACTIONS)[number];
 
 /**
@@ -51,8 +60,14 @@ type ControlAction = (typeof CONTROL_ACTIONS)[number];
  * 与前端 MusicSyncState 对齐）。
  */
 export interface MusicSyncStatePayload {
-  /** 当前曲目 songId（null 表示未在播放） */
+  /** 当前曲目 songId（null 表示未在播放；B站 曲目恒为 null，兼容旧客户端） */
   trackSongId: number | null;
+  /**
+   * 当前曲目完整 key（`ncm:<songId>` / `bili:<bvid>:<cid>`；null 表示未播放）。
+   * B站 曲目全房间同步广播用（B站 播放列表已并入房间队列）；保留
+   * trackSongId 供旧客户端兼容。前端 > 此版本以 trackKey 为权威
+   */
+  trackKey: string | null;
   /** 是否正在播放 */
   isPlaying: boolean;
   /** 播放进度（秒） */
@@ -79,6 +94,11 @@ export interface MusicQueueItemPayload {
   vip: boolean;
   order: number;
   addedBy: string;
+  /** B站 条目：bvid/cid（source=bili 时存在，songId=0） */
+  biliBvid?: string;
+  biliCid?: number;
+  /** B站 相关推荐自动加入的条目（列表中显示「推荐」tag） */
+  recommended?: boolean;
 }
 
 /** music:queue-upsert 携带的歌曲元数据（搜索结果条目） */
@@ -90,6 +110,11 @@ interface MusicQueueUpsertItem {
   cover?: string | null;
   durationMs: number;
   vip: boolean;
+  /** B站 本地插播条目：bvid 存在时走 B站 音源（songId=0） */
+  biliBvid?: string;
+  biliCid?: number;
+  /** B站 相关推荐自动加入的条目（列表中显示「推荐」tag） */
+  recommended?: boolean;
 }
 
 /** music:get-state 的 ack 应答（队列 + 最新同步状态） */
@@ -132,6 +157,13 @@ function pickSyncState(payload: unknown): MusicSyncStatePayload | null {
   ) {
     return null;
   }
+  // trackKey：`ncm:<songId>` / `bili:<bvid>:<cid>`；缺省/非法回退 null
+  const rawTrackKey = v.trackKey == null ? null : (v.trackKey as unknown);
+  const trackKey =
+    typeof rawTrackKey === 'string' &&
+    (rawTrackKey.startsWith('ncm:') || rawTrackKey.startsWith('bili:'))
+      ? rawTrackKey
+      : null;
   if (typeof v.isPlaying !== 'boolean') return null;
   if (
     typeof v.positionSec !== 'number' ||
@@ -142,6 +174,7 @@ function pickSyncState(payload: unknown): MusicSyncStatePayload | null {
   }
   if (
     v.playMode !== 'sequence' &&
+    v.playMode !== 'order' &&
     v.playMode !== 'repeat-one' &&
     v.playMode !== 'shuffle'
   ) {
@@ -152,6 +185,7 @@ function pickSyncState(payload: unknown): MusicSyncStatePayload | null {
   }
   return {
     trackSongId,
+    trackKey,
     isPlaying: v.isPlaying,
     positionSec: v.positionSec,
     playMode: v.playMode,
@@ -161,17 +195,13 @@ function pickSyncState(payload: unknown): MusicSyncStatePayload | null {
 
 /**
  * 校验 queue-upsert 携带的歌曲元数据（不合法返回 false）。
- * songId 必须为正整数。
+ * 网易云条目：songId 必须为正整数；
+ * B站 条目：biliBvid 为合法 BV 号且 biliCid 为正整数（songId=0）。
  */
 function isUpsertItemValid(item: unknown): item is MusicQueueUpsertItem {
   if (!item || typeof item !== 'object') return false;
   const v = item as Record<string, unknown>;
-  const songIdOk =
-    typeof v.songId === 'number' &&
-    Number.isInteger(v.songId) &&
-    v.songId > 0;
-  return (
-    songIdOk &&
+  const commonOk =
     typeof v.name === 'string' &&
     v.name.length > 0 &&
     typeof v.artist === 'string' &&
@@ -180,7 +210,20 @@ function isUpsertItemValid(item: unknown): item is MusicQueueUpsertItem {
     typeof v.durationMs === 'number' &&
     Number.isFinite(v.durationMs) &&
     v.durationMs >= 0 &&
-    typeof v.vip === 'boolean'
+    typeof v.vip === 'boolean';
+  if (!commonOk) return false;
+  const biliBvid = typeof v.biliBvid === 'string' ? v.biliBvid : '';
+  if (/^BV[0-9A-Za-z]{10}$/.test(biliBvid)) {
+    return (
+      typeof v.biliCid === 'number' &&
+      Number.isInteger(v.biliCid) &&
+      v.biliCid > 0
+    );
+  }
+  return (
+    typeof v.songId === 'number' &&
+    Number.isInteger(v.songId) &&
+    v.songId > 0
   );
 }
 
@@ -195,17 +238,19 @@ function isControlAction(action: unknown): action is ControlAction {
 }
 
 /** 读取房间完整队列（按 order 升序）。
- *  塞壬支持已移除：songId<=0 的历史条目（旧塞壬数据）直接删除并不返回 */
+ *  塞壬支持已移除：songId<=0 且非 B站 条目的历史数据直接删除并不返回 */
 async function loadQueue(roomId: string): Promise<MusicQueueItem[]> {
   const items = await AppDataSource.getRepository(MusicQueueItem).find({
     where: { roomId },
     order: { order: 'ASC' },
   });
-  const stale = items.filter((i) => i.songId <= 0);
+  const stale = items.filter(
+    (i) => i.songId <= 0 && i.source !== 'bili',
+  );
   if (stale.length > 0) {
     await AppDataSource.getRepository(MusicQueueItem).remove(stale);
   }
-  return items.filter((i) => i.songId > 0);
+  return items.filter((i) => i.songId > 0 || i.source === 'bili');
 }
 
 /**
@@ -240,19 +285,28 @@ async function buildQueuePayload(
 ): Promise<MusicQueueItemPayload[]> {
   const items = await loadQueue(roomId);
   const names = await resolveAddedByNames(items);
-  return items.map((item, idx) => ({
-    id: item.id,
-    roomId: item.roomId,
-    songId: item.songId,
-    name: item.name,
-    artist: item.artist,
-    album: item.album,
-    cover: item.cover ?? '',
-    durationMs: item.durationMs,
-    vip: item.vip,
-    order: item.order,
-    addedBy: names[idx],
-  }));
+  return items.map((item, idx) => {
+    const isBili = item.source === 'bili';
+    const [biliBvid = '', biliCidStr = ''] = isBili
+      ? (item.sourceId ?? '').split(':')
+      : [];
+    return {
+      id: item.id,
+      roomId: item.roomId,
+      songId: item.songId,
+      name: item.name,
+      artist: item.artist,
+      album: item.album,
+      cover: item.cover ?? '',
+      durationMs: item.durationMs,
+      vip: item.vip,
+      order: item.order,
+      addedBy: names[idx],
+      biliBvid: isBili ? biliBvid : undefined,
+      biliCid: isBili && /^\d+$/.test(biliCidStr) ? Number(biliCidStr) : undefined,
+      recommended: item.recommended === true,
+    };
+  });
 }
 
 /**
@@ -325,16 +379,30 @@ export class MusicSyncHandler implements SocketEventHandler {
           const repo = AppDataSource.getRepository(MusicQueueItem);
           const items = await loadQueue(roomId);
 
-          // afterCurrent：按房间最新同步状态的 trackSongId 定位当前播放条目，
-          // 插入其后（把 ≥ 新 order 的既有条目 order 整体右移 1 压留空位）
+          // afterCurrent：按房间最新同步状态定位当前播放条目，插入其后
+          // （把 ≥ 新 order 的既有条目 order 整体右移 1 压留空位）。
+          // trackKey 为 bili 前缀时按 sourceId（"bvid:cid"）匹配 B站 条目
           let order = (items[items.length - 1]?.order ?? 0) + 1;
           let insertAfterIndex = -1;
           if (payload.afterCurrent === true) {
-            const trackSongId = musicSyncStates.get(roomId)?.trackSongId;
-            if (trackSongId != null) {
+            const syncState = musicSyncStates.get(roomId);
+            const trackKey = syncState?.trackKey ?? null;
+            if (trackKey?.startsWith('bili:')) {
+              const sourceId = trackKey.slice(5);
               insertAfterIndex = items.findIndex(
-                (it) => it.songId === trackSongId,
+                (it) => it.source === 'bili' && it.sourceId === sourceId,
               );
+            } else {
+              const trackSongId =
+                syncState?.trackSongId ??
+                (trackKey?.startsWith('ncm:')
+                  ? Number(trackKey.slice(4))
+                  : null);
+              if (trackSongId != null) {
+                insertAfterIndex = items.findIndex(
+                  (it) => it.songId === trackSongId,
+                );
+              }
             }
           }
           if (insertAfterIndex >= 0) {
@@ -357,6 +425,14 @@ export class MusicSyncHandler implements SocketEventHandler {
               vip: payload.item.vip,
               order,
               addedBy: socket.data?.userId ?? 0,
+              recommended: payload.item.recommended === true,
+              // B站 本地插播条目：source=bili，sourceId 存 "bvid:cid"
+              ...(payload.item.biliBvid
+                ? {
+                    source: 'bili',
+                    sourceId: `${payload.item.biliBvid}:${payload.item.biliCid ?? 0}`,
+                  }
+                : {}),
             }),
           );
 
@@ -598,11 +674,17 @@ export class MusicSyncHandler implements SocketEventHandler {
 
     // ==================== 观众申请制控制 ====================
 
-    // --- 观众申请控制（暂停/继续/切歌） → 仅转发给房主 ---
+    // --- 观众申请控制（暂停/继续/切歌/添加队列） → 仅转发给房主 ---
     socket.on(
       'music:control-request',
       async (
-        payload: { roomId: string; action: ControlAction },
+        payload: {
+          roomId: string;
+          action: ControlAction;
+          /** addQueue 申请携带的入队条目 */
+          item?: MusicQueueUpsertItem;
+          afterCurrent?: boolean;
+        },
         callback?: AckCallback,
       ) => {
         try {
@@ -617,6 +699,13 @@ export class MusicSyncHandler implements SocketEventHandler {
           if (!isControlAction(payload?.action)) {
             return safeAck(callback, { success: false, message: '参数无效' });
           }
+          // addQueue：入队条目元数据必须完整（房主端代理入队时复用校验逻辑）
+          if (
+            payload.action === 'addQueue' &&
+            !isUpsertItemValid(payload?.item)
+          ) {
+            return safeAck(callback, { success: false, message: '歌曲信息不完整' });
+          }
           // 房主在线才可申请（房主离线时前端走自主控制，不走申请）
           const sharer = await roomSessionService.getSharer(roomId);
           if (!sharer) {
@@ -627,6 +716,9 @@ export class MusicSyncHandler implements SocketEventHandler {
           io.to(sharer.socketId).emit('music:control-request', {
             roomId,
             action: payload.action,
+            ...(payload.action === 'addQueue'
+              ? { item: payload.item, afterCurrent: payload.afterCurrent === true }
+              : {}),
             from: socket.id,
             username: socket.data?.username,
           });

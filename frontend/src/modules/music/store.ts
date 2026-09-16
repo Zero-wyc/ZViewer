@@ -19,7 +19,7 @@ import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 
 /** 主区域页面标识（MusicAppShell 内容区多页切换） */
 export type MusicPage =
-  'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'settings'
+  'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'bilibili' | 'settings'
 
 /** 观众同步回执（房主端左下角「xx 已同步」提示条目） */
 export interface MusicSyncAck {
@@ -31,23 +31,53 @@ export interface MusicSyncAck {
   at: number
 }
 
-/** 构造队列条目的权威 key（`ncm:<songId>`） */
+/** 构造队列条目的权威 key：B站 条目 `bili:<bvid>:<cid>`，网易云 `ncm:<songId>` */
 export function musicItemKey(item: MusicQueueItem): string {
+  if (item.biliBvid) return `bili:${item.biliBvid}:${item.biliCid ?? 0}`
   return `ncm:${item.songId}`
 }
 
 /** 从 key 解析来源与标识（无法解析时返回 null）。
  *  siren: 前缀为塞壬支持移除前的历史数据，解析为 null（不可播放） */
+export type ParsedMusicKey =
+  | { source: 'ncm'; id: string; songId: number }
+  | { source: 'bili'; bvid: string; cid: number }
+
 export function parseMusicKey(
   key: string | null | undefined
-): { source: 'ncm'; id: string; songId: number } | null {
+): ParsedMusicKey | null {
   if (!key) return null
   if (key.startsWith('ncm:')) {
     const songId = Number(key.slice(4))
     if (!Number.isFinite(songId)) return null
     return { source: 'ncm', id: String(songId), songId }
   }
+  if (key.startsWith('bili:')) {
+    const rest = key.slice(5)
+    const sep = rest.lastIndexOf(':')
+    if (sep <= 0) return null
+    const bvid = rest.slice(0, sep)
+    const cid = Number(rest.slice(sep + 1))
+    if (!/^BV[0-9A-Za-z]{10}$/.test(bvid) || !Number.isFinite(cid)) return null
+    return { source: 'bili', bvid, cid }
+  }
   return null
+}
+
+/**
+ * 当前播放来源对应的活动播放列表（两源列表完全独立的视图/切歌语义）。
+ * B站 播放列表已并入房间队列（source=bili 条目，全房间同步）：
+ * - 当前为 B站 曲目 → 房间队列中的 B站 条目
+ * - 当前为网易云曲目 / 未播放 → 房间队列去除 B站 条目（网易云播放列表）
+ */
+export function activeQueueOf(state: {
+  queue: MusicQueueItem[]
+  currentKey: string | null
+}): MusicQueueItem[] {
+  if (state.currentKey?.startsWith('bili:')) {
+    return state.queue.filter((it) => it.biliBvid)
+  }
+  return state.queue.filter((it) => !it.biliBvid)
 }
 
 export interface MusicState {
@@ -71,6 +101,16 @@ export interface MusicState {
   syncNotice: string | null
   /** 观众同步回执列表（房主端左下角「xx 已同步」，组件负责过期清理） */
   syncAcks: MusicSyncAck[]
+  /**
+   * B站 视频音频条目（哔哩哔哩页点击播放的「本地插播」虚拟条目）：
+   * 不写入房间队列、不经同步，currentKey 匹配时作为 currentSong 供 UI 消费
+   */
+  biliItem: MusicQueueItem | null
+  /**
+   * B站 相关推荐自动加入的条目 key 集合（本地记忆，配合队列条目的
+   * recommended 字段显示「推荐」tag）
+   */
+  biliRecommendedKeys: string[]
 
   // ===== UI 状态（Hydrogen 主框架） =====
   /** 主区域当前页面 */
@@ -116,6 +156,13 @@ export interface MusicState {
   pushSyncAck: (username: string) => void
   /** 清理过期的同步回执（at 早于 now - ttlMs 的条目） */
   pruneSyncAcks: (ttlMs: number) => void
+  /** 设置 B站 本地插播条目（null 清除；切到网易云曲目时保留不冲突） */
+  setBiliItem: (item: MusicQueueItem | null) => void
+  /** 记录 B站 相关推荐加入的条目 key（去重追加，供「推荐」tag 显示） */
+  markBiliRecommended: (keys: string[]) => void
+  /** 哔哩哔哩页顶栏搜索关键词（null = 未在搜索，列表回常规 tab 内容） */
+  biliSearchKeyword: string | null
+  setBiliSearchKeyword: (keyword: string | null) => void
   /** 切换主区域页面 */
   setPage: (page: MusicPage) => void
   /** 设置搜索关键词 */
@@ -159,6 +206,9 @@ const defaultState = {
   loginStatus: { loggedIn: false } as NcmLoginStatus,
   syncNotice: null as string | null,
   syncAcks: [] as MusicSyncAck[],
+  biliItem: null as MusicQueueItem | null,
+  biliRecommendedKeys: [] as string[],
+  biliSearchKeyword: null as string | null,
   page: 'home' as MusicPage,
   searchKeywords: '',
   playerOverlayOpen: false,
@@ -177,7 +227,7 @@ export const useMusicStore = create<MusicState>((set) => ({
     const parsed = parseMusicKey(key)
     set({
       currentKey: key,
-      currentSongId: parsed ? parsed.songId : null,
+      currentSongId: parsed && parsed.source === 'ncm' ? parsed.songId : null,
     })
   },
   setPlaying: (playing) => set({ isPlaying: playing }),
@@ -201,6 +251,18 @@ export const useMusicStore = create<MusicState>((set) => ({
       const next = s.syncAcks.filter((ack) => ack.at > cutoff)
       return next.length === s.syncAcks.length ? s : { syncAcks: next }
     }),
+  setBiliItem: (item) => set({ biliItem: item }),
+  markBiliRecommended: (keys) =>
+    set((s) => {
+      const merged = [...s.biliRecommendedKeys]
+      for (const k of keys) {
+        if (!merged.includes(k)) merged.push(k)
+      }
+      return merged.length === s.biliRecommendedKeys.length
+        ? s
+        : { biliRecommendedKeys: merged }
+    }),
+  setBiliSearchKeyword: (keyword) => set({ biliSearchKeyword: keyword }),
   setPage: (page) => set({ page }),
   setSearchKeywords: (keywords) => set({ searchKeywords: keywords }),
   setPlayerOverlayOpen: (open) => set({ playerOverlayOpen: open }),
@@ -228,5 +290,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       hostOffline: false,
       syncNotice: null,
       syncAcks: [],
+      biliItem: null,
+      biliRecommendedKeys: [],
     }),
 }))

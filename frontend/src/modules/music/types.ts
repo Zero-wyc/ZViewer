@@ -50,15 +50,30 @@ export interface MusicQueueItem {
   order: number
   /** 添加者用户名 */
   addedBy: string
+  /** B站 视频条目专用：BV 号（songId 恒为 0，不入房间队列、仅本地播放） */
+  biliBvid?: string
+  /** B站 视频条目专用：分 P cid */
+  biliCid?: number
+  /** B站 播放列表推荐标记：由相关推荐自动追加的条目（列表中显示「推荐」tag） */
+  biliRecommended?: boolean
 }
 
-/** 播放模式：顺序循环 / 单曲循环 / 随机（Fisher-Yates 洗牌） */
-export type PlayMode = 'sequence' | 'repeat-one' | 'shuffle'
+/**
+ * 播放模式：sequence 顺序循环 / order 按顺序播放（不循环，播完末尾停止；
+ * B站 推荐连播仅在此模式启用）/ repeat-one 单曲循环 / shuffle 随机
+ * （Fisher-Yates 洗牌）
+ */
+export type PlayMode = 'sequence' | 'order' | 'repeat-one' | 'shuffle'
 
 /** 房间音乐同步状态（房主广播与心跳共用的状态快照） */
 export interface MusicSyncState {
-  /** 当前曲目 songId（null 表示未在播放） */
+  /** 当前曲目 songId（null 表示未在播放；B站 曲目恒为 null） */
   trackSongId: number | null
+  /**
+   * 当前曲目完整 key（`ncm:<songId>` / `bili:<bvid>:<cid>`；null 表示未播放）。
+   * B站 播放列表并入房间队列后的同步权威字段（trackSongId 仅为兼容保留）
+   */
+  trackKey?: string | null
   /** 是否正在播放 */
   isPlaying: boolean
   /** 播放进度（秒） */
@@ -71,8 +86,25 @@ export interface MusicSyncState {
 
 /** 观众控制申请（观众 → 房主） */
 export interface MusicControlRequest {
-  /** 申请的动作 */
-  action: 'pause' | 'play' | 'next' | 'prev'
+  /**
+   * 申请的动作；addQueue = 观众申请添加音频到播放队列（房主端按
+   * 「自动通过」开关决定代理入队或拒绝）
+   */
+  action: 'pause' | 'play' | 'next' | 'prev' | 'addQueue'
+  /** addQueue 申请携带的入队条目（B站/网易云元数据） */
+  item?: {
+    songId: number
+    name: string
+    artist: string
+    album: string
+    cover: string
+    durationMs: number
+    vip: boolean
+    biliBvid?: string
+    biliCid?: number
+  }
+  /** addQueue 申请是否插入当前播放下一首（默认尾部） */
+  afterCurrent?: boolean
   /** 申请者 socketId（房主应答时定向回传） */
   from: string
   /** 申请者用户名（房主端提示文案用） */

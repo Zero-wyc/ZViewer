@@ -10,6 +10,188 @@ import type {
 /** VIP 专属清晰度 qn 列表（非会员不可用） */
 export const VIP_ONLY_QNS = [112, 116, 120, 125, 126, 127]
 
+/** 一起听「哔哩哔哩」页的视频条目（分区/收藏通用） */
+export interface BilibiliVideoItem {
+  bvid: string
+  title: string
+  pic: string
+  /** 时长（秒） */
+  duration: number
+  upName: string
+  /** 第一 P 的 cid（收藏列表无 cid，点击时经 view 接口补取） */
+  cid?: number
+  /** 播放量 */
+  view?: number
+  /** 弹幕数 */
+  danmaku?: number
+  /** 发布时间（分区）/ 收藏时间（收藏夹），秒级时间戳 */
+  date?: number
+  /** 空格分隔的视频标签（搜索接口返回；屏蔽词过滤用） */
+  tag?: string
+}
+
+/**
+ * 音乐分区最新视频（后端透传 x/web-interface/dynamic/region，rid=3 音乐）。
+ */
+export async function getBilibiliRegionNew(
+  rid = 3,
+  ps = 20,
+  pn = 1
+): Promise<{ items: BilibiliVideoItem[]; total: number | null }> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/region-new?rid=${rid}&ps=${ps}&pn=${pn}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    items?: BilibiliVideoItem[]
+    total?: number
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取分区视频失败')
+  }
+  return { items: data.items ?? [], total: data.total ?? null }
+}
+
+/**
+ * 登录用户的收藏视频列表（后端取指定收藏夹或默认收藏夹 → resource/list）。
+ * 未登录 B站 时后端返回 401。
+ */
+export async function getBilibiliFavVideos(
+  ps = 20,
+  mediaId?: number,
+  pn = 1
+): Promise<{
+  folderTitle: string
+  items: BilibiliVideoItem[]
+  total: number | null
+}> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/fav-videos?ps=${ps}&pn=${pn}${
+      mediaId ? `&mediaId=${mediaId}` : ''
+    }`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    folderTitle?: string
+    items?: BilibiliVideoItem[]
+    total?: number
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取收藏视频失败')
+  }
+  return {
+    folderTitle: data.folderTitle ?? '',
+    items: data.items ?? [],
+    total: data.total ?? null,
+  }
+}
+
+/** 收藏夹条目（created/list-all；该接口无封面，cover 一般为空） */
+export interface BilibiliFavFolder {
+  id: number
+  title: string
+  mediaCount: number
+  cover: string
+}
+
+/**
+ * 登录用户的收藏夹列表（我的收藏右列切换用）。
+ * 未登录 B站 时后端返回 401。
+ */
+export async function getBilibiliFavFolders(): Promise<BilibiliFavFolder[]> {
+  const res = await apiFetch('/api/stream/bilibili/fav-folders')
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    folders?: BilibiliFavFolder[]
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取收藏夹列表失败')
+  }
+  return data.folders ?? []
+}
+
+/**
+ * B站 视频搜索（哔哩哔哩页顶栏搜索框）：后端复用弹幕搜索同款 searchVideos
+ * 服务。返回与 BilibiliVideoItem 兼容的条目（无 cid，点击时前端经 view 补取）。
+ */
+/** 音乐种类数据源模式：关键词搜索 / B站标签检索 / 两者混合 */
+export type BiliRegionSource = 'search' | 'tag' | 'mixed'
+
+export async function searchBilibiliVideos(
+  keyword: string,
+  pn = 1,
+  mode: BiliRegionSource = 'search'
+): Promise<{ items: BilibiliVideoItem[]; total: number | null }> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/search?keyword=${encodeURIComponent(
+      keyword
+    )}&pn=${pn}&mode=${mode}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    items?: BilibiliVideoItem[]
+    total?: number
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '搜索失败')
+  }
+  return { items: data.items ?? [], total: data.total ?? null }
+}
+
+/**
+ * B站 相关推荐视频（自动连播用）：后端 view 拿 aid → archive/related
+ * 公开接口。返回与 BilibiliVideoItem 兼容的条目（含 cid，可直接插播）。
+ */
+export async function getBilibiliRelated(
+  bvid: string
+): Promise<BilibiliVideoItem[]> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/related?bvid=${encodeURIComponent(bvid)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    items?: BilibiliVideoItem[]
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取相关推荐失败')
+  }
+  return data.items ?? []
+}
+
+/** B站 AI 字幕行（from/to 秒） */
+export interface BilibiliAiSubtitleLine {
+  from: number
+  to: number
+  content: string
+}
+
+/**
+ * 视频 AI 字幕（后端 WBI 签名 conclusion/get + 字幕 JSON 拉取）。
+ * 无字幕/未登录时返回空数组。
+ */
+export async function getBilibiliAiSubtitle(
+  bvid: string,
+  cid: number
+): Promise<BilibiliAiSubtitleLine[]> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/ai-subtitle?bvid=${encodeURIComponent(bvid)}&cid=${cid}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    lines?: BilibiliAiSubtitleLine[]
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取 AI 字幕失败')
+  }
+  return data.lines ?? []
+}
+
 /**
  * 根据会员状态过滤清晰度列表。
  * 非会员严格过滤 VIP 专属清晰度，过滤后为空时回退到 1080P。

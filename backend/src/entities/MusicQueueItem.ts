@@ -71,6 +71,10 @@ export class MusicQueueItem {
   @Column({ type: 'integer', default: 0 })
   addedBy!: number;
 
+  /** 是否为 B站 相关推荐自动加入的条目（播放列表中显示「推荐」tag） */
+  @Column({ type: 'boolean', default: false })
+  recommended!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 }

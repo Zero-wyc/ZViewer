@@ -37,8 +37,12 @@ export interface MusicSettings {
   directSource: boolean
   /** 播放器毛玻璃封面背景（关闭后覆盖层仅剩纯色底） */
   coverBlur: boolean
+  /** 播放页背景压暗（%，0=不压暗，100=全黑）：黑色遮罩盖在封面/视频背景之上、内容之下 */
+  bgDim: number
   /** 歌词模糊（非当前行 blur，当前行保持清晰） */
   lyricBlur: boolean
+  /** 歌词模糊浓度（非当前行模糊半径 px，0-10，0.5 步进；开关仍由 lyricBlur 控制） */
+  lyricBlurLevel: number
   /** 当前歌词行高亮遮罩透明度（%，0-100，100=不透明黑条） */
   lyricMaskOpacity: number
   /** 当前歌词行高亮遮罩模糊度（px，0 关闭） */
@@ -59,13 +63,36 @@ export interface MusicSettings {
   rlyricSize: number
   /** 歌词间奏倒计时判定阈值（秒） */
   lyricInterlude: number
+  /**
+   * 视频背景 CLI 高画质：开启后自定义视频背景走本地 CLI 代理（用户自己的
+   * B站 Cookie），可获得大会员高画质 DASH 流；关闭/CLI 未连接时回退
+   * 服务器端解析的 720P MP4 直链
+   */
+  musicVideoCli: boolean
+  /** 视频背景画面适配：contain 完整显示（默认，黑边由模糊封面填充）/
+   *  cover 裁切铺满（超出部分裁掉）/ fill 拉伸填充（拉伸铺满可能变形） */
+  bgVideoFit: 'contain' | 'cover' | 'fill'
+  /** B站 视频自动连播：B站 视频播完后用 B站 相关推荐列表继续播放 */
+  biliAutoContinue: boolean
+  /**
+   * 歌词页 UI 整体透明度（%，30-100，100=完全不透明）：作用于播放卡 /
+   * 歌词面板 / 工具栏 / 提示等前景 UI 整体，背景（封面 / 视频 / 压暗）不受影响
+   */
+  uiOpacity: number
+  /**
+   * B站 封面形状（仅哔哩哔哩歌曲的歌词页封面生效）：original 原版
+   * （默认 16:9 长方形）/ square 正方形（对封面居中裁剪呈正方形显示）
+   */
+  biliCoverShape: 'original' | 'square'
 }
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   level: 'lossless',
   directSource: false,
   coverBlur: true,
+  bgDim: 0,
   lyricBlur: false,
+  lyricBlurLevel: 2.5,
   lyricMaskOpacity: 100,
   lyricMaskBlur: 0,
   showSongTranslation: true,
@@ -76,6 +103,11 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   tlyricSize: 14,
   rlyricSize: 12,
   lyricInterlude: 13,
+  musicVideoCli: false,
+  bgVideoFit: 'contain',
+  biliAutoContinue: true,
+  uiOpacity: 100,
+  biliCoverShape: 'original',
 }
 
 interface MusicSettingsState extends MusicSettings {
@@ -110,4 +142,16 @@ export function normalizeMusicLevel(level: string): string {
   return MUSIC_LEVEL_OPTIONS.some((o) => o.value === level)
     ? level
     : DEFAULT_MUSIC_SETTINGS.level
+}
+
+/** 视频背景画面适配合法性（非法值回退完整显示） */
+export function normalizeBgVideoFit(fit: string): MusicSettings['bgVideoFit'] {
+  return fit === 'cover' || fit === 'fill' ? fit : 'contain'
+}
+
+/** B站 封面形状合法性（非法值回退原版） */
+export function normalizeBiliCoverShape(
+  shape: string
+): MusicSettings['biliCoverShape'] {
+  return shape === 'square' ? 'square' : 'original'
 }

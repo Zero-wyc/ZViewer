@@ -63,6 +63,7 @@ const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
   { key: 'fm', label: '私人漫游' },
   { key: 'cloud', label: '云盘' },
   { key: 'mymusic', label: '我的音乐' },
+  { key: 'bilibili', label: '哔哩哔哩' },
 ]
 
 /** 下拉面板四角框线（Hydrogen .assist-corner1~4：7px 见方、1px 边） */
@@ -77,6 +78,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const page = useMusicStore((s) => s.page)
   const setPage = useMusicStore((s) => s.setPage)
   const setSearchKeywords = useMusicStore((s) => s.setSearchKeywords)
+  const setBiliSearchKeyword = useMusicStore((s) => s.setBiliSearchKeyword)
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
   const loginStatus = useMusicStore((s) => s.loginStatus)
   /** 当前房间模式（菜单内「房间模式」分组展示/切换） */
@@ -219,10 +221,12 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
       ?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex])
 
-  /** 聚焦：展示面板；空输入拉热榜、有输入刷新建议 */
+  /** 聚焦：展示面板；空输入拉热榜、有输入刷新建议。
+      哔哩哔哩页不展示联想面板（热榜/建议是网易云词，对 B站 搜索无意义） */
   const handleSearchFocus = () => {
     setFocused(true)
     setActiveIndex(-1)
+    if (page === 'bilibili') return
     const kw = keyword.trim()
     if (kw) void loadSuggestList(kw)
     else void loadHotList()
@@ -237,11 +241,18 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   }
 
   /** 执行搜索：写入关键词并跳搜索页（Hydrogen searchInfo 同语义）；
-      手机端搜索完成即收起搜索层 */
+      手机端搜索完成即收起搜索层。哔哩哔哩页例外：关键词写入
+      biliSearchKeyword 由该页内展示 B站 视频搜索结果，不跳网易云搜索页 */
   const runSearch = (kw: string) => {
     const value = kw.trim()
     if (!value) return
     setKeyword(value)
+    if (page === 'bilibili') {
+      setBiliSearchKeyword(value)
+      searchInputRef.current?.blur()
+      setMobileSearchOpen(false)
+      return
+    }
     setSearchKeywords(value)
     setPage('search')
     searchInputRef.current?.blur()
@@ -393,62 +404,62 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
           淡入显示。手机端不渲染（触屏无 hover 唤不出），改下方搜索
           图标 + 全宽搜索层 ===== */}
       {!isMobile && (
-      <div
-        className="group relative h-10 w-56 shrink-0"
-        onMouseEnter={() => setSearchVisible(true)}
-        onMouseLeave={() => {
-          // 未聚焦（或已失焦）时才收起，避免鼠标短暂划出打断输入
-          if (
-            !searchInputRef.current ||
-            document.activeElement !== searchInputRef.current
-          ) {
-            setSearchVisible(false)
-          }
-        }}
-      >
         <div
-          className={cn(
-            'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color,opacity] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
-            focused ? 'w-[260px]' : 'w-[220px]',
-            !searchVisible && 'pointer-events-none opacity-0'
-          )}
-          style={{
-            borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
-            borderColor: focused
-              ? 'var(--md-sys-color-primary)'
-              : 'var(--glass-border)',
+          className="group relative h-10 w-56 shrink-0"
+          onMouseEnter={() => setSearchVisible(true)}
+          onMouseLeave={() => {
+            // 未聚焦（或已失焦）时才收起，避免鼠标短暂划出打断输入
+            if (
+              !searchInputRef.current ||
+              document.activeElement !== searchInputRef.current
+            ) {
+              setSearchVisible(false)
+            }
           }}
         >
-          <input
-            ref={searchInputRef}
-            value={keyword}
-            onChange={(e) => {
-              setKeyword(e.target.value)
-              // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
-              if (!e.target.value.trim()) {
-                requestSeqRef.current++
-                if (focused) void loadHotList()
-              }
-            }}
-            onKeyDown={handleSearchKeyDown}
-            onFocus={handleSearchFocus}
-            onBlur={handleSearchBlur}
-            onCompositionStart={() => setIsComposing(true)}
-            onCompositionEnd={() => setIsComposing(false)}
-            placeholder="SEARCH"
-            aria-label="搜索音乐"
-            spellCheck={false}
-            className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+          <div
+            className={cn(
+              'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color,opacity] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
+              focused ? 'w-[260px]' : 'w-[220px]',
+              !searchVisible && 'pointer-events-none opacity-0'
+            )}
             style={{
-              color: 'var(--md-sys-color-on-surface)',
-              caretColor: 'var(--md-sys-color-on-surface)',
+              borderRadius: 'calc(var(--md-sys-shape-corner) / 2)',
+              borderColor: focused
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--glass-border)',
             }}
-          />
-        </div>
+          >
+            <input
+              ref={searchInputRef}
+              value={keyword}
+              onChange={(e) => {
+                setKeyword(e.target.value)
+                // 清空输入时立即回退热榜（Hydrogen handleSearchInput 同语义）
+                if (!e.target.value.trim()) {
+                  requestSeqRef.current++
+                  if (focused) void loadHotList()
+                }
+              }}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
+              onCompositionStart={() => setIsComposing(true)}
+              onCompositionEnd={() => setIsComposing(false)}
+              placeholder={page === 'bilibili' ? 'SEARCH BILIBILI' : 'SEARCH'}
+              aria-label="搜索音乐"
+              spellCheck={false}
+              className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
+              style={{
+                color: 'var(--md-sys-color-on-surface)',
+                caretColor: 'var(--md-sys-color-on-surface)',
+              }}
+            />
+          </div>
 
-        {/* 搜索辅助面板（共享 assistPanel：热榜/建议） */}
-        {focused && assistPanel}
-      </div>
+          {/* 搜索辅助面板（共享 assistPanel：热榜/建议）；哔哩哔哩页不展示 */}
+          {focused && page !== 'bilibili' && assistPanel}
+        </div>
       )}
 
       {/* ===== 手机端：搜索图标（触屏无 hover，点击唤出全宽搜索层）；
@@ -510,7 +521,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               enterKeyHint="search"
-              placeholder="搜索歌曲、歌手"
+              placeholder={
+                page === 'bilibili' ? '搜索B站视频' : '搜索歌曲、歌手'
+              }
               aria-label="搜索音乐"
               spellCheck={false}
               className="h-full w-full bg-transparent px-3 text-left text-[14px] outline-none placeholder:font-normal"

@@ -831,6 +831,15 @@ async function proxyAudioStream(
       res.destroy();
     }
   });
+  // 客户端断连（下线/切歌/关闭页面）时销毁上游流：Node 的 pipe 在目标关闭时
+  // 只 unpipe、不会销毁源流，仅 abort fetch 会留下「用户已下线、上游仍在被
+  // 读取」的窗口——显式 destroy 才能真正停止流量
+  res.on('close', () => {
+    if (!res.writableFinished && !stream.destroyed) stream.destroy();
+  });
+  res.on('error', () => {
+    if (!stream.destroyed) stream.destroy();
+  });
   stream.pipe(res);
 }
 

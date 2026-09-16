@@ -17,7 +17,7 @@ import { UserMount } from '../entities/UserMount';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { JellyfinClient, JellyfinError } from '../services/jellyfin-client';
 import { detectMediaFormat } from '../services/mediaFormat';
-import { resolveUserMount, resolveMovieStream, proxyHttpUpstream } from '../services/proxy';
+import { resolveUserMount, resolveMovieStream, proxyHttpUpstream, StreamMovieError } from '../services/proxy';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
 const router = Router();
@@ -424,6 +424,17 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
       errorMessage: 'Jellyfin 视频流代理失败',
     });
   } catch (err) {
+    // 业务错误（影片不存在/未挂载）：单行 warn + 精确状态码，避免客户端
+    // 重试风暴把完整堆栈刷进日志
+    if (err instanceof StreamMovieError) {
+      console.warn(`[jellyfin] stream ${err.code} ${err.status}: ${err.message}`);
+      if (!res.headersSent) {
+        res.status(err.status).json({ success: false, message: err.message, code: err.code });
+      } else {
+        res.destroy();
+      }
+      return;
+    }
     console.error('[jellyfin] stream error:', err);
     if (!res.headersSent) {
       const status = extractErrorCode(err) === 'AUTH_FAILED' ? 401 : 502;

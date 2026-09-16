@@ -82,6 +82,8 @@ export interface PlayerLyricPanelProps {
   interludeThresholdSec?: number
   /** 歌词模糊：非当前行 blur（当前行保持清晰；设置：开启歌词模糊） */
   lyricBlur?: boolean
+  /** 歌词模糊浓度（非当前行模糊半径 px；设置：歌词模糊浓度） */
+  lyricBlurPx?: number
   /** 当前行高亮遮罩不透明度（0-1，设置：歌词遮罩透明度） */
   lyricMaskOpacity?: number
   /** 当前行高亮遮罩模糊半径（px，设置：歌词遮罩模糊度） */
@@ -126,6 +128,7 @@ export function PlayerLyricPanel({
   rlyricSize = 12,
   interludeThresholdSec = 13,
   lyricBlur = false,
+  lyricBlurPx = 2.5,
   lyricMaskOpacity = 1,
   lyricMaskBlur = 0,
   onSeek,
@@ -608,6 +611,7 @@ export function PlayerLyricPanel({
                 tlyricSize={tlyricSize}
                 rlyricSize={rlyricSize}
                 lyricBlur={lyricBlur}
+                lyricBlurPx={lyricBlurPx}
                 lyricMaskOpacity={lyricMaskOpacity}
                 lyricMaskBlur={lyricMaskBlur}
                 onSeek={onSeek}
@@ -638,6 +642,7 @@ export function PlayerLyricPanel({
                     tlyricSize={tlyricSize}
                     rlyricSize={rlyricSize}
                     lyricBlur={lyricBlur}
+                    lyricBlurPx={lyricBlurPx}
                     lyricMaskOpacity={lyricMaskOpacity}
                     lyricMaskBlur={lyricMaskBlur}
                     onSeek={onSeek}
@@ -778,6 +783,7 @@ const LyricRow = memo(function LyricRow({
   tlyricSize = 14,
   rlyricSize = 12,
   lyricBlur = false,
+  lyricBlurPx = 2.5,
   lyricMaskOpacity = 1,
   lyricMaskBlur = 0,
   onSeek,
@@ -801,6 +807,8 @@ const LyricRow = memo(function LyricRow({
   rlyricSize?: number
   /** 非当前行模糊（设置：开启歌词模糊） */
   lyricBlur?: boolean
+  /** 非当前行模糊半径（px，设置：歌词模糊浓度） */
+  lyricBlurPx?: number
   /** 当前行高亮遮罩不透明度 / 模糊半径（设置驱动） */
   lyricMaskOpacity?: number
   lyricMaskBlur?: number
@@ -850,7 +858,8 @@ const LyricRow = memo(function LyricRow({
             color: active
               ? 'var(--md-sys-color-surface)'
               : 'var(--md-sys-color-on-surface)',
-            filter: !active && lyricBlur ? 'blur(2.5px)' : 'blur(0px)',
+            filter:
+              !active && lyricBlur ? `blur(${lyricBlurPx}px)` : 'blur(0px)',
           }}
         >
           {showOriginal && (

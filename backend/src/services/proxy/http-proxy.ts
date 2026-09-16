@@ -16,6 +16,7 @@
 import { Request, Response } from 'express';
 import { Readable, Transform } from 'node:stream';
 import { isInternalNetworkHost } from '../network-utils';
+import { MAX_RANGE_CHUNK_BYTES } from './range-stream';
 
 /** 将字节数格式化为人类可读单位 */
 function formatBytes(bytes: number): string {
@@ -90,6 +91,35 @@ const PASSTHROUGH_HEADERS = [
   'last-modified',
 ] as const;
 
+/**
+ * 把客户端 Range 收敛为「有界分片」再透传给上游（jellyfin/emby/B站 CDN 等）。
+ *
+ * 浏览器 <video> 的探测请求通常是开放式 `bytes=0-`、或显式全量
+ * `bytes=0-<size-1>`；直接透传会让上游一次性返回整个文件（数百 MB～数 GB），
+ * 客户端拿到元数据后往往立即断开，已传输部分全部作废——这是代理场景最大的
+ * 无效流量来源。截断为 MAX_RANGE_CHUNK_BYTES 后由客户端按需续传。
+ * 尾部 suffix 请求（`bytes=-N`）与多段 Range 原样透传（长度天然有限）。
+ */
+function clampRangeHeader(
+  rangeValue: string | undefined,
+  maxChunk: number,
+): string | undefined {
+  if (!rangeValue) return undefined;
+  const raw = Array.isArray(rangeValue) ? rangeValue[0] : rangeValue;
+  if (!raw) return undefined;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(raw.trim());
+  // 非法格式 / 多段 / 尾部 suffix（start 为空）：原样透交上游处理
+  if (!match || (!match[1] && !match[2]) || !match[1]) return raw;
+  const start = parseInt(match[1], 10);
+  if (!Number.isFinite(start) || start < 0) return raw;
+  const hasEnd = match[2] !== '';
+  const end = hasEnd ? parseInt(match[2], 10) : Number.POSITIVE_INFINITY;
+  if (!hasEnd || end - start + 1 > maxChunk) {
+    return `bytes=${start}-${start + maxChunk - 1}`;
+  }
+  return raw;
+}
+
 /** 构造上游请求头：UA / Referer / Origin / Cookie / Range 透传 */
 function buildUpstreamHeaders(
   req: Request,
@@ -105,10 +135,12 @@ function buildUpstreamHeaders(
   if (h.origin && h.origin.trim()) headers.Origin = h.origin;
   if (h.cookie && h.cookie.trim()) headers.Cookie = h.cookie;
   // Range 头归一：极端场景下 req.headers.range 可能是 string[]（重复头），
-  // 直接传给 fetch 会抛 TypeError，取首个值兜底。
-  const rangeValue = Array.isArray(req.headers.range)
+  // 直接传给 fetch 会抛 TypeError，取首个值兜底；并收敛为有界分片（见
+  // clampRangeHeader 说明，避免整文件一次性传输造成的无效流量）。
+  const rawRange = Array.isArray(req.headers.range)
     ? req.headers.range[0]
     : req.headers.range;
+  const rangeValue = clampRangeHeader(rawRange, MAX_RANGE_CHUNK_BYTES);
   if (rangeValue) headers.Range = rangeValue;
   // 条件请求头透传：ETag/Last-Modified 已通过白名单回传给客户端，
   // 补传协商请求头以激活 304 协商缓存（否则透传的 ETag 是"死头"）。
@@ -165,18 +197,38 @@ export async function proxyHttpUpstream(
   // 客户端断连 / 超时统一中断上游
   let controller = new AbortController();
   let abortedByTimeout = false;
+  /**
+   * 上游 Node 流与其字节计数器（已 pipe 给客户端）。
+   * 必须在断连时显式销毁：Node 的 pipe 在目标流关闭时只会 unpipe，
+   * **不会自动销毁源流**，仅 abort fetch 会留下「客户端已下线、上游 body
+   * 仍被继续读取」的窗口——这正是「用户下线后流量仍在跑」的根因。
+   */
+  let upstreamStream: Readable | null = null;
+  let byteCounter: Transform | null = null;
+  const abortUpstream = () => {
+    controller.abort();
+    if (upstreamStream && !upstreamStream.destroyed) upstreamStream.destroy();
+    if (byteCounter && !byteCounter.destroyed) byteCounter.destroy();
+  };
   // 超时只覆盖「连接 + 等待响应头」阶段：fetch resolve 后即取消，
   // 开放式 Range 下载（bytes=0-）的 body 传输可能持续数分钟，不应被超时中断。
   let timeout = setTimeout(() => {
     abortedByTimeout = true;
-    controller.abort();
+    abortUpstream();
   }, timeoutMs);
-  res.on('close', () => {
-    if (!res.writableFinished) controller.abort();
-  });
-
+  /** 客户端断连/异常时中断上游，并记录已浪费的传输量（便于定位带宽来源） */
+  const onClientGone = () => {
+    if (res.writableFinished) return;
+    abortUpstream();
+    console.log(
+      `[${logTag}] proxy ABORTED ${formatBytes(bytesSent)} ${Date.now() - startTime}ms range=${rangeHeader || '-'} ${requestUrl.slice(0, 100)}`,
+    );
+  };
   // 实际请求的上游 URL：内网 https 失败时会降级 http 重试（catch 分支更新）
   let requestUrl = url;
+  res.on('close', onClientGone);
+  res.on('error', onClientGone);
+
   // 是否已降级过：降级重试只允许一次，重试再失败直接按网络异常处理
   let hasDowngraded = false;
 
@@ -297,13 +349,15 @@ export async function proxyHttpUpstream(
     const stream = Readable.fromWeb(
       upstream.body as unknown as import('node:stream/web').ReadableStream,
     );
+    upstreamStream = stream;
     // 追踪实际传输给客户端的字节数
-    const byteCounter = new Transform({
+    const counter = new Transform({
       transform(chunk, _encoding, callback) {
         bytesSent += chunk.length;
         callback(null, chunk);
       },
     });
+    byteCounter = counter;
     stream.on('error', (err) => {
       console.error(`[${logTag}] proxy upstream stream error:`, err);
       console.log(
@@ -321,7 +375,7 @@ export async function proxyHttpUpstream(
         `[${logTag}] proxy ${res.statusCode} ${formatBytes(bytesSent)} ${Date.now() - startTime}ms range=${rangeHeader || '-'} ${requestUrl.slice(0, 100)}`,
       );
     });
-    stream.pipe(byteCounter).pipe(res);
+    stream.pipe(counter).pipe(res);
   } catch (err) {
     const isAbort = err instanceof Error && err.name === 'AbortError';
     if (isAbort && res.writableEnded) return; // 客户端主动断连，无需响应

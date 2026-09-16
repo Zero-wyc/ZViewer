@@ -1,15 +1,19 @@
 /**
  * 队列弹窗（Hydrogen PlayList 弹窗范式，widget 上方弹出）。
  *
+ * - 双源列表：随当前播放来源自动切换——B站 曲目显示 B站 播放列表
+ *   （本地会话记忆 ∪ 房间队列中的 B站条目），网易云曲目显示网易云列表
+ *   （房间队列去除 B站条目）；两源独立记忆、互不混显
  * - 定位：absolute bottom-full 右对齐（widget 右上弹出），glass-card，
  *   w-80 高 24rem，从底部进入动画（translate-y + opacity）
- * - 头部：「当前播放 (N)」+ 定位到当前 + 关闭
+ * - 头部：「当前播放 (N)」+ 来源标识 + 定位到当前 + 关闭
  * - 列表行：Hydrogen PlayList 行范式（EQ 频谱 + 「歌名 - 歌手」单行截断）；
- *   当前播放行浅高亮 + EQ 动画；canControl 点击切歌（playSong(item)）；
- *   canManage 行尾 hover 淡入删除（queue-remove）
+ *   当前播放行浅高亮 + EQ 动画；网易云行 canControl 点击切歌（playSong）；
+ *   B站行本地插播（playBiliSong，无需房主权限）；网易云行 canManage 删除
+ *   （queue-remove）；B站行本地删除
  * - 空态文案
  */
-import { useEffect, useRef } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { Crosshair, X, Trash2 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
@@ -37,34 +41,52 @@ export function MusicQueuePopup({
   placement = 'top',
 }: MusicQueuePopupProps) {
   const queue = useMusicStore((s) => s.queue)
+  const biliRecommendedKeys = useMusicStore((s) => s.biliRecommendedKeys)
   const currentKey = useMusicStore((s) => s.currentKey)
   const isPlaying = useMusicStore((s) => s.isPlaying)
   const setQueuePopupOpen = useMusicStore((s) => s.setQueuePopupOpen)
-  const { playSong, canControl } = useMusicPlayer()
+  const { playSong, playBiliSong, canControl } = useMusicPlayer()
+
+  /** 当前播放来源是否为 B站（决定列表视图与操作路径） */
+  const isBiliView = currentKey?.startsWith('bili:') ?? false
+  // 两源视图均来自房间队列（全房间同步）：B站视图 = 队列中的 B站 条目，
+  // 网易云视图 = 队列去除 B站 条目
+  const list = useMemo(
+    () =>
+      isBiliView
+        ? queue.filter((it) => it.biliBvid)
+        : queue.filter((it) => !it.biliBvid),
+    [isBiliView, queue]
+  )
 
   // 打开时滚动到当前播放行（Hydrogen getPositon 范式）
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (currentKey == null) return
-    const idx = queue.findIndex((item) => musicItemKey(item) === currentKey)
+    const idx = list.findIndex((item) => musicItemKey(item) === currentKey)
     if (idx < 0) return
     listRef.current?.scrollTo({
       top: Math.max(0, idx * 37 - 80),
       behavior: 'smooth',
     })
-  }, [queue, currentKey])
+  }, [list, currentKey])
 
-  /** canControl 点击行切歌 */
-  const handlePlay = (item: (typeof queue)[number]) => {
-    if (!canControl) {
-      message.info('由房主控制播放')
+  /** 点击行播放：有控制权（房主/房主离线观众）→ 房间同步切歌；
+   *  无控制权 → B站 行本地试听（个人插播），网易云行提示由房主控制 */
+  const handlePlay = (item: (typeof list)[number]) => {
+    if (musicItemKey(item) === currentKey) return
+    if (canControl) {
+      playSong(item)
       return
     }
-    if (musicItemKey(item) === currentKey) return
-    playSong(item)
+    if (isBiliView && item.biliBvid) {
+      void playBiliSong(item)
+      return
+    }
+    message.info('由房主控制播放')
   }
 
-  /** canManage 删除队列条目 */
+  /** 删除：走房间 queue-remove（canManage，B站/网易云条目一致） */
   const handleRemove = (itemId: number) => {
     if (!canManage) {
       message.info('只有房主或房管可以删除歌曲')
@@ -85,6 +107,23 @@ export function MusicQueuePopup({
     )
   }
 
+  /** 清空：走房间 queue-clear（canManage，B站/网易云条目一致） */
+  const handleClear = () => {
+    if (!socket || !roomId) {
+      message.error('未连接房间')
+      return
+    }
+    socket.emit(
+      'music:queue-clear',
+      { roomId },
+      (response: { success?: boolean; message?: string }) => {
+        if (response && response.success === false) {
+          message.error(response.message || '清空队列失败')
+        }
+      }
+    )
+  }
+
   return (
     <div
       className={cn(
@@ -98,48 +137,43 @@ export function MusicQueuePopup({
               'fixed inset-x-0 bottom-[calc(88px+env(safe-area-inset-bottom))] mx-auto h-[min(24rem,55dvh)]'
       )}
     >
-      {/* ===== 头部：当前播放 (N) + 清空 + 定位 + 关闭 ===== */}
+      {/* ===== 头部：当前播放 (N) + 来源标识 + 清空 + 定位 + 关闭 ===== */}
       <div className="flex shrink-0 items-center justify-between pl-4 pr-3 pt-3">
         <div className="flex items-baseline gap-1.5">
           <span className="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
             当前播放
           </span>
           <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            ({queue.length})
+            ({list.length})
+          </span>
+          {/* 来源标识（两源列表独立，随当前播放来源切换） */}
+          <span
+            className="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-bold"
+            style={{
+              backgroundColor:
+                'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+              color: 'var(--md-sys-color-on-surface-variant)',
+            }}
+          >
+            {isBiliView ? '哔哩哔哩' : '网易云'}
           </span>
         </div>
         <div className="flex items-center gap-1">
-          {canManage && (
-            <button
-              type="button"
-              className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-40"
-              disabled={queue.length === 0}
-              onClick={() => {
-                if (!socket || !roomId) {
-                  message.error('未连接房间')
-                  return
-                }
-                socket.emit(
-                  'music:queue-clear',
-                  { roomId },
-                  (response: { success?: boolean; message?: string }) => {
-                    if (response && response.success === false) {
-                      message.error(response.message || '清空队列失败')
-                    }
-                  }
-                )
-              }}
-              title="清空队列"
-              aria-label="清空队列"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
-          )}
+          <button
+            type="button"
+            className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-40"
+            disabled={list.length === 0}
+            onClick={handleClear}
+            title={isBiliView ? '清空B站播放列表' : '清空队列'}
+            aria-label={isBiliView ? '清空B站播放列表' : '清空队列'}
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90"
             onClick={() => {
-              const idx = queue.findIndex(
+              const idx = list.findIndex(
                 (item) => musicItemKey(item) === currentKey
               )
               if (idx >= 0) {
@@ -179,20 +213,22 @@ export function MusicQueuePopup({
         ref={listRef}
         className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-2"
       >
-        {queue.length === 0 ? (
+        {list.length === 0 ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <ListMusicIcon />
             <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              队列为空，去搜索添加歌曲
+              {isBiliView
+                ? 'B站播放列表为空，去哔哩哔哩页点播视频'
+                : '队列为空，去搜索添加歌曲'}
             </span>
           </div>
         ) : (
-          queue.map((item) => {
+          list.map((item) => {
             const itemKey = musicItemKey(item)
             const active = itemKey === currentKey
             return (
               <div
-                key={item.id}
+                key={itemKey}
                 className={cn(
                   'group flex h-[37px] shrink-0 cursor-pointer items-center justify-between px-3 pl-4 transition-colors duration-200',
                   'hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_5%,transparent)]',
@@ -201,7 +237,11 @@ export function MusicQueuePopup({
                 )}
                 onClick={() => handlePlay(item)}
                 title={
-                  active ? '正在播放' : canControl ? '点击播放' : undefined
+                  active
+                    ? '正在播放'
+                    : isBiliView || canControl
+                      ? '点击播放'
+                      : undefined
                 }
               >
                 <div className="flex min-w-0 flex-1 items-center gap-1.5">
@@ -221,6 +261,22 @@ export function MusicQueuePopup({
                   >
                     {item.name}
                   </span>
+                  {/* B站 推荐标记：相关推荐自动追加的条目（后端随队列持久化 +
+                      本地记忆兜底） */}
+                  {(item.biliRecommended ||
+                    biliRecommendedKeys.includes(itemKey)) && (
+                    <span
+                      className="shrink-0 rounded-full px-1 py-px text-[10px] font-bold"
+                      style={{
+                        color: 'var(--md-sys-color-primary)',
+                        backgroundColor:
+                          'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+                      }}
+                      title="由 B站 相关推荐自动加入"
+                    >
+                      推荐
+                    </span>
+                  )}
                   <span className="shrink-0 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     {' - '}
                   </span>
@@ -228,7 +284,7 @@ export function MusicQueuePopup({
                     {item.artist}
                   </span>
                 </div>
-                {/* canManage 删除（行 hover 淡入） */}
+                {/* 删除（房间队列统一操作，canManage；行 hover 淡入） */}
                 {canManage && (
                   <button
                     type="button"

@@ -8,10 +8,11 @@
  * 与 Hydrogen 的差异（Web 架构约束）：
  * - 登录复用 ZViewer 的 B站扫码链路（/api/stream/bilibili/*），二维码内嵌
  *   在账号区轮询（Hydrogen 为 Electron 窗口 API + session cookie）
- * - 无本地视频下载缓存与「视频插入点」时间段概念，删除按钮语义为
- *   确认清空当前搜索结果（Hydrogen 为删除本地缓存的音乐视频记录）
+ * - 无本地视频下载缓存与「视频插入点」时间段概念：搜索到视频后即写入
+ *   本地关联（musicVideoStore，按 songId 保存），供完整播放器视频背景消费；
+ *   删除按钮语义为解除当前歌曲的视频关联
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   getBilibiliLoginStatus,
   getBilibiliUserInfo,
@@ -23,11 +24,18 @@ import {
 } from '@/modules/bilibili/bilibiliApi'
 import type { BilibiliUserInfo, BilibiliQrData } from '@/modules/bilibili/types'
 import { message } from '@/components/ui/message'
+import {
+  getMusicVideo,
+  removeMusicVideo,
+  setMusicVideo,
+} from '../musicVideoStore'
 
 /** 二维码轮询间隔（ms，Hydrogen 3s，ZViewer MoviePushPanel 为 2s） */
 const QR_POLL_INTERVAL_MS = 2000
 
 interface MusicVideoModalProps {
+  /** 当前歌曲 songId（视频关联按歌曲保存） */
+  songId: number
   /** 当前歌曲名（标题 ADD VIDEO FOR 后的粉色文字） */
   songName: string
   onClose: () => void
@@ -45,7 +53,11 @@ function extractBvid(input: string): string | null {
   return embedded ? embedded[1] : null
 }
 
-export function MusicVideoModal({ songName, onClose }: MusicVideoModalProps) {
+export function MusicVideoModal({
+  songId,
+  songName,
+  onClose,
+}: MusicVideoModalProps) {
   const [biliUser, setBiliUser] = useState<BilibiliUserInfo | null>(null)
   const [loginStatusLoaded, setLoginStatusLoaded] = useState(false)
   // 扫码登录态：null=非登录流程；显示二维码 + 轮询状态文字
@@ -55,6 +67,10 @@ export function MusicVideoModal({ songName, onClose }: MusicVideoModalProps) {
   const [videoInfo, setVideoInfo] = useState<BilibiliVideoViewInfo | null>(null)
   const [selectedCid, setSelectedCid] = useState<number | null>(null)
   const [searching, setSearching] = useState(false)
+  /** 当前已加载视频信息的 BV 号（分 P 切换写关联用） */
+  const [loadedBvid, setLoadedBvid] = useState('')
+  // 打开时按已保存的关联回填（BV号 + 视频信息 + 分P）
+  const prefillSongIdRef = useRef<number | null>(null)
 
   // 打开时加载账号状态（Hydrogen 打开弹窗时校验已存 cookie 同语义）
   useEffect(() => {
@@ -113,6 +129,25 @@ export function MusicVideoModal({ songName, onClose }: MusicVideoModalProps) {
     }
   }, [qrLogin])
 
+  // 打开时回填已保存的视频关联（每首歌曲只回填一次，避免覆盖用户编辑）
+  useEffect(() => {
+    if (prefillSongIdRef.current === songId) return
+    prefillSongIdRef.current = songId
+    void (async () => {
+      const saved = getMusicVideo(songId)
+      if (!saved) return
+      setVideoUrl(saved.bvid)
+      setLoadedBvid(saved.bvid)
+      try {
+        const info = await getBilibiliVideoView(saved.bvid)
+        setVideoInfo(info)
+        setSelectedCid(saved.cid)
+      } catch {
+        // 回填信息失败不影响已有关联（背景照常播放）
+      }
+    })()
+  }, [songId])
+
   /** 登录 / 退出（Hydrogen loginOrLogout 同语义） */
   const handleLoginOrLogout = useCallback(async () => {
     if (biliUser) {
@@ -135,7 +170,8 @@ export function MusicVideoModal({ songName, onClose }: MusicVideoModalProps) {
     }
   }, [biliUser, qrLogin])
 
-  /** 搜索（Hydrogen search/checkUrl 同语义：取 BV → x/web-interface/view） */
+  /** 搜索（Hydrogen search/checkUrl 同语义：取 BV → x/web-interface/view）；
+      搜索成功即写入歌曲的视频关联（选定默认分 P），供视频背景消费 */
   const handleSearch = useCallback(async () => {
     const bvid = extractBvid(videoUrl)
     if (!bvid) {
@@ -146,22 +182,49 @@ export function MusicVideoModal({ songName, onClose }: MusicVideoModalProps) {
     try {
       const info = await getBilibiliVideoView(bvid)
       setVideoInfo(info)
-      setSelectedCid(info.pages.length > 0 ? info.pages[0].cid : info.cid)
+      setLoadedBvid(bvid)
+      const cid = info.pages.length > 0 ? info.pages[0].cid : info.cid
+      setSelectedCid(cid)
+      setMusicVideo(songId, {
+        bvid,
+        cid,
+        title: info.title,
+        cover: info.pic,
+        upName: info.upName,
+      })
+      message.success('已设置为该歌曲的视频背景')
     } catch (err) {
       message.error(err instanceof Error ? err.message : '获取视频信息失败')
     } finally {
       setSearching(false)
     }
-  }, [videoUrl])
+  }, [videoUrl, songId])
 
-  /** 删除（Hydrogen deleteConfirm 简化：确认后清空表单） */
+  /** 切换分 P：更新关联的 cid（视频背景下次解析生效） */
+  const handleSelectPage = useCallback(
+    (cid: number) => {
+      setSelectedCid(cid)
+      if (!videoInfo || !loadedBvid) return
+      setMusicVideo(songId, {
+        bvid: loadedBvid,
+        cid,
+        title: videoInfo.title,
+        cover: videoInfo.pic,
+        upName: videoInfo.upName,
+      })
+    },
+    [videoInfo, loadedBvid, songId]
+  )
+
+  /** 删除（解除当前歌曲的视频关联，视频背景回退封面模糊） */
   const handleDelete = useCallback(() => {
-    if (!videoInfo) return
+    removeMusicVideo(songId)
     setVideoInfo(null)
     setSelectedCid(null)
     setVideoUrl('')
-    message.info('已清空当前视频')
-  }, [videoInfo])
+    setLoadedBvid('')
+    message.info('已解除该歌曲的视频关联')
+  }, [songId])
 
   return (
     <div
@@ -459,7 +522,7 @@ export function MusicVideoModal({ songName, onClose }: MusicVideoModalProps) {
                               : undefined,
                           cursor: 'pointer',
                         }}
-                        onClick={() => setSelectedCid(p.cid)}
+                        onClick={() => handleSelectPage(p.cid)}
                         title={p.part}
                       >
                         <span

@@ -330,7 +330,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
         const acc = await apiGet<{
           account?: { id?: number }
           profile?: { userId?: number }
-        }>(`/api/music/ncm/account?timestamp=${Date.now()}`)
+        }>(`/api/music/ncm/user/account?timestamp=${Date.now()}`)
         if (cancelled) return
         const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
         if (!uid) return

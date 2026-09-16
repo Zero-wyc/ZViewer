@@ -602,6 +602,24 @@ export function MusicSettingsPage() {
               }
             />
           </SettingOption>
+          {/* 视频背景 CLI 高画质（默认关闭 = 720P 直链） */}
+          <SettingOption name="视频背景 CLI 高画质">
+            <SettingToggle
+              on={settings.musicVideoCli}
+              onToggle={() =>
+                setSettings({ musicVideoCli: !settings.musicVideoCli })
+              }
+            />
+          </SettingOption>
+          {/* B站 视频自动连播（默认开启）：B站 视频播完后用相关推荐继续播放 */}
+          <SettingOption name="B站视频自动连播">
+            <SettingToggle
+              on={settings.biliAutoContinue}
+              onToggle={() =>
+                setSettings({ biliAutoContinue: !settings.biliAutoContinue })
+              }
+            />
+          </SettingOption>
           {/* 数字输入组 */}
           <SettingOption name="搜索下拉条目数量">
             <SettingNumberInput
