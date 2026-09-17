@@ -1,5 +1,9 @@
 import { useEffect, useRef, useCallback, useState } from 'react'
 import { formatDuration } from '@/lib/utils'
+import {
+  ROOM_MEDIA_TEARDOWN_EVENT,
+  type RoomMediaTeardownDetail,
+} from '@/lib/mediaTeardown'
 import { useShallow } from 'zustand/react/shallow'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
@@ -186,9 +190,17 @@ export function useWatchTogether({
   // retryLoadMovie 清除 lastLoadedMovieRef 并递增令牌重新触发加载 effect。
   const [loadMovieError, setLoadMovieError] = useState<string | null>(null)
   const [retryToken, setRetryToken] = useState(0)
+  /**
+   * 加载失败的影片 ID 集合：同一影片失败后不再自动重试。movies 列表引用
+   * 随房间同步频繁变化会反复触发本 effect，无此守卫时会对已失效影片形成
+   * 每秒数次的请求风暴（实测 11 分钟 2015 次对已删除影片的流请求）。
+   * 用户手动重试（retryLoadMovie）时清空。
+   */
+  const failedLoadMovieIdsRef = useRef<Set<number>>(new Set())
   const retryLoadMovie = useCallback(() => {
     setLoadMovieError(null)
     lastLoadedMovieRef.current = null
+    failedLoadMovieIdsRef.current.clear()
     setRetryToken((t) => t + 1)
   }, [])
 
@@ -839,6 +851,9 @@ export function useWatchTogether({
       return
     }
 
+    // 该影片此前已加载失败：等待用户手动重试，不自动循环重试
+    if (failedLoadMovieIdsRef.current.has(movie.id)) return
+
     const video = videoRef.current
     if (!video) return
 
@@ -896,6 +911,9 @@ export function useWatchTogether({
       const resetForRetry = (errMsg?: string) => {
         suppressEventsRef.current = false
         lastLoadedMovieRef.current = null
+        // 记入失败集合：本 effect 不会再自动重试该影片（防请求风暴），
+        // 用户点「重试」（retryLoadMovie 清空集合）后才再次尝试
+        failedLoadMovieIdsRef.current.add(movie.id)
         if (isRecovery) {
           appliedPlaybackRef.current = false
         }
@@ -1151,6 +1169,7 @@ export function useWatchTogether({
     }
     cleanupMedia()
     lastLoadedMovieRef.current = null
+    failedLoadMovieIdsRef.current.clear()
   }, [currentMovieId, cleanupMedia, videoRef, suppressEventsRef])
 
   // 组件卸载或切换房间时释放 MSE blob URL 与音频同步资源
@@ -1159,6 +1178,30 @@ export function useWatchTogether({
       cleanupMedia()
     }
   }, [cleanupMedia])
+
+  // 房间关闭 / 断连媒体停止（RoomPage 收到 room-closed / disconnect 后
+  // dispatch，见 lib/mediaTeardown）：full=true 彻底停流防服务端空转代理；
+  // full=false 仅暂停，保留引擎与进度，重连后由同步流程恢复。
+  useEffect(() => {
+    const handleTeardown = (e: Event) => {
+      const detail = (e as CustomEvent<RoomMediaTeardownDetail>).detail
+      const full = detail?.full ?? true
+      const video = videoRef.current
+      if (video) {
+        video.pause()
+        if (full) {
+          // 先释放引擎/blob URL，再清空 src 并 load()，终止浏览器网络栈拉流
+          cleanupMedia()
+          video.removeAttribute('src')
+          video.load()
+        }
+      }
+      downloadAbortRef.current?.abort()
+    }
+    window.addEventListener(ROOM_MEDIA_TEARDOWN_EVENT, handleTeardown)
+    return () =>
+      window.removeEventListener(ROOM_MEDIA_TEARDOWN_EVENT, handleTeardown)
+  }, [cleanupMedia, videoRef])
 
   // Bug #14 修复：B站 CDN 地址 deadline 过期后，MSE 流式下载 fetch 会返回 403，
   // 播放器进入 stalled 状态。监听 video 的 stalled/error 事件，

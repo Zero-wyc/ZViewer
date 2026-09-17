@@ -1022,7 +1022,11 @@ function ListenTogetherInner({
       try {
         const { data } = await apiGet<{
           lines?: Array<{ from: number; to: number; content: string }>
-        }>(`/api/stream/bilibili/ai-subtitle?bvid=${bvid}&cid=${cid}`)
+        }>(
+          `/api/stream/bilibili/ai-subtitle?bvid=${bvid}&cid=${cid}&duration=${Math.round(
+            (currentSong?.durationMs ?? 0) / 1000
+          )}`
+        )
         if (cancelled) return
         const lines: LyricLine[] = (data?.lines ?? [])
           .filter((l) => l.content.trim() !== '')
@@ -1053,7 +1057,12 @@ function ListenTogetherInner({
     return () => {
       cancelled = true
     }
-  }, [currentKey, currentSong?.biliBvid, currentSong?.biliCid])
+  }, [
+    currentKey,
+    currentSong?.biliBvid,
+    currentSong?.biliCid,
+    currentSong?.durationMs,
+  ])
 
   // ===== 切歌黑块滑出定时（700ms 后滑出露出新歌名） =====
   useEffect(() => {

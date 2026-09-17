@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
@@ -23,6 +23,7 @@ import { SharePage, WatchPage } from '@/modules/screen-sharing'
 import type { P2PStateSnapshot } from '@/modules/screen-sharing/components/WebrtcSharePage'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
+import { dispatchRoomMediaTeardown } from '@/lib/mediaTeardown'
 
 import type { RoomMode } from '@/store/roomStore'
 
@@ -191,6 +192,35 @@ function RoomPage() {
       setClientLoggerRoomId(null)
     }
   }, [])
+
+  // ── 房间关闭 / 断连流量兜底 ──────────────────────────────
+  // 房间被关闭（房主关房 / 管理员删房 / 不活跃房间自动清理）后，若本机
+  // <video>/<audio> 继续播放，浏览器会持续向后端请求媒体分片，服务端
+  // 相应持续代理上游流量。此处是 room-closed 的唯一响应点（房主与观众、
+  // 三种模式全覆盖）：收到后立即停掉本机全部媒体流再退房。
+  // socket 断连（含被服务端强制断开）先仅暂停媒体，重连后由同步流程恢复。
+  const navigate = useNavigate()
+  useEffect(() => {
+    if (!roomId || !socket) return
+
+    const handleRoomClosed = (data: { roomId: string }) => {
+      if (data.roomId !== roomId) return
+      dispatchRoomMediaTeardown(true)
+      message.warning(`房间 ${data.roomId} 已关闭`)
+      setTimeout(() => navigate('/room', { replace: true }), 600)
+    }
+
+    const handleDisconnect = () => {
+      dispatchRoomMediaTeardown(false)
+    }
+
+    socket.on('room-closed', handleRoomClosed)
+    socket.on('disconnect', handleDisconnect)
+    return () => {
+      socket.off('room-closed', handleRoomClosed)
+      socket.off('disconnect', handleDisconnect)
+    }
+  }, [roomId, socket, navigate])
 
   // 监听后端广播的弹幕轨道同步事件（房主/观众均需要）
   useEffect(() => {

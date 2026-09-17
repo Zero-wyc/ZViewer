@@ -129,6 +129,11 @@ export async function deleteRoomAndRelations(
 
   // 可选：断开仍在房间内的 socket
   if (io) {
+    // 先广播 room-closed：客户端（RoomPage）收到后立即停止本机媒体拉流
+    //（视频/音乐），再强制断开 socket。若只断连不广播，客户端会自动重连并
+    // 继续播放，浏览器持续向后端请求媒体分片，服务端相应持续代理上游流量
+    //（房间已删但流量仍在跑）。
+    io.to(roomId).emit('room-closed', { roomId });
     const sockets = await io.in(roomId).fetchSockets();
     for (const sock of sockets) {
       sock.leave(roomId);
@@ -399,6 +404,8 @@ async function bootstrap() {
   // 注入 io：playbackMemoryService.isHostOnline 据此校验 hostSocketId 的
   // socket 是否实际在线（后端重启后 DB 恢复的旧 socket id 已失效）
   playbackMemoryService.setIo(io);
+  // 挂到 app 上：HTTP 路由（如 admin 关房/删房）需要广播 room-closed 时取用
+  app.set('io', io);
 
   app.use('/api/rooms', createRoomsRouter(io));
 

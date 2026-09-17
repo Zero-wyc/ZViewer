@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import type { Server as SocketIOServer } from 'socket.io';
 import { IsNull, In } from 'typeorm';
 import { AppDataSource } from '../data-source';
 import { User, type UserRole } from '../entities/User';
@@ -17,6 +18,15 @@ import {
 import { writeAuditLog } from '../services/audit';
 
 const router = Router();
+
+/**
+ * 从 app 上取 Socket.IO 实例（由 index.ts app.set('io', io) 注入）。
+ * 关房/删房时传入 io 以广播 room-closed 并断开房间内 socket：
+ * 否则客户端不知道房间已删，浏览器会继续拉媒体流，服务端持续跑流量。
+ */
+function getIo(req: AuthenticatedRequest): SocketIOServer | undefined {
+  return req.app.get('io') as SocketIOServer | undefined;
+}
 
 function adminOnly(
   req: AuthenticatedRequest,
@@ -313,7 +323,7 @@ router.delete(
         return;
       }
 
-      await deleteRoomAndRelations(roomId);
+      await deleteRoomAndRelations(roomId, getIo(req));
       res.json({ success: true });
     } catch (err) {
       console.error('admin close room error:', err);
@@ -344,7 +354,7 @@ router.post(
       for (const roomId of roomIds) {
         if (typeof roomId !== 'string' || !roomId) continue;
         try {
-          await deleteRoomAndRelations(roomId);
+          await deleteRoomAndRelations(roomId, getIo(req));
           count++;
           writeAuditLog({
             actorUserId: req.user!.userId,
@@ -372,7 +382,7 @@ router.post(
   '/rooms/delete-all',
   rootOnly,
   async (
-    _req: AuthenticatedRequest,
+    req: AuthenticatedRequest,
     res: import('express').Response,
   ): Promise<void> => {
     try {
@@ -382,7 +392,7 @@ router.post(
       let count = 0;
       for (const room of rooms) {
         try {
-          await deleteRoomAndRelations(room.roomId);
+          await deleteRoomAndRelations(room.roomId, getIo(req));
           count++;
         } catch (err) {
           console.error(`admin delete all rooms error: ${room.roomId}`, err);
@@ -422,7 +432,7 @@ router.post(
           ],
         });
         if (activeSessions === 0) {
-          await deleteRoomAndRelations(room.roomId);
+          await deleteRoomAndRelations(room.roomId, getIo(req));
           count++;
         }
       }

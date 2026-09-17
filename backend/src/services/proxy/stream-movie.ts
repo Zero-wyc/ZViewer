@@ -17,6 +17,8 @@ export class StreamMovieError extends Error {
     message: string,
     public readonly code: string,
     public readonly status: number,
+    /** 熔断缓存命中（非首次判定）：调用方可据此静默日志，避免重试风暴刷屏 */
+    public readonly fromCache = false,
   ) {
     super(message);
     this.name = 'StreamMovieError';
@@ -63,7 +65,7 @@ export async function resolveMovieStream(
   // 熔断：窗口内已知不存在的 movieId 直接失败（不打库、不打日志）
   const cachedAt = notFoundCache.get(movieId);
   if (cachedAt != null && now - cachedAt < NOT_FOUND_TTL_MS) {
-    throw new StreamMovieError('影片不存在', 'NOT_FOUND', 404);
+    throw new StreamMovieError('影片不存在', 'NOT_FOUND', 404, true);
   }
   pruneNotFoundCache(now);
   const movie = await AppDataSource.getRepository(Movie).findOneBy({ id: movieId });

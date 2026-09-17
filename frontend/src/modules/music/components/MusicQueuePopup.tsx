@@ -6,15 +6,16 @@
  *   （房间队列去除 B站条目）；两源独立记忆、互不混显
  * - 定位：absolute bottom-full 右对齐（widget 右上弹出），glass-card，
  *   w-80 高 24rem，从底部进入动画（translate-y + opacity）
- * - 头部：「当前播放 (N)」+ 来源标识 + 定位到当前 + 关闭
+ * - 头部：「当前播放 (N)」+ 来源标识 + 自动推荐（B站 视图：按当前视频
+ *   拉取相关推荐前 3 条插入下三首）+ 清空 + 定位到当前 + 关闭
  * - 列表行：Hydrogen PlayList 行范式（EQ 频谱 + 「歌名 - 歌手」单行截断）；
  *   当前播放行浅高亮 + EQ 动画；网易云行 canControl 点击切歌（playSong）；
  *   B站行本地插播（playBiliSong，无需房主权限）；网易云行 canManage 删除
  *   （queue-remove）；B站行本地删除
  * - 空态文案
  */
-import { useEffect, useMemo, useRef } from 'react'
-import { Crosshair, X, Trash2 } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Crosshair, X, Trash2, Loader2, Sparkles } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
 import { useMusicStore, musicItemKey } from '../store'
@@ -45,7 +46,11 @@ export function MusicQueuePopup({
   const currentKey = useMusicStore((s) => s.currentKey)
   const isPlaying = useMusicStore((s) => s.isPlaying)
   const setQueuePopupOpen = useMusicStore((s) => s.setQueuePopupOpen)
-  const { playSong, playBiliSong, canControl } = useMusicPlayer()
+  const { playSong, playBiliSong, canControl, addBiliRecommendations } =
+    useMusicPlayer()
+
+  /** 「自动推荐」请求进行中（防重复点击） */
+  const [recLoading, setRecLoading] = useState(false)
 
   /** 当前播放来源是否为 B站（决定列表视图与操作路径） */
   const isBiliView = currentKey?.startsWith('bili:') ?? false
@@ -159,6 +164,29 @@ export function MusicQueuePopup({
           </span>
         </div>
         <div className="flex items-center gap-1">
+          {/* 自动推荐（仅 B站 视图 + 已连接房间）：按当前播放视频拉取
+              B站 相关推荐前 3 条，插入当前曲目之后的下三首 */}
+          {isBiliView && roomId && socket && (
+            <button
+              type="button"
+              className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-40"
+              disabled={recLoading}
+              onClick={() => {
+                setRecLoading(true)
+                void addBiliRecommendations(canManage).finally(() =>
+                  setRecLoading(false)
+                )
+              }}
+              title="自动推荐：根据当前视频加入 B站 相关推荐前 3 首"
+              aria-label="自动推荐"
+            >
+              {recLoading ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+            </button>
+          )}
           <button
             type="button"
             className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-40"
@@ -263,7 +291,7 @@ export function MusicQueuePopup({
                   </span>
                   {/* B站 推荐标记：相关推荐自动追加的条目（后端随队列持久化 +
                       本地记忆兜底） */}
-                  {(item.biliRecommended ||
+                  {(item.recommended ||
                     biliRecommendedKeys.includes(itemKey)) && (
                     <span
                       className="shrink-0 rounded-full px-1 py-px text-[10px] font-bold"

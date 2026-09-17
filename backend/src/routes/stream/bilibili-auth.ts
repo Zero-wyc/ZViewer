@@ -14,6 +14,7 @@ import { Router, Response } from 'express';
 import QRCode from 'qrcode';
 import { AuthenticatedRequest } from '../../middleware/auth';
 import { bilibiliFetch } from '../../services/bilibili/client';
+import type { BilibiliResponse } from '../../services/bilibili/client';
 import {
   searchVideosPaged,
   searchTagId,
@@ -1016,9 +1017,26 @@ router.get('/bilibili/search', async (req: AuthenticatedRequest, res) => {
 // 旧实现用的 x/web-interface/view/conclusion/get 是「AI 视频摘要」接口，
 // 其 subtitle 字段经常为空且依赖 WBI 签名，已弃用。
 // 请求必须携带 Referer，否则返回 412（yt-dlp#11089）。
+//
+// 已知问题与对策：B站 字幕服务端不稳定，同一 (bvid, cid) 的 player/v2 会
+// 偶发返回「其他视频」的 AI 字幕文件（字幕 JSON 内不含可校验的 cid/bvid），
+// 表现为歌词与视频完全不匹配。带内校验手段：正确字幕的时间轴终点
+// （max(to)）≈ 视频时长，随机错拿的字幕终点通常明显偏离。前端携带
+// duration（秒）时最多尝试多次：命中容差立即采纳，全部未命中则取
+// 「时间轴终点与时长差最小」的一次；未带 duration 时保持旧行为
+// （首个成功下载的非空字幕）。
+const BILI_SUBTITLE_ATTEMPTS = 4;
+/** 字幕时间轴终点与视频时长的匹配容差（秒）：max(10, 时长 × 8%) */
+const biliSubtitleTolerance = (durationSec: number): number =>
+  Math.max(10, durationSec * 0.08);
+
 router.get('/bilibili/ai-subtitle', async (req: AuthenticatedRequest, res) => {
   const bvid = req.query.bvid;
   const cid = Number(req.query.cid);
+  // 视频时长（秒，可选）：用于字幕带内校验（见上）；非法值退化为旧行为
+  const durationSec = Number(req.query.duration);
+  const hasDuration =
+    Number.isFinite(durationSec) && durationSec > 0 && durationSec < 86400;
   if (
     typeof bvid !== 'string' ||
     !/^BV[0-9A-Za-z]{10}$/.test(bvid.trim()) ||
@@ -1031,54 +1049,101 @@ router.get('/bilibili/ai-subtitle', async (req: AuthenticatedRequest, res) => {
   const userId = req.user?.userId;
   const cookie = (await getUserCookie(userId)) || undefined;
   try {
-    const data = await bilibiliFetch<{
-      need_login_subtitle?: number;
-      subtitle?: {
-        subtitles?: Array<{ lan?: string; subtitle_url?: string }>;
-      };
-    }>(
-      `https://api.bilibili.com/x/player/v2?bvid=${bvid.trim()}&cid=${cid}`,
-      { cookie },
-    );
-    // 优先中文（ai-zh），其次任一 zh 开头，再次任一可用轨道
-    const subtitles = data.data?.subtitle?.subtitles ?? [];
-    const picked =
-      subtitles.find((s) => s.lan === 'ai-zh') ??
-      subtitles.find((s) => (s.lan ?? '').startsWith('zh')) ??
-      subtitles[0];
-    if (!picked?.subtitle_url) {
-      // 无字幕轨道：区分「未登录导致 AI 字幕不返回」与「视频本身无字幕」
-      const needLogin = data.data?.need_login_subtitle === 1 && !cookie;
-      res.json({
-        success: true,
-        lines: [],
-        message: needLogin ? 'AI 字幕需登录 B站 后获取' : undefined,
-      });
+    // 跨尝试保留的候选/状态：score = |字幕时间轴终点 - 视频时长|
+    let best: {
+      lines: Array<{ from: number; to: number; content: string }>;
+      score: number;
+    } | null = null;
+    let needLoginMessage: string | undefined;
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < BILI_SUBTITLE_ATTEMPTS; attempt++) {
+      let data: BilibiliResponse<{
+        need_login_subtitle?: number;
+        subtitle?: {
+          subtitles?: Array<{ lan?: string; subtitle_url?: string }>;
+        };
+      }>;
+      try {
+        data = await bilibiliFetch<{
+          need_login_subtitle?: number;
+          subtitle?: {
+            subtitles?: Array<{ lan?: string; subtitle_url?: string }>;
+          };
+        }>(
+          `https://api.bilibili.com/x/player/v2?bvid=${bvid.trim()}&cid=${cid}`,
+          { cookie },
+        );
+      } catch (err) {
+        lastError = err;
+        continue;
+      }
+      // 优先中文（ai-zh），其次任一 zh 开头，再次任一可用轨道
+      const subtitles = data.data?.subtitle?.subtitles ?? [];
+      const picked =
+        subtitles.find((s) => s.lan === 'ai-zh') ??
+        subtitles.find((s) => (s.lan ?? '').startsWith('zh')) ??
+        subtitles[0];
+      if (!picked?.subtitle_url) {
+        // 无字幕轨道：区分「未登录导致 AI 字幕不返回」与「视频本身无字幕」；
+        // 轨道列表偶发为空属服务端抖动，重试可能恢复
+        needLoginMessage =
+          data.data?.need_login_subtitle === 1 && !cookie
+            ? 'AI 字幕需登录 B站 后获取'
+            : undefined;
+        continue;
+      }
+      const subtitleUrl = picked.subtitle_url.startsWith('//')
+        ? `https:${picked.subtitle_url}`
+        : picked.subtitle_url;
+      // 字幕 JSON 为公开 CDN（非标准 B站信封结构），原生 fetch；
+      // subtitle_url 是带 auth_key 的临时地址，直接用不缓存
+      let json: { body?: Array<{ from: number; to: number; content: string }> };
+      try {
+        const subRes = await fetch(subtitleUrl, {
+          headers: {
+            'User-Agent': DEFAULT_PROXY_UA,
+            Referer: 'https://www.bilibili.com',
+          },
+        });
+        if (!subRes.ok) {
+          throw new Error(`字幕文件请求失败 [${subRes.status}]`);
+        }
+        json = (await subRes.json()) as {
+          body?: Array<{ from: number; to: number; content: string }>;
+        };
+      } catch (err) {
+        lastError = err;
+        continue;
+      }
+      const lines = (json.body ?? []).map((l) => ({
+        from: l.from || 0,
+        to: l.to || 0,
+        content: l.content || '',
+      }));
+      if (lines.length === 0) continue;
+      if (!hasDuration) {
+        // 未提供时长：无法带内校验，保持旧行为（首个非空结果）
+        res.json({ success: true, lines });
+        return;
+      }
+      const endTo = lines.reduce((m, l) => Math.max(m, l.to), 0);
+      const score = Math.abs(endTo - durationSec);
+      if (!best || score < best.score) best = { lines, score };
+      // 时间轴终点与视频时长吻合：基本可确认不是错拿的字幕，立即采纳
+      if (score <= biliSubtitleTolerance(durationSec)) break;
+    }
+    if (best) {
+      res.json({ success: true, lines: best.lines });
       return;
     }
-    const subtitleUrl = picked.subtitle_url.startsWith('//')
-      ? `https:${picked.subtitle_url}`
-      : picked.subtitle_url;
-    // 字幕 JSON 为公开 CDN（非标准 B站信封结构），原生 fetch；
-    // subtitle_url 是带 auth_key 的临时地址，直接用不缓存
-    const subRes = await fetch(subtitleUrl, {
-      headers: {
-        'User-Agent': DEFAULT_PROXY_UA,
-        Referer: 'https://www.bilibili.com',
-      },
-    });
-    if (!subRes.ok) {
-      throw new Error(`字幕文件请求失败 [${subRes.status}]`);
+    if (lastError) {
+      throw lastError;
     }
-    const json = (await subRes.json()) as {
-      body?: Array<{ from: number; to: number; content: string }>;
-    };
-    const lines = (json.body ?? []).map((l) => ({
-      from: l.from || 0,
-      to: l.to || 0,
-      content: l.content || '',
-    }));
-    res.json({ success: true, lines });
+    res.json({
+      success: true,
+      lines: [],
+      message: needLoginMessage,
+    });
   } catch (err) {
     console.error('[bilibili] ai-subtitle error:', err);
     res.status(502).json({

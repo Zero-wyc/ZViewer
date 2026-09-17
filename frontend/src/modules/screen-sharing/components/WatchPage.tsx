@@ -64,15 +64,12 @@ function WatchPage() {
   // 1. 加入房间 hook
   // 分离式架构下不再需要 onApprovedScreenShare / onRoomModeChanged 创建 PC：
   // WebrtcWatchPage 挂载时自动 create PC，卸载时自动 cleanup PC。
+  // room-closed 由 RoomPage 统一响应（停媒体流 + 提示 + 退房），此处不重复处理。
   const { joinStatus, roomMode, requestJoin } = useJoinRoom({
     socket,
     roomId,
     connected,
     autoJoin: !(fromList && listHasPassword),
-    onRoomClosed: (data) => {
-      message.warning(`房间 ${data.roomId} 已关闭`)
-      setTimeout(() => navigate('/room', { replace: true }), 1500)
-    },
   })
 
   // 2. 推流子模式状态（仅 screen-share + stream-push 时使用）

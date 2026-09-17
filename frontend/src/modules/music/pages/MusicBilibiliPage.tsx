@@ -86,9 +86,10 @@ function formatDate(sec: number): string {
 /** 音乐分区首项（走分区排行榜，非搜索） */
 const REGION_TAG_HEADER = '推荐榜单'
 
-/** 顶栏搜索可达页数：B站搜索单排序仅 50 页（numResults 封顶 1000），后端
+/** 搜索可达页数：B站搜索单排序仅 50 页（numResults 封顶 1000），后端
  *  按排序分片扩展（综合/最多点击/最新发布/最多弹幕/最多收藏 各 50 页）；
- *  搜索模式总页数下限提升到该值，与后端 SEARCH_MAX_PAGES 保持一致 */
+ *  顶栏搜索与分区种类搜索的总页数下限均提升到该值，与后端
+ *  SEARCH_MAX_PAGES 保持一致 */
 const SEARCH_MAX_PAGES = 250
 /** 音乐分区默认种类名（创建时分类名默认作为一个「搜索」tag；搜索词不再自动补「音乐」，用户在名称里自行写全） */
 const DEFAULT_REGION_TAGS = [
@@ -1054,10 +1055,13 @@ export function MusicBilibiliPage({
   /** 分页派生：total 已知时精确算总页数；未知时按「本页拉满」估算下一页 */
   const rawTotalPages =
     total != null ? Math.max(1, Math.ceil(total / pageSize)) : null
-  // 顶栏搜索模式：B站搜索 API numResults 封顶 1000（50 页），后端按排序
-  // 分片扩展可达页数，总页数下限提升到 SEARCH_MAX_PAGES
+  // 搜索模式（顶栏搜索 / 分区种类搜索）：B站搜索 API numResults 封顶
+  // 1000（页大小 20 = 50 页），后端按排序分片扩展可达页数（tag 链路深处
+  // 页为空时也回退关键词搜索），总页数下限提升到 SEARCH_MAX_PAGES；
+  // 推荐榜单（ranking/v2 全量本地切页）与收藏夹的 total 为真实值，不受影响
   const totalPages =
-    biliSearchKeyword && rawTotalPages != null
+    (biliSearchKeyword || (tab === 'region' && regionTag != null)) &&
+    rawTotalPages != null
       ? Math.max(rawTotalPages, SEARCH_MAX_PAGES)
       : rawTotalPages
   const hasNextPage =
@@ -1638,8 +1642,10 @@ export function MusicBilibiliPage({
                           {formatCount(item.danmaku ?? 0)}
                         </span>
                       )}
-                      {/* 右下：时长 + 加入播放队列（canManage 时显示，hover 显形） */}
-                      <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1">
+                      {/* 右下：时长 + 加入播放队列（canManage 时显示，hover 显形）。
+                          z-10：必须垫在下方 hover 遮罩（absolute inset-0，DOM 序靠后）
+                          之上，否则遮罩 opacity-0 时也会拦截点击，按钮永远点不到 */}
+                      <div className="absolute bottom-1.5 right-1.5 z-10 flex items-center gap-1">
                         {canManage && (
                           <button
                             type="button"

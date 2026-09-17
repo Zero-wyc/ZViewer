@@ -54,8 +54,9 @@ export interface MusicQueueItem {
   biliBvid?: string
   /** B站 视频条目专用：分 P cid */
   biliCid?: number
-  /** B站 播放列表推荐标记：由相关推荐自动追加的条目（列表中显示「推荐」tag） */
-  biliRecommended?: boolean
+  /** B站 播放列表推荐标记：由相关推荐自动追加的条目（列表中显示「推荐」tag；
+   *  与后端 MusicQueueItemPayload.recommended 字段对齐，随队列持久化） */
+  recommended?: boolean
 }
 
 /**

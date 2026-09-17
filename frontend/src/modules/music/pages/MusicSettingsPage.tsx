@@ -611,7 +611,8 @@ export function MusicSettingsPage() {
               }
             />
           </SettingOption>
-          {/* B站 视频自动连播（默认开启）：B站 视频播完后用相关推荐继续播放 */}
+          {/* B站 视频自动连播（默认开启：顺序播放模式下 B站 队列播完
+              到末尾自动拉相关推荐续播） */}
           <SettingOption name="B站视频自动连播">
             <SettingToggle
               on={settings.biliAutoContinue}

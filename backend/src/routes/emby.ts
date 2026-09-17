@@ -554,6 +554,8 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
     // 业务错误（影片不存在/未挂载）：单行 warn + 精确状态码，避免客户端
     // 重试风暴把完整堆栈刷进日志
     if (err instanceof StreamMovieError) {
+      // 熔断缓存命中（非首次判定）完全静默：客户端重试风暴不应刷日志
+      if (!err.fromCache)
       console.warn(`[emby] stream ${err.code} ${err.status}: ${err.message}`);
       if (!res.headersSent) {
         res.status(err.status).json({ success: false, message: err.message, code: err.code });

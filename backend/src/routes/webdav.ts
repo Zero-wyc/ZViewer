@@ -692,9 +692,12 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       // 业务错误（影片不存在/未挂载）单行 warn：这类错误会被客户端重试放大
       // （实测 3 天 3717 次），完整堆栈会把日志撑到数 MB
       if (err instanceof StreamMovieError) {
-        console.warn(
-          `[${logTag}] stream ${err.code} ${err.status}: ${err.message} (movieId=${req.query.movieId})`,
-        );
+        // 熔断缓存命中（非首次判定）完全静默：客户端重试风暴不应刷日志
+        if (!err.fromCache) {
+          console.warn(
+            `[${logTag}] stream ${err.code} ${err.status}: ${err.message} (movieId=${req.query.movieId})`,
+          );
+        }
       } else {
         console.error(`[${logTag}] stream error:`, err);
       }

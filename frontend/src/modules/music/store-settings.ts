@@ -72,8 +72,6 @@ export interface MusicSettings {
   /** 视频背景画面适配：contain 完整显示（默认，黑边由模糊封面填充）/
    *  cover 裁切铺满（超出部分裁掉）/ fill 拉伸填充（拉伸铺满可能变形） */
   bgVideoFit: 'contain' | 'cover' | 'fill'
-  /** B站 视频自动连播：B站 视频播完后用 B站 相关推荐列表继续播放 */
-  biliAutoContinue: boolean
   /**
    * 歌词页 UI 整体透明度（%，30-100，100=完全不透明）：作用于播放卡 /
    * 歌词面板 / 工具栏 / 提示等前景 UI 整体，背景（封面 / 视频 / 压暗）不受影响
@@ -84,6 +82,11 @@ export interface MusicSettings {
    * （默认 16:9 长方形）/ square 正方形（对封面居中裁剪呈正方形显示）
    */
   biliCoverShape: 'original' | 'square'
+  /**
+   * B站 视频自动连播（默认开启）：按顺序播放模式下，B站 队列条目播完
+   * 到末尾时自动拉相关推荐续播；关闭后播完末尾自然停止
+   */
+  biliAutoContinue: boolean
 }
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
@@ -105,9 +108,9 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   lyricInterlude: 13,
   musicVideoCli: false,
   bgVideoFit: 'contain',
-  biliAutoContinue: true,
   uiOpacity: 100,
   biliCoverShape: 'original',
+  biliAutoContinue: true,
 }
 
 interface MusicSettingsState extends MusicSettings {

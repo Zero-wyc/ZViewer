@@ -31,11 +31,7 @@ import type { P2PStatus } from '@/modules/p2p/types'
 import { MediaSettingsCard } from './MediaSettingsCard'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
-import type {
-  CloseRoomResponse,
-  RoomClosedPayload,
-  RoomModeChangedPayload,
-} from '../types'
+import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
 
 /** P2P 状态快照，由 WebrtcSharePage 提升到 RoomPage 供 RoomLayout 使用 */
 export interface P2PStateSnapshot {
@@ -162,16 +158,14 @@ function WebrtcSharePage({
     }
   }, [localVideoEl, stream])
 
-  const handleRoomClosed = useCallback(
-    (data: RoomClosedPayload) => {
-      message.warning(`房间 ${data.roomId} 已关闭`)
-      setClosing(true)
-      stop()
-      cleanupPeerConnections()
-      setTimeout(() => navigate('/', { replace: true }), 1500)
-    },
-    [stop, cleanupPeerConnections, navigate]
-  )
+  const handleRoomClosed = useCallback(() => {
+    // 提示与退房导航由 RoomPage 统一处理（避免与页面级 room-closed
+    // 响应重复弹 toast / 导航冲突）；这里只做本组件的即时清理：
+    // 停掉本地共享流（摄像头/屏幕 track）与所有观众 PC。
+    setClosing(true)
+    stop()
+    cleanupPeerConnections()
+  }, [stop, cleanupPeerConnections])
 
   const handleRoomModeChanged = useCallback(
     (data: RoomModeChangedPayload) => {
