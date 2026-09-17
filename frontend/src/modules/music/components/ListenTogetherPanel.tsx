@@ -42,6 +42,7 @@ import {
   Film,
   MonitorPlay,
   Settings,
+  ExternalLink,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
@@ -54,6 +55,7 @@ import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
   normalizeBiliCoverShape,
+  normalizeBiliLikeFavTitle,
 } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
@@ -79,6 +81,7 @@ import {
   getCommentCountBadge,
   getCommentTargetKey,
 } from './SongCommentsPanel'
+import { BiliCommentsPanel } from './BiliCommentsPanel'
 import {
   ControlNextIcon,
   ControlPauseIcon,
@@ -272,9 +275,22 @@ function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   const biliCoverShape = normalizeBiliCoverShape(
     useMusicSettingsStore((s) => s.biliCoverShape)
   )
+  /** B站 红心收藏目标（播放栏 B站 条目红心一键收藏的收藏夹名） */
+  const biliLikeFavTitle = normalizeBiliLikeFavTitle(
+    useMusicSettingsStore((s) => s.biliLikeFavTitle)
+  )
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const lyricBlurLevel = useMusicSettingsStore((s) => s.lyricBlurLevel)
   const setSettings = useMusicSettingsStore((s) => s.set)
+
+  // ===== 红心收藏夹行内编辑态（点击名称胶囊 → 输入框，Enter/失焦保存，
+  //       Escape 放弃；空白提交由归一化回退默认「Music」） =====
+  const [favTitleEditing, setFavTitleEditing] = useState(false)
+  const [favTitleDraft, setFavTitleDraft] = useState(biliLikeFavTitle)
+  const commitFavTitle = () => {
+    setSettings({ biliLikeFavTitle: normalizeBiliLikeFavTitle(favTitleDraft) })
+    setFavTitleEditing(false)
+  }
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -488,6 +504,47 @@ function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               {biliCoverShape === 'original' ? '原版' : '正方形'}
             </button>
           </div>
+          {/* 红心收藏夹（播放栏 B站 条目红心一键收藏的目标收藏夹；
+              点击名称胶囊进入编辑，不存在时后端自动创建同名收藏夹） */}
+          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-bold text-white">
+                红心收藏夹
+              </span>
+              <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                点击红心收藏 B站 视频的目标收藏夹，不存在时自动创建
+              </span>
+            </span>
+            {favTitleEditing ? (
+              <input
+                autoFocus
+                value={favTitleDraft}
+                onChange={(e) => setFavTitleDraft(e.target.value)}
+                onBlur={commitFavTitle}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitFavTitle()
+                  if (e.key === 'Escape') setFavTitleEditing(false)
+                }}
+                className="h-[30px] w-[130px] shrink-0 rounded-full px-3 text-xs font-bold outline-none"
+                style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                aria-label="红心收藏夹名称"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  setFavTitleDraft(biliLikeFavTitle)
+                  setFavTitleEditing(true)
+                }}
+                className="min-w-[76px] max-w-[130px] shrink-0 truncate rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
+                style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                title="点击编辑收藏夹名称（留空恢复默认 Music）"
+                aria-label="编辑红心收藏夹名称"
+              >
+                {biliLikeFavTitle}
+              </button>
+            )}
+          </div>
           {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
           <div className="flex items-center justify-between gap-3 px-5 py-3.5">
             <span className="text-[13px] font-bold text-white">歌词模糊</span>
@@ -674,6 +731,18 @@ function ListenTogetherInner({
     useMusicSettingsStore((s) => s.biliCoverShape)
   )
   const isBiliSong = currentKey?.startsWith('bili:') ?? false
+  /** B站 曲目原视频链接（工具栏跳转按钮）：仅 B站 条目且带 bvid 时生成；
+   *  携带当前播放进度（?t= 秒），B站 页面打开后直接从该时间点续看 */
+  const biliSourceUrl =
+    isBiliSong && currentSong?.biliBvid
+      ? `https://www.bilibili.com/video/${currentSong.biliBvid}${
+          positionSec >= 1 ? `?t=${Math.floor(positionSec)}` : ''
+        }`
+      : null
+  /** B站 评论区目标：使用当前播放 B站 视频的评论区（徽章/面板 key `bili:<bvid>`） */
+  const currentBiliBvid = isBiliSong ? (currentSong?.biliBvid ?? null) : null
+  /** 评论入口可用性：网易云需有效 songId，B站 条目有 bvid 即可 */
+  const canComment = (songId != null && songId > 0) || currentBiliBvid != null
   const musicVideoBg = useMusicVideoBackground(
     isBiliSong ? null : (songId ?? null),
     musicVideoCli,
@@ -917,12 +986,15 @@ function ListenTogetherInner({
   /** 评论数徽章（SongCommentsPanel 广播缓存，万位缩写） */
   const [commentBadge, setCommentBadge] = useState('0')
   useEffect(() => {
-    const refresh = () =>
-      setCommentBadge(getCommentCountBadge(getCommentTargetKey(songId ?? -1)))
+    // B站 条目徽章走 `bili:<bvid>`（BiliCommentsPanel 广播），网易云仍走 `song:<songId>`
+    const key = currentBiliBvid
+      ? `bili:${currentBiliBvid}`
+      : getCommentTargetKey(songId ?? -1)
+    const refresh = () => setCommentBadge(getCommentCountBadge(key))
     refresh()
     window.addEventListener(COMMENT_TOTAL_EVENT, refresh)
     return () => window.removeEventListener(COMMENT_TOTAL_EVENT, refresh)
-  }, [songId])
+  }, [currentBiliBvid, songId])
 
   // ===== 歌词加载状态（区分 无歌词/纯音乐/正常 三态 + 首帧防闪烁） =====
   const [lyricLines, setLyricLines] = useState<LyricLine[]>([])
@@ -1696,7 +1768,7 @@ function ListenTogetherInner({
                 卡片下方的水平工具行（见下方 isPortraitMobile 分支） */}
             <div
               className={cn(
-                'absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] group-hover:animate-[song-control-in_0.3s_both]',
+                'lt-icon-outline absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] group-hover:animate-[song-control-in_0.3s_both]',
                 isPortraitMobile && 'hidden'
               )}
               style={
@@ -1822,7 +1894,7 @@ function ListenTogetherInner({
                 </button>
               )}
               {/* 歌词/评论切换（Hydrogen comment-icon：气泡 + 数量胶囊徽章） */}
-              {songId != null && songId > 0 && (
+              {canComment && (
                 <button
                   type="button"
                   onClick={() => {
@@ -1912,6 +1984,22 @@ function ListenTogetherInner({
                   aria-label="添加视频"
                 >
                   <Film className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                </button>
+              )}
+              {/* 前往 B站 原视频（仅 B站 条目）：新标签页打开
+                  bilibili.com/video/{bvid}，携带当前进度 ?t= 续看；
+                  与网易云条目的「添加视频」槽位互斥复用 */}
+              {biliSourceUrl && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(biliSourceUrl, '_blank', 'noopener,noreferrer')
+                  }
+                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  title="在哔哩哔哩打开原视频"
+                  aria-label="在哔哩哔哩打开原视频"
+                >
+                  <ExternalLink className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
               {/* 播放队列（弹窗侧挂到按钮左侧，避免被面板底部估算偏移错位） */}
@@ -2234,7 +2322,7 @@ function ListenTogetherInner({
           {isPortraitMobile && (
             <div
               className={cn(
-                'relative z-[10] flex shrink-0 flex-wrap items-center justify-center gap-1'
+                'lt-icon-outline relative z-[10] flex shrink-0 flex-wrap items-center justify-center gap-1'
               )}
               style={
                 {
@@ -2352,7 +2440,7 @@ function ListenTogetherInner({
                 </button>
               )}
               {/* 歌词/评论切换（评论数徽章以小圆点形式叠加） */}
-              {songId != null && songId > 0 && (
+              {canComment && (
                 <button
                   type="button"
                   onClick={() => setRightPanelMode((v) => (v === 0 ? 1 : 0))}
@@ -2390,6 +2478,20 @@ function ListenTogetherInner({
                   aria-label="添加视频"
                 >
                   <Film className="h-5 w-5" />
+                </button>
+              )}
+              {/* 前往 B站 原视频（仅 B站 条目，与桌面 song-control 同语义） */}
+              {biliSourceUrl && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(biliSourceUrl, '_blank', 'noopener,noreferrer')
+                  }
+                  className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
+                  title="在哔哩哔哩打开原视频"
+                  aria-label="在哔哩哔哩打开原视频"
+                >
+                  <ExternalLink className="h-5 w-5" />
                 </button>
               )}
               {/* 播放队列（弹窗固定底部居中弹出，避免侧挂出屏） */}
@@ -2447,7 +2549,11 @@ function ListenTogetherInner({
               }}
             >
               {rightPanelMode === 1 ? (
-                <SongCommentsPanel />
+                currentBiliBvid != null ? (
+                  <BiliCommentsPanel bvid={currentBiliBvid} />
+                ) : (
+                  <SongCommentsPanel />
+                )
               ) : (
                 <PlayerLyricPanel
                   lines={displayLyricLines}

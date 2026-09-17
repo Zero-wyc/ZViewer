@@ -87,6 +87,17 @@ export interface MusicSettings {
    * 到末尾时自动拉相关推荐续播；关闭后播完末尾自然停止
    */
   biliAutoContinue: boolean
+  /**
+   * B站 红心收藏目标（播放栏 B站 条目的红心一键收藏；收藏夹不存在时
+   * 后端按名称自动创建），默认「Music」
+   */
+  biliLikeFavTitle: string
+  /**
+   * 顶部导航折叠（默认开启）：网易云四个分区（首页/私人漫游/云盘/
+   * 我的音乐）合并为单个「网易云音乐」按钮，点击弹出分区选择面板；
+   * 关闭后恢复完整五按钮排版（首页/私人漫游/云盘/我的音乐/哔哩哔哩）
+   */
+  musicNavCollapsed: boolean
 }
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
@@ -111,6 +122,8 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   uiOpacity: 100,
   biliCoverShape: 'original',
   biliAutoContinue: true,
+  biliLikeFavTitle: 'Music',
+  musicNavCollapsed: true,
 }
 
 interface MusicSettingsState extends MusicSettings {
@@ -157,4 +170,10 @@ export function normalizeBiliCoverShape(
   shape: string
 ): MusicSettings['biliCoverShape'] {
   return shape === 'square' ? 'square' : 'original'
+}
+
+/** B站 红心收藏夹名称合法性（空白回退默认「Music」） */
+export function normalizeBiliLikeFavTitle(title: string): string {
+  const trimmed = typeof title === 'string' ? title.trim() : ''
+  return trimmed || DEFAULT_MUSIC_SETTINGS.biliLikeFavTitle
 }

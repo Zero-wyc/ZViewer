@@ -287,6 +287,50 @@ video {
   }
 }
 
+/* 哔哩哔哩页右下角悬浮工具组的液态玻璃按钮（Apple Liquid Glass 风格）：
+   半透明玻璃底 + 顶部受光渐变 + 边缘高光/底部厚度内阴影 + backdrop
+   saturate 折射感；颜色走主题玻璃变量，深浅色自适应。
+   交互态（上浮/按压/禁用）只挂在 button 上——同类的跳页输入框仅取材质。
+   注意 transition 会整体覆盖全局 * 的颜色过渡规则（本类优先级更高） */
+.bili-liquid-btn {
+  background-color: var(--glass-bg);
+  background-image: linear-gradient(
+    155deg,
+    rgba(255, 255, 255, 0.25),
+    rgba(255, 255, 255, 0.05) 45%,
+    rgba(255, 255, 255, 0) 72%
+  );
+  /* -webkit- 前缀版必须在标准属性之前（lightningcss 去重保留最后一条） */
+  -webkit-backdrop-filter: blur(var(--glass-blur-strong)) saturate(1.7);
+  backdrop-filter: blur(var(--glass-blur-strong)) saturate(1.7);
+  border: 1px solid var(--glass-border);
+  color: var(--md-sys-color-on-surface);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.38),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.08),
+    0 2px 6px rgba(0, 0, 0, 0.08),
+    0 10px 28px rgba(0, 0, 0, 0.16);
+  transition:
+    transform 300ms var(--ease-spring),
+    box-shadow 300ms var(--ease-soft),
+    opacity 200ms var(--ease-soft);
+}
+button.bili-liquid-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0.5px rgba(255, 255, 255, 0.5),
+    inset 0 -1px 1px rgba(0, 0, 0, 0.08),
+    0 4px 10px rgba(0, 0, 0, 0.1),
+    0 14px 34px rgba(0, 0, 0, 0.2);
+}
+button.bili-liquid-btn:active:not(:disabled) {
+  transform: scale(0.9);
+}
+.bili-liquid-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
 /* 文字平衡换行：Firefox 124+ 才原生支持 text-wrap: balance，提供优雅降级 */
 .text-balance {
   text-wrap: balance;
@@ -1519,6 +1563,16 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
 }
 .lt-lyric-view-in {
   animation: lt-lyric-view-in 0.45s cubic-bezier(0.3, 0, 0.12, 1) both;
+}
+
+/* 歌词播放页工具图标浅阴影（一起听桌面 song-control 悬浮栏 + 手机竖屏
+   工具行）：轻柔暗影提升图标在封面/视频背景上的轮廓分离度。
+   作用于容器整体，多个图标只建一个合成层；阴影恒为半透明黑，
+   亮/暗主题与任意背景亮度通用，无需随图标色反转 */
+.lt-icon-outline {
+  filter:
+    drop-shadow(0 1px 1px rgba(0, 0, 0, 0.28))
+    drop-shadow(0 0 2px rgba(0, 0, 0, 0.16));
 }
 
 /* 云盘：上传框斜条纹滚动（Hydrogen .upload-animation，

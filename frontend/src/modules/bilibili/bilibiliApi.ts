@@ -544,3 +544,166 @@ export async function resolveBilibiliWithOptions(
     page: extraOptions?.page,
   })
 }
+
+/** 自定义栏目数据源类型：合集（season）/ 系列（series）/ 收藏夹（favlist） */
+export type BiliCustomKind = 'season' | 'series' | 'favlist'
+
+/** 栏目链接解析结果（后端 /bilibili/link-meta） */
+export interface BiliLinkMeta {
+  kind: BiliCustomKind
+  /** UP 主 mid（收藏夹链接可能无） */
+  mid: number | null
+  /** 列表 id：合集/系列为 sid，收藏夹为 fid */
+  listId: number
+  /** B站 侧标题（前端预填栏目名） */
+  title: string
+  total: number | null
+}
+
+/**
+ * 解析 B站 栏目链接（视频合集 / 系列 / 收藏夹；b23.tv 短链自动展开）。
+ * 返回类型、mid、列表 id 与 B站 侧标题；链接无法识别或私密时抛错。
+ */
+export async function fetchBiliLinkMeta(url: string): Promise<BiliLinkMeta> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/link-meta?url=${encodeURIComponent(url)}`
+  )
+  const data = (await res.json()) as BiliLinkMeta & {
+    success: boolean
+    message?: string
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '解析链接失败')
+  }
+  return {
+    kind: data.kind,
+    mid: data.mid,
+    listId: data.listId,
+    title: data.title,
+    total: data.total,
+  }
+}
+
+/** 合集 / 系列视频分页（自定义栏目浏览） */
+export async function fetchBiliCollectionVideos(
+  mid: number,
+  sid: number,
+  kind: 'season' | 'series',
+  pn = 1,
+  ps = 20
+): Promise<{ items: BilibiliVideoItem[]; total: number | null }> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/collection-videos?mid=${mid}&sid=${sid}&kind=${kind}&pn=${pn}&ps=${ps}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    items?: BilibiliVideoItem[]
+    total?: number | null
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取合集视频失败')
+  }
+  return { items: data.items ?? [], total: data.total ?? null }
+}
+
+/** 任意公开收藏夹视频分页（media_id = 收藏夹 fid） */
+export async function fetchBiliFavListVideos(
+  fid: number,
+  pn = 1,
+  ps = 20
+): Promise<{ items: BilibiliVideoItem[]; total: number | null }> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/fav-list-videos?fid=${fid}&pn=${pn}&ps=${ps}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    items?: BilibiliVideoItem[]
+    total?: number | null
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取收藏夹视频失败')
+  }
+  return { items: data.items ?? [], total: data.total ?? null }
+}
+
+// ==================== 视频评论区（哔哩哔哩歌词播放页） ====================
+
+/** B站 评论条目（主楼 / 楼中楼通用归一化结构） */
+export interface BiliCommentItem {
+  rpid: number
+  mid: number
+  name: string
+  /** 头像 URL（hdslb 直链，展示须走 /api/stream/proxy-image） */
+  avatar: string
+  content: string
+  /** 发布时间（秒级 Unix） */
+  time: number
+  like: number
+  replyCount: number
+  /** 表情映射：键为 [名称] 原文，值为表情图 URL */
+  emote: Record<string, string>
+  /** IP 属地（可能为空） */
+  location: string
+}
+
+export interface BiliCommentsPage {
+  /** 评论总数（含楼中楼口径） */
+  total: number
+  replies: BiliCommentItem[]
+  /** 下一页游标（null = 没有更多；主楼游标分页用） */
+  next: number | null
+  /** 未登录游客模式：B站 仅开放前 3 条主楼 */
+  loginLimited: boolean
+}
+
+/** 主楼评论分页（mode: 2=按时间游标分页 / 3=按热度，游标 next 传 0 表示首页） */
+export async function fetchBiliComments(
+  bvid: string,
+  mode: '2' | '3',
+  next = 0
+): Promise<BiliCommentsPage> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/comments?bvid=${bvid}&mode=${mode}&next=${next}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    total?: number
+    replies?: BiliCommentItem[]
+    next?: number | null
+    loginLimited?: boolean
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取评论失败')
+  }
+  return {
+    total: data.total ?? 0,
+    replies: data.replies ?? [],
+    next: data.next ?? null,
+    loginLimited: !!data.loginLimited,
+  }
+}
+
+/** 楼中楼回复分页（pn 传统分页） */
+export async function fetchBiliCommentReplies(
+  bvid: string,
+  rpid: number,
+  pn = 1,
+  ps = 10
+): Promise<{ total: number; replies: BiliCommentItem[] }> {
+  const res = await apiFetch(
+    `/api/stream/bilibili/comment-replies?bvid=${bvid}&rpid=${rpid}&pn=${pn}&ps=${ps}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    total?: number
+    replies?: BiliCommentItem[]
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '获取回复失败')
+  }
+  return { total: data.total ?? 0, replies: data.replies ?? [] }
+}

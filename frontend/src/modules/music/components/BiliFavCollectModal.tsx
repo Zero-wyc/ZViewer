@@ -28,8 +28,8 @@ interface BiliFavCollectModalProps {
   open: boolean
   /** 当前播放的 B站 视频 BV 号 */
   bvid: string
-  /** 收藏成功回调（供外部同步红心状态） */
-  onCollected?: (bvid: string) => void
+  /** 收藏成功回调（供外部同步红心状态；folderTitle 为实际收藏到的收藏夹名） */
+  onCollected?: (bvid: string, folderTitle?: string) => void
   onClose: () => void
 }
 
@@ -90,7 +90,7 @@ export function BiliFavCollectModal({
         throw new Error(data?.message || '收藏失败')
       }
       message.success(`已收藏到「${data?.folderTitle || folder.title}」`)
-      onCollected?.(bvid)
+      onCollected?.(bvid, data?.folderTitle || folder.title)
       onClose()
     } catch (err) {
       message.error(err instanceof Error ? err.message : '收藏失败')

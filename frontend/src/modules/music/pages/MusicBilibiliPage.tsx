@@ -1,17 +1,20 @@
 /**
  * 哔哩哔哩页（一起听顶部导航新入口）。
  *
- * 两个子页：
+ * 子页（顶栏 tab，支持通过链接添加自定义栏目）：
  * - 音乐分区：B站 音乐分区（rid=3）榜单视频（ranking/v2，网格卡片）
  * - 我的收藏：当前登录 B站 账号默认收藏夹的视频（未登录/失效时提示登录，
  *   登录复用 MusicAppShell 的 B站 扫码链路——提示文案引导至完整播放器
  *   「添加视频」弹窗完成登录）
+ * - 自定义栏目：粘贴 B站 链接添加的视频合集 / 系列 / 收藏夹
+ *   （localStorage 持久化，后端 link-meta 解析 + 合集/收藏夹取数路由）
  *
  * 点击视频 → 解析音频（默认 720P 直链 / 设置开启 CLI 后高画质音轨）→
  * 作为本地插播「歌曲」播放（不入房间队列、不同步，见 useListenTogether
  * .playBiliSong）；歌词视图自动改用 B站 AI 字幕，播放页背景使用该视频。
  */
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import type { Socket } from 'socket.io-client'
 import {
   Ban,
@@ -35,8 +38,12 @@ import {
   getBilibiliFavFolders,
   getBilibiliVideoView,
   searchBilibiliVideos,
+  fetchBiliCollectionVideos,
+  fetchBiliFavListVideos,
+  fetchBiliLinkMeta,
   type BilibiliVideoItem,
   type BilibiliFavFolder,
+  type BiliCustomKind,
 } from '@/modules/bilibili/bilibiliApi'
 import { message } from '@/components/ui/message'
 import {
@@ -49,8 +56,8 @@ import { useMusicStore, musicItemKey } from '../store'
 import type { MusicQueueItem } from '../types'
 import { cn } from '@/lib/utils'
 
-/** 子页标识 */
-type BiliTab = 'region' | 'fav'
+/** 子页标识（custom = 用户通过链接添加的自定义栏目） */
+type BiliTab = 'region' | 'fav' | 'custom'
 
 /** 秒 → mm:ss */
 function formatSec(total: number): string {
@@ -344,6 +351,73 @@ function saveRegionTags(tags: RegionTagEntry[]) {
   }
 }
 
+/** 自定义栏目（顶栏 tab）：通过 B站 链接添加的视频合集 / 系列 / 收藏夹，
+ *  localStorage 持久化；kind 由后端 link-meta 解析确定 */
+interface CustomBiliTab {
+  /** 稳定 id：`${kind}:${listId}`（同一列表去重） */
+  id: string
+  name: string
+  kind: BiliCustomKind
+  /** UP 主 mid（合集/系列取数需要；收藏夹为 null） */
+  mid: number | null
+  /** 列表 id：合集/系列为 sid，收藏夹为 fid */
+  listId: number
+}
+
+const CUSTOM_TABS_STORAGE_KEY = 'zviewer-bili-custom-tabs'
+const BILI_CUSTOM_KINDS: readonly BiliCustomKind[] = [
+  'season',
+  'series',
+  'favlist',
+]
+
+function loadCustomTabs(): CustomBiliTab[] {
+  try {
+    const raw = localStorage.getItem(CUSTOM_TABS_STORAGE_KEY)
+    if (raw == null) return []
+    const list = JSON.parse(raw) as unknown
+    if (!Array.isArray(list)) return []
+    return list
+      .map((it): CustomBiliTab | null => {
+        if (it == null || typeof it !== 'object') return null
+        const t = it as Partial<CustomBiliTab>
+        if (
+          typeof t.id !== 'string' ||
+          t.id === '' ||
+          typeof t.name !== 'string' ||
+          t.name.trim() === '' ||
+          !BILI_CUSTOM_KINDS.includes(t.kind as BiliCustomKind) ||
+          typeof t.listId !== 'number' ||
+          !Number.isFinite(t.listId) ||
+          t.listId <= 0
+        ) {
+          return null
+        }
+        return {
+          id: t.id,
+          name: t.name.trim(),
+          kind: t.kind as BiliCustomKind,
+          mid:
+            typeof t.mid === 'number' && Number.isFinite(t.mid) && t.mid > 0
+              ? t.mid
+              : null,
+          listId: t.listId,
+        }
+      })
+      .filter((t): t is CustomBiliTab => t != null)
+  } catch {
+    return []
+  }
+}
+
+function saveCustomTabs(tabs: CustomBiliTab[]) {
+  try {
+    localStorage.setItem(CUSTOM_TABS_STORAGE_KEY, JSON.stringify(tabs))
+  } catch {
+    // ignore（隐私模式等存储不可用场景）
+  }
+}
+
 /** 屏蔽词作用范围：标题 / 标签 / 两者（每个词可单独设置） */
 type BlockWordScope = 'title' | 'tag' | 'both'
 
@@ -417,6 +491,316 @@ function filterByBlockWords(
   })
 }
 
+// ===== 列表页 SWR 缓存：分区/榜单/搜索切换时命中即渲染（秒开） =====
+
+/** 列表页缓存条目：存「套用屏蔽词与封面代理之前」的原始合并结果，
+ * 读出时按当前屏蔽词现算，保证修改屏蔽词立即生效 */
+interface BiliListCacheEntry {
+  items: BilibiliVideoItem[]
+  total: number | null
+  /** 分区路径：多源中单源最大条数（pageFull 判定用；其余路径同 items.length） */
+  maxSourceLen: number
+  /** 写入时间（毫秒），判断新鲜度 */
+  at: number
+}
+const BILI_LIST_CACHE_MAX = 48
+/** 新鲜判定：新鲜命中直接使用不回源；过期命中先展示旧内容再后台刷新 */
+const BILI_LIST_CACHE_FRESH_MS = 5 * 60 * 1000
+/** 分区预取数量上限（侧栏顺序前 N 个；逐个间隔避免挤占当前浏览请求） */
+const PREFETCH_REGION_TAG_LIMIT = 6
+/** 分区预取的逐个间隔（毫秒） */
+const PREFETCH_REGION_TAG_STAGGER_MS = 1200
+const biliListCache = new Map<string, BiliListCacheEntry>()
+
+function biliListCacheSet(key: string, entry: BiliListCacheEntry): void {
+  biliListCache.delete(key)
+  biliListCache.set(key, entry)
+  while (biliListCache.size > BILI_LIST_CACHE_MAX) {
+    const oldest = biliListCache.keys().next().value
+    if (oldest === undefined) break
+    biliListCache.delete(oldest)
+  }
+}
+
+/** 缓存 key 构造（分区种类/推荐榜单/顶栏搜索三类；fav 个人收藏不缓存） */
+const biliKwCacheKey = (keyword: string, pn: number) => `kw:${keyword}|${pn}`
+const biliRankCacheKey = (pn: number) => `rank:3|${pn}`
+const biliRtCacheKey = (tag: RegionTagEntry, pn: number) =>
+  `rt:${tag.name}|${JSON.stringify(tag.tags ?? null)}|${pn}`
+
+/** 分区条目的规则列表（未自定义规则时默认把分类名作为单个「搜索」聚合词） */
+function getRegionRules(tag: RegionTagEntry): RegionTagRule[] {
+  return (
+    tag.tags ?? [
+      {
+        word: tag.name,
+        source: 'search' as RegionTagSource,
+        role: 'aggregate' as RegionTagRole,
+      },
+    ]
+  )
+}
+
+/** 分区条目单页取数：聚合词按来源并行搜索/标签检索，bvid 去重合并
+ * （加载与预取共用；预取经后端缓存预热，切换分区时前端直接命中） */
+async function fetchRegionTagPage(
+  tag: RegionTagEntry,
+  pageNo: number
+): Promise<{
+  merged: BilibiliVideoItem[]
+  total: number | null
+  maxSourceLen: number
+}> {
+  const aggRules = getRegionRules(tag).filter((r) => r.role === 'aggregate')
+  const searchWords = aggRules
+    .filter((r) => r.source !== 'btag')
+    .map((r) => r.word)
+  const btagWords = aggRules
+    .filter((r) => r.source !== 'search')
+    .map((r) => r.word)
+  const results = await Promise.allSettled([
+    ...searchWords.map((w) => searchBilibiliVideos(w, pageNo, 'search')),
+    ...btagWords.map((w) => searchBilibiliVideos(w, pageNo, 'tag')),
+  ])
+  const merged: BilibiliVideoItem[] = []
+  const seen = new Set<string>()
+  let maxSourceLen = 0
+  let total: number | null = null
+  for (const r of results) {
+    if (r.status !== 'fulfilled') continue
+    maxSourceLen = Math.max(maxSourceLen, r.value.items.length)
+    if (total == null) total = r.value.total
+    for (const it of r.value.items) {
+      if (!seen.has(it.bvid)) {
+        seen.add(it.bvid)
+        merged.push(it)
+      }
+    }
+  }
+  return { merged, total, maxSourceLen }
+}
+
+/** 缓存条目 → 展示条目：require 限定 + 分区屏蔽词 + 全局屏蔽词
+ * （封面代理由调用方追加） */
+function decorateRegionItems(
+  merged: BilibiliVideoItem[],
+  tag: RegionTagEntry,
+  blockWords: BlockWord[]
+): BilibiliVideoItem[] {
+  const requireWords = getRegionRules(tag)
+    .filter((r) => r.role === 'require')
+    .map((r) => r.word.toLowerCase())
+  let filtered = merged
+  if (requireWords.length > 0) {
+    filtered = filtered.filter((it) => {
+      const tags = (it.tag ?? '').toLowerCase()
+      return requireWords.every((w) => tags.includes(w))
+    })
+  }
+  filtered = filterByBlockWords(filtered, tag.blockWords ?? [])
+  return filterByBlockWords(filtered, blockWords)
+}
+
+/** 右下角液态玻璃圆形按钮：统一 44px（触屏友好）；材质与交互态在
+ *  index.css 的 .bili-liquid-btn（顶部受光渐变 + 边缘高光 + saturate
+ *  折射感，hover 上浮、按压弹性回缩），颜色走主题玻璃变量自适应深浅色 */
+function LiquidGlassButton({
+  title,
+  ariaLabel,
+  disabled,
+  onClick,
+  children,
+}: {
+  title: string
+  ariaLabel: string
+  disabled?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      aria-label={ariaLabel}
+      className="bili-liquid-btn lt-blur-surface flex h-11 w-11 items-center justify-center rounded-full"
+    >
+      {children}
+    </button>
+  )
+}
+
+/** 添加栏目弹窗（黑底 SETTING 风格）：粘贴 B站 链接解析视频合集/系列/收藏夹，
+ *  名称留空自动使用 B站 侧标题；提交经后端 link-meta 校验
+ *  （链接无法识别 / 收藏夹私密等错误原样提示） */
+function AddCustomTabModal({
+  onClose,
+  onSubmit,
+}: {
+  onClose: () => void
+  /** 提交解析；返回错误消息（成功返回空串） */
+  onSubmit: (link: string, name: string) => Promise<string>
+}) {
+  const [link, setLink] = useState('')
+  const [name, setName] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const submit = useCallback(async () => {
+    if (submitting) return
+    if (!link.trim()) {
+      setError('请粘贴 B站 链接')
+      return
+    }
+    setSubmitting(true)
+    setError(null)
+    try {
+      const err = await onSubmit(link.trim(), name)
+      if (err) {
+        setError(err)
+        setSubmitting(false)
+        return
+      }
+      onClose()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : '解析链接失败')
+      setSubmitting(false)
+    }
+  }, [submitting, link, name, onSubmit, onClose])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !submitting) onClose()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onClose, submitting])
+
+  return (
+    <>
+      <button
+        type="button"
+        aria-label="关闭添加栏目"
+        className="fixed inset-0 z-[74] cursor-default bg-black/40"
+        onClick={() => {
+          if (!submitting) onClose()
+        }}
+      />
+      <div
+        className="fixed left-1/2 top-1/2 z-[75] w-[min(380px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden"
+        style={{
+          backgroundColor: 'rgba(8, 8, 8, 0.86)',
+          backdropFilter: 'blur(28px)',
+          WebkitBackdropFilter: 'blur(28px)',
+          border: '0.5px solid rgba(255, 255, 255, 0.12)',
+          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
+        }}
+      >
+        {/* 四角白色方块点缀 */}
+        <span
+          aria-hidden="true"
+          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
+        />
+        {/* 标题行：超大 ADD 水印 */}
+        <div className="relative border-b border-white/70 px-5 pb-3 pt-4">
+          <span
+            aria-hidden="true"
+            className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+          >
+            ADD
+          </span>
+          <p className="relative text-center text-[15px] font-bold text-white">
+            添加栏目
+          </p>
+        </div>
+        <div className="relative px-5 py-4">
+          {/* 说明 */}
+          <p className="mb-3 text-[11px] font-medium leading-relaxed text-white/50">
+            粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （
+            {'space.bilibili.com/{mid}/lists/{sid}'} 或旧版 channel
+            链接）、收藏夹（{'…/favlist?fid=…'}）；b23.tv 短链自动展开。
+          </p>
+          {/* 链接输入 */}
+          <div className="mb-2">
+            <input
+              autoFocus
+              value={link}
+              onChange={(e) => setLink(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submit()
+              }}
+              placeholder="粘贴 B站 链接"
+              className="h-8 w-full rounded-full px-3 text-xs font-bold outline-none"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                color: '#ffffff',
+                border: '0.5px solid rgba(255, 255, 255, 0.25)',
+              }}
+            />
+          </div>
+          {/* 名称输入（留空用 B站 侧标题） */}
+          <div className="mb-3">
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') void submit()
+              }}
+              placeholder="栏目名称（留空自动使用 B站 标题）"
+              className="h-8 w-full rounded-full px-3 text-xs font-bold outline-none"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                color: '#ffffff',
+                border: '0.5px solid rgba(255, 255, 255, 0.25)',
+              }}
+            />
+          </div>
+          {error && (
+            <p
+              className="mb-2 text-[11px] font-bold leading-relaxed"
+              style={{ color: '#ff8a8a' }}
+            >
+              {error}
+            </p>
+          )}
+          <div className="flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full px-3 py-1.5 text-xs font-bold text-white/70 transition-colors hover:text-white"
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={submitting}
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ backgroundColor: '#ffffff', color: '#000000' }}
+            >
+              {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
+              {submitting ? '解析中…' : '添加'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function MusicBilibiliPage({
   socket = null,
   roomId,
@@ -479,9 +863,22 @@ export function MusicBilibiliPage({
   /** 屏蔽词设置弹窗开关与添加输入 */
   const [showBlockWords, setShowBlockWords] = useState(false)
   const [blockWordInput, setBlockWordInput] = useState('')
-  /** 每页条数（搜索接口 page_size 固定 20，其余 24） */
+  /** 自定义栏目（合集/系列/收藏夹，localStorage 持久化）与当前选中 id */
+  const [customTabs, setCustomTabs] = useState<CustomBiliTab[]>(loadCustomTabs)
+  const [activeCustomTabId, setActiveCustomTabId] = useState<string | null>(
+    null
+  )
+  /** 添加栏目弹窗（粘贴 B站 链接解析） */
+  const [showAddCustomTab, setShowAddCustomTab] = useState(false)
+  const activeCustomTab =
+    customTabs.find((t) => t.id === activeCustomTabId) ?? null
+  /** 每页条数（搜索/合集/收藏夹类接口 page_size 固定 20，其余 24） */
   const pageSize =
-    biliSearchKeyword || (tab === 'region' && regionTag != null) ? 20 : 24
+    biliSearchKeyword ||
+    tab === 'custom' ||
+    (tab === 'region' && regionTag != null)
+      ? 20
+      : 24
 
   /**
    * B站 CDN 封面有 Referer 防盗链（localhost 直连 403），统一走后端
@@ -500,81 +897,130 @@ export function MusicBilibiliPage({
     []
   )
 
+  /** 加载序号：快速切换分区/翻页时丢弃过期响应，防止旧结果覆盖新状态 */
+  const loadSeqRef = useRef(0)
+
   const load = useCallback(
     async (target: BiliTab, folderId?: number | null) => {
-      setLoading(true)
       setError(null)
+      const seq = ++loadSeqRef.current
+      // ===== 缓存 key 与「原始条目 → 展示条目」管线（fav 不缓存） =====
+      let cacheKey: string | null = null
+      let applyEntries: (
+        raw: BilibiliVideoItem[],
+        total: number | null,
+        maxSourceLen: number
+      ) => void = () => {}
+      if (biliSearchKeyword) {
+        cacheKey = biliKwCacheKey(biliSearchKeyword, pageNo)
+        applyEntries = (raw, total) => {
+          setItems(withCoverProxy(filterByBlockWords(raw, blockWords)))
+          setTotal(total)
+        }
+      } else if (target === 'region') {
+        if (regionTag) {
+          cacheKey = biliRtCacheKey(regionTag, pageNo)
+          applyEntries = (raw, total, maxSourceLen) => {
+            setPageFull(maxSourceLen >= 20)
+            setItems(
+              withCoverProxy(decorateRegionItems(raw, regionTag, blockWords))
+            )
+            setTotal(total)
+          }
+        } else {
+          cacheKey = biliRankCacheKey(pageNo)
+          applyEntries = (raw, total) => {
+            setItems(withCoverProxy(filterByBlockWords(raw, blockWords)))
+            setTotal(total)
+          }
+        }
+      } else if (target === 'custom' && activeCustomTab) {
+        cacheKey = `custom:${activeCustomTab.id}|${pageNo}`
+        applyEntries = (raw, total) => {
+          setItems(withCoverProxy(filterByBlockWords(raw, blockWords)))
+          setTotal(total)
+        }
+      }
+      // ===== SWR 快路径：命中缓存立即渲染；过期条目随后台刷新 =====
+      let showedCache = false
+      const cached = cacheKey ? biliListCache.get(cacheKey) : null
+      if (cached) {
+        applyEntries(cached.items, cached.total, cached.maxSourceLen)
+        setLoading(false)
+        showedCache = true
+        // 新鲜缓存直接返回（切换分区秒开）；过期缓存继续回源刷新
+        if (Date.now() - cached.at < BILI_LIST_CACHE_FRESH_MS) return
+      } else {
+        setLoading(true)
+      }
       try {
         // 顶栏搜索优先：有搜索关键词时列表显示 B站 视频搜索结果
         if (biliSearchKeyword) {
           const r = await searchBilibiliVideos(biliSearchKeyword, pageNo)
-          setItems(withCoverProxy(filterByBlockWords(r.items, blockWords)))
-          setTotal(r.total)
+          if (seq !== loadSeqRef.current) return
+          if (r.items.length > 0) {
+            biliListCacheSet(biliKwCacheKey(biliSearchKeyword, pageNo), {
+              items: r.items,
+              total: r.total,
+              maxSourceLen: r.items.length,
+              at: Date.now(),
+            })
+          }
+          applyEntries(r.items, r.total, r.items.length)
         } else if (target === 'region') {
           if (regionTag) {
-            // ===== 多 tag 规则编排（两维：属性 聚合/限定 × 方式 搜索/标签/全部）=====
-            // - 聚合词贡献结果：搜索/全部 → 关键词搜索；标签/全部 → B站标签检索；
-            //   各来源结果合并去重一起显示
-            // - 限定词：视频标签必须包含全部限定词
-            // - 分区屏蔽词：按各词范围（标题/标签/全部）剔除（另有全局屏蔽词过滤）
-            const rules = regionTag.tags ?? [
-              {
-                word: regionTag.name,
-                source: 'search' as RegionTagSource,
-                role: 'aggregate' as RegionTagRole,
-              },
-            ]
-            const aggRules = rules.filter((r) => r.role === 'aggregate')
-            const searchWords = aggRules
-              .filter((r) => r.source !== 'btag')
-              .map((r) => r.word)
-            const btagWords = aggRules
-              .filter((r) => r.source !== 'search')
-              .map((r) => r.word)
-            const requireWords = rules
-              .filter((r) => r.role === 'require')
-              .map((r) => r.word.toLowerCase())
-            // 分区屏蔽词（词级作用范围，仅该分区生效）
-            const categoryBlocks = regionTag.blockWords ?? []
-
-            const results = await Promise.allSettled([
-              ...searchWords.map((w) =>
-                searchBilibiliVideos(w, pageNo, 'search')
-              ),
-              ...btagWords.map((w) => searchBilibiliVideos(w, pageNo, 'tag')),
-            ])
-            const merged: BilibiliVideoItem[] = []
-            const seen = new Set<string>()
-            let maxSourceLen = 0
-            let total: number | null = null
-            for (const r of results) {
-              if (r.status !== 'fulfilled') continue
-              maxSourceLen = Math.max(maxSourceLen, r.value.items.length)
-              if (total == null) total = r.value.total
-              for (const it of r.value.items) {
-                if (!seen.has(it.bvid)) {
-                  seen.add(it.bvid)
-                  merged.push(it)
-                }
-              }
-            }
-            // require：视频 tag 必须包含全部限定词
-            let filtered = merged
-            if (requireWords.length > 0) {
-              filtered = filtered.filter((it) => {
-                const tags = (it.tag ?? '').toLowerCase()
-                return requireWords.every((w) => tags.includes(w))
+            const { merged, total, maxSourceLen } = await fetchRegionTagPage(
+              regionTag,
+              pageNo
+            )
+            if (seq !== loadSeqRef.current) return
+            if (merged.length > 0) {
+              biliListCacheSet(biliRtCacheKey(regionTag, pageNo), {
+                items: merged,
+                total,
+                maxSourceLen,
+                at: Date.now(),
               })
             }
-            // block：分区屏蔽词按各词范围（标题/标签/全部）剔除
-            filtered = filterByBlockWords(filtered, categoryBlocks)
-            setPageFull(maxSourceLen >= 20)
-            setItems(withCoverProxy(filterByBlockWords(filtered, blockWords)))
-            setTotal(total)
+            applyEntries(merged, total, maxSourceLen)
           } else {
             const r = await getBilibiliRegionNew(3, 24, pageNo)
-            setItems(withCoverProxy(r.items))
-            setTotal(r.total)
+            if (seq !== loadSeqRef.current) return
+            if (r.items.length > 0) {
+              biliListCacheSet(biliRankCacheKey(pageNo), {
+                items: r.items,
+                total: r.total,
+                maxSourceLen: r.items.length,
+                at: Date.now(),
+              })
+            }
+            applyEntries(r.items, r.total, r.items.length)
+          }
+        } else if (target === 'custom') {
+          if (activeCustomTab) {
+            const r =
+              activeCustomTab.kind === 'favlist'
+                ? await fetchBiliFavListVideos(activeCustomTab.listId, pageNo)
+                : await fetchBiliCollectionVideos(
+                    activeCustomTab.mid ?? 0,
+                    activeCustomTab.listId,
+                    activeCustomTab.kind,
+                    pageNo
+                  )
+            if (seq !== loadSeqRef.current) return
+            if (r.items.length > 0) {
+              biliListCacheSet(`custom:${activeCustomTab.id}|${pageNo}`, {
+                items: r.items,
+                total: r.total,
+                maxSourceLen: r.items.length,
+                at: Date.now(),
+              })
+            }
+            applyEntries(r.items, r.total, r.items.length)
+          } else {
+            // 栏目被删除后仍停在 custom tab：清空展示
+            setItems([])
+            setTotal(null)
           }
         } else {
           const fav = await getBilibiliFavVideos(
@@ -582,17 +1028,31 @@ export function MusicBilibiliPage({
             folderId ?? undefined,
             pageNo
           )
+          if (seq !== loadSeqRef.current) return
           setItems(withCoverProxy(fav.items))
           setTotal(fav.total)
         }
       } catch (err) {
-        setItems([])
-        setError(err instanceof Error ? err.message : '获取视频列表失败')
+        if (seq !== loadSeqRef.current) return
+        // 已展示缓存内容时后台刷新失败：保留旧内容不打断
+        if (!showedCache) {
+          setItems([])
+          setError(err instanceof Error ? err.message : '获取视频列表失败')
+        }
       } finally {
-        setLoading(false)
+        if (seq === loadSeqRef.current) {
+          setLoading(false)
+        }
       }
     },
-    [withCoverProxy, biliSearchKeyword, pageNo, regionTag, blockWords]
+    [
+      withCoverProxy,
+      biliSearchKeyword,
+      pageNo,
+      regionTag,
+      blockWords,
+      activeCustomTab,
+    ]
   )
 
   useEffect(() => {
@@ -600,6 +1060,45 @@ export function MusicBilibiliPage({
     void load(tab, activeFolderId)
     // eslint-disable-next-line react-hooks/exhaustive-deps -- activeFolderId 由点击收藏夹时显式触发 load，不随其自动刷新
   }, [tab, load])
+
+  // ===== 分区预取：进入哔哩哔哩页后台预热各分类首页（侧栏前 N 个、逐个
+  // 间隔、已有新鲜缓存的跳过），首次切换分类也能命中缓存秒开 =====
+  const prefetchSeqRef = useRef(0)
+  useEffect(() => {
+    if (tab !== 'region' || biliSearchKeyword) return
+    const seq = ++prefetchSeqRef.current
+    void (async () => {
+      for (const tag of regionTags.slice(0, PREFETCH_REGION_TAG_LIMIT)) {
+        if (seq !== prefetchSeqRef.current) return
+        const key = biliRtCacheKey(tag, 1)
+        const cached = biliListCache.get(key)
+        if (cached && Date.now() - cached.at < BILI_LIST_CACHE_FRESH_MS) {
+          continue
+        }
+        try {
+          const { merged, total, maxSourceLen } = await fetchRegionTagPage(
+            tag,
+            1
+          )
+          if (seq !== prefetchSeqRef.current) return
+          if (merged.length > 0) {
+            biliListCacheSet(key, {
+              items: merged,
+              total,
+              maxSourceLen,
+              at: Date.now(),
+            })
+          }
+        } catch {
+          // 预取失败静默：用户真正切换该分类时按正常加载重试
+        }
+        await new Promise((resolve) =>
+          setTimeout(resolve, PREFETCH_REGION_TAG_STAGGER_MS)
+        )
+        if (seq !== prefetchSeqRef.current) return
+      }
+    })()
+  }, [tab, biliSearchKeyword, regionTags])
 
   // 搜索词变化（顶栏写入新词/清除）时回到第一页
   //（render 期调整，替代 effect 内 setState，与 prevSongId 同范式）
@@ -659,6 +1158,61 @@ export function MusicBilibiliPage({
       void load('fav', f.id)
     },
     [activeFolderId, load]
+  )
+
+  /** 删除自定义栏目并清理其列表缓存；删除当前选中项时回到音乐分区 */
+  const handleDeleteCustomTab = useCallback(
+    (id: string) => {
+      setCustomTabs((prev) => {
+        const next = prev.filter((t) => t.id !== id)
+        saveCustomTabs(next)
+        return next
+      })
+      for (const key of [...biliListCache.keys()]) {
+        if (key.startsWith(`custom:${id}|`)) biliListCache.delete(key)
+      }
+      if (activeCustomTabId === id) {
+        setActiveCustomTabId(null)
+        if (tab === 'custom') {
+          setTab('region')
+          setPageNo(1)
+          if (biliSearchKeyword) setBiliSearchKeyword(null)
+        }
+      }
+    },
+    [activeCustomTabId, tab, biliSearchKeyword, setBiliSearchKeyword]
+  )
+
+  /** 提交添加栏目：后端解析链接（合集/系列/收藏夹 + b23.tv 短链）→
+   *  名称留空用 B站 侧标题 → 去重持久化并立即选中。
+   *  返回错误消息（成功返回空串） */
+  const handleAddCustomTabSubmit = useCallback(
+    async (link: string, name: string): Promise<string> => {
+      const meta = await fetchBiliLinkMeta(link)
+      const id = `${meta.kind}:${meta.listId}`
+      if (customTabs.some((t) => t.id === id)) {
+        return '该栏目已存在'
+      }
+      const finalName = (name.trim() || meta.title || '新栏目').trim()
+      const next = [
+        ...customTabs,
+        {
+          id,
+          name: finalName,
+          kind: meta.kind,
+          mid: meta.mid,
+          listId: meta.listId,
+        },
+      ]
+      setCustomTabs(next)
+      saveCustomTabs(next)
+      setActiveCustomTabId(id)
+      setTab('custom')
+      setPageNo(1)
+      if (biliSearchKeyword) setBiliSearchKeyword(null)
+      return ''
+    },
+    [customTabs, biliSearchKeyword, setBiliSearchKeyword]
   )
 
   /** 新增自定义音乐种类：去重后持久化并立即选中（分类名默认为一个搜索 tag） */
@@ -1088,6 +1642,16 @@ export function MusicBilibiliPage({
       : []),
   ]
 
+  // 弹窗目标分区条目（render 期派生，替代 JSX 内 IIFE，保持 ref 读取合规）
+  const tagRulesEntry =
+    tagRulesEditName != null
+      ? (regionTags.find((t) => t.name === tagRulesEditName) ?? null)
+      : null
+  const categoryBlockEntry =
+    categoryBlockEditName != null
+      ? (regionTags.find((t) => t.name === categoryBlockEditName) ?? null)
+      : null
+
   /** 随机页跳转：total 已知时在 [1, totalPages] 内随机；未知时在
    *  [1, 当前页+100] 内随机（深处空页显示空态可回退）；避开当前页 */
   const handleRandomPage = useCallback(() => {
@@ -1159,6 +1723,67 @@ export function MusicBilibiliPage({
             />
           </button>
         ))}
+        {/* 自定义栏目 tab（链接添加的合集/系列/收藏夹；名称右侧 × 删除，
+            删除当前选中项时回到音乐分区） */}
+        {customTabs.map((ct) => {
+          const kindLabel =
+            ct.kind === 'favlist'
+              ? '收藏夹'
+              : ct.kind === 'season'
+                ? '视频合集'
+                : '系列'
+          const active = tab === 'custom' && activeCustomTabId === ct.id
+          return (
+            <span key={ct.id} className="inline-flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  setTab('custom')
+                  setActiveCustomTabId(ct.id)
+                  // 切子页即退出搜索态并回到第一页
+                  if (biliSearchKeyword) setBiliSearchKeyword(null)
+                  setPageNo(1)
+                }}
+                className={cn(
+                  'relative pb-0.5 text-sm font-bold transition-colors',
+                  active
+                    ? 'text-[var(--md-sys-color-on-surface)]'
+                    : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+                )}
+                title={`${kindLabel}：${ct.name}（点击右侧 × 删除）`}
+              >
+                {ct.name}
+                {/* 激活下划线（与内置 tab 同语言） */}
+                <span
+                  className={cn(
+                    'absolute inset-x-0 bottom-0 h-[2px] transition-opacity',
+                    active ? 'opacity-100' : 'opacity-0'
+                  )}
+                  style={{ backgroundColor: 'var(--md-sys-color-primary)' }}
+                />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleDeleteCustomTab(ct.id)}
+                className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] opacity-40 transition-opacity hover:opacity-100"
+                title={`删除栏目「${ct.name}」`}
+                aria-label={`删除栏目 ${ct.name}`}
+              >
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          )
+        })}
+        {/* 添加栏目：粘贴 B站 链接（视频合集 / 系列 / 收藏夹；b23.tv 短链自动展开） */}
+        <button
+          type="button"
+          onClick={() => setShowAddCustomTab(true)}
+          className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
+          title="通过链接添加栏目（视频合集 / 系列 / 收藏夹）"
+          aria-label="添加栏目"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
         {/* 全局屏蔽词入口（tab 行右侧）：左侧预览 = 全局屏蔽词 + 当前选中分区
             的独立屏蔽词（切分区随之变化，分区词带「·分区」标记）；
             按钮弹出全局屏蔽词设置弹窗（配置的词全局生效） */}
@@ -1566,7 +2191,9 @@ export function MusicBilibiliPage({
                 ? '没有找到相关视频'
                 : tab === 'fav'
                   ? '收藏夹暂无视频'
-                  : '分区暂无视频'}
+                  : tab === 'custom'
+                    ? '该栏目暂无视频'
+                    : '分区暂无视频'}
             </div>
           ) : (
             <div
@@ -1765,34 +2392,23 @@ export function MusicBilibiliPage({
           )}
       </div>
 
-      {/* 右下角悬浮工具组：上一页 / 页码（点击可键盘输入页码跳转）/ 下一页 /
-          刷新（bottom 避开底部悬浮播放条；分页控件与底部分页条同条件显示，
-          样式同刷新按钮的圆形悬浮语言） */}
+      {/* 右下角悬浮工具组（液态玻璃）：上一页 / 页码（点击可键盘输入页码
+          跳转）/ 下一页 / 随机 / 刷新；统一 44px 圆形（bottom 避开底部
+          悬浮播放条；分页控件与底部分页条同条件显示） */}
       <div
         className="fixed right-5 z-20 flex flex-col items-center gap-2 max-md:right-4"
         style={{ bottom: 'calc(104px + env(safe-area-inset-bottom))' }}
       >
         {items.length > 0 && (pageNo > 1 || hasNextPage) && (
           <>
-            <button
-              type="button"
-              onClick={() => setPageNo((p) => Math.max(1, p - 1))}
-              disabled={pageNo <= 1 || loading}
-              className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80 active:scale-90 disabled:cursor-not-allowed disabled:opacity-35"
-              style={{
-                backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-                border:
-                  '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-              }}
+            <LiquidGlassButton
               title="上一页"
-              aria-label="上一页"
+              ariaLabel="上一页"
+              disabled={pageNo <= 1 || loading}
+              onClick={() => setPageNo((p) => Math.max(1, p - 1))}
             >
-              <ChevronUp
-                className="h-4 w-4"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
-              />
-            </button>
+              <ChevronUp className="h-[18px] w-[18px]" />
+            </LiquidGlassButton>
             {pageJumpEditing ? (
               <input
                 autoFocus
@@ -1806,99 +2422,68 @@ export function MusicBilibiliPage({
                 }}
                 onBlur={() => setPageJumpEditing(false)}
                 inputMode="numeric"
-                className="h-10 w-[56px] rounded-full text-center text-xs font-bold tabular-nums outline-none"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                  color: 'var(--md-sys-color-on-surface)',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-                  border: '1px solid var(--md-sys-color-primary)',
-                }}
+                className="bili-liquid-btn lt-blur-surface h-11 w-11 rounded-full text-center text-[11px] font-bold tabular-nums outline-none"
+                style={{ border: '1px solid var(--md-sys-color-primary)' }}
                 title="输入页码后回车跳转（Esc 取消）"
                 aria-label="输入页码跳转"
               />
             ) : (
-              <button
-                type="button"
+              <LiquidGlassButton
+                title={`当前第 ${pageNo} 页${totalPages != null ? ` / 共 ${totalPages} 页` : ''}；点击输入页码跳转`}
+                ariaLabel="跳转到指定页"
+                disabled={loading}
                 onClick={() => {
                   setPageJumpValue(String(pageNo))
                   setPageJumpEditing(true)
                 }}
-                disabled={loading}
-                className="flex h-10 min-w-[56px] items-center justify-center rounded-full px-2 text-xs font-bold tabular-nums transition-opacity hover:opacity-80 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                  color: 'var(--md-sys-color-on-surface)',
-                  boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-                  border:
-                    '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-                }}
-                title={`当前第 ${pageNo} 页${totalPages != null ? ` / 共 ${totalPages} 页` : ''}；点击输入页码跳转`}
-                aria-label="跳转到指定页"
               >
-                {totalPages != null
-                  ? `${pageNo}/${totalPages}`
-                  : `${pageNo} 页`}
-              </button>
+                {totalPages != null ? (
+                  <span className="text-[10px] font-bold tabular-nums leading-none">
+                    {pageNo}/{totalPages}
+                  </span>
+                ) : (
+                  <span className="text-xs font-bold tabular-nums leading-none">
+                    {pageNo}
+                  </span>
+                )}
+              </LiquidGlassButton>
             )}
-            <button
-              type="button"
-              onClick={() => setPageNo((p) => p + 1)}
-              disabled={!hasNextPage || loading}
-              className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80 active:scale-90 disabled:cursor-not-allowed disabled:opacity-35"
-              style={{
-                backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-                border:
-                  '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-              }}
+            <LiquidGlassButton
               title="下一页"
-              aria-label="下一页"
+              ariaLabel="下一页"
+              disabled={!hasNextPage || loading}
+              onClick={() => setPageNo((p) => p + 1)}
             >
-              <ChevronDown
-                className="h-4 w-4"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
-              />
-            </button>
-            <button
-              type="button"
-              onClick={handleRandomPage}
-              disabled={loading}
-              className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80 active:scale-90 disabled:cursor-not-allowed disabled:opacity-35"
-              style={{
-                backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-                border:
-                  '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-              }}
+              <ChevronDown className="h-[18px] w-[18px]" />
+            </LiquidGlassButton>
+            <LiquidGlassButton
               title="随机跳转一页"
-              aria-label="随机跳转一页"
+              ariaLabel="随机跳转一页"
+              disabled={loading}
+              onClick={handleRandomPage}
             >
-              <Dices
-                className="h-4 w-4"
-                style={{ color: 'var(--md-sys-color-on-surface)' }}
-              />
-            </button>
+              <Dices className="h-[18px] w-[18px]" />
+            </LiquidGlassButton>
           </>
         )}
-        <button
-          type="button"
-          onClick={() => void load(tab, activeFolderId)}
-          className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-80 active:scale-90"
-          style={{
-            backgroundColor: 'var(--md-sys-color-surface-container-high)',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.15)',
-            border:
-              '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 12%, transparent)',
-          }}
+        <LiquidGlassButton
           title="刷新"
-          aria-label="刷新列表"
+          ariaLabel="刷新列表"
+          onClick={() => void load(tab, activeFolderId)}
         >
           <RefreshCw
-            className={cn('h-5 w-5', loading && 'animate-spin')}
-            style={{ color: 'var(--md-sys-color-on-surface)' }}
+            className={cn('h-[18px] w-[18px]', loading && 'animate-spin')}
           />
-        </button>
+        </LiquidGlassButton>
       </div>
+
+      {/* 添加栏目弹窗：解析 B站 链接（合集/系列/收藏夹）→ 保存自定义栏目并选中 */}
+      {showAddCustomTab && (
+        <AddCustomTabModal
+          onClose={() => setShowAddCustomTab(false)}
+          onSubmit={handleAddCustomTabSubmit}
+        />
+      )}
 
       {/* 全局屏蔽词设置弹窗（黑底 SETTING 风格；配置的词全局生效，
           即时持久化，作用于搜索/榜单/各分区列表的最终过滤） */}
@@ -1921,60 +2506,50 @@ export function MusicBilibiliPage({
       )}
 
       {/* 分类标签规则弹窗（多 tag 筛选；规则变化经 render 期调整自动重载） */}
-      {tagRulesEditName != null &&
-        (() => {
-          const entry = regionTags.find((t) => t.name === tagRulesEditName)
-          if (!entry) return null
-          return (
-            <TagRulesModal
-              title={`「${entry.name}」标签规则`}
-              rules={entry.tags ?? []}
-              input={blockWordInput}
-              onInputChange={setBlockWordInput}
-              onAdd={handleAddTagRule}
-              onRemove={handleRemoveTagRule}
-              onToggleRole={handleToggleTagRuleRole}
-              onToggleSource={handleToggleTagRuleSource}
-              onClose={() => {
-                setTagRulesEditName(null)
-                setBlockWordInput('')
-                // 编辑的是当前选中分类时，重载列表使规则立即生效
-                if (regionTag?.name === entry.name) {
-                  void load(tab, activeFolderId)
-                }
-              }}
-            />
-          )
-        })()}
+      {tagRulesEntry && (
+        <TagRulesModal
+          title={`「${tagRulesEntry.name}」标签规则`}
+          rules={tagRulesEntry.tags ?? []}
+          input={blockWordInput}
+          onInputChange={setBlockWordInput}
+          onAdd={handleAddTagRule}
+          onRemove={handleRemoveTagRule}
+          onToggleRole={handleToggleTagRuleRole}
+          onToggleSource={handleToggleTagRuleSource}
+          onClose={() => {
+            setTagRulesEditName(null)
+            setBlockWordInput('')
+            // 编辑的是当前选中分类时，重载列表使规则立即生效
+            if (regionTag?.name === tagRulesEntry.name) {
+              void load(tab, activeFolderId)
+            }
+          }}
+        />
+      )}
 
       {/* 分区限定屏蔽词弹窗（左栏分类条目右上角入口；词级作用范围
           （标题/标签/全部）与全局屏蔽词同语义，但仅对该分区列表生效；
           改动即时持久化，关闭时重载当前列表） */}
-      {categoryBlockEditName != null &&
-        (() => {
-          const entry = regionTags.find((t) => t.name === categoryBlockEditName)
-          if (!entry) return null
-          return (
-            <BlockWordsModal
-              title={`「${entry.name}」屏蔽词`}
-              description={`仅对「${entry.name}」分区的列表生效；点击词上的范围徽标可单独设置匹配标题还是标签`}
-              words={entry.blockWords ?? []}
-              input={blockWordInput}
-              onInputChange={setBlockWordInput}
-              onAdd={handleAddCategoryBlockWord}
-              onRemove={handleRemoveCategoryBlockWord}
-              onToggleScope={handleToggleCategoryBlockWordScope}
-              onClose={() => {
-                setCategoryBlockEditName(null)
-                setBlockWordInput('')
-                // 编辑的是当前选中分类时，重载列表使屏蔽立即生效
-                if (regionTag?.name === entry.name) {
-                  void load(tab, activeFolderId)
-                }
-              }}
-            />
-          )
-        })()}
+      {categoryBlockEntry && (
+        <BlockWordsModal
+          title={`「${categoryBlockEntry.name}」屏蔽词`}
+          description={`仅对「${categoryBlockEntry.name}」分区的列表生效；点击词上的范围徽标可单独设置匹配标题还是标签`}
+          words={categoryBlockEntry.blockWords ?? []}
+          input={blockWordInput}
+          onInputChange={setBlockWordInput}
+          onAdd={handleAddCategoryBlockWord}
+          onRemove={handleRemoveCategoryBlockWord}
+          onToggleScope={handleToggleCategoryBlockWordScope}
+          onClose={() => {
+            setCategoryBlockEditName(null)
+            setBlockWordInput('')
+            // 编辑的是当前选中分类时，重载列表使屏蔽立即生效
+            if (regionTag?.name === categoryBlockEntry.name) {
+              void load(tab, activeFolderId)
+            }
+          }}
+        />
+      )}
     </div>
   )
 }

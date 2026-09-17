@@ -25,6 +25,35 @@ import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 export type MusicPage =
   'home' | 'fm' | 'cloud' | 'mymusic' | 'search' | 'bilibili' | 'settings'
 
+/** 上次所在主区域页面的持久化 key（刷新/重开应用后恢复原页面） */
+const MUSIC_PAGE_STORAGE_KEY = 'zviewer-music-page'
+
+const MUSIC_PAGE_VALUES: readonly MusicPage[] = [
+  'home',
+  'fm',
+  'cloud',
+  'mymusic',
+  'search',
+  'bilibili',
+  'settings',
+]
+
+/**
+ * 从 localStorage 恢复上次所在的主区域页面（如哔哩哔哩页，刷新后仍停留）；
+ * 无记录/非法值/隐私模式读取失败一律回退首页
+ */
+function loadInitialPage(): MusicPage {
+  try {
+    const stored = localStorage.getItem(MUSIC_PAGE_STORAGE_KEY)
+    if (stored && MUSIC_PAGE_VALUES.includes(stored as MusicPage)) {
+      return stored as MusicPage
+    }
+  } catch {
+    // ignore：隐私模式等场景读取失败
+  }
+  return 'home'
+}
+
 /** 观众同步回执（房主端左下角「xx 已同步」提示条目） */
 export interface MusicSyncAck {
   /** 唯一标识（渲染 key + 过期清理） */
@@ -117,7 +146,7 @@ export interface MusicState {
   biliRecommendedKeys: string[]
 
   // ===== UI 状态（Hydrogen 主框架） =====
-  /** 主区域当前页面 */
+  /** 主区域当前页面（切页即持久化，刷新/重开应用后恢复原页面） */
   page: MusicPage
   /** 顶部搜索关键词（搜索框回车写入，搜索页消费） */
   searchKeywords: string
@@ -213,7 +242,7 @@ const defaultState = {
   biliItem: null as MusicQueueItem | null,
   biliRecommendedKeys: [] as string[],
   biliSearchKeyword: null as string | null,
-  page: 'home' as MusicPage,
+  page: loadInitialPage(),
   searchKeywords: '',
   playerOverlayOpen: false,
   playerOverlayClosing: false,
@@ -280,7 +309,15 @@ export const useMusicStore = create<MusicState>((set) => ({
         : { biliRecommendedKeys: merged }
     }),
   setBiliSearchKeyword: (keyword) => set({ biliSearchKeyword: keyword }),
-  setPage: (page) => set({ page }),
+  setPage: (page) => {
+    set({ page })
+    // 记忆当前页面：刷新/重开应用后由 loadInitialPage 恢复
+    try {
+      localStorage.setItem(MUSIC_PAGE_STORAGE_KEY, page)
+    } catch {
+      // ignore：隐私模式等场景写入失败可忽略
+    }
+  },
   setSearchKeywords: (keywords) => set({ searchKeywords: keywords }),
   setPlayerOverlayOpen: (open) => set({ playerOverlayOpen: open }),
   /** 带滑出动画关闭完整播放器覆盖层：先标记 closing（0.5s 滑出动画），
@@ -295,7 +332,9 @@ export const useMusicStore = create<MusicState>((set) => ({
   setLoginModalOpen: (open) => set({ loginModalOpen: open }),
   setPendingAlbumDetail: (d) => set({ pendingAlbumDetail: d }),
   setPendingMyDetail: (d) => set({ pendingMyDetail: d }),
-  reset: () => set({ ...defaultState }),
+  /** 重置为初始状态（离开房间时调用；页面记忆仅应用加载时恢复，
+   *  此处保持旧语义回首页） */
+  reset: () => set({ ...defaultState, page: 'home' }),
   resetPlayback: () =>
     set({
       queue: [],

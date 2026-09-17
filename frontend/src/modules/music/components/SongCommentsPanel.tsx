@@ -161,9 +161,17 @@ export function getCommentCountBadge(targetKey: string): string {
   return String(n)
 }
 
-// ==================== 样式（Hydrogen Comments.vue scoped SCSS 平替） ====================
+/** 写入评论总数缓存并广播（B站 评论区面板复用同一徽章通道） */
+export function setCommentTotal(targetKey: string, total: number): void {
+  if (!targetKey) return
+  commentTotalCache.set(targetKey, total)
+  window.dispatchEvent(new CustomEvent(COMMENT_TOTAL_EVENT))
+}
 
-const COMMENTS_STYLE = `
+// ==================== 样式（Hydrogen Comments.vue scoped SCSS 平替；
+// 导出供 B站 评论区面板复用同一套 UI 语言） ====================
+
+export const COMMENTS_STYLE = `
 .arknights-comments {
   --ac-border: rgba(0, 0, 0, 0.75);
   --ac-soft-bg: rgba(255, 255, 255, 0.6);
@@ -392,6 +400,7 @@ html.dark .arknights-comments::-webkit-scrollbar-thumb {
 
 const LIKE_PATH =
   'M736.603 35.674c-87.909 0-169.647 44.1-223.447 116.819C459.387 79.756 377.665 35.674 289.708 35.674c-158.47 0-287.397 140.958-287.397 314.233 0 103.371 46.177 175.887 83.296 234.151 107.88 169.236 379.126 379.846 390.616 388.725 11.068 8.557 24.007 12.837 36.917 12.837 12.939 0 25.861-4.28 36.917-12.837 11.503-8.879 282.765-219.488 390.614-388.725C977.808 525.793 1024 453.277 1024 349.907 1023.999 176.632 895.071 35.674 736.603 35.674z'
+export { LIKE_PATH }
 const REPLY_PATH =
   'M853.333333 85.333333a85.333333 85.333333 0 0 1 85.333334 85.333334v469.333333a85.333333 85.333333 0 0 1-85.333334 85.333333H298.666667L128 896V170.666667a85.333333 85.333333 0 0 1 85.333333-85.333334h640z m0 85.333334H213.333333v530.773333L285.44 640H853.333333V170.666667z m-256 128v85.333333H256v-85.333333h341.333333z m0 170.666666v85.333334H256v-85.333334h341.333333z'
 

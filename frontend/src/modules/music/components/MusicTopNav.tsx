@@ -9,7 +9,11 @@
  *   mobile + /search/suggest/pc + web，条目数 = 设置「搜索下拉条目数量」）；
  *   键盘 ↑↓ 循环高亮、Enter 选中高亮项或直接搜索，中文输入法组合态忽略；
  *   点击建议 → 写入关键词并跳搜索页；回车 → page='search' 并存关键词
- * - 导航链接：首页/私人漫游/云盘/我的音乐；当前页 on-surface、
+ * - 导航链接：默认折叠态只有「网易云音乐」「哔哩哔哩」两按钮——网易云
+ *   四分区（首页/私人漫游/云盘/我的音乐）合并进「网易云音乐」按钮，点击
+ *   弹出分区选择面板（当前项实心方块指示，底部可展开完整导航），折叠态
+ *   无意图的初始页默认落「我的音乐」；面板底部或展开态末尾按钮可在两种
+ *   排版间切换（musicNavCollapsed 持久化）。当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
  *   hover opacity-0.7
  * - 账户菜单（全局 Header 用户菜单同语言）：glass-strong 底 + 主题模糊度
@@ -20,7 +24,17 @@
  *   追加「登录网易云后全房间可播 VIP」辅助提示
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { LogIn, LogOut, Search, Settings, User, X } from 'lucide-react'
+import {
+  ChevronDown,
+  FoldVertical,
+  LogIn,
+  LogOut,
+  Search,
+  Settings,
+  UnfoldVertical,
+  User,
+  X,
+} from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { useMusicStore } from '../store'
 import { useMusicSettingsStore } from '../store-settings'
@@ -66,6 +80,12 @@ const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
   { key: 'bilibili', label: '哔哩哔哩' },
 ]
 
+/** 网易云分区（折叠态「网易云音乐」按钮的弹出面板项；不含 B站） */
+const NCM_NAV_ITEMS = NAV_ITEMS.filter((it) => it.key !== 'bilibili')
+
+/** 网易云分区 key 集合（折叠态「网易云音乐」按钮激活判定） */
+const NCM_NAV_KEYS = new Set(NCM_NAV_ITEMS.map((it) => it.key))
+
 /** 下拉面板四角框线（Hydrogen .assist-corner1~4：7px 见方、1px 边） */
 const PANEL_CORNERS = [
   'left-[3px] top-[3px] border-l border-t',
@@ -96,6 +116,11 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const [keyword, setKeyword] = useState('')
   /** 账户菜单展开态 */
   const [menuOpen, setMenuOpen] = useState(false)
+  /** 顶部导航折叠态（网易云四分区合并为单按钮；持久化设置） */
+  const navCollapsed = useMusicSettingsStore((s) => s.musicNavCollapsed)
+  const setMusicSettings = useMusicSettingsStore((s) => s.set)
+  /** 折叠态「网易云音乐」分区面板展开态 */
+  const [ncmMenuOpen, setNcmMenuOpen] = useState(false)
   /** 搜索联想条数上限（设置「搜索下拉条目数量」；Hydrogen searchAssistLimit 同名配置） */
   const searchAssistLimit = useMusicSettingsStore((s) => s.searchAssistLimit)
   /** 聚焦态（驱动容器加宽动画，Hydrogen searchShow 同语义） */
@@ -128,6 +153,23 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     window.addEventListener('pointerdown', close)
     return () => window.removeEventListener('pointerdown', close)
   }, [menuOpen])
+
+  // 折叠态分区面板打开时点击外部关闭（同账户菜单交互）
+  useEffect(() => {
+    if (!ncmMenuOpen) return
+    const close = () => setNcmMenuOpen(false)
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
+  }, [ncmMenuOpen])
+
+  // 折叠模式下「网易云音乐」默认显示「我的音乐」：仅当当前页是无意图的
+  // 首页回退值（无持久化记录/非法值）时改写一次；用户明确停留的分区不动
+  const ncmDefaultAppliedRef = useRef(false)
+  useEffect(() => {
+    if (ncmDefaultAppliedRef.current) return
+    ncmDefaultAppliedRef.current = true
+    if (navCollapsed && page === 'home') setPage('mymusic')
+  }, [navCollapsed, page, setPage])
 
   /** 热搜榜拉取（Hydrogen fetchHotList：/search/hot/detail，单次缓存） */
   const loadHotList = useCallback(async () => {
@@ -556,33 +598,191 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
         </div>
       )}
 
-      {/* ===== 中：导航链接组（手机端字号/间距收窄更优雅） ===== */}
+      {/* ===== 中：导航链接组（手机端字号/间距收窄更优雅）。
+          折叠态（默认）：「网易云音乐」+「哔哩哔哩」两按钮，网易云四
+          分区收入弹出面板（当前项实心方块指示，底部可展开完整导航）；
+          展开态：完整五按钮 + 末尾折叠按钮，两种排版可互切（持久化） ===== */}
       <nav
         className="flex min-w-0 flex-1 items-center justify-center gap-[clamp(18px,3vw,40px)] max-md:gap-3"
         aria-label="音乐页面导航"
       >
-        {NAV_ITEMS.map((item) => {
-          const active = page === item.key
-          return (
+        {navCollapsed ? (
+          <>
+            {/* 网易云音乐合并按钮（四分区入口）：激活=当前页属网易云分区 */}
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setNcmMenuOpen((v) => !v)}
+                // 阻断外点关闭捕获层：保证按钮本身可正常开/关面板
+                onPointerDown={(e) => e.stopPropagation()}
+                className={cn(
+                  'inline-flex items-center gap-1 md:text-xl shrink-0 font-medium transition-opacity hover:opacity-70 max-md:text-[14px]',
+                  NCM_NAV_KEYS.has(page) ? 'opacity-100' : 'opacity-60'
+                )}
+                style={{
+                  color: NCM_NAV_KEYS.has(page)
+                    ? 'var(--md-sys-color-on-surface)'
+                    : 'var(--md-sys-color-on-surface-variant)',
+                }}
+                aria-haspopup="menu"
+                aria-expanded={ncmMenuOpen}
+                aria-label="网易云音乐分区导航"
+              >
+                网易云音乐
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 transition-transform duration-200',
+                    ncmMenuOpen && 'rotate-180'
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
+
+              {/* 分区选择面板（账户菜单同语言：glass-strong + 四角框线 +
+                  zen-dropdown-item 交错入场） */}
+              {ncmMenuOpen && (
+                <div
+                  className="zen-dropdown-enter glass-strong absolute left-1/2 top-[calc(100%+10px)] z-[2001] ml-[-5.5rem] w-44 rounded-[var(--md-sys-shape-corner)] p-1.5 [transform-origin:top_center]"
+                  style={{
+                    boxShadow:
+                      '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
+                  }}
+                  role="menu"
+                  onPointerDown={(e) => e.stopPropagation()}
+                >
+                  {PANEL_CORNERS.map((pos) => (
+                    <span
+                      key={`ncm-corner-${pos}`}
+                      aria-hidden="true"
+                      className={cn(
+                        'pointer-events-none absolute h-[7px] w-[7px]',
+                        pos
+                      )}
+                      style={{
+                        borderColor: 'var(--md-sys-color-on-surface)',
+                      }}
+                    />
+                  ))}
+                  {NCM_NAV_ITEMS.map((item, idx) => {
+                    const active = page === item.key
+                    return (
+                      <button
+                        key={item.key}
+                        type="button"
+                        role="menuitemradio"
+                        aria-checked={active}
+                        onClick={() => {
+                          setPage(item.key)
+                          setNcmMenuOpen(false)
+                        }}
+                        className="zen-dropdown-item flex w-full items-center gap-2.5 rounded-[var(--md-sys-shape-corner)] px-2.5 py-2 text-left text-sm transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] hover:translate-x-0.5"
+                        style={
+                          {
+                            '--item-delay': `${idx * ITEM_DELAY_STEP}ms`,
+                            color: active
+                              ? 'var(--md-sys-color-on-surface)'
+                              : 'color-mix(in srgb, var(--md-sys-color-on-surface) 62%, transparent)',
+                          } as React.CSSProperties
+                        }
+                      >
+                        {/* 当前分区实心小方块指示（Hydrogen 选中标记语言） */}
+                        <span
+                          className={cn(MODE_MARKER, 'shrink-0')}
+                          style={{
+                            backgroundColor: active
+                              ? 'var(--md-sys-color-on-surface)'
+                              : 'transparent',
+                          }}
+                          aria-hidden="true"
+                        />
+                        <span className="flex-1 truncate">{item.label}</span>
+                      </button>
+                    )
+                  })}
+                  <div
+                    className="mx-1 my-1.5 h-px"
+                    style={{
+                      backgroundColor:
+                        'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
+                    }}
+                  />
+                  {/* 展开完整导航（恢复五按钮排版，persist 到设置） */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMusicSettings({ musicNavCollapsed: false })
+                      setNcmMenuOpen(false)
+                    }}
+                    className="zen-dropdown-item flex w-full items-center gap-2.5 rounded-[var(--md-sys-shape-corner)] px-2.5 py-2 text-left text-sm text-[var(--md-sys-color-on-surface)] transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] hover:translate-x-0.5"
+                    style={
+                      {
+                        '--item-delay': `${NCM_NAV_ITEMS.length * ITEM_DELAY_STEP}ms`,
+                      } as React.CSSProperties
+                    }
+                  >
+                    <UnfoldVertical className="h-4 w-4 text-[var(--md-sys-color-on-surface-variant)]" />
+                    展开完整导航
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* 哔哩哔哩直达按钮 */}
             <button
-              key={item.key}
               type="button"
-              onClick={() => setPage(item.key)}
+              onClick={() => setPage('bilibili')}
               className={cn(
                 'md:text-xl shrink-0 font-medium transition-opacity hover:opacity-70 max-md:text-[14px]',
-                active ? 'opacity-100' : 'opacity-60'
+                page === 'bilibili' ? 'opacity-100' : 'opacity-60'
               )}
               style={{
-                color: active
-                  ? 'var(--md-sys-color-on-surface)'
-                  : 'var(--md-sys-color-on-surface-variant)',
+                color:
+                  page === 'bilibili'
+                    ? 'var(--md-sys-color-on-surface)'
+                    : 'var(--md-sys-color-on-surface-variant)',
               }}
-              aria-current={active ? 'page' : undefined}
+              aria-current={page === 'bilibili' ? 'page' : undefined}
             >
-              {item.label}
+              哔哩哔哩
             </button>
-          )
-        })}
+          </>
+        ) : (
+          <>
+            {NAV_ITEMS.map((item) => {
+              const active = page === item.key
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  onClick={() => setPage(item.key)}
+                  className={cn(
+                    'md:text-xl shrink-0 font-medium transition-opacity hover:opacity-70 max-md:text-[14px]',
+                    active ? 'opacity-100' : 'opacity-60'
+                  )}
+                  style={{
+                    color: active
+                      ? 'var(--md-sys-color-on-surface)'
+                      : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {item.label}
+                </button>
+              )
+            })}
+            {/* 折叠导航：网易云四分区合并为单按钮（persist 到设置） */}
+            <button
+              type="button"
+              onClick={() => setMusicSettings({ musicNavCollapsed: true })}
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full opacity-50 transition-opacity hover:opacity-100 active:scale-90"
+              style={{ color: 'var(--md-sys-color-on-surface)' }}
+              title="折叠导航：网易云分区合并为「网易云音乐」按钮"
+              aria-label="折叠导航"
+            >
+              <FoldVertical className="h-4 w-4" />
+            </button>
+          </>
+        )}
       </nav>
 
       {/* ===== 右：账户菜单（房间模式切换已收入菜单内分组）；定宽 224px

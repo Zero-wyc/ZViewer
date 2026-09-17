@@ -25,7 +25,7 @@
  * 右侧内容区（Hydrogen LibraryDetail 1:1）：
  * - 前进/后退双箭头（32px，实心 chevron，无历史 opacity-45）
  * - 歌单头：150px 大封面（0.5px 边框 + 弥散阴影）+ 右侧信息列
- *   （名称 22px 加粗两行截断 / 创建者 12px / 「共N首 - M分钟」11px）
+ *   （名称 22px 加粗两行截断 / 创建者 12px / 「共N首」11px）
  * - 右上角列（130px）：创建时间描边框（10px）+ 「查看详情」黑底白字按钮
  *   （点击弹出 700×400 毛玻璃描述面板，metro 先宽后高展开动画 + 四角
  *   白点闪烁）+ SEARCH 歌曲过滤框
@@ -236,8 +236,6 @@ interface DetailMeta {
   creator?: string
   /** 查看详情弹窗的描述文本 */
   description?: string
-  /** 歌单总时长（毫秒，来自 /playlist/detail 的 duration 字段） */
-  totalDurationMs?: number
 }
 
 export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
@@ -516,11 +514,6 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               timeLabel: pl?.createTime ? formatDate(pl.createTime) : undefined,
               creator: pl?.creator?.nickname,
               description: pl?.description,
-              // 官方总时长（毫秒）：网易在 /playlist/detail 同步给出，
-              // 优先于「对已加载歌曲累加」的估算值
-              totalDurationMs: Number.isFinite(pl?.duration)
-                ? pl.duration
-                : undefined,
             })
             // ===== 「我喜欢的音乐」红心回退（Hydrogen usePlaylistSync 同源）：
             //       v6/playlist/detail 对 specialType=5 主歌单被网易限制
@@ -858,23 +851,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             s.name.toLowerCase().includes(kw) ||
             s.artist.toLowerCase().includes(kw)
         )
-  /**
-   * 歌单统计时长（对齐 Hydrogen totalTime，单位：分钟）：
-   * 优先用 /playlist/detail 的官方全量 duration（毫秒）取整；
-   * 歌手页/专辑页等无官方值场景，退回对已加载歌曲 dt 累加取整
-   *（缓加载下仅统计已加载部分，随滚动加载逐步趋近真实值）
-   */
-  const totalMinutes =
-    detailMeta?.totalDurationMs != null
-      ? Math.round(detailMeta.totalDurationMs / 1000 / 60)
-      : Math.round(
-          detailSongs.reduce((sum, s) => sum + s.durationMs, 0) / 60000
-        )
-  /** 数量行（歌手页用 meta.numText，其余「共N首 - M分钟」） */
+  /** 数量行（歌手页用 meta.numText，其余「共N首」） */
   const numText =
     detail?.kind === 'artist'
       ? (detailMeta?.numText ?? detail.info ?? '')
-      : `共${detail?.info ?? `${detailSongs.length} 首`} - ${totalMinutes}分钟`
+      : `共${detail?.info ?? `${detailSongs.length} 首`}`
 
   // ===== 详情视图（右侧内容区，Hydrogen LibraryDetail 1:1） =====
   // 每日推荐：整区替换为日推面板（Hydrogen /mymusic/playlist/rec 同款展示）

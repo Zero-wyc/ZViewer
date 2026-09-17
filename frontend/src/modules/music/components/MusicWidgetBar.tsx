@@ -39,6 +39,10 @@ import {
 import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
+import {
+  normalizeBiliLikeFavTitle,
+  useMusicSettingsStore,
+} from '../store-settings'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { OverflowMarquee } from './OverflowMarquee'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
@@ -255,22 +259,34 @@ export function MusicWidgetBar() {
 
   // ===== B站 歌状态：当前播放为 B站 视频时，控制栏「添加到歌单」切换为
   // 「添加到哔哩哔哩收藏夹」（弹窗选择收藏夹），「专辑」切换为红心
-  // （一键收藏到 B站「Music」收藏夹，不存在自动创建） =====
+  // （一键收藏到设置「红心收藏夹」指定的收藏夹，不存在自动创建） =====
   const isBiliSong = currentSong?.biliBvid != null
+  /** 红心一键收藏的目标收藏夹（播放页设置「红心收藏夹」，默认 Music） */
+  const biliLikeFavTitle = normalizeBiliLikeFavTitle(
+    useMusicSettingsStore((s) => s.biliLikeFavTitle)
+  )
   const [biliFavModalOpen, setBiliFavModalOpen] = useState(false)
   const [biliCollecting, setBiliCollecting] = useState(false)
-  /** 已收藏到「Music」收藏夹的视频 bvid（本地会话记忆；切到其他视频空心） */
-  const [biliCollectedBvid, setBiliCollectedBvid] = useState<string | null>(
-    null
-  )
+  /** 已收藏记录（本地会话记忆：bvid + 目标收藏夹名；切到其他视频或
+   *  更换目标收藏夹后红心回落空心） */
+  const [biliCollectedMark, setBiliCollectedMark] = useState<{
+    bvid: string
+    folder: string
+  } | null>(null)
   const biliCollected =
-    isBiliSong && currentSong?.biliBvid === biliCollectedBvid
-  const handleCollectToMusic = useCallback(async () => {
+    isBiliSong &&
+    currentSong?.biliBvid != null &&
+    biliCollectedMark?.bvid === currentSong.biliBvid &&
+    biliCollectedMark.folder === biliLikeFavTitle
+  const handleBiliCollect = useCallback(async () => {
     const bvid = currentSong?.biliBvid
     if (!bvid || biliCollecting) return
-    // 已收藏过：本地提示，避免重复请求
-    if (bvid === biliCollectedBvid) {
-      message.info('已收藏到「Music」收藏夹')
+    // 已收藏过（同一视频 + 同一目标收藏夹）：本地提示，避免重复请求
+    if (
+      biliCollectedMark?.bvid === bvid &&
+      biliCollectedMark.folder === biliLikeFavTitle
+    ) {
+      message.info(`已收藏到「${biliLikeFavTitle}」收藏夹`)
       return
     }
     setBiliCollecting(true)
@@ -281,19 +297,19 @@ export function MusicWidgetBar() {
         folderTitle?: string
       }>('/api/stream/bilibili/fav/collect', {
         bvid,
-        folderTitle: 'Music',
+        folderTitle: biliLikeFavTitle,
       })
       if (!ok || data?.success === false) {
         throw new Error(data?.message || '收藏失败')
       }
-      setBiliCollectedBvid(bvid)
-      message.success(`已收藏到「${data?.folderTitle || 'Music'}」`)
+      setBiliCollectedMark({ bvid, folder: biliLikeFavTitle })
+      message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
     } catch (err) {
       message.error(err instanceof Error ? err.message : '收藏失败')
     } finally {
       setBiliCollecting(false)
     }
-  }, [currentSong, biliCollecting, biliCollectedBvid])
+  }, [currentSong, biliCollecting, biliCollectedMark, biliLikeFavTitle])
 
   // ===== 专辑跳转（Hydrogen toAlbum：解析当前歌的专辑 ID 后跳转专辑详情页） =====
   const handleToAlbum = useCallback(async () => {
@@ -598,23 +614,23 @@ export function MusicWidgetBar() {
           )}
           {/* 专辑（唱片）：解析当前歌专辑并跳转详情页（Hydrogen toAlbum；
               手机端隐藏——入口保留在完整播放器内）。
-              B站 歌时切换为红心：一键收藏当前视频到 B站「Music」收藏夹 */}
+              B站 歌时切换为红心：一键收藏当前视频到设置的「红心收藏夹」 */}
           {currentSong &&
             (isBiliSong ? (
               <button
                 type="button"
                 className="flex h-5 w-5 items-center justify-center transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
-                onClick={() => void handleCollectToMusic()}
+                onClick={() => void handleBiliCollect()}
                 disabled={biliCollecting}
                 title={
                   biliCollected
-                    ? '已收藏到哔哩哔哩「Music」收藏夹'
-                    : '收藏到哔哩哔哩「Music」收藏夹'
+                    ? `已收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹`
+                    : `收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹`
                 }
                 aria-label={
                   biliCollected
-                    ? '已收藏到哔哩哔哩 Music 收藏夹'
-                    : '收藏到哔哩哔哩 Music 收藏夹'
+                    ? `已收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹`
+                    : `收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹`
                 }
               >
                 <Heart
@@ -693,7 +709,9 @@ export function MusicWidgetBar() {
       <BiliFavCollectModal
         open={biliFavModalOpen}
         bvid={currentSong?.biliBvid ?? ''}
-        onCollected={(bvid) => setBiliCollectedBvid(bvid)}
+        onCollected={(bvid, folder) =>
+          setBiliCollectedMark({ bvid, folder: folder ?? biliLikeFavTitle })
+        }
         onClose={() => setBiliFavModalOpen(false)}
       />
     </div>
