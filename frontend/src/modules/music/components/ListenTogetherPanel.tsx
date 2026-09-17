@@ -41,11 +41,14 @@ import {
   Check,
   Film,
   MonitorPlay,
+  MonitorSmartphone,
+  MessagesSquare,
   Settings,
   ExternalLink,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiGet } from '@/lib/api'
+import { apiGet, getApiUrl } from '@/lib/api'
+import { CLI_DEFAULT_PORT, useCliAgent } from '@/hooks/useCliAgent'
 import { useIsPortraitMobile } from '@/hooks/useMediaQuery'
 import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
@@ -59,6 +62,18 @@ import {
 } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
+import {
+  DanmakuLayer,
+  type DanmakuLayerHandle,
+} from '@/components/DanmakuLayer'
+import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
+import type { DanmakuItem } from '@/modules/danmaku/types'
+import { useDanmakuStore, DEFAULT_DANMAKU_STYLE } from '@/store/danmakuStore'
+import {
+  DanmakuStylePanel,
+  DanmakuAdvancedSettings,
+} from '@/modules/room/watch-together/DanmakuStylePanel'
+import { FontPickerPanel } from '@/components/ui/FontPicker'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
@@ -259,12 +274,39 @@ function TinySlider({
   )
 }
 
+/** 黑底弹窗内嵌 MD3 弹幕设置面板的变量作用域覆盖：DanmakuStylePanel /
+ *  DanmakuAdvancedSettings / Slider / Switch / FontPickerPanel 均消费
+ *  --md-sys-color-* 令牌，弹窗为纯黑底，按弹窗白主题语言（primary=白，
+ *  与弹窗 toggle/双按钮一致）覆写暗色值 */
+const DANMAKU_PANEL_TOKEN_OVERRIDES = {
+  '--md-sys-color-on-surface': '#ececf0',
+  '--md-sys-color-on-surface-variant': '#c6c6ce',
+  '--md-sys-color-outline': '#8f8f97',
+  '--md-sys-color-outline-variant': 'rgba(255, 255, 255, 0.24)',
+  '--md-sys-color-primary': '#ffffff',
+  '--md-sys-color-on-primary': '#000000',
+  '--md-sys-color-primary-container': 'rgba(255, 255, 255, 0.92)',
+  '--md-sys-color-on-primary-container': '#0a0a0a',
+  '--md-sys-color-secondary-container': 'rgba(255, 255, 255, 0.14)',
+  '--md-sys-color-on-secondary-container': '#f2f2f5',
+  '--md-sys-color-surface': '#141418',
+  '--md-sys-color-surface-container-high': 'rgba(255, 255, 255, 0.08)',
+  '--md-sys-color-surface-container-highest': 'rgba(255, 255, 255, 0.12)',
+  '--glass-bg': 'rgba(255, 255, 255, 0.08)',
+} as React.CSSProperties
+
 /** 歌词页快捷设置弹窗（Hydrogen「添加到我的歌单」弹窗同视觉语言改版）：
  * 黑底 + 高斯模糊 backdrop，顶部「设置」标题后压超大 SETTING 水印字，
  * 四角白色方块点缀；承载「一起听设置」的背景项（封面模糊 / 背景压暗 /
  * 视频背景 CLI 高画质），与设置页同一设置项、改动即时持久化。
  * 点遮罩或 Esc 关闭。 */
-function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
+function PlayerSettingsModal({
+  onDismiss,
+  roomId,
+}: {
+  onDismiss: () => void
+  roomId: string
+}) {
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
@@ -282,6 +324,28 @@ function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const lyricBlurLevel = useMusicSettingsStore((s) => s.lyricBlurLevel)
   const setSettings = useMusicSettingsStore((s) => s.set)
+
+  // ===== CLI 高画质代理（BilibiliParseSettings 同构面板）：连接状态检测 +
+  //       配置页入口（CLI 开关状态即 musicVideoCli 设置项本身） =====
+  const cliAgent = useCliAgent(roomId)
+  const cliAvailable = cliAgent.available
+  const openCliSetup = () => {
+    const url = new URL(`http://127.0.0.1:${CLI_DEFAULT_PORT}/`)
+    url.searchParams.set('server', getApiUrl())
+    url.searchParams.set('room', roomId)
+    window.open(url.toString(), '_blank', 'noopener,noreferrer')
+  }
+
+  // ===== B站 弹幕设置（复用一起看弹幕设置组件）：总开关即 biliDanmakuEnabled
+  //       设置项；样式面板与一起看共用 danmakuStore（跨页持久化生效） =====
+  const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
+  const danmakuStyle = useDanmakuStore((s) => s.style)
+  const setDanmakuStyle = useDanmakuStore((s) => s.setStyle)
+  const setDanmakuFilters = useDanmakuStore((s) => s.setFilters)
+  const setDanmakuAdvanced = useDanmakuStore((s) => s.setAdvancedStyle)
+  const resetDanmakuStyle = useDanmakuStore((s) => s.resetStyle)
+  const [danmakuAdvancedOpen, setDanmakuAdvancedOpen] = useState(false)
+  const [danmakuFontOpen, setDanmakuFontOpen] = useState(false)
 
   // ===== 红心收藏夹行内编辑态（点击名称胶囊 → 输入框，Enter/失焦保存，
   //       Escape 放弃；空白提交由归一化回退默认「Music」） =====
@@ -348,8 +412,9 @@ function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
             设置
           </p>
         </div>
-        {/* 背景设置项（与「一起听设置」同一 store，即时持久化） */}
-        <div className="relative py-1">
+        {/* 背景设置项（与「一起听设置」同一 store，即时持久化）；
+            弹幕设置卡片加入后内容变长，小屏限高滚动 */}
+        <div className="relative max-h-[min(72vh,620px)] overflow-y-auto overscroll-contain py-1">
           {/* 毛玻璃封面背景 */}
           <div className="flex items-center justify-between gap-3 px-5 py-3.5">
             <span className="text-[13px] font-bold text-white">
@@ -412,36 +477,103 @@ function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               onChange={(v) => setSettings({ uiOpacity: v })}
             />
           </div>
-          {/* 视频背景 CLI 高画质 */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-            <span className="min-w-0">
-              <span className="block text-[13px] font-bold text-white">
-                视频背景 CLI 高画质
-              </span>
-              <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                本地 CLI 代理获取大会员高画质视频背景
-              </span>
-            </span>
+          {/* CLI 高画质代理（BilibiliParseSettings 同构面板，黑底弹窗配色：
+              标题行+连接状态点 → 关闭/启用双按钮 → 状态说明 → 配置页入口；
+              CLI 开关即 musicVideoCli 设置项，改回开关语义并即时持久化） */}
+          <div
+            className="mx-5 my-3 rounded-lg p-3"
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.06)',
+              border: '0.5px solid rgba(255, 255, 255, 0.12)',
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <div
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                style={{
+                  background:
+                    'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
+                }}
+              >
+                <MonitorSmartphone
+                  className="h-3 w-3"
+                  style={{ color: 'rgba(255, 255, 255, 0.85)' }}
+                />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[10px] font-bold leading-tight text-white">
+                  CLI 高画质代理
+                </span>
+                <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
+                  LOCAL PROXY
+                </span>
+              </div>
+              {/* 连接状态（图示同语义：已连接发光 / 启用未连报错色 / 未启用灰） */}
+              <div className="flex items-center gap-1">
+                <span
+                  className="inline-block h-1 w-1 rounded-full"
+                  style={{
+                    backgroundColor: cliAvailable
+                      ? '#ffffff'
+                      : musicVideoCli
+                        ? '#ff6b6b'
+                        : 'rgba(255, 255, 255, 0.3)',
+                    boxShadow: cliAvailable
+                      ? '0 0 4px rgba(255, 255, 255, 0.9)'
+                      : 'none',
+                  }}
+                />
+                <span className="text-[9px] font-medium text-white/50">
+                  {cliAvailable
+                    ? '已连接'
+                    : musicVideoCli
+                      ? '未连接'
+                      : '未启用'}
+                </span>
+              </div>
+            </div>
+            {/* 关闭 / 启用（选中白底黑字，与弹窗 toggle 语言一致） */}
+            <div className="mt-2 grid grid-cols-2 gap-1">
+              <button
+                type="button"
+                onClick={() => setSettings({ musicVideoCli: false })}
+                className={cn(
+                  'rounded-md py-1 text-[10px] font-semibold transition-all',
+                  !musicVideoCli
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/10 text-white/60 hover:bg-white/15'
+                )}
+              >
+                关闭
+              </button>
+              <button
+                type="button"
+                onClick={() => setSettings({ musicVideoCli: true })}
+                className={cn(
+                  'rounded-md py-1 text-[10px] font-semibold transition-all',
+                  musicVideoCli
+                    ? 'bg-white text-black shadow-sm'
+                    : 'bg-white/10 text-white/60 hover:bg-white/15'
+                )}
+              >
+                启用
+              </button>
+            </div>
+            <div className="mt-1 text-[9px] leading-snug text-white/50">
+              {musicVideoCli
+                ? cliAvailable
+                  ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
+                  : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
+                : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
+            </div>
             <button
               type="button"
-              role="switch"
-              aria-checked={musicVideoCli}
-              aria-label="视频背景 CLI 高画质"
-              onClick={() => setSettings({ musicVideoCli: !musicVideoCli })}
-              className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-              style={{
-                backgroundColor: musicVideoCli
-                  ? '#ffffff'
-                  : 'rgba(255, 255, 255, 0.22)',
-              }}
+              onClick={openCliSetup}
+              className="mt-2 flex w-full items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/60 transition-colors hover:bg-white/10"
+              style={{ border: '0.5px solid rgba(255, 255, 255, 0.2)' }}
             >
-              <span
-                className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
-                style={{
-                  left: musicVideoCli ? '18px' : '2px',
-                  backgroundColor: musicVideoCli ? '#000000' : '#ffffff',
-                }}
-              />
+              <ExternalLink className="h-3 w-3" />
+              打开 CLI 配置页
             </button>
           </div>
           {/* 背景显示方式（视频背景的画面适配方式，点击循环切换） */}
@@ -587,6 +719,106 @@ function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                 setSettings({ lyricBlurLevel: v, lyricBlur: v > 0 })
               }
             />
+          </div>
+          {/* B站弹幕（复用一起看弹幕设置：总开关 + 样式面板 + 高级设置 +
+              字体选择；样式与一起看共用 danmakuStore 持久化，跨页生效） */}
+          <div
+            className="mx-5 my-3 rounded-lg p-3"
+            style={{
+              backgroundColor: 'rgba(255, 255, 255, 0.06)',
+              border: '0.5px solid rgba(255, 255, 255, 0.12)',
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <div
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                style={{
+                  background:
+                    'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
+                }}
+              >
+                <MessagesSquare
+                  className="h-3 w-3"
+                  style={{ color: 'rgba(255, 255, 255, 0.85)' }}
+                />
+              </div>
+              <div className="flex min-w-0 flex-1 flex-col">
+                <span className="text-[10px] font-bold leading-tight text-white">
+                  B站弹幕
+                </span>
+                <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
+                  DANMAKU
+                </span>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={biliDanmakuEnabled}
+                aria-label="B站弹幕"
+                onClick={() =>
+                  setSettings({ biliDanmakuEnabled: !biliDanmakuEnabled })
+                }
+                className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+                style={{
+                  backgroundColor: biliDanmakuEnabled
+                    ? '#ffffff'
+                    : 'rgba(255, 255, 255, 0.22)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
+                  style={{
+                    left: biliDanmakuEnabled ? '18px' : '2px',
+                    backgroundColor: biliDanmakuEnabled ? '#000000' : '#ffffff',
+                  }}
+                />
+              </button>
+            </div>
+            {/* 弹幕样式设置（仅启用时展开；MD3 令牌暗色覆盖使白主题组件
+                融入黑底弹窗，primary=白与弹窗按钮语言一致） */}
+            {biliDanmakuEnabled && (
+              <div className="mt-2" style={DANMAKU_PANEL_TOKEN_OVERRIDES}>
+                <DanmakuStylePanel
+                  style={danmakuStyle}
+                  setStyle={setDanmakuStyle}
+                  resetStyle={resetDanmakuStyle}
+                  advancedOpen={danmakuAdvancedOpen}
+                  onAdvancedToggle={() => {
+                    setDanmakuAdvancedOpen((v) => !v)
+                    setDanmakuFontOpen(false)
+                  }}
+                />
+                {danmakuAdvancedOpen && (
+                  <div className="mt-2 border-t border-white/10 pt-2">
+                    <DanmakuAdvancedSettings
+                      style={danmakuStyle}
+                      setStyle={setDanmakuStyle}
+                      setFilters={setDanmakuFilters}
+                      setAdvancedStyle={setDanmakuAdvanced}
+                      onFontPanelToggle={() => setDanmakuFontOpen((v) => !v)}
+                    />
+                    {danmakuFontOpen && (
+                      <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-white/10 bg-black/30 p-1">
+                        <FontPickerPanel
+                          value={
+                            danmakuStyle.advanced.fontFamily ===
+                            DEFAULT_DANMAKU_STYLE.advanced.fontFamily
+                              ? ''
+                              : danmakuStyle.advanced.fontFamily
+                          }
+                          onChange={(v) =>
+                            setDanmakuAdvanced({
+                              fontFamily:
+                                v || DEFAULT_DANMAKU_STYLE.advanced.fontFamily,
+                            })
+                          }
+                        />
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -743,6 +975,63 @@ function ListenTogetherInner({
   const currentBiliBvid = isBiliSong ? (currentSong?.biliBvid ?? null) : null
   /** 评论入口可用性：网易云需有效 songId，B站 条目有 bvid 即可 */
   const canComment = (songId != null && songId > 0) || currentBiliBvid != null
+
+  // ===== B站 音源弹幕（复用一起看弹幕模块 DanmakuLayer）：B站 条目按 cid
+  // 拉官方弹幕，时间轴驱动走 positionSec（音频 timeupdate），不依赖视频元素；
+  // 开关与样式设置在歌词页设置弹窗（样式与一起看共用 danmakuStore 持久化） =====
+  const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
+  const danmakuStyle = useDanmakuStore((s) => s.style)
+  const biliDanmakuActive = isBiliSong && biliDanmakuEnabled
+  const biliDanmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
+  const biliDanmakuItemsRef = useRef<DanmakuItem[]>([])
+  /** 最近一次同步的播放进度（秒）：弹幕（重）挂载 / 加载完成后 seek 对齐用 */
+  const biliDanmakuTimeRef = useRef(0)
+  const biliCid = currentSong?.biliCid ?? 0
+
+  // cid 变化 → 清旧轨道 → 拉新弹幕（与一起看 WatchTogetherCore 同模式；
+  // 弹幕层未挂载时仅更新缓存，挂载后由下方 effect 重载）
+  useEffect(() => {
+    if (!isBiliSong || !biliCid) return
+    let cancelled = false
+    biliDanmakuItemsRef.current = []
+    biliDanmakuLayerRef.current?.loadDanmakuTrack('default', [])
+    biliDanmakuLayerRef.current?.clear()
+    fetchBilibiliDanmakuByCid(biliCid)
+      .then((items) => {
+        if (cancelled) return
+        biliDanmakuItemsRef.current = items
+        biliDanmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
+        biliDanmakuLayerRef.current?.seek(biliDanmakuTimeRef.current)
+      })
+      .catch((err) => {
+        console.error('[ListenTogether] load danmaku error:', err)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [isBiliSong, biliCid])
+
+  // 弹幕层（重）挂载 / 开关重开 → 用缓存弹幕重载并对齐当前进度
+  useEffect(() => {
+    if (!biliDanmakuActive) return
+    const items = biliDanmakuItemsRef.current
+    if (items.length > 0) {
+      biliDanmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
+      biliDanmakuLayerRef.current?.seek(biliDanmakuTimeRef.current)
+    }
+  }, [biliDanmakuActive])
+
+  // 时间轴驱动：positionSec（音频 timeupdate 4-8 次/秒）→ rAF 节流 → syncTime；
+  // 引擎内部对 >3s 跳变自动清已发射集合并补发当前窗口（拖进度条 seek 兼容）
+  useEffect(() => {
+    biliDanmakuTimeRef.current = positionSec
+    if (!biliDanmakuActive) return
+    const raf = requestAnimationFrame(() => {
+      biliDanmakuLayerRef.current?.syncTime(positionSec)
+    })
+    return () => cancelAnimationFrame(raf)
+  }, [positionSec, biliDanmakuActive])
+
   const musicVideoBg = useMusicVideoBackground(
     isBiliSong ? null : (songId ?? null),
     musicVideoCli,
@@ -1602,6 +1891,30 @@ function ListenTogetherInner({
             />
           )}
         </>
+      )}
+
+      {/* ===== B站 音源弹幕层（复用一起看弹幕模块）：仅 B站 条目渲染，
+          悬浮铺满整页顶部（显示区域比例随弹幕设置），pointer-events-none
+          不挡任何交互；纯净模式时抬升到 fixed 视频（z-70）与压暗层
+          （z-72）之上，纯视频观看弹幕仍可见 ===== */}
+      {biliDanmakuActive && (
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0"
+          style={{ zIndex: immersive ? 73 : 10 }}
+        >
+          <DanmakuLayer
+            ref={biliDanmakuLayerRef}
+            opacity={danmakuStyle.opacity}
+            displayArea={danmakuStyle.displayArea}
+            density={danmakuStyle.advanced.density}
+            speed={danmakuStyle.speed}
+            scaleWithScreen={danmakuStyle.scaleWithScreen}
+            filters={danmakuStyle.filters}
+            advancedStyle={danmakuStyle.advanced}
+            fontSize={danmakuStyle.fontSize}
+          />
+        </div>
       )}
 
       {/* ===== 左上角提示区：房主离线提示 + syncNotice（含房主审批按钮） ===== */}
@@ -2593,7 +2906,10 @@ function ListenTogetherInner({
 
       {/* 歌词页快捷设置弹窗（纯净模式下不渲染，避免脱离沉浸画面） */}
       {showSettings && !immersive && (
-        <PlayerSettingsModal onDismiss={() => setShowSettings(false)} />
+        <PlayerSettingsModal
+          onDismiss={() => setShowSettings(false)}
+          roomId={roomId}
+        />
       )}
     </div>
   )

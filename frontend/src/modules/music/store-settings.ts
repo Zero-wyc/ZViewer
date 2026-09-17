@@ -98,6 +98,12 @@ export interface MusicSettings {
    * 关闭后恢复完整五按钮排版（首页/私人漫游/云盘/我的音乐/哔哩哔哩）
    */
   musicNavCollapsed: boolean
+  /**
+   * B站 音源弹幕（默认开启）：一起听歌词页播放 B站 条目时按 cid 拉取
+   * 官方弹幕并悬浮展示（复用一起看弹幕模块）；样式设置（显示区域/
+   * 不透明度/字号/速度等）与一起看共用 danmakuStore 持久化
+   */
+  biliDanmakuEnabled: boolean
 }
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
@@ -124,6 +130,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   biliAutoContinue: true,
   biliLikeFavTitle: 'Music',
   musicNavCollapsed: true,
+  biliDanmakuEnabled: true,
 }
 
 interface MusicSettingsState extends MusicSettings {

@@ -15,7 +15,9 @@
  *   无意图的初始页默认落「我的音乐」；面板底部或展开态末尾按钮可在两种
  *   排版间切换（musicNavCollapsed 持久化）。当前页 on-surface、
  *   其余 on-surface-variant/60，20px font-medium，间距 clamp(18px,3vw,40px)，
- *   hover opacity-0.7
+ *   hover opacity-0.7；导航底部下划线（Hydrogen Home.vue .router-tracker
+ *   1:1 复刻：14×2px 短条，居中当前页按钮，left 0.3s ease 滑动，
+ *   搜索/设置页无对应按钮时淡出隐藏）
  * - 账户菜单（全局 Header 用户菜单同语言）：glass-strong 底 + 主题模糊度
  *   backdrop-filter + 圆角；账号信息头部（头像+昵称+描述）→ 分隔线 →
  *   房间模式分组（一起看/投屏/一起听，当前项实心方块指示，房主可切换、
@@ -23,7 +25,13 @@
  *   菜单项 zen-dropdown-item 交错入场 + hover 平移；房主未登录时底部
  *   追加「登录网易云后全房间可播 VIP」辅助提示
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react'
 import {
   ChevronDown,
   FoldVertical,
@@ -70,6 +78,10 @@ const MODE_MARKER = 'h-1 w-1'
 
 /** 菜单项交错入场动画的基础时长偏移（与全局 Header 用户菜单一致，逐项 +40ms） */
 const ITEM_DELAY_STEP = 40
+
+/** 顶栏下划线宽度（Hydrogen Home.vue .router-tracker：14×2px 黑条，
+ *  绝对定位在导航底部、居中于当前页按钮，切页时 left 0.3s ease 滑动） */
+const TRACKER_WIDTH = 14
 
 /** 导航链接定义（顺序与 Hydrogen primary-nav + header-router-right 一致） */
 const NAV_ITEMS: Array<{ key: MusicPage; label: string }> = [
@@ -170,6 +182,82 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
     ncmDefaultAppliedRef.current = true
     if (navCollapsed && page === 'home') setPage('mymusic')
   }, [navCollapsed, page, setPage])
+
+  // ===== 顶栏下划线（Hydrogen Home.vue .router-tracker 1:1 复刻）：
+  //       14×2px on-surface 短条绝对定位在导航底部，居中于当前页按钮，
+  //       切页时 left 0.3s ease 滑动；搜索/设置页不在导航内 → 隐藏 =====
+  const navRef = useRef<HTMLElement | null>(null)
+  /** 折叠态「网易云音乐」「哔哩哔哩」按钮（下划线定位目标） */
+  const ncmButtonRef = useRef<HTMLButtonElement | null>(null)
+  const biliButtonRef = useRef<HTMLButtonElement | null>(null)
+  /** 展开态五按钮（下划线定位目标，按页面 key 索引） */
+  const navItemRefs = useRef<
+    Partial<Record<MusicPage, HTMLButtonElement | null>>
+  >({})
+  const [trackerLeft, setTrackerLeft] = useState(0)
+  const [trackerVisible, setTrackerVisible] = useState(false)
+  /** 最新一次渲染的位置计算函数（外部布局变化监听直调，避免状态中转） */
+  const computeTrackerRef = useRef<() => void>(() => {})
+
+  /** 当前页对应的顶栏按钮元素（无对应按钮时返回 null → 下划线隐藏） */
+  const resolveActiveNavEl = (): HTMLElement | null => {
+    if (navCollapsed) {
+      if (NCM_NAV_KEYS.has(page)) return ncmButtonRef.current
+      if (page === 'bilibili') return biliButtonRef.current
+      return null
+    }
+    return navItemRefs.current[page] ?? null
+  }
+
+  // 位置计算：每次渲染后同步执行 + 下一帧二次校准（Hydrogen updateTracker
+  // 同思路，修正字体加载/过渡造成的轻微偏移；rect 差值定位，导航无变换
+  // 场景下与 offsetLeft 等价且对 flex 居中布局更稳）
+  useLayoutEffect(() => {
+    const compute = () => {
+      const container = navRef.current
+      const el = resolveActiveNavEl()
+      if (
+        !container ||
+        !el ||
+        container.getClientRects().length === 0 ||
+        el.getClientRects().length === 0
+      ) {
+        setTrackerVisible(false)
+        return
+      }
+      const elRect = el.getBoundingClientRect()
+      const cRect = container.getBoundingClientRect()
+      const left = elRect.left - cRect.left + (elRect.width - TRACKER_WIDTH) / 2
+      setTrackerLeft(Math.max(0, Math.round(left)))
+      setTrackerVisible(true)
+    }
+    computeTrackerRef.current = compute
+    compute()
+    const raf = requestAnimationFrame(compute)
+    return () => cancelAnimationFrame(raf)
+  })
+
+  // 非渲染引起的外部布局变化（Hydrogen ResizeObserver + resize + fonts
+  // 校准同语义）：直调最新计算函数重新定位下划线
+  useEffect(() => {
+    const container = navRef.current
+    if (!container) return
+    const tick = () => computeTrackerRef.current()
+    const ro = new ResizeObserver(tick)
+    ro.observe(container)
+    window.addEventListener('resize', tick)
+    let cancelled = false
+    void document.fonts?.ready
+      .then(() => {
+        if (!cancelled) tick()
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+      ro.disconnect()
+      window.removeEventListener('resize', tick)
+    }
+  }, [])
 
   /** 热搜榜拉取（Hydrogen fetchHotList：/search/hot/detail，单次缓存） */
   const loadHotList = useCallback(async () => {
@@ -603,14 +691,30 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
           分区收入弹出面板（当前项实心方块指示，底部可展开完整导航）；
           展开态：完整五按钮 + 末尾折叠按钮，两种排版可互切（持久化） ===== */}
       <nav
-        className="flex min-w-0 flex-1 items-center justify-center gap-[clamp(18px,3vw,40px)] max-md:gap-3"
+        ref={navRef}
+        className="relative flex min-w-0 flex-1 items-center justify-center gap-[clamp(18px,3vw,40px)] max-md:gap-3"
         aria-label="音乐页面导航"
       >
+        {/* 下划线（Hydrogen .router-tracker）：14×2px 短条，跟随当前页
+            按钮居中滑动；无对应按钮（搜索/设置页）时淡出隐藏 */}
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute bottom-0 z-[2]"
+          style={{
+            left: trackerLeft,
+            width: TRACKER_WIDTH,
+            height: 2,
+            backgroundColor: 'var(--md-sys-color-on-surface)',
+            opacity: trackerVisible ? 1 : 0,
+            transition: 'left 0.3s ease, opacity 0.25s ease',
+          }}
+        />
         {navCollapsed ? (
           <>
             {/* 网易云音乐合并按钮（四分区入口）：激活=当前页属网易云分区 */}
             <div className="relative shrink-0">
               <button
+                ref={ncmButtonRef}
                 type="button"
                 onClick={() => setNcmMenuOpen((v) => !v)}
                 // 阻断外点关闭捕获层：保证按钮本身可正常开/关面板
@@ -729,6 +833,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
 
             {/* 哔哩哔哩直达按钮 */}
             <button
+              ref={biliButtonRef}
               type="button"
               onClick={() => setPage('bilibili')}
               className={cn(
@@ -753,6 +858,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               return (
                 <button
                   key={item.key}
+                  ref={(el) => {
+                    navItemRefs.current[item.key] = el
+                  }}
                   type="button"
                   onClick={() => setPage(item.key)}
                   className={cn(

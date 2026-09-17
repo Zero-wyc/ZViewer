@@ -722,13 +722,13 @@ function AddCustomTabModal({
           >
             ADD
           </span>
-          <p className="relative text-center text-[15px] font-bold text-white">
+          <p className="relative text-center text-[17px] font-bold text-white">
             添加栏目
           </p>
         </div>
         <div className="relative px-5 py-4">
           {/* 说明 */}
-          <p className="mb-3 text-[11px] font-medium leading-relaxed text-white/50">
+          <p className="mb-3 text-[13px] font-medium leading-relaxed text-white/50">
             粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （
             {'space.bilibili.com/{mid}/lists/{sid}'} 或旧版 channel
             链接）、收藏夹（{'…/favlist?fid=…'}）；b23.tv 短链自动展开。
@@ -743,7 +743,7 @@ function AddCustomTabModal({
                 if (e.key === 'Enter') void submit()
               }}
               placeholder="粘贴 B站 链接"
-              className="h-8 w-full rounded-full px-3 text-xs font-bold outline-none"
+              className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 color: '#ffffff',
@@ -760,7 +760,7 @@ function AddCustomTabModal({
                 if (e.key === 'Enter') void submit()
               }}
               placeholder="栏目名称（留空自动使用 B站 标题）"
-              className="h-8 w-full rounded-full px-3 text-xs font-bold outline-none"
+              className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 color: '#ffffff',
@@ -770,7 +770,7 @@ function AddCustomTabModal({
           </div>
           {error && (
             <p
-              className="mb-2 text-[11px] font-bold leading-relaxed"
+              className="mb-2 text-[13px] font-bold leading-relaxed"
               style={{ color: '#ff8a8a' }}
             >
               {error}
@@ -780,7 +780,7 @@ function AddCustomTabModal({
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full px-3 py-1.5 text-xs font-bold text-white/70 transition-colors hover:text-white"
+              className="rounded-full px-3 py-1.5 text-sm font-bold text-white/70 transition-colors hover:text-white"
             >
               取消
             </button>
@@ -788,7 +788,7 @@ function AddCustomTabModal({
               type="button"
               onClick={() => void submit()}
               disabled={submitting}
-              className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ backgroundColor: '#ffffff', color: '#000000' }}
             >
               {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
@@ -1669,7 +1669,7 @@ export function MusicBilibiliPage({
       {/* 页头（PageBlockHeader 同范式）+ 子页切换 */}
       <div className="flex items-center">
         <span
-          className="mr-1.5 w-[20vw] min-w-[140px] shrink-0 py-px pl-1 text-[10px] font-bold uppercase tracking-widest max-md:w-auto max-md:min-w-0 max-md:pr-2"
+          className="mr-1.5 w-[20vw] min-w-[140px] shrink-0 py-px pl-1 text-[12px] font-bold uppercase tracking-widest max-md:w-auto max-md:min-w-0 max-md:pr-2"
           style={{
             backgroundColor: 'var(--md-sys-color-on-surface)',
             color: 'var(--md-sys-color-surface)',
@@ -1706,7 +1706,7 @@ export function MusicBilibiliPage({
               setPageNo(1)
             }}
             className={cn(
-              'relative pb-0.5 text-sm font-bold transition-colors',
+              'relative pb-0.5 text-lg font-bold transition-colors md:text-xl',
               tab === key
                 ? 'text-[var(--md-sys-color-on-surface)]'
                 : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
@@ -1745,7 +1745,7 @@ export function MusicBilibiliPage({
                   setPageNo(1)
                 }}
                 className={cn(
-                  'relative pb-0.5 text-sm font-bold transition-colors',
+                  'relative pb-0.5 text-lg font-bold transition-colors md:text-xl',
                   active
                     ? 'text-[var(--md-sys-color-on-surface)]'
                     : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
@@ -1789,7 +1789,7 @@ export function MusicBilibiliPage({
             按钮弹出全局屏蔽词设置弹窗（配置的词全局生效） */}
         <div className="ml-auto flex items-center gap-2">
           <span
-            className="max-w-[260px] truncate text-[11px] font-bold text-[var(--md-sys-color-on-surface-variant)] max-md:max-w-[140px]"
+            className="max-w-[260px] truncate text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] max-md:max-w-[140px]"
             title={
               blockPreviewEntries.length > 0
                 ? `屏蔽词：${blockPreviewEntries
@@ -1833,7 +1833,7 @@ export function MusicBilibiliPage({
         {biliSearchKeyword && (
           <div className="mb-3 flex items-center gap-2 px-2">
             <span
-              className="flex items-center gap-2 rounded-full px-3 py-1 text-xs font-bold"
+              className="flex items-center gap-2 rounded-full px-3 py-1 text-sm font-bold"
               style={{
                 backgroundColor:
                   'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
@@ -1871,7 +1871,7 @@ export function MusicBilibiliPage({
                   type="button"
                   onClick={() => handleSelectFolder(f)}
                   className={cn(
-                    'shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[13px] font-bold transition-opacity',
+                    'shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[15px] font-bold transition-opacity',
                     f.id === activeFolderId
                       ? 'text-[var(--md-sys-color-surface)]'
                       : 'text-[var(--md-sys-color-on-surface)] hover:opacity-70'
@@ -1905,7 +1905,7 @@ export function MusicBilibiliPage({
                     <span
                       key={`m-tag-${label}`}
                       className={cn(
-                        'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-3 pr-1.5 text-[13px] font-bold transition-opacity',
+                        'flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full py-1 pl-3 pr-1.5 text-[15px] font-bold transition-opacity',
                         regionTag?.name === tagName
                           ? 'text-[var(--md-sys-color-surface)]'
                           : 'text-[var(--md-sys-color-on-surface)]'
@@ -1929,7 +1929,7 @@ export function MusicBilibiliPage({
                           <button
                             type="button"
                             onClick={() => setTagRulesEditName(entry.name)}
-                            className="rounded-full px-1.5 py-0.5 text-[10px] font-bold transition-opacity hover:opacity-70"
+                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                             style={{
                               backgroundColor:
                                 'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
@@ -1942,7 +1942,7 @@ export function MusicBilibiliPage({
                           <button
                             type="button"
                             onClick={() => setCategoryBlockEditName(entry.name)}
-                            className="rounded-full px-1.5 py-0.5 text-[10px] font-bold transition-opacity hover:opacity-70"
+                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                             style={{
                               backgroundColor:
                                 'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
@@ -1961,7 +1961,7 @@ export function MusicBilibiliPage({
                   <button
                     type="button"
                     onClick={() => setAddingTag(true)}
-                    className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[13px] font-bold text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 lg:hidden"
+                    className="shrink-0 whitespace-nowrap rounded-full px-3 py-1 text-[15px] font-bold text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 lg:hidden"
                     style={{
                       backgroundColor:
                         'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
@@ -1987,7 +1987,7 @@ export function MusicBilibiliPage({
                       }
                     }}
                     placeholder="输入音乐种类关键词"
-                    className="h-8 min-w-0 flex-1 rounded-full px-3 text-[13px] font-bold outline-none"
+                    className="h-8 min-w-0 flex-1 rounded-full px-3 text-[15px] font-bold outline-none"
                     style={{
                       backgroundColor:
                         'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
@@ -1999,7 +1999,7 @@ export function MusicBilibiliPage({
                   <button
                     type="button"
                     onClick={handleAddTag}
-                    className="shrink-0 rounded-full px-3 py-1.5 text-[13px] font-bold transition-opacity hover:opacity-70"
+                    className="shrink-0 rounded-full px-3 py-1.5 text-[15px] font-bold transition-opacity hover:opacity-70"
                     style={{
                       backgroundColor: 'var(--md-sys-color-on-surface)',
                       color: 'var(--md-sys-color-surface)',
@@ -2031,7 +2031,7 @@ export function MusicBilibiliPage({
                 用户要求从右侧移到左侧） */}
           {tab === 'fav' && (
             <aside className="hidden w-[220px] shrink-0 flex-col lg:flex">
-              <div className="pb-1 text-[12px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
+              <div className="pb-1 text-[14px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
                 收藏夹
               </div>
               <div
@@ -2043,7 +2043,7 @@ export function MusicBilibiliPage({
               />
               <div className="zen-scroll mt-1 max-h-[calc(100vh-220px)] overflow-y-auto pb-2">
                 {folders.length === 0 ? (
-                  <div className="px-2 py-3 text-[13px] text-[var(--md-sys-color-on-surface-variant)]">
+                  <div className="px-2 py-3 text-[15px] text-[var(--md-sys-color-on-surface-variant)]">
                     暂无收藏夹
                   </div>
                 ) : (
@@ -2066,7 +2066,7 @@ export function MusicBilibiliPage({
                 （localStorage 持久化，内置种类不可删） */}
           {tab === 'region' && (
             <aside className="hidden w-[220px] shrink-0 flex-col lg:flex">
-              <div className="pb-1 text-[12px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
+              <div className="pb-1 text-[14px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
                 音乐分区
               </div>
               <div
@@ -2110,7 +2110,7 @@ export function MusicBilibiliPage({
                       }
                     }}
                     placeholder="输入音乐种类关键词"
-                    className="h-8 min-w-0 flex-1 rounded-md px-2 text-[13px] font-bold outline-none"
+                    className="h-8 min-w-0 flex-1 rounded-md px-2 text-[15px] font-bold outline-none"
                     style={{
                       backgroundColor:
                         'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
@@ -2122,7 +2122,7 @@ export function MusicBilibiliPage({
                   <button
                     type="button"
                     onClick={handleAddTag}
-                    className="shrink-0 rounded-md px-2 py-1 text-[13px] font-bold transition-opacity hover:opacity-70"
+                    className="shrink-0 rounded-md px-2 py-1 text-[15px] font-bold transition-opacity hover:opacity-70"
                     style={{
                       backgroundColor: 'var(--md-sys-color-on-surface)',
                       color: 'var(--md-sys-color-surface)',
@@ -2151,7 +2151,7 @@ export function MusicBilibiliPage({
                 <button
                   type="button"
                   onClick={() => setAddingTag(true)}
-                  className="mt-1 flex items-center gap-1.5 px-3 py-2 text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
+                  className="mt-1 flex items-center gap-1.5 px-3 py-2 text-[15px] font-bold text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
                   title="添加自定义音乐种类"
                 >
                   <Plus className="h-3.5 w-3.5" />
@@ -2162,31 +2162,31 @@ export function MusicBilibiliPage({
           )}
           {/* 右侧视频区：加载动画 / 错误 / 空态 / 网格四态切换（左栏常驻） */}
           {loading ? (
-            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 py-12 text-sm text-[var(--md-sys-color-on-surface-variant)]">
+            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 py-12 text-base text-[var(--md-sys-color-on-surface-variant)]">
               <Loader2 className="h-6 w-6 animate-spin" />
               正在获取视频…
             </div>
           ) : error ? (
             <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
-              <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
+              <span className="text-base text-[var(--md-sys-color-on-surface-variant)]">
                 {error}
               </span>
               {tab === 'fav' && (
-                <span className="text-xs text-[var(--md-sys-color-on-surface-variant)] opacity-70">
+                <span className="text-sm text-[var(--md-sys-color-on-surface-variant)] opacity-70">
                   需登录 B站 账号：可在完整播放器「添加视频」弹窗中扫码登录
                 </span>
               )}
               <button
                 type="button"
                 onClick={() => void load(tab, activeFolderId)}
-                className="mt-1 border px-4 py-1 text-xs font-bold text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70"
+                className="mt-1 border px-4 py-1 text-sm font-bold text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70"
                 style={{ borderColor: 'var(--md-sys-color-outline)' }}
               >
                 重试
               </button>
             </div>
           ) : items.length === 0 ? (
-            <div className="flex min-w-0 flex-1 items-center justify-center py-12 text-sm text-[var(--md-sys-color-on-surface-variant)]">
+            <div className="flex min-w-0 flex-1 items-center justify-center py-12 text-base text-[var(--md-sys-color-on-surface-variant)]">
               {biliSearchKeyword
                 ? '没有找到相关视频'
                 : tab === 'fav'
@@ -2252,7 +2252,7 @@ export function MusicBilibiliPage({
                       {/* 左上：播放量 */}
                       {(item.view ?? 0) > 0 && (
                         <span
-                          className="absolute left-2 top-2 flex items-center gap-1 text-[11px] font-medium text-white"
+                          className="absolute left-2 top-2 flex items-center gap-1 text-[13px] font-medium text-white"
                           style={{ textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
                         >
                           <Play className="h-3 w-3 fill-white text-white" />
@@ -2262,7 +2262,7 @@ export function MusicBilibiliPage({
                       {/* 左下：弹幕数 */}
                       {(item.danmaku ?? 0) > 0 && (
                         <span
-                          className="absolute bottom-2 left-2 flex items-center gap-1 text-[11px] font-medium text-white"
+                          className="absolute bottom-2 left-2 flex items-center gap-1 text-[13px] font-medium text-white"
                           style={{ textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
                         >
                           <MessageCircle className="h-3 w-3 fill-white text-white" />
@@ -2300,7 +2300,7 @@ export function MusicBilibiliPage({
                             <ListPlus className="h-3 w-3" />
                           </button>
                         )}
-                        <span className="rounded bg-black/70 px-1 py-px text-[11px] font-medium tabular-nums text-white">
+                        <span className="rounded bg-black/70 px-1 py-px text-[13px] font-medium tabular-nums text-white">
                           {formatSec(item.duration)}
                         </span>
                       </div>
@@ -2323,7 +2323,7 @@ export function MusicBilibiliPage({
                     {/* 标题（两行截断，当前播放高亮） */}
                     <div
                       className={cn(
-                        'mt-2 line-clamp-2 text-[13px] leading-snug max-md:text-xs',
+                        'mt-2 line-clamp-2 text-[15px] leading-snug max-md:text-sm',
                         isCurrent
                           ? 'text-[var(--md-sys-color-primary)]'
                           : 'text-[var(--md-sys-color-on-surface)]'
@@ -2333,7 +2333,7 @@ export function MusicBilibiliPage({
                       {item.title}
                     </div>
                     {/* 元信息：UP主 · 日期 */}
-                    <div className="mt-1 flex items-center gap-1.5 text-[11px] text-[var(--md-sys-color-on-surface-variant)] max-md:text-[10px]">
+                    <div className="mt-1 flex items-center gap-1.5 text-[13px] text-[var(--md-sys-color-on-surface-variant)] max-md:text-[12px]">
                       <span className="truncate">{item.upName}</span>
                       {dateText && (
                         <>
@@ -2360,7 +2360,7 @@ export function MusicBilibiliPage({
                 type="button"
                 onClick={() => setPageNo((p) => Math.max(1, p - 1))}
                 disabled={pageNo <= 1}
-                className="rounded-full px-4 py-1.5 text-xs font-bold transition-opacity hover:opacity-70 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                className="rounded-full px-4 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
                 style={{
                   border:
                     '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
@@ -2370,7 +2370,7 @@ export function MusicBilibiliPage({
               >
                 上一页
               </button>
-              <span className="text-xs font-bold tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+              <span className="text-sm font-bold tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
                 第 {pageNo} 页
                 {totalPages != null ? ` · 共 ${totalPages} 页` : ''}
               </span>
@@ -2378,7 +2378,7 @@ export function MusicBilibiliPage({
                 type="button"
                 onClick={() => setPageNo((p) => p + 1)}
                 disabled={!hasNextPage}
-                className="rounded-full px-4 py-1.5 text-xs font-bold transition-opacity hover:opacity-70 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
+                className="rounded-full px-4 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
                 style={{
                   border:
                     '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
@@ -2422,7 +2422,7 @@ export function MusicBilibiliPage({
                 }}
                 onBlur={() => setPageJumpEditing(false)}
                 inputMode="numeric"
-                className="bili-liquid-btn lt-blur-surface h-11 w-11 rounded-full text-center text-[11px] font-bold tabular-nums outline-none"
+                className="bili-liquid-btn lt-blur-surface h-11 w-11 rounded-full text-center text-[13px] font-bold tabular-nums outline-none"
                 style={{ border: '1px solid var(--md-sys-color-primary)' }}
                 title="输入页码后回车跳转（Esc 取消）"
                 aria-label="输入页码跳转"
@@ -2438,11 +2438,11 @@ export function MusicBilibiliPage({
                 }}
               >
                 {totalPages != null ? (
-                  <span className="text-[10px] font-bold tabular-nums leading-none">
+                  <span className="text-[12px] font-bold tabular-nums leading-none">
                     {pageNo}/{totalPages}
                   </span>
                 ) : (
-                  <span className="text-xs font-bold tabular-nums leading-none">
+                  <span className="text-sm font-bold tabular-nums leading-none">
                     {pageNo}
                   </span>
                 )}
@@ -2631,23 +2631,23 @@ function TagRulesModal({
           >
             TAG
           </span>
-          <p className="relative text-center text-[15px] font-bold text-white">
+          <p className="relative text-center text-[17px] font-bold text-white">
             {title}
           </p>
         </div>
         <div className="relative px-5 py-4">
           {/* 说明（属性 × 方式两维；屏蔽词指引到分类条目右上角入口） */}
-          <div className="mb-3 space-y-1.5 text-[11px] font-medium leading-relaxed text-white/50">
+          <div className="mb-3 space-y-1.5 text-[13px] font-medium leading-relaxed text-white/50">
             <p>每个标签词由两个独立徽标控制，点击词右侧对应徽标切换：</p>
             <p>
               <span
-                className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
               >
                 聚合
               </span>
               <span
-                className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
               >
                 限定
@@ -2656,19 +2656,19 @@ function TagRulesModal({
             </p>
             <p>
               <span
-                className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
               >
                 搜索
               </span>
               <span
-                className="mx-1 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                className="mx-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
               >
                 标签
               </span>
               <span
-                className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white"
+                className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
               >
                 全部
@@ -2692,7 +2692,7 @@ function TagRulesModal({
                 if (e.key === 'Enter') onAdd()
               }}
               placeholder="输入标签词（逗号/空格分隔可批量）"
-              className="h-8 min-w-0 flex-1 rounded-full px-3 text-xs font-bold outline-none"
+              className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 color: '#ffffff',
@@ -2702,7 +2702,7 @@ function TagRulesModal({
             <button
               type="button"
               onClick={onAdd}
-              className="shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
+              className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
               style={{ backgroundColor: '#ffffff', color: '#000000' }}
             >
               添加
@@ -2710,13 +2710,13 @@ function TagRulesModal({
           </div>
           {/* 已添加规则 chips（属性徽标 + 方式徽标两个独立按钮，点击各自切换） */}
           {rules.length === 0 ? (
-            <p className="text-xs font-medium text-white/40">暂无标签词</p>
+            <p className="text-sm font-medium text-white/40">暂无标签词</p>
           ) : (
             <div className="zen-scroll flex max-h-[220px] flex-wrap gap-2 overflow-y-auto">
               {rules.map((r) => (
                 <span
                   key={r.word}
-                  className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-xs font-bold text-white"
+                  className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-bold text-white"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.12)',
                   }}
@@ -2726,7 +2726,7 @@ function TagRulesModal({
                   <button
                     type="button"
                     onClick={() => onToggleRole(r.word)}
-                    className="rounded-full px-1.5 py-0.5 text-[10px] font-bold transition-opacity hover:opacity-70"
+                    className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                     title={`属性：${REGION_ROLE_LABEL[r.role]}（点击切换 聚合/限定）`}
                     aria-label={`切换标签词 ${r.word} 的属性，当前 ${REGION_ROLE_LABEL[r.role]}`}
@@ -2738,7 +2738,7 @@ function TagRulesModal({
                     <button
                       type="button"
                       onClick={() => onToggleSource(r.word)}
-                      className="rounded-full px-1.5 py-0.5 text-[10px] font-bold transition-opacity hover:opacity-70"
+                      className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                       style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                       title={`来源方式：${REGION_SOURCE_LABEL[r.source]}（点击切换 搜索/标签/全部）`}
                       aria-label={`切换标签词 ${r.word} 的来源方式，当前 ${REGION_SOURCE_LABEL[r.source]}`}
@@ -2811,7 +2811,7 @@ function RegionTagItem({
       />
       <span
         className={cn(
-          'relative min-w-0 flex-1 truncate text-[15px] font-bold',
+          'relative min-w-0 flex-1 truncate text-[17px] font-bold',
           selected
             ? 'text-[var(--md-sys-color-primary)]'
             : 'text-[var(--md-sys-color-on-surface)]'
@@ -2954,12 +2954,12 @@ function BlockWordsModal({
           >
             BLOCK
           </span>
-          <p className="relative text-center text-[15px] font-bold text-white">
+          <p className="relative text-center text-[17px] font-bold text-white">
             {title}
           </p>
         </div>
         <div className="relative px-5 py-4">
-          <p className="mb-3 text-[11px] font-medium text-white/50">
+          <p className="mb-3 text-[13px] font-medium text-white/50">
             {description ??
               '全局生效：命中屏蔽词的搜索结果将被隐藏；点击词上的范围徽标可单独设置匹配标题还是标签'}
           </p>
@@ -2973,7 +2973,7 @@ function BlockWordsModal({
                 if (e.key === 'Enter') onAdd()
               }}
               placeholder="输入屏蔽词（逗号/空格分隔可批量）"
-              className="h-8 min-w-0 flex-1 rounded-full px-3 text-xs font-bold outline-none"
+              className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
               style={{
                 backgroundColor: 'rgba(255, 255, 255, 0.08)',
                 color: '#ffffff',
@@ -2983,7 +2983,7 @@ function BlockWordsModal({
             <button
               type="button"
               onClick={onAdd}
-              className="shrink-0 rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
+              className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
               style={{ backgroundColor: '#ffffff', color: '#000000' }}
             >
               添加
@@ -2991,13 +2991,13 @@ function BlockWordsModal({
           </div>
           {/* 已添加屏蔽词 chips */}
           {words.length === 0 ? (
-            <p className="text-xs font-medium text-white/40">暂无屏蔽词</p>
+            <p className="text-sm font-medium text-white/40">暂无屏蔽词</p>
           ) : (
             <div className="flex max-h-[220px] flex-wrap gap-2 overflow-y-auto zen-scroll">
               {words.map((b) => (
                 <span
                   key={b.word}
-                  className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-xs font-bold text-white"
+                  className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-bold text-white"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.12)',
                   }}
@@ -3007,7 +3007,7 @@ function BlockWordsModal({
                   <button
                     type="button"
                     onClick={() => onToggleScope(b.word)}
-                    className="rounded-full px-1.5 py-0.5 text-[10px] font-bold transition-opacity hover:opacity-70"
+                    className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                     title={`作用范围：${SCOPE_LABEL[b.scope]}（点击切换）`}
                     aria-label={`切换屏蔽词 ${b.word} 的作用范围，当前 ${SCOPE_LABEL[b.scope]}`}
@@ -3098,10 +3098,10 @@ function FavFolderItem({
         )}
       </div>
       <div className="relative min-w-0 flex-1">
-        <p className="truncate text-[15px] font-bold leading-snug text-[var(--md-sys-color-on-surface)]">
+        <p className="truncate text-[17px] font-bold leading-snug text-[var(--md-sys-color-on-surface)]">
           {name}
         </p>
-        <p className="truncate text-[12px] font-bold leading-snug text-[var(--md-sys-color-on-surface-variant)]">
+        <p className="truncate text-[14px] font-bold leading-snug text-[var(--md-sys-color-on-surface-variant)]">
           {info}
         </p>
       </div>
