@@ -11,9 +11,9 @@
  *   试听 = 本地 Audio 播放 /api/music/stream（standard 音质；不进房间
  *   队列、不打扰一起听的其他人）；收藏 = 打开「添加到我的歌单」面板
  *   （AddToPlaylistModal 复用，z 更高叠于本弹窗之上，选完歌单回本弹窗）
- * - 视觉与展开动画完全沿用「添加到我的歌单」面板（glass-card +
- *   cloud-add-in 两段式展开 + 标题/水印分级淡入），内容同样延后到展开
- *   结束再挂载，动画期间零渲染抢帧
+ * - 视觉：黑底 + 高斯模糊（歌词页设置弹窗同语言，四角白色方块点缀），
+ *   屏幕居中锚定——展开动画（cloud-add-in 宽→高两段式 + 标题/水印分级
+ *   淡入）以面板中心为原点向四周舒展，内容同样延后到展开结束再挂载
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
@@ -244,24 +244,31 @@ export function NcmSearchModal({
   if (!open) return null
 
   return createPortal(
-    /* 蒙层（z-85 低于添加到歌单面板的 z-90：收藏面板叠于本弹窗之上） */
+    /* 蒙层（黑半透明，同歌词页设置弹窗；z-85 低于添加到歌单面板的 z-90：
+        收藏面板叠于本弹窗之上） */
     <div
       className="fixed inset-0 z-[85]"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.25)' }}
+      style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}
       onClick={onClose}
     >
-      {/* 面板（与添加到歌单面板同款展开动画：0.3s 延迟后先横向再纵向） */}
+      {/* 面板：黑底 + 高斯模糊（歌词页设置弹窗同视觉），屏幕居中锚定——
+          展开动画（宽→高两段式）以中心为原点向四周舒展，而非自底向上 */}
       <div
-        className="glass-card absolute"
+        className="absolute overflow-hidden"
         style={
           {
             left: '50%',
-            bottom: 124,
+            top: '50%',
             width: 300,
             height: 'min(500px, calc(100vh - 160px))',
-            transform: 'translateX(-50%)',
+            transform: 'translate(-50%, -50%)',
             '--add-panel-h': 'min(500px, calc(100vh - 160px))',
             animation: 'cloud-add-in 0.6s 0.3s both',
+            backgroundColor: 'rgba(8, 8, 8, 0.86)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            border: '0.5px solid rgba(255, 255, 255, 0.12)',
+            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
           } as React.CSSProperties
         }
         onClick={(e) => e.stopPropagation()}
@@ -274,14 +281,31 @@ export function NcmSearchModal({
           }
         }}
       >
+        {/* 四角白色方块点缀（歌词页设置弹窗同款装饰） */}
+        <span
+          aria-hidden="true"
+          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
+        />
+        <span
+          aria-hidden="true"
+          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
+        />
+
         {/* 内容层（独立裁剪；展开期间内容不外溢） */}
         <div className="absolute inset-0 flex flex-col overflow-hidden">
           {/* 水印 */}
           <div
             className="pointer-events-none absolute left-5 top-9 select-none text-[52px] font-bold leading-none"
             style={{
-              color:
-                'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+              color: 'rgba(255, 255, 255, 0.08)',
               animation: 'cloud-add-watermark-in 0.3s 0.6s both',
             }}
             aria-hidden="true"
@@ -291,11 +315,8 @@ export function NcmSearchModal({
 
           {/* 标题（0.5s 延迟淡入，Hydrogen .add-title-in 同节奏） */}
           <div
-            className="relative z-[1] mt-7 shrink-0 text-center text-[15px] font-bold"
-            style={{
-              color: 'var(--md-sys-color-on-surface)',
-              animation: 'cloud-add-title-in 0.3s 0.5s both',
-            }}
+            className="relative z-[1] mt-7 shrink-0 text-center text-[15px] font-bold text-white"
+            style={{ animation: 'cloud-add-title-in 0.3s 0.5s both' }}
           >
             在网易云搜索
           </div>
@@ -312,30 +333,22 @@ export function NcmSearchModal({
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void runSearch(keyword)
                 }}
-                className="h-8 min-w-0 flex-1 border bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)] px-2.5 text-xs outline-none"
+                className="h-8 min-w-0 flex-1 border bg-white/8 px-2.5 text-xs text-white outline-none placeholder:text-white/40"
                 style={{
-                  borderColor:
-                    'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
-                  color: 'var(--md-sys-color-on-surface)',
+                  borderColor: 'rgba(255, 255, 255, 0.4)',
                 }}
                 onFocus={(e) => {
-                  e.currentTarget.style.borderColor =
-                    'var(--md-sys-color-on-surface)'
+                  e.currentTarget.style.borderColor = '#ffffff'
                 }}
                 onBlur={(e) => {
-                  e.currentTarget.style.borderColor =
-                    'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)'
+                  e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.4)'
                 }}
               />
               <button
                 type="button"
                 onClick={() => void runSearch(keyword)}
                 disabled={searching}
-                className="flex h-8 w-8 shrink-0 items-center justify-center transition-opacity hover:opacity-85 disabled:opacity-40"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-primary)',
-                  color: 'var(--md-sys-color-on-primary)',
-                }}
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-black transition-opacity hover:opacity-85 disabled:opacity-40"
                 title="搜索"
                 aria-label="搜索"
               >
@@ -351,19 +364,13 @@ export function NcmSearchModal({
           {/* 结果列表（延后到展开动画结束挂载） */}
           <div className="relative z-[1] mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             {unfoldDone && searching && results.length === 0 && (
-              <div
-                className="flex items-center justify-center gap-2 py-10 text-xs"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              >
+              <div className="flex items-center justify-center gap-2 py-10 text-xs text-white/55">
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 正在搜索…
               </div>
             )}
             {unfoldDone && !searching && searched && results.length === 0 && (
-              <div
-                className="flex flex-col items-center justify-center gap-2 py-10 text-center text-xs"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              >
+              <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-xs text-white/55">
                 <SearchX className="h-5 w-5 opacity-40" />
                 未找到相关歌曲，换个关键词试试
               </div>
@@ -374,16 +381,10 @@ export function NcmSearchModal({
                 return (
                   <div
                     key={song.songId}
-                    className="flex items-center gap-2.5 rounded py-1.5 pr-1 transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_8%,transparent)]"
+                    className="flex items-center gap-2.5 rounded py-1.5 pr-1 transition-colors hover:bg-white/10"
                   >
                     {/* 封面 */}
-                    <span
-                      className="relative h-10 w-10 shrink-0 overflow-hidden rounded-sm"
-                      style={{
-                        backgroundColor:
-                          'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
-                      }}
-                    >
+                    <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-sm bg-white/8">
                       {song.cover ? (
                         <img
                           src={`${song.cover}?param=80y80`}
@@ -393,53 +394,28 @@ export function NcmSearchModal({
                         />
                       ) : (
                         <span className="flex h-full w-full items-center justify-center">
-                          <Music
-                            className="h-4 w-4 opacity-40"
-                            style={{
-                              color: 'var(--md-sys-color-on-surface-variant)',
-                            }}
-                          />
+                          <Music className="h-4 w-4 opacity-40" />
                         </span>
                       )}
                     </span>
                     {/* 歌名 + 歌手 */}
                     <span className="min-w-0 flex-1">
                       <span className="flex items-center gap-1">
-                        <span
-                          className="truncate text-xs font-bold"
-                          style={{ color: 'var(--md-sys-color-on-surface)' }}
-                        >
+                        <span className="truncate text-xs font-bold text-white">
                           {song.name}
                         </span>
                         {song.vip && (
-                          <span
-                            className="shrink-0 rounded border px-0.5 text-[9px] font-bold leading-tight"
-                            style={{
-                              borderColor:
-                                'color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
-                              color: 'var(--md-sys-color-on-surface-variant)',
-                            }}
-                          >
+                          <span className="shrink-0 rounded border border-white/40 px-0.5 text-[9px] font-bold leading-tight text-white/55">
                             VIP
                           </span>
                         )}
                       </span>
-                      <span
-                        className="block truncate text-[10px]"
-                        style={{
-                          color: 'var(--md-sys-color-on-surface-variant)',
-                        }}
-                      >
+                      <span className="block truncate text-[10px] text-white/55">
                         {song.artist || '—'}
                       </span>
                     </span>
                     {/* 时长 */}
-                    <span
-                      className="shrink-0 text-[10px] tabular-nums"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
+                    <span className="shrink-0 text-[10px] tabular-nums text-white/55">
                       {formatDurationMs(song.durationMs)}
                     </span>
                     {/* 操作：试听 / 收藏 */}
@@ -448,11 +424,9 @@ export function NcmSearchModal({
                         type="button"
                         onClick={() => toggleAudition(song)}
                         className={cn(
-                          'flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_12%,transparent)]',
-                          auditioning &&
-                            'bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_12%,transparent)]'
+                          'flex h-6 w-6 items-center justify-center rounded text-white transition-colors hover:bg-white/15',
+                          auditioning && 'bg-white/15'
                         )}
-                        style={{ color: 'var(--md-sys-color-on-surface)' }}
                         title={auditioning ? '停止试听' : '试听'}
                         aria-label={auditioning ? '停止试听' : '试听'}
                       >
@@ -465,8 +439,7 @@ export function NcmSearchModal({
                       <button
                         type="button"
                         onClick={() => openFavorite(song)}
-                        className="flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_12%,transparent)]"
-                        style={{ color: 'var(--md-sys-color-on-surface)' }}
+                        className="flex h-6 w-6 items-center justify-center rounded text-white transition-colors hover:bg-white/15"
                         title="收藏到歌单"
                         aria-label="收藏到歌单"
                       >
