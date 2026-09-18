@@ -186,7 +186,7 @@ function buildStreamUrl(
   // B站 本地插播条目：地址在 playBiliSong 解析时写入缓存
   if (isBiliItem(item)) {
     const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
-    return biliAudioUrlMap.get(mapKey) ?? ''
+    return getCachedBiliAudioUrl(mapKey) ?? ''
   }
   const roomParam = roomId ? `&roomId=${encodeURIComponent(roomId)}` : ''
   const level = normalizeMusicLevel(
@@ -215,10 +215,25 @@ function isBiliItem(item: MusicQueueItem): boolean {
 }
 
 /**
- * B站 视频音频地址缓存（`<bvid>:<cid>` → 可直接播放的代理 URL）。
+ * B站 视频音频地址缓存（`<bvid>:<cid>` → { url, 解析时间 }）。
  * playBiliSong 点击时解析写入；B站 音频不入后端队列，仅本地会话有效。
+ * **带 TTL**：B站 直链（代理 URL 背后的 CDN 地址/鉴权参数）通常 1~4 小时
+ * 过期，长会话中切回旧歌若命中过期地址会 403 黑屏——超过 2 小时的条目
+ * 视为失效并重新解析。
  */
-const biliAudioUrlMap = new Map<string, string>()
+const BILI_AUDIO_URL_TTL_MS = 2 * 60 * 60 * 1000
+const biliAudioUrlMap = new Map<string, { url: string; at: number }>()
+
+/** 读取缓存（未过期返回 URL，过期/不存在返回 null 并清除条目） */
+function getCachedBiliAudioUrl(mapKey: string): string | null {
+  const cached = biliAudioUrlMap.get(mapKey)
+  if (!cached) return null
+  if (Date.now() - cached.at > BILI_AUDIO_URL_TTL_MS) {
+    biliAudioUrlMap.delete(mapKey)
+    return null
+  }
+  return cached.url
+}
 
 /** 正在懒解析中的 B站 条目 key（同 key 重复触发直接忽略） */
 const biliResolvingKeys = new Set<string>()
@@ -236,7 +251,7 @@ async function resolveBiliAudio(
 ): Promise<{ playUrl: string; durationMs: number }> {
   if (!item.biliBvid) throw new Error('缺少 B站 视频信息')
   const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
-  const cached = biliAudioUrlMap.get(mapKey)
+  const cached = getCachedBiliAudioUrl(mapKey)
   if (cached) return { playUrl: cached, durationMs: item.durationMs }
   const pageUrl = `https://www.bilibili.com/video/${item.biliBvid}`
   const proxyUrl = useMusicSettingsStore.getState().musicVideoCli
@@ -272,7 +287,7 @@ async function resolveBiliAudio(
     playUrl = buildProxyUrl(r.videoUrl)
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   }
-  biliAudioUrlMap.set(mapKey, playUrl)
+  biliAudioUrlMap.set(mapKey, { url: playUrl, at: Date.now() })
   return { playUrl, durationMs }
 }
 
@@ -822,7 +837,7 @@ export function useListenTogether({
       // 为空），先解析完成后再继续加载；同 key 去重防止重复触发 =====
       if (isBiliItem(item) && item.biliBvid) {
         const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
-        if (!biliAudioUrlMap.has(mapKey)) {
+        if (getCachedBiliAudioUrl(mapKey) == null) {
           if (biliResolvingKeys.has(mapKey)) return
           biliResolvingKeys.add(mapKey)
           const notice = useMusicStore.getState().setSyncNotice

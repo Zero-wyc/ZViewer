@@ -10,9 +10,13 @@ import type { UseListenTogetherResult } from './useListenTogether'
 import type { PlayMode } from '../types'
 
 export interface MusicPlayerContextValue extends UseListenTogetherResult {
-  /** 当前播放进度（秒；store 中 timeupdate 驱动的镜像，供进度条/歌词消费） */
-  positionSec: number
-  /** 是否正在播放（audio 元素 play/pause 事件镜像） */
+  /**
+   * 是否正在播放（audio 元素 play/pause 事件镜像）。
+   * 注意：positionSec 已移出 context——它由 timeupdate 以 4-8Hz 更新，
+   * 放在 context value 里会让所有消费者跟着高频重渲染。需要进度的组件
+   * 改用 usePlaybackPosition(quantum)（量化快照按需重渲染）或在
+   * 事件回调/interval 内用 getPositionSec() 命令式读取。
+   */
   isPlaying: boolean
   /** 播放模式 */
   playMode: PlayMode

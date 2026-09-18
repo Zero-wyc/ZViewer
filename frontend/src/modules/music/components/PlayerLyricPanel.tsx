@@ -33,6 +33,7 @@ import {
 } from 'react'
 import type { LyricLine } from '../utils/lrc'
 import { formatLyricLineOffset } from '../utils/lyricLineOffset'
+import { usePlaybackPosition } from '../hooks/usePlaybackPosition'
 import { cn } from '@/lib/utils'
 
 /** 滚动同步容差（px）：目标差值小于该值不做动画 */
@@ -61,7 +62,6 @@ const OFFSET_MENU_HEIGHT = 170
 export interface PlayerLyricPanelProps {
   lines: LyricLine[]
   activeIndex: number
-  positionSec: number
   /** 空态模式：null=有歌词；'none'=无歌词（Lyric-Area 装饰）；'pure'=纯音乐占位行 */
   emptyMode: 'none' | 'pure' | null
   /** 是否已就绪（首帧防闪烁：false 时内容 visibility hidden） */
@@ -117,7 +117,6 @@ function estimateLineEndSec(line: LyricLine, nextTime: number): number {
 export function PlayerLyricPanel({
   lines,
   activeIndex,
-  positionSec,
   emptyMode,
   revealed,
   showTranslation,
@@ -537,6 +536,10 @@ export function PlayerLyricPanel({
   // 间奏等待（Hydrogen handleInterludeOnIndexChange/OnProgress 的等价实现）：
   // 当前行结束到下一行的间隔 ≥ 阈值（设置：歌词间奏等待时间）时展示倒计时，
   // 剩余时间 ≤ 收起预留（0.8s）时提前收起（INTERLUDE_EXIT 预留）
+  // 播放进度：本组件内部量化订阅（0.5s 一档，间奏倒计时秒级粒度足够）——
+  // positionSec 不再作为 prop 从面板传入，高频更新只重渲染本组件
+  const positionSec = usePlaybackPosition(0.5)
+
   const interlude = useMemo(() => {
     const line = lines[activeIndex]
     const next = lines[activeIndex + 1]

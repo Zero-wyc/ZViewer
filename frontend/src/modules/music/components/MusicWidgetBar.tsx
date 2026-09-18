@@ -44,6 +44,7 @@ import {
   useMusicSettingsStore,
 } from '../store-settings'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
+import { usePlaybackPosition } from '../hooks/usePlaybackPosition'
 import { OverflowMarquee } from './OverflowMarquee'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
 import {
@@ -77,12 +78,14 @@ export function MusicWidgetBar() {
     canControl,
     currentSong,
     isPlaying,
-    positionSec,
     playMode,
     setPlayMode,
     volume,
     setVolume,
   } = useMusicPlayer()
+  // 播放进度：本组件内部量化订阅（0.5s 一档）——不再从 context 取
+  // positionSec（那会带动整个播放控制栏以 4-8Hz 重渲染）
+  const positionSec = usePlaybackPosition(0.5)
 
   const setPlayerOverlayOpen = useMusicStore((s) => s.setPlayerOverlayOpen)
   const setQueuePopupOpen = useMusicStore((s) => s.setQueuePopupOpen)

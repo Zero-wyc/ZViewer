@@ -30,7 +30,13 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from 'react'
+import {
+  getPositionSec,
+  subscribePositionSec,
+  usePlaybackPosition,
+} from '../hooks/usePlaybackPosition'
 import {
   ChevronDown,
   ListMusic,
@@ -919,6 +925,126 @@ function PlayerSettingsModal({
   )
 }
 
+/**
+ * 播放进度条（Hydrogen 样式：1.3vh 黑条 + 0.5px 描边；canControl 可拖动）。
+ * 独立组件：进度经 usePlaybackPosition(0.25) 量化订阅——positionSec 的
+ * 高频更新只重渲染本组件（含拖动预览），不拖累整块播放面板。
+ * seek 等位锁状态由父级持有（歌词行点击 seek 共用同一把锁），经 props 传入。
+ */
+function PlayerProgressBar({
+  durationSec,
+  canControl,
+  currentKey,
+  seekLock,
+  onSeek,
+}: {
+  durationSec: number
+  canControl: boolean
+  currentKey: string | null
+  /** seek 等位锁快照（父级持有：进度条拖动与歌词行点击共用） */
+  seekLock: { key: string | null; sec: number } | null
+  /** 执行 seek 并挂等位锁（父级实现：seek + setSeekLock） */
+  onSeek: (sec: number) => void
+}) {
+  const positionSec = usePlaybackPosition(0.25)
+  const progressRef = useRef<HTMLDivElement>(null)
+
+  /** 拖动预览值（拖动期间进度条即时跟手，松手后才真 seek） */
+  const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
+
+  /** 进度条展示秒数：拖动预览 > seek 等位锁 > 实际播放进度 */
+  const seekLockActive =
+    seekLock != null &&
+    seekLock.key === currentKey &&
+    Math.abs(positionSec - seekLock.sec) > 0.75
+  const progressDisplaySec =
+    dragPreviewSec ?? (seekLockActive && seekLock ? seekLock.sec : positionSec)
+  const progressDisplayRatio =
+    durationSec > 0
+      ? Math.min(1, Math.max(0, progressDisplaySec / durationSec))
+      : 0
+
+  const computeTimeFromClientX = useCallback(
+    (clientX: number): number => {
+      const el = progressRef.current
+      if (!el || durationSec <= 0) return 0
+      const rect = el.getBoundingClientRect()
+      if (rect.width <= 0) return 0
+      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
+      return ratio * durationSec
+    },
+    [durationSec]
+  )
+
+  /**
+   * 拖动进度（仅 canControl；观众只读展示）。
+   * Hydrogen vue-slider 模式复刻：拖动态 animateTime=0（即时跟手、无
+   * transition 门），松手后外部值变化以 0.5s ease 平滑重定向（对应
+   * :duration=0.5 与组件默认缓动）；松手 seek 后由 seek 等位锁托住展示
+   * 值，杜绝「回退旧进度再前进」的横跳。
+   */
+  const handleProgressPointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      if (!canControl || durationSec <= 0) return
+      e.preventDefault()
+      e.stopPropagation()
+      setDragPreviewSec(computeTimeFromClientX(e.clientX))
+      const handleMove = (ev: PointerEvent) => {
+        setDragPreviewSec(computeTimeFromClientX(ev.clientX))
+      }
+      const handleUp = (ev: PointerEvent) => {
+        window.removeEventListener('pointermove', handleMove)
+        window.removeEventListener('pointerup', handleUp)
+        onSeek(computeTimeFromClientX(ev.clientX))
+        // 松手即清预览：等位锁接管展示值（锁定在 seek 目标），
+        // 实际进度追上后以 0.5s ease 平滑恢复跟播
+        setDragPreviewSec(null)
+      }
+      window.addEventListener('pointermove', handleMove)
+      window.addEventListener('pointerup', handleUp)
+    },
+    [canControl, durationSec, onSeek, computeTimeFromClientX]
+  )
+
+  return (
+    <>
+      <div className="flex items-center justify-between text-[max(1.5vh,11px)] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]">
+        <span>{formatDuration(progressDisplaySec)}</span>
+        <span>{formatDuration(durationSec)}</span>
+      </div>
+      <div
+        ref={progressRef}
+        role="slider"
+        aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
+        aria-valuemin={0}
+        aria-valuemax={Math.round(durationSec)}
+        aria-valuenow={Math.round(positionSec)}
+        aria-disabled={!canControl}
+        className={cn(
+          'touch-slider relative mt-[max(1vh,6px)] h-[max(1.3vh,6px)]',
+          canControl && 'cursor-pointer'
+        )}
+        style={{
+          boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
+        }}
+        onPointerDown={handleProgressPointerDown}
+      >
+        <div
+          className="absolute left-0 top-0 h-full"
+          style={{
+            // 拖动预览值即时跟手（无过渡）；松手后位置值变化
+            // 以 0.5s ease 平滑补间（Hydrogen vue-slider
+            // :duration=0.5 与组件默认缓动）
+            width: `${progressDisplayRatio * 100}%`,
+            backgroundColor: 'var(--md-sys-color-on-surface)',
+            transition: dragPreviewSec != null ? 'none' : 'width 0.5s ease',
+          }}
+        />
+      </div>
+    </>
+  )
+}
+
 export function ListenTogetherPanel({
   socket,
   roomId,
@@ -989,7 +1115,6 @@ function ListenTogetherInner({
     hostOffline,
     syncNotice,
     setSyncNotice,
-    positionSec,
     isPlaying,
     playMode,
     volume,
@@ -1059,13 +1184,16 @@ function ListenTogetherInner({
   )
   const isBiliSong = currentKey?.startsWith('bili:') ?? false
   /** B站 曲目原视频链接（工具栏跳转按钮）：仅 B站 条目且带 bvid 时生成；
-   *  携带当前播放进度（?t= 秒），B站 页面打开后直接从该时间点续看 */
-  const biliSourceUrl =
-    isBiliSong && currentSong?.biliBvid
-      ? `https://www.bilibili.com/video/${currentSong.biliBvid}${
-          positionSec >= 1 ? `?t=${Math.floor(positionSec)}` : ''
-        }`
-      : null
+   *  携带当前播放进度（?t= 秒），B站 页面打开后直接从该时间点续看。
+   *  进度在点击时命令式读取（getPositionSec），不订阅避免高频重渲染 */
+  const biliBvid = isBiliSong ? (currentSong?.biliBvid ?? null) : null
+  const buildBiliSourceUrl = useCallback(() => {
+    if (!isBiliSong || !biliBvid) return null
+    const t = getPositionSec()
+    return `https://www.bilibili.com/video/${biliBvid}${
+      t >= 1 ? `?t=${Math.floor(t)}` : ''
+    }`
+  }, [isBiliSong, biliBvid])
   /** B站 评论区目标：使用当前播放 B站 视频的评论区（徽章/面板 key `bili:<bvid>`） */
   const currentBiliBvid = isBiliSong ? (currentSong?.biliBvid ?? null) : null
   /** 评论入口可用性：网易云需有效 songId，B站 条目有 bvid 即可 */
@@ -1122,16 +1250,19 @@ function ListenTogetherInner({
     }
   }, [biliDanmakuActive, biliDanmakuAboveUi, danmakuStyle])
 
-  // 时间轴驱动：positionSec（音频 timeupdate 4-8 次/秒）→ rAF 节流 → syncTime；
-  // 引擎内部对 >3s 跳变自动清已发射集合并补发当前窗口（拖进度条 seek 兼容）
+  // 时间轴驱动：interval 250ms 命令式读取 store 进度 → syncTime（绕开
+  // React 渲染——positionSec 高频更新不再触发本组件重渲染；引擎内部对
+  // >3s 跳变自动清已发射集合并补发当前窗口，拖进度条 seek 兼容）
   useEffect(() => {
-    biliDanmakuTimeRef.current = positionSec
+    biliDanmakuTimeRef.current = getPositionSec()
     if (!biliDanmakuActive) return
-    const raf = requestAnimationFrame(() => {
-      biliDanmakuLayerRef.current?.syncTime(positionSec)
-    })
-    return () => cancelAnimationFrame(raf)
-  }, [positionSec, biliDanmakuActive])
+    const timer = setInterval(() => {
+      const t = getPositionSec()
+      biliDanmakuTimeRef.current = t
+      biliDanmakuLayerRef.current?.syncTime(t)
+    }, 250)
+    return () => clearInterval(timer)
+  }, [biliDanmakuActive])
 
   const musicVideoBg = useMusicVideoBackground(
     isBiliSong ? null : (songId ?? null),
@@ -1200,78 +1331,70 @@ function ListenTogetherInner({
   // 视频反复 seek 引发的性能猛增与浏览器卡顿），对齐后恢复原速。
   // metadata 就绪（挂载/切歌/中途加入房间）时无视一切强制对齐一次
   // （见 video 的 onLoadedMetadata） =====
-  const syncBgVideoTime = useCallback(
-    (force: boolean) => {
-      const video = bgVideoRef.current
-      if (!video || video.readyState < 1) return
-      const dur = video.duration
-      if (!Number.isFinite(dur) || dur <= 0) return
-      const target = positionSec % dur
-      if (force) {
-        // 强制对齐（metadata 就绪/切歌）：清追赶态后直接跳
-        if (bgSeekDebounceRef.current != null) {
-          clearTimeout(bgSeekDebounceRef.current)
+  const syncBgVideoTime = useCallback((force: boolean) => {
+    const video = bgVideoRef.current
+    if (!video || video.readyState < 1) return
+    const dur = video.duration
+    if (!Number.isFinite(dur) || dur <= 0) return
+    const target = getPositionSec() % dur
+    if (force) {
+      // 强制对齐（metadata 就绪/切歌）：清追赶态后直接跳
+      if (bgSeekDebounceRef.current != null) {
+        clearTimeout(bgSeekDebounceRef.current)
+        bgSeekDebounceRef.current = null
+      }
+      bgSeekPendingRef.current = null
+      bgCatchUpRef.current = false
+      if (video.playbackRate !== 1) video.playbackRate = 1
+      try {
+        video.currentTime = target
+      } catch {
+        // 引擎未就绪等 seek 失败静默忽略，等待下轮校正
+      }
+      return
+    }
+    const drift = target - video.currentTime // 正 = 视频落后于音频
+    if (Math.abs(drift) > BG_VIDEO_SYNC_THRESHOLD_SEC) {
+      // 大漂移：去抖 seek——窗口内重复触发只刷新目标，最终一次跳转
+      bgSeekPendingRef.current = target
+      if (bgSeekDebounceRef.current == null) {
+        bgSeekDebounceRef.current = window.setTimeout(() => {
           bgSeekDebounceRef.current = null
-        }
-        bgSeekPendingRef.current = null
+          const pending = bgSeekPendingRef.current
+          bgSeekPendingRef.current = null
+          if (pending == null) return
+          try {
+            // 目标可能已随音频前移/换源，按当前时长取模保护
+            video.currentTime = pending % (video.duration || 1)
+            bgCatchUpRef.current = true // seek 后倍速吸收残余漂移
+          } catch {
+            // 引擎未就绪等 seek 失败静默忽略，等待下轮校正
+          }
+        }, BG_VIDEO_SEEK_DEBOUNCE_MS)
+      }
+      return
+    }
+    if (bgCatchUpRef.current) {
+      // 追赶模式：漂移在阈值内但尚未对齐——倍速渐进吸收，避免二次 seek
+      if (Math.abs(drift) <= BG_VIDEO_CATCHUP_EPSILON_SEC) {
         bgCatchUpRef.current = false
         if (video.playbackRate !== 1) video.playbackRate = 1
-        try {
-          video.currentTime = target
-        } catch {
-          // 引擎未就绪等 seek 失败静默忽略，等待下轮校正
-        }
-        return
-      }
-      const drift = target - video.currentTime // 正 = 视频落后于音频
-      if (Math.abs(drift) > BG_VIDEO_SYNC_THRESHOLD_SEC) {
-        // 大漂移：去抖 seek——窗口内重复触发只刷新目标，最终一次跳转
-        bgSeekPendingRef.current = target
-        if (bgSeekDebounceRef.current == null) {
-          bgSeekDebounceRef.current = window.setTimeout(() => {
-            bgSeekDebounceRef.current = null
-            const pending = bgSeekPendingRef.current
-            bgSeekPendingRef.current = null
-            if (pending == null) return
-            try {
-              // 目标可能已随音频前移/换源，按当前时长取模保护
-              video.currentTime = pending % (video.duration || 1)
-              bgCatchUpRef.current = true // seek 后倍速吸收残余漂移
-            } catch {
-              // 引擎未就绪等 seek 失败静默忽略，等待下轮校正
-            }
-          }, BG_VIDEO_SEEK_DEBOUNCE_MS)
-        }
-        return
-      }
-      if (bgCatchUpRef.current) {
-        // 追赶模式：漂移在阈值内但尚未对齐——倍速渐进吸收，避免二次 seek
-        if (Math.abs(drift) <= BG_VIDEO_CATCHUP_EPSILON_SEC) {
-          bgCatchUpRef.current = false
-          if (video.playbackRate !== 1) video.playbackRate = 1
-        } else {
-          // 落后则略加速追上，超前则略减速让音频追上（无声背景，无感知）
-          const rate = Math.min(
-            BG_VIDEO_MAX_RATE,
-            Math.max(BG_VIDEO_MIN_RATE, 1 + drift / BG_VIDEO_CATCHUP_GAIN_SEC)
-          )
-          if (Math.abs(video.playbackRate - rate) > 0.01) {
-            try {
-              video.playbackRate = rate
-            } catch {
-              // ignore
-            }
+      } else {
+        // 落后则略加速追上，超前则略减速让音频追上（无声背景，无感知）
+        const rate = Math.min(
+          BG_VIDEO_MAX_RATE,
+          Math.max(BG_VIDEO_MIN_RATE, 1 + drift / BG_VIDEO_CATCHUP_GAIN_SEC)
+        )
+        if (Math.abs(video.playbackRate - rate) > 0.01) {
+          try {
+            video.playbackRate = rate
+          } catch {
+            // ignore
           }
         }
       }
-    },
-    [positionSec]
-  )
-  // 漂移校正：positionSec 由音频 timeupdate 驱动（暂停时拖进度条同样触发）；
-  // 播放中正常 1x 漂移远小于阈值，仅卡顿/seek 后才安排校正
-  useEffect(() => {
-    syncBgVideoTime(false)
-  }, [syncBgVideoTime])
+    }
+  }, [])
 
   // 卸载时清 seek 去抖定时器（追赶态随元素销毁失效，无需处理）
   useEffect(
@@ -1379,6 +1502,15 @@ function ListenTogetherInner({
     }, 3000)
     return () => clearInterval(timer)
   }, [bgVideoReady])
+
+  // 视频背景漂移校正驱动：interval 1s 命令式读取进度（positionSec 高频
+  // 更新不再经由 React effect 触发）；播放中正常 1x 漂移远小于阈值，
+  // 仅卡顿/seek 后才安排校正。未就绪时不排程（sync 内部亦有护栏）
+  useEffect(() => {
+    if (!bgVideoReady) return
+    const timer = setInterval(() => syncBgVideoTime(false), 1000)
+    return () => clearInterval(timer)
+  }, [bgVideoReady, syncBgVideoTime])
 
   // ===== 右面板模式（Hydrogen rightPanelMode：0 歌词 / 1 评论区） =====
   const [rightPanelMode, setRightPanelMode] = useState<0 | 1>(0)
@@ -1558,7 +1690,6 @@ function ListenTogetherInner({
   const biliLikeFavTitle = normalizeBiliLikeFavTitle(
     useMusicSettingsStore((s) => s.biliLikeFavTitle)
   )
-  const biliBvid = isBiliSong ? (currentSong?.biliBvid ?? null) : null
   const [biliFavModalOpen, setBiliFavModalOpen] = useState(false)
   const [biliCollecting, setBiliCollecting] = useState(false)
   const [biliCollectedMark, setBiliCollectedMark] = useState<{
@@ -1668,24 +1799,32 @@ function ListenTogetherInner({
     [songId]
   )
 
-  /** 当前高亮歌词行（最后一个 time <= positionSec + 提前量的行，二分查找） */
-  const activeLyricIndex = useMemo(() => {
-    if (displayLyricLines.length === 0) return -1
-    let ans = -1
-    let lo = 0
-    let hi = displayLyricLines.length - 1
-    const target = positionSec + LYRIC_ADVANCE_SEC
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1
-      if (displayLyricLines[mid].time <= target) {
-        ans = mid
-        lo = mid + 1
-      } else {
-        hi = mid - 1
+  /**
+   * 当前高亮歌词行（最后一个 time <= positionSec + 提前量的行，二分查找）。
+   * 快照 = 行索引本身：仅当跨行时才触发本组件重渲染（而非每秒 4-8 次）。
+   */
+  const activeLyricIndex = useSyncExternalStore(
+    subscribePositionSec,
+    () => {
+      const pos = getPositionSec()
+      if (displayLyricLines.length === 0) return -1
+      let ans = -1
+      let lo = 0
+      let hi = displayLyricLines.length - 1
+      const target = pos + LYRIC_ADVANCE_SEC
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1
+        if (displayLyricLines[mid].time <= target) {
+          ans = mid
+          lo = mid + 1
+        } else {
+          hi = mid - 1
+        }
       }
-    }
-    return ans
-  }, [displayLyricLines, positionSec])
+      return ans
+    },
+    () => -1
+  )
 
   // ===== 喜欢（Hydrogen likeSong：NCM 登录且非塞壬曲目可见） =====
   const handleLike = useCallback(async () => {
@@ -1715,16 +1854,16 @@ function ListenTogetherInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
-  // ===== 进度条（Hydrogen 样式：1.3vh 黑条 + 0.5px 描边；canControl 可拖动） =====
+  // ===== 进度条（Hydrogen 样式）：抽为独立组件 PlayerProgressBar——
+  // 进度经 usePlaybackPosition(0.25) 量化订阅，positionSec 的高频更新只
+  // 重渲染进度条本身（含拖动预览），不拖累整块播放面板 =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
-  const progressRef = useRef<HTMLDivElement>(null)
 
   // ===== seek 等位锁（修复松手后进度条「倒退再前进」反复横跳）：
   //       seek() 只同步设置 audio.currentTime，positionSec 要等下一次
   //       timeupdate 才更新——松手瞬间展示值会从拖动终点回退到旧进度
-  //       再前进。Hydrogen 的 vue-slider 直写 v-model 无此空窗，这里在
-  //       seek 后把展示值锁定在目标进度：实际进度追上（容差 0.75s）、
-  //       超时兜底（2s，seek 失败防冻结）或换曲后自动失效 =====
+  //       再前进。进度条（拖动）与歌词行点击 seek 共用同一把锁；
+  //       实际进度追上（容差 0.75s）、超时兜底（2s）或换曲后自动失效 =====
   const [seekLock, setSeekLock] = useState<{
     key: string | null
     sec: number
@@ -1744,63 +1883,6 @@ function ListenTogetherInner({
     const timer = setTimeout(() => setSeekLock(null), 2000)
     return () => clearTimeout(timer)
   }, [seekLock])
-
-  /** 拖动预览值（拖动期间进度条即时跟手，松手后才真 seek） */
-  const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
-
-  /** 进度条展示秒数：拖动预览 > seek 等位锁 > 实际播放进度 */
-  const seekLockActive =
-    seekLock != null &&
-    seekLock.key === currentKey &&
-    Math.abs(positionSec - seekLock.sec) > 0.75
-  const progressDisplaySec =
-    dragPreviewSec ?? (seekLockActive && seekLock ? seekLock.sec : positionSec)
-  const progressDisplayRatio =
-    durationSec > 0
-      ? Math.min(1, Math.max(0, progressDisplaySec / durationSec))
-      : 0
-
-  const computeTimeFromClientX = useCallback(
-    (clientX: number): number => {
-      const el = progressRef.current
-      if (!el || durationSec <= 0) return 0
-      const rect = el.getBoundingClientRect()
-      if (rect.width <= 0) return 0
-      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-      return ratio * durationSec
-    },
-    [durationSec]
-  )
-
-  /**
-   * 拖动进度（仅 canControl；观众只读展示）。
-   * Hydrogen vue-slider 模式复刻：拖动态 animateTime=0（即时跟手、无
-   * transition 门），松手后外部值变化以 0.5s ease 平滑重定向（对应
-   * :duration=0.5 与组件默认缓动）；松手 seek 后由 seek 等位锁托住展示
-   * 值，杜绝「回退旧进度再前进」的横跳。
-   */
-  const handleProgressPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (!canControl || durationSec <= 0) return
-      e.preventDefault()
-      e.stopPropagation()
-      setDragPreviewSec(computeTimeFromClientX(e.clientX))
-      const handleMove = (ev: PointerEvent) => {
-        setDragPreviewSec(computeTimeFromClientX(ev.clientX))
-      }
-      const handleUp = (ev: PointerEvent) => {
-        window.removeEventListener('pointermove', handleMove)
-        window.removeEventListener('pointerup', handleUp)
-        performSeekWithLock(computeTimeFromClientX(ev.clientX))
-        // 松手即清预览：等位锁接管展示值（锁定在 seek 目标），
-        // 实际进度追上后以 0.5s ease 平滑恢复跟播
-        setDragPreviewSec(null)
-      }
-      window.addEventListener('pointermove', handleMove)
-      window.addEventListener('pointerup', handleUp)
-    },
-    [canControl, durationSec, performSeekWithLock, computeTimeFromClientX]
-  )
 
   // ===== 控制按钮（观众点击走申请，房主/房主离线 canControl 直接控制） =====
   const handlePlayPause = useCallback(() => {
@@ -2574,11 +2656,15 @@ function ListenTogetherInner({
               {/* 前往 B站 原视频（仅 B站 条目）：新标签页打开
                   bilibili.com/video/{bvid}，携带当前进度 ?t= 续看；
                   与网易云条目的「添加视频」槽位互斥复用 */}
-              {biliSourceUrl && (
+              {buildBiliSourceUrl() && (
                 <button
                   type="button"
                   onClick={() =>
-                    window.open(biliSourceUrl, '_blank', 'noopener,noreferrer')
+                    window.open(
+                      buildBiliSourceUrl(),
+                      '_blank',
+                      'noopener,noreferrer'
+                    )
                   }
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="在哔哩哔哩打开原视频"
@@ -2842,42 +2928,13 @@ function ListenTogetherInner({
               <div className="flex min-h-0 flex-1 flex-col justify-between px-[max(1.5vh,10px)] pb-[max(1vh,6px)] pt-[max(1.5vh,10px)]">
                 {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
                 <div className="shrink-0">
-                  <div className="flex items-center justify-between text-[max(1.5vh,11px)] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]">
-                    <span>{formatDuration(progressDisplaySec)}</span>
-                    <span>{formatDuration(durationSec)}</span>
-                  </div>
-                  <div
-                    ref={progressRef}
-                    role="slider"
-                    aria-label={
-                      canControl ? '播放进度' : '播放进度（仅房主可拖动）'
-                    }
-                    aria-valuemin={0}
-                    aria-valuemax={Math.round(durationSec)}
-                    aria-valuenow={Math.round(positionSec)}
-                    aria-disabled={!canControl}
-                    className={cn(
-                      'touch-slider relative mt-[max(1vh,6px)] h-[max(1.3vh,6px)]',
-                      canControl && 'cursor-pointer'
-                    )}
-                    style={{
-                      boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
-                    }}
-                    onPointerDown={handleProgressPointerDown}
-                  >
-                    <div
-                      className="absolute left-0 top-0 h-full"
-                      style={{
-                        // 拖动预览值即时跟手（无过渡）；松手后位置值变化
-                        // 以 0.5s ease 平滑补间（Hydrogen vue-slider
-                        // :duration=0.5 与组件默认缓动）
-                        width: `${progressDisplayRatio * 100}%`,
-                        backgroundColor: 'var(--md-sys-color-on-surface)',
-                        transition:
-                          dragPreviewSec != null ? 'none' : 'width 0.5s ease',
-                      }}
-                    />
-                  </div>
+                  <PlayerProgressBar
+                    durationSec={durationSec}
+                    canControl={canControl}
+                    currentKey={currentKey}
+                    seekLock={seekLock}
+                    onSeek={performSeekWithLock}
+                  />
 
                   {/* 音频可视化（设置：音频可视化 → 真实频谱于进度条下方；
                       captureStream 旁路 WebAudio analyser，Hydrogen 同思路） */}
@@ -3139,11 +3196,15 @@ function ListenTogetherInner({
                 </button>
               )}
               {/* 前往 B站 原视频（仅 B站 条目，与桌面 song-control 同语义） */}
-              {biliSourceUrl && (
+              {buildBiliSourceUrl() && (
                 <button
                   type="button"
                   onClick={() =>
-                    window.open(biliSourceUrl, '_blank', 'noopener,noreferrer')
+                    window.open(
+                      buildBiliSourceUrl(),
+                      '_blank',
+                      'noopener,noreferrer'
+                    )
                   }
                   className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                   title="在哔哩哔哩打开原视频"
@@ -3216,7 +3277,6 @@ function ListenTogetherInner({
                 <PlayerLyricPanel
                   lines={displayLyricLines}
                   activeIndex={activeLyricIndex}
-                  positionSec={positionSec}
                   emptyMode={emptyMode}
                   revealed={lyricRevealed}
                   showTranslation={showTranslation}

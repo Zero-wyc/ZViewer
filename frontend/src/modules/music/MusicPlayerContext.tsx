@@ -25,9 +25,10 @@ export interface MusicPlayerProviderProps {
 /**
  * 持有 useListenTogether 的全部返回值 + 实时播放状态。
  *
- * positionSec / isPlaying / playMode 来自 music store 镜像
- * （useListenTogether 内部由 audio timeupdate/play/pause 事件维护），
- * 无需额外的 rAF/interval 轮询。
+ * isPlaying / playMode 来自 music store 镜像
+ * （useListenTogether 内部由 audio play/pause 事件维护）。
+ * positionSec 不进 context（4-8Hz 更新会带动全部消费者高频重渲染），
+ * 消费方改用 usePlaybackPosition / getPositionSec（hooks/usePlaybackPosition）。
  */
 export function MusicPlayerProvider({
   socket,
@@ -37,13 +38,11 @@ export function MusicPlayerProvider({
   children,
 }: MusicPlayerProviderProps) {
   const player = useListenTogether({ socket, roomId, isHost, username })
-  const positionSec = useMusicStore((s) => s.positionSec)
   const isPlaying = useMusicStore((s) => s.isPlaying)
   const playMode = useMusicStore((s) => s.playMode)
 
   const value: MusicPlayerContextValue = {
     ...player,
-    positionSec,
     isPlaying,
     playMode,
   }
