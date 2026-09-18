@@ -4,7 +4,9 @@
  * - 双源列表：随当前播放来源自动切换——B站 曲目显示 B站 播放列表
  *   （本地会话记忆 ∪ 房间队列中的 B站条目），网易云曲目显示网易云列表
  *   （房间队列去除 B站条目）；两源独立记忆、互不混显
- * - 定位：absolute bottom-full 右对齐（widget 右上弹出），glass-card，
+ * - 定位：top = absolute bottom-full 右对齐（音乐主页 widget 右上弹出，
+ *   glass-card 浅色毛玻璃）；side / sheet = 歌词播放页入口，黑底高斯
+ *   模糊皮肤（黑底 SETTING 弹窗同视觉语言，令牌覆盖整体反白），
  *   w-80 高 24rem，从底部进入动画（translate-y + opacity）
  * - 头部：「当前播放 (N)」+ 来源标识 + 自动推荐（B站 视图：按当前视频
  *   拉取相关推荐前 3 条插入下三首）+ 清空 + 定位到当前 + 关闭
@@ -22,6 +24,16 @@ import { useMusicStore, musicItemKey } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { EqBars } from './SongRow'
 import { cn } from '@/lib/utils'
+
+/** 歌词页队列面板（side / sheet placement）的黑底高斯模糊皮肤：
+ *  对齐黑底 SETTING 弹窗视觉语言（纯黑半透 + backdrop blur + 白描边），
+ *  容器级覆盖 MD3 令牌——弹窗内全部 var() 引用（文字 / hover 底色 /
+ *  当前行 EQ / 推荐徽章）整体切换到白主题语言（primary = 白） */
+const QUEUE_DARK_TOKENS = {
+  '--md-sys-color-on-surface': '#ececf0',
+  '--md-sys-color-on-surface-variant': '#c6c6ce',
+  '--md-sys-color-primary': '#ffffff',
+} as React.CSSProperties
 
 export interface MusicQueuePopupProps {
   socket: Socket | null
@@ -46,6 +58,9 @@ export function MusicQueuePopup({
   const currentKey = useMusicStore((s) => s.currentKey)
   const isPlaying = useMusicStore((s) => s.isPlaying)
   const setQueuePopupOpen = useMusicStore((s) => s.setQueuePopupOpen)
+  /** 歌词页入口（side / sheet）启用黑底高斯模糊皮肤；音乐主页 widget
+   *  上方弹出（top）保持原 glass-card 浅色毛玻璃 */
+  const darkGlass = placement !== 'top'
   const { playSong, playBiliSong, canControl, addBiliRecommendations } =
     useMusicPlayer()
 
@@ -132,7 +147,11 @@ export function MusicQueuePopup({
   return (
     <div
       className={cn(
-        'glass-card zen-stagger-fade-up absolute z-50 flex h-96 w-80 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] shadow-lg',
+        'zen-stagger-fade-up absolute z-50 flex h-96 w-80 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]',
+        // 黑底皮肤：深投影替代浅色 glass-card 的柔和阴影
+        darkGlass
+          ? 'shadow-[0_24px_80px_rgba(0,0,0,0.6)]'
+          : 'glass-card shadow-lg',
         placement === 'top'
           ? 'bottom-[calc(100%+8px)] right-2'
           : placement === 'side'
@@ -142,6 +161,19 @@ export function MusicQueuePopup({
               // fixed 实际相对全屏覆盖层定位，效果等同视口居中）
               'fixed inset-x-0 bottom-[calc(88px+env(safe-area-inset-bottom))] mx-auto h-[min(24rem,55dvh)]'
       )}
+      style={
+        darkGlass
+          ? ({
+              // 黑底 + 高斯模糊（黑底 SETTING 弹窗同参数）+ 白描边；
+              // 令牌覆盖让弹窗内文字/hover/高亮整体反白
+              backgroundColor: 'rgba(8, 8, 8, 0.86)',
+              backdropFilter: 'blur(28px)',
+              WebkitBackdropFilter: 'blur(28px)',
+              border: '0.5px solid rgba(255, 255, 255, 0.12)',
+              ...QUEUE_DARK_TOKENS,
+            } as React.CSSProperties)
+          : undefined
+      }
     >
       {/* ===== 头部：当前播放 (N) + 来源标识 + 清空 + 定位 + 关闭 ===== */}
       <div className="flex shrink-0 items-center justify-between pl-4 pr-3 pt-3">
