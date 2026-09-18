@@ -444,372 +444,21 @@ function PlayerSettingsModal({
         {/* 背景设置项（与「一起听设置」同一 store，即时持久化）；
             展开动画结束后挂载（动画期间零渲染），内容超出面板高度滚动 */}
         {unfoldDone && (
-        <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
-          {/* 毛玻璃封面背景 */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-            <span className="text-[13px] font-bold text-white">
-              毛玻璃封面背景
-            </span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={coverBlur}
-              aria-label="毛玻璃封面背景"
-              onClick={() => setSettings({ coverBlur: !coverBlur })}
-              className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-              style={{
-                backgroundColor: coverBlur
-                  ? '#ffffff'
-                  : 'rgba(255, 255, 255, 0.22)',
-              }}
-            >
-              <span
-                className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
-                style={{
-                  left: coverBlur ? '18px' : '2px',
-                  backgroundColor: coverBlur ? '#000000' : '#ffffff',
-                }}
-              />
-            </button>
-          </div>
-          {/* 封面模糊度（毛玻璃开启时的模糊半径；拖到 0 视为关闭，
-              与歌词模糊/模糊浓度的联动语义一致） */}
-          <div className="px-5 py-3.5">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-[13px] font-bold text-white">模糊度</span>
-              <span className="text-[12px] font-bold tabular-nums text-white/70">
-                {coverBlur ? `${coverBlurLevel}px` : '关闭'}
-              </span>
-            </div>
-            <TinySlider
-              value={coverBlurLevel}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(v) =>
-                setSettings({ coverBlurLevel: v, coverBlur: v > 0 })
-              }
-            />
-          </div>
-          {/* 背景压暗（滑块） */}
-          <div className="px-5 py-3.5">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-[13px] font-bold text-white">背景压暗</span>
-              <span className="text-[12px] font-bold tabular-nums text-white/70">
-                {bgDim > 0 ? `${bgDim}%` : '关闭'}
-              </span>
-            </div>
-            <TinySlider
-              value={bgDim}
-              min={0}
-              max={100}
-              step={1}
-              onChange={(v) => setSettings({ bgDim: v })}
-            />
-          </div>
-          {/* UI 透明度（滑块）：前景 UI（播放卡/歌词面板/工具栏等）整体
-              透明度，背景（封面/视频/压暗）不受影响；100=默认不透明 */}
-          <div className="px-5 py-3.5">
-            <div className="mb-1 flex items-center justify-between">
+          <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
+            {/* 毛玻璃封面背景 */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
               <span className="text-[13px] font-bold text-white">
-                UI 透明度
+                毛玻璃封面背景
               </span>
-              <span className="text-[12px] font-bold tabular-nums text-white/70">
-                {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
-              </span>
-            </div>
-            <TinySlider
-              value={uiOpacity}
-              min={30}
-              max={100}
-              step={5}
-              onChange={(v) => setSettings({ uiOpacity: v })}
-            />
-          </div>
-          {/* CLI 高画质代理（BilibiliParseSettings 同构面板，黑底弹窗配色：
-              标题行+连接状态点 → 关闭/启用双按钮 → 状态说明 → 配置页入口；
-              CLI 开关即 musicVideoCli 设置项，改回开关语义并即时持久化） */}
-          <div
-            className="mx-5 my-3 rounded-lg p-3"
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-              border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <div
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
-                }}
-              >
-                <MonitorSmartphone
-                  className="h-3 w-3"
-                  style={{ color: 'rgba(255, 255, 255, 0.85)' }}
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="text-[10px] font-bold leading-tight text-white">
-                  CLI 高画质代理
-                </span>
-                <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
-                  LOCAL PROXY
-                </span>
-              </div>
-              {/* 连接状态（图示同语义：已连接发光 / 启用未连报错色 / 未启用灰） */}
-              <div className="flex items-center gap-1">
-                <span
-                  className="inline-block h-1 w-1 rounded-full"
-                  style={{
-                    backgroundColor: cliAvailable
-                      ? '#ffffff'
-                      : musicVideoCli
-                        ? '#ff6b6b'
-                        : 'rgba(255, 255, 255, 0.3)',
-                    boxShadow: cliAvailable
-                      ? '0 0 4px rgba(255, 255, 255, 0.9)'
-                      : 'none',
-                  }}
-                />
-                <span className="text-[9px] font-medium text-white/50">
-                  {cliAvailable
-                    ? '已连接'
-                    : musicVideoCli
-                      ? '未连接'
-                      : '未启用'}
-                </span>
-              </div>
-            </div>
-            {/* 关闭 / 启用（选中白底黑字，与弹窗 toggle 语言一致） */}
-            <div className="mt-2 grid grid-cols-2 gap-1">
-              <button
-                type="button"
-                onClick={() => setSettings({ musicVideoCli: false })}
-                className={cn(
-                  'rounded-md py-1 text-[10px] font-semibold transition-all',
-                  !musicVideoCli
-                    ? 'bg-white text-black shadow-sm'
-                    : 'bg-white/10 text-white/60 hover:bg-white/15'
-                )}
-              >
-                关闭
-              </button>
-              <button
-                type="button"
-                onClick={() => setSettings({ musicVideoCli: true })}
-                className={cn(
-                  'rounded-md py-1 text-[10px] font-semibold transition-all',
-                  musicVideoCli
-                    ? 'bg-white text-black shadow-sm'
-                    : 'bg-white/10 text-white/60 hover:bg-white/15'
-                )}
-              >
-                启用
-              </button>
-            </div>
-            <div className="mt-1 text-[9px] leading-snug text-white/50">
-              {musicVideoCli
-                ? cliAvailable
-                  ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
-                  : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
-                : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
-            </div>
-            <button
-              type="button"
-              onClick={openCliSetup}
-              className="mt-2 flex w-full items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/60 transition-colors hover:bg-white/10"
-              style={{ border: '0.5px solid rgba(255, 255, 255, 0.2)' }}
-            >
-              <ExternalLink className="h-3 w-3" />
-              打开 CLI 配置页
-            </button>
-          </div>
-          {/* 背景显示方式（视频背景的画面适配方式，点击循环切换） */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-            <span className="min-w-0">
-              <span className="block text-[13px] font-bold text-white">
-                背景显示方式
-              </span>
-              <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                视频背景铺满屏幕的方式
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                setSettings({
-                  bgVideoFit:
-                    bgVideoFit === 'contain'
-                      ? 'cover'
-                      : bgVideoFit === 'cover'
-                        ? 'fill'
-                        : 'contain',
-                })
-              }
-              className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
-              style={{ backgroundColor: '#ffffff', color: '#000000' }}
-              title="点击切换：完整显示 → 裁切铺满 → 拉伸填充"
-              aria-label="切换背景显示方式"
-            >
-              {bgVideoFit === 'contain'
-                ? '完整显示'
-                : bgVideoFit === 'cover'
-                  ? '裁切铺满'
-                  : '拉伸填充'}
-            </button>
-          </div>
-          {/* B站封面形状（仅哔哩哔哩歌曲的歌词页封面生效，点击循环切换） */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-            <span className="min-w-0">
-              <span className="block text-[13px] font-bold text-white">
-                B站封面形状
-              </span>
-              <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                哔哩哔哩歌曲封面的显示裁剪方式
-              </span>
-            </span>
-            <button
-              type="button"
-              onClick={() =>
-                setSettings({
-                  biliCoverShape:
-                    biliCoverShape === 'original' ? 'square' : 'original',
-                })
-              }
-              className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
-              style={{ backgroundColor: '#ffffff', color: '#000000' }}
-              title="点击切换：原版（长方形）↔ 正方形（居中裁剪）"
-              aria-label="切换 B站封面形状"
-            >
-              {biliCoverShape === 'original' ? '原版' : '正方形'}
-            </button>
-          </div>
-          {/* 红心收藏夹（播放栏 B站 条目红心一键收藏的目标收藏夹；
-              点击名称胶囊进入编辑，不存在时后端自动创建同名收藏夹） */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-            <span className="min-w-0">
-              <span className="block text-[13px] font-bold text-white">
-                红心收藏夹
-              </span>
-              <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                点击红心收藏 B站 视频的目标收藏夹，不存在时自动创建
-              </span>
-            </span>
-            {favTitleEditing ? (
-              <input
-                autoFocus
-                value={favTitleDraft}
-                onChange={(e) => setFavTitleDraft(e.target.value)}
-                onBlur={commitFavTitle}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitFavTitle()
-                  if (e.key === 'Escape') setFavTitleEditing(false)
-                }}
-                className="h-[30px] w-[130px] shrink-0 rounded-full px-3 text-xs font-bold outline-none"
-                style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                aria-label="红心收藏夹名称"
-              />
-            ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  setFavTitleDraft(biliLikeFavTitle)
-                  setFavTitleEditing(true)
-                }}
-                className="min-w-[76px] max-w-[130px] shrink-0 truncate rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
-                style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                title="点击编辑收藏夹名称（留空恢复默认 Music）"
-                aria-label="编辑红心收藏夹名称"
-              >
-                {biliLikeFavTitle}
-              </button>
-            )}
-          </div>
-          {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
-          <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-            <span className="text-[13px] font-bold text-white">歌词模糊</span>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={lyricBlur}
-              aria-label="歌词模糊"
-              onClick={() => setSettings({ lyricBlur: !lyricBlur })}
-              className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-              style={{
-                backgroundColor: lyricBlur
-                  ? '#ffffff'
-                  : 'rgba(255, 255, 255, 0.22)',
-              }}
-            >
-              <span
-                className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
-                style={{
-                  left: lyricBlur ? '18px' : '2px',
-                  backgroundColor: lyricBlur ? '#000000' : '#ffffff',
-                }}
-              />
-            </button>
-          </div>
-          {/* 歌词模糊浓度：拖到 0 视为关闭（联动上方开关与设置页） */}
-          <div className="px-5 py-3.5">
-            <div className="mb-1 flex items-center justify-between">
-              <span className="text-[13px] font-bold text-white">模糊浓度</span>
-              <span className="text-[12px] font-bold tabular-nums text-white/70">
-                {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : '关闭'}
-              </span>
-            </div>
-            <TinySlider
-              value={lyricBlurLevel}
-              min={0}
-              max={10}
-              step={0.5}
-              onChange={(v) =>
-                setSettings({ lyricBlurLevel: v, lyricBlur: v > 0 })
-              }
-            />
-          </div>
-          {/* B站弹幕（复用一起看弹幕设置：总开关 + 样式面板 + 高级设置 +
-              字体选择；样式与一起看共用 danmakuStore 持久化，跨页生效） */}
-          <div
-            className="mx-5 my-3 rounded-lg p-3"
-            style={{
-              backgroundColor: 'rgba(255, 255, 255, 0.06)',
-              border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            }}
-          >
-            <div className="flex items-center gap-1.5">
-              <div
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                style={{
-                  background:
-                    'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
-                }}
-              >
-                <MessagesSquare
-                  className="h-3 w-3"
-                  style={{ color: 'rgba(255, 255, 255, 0.85)' }}
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <span className="text-[10px] font-bold leading-tight text-white">
-                  B站弹幕
-                </span>
-                <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
-                  DANMAKU
-                </span>
-              </div>
               <button
                 type="button"
                 role="switch"
-                aria-checked={biliDanmakuEnabled}
-                aria-label="B站弹幕"
-                onClick={() =>
-                  setSettings({ biliDanmakuEnabled: !biliDanmakuEnabled })
-                }
+                aria-checked={coverBlur}
+                aria-label="毛玻璃封面背景"
+                onClick={() => setSettings({ coverBlur: !coverBlur })}
                 className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
                 style={{
-                  backgroundColor: biliDanmakuEnabled
+                  backgroundColor: coverBlur
                     ? '#ffffff'
                     : 'rgba(255, 255, 255, 0.22)',
                 }}
@@ -817,96 +466,454 @@ function PlayerSettingsModal({
                 <span
                   className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
                   style={{
-                    left: biliDanmakuEnabled ? '18px' : '2px',
-                    backgroundColor: biliDanmakuEnabled ? '#000000' : '#ffffff',
+                    left: coverBlur ? '18px' : '2px',
+                    backgroundColor: coverBlur ? '#000000' : '#ffffff',
                   }}
                 />
               </button>
             </div>
-            {/* 弹幕层级（UI 上方 = 悬浮于播放卡/歌词等前景 UI 之上；
-                UI 底部 = 仅铺在背景之上、被前景 UI 遮挡；纯净模式下
-                前景 UI 隐藏，两种层级均显示在视频之上） */}
-            {biliDanmakuEnabled && (
-              <div className="mt-2 flex items-center justify-between gap-2">
-                <span className="text-[10px] font-bold text-white">
-                  弹幕层级
+            {/* 封面模糊度（毛玻璃开启时的模糊半径；拖到 0 视为关闭，
+              与歌词模糊/模糊浓度的联动语义一致） */}
+            <div className="px-5 py-3.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">模糊度</span>
+                <span className="text-[12px] font-bold tabular-nums text-white/70">
+                  {coverBlur ? `${coverBlurLevel}px` : '关闭'}
                 </span>
-                <div className="grid shrink-0 grid-cols-2 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setSettings({ biliDanmakuAboveUi: true })}
-                    className={cn(
-                      'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
-                      biliDanmakuAboveUi
-                        ? 'bg-white text-black shadow-sm'
-                        : 'bg-white/10 text-white/60 hover:bg-white/15'
-                    )}
-                  >
-                    UI 上方
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSettings({ biliDanmakuAboveUi: false })}
-                    className={cn(
-                      'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
-                      !biliDanmakuAboveUi
-                        ? 'bg-white text-black shadow-sm'
-                        : 'bg-white/10 text-white/60 hover:bg-white/15'
-                    )}
-                  >
-                    UI 底部
-                  </button>
+              </div>
+              <TinySlider
+                value={coverBlurLevel}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(v) =>
+                  setSettings({ coverBlurLevel: v, coverBlur: v > 0 })
+                }
+              />
+            </div>
+            {/* 背景压暗（滑块） */}
+            <div className="px-5 py-3.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">
+                  背景压暗
+                </span>
+                <span className="text-[12px] font-bold tabular-nums text-white/70">
+                  {bgDim > 0 ? `${bgDim}%` : '关闭'}
+                </span>
+              </div>
+              <TinySlider
+                value={bgDim}
+                min={0}
+                max={100}
+                step={1}
+                onChange={(v) => setSettings({ bgDim: v })}
+              />
+            </div>
+            {/* UI 透明度（滑块）：前景 UI（播放卡/歌词面板/工具栏等）整体
+              透明度，背景（封面/视频/压暗）不受影响；100=默认不透明 */}
+            <div className="px-5 py-3.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">
+                  UI 透明度
+                </span>
+                <span className="text-[12px] font-bold tabular-nums text-white/70">
+                  {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
+                </span>
+              </div>
+              <TinySlider
+                value={uiOpacity}
+                min={30}
+                max={100}
+                step={5}
+                onChange={(v) => setSettings({ uiOpacity: v })}
+              />
+            </div>
+            {/* CLI 高画质代理（BilibiliParseSettings 同构面板，黑底弹窗配色：
+              标题行+连接状态点 → 关闭/启用双按钮 → 状态说明 → 配置页入口；
+              CLI 开关即 musicVideoCli 设置项，改回开关语义并即时持久化） */}
+            <div
+              className="mx-5 my-3 rounded-lg p-3"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                border: '0.5px solid rgba(255, 255, 255, 0.12)',
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
+                  }}
+                >
+                  <MonitorSmartphone
+                    className="h-3 w-3"
+                    style={{ color: 'rgba(255, 255, 255, 0.85)' }}
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-[10px] font-bold leading-tight text-white">
+                    CLI 高画质代理
+                  </span>
+                  <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
+                    LOCAL PROXY
+                  </span>
+                </div>
+                {/* 连接状态（图示同语义：已连接发光 / 启用未连报错色 / 未启用灰） */}
+                <div className="flex items-center gap-1">
+                  <span
+                    className="inline-block h-1 w-1 rounded-full"
+                    style={{
+                      backgroundColor: cliAvailable
+                        ? '#ffffff'
+                        : musicVideoCli
+                          ? '#ff6b6b'
+                          : 'rgba(255, 255, 255, 0.3)',
+                      boxShadow: cliAvailable
+                        ? '0 0 4px rgba(255, 255, 255, 0.9)'
+                        : 'none',
+                    }}
+                  />
+                  <span className="text-[9px] font-medium text-white/50">
+                    {cliAvailable
+                      ? '已连接'
+                      : musicVideoCli
+                        ? '未连接'
+                        : '未启用'}
+                  </span>
                 </div>
               </div>
-            )}
-            {/* 弹幕样式设置（仅启用时展开；MD3 令牌暗色覆盖使白主题组件
-                融入黑底弹窗，primary=白与弹窗按钮语言一致） */}
-            {biliDanmakuEnabled && (
-              <div className="mt-2" style={DANMAKU_PANEL_TOKEN_OVERRIDES}>
-                <DanmakuStylePanel
-                  style={danmakuStyle}
-                  setStyle={setDanmakuStyle}
-                  resetStyle={resetDanmakuStyle}
-                  advancedOpen={danmakuAdvancedOpen}
-                  onAdvancedToggle={() => {
-                    setDanmakuAdvancedOpen((v) => !v)
-                    setDanmakuFontOpen(false)
+              {/* 关闭 / 启用（选中白底黑字，与弹窗 toggle 语言一致） */}
+              <div className="mt-2 grid grid-cols-2 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSettings({ musicVideoCli: false })}
+                  className={cn(
+                    'rounded-md py-1 text-[10px] font-semibold transition-all',
+                    !musicVideoCli
+                      ? 'bg-white text-black shadow-sm'
+                      : 'bg-white/10 text-white/60 hover:bg-white/15'
+                  )}
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettings({ musicVideoCli: true })}
+                  className={cn(
+                    'rounded-md py-1 text-[10px] font-semibold transition-all',
+                    musicVideoCli
+                      ? 'bg-white text-black shadow-sm'
+                      : 'bg-white/10 text-white/60 hover:bg-white/15'
+                  )}
+                >
+                  启用
+                </button>
+              </div>
+              <div className="mt-1 text-[9px] leading-snug text-white/50">
+                {musicVideoCli
+                  ? cliAvailable
+                    ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
+                    : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
+                  : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
+              </div>
+              <button
+                type="button"
+                onClick={openCliSetup}
+                className="mt-2 flex w-full items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/60 transition-colors hover:bg-white/10"
+                style={{ border: '0.5px solid rgba(255, 255, 255, 0.2)' }}
+              >
+                <ExternalLink className="h-3 w-3" />
+                打开 CLI 配置页
+              </button>
+            </div>
+            {/* 背景显示方式（视频背景的画面适配方式，点击循环切换） */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-white">
+                  背景显示方式
+                </span>
+                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                  视频背景铺满屏幕的方式
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings({
+                    bgVideoFit:
+                      bgVideoFit === 'contain'
+                        ? 'cover'
+                        : bgVideoFit === 'cover'
+                          ? 'fill'
+                          : 'contain',
+                  })
+                }
+                className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
+                style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                title="点击切换：完整显示 → 裁切铺满 → 拉伸填充"
+                aria-label="切换背景显示方式"
+              >
+                {bgVideoFit === 'contain'
+                  ? '完整显示'
+                  : bgVideoFit === 'cover'
+                    ? '裁切铺满'
+                    : '拉伸填充'}
+              </button>
+            </div>
+            {/* B站封面形状（仅哔哩哔哩歌曲的歌词页封面生效，点击循环切换） */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-white">
+                  B站封面形状
+                </span>
+                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                  哔哩哔哩歌曲封面的显示裁剪方式
+                </span>
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setSettings({
+                    biliCoverShape:
+                      biliCoverShape === 'original' ? 'square' : 'original',
+                  })
+                }
+                className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
+                style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                title="点击切换：原版（长方形）↔ 正方形（居中裁剪）"
+                aria-label="切换 B站封面形状"
+              >
+                {biliCoverShape === 'original' ? '原版' : '正方形'}
+              </button>
+            </div>
+            {/* 红心收藏夹（播放栏 B站 条目红心一键收藏的目标收藏夹；
+              点击名称胶囊进入编辑，不存在时后端自动创建同名收藏夹） */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-white">
+                  红心收藏夹
+                </span>
+                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                  点击红心收藏 B站 视频的目标收藏夹，不存在时自动创建
+                </span>
+              </span>
+              {favTitleEditing ? (
+                <input
+                  autoFocus
+                  value={favTitleDraft}
+                  onChange={(e) => setFavTitleDraft(e.target.value)}
+                  onBlur={commitFavTitle}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') commitFavTitle()
+                    if (e.key === 'Escape') setFavTitleEditing(false)
+                  }}
+                  className="h-[30px] w-[130px] shrink-0 rounded-full px-3 text-xs font-bold outline-none"
+                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                  aria-label="红心收藏夹名称"
+                />
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFavTitleDraft(biliLikeFavTitle)
+                    setFavTitleEditing(true)
+                  }}
+                  className="min-w-[76px] max-w-[130px] shrink-0 truncate rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
+                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                  title="点击编辑收藏夹名称（留空恢复默认 Music）"
+                  aria-label="编辑红心收藏夹名称"
+                >
+                  {biliLikeFavTitle}
+                </button>
+              )}
+            </div>
+            {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <span className="text-[13px] font-bold text-white">歌词模糊</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={lyricBlur}
+                aria-label="歌词模糊"
+                onClick={() => setSettings({ lyricBlur: !lyricBlur })}
+                className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+                style={{
+                  backgroundColor: lyricBlur
+                    ? '#ffffff'
+                    : 'rgba(255, 255, 255, 0.22)',
+                }}
+              >
+                <span
+                  className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
+                  style={{
+                    left: lyricBlur ? '18px' : '2px',
+                    backgroundColor: lyricBlur ? '#000000' : '#ffffff',
                   }}
                 />
-                {danmakuAdvancedOpen && (
-                  <div className="mt-2 border-t border-white/10 pt-2">
-                    <DanmakuAdvancedSettings
-                      style={danmakuStyle}
-                      setStyle={setDanmakuStyle}
-                      setFilters={setDanmakuFilters}
-                      setAdvancedStyle={setDanmakuAdvanced}
-                      onFontPanelToggle={() => setDanmakuFontOpen((v) => !v)}
-                    />
-                    {danmakuFontOpen && (
-                      <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-white/10 bg-black/30 p-1">
-                        <FontPickerPanel
-                          value={
-                            danmakuStyle.advanced.fontFamily ===
-                            DEFAULT_DANMAKU_STYLE.advanced.fontFamily
-                              ? ''
-                              : danmakuStyle.advanced.fontFamily
-                          }
-                          onChange={(v) =>
-                            setDanmakuAdvanced({
-                              fontFamily:
-                                v || DEFAULT_DANMAKU_STYLE.advanced.fontFamily,
-                            })
-                          }
-                        />
-                      </div>
-                    )}
-                  </div>
-                )}
+              </button>
+            </div>
+            {/* 歌词模糊浓度：拖到 0 视为关闭（联动上方开关与设置页） */}
+            <div className="px-5 py-3.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">
+                  模糊浓度
+                </span>
+                <span className="text-[12px] font-bold tabular-nums text-white/70">
+                  {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : '关闭'}
+                </span>
               </div>
-            )}
+              <TinySlider
+                value={lyricBlurLevel}
+                min={0}
+                max={10}
+                step={0.5}
+                onChange={(v) =>
+                  setSettings({ lyricBlurLevel: v, lyricBlur: v > 0 })
+                }
+              />
+            </div>
+            {/* B站弹幕（复用一起看弹幕设置：总开关 + 样式面板 + 高级设置 +
+              字体选择；样式与一起看共用 danmakuStore 持久化，跨页生效） */}
+            <div
+              className="mx-5 my-3 rounded-lg p-3"
+              style={{
+                backgroundColor: 'rgba(255, 255, 255, 0.06)',
+                border: '0.5px solid rgba(255, 255, 255, 0.12)',
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
+                  }}
+                >
+                  <MessagesSquare
+                    className="h-3 w-3"
+                    style={{ color: 'rgba(255, 255, 255, 0.85)' }}
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span className="text-[10px] font-bold leading-tight text-white">
+                    B站弹幕
+                  </span>
+                  <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
+                    DANMAKU
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={biliDanmakuEnabled}
+                  aria-label="B站弹幕"
+                  onClick={() =>
+                    setSettings({ biliDanmakuEnabled: !biliDanmakuEnabled })
+                  }
+                  className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
+                  style={{
+                    backgroundColor: biliDanmakuEnabled
+                      ? '#ffffff'
+                      : 'rgba(255, 255, 255, 0.22)',
+                  }}
+                >
+                  <span
+                    className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
+                    style={{
+                      left: biliDanmakuEnabled ? '18px' : '2px',
+                      backgroundColor: biliDanmakuEnabled
+                        ? '#000000'
+                        : '#ffffff',
+                    }}
+                  />
+                </button>
+              </div>
+              {/* 弹幕层级（UI 上方 = 悬浮于播放卡/歌词等前景 UI 之上；
+                UI 底部 = 仅铺在背景之上、被前景 UI 遮挡；纯净模式下
+                前景 UI 隐藏，两种层级均显示在视频之上） */}
+              {biliDanmakuEnabled && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-bold text-white">
+                    弹幕层级
+                  </span>
+                  <div className="grid shrink-0 grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ biliDanmakuAboveUi: true })}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
+                        biliDanmakuAboveUi
+                          ? 'bg-white text-black shadow-sm'
+                          : 'bg-white/10 text-white/60 hover:bg-white/15'
+                      )}
+                    >
+                      UI 上方
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSettings({ biliDanmakuAboveUi: false })}
+                      className={cn(
+                        'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
+                        !biliDanmakuAboveUi
+                          ? 'bg-white text-black shadow-sm'
+                          : 'bg-white/10 text-white/60 hover:bg-white/15'
+                      )}
+                    >
+                      UI 底部
+                    </button>
+                  </div>
+                </div>
+              )}
+              {/* 弹幕样式设置（仅启用时展开；MD3 令牌暗色覆盖使白主题组件
+                融入黑底弹窗，primary=白与弹窗按钮语言一致） */}
+              {biliDanmakuEnabled && (
+                <div className="mt-2" style={DANMAKU_PANEL_TOKEN_OVERRIDES}>
+                  <DanmakuStylePanel
+                    style={danmakuStyle}
+                    setStyle={setDanmakuStyle}
+                    resetStyle={resetDanmakuStyle}
+                    advancedOpen={danmakuAdvancedOpen}
+                    onAdvancedToggle={() => {
+                      setDanmakuAdvancedOpen((v) => !v)
+                      setDanmakuFontOpen(false)
+                    }}
+                  />
+                  {danmakuAdvancedOpen && (
+                    <div className="mt-2 border-t border-white/10 pt-2">
+                      <DanmakuAdvancedSettings
+                        style={danmakuStyle}
+                        setStyle={setDanmakuStyle}
+                        setFilters={setDanmakuFilters}
+                        setAdvancedStyle={setDanmakuAdvanced}
+                        onFontPanelToggle={() => setDanmakuFontOpen((v) => !v)}
+                      />
+                      {danmakuFontOpen && (
+                        <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-white/10 bg-black/30 p-1">
+                          <FontPickerPanel
+                            value={
+                              danmakuStyle.advanced.fontFamily ===
+                              DEFAULT_DANMAKU_STYLE.advanced.fontFamily
+                                ? ''
+                                : danmakuStyle.advanced.fontFamily
+                            }
+                            onChange={(v) =>
+                              setDanmakuAdvanced({
+                                fontFamily:
+                                  v ||
+                                  DEFAULT_DANMAKU_STYLE.advanced.fontFamily,
+                              })
+                            }
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         )}
-        </div>
       </div>
     </>
   )
