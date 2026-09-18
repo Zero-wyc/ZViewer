@@ -821,6 +821,14 @@ export function MusicBilibiliPage({
   /** 添加种类输入行的展开态与输入值（桌面左栏 / 移动端 chips 共用） */
   const [addingTag, setAddingTag] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
+  /** 左栏音乐种类排序编辑模式：拖动条目（触屏用上下箭头）调整上下位置，
+   *  桌面左栏与移动端 chips 共用同一开关（列表同源，顺序自动同步） */
+  const [tagEditMode, setTagEditMode] = useState(false)
+  const dragTagIndexRef = useRef<number | null>(null)
+  const [draggingTagName, setDraggingTagName] = useState<string | null>(null)
+  const [dropTargetTagName, setDropTargetTagName] = useState<string | null>(
+    null
+  )
   /** 分类标签规则设置弹窗：正在编辑的分类名（null = 关闭） */
   const [tagRulesEditName, setTagRulesEditName] = useState<string | null>(null)
   /** 分区限定屏蔽词弹窗：正在编辑的分区名（null = 关闭；入口在左栏分类条目右上角） */
@@ -1205,7 +1213,9 @@ export function MusicBilibiliPage({
       e.preventDefault()
       const from = dragTabIndexRef.current
       if (from !== null && from !== index) {
-        handleMoveCustomTab(from, index)
+        // 指示线画在目标 chip 前缘（= 插入到它前面）：向后拖时先移除会使
+        // 目标左移一位，最终位置需减一校正（向上拖不变）
+        handleMoveCustomTab(from, from < index ? index - 1 : index)
       }
       dragTabIndexRef.current = null
       setDraggingTabId(null)
@@ -1313,12 +1323,82 @@ export function MusicBilibiliPage({
       setRegionTags((prev) => {
         const next = prev.filter((t) => t.name !== name)
         saveRegionTags(next)
+        // 排序编辑模式依赖「至少 2 个种类可排序」，不足时自动退出
+        if (next.length < 2) setTagEditMode(false)
         return next
       })
       if (regionTag?.name === name) setRegionTag(null)
     },
     [regionTag]
   )
+
+  // ===== 音乐种类排序（左栏编辑模式：拖拽 / 触屏箭头）=====
+  /** 调整音乐种类顺序：splice 重排并持久化。to 为重排后的最终位置
+   *  （箭头按钮直接传 from±1）；存储顺序即左栏顺序，分区预取等按此
+   *  顺序 slice(0, N) 取前 N 个，排序后自动跟随 */
+  const handleMoveRegionTag = useCallback((from: number, to: number) => {
+    setRegionTags((prev) => {
+      if (
+        from === to ||
+        from < 0 ||
+        to < 0 ||
+        from >= prev.length ||
+        to >= prev.length
+      ) {
+        return prev
+      }
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      saveRegionTags(next)
+      return next
+    })
+  }, [])
+
+  const handleRegionTagDragStart = useCallback(
+    (index: number, name: string, e: React.DragEvent) => {
+      dragTagIndexRef.current = index
+      setDraggingTagName(name)
+      e.dataTransfer.effectAllowed = 'move'
+      // Firefox 需要 setData 才会启动拖拽
+      e.dataTransfer.setData('text/plain', name)
+    },
+    []
+  )
+
+  const handleRegionTagDragOver = useCallback(
+    (index: number, name: string, e: React.DragEvent) => {
+      if (dragTagIndexRef.current === null || dragTagIndexRef.current === index)
+        return
+      // 允许 drop；悬停目标条目显示上缘指示线（= 插入到它前面）
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setDropTargetTagName((prev) => (prev === name ? prev : name))
+    },
+    []
+  )
+
+  const handleRegionTagDrop = useCallback(
+    (index: number, e: React.DragEvent) => {
+      e.preventDefault()
+      const from = dragTagIndexRef.current
+      if (from !== null && from !== index) {
+        // 指示线语义 =「插入到目标条目之前」：向后拖时先移除会使目标
+        // 左移一位，最终位置需减一校正（向上拖不变）
+        handleMoveRegionTag(from, from < index ? index - 1 : index)
+      }
+      dragTagIndexRef.current = null
+      setDraggingTagName(null)
+      setDropTargetTagName(null)
+    },
+    [handleMoveRegionTag]
+  )
+
+  const handleRegionTagDragEnd = useCallback(() => {
+    dragTagIndexRef.current = null
+    setDraggingTagName(null)
+    setDropTargetTagName(null)
+  }, [])
 
   // ===== 分类标签词规则（多 tag 筛选）设置 =====
   const updateTagRules = useCallback(
@@ -2039,10 +2119,12 @@ export function MusicBilibiliPage({
                     [REGION_TAG_HEADER, null],
                     ...regionTags.map((t) => [t.name, t.name]),
                   ] as Array<[string, string | null]>
-                ).map(([label, tagName]) => {
+                ).map(([label, tagName], mi) => {
                   const entry = tagName
                     ? regionTags.find((t) => t.name === tagName)
                     : null
+                  // 第 0 项是推荐榜单头，其余项在 regionTags 中的索引 = mi - 1
+                  const tagIdx = mi - 1
                   return (
                     <span
                       key={`m-tag-${label}`}
@@ -2066,39 +2148,101 @@ export function MusicBilibiliPage({
                       >
                         {label}
                       </button>
-                      {entry && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => setTagRulesEditName(entry.name)}
-                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70 max-md:px-2 max-md:py-1"
-                            style={{
-                              backgroundColor:
-                                'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
-                            }}
-                            title="分类标签规则设置"
-                            aria-label={`设置分类 ${entry.name} 的标签规则`}
-                          >
-                            <Settings2 className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => setCategoryBlockEditName(entry.name)}
-                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70 max-md:px-2 max-md:py-1"
-                            style={{
-                              backgroundColor:
-                                'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
-                            }}
-                            title="分区屏蔽词设置"
-                            aria-label={`设置分区 ${entry.name} 的屏蔽词`}
-                          >
-                            <Ban className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
-                          </button>
-                        </>
-                      )}
+                      {entry &&
+                        (tagEditMode ? (
+                          /* 排序编辑模式（触屏兜底）：设置按钮换成上/下移
+                              箭头（HTML5 拖拽不支持 touch） */
+                          <>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                tagIdx > 0 &&
+                                handleMoveRegionTag(tagIdx, tagIdx - 1)
+                              }
+                              disabled={tagIdx <= 0}
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
+                              title="向前移动"
+                              aria-label={`向前移动种类 ${entry.name}`}
+                            >
+                              <ChevronUp className="h-3 w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                tagIdx >= 0 &&
+                                tagIdx < regionTags.length - 1 &&
+                                handleMoveRegionTag(tagIdx, tagIdx + 1)
+                              }
+                              disabled={
+                                tagIdx < 0 || tagIdx >= regionTags.length - 1
+                              }
+                              className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
+                              title="向后移动"
+                              aria-label={`向后移动种类 ${entry.name}`}
+                            >
+                              <ChevronDown className="h-3 w-3" />
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => setTagRulesEditName(entry.name)}
+                              className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70 max-md:px-2 max-md:py-1"
+                              style={{
+                                backgroundColor:
+                                  'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
+                              }}
+                              title="分类标签规则设置"
+                              aria-label={`设置分类 ${entry.name} 的标签规则`}
+                            >
+                              <Settings2 className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setCategoryBlockEditName(entry.name)
+                              }
+                              className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70 max-md:px-2 max-md:py-1"
+                              style={{
+                                backgroundColor:
+                                  'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
+                              }}
+                              title="分区屏蔽词设置"
+                              aria-label={`设置分区 ${entry.name} 的屏蔽词`}
+                            >
+                              <Ban className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
+                            </button>
+                          </>
+                        ))}
                     </span>
                   )
                 })}
+                {/* 排序编辑模式开关（移动端 chips；与桌面左栏共用状态，
+                    编辑模式下 chip 上的设置按钮换成上/下移箭头） */}
+                {regionTags.length >= 2 && (
+                  <button
+                    type="button"
+                    onClick={() => setTagEditMode((v) => !v)}
+                    className={cn(
+                      'flex shrink-0 items-center gap-1 whitespace-nowrap rounded-full px-3 py-1 text-[15px] font-bold transition-opacity hover:opacity-70 lg:hidden',
+                      tagEditMode
+                        ? 'text-[var(--md-sys-color-primary)]'
+                        : 'text-[var(--md-sys-color-on-surface)]'
+                    )}
+                    style={{
+                      backgroundColor: tagEditMode
+                        ? 'color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent)'
+                        : 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
+                    }}
+                    title="编辑种类顺序（编辑模式下用箭头调整位置）"
+                    aria-label="编辑音乐种类顺序"
+                    aria-pressed={tagEditMode}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                    排序
+                  </button>
+                )}
                 {!addingTag && (
                   <button
                     type="button"
@@ -2208,8 +2352,29 @@ export function MusicBilibiliPage({
                 （localStorage 持久化，内置种类不可删） */}
           {tab === 'region' && (
             <aside className="hidden w-[220px] shrink-0 flex-col lg:flex">
-              <div className="pb-1 text-[14px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
-                音乐分区
+              <div className="flex items-center justify-between pb-1">
+                <div className="text-[14px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
+                  音乐分区
+                </div>
+                {/* 排序编辑模式开关：≥2 个种类可用；进入后拖动条目
+                    （触屏用上下箭头）调整上下位置，即时持久化 */}
+                {regionTags.length >= 2 && (
+                  <button
+                    type="button"
+                    onClick={() => setTagEditMode((v) => !v)}
+                    className={cn(
+                      'flex h-6 w-6 items-center justify-center rounded-full transition-colors',
+                      tagEditMode
+                        ? 'text-[var(--md-sys-color-primary)]'
+                        : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+                    )}
+                    title="编辑种类顺序：拖动条目调整上下位置（触屏用箭头）"
+                    aria-label="编辑音乐种类顺序"
+                    aria-pressed={tagEditMode}
+                  >
+                    <SlidersHorizontal className="h-3.5 w-3.5" />
+                  </button>
+                )}
               </div>
               <div
                 className="h-px w-full"
@@ -2224,17 +2389,56 @@ export function MusicBilibiliPage({
                   selected={regionTag === null}
                   onClick={() => setRegionTag(null)}
                 />
-                {regionTags.map((t) => (
-                  <RegionTagItem
+                {regionTags.map((t, tagIndex) => (
+                  <div
                     key={t.name}
-                    name={t.name}
-                    selected={regionTag?.name === t.name}
-                    removable
-                    onClick={() => setRegionTag(t)}
-                    onOpenRules={() => setTagRulesEditName(t.name)}
-                    onOpenBlockWords={() => setCategoryBlockEditName(t.name)}
-                    onRemove={() => handleRemoveTag(t.name)}
-                  />
+                    draggable={tagEditMode}
+                    onDragStart={(e) =>
+                      handleRegionTagDragStart(tagIndex, t.name, e)
+                    }
+                    onDragOver={(e) =>
+                      handleRegionTagDragOver(tagIndex, t.name, e)
+                    }
+                    onDrop={(e) => handleRegionTagDrop(tagIndex, e)}
+                    onDragEnd={handleRegionTagDragEnd}
+                    className={cn(
+                      'relative',
+                      tagEditMode &&
+                        'cursor-grab select-none active:cursor-grabbing',
+                      draggingTagName === t.name && 'opacity-40'
+                    )}
+                  >
+                    {/* 落点指示线：显示在目标条目上缘 = 插入到它前面 */}
+                    {tagEditMode &&
+                      draggingTagName !== null &&
+                      draggingTagName !== t.name &&
+                      dropTargetTagName === t.name && (
+                        <span
+                          aria-hidden="true"
+                          className="absolute -top-[3px] left-1 right-1 z-10 h-0.5 rounded-full bg-[var(--md-sys-color-primary)]"
+                        />
+                      )}
+                    <RegionTagItem
+                      name={t.name}
+                      selected={regionTag?.name === t.name}
+                      removable
+                      editing={tagEditMode}
+                      onClick={() => setRegionTag(t)}
+                      onOpenRules={() => setTagRulesEditName(t.name)}
+                      onOpenBlockWords={() => setCategoryBlockEditName(t.name)}
+                      onRemove={() => handleRemoveTag(t.name)}
+                      onMoveUp={
+                        tagIndex > 0
+                          ? () => handleMoveRegionTag(tagIndex, tagIndex - 1)
+                          : undefined
+                      }
+                      onMoveDown={
+                        tagIndex < regionTags.length - 1
+                          ? () => handleMoveRegionTag(tagIndex, tagIndex + 1)
+                          : undefined
+                      }
+                    />
+                  </div>
                 ))}
               </div>
               {/* 添加自定义种类（内联输入行） */}
@@ -2953,25 +3157,34 @@ function TagRulesModal({
 }
 
 /** 音乐分区种类行（左列；选中滑入背景同 FavFolderItem 语言；
- *  设置按钮打开多 tag 规则弹窗、右上角屏蔽词按钮打开分类屏蔽词弹窗，hover 显示删除） */
+ *  设置按钮打开多 tag 规则弹窗、右上角屏蔽词按钮打开分类屏蔽词弹窗，hover 显示删除；
+ *  排序编辑模式下隐藏配置按钮，改为拖拽把手（鼠标）/ 上移下移箭头（触屏兜底） */
 function RegionTagItem({
   name,
   selected,
   removable = false,
+  editing = false,
   onClick,
   onOpenRules,
   onOpenBlockWords,
   onRemove,
+  onMoveUp,
+  onMoveDown,
 }: {
   name: string
   selected: boolean
   removable?: boolean
+  /** 排序编辑模式：隐藏配置按钮，显示拖拽把手 / 上下移箭头 */
+  editing?: boolean
   onClick: () => void
   /** 分类标签规则设置（多 tag 筛选）入口 */
   onOpenRules?: () => void
   /** 分区限定屏蔽词设置入口（左栏分类条目右上角） */
   onOpenBlockWords?: () => void
   onRemove?: () => void
+  /** 上移 / 下移（触屏兜底；undefined 时按钮禁用——首尾条目） */
+  onMoveUp?: () => void
+  onMoveDown?: () => void
 }) {
   return (
     <div
@@ -2995,6 +3208,15 @@ function RegionTagItem({
           selected && 'translate-x-0'
         )}
       />
+      {/* 拖拽把手（编辑模式；仅鼠标设备显示——触屏用右侧箭头） */}
+      {editing && (
+        <span
+          aria-hidden="true"
+          className="relative mr-1 hidden h-5 w-4 shrink-0 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] [@media(pointer:fine)]:flex"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </span>
+      )}
       <span
         className={cn(
           'relative min-w-0 flex-1 truncate text-[17px] font-bold',
@@ -3006,7 +3228,7 @@ function RegionTagItem({
         {name}
       </span>
       {/* 分类标签规则设置（hover 显形） */}
-      {onOpenRules && (
+      {!editing && onOpenRules && (
         <button
           type="button"
           onClick={(e) => {
@@ -3024,7 +3246,7 @@ function RegionTagItem({
         </button>
       )}
       {/* 分区屏蔽词设置（右上角 Ban 图标；hover 显形） */}
-      {onOpenBlockWords && (
+      {!editing && onOpenBlockWords && (
         <button
           type="button"
           onClick={(e) => {
@@ -3041,7 +3263,7 @@ function RegionTagItem({
           />
         </button>
       )}
-      {removable && onRemove && (
+      {!editing && removable && onRemove && (
         <button
           type="button"
           onClick={(e) => {
@@ -3057,6 +3279,37 @@ function RegionTagItem({
             style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
           />
         </button>
+      )}
+      {/* 上移 / 下移（编辑模式触屏兜底：HTML5 拖拽不支持 touch） */}
+      {editing && (
+        <span className="relative hidden shrink-0 items-center gap-0.5 [@media(pointer:coarse)]:flex">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveUp?.()
+            }}
+            disabled={!onMoveUp}
+            className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
+            title="上移"
+            aria-label={`上移种类 ${name}`}
+          >
+            <ChevronUp className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation()
+              onMoveDown?.()
+            }}
+            disabled={!onMoveDown}
+            className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
+            title="下移"
+            aria-label={`下移种类 ${name}`}
+          >
+            <ChevronDown className="h-3 w-3" />
+          </button>
+        </span>
       )}
     </div>
   )
