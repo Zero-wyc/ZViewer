@@ -308,6 +308,7 @@ function PlayerSettingsModal({
   roomId: string
 }) {
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
+  const coverBlurLevel = useMusicSettingsStore((s) => s.coverBlurLevel)
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
@@ -442,6 +443,25 @@ function PlayerSettingsModal({
                 }}
               />
             </button>
+          </div>
+          {/* 封面模糊度（毛玻璃开启时的模糊半径；拖到 0 视为关闭，
+              与歌词模糊/模糊浓度的联动语义一致） */}
+          <div className="px-5 py-3.5">
+            <div className="mb-1 flex items-center justify-between">
+              <span className="text-[13px] font-bold text-white">模糊度</span>
+              <span className="text-[12px] font-bold tabular-nums text-white/70">
+                {coverBlur ? `${coverBlurLevel}px` : '关闭'}
+              </span>
+            </div>
+            <TinySlider
+              value={coverBlurLevel}
+              min={0}
+              max={100}
+              step={1}
+              onChange={(v) =>
+                setSettings({ coverBlurLevel: v, coverBlur: v > 0 })
+              }
+            />
           </div>
           {/* 背景压暗（滑块） */}
           <div className="px-5 py-3.5">
@@ -1749,6 +1769,9 @@ function ListenTogetherInner({
 
   // ===== 设置驱动（Hydrogen settingsStore 消费点） =====
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
+  const coverBlurLevel = useMusicSettingsStore((s) => s.coverBlurLevel)
+  /** 封面背景模糊半径：毛玻璃关闭时 0（显示未模糊封面而非纯色底） */
+  const coverBlurPx = coverBlur ? coverBlurLevel : 0
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
@@ -1878,22 +1901,26 @@ function ListenTogetherInner({
 
   return (
     <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
-      {/* ===== 毛玻璃封面背景（设置：开启背景封面模糊；无封面时不渲染，
-          切歌时淡入淡出） ===== */}
-      {cover && coverBlur && (
+      {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
+          毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
+          非纯色底）；模糊半径经 --cover-blur 注入 lt-cover-backdrop 的
+          CSS 规则。切歌时淡入淡出 ===== */}
+      {cover && (
         <div
           key={songId}
           className="lt-cover-backdrop zen-cover-fade pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
+          style={
+            {
+              '--cover-blur': `${coverBlurPx}px`,
+            } as React.CSSProperties
+          }
           aria-hidden="true"
         >
           <img
             src={cover}
             alt=""
             className="h-full w-full object-cover"
-            style={{
-              filter: 'blur(50px) saturate(140%) brightness(1.08)',
-              transform: 'scale(1.08)',
-            }}
+            style={{ transform: 'scale(1.08)' }}
             onError={(e) => {
               e.currentTarget.parentElement?.style.setProperty(
                 'display',
@@ -1911,6 +1938,11 @@ function ListenTogetherInner({
         <div
           key={bgCoverFade}
           className="lt-cover-backdrop zen-cover-fade-out pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
+          style={
+            {
+              '--cover-blur': `${coverBlurPx}px`,
+            } as React.CSSProperties
+          }
           aria-hidden="true"
           onAnimationEnd={() => setBgCoverFade(null)}
         >
@@ -1918,10 +1950,7 @@ function ListenTogetherInner({
             src={bgCoverFade}
             alt=""
             className="h-full w-full object-cover"
-            style={{
-              filter: 'blur(50px) saturate(140%) brightness(1.08)',
-              transform: 'scale(1.08)',
-            }}
+            style={{ transform: 'scale(1.08)' }}
           />
           <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--md-sys-color-surface)_30%,transparent)]" />
         </div>

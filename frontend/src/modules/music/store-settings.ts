@@ -35,8 +35,13 @@ export interface MusicSettings {
    * 服务器仅承担解析请求不再转发音频流；直链失效直接报错不回退
    */
   directSource: boolean
-  /** 播放器毛玻璃封面背景（关闭后覆盖层仅剩纯色底） */
+  /**
+   * 播放器毛玻璃封面背景（歌词页背景封面模糊开关）：关闭后背景显示
+   * 不模糊的封面（非纯色底），开启时模糊半径由 coverBlurLevel 决定
+   */
   coverBlur: boolean
+  /** 封面背景模糊度（px，0-100，默认 50；仅 coverBlur 开启时生效） */
+  coverBlurLevel: number
   /** 播放页背景压暗（%，0=不压暗，100=全黑）：黑色遮罩盖在封面/视频背景之上、内容之下 */
   bgDim: number
   /** 歌词模糊（非当前行 blur，当前行保持清晰） */
@@ -116,6 +121,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   level: 'lossless',
   directSource: false,
   coverBlur: true,
+  coverBlurLevel: 50,
   bgDim: 0,
   lyricBlur: false,
   lyricBlurLevel: 2.5,
