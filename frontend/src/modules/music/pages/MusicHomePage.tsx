@@ -435,6 +435,8 @@ function HomeBanner({
               src={withCoverParam(item.pic ?? item.imageUrl, '720y280')}
               alt=""
               className="h-full w-full shrink-0 object-cover hover:cursor-pointer"
+              loading="lazy"
+              decoding="async"
               draggable={false}
               onClick={() => onOpen(item)}
             />
@@ -712,6 +714,8 @@ function NewestSongList({
                   alt=""
                   className="h-[3.45vw] min-h-9 w-[3.45vw] min-w-9 shrink-0 object-cover max-md:h-11 max-md:w-11"
                   draggable={false}
+                  loading="lazy"
+                  decoding="async"
                 />
                 <div className="ml-[1vw] min-w-0 flex-1 text-left">
                   <div

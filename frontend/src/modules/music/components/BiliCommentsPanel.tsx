@@ -138,6 +138,8 @@ function BiliCommentText({
               alt={part}
               title={part}
               draggable={false}
+              loading="lazy"
+              decoding="async"
             />
           )
         }
@@ -547,6 +549,8 @@ function BiliCard({
           <img
             src={proxyBiliImage(comment.avatar)}
             alt={comment.name || '匿名用户'}
+            loading="lazy"
+            decoding="async"
           />
           <div className="ac-avatar-frame" />
         </div>
@@ -597,6 +601,8 @@ function BiliCard({
                         <img
                           src={proxyBiliImage(reply.avatar)}
                           alt={reply.name || '匿名用户'}
+                          loading="lazy"
+                          decoding="async"
                         />
                       </div>
                       <div className="ac-floor-meta">

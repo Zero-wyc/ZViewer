@@ -1119,6 +1119,8 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
                                     '1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 22%, transparent)',
                                 }}
                                 draggable={false}
+                                loading="lazy"
+                                decoding="async"
                               />
                               {isCenter ? (
                                 // center 播放遮罩（黑 72% + blur、hover 放大）

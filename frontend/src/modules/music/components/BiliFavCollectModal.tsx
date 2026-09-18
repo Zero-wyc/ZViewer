@@ -222,6 +222,8 @@ export function BiliFavCollectModal({
                     >
                       {f.cover ? (
                         <img
+                          loading="lazy"
+                          decoding="async"
                           src={
                             isBilibiliImageUrl(f.cover)
                               ? buildBilibiliImageProxyUrl(f.cover)

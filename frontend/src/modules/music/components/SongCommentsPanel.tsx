@@ -474,6 +474,8 @@ function CommentText({
             alt={seg.canonicalName}
             title={`[${seg.canonicalName}]`}
             draggable={false}
+            loading="lazy"
+            decoding="async"
           />
         ) : (
           <span key={i} className="ac-emoji-text">
@@ -1123,6 +1125,8 @@ function CommentCard({
           <img
             src={getUserAvatar(comment.user, 40)}
             alt={getUserName(comment.user)}
+            loading="lazy"
+            decoding="async"
           />
           <div className="ac-avatar-frame" />
         </div>
@@ -1189,6 +1193,8 @@ function CommentCard({
                         <img
                           src={getUserAvatar(reply.user, 24)}
                           alt={getUserName(reply.user)}
+                          loading="lazy"
+                          decoding="async"
                         />
                       </div>
                       <div className="ac-floor-meta">

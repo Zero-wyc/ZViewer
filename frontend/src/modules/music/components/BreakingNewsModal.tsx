@@ -644,6 +644,8 @@ export function BreakingNewsModal({
                 alt={displayTypeTitle}
                 className="h-full w-full object-cover"
                 draggable={false}
+                loading="lazy"
+                decoding="async"
               />
             ) : (
               <div className="flex h-full items-center justify-center text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)]">
