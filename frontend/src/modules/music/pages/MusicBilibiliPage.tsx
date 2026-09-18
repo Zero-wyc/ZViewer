@@ -1907,7 +1907,7 @@ export function MusicBilibiliPage({
         )}
         {/* 左栏（移动 chips + 桌面竖列）在加载中保持显示，仅右侧视频区切换
             加载动画/错误/空态/列表——切换分类时左栏不再闪退 */}
-        <div className="flex flex-1 items-start gap-5 max-md:flex-col max-md:gap-3">
+        <div className="flex flex-1 flex-col gap-3 lg:flex-row lg:items-start lg:gap-5">
           {/* 移动端收藏夹切换 chips（桌面用左列） */}
           {tab === 'fav' && folders.length > 0 && (
             <div className="mb-1 flex w-full gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
