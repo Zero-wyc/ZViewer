@@ -2518,12 +2518,7 @@ function ListenTogetherInner({
                     setDesktopLyricView(true)
                   }}
                   className="relative flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{
-                    color:
-                      rightPanelMode === 1
-                        ? 'var(--md-sys-color-on-surface)'
-                        : 'var(--md-sys-color-on-surface-variant)',
-                  }}
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
                   title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}
                   aria-label="切换歌词/评论区"
                 >
@@ -2539,7 +2534,6 @@ function ListenTogetherInner({
                       strokeWidth={1.5}
                       strokeLinecap="round"
                       strokeLinejoin="round"
-                      opacity={rightPanelMode === 1 ? 1 : 0.5}
                     />
                     <line
                       x1="7.2"
@@ -2549,7 +2543,6 @@ function ListenTogetherInner({
                       stroke="currentColor"
                       strokeWidth={1.5}
                       strokeLinecap="round"
-                      opacity={rightPanelMode === 1 ? 1 : 0.5}
                     />
                     <line
                       x1="7.2"
@@ -2559,7 +2552,6 @@ function ListenTogetherInner({
                       stroke="currentColor"
                       strokeWidth={1.5}
                       strokeLinecap="round"
-                      opacity={rightPanelMode === 1 ? 1 : 0.5}
                     />
                     {/* 评论数徽章（Hydrogen comment-count-pill） */}
                     {commentBadge !== '0' && (
@@ -3112,12 +3104,7 @@ function ListenTogetherInner({
                   type="button"
                   onClick={() => setRightPanelMode((v) => (v === 0 ? 1 : 0))}
                   className="relative flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                  style={{
-                    color:
-                      rightPanelMode === 1
-                        ? 'var(--md-sys-color-on-surface)'
-                        : 'var(--md-sys-color-on-surface-variant)',
-                  }}
+                  style={{ color: 'var(--md-sys-color-on-surface)' }}
                   title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}
                   aria-label="切换歌词/评论区"
                 >
