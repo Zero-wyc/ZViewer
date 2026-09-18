@@ -40,6 +40,8 @@ import {
   X,
   Check,
   Film,
+  FolderPlus,
+  Heart,
   MonitorPlay,
   MonitorSmartphone,
   MessagesSquare,
@@ -48,7 +50,7 @@ import {
   ExternalLink,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiGet, getApiUrl } from '@/lib/api'
+import { apiGet, apiPost, getApiUrl } from '@/lib/api'
 import { CLI_DEFAULT_PORT, useCliAgent } from '@/hooks/useCliAgent'
 import { useIsPortraitMobile } from '@/hooks/useMediaQuery'
 import { usePlayerSource } from '@/modules/player'
@@ -75,6 +77,8 @@ import {
   DanmakuAdvancedSettings,
 } from '@/modules/room/watch-together/DanmakuStylePanel'
 import { FontPickerPanel } from '@/components/ui/FontPicker'
+import { message } from '@/components/ui/message'
+import { BiliFavCollectModal } from './BiliFavCollectModal'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
@@ -1518,6 +1522,54 @@ function ListenTogetherInner({
   // 查询当前喜欢状态（/account 取 uid → /likelist 取 ids；异步回调内 setState）
   const canLike = loginStatus.loggedIn && songId != null && songId > 0
 
+  // ===== B站 收藏（歌词页工具栏）：直接收藏到「红心收藏夹」（与播放条
+  // 红心同语义同后端）+ 打开收藏夹选择弹窗；已收藏记录为本地会话记忆 =====
+  const biliLikeFavTitle = normalizeBiliLikeFavTitle(
+    useMusicSettingsStore((s) => s.biliLikeFavTitle)
+  )
+  const biliBvid = isBiliSong ? (currentSong?.biliBvid ?? null) : null
+  const [biliFavModalOpen, setBiliFavModalOpen] = useState(false)
+  const [biliCollecting, setBiliCollecting] = useState(false)
+  const [biliCollectedMark, setBiliCollectedMark] = useState<{
+    bvid: string
+    folder: string
+  } | null>(null)
+  const biliCollected =
+    biliBvid != null &&
+    biliCollectedMark?.bvid === biliBvid &&
+    biliCollectedMark.folder === biliLikeFavTitle
+  const handleBiliCollect = useCallback(async () => {
+    if (!biliBvid || biliCollecting) return
+    // 已收藏过（同一视频 + 同一目标收藏夹）：本地提示，避免重复请求
+    if (
+      biliCollectedMark?.bvid === biliBvid &&
+      biliCollectedMark.folder === biliLikeFavTitle
+    ) {
+      message.info(`已收藏到「${biliLikeFavTitle}」收藏夹`)
+      return
+    }
+    setBiliCollecting(true)
+    try {
+      const { data, ok } = await apiPost<{
+        success?: boolean
+        message?: string
+        folderTitle?: string
+      }>('/api/stream/bilibili/fav/collect', {
+        bvid: biliBvid,
+        folderTitle: biliLikeFavTitle,
+      })
+      if (!ok || data?.success === false) {
+        throw new Error(data?.message || '收藏失败')
+      }
+      setBiliCollectedMark({ bvid: biliBvid, folder: biliLikeFavTitle })
+      message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : '收藏失败')
+    } finally {
+      setBiliCollecting(false)
+    }
+  }, [biliBvid, biliCollecting, biliCollectedMark, biliLikeFavTitle])
+
   useEffect(() => {
     if (!canLike || songId == null) return
     let cancelled = false
@@ -2510,6 +2562,47 @@ function ListenTogetherInner({
                   <Search className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
+              {/* 直接收藏（B站 条目）：一键收藏到设置的「红心收藏夹」
+                  （与播放条红心同后端；实心红心 = 本会话已收藏） */}
+              {biliBvid != null && (
+                <button
+                  type="button"
+                  onClick={() => void handleBiliCollect()}
+                  disabled={biliCollecting}
+                  className={cn(
+                    'flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90',
+                    biliCollecting && 'animate-pulse'
+                  )}
+                  style={{
+                    color: biliCollected
+                      ? 'var(--md-sys-color-error)'
+                      : 'var(--md-sys-color-on-surface)',
+                  }}
+                  title={
+                    biliCollected
+                      ? `已收藏到「${biliLikeFavTitle}」收藏夹`
+                      : `一键收藏到「${biliLikeFavTitle}」收藏夹`
+                  }
+                  aria-label="收藏到收藏夹"
+                >
+                  <Heart
+                    className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]"
+                    fill={biliCollected ? 'currentColor' : 'none'}
+                  />
+                </button>
+              )}
+              {/* 添加到收藏夹（B站 条目）：打开收藏夹选择弹窗 */}
+              {biliBvid != null && (
+                <button
+                  type="button"
+                  onClick={() => setBiliFavModalOpen(true)}
+                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  title="添加到收藏夹"
+                  aria-label="添加到收藏夹"
+                >
+                  <FolderPlus className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                </button>
+              )}
               {/* 播放队列（弹窗侧挂到按钮左侧，避免被面板底部估算偏移错位） */}
               <div className="relative">
                 <button
@@ -3112,6 +3205,16 @@ function ListenTogetherInner({
           onClose={() => setNcmSearchOpen(false)}
         />
       )}
+
+      {/* B站 收藏夹选择弹窗（工具栏「添加到收藏夹」） */}
+      <BiliFavCollectModal
+        open={biliFavModalOpen}
+        bvid={currentSong?.biliBvid ?? ''}
+        onCollected={(bvid, folder) =>
+          setBiliCollectedMark({ bvid, folder: folder ?? biliLikeFavTitle })
+        }
+        onClose={() => setBiliFavModalOpen(false)}
+      />
     </div>
   )
 }
