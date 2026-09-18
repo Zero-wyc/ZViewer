@@ -526,9 +526,9 @@ function biliListCacheSet(key: string, entry: BiliListCacheEntry): void {
 
 /** 缓存 key 构造（分区种类/推荐榜单/顶栏搜索三类；fav 个人收藏不缓存） */
 const biliKwCacheKey = (keyword: string, pn: number) => `kw:${keyword}|${pn}`
-const biliRankCacheKey = (pn: number) => `rank:3|${pn}`
+const biliRankCacheKey = (pn: number) => `rank:3|v2|${pn}`
 const biliRtCacheKey = (tag: RegionTagEntry, pn: number) =>
-  `rt:${tag.name}|${JSON.stringify(tag.tags ?? null)}|${pn}`
+  `rt:v2|${tag.name}|${JSON.stringify(tag.tags ?? null)}|${pn}`
 
 /** 分区条目的规则列表（未自定义规则时默认把分类名作为单个「搜索」聚合词） */
 function getRegionRules(tag: RegionTagEntry): RegionTagRule[] {
@@ -941,19 +941,19 @@ export function MusicBilibiliPage({
           setTotal(total)
         }
       } else if (target === 'region') {
+        // 分区路径的条目在取数阶段已完成屏蔽词过滤与装饰（见下方跳页
+        // 补齐循环），缓存与展示直接使用
         if (regionTag) {
           cacheKey = biliRtCacheKey(regionTag, pageNo)
           applyEntries = (raw, total, maxSourceLen) => {
             setPageFull(maxSourceLen >= 20)
-            setItems(
-              withCoverProxy(decorateRegionItems(raw, regionTag, blockWords))
-            )
+            setItems(withCoverProxy(raw))
             setTotal(total)
           }
         } else {
           cacheKey = biliRankCacheKey(pageNo)
           applyEntries = (raw, total) => {
-            setItems(withCoverProxy(filterByBlockWords(raw, blockWords)))
+            setItems(withCoverProxy(raw))
             setTotal(total)
           }
         }
@@ -991,34 +991,47 @@ export function MusicBilibiliPage({
           }
           applyEntries(r.items, r.total, r.items.length)
         } else if (target === 'region') {
-          if (regionTag) {
-            const { merged, total, maxSourceLen } = await fetchRegionTagPage(
-              regionTag,
-              pageNo
-            )
-            if (seq !== loadSeqRef.current) return
-            if (merged.length > 0) {
-              biliListCacheSet(biliRtCacheKey(regionTag, pageNo), {
-                items: merged,
-                total,
-                maxSourceLen,
-                at: Date.now(),
-              })
+          // 屏蔽词过滤发生在取数之后：分区最新流按时间排列，某段时间的
+          // 投稿若全部命中屏蔽词（合集/盘点/歌单等），对应页会整页为空。
+          // 这里过滤后为空时自动向后跳页补齐（最多再取 3 页），直到本页
+          // 有视频或确认后续也没有；跳页合并结果缓存为当前页。
+          const decorate = (raw: BilibiliVideoItem[]) =>
+            regionTag
+              ? decorateRegionItems(raw, regionTag, blockWords)
+              : filterByBlockWords(raw, blockWords)
+          const collected: BilibiliVideoItem[] = []
+          let pn = pageNo
+          let total: number | null = null
+          let maxSourceLen = 0
+          let hasMore = true
+          for (let hop = 0; hop < 4 && hasMore; hop++) {
+            if (regionTag) {
+              const r = await fetchRegionTagPage(regionTag, pn)
+              if (seq !== loadSeqRef.current) return
+              maxSourceLen = Math.max(maxSourceLen, r.maxSourceLen)
+              total = r.total ?? total
+              collected.push(...decorate(r.merged))
+              hasMore = collected.length === 0 && r.maxSourceLen >= 20
+            } else {
+              const r = await getBilibiliRegionNew(3, 24, pn)
+              if (seq !== loadSeqRef.current) return
+              total = r.total ?? total
+              collected.push(...decorate(r.items))
+              hasMore = collected.length === 0 && r.items.length >= 24
             }
-            applyEntries(merged, total, maxSourceLen)
-          } else {
-            const r = await getBilibiliRegionNew(3, 24, pageNo)
-            if (seq !== loadSeqRef.current) return
-            if (r.items.length > 0) {
-              biliListCacheSet(biliRankCacheKey(pageNo), {
-                items: r.items,
-                total: r.total,
-                maxSourceLen: r.items.length,
-                at: Date.now(),
-              })
-            }
-            applyEntries(r.items, r.total, r.items.length)
+            pn += 1
           }
+          if (seq !== loadSeqRef.current) return
+          if (collected.length > 0) {
+            biliListCacheSet(cacheKey!, {
+              items: collected,
+              total,
+              maxSourceLen,
+              at: Date.now(),
+            })
+          }
+          setPageFull(maxSourceLen >= 20)
+          applyEntries(collected, total, maxSourceLen)
         } else if (target === 'custom') {
           if (activeCustomTab) {
             const r =
@@ -2227,7 +2240,9 @@ export function MusicBilibiliPage({
                   ? '收藏夹暂无视频'
                   : tab === 'custom'
                     ? '该栏目暂无视频'
-                    : '分区暂无视频'}
+                    : tab === 'region' && blockWords.length > 0
+                      ? '该区间的视频均被屏蔽词过滤，可调整屏蔽词或稍后再看'
+                      : '分区暂无视频'}
             </div>
           ) : (
             <div
