@@ -40,6 +40,37 @@ function randomBackoffMs(): number {
  */
 let anonymousCookieJar: string | null = null;
 
+/**
+ * 匿名会话预热（30 分钟 TTL）。
+ *
+ * 匿名（无 SESSDATA）请求极易触发 B站 412 风控——每次命中最多重试
+ * MAX_RETRIES 次、每次 1~2s 退避，而一次解析流程含 3+ 个 API 请求
+ * （view / WBI nav / playurl），累计可拖慢十余秒；登录请求带 Cookie
+ * 几乎不触发。此预热用一次匿名 nav 请求收集 buvid3 等会话 Cookie 进
+ * 匿名 Cookie 罐（bilibiliFetch 自动复用），后续匿名请求全部携带，
+ * 412 概率大幅下降，未登录解析耗时与登录态基本一致。
+ */
+const ANONYMOUS_SESSION_TTL_MS = 30 * 60 * 1000;
+let anonymousSessionWarmedAt = 0;
+let anonymousSessionWarmPromise: Promise<void> | null = null;
+
+export function ensureAnonymousSession(): Promise<void> {
+  if (Date.now() - anonymousSessionWarmedAt < ANONYMOUS_SESSION_TTL_MS) {
+    return Promise.resolve();
+  }
+  if (!anonymousSessionWarmPromise) {
+    anonymousSessionWarmPromise = (async () => {
+      // nav 接口匿名可访问，响应 Set-Cookie（buvid3 等）→ 自动进匿名
+      // Cookie 罐；即使本次被 412，响应头 Cookie 也已被收集复用
+      await bilibiliGet('https://api.bilibili.com/x/web-interface/nav');
+      anonymousSessionWarmedAt = Date.now();
+    })().finally(() => {
+      anonymousSessionWarmPromise = null;
+    });
+  }
+  return anonymousSessionWarmPromise;
+}
+
 function parseSetCookieHeader(headers: Headers): string {
   const getSetCookies = (headers as unknown as { getSetCookies?: () => string[] })
     .getSetCookies;

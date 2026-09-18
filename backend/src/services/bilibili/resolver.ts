@@ -13,6 +13,7 @@
  */
 
 import { getVideoInfo, type BilibiliVideoInfo } from './video';
+import { ensureAnonymousSession } from './client';
 import {
   getPlayUrl,
   NoPermissionError,
@@ -390,6 +391,15 @@ export async function resolveBilibiliVideo(
     onProgress?.({ status: 'parsing', step, message });
   };
 
+  // 未登录（无 Cookie）：先预热匿名会话——匿名请求缺 Cookie 极易触发
+  // B站 412 风控（每次重试 1-2s 退避，本流程含 3+ 个 API 请求，累计可
+  // 拖慢十余秒），预热后主流程各请求均携带 buvid 等会话 Cookie，解析
+  // 耗时与登录态基本一致；TTL 内重复调用零开销直接返回
+  if (!cookie) {
+    emit('vip', '正在准备匿名会话...');
+    await ensureAnonymousSession();
+  }
+
   // 并行：VIP 校验（从缓存或 nav 接口）与视频信息获取（view 接口）
   emit('vip', '正在检查大会员状态...');
   const [isVip, info] = await Promise.all([
@@ -692,3 +702,8 @@ export function normalizeResolveError(err: unknown): ResolveError {
   const message = err instanceof Error ? err.message : '解析失败';
   return new ResolveError(message, 'RESOLVE_FAILED');
 }
+
+// 后端启动即预热匿名会话（一次性后台任务，失败静默）：让首个未登录解析
+// 也不承担 412 风控重试成本；TTL 过期后由 resolveBilibiliVideo 内的预热
+// 逻辑按需再次触发
+void ensureAnonymousSession().catch(() => {});
