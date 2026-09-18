@@ -3054,7 +3054,7 @@ function ListenTogetherInner({
                 ) : (
                   <SongCommentsPanel />
                 )
-              ) : (
+              ) : lyricOriginal ? (
                 <PlayerLyricPanel
                   lines={displayLyricLines}
                   activeIndex={activeLyricIndex}
@@ -3076,6 +3076,11 @@ function ListenTogetherInner({
                   onUpdateLineOffset={handleUpdateLineOffset}
                   qualityLabel={qualityLabel}
                 />
+              ) : (
+                /* 原词隐藏 = 完全隐藏歌词：不渲染任何歌词行/翻译/罗马音/
+                    高亮条/间奏倒计时——此前仅隐藏原词文本，翻译/罗马音与
+                    滚动的高亮黑条会残留，歌词并未真正消失 */
+                <div className="flex-1" aria-hidden="true" />
               )}
             </div>
           )}
