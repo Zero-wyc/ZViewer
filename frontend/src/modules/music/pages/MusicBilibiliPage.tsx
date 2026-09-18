@@ -1711,105 +1711,111 @@ export function MusicBilibiliPage({
           }}
         />
       </div>
-      {/* Tab 行：移动端 flex-wrap 换行 + 收紧间距（自定义栏目多时不溢出） */}
-      <div className="mt-2 flex items-center gap-5 max-md:mt-1.5 max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1">
-        <h3 className="text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)] max-md:text-xl">
+      {/* Tab 行：标题 + 屏蔽词入口固定，栏目区单行横滑（移动端可滑动查看
+          超出部分，隐藏滚动条；桌面同排自适应） */}
+      <div className="mt-2 flex items-center gap-5 max-md:mt-1.5 max-md:gap-x-3">
+        <h3 className="shrink-0 text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)] max-md:text-xl">
           哔哩哔哩
         </h3>
-        {(
-          [
-            ['region', '音乐分区'],
-            ['fav', '我的收藏'],
-          ] as Array<[BiliTab, string]>
-        ).map(([key, label]) => (
-          <button
-            key={key}
-            type="button"
-            onClick={() => {
-              setTab(key)
-              // 切子页即退出搜索态并回到第一页
-              if (biliSearchKeyword) setBiliSearchKeyword(null)
-              setPageNo(1)
-            }}
-            className={cn(
-              'relative pb-0.5 text-lg font-bold transition-colors md:text-xl',
-              tab === key
-                ? 'text-[var(--md-sys-color-on-surface)]'
-                : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
-            )}
-          >
-            {label}
-            {/* 激活下划线（与我的音乐页 Tab 同语言） */}
-            <span
+        <div className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto max-md:gap-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {(
+            [
+              ['region', '音乐分区'],
+              ['fav', '我的收藏'],
+            ] as Array<[BiliTab, string]>
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => {
+                setTab(key)
+                // 切子页即退出搜索态并回到第一页
+                if (biliSearchKeyword) setBiliSearchKeyword(null)
+                setPageNo(1)
+              }}
               className={cn(
-                'absolute inset-x-0 bottom-0 h-[2px] transition-opacity',
-                tab === key ? 'opacity-100' : 'opacity-0'
+                'relative shrink-0 pb-0.5 text-lg font-bold transition-colors md:text-xl',
+                tab === key
+                  ? 'text-[var(--md-sys-color-on-surface)]'
+                  : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
               )}
-              style={{ backgroundColor: 'var(--md-sys-color-primary)' }}
-            />
-          </button>
-        ))}
-        {/* 自定义栏目 tab（链接添加的合集/系列/收藏夹；名称右侧 × 删除，
-            删除当前选中项时回到音乐分区） */}
-        {customTabs.map((ct) => {
-          const kindLabel =
-            ct.kind === 'favlist'
-              ? '收藏夹'
-              : ct.kind === 'season'
-                ? '视频合集'
-                : '系列'
-          const active = tab === 'custom' && activeCustomTabId === ct.id
-          return (
-            <span key={ct.id} className="inline-flex items-center gap-1">
-              <button
-                type="button"
-                onClick={() => {
-                  setTab('custom')
-                  setActiveCustomTabId(ct.id)
-                  // 切子页即退出搜索态并回到第一页
-                  if (biliSearchKeyword) setBiliSearchKeyword(null)
-                  setPageNo(1)
-                }}
+            >
+              {label}
+              {/* 激活下划线（与我的音乐页 Tab 同语言） */}
+              <span
                 className={cn(
-                  'relative pb-0.5 text-lg font-bold transition-colors md:text-xl max-md:max-w-[110px] max-md:truncate',
-                  active
-                    ? 'text-[var(--md-sys-color-on-surface)]'
-                    : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+                  'absolute inset-x-0 bottom-0 h-[2px] transition-opacity',
+                  tab === key ? 'opacity-100' : 'opacity-0'
                 )}
-                title={`${kindLabel}：${ct.name}（点击右侧 × 删除）`}
+                style={{ backgroundColor: 'var(--md-sys-color-primary)' }}
+              />
+            </button>
+          ))}
+          {/* 自定义栏目 tab（链接添加的合集/系列/收藏夹；名称右侧 × 删除，
+            删除当前选中项时回到音乐分区） */}
+          {customTabs.map((ct) => {
+            const kindLabel =
+              ct.kind === 'favlist'
+                ? '收藏夹'
+                : ct.kind === 'season'
+                  ? '视频合集'
+                  : '系列'
+            const active = tab === 'custom' && activeCustomTabId === ct.id
+            return (
+              <span
+                key={ct.id}
+                className="inline-flex shrink-0 items-center gap-1"
               >
-                {ct.name}
-                {/* 激活下划线（与内置 tab 同语言） */}
-                <span
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTab('custom')
+                    setActiveCustomTabId(ct.id)
+                    // 切子页即退出搜索态并回到第一页
+                    if (biliSearchKeyword) setBiliSearchKeyword(null)
+                    setPageNo(1)
+                  }}
                   className={cn(
-                    'absolute inset-x-0 bottom-0 h-[2px] transition-opacity',
-                    active ? 'opacity-100' : 'opacity-0'
+                    'relative pb-0.5 text-lg font-bold transition-colors md:text-xl max-md:max-w-[110px] max-md:truncate',
+                    active
+                      ? 'text-[var(--md-sys-color-on-surface)]'
+                      : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
                   )}
-                  style={{ backgroundColor: 'var(--md-sys-color-primary)' }}
-                />
-              </button>
-              <button
-                type="button"
-                onClick={() => handleDeleteCustomTab(ct.id)}
-                className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] opacity-40 transition-opacity hover:opacity-100"
-                title={`删除栏目「${ct.name}」`}
-                aria-label={`删除栏目 ${ct.name}`}
-              >
-                <X className="h-2.5 w-2.5" />
-              </button>
-            </span>
-          )
-        })}
-        {/* 添加栏目：粘贴 B站 链接（视频合集 / 系列 / 收藏夹；b23.tv 短链自动展开） */}
-        <button
-          type="button"
-          onClick={() => setShowAddCustomTab(true)}
-          className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
-          title="通过链接添加栏目（视频合集 / 系列 / 收藏夹）"
-          aria-label="添加栏目"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
+                  title={`${kindLabel}：${ct.name}（点击右侧 × 删除）`}
+                >
+                  {ct.name}
+                  {/* 激活下划线（与内置 tab 同语言） */}
+                  <span
+                    className={cn(
+                      'absolute inset-x-0 bottom-0 h-[2px] transition-opacity',
+                      active ? 'opacity-100' : 'opacity-0'
+                    )}
+                    style={{ backgroundColor: 'var(--md-sys-color-primary)' }}
+                  />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDeleteCustomTab(ct.id)}
+                  className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] opacity-40 transition-opacity hover:opacity-100"
+                  title={`删除栏目「${ct.name}」`}
+                  aria-label={`删除栏目 ${ct.name}`}
+                >
+                  <X className="h-2.5 w-2.5" />
+                </button>
+              </span>
+            )
+          })}
+          {/* 添加栏目：粘贴 B站 链接（视频合集 / 系列 / 收藏夹；b23.tv 短链自动展开） */}
+          <button
+            type="button"
+            onClick={() => setShowAddCustomTab(true)}
+            className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
+            title="通过链接添加栏目（视频合集 / 系列 / 收藏夹）"
+            aria-label="添加栏目"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
         {/* 全局屏蔽词入口（tab 行右侧）：左侧预览 = 全局屏蔽词 + 当前选中分区
             的独立屏蔽词（切分区随之变化，分区词带「·分区」标记）；
             按钮弹出全局屏蔽词设置弹窗（配置的词全局生效） */}
