@@ -2702,14 +2702,21 @@ function ListenTogetherInner({
                   <FolderPlus className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
-              {/* 播放队列（弹窗侧挂到按钮右侧展开，避免左侧出屏被裁切） */}
+              {/* 播放队列（弹窗侧挂到按钮右侧展开；点击展开、
+                  再次点击同一按钮收回，展开态按钮高亮） */}
               <div className="relative">
                 <button
                   type="button"
-                  onClick={() => setQueuePopupOpen(true)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                  title="播放队列"
-                  aria-label="播放队列"
+                  onClick={() => setQueuePopupOpen(!queuePopupOpen)}
+                  className={cn(
+                    'flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90',
+                    queuePopupOpen
+                      ? 'text-[var(--md-sys-color-primary)]'
+                      : 'text-[var(--md-sys-color-on-surface)]'
+                  )}
+                  title={queuePopupOpen ? '收起播放队列' : '播放队列'}
+                  aria-label="切换播放队列"
+                  aria-expanded={queuePopupOpen}
                 >
                   <ListMusic className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
@@ -3158,13 +3165,20 @@ function ListenTogetherInner({
                   <ExternalLink className="h-5 w-5" />
                 </button>
               )}
-              {/* 播放队列（弹窗固定底部居中弹出，避免侧挂出屏） */}
+              {/* 播放队列（弹窗固定底部居中弹出；点击展开、
+                  再次点击同一按钮收回，展开态按钮高亮） */}
               <button
                 type="button"
-                onClick={() => setQueuePopupOpen(true)}
-                className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                title="播放队列"
-                aria-label="播放队列"
+                onClick={() => setQueuePopupOpen(!queuePopupOpen)}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center transition-opacity active:scale-90',
+                  queuePopupOpen
+                    ? 'text-[var(--md-sys-color-primary)]'
+                    : 'text-[var(--md-sys-color-on-surface)]'
+                )}
+                title={queuePopupOpen ? '收起播放队列' : '播放队列'}
+                aria-label="切换播放队列"
+                aria-expanded={queuePopupOpen}
               >
                 <ListMusic className="h-5 w-5" />
               </button>
