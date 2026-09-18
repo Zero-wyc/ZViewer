@@ -43,6 +43,7 @@ import {
   MonitorPlay,
   MonitorSmartphone,
   MessagesSquare,
+  Search,
   Settings,
   ExternalLink,
 } from 'lucide-react'
@@ -101,6 +102,7 @@ import {
   BiliCommentsPanel,
   prefetchBiliCommentTotal,
 } from './BiliCommentsPanel'
+import { NcmSearchModal } from './NcmSearchModal'
 import {
   ControlNextIcon,
   ControlPauseIcon,
@@ -981,6 +983,8 @@ function ListenTogetherInner({
   const [desktopLyricView, setDesktopLyricView] = useState(true)
   // 歌词页快捷设置弹窗（黑底 SETTING 弹窗，承载背景/歌词调整项）
   const [showSettings, setShowSettings] = useState(false)
+  // 「在网易云搜索」弹窗（B站 条目专用：歌名提取搜索 + 试听/收藏）
+  const [ncmSearchOpen, setNcmSearchOpen] = useState(false)
 
   // ===== 工具栏颜色自适应背景：采样背景亮度（视频当前帧优先，封面兜底） =====
   const [bgLuminance, setBgLuminance] = useState<number | null>(null)
@@ -2493,6 +2497,19 @@ function ListenTogetherInner({
                   <ExternalLink className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
+              {/* 在网易云搜索（仅 B站 条目）：自动提取歌名在网易云搜索，
+                  结果支持试听/收藏到歌单——快速收藏 B站 听到的好歌 */}
+              {isBiliSong && (
+                <button
+                  type="button"
+                  onClick={() => setNcmSearchOpen(true)}
+                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                  title="在网易云搜索这首歌"
+                  aria-label="在网易云搜索这首歌"
+                >
+                  <Search className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                </button>
+              )}
               {/* 播放队列（弹窗侧挂到按钮左侧，避免被面板底部估算偏移错位） */}
               <div className="relative">
                 <button
@@ -3079,6 +3096,15 @@ function ListenTogetherInner({
         <PlayerSettingsModal
           onDismiss={() => setShowSettings(false)}
           roomId={roomId}
+        />
+      )}
+
+      {/* 在网易云搜索弹窗（B站 条目：歌名提取搜索 + 试听/收藏到歌单） */}
+      {ncmSearchOpen && (
+        <NcmSearchModal
+          open
+          sourceTitle={currentSong?.name ?? ''}
+          onClose={() => setNcmSearchOpen(false)}
         />
       )}
     </div>

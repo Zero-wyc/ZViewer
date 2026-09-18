@@ -28,6 +28,7 @@ import {
   Play,
   Plus,
   RefreshCw,
+  Search,
   Settings2,
   Tv,
   X,
@@ -55,6 +56,7 @@ import { useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicStore, musicItemKey } from '../store'
 import type { MusicQueueItem } from '../types'
 import { cn } from '@/lib/utils'
+import { NcmSearchModal } from '../components/NcmSearchModal'
 
 /** 子页标识（custom = 用户通过链接添加的自定义栏目） */
 type BiliTab = 'region' | 'fav' | 'custom'
@@ -1409,6 +1411,8 @@ export function MusicBilibiliPage({
     [categoryBlockEditName, updateCategoryBlockWords]
   )
 
+  /** 「在网易云搜索」弹窗：非空 = 打开（值为 B站 视频标题，自动提取歌名） */
+  const [ncmSearchTitle, setNcmSearchTitle] = useState<string | null>(null)
   /** 封面右下角按钮：把视频加入播放队列（权限在 useQueueAdd 内判断：
    *  canManage 或房间控制自动通过开启；cid 缺失先经 view 补取） */
   const handleAddToQueue = useCallback(
@@ -2273,6 +2277,19 @@ export function MusicBilibiliPage({
                           z-10：必须垫在下方 hover 遮罩（absolute inset-0，DOM 序靠后）
                           之上，否则遮罩 opacity-0 时也会拦截点击，按钮永远点不到 */}
                       <div className="absolute bottom-1.5 right-1.5 z-10 flex items-center gap-1">
+                        {/* 在网易云搜索：自动提取歌名在网易云搜索（试听/收藏） */}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setNcmSearchTitle(item.title)
+                          }}
+                          className="lt-touch-visible flex h-[20px] items-center justify-center rounded bg-black/70 px-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
+                          title="在网易云搜索这首歌"
+                          aria-label="在网易云搜索这首歌"
+                        >
+                          <Search className="h-3 w-3" />
+                        </button>
                         {canManage && (
                           <button
                             type="button"
@@ -2550,6 +2567,13 @@ export function MusicBilibiliPage({
           }}
         />
       )}
+
+      {/* 在网易云搜索弹窗（封面入口：歌名提取搜索 + 试听/收藏到歌单） */}
+      <NcmSearchModal
+        open={ncmSearchTitle != null}
+        sourceTitle={ncmSearchTitle ?? ''}
+        onClose={() => setNcmSearchTitle(null)}
+      />
     </div>
   )
 }
