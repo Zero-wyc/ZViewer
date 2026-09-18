@@ -21,6 +21,9 @@ const LUMINANCE_THRESHOLD = 0.55
 const LUMINANCE_HYSTERESIS = 0.06
 /** 采样周期（毫秒）：视频画面是连续变化的，300ms 已是视觉上的「实时」 */
 const SAMPLE_INTERVAL_MS = 300
+/** 背景静止（无视频或视频暂停）时的降频采样周期：画面帧不变，
+ * 布局变化（弹窗开合/滚动/resize）低频，1s 轮询足够跟上 */
+const IDLE_SAMPLE_INTERVAL_MS = 1000
 
 /** 浅/深内容三件套：[on-surface, on-surface-variant, inverse（徽章文字）] */
 const TONE_COLORS: Record<'light' | 'dark', [string, string, string]> = {
@@ -128,8 +131,18 @@ export function useBackdropAwareTone({
   scopeRef: RefObject<HTMLElement | null>
 }): void {
   useEffect(() => {
+    let lastSampleAt = 0
+
     const sample = () => {
       if (document.visibilityState !== 'visible') return
+      const video = videoRef.current
+      const playing = !!(video && !video.paused && !video.ended)
+      // P1：背景静止时降频采样（画面帧不变，仅布局低频变化）
+      if (!playing && Date.now() - lastSampleAt < IDLE_SAMPLE_INTERVAL_MS) {
+        return
+      }
+      lastSampleAt = Date.now()
+
       const scope = scopeRef.current
       if (!scope) return
       const canvas = getToneCanvas()
@@ -142,10 +155,20 @@ export function useBackdropAwareTone({
           .forEach(clearElementTone)
       }
 
+      // GPU→CPU 像素读回是采样最贵的操作：整轮只读一次全画布，
+      // 各按钮矩形从同一份像素切片求均值（原实现每按钮读一次）
+      const readFrame = (): ImageData | null => {
+        try {
+          return ctx.getImageData(0, 0, CANVAS_SIZE, CANVAS_SIZE)
+        } catch {
+          return null // 画布被污染（跨域视频）等
+        }
+      }
+
       // ===== 画背景源：视频当前帧优先，封面兜底 =====
       ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-      const video = videoRef.current
       let base: DOMRect | null = null
+      let frame: ImageData | null = null
       if (
         videoVisible &&
         video &&
@@ -169,20 +192,15 @@ export function useBackdropAwareTone({
           }
         }
         drawFitted(ctx, video, video.videoWidth, video.videoHeight, videoFit)
-        // 视频源跨域时画布被污染，getImageData 会抛错——回退封面采样
-        let tainted = false
-        try {
-          ctx.getImageData(0, 0, 1, 1)
-        } catch {
-          tainted = true
-        }
-        if (tainted) {
-          ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
-        } else {
+        frame = readFrame()
+        if (frame) {
           base = video.getBoundingClientRect()
+        } else {
+          // 视频源跨域污染画布 → 清掉回退封面采样
+          ctx.clearRect(0, 0, CANVAS_SIZE, CANVAS_SIZE)
         }
       }
-      if (base === null) {
+      if (!frame) {
         const coverImg = coverImgRef.current
         if (coverImg && coverImg.naturalWidth > 0) {
           drawFitted(
@@ -192,10 +210,13 @@ export function useBackdropAwareTone({
             coverImg.naturalHeight,
             'cover'
           )
-          base = coverImg.getBoundingClientRect()
+          frame = readFrame()
+          if (frame) {
+            base = coverImg.getBoundingClientRect()
+          }
         }
       }
-      if (!base || base.width < 1 || base.height < 1) {
+      if (!frame || !base || base.width < 1 || base.height < 1) {
         // 无源（无视频且无封面/封面未加载）：回退容器级主题色
         paintFallback()
         return
@@ -203,56 +224,49 @@ export function useBackdropAwareTone({
 
       // ===== 背景压暗修正：黑色遮罩线性混黑 =====
       const dimFactor = Math.max(0, 1 - bgDimPercent / 100)
+      const px = frame.data
 
-      // ===== 逐按钮采样自身矩形对应的背景区域 =====
+      // ===== 逐按钮采样自身矩形对应的背景区域（从单份全画布像素切片） =====
       scope.querySelectorAll<HTMLElement>('[data-bg-tone]').forEach((el) => {
         const r = el.getBoundingClientRect()
         if (r.width <= 0 || r.height <= 0) return
-        const xi = Math.max(
+        const x0 = Math.max(
           0,
           Math.min(
             CANVAS_SIZE - 1,
-            ((r.left - base.left) / base.width) * CANVAS_SIZE
+            Math.round(((r.left - base.left) / base.width) * CANVAS_SIZE)
           )
         )
-        const yi = Math.max(
+        const y0 = Math.max(
           0,
           Math.min(
             CANVAS_SIZE - 1,
-            ((r.top - base.top) / base.height) * CANVAS_SIZE
+            Math.round(((r.top - base.top) / base.height) * CANVAS_SIZE)
           )
         )
-        const wi = Math.max(
+        const w0 = Math.max(
           1,
           Math.min(
-            CANVAS_SIZE - Math.round(xi),
+            CANVAS_SIZE - x0,
             Math.round((r.width / base.width) * CANVAS_SIZE)
           )
         )
-        const hi = Math.max(
+        const h0 = Math.max(
           1,
           Math.min(
-            CANVAS_SIZE - Math.round(yi),
+            CANVAS_SIZE - y0,
             Math.round((r.height / base.height) * CANVAS_SIZE)
           )
         )
-        let lum: number
-        try {
-          const data = ctx.getImageData(
-            Math.round(xi),
-            Math.round(yi),
-            wi,
-            hi
-          ).data
-          let sum = 0
-          for (let i = 0; i < data.length; i += 4) {
-            sum +=
-              0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]
+        let sum = 0
+        for (let yy = y0; yy < y0 + h0; yy++) {
+          const rowStart = (yy * CANVAS_SIZE + x0) * 4
+          for (let xx = 0; xx < w0; xx++) {
+            const o = rowStart + xx * 4
+            sum += 0.2126 * px[o] + 0.7152 * px[o + 1] + 0.0722 * px[o + 2]
           }
-          lum = sum / (data.length / 4) / 255
-        } catch {
-          return // 画布被污染等：该按钮保持上一轮 tone
         }
+        const lum = sum / (w0 * h0) / 255
         const tone = toneOf(lum * dimFactor, prevTones.get(el))
         prevTones.set(el, tone)
         const [onSurface, onVariant, inverse] = TONE_COLORS[tone]
