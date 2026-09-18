@@ -39,6 +39,7 @@ import {
 } from '../hooks/usePlaybackPosition'
 import {
   ChevronDown,
+  Contrast,
   ListMusic,
   MessageCircle,
   AlignLeft,
@@ -61,7 +62,6 @@ import { CLI_DEFAULT_PORT, useCliAgent } from '@/hooks/useCliAgent'
 import { useIsPortraitMobile } from '@/hooks/useMediaQuery'
 import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
-import { useBackdropAwareTone } from '../hooks/useBackdropAwareTone'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
 import { useMusicStore } from '../store'
 import {
@@ -208,6 +208,40 @@ const BG_VIDEO_CATCHUP_GAIN_SEC = 4
  *  seek 耗时内音频多走的量（背景视频无声，轻微变速无感知） */
 const BG_VIDEO_MAX_RATE = 1.5
 const BG_VIDEO_MIN_RATE = 0.6
+
+/** 工具栏黑白切换持久化 key（light = 白字配暗背景，dark = 黑字配亮背景） */
+const TOOLBAR_TONE_STORAGE_KEY = 'zviewer-lyric-toolbar-tone'
+
+/** 读取工具栏黑白偏好；存储损坏/非法值时回退白字（歌词页背景以
+ *  封面/视频画面为主，整体偏暗，白字是更常用的初始态） */
+function loadToolbarTone(): 'light' | 'dark' {
+  try {
+    if (localStorage.getItem(TOOLBAR_TONE_STORAGE_KEY) === '"dark"') {
+      return 'dark'
+    }
+  } catch {
+    // ignore（隐私模式等存储不可用场景）
+  }
+  return 'light'
+}
+
+/** 工具栏容器级文字三色覆盖（黑白切换）：on-surface / on-surface-variant
+ *  供全部按钮的 var() 引用，--lt-tone-inverse 供评论数徽章文字使用。
+ *  原按背景下亮度逐按钮采样的自适应已删除（跨域视频源画入 canvas 会
+ *  永久污染采样画布，clearRect 无法解除，实际不可用），改为用户手动
+ *  切换、容器统一覆盖并持久化 */
+const TOOLBAR_TONE_VARS = {
+  light: {
+    '--md-sys-color-on-surface': '#ffffff',
+    '--md-sys-color-on-surface-variant': 'rgba(255, 255, 255, 0.5)',
+    '--lt-tone-inverse': '#1c1c1c',
+  },
+  dark: {
+    '--md-sys-color-on-surface': '#1c1c1c',
+    '--md-sys-color-on-surface-variant': 'rgba(0, 0, 0, 0.5)',
+    '--lt-tone-inverse': '#ffffff',
+  },
+} as Record<'light' | 'dark', React.CSSProperties>
 
 /** 极简滑轨（设置弹窗内嵌）：pointer 拖动即时回调，touch-slider 防触屏滚动 */
 function TinySlider({
@@ -1117,12 +1151,6 @@ function ListenTogetherInner({
   // 「在网易云搜索」弹窗（B站 条目专用：歌名提取搜索 + 试听/收藏）
   const [ncmSearchOpen, setNcmSearchOpen] = useState(false)
 
-  // ===== 工具栏颜色逐按钮自适应背景（useBackdropAwareTone）=====
-  // 采样范围根（面板根）：扫描子树内 [data-bg-tone] 按钮
-  const panelRootRef = useRef<HTMLDivElement | null>(null)
-  // 封面背景 img（兜底采样源；切歌重挂后 ref 自动更新）
-  const coverImgElRef = useRef<HTMLImageElement | null>(null)
-
   const queue = useMusicStore((s) => s.queue)
   const currentKey = useMusicStore((s) => s.currentKey)
 
@@ -1883,18 +1911,23 @@ function ListenTogetherInner({
   /** 封面背景模糊半径：毛玻璃关闭时 0（显示未模糊封面而非纯色底） */
   const coverBlurPx = coverBlur ? coverBlurLevel : 0
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
-  // ===== 工具栏颜色逐按钮自适应背景：每 300ms 采样背景画面（视频帧优先、
-  // 封面兜底），对每个 [data-bg-tone] 按钮按其矩形后的画面亮度独立写
-  // on-surface / on-surface-variant / --lt-tone-inverse（含压暗与滞后带）；
-  // 未知（无源/采样失败）时移除覆盖回退主题色 =====
-  useBackdropAwareTone({
-    videoRef: bgVideoRef,
-    videoFit: bgVideoFit,
-    videoVisible: bgVideoVisible,
-    coverImgRef: coverImgElRef,
-    bgDimPercent: bgDim,
-    scopeRef: panelRootRef,
-  })
+  // ===== 工具栏黑白切换（手动）：工具栏按钮文字深浅由用户一键切换，
+  //  song-control / 竖屏工具行两个容器统一以 TOOLBAR_TONE_VARS 覆盖
+  //  文字三色变量，localStorage 持久化（light = 白字配暗背景） =====
+  const [toolbarTone, setToolbarTone] = useState<'light' | 'dark'>(
+    loadToolbarTone
+  )
+  const toggleToolbarTone = useCallback(() => {
+    setToolbarTone((prev) => {
+      const next = prev === 'light' ? 'dark' : 'light'
+      try {
+        localStorage.setItem(TOOLBAR_TONE_STORAGE_KEY, JSON.stringify(next))
+      } catch {
+        // ignore（隐私模式等存储不可用场景）
+      }
+      return next
+    })
+  }, [])
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const lyricBlurLevel = useMusicSettingsStore((s) => s.lyricBlurLevel)
@@ -2022,10 +2055,7 @@ function ListenTogetherInner({
   }
 
   return (
-    <div
-      ref={panelRootRef}
-      className="relative flex h-full min-w-0 flex-col overflow-hidden"
-    >
+    <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
       {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
           毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
           非纯色底）；模糊半径经 --cover-blur 注入 lt-cover-backdrop 的
@@ -2042,7 +2072,6 @@ function ListenTogetherInner({
           aria-hidden="true"
         >
           <img
-            ref={coverImgElRef}
             src={cover}
             alt=""
             className="h-full w-full object-cover"
@@ -2377,23 +2406,17 @@ function ListenTogetherInner({
                 'lt-icon-outline lt-touch-visible absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] opacity-0 focus-within:opacity-100 group-hover:animate-[song-control-in_0.3s_both]',
                 isPortraitMobile && 'hidden'
               )}
-              style={
-                {
-                  color: 'var(--md-sys-color-on-surface)',
-                  // 容器级回退值；每个 [data-bg-tone] 按钮由
-                  // useBackdropAwareTone 按其后方画面亮度独立覆盖变量
-                  '--md-sys-color-on-surface': 'var(--md-sys-color-on-surface)',
-                  '--md-sys-color-on-surface-variant':
-                    'var(--md-sys-color-on-surface-variant)',
-                } as React.CSSProperties
-              }
+              style={{
+                color: 'var(--md-sys-color-on-surface)',
+                // 黑白切换：容器级统一覆盖文字三色，按钮的 var() 引用跟随
+                ...TOOLBAR_TONE_VARS[toolbarTone],
+              }}
             >
               {/* 隐藏/显示歌词（桌面）：隐藏右侧歌词面板、播放卡居中；
                   纯视图级开关，与手机竖屏的 mobileLyricView 相互独立。
                   图标沿用移动端 AlignLeft，显隐语义一致 */}
               <button
                 type="button"
-                data-bg-tone="d-lyric"
                 onClick={() => setDesktopLyricView((v) => !v)}
                 className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                 style={{
@@ -2410,7 +2433,6 @@ function ListenTogetherInner({
               {hasRomaLyric && (
                 <button
                   type="button"
-                  data-bg-tone="d-roma"
                   onClick={() => setLyricRoma((v) => !v)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   style={{
@@ -2427,7 +2449,6 @@ function ListenTogetherInner({
               {hasTransLyric && (
                 <button
                   type="button"
-                  data-bg-tone="d-trans"
                   onClick={() => setLyricTrans((v) => !v)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   style={{
@@ -2444,7 +2465,6 @@ function ListenTogetherInner({
               {hasOriginalLyric && (
                 <button
                   type="button"
-                  data-bg-tone="d-original"
                   onClick={() => setLyricOriginal((v) => !v)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   style={{
@@ -2464,7 +2484,6 @@ function ListenTogetherInner({
               {bgVideoReady && (
                 <button
                   type="button"
-                  data-bg-tone="d-immersive"
                   onClick={() => setImmersive(true)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="纯净模式：隐藏全部界面，仅显示背景视频"
@@ -2476,7 +2495,6 @@ function ListenTogetherInner({
               {canLike && (
                 <button
                   type="button"
-                  data-bg-tone="d-like"
                   onClick={() => void handleLike()}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   style={{
@@ -2497,7 +2515,6 @@ function ListenTogetherInner({
               {isHost && (
                 <button
                   type="button"
-                  data-bg-tone="d-playmode"
                   onClick={handleTogglePlayMode}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   style={{ color: 'var(--md-sys-color-on-surface)' }}
@@ -2516,7 +2533,6 @@ function ListenTogetherInner({
                     // 面板被「隐藏歌词」收起时，查看评论/歌词的意图即带出面板
                     setDesktopLyricView(true)
                   }}
-                  data-bg-tone="d-comment"
                   className="relative flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                   style={{
                     color:
@@ -2593,7 +2609,6 @@ function ListenTogetherInner({
               {songId != null && songId > 0 && (
                 <button
                   type="button"
-                  data-bg-tone="d-addvideo"
                   onClick={() => setShowMusicVideo(true)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="添加视频"
@@ -2608,7 +2623,6 @@ function ListenTogetherInner({
               {buildBiliSourceUrl() && (
                 <button
                   type="button"
-                  data-bg-tone="d-bilisource"
                   onClick={() =>
                     window.open(
                       buildBiliSourceUrl(),
@@ -2628,7 +2642,6 @@ function ListenTogetherInner({
               {isBiliSong && (
                 <button
                   type="button"
-                  data-bg-tone="d-danmaku"
                   onClick={() =>
                     setMusicSettings({
                       biliDanmakuEnabled: !biliDanmakuEnabled,
@@ -2655,7 +2668,6 @@ function ListenTogetherInner({
               {isBiliSong && (
                 <button
                   type="button"
-                  data-bg-tone="d-ncmsearch"
                   onClick={() => setNcmSearchOpen(true)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="在网易云搜索这首歌"
@@ -2669,7 +2681,6 @@ function ListenTogetherInner({
               {biliBvid != null && (
                 <button
                   type="button"
-                  data-bg-tone="d-collect"
                   onClick={() => void handleBiliCollect()}
                   disabled={biliCollecting}
                   className={cn(
@@ -2698,7 +2709,6 @@ function ListenTogetherInner({
               {biliBvid != null && (
                 <button
                   type="button"
-                  data-bg-tone="d-favmodal"
                   onPointerEnter={() => void prefetchBiliFavFolders()}
                   onClick={() => setBiliFavModalOpen(true)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
@@ -2712,7 +2722,6 @@ function ListenTogetherInner({
               <div className="relative">
                 <button
                   type="button"
-                  data-bg-tone="d-queue"
                   onClick={() => setQueuePopupOpen(true)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="播放队列"
@@ -2733,7 +2742,6 @@ function ListenTogetherInner({
               {/* 快捷设置（黑底 SETTING 弹窗：背景设置项汇总） */}
               <button
                 type="button"
-                data-bg-tone="d-settings"
                 onClick={() => setShowSettings(true)}
                 className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                 title="设置"
@@ -2741,9 +2749,23 @@ function ListenTogetherInner({
               >
                 <Settings className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
               </button>
+              {/* 工具栏黑白切换：手动切换全部按钮文字的深浅（白字配暗
+                  背景 / 黑字配亮背景），localStorage 持久化 */}
               <button
                 type="button"
-                data-bg-tone="d-collapse"
+                onClick={toggleToolbarTone}
+                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                title={
+                  toolbarTone === 'light'
+                    ? '工具栏文字：白（点击切换为黑）'
+                    : '工具栏文字：黑（点击切换为白）'
+                }
+                aria-label="切换工具栏文字黑白"
+              >
+                <Contrast className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+              </button>
+              <button
+                type="button"
                 onClick={closePlayerOverlay}
                 className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                 title="收起播放器"
@@ -2996,21 +3018,15 @@ function ListenTogetherInner({
               className={cn(
                 'lt-icon-outline relative z-[10] flex shrink-0 flex-wrap items-center justify-center gap-1'
               )}
-              style={
-                {
-                  color: 'var(--md-sys-color-on-surface)',
-                  // 容器级回退值；每个 [data-bg-tone] 按钮由
-                  // useBackdropAwareTone 按其后方画面亮度独立覆盖变量
-                  '--md-sys-color-on-surface': 'var(--md-sys-color-on-surface)',
-                  '--md-sys-color-on-surface-variant':
-                    'var(--md-sys-color-on-surface-variant)',
-                } as React.CSSProperties
-              }
+              style={{
+                color: 'var(--md-sys-color-on-surface)',
+                // 黑白切换：容器级统一覆盖文字三色，按钮的 var() 引用跟随
+                ...TOOLBAR_TONE_VARS[toolbarTone],
+              }}
             >
               {/* 歌词视图开关：默认只显示播放卡，开启后歌词区独占整页 */}
               <button
                 type="button"
-                data-bg-tone="m-lyric"
                 onClick={() => setMobileLyricView((v) => !v)}
                 className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                 style={{
@@ -3027,7 +3043,6 @@ function ListenTogetherInner({
               {hasRomaLyric && (
                 <button
                   type="button"
-                  data-bg-tone="m-roma"
                   onClick={() => setLyricRoma((v) => !v)}
                   className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                   style={{
@@ -3044,7 +3059,6 @@ function ListenTogetherInner({
               {hasTransLyric && (
                 <button
                   type="button"
-                  data-bg-tone="m-trans"
                   onClick={() => setLyricTrans((v) => !v)}
                   className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                   style={{
@@ -3061,7 +3075,6 @@ function ListenTogetherInner({
               {hasOriginalLyric && (
                 <button
                   type="button"
-                  data-bg-tone="m-original"
                   onClick={() => setLyricOriginal((v) => !v)}
                   className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                   style={{
@@ -3079,7 +3092,6 @@ function ListenTogetherInner({
               {bgVideoReady && (
                 <button
                   type="button"
-                  data-bg-tone="m-immersive"
                   onClick={() => setImmersive(true)}
                   className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                   title="纯净模式：隐藏全部界面，仅显示背景视频"
@@ -3091,7 +3103,6 @@ function ListenTogetherInner({
               {canLike && (
                 <button
                   type="button"
-                  data-bg-tone="m-like"
                   onClick={() => void handleLike()}
                   className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                   style={{
@@ -3112,7 +3123,6 @@ function ListenTogetherInner({
               {isHost && (
                 <button
                   type="button"
-                  data-bg-tone="m-playmode"
                   onClick={handleTogglePlayMode}
                   className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                   title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
@@ -3125,7 +3135,6 @@ function ListenTogetherInner({
               {canComment && (
                 <button
                   type="button"
-                  data-bg-tone="m-comment"
                   onClick={() => setRightPanelMode((v) => (v === 0 ? 1 : 0))}
                   className="relative flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                   style={{
@@ -3155,7 +3164,6 @@ function ListenTogetherInner({
               {songId != null && songId > 0 && (
                 <button
                   type="button"
-                  data-bg-tone="m-addvideo"
                   onClick={() => setShowMusicVideo(true)}
                   className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                   title="添加视频"
@@ -3168,7 +3176,6 @@ function ListenTogetherInner({
               {buildBiliSourceUrl() && (
                 <button
                   type="button"
-                  data-bg-tone="m-bilisource"
                   onClick={() =>
                     window.open(
                       buildBiliSourceUrl(),
@@ -3186,7 +3193,6 @@ function ListenTogetherInner({
               {/* 播放队列（弹窗固定底部居中弹出，避免侧挂出屏） */}
               <button
                 type="button"
-                data-bg-tone="m-queue"
                 onClick={() => setQueuePopupOpen(true)}
                 className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                 title="播放队列"
@@ -3206,13 +3212,26 @@ function ListenTogetherInner({
               {/* 快捷设置（与桌面 song-control 同一弹窗） */}
               <button
                 type="button"
-                data-bg-tone="m-settings"
                 onClick={() => setShowSettings(true)}
                 className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                 title="设置"
                 aria-label="打开设置"
               >
                 <Settings className="h-5 w-5" />
+              </button>
+              {/* 工具栏黑白切换：与桌面 song-control 同一状态 */}
+              <button
+                type="button"
+                onClick={toggleToolbarTone}
+                className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
+                title={
+                  toolbarTone === 'light'
+                    ? '工具栏文字：白（点击切换为黑）'
+                    : '工具栏文字：黑（点击切换为白）'
+                }
+                aria-label="切换工具栏文字黑白"
+              >
+                <Contrast className="h-5 w-5" />
               </button>
             </div>
           )}
