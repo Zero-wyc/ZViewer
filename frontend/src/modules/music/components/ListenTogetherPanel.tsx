@@ -1077,6 +1077,15 @@ function ListenTogetherInner({
     currentSong?.biliCid ?? 0
   )
   const bgVideoRef = useRef<HTMLVideoElement | null>(null)
+
+  // ===== 视频背景可见性门控：源就绪 ≠ 画面就绪——视频元素挂载后要等
+  //       canplay/playing（首帧可播）才淡入，未就绪期间透出封面模糊背景
+  //       （B站 视频解析/缓冲期间背景始终是封面）。可见性按「已就绪 URL =
+  //       当前源 URL」派生：切歌/重解析瞬间自动回到未就绪态，无需清理
+  //       effect（规避 set-state-in-effect） =====
+  const bgSourceUrl = musicVideoBg.source?.url ?? null
+  const [bgVideoReadyUrl, setBgVideoReadyUrl] = useState<string | null>(null)
+  const bgVideoVisible = bgSourceUrl != null && bgVideoReadyUrl === bgSourceUrl
   // 进度同步辅助态：seek 去抖定时器 / 待 seek 目标 / seek 后倍速追赶模式
   const bgSeekDebounceRef = useRef<number | null>(null)
   const bgSeekPendingRef = useRef<number | null>(null)
@@ -1851,6 +1860,22 @@ function ListenTogetherInner({
   const songName = currentSong?.name ?? '一起听'
   const artist = currentSong?.artist ?? ''
 
+  // ===== 切歌封面交叉溶解：换曲瞬间快照上一首封面为独立背景层（0.9s
+  //       淡出，动画结束即卸载），与新封面 zen-cover-fade 淡入交叠——
+  //       当前背景（封面或视频消失后的空档）优雅溶解为下一首封面，
+  //       视频就绪后再淡入视频。render 期派生更新（React 官方 props
+  //       变化调 state 模式，规避 effect 同步 setState） =====
+  const [bgCoverFade, setBgCoverFade] = useState<string | null>(null)
+  const [lastRenderCover, setLastRenderCover] = useState<string | null>(
+    cover ?? null
+  )
+  if ((cover ?? null) !== lastRenderCover) {
+    setLastRenderCover(cover ?? null)
+    if (lastRenderCover) {
+      setBgCoverFade(lastRenderCover)
+    }
+  }
+
   return (
     <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
       {/* ===== 毛玻璃封面背景（设置：开启背景封面模糊；无封面时不渲染，
@@ -1874,6 +1899,28 @@ function ListenTogetherInner({
                 'display',
                 'none'
               )
+            }}
+          />
+          <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--md-sys-color-surface)_30%,transparent)]" />
+        </div>
+      )}
+
+      {/* ===== 上一首封面快照（切歌交叉溶解）：盖在新封面之上 0.9s 淡出，
+          动画结束即卸载；视频未就绪的空档由此层兜住，背景无黑屏 ===== */}
+      {bgCoverFade && (
+        <div
+          key={bgCoverFade}
+          className="lt-cover-backdrop zen-cover-fade-out pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
+          aria-hidden="true"
+          onAnimationEnd={() => setBgCoverFade(null)}
+        >
+          <img
+            src={bgCoverFade}
+            alt=""
+            className="h-full w-full object-cover"
+            style={{
+              filter: 'blur(50px) saturate(140%) brightness(1.08)',
+              transform: 'scale(1.08)',
             }}
           />
           <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--md-sys-color-surface)_30%,transparent)]" />
@@ -1913,7 +1960,10 @@ function ListenTogetherInner({
           {/* 视频本体：画面适配方式随设置（完整显示 contain / 裁切铺满
               cover / 拉伸填充 fill）；纯净模式 fixed 全屏，元素不重挂
               播放流不断）；metadata 就绪即对齐音频进度
-              （切歌/中途加入房间时视频直接跳到音频当前进度） */}
+              （切歌/中途加入房间时视频直接跳到音频当前进度）。
+              可见性门控：首帧可播（canplay/playing）前保持透明——
+              视频解析/缓冲期间优雅显示封面背景，就绪后 0.9s ease 淡入；
+              视频自身永不接收指针事件（纯净模式点击穿透到点按层） */}
           <video
             ref={bgVideoRef}
             muted
@@ -1921,17 +1971,21 @@ function ListenTogetherInner({
             autoPlay
             loop
             onLoadedMetadata={() => syncBgVideoTime(true)}
+            onCanPlay={() => setBgVideoReadyUrl(bgSourceUrl)}
+            onPlaying={() => setBgVideoReadyUrl(bgSourceUrl)}
             className={cn(
-              'h-full w-full',
+              'pointer-events-none h-full w-full',
               bgVideoFit === 'cover'
                 ? 'object-cover'
                 : bgVideoFit === 'fill'
                   ? 'object-fill'
                   : 'object-contain',
-              immersive
-                ? 'fixed inset-0 z-[70]'
-                : 'zen-cover-fade pointer-events-none absolute inset-0 z-0'
+              immersive ? 'fixed inset-0 z-[70]' : 'absolute inset-0 z-0'
             )}
+            style={{
+              opacity: bgVideoVisible ? 1 : 0,
+              transition: 'opacity 0.9s ease',
+            }}
           />
         </>
       )}

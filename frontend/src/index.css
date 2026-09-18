@@ -1358,6 +1358,21 @@ button.bili-liquid-btn:active:not(:disabled) {
   animation: zen-cover-fade 0.35s ease;
 }
 
+/* 背景封面切换溶解（切歌时上一首封面快照层淡出，与新封面
+   zen-cover-fade 淡入交叠形成交叉溶解；时长长于淡入让过渡更从容） */
+@keyframes zen-cover-fade-out {
+  0% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.zen-cover-fade-out {
+  animation: zen-cover-fade-out 0.9s ease both;
+}
+
 /* ---------- 减少动效偏好支持 ---------- */
 @media (prefers-reduced-motion: reduce) {
   *,
