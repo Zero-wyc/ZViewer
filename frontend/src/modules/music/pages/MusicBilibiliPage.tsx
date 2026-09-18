@@ -1669,7 +1669,7 @@ export function MusicBilibiliPage({
   }, [totalPages, pageNo])
 
   return (
-    <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
+    <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-[calc(112px+env(safe-area-inset-bottom))] max-md:pt-4">
       {/* 页头（PageBlockHeader 同范式）+ 子页切换 */}
       <div className="flex items-center">
         <span
@@ -1690,8 +1690,9 @@ export function MusicBilibiliPage({
           }}
         />
       </div>
-      <div className="mt-2 flex items-center gap-5">
-        <h3 className="text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)]">
+      {/* Tab 行：移动端 flex-wrap 换行 + 收紧间距（自定义栏目多时不溢出） */}
+      <div className="mt-2 flex items-center gap-5 max-md:mt-1.5 max-md:flex-wrap max-md:gap-x-3 max-md:gap-y-1">
+        <h3 className="text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)] max-md:text-xl">
           哔哩哔哩
         </h3>
         {(
@@ -1749,7 +1750,7 @@ export function MusicBilibiliPage({
                   setPageNo(1)
                 }}
                 className={cn(
-                  'relative pb-0.5 text-lg font-bold transition-colors md:text-xl',
+                  'relative pb-0.5 text-lg font-bold transition-colors md:text-xl max-md:max-w-[110px] max-md:truncate',
                   active
                     ? 'text-[var(--md-sys-color-on-surface)]'
                     : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
@@ -1792,8 +1793,9 @@ export function MusicBilibiliPage({
             的独立屏蔽词（切分区随之变化，分区词带「·分区」标记）；
             按钮弹出全局屏蔽词设置弹窗（配置的词全局生效） */}
         <div className="ml-auto flex items-center gap-2">
+          {/* 屏蔽词预览（移动端隐藏：太多字挤爆 Tab 行，悬停标题保留在按钮上） */}
           <span
-            className="max-w-[260px] truncate text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] max-md:max-w-[140px]"
+            className="max-w-[260px] truncate text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] max-md:max-w-[140px] max-md:hidden"
             title={
               blockPreviewEntries.length > 0
                 ? `屏蔽词：${blockPreviewEntries
@@ -1868,7 +1870,7 @@ export function MusicBilibiliPage({
         <div className="flex flex-1 items-start gap-5 max-md:flex-col max-md:gap-3">
           {/* 移动端收藏夹切换 chips（桌面用左列） */}
           {tab === 'fav' && folders.length > 0 && (
-            <div className="mb-1 flex w-full gap-2 overflow-x-auto pb-1 lg:hidden">
+            <div className="mb-1 flex w-full gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
               {folders.map((f) => (
                 <button
                   key={f.id}
@@ -1892,10 +1894,11 @@ export function MusicBilibiliPage({
               ))}
             </div>
           )}
-          {/* 移动端音乐种类 chips（桌面用左列）：推荐榜单 + 种类 + 添加 */}
+          {/* 移动端音乐种类 chips（桌面用左列）：单行横滚 + 隐藏滚动条
+              （推荐榜单 + 种类 + 添加；与收藏夹 chips 同交互范式） */}
           {tab === 'region' && (
             <>
-              <div className="mb-1 flex w-full flex-wrap gap-2 lg:hidden">
+              <div className="mb-1 flex w-full gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:hidden">
                 {(
                   [
                     [REGION_TAG_HEADER, null],
@@ -1933,7 +1936,7 @@ export function MusicBilibiliPage({
                           <button
                             type="button"
                             onClick={() => setTagRulesEditName(entry.name)}
-                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
+                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70 max-md:px-2 max-md:py-1"
                             style={{
                               backgroundColor:
                                 'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
@@ -1941,12 +1944,12 @@ export function MusicBilibiliPage({
                             title="分类标签规则设置"
                             aria-label={`设置分类 ${entry.name} 的标签规则`}
                           >
-                            <Settings2 className="h-2.5 w-2.5" />
+                            <Settings2 className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
                           </button>
                           <button
                             type="button"
                             onClick={() => setCategoryBlockEditName(entry.name)}
-                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
+                            className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70 max-md:px-2 max-md:py-1"
                             style={{
                               backgroundColor:
                                 'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
@@ -1954,7 +1957,7 @@ export function MusicBilibiliPage({
                             title="分区屏蔽词设置"
                             aria-label={`设置分区 ${entry.name} 的屏蔽词`}
                           >
-                            <Ban className="h-2.5 w-2.5" />
+                            <Ban className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
                           </button>
                         </>
                       )}
