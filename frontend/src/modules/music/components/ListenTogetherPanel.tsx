@@ -339,6 +339,7 @@ function PlayerSettingsModal({
   // ===== B站 弹幕设置（复用一起看弹幕设置组件）：总开关即 biliDanmakuEnabled
   //       设置项；样式面板与一起看共用 danmakuStore（跨页持久化生效） =====
   const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
+  const biliDanmakuAboveUi = useMusicSettingsStore((s) => s.biliDanmakuAboveUi)
   const danmakuStyle = useDanmakuStore((s) => s.style)
   const setDanmakuStyle = useDanmakuStore((s) => s.setStyle)
   const setDanmakuFilters = useDanmakuStore((s) => s.setFilters)
@@ -774,6 +775,42 @@ function PlayerSettingsModal({
                 />
               </button>
             </div>
+            {/* 弹幕层级（UI 上方 = 悬浮于播放卡/歌词等前景 UI 之上；
+                UI 底部 = 仅铺在背景之上、被前景 UI 遮挡；纯净模式下
+                前景 UI 隐藏，两种层级均显示在视频之上） */}
+            {biliDanmakuEnabled && (
+              <div className="mt-2 flex items-center justify-between gap-2">
+                <span className="text-[10px] font-bold text-white">
+                  弹幕层级
+                </span>
+                <div className="grid shrink-0 grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setSettings({ biliDanmakuAboveUi: true })}
+                    className={cn(
+                      'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
+                      biliDanmakuAboveUi
+                        ? 'bg-white text-black shadow-sm'
+                        : 'bg-white/10 text-white/60 hover:bg-white/15'
+                    )}
+                  >
+                    UI 上方
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSettings({ biliDanmakuAboveUi: false })}
+                    className={cn(
+                      'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
+                      !biliDanmakuAboveUi
+                        ? 'bg-white text-black shadow-sm'
+                        : 'bg-white/10 text-white/60 hover:bg-white/15'
+                    )}
+                  >
+                    UI 底部
+                  </button>
+                </div>
+              </div>
+            )}
             {/* 弹幕样式设置（仅启用时展开；MD3 令牌暗色覆盖使白主题组件
                 融入黑底弹窗，primary=白与弹窗按钮语言一致） */}
             {biliDanmakuEnabled && (
@@ -980,6 +1017,7 @@ function ListenTogetherInner({
   // 拉官方弹幕，时间轴驱动走 positionSec（音频 timeupdate），不依赖视频元素；
   // 开关与样式设置在歌词页设置弹窗（样式与一起看共用 danmakuStore 持久化） =====
   const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
+  const biliDanmakuAboveUi = useMusicSettingsStore((s) => s.biliDanmakuAboveUi)
   const danmakuStyle = useDanmakuStore((s) => s.style)
   const biliDanmakuActive = isBiliSong && biliDanmakuEnabled
   const biliDanmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
@@ -1895,13 +1933,17 @@ function ListenTogetherInner({
 
       {/* ===== B站 音源弹幕层（复用一起看弹幕模块）：仅 B站 条目渲染，
           悬浮铺满整页顶部（显示区域比例随弹幕设置），pointer-events-none
-          不挡任何交互；纯净模式时抬升到 fixed 视频（z-70）与压暗层
-          （z-72）之上，纯视频观看弹幕仍可见 ===== */}
+          不挡任何交互。层级随设置切换：UI 上方 = z-10（前景 UI 之上、
+          左上角提示 z-30 之下）；UI 底部 = z-1（仅铺在封面/视频背景之上，
+          DOM 序早于 z-[1] 前景内容 → 被播放卡/歌词遮挡）；纯净模式一律
+          抬升到 fixed 视频（z-70）与压暗层（z-72）之上保持可见 ===== */}
       {biliDanmakuActive && (
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0"
-          style={{ zIndex: immersive ? 73 : 10 }}
+          style={{
+            zIndex: immersive ? 73 : biliDanmakuAboveUi ? 10 : 1,
+          }}
         >
           <DanmakuLayer
             ref={biliDanmakuLayerRef}

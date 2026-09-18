@@ -104,6 +104,12 @@ export interface MusicSettings {
    * 不透明度/字号/速度等）与一起看共用 danmakuStore 持久化
    */
   biliDanmakuEnabled: boolean
+  /**
+   * B站 弹幕层级（默认 UI 上方）：true = 弹幕悬浮于播放卡/歌词等前景
+   * UI 之上；false = 弹幕仅铺在背景（封面/视频）之上、被前景 UI 遮挡。
+   * 纯净模式下前景 UI 隐藏，两种层级均抬升至视频之上
+   */
+  biliDanmakuAboveUi: boolean
 }
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
@@ -131,6 +137,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   biliLikeFavTitle: 'Music',
   musicNavCollapsed: true,
   biliDanmakuEnabled: true,
+  biliDanmakuAboveUi: true,
 }
 
 interface MusicSettingsState extends MusicSettings {
