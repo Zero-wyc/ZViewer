@@ -136,7 +136,7 @@ export function BiliFavCollectModal({
             transform: 'translate(-50%, -50%)',
             '--add-panel-w': 'min(360px, calc(100vw - 32px))',
             '--add-panel-h': 'min(420px, calc(100vh - 160px))',
-            animation: 'cloud-add-in 0.6s 0.3s both',
+            animation: 'cloud-add-in 0.4s 0.1s both',
             backgroundColor: 'rgba(8, 8, 8, 0.86)',
             backdropFilter: 'blur(28px)',
             WebkitBackdropFilter: 'blur(28px)',
@@ -177,7 +177,7 @@ export function BiliFavCollectModal({
             {/* 标题行：超大 FAV 水印 */}
             <div
               className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
-              style={{ animation: 'cloud-add-title-in 0.3s 0.5s both' }}
+              style={{ animation: 'cloud-add-title-in 0.2s 0.25s both' }}
             >
               <span
                 aria-hidden="true"

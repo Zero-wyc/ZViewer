@@ -276,7 +276,7 @@ export function NcmSearchModal({
             height: 'min(500px, calc(100vh - 160px))',
             transform: 'translate(-50%, -50%)',
             '--add-panel-h': 'min(500px, calc(100vh - 160px))',
-            animation: 'cloud-add-in 0.6s 0.3s both',
+            animation: 'cloud-add-in 0.4s 0.1s both',
             backgroundColor: 'rgba(8, 8, 8, 0.86)',
             backdropFilter: 'blur(28px)',
             WebkitBackdropFilter: 'blur(28px)',
@@ -319,7 +319,7 @@ export function NcmSearchModal({
             className="pointer-events-none absolute left-5 top-9 select-none text-[52px] font-bold leading-none"
             style={{
               color: 'rgba(255, 255, 255, 0.08)',
-              animation: 'cloud-add-watermark-in 0.3s 0.6s both',
+              animation: 'cloud-add-watermark-in 0.2s 0.35s both',
             }}
             aria-hidden="true"
           >
@@ -329,7 +329,7 @@ export function NcmSearchModal({
           {/* 标题（0.5s 延迟淡入，Hydrogen .add-title-in 同节奏） */}
           <div
             className="relative z-[1] mt-7 shrink-0 text-center text-[15px] font-bold text-white"
-            style={{ animation: 'cloud-add-title-in 0.3s 0.5s both' }}
+            style={{ animation: 'cloud-add-title-in 0.2s 0.25s both' }}
           >
             在网易云搜索
           </div>
