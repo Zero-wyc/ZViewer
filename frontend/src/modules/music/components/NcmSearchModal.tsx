@@ -180,25 +180,38 @@ export function NcmSearchModal({
     }
   }, [])
 
-  // 打开：提取歌名 → 填关键词 → 自动搜索
+  // 打开（上升沿）：提取歌名 → 填关键词 → 自动搜索。
+  // 仅在 open false→true 的瞬间初始化——open 期间 sourceTitle 变化（如
+  // 自动连播切歌）不重跑，避免清掉用户已输入的关键词；初始化走
+  // setTimeout(0) 规避 effect 内同步 setState
+  const wasOpenRef = useRef(false)
   useEffect(() => {
-    if (!open) return
-    const kw = extractSongTitle(sourceTitle)
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗打开驱动（提取关键词并自动搜索）
-    setKeyword(kw)
-
-    setUnfoldDone(false)
-    if (kw) void runSearch(kw)
+    if (!open || wasOpenRef.current) return
+    wasOpenRef.current = true
+    const timer = setTimeout(() => {
+      const kw = extractSongTitle(sourceTitle)
+      setKeyword(kw)
+      setUnfoldDone(false)
+      if (kw) void runSearch(kw)
+    }, 0)
+    return () => {
+      clearTimeout(timer)
+      // StrictMode 双挂载 / 依赖变化重跑时复位标记，保证初始化必然执行
+      wasOpenRef.current = false
+    }
   }, [open, sourceTitle, runSearch])
 
-  // 关闭：复位 + 停试听
+  // 关闭：复位 + 停试听（setTimeout(0) 规避 effect 内同步 setState）
   useEffect(() => {
     if (open) return
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗关闭复位内部态
-    stopAudition()
-    setResults([])
-    setSearched(false)
-    setFavSong(null)
+    const timer = setTimeout(() => {
+      wasOpenRef.current = false
+      stopAudition()
+      setResults([])
+      setSearched(false)
+      setFavSong(null)
+    }, 0)
+    return () => clearTimeout(timer)
   }, [open, stopAudition])
 
   /** 试听开关：本地 Audio 播放 standard 音质（点同一首 = 停止） */
@@ -328,14 +341,16 @@ export function NcmSearchModal({
                 type="text"
                 value={keyword}
                 autoFocus
+                autoComplete="off"
                 placeholder="歌曲名"
                 onChange={(e) => setKeyword(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void runSearch(keyword)
                 }}
-                className="h-8 min-w-0 flex-1 border bg-white/8 px-2.5 text-xs text-white outline-none placeholder:text-white/40"
+                className="h-8 min-w-0 flex-1 border bg-transparent px-2.5 text-xs text-white outline-none placeholder:text-white/40"
                 style={{
                   borderColor: 'rgba(255, 255, 255, 0.4)',
+                  caretColor: '#ffffff',
                 }}
                 onFocus={(e) => {
                   e.currentTarget.style.borderColor = '#ffffff'
@@ -348,7 +363,8 @@ export function NcmSearchModal({
                 type="button"
                 onClick={() => void runSearch(keyword)}
                 disabled={searching}
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-white text-black transition-opacity hover:opacity-85 disabled:opacity-40"
+                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-white transition-colors hover:bg-white/10 disabled:opacity-40"
+                style={{ borderColor: 'rgba(255, 255, 255, 0.4)' }}
                 title="搜索"
                 aria-label="搜索"
               >
