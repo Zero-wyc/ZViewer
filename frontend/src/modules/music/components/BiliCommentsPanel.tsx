@@ -25,7 +25,27 @@ import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
 } from '@/modules/room/watch-together/resolveSource'
-import { COMMENTS_STYLE, LIKE_PATH, setCommentTotal } from './SongCommentsPanel'
+import {
+  COMMENTS_STYLE,
+  LIKE_PATH,
+  hasCommentTotal,
+  setCommentTotal,
+} from './SongCommentsPanel'
+
+/**
+ * 预取 B站 评论总数（播放器评论徽章预加载）：复用评论接口按时间首页
+ * （next=0）取 total；已缓存（面板此前已加载过该视频）则跳过；失败静默——
+ * 面板打开时仍会完整拉取并以 total 覆盖。
+ */
+export async function prefetchBiliCommentTotal(bvid: string): Promise<void> {
+  if (!bvid || hasCommentTotal(`bili:${bvid}`)) return
+  try {
+    const page = await fetchBiliComments(bvid, '2', 0)
+    setCommentTotal(`bili:${bvid}`, page.total)
+  } catch {
+    // 静默：预取失败不打扰，打开评论区时仍会完整拉取
+  }
+}
 
 /** 楼层回复面板状态 */
 interface FloorState {

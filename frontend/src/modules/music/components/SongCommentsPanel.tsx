@@ -168,6 +168,35 @@ export function setCommentTotal(targetKey: string, total: number): void {
   window.dispatchEvent(new CustomEvent(COMMENT_TOTAL_EVENT))
 }
 
+/** 徽章缓存是否已有该目标的评论总数（预取去重用） */
+export function hasCommentTotal(targetKey: string): boolean {
+  return commentTotalCache.has(targetKey)
+}
+
+/**
+ * 预取网易云评论总数（播放器评论徽章预加载）：
+ * 仅拉一页最小页（pageSize=1）取 totalCount，已缓存（面板此前已加载过
+ * 该歌曲）则跳过；失败静默——面板打开时仍会完整拉取并以 totalCount 覆盖。
+ */
+export async function prefetchSongCommentTotal(songId: number): Promise<void> {
+  const targetKey = getCommentTargetKey(songId)
+  if (!targetKey || commentTotalCache.has(targetKey)) return
+  try {
+    const res = await apiGet<CommentNewResponse>(
+      `/api/music/ncm/comment/new?id=${songId}&type=0&sortType=3&pageSize=1&pageNo=1&cursor=0&timestamp=${Date.now()}`
+    )
+    const body =
+      res.data && typeof res.data === 'object'
+        ? (res.data.data ?? res.data)
+        : null
+    if (res.data?.code === 200 && body && body.totalCount != null) {
+      setCommentTotal(targetKey, toPositiveInt(body.totalCount))
+    }
+  } catch {
+    // 静默：预取失败不打扰，打开评论区时仍会完整拉取
+  }
+}
+
 // ==================== 样式（Hydrogen Comments.vue scoped SCSS 平替；
 // 导出供 B站 评论区面板复用同一套 UI 语言） ====================
 

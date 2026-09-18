@@ -95,8 +95,12 @@ import {
   COMMENT_TOTAL_EVENT,
   getCommentCountBadge,
   getCommentTargetKey,
+  prefetchSongCommentTotal,
 } from './SongCommentsPanel'
-import { BiliCommentsPanel } from './BiliCommentsPanel'
+import {
+  BiliCommentsPanel,
+  prefetchBiliCommentTotal,
+} from './BiliCommentsPanel'
 import {
   ControlNextIcon,
   ControlPauseIcon,
@@ -1349,6 +1353,13 @@ function ListenTogetherInner({
     const refresh = () => setCommentBadge(getCommentCountBadge(key))
     refresh()
     window.addEventListener(COMMENT_TOTAL_EVENT, refresh)
+    // 徽章预加载：歌曲加载即后台拉取评论总数写入徽章缓存（缓存命中自动
+    // 跳过；评论区面板打开时仍会完整拉取覆盖）——无需先点开评论区
+    if (currentBiliBvid) {
+      void prefetchBiliCommentTotal(currentBiliBvid)
+    } else if (songId != null && songId > 0) {
+      void prefetchSongCommentTotal(songId)
+    }
     return () => window.removeEventListener(COMMENT_TOTAL_EVENT, refresh)
   }, [currentBiliBvid, songId])
 
