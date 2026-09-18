@@ -351,9 +351,9 @@ export class DanmakuEngineAdapter {
     if (this.danmaku) {
       ;(this.danmaku as unknown as { speed: number }).speed = speed
       // 速度变更后清空已渲染弹幕，使当前时间轴重新以新速度发射，
-      // 避免旧速度弹幕继续残留导致用户感知不到调节效果。
-      this.danmaku.clear()
-      this.emitted.clear()
+      // 避免旧速度弹幕继续残留导致用户感知不到调节效果；
+      // 清空后同样立即按当前进度补发（同上，防"调完就不出弹幕"）
+      this.seek(Math.max(0, this.lastTime))
     }
   }
 
@@ -416,8 +416,10 @@ export class DanmakuEngineAdapter {
     if (shouldRefresh && this.danmaku) {
       // 样式/过滤/屏蔽词变更后清空已渲染弹幕，
       // 让当前时间窗口的弹幕立即以新样式/新规则重新出现。
-      this.danmaku.clear()
-      this.emitted.clear()
+      // 清空后必须立即按当前进度重新补发：否则若外部时间轴在清空后没有
+      // 推进（或引擎内部状态被重置），当前窗口的弹幕将永远不再发射，
+      // 表现为"调完设置弹幕再也出不来"。
+      this.seek(Math.max(0, this.lastTime))
     }
   }
 

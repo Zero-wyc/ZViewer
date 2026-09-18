@@ -1076,6 +1076,8 @@ function ListenTogetherInner({
   // 开关与样式设置在歌词页设置弹窗（样式与一起看共用 danmakuStore 持久化） =====
   const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
   const biliDanmakuAboveUi = useMusicSettingsStore((s) => s.biliDanmakuAboveUi)
+  /** 工具栏弹幕开关用（与设置弹窗同一 setter） */
+  const setMusicSettings = useMusicSettingsStore((s) => s.set)
   const danmakuStyle = useDanmakuStore((s) => s.style)
   const biliDanmakuActive = isBiliSong && biliDanmakuEnabled
   const biliDanmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
@@ -1107,7 +1109,10 @@ function ListenTogetherInner({
     }
   }, [isBiliSong, biliCid])
 
-  // 弹幕层（重）挂载 / 开关重开 → 用缓存弹幕重载并对齐当前进度
+  // 弹幕层（重）挂载 / 开关重开 / 弹幕设置或层级变更 → 用缓存弹幕重载并
+  // 对齐当前进度：样式/速度/密度等变更会清空已渲染弹幕与已发射集合，
+  // 引擎若同时重建（层级切换等）则轨道也丢失——不重载会让当前窗口再也
+  // 不补发，表现为"调完弹幕设置后弹幕永远出不来"
   useEffect(() => {
     if (!biliDanmakuActive) return
     const items = biliDanmakuItemsRef.current
@@ -1115,7 +1120,7 @@ function ListenTogetherInner({
       biliDanmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
       biliDanmakuLayerRef.current?.seek(biliDanmakuTimeRef.current)
     }
-  }, [biliDanmakuActive])
+  }, [biliDanmakuActive, biliDanmakuAboveUi, danmakuStyle])
 
   // 时间轴驱动：positionSec（音频 timeupdate 4-8 次/秒）→ rAF 节流 → syncTime；
   // 引擎内部对 >3s 跳变自动清已发射集合并补发当前窗口（拖进度条 seek 兼容）
@@ -2580,6 +2585,32 @@ function ListenTogetherInner({
                   aria-label="在哔哩哔哩打开原视频"
                 >
                   <ExternalLink className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                </button>
+              )}
+              {/* 弹幕开关（B站 条目）：工具栏一键显示/隐藏弹幕（与设置弹窗
+                  总开关同一状态，样式/屏蔽词仍在设置弹窗调整） */}
+              {isBiliSong && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setMusicSettings({
+                      biliDanmakuEnabled: !biliDanmakuEnabled,
+                    })
+                  }
+                  className={cn(
+                    'flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90',
+                    !biliDanmakuEnabled && 'opacity-50'
+                  )}
+                  style={{
+                    color: biliDanmakuEnabled
+                      ? 'var(--md-sys-color-on-surface)'
+                      : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                  title={biliDanmakuEnabled ? '关闭弹幕' : '开启弹幕'}
+                  aria-label="切换弹幕显示"
+                  aria-pressed={biliDanmakuEnabled}
+                >
+                  <MessagesSquare className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
               {/* 在网易云搜索（仅 B站 条目）：自动提取歌名在网易云搜索，
