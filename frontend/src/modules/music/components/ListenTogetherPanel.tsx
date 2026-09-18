@@ -126,7 +126,6 @@ import {
   ModeSequenceIcon,
   ModeShuffleIcon,
   ModeOrderIcon,
-  OriginalLyricIcon,
   RomanLyricIcon,
   TransLyricIcon,
 } from './PlayerControlIcons'
@@ -1941,9 +1940,10 @@ function ListenTogetherInner({
   const lyricInterlude = useMusicSettingsStore((s) => s.lyricInterlude)
   const defaultShowTrans = useMusicSettingsStore((s) => s.showSongTranslation)
 
-  // ===== 歌词类型开关（Hydrogen lyricType：original / trans / roma）：
-  // 翻译初值取自设置「显示歌曲翻译」；切换为播放器内即时态，不写回设置 =====
-  const [lyricOriginal, setLyricOriginal] = useState(true)
+  // ===== 歌词类型开关（Hydrogen lyricType：trans / roma）：
+  // 翻译初值取自设置「显示歌曲翻译」；切换为播放器内即时态，不写回设置。
+  // 原词无开关恒显示（「隐藏原词」入口已移除），lyricOriginal 固定 true =====
+  const [lyricOriginal] = useState(true)
   const [lyricTrans, setLyricTrans] = useState(defaultShowTrans)
   const [lyricRoma, setLyricRoma] = useState(false)
   // 添加视频弹窗（Hydrogen playerStore.addMusicVideo 开关同语义）
@@ -1960,8 +1960,8 @@ function ListenTogetherInner({
           ? ModeOrderIcon
           : ModeSequenceIcon
 
-  // 歌词类型可用性（song-control 三开关的显示条件：当前歌有对应歌词数据才显示）
-  const hasOriginalLyric = lyricLines.some((l) => l.text.trim() !== '')
+  // 歌词类型可用性（song-control 开关的显示条件：当前歌有对应歌词数据才
+  // 显示；原词无开关恒显示，不参与）
   const hasTransLyric = lyricLines.some(
     (l) => l.translation != null && l.translation.trim() !== ''
   )
@@ -2460,22 +2460,6 @@ function ListenTogetherInner({
                   aria-label="切换翻译显示"
                 >
                   <TransLyricIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {hasOriginalLyric && (
-                <button
-                  type="button"
-                  onClick={() => setLyricOriginal((v) => !v)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{
-                    color: lyricOriginal
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={lyricOriginal ? '隐藏原词' : '显示原词'}
-                  aria-label="切换原词显示"
-                >
-                  <OriginalLyricIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
               {/* 纯净模式（背景视频就绪时可用）：隐藏全部界面，仅显示
@@ -3070,22 +3054,6 @@ function ListenTogetherInner({
                   aria-label="切换翻译显示"
                 >
                   <TransLyricIcon className="h-5 w-5" />
-                </button>
-              )}
-              {hasOriginalLyric && (
-                <button
-                  type="button"
-                  onClick={() => setLyricOriginal((v) => !v)}
-                  className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                  style={{
-                    color: lyricOriginal
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={lyricOriginal ? '隐藏原词' : '显示原词'}
-                  aria-label="切换原词显示"
-                >
-                  <OriginalLyricIcon className="h-5 w-5" />
                 </button>
               )}
               {/* 纯净模式（手机端）：与桌面 song-control 同一入口 */}
