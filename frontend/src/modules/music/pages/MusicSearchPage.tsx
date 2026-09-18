@@ -2,8 +2,8 @@
  * 搜索页（Hydrogen SearchResult view-control 范式）。
  *
  * - 顶部区块头 + 大标题「搜索内容：xxx」（关键词来自顶部导航写入的 store）
- * - 关键词变化自动触发搜索：GET /api/music/ncm/search?keywords=&limit=30
- *   （cloudsearch 结构；老端点 /cloudsearch 兜底，逻辑迁移自 MusicSearchPanel）
+ * - 关键词变化自动触发搜索：GET /api/music/ncm/cloudsearch?keywords=&limit=30
+ *   （新结构主端点，含封面/时长；老端点 /search 兜底，映射器双结构兼容）
  * - SongRow 裸列表：双击行「添加到队列」，hover 序号列播放按钮「立即播放」
  */
 import { useEffect, useState } from 'react'
@@ -25,13 +25,18 @@ export interface MusicSearchPageProps {
   canManage: boolean
 }
 
-/** 网易云 cloudsearch 原始响应（后端透传结构） */
+/** 网易云搜索结果条目（cloudsearch 新结构 + 老版 /search 旧结构兼容） */
 interface CloudsearchSong {
   id: number
   name: string
+  /** cloudsearch：歌手/专辑/时长毫秒 */
   ar?: Array<{ name?: string }>
   al?: { name?: string; picUrl?: string }
   dt?: number
+  /** 老版 /search：artists/album/duration（同名前身字段，兜底兼容） */
+  artists?: Array<{ name?: string }>
+  album?: { name?: string; picUrl?: string }
+  duration?: number
   /** 0 免费 / 1 VIP / 4 购买专辑 / 8 低音质免费 */
   fee?: number
 }
@@ -46,18 +51,21 @@ interface NcmCloudsearchResponse {
 /** 搜索结果条数上限 */
 const SEARCH_LIMIT = 30
 
-/** cloudsearch 条目 → NcmSong */
+/**
+ * 搜索条目 → NcmSong（双结构兼容）：
+ * cloudsearch 的 ar/al/dt 优先，缺失时回退老 /search 的 artists/album/duration
+ */
 function mapSong(song: CloudsearchSong): NcmSong {
   return {
     songId: song.id,
     name: song.name,
-    artist: (song.ar ?? [])
+    artist: (song.ar ?? song.artists ?? [])
       .map((a) => a.name)
       .filter(Boolean)
       .join(' / '),
-    album: song.al?.name ?? '',
-    cover: song.al?.picUrl ?? '',
-    durationMs: song.dt ?? 0,
+    album: song.al?.name ?? song.album?.name ?? '',
+    cover: song.al?.picUrl ?? song.album?.picUrl ?? '',
+    durationMs: song.dt ?? song.duration ?? 0,
     // fee=1（VIP 曲目）与 fee=4（购买专辑）未登录时不可播
     vip: song.fee === 1 || song.fee === 4,
   }
@@ -129,14 +137,18 @@ export function MusicSearchPage({
     setSearching(true)
     void (async () => {
       try {
+        // 主端点：/cloudsearch（新结构，含 al.picUrl 封面 / dt 时长毫秒）。
+        // 老版 /search 端点返回旧结构（artists/album/duration），按新结构
+        // 解析会丢封面/时长/歌手 → 入队歌曲数据残缺（无封面/无进度/歌词
+        // 异常），故仅作兜底（mapSong 已双结构兼容）
         const { data, ok } = await apiGet<NcmCloudsearchResponse>(
-          `/api/music/ncm/search?keywords=${encodeURIComponent(kw)}&limit=${SEARCH_LIMIT}`
+          `/api/music/ncm/cloudsearch?keywords=${encodeURIComponent(kw)}&limit=${SEARCH_LIMIT}`
         )
         let songs = data?.result?.songs
         if (!ok || !Array.isArray(songs)) {
-          // 兜底：老版 NCM API 的 cloudsearch 端点
+          // 兜底：老端点 /search（旧结构）
           const fb = await apiGet<NcmCloudsearchResponse>(
-            `/api/music/ncm/cloudsearch?keywords=${encodeURIComponent(kw)}&limit=${SEARCH_LIMIT}`
+            `/api/music/ncm/search?keywords=${encodeURIComponent(kw)}&limit=${SEARCH_LIMIT}`
           )
           songs = fb.data?.result?.songs
         }
