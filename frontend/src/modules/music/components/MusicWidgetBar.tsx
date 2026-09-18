@@ -53,6 +53,7 @@ import {
   ControlPrevIcon,
 } from './PlayerControlIcons'
 import { AddToPlaylistModal } from './AddToPlaylistModal'
+import { prefetchUserPlaylists } from '../userPlaylists'
 import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
 
@@ -599,11 +600,19 @@ export function MusicWidgetBar() {
             <button
               type="button"
               className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
-              onClick={() =>
-                isBiliSong
-                  ? setBiliFavModalOpen(true)
-                  : setAddPlaylistOpen(true)
-              }
+              // hover 即预取自建歌单（Hydrogen libraryStore 预载同思路）：
+              // 面板打开时列表已就绪，展开动画不与网络/渲染抢帧
+              onPointerEnter={() => {
+                if (!isBiliSong) void prefetchUserPlaylists()
+              }}
+              onClick={() => {
+                if (isBiliSong) {
+                  setBiliFavModalOpen(true)
+                } else {
+                  void prefetchUserPlaylists()
+                  setAddPlaylistOpen(true)
+                }
+              }}
               title={isBiliSong ? '添加到哔哩哔哩收藏夹' : '添加到我的歌单'}
               aria-label={
                 isBiliSong ? '添加到哔哩哔哩收藏夹' : '添加到我的歌单'

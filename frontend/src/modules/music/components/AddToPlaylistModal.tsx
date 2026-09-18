@@ -23,22 +23,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Check, Loader2, Plus } from 'lucide-react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import {
+  prefetchUserPlaylists,
+  invalidateUserPlaylistCache,
+  type UserPlaylistItem,
+} from '../userPlaylists'
 
 interface AddToPlaylistModalProps {
   open: boolean
   /** 待添加的歌曲（当前播放曲目，只需 songId 与名称） */
   song: { songId: number; name: string } | null
   onClose: () => void
-}
-
-/** 用户歌单条目（/user/playlist.playlist[] 子集） */
-interface UserPlaylistItem {
-  id: number
-  name: string
-  coverImgUrl?: string
-  specialType?: number
 }
 
 /** 加载/加入状态 */
@@ -58,8 +55,13 @@ export function AddToPlaylistModal({
   const [newTitle, setNewTitle] = useState('')
   const [privacy, setPrivacy] = useState(false)
   const [creating, setCreating] = useState(false)
+  /** 面板展开动画是否已结束：列表内容延后到此刻挂载，避免数据一到就
+   *  在展开动画中途一次性渲染几十行歌单导致掉帧卡顿（Hydrogen 内容
+   *  分级浮现的同思路） */
+  const [unfoldDone, setUnfoldDone] = useState(false)
 
-  /** 打开时加载用户自建歌单（Hydrogen ensureUserPlaylistsLoaded） */
+  /** 打开时加载用户自建歌单：走模块级缓存（触发按钮 hover 已预取），
+   *  命中即零等待（Hydrogen ensureUserPlaylistsLoaded 的 store 预载同思路） */
   useEffect(() => {
     if (!open) return
     let cancelled = false
@@ -67,27 +69,9 @@ export function AddToPlaylistModal({
     setLoadState('loading')
     void (async () => {
       try {
-        // 注意端点是 /user/account（Hydrogen getUserProfile 同款），
-        // 新版 NCM API 包的 /account 端点已被移除（返回 404）
-        const acc = await apiGet<{
-          account?: { id?: number }
-          profile?: { userId?: number }
-        }>(`/api/music/ncm/user/account?timestamp=${Date.now()}`)
-        const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
-        if (!uid) throw new Error('未获取到用户 ID')
-        const sub = await apiGet<{ createdPlaylistCount?: number }>(
-          `/api/music/ncm/user/subcount?timestamp=${Date.now()}`
-        )
-        const createdCount = Number(sub?.data?.createdPlaylistCount) || 0
-        const list = await apiGet<{ playlist?: UserPlaylistItem[] }>(
-          `/api/music/ncm/user/playlist?uid=${uid}&limit=500&offset=0&timestamp=${Date.now()}`
-        )
+        const list = await prefetchUserPlaylists()
         if (cancelled) return
-        const all = Array.isArray(list?.data?.playlist)
-          ? list.data.playlist
-          : []
-        // 前 createdPlaylistCount 个为自建歌单（含「我喜欢的音乐」），其余为收藏
-        setPlaylists(all.slice(0, createdCount > 0 ? createdCount : all.length))
+        setPlaylists(list)
         setLoadState('ready')
       } catch (err) {
         console.error('[AddToPlaylistModal] 歌单获取失败:', err)
@@ -103,6 +87,7 @@ export function AddToPlaylistModal({
   useEffect(() => {
     if (open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗关闭复位内部态
+    setUnfoldDone(false)
     setCreateActive(false)
     setNewTitle('')
     setPrivacy(false)
@@ -169,6 +154,8 @@ export function AddToPlaylistModal({
         return
       }
       message.success(`已创建歌单「${title}」`)
+      // 新歌单已入列：失效模块缓存，下次打开重新拉取
+      invalidateUserPlaylistCache()
       setCreateActive(false)
       setNewTitle('')
       setPrivacy(false)
@@ -212,6 +199,16 @@ export function AddToPlaylistModal({
           } as React.CSSProperties
         }
         onClick={(e) => e.stopPropagation()}
+        onAnimationEnd={(e) => {
+          // 仅认面板自身的展开动画（子元素的标题/水印/角块 animationend
+          // 会冒泡上来，按 target 过滤）
+          if (
+            e.target === e.currentTarget &&
+            e.animationName === 'cloud-add-in'
+          ) {
+            setUnfoldDone(true)
+          }
+        }}
       >
         {/* 四角装饰块（面板外缘 -4px，Hydrogen .add-style 1:1 的位置与
             0.4s 高频闪烁节奏；置于内容裁剪层之外保证不被裁掉） */}
@@ -285,7 +282,9 @@ export function AddToPlaylistModal({
             className="relative z-[1] mt-4 min-h-0 flex-1 overflow-y-auto px-6 pb-6 [&::-webkit-scrollbar]:hidden"
             style={{ scrollbarWidth: 'none' }}
           >
-            {loadState === 'loading' && (
+            {/* 列表内容延后到展开动画结束再挂载（防中途批量渲染掉帧；
+              hover 预取通常已就绪，此门只是保证动画期间的确定性流畅） */}
+            {unfoldDone && loadState === 'loading' && (
               <div
                 className="flex items-center justify-center gap-2 py-10 text-xs"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
@@ -294,7 +293,7 @@ export function AddToPlaylistModal({
                 正在获取歌单…
               </div>
             )}
-            {loadState === 'error' && (
+            {unfoldDone && loadState === 'error' && (
               <div
                 className="py-10 text-center text-xs"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
@@ -302,7 +301,7 @@ export function AddToPlaylistModal({
                 歌单获取失败，请重试
               </div>
             )}
-            {loadState === 'ready' && (
+            {unfoldDone && loadState === 'ready' && (
               <>
                 {/* 创建新歌单并添加（Hydrogen .create-playlist：描边方块加号） */}
                 {!createActive ? (
