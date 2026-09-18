@@ -363,6 +363,8 @@ function PlayerSettingsModal({
   // ===== 红心收藏夹行内编辑态（点击名称胶囊 → 输入框，Enter/失焦保存，
   //       Escape 放弃；空白提交由归一化回退默认「Music」） =====
   const [favTitleEditing, setFavTitleEditing] = useState(false)
+  /** 面板展开动画是否已结束（设置项延后挂载，动画期间零渲染） */
+  const [unfoldDone, setUnfoldDone] = useState(false)
   const [favTitleDraft, setFavTitleDraft] = useState(biliLikeFavTitle)
   const commitFavTitle = () => {
     setSettings({ biliLikeFavTitle: normalizeBiliLikeFavTitle(favTitleDraft) })
@@ -387,13 +389,27 @@ function PlayerSettingsModal({
         onClick={onDismiss}
       />
       <div
-        className="fixed left-1/2 top-1/2 z-[75] w-[min(340px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 overflow-hidden"
-        style={{
-          backgroundColor: 'rgba(8, 8, 8, 0.86)',
-          backdropFilter: 'blur(28px)',
-          WebkitBackdropFilter: 'blur(28px)',
-          border: '0.5px solid rgba(255, 255, 255, 0.12)',
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
+        className="fixed left-1/2 top-1/2 z-[75] flex w-[min(340px,calc(100vw-32px))] flex-col overflow-hidden"
+        style={
+          {
+            transform: 'translate(-50%, -50%)',
+            '--add-panel-w': 'min(340px, calc(100vw - 32px))',
+            '--add-panel-h': 'min(674px, calc(100vh - 120px))',
+            animation: 'cloud-add-in 0.4s 0.1s both',
+            backgroundColor: 'rgba(8, 8, 8, 0.86)',
+            backdropFilter: 'blur(28px)',
+            WebkitBackdropFilter: 'blur(28px)',
+            border: '0.5px solid rgba(255, 255, 255, 0.12)',
+            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
+          } as React.CSSProperties
+        }
+        onAnimationEnd={(e) => {
+          if (
+            e.target === e.currentTarget &&
+            e.animationName === 'cloud-add-in'
+          ) {
+            setUnfoldDone(true)
+          }
         }}
       >
         {/* 四角白色方块点缀（Hydrogen 弹窗同款装饰） */}
@@ -426,8 +442,9 @@ function PlayerSettingsModal({
           </p>
         </div>
         {/* 背景设置项（与「一起听设置」同一 store，即时持久化）；
-            弹幕设置卡片加入后内容变长，小屏限高滚动 */}
-        <div className="relative max-h-[min(72vh,620px)] overflow-y-auto overscroll-contain py-1">
+            展开动画结束后挂载（动画期间零渲染），内容超出面板高度滚动 */}
+        {unfoldDone && (
+        <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
           {/* 毛玻璃封面背景 */}
           <div className="flex items-center justify-between gap-3 px-5 py-3.5">
             <span className="text-[13px] font-bold text-white">
@@ -888,6 +905,7 @@ function PlayerSettingsModal({
               </div>
             )}
           </div>
+        )}
         </div>
       </div>
     </>
