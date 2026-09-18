@@ -280,17 +280,14 @@ export function MusicWidgetBar() {
     currentSong?.biliBvid != null &&
     biliCollectedMark?.bvid === currentSong.biliBvid &&
     biliCollectedMark.folder === biliLikeFavTitle
+  /** 收藏/取消收藏开关：已收藏（同一视频 + 同一目标收藏夹）时点击即
+   *  取消收藏（后端同端点 del_media_ids），否则一键收藏 */
   const handleBiliCollect = useCallback(async () => {
     const bvid = currentSong?.biliBvid
     if (!bvid || biliCollecting) return
-    // 已收藏过（同一视频 + 同一目标收藏夹）：本地提示，避免重复请求
-    if (
+    const collected =
       biliCollectedMark?.bvid === bvid &&
       biliCollectedMark.folder === biliLikeFavTitle
-    ) {
-      message.info(`已收藏到「${biliLikeFavTitle}」收藏夹`)
-      return
-    }
     setBiliCollecting(true)
     try {
       const { data, ok } = await apiPost<{
@@ -300,14 +297,24 @@ export function MusicWidgetBar() {
       }>('/api/stream/bilibili/fav/collect', {
         bvid,
         folderTitle: biliLikeFavTitle,
+        action: collected ? 'remove' : 'add',
       })
       if (!ok || data?.success === false) {
-        throw new Error(data?.message || '收藏失败')
+        throw new Error(
+          data?.message || (collected ? '取消收藏失败' : '收藏失败')
+        )
       }
-      setBiliCollectedMark({ bvid, folder: biliLikeFavTitle })
-      message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
+      if (collected) {
+        setBiliCollectedMark(null)
+        message.success(
+          `已取消收藏「${data?.folderTitle || biliLikeFavTitle}」`
+        )
+      } else {
+        setBiliCollectedMark({ bvid, folder: biliLikeFavTitle })
+        message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
+      }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '收藏失败')
+      message.error(err instanceof Error ? err.message : '操作失败')
     } finally {
       setBiliCollecting(false)
     }
@@ -635,12 +642,12 @@ export function MusicWidgetBar() {
                 disabled={biliCollecting}
                 title={
                   biliCollected
-                    ? `已收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹`
+                    ? `已收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹；点击取消收藏`
                     : `收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹`
                 }
                 aria-label={
                   biliCollected
-                    ? `已收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹`
+                    ? `已收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹，点击取消收藏`
                     : `收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹`
                 }
               >

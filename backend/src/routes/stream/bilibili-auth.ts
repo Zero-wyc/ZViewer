@@ -1325,9 +1325,12 @@ router.get(
  *  连续失败多半是风控/接口下线，60s 内直接跳过标签尝试，避免每个分类都触发 */
 let tagChainBlockedUntil = 0;
 
-// B站 视频收藏（哔哩哔哩页/播放控制栏）：
+// B站 视频收藏 / 取消收藏（哔哩哔哩页/播放控制栏红心）：
 // view 拿 aid → 定位目标收藏夹（mediaId 指定，或按 folderTitle 自动创建，
-// 默认「Music」）→ x/v3/fav/resource/deal 收藏。写操作需要 csrf（Cookie 里的 bili_jct）。
+// 默认「Music」）→ x/v3/fav/resource/deal：
+//   收藏 = add_media_ids=<fid>、取消收藏 = del_media_ids=<fid>（同一端点）。
+// 写操作需要 csrf（Cookie 里的 bili_jct）。取消收藏时若目标收藏夹不存在
+// 则不创建（直接判定为"尚未收藏"）。
 function extractCsrf(cookie: string): string | null {
   const match = cookie.match(/(?:^|;\s*)bili_jct=([^;]+)/);
   return match ? match[1] : null;
@@ -1345,6 +1348,8 @@ router.post('/bilibili/fav/collect', async (req: AuthenticatedRequest, res) => {
     typeof req.body?.folderTitle === 'string' && req.body.folderTitle.trim()
       ? req.body.folderTitle.trim()
       : 'Music';
+  /** add = 收藏（默认）；remove = 取消收藏 */
+  const action: 'add' | 'remove' = req.body?.action === 'remove' ? 'remove' : 'add';
   const userId = req.user?.userId;
   const cookie = (await getUserCookie(userId)) || undefined;
   if (!cookie) {
@@ -1382,6 +1387,13 @@ router.post('/bilibili/fav/collect', async (req: AuthenticatedRequest, res) => {
       const existing = list.find((f) => f.title === folderTitle);
       if (existing) {
         targetId = existing.id;
+      } else if (action === 'remove') {
+        // 取消收藏：目标收藏夹不存在 → 视为尚未收藏，不创建
+        res.status(404).json({
+          success: false,
+          message: `尚未收藏到「${folderTitle}」`,
+        });
+        return;
       } else {
         const created = await bilibiliFetch<{ id?: number }>(
           'https://api.bilibili.com/x/v3/fav/folder/add',
@@ -1413,17 +1425,22 @@ router.post('/bilibili/fav/collect', async (req: AuthenticatedRequest, res) => {
       targetTitle =
         folders.data?.list?.find((f) => f.id === targetId)?.title ?? '';
     }
-    // 3) 收藏视频（type=2 视频）。add_media_ids 为逗号分隔的纯数字 id
-    // （B站 web 同款；JSON 数组字符串带方括号会被 B站 解析为非法参数，
-    // 返回「B站 API 业务错误 [-400]」）
+    // 3) 收藏 / 取消收藏视频（type=2 视频）。add_media_ids 与
+    // del_media_ids 均为逗号分隔的纯数字 id（B站 web 同款；JSON 数组
+    // 字符串带方括号会被 B站 解析为非法参数，返回「业务错误 [-400]」）
+    const dealBody =
+      action === 'remove'
+        ? `rid=${aid}&type=2&add_media_ids=&del_media_ids=${encodeURIComponent(String(targetId))}&csrf=${encodeURIComponent(csrf)}`
+        : `rid=${aid}&type=2&add_media_ids=${encodeURIComponent(String(targetId))}&del_media_ids=&csrf=${encodeURIComponent(csrf)}`;
     await bilibiliFetch('https://api.bilibili.com/x/v3/fav/resource/deal', {
       cookie,
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `rid=${aid}&type=2&add_media_ids=${encodeURIComponent(String(targetId))}&del_media_ids=&csrf=${encodeURIComponent(csrf)}`,
+      body: dealBody,
     });
     res.json({
       success: true,
+      action,
       folderId: targetId,
       folderTitle: targetTitle,
     });
