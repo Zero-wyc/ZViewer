@@ -314,14 +314,14 @@ html.dark .arknights-comments::-webkit-scrollbar-thumb {
   display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
   padding: 3px 8px; border-radius: 3px;
   background-color: color-mix(in srgb, var(--ac-border) 10%, transparent);
-  color: var(--ac-muted); font-size: 11px; font-weight: 700;
+  color: var(--ac-ink); font-size: 11px; font-weight: 700;
   transition: 0.15s;
 }
 .ac-control-item:hover {
   background-color: color-mix(in srgb, var(--ac-border) 18%, transparent);
   color: var(--ac-ink);
 }
-.ac-control-item svg { fill: currentColor; opacity: 0.75; }
+.ac-control-item svg { fill: currentColor; opacity: 1; }
 .ac-control-item.ac-active { color: #ff4757; }
 .ac-control-item.ac-active svg { opacity: 1; }
 .ac-floor-replies { margin-top: 10px; }
@@ -353,10 +353,10 @@ html.dark .arknights-comments::-webkit-scrollbar-thumb {
 .ac-floor-controls { margin-top: 4px; display: flex; align-items: center; gap: 10px; }
 .ac-floor-control-item {
   display: inline-flex; align-items: center; gap: 3px; cursor: pointer;
-  font-size: 10px; font-weight: 700; color: var(--ac-muted);
+  font-size: 10px; font-weight: 700; color: var(--ac-ink);
 }
 .ac-floor-control-item:hover { color: var(--ac-ink); }
-.ac-floor-control-item svg { fill: currentColor; opacity: 0.75; }
+.ac-floor-control-item svg { fill: currentColor; opacity: 1; }
 .ac-floor-control-item.ac-active { color: #ff4757; }
 .ac-floor-control-item.ac-active svg { opacity: 1; }
 .ac-floor-status { margin-top: 8px; padding: 4px 10px; font-size: 11px; color: var(--ac-muted); }
@@ -400,7 +400,7 @@ html.dark .arknights-comments::-webkit-scrollbar-thumb {
 .ac-cancel-reply-btn {
   padding: 8px 14px; border: none; cursor: pointer;
   background-color: color-mix(in srgb, var(--ac-border) 12%, transparent);
-  color: var(--ac-muted); font-size: 11px; font-weight: 800;
+  color: var(--ac-ink); font-size: 11px; font-weight: 800;
 }
 .ac-cancel-reply-btn:hover { color: var(--ac-ink); }
 .ac-send-reply-btn {
