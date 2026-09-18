@@ -136,7 +136,8 @@ export function MusicQueuePopup({
         placement === 'top'
           ? 'bottom-[calc(100%+8px)] right-2'
           : placement === 'side'
-            ? 'bottom-0 right-[calc(100%+14px)]'
+            ? // 侧挂（歌词页工具栏）：向按钮**右侧**展开（左侧会出屏被裁切）
+              'bottom-0 left-[calc(100%+14px)]'
             : // sheet：手机竖屏固定底部居中（overlay 容器带 transform，
               // fixed 实际相对全屏覆盖层定位，效果等同视口居中）
               'fixed inset-x-0 bottom-[calc(88px+env(safe-area-inset-bottom))] mx-auto h-[min(24rem,55dvh)]'

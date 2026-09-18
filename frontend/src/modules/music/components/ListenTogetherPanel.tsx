@@ -2630,7 +2630,7 @@ function ListenTogetherInner({
                   <FolderPlus className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
                 </button>
               )}
-              {/* 播放队列（弹窗侧挂到按钮左侧，避免被面板底部估算偏移错位） */}
+              {/* 播放队列（弹窗侧挂到按钮右侧展开，避免左侧出屏被裁切） */}
               <div className="relative">
                 <button
                   type="button"
