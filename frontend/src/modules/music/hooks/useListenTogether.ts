@@ -17,6 +17,7 @@ import {
   isBilibiliImageUrl,
 } from '@/modules/room/watch-together/resolveSource'
 import { message } from '@/components/ui/message'
+import { compensatePositionSec } from '../utils/syncMath'
 import {
   useMusicStore,
   musicItemKey,
@@ -63,6 +64,17 @@ interface GetStateResponse {
 
 /** 房主心跳广播间隔（毫秒） */
 const HOST_HEARTBEAT_INTERVAL_MS = 2000
+
+/**
+ * 观众判定房主离线的心跳超时（毫秒）。
+ * 取心跳间隔的 3.5 倍：容忍一次心跳延迟/丢包的网络抖动——此前 5s（2.5 倍）
+ * 时 interval 单次抖动即可能误判；配合房主端可见性补发，真实离线的发现
+ * 延迟仍在可接受范围。
+ */
+const HOST_OFFLINE_TIMEOUT_MS = 7000
+
+/** 观众离线判定的轮询间隔（毫秒） */
+const HOST_OFFLINE_CHECK_INTERVAL_MS = 1000
 
 /** B站 相关推荐一次加入的条数上限（手动「自动推荐」与列表末尾自动扩展均为前 3 条） */
 const BILI_RECOMMEND_LIMIT = 3
@@ -114,32 +126,8 @@ async function fetchBiliRecs(bvid: string): Promise<BiliRelatedItem[]> {
     .slice(0, BILI_RECOMMEND_LIMIT)
 }
 
-/** 观众判定房主离线的心跳超时（毫秒） */
-const HOST_OFFLINE_TIMEOUT_MS = 5000
-
 /** 观众进度对齐阈值（秒）：与房主进度差超过该值才 seek */
 const SYNC_ALIGN_THRESHOLD_SEC = 2
-
-/** 传输延迟补偿上限（秒）：updatedAt 与本地时钟偏差超过该值视为时钟不同源，
- *  放弃补偿（防止两台机器系统时间差导致进度被推到离谱位置） */
-const SYNC_COMPENSATION_MAX_SEC = 10
-
-/**
- * 按 updatedAt 外推当前进度（传输延迟补偿）：
- * payload.positionSec 是房主构建快照那一刻的进度，观众收到时已过去
- * 网络传输 + 排队延迟；播放中按 elapsed 外推，暂停态原样返回。
- * updatedAt 缺失/时钟倒挂/偏差超限时退回原始值（跨设备系统时钟不同源）。
- */
-function compensatePositionSec(payload: MusicSyncState): number {
-  if (!payload.isPlaying || !Number.isFinite(payload.updatedAt)) {
-    return payload.positionSec
-  }
-  const elapsed = (Date.now() - payload.updatedAt) / 1000
-  if (elapsed <= 0 || elapsed > SYNC_COMPENSATION_MAX_SEC) {
-    return payload.positionSec
-  }
-  return payload.positionSec + elapsed
-}
 
 /** 音频流音质兜底值（实际档位从音乐设置 store 读取，设置页可改） */
 const FALLBACK_STREAM_LEVEL = 'exhigh'
@@ -1405,7 +1393,9 @@ export function useListenTogether({
     let fresh: BiliRelatedItem[]
     try {
       fresh = await fetchBiliRecs(current.biliBvid)
-    } catch {
+    } catch (err) {
+      // 自动连播的后台行为：失败不打扰用户（静默回落自然停止），仅留诊断日志
+      console.error('[useListenTogether] 自动连播拉取 B站 推荐失败:', err)
       fresh = []
     }
     if (fresh.length === 0) {
@@ -1530,31 +1520,43 @@ export function useListenTogether({
     endedHandlerRef.current = () => handleEnded()
   }, [handleEnded])
 
-  // 房主心跳：每 2s 广播当前 MusicSyncState（观众据此对齐进度并判定房主在线）
+  // 房主心跳：每 2s 广播当前 MusicSyncState（观众据此对齐进度并判定房主在线）。
+  // 后台标签页的 timer 会被浏览器节流（暂停播放的页面尤其明显）导致心跳停发、
+  // 观众误判房主离线：回前台时立即补发一次心跳，观众端恢复离线判定与状态同步
+  //（后台期间的进度漂移由 compensatePositionSec 的 10s 补偿上限兜底）
   useEffect(() => {
     if (!socket || !roomId || !isHost) return
-    const timer = setInterval(() => {
+    const emitHeartbeat = () => {
       const payload = buildSyncPayload()
       socket.emit(MUSIC_EVENT.HOST_HEARTBEAT, { roomId, ...payload })
-    }, HOST_HEARTBEAT_INTERVAL_MS)
+    }
+    const timer = setInterval(emitHeartbeat, HOST_HEARTBEAT_INTERVAL_MS)
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') emitHeartbeat()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
     return () => {
       clearInterval(timer)
+      document.removeEventListener('visibilitychange', handleVisibility)
     }
   }, [socket, roomId, isHost, buildSyncPayload])
 
-  // 观众：房主离线判定——超时未收到心跳置 hostOffline，收到即恢复（见事件监听）
+  // 观众：房主离线判定——超时未收到心跳置 hostOffline，收到即恢复（见事件监听）。
+  // 自身后台时本页 timer 同样被节流，无法区分「房主停发」与「自身节流导致的
+  // 大间隔」，hidden 期间跳过判定（恢复前台后下一次轮询立即给出正确结论）
   useEffect(() => {
     if (!socket || !roomId || isHost) return
     // 加入时重置计时，给予首个心跳的宽限期
     lastHeartbeatAtRef.current = Date.now()
     const timer = setInterval(() => {
+      if (document.visibilityState !== 'visible') return
       if (
         Date.now() - lastHeartbeatAtRef.current > HOST_OFFLINE_TIMEOUT_MS &&
         !useMusicStore.getState().hostOffline
       ) {
         useMusicStore.getState().setHostOffline(true)
       }
-    }, 1000)
+    }, HOST_OFFLINE_CHECK_INTERVAL_MS)
     return () => {
       clearInterval(timer)
     }

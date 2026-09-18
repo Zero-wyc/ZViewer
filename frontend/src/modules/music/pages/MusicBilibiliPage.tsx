@@ -55,6 +55,19 @@ import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicStore, musicItemKey } from '../store'
 import type { MusicQueueItem } from '../types'
+import {
+  decorateRegionItems,
+  filterByBlockWords,
+  getRegionRules,
+} from '../utils/biliRegionFilter'
+import type {
+  BlockWord,
+  BlockWordScope,
+  RegionTagEntry,
+  RegionTagRole,
+  RegionTagRule,
+  RegionTagSource,
+} from '../utils/biliRegionFilter'
 import { cn } from '@/lib/utils'
 import { NcmSearchModal } from '../components/NcmSearchModal'
 
@@ -100,6 +113,16 @@ const REGION_TAG_HEADER = '推荐榜单'
  *  顶栏搜索与分区种类搜索的总页数下限均提升到该值，与后端
  *  SEARCH_MAX_PAGES 保持一致 */
 const SEARCH_MAX_PAGES = 250
+
+// ===== B站 取数页参数（集中在常量区，避免散落的字面量漂移） =====
+/** 搜索/合集/收藏夹类接口每页条数（B站 page_size 固定 20） */
+const PAGE_SIZE_SEARCH = 20
+/** 分区排行榜/最新流/收藏夹视频接口每页条数（B站 固定 24） */
+const PAGE_SIZE_REGION = 24
+/** B站 音乐分区 rid（getBilibiliRegionNew 的分类 id） */
+const BILI_MUSIC_REGION_ID = 3
+/** 分区空页跳页补齐的最大取页次数（1 次正常页 + 最多 3 次向后补齐） */
+const REGION_HOP_MAX_PAGES = 4
 /** 音乐分区默认种类名（创建时分类名默认作为一个「搜索」tag；搜索词不再自动补「音乐」，用户在名称里自行写全） */
 const DEFAULT_REGION_TAGS = [
   '中术',
@@ -124,9 +147,7 @@ const LEGACY_DEFAULT_RENAME: Record<string, string> = {
   翻唱: '翻唱音乐',
 }
 
-/** 分类标签词的来源方式：搜索（关键词搜索）/ 标签（B站 tag 检索）/
- *  全部（搜索 + 标签两源都取）——点击方式徽标循环切换 */
-type RegionTagSource = 'search' | 'btag' | 'both'
+/** 分类标签词的来源方式 / 属性等类型见 utils/biliRegionFilter（纯函数单测共用） */
 const REGION_TAG_SOURCES: RegionTagSource[] = ['search', 'btag', 'both']
 const REGION_SOURCE_LABEL: Record<RegionTagSource, string> = {
   search: '搜索',
@@ -134,29 +155,10 @@ const REGION_SOURCE_LABEL: Record<RegionTagSource, string> = {
   both: '全部',
 }
 
-/** 分类标签词的属性：聚合（结果并入列表，多词结果合并显示）/
- *  限定（视频标签必须包含该词才显示）——点击属性徽标切换 */
-type RegionTagRole = 'aggregate' | 'require'
 const REGION_TAG_ROLES: RegionTagRole[] = ['aggregate', 'require']
 const REGION_ROLE_LABEL: Record<RegionTagRole, string> = {
   aggregate: '聚合',
   require: '限定',
-}
-
-interface RegionTagRule {
-  word: string
-  /** 来源方式（仅聚合属性生效；限定词按视频 tag 匹配，无来源之分） */
-  source: RegionTagSource
-  role: RegionTagRole
-}
-
-interface RegionTagEntry {
-  name: string
-  /** 分类标签词规则（首个默认为分类名的搜索 tag） */
-  tags?: RegionTagRule[]
-  /** 分区限定屏蔽词（仅该分区列表生效；左栏分类条目右上角设置，
-   *  词级作用范围与全局屏蔽词同语义：标题/标签/全部） */
-  blockWords?: BlockWord[]
 }
 
 /** 旧数据的兼容字段：迁移前分区屏蔽词（string[] / 旧 kind=block 规则）→
@@ -420,14 +422,7 @@ function saveCustomTabs(tabs: CustomBiliTab[]) {
   }
 }
 
-/** 屏蔽词作用范围：标题 / 标签 / 两者（每个词可单独设置） */
-type BlockWordScope = 'title' | 'tag' | 'both'
-
-interface BlockWord {
-  word: string
-  scope: BlockWordScope
-}
-
+/** 屏蔽词作用范围 / BlockWord 类型见 utils/biliRegionFilter（纯函数单测共用） */
 const BLOCK_WORD_SCOPES: BlockWordScope[] = ['both', 'title', 'tag']
 const SCOPE_LABEL: Record<BlockWordScope, string> = {
   title: '标题',
@@ -474,25 +469,6 @@ function saveBlockWords(words: BlockWord[]) {
   }
 }
 
-/** 按屏蔽词列表过滤视频：各词按自身作用范围匹配标题/标签（不区分大小写），
- * 命中即剔除。全局屏蔽词与分区屏蔽词共用同一段匹配逻辑 */
-function filterByBlockWords(
-  list: BilibiliVideoItem[],
-  words: BlockWord[]
-): BilibiliVideoItem[] {
-  if (words.length === 0) return list
-  return list.filter((it) => {
-    const title = it.title.toLowerCase()
-    const tag = (it.tag ?? '').toLowerCase()
-    return !words.some(({ word, scope }) => {
-      const w = word.toLowerCase()
-      if (scope === 'title') return title.includes(w)
-      if (scope === 'tag') return tag.includes(w)
-      return title.includes(w) || tag.includes(w)
-    })
-  })
-}
-
 // ===== 列表页 SWR 缓存：分区/榜单/搜索切换时命中即渲染（秒开） =====
 
 /** 列表页缓存条目：存「套用屏蔽词与封面代理之前」的原始合并结果，
@@ -529,19 +505,6 @@ const biliKwCacheKey = (keyword: string, pn: number) => `kw:${keyword}|${pn}`
 const biliRankCacheKey = (pn: number) => `rank:3|v2|${pn}`
 const biliRtCacheKey = (tag: RegionTagEntry, pn: number) =>
   `rt:v2|${tag.name}|${JSON.stringify(tag.tags ?? null)}|${pn}`
-
-/** 分区条目的规则列表（未自定义规则时默认把分类名作为单个「搜索」聚合词） */
-function getRegionRules(tag: RegionTagEntry): RegionTagRule[] {
-  return (
-    tag.tags ?? [
-      {
-        word: tag.name,
-        source: 'search' as RegionTagSource,
-        role: 'aggregate' as RegionTagRole,
-      },
-    ]
-  )
-}
 
 /** 分区条目单页取数：聚合词按来源并行搜索/标签检索，bvid 去重合并
  * （加载与预取共用；预取经后端缓存预热，切换分区时前端直接命中） */
@@ -580,27 +543,6 @@ async function fetchRegionTagPage(
     }
   }
   return { merged, total, maxSourceLen }
-}
-
-/** 缓存条目 → 展示条目：require 限定 + 分区屏蔽词 + 全局屏蔽词
- * （封面代理由调用方追加） */
-function decorateRegionItems(
-  merged: BilibiliVideoItem[],
-  tag: RegionTagEntry,
-  blockWords: BlockWord[]
-): BilibiliVideoItem[] {
-  const requireWords = getRegionRules(tag)
-    .filter((r) => r.role === 'require')
-    .map((r) => r.word.toLowerCase())
-  let filtered = merged
-  if (requireWords.length > 0) {
-    filtered = filtered.filter((it) => {
-      const tags = (it.tag ?? '').toLowerCase()
-      return requireWords.every((w) => tags.includes(w))
-    })
-  }
-  filtered = filterByBlockWords(filtered, tag.blockWords ?? [])
-  return filterByBlockWords(filtered, blockWords)
 }
 
 /** 右下角液态玻璃圆形按钮：统一 44px（触屏友好）；材质与交互态在
@@ -900,8 +842,8 @@ export function MusicBilibiliPage({
     biliSearchKeyword ||
     tab === 'custom' ||
     (tab === 'region' && regionTag != null)
-      ? 20
-      : 24
+      ? PAGE_SIZE_SEARCH
+      : PAGE_SIZE_REGION
 
   /**
    * B站 CDN 封面有 Referer 防盗链（localhost 直连 403），统一走后端
@@ -946,7 +888,7 @@ export function MusicBilibiliPage({
         if (regionTag) {
           cacheKey = biliRtCacheKey(regionTag, pageNo)
           applyEntries = (raw, total, maxSourceLen) => {
-            setPageFull(maxSourceLen >= 20)
+            setPageFull(maxSourceLen >= PAGE_SIZE_SEARCH)
             setItems(withCoverProxy(raw))
             setTotal(total)
           }
@@ -1004,20 +946,26 @@ export function MusicBilibiliPage({
           let total: number | null = null
           let maxSourceLen = 0
           let hasMore = true
-          for (let hop = 0; hop < 4 && hasMore; hop++) {
+          for (let hop = 0; hop < REGION_HOP_MAX_PAGES && hasMore; hop++) {
             if (regionTag) {
               const r = await fetchRegionTagPage(regionTag, pn)
               if (seq !== loadSeqRef.current) return
               maxSourceLen = Math.max(maxSourceLen, r.maxSourceLen)
               total = r.total ?? total
               collected.push(...decorate(r.merged))
-              hasMore = collected.length === 0 && r.maxSourceLen >= 20
+              hasMore =
+                collected.length === 0 && r.maxSourceLen >= PAGE_SIZE_SEARCH
             } else {
-              const r = await getBilibiliRegionNew(3, 24, pn)
+              const r = await getBilibiliRegionNew(
+                BILI_MUSIC_REGION_ID,
+                PAGE_SIZE_REGION,
+                pn
+              )
               if (seq !== loadSeqRef.current) return
               total = r.total ?? total
               collected.push(...decorate(r.items))
-              hasMore = collected.length === 0 && r.items.length >= 24
+              hasMore =
+                collected.length === 0 && r.items.length >= PAGE_SIZE_REGION
             }
             pn += 1
           }
@@ -1030,7 +978,7 @@ export function MusicBilibiliPage({
               at: Date.now(),
             })
           }
-          setPageFull(maxSourceLen >= 20)
+          setPageFull(maxSourceLen >= PAGE_SIZE_SEARCH)
           applyEntries(collected, total, maxSourceLen)
         } else if (target === 'custom') {
           if (activeCustomTab) {
@@ -1060,7 +1008,7 @@ export function MusicBilibiliPage({
           }
         } else {
           const fav = await getBilibiliFavVideos(
-            24,
+            PAGE_SIZE_REGION,
             folderId ?? undefined,
             pageNo
           )

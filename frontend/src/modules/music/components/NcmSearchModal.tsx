@@ -30,6 +30,7 @@ import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { AddToPlaylistModal } from './AddToPlaylistModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
+import { extractSongTitle } from '../utils/songTitle'
 import { cn } from '@/lib/utils'
 
 interface NcmSearchModalProps {
@@ -70,27 +71,6 @@ interface NcmSongLite {
 
 /** 搜索结果条数上限 */
 const SEARCH_LIMIT = 20
-
-/**
- * 从 B站 视频标题提取歌曲名（启发式）：
- * 剥离【】[]（）() 括号标签（4K/MV/官方等引流噪声多在其中，书名号《》
- * 内常是歌名故保留）、清洗常见画质/版本噪声词、按 -｜/ 分隔取主段。
- * 提取结果仅作初始关键词，输入框可手动修正。
- */
-function extractSongTitle(rawTitle: string): string {
-  let t = rawTitle
-  t = t.replace(/【[^】]*】/g, ' ')
-  t = t.replace(/\[[^\]]*\]/g, ' ')
-  t = t.replace(/《([^》]*)》/g, ' $1 ')
-  t = t.replace(/（[^）]*）/g, ' ')
-  t = t.replace(/\([^)]*\)/g, ' ')
-  t = t.replace(
-    /\b(4K|8K|1080P|720P|480P|60FPS|60fps|120FPS|Hi-?Res|无损|高清|蓝光|MV|PV|官方|纯享|完整版|正片|Live)\b/gi,
-    ' '
-  )
-  t = (t.split(/[|｜/／]/)[0] ?? t).split(/\s*[-–—]\s*/)[0] ?? t
-  return t.replace(/\s+/g, ' ').trim()
-}
 
 /** 毫秒 → mm:ss（无数据 --:--） */
 function formatDurationMs(ms: number): string {
