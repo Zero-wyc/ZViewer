@@ -1675,6 +1675,34 @@ router.get('/bilibili/ai-subtitle', async (req: AuthenticatedRequest, res) => {
   }
   const userId = req.user?.userId;
   const cookie = (await getUserCookie(userId)) || undefined;
+
+  // 视频元数据（aid + 官方时长）：字幕带外校验用（同一请求内只取一次）。
+  // aid 用于字幕 URL 的 oid 参数比对——错拿的字幕 URL 指向其他视频；
+  // 官方时长在前端未传 duration 时兜底，保证带内校验始终可用
+  let aid: number | null = null;
+  let viewDurationSec: number | null = null;
+  try {
+    const view = await bilibiliFetch<{
+      aid?: number;
+      duration?: number;
+    }>(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid.trim()}`, {
+      cookie,
+    });
+    aid = Number(view.data?.aid) || null;
+    viewDurationSec = Number(view.data?.duration) || null;
+  } catch {
+    // view 失败不阻断解析：退化为仅前端时长校验
+  }
+  const viewDurationValid =
+    viewDurationSec != null && viewDurationSec > 0 && viewDurationSec < 86400;
+  // 带内校验时长：优先前端传入，缺失时用官方时长
+  const effectiveDurationSec = hasDuration
+    ? durationSec
+    : viewDurationValid
+      ? viewDurationSec
+      : null;
+  const effectiveHasDuration = effectiveDurationSec != null;
+
   try {
     // 跨尝试保留的候选/状态：score = |字幕时间轴终点 - 视频时长|
     let best: {
@@ -1748,16 +1776,29 @@ router.get('/bilibili/ai-subtitle', async (req: AuthenticatedRequest, res) => {
         content: l.content || '',
       }));
       if (lines.length === 0) continue;
-      if (!hasDuration) {
-        // 未提供时长：无法带内校验，保持旧行为（首个非空结果）
+      // 带外校验（强）：subtitle_url 的 oid 参数应等于视频 aid——服务端
+      // 抖动错拿的字幕 URL 指向其他视频，oid 不匹配直接丢弃该候选
+      if (aid != null) {
+        try {
+          const oidParam = new URL(
+            subtitleUrl,
+            'https://www.bilibili.com'
+          ).searchParams.get('oid');
+          if (oidParam != null && Number(oidParam) !== aid) continue;
+        } catch {
+          // URL 解析失败忽略该检查（带内时长校验仍在）
+        }
+      }
+      if (!effectiveHasDuration || effectiveDurationSec == null) {
+        // 无任何校验基准（前端未传且 view 失败）：保持旧行为（首个非空结果）
         res.json({ success: true, lines });
         return;
       }
       const endTo = lines.reduce((m, l) => Math.max(m, l.to), 0);
-      const score = Math.abs(endTo - durationSec);
+      const score = Math.abs(endTo - effectiveDurationSec);
       if (!best || score < best.score) best = { lines, score };
       // 时间轴终点与视频时长吻合：基本可确认不是错拿的字幕，立即采纳
-      if (score <= biliSubtitleTolerance(durationSec)) break;
+      if (score <= biliSubtitleTolerance(effectiveDurationSec)) break;
     }
     if (best) {
       res.json({ success: true, lines: best.lines });
