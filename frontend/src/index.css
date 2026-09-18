@@ -1621,19 +1621,20 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
 /* 添加到歌单弹窗：宽→高依次展开（Hydrogen .add-fade；
    容器 left:50% + translateX(-50%) 定位，动画需保留平移） */
 /* 「添加到我的歌单」面板展开（Hydrogen ContextMenu .playlist-container-in
-   1:1 复刻：0.3s 延迟后先横向展开（宽 0→300，0.3s），再纵向展开
-   （高 0→面板高，0.3s）；面板最终高度经 --add-panel-h 注入 keyframes */
+   1:1 复刻：0.3s 延迟后先横向展开（宽 0→面板宽，0.3s），再纵向展开
+   （高 0→面板高，0.3s）；面板宽/高经 --add-panel-w/--add-panel-h 注入
+   keyframes（默认 300×500，网易云搜索弹窗/收藏夹弹窗各自注入） */
 @keyframes cloud-add-in {
   0% {
     width: 0;
     height: 0;
   }
   50% {
-    width: 300px;
+    width: var(--add-panel-w, 300px);
     height: 0;
   }
   100% {
-    width: 300px;
+    width: var(--add-panel-w, 300px);
     height: var(--add-panel-h, 500px);
   }
 }

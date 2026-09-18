@@ -79,6 +79,7 @@ import {
 import { FontPickerPanel } from '@/components/ui/FontPicker'
 import { message } from '@/components/ui/message'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
+import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
@@ -2595,6 +2596,7 @@ function ListenTogetherInner({
               {biliBvid != null && (
                 <button
                   type="button"
+                  onPointerEnter={() => void prefetchBiliFavFolders()}
                   onClick={() => setBiliFavModalOpen(true)}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="添加到收藏夹"

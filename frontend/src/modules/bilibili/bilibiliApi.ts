@@ -113,6 +113,38 @@ export async function getBilibiliFavFolders(): Promise<BilibiliFavFolder[]> {
   return data.folders ?? []
 }
 
+/** 收藏夹模块级缓存（60s TTL）+ in-flight 去重：触发按钮 hover 预取，
+ *  收藏夹弹窗打开命中缓存零等待（列表与展开动画并行就绪） */
+const FAV_FOLDER_TTL_MS = 60 * 1000
+let favFolderCache: {
+  list: BilibiliFavFolder[]
+  fetchedAt: number
+} | null = null
+let favFolderInflight: Promise<BilibiliFavFolder[]> | null = null
+
+/** 预取/获取 B站 收藏夹列表（缓存命中直接返回；并发共享同一 in-flight） */
+export function prefetchBiliFavFolders(): Promise<BilibiliFavFolder[]> {
+  if (
+    favFolderCache &&
+    Date.now() - favFolderCache.fetchedAt < FAV_FOLDER_TTL_MS
+  ) {
+    return Promise.resolve(favFolderCache.list)
+  }
+  if (favFolderInflight) return favFolderInflight
+  favFolderInflight = (async () => {
+    const list = await getBilibiliFavFolders()
+    favFolderCache = { list, fetchedAt: Date.now() }
+    return list
+  })()
+  // in-flight 槽位清理（挂在吞错分支上，不干扰调用方持有的原 Promise）
+  void favFolderInflight
+    .catch(() => {})
+    .finally(() => {
+      favFolderInflight = null
+    })
+  return favFolderInflight
+}
+
 /**
  * B站 视频搜索（哔哩哔哩页顶栏搜索框）：后端复用弹幕搜索同款 searchVideos
  * 服务。返回与 BilibiliVideoItem 兼容的条目（无 cid，点击时前端经 view 补取）。
