@@ -19,8 +19,11 @@ import type { Socket } from 'socket.io-client'
 import {
   Ban,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   ChevronUp,
   Dices,
+  GripVertical,
   ListMusic,
   ListPlus,
   Loader2,
@@ -30,6 +33,7 @@ import {
   RefreshCw,
   Search,
   Settings2,
+  SlidersHorizontal,
   Tv,
   X,
 } from 'lucide-react'
@@ -1144,12 +1148,86 @@ export function MusicBilibiliPage({
     [activeFolderId, load]
   )
 
+  /** ===== 栏目编辑模式：拖动自定义栏目 chip 调整排序（桌面 HTML5 拖拽，
+   *  移动端触屏不支持 DnD，显示左右箭头兜底）。内置 tab（音乐分区/
+   *  我的收藏）固定在最前不参与排序；排序即时持久化 localStorage ===== */
+  const [tabEditMode, setTabEditMode] = useState(false)
+  /** 拖拽源在 customTabs 中的下标（ref 避免高频 dragover 重渲染依赖） */
+  const dragTabIndexRef = useRef<number | null>(null)
+  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
+  const [dropTargetTabId, setDropTargetTabId] = useState<string | null>(null)
+
+  /** 把 customTabs[from] 移动到 to 位置并持久化 */
+  const handleMoveCustomTab = useCallback((from: number, to: number) => {
+    setCustomTabs((prev) => {
+      if (
+        from === to ||
+        from < 0 ||
+        to < 0 ||
+        from >= prev.length ||
+        to >= prev.length
+      ) {
+        return prev
+      }
+      const next = [...prev]
+      const [moved] = next.splice(from, 1)
+      next.splice(to, 0, moved)
+      saveCustomTabs(next)
+      return next
+    })
+  }, [])
+
+  const handleCustomTabDragStart = useCallback(
+    (index: number, id: string, e: React.DragEvent) => {
+      dragTabIndexRef.current = index
+      setDraggingTabId(id)
+      e.dataTransfer.effectAllowed = 'move'
+      // Firefox 需要 setData 才会启动拖拽
+      e.dataTransfer.setData('text/plain', id)
+    },
+    []
+  )
+
+  const handleCustomTabDragOver = useCallback(
+    (index: number, id: string, e: React.DragEvent) => {
+      if (dragTabIndexRef.current === null || dragTabIndexRef.current === index)
+        return
+      // 允许 drop；悬停目标高亮指示插入位置
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'move'
+      setDropTargetTabId((prev) => (prev === id ? prev : id))
+    },
+    []
+  )
+
+  const handleCustomTabDrop = useCallback(
+    (index: number, e: React.DragEvent) => {
+      e.preventDefault()
+      const from = dragTabIndexRef.current
+      if (from !== null && from !== index) {
+        handleMoveCustomTab(from, index)
+      }
+      dragTabIndexRef.current = null
+      setDraggingTabId(null)
+      setDropTargetTabId(null)
+    },
+    [handleMoveCustomTab]
+  )
+
+  const handleCustomTabDragEnd = useCallback(() => {
+    dragTabIndexRef.current = null
+    setDraggingTabId(null)
+    setDropTargetTabId(null)
+  }, [])
+
   /** 删除自定义栏目并清理其列表缓存；删除当前选中项时回到音乐分区 */
   const handleDeleteCustomTab = useCallback(
     (id: string) => {
       setCustomTabs((prev) => {
         const next = prev.filter((t) => t.id !== id)
         saveCustomTabs(next)
+        // 编辑模式依赖"至少 2 个栏目可排序"，不足时自动退出
+        if (next.length < 2) setTabEditMode(false)
         return next
       })
       for (const key of [...biliListCache.keys()]) {
@@ -1714,7 +1792,7 @@ export function MusicBilibiliPage({
           ))}
           {/* 自定义栏目 tab（链接添加的合集/系列/收藏夹；名称右侧 × 删除，
             删除当前选中项时回到音乐分区） */}
-          {customTabs.map((ct) => {
+          {customTabs.map((ct, ctIndex) => {
             const kindLabel =
               ct.kind === 'favlist'
                 ? '收藏夹'
@@ -1725,8 +1803,32 @@ export function MusicBilibiliPage({
             return (
               <span
                 key={ct.id}
-                className="inline-flex shrink-0 items-center gap-1"
+                draggable={tabEditMode}
+                onDragStart={(e) => handleCustomTabDragStart(ctIndex, ct.id, e)}
+                onDragOver={(e) => handleCustomTabDragOver(ctIndex, ct.id, e)}
+                onDrop={(e) => handleCustomTabDrop(ctIndex, e)}
+                onDragEnd={handleCustomTabDragEnd}
+                className={cn(
+                  'relative inline-flex shrink-0 items-center gap-1',
+                  tabEditMode &&
+                    'cursor-grab select-none active:cursor-grabbing',
+                  draggingTabId === ct.id && 'opacity-40'
+                )}
               >
+                {/* 拖放落点指示线（primary 竖条 = 松手后插入到该栏目左侧） */}
+                {tabEditMode &&
+                  dropTargetTabId === ct.id &&
+                  draggingTabId != null &&
+                  draggingTabId !== ct.id && (
+                    <span
+                      className="absolute -left-[5px] top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full"
+                      style={{ backgroundColor: 'var(--md-sys-color-primary)' }}
+                    />
+                  )}
+                {/* 拖拽把手（鼠标设备编辑态显示；触屏用右侧箭头） */}
+                {tabEditMode && (
+                  <GripVertical className="hidden h-3 w-3 shrink-0 text-[var(--md-sys-color-on-surface-variant)] [@media(pointer:fine)]:block" />
+                )}
                 <button
                   type="button"
                   onClick={() => {
@@ -1763,9 +1865,54 @@ export function MusicBilibiliPage({
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
+                {/* 触屏排序箭头（编辑态）：HTML5 拖拽在触屏不可用，
+                    左右移动一位兜底；鼠标设备隐藏（直接拖把手） */}
+                {tabEditMode && (
+                  <span className="hidden shrink-0 items-center [@media(pointer:coarse)]:flex">
+                    <button
+                      type="button"
+                      onClick={() => handleMoveCustomTab(ctIndex, ctIndex - 1)}
+                      disabled={ctIndex === 0}
+                      className="flex h-5 w-4 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
+                      title="向前移动"
+                      aria-label={`向前移动栏目 ${ct.name}`}
+                    >
+                      <ChevronLeft className="h-3 w-3" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleMoveCustomTab(ctIndex, ctIndex + 1)}
+                      disabled={ctIndex === customTabs.length - 1}
+                      className="flex h-5 w-4 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
+                      title="向后移动"
+                      aria-label={`向后移动栏目 ${ct.name}`}
+                    >
+                      <ChevronRight className="h-3 w-3" />
+                    </button>
+                  </span>
+                )}
               </span>
             )
           })}
+          {/* 编辑栏目顺序：≥2 个自定义栏目时可用，进入后拖动栏目
+              chip（触屏用左右箭头）调整排序，即时持久化 */}
+          {customTabs.length >= 2 && (
+            <button
+              type="button"
+              onClick={() => setTabEditMode((v) => !v)}
+              className={cn(
+                'flex h-5 w-5 shrink-0 items-center justify-center rounded-full transition-colors',
+                tabEditMode
+                  ? 'text-[var(--md-sys-color-primary)]'
+                  : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+              )}
+              title="编辑栏目顺序：拖动栏目调整位置（触屏用箭头）"
+              aria-label="编辑栏目顺序"
+              aria-pressed={tabEditMode}
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+            </button>
+          )}
           {/* 添加栏目：粘贴 B站 链接（视频合集 / 系列 / 收藏夹；b23.tv 短链自动展开） */}
           <button
             type="button"
