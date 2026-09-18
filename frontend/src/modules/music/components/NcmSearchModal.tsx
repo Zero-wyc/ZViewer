@@ -9,8 +9,9 @@
  *   搜索网易云（/api/music/ncm/cloudsearch，老 /search 兜底，双结构兼容）
  * - 结果列表（封面/歌名/歌手/时长）+ 每行两个操作：
  *   试听 = 本地 Audio 播放 /api/music/stream（standard 音质；不进房间
- *   队列、不打扰一起听的其他人）；收藏 = 打开「添加到我的歌单」面板
- *   （AddToPlaylistModal 复用，z 更高叠于本弹窗之上，选完歌单回本弹窗）
+ *   队列、不打扰一起听的其他人）；收藏 = 直接加入当前登录网易云账号的
+ *   「我喜欢的音乐」（用户歌单中 specialType===5 或名称匹配，走
+ *   /playlist/tracks op=add，不弹歌单选择面板；未登录/未找到时提示）
  * - 视觉：黑底 + 高斯模糊（歌词页设置弹窗同语言，四角白色方块点缀），
  *   屏幕居中锚定——展开动画（cloud-add-in 宽→高两段式 + 标题/水印分级
  *   淡入）以面板中心为原点向四周舒展，内容同样延后到展开结束再挂载
@@ -26,9 +27,8 @@ import {
   Search,
   SearchX,
 } from 'lucide-react'
-import { apiGet } from '@/lib/api'
+import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
-import { AddToPlaylistModal } from './AddToPlaylistModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
 import { extractSongTitle } from '../utils/songTitle'
 import { cn } from '@/lib/utils'
@@ -110,11 +110,8 @@ export function NcmSearchModal({
   /** 当前试听中的歌曲（本地 Audio，不进房间队列） */
   const [auditionId, setAuditionId] = useState<number | null>(null)
   const auditionRef = useRef<HTMLAudioElement | null>(null)
-  /** 收藏目标（非空时叠开「添加到我的歌单」面板） */
-  const [favSong, setFavSong] = useState<{
-    songId: number
-    name: string
-  } | null>(null)
+  /** 正在收藏的歌曲 id（行内 busy 态，防重复点击） */
+  const [favBusyId, setFavBusyId] = useState<number | null>(null)
   /** 搜索竞态序号（过期响应丢弃） */
   const searchSeqRef = useRef(0)
 
@@ -189,7 +186,7 @@ export function NcmSearchModal({
       stopAudition()
       setResults([])
       setSearched(false)
-      setFavSong(null)
+      setFavBusyId(null)
     }, 0)
     return () => clearTimeout(timer)
   }, [open, stopAudition])
@@ -228,11 +225,46 @@ export function NcmSearchModal({
     [auditionId]
   )
 
-  /** 收藏：预取歌单缓存并叠开「添加到我的歌单」面板 */
-  const openFavorite = useCallback((song: NcmSongLite) => {
-    void prefetchUserPlaylists()
-    setFavSong({ songId: song.songId, name: song.name })
-  }, [])
+  /** 收藏：直接加入当前账号「我喜欢的音乐」（用户歌单 specialType===5
+   *  或名称匹配；502 = 已存在视为成功），不弹歌单选择面板 */
+  const favoriteToLiked = useCallback(
+    async (song: NcmSongLite) => {
+      if (favBusyId != null) return
+      setFavBusyId(song.songId)
+      try {
+        const playlists = await prefetchUserPlaylists()
+        const liked = playlists.find(
+          (p) => p.specialType === 5 || p.name.includes('喜欢的音乐')
+        )
+        if (!liked) {
+          message.error('未找到「我喜欢的音乐」歌单，请确认已登录网易云账号')
+          return
+        }
+        const { data } = await apiPost<{
+          code?: number
+          body?: { code?: number }
+        }>(`/api/music/ncm/playlist/tracks?timestamp=${Date.now()}`, {
+          op: 'add',
+          pid: liked.id,
+          tracks: String(song.songId),
+        })
+        const code = data?.code ?? data?.body?.code
+        if (code === 200 || code === 502) {
+          message.success(
+            code === 502 ? '已在我喜欢的音乐中' : '已添加到我喜欢的音乐'
+          )
+        } else {
+          message.error('收藏失败')
+        }
+      } catch (err) {
+        console.error('[NcmSearchModal] 收藏到我喜欢的音乐失败:', err)
+        message.error('收藏失败，请确认已登录网易云账号')
+      } finally {
+        setFavBusyId(null)
+      }
+    },
+    [favBusyId]
+  )
 
   if (!open) return null
 
@@ -434,12 +466,17 @@ export function NcmSearchModal({
                       </button>
                       <button
                         type="button"
-                        onClick={() => openFavorite(song)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-white transition-colors hover:bg-white/15"
-                        title="收藏到歌单"
-                        aria-label="收藏到歌单"
+                        disabled={favBusyId != null}
+                        onClick={() => void favoriteToLiked(song)}
+                        className="flex h-6 w-6 items-center justify-center rounded text-white transition-colors hover:bg-white/15 disabled:opacity-60"
+                        title="收藏到我喜欢的音乐"
+                        aria-label="收藏到我喜欢的音乐"
                       >
-                        <Heart className="h-3.5 w-3.5" />
+                        {favBusyId === song.songId ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Heart className="h-3.5 w-3.5" />
+                        )}
                       </button>
                     </span>
                   </div>
@@ -448,13 +485,6 @@ export function NcmSearchModal({
           </div>
         </div>
       </div>
-
-      {/* 收藏目标（叠开添加到歌单面板；成功后回本弹窗） */}
-      <AddToPlaylistModal
-        open={favSong != null}
-        song={favSong}
-        onClose={() => setFavSong(null)}
-      />
     </div>,
     document.body
   )

@@ -2912,7 +2912,7 @@ export function MusicBilibiliPage({
         />
       )}
 
-      {/* 在网易云搜索弹窗（封面入口：歌名提取搜索 + 试听/收藏到歌单） */}
+      {/* 在网易云搜索弹窗（封面入口：歌名提取搜索 + 试听/收藏到我喜欢的音乐） */}
       <NcmSearchModal
         open={ncmSearchTitle != null}
         sourceTitle={ncmSearchTitle ?? ''}

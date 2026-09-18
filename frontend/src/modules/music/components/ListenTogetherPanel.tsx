@@ -2640,7 +2640,7 @@ function ListenTogetherInner({
                 </button>
               )}
               {/* 在网易云搜索（仅 B站 条目）：自动提取歌名在网易云搜索，
-                  结果支持试听/收藏到歌单——快速收藏 B站 听到的好歌 */}
+                  结果支持试听/一键收藏到我喜欢的音乐——快速收藏 B站 听到的好歌 */}
               {isBiliSong && (
                 <button
                   type="button"
@@ -3282,7 +3282,7 @@ function ListenTogetherInner({
         />
       )}
 
-      {/* 在网易云搜索弹窗（B站 条目：歌名提取搜索 + 试听/收藏到歌单） */}
+      {/* 在网易云搜索弹窗（B站 条目：歌名提取搜索 + 试听/收藏到我喜欢的音乐） */}
       {ncmSearchOpen && (
         <NcmSearchModal
           open
