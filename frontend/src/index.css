@@ -1590,9 +1590,14 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
 
 /* 歌词播放页工具图标浅阴影（一起听桌面 song-control 悬浮栏 + 手机竖屏
    工具行）：轻柔暗影提升图标在封面/视频背景上的轮廓分离度。
-   作用于容器整体，多个图标只建一个合成层；阴影恒为半透明黑，
-   亮/暗主题与任意背景亮度通用，无需随图标色反转 */
-.lt-icon-outline {
+   阴影恒为半透明黑，亮/暗主题与任意背景亮度通用，无需随图标色反转。
+   关键：filter 必须**分发到子按钮**而不是写在容器上——filter 非 none
+   的元素会成为 Backdrop Root，其整个子树的 backdrop-filter 只能采样
+   该子树内部，播放队列弹窗（MusicQueuePopup，glass-card 毛玻璃）挂
+   在容器内，采样不到工具栏外的歌词面板/背景视频，模糊直接丢失。
+   按钮是弹窗的兄弟层级，filter 放在按钮上不再隔离弹窗的采样链 */
+.lt-icon-outline > button,
+.lt-icon-outline > div > button {
   filter:
     drop-shadow(0 1px 1px rgba(0, 0, 0, 0.28))
     drop-shadow(0 0 2px rgba(0, 0, 0, 0.16));
