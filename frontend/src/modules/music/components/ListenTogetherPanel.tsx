@@ -2207,17 +2207,19 @@ function ListenTogetherInner({
             />
 
             {/* song-control 悬浮工具栏（Hydrogen .song-control：绝对定位悬出
-                卡片右侧 50px，正好落在左卡与右卡的间隙内；常显，hover 卡片时
-                重播「信号灯」闪烁动画）。挂在**外层**（内层 overflow-hidden
-                会裁掉悬出部分）。图标集为原版 SVG：歌词显隐 / 罗马音 /
-                翻译 / 原词开关（歌词三项有对应数据才显示）+ 纯净模式
-                （背景视频就绪时）+ 喜欢 + 播放模式（房主）+ 播放队列 +
-                设置（背景/歌词调整弹窗）+ 收起。
+                卡片右侧 50px，正好落在左卡与右卡的间隙内；显示模式同
+                Hydrogen——基态 opacity:0 常隐，鼠标悬停卡片/工具栏区域时
+                重播「信号灯」闪烁动画并以 both 定格在可见，移开即隐。
+                挂在**外层**（内层 overflow-hidden 会裁掉悬出部分）。
+                图标集为原版 SVG：歌词显隐 / 罗马音 / 翻译 / 原词开关
+                （歌词三项有对应数据才显示）+ 纯净模式（背景视频就绪时）+
+                喜欢 + 播放模式（房主）+ 播放队列 + 设置（背景/歌词调整
+                弹窗）+ 收起。
                 手机竖屏隐藏（卡片全宽后右侧 50px 悬出区会出屏），改为
                 卡片下方的水平工具行（见下方 isPortraitMobile 分支） */}
             <div
               className={cn(
-                'lt-icon-outline absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] group-hover:animate-[song-control-in_0.3s_both]',
+                'lt-icon-outline lt-touch-visible absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] opacity-0 focus-within:opacity-100 group-hover:animate-[song-control-in_0.3s_both]',
                 isPortraitMobile && 'hidden'
               )}
               style={
