@@ -8,6 +8,14 @@ export interface BilibiliResponse<T = unknown> {
 export interface BilibiliFetchOptions extends RequestInit {
   /** 用于请求的 B站 Cookie 字符串。 */
   cookie?: string;
+  /**
+   * 跳过业务 code 检查（code!==0 不抛错，由调用方自行读取 data）。
+   *
+   * 用于 B站 "业务失败但 data 仍有效" 的接口：匿名 nav 现返回
+   * code=-101（账号未登录）但 data.wbi_img 照常返回——WBI key 获取
+   * 依赖该 data，若按业务码抛错会导致未登录时 WBI 签名全部失败。
+   */
+  ignoreBizCode?: boolean;
 }
 
 const DEFAULT_USER_AGENT =
@@ -60,12 +68,33 @@ export function ensureAnonymousSession(): Promise<void> {
   }
   if (!anonymousSessionWarmPromise) {
     anonymousSessionWarmPromise = (async () => {
-      // nav 接口匿名可访问，响应 Set-Cookie（buvid3 等）→ 自动进匿名
-      // Cookie 罐；即使本次被 412，响应头 Cookie 也已被收集复用
-      await bilibiliGet('https://api.bilibili.com/x/web-interface/nav');
-      anonymousSessionWarmedAt = Date.now();
+      // spi 指纹接口匿名可用（code=0），返回 b_3/b_4 即 buvid3/buvid4。
+      // 匿名请求携带 buvid 可显著降低 412 风控概率。
+      // 注意：不能再用 nav 接口预热——B站 近期把匿名 nav 改为返回
+      // code=-101（账号未登录）且不再下发 Set-Cookie，bilibiliFetch 会
+      // 按业务错误抛出，曾导致未登录解析在预热步骤整体中断。
+      try {
+        const spi = await bilibiliGet<{ b_3?: string; b_4?: string }>(
+          'https://api.bilibili.com/x/frontend/finger/spi',
+        );
+        const parts = [
+          spi.data?.b_3 ? `buvid3=${spi.data.b_3}` : '',
+          spi.data?.b_4 ? `buvid4=${spi.data.b_4}` : '',
+        ].filter(Boolean);
+        if (parts.length > 0) {
+          anonymousCookieJar = anonymousCookieJar
+            ? `${anonymousCookieJar}; ${parts.join('; ')}`
+            : parts.join('; ');
+        }
+      } catch {
+        // spi 失败不阻断主流程：匿名无 Cookie 仍可解析
+        // （实测 playurl/view 匿名均可用，仅风控概率略升）
+      }
     })().finally(() => {
       anonymousSessionWarmPromise = null;
+      // 无论成败都标记预热时间：失败时 30 分钟内不重复空转重试
+      //（否则每次未登录解析都会先吃一次完整的失败重试耗时）
+      anonymousSessionWarmedAt = Date.now();
     });
   }
   return anonymousSessionWarmPromise;
@@ -102,7 +131,7 @@ export async function bilibiliFetch<T = unknown>(
   url: string,
   options?: BilibiliFetchOptions,
 ): Promise<BilibiliResponse<T>> {
-  const { cookie, ...requestInit } = options || {};
+  const { cookie, ignoreBizCode, ...requestInit } = options || {};
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -163,7 +192,7 @@ export async function bilibiliFetch<T = unknown>(
         throw new Error(`B站 接口返回异常响应（非 JSON）: ${url}`);
       }
 
-      if (json.code !== 0) {
+      if (json.code !== 0 && !ignoreBizCode) {
         throw new Error(
           `B站 API 业务错误 [${json.code}] ${json.message || ''}: ${url}`,
         );

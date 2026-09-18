@@ -101,9 +101,13 @@ export async function fetchWbiKeys(cookie?: string): Promise<WbiKeyPair> {
     };
   }
 
+  // ignoreBizCode：B站 匿名 nav 现返回 code=-101（账号未登录），
+  // 但 data.wbi_img 仍照常下发——跳过业务码检查直接读 data，
+  // 否则未登录时 WBI key 获取失败，签名接口全部不可用
+  // （playurl/view/subtitle 的 WBI 签名路径会整体降级或失败）。
   const res = await bilibiliFetch<NavData>(
     'https://api.bilibili.com/x/web-interface/nav',
-    { cookie },
+    { cookie, ignoreBizCode: true },
   );
 
   const imgUrl = res.data.wbi_img?.img_url;
