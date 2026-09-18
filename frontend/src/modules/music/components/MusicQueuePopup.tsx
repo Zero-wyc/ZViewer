@@ -155,8 +155,8 @@ export function MusicQueuePopup({
         placement === 'top'
           ? 'bottom-[calc(100%+8px)] right-2'
           : placement === 'side'
-            ? // 侧挂（歌词页工具栏）：向按钮**右侧**展开（左侧会出屏被裁切）
-              'bottom-0 left-[calc(100%+14px)]'
+            ? // 侧挂（歌词页工具栏）：垂直居中对齐按钮、水平向右展开（左侧会出屏被裁切）；居中用 top+负 margin，不能用 -translate-y-1/2——zen-stagger-fade-up 动画全程接管 transform
+              'top-1/2 left-[calc(100%+14px)] mt-[-12rem]'
             : // sheet：手机竖屏固定底部居中（overlay 容器带 transform，
               // fixed 实际相对全屏覆盖层定位，效果等同视口居中）
               'fixed inset-x-0 bottom-[calc(88px+env(safe-area-inset-bottom))] mx-auto h-[min(24rem,55dvh)]'
@@ -166,7 +166,7 @@ export function MusicQueuePopup({
           ? ({
               // 黑底 + 高斯模糊（黑底 SETTING 弹窗同参数）+ 白描边；
               // 令牌覆盖让弹窗内文字/hover/高亮整体反白
-              backgroundColor: 'rgba(8, 8, 8, 0.86)',
+              backgroundColor: 'rgba(8, 8, 8, 0.72)',
               backdropFilter: 'blur(28px)',
               WebkitBackdropFilter: 'blur(28px)',
               border: '0.5px solid rgba(255, 255, 255, 0.12)',
