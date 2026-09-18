@@ -1583,9 +1583,48 @@ function ListenTogetherInner({
 
   // ===== 进度条（Hydrogen 样式：1.3vh 黑条 + 0.5px 描边；canControl 可拖动） =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
-  const progressRatio =
-    durationSec > 0 ? Math.min(1, Math.max(0, positionSec / durationSec)) : 0
   const progressRef = useRef<HTMLDivElement>(null)
+
+  // ===== seek 等位锁（修复松手后进度条「倒退再前进」反复横跳）：
+  //       seek() 只同步设置 audio.currentTime，positionSec 要等下一次
+  //       timeupdate 才更新——松手瞬间展示值会从拖动终点回退到旧进度
+  //       再前进。Hydrogen 的 vue-slider 直写 v-model 无此空窗，这里在
+  //       seek 后把展示值锁定在目标进度：实际进度追上（容差 0.75s）、
+  //       超时兜底（2s，seek 失败防冻结）或换曲后自动失效 =====
+  const [seekLock, setSeekLock] = useState<{
+    key: string | null
+    sec: number
+  } | null>(null)
+  const performSeekWithLock = useCallback(
+    (time: number) => {
+      seek(time)
+      setSeekLock({ key: currentKey, sec: time })
+    },
+    [seek, currentKey]
+  )
+
+  // 等位锁超时兜底：seek 失败（元数据未就绪等）时实际进度永远追不上，
+  // 超时后强制回落实际进度（setState 在定时器回调内，非同步级联）
+  useEffect(() => {
+    if (seekLock == null) return
+    const timer = setTimeout(() => setSeekLock(null), 2000)
+    return () => clearTimeout(timer)
+  }, [seekLock])
+
+  /** 拖动预览值（拖动期间进度条即时跟手，松手后才真 seek） */
+  const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
+
+  /** 进度条展示秒数：拖动预览 > seek 等位锁 > 实际播放进度 */
+  const seekLockActive =
+    seekLock != null &&
+    seekLock.key === currentKey &&
+    Math.abs(positionSec - seekLock.sec) > 0.75
+  const progressDisplaySec =
+    dragPreviewSec ?? (seekLockActive && seekLock ? seekLock.sec : positionSec)
+  const progressDisplayRatio =
+    durationSec > 0
+      ? Math.min(1, Math.max(0, progressDisplaySec / durationSec))
+      : 0
 
   const computeTimeFromClientX = useCallback(
     (clientX: number): number => {
@@ -1601,11 +1640,11 @@ function ListenTogetherInner({
 
   /**
    * 拖动进度（仅 canControl；观众只读展示）。
-   * Hydrogen「广播值—实际值分离 + 松手才 transition」模式：拖动期间只更新
-   * 本地预览值（进度条即时跟随指针、宽度无 transition 门），松手后才真 seek，
-   * 位置回跳/跳变由宽度 0.5s transition 平滑补间（对应 vue-slider :duration=0.5）。
+   * Hydrogen vue-slider 模式复刻：拖动态 animateTime=0（即时跟手、无
+   * transition 门），松手后外部值变化以 0.5s ease 平滑重定向（对应
+   * :duration=0.5 与组件默认缓动）；松手 seek 后由 seek 等位锁托住展示
+   * 值，杜绝「回退旧进度再前进」的横跳。
    */
-  const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
   const handleProgressPointerDown = useCallback(
     (e: React.PointerEvent) => {
       if (!canControl || durationSec <= 0) return
@@ -1618,14 +1657,15 @@ function ListenTogetherInner({
       const handleUp = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
-        seek(computeTimeFromClientX(ev.clientX))
-        // 松手即清预览：宽度从拖动终点以 0.5s transition 平滑到 seek 值
+        performSeekWithLock(computeTimeFromClientX(ev.clientX))
+        // 松手即清预览：等位锁接管展示值（锁定在 seek 目标），
+        // 实际进度追上后以 0.5s ease 平滑恢复跟播
         setDragPreviewSec(null)
       }
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
     },
-    [canControl, durationSec, seek, computeTimeFromClientX]
+    [canControl, durationSec, performSeekWithLock, computeTimeFromClientX]
   )
 
   // ===== 控制按钮（观众点击走申请，房主/房主离线 canControl 直接控制） =====
@@ -1647,12 +1687,12 @@ function ListenTogetherInner({
     else requestControl('prev')
   }, [canControl, prev, requestControl])
 
-  /** 歌词行 seek（观众无控制权时不可用，与进度条一致） */
+  /** 歌词行 seek（观众无控制权时不可用，与进度条一致；同样挂等位锁防回跳） */
   const handleLyricSeek = useCallback(
     (time: number) => {
-      if (canControl) seek(time)
+      if (canControl) performSeekWithLock(time)
     },
-    [canControl, seek]
+    [canControl, performSeekWithLock]
   )
 
   /** 播放模式轮换（仅房主，切换后广播同步） */
@@ -2532,7 +2572,7 @@ function ListenTogetherInner({
                 {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
                 <div className="shrink-0">
                   <div className="flex items-center justify-between text-[max(1.5vh,11px)] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]">
-                    <span>{formatDuration(positionSec)}</span>
+                    <span>{formatDuration(progressDisplaySec)}</span>
                     <span>{formatDuration(durationSec)}</span>
                   </div>
                   <div
@@ -2558,18 +2598,12 @@ function ListenTogetherInner({
                       className="absolute left-0 top-0 h-full"
                       style={{
                         // 拖动预览值即时跟手（无过渡）；松手后位置值变化
-                        // 以 0.5s 平滑补间（Hydrogen vue-slider :duration=0.5）
-                        width: `${
-                          (dragPreviewSec != null && durationSec > 0
-                            ? Math.min(
-                                1,
-                                Math.max(0, dragPreviewSec / durationSec)
-                              )
-                            : progressRatio) * 100
-                        }%`,
+                        // 以 0.5s ease 平滑补间（Hydrogen vue-slider
+                        // :duration=0.5 与组件默认缓动）
+                        width: `${progressDisplayRatio * 100}%`,
                         backgroundColor: 'var(--md-sys-color-on-surface)',
                         transition:
-                          dragPreviewSec != null ? 'none' : 'width 0.5s linear',
+                          dragPreviewSec != null ? 'none' : 'width 0.5s ease',
                       }}
                     />
                   </div>
@@ -2654,9 +2688,7 @@ function ListenTogetherInner({
                       style={{
                         width: `${volume * 100}%`,
                         backgroundColor: 'var(--md-sys-color-on-surface)',
-                        transition: volumeDragging
-                          ? 'none'
-                          : 'width 0.3s linear',
+                        transition: volumeDragging ? 'none' : 'width 0.3s ease',
                       }}
                     />
                   </div>
