@@ -1597,32 +1597,83 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
 
 /* 添加到歌单弹窗：宽→高依次展开（Hydrogen .add-fade；
    容器 left:50% + translateX(-50%) 定位，动画需保留平移） */
+/* 「添加到我的歌单」面板展开（Hydrogen ContextMenu .playlist-container-in
+   1:1 复刻：0.3s 延迟后先横向展开（宽 0→300，0.3s），再纵向展开
+   （高 0→面板高，0.3s）；面板最终高度经 --add-panel-h 注入 keyframes */
 @keyframes cloud-add-in {
   0% {
-    opacity: 0;
-    transform: translateX(-50%) scale(0.6, 0.02);
+    width: 0;
+    height: 0;
   }
-  55% {
+  50% {
+    width: 300px;
+    height: 0;
+  }
+  100% {
+    width: 300px;
+    height: var(--add-panel-h, 500px);
+  }
+}
+
+/* 面板四角装饰块（Hydrogen .add-style-in 1:1：0.4s 内高频闪烁后常显，
+   一次性；与面板展开并行播放——展开前 0.3s 延迟期内即开始闪烁） */
+@keyframes cloud-add-flash {
+  0% {
+    opacity: 0;
+  }
+  10% {
     opacity: 1;
-    transform: translateX(-50%) scale(1, 0.02);
+  }
+  20% {
+    opacity: 0;
+  }
+  30% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 0;
+  }
+  50% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 0;
+  }
+  70% {
+    opacity: 1;
+  }
+  80% {
+    opacity: 0;
+  }
+  90% {
+    opacity: 0;
   }
   100% {
     opacity: 1;
-    transform: translateX(-50%) scale(1, 1);
+  }
+}
+
+/* 面板标题淡入（Hydrogen .add-title-in：0.5s 延迟——纵向展开后半程开始） */
+@keyframes cloud-add-title-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+/* ADD 水印淡入（Hydrogen .add-style5-in：0.6s 延迟——完全展开后浮现） */
+@keyframes cloud-add-watermark-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }
 
 /* 添加到歌单弹窗：边缘白色装饰块闪烁（Hydrogen .add-style） */
-@keyframes cloud-add-flash {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.15;
-  }
-}
-
 /* 悬浮工具栏「信号灯」显形（.song-control：0.3s 内快速闪三下后常显） */
 @keyframes song-control-in {
   0%,
