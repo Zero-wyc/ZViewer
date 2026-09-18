@@ -22,6 +22,7 @@ import {
   tagVideosPaged,
 } from '../../services/bilibili/video';
 import { getWbiKeys, signParams } from '../../services/bilibili/wbi';
+import { fetchBilibiliSubtitle } from '../../services/bilibili/subtitle';
 import {
   saveCredential,
   clearCredential,
@@ -1645,25 +1646,27 @@ router.get('/bilibili/search', async (req: AuthenticatedRequest, res) => {
 // 其 subtitle 字段经常为空且依赖 WBI 签名，已弃用。
 // 请求必须携带 Referer，否则返回 412（yt-dlp#11089）。
 //
-// 已知问题与对策：B站 字幕服务端不稳定，同一 (bvid, cid) 的 player/v2 会
-// 偶发返回「其他视频」的 AI 字幕文件（字幕 JSON 内不含可校验的 cid/bvid），
-// 表现为歌词与视频完全不匹配。带内校验手段：正确字幕的时间轴终点
-// （max(to)）≈ 视频时长，随机错拿的字幕终点通常明显偏离。前端携带
-// duration（秒）时最多尝试多次：命中容差立即采纳，全部未命中则取
-// 「时间轴终点与时长差最小」的一次；未带 duration 时保持旧行为
-// （首个成功下载的非空字幕）。
-const BILI_SUBTITLE_ATTEMPTS = 4;
-/** 字幕时间轴终点与视频时长的匹配容差（秒）：max(10, 时长 × 8%) */
-const biliSubtitleTolerance = (durationSec: number): number =>
-  Math.max(10, durationSec * 0.08);
+// B站 字幕服务端不稳定：同一 (bvid, cid) 会偶发返回「其他视频」的字幕文件
+// （字幕 JSON 内不含可校验的 cid/bvid）。完整对策已下沉到
+// services/bilibili/subtitle.ts（oid 带外校验 + 时长带内校验 + 一致性投票
+// + 缓存；未通过校验返回空而非可疑字幕）。
 
+/**
+ * GET /bilibili/ai-subtitle：B站 视频字幕（歌词页 B站 条目的歌词数据源）。
+ *
+ * 实现整体下沉到 services/bilibili/subtitle.ts：元数据 + WBI/未签名双通道取
+ * 字幕轨道 + oid 带外校验 + 时长带内校验 + 一致性投票 + 成功/失败缓存，
+ * 未通过校验一律返回空（绝不返回可疑字幕）。本路由只做参数校验与响应封装。
+ */
 router.get('/bilibili/ai-subtitle', async (req: AuthenticatedRequest, res) => {
   const bvid = req.query.bvid;
   const cid = Number(req.query.cid);
-  // 视频时长（秒，可选）：用于字幕带内校验（见上）；非法值退化为旧行为
-  const durationSec = Number(req.query.duration);
-  const hasDuration =
-    Number.isFinite(durationSec) && durationSec > 0 && durationSec < 86400;
+  // 视频时长（秒，可选）：带内校验基准；非法值时服务端用官方时长兜底
+  const durationRaw = Number(req.query.duration);
+  const durationSec =
+    Number.isFinite(durationRaw) && durationRaw > 0 && durationRaw < 86400
+      ? durationRaw
+      : undefined;
   if (
     typeof bvid !== 'string' ||
     !/^BV[0-9A-Za-z]{10}$/.test(bvid.trim()) ||
@@ -1673,144 +1676,22 @@ router.get('/bilibili/ai-subtitle', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ success: false, message: '参数无效' });
     return;
   }
-  const userId = req.user?.userId;
-  const cookie = (await getUserCookie(userId)) || undefined;
-
-  // 视频元数据（aid + 官方时长）：字幕带外校验用（同一请求内只取一次）。
-  // aid 用于字幕 URL 的 oid 参数比对——错拿的字幕 URL 指向其他视频；
-  // 官方时长在前端未传 duration 时兜底，保证带内校验始终可用
-  let aid: number | null = null;
-  let viewDurationSec: number | null = null;
   try {
-    const view = await bilibiliFetch<{
-      aid?: number;
-      duration?: number;
-    }>(`https://api.bilibili.com/x/web-interface/view?bvid=${bvid.trim()}`, {
+    const cookie = (await getUserCookie(req.user?.userId)) || undefined;
+    const result = await fetchBilibiliSubtitle(
+      bvid.trim(),
+      cid,
       cookie,
-    });
-    aid = Number(view.data?.aid) || null;
-    viewDurationSec = Number(view.data?.duration) || null;
-  } catch {
-    // view 失败不阻断解析：退化为仅前端时长校验
-  }
-  const viewDurationValid =
-    viewDurationSec != null && viewDurationSec > 0 && viewDurationSec < 86400;
-  // 带内校验时长：优先前端传入，缺失时用官方时长
-  const effectiveDurationSec = hasDuration
-    ? durationSec
-    : viewDurationValid
-      ? viewDurationSec
-      : null;
-  const effectiveHasDuration = effectiveDurationSec != null;
-
-  try {
-    // 跨尝试保留的候选/状态：score = |字幕时间轴终点 - 视频时长|
-    let best: {
-      lines: Array<{ from: number; to: number; content: string }>;
-      score: number;
-    } | null = null;
-    let needLoginMessage: string | undefined;
-    let lastError: unknown = null;
-    for (let attempt = 0; attempt < BILI_SUBTITLE_ATTEMPTS; attempt++) {
-      let data: BilibiliResponse<{
-        need_login_subtitle?: number;
-        subtitle?: {
-          subtitles?: Array<{ lan?: string; subtitle_url?: string }>;
-        };
-      }>;
-      try {
-        data = await bilibiliFetch<{
-          need_login_subtitle?: number;
-          subtitle?: {
-            subtitles?: Array<{ lan?: string; subtitle_url?: string }>;
-          };
-        }>(
-          `https://api.bilibili.com/x/player/v2?bvid=${bvid.trim()}&cid=${cid}`,
-          { cookie },
-        );
-      } catch (err) {
-        lastError = err;
-        continue;
-      }
-      // 优先中文（ai-zh），其次任一 zh 开头，再次任一可用轨道
-      const subtitles = data.data?.subtitle?.subtitles ?? [];
-      const picked =
-        subtitles.find((s) => s.lan === 'ai-zh') ??
-        subtitles.find((s) => (s.lan ?? '').startsWith('zh')) ??
-        subtitles[0];
-      if (!picked?.subtitle_url) {
-        // 无字幕轨道：区分「未登录导致 AI 字幕不返回」与「视频本身无字幕」；
-        // 轨道列表偶发为空属服务端抖动，重试可能恢复
-        needLoginMessage =
-          data.data?.need_login_subtitle === 1 && !cookie
-            ? 'AI 字幕需登录 B站 后获取'
-            : undefined;
-        continue;
-      }
-      const subtitleUrl = picked.subtitle_url.startsWith('//')
-        ? `https:${picked.subtitle_url}`
-        : picked.subtitle_url;
-      // 字幕 JSON 为公开 CDN（非标准 B站信封结构），原生 fetch；
-      // subtitle_url 是带 auth_key 的临时地址，直接用不缓存
-      let json: { body?: Array<{ from: number; to: number; content: string }> };
-      try {
-        const subRes = await fetch(subtitleUrl, {
-          headers: {
-            'User-Agent': DEFAULT_PROXY_UA,
-            Referer: 'https://www.bilibili.com',
-          },
-        });
-        if (!subRes.ok) {
-          throw new Error(`字幕文件请求失败 [${subRes.status}]`);
-        }
-        json = (await subRes.json()) as {
-          body?: Array<{ from: number; to: number; content: string }>;
-        };
-      } catch (err) {
-        lastError = err;
-        continue;
-      }
-      const lines = (json.body ?? []).map((l) => ({
-        from: l.from || 0,
-        to: l.to || 0,
-        content: l.content || '',
-      }));
-      if (lines.length === 0) continue;
-      // 带外校验（强）：subtitle_url 的 oid 参数应等于视频 aid——服务端
-      // 抖动错拿的字幕 URL 指向其他视频，oid 不匹配直接丢弃该候选
-      if (aid != null) {
-        try {
-          const oidParam = new URL(
-            subtitleUrl,
-            'https://www.bilibili.com'
-          ).searchParams.get('oid');
-          if (oidParam != null && Number(oidParam) !== aid) continue;
-        } catch {
-          // URL 解析失败忽略该检查（带内时长校验仍在）
-        }
-      }
-      if (!effectiveHasDuration || effectiveDurationSec == null) {
-        // 无任何校验基准（前端未传且 view 失败）：保持旧行为（首个非空结果）
-        res.json({ success: true, lines });
-        return;
-      }
-      const endTo = lines.reduce((m, l) => Math.max(m, l.to), 0);
-      const score = Math.abs(endTo - effectiveDurationSec);
-      if (!best || score < best.score) best = { lines, score };
-      // 时间轴终点与视频时长吻合：基本可确认不是错拿的字幕，立即采纳
-      if (score <= biliSubtitleTolerance(effectiveDurationSec)) break;
-    }
-    if (best) {
-      res.json({ success: true, lines: best.lines });
+      durationSec
+    );
+    if (result.lines.length > 0 && 'source' in result) {
+      res.json({ success: true, lines: result.lines, source: result.source });
       return;
-    }
-    if (lastError) {
-      throw lastError;
     }
     res.json({
       success: true,
       lines: [],
-      message: needLoginMessage,
+      message: 'reason' in result ? result.reason : undefined,
     });
   } catch (err) {
     console.error('[bilibili] ai-subtitle error:', err);
