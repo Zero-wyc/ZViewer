@@ -844,7 +844,7 @@ export function RoomInfoPanel({
               </div>
               {viewers.length === 0 ? (
                 <div
-                  className="flex min-h-8 flex-1 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                  className="flex min-h-8 flex-1 items-center justify-center rounded-[var(--md-sys-radius-small)]"
                   style={{
                     backgroundColor: 'var(--glass-bg)',
                   }}
