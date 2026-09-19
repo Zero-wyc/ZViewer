@@ -2274,43 +2274,50 @@ function ListenTogetherInner({
       >
         {hostOffline && !canControl && (
           <div
-            className="pointer-events-auto flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
+            className="zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] border px-3.5 py-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
             style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-tertiary) 15%, transparent)',
-              color: 'var(--md-sys-color-tertiary)',
+              backgroundColor: 'rgba(8, 8, 8, 0.72)',
+              backdropFilter: 'blur(28px)',
+              WebkitBackdropFilter: 'blur(28px)',
+              borderColor: 'rgba(255, 255, 255, 0.12)',
+              color: 'rgba(255, 255, 255, 0.92)',
             }}
           >
+            <span className="relative flex h-1.5 w-1.5 shrink-0">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--md-sys-color-tertiary)] opacity-60" />
+              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--md-sys-color-tertiary)]" />
+            </span>
             房主已离开，您可以自主控制播放
           </div>
         )}
         {syncNotice && (
           <div
-            className="pointer-events-auto flex items-center gap-2 rounded-full px-2.5 py-1 text-xs font-medium"
+            className="zen-stagger-fade-up pointer-events-auto flex items-center gap-2.5 rounded-[14px] border py-2 pl-3.5 pr-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
             style={{
-              backgroundColor:
-                'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
-              color: 'var(--md-sys-color-on-surface)',
+              backgroundColor: 'rgba(8, 8, 8, 0.72)',
+              backdropFilter: 'blur(28px)',
+              WebkitBackdropFilter: 'blur(28px)',
+              borderColor: 'rgba(255, 255, 255, 0.12)',
+              color: 'rgba(255, 255, 255, 0.92)',
             }}
           >
             <span>{syncNotice}</span>
             {isHost && (
-              <span className="flex items-center gap-1">
+              <span className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={approveControl}
-                  className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                  style={{ color: 'var(--md-sys-color-primary)' }}
+                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold text-[#111114] transition-all hover:opacity-85 active:scale-95"
+                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.92)' }}
                   title="通过申请"
                 >
-                  <Check className="h-3 w-3" />
+                  <Check className="h-3 w-3" strokeWidth={2.5} />
                   通过
                 </button>
                 <button
                   type="button"
                   onClick={rejectControl}
-                  className="flex h-5 items-center gap-0.5 rounded-full px-1.5 text-[11px] font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                  style={{ color: 'var(--md-sys-color-error)' }}
+                  className="flex h-6 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] font-medium text-[#ff6b6b] transition-colors hover:border-white/35 hover:bg-white/10 active:scale-95"
                   title="拒绝申请"
                 >
                   <X className="h-3 w-3" />
