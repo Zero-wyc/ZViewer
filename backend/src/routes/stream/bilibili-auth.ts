@@ -1453,10 +1453,12 @@ router.post('/bilibili/fav/collect', async (req: AuthenticatedRequest, res) => {
   }
 });
 
-// 查询视频是否已收藏到指定收藏夹（歌词页一键收藏红心回显）：
+// 查询视频是否已收藏（歌词页一键收藏红心回显）：
 // bvid → aid → folder/created/list-all 带 rid 参数，B站 对每个收藏夹
 // 返回 fav_state=1 表示当前视频已收藏在该夹（B站 web 收藏弹窗同款做法）。
-// 未登录时由 getUserCookie 环节返回 401，前端静默降级不回显。
+// 「已收藏」= 用户创建的**任意**收藏夹命中（不限标题）——视频可能被在
+// B站 端手动收进别的夹/夹改名，按标题单查会漏；命中夹的 id/标题一并
+// 返回，取消收藏时可定向移除。未登录 401，前端静默降级不回显。
 router.get('/bilibili/fav/status', async (req: AuthenticatedRequest, res) => {
   const bvid =
     typeof req.query?.bvid === 'string' ? req.query.bvid.trim() : '';
@@ -1464,10 +1466,6 @@ router.get('/bilibili/fav/status', async (req: AuthenticatedRequest, res) => {
     res.status(400).json({ success: false, message: 'BV 号格式无效' });
     return;
   }
-  const folderTitle =
-    typeof req.query?.folderTitle === 'string' && req.query.folderTitle.trim()
-      ? req.query.folderTitle.trim()
-      : 'Music';
   const userId = req.user?.userId;
   const cookie = (await getUserCookie(userId)) || undefined;
   if (!cookie) {
@@ -1485,19 +1483,19 @@ router.get('/bilibili/fav/status', async (req: AuthenticatedRequest, res) => {
       res.status(404).json({ success: false, message: '视频不存在' });
       return;
     }
-    // 2) 目标收藏夹内该视频的收藏状态（rid 参数 → fav_state 生效）
+    // 2) 官方接口聚合查询：rid 参数 → fav_state 生效，任一夹命中即已收藏
     const folders = await bilibiliFetch<{
       list?: Array<{ id: number; title: string; fav_state?: number }> | null;
     }>(
       `https://api.bilibili.com/x/v3/fav/folder/created/list-all?rid=${aid}&type=2&up_mid=${extractMidFromCookie(cookie) ?? ''}`,
       { cookie },
     );
-    const target = folders.data?.list?.find((f) => f.title === folderTitle);
+    const hit = folders.data?.list?.find((f) => (f.fav_state ?? 0) === 1);
     res.json({
       success: true,
-      collected: (target?.fav_state ?? 0) === 1,
-      folderId: target?.id,
-      folderTitle: target?.title ?? folderTitle,
+      collected: hit != null,
+      folderId: hit?.id,
+      folderTitle: hit?.title,
     });
   } catch (err) {
     console.error('[bilibili] fav/status error:', err);

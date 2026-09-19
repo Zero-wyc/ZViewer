@@ -1678,31 +1678,35 @@ function ListenTogetherInner({
   )
   const [biliFavModalOpen, setBiliFavModalOpen] = useState(false)
   const [biliCollecting, setBiliCollecting] = useState(false)
+  /** 红心收藏标记：folder/folderId 为**实际命中**的收藏夹（官方接口查得，
+   *  可能不是设置的目标夹——视频可能被在 B站 端收进别的夹/夹改名） */
   const [biliCollectedMark, setBiliCollectedMark] = useState<{
     bvid: string
     folder: string
+    folderId?: number
   } | null>(null)
-  const biliCollected =
-    biliBvid != null &&
-    biliCollectedMark?.bvid === biliBvid &&
-    biliCollectedMark.folder === biliLikeFavTitle
-  /** 收藏/取消收藏开关：已收藏（同一视频 + 同一目标收藏夹）时点击即
-   *  取消收藏（后端同端点 del_media_ids），否则一键收藏 */
+  const biliCollected = biliBvid != null && biliCollectedMark?.bvid === biliBvid
+  /** 收藏/取消收藏开关：已收藏（该视频在任意收藏夹中）时点击即取消收藏
+   *  （后端 resource/deal del_media_ids，定向到实际命中的收藏夹 id），
+   *  否则一键收藏到设置的目标夹 */
   const handleBiliCollect = useCallback(async () => {
     if (!biliBvid || biliCollecting) return
-    const collected =
-      biliCollectedMark?.bvid === biliBvid &&
-      biliCollectedMark.folder === biliLikeFavTitle
+    const collected = biliCollectedMark?.bvid === biliBvid
     setBiliCollecting(true)
     try {
       const { data, ok } = await apiPost<{
         success?: boolean
         message?: string
         folderTitle?: string
+        folderId?: number
       }>('/api/stream/bilibili/fav/collect', {
         bvid: biliBvid,
         folderTitle: biliLikeFavTitle,
         action: collected ? 'remove' : 'add',
+        // 取消收藏时带实际命中夹的 id，避免按标题解析到别的夹
+        ...(collected && biliCollectedMark?.folderId
+          ? { mediaId: biliCollectedMark.folderId }
+          : {}),
       })
       if (!ok || data?.success === false) {
         throw new Error(
@@ -1712,10 +1716,16 @@ function ListenTogetherInner({
       if (collected) {
         setBiliCollectedMark(null)
         message.success(
-          `已取消收藏「${data?.folderTitle || biliLikeFavTitle}」`
+          `已取消收藏「${
+            data?.folderTitle || biliCollectedMark?.folder || biliLikeFavTitle
+          }」`
         )
       } else {
-        setBiliCollectedMark({ bvid: biliBvid, folder: biliLikeFavTitle })
+        setBiliCollectedMark({
+          bvid: biliBvid,
+          folder: data?.folderTitle || biliLikeFavTitle,
+          folderId: data?.folderId,
+        })
         message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
       }
     } catch (err) {
@@ -1725,9 +1735,10 @@ function ListenTogetherInner({
     }
   }, [biliBvid, biliCollecting, biliCollectedMark, biliLikeFavTitle])
 
-  // 红心回显：切到 B站 歌曲（或目标收藏夹名变化）时查询该视频是否已在
-  // 红心收藏夹，已收藏即点亮红心（后端 fav_state 查询；未登录/失败静默，
-  // 回显是辅助能力不弹错误——本地会话内的 mark 仍以此查询结果对齐）
+  // 红心回显：切到 B站 歌曲时用 B站 官方接口查询该视频是否已在收藏夹里
+  // （fav/folder/created/list-all 带 rid → fav_state，任意夹命中即点亮，
+  //  不限于设置的目标夹；未登录/失败静默，回显是辅助能力不弹错误——
+  //  本地会话内的 mark 仍以此查询结果对齐）
   useEffect(() => {
     if (!biliBvid) return
     let cancelled = false
@@ -1736,12 +1747,20 @@ function ListenTogetherInner({
         const { data, ok } = await apiGet<{
           success?: boolean
           collected?: boolean
+          folderId?: number
+          folderTitle?: string
         }>(
-          `/api/stream/bilibili/fav/status?bvid=${biliBvid}&folderTitle=${encodeURIComponent(biliLikeFavTitle)}&timestamp=${Date.now()}`
+          `/api/stream/bilibili/fav/status?bvid=${biliBvid}&timestamp=${Date.now()}`
         )
         if (cancelled || !ok || data?.success === false) return
         setBiliCollectedMark(
-          data?.collected ? { bvid: biliBvid, folder: biliLikeFavTitle } : null
+          data?.collected
+            ? {
+                bvid: biliBvid,
+                folder: data.folderTitle ?? biliLikeFavTitle,
+                folderId: data.folderId,
+              }
+            : null
         )
       } catch (err) {
         console.error('[ListenTogether] B站 收藏状态查询失败:', err)
@@ -2784,7 +2803,9 @@ function ListenTogetherInner({
                   }}
                   title={
                     biliCollected
-                      ? `已收藏到「${biliLikeFavTitle}」收藏夹；点击取消收藏`
+                      ? `已收藏到「${
+                          biliCollectedMark?.folder ?? biliLikeFavTitle
+                        }」收藏夹；点击取消收藏`
                       : `一键收藏到「${biliLikeFavTitle}」收藏夹`
                   }
                   aria-label="收藏到收藏夹"
