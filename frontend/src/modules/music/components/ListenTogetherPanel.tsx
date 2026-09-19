@@ -89,6 +89,7 @@ import { FontPickerPanel } from '@/components/ui/FontPicker'
 import { message } from '@/components/ui/message'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
 import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
+import { getBilibiliUserInfo } from '@/modules/bilibili/bilibiliApi'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
@@ -410,6 +411,27 @@ function PlayerSettingsModal({
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
   }
 
+  // ===== B站 大会员状态（CLI 已连接时拉取）：过滤分辨率档位——普通账号
+  //       最高 1080P，会员档（4K/1080P60/高码率）仅大会员可见 =====
+  const [biliVip, setBiliVip] = useState(false)
+  useEffect(() => {
+    if (!(musicVideoCli && cliAvailable)) return
+    let cancelled = false
+    void getBilibiliUserInfo().then((info) => {
+      if (cancelled) return
+      const vip = info?.vipStatus === 1
+      setBiliVip(vip)
+      // 已选会员档但账号非大会员：回落自动，避免选择框悬空值
+      if (!vip) {
+        const s = useMusicSettingsStore.getState()
+        if (s.musicVideoQn > 80) s.set({ musicVideoQn: 0 })
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [musicVideoCli, cliAvailable])
+
   // ===== B站 弹幕设置（复用一起看弹幕设置组件）：总开关即 biliDanmakuEnabled
   //       设置项；样式面板与一起看共用 danmakuStore（跨页持久化生效） =====
   const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
@@ -718,14 +740,25 @@ function PlayerSettingsModal({
                     title="视频背景清晰度（实际档位受账号权限限制）"
                   >
                     <option value={0}>自动（跟随账号）</option>
-                    <option value={120}>4K 超清</option>
-                    <option value={116}>1080P 60帧</option>
-                    <option value={112}>1080P 高码率</option>
-                    <option value={80}>1080P 高清</option>
-                    <option value={74}>720P 60帧</option>
-                    <option value={64}>720P 高清</option>
-                    <option value={32}>480P 清晰</option>
-                    <option value={16}>360P 流畅</option>
+                    {(biliVip
+                      ? [
+                          [120, '4K 超清'],
+                          [116, '1080P 60帧'],
+                          [112, '1080P 高码率'],
+                        ]
+                      : []
+                    )
+                      .concat([
+                        [80, '1080P 高清'],
+                        [64, '720P 高清'],
+                        [32, '480P 清晰'],
+                        [16, '360P 流畅'],
+                      ] as Array<[number, string]>)
+                      .map(([qn, label]) => (
+                        <option key={qn} value={qn}>
+                          {label}
+                        </option>
+                      ))}
                   </select>
                 </div>
               )}
