@@ -220,20 +220,23 @@ function DanmakuTvIcon({
         stroke="currentColor"
         strokeWidth="1.7"
       />
-      {/* 「弹」字 */}
-      <text
-        x="12"
-        y="12.2"
-        textAnchor="middle"
-        dominantBaseline="central"
-        fontSize="9"
-        fontWeight="700"
-        fill="currentColor"
-        stroke="none"
-        style={{ fontFamily: 'sans-serif' }}
+      {/* 「弹」字：纯矢量描边（弓 + 单），不依赖字体度量——<text> 渲染
+          受平台字体影响会偏移出机身中心；字形盒 y 7.8..15.5 / x 6.9..17.4，
+          中心 ≈ (12.15, 11.65) 与机身中心 (12, 11.8) 对齐 */}
+      <g
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        fill="none"
       >
-        弹
-      </text>
+        {/* 弓（左偏旁） */}
+        <path d="M6.9 7.8h3.4v3.4h-3.4v3.9h3.4v-1.4" />
+        {/* 单：丷 + 日 + 竖 + 底横 */}
+        <path d="M13.2 7.8l1.0 1.6M16.6 7.8l-1.0 1.6" />
+        <path d="M12.9 9.9h4v3.7h-4zM12.9 11.75h4" />
+        <path d="M12.4 15.5h5.0M14.9 7.8v7.7" />
+      </g>
       {/* 开启态：右下角对勾（跨出机身一角，主色） */}
       {checked && (
         <path
