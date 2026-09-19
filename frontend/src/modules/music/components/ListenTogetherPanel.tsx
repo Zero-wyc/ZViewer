@@ -2534,7 +2534,18 @@ function ListenTogetherInner({
           'pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3',
           immersive && 'invisible'
         )}
-        style={uiFade < 1 ? { opacity: uiFade } : undefined}
+        style={
+          uiFade < 1
+            ? {
+                opacity: uiFade,
+                // opacity<1 使本层成为 Backdrop Root，后代毛玻璃只能采样到
+                // 本子树（几乎全透明）→ blur 丢失；自身加 blur(0) 先把页面
+                // 背景采样进本层，后代即可重新采样到背景（实测恢复）
+                backdropFilter: 'blur(0px)',
+                WebkitBackdropFilter: 'blur(0px)',
+              }
+            : undefined
+        }
       >
         {hostOffline && !canControl && (
           <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
@@ -2593,7 +2604,15 @@ function ListenTogetherInner({
             'relative z-[1] flex flex-1 flex-col items-center justify-center gap-3',
             immersive && 'invisible'
           )}
-          style={uiFade < 1 ? { opacity: uiFade } : undefined}
+          style={
+            uiFade < 1
+              ? {
+                  opacity: uiFade,
+                  backdropFilter: 'blur(0px)',
+                  WebkitBackdropFilter: 'blur(0px)',
+                }
+              : undefined
+          }
         >
           <div
             className="flex h-16 w-16 items-center justify-center rounded-full"
@@ -2628,7 +2647,15 @@ function ListenTogetherInner({
           style={
             {
               '--lt-card-w': 'clamp(280px, 42vh, 480px)',
-              ...(uiFade < 1 ? { opacity: uiFade } : null),
+              ...(uiFade < 1
+                ? {
+                    opacity: uiFade,
+                    // 同提示区：blur(0) 先采样页面背景进本层，避免成为
+                    // Backdrop Root 后播放卡/歌词面板毛玻璃全部失效
+                    backdropFilter: 'blur(0px)',
+                    WebkitBackdropFilter: 'blur(0px)',
+                  }
+                : null),
             } as React.CSSProperties
           }
         >
