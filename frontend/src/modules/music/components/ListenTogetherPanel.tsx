@@ -1418,45 +1418,6 @@ function ListenTogetherInner({
   const { attachSource: attachBgSource, cleanup: cleanupBgSource } =
     usePlayerSource({ videoRef: bgVideoRef })
 
-  // 解析成功 → attach 到背景 video（引擎按 format 选 MSE/Direct；B站 CDN
-  // 直链由引擎经后端代理注入 Referer，CLI 模式本身已是本地代理 URL）
-  useEffect(() => {
-    const video = bgVideoRef.current
-    if (
-      !video ||
-      musicVideoBg.status !== 'ready' ||
-      !musicVideoBg.source?.url
-    ) {
-      return
-    }
-    void attachBgSource(video, {
-      url: musicVideoBg.source.url,
-      audioUrl: musicVideoBg.source.audioUrl,
-      format: musicVideoBg.source.format,
-      videoCodec: musicVideoBg.source.videoCodec,
-      audioCodec: musicVideoBg.source.audioCodec,
-      // DASH 流容器时长不可靠：显式传给引擎写 MPD duration，
-      // 缺失时 video.duration 无效、背景视频进度同步失效
-      duration: musicVideoBg.source.duration,
-    })
-  }, [musicVideoBg.status, musicVideoBg.source, attachBgSource])
-
-  // 卸载时释放引擎资源（blobUrl / MSE）
-  useEffect(() => cleanupBgSource, [cleanupBgSource])
-
-  // 背景视频跟随音乐播放/暂停（Hydrogen videoIsPlaying 同语义；元素静音）
-  useEffect(() => {
-    const video = bgVideoRef.current
-    if (!video || musicVideoBg.status !== 'ready') return
-    if (isPlaying) {
-      void video.play().catch(() => {
-        // ignore：自动播放策略拒绝
-      })
-    } else if (!video.paused) {
-      video.pause()
-    }
-  }, [isPlaying, musicVideoBg.status])
-
   // ===== 视频背景进度同步：视频画面跟随音频进度（音频播到哪里视频也到哪；
   // 音频长于视频时按视频时长取模循环）。
   // 大漂移（拖进度条/seek/卡顿）不立即跳转：先经去抖窗口（拖动期间只更新
@@ -1464,7 +1425,8 @@ function ListenTogetherInner({
   // 残余漂移用 playbackRate 渐进吸收（顺序解码远比再次 seek 便宜，避免大
   // 视频反复 seek 引发的性能猛增与浏览器卡顿），对齐后恢复原速。
   // metadata 就绪（挂载/切歌/中途加入房间）时无视一切强制对齐一次
-  // （见 video 的 onLoadedMetadata） =====
+  // （见 video 的 onLoadedMetadata）。
+  // 声明位置在 attach effect 之前：attach 完成回调要调用本函数 =====
   const syncBgVideoTime = useCallback((force: boolean) => {
     const video = bgVideoRef.current
     if (!video || video.readyState < 1) return
@@ -1488,6 +1450,10 @@ function ListenTogetherInner({
       return
     }
     const drift = target - video.currentTime // 正 = 视频落后于音频
+    // 缓冲不足（readyState < HAVE_FUTURE_DATA）时跳过漂移校正：DASH/MSE
+    // 引擎每次 seek 都要重新拉取分片，连续 seek 会引发缓冲风暴（切歌/
+    // 换分辨率后的持续卡顿即由此而来）——等缓冲恢复后下一轮再对齐
+    if (video.readyState < 3) return
     if (Math.abs(drift) > BG_VIDEO_SYNC_THRESHOLD_SEC) {
       // 大漂移：去抖 seek——窗口内重复触发只刷新目标，最终一次跳转
       bgSeekPendingRef.current = target
@@ -1529,6 +1495,63 @@ function ListenTogetherInner({
       }
     }
   }, [])
+
+  // 解析成功 → attach 到背景 video（引擎按 format 选 MSE/Direct；B站 CDN
+  // 直链由引擎经后端代理注入 Referer，CLI 模式本身已是本地代理 URL）
+  useEffect(() => {
+    const video = bgVideoRef.current
+    if (
+      !video ||
+      musicVideoBg.status !== 'ready' ||
+      !musicVideoBg.source?.url
+    ) {
+      return
+    }
+    void attachBgSource(video, {
+      url: musicVideoBg.source.url,
+      audioUrl: musicVideoBg.source.audioUrl,
+      format: musicVideoBg.source.format,
+      videoCodec: musicVideoBg.source.videoCodec,
+      audioCodec: musicVideoBg.source.audioCodec,
+      // DASH 流容器时长不可靠：显式传给引擎写 MPD duration，
+      // 缺失时 video.duration 无效、背景视频进度同步失效
+      duration: musicVideoBg.source.duration,
+    }).then(() => {
+      // attach 完成（CLI DASH 引擎要拉 init 段/扫描 sidx，可耗时数秒）后
+      // 对齐音频进度并恢复播放——play() 此前只在 isPlaying/status 变化时
+      // 触发一次，attach 慢时那次 play() 落在尚未就绪的元素上被静默拒绝，
+      // 视频停在原地被 1s 校正循环反复大漂移 seek（表现为切歌/换分辨率后
+      // 持续卡顿，暂停再播放才恢复）
+      syncBgVideoTime(true)
+      if (isPlaying) {
+        void video.play().catch(() => {
+          // ignore：自动播放策略拒绝
+        })
+      }
+    })
+  }, [
+    musicVideoBg.status,
+    musicVideoBg.source,
+    attachBgSource,
+    isPlaying,
+    syncBgVideoTime,
+  ])
+
+  // 卸载时释放引擎资源（blobUrl / MSE）
+  useEffect(() => cleanupBgSource, [cleanupBgSource])
+
+  // 背景视频跟随音乐播放/暂停（Hydrogen videoIsPlaying 同语义；元素静音）
+  useEffect(() => {
+    const video = bgVideoRef.current
+    if (!video || musicVideoBg.status !== 'ready') return
+    if (isPlaying) {
+      void video.play().catch(() => {
+        // ignore：自动播放策略拒绝
+      })
+    } else if (!video.paused) {
+      video.pause()
+    }
+  }, [isPlaying, musicVideoBg.status])
 
   // 卸载时清 seek 去抖定时器（追赶态随元素销毁失效，无需处理）
   useEffect(
