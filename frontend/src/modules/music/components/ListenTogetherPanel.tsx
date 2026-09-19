@@ -386,6 +386,8 @@ function PlayerSettingsModal({
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
+  /** UI 透明度（元素透明模式）：启用时整体元素 opacity 淡出（无模糊） */
+  const uiElementFade = useMusicSettingsStore((s) => s.uiElementFade)
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -612,15 +614,63 @@ function PlayerSettingsModal({
                 onChange={(v) => setSettings({ bgDim: v })}
               />
             </div>
-            {/* UI 透明度（滑块）：前景 UI（播放卡/歌词面板/工具栏等）整体
-              透明度，背景（封面/视频/压暗）不受影响；100=默认不透明 */}
-            <div className="px-5 py-3.5">
-              <div className="mb-1 flex items-center justify-between">
-                <span className="text-[13px] font-bold text-white">
+            {/* UI 透明度（元素透明模式开关）：启用后整个前景 UI 以元素
+              opacity 淡出（面板无高斯模糊，旧版行为），「UI 底色透明度」
+              不生效；关闭（默认）时底色透明度缩放面板背景 alpha（模糊保留） */}
+            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-white">
                   UI 透明度
                 </span>
+                <span className="block text-[9px] leading-snug text-white/40">
+                  启用后整体元素透明（面板无高斯模糊），底色透明度不生效
+                </span>
+              </span>
+              <div className="grid shrink-0 grid-cols-2 gap-1">
+                <button
+                  type="button"
+                  onClick={() => setSettings({ uiElementFade: false })}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
+                    !uiElementFade
+                      ? 'bg-white text-black shadow-sm'
+                      : 'bg-white/10 text-white/60 hover:bg-white/15'
+                  )}
+                >
+                  关闭
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSettings({ uiElementFade: true })}
+                  className={cn(
+                    'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
+                    uiElementFade
+                      ? 'bg-white text-black shadow-sm'
+                      : 'bg-white/10 text-white/60 hover:bg-white/15'
+                  )}
+                >
+                  启用
+                </button>
+              </div>
+            </div>
+            {/* UI 底色透明度（滑块）：缩放播放卡/歌词面板/提示条的背景
+              alpha，毛玻璃模糊保留；元素透明模式启用时不生效 */}
+            <div
+              className={cn(
+                'px-5 py-3.5',
+                uiElementFade && 'pointer-events-none opacity-40'
+              )}
+            >
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">
+                  UI 底色透明度
+                </span>
                 <span className="text-[12px] font-bold tabular-nums text-white/70">
-                  {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
+                  {uiElementFade
+                    ? '不生效'
+                    : uiOpacity < 100
+                      ? `${uiOpacity}%`
+                      : '默认'}
                 </span>
               </div>
               <TinySlider
@@ -1306,6 +1356,8 @@ function ListenTogetherInner({
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（qn，0=自动）：仅 CLI 路径生效，变更即重解析 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
+  /** UI 透明度（元素透明模式）：启用时整体元素 opacity 淡出（无模糊） */
+  const uiElementFade = useMusicSettingsStore((s) => s.uiElementFade)
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -2317,6 +2369,12 @@ function ListenTogetherInner({
     Number.isFinite(uiOpacity) && uiOpacity > 0
       ? Math.min(1, Math.max(0.3, uiOpacity / 100))
       : 1
+  /**
+   * 元素透明模式（设置「UI 透明度」开关，默认关）：启用时整个前景 UI 以
+   * 元素 opacity 淡出——面板无高斯模糊（旧版行为），「UI 底色透明度」
+   * 不生效；关闭（默认）时走底色透明度（背景 alpha 缩放，模糊保留）
+   */
+  const elementFade = uiElementFade && uiFade < 1
   const songName = currentSong?.name ?? '一起听'
   const artist = currentSong?.artist ?? ''
 
@@ -2339,7 +2397,10 @@ function ListenTogetherInner({
   return (
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
-      style={{ '--lt-ui-alpha': uiFade } as React.CSSProperties}
+      // 元素透明模式下底色透明度不生效：alpha 固定 1（模糊本就无要求）
+      style={
+        { '--lt-ui-alpha': elementFade ? 1 : uiFade } as React.CSSProperties
+      }
     >
       {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
           毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
@@ -2537,6 +2598,9 @@ function ListenTogetherInner({
           'pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3',
           immersive && 'invisible'
         )}
+        // 元素透明模式：整体元素 opacity 淡出（面板无模糊，旧版行为）；
+        // 底色透明度模式：不淡出（提示条黑底 alpha 已随 --lt-ui-alpha 缩放）
+        style={elementFade ? { opacity: uiFade } : undefined}
       >
         {hostOffline && !canControl && (
           <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
@@ -2595,15 +2659,7 @@ function ListenTogetherInner({
             'relative z-[1] flex flex-1 flex-col items-center justify-center gap-3',
             immersive && 'invisible'
           )}
-          style={
-            uiFade < 1
-              ? {
-                  opacity: uiFade,
-                  backdropFilter: 'blur(0px)',
-                  WebkitBackdropFilter: 'blur(0px)',
-                }
-              : undefined
-          }
+          style={uiFade < 1 ? { opacity: uiFade } : undefined}
         >
           <div
             className="flex h-16 w-16 items-center justify-center rounded-full"
@@ -2638,6 +2694,10 @@ function ListenTogetherInner({
           style={
             {
               '--lt-card-w': 'clamp(280px, 42vh, 480px)',
+              // 元素透明模式：整体元素 opacity 淡出（面板无高斯模糊，
+              // 旧版行为）；底色透明度模式不加 opacity（背景 alpha 已由
+              // 根容器 --lt-ui-alpha 缩放，毛玻璃模糊保留）
+              ...(elementFade ? { opacity: uiFade } : null),
             } as React.CSSProperties
           }
         >
