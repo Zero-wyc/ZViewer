@@ -140,6 +140,7 @@ const CONTROL_ACTION_TEXT: Record<MusicControlRequest['action'], string> = {
   prev: '切换上一首',
   addQueue: '添加歌曲到播放列表',
   seek: '调节播放进度',
+  playItem: '切换歌曲',
 }
 
 /** 音乐本地音量持久化 key（与视频播放器的 zc-player-volume 相互独立） */
@@ -341,7 +342,8 @@ export interface UseListenTogetherResult {
   /** 观众：向房主申请控制（暂停/继续/切歌） */
   requestControl: (
     action: MusicControlRequest['action'],
-    positionSec?: number
+    positionSec?: number,
+    item?: MusicControlRequest['item']
   ) => void
   /** 房主：通过观众当前的控制申请（执行动作 + 应答申请者） */
   approveControl: () => void
@@ -1096,7 +1098,11 @@ export function useListenTogether({
 
   /** 观众：向房主申请控制（房主在线且自己无直接控制权时） */
   const requestControl = useCallback(
-    (action: MusicControlRequest['action'], positionSec?: number) => {
+    (
+      action: MusicControlRequest['action'],
+      positionSec?: number,
+      item?: MusicControlRequest['item']
+    ) => {
       const currentSocket = socketRef.current
       const currentRoomId = roomIdRef.current
       if (!currentSocket || !currentRoomId) return
@@ -1106,6 +1112,7 @@ export function useListenTogether({
         roomId: currentRoomId,
         action,
         positionSec,
+        item,
         from: currentSocket.id ?? '',
         username: usernameRef.current,
       })
@@ -1119,7 +1126,11 @@ export function useListenTogether({
 
   /** 房主：执行审批通过的动作（房主是同步源，执行后广播使全房间对齐） */
   const executeHostAction = useCallback(
-    (action: MusicControlRequest['action'], positionSec?: number) => {
+    (
+      action: MusicControlRequest['action'],
+      positionSec?: number,
+      item?: MusicControlRequest['item']
+    ) => {
       const audio = getAudio()
       switch (action) {
         case 'pause':
@@ -1149,9 +1160,20 @@ export function useListenTogether({
           // seek() 内含房主广播（positionSec），观众端由下一次同步对齐
           seek(positionSec ?? audio.currentTime)
           break
+        case 'playItem': {
+          // 观众申请切换到播放列表中的条目：按 key 匹配房间队列
+          // （载荷仅含定位字段，用房间队列的完整条目播放），找不到不动作
+          if (!item) break
+          const targetKey = musicItemKey(item as MusicQueueItem)
+          const matched = useMusicStore
+            .getState()
+            .queue.find((q) => musicItemKey(q) === targetKey)
+          if (matched) playSong(matched)
+          break
+        }
       }
     },
-    [getAudio, switchSong, broadcastSyncState, seek]
+    [getAudio, switchSong, broadcastSyncState, seek, playSong]
   )
 
   /**
@@ -1198,7 +1220,7 @@ export function useListenTogether({
     pendingControlRef.current = null
     useMusicStore.getState().setSyncNotice(null)
     if (!request) return
-    executeHostAction(request.action, request.positionSec)
+    executeHostAction(request.action, request.positionSec, request.item)
     socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
       roomId: roomIdRef.current,
       approved: true,
@@ -1703,6 +1725,39 @@ export function useListenTogether({
         )
         return
       }
+      // playItem（观众申请切换到播放列表条目）：自动通过时按 key 匹配
+      // 房间队列后代理切歌并应答（条目不存在回执拒绝）；关闭时走审批
+      if (action === 'playItem') {
+        if (!payload.from || !payload.item) return
+        if (useRoomStore.getState().autoApproveRequests) {
+          const targetKey = musicItemKey(payload.item as MusicQueueItem)
+          const matched = useMusicStore
+            .getState()
+            .queue.find((q) => musicItemKey(q) === targetKey)
+          socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
+            roomId: roomIdRef.current,
+            approved: Boolean(matched),
+            action: 'playItem',
+            from: payload.from,
+          })
+          if (matched) playSong(matched)
+          return
+        }
+        pendingControlRef.current = {
+          action: 'playItem',
+          from: payload.from,
+          username: payload.username,
+          item: payload.item,
+        }
+        const who = payload.username || '观众'
+        useMusicStore
+          .getState()
+          .setSyncNotice(
+            `${who} 申请${CONTROL_ACTION_TEXT.playItem}`,
+            'approval'
+          )
+        return
+      }
       // pause/play/next/prev/seek：房主开启「自动通过」时直接执行并定向
       // 应答（观众无需逐次等待审批）；关闭时统一走左上角审批条
       if (
@@ -1752,8 +1807,21 @@ export function useListenTogether({
         action !== 'next' &&
         action !== 'prev' &&
         action !== 'addQueue' &&
-        action !== 'seek'
+        action !== 'seek' &&
+        action !== 'playItem'
       ) {
+        return
+      }
+      if (action === 'playItem') {
+        // 切歌的实际换源由房主端执行后的 SYNC_STATE 广播驱动（房主是
+        // 同步源），应答仅更新提示
+        useMusicStore
+          .getState()
+          .setSyncNotice(
+            payload.approved
+              ? `房主已同意${CONTROL_ACTION_TEXT[action]}`
+              : `房主已拒绝${CONTROL_ACTION_TEXT[action]}`
+          )
         return
       }
       if (action === 'addQueue') {
@@ -1817,7 +1885,14 @@ export function useListenTogether({
       socket.off(MUSIC_EVENT.CONTROL_RESPONSE, handleControlResponse)
       socket.off(MUSIC_EVENT.SYNC_ACK, handleSyncAck)
     }
-  }, [socket, roomId, applyViewerSync, executeLocalAction, executeHostAction])
+  }, [
+    socket,
+    roomId,
+    applyViewerSync,
+    executeLocalAction,
+    executeHostAction,
+    playSong,
+  ])
 
   // 卸载/离开：释放音频资源、清理内部状态
   //（store 不在此重置，由 Task 6 的离开房间流程统一调用 reset）

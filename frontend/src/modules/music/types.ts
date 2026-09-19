@@ -90,9 +90,11 @@ export interface MusicControlRequest {
   /**
    * 申请的动作；addQueue = 观众申请添加音频到播放队列（房主端按
    * 「自动通过」开关决定代理入队或拒绝）；seek = 观众申请调节播放
-   * 进度（自动通过时房主端直接执行并应答，否则走审批）
+   * 进度（自动通过时房主端直接执行并应答，否则走审批）；playItem =
+   * 观众从播放列表申请切换到指定条目（载荷同 addQueue 的 item，
+   * 房主端按 key 匹配房间队列后代理切歌）
    */
-  action: 'pause' | 'play' | 'next' | 'prev' | 'addQueue' | 'seek'
+  action: 'pause' | 'play' | 'next' | 'prev' | 'addQueue' | 'seek' | 'playItem'
   /** seek 申请的目标进度（秒） */
   positionSec?: number
   /** addQueue 申请携带的入队条目（B站/网易云元数据） */

@@ -46,7 +46,9 @@ type MusicPlayMode = 'sequence' | 'order' | 'repeat-one' | 'shuffle';
 /** 合法的控制申请动作（与前端 MusicControlRequest['action'] 对齐）；
  *  addQueue = 观众申请添加音频到播放队列（携带 item 载荷，房主端按
  *  「自动通过」开关决定代理入队或拒绝）；seek = 观众申请调节播放进度
- *  （携带 positionSec 载荷，自动通过时房主端直接执行并应答） */
+ *  （携带 positionSec 载荷，自动通过时房主端直接执行并应答）；
+ *  playItem = 观众申请切换到播放列表条目（携带 item 载荷，房主端按
+ *  key 匹配房间队列后代理切歌） */
 const CONTROL_ACTIONS = [
   'pause',
   'play',
@@ -54,6 +56,7 @@ const CONTROL_ACTIONS = [
   'prev',
   'addQueue',
   'seek',
+  'playItem',
 ] as const;
 type ControlAction = (typeof CONTROL_ACTIONS)[number];
 
@@ -683,7 +686,7 @@ export class MusicSyncHandler implements SocketEventHandler {
         payload: {
           roomId: string;
           action: ControlAction;
-          /** addQueue 申请携带的入队条目 */
+          /** addQueue/playItem 申请携带的条目载荷 */
           item?: MusicQueueUpsertItem;
           afterCurrent?: boolean;
           /** seek 申请携带的目标进度（秒） */
@@ -703,9 +706,9 @@ export class MusicSyncHandler implements SocketEventHandler {
           if (!isControlAction(payload?.action)) {
             return safeAck(callback, { success: false, message: '参数无效' });
           }
-          // addQueue：入队条目元数据必须完整（房主端代理入队时复用校验逻辑）
+          // addQueue/playItem：条目元数据必须完整（房主端代理时复用校验逻辑）
           if (
-            payload.action === 'addQueue' &&
+            (payload.action === 'addQueue' || payload.action === 'playItem') &&
             !isUpsertItemValid(payload?.item)
           ) {
             return safeAck(callback, { success: false, message: '歌曲信息不完整' });
@@ -729,6 +732,9 @@ export class MusicSyncHandler implements SocketEventHandler {
             action: payload.action,
             ...(payload.action === 'addQueue'
               ? { item: payload.item, afterCurrent: payload.afterCurrent === true }
+              : {}),
+            ...(payload.action === 'playItem'
+              ? { item: payload.item }
               : {}),
             ...(payload.action === 'seek'
               ? { positionSec: Number(payload.positionSec) }

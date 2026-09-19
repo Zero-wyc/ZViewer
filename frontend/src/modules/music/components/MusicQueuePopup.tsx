@@ -61,8 +61,13 @@ export function MusicQueuePopup({
   /** 歌词页入口（side / sheet）启用黑底高斯模糊皮肤；音乐主页 widget
    *  上方弹出（top）保持原 glass-card 浅色毛玻璃 */
   const darkGlass = placement !== 'top'
-  const { playSong, playBiliSong, canControl, addBiliRecommendations } =
-    useMusicPlayer()
+  const {
+    playSong,
+    playBiliSong,
+    canControl,
+    requestControl,
+    addBiliRecommendations,
+  } = useMusicPlayer()
 
   /** 「自动推荐」请求进行中（防重复点击） */
   const [recLoading, setRecLoading] = useState(false)
@@ -92,7 +97,8 @@ export function MusicQueuePopup({
   }, [list, currentKey])
 
   /** 点击行播放：有控制权（房主/房主离线观众）→ 房间同步切歌；
-   *  无控制权 → B站 行本地试听（个人插播），网易云行提示由房主控制 */
+   *  无控制权 → B站 行本地试听（个人插播），网易云行发起切换申请
+   *  （房主「自动通过」开→代理执行；关→房主审批） */
   const handlePlay = (item: (typeof list)[number]) => {
     if (musicItemKey(item) === currentKey) return
     if (canControl) {
@@ -103,7 +109,17 @@ export function MusicQueuePopup({
       void playBiliSong(item)
       return
     }
-    message.info('由房主控制播放')
+    requestControl('playItem', undefined, {
+      songId: item.songId,
+      name: item.name,
+      artist: item.artist,
+      album: item.album,
+      cover: item.cover,
+      durationMs: item.durationMs,
+      vip: item.vip,
+      biliBvid: item.biliBvid,
+      biliCid: item.biliCid,
+    })
   }
 
   /** 删除：走房间 queue-remove（canManage，B站/网易云条目一致） */
