@@ -1256,11 +1256,16 @@ export function useListenTogether({
       const audio = getAudio()
       // 权威曲目 key：trackKey 优先（B站 曲目也同步），回退 trackSongId
       const trackKey = syncKeyOf(payload)
-      // 本地 B站 插播保护：房主在播网易云曲目（trackKey 非 bili）时不被
-      // 心跳拉回；房主播 B站 曲目（trackKey 为 bili 且在房间队列中）时
-      // 始终跟随——B站 播放列表已并入房间队列、全房间同步
+      // 本地 B站 插播保护：仅覆盖观众**主动本地插播**的场景（正在播自己
+      // 插播的 B站 条目=个人试听，不参与房间同步）——此时不被房主心跳拉回
+      //（房主播 B站 队列条目时仍跟随；房主切网易云时保持试听）。观众跟随
+      // 房主播的**队列** B站 条目不受保护：否则房主从 B站 切回网易云时
+      // 观众会被永久挡住无法跟随（currentKey 已非插播条目）
+      const localBiliItemKey =
+        store.biliItem != null ? musicItemKey(store.biliItem) : null
       const viewerSyncBlocked =
-        store.currentKey?.startsWith('bili:') &&
+        store.currentKey?.startsWith('bili:') === true &&
+        store.currentKey === localBiliItemKey &&
         !(
           trackKey != null &&
           trackKey.startsWith('bili:') &&
