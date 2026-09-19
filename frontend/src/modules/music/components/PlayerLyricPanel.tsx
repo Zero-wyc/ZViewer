@@ -575,8 +575,11 @@ export function PlayerLyricPanel({
             <div
               className="lyric-nodata-grow absolute bottom-[4%] left-[4%]"
               style={{
+                // 与 Hydrogen 一致：两条线同为 to bottom right——CSS 角点
+                // 渐变里细线垂直于渐变轴，渲染为「左下→右上」方向；
+                // 若写成 to top right 会变成「左上→右下」，两线相向错位
                 background:
-                  'linear-gradient(to top right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
+                  'linear-gradient(to bottom right, transparent calc(50% - 0.6px), var(--md-sys-color-on-surface), transparent calc(50% + 0.6px))',
               }}
               aria-hidden="true"
             />
