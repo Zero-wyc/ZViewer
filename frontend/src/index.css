@@ -287,6 +287,22 @@ video {
   }
 }
 
+/* 音乐侧边工具坞（MusicSideDock）内嵌面板：坞体本身已是毛玻璃
+   （55% 透明底 + backdrop 模糊），内嵌的 glass-card 再叠一层近白底
+   会变成死白板——此处去底色/去模糊/去投影，只留一道浅分隔描边。
+   仅作用于坞内（floating 模式的语音/流量/房间状态面板保持原样） */
+.side-dock-body .glass-card {
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: color-mix(
+    in srgb,
+    var(--md-sys-color-outline-variant) 45%,
+    transparent
+  );
+  box-shadow: none;
+}
+
 /* 哔哩哔哩页右下角悬浮工具组的液态玻璃按钮（Apple Liquid Glass 风格）：
    半透明玻璃底 + 顶部受光渐变 + 边缘高光/底部厚度内阴影 + backdrop
    saturate 折射感；颜色走主题玻璃变量，深浅色自适应。
