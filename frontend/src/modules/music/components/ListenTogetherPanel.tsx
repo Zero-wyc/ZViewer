@@ -2337,7 +2337,10 @@ function ListenTogetherInner({
   }
 
   return (
-    <div className="relative flex h-full min-w-0 flex-col overflow-hidden">
+    <div
+      className="relative flex h-full min-w-0 flex-col overflow-hidden"
+      style={{ '--lt-ui-alpha': uiFade } as React.CSSProperties}
+    >
       {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
           毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
           非纯色底）；模糊半径经 --cover-blur 注入 lt-cover-backdrop 的
@@ -2534,18 +2537,6 @@ function ListenTogetherInner({
           'pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3',
           immersive && 'invisible'
         )}
-        style={
-          uiFade < 1
-            ? {
-                opacity: uiFade,
-                // opacity<1 使本层成为 Backdrop Root，后代毛玻璃只能采样到
-                // 本子树（几乎全透明）→ blur 丢失；自身加 blur(0) 先把页面
-                // 背景采样进本层，后代即可重新采样到背景（实测恢复）
-                backdropFilter: 'blur(0px)',
-                WebkitBackdropFilter: 'blur(0px)',
-              }
-            : undefined
-        }
       >
         {hostOffline && !canControl && (
           <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
@@ -2647,15 +2638,6 @@ function ListenTogetherInner({
           style={
             {
               '--lt-card-w': 'clamp(280px, 42vh, 480px)',
-              ...(uiFade < 1
-                ? {
-                    opacity: uiFade,
-                    // 同提示区：blur(0) 先采样页面背景进本层，避免成为
-                    // Backdrop Root 后播放卡/歌词面板毛玻璃全部失效
-                    backdropFilter: 'blur(0px)',
-                    WebkitBackdropFilter: 'blur(0px)',
-                  }
-                : null),
             } as React.CSSProperties
           }
         >
@@ -3099,8 +3081,11 @@ function ListenTogetherInner({
             <div
               className="lt-blur-surface relative flex h-full w-full flex-col overflow-hidden"
               style={{
+                // UI 透明度：以背景 alpha 缩放实现（--lt-ui-alpha 由根容器
+                // 注入）——不能用元素 opacity，那会让本层成为 Backdrop Root
+                // 丢失自身 backdrop 模糊
                 backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+                  'color-mix(in srgb, var(--md-sys-color-surface) calc(45% * var(--lt-ui-alpha, 1)), transparent)',
                 backdropFilter: 'blur(12px)',
                 WebkitBackdropFilter: 'blur(12px)',
               }}
@@ -3571,8 +3556,9 @@ function ListenTogetherInner({
                   : 'ml-[50px] h-full w-[calc(100%-var(--lt-card-w)-50px)]'
               )}
               style={{
+                // UI 透明度以背景 alpha 缩放（同播放卡，保 backdrop 模糊）
                 backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+                  'color-mix(in srgb, var(--md-sys-color-surface) calc(45% * var(--lt-ui-alpha, 1)), transparent)',
                 backdropFilter: 'blur(12px)',
                 WebkitBackdropFilter: 'blur(12px)',
               }}

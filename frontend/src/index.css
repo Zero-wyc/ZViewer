@@ -475,9 +475,10 @@ button.bili-liquid-btn:active:not(:disabled) {
 }
 
 /* 左上角提示条黑底玻璃卡（解析进度/审批/房主离线）：黑底高斯模糊 +
-   白字，深色画面/浅色 UI 上都清晰（用户拍板回退浅色玻璃方案） */
+   白字，深色画面/浅色 UI 上都清晰。背景 alpha 跟随歌词页 UI 透明度
+   （--lt-ui-alpha 由 ListenTogetherPanel 根容器注入，其他挂载点回退 1） */
 .zen-notice-bar {
-  background-color: rgba(8, 8, 8, 0.72);
+  background-color: rgba(8, 8, 8, calc(0.72 * var(--lt-ui-alpha, 1)));
   /* -webkit- 前缀版必须在标准属性之前（lightningcss 去重保留最后一条） */
   -webkit-backdrop-filter: blur(28px);
   backdrop-filter: blur(28px);
