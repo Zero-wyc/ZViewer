@@ -1689,6 +1689,33 @@ function ListenTogetherInner({
     }
   }, [biliBvid, biliCollecting, biliCollectedMark, biliLikeFavTitle])
 
+  // 红心回显：切到 B站 歌曲（或目标收藏夹名变化）时查询该视频是否已在
+  // 红心收藏夹，已收藏即点亮红心（后端 fav_state 查询；未登录/失败静默，
+  // 回显是辅助能力不弹错误——本地会话内的 mark 仍以此查询结果对齐）
+  useEffect(() => {
+    if (!biliBvid) return
+    let cancelled = false
+    void (async () => {
+      try {
+        const { data, ok } = await apiGet<{
+          success?: boolean
+          collected?: boolean
+        }>(
+          `/api/stream/bilibili/fav/status?bvid=${biliBvid}&folderTitle=${encodeURIComponent(biliLikeFavTitle)}&timestamp=${Date.now()}`
+        )
+        if (cancelled || !ok || data?.success === false) return
+        setBiliCollectedMark(
+          data?.collected ? { bvid: biliBvid, folder: biliLikeFavTitle } : null
+        )
+      } catch (err) {
+        console.error('[ListenTogether] B站 收藏状态查询失败:', err)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [biliBvid, biliLikeFavTitle])
+
   useEffect(() => {
     if (!canLike || songId == null) return
     let cancelled = false

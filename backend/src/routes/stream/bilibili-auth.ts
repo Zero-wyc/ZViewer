@@ -1453,6 +1453,61 @@ router.post('/bilibili/fav/collect', async (req: AuthenticatedRequest, res) => {
   }
 });
 
+// 查询视频是否已收藏到指定收藏夹（歌词页一键收藏红心回显）：
+// bvid → aid → folder/created/list-all 带 rid 参数，B站 对每个收藏夹
+// 返回 fav_state=1 表示当前视频已收藏在该夹（B站 web 收藏弹窗同款做法）。
+// 未登录时由 getUserCookie 环节返回 401，前端静默降级不回显。
+router.get('/bilibili/fav/status', async (req: AuthenticatedRequest, res) => {
+  const bvid =
+    typeof req.query?.bvid === 'string' ? req.query.bvid.trim() : '';
+  if (!/^BV[0-9A-Za-z]{10}$/.test(bvid)) {
+    res.status(400).json({ success: false, message: 'BV 号格式无效' });
+    return;
+  }
+  const folderTitle =
+    typeof req.query?.folderTitle === 'string' && req.query.folderTitle.trim()
+      ? req.query.folderTitle.trim()
+      : 'Music';
+  const userId = req.user?.userId;
+  const cookie = (await getUserCookie(userId)) || undefined;
+  if (!cookie) {
+    res.status(401).json({ success: false, message: 'B站 未登录' });
+    return;
+  }
+  try {
+    // 1) bvid → aid
+    const view = await bilibiliFetch<{ aid?: number }>(
+      `https://api.bilibili.com/x/web-interface/view?bvid=${bvid}`,
+      { cookie },
+    );
+    const aid = view.data?.aid;
+    if (!aid) {
+      res.status(404).json({ success: false, message: '视频不存在' });
+      return;
+    }
+    // 2) 目标收藏夹内该视频的收藏状态（rid 参数 → fav_state 生效）
+    const folders = await bilibiliFetch<{
+      list?: Array<{ id: number; title: string; fav_state?: number }> | null;
+    }>(
+      `https://api.bilibili.com/x/v3/fav/folder/created/list-all?rid=${aid}&type=2&up_mid=${extractMidFromCookie(cookie) ?? ''}`,
+      { cookie },
+    );
+    const target = folders.data?.list?.find((f) => f.title === folderTitle);
+    res.json({
+      success: true,
+      collected: (target?.fav_state ?? 0) === 1,
+      folderId: target?.id,
+      folderTitle: target?.title ?? folderTitle,
+    });
+  } catch (err) {
+    console.error('[bilibili] fav/status error:', err);
+    res.status(502).json({
+      success: false,
+      message: err instanceof Error ? err.message : '查询收藏状态失败',
+    });
+  }
+});
+
 // B站 相关推荐视频（B站 视频自动连播）：archive/related 公开接口，
 // 按当前视频返回相关推荐列表（含 cid，可直接插播）。
 router.get('/bilibili/related', async (req: AuthenticatedRequest, res) => {
