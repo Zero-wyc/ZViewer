@@ -410,6 +410,24 @@ button.bili-liquid-btn:active:not(:disabled) {
   animation-delay: var(--stagger-delay, 0ms);
 }
 
+/* 顶部通知条入场：从上方滑落（translateY 负位移 → 0），与 stagger-fade-up
+   同参数同 fill 约定；供页面顶缘的提示条使用（从上向下滑入更符合物理直觉） */
+@keyframes zen-notice-drop-in {
+  0% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.zen-notice-drop-in {
+  animation: zen-notice-drop-in 0.4s var(--ease-out-expo) backwards;
+  animation-delay: var(--stagger-delay, 0ms);
+}
+
 /* ---------- 列表项进入/退出 ---------- */
 @keyframes zen-item-enter {
   0% {
@@ -1227,6 +1245,7 @@ button.bili-liquid-btn:active:not(:disabled) {
    - 仅保留基础 opacity 淡入
    ===================================================== */
 [data-reduced-motion='true'] .zen-stagger-fade-up,
+[data-reduced-motion='true'] .zen-notice-drop-in,
 [data-reduced-motion='true'] .zen-item-enter,
 [data-reduced-motion='true'] .zen-dropdown-item,
 [data-reduced-motion='true'] .zen-comment-enter,

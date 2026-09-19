@@ -2292,7 +2292,7 @@ function ListenTogetherInner({
         )}
         {syncNotice && (
           <div
-            className="zen-stagger-fade-up pointer-events-auto flex items-center gap-2.5 rounded-[14px] border py-2 pl-3.5 pr-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
+            className="zen-notice-drop-in pointer-events-auto flex items-center gap-2.5 rounded-[14px] border py-2 pl-3.5 pr-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
             style={{
               backgroundColor: 'rgba(8, 8, 8, 0.72)',
               backdropFilter: 'blur(28px)',
