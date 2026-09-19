@@ -401,6 +401,8 @@ function PlayerSettingsModal({
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
+  /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
+  const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -714,6 +716,37 @@ function PlayerSettingsModal({
                     : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
                   : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
               </div>
+              {/* 分辨率选择（仅 CLI 已连接时生效）：变更即重解析视频背景；
+                  实际档位受账号大会员权限限制，超出时 B站 自动降档 */}
+              {musicVideoCli && cliAvailable && (
+                <div className="mt-2 flex items-center justify-between gap-2">
+                  <span className="text-[10px] font-semibold text-white/70">
+                    分辨率
+                  </span>
+                  <select
+                    value={musicVideoQn}
+                    onChange={(e) =>
+                      setSettings({ musicVideoQn: Number(e.target.value) })
+                    }
+                    className="max-w-[60%] flex-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white outline-none transition-colors hover:bg-white/15 focus:bg-white/15"
+                    style={{
+                      border: '0.5px solid rgba(255, 255, 255, 0.2)',
+                      colorScheme: 'dark',
+                    }}
+                    title="视频背景清晰度（实际档位受账号权限限制）"
+                  >
+                    <option value={0}>自动（跟随账号）</option>
+                    <option value={120}>4K 超清</option>
+                    <option value={116}>1080P 60帧</option>
+                    <option value={112}>1080P 高码率</option>
+                    <option value={80}>1080P 高清</option>
+                    <option value={74}>720P 60帧</option>
+                    <option value={64}>720P 高清</option>
+                    <option value={32}>480P 清晰</option>
+                    <option value={16}>360P 流畅</option>
+                  </select>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={openCliSetup}
@@ -1256,6 +1289,8 @@ function ListenTogetherInner({
   // 关联时，解析（默认 720P 直链 / CLI 开启时高画质 DASH）后作为静音背景
   // 铺满播放器，跟随音乐播放/暂停；B站 本地插播曲目直接用其视频作背景 =====
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
+  /** CLI 高画质分辨率（qn，0=自动）：仅 CLI 路径生效，变更即重解析 */
+  const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -1348,7 +1383,8 @@ function ListenTogetherInner({
     isBiliSong ? null : (songId ?? null),
     musicVideoCli,
     isBiliSong ? (currentSong?.biliBvid ?? null) : null,
-    currentSong?.biliCid ?? 0
+    currentSong?.biliCid ?? 0,
+    musicVideoQn
   )
   const bgVideoRef = useRef<HTMLVideoElement | null>(null)
 
@@ -1384,6 +1420,9 @@ function ListenTogetherInner({
       format: musicVideoBg.source.format,
       videoCodec: musicVideoBg.source.videoCodec,
       audioCodec: musicVideoBg.source.audioCodec,
+      // DASH 流容器时长不可靠：显式传给引擎写 MPD duration，
+      // 缺失时 video.duration 无效、背景视频进度同步失效
+      duration: musicVideoBg.source.duration,
     })
   }, [musicVideoBg.status, musicVideoBg.source, attachBgSource])
 

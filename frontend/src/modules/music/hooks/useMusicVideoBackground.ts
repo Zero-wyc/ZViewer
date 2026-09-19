@@ -37,6 +37,12 @@ export interface MusicVideoSource {
   format?: 'mp4' | 'dash'
   videoCodec?: string
   audioCodec?: string
+  /**
+   * 视频时长（秒，来自解析结果）。DASH 流的容器 mvhd 时长为 0/缺失，
+   * 引擎（DashPlayer）以此写 MPD mediaPresentationDuration——缺失时
+   * video.duration 无效（0/Infinity），背景视频的进度同步会全部失效
+   */
+  duration?: number
 }
 
 export type MusicVideoBgStatus =
@@ -61,7 +67,9 @@ export function useMusicVideoBackground(
    * 优先级高于 songId 的本地绑定（bili 存在时忽略绑定查询）
    */
   biliBvid: string | null = null,
-  biliCid = 0
+  biliCid = 0,
+  /** CLI 高画质分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 路径生效） */
+  qn = 0
 ): MusicVideoBackgroundState {
   // 关联变化（弹窗保存/删除）即时感知：外部 store 快照经 useSyncExternalStore
   // 订阅（getMusicVideo 引用稳定，见 musicVideoStore 的解析缓存）
@@ -111,7 +119,7 @@ export function useMusicVideoBackground(
             proxyUrl,
             binding.bvid,
             binding.cid,
-            undefined,
+            qn > 0 ? qn : undefined,
             false,
             true
           )
@@ -121,6 +129,9 @@ export function useMusicVideoBackground(
             format: (r.format as MusicVideoSource['format']) ?? 'dash',
             videoCodec: r.videoCodec,
             audioCodec: r.audioCodec,
+            // DASH 流容器时长不可靠：显式传给引擎写 MPD duration，
+            // 否则 video.duration 无效、背景视频进度同步全部失效
+            duration: r.duration,
           }
           via = 'cli'
         } else {
@@ -141,6 +152,7 @@ export function useMusicVideoBackground(
             format: (r.format as MusicVideoSource['format']) ?? 'mp4',
             videoCodec: r.videoCodec,
             audioCodec: r.audioCodec,
+            duration: r.duration,
           }
           via = 'server'
         }
@@ -160,7 +172,7 @@ export function useMusicVideoBackground(
     return () => {
       cancelled = true
     }
-  }, [songId, binding, cliEnabled])
+  }, [songId, binding, cliEnabled, qn])
 
   return state
 }

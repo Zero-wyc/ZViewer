@@ -74,6 +74,12 @@ export interface MusicSettings {
    * 服务器端解析的 720P MP4 直链
    */
   musicVideoCli: boolean
+  /**
+   * 视频背景 CLI 分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 高画质开启且
+   * 本地代理已连接时生效）：120=4K / 116=1080P60 / 112=1080P 高码率 /
+   * 80=1080P / 74=720P60 / 64=720P / 32=480P / 16=360P
+   */
+  musicVideoQn: number
   /** 视频背景画面适配：contain 完整显示（默认，黑边由模糊封面填充）/
    *  cover 裁切铺满（超出部分裁掉）/ fill 拉伸填充（拉伸铺满可能变形） */
   bgVideoFit: 'contain' | 'cover' | 'fill'
@@ -139,6 +145,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   rlyricSize: 12,
   lyricInterlude: 13,
   musicVideoCli: false,
+  musicVideoQn: 0,
   bgVideoFit: 'contain',
   videoBlurLevel: 0,
   uiOpacity: 100,
