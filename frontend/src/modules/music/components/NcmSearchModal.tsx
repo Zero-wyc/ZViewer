@@ -11,7 +11,8 @@
  *   试听 = 本地 Audio 播放 /api/music/stream（standard 音质；不进房间
  *   队列、不打扰一起听的其他人）；收藏 = 直接加入当前登录网易云账号的
  *   「我喜欢的音乐」（用户歌单中 specialType===5 或名称匹配，走
- *   /playlist/tracks op=add，不弹歌单选择面板；未登录/未找到时提示）
+ *   /playlist/tracks op=add，不弹歌单选择面板；未登录/未找到时提示；
+ *   已红心歌曲显示红心（打开时 /likelist 静默回显 + 收藏成功即时点亮）
  * - 视觉：黑底 + 高斯模糊（歌词页设置弹窗同语言，四角白色方块点缀），
  *   屏幕居中锚定——展开动画（cloud-add-in 宽→高两段式 + 标题/水印分级
  *   淡入）以面板中心为原点向四周舒展，内容同样延后到展开结束再挂载
@@ -112,6 +113,8 @@ export function NcmSearchModal({
   const auditionRef = useRef<HTMLAudioElement | null>(null)
   /** 正在收藏的歌曲 id（行内 busy 态，防重复点击） */
   const [favBusyId, setFavBusyId] = useState<number | null>(null)
+  /** 已红心歌曲 id 集（null = 未加载/加载失败：未登录等场景静默不回显） */
+  const [likedIds, setLikedIds] = useState<Set<number> | null>(null)
   /** 搜索竞态序号（过期响应丢弃） */
   const searchSeqRef = useRef(0)
 
@@ -157,6 +160,26 @@ export function NcmSearchModal({
     }
   }, [])
 
+  /** 拉取当前账号红心列表（/likelist；未登录/失败静默——回显是辅助能力，
+   *  不因它打扰主流程；uid 从 /user/account 取） */
+  const loadLikedIds = useCallback(async () => {
+    try {
+      const acc = await apiGet<{ account?: { id?: number } }>(
+        `/api/music/ncm/user/account?timestamp=${Date.now()}`
+      )
+      const uid = acc?.data?.account?.id
+      if (!uid) return
+      const res = await apiGet<{ ids?: number[] }>(
+        `/api/music/ncm/likelist?uid=${uid}&timestamp=${Date.now()}`
+      )
+      if (Array.isArray(res?.data?.ids)) {
+        setLikedIds(new Set(res.data.ids))
+      }
+    } catch (err) {
+      console.error('[NcmSearchModal] 红心列表获取失败:', err)
+    }
+  }, [])
+
   // 打开（上升沿）：提取歌名 → 填关键词 → 自动搜索。
   // 仅在 open false→true 的瞬间初始化——open 期间 sourceTitle 变化（如
   // 自动连播切歌）不重跑，避免清掉用户已输入的关键词；初始化走
@@ -170,13 +193,14 @@ export function NcmSearchModal({
       setKeyword(kw)
       setUnfoldDone(false)
       if (kw) void runSearch(kw)
+      void loadLikedIds()
     }, 0)
     return () => {
       clearTimeout(timer)
       // StrictMode 双挂载 / 依赖变化重跑时复位标记，保证初始化必然执行
       wasOpenRef.current = false
     }
-  }, [open, sourceTitle, runSearch])
+  }, [open, sourceTitle, runSearch, loadLikedIds])
 
   // 关闭：复位 + 停试听（setTimeout(0) 规避 effect 内同步 setState）
   useEffect(() => {
@@ -187,6 +211,7 @@ export function NcmSearchModal({
       setResults([])
       setSearched(false)
       setFavBusyId(null)
+      setLikedIds(null)
     }, 0)
     return () => clearTimeout(timer)
   }, [open, stopAudition])
@@ -253,6 +278,12 @@ export function NcmSearchModal({
           message.success(
             code === 502 ? '已在我喜欢的音乐中' : '已添加到我喜欢的音乐'
           )
+          // 回显红心（502 = 本就已在喜欢列表，同样点亮）
+          setLikedIds((prev) => {
+            const next = new Set(prev ?? [])
+            next.add(song.songId)
+            return next
+          })
         } else {
           message.error('收藏失败')
         }
@@ -406,6 +437,7 @@ export function NcmSearchModal({
             {unfoldDone &&
               results.map((song) => {
                 const auditioning = auditionId === song.songId
+                const liked = likedIds?.has(song.songId) ?? false
                 return (
                   <div
                     key={song.songId}
@@ -468,14 +500,24 @@ export function NcmSearchModal({
                         type="button"
                         disabled={favBusyId != null}
                         onClick={() => void favoriteToLiked(song)}
-                        className="flex h-6 w-6 items-center justify-center rounded text-white transition-colors hover:bg-white/15 disabled:opacity-60"
-                        title="收藏到我喜欢的音乐"
-                        aria-label="收藏到我喜欢的音乐"
+                        className={cn(
+                          'flex h-6 w-6 items-center justify-center rounded transition-colors hover:bg-white/15 disabled:opacity-60',
+                          liked ? 'text-[#ff4757]' : 'text-white'
+                        )}
+                        title={
+                          liked ? '已在我喜欢的音乐中' : '收藏到我喜欢的音乐'
+                        }
+                        aria-label={
+                          liked ? '已在我喜欢的音乐中' : '收藏到我喜欢的音乐'
+                        }
                       >
                         {favBusyId === song.songId ? (
                           <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Heart className="h-3.5 w-3.5" />
+                          <Heart
+                            className="h-3.5 w-3.5"
+                            fill={liked ? 'currentColor' : 'none'}
+                          />
                         )}
                       </button>
                     </span>
