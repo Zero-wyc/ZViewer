@@ -93,13 +93,14 @@ export function MusicSideDock({
         }}
       />
 
-      {/* 悬浮侧边栏：三面板纵向堆叠同时可见（各自高度上限 + 容器滚动兜底） */}
+      {/* 悬浮侧边栏：三面板纵向堆叠同时可见（各自高度上限 + 容器滚动兜底）。
+          毛玻璃：半透明底 + backdrop 高斯模糊（移动端经 lt-blur-surface 降档 8px） */}
       <aside
         aria-hidden={!open}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         className={cn(
-          'fixed right-1.5 top-1/2 z-[45] flex w-[344px] max-w-[calc(100vw-1.5rem)] -translate-y-1/2 flex-col overflow-hidden',
+          'lt-blur-surface fixed right-1.5 top-1/2 z-[45] flex w-[344px] max-w-[calc(100vw-1.5rem)] -translate-y-1/2 flex-col overflow-hidden',
           'rounded-[var(--md-sys-shape-corner)] transition-all duration-300',
           open
             ? 'pointer-events-auto translate-x-0 opacity-100'
@@ -108,7 +109,9 @@ export function MusicSideDock({
         style={{
           maxHeight: 'min(760px, calc(100vh - 100px))',
           backgroundColor:
-            'color-mix(in srgb, var(--md-sys-color-surface-container) 94%, transparent)',
+            'color-mix(in srgb, var(--md-sys-color-surface-container) 55%, transparent)',
+          backdropFilter: 'blur(16px)',
+          WebkitBackdropFilter: 'blur(16px)',
           border:
             '1px solid color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.25)',
