@@ -946,6 +946,7 @@ function PlayerProgressBar({
   currentKey,
   seekLock,
   onSeek,
+  onRequestSeek,
 }: {
   durationSec: number
   canControl: boolean
@@ -954,6 +955,8 @@ function PlayerProgressBar({
   seekLock: { key: string | null; sec: number } | null
   /** 执行 seek 并挂等位锁（父级实现：seek + setSeekLock） */
   onSeek: (sec: number) => void
+  /** 观众 seek 申请路径（可选；缺省时进度条观众只读） */
+  onRequestSeek?: (sec: number) => void
 }) {
   const positionSec = usePlaybackPosition(0.25)
   const progressRef = useRef<HTMLDivElement>(null)
@@ -986,7 +989,8 @@ function PlayerProgressBar({
   )
 
   /**
-   * 拖动进度（仅 canControl；观众只读展示）。
+   * 拖动进度（canControl 直接 seek；观众走 onRequestSeek 申请——
+   * 房主「自动通过」开启时立即生效，关闭时转左上角审批）。
    * Hydrogen vue-slider 模式复刻：拖动态 animateTime=0（即时跟手、无
    * transition 门），松手后外部值变化以 0.5s ease 平滑重定向（对应
    * :duration=0.5 与组件默认缓动）；松手 seek 后由 seek 等位锁托住展示
@@ -994,7 +998,8 @@ function PlayerProgressBar({
    */
   const handleProgressPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!canControl || durationSec <= 0) return
+      if (durationSec <= 0) return
+      if (!canControl && !onRequestSeek) return
       e.preventDefault()
       e.stopPropagation()
       setDragPreviewSec(computeTimeFromClientX(e.clientX))
@@ -1004,7 +1009,9 @@ function PlayerProgressBar({
       const handleUp = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
-        onSeek(computeTimeFromClientX(ev.clientX))
+        const target = computeTimeFromClientX(ev.clientX)
+        if (canControl) onSeek(target)
+        else onRequestSeek?.(target)
         // 松手即清预览：等位锁接管展示值（锁定在 seek 目标），
         // 实际进度追上后以 0.5s ease 平滑恢复跟播
         setDragPreviewSec(null)
@@ -1012,7 +1019,7 @@ function PlayerProgressBar({
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
     },
-    [canControl, durationSec, onSeek, computeTimeFromClientX]
+    [canControl, onRequestSeek, durationSec, onSeek, computeTimeFromClientX]
   )
 
   return (
@@ -1024,14 +1031,20 @@ function PlayerProgressBar({
       <div
         ref={progressRef}
         role="slider"
-        aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
+        aria-label={
+          canControl
+            ? '播放进度'
+            : onRequestSeek
+              ? '播放进度（拖动将向房主申请调节）'
+              : '播放进度（仅房主可拖动）'
+        }
         aria-valuemin={0}
         aria-valuemax={Math.round(durationSec)}
         aria-valuenow={Math.round(positionSec)}
-        aria-disabled={!canControl}
+        aria-disabled={!canControl && !onRequestSeek}
         className={cn(
           'touch-slider relative mt-[max(1vh,6px)] h-[max(1.3vh,6px)]',
-          canControl && 'cursor-pointer'
+          (canControl || onRequestSeek) && 'cursor-pointer'
         )}
         style={{
           boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
@@ -1880,12 +1893,26 @@ function ListenTogetherInner({
     else requestControl('prev')
   }, [canControl, prev, requestControl])
 
-  /** 歌词行 seek（观众无控制权时不可用，与进度条一致；同样挂等位锁防回跳） */
+  /**
+   * 观众 seek 申请：本地只挂等位锁托住展示值（不真 seek 本地音频），
+   * 实际跳转由房主端执行——「自动通过」开启时立即执行并广播对齐，
+   * 关闭时走左上角审批条；等位锁 2s 超时兜底回落实际进度。
+   */
+  const handleViewerSeek = useCallback(
+    (time: number) => {
+      setSeekLock({ key: currentKey, sec: time })
+      requestControl('seek', time)
+    },
+    [currentKey, requestControl]
+  )
+
+  /** 歌词行 seek（房主直接控制；观众转为 seek 申请，同样挂等位锁防回跳） */
   const handleLyricSeek = useCallback(
     (time: number) => {
       if (canControl) performSeekWithLock(time)
+      else handleViewerSeek(time)
     },
-    [canControl, performSeekWithLock]
+    [canControl, performSeekWithLock, handleViewerSeek]
   )
 
   /** 播放模式轮换（仅房主，切换后广播同步） */
@@ -2930,6 +2957,7 @@ function ListenTogetherInner({
                     currentKey={currentKey}
                     seekLock={seekLock}
                     onSeek={performSeekWithLock}
+                    onRequestSeek={handleViewerSeek}
                   />
 
                   {/* 音频可视化（设置：音频可视化 → 真实频谱于进度条下方；

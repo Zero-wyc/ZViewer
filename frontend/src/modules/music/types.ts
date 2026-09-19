@@ -89,9 +89,12 @@ export interface MusicSyncState {
 export interface MusicControlRequest {
   /**
    * 申请的动作；addQueue = 观众申请添加音频到播放队列（房主端按
-   * 「自动通过」开关决定代理入队或拒绝）
+   * 「自动通过」开关决定代理入队或拒绝）；seek = 观众申请调节播放
+   * 进度（自动通过时房主端直接执行并应答，否则走审批）
    */
-  action: 'pause' | 'play' | 'next' | 'prev' | 'addQueue'
+  action: 'pause' | 'play' | 'next' | 'prev' | 'addQueue' | 'seek'
+  /** seek 申请的目标进度（秒） */
+  positionSec?: number
   /** addQueue 申请携带的入队条目（B站/网易云元数据） */
   item?: {
     songId: number

@@ -93,7 +93,7 @@ export function MusicWidgetBar() {
   const setPage = useMusicStore((s) => s.setPage)
   const loginStatus = useMusicStore((s) => s.loginStatus)
 
-  // ===== 进度条（细滑块；canControl 可拖动 seek，观众只读展示） =====
+  // ===== 进度条（细滑块；canControl 可拖动 seek，观众拖动转为 seek 申请） =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
   const progressRatio =
     durationSec > 0 ? Math.min(1, Math.max(0, positionSec / durationSec)) : 0
@@ -112,7 +112,8 @@ export function MusicWidgetBar() {
   )
 
   /**
-   * 拖动进度（仅 canControl；观众只读展示）。
+   * 拖动进度（canControl 直接 seek；观众走 seek 申请——房主「自动通过」
+   * 开启时立即生效，关闭时转房主审批）。
    * Hydrogen「广播值—实际值分离 + 松手才 transition」模式：拖动期间只更新
    * 本地预览值（进度条即时跟手、宽度无过渡），松手后才真 seek，随后位置值
    * 变化以 0.5s transition 平滑补间（对应 vue-slider :duration=0.5）。
@@ -120,7 +121,7 @@ export function MusicWidgetBar() {
   const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
   const handleProgressPointerDown = useCallback(
     (e: React.PointerEvent) => {
-      if (!canControl || durationSec <= 0) return
+      if (durationSec <= 0) return
       e.preventDefault()
       e.stopPropagation()
       setDragPreviewSec(computeTimeFromClientX(e.clientX))
@@ -130,14 +131,16 @@ export function MusicWidgetBar() {
       const handleUp = (ev: PointerEvent) => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
-        seek(computeTimeFromClientX(ev.clientX))
+        const target = computeTimeFromClientX(ev.clientX)
+        if (canControl) seek(target)
+        else requestControl('seek', target)
         // 松手即清预览：宽度从拖动终点以 0.5s transition 平滑到 seek 值
         setDragPreviewSec(null)
       }
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
     },
-    [canControl, durationSec, seek, computeTimeFromClientX]
+    [canControl, durationSec, seek, requestControl, computeTimeFromClientX]
   )
 
   // ===== 控制按钮（观众点击走申请，房主/房主离线 canControl 直接控制） =====
