@@ -955,6 +955,111 @@ export function useListenTogether({
     [computeTargetSong, loadAndPlaySong, broadcastSyncState]
   )
 
+  /**
+   * B站 推荐续播（用户在队列末尾主动点「下一首」时触发，仅房主/拥有
+   * 控制权路径调用）：当前为 B站 条目时拉相关推荐前 3 条（与「自动推荐」
+   * 同管线去重、afterCurrent 入队），成功后直接续播第一条推荐。
+   * 无可加推荐（拉取失败 / 均已在队列中 / 入队失败）时回落
+   * switchSong('next') —— order 模式末尾返回 null，自然停止、不回绕到
+   * 队列开头（旧实现 `biliList[curIdx + 1] ?? biliList[0]` 的回绕问题）。
+   */
+  const handleBiliContinue = useCallback(async (): Promise<void> => {
+    const currentSocket = socketRef.current
+    const currentRoomId = roomIdRef.current
+    const state = useMusicStore.getState()
+    const current = state.currentKey
+      ? state.queue.find((q) => musicItemKey(q) === state.currentKey)
+      : undefined
+    if (!currentSocket || !currentRoomId || !current?.biliBvid) {
+      switchSong('next')
+      return
+    }
+    let fresh: BiliRelatedItem[]
+    try {
+      fresh = await fetchBiliRecs(current.biliBvid)
+    } catch (err) {
+      // 失败不打扰用户（静默回落自然停止），仅留诊断日志
+      console.error('[useListenTogether] 推荐续播拉取 B站 推荐失败:', err)
+      fresh = []
+    }
+    if (fresh.length === 0) {
+      switchSong('next')
+      return
+    }
+    // 倒序逐条 afterCurrent 入队 → 最终顺序与推荐一致、紧跟当前曲目
+    let added = 0
+    for (const r of [...fresh].reverse()) {
+      const ok = await new Promise<boolean>((resolve) => {
+        currentSocket.emit(
+          'music:queue-upsert',
+          {
+            roomId: currentRoomId,
+            item: biliRecToUpsertItem(r),
+            afterCurrent: true,
+          },
+          (res: { success?: boolean }) => resolve(res?.success !== false)
+        )
+      })
+      if (ok) added++
+    }
+    if (added === 0) {
+      switchSong('next')
+      return
+    }
+    useMusicStore.getState().markBiliRecommended(fresh.map(biliRecKey))
+    // 直接续播第一条推荐（key 为 bili:<bvid>:<cid>，与入队条目一致，
+    // 后续 queue-changed 广播 / 心跳同步均按 key 对齐）；封面直链代理化
+    const first = fresh[0]
+    const item: MusicQueueItem = {
+      id: -1,
+      roomId: '',
+      songId: 0,
+      name: first.title,
+      artist: first.upName || '哔哩哔哩',
+      album: '',
+      cover: isBilibiliImageUrl(first.pic)
+        ? buildBilibiliImageProxyUrl(first.pic)
+        : first.pic,
+      durationMs: Math.round((first.duration || 0) * 1000),
+      vip: false,
+      order: 0,
+      addedBy: '',
+      biliBvid: first.bvid,
+      biliCid: first.cid ?? 0,
+    }
+    loadAndPlaySong(item, 0, true)
+    if (isHostRef.current) {
+      broadcastSyncState({
+        keyOverride: biliRecKey(first),
+        isPlaying: true,
+        positionSec: 0,
+      })
+    }
+    message.info(`已自动播放相关推荐：${first.title}`)
+  }, [switchSong, loadAndPlaySong, broadcastSyncState])
+
+  /**
+   * 「下一首」到队列末尾时的推荐续播判定：按顺序播放 + 当前 B站 条目 +
+   * 「B站视频自动连播」开启时触发 handleBiliContinue（拉 3 首推荐入队并
+   * 续播）。仅用户主动点「下一首」的路径调用——曲目自然播完（ended）
+   * 不触发，末尾自然停止。返回是否已触发。
+   */
+  const tryBiliContinueOnNext = useCallback((): boolean => {
+    const state = useMusicStore.getState()
+    const current = state.currentKey
+      ? state.queue.find((q) => musicItemKey(q) === state.currentKey)
+      : undefined
+    if (
+      state.playMode !== 'order' ||
+      !current?.biliBvid ||
+      !useMusicSettingsStore.getState().biliAutoContinue
+    ) {
+      return false
+    }
+    void handleBiliContinue()
+    return true
+  }, [handleBiliContinue])
+
   /** 拥有直接控制权的判定（房主或房主离线时的观众） */
   const hasControl = useCallback(
     () => isHostRef.current || useMusicStore.getState().hostOffline,
@@ -989,12 +1094,16 @@ export function useListenTogether({
   const next = useCallback(() => {
     if (!hasControl()) return
     if (!switchSong('next')) {
-      const { playMode } = useMusicStore.getState()
-      if (playMode === 'order') {
-        message.info('队列中无下一首')
+      // 队列末尾：按顺序播放 + B站 条目 + 自动连播开启 → 拉 3 首相关
+      // 推荐入队并续播第一条（用户主动点「下一首」才触发）
+      if (!tryBiliContinueOnNext()) {
+        const { playMode } = useMusicStore.getState()
+        if (playMode === 'order') {
+          message.info('队列中无下一首')
+        }
       }
     }
-  }, [switchSong, hasControl])
+  }, [switchSong, hasControl, tryBiliContinueOnNext])
 
   /** 上一首（按播放模式计算目标） */
   const prev = useCallback(() => {
@@ -1151,7 +1260,8 @@ export function useListenTogether({
           })
           break
         case 'next':
-          switchSong('next')
+          // 观众申请「下一首」经房主执行：队列末尾同样走推荐续播判定
+          if (!switchSong('next')) tryBiliContinueOnNext()
           break
         case 'prev':
           switchSong('prev')
@@ -1173,7 +1283,14 @@ export function useListenTogether({
         }
       }
     },
-    [getAudio, switchSong, broadcastSyncState, seek, playSong]
+    [
+      getAudio,
+      switchSong,
+      broadcastSyncState,
+      seek,
+      playSong,
+      tryBiliContinueOnNext,
+    ]
   )
 
   /**
@@ -1421,91 +1538,6 @@ export function useListenTogether({
     []
   )
 
-  /**
-   * B站 自动连播（按顺序播放 + 「B站视频自动连播」开启，仅房主）：当前
-   * B站 队列条目播完且已是队列末尾时，拉相关推荐（与「自动推荐」同管线
-   * 去重、afterCurrent 入队），成功后直接续播第一条推荐。
-   * 无可加推荐（拉取失败 / 均已在队列中 / 入队失败）时回落
-   * switchSong('next') —— order 模式末尾返回 null，自然停止、不回绕到
-   * 队列开头（旧实现 `biliList[curIdx + 1] ?? biliList[0]` 的回绕问题）。
-   */
-  const handleBiliContinue = useCallback(async (): Promise<void> => {
-    const currentSocket = socketRef.current
-    const currentRoomId = roomIdRef.current
-    const state = useMusicStore.getState()
-    const current = state.currentKey
-      ? state.queue.find((q) => musicItemKey(q) === state.currentKey)
-      : undefined
-    if (!currentSocket || !currentRoomId || !current?.biliBvid) {
-      switchSong('next')
-      return
-    }
-    let fresh: BiliRelatedItem[]
-    try {
-      fresh = await fetchBiliRecs(current.biliBvid)
-    } catch (err) {
-      // 自动连播的后台行为：失败不打扰用户（静默回落自然停止），仅留诊断日志
-      console.error('[useListenTogether] 自动连播拉取 B站 推荐失败:', err)
-      fresh = []
-    }
-    if (fresh.length === 0) {
-      switchSong('next')
-      return
-    }
-    // 倒序逐条 afterCurrent 入队 → 最终顺序与推荐一致、紧跟当前曲目
-    //（与 addBiliRecommendations 房主路径一致；ended 只在房主触发，
-    // 观众端不入队路径不适用）
-    let added = 0
-    for (const r of [...fresh].reverse()) {
-      const ok = await new Promise<boolean>((resolve) => {
-        currentSocket.emit(
-          'music:queue-upsert',
-          {
-            roomId: currentRoomId,
-            item: biliRecToUpsertItem(r),
-            afterCurrent: true,
-          },
-          (res: { success?: boolean }) => resolve(res?.success !== false)
-        )
-      })
-      if (ok) added++
-    }
-    if (added === 0) {
-      switchSong('next')
-      return
-    }
-    useMusicStore.getState().markBiliRecommended(fresh.map(biliRecKey))
-    // 直接续播第一条推荐（key 为 bili:<bvid>:<cid>，与入队条目一致，
-    // 后续 queue-changed 广播 / 心跳同步均按 key 对齐）；封面直链代理化
-    const first = fresh[0]
-    const item: MusicQueueItem = {
-      id: -1,
-      roomId: '',
-      songId: 0,
-      name: first.title,
-      artist: first.upName || '哔哩哔哩',
-      album: '',
-      cover: isBilibiliImageUrl(first.pic)
-        ? buildBilibiliImageProxyUrl(first.pic)
-        : first.pic,
-      durationMs: Math.round((first.duration || 0) * 1000),
-      vip: false,
-      order: 0,
-      addedBy: '',
-      biliBvid: first.bvid,
-      biliCid: first.cid ?? 0,
-    }
-    loadAndPlaySong(item, 0, true)
-    if (isHostRef.current) {
-      broadcastSyncState({
-        keyOverride: biliRecKey(first),
-        isPlaying: true,
-        positionSec: 0,
-      })
-    }
-    message.info(`已自动播放相关推荐：${first.title}`)
-  }, [switchSong, loadAndPlaySong, broadcastSyncState])
-
   /** 曲目自然播完：按播放模式自动切歌（仅房主或房主离线时推进） */
   const handleEnded = useCallback(() => {
     const { playMode, hostOffline } = useMusicStore.getState()
@@ -1528,34 +1560,15 @@ export function useListenTogether({
       return
     }
     if (playMode === 'order') {
-      // 按顺序播放：到队列末尾自然停止不回绕；房主且开启「B站视频自动
-      // 连播」、当前为 B站 队列条目时，先尝试拉相关推荐续播（续播成功
-      // 即结束，未成功回落 switchSong 得到 null 自然停止）
-      const state = useMusicStore.getState()
-      const current = state.currentKey
-        ? state.queue.find((q) => musicItemKey(q) === state.currentKey)
-        : undefined
-      if (
-        isHostRef.current &&
-        current?.biliBvid &&
-        useMusicSettingsStore.getState().biliAutoContinue &&
-        computeTargetSong('next') == null
-      ) {
-        void handleBiliContinue()
-        return
-      }
+      // 按顺序播放：到队列末尾自然停止不回绕。B站 推荐续播只在用户
+      // 主动点「下一首」时触发（next / executeHostAction），自然播完
+      // 不自动加歌
       switchSong('next')
       return
     }
     // 顺序循环 / 随机：切换下一首（各自按规则循环/重洗）
     switchSong('next')
-  }, [
-    getAudio,
-    switchSong,
-    broadcastSyncState,
-    computeTargetSong,
-    handleBiliContinue,
-  ])
+  }, [getAudio, switchSong, broadcastSyncState])
 
   // 音频元素事件绑定：handler 集合元素无关（升格时随元素迁移），此处只做
   // 初始主元素的挂载/卸载；ended 经 endedHandlerRef 间接调用最新实现
