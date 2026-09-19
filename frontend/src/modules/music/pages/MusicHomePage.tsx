@@ -774,12 +774,14 @@ function RecBlock({
   const setPage = useMusicStore((s) => s.setPage)
   const setPendingMyDetail = useMusicStore((s) => s.setPendingMyDetail)
 
-  /** 点击卡片跳转「我的音乐」并打开对应详情（Hydrogen 路由跳转等价） */
+  /** 点击卡片跳转「我的音乐」并打开对应详情（Hydrogen 路由跳转等价）；
+      封面一并带上，详情头大封面即时显示（缺失时详情页会自行回填） */
   const openDetail = (item: RecCardItem) => {
     setPendingMyDetail({
       kind,
       id: item.id,
       name: item.name,
+      cover: item.cover,
     })
     setPage('mymusic')
   }

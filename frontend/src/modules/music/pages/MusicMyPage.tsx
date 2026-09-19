@@ -490,6 +490,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                   createTime?: number
                   creator?: { nickname?: string }
                   description?: string
+                  coverImgUrl?: string
                 }
               }>(`/api/music/ncm/playlist/detail?id=${d.id}`).catch(() => ({
                 data: undefined,
@@ -515,6 +516,16 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               creator: pl?.creator?.nickname,
               description: pl?.description,
             })
+            // 封面兜底：跨页跳转（主页推荐卡片等）可能未携带封面——用
+            // /playlist/detail 的 coverImgUrl 回填详情头 150px 大封面
+            const plCover = pl?.coverImgUrl
+            if (plCover) {
+              setDetail((prev) =>
+                prev && !prev.cover
+                  ? { ...prev, cover: cdnImg(plCover, 300) }
+                  : prev
+              )
+            }
             // ===== 「我喜欢的音乐」红心回退（Hydrogen usePlaylistSync 同源）：
             //       v6/playlist/detail 对 specialType=5 主歌单被网易限制
             //       （trackIds/tracks 为空），offset 分页拿不到任何后续页；
