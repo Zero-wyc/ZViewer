@@ -191,9 +191,9 @@ const PLAY_MODE_META: Record<PlayMode, { label: string; next: string }> = {
   shuffle: { label: '随机播放', next: '切换为顺序循环' },
 }
 
-/** 弹幕开关图标：B站 风格小电视 +「弹」字（天线 + 圆角机身 + 居中字符），
- *  开启时右下角叠 primary 色对勾——参考 B站 客户端弹幕开关造型。
- *  机身/文字走 currentColor 适配工具栏黑白切换，对勾仅 checked 时渲染 */
+/** 弹幕开关图标：与「一起看」播放器控制栏的弹幕开关同款（PlayerControlBar
+ *  DanmakuIcon）——圆角屏幕内带「弹」字，关闭时叠加斜线区分状态。
+ *  checked = 弹幕开启（无斜线）；描边/文字走 currentColor 适配工具栏黑白切换 */
 function DanmakuTvIcon({
   checked,
   className,
@@ -202,51 +202,33 @@ function DanmakuTvIcon({
   className?: string
 }) {
   return (
-    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
-      {/* 天线（左右各一根，向外斜） */}
-      <path
-        d="M7.2 2.6 9.4 5.2M16.8 2.6 14.6 5.2"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-      />
-      {/* 机身 */}
-      <rect
-        x="3.4"
-        y="5.2"
-        width="17.2"
-        height="13.2"
-        rx="3"
-        stroke="currentColor"
-        strokeWidth="1.7"
-      />
-      {/* 「弹」字：纯矢量描边（弓 + 单），不依赖字体度量——<text> 渲染
-          受平台字体影响会偏移出机身中心；字形盒 y 7.8..15.5 / x 6.9..17.4，
-          中心 ≈ (12.15, 11.65) 与机身中心 (12, 11.8) 对齐 */}
-      <g
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {/* 圆角屏幕机身 */}
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      {/* 「弹」字（与一起看同款：text 渲染居中） */}
+      <text
+        x="12"
+        y="16.5"
+        textAnchor="middle"
+        fill="currentColor"
+        stroke="none"
+        fontSize="10"
+        fontWeight="600"
+        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
       >
-        {/* 弓（左偏旁） */}
-        <path d="M6.9 7.8h3.4v3.4h-3.4v3.9h3.4v-1.4" />
-        {/* 单：丷 + 日 + 竖 + 底横 */}
-        <path d="M13.2 7.8l1.0 1.6M16.6 7.8l-1.0 1.6" />
-        <path d="M12.9 9.9h4v3.7h-4zM12.9 11.75h4" />
-        <path d="M12.4 15.5h5.0M14.9 7.8v7.7" />
-      </g>
-      {/* 开启态：右下角对勾（跨出机身一角，主色） */}
-      {checked && (
-        <path
-          d="M14.8 18.4 17 20.6 21.8 15.6"
-          stroke="var(--md-sys-color-primary)"
-          strokeWidth="2.2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
-      )}
+        弹
+      </text>
+      {/* 关闭态：叠加斜线（与一起看同款状态语言） */}
+      {!checked && <line x1="5" y1="5" x2="19" y2="19" />}
     </svg>
   )
 }
