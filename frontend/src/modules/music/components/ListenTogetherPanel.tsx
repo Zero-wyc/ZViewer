@@ -55,6 +55,8 @@ import {
   Search,
   Settings,
   ExternalLink,
+  Maximize,
+  Minimize,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet, apiPost, getApiUrl } from '@/lib/api'
@@ -2003,6 +2005,24 @@ function ListenTogetherInner({
       return next
     })
   }, [])
+  // ===== 全屏切换：对文档根节点请求全屏（播放页打开时即播放页全屏），
+  //  fullscreenchange 监听同步图标状态——Esc 等浏览器侧退出也要跟随 =====
+  const [isFullscreen, setIsFullscreen] = useState(
+    () => document.fullscreenElement != null
+  )
+  useEffect(() => {
+    const onChange = () => setIsFullscreen(document.fullscreenElement != null)
+    document.addEventListener('fullscreenchange', onChange)
+    return () => document.removeEventListener('fullscreenchange', onChange)
+  }, [])
+  const toggleFullscreen = useCallback(() => {
+    if (document.fullscreenElement) {
+      void document.exitFullscreen().catch(() => {})
+    } else {
+      // iOS iPhone Safari 不支持元素全屏：静默失败不弹错
+      void document.documentElement.requestFullscreen().catch(() => {})
+    }
+  }, [])
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const lyricBlurLevel = useMusicSettingsStore((s) => s.lyricBlurLevel)
@@ -2841,6 +2861,20 @@ function ListenTogetherInner({
               >
                 <Contrast className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
               </button>
+              {/* 全屏切换：整个应用进入/退出全屏（Esc 或再点退出） */}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                title={isFullscreen ? '退出全屏' : '全屏'}
+                aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+              >
+                {isFullscreen ? (
+                  <Minimize className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                ) : (
+                  <Maximize className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                )}
+              </button>
               <button
                 type="button"
                 onClick={closePlayerOverlay}
@@ -3296,6 +3330,20 @@ function ListenTogetherInner({
                 aria-label="切换工具栏文字黑白"
               >
                 <Contrast className="h-5 w-5" />
+              </button>
+              {/* 全屏切换：与桌面 song-control 同一状态（iOS 不支持时静默） */}
+              <button
+                type="button"
+                onClick={toggleFullscreen}
+                className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
+                title={isFullscreen ? '退出全屏' : '全屏'}
+                aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+              >
+                {isFullscreen ? (
+                  <Minimize className="h-5 w-5" />
+                ) : (
+                  <Maximize className="h-5 w-5" />
+                )}
               </button>
             </div>
           )}
