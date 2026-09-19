@@ -34,6 +34,7 @@ import { MusicMyPage } from '../pages/MusicMyPage'
 import { MusicCloudPage } from '../pages/MusicCloudPage'
 import { MusicSettingsPage } from '../pages/MusicSettingsPage'
 import { useNcmLogin } from '../hooks/useNcmLogin'
+import { useCliAgent } from '@/hooks/useCliAgent'
 
 export interface MusicAppShellProps {
   socket: Socket | null
@@ -130,6 +131,12 @@ function ShellInner({
   // 挂载点）未打开前无人恢复——导致后端凭据明明存在（个人中心直查显示已登录），
   // 听页面账户菜单/登录门却显示未登录。壳层挂载即恢复，页面内容即可用。
   useNcmLogin()
+
+  // CLI 代理检测常驻壳层：cliAgentStore.agents 只由 useCliAgent 的 socket
+  // 轮询填充，此前唯一挂载点是设置弹窗——刷新后没人轮询，代理列表恒为空，
+  // CLI 高画质永不生效，必须开一次设置面板"重新开关"才恢复。壳层挂载即
+  // 订阅（立即拉取 + 3s 轮询），刷新后 CLI 自动重连
+  useCliAgent(roomId)
 
   const {
     approveControl,
