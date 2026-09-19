@@ -75,12 +75,6 @@ export interface MusicSettings {
    */
   musicVideoCli: boolean
   /**
-   * UI 透明度（元素透明模式，默认关闭）：启用后整个前景 UI 以元素 opacity
-   * 淡出（面板无高斯模糊，旧版行为），「UI 底色透明度」不生效；关闭时
-   * 走底色透明度（面板背景 alpha 缩放，模糊保留）
-   */
-  uiElementFade: boolean
-  /**
    * 视频背景 CLI 分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 高画质开启且
    * 本地代理已连接时生效）：120=4K / 116=1080P60 / 112=1080P 高码率 /
    * 80=1080P / 74=720P60 / 64=720P / 32=480P / 16=360P
@@ -152,7 +146,6 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   lyricInterlude: 13,
   musicVideoCli: false,
   musicVideoQn: 0,
-  uiElementFade: false,
   bgVideoFit: 'contain',
   videoBlurLevel: 0,
   uiOpacity: 100,

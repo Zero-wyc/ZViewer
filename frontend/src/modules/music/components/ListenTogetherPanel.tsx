@@ -386,8 +386,6 @@ function PlayerSettingsModal({
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
-  /** UI 透明度（元素透明模式）：启用时整体元素 opacity 淡出（无模糊） */
-  const uiElementFade = useMusicSettingsStore((s) => s.uiElementFade)
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -614,63 +612,16 @@ function PlayerSettingsModal({
                 onChange={(v) => setSettings({ bgDim: v })}
               />
             </div>
-            {/* UI 透明度（元素透明模式开关）：启用后整个前景 UI 以元素
-              opacity 淡出（面板无高斯模糊，旧版行为），「UI 底色透明度」
-              不生效；关闭（默认）时底色透明度缩放面板背景 alpha（模糊保留） */}
-            <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <span className="min-w-0">
-                <span className="block text-[13px] font-bold text-white">
-                  UI 透明度
-                </span>
-                <span className="block text-[9px] leading-snug text-white/40">
-                  启用后整体元素透明（面板无高斯模糊），底色透明度不生效
-                </span>
-              </span>
-              <div className="grid shrink-0 grid-cols-2 gap-1">
-                <button
-                  type="button"
-                  onClick={() => setSettings({ uiElementFade: false })}
-                  className={cn(
-                    'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
-                    !uiElementFade
-                      ? 'bg-white text-black shadow-sm'
-                      : 'bg-white/10 text-white/60 hover:bg-white/15'
-                  )}
-                >
-                  关闭
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setSettings({ uiElementFade: true })}
-                  className={cn(
-                    'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
-                    uiElementFade
-                      ? 'bg-white text-black shadow-sm'
-                      : 'bg-white/10 text-white/60 hover:bg-white/15'
-                  )}
-                >
-                  启用
-                </button>
-              </div>
-            </div>
-            {/* UI 底色透明度（滑块）：缩放播放卡/歌词面板/提示条的背景
-              alpha，毛玻璃模糊保留；元素透明模式启用时不生效 */}
-            <div
-              className={cn(
-                'px-5 py-3.5',
-                uiElementFade && 'pointer-events-none opacity-40'
-              )}
-            >
+            {/* UI 透明度（滑块）：播放卡/歌词面板作为一个整体图层随滑块
+              淡出（底色+文字一起），面板背后的冰霜层不参与淡出——毛玻璃
+              模糊全程保留（模糊与透明度同时成立的分层方案） */}
+            <div className="px-5 py-3.5">
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-[13px] font-bold text-white">
-                  UI 底色透明度
+                  UI 透明度
                 </span>
                 <span className="text-[12px] font-bold tabular-nums text-white/70">
-                  {uiElementFade
-                    ? '不生效'
-                    : uiOpacity < 100
-                      ? `${uiOpacity}%`
-                      : '默认'}
+                  {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
                 </span>
               </div>
               <TinySlider
@@ -1356,8 +1307,6 @@ function ListenTogetherInner({
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（qn，0=自动）：仅 CLI 路径生效，变更即重解析 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
-  /** UI 透明度（元素透明模式）：启用时整体元素 opacity 淡出（无模糊） */
-  const uiElementFade = useMusicSettingsStore((s) => s.uiElementFade)
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -2364,17 +2313,14 @@ function ListenTogetherInner({
   // 队列（个人插播语义），播放期间 queue 仍为空，此时必须照常渲染主
   // 内容（播放卡 + 歌词 + 视频背景），否则会误显示「还没有歌曲」占位
   const queueEmpty = queue.length === 0 && currentSong == null
-  /** 前景 UI 整体透明度（设置：UI 透明度 %，30-100；非法值回退不透明） */
+  /** 前景 UI 整体透明度（设置：UI 透明度 %，30-100；非法值回退不透明）。
+   *  播放卡/歌词面板为「冰霜层 + UI 图层」分层结构：淡出只作用于 UI
+   *  图层（底色+内容一起），冰霜层的 backdrop 模糊不参与——模糊与
+   *  透明度同时成立（见播放卡渲染处的分层注释） */
   const uiFade =
     Number.isFinite(uiOpacity) && uiOpacity > 0
       ? Math.min(1, Math.max(0.3, uiOpacity / 100))
       : 1
-  /**
-   * 元素透明模式（设置「UI 透明度」开关，默认关）：启用时整个前景 UI 以
-   * 元素 opacity 淡出——面板无高斯模糊（旧版行为），「UI 底色透明度」
-   * 不生效；关闭（默认）时走底色透明度（背景 alpha 缩放，模糊保留）
-   */
-  const elementFade = uiElementFade && uiFade < 1
   const songName = currentSong?.name ?? '一起听'
   const artist = currentSong?.artist ?? ''
 
@@ -2397,10 +2343,8 @@ function ListenTogetherInner({
   return (
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
-      // 元素透明模式下底色透明度不生效：alpha 固定 1（模糊本就无要求）
-      style={
-        { '--lt-ui-alpha': elementFade ? 1 : uiFade } as React.CSSProperties
-      }
+      // 提示条黑底 alpha 跟随滑块（zen-notice-bar 内 calc 引用）
+      style={{ '--lt-ui-alpha': uiFade } as React.CSSProperties}
     >
       {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
           毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
@@ -2598,9 +2542,6 @@ function ListenTogetherInner({
           'pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3',
           immersive && 'invisible'
         )}
-        // 元素透明模式：整体元素 opacity 淡出（面板无模糊，旧版行为）；
-        // 底色透明度模式：不淡出（提示条黑底 alpha 已随 --lt-ui-alpha 缩放）
-        style={elementFade ? { opacity: uiFade } : undefined}
       >
         {hostOffline && !canControl && (
           <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
@@ -2694,10 +2635,6 @@ function ListenTogetherInner({
           style={
             {
               '--lt-card-w': 'clamp(280px, 42vh, 480px)',
-              // 元素透明模式：整体元素 opacity 淡出（面板无高斯模糊，
-              // 旧版行为）；底色透明度模式不加 opacity（背景 alpha 已由
-              // 根容器 --lt-ui-alpha 缩放，毛玻璃模糊保留）
-              ...(elementFade ? { opacity: uiFade } : null),
             } as React.CSSProperties
           }
         >
@@ -3135,239 +3072,255 @@ function ListenTogetherInner({
               </button>
             </div>
 
-            {/* 内层 .player：半透明白卡（Hydrogen rgba(255,255,255,0.35) 的 M3 主题
-                适配）+ backdrop 模糊（移动端经 lt-blur-surface 降档）+ 内容裁剪
-                （动画期间内容不外溢） */}
-            <div
-              className="lt-blur-surface relative flex h-full w-full flex-col overflow-hidden"
-              style={{
-                // UI 透明度：以背景 alpha 缩放实现（--lt-ui-alpha 由根容器
-                // 注入）——不能用元素 opacity，那会让本层成为 Backdrop Root
-                // 丢失自身 backdrop 模糊
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-surface) calc(45% * var(--lt-ui-alpha, 1)), transparent)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-              }}
-            >
-              {/* 封面（max-height 38vh + 轻阴影）+ L 形角标内缩动画；
-                  竖屏手机限高防吃掉控制区 */}
-              <div className="relative shrink-0 p-[max(1.5vh,10px)]">
+            {/* 内层 .player 两层结构（毛玻璃 + 透明度解耦）：
+                ① 冰霜层——常驻满强度 backdrop 模糊（不随 UI 透明度淡出），
+                   负责把页面背景模糊成不透明的「磨砂底」；
+                ② UI 图层——面板底色 + 全部内容作为一个整体图层，随 UI
+                   透明度整体淡出。图层背后是冰霜层（已模糊画面），淡出
+                   永远不会露出锐利背景 → 模糊与透明度同时成立 */}
+            <div className="relative flex h-full w-full flex-col overflow-hidden">
+              <div
+                aria-hidden="true"
+                className="lt-blur-surface absolute inset-0"
+                style={{
+                  backdropFilter: 'blur(12px)',
+                  WebkitBackdropFilter: 'blur(12px)',
+                }}
+              />
+              <div
+                className="relative flex h-full w-full flex-col"
+                style={uiFade < 1 ? { opacity: uiFade } : undefined}
+              >
                 <div
-                  className="relative overflow-hidden"
-                  style={{ boxShadow: '0 0 8px 0 rgba(0, 0, 0, 0.05)' }}
-                >
-                  {cover ? (
-                    <img
-                      src={cover}
-                      alt={currentSong?.name ?? ''}
-                      className={cn(
-                        'block w-full object-cover',
-                        // B站歌 + 正方形设置：封面居中裁剪呈正方形显示
-                        //（网易云封面本就是正方形，不受此项影响）
-                        isBiliSong &&
-                          biliCoverShape === 'square' &&
-                          'aspect-square'
-                      )}
+                  className="absolute inset-0"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+                  }}
+                />
+                {/* 封面（max-height 38vh + 轻阴影）+ L 形角标内缩动画；
+                  竖屏手机限高防吃掉控制区 */}
+                <div className="relative shrink-0 p-[max(1.5vh,10px)]">
+                  <div
+                    className="relative overflow-hidden"
+                    style={{ boxShadow: '0 0 8px 0 rgba(0, 0, 0, 0.05)' }}
+                  >
+                    {cover ? (
+                      <img
+                        src={cover}
+                        alt={currentSong?.name ?? ''}
+                        className={cn(
+                          'block w-full object-cover',
+                          // B站歌 + 正方形设置：封面居中裁剪呈正方形显示
+                          //（网易云封面本就是正方形，不受此项影响）
+                          isBiliSong &&
+                            biliCoverShape === 'square' &&
+                            'aspect-square'
+                        )}
+                        style={{
+                          maxHeight: isPortraitMobile
+                            ? 'min(36dvh, 320px)'
+                            : '38vh',
+                        }}
+                      />
+                    ) : (
+                      <div
+                        className="flex aspect-square w-full items-center justify-center"
+                        style={{
+                          backgroundColor:
+                            'var(--md-sys-color-surface-container-high)',
+                        }}
+                      >
+                        <Music
+                          className="h-10 w-10 opacity-40"
+                          style={{
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  {/* 封面四角括号（Hydrogen Player.vue .c-border1..4：L 形，
+                    各角独立贴合动画；终态相对卡边内缩 1vh，与毛玻璃边缘留出间隙；
+                    max() 保底横屏矮窗口可见性） */}
+                  <span
+                    className="c-border-in-tl pointer-events-none absolute left-[max(1vh,5px)] top-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-l-2 border-t-2"
+                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="c-border-in-tr pointer-events-none absolute right-[max(1vh,5px)] top-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-r-2 border-t-2"
+                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="c-border-in-br pointer-events-none absolute bottom-[max(1vh,5px)] right-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-b-2 border-r-2"
+                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                    aria-hidden="true"
+                  />
+                  <span
+                    className="c-border-in-bl pointer-events-none absolute bottom-[max(1vh,5px)] left-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-b-2 border-l-2"
+                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
+                    aria-hidden="true"
+                  />
+                </div>
+
+                {/* 歌曲信息：歌名（黑块滑入遮字 + 跑马灯）+ 歌手（小方点 + 名） */}
+                <div className="shrink-0 px-[max(1.5vh,10px)] pt-[max(1vh,6px)]">
+                  {/* 歌名行（Hydrogen .info-music:first-child：pb 1.2vh + overflow 隐藏；
+                    双击加入播放队列——网易云歌弹顶部提示/确认） */}
+                  <div
+                    className="relative min-w-0 overflow-hidden pb-[max(1.2vh,7px)]"
+                    onDoubleClick={handleSongNameDoubleClick}
+                    title="双击添加到播放队列"
+                  >
+                    <div
+                      className={cn('min-w-0', songSwitching && 'opacity-0')}
+                    >
+                      <OverflowMarquee
+                        text={songName}
+                        className="pl-[max(1.5vh,10px)] text-[max(2.4vh,15px)] font-bold leading-[max(2.9vh,20px)] text-[var(--md-sys-color-on-surface)]"
+                      />
+                    </div>
+                    {/* 黑色滑块：默认藏在左侧（露 5px 竖条，Hydrogen music-name-lable
+                      原版样式；文字缩进 1.5vh 与竖条留出间隙），切歌时滑入遮住整行 */}
+                    <span
+                      aria-hidden="true"
+                      className="absolute left-0 top-0 h-[max(2.9vh,20px)] w-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.12,1)]"
                       style={{
-                        maxHeight: isPortraitMobile
-                          ? 'min(36dvh, 320px)'
-                          : '38vh',
+                        backgroundColor: 'var(--md-sys-color-on-surface)',
+                        transform: songSwitching
+                          ? 'translateX(0)'
+                          : 'translateX(calc(-100% + 5px))',
                       }}
                     />
-                  ) : (
-                    <div
-                      className="flex aspect-square w-full items-center justify-center"
-                      style={{
-                        backgroundColor:
-                          'var(--md-sys-color-surface-container-high)',
-                      }}
+                  </div>
+                  {/* 歌手行（Hydrogen .music-author-lable：top1px/left-2px 小方框
+                    套 4px 中心点 rgb(105,105,105)；文本 10px 左距 10px） */}
+                  <div className="relative flex min-w-0 items-center">
+                    <span
+                      className="pointer-events-none absolute -left-[2px] top-[1px] block h-2 w-2 shrink-0"
+                      style={{ border: '0.5px solid rgb(105, 105, 105)' }}
+                      aria-hidden="true"
                     >
-                      <Music
-                        className="h-10 w-10 opacity-40"
+                      <span
+                        className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2"
+                        style={{ backgroundColor: 'rgb(105, 105, 105)' }}
+                      />
+                    </span>
+                    <span className="ml-[10px] min-w-0 truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                      {artist || ' '}
+                    </span>
+                  </div>
+                </div>
+
+                {/* 控制区（Hydrogen .player-control：进度 / 三键 / 音量 纵向分布；
+                  滑条挂 touch-slider 禁触屏滚动，vh 尺寸全部 max() 保底，
+                  保证横屏矮窗口下仍可读可点） */}
+                <div className="flex min-h-0 flex-1 flex-col justify-between px-[max(1.5vh,10px)] pb-[max(1vh,6px)] pt-[max(1.5vh,10px)]">
+                  {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
+                  <div className="shrink-0">
+                    <PlayerProgressBar
+                      durationSec={durationSec}
+                      canControl={canControl}
+                      currentKey={currentKey}
+                      seekLock={seekLock}
+                      onSeek={performSeekWithLock}
+                      onRequestSeek={handleViewerSeek}
+                    />
+
+                    {/* 音频可视化（设置：音频可视化 → 真实频谱于进度条下方；
+                      captureStream 旁路 WebAudio analyser，Hydrogen 同思路） */}
+                    {audioVisualizer && (
+                      <div
+                        className="flex shrink-0 items-center justify-center pt-[max(0.6vh,4px)]"
+                        style={{ color: 'var(--md-sys-color-on-surface)' }}
+                      >
+                        <AudioVisualizer
+                          getAudio={getAudio}
+                          playing={isPlaying}
+                        />
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 三键控制（5vh，原版线条式 SVG：< 形箭头 / 描边三角 / 双竖线；
+                    active 缩放 0.9；max(5vh,36px) 保底触屏可点） */}
+                  <div className="flex shrink-0 items-center justify-evenly">
+                    <button
+                      type="button"
+                      className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                      onClick={handlePrev}
+                      title={canControl ? '上一首' : '向房主申请切换上一首'}
+                      aria-label="上一首"
+                    >
+                      <ControlPrevIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                      onClick={handlePlayPause}
+                      title={
+                        canControl
+                          ? isPlaying
+                            ? '暂停'
+                            : '播放'
+                          : isPlaying
+                            ? '申请暂停'
+                            : '申请继续播放'
+                      }
+                      aria-label="播放或暂停"
+                    >
+                      {isPlaying ? (
+                        <ControlPauseIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                      ) : (
+                        <ControlPlayIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                      onClick={handleNext}
+                      title={canControl ? '下一首' : '向房主申请切换下一首'}
+                      aria-label="下一首"
+                    >
+                      <ControlNextIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                    </button>
+                  </div>
+
+                  {/* 音量区（滑块与进度同款 + VOLUME 标签与百分比；
+                    手机端保留——蓝牙/外放场景仍需软件音量） */}
+                  <div className="shrink-0">
+                    <div
+                      ref={volumeTrackRef}
+                      role="slider"
+                      aria-label="音量"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={Math.round(volume * 100)}
+                      className="touch-slider relative h-[max(1.3vh,6px)] cursor-pointer"
+                      style={{
+                        boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
+                      }}
+                      onPointerDown={handleVolumePointerDown}
+                    >
+                      <div
+                        className="absolute left-0 top-0 h-full"
                         style={{
-                          color: 'var(--md-sys-color-on-surface-variant)',
+                          width: `${volume * 100}%`,
+                          backgroundColor: 'var(--md-sys-color-on-surface)',
+                          transition: volumeDragging
+                            ? 'none'
+                            : 'width 0.3s ease',
                         }}
                       />
                     </div>
-                  )}
-                </div>
-                {/* 封面四角括号（Hydrogen Player.vue .c-border1..4：L 形，
-                    各角独立贴合动画；终态相对卡边内缩 1vh，与毛玻璃边缘留出间隙；
-                    max() 保底横屏矮窗口可见性） */}
-                <span
-                  className="c-border-in-tl pointer-events-none absolute left-[max(1vh,5px)] top-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-l-2 border-t-2"
-                  style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                  aria-hidden="true"
-                />
-                <span
-                  className="c-border-in-tr pointer-events-none absolute right-[max(1vh,5px)] top-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-r-2 border-t-2"
-                  style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                  aria-hidden="true"
-                />
-                <span
-                  className="c-border-in-br pointer-events-none absolute bottom-[max(1vh,5px)] right-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-b-2 border-r-2"
-                  style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                  aria-hidden="true"
-                />
-                <span
-                  className="c-border-in-bl pointer-events-none absolute bottom-[max(1vh,5px)] left-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-b-2 border-l-2"
-                  style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                  aria-hidden="true"
-                />
-              </div>
-
-              {/* 歌曲信息：歌名（黑块滑入遮字 + 跑马灯）+ 歌手（小方点 + 名） */}
-              <div className="shrink-0 px-[max(1.5vh,10px)] pt-[max(1vh,6px)]">
-                {/* 歌名行（Hydrogen .info-music:first-child：pb 1.2vh + overflow 隐藏；
-                    双击加入播放队列——网易云歌弹顶部提示/确认） */}
-                <div
-                  className="relative min-w-0 overflow-hidden pb-[max(1.2vh,7px)]"
-                  onDoubleClick={handleSongNameDoubleClick}
-                  title="双击添加到播放队列"
-                >
-                  <div className={cn('min-w-0', songSwitching && 'opacity-0')}>
-                    <OverflowMarquee
-                      text={songName}
-                      className="pl-[max(1.5vh,10px)] text-[max(2.4vh,15px)] font-bold leading-[max(2.9vh,20px)] text-[var(--md-sys-color-on-surface)]"
-                    />
-                  </div>
-                  {/* 黑色滑块：默认藏在左侧（露 5px 竖条，Hydrogen music-name-lable
-                      原版样式；文字缩进 1.5vh 与竖条留出间隙），切歌时滑入遮住整行 */}
-                  <span
-                    aria-hidden="true"
-                    className="absolute left-0 top-0 h-[max(2.9vh,20px)] w-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.12,1)]"
-                    style={{
-                      backgroundColor: 'var(--md-sys-color-on-surface)',
-                      transform: songSwitching
-                        ? 'translateX(0)'
-                        : 'translateX(calc(-100% + 5px))',
-                    }}
-                  />
-                </div>
-                {/* 歌手行（Hydrogen .music-author-lable：top1px/left-2px 小方框
-                    套 4px 中心点 rgb(105,105,105)；文本 10px 左距 10px） */}
-                <div className="relative flex min-w-0 items-center">
-                  <span
-                    className="pointer-events-none absolute -left-[2px] top-[1px] block h-2 w-2 shrink-0"
-                    style={{ border: '0.5px solid rgb(105, 105, 105)' }}
-                    aria-hidden="true"
-                  >
-                    <span
-                      className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2"
-                      style={{ backgroundColor: 'rgb(105, 105, 105)' }}
-                    />
-                  </span>
-                  <span className="ml-[10px] min-w-0 truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                    {artist || ' '}
-                  </span>
-                </div>
-              </div>
-
-              {/* 控制区（Hydrogen .player-control：进度 / 三键 / 音量 纵向分布；
-                  滑条挂 touch-slider 禁触屏滚动，vh 尺寸全部 max() 保底，
-                  保证横屏矮窗口下仍可读可点） */}
-              <div className="flex min-h-0 flex-1 flex-col justify-between px-[max(1.5vh,10px)] pb-[max(1vh,6px)] pt-[max(1.5vh,10px)]">
-                {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
-                <div className="shrink-0">
-                  <PlayerProgressBar
-                    durationSec={durationSec}
-                    canControl={canControl}
-                    currentKey={currentKey}
-                    seekLock={seekLock}
-                    onSeek={performSeekWithLock}
-                    onRequestSeek={handleViewerSeek}
-                  />
-
-                  {/* 音频可视化（设置：音频可视化 → 真实频谱于进度条下方；
-                      captureStream 旁路 WebAudio analyser，Hydrogen 同思路） */}
-                  {audioVisualizer && (
-                    <div
-                      className="flex shrink-0 items-center justify-center pt-[max(0.6vh,4px)]"
-                      style={{ color: 'var(--md-sys-color-on-surface)' }}
-                    >
-                      <AudioVisualizer
-                        getAudio={getAudio}
-                        playing={isPlaying}
-                      />
+                    <div className="mt-[max(1vh,6px)] flex items-center justify-between text-[max(1.5vh,11px)] font-bold text-[var(--md-sys-color-on-surface)]">
+                      <span className="tracking-widest">VOLUME</span>
+                      <span className="tabular-nums">
+                        {Math.round(volume * 100)}
+                      </span>
                     </div>
-                  )}
-                </div>
-
-                {/* 三键控制（5vh，原版线条式 SVG：< 形箭头 / 描边三角 / 双竖线；
-                    active 缩放 0.9；max(5vh,36px) 保底触屏可点） */}
-                <div className="flex shrink-0 items-center justify-evenly">
-                  <button
-                    type="button"
-                    className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                    onClick={handlePrev}
-                    title={canControl ? '上一首' : '向房主申请切换上一首'}
-                    aria-label="上一首"
-                  >
-                    <ControlPrevIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                    onClick={handlePlayPause}
-                    title={
-                      canControl
-                        ? isPlaying
-                          ? '暂停'
-                          : '播放'
-                        : isPlaying
-                          ? '申请暂停'
-                          : '申请继续播放'
-                    }
-                    aria-label="播放或暂停"
-                  >
-                    {isPlaying ? (
-                      <ControlPauseIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                    ) : (
-                      <ControlPlayIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                    )}
-                  </button>
-                  <button
-                    type="button"
-                    className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                    onClick={handleNext}
-                    title={canControl ? '下一首' : '向房主申请切换下一首'}
-                    aria-label="下一首"
-                  >
-                    <ControlNextIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                  </button>
-                </div>
-
-                {/* 音量区（滑块与进度同款 + VOLUME 标签与百分比；
-                    手机端保留——蓝牙/外放场景仍需软件音量） */}
-                <div className="shrink-0">
-                  <div
-                    ref={volumeTrackRef}
-                    role="slider"
-                    aria-label="音量"
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-valuenow={Math.round(volume * 100)}
-                    className="touch-slider relative h-[max(1.3vh,6px)] cursor-pointer"
-                    style={{
-                      boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
-                    }}
-                    onPointerDown={handleVolumePointerDown}
-                  >
-                    <div
-                      className="absolute left-0 top-0 h-full"
-                      style={{
-                        width: `${volume * 100}%`,
-                        backgroundColor: 'var(--md-sys-color-on-surface)',
-                        transition: volumeDragging ? 'none' : 'width 0.3s ease',
-                      }}
-                    />
-                  </div>
-                  <div className="mt-[max(1vh,6px)] flex items-center justify-between text-[max(1.5vh,11px)] font-bold text-[var(--md-sys-color-on-surface)]">
-                    <span className="tracking-widest">VOLUME</span>
-                    <span className="tabular-nums">
-                      {Math.round(volume * 100)}
-                    </span>
                   </div>
                 </div>
               </div>
@@ -3610,52 +3563,67 @@ function ListenTogetherInner({
           {(isPortraitMobile ? mobileLyricView : desktopLyricView) && (
             <div
               className={cn(
-                'lt-blur-surface flex min-h-0 min-w-0 flex-col',
+                'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
                 isPortraitMobile
                   ? 'lt-lyric-view-in w-full flex-1'
                   : 'ml-[50px] h-full w-[calc(100%-var(--lt-card-w)-50px)]'
               )}
-              style={{
-                // UI 透明度以背景 alpha 缩放（同播放卡，保 backdrop 模糊）
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-surface) calc(45% * var(--lt-ui-alpha, 1)), transparent)',
-                backdropFilter: 'blur(12px)',
-                WebkitBackdropFilter: 'blur(12px)',
-              }}
             >
-              {rightPanelMode === 1 ? (
-                currentBiliBvid != null ? (
-                  <BiliCommentsPanel bvid={currentBiliBvid} />
-                ) : (
-                  <SongCommentsPanel />
-                )
-              ) : lyricOriginal ? (
-                <PlayerLyricPanel
-                  lines={displayLyricLines}
-                  activeIndex={activeLyricIndex}
-                  emptyMode={emptyMode}
-                  revealed={lyricRevealed}
-                  showTranslation={showTranslation}
-                  showOriginal={lyricOriginal}
-                  showRoman={lyricRoma}
-                  lyricSize={lyricSize}
-                  tlyricSize={tlyricSize}
-                  rlyricSize={rlyricSize}
-                  interludeThresholdSec={lyricInterlude}
-                  lyricBlur={lyricBlur}
-                  lyricBlurPx={lyricBlurLevel}
-                  lyricMaskOpacity={lyricMaskOpacity / 100}
-                  lyricMaskBlur={lyricMaskBlur}
-                  onSeek={handleLyricSeek}
-                  onUpdateLineOffset={handleUpdateLineOffset}
-                  qualityLabel={qualityLabel}
+              {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡 */}
+              <div
+                aria-hidden="true"
+                className="lt-blur-surface absolute inset-0"
+                style={{
+                  backdropFilter: 'blur(12px)',
+                  WebkitBackdropFilter: 'blur(12px)',
+                }}
+              />
+              {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层 */}
+              <div
+                className="relative flex min-h-0 min-w-0 flex-col"
+                style={uiFade < 1 ? { opacity: uiFade } : undefined}
+              >
+                <div
+                  className="absolute inset-0"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+                  }}
                 />
-              ) : (
-                /* 原词隐藏 = 完全隐藏歌词：不渲染任何歌词行/翻译/罗马音/
+                {rightPanelMode === 1 ? (
+                  currentBiliBvid != null ? (
+                    <BiliCommentsPanel bvid={currentBiliBvid} />
+                  ) : (
+                    <SongCommentsPanel />
+                  )
+                ) : lyricOriginal ? (
+                  <PlayerLyricPanel
+                    lines={displayLyricLines}
+                    activeIndex={activeLyricIndex}
+                    emptyMode={emptyMode}
+                    revealed={lyricRevealed}
+                    showTranslation={showTranslation}
+                    showOriginal={lyricOriginal}
+                    showRoman={lyricRoma}
+                    lyricSize={lyricSize}
+                    tlyricSize={tlyricSize}
+                    rlyricSize={rlyricSize}
+                    interludeThresholdSec={lyricInterlude}
+                    lyricBlur={lyricBlur}
+                    lyricBlurPx={lyricBlurLevel}
+                    lyricMaskOpacity={lyricMaskOpacity / 100}
+                    lyricMaskBlur={lyricMaskBlur}
+                    onSeek={handleLyricSeek}
+                    onUpdateLineOffset={handleUpdateLineOffset}
+                    qualityLabel={qualityLabel}
+                  />
+                ) : (
+                  /* 原词隐藏 = 完全隐藏歌词：不渲染任何歌词行/翻译/罗马音/
                     高亮条/间奏倒计时——此前仅隐藏原词文本，翻译/罗马音与
                     滚动的高亮黑条会残留，歌词并未真正消失 */
-                <div className="flex-1" aria-hidden="true" />
-              )}
+                  <div className="flex-1" aria-hidden="true" />
+                )}
+              </div>
             </div>
           )}
         </div>
