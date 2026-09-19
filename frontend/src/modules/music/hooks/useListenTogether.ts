@@ -1610,18 +1610,38 @@ export function useListenTogether({
   // 加入房间时查询初始状态：队列 + 服务端缓存的最新同步状态。
   // 观众据此立即对齐当前播放；房主断线重连后据此恢复自己的播放进度
   //（服务端缓存的就是房主最后广播的状态）。
-  // 重连后主动重发：socket.io v4 重连复用同一 Socket 实例，依赖 socket/roomId
-  // 的 effect 不会重新执行，需监听 connect 事件（首连也触发，用 marker 跳过
-  // —— 首次查询由下方依赖 effect 负责，避免双发）
+  // 挂载即发存在时序竞态：通用 join-room 与本模块挂载并行，get-state
+  // 可能先于加入完成到达——服务端 isSocketInRoom 校验会拒绝（「不在该
+  // 房间中」），导致首次进入房间拿不到歌单。因此 ack 失败时按退避重试
+  //（500ms 起步 ×2、上限 3s）直到成功；断线重连由 connect 事件触发重发。
   useEffect(() => {
     if (!socket || !roomId) return
-    let hasInitial = false
+    let disposed = false
+    let retryTimer: ReturnType<typeof setTimeout> | null = null
+    let retryDelay = 500
+    const clearRetry = () => {
+      if (retryTimer) {
+        clearTimeout(retryTimer)
+        retryTimer = null
+      }
+    }
     const requestGetState = () => {
       socket.emit(
         MUSIC_EVENT.GET_STATE,
         { roomId },
         (res: GetStateResponse) => {
-          if (!res?.success) return
+          if (disposed) return
+          if (!res?.success) {
+            // 未加入房间/服务端瞬时错误：退避重试直到加入完成拉取成功
+            clearRetry()
+            retryTimer = setTimeout(() => {
+              retryDelay = Math.min(retryDelay * 2, 3000)
+              requestGetState()
+            }, retryDelay)
+            return
+          }
+          clearRetry()
+          retryDelay = 500
           if (Array.isArray(res.queue)) {
             useMusicStore.getState().setQueue(res.queue)
             // 队列变化使洗牌序列失效：标记待重建
@@ -1635,15 +1655,17 @@ export function useListenTogether({
       )
     }
     requestGetState()
-    hasInitial = true
 
     const handleConnect = () => {
-      // 首次 connect 由上面的直接调用覆盖；仅断线重连后重发
-      if (!hasInitial) return
+      // 断线重连后重发（服务端房间会话可能已失效，重连后重新拉取）；
+      // get-state 幂等，与退避重试并发无害
+      clearRetry()
       requestGetState()
     }
     socket.on('connect', handleConnect)
     return () => {
+      disposed = true
+      clearRetry()
       socket.off('connect', handleConnect)
     }
   }, [socket, roomId, applyViewerSync])
