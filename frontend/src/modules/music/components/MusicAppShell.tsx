@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect } from 'react'
+import { useContext, useEffect, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
@@ -152,6 +152,38 @@ function ShellInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
+  // 提示条退出动画：syncNotice 清除后保留最后文案 0.3s 播放上飘淡出，
+  // 动画结束才真正卸载（此前直接闪现消失）。状态同步走 render 期调整
+  //（react-hooks 禁止 effect 内同步 setState 与渲染期读 ref），
+  // 卸载定时器走 effect
+  const [noticeView, setNoticeView] = useState<{
+    text: string
+    kind: 'info' | 'approval'
+  } | null>(null)
+  const [noticeLeaving, setNoticeLeaving] = useState(false)
+  if (syncNotice) {
+    // 新提示到达（或内容变化）：展示并复位退出态
+    if (
+      noticeLeaving ||
+      noticeView?.text !== syncNotice ||
+      noticeView?.kind !== syncNoticeKind
+    ) {
+      setNoticeView({ text: syncNotice, kind: syncNoticeKind })
+      setNoticeLeaving(false)
+    }
+  } else if (noticeView && !noticeLeaving) {
+    // 提示清除：进入退出动画
+    setNoticeLeaving(true)
+  }
+  useEffect(() => {
+    if (!noticeLeaving) return
+    const timer = setTimeout(() => {
+      setNoticeLeaving(false)
+      setNoticeView(null)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [noticeLeaving])
+
   // 观众同步回执（左下角「xx 已同步」）：最新一条入列 TTL 后统一清理过期项
   const syncAcks = useMusicStore((s) => s.syncAcks)
   useEffect(() => {
@@ -205,16 +237,7 @@ function ShellInner({
       {/* ===== 左上角提示区：房主离线 + syncNotice（含房主审批按钮） ===== */}
       <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3">
         {hostOffline && !canControl && (
-          <div
-            className="zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] border px-3.5 py-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
-            style={{
-              backgroundColor: 'rgba(8, 8, 8, 0.72)',
-              backdropFilter: 'blur(28px)',
-              WebkitBackdropFilter: 'blur(28px)',
-              borderColor: 'rgba(255, 255, 255, 0.12)',
-              color: 'rgba(255, 255, 255, 0.92)',
-            }}
-          >
+          <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
             <span className="relative flex h-1.5 w-1.5 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--md-sys-color-tertiary)] opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--md-sys-color-tertiary)]" />
@@ -222,27 +245,28 @@ function ShellInner({
             房主已离开，您可以自主控制播放
           </div>
         )}
-        {syncNotice && (
+        {(syncNotice || noticeLeaving) && noticeView && (
           <div
-            className="zen-notice-drop-in pointer-events-auto flex items-center gap-2.5 rounded-[14px] border py-2 pl-3.5 pr-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
-            style={{
-              backgroundColor: 'rgba(8, 8, 8, 0.72)',
-              backdropFilter: 'blur(28px)',
-              WebkitBackdropFilter: 'blur(28px)',
-              borderColor: 'rgba(255, 255, 255, 0.12)',
-              color: 'rgba(255, 255, 255, 0.92)',
-            }}
+            className={cn(
+              'zen-notice-bar pointer-events-auto flex items-center gap-2.5 rounded-[14px] py-2 pl-3.5 pr-2 text-xs font-medium',
+              // 退出动画期间替换入场动画类（上飘淡出后再卸载）
+              noticeLeaving ? 'zen-notice-leave' : 'zen-notice-drop-in'
+            )}
           >
-            <span>{syncNotice}</span>
+            <span>{noticeView.text}</span>
             {/* 仅审批类提示（观众控制申请）渲染通过/拒绝按钮；
-                纯状态提示（解析进度、结果回执等）不显示 */}
-            {isHost && syncNoticeKind === 'approval' && (
+                纯状态提示（解析进度、结果回执等）不显示；
+                退出动画期间 pendingControl 已定，不再渲染 */}
+            {isHost && !noticeLeaving && noticeView.kind === 'approval' && (
               <span className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={approveControl}
-                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold text-[#111114] transition-all hover:opacity-85 active:scale-95"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.92)' }}
+                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold transition-all hover:opacity-85 active:scale-95"
+                  style={{
+                    backgroundColor: 'var(--md-sys-color-primary)',
+                    color: 'var(--md-sys-color-on-primary)',
+                  }}
                   title="通过申请"
                 >
                   <Check className="h-3 w-3" strokeWidth={2.5} />
@@ -251,7 +275,12 @@ function ShellInner({
                 <button
                   type="button"
                   onClick={rejectControl}
-                  className="flex h-6 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] font-medium text-[#ff6b6b] transition-colors hover:border-white/35 hover:bg-white/10 active:scale-95"
+                  className="flex h-6 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition-colors hover:opacity-80 active:scale-95"
+                  style={{
+                    borderColor:
+                      'color-mix(in srgb, var(--md-sys-color-outline-variant) 80%, transparent)',
+                    color: 'var(--md-sys-color-error)',
+                  }}
                   title="拒绝申请"
                 >
                   <X className="h-3 w-3" />

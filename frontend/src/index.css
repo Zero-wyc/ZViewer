@@ -474,6 +474,38 @@ button.bili-liquid-btn:active:not(:disabled) {
   animation-delay: var(--stagger-delay, 0ms);
 }
 
+/* 左上角提示条浅色玻璃卡（解析进度/审批/房主离线）：与页面 UI 同材质的
+   半透明玻璃 + 主题令牌描边/文字（原黑底卡与整体浅色 UI 不搭） */
+.zen-notice-bar {
+  background-color: color-mix(
+    in srgb,
+    var(--md-sys-color-surface-container) 60%,
+    transparent
+  );
+  /* -webkit- 前缀版必须在标准属性之前（lightningcss 去重保留最后一条） */
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+  border: 1px solid
+    color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent);
+  color: var(--md-sys-color-on-surface);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+}
+
+/* 提示条退出动画：内容清除后延迟卸载期间播放（上飘淡出，与入场对称） */
+@keyframes zen-notice-slide-out {
+  0% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-14px);
+  }
+}
+.zen-notice-leave {
+  animation: zen-notice-slide-out 0.3s ease-in forwards;
+}
+
 /* ---------- 列表项进入/退出 ---------- */
 @keyframes zen-item-enter {
   0% {
@@ -1292,6 +1324,7 @@ button.bili-liquid-btn:active:not(:disabled) {
    ===================================================== */
 [data-reduced-motion='true'] .zen-stagger-fade-up,
 [data-reduced-motion='true'] .zen-notice-drop-in,
+[data-reduced-motion='true'] .zen-notice-leave,
 [data-reduced-motion='true'] .zen-item-enter,
 [data-reduced-motion='true'] .zen-dropdown-item,
 [data-reduced-motion='true'] .zen-comment-enter,

@@ -1946,6 +1946,36 @@ function ListenTogetherInner({
     return () => clearTimeout(timer)
   }, [syncNotice, setSyncNotice])
 
+  // ===== 提示条退出动画：syncNotice 清除后保留最后文案 0.3s 播放上飘
+  //  淡出，动画结束才真正卸载（此前直接闪现消失）。状态同步走 render 期
+  //  调整（react-hooks 禁止 effect 内同步 setState 与渲染期读 ref），
+  //  卸载定时器走 effect；与 MusicAppShell 左上角提示区同构 =====
+  const [noticeView, setNoticeView] = useState<{
+    text: string
+    kind: 'info' | 'approval'
+  } | null>(null)
+  const [noticeLeaving, setNoticeLeaving] = useState(false)
+  if (syncNotice) {
+    if (
+      noticeLeaving ||
+      noticeView?.text !== syncNotice ||
+      noticeView?.kind !== syncNoticeKind
+    ) {
+      setNoticeView({ text: syncNotice, kind: syncNoticeKind })
+      setNoticeLeaving(false)
+    }
+  } else if (noticeView && !noticeLeaving) {
+    setNoticeLeaving(true)
+  }
+  useEffect(() => {
+    if (!noticeLeaving) return
+    const timer = setTimeout(() => {
+      setNoticeLeaving(false)
+      setNoticeView(null)
+    }, 300)
+    return () => clearTimeout(timer)
+  }, [noticeLeaving])
+
   // ===== 进度条（Hydrogen 样式）：抽为独立组件 PlayerProgressBar——
   // 进度经 usePlaybackPosition(0.25) 量化订阅，positionSec 的高频更新只
   // 重渲染进度条本身（含拖动预览），不拖累整块播放面板 =====
@@ -2430,16 +2460,7 @@ function ListenTogetherInner({
         style={uiFade < 1 ? { opacity: uiFade } : undefined}
       >
         {hostOffline && !canControl && (
-          <div
-            className="zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] border px-3.5 py-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
-            style={{
-              backgroundColor: 'rgba(8, 8, 8, 0.72)',
-              backdropFilter: 'blur(28px)',
-              WebkitBackdropFilter: 'blur(28px)',
-              borderColor: 'rgba(255, 255, 255, 0.12)',
-              color: 'rgba(255, 255, 255, 0.92)',
-            }}
-          >
+          <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
             <span className="relative flex h-1.5 w-1.5 shrink-0">
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--md-sys-color-tertiary)] opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--md-sys-color-tertiary)]" />
@@ -2447,27 +2468,28 @@ function ListenTogetherInner({
             房主已离开，您可以自主控制播放
           </div>
         )}
-        {syncNotice && (
+        {(syncNotice || noticeLeaving) && noticeView && (
           <div
-            className="zen-notice-drop-in pointer-events-auto flex items-center gap-2.5 rounded-[14px] border py-2 pl-3.5 pr-2 text-xs font-medium shadow-[0_8px_32px_rgba(0,0,0,0.45)]"
-            style={{
-              backgroundColor: 'rgba(8, 8, 8, 0.72)',
-              backdropFilter: 'blur(28px)',
-              WebkitBackdropFilter: 'blur(28px)',
-              borderColor: 'rgba(255, 255, 255, 0.12)',
-              color: 'rgba(255, 255, 255, 0.92)',
-            }}
+            className={cn(
+              'zen-notice-bar pointer-events-auto flex items-center gap-2.5 rounded-[14px] py-2 pl-3.5 pr-2 text-xs font-medium',
+              // 退出动画期间替换入场动画类（上飘淡出后再卸载）
+              noticeLeaving ? 'zen-notice-leave' : 'zen-notice-drop-in'
+            )}
           >
-            <span>{syncNotice}</span>
+            <span>{noticeView.text}</span>
             {/* 仅审批类提示（观众控制申请）渲染通过/拒绝按钮；
-                纯状态提示（解析进度、结果回执等）不显示 */}
-            {isHost && syncNoticeKind === 'approval' && (
+                纯状态提示（解析进度、结果回执等）不显示；
+                退出动画期间 pendingControl 已定，不再渲染 */}
+            {isHost && !noticeLeaving && noticeView.kind === 'approval' && (
               <span className="flex items-center gap-1.5">
                 <button
                   type="button"
                   onClick={approveControl}
-                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold text-[#111114] transition-all hover:opacity-85 active:scale-95"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.92)' }}
+                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold transition-all hover:opacity-85 active:scale-95"
+                  style={{
+                    backgroundColor: 'var(--md-sys-color-primary)',
+                    color: 'var(--md-sys-color-on-primary)',
+                  }}
                   title="通过申请"
                 >
                   <Check className="h-3 w-3" strokeWidth={2.5} />
@@ -2476,7 +2498,12 @@ function ListenTogetherInner({
                 <button
                   type="button"
                   onClick={rejectControl}
-                  className="flex h-6 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] font-medium text-[#ff6b6b] transition-colors hover:border-white/35 hover:bg-white/10 active:scale-95"
+                  className="flex h-6 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition-colors hover:opacity-80 active:scale-95"
+                  style={{
+                    borderColor:
+                      'color-mix(in srgb, var(--md-sys-color-outline-variant) 80%, transparent)',
+                    color: 'var(--md-sys-color-error)',
+                  }}
                   title="拒绝申请"
                 >
                   <X className="h-3 w-3" />
