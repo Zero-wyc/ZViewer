@@ -1105,6 +1105,26 @@ export function useListenTogether({
    */
   const next = useCallback(() => {
     if (!hasControl()) return
+    const state = useMusicStore.getState()
+    // 单曲队列特例：computeTargetSong('next') 对唯一曲目返回自身重播
+    // （switchSong 视为成功），会绕过末尾判定——按顺序播放时点「下一首」
+    // 应视为队列末尾，走推荐续播；其余模式保持原重播语义
+    const active = activeQueueOf(state)
+    const singleSelf =
+      state.playMode !== 'shuffle' &&
+      state.currentKey != null &&
+      active.length === 1 &&
+      musicItemKey(active[0]) === state.currentKey
+    if (singleSelf) {
+      if (state.playMode === 'order') {
+        if (!tryBiliContinueOnNext()) {
+          message.info('队列中无下一首')
+        }
+      } else {
+        switchSong('next')
+      }
+      return
+    }
     if (!switchSong('next')) {
       // 队列末尾：按顺序播放 + B站 条目 + 自动连播开启 → 拉 3 首相关
       // 推荐入队并续播第一条（用户主动点「下一首」才触发）
@@ -1272,8 +1292,9 @@ export function useListenTogether({
           })
           break
         case 'next':
-          // 观众申请「下一首」经房主执行：队列末尾同样走推荐续播判定
-          if (!switchSong('next')) tryBiliContinueOnNext()
+          // 观众申请「下一首」经房主执行：与房主本地点下一首同一逻辑
+          // （含队列末尾/单曲队列的推荐续播判定；next 内部已查 hasControl）
+          next()
           break
         case 'prev':
           switchSong('prev')
@@ -1295,14 +1316,7 @@ export function useListenTogether({
         }
       }
     },
-    [
-      getAudio,
-      switchSong,
-      broadcastSyncState,
-      seek,
-      playSong,
-      tryBiliContinueOnNext,
-    ]
+    [getAudio, switchSong, broadcastSyncState, seek, playSong, next]
   )
 
   /**
