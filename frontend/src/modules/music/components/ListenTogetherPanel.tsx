@@ -335,6 +335,7 @@ function PlayerSettingsModal({
 }) {
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const coverBlurLevel = useMusicSettingsStore((s) => s.coverBlurLevel)
+  const videoBlurLevel = useMusicSettingsStore((s) => s.videoBlurLevel)
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
@@ -504,6 +505,25 @@ function PlayerSettingsModal({
                 onChange={(v) =>
                   setSettings({ coverBlurLevel: v, coverBlur: v > 0 })
                 }
+              />
+            </div>
+            {/* 视频背景模糊（仅作用于视频背景：模糊半径 px，0=关闭；
+                模糊时视频元素放大补偿边缘羽化） */}
+            <div className="px-5 py-3.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">
+                  视频背景模糊
+                </span>
+                <span className="text-[12px] font-bold tabular-nums text-white/70">
+                  {videoBlurLevel > 0 ? `${videoBlurLevel}px` : '关闭'}
+                </span>
+              </div>
+              <TinySlider
+                value={videoBlurLevel}
+                min={0}
+                max={40}
+                step={1}
+                onChange={(v) => setSettings({ videoBlurLevel: v })}
               />
             </div>
             {/* 背景压暗（滑块） */}
@@ -1962,6 +1982,7 @@ function ListenTogetherInner({
   // ===== 设置驱动（Hydrogen settingsStore 消费点） =====
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const coverBlurLevel = useMusicSettingsStore((s) => s.coverBlurLevel)
+  const videoBlurLevel = useMusicSettingsStore((s) => s.videoBlurLevel)
   /** 封面背景模糊半径：毛玻璃关闭时 0（显示未模糊封面而非纯色底） */
   const coverBlurPx = coverBlur ? coverBlurLevel : 0
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
@@ -2224,6 +2245,15 @@ function ListenTogetherInner({
             style={{
               opacity: bgVideoVisible ? 1 : 0,
               transition: 'opacity 0.9s ease',
+              // 视频背景模糊（设置可调）：模糊边缘会半透明羽化露出底层
+              // 封面/纯色底，同步放大 10% 裁掉羽化边（cover/fill 模式）；
+              // contain 模式视频本体不铺满，放大无副作用
+              ...(videoBlurLevel > 0
+                ? {
+                    filter: `blur(${videoBlurLevel}px)`,
+                    transform: 'scale(1.1)',
+                  }
+                : {}),
             }}
           />
         </>

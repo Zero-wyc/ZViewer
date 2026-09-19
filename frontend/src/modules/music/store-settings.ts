@@ -77,6 +77,9 @@ export interface MusicSettings {
   /** 视频背景画面适配：contain 完整显示（默认，黑边由模糊封面填充）/
    *  cover 裁切铺满（超出部分裁掉）/ fill 拉伸填充（拉伸铺满可能变形） */
   bgVideoFit: 'contain' | 'cover' | 'fill'
+  /** 视频背景模糊度（px，0-40，默认 0=关闭）：播放视频背景时的模糊半径，
+   *  模糊时视频元素同步放大补偿边缘羽化 */
+  videoBlurLevel: number
   /**
    * 歌词页 UI 整体透明度（%，30-100，100=完全不透明）：作用于播放卡 /
    * 歌词面板 / 工具栏 / 提示等前景 UI 整体，背景（封面 / 视频 / 压暗）不受影响
@@ -137,6 +140,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   lyricInterlude: 13,
   musicVideoCli: false,
   bgVideoFit: 'contain',
+  videoBlurLevel: 0,
   uiOpacity: 100,
   biliCoverShape: 'original',
   biliAutoContinue: true,
