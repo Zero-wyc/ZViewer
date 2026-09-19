@@ -191,6 +191,63 @@ const PLAY_MODE_META: Record<PlayMode, { label: string; next: string }> = {
   shuffle: { label: '随机播放', next: '切换为顺序循环' },
 }
 
+/** 弹幕开关图标：B站 风格小电视 +「弹」字（天线 + 圆角机身 + 居中字符），
+ *  开启时右下角叠 primary 色对勾——参考 B站 客户端弹幕开关造型。
+ *  机身/文字走 currentColor 适配工具栏黑白切换，对勾仅 checked 时渲染 */
+function DanmakuTvIcon({
+  checked,
+  className,
+}: {
+  checked: boolean
+  className?: string
+}) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" className={className} aria-hidden>
+      {/* 天线（左右各一根，向外斜） */}
+      <path
+        d="M7.2 2.6 9.4 5.2M16.8 2.6 14.6 5.2"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+      />
+      {/* 机身 */}
+      <rect
+        x="3.4"
+        y="5.2"
+        width="17.2"
+        height="13.2"
+        rx="3"
+        stroke="currentColor"
+        strokeWidth="1.7"
+      />
+      {/* 「弹」字 */}
+      <text
+        x="12"
+        y="12.2"
+        textAnchor="middle"
+        dominantBaseline="central"
+        fontSize="9"
+        fontWeight="700"
+        fill="currentColor"
+        stroke="none"
+        style={{ fontFamily: 'sans-serif' }}
+      >
+        弹
+      </text>
+      {/* 开启态：右下角对勾（跨出机身一角，主色） */}
+      {checked && (
+        <path
+          d="M14.8 18.4 17 20.6 21.8 15.6"
+          stroke="var(--md-sys-color-primary)"
+          strokeWidth="2.2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      )}
+    </svg>
+  )
+}
+
 /**
  * 从图片/视频当前帧采样平均亮度（0-1，Rec.709 加权）。
  * 16×16 canvas 足够反映整体明暗；跨域污染（tainted canvas）等异常返回 null。
@@ -2769,7 +2826,10 @@ function ListenTogetherInner({
                   aria-label="切换弹幕显示"
                   aria-pressed={biliDanmakuEnabled}
                 >
-                  <MessagesSquare className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
+                  <DanmakuTvIcon
+                    checked={biliDanmakuEnabled}
+                    className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]"
+                  />
                 </button>
               )}
               {/* 在网易云搜索（仅 B站 条目）：自动提取歌名在网易云搜索，
