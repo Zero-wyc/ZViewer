@@ -60,12 +60,12 @@ import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
 
 /** 播放模式循环顺序（Hydrogen changePlayMode 扩展 4 态；order = 按顺序播放，
- *  不循环，B站 推荐连播仅此模式启用） */
+ *  不循环，B站 推荐连播仅此模式启用；默认模式，循环从它开始） */
 const PLAY_MODE_ORDER: PlayMode[] = [
-  'sequence',
   'order',
   'repeat-one',
   'shuffle',
+  'sequence',
 ]
 
 export function MusicWidgetBar() {

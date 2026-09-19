@@ -178,10 +178,10 @@ const LYRIC_ADVANCE_SEC = 0.2
 
 /** 播放模式轮换顺序（order = 按顺序播放，不循环；B站 推荐连播仅此模式启用） */
 const PLAY_MODE_ORDER: PlayMode[] = [
-  'sequence',
   'order',
   'repeat-one',
   'shuffle',
+  'sequence',
 ]
 
 const PLAY_MODE_META: Record<PlayMode, { label: string; next: string }> = {
@@ -1961,7 +1961,7 @@ function ListenTogetherInner({
   const handleTogglePlayMode = useCallback(() => {
     const idx = PLAY_MODE_ORDER.indexOf(playMode)
     const nextMode =
-      PLAY_MODE_ORDER[(idx + 1) % PLAY_MODE_ORDER.length] ?? 'sequence'
+      PLAY_MODE_ORDER[(idx + 1) % PLAY_MODE_ORDER.length] ?? 'order'
     setPlayMode(nextMode)
   }, [playMode, setPlayMode])
 
