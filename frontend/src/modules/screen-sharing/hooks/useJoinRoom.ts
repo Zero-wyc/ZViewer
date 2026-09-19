@@ -78,6 +78,16 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
   const requestedRoomIdRef = useRef<string | null>(null)
   const hasJoinedRef = useRef(false)
   const pendingPasswordRef = useRef<string>('')
+  /** ALREADY_IN_ROOM 重试计数：刷新/快速重进时旧 session 的 socket 在
+   *  服务端的断开判定有延迟（轮询传输最长约 25s ping 超时），期间新加入
+   *  会被拒——旧 socket 断开后 session 即被清理，重试即可成功 */
+  const alreadyInRoomRetriesRef = useRef(0)
+  /** requestJoin 的 ref 镜像：ALREADY_IN_ROOM 重试回调在其 useCallback
+   *  内部需要再次调用 requestJoin（声明前访问，react-hooks/immutability
+   *  禁止）——经 ref 调用最新实现断开循环 */
+  const requestJoinRef = useRef<
+    (targetRoomId: string, password: string) => void
+  >(() => {})
 
   // 用 ref 保存最新回调，避免回调变化导致事件订阅重建
   const callbacksRef = useRef({
@@ -125,6 +135,8 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
         { roomId: targetRoomId, password },
         (response: RequestJoinResponse) => {
           if (response.success) {
+            // 加入成功：重置 ALREADY_IN_ROOM 重试计数
+            alreadyInRoomRetriesRef.current = 0
             // 房主身份恢复：后端检测到当前用户是房间 owner，已自动恢复房主身份。
             // 写入 sessionStorage 标记并刷新页面，让 RoomPage 重新以房主身份渲染。
             if (response.data?.isHost) {
@@ -176,7 +188,22 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
               requestedRoomIdRef.current = null
               message.error('密码错误，请重新输入')
             } else if (response.code === 'ALREADY_IN_ROOM') {
-              // 同一账户已在另一个标签页进入此房间，拒绝加入并返回首页
+              // 同一账户旧 session 的 socket 尚未被服务端判定断开
+              // （刷新/快速重进时轮询传输的断开检测有延迟）——延迟重试
+              // 而非立即弹回主页：旧 socket 断开后（通常 1~2s 内）session
+              // 被清理，重试即成功。重试耗尽才回主页（真实的多标签页场景）
+              alreadyInRoomRetriesRef.current += 1
+              if (alreadyInRoomRetriesRef.current <= 3) {
+                message.info('检测到账户已在房间内，正在重新加入…')
+                const retryRoomId = targetRoomId
+                const retryPassword = password
+                setTimeout(() => {
+                  requestedRoomIdRef.current = null
+                  requestJoinRef.current(retryRoomId, retryPassword)
+                }, 1500)
+                return
+              }
+              alreadyInRoomRetriesRef.current = 0
               setJoinStatus('rejected')
               message.error(response.message ?? '该账户已在此房间内')
               // 延迟导航，让用户看到提示
@@ -193,6 +220,11 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
     },
     [socket, connected, setStoreMode, setShareMethod, setStreamKey]
   )
+
+  // requestJoin 定义后同步 ref 镜像（ALREADY_IN_ROOM 重试用）
+  useEffect(() => {
+    requestJoinRef.current = requestJoin
+  })
 
   // roomId 变化时自动加入房间（autoJoin=false 时跳过，等待手动 requestJoin）
   useEffect(() => {
@@ -224,6 +256,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
       console.log('[useJoinRoom] socket reconnected, re-join room:', roomId)
       requestedRoomIdRef.current = null
       hasJoinedRef.current = false
+      alreadyInRoomRetriesRef.current = 0
       setJoinStatus('idle')
     }
     socket.on('connect', handleReconnect)

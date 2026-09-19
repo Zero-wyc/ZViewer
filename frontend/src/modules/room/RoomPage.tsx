@@ -200,6 +200,10 @@ function RoomPage() {
   // 三种模式全覆盖）：收到后立即停掉本机全部媒体流再退房。
   // socket 断连（含被服务端强制断开）先仅暂停媒体，重连后由同步流程恢复。
   const navigate = useNavigate()
+  /** register-host ALREADY_IN_ROOM 重试计数：刷新/快速重进时旧 session 的
+   *  socket 在服务端的断开判定有延迟，期间恢复房主身份会被拒——延迟重试
+   *  即可成功，重试耗尽才回主页（真实的多标签页场景） */
+  const hostAlreadyInRoomRetriesRef = useRef(0)
   useEffect(() => {
     if (!roomId || !socket) return
 
@@ -304,8 +308,17 @@ function RoomPage() {
         }) => {
           if (!response?.success) {
             console.warn('[RoomPage] register-host failed:', response?.message)
-            // 同一账户已在另一个标签页进入此房间：显示提示并返回首页
+            // 同一账户已在另一个标签页进入此房间：显示提示并返回首页。
+            // 但刷新/快速重进时旧 session 的 socket 尚未被服务端判定断开
+            // （轮询传输的断开检测有延迟）也会命中此码——延迟重试恢复
+            // 房主身份，重试耗尽才回主页
             if (response?.code === 'ALREADY_IN_ROOM') {
+              hostAlreadyInRoomRetriesRef.current += 1
+              if (hostAlreadyInRoomRetriesRef.current <= 3) {
+                setTimeout(() => registerHost(), 1500)
+                return
+              }
+              hostAlreadyInRoomRetriesRef.current = 0
               message.error(response.message ?? '该账户已在此房间内')
               setTimeout(() => {
                 window.location.href = '/'
@@ -319,6 +332,7 @@ function RoomPage() {
             return
           }
           // AckResponse 标准格式：业务数据在 data 字段内
+          hostAlreadyInRoomRetriesRef.current = 0
           const data = response.data
           // 使用后端返回的房间真实模式，避免 store 默认值 screen-share 导致 UI 错误。
           // 模式不再写入 URL，由后端房间状态唯一确定。
