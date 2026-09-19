@@ -1747,9 +1747,34 @@ export function useListenTogether({
     }) => {
       if (!payload || !Array.isArray(payload.items)) return
       if (payload.roomId && payload.roomId !== roomIdRef.current) return
-      useMusicStore.getState().setQueue(payload.items)
+      const store = useMusicStore.getState()
+      const prevQueue = store.queue
+      store.setQueue(payload.items)
       // 队列变化使洗牌序列失效：标记待重建（下次随机切歌时惰性重建）
       shuffleListRef.current = null
+      // 清空播放列表：当前曲目原属队列且新队列已空 → 立即停声并清当前
+      // 曲目（此前只清队列不动音频，声音继续播）。房主额外广播空 trackKey
+      // ——观众端 applyViewerSync 走 trackKey==null 分支同步停声；观众本地
+      // 插播（currentKey 不在房间队列）不受清空影响
+      if (
+        payload.items.length === 0 &&
+        store.currentKey != null &&
+        prevQueue.some((q) => musicItemKey(q) === store.currentKey)
+      ) {
+        const audio = getAudio()
+        audio.pause()
+        try {
+          audio.currentTime = 0
+        } catch {
+          // ignore
+        }
+        store.setCurrentKey(null)
+        broadcastSyncState({
+          keyOverride: null,
+          isPlaying: false,
+          positionSec: 0,
+        })
+      }
     }
 
     // 房主：观众控制申请 → 播放器左上角提示 + 待审批；
@@ -1958,6 +1983,8 @@ export function useListenTogether({
     executeLocalAction,
     executeHostAction,
     playSong,
+    getAudio,
+    broadcastSyncState,
   ])
 
   // 卸载/离开：释放音频资源、清理内部状态
