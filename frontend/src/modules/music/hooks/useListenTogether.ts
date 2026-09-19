@@ -1699,46 +1699,34 @@ export function useListenTogether({
         )
         return
       }
-      // seek（观众申请调节进度）：自动通过时房主直接执行并应答（无需
-      // 逐次审批）；关闭时与 pause/play 同走左上角审批条
-      if (action === 'seek') {
-        if (!payload.from || payload.positionSec == null) return
-        const autoApprove = useRoomStore.getState().autoApproveRequests
-        if (autoApprove) {
-          executeHostAction('seek', payload.positionSec)
-          socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
-            roomId: roomIdRef.current,
-            approved: true,
-            action: 'seek',
-            from: payload.from,
-          })
-          return
-        }
-        pendingControlRef.current = {
-          action: 'seek',
-          from: payload.from,
-          username: payload.username,
-          positionSec: payload.positionSec,
-        }
-        const who = payload.username || '观众'
-        useMusicStore
-          .getState()
-          .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT.seek}`)
-        return
-      }
+      // pause/play/next/prev/seek：房主开启「自动通过」时直接执行并定向
+      // 应答（观众无需逐次等待审批）；关闭时统一走左上角审批条
       if (
         action !== 'pause' &&
         action !== 'play' &&
         action !== 'next' &&
-        action !== 'prev'
+        action !== 'prev' &&
+        action !== 'seek'
       ) {
         return
       }
       if (!payload.from) return
+      if (action === 'seek' && payload.positionSec == null) return
+      if (useRoomStore.getState().autoApproveRequests) {
+        executeHostAction(action, payload.positionSec)
+        socketRef.current?.emit(MUSIC_EVENT.CONTROL_RESPONSE, {
+          roomId: roomIdRef.current,
+          approved: true,
+          action,
+          from: payload.from,
+        })
+        return
+      }
       pendingControlRef.current = {
         action,
         from: payload.from,
         username: payload.username,
+        ...(action === 'seek' ? { positionSec: payload.positionSec } : {}),
       }
       const who = payload.username || '观众'
       useMusicStore
