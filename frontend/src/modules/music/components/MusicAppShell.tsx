@@ -349,11 +349,7 @@ function ShellInner({
           <div className="group/hide absolute right-4 top-4 z-[70] h-16 w-16 max-md:right-3 max-md:top-3">
             <button
               type="button"
-              className="lt-touch-visible flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] opacity-0 transition-opacity group-focus-within/hide:opacity-100 group-hover/hide:opacity-100 active:scale-90"
-              style={{
-                backgroundColor:
-                  'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
-              }}
+              className="lt-touch-visible flex h-9 w-9 items-center justify-center text-[var(--md-sys-color-on-surface)] opacity-0 transition-opacity group-focus-within/hide:opacity-100 group-hover/hide:opacity-100 hover:opacity-70 active:scale-90"
               onClick={closePlayerOverlay}
               title="收起播放器"
               aria-label="收起播放器"
