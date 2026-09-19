@@ -289,15 +289,45 @@ video {
 
 /* 音乐侧边工具坞（MusicSideDock）内嵌面板：坞体本身已是毛玻璃
    （55% 透明底 + backdrop 模糊），内嵌的 glass-card 再叠一层近白底
-   会变成死白板——此处去底色/去模糊/去投影，只留一道浅分隔描边。
-   仅作用于坞内（floating 模式的语音/流量/房间状态面板保持原样） */
+   会变成死白板——此处去模糊/去投影，改为一层极浅的 on-surface 着色
+   （深浅色主题自适应）+ 更明确的分隔描边。仅作用于坞内（floating
+   模式的语音/流量/房间状态面板保持原样） */
+.side-dock-body {
+  /* 内部按钮/胶囊/行底适配：glass-bg 与 surface-container 三档在坞内
+     改为 on-surface 半透明着色——原令牌在浅色主题近纯白，与玻璃坞体
+     不搭；半透明深浅自适应且仍保留 hover 层级差 */
+  --glass-bg: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 6%,
+    transparent
+  );
+  --md-sys-color-surface-container: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 5%,
+    transparent
+  );
+  --md-sys-color-surface-container-high: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 8%,
+    transparent
+  );
+  --md-sys-color-surface-container-highest: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 12%,
+    transparent
+  );
+}
 .side-dock-body .glass-card {
-  background-color: transparent;
+  background-color: color-mix(
+    in srgb,
+    var(--md-sys-color-on-surface) 3.5%,
+    transparent
+  );
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   border-color: color-mix(
     in srgb,
-    var(--md-sys-color-outline-variant) 45%,
+    var(--md-sys-color-outline-variant) 75%,
     transparent
   );
   box-shadow: none;
