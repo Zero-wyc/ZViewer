@@ -132,6 +132,12 @@ export interface MusicState {
   loginStatus: NcmLoginStatus
   /** 播放器左上角提示文字（自动消失逻辑放组件） */
   syncNotice: string | null
+  /**
+   * 提示类别：approval = 观众控制申请待审批（房主端渲染通过/拒绝按钮）；
+   * info = 纯状态提示（解析进度、申请结果回执等，不渲染按钮）。
+   * setSyncNotice(null) 时自动重置为 info
+   */
+  syncNoticeKind: 'info' | 'approval'
   /** 观众同步回执列表（房主端左下角「xx 已同步」，组件负责过期清理） */
   syncAcks: MusicSyncAck[]
   /**
@@ -183,8 +189,8 @@ export interface MusicState {
   setHostOffline: (offline: boolean) => void
   /** 设置网易云登录状态 */
   setLoginStatus: (status: NcmLoginStatus) => void
-  /** 设置播放器提示文字（null 清除） */
-  setSyncNotice: (notice: string | null) => void
+  /** 设置播放器提示文字（null 清除；kind 标记是否为待审批申请） */
+  setSyncNotice: (notice: string | null, kind?: 'info' | 'approval') => void
   /** 追加一条观众同步回执（房主端；超出上限丢弃最旧的） */
   pushSyncAck: (username: string) => void
   /** 清理过期的同步回执（at 早于 now - ttlMs 的条目） */
@@ -238,6 +244,7 @@ const defaultState = {
   hostOffline: false,
   loginStatus: { loggedIn: false } as NcmLoginStatus,
   syncNotice: null as string | null,
+  syncNoticeKind: 'info' as 'info' | 'approval',
   syncAcks: [] as MusicSyncAck[],
   biliItem: null as MusicQueueItem | null,
   biliRecommendedKeys: [] as string[],
@@ -281,7 +288,12 @@ export const useMusicStore = create<MusicState>((set) => ({
   setPlayMode: (mode) => set({ playMode: mode }),
   setHostOffline: (offline) => set({ hostOffline: offline }),
   setLoginStatus: (status) => set({ loginStatus: status }),
-  setSyncNotice: (notice) => set({ syncNotice: notice }),
+  setSyncNotice: (notice, kind) =>
+    set({
+      syncNotice: notice,
+      // 清除时重置类别；设置时未指定默认为 info（纯状态提示）
+      syncNoticeKind: notice == null ? 'info' : (kind ?? 'info'),
+    }),
   pushSyncAck: (username) =>
     set((s) => {
       const next: MusicSyncAck[] = [
@@ -345,6 +357,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       playMode: 'sequence',
       hostOffline: false,
       syncNotice: null,
+      syncNoticeKind: 'info',
       syncAcks: [],
       biliItem: null,
       biliRecommendedKeys: [],

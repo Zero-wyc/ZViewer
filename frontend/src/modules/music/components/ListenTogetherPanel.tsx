@@ -1136,6 +1136,7 @@ function ListenTogetherInner({
     canControl,
     hostOffline,
     syncNotice,
+    syncNoticeKind,
     setSyncNotice,
     isPlaying,
     playMode,
@@ -2329,7 +2330,9 @@ function ListenTogetherInner({
             }}
           >
             <span>{syncNotice}</span>
-            {isHost && (
+            {/* 仅审批类提示（观众控制申请）渲染通过/拒绝按钮；
+                纯状态提示（解析进度、结果回执等）不显示 */}
+            {isHost && syncNoticeKind === 'approval' && (
               <span className="flex items-center gap-1.5">
                 <button
                   type="button"

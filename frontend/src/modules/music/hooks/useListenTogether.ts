@@ -355,8 +355,10 @@ export interface UseListenTogetherResult {
   hostOffline: boolean
   /** 播放器左上角提示文字（自动消失逻辑由组件实现） */
   syncNotice: string | null
-  /** 设置提示文字（null 清除） */
-  setSyncNotice: (notice: string | null) => void
+  /** 提示类别：approval = 待审批申请（房主端渲染通过/拒绝按钮） */
+  syncNoticeKind: 'info' | 'approval'
+  /** 设置提示文字（null 清除；kind 标记是否为待审批申请） */
+  setSyncNotice: (notice: string | null, kind?: 'info' | 'approval') => void
   /** 本地播放音量（0-1，仅本地生效不参与房间同步） */
   volume: number
   /** 设置本地播放音量（0-1，持久化到 localStorage；0 视为静音） */
@@ -390,6 +392,7 @@ export function useListenTogether({
     playMode,
     hostOffline,
     syncNotice,
+    syncNoticeKind,
     setSyncNotice,
     biliItem,
   } = useMusicStore(
@@ -399,6 +402,7 @@ export function useListenTogether({
       playMode: s.playMode,
       hostOffline: s.hostOffline,
       syncNotice: s.syncNotice,
+      syncNoticeKind: s.syncNoticeKind,
       setSyncNotice: s.setSyncNotice,
       biliItem: s.biliItem,
     }))
@@ -1731,7 +1735,7 @@ export function useListenTogether({
       const who = payload.username || '观众'
       useMusicStore
         .getState()
-        .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT[action]}`)
+        .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT[action]}`, 'approval')
     }
 
     // 观众：控制申请应答（approved 时执行对应本地操作，并提示结果）
@@ -1889,6 +1893,7 @@ export function useListenTogether({
     canControl,
     hostOffline,
     syncNotice,
+    syncNoticeKind,
     setSyncNotice,
     volume,
     setVolume,
