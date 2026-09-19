@@ -844,7 +844,7 @@ export function RoomInfoPanel({
               </div>
               {viewers.length === 0 ? (
                 <div
-                  className="flex min-h-16 flex-1 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
+                  className="flex min-h-8 flex-1 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
                   style={{
                     backgroundColor: 'var(--glass-bg)',
                   }}
@@ -854,7 +854,7 @@ export function RoomInfoPanel({
                   </Text>
                 </div>
               ) : (
-                <div className="flex min-h-16 flex-1 flex-row flex-wrap content-start gap-1.5 overflow-y-auto">
+                <div className="flex min-h-8 flex-1 flex-row flex-wrap content-start gap-1.5 overflow-y-auto">
                   {viewers.map((viewer) => (
                     <div
                       key={viewer.socketId}
