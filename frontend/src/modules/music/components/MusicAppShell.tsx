@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect, useState } from 'react'
+import { useContext, useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
@@ -194,6 +194,26 @@ function ShellInner({
     return () => clearTimeout(timer)
   }, [syncAcks])
 
+  // 同步回执退出动画：store 清理过期项后，消失的条目转入本地 leaving 列表
+  // 再播 0.3s 上飘淡出（zen-notice-leave）后卸载——与左上角提示条行为一致
+  const [leavingAcks, setLeavingAcks] = useState<
+    Array<{ id: number; username: string }>
+  >([])
+  const prevAcksRef = useRef<Array<{ id: number; username: string }>>([])
+  useEffect(() => {
+    const prev = prevAcksRef.current
+    prevAcksRef.current = syncAcks
+    const present = new Set(syncAcks.map((a) => a.id))
+    const gone = prev.filter((a) => !present.has(a.id))
+    if (gone.length === 0) return
+    setLeavingAcks((l) => [...l, ...gone])
+    // 每批独立定时器（不随 effect 清理）：连续清理多批互不影响
+    const goneIds = new Set(gone.map((a) => a.id))
+    setTimeout(() => {
+      setLeavingAcks((l) => l.filter((a) => !goneIds.has(a.id)))
+    }, 300)
+  }, [syncAcks])
+
   // 卸载/离开音乐页：重置播放状态（清队列/停播/对齐标记），保留登录态与
   // UI 状态（页面、覆盖层开关等）。引擎内部分配资源在 useListenTogether
   // 的卸载 effect 释放；store 仅走轻量 resetPlayback，不触发全量 reset
@@ -215,24 +235,38 @@ function ShellInner({
       style={{ height: '100dvh' }}
     >
       {/* ===== 左下角观众同步回执：观众完成切歌同步后回执，房主在此
-          看到「xx 已同步」——刻意做得极浅（opacity 0.25）极小（10px），
-          存在感弱不干扰主内容；每条淡入，4s 后自动消失 ===== */}
-      {syncAcks.length > 0 && (
-        <div className="pointer-events-none absolute bottom-2 left-3 z-[60] flex flex-col items-start gap-0.5">
-          {syncAcks.map((ack) => (
-            <span
-              key={ack.id}
-              className="zen-cover-fade text-[10px] font-medium leading-4"
-              style={{
-                color: 'var(--md-sys-color-on-surface)',
-                opacity: 0.25,
-              }}
-            >
-              {ack.username} 已同步
-            </span>
-          ))}
-        </div>
-      )}
+          看到「xx 已同步」——浅色玻璃条 + 上滑入场/TTL 后上飘淡出
+          （与左上角提示条同款动画 UI） ===== */}
+      {(syncAcks.length > 0 || leavingAcks.length > 0) &&
+        (() => {
+          const leavingIds = new Set(leavingAcks.map((a) => a.id))
+          const shown = [
+            ...syncAcks.filter((a) => !leavingIds.has(a.id)),
+            ...leavingAcks,
+          ]
+          return (
+            <div className="pointer-events-none absolute bottom-2 left-3 z-[60] flex flex-col items-start gap-1.5">
+              {shown.map((ack) => (
+                <div
+                  key={ack.id}
+                  className={cn(
+                    'zen-notice-bar flex items-center gap-1.5 rounded-[12px] px-3 py-1.5 text-[11px] font-medium',
+                    leavingIds.has(ack.id)
+                      ? 'zen-notice-leave'
+                      : 'zen-notice-drop-in'
+                  )}
+                >
+                  <Check
+                    className="h-3 w-3 shrink-0"
+                    style={{ color: 'var(--md-sys-color-primary)' }}
+                    strokeWidth={2.5}
+                  />
+                  {ack.username} 已同步
+                </div>
+              ))}
+            </div>
+          )
+        })()}
 
       {/* ===== 左上角提示区：房主离线 + syncNotice（含房主审批按钮） ===== */}
       <div className="pointer-events-none absolute left-4 top-4 z-[60] flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3">
