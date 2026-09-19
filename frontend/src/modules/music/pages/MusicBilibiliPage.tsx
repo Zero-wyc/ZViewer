@@ -180,6 +180,9 @@ type RegionTagEntryLegacy = Omit<RegionTagEntry, 'blockWords'> & {
 /** 种类持久化 key（存储即实际列表，删除内置项持久生效） */
 const REGION_TAGS_STORAGE_KEY = 'zviewer-bili-region-tags'
 
+/** 左栏当前选中种类的持久化 key（存种类名；刷新后按名恢复选中态） */
+const SELECTED_REGION_TAG_STORAGE_KEY = 'zviewer-bili-selected-region-tag'
+
 /** 从旧规则数组提取 kind=block 的词（迁移为分类级屏蔽词） */
 function extractLegacyBlockWords(rules: unknown): string[] {
   const words: string[] = []
@@ -814,10 +817,32 @@ export function MusicBilibiliPage({
   /** 右下角悬浮页码的键盘跳页：编辑态与输入值（空串/非法值提交时忽略） */
   const [pageJumpEditing, setPageJumpEditing] = useState(false)
   const [pageJumpValue, setPageJumpValue] = useState('')
-  /** 音乐分区：当前选中种类（null = 推荐榜单，走分区排行榜） */
-  const [regionTag, setRegionTag] = useState<RegionTagEntry | null>(null)
+  /** 音乐分区：当前选中种类（null = 推荐榜单，走分区排行榜）。
+   *  刷新后恢复上次选择：按名称从持久化的种类列表里找回（已删除的种类
+   *  找不到时回落推荐榜单）；选择变化时持久化名称 */
+  const [regionTag, setRegionTag] = useState<RegionTagEntry | null>(() => {
+    try {
+      const name = localStorage.getItem(SELECTED_REGION_TAG_STORAGE_KEY)
+      if (!name) return null
+      return loadRegionTags().find((t) => t.name === name) ?? null
+    } catch {
+      return null
+    }
+  })
   /** 音乐种类列表（内置 + 自定义，localStorage 持久化；均可删） */
   const [regionTags, setRegionTags] = useState<RegionTagEntry[]>(loadRegionTags)
+  /** 选中种类变化 → 持久化名称（刷新后恢复；null 时清除记录回落推荐榜单） */
+  useEffect(() => {
+    try {
+      if (regionTag) {
+        localStorage.setItem(SELECTED_REGION_TAG_STORAGE_KEY, regionTag.name)
+      } else {
+        localStorage.removeItem(SELECTED_REGION_TAG_STORAGE_KEY)
+      }
+    } catch {
+      // ignore（隐私模式等存储不可用场景）
+    }
+  }, [regionTag])
   /** 添加种类输入行的展开态与输入值（桌面左栏 / 移动端 chips 共用） */
   const [addingTag, setAddingTag] = useState(false)
   const [newTagInput, setNewTagInput] = useState('')
