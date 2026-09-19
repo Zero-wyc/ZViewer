@@ -474,21 +474,16 @@ button.bili-liquid-btn:active:not(:disabled) {
   animation-delay: var(--stagger-delay, 0ms);
 }
 
-/* 左上角提示条浅色玻璃卡（解析进度/审批/房主离线）：与页面 UI 同材质的
-   半透明玻璃 + 主题令牌描边/文字（原黑底卡与整体浅色 UI 不搭） */
+/* 左上角提示条黑底玻璃卡（解析进度/审批/房主离线）：黑底高斯模糊 +
+   白字，深色画面/浅色 UI 上都清晰（用户拍板回退浅色玻璃方案） */
 .zen-notice-bar {
-  background-color: color-mix(
-    in srgb,
-    var(--md-sys-color-surface-container) 60%,
-    transparent
-  );
+  background-color: rgba(8, 8, 8, 0.72);
   /* -webkit- 前缀版必须在标准属性之前（lightningcss 去重保留最后一条） */
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
-  border: 1px solid
-    color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent);
-  color: var(--md-sys-color-on-surface);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.1);
+  -webkit-backdrop-filter: blur(28px);
+  backdrop-filter: blur(28px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
 }
 
 /* 提示条退出动画：内容清除后延迟卸载期间播放（上飘淡出，与入场对称） */

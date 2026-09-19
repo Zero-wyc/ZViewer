@@ -296,11 +296,8 @@ function ShellInner({
                 <button
                   type="button"
                   onClick={approveControl}
-                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold transition-all hover:opacity-85 active:scale-95"
-                  style={{
-                    backgroundColor: 'var(--md-sys-color-primary)',
-                    color: 'var(--md-sys-color-on-primary)',
-                  }}
+                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold text-[#111114] transition-all hover:opacity-85 active:scale-95"
+                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.92)' }}
                   title="通过申请"
                 >
                   <Check className="h-3 w-3" strokeWidth={2.5} />
@@ -309,12 +306,7 @@ function ShellInner({
                 <button
                   type="button"
                   onClick={rejectControl}
-                  className="flex h-6 items-center gap-1 rounded-full border px-2.5 text-[11px] font-medium transition-colors hover:opacity-80 active:scale-95"
-                  style={{
-                    borderColor:
-                      'color-mix(in srgb, var(--md-sys-color-outline-variant) 80%, transparent)',
-                    color: 'var(--md-sys-color-error)',
-                  }}
+                  className="flex h-6 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] font-medium text-[#ff6b6b] transition-colors hover:border-white/35 hover:bg-white/10 active:scale-95"
                   title="拒绝申请"
                 >
                   <X className="h-3 w-3" />
