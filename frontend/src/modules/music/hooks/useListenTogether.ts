@@ -1174,12 +1174,11 @@ export function useListenTogether({
           switchSong('prev')
           break
         case 'seek':
-          // 本地直接对齐目标进度（房主随后广播的心跳/同步自然收敛）
+          // 仅在显式携带目标进度时动作（无载荷时直接跳过，防止误跳 0）；
+          // 正常链路对齐由房主 SYNC_STATE 广播驱动
+          if (positionSec == null) break
           try {
-            audio.currentTime = Math.max(
-              0,
-              Number.isFinite(positionSec) ? (positionSec as number) : 0
-            )
+            audio.currentTime = Math.max(0, positionSec)
           } catch {
             // ignore：元数据未就绪
           }
@@ -1776,6 +1775,19 @@ export function useListenTogether({
           .getState()
           .setSyncNotice(
             payload.approved ? '歌曲已加入播放列表' : '添加到播放列表被拒绝'
+          )
+        return
+      }
+      if (action === 'seek') {
+        // seek 的实际对齐交给房主端执行后的 SYNC_STATE 广播（房主是
+        // 同步源）；应答本身不携带目标进度，本地不再自行 seek 避免与
+        // 广播竞态
+        useMusicStore
+          .getState()
+          .setSyncNotice(
+            payload.approved
+              ? '房主已同意调节播放进度'
+              : '房主已拒绝调节播放进度'
           )
         return
       }

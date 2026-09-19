@@ -45,13 +45,15 @@ type MusicPlayMode = 'sequence' | 'order' | 'repeat-one' | 'shuffle';
 
 /** 合法的控制申请动作（与前端 MusicControlRequest['action'] 对齐）；
  *  addQueue = 观众申请添加音频到播放队列（携带 item 载荷，房主端按
- *  「自动通过」开关决定代理入队或拒绝） */
+ *  「自动通过」开关决定代理入队或拒绝）；seek = 观众申请调节播放进度
+ *  （携带 positionSec 载荷，自动通过时房主端直接执行并应答） */
 const CONTROL_ACTIONS = [
   'pause',
   'play',
   'next',
   'prev',
   'addQueue',
+  'seek',
 ] as const;
 type ControlAction = (typeof CONTROL_ACTIONS)[number];
 
@@ -684,6 +686,8 @@ export class MusicSyncHandler implements SocketEventHandler {
           /** addQueue 申请携带的入队条目 */
           item?: MusicQueueUpsertItem;
           afterCurrent?: boolean;
+          /** seek 申请携带的目标进度（秒） */
+          positionSec?: number;
         },
         callback?: AckCallback,
       ) => {
@@ -706,6 +710,13 @@ export class MusicSyncHandler implements SocketEventHandler {
           ) {
             return safeAck(callback, { success: false, message: '歌曲信息不完整' });
           }
+          // seek：目标进度必须是非负有限数（截断到毫秒精度防浮点噪声）
+          if (payload.action === 'seek') {
+            const pos = Number(payload?.positionSec);
+            if (!Number.isFinite(pos) || pos < 0 || pos > 86400) {
+              return safeAck(callback, { success: false, message: '进度参数无效' });
+            }
+          }
           // 房主在线才可申请（房主离线时前端走自主控制，不走申请）
           const sharer = await roomSessionService.getSharer(roomId);
           if (!sharer) {
@@ -718,6 +729,9 @@ export class MusicSyncHandler implements SocketEventHandler {
             action: payload.action,
             ...(payload.action === 'addQueue'
               ? { item: payload.item, afterCurrent: payload.afterCurrent === true }
+              : {}),
+            ...(payload.action === 'seek'
+              ? { positionSec: Number(payload.positionSec) }
               : {}),
             from: socket.id,
             username: socket.data?.username,
