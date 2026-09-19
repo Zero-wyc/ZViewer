@@ -967,9 +967,15 @@ export function useListenTogether({
     const currentSocket = socketRef.current
     const currentRoomId = roomIdRef.current
     const state = useMusicStore.getState()
+    // 当前播放条目：活动队列优先，房间队列兜底，本地插播条目再兜底
+    //（搜索试听等本地 B站 条目不在房间队列，漏掉会永不触发推荐）
     const current = state.currentKey
-      ? state.queue.find((q) => musicItemKey(q) === state.currentKey)
-      : undefined
+      ? (activeQueueOf(state).find(
+          (q) => musicItemKey(q) === state.currentKey
+        ) ??
+        state.queue.find((q) => musicItemKey(q) === state.currentKey) ??
+        state.biliItem)
+      : state.biliItem
     if (!currentSocket || !currentRoomId || !current?.biliBvid) {
       switchSong('next')
       return
@@ -1046,9 +1052,15 @@ export function useListenTogether({
    */
   const tryBiliContinueOnNext = useCallback((): boolean => {
     const state = useMusicStore.getState()
+    // 当前播放条目解析与 handleBiliContinue 同源（活动队列 → 房间队列
+    // → 本地插播条目），本地 B站 试听播完点下一首同样触发推荐
     const current = state.currentKey
-      ? state.queue.find((q) => musicItemKey(q) === state.currentKey)
-      : undefined
+      ? (activeQueueOf(state).find(
+          (q) => musicItemKey(q) === state.currentKey
+        ) ??
+        state.queue.find((q) => musicItemKey(q) === state.currentKey) ??
+        state.biliItem)
+      : state.biliItem
     if (
       state.playMode !== 'order' ||
       !current?.biliBvid ||
