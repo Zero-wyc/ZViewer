@@ -74,6 +74,18 @@ const MOBILE_BUFFER_BASE_SEC = 0.2
 const MOBILE_BACKLOG_RESET_SEC = 1.0
 
 /**
+ * 移动端 Opus 编码帧长（秒）：40ms 长帧。socket.io/engine.io/WS/TCP/IP
+ * 逐层包头合计约 60~100B，20ms 帧（50 包/秒）的包率在手机弱网下的
+ * 开销与突发敏感性远高于包内容本身——40ms 帧把包率减半（25 包/秒），
+ * Opus 40ms 语音档可懂度仍良好。接收端「到达间隔统计的期望值」必须
+ * 与之联动（MOBILE_OPUS_FRAME_SEC），否则 jitter 统计虚高、水位抬升
+ */
+const MOBILE_OPUS_FRAME_SEC = 0.04
+
+/** 移动端 PCM 回退模式的上行合并帧数：2 帧（40ms）拼包发送，理由同上 */
+const PCM_MOBILE_BATCH_FRAMES = 2
+
+/**
  * 上行背压阈值：底层 WebSocket 写入积压超过该字节数（≈50 包/约 1 秒）
  * 时丢弃当前帧。Socket.IO 的发送队列无限增长，弱网/网络切换时不丢帧
  * 会让上行流越拖越迟（延迟持续累积直到会话性质卡死），
@@ -643,9 +655,13 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         state.lastArrivalAt > 0 ? arrivalNow - state.lastArrivalAt : 0
       if (state.lastArrivalAt > 0) {
         const intervalSec = prevIntervalMs / 1000
-        // 间隔异常大（暂停/对方静音后恢复）不纳入统计
+        // 间隔异常大（暂停/对方静音后恢复）不纳入统计；
+        // 期望间隔与编码帧长联动（移动端 40ms 长帧），否则统计虚高
         if (intervalSec > 0 && intervalSec < 0.5) {
-          const deviation = Math.abs(intervalSec - VOICE_FRAME_SEC)
+          const expectedSec = IS_MOBILE
+            ? MOBILE_OPUS_FRAME_SEC
+            : VOICE_FRAME_SEC
+          const deviation = Math.abs(intervalSec - expectedSec)
           state.jitterEwma = state.jitterEwma * 0.9 + deviation * 0.1
         }
       }
@@ -1051,14 +1067,31 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               },
             })
 
-            encoder.configure({
+            const baseConfig: AudioEncoderConfig = {
               codec: 'opus',
               sampleRate: OPUS_SAMPLE_RATE,
               numberOfChannels: 1,
               // 移动端降码率：手机上行窄，128kbps 会被排队吞掉，
               // 32kbps 是 Opus 语音模式在移动网络的常规档位
               bitrate: IS_MOBILE ? MOBILE_OPUS_BITRATE : OPUS_BITRATE,
-            })
+            }
+            if (IS_MOBILE) {
+              // 移动端 Opus 扩展参数（WebCodecs Opus 注册项；TS DOM 未
+              // 收录全部字段，经断言注入——WebIDL 字典语义下浏览器忽略
+              // 不认识的键，不会 configure 失败）：
+              // - frameDuration 40ms：包率 50→25pps（见 MOBILE_OPUS_FRAME_SEC）
+              // - useinbandfec + packetlossperc 5%：带内前向纠错，弱网
+              //   丢包时可部分重建语音（丢帧→可闻断音的直接解药）
+              // - complexity 5：降低编码 CPU 占用，防止手机端主线程
+              //   挤压播放调度（decode/playback 同跑在主线程）
+              ;(baseConfig as unknown as Record<string, unknown>).opus = {
+                frameDuration: 40_000,
+                useinbandfec: true,
+                packetlossperc: 5,
+                complexity: 5,
+              }
+            }
+            encoder.configure(baseConfig)
             return encoder
           } catch (err) {
             console.error(
@@ -1078,6 +1111,10 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       }
 
       // 4. AudioWorklet 数据回调 → 编码/发送
+      // PCM 回退模式的移动端合并状态：积满 PCM_MOBILE_BATCH_FRAMES 帧
+      // 拼包发送（20ms/帧 → 40ms/包，包率减半）
+      const pcmBatchFrames: Float32Array[] = []
+      let pcmBatchSamples = 0
       workletNode.port.onmessage = (e: MessageEvent) => {
         const arrayBuffer = e.data as ArrayBuffer
         if (!arrayBuffer || !joinedRef.current || !micEnabledRef.current) return
@@ -1115,6 +1152,30 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
           }
         } else {
           // PCM 回退模式：直接发送 Int16 数据（同样不用 volatile，理由同上）
+          if (IS_MOBILE) {
+            // 移动端合并 2 帧（40ms）拼包发送：旧设备不支持 WebCodecs
+            // 时恰是性能最弱的场景，20ms 一包的小包开销不可承受
+            pcmBatchFrames.push(float32)
+            pcmBatchSamples += float32.length
+            if (pcmBatchSamples < FRAME_SIZE * PCM_MOBILE_BATCH_FRAMES) return
+            const merged = new Float32Array(pcmBatchSamples)
+            let offset = 0
+            for (const frame of pcmBatchFrames) {
+              merged.set(frame, offset)
+              offset += frame.length
+            }
+            pcmBatchFrames.length = 0
+            pcmBatchSamples = 0
+            const int16 = float32ToInt16(merged)
+            currentSocket.emit('voice-audio-data', {
+              roomId: currentRoomId,
+              data: int16.buffer,
+              sampleRate: captureCtx.sampleRate,
+              timestamp: Date.now(),
+              encoded: false,
+            })
+            return
+          }
           const int16 = float32ToInt16(float32)
           currentSocket.emit('voice-audio-data', {
             roomId: currentRoomId,
