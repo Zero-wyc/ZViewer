@@ -411,11 +411,17 @@ export class MusicSyncHandler implements SocketEventHandler {
             }
           }
           if (insertAfterIndex >= 0) {
-            order = items[insertAfterIndex].order + 1;
-            for (let i = insertAfterIndex; i < items.length; i++) {
+            // 新条目位次 = 当前条目 order+1；右移从当前条目的**下一个**开始
+            // （此前从当前条目自身开始右移，导致当前条目与新条目 order 相同、
+            //  连续插入时整批 order 全部平局，队列排序退化为 rowid 随机序，
+            //  表现为「点下一首跳到推荐批次里的任意一首」）。
+            // 前端连续插入是倒序逐条调用的（fresh.reverse()），本修正后
+            // 每条都精确落在当前条目之后一位，最终顺序与推荐一致且无平局
+            for (let i = insertAfterIndex + 1; i < items.length; i++) {
               items[i].order += 1;
               await repo.save(items[i]);
             }
+            order = items[insertAfterIndex].order + 1;
           }
 
           await repo.save(
