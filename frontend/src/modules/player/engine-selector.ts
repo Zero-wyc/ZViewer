@@ -44,18 +44,6 @@ const ENGINES: Record<string, PlayerEngine> = {
 const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
 
 /**
- * 需经 playsvideo 管线才能可靠播放的容器全集（重封装容器 + MKV）。
- *
- * 供挂载直链模式（noProxyFallback）的原生失败回退判定复用：这些容器的
- * 原生播放对编码组合容错面窄（MKV 原生仅 H.264/AAC，HEVC/DTS 必败），
- * 直链模式又不回退服务器代理，原生失败后管线是唯一可播路径。
- */
-export const PLAYSVIDEO_CONTAINER_FORMATS: readonly string[] = [
-  'mkv',
-  ...REMUX_ONLY_FORMATS,
-]
-
-/**
  * 判断该源是否应交给 playsvideo 引擎。
  *
  * 判定前提：系统级开关（管理后台「基础设置」的 playsvideoEnabled）与

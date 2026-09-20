@@ -31,7 +31,6 @@ import type { RefObject, MutableRefObject } from 'react'
 import {
   selectEngine,
   shouldUsePlaysVideo,
-  PLAYSVIDEO_CONTAINER_FORMATS,
   resetVideoElement,
   resolveProxyUrl,
   isLocalUrl,
@@ -165,8 +164,7 @@ export function usePlayerSource(
     (
       video: HTMLVideoElement,
       source: PlayerSource,
-      resume?: { time: number; playing: boolean },
-      opts?: { ignoreMovieSwitch?: boolean }
+      resume?: { time: number; playing: boolean }
     ) => Promise<PlaysVideoFallbackOutcome>
   >(async () => ({ kind: 'disabled' }))
   // 播放期错误回调的稳定引用（调用方可能每次渲染传入新函数）
@@ -312,53 +310,6 @@ export function usePlayerSource(
           return
         }
 
-        // 挂载直链模式 + 重封装容器：原生播放中断（起播后解码失败等）时
-        // 同样自动回退管线——直链模式在 direct 引擎层不回退服务器代理，
-        // 管线是唯一可播路径（豁免影片级开关，理由见 attach 期同分支）
-        if (
-          engineType === 'direct' &&
-          !watchedSource.forcePlaysVideo &&
-          watchedSource.noProxyFallback === true &&
-          watchedSource.format &&
-          PLAYSVIDEO_CONTAINER_FORMATS.includes(watchedSource.format)
-        ) {
-          const atTime = video.currentTime
-          const wasPlaying = !video.paused
-          console.warn(
-            '[usePlayerSource] 挂载直链容器原生播放中断（video error），回退 playsvideo 管线'
-          )
-          void enqueue(async () => {
-            if (appliedSourceUrlRef.current !== watchedSource.url) return
-            if (!mountedRef.current) return
-            const outcome = await attachPlaysVideoFallbackRef.current(
-              video,
-              watchedSource,
-              { time: atTime, playing: wasPlaying },
-              { ignoreMovieSwitch: true }
-            )
-            if (outcome.kind === 'disabled') {
-              onPlaybackErrorRef.current?.(
-                new Error(
-                  `直链播放中断：${reason}。该容器/编码需要「浏览器转码引擎」播放：` +
-                    '可让管理员在系统设置开启引擎后重载，或删除影片后关闭「直链模式」改用服务器转发重新添加'
-                )
-              )
-            } else if (outcome.kind === 'error') {
-              onPlaybackErrorRef.current?.(
-                new Error(
-                  `回退浏览器转码引擎失败：${
-                    outcome.error instanceof Error
-                      ? outcome.error.message
-                      : String(outcome.error)
-                  }。可尝试重载影片`
-                )
-              )
-            }
-            // attached / unmounted：无需提示
-          })
-          return
-        }
-
         // 无恢复路径：直接提示（直链模式给出更具体的修复指引）
         if (watchedSource.noProxyFallback) {
           onPlaybackErrorRef.current?.(
@@ -386,30 +337,17 @@ export function usePlayerSource(
    *
    * 调用方负责解读结果：attach 期 disabled 抛开启引导、error 向上抛；
    * 播放期经 onPlaybackError 回调提示。
-   *
-   * opts.ignoreMovieSwitch：挂载直链模式（noProxyFallback）的容器原生
-   * 失败回退用——影片级开关默认关闭（添加影片时用户大概率未改动），
-   * 若据此拒绝回退，「挂载直链 + MKV」组合将永远无法播放；此场景下
-   * 仅保留系统级开关约束（管理员显式禁用仍尊重）。
    */
   const attachPlaysVideoFallback = useCallback(
     async (
       video: HTMLVideoElement,
       source: PlayerSource,
-      resume?: { time: number; playing: boolean },
-      opts?: { ignoreMovieSwitch?: boolean }
+      resume?: { time: number; playing: boolean }
     ): Promise<PlaysVideoFallbackOutcome> => {
       // 置位运行时回退标记：后续同源重载（forceReload）直接走管线，
       // 避免重复原生失败；亦防止回退后的播放期监听再次进入回退分支
       source.forcePlaysVideo = true
-      const pipelineSource: PlayerSource = {
-        ...source,
-        forcePlaysVideo: true,
-        // 影片级开关被豁免时以启用态参与引擎选择；系统级开关不受影响
-        // （shouldUsePlaysVideo 内部读取真实 store）
-        playsvideoEnabled:
-          opts?.ignoreMovieSwitch === true ? true : source.playsvideoEnabled,
-      }
+      const pipelineSource: PlayerSource = { ...source, forcePlaysVideo: true }
       const pipelineEngine = selectEngine(pipelineSource)
       if (pipelineEngine.type === 'direct') {
         // 引擎被两级开关（系统级 / 影片级）禁用：尊重用户选择不启动管线
@@ -504,44 +442,6 @@ export function usePlayerSource(
               throw new Error(
                 `原生播放失败：${formatVideoLoadError(video.error?.code)}。` +
                   '可在「系统设置」或该影片的解析设置中开启「浏览器转码引擎」后重试',
-                { cause: err }
-              )
-            }
-            if (outcome.kind === 'error') throw outcome.error
-            // attached / unmounted：结束本次 attach
-            return
-          }
-          if (
-            engine.type === 'direct' &&
-            !source.forcePlaysVideo &&
-            source.noProxyFallback === true &&
-            source.format &&
-            PLAYSVIDEO_CONTAINER_FORMATS.includes(source.format)
-          ) {
-            // 挂载直链模式 + 重封装容器（mkv/avi/ts/wmv）：此类容器的原生
-            // 播放对编码容错面窄（MKV 原生仅 H.264/AAC，HEVC/DTS 必败），
-            // 而直链模式在 direct 引擎层不回退服务器代理——若此处再不回退
-            // 管线，「挂载直链 + MKV」组合将永远无法播放（典型：OpenList
-            // 挂载的 x265 动画资源）。自动回退 playsvideo 管线（经后端代理
-            // 取流，重封装为 fMP4），豁免影片级开关（默认关闭是添加面板的
-            // 初始值而非用户显式选择），系统级开关关闭时仍走 disabled 引导。
-            console.warn(
-              '[usePlayerSource] 挂载直链容器原生 attach 失败，回退 playsvideo 管线:',
-              err
-            )
-            const outcome = await attachPlaysVideoFallback(
-              video,
-              source,
-              undefined,
-              {
-                ignoreMovieSwitch: true,
-              }
-            )
-            if (outcome.kind === 'disabled') {
-              throw new Error(
-                `直链播放失败：${formatVideoLoadError(video.error?.code)}。` +
-                  '该容器/编码需要「浏览器转码引擎」播放：可让管理员在系统设置开启引擎后重载，' +
-                  '或删除影片后关闭「直链模式」改用服务器转发重新添加',
                 { cause: err }
               )
             }
