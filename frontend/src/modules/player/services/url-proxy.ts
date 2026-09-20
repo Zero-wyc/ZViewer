@@ -226,10 +226,8 @@ export interface ResolvedMediaRoute {
  * @param url 原始视频流 URL
  * @param headers 可选的防盗链 headers（由后端 resolve 返回）
  * @param format 源格式（'mp4' / 'dash' / 'm4s' / 'm3u8' / 'flv' 等），影响 B站 URL 代理决策
- * @param options noProxyFallback：挂载直链模式——跳过本分支的混合内容
- *   代理，由 direct 引擎在 attach 前经 applyMixedContentFallback 统一
- *   兜底（https 页面下的 http 直链同样自动转代理），保持混合内容决策
- *   单点收敛在引擎层
+ * @param options noProxyFallback：挂载直链模式——跳过混合内容代理分支，
+ *   保持源站直传语义（浏览器升级失败由引擎直接抛错提示，不静默转代理）
  */
 export function resolveMediaRoute(
   url: string,
@@ -305,9 +303,8 @@ export function resolveMediaRoute(
   // 据此升级直链协议）——仍以 http 形态到达播放层的源即探测为不支持 TLS。
   // 例外：
   // - 127.0.0.1 / localhost 是浏览器信任源，已在上方 CLI 分支直连放行；
-  // - 挂载直链模式（noProxyFallback）跳过本分支，由 direct 引擎的
-  //   applyMixedContentFallback 在 attach 前做同样的混合内容判定并转代理
-  //   （含 127.0.0.1/localhost 信任源例外），决策单点收敛在引擎层。
+  // - 挂载直链模式（noProxyFallback）跳过本分支：保持源站直传语义，
+  //   升级失败由 direct 引擎直接抛错提示，不静默转代理。
   if (
     window.location.protocol === 'https:' &&
     options?.noProxyFallback !== true

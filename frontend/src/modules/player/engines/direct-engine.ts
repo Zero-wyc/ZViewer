@@ -8,9 +8,7 @@
  * - B站 DASH m4s / 带防盗链 headers 的源走服务器代理
  * - 其他源（B站 MP4 直链 / webdav / ftp / 用户直链）直连
  * - 直连失败时（跨域防盗链 / CORS / 403），自动回退到服务器代理重试；
- *   挂载直链模式（noProxyFallback）不回退，直接抛可读错误。
- *   例外：https 页面下的 http 直链受浏览器混合内容硬限制、直连物理上
- *   不可能，attach 前即自动转服务器代理（applyMixedContentFallback）。
+ *   挂载直链模式（noProxyFallback）不回退，直接抛可读错误
  *
  * attach 在 metadata 就绪后 resolve。metadata 等待带超时保护：网络挂起
  * （连接 hang 住不返回也不报错）时 reject 兜底，避免永久 pending 卡死
@@ -102,39 +100,32 @@ async function probeContentDuration(
 }
 
 /**
- * 挂载直链源的混合内容处理：HTTPS 页面下的 http 直链必然失败。
+ * 挂载直链源的前置校验：HTTPS 页面下的 http 直链必然失败。
  *
  * 浏览器混合内容策略会把 http 资源强制升级到同端口 https，源站不支持
- * TLS 时 TLS 握手必然失败（ERR_SSL_PROTOCOL_ERROR）——这是浏览器层面的
- * 硬限制，直链模式在此场景下**不存在任何可用的直连路径**，与其抛出
- * 「请为源站配置 HTTPS」的指引错误（用户仍无法播放），不如直接经后端
- * 服务器代理转发（无协议限制，与转发模式挂载同一决策结果）。
+ * TLS 时 TLS 握手必然失败（ERR_SSL_PROTOCOL_ERROR）——与其静默等浏览器
+ * 报一个泛化的 media error，不如在发请求前直接给出可操作的修复指引
+ * （直链模式不回退服务器中转）。
  *
- * 例外：127.0.0.1 / localhost / ::1 是浏览器信任的 potentially
- * trustworthy origin，https 页面直连不受混合内容限制（且服务器代理根本
- * 访问不到用户本机），保持直连。
- *
- * @returns 实际应加载的 URL：原直链或服务器代理 URL
+ * @throws Error 带修复指引的错误；非该场景正常返回
  */
-function applyMixedContentFallback(targetUrl: string): string {
-  if (typeof window === 'undefined') return targetUrl
-  if (window.location.protocol !== 'https:') return targetUrl
+function assertDirectLinkReachable(
+  targetUrl: string,
+  noProxyFallback: boolean
+): void {
+  if (!noProxyFallback) return
+  if (window.location.protocol !== 'https:') return
   let u: URL
   try {
     u = new URL(targetUrl)
   } catch {
-    // 相对路径（本站资源）等，无混合内容问题
-    return targetUrl
+    return
   }
-  if (u.protocol !== 'http:') return targetUrl
-  if (['127.0.0.1', 'localhost', '::1'].includes(u.hostname)) {
-    return targetUrl
-  }
-  console.warn(
-    '[direct-engine] https 页面下的 http 挂载直链（源站不支持 TLS），自动经服务器代理播放:',
-    targetUrl.slice(0, 80)
+  if (u.protocol !== 'http:') return
+  throw new Error(
+    `直链播放失败：挂载源站为 HTTP（${u.host}），HTTPS 页面下浏览器会强制升级协议导致无法直连。` +
+      '解决方式：为源站配置 HTTPS（如反向代理）后重新保存挂载，或删除影片后改用服务器转发模式重新添加'
   )
-  return buildProxyUrl(targetUrl)
 }
 
 export const directEngine: PlayerEngine = {
@@ -147,22 +138,22 @@ export const directEngine: PlayerEngine = {
     resetVideoElement(video)
     // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式一次性决策
     // 「最终请求地址」与「直连失败是否允许回退服务器代理」。
-    // 挂载直链模式（noProxyFallback）跳过 url-proxy 的混合内容代理分支，
-    // 混合内容由下方 applyMixedContentFallback 统一兜底（自动转代理）；
+    // 挂载直链模式（noProxyFallback）跳过混合内容代理分支，保持源站直传语义；
     // http 源的 TLS 能力已在挂载配置期探测（httpsDirect），http 直链到达
-    // 播放层即源站不支持 TLS
+    // 播放层即源站不支持 TLS，由 url-proxy 决策走服务器代理
     const route = resolveMediaRoute(source.url, source.headers, source.format, {
       noProxyFallback: source.noProxyFallback === true,
     })
-    // 混合内容兜底：https 页面下的 http 挂载直链自动经服务器代理
-    // （浏览器硬限制，直连物理上不可能；127.0.0.1/localhost 例外直连）
-    const targetUrl = applyMixedContentFallback(route.url)
+    const targetUrl = route.url
+
+    // 挂载直链源前置校验：HTTPS 页面下的 http 直链必然失败，
+    // 发请求前直接给出可操作的修复指引（零网络往返，不回退中转）
+    assertDirectLinkReachable(targetUrl, source.noProxyFallback === true)
 
     // 尝试加载视频：直连失败时回退到服务器代理（绕过跨域防盗链 / CORS）。
     // 挂载直链模式（noProxyFallback）例外：设计意图是源站直传、服务器零
     // 媒体流量，静默转代理会让服务器带宽跑满并掩盖直链本身的问题，
-    // 失败直接抛错由调用方提示用户。（混合内容场景已在上方自动转代理——
-    // 那是浏览器硬限制而非直链质量问题，不适用「掩盖问题」的考量）
+    // 失败直接抛错由调用方提示用户。
     const fallback = source.noProxyFallback !== true && route.allowFallback
 
     const loadOnce = async (url: string): Promise<void> => {
