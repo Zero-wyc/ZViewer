@@ -11,8 +11,7 @@
 import {
   stripPassword,
   extractErrorMessage,
-  ensureHttpsProbe,
-  maybeUpgradeDirectUrl,
+  upgradeDirectUrlValidated,
   probeForMountSave,
 } from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
@@ -429,8 +428,8 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
     const directUrlRaw = needsAudioTranscode
       ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
       : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
-    const httpsDirect = await ensureHttpsProbe(mount);
-    const directUrl = maybeUpgradeDirectUrl(directUrlRaw, httpsDirect);
+    // 升级前对 https 端点现场活性校验，防陈旧缓存产出不可达的 https 直链
+    const directUrl = await upgradeDirectUrlValidated(mount, directUrlRaw);
 
     res.json({
       success: true,

@@ -78,6 +78,65 @@ export function maybeUpgradeDirectUrl(
 }
 
 /**
+ * 直链协议升级（带 https 端点活性校验）。
+ *
+ * httpsDirect 是**配置期一次性探测的持久缓存**，仅在 serverUrl 变更时
+ * 重置——源站环境变化（反向代理拆除、DDNS 重指向、证书移除等）不会
+ * 使缓存失效。盲信陈旧的 true 会把 http 直链升级成浏览器永远连不上的
+ * https 地址：直链模式没有任何回退路径，该影片就此无法播放（表现为
+ * video「源不可用」、fetch「状态码 null」、慢超时）。
+ *
+ * 因此升级前对 https 同端点现场再探测一次：失败即判定缓存陈旧，
+ * 改写 httpsDirect=false 并持久化（自愈），返回 http 直链。
+ * 源站恢复 TLS 后，重新保存挂载或修改 serverUrl 会重新探测。
+ *
+ * @returns 实际应下发的直链 URL（https 升级版或原 http 版）
+ */
+export async function upgradeDirectUrlValidated(
+  mount: UserMount,
+  directUrl: string
+): Promise<string> {
+  const httpsDirect = await ensureHttpsProbe(mount);
+  if (httpsDirect !== true) return directUrl;
+  let u: URL;
+  try {
+    u = new URL(directUrl);
+  } catch {
+    return directUrl;
+  }
+  if (u.protocol !== 'http:') return directUrl;
+  // 现场校验缓存的 TLS 能力（HEAD 根路径，任何 HTTP 响应即握手成功）
+  let alive = false;
+  try {
+    const res = await fetch(`https://${u.host}`, {
+      method: 'HEAD',
+      signal: AbortSignal.timeout(HTTPS_PROBE_TIMEOUT_MS),
+      headers: { 'user-agent': 'ZViewer-HttpsProbe' },
+    });
+    alive = res.status >= 200 && res.status < 600;
+    try {
+      await res.body?.cancel();
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    alive = false;
+  }
+  if (alive) return maybeUpgradeDirectUrl(directUrl, true);
+  // 缓存陈旧：源站当前不支持 TLS，改写缓存并保持 http 直链
+  console.warn(
+    `[mount-utils] httpsDirect 缓存已陈旧（${u.host} 当前 TLS 握手失败），改写为 false 并返回 http 直链`
+  );
+  mount.httpsDirect = false;
+  try {
+    await AppDataSource.getRepository(UserMount).save(mount);
+  } catch {
+    /* 写回失败不影响本次返回 */
+  }
+  return directUrl;
+}
+
+/**
  * 确保挂载的 HTTPS 能力已探测（幂等）。
  *
  * httpsDirect 非 null 直接返回缓存值；否则现场探测一次并写回 DB

@@ -30,8 +30,7 @@ import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import {
   stripPassword,
   extractErrorMessage,
-  ensureHttpsProbe,
-  maybeUpgradeDirectUrl,
+  upgradeDirectUrlValidated,
   probeForMountSave,
 } from '../modules/shared/mount-utils';
 import {
@@ -548,7 +547,7 @@ router.get('/direct-url', async (req: AuthenticatedRequest, res: Response): Prom
     }
 
     try {
-      const directUrl = await fetchOpenListDirectUrl(
+      const rawDirectUrl = await fetchOpenListDirectUrl(
         mount.serverUrl,
         mount.username || undefined,
         mount.password || undefined,
@@ -556,12 +555,12 @@ router.get('/direct-url', async (req: AuthenticatedRequest, res: Response): Prom
       );
       // 配置期探测的 HTTPS 能力：源站支持 TLS（http/https 双栈）时将 http
       // 直链升级为 https——浏览器直连不受混合内容限制，零服务器带宽；
-      // 不支持或未探测（旧数据，此处惰性补探测并写回）时保持 http 直链，
-      // HTTPS 页面下由前端 url-proxy 统一决策走服务器代理。
-      const httpsDirect = await ensureHttpsProbe(mount);
+      // 升级前对 https 端点现场活性校验，防陈旧缓存产出不可达的 https 直链
+      // （源站 TLS 被移除时缓存自愈为 false，返回 http 直链）。
+      const directUrl = await upgradeDirectUrlValidated(mount, rawDirectUrl);
       res.json({
         success: true,
-        directUrl: maybeUpgradeDirectUrl(directUrl, httpsDirect),
+        directUrl,
       });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';

@@ -156,6 +156,32 @@ export const directEngine: PlayerEngine = {
     // 失败直接抛错由调用方提示用户。
     const fallback = source.noProxyFallback !== true && route.allowFallback
 
+    // 陈旧 https 升级自愈（仅 http 页面 + 挂载直链）：直链的 https 协议
+    // 升级来自后端配置期探测缓存，源站 TLS 事后被移除时存量影片仍持有
+    // https 直链（浏览器连不上，表现为「源不可用」/连接失败）。http 页面
+    // 不受混合内容限制，降级回 http 直链即可重新直连源站——仍是直链
+    // 直传、不经服务器。https 页面下降级不可行（混合内容硬限制），
+    // 127.0.0.1/localhost 信任源无需降级。
+    let httpDowngradeUrl: string | null = null
+    if (
+      source.noProxyFallback === true &&
+      typeof window !== 'undefined' &&
+      window.location.protocol === 'http:'
+    ) {
+      try {
+        const u = new URL(targetUrl)
+        if (
+          u.protocol === 'https:' &&
+          !['127.0.0.1', 'localhost', '::1'].includes(u.hostname)
+        ) {
+          u.protocol = 'http:'
+          httpDowngradeUrl = u.toString()
+        }
+      } catch {
+        /* 非法 URL，无降级路径 */
+      }
+    }
+
     const loadOnce = async (url: string): Promise<void> => {
       video.src = url
       video.load()
@@ -165,6 +191,30 @@ export const directEngine: PlayerEngine = {
     try {
       await loadOnce(targetUrl)
     } catch (err) {
+      if (httpDowngradeUrl) {
+        console.warn(
+          '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:',
+          err
+        )
+        resetVideoElement(video)
+        try {
+          await loadOnce(httpDowngradeUrl)
+          return {
+            cleanup: () => {
+              delete video.dataset.serverDuration
+            },
+          }
+        } catch (downgradeErr) {
+          throw new Error(
+            `直链播放失败：${
+              downgradeErr instanceof Error
+                ? downgradeErr.message
+                : String(downgradeErr)
+            }。https/http 直链均加载失败，请检查源站可达性，或重新保存挂载后重新添加影片`,
+            { cause: downgradeErr }
+          )
+        }
+      }
       if (!fallback) {
         if (source.noProxyFallback === true) {
           console.warn(

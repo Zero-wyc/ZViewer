@@ -10,8 +10,7 @@
 import {
   stripPassword,
   extractErrorMessage,
-  ensureHttpsProbe,
-  maybeUpgradeDirectUrl,
+  upgradeDirectUrlValidated,
   probeForMountSave,
 } from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
@@ -571,11 +570,12 @@ export function createMountRouter(opts: MountRouterOptions): Router {
           targetPath,
         );
         // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
-        // （浏览器直连零带宽）；否则保持 http，播放时走服务器代理
-        const httpsDirect = await ensureHttpsProbe(mount);
+        // （浏览器直连零带宽）；升级前对 https 端点现场活性校验，防陈旧
+        // 缓存产出不可达的 https 直链（TLS 被移除时缓存自愈为 false）
+        const directUrl = await upgradeDirectUrlValidated(mount, alistDirectUrl);
         res.json({
           success: true,
-          directUrl: maybeUpgradeDirectUrl(alistDirectUrl, httpsDirect),
+          directUrl,
         });
         return;
       } catch (err) {
@@ -611,17 +611,18 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       }
 
       // WebDAV 协议不支持获取真实直链，直接拼接 serverUrl+path
-      const directUrl = buildWebDAVDirectUrl(
+      const rawDirectUrl = buildWebDAVDirectUrl(
         mount.serverUrl,
         targetPath,
         mount.username || undefined,
         mount.password || undefined,
       );
       // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
-      const httpsDirect = await ensureHttpsProbe(mount);
+      // （升级前现场活性校验，防陈旧缓存产出不可达的 https 直链）
+      const directUrl = await upgradeDirectUrlValidated(mount, rawDirectUrl);
       res.json({
         success: true,
-        directUrl: maybeUpgradeDirectUrl(directUrl, httpsDirect),
+        directUrl,
       });
     } catch (err) {
       console.error(`[${logTag}] direct-url error:`, err);
