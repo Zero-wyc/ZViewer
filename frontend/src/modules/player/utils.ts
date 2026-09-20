@@ -31,6 +31,11 @@ export function formatVideoLoadError(code?: number): string {
 /**
  * 在切换 MediaSource / blob URL 前彻底重置 video 元素，
  * 避免旧的 MediaSource 仍在 attached 状态导致 Format error。
+ *
+ * 注意只能 removeAttribute('src')，不能 `video.src = ''`——后者会把
+ * src="" 属性重新写回 DOM，资源选择算法将空串按当前文档 URL 解析，
+ * Firefox 会报「无效的 URI。媒体资源 加载失败。」（每次重置触发一次）。
+ * removeAttribute + load() 是规范定义的清空方式，不产生错误事件。
  */
 export function resetVideoElement(video: HTMLVideoElement): void {
   try {
@@ -39,7 +44,6 @@ export function resetVideoElement(video: HTMLVideoElement): void {
     // ignore
   }
   video.removeAttribute('src')
-  video.src = ''
   video.load()
 }
 

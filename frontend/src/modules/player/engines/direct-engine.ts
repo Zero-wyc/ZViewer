@@ -191,6 +191,22 @@ export const directEngine: PlayerEngine = {
     try {
       await loadOnce(targetUrl)
     } catch (err) {
+      // MKV 原生直连超时：30s 内 metadata 都没出来，极大概率是编码不被
+      // 浏览器原生支持（x265/HEVC、FLAC 组合在 Firefox 上完全无解），
+      // 而非源站无响应——原文案误导排查方向。此处只改提示文案给出可操作
+      // 指引，不自动回退（尊重直链语义与影片级开关的用户显式选择）。
+      if (
+        err instanceof Error &&
+        err.message.startsWith('加载超时') &&
+        source.format === 'mkv' &&
+        source.playsvideoEnabled === false
+      ) {
+        throw new Error(
+          '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，' +
+            '可在该影片的解析设置中开启「浏览器转码引擎」后重试',
+          { cause: err }
+        )
+      }
       if (httpDowngradeUrl) {
         console.warn(
           '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:',
