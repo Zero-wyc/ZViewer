@@ -20,6 +20,7 @@ import JoinByRoomIdPage from '@/pages/JoinByRoomIdPage'
 function AuthInitializer() {
   const setUser = useAuthStore((s) => s.setUser)
   const setAutoLoginStatus = useAuthStore((s) => s.setAutoLoginStatus)
+  const markAuthResolved = useAuthStore((s) => s.markAuthResolved)
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -38,60 +39,82 @@ function AuthInitializer() {
     /**
      * 拉取匿名 guest token 并设置 user。
      * 无论用户之前是否登出，guest 是默认降级身份，始终可用。
+     *
+     * 网络错误 / 5xx / 429 时自动重试（最多 3 次尝试）：首访用户点开房间
+     * 链接时常撞上后端恰好重启/短暂不可达，若一次失败就放弃，RequireAuth
+     * 会拿到终态并把用户弹去 /login——表现为「房间链接要输两次地址才能进」。
      */
     const fetchGuestToken = async () => {
       // 竞态条件保护：如果用户在此期间已手动登录，不要用 guest 覆盖
       const { isAuthenticated } = useAuthStore.getState()
       if (isAuthenticated) {
         setAutoLoginStatus('done')
+        markAuthResolved()
         return
       }
 
-      try {
-        const res = await apiFetch('/api/auth/guest', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-        })
-        const data = (await res.json()) as {
-          success: boolean
-          user?: {
-            id: string
-            username: string
-            role: string
-            status?: 'active' | 'pending'
-            avatar?: string | null
-          }
-          accessToken?: string
-        }
-
-        // 再次检查：网络请求期间用户可能已手动登录
-        const { isAuthenticated: nowAuthed } = useAuthStore.getState()
-        if (nowAuthed) {
-          setAutoLoginStatus('done')
-          return
-        }
-
-        if (res.ok && data.success && data.user) {
-          // 保存 guest token（跨站 HTTP 场景 cookie 不可用时 fallback 到 Bearer 头）
-          if (data.accessToken) saveAuthTokens(data.accessToken)
-          // guest token 获取成功 → 重置 session 过期标志
-          resetSessionExpired()
-          setUser({
-            id: data.user.id,
-            username: data.user.username,
-            role: data.user.role as User['role'],
-            status: data.user.status,
-            avatar: data.user.avatar,
+      const MAX_GUEST_ATTEMPTS = 3
+      for (let attempt = 1; attempt <= MAX_GUEST_ATTEMPTS; attempt++) {
+        try {
+          const res = await apiFetch('/api/auth/guest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
           })
-          // guest token 是新凭据，socket 需要断开重连以重新握手
-          reconnectSocket()
+          const data = (await res.json()) as {
+            success: boolean
+            user?: {
+              id: string
+              username: string
+              role: string
+              status?: 'active' | 'pending'
+              avatar?: string | null
+            }
+            accessToken?: string
+          }
+
+          // 再次检查：网络请求期间用户可能已手动登录
+          const { isAuthenticated: nowAuthed } = useAuthStore.getState()
+          if (nowAuthed) {
+            setAutoLoginStatus('done')
+            markAuthResolved()
+            return
+          }
+
+          if (res.ok && data.success && data.user) {
+            // 保存 guest token（跨站 HTTP 场景 cookie 不可用时 fallback 到 Bearer 头）
+            if (data.accessToken) saveAuthTokens(data.accessToken)
+            // guest token 获取成功 → 重置 session 过期标志
+            resetSessionExpired()
+            setUser({
+              id: data.user.id,
+              username: data.user.username,
+              role: data.user.role as User['role'],
+              status: data.user.status,
+              avatar: data.user.avatar,
+            })
+            // guest token 是新凭据，socket 需要断开重连以重新握手
+            reconnectSocket()
+            break
+          }
+
+          // 明确的业务失败（4xx 非 429 / success:false）：重试大概率同样失败，
+          // 但 429（限流）/5xx（后端异常）值得等一拍再试
+          const retryable = res.status === 429 || res.status >= 500
+          if (!retryable || attempt >= MAX_GUEST_ATTEMPTS) break
+        } catch (err) {
+          console.warn(
+            `[AuthInitializer] guest token fetch failed (attempt ${attempt}/${MAX_GUEST_ATTEMPTS}):`,
+            err
+          )
+          if (attempt >= MAX_GUEST_ATTEMPTS) break
         }
-      } catch (err) {
-        console.warn('[AuthInitializer] guest token fetch failed:', err)
-      } finally {
-        // 无论成功失败都标记为 done，避免 UI 永久卡在"正在校验登录状态"
-        setAutoLoginStatus('done')
+        // 重试间隔：1.5s 逐次退避
+        await new Promise((r) => setTimeout(r, 1500 * attempt))
       }
+
+      // 无论成功失败都标记为 done，避免 UI 永久卡在"正在校验登录状态"
+      setAutoLoginStatus('done')
+      markAuthResolved()
     }
 
     /**
@@ -124,6 +147,7 @@ function AuthInitializer() {
             avatar: data.user.avatar,
           })
           setAutoLoginStatus('done')
+          markAuthResolved()
           return
         }
 
@@ -133,9 +157,11 @@ function AuthInitializer() {
         if (userIdNow !== userIdAtMount) {
           // 用户 ID 已变化 → 手动登录发生，不要覆盖
           setAutoLoginStatus('done')
+          markAuthResolved()
           return
         }
         // 用户 ID 未变 → 持久化的会话已过期，清除过期状态后降级为 guest
+        // （guest 降级由 fetchGuestToken 在终态处 markAuthResolved）
         useAuthStore.getState().expireSession()
         void fetchGuestToken()
         return
@@ -149,6 +175,7 @@ function AuthInitializer() {
           const userIdNow = useAuthStore.getState().user?.id
           if (userIdNow !== userIdAtMount) {
             setAutoLoginStatus('done')
+            markAuthResolved()
             return
           }
           useAuthStore.getState().expireSession()

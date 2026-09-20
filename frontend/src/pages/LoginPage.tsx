@@ -40,7 +40,7 @@ type AuthMode = 'login' | 'register'
 export default function LoginPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { login } = useAuthStore()
+  const { login, isAuthenticated } = useAuthStore()
   const [mode, setMode] = useState<AuthMode>('login')
   const [form, setForm] = useState<AuthForm>({ username: '', password: '' })
   const [loading, setLoading] = useState(false)
@@ -52,6 +52,17 @@ export default function LoginPage() {
     ?.pathname
 
   const isLogin = mode === 'login'
+
+  // 首访兜底：从受保护页面（房间链接等）被 RequireAuth 重定向而来时
+  // location.state.from 记录了原目标。若认证在停留在本页期间完成——
+  // 典型是 AuthInitializer 的游客自动登录——则自动返回原地址，
+  // 避免「房间链接要输两次地址才能进」。直接访问 /login（无 from）
+  // 的用户不受影响，可安心手动登录/注册。
+  useEffect(() => {
+    if (from && isAuthenticated) {
+      navigate(from, { replace: true })
+    }
+  }, [from, isAuthenticated, navigate])
 
   useEffect(() => {
     const fetchMode = async () => {

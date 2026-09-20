@@ -25,6 +25,14 @@ interface AuthState {
   user: User | null
   isAuthenticated: boolean
   autoLoginStatus: AutoLoginStatus
+  /**
+   * 本次页面加载的鉴权引导是否已完成（AuthInitializer 首轮校验有了终态）。
+   * 注意：与 autoLoginStatus 不同，此标记【不持久化】——每次页面加载都从
+   * false 重新开始。持久化的 autoLoginStatus='done' 只代表「上一次页面
+   * 生命周期」校验完成（如登出后的残留），RequireAuth 若信任它会把未认证
+   * 的首访立刻重定向到 /login，表现为「房间链接要输两次地址才能进」。
+   */
+  authResolved: boolean
   /** 标记用户主动登出（用于 AuthInitializer 跳过 guest 自动登录等场景） */
   hasLoggedOut: boolean
   setUser: (user: User | null) => void
@@ -36,6 +44,8 @@ interface AuthState {
   /** 主动登出：清空 user 状态（cookie 由调用方调 /api/auth/logout 清除） */
   logout: () => void
   setAutoLoginStatus: (status: AutoLoginStatus) => void
+  /** 鉴权引导完成（本次页面加载的首轮校验有了终态），RequireAuth 据此放行重定向 */
+  markAuthResolved: () => void
   /** 会话过期（refresh 失败）：清空 user 状态 */
   expireSession: () => void
 }
@@ -48,6 +58,7 @@ export const useAuthStore = create<AuthState>()(
       user: null,
       isAuthenticated: false,
       autoLoginStatus: 'idle',
+      authResolved: false,
       hasLoggedOut: false,
       setUser: (user) => set({ user, isAuthenticated: !!user }),
       login: (user) =>
@@ -65,6 +76,7 @@ export const useAuthStore = create<AuthState>()(
           hasLoggedOut: true,
         }),
       setAutoLoginStatus: (status) => set({ autoLoginStatus: status }),
+      markAuthResolved: () => set({ authResolved: true }),
       expireSession: () =>
         set({
           user: null,
