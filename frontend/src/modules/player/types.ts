@@ -139,6 +139,8 @@ export interface PlayerSource {
    * 直接把错误抛给调用方提示用户。
    * 直链模式的设计意图是源站直传（服务器零媒体流量），静默转代理
    * 会让服务器带宽悄悄跑满，且掩盖了源站/直链本身的问题。
+   * 例外：https 页面下的 http 直链受浏览器混合内容硬限制、直连物理上
+   * 不可能，direct 引擎在 attach 前自动转服务器代理（不视为直链失败）。
    */
   noProxyFallback?: boolean
 }
