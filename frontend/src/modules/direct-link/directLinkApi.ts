@@ -1,4 +1,5 @@
 import type { ProxyModule } from './types'
+import { apiFetch } from '@/lib/api'
 
 /**
  * 直链 / 服务器中转 统一决策层
@@ -87,4 +88,28 @@ export function resolvePlaybackUrl(
     return movie.url
   }
   return buildProxyUrl(fallback.module, fallback.params)
+}
+
+/**
+ * 按影片记录向后端实时解析新鲜直链（openlist/webdav 直链影片）。
+ *
+ * movie.url 是添加影片那一刻的快照：AList 签名直链会过期、源站地址/协议
+ * 可能变化。后端按影片记录反查挂载并实时获取直链（5 分钟 TTL 缓存 +
+ * 单飞去重），前端每次播放解析时调用本接口而非复用固化 URL。
+ *
+ * @throws 后端返回失败（影片不存在/挂载缺失/源站不可达等）时抛错，
+ *         调用方应回退固化 movie.url 保持旧行为
+ */
+export async function resolveMovieDirectUrl(movieId: number): Promise<string> {
+  const query = new URLSearchParams({ movieId: String(movieId) }).toString()
+  const res = await apiFetch(`/api/direct-resolve/movie?${query}`)
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    directUrl?: string
+  }
+  if (!res.ok || !data.success || !data.directUrl) {
+    throw new Error(data.message || '实时解析直链失败')
+  }
+  return data.directUrl
 }

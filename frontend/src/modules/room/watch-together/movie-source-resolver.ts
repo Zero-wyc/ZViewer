@@ -18,6 +18,7 @@ import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import type { QualityOption } from './resolveSource'
 import { buildServerFileProxyUrl } from '@/modules/server-files/serverFilesApi'
+import { resolveMovieDirectUrl } from '@/modules/direct-link/directLinkApi'
 import {
   resolveAniSubsEpisode,
   buildAniSubsProxyUrl,
@@ -365,6 +366,8 @@ function computeMkvFastPath(
  * - ani-subs 番剧源：通过 sourceMeta 在线解析（URL 短期有效，每次重新解析）；
  * - 房主刷新恢复（recovery）且旧 URL 可用：优先复用旧 URL，
  *   标记 reusedRecoveryUrl，attach 失败时由调用方回退到在线解析；
+ * - openlist/webdav 直链影片：播放时向后端实时解析新鲜直链
+ *   （后端短 TTL 缓存），失败回退固化 movie.url；
  * - 其他源（webdav / ftp / url 等）：直接使用影片记录字段。
  *
  * @throws 在线解析失败且无旧 URL 可复用时抛错（调用方决定提示与重试策略）
@@ -442,9 +445,31 @@ export async function resolveMovieSource({
   // 一致：原生友好编码直通原生播放，跨域 URL 由 direct 引擎的代理策略
   // （直连失败回退服务器代理）兜底，原生失败再回退 playsvideo 管线。
   // 挂载直链模式（directLink）例外：直连失败不回退服务器代理，直接提示。
-  const inferredFormat = movie.format || detectMediaFormat(movie.url)
+  //
+  // openlist/webdav 直链影片：播放时向后端实时解析新鲜直链，不使用固化的
+  // movie.url——签名直链会过期、源站地址/协议可能随时间变化（对齐 synctv
+  // 的 play-time 解析语义；后端 5 分钟 TTL 缓存 + 单飞去重，附赠
+  // upgradeDirectUrlValidated 的 https 活性校验）。解析失败回退固化
+  // movie.url 保持旧行为（direct-engine 的 http 降级自愈仍然生效）。
+  let effectiveUrl = movie.url
+  if (
+    movie.directLink === true &&
+    (sourceType === 'openlist' || sourceType === 'webdav') &&
+    movie.serverUrl &&
+    movie.path
+  ) {
+    try {
+      effectiveUrl = await resolveMovieDirectUrl(movie.id)
+    } catch (err) {
+      console.warn(
+        '[movie-source-resolver] 实时直链解析失败，回退影片记录 URL:',
+        err
+      )
+    }
+  }
+  const inferredFormat = movie.format || detectMediaFormat(effectiveUrl)
   return {
-    sourceUrl: movie.url,
+    sourceUrl: effectiveUrl,
     audioUrl: movie.audioUrl,
     format: inferredFormat,
     videoCodec: movie.videoCodec,

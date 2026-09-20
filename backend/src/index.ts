@@ -34,6 +34,7 @@ import serverFilesRoutes from './routes/serverFiles';
 import musicRoutes from './routes/music';
 import { createMountRouter } from './routes/webdav';
 import openlistRoutes from './routes/openlist';
+import directResolveRoutes from './routes/direct-resolve';
 import ftpRoutes from './routes/ftp';
 import embyRoutes from './routes/emby';
 import jellyfinRoutes from './routes/jellyfin';
@@ -305,6 +306,8 @@ async function bootstrap() {
   // CLI 本地代理端点：供 zcontrol-cli 使用，使用用户自己的 Cookie 解析高画质
   app.use('/api/cli', cliRoutes);
   app.use('/api/openlist', openlistRoutes);
+  // 直链实时解析：前端播放时按 movieId 获取新鲜直链（openlist/webdav）
+  app.use('/api/direct-resolve', directResolveRoutes);
   app.use('/api/webdav', createMountRouter({
     type: 'webdav',
     proxyPrefix: '/api/webdav',
