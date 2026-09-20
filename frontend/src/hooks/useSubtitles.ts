@@ -345,6 +345,27 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
   }, [broadcast])
 
   /**
+   * 仅取消进行中的内嵌字幕提取流（不动轨道数据、不广播）。
+   *
+   * 切换影片/离开页面时调用：提取器对中转源（/api/openlist/stream 等）
+   * 的探测与后台补齐是独立于播放引擎的 Range 拉流（大文件可持续数分钟），
+   * 若只依赖「下一次 loadEmbeddedSubtitles 前取消」，切到非挂载源影片
+   * 或观众端早退路径（已有广播字幕）时旧流无人取消，服务器中转流量
+   * 会一直跑到提取自然完成。clearTracks 已含本逻辑（房主切影片路径），
+   * 本函数供 effect 清理/卸载等无字幕状态变更的场景使用。
+   */
+  const cancelEmbeddedExtraction = useCallback(() => {
+    embeddedEpochRef.current++
+    embeddedAbortRef.current?.abort()
+    embeddedAbortRef.current = null
+    // loading 标记同步清空：被取消的流不会走到 finish()，残留的 loading
+    // 标记会让下一次同 URL 的加载被防重入检查误跳过
+    if (embeddedAutoLoadRef.current?.status === 'loading') {
+      embeddedAutoLoadRef.current = null
+    }
+  }, [])
+
+  /**
    * 自动搜索影片同目录下的字幕文件并加载。
    */
   const searchAutoSubtitles = useCallback(
@@ -941,6 +962,16 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
     }
   }, [socket, isHost, roomId])
 
+  // 组件卸载（离开房间页面）时中止进行中的内嵌提取流：提取是独立于
+  // 播放引擎的 Range 拉流，不随播放器 cleanup 终止，卸载后若不显式
+  // abort 会继续对中转 URL 拉流量直到提取自然完成。
+  useEffect(() => {
+    return () => {
+      embeddedAbortRef.current?.abort()
+      embeddedAbortRef.current = null
+    }
+  }, [])
+
   return {
     ...state,
     setEnabled,
@@ -949,6 +980,7 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
     addTrackFromFile,
     addTrackFromContent,
     clearTracks,
+    cancelEmbeddedExtraction,
     searchAutoSubtitles,
     loadEmbeddedSubtitles,
     listEmbeddedTracks,

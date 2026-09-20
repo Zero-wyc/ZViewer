@@ -290,7 +290,15 @@ export function WatchTogetherCore({
         )
       }, 3000)
     }
-    return () => clearTimeout(embeddedTimer)
+    return () => {
+      clearTimeout(embeddedTimer)
+      // 影片切换/源变化时取消进行中的内嵌提取流：提取是独立于播放引擎的
+      // Range 拉流（中转源大文件可持续数分钟），若只在「下一次加载前取消」，
+      // 切到非挂载源影片（无新加载调用）或观众端早退路径（已有广播字幕）
+      // 时旧流无人取消，服务器中转流量会持续到提取自然完成。新影片为
+      // 挂载源时 3 秒后会重新发起提取，不受影响。
+      subtitles.cancelEmbeddedExtraction()
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     currentMovieId,
