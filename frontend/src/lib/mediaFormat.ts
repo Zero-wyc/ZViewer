@@ -44,12 +44,18 @@ export const MSE_SUPPORTED_FORMATS: MediaFormat[] = ['dash', 'flv', 'hls']
  */
 export function detectMediaFormat(filename: string): MediaFormat {
   if (!filename) return 'unknown'
-  const lower = filename.toLowerCase()
-  // m3u8 可能带 query 参数，优先匹配
+  // 剥离 URL 的 query 与 hash 后再取扩展名：签名直链（如 AList 的
+  // .../file.mkv?sign=xxx）若不剥离，扩展名会变成 "mkv?sign=xxx"，
+  // 误判为 unknown 后引擎选择链（shouldUsePlaysVideo 的 mkv 分支）
+  // 随之失效——hevc/flac MKV 会被错误交给 direct 引擎原生播放，
+  // 30s metadata 超时后才失败。
+  const pathname = filename.split(/[?#]/, 1)[0]
+  const lower = pathname.toLowerCase()
+  // m3u8 可能带 query 参数，优先匹配（split 后 query 已剥离，此处为双保险）
   if (lower.includes('.m3u8')) return 'hls'
-  const dotIndex = filename.lastIndexOf('.')
-  if (dotIndex < 0 || dotIndex === filename.length - 1) return 'unknown'
-  const ext = filename.slice(dotIndex + 1).toLowerCase()
+  const dotIndex = pathname.lastIndexOf('.')
+  if (dotIndex < 0 || dotIndex === pathname.length - 1) return 'unknown'
+  const ext = pathname.slice(dotIndex + 1).toLowerCase()
   const formatMap: Record<string, MediaFormat> = {
     mp4: 'mp4',
     m4v: 'mp4',
