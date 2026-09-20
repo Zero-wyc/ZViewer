@@ -33,7 +33,11 @@ export {
   playsVideoEngine,
   isPlaysVideoSupported,
 } from './engines/playsvideo-engine'
-export { selectEngine, shouldUsePlaysVideo } from './engine-selector'
+export {
+  selectEngine,
+  shouldUsePlaysVideo,
+  PLAYSVIDEO_CONTAINER_FORMATS,
+} from './engine-selector'
 
 // 工具函数
 export { resetVideoElement, waitForMetadata } from './utils'
