@@ -61,7 +61,7 @@ import {
 import type { Socket } from 'socket.io-client'
 import { apiGet, apiPost, getApiUrl } from '@/lib/api'
 import { CLI_DEFAULT_PORT, useCliAgent } from '@/hooks/useCliAgent'
-import { useIsPortraitMobile } from '@/hooks/useMediaQuery'
+import { useIsPortraitMobile, useIsLandscapeShort } from '@/hooks/useMediaQuery'
 import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
@@ -1284,6 +1284,9 @@ function ListenTogetherInner({
   // 手机竖屏：完整播放器切上下单列（封面+控制在上、歌词在下）；
   // 手机横屏仍走双栏（卡片宽由 --lt-card-w clamp 保底）
   const isPortraitMobile = useIsPortraitMobile()
+  // 横屏矮窗口（手机横屏全屏 / 桌面矮窗口）：桌面布局的固定大 padding
+  // 在矮视口下吃掉近 40% 高度，切紧凑间距
+  const isLandscapeShort = useIsLandscapeShort()
   // 手机竖屏歌词视图开关（工具行「歌词」按钮切换）：默认关 = 只显示播放卡
   // （卡片撑满剩余高度）；开启 = 隐藏播放卡、歌词区独占整页
   const [mobileLyricView, setMobileLyricView] = useState(false)
@@ -2630,6 +2633,10 @@ function ListenTogetherInner({
             isWebFullscreen ? 'px-[60px]' : 'px-[45px]',
             isPortraitMobile &&
               'flex-col justify-start gap-2.5 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-16',
+            // 横屏矮窗口（手机横屏全屏歌词页）：固定 pt-95px/pb-60px 会吃掉
+            // 近 40% 高度——收紧为固定小间距，把空间还给卡片与歌词面板；
+            // 左右同步收紧，song-control 的 50px 悬浮间隙保留（触屏常显）
+            isLandscapeShort && 'px-4 pb-5 pt-9',
             immersive && 'invisible'
           )}
           style={

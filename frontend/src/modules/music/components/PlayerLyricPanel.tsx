@@ -669,10 +669,10 @@ export function PlayerLyricPanel({
       </div>
 
       {/* 音质角标（Hydrogen .song-quality：1.5vh Bender-Bold 黑字；
-          右侧留出四角边框盒的宽度防重叠） */}
+          右侧留出四角边框盒的宽度防重叠；max() 保底横屏矮窗口可读） */}
       {qualityLabel && (
         <span
-          className="pointer-events-none absolute bottom-1 right-[2.2vh] z-[6] text-[1.5vh] leading-none tracking-wide"
+          className="pointer-events-none absolute bottom-1 right-[max(2.2vh,12px)] z-[6] text-[max(1.5vh,10px)] leading-none tracking-wide"
           style={{
             color: 'var(--md-sys-color-on-surface)',
             fontFamily: "'Bender-Bold', 'SourceHanSansCN-Bold', sans-serif",
@@ -683,7 +683,7 @@ export function PlayerLyricPanel({
       )}
 
       {/* 四角定位边框装饰（Hydrogen .border border1~4 1:1：
-          1.5vh 方框贴四角，右下角框多一颗中心点） */}
+          1.5vh 方框贴四角，右下角框多一颗中心点；max() 保底矮窗口可见） */}
       {(
         [
           ['top-1 left-1', false],
@@ -695,7 +695,7 @@ export function PlayerLyricPanel({
         <span
           key={posClass}
           aria-hidden="true"
-          className={`pointer-events-none absolute z-[5] h-[1.5vh] w-[1.5vh] ${posClass}`}
+          className={`pointer-events-none absolute z-[5] h-[max(1.5vh,9px)] w-[max(1.5vh,9px)] ${posClass}`}
           style={{ border: '1px solid var(--md-sys-color-on-surface)' }}
         >
           {withDot && (

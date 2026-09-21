@@ -55,3 +55,17 @@ export const PORTRAIT_MOBILE_QUERY =
 export function useIsPortraitMobile(): boolean {
   return useMediaQuery(PORTRAIT_MOBILE_QUERY)
 }
+
+/**
+ * 横屏矮窗口（含手机横屏）：宽屏方向但视口高度不足（<520px）。
+ * 手机横屏全屏歌词页时命中——桌面布局的固定大 padding（pt-95px/pb-60px）
+ * 会吃掉近 40% 高度，内容被压小；命中时主容器切换为紧凑 padding。
+ * 桌面矮窗口同样受益。阈值取 520px：常见手机横屏 CSS 高度 360-450px，
+ * 桌面正常窗口 ≥600px，避免误伤。
+ */
+export const LANDSCAPE_SHORT_QUERY =
+  '(orientation: landscape) and (max-height: 519.98px)'
+
+export function useIsLandscapeShort(): boolean {
+  return useMediaQuery(LANDSCAPE_SHORT_QUERY)
+}
