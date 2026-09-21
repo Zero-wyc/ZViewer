@@ -3432,11 +3432,17 @@ function ListenTogetherInner({
                   <PlayModeIcon className="h-5 w-5" />
                 </button>
               )}
-              {/* 歌词/评论切换（评论数徽章以小圆点形式叠加） */}
+              {/* 歌词/评论切换（评论数徽章以小圆点形式叠加）：
+                  与桌面端同语义——歌词视图收起时，查看评论/歌词的意图
+                  即带出面板，否则 mobileLyricView=false 时面板不渲染，
+                  手机端永远看不到评论区 */}
               {canComment && (
                 <button
                   type="button"
-                  onClick={() => setRightPanelMode((v) => (v === 0 ? 1 : 0))}
+                  onClick={() => {
+                    setRightPanelMode((v) => (v === 0 ? 1 : 0))
+                    setMobileLyricView(true)
+                  }}
                   className="relative flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                   style={{ color: 'var(--md-sys-color-on-surface)' }}
                   title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}

@@ -1645,20 +1645,6 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   filter: blur(var(--cover-blur, 50px)) saturate(140%) brightness(1.08);
 }
 
-/* 移动端性能兜底：毛玻璃 blur 在低端手机 GPU 上开销大，
-   播放卡/歌词面板/封面背景的模糊度降档（覆盖组件内联样式；
-   封面背景取可调值与 28px 的较小者） */
-@media (max-width: 767.98px) {
-  .lt-blur-surface {
-    backdrop-filter: blur(8px) !important;
-    -webkit-backdrop-filter: blur(8px) !important;
-  }
-  .lt-cover-backdrop img {
-    filter: blur(min(var(--cover-blur, 50px), 28px)) saturate(140%)
-      brightness(1.08) !important;
-  }
-}
-
 /* 触屏设备：hover 才显形的控件改为常显（覆盖层收起按钮等） */
 @media (pointer: coarse) {
   .lt-touch-visible {
