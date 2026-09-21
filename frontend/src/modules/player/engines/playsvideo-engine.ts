@@ -158,6 +158,15 @@ class PlaysVideoController implements PlayerController {
   private unbindSubtitles: (() => void) | null = null
   /** 中断进行中的字幕 blob 读取 */
   private subtitleAbort: AbortController | null = null
+  /**
+   * 进行中 attach 的 waitReady reject 句柄。
+   *
+   * engine.destroy() 终止 worker 后**不会**再发出 ready/error 事件——
+   * 若不在销毁时主动唤醒 waitReady，被新加载打断的旧 attach 会空等
+   * 满超时时长才报「准备超时」（日志实证：超时点与打断点相差的正是
+   * 剩余等待时长），既误报错误又长时间占用 attach 串行队列。
+   */
+  private pendingReadyReject: ((err: Error) => void) | null = null
 
   constructor(video: HTMLVideoElement, source: PlayerSource) {
     this.video = video
@@ -253,6 +262,9 @@ class PlaysVideoController implements PlayerController {
         engine.removeEventListener('ready', onReady)
         engine.removeEventListener('error', onError)
         clearTimeout(timer)
+        if (this.pendingReadyReject === onRejectExternal) {
+          this.pendingReadyReject = null
+        }
       }
       const onReady = () => {
         cleanup()
@@ -263,11 +275,17 @@ class PlaysVideoController implements PlayerController {
         const detail = (e as CustomEvent<{ message?: string }>).detail
         reject(new Error(detail?.message || 'playsvideo 引擎启动失败'))
       }
+      // destroyEngine 触发的外部唤醒（cleanup / 新世代接管 / 卸载）
+      const onRejectExternal = (err: Error) => {
+        cleanup()
+        reject(err)
+      }
       const timer = setTimeout(() => {
         cleanup()
         reject(new Error('playsvideo 引擎准备超时（60s）'))
       }, READY_TIMEOUT_MS)
 
+      this.pendingReadyReject = onRejectExternal
       engine.addEventListener('ready', onReady)
       engine.addEventListener('error', onError)
     })
@@ -372,6 +390,13 @@ class PlaysVideoController implements PlayerController {
       /* ignore */
     }
     this.engine = null
+    // 引擎已销毁（cleanup / 新世代接管）：worker 终止后不会再有 ready/error
+    // 事件，立即唤醒进行中的 waitReady，避免其空等满 60s 报假超时。
+    const rejectPending = this.pendingReadyReject
+    this.pendingReadyReject = null
+    rejectPending?.(
+      new Error('PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁')
+    )
   }
 
   cleanup(): void {

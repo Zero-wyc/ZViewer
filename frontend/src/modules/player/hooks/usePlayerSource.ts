@@ -174,6 +174,12 @@ export function usePlayerSource(
   // 会在卸载后继续完成。没有该标记时，attach 会把引擎挂到已被 React
   // 移除的游离 video 上，其声音持续输出（每切一次片泄漏一个声音源）。
   const mountedRef = useRef(true)
+  // attach 世代：每次 cleanup（被新加载取代 / forceReload / 卸载）递增。
+  // attach 流程在 await engine.attach 期间世代变化 = 本次已被取代：
+  // 静默退出（不向用户报错、不回滚 appliedSourceUrlRef、不走回退链）。
+  // 实证场景：前序 attach 失败后队列中的重试会话被后续 loadMovie 打断，
+  // 旧实现会向用户误报 60s/30s 超时并触发错误提示风暴。
+  const attachEpochRef = useRef(0)
 
   useEffect(() => {
     onPlaybackErrorRef.current = options.onPlaybackError
@@ -214,6 +220,9 @@ export function usePlayerSource(
     // 清空"已应用源"标记：引擎销毁后同 URL 重播不应被去重快速路径跳过，
     // 否则清片/清理后再播放同一 URL 会黑屏。
     appliedSourceUrlRef.current = null
+    // 世代递增：进行中的 attach（await 引擎 attach 期间）据此感知自己
+    // 已被取代，落地前/失败后静默退出。
+    attachEpochRef.current++
   }, [])
 
   /**
@@ -354,10 +363,23 @@ export function usePlayerSource(
         return { kind: 'disabled' }
       }
       cleanup()
+      // cleanup 递增了 attach 世代：以递增后的值作为本次回退 attach 的基准，
+      // 管线 attach 等待期间再次发生 cleanup（新加载/卸载）即视为被取代
+      const epoch = attachEpochRef.current
       resetVideoElement(video)
       appliedSourceUrlRef.current = source.url
       try {
         const result = await pipelineEngine.attach(video, pipelineSource)
+        if (attachEpochRef.current !== epoch) {
+          // 等待期间被新加载/卸载取代：本次落地作废，立即释放引擎，
+          // 复用 unmounted 语义让调用方静默处理
+          try {
+            result.cleanup?.()
+          } catch {
+            /* ignore */
+          }
+          return { kind: 'unmounted' }
+        }
         if (!applyAttachResult(result)) return { kind: 'unmounted' }
         // 恢复回退前的播放位置与播放状态（播放期回退传入 resume）
         if (resume && resume.time > 0) {
@@ -373,6 +395,8 @@ export function usePlayerSource(
         registerPlaybackErrorWatch(video, pipelineSource, pipelineEngine.type)
         return { kind: 'attached' }
       } catch (err) {
+        // 等待期间被取代：静默放弃（错误属于已过期的会话，不再向上传递）
+        if (attachEpochRef.current !== epoch) return { kind: 'unmounted' }
         return { kind: 'error', error: err }
       }
     },
@@ -393,10 +417,16 @@ export function usePlayerSource(
       authRetried = false
     ): Promise<void> => {
       const previousUrl = appliedSourceUrlRef.current
+      // attach 世代基准：cleanup 之后的值才是本次会话的起点（初始 -1 仅
+      // 兜底 cleanup 前的异常路径，正常流程必然被 cleanup 后的赋值覆盖）
+      let epoch = -1
       try {
         // cleanup 会清空 appliedSourceUrlRef（引擎销毁后旧标记失效），
         // 因此新源的标记必须在 cleanup 之后写入。
         cleanup()
+        // cleanup 递增了 attach 世代：以递增后的值作为本次 attach 的基准，
+        // 等待期间再次 cleanup（新加载/卸载）即视为本次已被取代
+        epoch = attachEpochRef.current
         resetVideoElement(video)
         appliedSourceUrlRef.current = source.url
         // playsvideo 的启用由 shouldUsePlaysVideo 依据容器/音轨与浏览器
@@ -405,8 +435,23 @@ export function usePlayerSource(
         const engine = selectEngine(source)
         try {
           const result = await engine.attach(video, source)
+          if (attachEpochRef.current !== epoch) {
+            // 等待期间被新加载/卸载取代：本次落地作废，立即释放引擎
+            // 并静默退出——错误与状态都不属于本次会话
+            try {
+              result.cleanup?.()
+            } catch {
+              /* ignore */
+            }
+            return
+          }
           if (!applyAttachResult(result)) return
         } catch (err) {
+          if (attachEpochRef.current !== epoch) {
+            // 等待期间被取代：静默放弃。不触发 token 刷新重试、不走
+            // MKV 回退链、不回滚 appliedSourceUrlRef（新会话已接管）
+            return
+          }
           // 鉴权失效：媒体 URL（appendAuthToken）嵌入的 access token 过期，
           // 引擎取流报 401/403。媒体请求不走 apiFetch（无内置刷新），
           // 此处强制 refresh 后重试一次；引擎内 appendAuthToken 实时读取
@@ -414,6 +459,8 @@ export function usePlayerSource(
           if (isAuthExpiredError(err, source) && !authRetried) {
             const refreshed = await refreshAccessToken()
             if (refreshed) {
+              // 刷新期间被新加载/卸载取代：放弃重试（新会话自会取源）
+              if (attachEpochRef.current !== epoch) return
               console.warn(
                 '[usePlayerSource] 媒体请求鉴权失效，token 已刷新，重试 attach'
               )
@@ -439,13 +486,21 @@ export function usePlayerSource(
               // 引擎被两级开关禁用（系统级/影片级任一关闭）：尊重用户
               // 选择不启动管线，回退路径不存在，直接抛出带开启引导的
               // 错误（经调用方 message.error 展示），而非静默黑屏。
+              // fallback 内部的 cleanup 属于本会话的内部操作（非被外部
+              // 取代），throw 前同步世代，防止外层 catch 误吞该引导错误。
+              epoch = attachEpochRef.current
               throw new Error(
                 `原生播放失败：${formatVideoLoadError(video.error?.code)}。` +
                   '可在「系统设置」或该影片的解析设置中开启「浏览器转码引擎」后重试',
                 { cause: err }
               )
             }
-            if (outcome.kind === 'error') throw outcome.error
+            if (outcome.kind === 'error') {
+              // 同上：error 结果已经过 fallback 内部的世代校验（未被取代），
+              // 同步世代让外层 catch 正常上抛而非静默吞掉
+              epoch = attachEpochRef.current
+              throw outcome.error
+            }
             // attached / unmounted：结束本次 attach
             return
           }
@@ -467,6 +522,9 @@ export function usePlayerSource(
         // attach 成功：注册播放期 error 监听（回退 / 提示的统一入口）
         registerPlaybackErrorWatch(video, source, engine.type)
       } catch (err) {
+        // 等待期间（回退链 / registerPlaybackErrorWatch）被新加载取代：
+        // 静默退出，不回滚标记、不向上报错（调用方的错误提示会误导用户）
+        if (attachEpochRef.current !== epoch) return
         // 加载失败时回滚 appliedSourceUrlRef，允许下次重试
         appliedSourceUrlRef.current = previousUrl
         throw err
