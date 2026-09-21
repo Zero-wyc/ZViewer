@@ -72,6 +72,60 @@ function isAuthExpiredError(err: unknown, source: PlayerSource): boolean {
   return /\b(401|403)\b/.test(msg)
 }
 
+/**
+ * video 级活跃引擎会话登记表（跨实例互斥，防偶发双声）。
+ *
+ * 引擎清理按 usePlayerSource 实例隔离（engineCleanupRef），但 video 元素
+ * 是共享的：并发 attach 链路（面板重挂载竞态 / 多处 attach 入口几乎同时
+ * 触发，日志实证同一 video 上 5-26ms 内成对 loadUrl）会各自创建引擎会话
+ * 挂到同一 video——旧会话的 worker / hls.js / MSE 无人终结，与新会话交替
+ * 输出，表现为偶发双声。实例级串行队列与 attachEpochRef 只能覆盖单实例，
+ * 此登记表保证同一 video 上同时只有一个活跃会话：
+ * - 新会话发起时（attachInner / fallback 的 cleanup 之后）终结已登记会话；
+ * - 新会话落地时兜底终结（覆盖 attach 期间对方才落地的交错）；
+ * - 序号取「发起顺序」，落地时若发现更新的序号已登记则主动让位自杀，
+ *   保证「后发起者赢」，杜绝旧会话反杀新会话。
+ */
+let engineSessionSeq = 0
+
+interface ActiveEngineSession {
+  seq: number
+  /** 引擎清理函数（once 包装：被外部终结后再次 dispose 幂等） */
+  dispose: () => void
+}
+
+const activeEngineSessions = new WeakMap<
+  HTMLVideoElement,
+  ActiveEngineSession
+>()
+
+/** once 包装：清理函数可能被登记终结与本实例 cleanup 各调用一次 */
+function onceDispose(dispose: (() => void) | undefined): () => void {
+  let called = false
+  return () => {
+    if (called) return
+    called = true
+    try {
+      dispose?.()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
+/** 终结登记在 video 上的其他来源引擎会话（跨实例互斥） */
+function terminateForeignEngineSession(video: HTMLVideoElement): void {
+  const prev = activeEngineSessions.get(video)
+  if (prev) {
+    activeEngineSessions.delete(video)
+    try {
+      prev.dispose()
+    } catch {
+      /* ignore */
+    }
+  }
+}
+
 export interface UsePlayerSourceOptions {
   videoRef: RefObject<HTMLVideoElement | null>
   /**
@@ -138,7 +192,13 @@ export function usePlayerSource(
   options: UsePlayerSourceOptions
 ): UsePlayerSourceReturn {
   const blobUrlRef = useRef<string | null>(null)
-  const engineCleanupRef = useRef<(() => void) | null>(null)
+  // 当前实例活跃引擎会话的登记条目（video + 序号 + once 包装的清理函数）
+  const engineCleanupRef = useRef<
+    | (ActiveEngineSession & {
+        video: HTMLVideoElement
+      })
+    | null
+  >(null)
   const appliedSourceUrlRef = useRef<string | null>(null)
   const playerRef = useRef<PlayerController | null>(null)
   // 播放期 error 监听器清理（新 attach 前移除旧的，防累积）
@@ -205,15 +265,20 @@ export function usePlayerSource(
       playbackErrorCleanupRef.current()
       playbackErrorCleanupRef.current = null
     }
-    const engineCleanup = engineCleanupRef.current
+    const registered = engineCleanupRef.current
     engineCleanupRef.current = null
-    if (engineCleanup) {
+    if (registered) {
       try {
         // 引擎 cleanup（如 DashPlayer）内部中断下载并释放资源；
         // hls/flv 引擎销毁实例。放在 try 中避免清理异常阻断后续 attach。
-        engineCleanup()
+        registered.dispose()
       } catch {
         /* ignore */
+      }
+      // 解除登记：仅当登记表里仍是本会话（被后继会话终结覆盖时不误删）
+      const active = activeEngineSessions.get(registered.video)
+      if (active && active.seq === registered.seq) {
+        activeEngineSessions.delete(registered.video)
       }
     }
     playerRef.current = null
@@ -227,12 +292,18 @@ export function usePlayerSource(
 
   /**
    * attach 结果落地：卸载时立即销毁引擎（防游离 video 持续出声），
-   * 正常时记录 blobUrl / 清理句柄 / 控制器。
+   * 正常时记录 blobUrl / 清理句柄 / 控制器，并向 video 级登记表注册
+   * 本会话（跨实例互斥，防偶发双声）。
    *
-   * @returns 是否落地成功（false = 组件已卸载，调用方应直接终止）
+   * @returns 是否落地成功（false = 组件已卸载或被更新的会话取代，
+   *          调用方应直接终止）
    */
   const applyAttachResult = useCallback(
-    (result: EngineAttachResult): boolean => {
+    (
+      result: EngineAttachResult,
+      video: HTMLVideoElement,
+      sessionSeq: number
+    ): boolean => {
       if (!mountedRef.current) {
         try {
           result.cleanup?.()
@@ -241,10 +312,32 @@ export function usePlayerSource(
         }
         return false
       }
+      // 跨实例互斥兜底：本会话 attach 期间，同一 video 上有更新的会话
+      // （发起序号更大）已登记——本会话主动让位自杀
+      const active = activeEngineSessions.get(video)
+      if (active && active.seq > sessionSeq) {
+        try {
+          result.cleanup?.()
+        } catch {
+          /* ignore */
+        }
+        return false
+      }
+      if (active) {
+        // 序号更小的残留条目（理论已被发起时终结）：清理并让位
+        activeEngineSessions.delete(video)
+        try {
+          active.dispose()
+        } catch {
+          /* ignore */
+        }
+      }
       if (result.blobUrl) {
         blobUrlRef.current = result.blobUrl
       }
-      engineCleanupRef.current = result.cleanup
+      const dispose = onceDispose(result.cleanup)
+      engineCleanupRef.current = { video, seq: sessionSeq, dispose }
+      activeEngineSessions.set(video, { seq: sessionSeq, dispose })
       playerRef.current = result.player ?? null
       return true
     },
@@ -363,8 +456,10 @@ export function usePlayerSource(
         return { kind: 'disabled' }
       }
       cleanup()
-      // cleanup 递增了 attach 世代：以递增后的值作为本次回退 attach 的基准，
-      // 管线 attach 等待期间再次发生 cleanup（新加载/卸载）即视为被取代
+      // video 级跨实例互斥：终结其他实例登记在 video 上的活跃会话
+      terminateForeignEngineSession(video)
+      // 取本会话序号（后发起者赢）与 attach 世代基准
+      const sessionSeq = ++engineSessionSeq
       const epoch = attachEpochRef.current
       resetVideoElement(video)
       appliedSourceUrlRef.current = source.url
@@ -380,7 +475,9 @@ export function usePlayerSource(
           }
           return { kind: 'unmounted' }
         }
-        if (!applyAttachResult(result)) return { kind: 'unmounted' }
+        if (!applyAttachResult(result, video, sessionSeq)) {
+          return { kind: 'unmounted' }
+        }
         // 恢复回退前的播放位置与播放状态（播放期回退传入 resume）
         if (resume && resume.time > 0) {
           try {
@@ -424,8 +521,11 @@ export function usePlayerSource(
         // cleanup 会清空 appliedSourceUrlRef（引擎销毁后旧标记失效），
         // 因此新源的标记必须在 cleanup 之后写入。
         cleanup()
-        // cleanup 递增了 attach 世代：以递增后的值作为本次 attach 的基准，
-        // 等待期间再次 cleanup（新加载/卸载）即视为本次已被取代
+        // video 级跨实例互斥：终结其他实例登记在 video 上的活跃会话，
+        // 防止两个引擎会话同时挂同一 video（偶发双声的根因）
+        terminateForeignEngineSession(video)
+        // 取本会话发起序号（后发起者赢）与 attach 世代基准
+        const sessionSeq = ++engineSessionSeq
         epoch = attachEpochRef.current
         resetVideoElement(video)
         appliedSourceUrlRef.current = source.url
@@ -445,7 +545,7 @@ export function usePlayerSource(
             }
             return
           }
-          if (!applyAttachResult(result)) return
+          if (!applyAttachResult(result, video, sessionSeq)) return
         } catch (err) {
           if (attachEpochRef.current !== epoch) {
             // 等待期间被取代：静默放弃。不触发 token 刷新重试、不走
