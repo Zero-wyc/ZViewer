@@ -429,9 +429,11 @@ export function MusicWidgetBar() {
                   dragPreviewSec != null ? 'none' : 'width 0.5s linear',
               }}
             />
-            {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px，条内上方）；
+            {/* hover 显示当前/总时长（Hydrogen .music-time：白字 9px）；
+                inset-y-0 + items-center 使文字垂直居中于加粗后的条内栏，
+                而非溢出到条下方；leading-none 收紧行高防撑出 13px 条体；
                 手机端默认不显示准确时间（定位经拖动预览展示） */}
-            <div className="pointer-events-none absolute left-1 top-1.5 hidden items-center px-0.5 text-[9px] font-bold tabular-nums text-white group-hover:flex">
+            <div className="pointer-events-none absolute inset-y-0 left-1 hidden items-center px-0.5 text-[9px] font-bold leading-none tabular-nums text-white group-hover:flex">
               {formatDuration(positionSec)} / {formatDuration(durationSec)}
             </div>
           </div>
