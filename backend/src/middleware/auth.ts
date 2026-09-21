@@ -200,6 +200,18 @@ function isRequestSecure(req: Request): boolean {
   if (typeof xfp === 'string' && xfp.split(',')[0].trim().toLowerCase() === 'https') {
     return true;
   }
+  // 内网穿透 / 简易隧道兜底：部分穿透服务（如 ug link）不做 HTTPS 卸载头转发，
+  // 后端收到的请求是 http 且无 X-Forwarded-Proto——按 http 处理会导致
+  // cookie 永远写不进（登录响应 200 但无 Set-Cookie → 全站 401 死循环，
+  // 连 guest 降级也拿不到 cookie）。浏览器对 POST fetch 必发 Origin 头，
+  // 其 scheme 即浏览器视角的真实协议：Origin 声明 https 说明 TLS 终止在
+  // 代理侧，须按 https 写 cookie（Secure cookie 在 https 页面正常生效）。
+  // 安全性：伪造 Origin: https 的后果仅是对 http 连接下发 Secure cookie，
+  // 浏览器在 http 页面会直接丢弃 Secure cookie，无安全恶化。
+  const origin = req.headers.origin;
+  if (typeof origin === 'string' && origin.toLowerCase().startsWith('https://')) {
+    return true;
+  }
   return false;
 }
 
@@ -228,11 +240,20 @@ function isCrossSiteRequest(req: Request): boolean {
   const origin = req.headers.origin;
   if (!origin || typeof origin !== 'string') return false;
 
-  // 请求方视角的 scheme（优先 X-Forwarded-Proto，其次 req.secure / 直连协议）
+  // 请求方视角的 scheme（优先 X-Forwarded-Proto，其次 req.secure /
+  // 直连协议；穿透场景 X-Forwarded-Proto 缺失时兜底 Origin 自身的
+  // scheme——此时判定退化为纯 hostname 比较，与浏览器同站视角一致）
   const xfp = req.headers['x-forwarded-proto'];
+  const originScheme = origin.toLowerCase().startsWith('https://')
+    ? 'https'
+    : origin.toLowerCase().startsWith('http://')
+      ? 'http'
+      : '';
   const reqScheme =
     (typeof xfp === 'string' ? xfp.split(',')[0].trim() : '') ||
-    (req.secure ? 'https' : 'http');
+    (req.secure ? 'https' : '') ||
+    originScheme ||
+    'http';
 
   // 请求方视角的 host（优先 X-Forwarded-Host，其次 Host 头）
   const xfh = req.headers['x-forwarded-host'];
