@@ -11,7 +11,8 @@
  * - 手动滚动模式：非当前行文字 scale(1.05)（Hydrogen .lyric-inactive）
  * - 滚动：补偿式平滑动画——scrollTop 直接设为目标值，同时内容层以 WAAPI
  *   施加反向 translateY（delta→0，580ms cubic-bezier(0.4,0,0.12,1)），
- *   视觉平滑且瞬时定位不撕裂；当前行锚定在容器顶部 260px 处
+ *   视觉平滑且瞬时定位不撕裂；当前行锚定在容器顶部 260px 处（矮容器
+ *   按容器高度比例收缩锚点，避免当前行贴在面板最底部）
  * - 间奏等待（1:1 复刻 .music-interlude）：当前行演唱结束到下一行间隔
  *   ≥ 阈值时，行下方展开 80px 黑色装饰块（高度 0→80 + scale + 透明度
  *   0.8s 展开动画；收起走弹性曲线 cubic-bezier(1,-0.49,0.61,0.36)，
@@ -44,6 +45,11 @@ const AUTO_SCROLL_DURATION_MS = 580
 const AUTO_SCROLL_EASING = 'cubic-bezier(0.4, 0, 0.12, 1)'
 /** 当前行锚定位置：容器顶部偏移（px，Hydrogen LYRIC_FOLLOW_TOP_OFFSET_PX） */
 const FOLLOW_TOP_OFFSET_PX = 260
+/** 锚定偏移的容器高度占比上限：矮容器（手机横屏歌词面板 ≈355px）里
+ *  固定 260px 会把当前行压到 ~73% 高度（视觉上贴在面板最底部），
+ *  按「容器高 × 占比 − 半行高」收缩锚点，让当前行稳定在可视区中上部；
+ *  高容器（≥ 约 690px）算出的值大于 260px，桌面行为完全不变 */
+const FOLLOW_TOP_OFFSET_RATIO = 0.42
 /** 底部留白基线（px，Hydrogen LYRIC_FOLLOW_BOTTOM_GUTTER_PX） */
 const FOLLOW_BOTTOM_GUTTER_PX = 180
 /** 可视边距（px，Hydrogen LYRIC_FOLLOW_VISIBLE_GUTTER_PX）：
@@ -212,15 +218,22 @@ export function PlayerLyricPanel({
 
   /**
    * 当前行锚定偏移 clamp（Hydrogen getLyricFollowTopOffset）：行高超过
-   * 容器可视高度 - 24px 边距时收缩锚定偏移，保证行内容仍可见
+   * 容器可视高度 - 24px 边距时收缩锚定偏移，保证行内容仍可见；
+   * 另按容器高度比例收缩（FOLLOW_TOP_OFFSET_RATIO），矮容器下当前行
+   * 不再被固定 260px 锚到面板最底部
    */
   const getFollowTopOffset = useCallback(
     (container: HTMLElement, wrapperHeight: number): number => {
+      const containerHeight = container.clientHeight
       const maxVisibleTop = Math.max(
         0,
-        container.clientHeight - wrapperHeight - FOLLOW_VISIBLE_GUTTER_PX
+        containerHeight - wrapperHeight - FOLLOW_VISIBLE_GUTTER_PX
       )
-      return Math.min(FOLLOW_TOP_OFFSET_PX, maxVisibleTop)
+      const proportionalTop = Math.max(
+        0,
+        containerHeight * FOLLOW_TOP_OFFSET_RATIO - wrapperHeight / 2
+      )
+      return Math.min(FOLLOW_TOP_OFFSET_PX, proportionalTop, maxVisibleTop)
     },
     []
   )

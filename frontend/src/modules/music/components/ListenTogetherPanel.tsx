@@ -27,6 +27,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -2195,6 +2196,36 @@ function ListenTogetherInner({
       return next
     })
   }, [])
+  // ===== 悬浮工具栏限高滚动（横屏矮窗口 / 矮桌面窗口）：song-control 图标
+  //  数量随歌曲能力增减（B站源/弹幕/收藏/评论…最多 17 枚），内容高度超出
+  //  卡片高度时把工具栏压回卡片范围内并开放上下滑动（hide-scrollbar 不显
+  //  滚动条）。max-h-full 常挂：只在超出时约束盒子，内容自然溢出不裁剪，
+  //  同时作为 scrollHeight>clientHeight 的测量依据；overflow 裁剪会连同
+  //  x 轴一起生效，侧挂的播放队列弹窗（side placement）会被栏体裁掉，
+  //  因此仅在滚动激活时开放 overflow，并把弹窗切换为 sheet（fixed 底部
+  //  弹出，不受祖先 overflow 裁剪影响）。桌面高窗口内容放得下，两态均
+  //  不触发，视觉与交互零变化 =====
+  const toolbarRef = useRef<HTMLDivElement>(null)
+  const [toolbarScrollable, setToolbarScrollable] = useState(false)
+  const measureToolbarScrollable = useCallback(() => {
+    const el = toolbarRef.current
+    if (!el) return
+    setToolbarScrollable(el.scrollHeight > el.clientHeight + 1)
+  }, [])
+  // 每次渲染后复测：条件图标（喜欢/弹幕/收藏/评论…）增减会改变内容高度
+  useLayoutEffect(measureToolbarScrollable)
+  // 视口尺寸变化（gap/图标尺寸含 vh 项）同样改变内容高度
+  useEffect(() => {
+    window.addEventListener('resize', measureToolbarScrollable)
+    return () => window.removeEventListener('resize', measureToolbarScrollable)
+  }, [measureToolbarScrollable])
+  // 滚动激活时初始定位到栏底：底挂工具栏溢出方向向上，保持用户原本
+  // 看到的底部图标（收起/全屏/设置）不动，向上滑动揭示被裁的顶部图标
+  useEffect(() => {
+    if (!toolbarScrollable) return
+    const el = toolbarRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [toolbarScrollable])
   // ===== 全屏切换：对文档根节点请求全屏（播放页打开时即播放页全屏），
   //  fullscreenchange 监听同步图标状态——Esc 等浏览器侧退出也要跟随 =====
   const [isFullscreen, setIsFullscreen] = useState(
@@ -2704,8 +2735,13 @@ function ListenTogetherInner({
                 手机竖屏隐藏（卡片全宽后右侧 50px 悬出区会出屏），改为
                 卡片下方的水平工具行（见下方 isPortraitMobile 分支） */}
             <div
+              ref={toolbarRef}
               className={cn(
                 'lt-icon-outline lt-touch-visible absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] opacity-0 focus-within:opacity-100 group-hover:animate-[song-control-in_0.3s_both]',
+                // 限高常挂 + 滚动态开放 overflow（原因见 toolbarScrollable
+                // 声明处注释）；hide-scrollbar 隐藏滚动条保留触摸滑动
+                'max-h-full',
+                toolbarScrollable && 'overflow-y-auto hide-scrollbar',
                 isPortraitMobile && 'hidden'
               )}
               style={{
@@ -3025,7 +3061,9 @@ function ListenTogetherInner({
                     roomId={roomId}
                     isHost={isHost}
                     canManage={canManage ?? isHost}
-                    placement="side"
+                    // 工具栏滚动激活后 overflow 会裁剪侧挂弹窗，
+                    // 改走 fixed 底部 sheet（见 toolbarScrollable 注释）
+                    placement={toolbarScrollable ? 'sheet' : 'side'}
                   />
                 )}
               </div>

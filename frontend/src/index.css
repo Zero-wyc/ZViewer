@@ -1555,7 +1555,13 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 .player-card-in {
-  animation: player-card-in 0.7s 0.2s cubic-bezier(0.4, 0, 0.12, 1) both;
+  /* backwards：delay 期间应用 0% 帧（卡片隐藏），动画结束后恢复自然状态。
+     不能用 both/forwards——手机竖屏的 player-card-in-mobile 关键帧含
+     transform（translateY），fill 保持的 transform 动画值会让卡片永久成为
+     Backdrop Root，内部冰霜层的 backdrop-filter 采样不到卡片外的封面/视频
+     背景 → 手机端封面页毛玻璃直接丢失（桌面关键帧仅宽高/透明度，无此问题，
+     但终态与自然状态一致，统一 backwards 无副作用） */
+  animation: player-card-in 0.7s 0.2s cubic-bezier(0.4, 0, 0.12, 1) backwards;
 }
 
 /* 封面四角括号贴合动画（Player.vue .c-border1/.c-border2/.c-border3/.c-border4
@@ -1665,7 +1671,10 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 .lt-lyric-view-in {
-  animation: lt-lyric-view-in 0.45s cubic-bezier(0.3, 0, 0.12, 1) both;
+  /* backwards 同 .player-card-in：终帧 translateY(0) 与自然状态一致，
+     both 会在动画结束后永久保持 transform → 面板成为 Backdrop Root，
+     冰霜层采样不到面板外背景，手机竖屏歌词视图毛玻璃丢失 */
+  animation: lt-lyric-view-in 0.45s cubic-bezier(0.3, 0, 0.12, 1) backwards;
 }
 
 /* 歌词播放页工具图标浅阴影（一起听桌面 song-control 悬浮栏 + 手机竖屏
