@@ -534,13 +534,8 @@ function PlayerSettingsModal({
           <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
             {/* 毛玻璃封面背景（歌词页背景封面模糊开关） */}
             <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <span className="min-w-0">
-                <span className="block text-[13px] font-bold text-white">
-                  毛玻璃封面背景
-                </span>
-                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                  歌词页背景显示模糊的封面图，关闭后显示原始封面
-                </span>
+              <span className="text-[13px] font-bold text-white">
+                毛玻璃封面背景
               </span>
               <button
                 type="button"
@@ -575,9 +570,6 @@ function PlayerSettingsModal({
                   {coverBlur ? `${coverBlurLevel}px` : '关闭'}
                 </span>
               </div>
-              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
-                背景封面图的毛玻璃模糊半径（作用于上方开关的背景层）
-              </p>
               <TinySlider
                 value={coverBlurLevel}
                 min={0}
@@ -599,9 +591,6 @@ function PlayerSettingsModal({
                   {videoBlurLevel > 0 ? `${videoBlurLevel}px` : '关闭'}
                 </span>
               </div>
-              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
-                视频背景画面的模糊半径（无视频背景时不生效）
-              </p>
               <TinySlider
                 value={videoBlurLevel}
                 min={0}
@@ -620,9 +609,6 @@ function PlayerSettingsModal({
                   {bgDim > 0 ? `${bgDim}%` : '关闭'}
                 </span>
               </div>
-              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
-                在封面/视频背景上叠加黑色遮罩的强度
-              </p>
               <TinySlider
                 value={bgDim}
                 min={0}
@@ -643,9 +629,6 @@ function PlayerSettingsModal({
                   {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
                 </span>
               </div>
-              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
-                播放卡与歌词面板内容整体的不透明度（毛玻璃模糊不受影响）
-              </p>
               <TinySlider
                 value={uiOpacity}
                 min={30}
@@ -665,9 +648,6 @@ function PlayerSettingsModal({
                   {uiBlurLevel > 0 ? `${uiBlurLevel}px` : '关闭'}
                 </span>
               </div>
-              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
-                播放卡与歌词面板毛玻璃的模糊半径（透出背景的虚化程度）
-              </p>
               <TinySlider
                 value={uiBlurLevel}
                 min={0}
@@ -920,14 +900,7 @@ function PlayerSettingsModal({
             </div>
             {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
             <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <span className="min-w-0">
-                <span className="block text-[13px] font-bold text-white">
-                  歌词模糊
-                </span>
-                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                  非当前行歌词虚化显示，当前行保持清晰
-                </span>
-              </span>
+              <span className="text-[13px] font-bold text-white">歌词模糊</span>
               <button
                 type="button"
                 role="switch"
@@ -960,9 +933,6 @@ function PlayerSettingsModal({
                   {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : '关闭'}
                 </span>
               </div>
-              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
-                非当前行歌词的虚化半径（仅歌词模糊开启时生效）
-              </p>
               <TinySlider
                 value={lyricBlurLevel}
                 min={0}
