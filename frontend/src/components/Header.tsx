@@ -72,6 +72,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
+import { CustomColorPanel } from '@/components/CustomColorPanel'
 import { PRESET_SEEDS } from '@/lib/themes'
 import { cn } from '@/lib/utils'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
@@ -112,8 +113,8 @@ export function Header() {
   const customActive = !PRESET_SEEDS.some(
     (seed) => seed.color === safeSourceColor
   )
-  /** 隐藏的原生取色器（自定义主题色入口经 ref 程序化唤起） */
-  const customColorInputRef = useRef<HTMLInputElement>(null)
+  /** 自研取色面板展开态（内联展开于主题菜单侧栏，见 CustomColorPanel） */
+  const [colorPanelOpen, setColorPanelOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)
   const [themeClosing, setThemeClosing] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
@@ -460,6 +461,8 @@ export function Header() {
                   setThemeClosing(false)
                   // 默认显示主面板，不保留上次打开的自定义背景侧面板
                   setBackgroundModalOpen(false)
+                  // 取色面板同样不保留上次的展开态
+                  setColorPanelOpen(false)
                 }
               }}
               className={cn(
@@ -618,10 +621,10 @@ export function Header() {
 
                         {/* 自定义主题色（原紫晶预设位）：样式与预设按钮同构——
                             未自定义时圆点为「＋」，使用自定义色时圆点显示该色
-                            并勾选；点击唤起原生取色器（input 恒定输出
-                            #rrggbb，可直接作种子色） */}
+                            并勾选；点击展开/收起自研网页取色面板 */}
                         <button
-                          onClick={() => customColorInputRef.current?.click()}
+                          onClick={() => setColorPanelOpen((open) => !open)}
+                          aria-expanded={colorPanelOpen}
                           className={cn(
                             'flex flex-col items-center gap-1 rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
                             customActive &&
@@ -662,15 +665,15 @@ export function Header() {
                           </span>
                         </button>
                       </div>
-                      <input
-                        ref={customColorInputRef}
-                        type="color"
-                        value={safeSourceColor}
-                        onChange={(e) => setSourceColor(e.target.value)}
-                        className="sr-only"
-                        tabIndex={-1}
-                        aria-hidden="true"
-                      />
+
+                      {/* 自研网页取色面板（内联展开，替代系统原生取色器）：
+                          SV 二维区 + 色相条 + Hex 输入，改色实时应用 */}
+                      {colorPanelOpen && (
+                        <CustomColorPanel
+                          color={safeSourceColor}
+                          onPick={setSourceColor}
+                        />
+                      )}
                     </div>
 
                     <div
