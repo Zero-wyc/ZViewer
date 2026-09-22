@@ -339,6 +339,14 @@ video {
    交互态（上浮/按压/禁用）只挂在 button 上——同类的跳页输入框仅取材质。
    注意 transition 会整体覆盖全局 * 的颜色过渡规则（本类优先级更高） */
 .bili-liquid-btn {
+  /* 玻璃作用域文字色：按钮背板是主题玻璃面（--glass-bg），图标/文字用按
+     「含玻璃层背景」判定的 scheme 文字色（ThemeProvider 注入 --lt-glass-*），
+     不跟随壁纸级切换（音乐壳根引用 --lt-raw-*，深色模式亮壁纸下切深字
+     会让深色玻璃按钮上深图标不可见；玻璃判定下深色模式恒为白） */
+  --md-sys-color-on-surface: var(--lt-glass-on-surface);
+  --md-sys-color-on-surface-variant: var(--lt-glass-on-surface-variant);
+  --md-sys-color-outline: var(--lt-glass-outline);
+  --md-sys-color-outline-variant: var(--lt-glass-outline-variant);
   background-color: var(--glass-bg);
   background-image: linear-gradient(
     155deg,
