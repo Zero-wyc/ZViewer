@@ -130,6 +130,7 @@ export function Header() {
     userOpen ||
     userClosing ||
     backgroundModalOpen ||
+    colorPanelOpen ||
     serverModalOpen
   const headerShown = !immersive || hoverVisible || menuLocked
 
@@ -504,6 +505,11 @@ export function Header() {
                     open={backgroundModalOpen}
                     onClose={() => setBackgroundModalOpen(false)}
                   />
+                  {/* 自定义主题色侧面板（与自定义背景同款左滑展开，两者互斥） */}
+                  <CustomColorPanel
+                    open={colorPanelOpen}
+                    onClose={() => setColorPanelOpen(false)}
+                  />
                   <div className="h-full w-72 flex-shrink-0 overflow-y-auto px-4 pt-4 pb-2">
                     {/* 深浅色切换 */}
                     <button
@@ -621,9 +627,14 @@ export function Header() {
 
                         {/* 自定义主题色（原紫晶预设位）：样式与预设按钮同构——
                             未自定义时圆点为「＋」，使用自定义色时圆点显示该色
-                            并勾选；点击展开/收起自研网页取色面板 */}
+                            并勾选；点击向左滑出自研取色面板（与自定义背景
+                            侧面板互斥） */}
                         <button
-                          onClick={() => setColorPanelOpen((open) => !open)}
+                          onClick={() => {
+                            const next = !colorPanelOpen
+                            setColorPanelOpen(next)
+                            if (next) setBackgroundModalOpen(false)
+                          }}
                           aria-expanded={colorPanelOpen}
                           className={cn(
                             'flex flex-col items-center gap-1 rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
@@ -665,15 +676,6 @@ export function Header() {
                           </span>
                         </button>
                       </div>
-
-                      {/* 自研网页取色面板（内联展开，替代系统原生取色器）：
-                          SV 二维区 + 色相条 + Hex 输入，改色实时应用 */}
-                      {colorPanelOpen && (
-                        <CustomColorPanel
-                          color={safeSourceColor}
-                          onPick={setSourceColor}
-                        />
-                      )}
                     </div>
 
                     <div
@@ -805,7 +807,12 @@ export function Header() {
                     {/* 自定义背景入口 */}
                     <button
                       ref={backgroundBtnRef}
-                      onClick={() => setBackgroundModalOpen((v) => !v)}
+                      onClick={() => {
+                        const next = !backgroundModalOpen
+                        setBackgroundModalOpen(next)
+                        // 两个左侧面板互斥：打开背景时收起取色面板
+                        if (next) setColorPanelOpen(false)
+                      }}
                       className={cn(
                         'zen-dropdown-item mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-[var(--md-sys-shape-corner)] text-sm transition-all hover:translate-x-0.5',
                         backgroundModalOpen
