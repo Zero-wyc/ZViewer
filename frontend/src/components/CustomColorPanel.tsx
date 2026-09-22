@@ -45,6 +45,9 @@ import { cn } from '@/lib/utils'
 /** 取色页 HSV 兜底值 */
 const FALLBACK_HSV: HsvColor = { h: 214, s: 90, v: 80 }
 
+/** 面板展开宽度（px），与自定义背景侧面板同级 */
+const PANEL_WIDTH = 300
+
 /** 波形条 SVG 参数（viewBox 固定，横向随容器微缩放） */
 const WAVE_W = 180
 const WAVE_H = 40
@@ -277,204 +280,334 @@ export function CustomColorPanel({
   }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
-      {page === 'palette' ? (
-        <>
-          {/* ===== 模式页签（跟随系统/浅色/深色） ===== */}
-          <div
-            className="mx-auto flex w-fit shrink-0 items-center gap-0.5 rounded-full p-1"
-            style={{
-              backgroundColor: 'var(--md-sys-color-surface-container-high)',
-            }}
-            role="tablist"
-            aria-label="深浅模式"
-          >
-            {MODE_TABS.map((tab) => {
-              const active = mode === tab.value
-              const Icon = tab.icon
-              return (
-                <button
-                  key={tab.value}
-                  type="button"
-                  role="tab"
-                  aria-selected={active}
-                  title={tab.label}
-                  aria-label={tab.label}
-                  onClick={() => setMode(tab.value)}
-                  className={cn(
-                    'flex h-8 w-10 items-center justify-center rounded-full transition-colors',
-                    active
-                      ? 'shadow-sm'
-                      : 'opacity-50 transition-opacity hover:opacity-90'
-                  )}
-                  style={
-                    active
-                      ? {
-                          backgroundColor:
-                            'var(--md-sys-color-surface-container-highest)',
-                        }
-                      : undefined
-                  }
-                >
-                  <Icon
-                    className="h-4 w-4"
-                    style={{ color: 'var(--md-sys-color-on-surface)' }}
-                  />
-                </button>
-              )
-            })}
-          </div>
-
-          {/* ===== 预览区：点状纹理底（空态文案 / 颜色层条） ===== */}
-          <div
-            className="relative mt-3 w-full shrink-0 overflow-hidden rounded-xl"
-            style={{
-              height: 176,
-              backgroundColor: 'var(--md-sys-color-surface-container)',
-              backgroundImage: `radial-gradient(${'var(--md-sys-color-outline-variant)'} 1px, transparent 1px)`,
-              backgroundSize: '10px 10px',
-            }}
-          >
-            {customColors.length === 0 ? (
-              <button
-                type="button"
-                onClick={() => openPicker()}
-                className="absolute inset-0 flex w-full cursor-pointer items-center justify-center"
-                title="点击添加颜色"
-              >
-                <span
-                  className="text-sm font-medium"
-                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                >
-                  点击添加颜色
-                </span>
-              </button>
-            ) : (
-              <div className="absolute inset-0 flex flex-col gap-1.5 overflow-y-auto p-3">
-                {customColors.map((c) => {
-                  const active = currentHex === c
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => applySeed(c)}
-                      className={cn(
-                        'relative flex h-9 w-full shrink-0 items-center rounded-lg px-3 text-left transition-transform active:scale-[0.98]'
-                      )}
-                      style={{
-                        backgroundColor: c,
-                        // 选中描边：外圈用面板底色垫开、再一圈按条色明度取
-                        // 反差色，保证亮/暗条在面板上都清晰可见
-                        boxShadow: active
-                          ? `0 0 0 2px var(--md-sys-color-surface-container), 0 0 0 3.5px ${onColorFor(c)}`
-                          : 'inset 0 0 0 0.5px rgba(128,128,128,0.4)',
-                      }}
-                      title={active ? '当前主题色' : '应用该颜色'}
-                    >
-                      {active && (
-                        <Check
-                          className="h-4 w-4"
-                          style={{ color: onColorFor(c) }}
-                        />
-                      )}
-                    </button>
-                  )
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* ===== 操作行：＋ 添加 / － 移除 / 骰子 随机 ===== */}
-          <div className="mt-3 flex shrink-0 items-center justify-center gap-2">
-            <ActionIconButton title="添加颜色" onClick={() => openPicker()}>
-              <Plus className="h-4 w-4" />
-            </ActionIconButton>
-            <ActionIconButton
-              title={
-                customColors.length === 0 ? '暂无可移除的颜色' : '移除选中颜色'
-              }
-              onClick={removeSelected}
-              disabled={customColors.length === 0}
-            >
-              <Minus className="h-4 w-4" />
-            </ActionIconButton>
-            <ActionIconButton title="随机主题色" onClick={randomSeed}>
-              <Dices className="h-4 w-4" />
-            </ActionIconButton>
-          </div>
-
-          {/* ===== 色板行：预设 + 自定义，‹ › 翻页 ===== */}
-          <div className="mt-3 flex shrink-0 items-center gap-0.5">
-            <ArrowButton
-              dir={-1}
-              disabled={!canLeft}
-              onClick={() =>
-                swatchScrollRef.current?.scrollBy({
-                  left: -120,
-                  behavior: 'smooth',
-                })
-              }
-            />
+    /* 宽度收起容器：默认 0（收起），open 时 300px 动画展开（对齐自定义
+       背景侧面板）；内层固定宽度避免动画期间内容回流挤压 */
+    <div
+      className="h-full flex-shrink-0 overflow-hidden"
+      style={{
+        width: open ? PANEL_WIDTH : 0,
+        transition: 'width 240ms var(--ease-out-expo)',
+        willChange: 'width',
+      }}
+    >
+      <div className="flex h-full w-[300px] flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
+        {page === 'palette' ? (
+          <>
+            {/* ===== 模式页签（跟随系统/浅色/深色） ===== */}
             <div
-              ref={swatchScrollRef}
-              onScroll={updateArrows}
-              className="hide-scrollbar flex flex-1 items-center gap-2.5 overflow-x-auto px-1 py-1"
+              className="mx-auto flex w-fit shrink-0 items-center gap-0.5 rounded-full p-1"
+              style={{
+                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+              }}
+              role="tablist"
+              aria-label="深浅模式"
             >
-              {PRESET_SEEDS.map((seed) => (
-                <SwatchDot
-                  key={seed.id}
-                  color={seed.color}
-                  name={seed.name}
-                  active={currentHex === seed.color.toLowerCase()}
-                  onPick={() => applySeed(seed.color)}
-                />
-              ))}
-              {customColors.length > 0 && (
+              {MODE_TABS.map((tab) => {
+                const active = mode === tab.value
+                const Icon = tab.icon
+                return (
+                  <button
+                    key={tab.value}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    title={tab.label}
+                    aria-label={tab.label}
+                    onClick={() => setMode(tab.value)}
+                    className={cn(
+                      'flex h-8 w-10 items-center justify-center rounded-full transition-colors',
+                      active
+                        ? 'shadow-sm'
+                        : 'opacity-50 transition-opacity hover:opacity-90'
+                    )}
+                    style={
+                      active
+                        ? {
+                            backgroundColor:
+                              'var(--md-sys-color-surface-container-highest)',
+                          }
+                        : undefined
+                    }
+                  >
+                    <Icon
+                      className="h-4 w-4"
+                      style={{ color: 'var(--md-sys-color-on-surface)' }}
+                    />
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* ===== 预览区：点状纹理底（空态文案 / 颜色层条） ===== */}
+            <div
+              className="relative mt-3 w-full shrink-0 overflow-hidden rounded-xl"
+              style={{
+                height: 176,
+                backgroundColor: 'var(--md-sys-color-surface-container)',
+                backgroundImage: `radial-gradient(${'var(--md-sys-color-outline-variant)'} 1px, transparent 1px)`,
+                backgroundSize: '10px 10px',
+              }}
+            >
+              {customColors.length === 0 ? (
+                <button
+                  type="button"
+                  onClick={() => openPicker()}
+                  className="absolute inset-0 flex w-full cursor-pointer items-center justify-center"
+                  title="点击添加颜色"
+                >
+                  <span
+                    className="text-sm font-medium"
+                    style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                  >
+                    点击添加颜色
+                  </span>
+                </button>
+              ) : (
+                <div className="absolute inset-0 flex flex-col gap-1.5 overflow-y-auto p-3">
+                  {customColors.map((c) => {
+                    const active = currentHex === c
+                    return (
+                      <button
+                        key={c}
+                        type="button"
+                        onClick={() => applySeed(c)}
+                        className={cn(
+                          'relative flex h-9 w-full shrink-0 items-center rounded-lg px-3 text-left transition-transform active:scale-[0.98]'
+                        )}
+                        style={{
+                          backgroundColor: c,
+                          // 选中描边：外圈用面板底色垫开、再一圈按条色明度取
+                          // 反差色，保证亮/暗条在面板上都清晰可见
+                          boxShadow: active
+                            ? `0 0 0 2px var(--md-sys-color-surface-container), 0 0 0 3.5px ${onColorFor(c)}`
+                            : 'inset 0 0 0 0.5px rgba(128,128,128,0.4)',
+                        }}
+                        title={active ? '当前主题色' : '应用该颜色'}
+                      >
+                        {active && (
+                          <Check
+                            className="h-4 w-4"
+                            style={{ color: onColorFor(c) }}
+                          />
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* ===== 操作行：＋ 添加 / － 移除 / 骰子 随机 ===== */}
+            <div className="mt-3 flex shrink-0 items-center justify-center gap-2">
+              <ActionIconButton title="添加颜色" onClick={() => openPicker()}>
+                <Plus className="h-4 w-4" />
+              </ActionIconButton>
+              <ActionIconButton
+                title={
+                  customColors.length === 0
+                    ? '暂无可移除的颜色'
+                    : '移除选中颜色'
+                }
+                onClick={removeSelected}
+                disabled={customColors.length === 0}
+              >
+                <Minus className="h-4 w-4" />
+              </ActionIconButton>
+              <ActionIconButton title="随机主题色" onClick={randomSeed}>
+                <Dices className="h-4 w-4" />
+              </ActionIconButton>
+            </div>
+
+            {/* ===== 色板行：预设 + 自定义，‹ › 翻页 ===== */}
+            <div className="mt-3 flex shrink-0 items-center gap-0.5">
+              <ArrowButton
+                dir={-1}
+                disabled={!canLeft}
+                onClick={() =>
+                  swatchScrollRef.current?.scrollBy({
+                    left: -120,
+                    behavior: 'smooth',
+                  })
+                }
+              />
+              <div
+                ref={swatchScrollRef}
+                onScroll={updateArrows}
+                className="hide-scrollbar flex flex-1 items-center gap-2.5 overflow-x-auto px-1 py-1"
+              >
+                {PRESET_SEEDS.map((seed) => (
+                  <SwatchDot
+                    key={seed.id}
+                    color={seed.color}
+                    name={seed.name}
+                    active={currentHex === seed.color.toLowerCase()}
+                    onPick={() => applySeed(seed.color)}
+                  />
+                ))}
+                {customColors.length > 0 && (
+                  <span
+                    className="h-5 w-px shrink-0"
+                    style={{
+                      backgroundColor:
+                        'color-mix(in srgb, var(--md-sys-color-outline) 45%, transparent)',
+                    }}
+                    aria-hidden="true"
+                  />
+                )}
+                {customColors.map((c) => (
+                  <SwatchDot
+                    key={c}
+                    color={c}
+                    name="自定义颜色"
+                    active={currentHex === c}
+                    onPick={() => applySeed(c)}
+                  />
+                ))}
+              </div>
+              <ArrowButton
+                dir={1}
+                disabled={!canRight}
+                onClick={() =>
+                  swatchScrollRef.current?.scrollBy({
+                    left: 120,
+                    behavior: 'smooth',
+                  })
+                }
+              />
+            </div>
+
+            {/* ===== 波形条（色相）+ 旋钮（明度） ===== */}
+            <div className="mt-4 flex shrink-0 items-center gap-3">
+              <div
+                ref={waveRef}
+                className="touch-slider relative min-w-0 flex-1 cursor-pointer select-none"
+                title={`色相 ${Math.round(currentHsv.h)}°`}
+                role="slider"
+                aria-label="色相"
+                aria-valuemin={0}
+                aria-valuemax={360}
+                aria-valuenow={Math.round(currentHsv.h)}
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                  applyWavePointer(e.clientX)
+                }}
+                onPointerMove={(e) => {
+                  if (
+                    e.buttons === 0 ||
+                    !e.currentTarget.hasPointerCapture(e.pointerId)
+                  )
+                    return
+                  applyWavePointer(e.clientX)
+                }}
+              >
+                <svg
+                  viewBox={`0 0 ${WAVE_W} ${WAVE_H}`}
+                  preserveAspectRatio="none"
+                  className="block h-10 w-full"
+                  aria-hidden="true"
+                >
+                  <path
+                    d={WAVE_PATH}
+                    fill="none"
+                    stroke="var(--md-sys-color-on-surface-variant)"
+                    strokeWidth={5}
+                    strokeLinecap="round"
+                    opacity={0.45}
+                  />
+                </svg>
+                {/* 拖动把手：白色圆点（Zen 同款），按色相比例水平定位 */}
                 <span
-                  className="h-5 w-px shrink-0"
+                  className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md"
                   style={{
-                    backgroundColor:
-                      'color-mix(in srgb, var(--md-sys-color-outline) 45%, transparent)',
+                    left: `${(currentHsv.h / 360) * 100}%`,
+                    backgroundColor: '#f2f2f2',
                   }}
                   aria-hidden="true"
                 />
-              )}
-              {customColors.map((c) => (
-                <SwatchDot
-                  key={c}
-                  color={c}
-                  name="自定义颜色"
-                  active={currentHex === c}
-                  onPick={() => applySeed(c)}
-                />
-              ))}
-            </div>
-            <ArrowButton
-              dir={1}
-              disabled={!canRight}
-              onClick={() =>
-                swatchScrollRef.current?.scrollBy({
-                  left: 120,
-                  behavior: 'smooth',
-                })
-              }
-            />
-          </div>
+              </div>
 
-          {/* ===== 波形条（色相）+ 旋钮（明度） ===== */}
-          <div className="mt-4 flex shrink-0 items-center gap-3">
+              {/* 旋钮：刻度点环 + 盘面 + 指针，明度 0-100% */}
+              <div
+                ref={dialRef}
+                className="touch-slider relative h-14 w-14 shrink-0 cursor-pointer select-none"
+                title={`明度 ${Math.round(currentHsv.v)}%`}
+                role="slider"
+                aria-label="明度"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(currentHsv.v)}
+                onPointerDown={(e) => {
+                  e.currentTarget.setPointerCapture(e.pointerId)
+                  applyDialPointer(e.clientX, e.clientY)
+                }}
+                onPointerMove={(e) => {
+                  if (
+                    e.buttons === 0 ||
+                    !e.currentTarget.hasPointerCapture(e.pointerId)
+                  )
+                    return
+                  applyDialPointer(e.clientX, e.clientY)
+                }}
+              >
+                <svg
+                  viewBox="0 0 56 56"
+                  className="block h-full w-full"
+                  aria-hidden="true"
+                >
+                  <circle
+                    cx="28"
+                    cy="28"
+                    r="26"
+                    fill="none"
+                    stroke="var(--md-sys-color-outline)"
+                    strokeWidth="1.5"
+                    strokeDasharray="1.2 4.9"
+                    opacity="0.8"
+                  />
+                  <circle
+                    cx="28"
+                    cy="28"
+                    r="17"
+                    fill="var(--md-sys-color-surface-container-high)"
+                    stroke="var(--md-sys-color-outline-variant)"
+                    strokeWidth="0.5"
+                  />
+                  <g
+                    transform={`rotate(${
+                      -135 + (currentHsv.v / 100) * DIAL_RANGE_DEG
+                    } 28 28)`}
+                  >
+                    <line
+                      x1="28"
+                      y1="14"
+                      x2="28"
+                      y2="7"
+                      stroke="var(--md-sys-color-on-surface)"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                    />
+                  </g>
+                </svg>
+              </div>
+            </div>
+          </>
+        ) : (
+          /* ===== 取色页：SV 二维区 + 色相条 + Hex + 取消/添加 ===== */
+          <>
             <div
-              ref={waveRef}
-              className="touch-slider relative min-w-0 flex-1 cursor-pointer select-none"
-              title={`色相 ${Math.round(currentHsv.h)}°`}
+              ref={svRef}
+              className="relative h-48 w-full shrink-0 cursor-crosshair select-none overflow-hidden rounded-xl"
+              style={{
+                backgroundColor: hsvToHex(draft.h, 100, 100),
+                backgroundImage:
+                  'linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0))',
+                touchAction: 'none',
+              }}
               role="slider"
-              aria-label="色相"
-              aria-valuemin={0}
-              aria-valuemax={360}
-              aria-valuenow={Math.round(currentHsv.h)}
+              aria-label="饱和度与明度"
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId)
-                applyWavePointer(e.clientX)
+                applySvPointer(e.clientX, e.clientY)
               }}
               onPointerMove={(e) => {
                 if (
@@ -482,48 +615,37 @@ export function CustomColorPanel({
                   !e.currentTarget.hasPointerCapture(e.pointerId)
                 )
                   return
-                applyWavePointer(e.clientX)
+                applySvPointer(e.clientX, e.clientY)
               }}
             >
-              <svg
-                viewBox={`0 0 ${WAVE_W} ${WAVE_H}`}
-                preserveAspectRatio="none"
-                className="block h-10 w-full"
-                aria-hidden="true"
-              >
-                <path
-                  d={WAVE_PATH}
-                  fill="none"
-                  stroke="var(--md-sys-color-on-surface-variant)"
-                  strokeWidth={5}
-                  strokeLinecap="round"
-                  opacity={0.45}
-                />
-              </svg>
-              {/* 拖动把手：白色圆点（Zen 同款），按色相比例水平定位 */}
               <span
-                className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md"
+                className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
                 style={{
-                  left: `${(currentHsv.h / 360) * 100}%`,
-                  backgroundColor: '#f2f2f2',
+                  left: `${draft.s}%`,
+                  top: `${100 - draft.v}%`,
+                  backgroundColor: draftHex,
+                  borderColor: '#ffffff',
                 }}
                 aria-hidden="true"
               />
             </div>
 
-            {/* 旋钮：刻度点环 + 盘面 + 指针，明度 0-100% */}
             <div
-              ref={dialRef}
-              className="touch-slider relative h-14 w-14 shrink-0 cursor-pointer select-none"
-              title={`明度 ${Math.round(currentHsv.v)}%`}
+              ref={hueRef}
+              className="relative mt-3 h-3 w-full shrink-0 cursor-pointer select-none rounded-full"
+              style={{
+                background:
+                  'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
+                touchAction: 'none',
+              }}
               role="slider"
-              aria-label="明度"
+              aria-label="色相"
               aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={Math.round(currentHsv.v)}
+              aria-valuemax={360}
+              aria-valuenow={Math.round(draft.h)}
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId)
-                applyDialPointer(e.clientX, e.clientY)
+                applyHuePointer(e.clientX)
               }}
               onPointerMove={(e) => {
                 if (
@@ -531,176 +653,70 @@ export function CustomColorPanel({
                   !e.currentTarget.hasPointerCapture(e.pointerId)
                 )
                   return
-                applyDialPointer(e.clientX, e.clientY)
+                applyHuePointer(e.clientX)
               }}
             >
-              <svg
-                viewBox="0 0 56 56"
-                className="block h-full w-full"
+              <span
+                className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
+                style={{
+                  left: `${(draft.h / 360) * 100}%`,
+                  backgroundColor: hsvToHex(draft.h, 100, 100),
+                  borderColor: '#ffffff',
+                }}
                 aria-hidden="true"
-              >
-                <circle
-                  cx="28"
-                  cy="28"
-                  r="26"
-                  fill="none"
-                  stroke="var(--md-sys-color-outline)"
-                  strokeWidth="1.5"
-                  strokeDasharray="1.2 4.9"
-                  opacity="0.8"
-                />
-                <circle
-                  cx="28"
-                  cy="28"
-                  r="17"
-                  fill="var(--md-sys-color-surface-container-high)"
-                  stroke="var(--md-sys-color-outline-variant)"
-                  strokeWidth="0.5"
-                />
-                <g
-                  transform={`rotate(${
-                    -135 + (currentHsv.v / 100) * DIAL_RANGE_DEG
-                  } 28 28)`}
-                >
-                  <line
-                    x1="28"
-                    y1="14"
-                    x2="28"
-                    y2="7"
-                    stroke="var(--md-sys-color-on-surface)"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                  />
-                </g>
-              </svg>
+              />
             </div>
-          </div>
-        </>
-      ) : (
-        /* ===== 取色页：SV 二维区 + 色相条 + Hex + 取消/添加 ===== */
-        <>
-          <div
-            ref={svRef}
-            className="relative h-48 w-full shrink-0 cursor-crosshair select-none overflow-hidden rounded-xl"
-            style={{
-              backgroundColor: hsvToHex(draft.h, 100, 100),
-              backgroundImage:
-                'linear-gradient(to top, #000, rgba(0,0,0,0)), linear-gradient(to right, #fff, rgba(255,255,255,0))',
-              touchAction: 'none',
-            }}
-            role="slider"
-            aria-label="饱和度与明度"
-            onPointerDown={(e) => {
-              e.currentTarget.setPointerCapture(e.pointerId)
-              applySvPointer(e.clientX, e.clientY)
-            }}
-            onPointerMove={(e) => {
-              if (
-                e.buttons === 0 ||
-                !e.currentTarget.hasPointerCapture(e.pointerId)
-              )
-                return
-              applySvPointer(e.clientX, e.clientY)
-            }}
-          >
-            <span
-              className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
-              style={{
-                left: `${draft.s}%`,
-                top: `${100 - draft.v}%`,
-                backgroundColor: draftHex,
-                borderColor: '#ffffff',
-              }}
-              aria-hidden="true"
-            />
-          </div>
 
-          <div
-            ref={hueRef}
-            className="relative mt-3 h-3 w-full shrink-0 cursor-pointer select-none rounded-full"
-            style={{
-              background:
-                'linear-gradient(to right, #ff0000, #ffff00, #00ff00, #00ffff, #0000ff, #ff00ff, #ff0000)',
-              touchAction: 'none',
-            }}
-            role="slider"
-            aria-label="色相"
-            aria-valuemin={0}
-            aria-valuemax={360}
-            aria-valuenow={Math.round(draft.h)}
-            onPointerDown={(e) => {
-              e.currentTarget.setPointerCapture(e.pointerId)
-              applyHuePointer(e.clientX)
-            }}
-            onPointerMove={(e) => {
-              if (
-                e.buttons === 0 ||
-                !e.currentTarget.hasPointerCapture(e.pointerId)
-              )
-                return
-              applyHuePointer(e.clientX)
-            }}
-          >
-            <span
-              className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
-              style={{
-                left: `${(draft.h / 360) * 100}%`,
-                backgroundColor: hsvToHex(draft.h, 100, 100),
-                borderColor: '#ffffff',
-              }}
-              aria-hidden="true"
-            />
-          </div>
+            {/* 当前色预览 + Hex 输入 */}
+            <div className="mt-3 flex items-center gap-2">
+              <span
+                className="h-8 w-8 shrink-0 rounded-full border"
+                style={{
+                  backgroundColor: draftHex,
+                  borderColor: 'var(--md-sys-color-outline)',
+                }}
+                aria-hidden="true"
+              />
+              <input
+                type="text"
+                value={hexText}
+                onChange={(e) => handleHexText(e.target.value)}
+                spellCheck={false}
+                aria-label="Hex 颜色值"
+                className="h-8 w-full min-w-0 flex-1 rounded-md px-2 text-xs tabular-nums outline-none"
+                style={{
+                  backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                  color: 'var(--md-sys-color-on-surface)',
+                  border: '1px solid var(--md-sys-color-outline-variant)',
+                }}
+              />
+            </div>
 
-          {/* 当前色预览 + Hex 输入 */}
-          <div className="mt-3 flex items-center gap-2">
-            <span
-              className="h-8 w-8 shrink-0 rounded-full border"
-              style={{
-                backgroundColor: draftHex,
-                borderColor: 'var(--md-sys-color-outline)',
-              }}
-              aria-hidden="true"
-            />
-            <input
-              type="text"
-              value={hexText}
-              onChange={(e) => handleHexText(e.target.value)}
-              spellCheck={false}
-              aria-label="Hex 颜色值"
-              className="h-8 w-full min-w-0 flex-1 rounded-md px-2 text-xs tabular-nums outline-none"
-              style={{
-                backgroundColor: 'var(--md-sys-color-surface-container-high)',
-                color: 'var(--md-sys-color-on-surface)',
-                border: '1px solid var(--md-sys-color-outline-variant)',
-              }}
-            />
-          </div>
-
-          {/* 取消 / 添加颜色 */}
-          <div className="mt-4 flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={cancelPick}
-              className="h-9 flex-1 rounded-full text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-            >
-              取消
-            </button>
-            <button
-              type="button"
-              onClick={confirmPick}
-              className="h-9 flex-1 rounded-full text-sm font-medium shadow-sm transition-transform active:scale-[0.98]"
-              style={{
-                backgroundColor: draftHex,
-                color: onColorFor(draftHex),
-              }}
-            >
-              添加颜色
-            </button>
-          </div>
-        </>
-      )}
+            {/* 取消 / 添加颜色 */}
+            <div className="mt-4 flex shrink-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={cancelPick}
+                className="h-9 flex-1 rounded-full text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={confirmPick}
+                className="h-9 flex-1 rounded-full text-sm font-medium shadow-sm transition-transform active:scale-[0.98]"
+                style={{
+                  backgroundColor: draftHex,
+                  color: onColorFor(draftHex),
+                }}
+              >
+                添加颜色
+              </button>
+            </div>
+          </>
+        )}
+      </div>
     </div>
   )
 }
