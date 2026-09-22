@@ -3122,11 +3122,15 @@ function ListenTogetherInner({
                    负责把页面背景模糊成不透明的「磨砂底」；
                 ② UI 图层——面板底色 + 全部内容作为一个整体图层，随 UI
                    透明度整体淡出。图层背后是冰霜层（已模糊画面），淡出
-                   永远不会露出锐利背景 → 模糊与透明度同时成立 */}
+                   永远不会露出锐利背景 → 模糊与透明度同时成立。
+                   冰霜层/底色 tint 均 pointer-events-none：定位元素绘制在
+                   非定位内容之上，不禁用指针会盖住 UI 图层里未加 relative
+                   的交互元素（38d19ec 回归：三键播放控制按钮无法点击——
+                   进度条/音量条因 track 有 relative 幸免） */}
             <div className="relative flex h-full w-full flex-col overflow-hidden">
               <div
                 aria-hidden="true"
-                className="lt-blur-surface absolute inset-0"
+                className="lt-blur-surface pointer-events-none absolute inset-0"
                 style={{
                   backdropFilter: 'blur(12px)',
                   WebkitBackdropFilter: 'blur(12px)',
@@ -3137,7 +3141,7 @@ function ListenTogetherInner({
                 style={uiFade < 1 ? { opacity: uiFade } : undefined}
               >
                 <div
-                  className="absolute inset-0"
+                  className="pointer-events-none absolute inset-0"
                   style={{
                     backgroundColor:
                       'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
@@ -3623,7 +3627,7 @@ function ListenTogetherInner({
               {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡 */}
               <div
                 aria-hidden="true"
-                className="lt-blur-surface absolute inset-0"
+                className="lt-blur-surface pointer-events-none absolute inset-0"
                 style={{
                   backdropFilter: 'blur(12px)',
                   WebkitBackdropFilter: 'blur(12px)',
@@ -3635,7 +3639,7 @@ function ListenTogetherInner({
                 style={uiFade < 1 ? { opacity: uiFade } : undefined}
               >
                 <div
-                  className="absolute inset-0"
+                  className="pointer-events-none absolute inset-0"
                   style={{
                     backgroundColor:
                       'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
