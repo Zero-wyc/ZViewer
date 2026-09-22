@@ -1883,7 +1883,9 @@ export function MusicBilibiliPage({
                 'relative shrink-0 pb-0.5 text-lg font-bold transition-colors md:text-xl',
                 tab === key
                   ? 'text-[var(--md-sys-color-on-surface)]'
-                  : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+                  : // 非选中 Tab 用 on-surface 72%：variant 灰在花壁纸背景上
+                    // 可读性差，混入主文字色保持对比度同时留出层次
+                    'text-[color-mix(in_srgb,var(--md-sys-color-on-surface)_72%,transparent)] hover:text-[var(--md-sys-color-on-surface)]'
               )}
             >
               {label}
@@ -1949,7 +1951,7 @@ export function MusicBilibiliPage({
                     'relative pb-0.5 text-lg font-bold transition-colors md:text-xl max-md:max-w-[110px] max-md:truncate',
                     active
                       ? 'text-[var(--md-sys-color-on-surface)]'
-                      : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+                      : 'text-[color-mix(in_srgb,var(--md-sys-color-on-surface)_72%,transparent)] hover:text-[var(--md-sys-color-on-surface)]'
                   )}
                   title={`${kindLabel}：${ct.name}（点击右侧 × 删除）`}
                 >
@@ -1966,7 +1968,7 @@ export function MusicBilibiliPage({
                 <button
                   type="button"
                   onClick={() => handleDeleteCustomTab(ct.id)}
-                  className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] opacity-40 transition-opacity hover:opacity-100"
+                  className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] opacity-45 transition-opacity hover:opacity-100"
                   title={`删除栏目「${ct.name}」`}
                   aria-label={`删除栏目 ${ct.name}`}
                 >
