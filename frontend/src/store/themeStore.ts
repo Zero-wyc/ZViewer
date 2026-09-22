@@ -1,23 +1,8 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
-import { DEFAULT_SEED, isValidSeedColor, normalizeHexColor } from '@/lib/themes'
+import { DEFAULT_SEED } from '@/lib/themes'
 
 export type RadiusPreset = 'small' | 'medium' | 'large' | 'none'
-
-/** 主题深浅模式：auto = 跟随系统（浅/深由系统偏好实时决定） */
-export type ThemeColorMode = 'auto' | 'light' | 'dark'
-
-/** 自定义色板容量上限（防止 localStorage 无限膨胀） */
-export const MAX_CUSTOM_COLORS = 24
-
-/** 读取系统深色偏好（matchMedia 不可用时回退浅色） */
-function systemPrefersDark(): boolean {
-  try {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
-  } catch {
-    return false
-  }
-}
 
 export const RADIUS_PRESETS: {
   value: RadiusPreset
@@ -58,13 +43,9 @@ function migrateRadius(value: unknown): RadiusPreset {
 interface ThemeState {
   /** 种子颜色，Material You 据此生成完整色板 */
   sourceColor: string
-  /** 是否深色模式（由 mode + 系统偏好实时物化，消费方无感知 auto 切换） */
-  isDark: boolean
-  /** 深浅模式：auto 跟随系统 / light / dark（持久化，isDark 为其派生） */
-  mode: ThemeColorMode
-  /** 用户自定义色板（追加在预设色板之后，持久化，小写 #rrggbb） */
-  customColors: string[]
   /** 是否深色模式 */
+  isDark: boolean
+  /** 圆角预设 */
   radius: RadiusPreset
   /** 玻璃拟态背景透明度，0-1 */
   glassStrength: number
@@ -106,12 +87,6 @@ interface ThemeState {
 
   /** 设置种子颜色 */
   setSourceColor: (color: string) => void
-  /** 设置深浅模式（auto 时 isDark 取当前系统偏好） */
-  setMode: (mode: ThemeColorMode) => void
-  /** 添加自定义颜色到色板（去重、规范化为 #rrggbb、超容量挤掉最早一条） */
-  addCustomColor: (color: string) => void
-  /** 从色板移除自定义颜色 */
-  removeCustomColor: (color: string) => void
   /** 切换深浅模式 */
   toggleDark: () => void
   /** 设置深浅模式 */
@@ -153,8 +128,6 @@ export const useThemeStore = create<ThemeState>()(
     (set) => ({
       sourceColor: DEFAULT_SEED,
       isDark: false,
-      mode: 'light' as ThemeColorMode,
-      customColors: [] as string[],
       radius: DEFAULT_RADIUS_PRESET,
       glassStrength: 0.6,
       glassBlur: 12,
@@ -178,35 +151,8 @@ export const useThemeStore = create<ThemeState>()(
       },
 
       setSourceColor: (color: string) => set({ sourceColor: color }),
-      setMode: (mode: ThemeColorMode) =>
-        set({
-          mode,
-          // auto 即刻物化为当前系统偏好；显式模式直接对应
-          isDark: mode === 'auto' ? systemPrefersDark() : mode === 'dark',
-        }),
-      addCustomColor: (color: string) => {
-        const hex = normalizeHexColor(color)
-        if (!hex || !isValidSeedColor(hex)) return
-        set((state) => {
-          if (state.customColors.includes(hex)) return state
-          const next = [hex, ...state.customColors]
-          return { customColors: next.slice(0, MAX_CUSTOM_COLORS) }
-        })
-      },
-      removeCustomColor: (color: string) => {
-        const hex = normalizeHexColor(color)
-        if (!hex) return
-        set((state) => ({
-          customColors: state.customColors.filter((c) => c !== hex),
-        }))
-      },
-      toggleDark: () =>
-        set((state) => ({
-          isDark: !state.isDark,
-          mode: !state.isDark ? 'dark' : 'light',
-        })),
-      setDark: (value: boolean) =>
-        set({ isDark: value, mode: value ? 'dark' : 'light' }),
+      toggleDark: () => set((state) => ({ isDark: !state.isDark })),
+      setDark: (value: boolean) => set({ isDark: value }),
       setRadius: (value: RadiusPreset) => set({ radius: value }),
       setGlassStrength: (value: number) => set({ glassStrength: value }),
       setGlassBlur: (value: number) => set({ glassBlur: value }),
@@ -263,8 +209,6 @@ export const useThemeStore = create<ThemeState>()(
       partialize: (state) => ({
         sourceColor: state.sourceColor,
         isDark: state.isDark,
-        mode: state.mode,
-        customColors: state.customColors,
         radius: state.radius,
         glassStrength: state.glassStrength,
         glassBlur: state.glassBlur,
@@ -289,11 +233,6 @@ export const useThemeStore = create<ThemeState>()(
           ...current,
           ...p,
           radius: migrateRadius(p.radius),
-          // 旧版本存储只有 isDark：迁移为显式 mode（不凭空猜 auto），
-          // mode 缺失时 light/dark 与 isDark 保持一致
-          mode:
-            p.mode ??
-            (p.isDark === undefined ? 'light' : p.isDark ? 'dark' : 'light'),
         }
       },
     }
