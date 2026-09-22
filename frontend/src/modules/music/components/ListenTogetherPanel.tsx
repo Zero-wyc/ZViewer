@@ -2408,11 +2408,20 @@ function ListenTogetherInner({
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
       // 提示条黑底 alpha 跟随滑块（zen-notice-bar 内 calc 引用）；
-      // --lt-ui-blur 为冰霜层模糊半径（设置：UI 模糊浓度）
+      // --lt-ui-blur 为冰霜层模糊半径（设置：UI 模糊浓度）；
+      // 文字系变量局部引用到 --lt-glass-*（按「含玻璃层的有效背景」判定
+      // 的 scheme 文字色，ThemeProvider 注入）——播放页文字坐在冰霜面板
+      // 上，不用全局壁纸级切换的文字色，否则深色模式亮壁纸下全局切深字
+      // 会让面板上深字不可读
       style={
         {
           '--lt-ui-alpha': uiFade,
           '--lt-ui-blur': `${uiBlurPx}px`,
+          '--md-sys-color-on-surface': 'var(--lt-glass-on-surface)',
+          '--md-sys-color-on-surface-variant':
+            'var(--lt-glass-on-surface-variant)',
+          '--md-sys-color-outline': 'var(--lt-glass-outline)',
+          '--md-sys-color-outline-variant': 'var(--lt-glass-outline-variant)',
         } as React.CSSProperties
       }
     >

@@ -370,11 +370,22 @@ export function MusicWidgetBar() {
   return (
     <div
       className="glass-card relative flex h-[65px] items-center"
-      style={{
-        // 悬浮感核心（Hydrogen 暗色 --shadow 规格）：比 glass-card 默认阴影
-        // 更弥散更深，覆盖其内置 box-shadow
-        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-      }}
+      style={
+        {
+          // 玻璃作用域文字色：条体是主题驱动的玻璃面（glass-card），文字/
+          // 图标用按「含玻璃层背景」判定的 scheme 文字色（ThemeProvider 注入
+          // --lt-glass-*），不跟随全局壁纸级文字切换——否则深色模式亮壁纸
+          // 下全局切深字，深色条体上深字不可读
+          '--md-sys-color-on-surface': 'var(--lt-glass-on-surface)',
+          '--md-sys-color-on-surface-variant':
+            'var(--lt-glass-on-surface-variant)',
+          '--md-sys-color-outline': 'var(--lt-glass-outline)',
+          '--md-sys-color-outline-variant': 'var(--lt-glass-outline-variant)',
+          // 悬浮感核心（Hydrogen 暗色 --shadow 规格）：比 glass-card 默认阴影
+          // 更弥散更深，覆盖其内置 box-shadow
+          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
+        } as React.CSSProperties
+      }
     >
       {/* ===== 底部细进度条（hover / 拖动时向上加粗并显示时间） ===== */}
       {/* 定位：条体紧贴卡片底边（bottom-0，贴 border 内侧零缝隙），加粗 13px
