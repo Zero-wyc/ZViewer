@@ -96,6 +96,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const {
     sourceColor,
     isDark,
+    mode,
     radius,
     glassStrength,
     glassBlur,
@@ -108,6 +109,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const safeSourceColor = isValidHexColor(sourceColor)
     ? sourceColor
     : DEFAULT_SEED
+
+  // ===== auto 模式：跟随系统深浅偏好。系统切换时直接物化 isDark——
+  // 全部消费方（本组件与各处 useThemeStore 读 isDark）无感知地跟随，
+  // 无需各自订阅 matchMedia；离开 auto 由 setMode 负责恢复显式值 =====
+  useEffect(() => {
+    if (mode !== 'auto') return
+    const mq = window.matchMedia('(prefers-color-scheme: dark)')
+    const apply = () => {
+      const { isDark: current } = useThemeStore.getState()
+      if (current !== mq.matches) {
+        useThemeStore.setState({ isDark: mq.matches })
+      }
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [mode])
 
   /** 浅/深两套 scheme（种子色不变时缓存，供文字对比度自适应判定取值） */
   const schemes = useMemo(

@@ -4,9 +4,6 @@ import {
   Palette,
   LogOut,
   LogIn,
-  Sun,
-  Moon,
-  Check,
   SlidersHorizontal,
   Shield,
   ShieldAlert,
@@ -71,7 +68,7 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
-import { PRESET_SEEDS } from '@/lib/themes'
+import { ThemeColorPicker } from '@/components/ThemeColorPicker'
 import { cn } from '@/lib/utils'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 
@@ -88,10 +85,6 @@ export function Header() {
   const [hoverVisible, setHoverVisible] = useState(false)
   const { user, logout, isAuthenticated } = useAuthStore()
   const {
-    isDark,
-    setDark,
-    sourceColor,
-    setSourceColor,
     radius,
     setRadius,
     glassStrength,
@@ -491,118 +484,10 @@ export function Header() {
                     onClose={() => setBackgroundModalOpen(false)}
                   />
                   <div className="h-full w-72 flex-shrink-0 overflow-y-auto px-4 pt-4 pb-2">
-                    {/* 深浅色切换 */}
-                    <button
-                      onClick={() => setDark(!isDark)}
-                      className="zen-dropdown-item w-full flex items-center justify-between p-3 rounded-[var(--md-sys-shape-corner)] text-left transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] hover:translate-x-0.5"
-                      style={{ '--item-delay': '0ms' } as React.CSSProperties}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          className="w-10 h-10 rounded-lg flex items-center justify-center shadow-sm"
-                          style={{
-                            backgroundColor: 'var(--glass-bg)',
-                            border: '1px solid var(--md-sys-color-outline)',
-                          }}
-                        >
-                          {isDark ? (
-                            <Moon
-                              className="w-4 h-4"
-                              style={{
-                                color: 'var(--md-sys-color-on-surface)',
-                              }}
-                            />
-                          ) : (
-                            <Sun
-                              className="w-4 h-4"
-                              style={{ color: 'var(--md-sys-color-primary)' }}
-                            />
-                          )}
-                        </span>
-                        <div>
-                          <span className="font-medium text-sm text-[var(--md-sys-color-on-surface)]">
-                            {isDark ? '深色模式' : '浅色模式'}
-                          </span>
-                          <p className="text-xs mt-0.5 text-[var(--md-sys-color-on-surface-variant)]">
-                            点击切换明暗主题
-                          </p>
-                        </div>
-                      </div>
-                      <div
-                        className="w-9 h-5 rounded-full relative transition-colors"
-                        style={{
-                          backgroundColor: isDark
-                            ? 'var(--md-sys-color-primary)'
-                            : 'var(--md-sys-color-outline-variant)',
-                        }}
-                      >
-                        <span
-                          className="absolute top-0.5 w-4 h-4 rounded-full transition-all"
-                          style={{
-                            backgroundColor: 'var(--md-sys-color-surface)',
-                            left: isDark ? '18px' : '2px',
-                          }}
-                        />
-                      </div>
-                    </button>
-
-                    <div
-                      className="h-px mx-1 my-3"
-                      style={{
-                        backgroundColor:
-                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
-                      }}
-                    />
-
-                    {/* 种子色预设 */}
-                    <div
-                      className="zen-dropdown-item space-y-2"
-                      style={{ '--item-delay': '60ms' } as React.CSSProperties}
-                    >
-                      <span className="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] flex items-center gap-1.5">
-                        <Palette className="w-3.5 h-3.5" />
-                        主题色
-                      </span>
-                      <div className="grid grid-cols-4 gap-2">
-                        {PRESET_SEEDS.map((seed) => {
-                          const active = sourceColor === seed.color
-                          return (
-                            <button
-                              key={seed.id}
-                              onClick={() => setSourceColor(seed.color)}
-                              className={cn(
-                                'flex flex-col items-center gap-1 rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
-                                active &&
-                                  'bg-[var(--md-sys-color-primary-container)]'
-                              )}
-                              title={seed.name}
-                            >
-                              <span
-                                className="w-6 h-6 rounded-full border"
-                                style={{
-                                  backgroundColor: seed.color,
-                                  borderColor: active
-                                    ? 'var(--md-sys-color-primary)'
-                                    : 'var(--md-sys-color-outline)',
-                                }}
-                              >
-                                {active && (
-                                  <Check
-                                    className="w-3.5 h-3.5 mx-auto mt-1"
-                                    style={{
-                                      color: 'var(--md-sys-color-on-primary)',
-                                    }}
-                                  />
-                                )}
-                              </span>
-                              <span className="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                                {seed.name}
-                              </span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
+                    {/* 主题色选择器（Zen 风格）：深浅模式页签（含跟随系统）+
+                        实时预览 Mock + 自定义色增删 + 色板行 + 色相波形条 +
+                        饱和度旋钮 */}
+                    <ThemeColorPicker />
 
                     <div
                       className="h-px mx-1 my-3"
