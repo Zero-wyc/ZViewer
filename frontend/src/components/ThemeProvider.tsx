@@ -164,6 +164,9 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     const currentTextHex = currentScheme['--md-sys-color-on-surface']
     const oppositeTextHex = oppositeScheme['--md-sys-color-on-surface']
     if (currentTextHex && oppositeTextHex) {
+      // 玻璃面板层是文字的直接底面，必须计入有效背景合成——否则深色模式
+      // 下（深色玻璃压暗文字底）模型会高估背景亮度，误把文字换成深色
+      const glassRgb = hexToRgb(colors['--md-sys-color-surface-container'])
       const bgRgb = computeEffectiveBackgroundRgb({
         surfaceHex: colors['--md-sys-color-surface'] ?? '#ffffff',
         wallpaperRgb,
@@ -172,6 +175,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
           : Math.min(backgroundOpacity, 0.85),
         whiteAlpha: backgroundWhiteOverlay,
         blackAlpha: backgroundBlackOverlay,
+        glassRgb,
+        glassAlpha: glassStrength,
       })
       const bgLum = relativeLuminance(bgRgb)
       const currentTextRgb = hexToRgb(currentTextHex)

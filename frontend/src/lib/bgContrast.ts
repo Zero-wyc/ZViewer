@@ -71,9 +71,19 @@ export interface EffectiveBackgroundParams {
   whiteAlpha: number
   /** 黑遮罩强度 0-1 */
   blackAlpha: number
+  /** 玻璃面板色（--md-sys-color-surface-container 的 RGB），文字实际所在层；
+   *  缺省/null 表示不计入玻璃层 */
+  glassRgb?: RgbColor | null
+  /** 玻璃面板透明度（--glass-strength，0-1） */
+  glassAlpha?: number
 }
 
-/** 按 Layout 渲染顺序（底色 → 壁纸 → 白遮罩 → 黑遮罩）合成「有效背景色」 */
+/**
+ * 按 UI 渲染顺序合成「有效背景色」：底色 → 壁纸 → 白遮罩 → 黑遮罩 →
+ * **玻璃面板层**。玻璃层是文字/内容的直接底面（深色模式下面板为深色玻璃，
+ * 会显著压暗文字底色），不计入会导致深色模式下自适应误判——模型以为背景
+ * 仍亮而把文字换成深色，实际面板已偏暗，深字配深面板不可读。
+ */
 export function computeEffectiveBackgroundRgb(
   params: EffectiveBackgroundParams
 ): RgbColor {
@@ -86,6 +96,9 @@ export function computeEffectiveBackgroundRgb(
   }
   if (params.blackAlpha > 0) {
     c = mixOver(c, { r: 0, g: 0, b: 0 }, params.blackAlpha)
+  }
+  if (params.glassRgb && (params.glassAlpha ?? 0) > 0) {
+    c = mixOver(c, params.glassRgb, params.glassAlpha as number)
   }
   return c
 }
