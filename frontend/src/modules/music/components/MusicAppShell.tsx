@@ -239,7 +239,20 @@ function ShellInner({
     // 播放条被遮挡/跳动；不支持的旧浏览器声明无效，回退 h-screen 类
     <div
       className="relative flex h-screen min-w-0 flex-col overflow-hidden"
-      style={{ height: '100dvh' }}
+      style={
+        {
+          height: '100dvh',
+          // 壁纸作用域文字色：音乐各页内容直接坐在壁纸/遮罩上，文字系
+          // 变量引用 --lt-raw-*（按「原始背景」判定的 scheme 文字色，
+          // ThemeProvider 注入）——深色模式亮壁纸下自动切深字；底部迷你条
+          // 与播放器覆盖层有自己的玻璃作用域引用，不受此层影响
+          '--md-sys-color-on-surface': 'var(--lt-raw-on-surface)',
+          '--md-sys-color-on-surface-variant':
+            'var(--lt-raw-on-surface-variant)',
+          '--md-sys-color-outline': 'var(--lt-raw-outline)',
+          '--md-sys-color-outline-variant': 'var(--lt-raw-outline-variant)',
+        } as React.CSSProperties
+      }
     >
       {/* ===== 左下角观众同步回执：观众完成切歌同步后回执，房主在此
           看到「xx 已同步」——浅色玻璃条 + 上滑入场/TTL 后上飘淡出

@@ -395,6 +395,19 @@ export function Header() {
           'glass fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 py-3 transition-transform duration-300 ease-[cubic-bezier(0.14,0.91,0.58,1)]',
           immersive && !headerShown && '-translate-y-full'
         )}
+        style={
+          {
+            // 玻璃作用域文字色：顶栏是主题驱动的玻璃面（glass），文字/图标
+            // 用按「含玻璃层背景」判定的 scheme 文字色（ThemeProvider 注入
+            // --lt-glass-*），不跟随壁纸级切换——深色模式亮壁纸下玻璃菜单/
+            // 顶栏若跟随切深字会深字配深面不可读
+            '--md-sys-color-on-surface': 'var(--lt-glass-on-surface)',
+            '--md-sys-color-on-surface-variant':
+              'var(--lt-glass-on-surface-variant)',
+            '--md-sys-color-outline': 'var(--lt-glass-outline)',
+            '--md-sys-color-outline-variant': 'var(--lt-glass-outline-variant)',
+          } as React.CSSProperties
+        }
         onMouseEnter={() => setHoverVisible(true)}
         onMouseLeave={() => {
           if (!menuLocked) setHoverVisible(false)

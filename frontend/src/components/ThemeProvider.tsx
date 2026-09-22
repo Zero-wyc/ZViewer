@@ -53,10 +53,20 @@ const ADAPTIVE_TEXT_VARS = [
 
 /**
  * 玻璃面板作用域文字变量（--lt-glass-*）：按「含玻璃层的有效背景」判定
- * 的 scheme 文字色，供播放页根节点局部引用（见 effect 内玻璃层判定）。
+ * 的 scheme 文字色，供播放页/迷你条等「主题驱动面」组件根节点局部引用
+ * （见 effect 内玻璃层判定）。
  */
 const GLASS_TEXT_VARS = ADAPTIVE_TEXT_VARS.map(
   (v) => `--lt-glass${v.slice('--md-sys-color'.length)}`
+)
+
+/**
+ * 壁纸作用域文字变量（--lt-raw-*）：按「原始背景（不含玻璃）」判定的
+ * scheme 文字色，供音乐壳/顶栏等「文字直接坐在壁纸上」的页面根节点局部
+ * 引用（见 effect 内原始背景判定）。
+ */
+const RAW_TEXT_VARS = ADAPTIVE_TEXT_VARS.map(
+  (v) => `--lt-raw${v.slice('--md-sys-color'.length)}`
 )
 
 /**
@@ -181,17 +191,16 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       root.style.setProperty(key, value)
     })
 
-    // ===== 文字对比度自适应（双层判定）=====
-    // 【全局层】音乐分区等页面没有玻璃背板，文字直接坐在壁纸/遮罩上——
-    // 按「原始背景（底色→壁纸→遮罩，不含玻璃）」决定是否整体切换文字系
-    // 变量为对侧 scheme（黑遮罩拉高背景变深 → 文字转浅；暗色主题 + 亮
-    // 壁纸/高白遮罩 → 文字转回深色）
-    // 【玻璃层】播放页文字坐在冰霜面板上，面板 = 玻璃叠在原始背景之上，
-    // 外观与原始背景明显不同（深色模式亮壁纸下：全局切深色文字对音乐页
-    // 正确，但播放页深色玻璃面板上深字不可读）——按「含玻璃层的有效
-    // 背景」单独判定文字 scheme，经 --lt-glass-* 变量注入，播放页根节点
-    // 将文字系变量局部引用到这组值，不受全局切换影响
-    let adaptiveVars: string[] = []
+    // ===== 文字对比度自适应（全作用域化，根节点不再全局切换）=====
+    // 根节点的文字系变量永远是当前 scheme 原生值——玻璃面板/弹窗/卡片等
+    // 「主题驱动面」天然与自己 scheme 的文字色配对，全局切换会让深色玻璃
+    // 面板配上深字（主题菜单不可读事故）。需要自适应的两类场景改为各自
+    // 引用判定结果：
+    // 【--lt-raw-*】文字直接坐在壁纸/遮罩上的页面（音乐分区等，无玻璃
+    //   背板）：按「原始背景（底色→壁纸→遮罩）」判定文字 scheme，音乐壳
+    //   与顶栏根节点局部引用
+    // 【--lt-glass-*】文字坐在冰霜面板上的播放页/迷你条：按「含玻璃层的
+    //   有效背景」判定，组件根节点局部引用
     const currentScheme = isDark ? schemes.dark : schemes.light
     const oppositeScheme = isDark ? schemes.light : schemes.dark
     const currentTextHex = currentScheme['--md-sys-color-on-surface']
@@ -206,44 +215,55 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         whiteAlpha: backgroundWhiteOverlay,
         blackAlpha: backgroundBlackOverlay,
       }
-      const bgRgb = computeEffectiveBackgroundRgb(baseBgParams)
-      const bgLum = relativeLuminance(bgRgb)
-      const currentTextRgb = hexToRgb(currentTextHex)
-      const oppositeTextRgb = hexToRgb(oppositeTextHex)
-      if (currentTextRgb && oppositeTextRgb) {
-        const currentTextLum = relativeLuminance(currentTextRgb)
-        const oppositeTextLum = relativeLuminance(oppositeTextRgb)
-        const crCurrent = contrastRatio(currentTextLum, bgLum)
-        const crOpposite = contrastRatio(oppositeTextLum, bgLum)
-        if (crOpposite - crCurrent >= ADAPTIVE_SWITCH_MARGIN) {
-          adaptiveVars = ADAPTIVE_TEXT_VARS.filter((v) => oppositeScheme[v])
-          adaptiveVars.forEach((v) =>
-            root.style.setProperty(v, oppositeScheme[v])
+      const currentTextLum = relativeLuminance(
+        hexToRgb(currentTextHex) ?? { r: 0, g: 0, b: 0 }
+      )
+      const oppositeTextLum = relativeLuminance(
+        hexToRgb(oppositeTextHex) ?? { r: 255, g: 255, b: 255 }
+      )
+
+      // 原始背景判定 → --lt-raw-*
+      const rawBgLum = relativeLuminance(
+        computeEffectiveBackgroundRgb(baseBgParams)
+      )
+      const rawScheme =
+        contrastRatio(oppositeTextLum, rawBgLum) -
+          contrastRatio(currentTextLum, rawBgLum) >=
+        ADAPTIVE_SWITCH_MARGIN
+          ? oppositeScheme
+          : currentScheme
+      ADAPTIVE_TEXT_VARS.forEach((v) => {
+        if (rawScheme[v]) {
+          root.style.setProperty(
+            `--lt-raw${v.slice('--md-sys-color'.length)}`,
+            rawScheme[v]
           )
         }
+      })
 
-        // ===== 玻璃层判定（--lt-glass-*：播放页局部文字 scheme）=====
-        const glassRgb = hexToRgb(colors['--md-sys-color-surface-container'])
-        const glassBgRgb = computeEffectiveBackgroundRgb({
+      // 含玻璃层背景判定 → --lt-glass-*
+      const glassRgb = hexToRgb(colors['--md-sys-color-surface-container'])
+      const glassBgLum = relativeLuminance(
+        computeEffectiveBackgroundRgb({
           ...baseBgParams,
           glassRgb,
           glassAlpha: glassStrength,
         })
-        const glassBgLum = relativeLuminance(glassBgRgb)
-        const glassUseOpposite =
-          contrastRatio(oppositeTextLum, glassBgLum) -
-            contrastRatio(currentTextLum, glassBgLum) >=
-          ADAPTIVE_SWITCH_MARGIN
-        const glassScheme = glassUseOpposite ? oppositeScheme : currentScheme
-        ADAPTIVE_TEXT_VARS.forEach((v) => {
-          if (glassScheme[v]) {
-            root.style.setProperty(
-              `--lt-glass${v.slice('--md-sys-color'.length)}`,
-              glassScheme[v]
-            )
-          }
-        })
-      }
+      )
+      const glassScheme =
+        contrastRatio(oppositeTextLum, glassBgLum) -
+          contrastRatio(currentTextLum, glassBgLum) >=
+        ADAPTIVE_SWITCH_MARGIN
+          ? oppositeScheme
+          : currentScheme
+      ADAPTIVE_TEXT_VARS.forEach((v) => {
+        if (glassScheme[v]) {
+          root.style.setProperty(
+            `--lt-glass${v.slice('--md-sys-color'.length)}`,
+            glassScheme[v]
+          )
+        }
+      })
     }
 
     // 形状与玻璃拟态辅助变量
@@ -296,8 +316,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
       Object.keys(colors).forEach((key) => {
         root.style.removeProperty(key)
       })
-      adaptiveVars.forEach((key) => root.style.removeProperty(key))
       GLASS_TEXT_VARS.forEach((key) => root.style.removeProperty(key))
+      RAW_TEXT_VARS.forEach((key) => root.style.removeProperty(key))
       RADIUS_VARS.forEach((key) => root.style.removeProperty(key))
       GLASS_VARS.forEach((key) => root.style.removeProperty(key))
       root.classList.remove('dark')
