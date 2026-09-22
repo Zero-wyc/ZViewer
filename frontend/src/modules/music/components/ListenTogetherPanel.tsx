@@ -384,6 +384,8 @@ function PlayerSettingsModal({
   const videoBlurLevel = useMusicSettingsStore((s) => s.videoBlurLevel)
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
+  /** UI 毛玻璃模糊浓度（px，0-40，默认 12） */
+  const uiBlurLevel = useMusicSettingsStore((s) => s.uiBlurLevel)
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
@@ -530,10 +532,15 @@ function PlayerSettingsModal({
             展开动画结束后挂载（动画期间零渲染），内容超出面板高度滚动 */}
         {unfoldDone && (
           <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
-            {/* 毛玻璃封面背景 */}
+            {/* 毛玻璃封面背景（歌词页背景封面模糊开关） */}
             <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <span className="text-[13px] font-bold text-white">
-                毛玻璃封面背景
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-white">
+                  毛玻璃封面背景
+                </span>
+                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                  歌词页背景显示模糊的封面图，关闭后显示原始封面
+                </span>
               </span>
               <button
                 type="button"
@@ -561,11 +568,16 @@ function PlayerSettingsModal({
               与歌词模糊/模糊浓度的联动语义一致） */}
             <div className="px-5 py-3.5">
               <div className="mb-1 flex items-center justify-between">
-                <span className="text-[13px] font-bold text-white">模糊度</span>
+                <span className="text-[13px] font-bold text-white">
+                  封面模糊度
+                </span>
                 <span className="text-[12px] font-bold tabular-nums text-white/70">
                   {coverBlur ? `${coverBlurLevel}px` : '关闭'}
                 </span>
               </div>
+              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
+                背景封面图的毛玻璃模糊半径（作用于上方开关的背景层）
+              </p>
               <TinySlider
                 value={coverBlurLevel}
                 min={0}
@@ -587,6 +599,9 @@ function PlayerSettingsModal({
                   {videoBlurLevel > 0 ? `${videoBlurLevel}px` : '关闭'}
                 </span>
               </div>
+              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
+                视频背景画面的模糊半径（无视频背景时不生效）
+              </p>
               <TinySlider
                 value={videoBlurLevel}
                 min={0}
@@ -605,6 +620,9 @@ function PlayerSettingsModal({
                   {bgDim > 0 ? `${bgDim}%` : '关闭'}
                 </span>
               </div>
+              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
+                在封面/视频背景上叠加黑色遮罩的强度
+              </p>
               <TinySlider
                 value={bgDim}
                 min={0}
@@ -625,12 +643,37 @@ function PlayerSettingsModal({
                   {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
                 </span>
               </div>
+              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
+                播放卡与歌词面板内容整体的不透明度（毛玻璃模糊不受影响）
+              </p>
               <TinySlider
                 value={uiOpacity}
                 min={30}
                 max={100}
                 step={5}
                 onChange={(v) => setSettings({ uiOpacity: v })}
+              />
+            </div>
+            {/* UI 模糊浓度（滑块）：播放卡/歌词面板冰霜层的 backdrop 模糊
+              半径，0=面板完全透亮（无毛玻璃），默认 12px */}
+            <div className="px-5 py-3.5">
+              <div className="mb-1 flex items-center justify-between">
+                <span className="text-[13px] font-bold text-white">
+                  UI 模糊浓度
+                </span>
+                <span className="text-[12px] font-bold tabular-nums text-white/70">
+                  {uiBlurLevel > 0 ? `${uiBlurLevel}px` : '关闭'}
+                </span>
+              </div>
+              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
+                播放卡与歌词面板毛玻璃的模糊半径（透出背景的虚化程度）
+              </p>
+              <TinySlider
+                value={uiBlurLevel}
+                min={0}
+                max={40}
+                step={1}
+                onChange={(v) => setSettings({ uiBlurLevel: v })}
               />
             </div>
             {/* CLI 高画质代理（BilibiliParseSettings 同构面板，黑底弹窗配色：
@@ -877,7 +920,14 @@ function PlayerSettingsModal({
             </div>
             {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
             <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-              <span className="text-[13px] font-bold text-white">歌词模糊</span>
+              <span className="min-w-0">
+                <span className="block text-[13px] font-bold text-white">
+                  歌词模糊
+                </span>
+                <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                  非当前行歌词虚化显示，当前行保持清晰
+                </span>
+              </span>
               <button
                 type="button"
                 role="switch"
@@ -904,12 +954,15 @@ function PlayerSettingsModal({
             <div className="px-5 py-3.5">
               <div className="mb-1 flex items-center justify-between">
                 <span className="text-[13px] font-bold text-white">
-                  模糊浓度
+                  歌词模糊浓度
                 </span>
                 <span className="text-[12px] font-bold tabular-nums text-white/70">
                   {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : '关闭'}
                 </span>
               </div>
+              <p className="mb-1.5 text-[10px] leading-snug text-white/45">
+                非当前行歌词的虚化半径（仅歌词模糊开启时生效）
+              </p>
               <TinySlider
                 value={lyricBlurLevel}
                 min={0}
@@ -2245,6 +2298,13 @@ function ListenTogetherInner({
     }
   }, [])
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
+  /** UI 毛玻璃模糊浓度（px，0-40）：播放卡/歌词面板冰霜层的模糊半径；
+   *  非法值回退默认 12px */
+  const uiBlurLevel = useMusicSettingsStore((s) => s.uiBlurLevel)
+  const uiBlurPx =
+    Number.isFinite(uiBlurLevel) && uiBlurLevel >= 0
+      ? Math.min(40, uiBlurLevel)
+      : 12
   const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
   const lyricBlurLevel = useMusicSettingsStore((s) => s.lyricBlurLevel)
   const lyricMaskOpacity = useMusicSettingsStore((s) => s.lyricMaskOpacity)
@@ -2377,8 +2437,14 @@ function ListenTogetherInner({
   return (
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
-      // 提示条黑底 alpha 跟随滑块（zen-notice-bar 内 calc 引用）
-      style={{ '--lt-ui-alpha': uiFade } as React.CSSProperties}
+      // 提示条黑底 alpha 跟随滑块（zen-notice-bar 内 calc 引用）；
+      // --lt-ui-blur 为冰霜层模糊半径（设置：UI 模糊浓度）
+      style={
+        {
+          '--lt-ui-alpha': uiFade,
+          '--lt-ui-blur': `${uiBlurPx}px`,
+        } as React.CSSProperties
+      }
     >
       {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
           毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
@@ -3132,8 +3198,8 @@ function ListenTogetherInner({
                 aria-hidden="true"
                 className="lt-blur-surface pointer-events-none absolute inset-0"
                 style={{
-                  backdropFilter: 'blur(12px)',
-                  WebkitBackdropFilter: 'blur(12px)',
+                  backdropFilter: 'blur(var(--lt-ui-blur, 12px))',
+                  WebkitBackdropFilter: 'blur(var(--lt-ui-blur, 12px))',
                 }}
               />
               <div

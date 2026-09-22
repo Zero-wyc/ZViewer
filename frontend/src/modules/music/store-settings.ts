@@ -92,6 +92,11 @@ export interface MusicSettings {
    */
   uiOpacity: number
   /**
+   * 歌词页 UI 毛玻璃模糊浓度（px，0-40，默认 12）：播放卡与歌词面板
+   * 冰霜层（backdrop-filter）的模糊半径，0=面板完全透亮无模糊
+   */
+  uiBlurLevel: number
+  /**
    * B站 封面形状（仅哔哩哔哩歌曲的歌词页封面生效）：original 原版
    * （默认 16:9 长方形）/ square 正方形（对封面居中裁剪呈正方形显示）
    */
@@ -149,6 +154,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   bgVideoFit: 'contain',
   videoBlurLevel: 0,
   uiOpacity: 100,
+  uiBlurLevel: 12,
   biliCoverShape: 'original',
   biliAutoContinue: true,
   biliLikeFavTitle: 'Music',
