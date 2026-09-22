@@ -112,6 +112,8 @@ export function Header() {
   const customActive = !PRESET_SEEDS.some(
     (seed) => seed.color === safeSourceColor
   )
+  /** 隐藏的原生取色器（自定义主题色入口经 ref 程序化唤起） */
+  const customColorInputRef = useRef<HTMLInputElement>(null)
   const [themeOpen, setThemeOpen] = useState(false)
   const [themeClosing, setThemeClosing] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
@@ -572,8 +574,11 @@ export function Header() {
                         <Palette className="w-3.5 h-3.5" />
                         主题色
                       </span>
+                      {/* 自定义色占据原紫晶（紫色）预设的网格位 */}
                       <div className="grid grid-cols-4 gap-2">
-                        {PRESET_SEEDS.map((seed) => {
+                        {PRESET_SEEDS.filter(
+                          (seed) => seed.id !== 'amethyst'
+                        ).map((seed) => {
                           const active = sourceColor === seed.color
                           return (
                             <button
@@ -610,57 +615,62 @@ export function Header() {
                             </button>
                           )
                         })}
-                      </div>
 
-                      {/* 自定义主题色：label 包裹原生取色器，点击整行唤起；
-                          当前种子色不属于任何预设时，圆点显示该自定义色并
-                          高亮勾选。input 恒定输出 #rrggbb，可直接作种子色 */}
-                      <label
-                        className={cn(
-                          'flex cursor-pointer items-center justify-between rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
-                          customActive &&
-                            'bg-[var(--md-sys-color-primary-container)]'
-                        )}
-                        title="自定义颜色"
-                      >
-                        <span className="flex items-center gap-1.5 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                          <Plus className="h-3.5 w-3.5" />
-                          自定义
-                        </span>
-                        <span className="flex items-center gap-1.5">
-                          {customActive && (
-                            <span className="text-[10px] tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                              {safeSourceColor.toUpperCase()}
-                            </span>
+                        {/* 自定义主题色（原紫晶预设位）：样式与预设按钮同构——
+                            未自定义时圆点为「＋」，使用自定义色时圆点显示该色
+                            并勾选；点击唤起原生取色器（input 恒定输出
+                            #rrggbb，可直接作种子色） */}
+                        <button
+                          onClick={() => customColorInputRef.current?.click()}
+                          className={cn(
+                            'flex flex-col items-center gap-1 rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
+                            customActive &&
+                              'bg-[var(--md-sys-color-primary-container)]'
                           )}
+                          title="自定义颜色"
+                        >
                           <span
                             className="w-6 h-6 rounded-full border"
                             style={{
-                              backgroundColor: safeSourceColor,
+                              backgroundColor: customActive
+                                ? safeSourceColor
+                                : 'transparent',
                               borderColor: customActive
                                 ? 'var(--md-sys-color-primary)'
                                 : 'var(--md-sys-color-outline)',
                             }}
                           >
-                            {customActive && (
+                            {customActive ? (
                               <Check
                                 className="w-3.5 h-3.5 mx-auto mt-1"
                                 style={{
                                   color: 'var(--md-sys-color-on-primary)',
                                 }}
                               />
+                            ) : (
+                              <Plus
+                                className="w-3.5 h-3.5 mx-auto mt-1"
+                                style={{
+                                  color:
+                                    'var(--md-sys-color-on-surface-variant)',
+                                }}
+                              />
                             )}
                           </span>
-                        </span>
-                        <input
-                          type="color"
-                          value={safeSourceColor}
-                          onChange={(e) => setSourceColor(e.target.value)}
-                          className="sr-only"
-                          tabIndex={-1}
-                          aria-hidden="true"
-                        />
-                      </label>
+                          <span className="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                            自定义
+                          </span>
+                        </button>
+                      </div>
+                      <input
+                        ref={customColorInputRef}
+                        type="color"
+                        value={safeSourceColor}
+                        onChange={(e) => setSourceColor(e.target.value)}
+                        className="sr-only"
+                        tabIndex={-1}
+                        aria-hidden="true"
+                      />
                     </div>
 
                     <div
