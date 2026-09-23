@@ -727,6 +727,42 @@ function extractSongUrlData(body: unknown): Record<string, unknown> | null {
     : null;
 }
 
+/** /song/url/v1 不可用时回退老接口 /song/url 的音质映射（br 参数制） */
+const LEVEL_TO_BR: Record<string, number> = {
+  lossless: 999000,
+  exhigh: 320000,
+  higher: 192000,
+  standard: 128000,
+};
+
+/**
+ * 老接口 /song/url 回退：与 /song/url/v1 同源（/api/song/enhance/player/url），
+ * 以 br 代替 level 区分音质（br=999000 表示取账号可用最高音质）。
+ *
+ * 场景：内部 NCM 服务依赖残缺时，song_url_v1 模块顶层 require
+ * (@neteasecloudmusicapienhanced/unblockmusic-utils) 会抛 MODULE_NOT_FOUND，
+ * 路由返回 {code:404,msg:'Not Found'}（依赖完整时该包随 dependencies 安装）；
+ * 而 song_url 模块无此依赖、始终可用，作解析兜底。响应无 level 字段，按
+ * 请求档位补写，使调用方的降级链/缓存逻辑与 v1 响应同构。
+ */
+async function resolveSongUrlLegacy(
+  songId: number,
+  level: string,
+  cookieHeader: string,
+): Promise<Record<string, unknown> | null> {
+  try {
+    const br = LEVEL_TO_BR[level] ?? 320000;
+    const result = await callNcmApi(
+      `/song/url?id=${songId}&br=${br}`,
+      cookieHeader,
+    );
+    const data = extractSongUrlData(result.body);
+    return data ? { level, ...data } : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * 流式转发音频：透传 Range 请求头，返回 206/200，
  * 透传 Content-Range / Content-Length / Content-Type / Accept-Ranges。
@@ -944,8 +980,12 @@ router.get(
         const result = await callNcmApi(
           `/song/url/v1?id=${songId}&level=${level}`,
           cookieHeader,
-        );
-        const data = extractSongUrlData(result.body);
+        ).catch(() => null);
+        let data = result ? extractSongUrlData(result.body) : null;
+        // v1 路由失败（依赖残缺 404 / 网络抛错）时回退老接口 /song/url
+        if (!data) {
+          data = await resolveSongUrlLegacy(songId, level, cookieHeader);
+        }
         if (!data) continue;
         lastData = data;
         const url = data.url;
@@ -1181,8 +1221,16 @@ router.get(
         const result = await callNcmApi(
           `/song/url/v1?id=${songId}&level=${level}`,
           credential ? toCookieHeader(credential.cookies) : '',
-        );
-        const data = extractSongUrlData(result.body);
+        ).catch(() => null);
+        let data = result ? extractSongUrlData(result.body) : null;
+        // v1 路由失败时回退老接口 /song/url（与 /stream 一致）
+        if (!data) {
+          data = await resolveSongUrlLegacy(
+            songId,
+            level,
+            credential ? toCookieHeader(credential.cookies) : '',
+          );
+        }
         if (!data) continue;
         lastData = data;
         const url = data.url;
