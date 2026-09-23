@@ -6,8 +6,6 @@ import {
   LogIn,
   Sun,
   Moon,
-  Check,
-  Plus,
   SlidersHorizontal,
   Shield,
   ShieldAlert,
@@ -73,7 +71,6 @@ import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
 import { CustomColorPanel } from '@/components/CustomColorPanel'
-import { EDITOR_PRESET_COLORS, PRESET_SEEDS } from '@/lib/themes'
 import { cn } from '@/lib/utils'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 
@@ -92,8 +89,6 @@ export function Header() {
   const {
     isDark,
     setDark,
-    sourceColor,
-    setSourceColor,
     radius,
     setRadius,
     glassStrength,
@@ -105,17 +100,8 @@ export function Header() {
     disableHoverTransform,
     setDisableHoverTransform,
   } = useThemeStore()
-  /** 自定义主题色：种子色规范化（input[type=color] 需要 #rrggbb 形式），
-      非法持久化值兜底默认种子；不属于任何预设集合（主面板 4 色 ∪
-      编辑器 Zen 10 色）时视为自定义色并高亮显示 */
-  const safeSourceColor = /^#[0-9a-fA-F]{6}$/.test(sourceColor)
-    ? sourceColor
-    : '#0066cc'
-  const customActive =
-    !PRESET_SEEDS.some((seed) => seed.color === safeSourceColor) &&
-    !EDITOR_PRESET_COLORS.some((p) => p.color === safeSourceColor.toLowerCase())
-  /** 自研取色面板展开态（内联展开于主题菜单侧栏，见 CustomColorPanel） */
-  const [colorPanelOpen, setColorPanelOpen] = useState(false)
+  /** 自定义主题色编辑栏：常驻于主题菜单左侧（打开菜单即展开），
+      仅当自定义背景面板展开时暂时收起（二者互斥防宽度溢出） */
   const [themeOpen, setThemeOpen] = useState(false)
   const [themeClosing, setThemeClosing] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
@@ -131,7 +117,6 @@ export function Header() {
     userOpen ||
     userClosing ||
     backgroundModalOpen ||
-    colorPanelOpen ||
     serverModalOpen
   const headerShown = !immersive || hoverVisible || menuLocked
 
@@ -476,8 +461,6 @@ export function Header() {
                   setThemeClosing(false)
                   // 默认显示主面板，不保留上次打开的自定义背景侧面板
                   setBackgroundModalOpen(false)
-                  // 取色面板同样不保留上次的展开态
-                  setColorPanelOpen(false)
                 }
               }}
               className={cn(
@@ -519,11 +502,9 @@ export function Header() {
                     open={backgroundModalOpen}
                     onClose={() => setBackgroundModalOpen(false)}
                   />
-                  {/* 自定义主题色侧面板（与自定义背景同款左滑展开，两者互斥） */}
-                  <CustomColorPanel
-                    open={colorPanelOpen}
-                    onClose={() => setColorPanelOpen(false)}
-                  />
+                  {/* 主题色编辑左栏：一级栏位常驻展开（打开主题菜单即可编辑），
+                      仅当自定义背景面板展开时暂时收起（二者互斥防宽度溢出） */}
+                  <CustomColorPanel open={!backgroundModalOpen} />
                   <div className="h-full w-72 flex-shrink-0 overflow-y-auto px-4 pt-4 pb-2">
                     {/* 深浅色切换 */}
                     <button
@@ -579,118 +560,6 @@ export function Header() {
                         />
                       </div>
                     </button>
-
-                    <div
-                      className="h-px mx-1 my-3"
-                      style={{
-                        backgroundColor:
-                          'color-mix(in srgb, var(--md-sys-color-outline) 40%, transparent)',
-                      }}
-                    />
-
-                    {/* 种子色预设 */}
-                    <div
-                      className="zen-dropdown-item space-y-2"
-                      style={{ '--item-delay': '60ms' } as React.CSSProperties}
-                    >
-                      <span className="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] flex items-center gap-1.5">
-                        <Palette className="w-3.5 h-3.5" />
-                        主题色
-                      </span>
-                      {/* 自定义色占据原紫晶（紫色）预设的网格位 */}
-                      <div className="grid grid-cols-4 gap-2">
-                        {PRESET_SEEDS.filter(
-                          (seed) => seed.id !== 'amethyst'
-                        ).map((seed) => {
-                          const active = sourceColor === seed.color
-                          return (
-                            <button
-                              key={seed.id}
-                              onClick={() => setSourceColor(seed.color)}
-                              className={cn(
-                                'flex flex-col items-center gap-1 rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
-                                active &&
-                                  'bg-[var(--md-sys-color-primary-container)]'
-                              )}
-                              title={seed.name}
-                            >
-                              <span
-                                className="w-6 h-6 rounded-full border"
-                                style={{
-                                  backgroundColor: seed.color,
-                                  borderColor: active
-                                    ? 'var(--md-sys-color-primary)'
-                                    : 'var(--md-sys-color-outline)',
-                                }}
-                              >
-                                {active && (
-                                  <Check
-                                    className="w-3.5 h-3.5 mx-auto mt-1"
-                                    style={{
-                                      color: 'var(--md-sys-color-on-primary)',
-                                    }}
-                                  />
-                                )}
-                              </span>
-                              <span className="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                                {seed.name}
-                              </span>
-                            </button>
-                          )
-                        })}
-
-                        {/* 自定义主题色（原紫晶预设位）：样式与预设按钮同构——
-                            未自定义时圆点为「＋」，使用自定义色时圆点显示该色
-                            并勾选；点击向左滑出自研取色面板（与自定义背景
-                            侧面板互斥） */}
-                        <button
-                          onClick={() => {
-                            const next = !colorPanelOpen
-                            setColorPanelOpen(next)
-                            if (next) setBackgroundModalOpen(false)
-                          }}
-                          aria-expanded={colorPanelOpen}
-                          className={cn(
-                            'flex flex-col items-center gap-1 rounded-[var(--md-sys-shape-corner)] p-1.5 transition-all hover:bg-[var(--md-sys-color-surface-container-highest)]',
-                            customActive &&
-                              'bg-[var(--md-sys-color-primary-container)]'
-                          )}
-                          title="自定义颜色"
-                        >
-                          <span
-                            className="w-6 h-6 rounded-full border"
-                            style={{
-                              backgroundColor: customActive
-                                ? safeSourceColor
-                                : 'transparent',
-                              borderColor: customActive
-                                ? 'var(--md-sys-color-primary)'
-                                : 'var(--md-sys-color-outline)',
-                            }}
-                          >
-                            {customActive ? (
-                              <Check
-                                className="w-3.5 h-3.5 mx-auto mt-1"
-                                style={{
-                                  color: 'var(--md-sys-color-on-primary)',
-                                }}
-                              />
-                            ) : (
-                              <Plus
-                                className="w-3.5 h-3.5 mx-auto mt-1"
-                                style={{
-                                  color:
-                                    'var(--md-sys-color-on-surface-variant)',
-                                }}
-                              />
-                            )}
-                          </span>
-                          <span className="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                            自定义
-                          </span>
-                        </button>
-                      </div>
-                    </div>
 
                     <div
                       className="h-px mx-1 my-3"
@@ -824,8 +693,7 @@ export function Header() {
                       onClick={() => {
                         const next = !backgroundModalOpen
                         setBackgroundModalOpen(next)
-                        // 两个左侧面板互斥：打开背景时收起取色面板
-                        if (next) setColorPanelOpen(false)
+                        // 互斥由派生实现：背景面板展开时主题色栏自动收起
                       }}
                       className={cn(
                         'zen-dropdown-item mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-[var(--md-sys-shape-corner)] text-sm transition-all hover:translate-x-0.5',

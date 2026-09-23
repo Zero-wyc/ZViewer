@@ -1,13 +1,13 @@
 /**
- * Zen 浏览器主题编辑器（theme editor）风格的自定义主题面板。
+ * 主题色编辑左栏（主题菜单的一级栏位，打开菜单即展开）。
  *
  * ============================ 逻辑模型 ============================
  * 单向数据流：所有 UI 动作 → 唯一的显式 store action，无隐式副作用。
  *
  * Store 状态（三个正交维度，互不纠缠）：
  * - sourceColor    当前主题种子色（纯色，#rrggbb）
- * - customColors   收藏色板（纯存储：只有 add/remove 两种操作，
- *                  绝不会被其他动作隐式改写）
+ * - customColors   收藏色板（纯存储：只有 add/remove/update 三种显式
+ *                  操作，绝不会被其他动作隐式改写）
  * - colorIntensity 颜色强度 0-100（种子与深浅基底的 color-mix 比例，
  *                  独立于颜色选择的视觉参数；100 = 纯色）
  *
@@ -25,25 +25,28 @@
  * - 取色页拖动          → setSourceColor（实时预览，所见即所得）
  * - 取色页「收藏」      → addCustomColor(当前色)（存为新颜色）
  * - 取色页「更新收藏」  → updateCustomColor(进入色, 当前色)（原位更新，
- *                        位置不变；仅编辑模式出现）
+ *                        位置不变；仅编辑场景出现）
  * - 取色页「取消」      → setSourceColor(进入前颜色) + 回编辑器页
  * - [🗑] 移除          → 仅当前色已被收藏时可用：removeCustomColor
  *                        (当前色)；只移出收藏板，不改变正在使用的主题色
  * - 强度滑块 / [±5]    → setColorIntensity
  *
- * 取色页草稿的恢复点（restoreHexRef）在「进入取色页」时记录一次，
- * 面板被外部关闭时草稿页状态随 prevOpen 复位逻辑一并复位。
+ * 取色页草稿的恢复点（restoreHexRef）在「进入取色页」时记录一次；
+ * open 由 Header 派生（主题菜单打开且背景面板未展开），从 false → true
+ * 时经渲染期 prevOpen 检查复位页面状态。
  * ==================================================================
  *
- * 视觉布局对齐 Zen theme editor 五段式：
+ * 视觉布局（对齐 Zen theme editor 五段式 + 动效升级）：
  * ① 模式切换三圆钮（✨/☀/🌙，aria-pressed；auto 由 ThemeProvider 物化）
  * ② 「点击添加颜色」提示 + 操作行（[+][-] 强度微调 / 🎨 / 🎲 / 🗑）
  *    + 强度滑块（连续 0-100）
- * ③ 预设色板（Zen 官方 10 色）+ 收藏色板，横向滚动
+ * ③ 预设色板：Zen 官方 10 色 5×2 大圆点网格（漆面高光质感）+ 我的收藏
+ *    网格；圆点弹入 stagger 动效（theme-swatch-pop），选中勾选弹跳
+ *    （theme-check-pop）
  * ④ 实时预览：波浪线 SVG + 圆形预览框 + hex 标签（均显示实际生效色）
  * 取色页：SV 二维区 + 色相条 + Hex 输入 + 取消/收藏/更新收藏。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import {
   Sparkles,
   Sun,
@@ -52,8 +55,6 @@ import {
   Minus,
   Dices,
   Check,
-  ChevronLeft,
-  ChevronRight,
   Pipette,
   Trash2,
 } from 'lucide-react'
@@ -97,12 +98,7 @@ function onColorFor(hex: string): string {
   return relativeLuminance(rgb) > 0.4 ? '#1a1a1c' : '#ffffff'
 }
 
-export function CustomColorPanel({
-  open,
-}: {
-  open: boolean
-  onClose: () => void
-}) {
+export function CustomColorPanel({ open }: { open: boolean }) {
   // ===== store 状态（组件内只读派生，所有写入都走显式 action） =====
   const sourceColor = useThemeStore((s) => s.sourceColor)
   const setSourceColor = useThemeStore((s) => s.setSourceColor)
@@ -123,7 +119,7 @@ export function CustomColorPanel({
   /** 当前色是否已被收藏（仅控制 🗑 可用态与收藏圆点选中态） */
   const currentIsCustom = customColors.includes(currentHex)
 
-  // ===== 页面状态（本地；面板重开时复位到编辑器页） =====
+  // ===== 页面状态（本地；open 重新展开时复位到编辑器页） =====
   const [page, setPage] = useState<'editor' | 'picker'>('editor')
   /** 取色页草稿（HSV），拖动时同步写 store 实现实时预览 */
   const [draft, setDraft] = useState<HsvColor>(FALLBACK_HSV)
@@ -138,8 +134,7 @@ export function CustomColorPanel({
    */
   const [editingHex, setEditingHex] = useState<string | null>(null)
 
-  // 渲染期状态调整（官方 prop-change 模式）：面板展开瞬间复位到编辑器页，
-  // 并清除上一次的取色编辑模式
+  // 渲染期状态调整（官方 prop-change 模式）：左栏重新展开瞬间复位
   const [prevOpen, setPrevOpen] = useState(open)
   if (prevOpen !== open) {
     setPrevOpen(open)
@@ -178,7 +173,7 @@ export function CustomColorPanel({
   }, [currentHex, currentIsCustom, removeCustomColor])
 
   // ===== 动作：取色页 =====
-  /** 进入取色页：记录恢复点与模式（当前色是收藏色 → 编辑该条目） */
+  /** 进入取色页：记录恢复点与可更新条目（当前色是收藏色时） */
   const openPicker = useCallback(() => {
     restoreHexRef.current = currentHex
     setEditingHex(currentIsCustom ? currentHex : null)
@@ -243,19 +238,10 @@ export function CustomColorPanel({
     [colorIntensity, setColorIntensity]
   )
 
-  // ===== 色板行箭头可用态 =====
-  const swatchScrollRef = useRef<HTMLDivElement>(null)
-  const [canLeft, setCanLeft] = useState(false)
-  const [canRight, setCanRight] = useState(false)
-  const updateArrows = useCallback(() => {
-    const el = swatchScrollRef.current
-    if (!el) return
-    setCanLeft(el.scrollLeft > 1)
-    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
-  }, [])
-  const prevColorsKey = customColors.join(',')
-  // 色板内容变化后箭头可用态复测（effect 内访问 ref 为合法场景）
-  useEffect(updateArrows, [updateArrows, prevColorsKey])
+  /** 收藏圆点渲染列表：过滤掉与预设色重合的条目（避免同色双圆点） */
+  const savedSwatches = customColors.filter(
+    (c) => !EDITOR_PRESET_COLORS.some((p) => p.color === c.toLowerCase())
+  )
 
   // ===== 取色页拖动 =====
   const svRef = useRef<HTMLDivElement>(null)
@@ -289,8 +275,8 @@ export function CustomColorPanel({
   }
 
   return (
-    /* 宽度收起容器：默认 0（收起），open 时 300px 动画展开（对齐自定义
-       背景侧面板）；内层固定宽度避免动画期间内容回流挤压 */
+    /* 宽度收起容器：open 时 300px 动画展开（背景面板打开时暂时收起，
+       二者互斥防宽度溢出）；内层固定宽度避免动画期间内容回流挤压 */
     <div
       className="h-full flex-shrink-0 overflow-hidden"
       style={{
@@ -303,7 +289,10 @@ export function CustomColorPanel({
         {page === 'editor' ? (
           <>
             {/* ===== ① 模式切换区：✨ / ☀ / 🌙 三圆钮（aria-pressed） ===== */}
-            <div className="flex shrink-0 items-center justify-center gap-3">
+            <div
+              className="zen-stagger-fade-up flex shrink-0 items-center justify-center gap-3"
+              style={{ '--stagger-delay': '0ms' } as React.CSSProperties}
+            >
               {MODE_BUTTONS.map((btn) => {
                 const active = mode === btn.value
                 const Icon = btn.icon
@@ -316,10 +305,10 @@ export function CustomColorPanel({
                     title={btn.label}
                     onClick={() => setMode(btn.value)}
                     className={cn(
-                      'flex h-10 w-10 items-center justify-center rounded-full transition-all',
+                      'flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200',
                       active
                         ? 'scale-105 shadow-sm'
-                        : 'opacity-45 hover:scale-105 hover:opacity-85'
+                        : 'opacity-45 hover:scale-110 hover:opacity-85'
                     )}
                     style={{
                       backgroundColor: active
@@ -344,12 +333,20 @@ export function CustomColorPanel({
             <button
               type="button"
               onClick={openPicker}
-              className="mt-4 flex w-full shrink-0 cursor-pointer items-center justify-center rounded-lg py-1 text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
-              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              className="zen-stagger-fade-up mt-4 flex w-full shrink-0 cursor-pointer items-center justify-center rounded-lg py-1 text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
+              style={
+                {
+                  '--stagger-delay': '45ms',
+                  color: 'var(--md-sys-color-on-surface-variant)',
+                } as React.CSSProperties
+              }
             >
               点击添加颜色
             </button>
-            <div className="mt-2 flex shrink-0 items-center justify-center gap-1.5">
+            <div
+              className="zen-stagger-fade-up mt-2 flex shrink-0 items-center justify-center gap-1.5"
+              style={{ '--stagger-delay': '90ms' } as React.CSSProperties}
+            >
               <ActionIconButton
                 title={`减弱颜色强度（当前 ${colorIntensity}%）`}
                 onClick={() => adjustIntensity(-INTENSITY_STEP)}
@@ -382,7 +379,10 @@ export function CustomColorPanel({
                 <Trash2 className="h-4 w-4" />
               </ActionIconButton>
             </div>
-            <div className="mt-2 shrink-0 px-1">
+            <div
+              className="zen-stagger-fade-up mt-2 shrink-0 px-1"
+              style={{ '--stagger-delay': '135ms' } as React.CSSProperties}
+            >
               <Slider
                 size="sm"
                 label="颜色强度"
@@ -395,76 +395,78 @@ export function CustomColorPanel({
               />
             </div>
 
-            {/* ===== ③ 预设色板：Zen 10 色 + 收藏色，‹ › 翻页 ===== */}
-            <div className="mt-3 flex shrink-0 items-center gap-0.5">
-              <ArrowButton
-                dir={-1}
-                disabled={!canLeft}
-                onClick={() =>
-                  swatchScrollRef.current?.scrollBy({
-                    left: -120,
-                    behavior: 'smooth',
-                  })
-                }
-              />
-              <div
-                ref={swatchScrollRef}
-                onScroll={updateArrows}
-                className="hide-scrollbar flex flex-1 items-center gap-2.5 overflow-x-auto px-1 py-1"
-              >
-                {EDITOR_PRESET_COLORS.map((preset) => (
-                  <SwatchDot
-                    key={preset.color}
-                    color={preset.color}
-                    name={preset.name}
-                    active={currentHex === preset.color.toLowerCase()}
-                    onPick={() => applyColor(preset.color)}
-                  />
-                ))}
-                {customColors.length > 0 && (
+            {/* ===== ③ 预设色板：Zen 10 色 5×2 网格（圆点弹入 stagger） ===== */}
+            <div className="mt-4 grid shrink-0 grid-cols-5 gap-2.5">
+              {EDITOR_PRESET_COLORS.map((preset, i) => (
+                <SwatchDot
+                  key={preset.color}
+                  color={preset.color}
+                  name={preset.name}
+                  active={currentHex === preset.color.toLowerCase()}
+                  delay={180 + i * 35}
+                  onPick={() => applyColor(preset.color)}
+                />
+              ))}
+            </div>
+
+            {/* ===== 我的收藏：网格 + 数量徽标 ===== */}
+            {savedSwatches.length > 0 && (
+              <div className="mt-4 shrink-0">
+                <div
+                  className="zen-stagger-fade-up mb-2 flex items-center gap-2 px-0.5"
+                  style={{ '--stagger-delay': '260ms' } as React.CSSProperties}
+                >
                   <span
-                    className="h-5 w-px shrink-0"
+                    className="text-xs font-medium"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  >
+                    我的颜色
+                  </span>
+                  <span
+                    className="rounded-full px-1.5 py-px text-[10px] tabular-nums"
                     style={{
                       backgroundColor:
-                        'color-mix(in srgb, var(--md-sys-color-outline) 45%, transparent)',
+                        'var(--md-sys-color-surface-container-high)',
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  >
+                    {savedSwatches.length}
+                  </span>
+                  <span
+                    className="h-px flex-1"
+                    style={{
+                      background:
+                        'linear-gradient(to right, color-mix(in srgb, var(--md-sys-color-outline) 35%, transparent), transparent)',
                     }}
                     aria-hidden="true"
                   />
-                )}
-                {/* 收藏色板：过滤掉与预设色重合的条目（否则同一颜色出现
-                    两个圆点且 React key 重复）；编辑入口/🗑 的判定仍以
-                    完整 customColors 为准 */}
-                {customColors
-                  .filter(
-                    (c) =>
-                      !EDITOR_PRESET_COLORS.some(
-                        (p) => p.color === c.toLowerCase()
-                      )
-                  )
-                  .map((c) => (
+                </div>
+                <div className="grid grid-cols-5 gap-2.5">
+                  {savedSwatches.map((c, i) => (
                     <SwatchDot
                       key={c}
                       color={c}
                       name="收藏的颜色"
                       active={currentHex === c}
+                      delay={300 + i * 35}
                       onPick={() => applyColor(c)}
                     />
                   ))}
+                </div>
               </div>
-              <ArrowButton
-                dir={1}
-                disabled={!canRight}
-                onClick={() =>
-                  swatchScrollRef.current?.scrollBy({
-                    left: 120,
-                    behavior: 'smooth',
-                  })
-                }
-              />
-            </div>
+            )}
 
             {/* ===== ④ 实时预览：波浪线 + 圆形预览框 + hex（实际生效色） ===== */}
-            <div className="mt-5 flex shrink-0 flex-col items-center">
+            <div
+              className="zen-stagger-fade-up mt-6 flex shrink-0 flex-col items-center"
+              style={
+                {
+                  '--stagger-delay': savedSwatches.length ? '380ms' : '260ms',
+                } as React.CSSProperties
+              }
+            >
               <svg
                 viewBox="0 0 100 20"
                 preserveAspectRatio="none"
@@ -481,16 +483,16 @@ export function CustomColorPanel({
                 />
               </svg>
               <span
-                className="mt-4 block h-14 w-14 rounded-full transition-colors"
+                className="mt-4 block h-16 w-16 rounded-full transition-all duration-300"
                 style={{
-                  backgroundColor: effectiveHex,
+                  background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.32), rgba(255,255,255,0) 45%), ${effectiveHex}`,
                   border: '2px solid var(--md-sys-color-outline-variant)',
-                  boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
+                  boxShadow: `0 6px 18px -6px ${effectiveHex}66, 0 1px 3px rgba(0,0,0,0.12)`,
                 }}
                 aria-hidden="true"
               />
               <span
-                className="mt-2 text-xs tabular-nums"
+                className="mt-2.5 text-xs tabular-nums"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
                 {currentHex}
@@ -503,11 +505,11 @@ export function CustomColorPanel({
             </div>
           </>
         ) : (
-          /* ===== 取色页：SV 二维区 + 色相条 + Hex + 取消/保存 ===== */
+          /* ===== 取色页：SV 二维区 + 色相条 + Hex + 取消/收藏/更新 ===== */
           <>
             <div
               ref={svRef}
-              className="relative h-48 w-full shrink-0 cursor-crosshair select-none overflow-hidden rounded-xl"
+              className="relative h-48 w-full shrink-0 cursor-crosshair select-none overflow-hidden rounded-xl shadow-inner"
               style={{
                 backgroundColor: hsvToHex(draft.h, 100, 100),
                 backgroundImage:
@@ -530,7 +532,7 @@ export function CustomColorPanel({
               }}
             >
               <span
-                className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
+                className="pointer-events-none absolute h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md transition-colors"
                 style={{
                   left: `${draft.s}%`,
                   top: `${100 - draft.v}%`,
@@ -568,7 +570,7 @@ export function CustomColorPanel({
               }}
             >
               <span
-                className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md"
+                className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 shadow-md transition-colors"
                 style={{
                   left: `${(draft.h / 360) * 100}%`,
                   backgroundColor: hsvToHex(draft.h, 100, 100),
@@ -581,9 +583,9 @@ export function CustomColorPanel({
             {/* 当前色预览 + Hex 输入 */}
             <div className="mt-3 flex items-center gap-2">
               <span
-                className="h-8 w-8 shrink-0 rounded-full border"
+                className="h-8 w-8 shrink-0 rounded-full border transition-colors"
                 style={{
-                  backgroundColor: draftHex,
+                  background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.3), rgba(255,255,255,0) 45%), ${draftHex}`,
                   borderColor: 'var(--md-sys-color-outline)',
                 }}
                 aria-hidden="true"
@@ -624,7 +626,7 @@ export function CustomColorPanel({
                   'h-9 flex-1 rounded-full text-sm font-medium transition-colors',
                   draftAlreadySaved
                     ? 'cursor-not-allowed opacity-35'
-                    : 'hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                    : 'hover:bg-[var(--md-sys-color-surface-container-highest)] active:scale-[0.98]'
                 )}
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
@@ -684,10 +686,10 @@ function ActionIconButton({
       title={title}
       aria-label={title}
       className={cn(
-        'flex h-9 w-9 items-center justify-center rounded-full transition-colors',
+        'flex h-9 w-9 items-center justify-center rounded-full transition-all duration-200',
         disabled
           ? 'cursor-not-allowed opacity-35'
-          : 'hover:bg-[var(--md-sys-color-surface-container-highest)] active:scale-90'
+          : 'hover:scale-110 hover:bg-[var(--md-sys-color-surface-container-highest)] active:scale-90'
       )}
       style={{ color: 'var(--md-sys-color-on-surface)' }}
     >
@@ -696,46 +698,22 @@ function ActionIconButton({
   )
 }
 
-/** 色板行翻页箭头 */
-function ArrowButton({
-  dir,
-  disabled,
-  onClick,
-}: {
-  dir: -1 | 1
-  disabled: boolean
-  onClick: () => void
-}) {
-  const Icon = dir === -1 ? ChevronLeft : ChevronRight
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={disabled}
-      title={dir === -1 ? '向左滚动' : '向右滚动'}
-      aria-label={dir === -1 ? '向左滚动色板' : '向右滚动色板'}
-      className={cn(
-        'flex h-7 w-5 shrink-0 items-center justify-center transition-opacity',
-        disabled ? 'opacity-25' : 'opacity-60 hover:opacity-100'
-      )}
-      style={{ color: 'var(--md-sys-color-on-surface)' }}
-    >
-      <Icon className="h-4 w-4" />
-    </button>
-  )
-}
-
-/** 色板圆点：预设/收藏通用，选中态勾选 */
+/**
+ * 色板圆点（预设/收藏通用）：漆面质感（内高光 + 色底）、弹入 stagger
+ * 动效、hover 放大、选中态 primary 光环 + 勾选弹跳。
+ */
 function SwatchDot({
   color,
   name,
   active,
   onPick,
+  delay = 0,
 }: {
   color: string
   name: string
   active: boolean
   onPick: () => void
+  delay?: number
 }) {
   return (
     <button
@@ -744,18 +722,20 @@ function SwatchDot({
       title={name}
       aria-label={name}
       aria-pressed={active}
-      className="relative h-7 w-7 shrink-0 rounded-full transition-transform hover:scale-110 active:scale-95"
-      style={{
-        backgroundColor: color,
-        // 选中：面板底色垫开一圈 + primary 描边；未选中：细灰描边防过浅
-        boxShadow: active
-          ? '0 0 0 2px var(--md-sys-color-surface-container), 0 0 0 3.5px var(--md-sys-color-primary)'
-          : 'inset 0 0 0 0.5px rgba(128,128,128,0.45)',
-      }}
+      className="theme-swatch-pop relative aspect-square w-full rounded-full outline-none transition-[transform,box-shadow] duration-200 ease-out hover:scale-110 active:scale-95"
+      style={
+        {
+          '--swatch-delay': `${delay}ms`,
+          background: `radial-gradient(circle at 32% 28%, rgba(255,255,255,0.36), rgba(255,255,255,0) 46%), ${color}`,
+          boxShadow: active
+            ? '0 0 0 2px var(--md-sys-color-surface-container), 0 0 0 4px var(--md-sys-color-primary), 0 4px 14px -4px color-mix(in srgb, var(--md-sys-color-primary) 55%, transparent)'
+            : 'inset 0 0 0 1px rgba(128,128,128,0.35), 0 1px 4px rgba(0,0,0,0.18)',
+        } as React.CSSProperties
+      }
     >
       {active && (
         <Check
-          className="absolute inset-0 m-auto h-4 w-4"
+          className="theme-check-pop absolute inset-0 m-auto h-4 w-4"
           style={{ color: onColorFor(color) }}
         />
       )}
