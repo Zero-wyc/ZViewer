@@ -3288,7 +3288,9 @@ function ListenTogetherInner({
                     />
                   </div>
                   {/* 歌手行（Hydrogen .music-author-lable：top1px/left-2px 小方框
-                    套 4px 中心点 rgb(105,105,105)；文本 10px 左距 10px） */}
+                    套 4px 中心点 rgb(105,105,105)；文本 10px 左距 10px）。
+                    横屏矮窗口（isLandscapeShort）：迷你三键收纳到行尾右端——
+                    高度不足时下方独立三键行取消，控件区不再臃肿 */}
                   <div className="relative flex min-w-0 items-center">
                     <span
                       className="pointer-events-none absolute -left-[2px] top-[1px] block h-2 w-2 shrink-0"
@@ -3303,6 +3305,49 @@ function ListenTogetherInner({
                     <span className="ml-[10px] min-w-0 truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
                       {artist || ' '}
                     </span>
+                    {isLandscapeShort && (
+                      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+                        <button
+                          type="button"
+                          className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                          onClick={handlePrev}
+                          title={canControl ? '上一首' : '向房主申请切换上一首'}
+                          aria-label="上一首"
+                        >
+                          <ControlPrevIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                          onClick={handlePlayPause}
+                          title={
+                            canControl
+                              ? isPlaying
+                                ? '暂停'
+                                : '播放'
+                              : isPlaying
+                                ? '申请暂停'
+                                : '申请继续播放'
+                          }
+                          aria-label="播放或暂停"
+                        >
+                          {isPlaying ? (
+                            <ControlPauseIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
+                          ) : (
+                            <ControlPlayIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                          onClick={handleNext}
+                          title={canControl ? '下一首' : '向房主申请切换下一首'}
+                          aria-label="下一首"
+                        >
+                          <ControlNextIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
+                        </button>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -3337,48 +3382,52 @@ function ListenTogetherInner({
                   </div>
 
                   {/* 三键控制（5vh，原版线条式 SVG：< 形箭头 / 描边三角 / 双竖线；
-                    active 缩放 0.9；max(5vh,36px) 保底触屏可点） */}
-                  <div className="flex shrink-0 items-center justify-evenly">
-                    <button
-                      type="button"
-                      className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                      onClick={handlePrev}
-                      title={canControl ? '上一首' : '向房主申请切换上一首'}
-                      aria-label="上一首"
-                    >
-                      <ControlPrevIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                    </button>
-                    <button
-                      type="button"
-                      className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                      onClick={handlePlayPause}
-                      title={
-                        canControl
-                          ? isPlaying
-                            ? '暂停'
-                            : '播放'
-                          : isPlaying
-                            ? '申请暂停'
-                            : '申请继续播放'
-                      }
-                      aria-label="播放或暂停"
-                    >
-                      {isPlaying ? (
-                        <ControlPauseIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                      ) : (
-                        <ControlPlayIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                      onClick={handleNext}
-                      title={canControl ? '下一首' : '向房主申请切换下一首'}
-                      aria-label="下一首"
-                    >
-                      <ControlNextIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                    </button>
-                  </div>
+                    active 缩放 0.9；max(5vh,36px) 保底触屏可点）。
+                    横屏矮窗口时隐藏——三键已收纳到歌手行右端（见上方
+                    isLandscapeShort 分支），避免控件区纵向臃肿 */}
+                  {!isLandscapeShort && (
+                    <div className="flex shrink-0 items-center justify-evenly">
+                      <button
+                        type="button"
+                        className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                        onClick={handlePrev}
+                        title={canControl ? '上一首' : '向房主申请切换上一首'}
+                        aria-label="上一首"
+                      >
+                        <ControlPrevIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                      </button>
+                      <button
+                        type="button"
+                        className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                        onClick={handlePlayPause}
+                        title={
+                          canControl
+                            ? isPlaying
+                              ? '暂停'
+                              : '播放'
+                            : isPlaying
+                              ? '申请暂停'
+                              : '申请继续播放'
+                        }
+                        aria-label="播放或暂停"
+                      >
+                        {isPlaying ? (
+                          <ControlPauseIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                        ) : (
+                          <ControlPlayIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                        )}
+                      </button>
+                      <button
+                        type="button"
+                        className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
+                        onClick={handleNext}
+                        title={canControl ? '下一首' : '向房主申请切换下一首'}
+                        aria-label="下一首"
+                      >
+                        <ControlNextIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
+                      </button>
+                    </div>
+                  )}
 
                   {/* 音量区（滑块与进度同款 + VOLUME 标签与百分比；
                     手机端保留——蓝牙/外放场景仍需软件音量） */}
