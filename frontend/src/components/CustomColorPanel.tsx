@@ -20,11 +20,12 @@
  * 动作映射（每个控件恰好一个语义）：
  * - 色板圆点 / 预设色   → setSourceColor(hex)（纯切换，零副作用）
  * - [🎲] 随机          → setSourceColor(随机色)
- * - [🎨] / 提示行      → 进入取色页（进入时判定模式：当前色 ∈ 收藏板
- *                        则为「编辑该条目」，否则为「新增收藏」）
+ * - [🎨] / 提示行      → 进入取色页（进入时当前色来自收藏板则记录为
+ *                        「可更新条目」，供「更新收藏」按钮使用）
  * - 取色页拖动          → setSourceColor（实时预览，所见即所得）
- * - 取色页「保存」      → 编辑模式：updateCustomColor(原色, 新色)（位置
- *                        不变）；新增模式：addCustomColor(当前色)
+ * - 取色页「收藏」      → addCustomColor(当前色)（存为新颜色）
+ * - 取色页「更新收藏」  → updateCustomColor(进入色, 当前色)（原位更新，
+ *                        位置不变；仅编辑模式出现）
  * - 取色页「取消」      → setSourceColor(进入前颜色) + 回编辑器页
  * - [🗑] 移除          → 仅当前色已被收藏时可用：removeCustomColor
  *                        (当前色)；只移出收藏板，不改变正在使用的主题色
@@ -40,7 +41,7 @@
  *    + 强度滑块（连续 0-100）
  * ③ 预设色板（Zen 官方 10 色）+ 收藏色板，横向滚动
  * ④ 实时预览：波浪线 SVG + 圆形预览框 + hex 标签（均显示实际生效色）
- * 取色页：SV 二维区 + 色相条 + Hex 输入 + 取消/保存。
+ * 取色页：SV 二维区 + 色相条 + Hex 输入 + 取消/收藏/更新收藏。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -131,8 +132,9 @@ export function CustomColorPanel({
   /** 进入取色页时的颜色（「取消」恢复点） */
   const restoreHexRef = useRef(DEFAULT_SEED)
   /**
-   * 取色页模式：非 null = 「编辑已有收藏」（值为被编辑的收藏色），保存时
-   * 原位更新该条目（位置不变）；null = 新增收藏。进入取色页时一次性判定。
+   * 取色页的「可更新条目」：进入取色页时当前色来自收藏板则记录该色，
+   * 「更新收藏」按钮据此原位更新；null = 无可更新条目（新增场景）。
+   * 注意它只是显式更新的候选依据，选择收藏色本身不触发任何改写。
    */
   const [editingHex, setEditingHex] = useState<string | null>(null)
 
@@ -202,19 +204,30 @@ export function CustomColorPanel({
   )
 
   /**
-   * 「保存」：按进入取色页时的模式分流——
-   * - 编辑模式（进入时当前色是收藏色）：原位更新该收藏条目（位置不变）；
-   *   若新色恰好已是其他收藏条目，则只保留切换结果、不动色板（避免重复）
-   * - 新增模式：收藏当前色（重复收藏由 addCustomColor 去重）
+   * 保存动作（显式二选一，不再按进入模式自动分流——此前「点选收藏色 →
+   * 微调 → 保存」会被误判为编辑该收藏而静默覆盖用户刚选择的颜色）：
+   * - 「存为新颜色」：总是新增收藏（重复时由 addCustomColor 去重）
+   * - 「更新此收藏」：仅编辑模式（进入时当前色来自收藏板）出现，
+   *   原位更新该条目（位置不变）
    */
-  const savePick = useCallback(() => {
-    if (editingHex) {
-      updateCustomColor(editingHex, draftHex)
-    } else {
-      addCustomColor(draftHex)
-    }
+  const saveAsNew = useCallback(() => {
+    addCustomColor(draftHex)
     setPage('editor')
-  }, [addCustomColor, draftHex, editingHex, updateCustomColor])
+  }, [addCustomColor, draftHex])
+
+  const updateExisting = useCallback(() => {
+    if (!editingHex) return
+    updateCustomColor(editingHex, draftHex)
+    setPage('editor')
+  }, [draftHex, editingHex, updateCustomColor])
+
+  /**
+   * 两个保存按钮的统一禁用条件：当前色已在收藏板中——
+   * - 「存为新颜色」：已收藏再存是重复操作（应用本身在拖动时已实时生效）
+   * - 「更新此收藏」：新色等于被编辑色（无修改）或等于其他收藏条目
+   *   （store 会拒绝更新），禁用并提供原因提示，杜绝静默失败
+   */
+  const draftAlreadySaved = customColors.includes(draftHex)
 
   /** 「取消」：恢复进入前颜色 + 回编辑器页 */
   const cancelPick = useCallback(() => {
@@ -590,7 +603,7 @@ export function CustomColorPanel({
               />
             </div>
 
-            {/* 取消（恢复进入前颜色）/ 保存（收藏当前色） */}
+            {/* 取消（恢复进入前颜色）/ 保存动作（显式二选一） */}
             <div className="mt-4 flex shrink-0 items-center gap-2">
               <button
                 type="button"
@@ -602,15 +615,47 @@ export function CustomColorPanel({
               </button>
               <button
                 type="button"
-                onClick={savePick}
-                className="h-9 flex-1 rounded-full text-sm font-medium shadow-sm transition-transform active:scale-[0.98]"
-                style={{
-                  backgroundColor: draftHex,
-                  color: onColorFor(draftHex),
-                }}
+                onClick={saveAsNew}
+                disabled={draftAlreadySaved}
+                title={
+                  draftAlreadySaved ? '该颜色已在收藏板中' : '加入收藏色板'
+                }
+                className={cn(
+                  'h-9 flex-1 rounded-full text-sm font-medium transition-colors',
+                  draftAlreadySaved
+                    ? 'cursor-not-allowed opacity-35'
+                    : 'hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                )}
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                {editingHex ? '保存修改' : '收藏并应用'}
+                {editingHex ? '存为新色' : '收藏'}
               </button>
+              {editingHex && (
+                <button
+                  type="button"
+                  onClick={updateExisting}
+                  disabled={draftAlreadySaved}
+                  title={
+                    draftAlreadySaved
+                      ? draftHex === editingHex
+                        ? '颜色未修改'
+                        : '该颜色已是其他收藏条目'
+                      : `更新收藏中的 ${editingHex}`
+                  }
+                  className={cn(
+                    'h-9 flex-1 rounded-full text-sm font-medium shadow-sm transition-transform',
+                    draftAlreadySaved
+                      ? 'cursor-not-allowed opacity-35'
+                      : 'active:scale-[0.98]'
+                  )}
+                  style={{
+                    backgroundColor: draftHex,
+                    color: onColorFor(draftHex),
+                  }}
+                >
+                  更新收藏
+                </button>
+              )}
             </div>
           </>
         )}
