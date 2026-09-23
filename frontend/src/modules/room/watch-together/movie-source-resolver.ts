@@ -109,10 +109,12 @@ function normalizeLocalCliProxyUrl(proxyUrl: string): string {
 /**
  * 获取当前可用的 CLI 代理 URL。
  *
- * 当房间内至少有一个 CLI 代理注册（通过 socket）时返回其 proxyUrl。
- * 不再强制要求 localOnline（本地健康检查通过）：健康检查可能因 CORS、
- * 网络抖动或浏览器安全策略暂时失败，但 CLI 的 HTTP 服务实际可用。
- * 如果 HTTP 服务确实不可用，resolveBilibiliViaCli 的 fetch 会失败并报错。
+ * CLI 代理在服务器上全局注册（不绑定房间）：cliAgentStore.agents 由
+ * useCliAgent 订阅 socket 全局广播填充，并已按用户名过滤归属，此处直接
+ * 取第一个即可。不再强制要求 localOnline（本地健康检查通过）：健康检查
+ * 可能因 CORS、网络抖动或浏览器安全策略暂时失败，但 CLI 的 HTTP 服务
+ * 实际可用。如果 HTTP 服务确实不可用，resolveBilibiliViaCli 的 fetch
+ * 会失败并报错。
  */
 export function getActiveCliProxyUrl(): string | null {
   const { agents } = useCliAgentStore.getState()

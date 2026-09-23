@@ -530,11 +530,7 @@ export function MovieListPanel({
                 </div>
                 {/* B站解析设置：每个 B站 影片独享一份配置；房主可操作，观众可查看并独立开启 CLI 代理 */}
                 {movie.sourceType === 'bilibili' && !isScreenShare && (
-                  <BilibiliParseSettings
-                    movieId={movie.id}
-                    roomId={roomId}
-                    isHost={isHost}
-                  />
+                  <BilibiliParseSettings movieId={movie.id} isHost={isHost} />
                 )}
               </div>
             )

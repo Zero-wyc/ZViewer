@@ -82,6 +82,7 @@ import {
 import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
 import type { DanmakuItem } from '@/modules/danmaku/types'
 import { useDanmakuStore, DEFAULT_DANMAKU_STYLE } from '@/store/danmakuStore'
+import { useAuthStore } from '@/store/authStore'
 import {
   DanmakuStylePanel,
   DanmakuAdvancedSettings,
@@ -372,13 +373,7 @@ const DANMAKU_PANEL_TOKEN_OVERRIDES = {
  * 四角白色方块点缀；承载「一起听设置」的背景项（封面模糊 / 背景压暗 /
  * 视频背景 CLI 高画质），与设置页同一设置项、改动即时持久化。
  * 点遮罩或 Esc 关闭。 */
-function PlayerSettingsModal({
-  onDismiss,
-  roomId,
-}: {
-  onDismiss: () => void
-  roomId: string
-}) {
+function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
   const coverBlurLevel = useMusicSettingsStore((s) => s.coverBlurLevel)
   const videoBlurLevel = useMusicSettingsStore((s) => s.videoBlurLevel)
@@ -404,13 +399,16 @@ function PlayerSettingsModal({
   const setSettings = useMusicSettingsStore((s) => s.set)
 
   // ===== CLI 高画质代理（BilibiliParseSettings 同构面板）：连接状态检测 +
-  //       配置页入口（CLI 开关状态即 musicVideoCli 设置项本身） =====
-  const cliAgent = useCliAgent(roomId)
+  //       配置页入口（CLI 开关状态即 musicVideoCli 设置项本身）。
+  //       CLI 在服务器全局注册：配置页只需服务器地址（附带当前用户名归属），
+  //       房间内开启开关即自动使用，无需按房间连接 =====
+  const cliAgent = useCliAgent()
   const cliAvailable = cliAgent.available
+  const username = useAuthStore((s) => s.user?.username)
   const openCliSetup = () => {
     const url = new URL(`http://127.0.0.1:${CLI_DEFAULT_PORT}/`)
     url.searchParams.set('server', getApiUrl())
-    url.searchParams.set('room', roomId)
+    if (username) url.searchParams.set('user', username)
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
   }
 
@@ -3740,10 +3738,7 @@ function ListenTogetherInner({
 
       {/* 歌词页快捷设置弹窗（纯净模式下不渲染，避免脱离沉浸画面） */}
       {showSettings && !immersive && (
-        <PlayerSettingsModal
-          onDismiss={() => setShowSettings(false)}
-          roomId={roomId}
-        />
+        <PlayerSettingsModal onDismiss={() => setShowSettings(false)} />
       )}
 
       {/* 在网易云搜索弹窗（B站 条目：歌名提取搜索 + 试听/收藏到我喜欢的音乐） */}

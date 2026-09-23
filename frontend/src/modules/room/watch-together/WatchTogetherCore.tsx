@@ -100,7 +100,8 @@ export function WatchTogetherCore({
   const { socket } = useSocket()
   // CLI 代理健康检查与 socket 事件监听提升到全局级别，
   // 确保 localOnline/agents 始终更新，不依赖 BilibiliParseSettings 是否渲染。
-  useCliAgent(roomId)
+  // CLI 在服务器全局注册（不绑定房间），配置页只需填服务器地址。
+  useCliAgent()
   const cliAgentsCount = useCliAgentStore((s) => s.agents.length)
   const triggerReloadBilibili = useRoomStore((s) => s.triggerReloadBilibili)
   const triggerViewerSourceReload = useRoomStore(

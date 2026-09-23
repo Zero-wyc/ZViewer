@@ -6,6 +6,8 @@ export interface CliAgentInfo {
   proxyUrl: string
   agent?: string
   version?: string
+  /** 注册时归属的用户名（CLI 配置页经 ?user= 传入；旧版 CLI 无此字段=公共代理） */
+  user?: string
 }
 
 interface CliAgentState {

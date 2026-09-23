@@ -30,6 +30,7 @@ import {
   formatKBytes,
 } from '@/modules/player/services/p2p-stats-store'
 import { useCliAgent } from '@/hooks/useCliAgent'
+import { useAuthStore } from '@/store/authStore'
 import { getApiUrl } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
@@ -37,22 +38,21 @@ import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 export interface BilibiliParseSettingsProps {
   /** 影片 ID，配置按此 key 独立存储 */
   movieId: number
-  /** 当前房间 ID，用于检测本地 CLI 代理 */
-  roomId: string
   /** 当前用户是否为房主（决定选项是否可操作） */
   isHost: boolean
 }
 
 export function BilibiliParseSettings({
   movieId,
-  roomId,
   isHost,
 }: BilibiliParseSettingsProps) {
   const [expanded, setExpanded] = useState(false)
   const [pendingCliReload, setPendingCliReload] = useState(false)
   const { bufferMode, p2pEnabled, cliEnabled } =
     useBilibiliParsePreferences(movieId)
-  const cliAgent = useCliAgent(roomId)
+  // CLI 代理在服务器全局注册（不绑定房间）：配置页只需填服务器地址，
+  // 房间内「CLI 高画质代理」开启时自动使用已注册的代理
+  const cliAgent = useCliAgent()
   const triggerReloadBilibili = useRoomStore(
     (state) => state.triggerReloadBilibili
   )
@@ -197,9 +197,10 @@ export function BilibiliParseSettings({
   const handleOpenCliSetup = useCallback(() => {
     const url = new URL('http://127.0.0.1:9333/')
     url.searchParams.set('server', getApiUrl())
-    url.searchParams.set('room', roomId)
+    const username = useAuthStore.getState().user?.username
+    if (username) url.searchParams.set('user', username)
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
-  }, [roomId])
+  }, [])
 
   const renderSegmented = (
     value: boolean,

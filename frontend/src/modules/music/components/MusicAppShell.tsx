@@ -135,8 +135,9 @@ function ShellInner({
   // CLI 代理检测常驻壳层：cliAgentStore.agents 只由 useCliAgent 的 socket
   // 轮询填充，此前唯一挂载点是设置弹窗——刷新后没人轮询，代理列表恒为空，
   // CLI 高画质永不生效，必须开一次设置面板"重新开关"才恢复。壳层挂载即
-  // 订阅（立即拉取 + 3s 轮询），刷新后 CLI 自动重连
-  useCliAgent(roomId)
+  // 订阅（立即拉取 + 3s 轮询）；CLI 在服务器全局注册（不绑定房间），
+  // 任意房间开启 CLI 功能即自动生效
+  useCliAgent()
 
   const {
     approveControl,

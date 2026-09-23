@@ -420,8 +420,8 @@ async function bootstrap() {
 
   io.use((socket, next) => {
     // CLI 代理（zcontrol-cli）使用独立连接语义：无需浏览器用户的 access_token，
-    // 只需在 cli-register 中提供 roomId 即可加入房间。此处按 agent 标识放行，
-    // 后续 CliHandler 会校验 roomId 与 proxyUrl。
+    // 全局注册（不绑定房间，一个 CLI 对所有房间可用）。此处按 agent 标识放行，
+    // 后续 CliHandler 会校验 proxyUrl 并按 user 归属过滤。
     if (socket.handshake.auth.agent === 'zcontrol-cli') {
       socket.data.isCliAgent = true;
       return next();

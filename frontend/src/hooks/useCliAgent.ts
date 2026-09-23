@@ -1,5 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react'
 import { useSocket } from './useSocket'
+import { useAuthStore } from '@/store/authStore'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 
 /** 本地 CLI 默认端口 */
@@ -39,26 +40,29 @@ interface CliAgentAvailablePayload {
   proxyUrl: string
   agent?: string
   version?: string
+  user?: string
 }
 
 interface CliAgentsPayload {
-  roomId: string
+  roomId?: string
   agents: CliAgentAvailablePayload[]
 }
 
 /**
- * 检测本地 CLI 代理是否可用，并订阅房间内 CLI 代理注册事件。
+ * 检测本地 CLI 代理是否可用，并订阅 CLI 代理注册事件。
  *
- * 设计原则：
- * - 仅通过 roomId 信任：只要本地 CLI 已连接同一房间，即可使用其代理。
- * - 手动开关：本 hook 只负责「检测并返回可用代理」，不决定是否启用。
- * - 健康检查：轮询 127.0.0.1:9333/health，同时监听 socket 事件获取后端广播的代理列表。
- *
- * @param roomId 当前房间 ID
- * @returns 当前可用的 CLI 代理信息
+ * 设计原则（2026-09-23 去房间化重构）：
+ * - CLI 代理在服务器上全局注册（配置页只需填服务器地址），一个 CLI 实例
+ *   对所有房间可用；房间内「CLI 高画质代理」开启时自动使用，无需再按房间连接
+ * - 按用户名过滤归属：后端下发的代理带 user 字段（配置页经 ?user= 传入），
+ *   仅保留「无归属（旧版 CLI）」或「归属当前登录用户」的代理，避免多人
+ *   共用服务器时误用他人的代理（proxyUrl 一律归一化为 127.0.0.1，端口
+ *   可能不同，误用会导致连接失败）
+ * - 健康检查：轮询 127.0.0.1:9333/health，同时监听 socket 事件获取服务端广播的代理列表
  */
-export function useCliAgent(roomId: string | undefined) {
+export function useCliAgent() {
   const { socket, connected } = useSocket()
+  const username = useAuthStore((s) => s.user?.username)
   const {
     localOnline,
     agents,
@@ -69,7 +73,6 @@ export function useCliAgent(roomId: string | undefined) {
     addAgent,
     removeAgent,
     setIsLoadingAgents,
-    reset,
   } = useCliAgentStore()
 
   const healthAbortRef = useRef<AbortController | null>(null)
@@ -108,20 +111,28 @@ export function useCliAgent(roomId: string | undefined) {
     }
   }, [setLocalOnline])
 
-  /** 向后端请求当前房间的 CLI 代理列表 */
+  /**
+   * 按用户名过滤代理列表：仅保留无归属（旧版 CLI）或归属当前用户的代理。
+   * 本地未登录（username 为空）时不过滤，保持旧行为。
+   */
+  const filterVisibleAgents = useCallback(
+    (list: CliAgentAvailablePayload[]): CliAgentAvailablePayload[] => {
+      if (!username) return list
+      return list.filter((a) => !a.user || a.user === username)
+    },
+    [username]
+  )
+
+  /** 向后端请求全局 CLI 代理列表 */
   const listAgents = useCallback(() => {
-    if (!socket || !connected || !roomId) return
+    if (!socket || !connected) return
     setIsLoadingAgents(true)
-    socket.emit('cli-list-agents', roomId)
-  }, [socket, connected, roomId, setIsLoadingAgents])
+    socket.emit('cli-list-agents')
+  }, [socket, connected, setIsLoadingAgents])
 
   // 1. 本地健康检查轮询（仅浏览器本地页面；远程访问时 127.0.0.1 指向
   //    访问者自己的设备，轮询必然失败且刷屏报错，直接跳过）
   useEffect(() => {
-    if (!roomId) {
-      reset()
-      return
-    }
     if (!isLocalPage()) {
       setLocalOnline(false, null)
       return
@@ -143,13 +154,13 @@ export function useCliAgent(roomId: string | undefined) {
         healthAbortRef.current = null
       }
     }
-  }, [roomId, checkHealth, reset, setLocalOnline])
+  }, [checkHealth, setLocalOnline])
 
   // 1b. 定期向后端刷新代理列表，避免 CLI 重连或前端挂载时机导致 agents 为空。
   // 同时用户启用 CLI 后也能更快感知到代理上线。
   const agentsTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
   useEffect(() => {
-    if (!socket || !connected || !roomId) return
+    if (!socket || !connected) return
 
     // 立即拉取一次，再启动 3 秒轮询
     listAgents()
@@ -163,13 +174,15 @@ export function useCliAgent(roomId: string | undefined) {
         agentsTimerRef.current = null
       }
     }
-  }, [socket, connected, roomId, listAgents])
+  }, [socket, connected, listAgents])
 
-  // 2. socket 事件监听：代理上线/下线/列表
+  // 2. socket 事件监听：代理上线/下线/列表（全局广播，按用户名过滤归属）
   useEffect(() => {
-    if (!socket || !roomId) return
+    if (!socket) return
 
     const handleAvailable = (payload: CliAgentAvailablePayload) => {
+      if (!payload?.socketId) return
+      if (filterVisibleAgents([payload]).length === 0) return
       addAgent(payload)
     }
 
@@ -178,8 +191,8 @@ export function useCliAgent(roomId: string | undefined) {
     }
 
     const handleAgents = (payload: CliAgentsPayload) => {
-      if (payload.roomId !== roomId) return
-      setAgents(payload.agents)
+      if (!payload || !Array.isArray(payload.agents)) return
+      setAgents(filterVisibleAgents(payload.agents))
       setIsLoadingAgents(false)
     }
 
@@ -199,23 +212,23 @@ export function useCliAgent(roomId: string | undefined) {
     }
   }, [
     socket,
-    roomId,
     connected,
     addAgent,
     removeAgent,
     setAgents,
     setIsLoadingAgents,
     listAgents,
+    filterVisibleAgents,
   ])
 
   // 3. socket 重连后重新拉取代理列表
   useEffect(() => {
-    if (connected && roomId) {
+    if (connected) {
       listAgents()
     }
-  }, [connected, roomId, listAgents])
+  }, [connected, listAgents])
 
-  // 房间内有已注册的 CLI 代理即视为可用。
+  // 房间内有已注册的 CLI 代理即视为可用（全局注册后与房间无关）。
   // 不再强制要求 localOnline：健康检查可能因 CORS/浏览器策略暂时失败，
   // 但 CLI HTTP 服务实际可用。实际不可用时 fetch 会自然报错。
   const selectedAgent = agents[0] ?? null
@@ -224,9 +237,9 @@ export function useCliAgent(roomId: string | undefined) {
   return {
     /** 本地 CLI 是否在线 */
     localOnline,
-    /** 房间内是否有已注册的 CLI 代理 */
+    /** 服务器上是否有归属可用的 CLI 代理 */
     hasAgent: agents.length > 0,
-    /** 房间内有代理即可投入使用（不再强制要求本地健康检查通过） */
+    /** 有归属可用的代理即可投入使用（不再强制要求本地健康检查通过） */
     available,
     /** 推荐使用的代理 URL（取第一个可用代理） */
     proxyUrl: selectedAgent?.proxyUrl ?? null,
