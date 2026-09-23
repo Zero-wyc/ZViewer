@@ -5,7 +5,7 @@ import {
   RADIUS_PRESETS,
 } from '@/store/themeStore'
 import { generateMonetTheme, getThemeColors } from '@/lib/monet'
-import { DEFAULT_SEED } from '@/lib/themes'
+import { DEFAULT_SEED, resolveEffectiveSeed } from '@/lib/themes'
 import {
   computeEffectiveBackgroundRgb,
   contrastRatio,
@@ -115,6 +115,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     sourceColor,
     isDark,
     mode,
+    colorIntensity,
     radius,
     glassStrength,
     glassBlur,
@@ -145,13 +146,21 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     return () => mq.removeEventListener('change', apply)
   }, [mode])
 
-  /** 浅/深两套 scheme（种子色不变时缓存，供文字对比度自适应判定取值） */
+  /** 浅/深两套 scheme（种子与强度不变时缓存，供文字对比度自适应判定取值）。
+   *  颜色强度（Zen color-intensity 语义）先与深浅各自基底按比例混合成
+   *  实际种子，强度 100 时与历史行为完全一致 */
   const schemes = useMemo(
     () => ({
-      light: safeGenerateMonet(safeSourceColor, false),
-      dark: safeGenerateMonet(safeSourceColor, true),
+      light: safeGenerateMonet(
+        resolveEffectiveSeed(safeSourceColor, false, colorIntensity),
+        false
+      ),
+      dark: safeGenerateMonet(
+        resolveEffectiveSeed(safeSourceColor, true, colorIntensity),
+        true
+      ),
     }),
-    [safeSourceColor]
+    [safeSourceColor, colorIntensity]
   )
 
   /** 壁纸平均色采样结果（null = 跨域/加载失败，自适应按「壁纸不改变底色」降级） */
@@ -181,10 +190,13 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     }
   }, [backgroundImage])
 
-  // 根据当前种子色与深浅模式生成并应用 Material You CSS 变量
+  // 根据当前种子色（经强度合成）与深浅模式生成并应用 Material You CSS 变量
   useEffect(() => {
     const root = document.documentElement
-    const result = getThemeColors(safeSourceColor, isDark)
+    const result = getThemeColors(
+      resolveEffectiveSeed(safeSourceColor, isDark, colorIntensity),
+      isDark
+    )
     const colors = result?.exportedColors ?? {}
 
     Object.entries(colors).forEach(([key, value]) => {
@@ -325,6 +337,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   }, [
     safeSourceColor,
     isDark,
+    colorIntensity,
     radius,
     glassStrength,
     glassBlur,

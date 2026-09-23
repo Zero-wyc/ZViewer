@@ -64,6 +64,12 @@ interface ThemeState {
   mode: ThemeColorMode
   /** 用户自定义色板（Zen 风格主题面板的颜色层，持久化，小写 #rrggbb） */
   customColors: string[]
+  /**
+   * 颜色强度 0-100（Zen theme editor 的 color-intensity）：种子色与深浅
+   * 模式基底中性色的混合比例，100 = 纯种子色（默认，与历史行为一致）；
+   * 由 ThemeProvider 经 resolveEffectiveSeed 合成 Monet 派生色板的输入
+   */
+  colorIntensity: number
   /** 圆角预设 */
   radius: RadiusPreset
   /** 玻璃拟态背景透明度，0-1 */
@@ -114,6 +120,8 @@ interface ThemeState {
   removeCustomColor: (color: string) => void
   /** 原位更新自定义色板中的一个颜色（波形条/旋钮拖动编辑时用） */
   updateCustomColor: (oldColor: string, newColor: string) => void
+  /** 设置颜色强度（0-100，越界夹取） */
+  setColorIntensity: (value: number) => void
   /** 切换深浅模式 */
   toggleDark: () => void
   /** 设置深浅模式 */
@@ -157,6 +165,7 @@ export const useThemeStore = create<ThemeState>()(
       isDark: false,
       mode: 'light' as ThemeColorMode,
       customColors: [] as string[],
+      colorIntensity: 100,
       radius: DEFAULT_RADIUS_PRESET,
       glassStrength: 0.6,
       glassBlur: 12,
@@ -212,6 +221,10 @@ export const useThemeStore = create<ThemeState>()(
           ),
         }))
       },
+      setColorIntensity: (value: number) =>
+        set({
+          colorIntensity: Math.min(100, Math.max(0, Math.round(value))),
+        }),
       toggleDark: () =>
         set((state) => ({
           isDark: !state.isDark,
@@ -277,6 +290,7 @@ export const useThemeStore = create<ThemeState>()(
         isDark: state.isDark,
         mode: state.mode,
         customColors: state.customColors,
+        colorIntensity: state.colorIntensity,
         radius: state.radius,
         glassStrength: state.glassStrength,
         glassBlur: state.glassBlur,

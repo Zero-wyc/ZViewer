@@ -1,18 +1,23 @@
 /**
- * Zen 浏览器风格的高级自定义主题色侧栏面板（UI 1:1 对齐 Zen theme creator）：
+ * Zen 浏览器主题编辑器（theme editor）风格的自定义主题面板：
+ * 按 Zen 编辑器的五段式垂直布局 1:1 重写（零延迟反馈，所见即所得）：
  *
- * 页 1（色板页，默认）：
- * - 模式页签：跟随系统 ✨ / 浅色 ☀ / 深色 🌙（auto 由 ThemeProvider 监听
- *   系统偏好并物化 isDark）
- * - 预览区：点状纹理底；无自定义颜色时居中「点击添加颜色」，点击或 ＋
- *   进入取色页；已有颜色则显示颜色层条（点击应用该颜色）
- * - 操作行：＋ 添加颜色 / － 移除选中颜色 / 骰子 随机主题色
- * - 色板行：‹ › 箭头翻页，预设色 + 自定义色圆点，点击应用
- * - 波形条（色相 0-360°，正弦波）+ 旋钮（明度 0-100%，-135°~+135° 表盘）：
- *   实时调整当前主题色；若当前色在自定义色板中则原位更新该颜色层
+ * 1. 模式切换区：✨ 跟随系统 / ☀ 浅色 / 🌙 深色 三个圆钮（aria-pressed，
+ *    auto 由 ThemeProvider 监听系统偏好并物化 isDark）
+ * 2. 自定义颜色区：「点击添加颜色」提示（点击进入取色页）+ 操作行
+ *    [+] [-] 强度调节（±10，0-100）· [🎨] 取色器（进入取色页）
+ *    · [🎲] 随机主题色 · [🗑] 移除选中自定义色（ZViewer 扩展）
+ * 3. 预设色板：Zen 官方 10 色（白/粉/亮粉/红/橙/金/绿/蓝/紫/黑）+ 自定义
+ *    色板，横向滚动圆点，‹ › 翻页
+ * 4. 实时预览：波浪线 SVG（stroke = 实际生效色）+ 圆形预览框（当前色）
+ *    + hex 标签
+ *
+ * 颜色强度（colorIntensity，对齐 Zen zen.theme.color-intensity）：种子色
+ * 与深浅模式基底中性色的 color-mix 比例，由 ThemeProvider 经
+ * resolveEffectiveSeed 合成 Monet 派生色板的实际输入；100 = 纯色。
  *
  * 页 2（取色页）：SV 二维区 + 色相条 + Hex 输入，拖动实时预览（写入
- * sourceColor），取消恢复进入前颜色，「添加颜色」写入自定义色板并回到色板页。
+ * sourceColor），取消恢复进入前颜色，「添加颜色」写入自定义色板并回编辑器页。
  *
  * 状态模型：颜色直连 themeStore（无 props 回流，写路径与预设按钮一致）；
  * 页/草稿为组件本地状态，面板重开时经渲染期 prevOpen 检查复位。
@@ -29,14 +34,17 @@ import {
   Check,
   ChevronLeft,
   ChevronRight,
+  Pipette,
+  Trash2,
 } from 'lucide-react'
 import { useThemeStore } from '@/store/themeStore'
 import {
   DEFAULT_SEED,
-  PRESET_SEEDS,
+  EDITOR_PRESET_COLORS,
   hexToHsv,
   hsvToHex,
   normalizeHexColor,
+  resolveEffectiveSeed,
   type HsvColor,
 } from '@/lib/themes'
 import { hexToRgb, relativeLuminance } from '@/lib/bgContrast'
@@ -48,28 +56,14 @@ const FALLBACK_HSV: HsvColor = { h: 214, s: 90, v: 80 }
 /** 面板展开宽度（px），与自定义背景侧面板同级 */
 const PANEL_WIDTH = 300
 
-/** 波形条 SVG 参数（viewBox 固定，横向随容器微缩放） */
-const WAVE_W = 180
-const WAVE_H = 40
-const WAVE_MID = 20
-const WAVE_AMP = 8.5
-const WAVE_LEN = 46
-/** 旋钮可用角度：-135°~+135°（0° 朝上），映射明度 0-100% */
-const DIAL_RANGE_DEG = 270
+/** 强度调节步长（±/次），与 Zen 编辑器 [+] [-] 按钮同语义 */
+const INTENSITY_STEP = 10
 
-/** 正弦波形 path（3px 折线，视觉平滑） */
-function buildWavePath(): string {
-  const parts: string[] = []
-  for (let x = 0; x <= WAVE_W; x += 3) {
-    const y = WAVE_MID + WAVE_AMP * Math.sin((x / WAVE_LEN) * Math.PI * 2)
-    parts.push(`${x === 0 ? 'M' : 'L'}${x.toFixed(1)} ${y.toFixed(2)}`)
-  }
-  return parts.join(' ')
-}
-const WAVE_PATH = buildWavePath()
+/** 预览波浪线 SVG（Zen 编辑器同款 path，viewBox 0 0 100 20） */
+const WAVE_PATH = 'M0,10 Q25,0 50,10 T100,10'
 
-/** 深浅模式页签定义（✨ = 跟随系统，与 Zen 主题页签同构） */
-const MODE_TABS = [
+/** 深浅模式页签定义（✨ = 跟随系统，与 Zen 主题编辑器同构） */
+const MODE_BUTTONS = [
   { value: 'auto', icon: Sparkles, label: '跟随系统' },
   { value: 'light', icon: Sun, label: '浅色' },
   { value: 'dark', icon: Moon, label: '深色' },
@@ -92,6 +86,9 @@ export function CustomColorPanel({
   const setSourceColor = useThemeStore((s) => s.setSourceColor)
   const mode = useThemeStore((s) => s.mode)
   const setMode = useThemeStore((s) => s.setMode)
+  const isDark = useThemeStore((s) => s.isDark)
+  const colorIntensity = useThemeStore((s) => s.colorIntensity)
+  const setColorIntensity = useThemeStore((s) => s.setColorIntensity)
   const customColors = useThemeStore((s) => s.customColors)
   const addCustomColor = useThemeStore((s) => s.addCustomColor)
   const removeCustomColor = useThemeStore((s) => s.removeCustomColor)
@@ -99,22 +96,23 @@ export function CustomColorPanel({
 
   /** 当前种子色的规范化形式（非法持久化值兜底默认种子） */
   const currentHex = normalizeHexColor(sourceColor) ?? DEFAULT_SEED
-  const currentHsv = hexToHsv(currentHex) ?? FALLBACK_HSV
   const currentIsCustom = customColors.includes(currentHex)
+  /** 实际生效色：种子经强度与基底混合后的结果（预览与派生同源） */
+  const effectiveHex = resolveEffectiveSeed(currentHex, isDark, colorIntensity)
 
-  // ===== 面板页与取色草稿（本地状态；重开面板复位到色板页） =====
-  const [page, setPage] = useState<'palette' | 'picker'>('palette')
+  // ===== 面板页与取色草稿（本地状态；重开面板复位到编辑器页） =====
+  const [page, setPage] = useState<'editor' | 'picker'>('editor')
   const [draft, setDraft] = useState<HsvColor>(FALLBACK_HSV)
   const draftHex = hsvToHex(draft.h, draft.s, draft.v)
   const [hexText, setHexText] = useState(DEFAULT_SEED)
   /** 进入取色页前的种子色（取消时恢复） */
   const restoreHexRef = useRef(DEFAULT_SEED)
 
-  // 渲染期状态调整（官方 prop-change 模式）：面板展开瞬间复位到色板页
+  // 渲染期状态调整（官方 prop-change 模式）：面板展开瞬间复位到编辑器页
   const [prevOpen, setPrevOpen] = useState(open)
   if (prevOpen !== open) {
     setPrevOpen(open)
-    if (open) setPage('palette')
+    if (open) setPage('editor')
   }
 
   /** 进入取色页：草稿初始化为 baseHex（缺省当前种子色），记录恢复点 */
@@ -145,20 +143,20 @@ export function CustomColorPanel({
     [setSourceColor]
   )
 
-  /** 「添加颜色」：入自定义色板 + 应用 + 回色板页 */
+  /** 「添加颜色」：入自定义色板 + 应用 + 回编辑器页 */
   const confirmPick = useCallback(() => {
     addCustomColor(draftHex)
     setSourceColor(draftHex)
-    setPage('palette')
+    setPage('editor')
   }, [addCustomColor, draftHex, setSourceColor])
 
   /** 取消取色：恢复进入前颜色 */
   const cancelPick = useCallback(() => {
     setSourceColor(restoreHexRef.current)
-    setPage('palette')
+    setPage('editor')
   }, [setSourceColor])
 
-  /** 色板页改色入口：写 store；若当前色在自定义色板中则原位更新该颜色层 */
+  /** 编辑器页改色入口：写 store；若当前色在自定义色板中则原位更新该颜色层 */
   const applySeed = useCallback(
     (hex: string) => {
       const normalized = normalizeHexColor(hex)
@@ -171,53 +169,13 @@ export function CustomColorPanel({
     [currentIsCustom, currentHex, setSourceColor, updateCustomColor]
   )
 
-  // ===== 波形条（色相）拖动 =====
-  const waveRef = useRef<HTMLDivElement>(null)
-  const applyWavePointer = useCallback(
-    (clientX: number) => {
-      const el = waveRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const hue =
-        Math.min(1, Math.max(0, (clientX - rect.left) / rect.width)) * 360
-      applySeed(hsvToHex(hue, currentHsv.s, currentHsv.v))
+  /** 强度调节（[+] [-] 按钮，±10，0-100 夹取；实时生效无需确认） */
+  const adjustIntensity = useCallback(
+    (delta: number) => {
+      setColorIntensity(colorIntensity + delta)
     },
-    [applySeed, currentHsv.s, currentHsv.v]
+    [colorIntensity, setColorIntensity]
   )
-
-  // ===== 旋钮（明度）拖动 =====
-  const dialRef = useRef<HTMLDivElement>(null)
-  const applyDialPointer = useCallback(
-    (clientX: number, clientY: number) => {
-      const el = dialRef.current
-      if (!el) return
-      const rect = el.getBoundingClientRect()
-      const dx = clientX - (rect.left + rect.width / 2)
-      const dy = clientY - (rect.top + rect.height / 2)
-      let angle = (Math.atan2(dy, dx) * 180) / Math.PI + 90
-      if (angle > 180) angle -= 360
-      const ratio = Math.min(
-        1,
-        Math.max(0, (angle + DIAL_RANGE_DEG / 2) / DIAL_RANGE_DEG)
-      )
-      applySeed(hsvToHex(currentHsv.h, currentHsv.s, ratio * 100))
-    },
-    [applySeed, currentHsv.h, currentHsv.s]
-  )
-
-  // ===== 色板行箭头可用态 =====
-  const swatchScrollRef = useRef<HTMLDivElement>(null)
-  const [canLeft, setCanLeft] = useState(false)
-  const [canRight, setCanRight] = useState(false)
-  const updateArrows = useCallback(() => {
-    const el = swatchScrollRef.current
-    if (!el) return
-    setCanLeft(el.scrollLeft > 1)
-    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
-  }, [])
-  const prevColorsKey = customColors.join(',')
-  // 色板内容变化后箭头可用态复测（effect 内访问 ref 为合法场景）
-  useEffect(updateArrows, [updateArrows, prevColorsKey])
 
   /** 移除选中的自定义色（当前色不在色板时移除最早一条） */
   const removeSelected = useCallback(() => {
@@ -247,6 +205,20 @@ export function CustomColorPanel({
       )
     )
   }, [applySeed])
+
+  // ===== 色板行箭头可用态 =====
+  const swatchScrollRef = useRef<HTMLDivElement>(null)
+  const [canLeft, setCanLeft] = useState(false)
+  const [canRight, setCanRight] = useState(false)
+  const updateArrows = useCallback(() => {
+    const el = swatchScrollRef.current
+    if (!el) return
+    setCanLeft(el.scrollLeft > 1)
+    setCanRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 1)
+  }, [])
+  const prevColorsKey = customColors.join(',')
+  // 色板内容变化后箭头可用态复测（effect 内访问 ref 为合法场景）
+  useEffect(updateArrows, [updateArrows, prevColorsKey])
 
   // ===== 取色页拖动 =====
   const svRef = useRef<HTMLDivElement>(null)
@@ -291,134 +263,97 @@ export function CustomColorPanel({
       }}
     >
       <div className="flex h-full w-[300px] flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
-        {page === 'palette' ? (
+        {page === 'editor' ? (
           <>
-            {/* ===== 模式页签（跟随系统/浅色/深色） ===== */}
-            <div
-              className="mx-auto flex w-fit shrink-0 items-center gap-0.5 rounded-full p-1"
-              style={{
-                backgroundColor: 'var(--md-sys-color-surface-container-high)',
-              }}
-              role="tablist"
-              aria-label="深浅模式"
-            >
-              {MODE_TABS.map((tab) => {
-                const active = mode === tab.value
-                const Icon = tab.icon
+            {/* ===== ① 模式切换区：✨ / ☀ / 🌙 三圆钮（aria-pressed） ===== */}
+            <div className="flex shrink-0 items-center justify-center gap-3">
+              {MODE_BUTTONS.map((btn) => {
+                const active = mode === btn.value
+                const Icon = btn.icon
                 return (
                   <button
-                    key={tab.value}
+                    key={btn.value}
                     type="button"
-                    role="tab"
-                    aria-selected={active}
-                    title={tab.label}
-                    aria-label={tab.label}
-                    onClick={() => setMode(tab.value)}
+                    aria-pressed={active}
+                    aria-label={btn.label}
+                    title={btn.label}
+                    onClick={() => setMode(btn.value)}
                     className={cn(
-                      'flex h-8 w-10 items-center justify-center rounded-full transition-colors',
+                      'flex h-10 w-10 items-center justify-center rounded-full transition-all',
                       active
-                        ? 'shadow-sm'
-                        : 'opacity-50 transition-opacity hover:opacity-90'
+                        ? 'scale-105 shadow-sm'
+                        : 'opacity-45 hover:scale-105 hover:opacity-85'
                     )}
-                    style={
-                      active
-                        ? {
-                            backgroundColor:
-                              'var(--md-sys-color-surface-container-highest)',
-                          }
-                        : undefined
-                    }
+                    style={{
+                      backgroundColor: active
+                        ? 'var(--md-sys-color-primary-container)'
+                        : 'var(--md-sys-color-surface-container-high)',
+                    }}
                   >
                     <Icon
-                      className="h-4 w-4"
-                      style={{ color: 'var(--md-sys-color-on-surface)' }}
+                      className="h-[18px] w-[18px]"
+                      style={{
+                        color: active
+                          ? 'var(--md-sys-color-on-primary-container)'
+                          : 'var(--md-sys-color-on-surface)',
+                      }}
                     />
                   </button>
                 )
               })}
             </div>
 
-            {/* ===== 预览区：点状纹理底（空态文案 / 颜色层条） ===== */}
-            <div
-              className="relative mt-3 w-full shrink-0 overflow-hidden rounded-xl"
-              style={{
-                height: 176,
-                backgroundColor: 'var(--md-sys-color-surface-container)',
-                backgroundImage: `radial-gradient(${'var(--md-sys-color-outline-variant)'} 1px, transparent 1px)`,
-                backgroundSize: '10px 10px',
-              }}
+            {/* ===== ② 自定义颜色区：「点击添加颜色」提示 + 操作行 ===== */}
+            <button
+              type="button"
+              onClick={() => openPicker()}
+              className="mt-4 flex w-full shrink-0 cursor-pointer items-center justify-center rounded-lg py-1 text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
+              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
             >
-              {customColors.length === 0 ? (
-                <button
-                  type="button"
-                  onClick={() => openPicker()}
-                  className="absolute inset-0 flex w-full cursor-pointer items-center justify-center"
-                  title="点击添加颜色"
-                >
-                  <span
-                    className="text-sm font-medium"
-                    style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                  >
-                    点击添加颜色
-                  </span>
-                </button>
-              ) : (
-                <div className="absolute inset-0 flex flex-col gap-1.5 overflow-y-auto p-3">
-                  {customColors.map((c) => {
-                    const active = currentHex === c
-                    return (
-                      <button
-                        key={c}
-                        type="button"
-                        onClick={() => applySeed(c)}
-                        className={cn(
-                          'relative flex h-9 w-full shrink-0 items-center rounded-lg px-3 text-left transition-transform active:scale-[0.98]'
-                        )}
-                        style={{
-                          backgroundColor: c,
-                          // 选中描边：外圈用面板底色垫开、再一圈按条色明度取
-                          // 反差色，保证亮/暗条在面板上都清晰可见
-                          boxShadow: active
-                            ? `0 0 0 2px var(--md-sys-color-surface-container), 0 0 0 3.5px ${onColorFor(c)}`
-                            : 'inset 0 0 0 0.5px rgba(128,128,128,0.4)',
-                        }}
-                        title={active ? '当前主题色' : '应用该颜色'}
-                      >
-                        {active && (
-                          <Check
-                            className="h-4 w-4"
-                            style={{ color: onColorFor(c) }}
-                          />
-                        )}
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* ===== 操作行：＋ 添加 / － 移除 / 骰子 随机 ===== */}
-            <div className="mt-3 flex shrink-0 items-center justify-center gap-2">
-              <ActionIconButton title="添加颜色" onClick={() => openPicker()}>
+              点击添加颜色
+            </button>
+            <div className="mt-2 flex shrink-0 items-center justify-center gap-1.5">
+              <ActionIconButton
+                title={`增强颜色（当前 ${colorIntensity}%）`}
+                onClick={() => adjustIntensity(INTENSITY_STEP)}
+                disabled={colorIntensity >= 100}
+              >
                 <Plus className="h-4 w-4" />
+              </ActionIconButton>
+              <ActionIconButton
+                title={`减弱颜色（当前 ${colorIntensity}%）`}
+                onClick={() => adjustIntensity(-INTENSITY_STEP)}
+                disabled={colorIntensity <= 0}
+              >
+                <Minus className="h-4 w-4" />
+              </ActionIconButton>
+              <ActionIconButton title="打开取色器" onClick={() => openPicker()}>
+                <Pipette className="h-4 w-4" />
+              </ActionIconButton>
+              <ActionIconButton title="随机主题色" onClick={randomSeed}>
+                <Dices className="h-4 w-4" />
               </ActionIconButton>
               <ActionIconButton
                 title={
                   customColors.length === 0
                     ? '暂无可移除的颜色'
-                    : '移除选中颜色'
+                    : '移除选中的自定义颜色'
                 }
                 onClick={removeSelected}
                 disabled={customColors.length === 0}
               >
-                <Minus className="h-4 w-4" />
+                <Trash2 className="h-4 w-4" />
               </ActionIconButton>
-              <ActionIconButton title="随机主题色" onClick={randomSeed}>
-                <Dices className="h-4 w-4" />
-              </ActionIconButton>
+              <span
+                className="w-10 shrink-0 text-right text-xs tabular-nums"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                aria-label={`颜色强度 ${colorIntensity}%`}
+              >
+                {colorIntensity}%
+              </span>
             </div>
 
-            {/* ===== 色板行：预设 + 自定义，‹ › 翻页 ===== */}
+            {/* ===== ③ 预设色板：Zen 10 色 + 自定义色，‹ › 翻页 ===== */}
             <div className="mt-3 flex shrink-0 items-center gap-0.5">
               <ArrowButton
                 dir={-1}
@@ -435,13 +370,13 @@ export function CustomColorPanel({
                 onScroll={updateArrows}
                 className="hide-scrollbar flex flex-1 items-center gap-2.5 overflow-x-auto px-1 py-1"
               >
-                {PRESET_SEEDS.map((seed) => (
+                {EDITOR_PRESET_COLORS.map((preset) => (
                   <SwatchDot
-                    key={seed.id}
-                    color={seed.color}
-                    name={seed.name}
-                    active={currentHex === seed.color.toLowerCase()}
-                    onPick={() => applySeed(seed.color)}
+                    key={preset.color}
+                    color={preset.color}
+                    name={preset.name}
+                    active={currentHex === preset.color.toLowerCase()}
+                    onPick={() => applySeed(preset.color)}
                   />
                 ))}
                 {customColors.length > 0 && (
@@ -476,119 +411,43 @@ export function CustomColorPanel({
               />
             </div>
 
-            {/* ===== 波形条（色相）+ 旋钮（明度） ===== */}
-            <div className="mt-4 flex shrink-0 items-center gap-3">
-              <div
-                ref={waveRef}
-                className="touch-slider relative min-w-0 flex-1 cursor-pointer select-none"
-                title={`色相 ${Math.round(currentHsv.h)}°`}
-                role="slider"
-                aria-label="色相"
-                aria-valuemin={0}
-                aria-valuemax={360}
-                aria-valuenow={Math.round(currentHsv.h)}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId)
-                  applyWavePointer(e.clientX)
-                }}
-                onPointerMove={(e) => {
-                  if (
-                    e.buttons === 0 ||
-                    !e.currentTarget.hasPointerCapture(e.pointerId)
-                  )
-                    return
-                  applyWavePointer(e.clientX)
-                }}
+            {/* ===== ④ 实时预览：波浪线（生效色描边）+ 圆形预览框 + hex ===== */}
+            <div className="mt-5 flex shrink-0 flex-col items-center">
+              <svg
+                viewBox="0 0 100 20"
+                preserveAspectRatio="none"
+                className="block h-10 w-full"
+                aria-hidden="true"
               >
-                <svg
-                  viewBox={`0 0 ${WAVE_W} ${WAVE_H}`}
-                  preserveAspectRatio="none"
-                  className="block h-10 w-full"
-                  aria-hidden="true"
-                >
-                  <path
-                    d={WAVE_PATH}
-                    fill="none"
-                    stroke="var(--md-sys-color-on-surface-variant)"
-                    strokeWidth={5}
-                    strokeLinecap="round"
-                    opacity={0.45}
-                  />
-                </svg>
-                {/* 拖动把手：白色圆点（Zen 同款），按色相比例水平定位 */}
-                <span
-                  className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full shadow-md"
-                  style={{
-                    left: `${(currentHsv.h / 360) * 100}%`,
-                    backgroundColor: '#f2f2f2',
-                  }}
-                  aria-hidden="true"
+                <path
+                  d={WAVE_PATH}
+                  fill="none"
+                  stroke={effectiveHex}
+                  strokeWidth={2}
+                  strokeLinecap="round"
+                  style={{ transition: 'stroke 0.3s ease' }}
                 />
-              </div>
-
-              {/* 旋钮：刻度点环 + 盘面 + 指针，明度 0-100% */}
-              <div
-                ref={dialRef}
-                className="touch-slider relative h-14 w-14 shrink-0 cursor-pointer select-none"
-                title={`明度 ${Math.round(currentHsv.v)}%`}
-                role="slider"
-                aria-label="明度"
-                aria-valuemin={0}
-                aria-valuemax={100}
-                aria-valuenow={Math.round(currentHsv.v)}
-                onPointerDown={(e) => {
-                  e.currentTarget.setPointerCapture(e.pointerId)
-                  applyDialPointer(e.clientX, e.clientY)
+              </svg>
+              <span
+                className="mt-4 block h-14 w-14 rounded-full transition-colors"
+                style={{
+                  backgroundColor: effectiveHex,
+                  border: '2px solid var(--md-sys-color-outline-variant)',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.12)',
                 }}
-                onPointerMove={(e) => {
-                  if (
-                    e.buttons === 0 ||
-                    !e.currentTarget.hasPointerCapture(e.pointerId)
-                  )
-                    return
-                  applyDialPointer(e.clientX, e.clientY)
-                }}
+                aria-hidden="true"
+              />
+              <span
+                className="mt-2 text-xs tabular-nums"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                <svg
-                  viewBox="0 0 56 56"
-                  className="block h-full w-full"
-                  aria-hidden="true"
-                >
-                  <circle
-                    cx="28"
-                    cy="28"
-                    r="26"
-                    fill="none"
-                    stroke="var(--md-sys-color-outline)"
-                    strokeWidth="1.5"
-                    strokeDasharray="1.2 4.9"
-                    opacity="0.8"
-                  />
-                  <circle
-                    cx="28"
-                    cy="28"
-                    r="17"
-                    fill="var(--md-sys-color-surface-container-high)"
-                    stroke="var(--md-sys-color-outline-variant)"
-                    strokeWidth="0.5"
-                  />
-                  <g
-                    transform={`rotate(${
-                      -135 + (currentHsv.v / 100) * DIAL_RANGE_DEG
-                    } 28 28)`}
-                  >
-                    <line
-                      x1="28"
-                      y1="14"
-                      x2="28"
-                      y2="7"
-                      stroke="var(--md-sys-color-on-surface)"
-                      strokeWidth="2"
-                      strokeLinecap="round"
-                    />
-                  </g>
-                </svg>
-              </div>
+                {currentHex}
+                {colorIntensity < 100 && (
+                  <span className="ml-1 opacity-70">
+                    · 强度 {colorIntensity}%
+                  </span>
+                )}
+              </span>
             </div>
           </>
         ) : (
@@ -721,7 +580,7 @@ export function CustomColorPanel({
   )
 }
 
-/** 操作行圆形图标按钮（＋ / － / 骰子） */
+/** 操作行圆形图标按钮（强度 +/- / 取色器 / 骰子 / 移除） */
 function ActionIconButton({
   title,
   onClick,

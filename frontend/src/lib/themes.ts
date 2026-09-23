@@ -6,6 +6,83 @@ export const PRESET_SEEDS = [
   { id: 'amethyst', name: 'Amethyst', color: '#7b4eff' },
 ] as const
 
+/**
+ * Zen 主题编辑器官方预设色板（10 色，横向滚动圆点）。
+ * 来源：Zen Browser theme editor 的 PRESET_COLORS（白/粉/亮粉/红/橙/金/绿/蓝/紫/黑）。
+ */
+export const EDITOR_PRESET_COLORS = [
+  { color: '#ffffff', name: '白' },
+  { color: '#ffc0cb', name: '粉' },
+  { color: '#ff69b4', name: '亮粉' },
+  { color: '#ff0000', name: '红' },
+  { color: '#ff8c00', name: '橙' },
+  { color: '#ffd700', name: '金' },
+  { color: '#00ff00', name: '绿' },
+  { color: '#4169e1', name: '蓝' },
+  { color: '#800080', name: '紫' },
+  { color: '#000000', name: '黑' },
+] as const
+
+/**
+ * 强度混合基底（intensity 0% 时的中性背景色）：与 Zen「主色 × 背景
+ * color-mix(in srgb)」同语义——深浅模式各自与对应基底混合，保证低强度
+ * 下 Monet 派生色仍与背景协调。
+ */
+export const SEED_MIX_BASE = {
+  light: '#f3f1f7',
+  dark: '#17161b',
+} as const
+
+/**
+ * sRGB 通道线性插值混合（color-mix(in srgb, a ratio, b rest) 同义）。
+ * ratio 为 a 的占比（0-1，越界夹取）；任一输入非法时返回另一输入的
+ * 规范化形式（再非法返回 null）。
+ */
+export function mixHexColors(
+  a: string,
+  b: string,
+  ratio: number
+): string | null {
+  const hexA = normalizeHexColor(a)
+  const hexB = normalizeHexColor(b)
+  if (!hexA && !hexB) return null
+  if (!hexA || !hexB) return hexA ?? hexB
+  const t = Math.min(1, Math.max(0, ratio))
+  const mix = (x: string, y: string) => {
+    const ch1 = parseInt(x, 16)
+    const ch2 = parseInt(y, 16)
+    return Math.round(ch1 * t + ch2 * (1 - t))
+      .toString(16)
+      .padStart(2, '0')
+  }
+  return `#${mix(hexA.slice(1, 3), hexB.slice(1, 3))}${mix(
+    hexA.slice(3, 5),
+    hexB.slice(3, 5)
+  )}${mix(hexA.slice(5, 7), hexB.slice(5, 7))}`
+}
+
+/**
+ * 强度合成种子：把用户选择的种子色与当前深浅模式的基底中性色按
+ * colorIntensity（0-100，100 = 纯色不混合）混合，作为 Monet 派生色板的
+ * 实际输入。非法种子回退 DEFAULT_SEED。
+ */
+export function resolveEffectiveSeed(
+  seed: string,
+  isDark: boolean,
+  intensity: number
+): string {
+  const normalized = normalizeHexColor(seed) ?? DEFAULT_SEED
+  const t = Math.min(100, Math.max(0, intensity))
+  if (t >= 100) return normalized
+  return (
+    mixHexColors(
+      normalized,
+      isDark ? SEED_MIX_BASE.dark : SEED_MIX_BASE.light,
+      t / 100
+    ) ?? normalized
+  )
+}
+
 /** 默认种子颜色：Material 蓝色 */
 export const DEFAULT_SEED = '#0066cc'
 
