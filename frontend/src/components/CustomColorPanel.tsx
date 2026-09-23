@@ -20,12 +20,14 @@
  * 动作映射（每个控件恰好一个语义）：
  * - 色板圆点 / 预设色   → setSourceColor(hex)（纯切换，零副作用）
  * - [🎲] 随机          → setSourceColor(随机色)
- * - [🎨] / 提示行      → 进入取色页（本地草稿状态，不产生收藏）
+ * - [🎨] / 提示行      → 进入取色页（进入时判定模式：当前色 ∈ 收藏板
+ *                        则为「编辑该条目」，否则为「新增收藏」）
  * - 取色页拖动          → setSourceColor（实时预览，所见即所得）
- * - 取色页「保存」      → addCustomColor(当前色) + 回编辑器页
+ * - 取色页「保存」      → 编辑模式：updateCustomColor(原色, 新色)（位置
+ *                        不变）；新增模式：addCustomColor(当前色)
  * - 取色页「取消」      → setSourceColor(进入前颜色) + 回编辑器页
  * - [🗑] 移除          → 仅当前色已被收藏时可用：removeCustomColor
- *                        (当前色) + 回落默认种子；绝不删其他颜色
+ *                        (当前色)；只移出收藏板，不改变正在使用的主题色
  * - 强度滑块 / [±5]    → setColorIntensity
  *
  * 取色页草稿的恢复点（restoreHexRef）在「进入取色页」时记录一次，
@@ -111,6 +113,7 @@ export function CustomColorPanel({
   const customColors = useThemeStore((s) => s.customColors)
   const addCustomColor = useThemeStore((s) => s.addCustomColor)
   const removeCustomColor = useThemeStore((s) => s.removeCustomColor)
+  const updateCustomColor = useThemeStore((s) => s.updateCustomColor)
 
   /** 当前主题种子色（规范化；非法持久化值兜底默认种子） */
   const currentHex = normalizeHexColor(sourceColor) ?? DEFAULT_SEED
@@ -127,12 +130,21 @@ export function CustomColorPanel({
   const [hexText, setHexText] = useState(DEFAULT_SEED)
   /** 进入取色页时的颜色（「取消」恢复点） */
   const restoreHexRef = useRef(DEFAULT_SEED)
+  /**
+   * 取色页模式：非 null = 「编辑已有收藏」（值为被编辑的收藏色），保存时
+   * 原位更新该条目（位置不变）；null = 新增收藏。进入取色页时一次性判定。
+   */
+  const [editingHex, setEditingHex] = useState<string | null>(null)
 
-  // 渲染期状态调整（官方 prop-change 模式）：面板展开瞬间复位到编辑器页
+  // 渲染期状态调整（官方 prop-change 模式）：面板展开瞬间复位到编辑器页，
+  // 并清除上一次的取色编辑模式
   const [prevOpen, setPrevOpen] = useState(open)
   if (prevOpen !== open) {
     setPrevOpen(open)
-    if (open) setPage('editor')
+    if (open) {
+      setPage('editor')
+      setEditingHex(null)
+    }
   }
 
   // ===== 动作：切换颜色（色板圆点 / 随机色共用的唯一写路径） =====
@@ -157,20 +169,21 @@ export function CustomColorPanel({
   }, [applyColor])
 
   // ===== 动作：移除当前色（仅当已被收藏时可用，语义唯一） =====
+  /** 只把当前色移出收藏板——「移除收藏」不改变正在使用的主题色 */
   const removeCurrent = useCallback(() => {
     if (!currentIsCustom) return
     removeCustomColor(currentHex)
-    applyColor(DEFAULT_SEED)
-  }, [applyColor, currentHex, currentIsCustom, removeCustomColor])
+  }, [currentHex, currentIsCustom, removeCustomColor])
 
   // ===== 动作：取色页 =====
-  /** 进入取色页：记录恢复点，草稿初始化为当前色 */
+  /** 进入取色页：记录恢复点与模式（当前色是收藏色 → 编辑该条目） */
   const openPicker = useCallback(() => {
     restoreHexRef.current = currentHex
+    setEditingHex(currentIsCustom ? currentHex : null)
     setDraft(hexToHsv(currentHex) ?? FALLBACK_HSV)
     setHexText(currentHex)
     setPage('picker')
-  }, [currentHex])
+  }, [currentHex, currentIsCustom])
 
   /** 取色页统一改色（实时预览写 store；HSV 状态仅驱动取色器自身） */
   const applyPick = useCallback(
@@ -188,11 +201,20 @@ export function CustomColorPanel({
     [setSourceColor]
   )
 
-  /** 「保存」：收藏当前色 + 回编辑器页（重复收藏由 addCustomColor 去重） */
+  /**
+   * 「保存」：按进入取色页时的模式分流——
+   * - 编辑模式（进入时当前色是收藏色）：原位更新该收藏条目（位置不变）；
+   *   若新色恰好已是其他收藏条目，则只保留切换结果、不动色板（避免重复）
+   * - 新增模式：收藏当前色（重复收藏由 addCustomColor 去重）
+   */
   const savePick = useCallback(() => {
-    addCustomColor(draftHex)
+    if (editingHex) {
+      updateCustomColor(editingHex, draftHex)
+    } else {
+      addCustomColor(draftHex)
+    }
     setPage('editor')
-  }, [addCustomColor, draftHex])
+  }, [addCustomColor, draftHex, editingHex, updateCustomColor])
 
   /** 「取消」：恢复进入前颜色 + 回编辑器页 */
   const cancelPick = useCallback(() => {
@@ -396,15 +418,25 @@ export function CustomColorPanel({
                     aria-hidden="true"
                   />
                 )}
-                {customColors.map((c) => (
-                  <SwatchDot
-                    key={c}
-                    color={c}
-                    name="收藏的颜色"
-                    active={currentHex === c}
-                    onPick={() => applyColor(c)}
-                  />
-                ))}
+                {/* 收藏色板：过滤掉与预设色重合的条目（否则同一颜色出现
+                    两个圆点且 React key 重复）；编辑入口/🗑 的判定仍以
+                    完整 customColors 为准 */}
+                {customColors
+                  .filter(
+                    (c) =>
+                      !EDITOR_PRESET_COLORS.some(
+                        (p) => p.color === c.toLowerCase()
+                      )
+                  )
+                  .map((c) => (
+                    <SwatchDot
+                      key={c}
+                      color={c}
+                      name="收藏的颜色"
+                      active={currentHex === c}
+                      onPick={() => applyColor(c)}
+                    />
+                  ))}
               </div>
               <ArrowButton
                 dir={1}
@@ -577,7 +609,7 @@ export function CustomColorPanel({
                   color: onColorFor(draftHex),
                 }}
               >
-                {currentIsCustom ? '保存颜色' : '收藏并应用'}
+                {editingHex ? '保存修改' : '收藏并应用'}
               </button>
             </div>
           </>

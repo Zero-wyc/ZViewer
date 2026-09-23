@@ -118,6 +118,12 @@ interface ThemeState {
   addCustomColor: (color: string) => void
   /** 从色板移除自定义颜色 */
   removeCustomColor: (color: string) => void
+  /**
+   * 显式原位编辑收藏色板中的一个颜色（保持其在色板中的位置不变）。
+   * 仅供取色页「编辑已有收藏」路径调用——调用方必须先确认编辑来源
+   * 是该收藏色；这不是隐式联动，普通选色绝不应触碰色板。
+   */
+  updateCustomColor: (oldColor: string, newColor: string) => void
   /** 设置颜色强度（0-100，越界夹取） */
   setColorIntensity: (value: number) => void
   /** 切换深浅模式 */
@@ -208,6 +214,22 @@ export const useThemeStore = create<ThemeState>()(
         set((state) => ({
           customColors: state.customColors.filter((c) => c !== hex),
         }))
+      },
+      updateCustomColor: (oldColor: string, newColor: string) => {
+        const oldHex = normalizeHexColor(oldColor)
+        const newHex = normalizeHexColor(newColor)
+        if (!oldHex || !newHex || oldHex === newHex) return
+        set((state) => {
+          // 目标色已是其他收藏条目时拒绝更新，避免产生重复条目
+          if (state.customColors.some((c) => c === newHex && c !== oldHex)) {
+            return state
+          }
+          return {
+            customColors: state.customColors.map((c) =>
+              c === oldHex ? newHex : c
+            ),
+          }
+        })
       },
       setColorIntensity: (value: number) =>
         set({
