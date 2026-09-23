@@ -118,8 +118,6 @@ interface ThemeState {
   addCustomColor: (color: string) => void
   /** 从色板移除自定义颜色 */
   removeCustomColor: (color: string) => void
-  /** 原位更新自定义色板中的一个颜色（波形条/旋钮拖动编辑时用） */
-  updateCustomColor: (oldColor: string, newColor: string) => void
   /** 设置颜色强度（0-100，越界夹取） */
   setColorIntensity: (value: number) => void
   /** 切换深浅模式 */
@@ -209,16 +207,6 @@ export const useThemeStore = create<ThemeState>()(
         if (!hex) return
         set((state) => ({
           customColors: state.customColors.filter((c) => c !== hex),
-        }))
-      },
-      updateCustomColor: (oldColor: string, newColor: string) => {
-        const oldHex = normalizeHexColor(oldColor)
-        const newHex = normalizeHexColor(newColor)
-        if (!oldHex || !newHex) return
-        set((state) => ({
-          customColors: state.customColors.map((c) =>
-            c === oldHex ? newHex : c
-          ),
         }))
       },
       setColorIntensity: (value: number) =>

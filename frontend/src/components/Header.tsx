@@ -73,7 +73,7 @@ import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
 import { CustomColorPanel } from '@/components/CustomColorPanel'
-import { PRESET_SEEDS } from '@/lib/themes'
+import { EDITOR_PRESET_COLORS, PRESET_SEEDS } from '@/lib/themes'
 import { cn } from '@/lib/utils'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
 
@@ -106,13 +106,14 @@ export function Header() {
     setDisableHoverTransform,
   } = useThemeStore()
   /** 自定义主题色：种子色规范化（input[type=color] 需要 #rrggbb 形式），
-      非法持久化值兜底默认种子；不属于预设色时视为自定义色并高亮显示 */
+      非法持久化值兜底默认种子；不属于任何预设集合（主面板 4 色 ∪
+      编辑器 Zen 10 色）时视为自定义色并高亮显示 */
   const safeSourceColor = /^#[0-9a-fA-F]{6}$/.test(sourceColor)
     ? sourceColor
     : '#0066cc'
-  const customActive = !PRESET_SEEDS.some(
-    (seed) => seed.color === safeSourceColor
-  )
+  const customActive =
+    !PRESET_SEEDS.some((seed) => seed.color === safeSourceColor) &&
+    !EDITOR_PRESET_COLORS.some((p) => p.color === safeSourceColor.toLowerCase())
   /** 自研取色面板展开态（内联展开于主题菜单侧栏，见 CustomColorPanel） */
   const [colorPanelOpen, setColorPanelOpen] = useState(false)
   const [themeOpen, setThemeOpen] = useState(false)

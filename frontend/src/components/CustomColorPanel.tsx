@@ -1,27 +1,44 @@
 /**
- * Zen 浏览器主题编辑器（theme editor）风格的自定义主题面板：
- * 按 Zen 编辑器的五段式垂直布局 1:1 重写（零延迟反馈，所见即所得）：
+ * Zen 浏览器主题编辑器（theme editor）风格的自定义主题面板。
  *
- * 1. 模式切换区：✨ 跟随系统 / ☀ 浅色 / 🌙 深色 三个圆钮（aria-pressed，
- *    auto 由 ThemeProvider 监听系统偏好并物化 isDark）
- * 2. 自定义颜色区：「点击添加颜色」提示（点击进入取色页）+ 操作行
- *    [+] [-] 强度调节（±10，0-100）· [🎨] 取色器（进入取色页）
- *    · [🎲] 随机主题色 · [🗑] 移除选中自定义色（ZViewer 扩展）
- * 3. 预设色板：Zen 官方 10 色（白/粉/亮粉/红/橙/金/绿/蓝/紫/黑）+ 自定义
- *    色板，横向滚动圆点，‹ › 翻页
- * 4. 实时预览：波浪线 SVG（stroke = 实际生效色）+ 圆形预览框（当前色）
- *    + hex 标签
+ * ============================ 逻辑模型 ============================
+ * 单向数据流：所有 UI 动作 → 唯一的显式 store action，无隐式副作用。
  *
- * 颜色强度（colorIntensity，对齐 Zen zen.theme.color-intensity）：种子色
- * 与深浅模式基底中性色的 color-mix 比例，由 ThemeProvider 经
- * resolveEffectiveSeed 合成 Monet 派生色板的实际输入；100 = 纯色。
+ * Store 状态（三个正交维度，互不纠缠）：
+ * - sourceColor    当前主题种子色（纯色，#rrggbb）
+ * - customColors   收藏色板（纯存储：只有 add/remove 两种操作，
+ *                  绝不会被其他动作隐式改写）
+ * - colorIntensity 颜色强度 0-100（种子与深浅基底的 color-mix 比例，
+ *                  独立于颜色选择的视觉参数；100 = 纯色）
  *
- * 页 2（取色页）：SV 二维区 + 色相条 + Hex 输入，拖动实时预览（写入
- * sourceColor），取消恢复进入前颜色，「添加颜色」写入自定义色板并回编辑器页。
+ * 派生值：
+ * - currentHex     sourceColor 的规范化形式
+ * - effectiveHex   resolveEffectiveSeed(currentHex, isDark, intensity)
+ *                  实际生效色——预览区展示的就是它，与全局主题一致
+ * - currentIsCustom 当前色 ∈ customColors，仅用于 🗑 可用态与圆点选中
  *
- * 状态模型：颜色直连 themeStore（无 props 回流，写路径与预设按钮一致）；
- * 页/草稿为组件本地状态，面板重开时经渲染期 prevOpen 检查复位。
- * 面板内联于主题菜单侧栏（滚动容器内不做悬浮弹层，规避双轴裁剪）。
+ * 动作映射（每个控件恰好一个语义）：
+ * - 色板圆点 / 预设色   → setSourceColor(hex)（纯切换，零副作用）
+ * - [🎲] 随机          → setSourceColor(随机色)
+ * - [🎨] / 提示行      → 进入取色页（本地草稿状态，不产生收藏）
+ * - 取色页拖动          → setSourceColor（实时预览，所见即所得）
+ * - 取色页「保存」      → addCustomColor(当前色) + 回编辑器页
+ * - 取色页「取消」      → setSourceColor(进入前颜色) + 回编辑器页
+ * - [🗑] 移除          → 仅当前色已被收藏时可用：removeCustomColor
+ *                        (当前色) + 回落默认种子；绝不删其他颜色
+ * - 强度滑块 / [±5]    → setColorIntensity
+ *
+ * 取色页草稿的恢复点（restoreHexRef）在「进入取色页」时记录一次，
+ * 面板被外部关闭时草稿页状态随 prevOpen 复位逻辑一并复位。
+ * ==================================================================
+ *
+ * 视觉布局对齐 Zen theme editor 五段式：
+ * ① 模式切换三圆钮（✨/☀/🌙，aria-pressed；auto 由 ThemeProvider 物化）
+ * ② 「点击添加颜色」提示 + 操作行（[+][-] 强度微调 / 🎨 / 🎲 / 🗑）
+ *    + 强度滑块（连续 0-100）
+ * ③ 预设色板（Zen 官方 10 色）+ 收藏色板，横向滚动
+ * ④ 实时预览：波浪线 SVG + 圆形预览框 + hex 标签（均显示实际生效色）
+ * 取色页：SV 二维区 + 色相条 + Hex 输入 + 取消/保存。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
@@ -38,6 +55,7 @@ import {
   Trash2,
 } from 'lucide-react'
 import { useThemeStore } from '@/store/themeStore'
+import { Slider } from '@/components/ui/Slider'
 import {
   DEFAULT_SEED,
   EDITOR_PRESET_COLORS,
@@ -56,13 +74,13 @@ const FALLBACK_HSV: HsvColor = { h: 214, s: 90, v: 80 }
 /** 面板展开宽度（px），与自定义背景侧面板同级 */
 const PANEL_WIDTH = 300
 
-/** 强度调节步长（±/次），与 Zen 编辑器 [+] [-] 按钮同语义 */
-const INTENSITY_STEP = 10
+/** 强度 [±] 微调步长（连续调节由滑块承担） */
+const INTENSITY_STEP = 5
 
 /** 预览波浪线 SVG（Zen 编辑器同款 path，viewBox 0 0 100 20） */
 const WAVE_PATH = 'M0,10 Q25,0 50,10 T100,10'
 
-/** 深浅模式页签定义（✨ = 跟随系统，与 Zen 主题编辑器同构） */
+/** 深浅模式圆钮定义（✨ = 跟随系统，与 Zen 主题编辑器同构） */
 const MODE_BUTTONS = [
   { value: 'auto', icon: Sparkles, label: '跟随系统' },
   { value: 'light', icon: Sun, label: '浅色' },
@@ -82,6 +100,7 @@ export function CustomColorPanel({
   open: boolean
   onClose: () => void
 }) {
+  // ===== store 状态（组件内只读派生，所有写入都走显式 action） =====
   const sourceColor = useThemeStore((s) => s.sourceColor)
   const setSourceColor = useThemeStore((s) => s.setSourceColor)
   const mode = useThemeStore((s) => s.mode)
@@ -92,20 +111,21 @@ export function CustomColorPanel({
   const customColors = useThemeStore((s) => s.customColors)
   const addCustomColor = useThemeStore((s) => s.addCustomColor)
   const removeCustomColor = useThemeStore((s) => s.removeCustomColor)
-  const updateCustomColor = useThemeStore((s) => s.updateCustomColor)
 
-  /** 当前种子色的规范化形式（非法持久化值兜底默认种子） */
+  /** 当前主题种子色（规范化；非法持久化值兜底默认种子） */
   const currentHex = normalizeHexColor(sourceColor) ?? DEFAULT_SEED
-  const currentIsCustom = customColors.includes(currentHex)
-  /** 实际生效色：种子经强度与基底混合后的结果（预览与派生同源） */
+  /** 实际生效色（强度混合后）——预览区与全局主题同源同值 */
   const effectiveHex = resolveEffectiveSeed(currentHex, isDark, colorIntensity)
+  /** 当前色是否已被收藏（仅控制 🗑 可用态与收藏圆点选中态） */
+  const currentIsCustom = customColors.includes(currentHex)
 
-  // ===== 面板页与取色草稿（本地状态；重开面板复位到编辑器页） =====
+  // ===== 页面状态（本地；面板重开时复位到编辑器页） =====
   const [page, setPage] = useState<'editor' | 'picker'>('editor')
+  /** 取色页草稿（HSV），拖动时同步写 store 实现实时预览 */
   const [draft, setDraft] = useState<HsvColor>(FALLBACK_HSV)
   const draftHex = hsvToHex(draft.h, draft.s, draft.v)
   const [hexText, setHexText] = useState(DEFAULT_SEED)
-  /** 进入取色页前的种子色（取消时恢复） */
+  /** 进入取色页时的颜色（「取消」恢复点） */
   const restoreHexRef = useRef(DEFAULT_SEED)
 
   // 渲染期状态调整（官方 prop-change 模式）：面板展开瞬间复位到编辑器页
@@ -115,19 +135,44 @@ export function CustomColorPanel({
     if (open) setPage('editor')
   }
 
-  /** 进入取色页：草稿初始化为 baseHex（缺省当前种子色），记录恢复点 */
-  const openPicker = useCallback(
-    (baseHex?: string) => {
-      const hex = normalizeHexColor(baseHex ?? sourceColor) ?? DEFAULT_SEED
-      restoreHexRef.current = hex
-      setDraft(hexToHsv(hex) ?? FALLBACK_HSV)
-      setHexText(hex)
-      setPage('picker')
+  // ===== 动作：切换颜色（色板圆点 / 随机色共用的唯一写路径） =====
+  const applyColor = useCallback(
+    (hex: string) => {
+      const normalized = normalizeHexColor(hex)
+      if (!normalized) return
+      setSourceColor(normalized)
     },
-    [sourceColor]
+    [setSourceColor]
   )
 
-  /** 取色页统一改色（实时预览：直接写 store，取消时恢复 restoreHexRef） */
+  /** 随机主题色（舒适区间随机 HSV） */
+  const randomColor = useCallback(() => {
+    applyColor(
+      hsvToHex(
+        Math.random() * 360,
+        55 + Math.random() * 30,
+        42 + Math.random() * 20
+      )
+    )
+  }, [applyColor])
+
+  // ===== 动作：移除当前色（仅当已被收藏时可用，语义唯一） =====
+  const removeCurrent = useCallback(() => {
+    if (!currentIsCustom) return
+    removeCustomColor(currentHex)
+    applyColor(DEFAULT_SEED)
+  }, [applyColor, currentHex, currentIsCustom, removeCustomColor])
+
+  // ===== 动作：取色页 =====
+  /** 进入取色页：记录恢复点，草稿初始化为当前色 */
+  const openPicker = useCallback(() => {
+    restoreHexRef.current = currentHex
+    setDraft(hexToHsv(currentHex) ?? FALLBACK_HSV)
+    setHexText(currentHex)
+    setPage('picker')
+  }, [currentHex])
+
+  /** 取色页统一改色（实时预览写 store；HSV 状态仅驱动取色器自身） */
   const applyPick = useCallback(
     (h: number, s: number, v: number) => {
       const next: HsvColor = {
@@ -143,68 +188,25 @@ export function CustomColorPanel({
     [setSourceColor]
   )
 
-  /** 「添加颜色」：入自定义色板 + 应用 + 回编辑器页 */
-  const confirmPick = useCallback(() => {
+  /** 「保存」：收藏当前色 + 回编辑器页（重复收藏由 addCustomColor 去重） */
+  const savePick = useCallback(() => {
     addCustomColor(draftHex)
-    setSourceColor(draftHex)
     setPage('editor')
-  }, [addCustomColor, draftHex, setSourceColor])
+  }, [addCustomColor, draftHex])
 
-  /** 取消取色：恢复进入前颜色 */
+  /** 「取消」：恢复进入前颜色 + 回编辑器页 */
   const cancelPick = useCallback(() => {
-    setSourceColor(restoreHexRef.current)
+    applyColor(restoreHexRef.current)
     setPage('editor')
-  }, [setSourceColor])
+  }, [applyColor])
 
-  /** 编辑器页改色入口：写 store；若当前色在自定义色板中则原位更新该颜色层 */
-  const applySeed = useCallback(
-    (hex: string) => {
-      const normalized = normalizeHexColor(hex)
-      if (!normalized) return
-      if (currentIsCustom && normalized !== currentHex) {
-        updateCustomColor(currentHex, normalized)
-      }
-      setSourceColor(normalized)
-    },
-    [currentIsCustom, currentHex, setSourceColor, updateCustomColor]
-  )
-
-  /** 强度调节（[+] [-] 按钮，±10，0-100 夹取；实时生效无需确认） */
+  // ===== 动作：强度（滑块连续调节 + [±] 微调） =====
   const adjustIntensity = useCallback(
     (delta: number) => {
       setColorIntensity(colorIntensity + delta)
     },
     [colorIntensity, setColorIntensity]
   )
-
-  /** 移除选中的自定义色（当前色不在色板时移除最早一条） */
-  const removeSelected = useCallback(() => {
-    if (customColors.length === 0) return
-    if (currentIsCustom) {
-      removeCustomColor(currentHex)
-      const rest = customColors.filter((c) => c !== currentHex)
-      setSourceColor(rest[rest.length - 1] ?? DEFAULT_SEED)
-    } else {
-      removeCustomColor(customColors[customColors.length - 1])
-    }
-  }, [
-    customColors,
-    currentHex,
-    currentIsCustom,
-    removeCustomColor,
-    setSourceColor,
-  ])
-
-  /** 随机主题色（舒适区间随机 HSV，实时应用） */
-  const randomSeed = useCallback(() => {
-    applySeed(
-      hsvToHex(
-        Math.random() * 360,
-        55 + Math.random() * 30,
-        42 + Math.random() * 20
-      )
-    )
-  }, [applySeed])
 
   // ===== 色板行箭头可用态 =====
   const swatchScrollRef = useRef<HTMLDivElement>(null)
@@ -262,7 +264,7 @@ export function CustomColorPanel({
         willChange: 'width',
       }}
     >
-      <div className="flex h-full w-[300px] flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
+      <div className="flex h-full w-[300px] flex-col overflow-y-auto border-r border-[var(--glass-border)] p-4">
         {page === 'editor' ? (
           <>
             {/* ===== ① 模式切换区：✨ / ☀ / 🌙 三圆钮（aria-pressed） ===== */}
@@ -303,10 +305,10 @@ export function CustomColorPanel({
               })}
             </div>
 
-            {/* ===== ② 自定义颜色区：「点击添加颜色」提示 + 操作行 ===== */}
+            {/* ===== ② 自定义颜色区：提示行 + 操作行 + 强度滑块 ===== */}
             <button
               type="button"
-              onClick={() => openPicker()}
+              onClick={openPicker}
               className="mt-4 flex w-full shrink-0 cursor-pointer items-center justify-center rounded-lg py-1 text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
               style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
             >
@@ -314,46 +316,51 @@ export function CustomColorPanel({
             </button>
             <div className="mt-2 flex shrink-0 items-center justify-center gap-1.5">
               <ActionIconButton
-                title={`增强颜色（当前 ${colorIntensity}%）`}
-                onClick={() => adjustIntensity(INTENSITY_STEP)}
-                disabled={colorIntensity >= 100}
-              >
-                <Plus className="h-4 w-4" />
-              </ActionIconButton>
-              <ActionIconButton
-                title={`减弱颜色（当前 ${colorIntensity}%）`}
+                title={`减弱颜色强度（当前 ${colorIntensity}%）`}
                 onClick={() => adjustIntensity(-INTENSITY_STEP)}
                 disabled={colorIntensity <= 0}
               >
                 <Minus className="h-4 w-4" />
               </ActionIconButton>
-              <ActionIconButton title="打开取色器" onClick={() => openPicker()}>
+              <ActionIconButton
+                title={`增强颜色强度（当前 ${colorIntensity}%）`}
+                onClick={() => adjustIntensity(INTENSITY_STEP)}
+                disabled={colorIntensity >= 100}
+              >
+                <Plus className="h-4 w-4" />
+              </ActionIconButton>
+              <ActionIconButton title="打开取色器" onClick={openPicker}>
                 <Pipette className="h-4 w-4" />
               </ActionIconButton>
-              <ActionIconButton title="随机主题色" onClick={randomSeed}>
+              <ActionIconButton title="随机主题色" onClick={randomColor}>
                 <Dices className="h-4 w-4" />
               </ActionIconButton>
               <ActionIconButton
                 title={
-                  customColors.length === 0
-                    ? '暂无可移除的颜色'
-                    : '移除选中的自定义颜色'
+                  currentIsCustom
+                    ? '从收藏色板移除当前颜色'
+                    : '当前颜色未被收藏'
                 }
-                onClick={removeSelected}
-                disabled={customColors.length === 0}
+                onClick={removeCurrent}
+                disabled={!currentIsCustom}
               >
                 <Trash2 className="h-4 w-4" />
               </ActionIconButton>
-              <span
-                className="w-10 shrink-0 text-right text-xs tabular-nums"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                aria-label={`颜色强度 ${colorIntensity}%`}
-              >
-                {colorIntensity}%
-              </span>
+            </div>
+            <div className="mt-2 shrink-0 px-1">
+              <Slider
+                size="sm"
+                label="颜色强度"
+                value={colorIntensity}
+                min={0}
+                max={100}
+                step={1}
+                valueFormatter={(v) => `${v}%`}
+                onChange={setColorIntensity}
+              />
             </div>
 
-            {/* ===== ③ 预设色板：Zen 10 色 + 自定义色，‹ › 翻页 ===== */}
+            {/* ===== ③ 预设色板：Zen 10 色 + 收藏色，‹ › 翻页 ===== */}
             <div className="mt-3 flex shrink-0 items-center gap-0.5">
               <ArrowButton
                 dir={-1}
@@ -376,7 +383,7 @@ export function CustomColorPanel({
                     color={preset.color}
                     name={preset.name}
                     active={currentHex === preset.color.toLowerCase()}
-                    onPick={() => applySeed(preset.color)}
+                    onPick={() => applyColor(preset.color)}
                   />
                 ))}
                 {customColors.length > 0 && (
@@ -393,9 +400,9 @@ export function CustomColorPanel({
                   <SwatchDot
                     key={c}
                     color={c}
-                    name="自定义颜色"
+                    name="收藏的颜色"
                     active={currentHex === c}
-                    onPick={() => applySeed(c)}
+                    onPick={() => applyColor(c)}
                   />
                 ))}
               </div>
@@ -411,7 +418,7 @@ export function CustomColorPanel({
               />
             </div>
 
-            {/* ===== ④ 实时预览：波浪线（生效色描边）+ 圆形预览框 + hex ===== */}
+            {/* ===== ④ 实时预览：波浪线 + 圆形预览框 + hex（实际生效色） ===== */}
             <div className="mt-5 flex shrink-0 flex-col items-center">
               <svg
                 viewBox="0 0 100 20"
@@ -451,7 +458,7 @@ export function CustomColorPanel({
             </div>
           </>
         ) : (
-          /* ===== 取色页：SV 二维区 + 色相条 + Hex + 取消/添加 ===== */
+          /* ===== 取色页：SV 二维区 + 色相条 + Hex + 取消/保存 ===== */
           <>
             <div
               ref={svRef}
@@ -551,7 +558,7 @@ export function CustomColorPanel({
               />
             </div>
 
-            {/* 取消 / 添加颜色 */}
+            {/* 取消（恢复进入前颜色）/ 保存（收藏当前色） */}
             <div className="mt-4 flex shrink-0 items-center gap-2">
               <button
                 type="button"
@@ -563,14 +570,14 @@ export function CustomColorPanel({
               </button>
               <button
                 type="button"
-                onClick={confirmPick}
+                onClick={savePick}
                 className="h-9 flex-1 rounded-full text-sm font-medium shadow-sm transition-transform active:scale-[0.98]"
                 style={{
                   backgroundColor: draftHex,
                   color: onColorFor(draftHex),
                 }}
               >
-                添加颜色
+                {currentIsCustom ? '保存颜色' : '收藏并应用'}
               </button>
             </div>
           </>
@@ -580,7 +587,7 @@ export function CustomColorPanel({
   )
 }
 
-/** 操作行圆形图标按钮（强度 +/- / 取色器 / 骰子 / 移除） */
+/** 操作行圆形图标按钮（强度 ± / 取色器 / 骰子 / 移除） */
 function ActionIconButton({
   title,
   onClick,
@@ -641,7 +648,7 @@ function ArrowButton({
   )
 }
 
-/** 色板圆点：预设/自定义通用，选中态勾选 */
+/** 色板圆点：预设/收藏通用，选中态勾选 */
 function SwatchDot({
   color,
   name,
