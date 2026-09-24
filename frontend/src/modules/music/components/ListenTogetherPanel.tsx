@@ -2417,6 +2417,23 @@ function ListenTogetherInner({
   const songName = currentSong?.name ?? '一起听'
   const artist = currentSong?.artist ?? ''
 
+  // ===== 歌词面板是否真正可见（派生值，非 state）=====
+  // 用户开关（桌面 desktopLyricView / 竖屏 mobileLyricView）为「想看歌词」
+  // 的意图；但歌词就绪后若判定无歌词（emptyMode='none'）或纯音乐
+  // （'pure'），面板只剩空玻璃壳 + Lyric-Area 占位，等同用户手动收起
+  // ——直接不渲染面板，播放卡居中。评论区（rightPanelMode===1）不受
+  // 无歌词影响，照常展示。
+  // 用派生而非 effect 改 state：用户手动开歌词时该曲目无歌词则视图保持
+  // 收起，且**开关图标同步呈关闭态**，避免「点亮了却什么都不出现」；
+  // 切到有歌词的曲目时 emptyMode 复位 null，面板自动回来。
+  const lyricPanelVisible =
+    rightPanelMode === 1 || (lyricRevealed && emptyMode === null)
+
+  // 竖屏「歌词独占整页」是否真正生效：开关打开 **且** 有歌词可显示。
+  // 无歌词时若仍按开关值隐藏播放卡，而歌词面板又因 lyricPanelVisible
+  // 被卸载 → 整页空白。故播放卡的显隐也跟随本值（无歌词自动回到播放卡）
+  const mobileLyricViewActive = mobileLyricView && lyricPanelVisible
+
   // ===== 切歌封面交叉溶解：换曲瞬间快照上一首封面为独立背景层（0.9s
   //       淡出，动画结束即卸载），与新封面 zen-cover-fade 淡入交叠——
   //       当前背景（封面或视频消失后的空档）优雅溶解为下一首封面，
@@ -2760,7 +2777,7 @@ function ListenTogetherInner({
           <div
             key={
               isPortraitMobile
-                ? mobileLyricView
+                ? mobileLyricViewActive
                   ? 'm-hidden'
                   : 'm-card'
                 : 'd-card'
@@ -2770,7 +2787,7 @@ function ListenTogetherInner({
               isPortraitMobile
                 ? cn(
                     'w-full max-w-[420px] self-center',
-                    mobileLyricView ? 'hidden' : 'flex-1'
+                    mobileLyricViewActive ? 'hidden' : 'flex-1'
                   )
                 : cn(
                     // 右侧恒定 mr-[50px] = song-control 工具栏专列：无论
@@ -2872,19 +2889,27 @@ function ListenTogetherInner({
             >
               {/* 隐藏/显示歌词（桌面）：隐藏右侧歌词面板、播放卡居中；
                   纯视图级开关，与手机竖屏的 mobileLyricView 相互独立。
-                  图标沿用移动端 AlignLeft，显隐语义一致 */}
+                  图标沿用移动端 AlignLeft，显隐语义一致。
+                  图标高亮跟随「开关态 且 该曲目确实有歌词可显示」
+                  ——无歌词曲目时面板被 lyricPanelVisible 收起，图标同步呈
+                  关闭态，避免「点亮了却什么都不出现」的误导 */}
               <button
                 type="button"
                 onClick={() => setDesktopLyricView((v) => !v)}
                 className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
                 style={{
-                  color: desktopLyricView
-                    ? 'var(--md-sys-color-on-surface)'
-                    : 'var(--md-sys-color-on-surface-variant)',
+                  color:
+                    desktopLyricView && lyricPanelVisible
+                      ? 'var(--md-sys-color-on-surface)'
+                      : 'var(--md-sys-color-on-surface-variant)',
                 }}
-                title={desktopLyricView ? '隐藏歌词' : '显示歌词'}
+                title={
+                  desktopLyricView && lyricPanelVisible
+                    ? '隐藏歌词'
+                    : '显示歌词'
+                }
                 aria-label="切换歌词显示"
-                aria-pressed={desktopLyricView}
+                aria-pressed={desktopLyricView && lyricPanelVisible}
               >
                 <AlignLeft className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
               </button>
@@ -3573,19 +3598,21 @@ function ListenTogetherInner({
                 ...TOOLBAR_TONE_VARS[toolbarTone],
               }}
             >
-              {/* 歌词视图开关：默认只显示播放卡，开启后歌词区独占整页 */}
+              {/* 歌词视图开关：默认只显示播放卡，开启后歌词区独占整页。
+                  高亮同桌面：跟随「开关态 且 确实有歌词」，无歌词曲目时
+                  歌词视图被自动收起，图标同步呈关闭态 */}
               <button
                 type="button"
                 onClick={() => setMobileLyricView((v) => !v)}
                 className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
                 style={{
-                  color: mobileLyricView
+                  color: mobileLyricViewActive
                     ? 'var(--md-sys-color-on-surface)'
                     : 'var(--md-sys-color-on-surface-variant)',
                 }}
-                title={mobileLyricView ? '隐藏歌词' : '显示歌词'}
+                title={mobileLyricViewActive ? '隐藏歌词' : '显示歌词'}
                 aria-label="切换歌词显示"
-                aria-pressed={mobileLyricView}
+                aria-pressed={mobileLyricViewActive}
               >
                 <AlignLeft className="h-5 w-5" />
               </button>
@@ -3799,36 +3826,38 @@ function ListenTogetherInner({
               与左侧播放器卡同款半透明 surface + backdrop 模糊，
               避免无封面/未开封面模糊时被上层纯色背景盖住。
               手机竖屏由 mobileLyricView 控制、桌面由 song-control 的
-              隐藏歌词开关（desktopLyricView）控制，关闭时不渲染 ===== */}
-          {(isPortraitMobile ? mobileLyricView : desktopLyricView) && (
-            <div
-              className={cn(
-                'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
-                isPortraitMobile ? 'w-full flex-1' : 'h-full flex-1'
-              )}
-              // 整块面板在歌词就绪前不显示（visibility 而非 opacity/transform：
-              // 容器一旦带 opacity<1 或 transform 就成为 Backdrop Root，后代
-              // 冰霜层的 backdrop-filter 采样不到面板外背景，玻璃底会渲染成
-              // 不透明白壳——本项目反复踩中的陷阱）。先藏住整块空面板，等
-              // lyricRevealed 翻转后再让冰霜层与内容各自淡入，见下方
-              style={{
-                visibility:
-                  rightPanelMode === 1 || lyricRevealed ? 'visible' : 'hidden',
-              }}
-            >
-              {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡。
+              隐藏歌词开关（desktopLyricView）控制，关闭时不渲染。
+              另：歌词就绪后若无歌词/纯音乐，lyricPanelVisible 为 false，
+              面板整块不渲染（等同手动收起，注释见该派生值声明处） ===== */}
+          {(isPortraitMobile ? mobileLyricViewActive : desktopLyricView) &&
+            lyricPanelVisible && (
+              <div
+                className={cn(
+                  'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
+                  isPortraitMobile ? 'w-full flex-1' : 'h-full flex-1'
+                )}
+                // 面板仅在「尚未就绪」时隐藏（visibility 而非 opacity/transform：
+                // 容器一旦带 opacity<1 或 transform 就成为 Backdrop Root，后代
+                // 冰霜层的 backdrop-filter 采样不到面板外背景，玻璃底会渲染成
+                // 不透明白壳——本项目反复踩中的陷阱）。就绪后（含无歌词被
+                // 上层条件整块卸载的分支）由冰霜层/内容层各自淡入，见下方
+                style={{
+                  visibility: lyricRevealed ? 'visible' : 'hidden',
+                }}
+              >
+                {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡。
                   歌词就绪后由 lt-lyric-panel-in 淡入——面板的「展开」由此层
                   呈现（玻璃面先出现），内容随后在 0.25s 后跟上，避免现在
                   「先露半展开空壳、再突然弹歌词」的突兀感 */}
-              <div
-                aria-hidden="true"
-                className="lt-blur-surface lt-lyric-panel-in pointer-events-none absolute inset-0"
-                style={{
-                  backdropFilter: 'blur(12px)',
-                  WebkitBackdropFilter: 'blur(12px)',
-                }}
-              />
-              {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层。
+                <div
+                  aria-hidden="true"
+                  className="lt-blur-surface lt-lyric-panel-in pointer-events-none absolute inset-0"
+                  style={{
+                    backdropFilter: 'blur(12px)',
+                    WebkitBackdropFilter: 'blur(12px)',
+                  }}
+                />
+                {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层。
                   展开动画必须挂在本层而不能挂面板容器：容器带 transform/
                   opacity 时会成为 Backdrop Root，冰霜层 backdrop-filter
                   采样不到面板外背景，展开动画期间玻璃底会渲染成不透明白框、
@@ -3836,53 +3865,53 @@ function ListenTogetherInner({
                   时序：冰霜层先淡入（面板玻璃面展开）→ 本层延迟 0.25s 后
                   淡入（歌词浮现），形成「面板先张开、歌词再显现」的两段式，
                   避免旧版「半展开空壳僵住 → 歌词突然弹出」的突兀演出 */}
-              <div
-                className="lt-lyric-content-in relative flex min-h-0 min-w-0 flex-col"
-                style={uiFade < 1 ? { opacity: uiFade } : undefined}
-              >
                 <div
-                  className="pointer-events-none absolute inset-0"
-                  style={{
-                    backgroundColor:
-                      'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
-                  }}
-                />
-                {rightPanelMode === 1 ? (
-                  currentBiliBvid != null ? (
-                    <BiliCommentsPanel bvid={currentBiliBvid} />
-                  ) : (
-                    <SongCommentsPanel />
-                  )
-                ) : lyricOriginal ? (
-                  <PlayerLyricPanel
-                    lines={displayLyricLines}
-                    activeIndex={activeLyricIndex}
-                    emptyMode={emptyMode}
-                    revealed={lyricRevealed}
-                    showTranslation={showTranslation}
-                    showOriginal={lyricOriginal}
-                    showRoman={lyricRoma}
-                    lyricSize={lyricSize}
-                    tlyricSize={tlyricSize}
-                    rlyricSize={rlyricSize}
-                    interludeThresholdSec={lyricInterlude}
-                    lyricBlur={lyricBlur}
-                    lyricBlurPx={lyricBlurLevel}
-                    lyricMaskOpacity={lyricMaskOpacity / 100}
-                    lyricMaskBlur={lyricMaskBlur}
-                    onSeek={handleLyricSeek}
-                    onUpdateLineOffset={handleUpdateLineOffset}
-                    qualityLabel={qualityLabel}
+                  className="lt-lyric-content-in relative flex min-h-0 min-w-0 flex-col"
+                  style={uiFade < 1 ? { opacity: uiFade } : undefined}
+                >
+                  <div
+                    className="pointer-events-none absolute inset-0"
+                    style={{
+                      backgroundColor:
+                        'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
+                    }}
                   />
-                ) : (
-                  /* 原词隐藏 = 完全隐藏歌词：不渲染任何歌词行/翻译/罗马音/
+                  {rightPanelMode === 1 ? (
+                    currentBiliBvid != null ? (
+                      <BiliCommentsPanel bvid={currentBiliBvid} />
+                    ) : (
+                      <SongCommentsPanel />
+                    )
+                  ) : lyricOriginal ? (
+                    <PlayerLyricPanel
+                      lines={displayLyricLines}
+                      activeIndex={activeLyricIndex}
+                      emptyMode={emptyMode}
+                      revealed={lyricRevealed}
+                      showTranslation={showTranslation}
+                      showOriginal={lyricOriginal}
+                      showRoman={lyricRoma}
+                      lyricSize={lyricSize}
+                      tlyricSize={tlyricSize}
+                      rlyricSize={rlyricSize}
+                      interludeThresholdSec={lyricInterlude}
+                      lyricBlur={lyricBlur}
+                      lyricBlurPx={lyricBlurLevel}
+                      lyricMaskOpacity={lyricMaskOpacity / 100}
+                      lyricMaskBlur={lyricMaskBlur}
+                      onSeek={handleLyricSeek}
+                      onUpdateLineOffset={handleUpdateLineOffset}
+                      qualityLabel={qualityLabel}
+                    />
+                  ) : (
+                    /* 原词隐藏 = 完全隐藏歌词：不渲染任何歌词行/翻译/罗马音/
                     高亮条/间奏倒计时——此前仅隐藏原词文本，翻译/罗马音与
                     滚动的高亮黑条会残留，歌词并未真正消失 */
-                  <div className="flex-1" aria-hidden="true" />
-                )}
+                    <div className="flex-1" aria-hidden="true" />
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            )}
         </div>
       )}
       {/* 添加视频弹窗（Hydrogen MusicVideo：无全屏遮罩，绝对居中于播放页；
