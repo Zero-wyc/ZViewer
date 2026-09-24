@@ -67,6 +67,7 @@ import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
 import { useMusicStore } from '../store'
+import { useThemeStore } from '@/store/themeStore'
 import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
@@ -1309,6 +1310,8 @@ function ListenTogetherInner({
   // 横屏矮窗口（手机横屏全屏 / 桌面矮窗口）：桌面布局的固定大 padding
   // 在矮视口下吃掉近 40% 高度，切紧凑间距
   const isLandscapeShort = useIsLandscapeShort()
+  // 深浅主题：浅色下播放卡信息层文字强制近黑（Hydrogen 原版黑字白底）
+  const isDark = useThemeStore((s) => s.isDark)
 
   // ===== 手机横屏 song-control 工具栏：默认隐藏，触摸屏幕任意处亮起 3s =====
   // 触屏无 hover，原 lt-touch-visible 常显会让工具栏常驻压在歌词面板上
@@ -2774,7 +2777,22 @@ function ListenTogetherInner({
                   )
                 : 'w-[var(--lt-card-w)] max-w-[calc(100%-2rem)]'
             )}
-            style={{ padding: '16px 12px', paddingBottom: '4vh' }}
+            style={
+              {
+                padding: '16px 12px',
+                paddingBottom: '4vh',
+                // 浅色主题下播放卡信息层文字（时间/歌手/音量/进度/三键）
+                // 强制近黑高对比：Monet on-surface 偏灰，亮色毛玻璃卡底上
+                // 可读性差（用户要求黑色）。深色主题卡底为暗玻璃，保持
+                // scheme 原生浅字。容器级变量覆盖对全部子元素生效
+                ...(isDark
+                  ? {}
+                  : {
+                      '--md-sys-color-on-surface': '#1a1a1c',
+                      '--md-sys-color-on-surface-variant': '#49454f',
+                    }),
+              } as React.CSSProperties
+            }
           >
             {/* 四角黑色实心方块装饰（Hydrogen .border：1.5vh，出界 0.75vh；
                 max() 保底避免横屏矮窗口下缩到不可见） */}
