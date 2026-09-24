@@ -256,14 +256,17 @@ const BG_VIDEO_CATCHUP_GAIN_SEC = 4
 const BG_VIDEO_MAX_RATE = 1.5
 const BG_VIDEO_MIN_RATE = 0.6
 
-/** 工具栏黑白切换持久化 key（light = 白字配暗背景，dark = 黑字配亮背景） */
-const TOOLBAR_TONE_STORAGE_KEY = 'zviewer-lyric-toolbar-tone'
+/** 播放页 UI 深浅色持久化 key（light = 浅色 UI：亮玻璃配深色文字；
+ *  dark = 深色 UI：暗玻璃配浅色文字）。旧 key zviewer-lyric-toolbar-tone
+ *  语义是「工具栏文字深浅」且取值相反（light = 白字），仅作用于工具栏，
+ *  已废弃不迁移 */
+const PLAYER_UI_TONE_STORAGE_KEY = 'zviewer-player-ui-tone'
 
-/** 读取工具栏黑白偏好；存储损坏/非法值时回退白字（歌词页背景以
- *  封面/视频画面为主，整体偏暗，白字是更常用的初始态） */
-function loadToolbarTone(): 'light' | 'dark' {
+/** 读取播放页 UI 深浅色偏好；存储损坏/非法值时回退浅色（= 播放卡既定
+ *  「恒黑字白底」观感，迁移成本最低的初始态） */
+function loadPlayerUiTone(): 'light' | 'dark' {
   try {
-    if (localStorage.getItem(TOOLBAR_TONE_STORAGE_KEY) === '"dark"') {
+    if (localStorage.getItem(PLAYER_UI_TONE_STORAGE_KEY) === '"dark"') {
       return 'dark'
     }
   } catch {
@@ -272,23 +275,72 @@ function loadToolbarTone(): 'light' | 'dark' {
   return 'light'
 }
 
-/** 工具栏容器级文字三色覆盖（黑白切换）：on-surface / on-surface-variant
- *  供全部按钮的 var() 引用，--lt-tone-inverse 供评论数徽章文字使用。
- *  原按背景下亮度逐按钮采样的自适应已删除（跨域视频源画入 canvas 会
- *  永久污染采样画布，clearRect 无法解除，实际不可用），改为用户手动
- *  切换、容器统一覆盖并持久化 */
+/** 播放页 UI 深浅色的三组容器级变量覆盖（全部按 UI 深浅色键控，随开关
+ *  整体翻转；原按背景下亮度逐元素采样的自适应已删除——跨域视频源画入
+ *  canvas 会永久污染采样画布，clearRect 无法解除，实际不可用——改为用户
+ *  手动切换、容器统一覆盖并持久化）：
+ *  - TOOLBAR：song-control / 竖屏工具行容器文字三色（on-surface /
+ *    on-surface-variant 供全部按钮 var() 引用，--lt-tone-inverse 供评论数
+ *    徽章文字）
+ *  - CARD：播放卡容器文字与卡内 surface 派生色。文字恒与卡底 tint 同源
+ *    （浅色 UI = 纯黑字配亮玻璃，深色 UI = 纯白字配暗玻璃，on-surface 与
+ *    -variant 同值），确保任何卡底上对比度确定——「灰字」失配的根因就是
+ *    文字色与背板色各自分支（见卡容器处注释）
+ *  - LYRIC_PANEL：歌词面板容器（PlayerLyricPanel 全令牌化零改动）。
+ *    on-surface 供歌词/高亮条/描边，surface 供面板底 color-mix 45% 透明
+ *    底色与高亮条上的反色文字 */
 const TOOLBAR_TONE_VARS = {
   light: {
-    '--md-sys-color-on-surface': '#ffffff',
-    '--md-sys-color-on-surface-variant': 'rgba(255, 255, 255, 0.5)',
-    '--lt-tone-inverse': '#1c1c1c',
-  },
-  dark: {
     '--md-sys-color-on-surface': '#1c1c1c',
     '--md-sys-color-on-surface-variant': 'rgba(0, 0, 0, 0.5)',
     '--lt-tone-inverse': '#ffffff',
   },
+  dark: {
+    '--md-sys-color-on-surface': '#ffffff',
+    '--md-sys-color-on-surface-variant': 'rgba(255, 255, 255, 0.5)',
+    '--lt-tone-inverse': '#1c1c1c',
+  },
 } as Record<'light' | 'dark', React.CSSProperties>
+
+/** 播放卡容器变量覆盖（语义见 TOOLBAR_TONE_VARS 注释）；light 组 =
+ *  改版前「恒黑字白底」定稿值 */
+const CARD_TONE_VARS = {
+  light: {
+    '--md-sys-color-on-surface': '#000000',
+    '--md-sys-color-on-surface-variant': '#000000',
+    '--md-sys-color-surface-container-high': 'rgba(255, 255, 255, 0.6)',
+  },
+  dark: {
+    '--md-sys-color-on-surface': '#ffffff',
+    '--md-sys-color-on-surface-variant': '#ffffff',
+    '--md-sys-color-surface-container-high': 'rgba(255, 255, 255, 0.12)',
+  },
+} as Record<'light' | 'dark', React.CSSProperties>
+
+/** 歌词面板容器变量覆盖（语义见 TOOLBAR_TONE_VARS 注释） */
+const LYRIC_PANEL_TONE_VARS = {
+  light: {
+    '--md-sys-color-on-surface': '#1c1c1c',
+    '--md-sys-color-surface': '#ffffff',
+  },
+  dark: {
+    '--md-sys-color-on-surface': '#ffffff',
+    '--md-sys-color-surface': '#141418',
+  },
+} as Record<'light' | 'dark', React.CSSProperties>
+
+/** 播放卡 tint 颜色（浅色 UI = 亮白玻璃 / 深色 UI = 暗黑玻璃；竖屏 alpha
+ *  略高——卡面小，需更实的底托住文字对比度） */
+const CARD_TINT = {
+  light: {
+    portrait: 'rgba(255, 255, 255, 0.55)',
+    desktop: 'rgba(255, 255, 255, 0.45)',
+  },
+  dark: {
+    portrait: 'rgba(0, 0, 0, 0.55)',
+    desktop: 'rgba(0, 0, 0, 0.45)',
+  },
+} as Record<'light' | 'dark', { portrait: string; desktop: string }>
 
 /** 极简滑轨（设置弹窗内嵌）：pointer 拖动即时回调，touch-slider 防触屏滚动 */
 function TinySlider({
@@ -2191,17 +2243,18 @@ function ListenTogetherInner({
   /** 封面背景模糊半径：毛玻璃关闭时 0（显示未模糊封面而非纯色底） */
   const coverBlurPx = coverBlur ? coverBlurLevel : 0
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
-  // ===== 工具栏黑白切换（手动）：工具栏按钮文字深浅由用户一键切换，
-  //  song-control / 竖屏工具行两个容器统一以 TOOLBAR_TONE_VARS 覆盖
-  //  文字三色变量，localStorage 持久化（light = 白字配暗背景） =====
-  const [toolbarTone, setToolbarTone] = useState<'light' | 'dark'>(
-    loadToolbarTone
-  )
-  const toggleToolbarTone = useCallback(() => {
-    setToolbarTone((prev) => {
+  // ===== 播放页 UI 深浅色开关（手动）：一键翻转整个播放页 UI——播放卡
+  //  文字/卡底 tint、song-control 与竖屏工具行文字三色、歌词面板底色与
+  //  文字（变量映射见 TOOLBAR_TONE_VARS / CARD_TONE_VARS /
+  //  LYRIC_PANEL_TONE_VARS / CARD_TINT），localStorage 持久化。
+  //  切换只改变量值与 tint 背景色，不给容器加 opacity/transform
+  //  （避免成为 Backdrop Root 使冰霜层失效） =====
+  const [uiTone, setUiTone] = useState<'light' | 'dark'>(loadPlayerUiTone)
+  const togglePlayerUiTone = useCallback(() => {
+    setUiTone((prev) => {
       const next = prev === 'light' ? 'dark' : 'light'
       try {
-        localStorage.setItem(TOOLBAR_TONE_STORAGE_KEY, JSON.stringify(next))
+        localStorage.setItem(PLAYER_UI_TONE_STORAGE_KEY, JSON.stringify(next))
       } catch {
         // ignore（隐私模式等存储不可用场景）
       }
@@ -2762,20 +2815,15 @@ function ListenTogetherInner({
               {
                 padding: '16px 12px',
                 paddingBottom: '4vh',
-                // 播放卡信息层文字（时间/歌手/VOLUME/进度/三键）**恒纯黑**：
-                // 卡底是毛玻璃（tint + 模糊采样），采样内容亮度不定——深色
-                // 主题下若采样到亮封面/亮评论区，卡底呈亮白，此时 scheme 的
-                // 浅字配亮底就是「灰字」观感（用户三轮反馈的根因）。因此
-                // 不再按主题/端分支，恒定压成 #000000（on-surface 与
-                // -variant 同值），让黑字在任何卡底上都有确定对比度；
-                // 代价是深色主题 + 暗卡底时黑字对比度略降，换取「任何场景
-                // 都不出现灰字」的确定性
-                '--md-sys-color-on-surface': '#000000',
-                '--md-sys-color-on-surface-variant': '#000000',
-                // 卡内「surface 派生色」（按钮 hover 底、占比条底色等）在
-                // 恒亮白卡底下也要跟随转亮，否则深色主题时会残留暗底
-                '--md-sys-color-surface-container-high':
-                  'rgba(255, 255, 255, 0.6)',
+                // 播放卡信息层文字（时间/歌手/VOLUME/进度/三键）与卡底 tint
+                // 同源、随播放页 UI 深浅色开关整体翻转：卡底是毛玻璃（tint +
+                // 模糊采样），采样内容亮度不定——文字若按主题 scheme 分支，
+                // 必然出现浅字配亮底/黑字配暗底的「灰字」失配（用户三轮反馈
+                // 的根因）。因此文字色不按主题/端分支，恒与 tint 同组切换
+                // （浅色 UI = 纯黑字，on-surface 与 -variant 同值；深色 UI =
+                // 纯白字同值），保证任何卡底上对比度确定。light 组为改版前
+                // 「恒黑字白底」定稿值（映射见 CARD_TONE_VARS）
+                ...CARD_TONE_VARS[uiTone],
               } as React.CSSProperties
             }
           >
@@ -2843,8 +2891,8 @@ function ListenTogetherInner({
               )}
               style={{
                 color: 'var(--md-sys-color-on-surface)',
-                // 黑白切换：容器级统一覆盖文字三色，按钮的 var() 引用跟随
-                ...TOOLBAR_TONE_VARS[toolbarTone],
+                // UI 深浅色：容器级统一覆盖文字三色，按钮的 var() 引用跟随
+                ...TOOLBAR_TONE_VARS[uiTone],
               }}
             >
               {/* 隐藏/显示歌词（桌面）：隐藏右侧歌词面板、播放卡居中；
@@ -3182,18 +3230,19 @@ function ListenTogetherInner({
               >
                 <Settings className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
               </button>
-              {/* 工具栏黑白切换：手动切换全部按钮文字的深浅（白字配暗
-                  背景 / 黑字配亮背景），localStorage 持久化 */}
+              {/* 播放页 UI 深浅色切换：一键翻转播放卡文字/卡底 tint/工具栏
+                  文字/歌词面板底色与文字（见 uiTone 声明处），localStorage
+                  持久化 */}
               <button
                 type="button"
-                onClick={toggleToolbarTone}
+                onClick={togglePlayerUiTone}
                 className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                 title={
-                  toolbarTone === 'light'
-                    ? '工具栏文字：白（点击切换为黑）'
-                    : '工具栏文字：黑（点击切换为白）'
+                  uiTone === 'light'
+                    ? '播放页 UI：浅色（点击切换为深色）'
+                    : '播放页 UI：深色（点击切换为浅色）'
                 }
-                aria-label="切换工具栏文字黑白"
+                aria-label="切换播放页 UI 深浅色"
               >
                 <Contrast className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
               </button>
@@ -3241,20 +3290,21 @@ function ListenTogetherInner({
                   WebkitBackdropFilter: 'blur(var(--lt-ui-blur, 12px))',
                 }}
               />
-              {/* 恒亮白玻璃底色 t层（**在 uiFade 图层之外**）：卡底毛玻璃采样
-                  内容亮度不定（亮封面→亮底、暗视频→暗底），信息层文字已恒定
-                  纯黑（见卡容器变量覆盖注释），故卡底必须同为恒定亮底，黑字全
-                  场景都有确定对比度。刻意不放进下面的 uiFade 图层——UI 透明度
-                  调低时若连白底一起淡出，黑字会被稀释成灰、且露出更暗的模糊背
-                  景，反而更糊；白底常驻才能托住文字对比度。
+              {/* 卡底 tint 层（**在 uiFade 图层之外**）：卡底毛玻璃采样内容
+                  亮度不定（亮封面→亮底、暗视频→暗底），信息层文字色恒与卡底
+                  同源（见卡容器变量覆盖注释），故 tint 与文字同组随开关切换：
+                  浅色 UI = 恒定亮白底（黑字全场景确定对比度），深色 UI = 恒定
+                  暗黑底（白字同理）。刻意不放进下面的 uiFade 图层——UI 透明度
+                  调低时若连 tint 一起淡出，文字会被稀释成灰、且露出更暗的模糊
+                  背景，反而更糊；tint 常驻才能托住文字对比度。
                   竖屏 0.55 / 桌面横屏 0.45（桌面卡面更大，稍低不压背景） */}
               <div
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-0"
                 style={{
                   backgroundColor: isPortraitMobile
-                    ? 'rgba(255, 255, 255, 0.55)'
-                    : 'rgba(255, 255, 255, 0.45)',
+                    ? CARD_TINT[uiTone].portrait
+                    : CARD_TINT[uiTone].desktop,
                 }}
               />
               <div
@@ -3554,8 +3604,8 @@ function ListenTogetherInner({
               )}
               style={{
                 color: 'var(--md-sys-color-on-surface)',
-                // 黑白切换：容器级统一覆盖文字三色，按钮的 var() 引用跟随
-                ...TOOLBAR_TONE_VARS[toolbarTone],
+                // UI 深浅色：容器级统一覆盖文字三色，按钮的 var() 引用跟随
+                ...TOOLBAR_TONE_VARS[uiTone],
               }}
             >
               {/* 歌词视图开关：默认只显示播放卡，开启后歌词区独占整页。
@@ -3747,17 +3797,17 @@ function ListenTogetherInner({
               >
                 <Settings className="h-5 w-5" />
               </button>
-              {/* 工具栏黑白切换：与桌面 song-control 同一状态 */}
+              {/* 播放页 UI 深浅色切换：与桌面 song-control 同一状态 */}
               <button
                 type="button"
-                onClick={toggleToolbarTone}
+                onClick={togglePlayerUiTone}
                 className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                 title={
-                  toolbarTone === 'light'
-                    ? '工具栏文字：白（点击切换为黑）'
-                    : '工具栏文字：黑（点击切换为白）'
+                  uiTone === 'light'
+                    ? '播放页 UI：浅色（点击切换为深色）'
+                    : '播放页 UI：深色（点击切换为浅色）'
                 }
-                aria-label="切换工具栏文字黑白"
+                aria-label="切换播放页 UI 深浅色"
               >
                 <Contrast className="h-5 w-5" />
               </button>
@@ -3803,6 +3853,10 @@ function ListenTogetherInner({
                 // 上层条件整块卸载的分支）由冰霜层/内容层各自淡入，见下方
                 style={{
                   visibility: lyricRevealed ? 'visible' : 'hidden',
+                  // UI 深浅色：容器级覆盖歌词文字（on-surface）与面板底色/
+                  // 高亮条反色文字（surface）两令牌，PlayerLyricPanel 全
+                  // 令牌化零改动跟随翻转；与 visibility 同层不影响闸门
+                  ...LYRIC_PANEL_TONE_VARS[uiTone],
                 }}
               >
                 {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡。
