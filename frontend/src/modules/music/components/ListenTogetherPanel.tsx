@@ -68,6 +68,7 @@ import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { CloudModal } from './CloudModal'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
 import { useMusicStore } from '../store'
+import { useThemeStore } from '@/store/themeStore'
 import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
@@ -2243,10 +2244,11 @@ function ListenTogetherInner({
   /** 封面背景模糊半径：毛玻璃关闭时 0（显示未模糊封面而非纯色底） */
   const coverBlurPx = coverBlur ? coverBlurLevel : 0
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
-  // ===== 播放页 UI 深浅色开关（手动）：一键翻转整个播放页 UI——播放卡
-  //  文字/卡底 tint、song-control 与竖屏工具行文字三色、歌词面板底色与
-  //  文字（变量映射见 TOOLBAR_TONE_VARS / CARD_TONE_VARS /
-  //  LYRIC_PANEL_TONE_VARS / CARD_TINT），localStorage 持久化。
+  // ===== 播放页 UI 深浅色开关（手动）：一键翻转播放卡文字/卡底 tint 与
+  //  歌词面板底色文字（变量映射见 CARD_TONE_VARS / LYRIC_PANEL_TONE_VARS /
+  //  CARD_TINT），localStorage 持久化。
+  //  **不含工具栏**——工具栏悬在卡外的封面/画面背景上，其可读性取决于
+  //  页面背景亮度，故改为随主题深浅翻转（见下方 toolbarTone）。
   //  切换只改变量值与 tint 背景色，不给容器加 opacity/transform
   //  （避免成为 Backdrop Root 使冰霜层失效） =====
   const [uiTone, setUiTone] = useState<'light' | 'dark'>(loadPlayerUiTone)
@@ -2261,6 +2263,14 @@ function ListenTogetherInner({
       return next
     })
   }, [])
+
+  // ===== 工具栏色调跟随主题深浅（不跟 UI 开关）：song-control 与竖屏工具
+  //  行悬出在播放卡外的封面/视频画面背景上，背后亮度由主题决定（此前旧
+  //  版按封面采样自适应已废弃），因此深色主题下取浅色图标、浅色主题下取
+  //  深色图标才能保证可读——若跟随 UI 开关，深色主题 + 浅色 UI
+  //  会把深色图标压在深色背景上几乎不可见 =====
+  const isDark = useThemeStore((s) => s.isDark)
+  const toolbarTone: 'light' | 'dark' = isDark ? 'dark' : 'light'
   // ===== 悬浮工具栏限高滚动（横屏矮窗口 / 矮桌面窗口）：song-control 图标
   //  数量随歌曲能力增减（B站源/弹幕/收藏/评论…最多 17 枚），内容高度超出
   //  卡片高度时把工具栏压回卡片范围内并开放上下滑动（hide-scrollbar 不显
@@ -2891,8 +2901,9 @@ function ListenTogetherInner({
               )}
               style={{
                 color: 'var(--md-sys-color-on-surface)',
-                // UI 深浅色：容器级统一覆盖文字三色，按钮的 var() 引用跟随
-                ...TOOLBAR_TONE_VARS[uiTone],
+                // 工具栏色调跟随主题深浅（不跟 UI 开关）：文字三色容器级
+                // 统一覆盖，按钮的 var() 引用跟随
+                ...TOOLBAR_TONE_VARS[toolbarTone],
               }}
             >
               {/* 隐藏/显示歌词（桌面）：隐藏右侧歌词面板、播放卡居中；
@@ -3230,17 +3241,18 @@ function ListenTogetherInner({
               >
                 <Settings className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
               </button>
-              {/* 播放页 UI 深浅色切换：一键翻转播放卡文字/卡底 tint/工具栏
-                  文字/歌词面板底色与文字（见 uiTone 声明处），localStorage
-                  持久化 */}
+              {/* 播放页 UI 深浅色切换：一键翻转播放卡文字/卡底 tint 与
+                  歌词面板底色文字（见 uiTone 声明处），localStorage 持久化。
+                  工具栏不在其列——工具栏悬在卡外画面背景上，随主题深浅翻转
+                  （见 toolbarTone） */}
               <button
                 type="button"
                 onClick={togglePlayerUiTone}
                 className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                 title={
                   uiTone === 'light'
-                    ? '播放页 UI：浅色（点击切换为深色）'
-                    : '播放页 UI：深色（点击切换为浅色）'
+                    ? '播放卡/歌词面板：浅色（点击切换为深色）'
+                    : '播放卡/歌词面板：深色（点击切换为浅色）'
                 }
                 aria-label="切换播放页 UI 深浅色"
               >
@@ -3604,8 +3616,9 @@ function ListenTogetherInner({
               )}
               style={{
                 color: 'var(--md-sys-color-on-surface)',
-                // UI 深浅色：容器级统一覆盖文字三色，按钮的 var() 引用跟随
-                ...TOOLBAR_TONE_VARS[uiTone],
+                // 工具栏色调跟随主题深浅（不跟 UI 开关）：文字三色容器级
+                // 统一覆盖，按钮的 var() 引用跟随
+                ...TOOLBAR_TONE_VARS[toolbarTone],
               }}
             >
               {/* 歌词视图开关：默认只显示播放卡，开启后歌词区独占整页。
@@ -3797,15 +3810,16 @@ function ListenTogetherInner({
               >
                 <Settings className="h-5 w-5" />
               </button>
-              {/* 播放页 UI 深浅色切换：与桌面 song-control 同一状态 */}
+              {/* 播放页 UI 深浅色切换：与桌面 song-control 同一状态
+                  （同样不含工具栏，工具栏随主题） */}
               <button
                 type="button"
                 onClick={togglePlayerUiTone}
                 className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                 title={
                   uiTone === 'light'
-                    ? '播放页 UI：浅色（点击切换为深色）'
-                    : '播放页 UI：深色（点击切换为浅色）'
+                    ? '播放卡/歌词面板：浅色（点击切换为深色）'
+                    : '播放卡/歌词面板：深色（点击切换为浅色）'
                 }
                 aria-label="切换播放页 UI 深浅色"
               >
