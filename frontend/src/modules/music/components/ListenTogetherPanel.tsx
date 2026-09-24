@@ -36,25 +36,8 @@ import {
   getPositionSec,
   subscribePositionSec,
 } from '../hooks/usePlaybackPosition'
-import {
-  ChevronDown,
-  Contrast,
-  ListMusic,
-  MessageCircle,
-  AlignLeft,
-  Music,
-  Film,
-  FolderPlus,
-  Heart,
-  MonitorPlay,
-  Search,
-  Settings,
-  ExternalLink,
-  Maximize,
-  Minimize,
-} from 'lucide-react'
+import { Music } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiGet } from '@/lib/api'
 import { useIsPortraitMobile, useIsLandscapeShort } from '@/hooks/useMediaQuery'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
@@ -68,7 +51,6 @@ import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { DanmakuLayer } from '@/components/DanmakuLayer'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
-import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
 import type { LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
@@ -79,62 +61,34 @@ import {
   type LyricLineOffsetStore,
 } from '../utils/lyricLineOffset'
 import { cn } from '@/lib/utils'
-import { OverflowMarquee } from './OverflowMarquee'
-import { PlayerLyricPanel } from './PlayerLyricPanel'
-import { MusicQueuePopup } from './MusicQueuePopup'
 import { MusicVideoModal } from './MusicVideoModal'
-import { AudioVisualizer } from './AudioVisualizer'
 import {
-  SongCommentsPanel,
   COMMENT_TOTAL_EVENT,
   getCommentCountBadge,
   getCommentTargetKey,
   prefetchSongCommentTotal,
 } from './SongCommentsPanel'
-import {
-  BiliCommentsPanel,
-  prefetchBiliCommentTotal,
-} from './BiliCommentsPanel'
+import { prefetchBiliCommentTotal } from './BiliCommentsPanel'
 import { NcmSearchModal } from './NcmSearchModal'
-import {
-  ControlNextIcon,
-  ControlPauseIcon,
-  ControlPlayIcon,
-  ControlPrevIcon,
-  LikeFilledIcon,
-  LikeOutlineIcon,
-  ModeRepeatOneIcon,
-  ModeSequenceIcon,
-  ModeShuffleIcon,
-  ModeOrderIcon,
-  RomanLyricIcon,
-  TransLyricIcon,
-  DanmakuTvIcon,
-} from './PlayerControlIcons'
-import {
-  TOOLBAR_TONE_VARS,
-  CARD_TONE_VARS,
-  LYRIC_PANEL_TONE_VARS,
-  CARD_TINT,
-} from '../utils/playerTone'
-import {
-  LYRIC_ADVANCE_SEC,
-  PLAY_MODE_ORDER,
-  PLAY_MODE_META,
-} from '../constants'
-import { badgeWidth } from '../utils/commentBadge'
+import { CARD_TONE_VARS } from '../utils/playerTone'
+import { LYRIC_ADVANCE_SEC, PLAY_MODE_ORDER } from '../constants'
 import { PlayerSettingsModal } from './PlayerSettingsModal'
-import { PlayerProgressBar } from './PlayerProgressBar'
 import { useBilibiliDanmaku } from '../hooks/useBilibiliDanmaku'
 import { useBackgroundVideoSync } from '../hooks/useBackgroundVideoSync'
 import { useLyricTrack } from '../hooks/useLyricTrack'
 import { useSongFavorite } from '../hooks/useSongFavorite'
+import { useSongQuality } from '../hooks/useSongQuality'
 import { useNoticeToast } from '../hooks/useNoticeToast'
 import { PlayerBackgroundLayer } from './PlayerBackgroundLayer'
 import { PlayerNoticeOverlay } from './PlayerNoticeOverlay'
+import { PlayerSongControl } from './PlayerSongControl'
+import { PlayerMobileToolbarRow } from './PlayerMobileToolbarRow'
+import { PlayerCardFace } from './PlayerCardFace'
+import { PlayerLyricPanelShell } from './PlayerLyricPanelShell'
 import { useImmersiveMode } from '../hooks/useImmersiveMode'
 import { useSeekLock } from '../hooks/useSeekLock'
 import { usePlayerUiTone } from '../hooks/usePlayerUiTone'
+import { useLandscapeToolbarFlash } from '../hooks/useLandscapeToolbarFlash'
 import { useToolbarScrollable } from '../hooks/useToolbarScrollable'
 import { useFullscreenToggle } from '../hooks/useFullscreenToggle'
 
@@ -239,36 +193,11 @@ function ListenTogetherInner({
   // 在矮视口下吃掉近 40% 高度，切紧凑间距
   const isLandscapeShort = useIsLandscapeShort()
 
-  // ===== 手机横屏 song-control 工具栏：默认隐藏，触摸屏幕任意处亮起 3s =====
-  // 触屏无 hover，原 lt-touch-visible 常显会让工具栏常驻压在歌词面板上
-  // （收起按钮与歌词文本重叠）；桌面矮窗口命中 isLandscapeShort 时仍走
-  // group-hover 分支，不受本 state 影响
-  const [landscapeToolbarVisible, setLandscapeToolbarVisible] = useState(false)
-  const landscapeToolbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
-  const flashLandscapeToolbar = useCallback(() => {
-    if (!isLandscapeShort) return
-    setLandscapeToolbarVisible(true)
-    if (landscapeToolbarTimerRef.current)
-      clearTimeout(landscapeToolbarTimerRef.current)
-    landscapeToolbarTimerRef.current = setTimeout(
-      () => setLandscapeToolbarVisible(false),
-      3000
-    )
-  }, [isLandscapeShort])
-  // 离开横屏（转竖屏/桌面）时复位显隐态（渲染期 prop-change 模式）
-  const [prevLandscapeShort, setPrevLandscapeShort] = useState(isLandscapeShort)
-  if (prevLandscapeShort !== isLandscapeShort) {
-    setPrevLandscapeShort(isLandscapeShort)
-    if (!isLandscapeShort) setLandscapeToolbarVisible(false)
-  }
-  useEffect(() => {
-    return () => {
-      if (landscapeToolbarTimerRef.current)
-        clearTimeout(landscapeToolbarTimerRef.current)
-    }
-  }, [])
+  // ===== 手机横屏 song-control 工具栏：默认隐藏，触摸屏幕任意处亮起 3s
+  //  （触屏无 hover，常显会常驻压在歌词面板上；桌面矮窗口走 group-hover
+  //  分支不受影响）——整簇已抽为 useLandscapeToolbarFlash =====
+  const { landscapeToolbarVisible, flashLandscapeToolbar } =
+    useLandscapeToolbarFlash(isLandscapeShort)
   // 手机竖屏歌词视图开关（工具行「歌词」按钮切换）：默认关 = 只显示播放卡
   // （卡片撑满剩余高度）；开启 = 隐藏播放卡、歌词区独占整页
   const [mobileLyricView, setMobileLyricView] = useState(false)
@@ -613,7 +542,6 @@ function ListenTogetherInner({
   const lyricMaskOpacity = useMusicSettingsStore((s) => s.lyricMaskOpacity)
   const lyricMaskBlur = useMusicSettingsStore((s) => s.lyricMaskBlur)
   const audioVisualizer = useMusicSettingsStore((s) => s.audioVisualizer)
-  const level = useMusicSettingsStore((s) => s.level)
   const lyricSize = useMusicSettingsStore((s) => s.lyricSize)
   const tlyricSize = useMusicSettingsStore((s) => s.tlyricSize)
   const rlyricSize = useMusicSettingsStore((s) => s.rlyricSize)
@@ -630,16 +558,6 @@ function ListenTogetherInner({
   const [showMusicVideo, setShowMusicVideo] = useState(false)
   const showTranslation = lyricTrans
 
-  /** 播放模式图标（四态：顺序循环 / 按顺序播放 / 单曲循环 / 随机） */
-  const PlayModeIcon =
-    playMode === 'repeat-one'
-      ? ModeRepeatOneIcon
-      : playMode === 'shuffle'
-        ? ModeShuffleIcon
-        : playMode === 'order'
-          ? ModeOrderIcon
-          : ModeSequenceIcon
-
   // 歌词类型可用性（song-control 开关的显示条件：当前歌有对应歌词数据才
   // 显示；原词无开关恒显示，不参与）
   const hasTransLyric = lyricLines.some(
@@ -649,61 +567,9 @@ function ListenTogetherInner({
     (l) => l.roman != null && l.roman.trim() !== ''
   )
 
-  // ===== 实际音质元数据（Hydrogen song-quality 角标：真实采样率/比特率）。
-  // 复用 /stream 同构解析链的后端 /song-quality 端点；失败静默回退设置档位 =====
-  const [songQuality, setSongQuality] = useState<{
-    sr: number
-    br: number
-    level: string
-  } | null>(null)
-  // 切歌时清空（render 期调整，替代 effect 内同步 setState）
-  const [prevQualitySongId, setPrevQualitySongId] = useState<number | null>(
-    typeof songId === 'number' ? songId : -1
-  )
-  if (prevQualitySongId !== songId) {
-    setPrevQualitySongId(typeof songId === 'number' ? songId : -1)
-    setSongQuality(null)
-  }
-  useEffect(() => {
-    if (songId == null || songId <= 0) {
-      return
-    }
-    let cancelled = false
-    void (async () => {
-      try {
-        const { data } = await apiGet<{
-          success?: boolean
-          sr?: number
-          br?: number
-          level?: string
-        }>(`/api/music/song-quality?songId=${songId}&level=${level}`)
-        if (!cancelled) {
-          setSongQuality({
-            sr: typeof data?.sr === 'number' ? data.sr : 0,
-            br: typeof data?.br === 'number' ? data.br : 0,
-            level: typeof data?.level === 'string' ? data.level : '',
-          })
-        }
-      } catch {
-        if (!cancelled) setSongQuality(null)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [songId, level])
-
-  /** 音质角标文案（Hydrogen Lyric.vue：`${sr/1000}KHz/${br/1000}Kbps/LEVEL`，
-   *  缺失的字段段自动隐藏；上游解析失败时仅显示设置档位） */
-  const qualityLabel = useMemo(() => {
-    const parts: string[] = []
-    if (songQuality && songQuality.sr > 0)
-      parts.push(`${songQuality.sr / 1000}KHz`)
-    if (songQuality && songQuality.br > 0)
-      parts.push(`${Math.round(songQuality.br / 1000)}Kbps`)
-    parts.push((songQuality?.level || level).toUpperCase())
-    return parts.join('/')
-  }, [songQuality, level])
+  // ===== 实际音质元数据（Hydrogen song-quality 角标）：整簇已抽为
+  //  useSongQuality（/song-quality 查询 + 失败回退设置档位的角标文案） =====
+  const qualityLabel = useSongQuality(songId)
 
   // ===== 渲染 =====
   // 空态条件 = 队列为空 **且** 没有任何当前曲目：B站 视频插播不入房间
@@ -935,986 +801,148 @@ function ListenTogetherInner({
               aria-hidden="true"
             />
 
-            {/* song-control 工具栏（Hydrogen .song-control：绝对定位悬出
-                卡片右侧 50px，落进播放卡恒定 mr-[50px] 预留的专列内——
-                该列无论工具栏显隐都结构化保留空置，歌词面板永不与其重叠；
-                显示模式同 Hydrogen——基态 opacity:0 常隐（列空置），鼠标
-                悬停卡片/工具栏区域时重播「信号灯」闪烁动画并以 both 定格
-                在可见，移开即隐（列恢复空置）。
-                挂在**外层**（内层 overflow-hidden 会裁掉悬出部分）。
-                图标集为原版 SVG：歌词显隐 / 罗马音 / 翻译 / 原词开关
-                （歌词三项有对应数据才显示）+ 纯净模式（背景视频就绪时）+
-                喜欢 + 播放模式（房主）+ 播放队列 + 设置（背景/歌词调整
-                弹窗）+ 收起。
-                手机竖屏隐藏（卡片全宽后右侧 50px 悬出区会出屏），改为
-                卡片下方的水平工具行（见下方 isPortraitMobile 分支） */}
-            <div
-              ref={toolbarRef}
-              onPointerDown={flashLandscapeToolbar}
-              className={cn(
-                'lt-icon-outline absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)]',
-                // 显隐模式：桌面 = Hydrogen 同款（基态常隐——专列空置 +
-                // hover 信号灯动画定格可见 + 触屏常显兜底）；手机横屏 =
-                // 默认隐藏（专列照样占位空置），触摸屏幕任意处亮起 3s 后
-                // 淡出（触屏无 hover，常显会常驻压在歌词面板注意力上）
-                isLandscapeShort
-                  ? cn(
-                      'transition-opacity duration-300',
-                      landscapeToolbarVisible
-                        ? 'opacity-100'
-                        : 'pointer-events-none opacity-0'
-                    )
-                  : cn(
-                      'lt-touch-visible opacity-0 focus-within:opacity-100',
-                      'group-hover:animate-[song-control-in_0.3s_both]'
-                    ),
-                // 限高常挂 + 滚动态开放 overflow（原因见 toolbarScrollable
-                // 声明处注释）；hide-scrollbar 隐藏滚动条保留触摸滑动
-                'max-h-full',
-                toolbarScrollable && 'overflow-y-auto hide-scrollbar',
-                isPortraitMobile && 'hidden'
-              )}
-              style={{
-                color: 'var(--md-sys-color-on-surface)',
-                // 工具栏色调跟随主题深浅（不跟 UI 开关）：文字三色容器级
-                // 统一覆盖，按钮的 var() 引用跟随
-                ...TOOLBAR_TONE_VARS[toolbarTone],
+            <PlayerSongControl
+              toolbarRef={toolbarRef}
+              flashLandscapeToolbar={flashLandscapeToolbar}
+              isLandscapeShort={isLandscapeShort}
+              landscapeToolbarVisible={landscapeToolbarVisible}
+              toolbarScrollable={toolbarScrollable}
+              isPortraitMobile={isPortraitMobile}
+              toolbarTone={toolbarTone}
+              desktopLyricView={desktopLyricView}
+              lyricPanelVisible={lyricPanelVisible}
+              onToggleDesktopLyricView={() => setDesktopLyricView((v) => !v)}
+              hasRomaLyric={hasRomaLyric}
+              lyricRoma={lyricRoma}
+              onToggleLyricRoma={() => setLyricRoma((v) => !v)}
+              hasTransLyric={hasTransLyric}
+              lyricTrans={lyricTrans}
+              onToggleLyricTrans={() => setLyricTrans((v) => !v)}
+              bgVideoReady={bgVideoReady}
+              onEnterImmersive={enterImmersive}
+              canLike={canLike}
+              liked={liked}
+              onLike={handleLike}
+              isHost={isHost}
+              playMode={playMode}
+              onTogglePlayMode={handleTogglePlayMode}
+              canComment={canComment}
+              rightPanelMode={rightPanelMode}
+              commentBadge={commentBadge}
+              onToggleCommentPanel={() => {
+                setRightPanelMode((v) => (v === 0 ? 1 : 0))
+                // 面板被「隐藏歌词」收起时，查看评论/歌词的意图即带出面板
+                setDesktopLyricView(true)
               }}
-            >
-              {/* 隐藏/显示歌词（桌面）：隐藏右侧歌词面板、播放卡居中；
-                  纯视图级开关，与手机竖屏的 mobileLyricView 相互独立。
-                  图标沿用移动端 AlignLeft，显隐语义一致。
-                  图标高亮跟随「开关态 且 该曲目确实有歌词可显示」
-                  ——无歌词曲目时面板被 lyricPanelVisible 收起，图标同步呈
-                  关闭态，避免「点亮了却什么都不出现」的误导 */}
-              <button
-                type="button"
-                onClick={() => setDesktopLyricView((v) => !v)}
-                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                style={{
-                  color:
-                    desktopLyricView && lyricPanelVisible
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                }}
-                title={
-                  desktopLyricView && lyricPanelVisible
-                    ? '隐藏歌词'
-                    : '显示歌词'
-                }
-                aria-label="切换歌词显示"
-                aria-pressed={desktopLyricView && lyricPanelVisible}
-              >
-                <AlignLeft className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-              </button>
-              {hasRomaLyric && (
-                <button
-                  type="button"
-                  onClick={() => setLyricRoma((v) => !v)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{
-                    color: lyricRoma
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={lyricRoma ? '隐藏罗马音' : '显示罗马音'}
-                  aria-label="切换罗马音显示"
-                >
-                  <RomanLyricIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {hasTransLyric && (
-                <button
-                  type="button"
-                  onClick={() => setLyricTrans((v) => !v)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{
-                    color: lyricTrans
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={lyricTrans ? '隐藏翻译' : '显示翻译'}
-                  aria-label="切换翻译显示"
-                >
-                  <TransLyricIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {/* 纯净模式（背景视频就绪时可用）：隐藏全部界面，仅显示
-                  背景视频；原右上角胶囊与收起按钮重叠，移入本工具栏。
-                  immersive 时整个面板 invisible，无需额外隐藏本按钮 */}
-              {bgVideoReady && (
-                <button
-                  type="button"
-                  onClick={enterImmersive}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                  title="纯净模式：隐藏全部界面，仅显示背景视频"
-                  aria-label="进入纯净模式"
-                >
-                  <MonitorPlay className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {canLike && (
-                <button
-                  type="button"
-                  onClick={() => void handleLike()}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{
-                    color: liked
-                      ? 'var(--md-sys-color-error)'
-                      : 'var(--md-sys-color-on-surface)',
-                  }}
-                  title={liked ? '取消喜欢' : '喜欢这首歌'}
-                  aria-label={liked ? '取消喜欢' : '喜欢'}
-                >
-                  {liked ? (
-                    <LikeFilledIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                  ) : (
-                    <LikeOutlineIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                  )}
-                </button>
-              )}
-              {isHost && (
-                <button
-                  type="button"
-                  onClick={handleTogglePlayMode}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{ color: 'var(--md-sys-color-on-surface)' }}
-                  title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
-                  aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
-                >
-                  <PlayModeIcon className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {/* 歌词/评论切换（Hydrogen comment-icon：气泡 + 数量胶囊徽章） */}
-              {canComment && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRightPanelMode((v) => (v === 0 ? 1 : 0))
-                    // 面板被「隐藏歌词」收起时，查看评论/歌词的意图即带出面板
-                    setDesktopLyricView(true)
-                  }}
-                  className="relative flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
-                  style={{ color: 'var(--md-sys-color-on-surface)' }}
-                  title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}
-                  aria-label="切换歌词/评论区"
-                >
-                  <svg
-                    viewBox="0 0 24 24"
-                    className="h-full w-full overflow-visible"
-                    aria-hidden="true"
-                  >
-                    <path
-                      d="M6.4 5.5h8.3a2.8 2.8 0 0 1 2.8 2.8v5a2.8 2.8 0 0 1-2.8 2.8H9.3l-3.8 3v-3h-.3a2.8 2.8 0 0 1-2.8-2.8v-5a2.8 2.8 0 0 1 2.8-2.8h1.2z"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth={1.5}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                    <line
-                      x1="7.2"
-                      y1="9.9"
-                      x2="13.3"
-                      y2="9.9"
-                      stroke="currentColor"
-                      strokeWidth={1.5}
-                      strokeLinecap="round"
-                    />
-                    <line
-                      x1="7.2"
-                      y1="12.6"
-                      x2="11.4"
-                      y2="12.6"
-                      stroke="currentColor"
-                      strokeWidth={1.5}
-                      strokeLinecap="round"
-                    />
-                    {/* 评论数徽章（Hydrogen comment-count-pill） */}
-                    {commentBadge !== '0' && (
-                      <>
-                        <rect
-                          x={24 - badgeWidth(commentBadge)}
-                          y={0.7}
-                          width={badgeWidth(commentBadge)}
-                          height={9.2}
-                          rx={4.6}
-                          fill="var(--md-sys-color-on-surface)"
-                          opacity={0.96}
-                        />
-                        <text
-                          x={24 - badgeWidth(commentBadge) / 2}
-                          y={5.35}
-                          textAnchor="middle"
-                          dominantBaseline="middle"
-                          fill="var(--lt-tone-inverse, var(--md-sys-color-surface))"
-                          fontSize={6.8}
-                          fontWeight={700}
-                        >
-                          {commentBadge}
-                        </text>
-                      </>
-                    )}
-                  </svg>
-                </button>
-              )}
-              {/* 添加视频（Hydrogen Player.vue toAddMusicVideo 入口） */}
-              {songId != null && songId > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowMusicVideo(true)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                  title="添加视频"
-                  aria-label="添加视频"
-                >
-                  <Film className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {/* 前往 B站 原视频（仅 B站 条目）：新标签页打开
-                  bilibili.com/video/{bvid}，携带当前进度 ?t= 续看；
-                  与网易云条目的「添加视频」槽位互斥复用 */}
-              {buildBiliSourceUrl() && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    window.open(
-                      buildBiliSourceUrl(),
-                      '_blank',
-                      'noopener,noreferrer'
-                    )
-                  }
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                  title="在哔哩哔哩打开原视频"
-                  aria-label="在哔哩哔哩打开原视频"
-                >
-                  <ExternalLink className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {/* 弹幕开关（B站 条目）：工具栏一键显示/隐藏弹幕（与设置弹窗
-                  总开关同一状态，样式/屏蔽词仍在设置弹窗调整） */}
-              {isBiliSong && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setMusicSettings({
-                      biliDanmakuEnabled: !biliDanmakuEnabled,
-                    })
-                  }
-                  className={cn(
-                    'flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90',
-                    !biliDanmakuEnabled && 'opacity-50'
-                  )}
-                  style={{
-                    color: biliDanmakuEnabled
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={biliDanmakuEnabled ? '关闭弹幕' : '开启弹幕'}
-                  aria-label="切换弹幕显示"
-                  aria-pressed={biliDanmakuEnabled}
-                >
-                  <DanmakuTvIcon
-                    checked={biliDanmakuEnabled}
-                    className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]"
-                  />
-                </button>
-              )}
-              {/* 在网易云搜索（仅 B站 条目）：自动提取歌名在网易云搜索，
-                  结果支持试听/一键收藏到我喜欢的音乐——快速收藏 B站 听到的好歌 */}
-              {isBiliSong && (
-                <button
-                  type="button"
-                  onClick={() => setNcmSearchOpen(true)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                  title="在网易云搜索这首歌"
-                  aria-label="在网易云搜索这首歌"
-                >
-                  <Search className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {/* 直接收藏（B站 条目）：一键收藏到设置的「红心收藏夹」
-                  （与播放条红心同后端；实心红心 = 本会话已收藏） */}
-              {biliBvid != null && (
-                <button
-                  type="button"
-                  onClick={() => void handleBiliCollect()}
-                  disabled={biliCollecting}
-                  className={cn(
-                    'flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90',
-                    biliCollecting && 'animate-pulse'
-                  )}
-                  style={{
-                    color: biliCollected
-                      ? 'var(--md-sys-color-error)'
-                      : 'var(--md-sys-color-on-surface)',
-                  }}
-                  title={
-                    biliCollected
-                      ? `已收藏到「${
-                          biliCollectedMark?.folder ?? biliLikeFavTitle
-                        }」收藏夹；点击取消收藏`
-                      : `一键收藏到「${biliLikeFavTitle}」收藏夹`
-                  }
-                  aria-label="收藏到收藏夹"
-                >
-                  <Heart
-                    className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]"
-                    fill={biliCollected ? 'currentColor' : 'none'}
-                  />
-                </button>
-              )}
-              {/* 添加到收藏夹（B站 条目）：打开收藏夹选择弹窗 */}
-              {biliBvid != null && (
-                <button
-                  type="button"
-                  onPointerEnter={() => void prefetchBiliFavFolders()}
-                  onClick={() => setBiliFavModalOpen(true)}
-                  className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                  title="添加到收藏夹"
-                  aria-label="添加到收藏夹"
-                >
-                  <FolderPlus className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-              )}
-              {/* 播放队列（弹窗侧挂到按钮右侧展开；点击展开、
-                  再次点击同一按钮收回，展开态按钮高亮） */}
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setQueuePopupOpen(!queuePopupOpen)}
-                  className={cn(
-                    'flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90',
-                    queuePopupOpen
-                      ? 'text-[var(--md-sys-color-primary)]'
-                      : 'text-[var(--md-sys-color-on-surface)]'
-                  )}
-                  title={queuePopupOpen ? '收起播放队列' : '播放队列'}
-                  aria-label="切换播放队列"
-                  aria-expanded={queuePopupOpen}
-                >
-                  <ListMusic className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                </button>
-                {queuePopupOpen && (
-                  <MusicQueuePopup
-                    socket={socket}
-                    roomId={roomId}
-                    isHost={isHost}
-                    canManage={canManage ?? isHost}
-                    // 工具栏滚动激活后 overflow 会裁剪侧挂弹窗，
-                    // 改走 fixed 底部 sheet（见 toolbarScrollable 注释）
-                    placement={toolbarScrollable ? 'sheet' : 'side'}
-                  />
-                )}
-              </div>
-              {/* 快捷设置（黑底 SETTING 弹窗：背景设置项汇总） */}
-              <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                title="设置"
-                aria-label="打开设置"
-              >
-                <Settings className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-              </button>
-              {/* 播放页 UI 深浅色切换：一键翻转播放卡文字/卡底 tint 与
-                  歌词面板底色文字（见 uiTone 声明处），localStorage 持久化。
-                  工具栏不在其列——工具栏悬在卡外画面背景上，随主题深浅翻转
-                  （见 toolbarTone） */}
-              <button
-                type="button"
-                onClick={togglePlayerUiTone}
-                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                title={
-                  uiTone === 'light'
-                    ? '播放卡/歌词面板：浅色（点击切换为深色）'
-                    : '播放卡/歌词面板：深色（点击切换为浅色）'
-                }
-                aria-label="切换播放页 UI 深浅色"
-              >
-                <Contrast className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-              </button>
-              {/* 全屏切换：整个应用进入/退出全屏（Esc 或再点退出） */}
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                title={isFullscreen ? '退出全屏' : '全屏'}
-                aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
-              >
-                {isFullscreen ? (
-                  <Minimize className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                ) : (
-                  <Maximize className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={closePlayerOverlay}
-                className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                title="收起播放器"
-                aria-label="收起播放器"
-              >
-                <ChevronDown className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
-              </button>
-            </div>
+              songId={songId}
+              onAddMusicVideo={() => setShowMusicVideo(true)}
+              getBiliSourceUrl={buildBiliSourceUrl}
+              isBiliSong={isBiliSong}
+              biliDanmakuEnabled={biliDanmakuEnabled}
+              onToggleDanmaku={() =>
+                setMusicSettings({ biliDanmakuEnabled: !biliDanmakuEnabled })
+              }
+              onOpenNcmSearch={() => setNcmSearchOpen(true)}
+              biliBvid={biliBvid}
+              biliCollected={biliCollected}
+              biliCollectedMark={biliCollectedMark}
+              biliLikeFavTitle={biliLikeFavTitle}
+              biliCollecting={biliCollecting}
+              onBiliCollect={handleBiliCollect}
+              onOpenBiliFavModal={() => setBiliFavModalOpen(true)}
+              queuePopupOpen={queuePopupOpen}
+              onToggleQueuePopup={() => setQueuePopupOpen(!queuePopupOpen)}
+              queuePlacement={toolbarScrollable ? 'sheet' : 'side'}
+              socket={socket}
+              roomId={roomId}
+              canManage={canManage ?? isHost}
+              onOpenSettings={() => setShowSettings(true)}
+              uiTone={uiTone}
+              onToggleUiTone={togglePlayerUiTone}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={toggleFullscreen}
+              onClose={closePlayerOverlay}
+            />
 
-            {/* 内层 .player 两层结构（毛玻璃 + 透明度解耦）：
-                ① 冰霜层——常驻满强度 backdrop 模糊（不随 UI 透明度淡出），
-                   负责把页面背景模糊成不透明的「磨砂底」；
-                ② UI 图层——面板底色 + 全部内容作为一个整体图层，随 UI
-                   透明度整体淡出。图层背后是冰霜层（已模糊画面），淡出
-                   永远不会露出锐利背景 → 模糊与透明度同时成立。
-                   冰霜层/底色 tint 均 pointer-events-none：定位元素绘制在
-                   非定位内容之上，不禁用指针会盖住 UI 图层里未加 relative
-                   的交互元素（38d19ec 回归：三键播放控制按钮无法点击——
-                   进度条/音量条因 track 有 relative 幸免） */}
-            <div className="relative flex h-full w-full flex-col overflow-hidden">
-              <div
-                aria-hidden="true"
-                className="lt-blur-surface pointer-events-none absolute inset-0"
-                style={{
-                  backdropFilter: 'blur(var(--lt-ui-blur, 12px))',
-                  WebkitBackdropFilter: 'blur(var(--lt-ui-blur, 12px))',
-                }}
-              />
-              {/* 卡底 tint 层（**在 uiFade 图层之外**）：卡底毛玻璃采样内容
-                  亮度不定（亮封面→亮底、暗视频→暗底），信息层文字色恒与卡底
-                  同源（见卡容器变量覆盖注释），故 tint 与文字同组随开关切换：
-                  浅色 UI = 恒定亮白底（黑字全场景确定对比度），深色 UI = 恒定
-                  暗黑底（白字同理）。刻意不放进下面的 uiFade 图层——UI 透明度
-                  调低时若连 tint 一起淡出，文字会被稀释成灰、且露出更暗的模糊
-                  背景，反而更糊；tint 常驻才能托住文字对比度。
-                  竖屏 0.55 / 桌面横屏 0.45（桌面卡面更大，稍低不压背景） */}
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0"
-                style={{
-                  backgroundColor: isPortraitMobile
-                    ? CARD_TINT[uiTone].portrait
-                    : CARD_TINT[uiTone].desktop,
-                }}
-              />
-              <div
-                className="relative flex h-full w-full flex-col"
-                style={uiFade < 1 ? { opacity: uiFade } : undefined}
-              >
-                {/* 封面（max-height 38vh + 轻阴影）+ L 形角标内缩动画；
-                  竖屏手机限高防吃掉控制区 */}
-                <div className="relative shrink-0 p-[max(1.5vh,10px)]">
-                  <div
-                    className="relative overflow-hidden"
-                    style={{ boxShadow: '0 0 8px 0 rgba(0, 0, 0, 0.05)' }}
-                  >
-                    {cover ? (
-                      <img
-                        src={cover}
-                        alt={currentSong?.name ?? ''}
-                        className={cn(
-                          'block w-full object-cover',
-                          // B站歌 + 正方形设置：封面居中裁剪呈正方形显示
-                          //（网易云封面本就是正方形，不受此项影响）
-                          isBiliSong &&
-                            biliCoverShape === 'square' &&
-                            'aspect-square'
-                        )}
-                        style={{
-                          maxHeight: isPortraitMobile
-                            ? 'min(36dvh, 320px)'
-                            : '38vh',
-                        }}
-                      />
-                    ) : (
-                      <div
-                        className="flex aspect-square w-full items-center justify-center"
-                        style={{
-                          backgroundColor:
-                            'var(--md-sys-color-surface-container-high)',
-                        }}
-                      >
-                        <Music
-                          className="h-10 w-10 opacity-40"
-                          style={{
-                            color: 'var(--md-sys-color-on-surface-variant)',
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                  {/* 封面四角括号（Hydrogen Player.vue .c-border1..4：L 形，
-                    各角独立贴合动画；终态相对卡边内缩 1vh，与毛玻璃边缘留出间隙；
-                    max() 保底横屏矮窗口可见性） */}
-                  <span
-                    className="c-border-in-tl pointer-events-none absolute left-[max(1vh,5px)] top-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-l-2 border-t-2"
-                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className="c-border-in-tr pointer-events-none absolute right-[max(1vh,5px)] top-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-r-2 border-t-2"
-                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className="c-border-in-br pointer-events-none absolute bottom-[max(1vh,5px)] right-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-b-2 border-r-2"
-                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                    aria-hidden="true"
-                  />
-                  <span
-                    className="c-border-in-bl pointer-events-none absolute bottom-[max(1vh,5px)] left-[max(1vh,5px)] h-[max(4vh,20px)] w-[max(4vh,20px)] border-b-2 border-l-2"
-                    style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
-                    aria-hidden="true"
-                  />
-                </div>
-
-                {/* 歌曲信息：歌名（黑块滑入遮字 + 跑马灯）+ 歌手（小方点 + 名） */}
-                <div className="shrink-0 px-[max(1.5vh,10px)] pt-[max(1vh,6px)]">
-                  {/* 歌名行（Hydrogen .info-music:first-child：pb 1.2vh + overflow 隐藏；
-                    双击加入播放队列——网易云歌弹顶部提示/确认） */}
-                  <div
-                    className="relative min-w-0 overflow-hidden pb-[max(1.2vh,7px)]"
-                    onDoubleClick={handleSongNameDoubleClick}
-                    title="双击添加到播放队列"
-                  >
-                    <div
-                      className={cn('min-w-0', songSwitching && 'opacity-0')}
-                    >
-                      <OverflowMarquee
-                        text={songName}
-                        className="pl-[max(1.5vh,10px)] text-[max(2.4vh,15px)] font-bold leading-[max(2.9vh,20px)] text-[var(--md-sys-color-on-surface)]"
-                      />
-                    </div>
-                    {/* 黑色滑块：默认藏在左侧（露 5px 竖条，Hydrogen music-name-lable
-                      原版样式；文字缩进 1.5vh 与竖条留出间隙），切歌时滑入遮住整行 */}
-                    <span
-                      aria-hidden="true"
-                      className="absolute left-0 top-0 h-[max(2.9vh,20px)] w-full transition-transform duration-300 ease-[cubic-bezier(0.4,0,0.12,1)]"
-                      style={{
-                        backgroundColor: 'var(--md-sys-color-on-surface)',
-                        transform: songSwitching
-                          ? 'translateX(0)'
-                          : 'translateX(calc(-100% + 5px))',
-                      }}
-                    />
-                  </div>
-                  {/* 歌手行（Hydrogen .music-author-lable：top1px/left-2px 小方框
-                    套 4px 中心点 rgb(105,105,105)；文本 10px 左距 10px）。
-                    横屏矮窗口（isLandscapeShort）：迷你三键收纳到行尾右端——
-                    高度不足时下方独立三键行取消，控件区不再臃肿 */}
-                  <div className="relative flex min-w-0 items-center">
-                    <span
-                      className="pointer-events-none absolute -left-[2px] top-[1px] block h-2 w-2 shrink-0"
-                      style={{ border: '0.5px solid rgb(105, 105, 105)' }}
-                      aria-hidden="true"
-                    >
-                      <span
-                        className="absolute left-1/2 top-1/2 h-1 w-1 -translate-x-1/2 -translate-y-1/2"
-                        style={{ backgroundColor: 'rgb(105, 105, 105)' }}
-                      />
-                    </span>
-                    <span className="ml-[10px] min-w-0 truncate text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                      {artist || ' '}
-                    </span>
-                    {isLandscapeShort && (
-                      <div className="ml-auto flex shrink-0 items-center gap-0.5">
-                        <button
-                          type="button"
-                          className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                          onClick={handlePrev}
-                          title={canControl ? '上一首' : '向房主申请切换上一首'}
-                          aria-label="上一首"
-                        >
-                          <ControlPrevIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
-                        </button>
-                        <button
-                          type="button"
-                          className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                          onClick={handlePlayPause}
-                          title={
-                            canControl
-                              ? isPlaying
-                                ? '暂停'
-                                : '播放'
-                              : isPlaying
-                                ? '申请暂停'
-                                : '申请继续播放'
-                          }
-                          aria-label="播放或暂停"
-                        >
-                          {isPlaying ? (
-                            <ControlPauseIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
-                          ) : (
-                            <ControlPlayIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                          onClick={handleNext}
-                          title={canControl ? '下一首' : '向房主申请切换下一首'}
-                          aria-label="下一首"
-                        >
-                          <ControlNextIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* 控制区（Hydrogen .player-control：进度 / 三键 / 音量 纵向分布；
-                  滑条挂 touch-slider 禁触屏滚动，vh 尺寸全部 max() 保底，
-                  保证横屏矮窗口下仍可读可点） */}
-                <div className="flex min-h-0 flex-1 flex-col justify-between px-[max(1.5vh,10px)] pb-[max(1vh,6px)] pt-[max(1.5vh,10px)]">
-                  {/* 进度区：时间行（1.5vh）+ 细黑条滑块（1.3vh + 0.5px 描边） */}
-                  <div className="shrink-0">
-                    <PlayerProgressBar
-                      durationSec={durationSec}
-                      canControl={canControl}
-                      currentKey={currentKey}
-                      seekLock={seekLock}
-                      onSeek={seekWithLock}
-                      onRequestSeek={handleViewerSeek}
-                    />
-
-                    {/* 音频可视化（设置：音频可视化 → 真实频谱于进度条下方；
-                      captureStream 旁路 WebAudio analyser，Hydrogen 同思路） */}
-                    {audioVisualizer && (
-                      <div
-                        className="flex shrink-0 items-center justify-center pt-[max(0.6vh,4px)]"
-                        style={{ color: 'var(--md-sys-color-on-surface)' }}
-                      >
-                        <AudioVisualizer
-                          getAudio={getAudio}
-                          playing={isPlaying}
-                        />
-                      </div>
-                    )}
-                  </div>
-
-                  {/* 三键控制（5vh，原版线条式 SVG：< 形箭头 / 描边三角 / 双竖线；
-                    active 缩放 0.9；max(5vh,36px) 保底触屏可点）。
-                    横屏矮窗口时隐藏——三键已收纳到歌手行右端（见上方
-                    isLandscapeShort 分支），避免控件区纵向臃肿 */}
-                  {!isLandscapeShort && (
-                    <div className="flex shrink-0 items-center justify-evenly">
-                      <button
-                        type="button"
-                        className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                        onClick={handlePrev}
-                        title={canControl ? '上一首' : '向房主申请切换上一首'}
-                        aria-label="上一首"
-                      >
-                        <ControlPrevIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                      </button>
-                      <button
-                        type="button"
-                        className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                        onClick={handlePlayPause}
-                        title={
-                          canControl
-                            ? isPlaying
-                              ? '暂停'
-                              : '播放'
-                            : isPlaying
-                              ? '申请暂停'
-                              : '申请继续播放'
-                        }
-                        aria-label="播放或暂停"
-                      >
-                        {isPlaying ? (
-                          <ControlPauseIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                        ) : (
-                          <ControlPlayIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                        )}
-                      </button>
-                      <button
-                        type="button"
-                        className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-                        onClick={handleNext}
-                        title={canControl ? '下一首' : '向房主申请切换下一首'}
-                        aria-label="下一首"
-                      >
-                        <ControlNextIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
-                      </button>
-                    </div>
-                  )}
-
-                  {/* 音量区（滑块与进度同款 + VOLUME 标签与百分比；
-                    手机端保留——蓝牙/外放场景仍需软件音量）。
-                    横屏矮窗口隐藏：物理音量键触手可及，软件音量让位给
-                    进度条——高度不足时本区会与进度条重叠出框 */}
-                  {!isLandscapeShort && (
-                    <div className="shrink-0">
-                      <div
-                        ref={volumeTrackRef}
-                        role="slider"
-                        aria-label="音量"
-                        aria-valuemin={0}
-                        aria-valuemax={100}
-                        aria-valuenow={Math.round(volume * 100)}
-                        className="touch-slider relative h-[max(1.3vh,6px)] cursor-pointer"
-                        style={{
-                          boxShadow:
-                            '0 0 0 0.5px var(--md-sys-color-on-surface)',
-                        }}
-                        onPointerDown={handleVolumePointerDown}
-                      >
-                        <div
-                          className="absolute left-0 top-0 h-full"
-                          style={{
-                            width: `${volume * 100}%`,
-                            backgroundColor: 'var(--md-sys-color-on-surface)',
-                            transition: volumeDragging
-                              ? 'none'
-                              : 'width 0.3s ease',
-                          }}
-                        />
-                      </div>
-                      <div className="mt-[max(1vh,6px)] flex items-center justify-between text-[max(1.5vh,11px)] font-bold text-[var(--md-sys-color-on-surface)]">
-                        <span className="tracking-widest">VOLUME</span>
-                        <span className="tabular-nums">
-                          {Math.round(volume * 100)}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
+            {/* 内层 .player（毛玻璃+透明度解耦 / 卡底 tint / 封面 / 歌曲信息 /
+                进度-三键-音量控制区）：整块已抽为 PlayerCardFace（分层原理
+                与 38d19ec 指针遮挡回归注释见该组件头） */}
+            <PlayerCardFace
+              uiTone={uiTone}
+              uiFade={uiFade}
+              isPortraitMobile={isPortraitMobile}
+              isLandscapeShort={isLandscapeShort}
+              cover={cover}
+              coverAlt={currentSong?.name ?? ''}
+              isBiliSong={isBiliSong}
+              biliCoverShape={biliCoverShape}
+              songName={songName}
+              artist={artist}
+              songSwitching={songSwitching}
+              onSongNameDoubleClick={handleSongNameDoubleClick}
+              onPrev={handlePrev}
+              onPlayPause={handlePlayPause}
+              onNext={handleNext}
+              canControl={canControl}
+              isPlaying={isPlaying}
+              durationSec={durationSec}
+              currentKey={currentKey}
+              seekLock={seekLock}
+              onSeek={seekWithLock}
+              onRequestSeek={handleViewerSeek}
+              audioVisualizer={audioVisualizer}
+              getAudio={getAudio}
+              volume={volume}
+              volumeDragging={volumeDragging}
+              volumeTrackRef={volumeTrackRef}
+              onVolumePointerDown={handleVolumePointerDown}
+            />
           </div>
 
           {/* ===== 手机竖屏：水平工具行（替代右侧竖排 song-control——
               竖屏下卡片全宽，右侧 50px 悬出区会出屏；收起走右上角
-              常显按钮，此处不再重复。触屏尺寸 32px 保证可点） ===== */}
+              常显按钮，此处不再重复。触屏尺寸 32px 保证可点。
+              整块已抽为 PlayerMobileToolbarRow） ===== */}
           {isPortraitMobile && (
-            <div
-              className={cn(
-                'lt-icon-outline relative z-[10] flex shrink-0 flex-wrap items-center justify-center gap-1'
-              )}
-              style={{
-                color: 'var(--md-sys-color-on-surface)',
-                // 工具栏色调跟随主题深浅（不跟 UI 开关）：文字三色容器级
-                // 统一覆盖，按钮的 var() 引用跟随
-                ...TOOLBAR_TONE_VARS[toolbarTone],
+            <PlayerMobileToolbarRow
+              toolbarTone={toolbarTone}
+              mobileLyricViewActive={mobileLyricViewActive}
+              onToggleMobileLyricView={() => setMobileLyricView((v) => !v)}
+              hasRomaLyric={hasRomaLyric}
+              lyricRoma={lyricRoma}
+              onToggleLyricRoma={() => setLyricRoma((v) => !v)}
+              hasTransLyric={hasTransLyric}
+              lyricTrans={lyricTrans}
+              onToggleLyricTrans={() => setLyricTrans((v) => !v)}
+              bgVideoReady={bgVideoReady}
+              onEnterImmersive={enterImmersive}
+              canLike={canLike}
+              liked={liked}
+              onLike={handleLike}
+              isHost={isHost}
+              playMode={playMode}
+              onTogglePlayMode={handleTogglePlayMode}
+              canComment={canComment}
+              rightPanelMode={rightPanelMode}
+              commentBadge={commentBadge}
+              onToggleCommentPanel={() => {
+                setRightPanelMode((v) => (v === 0 ? 1 : 0))
+                setMobileLyricView(true)
               }}
-            >
-              {/* 歌词视图开关：默认只显示播放卡，开启后歌词区独占整页。
-                  高亮同桌面：跟随「开关态 且 确实有歌词」，无歌词曲目时
-                  歌词视图被自动收起，图标同步呈关闭态 */}
-              <button
-                type="button"
-                onClick={() => setMobileLyricView((v) => !v)}
-                className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                style={{
-                  color: mobileLyricViewActive
-                    ? 'var(--md-sys-color-on-surface)'
-                    : 'var(--md-sys-color-on-surface-variant)',
-                }}
-                title={mobileLyricViewActive ? '隐藏歌词' : '显示歌词'}
-                aria-label="切换歌词显示"
-                aria-pressed={mobileLyricViewActive}
-              >
-                <AlignLeft className="h-5 w-5" />
-              </button>
-              {hasRomaLyric && (
-                <button
-                  type="button"
-                  onClick={() => setLyricRoma((v) => !v)}
-                  className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                  style={{
-                    color: lyricRoma
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={lyricRoma ? '隐藏罗马音' : '显示罗马音'}
-                  aria-label="切换罗马音显示"
-                >
-                  <RomanLyricIcon className="h-5 w-5" />
-                </button>
-              )}
-              {hasTransLyric && (
-                <button
-                  type="button"
-                  onClick={() => setLyricTrans((v) => !v)}
-                  className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                  style={{
-                    color: lyricTrans
-                      ? 'var(--md-sys-color-on-surface)'
-                      : 'var(--md-sys-color-on-surface-variant)',
-                  }}
-                  title={lyricTrans ? '隐藏翻译' : '显示翻译'}
-                  aria-label="切换翻译显示"
-                >
-                  <TransLyricIcon className="h-5 w-5" />
-                </button>
-              )}
-              {/* 纯净模式（手机端）：与桌面 song-control 同一入口 */}
-              {bgVideoReady && (
-                <button
-                  type="button"
-                  onClick={enterImmersive}
-                  className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                  title="纯净模式：隐藏全部界面，仅显示背景视频"
-                  aria-label="进入纯净模式"
-                >
-                  <MonitorPlay className="h-5 w-5" />
-                </button>
-              )}
-              {canLike && (
-                <button
-                  type="button"
-                  onClick={() => void handleLike()}
-                  className="flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                  style={{
-                    color: liked
-                      ? 'var(--md-sys-color-error)'
-                      : 'var(--md-sys-color-on-surface)',
-                  }}
-                  title={liked ? '取消喜欢' : '喜欢这首歌'}
-                  aria-label={liked ? '取消喜欢' : '喜欢'}
-                >
-                  {liked ? (
-                    <LikeFilledIcon className="h-5 w-5" />
-                  ) : (
-                    <LikeOutlineIcon className="h-5 w-5" />
-                  )}
-                </button>
-              )}
-              {isHost && (
-                <button
-                  type="button"
-                  onClick={handleTogglePlayMode}
-                  className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                  title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
-                  aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
-                >
-                  <PlayModeIcon className="h-5 w-5" />
-                </button>
-              )}
-              {/* 歌词/评论切换（评论数徽章以小圆点形式叠加）：
-                  与桌面端同语义——歌词视图收起时，查看评论/歌词的意图
-                  即带出面板，否则 mobileLyricView=false 时面板不渲染，
-                  手机端永远看不到评论区 */}
-              {canComment && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setRightPanelMode((v) => (v === 0 ? 1 : 0))
-                    setMobileLyricView(true)
-                  }}
-                  className="relative flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
-                  style={{ color: 'var(--md-sys-color-on-surface)' }}
-                  title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}
-                  aria-label="切换歌词/评论区"
-                >
-                  <MessageCircle className="h-5 w-5" />
-                  {commentBadge !== '0' && (
-                    <span
-                      className="absolute right-0.5 top-0.5 min-w-[14px] rounded-full px-0.5 text-center text-[9px] font-bold leading-[14px]"
-                      style={{
-                        backgroundColor: 'var(--md-sys-color-on-surface)',
-                        color: 'var(--md-sys-color-surface)',
-                      }}
-                    >
-                      {commentBadge}
-                    </span>
-                  )}
-                </button>
-              )}
-              {/* 添加视频 */}
-              {songId != null && songId > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setShowMusicVideo(true)}
-                  className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                  title="添加视频"
-                  aria-label="添加视频"
-                >
-                  <Film className="h-5 w-5" />
-                </button>
-              )}
-              {/* 前往 B站 原视频（仅 B站 条目，与桌面 song-control 同语义） */}
-              {buildBiliSourceUrl() && (
-                <button
-                  type="button"
-                  onClick={() =>
-                    window.open(
-                      buildBiliSourceUrl(),
-                      '_blank',
-                      'noopener,noreferrer'
-                    )
-                  }
-                  className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                  title="在哔哩哔哩打开原视频"
-                  aria-label="在哔哩哔哩打开原视频"
-                >
-                  <ExternalLink className="h-5 w-5" />
-                </button>
-              )}
-              {/* 播放队列（弹窗固定底部居中弹出；点击展开、
-                  再次点击同一按钮收回，展开态按钮高亮） */}
-              <button
-                type="button"
-                onClick={() => setQueuePopupOpen(!queuePopupOpen)}
-                className={cn(
-                  'flex h-8 w-8 items-center justify-center transition-opacity active:scale-90',
-                  queuePopupOpen
-                    ? 'text-[var(--md-sys-color-primary)]'
-                    : 'text-[var(--md-sys-color-on-surface)]'
-                )}
-                title={queuePopupOpen ? '收起播放队列' : '播放队列'}
-                aria-label="切换播放队列"
-                aria-expanded={queuePopupOpen}
-              >
-                <ListMusic className="h-5 w-5" />
-              </button>
-              {queuePopupOpen && (
-                <MusicQueuePopup
-                  socket={socket}
-                  roomId={roomId}
-                  isHost={isHost}
-                  canManage={canManage ?? isHost}
-                  placement="sheet"
-                />
-              )}
-              {/* 快捷设置（与桌面 song-control 同一弹窗） */}
-              <button
-                type="button"
-                onClick={() => setShowSettings(true)}
-                className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                title="设置"
-                aria-label="打开设置"
-              >
-                <Settings className="h-5 w-5" />
-              </button>
-              {/* 播放页 UI 深浅色切换：与桌面 song-control 同一状态
-                  （同样不含工具栏，工具栏随主题） */}
-              <button
-                type="button"
-                onClick={togglePlayerUiTone}
-                className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                title={
-                  uiTone === 'light'
-                    ? '播放卡/歌词面板：浅色（点击切换为深色）'
-                    : '播放卡/歌词面板：深色（点击切换为浅色）'
-                }
-                aria-label="切换播放页 UI 深浅色"
-              >
-                <Contrast className="h-5 w-5" />
-              </button>
-              {/* 全屏切换：与桌面 song-control 同一状态（iOS 不支持时静默） */}
-              <button
-                type="button"
-                onClick={toggleFullscreen}
-                className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-                title={isFullscreen ? '退出全屏' : '全屏'}
-                aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
-              >
-                {isFullscreen ? (
-                  <Minimize className="h-5 w-5" />
-                ) : (
-                  <Maximize className="h-5 w-5" />
-                )}
-              </button>
-            </div>
+              songId={songId}
+              onAddMusicVideo={() => setShowMusicVideo(true)}
+              getBiliSourceUrl={buildBiliSourceUrl}
+              queuePopupOpen={queuePopupOpen}
+              onToggleQueuePopup={() => setQueuePopupOpen(!queuePopupOpen)}
+              socket={socket}
+              roomId={roomId}
+              canManage={canManage ?? isHost}
+              onOpenSettings={() => setShowSettings(true)}
+              uiTone={uiTone}
+              onToggleUiTone={togglePlayerUiTone}
+              isFullscreen={isFullscreen}
+              onToggleFullscreen={toggleFullscreen}
+            />
           )}
           {/* ===== 右侧歌词面板（Hydrogen .right-panel）：flex-1 占据播放卡
               （含右侧 50px 工具栏专列）之外的剩余宽度——专列由卡片恒定
@@ -1928,92 +956,35 @@ function ListenTogetherInner({
               隐藏歌词开关（desktopLyricView）控制，关闭时不渲染。
               另：歌词就绪后若无歌词/纯音乐，lyricPanelVisible 为 false，
               面板整块不渲染（等同手动收起，注释见该派生值声明处） ===== */}
+          {/* 面板外壳（visibility 闸门 / 冰霜层两段式入场 / 评论区切换 /
+              PlayerLyricPanel 接线）：整块已抽为 PlayerLyricPanelShell */}
           {(isPortraitMobile ? mobileLyricViewActive : desktopLyricView) &&
             lyricPanelVisible && (
-              <div
-                className={cn(
-                  'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
-                  isPortraitMobile ? 'w-full flex-1' : 'h-full flex-1'
-                )}
-                // 面板仅在「尚未就绪」时隐藏（visibility 而非 opacity/transform：
-                // 容器一旦带 opacity<1 或 transform 就成为 Backdrop Root，后代
-                // 冰霜层的 backdrop-filter 采样不到面板外背景，玻璃底会渲染成
-                // 不透明白壳——本项目反复踩中的陷阱）。就绪后（含无歌词被
-                // 上层条件整块卸载的分支）由冰霜层/内容层各自淡入，见下方
-                style={{
-                  visibility: lyricRevealed ? 'visible' : 'hidden',
-                  // UI 深浅色：容器级覆盖歌词文字（on-surface）与面板底色/
-                  // 高亮条反色文字（surface）两令牌，PlayerLyricPanel 全
-                  // 令牌化零改动跟随翻转；与 visibility 同层不影响闸门
-                  ...LYRIC_PANEL_TONE_VARS[uiTone],
-                }}
-              >
-                {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡。
-                  歌词就绪后由 lt-lyric-panel-in 淡入——面板的「展开」由此层
-                  呈现（玻璃面先出现），内容随后在 0.25s 后跟上，避免现在
-                  「先露半展开空壳、再突然弹歌词」的突兀感 */}
-                <div
-                  aria-hidden="true"
-                  className="lt-blur-surface lt-lyric-panel-in pointer-events-none absolute inset-0"
-                  style={{
-                    backdropFilter: 'blur(12px)',
-                    WebkitBackdropFilter: 'blur(12px)',
-                  }}
-                />
-                {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层。
-                  展开动画必须挂在本层而不能挂面板容器：容器带 transform/
-                  opacity 时会成为 Backdrop Root，冰霜层 backdrop-filter
-                  采样不到面板外背景，展开动画期间玻璃底会渲染成不透明白框、
-                  结束后突然变回毛玻璃（突兀闪变）。
-                  时序：冰霜层先淡入（面板玻璃面展开）→ 本层延迟 0.25s 后
-                  淡入（歌词浮现），形成「面板先张开、歌词再显现」的两段式，
-                  避免旧版「半展开空壳僵住 → 歌词突然弹出」的突兀演出 */}
-                <div
-                  className="lt-lyric-content-in relative flex min-h-0 min-w-0 flex-col"
-                  style={uiFade < 1 ? { opacity: uiFade } : undefined}
-                >
-                  <div
-                    className="pointer-events-none absolute inset-0"
-                    style={{
-                      backgroundColor:
-                        'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
-                    }}
-                  />
-                  {rightPanelMode === 1 ? (
-                    currentBiliBvid != null ? (
-                      <BiliCommentsPanel bvid={currentBiliBvid} />
-                    ) : (
-                      <SongCommentsPanel />
-                    )
-                  ) : lyricOriginal ? (
-                    <PlayerLyricPanel
-                      lines={displayLyricLines}
-                      activeIndex={activeLyricIndex}
-                      emptyMode={emptyMode}
-                      revealed={lyricRevealed}
-                      showTranslation={showTranslation}
-                      showOriginal={lyricOriginal}
-                      showRoman={lyricRoma}
-                      lyricSize={lyricSize}
-                      tlyricSize={tlyricSize}
-                      rlyricSize={rlyricSize}
-                      interludeThresholdSec={lyricInterlude}
-                      lyricBlur={lyricBlur}
-                      lyricBlurPx={lyricBlurLevel}
-                      lyricMaskOpacity={lyricMaskOpacity / 100}
-                      lyricMaskBlur={lyricMaskBlur}
-                      onSeek={handleLyricSeek}
-                      onUpdateLineOffset={handleUpdateLineOffset}
-                      qualityLabel={qualityLabel}
-                    />
-                  ) : (
-                    /* 原词隐藏 = 完全隐藏歌词：不渲染任何歌词行/翻译/罗马音/
-                    高亮条/间奏倒计时——此前仅隐藏原词文本，翻译/罗马音与
-                    滚动的高亮黑条会残留，歌词并未真正消失 */
-                    <div className="flex-1" aria-hidden="true" />
-                  )}
-                </div>
-              </div>
+              <PlayerLyricPanelShell
+                isPortraitMobile={isPortraitMobile}
+                lyricRevealed={lyricRevealed}
+                uiTone={uiTone}
+                uiFade={uiFade}
+                rightPanelMode={rightPanelMode}
+                currentBiliBvid={currentBiliBvid}
+                lyricOriginal={lyricOriginal}
+                lyricRoma={lyricRoma}
+                showTranslation={showTranslation}
+                lines={displayLyricLines}
+                activeIndex={activeLyricIndex}
+                emptyMode={emptyMode}
+                lyricSize={lyricSize}
+                tlyricSize={tlyricSize}
+                rlyricSize={rlyricSize}
+                interludeThresholdSec={lyricInterlude}
+                lyricBlur={lyricBlur}
+                lyricBlurPx={lyricBlurLevel}
+                lyricMaskOpacityPct={lyricMaskOpacity}
+                lyricMaskBlur={lyricMaskBlur}
+                onSeek={handleLyricSeek}
+                onUpdateLineOffset={handleUpdateLineOffset}
+                qualityLabel={qualityLabel}
+              />
             )}
         </div>
       )}

@@ -7,6 +7,7 @@
  * 三态均来自 Hydrogen iconfont 的原始 path。颜色统一 currentColor，
  * active/inactive 由父级文字色控制（Hydrogen 原版为 #000 / #8a8a8a）。
  */
+import type { PlayMode } from '../types'
 
 /** 上一首（< 形线条箭头，viewBox 200） */
 export function ControlPrevIcon({ className }: { className?: string }) {
@@ -264,5 +265,27 @@ export function DanmakuTvIcon({
       {/* 关闭态：叠加斜线（与一起看同款状态语言） */}
       {!checked && <line x1="5" y1="5" x2="19" y2="19" />}
     </svg>
+  )
+}
+
+/** 播放模式图标（四态自动切换；song-control / 手机工具行按钮共用。
+ *  直接三元返回已知图标组件而非「选择器函数 + 变量」——render 期调用
+ *  「返回组件的函数」会被 react-hooks/static-components 判为渲染期
+ *  创建组件（state 每次重置），规则对组件内部同样生效 */
+export function PlayModeIcon({
+  mode,
+  className,
+}: {
+  mode: PlayMode
+  className?: string
+}) {
+  return mode === 'repeat-one' ? (
+    <ModeRepeatOneIcon className={className} />
+  ) : mode === 'shuffle' ? (
+    <ModeShuffleIcon className={className} />
+  ) : mode === 'order' ? (
+    <ModeOrderIcon className={className} />
+  ) : (
+    <ModeSequenceIcon className={className} />
   )
 }
