@@ -35,7 +35,7 @@
 
 ## 浏览器要求
 
-使用 Chrome / Edge 等内核 130+ 的 Chromium 浏览器。Safari 与 Firefox 对 MSE / MKV 解码支持不完整，可能出现卡顿、无法解码、字幕异常。
+> 建议使用 Chrome / Edge 等内核 130+ 的 Chromium 浏览器。Safari 与 Firefox 对 MSE / MKV 解码支持不完整，可能出现卡顿、无法解码、字幕异常。
 
 ## 目录
 
@@ -291,7 +291,7 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 
 ## ZViewerCLI 本地代理协议
 
-[ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI)（Go）解决浏览器无法携带本地 Bilibili Cookie 拿高画质地址的问题。**v0.2.0 起去房间化**：
+[ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI)（Go编写）解决哔哩哔哩高画质问题
 
 - 配置只需服务器地址 + Cookie（+ 可选用户名），不需要房间号。
 - CLI 启动后向服务器 Socket.IO 发 `cli-register`（payload：proxyUrl / agent / version / user），全局注册到专用房间 `__cli-agents__`（仅为聚合便利），上下线通过 `cli-agent-available` / `cli-agent-unavailable` **全局广播**。
@@ -299,17 +299,6 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 - 房间开启 CLI 功能（音乐视频高画质 / cliEnabled）后自动使用，无需逐房间连接。
 - 代理链路：前端 → `http://127.0.0.1:9333`（CLI 本地 HTTP 代理）→ B站 CDN，注入本地 Cookie 与 Referer / Origin / User-Agent。
 - CLI 重启后配置为内存态，需从网页端配置页重新带入（`?server=&user=`）。
-
-## 主题系统实现
-
-- **Material You（Monet）**：种子色 → `@material/material-color-utilities` 生成浅 / 深两套完整 scheme，以 CSS 变量（`--md-sys-color-*`）注入根节点，种子不变时缓存。
-- **颜色强度**：种子色与深浅各自的中性基底按 sRGB 线性插值（`resolveEffectiveSeed`）合成实际种子，0-100 滑块实时生效，100 = 纯色。
-- **文字对比度自适应**：壁纸/遮罩会改变文字底色，单一全局判定无法同时满足"玻璃面板"与"直坐壁纸"两类页面。实现为作用域变量：
-  - `--lt-raw-*`：按原始背景（底色 → 壁纸 → 遮罩）判定，供音乐壳、顶栏等直坐壁纸的页面；
-  - `--lt-glass-*`：按含玻璃层的有效背景判定，供播放页、迷你条等玻璃面组件；
-  - 根节点文字变量固定 scheme 原生值，弹窗（portal 到 body）天然配对。
-- **主题编辑栏**（主题菜单一级左栏）：Zen 主题编辑器五段式——模式切换 / 自定义颜色 / 预设+收藏色板 / 实时预览；取色页（SV 二维区 + 色相条 + Hex）保存动作显式二选一（存为新色 / 更新收藏），收藏板无隐式改写。
-- **玻璃拟态**：`--glass-strength` / `--glass-blur` 全局变量统一驱动，所有玻璃卡片引用同一组工具类；精简动画模式一键锁定玻璃不透明并关闭模糊。
 
 ## 鉴权与权限模型
 
