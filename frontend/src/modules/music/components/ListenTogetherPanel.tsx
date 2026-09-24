@@ -67,7 +67,6 @@ import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
 import { useMusicStore } from '../store'
-import { useThemeStore } from '@/store/themeStore'
 import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
@@ -1310,8 +1309,6 @@ function ListenTogetherInner({
   // 横屏矮窗口（手机横屏全屏 / 桌面矮窗口）：桌面布局的固定大 padding
   // 在矮视口下吃掉近 40% 高度，切紧凑间距
   const isLandscapeShort = useIsLandscapeShort()
-  // 深浅主题：浅色下播放卡信息层文字恒黑（见卡容器变量覆盖注释）
-  const isDark = useThemeStore((s) => s.isDark)
 
   // ===== 手机横屏 song-control 工具栏：默认隐藏，触摸屏幕任意处亮起 3s =====
   // 触屏无 hover，原 lt-touch-visible 常显会让工具栏常驻压在歌词面板上
@@ -2788,17 +2785,16 @@ function ListenTogetherInner({
               {
                 padding: '16px 12px',
                 paddingBottom: '4vh',
-                // 播放卡信息层文字（时间/歌手/音量/进度/三键）黑色高对比：
-                // - 竖屏：恒黑——卡底恒亮白玻璃底（见内层 tint 注释），
-                //   不随主题/封面翻转，任何场景黑字都成立
-                // - 桌面/横屏：浅色主题恒黑（亮 surface 卡底配 Monet 灰字
-                //   可读性差），深色主题卡底为暗 surface 维持原生浅字
-                ...(isPortraitMobile || !isDark
-                  ? {
-                      '--md-sys-color-on-surface': '#1a1a1c',
-                      '--md-sys-color-on-surface-variant': '#49454f',
-                    }
-                  : {}),
+                // 播放卡信息层文字（时间/歌手/VOLUME/进度/三键）**恒纯黑**：
+                // 卡底是毛玻璃（tint + 模糊采样），采样内容亮度不定——深色
+                // 主题下若采样到亮封面/亮评论区，卡底呈亮白，此时 scheme 的
+                // 浅字配亮底就是「灰字」观感（用户三轮反馈的根因）。因此
+                // 不再按主题/端分支，恒定压成 #000000（on-surface 与
+                // -variant 同值），让黑字在任何卡底上都有确定对比度；
+                // 代价是深色主题 + 暗卡底时黑字对比度略降，换取「任何场景
+                // 都不出现灰字」的确定性
+                '--md-sys-color-on-surface': '#000000',
+                '--md-sys-color-on-surface-variant': '#000000',
               } as React.CSSProperties
             }
           >
@@ -3262,15 +3258,23 @@ function ListenTogetherInner({
               >
                 <div
                   className="pointer-events-none absolute inset-0"
-                  style={{
-                    // 竖屏播放卡：恒亮白玻璃底（对齐 Hydrogen 手机原版）——
-                    // 卡底毛玻璃采样内容亮度不定（亮封面→亮底、暗视频→暗底），
-                    // 文字色若随主题翻转必然出现「浅底浅字/深底深字」失配；
-                    // 恒白底 + 恒黑字才是恒定高对比
-                    backgroundColor: isPortraitMobile
-                      ? 'rgba(255, 255, 255, 0.55)'
-                      : 'color-mix(in srgb, var(--md-sys-color-surface) 45%, transparent)',
-                  }}
+                  style={
+                    {
+                      // 播放卡恒亮白玻璃底（对齐 Hydrogen 手机原版）——卡底毛
+                      // 玻璃采样内容亮度不定（亮封面→亮底、暗视频→暗底），
+                      // 文字色若随主题翻转必然出现「浅底浅字/深底深字」失配；
+                      // 信息层文字已恒定纯黑（见卡容器变量覆盖注释），故卡底
+                      // 必须同为恒定亮底，黑字全场景都有确定对比度。
+                      // 竖屏 0.55 / 桌面横屏 0.45（桌面卡面更大，稍低不压背景）
+                      backgroundColor: isPortraitMobile
+                        ? 'rgba(255, 255, 255, 0.55)'
+                        : 'rgba(255, 255, 255, 0.45)',
+                      // 亮底替换掉原主题 surface 混色后，需同步 override 卡内
+                      // 「surface 派生色」（占比条底色、按钮 hover 底等）
+                      '--md-sys-color-surface-container-high':
+                        'rgba(255, 255, 255, 0.6)',
+                    } as React.CSSProperties
+                  }
                 />
                 {/* 封面（max-height 38vh + 轻阴影）+ L 形角标内缩动画；
                   竖屏手机限高防吃掉控制区 */}
