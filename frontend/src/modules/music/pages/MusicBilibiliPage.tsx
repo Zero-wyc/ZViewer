@@ -22,7 +22,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ChevronUp,
-  Dices,
+  Shuffle,
   GripVertical,
   ListMusic,
   ListPlus,
@@ -113,10 +113,10 @@ function formatDate(sec: number): string {
 const REGION_TAG_HEADER = '推荐榜单'
 
 /** 搜索可达页数：B站搜索单排序仅 50 页（numResults 封顶 1000），后端
- *  按排序分片扩展（综合/最多点击/最新发布/最多弹幕/最多收藏 各 50 页）；
- *  顶栏搜索与分区种类搜索的总页数下限均提升到该值，与后端
- *  SEARCH_MAX_PAGES 保持一致 */
-const SEARCH_MAX_PAGES = 250
+ *  按排序分片扩展（综合/最多点击/最多弹幕/最多收藏 各 50 页，「最新发布」
+ *  分片因时间线跳变突兀不参与合并）；顶栏搜索与分区种类搜索的总页数
+ *  下限均提升到该值，与后端 SEARCH_MAX_PAGES 保持一致 */
+const SEARCH_MAX_PAGES = 200
 
 // ===== B站 取数页参数（集中在常量区，避免散落的字面量漂移） =====
 /** 搜索/合集/收藏夹类接口每页条数（B站 page_size 固定 20） */
@@ -588,12 +588,15 @@ function LiquidGlassButton({
   title,
   ariaLabel,
   disabled,
+  active,
   onClick,
   children,
 }: {
   title: string
   ariaLabel: string
   disabled?: boolean
+  /** 开关态高亮（随机排序等 toggle 类按钮） */
+  active?: boolean
   onClick: () => void
   children: ReactNode
 }) {
@@ -604,7 +607,11 @@ function LiquidGlassButton({
       disabled={disabled}
       title={title}
       aria-label={ariaLabel}
-      className="bili-liquid-btn lt-blur-surface flex h-11 w-11 items-center justify-center rounded-full"
+      aria-pressed={active}
+      className={cn(
+        'bili-liquid-btn lt-blur-surface flex h-11 w-11 items-center justify-center rounded-full',
+        active && 'bili-liquid-btn-active'
+      )}
     >
       {children}
     </button>
@@ -931,6 +938,33 @@ export function MusicBilibiliPage({
   /** 加载序号：快速切换分区/翻页时丢弃过期响应，防止旧结果覆盖新状态 */
   const loadSeqRef = useRef(0)
 
+  /** ===== 随机排序模式（右下角 Shuffle 开关） =====
+   *  开启后：搜索/分类路径的页码从 200 页池子随机抽取（等效于把全部
+   *  虚拟页打散随机取一批），且当页内容打乱顺序；翻页按钮 = 再随机一批。
+   *  关闭后回到第 1 页顺序排列。切分类/搜索词变化时保持开关状态 */
+  const [randomMode, setRandomMode] = useState(false)
+  /** 搜索/分类路径（页码池 = SEARCH_MAX_PAGES 的 200 页虚拟页） */
+  const searchLikeMode =
+    biliSearchKeyword != null || (tab === 'region' && regionTag != null)
+  /** Fisher-Yates 打乱（随机模式专用；关闭时原样返回） */
+  const shuffleList = useCallback(
+    <T,>(list: T[]): T[] => {
+      if (!randomMode) return list
+      const arr = [...list]
+      for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1))
+        ;[arr[i], arr[j]] = [arr[j], arr[i]]
+      }
+      return arr
+    },
+    [randomMode]
+  )
+  /** 随机抽一页（搜索/分类路径在 1..SEARCH_MAX_PAGES 内取） */
+  const randomVirtualPage = useCallback(
+    () => 1 + Math.floor(Math.random() * SEARCH_MAX_PAGES),
+    []
+  )
+
   const load = useCallback(
     async (target: BiliTab, folderId?: number | null) => {
       setError(null)
@@ -945,7 +979,9 @@ export function MusicBilibiliPage({
       if (biliSearchKeyword) {
         cacheKey = biliKwCacheKey(biliSearchKeyword, pageNo)
         applyEntries = (raw, total) => {
-          setItems(withCoverProxy(filterByBlockWords(raw, blockWords)))
+          setItems(
+            shuffleList(withCoverProxy(filterByBlockWords(raw, blockWords)))
+          )
           setTotal(total)
         }
       } else if (target === 'region') {
@@ -955,20 +991,22 @@ export function MusicBilibiliPage({
           cacheKey = biliRtCacheKey(regionTag, pageNo)
           applyEntries = (raw, total, maxSourceLen) => {
             setPageFull(maxSourceLen >= PAGE_SIZE_SEARCH)
-            setItems(withCoverProxy(raw))
+            setItems(shuffleList(withCoverProxy(raw)))
             setTotal(total)
           }
         } else {
           cacheKey = biliRankCacheKey(pageNo)
           applyEntries = (raw, total) => {
-            setItems(withCoverProxy(raw))
+            setItems(shuffleList(withCoverProxy(raw)))
             setTotal(total)
           }
         }
       } else if (target === 'custom' && activeCustomTab) {
         cacheKey = `custom:${activeCustomTab.id}|${pageNo}`
         applyEntries = (raw, total) => {
-          setItems(withCoverProxy(filterByBlockWords(raw, blockWords)))
+          setItems(
+            shuffleList(withCoverProxy(filterByBlockWords(raw, blockWords)))
+          )
           setTotal(total)
         }
       }
@@ -979,8 +1017,10 @@ export function MusicBilibiliPage({
         applyEntries(cached.items, cached.total, cached.maxSourceLen)
         setLoading(false)
         showedCache = true
-        // 新鲜缓存直接返回（切换分区秒开）；过期缓存继续回源刷新
-        if (Date.now() - cached.at < BILI_LIST_CACHE_FRESH_MS) return
+        // 新鲜缓存直接返回（切换分区秒开）；过期缓存继续回源刷新。
+        // 随机模式跳过新鲜缓存直返——保证每次翻页/开关都是新一批体验
+        if (Date.now() - cached.at < BILI_LIST_CACHE_FRESH_MS && !randomMode)
+          return
       } else {
         setLoading(true)
       }
@@ -1085,7 +1125,7 @@ export function MusicBilibiliPage({
             pageNo
           )
           if (seq !== loadSeqRef.current) return
-          setItems(withCoverProxy(fav.items))
+          setItems(shuffleList(withCoverProxy(fav.items)))
           setTotal(fav.total)
         }
       } catch (err) {
@@ -1103,6 +1143,8 @@ export function MusicBilibiliPage({
     },
     [
       withCoverProxy,
+      shuffleList,
+      randomMode,
       biliSearchKeyword,
       pageNo,
       regionTag,
@@ -1856,17 +1898,21 @@ export function MusicBilibiliPage({
       ? (regionTags.find((t) => t.name === categoryBlockEditName) ?? null)
       : null
 
-  /** 随机页跳转：total 已知时在 [1, totalPages] 内随机；未知时在
-   *  [1, 当前页+100] 内随机（深处空页显示空态可回退）；避开当前页 */
-  const handleRandomPage = useCallback(() => {
-    const maxPage = totalPages ?? pageNo + 100
-    if (maxPage <= 1) return
-    let next = pageNo
-    while (next === pageNo) {
-      next = 1 + Math.floor(Math.random() * maxPage)
-    }
-    setPageNo(next)
-  }, [totalPages, pageNo])
+  /** 开关切换：开启立即随机加载一批，关闭回到第 1 页顺序排列
+   *  （randomMode 变化会使 load 重建 → effect 自动重新加载） */
+  const handleToggleRandomMode = useCallback(() => {
+    setRandomMode((prev) => {
+      const next = !prev
+      if (next) {
+        message.info('已开启随机排序：翻页将随机抽取一批视频并打乱顺序')
+        setPageNo(searchLikeMode ? randomVirtualPage() : 1)
+      } else {
+        message.info('已恢复顺序排列')
+        setPageNo(1)
+      }
+      return next
+    })
+  }, [searchLikeMode, randomVirtualPage])
 
   return (
     <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-[calc(112px+env(safe-area-inset-bottom))] max-md:pt-4">
@@ -2775,7 +2821,8 @@ export function MusicBilibiliPage({
         </div>
 
         {/* 分页条（滑到列表底部可见）：上一页 / 页码 / 下一页。
-            total 未知时按「本页拉满 = 可能还有下一页」估算 */}
+            total 未知时按「本页拉满 = 可能还有下一页」估算；
+            随机模式下上下页按钮均为「随机一批」 */}
         {!loading &&
           !error &&
           items.length > 0 &&
@@ -2783,43 +2830,56 @@ export function MusicBilibiliPage({
             <div className="mt-8 flex items-center justify-center gap-3 pb-2">
               <button
                 type="button"
-                onClick={() => setPageNo((p) => Math.max(1, p - 1))}
-                disabled={pageNo <= 1}
+                onClick={() =>
+                  randomMode && searchLikeMode
+                    ? setPageNo(randomVirtualPage())
+                    : setPageNo((p) => Math.max(1, p - 1))
+                }
+                disabled={
+                  (!(randomMode && searchLikeMode) && pageNo <= 1) || loading
+                }
                 className="rounded-full px-4 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
                 style={{
                   border:
                     '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
                   color: 'var(--md-sys-color-on-surface)',
                 }}
-                title="上一页"
+                title={randomMode && searchLikeMode ? '随机一批' : '上一页'}
               >
-                上一页
+                {randomMode && searchLikeMode ? '随机一批' : '上一页'}
               </button>
               <span className="text-sm font-bold tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                第 {pageNo} 页
-                {totalPages != null ? ` · 共 ${totalPages} 页` : ''}
+                {randomMode && searchLikeMode
+                  ? `随机第 ${pageNo} 页`
+                  : `第 ${pageNo} 页${totalPages != null ? ` · 共 ${totalPages} 页` : ''}`}
               </span>
               <button
                 type="button"
-                onClick={() => setPageNo((p) => p + 1)}
-                disabled={!hasNextPage}
+                onClick={() =>
+                  randomMode && searchLikeMode
+                    ? setPageNo(randomVirtualPage())
+                    : setPageNo((p) => p + 1)
+                }
+                disabled={
+                  (!(randomMode && searchLikeMode) && !hasNextPage) || loading
+                }
                 className="rounded-full px-4 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 active:scale-95 disabled:cursor-not-allowed disabled:opacity-35"
                 style={{
                   border:
                     '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
                   color: 'var(--md-sys-color-on-surface)',
                 }}
-                title="下一页"
+                title={randomMode && searchLikeMode ? '随机一批' : '下一页'}
               >
-                下一页
+                {randomMode && searchLikeMode ? '随机一批' : '下一页'}
               </button>
             </div>
           )}
       </div>
 
       {/* 右下角悬浮工具组（液态玻璃）：上一页 / 页码（点击可键盘输入页码
-          跳转）/ 下一页 / 随机 / 刷新；统一 44px 圆形（bottom 避开底部
-          悬浮播放条；分页控件与底部分页条同条件显示） */}
+          跳转）/ 下一页 / 随机排序开关 / 刷新；统一 44px 圆形（bottom 避开
+          底部悬浮播放条；分页控件与底部分页条同条件显示） */}
       <div
         className="fixed right-5 z-20 flex flex-col items-center gap-2 max-md:right-4"
         style={{ bottom: 'calc(104px + env(safe-area-inset-bottom))' }}
@@ -2827,10 +2887,16 @@ export function MusicBilibiliPage({
         {items.length > 0 && (pageNo > 1 || hasNextPage) && (
           <>
             <LiquidGlassButton
-              title="上一页"
-              ariaLabel="上一页"
-              disabled={pageNo <= 1 || loading}
-              onClick={() => setPageNo((p) => Math.max(1, p - 1))}
+              title={randomMode && searchLikeMode ? '随机一批' : '上一页'}
+              ariaLabel={randomMode && searchLikeMode ? '随机一批' : '上一页'}
+              disabled={
+                (!(randomMode && searchLikeMode) && pageNo <= 1) || loading
+              }
+              onClick={() =>
+                randomMode && searchLikeMode
+                  ? setPageNo(randomVirtualPage())
+                  : setPageNo((p) => Math.max(1, p - 1))
+              }
             >
               <ChevronUp className="h-[18px] w-[18px]" />
             </LiquidGlassButton>
@@ -2874,23 +2940,37 @@ export function MusicBilibiliPage({
               </LiquidGlassButton>
             )}
             <LiquidGlassButton
-              title="下一页"
-              ariaLabel="下一页"
-              disabled={!hasNextPage || loading}
-              onClick={() => setPageNo((p) => p + 1)}
+              title={randomMode && searchLikeMode ? '随机一批' : '下一页'}
+              ariaLabel={randomMode && searchLikeMode ? '随机一批' : '下一页'}
+              disabled={
+                (!(randomMode && searchLikeMode) && !hasNextPage) || loading
+              }
+              onClick={() =>
+                randomMode && searchLikeMode
+                  ? setPageNo(randomVirtualPage())
+                  : setPageNo((p) => p + 1)
+              }
             >
               <ChevronDown className="h-[18px] w-[18px]" />
             </LiquidGlassButton>
-            <LiquidGlassButton
-              title="随机跳转一页"
-              ariaLabel="随机跳转一页"
-              disabled={loading}
-              onClick={handleRandomPage}
-            >
-              <Dices className="h-[18px] w-[18px]" />
-            </LiquidGlassButton>
           </>
         )}
+        {/* 随机排序开关（始终可见）：开启后搜索/分类路径从 200 页池随机
+            抽取一批并打乱当页顺序，翻页 = 再随机一批 */}
+        <LiquidGlassButton
+          title={
+            randomMode
+              ? '随机排序：开（点击恢复顺序排列）'
+              : '随机排序：关（开启后翻页随机抽取一批视频并打乱顺序）'
+          }
+          ariaLabel="切换随机排序"
+          active={randomMode}
+          onClick={handleToggleRandomMode}
+        >
+          <Shuffle
+            className={cn('h-[18px] w-[18px]', loading && 'opacity-70')}
+          />
+        </LiquidGlassButton>
         <LiquidGlassButton
           title="刷新"
           ariaLabel="刷新列表"

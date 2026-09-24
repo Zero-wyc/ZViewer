@@ -219,10 +219,12 @@ function cleanTitle(title: string): string {
 /**
  * B站 搜索分页的排序分片：单一排序最多翻 50 页（numResults 封顶 1000、
  * numPages 封顶 50，是 B站 接口硬限制）。超过 50 页后按排序维度分片继续，
- * 每种排序各 50 页，虚拟页共 250 页可翻。
+ * 每种排序各 50 页，虚拟页共 200 页可翻。
+ * 「最新发布」（pubdate）分片不参与合并——时间线跳变过于突兀（页与页之间
+ * 内容新旧无序），对刷分类场景体验差。
  */
 export const SEARCH_PAGES_PER_ORDER = 50;
-export const SEARCH_ORDER_SHARDS = ['', 'click', 'pubdate', 'dm', 'stow'] as const;
+export const SEARCH_ORDER_SHARDS = ['', 'click', 'dm', 'stow'] as const;
 export const SEARCH_MAX_PAGES = SEARCH_ORDER_SHARDS.length * SEARCH_PAGES_PER_ORDER;
 
 /** 虚拟页 → (排序 order, 真实页码)：空串 = 综合排序（不传 order 参数） */
