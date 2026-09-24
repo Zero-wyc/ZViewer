@@ -513,8 +513,16 @@ const biliRankCacheKey = (pn: number) => `rank:3|v2|${pn}`
 const biliRtCacheKey = (tag: RegionTagEntry, pn: number) =>
   `rt:v2|${tag.name}|${JSON.stringify(tag.tags ?? null)}|${pn}`
 
-/** 分区条目单页取数：聚合词按来源并行搜索/标签检索，bvid 去重合并
- * （加载与预取共用；预取经后端缓存预热，切换分区时前端直接命中） */
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** 分区条目单页取数：聚合词按来源**串行**搜索/标签检索（词间 350ms +
+ *  全空 800ms 后自动重试一次），bvid 去重合并。
+ *
+ *  原实现多词 Promise.allSettled 并行——一个分类 2-4 个词、跳页补齐最多
+ *  4 轮 = 单次翻页最多 16 个 WBI 搜索请求，极易触发 B站 搜索风控（返回
+ *  空结果/拒绝），表现为「翻下一页后列表空白，要点好几次刷新才出视频」。
+ *  串行 + 延迟显著降低风控触发；全空自动重试掩盖偶发失败。
+ *  （加载与预取共用；预取经后端缓存预热，切换分区时前端直接命中） */
 async function fetchRegionTagPage(
   tag: RegionTagEntry,
   pageNo: number
@@ -524,25 +532,46 @@ async function fetchRegionTagPage(
   maxSourceLen: number
 }> {
   const aggRules = getRegionRules(tag).filter((r) => r.role === 'aggregate')
-  const searchWords = aggRules
-    .filter((r) => r.source !== 'btag')
-    .map((r) => r.word)
-  const btagWords = aggRules
-    .filter((r) => r.source !== 'search')
-    .map((r) => r.word)
-  const results = await Promise.allSettled([
-    ...searchWords.map((w) => searchBilibiliVideos(w, pageNo, 'search')),
-    ...btagWords.map((w) => searchBilibiliVideos(w, pageNo, 'tag')),
-  ])
+  const jobs: { word: string; mode: 'search' | 'tag' }[] = [
+    ...aggRules
+      .filter((r) => r.source !== 'btag')
+      .map((r) => ({ word: r.word, mode: 'search' as const })),
+    ...aggRules
+      .filter((r) => r.source !== 'search')
+      .map((r) => ({ word: r.word, mode: 'tag' as const })),
+  ]
+
+  const runOnce = async () => {
+    const results: { items: BilibiliVideoItem[]; total: number | null }[] = []
+    for (let i = 0; i < jobs.length; i++) {
+      // 词间间隔：连续高频 WBI 搜索是风控触发的主因
+      if (i > 0) await sleep(350)
+      try {
+        results.push(
+          await searchBilibiliVideos(jobs[i].word, pageNo, jobs[i].mode)
+        )
+      } catch {
+        // 单词失败（风控/网络）容忍：其他词仍可撑起本页
+      }
+    }
+    return results
+  }
+
+  let results = await runOnce()
+  if (results.length === 0) {
+    // 全部词失败（典型为风控）：延迟后自动重试一次
+    await sleep(800)
+    results = await runOnce()
+  }
+
   const merged: BilibiliVideoItem[] = []
   const seen = new Set<string>()
   let maxSourceLen = 0
   let total: number | null = null
   for (const r of results) {
-    if (r.status !== 'fulfilled') continue
-    maxSourceLen = Math.max(maxSourceLen, r.value.items.length)
-    if (total == null) total = r.value.total
-    for (const it of r.value.items) {
+    maxSourceLen = Math.max(maxSourceLen, r.items.length)
+    if (total == null) total = r.total
+    for (const it of r.items) {
       if (!seen.has(it.bvid)) {
         seen.add(it.bvid)
         merged.push(it)
@@ -984,6 +1013,7 @@ export function MusicBilibiliPage({
           let maxSourceLen = 0
           let hasMore = true
           for (let hop = 0; hop < REGION_HOP_MAX_PAGES && hasMore; hop++) {
+            if (hop > 0) await sleep(300) // 跳页页间间隔，进一步降低风控触发
             if (regionTag) {
               const r = await fetchRegionTagPage(regionTag, pn)
               if (seq !== loadSeqRef.current) return
@@ -1014,6 +1044,11 @@ export function MusicBilibiliPage({
               maxSourceLen,
               at: Date.now(),
             })
+          } else if (!showedCache) {
+            // 重试后仍为空：给出明确反馈而不是静默渲染空白页
+            message.info(
+              `第 ${pageNo} 页暂无匹配内容（可能被屏蔽词过滤或接口限流），请稍后刷新重试`
+            )
           }
           setPageFull(maxSourceLen >= PAGE_SIZE_SEARCH)
           applyEntries(collected, total, maxSourceLen)
