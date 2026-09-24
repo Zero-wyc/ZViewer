@@ -3806,24 +3806,38 @@ function ListenTogetherInner({
                 'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
                 isPortraitMobile ? 'w-full flex-1' : 'h-full flex-1'
               )}
+              // 整块面板在歌词就绪前不显示（visibility 而非 opacity/transform：
+              // 容器一旦带 opacity<1 或 transform 就成为 Backdrop Root，后代
+              // 冰霜层的 backdrop-filter 采样不到面板外背景，玻璃底会渲染成
+              // 不透明白壳——本项目反复踩中的陷阱）。先藏住整块空面板，等
+              // lyricRevealed 翻转后再让冰霜层与内容各自淡入，见下方
+              style={{
+                visibility:
+                  rightPanelMode === 1 || lyricRevealed ? 'visible' : 'hidden',
+              }}
             >
-              {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡 */}
+              {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡。
+                  歌词就绪后由 lt-lyric-panel-in 淡入——面板的「展开」由此层
+                  呈现（玻璃面先出现），内容随后在 0.25s 后跟上，避免现在
+                  「先露半展开空壳、再突然弹歌词」的突兀感 */}
               <div
                 aria-hidden="true"
-                className="lt-blur-surface pointer-events-none absolute inset-0"
+                className="lt-blur-surface lt-lyric-panel-in pointer-events-none absolute inset-0"
                 style={{
                   backdropFilter: 'blur(12px)',
                   WebkitBackdropFilter: 'blur(12px)',
                 }}
               />
               {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层。
-                  展开动画（lt-lyric-view-in）必须挂在本层而不能挂面板容器：
-                  容器带 transform/opacity 时成为 Backdrop Root，冰霜层
-                  backdrop-filter 采样不到面板外背景，展开动画期间玻璃底
-                  会渲染成不透明白框、结束后突然变回毛玻璃（突兀闪变）。
-                  动画只淡入内容层，冰霜层常驻正常采样 */}
+                  展开动画必须挂在本层而不能挂面板容器：容器带 transform/
+                  opacity 时会成为 Backdrop Root，冰霜层 backdrop-filter
+                  采样不到面板外背景，展开动画期间玻璃底会渲染成不透明白框、
+                  结束后突然变回毛玻璃（突兀闪变）。
+                  时序：冰霜层先淡入（面板玻璃面展开）→ 本层延迟 0.25s 后
+                  淡入（歌词浮现），形成「面板先张开、歌词再显现」的两段式，
+                  避免旧版「半展开空壳僵住 → 歌词突然弹出」的突兀演出 */}
               <div
-                className="lt-lyric-view-in relative flex min-h-0 min-w-0 flex-col"
+                className="lt-lyric-content-in relative flex min-h-0 min-w-0 flex-col"
                 style={uiFade < 1 ? { opacity: uiFade } : undefined}
               >
                 <div

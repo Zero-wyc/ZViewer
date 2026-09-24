@@ -1727,23 +1727,45 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 
-/* 手机竖屏歌词视图入场（歌词按钮切换）：淡入 + 轻微上移，缓动与项目
-   歌词/面板动画语言一致（cubic-bezier(0.3,0,0.12,1)，参照 fm-content-reveal） */
-@keyframes lt-lyric-view-in {
+/* ===== 歌词面板两段式入场（2026-09-24）：面板先「张开」、歌词再「浮现」 =====
+   旧版问题：面板挂载即渲染（四角方块 + 空灰白底先出现），滚动区仅
+   visibility:hidden 等歌词，动画 0.45s 早已演完、面板就一直以「半展开
+   空壳」僵在原地，歌词到手后突然整块弹出，非常突兀。
+   现改为以 lyricRevealed 为闸门：整块面板 visibility 先隐藏，歌词就绪后
+   ①冰霜层 lt-lyric-panel-in 淡入（玻璃面张开）②内容层延迟 0.25s
+   lt-lyric-content-in 淡入（歌词浮现）。
+   注意：动画只做 opacity，且各层各自独立，**绝不能给面板容器加
+   opacity/transform**——那会让容器成为 Backdrop Root，后代冰霜层的
+   backdrop-filter 采样失效（本项目已踩三次的陷阱）。 */
+@keyframes lt-lyric-panel-in {
   from {
     opacity: 0;
-    transform: translateY(12px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
   }
 }
-.lt-lyric-view-in {
-  /* backwards 同 .player-card-in：终帧 translateY(0) 与自然状态一致，
-     both 会在动画结束后永久保持 transform → 面板成为 Backdrop Root，
-     冰霜层采样不到面板外背景，手机竖屏歌词视图毛玻璃丢失 */
-  animation: lt-lyric-view-in 0.45s cubic-bezier(0.3, 0, 0.12, 1) backwards;
+.lt-lyric-panel-in {
+  animation: lt-lyric-panel-in 0.3s ease-out backwards;
+}
+@keyframes lt-lyric-content-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lt-lyric-content-in {
+  animation: lt-lyric-content-in 0.4s cubic-bezier(0.3, 0, 0.12, 1) 0.25s
+    backwards;
+}
+/* 无动画偏好：两段式退化为立即显示 */
+@media (prefers-reduced-motion: reduce) {
+  .lt-lyric-panel-in,
+  .lt-lyric-content-in {
+    animation: none;
+  }
 }
 
 /* 歌词播放页工具图标浅阴影（一起听桌面 song-control 悬浮栏 + 手机竖屏
