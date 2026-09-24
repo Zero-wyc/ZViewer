@@ -157,6 +157,24 @@ function DirectSharePage() {
         pc.addTrack(track, stream)
       })
 
+      // 编码端参数：与 WebrtcSharePage 保持一致，防止 Firefox 在带宽/编码
+      // 压力下按 libwebrtc 1.5× 步进降分辨率（1080p 一步降到 720p 并长期
+      // 保持）。屏幕共享以清晰度优先，受限时降帧率而非降分辨率。
+      const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video')
+      if (videoSender) {
+        try {
+          const params = videoSender.getParameters()
+          if (!params.encodings || params.encodings.length === 0) {
+            params.encodings = [{}]
+          }
+          params.encodings[0].scaleResolutionDownBy = 1
+          params.degradationPreference = 'maintain-resolution'
+          await videoSender.setParameters(params)
+        } catch (err) {
+          console.warn('[DirectSharePage] set sender parameters error:', err)
+        }
+      }
+
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           candidateQueueRef.current.push(event.candidate.toJSON())

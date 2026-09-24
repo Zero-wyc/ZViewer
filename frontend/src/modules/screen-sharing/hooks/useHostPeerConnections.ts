@@ -12,8 +12,9 @@ import type {
  * 根据目标帧率计算推荐最低码率（bps）。
  *
  * 码率不足是 60fps 无法维持的首要原因：编码器在带宽受限时会主动降帧
- * 来维持单帧画质。degradationPreference='maintain-framerate' 可让编码器
- * 优先降画质，但仍需保证最低码率阈值。
+ * 来维持单帧画质。degradationPreference='maintain-resolution' 让编码器
+ * 在受限时优先降帧率而非降分辨率（屏幕共享以清晰度优先），但仍需保证
+ * 最低码率阈值。
  *
  * 参考值（1080p）：
  * - 15fps: 4 Mbps
@@ -236,8 +237,6 @@ export function useHostPeerConnections(
       // 参考 WebRTC 官方推荐码率：
       // - 1080p 30fps: 6-10 Mbps
       // - 1080p 60fps: 14-20 Mbps
-      // 码率不足时编码器会优先丢帧来维持画质，degradationPreference='maintain-framerate'
-      // 可让编码器优先降画质而非降帧，但仍需保证最低码率
       const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video')
       if (videoSender) {
         try {
@@ -253,8 +252,18 @@ export function useHostPeerConnections(
             recommendedMinBitrate
           )
           params.encodings[0].maxFramerate = frameRate
-          // maintain-framerate: 带宽不足时优先降低画质/分辨率，保持帧率
-          params.degradationPreference = 'maintain-framerate'
+          // 显式钉死初始缩放系数为 1（Firefox 46+ 支持），不给浏览器
+          // "开局即降采样"的空间；动态自适应仍由 degradationPreference 决定
+          params.encodings[0].scaleResolutionDownBy = 1
+          // maintain-resolution: 带宽/编码算力不足时降帧率、保持分辨率。
+          //
+          // 修复 Firefox 720p 问题：此前用 maintain-framerate，Firefox
+          // (138 起实装 setParameters 的该参数)会在带宽或编码压力下按
+          // libwebrtc 1.5× 步进降分辨率——1920x1080 一步降到 1280x720 并
+          // 因带宽估计迟滞长期保持。改为 maintain-resolution 后编码器
+          // 只降帧率不降分辨率，对"一起看电影"场景清晰度优先更合理。
+          // （Firefox <138 忽略该参数退回 balanced，当前发行版均已 >=138）
+          params.degradationPreference = 'maintain-resolution'
           await videoSender.setParameters(params)
           console.log(
             '[useHostPeerConnections] sender params set:',
