@@ -67,6 +67,7 @@ import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
 import { useMusicStore } from '../store'
+import { useThemeStore } from '@/store/themeStore'
 import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
@@ -1309,6 +1310,8 @@ function ListenTogetherInner({
   // 横屏矮窗口（手机横屏全屏 / 桌面矮窗口）：桌面布局的固定大 padding
   // 在矮视口下吃掉近 40% 高度，切紧凑间距
   const isLandscapeShort = useIsLandscapeShort()
+  // 深浅主题：浅色下播放卡信息层文字恒黑（见卡容器变量覆盖注释）
+  const isDark = useThemeStore((s) => s.isDark)
 
   // ===== 手机横屏 song-control 工具栏：默认隐藏，触摸屏幕任意处亮起 3s =====
   // 触屏无 hover，原 lt-touch-visible 常显会让工具栏常驻压在歌词面板上
@@ -2778,11 +2781,12 @@ function ListenTogetherInner({
               {
                 padding: '16px 12px',
                 paddingBottom: '4vh',
-                // 竖屏播放卡信息层文字（时间/歌手/音量/进度/三键）恒黑高对比：
-                // 卡底已恒亮白（见内层 tint），文字若随深浅主题/对比度自适应
-                // 翻转，会出现浅底浅字的失配（Monet on-surface 偏灰观感更差）。
-                // 仅竖屏生效——桌面/横屏卡底跟随主题 surface，维持原生配色
-                ...(isPortraitMobile
+                // 播放卡信息层文字（时间/歌手/音量/进度/三键）黑色高对比：
+                // - 竖屏：恒黑——卡底恒亮白玻璃底（见内层 tint 注释），
+                //   不随主题/封面翻转，任何场景黑字都成立
+                // - 桌面/横屏：浅色主题恒黑（亮 surface 卡底配 Monet 灰字
+                //   可读性差），深色主题卡底为暗 surface 维持原生浅字
+                ...(isPortraitMobile || !isDark
                   ? {
                       '--md-sys-color-on-surface': '#1a1a1c',
                       '--md-sys-color-on-surface-variant': '#49454f',
