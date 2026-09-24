@@ -12,7 +12,7 @@
  * 内部 useMusicPlayer()：MusicPlayerProvider 已由 RoomPage/WatchPage 包裹，
  * 组件保留与 ListenTogetherPanel 相同的"外层实例复用检测"（无外层时自建）。
  */
-import { useContext, useEffect, useRef, useState } from 'react'
+import { useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { Check, ChevronDown, X } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
@@ -125,6 +125,29 @@ function ShellInner({
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
   // 带滑出动画的覆盖层关闭（0.5s 滑出后卸载）
   const closePlayerOverlay = useMusicStore((s) => s.closePlayerOverlay)
+
+  // ===== 播放器覆盖层右上角收起按钮：触摸显形（3s 后隐藏） =====
+  // 触屏无 hover，原 lt-touch-visible 常显会让按钮常驻压在歌词首行上
+  // （手机横屏歌词页占满时尤其明显）；桌面鼠标悬停右上角区域的
+  // group-hover/hide 显形逻辑保留
+  const [overlayCloseVisible, setOverlayCloseVisible] = useState(false)
+  const overlayCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  const flashOverlayClose = useCallback(() => {
+    setOverlayCloseVisible(true)
+    if (overlayCloseTimerRef.current) clearTimeout(overlayCloseTimerRef.current)
+    overlayCloseTimerRef.current = setTimeout(
+      () => setOverlayCloseVisible(false),
+      3000
+    )
+  }, [])
+  useEffect(() => {
+    return () => {
+      if (overlayCloseTimerRef.current)
+        clearTimeout(overlayCloseTimerRef.current)
+    }
+  }, [])
 
   // 挂载时恢复网易云登录态：useNcmLogin 挂载即调 /api/music/login/status 并
   // 写入 useMusicStore。登录态是内存态（刷新即丢），而扫码弹窗（hook 的唯一
@@ -406,6 +429,7 @@ function ShellInner({
           整页从视口底部滑入 / 滑出，对应 Hydrogen .player 过渡） ===== */}
       {playerOverlayOpen && (
         <div
+          onPointerDown={flashOverlayClose}
           className={
             playerOverlayClosing
               ? 'player-slide-out absolute inset-0 z-40'
@@ -419,13 +443,21 @@ function ShellInner({
             username={username}
             canManage={canManage}
           />
-          {/* 右上角收起按钮（滑出动画结束后卸载）：默认隐藏，
-              鼠标移到其区域上方才显示（键盘聚焦/触屏设备常显——
-              手机无 hover，若仅 hover 显形会导致覆盖层无法收起） */}
-          <div className="group/hide absolute right-4 top-4 z-[70] h-16 w-16 max-md:right-3 max-md:top-3">
+          {/* 右上角收起按钮（滑出动画结束后卸载）：手机上默认完全隐藏
+              （触摸屏幕任意处亮起 3s——触屏无 hover 且常显会压在歌词
+              首行上），桌面保持 hover 区域显形；显形时带圆形毛玻璃底，
+              横屏歌词页占满时也不显「错位悬浮字」 */}
+          <div className="group/hide absolute right-3 top-3 z-[70] h-16 w-16 max-md:right-2 max-md:top-2">
             <button
               type="button"
-              className="lt-touch-visible flex h-9 w-9 items-center justify-center text-[var(--md-sys-color-on-surface)] opacity-0 transition-opacity group-focus-within/hide:opacity-100 group-hover/hide:opacity-100 hover:opacity-70 active:scale-90"
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-all duration-200 active:scale-90',
+                overlayCloseVisible
+                  ? 'pointer-events-auto opacity-100 shadow-sm backdrop-blur-md'
+                  : 'pointer-events-none opacity-0 group-hover/hide:pointer-events-auto group-hover/hide:opacity-100',
+                overlayCloseVisible &&
+                  'bg-[color-mix(in_srgb,var(--md-sys-color-surface)_60%,transparent)]'
+              )}
               onClick={closePlayerOverlay}
               title="收起播放器"
               aria-label="收起播放器"
