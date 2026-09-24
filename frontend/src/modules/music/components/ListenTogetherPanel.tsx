@@ -3784,8 +3784,13 @@ function ListenTogetherInner({
               className={cn(
                 'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
                 isPortraitMobile
-                  ? 'lt-lyric-view-in w-full flex-1'
-                  : 'ml-[50px] h-full w-[calc(100%-var(--lt-card-w)-50px)]'
+                  ? 'w-full flex-1'
+                  : cn(
+                      'h-full w-[calc(100%-var(--lt-card-w)-50px)]',
+                      // 横屏矮窗口主容器已有 gap-[50px]（song-control 悬出
+                      // 间隙），这里不再重复 ml-[50px]，面板宽度也无需再扣
+                      isLandscapeShort && 'ml-0 w-[calc(100%-var(--lt-card-w))]'
+                    )
               )}
             >
               {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡 */}
@@ -3797,9 +3802,14 @@ function ListenTogetherInner({
                   WebkitBackdropFilter: 'blur(12px)',
                 }}
               />
-              {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层 */}
+              {/* UI 图层：底色 + 歌词/评论区整体淡出，背后是冰霜层。
+                  展开动画（lt-lyric-view-in）必须挂在本层而不能挂面板容器：
+                  容器带 transform/opacity 时成为 Backdrop Root，冰霜层
+                  backdrop-filter 采样不到面板外背景，展开动画期间玻璃底
+                  会渲染成不透明白框、结束后突然变回毛玻璃（突兀闪变）。
+                  动画只淡入内容层，冰霜层常驻正常采样 */}
               <div
-                className="relative flex min-h-0 min-w-0 flex-col"
+                className="lt-lyric-view-in relative flex min-h-0 min-w-0 flex-col"
                 style={uiFade < 1 ? { opacity: uiFade } : undefined}
               >
                 <div
