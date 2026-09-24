@@ -2744,9 +2744,9 @@ function ListenTogetherInner({
               'flex-col justify-start gap-2.5 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-16',
             // 横屏矮窗口（手机横屏全屏歌词页）：固定 pt-95px/pb-60px 会吃掉
             // 近 40% 高度——收紧为固定小间距，把空间还给卡片与歌词面板；
-            // gap 50px 让 song-control 的 50px 悬浮工具栏落在两栏间隙内，
-            // 不再压在歌词面板文本上（触摸屏幕任意处亮起工具栏 3s）
-            isLandscapeShort && 'gap-[50px] px-4 pb-5 pt-9',
+            // song-control 的 50px 专列由播放卡右侧恒定 mr 预留（见卡片
+            // 注释），不依赖本容器 gap（触摸屏幕任意处亮起工具栏 3s）
+            isLandscapeShort && 'px-4 pb-5 pt-9',
             immersive && 'invisible'
           )}
           style={
@@ -2775,7 +2775,14 @@ function ListenTogetherInner({
                     'w-full max-w-[420px] self-center',
                     mobileLyricView ? 'hidden' : 'flex-1'
                   )
-                : 'w-[var(--lt-card-w)] max-w-[calc(100%-2rem)]'
+                : cn(
+                    // 右侧恒定 mr-[50px] = song-control 工具栏专列：无论
+                    // 工具栏显隐，这 50px 都结构化保留空置（工具栏 absolute
+                    // 悬出区恰好落在列内），歌词面板 flex-1 只占剩余宽度，
+                    // 任何模式下都不与歌词文本重叠（旧版依赖面板 ml/gap
+                    // 间接让位，桌面 ml 丢失后整列压在歌词上）
+                    'mr-[50px] w-[var(--lt-card-w)] max-w-[calc(100%-50px-2rem)]'
+                  )
             )}
             style={
               {
@@ -2818,10 +2825,12 @@ function ListenTogetherInner({
               aria-hidden="true"
             />
 
-            {/* song-control 悬浮工具栏（Hydrogen .song-control：绝对定位悬出
-                卡片右侧 50px，正好落在左卡与右卡的间隙内；显示模式同
-                Hydrogen——基态 opacity:0 常隐，鼠标悬停卡片/工具栏区域时
-                重播「信号灯」闪烁动画并以 both 定格在可见，移开即隐。
+            {/* song-control 工具栏（Hydrogen .song-control：绝对定位悬出
+                卡片右侧 50px，落进播放卡恒定 mr-[50px] 预留的专列内——
+                该列无论工具栏显隐都结构化保留空置，歌词面板永不与其重叠；
+                显示模式同 Hydrogen——基态 opacity:0 常隐（列空置），鼠标
+                悬停卡片/工具栏区域时重播「信号灯」闪烁动画并以 both 定格
+                在可见，移开即隐（列恢复空置）。
                 挂在**外层**（内层 overflow-hidden 会裁掉悬出部分）。
                 图标集为原版 SVG：歌词显隐 / 罗马音 / 翻译 / 原词开关
                 （歌词三项有对应数据才显示）+ 纯净模式（背景视频就绪时）+
@@ -2834,10 +2843,10 @@ function ListenTogetherInner({
               onPointerDown={flashLandscapeToolbar}
               className={cn(
                 'lt-icon-outline absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)]',
-                // 显隐模式：桌面 = Hydrogen 同款（基态常隐 + hover 信号灯
-                // 动画定格可见 + 触屏常显兜底）；手机横屏 = 默认隐藏，
-                // 触摸屏幕任意处亮起 3s 后淡出（触屏无 hover，常显会
-                // 常驻压在歌词面板上——收起按钮与歌词文本重叠的根因）
+                // 显隐模式：桌面 = Hydrogen 同款（基态常隐——专列空置 +
+                // hover 信号灯动画定格可见 + 触屏常显兜底）；手机横屏 =
+                // 默认隐藏（专列照样占位空置），触摸屏幕任意处亮起 3s 后
+                // 淡出（触屏无 hover，常显会常驻压在歌词面板注意力上）
                 isLandscapeShort
                   ? cn(
                       'transition-opacity duration-300',
@@ -3777,8 +3786,10 @@ function ListenTogetherInner({
               </button>
             </div>
           )}
-          {/* ===== 右侧歌词面板（Hydrogen .right-panel：桌面宽度固定计算
-              calc(100% - 卡宽 - 50px)，卡片入场动画展开时面板保持不动；
+          {/* ===== 右侧歌词面板（Hydrogen .right-panel）：flex-1 占据播放卡
+              （含右侧 50px 工具栏专列）之外的剩余宽度——专列由卡片恒定
+              mr-[50px] 结构化预留，面板宽度与工具栏显隐无关，永不重叠；
+              卡片入场动画展开时面板保持不动。
               手机竖屏改为单列下段（flex-1 占满剩余高度）。
               评论模式下整区替换为歌曲评论区，Hydrogen rightPanelMode=1；
               与左侧播放器卡同款半透明 surface + backdrop 模糊，
@@ -3789,14 +3800,7 @@ function ListenTogetherInner({
             <div
               className={cn(
                 'relative flex min-h-0 min-w-0 flex-col overflow-hidden',
-                isPortraitMobile
-                  ? 'w-full flex-1'
-                  : cn(
-                      'h-full w-[calc(100%-var(--lt-card-w)-50px)]',
-                      // 横屏矮窗口主容器已有 gap-[50px]（song-control 悬出
-                      // 间隙），这里不再重复 ml-[50px]，面板宽度也无需再扣
-                      isLandscapeShort && 'ml-0 w-[calc(100%-var(--lt-card-w))]'
-                    )
+                isPortraitMobile ? 'w-full flex-1' : 'h-full flex-1'
               )}
             >
               {/* 冰霜层：常驻满强度毛玻璃（不随 UI 透明度淡出），同播放卡 */}
