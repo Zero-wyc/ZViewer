@@ -1309,6 +1309,37 @@ function ListenTogetherInner({
   // 横屏矮窗口（手机横屏全屏 / 桌面矮窗口）：桌面布局的固定大 padding
   // 在矮视口下吃掉近 40% 高度，切紧凑间距
   const isLandscapeShort = useIsLandscapeShort()
+
+  // ===== 手机横屏 song-control 工具栏：默认隐藏，触摸屏幕任意处亮起 3s =====
+  // 触屏无 hover，原 lt-touch-visible 常显会让工具栏常驻压在歌词面板上
+  // （收起按钮与歌词文本重叠）；桌面矮窗口命中 isLandscapeShort 时仍走
+  // group-hover 分支，不受本 state 影响
+  const [landscapeToolbarVisible, setLandscapeToolbarVisible] = useState(false)
+  const landscapeToolbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  const flashLandscapeToolbar = useCallback(() => {
+    if (!isLandscapeShort) return
+    setLandscapeToolbarVisible(true)
+    if (landscapeToolbarTimerRef.current)
+      clearTimeout(landscapeToolbarTimerRef.current)
+    landscapeToolbarTimerRef.current = setTimeout(
+      () => setLandscapeToolbarVisible(false),
+      3000
+    )
+  }, [isLandscapeShort])
+  // 离开横屏（转竖屏/桌面）时复位显隐态（渲染期 prop-change 模式）
+  const [prevLandscapeShort, setPrevLandscapeShort] = useState(isLandscapeShort)
+  if (prevLandscapeShort !== isLandscapeShort) {
+    setPrevLandscapeShort(isLandscapeShort)
+    if (!isLandscapeShort) setLandscapeToolbarVisible(false)
+  }
+  useEffect(() => {
+    return () => {
+      if (landscapeToolbarTimerRef.current)
+        clearTimeout(landscapeToolbarTimerRef.current)
+    }
+  }, [])
   // 手机竖屏歌词视图开关（工具行「歌词」按钮切换）：默认关 = 只显示播放卡
   // （卡片撑满剩余高度）；开启 = 隐藏播放卡、歌词区独占整页
   const [mobileLyricView, setMobileLyricView] = useState(false)
@@ -2701,6 +2732,7 @@ function ListenTogetherInner({
             手机竖屏切上下单列（卡片全宽居上、歌词居下）；桌面/横屏保持两栏，
             卡宽经 --lt-card-w clamp 保底（横屏矮窗口不至于压成细线） ===== */
         <div
+          onPointerDown={isLandscapeShort ? flashLandscapeToolbar : undefined}
           className={cn(
             'relative z-[1] flex h-full min-h-0 items-stretch justify-start',
             'pb-[60px] pt-[95px]',
@@ -2709,8 +2741,9 @@ function ListenTogetherInner({
               'flex-col justify-start gap-2.5 px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-16',
             // 横屏矮窗口（手机横屏全屏歌词页）：固定 pt-95px/pb-60px 会吃掉
             // 近 40% 高度——收紧为固定小间距，把空间还给卡片与歌词面板；
-            // 左右同步收紧，song-control 的 50px 悬浮间隙保留（触屏常显）
-            isLandscapeShort && 'px-4 pb-5 pt-9',
+            // gap 50px 让 song-control 的 50px 悬浮工具栏落在两栏间隙内，
+            // 不再压在歌词面板文本上（触摸屏幕任意处亮起工具栏 3s）
+            isLandscapeShort && 'gap-[50px] px-4 pb-5 pt-9',
             immersive && 'invisible'
           )}
           style={
@@ -2779,8 +2812,24 @@ function ListenTogetherInner({
                 卡片下方的水平工具行（见下方 isPortraitMobile 分支） */}
             <div
               ref={toolbarRef}
+              onPointerDown={flashLandscapeToolbar}
               className={cn(
-                'lt-icon-outline lt-touch-visible absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)] opacity-0 focus-within:opacity-100 group-hover:animate-[song-control-in_0.3s_both]',
+                'lt-icon-outline absolute bottom-[max(2vh,10px)] right-[-50px] z-[10] flex w-[50px] flex-col items-center gap-[max(3vh,14px)]',
+                // 显隐模式：桌面 = Hydrogen 同款（基态常隐 + hover 信号灯
+                // 动画定格可见 + 触屏常显兜底）；手机横屏 = 默认隐藏，
+                // 触摸屏幕任意处亮起 3s 后淡出（触屏无 hover，常显会
+                // 常驻压在歌词面板上——收起按钮与歌词文本重叠的根因）
+                isLandscapeShort
+                  ? cn(
+                      'transition-opacity duration-300',
+                      landscapeToolbarVisible
+                        ? 'opacity-100'
+                        : 'pointer-events-none opacity-0'
+                    )
+                  : cn(
+                      'lt-touch-visible opacity-0 focus-within:opacity-100',
+                      'group-hover:animate-[song-control-in_0.3s_both]'
+                    ),
                 // 限高常挂 + 滚动态开放 overflow（原因见 toolbarScrollable
                 // 声明处注释）；hide-scrollbar 隐藏滚动条保留触摸滑动
                 'max-h-full',
