@@ -1768,6 +1768,44 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   }
 }
 
+/* ===== cloud-add-in 系弹窗遮罩渐进压暗（2026-09-24） =====
+   旧版问题：弹窗挂载时遮罩（黑半透明压暗层）瞬间出现，背景「啪」一下
+   变暗；关闭时整块卸载同样瞬消。改为打开时淡入（backwards，入场约定）、
+   关闭时淡出（forwards 保持终态消失，退出动画约定）。
+   安全性：遮罩是独立层级（无 backdrop-filter 后代），opacity 动画不会
+   制造 Backdrop Root；对「蒙层包裹面板」结构（AddToPlaylistModal /
+   NcmSearchModal）动画只挂独立背景子层，蒙层容器本身不做 opacity 动画，
+   避免容器成为 Backdrop Root 使面板玻璃模糊失效。 */
+@keyframes lt-modal-dim-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.lt-modal-dim-in {
+  animation: lt-modal-dim-in 0.35s cubic-bezier(0.3, 0, 0.12, 1) backwards;
+}
+@keyframes lt-modal-dim-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.lt-modal-dim-out {
+  animation: lt-modal-dim-out 0.3s ease-in forwards;
+}
+/* 无动画偏好：遮罩立即显示/立即消失（退出卸载由 hook 的 450ms 兜底保证） */
+@media (prefers-reduced-motion: reduce) {
+  .lt-modal-dim-in,
+  .lt-modal-dim-out {
+    animation: none;
+  }
+}
+
 /* 歌词播放页工具图标浅阴影（一起听桌面 song-control 悬浮栏 + 手机竖屏
    工具行）：轻柔暗影提升图标在封面/视频背景上的轮廓分离度。
    阴影恒为半透明黑，亮/暗主题与任意背景亮度通用，无需随图标色反转。
@@ -1821,6 +1859,24 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   100% {
     width: var(--add-panel-w, 300px);
     height: var(--add-panel-h, 500px);
+  }
+}
+
+/* cloud-add-in 的镜像退出：先纵向收起（高 →0，0→50%）再横向收起
+   （宽 →0，50%→100%）；起点与展开终态相同（宽高全开）实现无缝衔接，
+   终态 0×0 由 forwards 保持至卸载（退出动画约定）。 */
+@keyframes cloud-add-out {
+  0% {
+    width: var(--add-panel-w, 300px);
+    height: var(--add-panel-h, 500px);
+  }
+  50% {
+    width: var(--add-panel-w, 300px);
+    height: 0;
+  }
+  100% {
+    width: 0;
+    height: 0;
   }
 }
 

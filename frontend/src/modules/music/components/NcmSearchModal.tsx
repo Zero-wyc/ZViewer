@@ -18,7 +18,6 @@
  *   淡入）以面板中心为原点向四周舒展，内容同样延后到展开结束再挂载
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import {
   Heart,
   Loader2,
@@ -30,6 +29,7 @@ import {
 } from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { CloudModal } from './CloudModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
 import { extractSongTitle } from '../utils/songTitle'
 import { cn } from '@/lib/utils'
@@ -106,8 +106,6 @@ export function NcmSearchModal({
   const [results, setResults] = useState<NcmSongLite[]>([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
-  /** 面板展开动画是否已结束（列表内容延后挂载，防中途渲染掉帧） */
-  const [unfoldDone, setUnfoldDone] = useState(false)
   /** 当前试听中的歌曲（本地 Audio，不进房间队列） */
   const [auditionId, setAuditionId] = useState<number | null>(null)
   const auditionRef = useRef<HTMLAudioElement | null>(null)
@@ -191,7 +189,6 @@ export function NcmSearchModal({
     const timer = setTimeout(() => {
       const kw = extractSongTitle(sourceTitle)
       setKeyword(kw)
-      setUnfoldDone(false)
       if (kw) void runSearch(kw)
       void loadLikedIds()
     }, 0)
@@ -299,63 +296,19 @@ export function NcmSearchModal({
 
   if (!open) return null
 
-  return createPortal(
-    /* 蒙层（黑半透明，同歌词页设置弹窗；z-85 低于添加到歌单面板的 z-90：
-        收藏面板叠于本弹窗之上） */
-    <div
-      className="fixed inset-0 z-[85]"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.4)' }}
-      onClick={onClose}
+  return (
+    /* portal 到 body + 遮罩/面板/进出动画（宽→高两段式展开/反向收起、
+       渐进压暗、Esc、内容延后挂载闸门）统一由 CloudModal 承载。
+       z-85 低于添加到歌单面板的 z-90：收藏面板叠于本弹窗之上 */
+    <CloudModal
+      open={open}
+      portal
+      zIndex={85}
+      width="300px"
+      height="min(500px, calc(100vh - 160px))"
+      onClose={onClose}
     >
-      {/* 面板：黑底 + 高斯模糊（歌词页设置弹窗同视觉），屏幕居中锚定——
-          展开动画（宽→高两段式）以中心为原点向四周舒展，而非自底向上 */}
-      <div
-        className="absolute overflow-hidden"
-        style={
-          {
-            left: '50%',
-            top: '50%',
-            width: 300,
-            height: 'min(500px, calc(100vh - 160px))',
-            transform: 'translate(-50%, -50%)',
-            '--add-panel-h': 'min(500px, calc(100vh - 160px))',
-            animation: 'cloud-add-in 0.4s 0.1s both',
-            backgroundColor: 'rgba(8, 8, 8, 0.86)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-            border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
-          } as React.CSSProperties
-        }
-        onClick={(e) => e.stopPropagation()}
-        onAnimationEnd={(e) => {
-          if (
-            e.target === e.currentTarget &&
-            e.animationName === 'cloud-add-in'
-          ) {
-            setUnfoldDone(true)
-          }
-        }}
-      >
-        {/* 四角白色方块点缀（歌词页设置弹窗同款装饰） */}
-        <span
-          aria-hidden="true"
-          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
-        />
-
-        {/* 内容层（独立裁剪；展开期间内容不外溢） */}
+      {(unfoldDone) => (
         <div className="absolute inset-0 flex flex-col overflow-hidden">
           {/* 水印 */}
           <div
@@ -526,8 +479,7 @@ export function NcmSearchModal({
               })}
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+      )}
+    </CloudModal>
   )
 }

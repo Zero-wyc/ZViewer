@@ -16,12 +16,12 @@
  * 绕过 transform 祖先恢复视口居中。收藏夹封面统一走后端防盗链代理
  * （B站 CDN 直链 403），加载失败回退图标。
  */
-import { useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useEffect, useRef, useState } from 'react'
 import { ListMusic, Loader2, X } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
+import { CloudModal, type CloudModalHandle } from './CloudModal'
 import {
   prefetchBiliFavFolders,
   type BilibiliFavFolder,
@@ -52,17 +52,9 @@ export function BiliFavCollectModal({
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [collectingId, setCollectingId] = useState<number | null>(null)
-  /** 面板展开动画是否已结束（列表内容延后挂载，加载多快都不撑框） */
-  const [unfoldDone, setUnfoldDone] = useState(false)
-
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+  // 遮罩 + 面板 + 进出动画（两段式展开/反向收起、渐进压暗、Esc、内容
+  // 延后挂载闸门）统一由 CloudModal 承载；收藏成功经 ref 触发带动画关闭
+  const modalRef = useRef<CloudModalHandle>(null)
 
   // 打开即拉取收藏夹（与展开动画并行：请求在 effect 内立即发出，不等待
   // 动画；缓存命中零等待）+ 复位展开标记。
@@ -73,7 +65,6 @@ export function BiliFavCollectModal({
     const fetchPromise = prefetchBiliFavFolders()
     const timer = setTimeout(() => {
       if (cancelled) return
-      setUnfoldDone(false)
       setLoading(true)
       setError(null)
       void (async () => {
@@ -109,7 +100,7 @@ export function BiliFavCollectModal({
       }
       message.success(`已收藏到「${data?.folderTitle || folder.title}」`)
       onCollected?.(bvid, data?.folderTitle || folder.title)
-      onClose()
+      modalRef.current?.requestClose()
     } catch (err) {
       message.error(err instanceof Error ? err.message : '收藏失败')
     } finally {
@@ -119,156 +110,118 @@ export function BiliFavCollectModal({
 
   if (!open) return null
 
-  return createPortal(
-    <>
-      <button
-        type="button"
-        aria-label="关闭收藏夹选择"
-        className="fixed inset-0 z-[74] cursor-default bg-black/40"
-        onClick={onClose}
-      />
-      {/* 面板：居中锚定 + cloud-add-in 两段式展开（宽 0→360 → 高 0→420，
-          以中心为原点向四周舒展）；固定高度，列表区域内部滚动 */}
-      <div
-        className="fixed left-1/2 top-1/2 z-[75] flex w-[min(360px,calc(100vw-32px))] flex-col overflow-hidden"
-        style={
-          {
-            transform: 'translate(-50%, -50%)',
-            '--add-panel-w': 'min(360px, calc(100vw - 32px))',
-            '--add-panel-h': 'min(420px, calc(100vh - 160px))',
-            animation: 'cloud-add-in 0.4s 0.1s both',
-            backgroundColor: 'rgba(8, 8, 8, 0.86)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-            border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
-          } as React.CSSProperties
-        }
-        onAnimationEnd={(e) => {
-          if (
-            e.target === e.currentTarget &&
-            e.animationName === 'cloud-add-in'
-          ) {
-            setUnfoldDone(true)
-          }
-        }}
-      >
-        {/* 四角白色方块点缀 */}
-        <span
-          aria-hidden="true"
-          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
-        />
-        {/* 内容（展开结束后挂载：标题 0.5s 延迟淡入 + 列表即刻就位——
-            预取通常已完成，加载多快都不会再改变面板尺寸） */}
-        {unfoldDone && (
-          <>
-            {/* 标题行：超大 FAV 水印 */}
-            <div
-              className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
-              style={{ animation: 'cloud-add-title-in 0.2s 0.25s both' }}
-            >
-              <span
-                aria-hidden="true"
-                className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+  return (
+    /* portal 到 body：widget 播放条等祖先带 transform 动画，会把
+       position:fixed 变为相对该祖先定位（弹窗卡底而非屏幕中央）。
+       遮罩/面板/进出动画（两段式展开/反向收起、渐进压暗、Esc、内容
+       延后挂载闸门）统一由 CloudModal 承载 */
+    <CloudModal
+      ref={modalRef}
+      open={open}
+      portal
+      width="min(360px, calc(100vw - 32px))"
+      height="min(420px, calc(100vh - 160px))"
+      onClose={onClose}
+    >
+      {(unfoldDone) => (
+        <>
+          {unfoldDone && (
+            <>
+              {/* 标题行：超大 FAV 水印 */}
+              <div
+                className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
+                style={{ animation: 'cloud-add-title-in 0.2s 0.25s both' }}
               >
-                FAV
-              </span>
-              <p className="relative text-center text-[15px] font-bold text-white">
-                添加到哔哩哔哩收藏夹
-              </p>
-            </div>
-            <div className="zen-scroll relative min-h-0 flex-1 overflow-y-auto px-3 py-3">
-              {loading && (
-                <div className="flex items-center justify-center gap-2 py-6 text-xs font-bold text-white/60">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  正在获取收藏夹…
-                </div>
-              )}
-              {!loading && error && (
-                <p className="py-4 text-center text-xs font-bold text-white/60">
-                  {error}
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+                >
+                  FAV
+                </span>
+                <p className="relative text-center text-[15px] font-bold text-white">
+                  添加到哔哩哔哩收藏夹
                 </p>
-              )}
-              {!loading && !error && folders.length === 0 && (
-                <p className="py-4 text-center text-xs font-bold text-white/60">
-                  暂无收藏夹
-                </p>
-              )}
-              {!loading &&
-                !error &&
-                folders.map((f) => (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => void handleCollect(f)}
-                    disabled={collectingId != null}
-                    className="group flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.08)] disabled:opacity-60"
-                  >
-                    <span
-                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md overflow-hidden"
-                      style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+              </div>
+              <div className="zen-scroll relative min-h-0 flex-1 overflow-y-auto px-3 py-3">
+                {loading && (
+                  <div className="flex items-center justify-center gap-2 py-6 text-xs font-bold text-white/60">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    正在获取收藏夹…
+                  </div>
+                )}
+                {!loading && error && (
+                  <p className="py-4 text-center text-xs font-bold text-white/60">
+                    {error}
+                  </p>
+                )}
+                {!loading && !error && folders.length === 0 && (
+                  <p className="py-4 text-center text-xs font-bold text-white/60">
+                    暂无收藏夹
+                  </p>
+                )}
+                {!loading &&
+                  !error &&
+                  folders.map((f) => (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => void handleCollect(f)}
+                      disabled={collectingId != null}
+                      className="group flex w-full items-center gap-3 rounded-md px-2 py-2 text-left transition-colors hover:bg-[rgba(255,255,255,0.08)] disabled:opacity-60"
                     >
-                      {f.cover ? (
-                        <img
-                          loading="lazy"
-                          decoding="async"
-                          src={
-                            isBilibiliImageUrl(f.cover)
-                              ? buildBilibiliImageProxyUrl(f.cover)
-                              : f.cover
-                          }
-                          alt=""
-                          className="h-full w-full object-cover"
-                          onError={(e) => {
-                            // 加载失败隐藏自身，露出图标兜底
-                            e.currentTarget.style.display = 'none'
-                          }}
-                        />
-                      ) : (
-                        <ListMusic className="h-4 w-4 text-white/50" />
+                      <span
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md overflow-hidden"
+                        style={{ backgroundColor: 'rgba(255, 255, 255, 0.1)' }}
+                      >
+                        {f.cover ? (
+                          <img
+                            loading="lazy"
+                            decoding="async"
+                            src={
+                              isBilibiliImageUrl(f.cover)
+                                ? buildBilibiliImageProxyUrl(f.cover)
+                                : f.cover
+                            }
+                            alt=""
+                            className="h-full w-full object-cover"
+                            onError={(e) => {
+                              // 加载失败隐藏自身，露出图标兜底
+                              e.currentTarget.style.display = 'none'
+                            }}
+                          />
+                        ) : (
+                          <ListMusic className="h-4 w-4 text-white/50" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-[13px] font-bold text-white">
+                          {f.title}
+                        </span>
+                        <span className="block text-[11px] font-medium text-white/50">
+                          {f.mediaCount} 个视频
+                        </span>
+                      </span>
+                      {collectingId === f.id && (
+                        <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white/70" />
                       )}
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-[13px] font-bold text-white">
-                        {f.title}
-                      </span>
-                      <span className="block text-[11px] font-medium text-white/50">
-                        {f.mediaCount} 个视频
-                      </span>
-                    </span>
-                    {collectingId === f.id && (
-                      <Loader2 className="h-4 w-4 shrink-0 animate-spin text-white/70" />
-                    )}
-                  </button>
-                ))}
-            </div>
-          </>
-        )}
-        {/* 关闭按钮 */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute right-3 top-3 z-[3] flex h-6 w-6 items-center justify-center rounded-full transition-opacity hover:opacity-70"
-          style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
-          title="关闭"
-          aria-label="关闭"
-        >
-          <X className={cn('h-3.5 w-3.5 text-white')} />
-        </button>
-      </div>
-    </>,
-    document.body
+                    </button>
+                  ))}
+              </div>
+            </>
+          )}
+          {/* 关闭按钮 */}
+          <button
+            type="button"
+            onClick={() => modalRef.current?.requestClose()}
+            className="absolute right-3 top-3 z-[3] flex h-6 w-6 items-center justify-center rounded-full transition-opacity hover:opacity-70"
+            style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
+            title="关闭"
+            aria-label="关闭"
+          >
+            <X className={cn('h-3.5 w-3.5 text-white')} />
+          </button>
+        </>
+      )}
+    </CloudModal>
   )
 }

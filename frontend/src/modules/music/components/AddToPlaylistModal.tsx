@@ -20,11 +20,11 @@
  * 展开内联表单：标题输入 + 隐私歌单勾选 + 完成/取消）；点蒙层关闭；
  * 打开时宽→高依次展开。
  */
-import { useCallback, useEffect, useState } from 'react'
-import { createPortal } from 'react-dom'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Loader2, Plus } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { CloudModal, type CloudModalHandle } from './CloudModal'
 import {
   prefetchUserPlaylists,
   invalidateUserPlaylistCache,
@@ -55,10 +55,10 @@ export function AddToPlaylistModal({
   const [newTitle, setNewTitle] = useState('')
   const [privacy, setPrivacy] = useState(false)
   const [creating, setCreating] = useState(false)
-  /** 面板展开动画是否已结束：列表内容延后到此刻挂载，避免数据一到就
-   *  在展开动画中途一次性渲染几十行歌单导致掉帧卡顿（Hydrogen 内容
-   *  分级浮现的同思路） */
-  const [unfoldDone, setUnfoldDone] = useState(false)
+
+  // 遮罩 + 面板 + 进出动画（宽→高展开/反向收起、渐进压暗、Esc、内容
+  // 延后挂载闸门）统一由 CloudModal 承载；加入成功后经 ref 触发带动画关闭
+  const modalRef = useRef<CloudModalHandle>(null)
 
   /** 打开时加载用户自建歌单：走模块级缓存（触发按钮 hover 已预取），
    *  命中即零等待（Hydrogen ensureUserPlaylistsLoaded 的 store 预载同思路） */
@@ -83,11 +83,10 @@ export function AddToPlaylistModal({
     }
   }, [open])
 
-  // 关闭时复位表单/加载态
+  // 关闭时复位表单/加载态（内容挂载闸门 unfoldDone 由 CloudModal 自复位）
   useEffect(() => {
     if (open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 弹窗关闭复位内部态
-    setUnfoldDone(false)
     setCreateActive(false)
     setNewTitle('')
     setPrivacy(false)
@@ -124,7 +123,7 @@ export function AddToPlaylistModal({
           message.success(
             code === 502 ? `已在${displayName}中` : `已添加到${displayName}`
           )
-          onClose()
+          modalRef.current?.requestClose()
         } else {
           message.error('添加至歌单错误')
         }
@@ -135,7 +134,7 @@ export function AddToPlaylistModal({
         setAddingId(null)
       }
     },
-    [song, addingId, onClose]
+    [song, addingId]
   )
 
   /** 创建新歌单并添加（Hydrogen createAndAdd：POST /playlist/create → 加入） */
@@ -170,87 +169,26 @@ export function AddToPlaylistModal({
 
   if (!open || !song) return null
 
-  // createPortal 到 body：避免被 MusicWidgetBar 的 glass-card（backdrop-filter
-  // 祖先）包裹 —— backdrop-filter 祖先会成为后代的 backdrop root，
-  // 导致面板模糊无法采样到页面背景而丢失
-  return createPortal(
-    /* 全屏蒙层（半透明压暗，仅捕捉点击关闭） */
-    <div
-      className="fixed inset-0 z-[90]"
-      style={{ backgroundColor: 'rgba(0, 0, 0, 0.25)' }}
-      onClick={onClose}
+  return (
+    /* portal 到 body：避免被 MusicWidgetBar 的 glass-card（backdrop-filter
+       祖先）包裹——祖先会成为 Backdrop Root，面板模糊无法采样页面背景。
+       遮罩/面板/进出动画（底部锚定、Hydrogen 0.6s+0.3s 展开节奏、外沿
+       闪烁角块、渐进压暗、Esc）统一由 CloudModal 承载 */
+    <CloudModal
+      ref={modalRef}
+      open={open}
+      portal
+      anchor="bottom"
+      variant="glass"
+      corners="flash"
+      zIndex={90}
+      unfoldDuration={0.6}
+      unfoldDelay={0.3}
+      width="300px"
+      height="min(500px, calc(100vh - 160px))"
+      onClose={onClose}
     >
-      {/* 玻璃拟态面板：底部锚定播放条上方居中。展开动画 Hydrogen
-          ContextMenu .playlist-container-in 1:1 复刻：0.3s 延迟后先横向
-          展开（宽 0→300，0.3s）再纵向展开（高 0→面板高，0.3s）；
-          keyframes 只动宽高，transform 水平居中不参与动画；最终高度
-          经 --add-panel-h 注入 keyframes */}
-      <div
-        className="glass-card absolute"
-        style={
-          {
-            left: '50%',
-            bottom: 124,
-            width: 300,
-            height: 'min(500px, calc(100vh - 160px))',
-            transform: 'translateX(-50%)',
-            '--add-panel-h': 'min(500px, calc(100vh - 160px))',
-            animation: 'cloud-add-in 0.6s 0.3s both',
-          } as React.CSSProperties
-        }
-        onClick={(e) => e.stopPropagation()}
-        onAnimationEnd={(e) => {
-          // 仅认面板自身的展开动画（子元素的标题/水印/角块 animationend
-          // 会冒泡上来，按 target 过滤）
-          if (
-            e.target === e.currentTarget &&
-            e.animationName === 'cloud-add-in'
-          ) {
-            setUnfoldDone(true)
-          }
-        }}
-      >
-        {/* 四角装饰块（面板外缘 -4px，Hydrogen .add-style 1:1 的位置与
-            0.4s 高频闪烁节奏；置于内容裁剪层之外保证不被裁掉） */}
-        <span
-          className="pointer-events-none absolute -left-1 -top-1 z-[3] h-[9px] w-[9px]"
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
-            animation: 'cloud-add-flash 0.4s both',
-          }}
-          aria-hidden="true"
-        />
-        <span
-          className="pointer-events-none absolute -right-1 -top-1 z-[3] h-[9px] w-[9px]"
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
-            animation: 'cloud-add-flash 0.4s both',
-          }}
-          aria-hidden="true"
-        />
-        <span
-          className="pointer-events-none absolute -bottom-1 -right-1 z-[3] h-[9px] w-[9px]"
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
-            animation: 'cloud-add-flash 0.4s both',
-          }}
-          aria-hidden="true"
-        />
-        <span
-          className="pointer-events-none absolute -bottom-1 -left-1 z-[3] h-[9px] w-[9px]"
-          style={{
-            backgroundColor:
-              'color-mix(in srgb, var(--md-sys-color-on-surface) 85%, transparent)',
-            animation: 'cloud-add-flash 0.4s both',
-          }}
-          aria-hidden="true"
-        />
-
-        {/* 内容层（独立裁剪：宽→高展开期间内容不外溢；水印/标题按
-            Hydrogen 节奏延迟淡入——标题 0.5s、水印 0.6s） */}
+      {(unfoldDone) => (
         <div className="absolute inset-0 flex flex-col overflow-hidden">
           {/* 左上 ADD 大字水印（低透明度入色 + 0.6s 延迟淡入，
               Hydrogen .add-style5-in 同节奏） */}
@@ -477,8 +415,7 @@ export function AddToPlaylistModal({
             )}
           </div>
         </div>
-      </div>
-    </div>,
-    document.body
+      )}
+    </CloudModal>
   )
 }

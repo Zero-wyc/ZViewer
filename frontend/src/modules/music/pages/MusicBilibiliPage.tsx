@@ -57,6 +57,7 @@ import {
 } from '@/modules/room/watch-together/resolveSource'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { useQueueAdd } from '../hooks/useQueueAdd'
+import { CloudModal, type CloudModalHandle } from '../components/CloudModal'
 import { useMusicStore, musicItemKey } from '../store'
 import type { MusicQueueItem } from '../types'
 import {
@@ -633,8 +634,11 @@ function AddCustomTabModal({
   const [name, setName] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  /** 面板展开动画是否已结束（内容延后挂载，动画期间零渲染） */
-  const [unfoldDone, setUnfoldDone] = useState(false)
+
+  // 遮罩 + 面板 + 进出动画（两段式展开/反向收起、渐进压暗、Esc、内容
+  // 延后挂载闸门）统一由 CloudModal 承载；提交中禁关走 canClose 守卫，
+  // 提交成功经 ref 触发带动画关闭
+  const modalRef = useRef<CloudModalHandle>(null)
 
   const submit = useCallback(async () => {
     if (submitting) return
@@ -651,161 +655,113 @@ function AddCustomTabModal({
         setSubmitting(false)
         return
       }
-      onClose()
+      modalRef.current?.requestClose()
     } catch (err) {
       setError(err instanceof Error ? err.message : '解析链接失败')
       setSubmitting(false)
     }
-  }, [submitting, link, name, onSubmit, onClose])
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !submitting) onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, submitting])
+  }, [submitting, link, name, onSubmit])
 
   return (
-    <>
-      <button
-        type="button"
-        aria-label="关闭添加栏目"
-        className="fixed inset-0 z-[74] cursor-default bg-black/40"
-        onClick={() => {
-          if (!submitting) onClose()
-        }}
-      />
-      <div
-        className="fixed left-1/2 top-1/2 z-[75] flex w-[min(380px,calc(100vw-32px))] flex-col overflow-hidden"
-        style={
-          {
-            transform: 'translate(-50%, -50%)',
-            '--add-panel-w': 'min(380px, calc(100vw - 32px))',
-            '--add-panel-h': 'min(360px, calc(100vh - 120px))',
-            animation: 'cloud-add-in 0.4s 0.1s both',
-            backgroundColor: 'rgba(8, 8, 8, 0.86)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-            border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
-          } as React.CSSProperties
-        }
-        onAnimationEnd={(e) => {
-          if (
-            e.target === e.currentTarget &&
-            e.animationName === 'cloud-add-in'
-          ) {
-            setUnfoldDone(true)
-          }
-        }}
-      >
-        {/* 四角白色方块点缀 */}
-        <span
-          aria-hidden="true"
-          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
-        />
-        {/* 标题行：超大 ADD 水印 */}
-        <div
-          className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
-          style={{ animation: 'cloud-add-title-in 0.2s 0.3s both' }}
-        >
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+    <CloudModal
+      ref={modalRef}
+      canClose={!submitting}
+      width="min(380px, calc(100vw - 32px))"
+      height="min(360px, calc(100vh - 120px))"
+      onClose={onClose}
+    >
+      {(unfoldDone) => (
+        <>
+          {/* 标题行：超大 ADD 水印 */}
+          <div
+            className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
+            style={{ animation: 'cloud-add-title-in 0.2s 0.3s both' }}
           >
-            ADD
-          </span>
-          <p className="relative text-center text-[17px] font-bold text-white">
-            添加栏目
-          </p>
-        </div>
-        {unfoldDone && (
-          <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {/* 说明 */}
-            <p className="mb-3 text-[13px] font-medium leading-relaxed text-white/50">
-              粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （
-              {'space.bilibili.com/{mid}/lists/{sid}'} 或旧版 channel
-              链接）、收藏夹（{'…/favlist?fid=…'}）；b23.tv 短链自动展开。
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+            >
+              ADD
+            </span>
+            <p className="relative text-center text-[17px] font-bold text-white">
+              添加栏目
             </p>
-            {/* 链接输入 */}
-            <div className="mb-2">
-              <input
-                autoFocus
-                value={link}
-                onChange={(e) => setLink(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void submit()
-                }}
-                placeholder="粘贴 B站 链接"
-                className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color: '#ffffff',
-                  border: '0.5px solid rgba(255, 255, 255, 0.25)',
-                }}
-              />
-            </div>
-            {/* 名称输入（留空用 B站 侧标题） */}
-            <div className="mb-3">
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void submit()
-                }}
-                placeholder="栏目名称（留空自动使用 B站 标题）"
-                className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color: '#ffffff',
-                  border: '0.5px solid rgba(255, 255, 255, 0.25)',
-                }}
-              />
-            </div>
-            {error && (
-              <p
-                className="mb-2 text-[13px] font-bold leading-relaxed"
-                style={{ color: '#ff8a8a' }}
-              >
-                {error}
-              </p>
-            )}
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="rounded-full px-3 py-1.5 text-sm font-bold text-white/70 transition-colors hover:text-white"
-              >
-                取消
-              </button>
-              <button
-                type="button"
-                onClick={() => void submit()}
-                disabled={submitting}
-                className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ backgroundColor: '#ffffff', color: '#000000' }}
-              >
-                {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-                {submitting ? '解析中…' : '添加'}
-              </button>
-            </div>
           </div>
-        )}
-      </div>
-    </>
+          {unfoldDone && (
+            <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {/* 说明 */}
+              <p className="mb-3 text-[13px] font-medium leading-relaxed text-white/50">
+                粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （
+                {'space.bilibili.com/{mid}/lists/{sid}'} 或旧版 channel
+                链接）、收藏夹（{'…/favlist?fid=…'}）；b23.tv 短链自动展开。
+              </p>
+              {/* 链接输入 */}
+              <div className="mb-2">
+                <input
+                  autoFocus
+                  value={link}
+                  onChange={(e) => setLink(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void submit()
+                  }}
+                  placeholder="粘贴 B站 链接"
+                  className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    color: '#ffffff',
+                    border: '0.5px solid rgba(255, 255, 255, 0.25)',
+                  }}
+                />
+              </div>
+              {/* 名称输入（留空用 B站 侧标题） */}
+              <div className="mb-3">
+                <input
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') void submit()
+                  }}
+                  placeholder="栏目名称（留空自动使用 B站 标题）"
+                  className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    color: '#ffffff',
+                    border: '0.5px solid rgba(255, 255, 255, 0.25)',
+                  }}
+                />
+              </div>
+              {error && (
+                <p
+                  className="mb-2 text-[13px] font-bold leading-relaxed"
+                  style={{ color: '#ff8a8a' }}
+                >
+                  {error}
+                </p>
+              )}
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => modalRef.current?.requestClose()}
+                  className="rounded-full px-3 py-1.5 text-sm font-bold text-white/70 transition-colors hover:text-white"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void submit()}
+                  disabled={submitting}
+                  className="flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70 disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                >
+                  {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
+                  {submitting ? '解析中…' : '添加'}
+                </button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+    </CloudModal>
   )
 }
 
@@ -3092,211 +3048,164 @@ function TagRulesModal({
   onToggleSource: (word: string) => void
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  /** 面板展开动画是否已结束（内容延后挂载，动画期间零渲染） */
-  const [unfoldDone, setUnfoldDone] = useState(false)
-
   return (
-    <>
-      <button
-        type="button"
-        aria-label="关闭分类标签规则"
-        className="fixed inset-0 z-[74] cursor-default bg-black/40"
-        onClick={onClose}
-      />
-      <div
-        className="fixed left-1/2 top-1/2 z-[75] flex w-[min(380px,calc(100vw-32px))] flex-col overflow-hidden"
-        style={
-          {
-            transform: 'translate(-50%, -50%)',
-            '--add-panel-w': 'min(380px, calc(100vw - 32px))',
-            '--add-panel-h': 'min(500px, calc(100vh - 120px))',
-            animation: 'cloud-add-in 0.4s 0.1s both',
-            backgroundColor: 'rgba(8, 8, 8, 0.86)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-            border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
-          } as React.CSSProperties
-        }
-        onAnimationEnd={(e) => {
-          if (
-            e.target === e.currentTarget &&
-            e.animationName === 'cloud-add-in'
-          ) {
-            setUnfoldDone(true)
-          }
-        }}
-      >
-        {/* 四角白色方块点缀 */}
-        <span
-          aria-hidden="true"
-          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
-        />
-        {/* 标题行：超大 TAG 水印 */}
-        <div
-          className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
-          style={{ animation: 'cloud-add-title-in 0.2s 0.3s both' }}
-        >
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+    /* 遮罩/面板/进出动画（两段式展开/反向收起、渐进压暗、Esc、内容
+       延后挂载闸门）统一由 CloudModal 承载 */
+    <CloudModal
+      width="min(380px, calc(100vw - 32px))"
+      height="min(500px, calc(100vh - 120px))"
+      onClose={onClose}
+    >
+      {(unfoldDone) => (
+        <>
+          {/* 标题行：超大 TAG 水印 */}
+          <div
+            className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
+            style={{ animation: 'cloud-add-title-in 0.2s 0.3s both' }}
           >
-            TAG
-          </span>
-          <p className="relative text-center text-[17px] font-bold text-white">
-            {title}
-          </p>
-        </div>
-        {unfoldDone && (
-          <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            {/* 说明（属性 × 方式两维；屏蔽词指引到分类条目右上角入口） */}
-            <div className="mb-3 space-y-1.5 text-[13px] font-medium leading-relaxed text-white/50">
-              <p>每个标签词由两个独立徽标控制，点击词右侧对应徽标切换：</p>
-              <p>
-                <span
-                  className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                >
-                  聚合
-                </span>
-                <span
-                  className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
-                >
-                  限定
-                </span>
-                属性：聚合词的结果并入列表（多个聚合词合并显示）；限定词要求视频标签包含该词才显示
-              </p>
-              <p>
-                <span
-                  className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                >
-                  搜索
-                </span>
-                <span
-                  className="mx-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                >
-                  标签
-                </span>
-                <span
-                  className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
-                >
-                  全部
-                </span>
-                方式（仅聚合词生效）：搜索 = 关键词搜索；标签 = B站 tag
-                检索；全部 = 两源都取
-              </p>
-              <p>
-                屏蔽词不在这里设置：点音乐分区列表中分类条目右上角的
-                <Ban className="mx-1 inline h-3 w-3 align-[-2px]" />
-                按钮单独管理
-              </p>
-            </div>
-            {/* 添加输入行 */}
-            <div className="mb-3 flex items-center gap-2">
-              <input
-                autoFocus
-                value={input}
-                onChange={(e) => onInputChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onAdd()
-                }}
-                placeholder="输入标签词（逗号/空格分隔可批量）"
-                className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color: '#ffffff',
-                  border: '0.5px solid rgba(255, 255, 255, 0.25)',
-                }}
-              />
-              <button
-                type="button"
-                onClick={onAdd}
-                className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
-                style={{ backgroundColor: '#ffffff', color: '#000000' }}
-              >
-                添加
-              </button>
-            </div>
-            {/* 已添加规则 chips（属性徽标 + 方式徽标两个独立按钮，点击各自切换） */}
-            {rules.length === 0 ? (
-              <p className="text-sm font-medium text-white/40">暂无标签词</p>
-            ) : (
-              <div className="zen-scroll flex max-h-[220px] flex-wrap gap-2 overflow-y-auto">
-                {rules.map((r) => (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+            >
+              TAG
+            </span>
+            <p className="relative text-center text-[17px] font-bold text-white">
+              {title}
+            </p>
+          </div>
+          {unfoldDone && (
+            <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              {/* 说明（属性 × 方式两维；屏蔽词指引到分类条目右上角入口） */}
+              <div className="mb-3 space-y-1.5 text-[13px] font-medium leading-relaxed text-white/50">
+                <p>每个标签词由两个独立徽标控制，点击词右侧对应徽标切换：</p>
+                <p>
                   <span
-                    key={r.word}
-                    className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-bold text-white"
-                    style={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.12)',
-                    }}
+                    className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
+                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                   >
-                    {r.word}
-                    {/* 属性徽标：聚合 ↔ 限定 */}
-                    <button
-                      type="button"
-                      onClick={() => onToggleRole(r.word)}
-                      className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
-                      style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                      title={`属性：${REGION_ROLE_LABEL[r.role]}（点击切换 聚合/限定）`}
-                      aria-label={`切换标签词 ${r.word} 的属性，当前 ${REGION_ROLE_LABEL[r.role]}`}
+                    聚合
+                  </span>
+                  <span
+                    className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
+                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
+                  >
+                    限定
+                  </span>
+                  属性：聚合词的结果并入列表（多个聚合词合并显示）；限定词要求视频标签包含该词才显示
+                </p>
+                <p>
+                  <span
+                    className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
+                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
+                  >
+                    搜索
+                  </span>
+                  <span
+                    className="mx-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
+                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
+                  >
+                    标签
+                  </span>
+                  <span
+                    className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
+                    style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
+                  >
+                    全部
+                  </span>
+                  方式（仅聚合词生效）：搜索 = 关键词搜索；标签 = B站 tag
+                  检索；全部 = 两源都取
+                </p>
+                <p>
+                  屏蔽词不在这里设置：点音乐分区列表中分类条目右上角的
+                  <Ban className="mx-1 inline h-3 w-3 align-[-2px]" />
+                  按钮单独管理
+                </p>
+              </div>
+              {/* 添加输入行 */}
+              <div className="mb-3 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={input}
+                  onChange={(e) => onInputChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onAdd()
+                  }}
+                  placeholder="输入标签词（逗号/空格分隔可批量）"
+                  className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    color: '#ffffff',
+                    border: '0.5px solid rgba(255, 255, 255, 0.25)',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={onAdd}
+                  className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
+                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                >
+                  添加
+                </button>
+              </div>
+              {/* 已添加规则 chips（属性徽标 + 方式徽标两个独立按钮，点击各自切换） */}
+              {rules.length === 0 ? (
+                <p className="text-sm font-medium text-white/40">暂无标签词</p>
+              ) : (
+                <div className="zen-scroll flex max-h-[220px] flex-wrap gap-2 overflow-y-auto">
+                  {rules.map((r) => (
+                    <span
+                      key={r.word}
+                      className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-bold text-white"
+                      style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                      }}
                     >
-                      {REGION_ROLE_LABEL[r.role]}
-                    </button>
-                    {/* 方式徽标：搜索 → 标签 → 全部（仅聚合属性生效） */}
-                    {r.role === 'aggregate' && (
+                      {r.word}
+                      {/* 属性徽标：聚合 ↔ 限定 */}
                       <button
                         type="button"
-                        onClick={() => onToggleSource(r.word)}
+                        onClick={() => onToggleRole(r.word)}
                         className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                         style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                        title={`来源方式：${REGION_SOURCE_LABEL[r.source]}（点击切换 搜索/标签/全部）`}
-                        aria-label={`切换标签词 ${r.word} 的来源方式，当前 ${REGION_SOURCE_LABEL[r.source]}`}
+                        title={`属性：${REGION_ROLE_LABEL[r.role]}（点击切换 聚合/限定）`}
+                        aria-label={`切换标签词 ${r.word} 的属性，当前 ${REGION_ROLE_LABEL[r.role]}`}
                       >
-                        {REGION_SOURCE_LABEL[r.source]}
+                        {REGION_ROLE_LABEL[r.role]}
                       </button>
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => onRemove(r.word)}
-                      className="flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-70"
-                      style={{ backgroundColor: 'rgba(255, 255, 255, 0.18)' }}
-                      title={`删除标签词 ${r.word}`}
-                      aria-label={`删除标签词 ${r.word}`}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </>
+                      {/* 方式徽标：搜索 → 标签 → 全部（仅聚合属性生效） */}
+                      {r.role === 'aggregate' && (
+                        <button
+                          type="button"
+                          onClick={() => onToggleSource(r.word)}
+                          className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
+                          style={{
+                            backgroundColor: 'rgba(255, 255, 255, 0.22)',
+                          }}
+                          title={`来源方式：${REGION_SOURCE_LABEL[r.source]}（点击切换 搜索/标签/全部）`}
+                          aria-label={`切换标签词 ${r.word} 的来源方式，当前 ${REGION_SOURCE_LABEL[r.source]}`}
+                        >
+                          {REGION_SOURCE_LABEL[r.source]}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onRemove(r.word)}
+                        className="flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                        style={{ backgroundColor: 'rgba(255, 255, 255, 0.18)' }}
+                        title={`删除标签词 ${r.word}`}
+                        aria-label={`删除标签词 ${r.word}`}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </CloudModal>
   )
 }
 
@@ -3486,156 +3395,107 @@ function BlockWordsModal({
   onToggleScope: (word: string) => void
   onClose: () => void
 }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
-  /** 面板展开动画是否已结束（内容延后挂载，动画期间零渲染） */
-  const [unfoldDone, setUnfoldDone] = useState(false)
-
   return (
-    <>
-      <button
-        type="button"
-        aria-label="关闭屏蔽词设置"
-        className="fixed inset-0 z-[74] cursor-default bg-black/40"
-        onClick={onClose}
-      />
-      <div
-        className="fixed left-1/2 top-1/2 z-[75] flex w-[min(380px,calc(100vw-32px))] flex-col overflow-hidden"
-        style={
-          {
-            transform: 'translate(-50%, -50%)',
-            '--add-panel-w': 'min(380px, calc(100vw - 32px))',
-            '--add-panel-h': 'min(440px, calc(100vh - 120px))',
-            animation: 'cloud-add-in 0.4s 0.1s both',
-            backgroundColor: 'rgba(8, 8, 8, 0.86)',
-            backdropFilter: 'blur(28px)',
-            WebkitBackdropFilter: 'blur(28px)',
-            border: '0.5px solid rgba(255, 255, 255, 0.12)',
-            boxShadow: '0 24px 80px rgba(0, 0, 0, 0.6)',
-          } as React.CSSProperties
-        }
-        onAnimationEnd={(e) => {
-          if (
-            e.target === e.currentTarget &&
-            e.animationName === 'cloud-add-in'
-          ) {
-            setUnfoldDone(true)
-          }
-        }}
-      >
-        {/* 四角白色方块点缀 */}
-        <span
-          aria-hidden="true"
-          className="absolute left-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute right-2 top-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 left-2 z-[2] h-2 w-2 bg-white"
-        />
-        <span
-          aria-hidden="true"
-          className="absolute bottom-2 right-2 z-[2] h-2 w-2 bg-white"
-        />
-        {/* 标题行：超大 BLOCK 水印压在「屏蔽词设置」后面 */}
-        <div
-          className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
-          style={{ animation: 'cloud-add-title-in 0.2s 0.3s both' }}
-        >
-          <span
-            aria-hidden="true"
-            className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+    /* 遮罩/面板/进出动画（两段式展开/反向收起、渐进压暗、Esc、内容
+       延后挂载闸门）统一由 CloudModal 承载 */
+    <CloudModal
+      width="min(380px, calc(100vw - 32px))"
+      height="min(440px, calc(100vh - 120px))"
+      onClose={onClose}
+    >
+      {(unfoldDone) => (
+        <>
+          {/* 标题行：超大 BLOCK 水印压在「屏蔽词设置」后面 */}
+          <div
+            className="relative shrink-0 border-b border-white/70 px-5 pb-3 pt-4"
+            style={{ animation: 'cloud-add-title-in 0.2s 0.3s both' }}
           >
-            BLOCK
-          </span>
-          <p className="relative text-center text-[17px] font-bold text-white">
-            {title}
-          </p>
-        </div>
-        {unfoldDone && (
-          <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
-            <p className="mb-3 text-[13px] font-medium text-white/50">
-              {description ??
-                '全局生效：命中屏蔽词的搜索结果将被隐藏；点击词上的范围徽标可单独设置匹配标题还是标签'}
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
+            >
+              BLOCK
+            </span>
+            <p className="relative text-center text-[17px] font-bold text-white">
+              {title}
             </p>
-            {/* 添加输入行 */}
-            <div className="mb-3 flex items-center gap-2">
-              <input
-                autoFocus
-                value={input}
-                onChange={(e) => onInputChange(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') onAdd()
-                }}
-                placeholder="输入屏蔽词（逗号/空格分隔可批量）"
-                className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  color: '#ffffff',
-                  border: '0.5px solid rgba(255, 255, 255, 0.25)',
-                }}
-              />
-              <button
-                type="button"
-                onClick={onAdd}
-                className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
-                style={{ backgroundColor: '#ffffff', color: '#000000' }}
-              >
-                添加
-              </button>
-            </div>
-            {/* 已添加屏蔽词 chips */}
-            {words.length === 0 ? (
-              <p className="text-sm font-medium text-white/40">暂无屏蔽词</p>
-            ) : (
-              <div className="flex max-h-[220px] flex-wrap gap-2 overflow-y-auto zen-scroll">
-                {words.map((b) => (
-                  <span
-                    key={b.word}
-                    className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-bold text-white"
-                    style={{
-                      backgroundColor: 'rgba(255, 255, 255, 0.12)',
-                    }}
-                  >
-                    {b.word}
-                    {/* 范围徽标：点击循环 全部 → 标题 → 标签 */}
-                    <button
-                      type="button"
-                      onClick={() => onToggleScope(b.word)}
-                      className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
-                      style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                      title={`作用范围：${SCOPE_LABEL[b.scope]}（点击切换）`}
-                      aria-label={`切换屏蔽词 ${b.word} 的作用范围，当前 ${SCOPE_LABEL[b.scope]}`}
-                    >
-                      {SCOPE_LABEL[b.scope]}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => onRemove(b.word)}
-                      className="flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-70"
-                      style={{ backgroundColor: 'rgba(255, 255, 255, 0.18)' }}
-                      title={`删除屏蔽词 ${b.word}`}
-                      aria-label={`删除屏蔽词 ${b.word}`}
-                    >
-                      <X className="h-2.5 w-2.5" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
           </div>
-        )}
-      </div>
-    </>
+          {unfoldDone && (
+            <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
+              <p className="mb-3 text-[13px] font-medium text-white/50">
+                {description ??
+                  '全局生效：命中屏蔽词的搜索结果将被隐藏；点击词上的范围徽标可单独设置匹配标题还是标签'}
+              </p>
+              {/* 添加输入行 */}
+              <div className="mb-3 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={input}
+                  onChange={(e) => onInputChange(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') onAdd()
+                  }}
+                  placeholder="输入屏蔽词（逗号/空格分隔可批量）"
+                  className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
+                  style={{
+                    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                    color: '#ffffff',
+                    border: '0.5px solid rgba(255, 255, 255, 0.25)',
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={onAdd}
+                  className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
+                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
+                >
+                  添加
+                </button>
+              </div>
+              {/* 已添加屏蔽词 chips */}
+              {words.length === 0 ? (
+                <p className="text-sm font-medium text-white/40">暂无屏蔽词</p>
+              ) : (
+                <div className="flex max-h-[220px] flex-wrap gap-2 overflow-y-auto zen-scroll">
+                  {words.map((b) => (
+                    <span
+                      key={b.word}
+                      className="flex items-center gap-1.5 rounded-full py-1 pl-3 pr-1.5 text-sm font-bold text-white"
+                      style={{
+                        backgroundColor: 'rgba(255, 255, 255, 0.12)',
+                      }}
+                    >
+                      {b.word}
+                      {/* 范围徽标：点击循环 全部 → 标题 → 标签 */}
+                      <button
+                        type="button"
+                        onClick={() => onToggleScope(b.word)}
+                        className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
+                        style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
+                        title={`作用范围：${SCOPE_LABEL[b.scope]}（点击切换）`}
+                        aria-label={`切换屏蔽词 ${b.word} 的作用范围，当前 ${SCOPE_LABEL[b.scope]}`}
+                      >
+                        {SCOPE_LABEL[b.scope]}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(b.word)}
+                        className="flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-70"
+                        style={{ backgroundColor: 'rgba(255, 255, 255, 0.18)' }}
+                        title={`删除屏蔽词 ${b.word}`}
+                        aria-label={`删除屏蔽词 ${b.word}`}
+                      >
+                        <X className="h-2.5 w-2.5" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </CloudModal>
   )
 }
 
