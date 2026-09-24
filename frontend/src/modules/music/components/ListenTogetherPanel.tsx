@@ -3430,39 +3430,44 @@ function ListenTogetherInner({
                   )}
 
                   {/* 音量区（滑块与进度同款 + VOLUME 标签与百分比；
-                    手机端保留——蓝牙/外放场景仍需软件音量） */}
-                  <div className="shrink-0">
-                    <div
-                      ref={volumeTrackRef}
-                      role="slider"
-                      aria-label="音量"
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={Math.round(volume * 100)}
-                      className="touch-slider relative h-[max(1.3vh,6px)] cursor-pointer"
-                      style={{
-                        boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
-                      }}
-                      onPointerDown={handleVolumePointerDown}
-                    >
+                    手机端保留——蓝牙/外放场景仍需软件音量）。
+                    横屏矮窗口隐藏：物理音量键触手可及，软件音量让位给
+                    进度条——高度不足时本区会与进度条重叠出框 */}
+                  {!isLandscapeShort && (
+                    <div className="shrink-0">
                       <div
-                        className="absolute left-0 top-0 h-full"
+                        ref={volumeTrackRef}
+                        role="slider"
+                        aria-label="音量"
+                        aria-valuemin={0}
+                        aria-valuemax={100}
+                        aria-valuenow={Math.round(volume * 100)}
+                        className="touch-slider relative h-[max(1.3vh,6px)] cursor-pointer"
                         style={{
-                          width: `${volume * 100}%`,
-                          backgroundColor: 'var(--md-sys-color-on-surface)',
-                          transition: volumeDragging
-                            ? 'none'
-                            : 'width 0.3s ease',
+                          boxShadow:
+                            '0 0 0 0.5px var(--md-sys-color-on-surface)',
                         }}
-                      />
+                        onPointerDown={handleVolumePointerDown}
+                      >
+                        <div
+                          className="absolute left-0 top-0 h-full"
+                          style={{
+                            width: `${volume * 100}%`,
+                            backgroundColor: 'var(--md-sys-color-on-surface)',
+                            transition: volumeDragging
+                              ? 'none'
+                              : 'width 0.3s ease',
+                          }}
+                        />
+                      </div>
+                      <div className="mt-[max(1vh,6px)] flex items-center justify-between text-[max(1.5vh,11px)] font-bold text-[var(--md-sys-color-on-surface)]">
+                        <span className="tracking-widest">VOLUME</span>
+                        <span className="tabular-nums">
+                          {Math.round(volume * 100)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="mt-[max(1vh,6px)] flex items-center justify-between text-[max(1.5vh,11px)] font-bold text-[var(--md-sys-color-on-surface)]">
-                      <span className="tracking-widest">VOLUME</span>
-                      <span className="tabular-nums">
-                        {Math.round(volume * 100)}
-                      </span>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
