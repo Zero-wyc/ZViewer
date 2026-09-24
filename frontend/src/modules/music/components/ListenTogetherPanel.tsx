@@ -27,7 +27,6 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -36,7 +35,6 @@ import {
 import {
   getPositionSec,
   subscribePositionSec,
-  usePlaybackPosition,
 } from '../hooks/usePlaybackPosition'
 import {
   ChevronDown,
@@ -51,8 +49,6 @@ import {
   FolderPlus,
   Heart,
   MonitorPlay,
-  MonitorSmartphone,
-  MessagesSquare,
   Search,
   Settings,
   ExternalLink,
@@ -60,15 +56,11 @@ import {
   Minimize,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiGet, apiPost, getApiUrl } from '@/lib/api'
-import { CLI_DEFAULT_PORT, useCliAgent } from '@/hooks/useCliAgent'
+import { apiGet, apiPost } from '@/lib/api'
 import { useIsPortraitMobile, useIsLandscapeShort } from '@/hooks/useMediaQuery'
-import { usePlayerSource } from '@/modules/player'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
-import { CloudModal } from './CloudModal'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
 import { useMusicStore } from '../store'
-import { useThemeStore } from '@/store/themeStore'
 import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
@@ -77,23 +69,10 @@ import {
 } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
-import {
-  DanmakuLayer,
-  type DanmakuLayerHandle,
-} from '@/components/DanmakuLayer'
-import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
-import type { DanmakuItem } from '@/modules/danmaku/types'
-import { useDanmakuStore, DEFAULT_DANMAKU_STYLE } from '@/store/danmakuStore'
-import { useAuthStore } from '@/store/authStore'
-import {
-  DanmakuStylePanel,
-  DanmakuAdvancedSettings,
-} from '@/modules/room/watch-together/DanmakuStylePanel'
-import { FontPickerPanel } from '@/components/ui/FontPicker'
+import { DanmakuLayer } from '@/components/DanmakuLayer'
 import { message } from '@/components/ui/message'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
 import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
-import { getBilibiliUserInfo } from '@/modules/bilibili/bilibiliApi'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
@@ -103,8 +82,7 @@ import {
   saveLyricLineOffsetStore,
   type LyricLineOffsetStore,
 } from '../utils/lyricLineOffset'
-import type { PlayMode } from '../types'
-import { cn, formatDuration } from '@/lib/utils'
+import { cn } from '@/lib/utils'
 import { OverflowMarquee } from './OverflowMarquee'
 import { PlayerLyricPanel } from './PlayerLyricPanel'
 import { MusicQueuePopup } from './MusicQueuePopup'
@@ -135,7 +113,35 @@ import {
   ModeOrderIcon,
   RomanLyricIcon,
   TransLyricIcon,
+  DanmakuTvIcon,
 } from './PlayerControlIcons'
+import {
+  TOOLBAR_TONE_VARS,
+  CARD_TONE_VARS,
+  LYRIC_PANEL_TONE_VARS,
+  CARD_TINT,
+} from '../utils/playerTone'
+import {
+  SYNC_NOTICE_AUTO_DISMISS_MS,
+  LYRIC_ADVANCE_SEC,
+  PLAY_MODE_ORDER,
+  PLAY_MODE_META,
+} from '../constants'
+import { badgeWidth } from '../utils/commentBadge'
+import { PlayerSettingsModal } from './PlayerSettingsModal'
+import { PlayerProgressBar } from './PlayerProgressBar'
+import { useBilibiliDanmaku } from '../hooks/useBilibiliDanmaku'
+import { useBackgroundVideoSync } from '../hooks/useBackgroundVideoSync'
+import { useImmersiveMode } from '../hooks/useImmersiveMode'
+import { useSeekLock } from '../hooks/useSeekLock'
+import { usePlayerUiTone } from '../hooks/usePlayerUiTone'
+import { useToolbarScrollable } from '../hooks/useToolbarScrollable'
+import { useFullscreenToggle } from '../hooks/useFullscreenToggle'
+import type {
+  NcmLyricResponse,
+  NcmAccountResponse,
+  NcmLikelistResponse,
+} from '../types'
 
 export interface ListenTogetherPanelProps {
   socket: Socket | null
@@ -146,1097 +152,6 @@ export interface ListenTogetherPanelProps {
   isWebFullscreen?: boolean
   /** 队列管理权限（房主/房管观众）；缺省按 isHost 判定 */
   canManage?: boolean
-}
-
-/** 网易云 /lyric 原始响应（后端透传结构） */
-interface NcmLyricResponse {
-  lrc?: { lyric?: string }
-  tlyric?: { lyric?: string }
-  /** 罗马音官方字段名；rlyric 为旧命名兜底 */
-  romalrc?: { lyric?: string }
-  rlyric?: { lyric?: string }
-}
-
-/** 网易云 /account 响应（宽松解析 uid） */
-interface NcmAccountResponse {
-  data?: { account?: { id?: number } }
-  account?: { id?: number }
-  profile?: { userId?: number }
-}
-
-/** 网易云 /likelist 响应（宽松解析 ids） */
-interface NcmLikelistResponse {
-  data?: { ids?: number[] }
-  ids?: number[]
-}
-
-/** syncNotice 自动消失时长（毫秒） */
-const SYNC_NOTICE_AUTO_DISMISS_MS = 5000
-
-/** 评论数徽章胶囊宽度（Hydrogen commentCountBadgeWidth 简化：首字符 13.8，后续每字符约 +7） */
-function badgeWidth(text: string): number {
-  return 13.8 + Math.max(0, text.length - 1) * 7
-}
-
-/** 歌词高亮提前量（秒）：接近下一行时间标签前即切换高亮 */
-const LYRIC_ADVANCE_SEC = 0.2
-
-/** 播放模式轮换顺序（order = 按顺序播放，不循环；B站 推荐连播仅此模式启用） */
-const PLAY_MODE_ORDER: PlayMode[] = [
-  'order',
-  'repeat-one',
-  'shuffle',
-  'sequence',
-]
-
-const PLAY_MODE_META: Record<PlayMode, { label: string; next: string }> = {
-  sequence: { label: '顺序循环', next: '切换为按顺序播放' },
-  order: { label: '按顺序播放', next: '切换为单曲循环' },
-  'repeat-one': { label: '单曲循环', next: '切换为随机播放' },
-  shuffle: { label: '随机播放', next: '切换为顺序循环' },
-}
-
-/** 弹幕开关图标：与「一起看」播放器控制栏的弹幕开关同款（PlayerControlBar
- *  DanmakuIcon）——圆角屏幕内带「弹」字，关闭时叠加斜线区分状态。
- *  checked = 弹幕开启（无斜线）；描边/文字走 currentColor 适配工具栏黑白切换 */
-function DanmakuTvIcon({
-  checked,
-  className,
-}: {
-  checked: boolean
-  className?: string
-}) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      className={className}
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-    >
-      {/* 圆角屏幕机身 */}
-      <rect x="3" y="4" width="18" height="16" rx="2" />
-      {/* 「弹」字（与一起看同款：text 渲染居中） */}
-      <text
-        x="12"
-        y="16.5"
-        textAnchor="middle"
-        fill="currentColor"
-        stroke="none"
-        fontSize="10"
-        fontWeight="600"
-        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-      >
-        弹
-      </text>
-      {/* 关闭态：叠加斜线（与一起看同款状态语言） */}
-      {!checked && <line x1="5" y1="5" x2="19" y2="19" />}
-    </svg>
-  )
-}
-
-/**
- * 从图片/视频当前帧采样平均亮度（0-1，Rec.709 加权）。
- * 16×16 canvas 足够反映整体明暗；跨域污染（tainted canvas）等异常返回 null。
- */
-/** 视频背景进度同步的漂移校正阈值（秒）：播放中音视频偏差超过该值才安排 seek，
- *  避免每次 timeupdate 都 seek 造成视频反复卡顿 */
-const BG_VIDEO_SYNC_THRESHOLD_SEC = 1.5
-/** 大漂移 seek 的去抖窗口（毫秒）：拖动进度条期间只更新目标位置，
- *  停止后仅执行一次 seek——避免拖动过程连续大跨度 seek 导致的性能猛增 */
-const BG_VIDEO_SEEK_DEBOUNCE_MS = 350
-/** 追赶完成判定（秒）：seek 后残余漂移小于该值视为已同步，恢复原速 */
-const BG_VIDEO_CATCHUP_EPSILON_SEC = 0.35
-/** 追赶增益（秒）：rate = 1 + drift / 该值，漂移越大追得越快（约 4s 收敛） */
-const BG_VIDEO_CATCHUP_GAIN_SEC = 4
-/** 追赶 playbackRate 上下限：顺序解码远比随机 seek 便宜，用倍速慢慢吸收
- *  seek 耗时内音频多走的量（背景视频无声，轻微变速无感知） */
-const BG_VIDEO_MAX_RATE = 1.5
-const BG_VIDEO_MIN_RATE = 0.6
-
-/** 播放页 UI 深浅色持久化 key（light = 浅色 UI：亮玻璃配深色文字；
- *  dark = 深色 UI：暗玻璃配浅色文字）。旧 key zviewer-lyric-toolbar-tone
- *  语义是「工具栏文字深浅」且取值相反（light = 白字），仅作用于工具栏，
- *  已废弃不迁移 */
-const PLAYER_UI_TONE_STORAGE_KEY = 'zviewer-player-ui-tone'
-
-/** 读取播放页 UI 深浅色偏好；存储损坏/非法值时回退浅色（= 播放卡既定
- *  「恒黑字白底」观感，迁移成本最低的初始态） */
-function loadPlayerUiTone(): 'light' | 'dark' {
-  try {
-    if (localStorage.getItem(PLAYER_UI_TONE_STORAGE_KEY) === '"dark"') {
-      return 'dark'
-    }
-  } catch {
-    // ignore（隐私模式等存储不可用场景）
-  }
-  return 'light'
-}
-
-/** 播放页 UI 深浅色的三组容器级变量覆盖（全部按 UI 深浅色键控，随开关
- *  整体翻转；原按背景下亮度逐元素采样的自适应已删除——跨域视频源画入
- *  canvas 会永久污染采样画布，clearRect 无法解除，实际不可用——改为用户
- *  手动切换、容器统一覆盖并持久化）：
- *  - TOOLBAR：song-control / 竖屏工具行容器文字三色（on-surface /
- *    on-surface-variant 供全部按钮 var() 引用，--lt-tone-inverse 供评论数
- *    徽章文字）
- *  - CARD：播放卡容器文字与卡内 surface 派生色。文字恒与卡底 tint 同源
- *    （浅色 UI = 纯黑字配亮玻璃，深色 UI = 纯白字配暗玻璃，on-surface 与
- *    -variant 同值），确保任何卡底上对比度确定——「灰字」失配的根因就是
- *    文字色与背板色各自分支（见卡容器处注释）
- *  - LYRIC_PANEL：歌词面板容器（PlayerLyricPanel 全令牌化零改动）。
- *    on-surface 供歌词/高亮条/描边，surface 供面板底 color-mix 45% 透明
- *    底色与高亮条上的反色文字 */
-/** 工具栏色调映射：**按工具栏自身的深浅语义命名**（light = 工具栏呈浅色
- *  ——白色图标；dark = 工具栏呈深色——深色图标），与 UI 开关/主题的
- *  「浅色模式」是同一侧语义（浅色模式 → 工具栏浅色），不做反色。
- *  on-surface / on-surface-variant 供全部按钮 var() 引用，
- *  --lt-tone-inverse 供评论数徽章文字 */
-const TOOLBAR_TONE_VARS = {
-  light: {
-    '--md-sys-color-on-surface': '#ffffff',
-    '--md-sys-color-on-surface-variant': 'rgba(255, 255, 255, 0.5)',
-    '--lt-tone-inverse': '#1c1c1c',
-  },
-  dark: {
-    '--md-sys-color-on-surface': '#1c1c1c',
-    '--md-sys-color-on-surface-variant': 'rgba(0, 0, 0, 0.5)',
-    '--lt-tone-inverse': '#ffffff',
-  },
-} as Record<'light' | 'dark', React.CSSProperties>
-
-/** 播放卡容器变量覆盖：**按 UI 开关语义**（light = 浅色 UI：亮玻璃配深色
- *  文字；dark = 深色 UI：暗玻璃配浅色文字）。light 组 = 改版前「恒黑字
- *  白底」定稿值 */
-const CARD_TONE_VARS = {
-  light: {
-    '--md-sys-color-on-surface': '#000000',
-    '--md-sys-color-on-surface-variant': '#000000',
-    '--md-sys-color-surface-container-high': 'rgba(255, 255, 255, 0.6)',
-  },
-  dark: {
-    '--md-sys-color-on-surface': '#ffffff',
-    '--md-sys-color-on-surface-variant': '#ffffff',
-    '--md-sys-color-surface-container-high': 'rgba(255, 255, 255, 0.12)',
-  },
-} as Record<'light' | 'dark', React.CSSProperties>
-
-/** 歌词面板容器变量覆盖（语义见 TOOLBAR_TONE_VARS 注释） */
-const LYRIC_PANEL_TONE_VARS = {
-  light: {
-    '--md-sys-color-on-surface': '#1c1c1c',
-    '--md-sys-color-surface': '#ffffff',
-  },
-  dark: {
-    '--md-sys-color-on-surface': '#ffffff',
-    '--md-sys-color-surface': '#141418',
-  },
-} as Record<'light' | 'dark', React.CSSProperties>
-
-/** 播放卡 tint 颜色（浅色 UI = 亮白玻璃 / 深色 UI = 暗黑玻璃；竖屏 alpha
- *  略高——卡面小，需更实的底托住文字对比度） */
-const CARD_TINT = {
-  light: {
-    portrait: 'rgba(255, 255, 255, 0.55)',
-    desktop: 'rgba(255, 255, 255, 0.45)',
-  },
-  dark: {
-    portrait: 'rgba(0, 0, 0, 0.55)',
-    desktop: 'rgba(0, 0, 0, 0.45)',
-  },
-} as Record<'light' | 'dark', { portrait: string; desktop: string }>
-
-/** 极简滑轨（设置弹窗内嵌）：pointer 拖动即时回调，touch-slider 防触屏滚动 */
-function TinySlider({
-  value,
-  min,
-  max,
-  step = 1,
-  onChange,
-}: {
-  value: number
-  min: number
-  max: number
-  step?: number
-  onChange: (v: number) => void
-}) {
-  const trackRef = useRef<HTMLDivElement | null>(null)
-  const pct = max > min ? ((value - min) / (max - min)) * 100 : 0
-  const applyFromClientX = (clientX: number) => {
-    const el = trackRef.current
-    if (!el) return
-    const rect = el.getBoundingClientRect()
-    if (rect.width <= 0) return
-    const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-    const snapped = Math.round((min + ratio * (max - min)) / step) * step
-    onChange(Math.min(max, Math.max(min, Number(snapped.toFixed(2)))))
-  }
-  return (
-    <div
-      ref={trackRef}
-      role="slider"
-      aria-valuemin={min}
-      aria-valuemax={max}
-      aria-valuenow={value}
-      className="touch-slider relative h-6 cursor-pointer"
-      onPointerDown={(e) => {
-        e.preventDefault()
-        applyFromClientX(e.clientX)
-        const move = (ev: PointerEvent) => applyFromClientX(ev.clientX)
-        const up = () => {
-          window.removeEventListener('pointermove', move)
-          window.removeEventListener('pointerup', up)
-        }
-        window.addEventListener('pointermove', move)
-        window.addEventListener('pointerup', up)
-      }}
-    >
-      <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white/20" />
-      <div
-        className="absolute left-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-white"
-        style={{ width: `${pct}%` }}
-      />
-      <div
-        className="absolute top-1/2 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_1px_4px_rgba(0,0,0,0.5)]"
-        style={{ left: `${pct}%` }}
-      />
-    </div>
-  )
-}
-
-/** 黑底弹窗内嵌 MD3 弹幕设置面板的变量作用域覆盖：DanmakuStylePanel /
- *  DanmakuAdvancedSettings / Slider / Switch / FontPickerPanel 均消费
- *  --md-sys-color-* 令牌，弹窗为纯黑底，按弹窗白主题语言（primary=白，
- *  与弹窗 toggle/双按钮一致）覆写暗色值 */
-const DANMAKU_PANEL_TOKEN_OVERRIDES = {
-  '--md-sys-color-on-surface': '#ececf0',
-  '--md-sys-color-on-surface-variant': '#c6c6ce',
-  '--md-sys-color-outline': '#8f8f97',
-  '--md-sys-color-outline-variant': 'rgba(255, 255, 255, 0.24)',
-  '--md-sys-color-primary': '#ffffff',
-  '--md-sys-color-on-primary': '#000000',
-  '--md-sys-color-primary-container': 'rgba(255, 255, 255, 0.92)',
-  '--md-sys-color-on-primary-container': '#0a0a0a',
-  '--md-sys-color-secondary-container': 'rgba(255, 255, 255, 0.14)',
-  '--md-sys-color-on-secondary-container': '#f2f2f5',
-  '--md-sys-color-surface': '#141418',
-  '--md-sys-color-surface-container-high': 'rgba(255, 255, 255, 0.08)',
-  '--md-sys-color-surface-container-highest': 'rgba(255, 255, 255, 0.12)',
-  '--glass-bg': 'rgba(255, 255, 255, 0.08)',
-} as React.CSSProperties
-
-/** 歌词页快捷设置弹窗（Hydrogen「添加到我的歌单」弹窗同视觉语言改版）：
- * 黑底 + 高斯模糊 backdrop，顶部「设置」标题后压超大 SETTING 水印字，
- * 四角白色方块点缀；承载「一起听设置」的背景项（封面模糊 / 背景压暗 /
- * 视频背景 CLI 高画质），与设置页同一设置项、改动即时持久化。
- * 点遮罩或 Esc 关闭。 */
-function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
-  const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
-  const coverBlurLevel = useMusicSettingsStore((s) => s.coverBlurLevel)
-  const videoBlurLevel = useMusicSettingsStore((s) => s.videoBlurLevel)
-  const bgDim = useMusicSettingsStore((s) => s.bgDim)
-  const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
-  /** UI 毛玻璃模糊浓度（px，0-40，默认 12） */
-  const uiBlurLevel = useMusicSettingsStore((s) => s.uiBlurLevel)
-  const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
-  /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
-  const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
-  const bgVideoFit = normalizeBgVideoFit(
-    useMusicSettingsStore((s) => s.bgVideoFit)
-  )
-  const biliCoverShape = normalizeBiliCoverShape(
-    useMusicSettingsStore((s) => s.biliCoverShape)
-  )
-  /** B站 红心收藏目标（播放栏 B站 条目红心一键收藏的收藏夹名） */
-  const biliLikeFavTitle = normalizeBiliLikeFavTitle(
-    useMusicSettingsStore((s) => s.biliLikeFavTitle)
-  )
-  const lyricBlur = useMusicSettingsStore((s) => s.lyricBlur)
-  const lyricBlurLevel = useMusicSettingsStore((s) => s.lyricBlurLevel)
-  const setSettings = useMusicSettingsStore((s) => s.set)
-
-  // ===== CLI 高画质代理（BilibiliParseSettings 同构面板）：连接状态检测 +
-  //       配置页入口（CLI 开关状态即 musicVideoCli 设置项本身）。
-  //       CLI 在服务器全局注册：配置页只需服务器地址（附带当前用户名归属），
-  //       房间内开启开关即自动使用，无需按房间连接 =====
-  const cliAgent = useCliAgent()
-  const cliAvailable = cliAgent.available
-  const username = useAuthStore((s) => s.user?.username)
-  const openCliSetup = () => {
-    const url = new URL(`http://127.0.0.1:${CLI_DEFAULT_PORT}/`)
-    url.searchParams.set('server', getApiUrl())
-    if (username) url.searchParams.set('user', username)
-    window.open(url.toString(), '_blank', 'noopener,noreferrer')
-  }
-
-  // ===== B站 大会员状态（CLI 已连接时拉取）：过滤分辨率档位——普通账号
-  //       最高 1080P，会员档（4K/1080P60/高码率）仅大会员可见 =====
-  const [biliVip, setBiliVip] = useState(false)
-  useEffect(() => {
-    if (!(musicVideoCli && cliAvailable)) return
-    let cancelled = false
-    void getBilibiliUserInfo().then((info) => {
-      if (cancelled) return
-      const vip = info?.vipStatus === 1
-      setBiliVip(vip)
-      // 已选会员档但账号非大会员：回落自动，避免选择框悬空值
-      if (!vip) {
-        const s = useMusicSettingsStore.getState()
-        if (s.musicVideoQn > 80) s.set({ musicVideoQn: 0 })
-      }
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [musicVideoCli, cliAvailable])
-
-  // ===== B站 弹幕设置（复用一起看弹幕设置组件）：总开关即 biliDanmakuEnabled
-  //       设置项；样式面板与一起看共用 danmakuStore（跨页持久化生效） =====
-  const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
-  const biliDanmakuAboveUi = useMusicSettingsStore((s) => s.biliDanmakuAboveUi)
-  const danmakuStyle = useDanmakuStore((s) => s.style)
-  const setDanmakuStyle = useDanmakuStore((s) => s.setStyle)
-  const setDanmakuFilters = useDanmakuStore((s) => s.setFilters)
-  const setDanmakuAdvanced = useDanmakuStore((s) => s.setAdvancedStyle)
-  const resetDanmakuStyle = useDanmakuStore((s) => s.resetStyle)
-  const [danmakuAdvancedOpen, setDanmakuAdvancedOpen] = useState(false)
-  const [danmakuFontOpen, setDanmakuFontOpen] = useState(false)
-
-  // ===== 红心收藏夹行内编辑态（点击名称胶囊 → 输入框，Enter/失焦保存，
-  //       Escape 放弃；空白提交由归一化回退默认「Music」） =====
-  const [favTitleEditing, setFavTitleEditing] = useState(false)
-  const [favTitleDraft, setFavTitleDraft] = useState(biliLikeFavTitle)
-  const commitFavTitle = () => {
-    setSettings({ biliLikeFavTitle: normalizeBiliLikeFavTitle(favTitleDraft) })
-    setFavTitleEditing(false)
-  }
-
-  return (
-    /* 遮罩 + 面板 + 进出动画（宽→高展开/反向收起、渐进压暗、Esc、
-       内容延后挂载闸门 unfoldDone）统一由 CloudModal 承载，此处只写内容 */
-    <CloudModal
-      width="min(340px, calc(100vw - 32px))"
-      height="min(674px, calc(100vh - 120px))"
-      onClose={onDismiss}
-    >
-      {(unfoldDone) => (
-        <>
-          {/* 标题行：超大 SETTING 水印压在「设置」后面（左对齐、允许溢出裁剪） */}
-          <div className="relative border-b border-white/70 px-5 pb-3 pt-4">
-            <span
-              aria-hidden="true"
-              className="pointer-events-none absolute -left-1 top-2 select-none text-[56px] font-black leading-none tracking-tight text-[rgba(255,255,255,0.08)]"
-            >
-              SETTING
-            </span>
-            <p className="relative text-center text-[15px] font-bold text-white">
-              设置
-            </p>
-          </div>
-          {/* 背景设置项（与「一起听设置」同一 store，即时持久化）；
-            展开动画结束后挂载（动画期间零渲染），内容超出面板高度滚动 */}
-          {unfoldDone && (
-            <div className="relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1">
-              {/* 毛玻璃封面背景（歌词页背景封面模糊开关） */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <span className="text-[13px] font-bold text-white">
-                  毛玻璃封面背景
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={coverBlur}
-                  aria-label="毛玻璃封面背景"
-                  onClick={() => setSettings({ coverBlur: !coverBlur })}
-                  className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-                  style={{
-                    backgroundColor: coverBlur
-                      ? '#ffffff'
-                      : 'rgba(255, 255, 255, 0.22)',
-                  }}
-                >
-                  <span
-                    className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
-                    style={{
-                      left: coverBlur ? '18px' : '2px',
-                      backgroundColor: coverBlur ? '#000000' : '#ffffff',
-                    }}
-                  />
-                </button>
-              </div>
-              {/* 封面模糊度（毛玻璃开启时的模糊半径；拖到 0 视为关闭，
-              与歌词模糊/模糊浓度的联动语义一致） */}
-              <div className="px-5 py-3.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-white">
-                    封面模糊度
-                  </span>
-                  <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {coverBlur ? `${coverBlurLevel}px` : '关闭'}
-                  </span>
-                </div>
-                <TinySlider
-                  value={coverBlurLevel}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(v) =>
-                    setSettings({ coverBlurLevel: v, coverBlur: v > 0 })
-                  }
-                />
-              </div>
-              {/* 视频背景模糊（仅作用于视频背景：模糊半径 px，0=关闭；
-                模糊时视频元素放大补偿边缘羽化） */}
-              <div className="px-5 py-3.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-white">
-                    视频背景模糊
-                  </span>
-                  <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {videoBlurLevel > 0 ? `${videoBlurLevel}px` : '关闭'}
-                  </span>
-                </div>
-                <TinySlider
-                  value={videoBlurLevel}
-                  min={0}
-                  max={40}
-                  step={1}
-                  onChange={(v) => setSettings({ videoBlurLevel: v })}
-                />
-              </div>
-              {/* 背景压暗（滑块） */}
-              <div className="px-5 py-3.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-white">
-                    背景压暗
-                  </span>
-                  <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {bgDim > 0 ? `${bgDim}%` : '关闭'}
-                  </span>
-                </div>
-                <TinySlider
-                  value={bgDim}
-                  min={0}
-                  max={100}
-                  step={1}
-                  onChange={(v) => setSettings({ bgDim: v })}
-                />
-              </div>
-              {/* UI 透明度（滑块）：播放卡/歌词面板作为一个整体图层随滑块
-              淡出（底色+文字一起），面板背后的冰霜层不参与淡出——毛玻璃
-              模糊全程保留（模糊与透明度同时成立的分层方案） */}
-              <div className="px-5 py-3.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-white">
-                    UI 透明度
-                  </span>
-                  <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
-                  </span>
-                </div>
-                <TinySlider
-                  value={uiOpacity}
-                  min={30}
-                  max={100}
-                  step={5}
-                  onChange={(v) => setSettings({ uiOpacity: v })}
-                />
-              </div>
-              {/* UI 模糊浓度（滑块）：播放卡/歌词面板冰霜层的 backdrop 模糊
-              半径，0=面板完全透亮（无毛玻璃），默认 12px */}
-              <div className="px-5 py-3.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-white">
-                    UI 模糊浓度
-                  </span>
-                  <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {uiBlurLevel > 0 ? `${uiBlurLevel}px` : '关闭'}
-                  </span>
-                </div>
-                <TinySlider
-                  value={uiBlurLevel}
-                  min={0}
-                  max={40}
-                  step={1}
-                  onChange={(v) => setSettings({ uiBlurLevel: v })}
-                />
-              </div>
-              {/* CLI 高画质代理（BilibiliParseSettings 同构面板，黑底弹窗配色：
-              标题行+连接状态点 → 关闭/启用双按钮 → 状态说明 → 配置页入口；
-              CLI 开关即 musicVideoCli 设置项，改回开关语义并即时持久化） */}
-              <div
-                className="mx-5 my-3 rounded-lg p-3"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  border: '0.5px solid rgba(255, 255, 255, 0.12)',
-                }}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                    style={{
-                      background:
-                        'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
-                    }}
-                  >
-                    <MonitorSmartphone
-                      className="h-3 w-3"
-                      style={{ color: 'rgba(255, 255, 255, 0.85)' }}
-                    />
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-[10px] font-bold leading-tight text-white">
-                      CLI 高画质代理
-                    </span>
-                    <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
-                      LOCAL PROXY
-                    </span>
-                  </div>
-                  {/* 连接状态（图示同语义：已连接发光 / 启用未连报错色 / 未启用灰） */}
-                  <div className="flex items-center gap-1">
-                    <span
-                      className="inline-block h-1 w-1 rounded-full"
-                      style={{
-                        backgroundColor: cliAvailable
-                          ? '#ffffff'
-                          : musicVideoCli
-                            ? '#ff6b6b'
-                            : 'rgba(255, 255, 255, 0.3)',
-                        boxShadow: cliAvailable
-                          ? '0 0 4px rgba(255, 255, 255, 0.9)'
-                          : 'none',
-                      }}
-                    />
-                    <span className="text-[9px] font-medium text-white/50">
-                      {cliAvailable
-                        ? '已连接'
-                        : musicVideoCli
-                          ? '未连接'
-                          : '未启用'}
-                    </span>
-                  </div>
-                </div>
-                {/* 关闭 / 启用（选中白底黑字，与弹窗 toggle 语言一致） */}
-                <div className="mt-2 grid grid-cols-2 gap-1">
-                  <button
-                    type="button"
-                    onClick={() => setSettings({ musicVideoCli: false })}
-                    className={cn(
-                      'rounded-md py-1 text-[10px] font-semibold transition-all',
-                      !musicVideoCli
-                        ? 'bg-white text-black shadow-sm'
-                        : 'bg-white/10 text-white/60 hover:bg-white/15'
-                    )}
-                  >
-                    关闭
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSettings({ musicVideoCli: true })}
-                    className={cn(
-                      'rounded-md py-1 text-[10px] font-semibold transition-all',
-                      musicVideoCli
-                        ? 'bg-white text-black shadow-sm'
-                        : 'bg-white/10 text-white/60 hover:bg-white/15'
-                    )}
-                  >
-                    启用
-                  </button>
-                </div>
-                <div className="mt-1 text-[9px] leading-snug text-white/50">
-                  {musicVideoCli
-                    ? cliAvailable
-                      ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
-                      : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
-                    : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
-                </div>
-                {/* 分辨率选择（仅 CLI 已连接时生效）：变更即重解析视频背景；
-                  实际档位受账号大会员权限限制，超出时 B站 自动降档 */}
-                {musicVideoCli && cliAvailable && (
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-semibold text-white/70">
-                      分辨率
-                    </span>
-                    <select
-                      value={musicVideoQn}
-                      onChange={(e) =>
-                        setSettings({ musicVideoQn: Number(e.target.value) })
-                      }
-                      className="max-w-[60%] flex-1 rounded-md bg-white/10 px-2 py-1 text-[10px] font-semibold text-white outline-none transition-colors hover:bg-white/15 focus:bg-white/15"
-                      style={{
-                        border: '0.5px solid rgba(255, 255, 255, 0.2)',
-                        colorScheme: 'dark',
-                      }}
-                      title="视频背景清晰度（实际档位受账号权限限制）"
-                    >
-                      <option value={0}>自动（跟随账号）</option>
-                      {(biliVip
-                        ? [
-                            [120, '4K 超清'],
-                            [116, '1080P 60帧'],
-                            [112, '1080P 高码率'],
-                          ]
-                        : []
-                      )
-                        .concat([
-                          [80, '1080P 高清'],
-                          [64, '720P 高清'],
-                          [32, '480P 清晰'],
-                          [16, '360P 流畅'],
-                        ] as Array<[number, string]>)
-                        .map(([qn, label]) => (
-                          <option key={qn} value={qn}>
-                            {label}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                )}
-                <button
-                  type="button"
-                  onClick={openCliSetup}
-                  className="mt-2 flex w-full items-center justify-center gap-1 rounded-md bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/60 transition-colors hover:bg-white/10"
-                  style={{ border: '0.5px solid rgba(255, 255, 255, 0.2)' }}
-                >
-                  <ExternalLink className="h-3 w-3" />
-                  打开 CLI 配置页
-                </button>
-              </div>
-              {/* 背景显示方式（视频背景的画面适配方式，点击循环切换） */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-bold text-white">
-                    背景显示方式
-                  </span>
-                  <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    视频背景铺满屏幕的方式
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSettings({
-                      bgVideoFit:
-                        bgVideoFit === 'contain'
-                          ? 'cover'
-                          : bgVideoFit === 'cover'
-                            ? 'fill'
-                            : 'contain',
-                    })
-                  }
-                  className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
-                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                  title="点击切换：完整显示 → 裁切铺满 → 拉伸填充"
-                  aria-label="切换背景显示方式"
-                >
-                  {bgVideoFit === 'contain'
-                    ? '完整显示'
-                    : bgVideoFit === 'cover'
-                      ? '裁切铺满'
-                      : '拉伸填充'}
-                </button>
-              </div>
-              {/* B站封面形状（仅哔哩哔哩歌曲的歌词页封面生效，点击循环切换） */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-bold text-white">
-                    B站封面形状
-                  </span>
-                  <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    哔哩哔哩歌曲封面的显示裁剪方式
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  onClick={() =>
-                    setSettings({
-                      biliCoverShape:
-                        biliCoverShape === 'original' ? 'square' : 'original',
-                    })
-                  }
-                  className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
-                  style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                  title="点击切换：原版（长方形）↔ 正方形（居中裁剪）"
-                  aria-label="切换 B站封面形状"
-                >
-                  {biliCoverShape === 'original' ? '原版' : '正方形'}
-                </button>
-              </div>
-              {/* 红心收藏夹（播放栏 B站 条目红心一键收藏的目标收藏夹；
-              点击名称胶囊进入编辑，不存在时后端自动创建同名收藏夹） */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-bold text-white">
-                    红心收藏夹
-                  </span>
-                  <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    点击红心收藏 B站 视频的目标收藏夹，不存在时自动创建
-                  </span>
-                </span>
-                {favTitleEditing ? (
-                  <input
-                    autoFocus
-                    value={favTitleDraft}
-                    onChange={(e) => setFavTitleDraft(e.target.value)}
-                    onBlur={commitFavTitle}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitFavTitle()
-                      if (e.key === 'Escape') setFavTitleEditing(false)
-                    }}
-                    className="h-[30px] w-[130px] shrink-0 rounded-full px-3 text-xs font-bold outline-none"
-                    style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                    aria-label="红心收藏夹名称"
-                  />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFavTitleDraft(biliLikeFavTitle)
-                      setFavTitleEditing(true)
-                    }}
-                    className="min-w-[76px] max-w-[130px] shrink-0 truncate rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
-                    style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                    title="点击编辑收藏夹名称（留空恢复默认 Music）"
-                    aria-label="编辑红心收藏夹名称"
-                  >
-                    {biliLikeFavTitle}
-                  </button>
-                )}
-              </div>
-              {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <span className="text-[13px] font-bold text-white">
-                  歌词模糊
-                </span>
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={lyricBlur}
-                  aria-label="歌词模糊"
-                  onClick={() => setSettings({ lyricBlur: !lyricBlur })}
-                  className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-                  style={{
-                    backgroundColor: lyricBlur
-                      ? '#ffffff'
-                      : 'rgba(255, 255, 255, 0.22)',
-                  }}
-                >
-                  <span
-                    className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
-                    style={{
-                      left: lyricBlur ? '18px' : '2px',
-                      backgroundColor: lyricBlur ? '#000000' : '#ffffff',
-                    }}
-                  />
-                </button>
-              </div>
-              {/* 歌词模糊浓度：拖到 0 视为关闭（联动上方开关与设置页） */}
-              <div className="px-5 py-3.5">
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="text-[13px] font-bold text-white">
-                    歌词模糊浓度
-                  </span>
-                  <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : '关闭'}
-                  </span>
-                </div>
-                <TinySlider
-                  value={lyricBlurLevel}
-                  min={0}
-                  max={10}
-                  step={0.5}
-                  onChange={(v) =>
-                    setSettings({ lyricBlurLevel: v, lyricBlur: v > 0 })
-                  }
-                />
-              </div>
-              {/* B站弹幕（复用一起看弹幕设置：总开关 + 样式面板 + 高级设置 +
-              字体选择；样式与一起看共用 danmakuStore 持久化，跨页生效） */}
-              <div
-                className="mx-5 my-3 rounded-lg p-3"
-                style={{
-                  backgroundColor: 'rgba(255, 255, 255, 0.06)',
-                  border: '0.5px solid rgba(255, 255, 255, 0.12)',
-                }}
-              >
-                <div className="flex items-center gap-1.5">
-                  <div
-                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
-                    style={{
-                      background:
-                        'linear-gradient(135deg, rgba(255,255,255,0.16), rgba(255,255,255,0.05))',
-                    }}
-                  >
-                    <MessagesSquare
-                      className="h-3 w-3"
-                      style={{ color: 'rgba(255, 255, 255, 0.85)' }}
-                    />
-                  </div>
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <span className="text-[10px] font-bold leading-tight text-white">
-                      B站弹幕
-                    </span>
-                    <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
-                      DANMAKU
-                    </span>
-                  </div>
-                  <button
-                    type="button"
-                    role="switch"
-                    aria-checked={biliDanmakuEnabled}
-                    aria-label="B站弹幕"
-                    onClick={() =>
-                      setSettings({ biliDanmakuEnabled: !biliDanmakuEnabled })
-                    }
-                    className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
-                    style={{
-                      backgroundColor: biliDanmakuEnabled
-                        ? '#ffffff'
-                        : 'rgba(255, 255, 255, 0.22)',
-                    }}
-                  >
-                    <span
-                      className="absolute top-0.5 h-4 w-4 rounded-full transition-all duration-200"
-                      style={{
-                        left: biliDanmakuEnabled ? '18px' : '2px',
-                        backgroundColor: biliDanmakuEnabled
-                          ? '#000000'
-                          : '#ffffff',
-                      }}
-                    />
-                  </button>
-                </div>
-                {/* 弹幕层级（UI 上方 = 悬浮于播放卡/歌词等前景 UI 之上；
-                UI 底部 = 仅铺在背景之上、被前景 UI 遮挡；纯净模式下
-                前景 UI 隐藏，两种层级均显示在视频之上） */}
-                {biliDanmakuEnabled && (
-                  <div className="mt-2 flex items-center justify-between gap-2">
-                    <span className="text-[10px] font-bold text-white">
-                      弹幕层级
-                    </span>
-                    <div className="grid shrink-0 grid-cols-2 gap-1">
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSettings({ biliDanmakuAboveUi: true })
-                        }
-                        className={cn(
-                          'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
-                          biliDanmakuAboveUi
-                            ? 'bg-white text-black shadow-sm'
-                            : 'bg-white/10 text-white/60 hover:bg-white/15'
-                        )}
-                      >
-                        UI 上方
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          setSettings({ biliDanmakuAboveUi: false })
-                        }
-                        className={cn(
-                          'rounded-md px-2.5 py-1 text-[10px] font-semibold transition-all',
-                          !biliDanmakuAboveUi
-                            ? 'bg-white text-black shadow-sm'
-                            : 'bg-white/10 text-white/60 hover:bg-white/15'
-                        )}
-                      >
-                        UI 底部
-                      </button>
-                    </div>
-                  </div>
-                )}
-                {/* 弹幕样式设置（仅启用时展开；MD3 令牌暗色覆盖使白主题组件
-                融入黑底弹窗，primary=白与弹窗按钮语言一致） */}
-                {biliDanmakuEnabled && (
-                  <div className="mt-2" style={DANMAKU_PANEL_TOKEN_OVERRIDES}>
-                    <DanmakuStylePanel
-                      style={danmakuStyle}
-                      setStyle={setDanmakuStyle}
-                      resetStyle={resetDanmakuStyle}
-                      advancedOpen={danmakuAdvancedOpen}
-                      onAdvancedToggle={() => {
-                        setDanmakuAdvancedOpen((v) => !v)
-                        setDanmakuFontOpen(false)
-                      }}
-                    />
-                    {danmakuAdvancedOpen && (
-                      <div className="mt-2 border-t border-white/10 pt-2">
-                        <DanmakuAdvancedSettings
-                          style={danmakuStyle}
-                          setStyle={setDanmakuStyle}
-                          setFilters={setDanmakuFilters}
-                          setAdvancedStyle={setDanmakuAdvanced}
-                          onFontPanelToggle={() =>
-                            setDanmakuFontOpen((v) => !v)
-                          }
-                        />
-                        {danmakuFontOpen && (
-                          <div className="mt-2 max-h-44 overflow-y-auto rounded-md border border-white/10 bg-black/30 p-1">
-                            <FontPickerPanel
-                              value={
-                                danmakuStyle.advanced.fontFamily ===
-                                DEFAULT_DANMAKU_STYLE.advanced.fontFamily
-                                  ? ''
-                                  : danmakuStyle.advanced.fontFamily
-                              }
-                              onChange={(v) =>
-                                setDanmakuAdvanced({
-                                  fontFamily:
-                                    v ||
-                                    DEFAULT_DANMAKU_STYLE.advanced.fontFamily,
-                                })
-                              }
-                            />
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-        </>
-      )}
-    </CloudModal>
-  )
-}
-
-/**
- * 播放进度条（Hydrogen 样式：1.3vh 黑条 + 0.5px 描边；canControl 可拖动）。
- * 独立组件：进度经 usePlaybackPosition(0.25) 量化订阅——positionSec 的
- * 高频更新只重渲染本组件（含拖动预览），不拖累整块播放面板。
- * seek 等位锁状态由父级持有（歌词行点击 seek 共用同一把锁），经 props 传入。
- */
-function PlayerProgressBar({
-  durationSec,
-  canControl,
-  currentKey,
-  seekLock,
-  onSeek,
-  onRequestSeek,
-}: {
-  durationSec: number
-  canControl: boolean
-  currentKey: string | null
-  /** seek 等位锁快照（父级持有：进度条拖动与歌词行点击共用） */
-  seekLock: { key: string | null; sec: number } | null
-  /** 执行 seek 并挂等位锁（父级实现：seek + setSeekLock） */
-  onSeek: (sec: number) => void
-  /** 观众 seek 申请路径（可选；缺省时进度条观众只读） */
-  onRequestSeek?: (sec: number) => void
-}) {
-  const positionSec = usePlaybackPosition(0.25)
-  const progressRef = useRef<HTMLDivElement>(null)
-
-  /** 拖动预览值（拖动期间进度条即时跟手，松手后才真 seek） */
-  const [dragPreviewSec, setDragPreviewSec] = useState<number | null>(null)
-
-  /** 进度条展示秒数：拖动预览 > seek 等位锁 > 实际播放进度 */
-  const seekLockActive =
-    seekLock != null &&
-    seekLock.key === currentKey &&
-    Math.abs(positionSec - seekLock.sec) > 0.75
-  const progressDisplaySec =
-    dragPreviewSec ?? (seekLockActive && seekLock ? seekLock.sec : positionSec)
-  const progressDisplayRatio =
-    durationSec > 0
-      ? Math.min(1, Math.max(0, progressDisplaySec / durationSec))
-      : 0
-
-  const computeTimeFromClientX = useCallback(
-    (clientX: number): number => {
-      const el = progressRef.current
-      if (!el || durationSec <= 0) return 0
-      const rect = el.getBoundingClientRect()
-      if (rect.width <= 0) return 0
-      const ratio = Math.min(1, Math.max(0, (clientX - rect.left) / rect.width))
-      return ratio * durationSec
-    },
-    [durationSec]
-  )
-
-  /**
-   * 拖动进度（canControl 直接 seek；观众走 onRequestSeek 申请——
-   * 房主「自动通过」开启时立即生效，关闭时转左上角审批）。
-   * Hydrogen vue-slider 模式复刻：拖动态 animateTime=0（即时跟手、无
-   * transition 门），松手后外部值变化以 0.5s ease 平滑重定向（对应
-   * :duration=0.5 与组件默认缓动）；松手 seek 后由 seek 等位锁托住展示
-   * 值，杜绝「回退旧进度再前进」的横跳。
-   */
-  const handleProgressPointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      if (durationSec <= 0) return
-      if (!canControl && !onRequestSeek) return
-      e.preventDefault()
-      e.stopPropagation()
-      setDragPreviewSec(computeTimeFromClientX(e.clientX))
-      const handleMove = (ev: PointerEvent) => {
-        setDragPreviewSec(computeTimeFromClientX(ev.clientX))
-      }
-      const handleUp = (ev: PointerEvent) => {
-        window.removeEventListener('pointermove', handleMove)
-        window.removeEventListener('pointerup', handleUp)
-        const target = computeTimeFromClientX(ev.clientX)
-        if (canControl) onSeek(target)
-        else onRequestSeek?.(target)
-        // 松手即清预览：等位锁接管展示值（锁定在 seek 目标），
-        // 实际进度追上后以 0.5s ease 平滑恢复跟播
-        setDragPreviewSec(null)
-      }
-      window.addEventListener('pointermove', handleMove)
-      window.addEventListener('pointerup', handleUp)
-    },
-    [canControl, onRequestSeek, durationSec, onSeek, computeTimeFromClientX]
-  )
-
-  return (
-    <>
-      <div className="flex items-center justify-between text-[max(1.5vh,11px)] font-bold tabular-nums text-[var(--md-sys-color-on-surface)]">
-        <span>{formatDuration(progressDisplaySec)}</span>
-        <span>{formatDuration(durationSec)}</span>
-      </div>
-      <div
-        ref={progressRef}
-        role="slider"
-        aria-label={
-          canControl
-            ? '播放进度'
-            : onRequestSeek
-              ? '播放进度（拖动将向房主申请调节）'
-              : '播放进度（仅房主可拖动）'
-        }
-        aria-valuemin={0}
-        aria-valuemax={Math.round(durationSec)}
-        aria-valuenow={Math.round(positionSec)}
-        aria-disabled={!canControl && !onRequestSeek}
-        className={cn(
-          'touch-slider relative mt-[max(1vh,6px)] h-[max(1.3vh,6px)]',
-          (canControl || onRequestSeek) && 'cursor-pointer'
-        )}
-        style={{
-          boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
-        }}
-        onPointerDown={handleProgressPointerDown}
-      >
-        <div
-          className="absolute left-0 top-0 h-full"
-          style={{
-            // 拖动预览值即时跟手（无过渡）；松手后位置值变化
-            // 以 0.5s ease 平滑补间（Hydrogen vue-slider
-            // :duration=0.5 与组件默认缓动）
-            width: `${progressDisplayRatio * 100}%`,
-            backgroundColor: 'var(--md-sys-color-on-surface)',
-            transition: dragPreviewSec != null ? 'none' : 'width 0.5s ease',
-          }}
-        />
-      </div>
-    </>
-  )
 }
 
 export function ListenTogetherPanel({
@@ -1405,70 +320,22 @@ function ListenTogetherInner({
   /** 评论入口可用性：网易云需有效 songId，B站 条目有 bvid 即可 */
   const canComment = (songId != null && songId > 0) || currentBiliBvid != null
 
-  // ===== B站 音源弹幕（复用一起看弹幕模块 DanmakuLayer）：B站 条目按 cid
-  // 拉官方弹幕，时间轴驱动走 positionSec（音频 timeupdate），不依赖视频元素；
-  // 开关与样式设置在歌词页设置弹窗（样式与一起看共用 danmakuStore 持久化） =====
+  // ===== B站 音源弹幕（复用一起看弹幕模块 DanmakuLayer）：整条链路已抽为
+  //  useBilibiliDanmaku（拉取/缓存/重载对齐/250ms 时间轴驱动） =====
   const biliDanmakuEnabled = useMusicSettingsStore((s) => s.biliDanmakuEnabled)
-  const biliDanmakuAboveUi = useMusicSettingsStore((s) => s.biliDanmakuAboveUi)
   /** 工具栏弹幕开关用（与设置弹窗同一 setter） */
   const setMusicSettings = useMusicSettingsStore((s) => s.set)
-  const danmakuStyle = useDanmakuStore((s) => s.style)
-  const biliDanmakuActive = isBiliSong && biliDanmakuEnabled
-  const biliDanmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
-  const biliDanmakuItemsRef = useRef<DanmakuItem[]>([])
-  /** 最近一次同步的播放进度（秒）：弹幕（重）挂载 / 加载完成后 seek 对齐用 */
-  const biliDanmakuTimeRef = useRef(0)
-  const biliCid = currentSong?.biliCid ?? 0
-
-  // cid 变化 → 清旧轨道 → 拉新弹幕（与一起看 WatchTogetherCore 同模式；
-  // 弹幕层未挂载时仅更新缓存，挂载后由下方 effect 重载）
-  useEffect(() => {
-    if (!isBiliSong || !biliCid) return
-    let cancelled = false
-    biliDanmakuItemsRef.current = []
-    biliDanmakuLayerRef.current?.loadDanmakuTrack('default', [])
-    biliDanmakuLayerRef.current?.clear()
-    fetchBilibiliDanmakuByCid(biliCid)
-      .then((items) => {
-        if (cancelled) return
-        biliDanmakuItemsRef.current = items
-        biliDanmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
-        biliDanmakuLayerRef.current?.seek(biliDanmakuTimeRef.current)
-      })
-      .catch((err) => {
-        console.error('[ListenTogether] load danmaku error:', err)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [isBiliSong, biliCid])
-
-  // 弹幕层（重）挂载 / 开关重开 / 弹幕设置或层级变更 → 用缓存弹幕重载并
-  // 对齐当前进度：样式/速度/密度等变更会清空已渲染弹幕与已发射集合，
-  // 引擎若同时重建（层级切换等）则轨道也丢失——不重载会让当前窗口再也
-  // 不补发，表现为"调完弹幕设置后弹幕永远出不来"
-  useEffect(() => {
-    if (!biliDanmakuActive) return
-    const items = biliDanmakuItemsRef.current
-    if (items.length > 0) {
-      biliDanmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
-      biliDanmakuLayerRef.current?.seek(biliDanmakuTimeRef.current)
-    }
-  }, [biliDanmakuActive, biliDanmakuAboveUi, danmakuStyle])
-
-  // 时间轴驱动：interval 250ms 命令式读取 store 进度 → syncTime（绕开
-  // React 渲染——positionSec 高频更新不再触发本组件重渲染；引擎内部对
-  // >3s 跳变自动清已发射集合并补发当前窗口，拖进度条 seek 兼容）
-  useEffect(() => {
-    biliDanmakuTimeRef.current = getPositionSec()
-    if (!biliDanmakuActive) return
-    const timer = setInterval(() => {
-      const t = getPositionSec()
-      biliDanmakuTimeRef.current = t
-      biliDanmakuLayerRef.current?.syncTime(t)
-    }, 250)
-    return () => clearInterval(timer)
-  }, [biliDanmakuActive])
+  // 同 useBackgroundVideoSync：回包含 ref，**必须解构**后再在 render 期读取
+  const {
+    layerRef: biliDanmakuLayerRef,
+    active: biliDanmakuActive,
+    aboveUi: biliDanmakuAboveUi,
+    style: biliDanmakuStyle,
+  } = useBilibiliDanmaku({
+    isBiliSong,
+    biliCid: currentSong?.biliCid ?? 0,
+    enabled: biliDanmakuEnabled,
+  })
 
   const musicVideoBg = useMusicVideoBackground(
     isBiliSong ? null : (songId ?? null),
@@ -1477,221 +344,24 @@ function ListenTogetherInner({
     currentSong?.biliCid ?? 0,
     musicVideoQn
   )
-  const bgVideoRef = useRef<HTMLVideoElement | null>(null)
-
-  // ===== 视频背景可见性门控：源就绪 ≠ 画面就绪——视频元素挂载后要等
-  //       canplay/playing（首帧可播）才淡入，未就绪期间透出封面模糊背景
-  //       （B站 视频解析/缓冲期间背景始终是封面）。可见性按「已就绪 URL =
-  //       当前源 URL」派生：切歌/重解析瞬间自动回到未就绪态，无需清理
-  //       effect（规避 set-state-in-effect） =====
-  const bgSourceUrl = musicVideoBg.source?.url ?? null
-  const [bgVideoReadyUrl, setBgVideoReadyUrl] = useState<string | null>(null)
-  const bgVideoVisible = bgSourceUrl != null && bgVideoReadyUrl === bgSourceUrl
-  // 进度同步辅助态：seek 去抖定时器 / 待 seek 目标 / seek 后倍速追赶模式
-  const bgSeekDebounceRef = useRef<number | null>(null)
-  const bgSeekPendingRef = useRef<number | null>(null)
-  const bgCatchUpRef = useRef(false)
-  const { attachSource: attachBgSource, cleanup: cleanupBgSource } =
-    usePlayerSource({ videoRef: bgVideoRef })
-
-  // ===== 视频背景进度同步：视频画面跟随音频进度（音频播到哪里视频也到哪；
-  // 音频长于视频时按视频时长取模循环）。
-  // 大漂移（拖进度条/seek/卡顿）不立即跳转：先经去抖窗口（拖动期间只更新
-  // 目标，停止后仅一次 seek），随后进入「倍速追赶」——seek 耗时内音频多走的
-  // 残余漂移用 playbackRate 渐进吸收（顺序解码远比再次 seek 便宜，避免大
-  // 视频反复 seek 引发的性能猛增与浏览器卡顿），对齐后恢复原速。
-  // metadata 就绪（挂载/切歌/中途加入房间）时无视一切强制对齐一次
-  // （见 video 的 onLoadedMetadata）。
-  // 声明位置在 attach effect 之前：attach 完成回调要调用本函数 =====
-  const syncBgVideoTime = useCallback((force: boolean) => {
-    const video = bgVideoRef.current
-    if (!video || video.readyState < 1) return
-    const dur = video.duration
-    if (!Number.isFinite(dur) || dur <= 0) return
-    const target = getPositionSec() % dur
-    if (force) {
-      // 强制对齐（metadata 就绪/切歌）：清追赶态后直接跳
-      if (bgSeekDebounceRef.current != null) {
-        clearTimeout(bgSeekDebounceRef.current)
-        bgSeekDebounceRef.current = null
-      }
-      bgSeekPendingRef.current = null
-      bgCatchUpRef.current = false
-      if (video.playbackRate !== 1) video.playbackRate = 1
-      try {
-        video.currentTime = target
-      } catch {
-        // 引擎未就绪等 seek 失败静默忽略，等待下轮校正
-      }
-      return
-    }
-    const drift = target - video.currentTime // 正 = 视频落后于音频
-    // 缓冲不足（readyState < HAVE_FUTURE_DATA）时跳过漂移校正：DASH/MSE
-    // 引擎每次 seek 都要重新拉取分片，连续 seek 会引发缓冲风暴（切歌/
-    // 换分辨率后的持续卡顿即由此而来）——等缓冲恢复后下一轮再对齐
-    if (video.readyState < 3) return
-    if (Math.abs(drift) > BG_VIDEO_SYNC_THRESHOLD_SEC) {
-      // 大漂移：去抖 seek——窗口内重复触发只刷新目标，最终一次跳转
-      bgSeekPendingRef.current = target
-      if (bgSeekDebounceRef.current == null) {
-        bgSeekDebounceRef.current = window.setTimeout(() => {
-          bgSeekDebounceRef.current = null
-          const pending = bgSeekPendingRef.current
-          bgSeekPendingRef.current = null
-          if (pending == null) return
-          try {
-            // 目标可能已随音频前移/换源，按当前时长取模保护
-            video.currentTime = pending % (video.duration || 1)
-            bgCatchUpRef.current = true // seek 后倍速吸收残余漂移
-          } catch {
-            // 引擎未就绪等 seek 失败静默忽略，等待下轮校正
-          }
-        }, BG_VIDEO_SEEK_DEBOUNCE_MS)
-      }
-      return
-    }
-    if (bgCatchUpRef.current) {
-      // 追赶模式：漂移在阈值内但尚未对齐——倍速渐进吸收，避免二次 seek
-      if (Math.abs(drift) <= BG_VIDEO_CATCHUP_EPSILON_SEC) {
-        bgCatchUpRef.current = false
-        if (video.playbackRate !== 1) video.playbackRate = 1
-      } else {
-        // 落后则略加速追上，超前则略减速让音频追上（无声背景，无感知）
-        const rate = Math.min(
-          BG_VIDEO_MAX_RATE,
-          Math.max(BG_VIDEO_MIN_RATE, 1 + drift / BG_VIDEO_CATCHUP_GAIN_SEC)
-        )
-        if (Math.abs(video.playbackRate - rate) > 0.01) {
-          try {
-            video.playbackRate = rate
-          } catch {
-            // ignore
-          }
-        }
-      }
-    }
-  }, [])
-
-  // 解析成功 → attach 到背景 video（引擎按 format 选 MSE/Direct；B站 CDN
-  // 直链由引擎经后端代理注入 Referer，CLI 模式本身已是本地代理 URL）
-  useEffect(() => {
-    const video = bgVideoRef.current
-    if (
-      !video ||
-      musicVideoBg.status !== 'ready' ||
-      !musicVideoBg.source?.url
-    ) {
-      return
-    }
-    void attachBgSource(video, {
-      url: musicVideoBg.source.url,
-      audioUrl: musicVideoBg.source.audioUrl,
-      format: musicVideoBg.source.format,
-      videoCodec: musicVideoBg.source.videoCodec,
-      audioCodec: musicVideoBg.source.audioCodec,
-      // DASH 流容器时长不可靠：显式传给引擎写 MPD duration，
-      // 缺失时 video.duration 无效、背景视频进度同步失效
-      duration: musicVideoBg.source.duration,
-    }).then(() => {
-      // attach 完成（CLI DASH 引擎要拉 init 段/扫描 sidx，可耗时数秒）后
-      // 对齐音频进度并恢复播放——play() 此前只在 isPlaying/status 变化时
-      // 触发一次，attach 慢时那次 play() 落在尚未就绪的元素上被静默拒绝，
-      // 视频停在原地被 1s 校正循环反复大漂移 seek（表现为切歌/换分辨率后
-      // 持续卡顿，暂停再播放才恢复）
-      syncBgVideoTime(true)
-      if (isPlaying) {
-        void video.play().catch(() => {
-          // ignore：自动播放策略拒绝
-        })
-      }
-    })
-  }, [
-    musicVideoBg.status,
-    musicVideoBg.source,
-    attachBgSource,
+  // 背景视频回包的元组成员**必须解构**后使用：整体对象内含 videoRef，
+  // 在 render 期做 `bgVideo.xxx` 成员访问会被 react-hooks/refs 规则判为
+  // 「渲染期读 ref」而报错
+  const {
+    videoRef: bgVideoRef,
+    visible: bgVideoVisible,
+    hasSource: bgVideoReady,
+    videoHandlers: bgVideoHandlers,
+  } = useBackgroundVideoSync({
+    source: musicVideoBg.source,
+    status: musicVideoBg.status,
     isPlaying,
-    syncBgVideoTime,
-  ])
-
-  // 卸载时释放引擎资源（blobUrl / MSE）
-  useEffect(() => cleanupBgSource, [cleanupBgSource])
-
-  // 背景视频跟随音乐播放/暂停（Hydrogen videoIsPlaying 同语义；元素静音）
-  useEffect(() => {
-    const video = bgVideoRef.current
-    if (!video || musicVideoBg.status !== 'ready') return
-    if (isPlaying) {
-      void video.play().catch(() => {
-        // ignore：自动播放策略拒绝
-      })
-    } else if (!video.paused) {
-      video.pause()
-    }
-  }, [isPlaying, musicVideoBg.status])
-
-  // 卸载时清 seek 去抖定时器（追赶态随元素销毁失效，无需处理）
-  useEffect(
-    () => () => {
-      if (bgSeekDebounceRef.current != null) {
-        clearTimeout(bgSeekDebounceRef.current)
-        bgSeekDebounceRef.current = null
-      }
-    },
-    []
-  )
-
-  // ===== 纯净模式（背景视频沉浸）：隐藏面板全部 UI，背景视频经 fixed
-  // 提升为全屏唯一图层；仅当背景视频就绪时可用 =====
-  const [immersive, setImmersive] = useState(false)
-  const bgVideoReady = !!musicVideoBg.source?.url
-  // 背景视频消失（切歌到无视频背景的曲目）时自动退出，避免黑屏
-  //（render 期调整，替代 effect 内同步 setState，与 prevSongId 同范式）
-  const [prevBgVideoReady, setPrevBgVideoReady] = useState(bgVideoReady)
-  if (prevBgVideoReady !== bgVideoReady) {
-    setPrevBgVideoReady(bgVideoReady)
-    if (!bgVideoReady && immersive) setImmersive(false)
-  }
-  // Esc 退出
-  useEffect(() => {
-    if (!immersive) return
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') setImmersive(false)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [immersive])
-  // 双击退出：单击延迟 250ms 触发切播放暂停（为双击留判定窗口），
-  // 双击取消未决单击并直接退出纯净模式（不再渲染右下角退出按钮）
-  const immersiveTapTimerRef = useRef<number | null>(null)
-  // 退出纯净模式 / 卸载时清理未决的单击定时器
-  useEffect(() => {
-    return () => {
-      if (immersiveTapTimerRef.current != null) {
-        window.clearTimeout(immersiveTapTimerRef.current)
-        immersiveTapTimerRef.current = null
-      }
-    }
-  }, [immersive])
-  const handleImmersiveTap = useCallback(
-    (e: React.MouseEvent) => {
-      if (e.detail >= 2) {
-        if (immersiveTapTimerRef.current != null) {
-          window.clearTimeout(immersiveTapTimerRef.current)
-          immersiveTapTimerRef.current = null
-        }
-        setImmersive(false)
-        return
-      }
-      if (immersiveTapTimerRef.current != null) {
-        window.clearTimeout(immersiveTapTimerRef.current)
-      }
-      immersiveTapTimerRef.current = window.setTimeout(() => {
-        immersiveTapTimerRef.current = null
-        togglePlay()
-      }, 250)
-    },
-    [togglePlay]
-  )
+  })
+  const {
+    immersive,
+    enter: enterImmersive,
+    onTap: handleImmersiveTap,
+  } = useImmersiveMode({ available: bgVideoReady, togglePlay })
 
   // ===== 双击歌名 → 添加当前歌到播放队列（仅网易云歌；B站 视频不响应）。
   // notify 模式：未在队列时入队并弹顶部「已添加」提示；已在队列时先弹
@@ -1701,15 +371,6 @@ function ListenTogetherInner({
     if (!currentSong || isBiliSong) return
     queueAdd(songToUpsertItem(currentSong), { notify: true })
   }, [currentSong, isBiliSong, queueAdd])
-
-  // 视频背景漂移校正驱动：interval 1s 命令式读取进度（positionSec 高频
-  // 更新不再经由 React effect 触发）；播放中正常 1x 漂移远小于阈值，
-  // 仅卡顿/seek 后才安排校正。未就绪时不排程（sync 内部亦有护栏）
-  useEffect(() => {
-    if (!bgVideoReady) return
-    const timer = setInterval(() => syncBgVideoTime(false), 1000)
-    return () => clearInterval(timer)
-  }, [bgVideoReady, syncBgVideoTime])
 
   // ===== 右面板模式（Hydrogen rightPanelMode：0 歌词 / 1 评论区） =====
   const [rightPanelMode, setRightPanelMode] = useState<0 | 1>(0)
@@ -2134,30 +795,7 @@ function ListenTogetherInner({
   // 重渲染进度条本身（含拖动预览），不拖累整块播放面板 =====
   const durationSec = currentSong ? currentSong.durationMs / 1000 : 0
 
-  // ===== seek 等位锁（修复松手后进度条「倒退再前进」反复横跳）：
-  //       seek() 只同步设置 audio.currentTime，positionSec 要等下一次
-  //       timeupdate 才更新——松手瞬间展示值会从拖动终点回退到旧进度
-  //       再前进。进度条（拖动）与歌词行点击 seek 共用同一把锁；
-  //       实际进度追上（容差 0.75s）、超时兜底（2s）或换曲后自动失效 =====
-  const [seekLock, setSeekLock] = useState<{
-    key: string | null
-    sec: number
-  } | null>(null)
-  const performSeekWithLock = useCallback(
-    (time: number) => {
-      seek(time)
-      setSeekLock({ key: currentKey, sec: time })
-    },
-    [seek, currentKey]
-  )
-
-  // 等位锁超时兜底：seek 失败（元数据未就绪等）时实际进度永远追不上，
-  // 超时后强制回落实际进度（setState 在定时器回调内，非同步级联）
-  useEffect(() => {
-    if (seekLock == null) return
-    const timer = setTimeout(() => setSeekLock(null), 2000)
-    return () => clearTimeout(timer)
-  }, [seekLock])
+  const { seekLock, seekWithLock, lockOnly } = useSeekLock({ seek, currentKey })
 
   // ===== 控制按钮（观众点击走申请，房主/房主离线 canControl 直接控制） =====
   const handlePlayPause = useCallback(() => {
@@ -2185,19 +823,19 @@ function ListenTogetherInner({
    */
   const handleViewerSeek = useCallback(
     (time: number) => {
-      setSeekLock({ key: currentKey, sec: time })
+      lockOnly(time)
       requestControl('seek', time)
     },
-    [currentKey, requestControl]
+    [lockOnly, requestControl]
   )
 
   /** 歌词行 seek（房主直接控制；观众转为 seek 申请，同样挂等位锁防回跳） */
   const handleLyricSeek = useCallback(
     (time: number) => {
-      if (canControl) performSeekWithLock(time)
+      if (canControl) seekWithLock(time)
       else handleViewerSeek(time)
     },
-    [canControl, performSeekWithLock, handleViewerSeek]
+    [canControl, seekWithLock, handleViewerSeek]
   )
 
   /** 播放模式轮换（仅房主，切换后广播同步） */
@@ -2250,81 +888,13 @@ function ListenTogetherInner({
   /** 封面背景模糊半径：毛玻璃关闭时 0（显示未模糊封面而非纯色底） */
   const coverBlurPx = coverBlur ? coverBlurLevel : 0
   const bgDim = useMusicSettingsStore((s) => s.bgDim)
-  // ===== 播放页 UI 深浅色开关（手动）：一键翻转播放卡文字/卡底 tint 与
-  //  歌词面板底色文字（变量映射见 CARD_TONE_VARS / LYRIC_PANEL_TONE_VARS /
-  //  CARD_TINT），localStorage 持久化。
-  //  **不含工具栏**——工具栏悬在卡外的封面/画面背景上，其可读性取决于
-  //  页面背景亮度，故改为随主题深浅翻转（见下方 toolbarTone）。
-  //  切换只改变量值与 tint 背景色，不给容器加 opacity/transform
-  //  （避免成为 Backdrop Root 使冰霜层失效） =====
-  const [uiTone, setUiTone] = useState<'light' | 'dark'>(loadPlayerUiTone)
-  const togglePlayerUiTone = useCallback(() => {
-    setUiTone((prev) => {
-      const next = prev === 'light' ? 'dark' : 'light'
-      try {
-        localStorage.setItem(PLAYER_UI_TONE_STORAGE_KEY, JSON.stringify(next))
-      } catch {
-        // ignore（隐私模式等存储不可用场景）
-      }
-      return next
-    })
-  }, [])
-
-  // ===== 工具栏色调跟随主题（不跟 UI 开关）：浅色模式 → 工具栏呈浅色
-  //  （白色图标），深色模式 → 工具栏呈深色（深色图标）。song-control 与
-  //  竖屏工具行悬出在播放卡外的封面/视频背景上，色调与页面整体观感
-  //  一致即可（用户明确要求「深色模式下工具栏就是深色、浅色模式下工具栏
-  //  就是浅色」，语义与主题同侧、不做反色） =====
-  const isDark = useThemeStore((s) => s.isDark)
-  const toolbarTone: 'light' | 'dark' = isDark ? 'dark' : 'light'
-  // ===== 悬浮工具栏限高滚动（横屏矮窗口 / 矮桌面窗口）：song-control 图标
-  //  数量随歌曲能力增减（B站源/弹幕/收藏/评论…最多 17 枚），内容高度超出
-  //  卡片高度时把工具栏压回卡片范围内并开放上下滑动（hide-scrollbar 不显
-  //  滚动条）。max-h-full 常挂：只在超出时约束盒子，内容自然溢出不裁剪，
-  //  同时作为 scrollHeight>clientHeight 的测量依据；overflow 裁剪会连同
-  //  x 轴一起生效，侧挂的播放队列弹窗（side placement）会被栏体裁掉，
-  //  因此仅在滚动激活时开放 overflow，并把弹窗切换为 sheet（fixed 底部
-  //  弹出，不受祖先 overflow 裁剪影响）。桌面高窗口内容放得下，两态均
-  //  不触发，视觉与交互零变化 =====
-  const toolbarRef = useRef<HTMLDivElement>(null)
-  const [toolbarScrollable, setToolbarScrollable] = useState(false)
-  const measureToolbarScrollable = useCallback(() => {
-    const el = toolbarRef.current
-    if (!el) return
-    setToolbarScrollable(el.scrollHeight > el.clientHeight + 1)
-  }, [])
-  // 每次渲染后复测：条件图标（喜欢/弹幕/收藏/评论…）增减会改变内容高度
-  useLayoutEffect(measureToolbarScrollable)
-  // 视口尺寸变化（gap/图标尺寸含 vh 项）同样改变内容高度
-  useEffect(() => {
-    window.addEventListener('resize', measureToolbarScrollable)
-    return () => window.removeEventListener('resize', measureToolbarScrollable)
-  }, [measureToolbarScrollable])
-  // 滚动激活时初始定位到栏底：底挂工具栏溢出方向向上，保持用户原本
-  // 看到的底部图标（收起/全屏/设置）不动，向上滑动揭示被裁的顶部图标
-  useEffect(() => {
-    if (!toolbarScrollable) return
-    const el = toolbarRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [toolbarScrollable])
-  // ===== 全屏切换：对文档根节点请求全屏（播放页打开时即播放页全屏），
-  //  fullscreenchange 监听同步图标状态——Esc 等浏览器侧退出也要跟随 =====
-  const [isFullscreen, setIsFullscreen] = useState(
-    () => document.fullscreenElement != null
-  )
-  useEffect(() => {
-    const onChange = () => setIsFullscreen(document.fullscreenElement != null)
-    document.addEventListener('fullscreenchange', onChange)
-    return () => document.removeEventListener('fullscreenchange', onChange)
-  }, [])
-  const toggleFullscreen = useCallback(() => {
-    if (document.fullscreenElement) {
-      void document.exitFullscreen().catch(() => {})
-    } else {
-      // iOS iPhone Safari 不支持元素全屏：静默失败不弹错
-      void document.documentElement.requestFullscreen().catch(() => {})
-    }
-  }, [])
+  const {
+    uiTone,
+    toggleUiTone: togglePlayerUiTone,
+    toolbarTone,
+  } = usePlayerUiTone()
+  const { toolbarRef, scrollable: toolbarScrollable } = useToolbarScrollable()
+  const { isFullscreen, toggle: toggleFullscreen } = useFullscreenToggle()
   const uiOpacity = useMusicSettingsStore((s) => s.uiOpacity)
   /** UI 毛玻璃模糊浓度（px，0-40）：播放卡/歌词面板冰霜层的模糊半径；
    *  非法值回退默认 12px */
@@ -2598,9 +1168,9 @@ function ListenTogetherInner({
             playsInline
             autoPlay
             loop
-            onLoadedMetadata={() => syncBgVideoTime(true)}
-            onCanPlay={() => setBgVideoReadyUrl(bgSourceUrl)}
-            onPlaying={() => setBgVideoReadyUrl(bgSourceUrl)}
+            onLoadedMetadata={bgVideoHandlers.onLoadedMetadata}
+            onCanPlay={bgVideoHandlers.onCanPlay}
+            onPlaying={bgVideoHandlers.onPlaying}
             className={cn(
               'pointer-events-none h-full w-full',
               bgVideoFit === 'cover'
@@ -2678,14 +1248,14 @@ function ListenTogetherInner({
         >
           <DanmakuLayer
             ref={biliDanmakuLayerRef}
-            opacity={danmakuStyle.opacity}
-            displayArea={danmakuStyle.displayArea}
-            density={danmakuStyle.advanced.density}
-            speed={danmakuStyle.speed}
-            scaleWithScreen={danmakuStyle.scaleWithScreen}
-            filters={danmakuStyle.filters}
-            advancedStyle={danmakuStyle.advanced}
-            fontSize={danmakuStyle.fontSize}
+            opacity={biliDanmakuStyle.opacity}
+            displayArea={biliDanmakuStyle.displayArea}
+            density={biliDanmakuStyle.advanced.density}
+            speed={biliDanmakuStyle.speed}
+            scaleWithScreen={biliDanmakuStyle.scaleWithScreen}
+            filters={biliDanmakuStyle.filters}
+            advancedStyle={biliDanmakuStyle.advanced}
+            fontSize={biliDanmakuStyle.fontSize}
           />
         </div>
       )}
@@ -2976,7 +1546,7 @@ function ListenTogetherInner({
               {bgVideoReady && (
                 <button
                   type="button"
-                  onClick={() => setImmersive(true)}
+                  onClick={enterImmersive}
                   className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   title="纯净模式：隐藏全部界面，仅显示背景视频"
                   aria-label="进入纯净模式"
@@ -3501,7 +2071,7 @@ function ListenTogetherInner({
                       canControl={canControl}
                       currentKey={currentKey}
                       seekLock={seekLock}
-                      onSeek={performSeekWithLock}
+                      onSeek={seekWithLock}
                       onRequestSeek={handleViewerSeek}
                     />
 
@@ -3681,7 +2251,7 @@ function ListenTogetherInner({
               {bgVideoReady && (
                 <button
                   type="button"
-                  onClick={() => setImmersive(true)}
+                  onClick={enterImmersive}
                   className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
                   title="纯净模式：隐藏全部界面，仅显示背景视频"
                   aria-label="进入纯净模式"

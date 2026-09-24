@@ -141,6 +141,28 @@ export interface NcmLoginStatus {
   vipStatus?: number | null
 }
 
+/** 网易云 /lyric 原始响应（后端透传结构） */
+export interface NcmLyricResponse {
+  lrc?: { lyric?: string }
+  tlyric?: { lyric?: string }
+  /** 罗马音官方字段名；rlyric 为旧命名兜底 */
+  romalrc?: { lyric?: string }
+  rlyric?: { lyric?: string }
+}
+
+/** 网易云 /account 响应（宽松解析 uid） */
+export interface NcmAccountResponse {
+  data?: { account?: { id?: number } }
+  account?: { id?: number }
+  profile?: { userId?: number }
+}
+
+/** 网易云 /likelist 响应（宽松解析 ids） */
+export interface NcmLikelistResponse {
+  data?: { ids?: number[] }
+  ids?: number[]
+}
+
 // ==================== 页面数据类型（Hydrogen 首页各区块） ====================
 
 /** 首页轮播图条目（GET /api/music/ncm/banner → banners[]） */

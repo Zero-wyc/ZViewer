@@ -224,3 +224,45 @@ export function ModeRepeatOneIcon({ className }: { className?: string }) {
     </svg>
   )
 }
+
+/** 弹幕开关图标：与「一起看」播放器控制栏的弹幕开关同款（PlayerControlBar
+ *  DanmakuIcon）——圆角屏幕内带「弹」字，关闭时叠加斜线区分状态。
+ *  checked = 弹幕开启（无斜线）；描边/文字走 currentColor 适配工具栏黑白切换 */
+export function DanmakuTvIcon({
+  checked,
+  className,
+}: {
+  checked: boolean
+  className?: string
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+    >
+      {/* 圆角屏幕机身 */}
+      <rect x="3" y="4" width="18" height="16" rx="2" />
+      {/* 「弹」字（与一起看同款：text 渲染居中） */}
+      <text
+        x="12"
+        y="16.5"
+        textAnchor="middle"
+        fill="currentColor"
+        stroke="none"
+        fontSize="10"
+        fontWeight="600"
+        fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+      >
+        弹
+      </text>
+      {/* 关闭态：叠加斜线（与一起看同款状态语言） */}
+      {!checked && <line x1="5" y1="5" x2="19" y2="19" />}
+    </svg>
+  )
+}

@@ -56,17 +56,8 @@ import {
 import { AddToPlaylistModal } from './AddToPlaylistModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
 import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
-import type { PlayMode } from '../types'
 import { cn, formatDuration } from '@/lib/utils'
-
-/** 播放模式循环顺序（Hydrogen changePlayMode 扩展 4 态；order = 按顺序播放，
- *  不循环，B站 推荐连播仅此模式启用；默认模式，循环从它开始） */
-const PLAY_MODE_ORDER: PlayMode[] = [
-  'order',
-  'repeat-one',
-  'shuffle',
-  'sequence',
-]
+import { PLAY_MODE_ORDER } from '../constants'
 
 export function MusicWidgetBar() {
   const {
