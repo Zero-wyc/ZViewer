@@ -370,11 +370,33 @@ export interface UseListenTogetherResult {
 }
 
 /**
+ * 把音频元素挂到 body 尾部（display:none）：MediaSession 系统媒体通知
+ * （Android 状态栏/锁屏、iOS 控制中心）依赖浏览器对「页面内有媒体元素
+ * 在播」的感知——部分安卓浏览器/WebView 对**脱离 DOM** 的媒体元素不建立
+ * 媒体会话，通知不出现。挂 DOM 是 MediaSession 可靠生效的前提，
+ * 幂等（已在 DOM 中时 appendChild 仅移动，无副作用）。
+ */
+function mountMediaElement(el: HTMLAudioElement): void {
+  if (el.parentElement) return
+  el.setAttribute('aria-hidden', 'true')
+  el.setAttribute('data-lt-media', '')
+  el.style.display = 'none'
+  document.body.appendChild(el)
+}
+
+/** 把音频元素从 DOM 移除（与 mountMediaElement 配对；防替换/卸载后残留） */
+function unmountMediaElement(el: HTMLAudioElement): void {
+  el.remove()
+}
+
+/**
  * 一起听核心 Hook：音频播放引擎 + 房主/观众同步。
  *
  * 结构对齐 useWatchTogether（socket 事件注册、房主/观众分支、
  * 心跳、申请制、房主离线判定 hostOffline → canControl），但大幅简化：
- * - 音频元素惰性创建（useRef 持有，不挂 DOM），src 走 /api/music/stream 代理
+ * - 音频元素惰性创建（useRef 持有，创建即挂 DOM display:none——
+ *   MediaSession 系统媒体通知要求媒体元素在 DOM 内，见 mountMediaElement），
+ *   src 走 /api/music/stream 代理
  * - 房主：togglePlay/next/prev/seek/setPlayMode 直接操作 audio 并广播
  *   'music:sync-state'；ended 按 playMode 自动切歌；每 2s 心跳
  * - 观众：监听 sync-state/心跳对齐（进度差 >2s 才 seek）；
@@ -442,13 +464,14 @@ export function useListenTogether({
     volumeRef.current = volume
   }, [socket, roomId, isHost, username, volume])
 
-  /** 惰性获取 audio 元素（首次使用时创建，不挂 DOM；创建时应用持久化音量） */
+  /** 惰性获取 audio 元素（首次使用时创建并挂 DOM，创建时应用持久化音量） */
   const getAudio = useCallback(() => {
     if (!audioRef.current) {
       const audio = new Audio()
       audio.preload = 'auto'
       audio.muted = volumeRef.current === 0
       audio.volume = volumeRef.current
+      mountMediaElement(audio)
       audioRef.current = audio
     }
     return audioRef.current
@@ -751,7 +774,8 @@ export function useListenTogether({
     [audioHandlers]
   )
 
-  /** 复位指定音频元素：停止并释放已缓冲的流资源（Hydrogen unload 等价） */
+  /** 复位指定音频元素：停止并释放已缓冲的流资源（Hydrogen unload 等价），
+   *  同时从 DOM 移除（挂载与退役配对，防隐藏元素残留堆积） */
   const resetAudioElement = useCallback((el: HTMLAudioElement) => {
     el.pause()
     el.removeAttribute('src')
@@ -761,6 +785,7 @@ export function useListenTogether({
     } catch {
       // ignore
     }
+    unmountMediaElement(el)
   }, [])
 
   // 预缓冲下一首：提前建立 HTTP/媒体缓存，切歌时近乎零等待
@@ -801,6 +826,8 @@ export function useListenTogether({
       el.volume = currentAudio.volume
       el.muted = currentAudio.muted
     }
+    // 挂 DOM：预载元素升格为主播放元素后承载 MediaSession 展示
+    mountMediaElement(el)
     el.src = targetUrl
     preloadRef.current = el
     return () => {
@@ -874,8 +901,10 @@ export function useListenTogether({
       ) {
         // 1) 事件迁移：先从旧主元素摘除（避免 pause 触发暂停状态镜像）
         detachAudioHandlers(audio)
-        // 2) 停止旧播放（事件已摘除，不会误镜像暂停状态）
+        // 2) 停止旧播放（事件已摘除，不会误镜像暂停状态）并从 DOM 移除
+        //    （元素角色已被预载元素接替，残留隐藏元素会堆积）
         audio.pause()
+        unmountMediaElement(audio)
         // 3) 挂载事件并接管角色；预载槽消费置空（预载 effect 会重新预载下一首）
         attachAudioHandlers(preloaded)
         audioRef.current = preloaded
@@ -1997,8 +2026,21 @@ export function useListenTogether({
         audio.srcObject = null
         audio.removeAttribute('src')
         audio.load()
+        unmountMediaElement(audio)
       }
       audioRef.current = null
+      const preload = preloadRef.current
+      if (preload) {
+        preload.pause()
+        preload.removeAttribute('src')
+        try {
+          preload.load()
+        } catch {
+          // ignore
+        }
+        unmountMediaElement(preload)
+      }
+      preloadRef.current = null
       pendingSeekRef.current = 0
       shuffleListRef.current = null
       shufflePosRef.current = -1
@@ -2024,7 +2066,11 @@ export function useListenTogether({
       if (audioRef.current) stopEl(audioRef.current)
       if (preloadRef.current) {
         stopEl(preloadRef.current)
-        if (full) preloadRef.current = null
+        if (full) {
+          // 引用即将丢弃，从 DOM 一并移除（否则隐藏元素残留 body 无法 GC）
+          unmountMediaElement(preloadRef.current)
+          preloadRef.current = null
+        }
       }
     }
     window.addEventListener(ROOM_MEDIA_TEARDOWN_EVENT, handleTeardown)

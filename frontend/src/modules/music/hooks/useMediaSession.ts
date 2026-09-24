@@ -58,6 +58,9 @@ export function useMediaSessionSync(): void {
   } = useMusicPlayer()
 
   // ===== 元数据：曲名/歌手/专辑/封面（换曲即更新系统栏展示） =====
+  // isPlaying 也作为依赖：部分实现只在「播放开始」时刻采用/刷新当前
+  // metadata，换曲先于播放发生时仅靠 currentSong 依赖可能不生效——
+  // 播放开始时幂等重设一次兜底（对象重建开销可忽略）
   useEffect(() => {
     if (!isMediaSessionSupported() || typeof MediaMetadata !== 'function') {
       return
@@ -72,7 +75,7 @@ export function useMediaSessionSync(): void {
       album: currentSong.album || undefined,
       artwork: toArtwork(currentSong.cover),
     })
-  }, [currentSong])
+  }, [currentSong, isPlaying])
 
   // ===== 播放状态镜像（系统栏播放/暂停图标跟随） =====
   useEffect(() => {
