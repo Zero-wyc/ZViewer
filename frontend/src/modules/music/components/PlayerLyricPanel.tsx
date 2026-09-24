@@ -682,10 +682,12 @@ export function PlayerLyricPanel({
       </div>
 
       {/* 音质角标（Hydrogen .song-quality：1.5vh Bender-Bold 黑字；
-          右侧留出四角边框盒的宽度防重叠；max() 保底横屏矮窗口可读） */}
+          抬到右下角边框盒上方（框 bottom-1 高 max(1.5vh,9px)，角标
+          bottom max(2.4vh,16px) 恒高于框顶），原 bottom-1 与框同线，
+          横屏矮窗口下文字压框错位；max() 保底横屏矮窗口可读） */}
       {qualityLabel && (
         <span
-          className="pointer-events-none absolute bottom-1 right-[max(2.2vh,12px)] z-[6] text-[max(1.5vh,10px)] leading-none tracking-wide"
+          className="pointer-events-none absolute bottom-[max(2.4vh,16px)] right-[max(2.2vh,12px)] z-[6] text-[max(1.5vh,10px)] leading-none tracking-wide"
           style={{
             color: 'var(--md-sys-color-on-surface)',
             fontFamily: "'Bender-Bold', 'SourceHanSansCN-Bold', sans-serif",
