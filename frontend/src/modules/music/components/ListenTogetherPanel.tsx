@@ -290,21 +290,27 @@ function loadPlayerUiTone(): 'light' | 'dark' {
  *  - LYRIC_PANEL：歌词面板容器（PlayerLyricPanel 全令牌化零改动）。
  *    on-surface 供歌词/高亮条/描边，surface 供面板底 color-mix 45% 透明
  *    底色与高亮条上的反色文字 */
+/** 工具栏色调映射：**按工具栏自身的深浅语义命名**（light = 工具栏呈浅色
+ *  ——白色图标；dark = 工具栏呈深色——深色图标），与 UI 开关/主题的
+ *  「浅色模式」是同一侧语义（浅色模式 → 工具栏浅色），不做反色。
+ *  on-surface / on-surface-variant 供全部按钮 var() 引用，
+ *  --lt-tone-inverse 供评论数徽章文字 */
 const TOOLBAR_TONE_VARS = {
   light: {
-    '--md-sys-color-on-surface': '#1c1c1c',
-    '--md-sys-color-on-surface-variant': 'rgba(0, 0, 0, 0.5)',
-    '--lt-tone-inverse': '#ffffff',
-  },
-  dark: {
     '--md-sys-color-on-surface': '#ffffff',
     '--md-sys-color-on-surface-variant': 'rgba(255, 255, 255, 0.5)',
     '--lt-tone-inverse': '#1c1c1c',
   },
+  dark: {
+    '--md-sys-color-on-surface': '#1c1c1c',
+    '--md-sys-color-on-surface-variant': 'rgba(0, 0, 0, 0.5)',
+    '--lt-tone-inverse': '#ffffff',
+  },
 } as Record<'light' | 'dark', React.CSSProperties>
 
-/** 播放卡容器变量覆盖（语义见 TOOLBAR_TONE_VARS 注释）；light 组 =
- *  改版前「恒黑字白底」定稿值 */
+/** 播放卡容器变量覆盖：**按 UI 开关语义**（light = 浅色 UI：亮玻璃配深色
+ *  文字；dark = 深色 UI：暗玻璃配浅色文字）。light 组 = 改版前「恒黑字
+ *  白底」定稿值 */
 const CARD_TONE_VARS = {
   light: {
     '--md-sys-color-on-surface': '#000000',
@@ -2264,11 +2270,11 @@ function ListenTogetherInner({
     })
   }, [])
 
-  // ===== 工具栏色调跟随主题深浅（不跟 UI 开关）：song-control 与竖屏工具
-  //  行悬出在播放卡外的封面/视频画面背景上，背后亮度由主题决定（此前旧
-  //  版按封面采样自适应已废弃），因此深色主题下取浅色图标、浅色主题下取
-  //  深色图标才能保证可读——若跟随 UI 开关，深色主题 + 浅色 UI
-  //  会把深色图标压在深色背景上几乎不可见 =====
+  // ===== 工具栏色调跟随主题（不跟 UI 开关）：浅色模式 → 工具栏呈浅色
+  //  （白色图标），深色模式 → 工具栏呈深色（深色图标）。song-control 与
+  //  竖屏工具行悬出在播放卡外的封面/视频背景上，色调与页面整体观感
+  //  一致即可（用户明确要求「深色模式下工具栏就是深色、浅色模式下工具栏
+  //  就是浅色」，语义与主题同侧、不做反色） =====
   const isDark = useThemeStore((s) => s.isDark)
   const toolbarTone: 'light' | 'dark' = isDark ? 'dark' : 'light'
   // ===== 悬浮工具栏限高滚动（横屏矮窗口 / 矮桌面窗口）：song-control 图标
