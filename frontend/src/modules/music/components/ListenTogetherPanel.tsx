@@ -2795,6 +2795,10 @@ function ListenTogetherInner({
                 // 都不出现灰字」的确定性
                 '--md-sys-color-on-surface': '#000000',
                 '--md-sys-color-on-surface-variant': '#000000',
+                // 卡内「surface 派生色」（按钮 hover 底、占比条底色等）在
+                // 恒亮白卡底下也要跟随转亮，否则深色主题时会残留暗底
+                '--md-sys-color-surface-container-high':
+                  'rgba(255, 255, 255, 0.6)',
               } as React.CSSProperties
             }
           >
@@ -3252,30 +3256,26 @@ function ListenTogetherInner({
                   WebkitBackdropFilter: 'blur(var(--lt-ui-blur, 12px))',
                 }}
               />
+              {/* 恒亮白玻璃底色 t层（**在 uiFade 图层之外**）：卡底毛玻璃采样
+                  内容亮度不定（亮封面→亮底、暗视频→暗底），信息层文字已恒定
+                  纯黑（见卡容器变量覆盖注释），故卡底必须同为恒定亮底，黑字全
+                  场景都有确定对比度。刻意不放进下面的 uiFade 图层——UI 透明度
+                  调低时若连白底一起淡出，黑字会被稀释成灰、且露出更暗的模糊背
+                  景，反而更糊；白底常驻才能托住文字对比度。
+                  竖屏 0.55 / 桌面横屏 0.45（桌面卡面更大，稍低不压背景） */}
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0"
+                style={{
+                  backgroundColor: isPortraitMobile
+                    ? 'rgba(255, 255, 255, 0.55)'
+                    : 'rgba(255, 255, 255, 0.45)',
+                }}
+              />
               <div
                 className="relative flex h-full w-full flex-col"
                 style={uiFade < 1 ? { opacity: uiFade } : undefined}
               >
-                <div
-                  className="pointer-events-none absolute inset-0"
-                  style={
-                    {
-                      // 播放卡恒亮白玻璃底（对齐 Hydrogen 手机原版）——卡底毛
-                      // 玻璃采样内容亮度不定（亮封面→亮底、暗视频→暗底），
-                      // 文字色若随主题翻转必然出现「浅底浅字/深底深字」失配；
-                      // 信息层文字已恒定纯黑（见卡容器变量覆盖注释），故卡底
-                      // 必须同为恒定亮底，黑字全场景都有确定对比度。
-                      // 竖屏 0.55 / 桌面横屏 0.45（桌面卡面更大，稍低不压背景）
-                      backgroundColor: isPortraitMobile
-                        ? 'rgba(255, 255, 255, 0.55)'
-                        : 'rgba(255, 255, 255, 0.45)',
-                      // 亮底替换掉原主题 surface 混色后，需同步 override 卡内
-                      // 「surface 派生色」（占比条底色、按钮 hover 底等）
-                      '--md-sys-color-surface-container-high':
-                        'rgba(255, 255, 255, 0.6)',
-                    } as React.CSSProperties
-                  }
-                />
                 {/* 封面（max-height 38vh + 轻阴影）+ L 形角标内缩动画；
                   竖屏手机限高防吃掉控制区 */}
                 <div className="relative shrink-0 p-[max(1.5vh,10px)]">
