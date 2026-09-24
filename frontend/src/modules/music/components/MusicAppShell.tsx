@@ -452,18 +452,15 @@ function ShellInner({
           />
           {/* 右上角收起按钮（滑出动画结束后卸载）：手机上默认完全隐藏
               （触摸屏幕任意处亮起 3s——触屏无 hover 且常显会压在歌词
-              首行上），桌面保持 hover 区域显形；显形时带圆形毛玻璃底，
-              横屏歌词页占满时也不显「错位悬浮字」 */}
+              首行上），桌面保持 hover 区域显形；纯图标无玻璃底无模糊 */}
           <div className="group/hide absolute right-3 top-3 z-[70] h-16 w-16 max-md:right-2 max-md:top-2">
             <button
               type="button"
               className={cn(
-                'flex h-9 w-9 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] transition-all duration-200 active:scale-90',
+                'flex h-9 w-9 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-[opacity,transform] duration-200 active:scale-90',
                 overlayCloseVisible
-                  ? 'pointer-events-auto opacity-100 shadow-sm backdrop-blur-md'
-                  : 'pointer-events-none opacity-0 group-hover/hide:pointer-events-auto group-hover/hide:opacity-100',
-                overlayCloseVisible &&
-                  'bg-[color-mix(in_srgb,var(--md-sys-color-surface)_60%,transparent)]'
+                  ? 'pointer-events-auto opacity-100'
+                  : 'pointer-events-none opacity-0 group-hover/hide:pointer-events-auto group-hover/hide:opacity-100'
               )}
               onClick={closePlayerOverlay}
               title="收起播放器"
