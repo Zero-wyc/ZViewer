@@ -80,8 +80,8 @@ export interface MusicSettings {
    * 80=1080P / 74=720P60 / 64=720P / 32=480P / 16=360P
    */
   musicVideoQn: number
-  /** 视频背景画面适配：contain 完整显示（默认，黑边由模糊封面填充）/
-   *  cover 裁切铺满（超出部分裁掉）/ fill 拉伸填充（拉伸铺满可能变形） */
+  /** 视频背景画面适配：cover 裁切铺满（默认，超出部分裁掉）/
+   *  contain 完整显示（黑边由模糊封面填充）/ fill 拉伸填充（拉伸铺满可能变形） */
   bgVideoFit: 'contain' | 'cover' | 'fill'
   /** 视频背景模糊度（px，0-40，默认 0=关闭）：播放视频背景时的模糊半径，
    *  模糊时视频元素同步放大补偿边缘羽化 */
@@ -97,8 +97,8 @@ export interface MusicSettings {
    */
   uiBlurLevel: number
   /**
-   * B站 封面形状（仅哔哩哔哩歌曲的歌词页封面生效）：original 原版
-   * （默认 16:9 长方形）/ square 正方形（对封面居中裁剪呈正方形显示）
+   * B站 封面形状（仅哔哩哔哩歌曲的歌词页封面生效）：square 正方形
+   * （默认，对封面居中裁剪呈正方形显示）/ original 原版 16:9 长方形
    */
   biliCoverShape: 'original' | 'square'
   /**
@@ -124,8 +124,8 @@ export interface MusicSettings {
    */
   biliDanmakuEnabled: boolean
   /**
-   * B站 弹幕层级（默认 UI 上方）：true = 弹幕悬浮于播放卡/歌词等前景
-   * UI 之上；false = 弹幕仅铺在背景（封面/视频）之上、被前景 UI 遮挡。
+   * B站 弹幕层级（默认 UI 底部）：false = 弹幕仅铺在背景（封面/视频）
+   * 之上、被前景 UI 遮挡；true = 弹幕悬浮于播放卡/歌词等前景 UI 之上。
    * 纯净模式下前景 UI 隐藏，两种层级均抬升至视频之上
    */
   biliDanmakuAboveUi: boolean
@@ -151,16 +151,16 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   lyricInterlude: 13,
   musicVideoCli: false,
   musicVideoQn: 0,
-  bgVideoFit: 'contain',
+  bgVideoFit: 'cover',
   videoBlurLevel: 0,
   uiOpacity: 100,
   uiBlurLevel: 12,
-  biliCoverShape: 'original',
+  biliCoverShape: 'square',
   biliAutoContinue: true,
   biliLikeFavTitle: 'Music',
   musicNavCollapsed: true,
   biliDanmakuEnabled: true,
-  biliDanmakuAboveUi: true,
+  biliDanmakuAboveUi: false,
 }
 
 interface MusicSettingsState extends MusicSettings {
@@ -177,7 +177,24 @@ export const useMusicSettingsStore = create<MusicSettingsState>()(
       set: (patch) => set(patch),
       reset: () => set({ ...DEFAULT_MUSIC_SETTINGS }),
     }),
-    { name: 'zviewer-music-settings', version: 1 }
+    {
+      name: 'zviewer-music-settings',
+      version: 2,
+      // v2 默认值变更（B站 弹幕层级 UI 上方→底部 / 背景适配 contain→cover /
+      // 封面形状 original→square）：旧版本持久化里**仍等于旧默认**的三项
+      // 迁到新默认（跟随默认的用户平滑切换）；用户主动改过的不动
+      migrate: (persisted, version) => {
+        const state = (persisted ?? {}) as Partial<MusicSettingsState>
+        if (version < 2) {
+          if (state.bgVideoFit === 'contain') state.bgVideoFit = 'cover'
+          if (state.biliCoverShape === 'original')
+            state.biliCoverShape = 'square'
+          if (state.biliDanmakuAboveUi === true)
+            state.biliDanmakuAboveUi = false
+        }
+        return state as MusicSettingsState
+      },
+    }
   )
 )
 
@@ -197,16 +214,16 @@ export function normalizeMusicLevel(level: string): string {
     : DEFAULT_MUSIC_SETTINGS.level
 }
 
-/** 视频背景画面适配合法性（非法值回退完整显示） */
+/** 视频背景画面适配合法性（非法值回退默认裁切铺满） */
 export function normalizeBgVideoFit(fit: string): MusicSettings['bgVideoFit'] {
-  return fit === 'cover' || fit === 'fill' ? fit : 'contain'
+  return fit === 'fill' || fit === 'contain' ? fit : 'cover'
 }
 
-/** B站 封面形状合法性（非法值回退原版） */
+/** B站 封面形状合法性（非法值回退默认正方形） */
 export function normalizeBiliCoverShape(
   shape: string
 ): MusicSettings['biliCoverShape'] {
-  return shape === 'square' ? 'square' : 'original'
+  return shape === 'original' ? 'original' : 'square'
 }
 
 /** B站 红心收藏夹名称合法性（空白回退默认「Music」） */
