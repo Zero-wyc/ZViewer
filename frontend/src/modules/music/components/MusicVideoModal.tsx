@@ -23,6 +23,10 @@ import {
   type BilibiliVideoViewInfo,
 } from '@/modules/bilibili/bilibiliApi'
 import type { BilibiliUserInfo, BilibiliQrData } from '@/modules/bilibili/types'
+import {
+  buildBilibiliImageProxyUrl,
+  isBilibiliImageUrl,
+} from '@/modules/room/watch-together/resolveSource'
 import { message } from '@/components/ui/message'
 import {
   getMusicVideo,
@@ -32,6 +36,13 @@ import {
 
 /** 二维码轮询间隔（ms，Hydrogen 3s，ZViewer MoviePushPanel 为 2s） */
 const QR_POLL_INTERVAL_MS = 2000
+
+/** B站 图片展示兜底：hdslb 直链在应用内被 Referer 防盗链拦截（403），
+ *  统一走 /api/stream/proxy-image 代理（与队列/收藏/评论/一起看侧同一
+ *  范式；账号头像与视频封面均为后端透传的原始直链） */
+function toDisplayableBiliImage(url: string): string {
+  return isBilibiliImageUrl(url) ? buildBilibiliImageProxyUrl(url) : url
+}
 
 interface MusicVideoModalProps {
   /** 当前歌曲 songId（视频关联按歌曲保存） */
@@ -336,10 +347,13 @@ export function MusicVideoModal({
             ) : loginStatusLoaded && biliUser ? (
               <div className="flex h-full w-full flex-row items-center">
                 <img
-                  src={biliUser.avatar}
+                  src={toDisplayableBiliImage(biliUser.avatar)}
                   alt=""
                   className="ml-[14px] mt-[9px] h-[45px] w-[45px]"
                   style={{ border: '1px solid rgba(255, 255, 255, 0.1)' }}
+                  onError={(e) => {
+                    e.currentTarget.style.visibility = 'hidden'
+                  }}
                 />
                 <div
                   className="ml-[12px] mt-[9px] flex flex-col text-left"
@@ -469,7 +483,7 @@ export function MusicVideoModal({
               <div className="mt-[6px] flex w-full flex-col">
                 <div className="flex flex-row items-center">
                   <img
-                    src={videoInfo.pic}
+                    src={toDisplayableBiliImage(videoInfo.pic)}
                     alt=""
                     className="mr-[10px] self-start"
                     style={{
