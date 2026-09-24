@@ -43,8 +43,6 @@ import {
   MessageCircle,
   AlignLeft,
   Music,
-  X,
-  Check,
   Film,
   FolderPlus,
   Heart,
@@ -56,7 +54,7 @@ import {
   Minimize,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet } from '@/lib/api'
 import { useIsPortraitMobile, useIsLandscapeShort } from '@/hooks/useMediaQuery'
 import { useMusicVideoBackground } from '../hooks/useMusicVideoBackground'
 import { useQueueAdd, songToUpsertItem } from '../hooks/useQueueAdd'
@@ -65,15 +63,13 @@ import {
   useMusicSettingsStore,
   normalizeBgVideoFit,
   normalizeBiliCoverShape,
-  normalizeBiliLikeFavTitle,
 } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { DanmakuLayer } from '@/components/DanmakuLayer'
-import { message } from '@/components/ui/message'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
 import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
-import { mergeLyrics, type LyricLine } from '../utils/lrc'
+import type { LyricLine } from '../utils/lrc'
 import {
   applyLyricLineOffsets,
   buildNextLyricLineOffsetStore,
@@ -122,7 +118,6 @@ import {
   CARD_TINT,
 } from '../utils/playerTone'
 import {
-  SYNC_NOTICE_AUTO_DISMISS_MS,
   LYRIC_ADVANCE_SEC,
   PLAY_MODE_ORDER,
   PLAY_MODE_META,
@@ -132,16 +127,16 @@ import { PlayerSettingsModal } from './PlayerSettingsModal'
 import { PlayerProgressBar } from './PlayerProgressBar'
 import { useBilibiliDanmaku } from '../hooks/useBilibiliDanmaku'
 import { useBackgroundVideoSync } from '../hooks/useBackgroundVideoSync'
+import { useLyricTrack } from '../hooks/useLyricTrack'
+import { useSongFavorite } from '../hooks/useSongFavorite'
+import { useNoticeToast } from '../hooks/useNoticeToast'
+import { PlayerBackgroundLayer } from './PlayerBackgroundLayer'
+import { PlayerNoticeOverlay } from './PlayerNoticeOverlay'
 import { useImmersiveMode } from '../hooks/useImmersiveMode'
 import { useSeekLock } from '../hooks/useSeekLock'
 import { usePlayerUiTone } from '../hooks/usePlayerUiTone'
 import { useToolbarScrollable } from '../hooks/useToolbarScrollable'
 import { useFullscreenToggle } from '../hooks/useFullscreenToggle'
-import type {
-  NcmLyricResponse,
-  NcmAccountResponse,
-  NcmLikelistResponse,
-} from '../types'
 
 export interface ListenTogetherPanelProps {
   socket: Socket | null
@@ -394,283 +389,43 @@ function ListenTogetherInner({
     return () => window.removeEventListener(COMMENT_TOTAL_EVENT, refresh)
   }, [currentBiliBvid, songId])
 
-  // ===== 歌词加载状态（区分 无歌词/纯音乐/正常 三态 + 首帧防闪烁） =====
-  const [lyricLines, setLyricLines] = useState<LyricLine[]>([])
-  const [emptyMode, setEmptyMode] = useState<'none' | 'pure' | null>(null)
-  const [lyricRevealed, setLyricRevealed] = useState(false)
+  // ===== 歌词轨道（加载三态 / 网易云歌词请求 / B站 AI 字幕 / 切歌黑块）：
+  // 整簇已抽为 useLyricTrack；切歌重置经 onSongSwitch 回调连带重置「喜欢」
+  // 乐观态（render 期派生，语义与原内联实现一致） =====
   // 歌词单行偏移仓库（"song:.songId" → { lineKey → offsetSec }，
   // localStorage 持久化，跨会话生效；Hydrogen playerStore.lyricLineOffsets 同语义）
   const [lineOffsetStore, setLineOffsetStore] = useState<LyricLineOffsetStore>(
     () => loadLyricLineOffsetStore()
   )
-  // 切歌动画（歌名黑块滑入遮字）
-  const [songSwitching, setSongSwitching] = useState(false)
-  // 喜欢（乐观状态）
-  const [liked, setLiked] = useState(false)
-  const [likeBusy, setLikeBusy] = useState(false)
-
-  // ===== 切歌驱动的同步重置（render 期调整状态，替代 effect 内同步 setState）：
-  // 歌词清空走防闪烁隐藏（Hydrogen 切歌 lyricShow=false 同语义）、
-  // 黑块滑入、喜欢乐观态重置 =====
-  const [prevSongId, setPrevSongId] = useState<number | null | undefined>(
-    songId
+  const { lyricLines, emptyMode, lyricRevealed, songSwitching } = useLyricTrack(
+    {
+      songId,
+      currentKey,
+      biliBvid: currentSong?.biliBvid,
+      biliCid: currentSong?.biliCid,
+      biliDurationMs: currentSong?.durationMs,
+    }
   )
-  if (prevSongId !== songId) {
-    setPrevSongId(songId)
-    setLyricLines([])
-    const noLyricSong = songId == null || songId <= 0
-    setEmptyMode(noLyricSong ? 'none' : null)
-    setLyricRevealed(noLyricSong)
-    setSongSwitching(songId != null)
-    setLiked(false)
-  }
 
-  // ===== 歌词请求（异步回调内 setState；重置已在 render 期完成） =====
-  useEffect(() => {
-    if (songId == null || songId <= 0) return
-    let cancelled = false
-    const loadLyric = async () => {
-      try {
-        const { data } = await apiGet<NcmLyricResponse>(
-          `/api/music/ncm/lyric?id=${songId}`
-        )
-        if (cancelled) return
-        const raw = data?.lrc?.lyric ?? ''
-        if (!raw.trim()) {
-          // 接口无歌词 → Lyric-Area 占位装饰
-          setLyricLines([])
-          setEmptyMode('none')
-        } else if (raw.includes('纯音乐')) {
-          // 纯音乐 → 单行占位（Hydrogen buildPureMusicRows）
-          setLyricLines([])
-          setEmptyMode('pure')
-        } else {
-          setLyricLines(
-            mergeLyrics(
-              raw,
-              data?.tlyric?.lyric ?? '',
-              data?.romalrc?.lyric ?? data?.rlyric?.lyric
-            )
-          )
-          setEmptyMode(null)
-        }
-      } catch (err) {
-        console.error('[ListenTogetherPanel] 获取歌词失败:', err)
-        if (!cancelled) {
-          setLyricLines([])
-          setEmptyMode('none')
-        }
-      }
-      if (!cancelled) {
-        // 反闪烁（Hydrogen prepareLyricReveal）：等字体加载完成 + 双帧布局
-        // 稳定后再显示歌词区（字体就绪超时 1.5s 兜底，避免阻塞展示）
-        const fontsReady = document.fonts?.ready ?? Promise.resolve()
-        const timeout = new Promise((resolve) => setTimeout(resolve, 1500))
-        Promise.race([fontsReady, timeout]).then(() => {
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
-              if (!cancelled) setLyricRevealed(true)
-            })
-          )
-        })
-      }
-    }
-    void loadLyric()
-    return () => {
-      cancelled = true
-    }
-  }, [songId])
-
-  // ===== B站 本地插播曲目：歌词用 AI 字幕（conclusion/get）转换 =====
-  useEffect(() => {
-    if (!currentKey?.startsWith('bili:')) return
-    const bvid = currentSong?.biliBvid
-    const cid = currentSong?.biliCid
-    if (!bvid || !cid) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const { data } = await apiGet<{
-          lines?: Array<{ from: number; to: number; content: string }>
-        }>(
-          `/api/stream/bilibili/ai-subtitle?bvid=${bvid}&cid=${cid}&duration=${Math.round(
-            (currentSong?.durationMs ?? 0) / 1000
-          )}`
-        )
-        if (cancelled) return
-        const lines: LyricLine[] = (data?.lines ?? [])
-          .filter((l) => l.content.trim() !== '')
-          .map((l, i) => ({
-            time: l.from,
-            text: l.content,
-            lyricLineKey: `bili:${bvid}:${cid}:${i}`,
-          }))
-        setLyricLines(lines)
-        setEmptyMode(lines.length > 0 ? null : 'none')
-      } catch {
-        if (!cancelled) {
-          // AI 字幕不可用（未登录 B站/视频无字幕）：显示无歌词占位
-          setLyricLines([])
-          setEmptyMode('none')
-        }
-      }
-      const fontsReady = document.fonts?.ready ?? Promise.resolve()
-      const timeout = new Promise((resolve) => setTimeout(resolve, 800))
-      Promise.race([fontsReady, timeout]).then(() => {
-        requestAnimationFrame(() =>
-          requestAnimationFrame(() => {
-            if (!cancelled) setLyricRevealed(true)
-          })
-        )
-      })
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [
-    currentKey,
-    currentSong?.biliBvid,
-    currentSong?.biliCid,
-    currentSong?.durationMs,
-  ])
-
-  // ===== 切歌黑块滑出定时（700ms 后滑出露出新歌名） =====
-  useEffect(() => {
-    if (!songSwitching) return
-    const timer = setTimeout(() => setSongSwitching(false), 700)
-    return () => clearTimeout(timer)
-  }, [songSwitching])
-
-  // ===== 喜欢（Hydrogen likeSong：NCM 登录后可见） =====
-  // 查询当前喜欢状态（/account 取 uid → /likelist 取 ids；异步回调内 setState）
-  const canLike = loginStatus.loggedIn && songId != null && songId > 0
-
-  // ===== B站 收藏（歌词页工具栏）：直接收藏到「红心收藏夹」（与播放条
-  // 红心同语义同后端）+ 打开收藏夹选择弹窗；已收藏记录为本地会话记忆 =====
-  const biliLikeFavTitle = normalizeBiliLikeFavTitle(
-    useMusicSettingsStore((s) => s.biliLikeFavTitle)
-  )
-  const [biliFavModalOpen, setBiliFavModalOpen] = useState(false)
-  const [biliCollecting, setBiliCollecting] = useState(false)
-  /** 红心收藏标记：folder/folderId 为**实际命中**的收藏夹（官方接口查得，
-   *  可能不是设置的目标夹——视频可能被在 B站 端收进别的夹/夹改名） */
-  const [biliCollectedMark, setBiliCollectedMark] = useState<{
-    bvid: string
-    folder: string
-    folderId?: number
-  } | null>(null)
-  const biliCollected = biliBvid != null && biliCollectedMark?.bvid === biliBvid
-  /** 收藏/取消收藏开关：已收藏（该视频在任意收藏夹中）时点击即取消收藏
-   *  （后端 resource/deal del_media_ids，定向到实际命中的收藏夹 id），
-   *  否则一键收藏到设置的目标夹 */
-  const handleBiliCollect = useCallback(async () => {
-    if (!biliBvid || biliCollecting) return
-    const collected = biliCollectedMark?.bvid === biliBvid
-    setBiliCollecting(true)
-    try {
-      const { data, ok } = await apiPost<{
-        success?: boolean
-        message?: string
-        folderTitle?: string
-        folderId?: number
-      }>('/api/stream/bilibili/fav/collect', {
-        bvid: biliBvid,
-        folderTitle: biliLikeFavTitle,
-        action: collected ? 'remove' : 'add',
-        // 取消收藏时带实际命中夹的 id，避免按标题解析到别的夹
-        ...(collected && biliCollectedMark?.folderId
-          ? { mediaId: biliCollectedMark.folderId }
-          : {}),
-      })
-      if (!ok || data?.success === false) {
-        throw new Error(
-          data?.message || (collected ? '取消收藏失败' : '收藏失败')
-        )
-      }
-      if (collected) {
-        setBiliCollectedMark(null)
-        message.success(
-          `已取消收藏「${
-            data?.folderTitle || biliCollectedMark?.folder || biliLikeFavTitle
-          }」`
-        )
-      } else {
-        setBiliCollectedMark({
-          bvid: biliBvid,
-          folder: data?.folderTitle || biliLikeFavTitle,
-          folderId: data?.folderId,
-        })
-        message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
-      }
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败')
-    } finally {
-      setBiliCollecting(false)
-    }
-  }, [biliBvid, biliCollecting, biliCollectedMark, biliLikeFavTitle])
-
-  // 红心回显：切到 B站 歌曲时用 B站 官方接口查询该视频是否已在收藏夹里
-  // （fav/folder/created/list-all 带 rid → fav_state，任意夹命中即点亮，
-  //  不限于设置的目标夹；未登录/失败静默，回显是辅助能力不弹错误——
-  //  本地会话内的 mark 仍以此查询结果对齐）
-  useEffect(() => {
-    if (!biliBvid) return
-    let cancelled = false
-    void (async () => {
-      try {
-        const { data, ok } = await apiGet<{
-          success?: boolean
-          collected?: boolean
-          folderId?: number
-          folderTitle?: string
-        }>(
-          `/api/stream/bilibili/fav/status?bvid=${biliBvid}&timestamp=${Date.now()}`
-        )
-        if (cancelled || !ok || data?.success === false) return
-        setBiliCollectedMark(
-          data?.collected
-            ? {
-                bvid: biliBvid,
-                folder: data.folderTitle ?? biliLikeFavTitle,
-                folderId: data.folderId,
-              }
-            : null
-        )
-      } catch (err) {
-        console.error('[ListenTogether] B站 收藏状态查询失败:', err)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [biliBvid, biliLikeFavTitle])
-
-  useEffect(() => {
-    if (!canLike || songId == null) return
-    let cancelled = false
-    const query = async () => {
-      try {
-        const acc = await apiGet<NcmAccountResponse>(
-          `/api/music/ncm/user/account?timestamp=${Date.now()}`
-        )
-        if (cancelled) return
-        const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
-        if (!uid) return
-        const list = await apiGet<NcmLikelistResponse>(
-          `/api/music/ncm/likelist?uid=${uid}&timestamp=${Date.now()}`
-        )
-        if (cancelled) return
-        const ids = list?.data?.ids ?? []
-        if (Array.isArray(ids)) setLiked(ids.includes(songId))
-      } catch {
-        // 静默失败：按钮仍可点（乐观更新），仅初始状态未知
-      }
-    }
-    void query()
-    return () => {
-      cancelled = true
-    }
-  }, [canLike, songId])
+  // ===== 喜欢 / 收藏（网易云 likeSong + B站 红心收藏夹）：整簇已抽为
+  //  useSongFavorite（可用性判定、乐观更新、状态查询、B站 收藏开关与回显） =====
+  const {
+    canLike,
+    liked,
+    toggleLike: handleLike,
+    biliLikeFavTitle,
+    biliFavModalOpen,
+    setBiliFavModalOpen,
+    biliCollected,
+    biliCollectedMark,
+    setBiliCollectedMark,
+    biliCollecting,
+    toggleBiliCollect: handleBiliCollect,
+  } = useSongFavorite({
+    songId,
+    biliBvid,
+    ncmLoggedIn: loginStatus.loggedIn,
+  })
 
   /** 带偏移的显示行（原时间 − 行偏移，强制单调防倒序，右键菜单数据源） */
   const displayLyricLines = useMemo(
@@ -732,63 +487,13 @@ function ListenTogetherInner({
     () => -1
   )
 
-  // ===== 喜欢（Hydrogen likeSong：NCM 登录且非塞壬曲目可见） =====
-  const handleLike = useCallback(async () => {
-    if (!canLike || songId == null || likeBusy) return
-    const nextLiked = !liked
-    setLiked(nextLiked)
-    setLikeBusy(true)
-    try {
-      await apiGet(
-        `/api/music/ncm/like?id=${songId}&like=${nextLiked}&timestamp=${Date.now()}`
-      )
-    } catch {
-      // 失败回滚乐观状态
-      setLiked(!nextLiked)
-    } finally {
-      setLikeBusy(false)
-    }
-  }, [canLike, songId, liked, likeBusy])
-
-  // ===== syncNotice：5s 自动消失 =====
-  useEffect(() => {
-    if (!syncNotice) return
-    const timer = setTimeout(
-      () => setSyncNotice(null),
-      SYNC_NOTICE_AUTO_DISMISS_MS
-    )
-    return () => clearTimeout(timer)
-  }, [syncNotice, setSyncNotice])
-
-  // ===== 提示条退出动画：syncNotice 清除后保留最后文案 0.3s 播放上飘
-  //  淡出，动画结束才真正卸载（此前直接闪现消失）。状态同步走 render 期
-  //  调整（react-hooks 禁止 effect 内同步 setState 与渲染期读 ref），
-  //  卸载定时器走 effect；与 MusicAppShell 左上角提示区同构 =====
-  const [noticeView, setNoticeView] = useState<{
-    text: string
-    kind: 'info' | 'approval'
-  } | null>(null)
-  const [noticeLeaving, setNoticeLeaving] = useState(false)
-  if (syncNotice) {
-    if (
-      noticeLeaving ||
-      noticeView?.text !== syncNotice ||
-      noticeView?.kind !== syncNoticeKind
-    ) {
-      setNoticeView({ text: syncNotice, kind: syncNoticeKind })
-      setNoticeLeaving(false)
-    }
-  } else if (noticeView && !noticeLeaving) {
-    setNoticeLeaving(true)
-  }
-  useEffect(() => {
-    if (!noticeLeaving) return
-    const timer = setTimeout(() => {
-      setNoticeLeaving(false)
-      setNoticeView(null)
-    }, 300)
-    return () => clearTimeout(timer)
-  }, [noticeLeaving])
+  /** 关闭瞬时提示（引用稳定：作为自动消失 effect 的依赖，避免 timer 被重建） */
+  const dismissNotice = useCallback(() => setSyncNotice(null), [setSyncNotice])
+  const { noticeView, noticeLeaving } = useNoticeToast({
+    notice: syncNotice,
+    noticeKind: syncNoticeKind,
+    dismiss: dismissNotice,
+  })
 
   // ===== 进度条（Hydrogen 样式）：抽为独立组件 PlayerProgressBar——
   // 进度经 usePlaybackPosition(0.25) 量化订阅，positionSec 的高频更新只
@@ -1033,22 +738,6 @@ function ListenTogetherInner({
   // 被卸载 → 整页空白。故播放卡的显隐也跟随本值（无歌词自动回到播放卡）
   const mobileLyricViewActive = mobileLyricView && lyricPanelVisible
 
-  // ===== 切歌封面交叉溶解：换曲瞬间快照上一首封面为独立背景层（0.9s
-  //       淡出，动画结束即卸载），与新封面 zen-cover-fade 淡入交叠——
-  //       当前背景（封面或视频消失后的空档）优雅溶解为下一首封面，
-  //       视频就绪后再淡入视频。render 期派生更新（React 官方 props
-  //       变化调 state 模式，规避 effect 同步 setState） =====
-  const [bgCoverFade, setBgCoverFade] = useState<string | null>(null)
-  const [lastRenderCover, setLastRenderCover] = useState<string | null>(
-    cover ?? null
-  )
-  if ((cover ?? null) !== lastRenderCover) {
-    setLastRenderCover(cover ?? null)
-    if (lastRenderCover) {
-      setBgCoverFade(lastRenderCover)
-    }
-  }
-
   return (
     <div
       className="relative flex h-full min-w-0 flex-col overflow-hidden"
@@ -1070,167 +759,20 @@ function ListenTogetherInner({
         } as React.CSSProperties
       }
     >
-      {/* ===== 封面背景（Hydrogen 复刻 + 模糊度可调）：有封面即渲染——
-          毛玻璃开启时按设置模糊半径模糊，关闭时模糊 0（显示未模糊封面，
-          非纯色底）；模糊半径经 --cover-blur 注入 lt-cover-backdrop 的
-          CSS 规则。切歌时淡入淡出 ===== */}
-      {cover && (
-        <div
-          key={songId}
-          className="lt-cover-backdrop zen-cover-fade pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
-          style={
-            {
-              '--cover-blur': `${coverBlurPx}px`,
-            } as React.CSSProperties
-          }
-          aria-hidden="true"
-        >
-          <img
-            src={cover}
-            alt=""
-            className="h-full w-full object-cover"
-            style={{ transform: 'scale(1.08)' }}
-            onError={(e) => {
-              e.currentTarget.parentElement?.style.setProperty(
-                'display',
-                'none'
-              )
-            }}
-          />
-          <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--md-sys-color-surface)_30%,transparent)]" />
-        </div>
-      )}
-
-      {/* ===== 上一首封面快照（切歌交叉溶解）：盖在新封面之上 0.9s 淡出，
-          动画结束即卸载；视频未就绪的空档由此层兜住，背景无黑屏 ===== */}
-      {bgCoverFade && (
-        <div
-          key={bgCoverFade}
-          className="lt-cover-backdrop zen-cover-fade-out pointer-events-none absolute -left-[10%] -top-[10%] z-0 h-[120%] w-[120%] overflow-hidden"
-          style={
-            {
-              '--cover-blur': `${coverBlurPx}px`,
-            } as React.CSSProperties
-          }
-          aria-hidden="true"
-          onAnimationEnd={() => setBgCoverFade(null)}
-        >
-          <img
-            src={bgCoverFade}
-            alt=""
-            className="h-full w-full object-cover"
-            style={{ transform: 'scale(1.08)' }}
-          />
-          <div className="absolute inset-0 bg-[color-mix(in_srgb,var(--md-sys-color-surface)_30%,transparent)]" />
-        </div>
-      )}
-
-      {/* ===== 自定义视频背景（Hydrogen PlayerVideo 复刻）：静音铺满 + 跟随
-          音乐播放/暂停，盖在封面模糊背景之上；解析未就绪时自然露出封面
-          模糊兜底。纯净模式时提升为 fixed 全屏唯一图层（元素不重挂，
-          播放流不断）。视频绑定与解析见 useMusicVideoBackground ===== */}
-      {musicVideoBg.source?.url && (
-        <>
-          {/* ===== contain 黑边填充：放大模糊的封面铺满底层（视频网站
-              同款手法），视频 object-contain 完整显示不裁剪，"黑边"
-              区域由画面感填充，视觉无黑边（仅完整显示模式需要；
-              裁切铺满/拉伸填充下视频本身铺满，无需底层） ===== */}
-          {bgVideoFit === 'contain' && (
-            <div
-              aria-hidden="true"
-              className={cn(
-                'pointer-events-none overflow-hidden',
-                immersive ? 'fixed inset-0 z-[70]' : 'absolute inset-0 z-0'
-              )}
-            >
-              {cover && (
-                <img
-                  src={cover}
-                  alt=""
-                  className="h-full w-full scale-125 object-cover"
-                  style={{
-                    filter: 'blur(60px) brightness(0.75) saturate(120%)',
-                  }}
-                />
-              )}
-            </div>
-          )}
-          {/* 视频本体：画面适配方式随设置（完整显示 contain / 裁切铺满
-              cover / 拉伸填充 fill）；纯净模式 fixed 全屏，元素不重挂
-              播放流不断）；metadata 就绪即对齐音频进度
-              （切歌/中途加入房间时视频直接跳到音频当前进度）。
-              可见性门控：首帧可播（canplay/playing）前保持透明——
-              视频解析/缓冲期间优雅显示封面背景，就绪后 0.9s ease 淡入；
-              视频自身永不接收指针事件（纯净模式点击穿透到点按层） */}
-          <video
-            ref={bgVideoRef}
-            muted
-            playsInline
-            autoPlay
-            loop
-            onLoadedMetadata={bgVideoHandlers.onLoadedMetadata}
-            onCanPlay={bgVideoHandlers.onCanPlay}
-            onPlaying={bgVideoHandlers.onPlaying}
-            className={cn(
-              'pointer-events-none h-full w-full',
-              bgVideoFit === 'cover'
-                ? 'object-cover'
-                : bgVideoFit === 'fill'
-                  ? 'object-fill'
-                  : 'object-contain',
-              immersive ? 'fixed inset-0 z-[70]' : 'absolute inset-0 z-0'
-            )}
-            style={{
-              opacity: bgVideoVisible ? 1 : 0,
-              transition: 'opacity 0.9s ease',
-              // 视频背景模糊（设置可调）：模糊边缘会半透明羽化露出底层
-              // 封面/纯色底，同步放大 10% 裁掉羽化边（cover/fill 模式）；
-              // contain 模式视频本体不铺满，放大无副作用
-              ...(videoBlurLevel > 0
-                ? {
-                    filter: `blur(${videoBlurLevel}px)`,
-                    transform: 'scale(1.1)',
-                  }
-                : {}),
-            }}
-          />
-        </>
-      )}
-
-      {/* ===== 背景压暗（设置：背景压暗 %）：黑色遮罩盖在封面/视频背景
-          之上、内容之下（DOM 晚于同级 z-0 背景层 → 自然画在其上；
-          主内容容器 z-[1] 不受影响）。纯净模式单独在 fixed 视频之上
-          叠加（见 immersive 分支 z-[72]） ===== */}
-      {bgDim > 0 && !immersive && (
-        <div
-          aria-hidden="true"
-          className="zen-cover-fade pointer-events-none absolute inset-0 z-0"
-          style={{ backgroundColor: '#000', opacity: bgDim / 100 }}
-        />
-      )}
-
-      {/* ===== 纯净模式覆盖层：单击切换播放/暂停（video 保持
-          pointer-events-none 让点击穿透），双击屏幕直接退出纯净模式
-          （无退出按钮；Esc 仍可退出） ===== */}
-      {immersive && (
-        <>
-          <button
-            type="button"
-            aria-label="单击切换播放/暂停，双击退出纯净模式"
-            onClick={handleImmersiveTap}
-            className="fixed inset-0 z-[65] cursor-pointer"
-          />
-          {/* 背景压暗同样作用于纯净模式：叠在 fixed 视频（z-70）之上，
-              保证纯视频画面也跟随同一压暗设置 */}
-          {bgDim > 0 && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none fixed inset-0 z-[72]"
-              style={{ backgroundColor: '#000', opacity: bgDim / 100 }}
-            />
-          )}
-        </>
-      )}
+      <PlayerBackgroundLayer
+        cover={cover}
+        songId={songId}
+        coverBlurPx={coverBlurPx}
+        videoUrl={musicVideoBg.source?.url ?? null}
+        videoFit={bgVideoFit}
+        videoBlurLevel={videoBlurLevel}
+        videoRef={bgVideoRef}
+        videoHandlers={bgVideoHandlers}
+        videoVisible={bgVideoVisible}
+        bgDim={bgDim}
+        immersive={immersive}
+        onImmersiveTap={handleImmersiveTap}
+      />
 
       {/* ===== B站 音源弹幕层（复用一起看弹幕模块）：仅 B站 条目渲染，
           悬浮铺满整页顶部（显示区域比例随弹幕设置），pointer-events-none
@@ -1260,60 +802,17 @@ function ListenTogetherInner({
         </div>
       )}
 
-      {/* ===== 左上角提示区：房主离线提示 + syncNotice（含房主审批按钮） ===== */}
-      <div
-        className={cn(
-          'pointer-events-none absolute left-4 top-4 z-30 flex max-w-[calc(100%-2rem)] flex-col items-start gap-2 max-md:left-3 max-md:top-3',
-          immersive && 'invisible'
-        )}
-      >
-        {hostOffline && !canControl && (
-          <div className="zen-notice-bar zen-stagger-fade-up pointer-events-auto flex items-center gap-2 rounded-[14px] px-3.5 py-2 text-xs font-medium">
-            <span className="relative flex h-1.5 w-1.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--md-sys-color-tertiary)] opacity-60" />
-              <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--md-sys-color-tertiary)]" />
-            </span>
-            房主已离开，您可以自主控制播放
-          </div>
-        )}
-        {(syncNotice || noticeLeaving) && noticeView && (
-          <div
-            className={cn(
-              'zen-notice-bar pointer-events-auto flex items-center gap-2.5 rounded-[14px] py-2 pl-3.5 pr-2 text-xs font-medium',
-              // 退出动画期间替换入场动画类（上飘淡出后再卸载）
-              noticeLeaving ? 'zen-notice-leave' : 'zen-notice-drop-in'
-            )}
-          >
-            <span>{noticeView.text}</span>
-            {/* 仅审批类提示（观众控制申请）渲染通过/拒绝按钮；
-                纯状态提示（解析进度、结果回执等）不显示；
-                退出动画期间 pendingControl 已定，不再渲染 */}
-            {isHost && !noticeLeaving && noticeView.kind === 'approval' && (
-              <span className="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  onClick={approveControl}
-                  className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold text-[#111114] transition-all hover:opacity-85 active:scale-95"
-                  style={{ backgroundColor: 'rgba(255, 255, 255, 0.92)' }}
-                  title="通过申请"
-                >
-                  <Check className="h-3 w-3" strokeWidth={2.5} />
-                  通过
-                </button>
-                <button
-                  type="button"
-                  onClick={rejectControl}
-                  className="flex h-6 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] font-medium text-[#ff6b6b] transition-colors hover:border-white/35 hover:bg-white/10 active:scale-95"
-                  title="拒绝申请"
-                >
-                  <X className="h-3 w-3" />
-                  拒绝
-                </button>
-              </span>
-            )}
-          </div>
-        )}
-      </div>
+      <PlayerNoticeOverlay
+        hostOffline={hostOffline}
+        canControl={canControl}
+        syncNotice={syncNotice}
+        noticeLeaving={noticeLeaving}
+        noticeView={noticeView}
+        isHost={isHost}
+        approveControl={approveControl}
+        rejectControl={rejectControl}
+        immersive={immersive}
+      />
 
       {/* 队列弹窗不再挂于此处：挂到 song-control 队列按钮旁（下方 song-control 内） */}
 
