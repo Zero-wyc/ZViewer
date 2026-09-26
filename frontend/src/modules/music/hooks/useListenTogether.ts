@@ -225,8 +225,8 @@ function getCachedBiliAudioUrl(mapKey: string): string | null {
   return cached.url
 }
 
-/** 正在懒解析中的 B站 条目 key（同 key 重复触发直接忽略） */
-const biliResolvingKeys = new Set<string>()
+/** 正在懒解析中的 B站 条目（key → 解析 Promise；同 key 并发请求挂起等待） */
+const biliResolvingPromises = new Map<string, Promise<void>>()
 
 /** B站 解析默认清晰度（无 CLI 时取 720P MP4 直链，audio 元素仅出声） */
 const BILI_DEFAULT_QN = 64
@@ -387,6 +387,41 @@ function mountMediaElement(el: HTMLAudioElement): void {
 /** 把音频元素从 DOM 移除（与 mountMediaElement 配对；防替换/卸载后残留） */
 function unmountMediaElement(el: HTMLAudioElement): void {
   el.remove()
+}
+
+/**
+ * 带有界退避重试的播放启动（后台切歌健壮性的核心）。
+ *
+ * 手机端页面处于后台时，部分浏览器/WebView 对 play() 的首次调用返回
+ * NotAllowedError（hidden 态自动播放策略收紧）——静默吞掉会让「通知栏
+ * 切歌 / 歌曲结束自动连播 / 观众跟随房主播放」彻底停摆：音频不再播放、
+ * 系统媒体通知随之消失，用户感知即「后台无法切下一首」。改为退避重试
+ * （1s/2s/3s 共 4 次尝试）：后台定时器被节流时重试只会推迟不会丢失
+ * （渲染进程解冻/回前台后立即补跑），给受限环境自愈机会。
+ *
+ * 安全护栏：重试前校验元素仍在 DOM 且 src 未变——预载升格/退役路径会
+ * 接替或移除元素（isConnected=false / src 变化），此时放弃重试，防止
+ * 僵尸元素出声。
+ */
+function playAudioWithRetry(el: HTMLAudioElement, onGiveUp?: () => void): void {
+  const startSrc = el.src
+  const attempt = (attemptsLeft: number): void => {
+    void el.play().catch(() => {
+      // 已在播放（前一次调用实际生效）或流加载失败（error 置位，重试无意义）
+      if (!el.paused || el.error) return
+      if (attemptsLeft <= 0) {
+        onGiveUp?.()
+        return
+      }
+      // 元素已被接替/退役（升格换主元素、resetAudioElement 清 src）
+      if (!el.isConnected || el.src !== startSrc) return
+      window.setTimeout(
+        () => attempt(attemptsLeft - 1),
+        1000 * (4 - attemptsLeft)
+      )
+    })
+  }
+  attempt(3)
 }
 
 /**
@@ -863,11 +898,21 @@ export function useListenTogether({
       if (isBiliItem(item) && item.biliBvid) {
         const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
         if (getCachedBiliAudioUrl(mapKey) == null) {
-          if (biliResolvingKeys.has(mapKey)) return
-          biliResolvingKeys.add(mapKey)
+          const inflight = biliResolvingPromises.get(mapKey)
+          if (inflight) {
+            // 并发解析中（如 playBiliSong 先点了同一首）：解析完成后重放
+            // 本请求——后台自动连播依赖这里，静默丢弃会让切歌停摆；
+            // 解析失败（缓存仍空）时静默放弃，错误已由首次请求提示
+            void inflight.then(() => {
+              if (getCachedBiliAudioUrl(mapKey) != null) {
+                loadAndPlaySongRef.current(item, positionSec, shouldPlay)
+              }
+            })
+            return
+          }
           const notice = useMusicStore.getState().setSyncNotice
           notice('正在解析 B站 视频音频…')
-          void resolveBiliAudio(item)
+          const resolving = resolveBiliAudio(item)
             .then(() => {
               notice(null)
               loadAndPlaySongRef.current(item, positionSec, shouldPlay)
@@ -879,8 +924,9 @@ export function useListenTogether({
               )
             })
             .finally(() => {
-              biliResolvingKeys.delete(mapKey)
+              biliResolvingPromises.delete(mapKey)
             })
+          biliResolvingPromises.set(mapKey, resolving)
           return
         }
       }
@@ -921,9 +967,7 @@ export function useListenTogether({
           }
         }
         if (shouldPlay) {
-          void preloaded.play().catch(() => {
-            // 自动播放策略拒绝等：静默处理，播放状态由 audio 事件镜像
-          })
+          playAudioWithRetry(preloaded)
         } else {
           preloaded.pause()
         }
@@ -947,9 +991,7 @@ export function useListenTogether({
         }
       }
       if (shouldPlay) {
-        void audio.play().catch(() => {
-          // 自动播放策略拒绝等：静默处理，播放状态由 audio 事件镜像
-        })
+        playAudioWithRetry(audio)
       } else {
         audio.pause()
       }
@@ -1114,7 +1156,8 @@ export function useListenTogether({
     const audio = getAudio()
     const wantPlay = audio.paused
     if (wantPlay) {
-      void audio.play().catch(() => {
+      // 通知栏 play 按钮在后台触发时同样可能被自动播放策略拒绝，走重试
+      playAudioWithRetry(audio, () => {
         message.error('播放失败，请重试')
       })
     } else {
@@ -1312,9 +1355,8 @@ export function useListenTogether({
           break
         case 'play':
           if (useMusicStore.getState().currentKey == null) return
-          void audio.play().catch(() => {
-            // ignore：自动播放策略拒绝
-          })
+          // 房主可能在后台收到观众的播放申请，同样走重试
+          playAudioWithRetry(audio)
           broadcastSyncState({
             isPlaying: true,
             positionSec: audio.currentTime,
@@ -1358,9 +1400,7 @@ export function useListenTogether({
       const audio = getAudio()
       switch (action) {
         case 'play':
-          void audio.play().catch(() => {
-            // ignore
-          })
+          playAudioWithRetry(audio)
           break
         case 'pause':
           audio.pause()
@@ -1478,9 +1518,9 @@ export function useListenTogether({
       // 2. 同曲目：播放状态对齐
       if (store.isPlaying !== payload.isPlaying) {
         if (payload.isPlaying) {
-          void audio.play().catch(() => {
-            // 自动播放策略拒绝：保持暂停，等待后续心跳或用户交互
-          })
+          // 观众端多处于后台：跟随房主恢复播放被拒时重试，否则会一直停在
+          // 暂停态等下一次心跳
+          playAudioWithRetry(audio)
         } else {
           audio.pause()
         }
@@ -1600,15 +1640,13 @@ export function useListenTogether({
     if (!isHostRef.current && !hostOffline) return
     const audio = getAudio()
     if (playMode === 'repeat-one') {
-      // 单曲循环：回到开头重播
+      // 单曲循环：回到开头重播（后台场景 play 可能被拒，走重试）
       try {
         audio.currentTime = 0
       } catch {
         // ignore
       }
-      void audio.play().catch(() => {
-        // ignore
-      })
+      playAudioWithRetry(audio)
       if (isHostRef.current) {
         broadcastSyncState({ positionSec: 0, isPlaying: true })
       }
