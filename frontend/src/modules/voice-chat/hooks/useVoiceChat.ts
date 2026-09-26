@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
 import { getVoiceMediaSocket } from '@/hooks/useSocket'
+import { getVoiceInstanceId } from '../lib/multiInstance'
 
 // ============================================================
 // 语音聊天 — 服务器中转架构 + Opus 编码（128kbps）
@@ -1348,7 +1349,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       >((resolve) => {
         currentSocket.emit(
           'voice-join',
-          { roomId: currentRoomId, username },
+          {
+            roomId: currentRoomId,
+            username,
+            // 多实例（仅供测试）：恒上报每标签页独立 instanceId，
+            // 是否生效由服务端系统设置 roomMultiInstanceLogin 门控——
+            // 开启时派生独立成员键，多页面互不顶替；关闭时服务端忽略
+            instanceId: getVoiceInstanceId(),
+          },
           (
             res:
               | {
@@ -1809,7 +1817,11 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       socket.emit(
         'voice-join',
-        { roomId: currentRoomId, username: usernameRef.current },
+        {
+          roomId: currentRoomId,
+          username: usernameRef.current,
+          instanceId: getVoiceInstanceId(),
+        },
         (
           res:
             | {

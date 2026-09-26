@@ -21,6 +21,7 @@ const DEFAULT_SETTINGS: Partial<SystemSettings> = {
   cdnProxyUrl: 'https://gh-proxy.com',
   embeddedSubtitleEnabled: true,
   playsvideoEnabled: true,
+  roomMultiInstanceLogin: false,
 };
 
 /**

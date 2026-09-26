@@ -91,6 +91,17 @@ export class SystemSettings {
   @Column({ type: 'text', default: 'https://gh-proxy.com' })
   cdnProxyUrl!: string;
 
+  /**
+   * 允许单用户在多个页面同时登录同一房间（仅供测试）。
+   * - false（默认）：登录用户重复进入同一房间被拒绝（ALREADY_IN_ROOM），
+   *   语音重复加入被新页面顶替
+   * - true：同一账号的每个页面作为独立会话进入房间与语音
+   *   （语音成员键退化为 user:{userId}#{instanceId}，互不顶替）
+   * 仅供测试使用，正式环境不建议开启
+   */
+  @Column({ type: 'boolean', default: false })
+  roomMultiInstanceLogin!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 

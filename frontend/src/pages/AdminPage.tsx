@@ -137,6 +137,8 @@ interface AdminSettings {
   playsvideoEnabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
+  /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
+  roomMultiInstanceLogin: boolean
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]
@@ -177,6 +179,7 @@ export default function AdminPage() {
     playsvideoEnabled: true,
     cdnAccelerate: false,
     cdnProxyUrl: 'https://gh-proxy.com',
+    roomMultiInstanceLogin: false,
   })
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -797,6 +800,7 @@ export default function AdminPage() {
         playsvideoEnabled: settings.playsvideoEnabled,
         cdnAccelerate: settings.cdnAccelerate,
         cdnProxyUrl: settings.cdnProxyUrl,
+        roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig
@@ -1449,6 +1453,25 @@ export default function AdminPage() {
                   />
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     切换为「所有登录用户」后，普通用户也可在主页点击「开始共享」创建房间；游客始终不能创建房间。
+                  </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  多页面登录（仅供测试）
+                </Title>
+                <div className="mb-6 max-w-md">
+                  <Switch
+                    label="允许单用户在多个页面同时登录同一房间"
+                    checked={settings.roomMultiInstanceLogin}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        roomMultiInstanceLogin: e.target.checked,
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    仅供测试：开启后同一账号的每个浏览器标签页将作为独立成员同时进入房间与语音（互不顶替，语音成员表会出现多个同名成员）；关闭时重复进入同一房间会被拒绝，语音重复加入会顶替旧页面。
                   </p>
                 </div>
 

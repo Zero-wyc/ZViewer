@@ -33,6 +33,15 @@
  * - 传输层：engine.io 默认关闭 permessage-deflate、ws 库对每条连接无条件
  *   setNoDelay(true)（禁 Nagle）——小帧低延迟的两项关键传输配置无需额外设置。
  *
+ * 语音多实例（v5，仅供测试）：
+ * - 客户端开关（仅测试用途）：开启后每个浏览器标签页以独立 instanceId
+ *   （sessionStorage 持有）加入语音，成员键为 user:{userId}#{instanceId}，
+ *   同一登录账号的多个页面互不顶替、作为独立成员存在。
+ * - 禁言集合（含 Room.voiceMuted 持久化）始终以基础身份键
+ *   user:{userId} 存储（baseVoiceKey 归一化）——禁言与实例无关，
+ *   同账号所有页面一并生效。
+ * - 游客本就按连接（socket:{socketId}）区分，instanceId 忽略。
+ *
  * 语音管理（v3）：
  * - voice-mute / voice-unmute：禁言期间服务器中转层直接丢弃该成员的
  *   voice-media-data / voice-codec-config（服务器侧强制，客户端无法绕过），
@@ -49,6 +58,7 @@ import { AppDataSource } from '../../data-source';
 import { Room } from '../../entities/Room';
 import type { SocketEventHandler } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
+import { getSystemSettings } from '../../services/system-settings';
 
 /** 语音成员条目 */
 interface VoiceMemberEntry {
@@ -151,6 +161,16 @@ function isSocketInRoom(socket: Socket, roomId: string): boolean {
 function memberKeyOf(socket: Socket): string {
   const userId: number | undefined = socket.data?.userId;
   return userId && userId > 0 ? `user:${userId}` : `socket:${socket.id}`;
+}
+
+/**
+ * 剥离多实例后缀：user:{userId}#{instanceId} → user:{userId}。
+ * 禁言集合（含持久化）始终以基础身份键存储——禁言与实例无关，
+ * 同账号所有页面一并生效。
+ */
+function baseVoiceKey(key: string): string {
+  const hash = key.indexOf('#');
+  return hash === -1 ? key : key.slice(0, hash);
 }
 
 /**
@@ -285,7 +305,12 @@ export class VoiceChatHandler implements SocketEventHandler {
     socket.on(
       'voice-join',
       (
-        payload: { roomId: string; username?: string },
+        payload: {
+          roomId: string;
+          username?: string;
+          /** 多实例（仅供测试）：每标签页独立实例 ID，派生独立成员键 */
+          instanceId?: string;
+        },
         callback?: (
           response:
             | {
@@ -307,13 +332,26 @@ export class VoiceChatHandler implements SocketEventHandler {
 
           const key = memberKeyOf(socket);
           const userId: number = socket.data?.userId ?? 0;
+          // 多实例（仅供测试，系统设置 roomMultiInstanceLogin 开启时生效）：
+          // 登录用户附带每标签页独立的 instanceId 时，成员键退化为
+          // user:{userId}#{instanceId}——同一账号的多个页面互不顶替，
+          // 作为独立语音成员存在。游客本就按连接区分，忽略
+          const settings = await getSystemSettings();
+          const instanceId =
+            settings.roomMultiInstanceLogin === true &&
+            userId > 0 &&
+            typeof payload.instanceId === 'string' &&
+            /^[A-Za-z0-9_-]{1,64}$/.test(payload.instanceId)
+              ? payload.instanceId
+              : '';
+          const memberKey = instanceId ? `${key}#${instanceId}` : key;
           // 显示名：登录用户取 token 中的真实用户名；游客退化为客户端提供的昵称
           const tokenUsername: string | undefined = socket.data?.username;
           const username =
             (userId > 0 && tokenUsername) || payload.username || '游客';
 
-          // 踢出冷却检查
-          const cooldownUntil = voiceKickCooldown.get(key);
+          // 踢出冷却检查（多实例模式下按实例键隔离：踢一个实例只冷却该页面）
+          const cooldownUntil = voiceKickCooldown.get(memberKey);
           if (cooldownUntil && Date.now() < cooldownUntil) {
             const remain = Math.ceil((cooldownUntil - Date.now()) / 1000);
             return callback?.({
@@ -328,7 +366,7 @@ export class VoiceChatHandler implements SocketEventHandler {
             voiceMembers.set(roomId, members);
           }
 
-          const existing = members.get(key);
+          const existing = members.get(memberKey);
           if (existing && existing.socketId === socket.id) {
             // 幂等重入：已用同一连接加入
             const mutedSet = voiceMutedKeys.get(roomId);
@@ -343,7 +381,7 @@ export class VoiceChatHandler implements SocketEventHandler {
                       m.userId > 0 ? `user:${m.userId}` : `socket:${m.socketId}`,
                     ) ?? false,
                 })),
-              selfMuted: mutedSet?.has(key) ?? false,
+              selfMuted: mutedSet?.has(baseVoiceKey(memberKey)) ?? false,
               // 已有令牌原样下发（媒体连接可重复 init 绑定）
               mediaToken: existing.mediaToken,
             });
@@ -352,7 +390,7 @@ export class VoiceChatHandler implements SocketEventHandler {
           if (existing) {
             // 同一用户重连（socket.id 已变化）：顶替旧条目。
             // 广播旧 socketId 的离开事件，供接收端清理旧播放链路
-            removeMember(io, roomId, key);
+            removeMember(io, roomId, memberKey);
           }
 
           const entry: VoiceMemberEntry = {
@@ -363,10 +401,10 @@ export class VoiceChatHandler implements SocketEventHandler {
             // 一次性媒体绑定令牌：仅持有者可将其媒体连接绑定为该成员
             mediaToken: randomBytes(16).toString('hex'),
           };
-          members.set(key, entry);
-          socketIndex.set(socket.id, { roomId, key });
+          members.set(memberKey, entry);
+          socketIndex.set(socket.id, { roomId, key: memberKey });
           socket.to(roomId).emit('voice-user-joined', toInfo(entry));
-          console.log(`[voice] ${username}(${key}) joined room ${roomId}`);
+          console.log(`[voice] ${username}(${memberKey}) joined room ${roomId}`);
 
           // join 应答携带各成员禁言状态（前端初始化标记）
           const mutedSet = voiceMutedKeys.get(roomId);
@@ -379,8 +417,9 @@ export class VoiceChatHandler implements SocketEventHandler {
             members: [...members.values()]
               .filter((m) => m.socketId !== socket.id)
               .map(toInfoWithMute),
-            // 自己的禁言状态（登录用户持久化，重进房间仍生效）
-            selfMuted: mutedSet?.has(key) ?? false,
+            // 自己的禁言状态（登录用户持久化，重进房间仍生效；按基础
+            // 身份键判定——禁言与实例无关）
+            selfMuted: mutedSet?.has(baseVoiceKey(memberKey)) ?? false,
             // 媒体专用连接绑定令牌
             mediaToken: entry.mediaToken,
           });
@@ -452,9 +491,10 @@ export class VoiceChatHandler implements SocketEventHandler {
         const entry = voiceMembers.get(idx.roomId)?.get(idx.key);
         if (!entry) return;
 
-        // 语音禁言：服务器侧直接丢弃（客户端无法绕过），仍可收听
+        // 语音禁言：服务器侧直接丢弃（客户端无法绕过），仍可收听。
+        // 禁言集合按基础身份键存储（与实例无关）
         const mutedSet = voiceMutedKeys.get(idx.roomId);
-        if (mutedSet?.has(idx.key)) return;
+        if (mutedSet?.has(baseVoiceKey(idx.key))) return;
 
         const out = {
           // 音频路由 key 恒为主连接 socketId（成员身份标识，接收端
@@ -495,9 +535,9 @@ export class VoiceChatHandler implements SocketEventHandler {
         // O(1) 校验成员身份（反向索引）
         const idx = socketIndex.get(socket.id);
         if (!idx || idx.roomId !== payload.roomId) return;
-        // 被禁言者的编码配置同样不转发（无音频可解码）
+        // 被禁言者的编码配置同样不转发（无音频可解码）。禁言按基础身份键
         const mutedSet = voiceMutedKeys.get(payload.roomId);
-        if (mutedSet?.has(idx.key)) return;
+        if (mutedSet?.has(baseVoiceKey(idx.key))) return;
 
         socket.to(payload.roomId).emit('voice-codec-config', {
           from: socket.id,
@@ -547,10 +587,12 @@ export class VoiceChatHandler implements SocketEventHandler {
 
           await loadVoiceMuted(roomId);
           const mutedSet = voiceMutedKeys.get(roomId) ?? new Set<string>();
+          // 禁写基础身份键（剥多实例后缀）：同账号所有页面一并生效
+          const targetBaseKey = baseVoiceKey(targetIdx.key);
           if (payload.muted) {
-            mutedSet.add(targetIdx.key);
+            mutedSet.add(targetBaseKey);
           } else {
-            mutedSet.delete(targetIdx.key);
+            mutedSet.delete(targetBaseKey);
           }
           voiceMutedKeys.set(roomId, mutedSet);
 

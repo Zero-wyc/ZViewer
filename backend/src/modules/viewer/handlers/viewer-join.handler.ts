@@ -24,6 +24,7 @@ import {
 } from '../../socket';
 import { roomSessionService } from '../../room/room-session.service';
 import { roomStateService } from '../../room/room-state.service';
+import { getSystemSettings } from '../../../services/system-settings';
 import { movieBroadcasterService } from '../../movie';
 import type { ViewerJoinedPayload } from '../../shared';
 import { viewerListService } from '../viewer-list.service';
@@ -77,8 +78,13 @@ export class ViewerJoinHandler implements SocketEventHandler {
           // 重复加入检测：同一账户（非 guest）不能在多个标签页同时进入同一房间。
           // guest 用户共享 userId=0 且允许无限多端进入（游客不受登录数限制），跳过检测。
           // 如果发现旧 session 但其 socket 已断开（session 未清理），先结束旧 session 再放行。
+          // 「允许单用户多页面同时登录同一房间」（仅供测试）开启时跳过本检测：
+          // 同一账号的每个页面作为独立 viewer 会话进入（viewer 会话本就按
+          // socketId 隔离，互不顶替）
           const currentUserId: number | null = socket.data.userId ?? null;
-          if (currentUserId != null && role !== 'guest') {
+          const systemSettings = await getSystemSettings();
+          const multiInstanceLogin = systemSettings.roomMultiInstanceLogin === true;
+          if (!multiInstanceLogin && currentUserId != null && role !== 'guest') {
             const existingSession = await roomSessionService.findActiveSessionByUser(
               payload.roomId,
               currentUserId,

@@ -467,6 +467,7 @@ router.get(
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
+          roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
@@ -486,7 +487,7 @@ router.put(
   ): Promise<void> => {
     try {
       const {
-        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomPermissionMatrix,
+        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, roomPermissionMatrix,
       } = req.body;
       // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
       const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
@@ -619,6 +620,16 @@ router.put(
       if (playsvideoEnabled !== undefined) {
         settings.playsvideoEnabled = playsvideoEnabled;
       }
+      if (roomMultiInstanceLogin !== undefined) {
+        if (typeof roomMultiInstanceLogin !== 'boolean') {
+          res.status(400).json({
+            success: false,
+            message: 'roomMultiInstanceLogin 必须是布尔值',
+          });
+          return;
+        }
+        settings.roomMultiInstanceLogin = roomMultiInstanceLogin;
+      }
       if (cdnProxyUrl !== undefined) {
         settings.cdnProxyUrl = cdnProxyUrl.trim();
       }
@@ -641,6 +652,7 @@ router.put(
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
+          roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
