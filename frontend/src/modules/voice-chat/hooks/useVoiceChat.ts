@@ -1146,14 +1146,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               // 收录全部字段，经断言注入——WebIDL 字典语义下浏览器忽略
               // 不认识的键，不会 configure 失败）：
               // - frameDuration 40ms：包率 50→25pps（见 MOBILE_OPUS_FRAME_SEC）
-              // - useinbandfec + packetlossperc 5%：带内前向纠错，弱网
-              //   丢包时可部分重建语音（丢帧→可闻断音的直接解药）
               // - complexity 5：降低编码 CPU 占用，防止手机端主线程
               //   挤压播放调度（decode/playback 同跑在主线程）
+              // 不开 useinbandfec：Socket.IO 走 TCP 可靠有序传输，帧只会
+              // 迟到不会丢失；而 WebCodecs 无 decode_fec API，嵌入包内的
+              // 冗余数据无法被解码端消费——FEC 只白耗 32k 档约 15~20%
+              // 的有效语音码率。弱网连续性由接收端 PLC（underrun 填充）承担
               ;(baseConfig as unknown as Record<string, unknown>).opus = {
                 frameDuration: 40_000,
-                useinbandfec: true,
-                packetlossperc: 5,
                 complexity: 5,
               }
             }
