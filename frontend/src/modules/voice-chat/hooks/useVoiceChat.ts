@@ -51,6 +51,13 @@ const VOICE_FRAME_SEC = 0.02
 const BACKLOG_RESET_SEC = 0.5
 
 /**
+ * PLC（丢包隐藏）单次填充上限（秒）：underrun 空洞超过此长度时截断。
+ * 极端空洞（主线程长冻结/网络中断）填满会输出大段"机器人残响"，
+ * 截断后剩余部分保持静音，衰减包络让填充内容自然淡出
+ */
+const PLC_MAX_FILL_SEC = 0.6
+
+/**
  * 移动端（手机网页）检测：iPhone/Android/旧 iPad UA 直接命中；
  * 新版 iPad UA 与 macOS 相同，由多点触控数区分
  */
@@ -269,6 +276,13 @@ interface PeerPlaybackState {
   decoder?: AudioDecoder
   /** 解码器是否已配置（收到 codec description 后才为 true） */
   decoderConfigured?: boolean
+  /**
+   * 最近一帧解码 PCM（PLC 丢包隐藏的合成素材）。TCP 可靠传输下
+   * 帧不会中途丢失，"丢帧"只以 underrun（帧迟到）形态出现——
+   * 用上一帧内容循环+衰减填充 underrun 空洞。解码回调每次产出
+   * 全新数组，直接持有引用安全
+   */
+  lastPcm?: Float32Array<ArrayBuffer> | null
 }
 
 /**
@@ -583,6 +597,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         pendingSources: new Set(),
         lastArrivalAt: 0,
         jitterEwma: 0,
+        lastPcm: null,
       }
 
       // Opus 模式下创建解码器（error 时内部自动节流重建）
@@ -700,6 +715,53 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
           )
         }
         timeline = now + targetBuffer
+
+        // ---- PLC（丢包隐藏）----
+        // underrun 在输出时间线上留出 [now, timeline) 的静音空洞。
+        // TCP 可靠传输下帧不会中途丢失（迟到≠丢失），缺口以 underrun
+        // 形态出现；用上一帧解码 PCM 循环复制 + 指数衰减合成填充，
+        // 连续语音中的卡顿从"死寂"变为短暂减弱的人声残留。
+        // 不填充的两种情况：
+        // - 静音后恢复（prevIntervalMs ≥ 150ms）：无语音连续性预期，
+        //   填充反而凭空造声
+        // - 极端空洞超过 PLC_MAX_FILL_SEC：长冻结时大段"机器人残响"
+        //   比静音更刺耳，超出部分保持静音（衰减包络已自然淡出）
+        const prevPcm = state.lastPcm
+        const fillSec = Math.min(timeline - now, PLC_MAX_FILL_SEC)
+        if (
+          prevPcm &&
+          prevPcm.length > 0 &&
+          prevIntervalMs > 0 &&
+          prevIntervalMs < 150 &&
+          fillSec >= 0.02
+        ) {
+          const fillSamples = Math.floor(fillSec * sampleRate)
+          if (fillSamples > 0) {
+            const fillBuffer = ctx.createBuffer(1, fillSamples, sampleRate)
+            const fillData = fillBuffer.getChannelData(0)
+            // 3ms 淡入防接缝爆音；整体指数衰减到 ~8%，尾部与静音融合
+            const fadeInSamples = Math.min(
+              Math.floor(0.003 * sampleRate),
+              fillSamples
+            )
+            for (let i = 0; i < fillSamples; i++) {
+              let env = Math.exp((-2.5 * i) / fillSamples)
+              if (i < fadeInSamples) {
+                env *= i / fadeInSamples
+              }
+              fillData[i] = prevPcm[i % prevPcm.length] * env
+            }
+            const fillSource = ctx.createBufferSource()
+            fillSource.buffer = fillBuffer
+            fillSource.connect(state.gainNode)
+            state.pendingSources.add(fillSource)
+            fillSource.onended = () => {
+              state.pendingSources.delete(fillSource)
+            }
+            fillSource.start(now)
+            console.debug(`[voice] plc fill ${Math.round(fillSec * 1000)}ms`)
+          }
+        }
       }
 
       // 纯排队播放：时间线只进不退，也绝不向前跳。
@@ -717,6 +779,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       }
       source.start(startTime)
       state.nextStartTime = startTime + audioBuffer.duration
+      // 记录最近一帧解码 PCM，供后续 underrun 时 PLC 合成（见上）
+      state.lastPcm = pcmData
 
       // 极端积压（网络中断后恢复的突发批量）：丢弃已排队未播的旧块
       // 再重置时间线。实时语音宁可断 0.5s 音，也不能让新旧时间线
@@ -759,6 +823,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         }
       }
       state.pendingSources.clear()
+      // 释放 PLC 合成素材引用
+      state.lastPcm = null
       // 关闭解码器
       if (state.decoder) {
         try {
