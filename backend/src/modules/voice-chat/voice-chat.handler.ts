@@ -1,7 +1,7 @@
 /**
- * 语音聊天处理器（服务器中转）。
+ * 语音聊天处理器（服务器中转 + 语音媒体专用连接）。
  *
- * 职责：管理房间内语音聊天成员状态，中转 PCM/Opus 音频数据，
+ * 职责：管理房间内语音聊天成员状态，中转 Opus/PCM 音频数据，
  * 以及语音管理操作（禁言/解禁/踢出，房主或房管可执行）。
  *
  * 设计：
@@ -14,15 +14,28 @@
  *   从根源消除「3 人语音显示 8 人」的幽灵残留。
  * - 事件与成员列表携带真实身份（userId + username），前端不再以 socketId
  *   前缀充当显示名，解决「不知道谁在说话/谁进了语音」。
- * - 音频路由仍以 socketId 为准（voice-audio-data 的 from 字段），
+ * - 音频路由以主连接 socketId 为准（voice-media-data 的 from 字段），
  *   顶替/离开时广播旧 socketId 供接收端清理播放链路。
  * - 幽灵兜底：定时扫描成员的 socketId 是否仍存在于 io.sockets.sockets
  *   （连接权威状态），不存在即强制移除——不依赖 disconnect 事件是否触发，
  *   静音用户（不发音频包）不受影响。
  *
+ * 语音媒体专用连接（v4，低而稳的延迟）：
+ * - 语音帧走独立的 Socket.IO 连接（客户端 transports=['websocket'] 直连），
+ *   与主连接上的聊天/弹幕/信令完全隔离——TCP 队头阻塞下，一条数 MB 的
+ *   业务消息（如字幕同步）不再能把 20ms 的音频帧顶在后面排队秒级延迟。
+ * - 绑定：voice-join 应答下发一次性 mediaToken，客户端在媒体连接上发
+ *   voice-media-init{roomId, token} 完成绑定（服务端校验 token→成员），
+ *   媒体连接加入 voice:{roomId} 房间；主连接不进该房间，音频不会重复下发。
+ * - 下行按目标逐个发送并检查对端 TCP 写缓冲：慢消费者（收包停滞）跳过
+ *   当前帧，防止服务器内存无限堆积与该端延迟单调恶化（UDP 丢包语义的
+ *   应用层等价物）。上行丢帧由客户端背压（bufferedAmount）承担。
+ * - 传输层：engine.io 默认关闭 permessage-deflate、ws 库对每条连接无条件
+ *   setNoDelay(true)（禁 Nagle）——小帧低延迟的两项关键传输配置无需额外设置。
+ *
  * 语音管理（v3）：
  * - voice-mute / voice-unmute：禁言期间服务器中转层直接丢弃该成员的
- *   voice-audio-data / voice-codec-config（服务器侧强制，客户端无法绕过），
+ *   voice-media-data / voice-codec-config（服务器侧强制，客户端无法绕过），
  *   被禁言者仍可收听。登录用户按 userId 持久化（Room.voiceMuted），
  *   游客为会话级（内存，按 socketId）。
  * - voice-kick：移出语音频道并通知被踢者（前端自动断开采集）；
@@ -30,6 +43,7 @@
  * - 权限：房主或房管（roomPermissionService.isRoomHostOrModerator）；
  *   房管不可操作房主/其他房管。
  */
+import { randomBytes } from 'crypto';
 import type { Server as SocketIOServer, Socket } from 'socket.io';
 import { AppDataSource } from '../../data-source';
 import { Room } from '../../entities/Room';
@@ -46,6 +60,10 @@ interface VoiceMemberEntry {
   username: string;
   /** 加入时间戳（日志用） */
   joinedAt: number;
+  /** 语音媒体连接绑定令牌（voice-join 应答下发，voice-media-init 校验） */
+  mediaToken: string;
+  /** 已绑定的媒体专用连接 socket id（媒体连接断开后清除） */
+  mediaSocketId?: string;
 }
 
 /** 广播/应答中的成员信息 */
@@ -71,6 +89,35 @@ const voiceMembers = new Map<string, Map<string, VoiceMemberEntry>>();
  * 避免每包线性扫描成员表。与 voiceMembers 同生命周期维护。
  */
 const socketIndex = new Map<string, { roomId: string; key: string }>();
+
+/**
+ * 媒体专用连接 socketId → 成员定位（roomId + 身份键）反向索引。
+ * 媒体连接是独立 socket（有自己的 id），凭此 O(1) 将上行音频归属到成员。
+ */
+const mediaSocketIndex = new Map<string, { roomId: string; key: string }>();
+
+/** 语音媒体房间名：媒体专用连接加入，主连接不加入（音频不重复下发） */
+function voiceRoomOf(roomId: string): string {
+  return `voice:${roomId}`;
+}
+
+/** 服务器下行慢消费者阈值：对端 TCP 写缓冲超过此字节数则跳过当前帧 */
+const SERVER_DOWNLINK_LIMIT_BYTES = 128 * 1024;
+
+/**
+ * 读取某 socket 底层 engine.io WebSocket 的未发送积压字节数。
+ * 非 WebSocket transport 或访问失败时返回 0（不丢帧）
+ */
+function getServerDownlinkBacklog(socket: Socket): number {
+  try {
+    const conn = socket.conn as unknown as {
+      transport?: { socket?: { bufferedAmount?: number } };
+    };
+    return conn.transport?.socket?.bufferedAmount ?? 0;
+  } catch {
+    return 0;
+  }
+}
 
 /**
  * 每个房间的语音禁言集合（内存镜像，与 Room.voiceMuted 持久化同步）。
@@ -167,6 +214,11 @@ function removeMember(
 
   members.delete(key);
   socketIndex.delete(entry.socketId);
+  // 同步断开已绑定的媒体专用连接（客户端重进语音时会重建并重新绑定）
+  if (entry.mediaSocketId) {
+    mediaSocketIndex.delete(entry.mediaSocketId);
+    io.sockets.sockets.get(entry.mediaSocketId)?.disconnect(true);
+  }
   if (members.size === 0) {
     voiceMembers.delete(roomId);
   }
@@ -201,6 +253,16 @@ function sweepGhosts(io: SocketIOServer): void {
           `[voice] 幽灵成员清理: ${entry.username}(${key}) in room ${roomId}`,
         );
         removeMember(io, roomId, key);
+        continue;
+      }
+      // 媒体专用连接已死（静音成员不产生音频断连感知）：解除绑定，
+      // 客户端重连后会以同一 token 重新 voice-media-init
+      if (
+        entry.mediaSocketId &&
+        !io.sockets.sockets.has(entry.mediaSocketId)
+      ) {
+        mediaSocketIndex.delete(entry.mediaSocketId);
+        entry.mediaSocketId = undefined;
       }
     }
   }
@@ -226,7 +288,13 @@ export class VoiceChatHandler implements SocketEventHandler {
         payload: { roomId: string; username?: string },
         callback?: (
           response:
-            | { success: true; members: VoiceMemberInfo[]; selfMuted?: boolean }
+            | {
+                success: true;
+                members: VoiceMemberInfo[];
+                selfMuted?: boolean;
+                /** 语音媒体专用连接绑定令牌（voice-media-init 校验用） */
+                mediaToken: string;
+              }
             | { success: false; message: string },
         ) => void,
       ) => {
@@ -276,6 +344,8 @@ export class VoiceChatHandler implements SocketEventHandler {
                     ) ?? false,
                 })),
               selfMuted: mutedSet?.has(key) ?? false,
+              // 已有令牌原样下发（媒体连接可重复 init 绑定）
+              mediaToken: existing.mediaToken,
             });
           }
 
@@ -290,6 +360,8 @@ export class VoiceChatHandler implements SocketEventHandler {
             userId,
             username,
             joinedAt: Date.now(),
+            // 一次性媒体绑定令牌：仅持有者可将其媒体连接绑定为该成员
+            mediaToken: randomBytes(16).toString('hex'),
           };
           members.set(key, entry);
           socketIndex.set(socket.id, { roomId, key });
@@ -309,6 +381,8 @@ export class VoiceChatHandler implements SocketEventHandler {
               .map(toInfoWithMute),
             // 自己的禁言状态（登录用户持久化，重进房间仍生效）
             selfMuted: mutedSet?.has(key) ?? false,
+            // 媒体专用连接绑定令牌
+            mediaToken: entry.mediaToken,
           });
         })();
       },
@@ -326,9 +400,45 @@ export class VoiceChatHandler implements SocketEventHandler {
       },
     );
 
-    // --- 语音音频数据中转 ---
-    socket.on('voice-audio-data', (payload: {
-      roomId: string;
+    // --- 语音媒体专用连接绑定 ---
+    // 媒体连接（客户端第二个 Socket.IO 连接，仅 WebSocket 传输）以
+    // voice-join 应答下发的 mediaToken 绑定到成员，避免按主连接 socketId
+    // 伪造他人身份上行。同一 token 重复 init（媒体连接自动重连）直接复用
+    socket.on(
+      'voice-media-init',
+      (
+        payload: { roomId: string; token: string },
+        callback?: (response: { success: boolean; message?: string }) => void,
+      ) => {
+        const members = voiceMembers.get(payload.roomId);
+        if (!members) {
+          return callback?.({ success: false, message: '未在该房间语音中' });
+        }
+        let matched: { key: string; entry: VoiceMemberEntry } | undefined;
+        for (const [key, e] of members.entries()) {
+          if (e.mediaToken === payload.token) {
+            matched = { key, entry: e };
+            break;
+          }
+        }
+        if (!matched) {
+          return callback?.({ success: false, message: '媒体绑定令牌无效' });
+        }
+
+        // 顶替旧媒体连接（自动重连前残留的绑定）
+        const { key, entry } = matched;
+        if (entry.mediaSocketId && entry.mediaSocketId !== socket.id) {
+          mediaSocketIndex.delete(entry.mediaSocketId);
+        }
+        entry.mediaSocketId = socket.id;
+        mediaSocketIndex.set(socket.id, { roomId: payload.roomId, key });
+        socket.join(voiceRoomOf(payload.roomId));
+        callback?.({ success: true });
+      },
+    );
+
+    // --- 语音音频数据中转（媒体专用连接） ---
+    socket.on('voice-media-data', (payload: {
       data: ArrayBuffer;
       sampleRate?: number;
       timestamp: number;
@@ -336,27 +446,46 @@ export class VoiceChatHandler implements SocketEventHandler {
       encoded?: boolean;
     }) => {
       try {
-        // O(1) 校验发送者确为该房间语音成员（反向索引）
-        const idx = socketIndex.get(socket.id);
-        if (!idx || idx.roomId !== payload.roomId) return;
+        // O(1) 校验发送者确为已绑定的语音媒体连接（反向索引）
+        const idx = mediaSocketIndex.get(socket.id);
+        if (!idx) return;
+        const entry = voiceMembers.get(idx.roomId)?.get(idx.key);
+        if (!entry) return;
 
         // 语音禁言：服务器侧直接丢弃（客户端无法绕过），仍可收听
-        const mutedSet = voiceMutedKeys.get(payload.roomId);
+        const mutedSet = voiceMutedKeys.get(idx.roomId);
         if (mutedSet?.has(idx.key)) return;
 
-        // 不用 volatile：中转丢帧无法恢复（播放实时消耗、发送实时生产），
-        // 只会持续排空接收端 jitter buffer 造成频繁 underrun（实测每 1~2s
-        // 一次）。排队转发的突发延迟由接收端 jitter buffer 吸收
-        socket.to(payload.roomId).emit('voice-audio-data', {
-          from: socket.id,
+        const out = {
+          // 音频路由 key 恒为主连接 socketId（成员身份标识，接收端
+          // 据此挂播放链路；媒体连接 id 仅服务端内部使用）
+          from: entry.socketId,
           data: payload.data,
           sampleRate: payload.sampleRate,
           timestamp: payload.timestamp,
           mediaTs: payload.mediaTs,
           encoded: payload.encoded,
-        });
+        };
+
+        // 逐目标发送（不用 socket.to 广播）：下行需按对端写缓冲丢帧。
+        // 不用 volatile：中转丢帧无法恢复（播放实时消耗、发送实时生产），
+        // 只会持续排空接收端 jitter buffer 造成频繁 underrun。排队的
+        // 突发延迟由接收端 jitter buffer 吸收，仅慢消费者按缓冲丢帧
+        const targets = io.sockets.adapter.rooms.get(voiceRoomOf(idx.roomId));
+        if (!targets) return;
+        for (const sid of targets) {
+          if (sid === socket.id) continue;
+          const target = io.sockets.sockets.get(sid);
+          if (!target) continue;
+          // 慢消费者（TCP 收包停滞）：跳过当前帧。否则服务器发送缓冲
+          // 无限堆积（内存 + 该端延迟单调恶化），UDP 丢包语义的等价物
+          if (getServerDownlinkBacklog(target) > SERVER_DOWNLINK_LIMIT_BYTES) {
+            continue;
+          }
+          target.emit('voice-media-data', out);
+        }
       } catch (err) {
-        console.error('[voice-audio-data] error:', err);
+        console.error('[voice-media-data] error:', err);
       }
     });
 
@@ -498,6 +627,17 @@ export class VoiceChatHandler implements SocketEventHandler {
 
     // --- 断开连接时自动清理语音聊天状态 ---
     socket.on('disconnect', () => {
+      // 媒体专用连接断开：解除绑定（成员仍在语音中，客户端自动重连后
+      // 会以同一 token 重新 voice-media-init）
+      const mediaIdx = mediaSocketIndex.get(socket.id);
+      if (mediaIdx) {
+        mediaSocketIndex.delete(socket.id);
+        const entry = voiceMembers.get(mediaIdx.roomId)?.get(mediaIdx.key);
+        if (entry && entry.mediaSocketId === socket.id) {
+          entry.mediaSocketId = undefined;
+        }
+        return;
+      }
       for (const roomId of Array.from(socket.rooms)) {
         if (roomId === socket.id) continue;
         removeBySocketId(io, socket, roomId);

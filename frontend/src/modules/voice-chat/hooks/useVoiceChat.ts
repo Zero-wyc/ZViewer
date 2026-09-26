@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
+import { getVoiceMediaSocket } from '@/hooks/useSocket'
 
 // ============================================================
 // 语音聊天 — 服务器中转架构 + Opus 编码（128kbps）
 //
 // 1. 客户端通过 AudioWorklet 采集 PCM 音频（Float32, 48kHz, mono）
 // 2. 使用 WebCodecs AudioEncoder 将 PCM 编码为 Opus（128kbps）
-// 3. 通过 Socket.IO 将编码后的 Opus 数据发送到服务器
-// 4. 服务器转发给房间内其他语音成员
+// 3. 编码后的 Opus 帧经「语音媒体专用连接」（独立 Socket.IO 连接，
+//    仅 WebSocket 传输）发送到服务器——与业务消息的 TCP 队头阻塞隔离
+// 4. 服务器转发给房间内其他语音成员的媒体连接（慢消费者按写缓冲丢帧）
 // 5. 接收端使用 WebCodecs AudioDecoder 解码 Opus → PCM
 // 6. 使用 Web Audio API 播放 PCM 数据
 //
@@ -331,6 +333,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   const playbackContextRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
   const peerStatesRef = useRef<Map<string, PeerPlaybackState>>(new Map())
+
+  // 语音媒体专用连接 refs（语音帧独立通道：与聊天/弹幕/信令隔离，
+  // 大消息的 TCP 队头阻塞不再波及 20ms 音频帧）
+  const voiceMediaSocketRef = useRef<Socket | null>(null)
+  /** 媒体连接已完成 voice-media-init 绑定（上行发送的前提） */
+  const mediaReadyRef = useRef(false)
+  /** 当前媒体绑定参数（voice-join 应答下发 mediaToken，重连时更新） */
+  const mediaInitRef = useRef<{ roomId: string; token: string } | null>(null)
 
   // 音量电平分析相关 refs（本地 analyser 挂在 captureCtx 的 micGain 后，
   // 不再单独建 AudioContext：省一个上下文配额，且电平反映 micVolume，
@@ -965,6 +975,19 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     // 本地 analyser 随 captureCtx 关闭自动释放，仅清引用
     localAnalyserRef.current = null
 
+    // 断开语音媒体专用连接（监听器由 mount effect 统一管理，仅断链；
+    // 重进语音时 attachMediaSocket 会重新 connect 并绑定）
+    mediaReadyRef.current = false
+    mediaInitRef.current = null
+    if (voiceMediaSocketRef.current) {
+      try {
+        voiceMediaSocketRef.current.disconnect()
+      } catch {
+        // ignore
+      }
+      voiceMediaSocketRef.current = null
+    }
+
     setMembers([])
     setJoined(false)
     setJoining(false)
@@ -984,6 +1007,42 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       visibilityResumeHandlerRef.current = null
     }
   }, [cleanupPeerPlayback, stopMonitor, stopLevelDetection])
+
+  // ==================== 语音媒体专用连接 ====================
+
+  /** 媒体连接建立/重连后重新绑定（voice-media-init，token 幂等可重复） */
+  const handleMediaConnect = useCallback(() => {
+    const ms = voiceMediaSocketRef.current
+    const init = mediaInitRef.current
+    if (!ms || !init) return
+    ms.emit(
+      'voice-media-init',
+      init,
+      (res: { success: boolean; message?: string }) => {
+        if (res.success) {
+          mediaReadyRef.current = true
+        } else {
+          // 绑定失败（重连竞态下 token 对应的成员已被顶替/移除）：
+          // voice-join 重连流程会下发新 token 并重新触发绑定
+          mediaReadyRef.current = false
+          console.warn('[voice] media init failed:', res.message)
+        }
+      }
+    )
+  }, [])
+
+  /** 确保媒体连接存在并处于连接中（绑定时机的唯一入口） */
+  const attachMediaSocket = useCallback(() => {
+    const ms = getVoiceMediaSocket()
+    voiceMediaSocketRef.current = ms
+    if (ms.connected) {
+      // 已连接（重连顶替/重新 join）：立即用最新 token 重新绑定
+      handleMediaConnect()
+    } else {
+      ms.connect()
+      // 绑定由 'connect' 事件回调（handleMediaConnect）完成
+    }
+  }, [handleMediaConnect])
 
   // ==================== 加入/离开 ====================
 
@@ -1059,6 +1118,21 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       silenceGainRef.current = silenceGain
 
       // 3. Opus 编码器设置（WebCodecs 模式）
+      // 上行发送助手：语音帧走媒体专用连接。未就绪（绑定未完成/绑定
+      // 失败）时丢帧——实时语义下宁缺帧不积压，绑定在 join 应答后立即
+      // 进行，正常情况下编码器产出首帧前早已就绪
+      const emitMediaAudio = (payload: {
+        data: ArrayBufferLike
+        sampleRate?: number
+        timestamp: number
+        mediaTs?: number
+        encoded?: boolean
+      }) => {
+        const ms = voiceMediaSocketRef.current
+        if (!ms || !mediaReadyRef.current) return
+        ms.emit('voice-media-data', payload)
+      }
+
       if (OPUS_SUPPORTED) {
         // 编码器错误重建节流（error 后状态为 closed，不重建则上行永久静默）
         let lastEncoderRebuildAt = 0
@@ -1103,8 +1177,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
                 // 生产，丢掉的帧永远无法补回，只能持续排空 jitter buffer
                 // （实测每 1~2s 一次 underrun）。排队发送的突发延迟由
                 // 接收端 jitter buffer 吸收
-                currentSocket.emit('voice-audio-data', {
-                  roomId: currentRoomId,
+                emitMediaAudio({
                   data: chunkData,
                   timestamp: Date.now(),
                   mediaTs: chunk.timestamp,
@@ -1186,11 +1259,12 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         if (!arrayBuffer || !joinedRef.current || !micEnabledRef.current) return
         // 自己被禁言：不上行（服务器仍兜底校验，此处省编码与带宽）
         if (selfMutedRef.current) return
-        // 上行背压：底层 WebSocket 写入积压超过阈值时丢弃当前帧。
+        // 上行背压：媒体连接底层 WebSocket 写入积压超过阈值时丢弃当前帧。
         // 弱网/基站切换下不丢帧会让发送队列无限堆积，延迟单调累积
-        // 直到整段语音迟到到不可用，还会挤占同 socket 的业务消息
+        // 直到整段语音迟到到不可用
         if (
-          getUplinkBacklogBytes(currentSocket.io) > UPLINK_QUEUE_LIMIT_BYTES
+          getUplinkBacklogBytes(voiceMediaSocketRef.current?.io) >
+          UPLINK_QUEUE_LIMIT_BYTES
         ) {
           return
         }
@@ -1233,8 +1307,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             pcmBatchFrames.length = 0
             pcmBatchSamples = 0
             const int16 = float32ToInt16(merged)
-            currentSocket.emit('voice-audio-data', {
-              roomId: currentRoomId,
+            emitMediaAudio({
               data: int16.buffer,
               sampleRate: captureCtx.sampleRate,
               timestamp: Date.now(),
@@ -1243,8 +1316,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             return
           }
           const int16 = float32ToInt16(float32)
-          currentSocket.emit('voice-audio-data', {
-            roomId: currentRoomId,
+          emitMediaAudio({
             data: int16.buffer,
             sampleRate: captureCtx.sampleRate,
             timestamp: Date.now(),
@@ -1266,7 +1338,12 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       // 6. 发送 voice-join 到服务器
       // username 作为游客昵称兜底（登录用户服务器优先采用 token 中的用户名）
       const response = await new Promise<
-        | { success: true; members: VoiceMember[]; selfMuted?: boolean }
+        | {
+            success: true
+            members: VoiceMember[]
+            selfMuted?: boolean
+            mediaToken: string
+          }
         | { success: false; message: string }
       >((resolve) => {
         currentSocket.emit(
@@ -1278,6 +1355,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
                   success: true
                   members: VoiceMember[]
                   selfMuted?: boolean
+                  mediaToken: string
                 }
               | { success: false; message: string }
           ) => resolve(res)
@@ -1295,6 +1373,15 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
       setJoined(true)
       setJoining(false)
+
+      // 7. 建立语音媒体专用连接并绑定（上行/下行语音帧都走这条连接，
+      // 与主连接上的聊天/弹幕/信令隔离——TCP 队头阻塞下大消息不再
+      // 把音频帧顶在后面排队）
+      mediaInitRef.current = {
+        roomId: currentRoomId,
+        token: response.mediaToken,
+      }
+      attachMediaSocket()
 
       // 移动端切后台时系统会 suspend AudioContext（iOS 尤甚），回前台
       // 若不显式 resume，采集与播放都会停摆，表现为严重卡顿/完全无声。
@@ -1380,6 +1467,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     cleanupAll,
     setupLocalAnalyser,
     startLevelDetection,
+    attachMediaSocket,
   ])
 
   const leave = useCallback(() => {
@@ -1671,7 +1759,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   useEffect(() => {
     if (!socket) return
 
-    socket.on('voice-audio-data', handleVoiceAudioData)
     socket.on('voice-codec-config', handleVoiceCodecConfig)
     socket.on('voice-user-joined', handleVoiceUserJoined)
     socket.on('voice-user-left', handleVoiceUserLeft)
@@ -1679,7 +1766,6 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     socket.on('voice-kicked', handleVoiceKicked)
 
     return () => {
-      socket.off('voice-audio-data', handleVoiceAudioData)
       socket.off('voice-codec-config', handleVoiceCodecConfig)
       socket.off('voice-user-joined', handleVoiceUserJoined)
       socket.off('voice-user-left', handleVoiceUserLeft)
@@ -1688,13 +1774,26 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     }
   }, [
     socket,
-    handleVoiceAudioData,
     handleVoiceCodecConfig,
     handleVoiceUserJoined,
     handleVoiceUserLeft,
     handleVoiceMutedChanged,
     handleVoiceKicked,
   ])
+
+  // 语音媒体专用连接事件（下行音频）：单例连接，监听器挂载期注册一次；
+  // 连接/断开的生命周期由语音会话（join/leave）驱动，处理函数内部以
+  // joinedRef/mediaInitRef 守卫，会话外的事件触发均为无操作
+  useEffect(() => {
+    const ms = getVoiceMediaSocket()
+    voiceMediaSocketRef.current = ms
+    ms.on('connect', handleMediaConnect)
+    ms.on('voice-media-data', handleVoiceAudioData)
+    return () => {
+      ms.off('connect', handleMediaConnect)
+      ms.off('voice-media-data', handleVoiceAudioData)
+    }
+  }, [handleMediaConnect, handleVoiceAudioData])
 
   // socket.io 断线重连后 socket.id 变化：服务器 voiceMembers 表中无新连接
   // 的条目，上行音频会被服务器静默丢弃（自己听得到别人、别人听不到自己，
@@ -1717,6 +1816,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
                 success: true
                 members: VoiceMember[]
                 selfMuted?: boolean
+                mediaToken: string
               }
             | { success: false; message: string }
         ) => {
@@ -1755,6 +1855,13 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               description: codecDescriptionRef.current,
             })
           }
+          // 媒体连接重绑定：新成员条目有新 token（旧媒体连接若还活着，
+          // 服务端已随旧条目移除而解绑；此处的 connect/init 会重新绑定）
+          mediaInitRef.current = {
+            roomId: currentRoomId,
+            token: res.mediaToken,
+          }
+          attachMediaSocket()
           message.info('语音已重新连接')
         }
       )
@@ -1764,7 +1871,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     return () => {
       socket.off('connect', handleReconnect)
     }
-  }, [socket, leave, ensurePeerPlayback])
+  }, [socket, leave, ensurePeerPlayback, attachMediaSocket])
 
   // 组件卸载或房间变化时自动离开
   useEffect(() => {

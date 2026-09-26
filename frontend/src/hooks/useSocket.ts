@@ -11,6 +11,8 @@ import {
 import { buildSocketAuth } from '@/lib/authTransport'
 
 let globalSocket: Socket | null = null
+/** 语音媒体专用连接（语音帧与业务消息隔离，消除 TCP 队头阻塞） */
+let globalMediaSocket: Socket | null = null
 let refCount = 0
 let disconnectTimer: ReturnType<typeof setTimeout> | null = null
 
@@ -49,6 +51,40 @@ function getSocket(): Socket {
 }
 
 /**
+ * 获取/创建语音媒体专用连接。
+ *
+ * 与主连接同一认证、同一地址，但仅用 WebSocket 传输（无轮询降级），
+ * 只承载语音帧——大消息（字幕同步/弹幕/成员列表）的 TCP 队头阻塞
+ * 不再波及 20ms 的音频帧。生命周期由语音会话（join/leave）驱动
+ */
+export function getVoiceMediaSocket(): Socket {
+  if (globalMediaSocket) return globalMediaSocket
+
+  globalMediaSocket = io(getSocketUrl(), {
+    transports: ['websocket'],
+    autoConnect: false,
+    withCredentials: true,
+    auth: (cb: (data: Record<string, string>) => void) => {
+      cb(buildSocketAuth())
+    },
+  })
+
+  return globalMediaSocket
+}
+
+/** 销毁语音媒体专用连接（后端地址变化等场景） */
+export function resetVoiceMediaSocket(): void {
+  if (globalMediaSocket) {
+    try {
+      globalMediaSocket.disconnect()
+    } catch {
+      // ignore
+    }
+    globalMediaSocket = null
+  }
+}
+
+/**
  * 触发 socket 重连。
  * access token 刷新后，旧连接的握手 token 已失效，需要断开重连让 socket.io 重新走握手流程
  * （重新发送 cookie）。socket.io 4.x 的 disconnect+connect 不会重建底层实例，
@@ -78,6 +114,7 @@ export function resetSocket(): void {
     }
     globalSocket = null
   }
+  resetVoiceMediaSocket()
   refCount = 0
   if (disconnectTimer) {
     clearTimeout(disconnectTimer)
@@ -99,7 +136,7 @@ export function useSocket() {
   const socket = useMemo(() => {
     if (!shouldCreateSocket) return null
     return getSocket()
-  }, [shouldCreateSocket, autoLoginStatus])
+  }, [shouldCreateSocket])
 
   const [connected, setConnected] = useState(() => socket?.connected ?? false)
 
