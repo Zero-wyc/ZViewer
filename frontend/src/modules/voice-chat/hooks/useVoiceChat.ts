@@ -5,10 +5,11 @@ import { getVoiceMediaSocket } from '@/hooks/useSocket'
 import { getVoiceInstanceId } from '../lib/multiInstance'
 
 // ============================================================
-// 语音聊天 — 服务器中转架构 + Opus 编码（128kbps）
+// 语音聊天 — 服务器中转架构 + Opus 编码（自适应码率）
 //
 // 1. 客户端通过 AudioWorklet 采集 PCM 音频（Float32, 48kHz, mono）
-// 2. 使用 WebCodecs AudioEncoder 将 PCM 编码为 Opus（128kbps）
+// 2. 使用 WebCodecs AudioEncoder 将 PCM 编码为 Opus（码率按上行拥塞
+//    自适应：桌面 128k→32k、移动端 32k→16k 阶梯降档/回升）
 // 3. 编码后的 Opus 帧经「语音媒体专用连接」（独立 Socket.IO 连接，
 //    仅 WebSocket 传输）发送到服务器——与业务消息的 TCP 队头阻塞隔离
 // 4. 服务器转发给房间内其他语音成员的媒体连接（慢消费者按写缓冲丢帧）
@@ -26,7 +27,7 @@ import { getVoiceInstanceId } from '../lib/multiInstance'
 /** 每次 AudioWorklet 累积的样本数（20ms @ 48kHz，匹配 Opus 编码帧） */
 const FRAME_SIZE = 960
 
-/** Opus 编码比特率（128kbps） */
+/** Opus 编码比特率（128kbps）：桌面码率阶梯的最高档（自适应降档起点） */
 const OPUS_BITRATE = 128_000
 
 /** Opus 编码采样率 */
@@ -95,6 +96,49 @@ const MOBILE_OPUS_FRAME_SEC = 0.04
 /** 移动端 PCM 回退模式的上行合并帧数：2 帧（40ms）拼包发送，理由同上 */
 const PCM_MOBILE_BATCH_FRAMES = 2
 
+// ==================== 时钟漂移补偿（动态最低水位） ====================
+//
+// 收发两端 48kHz 硬件时钟存在 ppm 级漂移：播放端时钟略快于发送端时
+// 播放消耗速率略高于到达速率，队列寿命持续递减，固定 min buffer 会
+// 周期性 underrun——听感为每隔 N 秒一次的规律性断音。按 underrun
+// 频率动态调整每个 peer 的最低水位，把被漂移侵蚀掉的缓冲量补回来
+
+/**
+ * 当前平台的最低水位基线（秒）：动态水位的初始值与回落下限。
+ * 取值与原固定 min 一致（桌面 0.15 / 移动 0.3）——无漂移证据时
+ * 行为与原来完全相同，不凭空增加延迟
+ */
+const BUFFER_MIN_BASELINE_SEC = IS_MOBILE
+  ? MOBILE_BUFFER_MIN_SEC
+  : TARGET_BUFFER_MIN_SEC
+
+/**
+ * 漂移评估窗口（ms）：窗口内连续语音 underrun ≥ 2 次则抬升水位一档，
+ * 无 underrun 且持续有接收流量则回落一档。30s 足以区分"漂移侵蚀"
+ * （规律性、持续出现）与"偶发抖动"（一次性网络突刺）
+ */
+const DRIFT_WINDOW_MS = 30_000
+
+/** 水位单次调整步长（秒）：20ms 一档，量级与典型漂移每窗口的侵蚀量匹配 */
+const DRIFT_BUFFER_STEP_SEC = 0.02
+
+/** 抬升阈值：窗口内连续语音 underrun 达到该次数即抬升一档 */
+const DRIFT_RAISE_UNDERRUN_COUNT = 2
+
+/**
+ * 回落所需的窗口内最小接收帧数（约 2s 净语音 @20ms 帧）：与窗口
+ * 跨度上限共同判定"持续有接收流量"——对方闭麦半小时后回来的零星
+ * 帧不足以证明当前水位经得起持续播放的考验，不参与回落评估
+ */
+const DRIFT_FALLBACK_MIN_FRAMES = 100
+
+/**
+ * 回落评估的窗口跨度上限（ms）：到期评估只能由帧到达触发，无流量时
+ * 窗口悬置、跨度膨胀。跨度超过 2 倍窗口时长说明期内存在长接收间隙
+ * （对方闭麦/静音），该窗口不视为稳定期，禁止回落
+ */
+const DRIFT_FALLBACK_MAX_SPAN_MS = 60_000
+
 /**
  * 上行背压阈值：底层 WebSocket 写入积压超过该字节数（≈50 包/约 1 秒）
  * 时丢弃当前帧。Socket.IO 的发送队列无限增长，弱网/网络切换时不丢帧
@@ -119,6 +163,95 @@ function getUplinkBacklogBytes(io: unknown): number {
   }
 }
 
+// ==================== 上行自适应码率 ====================
+//
+// 固定码率下弱网只能靠背压丢帧维持实时性，而整帧丢弃的听感损伤
+// 远大于降码率（丢帧 = 内容跳切，降码率 = 音质变糊）。按 10s 摘要
+// 窗口的丢帧统计分级降档，拥塞消退后缓慢回升。
+
+/**
+ * 桌面端码率阶梯（bps，索引 0 为最高档）：128k → 96k → 64k → 48k → 32k。
+ * 最高档即原固定码率（OPUS_BITRATE）；弱网沿阶梯逐档下调，拥塞消退
+ * 后逐档回升
+ */
+const DESKTOP_BITRATE_LADDER = [OPUS_BITRATE, 96_000, 64_000, 48_000, 32_000]
+
+/**
+ * 移动端码率阶梯（bps，索引 0 为最高档）：32k → 24k → 16k。
+ * 最高档即原固定码率（MOBILE_OPUS_BITRATE）——手机上行窄，更高档位
+ * 会被排队吞掉，阶梯整体低于桌面
+ */
+const MOBILE_BITRATE_LADDER = [MOBILE_OPUS_BITRATE, 24_000, 16_000]
+
+/** 当前平台的码率阶梯（bps）：档位索引以此为下标 */
+const BITRATE_LADDER = IS_MOBILE
+  ? MOBILE_BITRATE_LADDER
+  : DESKTOP_BITRATE_LADDER
+
+/**
+ * 降档阈值：10s 窗口内背压丢帧 ≥ 25 帧（20ms 帧约 500 个/窗口，
+ * 即 ~5% 丢帧率）判定持续拥塞。丢帧到该量级说明背压兜底已在持续
+ * 触发，降码率从源头减少发送量优于继续丢帧
+ */
+const BITRATE_DOWNGRADE_DROP_FRAMES = 25
+
+/** 升档所需连续干净窗口数：2 个窗口 = 20s，慢升快降（升档有探路风险） */
+const BITRATE_UPGRADE_CLEAN_WINDOWS = 2
+
+/**
+ * 升档的 backlog 水位条件：EWMA 低于背压阈值的 50%。用 EWMA 而非
+ * 窗口末瞬时值：瞬时值被网络突发污染，EWMA 低位才能确认拥塞
+ * 真正消退而非恰好处于两个突发之间
+ */
+const BITRATE_UPGRADE_BACKLOG_RATIO = 0.5
+
+/**
+ * 升档后观察窗的回降阈值：丢帧 ≥ 5 帧即回降。取 5 而非 1：升档后
+ * 的个别丢帧更可能是瞬时抖动（基站切换/突发大消息），≥1 就回降会
+ * 让档位在噪声下反复横跳；5 帧（1% 量级）才判定为新码率超出
+ * 网络承受力的真拥塞
+ */
+const BITRATE_REBOUND_DROP_FRAMES = 5
+
+/**
+ * 上行 backlog EWMA 平滑系数：每帧权重 5%。50 帧/秒下约 1s 收敛
+ * 到新水平（1 - 0.95^50 ≈ 92%），既能吸收帧级突发又不至于让
+ * 10s 窗口末的读数完全失真
+ */
+const UPLINK_BACKLOG_EWMA_ALPHA = 0.05
+
+/**
+ * 构造 Opus 编码器配置：setupEncoder 初始配置与自适应码率热重配置
+ * 共用。configure() 是全量替换语义——热重配置若只传 bitrate 会丢失
+ * codec 等必填项，移动端 opus 扩展参数（40ms 长帧/complexity）也会
+ * 回退，必须始终走同一份构造
+ */
+function buildEncoderConfig(bitrate: number): AudioEncoderConfig {
+  const config: AudioEncoderConfig = {
+    codec: 'opus',
+    sampleRate: OPUS_SAMPLE_RATE,
+    numberOfChannels: 1,
+    bitrate,
+  }
+  if (IS_MOBILE) {
+    // 移动端 Opus 扩展参数（WebCodecs Opus 注册项；TS DOM 未收录全部
+    // 字段，经断言注入——WebIDL 字典语义下浏览器忽略不认识的键，
+    // 不会 configure 失败）：
+    // - frameDuration 40ms：包率 50→25pps（见 MOBILE_OPUS_FRAME_SEC）
+    // - complexity 5：降低编码 CPU 占用，防止手机端主线程挤压
+    //   播放调度（decode/playback 同跑在主线程）
+    // 不开 useinbandfec：Socket.IO 走 TCP 可靠有序传输，帧只会迟到
+    // 不会丢失；而 WebCodecs 无 decode_fec API，嵌入包内的冗余数据
+    // 无法被解码端消费——FEC 只白耗 32k 档约 15~20% 的有效语音码率。
+    // 弱网连续性由接收端 PLC（underrun 填充）承担
+    ;(config as unknown as Record<string, unknown>).opus = {
+      frameDuration: 40_000,
+      complexity: 5,
+    }
+  }
+  return config
+}
+
 /** 电平条采样频率（ms）：12.5Hz 足够平滑，远低于 rAF 的 60Hz */
 const LEVEL_SAMPLE_INTERVAL_MS = 80
 
@@ -130,6 +263,13 @@ const DECODER_REBUILD_THROTTLE_MS = 10_000
 
 /** 编码器错误重建节流间隔（防 error 死循环） */
 const ENCODER_REBUILD_THROTTLE_MS = 10_000
+
+/**
+ * 质量摘要日志窗口（ms）：每窗口汇总输出一行上行/下行质量指标。
+ * 10s 内 20ms 帧约 500 个，样本量足够反映丢帧/卡顿趋势，又不至于
+ * 日志刷屏；无流量的窗口静默
+ */
+const QUALITY_SUMMARY_INTERVAL_MS = 10_000
 
 /** 检测浏览器是否支持 WebCodecs AudioEncoder/AudioDecoder */
 const OPUS_SUPPORTED =
@@ -286,6 +426,224 @@ interface PeerPlaybackState {
    * 全新数组，直接持有引用安全
    */
   lastPcm?: Float32Array<ArrayBuffer> | null
+  /**
+   * 上一已调度帧的 mediaTs（微秒，编码端单调时钟）。服务端慢消费者
+   * 跳帧与上行背压丢帧在到达端只表现为 mediaTs 跳变，相邻帧差值
+   * 超过 1.5 帧长即判定传输途中丢帧（触发间隙 PLC 填充）。0 表示
+   * 尚未收到带 mediaTs 的帧（无从比较，不参与判定）
+   */
+  lastMediaTsUs: number
+  /**
+   * 该 peer 的动态最低水位（秒）：时钟漂移补偿。初始为平台基线
+   * （BUFFER_MIN_BASELINE_SEC），30s 评估窗口内连续语音 underrun
+   * ≥ 2 次则 +20ms（上限平台 bufferMax），持续无 underrun 则回落
+   * （下限基线）。仅作为 targetBuffer 的 min 分量——水位变化不
+   * 触碰已排队的时间线（只进不退），下次 underrun 重起播或积压
+   * 重置取 targetBuffer 时自然生效
+   */
+  dynamicBufferMinSec: number
+  /**
+   * 漂移评估窗口内的连续语音 underrun 计数（判定口径与质量统计
+   * 一致：prevIntervalMs ∈ (0,150)）。必须独立于 dlStats.underruns
+   * ——后者每 10s 被质量摘要重置，复用会让 30s 窗口只能"看见"
+   * 最后 10s 的 underrun
+   */
+  driftUnderrunCount: number
+  /** 漂移评估窗口内的接收帧数（回落评估判定"持续有接收流量"的素材） */
+  driftWindowFrames: number
+  /**
+   * 漂移评估窗口起点（performance.now 毫秒）。0 = 尚未对齐首帧，
+   * 首帧到达时按到期评估流程重置到真实时刻
+   */
+  driftWindowStartMs: number
+}
+
+/**
+ * PLC（丢包隐藏）填充合成与调度：用最近一帧解码 PCM 循环复制 +
+ * 3ms 淡入 + 指数衰减（尾部 ~8%）合成填充音频，在 startAt 时刻开始
+ * 播放。underrun 空洞（帧迟到排空播放队列）与 mediaTs 间隙丢帧
+ * （服务端跳帧/上行背压丢帧后的时间线空洞）共用同一算法——连续
+ * 语音中的丢失从"死寂/内容跳切"变为短暂减弱的人声残留。
+ * 返回实际填充秒数：素材缺失（尚未收到解码帧）或空洞过短（低于
+ * 一帧，不值得合成）时返回 0，调用方按纯静音处理
+ */
+function schedulePlcFill(
+  state: PeerPlaybackState,
+  ctx: AudioContext,
+  startAt: number,
+  fillSec: number,
+  sampleRate: number
+): number {
+  const prevPcm = state.lastPcm
+  // 素材缺失（首帧前/刚清理）：无法合成，保持静音
+  if (!prevPcm || prevPcm.length === 0) return 0
+  // 低于一帧的碎片空洞：合成调度的开销超过听感收益，保持静音
+  if (fillSec < VOICE_FRAME_SEC) return 0
+  const fillSamples = Math.floor(fillSec * sampleRate)
+  if (fillSamples <= 0) return 0
+  const fillBuffer = ctx.createBuffer(1, fillSamples, sampleRate)
+  const fillData = fillBuffer.getChannelData(0)
+  // 3ms 淡入防接缝爆音；整体指数衰减到 ~8%，尾部与静音融合
+  const fadeInSamples = Math.min(Math.floor(0.003 * sampleRate), fillSamples)
+  for (let i = 0; i < fillSamples; i++) {
+    let env = Math.exp((-2.5 * i) / fillSamples)
+    if (i < fadeInSamples) {
+      env *= i / fadeInSamples
+    }
+    fillData[i] = prevPcm[i % prevPcm.length] * env
+  }
+  const fillSource = ctx.createBufferSource()
+  fillSource.buffer = fillBuffer
+  fillSource.connect(state.gainNode)
+  state.pendingSources.add(fillSource)
+  fillSource.onended = () => {
+    state.pendingSources.delete(fillSource)
+  }
+  fillSource.start(startAt)
+  console.debug(`[voice] plc fill ${Math.round(fillSec * 1000)}ms`)
+  return fillSec
+}
+
+/**
+ * 时钟漂移补偿：30s 评估窗口到期时调整该 peer 的动态最低水位
+ * （playAudioChunk 每帧调用，未到期直接返回，均摊开销可忽略）。
+ * 收发两端 48kHz 硬件时钟存在 ppm 级漂移，播放端略快时队列寿命持续
+ * 递减，固定 min buffer 会周期性 underrun（每隔 N 秒规律性断音）——
+ * 按 underrun 频率把被侵蚀的缓冲量补回来：
+ * - 抬升：窗口内连续语音 underrun ≥ 2 次 → 水位 +20ms（上限平台
+ *   bufferMax，达顶后不再抬也不刷日志，但仍重置窗口重新观察）
+ * - 回落：窗口内无连续语音 underrun 且持续有接收流量 → 水位 -20ms
+ *   （下限平台基线）。"持续流量"以窗口内帧数与窗口跨度共同判定：
+ *   长时间无流量（对方闭麦/静音）期间播放队列早已排空、无压力考验，
+ *   不视为稳定期，避免恢复后仅凭零星帧就降档
+ * 调整只改 min 分量数值，不触碰已排队的时间线（时间线只进不退），
+ * 新水位在下次 underrun 重起播或积压重置取 targetBuffer 时自然生效
+ */
+function evaluateDriftBufferMin(
+  state: PeerPlaybackState,
+  socketId: string,
+  nowMs: number,
+  bufferMaxSec: number
+): void {
+  const spanMs = nowMs - state.driftWindowStartMs
+  if (spanMs < DRIFT_WINDOW_MS) return
+  const prevMinMs = Math.round(state.dynamicBufferMinSec * 1000)
+  if (state.driftUnderrunCount >= DRIFT_RAISE_UNDERRUN_COUNT) {
+    if (state.dynamicBufferMinSec < bufferMaxSec) {
+      state.dynamicBufferMinSec = Math.min(
+        bufferMaxSec,
+        state.dynamicBufferMinSec + DRIFT_BUFFER_STEP_SEC
+      )
+      console.debug(
+        `[voice] drift buffer min ${prevMinMs} -> ` +
+          `${Math.round(state.dynamicBufferMinSec * 1000)}ms for peer ${socketId} ` +
+          `(${state.driftUnderrunCount} underruns/${Math.round(spanMs / 1000)}s, ` +
+          `clock drift compensation)`
+      )
+    }
+  } else if (
+    state.driftUnderrunCount === 0 &&
+    state.dynamicBufferMinSec > BUFFER_MIN_BASELINE_SEC &&
+    state.driftWindowFrames >= DRIFT_FALLBACK_MIN_FRAMES &&
+    spanMs < DRIFT_FALLBACK_MAX_SPAN_MS
+  ) {
+    state.dynamicBufferMinSec = Math.max(
+      BUFFER_MIN_BASELINE_SEC,
+      state.dynamicBufferMinSec - DRIFT_BUFFER_STEP_SEC
+    )
+    console.debug(
+      `[voice] drift buffer min ${prevMinMs} -> ` +
+        `${Math.round(state.dynamicBufferMinSec * 1000)}ms for peer ${socketId} ` +
+        `(stable ${Math.round(spanMs / 1000)}s, releasing excess buffer)`
+    )
+  }
+  // 无论是否调整都重置窗口：下一个 30s 从当前时刻重新观察
+  state.driftUnderrunCount = 0
+  state.driftWindowFrames = 0
+  state.driftWindowStartMs = nowMs
+}
+
+/**
+ * 上行质量统计（本端全局一份，随 join/leave 会话生命周期重置）。
+ * 编码帧数与背压丢帧数对照可反映上行拥塞程度（丢帧是延迟累积的
+ * 唯一兜底手段，丢帧率高 = 弱网上行）
+ */
+interface UplinkStats {
+  /** 窗口内编码/上行发出的帧数（Opus encode 提交 + PCM 直发） */
+  encodedFrames: number
+  /** 窗口内上行背压丢帧数（WebSocket 写积压超限丢弃） */
+  droppedFrames: number
+  /**
+   * 当前编码码率档位（bps）。setupEncoder 初始 configure 与自适应
+   * 码率热重配置（applyBitrateIndex）处同步更新；AudioEncoder 无
+   * 读取当前配置的 API，只能旁路记录供摘要日志 br 字段读取
+   */
+  currentBitrate: number
+}
+
+/**
+ * 下行质量统计（按 peer socketId 记录，peer 离开时随播放链路一起
+ * 清理，防止反复进出房间导致 Map 泄漏）
+ */
+interface DownlinkStats {
+  /** 窗口内接收调度的帧数（仅正常帧主路径，PLC 填充为内部合成不计） */
+  receivedFrames: number
+  /**
+   * 窗口内 mediaTs 间隙推断的丢帧数。服务端慢消费者跳帧与上行背压
+   * 丢帧在到达端均表现为 mediaTs 跳变，统一在此计数（检测逻辑见
+   * playAudioChunk 的间隙检测分支：相邻帧 mediaTs 差值 > 1.5 帧长）
+   */
+  gapLostFrames: number
+  /** 窗口内连续语音 underrun 次数（静音后恢复的首次起播不计） */
+  underruns: number
+  /** 窗口内 PLC 填充累计时长（ms） */
+  plcFillMs: number
+  /** 最新缓冲水位（ms，本帧调度后 nextStartTime - now；跨窗口保留） */
+  bufferMs: number
+}
+
+/** 创建初始上行统计（码率档位取当前平台阶梯的最高档） */
+function createUplinkStats(): UplinkStats {
+  return {
+    encodedFrames: 0,
+    droppedFrames: 0,
+    currentBitrate: BITRATE_LADDER[0],
+  }
+}
+
+/**
+ * 上行自适应码率状态机的跨窗口状态（10s 摘要窗口重置计数时必须
+ * 保留，否则"连续干净窗口数"永远无法累积到升档阈值）。随 join/leave
+ * 会话生命周期重置：档位回到最高档重新探测
+ */
+interface BitrateAdaptiveState {
+  /** 当前码率档位索引（BITRATE_LADDER 下标，0 为最高档） */
+  ladderIndex: number
+  /**
+   * 上行 backlog 字节数 EWMA（AudioWorklet 每帧采样，闭麦/禁言期间
+   * 无样本自然停止更新）。比瞬时值更能区分持续拥塞与瞬时突发
+   */
+  backlogEwmaBytes: number
+  /**
+   * 连续「无丢帧且 backlog 低位」的窗口数（升档需连续 2 个）。
+   * 闭麦/有零星丢帧的窗口不计入（无样本/非干净）
+   */
+  cleanWindows: number
+  /**
+   * 升档冷却标记：刚升档后的下一个窗口为防震荡观察窗——丢帧达到
+   * 回降阈值则立即回降并重置冷却，否则清除标记恢复常规评估
+   */
+  justUpgraded: boolean
+}
+
+/** 创建初始自适应码率状态（最高档起，随会话重置） */
+function createBitrateState(): BitrateAdaptiveState {
+  return {
+    ladderIndex: 0,
+    backlogEwmaBytes: 0,
+    cleanWindows: 0,
+    justUpgraded: false,
+  }
 }
 
 /**
@@ -334,6 +692,15 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
   const playbackContextRef = useRef<AudioContext | null>(null)
   const masterGainRef = useRef<GainNode | null>(null)
   const peerStatesRef = useRef<Map<string, PeerPlaybackState>>(new Map())
+
+  // 语音质量度量统计 refs（埋点数据：上行全局一份，下行按 peer 记录，
+  // 随 join/leave 生命周期重置，见「语音质量度量统计」分节）
+  const uplinkStatsRef = useRef<UplinkStats>(createUplinkStats())
+  const downlinkStatsRef = useRef<Map<string, DownlinkStats>>(new Map())
+  /** 质量摘要日志定时器（join 成功后启动，cleanupAll 停止并重置统计） */
+  const qualityTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  /** 上行自适应码率状态（跨摘要窗口保留，随 join/leave 生命周期重置） */
+  const bitrateStateRef = useRef<BitrateAdaptiveState>(createBitrateState())
 
   // 语音媒体专用连接 refs（语音帧独立通道：与聊天/弹幕/信令隔离，
   // 大消息的 TCP 队头阻塞不再波及 20ms 音频帧）
@@ -486,6 +853,203 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     setAudioLevels(new Map())
   }, [])
 
+  // ==================== 语音质量度量统计 ====================
+  //
+  // 语音链路质量埋点（spec：无度量则无法定位"质量差"的根因——上行丢/
+  // 服务端丢/接收端 underrun 三类损伤在此一目了然）：
+  // - 上行：编码帧数、背压丢帧数、当前码率档位（本端全局一份）
+  // - 下行：接收帧数、间隙丢帧数（mediaTs 跳变推断）、underrun 次数、
+  //   PLC 填充时长、各 peer jitter EWMA 与缓冲水位（按 peer 记录）
+  // 每 10s 窗口汇总输出单行摘要；无流量的窗口静默（防刷屏）
+
+  /** 惰性创建指定 peer 的下行统计条目 */
+  const getDownlinkStats = useCallback((socketId: string): DownlinkStats => {
+    let stats = downlinkStatsRef.current.get(socketId)
+    if (!stats) {
+      stats = {
+        receivedFrames: 0,
+        gapLostFrames: 0,
+        underruns: 0,
+        plcFillMs: 0,
+        bufferMs: 0,
+      }
+      downlinkStatsRef.current.set(socketId, stats)
+    }
+    return stats
+  }, [])
+
+  /**
+   * 热重配置编码器到新档位并同步统计。configure() 为全量替换语义，
+   * 必须携带完整配置（含移动端 opus 扩展参数），故与 setupEncoder
+   * 共用 buildEncoderConfig。热重配置只改码率：Opus 码率不体现在
+   * decoderConfig 的 description 中（OpusHead 只含采样率/声道数/
+   * 预跳），接收端解码器无需重配置，也无需重发 voice-codec-config。
+   * PCM 回退模式（不支持 WebCodecs）无编码器也无码率概念，不动作
+   */
+  const applyBitrateIndex = useCallback((nextIndex: number, reason: string) => {
+    const encoder = audioEncoderRef.current
+    if (!encoder) return
+    // 边界防护：越界档位（最低档再降/最高档再升）不动作——
+    // 已在最低档仍拥塞时维持现有背压丢帧逻辑兜底（spec：档位下限）
+    const clamped = Math.max(0, Math.min(BITRATE_LADDER.length - 1, nextIndex))
+    const adaptive = bitrateStateRef.current
+    if (clamped === adaptive.ladderIndex) return
+    const prevBitrate = BITRATE_LADDER[adaptive.ladderIndex]
+    const nextBitrate = BITRATE_LADDER[clamped]
+    try {
+      // 热重配置不断流：编码器保持 configured 状态，后续帧按新码率编码
+      encoder.configure(buildEncoderConfig(nextBitrate))
+    } catch (err) {
+      // 配置失败（编码器已 closed 等）：保持原档位不动，错误回调的
+      // 节流重建会以 ladderIndex 当前档位兜底重建
+      console.error('[voice] bitrate reconfigure failed:', err)
+      return
+    }
+    adaptive.ladderIndex = clamped
+    // 摘要日志 br 字段读取该值（AudioEncoder 无读取当前配置的 API）
+    uplinkStatsRef.current.currentBitrate = nextBitrate
+    console.log(
+      `[voice] bitrate ${Math.round(prevBitrate / 1000)}k -> ` +
+        `${Math.round(nextBitrate / 1000)}k (${reason})`
+    )
+  }, [])
+
+  /**
+   * 10s 摘要窗口边界处的升降档评估。与质量摘要共用同一窗口节奏：
+   * 丢帧/编码计数本就按该窗口累计，在窗口计数重置前读取评估即可，
+   * 无需独立定时器；跨窗口状态（档位索引/干净窗口数/backlog EWMA/
+   * 冷却标记）存于 bitrateStateRef，不受窗口计数重置影响。
+   * 闭麦/禁言窗口（无上行样本）不评估：丢帧恒为 0 会虚增
+   * "干净窗口"导致恢复开麦后立刻盲目升档
+   */
+  const evaluateBitrateAdjustment = useCallback(
+    (dropped: number, encoded: number) => {
+      // 本窗口无上行帧（闭麦/禁言）：无样本不评估，跨窗口状态原样保留
+      if (encoded === 0) return
+      const adaptive = bitrateStateRef.current
+      if (adaptive.justUpgraded) {
+        // 升档后防震荡观察窗：只判定新档位是否超出网络承受力。
+        // 观察窗不计干净窗口，通过后下个窗口才恢复累积——升档节奏
+        // 自然放缓为"升一档歇 10s"，符合慢升快降
+        adaptive.justUpgraded = false
+        if (dropped >= BITRATE_REBOUND_DROP_FRAMES) {
+          // 升档即引发丢帧：网络承受不住新档位，立即回降一档
+          applyBitrateIndex(
+            adaptive.ladderIndex + 1,
+            `upgrade probe failed, dropped ${dropped}/10s`
+          )
+        }
+        // 无论是否回降都重置升档冷却：再升档需重新攒满 2 个干净窗口
+        adaptive.cleanWindows = 0
+        return
+      }
+      if (dropped >= BITRATE_DOWNGRADE_DROP_FRAMES) {
+        // 持续拥塞快速降档：立即热重配置，从源头减少上行发送量
+        applyBitrateIndex(
+          adaptive.ladderIndex + 1,
+          `uplink congestion, dropped ${dropped}/10s`
+        )
+        adaptive.cleanWindows = 0
+        return
+      }
+      if (
+        dropped === 0 &&
+        adaptive.ladderIndex > 0 &&
+        adaptive.backlogEwmaBytes <
+          UPLINK_QUEUE_LIMIT_BYTES * BITRATE_UPGRADE_BACKLOG_RATIO
+      ) {
+        // 无丢帧且 backlog EWMA 低于阈值 50%：拥塞消退，累计干净窗口
+        adaptive.cleanWindows++
+        if (adaptive.cleanWindows >= BITRATE_UPGRADE_CLEAN_WINDOWS) {
+          // 连续 2 个窗口（20s）达标才升档，并进入防震荡观察窗
+          applyBitrateIndex(
+            adaptive.ladderIndex - 1,
+            `uplink clear, backlog ewma ${Math.round(adaptive.backlogEwmaBytes)}B`
+          )
+          adaptive.justUpgraded = true
+          adaptive.cleanWindows = 0
+        }
+        return
+      }
+      // 有零星丢帧（未达降档阈值）或 backlog 偏高：不是干净窗口，
+      // 升档资格清零重新观察
+      adaptive.cleanWindows = 0
+    },
+    [applyBitrateIndex]
+  )
+
+  /** 启动周期性质量摘要日志（join 成功后调用，幂等） */
+  const startQualitySummary = useCallback(() => {
+    if (qualityTimerRef.current) return
+    qualityTimerRef.current = setInterval(() => {
+      // 汇总下行：计数类指标求和；jitter/水位取最差 peer
+      // （诊断视角：最差链路决定整体听感下限）
+      let recv = 0
+      let gap = 0
+      let underrunCount = 0
+      let plcMs = 0
+      let maxJitterMs = 0
+      let maxBufMs = 0
+      downlinkStatsRef.current.forEach((stats, socketId) => {
+        recv += stats.receivedFrames
+        gap += stats.gapLostFrames
+        underrunCount += stats.underruns
+        plcMs += stats.plcFillMs
+        // jitter EWMA 存于播放状态（累积值，跨窗口不重置），输出时读取
+        const state = peerStatesRef.current.get(socketId)
+        if (state) {
+          maxJitterMs = Math.max(maxJitterMs, state.jitterEwma * 1000)
+        }
+        maxBufMs = Math.max(maxBufMs, stats.bufferMs)
+      })
+
+      const uplink = uplinkStatsRef.current
+      // 无流量窗口静默：本端闭麦且无接收时不输出（避免刷屏）
+      if (uplink.encodedFrames === 0 && recv === 0) return
+
+      // 升降档评估：必须在下方窗口计数重置前读取本窗口丢帧/编码数。
+      // 评估先行，摘要 br 字段即显示切换后的最新档位
+      evaluateBitrateAdjustment(uplink.droppedFrames, uplink.encodedFrames)
+
+      // 多 peer 时标注 peer 数，下行为各 peer 汇总值
+      const peerCount = downlinkStatsRef.current.size
+      const peerPart = peerCount > 1 ? ` peers ${peerCount}` : ''
+      console.log(
+        `[voice] quality ${QUALITY_SUMMARY_INTERVAL_MS / 1000}s ` +
+          `▲ enc ${uplink.encodedFrames} drop ${uplink.droppedFrames} ` +
+          `br ${Math.round(uplink.currentBitrate / 1000)}k | ` +
+          `▼${peerPart} recv ${recv} gap ${gap} ` +
+          `underrun ${underrunCount} plc ${Math.round(plcMs)}ms ` +
+          `jitter ${maxJitterMs.toFixed(1)}ms buf ${Math.round(maxBufMs)}ms`
+      )
+
+      // 重置窗口计数（jitter EWMA 与缓冲水位为累积/最新值不重置；
+      // 自适应码率跨窗口状态——档位索引/干净窗口数/backlog EWMA——
+      // 存于 bitrateStateRef，同样不在此重置）
+      uplink.encodedFrames = 0
+      uplink.droppedFrames = 0
+      downlinkStatsRef.current.forEach((stats) => {
+        stats.receivedFrames = 0
+        stats.gapLostFrames = 0
+        stats.underruns = 0
+        stats.plcFillMs = 0
+      })
+    }, QUALITY_SUMMARY_INTERVAL_MS)
+  }, [evaluateBitrateAdjustment])
+
+  /** 停止摘要日志并重置全部统计（cleanupAll 调用；下次 join 重新累计） */
+  const stopQualitySummary = useCallback(() => {
+    if (qualityTimerRef.current) {
+      clearInterval(qualityTimerRef.current)
+      qualityTimerRef.current = null
+    }
+    uplinkStatsRef.current = createUplinkStats()
+    // 档位状态随会话一并重置：下次 join 从最高档重新探测
+    // （跨会话保留弱网记忆不可取——网络环境可能已改变）
+    bitrateStateRef.current = createBitrateState()
+    downlinkStatsRef.current.clear()
+  }, [])
+
   // ==================== 接收端播放 ====================
 
   // playAudioChunk 与 ensurePeerPlayback 相互引用（解码输出 → 播放 →
@@ -496,7 +1060,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     (
       socketId: string,
       pcmData: Float32Array<ArrayBuffer>,
-      sampleRate: number
+      sampleRate: number,
+      mediaTsUs?: number
     ) => void
   >(() => {})
 
@@ -563,7 +1128,14 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               float32 = new Float32Array(numFrames)
               audioData.copyTo(float32, { planeIndex: 0 })
             }
-            playAudioChunkRef.current(socketId, float32, audioData.sampleRate)
+            // audioData.timestamp 直通编码 chunk.timestamp（微秒），
+            // 供播放侧做 mediaTs 间隙丢帧检测（PCM 回退路径不传）
+            playAudioChunkRef.current(
+              socketId,
+              float32,
+              audioData.sampleRate,
+              audioData.timestamp
+            )
           } finally {
             // copyTo 异常时也必须释放，否则 AudioData 泄漏
             audioData.close()
@@ -609,6 +1181,13 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         lastArrivalAt: 0,
         jitterEwma: 0,
         lastPcm: null,
+        lastMediaTsUs: 0,
+        // 动态水位从平台基线起步（无漂移证据时不改变原行为），
+        // 首帧到达时窗口起点经到期评估对齐到真实时刻
+        dynamicBufferMinSec: BUFFER_MIN_BASELINE_SEC,
+        driftUnderrunCount: 0,
+        driftWindowFrames: 0,
+        driftWindowStartMs: 0,
       }
 
       // Opus 模式下创建解码器（error 时内部自动节流重建）
@@ -652,17 +1231,27 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     []
   )
 
-  /** 播放收到的 PCM 音频块 */
+  /**
+   * 播放收到的 PCM 音频块。mediaTsUs 为该帧编码时间戳（微秒，Opus
+   * 模式由 AudioData.timestamp 直通），用于间隙丢帧检测与 PLC 填充；
+   * PCM 回退模式不传（无编码时间戳，间隙检测不生效，行为不变）
+   */
   const playAudioChunk = useCallback(
     (
       socketId: string,
       pcmData: Float32Array<ArrayBuffer>,
-      sampleRate: number
+      sampleRate: number,
+      mediaTsUs?: number
     ) => {
       const ctx = playbackContextRef.current
       if (!ctx) return
       const state = ensurePeerPlayback(socketId)
       if (!state) return
+
+      // 质量埋点：接收帧计数（正常帧调度主路径；PLC 填充为函数内部
+      // 合成，不经独立调用，无重复计数）
+      const dlStats = getDownlinkStats(socketId)
+      dlStats.receivedFrames++
 
       // 创建 AudioBuffer（copyToChannel 内部拷贝数据，无需先复制一份）
       const audioBuffer = ctx.createBuffer(1, pcmData.length, sampleRate)
@@ -692,12 +1281,13 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         }
       }
       state.lastArrivalAt = arrivalNow
+      // 漂移评估窗口的流量计数（回落评估据此判定"持续有接收流量"）
+      state.driftWindowFrames++
       // 移动端放宽 jitter buffer：手机网络的抖动与基站切换突刺远大于桌面，
       // 桌面档位会让起播水位频繁被击穿（underrun → 重置 → 再 underrun
-      // 的断续循环），这就是移动端"严重卡顿"的直接听感来源
-      const bufferMin = IS_MOBILE
-        ? MOBILE_BUFFER_MIN_SEC
-        : TARGET_BUFFER_MIN_SEC
+      // 的断续循环），这就是移动端"严重卡顿"的直接听感来源。
+      // min 分量不用平台常量而用该 peer 的动态水位（时钟漂移补偿，
+      // 见 evaluateDriftBufferMin）——漂移证据只对具体收发链路有意义
       const bufferMax = IS_MOBILE
         ? MOBILE_BUFFER_MAX_SEC
         : TARGET_BUFFER_MAX_SEC
@@ -709,7 +1299,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         : BACKLOG_RESET_SEC
       const targetBuffer = Math.min(
         bufferMax,
-        Math.max(bufferMin, 2 * state.jitterEwma + bufferBase)
+        Math.max(state.dynamicBufferMinSec, 2 * state.jitterEwma + bufferBase)
       )
 
       // ---- 时间线调度 ----
@@ -717,8 +1307,18 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       // → 以目标水位重新起播。帧仍在密集到达时发生即为真实卡顿，
       // debug 级日志便于排查（静音后恢复的正常起播不记录）
       let timeline = state.nextStartTime
-      if (timeline < now) {
+      // 本帧是否 underrun：间隙 PLC 仅对队列存活的连续语音生效，
+      // underrun 分支已重置时间线并完成空洞填充，不能重复填
+      const underrun = timeline < now
+      if (underrun) {
         if (prevIntervalMs > 0 && prevIntervalMs < 150) {
+          // 质量埋点：连续语音中的 underrun（真实卡顿）；
+          // 静音后恢复的首次起播不满足此间隔条件，不计
+          dlStats.underruns++
+          // 漂移补偿窗口独立计数（口径一致：仅连续语音 underrun）。
+          // dlStats.underruns 每 10s 被质量摘要重置，不能复用——
+          // 否则 30s 漂移窗口只能"看见"最后 10s 的 underrun
+          state.driftUnderrunCount++
           console.debug(
             `[voice] underrun during continuous speech ` +
               `(deficit ${Math.round((now - timeline) * 1000)}ms, ` +
@@ -737,42 +1337,61 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         //   填充反而凭空造声
         // - 极端空洞超过 PLC_MAX_FILL_SEC：长冻结时大段"机器人残响"
         //   比静音更刺耳，超出部分保持静音（衰减包络已自然淡出）
-        const prevPcm = state.lastPcm
-        const fillSec = Math.min(timeline - now, PLC_MAX_FILL_SEC)
-        if (
-          prevPcm &&
-          prevPcm.length > 0 &&
-          prevIntervalMs > 0 &&
-          prevIntervalMs < 150 &&
-          fillSec >= 0.02
-        ) {
-          const fillSamples = Math.floor(fillSec * sampleRate)
-          if (fillSamples > 0) {
-            const fillBuffer = ctx.createBuffer(1, fillSamples, sampleRate)
-            const fillData = fillBuffer.getChannelData(0)
-            // 3ms 淡入防接缝爆音；整体指数衰减到 ~8%，尾部与静音融合
-            const fadeInSamples = Math.min(
-              Math.floor(0.003 * sampleRate),
-              fillSamples
-            )
-            for (let i = 0; i < fillSamples; i++) {
-              let env = Math.exp((-2.5 * i) / fillSamples)
-              if (i < fadeInSamples) {
-                env *= i / fadeInSamples
-              }
-              fillData[i] = prevPcm[i % prevPcm.length] * env
+        if (prevIntervalMs > 0 && prevIntervalMs < 150) {
+          const fillSec = Math.min(timeline - now, PLC_MAX_FILL_SEC)
+          // 质量埋点：PLC 填充时长累计（窗口汇总，反映卡顿修复占比）；
+          // 未实际合成（素材缺失/空洞过短）时辅助函数返回 0
+          dlStats.plcFillMs +=
+            schedulePlcFill(state, ctx, now, fillSec, sampleRate) * 1000
+        }
+      }
+
+      // ---- 时钟漂移补偿：30s 评估窗口到期则调整动态最低水位 ----
+      // 放在 underrun 计数之后：本帧 underrun 计入当前窗口，凑满阈值
+      // 即可抬升。水位变化不重排已排队时间线，本帧 targetBuffer 亦
+      // 不回溯重算（时间线只进不退）
+      evaluateDriftBufferMin(state, socketId, arrivalNow, bufferMax)
+
+      // ---- mediaTs 间隙检测与 PLC 填充 ----
+      // 服务端慢消费者跳帧与上行背压丢帧在传输途中已被吞掉，到达接收
+      // 端只表现为 mediaTs 跳变——若仍按帧长首尾相接排队，丢失的时间
+      // 在时间线上直接塌缩，听感为内容跳切断音。依据 mediaTs（而非
+      // 到达时间）判定：Socket.IO 批量到达的帧 mediaTs 连续，不误触发；
+      // 闭麦后重开麦 mediaTs 单调递增同样连续，不误触发
+      if (mediaTsUs !== undefined && mediaTsUs > 0) {
+        if (state.lastMediaTsUs > 0) {
+          // 期望帧长与编码端联动（移动端 40ms 长帧），否则间隙判定
+          // 阈值失真
+          const expectedFrameSec = IS_MOBILE
+            ? MOBILE_OPUS_FRAME_SEC
+            : VOICE_FRAME_SEC
+          const tsGapSec = (mediaTsUs - state.lastMediaTsUs) / 1_000_000
+          if (tsGapSec > 1.5 * expectedFrameSec) {
+            // 丢失净时长 = 总间隙 - 前后帧正常衔接占用的 1 帧长
+            // （如丢 2 帧则 tsGap 为 3 帧长、填充 2 帧长）
+            const gapSec = tsGapSec - expectedFrameSec
+            // 质量埋点：mediaTs 间隙推断丢帧数（与服务端跳帧/上行
+            // 背压丢帧两类源头在到达侧的表现统一对应）。underrun 时
+            // 时间线已重置、不填充，但丢帧事实仍要计数
+            dlStats.gapLostFrames += Math.round(tsGapSec / expectedFrameSec) - 1
+            if (!underrun) {
+              // 仅队列存活的连续语音插入填充（复用 underrun PLC 的
+              // 循环复制 + 指数衰减算法）；超出 PLC_MAX_FILL_SEC 的
+              // 空洞部分不填源、保持纯静音
+              const fillSec = Math.min(gapSec, PLC_MAX_FILL_SEC)
+              // 质量埋点：PLC 填充时长累计（仅计实际合成部分）
+              dlStats.plcFillMs +=
+                schedulePlcFill(state, ctx, timeline, fillSec, sampleRate) *
+                1000
+              // 时间线推进完整 gapSec（PLC 覆盖部分 + 超限静音部分）：
+              // 空洞以占位而非塌缩的形态存在，后续帧的排队起点不被
+              // 丢帧拉前，避免时间线整体前移的连锁跳变
+              timeline += gapSec
             }
-            const fillSource = ctx.createBufferSource()
-            fillSource.buffer = fillBuffer
-            fillSource.connect(state.gainNode)
-            state.pendingSources.add(fillSource)
-            fillSource.onended = () => {
-              state.pendingSources.delete(fillSource)
-            }
-            fillSource.start(now)
-            console.debug(`[voice] plc fill ${Math.round(fillSec * 1000)}ms`)
           }
         }
+        // 每帧更新（含无间隙帧）：作为下一帧间隙比较的基准
+        state.lastMediaTsUs = mediaTsUs
       }
 
       // 纯排队播放：时间线只进不退，也绝不向前跳。
@@ -807,8 +1426,12 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         state.pendingSources.clear()
         state.nextStartTime = now + targetBuffer
       }
+
+      // 质量埋点：记录本帧调度后的缓冲水位（含上方积压重置修正），
+      // 摘要输出取各 peer 最新值
+      dlStats.bufferMs = Math.max(0, (state.nextStartTime - now) * 1000)
     },
-    [ensurePeerPlayback]
+    [ensurePeerPlayback, getDownlinkStats]
   )
 
   // 断开循环引用的 ref 必须在此赋值：解码器 output 回调经
@@ -852,6 +1475,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       }
       peerStatesRef.current.delete(socketId)
     }
+    // 质量统计同步清理：成员反复进出房间时不残留条目（防 Map 泄漏）
+    downlinkStatsRef.current.delete(socketId)
   }, [])
 
   // ==================== 音量控制 ====================
@@ -910,6 +1535,9 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
 
     // 停止电平检测
     stopLevelDetection()
+
+    // 停止质量摘要日志并重置统计（下次 join 从零累计）
+    stopQualitySummary()
 
     // 关闭 Opus 编码器
     if (audioEncoderRef.current) {
@@ -1007,7 +1635,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       )
       visibilityResumeHandlerRef.current = null
     }
-  }, [cleanupPeerPlayback, stopMonitor, stopLevelDetection])
+  }, [cleanupPeerPlayback, stopMonitor, stopLevelDetection, stopQualitySummary])
 
   // ==================== 语音媒体专用连接 ====================
 
@@ -1207,31 +1835,19 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               },
             })
 
-            const baseConfig: AudioEncoderConfig = {
-              codec: 'opus',
-              sampleRate: OPUS_SAMPLE_RATE,
-              numberOfChannels: 1,
-              // 移动端降码率：手机上行窄，128kbps 会被排队吞掉，
-              // 32kbps 是 Opus 语音模式在移动网络的常规档位
-              bitrate: IS_MOBILE ? MOBILE_OPUS_BITRATE : OPUS_BITRATE,
-            }
-            if (IS_MOBILE) {
-              // 移动端 Opus 扩展参数（WebCodecs Opus 注册项；TS DOM 未
-              // 收录全部字段，经断言注入——WebIDL 字典语义下浏览器忽略
-              // 不认识的键，不会 configure 失败）：
-              // - frameDuration 40ms：包率 50→25pps（见 MOBILE_OPUS_FRAME_SEC）
-              // - complexity 5：降低编码 CPU 占用，防止手机端主线程
-              //   挤压播放调度（decode/playback 同跑在主线程）
-              // 不开 useinbandfec：Socket.IO 走 TCP 可靠有序传输，帧只会
-              // 迟到不会丢失；而 WebCodecs 无 decode_fec API，嵌入包内的
-              // 冗余数据无法被解码端消费——FEC 只白耗 32k 档约 15~20%
-              // 的有效语音码率。弱网连续性由接收端 PLC（underrun 填充）承担
-              ;(baseConfig as unknown as Record<string, unknown>).opus = {
-                frameDuration: 40_000,
-                complexity: 5,
-              }
-            }
-            encoder.configure(baseConfig)
+            // 码率取当前档位而非固定常量：错误重建会重新执行本函数，
+            // 通话中途编码器出错若回跳最高档，会再经历一轮拥塞降档
+            // 探测（丢帧数秒）；初始 join 时 ladderIndex 恒为 0
+            // （stopQualitySummary 已随会话重置），即平台最高档
+            const bitrate = BITRATE_LADDER[bitrateStateRef.current.ladderIndex]
+            // 配置构造与热重配置（applyBitrateIndex）共用
+            // buildEncoderConfig：configure() 全量替换语义，移动端
+            // opus 扩展参数（40ms 长帧/complexity）不遗漏
+            encoder.configure(buildEncoderConfig(bitrate))
+            // 质量统计：记录当前码率档位（摘要日志 br 字段读取该值，
+            // AudioEncoder 无读取当前配置的 API 只能旁路记录）。
+            // 初始 configure 与热重配置共用本入口同步统计
+            uplinkStatsRef.current.currentBitrate = bitrate
             return encoder
           } catch (err) {
             console.error(
@@ -1245,7 +1861,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
         encoderTimestampRef.current = 0
         console.log(
           '[voice] Opus encoder configured at',
-          IS_MOBILE ? MOBILE_OPUS_BITRATE : OPUS_BITRATE,
+          BITRATE_LADDER[bitrateStateRef.current.ladderIndex],
           'bps'
         )
       }
@@ -1258,15 +1874,24 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       workletNode.port.onmessage = (e: MessageEvent) => {
         const arrayBuffer = e.data as ArrayBuffer
         if (!arrayBuffer || !joinedRef.current || !micEnabledRef.current) return
-        // 自己被禁言：不上行（服务器仍兜底校验，此处省编码与带宽）
+        // 自己被禁言：不上行（服务器仍兜底校验，此处省编码与带宽）。
+        // 闭麦/禁言期间不采样 backlog EWMA、不参与升降档评估（无样本）
         if (selfMutedRef.current) return
         // 上行背压：媒体连接底层 WebSocket 写入积压超过阈值时丢弃当前帧。
         // 弱网/基站切换下不丢帧会让发送队列无限堆积，延迟单调累积
         // 直到整段语音迟到到不可用
-        if (
-          getUplinkBacklogBytes(voiceMediaSocketRef.current?.io) >
-          UPLINK_QUEUE_LIMIT_BYTES
-        ) {
+        const backlogBytes = getUplinkBacklogBytes(
+          voiceMediaSocketRef.current?.io
+        )
+        // 自适应码率：每帧维护 backlog EWMA（复用背压判定的同一次读取，
+        // 避免重复访问 socket 内部结构）。EWMA 平滑瞬时突发，供升档
+        // 条件判定"拥塞是否真正消退"而非恰好处于两个突发之间
+        const adaptive = bitrateStateRef.current
+        adaptive.backlogEwmaBytes +=
+          (backlogBytes - adaptive.backlogEwmaBytes) * UPLINK_BACKLOG_EWMA_ALPHA
+        if (backlogBytes > UPLINK_QUEUE_LIMIT_BYTES) {
+          // 质量埋点：上行背压丢帧（与编码帧数对照反映上行拥塞程度）
+          uplinkStatsRef.current.droppedFrames++
           return
         }
 
@@ -1285,6 +1910,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             })
             audioEncoderRef.current.encode(audioData)
             audioData.close()
+            // 质量埋点：编码提交成功计一帧（编码器 output 异步发出）
+            uplinkStatsRef.current.encodedFrames++
             // 递增时间戳（微秒）
             encoderTimestampRef.current +=
               (float32.length / captureCtx.sampleRate) * 1_000_000
@@ -1314,6 +1941,8 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
               timestamp: Date.now(),
               encoded: false,
             })
+            // 质量埋点：上行发出帧计数（移动端 40ms 合并包按 1 计）
+            uplinkStatsRef.current.encodedFrames++
             return
           }
           const int16 = float32ToInt16(float32)
@@ -1323,12 +1952,20 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
             timestamp: Date.now(),
             encoded: false,
           })
+          // 质量埋点：上行发出帧计数
+          uplinkStatsRef.current.encodedFrames++
         }
       }
 
       // 5. 创建接收端播放 AudioContext（同样锁定 48kHz：解码输出为 48kHz，
       // 不匹配时 WebAudio 会隐式重采样，引入额外延迟与质量损失）
-      const playbackCtx = new AudioContext({ sampleRate: OPUS_SAMPLE_RATE })
+      const playbackCtx = new AudioContext({
+        sampleRate: OPUS_SAMPLE_RATE,
+        // 交互级输出缓冲：请求更小的硬件输出缓冲，端到端延迟随之下降。
+        // 实时语音优先低延迟而非吞吐——抖动已由应用层 jitter buffer
+        // 吸收，硬件缓冲再垫一层只会让每句话多等一段恒定延迟
+        latencyHint: 'interactive',
+      })
       const masterGain = playbackCtx.createGain()
       masterGain.gain.value = globalVolumeRef.current
       masterGain.connect(playbackCtx.destination)
@@ -1440,6 +2077,10 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
       // 启动电平检测
       setupLocalAnalyser()
       startLevelDetection()
+
+      // 启动质量摘要日志（10s 窗口，无流量窗口静默；
+      // leave/cleanupAll 停止并重置统计）
+      startQualitySummary()
     } catch (err) {
       console.error('[voice] join error:', err)
       // 按具体原因提示，避免把所有失败都归为"权限问题"
@@ -1475,6 +2116,7 @@ export function useVoiceChat(options: UseVoiceChatOptions): UseVoiceChatResult {
     cleanupAll,
     setupLocalAnalyser,
     startLevelDetection,
+    startQualitySummary,
     attachMediaSocket,
   ])
 
