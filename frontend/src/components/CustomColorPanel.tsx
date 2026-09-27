@@ -276,18 +276,17 @@ export function CustomColorPanel({ open }: { open: boolean }) {
 
   return (
     /* 绝对定位层：与自定义背景面板叠加在 Header 侧面板位槽的同一位置
-       （位槽统一做宽度动画与裁剪）。展开者 zIndex 更高——切换时本面板
-       从主面板一侧向左「擦入」覆盖在旧面板之上；旧面板在下层从左向右
-       收回。本组件自身不做宽度动画（内容静态无回流），收起时仅淡出并
-       关闭指针命中，避免与上层展开面板内容透叠。 */
+       （位槽统一做宽度动画与裁剪）。面板自身用 translateX 滑动：
+       收起时右移 300px 藏到主面板后方（被位槽裁剪不可见），展开时从
+       主面板一侧向左滑入；切换时新旧面板同步反向滑动、在位槽内无缝
+       推挤，无淡入淡出。内容静态无回流；面板内无 backdrop-filter
+       后代，transform 不会破坏玻璃采样。 */
     <div
       className="absolute inset-y-0 right-0 overflow-hidden"
       style={{
         width: PANEL_WIDTH,
-        zIndex: open ? 2 : 1,
-        opacity: open ? 1 : 0,
-        pointerEvents: open ? 'auto' : 'none',
-        transition: 'opacity 240ms var(--ease-out-expo)',
+        transform: open ? 'translateX(0)' : 'translateX(300px)',
+        transition: 'transform 240ms var(--ease-out-expo)',
       }}
     >
       <div className="flex h-full w-[300px] flex-col overflow-y-auto border-r border-[var(--glass-border)] p-4">
