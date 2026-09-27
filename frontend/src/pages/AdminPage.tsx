@@ -1588,12 +1588,12 @@ export default function AdminPage() {
                     </Title>
                     <div className="mb-4">
                       <label className="mb-1.5 block text-sm font-medium text-[var(--md-sys-color-on-surface-variant)]">
-                        Kazumi 规则地址（每行一个，留空使用默认）
+                        Kazumi 规则、索引或官方仓库地址（每行一个）
                       </label>
                       <textarea
                         rows={4}
                         className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
-                        placeholder="https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/DM84.json"
+                        placeholder="https://raw.githubusercontent.com/Predidit/KazumiRules/main/DM84.json"
                         value={(
                           settings.dataSourceConfig?.kazumiRules || []
                         ).join('\n')}
@@ -1611,15 +1611,19 @@ export default function AdminPage() {
                         }
                       />
                       <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                        修改后保存即可自动加载 Kazumi XPath 规则源；规则中
-                        useWebview 的源可能无法直接解析播放
+                        留空使用内置默认规则。支持单个规则 JSON、index.json，
+                        以及 Predidit/Kazumi、Predidit/KazumiRules
+                        仓库地址；依赖完整 WebView
+                        或验证码的规则仍可能无法播放。
                       </p>
                     </div>
 
                     <div className="mb-6">
                       <AniSubsGithubBrowser
-                        repoUrl="https://github.com/Predidit/Kazumi"
-                        defaultPath="assets/plugins"
+                        repoUrl="https://github.com/Predidit/KazumiRules"
+                        defaultPath=""
+                        title="从 KazumiRules 仓库选择规则"
+                        allowAddAll={false}
                         existingUrls={
                           settings.dataSourceConfig?.kazumiRules || []
                         }

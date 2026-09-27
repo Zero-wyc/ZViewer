@@ -20,6 +20,7 @@ interface AniSubsGithubBrowserProps {
   repoUrl?: string
   defaultPath?: string
   title?: string
+  allowAddAll?: boolean
 }
 
 function parseGithubRepoUrl(input: string): {
@@ -86,6 +87,7 @@ export function AniSubsGithubBrowser({
   repoUrl = 'https://github.com/creamycake-anime/ani-subs',
   defaultPath = '',
   title = '从 GitHub 仓库导入订阅',
+  allowAddAll = true,
 }: AniSubsGithubBrowserProps) {
   const [repoInput, setRepoInput] = useState(repoUrl)
   const [currentPath, setCurrentPath] = useState(defaultPath)
@@ -254,13 +256,15 @@ export function AniSubsGithubBrowser({
                 返回根目录
               </button>
             )}
-            <button
-              type="button"
-              onClick={handleAddAllJson}
-              className="text-[var(--md-sys-color-primary)] hover:underline"
-            >
-              添加全部 JSON
-            </button>
+            {allowAddAll && (
+              <button
+                type="button"
+                onClick={handleAddAllJson}
+                className="text-[var(--md-sys-color-primary)] hover:underline"
+              >
+                添加全部 JSON
+              </button>
+            )}
           </div>
         </div>
       )}

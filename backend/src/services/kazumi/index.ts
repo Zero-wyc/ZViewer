@@ -14,9 +14,9 @@ import { SystemSettings } from '../../entities/SystemSettings';
 export * from './types';
 
 const DEFAULT_KAZUMI_RULES = [
-  'https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/DM84.json',
-  'https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/7sefun.json',
-  'https://raw.githubusercontent.com/Predidit/Kazumi/main/assets/plugins/enlie.json',
+  'https://raw.githubusercontent.com/Predidit/KazumiRules/main/DM84.json',
+  'https://raw.githubusercontent.com/Predidit/KazumiRules/main/MXdm.json',
+  'https://raw.githubusercontent.com/Predidit/KazumiRules/main/xfdmneo.json',
 ];
 
 // --- SystemSettings 读取 ---
