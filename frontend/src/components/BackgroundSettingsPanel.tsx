@@ -196,18 +196,22 @@ export function BackgroundSettingsPanel({
   const previewImage = store.backgroundImage
 
   return (
+    /* 绝对定位层：与自定义主题面板叠加在 Header 侧面板位槽的同一位置
+       （位槽统一做宽度动画与裁剪）。展开者 zIndex 更高——切换时本面板
+       从主面板一侧向左「擦入」覆盖在旧面板之上；旧面板在下层从左向右
+       收回。本组件自身不做宽度动画（内容静态无回流），收起时仅淡出并
+       关闭指针命中，避免与上层展开面板内容透叠。 */
     <div
-      className="h-full flex-shrink-0 overflow-hidden"
+      className="absolute inset-y-0 right-0 overflow-hidden"
       style={{
-        width: open ? COLUMN_WIDTH : 0,
-        transition: `width 240ms var(--ease-out-expo)`,
-        willChange: 'width',
+        width: COLUMN_WIDTH,
+        zIndex: open ? 2 : 1,
+        opacity: open ? 1 : 0,
+        pointerEvents: open ? 'auto' : 'none',
+        transition: 'opacity 240ms var(--ease-out-expo)',
       }}
     >
-      {/* 内层固定宽度 + ml-auto 右对齐：内容锚定在面板右缘（贴近主面板
-          一侧），width 展开时从右向左揭示、收起时反向，且动画期间内容
-          不被挤压回流（与自定义主题面板方向一致） */}
-      <div className="ml-auto flex h-full w-[300px] flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
+      <div className="flex h-full w-[300px] flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
         {/* 标题栏 */}
         <div className="mb-3 flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-2">

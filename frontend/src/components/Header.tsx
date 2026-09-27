@@ -500,15 +500,25 @@ export function Header() {
                       '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
                   }}
                 >
-                  <BackgroundSettingsPanel
-                    open={backgroundModalOpen}
-                    onClose={() => setBackgroundModalOpen(false)}
-                  />
-                  {/* 主题色编辑左栏：默认收起，由主面板「自定义主题」按钮展开，
-                      自定义背景面板展开时暂时收起（二者互斥防宽度溢出） */}
-                  <CustomColorPanel
-                    open={customColorOpen && !backgroundModalOpen}
-                  />
+                  {/* 侧面板位槽：宽度承载「自定义背景/自定义主题」任一展开
+                      （二者互斥），0↔300px 动画并裁剪内部。两个面板绝对
+                      定位叠加于槽内右缘（贴主面板一侧），展开者 zIndex 更
+                      高——切换时新面板从主面板一侧向左擦入覆盖在旧面板之
+                      上，旧面板在下层从左向右收回 */}
+                  <div
+                    className="relative h-full flex-shrink-0 overflow-hidden"
+                    style={{
+                      width: backgroundModalOpen || customColorOpen ? 300 : 0,
+                      transition: 'width 240ms var(--ease-out-expo)',
+                      willChange: 'width',
+                    }}
+                  >
+                    <BackgroundSettingsPanel
+                      open={backgroundModalOpen}
+                      onClose={() => setBackgroundModalOpen(false)}
+                    />
+                    <CustomColorPanel open={customColorOpen} />
+                  </div>
                   <div className="h-full w-72 flex-shrink-0 overflow-y-auto px-4 pt-4 pb-2">
                     {/* 深浅色切换 */}
                     <button
