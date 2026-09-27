@@ -618,6 +618,37 @@ export function useListenTogether({
   }, [])
 
   /**
+   * 当前播放条目在活动队列中的位置锚点（-1 未知/不在队列）。
+   * 队列可含重复条目（同 key 多个位置），currentKey 只能锚定首个出现位置；
+   * 以索引锚点记录实际播放实例，切歌按位置推进才能越过重复条目
+   * （key 匹配的旧行为会让「下一首」永远回到第一个重复实例）。
+   */
+  const currentQueueIdxRef = useRef(-1)
+
+  /**
+   * 解析当前播放位置：优先信任索引锚点（校验该位置 key 与 currentKey
+   * 一致），锚点失效（队列变动/未初始化）时回落 key 首个匹配（与旧逻辑
+   * 一致），并把结果写回锚点。
+   */
+  const resolveCurrentIndex = useCallback((): number => {
+    const { currentKey } = useMusicStore.getState()
+    const queue = activeQueueOf(useMusicStore.getState())
+    const keys = queue.map((item) => musicItemKey(item))
+    const anchored = currentQueueIdxRef.current
+    if (
+      currentKey != null &&
+      anchored >= 0 &&
+      anchored < keys.length &&
+      keys[anchored] === currentKey
+    ) {
+      return anchored
+    }
+    const idx = currentKey == null ? -1 : keys.indexOf(currentKey)
+    currentQueueIdxRef.current = idx
+    return idx
+  }, [])
+
+  /**
    * 按播放模式计算切歌目标条目（next/prev 共用）。
    * - sequence / repeat-one：手动切歌按队列顺序循环
    *   （repeat-one 仅影响 ended 自动重播当前曲目）
@@ -636,30 +667,52 @@ export function useListenTogether({
           ? null
           : (queue.find((item) => musicItemKey(item) === key) ?? null)
 
+      // 随机模式路径按 key 解析目标（洗牌序列以 key 为元素），
+      // 解析成功后把位置锚点对齐到返回实例
+      const anchorTo = (item: MusicQueueItem | null): MusicQueueItem | null => {
+        if (item != null) currentQueueIdxRef.current = queue.indexOf(item)
+        return item
+      }
+
       if (playMode !== 'shuffle') {
-        const keys = queue.map((item) => musicItemKey(item))
-        if (keys.length === 1) return queue[0]
-        const idx = currentKey == null ? -1 : keys.indexOf(currentKey)
-        if (idx === -1) return queue[0]
+        // 顺序推进按「位置」而非 key：重复条目（同 key 多位置）只有按
+        // 位置推进才能越过自身到达后续条目，key 匹配会永远折回首个实例
+        if (queue.length === 1) {
+          currentQueueIdxRef.current = 0
+          return queue[0]
+        }
+        const idx = resolveCurrentIndex()
+        if (idx === -1) {
+          currentQueueIdxRef.current = 0
+          return queue[0]
+        }
         // 按顺序播放（不循环）：到末尾不再前进、到头不再后退
         if (playMode === 'order') {
           if (direction === 'next') {
-            return idx + 1 < keys.length ? findByKey(keys[idx + 1]) : null
+            if (idx + 1 >= queue.length) return null
+            currentQueueIdxRef.current = idx + 1
+            return queue[idx + 1]
           }
-          return idx - 1 >= 0 ? findByKey(keys[idx - 1]) : findByKey(keys[0])
+          if (idx - 1 >= 0) {
+            currentQueueIdxRef.current = idx - 1
+            return queue[idx - 1]
+          }
+          currentQueueIdxRef.current = 0
+          return queue[0]
         }
-        const targetKey =
+        const targetIdx =
           direction === 'next'
-            ? keys[(idx + 1) % keys.length]
-            : keys[(idx - 1 + keys.length) % keys.length]
-        return findByKey(targetKey)
+            ? (idx + 1) % queue.length
+            : (idx - 1 + queue.length) % queue.length
+        currentQueueIdxRef.current = targetIdx
+        return queue[targetIdx]
       }
 
       // 随机模式
       ensureShuffleList()
       const list = shuffleListRef.current
       if (!list || list.length === 0) return null
-      if (list.length === 1) return findByKey(list[0])
+      if (list.length === 1) return anchorTo(findByKey(list[0]))
       if (direction === 'next') {
         if (shufflePosRef.current >= list.length - 1) {
           // 一轮结束：重新洗牌，避免新一轮以刚播放的曲目开头
@@ -674,19 +727,19 @@ export function useListenTogether({
           }
           shuffleListRef.current = nextList
           shufflePosRef.current = 0
-          return findByKey(nextList[0])
+          return anchorTo(findByKey(nextList[0]))
         }
         shufflePosRef.current += 1
-        return findByKey(list[shufflePosRef.current])
+        return anchorTo(findByKey(list[shufflePosRef.current]))
       }
       // prev：沿序列回退；已在序列头部时回到当前曲目开头
       if (shufflePosRef.current > 0) {
         shufflePosRef.current -= 1
-        return findByKey(list[shufflePosRef.current])
+        return anchorTo(findByKey(list[shufflePosRef.current]))
       }
-      return findByKey(currentKey)
+      return anchorTo(findByKey(currentKey))
     },
-    [ensureShuffleList]
+    [ensureShuffleList, resolveCurrentIndex]
   )
 
   /**
@@ -695,23 +748,20 @@ export function useListenTogether({
    * （下一首需重新洗牌，peek 结果不稳定）。
    */
   const peekNextSong = useCallback((): MusicQueueItem | null => {
-    const { currentKey, playMode } = useMusicStore.getState()
+    const { playMode } = useMusicStore.getState()
     const queue = activeQueueOf(useMusicStore.getState())
     if (queue.length === 0) return null
     if (playMode === 'repeat-one') return null
     if (playMode !== 'shuffle') {
-      const keys = queue.map((item) => musicItemKey(item))
-      if (keys.length === 1) return queue[0]
-      const idx = currentKey == null ? -1 : keys.indexOf(currentKey)
+      // 与 computeTargetSong 相同的位置推进语义（重复条目按位置越过）
+      if (queue.length === 1) return queue[0]
+      const idx = resolveCurrentIndex()
       if (idx === -1) return queue[0]
       // 按顺序播放（不循环）：末尾无下一首，不预载
       if (playMode === 'order') {
-        return idx + 1 < keys.length
-          ? (queue.find((item) => musicItemKey(item) === keys[idx + 1]) ?? null)
-          : null
+        return idx + 1 < queue.length ? queue[idx + 1] : null
       }
-      const targetKey = keys[(idx + 1) % keys.length]
-      return queue.find((item) => musicItemKey(item) === targetKey) ?? null
+      return queue[(idx + 1) % queue.length]
     }
     const list = shuffleListRef.current
     if (!list || list.length === 0) return null
@@ -721,7 +771,7 @@ export function useListenTogether({
     if (shufflePosRef.current >= list.length - 1) return null
     const nextKey = list[shufflePosRef.current + 1]
     return queue.find((item) => musicItemKey(item) === nextKey) ?? null
-  }, [])
+  }, [resolveCurrentIndex])
 
   /** 无缝衔接（设置：歌曲无缝衔接）的预缓冲 audio 元素 */
   const preloadRef = useRef<HTMLAudioElement | null>(null)
@@ -933,6 +983,13 @@ export function useListenTogether({
       const audio = getAudio()
       const url = buildStreamUrl(item, roomIdRef.current)
       useMusicStore.getState().setCurrentKey(musicItemKey(item))
+      // 位置锚点：按引用在活动队列中定位本次播放的实例（重复条目可区分
+      // 具体位置）；非队列条目（B站 本地插播等）置 -1，切歌时回落 key
+      // 首个匹配。注意 setCurrentKey 已生效，activeQueueOf 的源过滤与新
+      // 曲目一致。
+      currentQueueIdxRef.current = activeQueueOf(
+        useMusicStore.getState()
+      ).indexOf(item)
 
       // ===== 预载升格路径 =====
       // 条件：同一 URL（流地址稳定：同 songId/level/roomId/token）、
