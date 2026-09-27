@@ -367,6 +367,75 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     }
   }, [])
 
+  const handleSelectAnimeEpisodes = useCallback(
+    async (
+      kind: 'anime' | 'kazumi',
+      items: { sourceId: string; episode: AniSubsEpisode; title: string }[]
+    ): Promise<string[]> => {
+      if (!isHost || !roomId) {
+        message.error(!isHost ? '只有房主可以添加影片' : '未连接房间')
+        return []
+      }
+      const added: string[] = []
+      setLoading(true)
+      try {
+        for (const [index, item] of items.entries()) {
+          setResolveProgress(`正在添加 ${index + 1}/${items.length} 集...`)
+          try {
+            if (kind === 'anime') {
+              await addMovie(roomId, {
+                url: `anisubs://${item.sourceId}/${item.episode.id}`,
+                title: item.title,
+                source: 'anime',
+                sourceMeta: {
+                  sourceId: item.sourceId,
+                  episode: item.episode,
+                  originalTitle: item.title,
+                },
+              })
+            } else {
+              const resolved = await resolveKazumiEpisode(
+                item.sourceId,
+                item.episode
+              )
+              const url = needsKazumiProxy(resolved.url, resolved.headers)
+                ? buildKazumiProxyUrl(resolved.url, resolved.headers)
+                : resolved.url
+              await addMovie(roomId, {
+                url,
+                title: item.title,
+                source: 'kazumi',
+                format: resolved.format,
+              })
+            }
+            added.push(item.episode.id)
+          } catch (err) {
+            console.error(
+              '[MoviePushPanel] batch add anime episode failed:',
+              item.title,
+              err
+            )
+          }
+        }
+        if (added.length === items.length) {
+          message.success(`已添加 ${added.length} 集`)
+        } else {
+          message.warning(
+            `已添加 ${added.length} 集，${items.length - added.length} 集失败，可重试`
+          )
+        }
+        await fetchMovies(roomId)
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : '刷新影片列表失败')
+      } finally {
+        setLoading(false)
+        setResolveProgress('')
+      }
+      return added
+    },
+    [isHost, roomId, addMovie, fetchMovies]
+  )
+
   const handleSelectAnimeEpisode = useCallback(
     async (sourceId: string, episode: AniSubsEpisode, title: string) => {
       if (!isHost) {
@@ -1995,7 +2064,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           open={animeOpen}
           onOpenChange={setAnimeOpen}
           onSelectEpisode={handleSelectAnimeEpisode}
-          disabled={!isHost}
+          onSelectEpisodes={(items) =>
+            handleSelectAnimeEpisodes('anime', items)
+          }
+          disabled={!isHost || loading}
         />
       )}
 
@@ -2004,7 +2076,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           open={kazumiOpen}
           onOpenChange={setKazumiOpen}
           onSelectEpisode={handleSelectKazumiEpisode}
-          disabled={!isHost}
+          onSelectEpisodes={(items) =>
+            handleSelectAnimeEpisodes('kazumi', items)
+          }
+          disabled={!isHost || loading}
         />
       )}
 
