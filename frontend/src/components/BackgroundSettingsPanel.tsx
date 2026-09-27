@@ -204,7 +204,10 @@ export function BackgroundSettingsPanel({
         willChange: 'width',
       }}
     >
-      <div className="flex h-full flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
+      {/* 内层固定宽度 + ml-auto 右对齐：内容锚定在面板右缘（贴近主面板
+          一侧），width 展开时从右向左揭示、收起时反向，且动画期间内容
+          不被挤压回流（与自定义主题面板方向一致） */}
+      <div className="ml-auto flex h-full w-[300px] flex-col overflow-hidden border-r border-[var(--glass-border)] p-4">
         {/* 标题栏 */}
         <div className="mb-3 flex shrink-0 items-center justify-between">
           <div className="flex items-center gap-2">

@@ -285,7 +285,10 @@ export function CustomColorPanel({ open }: { open: boolean }) {
         willChange: 'width',
       }}
     >
-      <div className="flex h-full w-[300px] flex-col overflow-y-auto border-r border-[var(--glass-border)] p-4">
+      {/* 内层固定宽度 + ml-auto 右对齐：内容锚定在面板右缘（贴近主面板
+          一侧），width 展开时从右向左揭示、收起时反向，与自定义背景
+          面板方向一致 */}
+      <div className="ml-auto flex h-full w-[300px] flex-col overflow-y-auto border-r border-[var(--glass-border)] p-4">
         {page === 'editor' ? (
           <>
             {/* ===== ① 模式切换区：✨ / ☀ / 🌙 三圆钮（aria-pressed） ===== */}
