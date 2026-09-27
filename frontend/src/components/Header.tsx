@@ -100,10 +100,11 @@ export function Header() {
     disableHoverTransform,
     setDisableHoverTransform,
   } = useThemeStore()
-  /** 自定义主题色编辑栏：常驻于主题菜单左侧（打开菜单即展开），
+  /** 自定义主题色编辑栏：默认收起，点主面板「自定义主题」按钮展开，
       仅当自定义背景面板展开时暂时收起（二者互斥防宽度溢出） */
   const [themeOpen, setThemeOpen] = useState(false)
   const [themeClosing, setThemeClosing] = useState(false)
+  const [customColorOpen, setCustomColorOpen] = useState(false)
   const [userOpen, setUserOpen] = useState(false)
   const [userClosing, setUserClosing] = useState(false)
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false)
@@ -459,7 +460,8 @@ export function Header() {
                 } else {
                   setThemeOpen(true)
                   setThemeClosing(false)
-                  // 默认显示主面板，不保留上次打开的自定义背景侧面板
+                  // 默认只显示主面板，不保留上次打开的自定义主题/背景侧面板
+                  setCustomColorOpen(false)
                   setBackgroundModalOpen(false)
                 }
               }}
@@ -502,9 +504,11 @@ export function Header() {
                     open={backgroundModalOpen}
                     onClose={() => setBackgroundModalOpen(false)}
                   />
-                  {/* 主题色编辑左栏：一级栏位常驻展开（打开主题菜单即可编辑），
-                      仅当自定义背景面板展开时暂时收起（二者互斥防宽度溢出） */}
-                  <CustomColorPanel open={!backgroundModalOpen} />
+                  {/* 主题色编辑左栏：默认收起，由主面板「自定义主题」按钮展开，
+                      自定义背景面板展开时暂时收起（二者互斥防宽度溢出） */}
+                  <CustomColorPanel
+                    open={customColorOpen && !backgroundModalOpen}
+                  />
                   <div className="h-full w-72 flex-shrink-0 overflow-y-auto px-4 pt-4 pb-2">
                     {/* 深浅色切换 */}
                     <button
@@ -687,13 +691,39 @@ export function Header() {
                       />
                     </div>
 
+                    {/* 自定义主题入口：展开/收起左侧主题色编辑栏 */}
+                    <button
+                      onClick={() => {
+                        const next = !customColorOpen
+                        setCustomColorOpen(next)
+                        // 显式互斥：展开主题色栏时收起自定义背景面板
+                        if (next) setBackgroundModalOpen(false)
+                      }}
+                      className={cn(
+                        'zen-dropdown-item mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-[var(--md-sys-shape-corner)] text-sm transition-all hover:translate-x-0.5',
+                        customColorOpen
+                          ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)] border-[var(--md-sys-color-primary)]'
+                          : 'text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                      )}
+                      style={
+                        {
+                          border: '1px solid var(--md-sys-color-outline)',
+                          '--item-delay': '280ms',
+                        } as React.CSSProperties
+                      }
+                    >
+                      <Palette className="w-4 h-4 text-[var(--md-sys-color-primary)]" />
+                      <span className="flex-1 text-left">自定义主题</span>
+                    </button>
+
                     {/* 自定义背景入口 */}
                     <button
                       ref={backgroundBtnRef}
                       onClick={() => {
                         const next = !backgroundModalOpen
                         setBackgroundModalOpen(next)
-                        // 互斥由派生实现：背景面板展开时主题色栏自动收起
+                        // 显式互斥：展开背景面板时收起主题色栏
+                        if (next) setCustomColorOpen(false)
                       }}
                       className={cn(
                         'zen-dropdown-item mt-3 w-full flex items-center gap-2 px-3 py-2 rounded-[var(--md-sys-shape-corner)] text-sm transition-all hover:translate-x-0.5',
