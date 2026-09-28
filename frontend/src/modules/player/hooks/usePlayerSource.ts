@@ -134,6 +134,15 @@ export function getActiveEngineType(
   return activeEngineTypes.get(video) ?? null
 }
 
+/**
+ * 该引擎是否为「原生直链」类执行（MKV 快速路径失败时回退 playsvideo
+ * 管线）。direct 与 videojs10 同为 video.src 原生解码执行，仅控制面
+ * 不同（v10 经 media capabilities 驱动），原生失败语义与回退链一致。
+ */
+function isNativeDirectLikeEngine(engineType: string): boolean {
+  return engineType === 'direct' || engineType === 'videojs10'
+}
+
 /** 终结登记在 video 上的其他来源引擎会话（跨实例互斥） */
 function terminateForeignEngineSession(video: HTMLVideoElement): void {
   const prev = activeEngineSessions.get(video)
@@ -400,7 +409,7 @@ export function usePlayerSource(
         // → 回退 playsvideo 管线，恢复播放位置与播放状态
         if (
           watchedSource.mkvFastPath &&
-          engineType === 'direct' &&
+          isNativeDirectLikeEngine(engineType) &&
           !watchedSource.forcePlaysVideo
         ) {
           const atTime = video.currentTime
@@ -599,7 +608,7 @@ export function usePlayerSource(
           }
           if (
             source.mkvFastPath &&
-            engine.type === 'direct' &&
+            isNativeDirectLikeEngine(engine.type) &&
             !source.forcePlaysVideo
           ) {
             // MKV 快速路径：原生 attach 失败（metadata 就绪前 error 事件，
