@@ -24,6 +24,10 @@ import {
   type KazumiEpisode,
 } from '@/modules/kazumi'
 import { cn } from '@/lib/utils'
+import {
+  AnimeEpisodePicker,
+  type AnimeEpisodeSelection,
+} from '@/modules/room/components/AnimeEpisodePicker'
 
 interface KazumiSelectorProps {
   open: boolean
@@ -33,6 +37,7 @@ interface KazumiSelectorProps {
     episode: KazumiEpisode,
     title: string
   ) => void
+  onSelectEpisodes: (items: AnimeEpisodeSelection[]) => Promise<string[]>
   disabled?: boolean
 }
 
@@ -40,6 +45,7 @@ export function KazumiSelector({
   open,
   onOpenChange,
   onSelectEpisode,
+  onSelectEpisodes,
   disabled,
 }: KazumiSelectorProps) {
   const [sources, setSources] = useState<KazumiSource[]>([])
@@ -513,41 +519,16 @@ export function KazumiSelector({
                       </div>
                     )}
                     {episodes.length > 0 && (
-                      <div className="mt-2 grid max-h-[200px] grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
-                        {episodes.map((episode) => (
-                          <button
-                            key={episode.id}
-                            type="button"
-                            onClick={() => handleSelectEpisode(result, episode)}
-                            disabled={!!selectedEpisodeId}
-                            className="group flex items-center gap-2 rounded-[var(--md-sys-shape-corner)] border border-transparent p-2 text-left transition-all hover:border-[var(--md-sys-color-primary)] hover:bg-[var(--md-sys-color-primary-container)] disabled:opacity-60"
-                          >
-                            <div
-                              className="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full text-[10px] font-semibold transition-colors group-hover:text-[var(--md-sys-color-on-primary)]"
-                              style={{
-                                backgroundColor: 'var(--glass-bg)',
-                                color: 'var(--md-sys-color-primary)',
-                              }}
-                            >
-                              {episode.episodeNumber || '-'}
-                            </div>
-                            <span
-                              className="min-w-0 flex-1 truncate text-xs font-medium"
-                              title={episode.title}
-                            >
-                              {episode.title}
-                            </span>
-                            {selectedEpisodeId === episode.id ? (
-                              <Loader2 className="h-3 w-3 flex-shrink-0 animate-spin" />
-                            ) : (
-                              <Play
-                                className="h-3 w-3 flex-shrink-0 opacity-0 transition-opacity group-hover:opacity-100"
-                                style={{ color: 'var(--md-sys-color-primary)' }}
-                              />
-                            )}
-                          </button>
-                        ))}
-                      </div>
+                      <AnimeEpisodePicker
+                        episodes={episodes}
+                        sourceId={result.source}
+                        title={result.title}
+                        disabled={disabled || !!selectedEpisodeId}
+                        onSelect={(episode) =>
+                          handleSelectEpisode(result, episode)
+                        }
+                        onSelectMany={onSelectEpisodes}
+                      />
                     )}
                   </div>
                 )}

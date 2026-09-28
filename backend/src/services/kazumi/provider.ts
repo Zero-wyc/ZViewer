@@ -15,6 +15,7 @@ import {
   fetchHtml,
   parseHtmlDocument,
   selectXPath,
+  toRelativeXPath,
   extractText,
   extractAttr,
   extractEpisodeNumber,
@@ -54,8 +55,14 @@ export function createKazumiProvider(
       const results: KazumiSearchResult[] = [];
 
       for (const node of listNodes) {
-        const nameNodes = selectXPath(node as Node, rule.searchName);
-        const resultNodes = selectXPath(node as Node, rule.searchResult);
+        const nameNodes = selectXPath(
+          node as Node,
+          toRelativeXPath(rule.searchName),
+        );
+        const resultNodes = selectXPath(
+          node as Node,
+          toRelativeXPath(rule.searchResult),
+        );
         const title = extractText(nameNodes[0]);
         const linkNode = resultNodes[0];
         const url = linkNode
@@ -96,7 +103,10 @@ export function createKazumiProvider(
       const episodes: EpisodeInfo[] = [];
 
       for (const road of roadNodes) {
-        const resultNodes = selectXPath(road as Node, rule.chapterResult);
+        const resultNodes = selectXPath(
+          road as Node,
+          toRelativeXPath(rule.chapterResult),
+        );
         for (const node of resultNodes) {
           const title = extractText(node);
           const url = toAbsoluteUrl(

@@ -648,6 +648,9 @@ router.head('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<
  * （每并发流在途一个 chunk）。
  */
 const STREAM_HIGH_WATER_MARK = 1024 * 1024;
+// 原生 AVPlayer 需要完整 Content-Range；限制持续预读速度而不是伪造短响应。
+const AVPLAYER_MAX_BYTES_PER_SECOND = 8 * 1024 * 1024;
+const AVPLAYER_INITIAL_BURST_BYTES = 16 * 1024 * 1024;
 
 router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
@@ -675,13 +678,14 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
     const fileSize = stat.size;
     const rangeHeader = req.headers.range;
     const format = detectMediaFormat(target);
+    const avPlayerRange = req.query.rangeMode === 'avplayer';
 
     // ── 直接流式传输路径 ──
     // 音频转码已迁移至浏览器端（ffmpeg.wasm）：无论服务器中转还是直链，
     // 前端根据影片 audioCodec 自行决定是否在浏览器内将不支持的音轨
     // （DTS/AC3 等）实时转为 AAC，服务端始终纯字节中转（保留 Range）。
     if (rangeHeader) {
-      const parsed = parseRangeHeader(rangeHeader, fileSize);
+      const parsed = parseRangeHeader(rangeHeader, fileSize, avPlayerRange ? null : undefined);
       if (parsed === 'invalid') {
         res.status(416).setHeader('Content-Range', `bytes */${fileSize}`);
         res.end();
@@ -703,6 +707,8 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
         ranged: true,
         logTag: 'server-files',
         errorMessage: '文件读取失败',
+        maxBytesPerSecond: avPlayerRange ? AVPLAYER_MAX_BYTES_PER_SECOND : undefined,
+        initialBurstBytes: avPlayerRange ? AVPLAYER_INITIAL_BURST_BYTES : undefined,
       });
     } else {
       const stream = fs.createReadStream(targetAbs, {
@@ -715,6 +721,8 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
         ranged: false,
         logTag: 'server-files',
         errorMessage: '文件读取失败',
+        maxBytesPerSecond: avPlayerRange ? AVPLAYER_MAX_BYTES_PER_SECOND : undefined,
+        initialBurstBytes: avPlayerRange ? AVPLAYER_INITIAL_BURST_BYTES : undefined,
       });
     }
   } catch (err) {

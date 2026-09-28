@@ -405,11 +405,17 @@ function findVideoUrl(
   if (url.startsWith('url=')) {
     url = url.slice(4);
   }
-  url = toAbsoluteUrl(decodeURIComponent(url), pageUrl);
+  // Rules also target intercepted request URLs; when applied to HTML, a
+  // greedy match must not include the surrounding string delimiter/markup.
+  url = url.split(/["'<>\s]/, 1)[0].replace(/&amp;/g, '&');
+  if (!url) return null;
+  url = toAbsoluteUrl(url, pageUrl);
 
   const headers: Record<string, string> = {};
-  if (config.addHeadersToVideo?.referer) {
-    headers.Referer = config.addHeadersToVideo.referer;
+  if (typeof config.addHeadersToVideo?.referer === 'string') {
+    if (config.addHeadersToVideo.referer) {
+      headers.Referer = config.addHeadersToVideo.referer;
+    }
   } else {
     headers.Referer = pageUrl;
   }

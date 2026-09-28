@@ -10,7 +10,7 @@
  */
 
 import { Response } from 'express';
-import { Readable } from 'node:stream';
+import { Readable, Transform } from 'node:stream';
 import { setWildcardCors } from './http-proxy';
 
 export interface ParsedRange {
@@ -18,36 +18,48 @@ export interface ParsedRange {
   end: number;
 }
 
-/**
- * 单个 Range 响应的最大分片长度（字节，默认 8MB）。
- *
- * 客户端（浏览器 <video>）的探测性请求常为开放式（`bytes=0-`）或显式全量
- * （`bytes=0-<size-1>`）。若原样透传，服务端会把整个数百 MB～数 GB 的文件
- * 一次性推向客户端——客户端通常在解析完 moov/缓冲足够后立即断开，已传输的
- * 部分即成为无效流量（实测日志中单次 709MB 传输即由此产生；用户 seek/关闭
- * 时的浪费更常见）。限制为固定分片后，客户端会按 Content-Range 继续请求后续
- * 分片，播放行为完全不变，但单次最大浪费被限制在分片大小内。
- */
+/** 普通网页/代理请求继续使用 8 MiB 分片，控制客户端取消时可能浪费的流量。 */
 export const MAX_RANGE_CHUNK_BYTES = 8 * 1024 * 1024;
 
 /**
- * 解析 `bytes=start-end` 请求头，并把分片长度收敛到 MAX_RANGE_CHUNK_BYTES
- * （见该常量的流量说明；尾部 suffix 请求 `bytes=-N` 不受影响）。
- * @returns 解析结果；无 Range 头返回 null；格式非法或越界返回 'invalid'。
+ * 解析单段字节范围。默认按 8 MiB 分片；AVPlayer 专用流传入 null，
+ * 保留完整请求范围以满足其 Content-Range 检查。
+ * 无 Range 返回 null；非法、不可满足或不支持的多段范围返回 'invalid'。
  */
 export function parseRangeHeader(
   rangeHeader: string | undefined,
   fileSize: number,
+  maxChunkBytes: number | null = MAX_RANGE_CHUNK_BYTES,
 ): ParsedRange | null | 'invalid' {
   if (!rangeHeader) return null;
-  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!Number.isSafeInteger(fileSize) || fileSize <= 0) return 'invalid';
+  const match = /^bytes=(\d*)-(\d*)$/i.exec(rangeHeader.trim());
   if (!match || (!match[1] && !match[2])) return 'invalid';
-  const start = match[1] ? parseInt(match[1], 10) : 0;
-  const end = match[2] ? parseInt(match[2], 10) : fileSize - 1;
-  if (start >= fileSize || start > end) return 'invalid';
-  // 限制单片长度：开放式（bytes=start-）与超长区间都截断为 8MB 分片
-  const cappedEnd = Math.min(end, start + MAX_RANGE_CHUNK_BYTES - 1);
-  return { start, end: Math.min(cappedEnd, fileSize - 1) };
+
+  // BigInt 避免超大合法十进制数发生精度丢失；裁到文件边界后再转 number。
+  const size = BigInt(fileSize);
+  if (!match[1]) {
+    const suffixLength = BigInt(match[2]);
+    if (suffixLength === 0n) return 'invalid';
+    // 有上限时仍从真正的文件尾部截取，供播放器的尾部元数据探测使用。
+    const effectiveLength = maxChunkBytes === null
+      ? suffixLength
+      : [suffixLength, BigInt(maxChunkBytes)].reduce((smallest, value) => value < smallest ? value : smallest);
+    const start = Number(effectiveLength >= size ? 0n : size - effectiveLength);
+    return { start, end: fileSize - 1 };
+  }
+  const start = BigInt(match[1]);
+  const requestedEnd = match[2] ? BigInt(match[2]) : size - 1n;
+  if (start >= size || requestedEnd < start) return 'invalid';
+  return {
+    start: Number(start),
+    end: Number(
+      maxChunkBytes === null
+        ? (requestedEnd >= size ? size - 1n : requestedEnd)
+        : [requestedEnd, size - 1n, start + BigInt(maxChunkBytes) - 1n]
+          .reduce((smallest, value) => value < smallest ? value : smallest),
+    ),
+  };
 }
 
 /**
@@ -83,6 +95,46 @@ export interface PipeRangeStreamOptions {
   errorCode?: string;
   /** 已发头后出错时用 res.destroy()（默认）还是 res.end() */
   softDestroy?: boolean;
+  /** AVPlayer 专用流的传输速率上限；默认不节流。 */
+  maxBytesPerSecond?: number;
+  /** 速率限制前允许立即发送的字节数。 */
+  initialBurstBytes?: number;
+}
+
+/** 在不改变 Content-Range/Content-Length 的前提下限制持续预读。 */
+class RateLimitedStream extends Transform {
+  private availableBytes: number;
+  private lastRefillAt = Date.now();
+  private timer: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(private readonly bytesPerSecond: number, private readonly burstBytes: number) {
+    super();
+    this.availableBytes = burstBytes;
+  }
+
+  _transform(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
+    const now = Date.now();
+    this.availableBytes = Math.min(
+      this.burstBytes,
+      this.availableBytes + Math.max(0, now - this.lastRefillAt) * this.bytesPerSecond / 1000,
+    );
+    this.lastRefillAt = now;
+    const delay = Math.max(0, (chunk.length - this.availableBytes) * 1000 / this.bytesPerSecond);
+    this.availableBytes = Math.max(0, this.availableBytes - chunk.length);
+    this.lastRefillAt += delay;
+    const emitChunk = () => {
+      this.timer = undefined;
+      if (!this.destroyed) this.push(chunk);
+      callback();
+    };
+    if (delay > 0) this.timer = setTimeout(emitChunk, delay);
+    else emitChunk();
+  }
+
+  _destroy(error: Error | null, callback: (error?: Error | null) => void): void {
+    if (this.timer) clearTimeout(this.timer);
+    callback(error);
+  }
 }
 
 /**
@@ -107,6 +159,8 @@ export function pipeRangeStream(
     errorMessage,
     errorCode,
     softDestroy = false,
+    maxBytesPerSecond,
+    initialBurstBytes = 0,
   } = opts;
 
   if (cors === 'wildcard') {
@@ -133,17 +187,26 @@ export function pipeRangeStream(
     return;
   }
 
+  const throttle = maxBytesPerSecond && maxBytesPerSecond > 0
+    ? new RateLimitedStream(maxBytesPerSecond, initialBurstBytes)
+    : null;
+  const output = throttle ?? stream;
+
   // 客户端断连：销毁上游流，停止无用读取（「用户下线后流量仍在跑」的关键防护）。
   // 注意：Node 的 pipe 在目标关闭时只 unpipe、不销毁源流，必须显式 destroy；
   // close 与 error 都覆盖（网络异常/客户端强杀不会触发 close 的完成分支）。
   const destroyUpstream = () => {
-    if (!res.writableFinished && !stream.destroyed) stream.destroy();
+    if (!res.writableFinished) {
+      if (!stream.destroyed) stream.destroy();
+      if (throttle && !throttle.destroyed) throttle.destroy();
+    }
   };
   res.on('close', destroyUpstream);
   res.on('error', destroyUpstream);
 
-  stream.on('error', (err) => {
+  const onStreamError = (err: Error) => {
     console.error(`[${logTag}] proxy stream error:`, err);
+    if (throttle && !throttle.destroyed) throttle.destroy();
     if (!res.headersSent) {
       res.status(502).json({
         success: false,
@@ -155,6 +218,9 @@ export function pipeRangeStream(
     } else {
       res.destroy();
     }
-  });
-  stream.pipe(res);
+  };
+  stream.on('error', onStreamError);
+  if (throttle) throttle.on('error', onStreamError);
+  output.pipe(res);
+  if (throttle) stream.pipe(throttle);
 }

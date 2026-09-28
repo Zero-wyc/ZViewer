@@ -288,6 +288,10 @@ export async function proxyHttpUpstream(
         const value = upstream.headers.get(name);
         if (value) res.setHeader(name, value);
       }
+      // 错误响应不转发正文，GET 的长度也必须为零，否则客户端会等待缺失的字节。
+      // HEAD 保留上游的表示长度；释放未消费的上游错误正文。
+      if (req.method !== 'HEAD') res.setHeader('Content-Length', '0');
+      if (upstream.body) void upstream.body.cancel().catch(() => {});
       res.end();
       return;
     }
