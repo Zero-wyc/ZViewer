@@ -7,15 +7,10 @@
 import type { MediaFormat } from '@/lib/mediaFormat'
 
 /** 引擎类型标识（videojs10 = Video.js 10 试点引擎，见 engines/videojs10-engine.ts；
- *  videojs10-dash = Video.js 10 状态层 + dash.js 加载层，见 engines/videojs10-dash-engine.ts） */
+ *  videojs10-dash = DASH 引擎（自研 MPD 构建 + v10 状态层 + dash.js 5.2.0 执行层），
+ *  见 engines/videojs10-dash-engine.ts） */
 export type EngineType =
-  | 'hls'
-  | 'flv'
-  | 'direct'
-  | 'dash'
-  | 'playsvideo'
-  | 'videojs10'
-  | 'videojs10-dash'
+  'hls' | 'flv' | 'direct' | 'playsvideo' | 'videojs10' | 'videojs10-dash'
 
 /**
  * seek 操作返回结果（公共类型，供 MSE / DASH 等引擎实现共享）。
@@ -36,7 +31,7 @@ export interface SeekResult {
 /**
  * 引擎控制器接口：DASH 引擎实例的抽象。
  *
- * 使 usePlayerSource 可以用统一的 ref 类型持有 DashPlayer 实例，
+ * 使 usePlayerSource 可以用统一的 ref 类型持有 DASH 引擎控制器，
  * seek-service 通过此接口调用 seekTo，无需感知底层引擎实现。
  */
 export interface PlayerController {
@@ -110,16 +105,6 @@ export interface PlayerSource {
    * 与 videoBlob 配对使用。
    */
   audioBlob?: Blob
-  /**
-   * 是否启用 P2P 传输（仅 DASH 引擎使用）。
-   *
-   * 启用后 DashPlayer 会创建 P2pEngineDash 实例，通过 SwarmCloud 信令服务
-   * 与房间内其他客户端建立 WebRTC DataChannel，共享已下载的 m4s 分片。
-   *
-   * 仅在 DASH 流模式生效（bufferMode=true 时不启用 P2P，因视频已完整缓存到本地）。
-   * 各客户端独立启用，无需房主协调，SwarmCloud tracker 自动发现房间内 peer。
-   */
-  p2pEnabled?: boolean
   /**
    * MKV 快速路径：编解码为浏览器原生友好组合（AAC/MP3/Opus 音轨等）时，
    * 跳过 playsvideo 重封装管线，直接用 <video> 原生播放。

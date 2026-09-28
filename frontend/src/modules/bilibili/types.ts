@@ -111,15 +111,6 @@ export interface BilibiliParseOptions {
    */
   bufferMode?: boolean
   /**
-   * P2P 传输：true=启用 SwarmCloud P2P 引擎，房间内观众通过 WebRTC
-   * DataChannel 共享已下载的 m4s 分片，减少服务器流量与 CDN 带宽。
-   *
-   * 仅对 DASH 流模式生效（preferMp4=true 或 bufferMode=true 时忽略）。
-   * 各客户端独立启用，SwarmCloud tracker 自动发现房间内 peer。
-   * 房主与观众需各自开启才能建立 P2P 连接。
-   */
-  p2pEnabled?: boolean
-  /**
    * CLI 本地高画质代理：true=启用本地 zcontrol-cli 代理解析/播放该 B站 视频。
    *
    * 启用后，前端通过本地 CLI（127.0.0.1:9333）使用用户自己的 B站 Cookie

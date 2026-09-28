@@ -1,7 +1,7 @@
 /**
  * B站解析设置（按影片独立配置）。
  *
- * 每个哔哩哔哩影片独享一份解析偏好（preferMp4 / bufferMode / p2pEnabled / cliEnabled），
+ * 每个哔哩哔哩影片独享一份解析偏好（preferMp4 / bufferMode / cliEnabled），
  * 配置存储在 localStorage 中，以 movieId 为 key，仅对该影片生效。
  * 编码格式由后端自动适配，无需用户手动选择。
  *
@@ -25,10 +25,6 @@ import {
   getBilibiliParseOptions,
 } from '@/modules/bilibili/parseOptions'
 import { getEffectivePreferMp4 } from '@/modules/room/watch-together/movie-source-resolver'
-import {
-  useP2PStatsStore,
-  formatKBytes,
-} from '@/modules/player/services/p2p-stats-store'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useAuthStore } from '@/store/authStore'
 import { getApiUrl } from '@/lib/api'
@@ -48,8 +44,7 @@ export function BilibiliParseSettings({
 }: BilibiliParseSettingsProps) {
   const [expanded, setExpanded] = useState(false)
   const [pendingCliReload, setPendingCliReload] = useState(false)
-  const { bufferMode, p2pEnabled, cliEnabled } =
-    useBilibiliParsePreferences(movieId)
+  const { bufferMode, cliEnabled } = useBilibiliParsePreferences(movieId)
   // CLI 代理在服务器全局注册（不绑定房间）：配置页只需填服务器地址，
   // 房间内「CLI 高画质代理」开启时自动使用已注册的代理
   const cliAgent = useCliAgent()
@@ -74,14 +69,7 @@ export function BilibiliParseSettings({
     movieId === currentMovieId ? watchTogetherBufferMode : false
   const displayBufferMode = isHost ? bufferMode : viewerDisplayBufferMode
 
-  const displayP2pEnabled = p2pEnabled
   const displayCliEnabled = cliEnabled
-
-  const p2pEngineActive = useP2PStatsStore((s) => s.engineActive)
-  const totalHTTPDownloaded = useP2PStatsStore((s) => s.totalHTTPDownloaded)
-  const totalP2PDownloaded = useP2PStatsStore((s) => s.totalP2PDownloaded)
-  const totalP2PUploaded = useP2PStatsStore((s) => s.totalP2PUploaded)
-  const p2pDownloadSpeed = useP2PStatsStore((s) => s.p2pDownloadSpeed)
 
   const isCurrentMovie = movieId === currentMovieId
 
@@ -91,7 +79,6 @@ export function BilibiliParseSettings({
       setBilibiliParseOptions(movieId, {
         preferMp4: next,
         bufferMode: next ? false : undefined,
-        p2pEnabled: next ? false : undefined,
       })
       if (isCurrentMovie) {
         triggerReloadBilibili()
@@ -105,21 +92,6 @@ export function BilibiliParseSettings({
       if (!isHost) return
       setBilibiliParseOptions(movieId, {
         bufferMode: next,
-        p2pEnabled: next ? false : undefined,
-      })
-      if (isCurrentMovie) {
-        triggerReloadBilibili()
-      }
-    },
-    [movieId, isHost, isCurrentMovie, triggerReloadBilibili]
-  )
-
-  const handleP2PChange = useCallback(
-    (next: boolean) => {
-      if (!isHost) return
-      setBilibiliParseOptions(movieId, {
-        p2pEnabled: next,
-        cliEnabled: next ? false : undefined,
       })
       if (isCurrentMovie) {
         triggerReloadBilibili()
@@ -134,14 +106,12 @@ export function BilibiliParseSettings({
       if (next) {
         setBilibiliParseOptions(movieId, {
           cliEnabled: true,
-          p2pEnabled: false,
           preferMp4: false,
           cliPrevPreferMp4: current.preferMp4,
         })
       } else {
         setBilibiliParseOptions(movieId, {
           cliEnabled: false,
-          p2pEnabled: undefined,
           preferMp4: current.cliPrevPreferMp4 ?? true,
           cliPrevPreferMp4: undefined,
         })
@@ -277,10 +247,7 @@ export function BilibiliParseSettings({
         >
           {/* CLI 本地高画质代理 */}
           <div
-            className={cn(
-              'rounded-[var(--md-sys-shape-corner)] p-1.5 transition-opacity',
-              displayP2pEnabled && 'pointer-events-none opacity-40'
-            )}
+            className="rounded-[var(--md-sys-shape-corner)] p-1.5 transition-opacity"
             style={{
               backgroundColor: 'var(--md-sys-color-surface-container-high)',
             }}
@@ -342,11 +309,9 @@ export function BilibiliParseSettings({
             <div className="mt-1.5 grid grid-cols-2 gap-1">
               <button
                 type="button"
-                disabled={displayP2pEnabled}
                 onClick={() => handleCliChange(false)}
                 className={cn(
                   'rounded-md py-1 text-[10px] font-semibold transition-all',
-                  displayP2pEnabled && 'cursor-not-allowed opacity-40',
                   !displayCliEnabled
                     ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm'
                     : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
@@ -356,11 +321,9 @@ export function BilibiliParseSettings({
               </button>
               <button
                 type="button"
-                disabled={displayP2pEnabled}
                 onClick={() => handleCliChange(true)}
                 className={cn(
                   'rounded-md py-1 text-[10px] font-semibold transition-all',
-                  displayP2pEnabled && 'cursor-not-allowed opacity-40',
                   displayCliEnabled
                     ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm'
                     : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
@@ -381,13 +344,11 @@ export function BilibiliParseSettings({
                   : { color: 'var(--md-sys-color-on-surface-variant)' }
               }
             >
-              {displayP2pEnabled
-                ? 'P2P 与 CLI 代理互斥，请关闭 P2P 后再启用 CLI'
-                : displayCliEnabled
-                  ? cliAgent.available
-                    ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
-                    : '已启用但未检测到本地 CLI，请先启动本地代理以播放 DASH 高画质'
-                  : '使用本地 zcontrol-cli 获取大会员等高画质'}
+              {displayCliEnabled
+                ? cliAgent.available
+                  ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
+                  : '已启用但未检测到本地 CLI，请先启动本地代理以播放 DASH 高画质'
+                : '使用本地 zcontrol-cli 获取大会员等高画质'}
             </div>
 
             <button
@@ -468,112 +429,6 @@ export function BilibiliParseSettings({
                       ? '进入房间先缓存完整视频到本地，避免 URL 过期与卡顿'
                       : '直接流式播放，无需等待缓存'}
               </div>
-            </div>
-          )}
-
-          {/* P2P 传输（仅服务器 DASH 可用时显示） */}
-          {!dashDisabled && (
-            <div
-              className={cn(
-                'transition-opacity',
-                (!isHost ||
-                  effectivePreferMp4 ||
-                  displayBufferMode ||
-                  displayCliEnabled) &&
-                  'pointer-events-none opacity-40'
-              )}
-            >
-              <div
-                className="mb-1 text-[10px] font-bold uppercase tracking-wide"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              >
-                P2P 传输
-              </div>
-              {renderSegmented(
-                displayP2pEnabled,
-                handleP2PChange,
-                '关闭',
-                '开启',
-                !isHost ||
-                  effectivePreferMp4 ||
-                  displayBufferMode ||
-                  displayCliEnabled
-              )}
-              <div
-                className="mt-1 text-[10px] leading-snug"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              >
-                {!isHost
-                  ? 'P2P 传输由房主统一管理'
-                  : effectivePreferMp4
-                    ? 'MP4 模式不支持 P2P，请切换到 DASH'
-                    : displayCliEnabled
-                      ? 'CLI 代理与 P2P 互斥，请关闭 CLI 后再启用 P2P'
-                      : displayBufferMode
-                        ? '缓冲模式下视频已本地缓存，无需 P2P'
-                        : displayP2pEnabled
-                          ? '房间内观众间共享分片，减少服务器流量（需 WebRTC）'
-                          : '所有流量走服务器代理'}
-              </div>
-
-              {displayP2pEnabled && p2pEngineActive && (
-                <div
-                  className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 rounded-lg p-1.5 text-[10px]"
-                  style={{
-                    backgroundColor:
-                      'var(--md-sys-color-surface-container-high)',
-                  }}
-                >
-                  <div className="flex items-center justify-between">
-                    <span
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      ↓HTTP
-                    </span>
-                    <span className="font-mono font-semibold">
-                      {formatKBytes(totalHTTPDownloaded)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      ↓P2P
-                    </span>
-                    <span className="font-mono font-semibold">
-                      {formatKBytes(totalP2PDownloaded)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      ↑P2P
-                    </span>
-                    <span className="font-mono font-semibold">
-                      {formatKBytes(totalP2PUploaded)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      速度
-                    </span>
-                    <span className="font-mono font-semibold">
-                      {formatKBytes(p2pDownloadSpeed)}/s
-                    </span>
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>

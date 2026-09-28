@@ -176,10 +176,6 @@ export interface UseVideoSourceReturn {
  *
  * 可选传入 blobs（缓冲模式）：从 IndexedDB 读取的本地 Blob 数据，
  * dash.js 会用 blob URL 加载，跳过服务器代理。
- *
- * P2P 标志从本地 parseOptions 读取（各客户端独立启用，不经房主广播）：
- * - 仅 DASH 流模式启用 P2P（bufferMode=true 时忽略，因视频已完整缓存到本地）
- * - 仅 B站 DASH 源有意义（其他源走 direct/hls/flv 引擎，无 P2P 集成）
  */
 function toPlayerSource(
   state: WatchTogetherState,
@@ -216,28 +212,14 @@ function toPlayerSource(
   const movieId = useRoomStore.getState().currentMovieId
   // CLI 本地高画质代理：各客户端独立启用，不经房主广播。
   // 房主广播原始 B站 CDN URL；观众/房主各自在 attach 前决定是否走自己的 CLI 代理。
-  let cliProxyActive = false
   if (state.sourceType === 'bilibili' && movieId != null) {
     const { cliEnabled } = getBilibiliParseOptions(movieId)
     const proxyUrl = cliEnabled ? getActiveCliProxyUrl() : null
     if (proxyUrl) {
-      cliProxyActive = true
       source.url = buildCliProxyUrl(proxyUrl, state.sourceUrl)
       if (source.audioUrl) {
         source.audioUrl = buildCliProxyUrl(proxyUrl, source.audioUrl)
       }
-    }
-  }
-
-  // P2P 仅在 DASH 流模式启用（缓冲模式下视频已本地缓存，P2P 无意义）
-  // 各客户端独立从本地 parseOptions 读取，不经房主广播
-  // P2P 配置按影片 ID 独立存储，从 roomStore 读取当前播放影片 ID
-  // 注意：CLI 代理与 P2P 互斥。CLI 代理使用各客户端独立的 localhost URL 作为 channelId，
-  // 会导致 P2P peer 无法匹配，因此当 CLI 代理生效时强制关闭 P2P。
-  if (state.format === 'dash' && !state.bufferMode && !cliProxyActive) {
-    const { p2pEnabled } = getBilibiliParseOptions(movieId ?? 0)
-    if (p2pEnabled) {
-      source.p2pEnabled = true
     }
   }
   return source
@@ -384,7 +366,7 @@ export function useVideoSource({
     restoredRef.current = true
     suppressEventsRef.current = true
     // 传入 state.currentTime 作为 startTime：页面刷新后恢复播放进度时，
-    // DashPlayer 从该时间对应的字节偏移开始下载，而非从文件头顺序下载。
+    // DASH 引擎从该时间对应的字节偏移开始下载，而非从文件头顺序下载。
     // 否则恢复后需要从头加载到 currentTime 才能播放。
     const startTime = state.currentTime > 0 ? state.currentTime : undefined
     void applySourceToVideo(video, state, startTime)
@@ -422,7 +404,7 @@ export function useVideoSource({
   // 重载视频源：重载按钮调用 + MSE seek 失败时的恢复手段。
   // 从当前播放位置附近重新 attach（MSE 引擎通过 startTime 计算 Range 下载起点），
   // 完成后恢复到原播放位置。用于视频卡死、花屏、缓冲异常等场景的手动恢复。
-  // 也用于 MSE seek 失败（video.error）时：创建全新 DashPlayer 实例，
+  // 也用于 MSE seek 失败（video.error）时：创建全新 DASH 引擎实例，
   // 用最新 state URL 重新加载，避免旧实例的 video.error / URL 过期问题。
   const reloadVideo = useCallback(
     async (video: HTMLVideoElement) => {
@@ -454,7 +436,7 @@ export function useVideoSource({
   // 调用 executeSeek → 引擎 seekTo（不重建 MediaSource，清空 SourceBuffer + Range 下载）。
   // 仅对 MSE 流（DASH / 含 audioUrl）生效，普通 mp4 直链由浏览器原生处理。
   // MSE seek 失败时（如 video.error），executeSeek 会调用 onSeekFailed → reloadVideo
-  // 创建全新 DashPlayer 实例（用最新 state URL）重新加载。
+  // 创建全新 DASH 引擎实例（用最新 state URL）重新加载。
   useEffect(() => {
     const video = videoRef.current
     if (!video) return

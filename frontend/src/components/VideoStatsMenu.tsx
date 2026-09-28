@@ -68,7 +68,6 @@ const SOURCE_LABELS: Record<VideoStatsMenuProps['sourceType'], string> = {
 
 /** 引擎类型 → 面板显示名（videojs10 系为试点引擎，标注以便识别） */
 const ENGINE_LABELS: Record<EngineType, string> = {
-  dash: 'dash.js (DASH)',
   hls: 'hls.js (HLS)',
   flv: 'flv.js (FLV)',
   direct: '原生直链 (Direct)',

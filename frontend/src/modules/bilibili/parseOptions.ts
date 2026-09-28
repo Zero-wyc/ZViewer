@@ -10,7 +10,6 @@ const OPTIONS_CHANGE_EVENT = 'zcontrol:bilibili-parse-options-change'
 export const DEFAULT_PARSE_OPTIONS = {
   preferMp4: true,
   bufferMode: false,
-  p2pEnabled: false,
   cliEnabled: false,
 }
 
@@ -18,7 +17,6 @@ export const DEFAULT_PARSE_OPTIONS = {
 export type NormalizedParseOptions = {
   preferMp4: boolean
   bufferMode: boolean
-  p2pEnabled: boolean
   cliEnabled: boolean
   /** 启用 CLI 之前保存的播放模式 */
   cliPrevPreferMp4?: boolean
@@ -43,7 +41,7 @@ function readAllOptions(): ParseOptionsMap {
         parsed !== null &&
         !Array.isArray(parsed)
       ) {
-        // 旧格式：顶层直接含 preferMp4/bufferMode/p2pEnabled 字段
+        // 旧格式：顶层直接含 preferMp4/bufferMode 字段
         if (
           'preferMp4' in parsed ||
           'bufferMode' in parsed ||
@@ -79,7 +77,6 @@ function normalizeOptions(
   return {
     preferMp4: opts?.preferMp4 ?? DEFAULT_PARSE_OPTIONS.preferMp4,
     bufferMode: opts?.bufferMode ?? DEFAULT_PARSE_OPTIONS.bufferMode,
-    p2pEnabled: opts?.p2pEnabled ?? DEFAULT_PARSE_OPTIONS.p2pEnabled,
     cliEnabled: opts?.cliEnabled ?? DEFAULT_PARSE_OPTIONS.cliEnabled,
     cliPrevPreferMp4: opts?.cliPrevPreferMp4,
   }
@@ -146,7 +143,7 @@ function getPreferenceSnapshot() {
 cachedSnapshot = getFullSnapshot()
 
 /**
- * 读取指定影片的解析偏好（preferMp4 + bufferMode + p2pEnabled + cliEnabled），跨组件同步。
+ * 读取指定影片的解析偏好（preferMp4 + bufferMode + cliEnabled），跨组件同步。
  * 任一影片配置变更后，所有使用此 hook 的组件都会更新。
  */
 export function useBilibiliParsePreferences(

@@ -4,18 +4,19 @@
  * 根据源格式与音频轨信息选择合适的播放引擎。
  *
  * 选择逻辑：
- * 1. format='dash' 或 含 audioUrl → DASH 引擎（dash.js，动态生成 MPD 包装 m4s）
+ * 1. format='dash' 或 含 audioUrl → DASH 引擎（自研 MPD 构建 + v10 状态层
+ *    + dash.js 5.2.0 执行层，动态生成 MPD 包装 m4s）
  * 2. format='hls' → HLS 引擎
  * 3. format='flv' → FLV 引擎
  * 4. 需要浏览器端重封装/转码 → playsvideo 引擎（见 shouldUsePlaysVideo）
  * 5. 其他 → Direct 引擎（浏览器原生播放 mp4/webm 等）
  *
  * 注：自研 MSE 引擎已移除（曾长期不可达：所有含独立音频轨的源统一由
- *    dash.js 引擎处理；历史上的 direct + audio-sync 双元素降级经源追溯
- *    确认为死代码，已随 audio-sync.ts 一并移除）。
+ *    DASH 引擎处理；历史上的 direct + audio-sync 双元素降级经源追溯
+ *    确认为死代码，已随 audio-sync.ts 一并移除）。经典 dash.js 4.7.4
+ *    引擎也已随第二阶段迁移（videojs10-dash + dash.js 5.2.0）移除。
  */
 import type { PlayerEngine, PlayerSource } from './types'
-import { dashEngine } from './engines/dash-engine'
 import { hlsEngine } from './engines/hls-engine'
 import { flvEngine } from './engines/flv-engine'
 import { directEngine } from './engines/direct-engine'
@@ -30,31 +31,12 @@ import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 /** 所有引擎实例（单例，无需重复创建） */
 const ENGINES: Record<string, PlayerEngine> = {
-  dash: dashEngine,
   hls: hlsEngine,
   flv: flvEngine,
   direct: directEngine,
   playsvideo: playsVideoEngine,
   videojs10: videojs10Engine,
   'videojs10-dash': videojs10DashEngine,
-}
-
-/**
- * DASH 引擎选择（Video.js 10 状态层试点）。
- *
- * 默认走 videojs10-dash 引擎（DashPlayer 分片获取链路不变，v10 headless
- * store 接管状态层）；localStorage['zviewer-vjs10-dash-engine'] === '0'
- * 时回落经典 dash 引擎，便于线上 A/B 与快速回退。
- */
-function selectDashEngine(): PlayerEngine {
-  try {
-    if (localStorage.getItem('zviewer-vjs10-dash-engine') === '0') {
-      return ENGINES.dash
-    }
-  } catch {
-    // 隐私模式等 localStorage 不可用场景：默认试点引擎
-  }
-  return ENGINES['videojs10-dash']
 }
 
 /**
@@ -126,10 +108,10 @@ export function shouldUsePlaysVideo(source: PlayerSource): boolean {
  * 根据源数据选择合适的播放引擎。
  */
 export function selectEngine(source: PlayerSource): PlayerEngine {
-  // DASH 源或含独立音频轨 → DASH 引擎(v10 状态层试点,可回退)
-  // (自研 MSE 引擎暂时禁用,统一由 dash.js 处理双轨合并)
+  // DASH 源或含独立音频轨 → DASH 引擎（自研 MPD 构建 + v10 执行/状态层）
+  // (自研 MSE 引擎暂时禁用,统一由 DASH 引擎处理双轨合并)
   if (source.format === 'dash' || source.audioUrl) {
-    return selectDashEngine()
+    return ENGINES['videojs10-dash']
   }
   if (source.format === 'hls') {
     return ENGINES.hls

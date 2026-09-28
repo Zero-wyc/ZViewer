@@ -135,7 +135,7 @@ export async function executeSeek(params: ExecuteSeekParams): Promise<boolean> {
         return false
       }
       // needReload=true（video.error / InvalidStateError / 网络错误等不可恢复错误）
-      // → 调用 onSeekFailed 让上层 forceReload 创建全新 DashPlayer 实例
+      // → 调用 onSeekFailed 让上层 forceReload 创建全新 DASH 引擎实例
       if (onSeekFailed) {
         console.warn(
           '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:',

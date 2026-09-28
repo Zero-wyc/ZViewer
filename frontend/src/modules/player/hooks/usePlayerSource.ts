@@ -14,7 +14,7 @@
  * 相比 v1 的改进：
  * - Promise 队列替代 isAttaching/isReloading 双锁与 5s 等待循环；
  * - 不再读写 video._mseAbortController：引擎的下载中断由
- *   engine cleanup（DashPlayer.cleanup 内部 abort attach 请求）负责；
+ *   engine cleanup（DASH 引擎 cleanup 内部 abort attach 请求）负责；
  * - forceReload 多次调用合并为最新 source 的一次重载。
  *
  * 错误提示分工（attach 期 / 播放期）：
@@ -301,7 +301,7 @@ export function usePlayerSource(
     engineCleanupRef.current = null
     if (registered) {
       try {
-        // 引擎 cleanup（如 DashPlayer）内部中断下载并释放资源；
+        // 引擎 cleanup（如 DASH 引擎控制器）内部中断下载并释放资源；
         // hls/flv 引擎销毁实例。放在 try 中避免清理异常阻断后续 attach。
         registered.dispose()
       } catch {

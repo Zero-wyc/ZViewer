@@ -39,7 +39,7 @@ export interface MusicVideoSource {
   audioCodec?: string
   /**
    * 视频时长（秒，来自解析结果）。DASH 流的容器 mvhd 时长为 0/缺失，
-   * 引擎（DashPlayer）以此写 MPD mediaPresentationDuration——缺失时
+   * 引擎（videojs10-dash）以此写 MPD mediaPresentationDuration——缺失时
    * video.duration 无效（0/Infinity），背景视频的进度同步会全部失效
    */
   duration?: number
