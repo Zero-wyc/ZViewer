@@ -40,6 +40,7 @@ import type {
   PlayerSource,
   PlayerController,
   EngineAttachResult,
+  EngineType,
 } from '@/modules/player'
 import { refreshAccessToken } from '@/lib/api'
 import { formatVideoLoadError } from '@/modules/player/utils'
@@ -113,11 +114,33 @@ function onceDispose(dispose: (() => void) | undefined): () => void {
   }
 }
 
+/**
+ * video 级活跃引擎类型登记表（供统计面板查询）。
+ *
+ * 按 video 元素记录而非全局单值：背景视频同步（音乐模块）与主播放页
+ * 可能并发持有各自的 usePlayerSource 实例与 video 元素，全局单值会
+ * 互相覆盖；WeakMap 键为 video 元素，元素销毁后自动 GC。
+ * 写入点：applyAttachResult（引擎落地成功，正常路径与 MKV fallback
+ * 路径共用）；清除点：cleanup / terminateForeignEngineSession（引擎
+ * 销毁，面板回落 '-'）。
+ */
+const activeEngineTypes = new WeakMap<HTMLVideoElement, EngineType>()
+
+/** 读取 video 元素当前活跃引擎的类型（统计面板用），无活跃会话返回 null */
+export function getActiveEngineType(
+  video: HTMLVideoElement | null
+): EngineType | null {
+  if (!video) return null
+  return activeEngineTypes.get(video) ?? null
+}
+
 /** 终结登记在 video 上的其他来源引擎会话（跨实例互斥） */
 function terminateForeignEngineSession(video: HTMLVideoElement): void {
   const prev = activeEngineSessions.get(video)
   if (prev) {
     activeEngineSessions.delete(video)
+    // 同步清掉引擎类型登记：该 video 的引擎已被终结
+    activeEngineTypes.delete(video)
     try {
       prev.dispose()
     } catch {
@@ -279,6 +302,8 @@ export function usePlayerSource(
       const active = activeEngineSessions.get(registered.video)
       if (active && active.seq === registered.seq) {
         activeEngineSessions.delete(registered.video)
+        // 同步清掉引擎类型登记（get/delete 幂等，无需 seq 校验）
+        activeEngineTypes.delete(registered.video)
       }
     }
     playerRef.current = null
@@ -292,8 +317,8 @@ export function usePlayerSource(
 
   /**
    * attach 结果落地：卸载时立即销毁引擎（防游离 video 持续出声），
-   * 正常时记录 blobUrl / 清理句柄 / 控制器，并向 video 级登记表注册
-   * 本会话（跨实例互斥，防偶发双声）。
+   * 正常时记录 blobUrl / 清理句柄 / 控制器 / 引擎类型，并向 video 级
+   * 登记表注册本会话（跨实例互斥，防偶发双声）。
    *
    * @returns 是否落地成功（false = 组件已卸载或被更新的会话取代，
    *          调用方应直接终止）
@@ -302,7 +327,8 @@ export function usePlayerSource(
     (
       result: EngineAttachResult,
       video: HTMLVideoElement,
-      sessionSeq: number
+      sessionSeq: number,
+      engineType: EngineType
     ): boolean => {
       if (!mountedRef.current) {
         try {
@@ -338,6 +364,8 @@ export function usePlayerSource(
       const dispose = onceDispose(result.cleanup)
       engineCleanupRef.current = { video, seq: sessionSeq, dispose }
       activeEngineSessions.set(video, { seq: sessionSeq, dispose })
+      // 登记活跃引擎类型（统计面板经 getActiveEngineType 读取）
+      activeEngineTypes.set(video, engineType)
       playerRef.current = result.player ?? null
       return true
     },
@@ -475,7 +503,9 @@ export function usePlayerSource(
           }
           return { kind: 'unmounted' }
         }
-        if (!applyAttachResult(result, video, sessionSeq)) {
+        if (
+          !applyAttachResult(result, video, sessionSeq, pipelineEngine.type)
+        ) {
           return { kind: 'unmounted' }
         }
         // 恢复回退前的播放位置与播放状态（播放期回退传入 resume）
@@ -545,7 +575,7 @@ export function usePlayerSource(
             }
             return
           }
-          if (!applyAttachResult(result, video, sessionSeq)) return
+          if (!applyAttachResult(result, video, sessionSeq, engine.type)) return
         } catch (err) {
           if (attachEpochRef.current !== epoch) {
             // 等待期间被取代：静默放弃。不触发 token 刷新重试、不走

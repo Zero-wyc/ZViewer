@@ -53,7 +53,7 @@ export { DashPlayer } from './engines/dash'
 export type { DashPlayerOptions } from './engines/dash'
 
 // Hooks
-export { usePlayerSource } from './hooks'
+export { usePlayerSource, getActiveEngineType } from './hooks'
 export type { UsePlayerSourceOptions, UsePlayerSourceReturn } from './hooks'
 
 // 类型

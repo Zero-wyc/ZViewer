@@ -7,7 +7,7 @@
  *   ArtPlayer 重构后，引擎 attach 目标为 art.video（原生 video 元素），
  *   本 Hook 的串行队列 / 去重 / forceReload 语义保持不变。
  */
-export { usePlayerSource } from './usePlayerSource'
+export { usePlayerSource, getActiveEngineType } from './usePlayerSource'
 export type {
   UsePlayerSourceOptions,
   UsePlayerSourceReturn,

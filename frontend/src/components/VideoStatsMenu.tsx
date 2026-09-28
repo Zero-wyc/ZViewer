@@ -6,6 +6,8 @@ import { Tag } from '@/components/ui/Tag'
 import { message } from '@/components/ui/message'
 import { useConnectionStats } from '@/modules/screen-sharing/hooks/useConnectionStats'
 import { useVideoIntrinsicSize } from '@/hooks/useVideoIntrinsicSize'
+import { getActiveEngineType } from '@/modules/player'
+import type { EngineType } from '@/modules/player'
 
 export interface VideoStatsMenuProps {
   videoElement: HTMLVideoElement | null
@@ -54,12 +56,28 @@ interface VideoStats {
   quality: string
   /** 当前 CDN 提供商标签（B站 DASH 流根据 URL 子串识别） */
   cdnProvider: string
+  /** 当前播放引擎显示名（WebRTC 无引擎概念，为 '-'） */
+  engine: string
 }
 
 const SOURCE_LABELS: Record<VideoStatsMenuProps['sourceType'], string> = {
   bilibili: 'B 站',
   custom: '自定义源',
   webrtc: 'WebRTC 屏幕共享',
+}
+
+/** 引擎类型 → 面板显示名（videojs10 为试点引擎，标注以便识别） */
+const ENGINE_LABELS: Record<EngineType, string> = {
+  dash: 'dash.js (DASH)',
+  hls: 'hls.js (HLS)',
+  flv: 'flv.js (FLV)',
+  direct: '原生直链 (Direct)',
+  playsvideo: '浏览器转码 (playsvideo)',
+  videojs10: 'Video.js 10 (试点)',
+}
+
+function getEngineLabel(type: EngineType | null): string {
+  return type ? ENGINE_LABELS[type] : '-'
 }
 
 const LOADING_STATS: VideoStats = {
@@ -75,6 +93,7 @@ const LOADING_STATS: VideoStats = {
   sourceLabel: '',
   quality: '-',
   cdnProvider: '-',
+  engine: '-',
 }
 
 /**
@@ -335,6 +354,8 @@ export function VideoStatsMenu({
         sourceLabel: SOURCE_LABELS[sourceType],
         quality: '-',
         cdnProvider: '-',
+        // WebRTC 屏幕共享不经过播放引擎
+        engine: '-',
       }
     }
 
@@ -406,6 +427,7 @@ export function VideoStatsMenu({
       quality: resolveQualityLabel(),
       cdnProvider:
         sourceType === 'bilibili' ? detectBilibiliCdnProvider(url) : '-',
+      engine: getEngineLabel(getActiveEngineType(video)),
     }
   }, [
     videoElement,
@@ -505,6 +527,9 @@ export function VideoStatsMenu({
     }
     if (sourceType === 'custom') {
       lines.push(`访问模式: ${directLink ? '直链' : '服务器中转'}`)
+    }
+    if (!isWebRtc) {
+      lines.push(`播放引擎: ${stats.engine}`)
     }
     lines.push(`编码: ${stats.codec}`, `分辨率: ${stats.resolution}`)
     if (sourceType === 'bilibili' && format !== 'mp4') {
@@ -640,6 +665,7 @@ export function VideoStatsMenu({
             value={directLink ? '直链' : '服务器中转'}
           />
         )}
+        {!isWebRtc && <StatsRow label="播放引擎" value={displayStats.engine} />}
         <StatsRow label="编码" value={displayStats.codec} />
         <StatsRow label="分辨率" value={displayStats.resolution} />
         {sourceType === 'bilibili' && format !== 'mp4' && (
