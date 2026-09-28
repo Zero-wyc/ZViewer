@@ -6,8 +6,9 @@
  */
 import type { MediaFormat } from '@/lib/mediaFormat'
 
-/** 引擎类型标识 */
-export type EngineType = 'hls' | 'flv' | 'direct' | 'dash' | 'playsvideo'
+/** 引擎类型标识（videojs10 = Video.js 10 试点引擎，见 engines/videojs10-engine.ts） */
+export type EngineType =
+  'hls' | 'flv' | 'direct' | 'dash' | 'playsvideo' | 'videojs10'
 
 /**
  * seek 操作返回结果（公共类型，供 MSE / DASH 等引擎实现共享）。

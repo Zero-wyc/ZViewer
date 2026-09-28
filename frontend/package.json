@@ -34,6 +34,8 @@
   "dependencies": {
     "@material/material-color-utilities": "^0.4.0",
     "@swarmcloud/dashjs": "^0.10.0",
+    "@videojs/core": "^10.0.0-rc.4",
+    "@videojs/react": "^10.0.0-rc.4",
     "artplayer": "^5.4.0",
     "clsx": "^2.1.1",
     "danmaku": "^2.0.9",

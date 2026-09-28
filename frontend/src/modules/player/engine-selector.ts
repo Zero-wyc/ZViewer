@@ -19,6 +19,7 @@ import { dashEngine } from './engines/dash-engine'
 import { hlsEngine } from './engines/hls-engine'
 import { flvEngine } from './engines/flv-engine'
 import { directEngine } from './engines/direct-engine'
+import { videojs10Engine } from './engines/videojs10-engine'
 import {
   playsVideoEngine,
   isPlaysVideoSupported,
@@ -33,6 +34,25 @@ const ENGINES: Record<string, PlayerEngine> = {
   flv: flvEngine,
   direct: directEngine,
   playsvideo: playsVideoEngine,
+  videojs10: videojs10Engine,
+}
+
+/**
+ * 直链引擎选择（Video.js 10 试点）。
+ *
+ * 默认走 videojs10 引擎（v10 headless store 接管播放状态层，加载路径
+ * 仍复用 direct 管线）；localStorage['zviewer-vjs10-engine'] === '0'
+ * 时回落经典 direct 引擎，便于线上 A/B 与快速回退。
+ */
+function selectDirectEngine(): PlayerEngine {
+  try {
+    if (localStorage.getItem('zviewer-vjs10-engine') === '0') {
+      return ENGINES.direct
+    }
+  } catch {
+    // 隐私模式等 localStorage 不可用场景：默认试点引擎
+  }
+  return ENGINES.videojs10
 }
 
 /**
@@ -100,5 +120,5 @@ export function selectEngine(source: PlayerSource): PlayerEngine {
   if (shouldUsePlaysVideo(source)) {
     return ENGINES.playsvideo
   }
-  return ENGINES.direct
+  return selectDirectEngine()
 }
