@@ -6,9 +6,16 @@
  */
 import type { MediaFormat } from '@/lib/mediaFormat'
 
-/** 引擎类型标识（videojs10 = Video.js 10 试点引擎，见 engines/videojs10-engine.ts） */
+/** 引擎类型标识（videojs10 = Video.js 10 试点引擎，见 engines/videojs10-engine.ts；
+ *  videojs10-dash = Video.js 10 状态层 + dash.js 加载层，见 engines/videojs10-dash-engine.ts） */
 export type EngineType =
-  'hls' | 'flv' | 'direct' | 'dash' | 'playsvideo' | 'videojs10'
+  | 'hls'
+  | 'flv'
+  | 'direct'
+  | 'dash'
+  | 'playsvideo'
+  | 'videojs10'
+  | 'videojs10-dash'
 
 /**
  * seek 操作返回结果（公共类型，供 MSE / DASH 等引擎实现共享）。

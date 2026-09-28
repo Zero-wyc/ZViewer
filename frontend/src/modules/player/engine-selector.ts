@@ -20,6 +20,7 @@ import { hlsEngine } from './engines/hls-engine'
 import { flvEngine } from './engines/flv-engine'
 import { directEngine } from './engines/direct-engine'
 import { videojs10Engine } from './engines/videojs10-engine'
+import { videojs10DashEngine } from './engines/videojs10-dash-engine'
 import {
   playsVideoEngine,
   isPlaysVideoSupported,
@@ -35,6 +36,25 @@ const ENGINES: Record<string, PlayerEngine> = {
   direct: directEngine,
   playsvideo: playsVideoEngine,
   videojs10: videojs10Engine,
+  'videojs10-dash': videojs10DashEngine,
+}
+
+/**
+ * DASH 引擎选择（Video.js 10 状态层试点）。
+ *
+ * 默认走 videojs10-dash 引擎（DashPlayer 分片获取链路不变，v10 headless
+ * store 接管状态层）；localStorage['zviewer-vjs10-dash-engine'] === '0'
+ * 时回落经典 dash 引擎，便于线上 A/B 与快速回退。
+ */
+function selectDashEngine(): PlayerEngine {
+  try {
+    if (localStorage.getItem('zviewer-vjs10-dash-engine') === '0') {
+      return ENGINES.dash
+    }
+  } catch {
+    // 隐私模式等 localStorage 不可用场景：默认试点引擎
+  }
+  return ENGINES['videojs10-dash']
 }
 
 /**
@@ -106,10 +126,10 @@ export function shouldUsePlaysVideo(source: PlayerSource): boolean {
  * 根据源数据选择合适的播放引擎。
  */
 export function selectEngine(source: PlayerSource): PlayerEngine {
-  // DASH 源或含独立音频轨 → dash.js 引擎
-  // （自研 MSE 引擎暂时禁用，统一由 dash.js 处理双轨合并）
+  // DASH 源或含独立音频轨 → DASH 引擎(v10 状态层试点,可回退)
+  // (自研 MSE 引擎暂时禁用,统一由 dash.js 处理双轨合并)
   if (source.format === 'dash' || source.audioUrl) {
-    return ENGINES.dash
+    return selectDashEngine()
   }
   if (source.format === 'hls') {
     return ENGINES.hls

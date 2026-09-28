@@ -66,7 +66,7 @@ const SOURCE_LABELS: Record<VideoStatsMenuProps['sourceType'], string> = {
   webrtc: 'WebRTC 屏幕共享',
 }
 
-/** 引擎类型 → 面板显示名（videojs10 为试点引擎，标注以便识别） */
+/** 引擎类型 → 面板显示名（videojs10 系为试点引擎，标注以便识别） */
 const ENGINE_LABELS: Record<EngineType, string> = {
   dash: 'dash.js (DASH)',
   hls: 'hls.js (HLS)',
@@ -74,6 +74,7 @@ const ENGINE_LABELS: Record<EngineType, string> = {
   direct: '原生直链 (Direct)',
   playsvideo: '浏览器转码 (playsvideo)',
   videojs10: 'Video.js 10 (试点)',
+  'videojs10-dash': 'Video.js 10 (DASH)',
 }
 
 function getEngineLabel(type: EngineType | null): string {
