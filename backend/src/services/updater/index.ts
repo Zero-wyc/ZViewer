@@ -242,8 +242,10 @@ interface GithubRelease {
  *    - tag_name 为 `latest`，无法做语义化比较
  *
  * 整体逻辑：
- * - includePrerelease=false：只看正式版，忽略所有预发布版
- * - includePrerelease=true：优先正式版，无正式版更新时再看预发布版
+ * - includePrerelease=false：只在正式版之间更新，忽略所有预发布版
+ * - includePrerelease=true：始终使用最新构建版本（releases 列表第一条，
+ *   GitHub API 按 created_at 降序返回；无论其 prerelease 标志，
+ *   main 分支 CI 构建的 latest 预发布或正式版发布都算）
  * - 本地版本 0.0.0（无法确定）→ 总是提示有更新
  */
 export async function getUpdateInfo(
@@ -271,62 +273,52 @@ export async function getUpdateInfo(
     throw new Error('未找到任何发布版本');
   }
 
-  // 优先找最新正式版
-  const stableRelease = releases.find((r) => !r.prerelease);
-  // 找最新的 prerelease（通常是 main 分支推送的 latest tag）
-  // 仅在 includePrerelease=true 时才考虑预发布版
-  const prerelease = includePrerelease
-    ? releases.find((r) => r.prerelease)
-    : undefined;
-
   let release: GithubRelease;
   let hasUpdate: boolean;
 
-  // 本地版本无法确定（package.json 不存在或无 version 字段）→ 总是提示有更新
-  if (currentVersion === '0.0.0') {
-    release = stableRelease || prerelease || releases[0];
-    hasUpdate = true;
-  } else if (stableRelease) {
-    // 有正式版 Release
-    const remoteStableVersion = stableRelease.tag_name;
+  if (includePrerelease) {
+    // 预发布模式：始终使用最新构建版本。
+    // GitHub Releases API 按 created_at 降序返回，releases[0] 即最新一次构建
+    // （main 分支 CI 推送的 latest 预发布，或正式版发布，无论 prerelease 标志）。
+    // 旧逻辑「优先正式版，无正式版更新才看预发布」会导致 dev 构建永远
+    // 更新到旧的正式版，拿不到最新的 main 分支产物。
+    release = releases[0];
 
-    if (isDevVersion(currentVersion)) {
-      // 本地是开发版本 → 正式版总是有更新
-      release = stableRelease;
+    if (currentVersion === '0.0.0' || isDevVersion(currentVersion)) {
+      // 本地版本无法确定，或本地是 dev 构建：预发布 tag 为 latest
+      // 无法语义化比较，保守提示有更新（应用更新会重新安装最新产物）
+      hasUpdate = true;
+    } else if (release.prerelease) {
+      // 本地是正式版而最新构建是预发布版（tag: latest，无法语义化比较）：
+      // 用户开启预发布即为跟随最新构建 → 提示有更新
       hasUpdate = true;
     } else {
-      // 本地也是正式版 → 语义化版本比较
-      const cmp = compareVersions(remoteStableVersion, currentVersion);
-      if (cmp > 0) {
-        // 正式版比本地新
-        release = stableRelease;
-        hasUpdate = true;
-      } else if (prerelease) {
-        // 正式版不比本地新，但有预发布版且用户允许 → 检查预发布版
-        release = prerelease;
-        hasUpdate = true;
-      } else {
-        // 无预发布版或用户未开启 → 已是最新
-        release = stableRelease;
-        hasUpdate = false;
-      }
-    }
-  } else if (prerelease) {
-    // 没有正式版 Release，但有预发布版（仅 includePrerelease=true 时到达）
-    release = prerelease;
-
-    if (isDevVersion(currentVersion)) {
-      // 本地也是开发版本 → 保守提示有更新
-      hasUpdate = true;
-    } else {
-      // 本地是正式版，远程只有预发布版 → 提示有更新
-      hasUpdate = true;
+      // 本地与最新构建都是正式版 → 语义化版本比较
+      hasUpdate = compareVersions(release.tag_name, currentVersion) > 0;
     }
   } else {
-    // 没有正式版，也没有预发布版（或未开启预发布）
-    // 使用第一个 release 作为信息来源，但不提示有更新
-    release = releases[0];
-    hasUpdate = false;
+    // 正式版模式：只在正式版之间更新
+    const stableRelease = releases.find((r) => !r.prerelease);
+
+    if (currentVersion === '0.0.0') {
+      // 本地版本无法确定 → 总是提示有更新
+      release = stableRelease || releases[0];
+      hasUpdate = true;
+    } else if (stableRelease) {
+      release = stableRelease;
+      if (isDevVersion(currentVersion)) {
+        // 本地是开发版本 → 正式版总是有更新
+        hasUpdate = true;
+      } else {
+        // 本地也是正式版 → 语义化版本比较
+        hasUpdate = compareVersions(stableRelease.tag_name, currentVersion) > 0;
+      }
+    } else {
+      // 没有任何正式版 Release：使用第一个 release 作为信息来源，
+      // 但不提示有更新（用户未开启预发布，不引导安装预发布版）
+      release = releases[0];
+      hasUpdate = false;
+    }
   }
 
   const remoteVersion = release.tag_name;
@@ -1027,7 +1019,7 @@ async function applyUpdateFromArchive(
 /**
  * 从 GitHub Releases 下载最新构建产物并应用更新。
  *
- * @param includePrerelease 是否包含预发布版本
+ * @param includePrerelease 是否跟随最新构建版本（含预发布版）
  * @param onStage 阶段事件回调，用于推送下载/解压/启动进度
  */
 export async function applyUpdate(

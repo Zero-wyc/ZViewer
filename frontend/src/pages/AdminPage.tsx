@@ -1696,10 +1696,10 @@ export default function AdminPage() {
                   <div className="flex items-center justify-between pb-3 mb-3 border-b border-[var(--md-sys-color-outline-variant)]">
                     <div className="flex-1 min-w-0 pr-3">
                       <Text className="text-sm font-medium">
-                        接收预发布版本更新
+                        接收最新构建版本更新
                       </Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
-                        开启后可更新到预发布版本，关闭则仅在正式版之间更新
+                        开启后始终更新到最新一次构建（含预发布版），关闭则仅在正式版之间更新
                       </Text>
                     </div>
                     <Switch
