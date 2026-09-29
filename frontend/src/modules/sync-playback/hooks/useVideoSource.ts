@@ -301,6 +301,36 @@ export function useVideoSource({
 
   const cleanupMedia = cleanup
 
+  // ── 观众端生效源解析（唯一入口）────────────────────────
+  // 观众端所有 attach/reload 路径必须共用此函数决定实际挂载的源：
+  // 优先复用已有本地覆盖（CLI 清晰度覆盖或本地偏好独立解析结果），
+  // 无匹配覆盖时按本地偏好独立解析（ensureViewerLocalOverride
+  // 内部同样会复用满足格式条件的既有覆盖）。
+  //
+  // ⚠️ 若仅部分路径应用覆盖（如历史版本中 applySourceToVideo 走覆盖而
+  // reloadVideo 直接用广播源），观众端会在「本地覆盖源（MP4→经典引擎）」
+  // 与「房主广播源（DASH→dash 引擎）」之间反复切换引擎：每次翻转都是
+  // 一次完整重挂，并伴随 dash.js destroy 后监听器残留的崩溃刷屏
+  // （PlaybackController 读已置空的 streamInfo → "D is null"）与
+  // blob revoke 后的 code 25 噪音。新增观众端挂载路径时必须经过此函数。
+  const resolveViewerEffectiveState = useCallback(
+    async (state: WatchTogetherState): Promise<WatchTogetherState> => {
+      if (isHostRef.current || !state.sourceUrl) return state
+      const storeState = useRoomStore.getState()
+      const currentMovieId = storeState.currentMovieId
+      const existing = storeState.viewerCliResolvedSource
+      const override =
+        existing && existing.movieId === currentMovieId
+          ? existing
+          : await ensureViewerLocalOverride(state)
+      if (override && override.movieId === currentMovieId) {
+        return withViewerOverride(state, override.resolved)
+      }
+      return state
+    },
+    [isHostRef]
+  )
+
   // 将指定状态中的视频源应用到 video 元素（含 MSE DASH 处理）。
   // 供房主加载、观众同步以及组件重新挂载时恢复使用。
   // 所有源类型（包括 bilibili）统一逻辑：
@@ -319,29 +349,14 @@ export function useVideoSource({
         return
       }
 
-      let effectiveState = state
-      if (!isHostRef.current) {
-        const storeState = useRoomStore.getState()
-        const currentMovieId = storeState.currentMovieId
-        // 优先复用已有本地覆盖（CLI 清晰度覆盖或本地偏好解析结果）；
-        // 无匹配覆盖时按本地偏好独立解析（ensureViewerLocalOverride
-        // 内部同样会复用满足格式条件的既有覆盖）
-        const existing = storeState.viewerCliResolvedSource
-        const override =
-          existing && existing.movieId === currentMovieId
-            ? existing
-            : await ensureViewerLocalOverride(state)
-        if (override && override.movieId === currentMovieId) {
-          effectiveState = withViewerOverride(state, override.resolved)
-        }
-      }
+      const effectiveState = await resolveViewerEffectiveState(state)
 
       await attachSource(
         video,
         toPlayerSource(effectiveState, startTime, blobs)
       )
     },
-    [attachSource, isHostRef]
+    [attachSource, resolveViewerEffectiveState]
   )
 
   // 组件重新挂载（或 videoRef 首次可用）时，从 roomStore 恢复视频源。
@@ -415,10 +430,18 @@ export function useVideoSource({
       const state = useRoomStore.getState().watchTogether
       if (!state.sourceUrl) return
 
+      // 观众端必须与 applySourceToVideo 同源（resolveViewerEffectiveState）：
+      // 若此处直接用广播源重挂，seek 失败兜底/手动重载会把本地覆盖源
+      // （MP4→经典引擎）替换为房主广播源（DASH→dash 引擎），引发引擎反复翻转
+      const effectiveState = await resolveViewerEffectiveState(state)
+
       suppressEventsRef.current = true
       useRoomStore.getState().setReloadingState(true, snapshot.currentTime)
       try {
-        await forceReload(video, toPlayerSource(state, snapshot.currentTime))
+        await forceReload(
+          video,
+          toPlayerSource(effectiveState, snapshot.currentTime)
+        )
         await restoreSnapshot(video, snapshot)
       } catch (err) {
         console.error('[useVideoSource] 重载视频源失败:', err)
@@ -428,7 +451,7 @@ export function useVideoSource({
         useRoomStore.getState().setReloadingState(false, null)
       }
     },
-    [forceReload, suppressEventsRef]
+    [forceReload, resolveViewerEffectiveState, suppressEventsRef]
   )
 
   // seek 到未缓冲区域时的处理：
