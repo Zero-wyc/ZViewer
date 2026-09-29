@@ -28,3 +28,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# DASH 引擎本地回归测试媒体(8MB,手动放置,不入库)
+public/test-media/

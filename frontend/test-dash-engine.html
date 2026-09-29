@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<!--
+  DASH 引擎(v10 + dash.js 5.2.0)本地回归测试页。
+
+  用途:真实浏览器中验证 videojs10-dash-engine 的完整 attach → 播放链路,
+  覆盖 2026-09-29 修复的回归:blob manifest + 相对 BaseURL 会让 dash.js 5.2.0
+  的 BaseURLController.resolve() 返回 undefined,getInitRequest 恒 null,
+  ScheduleController 500ms 死循环,永不 streamInitialized(详见引擎内注释)。
+
+  运行方式:
+    1. 媒体文件:frontend/public/test-media/{video,audio}.mp4
+       (60s SegmentBase fMP4,Shaka angel-one 样本,已 gitignore,需手动放置)
+    2. 启动 dev server(vite,端口任意),浏览器打开本页,或:
+       node scripts/test-dash-browser.mjs(Playwright + 系统 Chrome,
+       环境变量 MPD_VIA_HTTP=1 把 MPD 改走 HTTP route 对照;
+       SKIP_EXP=1 跳过页内对照实验,仅测引擎单实例)
+
+  页内探针:blob 生命周期、XHR/fetch 全记录、PerformanceObserver、
+  实验开关 window.__MPD_VIA_HTTP / __BLOB_NO_CREDENTIALS / __SKIP_EXP。
+  ⚠️ 勿用 defineProperty 拦截 XHR 的 onloadend/onload 等 IDL 事件处理器——
+  实例 accessor 会遮蔽原型拦截器,导致事件处理器不被调用,污染全部实验。
+-->
+<html>
+<head><meta charset="utf-8"><title>DASH Engine Test</title></head>
+<body style="background:#222;color:#eee">
+<video id="test-video" muted style="width:320px"></video>
+<pre id="log" style="white-space:pre-wrap;font-size:11px"></pre>
+<script type="module">
+const logEl = document.getElementById('log')
+const logs = []
+function log(msg) {
+  const line = `[${new Date().toISOString().slice(11, 23)}] ${msg}`
+  logs.push(line)
+  logEl.textContent += line + '\n'
+  console.log('[TEST]', msg)
+}
+window.__TEST_LOGS = logs
+
+// 记录页面全部资源请求(含 dash.js XHR)
+const reqLog = []
+try {
+  const po = new PerformanceObserver((list) => {
+    for (const e of list.getEntries()) reqLog.push(e.name)
+  })
+  po.observe({ type: 'resource', buffered: true })
+} catch (e) { /* ignore */ }
+window.__REQ_LOG = reqLog
+
+// ===== 探针:blob 生命周期 + XHR/fetch 全记录 =====
+const blobLog = []
+const origCreate = URL.createObjectURL.bind(URL)
+const origRevoke = URL.revokeObjectURL.bind(URL)
+let blobCounter = 0
+URL.createObjectURL = (obj) => {
+  const url = origCreate(obj)
+  blobCounter++
+  const id = url.slice(-12)
+  blobLog.push(`CREATE#${blobCounter} ${id} type=${obj?.type} size=${obj?.size}`)
+  // 缓存 MPD 文本供 Playwright route 使用
+  if (obj?.type === 'application/dash+xml') {
+    window.__MPD_BLOB_URL = url
+    obj.text?.().then((t) => { window.__MPD_TEXT = t })
+  }
+  return url
+}
+URL.revokeObjectURL = (url) => {
+  blobLog.push(`REVOKE ${url.slice(-18)}`)
+  return origRevoke(url)
+}
+const xhrLog = []
+let xhrSeq = 0
+const OrigXHR = window.XMLHttpRequest
+function ProbedXHR() {
+  const xhr = new OrigXHR()
+  const origOpen = xhr.open.bind(xhr)
+  xhr.open = function (method, url, ...rest) {
+    let u = String(url)
+    const stack = (new Error().stack ?? '')
+      .split('\n')
+      .slice(2, 16)
+      .map((s) => s.trim().replace(/^at /, '').slice(0, 140))
+      .join('\n    ')
+    // 实验开关:MPD blob URL 重写为 HTTP URL(Playwright route 动态返回 MPD)
+    if (window.__MPD_VIA_HTTP && u === window.__MPD_BLOB_URL) {
+      xhrLog.push(`XHR#${++xhrSeq} [REWRITTEN] ${u.slice(0, 60)} -> /test-mpd-rewrite.mpd`)
+      u = '/test-mpd-rewrite.mpd'
+    } else {
+      xhrLog.push(`XHR#${++xhrSeq} ${method} ${u.slice(0, 120)}\n    ${stack}`)
+    }
+    // 实验开关 2:对 blob: URL 强制去掉 credentials(验证 blob+withCredentials 兼容性)
+    if (window.__BLOB_NO_CREDENTIALS && u.startsWith('blob:')) {
+      xhr.withCredentials = false
+      xhrLog.push(`  [probe] blob XHR withCredentials -> false`)
+    }
+    if (u.startsWith('blob:')) {
+      origFetch(u).then(async (r) => {
+        xhrLog.push(`  [probe@open XHR#${xhrSeq}] blob fetch status=${r.status} len=${(await r.text()).length}`)
+      }).catch((e) => {
+        xhrLog.push(`  [probe@open XHR#${xhrSeq}] blob fetch FAILED: ${e.message}`)
+      })
+    }
+    // ⚠️ 不要对 onloadend 做 defineProperty 拦截——Chrome 下实例 accessor
+    // 属性会破坏 IDL 事件处理器调用(自检2B 实证),会污染全部实验。
+    const done = (evType) => {
+      xhrLog.push(
+        `  [probe@done:${evType}] status=${xhr.status} responseType=${xhr.responseType} withCredentials=${xhr.withCredentials} readyState=${xhr.readyState} respLen=${xhr.responseText?.length ?? 'n/a'}`
+      )
+    }
+    xhr.addEventListener('load', () => done('load'))
+    xhr.addEventListener('error', () => done('error'))
+    xhr.addEventListener('timeout', () => done('timeout'))
+    xhr.addEventListener('abort', () => done('abort'))
+    xhr.addEventListener('loadend', () => {
+      const hasOwn = Object.getOwnPropertyDescriptor(xhr, 'onloadend')
+      xhrLog.push(
+        `  [probe@loadend-event] hasOwnProperty(onloadend)=${!!hasOwn} typeof=${typeof xhr.onloadend} src=${String(xhr.onloadend).slice(0, 150).replace(/\n/g, ' ')}`
+      )
+    })
+    return origOpen(method, u, ...rest) === undefined ? undefined : undefined
+  }
+  return xhr
+}
+ProbedXHR.prototype = OrigXHR.prototype
+;['UNSENT', 'OPENED', 'HEADERS_RECEIVED', 'LOADING', 'DONE'].forEach((k, i) => { ProbedXHR[k] = i })
+Object.assign(ProbedXHR, { DONE: 4 })
+window.XMLHttpRequest = ProbedXHR
+const fetchLog = []
+const origFetch = window.fetch.bind(window)
+window.fetch = async (...args) => {
+  fetchLog.push(`FETCH ${String(args[0]).slice(0, 120)}`)
+  return origFetch(...args)
+}
+window.__BLOB_LOG = blobLog
+window.__XHR_LOG = xhrLog
+window.__FETCH_LOG = fetchLog
+
+// 对照实验 1:手动 blob XHR(排除环境问题)
+try {
+  const tb = new Blob(['hello-probe'], { type: 'text/plain' })
+  const tu = URL.createObjectURL(tb)
+  const x = new OrigXHR()
+  x.open('GET', tu)
+  x.onload = () => log(`对照实验: 手动 blob XHR OK status=${x.status} body=${x.responseText}`)
+  x.onerror = () => log('对照实验: 手动 blob XHR FAILED(onerror)')
+  x.send()
+} catch (e) {
+  log(`对照实验异常: ${e.message}`)
+}
+// 自检 2:onloadend 属性处理器到底何时被调用?
+// A: 普通 blob XHR,直接赋值 onloadend(无 defineProperty)
+try {
+  const bA = new Blob(['A'], { type: 'text/plain' })
+  const uA = URL.createObjectURL(bA)
+  const xA = new OrigXHR()
+  xA.open('GET', uA)
+  xA.onloadend = () => log('自检2A: 普通 blob XHR onloadend 触发 ✅')
+  xA.onload = () => log('自检2A: load 触发')
+  xA.send()
+} catch (e) { log(`自检2A异常: ${e.message}`) }
+// B: blob XHR + defineProperty accessor(正确存值)再赋值
+try {
+  const bB = new Blob(['B'], { type: 'text/plain' })
+  const uB = URL.createObjectURL(bB)
+  const xB = new OrigXHR()
+  let stored = null
+  Object.defineProperty(xB, 'onloadend', {
+    configurable: true,
+    get() { return stored },
+    set(fn) { stored = fn },
+  })
+  xB.open('GET', uB)
+  xB.onloadend = () => log('自检2B: defineProperty 拦截的 blob XHR onloadend 触发 ✅')
+  xB.onload = () => log('自检2B: load 触发')
+  xB.send()
+} catch (e) { log(`自检2B异常: ${e.message}`) }
+// C: 普通 HTTP XHR,直接赋值 onloadend
+try {
+  const xC = new OrigXHR()
+  xC.open('GET', '/test-media/video.mp4')
+  xC.onloadend = () => log('自检2C: 普通 HTTP XHR onloadend 触发 ✅ status=' + xC.status)
+  xC.onload = () => log('自检2C: load 触发 status=' + xC.status)
+  xC.send()
+} catch (e) { log(`自检2C异常: ${e.message}`) }
+// 自检 1:defineProperty 拦截 onloadend 的机制本身是否有效
+try {
+  const sb = new Blob(['selftest'], { type: 'text/plain' })
+  const su = URL.createObjectURL(sb)
+  const sx = new OrigXHR()
+  let hit = false
+  Object.defineProperty(sx, 'onloadend', {
+    configurable: true,
+    get() { return 'getter-ok' },
+    set(fn) { hit = true },
+  })
+  sx.onloadend = function () {}
+  log(`自检: setter 命中=${hit} getter=${sx.onloadend}`)
+  sx.open('GET', su)
+  sx.onloadend = () => log('自检: loadend 属性触发(手动 blob)')
+  sx.onload = () => log(`自检: load 触发 status=${sx.status}`)
+  sx.send()
+  setTimeout(() => log(`自检 500ms 后: onloadend 值=${sx.onloadend}`), 500)
+} catch (e) {
+  log(`自检异常: ${e.message}`)
+}
+// 全局未处理 rejection 捕获(dash.js 内部 promise 异常静默排查)
+window.addEventListener('unhandledrejection', (ev) => {
+  const r = ev.reason
+  log(`[全局 unhandledrejection] ${r?.message ?? String(r)} | stack=${String(r?.stack ?? '').slice(0, 300)}`)
+})
+// 对照实验 3:独立 DashAdapter 实例(logLevel=5)加载 blob MPD,读 dash.js 自己的日志
+// SKIP_EXP=1 时跳过(纯净单实例实验)
+if (!window.__SKIP_EXP) {
+try {
+  const SAMPLE_MPD = `<?xml version="1.0" encoding="UTF-8"?>
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="PT60S" minBufferTime="PT1.5S" profiles="urn:mpeg:dash:profile:isoff-main:2011">
+  <Period>
+    <AdaptationSet mimeType="video/mp4" codecs="avc1.640020" contentType="video" startWithSAP="1" segmentAlignment="true">
+      <Representation id="v" bandwidth="1000000" codecs="avc1.640020" mimeType="video/mp4">
+        <BaseURL>/test-media/video.mp4</BaseURL>
+        <SegmentBase indexRange="1000-2000">
+        <Initialization range="0-999" />
+      </SegmentBase>
+      </Representation>
+    </AdaptationSet>
+    <AdaptationSet mimeType="audio/mp4" codecs="mp4a.40.2" contentType="audio" startWithSAP="1" segmentAlignment="true">
+      <Representation id="a" bandwidth="128000" codecs="mp4a.40.2" mimeType="audio/mp4">
+        <BaseURL>/test-media/audio.mp4</BaseURL>
+      </Representation>
+    </AdaptationSet>
+  </Period>
+</MPD>`
+  const { DashAdapter } = await import('@videojs/dash-video')
+  const probeBlob = new Blob([SAMPLE_MPD], { type: 'application/dash+xml' })
+  const probeUrl = URL.createObjectURL(probeBlob)
+  const adapter2 = new DashAdapter()
+  const p2 = adapter2.engine
+  const dashLogs = []
+  window.__DASH_LOGS = dashLogs
+  p2.updateSettings({ debug: { logLevel: 5 } })
+  p2.on('error', (e) => {
+    dashLogs.push(`[ERROR] code=${e.error?.code} msg=${e.error?.message} raw=${JSON.stringify(e.error?.raw ?? '').slice(0, 300)}`)
+  })
+  p2.on('manifestLoaded', () => dashLogs.push('[manifestLoaded]'))
+  p2.on('streamInitialized', () => dashLogs.push('[streamInitialized]'))
+  const v2 = document.createElement('video')
+  adapter2.attach(v2)
+  p2.attachSource(probeUrl)
+  await new Promise((r) => setTimeout(r, 5000))
+  try { adapter2.destroy() } catch { /* */ }
+  log(`对照实验: 独立 dash.js 日志:\n${dashLogs.join('\n') || '(无日志)'}`)
+} catch (e) {
+  log(`对照实验3异常: ${e.message}`)
+}
+}
+// 对照实验 2:手动 blob fetch
+try {
+  const tb2 = new Blob(['fetch-probe'], { type: 'text/plain' })
+  const tu2 = URL.createObjectURL(tb2)
+  const r = await origFetch(tu2)
+  log(`对照实验: 手动 blob fetch status=${r.status} body=${await r.text()}`)
+} catch (e) {
+  log(`对照实验 fetch 异常: ${e.message}`)
+}
+
+// 实验4(关键二分):独立 DashAdapter + 引擎真实 SegmentList MPD 文本 + blob URL。
+// 等 __MPD_TEXT 可用后运行,与引擎 attach 并行、互不影响。
+;(async () => {
+  if (window.__SKIP_EXP) return
+  // 等引擎真实 MPD(含 SegmentList)生成——前面的 952 字节是对照实验的 SegmentBase MPD
+  for (let i = 0; i < 150 && !(window.__MPD_TEXT && window.__MPD_TEXT.includes('<SegmentList')); i++) {
+    await new Promise((r) => setTimeout(r, 100))
+  }
+  if (!(window.__MPD_TEXT && window.__MPD_TEXT.includes('<SegmentList'))) {
+    window.__SEG_EXP = { ok: false, logs: ['未拿到 SegmentList MPD 文本'] }
+    return
+  }
+  const mpdText = window.__MPD_TEXT
+  log(`实验4: 引擎 MPD 文本 ${mpdText.length} 字节,形态=${mpdText.includes('<SegmentList') ? 'SegmentList' : '其他'}\n${mpdText}`)
+  try {
+    const { DashAdapter } = await import('@videojs/dash-video')
+    const logs4 = []
+    const b = new Blob([mpdText], { type: 'application/dash+xml' })
+    const u = URL.createObjectURL(b)
+    const adapter4 = new DashAdapter()
+    const p4 = adapter4.engine
+    p4.updateSettings({ debug: { logLevel: 5 } })
+    p4.on('error', (e) => logs4.push(`[ERROR] code=${e.error?.code} msg=${e.error?.message} raw=${JSON.stringify(e.error?.raw ?? '').slice(0, 200)}`))
+    p4.on('manifestLoaded', () => logs4.push('[manifestLoaded]'))
+    p4.on('streamInitialized', () => logs4.push('[streamInitialized]'))
+    const v4 = document.createElement('video')
+    adapter4.attach(v4)
+    p4.attachSource(u)
+    await new Promise((r) => setTimeout(r, 9000))
+    const ok4 = logs4.some((l) => l === '[streamInitialized]')
+    window.__SEG_EXP = { ok: ok4, logs: logs4 }
+    log(`实验4(独立 DashAdapter + 引擎 SegmentList MPD blob): ${ok4 ? '✅ 成功' : '❌ 失败'} | ${logs4.join(' | ') || '(无事件)'}`)
+    try { adapter4.destroy() } catch { /* */ }
+  } catch (e) {
+    window.__SEG_EXP = { ok: false, logs: [`异常: ${e.message}`] }
+    log(`实验4异常: ${e.message}`)
+  }
+})()
+
+try {
+  const { videojs10DashEngine } = await import('/src/modules/player/engines/videojs10-dash-engine.ts')
+  log('引擎模块加载成功')
+
+  const video = document.getElementById('test-video')
+  // 与用户链路一致:相对路径源(同源),走 mpd-builder 预读 + 虚拟 MPD + 相对 BaseURL
+  const source = {
+    url: '/test-media/video.mp4',
+    audioUrl: '/test-media/audio.mp4',
+    format: 'dash',
+    duration: 60,
+    videoCodec: 'avc1.640020',
+    audioCodec: 'mp4a.40.2',
+  }
+
+  log('开始 attach...')
+  const result = await videojs10DashEngine.attach(video, source)
+  log(`attach 成功 blobUrl=${result.blobUrl.slice(0, 40)}...`)
+
+  await video.play().then(
+    () => log('play() 已调用'),
+    (e) => log(`play() 被拒绝: ${e.message}`)
+  )
+  log(`play 后: paused=${video.paused} readyState=${video.readyState} duration=${video.duration} currentTime=${video.currentTime}`)
+
+  await new Promise((r) => setTimeout(r, 12000))
+  const finalState = {
+    paused: video.paused,
+    readyState: video.readyState,
+    duration: video.duration,
+    currentTime: Number(video.currentTime.toFixed(2)),
+    error: video.error ? `code=${video.error.code} ${video.error.message}` : null,
+    videoWidth: video.videoWidth,
+    buffered: video.buffered.length
+      ? `${video.buffered.start(0).toFixed(1)}-${video.buffered.end(video.buffered.length - 1).toFixed(1)}`
+      : '空',
+  }
+  const ok = !finalState.error && finalState.readyState >= 2 && finalState.currentTime > 0
+  window.__TEST_RESULT = { ok, finalState, logs, reqLog, blobLog, xhrLog, fetchLog }
+  log('最终状态: ' + JSON.stringify(finalState))
+  log('BLOB 生命周期:\n' + blobLog.join('\n'))
+  log('XHR 请求:\n' + xhrLog.join('\n'))
+  log('FETCH 请求:\n' + fetchLog.join('\n'))
+} catch (err) {
+  log(`失败: ${err.message}${err.cause ? ' | cause: ' + String(err.cause) : ''}`)
+  log('BLOB 生命周期:\n' + blobLog.join('\n'))
+  log('XHR 请求:\n' + xhrLog.join('\n'))
+  log('FETCH 请求:\n' + fetchLog.join('\n'))
+  window.__TEST_RESULT = { ok: false, error: err.message, cause: String(err.cause ?? ''), logs, reqLog, blobLog, xhrLog, fetchLog }
+}
+</script>
+</body>
+</html>

@@ -270,6 +270,25 @@ export const videojs10DashEngine: PlayerEngine = {
       audioBaseUrl = resolveProxyUrl(audioUrl, undefined, 'dash')
     }
 
+    // ⚠️ dash.js 5.2.0 关键兼容修复：MPD 内 BaseURL 必须是绝对 URL。
+    // MPD 经 blob: URL 交给 dash.js 时，其内部 URL 解析器用 manifest URL 作
+    // base 解析相对 BaseURL——new URL('/api/...', 'blob:...') 抛错后原样返回
+    // 相对路径，导致 BaseURLController.resolve() 返回 undefined，
+    // getInitRequest 恒为 null，ScheduleController 在 "get init request"
+    // 处 500ms 死循环，永不 streamInitialized，最终 metadata 30s 超时。
+    // （dash.js 4.7.4 的解析器可容忍 blob base，故旧管线无此问题。）
+    // 绝对化后解析不再依赖 manifest URL 本身，blob/HTTP manifest 均可播。
+    // blob: / http(s): 等绝对 URL 经 new URL(u, base) 原样透传，幂等无害。
+    const absolutizeBaseUrl = (url: string): string => {
+      try {
+        return new URL(url, window.location.href).href
+      } catch {
+        return url
+      }
+    }
+    videoBaseUrl = absolutizeBaseUrl(videoBaseUrl)
+    audioBaseUrl = absolutizeBaseUrl(audioBaseUrl)
+
     const mpd = generateMpd({
       videoUrl: videoBaseUrl,
       audioUrl: audioBaseUrl,
@@ -322,8 +341,13 @@ export const videojs10DashEngine: PlayerEngine = {
     // CLI 代理场景：URL 是 http://127.0.0.1:xxxx/proxy?url=...（跨域），
     // CLI 不需要 Cookie 认证，且 credentials=true 会触发 CORS 凭证策略冲突。
     // 缓冲模式：BaseURL 是 blob: URL，credentials 设置不影响加载。
+    //
+    // MPD 排除凭证：MPD 是本地生成的 blob URL（URL.createObjectURL），
+    // 无需任何凭证；blob 请求也从不携带 cookie，设 true 无意义。
+    // segment 凭证不受影响：BaseURL 是同源代理 URL（同源 XHR 恒带 cookie），
+    // token 亦已附加在 URL 查询参数中。
     const useCredentials = !isCliProxyUrl(source.url)
-    engine.setXHRWithCredentialsForType('MPD', useCredentials)
+    engine.setXHRWithCredentialsForType('MPD', false)
     engine.setXHRWithCredentialsForType('MediaSegment', useCredentials)
     engine.setXHRWithCredentialsForType('InitializationSegment', useCredentials)
     engine.setXHRWithCredentialsForType('XLink', useCredentials)
