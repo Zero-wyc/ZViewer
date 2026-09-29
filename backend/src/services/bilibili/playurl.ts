@@ -264,12 +264,19 @@ function normalizePlayUrlData(
     const audio = sortByBandwidthDesc(
       data.dash.audio?.map(normalizeDashMedia),
     );
+    // 关键修复：currentQn 必须反映实际选中的轨道清晰度。
+    // B站未登录/低权限时 quality 字段可能高于实际提供的轨道
+    // （实测：未登录返回 quality=64，但 dash.video 只有 id=32/16 的轨道），
+    // 此时 matchedQnTracks 为空、bestVideo 是降级轨道——若仍用 quality
+    // 会导致前端显示 720P 而实际播放 480P。
+    const effectiveQn =
+      matchedQnTracks.length > 0 ? qn : video[0]?.id ?? qn;
     console.log(
       '[bilibili-playurl] 选定 bestVideo: id=%d bandwidth=%d codecs=%s (实际 qn=%d, 过滤后 %d 条匹配轨道)',
       video[0]?.id,
       video[0]?.bandwidth,
       video[0]?.codecs,
-      qn,
+      effectiveQn,
       matchedQnTracks.length,
     );
     return {
@@ -278,7 +285,7 @@ function normalizePlayUrlData(
       audio,
       bestVideo: video[0],
       bestAudio: audio[0],
-      currentQn: qn,
+      currentQn: effectiveQn,
       acceptQuality,
     };
   }
