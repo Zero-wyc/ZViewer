@@ -237,9 +237,16 @@ export async function resolveBilibiliOnline(
   }
 
   const forceRefresh = options?.forceRefresh === true
+  // 自动解析不携带 qn（undefined）：服务端 / CLI 按账号权限默认清晰度
+  // （会员 120 / 普通 80）请求，B站会降级授予权限内最高档（实测 120→80，
+  // 即 1080P）。固定携带 movie.currentQn 会因历史降级值（如 64）永久固化
+  // 低清晰度——B站对低 qn 请求只回对应档位轨道（响应中更高档轨道会被
+  // 服务端按 qn 过滤掉）。用户手动切档走 useBilibiliQuality.applyQualityChange
+  // （显式 qn，写回 currentQn），不经过本函数。
+  const requestedQn: number | undefined = undefined
   const cacheKey = buildBilibiliResolveCacheKey(
     movie.id,
-    movie.currentQn,
+    requestedQn,
     effectivePreferMp4,
     proxyUrl
   )
@@ -261,7 +268,7 @@ export async function resolveBilibiliOnline(
         proxyUrl,
         bvid,
         movie.cid,
-        movie.currentQn,
+        requestedQn,
         effectivePreferMp4,
         forceDash
       )
@@ -269,7 +276,7 @@ export async function resolveBilibiliOnline(
     } else {
       const resolved = await resolveBilibiliWithOptions(
         movie.url,
-        movie.currentQn,
+        requestedQn,
         onProgress,
         { preferMp4: effectivePreferMp4 }
       )
@@ -278,7 +285,7 @@ export async function resolveBilibiliOnline(
   } else {
     const resolved = await resolveBilibiliWithOptions(
       movie.url,
-      movie.currentQn,
+      requestedQn,
       onProgress,
       { preferMp4: effectivePreferMp4 }
     )
