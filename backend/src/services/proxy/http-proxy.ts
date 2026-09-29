@@ -94,10 +94,18 @@ const PASSTHROUGH_HEADERS = [
 /**
  * 把客户端 Range 收敛为「有界分片」再透传给上游（jellyfin/emby/B站 CDN 等）。
  *
- * 浏览器 <video> 的探测请求通常是开放式 `bytes=0-`、或显式全量
- * `bytes=0-<size-1>`；直接透传会让上游一次性返回整个文件（数百 MB～数 GB），
+ * 仅对**开放式**请求（`bytes=0-`、`bytes=N-`）收敛：浏览器 <video> 的探测
+ * 请求是开放式，直接透传会让上游一次性返回整个文件（数百 MB～数 GB），
  * 客户端拿到元数据后往往立即断开，已传输部分全部作废——这是代理场景最大的
  * 无效流量来源。截断为 MAX_RANGE_CHUNK_BYTES 后由客户端按需续传。
+ *
+ * **显式 end 的 range 必须原样透传**（`bytes=start-end`）：客户端明确声明
+ * 了所需字节区间。dash.js 虚拟 MPD 的 SegmentList 按单个完整 segment 发起
+ * 显式 Range 请求，4K 高码率下单个 m4s segment 普遍 8-15MB——截断会让
+ * dash.js 拿到不完整的 fragment，BMFF 解析失败后反复重试/等待，表现为
+ * 播放持续缓冲（且仅 4K 卡顿、1080P 以下正常，因 segment 均小于 8MB）。
+ * 显式大 range 若客户端提前断开，onClientGone 会中止上游，浪费有限。
+ *
  * 尾部 suffix 请求（`bytes=-N`）与多段 Range 原样透传（长度天然有限）。
  */
 function clampRangeHeader(
@@ -112,12 +120,10 @@ function clampRangeHeader(
   if (!match || (!match[1] && !match[2]) || !match[1]) return raw;
   const start = parseInt(match[1], 10);
   if (!Number.isFinite(start) || start < 0) return raw;
-  const hasEnd = match[2] !== '';
-  const end = hasEnd ? parseInt(match[2], 10) : Number.POSITIVE_INFINITY;
-  if (!hasEnd || end - start + 1 > maxChunk) {
-    return `bytes=${start}-${start + maxChunk - 1}`;
-  }
-  return raw;
+  // 显式 end：客户端明确所需区间，原样透传（见函数注释，勿截断）
+  if (match[2] !== '') return raw;
+  // 开放式 range（bytes=N-）：收敛为有界分片，防探测请求拉取全文件
+  return `bytes=${start}-${start + maxChunk - 1}`;
 }
 
 /** 构造上游请求头：UA / Referer / Origin / Cookie / Range 透传 */
