@@ -81,6 +81,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   //       房间内开启开关即自动使用，无需按房间连接 =====
   const cliAgent = useCliAgent()
   const cliAvailable = cliAgent.available
+  /** CLI 高画质是否接管视频背景解析（接管时播放模式锁定为 DASH） */
+  const cliVideoActive = musicVideoCli && cliAvailable
   const username = useAuthStore((s) => s.user?.username)
   const openCliSetup = () => {
     const url = new URL(`http://127.0.0.1:${CLI_DEFAULT_PORT}/`)
@@ -421,44 +423,57 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   <ExternalLink className="h-3 w-3" />
                   打开 CLI 配置页
                 </button>
-              </div>
-              {/* 服务器解析模式（CLI 高画质接管时此设置暂不生效）：
-              MP4 直链（720P，兼容性最好）/ 服务器 DASH 双轨（清晰度跟随
-              账号默认档，大会员可获高画质），与歌词页右上角快捷切换同项 */}
-              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
-                <span className="min-w-0">
-                  <span className="block text-[13px] font-bold text-white">
-                    服务器解析模式
-                  </span>
-                  <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    {musicVideoCli && cliAvailable
-                      ? 'CLI 高画质已接管，此设置暂不生效'
-                      : '视频背景的服务器解析格式'}
-                  </span>
-                </span>
-                <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/10 p-0.5">
-                  {(
-                    [
-                      [false, 'MP4'],
-                      [true, 'DASH'],
-                    ] as Array<[boolean, string]>
-                  ).map(([value, label]) => (
+                {/* 播放模式（BilibiliParseSettings 同构分段按钮，黑底配色适配）：
+                DASH 高画质 / MP4 直链同卡片切换；CLI 高画质接管时锁定并提示。
+                变更即触发视频背景重解析（useMusicVideoBackground 依赖 serverDash） */}
+                <div className="mt-2">
+                  <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
+                    播放模式
+                  </div>
+                  <div
+                    className={cn(
+                      'grid grid-cols-2 gap-1 rounded-lg bg-white/10 p-0.5',
+                      cliVideoActive && 'opacity-40'
+                    )}
+                  >
                     <button
-                      key={label}
                       type="button"
+                      disabled={cliVideoActive}
                       onClick={() =>
-                        setSettings({ musicVideoServerDash: value })
+                        setSettings({ musicVideoServerDash: true })
                       }
                       className={cn(
-                        'rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors',
-                        musicVideoServerDash === value
+                        'rounded-md py-1 text-[10px] font-semibold transition-all',
+                        musicVideoServerDash
                           ? 'bg-white text-black shadow-sm'
-                          : 'text-white/60 hover:text-white'
+                          : 'text-white/60 hover:bg-white/10'
                       )}
                     >
-                      {label}
+                      DASH 高画质
                     </button>
-                  ))}
+                    <button
+                      type="button"
+                      disabled={cliVideoActive}
+                      onClick={() =>
+                        setSettings({ musicVideoServerDash: false })
+                      }
+                      className={cn(
+                        'rounded-md py-1 text-[10px] font-semibold transition-all',
+                        !musicVideoServerDash
+                          ? 'bg-white text-black shadow-sm'
+                          : 'text-white/60 hover:bg-white/10'
+                      )}
+                    >
+                      MP4 直链
+                    </button>
+                  </div>
+                  <div className="mt-1 text-[10px] leading-snug text-white/50">
+                    {cliVideoActive
+                      ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析（不再自动降级 MP4）'
+                      : musicVideoServerDash
+                        ? 'DASH 分离流，清晰度跟随账号（大会员可获 1080P/4K）'
+                        : 'MP4 直链，seek 流畅，清晰度通常 480P/720P'}
+                  </div>
                 </div>
               </div>
               {/* 背景显示方式（视频背景的画面适配方式，点击循环切换） */}
