@@ -59,7 +59,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   roomCreationMode: 'admin-only',
   roomPermissionMatrix: null,
   betaFeaturesEnabled: false,
-  dashDisabled: true,
+  dashDisabled: false,
   playsvideoEnabled: true,
   cdnAccelerate: false,
   cdnProxyUrl: 'https://gh-proxy.com',

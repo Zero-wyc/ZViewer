@@ -54,7 +54,7 @@ export class SystemSettings {
    * - false：正常 DASH/MP4 自动选择
    * 注意：仅影响服务器端解析，不影响 CLI 代理的 DASH 模式
    */
-  @Column({ type: 'boolean', default: true })
+  @Column({ type: 'boolean', default: false })
   dashDisabled!: boolean;
 
   /**

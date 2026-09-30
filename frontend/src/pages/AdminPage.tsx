@@ -1646,9 +1646,6 @@ export default function AdminPage() {
 
                 <Title level={5} className="mb-4 mt-6">
                   服务器 DASH 流
-                  <span className="ml-2 text-xs font-normal text-[var(--md-sys-color-on-surface-variant)]">
-                    （已废弃，不建议关闭）
-                  </span>
                 </Title>
                 <div className="mb-6">
                   <Switch
