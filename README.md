@@ -168,12 +168,9 @@ services:
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
-
-volumes:
-  zviewer-data:
 ```
-
-- 镜像以 HTTP 模式启动，HTTPS 建议在前加 Nginx / Caddy 反代。
+- 请修改上面的zviewer-data为实际需放数据文件的目录路径
+- 镜像以 HTTP 模式启动，HTTPS 需要自行配置
 - `/app/config` 挂载 volume，含数据库（`dev.sqlite`）、证书（`ssl/`）、上传文件（`uploads/`）、推流切片（`media/`）。
 - 容器内更新为程序文件替换后直接重启后端进程，不重启容器。
 
