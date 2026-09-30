@@ -212,6 +212,9 @@ function purgeBilibiliResolveCache(movieId: number): void {
  * 若该影片启用了 CLI 代理且本地 CLI 在线，则通过 CLI 使用用户自己的 Cookie
  * 解析高画质地址；否则回退到服务端解析。
  *
+ * CLI 已启用但本地未连接时：不再抛错中断播放，回退服务器端 DASH 解析
+ * （forceDash 禁用后端 DASH→MP4 CDN 降级），与「CLI 启用即锁定 DASH」语义一致。
+ *
  * 结果带 5 分钟 TTL 缓存；forceRefresh 为 true 时绕过缓存并清空旧条目
  * （用于复用旧 URL 失败后的强制重新解析——缓存的正是刚失败的 URL）。
  */
@@ -222,13 +225,15 @@ export async function resolveBilibiliOnline(
 ): Promise<ResolvedMovieSource> {
   const parsePrefs = getBilibiliParseOptions(movie.id)
   const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
-  // CLI 已启用时强制使用 DASH 代理，不再降级 MP4；未连接时直接报错，避免回退
+  // CLI 已启用时强制使用 DASH 代理，不再降级 MP4
   const effectivePreferMp4 =
     options?.preferMp4 ?? getEffectivePreferMp4(movie.id)
   const forceDash = parsePrefs.cliEnabled && !!proxyUrl
 
   if (parsePrefs.cliEnabled && !proxyUrl) {
-    throw new Error('CLI 代理未连接，请先启动本地 zcontrol-cli')
+    console.warn(
+      '[movie-source-resolver] CLI 已启用但本地代理未连接，回退服务器 DASH 解析'
+    )
   }
 
   const forceRefresh = options?.forceRefresh === true
@@ -282,7 +287,12 @@ export async function resolveBilibiliOnline(
       movie.url,
       requestedQn,
       onProgress,
-      { preferMp4: effectivePreferMp4 }
+      {
+        preferMp4: effectivePreferMp4,
+        // CLI 启用未连接的回退路径：forceDash 禁用后端 DASH→MP4 降级，
+        // 保证「CLI 启用即锁定 DASH」在未连接时依然成立
+        forceDash: parsePrefs.cliEnabled && !proxyUrl,
+      }
     )
     resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
   }

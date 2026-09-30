@@ -131,7 +131,14 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
               throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
             }
           } else {
-            resolved = await resolveBilibiliWithOptions(movie.url, qn)
+            // CLI 未启用走服务器默认（DASH）；CLI 启用未连接回退服务器
+            // DASH 并禁用后端 MP4 降级，保持「CLI 启用即锁定 DASH」语义
+            resolved = await resolveBilibiliWithOptions(
+              movie.url,
+              qn,
+              undefined,
+              { forceDash: parsePrefs.cliEnabled }
+            )
           }
         }
 

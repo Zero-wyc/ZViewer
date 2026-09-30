@@ -244,9 +244,8 @@ async function resolveBiliAudio(
   const cached = getCachedBiliAudioUrl(mapKey)
   if (cached) return { playUrl: cached, durationMs: item.durationMs }
   const pageUrl = `https://www.bilibili.com/video/${item.biliBvid}`
-  const proxyUrl = useMusicSettingsStore.getState().musicVideoCli
-    ? getActiveCliProxyUrl()
-    : null
+  const cliEnabled = useMusicSettingsStore.getState().musicVideoCli
+  const proxyUrl = cliEnabled ? getActiveCliProxyUrl() : null
   let playUrl: string
   let durationMs = item.durationMs
   if (proxyUrl) {
@@ -263,6 +262,17 @@ async function resolveBiliAudio(
       throw new Error('未获取到音频地址')
     }
     playUrl = (r.audioUrl ?? r.videoUrl) as string
+    if (r.duration) durationMs = Math.round(r.duration * 1000)
+  } else if (cliEnabled) {
+    // CLI 已启用但未连接：与一起看同语义，回退服务器 DASH 音轨而非
+    // 720P MP4 合一轨（qn 不传=后端按账号权限默认档）；音轨为 B站 CDN
+    // 直链，须经后端媒体代理注入 Referer
+    console.warn('[useListenTogether] CLI 未连接，回退服务器 DASH 音轨解析')
+    const r = await resolveBilibiliWithOptions(pageUrl, undefined, undefined, {
+      forceDash: true,
+    })
+    if (!r.audioUrl && !r.videoUrl) throw new Error('未获取到音频地址')
+    playUrl = buildProxyUrl((r.audioUrl ?? r.videoUrl) as string)
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   } else {
     // 服务器端解析 720P MP4 直链（音视频合一，audio 元素仅出声），
