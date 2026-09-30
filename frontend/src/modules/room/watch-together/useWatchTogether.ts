@@ -993,8 +993,6 @@ export function useWatchTogether({
           sourceType === 'bilibili' &&
           r.format === 'dash' &&
           getBilibiliParseOptions(movie.id).bufferMode === true,
-        // MKV 快速路径：原生友好编码（AAC/MP3/Opus 音轨）直接原生播放
-        mkvFastPath: r.mkvFastPath ?? false,
         // 影片级浏览器播放引擎开关（添加影片时设置），随状态广播给观众
         playsvideoEnabled: r.playsvideoEnabled !== false,
         // 挂载直链模式：直连失败不回退服务器代理，直接提示错误

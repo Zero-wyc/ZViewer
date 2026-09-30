@@ -189,11 +189,8 @@ function toPlayerSource(
     videoCodec: state.videoCodec,
     audioCodec: state.audioCodec,
     headers: state.headers,
-    // MKV 快速路径：原生友好编码跳过重封装管线直接原生播放
-    // （原生失败由 usePlayerSource 自动回退 playsvideo 管线）
-    mkvFastPath: state.mkvFastPath,
-    // 影片级浏览器播放引擎开关（添加影片时设置），与系统级开关一起
-    // 在 shouldUsePlaysVideo 中决定是否启用 playsvideo 管线
+    // 影片级浏览器播放引擎开关（添加影片时设置），是 shouldUsePlaysVideo
+    // 的唯一门控（原生失败不回退管线）
     playsvideoEnabled: state.playsvideoEnabled,
     // 挂载直链模式：直连失败不回退服务器代理，直接提示错误
     noProxyFallback: state.noProxyFallback,

@@ -63,13 +63,8 @@ export interface ResolvedMovieSource {
    */
   reusedRecoveryUrl: boolean
   /**
-   * MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时置位，
-   * 跳过 playsvideo 重封装管线直接原生播放（原生失败自动回退管线）。
-   */
-  mkvFastPath?: boolean
-  /**
    * 影片级浏览器播放引擎（playsvideo）开关（添加影片时设置）。
-   * false 时强制原生直连播放，需与系统级开关同时开启才启用管线。
+   * false 时强制原生直连播放（唯一门控，原生失败不回退管线）。
    */
   playsvideoEnabled?: boolean
   /**
@@ -338,37 +333,6 @@ export async function resolveAnimeOnline(
 }
 
 /**
- * 计算 MKV 快速路径标记（原生播放直通判定）。
- *
- * 适用于所有挂载源（server-files / webdav / openlist / ftp / smb /
- * emby / jellyfin 等）：音视频编码均为浏览器原生友好时，跳过
- * playsvideo 重封装管线直接原生播放（瞬时起播、暂停即静音）；
- * 原生失败（video.error）由 usePlayerSource 自动回退管线，能力不损失。
- *
- * - 视频：Chrome 对 MKV 的原生支持仅限 H.264（AVC），HEVC（尤其 10bit）
- *   必然 NotSupportedError，有元数据时提前避开一次注定失败的原生尝试；
- * - 音频：DTS/AC3/EAC3/FLAC 等编码需 playsvideo 转码，仅
- *   AAC/MP3/Opus/Vorbis 允许直通；
- * - 编码元数据缺失时 audioCodec 不在白名单内，保守走 playsvideo
- *   （server-files 源历史行为：videoCodec 缺失不阻止，由 attach
- *   失败回退兜底）。
- */
-function computeMkvFastPath(
-  format: MediaFormat | undefined,
-  videoCodec: string | undefined,
-  audioCodec: string | undefined
-): boolean {
-  if (format !== 'mkv') return false
-  const video = (videoCodec || '').toLowerCase()
-  const videoNativeSafe =
-    !video || video.includes('avc') || video.includes('h264')
-  if (!videoNativeSafe) return false
-  return ['aac', 'mp3', 'opus', 'vorbis'].includes(
-    (audioCodec || '').toLowerCase()
-  )
-}
-
-/**
  * 解析影片的播放源。
  *
  * - B站 源：在线解析 playurl（带解析进度回调）；
@@ -440,11 +404,6 @@ export async function resolveMovieSource({
       acceptQuality: movie.acceptQuality,
       headers: undefined,
       reusedRecoveryUrl: false,
-      mkvFastPath: computeMkvFastPath(
-        format,
-        movie.videoCodec,
-        movie.audioCodec
-      ),
       playsvideoEnabled: movie.playsvideoEnabled !== false,
     }
   }
@@ -489,11 +448,6 @@ export async function resolveMovieSource({
     acceptQuality: movie.acceptQuality,
     headers: undefined,
     reusedRecoveryUrl: false,
-    mkvFastPath: computeMkvFastPath(
-      inferredFormat,
-      movie.videoCodec,
-      movie.audioCodec
-    ),
     playsvideoEnabled: movie.playsvideoEnabled !== false,
     noProxyFallback: movie.directLink === true,
   }

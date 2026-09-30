@@ -1668,28 +1668,6 @@ export default function AdminPage() {
                 </div>
 
                 <Title level={5} className="mb-4 mt-6">
-                  播放引擎
-                </Title>
-                <div className="mb-6">
-                  <Switch
-                    label="启用浏览器播放引擎（playsvideo）"
-                    checked={settings.playsvideoEnabled}
-                    onChange={(e) =>
-                      setSettings((prev) => ({
-                        ...prev,
-                        playsvideoEnabled: e.target.checked,
-                      }))
-                    }
-                  />
-                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                    开启后，MKV/AVI/TS 等容器或 DTS/AC3/FLAC
-                    等音轨由浏览器端重封装/转码播放（兼容性最佳）。
-                    关闭后全部原生直连播放，不兼容的编码将无声或无法播放。
-                    影片级开关（添加影片时）需同时开启才会启用。
-                  </p>
-                </div>
-
-                <Title level={5} className="mb-4 mt-6">
                   版本更新
                 </Title>
                 <div className="glass-card mb-6 p-4">

@@ -106,25 +106,10 @@ export interface PlayerSource {
    */
   audioBlob?: Blob
   /**
-   * MKV 快速路径：编解码为浏览器原生友好组合（AAC/MP3/Opus 音轨等）时，
-   * 跳过 playsvideo 重封装管线，直接用 <video> 原生播放。
-   * 由 movie-source-resolver 依据 ffprobe 的音轨信息设置。
-   *
-   * 原生失败（video.error，如编码变体不受支持）时由 usePlayerSource
-   * 自动回退到 playsvideo 管线（forcePlaysVideo），能力不损失。
-   */
-  mkvFastPath?: boolean
-  /**
-   * 强制使用 playsvideo 管线（内部回退标记，不由业务代码设置）。
-   * MKV 快速路径原生失败后，回退重挂载时置位以绕过快速路径判定。
-   */
-  forcePlaysVideo?: boolean
-  /**
    * 影片级浏览器播放引擎（playsvideo）开关（添加影片时设置）。
    * - true（默认）：允许 playsvideo 管线
-   * - false：强制原生直连播放（mkvFastPath 一并失效）
-   * 需与系统级 playsvideoEnabled（systemSettingsStore）同时开启，
-   * 任一关闭时 shouldUsePlaysVideo 返回 false。
+   * - false：强制原生直连播放，**唯一门控**（原生失败不回退管线，
+   *   playsvideo 失败也不降级原生）
    */
   playsvideoEnabled?: boolean
   /**

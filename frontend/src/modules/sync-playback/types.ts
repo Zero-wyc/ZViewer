@@ -71,14 +71,8 @@ export interface WatchTogetherState {
    */
   bufferMode?: boolean
   /**
-   * MKV 快速路径：音轨为浏览器原生友好编码（AAC/MP3/Opus）时置位，
-   * 跳过 playsvideo 重封装管线直接原生播放（原生失败自动回退管线）。
-   */
-  mkvFastPath?: boolean
-  /**
    * 影片级浏览器播放引擎（playsvideo）开关（添加影片时设置并随状态广播）。
-   * false 时强制原生直连播放；需与系统级开关（systemSettingsStore）
-   * 同时开启才启用 playsvideo 管线。
+   * false 时强制原生直连播放，**唯一门控**——原生失败不回退管线。
    */
   playsvideoEnabled?: boolean
   /**

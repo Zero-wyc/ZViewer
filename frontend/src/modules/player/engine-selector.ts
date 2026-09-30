@@ -8,7 +8,8 @@
  *    + dash.js 5.2.0 执行层，动态生成 MPD 包装 m4s）
  * 2. format='hls' → HLS 引擎
  * 3. format='flv' → FLV 引擎
- * 4. 需要浏览器端重封装/转码 → playsvideo 引擎（见 shouldUsePlaysVideo）
+ * 4. 需要浏览器端重封装/转码 → playsvideo 引擎（见 shouldUsePlaysVideo，
+ *    唯一门控是影片级「浏览器转码引擎」开关）
  * 5. 其他 → Direct 引擎（浏览器原生播放 mp4/webm 等）
  *
  * 注：自研 MSE 引擎已移除（曾长期不可达：所有含独立音频轨的源统一由
@@ -27,7 +28,6 @@ import {
   isPlaysVideoSupported,
 } from './engines/playsvideo-engine'
 import { needsBrowserTranscode } from '@/lib/audioCodecs'
-import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 /** 所有引擎实例（单例，无需重复创建） */
 const ENGINES: Record<string, PlayerEngine> = {
@@ -68,15 +68,17 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
 /**
  * 判断该源是否应交给 playsvideo 引擎。
  *
- * 判定前提：系统级开关（管理后台「基础设置」的 playsvideoEnabled）与
- * 影片级开关（添加影片时的 playsvideoEnabled）均开启——任一关闭即
- * 强制原生直连播放。之后只要浏览器具备运行条件（MSE + Worker）即生效：
+ * 唯一门控：影片级开关（添加影片时的 playsvideoEnabled「浏览器转码
+ * 引擎」）。关闭即强制原生直连播放——原生失败不回退管线（宁可失败
+ * 也不启动未启用的引擎）。之后只要浏览器具备运行条件（MSE + Worker）
+ * 即生效：
  *
  * 1. **avi / ts / wmv** —— 浏览器无法原生打开，只能重封装。
- * 2. **mkv** —— 一律交给 playsvideo。理由有二：浏览器对 MKV 的原生支持
- *    仅限 H.264/AAC 组合，容错面窄；且 DTS/AC3 等音轨需要浏览器端转码。
- *    playsvideo 在直通模式下仍是 `video.src` 原生解码，不产生重封装开销。
- *    （内嵌字幕与此选择无关：由自研提取器 subtitles/mkv-embedded 提供）
+ * 2. **mkv** —— 一律交给 playsvideo，无原生快速路径。理由有二：浏览器
+ *    对 MKV 的原生支持仅限 H.264/AAC 组合，容错面窄；且 DTS/AC3 等音轨
+ *    需要浏览器端转码。playsvideo 在直通模式下仍是 `video.src` 原生
+ *    解码，不产生重封装开销。（内嵌字幕与此选择无关：由自研提取器
+ *    subtitles/mkv-embedded 提供）
  * 3. **其他容器（mp4 / webm / mov）** —— 仅当音轨明确不被浏览器支持时
  *    介入。这类源原生播放已经完美，无谓地走一遍 demux 只会徒增延迟与
  *    代理流量。
@@ -86,20 +88,12 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
  */
 export function shouldUsePlaysVideo(source: PlayerSource): boolean {
   if (!isPlaysVideoSupported()) return false
-  // 两级开关：系统级（管理后台「基础设置」）与影片级（添加影片时设置）
-  // 任一关闭即强制原生直连播放，**包括 forcePlaysVideo 回退路径**——
-  // 用户明确关闭引擎后，原生失败不再回退管线（宁可失败也不启动
-  // 被禁用的引擎）。
-  const systemEnabled =
-    useSystemSettingsStore.getState().playsvideoEnabled !== false
-  if (!systemEnabled) return false
+  // 影片级开关（添加影片时设置）是唯一门控；缺省（undefined）沿用
+  // 后端 movie.service 的 `!== false` 宽松语义，视为允许。
   if (source.playsvideoEnabled === false) return false
-  // MKV 快速路径：编解码原生友好时先尝试 <video> 原生播放，
-  // 原生失败由 usePlayerSource 置 forcePlaysVideo 回退管线
-  if (source.forcePlaysVideo) return true
   const format = source.format
   if (format && (REMUX_ONLY_FORMATS as string[]).includes(format)) return true
-  if (format === 'mkv') return !source.mkvFastPath
+  if (format === 'mkv') return true
 
   return !!source.audioCodec && needsBrowserTranscode(source.audioCodec)
 }
