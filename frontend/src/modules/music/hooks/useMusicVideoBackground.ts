@@ -141,13 +141,13 @@ export function useMusicVideoBackground(
           }
           via = 'cli'
         } else {
-          // 与一起看 BilibiliParseSettings 同逻辑：CLI 开关启用即强制
-          // DASH（cliPrevPreferMp4 同语义）——未连接本地代理时回退的
-          // 也是服务器 DASH 而非 MP4；仅 CLI 关闭时才按 serverDash 设置。
-          const useServerDash = cliEnabled || serverDash
+          // 与一起看同语义：CLI 开关启用但未连接本地代理时回退服务器
+          // MP4 直链（用户指定：CLI 未连接就回退 MP4，不回退 DASH）；
+          // 仅 CLI 关闭时才按 serverDash 设置选择服务器 DASH/MP4 双轨。
+          const useServerDash = !cliEnabled && serverDash
           if (cliEnabled) {
             console.warn(
-              '[useMusicVideoBackground] CLI 未连接，回退服务器 DASH 解析'
+              '[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析'
             )
           }
           if (useServerDash) {

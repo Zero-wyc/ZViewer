@@ -347,7 +347,7 @@ export function BilibiliParseSettings({
               {displayCliEnabled
                 ? cliAgent.available
                   ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
-                  : '已启用但未检测到本地 CLI，请先启动本地代理以播放 DASH 高画质'
+                  : '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质'
                 : '使用本地 zcontrol-cli 获取大会员等高画质'}
             </div>
 
@@ -388,8 +388,8 @@ export function BilibiliParseSettings({
                 ? '服务器已禁用 DASH 模式，当前强制 MP4 播放'
                 : cliEnabled
                   ? cliAgent.available
-                    ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析（不再自动降级 MP4）'
-                    : '已启用 CLI 但未连接本地代理，请先启动本地 zcontrol-cli 以播放 DASH 高画质'
+                    ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
+                    : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 zcontrol-cli 获取高画质'
                   : displayPreferMp4
                     ? 'MP4 直链，seek 流畅，清晰度通常 480P/720P'
                     : 'DASH 分离流，支持 1080P/4K，seek 需缓冲'}

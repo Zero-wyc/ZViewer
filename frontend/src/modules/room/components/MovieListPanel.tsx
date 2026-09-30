@@ -180,10 +180,10 @@ export function MovieListPanel({
           throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
         }
       } else {
-        // CLI 未启用按影片偏好解析；CLI 启用未连接回退服务器 DASH
+        // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4
+        // 返回 true，回退服务器 MP4 直链
         resolved = await resolveBilibiliWithOptions(movie.url, qn, undefined, {
           preferMp4: getEffectivePreferMp4(movie.id),
-          forceDash: parsePrefs.cliEnabled,
         })
       }
       await updateMovie(roomId, movie.id, {
@@ -286,14 +286,14 @@ export function MovieListPanel({
           throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
         }
       } else {
-        // CLI 未启用按影片偏好解析；CLI 启用未连接回退服务器 DASH
+        // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4
+        // 返回 true，回退服务器 MP4 直链
         resolved = await resolveBilibiliWithOptions(
           movie.url,
           movie.currentQn,
           undefined,
           {
             preferMp4: getEffectivePreferMp4(movie.id),
-            forceDash: parsePrefs.cliEnabled,
             page,
           }
         )

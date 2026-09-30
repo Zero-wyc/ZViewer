@@ -554,7 +554,7 @@ export function useWatchTogether({
       try {
         // 未显式传入 options 时，从 localStorage 读取该影片的播放模式偏好
         // （BilibiliParseSettings 中切换播放模式触发 triggerReloadBilibili 走此路径）
-        // CLI 已启用但未连接时不再抛错，由 resolveBilibiliOnline 统一回退服务器 DASH
+        // CLI 已启用但未连接时不抛错，由 getEffectivePreferMp4 回退服务器 MP4
         const resolvedOptions = options ?? {
           preferMp4: getEffectivePreferMp4(movie.id),
           // 用户主动触发重载（切清晰度/播放模式）：绕过解析缓存取新地址
@@ -722,10 +722,10 @@ export function useWatchTogether({
       suppressEventsRef.current = true
       try {
         if (cliEnabled && movie?.url && movie.cid && !hasOverride) {
-          // CLI 已连接走本地代理 DASH；未连接由 resolveBilibiliOnline
-          // 统一回退服务器 DASH（不再要求必须已连接才重解析）
+          // CLI 已连接走本地代理 DASH；未连接由 getEffectivePreferMp4
+          // 返回 true，回退服务器 MP4 直链（不要求必须已连接才重解析）
           const resolved = await resolveBilibiliOnline(movie, undefined, {
-            preferMp4: false,
+            preferMp4: getEffectivePreferMp4(movie.id),
           })
           const resolvedSource: ResolvedSource = {
             videoUrl: resolved.sourceUrl,
@@ -870,7 +870,7 @@ export function useWatchTogether({
     ): Promise<ResolvedMovieSource> => {
       setIsResolving(true)
       try {
-        // CLI 已启用但未连接时不再抛错，由 resolveBilibiliOnline 统一回退服务器 DASH
+        // CLI 已启用但未连接时不抛错，由 getEffectivePreferMp4 回退服务器 MP4
         return await resolveBilibiliOnline(movie, undefined, {
           preferMp4: getEffectivePreferMp4(movie.id),
           forceRefresh,

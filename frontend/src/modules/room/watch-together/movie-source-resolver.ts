@@ -118,19 +118,19 @@ export function getActiveCliProxyUrl(): string | null {
 }
 
 /**
- * 获取影片实际生效的 MP4 偏好。
+ * 获取影片实际生效的 MP4 偏好（感知 CLI 连接状态）。
  *
- * 当用户启用 CLI 高画质代理后，强制走 DASH 代理路径，不再降级到 MP4；
- * 即使本地 CLI 暂时未连接，也保持 DASH 请求，由调用方提示连接代理，
- * 避免用户开启 CLI 后因网络问题被自动切回 MP4。
+ * CLI 已启用且本地代理已连接：强制 DASH 高画质代理路径（preferMp4=false）。
+ * CLI 已启用但本地代理未连接：回退服务器 MP4 直链（preferMp4=true），
+ * 不抛错也不回退服务器 DASH（用户指定语义：CLI 未连接就回退 MP4）。
  *
- * 当服务器端 DASH 被禁用（dashDisabled）且 CLI 未启用时，强制 MP4。
+ * CLI 未启用时：服务器端 DASH 被禁用（dashDisabled）强制 MP4，否则按偏好。
  */
 export function getEffectivePreferMp4(movieId: number): boolean {
   const { preferMp4, cliEnabled } = getBilibiliParseOptions(movieId)
   if (cliEnabled) {
-    // CLI 已启用：强制使用 DASH，不受 dashDisabled 影响
-    return false
+    // CLI 已启用：已连接走 CLI DASH，未连接回退服务器 MP4
+    return getActiveCliProxyUrl() ? false : true
   }
   // CLI 未启用：检查服务器端是否禁用了 DASH
   const { dashDisabled } = useSystemSettingsStore.getState()
@@ -212,8 +212,8 @@ function purgeBilibiliResolveCache(movieId: number): void {
  * 若该影片启用了 CLI 代理且本地 CLI 在线，则通过 CLI 使用用户自己的 Cookie
  * 解析高画质地址；否则回退到服务端解析。
  *
- * CLI 已启用但本地未连接时：不再抛错中断播放，回退服务器端 DASH 解析
- * （forceDash 禁用后端 DASH→MP4 CDN 降级），与「CLI 启用即锁定 DASH」语义一致。
+ * CLI 已启用但本地未连接时：不抛错中断播放，回退服务器端 MP4 直链解析
+ * （getEffectivePreferMp4 已按连接状态返回 true），一起看/一起听同语义。
  *
  * 结果带 5 分钟 TTL 缓存；forceRefresh 为 true 时绕过缓存并清空旧条目
  * （用于复用旧 URL 失败后的强制重新解析——缓存的正是刚失败的 URL）。
@@ -225,14 +225,15 @@ export async function resolveBilibiliOnline(
 ): Promise<ResolvedMovieSource> {
   const parsePrefs = getBilibiliParseOptions(movie.id)
   const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
-  // CLI 已启用时强制使用 DASH 代理，不再降级 MP4
+  // CLI 已启用：已连接走 CLI DASH；未连接由 getEffectivePreferMp4
+  // 返回 true，回退服务器 MP4 直链
   const effectivePreferMp4 =
     options?.preferMp4 ?? getEffectivePreferMp4(movie.id)
   const forceDash = parsePrefs.cliEnabled && !!proxyUrl
 
   if (parsePrefs.cliEnabled && !proxyUrl) {
     console.warn(
-      '[movie-source-resolver] CLI 已启用但本地代理未连接，回退服务器 DASH 解析'
+      '[movie-source-resolver] CLI 已启用但本地代理未连接，回退服务器 MP4 解析'
     )
   }
 
@@ -287,12 +288,7 @@ export async function resolveBilibiliOnline(
       movie.url,
       requestedQn,
       onProgress,
-      {
-        preferMp4: effectivePreferMp4,
-        // CLI 启用未连接的回退路径：forceDash 禁用后端 DASH→MP4 降级，
-        // 保证「CLI 启用即锁定 DASH」在未连接时依然成立
-        forceDash: parsePrefs.cliEnabled && !proxyUrl,
-      }
+      { preferMp4: effectivePreferMp4 }
     )
     resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
   }

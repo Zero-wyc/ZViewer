@@ -81,7 +81,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   //       房间内开启开关即自动使用，无需按房间连接 =====
   const cliAgent = useCliAgent()
   const cliAvailable = cliAgent.available
-  /** CLI 高画质开关启用即锁定播放模式为 DASH（与一起看同逻辑，无论连接与否） */
+  /** CLI 高画质开关启用即锁定播放模式（与一起看同逻辑：已连接走 CLI
+   *  DASH，未连接回退服务器 MP4，播放模式设置仅在 CLI 关闭时生效） */
   const cliVideoLocked = musicVideoCli
   const username = useAuthStore((s) => s.user?.username)
   const openCliSetup = () => {
@@ -424,8 +425,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   打开 CLI 配置页
                 </button>
                 {/* 播放模式（BilibiliParseSettings 同构分段按钮，黑底配色适配）：
-                DASH 高画质 / MP4 直链同卡片切换；CLI 开关启用即锁定 DASH
-                （未连接时回退服务器 DASH，与一起看 cliPrevPreferMp4 同语义）。
+                DASH 高画质 / MP4 直链同卡片切换；CLI 开关启用即锁定（已连接
+                走 CLI DASH，未连接回退服务器 MP4，与一起看同语义）。
                 变更即触发视频背景重解析（useMusicVideoBackground 依赖 serverDash） */}
                 <div className="mt-2">
                   <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
@@ -471,8 +472,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   <div className="mt-1 text-[10px] leading-snug text-white/50">
                     {cliVideoLocked
                       ? cliAvailable
-                        ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析（不再自动降级 MP4）'
-                        : '已启用 CLI 但未连接本地代理，回退服务器 DASH；请启动本地 zcontrol-cli 获取高画质'
+                        ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
+                        : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 zcontrol-cli 获取高画质'
                       : musicVideoServerDash
                         ? 'DASH 分离流，清晰度跟随账号（大会员可获 1080P/4K）'
                         : 'MP4 直链，seek 流畅，清晰度通常 480P/720P'}

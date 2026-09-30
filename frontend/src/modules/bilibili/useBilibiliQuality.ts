@@ -8,7 +8,10 @@ import type { WatchTogetherState, Movie } from '@/store/roomStore'
 import { safePlay } from '@/modules/sync-playback/safePlay'
 import { getBilibiliParseOptions } from './parseOptions'
 import { extractBvid, resolveBilibiliViaCli } from './cliApi'
-import { getActiveCliProxyUrl } from '@/modules/room/watch-together/movie-source-resolver'
+import {
+  getActiveCliProxyUrl,
+  getEffectivePreferMp4,
+} from '@/modules/room/watch-together/movie-source-resolver'
 
 function qualitiesEqual(a: QualityOption[], b: QualityOption[]): boolean {
   if (a.length !== b.length) return false
@@ -131,13 +134,13 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
               throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
             }
           } else {
-            // CLI 未启用走服务器默认（DASH）；CLI 启用未连接回退服务器
-            // DASH 并禁用后端 MP4 降级，保持「CLI 启用即锁定 DASH」语义
+            // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4
+            // 返回 true，回退服务器 MP4 直链
             resolved = await resolveBilibiliWithOptions(
               movie.url,
               qn,
               undefined,
-              { forceDash: parsePrefs.cliEnabled }
+              { preferMp4: getEffectivePreferMp4(movie.id) }
             )
           }
         }
