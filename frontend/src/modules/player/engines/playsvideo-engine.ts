@@ -67,10 +67,19 @@ import {
  */
 const READY_TIMEOUT_MS = 60_000
 
-/** TEMP-DIAG：临时诊断 hook，定位 endOfStream 调用来源（修复后移除） */
+/**
+ * 诊断 hook：定位 endOfStream 调用来源。
+ *
+ * 默认关闭（此前 TEMP-DIAG 期遗留的全局原型包裹——每次 endOfStream /
+ * removeSourceBuffer / duration 写入都打 error + 完整堆栈，MSE 操作
+ * 高频时开销可观且刷屏）。需要诊断时在控制台开启：
+ *   localStorage.setItem('zviewer-media-debug', '1'); location.reload()
+ * 与 lib/media-debug 探针共用同一开关。
+ */
 let diagInstalled = false
 function installMediaSourceDiagnostics(): void {
   if (diagInstalled || typeof MediaSource === 'undefined') return
+  if (localStorage.getItem('zviewer-media-debug') !== '1') return
   diagInstalled = true
   const proto = MediaSource.prototype as unknown as Record<string, unknown>
   const wrap = (name: string, extra: () => unknown) => {
