@@ -91,6 +91,7 @@ import {
   ensureDataDirs,
   migrateLegacyDataIfNeeded,
 } from './services/paths';
+import { ensureDatabaseFile } from './services/db-persistence';
 // getSystemSettings 抽到独立服务文件，避免子模块从根 index.ts 导入造成循环依赖。
 import { getSystemSettings } from './services/system-settings';
 export { getSystemSettings };
@@ -227,6 +228,10 @@ async function bootstrap() {
   // 否则 SQLite 会在旧路径创建空库，导致迁移逻辑误判。
   migrateLegacyDataIfNeeded();
   ensureDataDirs();
+
+  // 数据库文件健康检查：滚动备份 + 全零/损坏自愈（详见 services/db-persistence.ts）。
+  // 必须在 initialize 之前执行——sql.js 加载坏文件会直接抛「file is not a database」。
+  ensureDatabaseFile();
 
   await AppDataSource.initialize();
   console.log('TypeORM Data Source has been initialized.');

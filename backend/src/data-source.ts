@@ -16,6 +16,7 @@ import { DanmakuTrack } from './entities/DanmakuTrack';
 import { RoomDanmakuMeta } from './entities/RoomDanmakuMeta';
 import { AuditLog } from './entities/AuditLog';
 import { DATABASE_PATH } from './services/paths';
+import { atomicSaveDatabase } from './services/db-persistence';
 
 export const AppDataSource = new DataSource({
   // sql.js（wasm）驱动：纯 JS 实现，无原生模块，单文件版可在任意平台运行
@@ -25,6 +26,10 @@ export const AppDataSource = new DataSource({
   location: DATABASE_PATH,
   // 变更后自动保存到文件（Node 环境使用文件系统持久化，而非浏览器 IndexedDB）
   autoSave: true,
+  // 原子写回（tmp + rename），取代驱动默认的非原子 writeFile 直写——
+  // 后者在写回窗口内进程终止会留下全零文件（已两次引发数据丢失，
+  // 详见 services/db-persistence.ts 头注释）。
+  autoSaveCallback: (db: Uint8Array) => atomicSaveDatabase(db),
   useLocalForage: false,
   synchronize: true,
   logging: process.env.NODE_ENV === 'development',
