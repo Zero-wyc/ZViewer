@@ -71,8 +71,9 @@ export function useMusicVideoBackground(
   /** CLI 高画质分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 路径生效） */
   qn = 0,
   /**
-   * 服务器解析 DASH 模式（仅 CLI 路径未生效时使用）：true 走服务器
-   * DASH 双轨解析（清晰度跟随账号默认档），false 保持 720P MP4 直链
+   * 服务器解析 DASH 模式：true 走服务器 DASH 双轨解析（清晰度跟随
+   * 账号默认档），false 保持 720P MP4 直链。CLI 开关启用时强制 DASH
+   * （与一起看 cliPrevPreferMp4 同语义），本参数被绕过。
    */
   serverDash = false
 ): MusicVideoBackgroundState {
@@ -140,10 +141,16 @@ export function useMusicVideoBackground(
           }
           via = 'cli'
         } else {
+          // 与一起看 BilibiliParseSettings 同逻辑：CLI 开关启用即强制
+          // DASH（cliPrevPreferMp4 同语义）——未连接本地代理时回退的
+          // 也是服务器 DASH 而非 MP4；仅 CLI 关闭时才按 serverDash 设置。
+          const useServerDash = cliEnabled || serverDash
           if (cliEnabled) {
-            console.warn('[useMusicVideoBackground] CLI 未连接，回退服务器解析')
+            console.warn(
+              '[useMusicVideoBackground] CLI 未连接，回退服务器 DASH 解析'
+            )
           }
-          if (serverDash) {
+          if (useServerDash) {
             // 服务器 DASH 双轨：qn 不传（undefined），清晰度由后端按账号
             // 权限默认档决定（与一起看自动解析同语义，大会员可获高画质）
             const r = await resolveBilibiliWithOptions(

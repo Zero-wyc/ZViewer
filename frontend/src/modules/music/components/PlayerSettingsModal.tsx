@@ -81,8 +81,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   //       房间内开启开关即自动使用，无需按房间连接 =====
   const cliAgent = useCliAgent()
   const cliAvailable = cliAgent.available
-  /** CLI 高画质是否接管视频背景解析（接管时播放模式锁定为 DASH） */
-  const cliVideoActive = musicVideoCli && cliAvailable
+  /** CLI 高画质开关启用即锁定播放模式为 DASH（与一起看同逻辑，无论连接与否） */
+  const cliVideoLocked = musicVideoCli
   const username = useAuthStore((s) => s.user?.username)
   const openCliSetup = () => {
     const url = new URL(`http://127.0.0.1:${CLI_DEFAULT_PORT}/`)
@@ -424,7 +424,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   打开 CLI 配置页
                 </button>
                 {/* 播放模式（BilibiliParseSettings 同构分段按钮，黑底配色适配）：
-                DASH 高画质 / MP4 直链同卡片切换；CLI 高画质接管时锁定并提示。
+                DASH 高画质 / MP4 直链同卡片切换；CLI 开关启用即锁定 DASH
+                （未连接时回退服务器 DASH，与一起看 cliPrevPreferMp4 同语义）。
                 变更即触发视频背景重解析（useMusicVideoBackground 依赖 serverDash） */}
                 <div className="mt-2">
                   <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
@@ -433,18 +434,18 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   <div
                     className={cn(
                       'grid grid-cols-2 gap-1 rounded-lg bg-white/10 p-0.5',
-                      cliVideoActive && 'opacity-40'
+                      cliVideoLocked && 'opacity-40'
                     )}
                   >
                     <button
                       type="button"
-                      disabled={cliVideoActive}
+                      disabled={cliVideoLocked}
                       onClick={() =>
                         setSettings({ musicVideoServerDash: true })
                       }
                       className={cn(
                         'rounded-md py-1 text-[10px] font-semibold transition-all',
-                        musicVideoServerDash
+                        cliVideoLocked || musicVideoServerDash
                           ? 'bg-white text-black shadow-sm'
                           : 'text-white/60 hover:bg-white/10'
                       )}
@@ -453,13 +454,13 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     </button>
                     <button
                       type="button"
-                      disabled={cliVideoActive}
+                      disabled={cliVideoLocked}
                       onClick={() =>
                         setSettings({ musicVideoServerDash: false })
                       }
                       className={cn(
                         'rounded-md py-1 text-[10px] font-semibold transition-all',
-                        !musicVideoServerDash
+                        !cliVideoLocked && !musicVideoServerDash
                           ? 'bg-white text-black shadow-sm'
                           : 'text-white/60 hover:bg-white/10'
                       )}
@@ -468,8 +469,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     </button>
                   </div>
                   <div className="mt-1 text-[10px] leading-snug text-white/50">
-                    {cliVideoActive
-                      ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析（不再自动降级 MP4）'
+                    {cliVideoLocked
+                      ? cliAvailable
+                        ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析（不再自动降级 MP4）'
+                        : '已启用 CLI 但未连接本地代理，回退服务器 DASH；请启动本地 zcontrol-cli 获取高画质'
                       : musicVideoServerDash
                         ? 'DASH 分离流，清晰度跟随账号（大会员可获 1080P/4K）'
                         : 'MP4 直链，seek 流畅，清晰度通常 480P/720P'}

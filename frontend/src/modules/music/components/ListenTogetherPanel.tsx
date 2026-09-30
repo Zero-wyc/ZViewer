@@ -228,9 +228,8 @@ function ListenTogetherInner({
   )
   const setMusicServerDash = (v: boolean) =>
     useMusicSettingsStore.getState().set({ musicVideoServerDash: v })
-  /** CLI 连接状态：CLI 启用且连接时视频背景固定走 CLI 高画质，绕过服务器模式 */
+  /** CLI 连接状态检测；CLI 开关启用即锁定播放模式为 DASH（与一起看同逻辑） */
   const cliAgent = useCliAgent()
-  const cliVideoActive = musicVideoCli && cliAgent.available
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -1005,18 +1004,21 @@ function ListenTogetherInner({
                   qualityLabel={qualityLabel}
                 />
                 {/* ===== 视频背景播放模式选择（歌词页右上角快捷切换）：
-                    CLI 高画质接管时显示不可切换的 CLI 徽标；否则在服务器
-                    MP4 直链与服务器 DASH 双轨间切换，变更即触发重解析 ===== */}
+                    CLI 开关启用即锁定 DASH（与一起看同逻辑，未连接回退
+                    服务器 DASH）；否则在服务器 MP4 直链与服务器 DASH 双轨
+                    间切换，变更即触发重解析 ===== */}
                 {bgVideoReady && (
                   <div
                     className="glass-strong absolute right-3 top-3 z-20 flex items-center gap-0.5 rounded-full p-0.5"
                     title={
-                      cliVideoActive
-                        ? 'CLI 高画质代理已接管视频背景解析'
+                      musicVideoCli
+                        ? cliAgent.available
+                          ? 'CLI 高画质代理已接管视频背景解析'
+                          : '已启用 CLI 但未连接本地代理，回退服务器 DASH'
                         : '视频背景解析格式：MP4 直链兼容性最好，DASH 双轨清晰度跟随账号（大会员可获高画质）'
                     }
                   >
-                    {cliVideoActive ? (
+                    {musicVideoCli ? (
                       <span className="px-2.5 py-1 text-[10px] font-semibold text-white/90">
                         CLI 高画质
                       </span>
