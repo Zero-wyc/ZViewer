@@ -75,6 +75,14 @@ export interface MusicSettings {
    */
   musicVideoCli: boolean
   /**
+   * 视频背景服务器解析 DASH 模式：仅 CLI 高画质未启用或未连接时生效。
+   * - false（默认）：服务器解析 720P MP4 直链（qn=64），兼容性最好
+   * - true：服务器解析 DASH 双轨流（清晰度跟随账号默认档，大会员可获
+   *   高画质；音频由引擎 MSE 合流，背景视频仍静音）
+   * CLI 高画质开启且本地代理已连接时，CLI 路径始终优先，本项被绕过。
+   */
+  musicVideoServerDash: boolean
+  /**
    * 视频背景 CLI 分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 高画质开启且
    * 本地代理已连接时生效）：120=4K / 116=1080P60 / 112=1080P 高码率 /
    * 80=1080P / 74=720P60 / 64=720P / 32=480P / 16=360P
@@ -150,6 +158,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   rlyricSize: 12,
   lyricInterlude: 13,
   musicVideoCli: false,
+  musicVideoServerDash: false,
   musicVideoQn: 0,
   bgVideoFit: 'cover',
   videoBlurLevel: 0,

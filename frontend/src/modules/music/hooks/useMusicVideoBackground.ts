@@ -69,7 +69,12 @@ export function useMusicVideoBackground(
   biliBvid: string | null = null,
   biliCid = 0,
   /** CLI 高画质分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 路径生效） */
-  qn = 0
+  qn = 0,
+  /**
+   * 服务器解析 DASH 模式（仅 CLI 路径未生效时使用）：true 走服务器
+   * DASH 双轨解析（清晰度跟随账号默认档），false 保持 720P MP4 直链
+   */
+  serverDash = false
 ): MusicVideoBackgroundState {
   // 关联变化（弹窗保存/删除）即时感知：外部 store 快照经 useSyncExternalStore
   // 订阅（getMusicVideo 引用稳定，见 musicVideoStore 的解析缓存）
@@ -136,23 +141,40 @@ export function useMusicVideoBackground(
           via = 'cli'
         } else {
           if (cliEnabled) {
-            console.warn(
-              '[useMusicVideoBackground] CLI 未连接，回退 720P 直链解析'
-            )
+            console.warn('[useMusicVideoBackground] CLI 未连接，回退服务器解析')
           }
-          const r = await resolveBilibiliWithOptions(
-            pageUrl,
-            DEFAULT_QN,
-            undefined,
-            { preferMp4: true }
-          )
-          resolved = {
-            url: r.videoUrl,
-            audioUrl: r.audioUrl,
-            format: (r.format as MusicVideoSource['format']) ?? 'mp4',
-            videoCodec: r.videoCodec,
-            audioCodec: r.audioCodec,
-            duration: r.duration,
+          if (serverDash) {
+            // 服务器 DASH 双轨：qn 不传（undefined），清晰度由后端按账号
+            // 权限默认档决定（与一起看自动解析同语义，大会员可获高画质）
+            const r = await resolveBilibiliWithOptions(
+              pageUrl,
+              undefined,
+              undefined,
+              { forceDash: true }
+            )
+            resolved = {
+              url: r.videoUrl,
+              audioUrl: r.audioUrl,
+              format: (r.format as MusicVideoSource['format']) ?? 'dash',
+              videoCodec: r.videoCodec,
+              audioCodec: r.audioCodec,
+              duration: r.duration,
+            }
+          } else {
+            const r = await resolveBilibiliWithOptions(
+              pageUrl,
+              DEFAULT_QN,
+              undefined,
+              { preferMp4: true }
+            )
+            resolved = {
+              url: r.videoUrl,
+              audioUrl: r.audioUrl,
+              format: (r.format as MusicVideoSource['format']) ?? 'mp4',
+              videoCodec: r.videoCodec,
+              audioCodec: r.audioCodec,
+              duration: r.duration,
+            }
           }
           via = 'server'
         }
@@ -172,7 +194,7 @@ export function useMusicVideoBackground(
     return () => {
       cancelled = true
     }
-  }, [songId, binding, cliEnabled, qn])
+  }, [songId, binding, cliEnabled, qn, serverDash])
 
   return state
 }

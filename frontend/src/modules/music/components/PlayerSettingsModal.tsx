@@ -57,6 +57,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
+  /** 服务器解析 DASH 模式（仅 CLI 路径未生效时使用），变更即重解析 */
+  const musicVideoServerDash = useMusicSettingsStore(
+    (s) => s.musicVideoServerDash
+  )
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -417,6 +421,45 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   <ExternalLink className="h-3 w-3" />
                   打开 CLI 配置页
                 </button>
+              </div>
+              {/* 服务器解析模式（CLI 高画质接管时此设置暂不生效）：
+              MP4 直链（720P，兼容性最好）/ 服务器 DASH 双轨（清晰度跟随
+              账号默认档，大会员可获高画质），与歌词页右上角快捷切换同项 */}
+              <div className="flex items-center justify-between gap-3 px-5 py-3.5">
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-bold text-white">
+                    服务器解析模式
+                  </span>
+                  <span className="mt-0.5 block text-[11px] font-medium text-white/50">
+                    {musicVideoCli && cliAvailable
+                      ? 'CLI 高画质已接管，此设置暂不生效'
+                      : '视频背景的服务器解析格式'}
+                  </span>
+                </span>
+                <div className="flex shrink-0 items-center gap-0.5 rounded-full bg-white/10 p-0.5">
+                  {(
+                    [
+                      [false, 'MP4'],
+                      [true, 'DASH'],
+                    ] as Array<[boolean, string]>
+                  ).map(([value, label]) => (
+                    <button
+                      key={label}
+                      type="button"
+                      onClick={() =>
+                        setSettings({ musicVideoServerDash: value })
+                      }
+                      className={cn(
+                        'rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors',
+                        musicVideoServerDash === value
+                          ? 'bg-white text-black shadow-sm'
+                          : 'text-white/60 hover:text-white'
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
               {/* 背景显示方式（视频背景的画面适配方式，点击循环切换） */}
               <div className="flex items-center justify-between gap-3 px-5 py-3.5">
