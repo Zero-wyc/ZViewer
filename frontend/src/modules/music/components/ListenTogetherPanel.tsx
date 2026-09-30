@@ -219,7 +219,7 @@ function ListenTogetherInner({
   // 关联时，解析（默认 720P 直链 / CLI 开启时高画质 DASH）后作为静音背景
   // 铺满播放器，跟随音乐播放/暂停；B站 本地插播曲目直接用其视频作背景 =====
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
-  /** CLI 高画质分辨率（qn，0=自动）：仅 CLI 路径生效，变更即重解析 */
+  /** 视频背景分辨率（qn，0=自动）：CLI DASH 与服务器 DASH 双轨共用，变更即重解析 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
   /** 服务器解析 DASH 模式（仅 CLI 路径未生效时使用），变更即重解析；
    *  切换入口在歌词页设置弹窗（PlayerSettingsModal），歌词页本体不显示 */

@@ -55,7 +55,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   /** UI 毛玻璃模糊浓度（px，0-40，默认 12） */
   const uiBlurLevel = useMusicSettingsStore((s) => s.uiBlurLevel)
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
-  /** CLI 高画质分辨率（B站 qn，0=自动）：仅 CLI 已连接时可选 */
+  /** 视频背景分辨率（B站 qn，0=自动）：CLI DASH 与服务器 DASH 双轨共用 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
   /** 服务器解析 DASH 模式（仅 CLI 路径未生效时使用），变更即重解析 */
   const musicVideoServerDash = useMusicSettingsStore(
@@ -84,6 +84,11 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
   /** CLI 高画质开关启用即锁定播放模式（与一起看同逻辑：已连接走 CLI
    *  DASH，未连接回退服务器 MP4，播放模式设置仅在 CLI 关闭时生效） */
   const cliVideoLocked = musicVideoCli
+  /** 分辨率选择器可见性：CLI 已连接（CLI DASH）或 CLI 关闭且选了服务器
+   *  DASH 模式（两者共用 musicVideoQn）；CLI 启用未连接（回退 MP4）与
+   *  MP4 直链模式固定 720P，不显示 */
+  const qnSelectorVisible =
+    (musicVideoCli && cliAvailable) || (!musicVideoCli && musicVideoServerDash)
   const username = useAuthStore((s) => s.user?.username)
   const openCliSetup = () => {
     const url = new URL(`http://127.0.0.1:${CLI_DEFAULT_PORT}/`)
@@ -92,11 +97,11 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
   }
 
-  // ===== B站 大会员状态（CLI 已连接时拉取）：过滤分辨率档位——普通账号
-  //       最高 1080P，会员档（4K/1080P60/高码率）仅大会员可见 =====
+  // ===== B站 大会员状态（分辨率选择器可见时拉取）：过滤分辨率档位——
+  //       普通账号最高 1080P，会员档（4K/1080P60/高码率）仅大会员可见 =====
   const [biliVip, setBiliVip] = useState(false)
   useEffect(() => {
-    if (!(musicVideoCli && cliAvailable)) return
+    if (!qnSelectorVisible) return
     let cancelled = false
     void getBilibiliUserInfo().then((info) => {
       if (cancelled) return
@@ -111,7 +116,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
     return () => {
       cancelled = true
     }
-  }, [musicVideoCli, cliAvailable])
+  }, [qnSelectorVisible])
 
   // ===== B站 弹幕设置（复用一起看弹幕设置组件）：总开关即 biliDanmakuEnabled
   //       设置项；样式面板与一起看共用 danmakuStore（跨页持久化生效） =====
@@ -373,9 +378,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                       : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
                     : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
                 </div>
-                {/* 分辨率选择（仅 CLI 已连接时生效）：变更即重解析视频背景；
+                {/* 分辨率选择（CLI DASH 与服务器 DASH 双轨共用 musicVideoQn，
+                  MP4 路径固定 720P 不显示）：变更即重解析视频背景；
                   实际档位受账号大会员权限限制，超出时 B站 自动降档 */}
-                {musicVideoCli && cliAvailable && (
+                {qnSelectorVisible && (
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-[10px] font-semibold text-white/70">
                       分辨率
@@ -475,7 +481,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                         ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
                         : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 zcontrol-cli 获取高画质'
                       : musicVideoServerDash
-                        ? 'DASH 分离流，清晰度跟随账号（大会员可获 1080P/4K）'
+                        ? 'DASH 分离流，清晰度由上方「分辨率」选择决定（自动=跟随账号）'
                         : 'MP4 直链，seek 流畅，清晰度通常 480P/720P'}
                   </div>
                 </div>

@@ -83,8 +83,9 @@ export interface MusicSettings {
    */
   musicVideoServerDash: boolean
   /**
-   * 视频背景 CLI 分辨率（B站 qn，0=自动跟随账号默认；仅 CLI 高画质开启且
-   * 本地代理已连接时生效）：120=4K / 116=1080P60 / 112=1080P 高码率 /
+   * 视频背景分辨率（B站 qn，0=自动跟随账号默认档）：CLI DASH 与服务器
+   * DASH 双轨均生效（MP4 直链路径忽略，固定 720P）。
+   * 120=4K / 116=1080P60 / 112=1080P 高码率 /
    * 80=1080P / 74=720P60 / 64=720P / 32=480P / 16=360P
    */
   musicVideoQn: number
