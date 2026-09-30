@@ -73,7 +73,6 @@ import { NcmSearchModal } from './NcmSearchModal'
 import { CARD_TONE_VARS } from '../utils/playerTone'
 import { LYRIC_ADVANCE_SEC, PLAY_MODE_ORDER } from '../constants'
 import { PlayerSettingsModal } from './PlayerSettingsModal'
-import { useCliAgent } from '@/hooks/useCliAgent'
 import { useBilibiliDanmaku } from '../hooks/useBilibiliDanmaku'
 import { useBackgroundVideoSync } from '../hooks/useBackgroundVideoSync'
 import { useLyricTrack } from '../hooks/useLyricTrack'
@@ -222,14 +221,11 @@ function ListenTogetherInner({
   const musicVideoCli = useMusicSettingsStore((s) => s.musicVideoCli)
   /** CLI 高画质分辨率（qn，0=自动）：仅 CLI 路径生效，变更即重解析 */
   const musicVideoQn = useMusicSettingsStore((s) => s.musicVideoQn)
-  /** 服务器解析 DASH 模式（仅 CLI 路径未生效时使用），变更即重解析 */
+  /** 服务器解析 DASH 模式（仅 CLI 路径未生效时使用），变更即重解析；
+   *  切换入口在歌词页设置弹窗（PlayerSettingsModal），歌词页本体不显示 */
   const musicVideoServerDash = useMusicSettingsStore(
     (s) => s.musicVideoServerDash
   )
-  const setMusicServerDash = (v: boolean) =>
-    useMusicSettingsStore.getState().set({ musicVideoServerDash: v })
-  /** CLI 连接状态检测；CLI 开关启用即锁定播放模式为 DASH（与一起看同逻辑） */
-  const cliAgent = useCliAgent()
   const bgVideoFit = normalizeBgVideoFit(
     useMusicSettingsStore((s) => s.bgVideoFit)
   )
@@ -969,7 +965,7 @@ function ListenTogetherInner({
           {/* 面板外壳（visibility 闸门 / 冰霜层两段式入场 / 评论区切换 /
               PlayerLyricPanel 接线）：整块已抽为 PlayerLyricPanelShell。
               wrapper 仅承担布局（无 opacity/transform，避免成为 Backdrop
-              Root 隔离内部冰霜层），视频背景激活时右上角叠播放模式 pill */}
+              Root 隔离内部冰霜层） */}
           {(isPortraitMobile ? mobileLyricViewActive : desktopLyricView) &&
             lyricPanelVisible && (
               <div
@@ -1003,55 +999,6 @@ function ListenTogetherInner({
                   onUpdateLineOffset={handleUpdateLineOffset}
                   qualityLabel={qualityLabel}
                 />
-                {/* ===== 视频背景播放模式选择（歌词页右上角快捷切换）：
-                    CLI 开关启用即锁定 DASH（与一起看同逻辑，未连接回退
-                    服务器 DASH）；否则在服务器 MP4 直链与服务器 DASH 双轨
-                    间切换，变更即触发重解析 ===== */}
-                {bgVideoReady && (
-                  <div
-                    className="glass-strong absolute right-3 top-3 z-20 flex items-center gap-0.5 rounded-full p-0.5"
-                    title={
-                      musicVideoCli
-                        ? cliAgent.available
-                          ? 'CLI 高画质代理已接管视频背景解析'
-                          : '已启用 CLI 但未连接本地代理，回退服务器 DASH'
-                        : '视频背景解析格式：MP4 直链兼容性最好，DASH 双轨清晰度跟随账号（大会员可获高画质）'
-                    }
-                  >
-                    {musicVideoCli ? (
-                      <span className="px-2.5 py-1 text-[10px] font-semibold text-white/90">
-                        CLI 高画质
-                      </span>
-                    ) : (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => setMusicServerDash(false)}
-                          className={cn(
-                            'rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors',
-                            !musicVideoServerDash
-                              ? 'bg-white/90 text-black'
-                              : 'text-white/70 hover:text-white'
-                          )}
-                        >
-                          MP4
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setMusicServerDash(true)}
-                          className={cn(
-                            'rounded-full px-2.5 py-1 text-[10px] font-semibold transition-colors',
-                            musicVideoServerDash
-                              ? 'bg-white/90 text-black'
-                              : 'text-white/70 hover:text-white'
-                          )}
-                        >
-                          DASH
-                        </button>
-                      </>
-                    )}
-                  </div>
-                )}
               </div>
             )}
         </div>
