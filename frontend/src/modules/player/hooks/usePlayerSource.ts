@@ -315,6 +315,16 @@ export function usePlayerSource(
         } catch {
           /* ignore */
         }
+        // 实例已卸载：元素已脱离文档树（或即将随 React 移除）。引擎清理
+        // 不一定复位元素（如 v10 media.detach 只解绑不载 src），残留 src
+        // 的游离元素被迟到的 play() 唤醒即成幽灵声源——这里 pause + reset
+        // 兜底，保证落地失败/作废的引擎绝不留下可发声的媒体元素。
+        try {
+          video.pause()
+        } catch {
+          /* ignore */
+        }
+        resetVideoElement(video)
         return false
       }
       // 跨实例互斥兜底：本会话 attach 期间，同一 video 上有更新的会话

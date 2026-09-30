@@ -21,6 +21,12 @@ export interface SafePlayOptions {
 /**
  * 尝试播放视频元素，遇到 NotAllowedError 时自动静音重试。
  *
+ * 游离元素守卫：播放器面板按影片切换重挂载（usePlayerRemountKey）后，
+ * 异步回调（previewPlay / loadMovie / 恢复 effect 的 .then 链）持有的
+ * 仍是重挂载前的旧 video 元素——它已脱离文档树但仍带有效 src。对其
+ * play() 会产生**不受控制栏控制的游离声源**（暂停按钮只作用于新元素），
+ * 即「一起看双声回声」的根源。因此脱离文档树的元素一律拒绝播放。
+ *
  * @param video 目标 video 元素
  * @param options 回调选项
  * @returns Promise<void>，play() 的原始 Promise；重试后的结果不会被吞掉
@@ -29,6 +35,14 @@ export function safePlay(
   video: HTMLVideoElement,
   options?: SafePlayOptions
 ): Promise<void> {
+  if (!video.isConnected) {
+    console.warn(
+      '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:',
+      video.tagName,
+      (video.currentSrc || video.src || '').slice(0, 80)
+    )
+    return Promise.resolve()
+  }
   return video.play().catch((err: DOMException) => {
     if (err?.name === 'NotAllowedError' && !video.muted) {
       video.muted = true
