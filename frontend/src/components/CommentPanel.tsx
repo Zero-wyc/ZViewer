@@ -189,87 +189,89 @@ export function CommentPanel({
               ref={listRef}
               className="glass-bg flex-1 min-h-0 overflow-y-auto rounded-[var(--md-sys-shape-corner)] p-3"
             >
-              <Space
-                direction="vertical"
-                className="w-full"
-                size="sm"
-                align="start"
-              >
-                {comments.length === 0 && (
-                  <div className="flex w-full flex-col items-center justify-center gap-2 py-8 text-center">
-                    <MessagesSquare
-                      className="h-8 w-8 opacity-40"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    />
-                    <Text type="secondary" className="text-center text-xs">
-                      暂无评论，快来第一条吧
-                    </Text>
-                  </div>
-                )}
-                {comments.map((comment, idx) => (
-                  <div
-                    key={comment.id}
-                    className={cn(
-                      'zen-comment-enter rounded-[var(--md-sys-shape-corner)] border p-2 transition-all hover:shadow-sm hover:-translate-y-0.5',
-                      comment.isDanmaku
-                        ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]'
-                        : 'border-transparent bg-[var(--glass-bg)] hover:border-[var(--md-sys-color-outline-variant)]'
-                    )}
-                    style={
-                      {
-                        '--item-delay': `${Math.min(idx, 8) * 40}ms`,
-                      } as React.CSSProperties
-                    }
-                  >
-                    <div className="flex items-start gap-1.5">
-                      <Avatar
-                        size="sm"
-                        fallback={
-                          <span className="text-[9px] font-medium">
-                            {getInitials(comment.username)}
-                          </span>
-                        }
-                      />
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-1.5">
-                          <div className="flex items-center gap-1">
-                            <Text
-                              className="text-[11px] font-medium leading-tight"
-                              style={{ color: 'var(--md-sys-color-primary)' }}
-                            >
-                              {comment.username}
-                            </Text>
-                            {comment.isDanmaku && (
-                              <span
-                                className="inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 text-[9px] font-medium leading-none"
-                                style={{
-                                  backgroundColor:
-                                    'var(--md-sys-color-primary)',
-                                  color: 'var(--md-sys-color-on-primary)',
-                                }}
+              {comments.length === 0 ? (
+                // 空状态独立于评论列表流：占满评论区空白处并水平垂直居中
+                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center">
+                  <MessagesSquare
+                    className="h-8 w-8 opacity-40"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  />
+                  <Text type="secondary" className="text-center text-xs">
+                    暂无评论，快来第一条吧
+                  </Text>
+                </div>
+              ) : (
+                <Space
+                  direction="vertical"
+                  className="w-full"
+                  size="sm"
+                  align="start"
+                >
+                  {comments.map((comment, idx) => (
+                    <div
+                      key={comment.id}
+                      className={cn(
+                        'zen-comment-enter rounded-[var(--md-sys-shape-corner)] border p-2 transition-all hover:shadow-sm hover:-translate-y-0.5',
+                        comment.isDanmaku
+                          ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)]'
+                          : 'border-transparent bg-[var(--glass-bg)] hover:border-[var(--md-sys-color-outline-variant)]'
+                      )}
+                      style={
+                        {
+                          '--item-delay': `${Math.min(idx, 8) * 40}ms`,
+                        } as React.CSSProperties
+                      }
+                    >
+                      <div className="flex items-start gap-1.5">
+                        <Avatar
+                          size="sm"
+                          fallback={
+                            <span className="text-[9px] font-medium">
+                              {getInitials(comment.username)}
+                            </span>
+                          }
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-1.5">
+                            <div className="flex items-center gap-1">
+                              <Text
+                                className="text-[11px] font-medium leading-tight"
+                                style={{ color: 'var(--md-sys-color-primary)' }}
                               >
-                                <MessageSquareQuote className="h-2.5 w-2.5" />
-                                弹幕
-                              </span>
-                            )}
+                                {comment.username}
+                              </Text>
+                              {comment.isDanmaku && (
+                                <span
+                                  className="inline-flex items-center gap-0.5 rounded-full px-1 py-0.5 text-[9px] font-medium leading-none"
+                                  style={{
+                                    backgroundColor:
+                                      'var(--md-sys-color-primary)',
+                                    color: 'var(--md-sys-color-on-primary)',
+                                  }}
+                                >
+                                  <MessageSquareQuote className="h-2.5 w-2.5" />
+                                  弹幕
+                                </span>
+                              )}
+                            </div>
+                            <Text
+                              type="secondary"
+                              className="text-[9px] leading-none"
+                            >
+                              {formatIsoTime(comment.createdAt)}
+                            </Text>
                           </div>
-                          <Text
-                            type="secondary"
-                            className="text-[9px] leading-none"
-                          >
-                            {formatIsoTime(comment.createdAt)}
+                          <Text className="mt-0.5 break-words text-xs leading-snug">
+                            {comment.content}
                           </Text>
                         </div>
-                        <Text className="mt-0.5 break-words text-xs leading-snug">
-                          {comment.content}
-                        </Text>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </Space>
+                  ))}
+                </Space>
+              )}
             </div>
             <Space className="w-full" size="sm">
               <Input
