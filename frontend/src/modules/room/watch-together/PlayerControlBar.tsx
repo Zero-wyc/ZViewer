@@ -651,7 +651,7 @@ export function PlayerControlBar({
               </span>
             </ControlButton>
             {rateOpen && canControl && (
-              <div className="absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1 shadow-lg">
+              <div className="glass absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 overflow-hidden rounded-xl p-1 shadow-lg">
                 {RATES.map((rate) => {
                   const active = Math.abs(playbackRate - rate) < 0.01
                   return (
@@ -689,7 +689,7 @@ export function PlayerControlBar({
             </ControlButton>
             {volumeOpen && (
               <div
-                className="absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2 rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-2 pb-3 pt-4 shadow-lg"
+                className="glass absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2 rounded-xl p-2 pb-3 pt-4 shadow-lg"
                 onMouseEnter={openVolume}
                 onMouseLeave={scheduleCloseVolume}
               >
@@ -769,7 +769,7 @@ export function PlayerControlBar({
               <MoreHorizontal size={18} />
             </ControlButton>
             {moreOpen && (
-              <div className="absolute right-0 bottom-full z-30 mb-2 w-36 overflow-hidden rounded-xl border border-[var(--glass-border)] bg-[var(--glass-bg)] p-1 shadow-lg">
+              <div className="glass absolute right-0 bottom-full z-30 mb-2 w-36 overflow-hidden rounded-xl p-1 shadow-lg">
                 {isHost && (
                   <button
                     type="button"
