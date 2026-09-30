@@ -32,10 +32,14 @@
 | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013054107.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013133193.webp) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013107507.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013127227.webp) |
+| ![image-20260930211919198](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211919753.webp) | ![image-20260930211758252](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211758831.webp) |
+| ![image-20260930211626482](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211634083.webp) | ![image-20260930213816136](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930213816564.webp) |
 
 ## 浏览器要求
 
 > 建议使用 Chrome / Edge 等内核 130+ 的 Chromium 浏览器。Safari 与 Firefox 对 MSE / MKV 解码支持不完整，可能出现卡顿、无法解码、字幕异常。
+
+#### PS：另有正处于开发状态的[Zviewer手机端](https://github.com/Zero-wyc/ZViewerAPP)　|　并由[FredQin](https://github.com/fredqin2006-X)开发
 
 ## 目录
 
@@ -77,10 +81,23 @@
 | 一起听 | 网易云音乐同步听歌，扫码登录，VIP 凭证全房间共享，音质降级 |
 | 主题 | Material You 动态主题、自定义主题色与颜色强度、玻璃拟态、自定义背景、精简动画 |
 | 移动端 | 竖屏 / 横屏自适应布局，触屏手势与滑动条 |
+| ZViewerCLI |  |
+
+---
+
+## ZViewerCLI
+
+使用[ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI)（Go编写）解决哔哩哔哩高画质问题
+
+ZViewerCLI 是一个运行在用户本地的 Go 程序，用于解决浏览器端无法直接使用用户 Bilibili Cookie 与高画质地址的问题。CLI使用用户自己的 Cookie 在本地解析 Bilibili 视频，并代理视频流请求，从而让 ZViewer 房间中的所有人都能稳定播放大会员等高画质内容。
+
+虽然说有DASH模式（服务器转发视频模式，但是这会极大消耗服务器带宽，很显然，要既要哔哩哔哩的高画质又要小的服务器带宽，于是CLI就应运而生）
+
+---
 
 ## 安装与启动
 
-首次启动自动创建超级管理员：用户名 `root`，密码 `root`。**生产环境部署后立即修改密码。**
+首次启动自动创建ROOT管理员：用户名 `root`，密码 `root`。**生产环境部署后立即修改密码。**
 
 ### 单文件版（推荐）
 
@@ -109,7 +126,7 @@ npm run build
 npm start
 ```
 
-或使用 `start-prod` 脚本一键处理依赖、构建、启动：
+或使用 `start-prod` 脚本处理依赖、构建、启动：
 
 ```powershell
 .\start-prod.bat start    # Windows
@@ -161,44 +178,6 @@ volumes:
 - `/app/config` 挂载 volume，含数据库（`dev.sqlite`）、证书（`ssl/`）、上传文件（`uploads/`）、推流切片（`media/`）。
 - 容器内更新为程序文件替换后直接重启后端进程，不重启容器。
 
-## HTTPS 证书
-
-证书工具（`zviewer-cert`）按地址类型自动选择签发方式：
-
-| 地址类型 | 证书 |
-|---|---|
-| `localhost` | 自签（SAN 含 localhost / 127.0.0.1 / ::1，10 年） |
-| 域名 | Let's Encrypt（内置 ACME 客户端自动申请） |
-| 公网 IP | Let's Encrypt（IP 证书） |
-| 内网 IP | 自签（SAN 写入 IP） |
-
-```bash
-start.bat cert example.com      # 域名 → Let's Encrypt
-start.bat cert 1.2.3.4          # 公网 IP → Let's Encrypt
-start.bat cert 192.168.1.1      # 内网 IP → 自签
-start.bat https example.com     # 签发证书 + HTTPS 启动
-```
-
-Let's Encrypt 前置条件：域名已解析到本机、**80 端口**放行（HTTP-01 验证）。证书输出在 `config/ssl/`。正式环境每域名每周限 5 张，调试加 `--staging`。
-
-## 常见问题
-
-**自签证书提示"不安全"**：导入 `config/ssl/cert.pem` 到系统受信任根证书，或改用域名 + Let's Encrypt。
-
-**WebSocket 连接失败**：反向代理需加升级头：
-
-```nginx
-proxy_http_version 1.1;
-proxy_set_header Upgrade $http_upgrade;
-proxy_set_header Connection "upgrade";
-```
-
-**WebRTC 无法连接**：`getUserMedia` 要求 HTTPS。双方处于严格 NAT 后需部署 TURN（如 coturn）。
-
-**Bilibili 解析失败**：大会员内容需在后台配置 Bilibili 凭证，或使用 ZViewerCLI 本地代理。
-
-**Bilibili AI 字幕错配**：B站 `x/player/v2` 接口不稳定，同视频可能随机返回其他视频字幕，后端已按时长做校验重试，仍失败属上游问题，重试即可。
-
 ---
 
 # 拓展教程
@@ -218,28 +197,28 @@ proxy_set_header Connection "upgrade";
 RTMP 3334 → Node Media Server → FLV 3335（内部）
 ```
 
-- **单进程单端口**：生产模式所有流量走 3333，无跨域问题。
-- **数据库**：TypeORM + sql.js（wasm SQLite），无原生模块，单文件版任意平台直接运行；支持 `DATABASE_URL` 切换 PostgreSQL。
+- **单进程单端口**：所有流量走 3333
+- **数据库**：TypeORM + sql.js（wasm SQLite），支持 `DATABASE_URL` 切换 PostgreSQL。
 - **技术栈**：后端 Express + TypeScript + Socket.IO；前端 React 18 + Vite + Tailwind + Zustand。
 
 ## 房间同步逻辑
 
-同步链路全部走 Socket.IO，连接时经 JWT 鉴权中间件（`io.use`），token 无效拒绝握手。
+同步链路 Socket.IO，连接时经 JWT 鉴权中间件（`io.use`）
 
 **角色与状态广播**
 
-- 房主是唯一的同步源。房主操作（播放 / 暂停 / 跳转 / 倍速 / 切换影片）→ 后端写入房间状态并 `io.to(roomId).emit` 广播 → 观众端播放器对齐（seek + play/pause）。
-- 服务器持有房间状态的权威副本：房主短暂断线时由服务器继续维持状态，观众不中断；房主重连后从服务器取回状态继续当同步源。
+- 房主是唯一同步端。房主操作（播放 / 暂停 / 跳转 / 倍速 / 切换影片）→ 后端写入房间状态并 `io.to(roomId).emit` 广播 → 观众端播放器（seek + play/pause）
+- 服务器持有房间状态：房主短暂断线时由服务器继续维持状态，观众不中断；房主重连后从服务器取回状态继续当同步端。
 - 影片切换后观众端按新的直接地址重新建流；内嵌字幕提取流在切换时被无条件取消，避免服务器中转流量泄漏。
 
 **控制权申请**
 
 - 观众发起申请 → 后端转发给房主（播放器左上角通知）→ 房主同意后该观众获得临时控制权，操作走与房主相同的事件通道。
-- 房主可随时收回。
+- 房主可随时收回
 
 **离线与关房**
 
-- 房主离线超过 10 分钟，后端自动关闭房间并通知全员。
+- 房主离线超过 10 分钟，后端自动关闭房间
 - 房主离线期间观众端进入"自主控制模式"（无需申请直接控制本地播放器，不广播）；房主重连后自动恢复申请模式。
 
 ## 视频源与 API 获取逻辑
@@ -247,17 +226,16 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 ### Bilibili
 
 1. 前端提交 BV 号或链接 → 后端解析。
-2. 后端向 B站 API 发起请求（注入后台配置的登录凭证），获取分 P / 清晰度列表与 DASH 播放地址。
+2. 后端向 B站 API 发起请求，获取分 P / 清晰度列表与 DASH 播放地址。
 3. 视频流与封面经后端代理转发（`/api/stream/proxy*`），注入 Referer / Origin / User-Agent，绕过 CDN 防盗链；封面代理同时做 URL 白名单校验。
-4. AI 字幕走 `x/player/v2`，该接口不稳定（同视频可能返回错配字幕），后端以视频时长做带内校验（容差 max(10s, 8%)）并最多重试 4 次。
+4. AI 字幕走 `x/player/v2`，该接口不稳定（同视频可能返回错配字幕），后端以视频时长做带内校验并最多重试 4 次。
 5. 弹幕：Bilibili 官方 XML 或 DandanPlay 接口，前端解析渲染。
 
 ### 挂载源（WebDAV / FTP / OpenList / Emby / Jellyfin）
 
-- 挂载配置保存在后端，目录浏览请求由后端代发，前端只拿文件列表。
-- **直链实时解析**：AList 等源的签名直链会过期。播放时前端调 `/api/direct-resolve/movie` 按影片记录反查挂载源取新鲜直链（5 分钟 TTL 缓存 + 单飞去重），失败回退固化 URL。
-- **HTTPS 直链活性校验**：源站事后撤掉 TLS 会导致缓存的 https 直链不可达。下发前对 https 端点现场活性校验，失败即自愈为 http（openlist / webdav / emby / jellyfin 四路由统一）；前端 https 页面加载 http 直链失败时自动降级重试。
-- **协议升级与信任源**：`127.0.0.1` / `localhost` 信任源保持直连；HTTPS 站点 + HTTP 直链受浏览器混合内容限制，自动转服务器代理。
+- 挂载配置保存在后端，目录浏览请求由后端代发，前端拿文件List。
+- **直链解析**：AList 等源的签名直链会过期。播放时前端调 `/api/direct-resolve/movie` 按影片记录查挂载源取直链
+- **HTTPS 直链活性校验**：前端 https 页面加载 http 直链失败自动重试
 
 ### 播放引擎
 
@@ -276,35 +254,10 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
    │  callNcmApi()（附加 timestamp 绕内部服务 apicache，防不同登录态串味）
    ▼
 内部 NCM 服务 127.0.0.1:36530
-   │  @neteasecloudmusicapienhanced/api（serveNcmApi，端口占用 +1 重试）
+   │  @neteasecloudmusicapienhanced/api（serveNcmApi，）
    ▼
 网易云上游
 ```
-
-- **`/api/music/ncm/*`**：通用转发，自动注入当前用户持久化的网易云 Cookie；剥离 query/body 中的 cookie 参数防客户端伪造登录态；扫码登录路径（`/login/qr/*`）不注入旧凭据，避免 800 循环。
-- **`/api/music/stream`** 音频流代理：
-  - 音质降级链 `lossless → exhigh → higher → standard`，`freeTrialInfo` 非空视为不可用；
-  - `/song/url/v1` 失败（路由 404 / 网络抛错）时回退老接口 `/song/url`（level → br 映射）；
-  - 凭证回退链：当前用户 Cookie → 房主 Cookie（请求带 roomId 时），实现"房主登录 VIP 全房间可听"；
-  - 直链域名校验 `*.music.126.net`（防 SSRF）；`direct=1` 模式 302 CDN 直链 + 15 分钟缓存，`http:` 直链统一改写 `https:`。
-- **登录态**：网易云扫码登录后 Cookie 持久化到数据库，按用户隔离。
-
-## ZViewerCLI 本地代理协议
-
-[ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI)（Go编写）解决哔哩哔哩高画质问题
-
-- 配置只需服务器地址 + Cookie（+ 可选用户名），不需要房间号。
-- CLI 启动后向服务器 Socket.IO 发 `cli-register`（payload：proxyUrl / agent / version / user），全局注册到专用房间 `__cli-agents__`（仅为聚合便利），上下线通过 `cli-agent-available` / `cli-agent-unavailable` **全局广播**。
-- 前端按登录用户名过滤代理列表（无 user 字段的旧版 CLI 视为公共代理全员可见），任一可用即启用。
-- 房间开启 CLI 功能（音乐视频高画质 / cliEnabled）后自动使用，无需逐房间连接。
-- 代理链路：前端 → `http://127.0.0.1:9333`（CLI 本地 HTTP 代理）→ B站 CDN，注入本地 Cookie 与 Referer / Origin / User-Agent。
-- CLI 重启后配置为内存态，需从网页端配置页重新带入（`?server=&user=`）。
-
-## 鉴权与权限模型
-
-- JWT 双 token：access 15 分钟 / refresh 7 天，httpOnly Cookie 与 Bearer 头双通道（媒体标签与事件流场景各取所需）。鉴权 cookie 判定含 Origin scheme 兜底，兼容内网穿透。
-- 页面生命周期内的持久化登录态只作预热（提前建连），鉴权路由只信本次加载的认证终态——避免登出残留态导致重定向异常。
-- 四层角色：
 
 | 角色 | 权限 |
 |---|---|
@@ -330,11 +283,9 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 | `RTMP_PORT` | RTMP 推流端口 | `3334` |
 | `HTTP_FLV_PORT` | FLV 拉流端口（内部） | `3335` |
 
-前端构建：`VITE_API_URL`（API / Socket.IO 基址，留空用 `window.location.origin`）、`VITE_FLV_BASE_URL`（OBS 模式 FLV 拉流基址）。
+## 构建和更新
 
-## 构建与更新机制
-
-- **构建**：`build-all.js` 将前后端编译为平台单文件（`zviewer-backend` / `zviewer-cert`），启动脚本模板在 `packaging/`。
+- **构建**：`build-all.js` 将前后端编译为单文件版本（`zviewer-backend` / `zviewer-cert`），启动脚本模板在 `packaging/`。
 - **CI**：push `main` → 构建双平台单文件，Linux 版推 Docker Hub（`0.0.0-dev.<sha>` 预发布）；打 `v*` tag → 正式版 + GitHub Release。
 - **更新**：后端从 GitHub Releases 检测新版本（管理后台可关预发布），下载后替换程序文件并重启进程；也支持手动上传压缩包更新。数据库与配置在 `config/`，更新不覆盖。
 
