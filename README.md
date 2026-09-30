@@ -32,8 +32,8 @@
 | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013054107.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013133193.webp) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013107507.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013127227.webp) |
-| ![image-20260930211919198](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211919753.webp) | ![image-20260930211758252](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211758831.webp) |
-| ![image-20260930211626482](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211634083.webp) | ![image-20260930213816136](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930213816564.webp) |
+| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211919753.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211758831.webp) |
+| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211634083.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930213816564.webp) |
 
 ## 浏览器要求
 
