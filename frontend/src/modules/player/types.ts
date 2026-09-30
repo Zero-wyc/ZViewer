@@ -58,6 +58,35 @@ export interface PlayerController {
  * 播放器源数据：从 WatchTogetherState 中抽取的、引擎 attach 所需的最小字段集。
  * 各引擎按需读取字段，未使用的字段忽略。
  */
+/**
+ * FLV 引擎直播模式运行时事件（由引擎内部 flv.js 实例发出）。
+ *
+ * 引擎负责重连与生命周期，UI 层只消费事件驱动状态机：
+ * - 连接中：onRetrying（或初始 attach 未 resolve）
+ * - 播放中：onReady
+ * - 失败：onExhausted（重试耗尽）
+ * - 已停止：onStreamEnd（推流端停止）
+ */
+export interface FlvRuntimeEvents {
+  /** flv.js ERROR：引擎将按指数退避内部重连，attempt/max 描述当前进度 */
+  onRetrying?: (attempt: number, max: number) => void
+  /** 流可用（MEDIA_INFO / loadedmetadata），重连成功计数复位 */
+  onReady?: () => void
+  /** 指数退避重连耗尽后的最终失败 */
+  onExhausted?: (message: string) => void
+  /** 推流端停止（直播流不应触发 LOADING_COMPLETE，触发即流结束） */
+  onStreamEnd?: () => void
+  /**
+   * 网络层统计（flv.js STATISTICS_INFO，约每秒一次）。
+   * fps 不在此提供：由消费方按 decodedFrames 差值计算。
+   */
+  onStatistics?: (info: {
+    speed: number
+    decodedFrames: number
+    droppedFrames: number
+  }) => void
+}
+
 export interface PlayerSource {
   /** 视频流 URL（MSE 引擎下为视频 m4s 片段 URL；其他引擎为完整媒体 URL） */
   url: string
@@ -71,6 +100,18 @@ export interface PlayerSource {
   audioCodec?: string
   /** 防盗链 headers（由后端 resolve 返回，走代理时使用） */
   headers?: Record<string, string>
+  /**
+   * 直播流标记：FLV 引擎据此启用 isLive 模式（延迟追赶、已播放
+   * SourceBuffer 自动清理、内部指数退避重连）。
+   */
+  isLive?: boolean
+  /**
+   * FLV 直播运行时事件出口（仅 FLV 引擎 isLive 源使用）。
+   *
+   * 引擎内部 flv.js 实例的网络层事件经此上报，供 UI 层驱动连接
+   * 状态机（connecting/playing/error/stopped）与统计展示。
+   */
+  flvRuntimeEvents?: FlvRuntimeEvents
   /**
    * 从特定时间附近开始加载（仅 MSE 引擎使用）。
    *

@@ -1,14 +1,16 @@
 /**
- * FlvPlayer —— HTTP-FLV 拉流播放器（ArtPlayer 版）。
+ * FlvPlayer —— HTTP-FLV 拉流播放器（ArtPlayer 壳 + 统一引擎路由版）。
  *
- * 基于 ArtPlayer（isLive 模式）+ flv.js：
- * - 自定义玻璃拟态控制栏（播放/音量/全屏/刷新），与 WebRTC 控制栏风格一致
- * - 保留重构前全部行为：指数退避重连（最多 5 次）、卡顿自动追帧、
- *   统计信息每秒上报、自动播放静音重试
+ * - ArtPlayer 仅承担 UI（isLive 模式 + 自定义玻璃拟态控制栏），与
+ *   WebRTC 控制栏风格一致
+ * - 拉流与 flv.js 实例管理走引擎层统一路由（selectEngine → flv-engine
+ *   isLive 模式）：重连（指数退避 5 次）、延迟追赶、统计上报由引擎
+ *   提供，本组件只消费 FlvRuntimeEvents 驱动连接状态机与统计展示
+ * - 保留：自动播放静音重试、卡死自动恢复（waiting 兜底跳帧 +
+ *   stalled 定时器检测）、刷新重建
  * - props 契约与重构前完全一致（WatchPage / StreamPushPage 无需改动）
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import flvjs from 'flv.js'
 import Artplayer from 'artplayer'
 import type { Option } from 'artplayer'
 import {
@@ -26,6 +28,8 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Tag } from '@/components/ui/Tag'
 import { IconButton } from '@/components/VideoControls'
 import { configureArtStatics } from '@/modules/art-player'
+import { usePlayerSource } from '@/modules/player'
+import type { FlvRuntimeEvents, PlayerSource } from '@/modules/player'
 import { cn } from '@/lib/utils'
 import {
   isIOSDevice,
@@ -81,8 +85,7 @@ interface FlvPlayerProps {
   onToggleWebFullscreen?: () => void
 }
 
-const MAX_RETRY = 5
-const RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000]
+type StreamStatus = 'connecting' | 'playing' | 'error' | 'stopped'
 
 export function FlvPlayer({
   src,
@@ -104,9 +107,7 @@ export function FlvPlayer({
   const [isPlaying, setIsPlaying] = useState(false)
   const [isMuted, setIsMuted] = useState(muted)
   const [isFullscreen, setIsFullscreen] = useState(false)
-  const [streamStatus, setStreamStatus] = useState<
-    'connecting' | 'playing' | 'error' | 'stopped'
-  >('connecting')
+  const [streamStatus, setStreamStatus] = useState<StreamStatus>('connecting')
 
   // 控制栏自动隐藏（逻辑仿照 WatchTogetherCore）
   const controlBarVisible = useControlBarAutoHide(stageRef, {
@@ -118,39 +119,38 @@ export function FlvPlayer({
   const onStatusChangeRef = useRef(onStatusChange)
   const onStatisticsRef = useRef(onStatistics)
   const mutedRef = useRef(muted)
+  const autoPlayRef = useRef(autoPlay)
 
   useEffect(() => {
     onErrorRef.current = onError
     onStatusChangeRef.current = onStatusChange
     onStatisticsRef.current = onStatistics
     mutedRef.current = muted
-  }, [onError, onStatusChange, onStatistics, muted])
+    autoPlayRef.current = autoPlay
+  }, [onError, onStatusChange, onStatistics, muted, autoPlay])
 
-  // 创建 ArtPlayer + flv.js（src 变化 / 手动刷新时重建）
+  // 统一引擎路由：attach / cleanup 由 usePlayerSource 管理（串行队列、
+  // video 级会话互斥、活跃引擎登记）。直播错误由 flv-engine 内部退避
+  // 重连并经 flvRuntimeEvents 上报，不经 onPlaybackError 全局提示。
+  const { attachSource, cleanup } = usePlayerSource({ videoRef })
+
+  // 统计帧率计算状态（flv.js STATISTICS_INFO 不直接提供 fps）
+  const lastStatsTimeRef = useRef(0)
+  const lastDecodedFramesRef = useRef(0)
+
+  // 创建 ArtPlayer + 引擎 attach（src 变化 / 手动刷新时重建）
   useEffect(() => {
     const container = containerRef.current
     if (!container || !src) return
-    if (!flvjs.isSupported()) {
-      const err = new Error('当前浏览器不支持 MSE / flv.js')
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 错误处理
-      setErrorMsg(err.message)
-      onErrorRef.current?.(err)
-      onStatusChangeRef.current?.('error')
-      return
-    }
 
     configureArtStatics()
-
-    let retryCount = 0
-    let retryTimer: ReturnType<typeof setTimeout> | null = null
-    // 帧率计算：flv.js STATISTICS_INFO 不直接提供 fps，通过 decodedFrames 差值计算
-    let lastStatsTime = 0
-    let lastDecodedFrames = 0
 
     setLoading(true)
     setErrorMsg(null)
     setStreamStatus('connecting')
     onStatusChangeRef.current?.('connecting')
+    lastStatsTimeRef.current = 0
+    lastDecodedFramesRef.current = 0
 
     // ── ArtPlayer 实例（isLive 隐藏进度条与时间显示）────────────
     const art = new Artplayer({
@@ -214,100 +214,108 @@ export function FlvPlayer({
     video.addEventListener('click', blockVideoClick, true)
     video.addEventListener('dblclick', blockVideoClick, true)
 
-    // ── flv.js 实例 ──────────────────────────────────────
-    const player = flvjs.createPlayer(
-      {
-        type: 'flv',
-        url: src,
-        isLive: true,
-        cors: true,
-      },
-      {
-        enableWorker: false,
-        enableStashBuffer: true,
-        stashInitialSize: 256,
-        // 自动清理已播放的 SourceBuffer，防止内存膨胀
-        autoCleanupSourceBuffer: true,
-        autoCleanupMaxBackwardDuration: 8,
-        autoCleanupMinBackwardDuration: 4,
-        // 直播延迟追赶：缓冲超过阈值时自动追帧（flv.js 运行时支持，类型定义缺失）
-        liveBufferLatencyChasing: true,
-        liveBufferLatencyMaxLatency: 1.5,
-        liveBufferLatencyTargetLatency: 0.5,
-      } as Record<string, unknown>
-    )
-    player.attachMediaElement(video)
-    player.on(flvjs.Events.ERROR, (errorType: string, errorDetail: string) => {
-      console.error('[FlvPlayer] error:', errorType, errorDetail)
-      if (retryCount < MAX_RETRY) {
-        const delay = RETRY_DELAYS_MS[retryCount]
-        retryCount += 1
-        console.log(
-          `[FlvPlayer] retry ${retryCount}/${MAX_RETRY} in ${delay}ms`
-        )
-        onStatusChangeRef.current?.('connecting')
+    // ── 源挂载：走统一引擎路由（selectEngine → flv-engine isLive）──
+    // 事件经 ref 转发，引擎闭包持有的回调稳定不随渲染变化。
+    const runtimeEvents: FlvRuntimeEvents = {
+      onRetrying: (attempt, max) => {
+        console.log(`[FlvPlayer] retrying ${attempt}/${max}`)
         setStreamStatus('connecting')
-        if (retryTimer) clearTimeout(retryTimer)
-        retryTimer = setTimeout(() => {
-          player.unload()
-          player.load()
-          try {
-            const ret = player.play()
-            if (ret && typeof ret.catch === 'function') ret.catch(() => {})
-          } catch {
-            // ignore
-          }
-        }, delay)
-      } else {
-        const err = new Error(
-          `拉流失败（${errorType}/${errorDetail}），已重试 ${MAX_RETRY} 次`
-        )
-        setErrorMsg(err.message)
+        onStatusChangeRef.current?.('connecting')
+      },
+      onReady: () => {
+        setLoading(false)
+        setErrorMsg(null)
+        setStreamStatus('playing')
+        onStatusChangeRef.current?.('playing')
+      },
+      onExhausted: (message) => {
+        console.error('[FlvPlayer] exhausted:', message)
+        const err = new Error(message)
+        setErrorMsg(message)
         onErrorRef.current?.(err)
-        onStatusChangeRef.current?.('error')
         setStreamStatus('error')
-      }
-    })
-    player.on(flvjs.Events.MEDIA_INFO, () => {
-      retryCount = 0
-      setLoading(false)
-      setErrorMsg(null)
-    })
-
-    // 统计信息上报（flv.js 内部约每秒触发一次）
-    player.on(flvjs.Events.STATISTICS_INFO, (info: Record<string, unknown>) => {
-      const now = performance.now()
-      const decodedFrames = (info.decodedFrames as number) ?? 0
-      const droppedFrames = (info.droppedFrames as number) ?? 0
-      const speed = (info.speed as number) ?? 0
-
-      let fps = 0
-      if (lastStatsTime > 0) {
-        const dt = (now - lastStatsTime) / 1000
-        const frameDelta = decodedFrames - lastDecodedFrames
-        if (dt > 0 && frameDelta >= 0) {
-          fps = Math.round(frameDelta / dt)
+        onStatusChangeRef.current?.('error')
+      },
+      onStreamEnd: () => {
+        setStreamStatus('stopped')
+        onStatusChangeRef.current?.('stopped')
+      },
+      onStatistics: (info) => {
+        const now = performance.now()
+        let fps = 0
+        if (lastStatsTimeRef.current > 0) {
+          const dt = (now - lastStatsTimeRef.current) / 1000
+          const frameDelta = info.decodedFrames - lastDecodedFramesRef.current
+          if (dt > 0 && frameDelta >= 0) {
+            fps = Math.round(frameDelta / dt)
+          }
         }
-      }
-      lastStatsTime = now
-      lastDecodedFrames = decodedFrames
+        lastStatsTimeRef.current = now
+        lastDecodedFramesRef.current = info.decodedFrames
 
-      onStatisticsRef.current?.({
-        speed: Math.round(speed),
-        totalDataRate: Math.round(speed * 8),
-        fps,
-        decodedFrames,
-        droppedFrames,
-      })
-    })
-
-    // 兜底：当 video 元素实际拿到画面时关闭 loading（部分流 MEDIA_INFO 触发较晚或不触发）
-    const handleLoadedMetadata = () => {
-      retryCount = 0
-      setLoading(false)
-      setErrorMsg(null)
+        onStatisticsRef.current?.({
+          speed: Math.round(info.speed),
+          totalDataRate: Math.round(info.speed * 8),
+          fps,
+          decodedFrames: info.decodedFrames,
+          droppedFrames: info.droppedFrames,
+        })
+      },
     }
-    video.addEventListener('loadedmetadata', handleLoadedMetadata)
+
+    const source: PlayerSource = {
+      url: src,
+      format: 'flv',
+      isLive: true,
+      flvRuntimeEvents: runtimeEvents,
+    }
+
+    void attachSource(video, source)
+      .then(() => {
+        // metadata 就绪：关闭 loading（部分流 MEDIA_INFO 早于 resolve 已触发）
+        setLoading(false)
+        setErrorMsg(null)
+        setStreamStatus('playing')
+        onStatusChangeRef.current?.('playing')
+
+        // 自动播放（静音重试处理浏览器自动播放策略）
+        if (autoPlayRef.current) {
+          const tryPlay = async () => {
+            try {
+              const ret = video.play()
+              if (ret && typeof ret.catch === 'function') {
+                await ret.catch(async (err: Error) => {
+                  console.warn('[FlvPlayer] autoplay failed:', err)
+                  if (!video.muted) {
+                    video.muted = true
+                    try {
+                      await video.play()
+                      console.log('[FlvPlayer] muted autoplay succeeded')
+                    } catch (mutedErr) {
+                      console.warn(
+                        '[FlvPlayer] muted autoplay failed:',
+                        mutedErr
+                      )
+                    }
+                  }
+                })
+              }
+            } catch (err) {
+              console.warn('[FlvPlayer] autoplay failed:', err)
+            }
+          }
+          void tryPlay()
+        }
+      })
+      .catch((err: unknown) => {
+        // attach 失败（waitForMetadata 30s 超时 / flv.js 不可用等）
+        const message = err instanceof Error ? err.message : '直播流连接失败'
+        console.error('[FlvPlayer] attach failed:', err)
+        setErrorMsg(message)
+        onErrorRef.current?.(err instanceof Error ? err : new Error(message))
+        setStreamStatus('error')
+        onStatusChangeRef.current?.('error')
+      })
 
     // 卡死自动恢复：当视频暂停但 buffered 有数据时，向前跳过一小段恢复播放
     const handleWaiting = () => {
@@ -344,43 +352,7 @@ export function FlvPlayer({
       }
     }, 3000)
 
-    player.on(flvjs.Events.LOADING_COMPLETE, () => {
-      // 直播流不应触发 LOADING_COMPLETE，触发说明流已结束
-      console.warn('[FlvPlayer] loading complete (stream ended)')
-      onStatusChangeRef.current?.('stopped')
-      setStreamStatus('stopped')
-    })
-    player.load()
-    if (autoPlay) {
-      const tryPlay = async () => {
-        try {
-          const ret = video.play()
-          if (ret && typeof ret.catch === 'function') {
-            await ret.catch(async (err: Error) => {
-              console.warn('[FlvPlayer] autoplay failed:', err)
-              if (!video.muted) {
-                video.muted = true
-                try {
-                  await video.play()
-                  console.log('[FlvPlayer] muted autoplay succeeded')
-                } catch (mutedErr) {
-                  console.warn('[FlvPlayer] muted autoplay failed:', mutedErr)
-                }
-              }
-            })
-          }
-        } catch (err) {
-          console.warn('[FlvPlayer] autoplay failed:', err)
-        }
-      }
-      void tryPlay()
-    }
-
-    onStatusChangeRef.current?.('playing')
-    setStreamStatus('playing')
-
     return () => {
-      video.removeEventListener('loadedmetadata', handleLoadedMetadata)
       video.removeEventListener('waiting', handleWaiting)
       video.removeEventListener('play', handlePlay)
       video.removeEventListener('pause', handlePause)
@@ -390,24 +362,14 @@ export function FlvPlayer({
       videoRef.current = null
       clearInterval(stallCheckTimer)
       clearTimeout(hideLoadingTimer)
-      if (retryTimer) {
-        clearTimeout(retryTimer)
-        retryTimer = null
-      }
-      try {
-        player.unload()
-        player.detachMediaElement()
-        player.destroy()
-      } catch (err) {
-        console.error('[FlvPlayer] destroy error:', err)
-      }
+      cleanup()
       try {
         art.destroy(false)
       } catch (err) {
         console.warn('[FlvPlayer] art destroy error:', err)
       }
     }
-  }, [src, autoPlay, reloadVersion])
+  }, [src, reloadVersion, attachSource, cleanup])
 
   // ── 全屏状态跟踪 ──────────────────────────────────────
   useEffect(() => {

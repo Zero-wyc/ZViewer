@@ -59,5 +59,6 @@ export type {
   EngineAttachResult,
   PlayerEngine,
   PlayerController,
+  FlvRuntimeEvents,
   SeekResult,
 } from './types'
