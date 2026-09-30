@@ -187,7 +187,7 @@ jobs:
             下载说明：
             - Windows: 下载 `zviewer-windows-x64.zip`，解压后运行 `start.bat`
             - Linux: 下载 `zviewer-linux-x64.tar.gz`，解压后运行 `./start.sh`
-            - Docker: `docker pull <username>/zviewer:latest`
+            - Docker: `docker pull zerowyc0721/zviewer:latest`
 
             构建提交: ${{ github.sha }}
             构建时间: ${{ github.event.head_commit.timestamp }}
@@ -242,7 +242,7 @@ jobs:
             echo ""
             echo "- **Windows**: 下载 \`zviewer-windows-x64.zip\`，解压后运行 \`start.bat\`"
             echo "- **Linux**: 下载 \`zviewer-linux-x64.tar.gz\`，解压后运行 \`./start.sh\`"
-            echo "- **Docker**: \`docker pull <username>/zviewer:${VERSION}\`"
+            echo "- **Docker**: \`docker pull zerowyc0721/zviewer:${VERSION}\`"
           } > release_body.md
           echo "=== Generated release body ==="
           cat release_body.md
