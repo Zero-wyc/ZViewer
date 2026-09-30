@@ -53,6 +53,7 @@ import {
   resolveBilibiliWithOptions,
   filterQualitiesByVip,
 } from '@/modules/bilibili/bilibiliApi'
+import { setBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import {
   extractBvid,
   resolveBilibiliViaCli,
@@ -182,6 +183,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [resolvedMovie, setResolvedMovie] = useState<ResolvedSource | null>(
     null
   )
+  // 最近一次 B站 解析实际使用的路径（true=CLI 代理，false=服务器端）。
+  // 添加影片后据此持久化新影片的解析偏好，对齐预览与正式播放的解析语义，
+  // 消除「预览 DASH（videojs10-dash）→ 正式播放 MP4（videojs10）」的引擎翻转。
+  const resolvedViaCliRef = useRef(false)
   // B站 解析进度：在推送面板也展示后台解析过程
   const [resolveProgress, setResolveProgress] = useState<string>('')
 
@@ -903,8 +908,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             false,
             true
           )
+          resolvedViaCliRef.current = true
         } catch (cliErr) {
           // CLI 代理解析失败：连接失败或后端返回错误，自动回退到服务器端解析
+          resolvedViaCliRef.current = false
           if (cliErr instanceof CliConnectionError) {
             console.warn(
               '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
@@ -918,6 +925,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
       if (!resolved) {
         setResolveProgress('正在通过服务器解析...')
+        resolvedViaCliRef.current = false
         resolved = await resolveBilibili(url.trim(), undefined, (_step, msg) =>
           setResolveProgress(msg)
         )
@@ -961,7 +969,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             false,
             true
           )
+          resolvedViaCliRef.current = true
         } catch (cliErr) {
+          resolvedViaCliRef.current = false
           if (cliErr instanceof CliConnectionError) {
             console.warn(
               '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
@@ -974,6 +984,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
       if (!resolved) {
         setResolveProgress('正在通过服务器切换清晰度...')
+        resolvedViaCliRef.current = false
         resolved = await resolveBilibiliWithOptions(
           url.trim(),
           qn,
@@ -1016,7 +1027,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             false,
             true
           )
+          resolvedViaCliRef.current = true
         } catch (cliErr) {
+          resolvedViaCliRef.current = false
           if (cliErr instanceof CliConnectionError) {
             console.warn(
               '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
@@ -1029,6 +1042,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
       if (!resolved) {
         setResolveProgress(`正在通过服务器解析 P${page}...`)
+        resolvedViaCliRef.current = false
         resolved = await resolveBilibiliWithOptions(
           url.trim(),
           resolvedMovie.currentQn,
@@ -1066,7 +1080,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         // 存展开后的完整地址：短链（b23.tv 等）由后端解析时 302 展开，
         // 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性
         const movieUrl = resolvedMovie.resolvedUrl || url.trim()
-        await addMovie(roomId, {
+        const added = await addMovie(roomId, {
           url: movieUrl,
           title,
           source: 'bilibili',
@@ -1081,6 +1095,22 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           pages: resolvedMovie.pages,
           currentPage: resolvedMovie.currentPage ?? 1,
         })
+        // 对齐预览与正式播放的解析语义，消除引擎翻转：
+        // 新影片默认偏好（preferMp4=true、cliEnabled=false）会让播放时
+        // 的重新解析走服务器 MP4，而添加时的解析（CLI 连接=CLI DASH，
+        // 未连接=服务器默认 DASH）是 DASH——引擎在 videojs10-dash 与
+        // videojs10 间翻转。此处按实际解析路径持久化偏好：
+        // - CLI 路径：启用 CLI 锁定 DASH（与一起看 cliPrevPreferMp4 同语义）
+        // - 服务器路径：preferMp4=false 保持服务器 DASH
+        // 均可在影片的解析设置中手动更改。
+        if (added) {
+          setBilibiliParseOptions(
+            added.id,
+            resolvedViaCliRef.current
+              ? { cliEnabled: true, preferMp4: false }
+              : { preferMp4: false }
+          )
+        }
         resetForm()
         message.success('影片已添加')
       } else if (sourceType === 'mp4') {

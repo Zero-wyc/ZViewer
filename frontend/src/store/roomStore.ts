@@ -343,7 +343,7 @@ interface RoomState {
       playsvideoEnabled?: boolean
       sourceMeta?: AniSubsSourceMeta | null
     }
-  ) => Promise<void>
+  ) => Promise<ReturnType<typeof mapDtoToMovie> | undefined>
   updateMovie: (
     roomId: string,
     movieId: number,
@@ -568,7 +568,10 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (!res.ok || !data.success) {
       throw new Error(data.message || '新增影片失败')
     }
-    // 不直接更新本地 state，等待后端广播 movie-list 刷新
+    // 不直接更新本地 state，等待后端广播 movie-list 刷新。
+    // 返回后端创建的影片（含 id）：添加流程需要即时拿到 id 持久化
+    // 解析偏好（BilibiliParseSettings），对齐预览与正式播放的解析语义。
+    return data.movie ? mapDtoToMovie(data.movie) : undefined
   },
 
   updateMovie: async (roomId, movieId, payload) => {
