@@ -59,6 +59,7 @@ import { Room } from '../../entities/Room';
 import type { SocketEventHandler } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
 import { getSystemSettings } from '../../services/system-settings';
+import { voiceSfu } from './voice-sfu';
 
 /** 语音成员条目 */
 interface VoiceMemberEntry {
@@ -234,6 +235,8 @@ function removeMember(
 
   members.delete(key);
   socketIndex.delete(entry.socketId);
+  // 关闭该成员的 SFU WebRtcTransport（连带 producer/consumers；空房间关 Router）
+  voiceSfu.closePeer(roomId, key);
   // 同步断开已绑定的媒体专用连接（客户端重进语音时会重建并重新绑定）
   if (entry.mediaSocketId) {
     mediaSocketIndex.delete(entry.mediaSocketId);
@@ -319,6 +322,8 @@ export class VoiceChatHandler implements SocketEventHandler {
                 selfMuted?: boolean;
                 /** 语音媒体专用连接绑定令牌（voice-media-init 校验用） */
                 mediaToken: string;
+                /** mediasoup Router RTP 能力（SFU 传输层 Device.load 用） */
+                sfuRtpCapabilities?: unknown;
               }
             | { success: false; message: string },
         ) => void,
@@ -384,6 +389,9 @@ export class VoiceChatHandler implements SocketEventHandler {
               selfMuted: mutedSet?.has(baseVoiceKey(memberKey)) ?? false,
               // 已有令牌原样下发（媒体连接可重复 init 绑定）
               mediaToken: existing.mediaToken,
+              sfuRtpCapabilities: await voiceSfu
+                .getRouterRtpCapabilities(roomId)
+                .catch(() => undefined),
             });
           }
 
@@ -422,6 +430,11 @@ export class VoiceChatHandler implements SocketEventHandler {
             selfMuted: mutedSet?.has(baseVoiceKey(memberKey)) ?? false,
             // 媒体专用连接绑定令牌
             mediaToken: entry.mediaToken,
+            // mediasoup Router RTP 能力（SFU 传输层；失败时 undefined，
+            // 前端据此回退 WebSocket 传输管线）
+            sfuRtpCapabilities: await voiceSfu
+              .getRouterRtpCapabilities(roomId)
+              .catch(() => undefined),
           });
         })();
       },
@@ -601,6 +614,10 @@ export class VoiceChatHandler implements SocketEventHandler {
             await persistVoiceMuted(roomId);
           }
 
+          // SFU 层强制禁言：暂停该成员的上行 Producer（RTP 直接停止，
+          // 客户端无法绕过；解禁时恢复）
+          voiceSfu.setPeerMuted(roomId, targetIdx.key, payload.muted);
+
           // 通知房间内所有成员（前端更新禁言标记与提示）
           io.to(roomId).emit('voice-muted-changed', {
             socketId: target.socketId,
@@ -664,6 +681,181 @@ export class VoiceChatHandler implements SocketEventHandler {
           console.error('[voice-kick] error:', err);
           callback?.({ success: false, message: '操作失败' });
         }
+      },
+    );
+
+    // --- mediasoup SFU 信令（v6 传输层；仅做低频 offer/answer/ICE 与轨管理） ---
+    socket.on(
+      'voice-sfu-rtp-capabilities',
+      (
+        payload: { roomId: string },
+        callback?: (r: {
+          success: boolean;
+          rtpCapabilities?: unknown;
+          message?: string;
+        }) => void,
+      ) => {
+        if (!isSocketInRoom(socket, payload.roomId)) {
+          return callback?.({ success: false, message: '不在该房间中' });
+        }
+        voiceSfu
+          .getRouterRtpCapabilities(payload.roomId)
+          .then((rtpCapabilities) => callback?.({ success: true, rtpCapabilities }))
+          .catch((err) => {
+            console.error('[voice-sfu-rtp-capabilities] error:', err);
+            callback?.({ success: false, message: '获取 RTP 能力失败' });
+          });
+      },
+    );
+
+    socket.on(
+      'voice-sfu-create-transport',
+      (
+        payload: { roomId: string },
+        callback?: (r: {
+          success: boolean;
+          id?: string;
+          iceParameters?: unknown;
+          iceCandidates?: unknown;
+          dtlsParameters?: unknown;
+          message?: string;
+        }) => void,
+      ) => {
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) {
+          return callback?.({ success: false, message: '未加入该房间语音' });
+        }
+        const entry = voiceMembers.get(idx.roomId)?.get(idx.key);
+        voiceSfu
+          .createPeerTransport(
+            idx.roomId,
+            idx.key,
+            entry?.username ?? '成员'
+          )
+          .then((params) => callback?.({ success: true, ...params }))
+          .catch((err) => {
+            console.error('[voice-sfu-create-transport] error:', err);
+            callback?.({ success: false, message: '创建传输失败' });
+          });
+      },
+    );
+
+    socket.on(
+      'voice-sfu-connect-transport',
+      (
+        payload: { roomId: string; dtlsParameters: unknown },
+        callback?: (r: { success: boolean; message?: string }) => void,
+      ) => {
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) {
+          return callback?.({ success: false, message: '未加入该房间语音' });
+        }
+        voiceSfu
+          .connectPeerTransport(
+            idx.roomId,
+            idx.key,
+            payload.dtlsParameters as never
+          )
+          .then(() => callback?.({ success: true }))
+          .catch((err) => {
+            console.error('[voice-sfu-connect-transport] error:', err);
+            callback?.({ success: false, message: 'DTLS 连接失败' });
+          });
+      },
+    );
+
+    // 上行产生音频轨。应答同时回带同房间其他成员的现有轨列表，
+    // 新成员一次往返即可消费全部现有音频
+    socket.on(
+      'voice-sfu-produce',
+      (
+        payload: { roomId: string; rtpParameters: unknown },
+        callback?: (r: {
+          success: boolean;
+          producerId?: string;
+          existingProducers?: Array<{
+            producerId: string;
+            memberKey: string;
+            username: string;
+          }>;
+          message?: string;
+        }) => void,
+      ) => {
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) {
+          return callback?.({ success: false, message: '未加入该房间语音' });
+        }
+        voiceSfu
+          .produceAudio(
+            idx.roomId,
+            idx.key,
+            payload.rtpParameters as never
+          )
+          .then(({ producerId }) => {
+            const existingProducers = voiceSfu.listProducers(
+              idx.roomId,
+              idx.key
+            );
+            // 通知房间内其他成员消费新轨
+            const entry = voiceMembers.get(idx.roomId)?.get(idx.key);
+            socket.to(idx.roomId).emit('voice-sfu-new-producer', {
+              roomId: idx.roomId,
+              producerId,
+              memberKey: idx.key,
+              username: entry?.username ?? '成员',
+            });
+            callback?.({ success: true, producerId, existingProducers });
+          })
+          .catch((err) => {
+            console.error('[voice-sfu-produce] error:', err);
+            callback?.({ success: false, message: '发布音频轨失败' });
+          });
+      },
+    );
+
+    // 消费指定上行轨（应答附带生产者归属成员，前端按成员挂 <audio>）
+    socket.on(
+      'voice-sfu-consume',
+      (
+        payload: { roomId: string; producerId: string; rtpCapabilities: unknown },
+        callback?: (r: {
+          success: boolean;
+          consumerId?: string;
+          producerId?: string;
+          kind?: string;
+          rtpParameters?: unknown;
+          producerMemberKey?: string;
+          producerUsername?: string;
+          message?: string;
+        }) => void,
+      ) => {
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) {
+          return callback?.({ success: false, message: '未加入该房间语音' });
+        }
+        voiceSfu
+          .consumeFrom(
+            idx.roomId,
+            idx.key,
+            payload.producerId,
+            payload.rtpCapabilities as never
+          )
+          .then((result) =>
+            callback?.({ success: true, ...(result ?? {}) as object })
+          )
+          .catch((err) => {
+            console.error('[voice-sfu-consume] error:', err);
+            callback?.({ success: false, message: '订阅音频轨失败' });
+          });
+      },
+    );
+
+    socket.on(
+      'voice-sfu-resume-consumer',
+      (payload: { roomId: string; consumerId: string }) => {
+        const idx = socketIndex.get(socket.id);
+        if (!idx || idx.roomId !== payload.roomId) return;
+        voiceSfu.resumeConsumer(idx.roomId, idx.key, payload.consumerId);
       },
     );
 
