@@ -13,7 +13,12 @@ import {
   UserX,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { useVoiceChat, type VoiceMember } from '../hooks/useVoiceChat'
+// v6 传输层：mediasoup SFU（WebRTC UDP）。回退旧 WebSocket 中转版：
+// 将下行 useVoiceChatSfu 换回 hooks/useVoiceChat 即可
+import {
+  useVoiceChatSfu as useVoiceChat,
+  type VoiceMember,
+} from '../hooks/useVoiceChatSfu'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Slider } from '@/components/ui/Slider'

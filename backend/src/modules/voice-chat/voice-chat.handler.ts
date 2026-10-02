@@ -714,10 +714,8 @@ export class VoiceChatHandler implements SocketEventHandler {
         payload: { roomId: string },
         callback?: (r: {
           success: boolean;
-          id?: string;
-          iceParameters?: unknown;
-          iceCandidates?: unknown;
-          dtlsParameters?: unknown;
+          sendTransport?: unknown;
+          recvTransport?: unknown;
           message?: string;
         }) => void,
       ) => {
@@ -727,12 +725,15 @@ export class VoiceChatHandler implements SocketEventHandler {
         }
         const entry = voiceMembers.get(idx.roomId)?.get(idx.key);
         voiceSfu
-          .createPeerTransport(
+          .createPeerTransports(
             idx.roomId,
             idx.key,
-            entry?.username ?? '成员'
+            entry?.username ?? '成员',
+            entry?.socketId ?? socket.id
           )
-          .then((params) => callback?.({ success: true, ...params }))
+          .then(({ sendTransport, recvTransport }) =>
+            callback?.({ success: true, sendTransport, recvTransport })
+          )
           .catch((err) => {
             console.error('[voice-sfu-create-transport] error:', err);
             callback?.({ success: false, message: '创建传输失败' });
@@ -743,7 +744,11 @@ export class VoiceChatHandler implements SocketEventHandler {
     socket.on(
       'voice-sfu-connect-transport',
       (
-        payload: { roomId: string; dtlsParameters: unknown },
+        payload: {
+          roomId: string;
+          which: 'send' | 'recv';
+          dtlsParameters: unknown;
+        },
         callback?: (r: { success: boolean; message?: string }) => void,
       ) => {
         const idx = socketIndex.get(socket.id);
@@ -754,6 +759,7 @@ export class VoiceChatHandler implements SocketEventHandler {
           .connectPeerTransport(
             idx.roomId,
             idx.key,
+            payload.which === 'recv' ? 'recv' : 'send',
             payload.dtlsParameters as never
           )
           .then(() => callback?.({ success: true }))
@@ -803,6 +809,7 @@ export class VoiceChatHandler implements SocketEventHandler {
               producerId,
               memberKey: idx.key,
               username: entry?.username ?? '成员',
+              socketId: entry?.socketId ?? socket.id,
             });
             callback?.({ success: true, producerId, existingProducers });
           })

@@ -6,6 +6,13 @@ services:
     ports:
       - "3333:3333"   # 统一端口：后端 API + WebSocket + 前端静态文件 + /live HTTP-FLV 代理
       - "3334:3334"   # RTMP 推流 (OBS)
+      - "40000-40100:40000-40100/udp"   # mediasoup SFU 语音 WebRTC 传输
+    environment:
+      # 语音 SFU 对外通告 IP：部署机有公网 IP / NAT 时必须配置为外部可达地址，
+      # 否则成员间 WebRTC 无法建立（LAN 部署可配内网 IP 或不配）
+      - MEDIASOUP_ANNOUNCED_IP=${MEDIASOUP_ANNOUNCED_IP:-}
+      - MEDIASOUP_RTC_MIN_PORT=40000
+      - MEDIASOUP_RTC_MAX_PORT=40100
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped

@@ -32,6 +32,40 @@
  */
 import * as mediasoup from 'mediasoup';
 import { types as mediasoupTypes } from 'mediasoup';
+import fs from 'fs';
+import path from 'path';
+
+/**
+ * pkg 单文件打包下的 worker 二进制定位：
+ * mediasoup-worker 是独立原生进程，pkg 无法内嵌，随产物目录分发
+ * （build-all.js 复制到 exe 旁）。启动时若环境变量未指定，则优先
+ * 查找 exe 同目录的 worker 二进制（开发环境直接用 node_modules 内的）。
+ * 必须在首次 createWorker 之前设置。
+ */
+if (!process.env.MEDIASOUP_WORKER_BIN) {
+  const binName =
+    process.platform === 'win32' ? 'mediasoup-worker.exe' : 'mediasoup-worker';
+  const candidates = [
+    // pkg 产物：exe 同目录
+    path.join(path.dirname(process.execPath), binName),
+    // 开发环境：node_modules 内（mediasoup 安装时已就位）
+    path.join(
+      process.cwd(),
+      'node_modules',
+      'mediasoup',
+      'worker',
+      'out',
+      'Release',
+      binName
+    ),
+  ];
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) {
+      process.env.MEDIASOUP_WORKER_BIN = candidate;
+      break;
+    }
+  }
+}
 
 /** 音频编码：仅 opus（与既有 WebCodecs 管线一致） */
 const MEDIA_CODECS: mediasoupTypes.RouterRtpCodecCapability[] = [
@@ -52,12 +86,24 @@ async function createWorker(): Promise<mediasoupTypes.Worker> {
   });
 }
 
+/** 传输连接参数（create-transport 应答体） */
+interface TransportParams {
+  id: string;
+  iceParameters: mediasoupTypes.IceParameters;
+  iceCandidates: mediasoupTypes.IceCandidate[];
+  dtlsParameters: mediasoupTypes.DtlsParameters;
+}
+
 /** 单个 SFU 成员的媒体状态 */
 interface SfuPeer {
-  /** WebRtcTransport（上行+下行共用） */
-  transport: mediasoupTypes.WebRtcTransport;
+  /** 上行 WebRtcTransport（produce 音频） */
+  send: mediasoupTypes.WebRtcTransport;
+  /** 下行 WebRtcTransport（consume 其他成员音频） */
+  recv: mediasoupTypes.WebRtcTransport;
   /** 显示名（信令透传，前端音频元素标注用） */
   username: string;
+  /** 该成员的主连接 socketId（前端 UI 以 socketId 为成员键） */
+  socketId: string;
   /** 该成员的上行音频 Producer（produce 后填充） */
   producer: mediasoupTypes.Producer | null;
   /** 该成员消费其他成员的 Consumer 集合 */
@@ -116,57 +162,71 @@ class VoiceSfuService {
    * 为成员创建 WebRtcTransport（UDP），返回连接参数。
    * 同一成员重复调用返回既有 transport 的参数（幂等，重连恢复用）。
    */
-  async createPeerTransport(
+  private async createWebRtcTransport(
+    room: SfuRoom,
+    key: string
+  ): Promise<mediasoupTypes.WebRtcTransport> {
+    const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
+    const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
+    const transport = await room.router.createWebRtcTransport({
+      listenIps: [{ ip: listenIp, announcedIp }],
+      enableUdp: true,
+      enableTcp: false,
+      preferUdp: true,
+      initialAvailableOutgoingBitrate: 256_000,
+    });
+    transport.on('icestatechange', (state: string) => {
+      if (state === 'disconnected' || state === 'failed') {
+        console.warn(`[voice-sfu] transport ${state}: ${key} in ${room.router.id}`);
+      }
+    });
+    return transport;
+  }
+
+  /**
+   * 为成员创建上行/下行一对 WebRtcTransport（mediasoup-client 的
+   * Device 需要分开的 send/recv transport），返回连接参数。
+   * 重复调用返回既有参数（幂等，重连恢复用）。
+   */
+  async createPeerTransports(
     roomId: string,
     key: string,
-    username: string
-  ): Promise<{
-    id: string;
-    iceParameters: mediasoupTypes.IceParameters;
-    iceCandidates: mediasoupTypes.IceCandidate[];
-    dtlsParameters: mediasoupTypes.DtlsParameters;
-  }> {
+    username: string,
+    socketId: string
+  ): Promise<{ sendTransport: TransportParams; recvTransport: TransportParams }> {
     const room = await this.getRoom(roomId);
     let peer = room.peers.get(key);
     if (!peer) {
-      const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
-      const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
-      const transport = await room.router.createWebRtcTransport({
-        listenIps: [{ ip: listenIp, announcedIp }],
-        enableUdp: true,
-        enableTcp: false,
-        preferUdp: true,
-        initialAvailableOutgoingBitrate: 256_000,
-      });
-      transport.on('icestatechange', (state: string) => {
-        if (state === 'disconnected' || state === 'failed') {
-          console.warn(`[voice-sfu] transport ${state}: ${key} in ${roomId}`);
-        }
-      });
-      peer = { transport, username, producer: null, consumers: new Set() };
+      const send = await this.createWebRtcTransport(room, key);
+      const recv = await this.createWebRtcTransport(room, key);
+      peer = { send, recv, username, socketId, producer: null, consumers: new Set() };
       room.peers.set(key, peer);
     } else {
-      // 重连/重入：刷新显示名
+      // 重连/重入：刷新显示名与主连接 socketId
       peer.username = username;
+      peer.socketId = socketId;
     }
-    return {
-      id: peer.transport.id,
-      iceParameters: peer.transport.iceParameters,
-      iceCandidates: peer.transport.iceCandidates,
-      dtlsParameters: peer.transport.dtlsParameters,
-    };
+    const toParams = (t: mediasoupTypes.WebRtcTransport): TransportParams => ({
+      id: t.id,
+      iceParameters: t.iceParameters,
+      iceCandidates: t.iceCandidates,
+      dtlsParameters: t.dtlsParameters,
+    });
+    return { sendTransport: toParams(peer.send), recvTransport: toParams(peer.recv) };
   }
 
-  /** 客户端 DTLS 连接（幂等：mediasoup connectTransport 重复调用会抛错，先查状态） */
+  /** 客户端 DTLS 连接（幂等：已 connected 直接返回，mediasoup 重复 connect 会抛错） */
   async connectPeerTransport(
     roomId: string,
     key: string,
+    which: 'send' | 'recv',
     dtlsParameters: mediasoupTypes.DtlsParameters
   ): Promise<void> {
     const peer = this.rooms.get(roomId)?.peers.get(key);
-    if (!peer) throw new Error('SFU transport 不存在，请重新加入语音');
-    if (peer.transport.dtlsState === 'connected') return;
-    await peer.transport.connect({ dtlsParameters });
+    const transport = which === 'send' ? peer?.send : peer?.recv;
+    if (!transport) throw new Error('SFU transport 不存在，请重新加入语音');
+    if (transport.dtlsState === 'connected') return;
+    await transport.connect({ dtlsParameters });
   }
 
   /**
@@ -190,7 +250,7 @@ class VoiceSfuService {
       }
       peer.producer = null;
     }
-    const producer = await peer.transport.produce({
+    const producer = await peer.send.produce({
       kind: 'audio',
       rtpParameters,
       appData: { roomId, key },
@@ -225,6 +285,7 @@ class VoiceSfuService {
     kind: string;
     rtpParameters: mediasoupTypes.RtpParameters;
     producerMemberKey: string;
+    producerSocketId: string;
     producerUsername: string;
   } | null> {
     const room = this.rooms.get(roomId);
@@ -234,18 +295,20 @@ class VoiceSfuService {
     let producer: mediasoupTypes.Producer | null = null;
     let producerMemberKey = '';
     let producerUsername = '';
+    let producerSocketId = '';
     for (const [peerKey, p] of room.peers) {
       if (peerKey === key) continue;
       if (p.producer && p.producer.id === producerId) {
         producer = p.producer;
         producerMemberKey = peerKey;
         producerUsername = p.username;
+        producerSocketId = p.socketId;
         break;
       }
     }
     if (!producer || producer.closed) return null;
 
-    const consumer = await peer.transport.consume({
+    const consumer = await peer.recv.consume({
       producerId,
       rtpCapabilities,
       paused: true, // 客户端 attach <audio> 后显式 resume
@@ -261,6 +324,7 @@ class VoiceSfuService {
       kind: consumer.kind,
       rtpParameters: consumer.rtpParameters,
       producerMemberKey,
+      producerSocketId,
       producerUsername,
     };
   }
@@ -272,13 +336,19 @@ class VoiceSfuService {
   listProducers(
     roomId: string,
     excludeKey: string
-  ): Array<{ producerId: string; memberKey: string; username: string }> {
+  ): Array<{
+    producerId: string;
+    memberKey: string;
+    username: string;
+    socketId: string;
+  }> {
     const room = this.rooms.get(roomId);
     if (!room) return [];
     const list: Array<{
       producerId: string;
       memberKey: string;
       username: string;
+      socketId: string;
     }> = [];
     for (const [peerKey, p] of room.peers) {
       if (peerKey === excludeKey) continue;
@@ -287,6 +357,7 @@ class VoiceSfuService {
           producerId: p.producer.id,
           memberKey: peerKey,
           username: p.username,
+          socketId: p.socketId,
         });
       }
     }
@@ -323,10 +394,12 @@ class VoiceSfuService {
     const peer = room.peers.get(key);
     if (!peer) return;
     room.peers.delete(key);
-    try {
-      peer.transport.close();
-    } catch {
-      /* ignore */
+    for (const t of [peer.send, peer.recv]) {
+      try {
+        t.close();
+      } catch {
+        /* ignore */
+      }
     }
     if (room.peers.size === 0) {
       try {
