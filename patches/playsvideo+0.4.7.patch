@@ -1,3 +1,49 @@
+diff --git a/node_modules/playsvideo/dist/engine.js b/node_modules/playsvideo/dist/engine.js
+index 861a2c0..49c7f72 100644
+--- a/node_modules/playsvideo/dist/engine.js
++++ b/node_modules/playsvideo/dist/engine.js
+@@ -799,7 +799,7 @@ export class PlaysVideoEngine extends EventTarget {
+                 mlog(`source pipeline: pre-built keyframes=${index.keyframes.length}`);
+             }
+             else {
+-                const mkvIndex = await buildMkvKeyframeIndexFromSource(source);
++                const mkvIndex = await buildMkvKeyframeIndexFromSource(source, demux.videoTrack.id);
+                 if (mkvIndex) {
+                     index = mkvIndex;
+                     mlog(`source pipeline: mkv-cues keyframes=${index.keyframes.length}`);
+diff --git a/node_modules/playsvideo/dist/pipeline/audio-transcode.js b/node_modules/playsvideo/dist/pipeline/audio-transcode.js
+index 1c83c4a..3cd8c39 100644
+--- a/node_modules/playsvideo/dist/pipeline/audio-transcode.js
++++ b/node_modules/playsvideo/dist/pipeline/audio-transcode.js
+@@ -112,12 +112,14 @@ export function concatEncodedPacketData(packets) {
+ export function packetsFromAdtsData(aacData, sampleRate, audioStartSec) {
+     const tParse = now();
+     const frames = parseAdtsFrames(aacData);
+-    const frameDuration = SAMPLES_PER_AAC_FRAME / sampleRate;
+-    let timestamp = audioStartSec;
+-    const packets = frames.map((frame, i) => {
++    // Native FFmpeg AAC adds 1024 priming samples for every independent job.
++    // ADTS cannot carry skip_samples; discard that frame rather than placing
++    // its silence at the original packet time (a fresh delay at every cut).
++    const outputRate = frames[0]?.sampleRate ?? sampleRate;
++    const frameDuration = SAMPLES_PER_AAC_FRAME / outputRate;
++    const packets = frames.slice(1).map((frame, i) => {
+         const pkt = new EncodedPacket(frame.data, 'key', // all AAC frames are keyframes
+-        timestamp, frameDuration, i);
+-        timestamp += frameDuration;
++        audioStartSec + i * frameDuration, frameDuration, i);
+         return pkt;
+     });
+     const parseMs = now() - tParse;
+@@ -130,7 +132,7 @@ export function packetsFromAdtsData(aacData, sampleRate, audioStartSec) {
+         },
+         parseMs,
+         outputBytes: aacData.byteLength,
+-        outputDurationSec: frames.length * frameDuration,
++        outputDurationSec: packets.length * frameDuration,
+     };
+ }
+ export function buildTranscodeResultFromAdts(params) {
 diff --git a/node_modules/playsvideo/dist/pipeline/demux.js b/node_modules/playsvideo/dist/pipeline/demux.js
 index d2bdd9e..f534658 100644
 --- a/node_modules/playsvideo/dist/pipeline/demux.js
@@ -19,6 +65,125 @@ index d2bdd9e..f534658 100644
      return {
          input,
          duration,
+diff --git a/node_modules/playsvideo/dist/pipeline/mkv-keyframe-index.js b/node_modules/playsvideo/dist/pipeline/mkv-keyframe-index.js
+index 1f08f38..ecaf6e7 100644
+--- a/node_modules/playsvideo/dist/pipeline/mkv-keyframe-index.js
++++ b/node_modules/playsvideo/dist/pipeline/mkv-keyframe-index.js
+@@ -1,4 +1,4 @@
+-export async function buildMkvKeyframeIndexFromSource(source) {
++export async function buildMkvKeyframeIndexFromSource(source, videoTrackId) {
+     const size = await source.getSizeOrNull();
+     if (size === null) {
+         return null;
+@@ -14,12 +14,12 @@ export async function buildMkvKeyframeIndexFromSource(source) {
+             throw new Error(`MKV cue read returned mismatched range ${result.offset}-${result.offset + result.bytes.length}`);
+         }
+         return result.bytes.subarray(sliceStart, sliceEnd);
+-    }, size);
++    }, size, videoTrackId);
+ }
+-export async function buildMkvKeyframeIndexFromBlob(blob) {
+-    return buildMkvKeyframeIndex(async (start, end) => new Uint8Array(await blob.slice(start, end).arrayBuffer()), blob.size);
++export async function buildMkvKeyframeIndexFromBlob(blob, videoTrackId) {
++    return buildMkvKeyframeIndex(async (start, end) => new Uint8Array(await blob.slice(start, end).arrayBuffer()), blob.size, videoTrackId);
+ }
+-export async function buildMkvKeyframeIndexFromUrl(url) {
++export async function buildMkvKeyframeIndexFromUrl(url, videoTrackId) {
+     try {
+         const size = await getUrlSize(url);
+         return buildMkvKeyframeIndex(async (start, end) => {
+@@ -32,7 +32,7 @@ export async function buildMkvKeyframeIndexFromUrl(url) {
+                 throw new Error(`MKV cue range request failed: HTTP ${response.status}`);
+             }
+             return new Uint8Array(await response.arrayBuffer());
+-        }, size);
++        }, size, videoTrackId);
+     }
+     catch {
+         return null;
+@@ -50,9 +50,12 @@ async function getUrlSize(url) {
+     }
+     return size;
+ }
+-async function buildMkvKeyframeIndex(read, fileSize) {
++async function buildMkvKeyframeIndex(read, fileSize, videoTrackId) {
+     try {
+-        const parsed = await parseMkvCueIndex(read, fileSize);
++        // Cues may index audio and subtitle tracks as well. Only video cues
++        // define video keyframes; otherwise video and audio start seconds apart.
++        if (!Number.isInteger(videoTrackId)) return null;
++        const parsed = await parseMkvCueIndex(read, fileSize, videoTrackId);
+         if (!parsed.durationSec || !Number.isFinite(parsed.durationSec) || parsed.durationSec <= 0) {
+             return null;
+         }
+@@ -75,7 +78,7 @@ export async function parseMkvCues(read, fileSize) {
+     const parsed = await parseMkvCueIndex(read, fileSize);
+     return parsed.cuePoints;
+ }
+-export async function parseMkvCueIndex(read, fileSize) {
++export async function parseMkvCueIndex(read, fileSize, videoTrackId) {
+     let pos = 0;
+     const headerData = await read(0, Math.min(64, fileSize));
+     const headerEl = readElementHeader(headerData, 0);
+@@ -195,6 +198,7 @@ export async function parseMkvCueIndex(read, fileSize) {
+         if (cpEl.id === CUEPOINT_ID) {
+             let cueTime;
+             let clusterPosition;
++            let hasVideoPosition = false;
+             const cpEnd = cp + cpEl.dataStart + cpEl.dataSize;
+             let inner = cp + cpEl.dataStart;
+             while (inner < cpEnd && inner < cuesBuf.length - 2) {
+@@ -205,6 +209,8 @@ export async function parseMkvCueIndex(read, fileSize) {
+                     cueTime = readUint(cuesBuf, inner + child.dataStart, child.dataSize);
+                 }
+                 else if (child.id === CUETRACKPOSITIONS_ID) {
++                    let cueTrack;
++                    let position;
+                     const ctpEnd = inner + child.dataStart + child.dataSize;
+                     let ctpInner = inner + child.dataStart;
+                     while (ctpInner < ctpEnd && ctpInner < cuesBuf.length - 2) {
+@@ -212,18 +218,25 @@ export async function parseMkvCueIndex(read, fileSize) {
+                         if (!ctpChild)
+                             break;
+                         if (ctpChild.id === CUECLUSTERPOSITION_ID) {
+-                            clusterPosition = readUint(cuesBuf, ctpInner + ctpChild.dataStart, ctpChild.dataSize);
++                            position = readUint(cuesBuf, ctpInner + ctpChild.dataStart, ctpChild.dataSize);
++                        }
++                        else if (ctpChild.id === 0xf7) {
++                            cueTrack = readUint(cuesBuf, ctpInner + ctpChild.dataStart, ctpChild.dataSize);
+                         }
+                         if (ctpChild.dataSize === UNKNOWN_SIZE)
+                             break;
+                         ctpInner += ctpChild.dataStart + ctpChild.dataSize;
+                     }
++                    if (position !== undefined && (videoTrackId === undefined || cueTrack === videoTrackId)) {
++                        clusterPosition = position;
++                        hasVideoPosition = true;
++                    }
+                 }
+                 if (child.dataSize === UNKNOWN_SIZE)
+                     break;
+                 inner += child.dataStart + child.dataSize;
+             }
+-            if (cueTime !== undefined && clusterPosition !== undefined) {
++            if (cueTime !== undefined && clusterPosition !== undefined && hasVideoPosition) {
+                 cuePoints.push({
+                     timestampMs: (cueTime * timestampScale) / 1_000_000,
+                 });
+diff --git a/node_modules/playsvideo/dist/pipeline/segment-processor.js b/node_modules/playsvideo/dist/pipeline/segment-processor.js
+index c619766..c1150e4 100644
+--- a/node_modules/playsvideo/dist/pipeline/segment-processor.js
++++ b/node_modules/playsvideo/dist/pipeline/segment-processor.js
+@@ -46,6 +46,9 @@ export async function processSegmentWithAbort(config, index, signal) {
+         const speed = m.ffmpegSpeed !== null ? ` speed=${m.ffmpegSpeed}x` : '';
+         log(`seg ${index} transcode ${m.totalMs.toFixed(1)}ms audio=${m.audioDurationSec.toFixed(2)}s ratio=${m.realtimeRatio.toFixed(4)}x ffmpeg=${m.ffmpegMs.toFixed(1)}ms${speed}`);
+         audioPackets = transcoded.packets;
++        // Encoder flush padding must not spill into the following segment.
++        const audioEndSec = transcoded.metrics.audioDurationSec + audioPackets[0]?.timestamp;
++        audioPackets = audioPackets.filter(p => p.timestamp < Math.min(endSec, audioEndSec) - 1e-7);
+         if (!audioDecoderConfig || audioDecoderConfig.codec !== 'mp4a.40.2') {
+             audioDecoderConfig = transcoded.decoderConfig;
+         }
 diff --git a/node_modules/playsvideo/dist/pipeline/subtitle.js b/node_modules/playsvideo/dist/pipeline/subtitle.js
 index 29fd811..eb09187 100644
 --- a/node_modules/playsvideo/dist/pipeline/subtitle.js
@@ -89,3 +254,19 @@ index 29fd811..eb09187 100644
  /** Discover subtitle tracks from a demuxed input. Cheap — reads only metadata, no cue extraction. */
  export async function getSubtitleTrackInfos(input) {
      const tracks = await input.getSubtitleTracks();
+diff --git a/node_modules/playsvideo/dist/worker.js b/node_modules/playsvideo/dist/worker.js
+index eea21c0..b2d9cbf 100644
+--- a/node_modules/playsvideo/dist/worker.js
++++ b/node_modules/playsvideo/dist/worker.js
+@@ -407,9 +407,9 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
+     else {
+         const tIndex = performance.now();
+         const mkvIndex = currentBlob
+-            ? await buildMkvKeyframeIndexFromBlob(currentBlob)
++            ? await buildMkvKeyframeIndexFromBlob(currentBlob, demux.videoTrack.id)
+             : currentUrl
+-                ? await buildMkvKeyframeIndexFromUrl(currentUrl)
++                ? await buildMkvKeyframeIndexFromUrl(currentUrl, demux.videoTrack.id)
+                 : null;
+         if (mkvIndex) {
+             index = mkvIndex;

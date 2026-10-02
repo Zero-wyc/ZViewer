@@ -192,6 +192,7 @@ router.post('/roots', async (req: AuthenticatedRequest, res: Response): Promise<
     }
     const entity = folderRepo().create({ name, absPath: resolved, readonly });
     const saved = await folderRepo().save(entity);
+    invalidateRootRegistry();
     res.json({
       success: true,
       root: {

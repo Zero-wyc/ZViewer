@@ -84,10 +84,46 @@ export function SubtitleOverlay({
   fontFamily = '',
 }: SubtitleOverlayProps) {
   const [activeCues, setActiveCues] = useState<ParsedCue[]>([])
+  const [pictureRect, setPictureRect] = useState({
+    x: 0,
+    y: 0,
+    width: 0,
+    height: 0,
+  })
+  useEffect(() => {
+    if (!video) return
+    const update = () => {
+      const width = video.clientWidth,
+        height = video.clientHeight
+      const scale = Math.min(
+        width / (video.videoWidth || width || 1),
+        height / (video.videoHeight || height || 1)
+      )
+      const w = (video.videoWidth || width) * scale
+      const h = (video.videoHeight || height) * scale
+      setPictureRect({
+        x: (width - w) / 2,
+        y: (height - h) / 2,
+        width: w,
+        height: h,
+      })
+    }
+    const observer = new ResizeObserver(update)
+    observer.observe(video)
+    video.addEventListener('loadedmetadata', update)
+    video.addEventListener('resize', update)
+    update()
+    return () => {
+      observer.disconnect()
+      video.removeEventListener('loadedmetadata', update)
+      video.removeEventListener('resize', update)
+    }
+  }, [video])
   // 缓存上次激活的 cue 索引字符串，避免不必要的状态更新
   const lastKeyRef = useRef('')
 
   useEffect(() => {
+    lastKeyRef.current = ''
     if (!video || !enabled || cues.length === 0) {
       setActiveCues([])
       lastKeyRef.current = ''
@@ -123,7 +159,10 @@ export function SubtitleOverlay({
   }, [video, cues, enabled, offset])
 
   // 防重叠布局：重叠 cue 垂直堆叠而非叠字（useMemo 须在 early return 之前调用）
-  const laidOut = useMemo(() => layoutCues(activeCues), [activeCues])
+  const laidOut = useMemo(
+    () => layoutCues(activeCues.filter((c) => !c.bitmap)),
+    [activeCues]
+  )
 
   if (!enabled || activeCues.length === 0) return null
 
@@ -132,6 +171,30 @@ export function SubtitleOverlay({
       className="pointer-events-none absolute inset-0 z-10"
       style={{ overflow: 'hidden' }}
     >
+      {activeCues
+        .filter((c) => c.bitmap)
+        .map((cue, i) => {
+          const b = cue.bitmap!
+          if (!b.src.startsWith('data:image/png;base64,')) return null
+          return (
+            <img
+              key={`bitmap:${cue.start}:${i}`}
+              src={b.src}
+              alt=""
+              style={{
+                position: 'absolute',
+                left:
+                  pictureRect.x +
+                  pictureRect.width * (b.x / b.canvasWidth + shiftX / 100),
+                top:
+                  pictureRect.y +
+                  pictureRect.height * (b.y / b.canvasHeight + shiftY / 100),
+                width: (pictureRect.width * b.width) / b.canvasWidth,
+                height: (pictureRect.height * b.height) / b.canvasHeight,
+              }}
+            />
+          )
+        })}
       {laidOut.map((cue, i) => {
         const line = cue.resolvedLine
         // 垂直位移叠加在防重叠布局后的行位置上（百分比容器高）

@@ -16,8 +16,7 @@
  * - 组装 SRT / ASS 文本 → 交给 subtitleParser 解析渲染
  *
  * 支持的编码：S_TEXT/UTF8（SRT）、S_TEXT/SSA / S_TEXT/ASS、
- * S_TEXT/WEBVTT（按 SRT 兜底）。位图字幕（PGS/VOBSUB）标记不支持，
- * 前端无可行提取路径（后端 ffmpeg 已移除，无回退）。
+ * S_TEXT/WEBVTT（按 SRT 兜底）、S_HDMV/PGS（原始位图和时间轴）。
  */
 import {
   MatroskaDemuxer,
@@ -25,6 +24,8 @@ import {
   type DemuxedTrack,
 } from '@/lib/mkv/matroska-demuxer'
 import { TRACK_TYPE } from '@/lib/mkv/ebml'
+import type { ParsedCue } from '@/lib/subtitleParser'
+import { PgsDecoder } from './pgs-decoder'
 
 /** 探测时最多预取的头部字节数（Tracks 元素必须在其中收齐） */
 const PROBE_HEAD_BYTES = 4 * 1024 * 1024
@@ -108,7 +109,7 @@ export async function probeMkvSubtitleTracks(
       language: t.language,
       title: t.name,
       label: trackLabel(t),
-      supported: isTextSubtitleCodec(t.codecId),
+      supported: isTextSubtitleCodec(t.codecId) || t.codecId === 'S_HDMV/PGS',
     }))
 }
 
@@ -149,6 +150,7 @@ export async function probeMkvMediaInfo(
 }
 
 interface HeadInfo {
+  durationSec: number | null
   tracks: DemuxedTrack[]
   /** Info 的 timestampScale 换算为毫秒/单位 */
   tsScaleMs: number
@@ -190,6 +192,7 @@ async function probeHead(
 
   let tracks: DemuxedTrack[] | null = null
   let tsScaleMs = 1 // 默认 timestampScale=1e6ns → 1ms
+  let durationSec: number | null = null
   let firstChunk: Uint8Array | null = null
   const demuxer = new MatroskaDemuxer({
     onTracks: (t) => {
@@ -197,6 +200,7 @@ async function probeHead(
     },
     onInfo: (info) => {
       tsScaleMs = info.timestampScaleNs / 1e6
+      durationSec = info.durationSec
     },
   })
 
@@ -223,7 +227,7 @@ async function probeHead(
 
   // Segment 数据区起点：EBML 头 + Segment ID + Segment Size
   const segmentDataStart = parseSegmentDataStart(firstChunk)
-  return { tracks, tsScaleMs, size, segmentDataStart }
+  return { tracks, tsScaleMs, size, segmentDataStart, durationSec }
 }
 
 /** 从文件首块字节解析 Segment 数据区起始偏移（未知长度同样适用）。 */
@@ -439,15 +443,25 @@ async function inflateTrackFrames(
   framesByTrack: Map<number, RawSubtitleFrame[]>
 ): Promise<void> {
   for (const [n, track] of trackMap) {
-    if (track.contentCompAlgo === 1) {
-      const list = framesByTrack.get(n)
-      if (list) {
-        for (const f of list) f.data = await inflateZlib(f.data)
-      }
-    } else if (track.contentCompAlgo !== 0) {
-      throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
-    }
+    for (const f of framesByTrack.get(n) ?? [])
+      f.data = await restoreSubtitleData(track, f.data)
   }
+}
+
+async function restoreSubtitleData(
+  track: DemuxedTrack,
+  data: Uint8Array
+): Promise<Uint8Array> {
+  if (track.contentCompAlgo === -1) return data
+  if (track.contentCompAlgo === 0) return inflateZlib(data)
+  if (track.contentCompAlgo === 3) {
+    const prefix = track.contentCompSettings ?? new Uint8Array(0)
+    const restored = new Uint8Array(prefix.length + data.length)
+    restored.set(prefix)
+    restored.set(data, prefix.length)
+    return restored
+  }
+  throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
 }
 
 // ==================== 稀疏 Range 提取 ====================
@@ -982,6 +996,7 @@ async function inflateZlib(data: Uint8Array): Promise<Uint8Array> {
 
 /** 流式交付的字幕文本块 */
 export interface SubtitleStreamChunk {
+  cues?: ParsedCue[]
   /**
    * ASS：完整头部 + Format 行 + 本批 Dialogue 行（独立可解析）；
    * SRT：本批条目（序号全局连续）
@@ -1026,24 +1041,21 @@ export async function streamMkvSubtitleTrack(
   trackNumber: number,
   opts: StreamOptions
 ): Promise<void> {
-  const { tracks, tsScaleMs, size, segmentDataStart } = await probeHead(
-    url,
-    opts.headers,
-    opts.signal
-  )
+  const { tracks, tsScaleMs, size, segmentDataStart, durationSec } =
+    await probeHead(url, opts.headers, opts.signal)
   const track = tracks.find((t) => t.trackNumber === trackNumber)
   if (
     !track ||
     track.trackType !== TRACK_TYPE.SUBTITLE ||
-    !isTextSubtitleCodec(track.codecId)
+    !(isTextSubtitleCodec(track.codecId) || track.codecId === 'S_HDMV/PGS')
   ) {
-    throw new Error('指定的轨道不是可提取的文本字幕轨')
+    throw new Error('指定的轨道不是支持的字幕轨')
   }
-  if (track.contentCompAlgo !== 0 && track.contentCompAlgo !== 1) {
+  if (![-1, 0, 3].includes(track.contentCompAlgo)) {
     throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
   }
   const isAss = track.codecId === 'S_TEXT/ASS' || track.codecId === 'S_TEXT/SSA'
-  const needInflate = track.contentCompAlgo === 1
+  const pgs = track.codecId === 'S_HDMV/PGS' ? new PgsDecoder() : null
 
   const pending: RawSubtitleFrame[] = []
   let srtIdx = 0
@@ -1052,18 +1064,26 @@ export async function streamMkvSubtitleTrack(
 
   const flush = async (): Promise<void> => {
     if (pending.length === 0) return
-    if (needInflate) {
-      for (const f of pending) f.data = await inflateZlib(f.data)
-    }
+    const batch = pending.splice(0)
+    for (const f of batch) f.data = await restoreSubtitleData(track, f.data)
     // seek 感知调度下锚点乱序完成：按时间排序恢复「下一帧时间戳」
     // 作为结束时间的正确语义（否则边界帧可能拿到更早的 nextTs）
-    if (pending.length > 1) {
-      pending.sort((a, b) => a.timestampMs - b.timestampMs)
+    if (batch.length > 1) {
+      batch.sort((a, b) => a.timestampMs - b.timestampMs)
+    }
+    if (pgs) {
+      const cues = batch.flatMap((f) => pgs.push(f.data, f.timestampMs))
+      lastFlush = Date.now()
+      if (cues.length) {
+        emittedChunks++
+        opts.onChunk({ text: '', format: 'srt', cues })
+      }
+      return
     }
     const parts: string[] = []
-    for (let i = 0; i < pending.length; i++) {
-      const f = pending[i]!
-      const nextTs = i + 1 < pending.length ? pending[i + 1]!.timestampMs : null
+    for (let i = 0; i < batch.length; i++) {
+      const f = batch[i]!
+      const nextTs = i + 1 < batch.length ? batch[i + 1]!.timestampMs : null
       const end =
         f.durationMs && f.durationMs > 0
           ? f.timestampMs + f.durationMs
@@ -1091,10 +1111,18 @@ export async function streamMkvSubtitleTrack(
     } else {
       text = parts.join('\n')
     }
-    pending.length = 0
     lastFlush = Date.now()
     emittedChunks++
     opts.onChunk({ text, format: isAss ? 'ass' : 'srt' })
+  }
+
+  const finishPgs = () => {
+    if (!pgs || durationSec == null) return
+    const cues = pgs.finish(durationSec)
+    if (cues.length) {
+      emittedChunks++
+      opts.onChunk({ text: '', format: 'srt', cues })
+    }
   }
 
   const maybeFlush = async (): Promise<void> => {
@@ -1134,6 +1162,7 @@ export async function streamMkvSubtitleTrack(
       reader.cancel().catch(() => undefined)
     }
     await flush()
+    finishPgs()
   }
 
   // 小文件 / 大小未知：全量流式扫描（顺序天然有序）
@@ -1167,7 +1196,8 @@ export async function streamMkvSubtitleTrack(
       // abort 后立即退出：fetchRange 对已中止信号会即刻抛错，
       // 不检查会导致全部锚点逐个失败（数百次无效请求级联）
       if (opts.signal?.aborted) throw new Error('提取已中止')
-      const pt = opts.getPriorityTime?.() ?? null
+      // PGS palettes/objects and clear sets depend on preceding packets.
+      const pt = pgs ? null : (opts.getPriorityTime?.() ?? null)
       const priorityMs = pt != null && Number.isFinite(pt) ? pt * 1000 : null
       const i = scheduler.pick(priorityMs)
       if (i < 0) break
@@ -1214,11 +1244,12 @@ export async function streamMkvSubtitleTrack(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(SPARSE_CONCURRENCY, total) }, () =>
+    Array.from({ length: Math.min(pgs ? 1 : SPARSE_CONCURRENCY, total) }, () =>
       runWorker()
     )
   )
   await flush()
+  finishPgs()
   opts.onProgress?.(100)
   if (emittedChunks === 0) throw new Error('字幕轨为空')
 }

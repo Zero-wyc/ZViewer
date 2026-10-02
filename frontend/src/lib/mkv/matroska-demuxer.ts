@@ -30,8 +30,9 @@ export interface DemuxedTrack {
   language: string | null
   /** 轨道名称（常存字幕标题） */
   name: string | null
-  /** ContentCompAlgo：0=none 1=zlib 2=bzip2（>0 时帧数据被压缩） */
+  /** Matroska ContentCompAlgo: -1=none, 0=zlib, 1=bzip2, 2=lzo, 3=header stripping. */
   contentCompAlgo: number
+  contentCompSettings: Uint8Array | null
 }
 
 /** 解出的一个媒体帧 */
@@ -251,12 +252,16 @@ export class MatroskaDemuxer {
           pixelHeight: null,
           language: null,
           name: null,
-          contentCompAlgo: 0,
+          contentCompAlgo: -1,
+          contentCompSettings: null,
         }
         break
       case EBML_IDS.BLOCK_GROUP:
         this.blockGroupDurationMs = null
         this.blockGroupFrames = []
+        break
+      case EBML_IDS.CONTENT_COMPRESSION:
+        if (this.trackScratch) this.trackScratch.contentCompAlgo = 0
         break
       case EBML_IDS.CLUSTER:
         this.currentClusterTimestampMs = null
@@ -355,8 +360,12 @@ export class MatroskaDemuxer {
       case EBML_IDS.CONTENT_COMP_ALGO:
         // CompAlgo 出现在 ContentCompression 内、TrackEntry 之下，
         // trackScratch 仍活着
-        if (this.trackScratch && this.trackScratch.contentCompAlgo === 0)
+        if (this.trackScratch)
           this.trackScratch.contentCompAlgo = Number(this.readUint(data))
+        break
+      case EBML_IDS.CONTENT_COMP_SETTINGS:
+        if (this.trackScratch)
+          this.trackScratch.contentCompSettings = data.slice()
         break
       case EBML_IDS.BLOCK_DURATION:
         // BlockGroup 内的显式时长（毫秒，按 timestampScale 换算）
