@@ -242,7 +242,17 @@ export function useVoiceChatSfu({
       })
       const entry = attachRemoteAudio(producerSocketId, consumer.track)
       entry.consumer = consumer
+      console.info(
+        '[voice-sfu] consumed:',
+        'consumer =',
+        consumer.id,
+        ', member =',
+        producerSocketId,
+        ', track readyState =',
+        consumer.track.readyState
+      )
       consumer.on('transportclose', () => {
+        console.info('[voice-sfu] consumer transportclose:', producerSocketId)
         cleanupRemoteAudio(producerSocketId)
       })
       // 远端轨就绪后显式恢复（服务器侧 consumer 初始 paused）
@@ -380,6 +390,13 @@ export function useVoiceChatSfu({
     try {
       // 1. 采集链路（麦克风约束与旧版一致）
       const micTrack = await setupCapture()
+      micTrackRef.current = micTrack
+      console.info(
+        '[voice-sfu] mic track ready:',
+        micTrack.label,
+        'enabled =',
+        micTrack.enabled
+      )
 
       // 2. voice-join：业务成员登记 + SFU Router 能力下发
       const response = await emitAck<
@@ -450,6 +467,19 @@ export function useVoiceChatSfu({
       )
       sendTransportRef.current = sendTransport
       recvTransportRef.current = recvTransport
+      console.info(
+        '[voice-sfu] transports created:',
+        'send =',
+        sendTransport.id,
+        ', recv =',
+        recvTransport.id
+      )
+      sendTransport.on('connectionstatechange', (state: string) => {
+        console.info('[voice-sfu] send transport state:', state)
+      })
+      recvTransport.on('connectionstatechange', (state: string) => {
+        console.info('[voice-sfu] recv transport state:', state)
+      })
 
       // 'connect'：mediasoup-client 首次使用 transport 时触发，经信令
       // 完成服务端 DTLS 连接
@@ -521,6 +551,13 @@ export function useVoiceChatSfu({
         appData: { memberSocketId: currentSocket.id ?? '' },
       })
       producerRef.current = producer
+      console.info(
+        '[voice-sfu] produced:',
+        producer.id,
+        ', existing producers =',
+        existingProducers.length,
+        JSON.stringify(existingProducers)
+      )
       // 加入时已被管理员禁言：轨保持 enabled，服务器侧 producer 已暂停
       selfMutedRef.current = response.selfMuted === true
       micEnabledRef.current = true

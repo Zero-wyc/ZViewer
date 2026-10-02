@@ -762,7 +762,12 @@ export class VoiceChatHandler implements SocketEventHandler {
             payload.which === 'recv' ? 'recv' : 'send',
             payload.dtlsParameters as never
           )
-          .then(() => callback?.({ success: true }))
+          .then(() => {
+            console.log(
+              `[voice-sfu] transport connected (${payload.which}): ${idx.key}`
+            );
+            callback?.({ success: true });
+          })
           .catch((err) => {
             console.error('[voice-sfu-connect-transport] error:', err);
             callback?.({ success: false, message: 'DTLS 连接失败' });
@@ -798,12 +803,24 @@ export class VoiceChatHandler implements SocketEventHandler {
             payload.rtpParameters as never
           )
           .then(({ producerId }) => {
+            // 服务器侧禁言强制补位：成员被禁言后重新 produce（重连/重入）
+            // 时新轨默认未暂停，必须立即暂停，否则禁言被绕过
+            const mutedSet = voiceMutedKeys.get(idx.roomId);
+            if (mutedSet?.has(baseVoiceKey(idx.key))) {
+              voiceSfu.setPeerMuted(idx.roomId, idx.key, true);
+              console.log(
+                `[voice-sfu] producer paused (admin-muted): ${idx.key}`
+              );
+            }
             const existingProducers = voiceSfu.listProducers(
               idx.roomId,
               idx.key
             );
             // 通知房间内其他成员消费新轨
             const entry = voiceMembers.get(idx.roomId)?.get(idx.key);
+            console.log(
+              `[voice-sfu] produced: ${entry?.username ?? '成员'}(${idx.key}) producer=${producerId} existing=${existingProducers.length}`
+            );
             socket.to(idx.roomId).emit('voice-sfu-new-producer', {
               roomId: idx.roomId,
               producerId,
@@ -847,9 +864,18 @@ export class VoiceChatHandler implements SocketEventHandler {
             payload.producerId,
             payload.rtpCapabilities as never
           )
-          .then((result) =>
-            callback?.({ success: true, ...(result ?? {}) as object })
-          )
+          .then((result) => {
+            if (result) {
+              console.log(
+                `[voice-sfu] consumed: ${idx.key} <- ${result.producerMemberKey} consumer=${result.consumerId}`
+              );
+            } else {
+              console.warn(
+                `[voice-sfu] consume 未找到目标 producer=${payload.producerId}（请求方 ${idx.key}）`
+              );
+            }
+            callback?.({ success: true, ...(result ?? {}) as object });
+          })
           .catch((err) => {
             console.error('[voice-sfu-consume] error:', err);
             callback?.({ success: false, message: '订阅音频轨失败' });
