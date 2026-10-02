@@ -310,11 +310,9 @@ export function useVoiceChatSfu({
       track.stop()
     }
     localStreamRef.current = null
-    try {
-      void captureCtxRef.current?.close()
-    } catch {
-      /* ignore */
-    }
+    // close() 对已关闭的 context 会走 Promise 拒绝（非同步抛错），
+    // 必须显式 catch，否则 unmount/HMR 双清理路径下产生未捕获 rejection
+    captureCtxRef.current?.close().catch(() => {})
     captureCtxRef.current = null
     micGainRef.current = null
     monitorGainRef.current = null
@@ -812,37 +810,44 @@ export function useVoiceChatSfu({
   }, [joined])
 
   // 播放侧延迟：consumer.getStats() 的 jitterBufferDelay 均值（NetEQ 实际
-  // 缓冲延迟，真实反映听感），每 3s 采样一次
+  // 缓冲延迟，真实反映听感），每 3s 采样一次。
+  // transport 关闭（leave/HMR）后 getStats 会 reject InvalidStateError——
+  // joined 状态位与 closed 守卫 + catch 三重防护，杜绝未捕获 rejection 刷屏
   useEffect(() => {
     if (!joined) return
     const timer = setInterval(() => {
       const recv = recvTransportRef.current
-      if (!recv) return
-      void recv.getStats().then((stats) => {
-        const next = new Map<string, number>()
-        for (const entry of remoteRef.current.values()) {
-          if (!entry.consumer) continue
-          const stat = stats.get(entry.consumer.id)
-          if (!stat) continue
-          const s = stat as {
-            jitterBufferDelay?: number
-            jitterBufferEmittedCount?: number
-          }
-          if (
-            typeof s.jitterBufferDelay === 'number' &&
-            typeof s.jitterBufferEmittedCount === 'number' &&
-            s.jitterBufferEmittedCount > 0
-          ) {
-            next.set(
-              entry.memberSocketId,
-              Math.round(
-                (s.jitterBufferDelay / s.jitterBufferEmittedCount) * 1000
+      if (!recv || recv.closed) return
+      recv
+        .getStats()
+        .then((stats) => {
+          const next = new Map<string, number>()
+          for (const entry of remoteRef.current.values()) {
+            if (!entry.consumer) continue
+            const stat = stats.get(entry.consumer.id)
+            if (!stat) continue
+            const s = stat as {
+              jitterBufferDelay?: number
+              jitterBufferEmittedCount?: number
+            }
+            if (
+              typeof s.jitterBufferDelay === 'number' &&
+              typeof s.jitterBufferEmittedCount === 'number' &&
+              s.jitterBufferEmittedCount > 0
+            ) {
+              next.set(
+                entry.memberSocketId,
+                Math.round(
+                  (s.jitterBufferDelay / s.jitterBufferEmittedCount) * 1000
+                )
               )
-            )
+            }
           }
-        }
-        setPeerLatencies(next)
-      })
+          setPeerLatencies(next)
+        })
+        .catch(() => {
+          // transport 已关闭（leave 中途采样）：静默跳过本轮
+        })
     }, LATENCY_INTERVAL_MS)
     return () => clearInterval(timer)
   }, [joined])
@@ -876,16 +881,15 @@ export function useVoiceChatSfu({
       } catch {
         /* ignore */
       }
-      try {
-        void captureCtxRef.current?.close()
-      } catch {
-        /* ignore */
-      }
-      try {
-        void levelsCtxRef.current?.close()
-      } catch {
-        /* ignore */
-      }
+      producerRef.current = null
+      sendTransportRef.current = null
+      recvTransportRef.current = null
+      // AudioContext.close() 二次关闭走 Promise 拒绝（try/catch 接不住），
+      // 显式 catch + 置空防 HMR/StrictMode 下的重复清理
+      captureCtxRef.current?.close().catch(() => {})
+      captureCtxRef.current = null
+      levelsCtxRef.current?.close().catch(() => {})
+      levelsCtxRef.current = null
     }
   }, [cleanupRemoteAudio])
 
