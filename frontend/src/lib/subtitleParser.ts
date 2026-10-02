@@ -28,6 +28,17 @@ export interface ParsedCue {
   position?: number
   /** 文本对齐方式 */
   align?: 'left' | 'center' | 'right'
+  /** PGS bitmap, positioned in the original presentation canvas. PNG data is
+   * serializable so the same cue can be sent to room viewers. */
+  bitmap?: {
+    src: string
+    x: number
+    y: number
+    width: number
+    height: number
+    canvasWidth: number
+    canvasHeight: number
+  }
 }
 
 // ── 格式检测 ──────────────────────────────────────────────
