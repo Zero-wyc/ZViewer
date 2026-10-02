@@ -33,7 +33,32 @@
 import * as mediasoup from 'mediasoup';
 import { types as mediasoupTypes } from 'mediasoup';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
+
+/**
+ * 自动探测本机全部私有 IPv4（供 ICE 候选通告）。
+ * 范围：192.168.* / 10.* / 172.16-31.*（含 VMware/Hyper-V 等虚拟网卡——
+ * 多候选全量通告后由浏览器 ICE 自行选择可达项，无需猜测哪块网卡可达）。
+ */
+function detectPrivateIPv4s(): string[] {
+  const found: string[] = [];
+  const ifaces = os.networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const info of ifaces[name] ?? []) {
+      if (info.family !== 'IPv4' || info.internal) continue;
+      const ip = info.address;
+      if (
+        ip.startsWith('192.168.') ||
+        ip.startsWith('10.') ||
+        /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
+      ) {
+        if (!found.includes(ip)) found.push(ip);
+      }
+    }
+  }
+  return found;
+}
 
 /**
  * pkg 单文件打包下的 worker 二进制定位：
@@ -162,19 +187,57 @@ class VoiceSfuService {
    * 为成员创建 WebRtcTransport（UDP），返回连接参数。
    * 同一成员重复调用返回既有 transport 的参数（幂等，重连恢复用）。
    */
+  /**
+   * 解析 SFU 的 listenIps（ICE 候选通告配置）。
+   *
+   * 关键：listenIp 用 0.0.0.0 且 announcedIp 未设置时，mediasoup 会在
+   * SDP 里通告 0.0.0.0——浏览器无法连到该地址，ICE 永远卡 connecting，
+   * 表现为「加入了语音但没有任何声音」。
+   *
+   * 优先级：
+   * 1. MEDIASOUP_ANNOUNCED_IP 环境变量（Docker/公网部署必须显式配置）
+   * 2. 自动探测本机全部私有 IPv4（192.168 / 10. / 172.16-31 段）——
+   *    逐个作为候选通告（多网卡含虚拟网卡时由浏览器 ICE 择优）
+   * 3. 探测失败：回退 127.0.0.1（仅同机成员可用）
+   */
+  private resolveListenIps(): Array<{
+    ip: string;
+    announcedIp: string | undefined;
+  }> {
+    const envAnnounced = process.env.MEDIASOUP_ANNOUNCED_IP?.trim();
+    if (envAnnounced) {
+      return [
+        {
+          ip: process.env.MEDIASOUP_LISTEN_IP?.trim() || '0.0.0.0',
+          announcedIp: envAnnounced,
+        },
+      ];
+    }
+    const detected = detectPrivateIPv4s();
+    if (detected.length > 0) {
+      return detected.map((ip) => ({ ip: '0.0.0.0', announcedIp: ip }));
+    }
+    // 无可用私有 IPv4（如纯回环环境）：监听回环地址并以其为通告地址
+    return [{ ip: '127.0.0.1', announcedIp: '127.0.0.1' }];
+  }
+
   private async createWebRtcTransport(
     room: SfuRoom,
     key: string
   ): Promise<mediasoupTypes.WebRtcTransport> {
-    const listenIp = process.env.MEDIASOUP_LISTEN_IP || '0.0.0.0';
-    const announcedIp = process.env.MEDIASOUP_ANNOUNCED_IP || undefined;
+    const listenIps = this.resolveListenIps();
     const transport = await room.router.createWebRtcTransport({
-      listenIps: [{ ip: listenIp, announcedIp }],
+      listenIps,
       enableUdp: true,
       enableTcp: false,
       preferUdp: true,
       initialAvailableOutgoingBitrate: 256_000,
     });
+    console.log(
+      `[voice-sfu] WebRtcTransport created for ${key}: candidates = ${listenIps
+        .map((l) => l.announcedIp ?? l.ip)
+        .join(', ')}`
+    );
     transport.on('icestatechange', (state: string) => {
       if (state === 'disconnected' || state === 'failed') {
         console.warn(`[voice-sfu] transport ${state}: ${key} in ${room.router.id}`);
