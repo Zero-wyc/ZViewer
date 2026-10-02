@@ -104,9 +104,6 @@ export function useVoiceChatSfu({
   const levelsCtxRef = useRef<AudioContext | null>(null)
   const micGainRef = useRef<GainNode | null>(null)
   const monitorGainRef = useRef<GainNode | null>(null)
-  const monitorDestRef = useRef<MediaStreamAudioDestinationNode | null>(null)
-  /** 监听音频元素（monitorDest 流的播放出口，monitorEnabled 同步启停） */
-  const monitorAudioRef = useRef<HTMLAudioElement | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
 
@@ -285,13 +282,14 @@ export function useVoiceChatSfu({
     const produceDest = captureCtx.createMediaStreamDestination()
     micGain.connect(produceDest)
 
-    // 监听目的地：monitorGain 独立控制反送开关；
-    // 监听音频由 monitorAudioRef 元素播放（见 monitorEnabled 同步 effect）
-    const monitorDest = captureCtx.createMediaStreamDestination()
+    // 监听（反送）：monitorGain 独立控制开关，直连 captureCtx.destination。
+    // 不走 MediaStreamDestination + <audio> 元素——元素播放时钟与实时
+    // MediaStream 不同步，自听会出现周期性卡顿；直连同上下文硬件时钟
+    // 输出零缓冲、零卡顿（音量跟随系统输出设备）。
     const monitorGain = captureCtx.createGain()
     monitorGain.gain.value = monitorEnabledRef.current ? 1 : 0
     micGain.connect(monitorGain)
-    monitorGain.connect(monitorDest)
+    monitorGain.connect(captureCtx.destination)
 
     // 本地电平分析
     const analyser = captureCtx.createAnalyser()
@@ -303,7 +301,6 @@ export function useVoiceChatSfu({
     captureCtxRef.current = captureCtx
     micGainRef.current = micGain
     monitorGainRef.current = monitorGain
-    monitorDestRef.current = monitorDest
     localAnalyserRef.current = analyser
     return produceDest.stream.getAudioTracks()[0]
   }, [])
@@ -321,18 +318,7 @@ export function useVoiceChatSfu({
     captureCtxRef.current = null
     micGainRef.current = null
     monitorGainRef.current = null
-    monitorDestRef.current = null
     localAnalyserRef.current = null
-    if (monitorAudioRef.current) {
-      try {
-        monitorAudioRef.current.pause()
-        monitorAudioRef.current.srcObject = null
-        monitorAudioRef.current.remove()
-      } catch {
-        /* ignore */
-      }
-      monitorAudioRef.current = null
-    }
   }, [])
 
   // ==================== 加入 / 离开 ====================
@@ -736,32 +722,8 @@ export function useVoiceChatSfu({
     })
   }, [])
 
-  // 监听音频元素随 monitorEnabled 同步启停（monitorGain 同时静音，
-  // 双保险；元素在 setupCapture 建立监听目的地后创建）
-  useEffect(() => {
-    if (!joined || !monitorEnabled) {
-      if (monitorAudioRef.current) {
-        monitorAudioRef.current.pause()
-      }
-      return
-    }
-    const dest = monitorDestRef.current
-    if (!dest) return
-    if (!monitorAudioRef.current) {
-      const audio = document.createElement('audio')
-      audio.autoplay = true
-      audio.style.display = 'none'
-      audio.dataset.voiceMonitor = 'self'
-      document.body.appendChild(audio)
-      monitorAudioRef.current = audio
-    }
-    const audio = monitorAudioRef.current
-    if (audio.srcObject !== dest.stream) {
-      audio.srcObject = dest.stream
-    }
-    audio.volume = micVolumeRef.current
-    void audio.play().catch(() => {})
-  }, [joined, monitorEnabled])
+  // 反送开关即时生效由 toggleMonitor 直接写 monitorGain（同上下文直连
+  // 输出，无元素、无缓冲，切开关零延迟）
 
   const setGlobalVolume = useCallback((value: number) => {
     const clamped = Math.max(0, Math.min(1, value))
