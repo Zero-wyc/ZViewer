@@ -1,5 +1,14 @@
-import { useState } from 'react'
-import { Plus, Trash2, Film, Search, Loader2, Eye, EyeOff } from 'lucide-react'
+import { useState, useRef } from 'react'
+import {
+  Plus,
+  Trash2,
+  Film,
+  Search,
+  Loader2,
+  Eye,
+  EyeOff,
+  Upload,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Slider } from '@/components/ui/Slider'
@@ -11,6 +20,7 @@ import { useRoomStore } from '@/store/roomStore'
 import { cn } from '@/lib/utils'
 import { extractMediaTitle } from '@/lib/mediaTitleParser'
 import { getDanmakuEpisodes, fetchDanmaku } from '@/modules/danmaku/api'
+import { parseLocalDanmaku } from '@/modules/danmaku/localImport'
 import type { DanmakuSource } from '@/modules/danmaku/types'
 
 const BV_REGEX = /^BV[0-9A-Za-z]{10}$/
@@ -34,6 +44,7 @@ const SOURCE_LABELS: Record<DanmakuSource, string> = {
   'bilibili-bangumi': 'B站番剧',
   bahamut: '巴哈',
   dandanplay: '弹弹',
+  local: '本地',
 }
 
 const SOURCE_COLORS: Record<DanmakuSource, string> = {
@@ -41,6 +52,7 @@ const SOURCE_COLORS: Record<DanmakuSource, string> = {
   'bilibili-bangumi': 'var(--md-sys-color-tertiary)',
   bahamut: 'var(--md-sys-color-secondary)',
   dandanplay: 'var(--md-sys-color-error)',
+  local: 'var(--md-sys-color-on-surface-variant)',
 }
 
 export function DanmakuTrackCard() {
@@ -58,6 +70,30 @@ export function DanmakuTrackCard() {
   const [modalInitialKeyword, setModalInitialKeyword] = useState<
     string | undefined
   >(undefined)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [importing, setImporting] = useState(false)
+
+  /** 导入本地弹幕文件（B站 XML / B站 JSON / dandanplay JSON） */
+  const handleImportFile = async (file: File) => {
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const { items, truncated } = parseLocalDanmaku(text, file.name)
+      // trackId 用时间戳保证唯一：同一文件可多次导入不同副本
+      const trackId = `local:${Date.now()}`
+      await addTrack(trackId, file.name, 'local', items, 0)
+      message.success(
+        `已导入「${file.name}」弹幕轨道（共 ${items.length} 条${
+          truncated > 0 ? `，超出上限截断 ${truncated} 条` : ''
+        }）`
+      )
+    } catch (err) {
+      console.error('[DanmakuTrackCard] local import error:', err)
+      message.error(err instanceof Error ? err.message : '导入本地弹幕失败')
+    } finally {
+      setImporting(false)
+    }
+  }
 
   const handleQuickAddBv = async () => {
     const bvid = bvInput.trim()
@@ -143,15 +179,45 @@ export function DanmakuTrackCard() {
         </Text>
       </div>
 
-      <Button
-        variant="primary"
-        size="sm"
-        className="h-8 w-full"
-        onClick={handleOpenSearch}
-        icon={<Search className="h-4 w-4" />}
-      >
-        搜索添加弹幕
-      </Button>
+      <div className="flex items-center gap-1.5">
+        <Button
+          variant="primary"
+          size="sm"
+          className="h-8 min-w-0 flex-1"
+          onClick={handleOpenSearch}
+          icon={<Search className="h-4 w-4" />}
+        >
+          搜索添加弹幕
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          className="h-8 w-8 shrink-0 p-0"
+          loading={importing}
+          disabled={importing}
+          title="导入本地弹幕文件（B站 XML/JSON、dandanplay JSON）"
+          onClick={() => fileInputRef.current?.click()}
+          icon={
+            importing ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="h-4 w-4" />
+            )
+          }
+        />
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".xml,.json,application/xml,text/xml,application/json"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (file) void handleImportFile(file)
+            // 允许连续选择同一文件（不触发 onChange 的浏览器默认去重）
+            e.target.value = ''
+          }}
+        />
+      </div>
 
       <div className="flex items-center gap-1.5">
         <Input

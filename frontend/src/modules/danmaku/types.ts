@@ -1,6 +1,6 @@
-/** 弹幕源类型 */
+/** 弹幕源类型（local = 本地导入文件，仅存在于轨道，不参与搜索） */
 export type DanmakuSource =
-  'bilibili-video' | 'bilibili-bangumi' | 'bahamut' | 'dandanplay'
+  'bilibili-video' | 'bilibili-bangumi' | 'bahamut' | 'dandanplay' | 'local'
 
 /** 弹幕条目（统一格式，所有源共用） */
 export interface DanmakuItem {
