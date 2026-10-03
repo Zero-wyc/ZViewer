@@ -24,8 +24,12 @@ import path from 'path';
 const DEFAULT_API_KEY = 'devkey';
 const DEFAULT_API_SECRET = 'zviewer-dev-secret';
 const HTTP_PORT = 3336;
-/** 媒体传输 UDP 端口：与 HTTP 同号（tcp/udp 协议不同不冲突） */
-const UDP_PORT = 3336;
+/**
+ * 媒体传输 UDP 端口：项目 TCP 侧未使用 3333/udp，故媒体与信令反代
+ * 共用 3333 端口号（tcp=页面/API/信令反代，udp=RTP 媒体），防火墙
+ * 只需放行一条 3333。
+ */
+const UDP_PORT = 3333;
 const READY_TIMEOUT_MS = 15_000;
 /** 开发模式自动下载的 pinned 版本（与 build-all 打包版本保持一致） */
 const LIVEKIT_VERSION = 'v1.13.7';
@@ -235,7 +239,8 @@ export async function startEmbeddedLivekit(): Promise<void> {
   const lanIp = detectPrivateIPv4();
   // 缺省走统一端口 3333 的信令反代（后端 /rtc 隧道），浏览器无需放行
   // 3336/tcp；HTTPS 部署自动用 wss（TLS 由后端统一端口的证书处理）。
-  // 媒体 RTP 仍为 UDP 3336 直连（防火墙需放行该条 UDP）。
+  // 媒体 RTP 走 UDP 3333 直连（与页面 HTTP 共用端口号、协议不同；
+  // 防火墙只需放行 3333 一条端口）。
   const unifiedPort = process.env.PORT || 3333;
   const scheme = process.env.HTTPS === 'true' ? 'wss' : 'ws';
   process.env.LIVEKIT_URL ??= `${scheme}://${lanIp ?? 'localhost'}:${unifiedPort}`;

@@ -429,7 +429,7 @@ async function bootstrap() {
 
   // LiveKit 信令 WebSocket 反代：把统一端口 3333 上的 /rtc* 升级请求
   // 原样隧道到 LiveKit。浏览器建立语音时信令与页面同端口，无需额外
-  // 放行 3336/tcp；媒体 RTP 仍走 UDP 3336 直连（HTTP 反代代理不了）。
+  // 放行 3333/udp；媒体 RTP 走 UDP 3333 直连（HTTP 反代代理不了）。
   // 升级后的帧是不透明字节流，纯 TCP 双向管道即可，无需解析协议。
   // 上游地址取 LIVEKIT_API_HOST 的 host:port（裸机=127.0.0.1:3336，
   // compose=livekit:3336），每次升级时解析以兼容运行时注入的 env。
