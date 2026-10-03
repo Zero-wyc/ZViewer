@@ -312,7 +312,10 @@ export async function startEmbeddedLivekit(): Promise<void> {
   if (!bin) {
     if (!isDevMode()) {
       console.warn(
-        '[voice] 未找到 livekit-server 伴生二进制且未配置外置 LiveKit——语音功能不可用'
+        '[voice] 未找到 livekit-server 伴生二进制且未配置外置 LiveKit——语音功能不可用。' +
+          '容器部署：请用最新 Dockerfile.linux-single 重建镜像（内嵌 livekit-server，' +
+          '构建前先跑 node build-all.js --linux 生成 dist/linux/livekit-server）；' +
+          '单文件部署：请使用完整 build-all 产物包（含 livekit-server）'
       );
       return;
     }
