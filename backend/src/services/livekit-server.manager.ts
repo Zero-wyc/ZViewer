@@ -159,23 +159,6 @@ async function downloadDevBinary(): Promise<string | null> {
   }
 }
 
-// ==================== 运行环境判定 ====================
-
-/**
- * 是否运行在 Docker 容器内（容器 rootfs 有 /.dockerenv 标记）。
- * 容器 bridge 网络存在 NAT：LiveKit 枚举网卡得到 172.x 内网地址，
- * 直接广播浏览器不可达——容器内默认开启 LiveKit 原生 STUN 外部 IP
- * 发现（LIVEKIT_RTC_USE_EXTERNAL_IP=true，实测 v1.13.7 有效），无需
- * 自研 HTTP 探测。裸机/单文件版同机无 NAT，网卡枚举天然正确，不注入。
- */
-function isDockerRuntime(): boolean {
-  try {
-    return fs.existsSync('/.dockerenv');
-  } catch {
-    return false;
-  }
-}
-
 // ==================== 启动 / 就绪 / 停止 ====================
 
 /** 轮询等待 LiveKit HTTP 端口可连接 */
@@ -312,13 +295,14 @@ export async function startEmbeddedLivekit(): Promise<void> {
   process.env.LIVEKIT_API_KEY ??= DEFAULT_API_KEY;
   process.env.LIVEKIT_API_SECRET ??= DEFAULT_API_SECRET;
   process.env.LIVEKIT_API_HOST ??= `http://127.0.0.1:${HTTP_PORT}`;
-  // 容器内默认开启 LiveKit 原生 STUN 外部 IP 发现：bridge NAT 下枚举
-  // 网卡只得 172.x 内网地址，STUN 探测可拿到真实公网 IP（v4+v6 均支持）。
-  // 显式 LIVEKIT_NODE_IP 时跳过注入（手填地址优先级最高，二者不叠加）；
-  // 裸机/单文件版不注入——同机无 NAT，枚举网卡天然正确。
-  if (!process.env.LIVEKIT_NODE_IP?.trim() && isDockerRuntime()) {
+  // 默认开启 LiveKit 原生 STUN 外部 IP 发现（未显式 LIVEKIT_NODE_IP 时）：
+  // 容器 bridge / 云服务器 EIP（网卡只有内网 IP）等 NAT 场景下枚举网卡
+  // 只得不可达的内网地址，STUN 探测拿到真实公网 IP（v4+v6 均支持）。
+  // 显式 LIVEKIT_NODE_IP 时跳过注入（手填地址优先级最高，二者不叠加）。
+  // STUN 失败（纯内网部署）时 LiveKit 回落枚举网卡，行为与不开一致。
+  if (!process.env.LIVEKIT_NODE_IP?.trim()) {
     process.env.LIVEKIT_RTC_USE_EXTERNAL_IP ??= 'true';
-    console.log('[voice] 容器环境：启用 LiveKit 原生 STUN 外部 IP 发现');
+    console.log('[voice] 已启用 LiveKit 原生 STUN 外部 IP 发现');
   }
   // 注意：此处不设置 LIVEKIT_URL——客户端地址由 voice.routes 按请求头
   // 推导（跟随页面域名与协议）。在容器/多网卡环境探测本机 IP 会得到
@@ -341,9 +325,8 @@ export async function startEmbeddedLivekit(): Promise<void> {
     `[voice] 启动嵌入式 LiveKit: ${bin} (bind ${BIND_ADDRESS}, HTTP ${HTTP_PORT}, UDP ${UDP_PORT}, URL=${process.env.LIVEKIT_URL})`
   );
 
-  // 广播地址：显式 LIVEKIT_NODE_IP 最高优先级；容器内未指定时由上面
-  // 注入的 LIVEKIT_RTC_USE_EXTERNAL_IP 驱动 LiveKit 自行 STUN 探测，
-  // 无需 manager 参与。裸机不指定（枚举网卡天然正确）。
+  // 广播地址：显式 LIVEKIT_NODE_IP 最高优先级；未指定时由上面注入的
+  // LIVEKIT_RTC_USE_EXTERNAL_IP 驱动 LiveKit 自行 STUN 探测公网 IP。
   const nodeIp = process.env.LIVEKIT_NODE_IP?.trim() || undefined;
 
   let ok = await spawnAndAwait(bin, BIND_ADDRESS, nodeIp);
