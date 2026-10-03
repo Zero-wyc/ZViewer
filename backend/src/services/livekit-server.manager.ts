@@ -159,56 +159,21 @@ async function downloadDevBinary(): Promise<string | null> {
   }
 }
 
-// ==================== 公网 IP 探测 ====================
+// ==================== 运行环境判定 ====================
 
-/** 是否运行在 Docker 容器内（容器 rootfs 有 /.dockerenv 标记） */
+/**
+ * 是否运行在 Docker 容器内（容器 rootfs 有 /.dockerenv 标记）。
+ * 容器 bridge 网络存在 NAT：LiveKit 枚举网卡得到 172.x 内网地址，
+ * 直接广播浏览器不可达——容器内默认开启 LiveKit 原生 STUN 外部 IP
+ * 发现（LIVEKIT_RTC_USE_EXTERNAL_IP=true，实测 v1.13.7 有效），无需
+ * 自研 HTTP 探测。裸机/单文件版同机无 NAT，网卡枚举天然正确，不注入。
+ */
 function isDockerRuntime(): boolean {
   try {
     return fs.existsSync('/.dockerenv');
   } catch {
     return false;
   }
-}
-
-/** 简易 https GET，超时/网络错误 reject */
-function httpsGetText(url: string, timeoutMs: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const req = https.get(
-      url,
-      { headers: { 'User-Agent': 'zviewer-voice' } },
-      (res) => {
-        let data = '';
-        res.setEncoding('utf8');
-        res.on('data', (c: string) => (data += c));
-        res.on('end', () => resolve(data));
-      }
-    );
-    req.on('error', reject);
-    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
-  });
-}
-
-/**
- * 探测宿主公网 IPv4（依次尝试多个回显服务，任一成功即返回）。
- * 用于 Docker 部署自动确定 LiveKit 的 ICE 广播地址；探测失败返回 null。
- */
-async function detectPublicIp(): Promise<string | null> {
-  const services = [
-    'https://api.ipify.org',
-    'https://ifconfig.me/ip',
-    'https://api.ip.sb/ip',
-  ];
-  for (const url of services) {
-    try {
-      const text = (await httpsGetText(url, 4000)).trim();
-      if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(text)) {
-        return text;
-      }
-    } catch {
-      /* 尝试下一个 */
-    }
-  }
-  return null;
 }
 
 // ==================== 启动 / 就绪 / 停止 ====================
@@ -288,9 +253,9 @@ async function spawnAndAwait(
     '--keys',
     `${process.env.LIVEKIT_API_KEY}: ${process.env.LIVEKIT_API_SECRET}`,
   ];
-  // 广播给客户端的 ICE 地址：Docker bridge 下容器内探测到的是内网 IP
-  // （172.x），浏览器不可达——必须显式指定宿主公网 IP，否则信令能通而
-  // 媒体连不上。显式配置 LIVEKIT_NODE_IP 优先；容器内未配置时自动探测。
+  // 广播给客户端的 ICE 地址：显式 LIVEKIT_NODE_IP 直接指定；容器内未
+  // 指定时由 LIVEKIT_RTC_USE_EXTERNAL_IP 驱动 LiveKit 自行 STUN 探测
+  // 公网 IP（bridge NAT 下枚举网卡只得 172.x 内网地址，浏览器不可达）。
   if (nodeIp) args.push('--node-ip', nodeIp);
   // TURN/TLS 中继（TCP 5349）：域名寻址 + 正式证书，浏览器经 TCP 主动连
   // 服务器中继媒体，彻底不依赖 IP 广播——防火墙拦截 UDP/NAT 复杂场景的
@@ -347,6 +312,14 @@ export async function startEmbeddedLivekit(): Promise<void> {
   process.env.LIVEKIT_API_KEY ??= DEFAULT_API_KEY;
   process.env.LIVEKIT_API_SECRET ??= DEFAULT_API_SECRET;
   process.env.LIVEKIT_API_HOST ??= `http://127.0.0.1:${HTTP_PORT}`;
+  // 容器内默认开启 LiveKit 原生 STUN 外部 IP 发现：bridge NAT 下枚举
+  // 网卡只得 172.x 内网地址，STUN 探测可拿到真实公网 IP（v4+v6 均支持）。
+  // 显式 LIVEKIT_NODE_IP 时跳过注入（手填地址优先级最高，二者不叠加）；
+  // 裸机/单文件版不注入——同机无 NAT，枚举网卡天然正确。
+  if (!process.env.LIVEKIT_NODE_IP?.trim() && isDockerRuntime()) {
+    process.env.LIVEKIT_RTC_USE_EXTERNAL_IP ??= 'true';
+    console.log('[voice] 容器环境：启用 LiveKit 原生 STUN 外部 IP 发现');
+  }
   // 注意：此处不设置 LIVEKIT_URL——客户端地址由 voice.routes 按请求头
   // 推导（跟随页面域名与协议）。在容器/多网卡环境探测本机 IP 会得到
   // 内部地址（如 Docker bridge 172.24.x.x），浏览器不可达。
@@ -368,20 +341,10 @@ export async function startEmbeddedLivekit(): Promise<void> {
     `[voice] 启动嵌入式 LiveKit: ${bin} (bind ${BIND_ADDRESS}, HTTP ${HTTP_PORT}, UDP ${UDP_PORT}, URL=${process.env.LIVEKIT_URL})`
   );
 
-  // 广播地址解析顺序：显式 LIVEKIT_NODE_IP > 容器内自动探测公网 IP > 不指定
-  // （裸机枚举网卡本就正确；容器内探测失败仅告警，保持可启动）
-  let nodeIp = process.env.LIVEKIT_NODE_IP?.trim() || undefined;
-  if (!nodeIp && isDockerRuntime()) {
-    nodeIp = (await detectPublicIp()) ?? undefined;
-    if (nodeIp) {
-      console.log(`[voice] 已自动探测公网 IP: ${nodeIp}（可用 LIVEKIT_NODE_IP 覆盖）`);
-    } else {
-      console.warn(
-        '[voice] 未能自动探测公网 IP——Docker 部署下 ICE 可能广播内网地址导致媒体不可达，' +
-          '请设置 LIVEKIT_NODE_IP=宿主公网IP'
-      );
-    }
-  }
+  // 广播地址：显式 LIVEKIT_NODE_IP 最高优先级；容器内未指定时由上面
+  // 注入的 LIVEKIT_RTC_USE_EXTERNAL_IP 驱动 LiveKit 自行 STUN 探测，
+  // 无需 manager 参与。裸机不指定（枚举网卡天然正确）。
+  const nodeIp = process.env.LIVEKIT_NODE_IP?.trim() || undefined;
 
   let ok = await spawnAndAwait(bin, BIND_ADDRESS, nodeIp);
   // 无 IPv6 协议栈的环境绑 :: 会直接退出（缺少 IPv6 支持时）——回退纯

@@ -14,10 +14,9 @@ services:
       # 客户端信令地址按请求头自动推导（跟随页面域名与协议，HTTPS 页面自动
       # wss），无需在此配置。
       #
-      # 重要：Docker bridge 下容器内探测到的是内网 IP（172.x），浏览器不可达。
-      # LIVEKIT_NODE_IP 留空时启动会自动探测宿主公网 IP（依次请求 ipify/
-      # ifconfig.me/ip.sb，需容器可出网）；NAT/复杂网络或探测失败时手动指定
-      # 为宿主公网 IP，否则信令能通但媒体连不上。
+      # 容器 bridge 下枚举网卡只得内网地址（172.x），LIVEKIT_NODE_IP 留空时
+      # 自动启用 LiveKit 原生 STUN 外部 IP 发现（需容器可出网，v4/v6 均支持）；
+      # NAT/复杂网络或 STUN 不通时手动指定为宿主公网 IP，否则信令能通但媒体连不上。
       - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
       # 可选：TURN/TLS 媒体中继（TCP 5349）——UDP 直连不通时的兜底通道。
       # 地址用域名（DNS 解析），无需公网 IP；三个变量齐全即自动启用。
