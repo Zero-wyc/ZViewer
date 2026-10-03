@@ -92,6 +92,11 @@ export default function ProfilePage() {
   const [cookieInput, setCookieInput] = useState('')
   const [cookieLoading, setCookieLoading] = useState(false)
   const [cookieCopyLoading, setCookieCopyLoading] = useState(false)
+  // 网易云 Cookie 登录/复制
+  const [ncmCookieModalOpen, setNcmCookieModalOpen] = useState(false)
+  const [ncmCookieInput, setNcmCookieInput] = useState('')
+  const [ncmCookieLoading, setNcmCookieLoading] = useState(false)
+  const [ncmCookieCopyLoading, setNcmCookieCopyLoading] = useState(false)
 
   // B站视频下载 Popup（root 限定，位于「刷新绑定状态」旁）
   const [biliDownloadOpen, setBiliDownloadOpen] = useState(false)
@@ -168,6 +173,74 @@ export default function ProfilePage() {
     await ncmLogout()
     message.success('已退出网易云音乐登录')
   }, [ncmLogout])
+
+  /** 复制当前绑定的网易云 Cookie（GET /api/music/ncm-cookie） */
+  const handleCopyNcmCookie = useCallback(async () => {
+    setNcmCookieCopyLoading(true)
+    try {
+      const res = await apiFetch('/api/music/ncm-cookie')
+      const data = (await res.json()) as { success: boolean; cookie?: string }
+      if (!data.success || !data.cookie) {
+        message.warning('未获取到 Cookie，请重新登录网易云音乐')
+        return
+      }
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(data.cookie)
+      } else {
+        const textarea = document.createElement('textarea')
+        textarea.value = data.cookie
+        textarea.style.position = 'fixed'
+        textarea.style.opacity = '0'
+        document.body.appendChild(textarea)
+        textarea.select()
+        document.execCommand('copy')
+        document.body.removeChild(textarea)
+      }
+      message.success('Cookie 已复制到剪贴板')
+    } catch {
+      message.error('复制 Cookie 失败')
+    } finally {
+      setNcmCookieCopyLoading(false)
+    }
+  }, [])
+
+  /** 网易云 Cookie 登录（POST /api/music/ncm-cookie-login） */
+  const handleNcmCookieLogin = useCallback(async () => {
+    const trimmed = ncmCookieInput.trim()
+    if (!trimmed) {
+      message.warning('请输入 Cookie')
+      return
+    }
+    setNcmCookieLoading(true)
+    try {
+      const res = await apiFetch('/api/music/ncm-cookie-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cookie: trimmed }),
+      })
+      const data = (await res.json()) as {
+        success: boolean
+        message?: string
+      }
+      if (!data.success) {
+        message.error(data.message ?? 'Cookie 登录失败')
+        return
+      }
+      message.success('网易云音乐 Cookie 登录成功')
+      setNcmCookieModalOpen(false)
+      setNcmCookieInput('')
+      await ncmFetchLoginStatus()
+    } catch (err) {
+      message.error(err instanceof Error ? err.message : 'Cookie 登录失败')
+    } finally {
+      setNcmCookieLoading(false)
+    }
+  }, [ncmCookieInput, ncmFetchLoginStatus])
+
+  const handleCloseNcmCookieModal = useCallback(() => {
+    setNcmCookieModalOpen(false)
+    setNcmCookieInput('')
+  }, [])
   const [passwordLoading, setPasswordLoading] = useState(false)
 
   const [newUsername, setNewUsername] = useState('')
@@ -716,6 +789,16 @@ export default function ProfilePage() {
                   </div>
                   <div className="flex shrink-0 items-center gap-1.5">
                     <Button
+                      variant="secondary"
+                      size="sm"
+                      className="w-8 justify-center px-0"
+                      icon={<Cookie className="h-4 w-4" />}
+                      onClick={handleCopyNcmCookie}
+                      loading={ncmCookieCopyLoading}
+                      title="复制当前绑定的网易云 Cookie（可用于其他设备登录或备份）"
+                      aria-label="复制 Cookie"
+                    />
+                    <Button
                       variant="danger"
                       size="sm"
                       className="w-8 justify-center px-0"
@@ -739,6 +822,13 @@ export default function ProfilePage() {
                       onClick={handleOpenNcmQr}
                     >
                       扫码登录网易云
+                    </Button>
+                    <Button
+                      size="sm"
+                      icon={<Cookie className="h-4 w-4" />}
+                      onClick={() => setNcmCookieModalOpen(true)}
+                    >
+                      Cookie 登录
                     </Button>
                   </div>
                 </div>
@@ -1037,6 +1127,54 @@ export default function ProfilePage() {
               重新获取二维码
             </Button>
           )}
+        </div>
+      </Modal>
+
+      {/* 网易云 Cookie 登录 Modal */}
+      <Modal
+        open={ncmCookieModalOpen}
+        onClose={handleCloseNcmCookieModal}
+        title="Cookie 登录网易云音乐"
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handleCloseNcmCookieModal}
+              disabled={ncmCookieLoading}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={handleNcmCookieLogin}
+              disabled={ncmCookieLoading || !ncmCookieInput.trim()}
+            >
+              {ncmCookieLoading ? '验证中...' : '登录'}
+            </Button>
+          </div>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Paragraph type="secondary" className="m-0 text-xs leading-relaxed">
+            1. 在浏览器中登录 music.163.com
+            <br />
+            2. 按 F12 打开开发者工具 → Application → Cookies
+            <br />
+            3. 复制 Cookie（至少需包含 MUSIC_U），登录态有效性会在提交时校验
+          </Paragraph>
+          <textarea
+            value={ncmCookieInput}
+            onChange={(e) => setNcmCookieInput(e.target.value)}
+            placeholder="粘贴网易云 Cookie，如：MUSIC_U=xxx; __csrf=xxx"
+            rows={5}
+            className="w-full resize-none rounded-[var(--md-sys-shape-corner)] border bg-[var(--md-sys-color-surface-container)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
+            style={{
+              borderColor: 'var(--md-sys-color-outline-variant)',
+            }}
+            disabled={ncmCookieLoading}
+          />
         </div>
       </Modal>
 
