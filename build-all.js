@@ -373,7 +373,14 @@ function packageBackend(targetPlatforms, frontendDist) {
               { stdio: 'pipe' }
             );
           } else {
-            execSync(`tar -xzf ${JSON.stringify(tmpArchive)} -C ${JSON.stringify(outputFolder)}`, {
+            // Windows 宿主上 PATH 里的 Git Bash MSYS tar 会把盘符冒号
+            // 当远程主机（"Cannot connect to f: resolve failed"），
+            // 显式用系统自带的 bsdtar（支持 Windows 路径）；用原生双引号
+            // 包裹而非 JSON.stringify（后者会把反斜杠转义成 \\）。
+            const tarBin = process.platform === 'win32'
+              ? path.join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'tar.exe')
+              : 'tar';
+            execSync(`"${tarBin}" -xzf "${tmpArchive}" -C "${outputFolder}"`, {
               stdio: 'pipe',
             });
           }
