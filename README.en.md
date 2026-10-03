@@ -42,6 +42,7 @@ English | **[中文](README.md)**
 - [Permission Model](#permission-model)
 - [Video Sources](#video-sources)
 - [ZViewerCLI](#zviewercli)
+- [Voice Advanced Configuration](#voice-advanced-configuration)
 - [FAQ](#faq)
 
 ---
@@ -264,21 +265,9 @@ services:
   zviewer:
     image: zerowyc0721/zviewer:latest
     ports:
-      - "3333:3333"      # Unified entry (API + WebSocket + frontend + /live proxy)
+      - "3333:3333"      # Unified entry (API + WebSocket + frontend + /live proxy + /rtc voice signaling)
       - "3333:3333/udp"  # LiveKit WebRTC media (same port number, different protocol)
       - "3334:3334"      # RTMP push (OBS)
-      - "5349:5349"      # TURN/TLS relay (optional; harmless when not configured)
-    environment:
-      # Voice: leave empty to enable LiveKit's native STUN external IP discovery
-      # (requires outbound internet); set manually for complex NAT setups
-      - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
-      # Optional: TURN/TLS fallback relay (TCP 5349 when UDP is blocked;
-      # domain-based addressing, no public IP needed). Enabled when all three
-      # variables are set; requires a CA-issued certificate (self-signed is
-      # not trusted by browser WebRTC)
-      - LIVEKIT_TURN_DOMAIN=${LIVEKIT_TURN_DOMAIN:-}
-      - LIVEKIT_TURN_CERT=${LIVEKIT_TURN_CERT:-}
-      - LIVEKIT_TURN_KEY=${LIVEKIT_TURN_KEY:-}
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
@@ -287,7 +276,8 @@ volumes:
   zviewer-data:
 ```
 
-- Voice signaling URLs are derived automatically from the page origin (HTTPS pages get `wss://`) — no configuration needed. Media travels over 3333/udp; make sure your firewall allows it.
+- Voice chat works out of the box with zero configuration: the public IP is discovered automatically via LiveKit's native STUN, and signaling URLs are derived from the page origin (HTTPS pages get `wss://`). Media travels over 3333/udp; make sure your firewall allows it.
+- **Advanced** (TURN/TLS fallback relay for blocked UDP, manual ICE address for complex NAT): see *Voice Advanced Configuration* in the extended tutorials.
 
 ### Build Yourself
 
@@ -390,6 +380,45 @@ ZViewer/
 ```
 
 ---
+
+## Voice Advanced Configuration
+
+The default deployment works with zero configuration: the public IP is discovered automatically via LiveKit's native STUN (requires outbound internet), and media connects over UDP directly. The options below are for special network environments.
+
+### TURN/TLS Fallback Relay
+
+Use case: the server or clients sit behind networks that **block UDP** (corporate firewalls, some campus networks), making STUN direct connections impossible.
+
+How it works: the browser connects to the server's TURN relay over **TCP 5349**, and media is forwarded through the relay. The address is a domain name (resolved via DNS), so no public IP is needed. UDP direct connections are still attempted in parallel — TURN is only a fallback and does not affect low-latency direct connections.
+
+The relay is enabled automatically when all three variables are set:
+
+```yaml
+# Append to docker-compose.linux-single.yml
+    ports:
+      - "5349:5349"      # TURN/TLS relay (TCP)
+    environment:
+      - LIVEKIT_TURN_DOMAIN=zviewer.example.com
+      - LIVEKIT_TURN_CERT=/app/cert/live/zviewer.example.com/fullchain.pem
+      - LIVEKIT_TURN_KEY=/app/cert/live/zviewer.example.com/privkey.pem
+    volumes:
+      - /etc/letsencrypt:/app/cert:ro   # Mount host certificate directory
+```
+
+- The domain must match the certificate and resolve to this server
+- A **CA-issued certificate is required** (Let's Encrypt etc.) — self-signed certificates are not trusted by browser WebRTC
+- Set `LIVEKIT_TURN_EXTERNAL_TLS=true` when TLS is terminated by an external reverse proxy
+
+### Manual ICE Address (`LIVEKIT_NODE_IP`)
+
+When STUN discovery fails (fully offline intranet deployment, unusual NAT), ICE would advertise unreachable internal addresses. In that case, specify the server's public IP manually:
+
+```yaml
+    environment:
+      - LIVEKIT_NODE_IP=203.0.113.10   # Host public IP; use the v6 address for direct IPv6 scenarios
+```
+
+An explicit value takes the highest priority (STUN auto-discovery is skipped when set).
 
 ## Environment Variables
 
