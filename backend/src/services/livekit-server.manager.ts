@@ -292,6 +292,24 @@ async function spawnAndAwait(
   // （172.x），浏览器不可达——必须显式指定宿主公网 IP，否则信令能通而
   // 媒体连不上。显式配置 LIVEKIT_NODE_IP 优先；容器内未配置时自动探测。
   if (nodeIp) args.push('--node-ip', nodeIp);
+  // TURN/TLS 中继（TCP 5349）：域名寻址 + 正式证书，浏览器经 TCP 主动连
+  // 服务器中继媒体，彻底不依赖 IP 广播——防火墙拦截 UDP/NAT 复杂场景的
+  // 兜底通道。UDP 直连（node-ip/host candidate）仍并行尝试，优先走低延迟
+  // 直连。三个 env 齐全才启用（自签证书不被浏览器信任，必须正式证书）。
+  const turnDomain = process.env.LIVEKIT_TURN_DOMAIN?.trim();
+  const turnCert = process.env.LIVEKIT_TURN_CERT?.trim();
+  const turnKey = process.env.LIVEKIT_TURN_KEY?.trim();
+  if (turnDomain && turnCert && turnKey) {
+    process.env.LIVEKIT_TURN_ENABLED ??= 'true';
+    process.env.LIVEKIT_TURN_TLS_PORT ??= '5349';
+    process.env.LIVEKIT_TURN_EXTERNAL_TLS ??= 'false';
+    args.push('--turn-cert', turnCert, '--turn-key', turnKey);
+    console.log(`[voice] TURN/TLS 已启用: ${turnDomain}:5349 (TCP 中继兜底)`);
+  } else if (turnDomain || turnCert || turnKey) {
+    console.warn(
+      '[voice] TURN 配置不完整（需 LIVEKIT_TURN_DOMAIN + LIVEKIT_TURN_CERT + LIVEKIT_TURN_KEY 三者），已忽略'
+    );
+  }
 
   child = spawn(bin, args, {
     stdio: ['ignore', 'pipe', 'pipe'],
