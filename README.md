@@ -76,7 +76,7 @@
 | 视频源 | Bilibili（清晰度切换/大会员）、MP4 直链、WebDAV / FTP / OpenList 挂载、Emby / Jellyfin |
 | 播放兼容 | MKV / AVI / TS / WMV 浏览器端重封装播放；DTS / AC3 / EAC3 音轨浏览器端转码；无需服务端 FFmpeg |
 | 字幕 | SRT / ASS / SSA / VTT / SMI / SUB 原生渲染；MKV 内嵌字幕浏览器端直接提取 |
-| 互动 | 评论、弹幕（Bilibili 官方 / DandanPlay / 自定义轨道）、语音聊天（128kbps） |
+| 互动 | 评论、弹幕（Bilibili 官方 / DandanPlay / 自定义轨道）、语音聊天（LiveKit WebRTC，服务端内嵌开箱即用，支持 IPv6 与 TURN/TLS 兜底） |
 | 推流 | WebRTC 屏幕共享；OBS RTMP 推流 + HTTP-FLV 拉流 |
 | 一起听 | 网易云音乐同步听歌，扫码登录，VIP 凭证全房间共享，音质降级 |
 | 主题 | Material You 动态主题、自定义主题色与颜色强度、玻璃拟态、自定义背景、精简动画 |
@@ -115,6 +115,8 @@ start.bat               # 交互菜单
 
 访问 `http://localhost:3333`。
 
+压缩包内含 `livekit-server` 伴生二进制（语音聊天），后端启动时自动拉起，公网 IP 经 STUN 自动发现，无需单独安装或配置；HTTPS 页面下语音自动使用 wss。
+
 ### 源码版
 
 ```bash
@@ -139,11 +141,13 @@ npm start
 
 | 端口 | 用途 | 是否对外 |
 |---|---|---|
-| 3333 | 统一入口：HTTP/HTTPS API、WebSocket、前端页面、`/live` FLV 代理 | 是 |
+| 3333/tcp | 统一入口：HTTP/HTTPS API、WebSocket、前端页面、`/live` FLV 代理 | 是 |
+| 3333/udp | LiveKit WebRTC 媒体传输（语音聊天，与页面同号不同协议） | 是 |
 | 3334 | RTMP 推流（OBS，TCP 二进制协议无法与 HTTP 复用） | 是 |
 | 3335 | HTTP-FLV 拉流（Node Media Server 内部端口） | 否 |
+| 5349 | TURN/TLS 媒体中继（可选启用，UDP 被拦时的 TCP 兜底通道） | 是 |
 
-OBS 推流地址：`rtmp://<host>:3334/live`。
+OBS 推流地址：`rtmp://<host>:3334/live`。语音聊天的信令经 3333 的 `/rtc` 反代，无需额外端口。
 
 ## Docker 部署
 
@@ -295,11 +299,17 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 | `JWT_REFRESH_EXPIRES_IN` | Refresh 有效期 | `7d` |
 | `RTMP_PORT` | RTMP 推流端口 | `3334` |
 | `HTTP_FLV_PORT` | FLV 拉流端口（内部） | `3335` |
+| `LIVEKIT_EXTERNAL` | `1` 时跳过内嵌 LiveKit，使用外置服务 | `0` |
+| `LIVEKIT_BIND` | 内嵌 LiveKit 监听地址 | `::`（双栈） |
+| `LIVEKIT_NODE_IP` | ICE 广播地址；留空时自动启用 LiveKit 原生 STUN 外部 IP 发现（需可出网），NAT 复杂环境手动指定公网 IP | 空（自动） |
+| `LIVEKIT_TURN_DOMAIN` | TURN/TLS 域名（与 CERT/KEY 三者齐全即启用 TCP 5349 兜底中继，域名寻址不依赖公网 IP） | — |
+| `LIVEKIT_TURN_CERT` | TURN TLS 证书路径（必须正式证书，自签不被浏览器 WebRTC 信任） | — |
+| `LIVEKIT_TURN_KEY` | TURN TLS 私钥路径 | — |
 
 ## 构建和更新
 
-- **构建**：`build-all.js` 将前后端编译为单文件版本（`zviewer-backend` / `zviewer-cert`），启动脚本模板在 `packaging/`。
-- **CI**：push `main` → 构建双平台单文件，Linux 版推 Docker Hub（`0.0.0-dev.<sha>` 预发布）；打 `v*` tag → 正式版 + GitHub Release。
+- **构建**：`build-all.js` 将前后端编译为单文件版本（`zviewer-backend` / `zviewer-cert`，打包目标 node26），并下载 LiveKit 伴生二进制随包分发（语音聊天下箱即用）；启动脚本模板在 `packaging/`。
+- **CI**：push `main` → 构建双平台单文件（node26），Linux 版推 Docker Hub（`0.0.0-dev.<sha>` 预发布）；打 `v*` tag → 正式版 + GitHub Release。CI 下 LiveKit 下载失败会硬失败，保证产物含完整语音能力。
 - **更新**：后端从 GitHub Releases 检测新版本（管理后台可关预发布），下载后替换程序文件并重启进程；也支持手动上传压缩包更新。数据库与配置在 `config/`，更新不覆盖。
 
 ## 本地开发

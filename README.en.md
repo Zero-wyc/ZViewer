@@ -81,7 +81,7 @@ English | **[中文](README.md)**
 - Comment panel & danmaku system: supports Bilibili official danmaku, DandanPlay danmaku, custom danmaku tracks.
 - Playback state sync: host actions are broadcast to all viewers in real time.
 - Viewers can request pause or seek; the host sees notifications at the top-left of the player.
-- Voice chat: host enables voice chat for viewers to listen in real time (fixed 128kbps bitrate).
+- Voice chat: host enables voice chat for viewers to listen in real time (LiveKit WebRTC, bundled with the server out of the box; IPv6 support and TURN/TLS fallback relay).
 
 ### Screen Sharing & Streaming
 
@@ -112,6 +112,8 @@ start.bat start        # Start service
 ./start.sh             # Interactive menu
 ./start.sh start       # Start service
 ```
+
+The archive bundles the `livekit-server` companion binary (voice chat). The backend spawns it automatically on startup and discovers the public IP via STUN — no separate installation or configuration needed. Voice automatically uses `wss://` on HTTPS pages.
 
 ### Source Code Deployment
 
@@ -182,11 +184,13 @@ The `start-prod` scripts in the project root automatically detect dependencies, 
 
 | Service | Port | Description |
 |---|---|---|
-| Backend (unified entry) | 3333 | HTTP/HTTPS API, WebSocket, frontend static files, SPA fallback, `/live` HTTP-FLV proxy |
+| Backend (unified entry) | 3333/tcp | HTTP/HTTPS API, WebSocket, frontend static files, SPA fallback, `/live` HTTP-FLV proxy |
+| LiveKit media (voice) | 3333/udp | WebRTC media transport (same port number as the page, different protocol) |
 | RTMP Push | 3334 | OBS push port (standalone; RTMP is a TCP binary protocol, cannot share with HTTP) |
 | HTTP-FLV Pull | 3335 | Internal port (Node Media Server), container-only, not exposed externally |
+| TURN/TLS relay | 5349 | Optional voice fallback over TCP when UDP is blocked |
 
-In production mode, **only port 3333 is exposed externally**. The backend handles API requests, frontend static resources, WebSocket, and reverse-proxies `/live` to the internal HTTP-FLV service.
+In production mode, **only ports 3333 (tcp+udp) and 3334 are exposed externally**. Voice signaling goes through the `/rtc` reverse proxy on 3333 — no extra port needed. The backend handles API requests, frontend static resources, WebSocket, and reverse-proxies `/live` to the internal HTTP-FLV service.
 
 ---
 
@@ -331,9 +335,11 @@ Automatic builds on every push to `main` or tag (`v*`):
 
 | Platform | Archive | Contents |
 |---|---|---|
-| Linux | `zviewer-linux-x64.tar.gz` | `zviewer-backend`, `zviewer-cert`, `start.sh` |
-| Windows | `zviewer-windows-x64.zip` | `zviewer-backend.exe`, `zviewer-cert.exe`, `start.bat` |
-| Docker | `zerowyc0721/zviewer:latest` | Docker image based on Linux single-file build |
+| Linux | `zviewer-linux-x64.tar.gz` | `zviewer-backend`, `zviewer-cert`, `livekit-server`, `start.sh` |
+| Windows | `zviewer-windows-x64.zip` | `zviewer-backend.exe`, `zviewer-cert.exe`, `livekit-server.exe`, `start.bat` |
+| Docker | `zerowyc0721/zviewer:latest` | Docker image based on Linux single-file build (bundles LiveKit) |
+
+Builds target Node 26 (`node26-*-x64`). The `build-all.js` script downloads the LiveKit companion binary alongside the platform build; CI fails hard if the LiveKit download fails, guaranteeing voice capability in every artifact.
 
 ---
 
@@ -403,6 +409,12 @@ ZViewer/
 | `JWT_REFRESH_EXPIRES_IN` | Refresh Token expiry | `7d` |
 | `RTMP_PORT` | RTMP push port | `3334` |
 | `HTTP_FLV_PORT` | HTTP-FLV pull port (internal) | `3335` |
+| `LIVEKIT_EXTERNAL` | `1` skips the bundled LiveKit and uses an external service | `0` |
+| `LIVEKIT_BIND` | Bundled LiveKit listen address | `::` (dual-stack) |
+| `LIVEKIT_NODE_IP` | ICE advertised address; leave empty to enable LiveKit's native STUN external IP discovery (requires outbound internet), set manually for complex NAT | (auto) |
+| `LIVEKIT_TURN_DOMAIN` | TURN/TLS domain (enables the TCP 5349 fallback relay when set together with CERT/KEY; domain-based addressing needs no public IP) | — |
+| `LIVEKIT_TURN_CERT` | TURN TLS certificate path (CA-issued required; self-signed is not trusted by browser WebRTC) | — |
+| `LIVEKIT_TURN_KEY` | TURN TLS private key path | — |
 
 ### Frontend Build
 
