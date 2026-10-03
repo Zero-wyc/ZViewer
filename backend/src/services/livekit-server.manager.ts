@@ -215,6 +215,51 @@ function installExitHooks(): void {
  * 调用时机：bootstrap 早期 fire-and-forget（不阻塞主服务启动；
  * 下载期间 /api/voice/token 会 503，前端提示「语音服务未就绪」）。
  */
+/** 拉起 livekit 子进程并等待 HTTP 端口就绪；超时/退出返回 false */
+async function spawnAndAwait(bin: string, bind: string): Promise<boolean> {
+  child = spawn(
+    bin,
+    [
+      '--dev',
+      // dual-stack 监听（IPv4+IPv6），见 BIND_ADDRESS 注释
+      '--bind',
+      bind,
+      // HTTP/信令端口：默认 7880，统一改为 3336 避开常见端口占用
+      '--port',
+      String(HTTP_PORT),
+      '--udp-port',
+      String(UDP_PORT),
+      // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格
+      // livekit 会直接退出（冒烟实测踩坑）
+      '--keys',
+      `${process.env.LIVEKIT_API_KEY}: ${process.env.LIVEKIT_API_SECRET}`,
+    ],
+    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
+  );
+  child.stdout?.on('data', (chunk: Buffer) => {
+    process.stdout.write(`[livekit] ${chunk}`);
+  });
+  child.stderr?.on('data', (chunk: Buffer) => {
+    process.stderr.write(`[livekit] ${chunk}`);
+  });
+  child.once('exit', (code) => {
+    console.warn(`[voice] 嵌入式 LiveKit 进程退出 (code=${code})`);
+    child = null;
+  });
+
+  installExitHooks();
+
+  try {
+    await waitForPort(HTTP_PORT, READY_TIMEOUT_MS);
+    console.log(`[voice] 嵌入式 LiveKit 已就绪 (bind ${bind})`);
+    return true;
+  } catch {
+    // 等待失败时若进程仍在（如启动过慢）先终止，避免残留占端口
+    killChild();
+    return false;
+  }
+}
+
 export async function startEmbeddedLivekit(): Promise<void> {
   if (child) return;
   if (process.env.LIVEKIT_EXTERNAL === '1') return;
@@ -240,51 +285,20 @@ export async function startEmbeddedLivekit(): Promise<void> {
     bin = downloaded;
   }
 
-  const apiKey = process.env.LIVEKIT_API_KEY;
-  const apiSecret = process.env.LIVEKIT_API_SECRET;
   console.log(
     `[voice] 启动嵌入式 LiveKit: ${bin} (bind ${BIND_ADDRESS}, HTTP ${HTTP_PORT}, UDP ${UDP_PORT}, URL=${process.env.LIVEKIT_URL})`
   );
 
-  child = spawn(
-    bin,
-    [
-      '--dev',
-      // dual-stack 监听（IPv4+IPv6），见 BIND_ADDRESS 注释
-      '--bind',
-      BIND_ADDRESS,
-      // HTTP/信令端口：默认 7880，统一改为 3336 避开常见端口占用
-      '--port',
-      String(HTTP_PORT),
-      '--udp-port',
-      String(UDP_PORT),
-      // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格
-      // livekit 会直接退出（冒烟实测踩坑）
-      '--keys',
-      `${apiKey}: ${apiSecret}`,
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
-  );
-  child.stdout?.on('data', (chunk: Buffer) => {
-    process.stdout.write(`[livekit] ${chunk}`);
-  });
-  child.stderr?.on('data', (chunk: Buffer) => {
-    process.stderr.write(`[livekit] ${chunk}`);
-  });
-  child.once('exit', (code) => {
-    console.warn(`[voice] 嵌入式 LiveKit 进程退出 (code=${code})`);
-    child = null;
-  });
-
-  installExitHooks();
-
-  try {
-    await waitForPort(HTTP_PORT, READY_TIMEOUT_MS);
-    console.log('[voice] 嵌入式 LiveKit 已就绪');
-  } catch (err) {
+  let ok = await spawnAndAwait(bin, BIND_ADDRESS);
+  // 无 IPv6 协议栈的环境绑 :: 会直接退出（缺少 IPv6 支持时）——回退纯
+  // IPv4 重试一次，代价是 IPv6 媒体不可用，但语音整体可用
+  if (!ok && BIND_ADDRESS === '::') {
+    console.warn('[voice] bind :: 启动失败，回退 0.0.0.0 (仅 IPv4) 重试');
+    ok = await spawnAndAwait(bin, '0.0.0.0');
+  }
+  if (!ok) {
     console.error(
-      '[voice] 嵌入式 LiveKit 启动超时——语音将不可用，请检查端口占用',
-      err instanceof Error ? err.message : err
+      '[voice] 嵌入式 LiveKit 启动失败——语音将不可用，请检查端口占用与二进制完整性'
     );
   }
 }

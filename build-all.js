@@ -385,10 +385,14 @@ function packageBackend(targetPlatforms, frontendDist) {
           }
           success(`livekit-server: ${platform.folder}/${path.basename(lkDest)}`);
         } catch (e) {
-          warn(
-            `livekit-server 下载/解压失败: ${e.message}——语音功能将不可用；` +
-            `可手动从 ${lkUrl} 放置到 ${outputFolder}`
-          );
+          // CI 下下载失败必须硬失败：缺伴生二进制的产物部署后语音全断
+          // 且启动日志不易察觉；本地构建降级为警告（可手动放置）
+          const msg = `livekit-server 下载/解压失败: ${e.message}——语音功能将不可用；可手动从 ${lkUrl} 放置到 ${outputFolder}`;
+          if (process.env.CI) {
+            error(msg);
+            process.exit(1);
+          }
+          warn(msg);
         } finally {
           try { fs.rmSync(tmpArchive, { force: true }); } catch { /* ignore */ }
         }
