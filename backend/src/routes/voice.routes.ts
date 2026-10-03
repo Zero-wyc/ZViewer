@@ -97,7 +97,10 @@ router.post(
         canSubscribe: true,
         canPublishData: true,
       });
-      res.json({ success: true, url: process.env.LIVEKIT_URL, token: token.toJwt() });
+      // toJwt() 新版返回 Promise（thenable），必须 await——否则序列化成
+      // "[object Object]" 发给前端，LiveKit 401 拒绝连接
+      const jwt = await token.toJwt();
+      res.json({ success: true, url: process.env.LIVEKIT_URL, token: jwt });
     } catch (err) {
       console.error('[voice] token error:', err);
       res.status(500).json({ success: false, message: '签发语音凭证失败' });
