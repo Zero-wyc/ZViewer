@@ -24,7 +24,8 @@ import path from 'path';
 const DEFAULT_API_KEY = 'devkey';
 const DEFAULT_API_SECRET = 'zviewer-dev-secret';
 const HTTP_PORT = 3336;
-const UDP_PORT = 7882;
+/** 媒体传输 UDP 端口：与 HTTP 同号（tcp/udp 协议不同不冲突） */
+const UDP_PORT = 3336;
 const READY_TIMEOUT_MS = 15_000;
 /** 开发模式自动下载的 pinned 版本（与 build-all 打包版本保持一致） */
 const LIVEKIT_VERSION = 'v1.13.7';
