@@ -21,10 +21,14 @@ services:
 
   # 语音聊天 SFU（LiveKit）：--dev 模式单二进制开箱即用；HTTP/信令端口
   # 统一为 3336（仅容器内互通，浏览器信令经 zviewer:3333 的 /rtc 反代）；
-  # 生产部署请挂载正式 config.yaml 并更换 API key/secret
+  # bind :: 为 Go dual-stack（IPv4/IPv6 都收）。注意：bridge 网络容器内
+  # 默认无公网 IPv6 地址，宿主 IPv6 用户经 Docker 端口映射以 IPv4 到达
+  # 容器，媒体可通；若宿主启用 Docker IPv6 且宿主有公网 IPv6，ICE 会
+  # 广播 v6 candidate 直连。生产部署请挂载正式 config.yaml 并更换
+  # API key/secret
   livekit:
     image: livekit/livekit-server:latest
-    command: --dev --bind 0.0.0.0 --port 3336 --keys devkey:zviewer-dev-secret
+    command: --dev --bind :: --port 3336 --keys devkey:zviewer-dev-secret
     ports:
       - "3333:3333/udp"   # WebRTC 媒体传输（与页面 HTTP 同号，协议不同）
     restart: unless-stopped

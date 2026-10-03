@@ -11,8 +11,8 @@
  *
  * 生命周期：随主进程退出而终止子进程（SIGINT/SIGTERM/exit 三挂钩）。
  * 环境变量缺省值在启动早期注入，.env 显式配置优先：
- * LIVEKIT_API_KEY / LIVEKIT_API_SECRET / LIVEKIT_API_HOST / LIVEKIT_URL
- * （URL 缺省自动探测本机私有 IPv4，局域网成员可直连）。
+ * LIVEKIT_API_KEY / LIVEKIT_API_SECRET / LIVEKIT_API_HOST / LIVEKIT_BIND
+ * （客户端地址不在此配置——由 voice.routes 按请求头推导，跟随页面域名）。
  */
 import { spawn, ChildProcess, execSync } from 'child_process';
 import fs from 'fs';
@@ -29,6 +29,12 @@ const HTTP_PORT = 3336;
  * 只需放行一条 3333。
  */
 const UDP_PORT = 3333;
+/**
+ * 监听地址：默认 `::`（Go dual-stack，同时收 IPv4/IPv6——IPv4 连接以
+ * v4-mapped 形式进入，127.0.0.1 回环依然可达）。绑 0.0.0.0 会只收
+ * IPv4，公网 IPv6 用户的媒体流无法建立。特殊环境可用 LIVEKIT_BIND 覆盖。
+ */
+const BIND_ADDRESS = process.env.LIVEKIT_BIND?.trim() || '::';
 const READY_TIMEOUT_MS = 15_000;
 /** 开发模式自动下载的 pinned 版本（与 build-all 打包版本保持一致） */
 const LIVEKIT_VERSION = 'v1.13.7';
@@ -237,15 +243,16 @@ export async function startEmbeddedLivekit(): Promise<void> {
   const apiKey = process.env.LIVEKIT_API_KEY;
   const apiSecret = process.env.LIVEKIT_API_SECRET;
   console.log(
-    `[voice] 启动嵌入式 LiveKit: ${bin} (HTTP ${HTTP_PORT}, UDP ${UDP_PORT}, URL=${process.env.LIVEKIT_URL})`
+    `[voice] 启动嵌入式 LiveKit: ${bin} (bind ${BIND_ADDRESS}, HTTP ${HTTP_PORT}, UDP ${UDP_PORT}, URL=${process.env.LIVEKIT_URL})`
   );
 
   child = spawn(
     bin,
     [
       '--dev',
+      // dual-stack 监听（IPv4+IPv6），见 BIND_ADDRESS 注释
       '--bind',
-      '0.0.0.0',
+      BIND_ADDRESS,
       // HTTP/信令端口：默认 7880，统一改为 3336 避开常见端口占用
       '--port',
       String(HTTP_PORT),
