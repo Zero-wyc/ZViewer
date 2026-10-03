@@ -47,9 +47,9 @@ English | **[中文](README.md)**
 
 ---
 
-| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013054107.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013133193.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260804013054107.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260804013133193.webp) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013107507.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260804013127227.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260804013107507.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260804013127227.webp) |
 
 ## Features
 

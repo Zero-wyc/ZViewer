@@ -29,11 +29,11 @@
 
 项目文档：[docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz)
 
-| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003200919255.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003200942428.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200919255.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200942428.webp) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
-| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003200643035.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003200707122.webp) |
-| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20260930211758831.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003201053941.webp) |
-| ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003200715093.webp) | ![](https://github.cdn.zero251.xyz/Zero-wyc/Image/main/All/20261003201139524.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200643035.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200707122.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260930211758831.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201053941.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200715093.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201139524.webp) |
 
 ## 浏览器要求
 
