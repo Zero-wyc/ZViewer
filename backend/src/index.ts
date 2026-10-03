@@ -230,9 +230,10 @@ async function bootstrap() {
   migrateLegacyDataIfNeeded();
   ensureDataDirs();
 
-  // 语音聊天：单文件部署时自动拉起 exe 旁的 livekit-server 伴生进程
-  // （含环境变量缺省值注入；二进制缺失或 LIVEKIT_EXTERNAL=1 时跳过）
-  await startEmbeddedLivekit();
+  // 语音聊天：自动拉起 livekit-server 伴生进程（含环境变量缺省值注入；
+  // 开发模式二进制缺失时自动下载到 backend/dev-bin。fire-and-forget，
+  // 下载期间 /api/voice/token 会 503，前端有「语音未就绪」提示兜底）
+  void startEmbeddedLivekit();
 
   // 数据库文件健康检查：滚动备份 + 全零/损坏自愈（详见 services/db-persistence.ts）。
   // 必须在 initialize 之前执行——sql.js 加载坏文件会直接抛「file is not a database」。
