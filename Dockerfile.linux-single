@@ -19,26 +19,22 @@ RUN apt-get update \
 WORKDIR /app
 
 # 复制单文件产物（统一端口：后端托管前端静态文件，无需前端 exe）
-# mediasoup-worker：语音 SFU 的原生传输进程（build-all 于构建机同平台
-# 编译/下载，与后端 exe 同目录分发，后端经 MEDIASOUP_WORKER_BIN 定位）
+# 语音聊天由独立 LiveKit 服务承载（见 docker-compose 的 livekit 服务），
+# 后端仅签发凭证与管理，无需打包任何媒体组件
 COPY dist/linux/zviewer-backend .
 COPY dist/linux/zviewer-cert .
-COPY dist/linux/mediasoup-worker .
 COPY dist/linux/start.sh .
 COPY dist/linux/.env .
 COPY dist/linux/package.json .
 COPY dist/linux/frontend/dist ./frontend/dist/
 
 # 创建运行时数据目录
-RUN mkdir -p config/ssl config/uploads config/media log \
-    && chmod +x /app/mediasoup-worker
+RUN mkdir -p config/ssl config/uploads config/media log
 
 # 暴露端口
 # 3333: 统一端口 - 后端 REST API + WebSocket (Socket.IO) + 前端静态文件 + /live HTTP-FLV 代理
 # 3334: RTMP 推流端口 (OBS 连接)
-# 40000-40100/udp: mediasoup SFU 语音 WebRTC 传输（须与 MEDIASOUP_RTC_MIN/MAX_PORT 一致）
 EXPOSE 3333 3334
-EXPOSE 40000-40100/udp
 
 # Entrypoint（HTTP 模式，仅启动后端，由后端统一提供 API + 前端静态文件）
 COPY docker/entrypoint-linux-single.sh /app/entrypoint.sh

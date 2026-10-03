@@ -345,30 +345,6 @@ function packageBackend(targetPlatforms, frontendDist) {
         continue;
       }
 
-      // mediasoup SFU：mediasoup-worker 为独立原生二进制，pkg 无法内嵌，
-      // 随产物目录分发，后端启动时经 MEDIASOUP_WORKER_BIN 自动定位
-      // （见 backend/src/modules/voice-chat/voice-sfu.ts）。worker 在
-      // npm install 时按构建机平台获取/编译——CI 的 win/linux 分别在
-      // 对应平台 runner 上构建，同平台复制即为正确产物；本机跨平台
-      // 编译（win 构建 linux 产物）时 worker 需另行获取 linux 版。
-      const workerBin = path.join(
-        ROOT, 'node_modules', 'mediasoup', 'worker', 'out', 'Release',
-        target.includes('win') ? 'mediasoup-worker.exe' : 'mediasoup-worker'
-      );
-      if (fs.existsSync(workerBin)) {
-        const destBin = path.join(outputFolder, path.basename(workerBin));
-        fs.copyFileSync(workerBin, destBin);
-        if (destBin.endsWith('.sh') || destBin === path.join(outputFolder, 'mediasoup-worker')) {
-          try { fs.chmodSync(destBin, 0o755); } catch { /* non-Unix host */ }
-        }
-        success(`mediasoup worker: ${platform.folder}/${path.basename(workerBin)}`);
-      } else {
-        warn(
-          `mediasoup worker 未找到（${workerBin}）——SFU 语音将不可用；` +
-          `请先在 backend 目录执行 npm install 以获取/编译 worker`
-        );
-      }
-
       // 复制后端 .env；保留 PORT 等端口配置，
       // 由启动脚本（start.sh / start-win.ps1）读取并按需覆盖 exe 的环境变量。
       // CI 环境中 backend/.env 被 .gitignore 排除，回退到 .env.example。

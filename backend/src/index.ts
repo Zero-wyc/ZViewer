@@ -64,6 +64,7 @@ import {
   PreviewHandler,
   createMovieRouter,
 } from './modules/movie';
+import voiceRoutes from './routes/voice.routes';
 import {
   HeartbeatHandler,
   TrackSyncHandler,
@@ -79,7 +80,6 @@ import { CommentHandler } from './modules/comment';
 import { CliHandler } from './modules/cli';
 import { nmsService, StreamPushHandler, streamPushRouter } from './modules/stream-push';
 import { SignalingHandler, ViewerEventsHandler } from './modules/webrtc-signaling';
-import { VoiceChatHandler } from './modules/voice-chat';
 import {
   startNcmApiService,
   stopNcmApiService,
@@ -503,13 +503,13 @@ async function bootstrap() {
     // WebRTC 信令 + 观众就绪事件（迁移自 services/screen-sharing/）
     .add(new SignalingHandler())
     .add(new ViewerEventsHandler())
-    // 语音聊天服务器中转（从 signaling.ts 中分离）
-    .add(new VoiceChatHandler())
     // 一起听音乐同步（队列 CRUD / 播放状态与心跳转发 / 观众申请制）
     .add(new MusicSyncHandler());
 
   // 挂载新模块的 REST 路由
   app.use('/api/rooms', createMovieRouter(io));
+  // 语音聊天（LiveKit）：签发接入凭证 + 管理操作；实时音频由 LiveKit 服务承载
+  app.use('/api/voice', voiceRoutes);
 
   // /live 反向代理到 NMS HTTP-FLV（统一端口后由后端代理，
   // 前端使用相对路径 /live 即可，无需单独暴露 NMS 端口）。

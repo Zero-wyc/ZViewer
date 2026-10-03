@@ -33,7 +33,7 @@
     "express-rate-limit": "^8.6.2",
     "http-proxy-middleware": "^4.2.0",
     "jsonwebtoken": "^9.0.3",
-    "mediasoup": "^3.28.0",
+    "livekit-server-sdk": "^2.19.1",
     "nanoid": "^5.1.16",
     "node-media-server": "^4.2.8",
     "opencc-js": "^1.0.5",

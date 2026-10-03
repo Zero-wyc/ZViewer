@@ -1,7 +1,7 @@
 /**
- * 语音聊天模块（服务器中转）。
+ * 语音聊天模块（LiveKit 版）。
  *
- * 从 services/screen-sharing/signaling.ts 中分离，不再与 WebRTC 信令混在同一文件。
- * 语音聊天使用服务器中转 PCM/Opus 音频数据，非 WebRTC P2P Mesh。
+ * 实时音频由独立 LiveKit 服务承载；本模块仅保留 REST 路由
+ * （签发接入凭证 / 管理员禁言 / 踢出），见 routes/voice.routes.ts。
  */
-export { VoiceChatHandler } from './voice-chat.handler';
+export { default as voiceRoutes } from '../../routes/voice.routes';
