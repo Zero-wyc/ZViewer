@@ -117,6 +117,16 @@ function HomePage() {
               </Fade>
               <Fade delay={220} className="w-full">
                 <Button
+                  size="lg"
+                  icon={<LayoutDashboard className="h-5 w-5" />}
+                  block
+                  onClick={() => navigate('/rooms')}
+                >
+                  房间列表
+                </Button>
+              </Fade>
+              <Fade delay={260} className="w-full">
+                <Button
                   variant="primary"
                   size="lg"
                   icon={<PlayCircle className="h-5 w-5" />}
@@ -124,16 +134,6 @@ function HomePage() {
                   onClick={() => navigate('/join')}
                 >
                   加入房间
-                </Button>
-              </Fade>
-              <Fade delay={260} className="w-full">
-                <Button
-                  size="lg"
-                  icon={<LayoutDashboard className="h-5 w-5" />}
-                  block
-                  onClick={() => navigate('/rooms')}
-                >
-                  房间列表
                 </Button>
               </Fade>
               <Fade delay={300}>
@@ -168,21 +168,21 @@ function HomePage() {
               <Fade delay={260} className="w-full">
                 <Button
                   size="lg"
-                  icon={<PlayCircle className="h-5 w-5" />}
-                  block
-                  onClick={() => navigate('/join')}
-                >
-                  加入房间
-                </Button>
-              </Fade>
-              <Fade delay={300} className="w-full">
-                <Button
-                  size="lg"
                   icon={<LayoutDashboard className="h-5 w-5" />}
                   block
                   onClick={() => navigate('/rooms')}
                 >
                   房间列表
+                </Button>
+              </Fade>
+              <Fade delay={300} className="w-full">
+                <Button
+                  size="lg"
+                  icon={<PlayCircle className="h-5 w-5" />}
+                  block
+                  onClick={() => navigate('/join')}
+                >
+                  加入房间
                 </Button>
               </Fade>
 
