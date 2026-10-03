@@ -18,7 +18,7 @@
  * LIVEKIT_URL / LIVEKIT_API_KEY / LIVEKIT_API_SECRET。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Room, RoomEvent, Track } from 'livekit-client'
+import { Room, RoomEvent, Track, AudioPresets } from 'livekit-client'
 import type { RemoteParticipant, RemoteTrack } from 'livekit-client'
 import { apiFetch } from '@/lib/api'
 import { message } from '@/components/ui/message'
@@ -303,6 +303,12 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
       await room.connect(data.url, data.token)
       await room.localParticipant.publishTrack(track, {
         source: Track.Source.Microphone,
+        // 高音质发布档：SDK 默认按语音会议档（~24-32kbps+DTX）编码，
+        // 听感发闷。music 档为 48kbps 全带宽 Opus；关闭 DTX 避免静音
+        // 段落切换时的音质劣化感；保留 RED 冗余抗丢包
+        audioPreset: AudioPresets.music,
+        dtx: false,
+        red: true,
       })
       setSelfId(room.localParticipant.identity)
       micTrackRef.current = track
