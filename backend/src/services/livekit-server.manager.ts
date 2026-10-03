@@ -233,7 +233,12 @@ export async function startEmbeddedLivekit(): Promise<void> {
   process.env.LIVEKIT_API_SECRET ??= DEFAULT_API_SECRET;
   process.env.LIVEKIT_API_HOST ??= `http://127.0.0.1:${HTTP_PORT}`;
   const lanIp = detectPrivateIPv4();
-  process.env.LIVEKIT_URL ??= `ws://${lanIp ?? 'localhost'}:${HTTP_PORT}`;
+  // 缺省走统一端口 3333 的信令反代（后端 /rtc 隧道），浏览器无需放行
+  // 3336/tcp；HTTPS 部署自动用 wss（TLS 由后端统一端口的证书处理）。
+  // 媒体 RTP 仍为 UDP 3336 直连（防火墙需放行该条 UDP）。
+  const unifiedPort = process.env.PORT || 3333;
+  const scheme = process.env.HTTPS === 'true' ? 'wss' : 'ws';
+  process.env.LIVEKIT_URL ??= `${scheme}://${lanIp ?? 'localhost'}:${unifiedPort}`;
 
   let bin = candidatePaths().find((p) => fs.existsSync(p));
   if (!bin) {

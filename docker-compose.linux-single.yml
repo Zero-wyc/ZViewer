@@ -7,9 +7,10 @@ services:
       - "3333:3333"   # 统一端口：后端 API + WebSocket + 前端静态文件 + /live HTTP-FLV 代理
       - "3334:3334"   # RTMP 推流 (OBS)
     environment:
-      # 语音聊天（LiveKit）：LIVEKIT_URL 是「浏览器直连」的地址，须为
-      # 用户可达的 ws 地址——公网/NAT 部署时配置为外部 ws://主机:3336
-      - LIVEKIT_URL=${LIVEKIT_URL:-ws://localhost:3336}
+      # 语音聊天（LiveKit）：LIVEKIT_URL 是「浏览器直连」的地址。缺省走
+      # 统一端口 3333 的信令反代（后端把 /rtc 隧道到 livekit），与页面同
+      # 源无需额外放行 3336/tcp；媒体 RTP 仍需放行 3336/udp
+      - LIVEKIT_URL=${LIVEKIT_URL:-ws://localhost:3333}
       - LIVEKIT_API_HOST=${LIVEKIT_API_HOST:-http://livekit:3336}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-zviewer-dev-secret}
@@ -20,13 +21,13 @@ services:
       - livekit
 
   # 语音聊天 SFU（LiveKit）：--dev 模式单二进制开箱即用；HTTP/信令端口
-  # 统一为 3336；生产部署请挂载正式 config.yaml 并更换 API key/secret
+  # 统一为 3336（仅容器内互通，浏览器信令经 zviewer:3333 的 /rtc 反代）；
+  # 生产部署请挂载正式 config.yaml 并更换 API key/secret
   livekit:
     image: livekit/livekit-server:latest
     command: --dev --bind 0.0.0.0 --port 3336 --keys devkey:zviewer-dev-secret
     ports:
-      - "3336:3336"                     # WebSocket 信令（客户端连接，tcp）
-      - "3336:3336/udp"                 # WebRTC 媒体传输（与信令同号，协议不同）
+      - "3336:3336/udp"   # WebRTC 媒体传输（信令走 zviewer:3333 反代，无需暴露 tcp）
     restart: unless-stopped
 
 volumes:

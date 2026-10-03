@@ -10,6 +10,7 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import path from 'node:path';
 import fs from 'node:fs';
+import net from 'node:net';
 import bcrypt from 'bcryptjs';
 import { IsNull, LessThan } from 'typeorm';
 import { AppDataSource } from './data-source';
@@ -413,6 +414,9 @@ async function bootstrap() {
     // 房主广播的 subtitle-update 含完整轨道 cues（手动上传的 ASS 特效
     // 字幕可达数 MB），默认 1MB 会让大字幕同步静默失败
     maxHttpBufferSize: 20 * 1024 * 1024,
+    // engine.io 默认会在 1s 后销毁非自身路径的 upgrade 连接——
+    // 下方 LiveKit /rtc 信令反代走的就是 upgrade 通道，必须关闭
+    destroyUpgrade: false,
   });
 
   // 注入 io：playbackMemoryService.isHostOnline 据此校验 hostSocketId 的
@@ -422,6 +426,47 @@ async function bootstrap() {
   app.set('io', io);
 
   app.use('/api/rooms', createRoomsRouter(io));
+
+  // LiveKit 信令 WebSocket 反代：把统一端口 3333 上的 /rtc* 升级请求
+  // 原样隧道到 LiveKit。浏览器建立语音时信令与页面同端口，无需额外
+  // 放行 3336/tcp；媒体 RTP 仍走 UDP 3336 直连（HTTP 反代代理不了）。
+  // 升级后的帧是不透明字节流，纯 TCP 双向管道即可，无需解析协议。
+  // 上游地址取 LIVEKIT_API_HOST 的 host:port（裸机=127.0.0.1:3336，
+  // compose=livekit:3336），每次升级时解析以兼容运行时注入的 env。
+  httpServer.on('upgrade', (req, socket, head) => {
+    const url = req.url ?? '';
+    if (url.startsWith('/socket.io')) return; // socket.io 自行处理
+    if (!url.startsWith('/rtc')) {
+      socket.destroy(); // 非 socket.io 且非 LiveKit：直接拒绝
+      return;
+    }
+    let upstreamHost = '127.0.0.1';
+    let upstreamPort = 3336;
+    try {
+      const u = new URL(
+        process.env.LIVEKIT_API_HOST || 'http://127.0.0.1:3336'
+      );
+      upstreamHost = u.hostname;
+      upstreamPort = Number(u.port) || 3336;
+    } catch {
+      /* 缺省值兜底 */
+    }
+    const upstream = net.connect(upstreamPort, upstreamHost, () => {
+      // upgrade 事件只给剩余字节，请求头需按 rawHeaders 重建回写
+      const headerLines = req.rawHeaders
+        .reduce<string[]>((acc, _v, i) => {
+          if (i % 2 === 0) acc.push(`${req.rawHeaders[i]}: ${req.rawHeaders[i + 1]}`);
+          return acc;
+        }, [])
+        .join('\r\n');
+      upstream.write(`${req.method} ${url} HTTP/1.1\r\n${headerLines}\r\n\r\n`);
+      if (head.length > 0) upstream.write(head);
+      socket.pipe(upstream);
+      upstream.pipe(socket);
+    });
+    upstream.on('error', () => socket.destroy());
+    socket.on('error', () => upstream.destroy());
+  });
 
   // 周期性自动删除长期无人访问的房间
   setInterval(() => {
