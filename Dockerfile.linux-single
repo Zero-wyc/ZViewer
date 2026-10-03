@@ -1,5 +1,5 @@
 # Debian 12 bookworm（bullseye 已于 2026-08 结束 LTS，安全仓库包被清移 →
-# apt 404 构建失败；产物为预编译 node22 二进制 + 静态文件，新版 glibc 向后兼容）
+# apt 404 构建失败；产物为预编译 node26 二进制 + 静态文件，新版 glibc 向后兼容）
 # procps: 提供 pgrep，供 Docker 更新脚本在 pidfile 缺失时回退定位后端进程
 # xz-utils: 提供 xz 解压支持，tar -xf *.tar.xz 需要 xz 命令
 # apt 重试：deb.debian.org 的 Fastly CDN 各节点索引与包池可能短暂不一致

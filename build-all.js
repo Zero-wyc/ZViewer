@@ -38,12 +38,12 @@ const PLATFORM_TARGETS = {
   win: {
     label: 'Windows',
     folder: 'win',
-    targets: ['node22-win-x64'],
+    targets: ['node26-win-x64'],
   },
   linux: {
     label: 'Linux',
     folder: 'linux',
-    targets: ['node22-linux-x64'],
+    targets: ['node26-linux-x64'],
   },
 }
 
@@ -52,13 +52,13 @@ const PLATFORM_PRESETS = [
   {
     key: 'win',
     label: 'Windows',
-    description: 'node22-win-x64',
+    description: 'node26-win-x64',
     platforms: ['win'],
   },
   {
     key: 'linux',
     label: 'Linux',
-    description: 'node22-linux-x64',
+    description: 'node26-linux-x64',
     platforms: ['linux'],
   },
   {
@@ -188,7 +188,7 @@ async function showInteractiveMenu() {
       platformKeys = PLATFORM_PRESETS[num - 1].platforms;
       valid = true;
     } else if (num === 5) {
-      const custom = await askQuestion(rl, '请输入 pkg target (逗号分隔，如 "node22-win-x64,node22-linux-x64"): ');
+      const custom = await askQuestion(rl, '请输入 pkg target (逗号分隔，如 "node26-win-x64,node26-linux-x64"): ');
       if (custom) {
         // 将自定义 target 映射到 platformKeys
         const targets = custom.split(',').map(t => t.trim());

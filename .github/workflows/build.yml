@@ -79,6 +79,14 @@ jobs:
           node-version: '26'
           cache: 'npm'
 
+      # pkg 打包用的 Node base binary（~100MB/个）缓存，避免每次重复下载；
+      # 若升级 @yao-pkg/pkg / pkg-fetch 或更换 pkg target 版本，需更新 key
+      - name: Cache pkg base binaries
+        uses: actions/cache@v4
+        with:
+          path: ~/.pkg-cache
+          key: pkg-fetch-v3.6-node26-x64
+
       - name: Inject version
         # 根据触发方式注入版本号：
         # - tag 推送 (v*)：用 tag 名作为版本号（如 1.0.0）
