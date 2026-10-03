@@ -19,22 +19,27 @@ RUN apt-get update \
 WORKDIR /app
 
 # 复制单文件产物（统一端口：后端托管前端静态文件，无需前端 exe）
-# 语音聊天由独立 LiveKit 服务承载（见 docker-compose 的 livekit 服务），
-# 后端仅签发凭证与管理，无需打包任何媒体组件
+# 语音聊天：LiveKit 伴生二进制直接打入镜像，容器启动时由后端管理器自动
+# 拉起（见 services/livekit-server.manager.ts）——单容器即含完整语音能力。
+# 注意：二进制来自 build-all.js 产物（CI 下缺失会硬失败），直接 docker
+# build 前需先跑 node build-all.js --linux
 COPY dist/linux/zviewer-backend .
 COPY dist/linux/zviewer-cert .
+COPY dist/linux/livekit-server .
 COPY dist/linux/start.sh .
 COPY dist/linux/.env .
 COPY dist/linux/package.json .
 COPY dist/linux/frontend/dist ./frontend/dist/
 
 # 创建运行时数据目录
-RUN mkdir -p config/ssl config/uploads config/media log
+RUN mkdir -p config/ssl config/uploads config/media log \
+    && chmod +x zviewer-backend zviewer-cert livekit-server start.sh
 
 # 暴露端口
-# 3333: 统一端口 - 后端 REST API + WebSocket (Socket.IO) + 前端静态文件 + /live HTTP-FLV 代理
-# 3334: RTMP 推流端口 (OBS 连接)
-EXPOSE 3333 3334
+# 3333/tcp: 统一端口 - 后端 REST API + WebSocket (Socket.IO) + 前端静态文件 + /live HTTP-FLV 代理
+# 3333/udp: LiveKit WebRTC 媒体传输（与页面同号不同协议）
+# 3334/tcp: RTMP 推流端口 (OBS 连接)
+EXPOSE 3333/tcp 3333/udp 3334/tcp
 
 # Entrypoint（HTTP 模式，仅启动后端，由后端统一提供 API + 前端静态文件）
 COPY docker/entrypoint-linux-single.sh /app/entrypoint.sh

@@ -217,25 +217,31 @@ function installExitHooks(): void {
  */
 /** 拉起 livekit 子进程并等待 HTTP 端口就绪；超时/退出返回 false */
 async function spawnAndAwait(bin: string, bind: string): Promise<boolean> {
-  child = spawn(
-    bin,
-    [
-      '--dev',
-      // dual-stack 监听（IPv4+IPv6），见 BIND_ADDRESS 注释
-      '--bind',
-      bind,
-      // HTTP/信令端口：默认 7880，统一改为 3336 避开常见端口占用
-      '--port',
-      String(HTTP_PORT),
-      '--udp-port',
-      String(UDP_PORT),
-      // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格
-      // livekit 会直接退出（冒烟实测踩坑）
-      '--keys',
-      `${process.env.LIVEKIT_API_KEY}: ${process.env.LIVEKIT_API_SECRET}`,
-    ],
-    { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }
-  );
+  const args = [
+    '--dev',
+    // dual-stack 监听（IPv4+IPv6），见 BIND_ADDRESS 注释
+    '--bind',
+    bind,
+    // HTTP/信令端口：默认 7880，统一改为 3336 避开常见端口占用
+    '--port',
+    String(HTTP_PORT),
+    '--udp-port',
+    String(UDP_PORT),
+    // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格
+    // livekit 会直接退出（冒烟实测踩坑）
+    '--keys',
+    `${process.env.LIVEKIT_API_KEY}: ${process.env.LIVEKIT_API_SECRET}`,
+  ];
+  // Docker 单容器部署：容器内探测到的是 bridge 内网 IP（172.x），浏览器
+  // 不可达——必须显式指定广播给客户端的 ICE 地址（宿主公网 IP），否则
+  // 信令能通而媒体连不上。裸机/公网直连部署无需设置（自动枚举网卡）。
+  const nodeIp = process.env.LIVEKIT_NODE_IP?.trim();
+  if (nodeIp) args.push('--node-ip', nodeIp);
+
+  child = spawn(bin, args, {
+    stdio: ['ignore', 'pipe', 'pipe'],
+    windowsHide: true,
+  });
   child.stdout?.on('data', (chunk: Buffer) => {
     process.stdout.write(`[livekit] ${chunk}`);
   });

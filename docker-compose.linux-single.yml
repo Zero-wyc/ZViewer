@@ -4,33 +4,27 @@ services:
       context: .
       dockerfile: Dockerfile.linux-single
     ports:
-      - "3333:3333"   # 统一端口：后端 API + WebSocket + 前端静态文件 + /live HTTP-FLV 代理
-      - "3334:3334"   # RTMP 推流 (OBS)
+      - "3333:3333"     # 统一端口：后端 API + WebSocket + 前端静态文件 + /live HTTP-FLV 代理
+      - "3333:3333/udp" # LiveKit WebRTC 媒体传输（与页面 HTTP 同号，协议不同）
+      - "3334:3334"     # RTMP 推流 (OBS)
     environment:
-      # 语音聊天（LiveKit）：客户端信令地址按请求头自动推导（跟随页面域名
-      # 与协议，HTTPS 页面自动 wss），无需在此配置；特殊域名可显式设置
-      # LIVEKIT_URL 覆盖。媒体 RTP 走 3333/udp（与页面 HTTP 同号不同协议）
-      - LIVEKIT_API_HOST=${LIVEKIT_API_HOST:-http://livekit:3336}
+      # 语音聊天（LiveKit）：LiveKit 已内嵌进本镜像（启动时由后端自动拉起，
+      # HTTP/信令经 3333 的 /rtc 反代，媒体走 3333/udp），无需独立容器。
+      # 客户端信令地址按请求头自动推导（跟随页面域名与协议，HTTPS 页面自动
+      # wss），无需在此配置。
+      #
+      # 重要：Docker bridge 下容器内探测到的是内网 IP（172.x），浏览器不可达。
+      # 公网部署必须设 LIVEKIT_NODE_IP 为宿主公网 IP（LiveKit 用它作为 ICE
+      # 广播地址），否则信令能通但媒体连不上。
+      - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
+      - LIVEKIT_API_HOST=${LIVEKIT_API_HOST:-http://127.0.0.1:3336}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
       - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-zviewer-dev-secret}
+      # 如需外置 LiveKit（多机部署），设 LIVEKIT_EXTERNAL=1 跳过内嵌拉起，
+      # 并将 LIVEKIT_API_HOST 指向外部地址
+      - LIVEKIT_EXTERNAL=${LIVEKIT_EXTERNAL:-0}
     volumes:
       - zviewer-data:/app/config
-    restart: unless-stopped
-    depends_on:
-      - livekit
-
-  # 语音聊天 SFU（LiveKit）：--dev 模式单二进制开箱即用；HTTP/信令端口
-  # 统一为 3336（仅容器内互通，浏览器信令经 zviewer:3333 的 /rtc 反代）；
-  # bind :: 为 Go dual-stack（IPv4/IPv6 都收）。注意：bridge 网络容器内
-  # 默认无公网 IPv6 地址，宿主 IPv6 用户经 Docker 端口映射以 IPv4 到达
-  # 容器，媒体可通；若宿主启用 Docker IPv6 且宿主有公网 IPv6，ICE 会
-  # 广播 v6 candidate 直连。生产部署请挂载正式 config.yaml 并更换
-  # API key/secret
-  livekit:
-    image: livekit/livekit-server:latest
-    command: --dev --bind :: --port 3336 --keys devkey:zviewer-dev-secret
-    ports:
-      - "3333:3333/udp"   # WebRTC 媒体传输（与页面 HTTP 同号，协议不同）
     restart: unless-stopped
 
 volumes:
