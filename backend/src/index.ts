@@ -65,6 +65,7 @@ import {
   createMovieRouter,
 } from './modules/movie';
 import voiceRoutes from './routes/voice.routes';
+import { startEmbeddedLivekit } from './services/livekit-server.manager';
 import {
   HeartbeatHandler,
   TrackSyncHandler,
@@ -228,6 +229,10 @@ async function bootstrap() {
   // 否则 SQLite 会在旧路径创建空库，导致迁移逻辑误判。
   migrateLegacyDataIfNeeded();
   ensureDataDirs();
+
+  // 语音聊天：单文件部署时自动拉起 exe 旁的 livekit-server 伴生进程
+  // （含环境变量缺省值注入；二进制缺失或 LIVEKIT_EXTERNAL=1 时跳过）
+  await startEmbeddedLivekit();
 
   // 数据库文件健康检查：滚动备份 + 全零/损坏自愈（详见 services/db-persistence.ts）。
   // 必须在 initialize 之前执行——sql.js 加载坏文件会直接抛「file is not a database」。

@@ -345,6 +345,55 @@ function packageBackend(targetPlatforms, frontendDist) {
         continue;
       }
 
+      // 语音聊天（LiveKit）：下载 livekit-server 伴生二进制随产物分发，
+      // 后端启动时自动拉起（见 services/livekit-server.manager.ts）。
+      // 版本与产物命名见 livekit-server GitHub releases。
+      const LIVEKIT_VERSION = 'v1.13.7';
+      const isWin = target.includes('win');
+      const lkAsset = isWin
+        ? `livekit_${LIVEKIT_VERSION.slice(1)}_windows_amd64.zip`
+        : `livekit_${LIVEKIT_VERSION.slice(1)}_linux_amd64.tar.gz`;
+      const lkUrl = `https://github.com/livekit/livekit-server/releases/download/${LIVEKIT_VERSION}/${lkAsset}`;
+      const lkDest = path.join(outputFolder, isWin ? 'livekit-server.exe' : 'livekit-server');
+      if (fs.existsSync(lkDest)) {
+        success(`livekit-server 已存在: ${platform.folder}/`);
+      } else {
+        const tmpArchive = path.join(outputFolder, lkAsset);
+        try {
+          log(`下载 livekit-server ${LIVEKIT_VERSION} (${platform.label})...`);
+          execSync(
+            `curl -L --fail --retry 3 -o ${JSON.stringify(tmpArchive)} ${lkUrl}`,
+            { cwd: ROOT, stdio: 'pipe' }
+          );
+          // zip 用 PowerShell 解压（Git Bash 的 GNU tar 不支持 zip），
+          // tar.gz 用 bsdtar/GNU tar 均可
+          if (isWin) {
+            execSync(
+              `powershell -NoProfile -Command "Expand-Archive -Force -Path ${JSON.stringify(tmpArchive)} -DestinationPath ${JSON.stringify(outputFolder)}"`,
+              { stdio: 'pipe' }
+            );
+          } else {
+            execSync(`tar -xzf ${JSON.stringify(tmpArchive)} -C ${JSON.stringify(outputFolder)}`, {
+              stdio: 'pipe',
+            });
+          }
+          if (!fs.existsSync(lkDest)) {
+            throw new Error(`解压后未找到 ${lkDest}`);
+          }
+          if (!isWin) {
+            try { fs.chmodSync(lkDest, 0o755); } catch { /* non-Unix host */ }
+          }
+          success(`livekit-server: ${platform.folder}/${path.basename(lkDest)}`);
+        } catch (e) {
+          warn(
+            `livekit-server 下载/解压失败: ${e.message}——语音功能将不可用；` +
+            `可手动从 ${lkUrl} 放置到 ${outputFolder}`
+          );
+        } finally {
+          try { fs.rmSync(tmpArchive, { force: true }); } catch { /* ignore */ }
+        }
+      }
+
       // 复制后端 .env；保留 PORT 等端口配置，
       // 由启动脚本（start.sh / start-win.ps1）读取并按需覆盖 exe 的环境变量。
       // CI 环境中 backend/.env 被 .gitignore 排除，回退到 .env.example。
