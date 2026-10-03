@@ -35,19 +35,6 @@
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260930211758831.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201053941.webp) |
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200715093.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201139524.webp) |
 
-## ⚠️ Docker 用户升级提示（v4.3.6 以下必读）
-
-> **v4.3.6 以下版本使用 Docker 部署的用户**：新版本语音聊天已迁移至 LiveKit 并内嵌进容器。请**不要**通过管理面板「基础设置 → 一键更新」升级——旧镜像内没有 LiveKit 伴生二进制，一键更新无法补全，升级后语音功能将不可用。请直接拉取新镜像并重建整个容器：
->
-> ```bash
-> docker pull zerowyc0721/zviewer:latest
-> docker compose up -d --force-recreate
-> ```
->
-> **同时请更新 `docker-compose.linux-single.yml` 文件**：新版 compose 增加 `3333:3333/udp` 媒体端口映射，旧文件没有——只更新镜像而不更新 compose 文件，语音媒体端口不会暴露，语音仍然不可用。
->
-> 数据在 `/app/config` 卷中，重建容器不影响数据库与配置。
-
 ## 浏览器要求
 
 > 建议使用 Chrome / Edge 等内核 130+ 的 Chromium 浏览器。Safari 与 Firefox 对 MSE / MKV 解码支持不完整，可能出现卡顿、无法解码、字幕异常。
@@ -79,6 +66,10 @@
 - [本地开发](#本地开发)
 
 ---
+
+## ?? Docker 用户升级提示（v4.3.6 以下必读）
+
+> **v4.3.6 以下版本使用 Docker 部署的用户**：请**不要**通过管理面板「基础设置 → 一键更新」升级——请查看最新docker compose进行部署
 
 # 基础教程
 
