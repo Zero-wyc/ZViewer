@@ -586,6 +586,29 @@ async function bootstrap() {
     });
   });
 
+  // LiveKit 信令 HTTP 反代：livekit-client 连接前会先 GET /rtc/v1/validate
+  // （HTTP 请求，不走 upgrade 通道），必须与下方的 WS 隧道一并代理，
+  // 否则 HTTPS 页面下 validate 请求会被混合内容策略拦截。
+  // 上游取 LIVEKIT_API_HOST 的 host:port（裸机 127.0.0.1:3336 / compose livekit:3336）。
+  app.use('/rtc', (req, res) => {
+    let upstreamHost = '127.0.0.1';
+    let upstreamPort = 3336;
+    try {
+      const u = new URL(
+        process.env.LIVEKIT_API_HOST || 'http://127.0.0.1:3336'
+      );
+      upstreamHost = u.hostname;
+      upstreamPort = Number(u.port) || 3336;
+    } catch {
+      /* 缺省值兜底 */
+    }
+    void proxyHttpUpstream(req, res, {
+      url: `http://${upstreamHost}:${upstreamPort}${req.originalUrl}`,
+      logTag: 'rtc',
+      errorMessage: 'LiveKit 信令代理失败',
+    });
+  });
+
   // SPA 回退：必须在所有 API 路由与 /live 代理注册之后，否则会拦截请求返回 HTML。
   // /api/ 路径不应被 SPA 回退处理 —— 未匹配的 API 请求返回 404 JSON，
   // 避免前端收到 HTML（index.html）后 JSON.parse 报错。

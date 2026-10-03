@@ -18,7 +18,6 @@ import { spawn, ChildProcess, execSync } from 'child_process';
 import fs from 'fs';
 import https from 'https';
 import net from 'net';
-import os from 'os';
 import path from 'path';
 
 const DEFAULT_API_KEY = 'devkey';
@@ -57,24 +56,6 @@ function candidatePaths(): string[] {
     // 开发环境：backend/dev-bin（自动下载/手动放置均可）
     path.join(process.cwd(), 'dev-bin', name),
   ];
-}
-
-/** 探测本机第一个私有 IPv4（192.168/10./172.16-31），供缺省 LIVEKIT_URL */
-function detectPrivateIPv4(): string | undefined {
-  for (const name of Object.keys(os.networkInterfaces())) {
-    for (const info of os.networkInterfaces()[name] ?? []) {
-      if (info.family !== 'IPv4' || info.internal) continue;
-      const ip = info.address;
-      if (
-        ip.startsWith('192.168.') ||
-        ip.startsWith('10.') ||
-        /^172\.(1[6-9]|2\d|3[01])\./.test(ip)
-      ) {
-        return ip;
-      }
-    }
-  }
-  return undefined;
 }
 
 function isEmbeddedLivekitAvailable(): boolean {
@@ -236,14 +217,9 @@ export async function startEmbeddedLivekit(): Promise<void> {
   process.env.LIVEKIT_API_KEY ??= DEFAULT_API_KEY;
   process.env.LIVEKIT_API_SECRET ??= DEFAULT_API_SECRET;
   process.env.LIVEKIT_API_HOST ??= `http://127.0.0.1:${HTTP_PORT}`;
-  const lanIp = detectPrivateIPv4();
-  // 缺省走统一端口 3333 的信令反代（后端 /rtc 隧道），浏览器无需放行
-  // 3336/tcp；HTTPS 部署自动用 wss（TLS 由后端统一端口的证书处理）。
-  // 媒体 RTP 走 UDP 3333 直连（与页面 HTTP 共用端口号、协议不同；
-  // 防火墙只需放行 3333 一条端口）。
-  const unifiedPort = process.env.PORT || 3333;
-  const scheme = process.env.HTTPS === 'true' ? 'wss' : 'ws';
-  process.env.LIVEKIT_URL ??= `${scheme}://${lanIp ?? 'localhost'}:${unifiedPort}`;
+  // 注意：此处不设置 LIVEKIT_URL——客户端地址由 voice.routes 按请求头
+  // 推导（跟随页面域名与协议）。在容器/多网卡环境探测本机 IP 会得到
+  // 内部地址（如 Docker bridge 172.24.x.x），浏览器不可达。
 
   let bin = candidatePaths().find((p) => fs.existsSync(p));
   if (!bin) {
