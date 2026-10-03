@@ -14,8 +14,9 @@ services:
       # wss），无需在此配置。
       #
       # 重要：Docker bridge 下容器内探测到的是内网 IP（172.x），浏览器不可达。
-      # 公网部署必须设 LIVEKIT_NODE_IP 为宿主公网 IP（LiveKit 用它作为 ICE
-      # 广播地址），否则信令能通但媒体连不上。
+      # LIVEKIT_NODE_IP 留空时启动会自动探测宿主公网 IP（依次请求 ipify/
+      # ifconfig.me/ip.sb，需容器可出网）；NAT/复杂网络或探测失败时手动指定
+      # 为宿主公网 IP，否则信令能通但媒体连不上。
       - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
       - LIVEKIT_API_HOST=${LIVEKIT_API_HOST:-http://127.0.0.1:3336}
       - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}

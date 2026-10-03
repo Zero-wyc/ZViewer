@@ -159,6 +159,58 @@ async function downloadDevBinary(): Promise<string | null> {
   }
 }
 
+// ==================== 公网 IP 探测 ====================
+
+/** 是否运行在 Docker 容器内（容器 rootfs 有 /.dockerenv 标记） */
+function isDockerRuntime(): boolean {
+  try {
+    return fs.existsSync('/.dockerenv');
+  } catch {
+    return false;
+  }
+}
+
+/** 简易 https GET，超时/网络错误 reject */
+function httpsGetText(url: string, timeoutMs: number): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(
+      url,
+      { headers: { 'User-Agent': 'zviewer-voice' } },
+      (res) => {
+        let data = '';
+        res.setEncoding('utf8');
+        res.on('data', (c: string) => (data += c));
+        res.on('end', () => resolve(data));
+      }
+    );
+    req.on('error', reject);
+    req.setTimeout(timeoutMs, () => req.destroy(new Error('timeout')));
+  });
+}
+
+/**
+ * 探测宿主公网 IPv4（依次尝试多个回显服务，任一成功即返回）。
+ * 用于 Docker 部署自动确定 LiveKit 的 ICE 广播地址；探测失败返回 null。
+ */
+async function detectPublicIp(): Promise<string | null> {
+  const services = [
+    'https://api.ipify.org',
+    'https://ifconfig.me/ip',
+    'https://api.ip.sb/ip',
+  ];
+  for (const url of services) {
+    try {
+      const text = (await httpsGetText(url, 4000)).trim();
+      if (/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.test(text)) {
+        return text;
+      }
+    } catch {
+      /* 尝试下一个 */
+    }
+  }
+  return null;
+}
+
 // ==================== 启动 / 就绪 / 停止 ====================
 
 /** 轮询等待 LiveKit HTTP 端口可连接 */
@@ -216,7 +268,11 @@ function installExitHooks(): void {
  * 下载期间 /api/voice/token 会 503，前端提示「语音服务未就绪」）。
  */
 /** 拉起 livekit 子进程并等待 HTTP 端口就绪；超时/退出返回 false */
-async function spawnAndAwait(bin: string, bind: string): Promise<boolean> {
+async function spawnAndAwait(
+  bin: string,
+  bind: string,
+  nodeIp: string | undefined
+): Promise<boolean> {
   const args = [
     '--dev',
     // dual-stack 监听（IPv4+IPv6），见 BIND_ADDRESS 注释
@@ -232,10 +288,9 @@ async function spawnAndAwait(bin: string, bind: string): Promise<boolean> {
     '--keys',
     `${process.env.LIVEKIT_API_KEY}: ${process.env.LIVEKIT_API_SECRET}`,
   ];
-  // Docker 单容器部署：容器内探测到的是 bridge 内网 IP（172.x），浏览器
-  // 不可达——必须显式指定广播给客户端的 ICE 地址（宿主公网 IP），否则
-  // 信令能通而媒体连不上。裸机/公网直连部署无需设置（自动枚举网卡）。
-  const nodeIp = process.env.LIVEKIT_NODE_IP?.trim();
+  // 广播给客户端的 ICE 地址：Docker bridge 下容器内探测到的是内网 IP
+  // （172.x），浏览器不可达——必须显式指定宿主公网 IP，否则信令能通而
+  // 媒体连不上。显式配置 LIVEKIT_NODE_IP 优先；容器内未配置时自动探测。
   if (nodeIp) args.push('--node-ip', nodeIp);
 
   child = spawn(bin, args, {
@@ -295,12 +350,27 @@ export async function startEmbeddedLivekit(): Promise<void> {
     `[voice] 启动嵌入式 LiveKit: ${bin} (bind ${BIND_ADDRESS}, HTTP ${HTTP_PORT}, UDP ${UDP_PORT}, URL=${process.env.LIVEKIT_URL})`
   );
 
-  let ok = await spawnAndAwait(bin, BIND_ADDRESS);
+  // 广播地址解析顺序：显式 LIVEKIT_NODE_IP > 容器内自动探测公网 IP > 不指定
+  // （裸机枚举网卡本就正确；容器内探测失败仅告警，保持可启动）
+  let nodeIp = process.env.LIVEKIT_NODE_IP?.trim() || undefined;
+  if (!nodeIp && isDockerRuntime()) {
+    nodeIp = (await detectPublicIp()) ?? undefined;
+    if (nodeIp) {
+      console.log(`[voice] 已自动探测公网 IP: ${nodeIp}（可用 LIVEKIT_NODE_IP 覆盖）`);
+    } else {
+      console.warn(
+        '[voice] 未能自动探测公网 IP——Docker 部署下 ICE 可能广播内网地址导致媒体不可达，' +
+          '请设置 LIVEKIT_NODE_IP=宿主公网IP'
+      );
+    }
+  }
+
+  let ok = await spawnAndAwait(bin, BIND_ADDRESS, nodeIp);
   // 无 IPv6 协议栈的环境绑 :: 会直接退出（缺少 IPv6 支持时）——回退纯
   // IPv4 重试一次，代价是 IPv6 媒体不可用，但语音整体可用
   if (!ok && BIND_ADDRESS === '::') {
     console.warn('[voice] bind :: 启动失败，回退 0.0.0.0 (仅 IPv4) 重试');
-    ok = await spawnAndAwait(bin, '0.0.0.0');
+    ok = await spawnAndAwait(bin, '0.0.0.0', nodeIp);
   }
   if (!ok) {
     console.error(
