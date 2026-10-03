@@ -60,6 +60,8 @@ English | **[中文](README.md)**
 > docker compose up -d --force-recreate
 > ```
 >
+> **You must also update your `docker-compose.linux-single.yml` file**: the new compose adds the `3333:3333/udp` media port mapping, which the old file lacks — updating the image without updating the compose file leaves the voice media port unexposed and voice chat still broken.
+>
 > Your data lives in the `/app/config` volume — recreating the container keeps the database and configuration intact.
 
 ## Features

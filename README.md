@@ -44,6 +44,8 @@
 > docker compose up -d --force-recreate
 > ```
 >
+> **同时请更新 `docker-compose.linux-single.yml` 文件**：新版 compose 增加 `3333:3333/udp` 媒体端口映射，旧文件没有——只更新镜像而不更新 compose 文件，语音媒体端口不会暴露，语音仍然不可用。
+>
 > 数据在 `/app/config` 卷中，重建容器不影响数据库与配置。
 
 ## 浏览器要求
