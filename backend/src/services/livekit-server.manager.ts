@@ -23,7 +23,7 @@ import path from 'path';
 
 const DEFAULT_API_KEY = 'devkey';
 const DEFAULT_API_SECRET = 'zviewer-dev-secret';
-const HTTP_PORT = 7880;
+const HTTP_PORT = 3336;
 const UDP_PORT = 7882;
 const READY_TIMEOUT_MS = 15_000;
 /** 开发模式自动下载的 pinned 版本（与 build-all 打包版本保持一致） */
@@ -259,6 +259,9 @@ export async function startEmbeddedLivekit(): Promise<void> {
       '--dev',
       '--bind',
       '0.0.0.0',
+      // HTTP/信令端口：默认 7880，统一改为 3336 避开常见端口占用
+      '--port',
+      String(HTTP_PORT),
       '--udp-port',
       String(UDP_PORT),
       // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格

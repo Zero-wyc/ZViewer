@@ -10,8 +10,8 @@
  * 权限：mute/kick 复用旧语义——root / admin-房主 / 房主 / 房管。
  *
  * 环境变量（未配置时 /token 返回 503，前端提示语音未就绪）：
- * - LIVEKIT_URL       客户端连接地址（如 ws://localhost:7880）
- * - LIVEKIT_API_HOST  服务端 API 地址（默认 http://127.0.0.1:7880）
+ * - LIVEKIT_URL       客户端连接地址（如 ws://localhost:3336）
+ * - LIVEKIT_API_HOST  服务端 API 地址（默认 http://127.0.0.1:3336）
  * - LIVEKIT_API_KEY / LIVEKIT_API_SECRET
  */
 import { Router, Response } from 'express';
@@ -35,7 +35,7 @@ const livekitConfigured = () =>
 
 const roomService = () =>
   new RoomServiceClient(
-    process.env.LIVEKIT_API_HOST || 'http://127.0.0.1:7880',
+    process.env.LIVEKIT_API_HOST || 'http://127.0.0.1:3336',
     process.env.LIVEKIT_API_KEY,
     process.env.LIVEKIT_API_SECRET
   );
