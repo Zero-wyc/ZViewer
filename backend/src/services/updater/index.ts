@@ -730,6 +730,14 @@ fi
 # 覆盖程序文件（后端已停止，不会截断运行中的二进制）
 cp -f "$EXTRACTED_DIR/zviewer-backend" "$ROOT/zviewer-backend" 2>/dev/null || true
 cp -f "$EXTRACTED_DIR/zviewer-cert" "$ROOT/zviewer-cert" 2>/dev/null || true
+# LiveKit 伴生二进制：旧构建包可能不含（缺失时保留镜像内原文件/原状态）
+if [ -f "$EXTRACTED_DIR/livekit-server" ]; then
+  cp -f "$EXTRACTED_DIR/livekit-server" "$ROOT/livekit-server" 2>/dev/null || true
+  chmod +x "$ROOT/livekit-server" 2>/dev/null || true
+  echo "[Docker 更新脚本] livekit-server 已更新"
+else
+  echo "[Docker 更新脚本] 警告：更新包中未包含 livekit-server，语音二进制保持原状"
+fi
 cp -f "$EXTRACTED_DIR/start.sh" "$ROOT/start.sh" 2>/dev/null || true
 cp -f "$EXTRACTED_DIR/package.json" "$ROOT/package.json" 2>/dev/null || true
 cp -f "$EXTRACTED_DIR/.env" "$ROOT/.env" 2>/dev/null || true
