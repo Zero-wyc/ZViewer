@@ -524,9 +524,16 @@ async function bootstrap() {
   // 屏幕共享子模块已迁移为新式架构（SocketEventHandler），
   // 与 stream-push 一起通过 SocketRegistry 统一注册，消除旧 services/ 风格。
 
-  // 启动 Node-Media-Server（RTMP + HTTP-FLV）用于 OBS 推流模式
-  // 启动失败不影响主进程运行
-  const stopNms = nmsService.start(io);
+  // 启动 Node-Media-Server（RTMP 3334 + HTTP-FLV 3335）用于 OBS 推流模式。
+  // 仅使用「观看类共享」（网页/挂载/网盘等）的部署可设
+  // STREAM_PUSH_ENABLED=0 完全不启动 NMS，释放 3334/3335 两个监听；
+  // 禁用后 stream-push 共享方式不可用（/live 会返回 404）。
+  let stopNms: (() => void) | null = null;
+  if (process.env.STREAM_PUSH_ENABLED === '0') {
+    console.log('[stream-push] 已通过 STREAM_PUSH_ENABLED=0 禁用（3334/3335 不监听）');
+  } else {
+    stopNms = nmsService.start(io);
+  }
 
   // 新模块化架构：通过 SocketRegistry 统一注册所有 socket 事件处理器
   // 消除旧架构中 index.ts 与 room.ts 两个 io.on('connection') 注册点的分裂
@@ -634,7 +641,7 @@ async function bootstrap() {
       console.error('[flushAllDirty] error:', err);
     }
     try {
-      stopNms();
+      stopNms?.();
     } catch (err) {
       console.error('[NMS] graceful shutdown error:', err);
     }
