@@ -147,11 +147,14 @@ OBS 推流地址：`rtmp://<host>:3334/live`。
 
 ## Docker 部署
 
+镜像内嵌语音聊天（LiveKit 伴生二进制随镜像分发，启动时由后端自动拉起），单容器即含全部功能，无需独立 LiveKit 容器。
+
 ```bash
 docker run -d \
   --name zviewer \
   --restart unless-stopped \
   -p 3333:3333 \
+  -p 3333:3333/udp \
   -p 3334:3334 \
   -v zviewer-data:/app/config \
   zerowyc0721/zviewer:latest
@@ -164,16 +167,29 @@ services:
   zviewer:
     image: zerowyc0721/zviewer:latest
     ports:
-      - "3333:3333"
-      - "3334:3334"
+      - "3333:3333"      # 统一入口：API + WebSocket + 前端页面 + /live FLV 代理
+      - "3333:3333/udp"  # LiveKit WebRTC 媒体传输（与页面同号，协议不同）
+      - "3334:3334"      # RTMP 推流 (OBS)
+      - "5349:5349"      # TURN/TLS 媒体中继（可选，未配置时无害）
+    environment:
+      # 语音：留空时自动启用 LiveKit 原生 STUN 外部 IP 发现（需容器可出网）；
+      # NAT 复杂环境可手动指定为宿主公网 IP
+      - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
+      # 可选：TURN/TLS 兜底中继（UDP 被拦时走 TCP 5349，域名寻址不依赖 IP）
+      # 三个变量齐全即启用，证书必须是正式证书（自签不被浏览器 WebRTC 信任）
+      - LIVEKIT_TURN_DOMAIN=${LIVEKIT_TURN_DOMAIN:-}
+      - LIVEKIT_TURN_CERT=${LIVEKIT_TURN_CERT:-}
+      - LIVEKIT_TURN_KEY=${LIVEKIT_TURN_KEY:-}
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
 ```
+
 - 请修改上面的zviewer-data为实际需放数据文件的目录路径
-- 镜像以 HTTP 模式启动，HTTPS 需要自行配置
+- 镜像以 HTTP 模式启动，HTTPS 需要自行配置（或使用反向代理）
 - `/app/config` 挂载 volume，含数据库（`dev.sqlite`）、证书（`ssl/`）、上传文件（`uploads/`）、推流切片（`media/`）。
-- docker模式下，仍然可使用网页更新，为程序文件替换后直接重启后端进程，不重启容器但也不更新容器版本号。
+- **语音聊天**：信令地址按页面域名自动推导（HTTPS 页面自动 wss），无需配置；媒体走 3333/udp，防火墙需放行。TURN/TLS 兜底用域名寻址，需正式证书（Let's Encrypt 等）。
+- docker模式下，仍然可使用网页更新，为程序文件（含 livekit-server）替换后直接重启后端进程，不重启容器但也不更新容器版本号。
 
 ---
 

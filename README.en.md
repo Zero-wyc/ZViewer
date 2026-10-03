@@ -232,6 +232,8 @@ Certificate files are stored in `config/ssl/` (`cert.pem` chain, `key.pem` priva
 
 ## Docker Deployment
 
+The image bundles voice chat (the LiveKit companion binary ships with the image and is spawned automatically by the backend on startup). A single container provides all features — no separate LiveKit container needed.
+
 Docker images run in HTTP mode. The backend serves frontend static files. For HTTPS, add a reverse proxy (Nginx / Caddy) in front of the container.
 
 ### docker run
@@ -241,12 +243,13 @@ docker run -d \
   --name zviewer \
   --restart unless-stopped \
   -p 3333:3333 \
+  -p 3333:3333/udp \
   -p 3334:3334 \
   -v zviewer-data:/app/config \
   zerowyc0721/zviewer:latest
 ```
 
-> Note: The update process replaces files inside the container then restarts the backend process in-place,
+> Note: The update process replaces files inside the container (including `livekit-server`) then restarts the backend process in-place,
 > without restarting the whole container and without relying on a restart policy.
 > Keeping `--restart unless-stopped` is still recommended to recover from backend crashes (non-update exits).
 
@@ -257,8 +260,21 @@ services:
   zviewer:
     image: zerowyc0721/zviewer:latest
     ports:
-      - "3333:3333"   # Unified entry (API + WebSocket + frontend + /live proxy)
-      - "3334:3334"   # RTMP push (OBS)
+      - "3333:3333"      # Unified entry (API + WebSocket + frontend + /live proxy)
+      - "3333:3333/udp"  # LiveKit WebRTC media (same port number, different protocol)
+      - "3334:3334"      # RTMP push (OBS)
+      - "5349:5349"      # TURN/TLS relay (optional; harmless when not configured)
+    environment:
+      # Voice: leave empty to enable LiveKit's native STUN external IP discovery
+      # (requires outbound internet); set manually for complex NAT setups
+      - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
+      # Optional: TURN/TLS fallback relay (TCP 5349 when UDP is blocked;
+      # domain-based addressing, no public IP needed). Enabled when all three
+      # variables are set; requires a CA-issued certificate (self-signed is
+      # not trusted by browser WebRTC)
+      - LIVEKIT_TURN_DOMAIN=${LIVEKIT_TURN_DOMAIN:-}
+      - LIVEKIT_TURN_CERT=${LIVEKIT_TURN_CERT:-}
+      - LIVEKIT_TURN_KEY=${LIVEKIT_TURN_KEY:-}
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
@@ -267,9 +283,13 @@ volumes:
   zviewer-data:
 ```
 
+- Voice signaling URLs are derived automatically from the page origin (HTTPS pages get `wss://`) — no configuration needed. Media travels over 3333/udp; make sure your firewall allows it.
+
 ### Build Yourself
 
 ```bash
+# Build artifacts first (backend binary + livekit-server + frontend)
+node build-all.js --linux
 docker build -t zviewer -f Dockerfile.linux-single .
 docker compose -f docker-compose.linux-single.yml up -d
 ```
