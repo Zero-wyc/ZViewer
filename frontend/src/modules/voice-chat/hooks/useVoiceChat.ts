@@ -52,6 +52,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
   const captureCtxRef = useRef<AudioContext | null>(null)
   const micGainRef = useRef<GainNode | null>(null)
   const monitorAudioRef = useRef<HTMLAudioElement | null>(null)
+  const monitorGainRef = useRef<GainNode | null>(null)
   const localStreamRef = useRef<MediaStream | null>(null)
   const levelsCtxRef = useRef<AudioContext | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
@@ -172,6 +173,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     captureCtxRef.current?.close().catch(() => {})
     captureCtxRef.current = null
     micGainRef.current = null
+    monitorGainRef.current = null
     localAnalyserRef.current = null
     if (monitorAudioRef.current) {
       monitorAudioRef.current.pause()
@@ -234,6 +236,13 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
       // 产流目的地：发布给 LiveKit 的轨
       const produceDest = ctx.createMediaStreamDestination()
       micGain.connect(produceDest)
+      // 反送备用通路（Firefox 专用，见 monitorEnabled 同步 effect）：
+      // Firefox 媒体元素播放实时 MediaStream 有缓冲积压缺陷会卡顿，
+      // 改走上下文直连输出。Chrome 保持元素路径（工作正常）。
+      const monitorGain = ctx.createGain()
+      monitorGain.gain.value = 0
+      micGain.connect(monitorGain)
+      monitorGain.connect(ctx.destination)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       analyser.smoothingTimeConstant = 0.6
@@ -241,6 +250,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
       await ctx.resume()
       captureCtxRef.current = ctx
       micGainRef.current = micGain
+      monitorGainRef.current = monitorGain
       localAnalyserRef.current = analyser
 
       // 3. 连接 LiveKit 房间（断线重连由 SDK 原生处理）
@@ -346,11 +356,20 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     setMonitorEnabled((prev) => !prev)
   }, [])
 
-  // 反送：原始 gUM 流经 <audio> 元素播放——单一时钟（采集流自身），
-  // 不经 AudioContext/目的地流，规避跨时钟域 underrun 卡顿。
-  // 音量随麦克风输入音量近似（元素音量），跟随系统输出设备。
+  // 反送按浏览器分派：
+  // - Chromium：原始 gUM 流经 <audio> 元素播放（单一采集时钟，工作正常）
+  // - Firefox：元素播放实时 MediaStream 有缓冲积压缺陷（周期性卡顿），
+  //   改走 AudioContext 直连输出（monitorGain 门控，位于 micGain 下游，
+  //   输入音量同样生效）
+  const isFirefox = /firefox/i.test(navigator.userAgent)
   useEffect(() => {
-    if (!joined || !monitorEnabled) {
+    const on = joined && monitorEnabled
+    if (isFirefox) {
+      if (monitorGainRef.current) monitorGainRef.current.gain.value = on ? 1 : 0
+      monitorAudioRef.current?.pause()
+      return
+    }
+    if (!on) {
       monitorAudioRef.current?.pause()
       return
     }
@@ -368,7 +387,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     if (audio.srcObject !== stream) audio.srcObject = stream
     audio.volume = micVolume
     void audio.play().catch(() => {})
-  }, [joined, monitorEnabled, micVolume])
+  }, [joined, monitorEnabled, micVolume, isFirefox])
 
   const setGlobalVolume = useCallback(
     (value: number) => {
@@ -396,6 +415,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     const clamped = Math.max(0, Math.min(1, value))
     setMicVolumeState(clamped)
     if (micGainRef.current) micGainRef.current.gain.value = clamped
+    if (monitorAudioRef.current) monitorAudioRef.current.volume = clamped
   }, [])
 
   // ==================== 管理操作（REST，权限在服务端校验） ====================
