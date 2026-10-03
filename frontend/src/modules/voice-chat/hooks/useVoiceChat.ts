@@ -51,7 +51,8 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
   const micTrackRef = useRef<MediaStreamTrack | null>(null)
   const captureCtxRef = useRef<AudioContext | null>(null)
   const micGainRef = useRef<GainNode | null>(null)
-  const monitorGainRef = useRef<GainNode | null>(null)
+  const monitorAudioRef = useRef<HTMLAudioElement | null>(null)
+  const localStreamRef = useRef<MediaStream | null>(null)
   const levelsCtxRef = useRef<AudioContext | null>(null)
   const localAnalyserRef = useRef<AnalyserNode | null>(null)
   /** 成员 id → 播放/分析状态 */
@@ -171,8 +172,13 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     captureCtxRef.current?.close().catch(() => {})
     captureCtxRef.current = null
     micGainRef.current = null
-    monitorGainRef.current = null
     localAnalyserRef.current = null
+    if (monitorAudioRef.current) {
+      monitorAudioRef.current.pause()
+      monitorAudioRef.current.srcObject = null
+      monitorAudioRef.current.remove()
+      monitorAudioRef.current = null
+    }
     setAudioLevels(new Map())
   }, [cleanupRemote])
 
@@ -206,28 +212,28 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
         throw new Error(data.message ?? '获取语音凭证失败')
       }
 
-      // 2. 采集链：48kHz 单声道 + AEC/NS/AGC，micGain 控制输入音量
+      // 2. 采集链：单声道 + AEC/NS/AGC，micGain 控制输入音量。
+      //    注意：不强制 AudioContext sampleRate——强制 48k 会在硬件速率
+      //    不同的声卡（典型如 44.1k 设备/蓝牙 HFP）上造成采集→上下文
+      //    的双重重采样，反送/发布出现周期性 underrun 卡顿。LiveKit
+      //    对采集速率无要求，用硬件默认速率即可。
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: {
           echoCancellation: true,
           noiseSuppression: true,
           autoGainControl: true,
           channelCount: 1,
-          sampleRate: 48_000,
         } as MediaTrackConstraints,
       })
-      const ctx = new AudioContext({ sampleRate: 48_000 })
+      localStreamRef.current = stream
+      const ctx = new AudioContext()
       const source = ctx.createMediaStreamSource(stream)
       const micGain = ctx.createGain()
       micGain.gain.value = micVolume
       source.connect(micGain)
-      // 产流目的地：发布给 LiveKit 的轨（反送直连 ctx.destination，不经元素）
+      // 产流目的地：发布给 LiveKit 的轨
       const produceDest = ctx.createMediaStreamDestination()
       micGain.connect(produceDest)
-      const monitorGain = ctx.createGain()
-      monitorGain.gain.value = 0
-      micGain.connect(monitorGain)
-      monitorGain.connect(ctx.destination)
       const analyser = ctx.createAnalyser()
       analyser.fftSize = 256
       analyser.smoothingTimeConstant = 0.6
@@ -235,7 +241,6 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
       await ctx.resume()
       captureCtxRef.current = ctx
       micGainRef.current = micGain
-      monitorGainRef.current = monitorGain
       localAnalyserRef.current = analyser
 
       // 3. 连接 LiveKit 房间（断线重连由 SDK 原生处理）
@@ -338,13 +343,32 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
   }, [])
 
   const toggleMonitor = useCallback(() => {
-    setMonitorEnabled((prev) => {
-      const next = !prev
-      if (monitorGainRef.current)
-        monitorGainRef.current.gain.value = next ? 1 : 0
-      return next
-    })
+    setMonitorEnabled((prev) => !prev)
   }, [])
+
+  // 反送：原始 gUM 流经 <audio> 元素播放——单一时钟（采集流自身），
+  // 不经 AudioContext/目的地流，规避跨时钟域 underrun 卡顿。
+  // 音量随麦克风输入音量近似（元素音量），跟随系统输出设备。
+  useEffect(() => {
+    if (!joined || !monitorEnabled) {
+      monitorAudioRef.current?.pause()
+      return
+    }
+    const stream = localStreamRef.current
+    if (!stream) return
+    if (!monitorAudioRef.current) {
+      const audio = document.createElement('audio')
+      audio.autoplay = true
+      audio.dataset.voiceMonitor = 'self'
+      audio.style.display = 'none'
+      document.body.appendChild(audio)
+      monitorAudioRef.current = audio
+    }
+    const audio = monitorAudioRef.current
+    if (audio.srcObject !== stream) audio.srcObject = stream
+    audio.volume = micVolume
+    void audio.play().catch(() => {})
+  }, [joined, monitorEnabled, micVolume])
 
   const setGlobalVolume = useCallback(
     (value: number) => {
