@@ -51,6 +51,17 @@ English | **[中文](README.md)**
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260804013107507.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260804013127227.webp) |
 
+## ⚠️ Docker Upgrade Notice (required reading for v4.3.6 and below)
+
+> **Docker users on v4.3.6 or lower**: voice chat has been migrated to LiveKit and is now bundled inside the container. Do **not** upgrade via the admin panel's "One-click Update" (Settings → Basic) — the old image does not contain the LiveKit companion binary, and the in-place update cannot add it, leaving voice chat broken after the update. Pull the new image and recreate the whole container instead:
+>
+> ```bash
+> docker pull zerowyc0721/zviewer:latest
+> docker compose up -d --force-recreate
+> ```
+>
+> Your data lives in the `/app/config` volume — recreating the container keeps the database and configuration intact.
+
 ## Features
 
 ### Watch-Together Rooms
