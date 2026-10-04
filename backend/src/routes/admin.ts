@@ -16,6 +16,7 @@ import {
   AuthenticatedRequest,
 } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
+import { applyVoiceTransportMode } from '../services/livekit-server.manager';
 
 const router = Router();
 
@@ -468,6 +469,7 @@ router.get(
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
           roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
+          voiceTransportMode: settings.voiceTransportMode,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
@@ -487,7 +489,7 @@ router.put(
   ): Promise<void> => {
     try {
       const {
-        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, roomPermissionMatrix,
+        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, roomPermissionMatrix,
       } = req.body;
       // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
       const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
@@ -630,6 +632,16 @@ router.put(
         }
         settings.roomMultiInstanceLogin = roomMultiInstanceLogin;
       }
+      if (voiceTransportMode !== undefined) {
+        if (voiceTransportMode !== 'udp' && voiceTransportMode !== 'tcp') {
+          res.status(400).json({
+            success: false,
+            message: 'voiceTransportMode 必须是 udp / tcp 之一',
+          });
+          return;
+        }
+        settings.voiceTransportMode = voiceTransportMode;
+      }
       if (cdnProxyUrl !== undefined) {
         settings.cdnProxyUrl = cdnProxyUrl.trim();
       }
@@ -638,6 +650,13 @@ router.put(
           roomPermissionMatrix as SystemSettings['roomPermissionMatrix'];
       }
       await settingsRepo.save(settings);
+
+      // 语音传输模式变更即时生效：热重启 livekit 子进程（模式未变化时无操作）
+      try {
+        await applyVoiceTransportMode(settings.voiceTransportMode);
+      } catch (err) {
+        console.error('applyVoiceTransportMode error:', err);
+      }
 
       res.json({
         success: true,
@@ -653,6 +672,7 @@ router.put(
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
           roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
+          voiceTransportMode: settings.voiceTransportMode,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });

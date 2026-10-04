@@ -139,6 +139,8 @@ interface AdminSettings {
   cdnProxyUrl: string
   /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
   roomMultiInstanceLogin: boolean
+  /** 语音（LiveKit）媒体传输模式：udp=仅 3333/udp；tcp=额外开启 ICE/TCP 3337 */
+  voiceTransportMode: 'udp' | 'tcp'
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]
@@ -180,6 +182,7 @@ export default function AdminPage() {
     cdnAccelerate: false,
     cdnProxyUrl: 'https://gh-proxy.com',
     roomMultiInstanceLogin: false,
+    voiceTransportMode: 'udp',
   })
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -801,6 +804,7 @@ export default function AdminPage() {
         cdnAccelerate: settings.cdnAccelerate,
         cdnProxyUrl: settings.cdnProxyUrl,
         roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
+        voiceTransportMode: settings.voiceTransportMode,
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig
@@ -1453,6 +1457,36 @@ export default function AdminPage() {
                   />
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     切换为「所有登录用户」后，普通用户也可在主页点击「开始共享」创建房间；游客始终不能创建房间。
+                  </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  语音传输模式
+                </Title>
+                <div className="mb-6 max-w-md">
+                  <Select
+                    label="LiveKit 语音媒体传输通道"
+                    value={settings.voiceTransportMode}
+                    options={[
+                      { label: 'UDP（默认，低延迟直连）', value: 'udp' },
+                      {
+                        label: 'TCP（UDP 被墙时的兜底，额外开启 3337/TCP）',
+                        value: 'tcp',
+                      },
+                    ]}
+                    onChange={(value) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        voiceTransportMode: value as 'udp' | 'tcp',
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    切换并保存后语音服务自动重启（进行中的语音短暂中断后重连）。TCP
+                    模式额外开启 LiveKit 原生 ICE/TCP 端口 3337：UDP
+                    被运营商或企业防火墙拦截时，客户端自动经 3337/TCP
+                    直连媒体；UDP 可用时仍优先走低延迟 UDP。需在防火墙放行
+                    3337/tcp（Docker 部署需补端口映射）。
                   </p>
                 </div>
 

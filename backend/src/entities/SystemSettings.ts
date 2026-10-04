@@ -102,6 +102,18 @@ export class SystemSettings {
   @Column({ type: 'boolean', default: false })
   roomMultiInstanceLogin!: boolean;
 
+  /**
+   * 语音（LiveKit）媒体传输模式。
+   * - 'udp'（默认）：仅 UDP 复用端口 3333（防火墙只需放行一条 3333）
+   * - 'tcp'：额外开启 LiveKit 原生 ICE/TCP 端口 3337——UDP 被墙
+   *   （运营商/企业防火墙）时客户端自动经 3337/TCP 直连媒体；
+   *   UDP 直连仍并行尝试，可用时优先走低延迟 UDP。
+   *   部署侧需放行 3337/tcp（Docker 需补端口映射）。
+   * 切换后 livekit-server 子进程自动重启，进行中的语音会短暂中断重连。
+   */
+  @Column({ type: 'text', default: 'udp' })
+  voiceTransportMode!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 

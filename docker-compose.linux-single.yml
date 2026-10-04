@@ -8,6 +8,7 @@ services:
       - "3333:3333/udp" # LiveKit WebRTC 媒体传输（与页面 HTTP 同号，协议不同）
       - "3334:3334"     # RTMP 推流 (OBS)
       - "5349:5349"     # TURN/TLS 媒体中继（TCP，UDP 被拦时的兜底通道；未启用时无害）
+      # - "3337:3337"   # ICE/TCP 媒体直连（TCP）：管理端基础设置切换「语音传输模式=TCP」时取消注释
     environment:
       # 语音聊天（LiveKit）：LiveKit 已内嵌进本镜像（启动时由后端自动拉起，
       # HTTP/信令经 3333 的 /rtc 反代，媒体走 3333/udp），无需独立容器。

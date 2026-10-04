@@ -66,7 +66,10 @@ import {
   createMovieRouter,
 } from './modules/movie';
 import voiceRoutes from './routes/voice.routes';
-import { startEmbeddedLivekit } from './services/livekit-server.manager';
+import {
+  applyVoiceTransportMode,
+  startEmbeddedLivekit,
+} from './services/livekit-server.manager';
 import {
   HeartbeatHandler,
   TrackSyncHandler,
@@ -231,11 +234,6 @@ async function bootstrap() {
   migrateLegacyDataIfNeeded();
   ensureDataDirs();
 
-  // 语音聊天：自动拉起 livekit-server 伴生进程（含环境变量缺省值注入；
-  // 开发模式二进制缺失时自动下载到 backend/dev-bin。fire-and-forget，
-  // 下载期间 /api/voice/token 会 503，前端有「语音未就绪」提示兜底）
-  void startEmbeddedLivekit();
-
   // 数据库文件健康检查：滚动备份 + 全零/损坏自愈（详见 services/db-persistence.ts）。
   // 必须在 initialize 之前执行——sql.js 加载坏文件会直接抛「file is not a database」。
   ensureDatabaseFile();
@@ -244,6 +242,18 @@ async function bootstrap() {
   console.log('TypeORM Data Source has been initialized.');
   await seedRootAdmin();
   ensureUploadsRoot();
+
+  // 语音聊天：自动拉起 livekit-server 伴生进程（含环境变量缺省值注入；
+  // 开发模式二进制缺失时自动下载到 backend/dev-bin。fire-and-forget，
+  // 下载期间 /api/voice/token 会 503，前端有「语音未就绪」提示兜底）。
+  // 放在 DB 初始化之后：启动参数需先从系统设置读取语音传输模式（udp/tcp）。
+  try {
+    const bootSettings = await getSystemSettings();
+    await applyVoiceTransportMode(bootSettings.voiceTransportMode);
+  } catch {
+    /* 设置读取失败时按默认 udp 模式启动 */
+  }
+  void startEmbeddedLivekit();
 
   // P3-Opt#13：从 DB 恢复所有活跃房间的运行时状态（movies、currentMovieId、播放记忆）
   await roomStateService.initFromDb();

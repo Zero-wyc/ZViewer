@@ -30,6 +30,23 @@ const HTTP_PORT = 3336;
  */
 const UDP_PORT = 3333;
 /**
+ * ICE/TCP 端口（LiveKit 原生 rtc.tcp_port，官方默认 7881）：TCP 模式下
+ * 额外开启——UDP 被墙（运营商/企业防火墙）时客户端自动经此端口以 TCP
+ * 直连媒体。部署侧需放行 3337/tcp（Docker 需补端口映射）。
+ * 可用环境变量 LIVEKIT_RTC_TCP_PORT 覆盖。
+ */
+const TCP_PORT = Number(process.env.LIVEKIT_RTC_TCP_PORT?.trim()) || 3337;
+
+export type VoiceTransportMode = 'udp' | 'tcp';
+/**
+ * 当前语音媒体传输模式（管理端基础设置下发）：
+ * - 'udp'（默认）：仅 UDP 复用端口 3333
+ * - 'tcp'：保留 UDP 3333 并额外开启 ICE/TCP 3337（LiveKit 无法禁用
+ *   UDP 候选，双开由客户端 ICE 自动选路——UDP 可用走低延迟直连，
+ *   被墙环境自动落到 TCP）
+ */
+let voiceTransportMode: VoiceTransportMode = 'udp';
+/**
  * 监听地址：默认 `::`（Go dual-stack，同时收 IPv4/IPv6——IPv4 连接以
  * v4-mapped 形式进入，127.0.0.1 回环依然可达）。绑 0.0.0.0 会只收
  * IPv4，公网 IPv6 用户的媒体流无法建立。特殊环境可用 LIVEKIT_BIND 覆盖。
@@ -231,6 +248,10 @@ async function spawnAndAwait(
     String(HTTP_PORT),
     '--udp-port',
     String(UDP_PORT),
+    // TCP 模式：额外广播 ICE/TCP 候选（UDP 不可达时客户端自动落到此通道）
+    ...(voiceTransportMode === 'tcp'
+      ? ['--tcp-port', String(TCP_PORT)]
+      : []),
     // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格
     // livekit 会直接退出（冒烟实测踩坑）
     '--keys',
@@ -344,4 +365,29 @@ export async function startEmbeddedLivekit(): Promise<void> {
       '[voice] 嵌入式 LiveKit 启动失败——语音将不可用，请检查端口占用与二进制完整性'
     );
   }
+}
+
+/**
+ * 下发语音传输模式（管理端基础设置保存时调用；启动时 bootstrap 也用它
+ * 从系统设置注入初始模式）。
+ *
+ * - 进程尚未启动：仅记录模式，startEmbeddedLivekit 按当前模式拉起
+ * - 进程已在跑且模式变化：热重启 livekit 子进程使新参数生效——
+ *   进行中的语音会短暂中断，客户端自动重连
+ */
+export async function applyVoiceTransportMode(
+  mode: string | undefined | null
+): Promise<void> {
+  const next: VoiceTransportMode = mode === 'tcp' ? 'tcp' : 'udp';
+  const changed = next !== voiceTransportMode;
+  voiceTransportMode = next;
+  if (!changed) return;
+  console.log(
+    `[voice] 语音传输模式: ${next === 'tcp' ? `TCP（ICE/TCP ${TCP_PORT}，UDP 直连仍并行尝试）` : 'UDP（仅 3333/udp）'}`
+  );
+  if (!child) return;
+  killChild();
+  // 等待端口释放（Windows 上 TCP TIME_WAIT 期间重绑可能失败）
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  await startEmbeddedLivekit();
 }
