@@ -78,29 +78,56 @@ English | **[中文](README.md)**
 
 | Source | Description |
 |---|---|
-| **Bilibili** | Parse BV/AV video links, quality switching, premium credentials |
+| **Bilibili** | Parse BV/AV video links, multi-part (P) selection, quality switching, premium credentials |
 | **MP4 Direct Link** | Play MP4 videos directly from accessible URLs |
 | **WebDAV** | Mount WebDAV servers, browse and play video files |
 | **FTP** | Mount FTP servers, browse and play video files |
 | **OpenList** | Mount OpenList services, browse and play video files |
+| **Emby / Jellyfin** | Mount media libraries as a shared movie library with poster browsing |
+| **Server Local Files** | Mount video directories on the deployment server as a room-shared library, no external cloud drive required |
+
+Signed network-drive direct links are automatically re-resolved when they expire, so binge-watching is never interrupted.
 
 ### Subtitles & Audio Compatibility
 
-- **Native subtitle system**: directly parses SRT / ASS / SSA / VTT / SMI / SUB and renders with HTML/CSS — no WebVTT conversion, higher style fidelity.
+- **Unified subtitle rendering**: SRT / ASS / SSA / VTT / SMI / SUB and MKV embedded subtitles are all normalized through a self-developed sparse-probing subtitle engine before rendering. Styled effects (e.g. ASS karaoke/fancy text) are NOT reproduced verbatim — text content and timing stay precise, with broad format compatibility and smooth performance even on long videos with multiple subtitle tracks.
 - **Browser-side embedded subtitle extraction**: text subtitle tracks inside MKV containers are extracted directly in the browser (custom MKV demux with sparse scanning that skips audio/video payload) — subtitles appear in seconds even for multi-gigabyte files, no server-side FFmpeg required.
 - **Browser-side playback engine (playsvideo)**: containers such as MKV / AVI / TS / WMV are automatically remuxed to fMP4 in the browser; browser-incompatible audio tracks (DTS / AC3 / EAC3, etc.) are transcoded to AAC in real time in the browser. Fully automatic — **no admin-panel toggles required** — and the transcode core ships with the frontend assets, so no server-side FFmpeg is needed.
 
+### Playback Modes
+
+Three playback modes switchable on demand:
+
+| Mode | Quality | Server bandwidth | Use case |
+|---|---|---|---|
+| CLI local proxy | Up to 4K high bitrate | Nearly zero (recommended) | Someone can run the CLI, max quality wanted |
+| Server DASH relay | High quality for all | Heavy | No CLI available, sufficient bandwidth |
+| MP4 direct-link relay | Up to 720P | Medium | Best-compatibility fallback, instant playback |
+
 ### Real-Time Interaction
 
-- Comment panel & danmaku system: supports Bilibili official danmaku, DandanPlay danmaku, custom danmaku tracks.
+- Comment panel & danmaku system: supports Bilibili official danmaku, DandanPlay danmaku, and local XML/JSON danmaku files. Multiple tracks can be overlaid at once (multiple Bilibili danmaku tracks on the same video included), multiplying the danmaku volume.
 - Playback state sync: host actions are broadcast to all viewers in real time.
 - Viewers can request pause or seek; the host sees notifications at the top-left of the player.
 - Voice chat: host enables voice chat for viewers to listen in real time (LiveKit WebRTC, bundled with the server out of the box; IPv6 support and TURN/TLS fallback relay).
 
 ### Screen Sharing & Streaming
 
-- WebRTC-based screen sharing: share your screen or video capture.
+- WebRTC-based screen sharing: share your screen or video capture, or push the room movie to a big-screen device and use your phone as a remote.
 - OBS RTMP push support with Node Media Server for HTTP-FLV pull (via backend `/live` proxy).
+
+### Listen Together
+
+- **Dual music sources — NetEase Cloud Music × Bilibili**: NetEase Cloud Music with QR-code login, room-shared VIP credentials, and automatic quality degradation based on login state; Bilibili music-zone videos play directly as songs. Seamless synced song switching for the whole room.
+- **One-click song search & favorite**: search NetEase Cloud Music by the playing Bilibili video title and favorite the result into your playlist in one click.
+- **Lyrics now-playing page**: auto-filled playlist recommendations, one-click favorites into both `bilibili` and `music` folders, NetEase Cloud Music search, Bilibili MV/PV as playback background, and line-by-line lyric scrolling synced with the room.
+- **Content filtering**: two-level keyword filtering (global blocked words + music-zone blocked words) removes unwanted content from lists and recommendations automatically.
+
+### Management & Operations
+
+- Member registration approval queue — new members join only after admin approval.
+- Moderator appointment; one-click auto update with data and configuration preserved.
+- Docker / single-file deployment, ready out of the box.
 
 ### Theme System
 
