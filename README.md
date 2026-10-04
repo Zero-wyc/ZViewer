@@ -185,7 +185,7 @@ services:
       - "3333:3333"      # 统一入口：API + WebSocket + 前端页面 + /live FLV 代理 + /rtc 语音信令反代
       - "3333:3333/udp"  # LiveKit WebRTC 媒体传输（与页面同号，协议不同）
       - "3334:3334"      # RTMP 推流 (OBS)
-      # - "3337:3337"    # ICE/TCP 媒体直连：管理端「语音传输模式 = TCP」时取消注释
+      - "3337:3337"    	 # ICE/TCP 媒体直连：管理端「语音传输模式 = TCP」
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
