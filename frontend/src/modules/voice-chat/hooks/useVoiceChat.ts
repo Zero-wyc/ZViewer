@@ -29,6 +29,75 @@ export interface VoiceMember {
   username: string
 }
 
+/** 语音媒体实际生效的传输协议（ICE 选中候选的线路协议） */
+export type VoiceTransport = 'udp' | 'tcp'
+
+/**
+ * 从 RTCPeerConnection 解析当前生效的媒体传输协议：getStats 中被选中的
+ * candidate-pair（Chrome 的 selected / 规范的 nominated+succeeded），
+ * 取其本地候选的 protocol（udp/tcp）。经 TURN 中继时即中继出线协议。
+ */
+async function detectTransportProtocol(
+  pc: RTCPeerConnection | undefined
+): Promise<VoiceTransport | null> {
+  if (!pc || pc.connectionState === 'closed') return null
+  try {
+    const stats = await pc.getStats()
+    let localId: string | null = null
+    const protocols = new Map<string, string>()
+    stats.forEach((report) => {
+      const r = report as unknown as {
+        type: string
+        id: string
+        state?: string
+        selected?: boolean
+        nominated?: boolean
+        localCandidateId?: string
+        protocol?: string
+      }
+      if (r.type === 'candidate-pair') {
+        if (
+          r.selected === true ||
+          (r.state === 'succeeded' && r.nominated === true)
+        ) {
+          localId = r.localCandidateId ?? null
+        }
+      } else if (
+        r.type === 'local-candidate' &&
+        typeof r.protocol === 'string'
+      ) {
+        protocols.set(r.id, r.protocol)
+      }
+    })
+    if (!localId) return null
+    const protocol = protocols.get(localId)
+    return protocol === 'tcp' ? 'tcp' : protocol === 'udp' ? 'udp' : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * 从 LiveKit Room 提取 RTCPeerConnection 列表。SDK 未公开 PC 访问器
+ * （PCTransport._pc 为私有字段，无公开 getPeerConnection API），结构化
+ * 转换读取；收听走 subscriber、发言走 publisher，优先 subscriber。
+ */
+function getVoicePeerConnections(room: Room): RTCPeerConnection[] {
+  const mgr = (
+    room.engine as unknown as {
+      pcManager?: { publisher?: unknown; subscriber?: unknown } | null
+    }
+  ).pcManager
+  if (!mgr) return []
+  const out: RTCPeerConnection[] = []
+  for (const transport of [mgr.subscriber, mgr.publisher]) {
+    const pc = (transport as unknown as { _pc?: RTCPeerConnection } | undefined)
+      ?._pc
+    if (pc) out.push(pc)
+  }
+  return out
+}
+
 export interface UseVoiceChatOptions {
   roomId: string | undefined
   username?: string
@@ -45,6 +114,8 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
   const [voiceMutedIds, setVoiceMutedIds] = useState<Set<string>>(new Set())
   const [monitorEnabled, setMonitorEnabled] = useState(false)
   const [micVolume, setMicVolumeState] = useState(1)
+  /** 当前语音媒体传输协议（ICE 选中线路；未连接/未探测到时为 null） */
+  const [transport, setTransport] = useState<VoiceTransport | null>(null)
 
   const [selfId, setSelfId] = useState<string | null>(null)
   const roomRef = useRef<Room | null>(null)
@@ -191,6 +262,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     setMembers([])
     setVoiceMutedIds(new Set())
     setMonitorEnabled(false)
+    setTransport(null)
   }, [teardown])
 
   const join = useCallback(async () => {
@@ -298,6 +370,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
           // 服务器踢出/房间关闭：SDK 已断开，仅复位 UI
           setJoined(false)
           setMembers([])
+          setTransport(null)
         })
 
       await room.connect(data.url, data.token)
@@ -475,6 +548,36 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     return () => clearInterval(timer)
   }, [joined])
 
+  // ==================== 传输协议检测 ====================
+
+  // 加入后等 ICE 完成首次解析，之后周期轮询——ICE restart/断线重连时
+  // 线路可能切换（如 UDP 被墙从直连落到 ICE/TCP），轮询保证徽标跟随实际。
+  // 复位不在 effect 里做（避免同步 setState）：leave/Disconnected/卸载
+  // 已各自清空 transport。
+  useEffect(() => {
+    if (!joined) return
+    let cancelled = false
+    const run = async () => {
+      const room = roomRef.current
+      if (!room) return
+      for (const pc of getVoicePeerConnections(room)) {
+        const protocol = await detectTransportProtocol(pc)
+        if (cancelled) return
+        if (protocol) {
+          setTransport(protocol)
+          return
+        }
+      }
+    }
+    const timer = setTimeout(run, 2500)
+    const interval = setInterval(run, 15000)
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+      clearInterval(interval)
+    }
+  }, [joined])
+
   // 卸载兜底（AudioContext.close 二次关闭走 Promise 拒绝，须显式 catch）
   useEffect(() => {
     return () => {
@@ -497,6 +600,8 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     /** 自己的成员 id（LiveKit identity），面板用它判定“我” */
     selfId,
     members,
+    /** 当前语音媒体传输协议（ICE 选中线路；未连接时为 null） */
+    transport,
     globalVolume,
     peerVolumes,
     micVolume,

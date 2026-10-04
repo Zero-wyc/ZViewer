@@ -47,6 +47,7 @@ export function VoiceChatPanel({
     micEnabled,
     selfId,
     members,
+    transport,
     globalVolume,
     peerVolumes,
     micVolume,
@@ -105,9 +106,34 @@ export function VoiceChatPanel({
           <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
             语音聊天
           </span>
-          <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-            {joined ? `${memberCount} 人在线` : '未连接'}
-          </span>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+              {joined ? `${memberCount} 人在线` : '未连接'}
+            </span>
+            {/* 媒体传输协议徽标：ICE 选中线路（UDP 直连 / TCP 兜底），周期实测非配置值 */}
+            {joined && transport && (
+              <span
+                className="rounded-full px-1.5 py-px text-[9px] font-semibold tracking-wide"
+                style={{
+                  backgroundColor:
+                    transport === 'udp'
+                      ? 'var(--md-sys-color-primary-container)'
+                      : 'var(--md-sys-color-tertiary-container)',
+                  color:
+                    transport === 'udp'
+                      ? 'var(--md-sys-color-on-primary-container)'
+                      : 'var(--md-sys-color-on-tertiary-container)',
+                }}
+                title={
+                  transport === 'udp'
+                    ? '语音媒体传输：UDP 直连（低延迟）'
+                    : '语音媒体传输：TCP 直连（UDP 被拦截时的兜底线路）'
+                }
+              >
+                {transport.toUpperCase()}
+              </span>
+            )}
+          </div>
         </div>
         {!embedded && (
           <button
