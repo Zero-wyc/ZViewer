@@ -248,10 +248,10 @@ async function spawnAndAwait(
     String(HTTP_PORT),
     '--udp-port',
     String(UDP_PORT),
-    // TCP 模式：额外广播 ICE/TCP 候选（UDP 不可达时客户端自动落到此通道）
-    ...(voiceTransportMode === 'tcp'
-      ? ['--tcp-port', String(TCP_PORT)]
-      : []),
+    // 注意：livekit-server CLI 没有 --tcp-port flag（v1.13.7 实测报
+    // "flag provided but not defined"），rtc.tcp_port 只能经 config 环
+    // 境变量 LIVEKIT_RTC_TCP_PORT 下发（在 startEmbeddedLivekit 注入区
+    // 按传输模式设置/删除，机制同 LIVEKIT_RTC_USE_EXTERNAL_IP）。
     // --keys 格式硬性要求 "key: secret"（冒号后必须带空格），缺空格
     // livekit 会直接退出（冒烟实测踩坑）
     '--keys',
@@ -324,6 +324,15 @@ export async function startEmbeddedLivekit(): Promise<void> {
   if (!process.env.LIVEKIT_NODE_IP?.trim()) {
     process.env.LIVEKIT_RTC_USE_EXTERNAL_IP ??= 'true';
     console.log('[voice] 已启用 LiveKit 原生 STUN 外部 IP 发现');
+  }
+  // ICE/TCP 端口（LiveKit 原生 rtc.tcp_port）：CLI 无 --tcp-port flag，
+  // 只能经 config 环境变量下发。TCP 模式注入（未显式配置时默认 3337）；
+  // UDP 模式删除——热重启从 TCP 切回 UDP 时清除上次注入的残留。
+  if (voiceTransportMode === 'tcp') {
+    process.env.LIVEKIT_RTC_TCP_PORT = String(TCP_PORT);
+    console.log(`[voice] ICE/TCP 已启用: ${TCP_PORT}/tcp（UDP 直连仍并行尝试）`);
+  } else {
+    delete process.env.LIVEKIT_RTC_TCP_PORT;
   }
   // 注意：此处不设置 LIVEKIT_URL——客户端地址由 voice.routes 按请求头
   // 推导（跟随页面域名与协议）。在容器/多网卡环境探测本机 IP 会得到
