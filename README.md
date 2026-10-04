@@ -83,7 +83,7 @@
 | 播放模式 | 三种按需切换：CLI 本地代理（大会员 4K 高码率，不耗服务器流量）、服务器 DASH 转发（全房高清，消耗带宽）、MP4 直链转发（最高 720P，兼容性兜底） |
 | 弹幕 | Bilibili 官方 / DandanPlay / 本地 XML·JSON 弹幕文件多轨道叠加渲染；同一视频可挂多条 B 站弹幕轨道 |
 | 字幕 | 稀疏探测字幕引擎，SRT / ASS / SSA / VTT / SMI / SUB 与 MKV 内嵌字幕统一转换渲染 |
-| 互动 | 评论、语音聊天（LiveKit WebRTC；一起看 / 一起听 / 屏幕共享全场景） |
+| 互动 | 评论、语音聊天（LiveKit WebRTC；一起看 / 一起听 / 屏幕共享全场景，UDP/TCP 传输模式可切换） |
 | 推流 | WebRTC 屏幕共享；OBS RTMP 推流 + HTTP-FLV 拉流 |
 | 一起听 | 网易云音乐 × 哔哩哔哩 |
 | 音乐工具 | 视频标题一键搜索网易云同名歌曲并一键收藏歌单；播放列表自动补位推荐；bilibili / music 双收藏夹一键收藏；B 站 MV / PV 设为歌词页背景；歌词逐句同步滚动 |
@@ -156,6 +156,7 @@ npm start
 | 3334 | RTMP 推流（OBS，TCP 二进制协议无法与 HTTP 复用） | 是 |
 | 3335 | HTTP-FLV 拉流（Node Media Server 内部端口） | 否 |
 | 5349 | TURN/TLS 媒体中继（可选启用，UDP 被拦时的 TCP 兜底通道） | 是 |
+| 3337/tcp | LiveKit ICE/TCP 媒体直连（管理端切换「语音传输模式 = TCP」时启用；UDP 被墙时的直连兜底） | 按需 |
 
 OBS 推流地址：`rtmp://<host>:3334/live`。语音聊天的信令经 3333 的 `/rtc` 反代，无需额外端口。
 
@@ -184,6 +185,7 @@ services:
       - "3333:3333"      # 统一入口：API + WebSocket + 前端页面 + /live FLV 代理 + /rtc 语音信令反代
       - "3333:3333/udp"  # LiveKit WebRTC 媒体传输（与页面同号，协议不同）
       - "3334:3334"      # RTMP 推流 (OBS)
+      # - "3337:3337"    # ICE/TCP 媒体直连：管理端「语音传输模式 = TCP」时取消注释
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
@@ -192,9 +194,9 @@ services:
 - 请修改上面的zviewer-data为实际需放数据文件的目录路径
 - 镜像以 HTTP 模式启动，HTTPS 需要自行配置（或使用反向代理）
 - `/app/config` 挂载 volume，含数据库（`dev.sqlite`）、证书（`ssl/`）、上传文件（`uploads/`）、推流切片（`media/`）。
-- **语音聊天**：开箱即用，无需任何配置——公网 IP 经 LiveKit 原生 STUN 自动发现，信令地址按页面域名自动推导（HTTPS 页面自动 wss）；媒体走 3333/udp，防火墙需放行。
+- **语音聊天**：开箱即用，无需任何配置——公网 IP 经 LiveKit 原生 STUN 自动发现，信令地址按页面域名自动推导（HTTPS 页面自动 wss）；媒体走 3333/udp，防火墙需放行。UDP 被运营商/企业防火墙拦截时，可在管理端「基础设置 → 语音传输模式」切换为 TCP（LiveKit 原生 ICE/TCP 3337 直连兜底，需放行 3337/tcp 并补端口映射）。
 - docker模式下，仍然可使用网页更新，为程序文件（含 livekit-server）替换后直接重启后端进程，不重启容器但也不更新容器版本号。
-- **进阶**：UDP 被防火墙拦截时的 TURN/TLS 兜底中继、NAT 复杂环境手动指定广播 IP，见拓展教程「语音高级配置」。
+- **进阶**：UDP 被防火墙拦截时的 TURN/TLS 兜底中继、语音传输模式（UDP/TCP）切换、NAT 复杂环境手动指定广播 IP，见拓展教程「语音高级配置」。
 
 ---
 
@@ -288,6 +290,19 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 
 默认部署零配置即可用：公网 IP 由 LiveKit 原生 STUN 自动发现（需容器/服务器可出网），UDP 直连建立媒体通道。以下为特殊网络环境下的进阶选项。
 
+### 语音传输模式（UDP / TCP 切换）
+
+管理端「基础设置 → 语音传输模式」可切换语音媒体通道，保存后自动热重启语音服务（进行中的语音短暂中断后自动重连）：
+
+| 模式 | livekit-server 启动参数 | 部署侧要求 |
+|---|---|---|
+| UDP（默认） | `--udp-port 3333` | 放行 3333/udp |
+| TCP | `--udp-port 3333` + `--tcp-port 3337` | 额外放行 3337/tcp（Docker 需补端口映射） |
+
+TCP 模式为 LiveKit 原生 ICE/TCP **直连**：服务器同时广播 UDP 与 TCP 两路候选，由浏览器 ICE 自动选路——UDP 可用时走低延迟直连，被运营商/企业防火墙拦截时自动经 3337/tcp 连接。UDP 通道始终开启（LiveKit 不支持禁用 UDP 候选），TCP 模式是「加开兜底」而非「替换」；端口可用环境变量 `LIVEKIT_RTC_TCP_PORT` 覆盖。
+
+与 TURN/TLS 的区别：ICE/TCP 3337 仍是浏览器与服务器**直连**（无需域名与证书）；TURN/TLS 5349 是**中继**（需域名与正式证书，穿透性更强）。二者可同时部署，客户端按连通性自动选择。
+
 ### TURN/TLS 兜底中继
 
 适用场景：服务器或客户端所在网络**拦截 UDP**（企业防火墙、部分校园网），STUN 直连无法建立媒体。
@@ -342,6 +357,7 @@ STUN 探测失败（纯内网部署且无出网、特殊 NAT）时，ICE 会广�
 | `LIVEKIT_EXTERNAL` | `1` 时跳过内嵌 LiveKit，使用外置服务 | `0` |
 | `LIVEKIT_BIND` | 内嵌 LiveKit 监听地址 | `::`（双栈） |
 | `LIVEKIT_NODE_IP` | ICE 广播地址；留空时自动启用 LiveKit 原生 STUN 外部 IP 发现（需可出网），NAT 复杂环境手动指定公网 IP | 空（自动） |
+| `LIVEKIT_RTC_TCP_PORT` | ICE/TCP 端口（管理端「语音传输模式 = TCP」时开启的直连兜底通道） | `3337` |
 | `LIVEKIT_TURN_DOMAIN` | TURN/TLS 域名（与 CERT/KEY 三者齐全即启用 TCP 5349 兜底中继，域名寻址不依赖公网 IP） | — |
 | `LIVEKIT_TURN_CERT` | TURN TLS 证书路径（必须正式证书，自签不被浏览器 WebRTC 信任） | — |
 | `LIVEKIT_TURN_KEY` | TURN TLS 私钥路径 | — |

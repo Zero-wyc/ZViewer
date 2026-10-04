@@ -109,7 +109,7 @@ Three playback modes switchable on demand:
 - Comment panel & danmaku system: supports Bilibili official danmaku, DandanPlay danmaku, and local XML/JSON danmaku files. Multiple tracks can be overlaid at once (multiple Bilibili danmaku tracks on the same video included), multiplying the danmaku volume.
 - Playback state sync: host actions are broadcast to all viewers in real time.
 - Viewers can request pause or seek; the host sees notifications at the top-left of the player.
-- Voice chat: host enables voice chat for viewers to listen in real time (LiveKit WebRTC, bundled with the server out of the box; IPv6 support and TURN/TLS fallback relay).
+- Voice chat: host enables voice chat for viewers to listen in real time (LiveKit WebRTC, bundled with the server out of the box; IPv6 support, UDP/TCP transport mode switch, and TURN/TLS fallback relay).
 
 ### Screen Sharing & Streaming
 
@@ -230,6 +230,7 @@ The `start-prod` scripts in the project root automatically detect dependencies, 
 | RTMP Push | 3334 | OBS push port (standalone; RTMP is a TCP binary protocol, cannot share with HTTP) |
 | HTTP-FLV Pull | 3335 | Internal port (Node Media Server), container-only, not exposed externally |
 | TURN/TLS relay | 5349 | Optional voice fallback over TCP when UDP is blocked |
+| ICE/TCP media | 3337/tcp | Optional direct-connect fallback for blocked UDP (enable via admin "Voice Transport Mode = TCP") |
 
 In production mode, **only ports 3333 (tcp+udp) and 3334 are exposed externally**. Voice signaling goes through the `/rtc` reverse proxy on 3333 — no extra port needed. The backend handles API requests, frontend static resources, WebSocket, and reverse-proxies `/live` to the internal HTTP-FLV service.
 
@@ -308,6 +309,7 @@ services:
       - "3333:3333"      # Unified entry (API + WebSocket + frontend + /live proxy + /rtc voice signaling)
       - "3333:3333/udp"  # LiveKit WebRTC media (same port number, different protocol)
       - "3334:3334"      # RTMP push (OBS)
+      # - "3337:3337"    # ICE/TCP media: uncomment when admin "Voice Transport Mode = TCP"
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
@@ -316,8 +318,8 @@ volumes:
   zviewer-data:
 ```
 
-- Voice chat works out of the box with zero configuration: the public IP is discovered automatically via LiveKit's native STUN, and signaling URLs are derived from the page origin (HTTPS pages get `wss://`). Media travels over 3333/udp; make sure your firewall allows it.
-- **Advanced** (TURN/TLS fallback relay for blocked UDP, manual ICE address for complex NAT): see *Voice Advanced Configuration* in the extended tutorials.
+- Voice chat works out of the box with zero configuration: the public IP is discovered automatically via LiveKit's native STUN, and signaling URLs are derived from the page origin (HTTPS pages get `wss://`). Media travels over 3333/udp; make sure your firewall allows it. When UDP is blocked by ISP/corporate firewalls, switch "Voice Transport Mode" to TCP in the admin panel (LiveKit native ICE/TCP 3337 direct-connect fallback; requires port 3337/tcp and the compose mapping).
+- **Advanced** (voice transport mode UDP/TCP switch, TURN/TLS fallback relay for blocked UDP, manual ICE address for complex NAT): see *Voice Advanced Configuration* in the extended tutorials.
 
 ### Build Yourself
 
@@ -425,6 +427,19 @@ ZViewer/
 
 The default deployment works with zero configuration: the public IP is discovered automatically via LiveKit's native STUN (requires outbound internet), and media connects over UDP directly. The options below are for special network environments.
 
+### Voice Transport Mode (UDP / TCP Switch)
+
+The admin panel "Basic Settings → Voice Transport Mode" switches the voice media channel. Saving automatically hot-restarts the voice service (ongoing calls drop briefly and reconnect):
+
+| Mode | livekit-server args | Deployment requirement |
+|---|---|---|
+| UDP (default) | `--udp-port 3333` | Allow 3333/udp |
+| TCP | `--udp-port 3333` + `--tcp-port 3337` | Additionally allow 3337/tcp (Docker: add the port mapping) |
+
+TCP mode is LiveKit's native ICE/TCP **direct connection**: the server advertises both UDP and TCP candidates, and the browser's ICE picks automatically — UDP direct connection when reachable, automatic fallback over 3337/tcp when UDP is blocked by ISP/corporate firewalls. The UDP channel stays on (LiveKit cannot disable UDP candidates); TCP mode adds a fallback rather than replacing UDP. The port can be overridden with `LIVEKIT_RTC_TCP_PORT`.
+
+Difference from TURN/TLS: ICE/TCP 3337 is still a **direct connection** between browser and server (no domain or certificate needed); TURN/TLS 5349 is a **relay** (domain + CA-issued certificate required, but penetrates stricter networks). Both can be deployed together; clients pick automatically by connectivity.
+
 ### TURN/TLS Fallback Relay
 
 Use case: the server or clients sit behind networks that **block UDP** (corporate firewalls, some campus networks), making STUN direct connections impossible.
@@ -481,6 +496,7 @@ An explicit value takes the highest priority (STUN auto-discovery is skipped whe
 | `LIVEKIT_EXTERNAL` | `1` skips the bundled LiveKit and uses an external service | `0` |
 | `LIVEKIT_BIND` | Bundled LiveKit listen address | `::` (dual-stack) |
 | `LIVEKIT_NODE_IP` | ICE advertised address; leave empty to enable LiveKit's native STUN external IP discovery (requires outbound internet), set manually for complex NAT | (auto) |
+| `LIVEKIT_RTC_TCP_PORT` | ICE/TCP port (the direct-connect fallback opened when admin "Voice Transport Mode = TCP") | `3337` |
 | `LIVEKIT_TURN_DOMAIN` | TURN/TLS domain (enables the TCP 5349 fallback relay when set together with CERT/KEY; domain-based addressing needs no public IP) | — |
 | `LIVEKIT_TURN_CERT` | TURN TLS certificate path (CA-issued required; self-signed is not trusted by browser WebRTC) | — |
 | `LIVEKIT_TURN_KEY` | TURN TLS private key path | — |
