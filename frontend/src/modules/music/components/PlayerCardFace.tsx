@@ -375,10 +375,7 @@ export function PlayerCardFace({
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(volume * 100)}
-                className="touch-slider relative h-[max(1.3vh,6px)] cursor-pointer"
-                style={{
-                  boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
-                }}
+                className="touch-slider lt-slider-hairline relative h-[max(1.3vh,6px)] cursor-pointer"
                 onPointerDown={onVolumePointerDown}
               >
                 <div

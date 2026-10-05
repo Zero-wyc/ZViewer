@@ -1694,6 +1694,24 @@ body[data-no-hover-transform='true'] .zen-avatar-hover:hover {
   user-select: none;
 }
 
+/* 滑条发丝描边（Hydrogen 0.5px）跨浏览器兜底：
+   Blink/WebKit 支持亚像素 box-shadow；Gecko(Firefox) 把 <1px 的描边
+   宽度按设备像素取整——GPU WebRender + 显示缩放 125% 时 0.5px spread
+   取整为 0，进度/音量条描边整条消失（只剩已播放填充块）。
+   Chrome 恒用 0.5px shadow 保持原观感；Firefox 用 @supports(-moz-
+   appearance) 定向切换为真实 1px border（整数像素在任何 DPR/页面
+   缩放下恒 ≥1 设备像素，必定渲染）。-moz-appearance 仅 Gecko 认识。 */
+.lt-slider-hairline {
+  box-shadow: 0 0 0 0.5px var(--md-sys-color-on-surface);
+}
+
+@supports (-moz-appearance: none) {
+  .lt-slider-hairline {
+    box-shadow: none;
+    border: 1px solid var(--md-sys-color-on-surface);
+  }
+}
+
 /* 手机竖屏：播放卡入场动画改为淡入上移（原 keyframe 硬编码 42vh
    宽度展开，竖屏单列下卡片是全宽，宽度动画会先收窄再弹开，观感破碎） */
 @keyframes player-card-in-mobile {

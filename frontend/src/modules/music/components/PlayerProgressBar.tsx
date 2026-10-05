@@ -111,12 +111,11 @@ export function PlayerProgressBar({
         aria-valuenow={Math.round(positionSec)}
         aria-disabled={!canControl && !onRequestSeek}
         className={cn(
-          'touch-slider relative mt-[max(1vh,6px)] h-[max(1.3vh,6px)]',
+          // lt-slider-hairline：0.5px 发丝描边（Firefox @supports 定向
+          // 兜底为 1px border，见 index.css——Gecko 取整亚像素 shadow）
+          'touch-slider lt-slider-hairline relative mt-[max(1vh,6px)] h-[max(1.3vh,6px)]',
           (canControl || onRequestSeek) && 'cursor-pointer'
         )}
-        style={{
-          boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',
-        }}
         onPointerDown={handleProgressPointerDown}
       >
         <div
