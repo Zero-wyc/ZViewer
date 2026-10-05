@@ -1175,8 +1175,8 @@ export function useListenTogether({
   /**
    * 「下一首」到队列末尾时的推荐续播判定：按顺序播放 + 当前 B站 条目 +
    * 「B站视频自动连播」开启时触发 handleBiliContinue（拉 3 首推荐入队并
-   * 续播）。仅用户主动点「下一首」的路径调用——曲目自然播完（ended）
-   * 不触发，末尾自然停止。返回是否已触发。
+   * 续播）。手动「下一首」（next / executeHostAction）与曲目自然播完
+   * （handleEnded 队列末尾）共用本判定。返回是否已触发。
    */
   const tryBiliContinueOnNext = useCallback((): boolean => {
     const state = useMusicStore.getState()
@@ -1710,15 +1710,31 @@ export function useListenTogether({
       return
     }
     if (playMode === 'order') {
-      // 按顺序播放：到队列末尾自然停止不回绕。B站 推荐续播只在用户
-      // 主动点「下一首」时触发（next / executeHostAction），自然播完
-      // 不自动加歌
-      switchSong('next')
+      // 按顺序播放：顺序推进，末尾不回绕。队列末尾自动触发 B站 推荐
+      // 续播——与手动点「下一首」同一管线（biliAutoContinue 开启时拉
+      // 3 首相关推荐入队并续播第一条）；无推荐（非 B站 条目 / 未开
+      // 自动连播）时维持原末尾语义：自然停止。
+      // 单曲队列特例：computeTargetSong('next') 对唯一曲目返回自身重播
+      //（switchSong 视为成功），末尾判定须先于 switchSong 拦下走推荐，
+      // 无推荐时回落重播当前曲目（保持原行为）
+      const state = useMusicStore.getState()
+      const active = activeQueueOf(state)
+      const singleSelf =
+        state.currentKey != null &&
+        active.length === 1 &&
+        musicItemKey(active[0]) === state.currentKey
+      if (singleSelf) {
+        if (!tryBiliContinueOnNext()) switchSong('next')
+        return
+      }
+      if (!switchSong('next')) {
+        tryBiliContinueOnNext()
+      }
       return
     }
     // 顺序循环 / 随机：切换下一首（各自按规则循环/重洗）
     switchSong('next')
-  }, [getAudio, switchSong, broadcastSyncState])
+  }, [getAudio, switchSong, broadcastSyncState, tryBiliContinueOnNext])
 
   // 音频元素事件绑定：handler 集合元素无关（升格时随元素迁移），此处只做
   // 初始主元素的挂载/卸载；ended 经 endedHandlerRef 间接调用最新实现
