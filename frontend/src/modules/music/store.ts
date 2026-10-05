@@ -4,6 +4,10 @@ import {
   isBilibiliImageUrl,
 } from '@/modules/room/watch-together/resolveSource'
 import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
+import {
+  useMusicSettingsStore,
+  normalizeDefaultSourcePage,
+} from './store-settings'
 
 /**
  * 一起听模块全局状态。
@@ -38,9 +42,19 @@ const MUSIC_PAGE_VALUES: readonly MusicPage[] = [
   'settings',
 ]
 
+/** 「进入一起听默认页」设置 → 主区域页面（网易云=home / 哔哩哔哩=bilibili） */
+function defaultMusicPage(): MusicPage {
+  return normalizeDefaultSourcePage(
+    useMusicSettingsStore.getState().defaultSourcePage
+  ) === 'bilibili'
+    ? 'bilibili'
+    : 'home'
+}
+
 /**
  * 从 localStorage 恢复上次所在的主区域页面（如哔哩哔哩页，刷新后仍停留）；
- * 无记录/非法值/隐私模式读取失败一律回退首页
+ * 无记录/非法值/隐私模式读取失败回退「进入一起听默认页」设置
+ * （设置页「进入一起听默认页」，默认网易云首页）
  */
 function loadInitialPage(): MusicPage {
   try {
@@ -51,7 +65,7 @@ function loadInitialPage(): MusicPage {
   } catch {
     // ignore：隐私模式等场景读取失败
   }
-  return 'home'
+  return defaultMusicPage()
 }
 
 /** 观众同步回执（房主端左下角「xx 已同步」提示条目） */
@@ -345,8 +359,9 @@ export const useMusicStore = create<MusicState>((set) => ({
   setPendingAlbumDetail: (d) => set({ pendingAlbumDetail: d }),
   setPendingMyDetail: (d) => set({ pendingMyDetail: d }),
   /** 重置为初始状态（离开房间时调用；页面记忆仅应用加载时恢复，
-   *  此处保持旧语义回首页） */
-  reset: () => set({ ...defaultState, page: 'home' }),
+   *  此处回到「进入一起听默认页」设置对应页面：创建/切换/离开房间
+   *  再进入时恒落到用户配置的网易云首页或哔哩哔哩页） */
+  reset: () => set({ ...defaultState, page: defaultMusicPage() }),
   resetPlayback: () =>
     set({
       queue: [],

@@ -31,6 +31,7 @@ import { useMusicStore } from '../store'
 import {
   DEFAULT_MUSIC_SETTINGS,
   MUSIC_LEVEL_OPTIONS,
+  normalizeDefaultSourcePage,
   normalizeNumberSetting,
   normalizeMusicLevel,
   useMusicSettingsStore,
@@ -618,6 +619,22 @@ export function MusicSettingsPage() {
               on={settings.biliAutoContinue}
               onToggle={() =>
                 setSettings({ biliAutoContinue: !settings.biliAutoContinue })
+              }
+            />
+          </SettingOption>
+          {/* 进入一起听默认页（创建/切换/离开房间重置后落到哪一页；
+              应用刷新后的页面恢复优先于本设置） */}
+          <SettingOption name="进入一起听默认页">
+            <SettingSelector
+              value={normalizeDefaultSourcePage(settings.defaultSourcePage)}
+              options={[
+                { label: '网易云音乐', value: 'netease' },
+                { label: '哔哩哔哩', value: 'bilibili' },
+              ]}
+              onChange={(v) =>
+                setSettings({
+                  defaultSourcePage: v === 'bilibili' ? 'bilibili' : 'netease',
+                })
               }
             />
           </SettingOption>

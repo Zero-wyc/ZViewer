@@ -138,6 +138,12 @@ export interface MusicSettings {
    * 纯净模式下前景 UI 隐藏，两种层级均抬升至视频之上
    */
   biliDanmakuAboveUi: boolean
+  /**
+   * 进入一起听的默认页面（创建/切换/离开房间重置音乐模块后落到哪一页）：
+   * netease 网易云（首页，默认）/ bilibili 哔哩哔哩。
+   * 应用刷新后的页面恢复（上次所在页）优先于本设置
+   */
+  defaultSourcePage: 'netease' | 'bilibili'
 }
 
 export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
@@ -171,6 +177,7 @@ export const DEFAULT_MUSIC_SETTINGS: MusicSettings = {
   musicNavCollapsed: true,
   biliDanmakuEnabled: true,
   biliDanmakuAboveUi: false,
+  defaultSourcePage: 'netease',
 }
 
 interface MusicSettingsState extends MusicSettings {
@@ -240,4 +247,11 @@ export function normalizeBiliCoverShape(
 export function normalizeBiliLikeFavTitle(title: string): string {
   const trimmed = typeof title === 'string' ? title.trim() : ''
   return trimmed || DEFAULT_MUSIC_SETTINGS.biliLikeFavTitle
+}
+
+/** 进入一起听默认页合法性（非法值回退网易云首页） */
+export function normalizeDefaultSourcePage(
+  page: string
+): MusicSettings['defaultSourcePage'] {
+  return page === 'bilibili' ? 'bilibili' : 'netease'
 }
