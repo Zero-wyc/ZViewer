@@ -8,7 +8,10 @@
  * 当前策略：
  * - B站 DASH m4s 流：走服务器代理（m4s 有防盗链 + 无 CORS，浏览器无法绕过）
  * - 带防盗链 headers 的源：走服务器代理（浏览器无法设置 forbidden header）
- * - 其他源（B站 MP4 直链 / webdav / ftp / 用户直链 / 服务器本地文件 / blob / data）：直连
+ * - B站 MP4 直链：仅 CDN URL 带 platform=html5（UGC html5 接口产物）免防盗链
+ *   可直连；其余形态（PGC playurlv3 platform=pc 等）CDN 强制校验 Referer
+ *   必须为 bilibili.com 域，浏览器无法满足，走服务器代理
+ * - 其他源（webdav / ftp / 用户直链 / 服务器本地文件 / blob / data）：直连
  *   → 服务器零流量，仅承载信令与元数据
  *
  * 设计动机：
@@ -43,10 +46,12 @@ const BILIBILI_MEDIA_HOST_EXACT: readonly string[] = [
  *
  * 覆盖 B站 各类 CDN 域名：官方 bilivideo、P2P/mcdn、第三方边缘节点、akamaized 海外节点等。
  *
- * 注意：B站 URL 是否需要代理取决于请求方式：
+ * 注意：B站 URL 是否需要代理取决于请求方式与 URL 形态：
  * - DASH m4s 流：有防盗链 + 无 CORS，必须走服务器代理
- * - MP4 直链（platform=html5 接口）：无防盗链，可直接播放
- * 调用方需结合 source.format 判断，本函数仅判断域名。
+ * - MP4 直链：仅 CDN URL 带 platform=html5（UGC html5 接口产物）免防盗链，
+ *   可直接播放；PGC playurlv3 等其余形态强制校验 Referer 为 bilibili.com
+ *   域（空 Referer 实测也 403），浏览器直连必然失败，须走服务器代理
+ * 调用方需结合 source.format 与 URL 形态判断，本函数仅判断域名。
  */
 export function isBilibiliMediaUrl(url: string): boolean {
   try {
@@ -65,6 +70,28 @@ export function isBilibiliMediaUrl(url: string): boolean {
         (domain) => host === domain || host.endsWith(`.${domain}`)
       ) || BILIBILI_MEDIA_HOST_EXACT.includes(host)
     )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * 判断 URL 是否为免防盗链的 B站 MP4 直链形态。
+ *
+ * B站 playurl 接口请求时的 platform 参数会透传进 CDN URL 签名，CDN 按
+ * 该值决定防盗链策略（实测 2026-10-06）：
+ * - platform=html5（UGC html5 接口产物）：免防盗链，空 Referer 与任意
+ *   第三方 Referer 均 206；
+ * - platform=pc / 无此参数（PGC playurlv3 等）：强制校验 Referer 必须为
+ *   bilibili.com 域，空 Referer 与第三方 Referer 均 403。
+ *
+ * 浏览器无法满足后者：<video> 不支持 referrerpolicy 属性（MDN 属性表无
+ * 此属性，lib.dom 未声明符合规范），fetch/XHR 的 referrer 选项禁止伪造
+ * 跨站值——带 B站 Referer 的媒体请求只能由服务器/CLI 代理注入。
+ */
+function isAntileechFreeBilibiliMp4Url(url: string): boolean {
+  try {
+    return new URL(url).searchParams.get('platform') === 'html5'
   } catch {
     return false
   }
@@ -290,8 +317,15 @@ export function resolveMediaRoute(
       // B站 DASH m4s 流：有防盗链 + 无 CORS，必须走服务器代理
       return { url: buildProxyUrl(url), allowFallback: false }
     }
-    // B站 MP4 直链（platform=html5 接口）：无防盗链，可直接播放，
-    // 服务器零流量；直连失败（签名过期等）允许一次代理重试
+    // B站 MP4 直链：仅 platform=html5 形态（UGC html5 接口产物）免防盗链，
+    // 可直连服务器零流量，直连失败（签名过期等）允许一次代理重试；
+    // 其余形态（PGC playurlv3 等）CDN 强制校验 Referer 为 bilibili.com 域，
+    // 浏览器直连必然 403（实测：空 Referer 也 403，且 PGC 接口对
+    // platform=html5 请求参数无效果，绕不过）——直接走服务器代理（后端
+    // 注入 B站 Referer），省去注定失败的直连往返与回退
+    if (!isAntileechFreeBilibiliMp4Url(url)) {
+      return { url: buildProxyUrl(url), allowFallback: false }
+    }
     return { url, allowFallback: true }
   }
 
