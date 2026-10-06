@@ -18,6 +18,7 @@ import { spawn, ChildProcess, execSync } from 'child_process';
 import fs from 'fs';
 import https from 'https';
 import net from 'net';
+import os from 'os';
 import path from 'path';
 
 const DEFAULT_API_KEY = 'devkey';
@@ -227,6 +228,38 @@ function installExitHooks(): void {
 }
 
 /**
+ * 判断 IP 是否为非公网地址（RFC1918 私网 / 回环 / 链路本地 / CGNAT / IPv6 ULA）。
+ */
+function isNonPublicAddress(ip: string, family: string): boolean {
+  if (family === 'IPv4') {
+    if (/^10\./.test(ip)) return true;
+    if (/^192\.168\./.test(ip)) return true;
+    if (/^172\.(1[6-9]|2\d|3[01])\./.test(ip)) return true;
+    if (/^127\./.test(ip)) return true;
+    if (/^169\.254\./.test(ip)) return true;
+    // CGNAT（运营商级 NAT，100.64.0.0/10）：无端口映射时同样不可达
+    if (/^100\.(6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(ip)) return true;
+    return false;
+  }
+  const v6 = ip.toLowerCase();
+  if (v6 === '::1' || v6.startsWith('fe80')) return true;
+  // IPv6 ULA fc00::/7
+  if (/^f[cd][0-9a-f]{2}:/.test(v6)) return true;
+  return false;
+}
+
+/** 枚举本机网卡，返回首个公网地址（无则 null） */
+function probePublicInterfaceIp(): string | null {
+  for (const list of Object.values(os.networkInterfaces())) {
+    for (const net of list ?? []) {
+      if (net.internal) continue;
+      if (!isNonPublicAddress(net.address, net.family)) return net.address;
+    }
+  }
+  return null;
+}
+
+/**
  * 启动嵌入式 LiveKit 服务（幂等；不具备条件时静默跳过）。
  *
  * 调用时机：bootstrap 早期 fire-and-forget（不阻塞主服务启动；
@@ -372,6 +405,31 @@ export async function startEmbeddedLivekit(): Promise<void> {
   if (!ok) {
     console.error(
       '[voice] 嵌入式 LiveKit 启动失败——语音将不可用，请检查端口占用与二进制完整性'
+    );
+    return;
+  }
+
+  // 外网可达性自检：本机网卡全为私网地址且未配置 NODE_IP/TURN 时，
+  // LiveKit 广播的 ICE 候选（host=私网地址；STUN srflx=NAT 出口 IP 但
+  // 无端口映射时同样不可达）对外网用户不可达。经 EdgeOne / CDN / 反向
+  // 代理等七层服务暴露外网时，页面与信令正常（HTTP/WS 走代理），但
+  // WebRTC 媒体（UDP/TCP）不经过七层代理——把这种静默失败变成启动
+  // 日志里的显式警告，避免「局域网语音正常、外网连不上」难以排查。
+  // 例外：云服务器 EIP 场景网卡是私网但 STUN 可探测到公网 IP（需安全组
+  // 放行 3333/udp），此警告可忽略。
+  if (
+    !nodeIp &&
+    !process.env.LIVEKIT_TURN_DOMAIN?.trim() &&
+    probePublicInterfaceIp() === null
+  ) {
+    console.warn(
+      '[voice] ⚠️ 语音媒体外网可达性警告：本机网卡均为私网地址，且未配置 LIVEKIT_NODE_IP 与 TURN。\n' +
+        '[voice] 局域网内语音正常；外网用户经 EdgeOne/CDN/反向代理访问时页面与信令正常，但 WebRTC 媒体（UDP/TCP）不经过七层代理，语音将无法连接。\n' +
+        '[voice] 解决路径（三选一）：\n' +
+        '[voice]   ① 部署到有公网 IP 的主机，安全组/防火墙放行 3333/udp（容器场景 docker-compose 已含映射）；\n' +
+        '[voice]   ② 用支持端口转发的穿透（frp 等）把 3333/udp 映射到公网，并设 LIVEKIT_NODE_IP=穿透公网地址；\n' +
+        '[voice]   ③ 配置 TURN/TLS 中继：LIVEKIT_TURN_DOMAIN + LIVEKIT_TURN_CERT + LIVEKIT_TURN_KEY 三项，' +
+        '并把 5349/tcp 映射到公网（需正式证书，浏览器不信任自签）。'
     );
   }
 }
