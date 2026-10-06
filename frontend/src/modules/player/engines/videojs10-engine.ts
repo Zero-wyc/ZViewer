@@ -104,7 +104,18 @@ export const videojs10Engine: PlayerEngine = {
 
     // v10 执行:src 设置 + load + metadata 等待(经 media 事件,
     // adapter 将 loadedmetadata / error 转发自桥接的 video 元素)
-    const loadWithV10 = async (url: string): Promise<void> => {
+    const loadWithV10 = async (
+      url: string,
+      noReferrer: boolean
+    ): Promise<void> => {
+      // referrerPolicy 必须在 src 赋值前设置才对该次媒体请求生效；
+      // B站 CDN 拒绝携带跨站 Referer 的请求（403 → ORB 拦截 → 直连必败）
+      // 经 content attribute 设置（lib.dom 未在 HTMLVideoElement 声明 IDL 属性）
+      if (noReferrer) {
+        video.setAttribute('referrerpolicy', 'no-referrer')
+      } else {
+        video.removeAttribute('referrerpolicy')
+      }
       media.src = url
       media.load()
       await waitForMetadataOrError(media)
@@ -113,7 +124,7 @@ export const videojs10Engine: PlayerEngine = {
     try {
       resetVideoElement(video)
       try {
-        await loadWithV10(plan.targetUrl)
+        await loadWithV10(plan.targetUrl, plan.noReferrer)
       } catch (err) {
         // MKV 原生直连超时:命中时短路后续降级 / 回退,直接给出指引
         const mkvErr = normalizeMkvTimeoutError(err, source)
@@ -126,7 +137,7 @@ export const videojs10Engine: PlayerEngine = {
             err
           )
           resetVideoElement(video)
-          await loadWithV10(plan.httpDowngradeUrl)
+          await loadWithV10(plan.httpDowngradeUrl, plan.noReferrer)
         } else if (!plan.fallback) {
           if (source.noProxyFallback === true) {
             console.warn(
@@ -138,7 +149,7 @@ export const videojs10Engine: PlayerEngine = {
         } else {
           console.warn('[videojs10-engine] 直连失败,回退到服务器代理:', err)
           resetVideoElement(video)
-          await loadWithV10(buildProxyUrl(source.url))
+          await loadWithV10(buildProxyUrl(source.url), false)
         }
       }
     } catch (err) {

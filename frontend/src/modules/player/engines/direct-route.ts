@@ -10,7 +10,7 @@
  * 本模块只包含链接获取与元信息获取,不包含任何播放控制。
  */
 import type { PlayerSource } from '../types'
-import { resolveMediaRoute } from '../services/url-proxy'
+import { isBilibiliMediaUrl, resolveMediaRoute } from '../services/url-proxy'
 import { formatVideoLoadError } from '../utils'
 
 /** metadata 等待超时(毫秒):网络挂起时兜底,避免 attach 永久 pending */
@@ -143,6 +143,11 @@ export interface DirectLoadPlan {
   fallback: boolean
   /** 陈旧 https 升级自愈的 http 降级地址(仅 http 页面 + 挂载直链) */
   httpDowngradeUrl: string | null
+  /**
+   * 直连请求是否必须以 no-referrer 发出(仅 B站 CDN 直链命中)。
+   * 引擎须在 src 赋值前设置 video.referrerPolicy 使其对该次请求生效。
+   */
+  noReferrer: boolean
 }
 
 /**
@@ -191,7 +196,15 @@ export function resolveDirectLoadPlan(source: PlayerSource): DirectLoadPlan {
     }
   }
 
-  return { targetUrl, fallback, httpDowngradeUrl }
+  // B站 CDN 直链必须以 no-referrer 发出:浏览器默认携带页面 Referer,
+  // CDN 对跨站 Referer 的媒体请求返回 403 页面(非 media 响应),Firefox
+  // ORB 嗅探拦截(NS_ERROR_DOM_NETWORK_ERR / OpaqueResponseBlocking),
+  // 直连必然失败静默回退代理——B站 网页播放器跨域取流同样以 no-referrer
+  // 发出。判定基于最终请求地址:代理 URL 为本站相对路径,isBilibiliMediaUrl
+  // 恒 false;http 降级地址仅变协议,域名不变,同样命中。
+  const noReferrer = isBilibiliMediaUrl(targetUrl)
+
+  return { targetUrl, fallback, httpDowngradeUrl, noReferrer }
 }
 
 /**
