@@ -35,7 +35,6 @@ import { type MediaFormat } from '@/lib/mediaFormat'
 import {
   resolveMovieSource,
   resolveBilibiliOnline,
-  getActiveCliProxyUrl,
   getEffectivePreferMp4,
   type ResolvedMovieSource,
 } from './movie-source-resolver'
@@ -725,12 +724,10 @@ export function useWatchTogether({
         if (cliEnabled && movie?.url && movie.cid && !hasOverride) {
           // CLI 已连接走本地代理 DASH；未连接由 getEffectivePreferMp4
           // 返回 true，回退服务器 MP4 直链（不要求必须已连接才重解析）。
-          // 房主启用 CLI 且观众本地无已连接 CLI 时，服务器解析借用
-          // 房主的 B站 Cookie 身份（会员专享集拿完整内容而非试看）；
-          // 本地 CLI 已连接时走观众自己的 CLI，此标记不影响。
+          // 服务器解析默认以房间房主 Cookie 身份执行（resolveBilibiliOnline
+          // 默认行为），会员专享集与房主看到的一致。
           const resolved = await resolveBilibiliOnline(movie, undefined, {
             preferMp4: getEffectivePreferMp4(movie.id),
-            useHostCookie: !!state.hostCliEnabled && !getActiveCliProxyUrl(),
           })
           const resolvedSource: ResolvedSource = {
             videoUrl: resolved.sourceUrl,

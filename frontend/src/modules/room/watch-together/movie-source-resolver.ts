@@ -228,10 +228,11 @@ export async function resolveBilibiliOnline(
     preferMp4?: boolean
     forceRefresh?: boolean
     /**
-     * 服务器解析时以影片所属房间房主的 B站 Cookie 身份执行（后端按
-     * movieId 解析身份）。用于观众端没有本地 CLI、强制走服务器 MP4 的
-     * 场景：房主为大会员时会员专享集拿到完整内容而非试看片段。
-     * 仅影响服务器解析路径；走本地 CLI 时始终用观众自己的 Cookie。
+     * 服务器解析是否以影片所属房间房主的 B站 Cookie 身份执行（后端按
+     * movieId 查 Room.ownerUserId）。默认 true：所有播放路径的重解析
+     * 统一锚定房主，房主为大会员时会员专享集始终拿到完整内容，观众
+     * 身份不再参与服务器解析。走本地 CLI 时不受影响（CLI 始终用观众
+     * 自己 CLI 配置的 Cookie）。显式传 false 可退回请求者自身身份。
      */
     useHostCookie?: boolean
   }
@@ -258,7 +259,7 @@ export async function resolveBilibiliOnline(
   // 服务端按 qn 过滤掉）。用户手动切档走 useBilibiliQuality.applyQualityChange
   // （显式 qn，写回 currentQn），不经过本函数。
   const requestedQn: number | undefined = undefined
-  const useHostCookie = options?.useHostCookie === true
+  const useHostCookie = options?.useHostCookie !== false
   const cacheKey = buildBilibiliResolveCacheKey(
     movie.id,
     requestedQn,
@@ -294,7 +295,11 @@ export async function resolveBilibiliOnline(
         movie.url,
         requestedQn,
         onProgress,
-        { preferMp4: effectivePreferMp4 }
+        {
+          preferMp4: effectivePreferMp4,
+          // PGC ep 链接无法走 CLI 的 bvid 分支，服务器 fallback 同样锚定房主
+          movieId: useHostCookie ? movie.id : undefined,
+        }
       )
       resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
     }

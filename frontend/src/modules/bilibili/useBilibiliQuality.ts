@@ -153,12 +153,17 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
             }
           } else {
             // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4
-            // 返回 true，回退服务器 MP4 直链
+            // 返回 true，回退服务器 MP4 直链。
+            // movieId：服务器解析统一以房间房主 Cookie 身份执行（后端按
+            // movieId 查 Room.ownerUserId），与播放路径的解析身份一致。
             resolved = await resolveBilibiliWithOptions(
               movie.url,
               qn,
               undefined,
-              { preferMp4: getEffectivePreferMp4(movie.id) }
+              {
+                preferMp4: getEffectivePreferMp4(movie.id),
+                movieId: movie.id,
+              }
             )
           }
         }

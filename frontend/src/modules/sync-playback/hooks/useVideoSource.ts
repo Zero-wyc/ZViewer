@@ -81,14 +81,6 @@ async function ensureViewerLocalOverride(
   const forceViewerMp4 = !!state.hostCliEnabled && !viewerCliEnabled
   const adjustedPreferMp4 = forceViewerMp4 || effectivePreferMp4
 
-  // 服务器解析身份：房主启用 CLI 且观众本地没有已连接的 CLI 时
-  //（观众未开启 CLI，或开启了但本地代理未连接、只能回退服务器 MP4），
-  // 借用影片所属房间房主的 B站 Cookie 解析（后端按 movieId 查房间房主），
-  // 保证会员专享内容与房主一致；观众本地 CLI 已连接时始终用自己的身份。
-  const viewerCliConnected = !!getActiveCliProxyUrl()
-  const useHostCookie =
-    forceViewerMp4 || (!!state.hostCliEnabled && !viewerCliConnected)
-
   // 本地偏好与房主一致且房主源不是 CLI 代理地址：直接使用房主广播源
   if (adjustedPreferMp4 === hostIsMp4 && !isCliProxyUrl(state.sourceUrl)) {
     if (existing?.movieId === movieId) {
@@ -102,11 +94,11 @@ async function ensureViewerLocalOverride(
     return existing
   }
 
-  // 按本地偏好独立解析
+  // 按本地偏好独立解析（服务器解析默认以房间房主 Cookie 身份执行，
+  // 见 resolveBilibiliOnline 的 useHostCookie 说明）
   try {
     const resolved = await resolveBilibiliOnline(movie, undefined, {
       preferMp4: adjustedPreferMp4,
-      useHostCookie,
     })
     const resolvedSource: ResolvedSource = {
       videoUrl: resolved.sourceUrl,
