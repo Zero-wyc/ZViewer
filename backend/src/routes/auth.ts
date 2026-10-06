@@ -338,6 +338,8 @@ router.get(
           roomCreationMode: settings.roomCreationMode,
           betaFeaturesEnabled: settings.betaFeaturesEnabled,
           dashDisabled: settings.dashDisabled,
+          bilibiliDefaultParseMode: settings.bilibiliDefaultParseMode,
+          bilibiliPgcDefaultMode: settings.bilibiliPgcDefaultMode,
           playsvideoEnabled: settings.playsvideoEnabled,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },

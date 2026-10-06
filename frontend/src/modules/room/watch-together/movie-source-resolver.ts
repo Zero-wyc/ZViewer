@@ -10,6 +10,7 @@
  * 本模块不触碰 React 状态 / store / message，所有副作用留在调用方。
  */
 import type { Movie } from '@/store/roomStore'
+import { useRoomStore } from '@/store/roomStore'
 import { detectMediaFormat, type MediaFormat } from '@/lib/mediaFormat'
 import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
 import { extractBvid, resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
@@ -134,26 +135,42 @@ export function isBilibiliPgcMovie(
 }
 
 /**
- * 获取影片实际生效的 MP4 偏好（感知 CLI 连接状态）。
+ * 获取影片实际生效的 MP4 偏好（感知 CLI 连接状态与系统默认参数）。
  *
  * CLI 已启用且本地代理已连接：强制 DASH 高画质代理路径（preferMp4=false）。
  * CLI 已启用但本地代理未连接：回退服务器 MP4 直链（preferMp4=true），
  * 不抛错也不回退服务器 DASH（用户指定语义：CLI 未连接就回退 MP4）。
  *
- * CLI 未启用时：服务器端 DASH 被禁用（dashDisabled）强制 MP4，否则按偏好。
+ * CLI 未启用时：服务器端 DASH 被禁用（dashDisabled）强制 MP4；
+ * 影片已有显式解析配置按配置走；未显式配置时回退管理员基础设置的
+ * 默认解析参数（普通视频 bilibiliDefaultParseMode / 番剧影视
+ * bilibiliPgcDefaultMode，经 public-settings 下发，观众端同样生效）。
  */
 export function getEffectivePreferMp4(movieId: number): boolean {
-  const { preferMp4, cliEnabled } = getBilibiliParseOptions(movieId)
+  const parsePrefs = getBilibiliParseOptions(movieId)
+  const { preferMp4, cliEnabled } = parsePrefs
   if (cliEnabled) {
     // CLI 已启用：已连接走 CLI DASH，未连接回退服务器 MP4
     return getActiveCliProxyUrl() ? false : true
   }
   // CLI 未启用：检查服务器端是否禁用了 DASH
-  const { dashDisabled } = useSystemSettingsStore.getState()
-  if (dashDisabled) {
+  const settings = useSystemSettingsStore.getState()
+  if (settings.dashDisabled) {
     return true
   }
-  return preferMp4
+  // 影片已有显式解析配置：按配置走
+  if (parsePrefs.configured) {
+    return preferMp4
+  }
+  // 未显式配置：按管理员基础设置的默认解析参数兜底
+  // （PGC 走番剧/影视默认模式，普通视频走普通默认模式；
+  // cliOnly 在此处仅映射 preferMp4=true——实际媒体路径由
+  // Movie.cliOnly 物化后的强制 CLI 分支决定，不经过本函数）
+  const movie = useRoomStore.getState().movies.find((m) => m.id === movieId)
+  const defaultMode = isBilibiliPgcMovie(movie)
+    ? settings.bilibiliPgcDefaultMode
+    : settings.bilibiliDefaultParseMode
+  return defaultMode !== 'dash'
 }
 
 function mapResolvedSourceToMovieSource(

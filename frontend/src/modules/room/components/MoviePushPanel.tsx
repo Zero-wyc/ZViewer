@@ -62,7 +62,10 @@ import {
   CliConnectionError,
   CliResolveError,
 } from '@/modules/bilibili/cliApi'
-import { getActiveCliProxyUrl } from '@/modules/room/watch-together/movie-source-resolver'
+import {
+  getActiveCliProxyUrl,
+  isBilibiliPgcMovie,
+} from '@/modules/room/watch-together/movie-source-resolver'
 import {
   resolveOpenList,
   fetchOpenListDirectUrl,
@@ -1207,20 +1210,38 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           currentPage: resolvedMovie.currentPage ?? 1,
         })
         // 对齐预览与正式播放的解析语义，消除引擎翻转：
-        // 新影片默认偏好（preferMp4=true、cliEnabled=false）会让播放时
-        // 的重新解析走服务器 MP4，而添加时的解析（CLI 连接=CLI DASH，
-        // 未连接=服务器默认 DASH）是 DASH——引擎在 videojs10-dash 与
+        // 添加时的解析（CLI 连接=CLI DASH，未连接=服务器默认 DASH）
+        // 与播放时的重新解析若偏好不一致，引擎会在 videojs10-dash 与
         // videojs10 间翻转。此处按实际解析路径持久化偏好：
         // - CLI 路径：启用 CLI 锁定 DASH（与一起看 cliPrevPreferMp4 同语义）
-        // - 服务器路径：preferMp4=false 保持服务器 DASH
+        // - 服务器路径：按管理员基础设置的默认解析参数物化
+        //   （普通视频走「默认解析模式」，番剧/影视走「番剧/影视默认模式」）
         // 均可在影片的解析设置中手动更改。
         if (added) {
-          setBilibiliParseOptions(
-            added.id,
-            resolvedViaCliRef.current
-              ? { cliEnabled: true, preferMp4: false }
-              : { preferMp4: false }
-          )
+          const sysSettings = useSystemSettingsStore.getState()
+          const pgc = isBilibiliPgcMovie(added)
+          // 番剧/影视默认模式为「仅 CLI」时物化 Movie.cliOnly：
+          // 全体成员必须连接本机 zcontrol-cli 观看，服务器仅做同步信令
+          const pgcCliOnly =
+            pgc && sysSettings.bilibiliPgcDefaultMode === 'cliOnly'
+          if (pgcCliOnly && added.cliOnly !== true) {
+            void useRoomStore
+              .getState()
+              .updateMovie(roomId, added.id, { cliOnly: true })
+          }
+          if (pgcCliOnly || resolvedViaCliRef.current) {
+            setBilibiliParseOptions(added.id, {
+              cliEnabled: true,
+              preferMp4: false,
+            })
+          } else {
+            const defaultMode = pgc
+              ? sysSettings.bilibiliPgcDefaultMode
+              : sysSettings.bilibiliDefaultParseMode
+            setBilibiliParseOptions(added.id, {
+              preferMp4: defaultMode !== 'dash',
+            })
+          }
         }
         resetForm()
         message.success('影片已添加')

@@ -465,6 +465,8 @@ router.get(
           roomCreationMode: settings.roomCreationMode,
           betaFeaturesEnabled: settings.betaFeaturesEnabled,
           dashDisabled: settings.dashDisabled,
+          bilibiliDefaultParseMode: settings.bilibiliDefaultParseMode,
+          bilibiliPgcDefaultMode: settings.bilibiliPgcDefaultMode,
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,
@@ -489,7 +491,7 @@ router.put(
   ): Promise<void> => {
     try {
       const {
-        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, roomPermissionMatrix,
+        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, roomPermissionMatrix,
       } = req.body;
       // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
       const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
@@ -573,6 +575,28 @@ router.put(
         });
         return;
       }
+      const allowedBiliParseModes = ['mp4', 'dash'];
+      if (
+        bilibiliDefaultParseMode !== undefined &&
+        !allowedBiliParseModes.includes(bilibiliDefaultParseMode)
+      ) {
+        res.status(400).json({
+          success: false,
+          message: 'bilibiliDefaultParseMode 必须是 mp4 / dash 之一',
+        });
+        return;
+      }
+      const allowedBiliPgcModes = ['mp4', 'dash', 'cliOnly'];
+      if (
+        bilibiliPgcDefaultMode !== undefined &&
+        !allowedBiliPgcModes.includes(bilibiliPgcDefaultMode)
+      ) {
+        res.status(400).json({
+          success: false,
+          message: 'bilibiliPgcDefaultMode 必须是 mp4 / dash / cliOnly 之一',
+        });
+        return;
+      }
       if (cdnAccelerate !== undefined && typeof cdnAccelerate !== 'boolean') {
         res.status(400).json({
           success: false,
@@ -615,6 +639,14 @@ router.put(
       }
       if (dashDisabled !== undefined) {
         settings.dashDisabled = dashDisabled;
+      }
+      if (bilibiliDefaultParseMode !== undefined) {
+        settings.bilibiliDefaultParseMode =
+          bilibiliDefaultParseMode as 'mp4' | 'dash';
+      }
+      if (bilibiliPgcDefaultMode !== undefined) {
+        settings.bilibiliPgcDefaultMode =
+          bilibiliPgcDefaultMode as 'mp4' | 'dash' | 'cliOnly';
       }
       if (cdnAccelerate !== undefined) {
         settings.cdnAccelerate = cdnAccelerate;
@@ -668,6 +700,8 @@ router.put(
           roomCreationMode: settings.roomCreationMode,
           betaFeaturesEnabled: settings.betaFeaturesEnabled,
           dashDisabled: settings.dashDisabled,
+          bilibiliDefaultParseMode: settings.bilibiliDefaultParseMode,
+          bilibiliPgcDefaultMode: settings.bilibiliPgcDefaultMode,
           cdnAccelerate: settings.cdnAccelerate,
           cdnProxyUrl: settings.cdnProxyUrl,
           playsvideoEnabled: settings.playsvideoEnabled,

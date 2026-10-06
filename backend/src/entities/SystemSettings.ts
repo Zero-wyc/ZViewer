@@ -58,6 +58,26 @@ export class SystemSettings {
   dashDisabled!: boolean;
 
   /**
+   * 添加 B站影片时的默认解析模式（普通视频 / UGC）。
+   * - 'mp4'（默认）：未显式配置解析偏好的影片按服务器 MP4 模式解析
+   * - 'dash'：按服务器 DASH 模式解析
+   * 作为影片未显式配置解析偏好时的运行时兜底（管理员基础设置）。
+   */
+  @Column({ type: 'text', default: 'mp4' })
+  bilibiliDefaultParseMode!: 'mp4' | 'dash';
+
+  /**
+   * 番剧 / 影视（PGC，大会员内容）添加影片时的默认模式。
+   * - 'mp4'（默认）：服务器 MP4 模式（PGC MP4 经代理转发）
+   * - 'dash'：服务器 DASH 模式
+   * - 'cliOnly'：仅允许 CLI 模式——添加影片时物化 Movie.cliOnly，
+   *   成员必须连接本机 zcontrol-cli 观看，媒体流不经服务器转发，
+   *   服务器仅做同步信令
+   */
+  @Column({ type: 'text', default: 'mp4' })
+  bilibiliPgcDefaultMode!: 'mp4' | 'dash' | 'cliOnly';
+
+  /**
    * CDN 加速开关。
    * - true：更新检测和下载走 CDN 代理
    * - false：直连 GitHub

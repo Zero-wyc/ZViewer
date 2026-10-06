@@ -134,6 +134,10 @@ interface AdminSettings {
   roomPermissionMatrix: PermissionMatrix | null
   betaFeaturesEnabled: boolean
   dashDisabled: boolean
+  /** 添加 B站影片时的默认解析模式（普通视频，未显式配置影片的运行时兜底） */
+  bilibiliDefaultParseMode: 'mp4' | 'dash'
+  /** 番剧/影视（PGC）添加影片时的默认模式：cliOnly=物化 Movie.cliOnly 强制成员本机 CLI */
+  bilibiliPgcDefaultMode: 'mp4' | 'dash' | 'cliOnly'
   playsvideoEnabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
@@ -178,6 +182,8 @@ export default function AdminPage() {
     roomPermissionMatrix: null,
     betaFeaturesEnabled: false,
     dashDisabled: false,
+    bilibiliDefaultParseMode: 'mp4',
+    bilibiliPgcDefaultMode: 'mp4',
     playsvideoEnabled: true,
     cdnAccelerate: false,
     cdnProxyUrl: 'https://gh-proxy.com',
@@ -800,6 +806,8 @@ export default function AdminPage() {
         roomCreationMode: settings.roomCreationMode,
         betaFeaturesEnabled: settings.betaFeaturesEnabled,
         dashDisabled: settings.dashDisabled,
+        bilibiliDefaultParseMode: settings.bilibiliDefaultParseMode,
+        bilibiliPgcDefaultMode: settings.bilibiliPgcDefaultMode,
         playsvideoEnabled: settings.playsvideoEnabled,
         cdnAccelerate: settings.cdnAccelerate,
         cdnProxyUrl: settings.cdnProxyUrl,
@@ -1695,6 +1703,57 @@ export default function AdminPage() {
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     开启后，服务器端 B站 解析将强制使用 MP4 模式，不再返回 DASH
                     流。仅影响服务器端解析，不影响 CLI 代理的 DASH 模式。
+                  </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  B站 默认解析参数
+                </Title>
+                <div className="mb-6 max-w-md">
+                  <Select
+                    label="添加影片时的默认解析模式（普通视频）"
+                    value={settings.bilibiliDefaultParseMode}
+                    options={[
+                      { label: 'MP4（默认，服务器中转直链）', value: 'mp4' },
+                      { label: 'DASH（服务器中转，高画质）', value: 'dash' },
+                    ]}
+                    onChange={(value) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        bilibiliDefaultParseMode: value as 'mp4' | 'dash',
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    添加 B站
+                    影片时未手动配置解析偏好的默认模式，同样作为已有影片未显式配置解析偏好时的运行时兜底。
+                  </p>
+                </div>
+                <div className="mb-6 max-w-md">
+                  <Select
+                    label="番剧/影视（大会员内容）默认模式"
+                    value={settings.bilibiliPgcDefaultMode}
+                    options={[
+                      { label: 'MP4（默认，服务器中转）', value: 'mp4' },
+                      { label: 'DASH（服务器中转，高画质）', value: 'dash' },
+                      {
+                        label: '仅 CLI 模式（媒体流不经服务器转发）',
+                        value: 'cliOnly',
+                      },
+                    ]}
+                    onChange={(value) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        bilibiliPgcDefaultMode: value as
+                          'mp4' | 'dash' | 'cliOnly',
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    识别为番剧/影视（需大会员）的内容在添加影片时套用的默认模式。选择「仅
+                    CLI 模式」后，房间内所有成员都必须安装并连接本机
+                    zcontrol-cli
+                    才能观看，服务器仅做同步信令，不转发媒体流（不消耗服务器带宽）。
                   </p>
                 </div>
 

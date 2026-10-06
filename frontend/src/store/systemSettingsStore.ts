@@ -25,6 +25,10 @@ export interface SystemSettings {
   betaFeaturesEnabled: boolean
   /** 禁用服务器端 DASH 模式，强制 MP4（仅服务器端，不影响 CLI） */
   dashDisabled: boolean
+  /** 添加 B站影片时的默认解析模式（未显式配置解析偏好的影片的运行时兜底） */
+  bilibiliDefaultParseMode: 'mp4' | 'dash'
+  /** 番剧/影视（PGC）添加影片时的默认模式：cliOnly=物化 Movie.cliOnly 强制成员本机 CLI */
+  bilibiliPgcDefaultMode: 'mp4' | 'dash' | 'cliOnly'
   /** 浏览器播放引擎（playsvideo）全局开关：关闭后全部原生直连播放 */
   playsvideoEnabled: boolean
   /** 更新 CDN 加速开关：true 时更新检测和下载走 CDN 代理 */
@@ -60,6 +64,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
   roomPermissionMatrix: null,
   betaFeaturesEnabled: false,
   dashDisabled: false,
+  bilibiliDefaultParseMode: 'mp4',
+  bilibiliPgcDefaultMode: 'mp4',
   playsvideoEnabled: true,
   cdnAccelerate: false,
   cdnProxyUrl: 'https://gh-proxy.com',
