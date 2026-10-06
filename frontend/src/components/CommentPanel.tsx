@@ -32,6 +32,11 @@ interface CommentPanelProps {
    * 投屏模式下弹幕轨道与实时弹幕无意义，仅 watch-together 模式启用。
    */
   commentsOnly?: boolean
+  /**
+   * 是否显示「以弹幕形式发送」开关（默认 true，保持投屏场景行为）。
+   * 一起听等无视频画面的场景传 false——弹幕没有渲染层，发了也无人可见。
+   */
+  allowDanmaku?: boolean
 }
 
 interface SendCommentResponse {
@@ -53,6 +58,7 @@ export function CommentPanel({
   socket,
   roomId,
   commentsOnly = false,
+  allowDanmaku = true,
 }: CommentPanelProps) {
   const currentUser = useAuthStore((state) => state.user)
   // 读取 watch-together 模式下的当前播放进度，用于 send-danmaku 持久化实时弹幕记录
@@ -296,13 +302,15 @@ export function CommentPanel({
                 发送
               </Button>
             </Space>
-            <div className="flex items-center">
-              <Switch
-                label="以弹幕形式发送"
-                checked={sendAsDanmaku}
-                onChange={(e) => setSendAsDanmaku(e.target.checked)}
-              />
-            </div>
+            {allowDanmaku && (
+              <div className="flex items-center">
+                <Switch
+                  label="以弹幕形式发送"
+                  checked={sendAsDanmaku}
+                  onChange={(e) => setSendAsDanmaku(e.target.checked)}
+                />
+              </div>
+            )}
           </div>
         ) : rightPanelTab === 'tracks' ? (
           <DanmakuTrackCard />

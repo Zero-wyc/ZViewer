@@ -1,15 +1,15 @@
 /**
  * 一起听右侧悬浮工具坞（Hydrogen 侧栏范式）。
  *
- * 把「语音聊天 / 房间状态 / 流量统计」三个悬浮面板集成进一个右侧边栏：
+ * 把「语音聊天 / 评论区 / 房间状态 / 流量统计」四个悬浮面板集成进一个右侧边栏：
  * - 默认隐藏，仅在屏幕右缘垂直居中处显示一条 5px 竖线把手；
  * - 鼠标移入竖线（或移入侧边栏）→ 侧边栏从右缘滑入悬浮展示（不挤压内容）；
  * - 鼠标移出 320ms 后自动收起（延迟避免从把手移动到面板途中误收）；
  * - 点击竖线可切换显隐（触屏设备无 hover 时的兜底交互）。
  *
- * 侧边栏内部为三个面板纵向堆叠、同时可见（各自保留标题栏与高度上限，
- * 超出部分在侧边栏容器内滚动）；面板常挂载：useVoiceChat 的语音连接与
- * RoomInfoPanel 的房间监听不因滚动位置而中断。
+ * 侧边栏内部为各面板纵向堆叠、同时可见（各自保留标题栏与高度上限，
+ * 超出部分在侧边栏容器内滚动）；面板常挂载：useVoiceChat 的语音连接、
+ * RoomInfoPanel 的房间监听与 CommentPanel 的评论监听不因滚动位置而中断。
  * 完整播放器覆盖层打开时由 MusicAppShell 门控整坞卸载，保持沉浸。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -17,6 +17,7 @@ import type { Socket } from 'socket.io-client'
 import { VoiceChatPanel } from '@/modules/voice-chat/components/VoiceChatPanel'
 import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
+import { CommentPanel } from '@/components/CommentPanel'
 import { cn } from '@/lib/utils'
 
 interface MusicSideDockProps {
@@ -128,6 +129,16 @@ export function MusicSideDock({
               roomId={roomId}
               username={username}
               canManageVoice={canManage}
+            />
+          </div>
+          {/* 评论区（房间成员实时讨论；一起听无视频画面，隐藏弹幕开关）。
+              评论监听常挂载：收起侧栏不中断 new-comment 监听 */}
+          <div className="flex h-[min(42vh,360px)] min-h-0 shrink-0 flex-col">
+            <CommentPanel
+              socket={socket}
+              roomId={roomId}
+              commentsOnly
+              allowDanmaku={false}
             />
           </div>
           {/* 房间状态（成员/设置较多，内部滚动） */}
