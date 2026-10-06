@@ -173,6 +173,8 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
               {
                 preferMp4: getEffectivePreferMp4(movie.id),
                 movieId: movie.id,
+                // 多 P 视频：按当前分 P 解析（movie.url 不含分 P 信息）
+                page: movie.currentPage,
               }
             )
           }

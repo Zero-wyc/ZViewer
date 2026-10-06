@@ -226,11 +226,12 @@ function buildBilibiliResolveCacheKey(
   qn: number | null | undefined,
   preferMp4: boolean,
   cliProxyUrl: string | null,
-  useHostCookie: boolean
+  useHostCookie: boolean,
+  page: number | null | undefined
 ): string {
   return `${movieId}|${qn ?? '-'}|${preferMp4 ? 'mp4' : 'dash'}|${
     cliProxyUrl ?? 'server'
-  }|${useHostCookie ? 'host' : 'self'}`
+  }|${useHostCookie ? 'host' : 'self'}|p${page ?? '-'}`
 }
 
 /** 强制绕过缓存时（旧 URL 已失败），清掉该影片的全部缓存条目避免膨胀 */
@@ -260,6 +261,13 @@ export async function resolveBilibiliOnline(
   options?: {
     preferMp4?: boolean
     forceRefresh?: boolean
+    /**
+     * UGC 多 P 视频的目标分 P 序号。切分 P 后 movie.url 不变（仍为 BV 链接），
+     * 服务器解析必须显式传 page 才能定位目标分 P；CLI 分支按 movie.cid
+     * 定位（切 P 时 movie.cid 已同步），无需此参数。
+     * 缓存 key 含 page 维度，不同分 P 的解析结果互不命中。
+     */
+    page?: number
     /**
      * 服务器解析是否以影片所属房间房主的 B站 Cookie 身份执行（后端按
      * movieId 查 Room.ownerUserId）。默认 true：所有播放路径的重解析
@@ -309,7 +317,8 @@ export async function resolveBilibiliOnline(
     requestedQn,
     effectivePreferMp4,
     proxyUrl,
-    useHostCookie
+    useHostCookie,
+    options?.page ?? null
   )
   if (!forceRefresh) {
     const cached = bilibiliResolveCache.get(cacheKey)
@@ -343,6 +352,8 @@ export async function resolveBilibiliOnline(
           preferMp4: effectivePreferMp4,
           // PGC ep 链接无法走 CLI 的 bvid 分支，服务器 fallback 同样锚定房主
           movieId: useHostCookie ? movie.id : undefined,
+          // UGC 多 P：按目标分 P 解析（切 P 后 movie.url 不变）
+          page: options?.page,
         }
       )
       resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
@@ -355,6 +366,7 @@ export async function resolveBilibiliOnline(
       {
         preferMp4: effectivePreferMp4,
         movieId: useHostCookie ? movie.id : undefined,
+        page: options?.page,
       }
     )
     resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)

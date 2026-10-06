@@ -728,6 +728,8 @@ export function useWatchTogether({
           // 默认行为），会员专享集与房主看到的一致。
           const resolved = await resolveBilibiliOnline(movie, undefined, {
             preferMp4: getEffectivePreferMp4(movie.id),
+            // 多 P 视频：切 P 后 url 不变，按当前分 P 解析
+            page: movie.currentPage,
           })
           const resolvedSource: ResolvedSource = {
             videoUrl: resolved.sourceUrl,

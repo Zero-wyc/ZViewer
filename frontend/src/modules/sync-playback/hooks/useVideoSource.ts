@@ -102,8 +102,13 @@ async function ensureViewerLocalOverride(
     return null
   }
 
-  // 已有匹配的本地覆盖时直接复用，避免重复解析
-  if (existing?.movieId === movieId && existingIsMp4 === adjustedPreferMp4) {
+  // 已有匹配的本地覆盖时直接复用，避免重复解析。
+  // cid 需一致：房主切分 P 后广播 state.cid 变化，旧分 P 的覆盖必须失效。
+  if (
+    existing?.movieId === movieId &&
+    existingIsMp4 === adjustedPreferMp4 &&
+    existing.resolved.cid === state.cid
+  ) {
     return existing
   }
 
@@ -112,6 +117,9 @@ async function ensureViewerLocalOverride(
   try {
     const resolved = await resolveBilibiliOnline(movie, undefined, {
       preferMp4: adjustedPreferMp4,
+      // 多 P 视频：切 P 只更新 movie.cid/currentPage，url 不变，
+      // 必须显式传 page 才能解析到当前分 P（否则固定解析第 1 P）
+      page: movie.currentPage,
     })
     const resolvedSource: ResolvedSource = {
       videoUrl: resolved.sourceUrl,
@@ -334,8 +342,13 @@ export function useVideoSource({
       const storeState = useRoomStore.getState()
       const currentMovieId = storeState.currentMovieId
       const existing = storeState.viewerCliResolvedSource
+      // 分 P 切换检测：override 只记录解析时刻的分 P（cid），房主切分 P 后
+      // 广播 state.cid 变化而 movieId 不变——cid 不一致说明 override 已过期，
+      // 必须重新解析当前分 P，否则观众停留在切 P 前的旧分 P。
       const override =
-        existing && existing.movieId === currentMovieId
+        existing &&
+        existing.movieId === currentMovieId &&
+        existing.resolved.cid === state.cid
           ? existing
           : await ensureViewerLocalOverride(state)
       if (override && override.movieId === currentMovieId) {
