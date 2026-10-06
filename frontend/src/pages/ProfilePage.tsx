@@ -15,7 +15,6 @@ import {
   Download,
   Cookie,
   Link2,
-  Music,
 } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
@@ -757,13 +756,6 @@ export default function ProfilePage() {
                         <p className="min-w-0 truncate text-base font-medium text-[var(--md-sys-color-on-surface)]">
                           {ncmLoginInfo.nickname ?? '网易云音乐用户'}
                         </p>
-                        <Tag
-                          color="cyan"
-                          className="shrink-0 px-1.5 py-0 text-[10px]"
-                        >
-                          <Music className="mr-0.5 h-3 w-3" />
-                          网易云
-                        </Tag>
                         {/* 会员类型标签（两档：VIP / 普通账号） */}
                         {ncmVipText === 'VIP' ? (
                           <Tag

@@ -1478,7 +1478,7 @@ export default function AdminPage() {
                     options={[
                       { label: 'UDP（默认，低延迟直连）', value: 'udp' },
                       {
-                        label: 'TCP（UDP 被墙时的兜底，额外开启 3337/TCP）',
+                        label: 'TCP（UDP 被墙时的选择，额外开启 3337/TCP）',
                         value: 'tcp',
                       },
                     ]}
