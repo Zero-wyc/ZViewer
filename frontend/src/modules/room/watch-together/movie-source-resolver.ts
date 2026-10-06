@@ -192,9 +192,12 @@ function buildBilibiliResolveCacheKey(
   movieId: number,
   qn: number | null | undefined,
   preferMp4: boolean,
-  cliProxyUrl: string | null
+  cliProxyUrl: string | null,
+  useHostCookie: boolean
 ): string {
-  return `${movieId}|${qn ?? '-'}|${preferMp4 ? 'mp4' : 'dash'}|${cliProxyUrl ?? 'server'}`
+  return `${movieId}|${qn ?? '-'}|${preferMp4 ? 'mp4' : 'dash'}|${
+    cliProxyUrl ?? 'server'
+  }|${useHostCookie ? 'host' : 'self'}`
 }
 
 /** 强制绕过缓存时（旧 URL 已失败），清掉该影片的全部缓存条目避免膨胀 */
@@ -221,7 +224,17 @@ function purgeBilibiliResolveCache(movieId: number): void {
 export async function resolveBilibiliOnline(
   movie: Movie,
   onProgress?: (step: string, message: string) => void,
-  options?: { preferMp4?: boolean; forceRefresh?: boolean }
+  options?: {
+    preferMp4?: boolean
+    forceRefresh?: boolean
+    /**
+     * 服务器解析时以影片所属房间房主的 B站 Cookie 身份执行（后端按
+     * movieId 解析身份）。用于观众端没有本地 CLI、强制走服务器 MP4 的
+     * 场景：房主为大会员时会员专享集拿到完整内容而非试看片段。
+     * 仅影响服务器解析路径；走本地 CLI 时始终用观众自己的 Cookie。
+     */
+    useHostCookie?: boolean
+  }
 ): Promise<ResolvedMovieSource> {
   const parsePrefs = getBilibiliParseOptions(movie.id)
   const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
@@ -245,11 +258,13 @@ export async function resolveBilibiliOnline(
   // 服务端按 qn 过滤掉）。用户手动切档走 useBilibiliQuality.applyQualityChange
   // （显式 qn，写回 currentQn），不经过本函数。
   const requestedQn: number | undefined = undefined
+  const useHostCookie = options?.useHostCookie === true
   const cacheKey = buildBilibiliResolveCacheKey(
     movie.id,
     requestedQn,
     effectivePreferMp4,
-    proxyUrl
+    proxyUrl,
+    useHostCookie
   )
   if (!forceRefresh) {
     const cached = bilibiliResolveCache.get(cacheKey)
@@ -288,7 +303,10 @@ export async function resolveBilibiliOnline(
       movie.url,
       requestedQn,
       onProgress,
-      { preferMp4: effectivePreferMp4 }
+      {
+        preferMp4: effectivePreferMp4,
+        movieId: useHostCookie ? movie.id : undefined,
+      }
     )
     resolvedSource = mapResolvedSourceToMovieSource(resolved, movie)
   }

@@ -98,6 +98,11 @@ async function ensureViewerLocalOverride(
   try {
     const resolved = await resolveBilibiliOnline(movie, undefined, {
       preferMp4: adjustedPreferMp4,
+      // 房主启用 CLI 而观众本地未开启时，观众强制走服务器 MP4。
+      // 此解析以影片所属房间房主的 B站 Cookie 身份执行（后端按 movieId
+      // 查房间房主），保证会员专享内容与房主看到的一致——否则观众身份
+      // 只能拿到 3 分钟试看片段。观众自己开启 CLI 时保持自己的账号身份。
+      useHostCookie: forceViewerMp4,
     })
     const resolvedSource: ResolvedSource = {
       videoUrl: resolved.sourceUrl,

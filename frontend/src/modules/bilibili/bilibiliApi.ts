@@ -506,7 +506,17 @@ export async function resolveBilibili(
   url: string,
   qn?: number,
   onProgress?: (step: string, message: string) => void,
-  options?: { preferMp4?: boolean; forceDash?: boolean; page?: number }
+  options?: {
+    preferMp4?: boolean
+    forceDash?: boolean
+    page?: number
+    /**
+     * 按该影片所属房间房主的 B站 Cookie 身份解析（后端按 movieId 查房间房主）。
+     * 用于观众端借用房主解析身份的场景：房主为大会员时，会员专享集拿到
+     * 完整内容而非观众身份下的试看片段。Cookie 本身不回传。
+     */
+    movieId?: number
+  }
 ): Promise<ResolvedSource> {
   let fetchUrl = `/api/stream/resolve-bilibili?url=${encodeURIComponent(url)}`
   if (qn != null && Number.isFinite(qn)) {
@@ -524,6 +534,9 @@ export async function resolveBilibili(
     options.page > 0
   ) {
     fetchUrl += `&page=${options.page}`
+  }
+  if (options?.movieId != null && Number.isFinite(options.movieId)) {
+    fetchUrl += `&movieId=${options.movieId}`
   }
 
   // 整体超时兜底：后端流式响应永不结束时主动 abort，避免前端永久挂起。
@@ -568,12 +581,18 @@ export async function resolveBilibiliWithOptions(
   url: string,
   qn?: number,
   onProgress?: (step: string, message: string) => void,
-  extraOptions?: { preferMp4?: boolean; forceDash?: boolean; page?: number }
+  extraOptions?: {
+    preferMp4?: boolean
+    forceDash?: boolean
+    page?: number
+    movieId?: number
+  }
 ): Promise<ResolvedSource> {
   return resolveBilibili(url, qn, onProgress, {
     preferMp4: extraOptions?.preferMp4,
     forceDash: extraOptions?.forceDash,
     page: extraOptions?.page,
+    movieId: extraOptions?.movieId,
   })
 }
 

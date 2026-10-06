@@ -10,6 +10,8 @@
 
 import { Router, Response } from 'express';
 import { AuthenticatedRequest } from '../../middleware/auth';
+import { AppDataSource } from '../../data-source';
+import { Movie } from '../../entities/Movie';
 import { getVideoInfo } from '../../services/bilibili/video';
 import { getDanmaku } from '../../services/bilibili/danmaku';
 import {
@@ -143,10 +145,46 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
       : undefined;
 
   const writer = new NdjsonWriter(res);
-  const cookie = (await getUserCookie(userId)) || undefined;
+
+  // 解析身份决策：默认用请求者自己的 B站 Cookie。
+  // movieId 提供时（观众端房主 CLI 兜底 MP4 等共享场景）：改用影片所属房间
+  // 房主的 Cookie 解析，使观众拿到与房主一致的解析结果——房主为大会员时
+  // 会员专享集是完整内容，而非观众身份下的 3 分钟试看片段。
+  // Cookie 仅作为解析身份使用，不回传给客户端；影片不存在或房间无房主时
+  // 回退请求者自己的 Cookie（匿名语义由 resolver 内部兜底）。
+  let cookieOwnerId: string | number | undefined = userId;
+  const movieIdParam =
+    typeof req.query.movieId === 'string' ? Number(req.query.movieId) : NaN;
+  if (Number.isInteger(movieIdParam) && movieIdParam > 0) {
+    try {
+      const movie = await AppDataSource.getRepository(Movie).findOne({
+        where: { id: movieIdParam },
+        relations: ['room'],
+      });
+      const hostUserId = movie?.room?.ownerUserId;
+      if (hostUserId != null) {
+        cookieOwnerId = hostUserId;
+      } else {
+        console.warn(
+          `[bilibili] movieId=${movieIdParam} 房间无房主或影片不存在，回退请求者 Cookie`,
+        );
+      }
+    } catch (err) {
+      console.warn(
+        `[bilibili] movieId=${movieIdParam} 查询房主失败，回退请求者 Cookie:`,
+        err instanceof Error ? err.message : err,
+      );
+    }
+  }
+
+  const cookie = (await getUserCookie(cookieOwnerId)) || undefined;
+  const cookieOwnerLabel =
+    cookieOwnerId !== undefined && cookieOwnerId === userId
+      ? 'self'
+      : `host(${String(cookieOwnerId)})`;
   const resolveStartTime = Date.now();
   console.log(
-    `[bilibili] resolve-bilibili start preferMp4=${preferMp4} forceDash=${forceDash} qn=${qn ?? 'auto'} cookie=${!!cookie} url=${url.slice(0, 60)}`,
+    `[bilibili] resolve-bilibili start preferMp4=${preferMp4} forceDash=${forceDash} qn=${qn ?? 'auto'} cookie=${!!cookie} cookieOwner=${cookieOwnerLabel} url=${url.slice(0, 60)}`,
   );
 
   try {
