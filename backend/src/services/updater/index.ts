@@ -3,6 +3,7 @@ import fs from 'fs';
 import https from 'https';
 import path from 'path';
 import os from 'os';
+import AdmZip from 'adm-zip';
 import { getSystemSettings } from '../system-settings';
 
 const REPO_OWNER = 'Zero-wyc';
@@ -418,15 +419,37 @@ function downloadFile(
 
 /**
  * 解压压缩包到指定目录。
- * - Windows (.zip)：使用 PowerShell Expand-Archive
- * - Linux (.tar.gz)：使用 tar
+ * - .zip：Windows 使用 PowerShell Expand-Archive；Linux/Docker 使用 adm-zip
+ *   纯 Node 解压（容器内没有 unzip 命令，也不依赖任何系统工具）
+ * - .tar.gz：Linux 使用 tar
  */
 function extractArchive(
   archivePath: string,
   destDir: string,
 ): Promise<void> {
+  const isWindows = os.platform() === 'win32';
+  const isZip = archivePath.toLowerCase().endsWith('.zip');
+
+  // Linux/Docker 下的 .zip：adm-zip 纯 Node 解压。
+  // 旧实现 Linux 分支一律 `tar xzf`，仅支持 .tar.gz——手动上传 .zip 时
+  // tar 报 "This does not look like a tar archive"，Docker 环境手动上传
+  // 压缩包更新必然失败。
+  if (!isWindows && isZip) {
+    return new Promise((resolve, reject) => {
+      try {
+        new AdmZip(archivePath).extractAllTo(destDir, true);
+        resolve();
+      } catch (err) {
+        reject(
+          err instanceof Error
+            ? new Error(`解压失败: ${err.message}`)
+            : new Error(`解压失败: ${String(err)}`),
+        );
+      }
+    });
+  }
+
   return new Promise((resolve, reject) => {
-    const isWindows = os.platform() === 'win32';
     let cmd: string;
     let args: string[];
 
