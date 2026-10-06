@@ -1520,7 +1520,8 @@ export default function AdminPage() {
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     客户端语音连接的 LiveKit 服务器地址（ws:// 或
                     wss://）。留空时按页面域名自动推导（跟随
-                    EdgeOne/反向代理），适合内嵌 LiveKit 的默认部署；填写后优先于自动推导与环境变量
+                    EdgeOne/反向代理），适合内嵌 LiveKit
+                    的默认部署；填写后优先于自动推导与环境变量
                     LIVEKIT_URL，适用于外置/独立部署的 LiveKit
                     服务器。注意：外置服务器需与本服务使用相同的 API
                     Key/Secret，否则语音凭证验签失败；媒体端口（UDP/TCP）也需对该地址可达。
