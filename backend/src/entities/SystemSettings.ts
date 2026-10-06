@@ -134,6 +134,17 @@ export class SystemSettings {
   @Column({ type: 'text', default: 'udp' })
   voiceTransportMode!: string;
 
+  /**
+   * 自定义语音聊天 LiveKit 服务器地址（客户端连接地址，管理端基础设置）。
+   * - ''（默认）：客户端地址按请求头推导（wss/ws://页面域名，跟随 EdgeOne/
+   *   反向代理），或回落环境变量 LIVEKIT_URL
+   * - 非空（如 wss://livekit.example.com）：优先于环境变量与自动推导，
+   *   适用于外置/独立部署的 LiveKit 服务器（需与该服务器使用相同的
+   *   API Key/Secret，否则 token 验签失败）
+   */
+  @Column({ type: 'text', default: '' })
+  livekitExternalUrl!: string;
+
   @CreateDateColumn()
   createdAt!: Date;
 

@@ -37,6 +37,8 @@ export interface SystemSettings {
   cdnProxyUrl: string
   /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
   roomMultiInstanceLogin: boolean
+  /** 自定义 LiveKit 服务器地址（客户端连接；空=按页面域名自动推导或环境变量） */
+  livekitExternalUrl: string
   dataSourceConfig?: Record<string, unknown> | null
 }
 
@@ -70,6 +72,7 @@ const DEFAULT_SETTINGS: SystemSettings = {
   cdnAccelerate: false,
   cdnProxyUrl: 'https://gh-proxy.com',
   roomMultiInstanceLogin: false,
+  livekitExternalUrl: '',
   dataSourceConfig: null,
 }
 

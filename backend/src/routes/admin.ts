@@ -472,6 +472,7 @@ router.get(
           playsvideoEnabled: settings.playsvideoEnabled,
           roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
           voiceTransportMode: settings.voiceTransportMode,
+          livekitExternalUrl: settings.livekitExternalUrl,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });
@@ -491,7 +492,7 @@ router.put(
   ): Promise<void> => {
     try {
       const {
-        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, roomPermissionMatrix,
+        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, livekitExternalUrl, roomPermissionMatrix,
       } = req.body;
       // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
       const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
@@ -618,6 +619,25 @@ router.put(
         });
         return;
       }
+      if (livekitExternalUrl !== undefined && typeof livekitExternalUrl !== 'string') {
+        res.status(400).json({
+          success: false,
+          message: 'livekitExternalUrl 必须是字符串',
+        });
+        return;
+      }
+      const trimmedLivekitUrl =
+        typeof livekitExternalUrl === 'string' ? livekitExternalUrl.trim() : '';
+      if (
+        trimmedLivekitUrl &&
+        !/^wss?:\/\//i.test(trimmedLivekitUrl)
+      ) {
+        res.status(400).json({
+          success: false,
+          message: 'livekitExternalUrl 必须以 ws:// 或 wss:// 开头',
+        });
+        return;
+      }
       const settingsRepo = AppDataSource.getRepository(SystemSettings);
       const settings = await getSystemSettings();
       settings.autoDeleteInactiveRooms = autoDeleteInactiveRooms;
@@ -677,6 +697,9 @@ router.put(
       if (cdnProxyUrl !== undefined) {
         settings.cdnProxyUrl = cdnProxyUrl.trim();
       }
+      if (livekitExternalUrl !== undefined) {
+        settings.livekitExternalUrl = trimmedLivekitUrl;
+      }
       if (roomPermissionMatrix !== undefined) {
         settings.roomPermissionMatrix =
           roomPermissionMatrix as SystemSettings['roomPermissionMatrix'];
@@ -707,6 +730,7 @@ router.put(
           playsvideoEnabled: settings.playsvideoEnabled,
           roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
           voiceTransportMode: settings.voiceTransportMode,
+          livekitExternalUrl: settings.livekitExternalUrl,
           roomPermissionMatrix: settings.roomPermissionMatrix,
         },
       });

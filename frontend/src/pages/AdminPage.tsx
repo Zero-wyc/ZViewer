@@ -145,6 +145,8 @@ interface AdminSettings {
   roomMultiInstanceLogin: boolean
   /** 语音（LiveKit）媒体传输模式：udp=仅 3333/udp；tcp=额外开启 ICE/TCP 3337 */
   voiceTransportMode: 'udp' | 'tcp'
+  /** 自定义 LiveKit 服务器地址（客户端连接；空=按页面域名自动推导） */
+  livekitExternalUrl: string
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]
@@ -188,6 +190,7 @@ export default function AdminPage() {
     cdnAccelerate: false,
     cdnProxyUrl: 'https://gh-proxy.com',
     roomMultiInstanceLogin: false,
+    livekitExternalUrl: '',
     voiceTransportMode: 'udp',
   })
   const [loading, setLoading] = useState(false)
@@ -812,6 +815,7 @@ export default function AdminPage() {
         cdnAccelerate: settings.cdnAccelerate,
         cdnProxyUrl: settings.cdnProxyUrl,
         roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
+        livekitExternalUrl: settings.livekitExternalUrl,
         voiceTransportMode: settings.voiceTransportMode,
       }
       if (settings.dataSourceConfig) {
@@ -1495,6 +1499,31 @@ export default function AdminPage() {
                     被运营商或企业防火墙拦截时，客户端自动经 3337/TCP
                     直连媒体；UDP 可用时仍优先走低延迟 UDP。需在防火墙放行
                     3337/tcp（Docker 部署需补端口映射）。
+                  </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  自定义 LiveKit 服务器地址
+                </Title>
+                <div className="mb-6 max-w-md">
+                  <Input
+                    label="LiveKit 服务器地址（可选）"
+                    value={settings.livekitExternalUrl}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        livekitExternalUrl: e.target.value,
+                      }))
+                    }
+                    placeholder="留空自动推导（如 wss://livekit.example.com）"
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    客户端语音连接的 LiveKit 服务器地址（ws:// 或
+                    wss://）。留空时按页面域名自动推导（跟随
+                    EdgeOne/反向代理），适合内嵌 LiveKit 的默认部署；填写后优先于自动推导与环境变量
+                    LIVEKIT_URL，适用于外置/独立部署的 LiveKit
+                    服务器。注意：外置服务器需与本服务使用相同的 API
+                    Key/Secret，否则语音凭证验签失败；媒体端口（UDP/TCP）也需对该地址可达。
                   </p>
                 </div>
 

@@ -18,6 +18,7 @@ import { Router, Response } from 'express';
 import { AccessToken, RoomServiceClient, TrackType } from 'livekit-server-sdk';
 import { AppDataSource } from '../data-source';
 import { Room } from '../entities/Room';
+import { getSystemSettings } from '../index';
 import {
   authenticateToken,
   AuthenticatedRequest,
@@ -36,14 +37,23 @@ const livekitConfigured = () =>
  * 解析「客户端连接 LiveKit」的信令地址（按次请求推导）。
  *
  * 优先级：
- * 1. LIVEKIT_URL 环境变量（显式配置，如外置 LiveKit 或特殊域名）
- * 2. 从请求头推导：跟随页面协议与域名——HTTPS 页面自动 wss（避免混合
+ * 1. 管理端基础设置的 livekitExternalUrl（运行时可配，非空时最高优先）
+ * 2. LIVEKIT_URL 环境变量（部署级显式配置，如外置 LiveKit）
+ * 3. 从请求头推导：跟随页面协议与域名——HTTPS 页面自动 wss（避免混合
  *    内容拦截），反代/CDN 场景取 x-forwarded-host/proto
  *
  * 注意：不能在服务端「探测本机 IP」生成默认地址——容器/多网卡环境下
  * 探测到的是内部地址（如 Docker bridge 172.24.x.x），浏览器不可达。
  */
-function resolveClientUrl(req: AuthenticatedRequest): string {
+async function resolveClientUrl(req: AuthenticatedRequest): Promise<string> {
+  // 管理端基础设置（运行时可配）：管理员显式填写的地址优先于环境变量
+  try {
+    const settings = await getSystemSettings();
+    const configured = settings.livekitExternalUrl?.trim();
+    if (configured) return configured;
+  } catch (err) {
+    console.error('[voice] 读取系统设置失败，回落环境变量/自动推导:', err);
+  }
   const explicit = process.env.LIVEKIT_URL?.trim();
   if (explicit) return explicit;
   const host =
@@ -124,7 +134,7 @@ router.post(
       // toJwt() 新版返回 Promise（thenable），必须 await——否则序列化成
       // "[object Object]" 发给前端，LiveKit 401 拒绝连接
       const jwt = await token.toJwt();
-      res.json({ success: true, url: resolveClientUrl(req), token: jwt });
+      res.json({ success: true, url: await resolveClientUrl(req), token: jwt });
     } catch (err) {
       console.error('[voice] token error:', err);
       res.status(500).json({ success: false, message: '签发语音凭证失败' });
