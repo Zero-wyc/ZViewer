@@ -47,25 +47,14 @@ export const directEngine: PlayerEngine = {
     const targetUrl = plan.targetUrl
 
     // 原生执行层：设置 src 并等待 metadata（直连失败时换 URL 重试）
-    const loadOnce = async (
-      url: string,
-      noReferrer: boolean
-    ): Promise<void> => {
-      // referrerPolicy 必须在 src 赋值前设置才对该次媒体请求生效；
-      // B站 CDN 拒绝携带跨站 Referer 的请求（403 → ORB 拦截 → 直连必败）
-      // 经 content attribute 设置（lib.dom 未在 HTMLVideoElement 声明 IDL 属性）
-      if (noReferrer) {
-        video.setAttribute('referrerpolicy', 'no-referrer')
-      } else {
-        video.removeAttribute('referrerpolicy')
-      }
+    const loadOnce = async (url: string): Promise<void> => {
       video.src = url
       video.load()
       await waitForMetadataOrError(video)
     }
 
     try {
-      await loadOnce(targetUrl, plan.noReferrer)
+      await loadOnce(targetUrl)
     } catch (err) {
       // MKV 原生直连超时：极大概率是编码不被浏览器原生支持而非源站无
       // 响应，命中时短路后续降级 / 回退，直接给出可操作指引
@@ -80,7 +69,7 @@ export const directEngine: PlayerEngine = {
         )
         resetVideoElement(video)
         try {
-          await loadOnce(plan.httpDowngradeUrl, plan.noReferrer)
+          await loadOnce(plan.httpDowngradeUrl)
           return {
             cleanup: () => {
               delete video.dataset.serverDuration
@@ -109,7 +98,7 @@ export const directEngine: PlayerEngine = {
       console.warn('[direct-engine] 直连失败，回退到服务器代理:', err)
       resetVideoElement(video)
       try {
-        await loadOnce(buildProxyUrl(source.url), false)
+        await loadOnce(buildProxyUrl(source.url))
       } catch (proxyErr) {
         // 包装两次失败上下文：cause 挂回退代理的错误（symptom 因果），
         // 首次直连错误已由上方 console.warn 记录
