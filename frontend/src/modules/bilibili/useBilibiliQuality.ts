@@ -131,7 +131,7 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
             cliOnly || parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
           if (cliOnly && !proxyUrl) {
             throw new Error(
-              '该影片已开启「仅允许CLI模式」：请安装并连接 zcontrol-cli 后观看'
+              '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后观看'
             )
           }
           if (proxyUrl) {

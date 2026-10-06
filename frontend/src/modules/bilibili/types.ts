@@ -131,12 +131,12 @@ export interface BilibiliParseOptions {
    */
   bufferMode?: boolean
   /**
-   * CLI 本地高画质代理：true=启用本地 zcontrol-cli 代理解析/播放该 B站 视频。
+   * CLI 本地高画质代理：true=启用本地 ZViewer CLI 代理解析/播放该 B站 视频。
    *
    * 启用后，前端通过本地 CLI（127.0.0.1:9333）使用用户自己的 B站 Cookie
    * 解析高画质地址并代理视频流，可获得大会员清晰度。
    *
-   * 需要用户事先在本地启动 zcontrol-cli 并连接同一房间；未检测到 CLI 时
+   * 需要用户事先在本地启动 ZViewer CLI 并连接同一房间；未检测到 CLI 时
    * 自动回退到服务端解析。
    */
   cliEnabled?: boolean

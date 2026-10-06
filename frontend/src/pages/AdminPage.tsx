@@ -1751,8 +1751,7 @@ export default function AdminPage() {
                   />
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     识别为番剧/影视（需大会员）的内容在添加影片时套用的默认模式。选择「仅
-                    CLI 模式」后，房间内所有成员都必须安装并连接本机
-                    zcontrol-cli
+                    CLI 模式」后，房间内所有成员都必须安装并连接本机 ZViewer CLI
                     才能观看，服务器仅做同步信令，不转发媒体流（不消耗服务器带宽）。
                   </p>
                 </div>

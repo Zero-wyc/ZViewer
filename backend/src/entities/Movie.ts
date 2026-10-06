@@ -142,7 +142,7 @@ export class Movie {
   /**
    * 仅允许 CLI 模式（B站 番剧/影视 PGC 专属配置）。
    *
-   * - true：全房间成员（含房主）必须各自连接 zcontrol-cli 才能观看，
+   * - true：全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，
    *   媒体流一律经成员本机 CLI 代理，服务器零媒体流量（仅承载信令与
    *   playurl 解析）；未连接 CLI 的成员无法播放，不回退服务器转发
    * - false（默认）：按常规解析偏好（服务器转发 / MP4 直链 / CLI）

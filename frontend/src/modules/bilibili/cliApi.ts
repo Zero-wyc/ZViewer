@@ -174,7 +174,7 @@ export async function resolveBilibiliViaCli(
   } catch {
     // fetch 抛出 TypeError：网络不可达、CORS 被拦截、进程未启动等
     throw new CliConnectionError(
-      'CLI 代理连接失败，请确认本地 zcontrol-cli 已启动'
+      'CLI 代理连接失败，请确认本地 ZViewer CLI 已启动'
     )
   }
 
@@ -254,7 +254,7 @@ export async function resolveBangumiViaCli(
     })
   } catch {
     throw new CliConnectionError(
-      'CLI 代理连接失败，请确认本地 zcontrol-cli 已启动'
+      'CLI 代理连接失败，请确认本地 ZViewer CLI 已启动'
     )
   }
 

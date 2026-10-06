@@ -5,7 +5,7 @@
  * （roomStore.viewerCliRequiredMovieId）：覆盖播放器区域，与
  * useVideoSource.applySourceToVideo 的同标志挂载拦截配合——cliOnly
  * 语义下不回退服务器转发（服务器零媒体流量），观众必须自备
- * zcontrol-cli 并用自己的 CLI 解析播放。
+ * ZViewer CLI 并用自己的 CLI 解析播放。
  *
  * 恢复路径：
  * - 手动：「我已连接，重试」触发观众端源重载；
@@ -56,7 +56,7 @@ export function ViewerCliRequiredOverlay() {
         房主已对本影片
         {movie?.title ? `「${movie.title}」` : ''}
         开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接
-        zcontrol-cli 后使用自己的 CLI 解析播放。
+        ZViewer CLI 后使用自己的 CLI 解析播放。
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <button

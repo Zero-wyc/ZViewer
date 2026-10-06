@@ -325,7 +325,7 @@ async function bootstrap() {
   // 一起听音乐模块：NCM API 通用转发 / 登录态 / 音频流代理（可选鉴权，游客可匿名调用）
   app.use('/api/music', musicRoutes);
   app.use('/api/stream', streamRoutes);
-  // CLI 本地代理端点：供 zcontrol-cli 使用，使用用户自己的 Cookie 解析高画质
+  // CLI 本地代理端点：供 ZViewer CLI 使用，使用用户自己的 Cookie 解析高画质
   app.use('/api/cli', cliRoutes);
   app.use('/api/openlist', openlistRoutes);
   // 直链实时解析：前端播放时按 movieId 获取新鲜直链（openlist/webdav）
@@ -485,7 +485,7 @@ async function bootstrap() {
   void cleanupInactiveRooms(io);
 
   io.use((socket, next) => {
-    // CLI 代理（zcontrol-cli）使用独立连接语义：无需浏览器用户的 access_token，
+    // CLI 代理（ZViewer CLI）使用独立连接语义：无需浏览器用户的 access_token，
     // 全局注册（不绑定房间，一个 CLI 对所有房间可用）。此处按 agent 标识放行，
     // 后续 CliHandler 会校验 proxyUrl 并按 user 归属过滤。
     if (socket.handshake.auth.agent === 'zcontrol-cli') {

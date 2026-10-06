@@ -376,7 +376,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     ? cliAvailable
                       ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
                       : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
-                    : '使用本地 zcontrol-cli 获取大会员等高画质视频背景'}
+                    : '使用本地 ZViewer CLI 获取大会员等高画质视频背景'}
                 </div>
                 {/* 分辨率选择（CLI DASH 与服务器 DASH 双轨共用 musicVideoQn，
                   MP4 路径固定 720P 不显示）：变更即重解析视频背景；
@@ -479,7 +479,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     {cliVideoLocked
                       ? cliAvailable
                         ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
-                        : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 zcontrol-cli 获取高画质'
+                        : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
                       : musicVideoServerDash
                         ? 'DASH 分离流，清晰度由上方「分辨率」选择决定（自动=跟随账号）'
                         : 'MP4 直链，seek 流畅，清晰度通常 480P/720P'}

@@ -1221,7 +1221,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           const sysSettings = useSystemSettingsStore.getState()
           const pgc = isBilibiliPgcMovie(added)
           // 番剧/影视默认模式为「仅 CLI」时物化 Movie.cliOnly：
-          // 全体成员必须连接本机 zcontrol-cli 观看，服务器仅做同步信令
+          // 全体成员必须连接本机 ZViewer CLI 观看，服务器仅做同步信令
           const pgcCliOnly =
             pgc && sysSettings.bilibiliPgcDefaultMode === 'cliOnly'
           if (pgcCliOnly && added.cliOnly !== true) {

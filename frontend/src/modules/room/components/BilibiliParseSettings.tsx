@@ -400,7 +400,7 @@ export function BilibiliParseSettings({
                 ? cliAgent.available
                   ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
                   : '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质'
-                : '使用本地 zcontrol-cli 获取大会员等高画质'}
+                : '使用本地 ZViewer CLI 获取大会员等高画质'}
             </div>
 
             <button
@@ -503,10 +503,10 @@ export function BilibiliParseSettings({
               >
                 {isHost
                   ? cliOnly
-                    ? '全房间成员（含房主）必须各自连接 zcontrol-cli 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导'
-                    : '开启后全房间成员必须各自连接 zcontrol-cli 观看，服务器仅同步信令、零媒体流量（适合番剧/影视等高码率内容）'
+                    ? '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导'
+                    : '开启后全房间成员必须各自连接 ZViewer CLI 观看，服务器仅同步信令、零媒体流量（适合番剧/影视等高码率内容）'
                   : cliOnly
-                    ? '房主已开启：本影片需自行安装并连接 zcontrol-cli 后才能观看'
+                    ? '房主已开启：本影片需自行安装并连接 ZViewer CLI 后才能观看'
                     : null}
               </div>
             </div>
@@ -537,7 +537,7 @@ export function BilibiliParseSettings({
                 : cliEnabled
                   ? cliAgent.available
                     ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
-                    : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 zcontrol-cli 获取高画质'
+                    : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
                   : displayPreferMp4
                     ? 'MP4 直链，seek 流畅，清晰度通常 480P/720P'
                     : 'DASH 分离流，支持 1080P/4K，seek 需缓冲'}

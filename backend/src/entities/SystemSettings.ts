@@ -71,7 +71,7 @@ export class SystemSettings {
    * - 'mp4'（默认）：服务器 MP4 模式（PGC MP4 经代理转发）
    * - 'dash'：服务器 DASH 模式
    * - 'cliOnly'：仅允许 CLI 模式——添加影片时物化 Movie.cliOnly，
-   *   成员必须连接本机 zcontrol-cli 观看，媒体流不经服务器转发，
+   *   成员必须连接本机 ZViewer CLI 观看，媒体流不经服务器转发，
    *   服务器仅做同步信令
    */
   @Column({ type: 'text', default: 'mp4' })

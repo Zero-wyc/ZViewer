@@ -1,7 +1,7 @@
 /**
  * CLI 代理 Socket 事件处理器。
  *
- * 处理本地 zcontrol-cli 客户端的注册、列表查询与断开通知：
+ * 处理本地 ZViewer CLI 客户端的注册、列表查询与断开通知：
  * - cli-register：CLI 代理注册到服务器（全局，不再绑定房间），广播 cli-agent-available
  * - cli-list-agents：前端查询全局 CLI 代理列表
  * - disconnect：CLI 断开时广播 cli-agent-unavailable

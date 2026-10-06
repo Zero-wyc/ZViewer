@@ -2,7 +2,7 @@
  * 歌词模块自定义视频背景的解析 Hook（Hydrogen PlayerVideo 的 Web 复刻数据层）。
  *
  * 解析链路复用「一起看」哔哩哔哩模块：
- * - CLI 开启（音乐设置「视频背景 CLI 高画质」）且本地 zcontrol-cli 已连接：
+ * - CLI 开启（音乐设置「视频背景 CLI 高画质」）且本地 ZViewer CLI 已连接：
  *   resolveBilibiliViaCli → 用户自己 Cookie 的大会员高画质 DASH 流
  *   （videoUrl + audioUrl 均已包装为 CLI 本地代理 URL）
  * - 其余情况（默认）：服务器端解析 resolveBilibiliWithOptions → 720P

@@ -167,7 +167,7 @@ export function MovieListPanel({
     // （解析/挂载链路均强制 CLI），提前给出可操作提示
     if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
       message.error(
-        '该影片已开启「仅允许CLI模式」：请安装并连接 zcontrol-cli 后操作'
+        '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作'
       )
       return
     }
@@ -313,7 +313,7 @@ export function MovieListPanel({
     // （解析/挂载链路均强制 CLI），提前给出可操作提示
     if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
       message.error(
-        '该影片已开启「仅允许CLI模式」：请安装并连接 zcontrol-cli 后操作'
+        '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作'
       )
       return
     }

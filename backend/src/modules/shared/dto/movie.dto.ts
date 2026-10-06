@@ -100,7 +100,7 @@ export interface MovieDto {
   playsvideoEnabled?: boolean;
   /**
    * 仅允许 CLI 模式（B站 番剧/影视 PGC 专属配置）。
-   * - true：全房间成员必须各自连接 zcontrol-cli 观看，服务器零媒体流量
+   * - true：全房间成员必须各自连接 ZViewer CLI 观看，服务器零媒体流量
    * - false（默认）：按常规解析偏好
    */
   cliOnly?: boolean;
