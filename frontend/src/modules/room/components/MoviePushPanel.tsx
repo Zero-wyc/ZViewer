@@ -56,7 +56,9 @@ import {
 import { setBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import {
   extractBvid,
+  extractBangumiId,
   resolveBilibiliViaCli,
+  resolveBangumiViaCli,
   CliConnectionError,
   CliResolveError,
 } from '@/modules/bilibili/cliApi'
@@ -893,11 +895,35 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     setResolveProgress('正在初始化解析...')
     try {
       const bvid = extractBvid(url.trim())
+      // PGC（番剧 ep/ss 链接）：CLI 分支按 epId 走番剧解析
+      const bangumiId = extractBangumiId(url.trim())
 
       let resolved: ResolvedSource | undefined
       // CLI 已连接时优先使用本地 CLI 代理解析（使用用户自己的 B站 Cookie，可获取高画质）
       const cliProxyUrl = getActiveCliProxyUrl()
-      if (cliProxyUrl && bvid) {
+      if (cliProxyUrl && bangumiId?.epId) {
+        try {
+          setResolveProgress('正在通过 CLI 代理解析番剧...')
+          resolved = await resolveBangumiViaCli(
+            cliProxyUrl,
+            bangumiId.epId,
+            undefined,
+            undefined,
+            false,
+            true
+          )
+          resolvedViaCliRef.current = true
+        } catch (cliErr) {
+          resolvedViaCliRef.current = false
+          if (cliErr instanceof CliConnectionError) {
+            console.warn(
+              '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
+            )
+          } else if (cliErr instanceof CliResolveError) {
+            message.warning(`${cliErr.message}，已回退到服务器端解析`)
+          }
+        }
+      } else if (cliProxyUrl && bvid) {
         try {
           setResolveProgress('正在通过 CLI 代理解析...')
           resolved = await resolveBilibiliViaCli(
@@ -932,6 +958,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       }
 
       setResolvedMovie(resolved)
+      // PGC 试看提示：会员专享集 + 非大会员账号时后端只返回试看片段
+      if (resolved.preview) {
+        message.info(
+          `该集为会员专享，当前为试看片段（约 ${Math.round((resolved.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+        )
+      }
       // 自动检测多 P 视频：若有多 P，弹出分集选择界面
       if (resolved.pages && resolved.pages.length > 1) {
         setShowPageSelector(true)
@@ -954,11 +986,34 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     setResolveProgress('正在切换清晰度...')
     try {
       const bvid = extractBvid(url.trim())
+      const bangumiId = extractBangumiId(url.trim())
 
       let resolved: ResolvedSource | undefined
       // CLI 已连接时通过本地 CLI 代理切换清晰度（使用用户自己的 B站 Cookie）
       const cliProxyUrl = getActiveCliProxyUrl()
-      if (cliProxyUrl && bvid) {
+      if (cliProxyUrl && bangumiId?.epId) {
+        try {
+          setResolveProgress('正在通过 CLI 代理切换清晰度...')
+          resolved = await resolveBangumiViaCli(
+            cliProxyUrl,
+            bangumiId.epId,
+            resolvedMovie.cid,
+            qn,
+            false,
+            true
+          )
+          resolvedViaCliRef.current = true
+        } catch (cliErr) {
+          resolvedViaCliRef.current = false
+          if (cliErr instanceof CliConnectionError) {
+            console.warn(
+              '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
+            )
+          } else if (cliErr instanceof CliResolveError) {
+            message.warning(`${cliErr.message}，已回退到服务器端解析`)
+          }
+        }
+      } else if (cliProxyUrl && bvid) {
         try {
           setResolveProgress('正在通过 CLI 代理切换清晰度...')
           resolved = await resolveBilibiliViaCli(
@@ -1009,6 +1064,62 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
     setShowPageSelector(false)
     setPageSelectLoading(true)
+
+    // PGC（番剧分集，page 带 epId）：按目标集 ep 链接/epId 重解析
+    if (targetPage.epId) {
+      const epUrl = `https://www.bilibili.com/bangumi/play/ep${targetPage.epId}`
+      setResolveProgress(`正在解析第 ${page} 集 ${targetPage.part}...`)
+      try {
+        let resolved: ResolvedSource | undefined
+        const cliProxyUrl = getActiveCliProxyUrl()
+        if (cliProxyUrl) {
+          try {
+            setResolveProgress(`正在通过 CLI 代理解析第 ${page} 集...`)
+            resolved = await resolveBangumiViaCli(
+              cliProxyUrl,
+              targetPage.epId,
+              targetPage.cid,
+              resolvedMovie.currentQn,
+              false,
+              true
+            )
+            resolvedViaCliRef.current = true
+          } catch (cliErr) {
+            resolvedViaCliRef.current = false
+            if (cliErr instanceof CliConnectionError) {
+              console.warn(
+                '[MoviePushPanel] CLI 代理连接失败，回退到服务器端解析'
+              )
+            } else if (cliErr instanceof CliResolveError) {
+              message.warning(`${cliErr.message}，已回退到服务器端解析`)
+            }
+          }
+        }
+        if (!resolved) {
+          setResolveProgress(`正在通过服务器解析第 ${page} 集...`)
+          resolvedViaCliRef.current = false
+          resolved = await resolveBilibiliWithOptions(
+            epUrl,
+            resolvedMovie.currentQn,
+            (_step, msg) => setResolveProgress(msg)
+          )
+        }
+        setResolvedMovie(resolved)
+        if (resolved.preview) {
+          message.info(
+            `该集为会员专享，当前为试看片段（约 ${Math.round((resolved.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+          )
+        }
+      } catch (err) {
+        console.error('[MoviePushPanel] page select error:', err)
+        message.error(err instanceof Error ? err.message : '切换分集失败')
+      } finally {
+        setPageSelectLoading(false)
+        setResolveProgress('')
+      }
+      return
+    }
+
     setResolveProgress(`正在解析 P${page} ${targetPage.part}...`)
     try {
       const bvid = extractBvid(url.trim())
@@ -2288,6 +2399,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                         )}
                       >
                         {formatDuration(page.duration)}
+                        {page.badge ? ` · ${page.badge}` : ''}
                       </Text>
                     )}
                   </div>

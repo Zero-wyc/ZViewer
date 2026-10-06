@@ -12,6 +12,30 @@ export function extractBvid(url: string): string | null {
 }
 
 /**
+ * 从任意输入提取番剧/影视（PGC）标识：ep 集号或 ss 季号。
+ *
+ * 与后端 resolver.extractBangumiId 语义一致：显式 /bangumi/play/ 路径直接命中；
+ * 裸 ep(\d+)/ss(\d+) 仅在无 BV/av 上下文、且 ep/ss 前非字母数字时认定。
+ */
+export function extractBangumiId(
+  input: string
+): { epId?: number; seasonId?: number } | null {
+  if (!input) return null
+  const pathMatch = input.match(/bangumi\/play\/(ep|ss)(\d+)/i)
+  if (pathMatch) {
+    return pathMatch[1].toLowerCase() === 'ep'
+      ? { epId: Number(pathMatch[2]) }
+      : { seasonId: Number(pathMatch[2]) }
+  }
+  if (extractBvid(input) || /av\d+/i.test(input)) return null
+  const epMatch = input.match(/(?:^|[^a-z0-9])ep(\d+)/i)
+  if (epMatch) return { epId: Number(epMatch[1]) }
+  const ssMatch = input.match(/(?:^|[^a-z0-9])ss(\d+)/i)
+  if (ssMatch) return { seasonId: Number(ssMatch[1]) }
+  return null
+}
+
+/**
  * 将任意 URL 包装为 CLI 本地代理 URL。
  * CLI 代理会注入正确的 Referer/Origin/User-Agent 头，绕过 B站 CDN 防盗链。
  *
@@ -71,8 +95,18 @@ interface CliResolveResponse {
     cid: number
     part: string
     duration: number
+    epId?: number
+    badge?: string
   }>
   currentPage?: number
+  /** PGC：当前播放集 ep_id */
+  epId?: number
+  /** PGC：整季 season_id */
+  seasonId?: number
+  /** PGC：整季标题（番剧/影视名） */
+  seasonTitle?: string
+  /** PGC：当前集为试看/预览流 */
+  preview?: boolean
 }
 
 /** CLI 代理连接失败（网络不可达 / CORS / 进程未启动） */
@@ -172,8 +206,91 @@ export async function resolveBilibiliViaCli(
     vipStatus: data.vipStatus,
     pages: data.pages,
     currentPage: data.currentPage,
+    epId: data.epId,
+    seasonId: data.seasonId,
+    seasonTitle: data.seasonTitle,
+    preview: data.preview,
   }
 
   // CLI /resolve 已返回代理 URL，但本地包装可确保旧版 CLI 与兜底场景也走代理。
+  return wrapResolvedSourceWithCliProxy(proxyUrl, resolved)
+}
+
+/**
+ * 通过本地 CLI 代理解析 B站 番剧/影视（PGC ep/ss）。
+ *
+ * 与 resolveBilibiliViaCli 的差异仅在于标识参数：epId（+ 可选 cid）替代 bvid。
+ * CLI 侧（Go）使用用户自己的 Cookie 调 pgc/player/web/playurl 获取播放地址。
+ */
+export async function resolveBangumiViaCli(
+  proxyUrl: string,
+  epId: number,
+  cid?: number,
+  qn?: number,
+  preferMp4?: boolean,
+  forceDash?: boolean
+): Promise<ResolvedSource> {
+  const base = proxyUrl.replace(/\/$/, '')
+  const params = new URLSearchParams({
+    epId: String(epId),
+  })
+  if (cid != null && Number.isFinite(cid)) {
+    params.set('cid', String(cid))
+  }
+  if (qn != null && Number.isFinite(qn)) {
+    params.set('qn', String(qn))
+  }
+  if (preferMp4) {
+    params.set('preferMp4', 'true')
+  }
+  if (forceDash) {
+    params.set('forceDash', 'true')
+  }
+
+  let res: Response
+  try {
+    res = await fetch(`${base}/resolve?${params.toString()}`, {
+      method: 'GET',
+    })
+  } catch {
+    throw new CliConnectionError(
+      'CLI 代理连接失败，请确认本地 zcontrol-cli 已启动'
+    )
+  }
+
+  let data: CliResolveResponse
+  try {
+    data = (await res.json()) as CliResolveResponse
+  } catch {
+    throw new CliResolveError(`CLI 代理返回了无效响应（HTTP ${res.status}）`)
+  }
+
+  if (!res.ok || data.success === false || !data.videoUrl) {
+    throw new CliResolveError(
+      data.message || `CLI 解析 B站 番剧失败（HTTP ${res.status}）`
+    )
+  }
+
+  const resolved: ResolvedSource = {
+    title: data.title,
+    videoUrl: data.videoUrl,
+    audioUrl: data.audioUrl,
+    videoCodec: data.videoCodec,
+    audioCodec: data.audioCodec,
+    duration: data.duration,
+    format: (data.format as ResolvedSource['format']) || 'mp4',
+    loggedIn: data.loggedIn,
+    cid: data.cid ?? cid,
+    currentQn: data.currentQn,
+    acceptQuality: data.acceptQuality,
+    vipStatus: data.vipStatus,
+    pages: data.pages,
+    currentPage: data.currentPage,
+    epId: data.epId ?? epId,
+    seasonId: data.seasonId,
+    seasonTitle: data.seasonTitle,
+    preview: data.preview,
+  }
+
   return wrapResolvedSourceWithCliProxy(proxyUrl, resolved)
 }

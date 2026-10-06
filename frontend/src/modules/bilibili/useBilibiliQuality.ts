@@ -7,7 +7,12 @@ import { useRoomStore } from '@/store/roomStore'
 import type { WatchTogetherState, Movie } from '@/store/roomStore'
 import { safePlay } from '@/modules/sync-playback/safePlay'
 import { getBilibiliParseOptions } from './parseOptions'
-import { extractBvid, resolveBilibiliViaCli } from './cliApi'
+import {
+  extractBvid,
+  extractBangumiId,
+  resolveBilibiliViaCli,
+  resolveBangumiViaCli,
+} from './cliApi'
 import {
   getActiveCliProxyUrl,
   getEffectivePreferMp4,
@@ -120,18 +125,31 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
           const parsePrefs = getBilibiliParseOptions(movie.id)
           const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
           if (proxyUrl) {
-            const bvid = extractBvid(movie.url)
-            if (bvid && movie.cid) {
-              resolved = await resolveBilibiliViaCli(
+            // PGC（番剧 ep/ss 链接）：按 epId 走 CLI 番剧解析分支
+            const bangumiId = extractBangumiId(movie.url)
+            if (bangumiId?.epId) {
+              resolved = await resolveBangumiViaCli(
                 proxyUrl,
-                bvid,
+                bangumiId.epId,
                 movie.cid,
                 qn,
                 false,
                 true
               )
             } else {
-              throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+              const bvid = extractBvid(movie.url)
+              if (bvid && movie.cid) {
+                resolved = await resolveBilibiliViaCli(
+                  proxyUrl,
+                  bvid,
+                  movie.cid,
+                  qn,
+                  false,
+                  true
+                )
+              } else {
+                throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+              }
             }
           } else {
             // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4

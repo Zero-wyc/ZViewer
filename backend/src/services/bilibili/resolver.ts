@@ -32,6 +32,13 @@ import {
   getCachedVideoInfo,
   setCachedVideoInfo,
 } from './cache';
+import {
+  fetchSeasonByEpId,
+  fetchSeasonBySeasonId,
+  getPgcPlayUrl,
+  PgcError,
+  type PgcSeasonInfo,
+} from './pgc';
 
 export interface ResolveProgress {
   status: 'parsing' | 'done' | 'error';
@@ -129,6 +136,10 @@ export interface ResolvePageInfo {
   part: string;
   /** 分集时长（秒） */
   duration: number;
+  /** PGC：番剧分集 ep_id（切集时必须按 ep 链接重解析） */
+  epId?: number;
+  /** PGC：B站 badge（'会员'/'限免'/''），用于前端标注会员专享集 */
+  badge?: string;
 }
 
 export interface ResolveResult {
@@ -157,6 +168,14 @@ export interface ResolveResult {
    * 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性。
    */
   resolvedUrl: string;
+  /** PGC：当前播放集 ep_id */
+  epId?: number;
+  /** PGC：整季 season_id */
+  seasonId?: number;
+  /** PGC：整季标题（番剧/影视名） */
+  seasonTitle?: string;
+  /** PGC：当前集为试看/预览流（会员专享集 + 非大会员账号） */
+  preview?: boolean;
 }
 
 export class ResolveError extends Error {
@@ -174,6 +193,31 @@ export function extractBvid(input: string): string | null {
   if (bvMatch) return bvMatch[0];
   const avMatch = input.match(/av(\d+)/i);
   if (avMatch) return avMatch[1];
+  return null;
+}
+
+/**
+ * 从任意输入提取番剧/影视（PGC）标识：ep 集号或 ss 季号。
+ *
+ * 识别顺序固定为 extractBvid → extractBangumiId（BV/av 优先，避免误伤）。
+ * - 显式 bangumi 路径（/bangumi/play/ep829609、/bangumi/play/ss45612）直接命中；
+ * - 裸 ep(\d+)/ss(\d+) 仅在无 BV/av 上下文、且 ep/ss 前非字母数字时认定
+ *   （排除 "step1"、"sleep2" 之类误匹配）。
+ */
+export function extractBangumiId(
+  input: string,
+): { epId?: number; seasonId?: number } | null {
+  const pathMatch = input.match(/bangumi\/play\/(ep|ss)(\d+)/i);
+  if (pathMatch) {
+    return pathMatch[1].toLowerCase() === 'ep'
+      ? { epId: Number(pathMatch[2]) }
+      : { seasonId: Number(pathMatch[2]) };
+  }
+  if (extractBvid(input) || /av\d+/i.test(input)) return null;
+  const epMatch = input.match(/(?:^|[^a-z0-9])ep(\d+)/i);
+  if (epMatch) return { epId: Number(epMatch[1]) };
+  const ssMatch = input.match(/(?:^|[^a-z0-9])ss(\d+)/i);
+  if (ssMatch) return { seasonId: Number(ssMatch[1]) };
   return null;
 }
 
@@ -362,6 +406,355 @@ async function fallbackToMp4(
 }
 
 /**
+ * 番剧/影视（PGC）解析编排，与 resolveBilibiliVideo（UGC）平行的分支。
+ *
+ * 与 UGC 的差异：
+ * - season 接口提供整季分集（含 ep_id/cid/badge/权威时长），pages 直接来自 episodes；
+ * - playurl 走 pgc/player/web/v1（SESSDATA 鉴权、无 WBI），fnval 语义一致；
+ * - 会员专享集 + 非大会员 → B站 只回试看 MP4（durl），DASH 请求也回落 durl，
+ *   且 API 虚报 timelength 为完整时长，因此试看集强制走 MP4 结果，
+ *   时长以 durl[0].length 为准（不可信时回退集权威时长）。
+ */
+async function resolvePgcVideo(
+  opts: ResolveOptions,
+  bangumiId: { epId?: number; seasonId?: number },
+  expandedUrl: string,
+): Promise<ResolveResult> {
+  const { cookie, qn, codec, onProgress, preferMp4, page, cid, skipCdnCheck, forceDash } = opts;
+
+  const emit = (step: string, message: string) => {
+    onProgress?.({ status: 'parsing', step, message });
+  };
+
+  const toResolveError = (err: unknown): Error => {
+    if (err instanceof PgcError) return new ResolveError(err.message, err.code);
+    return err instanceof Error ? err : new Error(String(err));
+  };
+
+  if (!cookie) {
+    emit('vip', '正在准备匿名会话...');
+    await ensureAnonymousSession();
+  }
+
+  emit('vip', '正在检查大会员状态...');
+  const isVip = await getVipStatus(cookie);
+
+  emit('info', '正在解析番剧信息...');
+  let season: PgcSeasonInfo;
+  try {
+    season = bangumiId.epId
+      ? await fetchSeasonByEpId(bangumiId.epId, cookie)
+      : await fetchSeasonBySeasonId(bangumiId.seasonId ?? 0, cookie);
+  } catch (err) {
+    throw toResolveError(err);
+  }
+
+  // 定位目标集：cid 匹配（CLI/切集场景）→ 链接 ep_id → page 序号 → 默认第一集
+  let target = season.episodes[0];
+  if (cid && season.episodes.some((ep) => ep.cid === cid)) {
+    target = season.episodes.find((ep) => ep.cid === cid) ?? target;
+  } else if (bangumiId.epId && season.episodes.some((ep) => ep.epId === bangumiId.epId)) {
+    target = season.episodes.find((ep) => ep.epId === bangumiId.epId) ?? target;
+  } else if (page && page > 0) {
+    target =
+      season.episodes[Math.min(page - 1, season.episodes.length - 1)] ?? target;
+  }
+
+  // 注：不做 status 硬拦截——实测 status 语义为 2=免费可看、13=会员可看，
+  // 并非「未开播/下架」；真正的不可播场景由 playurl 返回 -404 等业务码判定
+  // （getPgcPlayUrl 的错误映射已归一为 EP_NOT_FOUND/NO_PERMISSION）
+
+  // 试看判定：会员专享集（badge 非空）+ 非大会员账号
+  const preview = target.badge !== '' && !isVip;
+
+  const currentPage =
+    season.episodes.findIndex((ep) => ep.epId === target.epId) + 1;
+  const pagesInfo: ResolvePageInfo[] = season.episodes.map((ep, idx) => ({
+    page: idx + 1,
+    cid: ep.cid,
+    part: ep.longTitle || ep.title,
+    duration: ep.durationSec,
+    epId: ep.epId,
+    badge: ep.badge || undefined,
+  }));
+
+  const title = season.title
+    ? `${season.title} ${target.longTitle || target.title}`.trim()
+    : target.longTitle || target.title;
+  const resolvedUrl = `https://www.bilibili.com/bangumi/play/ep${target.epId}`;
+  const hasCookie = !!cookie;
+  const defaultQn = getDefaultQn(isVip, hasCookie);
+  const requestedQn = qn ?? defaultQn;
+
+  console.log(
+    '[bilibili-pgc] resolve ep=%d cid=%d badge=%s preview=%s qn=%d cookie=%s',
+    target.epId,
+    target.cid,
+    target.badge,
+    preview,
+    requestedQn,
+    hasCookie,
+  );
+
+  const buildMp4Result = (
+    mp4PlayUrl: BilibiliPlayUrlResult,
+    videoUrl: string,
+  ): ResolveResult => {
+    // 试看流时长以 durl[0].length 为准（API 的 timelength 是虚报的完整时长）；
+    // length 异常（虚报/缺失）时回退集权威时长
+    const durlLenSec = mp4PlayUrl.durl?.[0]?.length
+      ? Math.min(Math.round(mp4PlayUrl.durl[0].length / 1000), target.durationSec)
+      : 0;
+    return {
+      title,
+      duration: preview && durlLenSec > 0 ? durlLenSec : target.durationSec,
+      cid: target.cid,
+      videoUrl,
+      format: 'mp4',
+      loggedIn: hasCookie,
+      vipStatus: isVip ? 1 : 0,
+      currentQn: Math.min(mp4PlayUrl.currentQn ?? MP4_MAX_QN, MP4_MAX_QN),
+      acceptQuality: narrowAcceptQualityForMp4(mp4PlayUrl.acceptQuality ?? []),
+      pages: pagesInfo,
+      currentPage,
+      resolvedUrl,
+      epId: target.epId,
+      seasonId: season.seasonId || undefined,
+      seasonTitle: season.title || undefined,
+      preview: preview || undefined,
+    };
+  };
+
+  const buildDashResult = (
+    playUrl: BilibiliPlayUrlResult,
+    videoUrl: string,
+    audioUrl?: string,
+    acceptQuality?: ResolveResult['acceptQuality'],
+  ): ResolveResult => ({
+    title,
+    duration: target.durationSec,
+    cid: target.cid,
+    videoUrl,
+    audioUrl,
+    videoCodec: playUrl.bestVideo?.codecs,
+    audioCodec: playUrl.bestAudio?.codecs,
+    format: 'dash',
+    loggedIn: hasCookie,
+    vipStatus: isVip ? 1 : 0,
+    currentQn: playUrl.currentQn,
+    acceptQuality,
+    pages: pagesInfo,
+    currentPage,
+    resolvedUrl,
+    epId: target.epId,
+    seasonId: season.seasonId || undefined,
+    seasonTitle: season.title || undefined,
+    preview: preview || undefined,
+  });
+
+  // PGC MP4 请求（fnval=1；不带 platform=html5/try_look，实测对 PGC 无差异）
+  const fetchPgcMp4 = async (
+    qnValue: number,
+  ): Promise<BilibiliPlayUrlResult | null> => {
+    const mp4PlayUrl = await getPgcPlayUrl({
+      epId: target.epId,
+      cid: target.cid,
+      cookie,
+      qn: qnValue,
+      fnval: 1,
+      codec,
+    });
+    if (mp4PlayUrl?.format === 'mp4' && mp4PlayUrl.durl?.[0]?.url) {
+      return mp4PlayUrl;
+    }
+    return null;
+  };
+
+  // MP4 直链 URL 选择：HEAD 探测可达性，全失败时回退原始 URL（与 UGC 同策略）
+  const resolveMp4Url = async (
+    mp4PlayUrl: BilibiliPlayUrlResult,
+  ): Promise<string> => {
+    const rawUrl = mp4PlayUrl.durl![0].url;
+    if (skipCdnCheck) return upgradeBilibiliUrlToHttps(rawUrl);
+    const reachable = await findReachableMediaUrl({ baseUrl: rawUrl });
+    return reachable ?? upgradeBilibiliUrlToHttps(rawUrl);
+  };
+
+  // 试看集强制 MP4（B站 试看只发 durl）；preferMp4 直连模式同路径
+  // 注：forceDash 时不拦截试看 MP4——试看场景本就无 DASH 可用
+  if (preview || preferMp4) {
+    emit(
+      'playurl',
+      preview ? '该集为会员专享，正在获取试看片段...' : '正在获取 MP4 直链（直连模式）...',
+    );
+    let mp4PlayUrl: BilibiliPlayUrlResult | null = null;
+    try {
+      mp4PlayUrl = await fetchPgcMp4(Math.min(requestedQn, MP4_MAX_QN));
+    } catch (err) {
+      throw toResolveError(err);
+    }
+    if (!mp4PlayUrl) {
+      throw new ResolveError(
+        '该集不支持 MP4 直链播放，请切换到 DASH 高清模式',
+        'MP4_NOT_AVAILABLE',
+      );
+    }
+    emit('cdn', '正在选择可用 CDN...');
+    return buildMp4Result(mp4PlayUrl, await resolveMp4Url(mp4PlayUrl));
+  }
+
+  // DASH 主路径
+  emit('playurl', '正在获取播放地址...');
+  let playUrl: BilibiliPlayUrlResult | null;
+  try {
+    playUrl = await getPgcPlayUrl({
+      epId: target.epId,
+      cid: target.cid,
+      cookie,
+      qn: requestedQn,
+      fnval: computeFnval(isVip, requestedQn),
+      codec,
+    });
+  } catch (err) {
+    if (err instanceof PgcError) {
+      throw new ResolveError(err.message, err.code);
+    }
+    if (err instanceof NoPermissionError) {
+      // 清晰度权限不足：逐级降级重试（与 UGC 同策略）
+      const fallbackQn = requestedQn > 32 ? 32 : 16;
+      if (fallbackQn !== requestedQn) {
+        emit('playurl', `当前清晰度无权限，降级到 ${fallbackQn === 32 ? '480P' : '360P'}...`);
+        try {
+          playUrl = await getPgcPlayUrl({
+            epId: target.epId,
+            cid: target.cid,
+            cookie,
+            qn: fallbackQn,
+            fnval: computeFnval(isVip, fallbackQn),
+            codec,
+          });
+        } catch (err2) {
+          throw toResolveError(err2);
+        }
+      } else {
+        throw err;
+      }
+    } else {
+      throw toResolveError(err);
+    }
+  }
+  if (!playUrl) {
+    throw new ResolveError(
+      '无法获取播放地址，可能需要登录或大会员',
+      'NO_PERMISSION',
+    );
+  }
+
+  // 清晰度匹配：请求的 qn 不在可用列表时回退并重取（与 UGC 同策略）
+  let acceptQuality = filterQualitiesByVip(playUrl.acceptQuality, isVip, hasCookie);
+  let effectiveQn = playUrl.currentQn;
+  if (effectiveQn && !acceptQuality.some((q) => q.id === effectiveQn)) {
+    effectiveQn = acceptQuality[0]?.id ?? playUrl.currentQn;
+  }
+  if (effectiveQn && effectiveQn !== playUrl.currentQn) {
+    emit('quality', '正在匹配可用清晰度...');
+    try {
+      const refetched = await getPgcPlayUrl({
+        epId: target.epId,
+        cid: target.cid,
+        cookie,
+        qn: effectiveQn,
+        fnval: computeFnval(isVip, effectiveQn),
+        codec,
+      });
+      if (refetched) {
+        playUrl = refetched;
+        acceptQuality = filterQualitiesByVip(playUrl.acceptQuality, isVip, hasCookie);
+      }
+    } catch (err) {
+      if (err instanceof NoPermissionError) {
+        console.warn(
+          '[bilibili-pgc] 清晰度匹配权限错误，保持当前清晰度:',
+          effectiveQn,
+        );
+      } else {
+        throw toResolveError(err);
+      }
+    }
+  }
+
+  emit('finish', '解析完成，正在加载播放器...');
+
+  if (playUrl.format === 'dash' && playUrl.bestVideo) {
+    emit('cdn', '正在选择可用 CDN...');
+    let videoUrl: string | null;
+    let audioUrl: string | null = null;
+    if (skipCdnCheck) {
+      videoUrl = upgradeBilibiliUrlToHttps(playUrl.bestVideo.baseUrl);
+      audioUrl = playUrl.bestAudio
+        ? upgradeBilibiliUrlToHttps(playUrl.bestAudio.baseUrl)
+        : null;
+    } else {
+      [videoUrl, audioUrl] = await Promise.all([
+        findReachableMediaUrl({
+          baseUrl: playUrl.bestVideo.baseUrl,
+          backupUrl: playUrl.bestVideo.backupUrl,
+        }),
+        playUrl.bestAudio
+          ? findReachableMediaUrl({
+              baseUrl: playUrl.bestAudio.baseUrl,
+              backupUrl: playUrl.bestAudio.backupUrl,
+            })
+          : Promise.resolve(null),
+      ]);
+    }
+
+    if (!videoUrl) {
+      if (forceDash) {
+        throw new ResolveError(
+          '当前网络无法访问 B站 媒体服务器，请稍后重试',
+          'CDN_UNREACHABLE',
+        );
+      }
+      emit('fallback', 'DASH 地址不可用，尝试 MP4 直链...');
+      let mp4PlayUrl: BilibiliPlayUrlResult | null = null;
+      try {
+        mp4PlayUrl = await fetchPgcMp4(
+          Math.min(effectiveQn ?? requestedQn, MP4_MAX_QN),
+        );
+      } catch (err) {
+        console.warn('[bilibili-pgc] MP4 降级失败:', err);
+      }
+      if (mp4PlayUrl) {
+        return buildMp4Result(mp4PlayUrl, await resolveMp4Url(mp4PlayUrl));
+      }
+      throw new ResolveError(
+        '当前网络无法访问 B站 媒体服务器，请稍后重试',
+        'CDN_UNREACHABLE',
+      );
+    }
+
+    return buildDashResult(
+      playUrl,
+      videoUrl,
+      audioUrl ?? undefined,
+      acceptQuality,
+    );
+  }
+
+  // 请求 DASH 却返回 MP4 的边缘场景（PGC 偶发）
+  if (playUrl.format === 'mp4' && playUrl.durl?.length) {
+    if (forceDash) {
+      throw new ResolveError('该集不支持 DASH 高清播放', 'DASH_NOT_AVAILABLE');
+    }
+    emit('cdn', '正在选择可用 CDN...');
+    return buildMp4Result(playUrl, await resolveMp4Url(playUrl));
+  }
+
+  throw new ResolveError('未找到可用播放地址', 'NO_PLAYURL');
+}
+
+/**
  * 编排完整解析流程。失败时抛出 ResolveError，调用方负责捕获并转成 NDJSON 错误消息。
  */
 export async function resolveBilibiliVideo(
@@ -373,8 +766,19 @@ export async function resolveBilibiliVideo(
   const url = await expandBilibiliShortLink(rawUrl);
 
   const bvid = extractBvid(url);
+  // 识别顺序固定：extractBvid → extractBangumiId（BV/av 优先，排除误伤）
+  const bangumiId = bvid ? null : extractBangumiId(url);
+  if (!bvid && !bangumiId) {
+    throw new ResolveError('无法解析 B站 视频/番剧链接', 'INVALID_INPUT');
+  }
+
+  // 番剧/影视（PGC ep/ss 链接）走独立解析编排
+  if (bangumiId) {
+    return resolvePgcVideo(opts, bangumiId, url);
+  }
+
   if (!bvid) {
-    throw new ResolveError('无法解析 B站 BV 号', 'INVALID_INPUT');
+    throw new ResolveError('无法解析 B站 视频/番剧链接', 'INVALID_INPUT');
   }
 
   // 短链 / 分享链接常带 ?p=N 分集参数：page 未显式指定时作为默认分集

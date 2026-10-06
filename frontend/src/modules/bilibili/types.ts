@@ -27,6 +27,10 @@ export interface BilibiliVideoPage {
   part: string
   /** 分集时长（秒） */
   duration: number
+  /** PGC：番剧分集 ep_id（切集时必须按 ep 链接重解析） */
+  epId?: number
+  /** PGC：B站 badge（'会员'/'限免'/''），用于标注会员专享集 */
+  badge?: string
 }
 
 export interface ResolvedSource {
@@ -54,6 +58,14 @@ export interface ResolvedSource {
    * 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性。
    */
   resolvedUrl?: string
+  /** PGC：当前播放集 ep_id */
+  epId?: number
+  /** PGC：整季 season_id */
+  seasonId?: number
+  /** PGC：整季标题（番剧/影视名，已拼进 title） */
+  seasonTitle?: string
+  /** PGC：当前集为试看/预览流（会员专享集 + 非大会员账号） */
+  preview?: boolean
 }
 
 export interface BilibiliQrData {
@@ -94,6 +106,14 @@ export interface ResolveProgressLine {
   currentPage?: number
   /** 展开短链后的完整视频地址（后端解析时对 b23.tv 等短链 302 展开） */
   resolvedUrl?: string
+  /** PGC：当前播放集 ep_id */
+  epId?: number
+  /** PGC：整季 season_id */
+  seasonId?: number
+  /** PGC：整季标题（番剧/影视名） */
+  seasonTitle?: string
+  /** PGC：当前集为试看/预览流 */
+  preview?: boolean
 }
 
 export interface BilibiliParseOptions {

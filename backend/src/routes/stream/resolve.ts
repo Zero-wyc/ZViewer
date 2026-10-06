@@ -15,6 +15,7 @@ import { getDanmaku } from '../../services/bilibili/danmaku';
 import {
   resolveBilibiliVideo,
   extractBvid,
+  extractBangumiId,
   expandBilibiliShortLink,
   normalizeResolveError,
   type ResolveProgress,
@@ -49,6 +50,14 @@ interface ResolveProgressMessage {
   currentPage?: number;
   /** 展开短链后的完整视频地址（b23.tv 等短链 302 展开，非短链时与输入一致） */
   resolvedUrl?: string;
+  /** PGC：当前播放集 ep_id */
+  epId?: number;
+  /** PGC：整季 season_id */
+  seasonId?: number;
+  /** PGC：整季标题（番剧/影视名） */
+  seasonTitle?: string;
+  /** PGC：当前集为试看/预览流 */
+  preview?: boolean;
 }
 
 /**
@@ -99,9 +108,10 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
   // 短链展开：b23.tv 等分享短链先 302 展开为完整视频地址再校验/解析
   const url = await expandBilibiliShortLink(rawUrl.trim());
 
-  // 提前校验 BV 号，避免进入流式响应后才返回 400
-  if (!extractBvid(url)) {
-    res.status(400).json({ success: false, message: '无法解析 B站 BV 号' });
+  // 提前校验 BV/番剧标识，避免进入流式响应后才返回 400
+  // 识别顺序：extractBvid → extractBangumiId（番剧 ep/ss）
+  if (!extractBvid(url) && !extractBangumiId(url)) {
+    res.status(400).json({ success: false, message: '无法解析 B站 视频/番剧链接' });
     return;
   }
 
@@ -176,6 +186,10 @@ router.get('/resolve-bilibili', async (req: AuthenticatedRequest, res) => {
       pages: result.pages,
       currentPage: result.currentPage,
       resolvedUrl: result.resolvedUrl,
+      epId: result.epId,
+      seasonId: result.seasonId,
+      seasonTitle: result.seasonTitle,
+      preview: result.preview,
     });
     writer.end();
   } catch (err) {

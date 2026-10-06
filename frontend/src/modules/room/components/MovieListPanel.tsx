@@ -14,7 +14,12 @@ import {
   filterQualitiesByVip,
   getBilibiliUserInfo,
 } from '@/modules/bilibili/bilibiliApi'
-import { extractBvid, resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
+import {
+  extractBvid,
+  extractBangumiId,
+  resolveBilibiliViaCli,
+  resolveBangumiViaCli,
+} from '@/modules/bilibili/cliApi'
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import { BilibiliParseSettings } from './BilibiliParseSettings'
 import {
@@ -166,18 +171,31 @@ export function MovieListPanel({
 
       if (proxyUrl) {
         // CLI 已连接：使用本地 CLI 代理解析，强制 DASH，不再降级 MP4
-        const bvid = extractBvid(movie.url)
-        if (bvid && movie.cid) {
-          resolved = await resolveBilibiliViaCli(
+        // PGC（番剧 ep/ss 链接）按 epId 走 CLI 番剧解析分支
+        const bangumiId = extractBangumiId(movie.url)
+        if (bangumiId?.epId) {
+          resolved = await resolveBangumiViaCli(
             proxyUrl,
-            bvid,
+            bangumiId.epId,
             movie.cid,
             qn,
             false,
             true
           )
         } else {
-          throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+          const bvid = extractBvid(movie.url)
+          if (bvid && movie.cid) {
+            resolved = await resolveBilibiliViaCli(
+              proxyUrl,
+              bvid,
+              movie.cid,
+              qn,
+              false,
+              true
+            )
+          } else {
+            throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+          }
         }
       } else {
         // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4
@@ -224,22 +242,35 @@ export function MovieListPanel({
       return
     }
 
-    const bvid = extractBvid(movie.url)
-    if (!bvid || !movie.cid) {
-      message.error('无法解析该 B站 影片')
-      return
+    // PGC（番剧 ep/ss 链接）按 epId 走 CLI 番剧解析分支
+    const bangumiId = extractBangumiId(movie.url)
+    if (!bangumiId?.epId) {
+      const bvid = extractBvid(movie.url)
+      if (!bvid || !movie.cid) {
+        message.error('无法解析该 B站 影片')
+        return
+      }
     }
 
     setQualityLoadingId(movie.id)
     try {
-      const resolved = await resolveBilibiliViaCli(
-        proxyUrl,
-        bvid,
-        movie.cid,
-        qn,
-        false,
-        true
-      )
+      const resolved = bangumiId?.epId
+        ? await resolveBangumiViaCli(
+            proxyUrl,
+            bangumiId.epId,
+            movie.cid,
+            qn,
+            false,
+            true
+          )
+        : await resolveBilibiliViaCli(
+            proxyUrl,
+            extractBvid(movie.url)!,
+            movie.cid,
+            qn,
+            false,
+            true
+          )
       setViewerCliResolvedSource({ movieId: movie.id, resolved })
       if (movie.id === currentMovieId) {
         triggerViewerSourceReload()
@@ -269,6 +300,51 @@ export function MovieListPanel({
       const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
       const targetPage = movie.pages?.find((p) => p.page === page)
       let resolved: ResolvedSource
+
+      // PGC（番剧分集，page 带 epId）：按目标集 ep 链接重解析。
+      // 与 UGC 分P 的差异：每集是独立 ep_id，不能靠 page 序号定位，
+      // 且必须同步更新 movie.url，否则后续切清晰度仍会解析旧集。
+      if (targetPage?.epId) {
+        const epUrl = `https://www.bilibili.com/bangumi/play/ep${targetPage.epId}`
+        if (proxyUrl) {
+          resolved = await resolveBangumiViaCli(
+            proxyUrl,
+            targetPage.epId,
+            targetPage.cid,
+            movie.currentQn,
+            false,
+            true
+          )
+        } else {
+          resolved = await resolveBilibiliWithOptions(
+            epUrl,
+            movie.currentQn,
+            undefined,
+            { preferMp4: getEffectivePreferMp4(movie.id) }
+          )
+        }
+        await updateMovie(roomId, movie.id, {
+          url: resolved.resolvedUrl || epUrl,
+          audioUrl: resolved.audioUrl,
+          format: resolved.format,
+          videoCodec: resolved.videoCodec,
+          audioCodec: resolved.audioCodec,
+          duration: resolved.duration,
+          cid: resolved.cid,
+          currentQn: resolved.currentQn,
+          acceptQuality: resolved.acceptQuality,
+          currentPage: resolved.currentPage ?? page,
+        })
+        if (resolved.preview) {
+          message.info(
+            `该集为会员专享，当前为试看片段（约 ${Math.round((resolved.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+          )
+        }
+        if (movie.id === currentMovieId) {
+          setPendingQualityChange({ movieId: movie.id, resolved })
+        }
+        return
+      }
 
       if (proxyUrl && targetPage) {
         // CLI 已连接：使用本地 CLI 代理解析目标分P，强制 DASH，不再降级 MP4
@@ -476,7 +552,9 @@ export function MovieListPanel({
                           size="sm"
                           value={String(movie.currentPage ?? 1)}
                           options={movie.pages.map((p) => ({
-                            label: `P${p.page} ${p.part}`,
+                            label: `P${p.page} ${p.part}${
+                              p.badge ? ` · ${p.badge}` : ''
+                            }`,
                             value: String(p.page),
                           }))}
                           disabled={

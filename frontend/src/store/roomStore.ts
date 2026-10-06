@@ -108,7 +108,16 @@ export interface MovieDto {
   cid: number | null
   currentQn: number | null
   acceptQuality: { id: number; label: string; resolution?: string }[] | null
-  pages: { page: number; cid: number; part: string; duration: number }[] | null
+  pages:
+    | {
+        page: number
+        cid: number
+        part: string
+        duration: number
+        epId?: number
+        badge?: string
+      }[]
+    | null
   currentPage: number | null
   serverUrl: string | null
   path: string | null
@@ -332,7 +341,16 @@ interface RoomState {
       cid?: number
       currentQn?: number
       acceptQuality?: { id: number; label: string; resolution?: string }[]
-      pages?: { page: number; cid: number; part: string; duration: number }[]
+      pages?:
+        | {
+            page: number
+            cid: number
+            part: string
+            duration: number
+            epId?: number
+            badge?: string
+          }[]
+        | null
       currentPage?: number
       serverUrl?: string
       path?: string
@@ -360,7 +378,16 @@ interface RoomState {
       cid?: number
       currentQn?: number
       acceptQuality?: QualityOption[]
-      pages?: { page: number; cid: number; part: string; duration: number }[]
+      pages?:
+        | {
+            page: number
+            cid: number
+            part: string
+            duration: number
+            epId?: number
+            badge?: string
+          }[]
+        | null
       currentPage?: number
       serverUrl?: string
       path?: string

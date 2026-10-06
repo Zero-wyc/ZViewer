@@ -216,7 +216,7 @@ function buildAcceptQuality(
   });
 }
 
-function normalizePlayUrlData(
+export function normalizePlayUrlData(
   data?: RawPlayUrlData,
   requestedQn?: number,
   codec?: string,

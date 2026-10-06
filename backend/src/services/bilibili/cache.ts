@@ -9,6 +9,7 @@
  */
 
 import { TtlCache } from '../../utils/ttl-cache';
+import type { PgcSeasonInfo } from './pgc';
 
 export interface BilibiliUserInfo {
   name: string;
@@ -30,6 +31,8 @@ export interface BilibiliVideoInfo {
 const VIP_CACHE_TTL_MS = 5 * 60 * 1000;
 const USER_INFO_CACHE_TTL_MS = 5 * 60 * 1000;
 const VIDEO_INFO_CACHE_TTL_MS = 2 * 60 * 1000;
+/** PGC ep→season 缓存：整季分集列表短 TTL 足够（新番更新频率远低于此） */
+const SEASON_BY_EP_CACHE_TTL_MS = 10 * 60 * 1000;
 
 const vipCache = new TtlCache<boolean>({ ttlMs: VIP_CACHE_TTL_MS });
 const userInfoCache = new TtlCache<BilibiliUserInfo>({
@@ -37,6 +40,9 @@ const userInfoCache = new TtlCache<BilibiliUserInfo>({
 });
 const videoInfoCache = new TtlCache<BilibiliVideoInfo>({
   ttlMs: VIDEO_INFO_CACHE_TTL_MS,
+});
+const seasonByEpCache = new TtlCache<PgcSeasonInfo>({
+  ttlMs: SEASON_BY_EP_CACHE_TTL_MS,
 });
 
 /**
@@ -78,4 +84,13 @@ export function invalidateUserInfo(userId: string): void {
 
 export function invalidateVipCache(cookie: string): void {
   vipCache.delete(normalizeVipCacheKey(cookie));
+}
+
+/** ep→season 缓存：ep 链接反查整季分集列表，避免每次切集/切清晰度都打 season 接口 */
+export function getCachedSeasonByEpId(epId: number): PgcSeasonInfo | null {
+  return seasonByEpCache.get(String(epId));
+}
+
+export function setCachedSeasonByEpId(epId: number, season: PgcSeasonInfo): void {
+  seasonByEpCache.set(String(epId), season);
 }
