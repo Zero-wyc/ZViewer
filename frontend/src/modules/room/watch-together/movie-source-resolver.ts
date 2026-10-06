@@ -118,6 +118,22 @@ export function getActiveCliProxyUrl(): string | null {
 }
 
 /**
+ * 判断影片是否为 B站 PGC 内容（番剧 / 影视）。
+ *
+ * PGC 影片的 url 为 bangumi ep/ss 链接，或分集列表（pages）带 epId
+ * （UGC 普通 UP 主视频的分 P 无 epId 字段）。用于「仅允许 CLI 模式」
+ * 开关的显示与执行范围限定——UGC MP4 直链免防盗链可直连，不存在
+ * PGC 强制 B站 Referer 防盗链导致的必然代理问题。
+ */
+export function isBilibiliPgcMovie(
+  movie: Pick<Movie, 'url' | 'pages'> | null | undefined
+): boolean {
+  if (!movie) return false
+  if (/bangumi\/play\/(ep|ss)\d+|ep_id=\d+/i.test(movie.url)) return true
+  return !!movie.pages?.some((p) => p.epId != null)
+}
+
+/**
  * 获取影片实际生效的 MP4 偏好（感知 CLI 连接状态）。
  *
  * CLI 已启用且本地代理已连接：强制 DASH 高画质代理路径（preferMp4=false）。
@@ -238,12 +254,23 @@ export async function resolveBilibiliOnline(
   }
 ): Promise<ResolvedMovieSource> {
   const parsePrefs = getBilibiliParseOptions(movie.id)
-  const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
+  // cliOnly（仅允许 CLI 模式）：影片级强制——本机偏好未开启 CLI 也强制启用，
+  // CLI 未连接直接抛错（服务器零媒体流量语义，禁止回退服务器转发）。
+  // 注意：解析本身仍允许走服务器（PGC ep 链接解析锚定房主 Cookie，属信令级
+  // 请求）；强制的是媒体流必须经成员本机 CLI 代理（见 toPlayerSource）。
+  const cliOnly = movie.cliOnly === true
+  const proxyUrl =
+    cliOnly || parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
+  if (cliOnly && !proxyUrl) {
+    throw new Error(
+      '该影片已开启「仅允许CLI模式」：请安装并连接 zcontrol-cli 后观看（此影片不经服务器转发媒体流）'
+    )
+  }
   // CLI 已启用：已连接走 CLI DASH；未连接由 getEffectivePreferMp4
   // 返回 true，回退服务器 MP4 直链
   const effectivePreferMp4 =
     options?.preferMp4 ?? getEffectivePreferMp4(movie.id)
-  const forceDash = parsePrefs.cliEnabled && !!proxyUrl
+  const forceDash = (parsePrefs.cliEnabled || cliOnly) && !!proxyUrl
 
   if (parsePrefs.cliEnabled && !proxyUrl) {
     console.warn(

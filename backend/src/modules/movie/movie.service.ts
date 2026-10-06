@@ -285,6 +285,7 @@ export class MovieService {
     if (typeof data.directLink === 'boolean') update.directLink = data.directLink;
     if (typeof data.wasmEngine === 'boolean') update.wasmEngine = data.wasmEngine;
     if (typeof data.playsvideoEnabled === 'boolean') update.playsvideoEnabled = data.playsvideoEnabled;
+    if (typeof data.cliOnly === 'boolean') update.cliOnly = data.cliOnly;
     if (data.sourceMeta !== undefined) update.sourceMeta = normalizeSourceMeta(data.sourceMeta);
 
     await repo.update({ id: movie.id }, update);
@@ -359,6 +360,7 @@ export class MovieService {
       directLink: movie.directLink,
       wasmEngine: movie.wasmEngine,
       playsvideoEnabled: movie.playsvideoEnabled !== false,
+      cliOnly: movie.cliOnly === true,
       sourceMeta: parseSourceMeta(movie.sourceMeta),
       order: movie.order,
       createdAt: movie.createdAt.toISOString(),

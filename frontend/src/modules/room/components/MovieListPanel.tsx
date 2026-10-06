@@ -163,10 +163,23 @@ export function MovieListPanel({
     const qn = Number(value)
     if (!Number.isFinite(qn) || qn === movie.currentQn) return
 
+    // cliOnly（仅允许CLI模式）：CLI 未连接时阻止切清晰度——切完也无法播放
+    // （解析/挂载链路均强制 CLI），提前给出可操作提示
+    if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
+      message.error(
+        '该影片已开启「仅允许CLI模式」：请安装并连接 zcontrol-cli 后操作'
+      )
+      return
+    }
+
     setQualityLoadingId(movie.id)
     try {
       const parsePrefs = getBilibiliParseOptions(movie.id)
-      const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
+      // cliOnly 时强制走 CLI 解析分支（CLI 未连接已在上方拦截）
+      const proxyUrl =
+        parsePrefs.cliEnabled || movie.cliOnly === true
+          ? getActiveCliProxyUrl()
+          : null
       let resolved: ResolvedSource
 
       if (proxyUrl) {
@@ -296,10 +309,23 @@ export function MovieListPanel({
     const page = Number(value)
     if (!Number.isFinite(page) || page === movie.currentPage) return
 
+    // cliOnly（仅允许CLI模式）：CLI 未连接时阻止切分P——切完也无法播放
+    // （解析/挂载链路均强制 CLI），提前给出可操作提示
+    if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
+      message.error(
+        '该影片已开启「仅允许CLI模式」：请安装并连接 zcontrol-cli 后操作'
+      )
+      return
+    }
+
     setPageLoadingId(movie.id)
     try {
       const parsePrefs = getBilibiliParseOptions(movie.id)
-      const proxyUrl = parsePrefs.cliEnabled ? getActiveCliProxyUrl() : null
+      // cliOnly 时强制走 CLI 解析分支（CLI 未连接已在上方拦截）
+      const proxyUrl =
+        parsePrefs.cliEnabled || movie.cliOnly === true
+          ? getActiveCliProxyUrl()
+          : null
       const targetPage = movie.pages?.find((p) => p.page === page)
       let resolved: ResolvedSource
 

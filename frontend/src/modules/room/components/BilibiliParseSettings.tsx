@@ -17,14 +17,19 @@ import {
   ChevronDown,
   MonitorSmartphone,
   ExternalLink,
+  ShieldCheck,
 } from 'lucide-react'
 import { useRoomStore } from '@/store/roomStore'
+import { message } from '@/components/ui/message'
 import {
   useBilibiliParsePreferences,
   setBilibiliParseOptions,
   getBilibiliParseOptions,
 } from '@/modules/bilibili/parseOptions'
-import { getEffectivePreferMp4 } from '@/modules/room/watch-together/movie-source-resolver'
+import {
+  getEffectivePreferMp4,
+  isBilibiliPgcMovie,
+} from '@/modules/room/watch-together/movie-source-resolver'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useAuthStore } from '@/store/authStore'
 import { getApiUrl } from '@/lib/api'
@@ -44,7 +49,16 @@ export function BilibiliParseSettings({
 }: BilibiliParseSettingsProps) {
   const [expanded, setExpanded] = useState(false)
   const [pendingCliReload, setPendingCliReload] = useState(false)
+  const [cliOnlySaving, setCliOnlySaving] = useState(false)
   const { bufferMode, cliEnabled } = useBilibiliParsePreferences(movieId)
+  // 「仅允许CLI模式」是影片级服务端属性（全房间生效），与本地解析偏好分离
+  const movies = useRoomStore((state) => state.movies)
+  const roomId = useRoomStore((state) => state.roomId)
+  const updateMovie = useRoomStore((state) => state.updateMovie)
+  const movie = movies.find((m) => m.id === movieId)
+  // 仅 B站 番剧/影视（PGC）显示：UGC MP4 直链免防盗链可直连，无此强制需求
+  const isPgc = isBilibiliPgcMovie(movie)
+  const cliOnly = movie?.cliOnly === true
   // CLI 代理在服务器全局注册（不绑定房间）：配置页只需填服务器地址，
   // 房间内「CLI 高画质代理」开启时自动使用已注册的代理
   const cliAgent = useCliAgent()
@@ -171,6 +185,44 @@ export function BilibiliParseSettings({
     if (username) url.searchParams.set('user', username)
     window.open(url.toString(), '_blank', 'noopener,noreferrer')
   }, [])
+
+  /** 「仅允许CLI模式」开关（仅房主可操作，随影片持久化、全房间同步生效） */
+  const handleCliOnlyChange = useCallback(
+    async (next: boolean) => {
+      if (!isHost || cliOnlySaving) return
+      setCliOnlySaving(true)
+      try {
+        await updateMovie(roomId, movieId, { cliOnly: next })
+        if (next) {
+          // 联动本机 CLI 偏好：cliOnly 模式下房主本机同样必须走 CLI
+          setBilibiliParseOptions(movieId, { cliEnabled: true })
+        }
+        message.success(
+          next
+            ? '已开启「仅允许CLI模式」：全房间成员需各自连接 CLI 观看，服务器不再转发媒体流'
+            : '已关闭「仅允许CLI模式」'
+        )
+        if (isCurrentMovie && isHost) {
+          triggerReloadBilibili()
+        }
+      } catch (err) {
+        message.error(
+          err instanceof Error ? err.message : '设置「仅允许CLI模式」失败'
+        )
+      } finally {
+        setCliOnlySaving(false)
+      }
+    },
+    [
+      isHost,
+      cliOnlySaving,
+      updateMovie,
+      roomId,
+      movieId,
+      isCurrentMovie,
+      triggerReloadBilibili,
+    ]
+  )
 
   const renderSegmented = (
     value: boolean,
@@ -363,6 +415,102 @@ export function BilibiliParseSettings({
               打开 CLI 配置页
             </button>
           </div>
+
+          {/* 仅允许CLI模式（仅番剧/影视 PGC 显示） */}
+          {isPgc && (
+            <div
+              className="rounded-[var(--md-sys-shape-corner)] p-1.5 transition-opacity"
+              style={{
+                backgroundColor: 'var(--md-sys-color-surface-container-high)',
+                border: cliOnly
+                  ? '1px solid color-mix(in srgb, var(--md-sys-color-tertiary) 45%, transparent)'
+                  : undefined,
+              }}
+            >
+              <div className="flex items-center gap-1.5">
+                <div
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
+                  style={{
+                    background:
+                      'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
+                  }}
+                >
+                  <ShieldCheck
+                    className="h-3 w-3"
+                    style={{ color: 'var(--md-sys-color-primary)' }}
+                  />
+                </div>
+                <div className="flex min-w-0 flex-1 flex-col">
+                  <span
+                    className="text-[10px] font-bold leading-tight"
+                    style={{ color: 'var(--md-sys-color-on-surface)' }}
+                  >
+                    仅允许CLI模式
+                  </span>
+                  <span
+                    className="text-[8px] font-medium uppercase tracking-wide"
+                    style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                  >
+                    CLI ONLY
+                  </span>
+                </div>
+                <span
+                  className="text-[9px] font-medium"
+                  style={{
+                    color: cliOnly
+                      ? 'var(--md-sys-color-tertiary)'
+                      : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                >
+                  {cliOnly ? '已开启' : '未开启'}
+                </span>
+              </div>
+
+              {isHost ? (
+                <div className="mt-1.5 grid grid-cols-2 gap-1">
+                  <button
+                    type="button"
+                    disabled={cliOnlySaving}
+                    onClick={() => handleCliOnlyChange(false)}
+                    className={cn(
+                      'rounded-md py-1 text-[10px] font-semibold transition-all disabled:opacity-50',
+                      !cliOnly
+                        ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm'
+                        : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                    )}
+                  >
+                    关闭
+                  </button>
+                  <button
+                    type="button"
+                    disabled={cliOnlySaving}
+                    onClick={() => handleCliOnlyChange(true)}
+                    className={cn(
+                      'rounded-md py-1 text-[10px] font-semibold transition-all disabled:opacity-50',
+                      cliOnly
+                        ? 'bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm'
+                        : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                    )}
+                  >
+                    开启
+                  </button>
+                </div>
+              ) : null}
+
+              <div
+                className="mt-1 text-[9px] leading-snug"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              >
+                {isHost
+                  ? cliOnly
+                    ? '全房间成员（含房主）必须各自连接 zcontrol-cli 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导'
+                    : '开启后全房间成员必须各自连接 zcontrol-cli 观看，服务器仅同步信令、零媒体流量（适合番剧/影视等高码率内容）'
+                  : cliOnly
+                    ? '房主已开启：本影片需自行安装并连接 zcontrol-cli 后才能观看'
+                    : null}
+              </div>
+            </div>
+          )}
 
           {/* 播放模式 */}
           <div>

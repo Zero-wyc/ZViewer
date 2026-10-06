@@ -140,6 +140,17 @@ export class Movie {
   playsvideoEnabled!: boolean;
 
   /**
+   * 仅允许 CLI 模式（B站 番剧/影视 PGC 专属配置）。
+   *
+   * - true：全房间成员（含房主）必须各自连接 zcontrol-cli 才能观看，
+   *   媒体流一律经成员本机 CLI 代理，服务器零媒体流量（仅承载信令与
+   *   playurl 解析）；未连接 CLI 的成员无法播放，不回退服务器转发
+   * - false（默认）：按常规解析偏好（服务器转发 / MP4 直链 / CLI）
+   */
+  @Column({ type: 'boolean', default: false })
+  cliOnly!: boolean;
+
+  /**
    * ani-subs 番剧源元数据（JSON 字符串）。
    *
    * 存储 sourceId 和 episode 信息，用于播放时重新解析播放地址。

@@ -30,6 +30,7 @@ import {
   requestFullscreen,
 } from '@/lib/fullscreen-utils'
 import { WatchTogetherCore } from './WatchTogetherCore'
+import { ViewerCliRequiredOverlay } from './ViewerCliRequiredOverlay'
 import '@/modules/art-player/art-overrides.css'
 
 interface WatchTogetherPanelProps {
@@ -257,6 +258,8 @@ export function WatchTogetherPanel({
       }
     >
       <div ref={containerRef} className="zart-video-container h-full w-full" />
+      {/* 观众端「仅允许CLI模式」未满足时的安装引导覆盖层（cliOnly 影片不回退服务器） */}
+      {!isHost && <ViewerCliRequiredOverlay />}
       {ready && (
         <WatchTogetherCore
           roomId={roomId}

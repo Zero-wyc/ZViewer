@@ -70,6 +70,19 @@ async function ensureViewerLocalOverride(
     return null
   }
 
+  // cliOnly（仅允许CLI模式）：观众必须本机 CLI 已连接——服务器零媒体流量
+  // 语义，禁止回退广播源（房主 CLI 地址观众不可达）与服务器解析转发。
+  // 设置引导标记后返回 null：applySourceToVideo 据此跳过挂载，由播放器
+  // 覆盖层显示 CLI 安装引导；CLI 就绪后的重载（cliAgent 变化触发）会重新
+  // 进入本函数并清除标记。
+  if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
+    storeState.setViewerCliRequiredMovieId(movieId)
+    return null
+  }
+  if (storeState.viewerCliRequiredMovieId === movieId) {
+    storeState.setViewerCliRequiredMovieId(null)
+  }
+
   const effectivePreferMp4 = getEffectivePreferMp4(movieId)
   const hostIsMp4 = state.format === 'mp4'
   const existing = storeState.viewerCliResolvedSource
@@ -210,9 +223,13 @@ function toPlayerSource(
   const movieId = useRoomStore.getState().currentMovieId
   // CLI 本地高画质代理：各客户端独立启用，不经房主广播。
   // 房主广播原始 B站 CDN URL；观众/房主各自在 attach 前决定是否走自己的 CLI 代理。
+  // cliOnly（仅允许CLI模式）影片强制包装——即使本机偏好未开 CLI，
+  // 媒体流也必须经本机 CLI（观众无 CLI 时已被 ensureViewerLocalOverride 拦截）。
   if (state.sourceType === 'bilibili' && movieId != null) {
+    const movie = useRoomStore.getState().movies.find((m) => m.id === movieId)
     const { cliEnabled } = getBilibiliParseOptions(movieId)
-    const proxyUrl = cliEnabled ? getActiveCliProxyUrl() : null
+    const cliOnly = movie?.cliOnly === true
+    const proxyUrl = cliEnabled || cliOnly ? getActiveCliProxyUrl() : null
     if (proxyUrl) {
       source.url = buildCliProxyUrl(proxyUrl, state.sourceUrl)
       if (source.audioUrl) {
@@ -349,12 +366,22 @@ export function useVideoSource({
 
       const effectiveState = await resolveViewerEffectiveState(state)
 
+      // cliOnly 未满足（观众本机 CLI 未连接）：不挂载任何源——广播源是
+      // 房主本机 CLI 地址（观众不可达），服务器转发也被 cliOnly 禁止。
+      // 播放器覆盖层据 viewerCliRequiredMovieId 显示 CLI 安装引导。
+      if (
+        !isHostRef.current &&
+        useRoomStore.getState().viewerCliRequiredMovieId != null
+      ) {
+        return
+      }
+
       await attachSource(
         video,
         toPlayerSource(effectiveState, startTime, blobs)
       )
     },
-    [attachSource, resolveViewerEffectiveState]
+    [attachSource, resolveViewerEffectiveState, isHostRef]
   )
 
   // 组件重新挂载（或 videoRef 首次可用）时，从 roomStore 恢复视频源。
