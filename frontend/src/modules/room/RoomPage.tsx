@@ -474,7 +474,7 @@ function RoomPage() {
             isHost
             isWebFullscreen={isWebFullscreen}
             onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-            initialPlayback={recoveredPlayback}
+            initialPlayback={playerRemountKey === 'init' ? recoveredPlayback : null}
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">

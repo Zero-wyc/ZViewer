@@ -9,6 +9,8 @@
  * ts 分片、密钥等），将跨域 URL 包装为服务器代理 URL，绕过浏览器 CORS 限制。
  */
 import Hls from 'hls.js'
+import { getApiUrl } from '@/lib/api'
+import { readHlsProxySource, buildHlsProxyRequest, isServerApiUrl } from '../services/hls-proxy'
 import type { PlayerEngine, PlayerSource, EngineAttachResult } from '../types'
 import { resetVideoElement, waitForMetadata } from '../utils'
 import {
@@ -16,6 +18,7 @@ import {
   isLocalUrl,
   isRelativeUrl,
   buildProxyUrl,
+  appendAuthToken,
 } from '../services/url-proxy'
 
 /** Safari 等原生 HLS 支持检测 */
@@ -33,42 +36,40 @@ function canPlayNativeHls(video: HTMLVideoElement): boolean {
  * 关键：加载完成后需恢复 context.url 与 response.url 为原始 URL，
  * 否则 hls.js 会基于代理 URL 解析 m3u8 中的相对路径 ts 分片，导致拼接错误。
  */
-function createProxyLoader() {
+function createProxyLoader(sourceUrl: string, headers?: Record<string, string>) {
   const BaseLoader = Hls.DefaultConfig.loader
+  const logicalUrl = (value: string) => value
+  const transportUrl = (value: string) => value
+  const apiBase = getApiUrl()
+  const proxySource = readHlsProxySource(logicalUrl(sourceUrl), apiBase)
 
   return class ProxyLoader extends BaseLoader {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     load(context: any, config: any, callbacks: any): void {
       const originalUrl = context.url
-      const shouldProxy =
-        originalUrl &&
-        !isLocalUrl(originalUrl) &&
-        !isRelativeUrl(originalUrl) &&
-        !originalUrl.includes('/api/stream/proxy?url=')
-
-      if (shouldProxy) {
-        context.url = buildProxyUrl(originalUrl)
-        // 包装 onSuccess 回调：加载完成后恢复原始 URL，
-        // 确保 hls.js 基于原始 URL 解析 m3u8 中的相对路径
+      const logical = logicalUrl(originalUrl)
+      const proxyRequest = readHlsProxySource(logical, apiBase)
+      const manifestBaseUrl = proxyRequest?.url ?? logical
+      if (isServerApiUrl(logical, apiBase) || isLocalUrl(logical) || isRelativeUrl(logical)) {
+        // Includes Kazumi/AniSubs proxies: never proxy our own authenticated API.
+        context.url = transportUrl(originalUrl)
+      } else if (proxySource) {
+        // Child playlists, segments, maps and keys inherit the same proxy headers.
+        context.url = transportUrl(buildHlsProxyRequest(manifestBaseUrl, proxySource))
+      } else {
+        context.url = headers ? resolveProxyUrl(originalUrl, headers, 'hls') : buildProxyUrl(originalUrl)
+      }
+      context.url = appendAuthToken(context.url)
+      if (proxyRequest || context.url !== originalUrl || manifestBaseUrl !== originalUrl) {
         const originalOnSuccess = callbacks.onSuccess
-        callbacks.onSuccess = (
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          stats: any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          response: any,
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ctx: any
-        ) => {
-          if (response) {
-            response.url = originalUrl
-          }
-          if (ctx) {
-            ctx.url = originalUrl
-          }
-          originalOnSuccess(stats, response, ctx)
+        // hls.js callback order is response, stats, context, networkDetails.
+        // Restore both URL fields before it resolves any relative playlist URI.
+        callbacks.onSuccess = (response: any, stats: any, ctx: any, networkDetails: any) => {
+          if (response) response.url = manifestBaseUrl
+          if (ctx) ctx.url = manifestBaseUrl
+          originalOnSuccess(response, stats, ctx, networkDetails)
         }
       }
-
       super.load(context, config, callbacks)
     }
   }
@@ -144,7 +145,7 @@ export const hlsEngine: PlayerEngine = {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
-        loader: createProxyLoader(),
+        loader: createProxyLoader(targetUrl, source.headers),
         // 内存控制：hls.js 默认 maxMaxBufferLength=600s、backBufferLength=Infinity——
         // 已播数据永不清理，长视频播放 1-2 小时后 MSE SourceBuffer 累积到 GB 级内存。
         // 前向缓冲 30s 保证平滑，硬上限 120s 兜底极低码率，已播仅保留 90s
