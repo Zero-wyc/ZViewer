@@ -98,7 +98,8 @@ export function Layout({ children }: { children: React.ReactNode }) {
           backdrop-filter 跨层采样到背景图（z-index: 0）。
           文档顺序保证内容仍在背景图之上，无需显式 z-index。 */}
       <div className="relative z-auto flex flex-1 flex-col">
-        <Header />
+        {/* 评论独立窗口不显示全局 Header:小窗空间宝贵,面板完整占满 */}
+        {!location.pathname.endsWith('/comments-window') && <Header />}
         <main key={location.pathname} className="flex flex-1 flex-col">
           {children}
         </main>

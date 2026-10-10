@@ -133,16 +133,9 @@ export default function CommentsWindowPage() {
   }, [joinState, roomId, socket, setDanmakuTracks, setDanmakuMeta])
 
   return (
-    <div className="flex h-[100dvh] flex-col gap-2.5 overflow-hidden bg-[var(--md-sys-color-surface)] px-3 py-3">
-      <div className="flex shrink-0 items-center justify-between px-1">
-        <Text className="text-sm font-semibold">房间 {roomId} · 评论</Text>
-        <Text type="secondary" className="text-[10px]">
-          独立窗口
-        </Text>
-      </div>
-
+    <div className="flex h-[100dvh] flex-col overflow-hidden bg-[var(--md-sys-color-surface)] p-2">
       {joinState === 'ready' && socket && roomId ? (
-        <div className="flex min-h-0 flex-1 flex-col [&_.glass-card]:flex-1">
+        <div className="flex min-h-0 flex-1 flex-col [&_.glass-card]:h-full [&_.glass-card]:flex-1">
           <CommentPanel socket={socket} roomId={roomId} />
         </div>
       ) : joinState === 'connecting' ? (
