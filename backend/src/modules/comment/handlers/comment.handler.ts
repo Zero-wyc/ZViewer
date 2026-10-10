@@ -14,11 +14,14 @@
  * - 评论持久化通过 commentService，避免直接操作 DB
  */
 import type { Server as SocketIOServer, Socket } from 'socket.io';
+import bcrypt from 'bcryptjs';
 import { AppDataSource } from '../../../data-source';
 import { User } from '../../../entities/User';
+import { Room } from '../../../entities/Room';
 import type { SocketEventHandler, AckCallback } from '../../socket';
 import { safeAck } from '../../socket';
 import { roomPermissionService } from '../../room/room-permission.service';
+import { roomSessionService } from '../../room/room-session.service';
 import { commentService } from '../comment.service';
 import { danmakuMetaService } from '../danmaku-meta.service';
 
@@ -133,6 +136,52 @@ export class CommentHandler implements SocketEventHandler {
         } catch (err) {
           console.error('[comment-history] error:', err);
           callback({ success: false, message: '获取评论历史失败' });
+        }
+      },
+    );
+
+    // 独立评论窗口加入：轻量 join——不做完整成员流程（不参与 ALREADY_IN_ROOM
+    // 查重/成员位占用语义与主窗口并存），仅创建独立 viewer session +
+    // socket.join，供「评论独立窗口」页面使用（comment-history / send-comment /
+    // danmaku 系列事件的 isInRoom 校验均以此 session 为准）。
+    // 密码房间需验证密码（独立窗口按观众身份拉取房间评论/弹幕数据）。
+    socket.on(
+      'join-room-panel',
+      async (
+        payload: { roomId: string; password?: string },
+        callback: AckCallback,
+      ) => {
+        try {
+          const roomRepo = AppDataSource.getRepository(Room);
+          const room = await roomRepo.findOneBy({ roomId: payload.roomId });
+          if (!room) {
+            return safeAck(callback, { success: false, message: '房间不存在' });
+          }
+          if (room.status !== 'active') {
+            return safeAck(callback, { success: false, message: '房间已关闭' });
+          }
+          if (room.password) {
+            const ok =
+              typeof payload.password === 'string' && payload.password
+                ? await bcrypt.compare(payload.password, room.password)
+                : false;
+            if (!ok) {
+              return safeAck(callback, {
+                success: false,
+                code: 'NEED_PASSWORD',
+                message: '需要房间密码',
+              });
+            }
+          }
+          await roomSessionService.admitViewer(
+            socket,
+            payload.roomId,
+            socket.data.userId ?? null,
+          );
+          safeAck(callback, { success: true });
+        } catch (err) {
+          console.error('[join-room-panel] error:', err);
+          safeAck(callback, { success: false, message: '加入失败' });
         }
       },
     );

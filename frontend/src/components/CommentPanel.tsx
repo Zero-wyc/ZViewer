@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, MessageSquareQuote, MessagesSquare } from 'lucide-react'
+import {
+  AppWindow,
+  Send,
+  MessageSquareQuote,
+  MessagesSquare,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Space } from '@/components/ui/Space'
@@ -302,15 +307,31 @@ export function CommentPanel({
                 发送
               </Button>
             </Space>
-            {allowDanmaku && (
-              <div className="flex items-center">
+            <div className="flex items-center justify-between">
+              {allowDanmaku && (
                 <Switch
                   label="以弹幕形式发送"
                   checked={sendAsDanmaku}
                   onChange={(e) => setSendAsDanmaku(e.target.checked)}
                 />
-              </div>
-            )}
+              )}
+              {roomId && (
+                <button
+                  type="button"
+                  title="在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）"
+                  className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-primary)]"
+                  onClick={() => {
+                    window.open(
+                      `${window.location.origin}/room/${roomId}/comments-window`,
+                      'zviewer-comments-window',
+                      'width=460,height=720'
+                    )
+                  }}
+                >
+                  <AppWindow className="h-4 w-4" />
+                </button>
+              )}
+            </div>
           </div>
         ) : rightPanelTab === 'tracks' ? (
           <DanmakuTrackCard />

@@ -12,6 +12,7 @@ import { ReturnToRoomButton } from '@/components/ReturnToRoomButton'
 import HomePage from '@/pages/HomePage'
 import LoginPage from '@/pages/LoginPage'
 import RoomPage from '@/modules/room/RoomPage'
+import CommentsWindowPage from '@/modules/room/CommentsWindowPage'
 import AdminPage from '@/pages/AdminPage'
 import ProfilePage from '@/pages/ProfilePage'
 import RoomsListPage from '@/pages/RoomsListPage'
@@ -238,6 +239,14 @@ function App() {
             element={
               <RequireAuth>
                 <RoomPage />
+              </RequireAuth>
+            }
+          />
+          <Route
+            path="/room/:roomId/comments-window"
+            element={
+              <RequireAuth>
+                <CommentsWindowPage />
               </RequireAuth>
             }
           />
