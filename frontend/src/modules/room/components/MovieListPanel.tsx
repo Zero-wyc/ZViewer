@@ -733,15 +733,16 @@ export function MovieListPanel({
         {renderMovieList(false)}
       </div>
 
-      {/* 完整影片列表弹窗(展开二级页面):顶部搜索过滤 + 自动连播开关 + 拖拽排序 */}
+      {/* 完整影片列表弹窗(展开二级页面):顶部搜索过滤 + 自动连播开关 + 拖拽排序
+          尺寸与 openlist 浏览目录统一(max-w-4xl / 总高 624px = 内容区 532px + 标题/内边距) */}
       <Modal
         open={showListModal}
         onClose={() => setShowListModal(false)}
         title={`影片列表 (${movies.length} 部)`}
-        className="max-w-2xl"
+        className="max-w-4xl"
         fullscreenable
       >
-        <div className="flex max-h-[70vh] flex-col gap-2.5 overflow-hidden">
+        <div className="flex h-[532px] flex-col gap-2.5 overflow-hidden">
           <div className="flex items-center gap-2.5">
             <Input
               size="sm"
