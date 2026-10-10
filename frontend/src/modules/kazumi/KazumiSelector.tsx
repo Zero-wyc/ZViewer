@@ -198,7 +198,7 @@ export function KazumiSelector({
     <FullscreenOverlay
       open={open}
       onClose={() => onOpenChange(false)}
-      className="max-w-5xl h-[72vh] min-h-[420px]"
+      className="max-w-4xl h-[624px]"
       title="Kazumi 番剧源"
     >
       <div className="flex h-full flex-col">

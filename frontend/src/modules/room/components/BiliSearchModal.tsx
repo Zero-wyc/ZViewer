@@ -117,7 +117,7 @@ export function BiliSearchModal({
     <FullscreenOverlay
       open={open}
       onClose={onClose}
-      className="max-w-5xl h-[72vh] min-h-[420px]"
+      className="max-w-4xl h-[624px]"
       title="搜索 B站 视频"
     >
       <div className="flex h-full flex-col">
