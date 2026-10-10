@@ -1473,6 +1473,12 @@ export function WatchTogetherCore({
   const setCommentDockHotkey = usePlayerPrefsStore(
     (s) => s.setCommentDockHotkey
   )
+  const commentDockEdgeHover = usePlayerPrefsStore(
+    (s) => s.commentDockEdgeHover
+  )
+  const setCommentDockEdgeHover = usePlayerPrefsStore(
+    (s) => s.setCommentDockEdgeHover
+  )
   const [commentDockPinned, setCommentDockPinned] = useState(false)
 
   // 退全屏时解除钉住,避免下次进全屏时侧边栏莫名常开
@@ -1946,6 +1952,8 @@ export function WatchTogetherCore({
               onResetDanmakuStyle={resetStyle}
               commentDockHotkey={commentDockHotkey}
               onCommentDockHotkeyChange={setCommentDockHotkey}
+              commentDockEdgeHover={commentDockEdgeHover}
+              onCommentDockEdgeHoverChange={setCommentDockEdgeHover}
             />
           )}
         </div>,
@@ -2023,6 +2031,7 @@ export function WatchTogetherCore({
           roomId={roomId}
           stageRef={stageRef}
           pinned={commentDockPinned}
+          edgeHover={commentDockEdgeHover}
         />
       )}
 

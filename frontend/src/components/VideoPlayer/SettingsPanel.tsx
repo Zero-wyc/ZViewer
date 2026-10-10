@@ -89,6 +89,9 @@ interface SettingsPanelProps {
   /** 双击控制键打开全屏评论区侧边栏(提供时才显示该设置项) */
   commentDockHotkey?: CommentDockHotkey
   onCommentDockHotkeyChange?: (key: CommentDockHotkey) => void
+  /** 鼠标移到屏幕右缘自动唤出评论区侧边栏(提供时才显示该开关) */
+  commentDockEdgeHover?: boolean
+  onCommentDockEdgeHoverChange?: (enabled: boolean) => void
 }
 
 /**
@@ -134,6 +137,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     onResetDanmakuStyle,
     commentDockHotkey,
     onCommentDockHotkeyChange,
+    commentDockEdgeHover,
+    onCommentDockEdgeHoverChange,
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'subtitle' | 'danmaku'>(
@@ -256,6 +261,31 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   value={commentDockHotkey ?? 'off'}
                   onChange={onCommentDockHotkeyChange}
                 />
+                {/* 鼠标右缘自动唤出开关(关闭后仅双击快捷键可唤出侧边栏) */}
+                {onCommentDockEdgeHoverChange && (
+                  <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
+                    <div className="flex items-center justify-between">
+                      <span
+                        className="text-[11px] font-medium uppercase tracking-wide"
+                        style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      >
+                        鼠标移至右缘唤出
+                      </span>
+                      <Switch
+                        checked={commentDockEdgeHover ?? true}
+                        onChange={(e) =>
+                          onCommentDockEdgeHoverChange(e.target.checked)
+                        }
+                      />
+                    </div>
+                    <p
+                      className="mt-1 text-[10px] leading-snug"
+                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                    >
+                      关闭后仅双击快捷键可唤出评论区侧边栏
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </>

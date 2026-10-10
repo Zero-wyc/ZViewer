@@ -35,6 +35,11 @@ interface FullscreenCommentDockProps {
    * 再次双击解除钉住(由 WatchTogetherCore 管理,退全屏自动复位)。
    */
   pinned?: boolean
+  /**
+   * 鼠标移到屏幕右缘自动唤出(默认开启)。
+   * 关闭后不监听右缘触发,仅能通过双击快捷键(pinned)唤出。
+   */
+  edgeHover?: boolean
 }
 
 export function FullscreenCommentDock({
@@ -42,6 +47,7 @@ export function FullscreenCommentDock({
   roomId,
   stageRef,
   pinned = false,
+  edgeHover = true,
 }: FullscreenCommentDockProps) {
   const [open, setOpen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -62,10 +68,11 @@ export function FullscreenCommentDock({
   }, [clearCloseTimer])
 
   // 右缘触发:监听 stage 上的指针移动(原生全屏时 stage 即全屏元素,
-  // getBoundingClientRect 与视口一致;网页全屏时 stage 铺满视口,同样成立)
+  // getBoundingClientRect 与视口一致;网页全屏时 stage 铺满视口,同样成立)。
+  // edgeHover 关闭时完全不监听——侧边栏仅通过双击快捷键(pinned)唤出。
   useEffect(() => {
     const stage = stageRef.current
-    if (!stage) return
+    if (!stage || !edgeHover) return
 
     const handlePointerMove = (e: PointerEvent) => {
       // 触屏不触发(触摸拖动进度条/切弹幕时手指靠近右缘不应弹侧栏)
@@ -99,7 +106,7 @@ export function FullscreenCommentDock({
       stage.removeEventListener('pointerleave', handlePointerLeave)
       clearCloseTimer()
     }
-  }, [stageRef, clearCloseTimer, scheduleClose])
+  }, [stageRef, edgeHover, clearCloseTimer, scheduleClose])
 
   return (
     <aside

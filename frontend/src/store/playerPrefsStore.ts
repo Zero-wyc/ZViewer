@@ -11,6 +11,12 @@ interface PlayerPrefsState {
    */
   commentDockHotkey: CommentDockHotkey
   setCommentDockHotkey: (key: CommentDockHotkey) => void
+  /**
+   * 鼠标移到屏幕右缘自动唤出评论区侧边栏(默认开启)。
+   * 关闭后仅能通过双击快捷键唤出,避免误触发。
+   */
+  commentDockEdgeHover: boolean
+  setCommentDockEdgeHover: (enabled: boolean) => void
 }
 
 /**
@@ -22,6 +28,9 @@ export const usePlayerPrefsStore = create<PlayerPrefsState>()(
     (set) => ({
       commentDockHotkey: 'off',
       setCommentDockHotkey: (commentDockHotkey) => set({ commentDockHotkey }),
+      commentDockEdgeHover: true,
+      setCommentDockEdgeHover: (commentDockEdgeHover) =>
+        set({ commentDockEdgeHover }),
     }),
     { name: 'player-prefs-storage', version: 1 }
   )
