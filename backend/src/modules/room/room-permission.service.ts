@@ -132,7 +132,7 @@ export class RoomPermissionService {
     if (role === 'root') return true;
     const [settingsRow, modRole] = await Promise.all([
       AppDataSource.getRepository(SystemSettings)
-        .findOne({ order: { id: 'ASC' } })
+        .findOne({ where: {}, order: { id: 'ASC' } })
         .catch(() => null),
       this.isRoomModerator(socket, roomId),
     ]);
