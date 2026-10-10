@@ -1093,11 +1093,11 @@ export default function AdminPage() {
                     icon={<Trash2 className="h-4 w-4" />}
                     onClick={() => setCleanupConfirm(true)}
                     disabled={cleanupLoading}
-                    title="一键移除无人使用的房间"
+                    title="移除无人的房间"
                   >
                     <span className="sm:hidden">清理</span>
                     <span className="hidden sm:inline">
-                      一键移除无人使用的房间
+                      移除无人的房间
                     </span>
                   </Button>
                 </>
@@ -2190,14 +2190,14 @@ export default function AdminPage() {
         onClose={() => {
           if (!cleanupLoading) setCleanupConfirm(false)
         }}
-        title="移除无人使用的房间"
+        title="移除无人的房间"
         onOk={handleCleanupUnusedRooms}
         onCancel={() => setCleanupConfirm(false)}
         okText="确认"
         cancelText="取消"
         confirmLoading={cleanupLoading}
       >
-        确定要移除所有当前无人使用的房间（含已关闭的房间）吗？此操作不可撤销。
+        确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。
       </ConfirmModal>
 
       <ConfirmModal
