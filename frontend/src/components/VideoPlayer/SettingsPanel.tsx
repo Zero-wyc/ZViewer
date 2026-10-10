@@ -228,13 +228,14 @@ export function SettingsPanel(props: SettingsPanelProps) {
   return (
     <div className="absolute bottom-full right-2 z-[200] mb-1">
       {/* 延伸面板：高级设置（独立动画组件，absolute 定位不影响主面板）
-          弹幕与字幕各有独立的高级内容，复用同一个展开状态 */}
+          弹幕与字幕各有独立的高级内容，复用同一个展开状态；
+          stretchHeight:面板高度与主面板对齐,内容超出时内部滚动浏览全部功能 */}
       <AnimatedSidePanel
         open={showAdvancedPanel}
         width={SIDE_PANEL_WIDTH}
         gap={PANEL_GAP}
         mainPanelWidth={MAIN_PANEL_WIDTH}
-        maxHeight={520}
+        stretchHeight
       >
         {isDanmakuView ? (
           <>

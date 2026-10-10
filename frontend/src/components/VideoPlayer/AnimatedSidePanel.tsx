@@ -1,4 +1,5 @@
 import { type CSSProperties, type ReactNode } from 'react'
+import { cn } from '@/lib/utils'
 
 /**
  * 独立动画侧面板组件。
@@ -27,6 +28,12 @@ export interface AnimatedSidePanelProps {
   mainPanelWidth: number
   /** 最大高度 */
   maxHeight?: number
+  /**
+   * 拉伸到与外层容器（主面板）同高：外层 inset-y-0 贴合主面板上下边缘，
+   * 内容超出时内部滚动（zen-scroll 细滚动条），实现所有功能可浏览。
+   * 启用后 maxHeight 不再作用于外层。
+   */
+  stretchHeight?: boolean
   /** 内容 */
   children: ReactNode
   /** 额外类名（应用到内容容器） */
@@ -44,6 +51,7 @@ export function AnimatedSidePanel({
   gap = 8,
   mainPanelWidth,
   maxHeight = 460,
+  stretchHeight = false,
   children,
   className,
   style,
@@ -53,11 +61,14 @@ export function AnimatedSidePanel({
 
   return (
     <div
-      className="glass-strong absolute bottom-0 overflow-hidden rounded-xl border border-[var(--glass-border)] shadow-lg"
+      className={cn(
+        'glass-strong absolute overflow-hidden rounded-xl border border-[var(--glass-border)] shadow-lg',
+        stretchHeight ? 'inset-y-0' : 'bottom-0'
+      )}
       style={{
         right: rightOffset,
         width,
-        maxHeight,
+        maxHeight: stretchHeight ? undefined : maxHeight,
         transform: open ? 'translateX(0)' : `translateX(${width + gap}px)`,
         opacity: open ? 1 : 0,
         visibility: open ? 'visible' : 'hidden',
@@ -73,8 +84,12 @@ export function AnimatedSidePanel({
       }}
     >
       <div
-        className={`relative overflow-y-auto p-3 ${className ?? ''}`}
-        style={{ width, maxHeight }}
+        className={cn(
+          'relative overflow-y-auto p-3',
+          stretchHeight && 'zen-scroll h-full',
+          className
+        )}
+        style={stretchHeight ? { width, maxHeight: '100%' } : { width, maxHeight }}
       >
         {children}
       </div>
