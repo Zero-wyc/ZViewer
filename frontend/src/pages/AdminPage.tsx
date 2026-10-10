@@ -1406,11 +1406,12 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div
-                      className={
+                      className={cn(
+                        'flex w-full flex-col gap-2',
                         roomViewMode === 'tile'
-                          ? 'mt-auto flex w-full flex-col gap-2 sm:flex-row'
-                          : 'flex w-full flex-col gap-2 sm:w-auto sm:flex-row'
-                      }
+                          ? 'mt-auto'
+                          : 'sm:flex-row sm:items-center sm:justify-end'
+                      )}
                     >
                       {room.status === 'closed' && (
                         <Button
