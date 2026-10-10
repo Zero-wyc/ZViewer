@@ -26,6 +26,7 @@ import { useSubtitles, type EmbeddedSource } from '@/hooks/useSubtitles'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useRoomStore } from '@/store/roomStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
+import { usePlayerPrefsStore } from '@/store/playerPrefsStore'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import {
@@ -1465,6 +1466,55 @@ export function WatchTogetherCore({
     }
   }, [settingsOpen, slots])
 
+  // ── 双击控制键开关全屏评论区侧边栏 ────────────────────
+  // 设置项在「高级设置 → 双击打开评论区」(playerPrefsStore 持久化);
+  // 仅全屏下生效(侧边栏只在全屏挂载),避免非全屏双击 Alt 触发浏览器菜单栏。
+  const commentDockHotkey = usePlayerPrefsStore((s) => s.commentDockHotkey)
+  const setCommentDockHotkey = usePlayerPrefsStore(
+    (s) => s.setCommentDockHotkey
+  )
+  const [commentDockPinned, setCommentDockPinned] = useState(false)
+
+  // 退全屏时解除钉住,避免下次进全屏时侧边栏莫名常开
+  useEffect(() => {
+    if (!isFullscreen) setCommentDockPinned(false)
+  }, [isFullscreen])
+
+  // 双击检测:400ms 内两次按下同一控制键且期间未按其他键(e.repeat 忽略长按)。
+  // 单击不 preventDefault,组合键(Ctrl+C / Alt+Tab 等)不受影响。
+  useEffect(() => {
+    if (!isFullscreen || commentDockHotkey === 'off') return
+    const DOUBLE_PRESS_MS = 400
+    let lastPressAt = 0
+    let lastKey = ''
+    const isTargetKey = (key: string): boolean =>
+      (commentDockHotkey === 'ctrl' && key === 'Control') ||
+      (commentDockHotkey === 'alt' && key === 'Alt') ||
+      (commentDockHotkey === 'shift' && key === 'Shift')
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.repeat) return
+      if (isTargetKey(e.key)) {
+        const now = Date.now()
+        if (lastKey === e.key && now - lastPressAt <= DOUBLE_PRESS_MS) {
+          e.preventDefault()
+          lastPressAt = 0
+          lastKey = ''
+          setCommentDockPinned((v) => !v)
+          return
+        }
+        lastPressAt = now
+        lastKey = e.key
+        return
+      }
+      // 按了其他键,打断连击窗口
+      lastPressAt = 0
+      lastKey = ''
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [isFullscreen, commentDockHotkey])
+
   // ── 补充快捷键（F 全屏 / M 静音 / 方向键 跳转+音量）──
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -1894,6 +1944,8 @@ export function WatchTogetherCore({
               onDanmakuFilterChange={setFilters}
               onDanmakuAdvancedChange={setAdvancedStyle}
               onResetDanmakuStyle={resetStyle}
+              commentDockHotkey={commentDockHotkey}
+              onCommentDockHotkeyChange={setCommentDockHotkey}
             />
           )}
         </div>,
@@ -1970,6 +2022,7 @@ export function WatchTogetherCore({
           socket={socket}
           roomId={roomId}
           stageRef={stageRef}
+          pinned={commentDockPinned}
         />
       )}
 

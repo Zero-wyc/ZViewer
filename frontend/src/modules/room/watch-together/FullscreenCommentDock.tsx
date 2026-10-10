@@ -10,7 +10,8 @@
  * - 仅响应鼠标(pointerType === 'mouse'),触屏不触发,避免误滑;
  * - 指针进入右缘触发区 → 立即展开;
  * - 离开触发区(且不在侧边栏内)320ms 后自动收起;
- * - 指针在侧边栏内移动时保持展开。
+ * - 指针在侧边栏内移动时保持展开;
+ * - 热键钉住(pinned):双击控制键强制展开/收起,不受鼠标移出影响。
  *
  * 由 WatchTogetherCore 在全屏状态(isFullscreen / isWebFullscreen)下挂载,
  * 退出全屏即卸载,评论 socket 监听随之释放。
@@ -29,12 +30,18 @@ interface FullscreenCommentDockProps {
   socket: Socket | null
   roomId: string
   stageRef: React.RefObject<HTMLDivElement | null>
+  /**
+   * 热键钉住:双击设置的控制键后强制展开,不受鼠标移出自动收起影响;
+   * 再次双击解除钉住(由 WatchTogetherCore 管理,退全屏自动复位)。
+   */
+  pinned?: boolean
 }
 
 export function FullscreenCommentDock({
   socket,
   roomId,
   stageRef,
+  pinned = false,
 }: FullscreenCommentDockProps) {
   const [open, setOpen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -97,13 +104,13 @@ export function FullscreenCommentDock({
   return (
     <aside
       data-fullscreen-comment-dock
-      aria-hidden={!open}
+      aria-hidden={!(open || pinned)}
       onMouseEnter={clearCloseTimer}
       onMouseLeave={scheduleClose}
       className={cn(
         'lt-blur-surface absolute right-2 top-1/2 z-[85] flex w-[344px] max-w-[calc(100%-1rem)] -translate-y-1/2 flex-col overflow-hidden',
         'rounded-[var(--md-sys-shape-corner)] transition-all duration-300',
-        open
+        open || pinned
           ? 'pointer-events-auto translate-x-0 opacity-100'
           : 'pointer-events-none translate-x-6 opacity-0'
       )}

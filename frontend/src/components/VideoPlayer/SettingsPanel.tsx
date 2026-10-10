@@ -29,6 +29,7 @@ import type {
   DanmakuTypeFilters,
   DanmakuAdvancedStyle,
 } from '@/store/danmakuStore'
+import type { CommentDockHotkey } from '@/store/playerPrefsStore'
 
 /** 弹幕默认字体栈（FontPickerPanel 的「默认」项映射值） */
 const DANMAKU_DEFAULT_FONT = DEFAULT_DANMAKU_STYLE.advanced.fontFamily
@@ -85,6 +86,9 @@ interface SettingsPanelProps {
   onDanmakuFilterChange?: (updates: Partial<DanmakuTypeFilters>) => void
   onDanmakuAdvancedChange?: (updates: Partial<DanmakuAdvancedStyle>) => void
   onResetDanmakuStyle?: () => void
+  /** 双击控制键打开全屏评论区侧边栏(提供时才显示该设置项) */
+  commentDockHotkey?: CommentDockHotkey
+  onCommentDockHotkeyChange?: (key: CommentDockHotkey) => void
 }
 
 /**
@@ -128,6 +132,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
     onDanmakuFilterChange,
     onDanmakuAdvancedChange,
     onResetDanmakuStyle,
+    commentDockHotkey,
+    onCommentDockHotkeyChange,
   } = props
 
   const [settingsTab, setSettingsTab] = useState<'subtitle' | 'danmaku'>(
@@ -231,16 +237,27 @@ export function SettingsPanel(props: SettingsPanelProps) {
         maxHeight={520}
       >
         {isDanmakuView ? (
-          <DanmakuAdvancedSettings
-            style={danmakuStyle!}
-            setStyle={onDanmakuStyleChange ?? (() => {})}
-            setFilters={onDanmakuFilterChange ?? (() => {})}
-            setAdvancedStyle={onDanmakuAdvancedChange ?? (() => {})}
-            onFontPanelToggle={() => {
-              setAdvancedOpen(false)
-              setFontPanelOpen((v) => !v)
-            }}
-          />
+          <>
+            <DanmakuAdvancedSettings
+              style={danmakuStyle!}
+              setStyle={onDanmakuStyleChange ?? (() => {})}
+              setFilters={onDanmakuFilterChange ?? (() => {})}
+              setAdvancedStyle={onDanmakuAdvancedChange ?? (() => {})}
+              onFontPanelToggle={() => {
+                setAdvancedOpen(false)
+                setFontPanelOpen((v) => !v)
+              }}
+            />
+            {/* 双击控制键打开全屏评论区侧边栏(仅 watch-together 提供该回调时显示) */}
+            {onCommentDockHotkeyChange && (
+              <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
+                <CommentDockHotkeySetting
+                  value={commentDockHotkey ?? 'off'}
+                  onChange={onCommentDockHotkeyChange}
+                />
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex flex-col gap-2">
             <div
@@ -763,6 +780,72 @@ export function SettingsPanel(props: SettingsPanelProps) {
           />
         )}
       </div>
+    </div>
+  )
+}
+
+/** 双击控制键热键选项(关闭 + 三个修饰键) */
+const COMMENT_DOCK_HOTKEY_OPTIONS: {
+  key: CommentDockHotkey
+  label: string
+}[] = [
+  { key: 'off', label: '关闭' },
+  { key: 'ctrl', label: 'Ctrl' },
+  { key: 'alt', label: 'Alt' },
+  { key: 'shift', label: 'Shift' },
+]
+
+/**
+ * 「双击打开评论区」设置项(渲染在弹幕 Tab 高级设置延伸面板底部):
+ * 选择一个控制键后,全屏播放时快速双击该键即可展开/收起右侧评论区侧边栏。
+ */
+function CommentDockHotkeySetting({
+  value,
+  onChange,
+}: {
+  value: CommentDockHotkey
+  onChange: (key: CommentDockHotkey) => void
+}) {
+  return (
+    <div>
+      <div
+        className="mb-1 text-[11px] font-medium uppercase tracking-wide"
+        style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+      >
+        双击打开评论区
+      </div>
+      <div className="grid grid-cols-4 gap-1">
+        {COMMENT_DOCK_HOTKEY_OPTIONS.map(({ key, label }) => {
+          const active = value === key
+          return (
+            <button
+              key={key}
+              type="button"
+              onClick={() => onChange(key)}
+              title={
+                key === 'off'
+                  ? '关闭双击快捷键'
+                  : `全屏播放时双击 ${label} 开/关右侧评论区`
+              }
+              className={cn(
+                'rounded-md border py-1 text-xs font-medium transition-all',
+                'hover:-translate-y-px hover:shadow-sm active:translate-y-0 active:brightness-95',
+                active
+                  ? 'border-transparent bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)] shadow-sm'
+                  : 'border-[var(--md-sys-color-outline)] bg-[var(--glass-bg)] text-[var(--md-sys-color-on-surface)]'
+              )}
+            >
+              {label}
+            </button>
+          )
+        })}
+      </div>
+      <p
+        className="mt-1 text-[10px] leading-snug"
+        style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+      >
+        全屏播放时快速双击所选控制键,展开/收起右侧评论区
+      </p>
     </div>
   )
 }
