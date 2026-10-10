@@ -11,7 +11,7 @@
  * - 手动：「我已连接，重试」触发观众端源重载；
  * - 自动：cliAgent.available 由未连接变为已连接时自动重载。
  */
-import { ExternalLink, RefreshCw, ShieldCheck } from 'lucide-react'
+import { ExternalLink, Lock, RefreshCw } from 'lucide-react'
 import { useCallback, useEffect, useRef } from 'react'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
@@ -48,7 +48,7 @@ export function ViewerCliRequiredOverlay() {
 
   return (
     <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 px-6 text-center backdrop-blur-sm">
-      <ShieldCheck className="h-10 w-10 shrink-0 text-[var(--md-sys-color-tertiary)]" />
+      <Lock className="h-10 w-10 shrink-0 text-[var(--md-sys-color-tertiary)]" />
       <div className="text-sm font-bold text-white">
         该影片仅允许 CLI 模式观看
       </div>

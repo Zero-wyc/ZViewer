@@ -17,7 +17,7 @@ import {
   ChevronDown,
   MonitorSmartphone,
   ExternalLink,
-  ShieldCheck,
+  Lock,
 } from 'lucide-react'
 import { useRoomStore } from '@/store/roomStore'
 import { message } from '@/components/ui/message'
@@ -432,12 +432,12 @@ export function BilibiliParseSettings({
                   className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md"
                   style={{
                     background:
-                      'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
+                      'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-secondary) 18%, transparent))',
                   }}
                 >
-                  <ShieldCheck
+                  <Lock
                     className="h-3 w-3"
-                    style={{ color: 'var(--md-sys-color-primary)' }}
+                    style={{ color: 'var(--md-sys-color-tertiary)' }}
                   />
                 </div>
                 <div className="flex min-w-0 flex-1 flex-col">
