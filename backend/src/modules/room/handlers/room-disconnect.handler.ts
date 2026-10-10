@@ -43,9 +43,10 @@ export class RoomDisconnectHandler implements SocketEventHandler {
             roomId: session.roomId,
           });
 
-          // 启动重连定时器：超时（10 分钟）则关闭房间
+          // 启动重连定时器：超时（10 分钟）后按「自动删除无人房间」开关
+          // 决定是否关闭房间（开关关闭时房间保留，房主可随时回来恢复）
           roomStateService.startReconnectTimer(session.roomId, () => {
-            void roomStateService.closeRoomAndNotify(
+            void roomStateService.closeRoomAfterHostGrace(
               io,
               session.roomId,
               socket.id,

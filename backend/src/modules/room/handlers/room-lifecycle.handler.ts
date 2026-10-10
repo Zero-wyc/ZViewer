@@ -158,9 +158,10 @@ export class RoomLifecycleHandler implements SocketEventHandler {
         // 观众端据此进入"自主控制模式"
         io.to(roomId).emit('host-disconnected', { roomId });
 
-        // 启动重连定时器：超时（10 分钟）则关闭房间
+        // 启动重连定时器：超时（10 分钟）后按「自动删除无人房间」开关
+        // 决定是否关闭房间（开关关闭时房间保留，房主可随时回来恢复）
         roomStateService.startReconnectTimer(roomId, () => {
-          void roomStateService.closeRoomAndNotify(io, roomId, socket.id);
+          void roomStateService.closeRoomAfterHostGrace(io, roomId, socket.id);
         });
 
         // 房主 socket 主动离开房间（保持 socket 连接，允许房主浏览其他页面）

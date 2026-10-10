@@ -15,6 +15,7 @@ import { Room } from '../../entities/Room';
 import { Session } from '../../entities/Session';
 import { Movie } from '../../entities/Movie';
 import { PlaybackState } from '../../entities/PlaybackState';
+import { getSystemSettings } from '../../services/system-settings';
 import type { MovieDto, PlaybackStateDto } from '../shared';
 import { playbackMemoryService } from '../playback-memory';
 import { roomPermissionService } from './room-permission.service';
@@ -206,6 +207,38 @@ export class RoomStateService {
   /** 检查是否有待重连的定时器 */
   hasReconnectTimer(roomId: string): boolean {
     return this.reconnectTimers.has(roomId);
+  }
+
+  /**
+   * 房主离开宽限期（10 分钟）超时后的自动关闭：受「自动删除无人房间」
+   * 开关（autoDeleteInactiveRooms）门控。
+   *
+   * - 开关开启（默认）：关闭房间（原行为）
+   * - 开关关闭：不关闭——房间保留，观众可继续停留，房主可随时回来恢复；
+   *   关闭仍可由房主 close-room / 管理员 admin-close-room 显式触发
+   *
+   * 读设置失败时按原行为关闭（与旧版本一致，避免异常态下房间泄漏）。
+   */
+  async closeRoomAfterHostGrace(
+    io: SocketIOServer,
+    roomId: string,
+    sharerSocketId: string,
+  ): Promise<void> {
+    try {
+      const settings = await getSystemSettings();
+      if (!settings.autoDeleteInactiveRooms) {
+        console.log(
+          `[room] auto-delete inactive rooms is disabled, keep room ${roomId} open after host left`,
+        );
+        return;
+      }
+    } catch (err) {
+      console.error(
+        '[room] read settings failed, close room by default:',
+        err,
+      );
+    }
+    await this.closeRoomAndNotify(io, roomId, sharerSocketId);
   }
 
   /**
