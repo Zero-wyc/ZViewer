@@ -6,6 +6,7 @@ import {
   Trash2,
   Power,
   RefreshCw,
+  RotateCcw,
   Lock,
   LayoutDashboard,
   LayoutGrid,
@@ -739,6 +740,29 @@ export default function AdminPage() {
     }
   }
 
+  const [roomReopeningId, setRoomReopeningId] = useState<string | null>(null)
+  const handleReopenRoom = async (roomId: string) => {
+    setRoomReopeningId(roomId)
+    try {
+      const res = await apiFetch(`/api/admin/rooms/${roomId}/reopen`, {
+        method: 'POST',
+        headers: authHeaders,
+      })
+      const data = (await res.json()) as { success: boolean; message?: string }
+      if (data.success) {
+        message.success('房间已重新开启')
+        await fetchRooms()
+      } else {
+        message.error(data.message ?? '重新开启失败')
+      }
+    } catch (err) {
+      console.error('[AdminPage] reopen room error:', err)
+      message.error('重新开启房间失败')
+    } finally {
+      setRoomReopeningId(null)
+    }
+  }
+
   const handleBatchDeleteRooms = async () => {
     if (selectedRoomIds.size === 0) return
     setBatchDeleteLoading(true)
@@ -1381,23 +1405,51 @@ export default function AdminPage() {
                         </Text>
                       </div>
                     </div>
-                    <Button
-                      variant="danger"
-                      size="sm"
+                    <div
                       className={
                         roomViewMode === 'tile'
-                          ? 'mt-auto w-full'
-                          : 'w-full sm:w-auto'
+                          ? 'mt-auto flex w-full flex-col gap-2 sm:flex-row'
+                          : 'flex w-full flex-col gap-2 sm:w-auto sm:flex-row'
                       }
-                      icon={<Power className="h-4 w-4" />}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setRoomClose(room)
-                      }}
-                      disabled={room.status !== 'active'}
                     >
-                      关闭房间
-                    </Button>
+                      {room.status === 'closed' && (
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className={
+                            roomViewMode === 'tile'
+                              ? 'w-full'
+                              : 'w-full sm:w-auto'
+                          }
+                          icon={<RotateCcw className="h-4 w-4" />}
+                          loading={roomReopeningId === room.roomId}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            void handleReopenRoom(room.roomId)
+                          }}
+                          title="重新开启已关闭的房间"
+                        >
+                          重新开启
+                        </Button>
+                      )}
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        className={
+                          roomViewMode === 'tile'
+                            ? 'w-full'
+                            : 'w-full sm:w-auto'
+                        }
+                        icon={<Power className="h-4 w-4" />}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setRoomClose(room)
+                        }}
+                        disabled={room.status !== 'active'}
+                      >
+                        关闭房间
+                      </Button>
+                    </div>
                   </div>
                 ))}
               </>

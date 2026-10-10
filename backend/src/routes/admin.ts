@@ -17,6 +17,7 @@ import {
 } from '../middleware/auth';
 import { writeAuditLog } from '../services/audit';
 import { applyVoiceTransportMode } from '../services/livekit-server.manager';
+import { roomPermissionService } from '../modules/room/room-permission.service';
 
 const router = Router();
 
@@ -329,6 +330,61 @@ router.delete(
     } catch (err) {
       console.error('admin close room error:', err);
       res.status(500).json({ success: false, message: '关闭房间失败' });
+    }
+  },
+);
+
+/** 重新开启已关闭的房间（root 可重开任意；admin 只能重开自己创建的房间） */
+router.post(
+  '/rooms/:roomId/reopen',
+  async (
+    req: AuthenticatedRequest,
+    res: import('express').Response,
+  ): Promise<void> => {
+    try {
+      const rawRoomId = req.params.roomId;
+      const roomId = Array.isArray(rawRoomId) ? rawRoomId[0] : rawRoomId;
+      if (!roomId) {
+        res.status(400).json({ success: false, message: '房间号不正确' });
+        return;
+      }
+
+      const roomRepo = roomRepository();
+      const room = await roomRepo.findOneBy({ roomId });
+      if (!room) {
+        res.status(404).json({ success: false, message: '房间不存在' });
+        return;
+      }
+
+      if (
+        req.user?.role !== 'root' &&
+        !(req.user?.role === 'admin' && room.ownerUserId === req.user?.userId)
+      ) {
+        res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可重开该房间' });
+        return;
+      }
+
+      if (room.status !== 'closed') {
+        res.status(400).json({ success: false, message: '该房间未处于关闭状态' });
+        return;
+      }
+
+      // 恢复为 active：各入口（观众加入/评论/权限校验/推流）均按 status 校验，
+      // 置回后房间即恢复可进入；播放记忆在关闭时已清理，重开后从头播放。
+      await roomRepo.update({ roomId }, { status: 'active' });
+      roomPermissionService.invalidatePermissionCache(undefined, roomId);
+      writeAuditLog({
+        actorUserId: req.user!.userId,
+        actorUsername: req.user!.username,
+        actorRole: req.user!.role,
+        action: 'room_reopened',
+        target: `room:${roomId}`,
+        ip: req.ip,
+      });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('admin reopen room error:', err);
+      res.status(500).json({ success: false, message: '重新开启房间失败' });
     }
   },
 );
