@@ -6,7 +6,6 @@ import {
   Loader2,
   LayoutGrid,
   List,
-  Film,
   ChevronDown,
 } from 'lucide-react'
 import { FullscreenOverlay } from '@/components/ui/FullscreenOverlay'
@@ -191,37 +190,7 @@ export function AniSubsSelector({
       open={open}
       onClose={() => onOpenChange(false)}
       className="max-w-5xl"
-      title={
-        <div className="flex items-center gap-3">
-          <div
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-            style={{
-              background:
-                'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
-            }}
-          >
-            <Film
-              className="h-5 w-5"
-              style={{ color: 'var(--md-sys-color-primary)' }}
-            />
-          </div>
-          <div className="flex min-w-0 flex-col">
-            <Text className="text-base font-semibold leading-tight">
-              ani-subs 番剧源
-            </Text>
-            <Text
-              type="secondary"
-              className="text-[10px] uppercase tracking-wide"
-            >
-              {loadingSources
-                ? '加载中'
-                : sources.length > 0
-                  ? `${sources.length} 个数据源可用`
-                  : '暂无数据源'}
-            </Text>
-          </div>
-        </div>
-      }
+      title="ani-subs 番剧源"
     >
       <div className="flex h-full flex-col">
         {/* 搜索区：数据源选择 + 关键词 + 搜索按钮 */}

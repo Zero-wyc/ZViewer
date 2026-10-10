@@ -2372,34 +2372,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         <Modal
           open={showPageSelector}
           onClose={() => setShowPageSelector(false)}
-          title={
-            <div className="flex items-center gap-2.5">
-              <div
-                className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-primary-container)',
-                }}
-              >
-                <ListVideo
-                  className="h-4 w-4"
-                  style={{
-                    color: 'var(--md-sys-color-on-primary-container)',
-                  }}
-                />
-              </div>
-              <div className="flex min-w-0 flex-1 flex-col">
-                <Text className="text-sm font-semibold leading-tight">
-                  选择分集
-                </Text>
-                <Text
-                  type="secondary"
-                  className="text-[10px] uppercase tracking-wide"
-                >
-                  {resolvedMovie.pages.length} P · 点击选择要添加的章节
-                </Text>
-              </div>
-            </div>
-          }
+          title="选择分集"
           footer={
             <Button
               variant="secondary"
