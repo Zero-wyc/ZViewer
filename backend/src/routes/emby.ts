@@ -87,6 +87,9 @@ function mapEmbyEntry(item: EmbyItem) {
     type: (isFile ? 'file' : 'directory') as 'file' | 'directory',
     embyType: item.Type,
     childCount: item.ChildCount ?? 0,
+    // 刮削元数据（瀑布流海报墙用）：Primary 主海报 tag + 年份
+    imageTag: item.ImageTags?.Primary,
+    productionYear: item.ProductionYear,
   };
 }
 
@@ -351,6 +354,46 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
     res.status(status).json({
       success: false,
       message: extractErrorMessage(err, '浏览 Emby 失败'),
+      code,
+    });
+  }
+});
+
+// 条目海报图代理 - GET /mounts/:id/image?itemId=&tag=&maxWidth=
+// 后端持凭证转发 Emby 的刮削主海报（Primary），token 不暴露给前端。
+router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const mountId = Number(req.params.id);
+    const itemId = typeof req.query.itemId === 'string' ? req.query.itemId : '';
+    if (Number.isNaN(mountId) || !itemId.trim()) {
+      res.status(400).json({ success: false, message: '缺少 mountId 或 itemId', code: 'INVALID_PARAMS' });
+      return;
+    }
+    const repo = userMountRepository();
+    const mount = await repo.findOneBy({
+      id: mountId,
+      userId: req.user!.userId,
+      type: 'emby',
+    });
+    if (!mount) {
+      res.status(404).json({ success: false, message: '挂载不存在或无权限' });
+      return;
+    }
+    const session = await resolveEmbySession(mount);
+    const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
+    const maxWidth = Number(req.query.maxWidth) || 300;
+    const { buffer, contentType } = await session.client.itemImage(itemId, { tag, maxWidth });
+    res.set('Content-Type', contentType);
+    // 海报基本不变：浏览器缓存 1 小时，减少重复代理流量
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buffer);
+  } catch (err) {
+    console.error('[emby] mount image error:', err);
+    const code = extractErrorCode(err);
+    const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 404;
+    res.status(status).json({
+      success: false,
+      message: extractErrorMessage(err, '获取海报失败'),
       code,
     });
   }

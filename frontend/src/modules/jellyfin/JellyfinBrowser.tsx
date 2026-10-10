@@ -29,6 +29,7 @@ export default function JellyfinBrowser({
       onClose={onClose}
       onSelectFiles={onSelectFiles}
       selectable={selectable}
+      imageApi="jellyfin"
       browse={
         browseJellyfinMount as (
           mountId: number,

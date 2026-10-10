@@ -43,6 +43,10 @@ export interface EmbyDirectoryEntry {
   /** Emby 条目类型（CollectionFolder/Series/Season/Movie/Episode/Video） */
   embyType?: string
   childCount?: number
+  /** 刮削主海报 tag（ImageTags.Primary，瀑布流海报墙用） */
+  imageTag?: string
+  /** 刮削年份 */
+  productionYear?: number
 }
 
 export interface EmbyResolvedSource {

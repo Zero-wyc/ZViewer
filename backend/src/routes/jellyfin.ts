@@ -62,7 +62,7 @@ async function resolveJellyfinSession(mount: UserMount): Promise<{
   return { client, userId, token };
 }
 
-function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFolder?: boolean; IsFile?: boolean; ChildCount?: number }) {
+function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFolder?: boolean; IsFile?: boolean; ChildCount?: number; ProductionYear?: number; ImageTags?: { Primary?: string } }) {
   const fileTypes = new Set(['Movie', 'Video', 'Episode', 'TvSeries']);
   const isFile = fileTypes.has(item.Type) || item.IsFile === true;
   return {
@@ -71,6 +71,9 @@ function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFold
     type: (isFile ? 'file' : 'directory') as 'file' | 'directory',
     embyType: item.Type,
     childCount: item.ChildCount ?? 0,
+    // 刮削元数据（瀑布流海报墙用）：Primary 主海报 tag + 年份
+    imageTag: item.ImageTags?.Primary,
+    productionYear: item.ProductionYear,
   };
 }
 
@@ -262,7 +265,7 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
     }
     const browsePath = typeof req.query.path === 'string' ? req.query.path : '';
     const session = await resolveJellyfinSession(mount);
-    let items: { Id: string; Name: string; Type: string; IsFolder?: boolean; IsFile?: boolean; ChildCount?: number }[] = [];
+    let items: { Id: string; Name: string; Type: string; IsFolder?: boolean; IsFile?: boolean; ChildCount?: number; ProductionYear?: number; ImageTags?: { Primary?: string } }[] = [];
     if (!browsePath || browsePath === 'views' || browsePath === '/') {
       items = await session.client.userViews(session.userId);
     } else {
@@ -274,6 +277,42 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
     const code = extractErrorCode(err);
     const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 400;
     res.status(status).json({ success: false, message: extractErrorMessage(err, '浏览 Jellyfin 失败'), code });
+  }
+});
+
+// 条目海报图代理 - GET /mounts/:id/image?itemId=&tag=&maxWidth=
+// 后端持凭证转发 Jellyfin 的刮削主海报（Primary），token 不暴露给前端。
+router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const mountId = Number(req.params.id);
+    const itemId = typeof req.query.itemId === 'string' ? req.query.itemId : '';
+    if (Number.isNaN(mountId) || !itemId.trim()) {
+      res.status(400).json({ success: false, message: '缺少 mountId 或 itemId', code: 'INVALID_PARAMS' });
+      return;
+    }
+    const repo = userMountRepository();
+    const mount = await repo.findOneBy({ id: mountId, userId: req.user!.userId, type: 'jellyfin' });
+    if (!mount) {
+      res.status(404).json({ success: false, message: '挂载不存在或无权限' });
+      return;
+    }
+    const session = await resolveJellyfinSession(mount);
+    const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
+    const maxWidth = Number(req.query.maxWidth) || 300;
+    const { buffer, contentType } = await session.client.itemImage(itemId, { tag, maxWidth });
+    res.set('Content-Type', contentType);
+    // 海报基本不变：浏览器缓存 1 小时，减少重复代理流量
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buffer);
+  } catch (err) {
+    console.error('[jellyfin] mount image error:', err);
+    const code = extractErrorCode(err);
+    const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 404;
+    res.status(status).json({
+      success: false,
+      message: extractErrorMessage(err, '获取海报失败'),
+      code,
+    });
   }
 });
 

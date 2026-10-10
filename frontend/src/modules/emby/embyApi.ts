@@ -165,3 +165,23 @@ export async function resolveEmby(
 export function buildEmbyProxyUrl(mountId: number, path: string): string {
   return buildProxyUrl('emby', { mountId, path })
 }
+
+/**
+ * 条目主海报 URL（经后端代理，凭证不暴露）。
+ * @param api 'emby' | 'jellyfin'（后端路由前缀不同）
+ * @param tag 条目 ImageTags.Primary（缓存校验）
+ */
+export function buildEmbyImageUrl(
+  api: 'emby' | 'jellyfin',
+  mountId: number,
+  itemId: string,
+  tag?: string,
+  maxWidth = 300,
+): string {
+  const query = new URLSearchParams({
+    itemId,
+    maxWidth: String(maxWidth),
+  })
+  if (tag) query.set('tag', tag)
+  return `/api/${api}/mounts/${mountId}/image?${query.toString()}`
+}

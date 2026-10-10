@@ -16,13 +16,15 @@ import {
   Square,
   ListChecks,
   Clapperboard,
+  LayoutGrid,
+  List,
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import { cn } from '@/lib/utils'
-import { browseEmbyMount } from './embyApi'
+import { browseEmbyMount, buildEmbyImageUrl } from './embyApi'
 import type { EmbyDirectoryEntry } from './types'
 
 export interface MediaLibraryBrowserProps {
@@ -35,6 +37,8 @@ export interface MediaLibraryBrowserProps {
   browse?: (mountId: number, path?: string) => Promise<EmbyDirectoryEntry[]>
   /** 弹窗标题，默认「浏览 Emby 媒体库」 */
   title?: string
+  /** 海报图代理的 API 前缀（Jellyfin 传 'jellyfin'），默认 'emby' */
+  imageApi?: 'emby' | 'jellyfin'
 }
 
 interface Crumb {
@@ -71,6 +75,7 @@ export default function EmbyBrowser({
   onSelectFiles,
   browse = browseEmbyMount,
   title = '浏览 Emby 媒体库',
+  imageApi = 'emby',
 }: MediaLibraryBrowserProps) {
   /** 面包屑历史栈：不含根（根 = 媒体库） */
   const [crumbs, setCrumbs] = useState<Crumb[]>([])
@@ -82,6 +87,16 @@ export default function EmbyBrowser({
   const [error, setError] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [multiSelectMode, setMultiSelectMode] = useState(false)
+  /** 视图模式：list = 双列文件列表，wall = 刮削海报瀑布流 */
+  const [viewMode, setViewMode] = useState<'list' | 'wall'>(() => {
+    const saved = localStorage.getItem('media-library-view-mode')
+    return saved === 'wall' ? 'wall' : 'list'
+  })
+
+  const switchViewMode = (mode: 'list' | 'wall') => {
+    setViewMode(mode)
+    localStorage.setItem('media-library-view-mode', mode)
+  }
 
   const currentPath =
     crumbs.length > 0 ? crumbs[crumbs.length - 1].path : undefined
@@ -258,6 +273,91 @@ export default function EmbyBrowser({
     )
   }
 
+  /** 海报墙卡片：封面(刮削 Primary 海报) + 名称 + 年份 */
+  const renderWallCard = (entry: EmbyDirectoryEntry) => {
+    const isSelected = selectedPaths.has(entry.path)
+    const isDirectory = entry.type === 'directory'
+    return (
+      <div
+        key={entry.path}
+        className={cn(
+          'group relative cursor-pointer overflow-hidden rounded-[var(--md-sys-shape-corner)] border transition-all',
+          isSelected
+            ? 'border-[var(--md-sys-color-primary)] shadow-md'
+            : 'border-transparent hover:-translate-y-0.5 hover:shadow-md'
+        )}
+        onClick={() => {
+          if (isDirectory) {
+            openDirectory(entry)
+          } else {
+            toggleSelection(entry.path)
+          }
+        }}
+      >
+        <div className="relative aspect-[2/3] w-full bg-[var(--glass-bg)]">
+          {entry.imageTag ? (
+            <img
+              src={buildEmbyImageUrl(
+                imageApi,
+                mountId ?? 0,
+                entry.path,
+                entry.imageTag,
+                300
+              )}
+              alt={entry.name}
+              loading="lazy"
+              className="h-full w-full object-cover"
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).style.visibility = 'hidden'
+              }}
+            />
+          ) : (
+            <div className="flex h-full w-full items-center justify-center">
+              {isDirectory ? (
+                <Folder className="h-8 w-8 opacity-40" />
+              ) : (
+                <Film className="h-8 w-8 opacity-40" />
+              )}
+            </div>
+          )}
+          {isDirectory && (
+            <div className="absolute right-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
+              {entry.childCount ?? 0} 项
+            </div>
+          )}
+          {multiSelectMode && !isDirectory && (
+            <div
+              className="absolute left-1.5 top-1.5"
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleSelection(entry.path)
+              }}
+            >
+              {isSelected ? (
+                <CheckSquare2 className="h-5 w-5 text-white drop-shadow" />
+              ) : (
+                <Square className="h-5 w-5 text-white/70 drop-shadow" />
+              )}
+            </div>
+          )}
+        </div>
+        <div className="p-1.5">
+          <Text
+            className="block truncate text-[11px] font-medium leading-tight"
+            title={entry.name}
+          >
+            {entry.name}
+          </Text>
+          {entry.productionYear != null && (
+            <Text type="secondary" className="block text-[10px] leading-tight">
+              {entry.productionYear}
+            </Text>
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const breadcrumb = useMemo(
     () => [
       { name: '媒体库', path: undefined as string | undefined },
@@ -269,24 +369,35 @@ export default function EmbyBrowser({
   const loadingSkeletons = (
     <>
       <div className="mb-4 h-5 w-2/3 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
-      <div className="grid h-[420px] grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] md:grid-cols-2">
-        <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 p-3 md:flex">
-          <div className="mb-3 h-4 w-16 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
-          <div className="flex-1 space-y-1 overflow-hidden">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <EntrySkeleton key={`left-${i}`} />
-            ))}
+      {viewMode === 'wall' ? (
+        <div className="grid h-[420px] grid-cols-3 gap-3 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] p-3 md:grid-cols-4 lg:grid-cols-5">
+          {Array.from({ length: 10 }).map((_, i) => (
+            <div key={i} className="flex animate-pulse flex-col gap-1.5">
+              <div className="aspect-[2/3] w-full rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]" />
+              <div className="h-3 w-3/4 rounded bg-[var(--md-sys-color-surface-container-high)]" />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="grid h-[420px] grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] md:grid-cols-2">
+          <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 p-3 md:flex">
+            <div className="mb-3 h-4 w-16 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
+            <div className="flex-1 space-y-1 overflow-hidden">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <EntrySkeleton key={`left-${i}`} />
+              ))}
+            </div>
+          </div>
+          <div className="flex flex-col bg-[var(--md-sys-color-surface)]/80 p-3">
+            <div className="mb-3 h-4 w-16 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
+            <div className="flex-1 space-y-1 overflow-hidden">
+              {Array.from({ length: 8 }).map((_, i) => (
+                <EntrySkeleton key={`right-${i}`} />
+              ))}
+            </div>
           </div>
         </div>
-        <div className="flex flex-col bg-[var(--md-sys-color-surface)]/80 p-3">
-          <div className="mb-3 h-4 w-16 animate-pulse rounded bg-[var(--md-sys-color-surface-container-high)]" />
-          <div className="flex-1 space-y-1 overflow-hidden">
-            {Array.from({ length: 8 }).map((_, i) => (
-              <EntrySkeleton key={`right-${i}`} />
-            ))}
-          </div>
-        </div>
-      </div>
+      )}
     </>
   )
 
@@ -369,6 +480,41 @@ export default function EmbyBrowser({
                 ))}
               </div>
 
+              {/* 视图切换：列表 / 海报墙 */}
+              <div
+                className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+                style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+              >
+                <button
+                  type="button"
+                  onClick={() => switchViewMode('list')}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1 text-xs font-medium transition-all',
+                    viewMode === 'list'
+                      ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                      : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
+                  )}
+                  title="列表视图"
+                >
+                  <List className="h-3.5 w-3.5" />
+                  列表
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchViewMode('wall')}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1 text-xs font-medium transition-all',
+                    viewMode === 'wall'
+                      ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                      : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
+                  )}
+                  title="海报墙视图（拉取刮削封面）"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  海报墙
+                </button>
+              </div>
+
               <Button
                 variant={multiSelectMode ? 'primary' : 'secondary'}
                 size="sm"
@@ -384,6 +530,20 @@ export default function EmbyBrowser({
               </Button>
             </div>
 
+            {viewMode === 'wall' ? (
+              /* 海报墙视图：直接消费刮削内容（Primary 海报经后端代理） */
+              <div className="zen-scroll h-[420px] overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-3">
+                {entries.length > 0 ? (
+                  <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
+                    {entries.map(renderWallCard)}
+                  </div>
+                ) : (
+                  <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                    当前目录为空
+                  </Text>
+                )}
+              </div>
+            ) : (
             <div className="grid h-[420px] grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm md:grid-cols-2">
               {/* 左侧：上级目录（小屏单栏时隐藏，导航由面包屑承担） */}
               <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
@@ -432,6 +592,7 @@ export default function EmbyBrowser({
                 </div>
               </div>
             </div>
+            )}
 
             {loading && entries.length > 0 && (
               <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[var(--md-sys-color-surface)]/40 backdrop-blur-md">

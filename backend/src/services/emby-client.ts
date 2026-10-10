@@ -67,6 +67,12 @@ export interface EmbyItem {
   ChildCount?: number;
   /** 是否为文件（可播放） */
   IsFile?: boolean;
+  /** 刮削年份（电影/剧集） */
+  ProductionYear?: number;
+  /** 刮削图片标签（Primary=主海报，用于构造图片 URL） */
+  ImageTags?: { Primary?: string };
+  /** 海报宽高比（PrimaryImageAspectRatio，约 0.66 = 2:3 竖版海报） */
+  PrimaryImageAspectRatio?: number;
   /** 媒体源信息（PlaybackInfo 或带 Fields=MediaSources 时返回） */
   MediaSources?: EmbyMediaSource[];
 }
@@ -89,8 +95,8 @@ interface EmbyRequestOptions {
   body?: unknown;
   /** 使用 API Key 请求头（GET 用 query，POST 用 X-Emby-Token） */
   authHeader?: boolean;
-  /** 响应类型：默认 json；字幕等纯文本响应传 'text' */
-  responseType?: 'json' | 'text';
+  /** 响应类型：默认 json；字幕等纯文本响应传 'text'；图片等二进制传 'buffer' */
+  responseType?: 'json' | 'text' | 'buffer';
 }
 
 export class EmbyError extends Error {
@@ -171,6 +177,12 @@ export class EmbyClient {
         );
       }
       if (res.status === 204) return undefined as T;
+      if (reqOpts.responseType === 'buffer') {
+        return {
+          buffer: Buffer.from(await res.arrayBuffer()),
+          contentType: res.headers.get('content-type') ?? 'image/jpeg',
+        } as unknown as T;
+      }
       if (reqOpts.responseType === 'text') {
         return (await res.text()) as unknown as T;
       }
@@ -270,11 +282,33 @@ export class EmbyClient {
       query: {
         ParentId: parentId,
         IncludeItemTypes: includeItemTypes,
-        Fields: 'ChildCount,MediaSources,Path',
+        Fields: 'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio',
         Recursive: parentId ? undefined : 'false',
       },
     });
     return res.Items ?? [];
+  }
+
+  /**
+   * 条目主海报（刮削图）。
+   * GET /emby/Items/{itemId}/Images/Primary?maxWidth=&tag=
+   * - maxWidth 控制压缩尺寸（瀑布流 300 足够）
+   * - tag 为 ImageTags.Primary（缓存校验，条目换海报后 URL 变化）
+   * - 鉴权走 api_key query（authHeader 默认 true）
+   */
+  async itemImage(
+    itemId: string,
+    opts?: { tag?: string; maxWidth?: number },
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    return this.request<{ buffer: Buffer; contentType: string }>({
+      path: `/emby/Items/${encodeURIComponent(itemId)}/Images/Primary`,
+      query: {
+        maxWidth: opts?.maxWidth,
+        tag: opts?.tag,
+        quality: 90,
+      },
+      responseType: 'buffer',
+    });
   }
 
   /** 搜索 GET /emby/Users/{userId}/Items?SearchTerm= */
