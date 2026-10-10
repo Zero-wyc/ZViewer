@@ -55,6 +55,11 @@ export function AniSubsSelector({
     Record<string, AniSubsEpisode[]>
   >({})
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  // 曾展开过的结果保持挂载:收起时二级集数菜单以 grid-rows 0fr 动画收拢,
+  // 内容不卸载才能播放退出过渡(新搜索/切数据源时整体重置)
+  const [everExpandedIds, setEverExpandedIds] = useState<Set<string>>(
+    () => new Set()
+  )
   const [loadingSources, setLoadingSources] = useState(false)
   const [sourcesError, setSourcesError] = useState<string | null>(null)
   const [searching, setSearching] = useState(false)
@@ -119,6 +124,7 @@ export function AniSubsSelector({
     setSearching(true)
     setSearchResults([])
     setExpandedId(null)
+    setEverExpandedIds(new Set())
     setEpisodesMap({})
     try {
       const results = await searchAniSubs(selectedSource, keyword.trim())
@@ -154,6 +160,12 @@ export function AniSubsSelector({
         return
       }
       setExpandedId(result.id)
+      setEverExpandedIds((prev) => {
+        if (prev.has(result.id)) return prev
+        const next = new Set(prev)
+        next.add(result.id)
+        return next
+      })
       if (episodesMap[result.id]) return
 
       setLoadingEpisodes(true)
@@ -189,7 +201,7 @@ export function AniSubsSelector({
     <FullscreenOverlay
       open={open}
       onClose={() => onOpenChange(false)}
-      className="max-w-5xl"
+      className="max-w-5xl h-[72vh] min-h-[420px]"
       title="ani-subs 番剧源"
     >
       <div className="flex h-full flex-col">
@@ -209,6 +221,7 @@ export function AniSubsSelector({
                 setSelectedSource(value)
                 setSearchResults([])
                 setExpandedId(null)
+                setEverExpandedIds(new Set())
                 setEpisodesMap({})
               }}
               disabled={loadingSources || sourceOptions.length === 0}
@@ -468,40 +481,51 @@ export function AniSubsSelector({
                   </div>
                 </button>
 
-                {expanded && (
+                {/* 二级集数菜单:grid-rows 0fr→1fr 过渡,展开/收起均有高度动画 */}
+                {everExpandedIds.has(result.id) && (
                   <div
-                    className="border-t px-3 pb-3"
-                    style={{
-                      borderColor: 'var(--md-sys-color-outline-variant)',
-                    }}
+                    className={cn(
+                      'grid transition-[grid-template-rows] duration-300 ease-out',
+                      expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                    )}
                   >
-                    {episodes.length === 0 && !loadingEpisodes && (
-                      <div className="flex h-16 items-center justify-center">
-                        <Paragraph type="secondary" className="m-0 text-xs">
-                          暂无集数信息
-                        </Paragraph>
+                    <div className="min-h-0 overflow-hidden">
+                      <div
+                        className="border-t px-3 pb-3"
+                        style={{
+                          borderColor:
+                            'var(--md-sys-color-outline-variant)',
+                        }}
+                      >
+                        {episodes.length === 0 && !loadingEpisodes && (
+                          <div className="flex h-16 items-center justify-center">
+                            <Paragraph type="secondary" className="m-0 text-xs">
+                              暂无集数信息
+                            </Paragraph>
+                          </div>
+                        )}
+                        {loadingEpisodes && episodes.length === 0 && (
+                          <div className="flex h-16 items-center justify-center">
+                            <Loader2
+                              className="h-4 w-4 animate-spin"
+                              style={{ color: 'var(--md-sys-color-primary)' }}
+                            />
+                          </div>
+                        )}
+                        {episodes.length > 0 && (
+                          <AnimeEpisodePicker
+                            episodes={episodes}
+                            sourceId={result.source}
+                            title={result.title}
+                            disabled={disabled || !!selectedEpisodeId}
+                            onSelect={(episode) =>
+                              handleSelectEpisode(result, episode)
+                            }
+                            onSelectMany={onSelectEpisodes}
+                          />
+                        )}
                       </div>
-                    )}
-                    {loadingEpisodes && episodes.length === 0 && (
-                      <div className="flex h-16 items-center justify-center">
-                        <Loader2
-                          className="h-4 w-4 animate-spin"
-                          style={{ color: 'var(--md-sys-color-primary)' }}
-                        />
-                      </div>
-                    )}
-                    {episodes.length > 0 && (
-                      <AnimeEpisodePicker
-                        episodes={episodes}
-                        sourceId={result.source}
-                        title={result.title}
-                        disabled={disabled || !!selectedEpisodeId}
-                        onSelect={(episode) =>
-                          handleSelectEpisode(result, episode)
-                        }
-                        onSelectMany={onSelectEpisodes}
-                      />
-                    )}
+                    </div>
                   </div>
                 )}
               </div>
