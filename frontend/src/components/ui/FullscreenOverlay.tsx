@@ -97,7 +97,7 @@ export function FullscreenOverlay({
             // 网页全屏:铺满视口,忽略业务传入的宽度/高度类
             webFullscreen
               ? 'h-full max-h-full w-full max-w-none rounded-none'
-              : cn('max-w-4xl', className)
+              : cn('w-full max-w-4xl', className)
           )}
           style={{
             // 与 Modal(openlist 浏览目录等)完全一致的高度上限,保证二级 UI 尺寸统一
