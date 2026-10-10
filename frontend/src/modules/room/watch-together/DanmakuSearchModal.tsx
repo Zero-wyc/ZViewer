@@ -198,8 +198,9 @@ export function DanmakuSearchModal({
         className="grid min-h-0 flex-1 gap-3"
         style={{
           // 固定高度 + minmax(0,1fr) 行高:防止搜索结果把行撑高导致弹窗被拉高,
-          // 结果列表/集数面板始终在各自栏内滚动
-          height: '60vh',
+          // 结果列表/集数面板始终在各自栏内滚动。
+          // 532px = openlist 浏览目录弹窗总高(624px) - 标题行/内边距,保持二级 UI 尺寸统一
+          height: '532px',
           gridTemplateColumns: episodesOpen ? '1fr 340px' : '1fr 0fr',
           gridTemplateRows: 'minmax(0, 1fr)',
           transition: 'grid-template-columns 0.4s var(--ease-out-expo)',
