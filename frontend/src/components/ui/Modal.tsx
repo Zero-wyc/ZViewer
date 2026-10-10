@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './Button'
 
@@ -10,9 +10,11 @@ export interface ModalProps {
   open: boolean
   onClose: () => void
   title?: React.ReactNode
-  children: React.ReactNode
+  children?: React.ReactNode
   footer?: React.ReactNode
   className?: string
+  /** 在关闭按钮旁显示「网页全屏」按钮(添加影片二级浏览弹窗等大面板使用) */
+  fullscreenable?: boolean
 }
 
 export function Modal({
@@ -22,9 +24,11 @@ export function Modal({
   children,
   footer,
   className,
+  fullscreenable = false,
 }: ModalProps) {
   const [visible, setVisible] = useState(open)
   const [exiting, setExiting] = useState(false)
+  const [webFullscreen, setWebFullscreen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevOpenRef = useRef(open)
 
@@ -32,6 +36,8 @@ export function Modal({
     if (open && !prevOpenRef.current) {
       setVisible(true)
       setExiting(false)
+      // 重新打开恢复非全屏,避免上次关闭前的全屏态残留
+      setWebFullscreen(false)
     } else if (!open && prevOpenRef.current) {
       setExiting(true)
       closeTimerRef.current = setTimeout(() => {
@@ -79,7 +85,10 @@ export function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 flex items-center justify-center p-4"
+      className={cn(
+        'fixed inset-0 flex items-center justify-center',
+        webFullscreen ? 'p-0' : 'p-4'
+      )}
       style={{ zIndex: 999, transform: 'translateZ(0)' }}
       // 阻止滚轮事件冒泡到 document，防止触发底层页面滚动
       onWheel={(e) => e.stopPropagation()}
@@ -99,12 +108,15 @@ export function Modal({
       />
       <div
         className={cn(
-          'glass-strong relative z-10 flex w-full max-w-md flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] p-6 shadow-lg',
+          'glass-strong relative z-10 flex flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] p-6 shadow-lg',
           exiting ? 'zen-modal-content-exit' : 'zen-modal-content-enter',
-          className
+          // 网页全屏:铺满视口,忽略业务传入的宽度/高度类
+          webFullscreen
+            ? 'h-full max-h-full w-full max-w-none rounded-none'
+            : cn('w-full max-w-md', className)
         )}
         style={{
-          maxHeight: 'calc(100vh - 2rem)',
+          maxHeight: webFullscreen ? '100vh' : 'calc(100vh - 2rem)',
           boxShadow:
             '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
         }}
@@ -117,12 +129,28 @@ export function Modal({
           ) : (
             <span />
           )}
-          <button
-            onClick={onClose}
-            className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-1">
+            {fullscreenable && (
+              <button
+                onClick={() => setWebFullscreen((v) => !v)}
+                title={webFullscreen ? '退出网页全屏' : '网页全屏'}
+                aria-label={webFullscreen ? '退出网页全屏' : '网页全屏'}
+                className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
+              >
+                {webFullscreen ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
+              </button>
+            )}
+            <button
+              onClick={onClose}
+              className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
         {/* 内容超出可用高度（小屏）时出滚动条，而不是被裁掉 */}
         <div className="mt-4 flex min-h-0 flex-1 flex-col overflow-y-auto text-sm text-[var(--md-sys-color-on-surface-variant)]">

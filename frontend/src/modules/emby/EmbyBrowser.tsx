@@ -296,6 +296,7 @@ export default function EmbyBrowser({
       onClose={onClose}
       title={title}
       className="max-w-4xl"
+      fullscreenable
       footer={
         <div className="flex w-full items-center justify-between">
           <Text

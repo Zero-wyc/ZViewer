@@ -292,6 +292,7 @@ export default function ServerFilesBrowser({
       onClose={onClose}
       title="浏览服务器文件"
       className="max-w-4xl"
+      fullscreenable
       footer={
         <div className="flex w-full items-center justify-between">
           <Text

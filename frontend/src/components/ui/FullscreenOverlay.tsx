@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { X } from 'lucide-react'
+import { Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /** 退出动画时长(与 Modal 一致,超时后卸载) */
@@ -32,6 +32,7 @@ export function FullscreenOverlay({
 }: FullscreenOverlayProps) {
   const [visible, setVisible] = useState(open)
   const [exiting, setExiting] = useState(false)
+  const [webFullscreen, setWebFullscreen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevOpenRef = useRef(open)
 
@@ -39,6 +40,8 @@ export function FullscreenOverlay({
     if (open && !prevOpenRef.current) {
       setVisible(true)
       setExiting(false)
+      // 重新打开恢复非全屏,避免上次关闭前的全屏态残留
+      setWebFullscreen(false)
     } else if (!open && prevOpenRef.current) {
       setExiting(true)
       closeTimerRef.current = setTimeout(() => {
@@ -67,7 +70,12 @@ export function FullscreenOverlay({
   if (!visible || typeof document === 'undefined') return null
 
   return createPortal(
-    <div className="fixed inset-0 z-[999]">
+    <div
+      className={cn(
+        'fixed inset-0 z-[999]',
+        webFullscreen ? 'p-0' : 'p-4'
+      )}
+    >
       <div
         className={cn(
           'absolute inset-0 bg-black/40',
@@ -81,15 +89,18 @@ export function FullscreenOverlay({
         onClick={onClose}
         aria-hidden="true"
       />
-      <div className="pointer-events-none relative z-10 flex h-full w-full items-center justify-center p-4">
+      <div className="pointer-events-none relative z-10 flex h-full w-full items-center justify-center">
         <div
           className={cn(
-            'glass-strong pointer-events-auto flex w-full max-w-4xl flex-col rounded-[var(--md-sys-shape-corner)]',
+            'glass-strong pointer-events-auto flex flex-col rounded-[var(--md-sys-shape-corner)]',
             exiting ? 'zen-modal-content-exit' : 'zen-modal-content-enter',
-            className
+            // 网页全屏:铺满视口,忽略业务传入的宽度/高度类
+            webFullscreen
+              ? 'h-full max-h-full w-full max-w-none rounded-none'
+              : cn('max-w-4xl', className)
           )}
           style={{
-            maxHeight: '90vh',
+            maxHeight: webFullscreen ? '100vh' : '90vh',
             boxShadow:
               '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
           }}
@@ -102,12 +113,26 @@ export function FullscreenOverlay({
             ) : (
               <span />
             )}
-            <button
-              onClick={onClose}
-              className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
-            >
-              <X className="h-4 w-4" />
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              <button
+                onClick={() => setWebFullscreen((v) => !v)}
+                title={webFullscreen ? '退出网页全屏' : '网页全屏'}
+                aria-label={webFullscreen ? '退出网页全屏' : '网页全屏'}
+                className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
+              >
+                {webFullscreen ? (
+                  <Minimize2 className="h-4 w-4" />
+                ) : (
+                  <Maximize2 className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                onClick={onClose}
+                className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           </div>
           <div className="flex-1 overflow-y-auto p-6">{children}</div>
         </div>
