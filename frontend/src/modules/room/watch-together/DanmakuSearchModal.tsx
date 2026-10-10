@@ -80,6 +80,10 @@ export function DanmakuSearchModal({
   const [step, setStep] = useState<Step>('search')
   const [loading, setLoading] = useState(false)
   const [addingEpisodeId, setAddingEpisodeId] = useState<string | null>(null)
+  /** 本次打开期间已成功添加的集数：按钮置灰防重复，弹窗保持打开 */
+  const [addedEpisodeIds, setAddedEpisodeIds] = useState<Set<string>>(
+    () => new Set()
+  )
 
   const hasResult = results.length > 0
 
@@ -161,8 +165,14 @@ export function DanmakuSearchModal({
       const items = await fetchDanmaku(source, episode)
       const label = `${selectedResult.title} · ${episode.title}`
       await addTrack(trackId, label, source, items, 0)
+      // 添加成功后保持弹窗打开,方便连续添加多个集数/弹幕源;
+      // 已添加的集数按钮置灰防重复
+      setAddedEpisodeIds((prev) => {
+        const next = new Set(prev)
+        next.add(episode.id)
+        return next
+      })
       message.success(`已添加 ${label} 弹幕轨道（共 ${items.length} 条）`)
-      onClose()
     } catch (err) {
       console.error('[DanmakuSearchModal] fetch error:', err)
       message.error(err instanceof Error ? err.message : '添加弹幕轨道失败')
@@ -410,14 +420,14 @@ export function DanmakuSearchModal({
                       <Text className="truncate text-sm">{episode.title}</Text>
                     </div>
                     <Button
-                      variant="primary"
+                      variant={addedEpisodeIds.has(episode.id) ? 'secondary' : 'primary'}
                       size="sm"
                       className="h-7 shrink-0 px-2.5 text-xs"
                       loading={addingEpisodeId === episode.id}
-                      disabled={!!addingEpisodeId}
+                      disabled={!!addingEpisodeId || addedEpisodeIds.has(episode.id)}
                       onClick={() => handleAddEpisode(episode)}
                     >
-                      添加
+                      {addedEpisodeIds.has(episode.id) ? '已添加' : '添加'}
                     </Button>
                   </div>
                 ))}
