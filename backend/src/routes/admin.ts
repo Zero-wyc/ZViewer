@@ -474,12 +474,19 @@ router.post(
     try {
       const roomRepo = roomRepository();
       const sessionRepo = sessionRepository();
-      const rooms = await roomRepo.find({ where: { status: 'active' } });
+      // 扫描全部房间：active 需无未结束会话才清理，closed（关闭时已踢出
+      // 所有成员、必然无人使用）直接纳入清理，避免已关闭房间无限堆积
+      const rooms = await roomRepo.find();
 
       let count = 0;
       for (const room of rooms) {
         const isOwner = room.ownerUserId === req.user?.userId;
         if (req.user?.role !== 'root' && !(req.user?.role === 'admin' && isOwner)) {
+          continue;
+        }
+        if (room.status === 'closed') {
+          await deleteRoomAndRelations(room.roomId, getIo(req));
+          count++;
           continue;
         }
         const activeSessions = await sessionRepo.count({

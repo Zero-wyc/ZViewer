@@ -2197,7 +2197,7 @@ export default function AdminPage() {
         cancelText="取消"
         confirmLoading={cleanupLoading}
       >
-        确定要移除所有当前无人使用的房间吗？此操作不可撤销。
+        确定要移除所有当前无人使用的房间（含已关闭的房间）吗？此操作不可撤销。
       </ConfirmModal>
 
       <ConfirmModal
