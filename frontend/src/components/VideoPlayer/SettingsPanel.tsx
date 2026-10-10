@@ -269,7 +269,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                         className="text-[11px] font-medium uppercase tracking-wide"
                         style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                       >
-                        鼠标移至右缘唤出
+                        开启右评论区
                       </span>
                       <Switch
                         checked={commentDockEdgeHover ?? true}
@@ -278,12 +278,6 @@ export function SettingsPanel(props: SettingsPanelProps) {
                         }
                       />
                     </div>
-                    <p
-                      className="mt-1 text-[10px] leading-snug"
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                    >
-                      关闭后仅双击快捷键可唤出评论区侧边栏
-                    </p>
                   </div>
                 )}
               </div>
@@ -871,12 +865,6 @@ function CommentDockHotkeySetting({
           )
         })}
       </div>
-      <p
-        className="mt-1 text-[10px] leading-snug"
-        style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-      >
-        全屏播放时快速双击所选控制键,展开/收起右侧评论区
-      </p>
     </div>
   )
 }
