@@ -254,32 +254,31 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 setFontPanelOpen((v) => !v)
               }}
             />
-            {/* 双击控制键打开全屏评论区侧边栏(仅 watch-together 提供该回调时显示) */}
+            {/* 全屏右缘唤出开关 + 双击控制键键位(开关在上,键位在下) */}
             {onCommentDockHotkeyChange && (
               <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
-                <CommentDockHotkeySetting
-                  value={commentDockHotkey ?? 'off'}
-                  onChange={onCommentDockHotkeyChange}
-                />
-                {/* 鼠标右缘自动唤出开关(关闭后仅双击快捷键可唤出侧边栏) */}
                 {onCommentDockEdgeHoverChange && (
-                  <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
-                    <div className="flex items-center justify-between">
-                      <span
-                        className="text-[11px] font-medium uppercase tracking-wide"
-                        style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                      >
-                        开启右评论区
-                      </span>
-                      <Switch
-                        checked={commentDockEdgeHover ?? true}
-                        onChange={(e) =>
-                          onCommentDockEdgeHoverChange(e.target.checked)
-                        }
-                      />
-                    </div>
+                  <div className="flex items-center justify-between">
+                    <span
+                      className="text-[11px] font-medium uppercase tracking-wide"
+                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                    >
+                      开启全屏时鼠标移动至最右侧显示评论区
+                    </span>
+                    <Switch
+                      checked={commentDockEdgeHover ?? true}
+                      onChange={(e) =>
+                        onCommentDockEdgeHoverChange(e.target.checked)
+                      }
+                    />
                   </div>
                 )}
+                <div className="mt-2 border-t border-[var(--md-sys-color-outline-variant)] pt-2">
+                  <CommentDockHotkeySetting
+                    value={commentDockHotkey ?? 'off'}
+                    onChange={onCommentDockHotkeyChange}
+                  />
+                </div>
               </div>
             )}
           </>
