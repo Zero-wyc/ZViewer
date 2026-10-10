@@ -1264,6 +1264,38 @@ export function useWatchTogether({
     watchTogether.sourceUrl,
   ])
 
+  // ── 自动连播(房主端):当前影片播放结束后自动播放影片列表中的下一部 ──
+  // 开关在影片列表展开二级页面(roomStore.autoContinueEnabled,纯本地状态不广播);
+  // 观众端跟随房主的 play-movie 广播,本监听仅在房主生效。
+  // movies/currentMovieId 经 useRoomStore.getState() 读取最新值,
+  // 避免监听器随列表变化反复重挂。
+  const autoContinueEnabled = useRoomStore((s) => s.autoContinueEnabled)
+  const roomMode = useRoomStore((s) => s.mode)
+  useEffect(() => {
+    if (!isHost || !autoContinueEnabled || roomMode === 'screen-share') return
+    const video = videoRef.current
+    if (!video) return
+
+    const handleEnded = () => {
+      const state = useRoomStore.getState()
+      const idx = state.movies.findIndex(
+        (m) => m.id === state.currentMovieId
+      )
+      if (idx === -1) return
+      if (idx >= state.movies.length - 1) {
+        message.info('已连播到影片列表末尾')
+        return
+      }
+      const next = state.movies[idx + 1]
+      socket?.emit('play-movie', { roomId, movieId: next.id })
+      state.setCurrentMovieId(next.id)
+      message.info(`自动连播:《${next.title}》`)
+    }
+
+    video.addEventListener('ended', handleEnded)
+    return () => video.removeEventListener('ended', handleEnded)
+  }, [isHost, autoContinueEnabled, roomMode, videoRef, socket, roomId])
+
   /**
    * 房主端：播放预览源（不写入影片列表，直接加载并广播给观众）。
    * 用于 ani-subs / Kazumi 等番剧源选集后的实时播放。

@@ -286,6 +286,13 @@ interface RoomState {
    * 放在 roomStore 中，方便 RoomInfoPanel 与 WatchTogetherPanel 共享。
    */
   autoApproveRequests: boolean
+  /**
+   * 影片列表「自动连播」开关(影片列表展开二级页面)。
+   * 开启后,房主端当前影片播放结束(ended)自动播放影片列表中的下一部。
+   * 纯本地 UI 状态,不持久化、不广播;播放控制权在房主,观众端开关不生效。
+   */
+  autoContinueEnabled: boolean
+  setAutoContinueEnabled: (enabled: boolean) => void
   /** OBS 推流状态（stream-push 子模式专用）。
    * - live：NMS 已收到推流
    * - offline：NMS 未收到推流或推流已结束
@@ -456,6 +463,7 @@ const defaultState = {
     title: string
   } | null,
   autoApproveRequests: true,
+  autoContinueEnabled: false,
   streamStatus: 'unknown' as StreamStatus,
   streamKey: null,
 }
@@ -564,6 +572,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   setBufferProgress: (progress) => set({ bufferProgress: progress }),
   toggleAutoApproveRequests: () =>
     set((state) => ({ autoApproveRequests: !state.autoApproveRequests })),
+  setAutoContinueEnabled: (enabled) => set({ autoContinueEnabled: enabled }),
   setActiveRoomId: (id) => set({ activeRoomId: id }),
   exitRoom: () => {
     set({ ...defaultState })

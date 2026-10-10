@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import { Play, Trash2, Film, Monitor, ListVideo, Maximize } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { Switch } from '@/components/ui/Switch'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { Select } from '@/components/ui/Select'
@@ -91,6 +92,12 @@ export function MovieListPanel({
     (state) => state.viewerCliResolvedSource
   )
   const mode = useRoomStore((state) => state.mode)
+  const autoContinueEnabled = useRoomStore(
+    (state) => state.autoContinueEnabled
+  )
+  const setAutoContinueEnabled = useRoomStore(
+    (state) => state.setAutoContinueEnabled
+  )
   const [search, setSearch] = useState('')
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [qualityLoadingId, setQualityLoadingId] = useState<number | null>(null)
@@ -450,15 +457,9 @@ export function MovieListPanel({
         </div>
       )}
 
-      <Input
-        size="sm"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        placeholder="搜索影片…"
-        className="px-2.5"
-      />
+      {/* 搜索框仅存在于展开二级页面(弹窗),侧边卡片保持紧凑 */}
 
-      {/* 影片列表滚动区域 — pl-2.5 平衡左右剩余宽度，
+      {/* 影片列表滚动区域 — pl-2.5 平衡左右剩余宽度,
           scrollbar-gutter:stable 占右侧 10px，pl-2.5 补左侧 10px，
           使视频卡片左右距面板边缘宽度一致 */}
       <div className="movie-list-scroll min-h-[120px] min-w-0 flex-1 overflow-y-auto rounded-[var(--md-sys-shape-corner)] pl-2.5">
@@ -688,14 +689,31 @@ export function MovieListPanel({
         {movieListContent}
       </div>
 
-      {/* 完整影片列表弹窗 */}
+      {/* 完整影片列表弹窗(展开二级页面):顶部搜索过滤 + 自动连播开关 */}
       <Modal
         open={showListModal}
         onClose={() => setShowListModal(false)}
         title={`影片列表 (${movies.length} 部)`}
         className="max-w-2xl"
+        fullscreenable
       >
         <div className="flex max-h-[70vh] flex-col gap-2.5 overflow-hidden">
+          <div className="flex items-center gap-2.5">
+            <Input
+              size="sm"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="搜索影片…"
+              className="min-w-0 flex-1 px-2.5"
+            />
+            {isHost && !isScreenShare && (
+              <Switch
+                label="自动连播"
+                checked={autoContinueEnabled}
+                onChange={(e) => setAutoContinueEnabled(e.target.checked)}
+              />
+            )}
+          </div>
           {movieListContent}
         </div>
       </Modal>
