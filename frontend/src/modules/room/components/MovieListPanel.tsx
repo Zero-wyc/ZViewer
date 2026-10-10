@@ -98,6 +98,8 @@ export function MovieListPanel({
   const setAutoContinueEnabled = useRoomStore(
     (state) => state.setAutoContinueEnabled
   )
+  const setMovies = useRoomStore((state) => state.setMovies)
+  const reorderMovies = useRoomStore((state) => state.reorderMovies)
   const [search, setSearch] = useState('')
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [qualityLoadingId, setQualityLoadingId] = useState<number | null>(null)
@@ -436,8 +438,44 @@ export function MovieListPanel({
     }
   }
 
-  // 影片列表内容（卡片和弹窗共用）
-  const movieListContent = (
+  // ── 拖拽排序(仅展开二级页面,房主,无搜索过滤时)──
+  // dragOver 实时重排本地 movies 作预览(卡片跟手移动),dragEnd 提交
+  // reorderMovies 持久化(后端重排序后广播新列表)。逻辑统一经
+  // useRoomStore.getState() 读最新顺序,避免监听/回调闭包过期。
+  const [dragId, setDragId] = useState<number | null>(null)
+  const canReorder = isHost && !isScreenShare && search.trim() === ''
+
+  const handleDragStart = (e: React.DragEvent, movieId: number) => {
+    setDragId(movieId)
+    e.dataTransfer.effectAllowed = 'move'
+    // Firefox 需要 setData 才会进入拖拽
+    e.dataTransfer.setData('text/plain', String(movieId))
+  }
+
+  const handleDragOverCard = (e: React.DragEvent, targetId: number) => {
+    if (dragId == null || targetId === dragId) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    const state = useRoomStore.getState()
+    const list = [...state.movies]
+    const fromIdx = list.findIndex((m) => m.id === dragId)
+    const toIdx = list.findIndex((m) => m.id === targetId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const [moved] = list.splice(fromIdx, 1)
+    list.splice(toIdx, 0, moved)
+    setMovies(list)
+  }
+
+  const handleDragEndCard = () => {
+    if (dragId != null) {
+      const ids = useRoomStore.getState().movies.map((m) => m.id)
+      void reorderMovies(roomId, ids)
+    }
+    setDragId(null)
+  }
+
+  // 影片列表内容(侧边卡片 / 展开二级页面共用;拖拽排序仅二级页面启用)
+  const renderMovieList = (draggable: boolean) => (
     <>
       {isScreenShare && (
         <div
@@ -487,8 +525,14 @@ export function MovieListPanel({
             return (
               <div
                 key={movie.id}
+                draggable={draggable && canReorder}
+                onDragStart={(e) => handleDragStart(e, movie.id)}
+                onDragOver={(e) => handleDragOverCard(e, movie.id)}
+                onDrop={(e) => e.preventDefault()}
+                onDragEnd={handleDragEndCard}
                 className={cn(
                   'zen-item-enter rounded-[var(--md-sys-shape-corner)] border p-2.5 transition-all',
+                  dragId === movie.id && 'opacity-40',
                   isActive
                     ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-primary-container)] shadow-md'
                     : 'glass border-transparent hover:-translate-y-0.5 hover:border-[var(--md-sys-color-outline-variant)] hover:shadow-md'
@@ -686,10 +730,10 @@ export function MovieListPanel({
 
       {/* 卡片内容 — 外层 px-0.5(2px) + 内层 pl-2.5(10px)/scrollbar-gutter(10px) = 12px 左右剩余 */}
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-0.5 py-3">
-        {movieListContent}
+        {renderMovieList(false)}
       </div>
 
-      {/* 完整影片列表弹窗(展开二级页面):顶部搜索过滤 + 自动连播开关 */}
+      {/* 完整影片列表弹窗(展开二级页面):顶部搜索过滤 + 自动连播开关 + 拖拽排序 */}
       <Modal
         open={showListModal}
         onClose={() => setShowListModal(false)}
@@ -714,7 +758,12 @@ export function MovieListPanel({
               />
             )}
           </div>
-          {movieListContent}
+          {canReorder && (
+            <Text type="secondary" className="text-[10px]">
+              拖拽影片卡片可调整播放顺序
+            </Text>
+          )}
+          {renderMovieList(true)}
         </div>
       </Modal>
     </div>
