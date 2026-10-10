@@ -54,6 +54,7 @@ import {
   filterQualitiesByVip,
 } from '@/modules/bilibili/bilibiliApi'
 import { setBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
+import { BiliSearchModal } from './BiliSearchModal'
 import {
   extractBvid,
   extractBangumiId,
@@ -250,6 +251,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   // 多 P 视频分集选择弹窗
   const [showPageSelector, setShowPageSelector] = useState(false)
   const [pageSelectLoading, setPageSelectLoading] = useState(false)
+  /** B站 视频搜索弹窗（URL 输入框旁搜索按钮） */
+  const [biliSearchOpen, setBiliSearchOpen] = useState(false)
 
   useEffect(() => {
     void fetchSettings()
@@ -879,7 +882,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
   // 仅 bilibili 需要 handleResolve：解析后显示清晰度选择器，再点"添加"
   // webdav/ftp/openlist/mp4 的 resolve+add 已合并到 handleAddMovie
-  const handleResolve = async () => {
+  const handleResolve = async (urlOverride?: string) => {
     if (!isHost) {
       message.info('只有房主可以添加影片')
       return
@@ -889,7 +892,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       return
     }
     if (sourceType !== 'bilibili') return
-    if (!url.trim()) {
+    // urlOverride：搜索弹窗选中后直接传入目标链接（state 更新时序先于解析）
+    const targetUrl = (urlOverride ?? url).trim()
+    if (!targetUrl) {
       message.warning('请输入视频地址')
       return
     }
@@ -897,9 +902,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     setLoading(true)
     setResolveProgress('正在初始化解析...')
     try {
-      const bvid = extractBvid(url.trim())
+      const bvid = extractBvid(targetUrl)
       // PGC（番剧 ep/ss 链接）：CLI 分支按 epId 走番剧解析
-      const bangumiId = extractBangumiId(url.trim())
+      const bangumiId = extractBangumiId(targetUrl)
 
       let resolved: ResolvedSource | undefined
       // CLI 已连接时优先使用本地 CLI 代理解析（使用用户自己的 B站 Cookie，可获取高画质）
@@ -955,7 +960,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       if (!resolved) {
         setResolveProgress('正在通过服务器解析...')
         resolvedViaCliRef.current = false
-        resolved = await resolveBilibili(url.trim(), undefined, (_step, msg) =>
+        resolved = await resolveBilibili(targetUrl, undefined, (_step, msg) =>
           setResolveProgress(msg)
         )
       }
@@ -1554,24 +1559,45 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         .map((m) => ({ value: String(m.id), label: m.name })),
     ]
 
-    if (sourceType === 'bilibili' || sourceType === 'mp4') {
+    if (sourceType === 'bilibili') {
+      return (
+        <div className="flex gap-1.5">
+          <Input
+            size="sm"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="视频 Url 或 bv 号"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault()
+                void handleResolve()
+              }
+            }}
+          />
+          <Button
+            variant="secondary"
+            size="sm"
+            title="搜索 B站 视频"
+            disabled={!isHost}
+            onClick={() => setBiliSearchOpen(true)}
+          >
+            <Search className="h-4 w-4" />
+          </Button>
+        </div>
+      )
+    }
+
+    if (sourceType === 'mp4') {
       return (
         <Input
           size="sm"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          placeholder={
-            sourceType === 'bilibili'
-              ? '视频 Url 或 bv 号'
-              : 'MP4/WebM 等视频直链'
-          }
+          placeholder="MP4/WebM 等视频直链"
           onKeyDown={(e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault()
-              // bilibili 走解析流程，mp4 直接添加
-              void (sourceType === 'bilibili'
-                ? handleResolve()
-                : handleAddMovie())
+              void handleAddMovie()
             }
           }}
         />
@@ -2329,6 +2355,18 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         onClose={() => setServerFilesBrowserOpen(false)}
         onConfirm={handleSelectFilesFromServer}
       />
+
+      {sourceType === 'bilibili' && (
+        <BiliSearchModal
+          open={biliSearchOpen}
+          onClose={() => setBiliSearchOpen(false)}
+          onSelect={(videoUrl) => {
+            setUrl(videoUrl)
+            setBiliSearchOpen(false)
+            void handleResolve(videoUrl)
+          }}
+        />
+      )}
 
       {sourceType === 'bilibili' && resolvedMovie?.pages && (
         <Modal
