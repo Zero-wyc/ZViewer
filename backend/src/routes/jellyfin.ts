@@ -77,6 +77,46 @@ function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFold
   };
 }
 
+// 条目海报图代理 - GET /mounts/:id/image?itemId=&tag=&maxWidth=
+// ⚠️ 注册在 authenticateToken 之前（免认证）：<img> 标签无法携带 Authorization
+// header，且本项目 HTTP 部署场景 httpOnly cookie 不可用（与 /proxy-image 同理）。
+// 弱保护：tag 必填——ImageTags.Primary 是不可枚举 hash，须先通过认证的
+// browse 才能获得；仅凭 mountId/itemId 无法拉取。
+router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const mountId = Number(req.params.id);
+    const itemId = typeof req.query.itemId === 'string' ? req.query.itemId : '';
+    const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
+    if (Number.isNaN(mountId) || !itemId.trim() || !tag) {
+      res.status(400).json({ success: false, message: '缺少 mountId、itemId 或 tag', code: 'INVALID_PARAMS' });
+      return;
+    }
+    const repo = userMountRepository();
+    // 免认证端点：不按 userId 过滤（无认证身份），tag 作为访问凭证
+    const mount = await repo.findOneBy({ id: mountId, type: 'jellyfin' });
+    if (!mount) {
+      res.status(404).json({ success: false, message: '挂载不存在' });
+      return;
+    }
+    const session = await resolveJellyfinSession(mount);
+    const maxWidth = Number(req.query.maxWidth) || 300;
+    const { buffer, contentType } = await session.client.itemImage(itemId, { tag, maxWidth });
+    res.set('Content-Type', contentType);
+    // 海报基本不变：浏览器缓存 1 小时，减少重复代理流量
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.send(buffer);
+  } catch (err) {
+    console.error('[jellyfin] mount image error:', err);
+    const code = extractErrorCode(err);
+    const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 404;
+    res.status(status).json({
+      success: false,
+      message: extractErrorMessage(err, '获取海报失败'),
+      code,
+    });
+  }
+});
+
 router.use(authenticateToken);
 
 // 列表 - GET /mounts
@@ -277,42 +317,6 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
     const code = extractErrorCode(err);
     const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 400;
     res.status(status).json({ success: false, message: extractErrorMessage(err, '浏览 Jellyfin 失败'), code });
-  }
-});
-
-// 条目海报图代理 - GET /mounts/:id/image?itemId=&tag=&maxWidth=
-// 后端持凭证转发 Jellyfin 的刮削主海报（Primary），token 不暴露给前端。
-router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  try {
-    const mountId = Number(req.params.id);
-    const itemId = typeof req.query.itemId === 'string' ? req.query.itemId : '';
-    if (Number.isNaN(mountId) || !itemId.trim()) {
-      res.status(400).json({ success: false, message: '缺少 mountId 或 itemId', code: 'INVALID_PARAMS' });
-      return;
-    }
-    const repo = userMountRepository();
-    const mount = await repo.findOneBy({ id: mountId, userId: req.user!.userId, type: 'jellyfin' });
-    if (!mount) {
-      res.status(404).json({ success: false, message: '挂载不存在或无权限' });
-      return;
-    }
-    const session = await resolveJellyfinSession(mount);
-    const tag = typeof req.query.tag === 'string' ? req.query.tag : undefined;
-    const maxWidth = Number(req.query.maxWidth) || 300;
-    const { buffer, contentType } = await session.client.itemImage(itemId, { tag, maxWidth });
-    res.set('Content-Type', contentType);
-    // 海报基本不变：浏览器缓存 1 小时，减少重复代理流量
-    res.set('Cache-Control', 'private, max-age=3600');
-    res.send(buffer);
-  } catch (err) {
-    console.error('[jellyfin] mount image error:', err);
-    const code = extractErrorCode(err);
-    const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 404;
-    res.status(status).json({
-      success: false,
-      message: extractErrorMessage(err, '获取海报失败'),
-      code,
-    });
   }
 });
 
