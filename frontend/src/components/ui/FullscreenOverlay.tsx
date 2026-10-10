@@ -100,7 +100,8 @@ export function FullscreenOverlay({
               : cn('max-w-4xl', className)
           )}
           style={{
-            maxHeight: webFullscreen ? '100vh' : '90vh',
+            // 与 Modal(openlist 浏览目录等)完全一致的高度上限,保证二级 UI 尺寸统一
+            maxHeight: webFullscreen ? '100vh' : 'calc(100vh - 2rem)',
             boxShadow:
               '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
           }}
