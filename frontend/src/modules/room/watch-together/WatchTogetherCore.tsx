@@ -34,6 +34,7 @@ import {
 } from '@/components/DanmakuLayer'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
+import { FullscreenCommentDock } from './FullscreenCommentDock'
 import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
 import type { DanmakuItem } from '@/modules/danmaku/types'
 import {
@@ -1961,6 +1962,16 @@ export function WatchTogetherCore({
           />
         )
       })()}
+
+      {/* 全屏评论区侧边栏:鼠标移到屏幕右缘滑出(仅全屏状态挂载,
+          原生全屏与网页全屏均覆盖;渲染为 stage 直接子节点保证 top layer 可见) */}
+      {(isFullscreen || Boolean(isWebFullscreen)) && (
+        <FullscreenCommentDock
+          socket={socket}
+          roomId={roomId}
+          stageRef={stageRef}
+        />
+      )}
 
       <RequestNotification
         items={requestNotifications}
