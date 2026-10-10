@@ -197,8 +197,11 @@ export function DanmakuSearchModal({
       <div
         className="grid min-h-0 flex-1 gap-3"
         style={{
-          minHeight: '60vh',
+          // 固定高度 + minmax(0,1fr) 行高:防止搜索结果把行撑高导致弹窗被拉高,
+          // 结果列表/集数面板始终在各自栏内滚动
+          height: '60vh',
           gridTemplateColumns: episodesOpen ? '1fr 340px' : '1fr 0fr',
+          gridTemplateRows: 'minmax(0, 1fr)',
           transition: 'grid-template-columns 0.4s var(--ease-out-expo)',
         }}
       >
@@ -342,6 +345,16 @@ export function DanmakuSearchModal({
                 </div>
               )
             })}
+
+            {/* 左栏 loading 指示(常驻左栏内部,不改变弹窗整体高度) */}
+            {loading && step === 'search' && (
+              <div className="flex shrink-0 items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                <Text type="secondary" className="text-xs">
+                  加载中…
+                </Text>
+              </div>
+            )}
           </div>
         </div>
 
@@ -421,16 +434,6 @@ export function DanmakuSearchModal({
           )}
         </div>
       </div>
-
-      {/* 左栏 loading 指示（独立于右侧面板） */}
-      {loading && step === 'search' && (
-        <div className="mt-2 flex items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          <Text type="secondary" className="text-xs">
-            加载中…
-          </Text>
-        </div>
-      )}
     </Modal>
   )
 }
