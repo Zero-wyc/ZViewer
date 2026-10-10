@@ -5,16 +5,19 @@
  * 复用音乐模块 B站 页同款后端搜索（/api/stream/bilibili/search，
  * 关键词搜索 + 结果缓存），选中后把 BV 链接回填到添加面板并自动解析。
  *
+ * UI 对标 Kazumi / ani-subs 番剧源面板（FullscreenOverlay 大面板），
+ * 结果区采用瀑布流布局（CSS multi-column，卡片按列填充、高度不齐自然错落）。
+ *
  * - 标题清洗：B站 搜索接口的 title 含 <em class="keyword"> 高亮标记，展示前剥离
  * - 封面经 buildBilibiliImageProxyUrl 代理（hdslb.com 防盗链）
  * - 分页：加载更多（pn 递增追加；total 为 null 时以本页非空继续提供）
  */
 import { useCallback, useRef, useState } from 'react'
-import { Loader2, Search, SearchX } from 'lucide-react'
-import { Modal } from '@/components/ui/Modal'
+import { Loader2, Search, SearchX, Tv } from 'lucide-react'
+import { FullscreenOverlay } from '@/components/ui/FullscreenOverlay'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Text } from '@/components/ui/Typography'
+import { Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import {
   searchBilibiliVideos,
@@ -111,12 +114,17 @@ export function BiliSearchModal({
     searched && items.length > 0 && (total == null || items.length < total)
 
   return (
-    <Modal open={open} onClose={onClose} title="搜索 B站 视频">
-      <div className="flex min-h-0 flex-col gap-2.5">
-        {/* 搜索行：回车触发 */}
-        <div className="flex gap-1.5">
+    <FullscreenOverlay
+      open={open}
+      onClose={onClose}
+      className="max-w-5xl h-[72vh] min-h-[420px]"
+      title="搜索 B站 视频"
+    >
+      <div className="flex h-full flex-col">
+        {/* 搜索区：回车触发 */}
+        <div className="mb-4 flex gap-3">
           <Input
-            size="sm"
+            size="md"
             value={keyword}
             onChange={(e) => setKeyword(e.target.value)}
             onKeyDown={(e) => {
@@ -126,88 +134,171 @@ export function BiliSearchModal({
               }
             }}
             placeholder="输入关键词搜索 B站 视频"
-            autoFocus
+            className="flex-1"
           />
           <Button
             variant="primary"
-            size="sm"
-            loading={loading}
+            size="md"
             icon={<Search className="h-4 w-4" />}
+            loading={loading}
             onClick={() => void doSearch(keyword, 1, false)}
+            className="h-[42px] shrink-0"
           >
             搜索
           </Button>
         </div>
 
-        {/* 结果列表 */}
-        <div className="zen-scroll flex max-h-[52vh] min-h-[180px] flex-col gap-1.5 overflow-y-auto pr-0.5">
-          {items.map((v) => (
-            <button
-              key={v.bvid}
-              type="button"
-              onClick={() => {
-                onSelect(`https://www.bilibili.com/video/${v.bvid}`)
-                onClose()
-              }}
-              className="group flex w-full items-center gap-2.5 rounded-[var(--md-sys-shape-corner)] border border-transparent p-1.5 text-left transition-all hover:border-[var(--md-sys-color-outline-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]"
-            >
-              <img
-                src={buildBilibiliImageProxyUrl(v.pic)}
-                alt=""
-                loading="lazy"
-                className="relative h-[54px] w-24 shrink-0 rounded-md object-cover"
-                onError={(e) => {
-                  ;(e.target as HTMLImageElement).style.visibility = 'hidden'
+        {/* 工具栏：结果数提示 */}
+        <div className="mb-3 flex items-center justify-between">
+          <Text type="secondary" className="text-xs">
+            {items.length > 0
+              ? `共 ${total ?? items.length} 条结果`
+              : loading
+                ? '搜索中...'
+                : '输入关键词开始搜索'}
+          </Text>
+        </div>
+
+        {/* 结果区：瀑布流（外层滚动，内层 multi-column 平衡分列，
+            列内卡片 break-inside-avoid 不跨列截断） */}
+        <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
+          <div className="columns-2 gap-3 sm:columns-3 lg:columns-4">
+            {items.map((v) => (
+              <button
+                key={v.bvid}
+                type="button"
+                onClick={() => {
+                  onSelect(`https://www.bilibili.com/video/${v.bvid}`)
+                  onClose()
                 }}
-              />
-              <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                <Text className="line-clamp-2 break-all text-xs font-medium leading-snug">
-                  {stripEm(v.title)}
-                </Text>
-                <Text
-                  type="secondary"
-                  className="truncate text-[10px] leading-tight"
+                className="group mb-3 block w-full break-inside-avoid overflow-hidden rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline-variant)] text-left transition-all hover:-translate-y-0.5 hover:border-[var(--md-sys-color-primary)] hover:shadow-sm"
+              >
+                {/* 封面：16:9 + 时长角标 */}
+                <div className="relative aspect-video w-full overflow-hidden bg-[var(--glass-bg)]">
+                  <img
+                    src={buildBilibiliImageProxyUrl(v.pic)}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                    onError={(e) => {
+                      ;(e.target as HTMLImageElement).style.visibility =
+                        'hidden'
+                    }}
+                  />
+                  <span
+                    className="absolute bottom-1.5 right-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-medium leading-none text-white"
+                    style={{
+                      backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                      textShadow: '0 1px 2px rgba(0, 0, 0, 0.8)',
+                    }}
+                  >
+                    {formatDuration(v.duration)}
+                  </span>
+                </div>
+                {/* 标题 + 元信息 */}
+                <div className="flex flex-col gap-1 p-2.5">
+                  <Text
+                    className="line-clamp-2 break-all text-xs font-medium leading-snug"
+                    title={stripEm(v.title)}
+                  >
+                    {stripEm(v.title)}
+                  </Text>
+                  <Text
+                    type="secondary"
+                    className="truncate text-[10px] leading-tight"
+                    title={v.upName}
+                  >
+                    {v.upName}
+                  </Text>
+                  <div
+                    className="flex items-center gap-2 text-[10px] leading-tight"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  >
+                    {v.view != null && (
+                      <span>{formatCount(v.view)}播放</span>
+                    )}
+                    {v.danmaku != null && (
+                      <span>{formatCount(v.danmaku)}弹幕</span>
+                    )}
+                  </div>
+                </div>
+              </button>
+            ))}
+
+            {/* 加载中 / 空态：横跨所有列 */}
+            {loading && items.length === 0 && (
+              <div className="flex [column-span:all] flex-col items-center justify-center gap-3 py-16">
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{ backgroundColor: 'var(--glass-bg)' }}
                 >
-                  {v.upName}
-                  {v.view != null ? ` · ${formatCount(v.view)}播放` : ''}
-                  {v.danmaku != null ? ` · ${formatCount(v.danmaku)}弹幕` : ''}
-                  {` · ${formatDuration(v.duration)}`}
-                </Text>
+                  <Loader2
+                    className="h-6 w-6 animate-spin"
+                    style={{ color: 'var(--md-sys-color-primary)' }}
+                  />
+                </div>
+                <Paragraph type="secondary" className="m-0 text-xs">
+                  正在搜索…
+                </Paragraph>
               </div>
-            </button>
-          ))}
+            )}
 
-          {loading && items.length === 0 && (
-            <div className="flex flex-col items-center justify-center gap-2 py-10">
-              <Loader2 className="h-6 w-6 animate-spin text-[var(--md-sys-color-primary)]" />
-              <Text type="secondary" className="text-xs">
-                正在搜索…
-              </Text>
-            </div>
-          )}
+            {searched && !loading && items.length === 0 && (
+              <div className="flex [column-span:all] flex-col items-center justify-center gap-3 py-16">
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{ backgroundColor: 'var(--glass-bg)' }}
+                >
+                  <SearchX
+                    className="h-6 w-6"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  />
+                </div>
+                <Paragraph type="secondary" className="m-0 text-xs">
+                  没有找到相关视频
+                </Paragraph>
+              </div>
+            )}
 
-          {searched && !loading && items.length === 0 && (
-            <div className="flex flex-col items-center justify-center gap-2 py-10">
-              <SearchX className="h-8 w-8 opacity-40" />
-              <Text type="secondary" className="text-xs">
-                没有找到相关视频
-              </Text>
-            </div>
-          )}
+            {/* 首次打开空态：横跨所有列 */}
+            {!searched && !loading && items.length === 0 && (
+              <div className="flex [column-span:all] flex-col items-center justify-center gap-3 py-16">
+                <div
+                  className="flex h-14 w-14 items-center justify-center rounded-full"
+                  style={{ backgroundColor: 'var(--glass-bg)' }}
+                >
+                  <Tv
+                    className="h-6 w-6"
+                    style={{
+                      color: 'var(--md-sys-color-on-surface-variant)',
+                    }}
+                  />
+                </div>
+                <Paragraph type="secondary" className="m-0 text-xs">
+                  输入关键词开始搜索
+                </Paragraph>
+              </div>
+            )}
 
-          {hasMore && (
-            <Button
-              variant="secondary"
-              size="sm"
-              block
-              loading={loadingMore}
-              onClick={() => void doSearch(keyword, page + 1, true)}
-            >
-              加载更多
-            </Button>
-          )}
+            {hasMore && (
+              <Button
+                variant="secondary"
+                size="sm"
+                block
+                loading={loadingMore}
+                onClick={() => void doSearch(keyword, page + 1, true)}
+                className="mb-3 [column-span:all]"
+              >
+                加载更多
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-    </Modal>
+    </FullscreenOverlay>
   )
 }
