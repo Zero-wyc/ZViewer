@@ -55,6 +55,8 @@ export interface JellyfinDirectoryEntry {
   duration?: number
   /** 原始文件路径（非刮削分集无 IndexNumber，前端从文件名解析集号兜底） */
   filePath?: string
+  /** 递归后代条目数（Series≈总集数，海报墙角标用） */
+  recursiveItemCount?: number
 }
 
 export interface JellyfinResolvedSource {

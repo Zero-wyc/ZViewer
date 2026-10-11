@@ -322,6 +322,39 @@ export default function EmbyBrowser({
     return entry.name
   }
 
+  /**
+   * 类型/刮削角标：提升已刮削条目与普通文件的区分度。
+   * Series=总集数（emerald）、Movie=电影（violet）、
+   * 已刮削 Episode=SxEy（sky）、其余文件=文件（灰）。
+   */
+  const entryBadge = (
+    entry: EmbyDirectoryEntry
+  ): { text: string; className: string } | null => {
+    if (entry.embyType === 'Series') {
+      const count = entry.recursiveItemCount ?? entry.childCount ?? 0
+      return { text: `${count} 集`, className: 'bg-emerald-600/85' }
+    }
+    if (entry.embyType === 'Movie') {
+      return { text: '电影', className: 'bg-violet-600/85' }
+    }
+    if (entry.embyType === 'Episode' && entry.indexNumber != null) {
+      return {
+        text: `S${entry.parentIndexNumber ?? '?'}E${entry.indexNumber}`,
+        className: 'bg-sky-600/85',
+      }
+    }
+    if (entry.type === 'file') {
+      return { text: '文件', className: 'bg-black/60' }
+    }
+    return null
+  }
+
+  /** 未刮削普通文件：海报墙用虚线边框提示（与刮削条目区分） */
+  const isPlainFile = (entry: EmbyDirectoryEntry) =>
+    entry.type === 'file' &&
+    entry.embyType !== 'Movie' &&
+    entry.embyType !== 'Episode'
+
   const renderEntry = (entry: EmbyDirectoryEntry, side: 'left' | 'right') => {
     const isSelected = selectedPaths.has(entry.path)
     const isDirectory = entry.type === 'directory'
@@ -366,6 +399,20 @@ export default function EmbyBrowser({
           {entryDisplayName(entry)}
         </span>
 
+        {(() => {
+          const badge = entryBadge(entry)
+          return badge ? (
+            <span
+              className={cn(
+                'shrink-0 rounded px-1.5 py-0.5 text-[10px] leading-none text-white',
+                badge.className
+              )}
+            >
+              {badge.text}
+            </span>
+          ) : null
+        })()}
+
         {entry.childCount !== undefined && entry.childCount > 0 && (
           <span className="shrink-0 text-[13px] text-[var(--md-sys-color-on-surface-variant)]">
             {entry.childCount} 项
@@ -403,6 +450,8 @@ export default function EmbyBrowser({
   const renderWallCard = (entry: EmbyDirectoryEntry) => {
     const isSelected = selectedPaths.has(entry.path)
     const isDirectory = entry.type === 'directory'
+    const badge = entryBadge(entry)
+    const plainFile = isPlainFile(entry)
     return (
       <div
         key={entry.path}
@@ -410,7 +459,9 @@ export default function EmbyBrowser({
           'group relative cursor-pointer overflow-hidden rounded-[var(--md-sys-shape-corner)] border transition-all',
           isSelected
             ? 'border-[var(--md-sys-color-primary)] shadow-md'
-            : 'border-transparent hover:-translate-y-0.5 hover:shadow-md'
+            : plainFile
+              ? 'border-dashed border-[var(--md-sys-color-outline-variant)] hover:-translate-y-0.5 hover:shadow-md'
+              : 'border-transparent hover:-translate-y-0.5 hover:shadow-md'
         )}
         onClick={() => {
           if (isDirectory) {
@@ -448,6 +499,16 @@ export default function EmbyBrowser({
           {isDirectory && (
             <div className="absolute right-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
               {entry.childCount ?? 0} 项
+            </div>
+          )}
+          {badge && (
+            <div
+              className={cn(
+                'absolute bottom-1.5 left-1.5 z-10 rounded px-1.5 py-0.5 text-[10px] font-medium leading-none text-white',
+                badge.className
+              )}
+            >
+              {badge.text}
             </div>
           )}
           {renderQuickAddButton(entry, 'overlay')}

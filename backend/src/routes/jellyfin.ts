@@ -61,7 +61,7 @@ async function resolveJellyfinSession(mount: UserMount): Promise<{
   return { client, userId, token };
 }
 
-function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFolder?: boolean; IsFile?: boolean; ChildCount?: number; ProductionYear?: number; ImageTags?: { Primary?: string }; IndexNumber?: number; ParentIndexNumber?: number; RunTimeTicks?: number; Path?: string }) {
+function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFolder?: boolean; IsFile?: boolean; ChildCount?: number; ProductionYear?: number; ImageTags?: { Primary?: string }; IndexNumber?: number; ParentIndexNumber?: number; RunTimeTicks?: number; Path?: string; RecursiveItemCount?: number }) {
   const fileTypes = new Set(['Movie', 'Video', 'Episode', 'TvSeries']);
   const isFile = fileTypes.has(item.Type) || item.IsFile === true;
   return {
@@ -83,6 +83,8 @@ function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFold
         : undefined,
     // 原始文件路径（非刮削库的分集无 IndexNumber，前端从文件名解析集号兜底）
     filePath: item.Path,
+    // 递归后代条目数（Series≈总集数，海报墙角标用）
+    recursiveItemCount: item.RecursiveItemCount,
   };
 }
 

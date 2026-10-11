@@ -89,6 +89,8 @@ export interface EmbyItem {
   MediaSources?: EmbyMediaSource[];
   /** 原始文件路径（Fields 含 Path 时返回；分集集号解析兜底用） */
   Path?: string;
+  /** 递归后代条目数（Fields 含 RecursiveItemCount 时返回；Series≈总集数） */
+  RecursiveItemCount?: number;
 }
 
 export interface EmbyPlaybackInfo {
@@ -297,9 +299,10 @@ export class EmbyClient {
         ParentId: parentId,
         IncludeItemTypes: includeItemTypes,
         // IndexNumber/ParentIndexNumber/RunTimeTicks 必须显式列入 Fields，
-        // 否则 Emby/Jellyfin 不返回（分集 SxEy 标签与时长依赖）
+        // 否则 Emby/Jellyfin 不返回（分集 SxEy 标签与时长依赖）；
+        // RecursiveItemCount 用于 Series 总集数展示
         Fields:
-          'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio,IndexNumber,ParentIndexNumber,RunTimeTicks',
+          'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio,IndexNumber,ParentIndexNumber,RunTimeTicks,RecursiveItemCount',
         Recursive: parentId ? undefined : 'false',
       },
     });
@@ -367,7 +370,7 @@ export class EmbyClient {
       query: {
         SearchTerm: term,
         Fields:
-          'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio,IndexNumber,ParentIndexNumber,RunTimeTicks',
+          'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio,IndexNumber,ParentIndexNumber,RunTimeTicks,RecursiveItemCount',
         Recursive: 'true',
       },
     });

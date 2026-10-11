@@ -99,6 +99,8 @@ function mapEmbyEntry(item: EmbyItem) {
         : undefined,
     // 原始文件路径（非刮削库的分集无 IndexNumber，前端从文件名解析集号兜底）
     filePath: item.Path,
+    // 递归后代条目数（Series≈总集数，海报墙角标用）
+    recursiveItemCount: item.RecursiveItemCount,
   };
 }
 
