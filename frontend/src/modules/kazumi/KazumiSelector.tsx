@@ -7,6 +7,7 @@ import {
   LayoutGrid,
   List,
   ChevronDown,
+  ArrowLeft,
 } from 'lucide-react'
 import { FullscreenOverlay } from '@/components/ui/FullscreenOverlay'
 import { Button } from '@/components/ui/Button'
@@ -67,6 +68,11 @@ export function KazumiSelector({
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(
     null
   )
+  // 平铺视图点击卡片进入的集数选择页（面板内二级页，替代 cramped 的内联展开）
+  const [detailResult, setDetailResult] = useState<KazumiSearchResult | null>(
+    null
+  )
+  const [detailLoading, setDetailLoading] = useState(false)
   const [viewMode, setViewMode] = useState<'list' | 'tile'>(() => {
     const saved = localStorage.getItem('kazumi-selector-view-mode')
     return saved === 'list' ? 'list' : 'tile'
@@ -99,6 +105,7 @@ export function KazumiSelector({
     if (open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 关闭时清理选中态
     setSelectedEpisodeId(null)
+    setDetailResult(null)
   }, [open])
 
   const sourceOptions = useMemo(
@@ -124,6 +131,7 @@ export function KazumiSelector({
     setExpandedId(null)
     setEverExpandedIds(new Set())
     setEpisodesMap({})
+    setDetailResult(null)
     try {
       const results = await searchKazumi(selectedSource, keyword.trim())
       setSearchResults(results)
@@ -179,6 +187,41 @@ export function KazumiSelector({
     [expandedId, episodesMap]
   )
 
+  // 平铺视图：点击卡片进入面板内集数选择页（集数加载复用 episodesMap 缓存）
+  const handleOpenDetail = useCallback(
+    async (result: KazumiSearchResult) => {
+      if (disabled) {
+        message.info('当前不可用')
+        return
+      }
+      setDetailResult(result)
+      if (episodesMap[result.id]) return
+      setDetailLoading(true)
+      try {
+        const episodes = await getKazumiEpisodes(result.source, result.id)
+        setEpisodesMap((prev) => ({ ...prev, [result.id]: episodes }))
+      } catch (err) {
+        console.error('[KazumiSelector] load episodes error:', err)
+        message.error(err instanceof Error ? err.message : '获取集数失败')
+        setDetailResult(null)
+      } finally {
+        setDetailLoading(false)
+      }
+    },
+    [disabled, episodesMap]
+  )
+
+  const handleCardClick = useCallback(
+    (result: KazumiSearchResult) => {
+      if (viewMode === 'tile') {
+        void handleOpenDetail(result)
+      } else {
+        void handleToggleExpand(result)
+      }
+    },
+    [viewMode, handleOpenDetail, handleToggleExpand]
+  )
+
   const handleSelectEpisode = useCallback(
     (result: KazumiSearchResult, episode: KazumiEpisode) => {
       if (disabled) {
@@ -220,6 +263,7 @@ export function KazumiSelector({
                 setExpandedId(null)
                 setEverExpandedIds(new Set())
                 setEpisodesMap({})
+                setDetailResult(null)
               }}
               disabled={loadingSources || sourceOptions.length === 0}
               placeholder="选择数据源"
@@ -263,272 +307,333 @@ export function KazumiSelector({
           </Button>
         </div>
 
-        {/* 工具栏 */}
-        <div className="mb-3 flex items-center justify-between">
-          <Text type="secondary" className="text-xs">
-            {searchResults.length > 0
-              ? `共 ${searchResults.length} 条结果`
-              : searching
-                ? '搜索中...'
-                : '输入关键词开始搜索'}
-          </Text>
-          <div
-            className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
-            style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
-          >
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('list')
-                localStorage.setItem('kazumi-selector-view-mode', 'list')
-              }}
-              className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-3 py-1.5 text-xs font-medium transition-all"
-              style={{
-                backgroundColor:
-                  viewMode === 'list'
-                    ? 'var(--md-sys-color-primary-container)'
-                    : 'transparent',
-                color:
-                  viewMode === 'list'
-                    ? 'var(--md-sys-color-on-primary-container)'
-                    : 'var(--md-sys-color-on-surface-variant)',
-              }}
-              aria-label="列表视图"
-              title="列表视图"
-            >
-              <List className="h-3.5 w-3.5" />
-              <span>列表</span>
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setViewMode('tile')
-                localStorage.setItem('kazumi-selector-view-mode', 'tile')
-              }}
-              className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-3 py-1.5 text-xs font-medium transition-all"
-              style={{
-                backgroundColor:
-                  viewMode === 'tile'
-                    ? 'var(--md-sys-color-primary-container)'
-                    : 'transparent',
-                color:
-                  viewMode === 'tile'
-                    ? 'var(--md-sys-color-on-primary-container)'
-                    : 'var(--md-sys-color-on-surface-variant)',
-              }}
-              aria-label="平铺视图"
-              title="平铺视图"
-            >
-              <LayoutGrid className="h-3.5 w-3.5" />
-              <span>平铺</span>
-            </button>
-          </div>
-        </div>
-
-        {/* 结果区 */}
-        <div
-          className={cn(
-            'flex-1 overflow-y-auto',
-            viewMode === 'tile'
-              ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 content-start'
-              : 'flex flex-col gap-3'
-          )}
-        >
-          {searchResults.length === 0 && (
-            <div
-              className={cn(
-                'flex items-center justify-center',
-                viewMode === 'tile' ? 'col-span-full' : 'w-full'
-              )}
-            >
-              <div className="flex flex-col items-center gap-3 py-16 text-center">
-                {searching ? (
-                  <div
-                    className="flex h-14 w-14 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: 'var(--glass-bg)',
-                    }}
-                  >
-                    <Loader2
-                      className="h-6 w-6 animate-spin"
-                      style={{ color: 'var(--md-sys-color-primary)' }}
-                    />
-                  </div>
-                ) : (
-                  <div
-                    className="flex h-14 w-14 items-center justify-center rounded-full"
-                    style={{
-                      backgroundColor: 'var(--glass-bg)',
-                    }}
-                  >
-                    <Tv
-                      className="h-6 w-6"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    />
-                  </div>
-                )}
-                <Paragraph type="secondary" className="m-0 text-xs">
-                  {searching
-                    ? '正在搜索...'
-                    : keyword
-                      ? '暂无结果，换个关键词试试'
-                      : '输入关键词开始搜索番剧'}
-                </Paragraph>
-              </div>
+        {detailResult ? (
+          /* 集数选择页：返回 + 标题 + 集数选择器（复用缓存） */
+          <div className="flex min-h-0 flex-1 flex-col">
+            <div className="mb-3 flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={<ArrowLeft className="h-4 w-4" />}
+                onClick={() => setDetailResult(null)}
+              >
+                返回
+              </Button>
+              <Text
+                className="truncate text-sm font-semibold"
+                title={detailResult.title}
+              >
+                {detailResult.title}
+              </Text>
             </div>
-          )}
-
-          {searchResults.map((result) => {
-            const expanded = expandedId === result.id
-            const episodes = episodesMap[result.id] || []
-
-            return (
+            <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
+              {detailLoading ? (
+                <div className="flex h-32 items-center justify-center">
+                  <Loader2
+                    className="h-5 w-5 animate-spin"
+                    style={{ color: 'var(--md-sys-color-primary)' }}
+                  />
+                </div>
+              ) : (episodesMap[detailResult.id] || []).length === 0 ? (
+                <Paragraph
+                  type="secondary"
+                  className="m-0 py-16 text-center text-xs"
+                >
+                  暂无集数信息
+                </Paragraph>
+              ) : (
+                <AnimeEpisodePicker
+                  episodes={episodesMap[detailResult.id] || []}
+                  sourceId={detailResult.source}
+                  title={detailResult.title}
+                  disabled={disabled || !!selectedEpisodeId}
+                  onSelect={(episode) =>
+                    handleSelectEpisode(detailResult, episode)
+                  }
+                  onSelectMany={onSelectEpisodes}
+                />
+              )}
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* 工具栏 */}
+            <div className="mb-3 flex items-center justify-between">
+              <Text type="secondary" className="text-xs">
+                {searchResults.length > 0
+                  ? `共 ${searchResults.length} 条结果`
+                  : searching
+                    ? '搜索中...'
+                    : '输入关键词开始搜索'}
+              </Text>
               <div
-                key={result.id}
-                className={cn(
-                  'zen-card glass overflow-hidden rounded-[var(--md-sys-shape-corner)] border transition-all',
-                  expanded
-                    ? 'border-[var(--md-sys-color-primary)]'
-                    : 'border-[var(--md-sys-color-outline-variant)]'
-                )}
+                className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+                style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
               >
                 <button
                   type="button"
-                  onClick={() => void handleToggleExpand(result)}
+                  onClick={() => {
+                    setViewMode('list')
+                    localStorage.setItem('kazumi-selector-view-mode', 'list')
+                  }}
+                  className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-3 py-1.5 text-xs font-medium transition-all"
+                  style={{
+                    backgroundColor:
+                      viewMode === 'list'
+                        ? 'var(--md-sys-color-primary-container)'
+                        : 'transparent',
+                    color:
+                      viewMode === 'list'
+                        ? 'var(--md-sys-color-on-primary-container)'
+                        : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                  aria-label="列表视图"
+                  title="列表视图"
+                >
+                  <List className="h-3.5 w-3.5" />
+                  <span>列表</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setViewMode('tile')
+                    localStorage.setItem('kazumi-selector-view-mode', 'tile')
+                  }}
+                  className="flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-3 py-1.5 text-xs font-medium transition-all"
+                  style={{
+                    backgroundColor:
+                      viewMode === 'tile'
+                        ? 'var(--md-sys-color-primary-container)'
+                        : 'transparent',
+                    color:
+                      viewMode === 'tile'
+                        ? 'var(--md-sys-color-on-primary-container)'
+                        : 'var(--md-sys-color-on-surface-variant)',
+                  }}
+                  aria-label="平铺视图"
+                  title="平铺视图"
+                >
+                  <LayoutGrid className="h-3.5 w-3.5" />
+                  <span>平铺</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 结果区 */}
+            <div
+              className={cn(
+                'flex-1 overflow-y-auto',
+                viewMode === 'tile'
+                  ? 'grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 content-start'
+                  : 'flex flex-col gap-3'
+              )}
+            >
+              {searchResults.length === 0 && (
+                <div
                   className={cn(
-                    'flex w-full gap-3 p-3 text-left',
-                    viewMode === 'tile' ? 'flex-col' : 'flex-row'
+                    'flex items-center justify-center',
+                    viewMode === 'tile' ? 'col-span-full' : 'w-full'
                   )}
                 >
-                  {result.cover ? (
-                    <img
-                      src={result.cover}
-                      alt={result.title}
-                      className={cn(
-                        'flex-shrink-0 rounded-[var(--md-sys-shape-corner)] object-cover',
-                        viewMode === 'tile'
-                          ? 'aspect-[3/4] w-full'
-                          : 'h-[110px] w-[80px]'
-                      )}
-                    />
-                  ) : (
-                    <div
-                      className={cn(
-                        'flex flex-shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]',
-                        viewMode === 'tile'
-                          ? 'aspect-[3/4] w-full'
-                          : 'h-[110px] w-[80px]'
-                      )}
-                      style={{
-                        backgroundColor: 'var(--glass-bg)',
-                      }}
-                    >
-                      <Tv
-                        className={viewMode === 'tile' ? 'h-8 w-8' : 'h-6 w-6'}
+                  <div className="flex flex-col items-center gap-3 py-16 text-center">
+                    {searching ? (
+                      <div
+                        className="flex h-14 w-14 items-center justify-center rounded-full"
                         style={{
-                          color: 'var(--md-sys-color-on-surface-variant)',
+                          backgroundColor: 'var(--glass-bg)',
                         }}
-                      />
-                    </div>
-                  )}
-                  <div className="flex min-w-0 flex-1 flex-col">
-                    <Text
-                      className={cn(
-                        'block font-semibold leading-snug',
-                        viewMode === 'tile' ? 'text-sm' : 'text-sm'
-                      )}
-                      title={result.title}
-                    >
-                      {result.title}
-                    </Text>
-                    {result.description && (
-                      <Paragraph
-                        type="secondary"
-                        className="m-0 mt-1 line-clamp-2 text-xs"
-                        title={result.description}
                       >
-                        {result.description}
-                      </Paragraph>
+                        <Loader2
+                          className="h-6 w-6 animate-spin"
+                          style={{ color: 'var(--md-sys-color-primary)' }}
+                        />
+                      </div>
+                    ) : (
+                      <div
+                        className="flex h-14 w-14 items-center justify-center rounded-full"
+                        style={{
+                          backgroundColor: 'var(--glass-bg)',
+                        }}
+                      >
+                        <Tv
+                          className="h-6 w-6"
+                          style={{
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        />
+                      </div>
                     )}
-                    <div
-                      className="mt-auto flex items-center gap-1 pt-2 text-[10px] uppercase tracking-wide"
-                      style={{
-                        color: 'var(--md-sys-color-on-surface-variant)',
-                      }}
-                    >
-                      {loadingEpisodes && expanded ? (
-                        <>
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                          <span>加载中</span>
-                        </>
-                      ) : expanded ? (
-                        <>
-                          <ChevronDown className="h-3 w-3" />
-                          <span>收起</span>
-                        </>
-                      ) : (
-                        <>
-                          <Play className="h-3 w-3" />
-                          <span>展开集数</span>
-                        </>
-                      )}
-                    </div>
+                    <Paragraph type="secondary" className="m-0 text-xs">
+                      {searching
+                        ? '正在搜索...'
+                        : keyword
+                          ? '暂无结果，换个关键词试试'
+                          : '输入关键词开始搜索番剧'}
+                    </Paragraph>
                   </div>
-                </button>
+                </div>
+              )}
 
-                {/* 二级集数菜单:grid-rows 0fr→1fr 过渡,展开/收起均有高度动画 */}
-                {everExpandedIds.has(result.id) && (
+              {searchResults.map((result) => {
+                const expanded = expandedId === result.id
+                const episodes = episodesMap[result.id] || []
+
+                return (
                   <div
+                    key={result.id}
                     className={cn(
-                      'grid transition-[grid-template-rows] duration-300 ease-out',
-                      expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                      'zen-card glass overflow-hidden rounded-[var(--md-sys-shape-corner)] border transition-all',
+                      expanded
+                        ? 'border-[var(--md-sys-color-primary)]'
+                        : 'border-[var(--md-sys-color-outline-variant)]'
                     )}
                   >
-                    <div className="min-h-0 overflow-hidden">
-                      <div
-                        className="border-t px-3 pb-3"
-                        style={{
-                          borderColor:
-                            'var(--md-sys-color-outline-variant)',
-                        }}
-                      >
-                        {episodes.length === 0 && !loadingEpisodes && (
-                          <div className="flex h-16 items-center justify-center">
-                            <Paragraph type="secondary" className="m-0 text-xs">
-                              暂无集数信息
-                            </Paragraph>
-                          </div>
-                        )}
-                        {loadingEpisodes && episodes.length === 0 && (
-                          <div className="flex h-16 items-center justify-center">
-                            <Loader2
-                              className="h-4 w-4 animate-spin"
-                              style={{ color: 'var(--md-sys-color-primary)' }}
-                            />
-                          </div>
-                        )}
-                        {episodes.length > 0 && (
-                          <AnimeEpisodePicker
-                            episodes={episodes}
-                            sourceId={result.source}
-                            title={result.title}
-                            disabled={disabled || !!selectedEpisodeId}
-                            onSelect={(episode) =>
-                              handleSelectEpisode(result, episode)
+                    <button
+                      type="button"
+                      onClick={() => handleCardClick(result)}
+                      className={cn(
+                        'flex w-full gap-3 p-3 text-left',
+                        viewMode === 'tile' ? 'flex-col' : 'flex-row'
+                      )}
+                    >
+                      {result.cover ? (
+                        <img
+                          src={result.cover}
+                          alt={result.title}
+                          className={cn(
+                            'flex-shrink-0 rounded-[var(--md-sys-shape-corner)] object-cover',
+                            viewMode === 'tile'
+                              ? 'aspect-[3/4] w-full'
+                              : 'h-[110px] w-[80px]'
+                          )}
+                        />
+                      ) : (
+                        <div
+                          className={cn(
+                            'flex flex-shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]',
+                            viewMode === 'tile'
+                              ? 'aspect-[3/4] w-full'
+                              : 'h-[110px] w-[80px]'
+                          )}
+                          style={{
+                            backgroundColor: 'var(--glass-bg)',
+                          }}
+                        >
+                          <Tv
+                            className={
+                              viewMode === 'tile' ? 'h-8 w-8' : 'h-6 w-6'
                             }
-                            onSelectMany={onSelectEpisodes}
+                            style={{
+                              color: 'var(--md-sys-color-on-surface-variant)',
+                            }}
                           />
+                        </div>
+                      )}
+                      <div className="flex min-w-0 flex-1 flex-col">
+                        <Text
+                          className={cn(
+                            'block font-semibold leading-snug',
+                            viewMode === 'tile' ? 'text-sm' : 'text-sm'
+                          )}
+                          title={result.title}
+                        >
+                          {result.title}
+                        </Text>
+                        {result.description && (
+                          <Paragraph
+                            type="secondary"
+                            className="m-0 mt-1 line-clamp-2 text-xs"
+                            title={result.description}
+                          >
+                            {result.description}
+                          </Paragraph>
                         )}
+                        <div
+                          className="mt-auto flex items-center gap-1 pt-2 text-[10px] uppercase tracking-wide"
+                          style={{
+                            color: 'var(--md-sys-color-on-surface-variant)',
+                          }}
+                        >
+                          {loadingEpisodes && expanded ? (
+                            <>
+                              <Loader2 className="h-3 w-3 animate-spin" />
+                              <span>加载中</span>
+                            </>
+                          ) : expanded ? (
+                            <>
+                              <ChevronDown className="h-3 w-3" />
+                              <span>收起</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="h-3 w-3" />
+                              <span>
+                                {viewMode === 'tile' ? '选择集数' : '展开集数'}
+                              </span>
+                            </>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    </button>
+
+                    {/* 二级集数菜单:grid-rows 0fr→1fr 过渡,展开/收起均有高度动画 */}
+                    {everExpandedIds.has(result.id) && (
+                      <div
+                        className={cn(
+                          'grid transition-[grid-template-rows] duration-300 ease-out',
+                          expanded ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]'
+                        )}
+                      >
+                        <div className="min-h-0 overflow-hidden">
+                          <div
+                            className="border-t px-3 pb-3"
+                            style={{
+                              borderColor:
+                                'var(--md-sys-color-outline-variant)',
+                            }}
+                          >
+                            {episodes.length === 0 && !loadingEpisodes && (
+                              <div className="flex h-16 items-center justify-center">
+                                <Paragraph
+                                  type="secondary"
+                                  className="m-0 text-xs"
+                                >
+                                  暂无集数信息
+                                </Paragraph>
+                              </div>
+                            )}
+                            {loadingEpisodes && episodes.length === 0 && (
+                              <div className="flex h-16 items-center justify-center">
+                                <Loader2
+                                  className="h-4 w-4 animate-spin"
+                                  style={{
+                                    color: 'var(--md-sys-color-primary)',
+                                  }}
+                                />
+                              </div>
+                            )}
+                            {episodes.length > 0 && (
+                              <AnimeEpisodePicker
+                                episodes={episodes}
+                                sourceId={result.source}
+                                title={result.title}
+                                disabled={disabled || !!selectedEpisodeId}
+                                onSelect={(episode) =>
+                                  handleSelectEpisode(result, episode)
+                                }
+                                onSelectMany={onSelectEpisodes}
+                              />
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
+                )
+              })}
+            </div>
+          </>
+        )}
       </div>
     </FullscreenOverlay>
   )
