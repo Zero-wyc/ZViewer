@@ -7,10 +7,10 @@ import {
   LogOut,
   RefreshCw,
   KeyRound,
-  AtSign,
+  UserPen,
   Pencil,
   Crown,
-  Camera,
+  ImagePlus,
   Trash2,
   Download,
   Cookie,
@@ -1198,7 +1198,7 @@ export default function ProfilePage() {
                       'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-secondary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent))',
                   }}
                 >
-                  <Camera
+                  <ImagePlus
                     className="h-4 w-4"
                     style={{ color: 'var(--md-sys-color-primary)' }}
                   />
@@ -1253,7 +1253,7 @@ export default function ProfilePage() {
                     <Button
                       variant="primary"
                       size="sm"
-                      icon={<Camera className="h-3.5 w-3.5" />}
+                      icon={<ImagePlus className="h-3.5 w-3.5" />}
                       loading={avatarLoading}
                       onClick={() => avatarInputRef.current?.click()}
                     >
@@ -1289,7 +1289,7 @@ export default function ProfilePage() {
                         'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-secondary) 18%, transparent))',
                     }}
                   >
-                    <AtSign
+                    <UserPen
                       className="h-4 w-4"
                       style={{ color: 'var(--md-sys-color-primary)' }}
                     />
@@ -1328,7 +1328,7 @@ export default function ProfilePage() {
                     variant="secondary"
                     size="sm"
                     loading={usernameLoading}
-                    icon={<AtSign className="h-4 w-4" />}
+                    icon={<UserPen className="h-4 w-4" />}
                     onClick={() => void handleChangeUsername()}
                     className="mt-1"
                   >
