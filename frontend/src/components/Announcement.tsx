@@ -301,7 +301,14 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
           </div>
         }
       >
-        <div className="max-h-[60vh] min-h-[120px] overflow-y-auto">
+        <div
+          className="max-h-[60vh] min-h-[120px] overflow-y-auto rounded-[var(--md-sys-shape-corner)] border p-4"
+          style={{
+            borderColor: 'var(--md-sys-color-outline-variant)',
+            backgroundColor:
+              'color-mix(in srgb, var(--md-sys-color-surface-container) 55%, transparent)',
+          }}
+        >
           {loading ? (
             <div className="flex h-24 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               <Loader2 className="h-4 w-4 animate-spin" />
