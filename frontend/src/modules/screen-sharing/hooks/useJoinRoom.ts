@@ -271,6 +271,10 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
 
     const handleJoinApproved = (data: JoinApprovedPayload) => {
       if (data.name) {
+        // 直接写入 store：房间名必须在观众端可见（Issue #16）。
+        // 仅转发 onRoomNameUpdated 回调不够——调用方（WatchPage 等）未传该
+        // 回调时名字被丢弃，观众端 RoomInfoPanel 会一直显示"未命名房间"。
+        useRoomStore.getState().setRoomName(data.name)
         callbacksRef.current.onRoomNameUpdated?.({
           roomId: data.roomId,
           name: data.name,
@@ -317,6 +321,10 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
     }
 
     const handleRoomNameUpdated = (data: { roomId: string; name: string }) => {
+      // 房主改名后所有成员（含观众）实时同步房间名（Issue #16）
+      if (data.roomId === roomId) {
+        useRoomStore.getState().setRoomName(data.name)
+      }
       callbacksRef.current.onRoomNameUpdated?.(data)
     }
 
@@ -339,7 +347,15 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
       socket.off('room-name-updated', handleRoomNameUpdated)
       socket.off('room-mode-changed', handleRoomModeChanged)
     }
-  }, [socket, roomMode, joinStatus, setStoreMode, setShareMethod, setStreamKey])
+  }, [
+    socket,
+    roomId,
+    roomMode,
+    joinStatus,
+    setStoreMode,
+    setShareMethod,
+    setStreamKey,
+  ])
 
   return {
     joinStatus,
