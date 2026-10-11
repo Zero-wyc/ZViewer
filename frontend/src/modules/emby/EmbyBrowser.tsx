@@ -326,6 +326,8 @@ export default function EmbyBrowser({
    * 类型/刮削角标：提升已刮削条目与普通文件的区分度。
    * Series=总集数（emerald）、Movie=电影（violet）、
    * 已刮削 Episode=SxEy（sky）、其余文件=文件（灰）。
+   * 误刮削兜底：剧集文件常被 Emby 统一刮成 Movie 类型——文件名能
+   * 解析出集号时按分集显示 EP 角标（sky），不再显示「电影」。
    */
   const entryBadge = (
     entry: EmbyDirectoryEntry
@@ -335,6 +337,15 @@ export default function EmbyBrowser({
       return { text: `${count} 集`, className: 'bg-emerald-600/85' }
     }
     if (entry.embyType === 'Movie') {
+      if (entry.filePath) {
+        const parsed = parseEpisodeFromFilePath(entry.filePath)
+        if (parsed) {
+          return {
+            text: `EP${parsed.episode}`,
+            className: 'bg-sky-600/85',
+          }
+        }
+      }
       return { text: '电影', className: 'bg-violet-600/85' }
     }
     if (entry.embyType === 'Episode' && entry.indexNumber != null) {
