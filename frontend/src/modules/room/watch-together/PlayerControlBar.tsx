@@ -291,6 +291,7 @@ export function PlayerControlBar({
   const [dragging, setDragging] = useState(false)
 
   const volumeTrackRef = useRef<HTMLDivElement>(null)
+  const volumeContainerRef = useRef<HTMLDivElement>(null)
   const [volumeOpen, setVolumeOpen] = useState(false)
   const volumeCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const prevVolumeRef = useRef(volume || 1)
@@ -310,6 +311,24 @@ export function PlayerControlBar({
       volumeCloseTimerRef.current = null
     }, 200)
   }, [])
+
+  // 点外立即关闭：hover 延迟关闭只覆盖鼠标移出弹窗的场景，
+  // 点击控制栏其他按钮/页面空白处应直接收起音量弹层
+  useEffect(() => {
+    if (!volumeOpen) return
+    const handleOutside = (e: PointerEvent) => {
+      const el = volumeContainerRef.current
+      if (!el || el.contains(e.target as Node)) return
+      if (volumeCloseTimerRef.current) {
+        clearTimeout(volumeCloseTimerRef.current)
+        volumeCloseTimerRef.current = null
+      }
+      setVolumeOpen(false)
+    }
+    document.addEventListener('pointerdown', handleOutside, true)
+    return () =>
+      document.removeEventListener('pointerdown', handleOutside, true)
+  }, [volumeOpen])
 
   const [rateOpen, setRateOpen] = useState(false)
   const rateContainerRef = useRef<HTMLDivElement>(null)
@@ -462,14 +481,24 @@ export function PlayerControlBar({
     (e: React.PointerEvent) => {
       e.preventDefault()
       e.stopPropagation()
+      // 页面锁定：拖动期间禁滚动（防触屏拖滑块带动整页），松手还原
+      const prevOverflow = document.body.style.overflow
+      document.body.style.overflow = 'hidden'
       handleVolumePointer(e.clientY)
-      const handleMove = (ev: PointerEvent) => handleVolumePointer(ev.clientY)
+      const handleMove = (ev: PointerEvent) => {
+        // 非 passive 监听，preventDefault 阻断拖出弹层后的文本选择
+        ev.preventDefault()
+        handleVolumePointer(ev.clientY)
+      }
       const handleUp = () => {
         window.removeEventListener('pointermove', handleMove)
         window.removeEventListener('pointerup', handleUp)
+        window.removeEventListener('pointercancel', handleUp)
+        document.body.style.overflow = prevOverflow
       }
       window.addEventListener('pointermove', handleMove)
       window.addEventListener('pointerup', handleUp)
+      window.addEventListener('pointercancel', handleUp)
     },
     [handleVolumePointer]
   )
@@ -675,8 +704,10 @@ export function PlayerControlBar({
             )}
           </div>
 
-          {/* 音量：容器包含按钮和弹窗，使用延迟关闭避免移动鼠标到弹窗时隐藏 */}
+          {/* 音量：容器包含按钮和弹窗，使用延迟关闭避免移动鼠标到弹窗时隐藏；
+              点外立即关闭见 volumeContainerRef 的 document pointerdown 捕获 */}
           <div
+            ref={volumeContainerRef}
             className="relative flex items-center"
             onMouseEnter={openVolume}
             onMouseLeave={scheduleCloseVolume}
@@ -698,7 +729,7 @@ export function PlayerControlBar({
                 </span>
                 <div
                   ref={volumeTrackRef}
-                  className="relative h-24 w-1.5 cursor-pointer rounded-full bg-[var(--md-sys-color-on-surface)]/20"
+                  className="touch-slider relative h-24 w-1.5 cursor-pointer rounded-full bg-[var(--md-sys-color-on-surface)]/20"
                   onPointerDown={handleVolumePointerDown}
                 >
                   <div
