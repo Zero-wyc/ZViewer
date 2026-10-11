@@ -443,14 +443,14 @@ export function RoomLayout({
             'relative flex flex-none flex-col overflow-hidden min-h-0 bg-transparent',
             webFullscreen
               ? 'h-full w-full !rounded-none !border-0 !bg-black !p-0 !shadow-none !backdrop-filter-none'
-              : 'w-full max-w-6xl p-3 md:p-6'
+              : 'w-full max-w-[1400px] p-3 md:p-6'
           )}
         >
           {roomContent}
         </Card>
 
         {effectiveControls && !webFullscreen && !isNativeFullscreen && (
-          <div className="w-full max-w-6xl flex-none mt-2 md:mt-4">
+          <div className="w-full max-w-[1400px] flex-none mt-2 md:mt-4">
             {(() => {
               if (controlChildren.length === 1) {
                 // 共享状态下评论区单独在下方时限制高度，避免无限撑开
@@ -530,10 +530,11 @@ export function RoomLayout({
                     </div>
                   </div>
                   {/* 桌面端：根据卡片数量动态列数，避免少量卡片时宽度过小。
-                    1 张 → 单列占满；2 张 → 两列；3 张及以上 → 三列。 */}
+                    1 张 → 单列占满；2 张 → 两列；3 张及以上 → 三列。
+                    高度随容器放宽等比放大（clamp 视口自适应，上限 420px）。 */}
                   <div
                     className={cn(
-                      'hidden h-[340px] gap-4 lg:grid',
+                      'hidden h-[clamp(340px,42vh,420px)] gap-4 lg:grid',
                       controlChildren.length === 1 && 'lg:grid-cols-1',
                       controlChildren.length === 2 && 'lg:grid-cols-2',
                       controlChildren.length >= 3 && 'lg:grid-cols-3'
