@@ -418,6 +418,8 @@ interface RoomState {
     }
   ) => Promise<void>
   removeMovie: (roomId: string, movieId: number) => Promise<void>
+  /** 清空房间全部影片（REST 删除 + 本地清理当前播放指针） */
+  clearMovies: (roomId: string) => Promise<void>
   reorderMovies: (roomId: string, orderedIds: number[]) => Promise<void>
 }
 
@@ -661,6 +663,26 @@ export const useRoomStore = create<RoomState>((set, get) => ({
     if (get().currentMovieId === movieId) {
       set({ currentMovieId: null })
     }
+    // movies 列表由后端广播 movie-list 事件刷新
+  },
+
+  clearMovies: async (roomId) => {
+    const res = await apiFetch(
+      `/api/rooms/${encodeURIComponent(roomId)}/movies`,
+      {
+        method: 'DELETE',
+      }
+    )
+    const data = await parseResponse<{
+      success: boolean
+      message?: string
+      removed?: number
+    }>(res)
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || '清空影片失败')
+    }
+    // 后端 REST 删除不会广播 current-movie 事件，需要本地清理
+    set({ currentMovieId: null })
     // movies 列表由后端广播 movie-list 事件刷新
   },
 

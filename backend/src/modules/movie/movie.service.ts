@@ -309,6 +309,18 @@ export class MovieService {
   }
 
   /**
+   * 清空房间全部影片。
+   *
+   * @param roomId 房间 ID
+   * @returns 删除的影片数量
+   */
+  async clearMovies(roomId: string): Promise<number> {
+    const repo = AppDataSource.getRepository(Movie);
+    const affected = await repo.delete({ roomId });
+    return affected.affected ?? 0;
+  }
+
+  /**
    * 批量重排序影片。
    *
    * 在事务中按 orders 数组顺序依次更新 order 字段。

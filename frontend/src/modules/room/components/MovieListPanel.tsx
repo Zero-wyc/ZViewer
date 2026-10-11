@@ -102,8 +102,12 @@ export function MovieListPanel({
   )
   const setMovies = useRoomStore((state) => state.setMovies)
   const reorderMovies = useRoomStore((state) => state.reorderMovies)
+  const clearMovies = useRoomStore((state) => state.clearMovies)
   const [search, setSearch] = useState('')
   const [removingId, setRemovingId] = useState<number | null>(null)
+  // 「移除全部」二次确认态：首次点击进入确认，再次点击才执行（3s 超时回退）
+  const [clearConfirming, setClearConfirming] = useState(false)
+  const [clearingAll, setClearingAll] = useState(false)
   const [qualityLoadingId, setQualityLoadingId] = useState<number | null>(null)
   const [pageLoadingId, setPageLoadingId] = useState<number | null>(null)
   const [bilibiliVip, setBilibiliVip] = useState(false)
@@ -166,6 +170,37 @@ export function MovieListPanel({
       message.error(err instanceof Error ? err.message : '删除影片失败')
     } finally {
       setRemovingId(null)
+    }
+  }
+
+  /**
+   * 移除全部影片（影片列表弹窗，房主/房管）。
+   * 二次确认：首次点击进入「确认清空」态（3s 超时回退），再次点击才执行。
+   */
+  const handleClearAll = async () => {
+    if (!clearConfirming) {
+      setClearConfirming(true)
+      window.setTimeout(() => setClearConfirming(false), 3000)
+      return
+    }
+    setClearConfirming(false)
+    if (!isHost && !canManage) {
+      message.info('只有房主或房管可以移除影片')
+      return
+    }
+    if (!roomId) {
+      message.error('未连接房间')
+      return
+    }
+    setClearingAll(true)
+    try {
+      await clearMovies(roomId)
+      message.success('已移除全部影片')
+    } catch (err) {
+      console.error('[MovieListPanel] clear movies error:', err)
+      message.error(err instanceof Error ? err.message : '移除全部影片失败')
+    } finally {
+      setClearingAll(false)
     }
   }
 
@@ -764,6 +799,22 @@ export function MovieListPanel({
               placeholder="搜索影片…"
               className="min-w-0 flex-1 px-2.5"
             />
+            {(isHost || canManage) && movies.length > 0 && !isScreenShare && (
+              <Button
+                size="sm"
+                variant={clearConfirming ? 'danger' : 'secondary'}
+                icon={<Trash2 className="h-3.5 w-3.5" />}
+                onClick={handleClearAll}
+                disabled={clearingAll}
+                title="移除列表中的全部影片"
+              >
+                {clearConfirming
+                  ? '确认清空？'
+                  : clearingAll
+                    ? '移除中…'
+                    : '移除全部'}
+              </Button>
+            )}
             {isHost && !isScreenShare && (
               <Switch
                 label="自动连播"

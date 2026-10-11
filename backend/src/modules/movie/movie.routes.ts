@@ -13,6 +13,7 @@
  * - POST   /api/rooms/:roomId/movies           新增影片
  * - POST   /api/rooms/:roomId/movies/reorder   批量重排序
  * - PUT    /api/rooms/:roomId/movies/:movieId   更新影片
+ * - DELETE /api/rooms/:roomId/movies           清空全部影片
  * - DELETE /api/rooms/:roomId/movies/:movieId   删除影片
  */
 import { Router, type Response } from 'express';
@@ -256,6 +257,34 @@ export function createMovieRouter(io: SocketIOServer): Router {
       } catch (err) {
         console.error('[PUT /movies/:movieId] error:', err);
         res.status(500).json({ success: false, message: '更新影片失败' });
+      }
+    },
+  );
+
+  // DELETE /api/rooms/:roomId/movies - 清空房间全部影片（仅 root 或房间 owner）
+  // 注意：必须注册在 /:roomId/movies/:movieId 之前，避免路径参数误吞 'movies'
+  router.delete(
+    '/:roomId/movies',
+    async (req: AuthenticatedRequest, res: Response) => {
+      try {
+        const roomId = req.params.roomId as string;
+        const roomRepo = AppDataSource.getRepository(Room);
+        const room = await roomRepo.findOneBy({ roomId });
+        if (!room) {
+          res.status(404).json({ success: false, message: '房间不存在' });
+          return;
+        }
+        if (!canControlRoom(req, room)) {
+          res.status(403).json({ success: false, message: '无权限：仅 root 或房间创建者可清空影片' });
+          return;
+        }
+
+        const removed = await movieService.clearMovies(roomId);
+        await movieBroadcasterService.broadcastMovieList(io, roomId);
+        res.json({ success: true, removed });
+      } catch (err) {
+        console.error('[DELETE /movies] error:', err);
+        res.status(500).json({ success: false, message: '清空影片失败' });
       }
     },
   );
