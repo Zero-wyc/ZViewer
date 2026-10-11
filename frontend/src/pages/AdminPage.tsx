@@ -1412,7 +1412,7 @@ export default function AdminPage() {
                         'flex w-full flex-col gap-2',
                         roomViewMode === 'tile'
                           ? 'mt-auto'
-                          : 'sm:flex-row sm:items-center sm:justify-end'
+                          : 'sm:w-auto sm:flex-row sm:items-center sm:justify-end'
                       )}
                     >
                       {room.status === 'closed' && (
