@@ -311,13 +311,13 @@ export class EmbyClient {
     });
   }
 
-  /** 搜索 GET /emby/Users/{userId}/Items?SearchTerm= */
+  /** 搜索 GET /emby/Users/{userId}/Items?SearchTerm=（官方 API，Recursive=true） */
   async search(userId: string, term: string): Promise<EmbyItem[]> {
     const res = await this.request<{ Items?: EmbyItem[] }>({
       path: `/emby/Users/${encodeURIComponent(userId)}/Items`,
       query: {
         SearchTerm: term,
-        Fields: 'ChildCount,MediaSources,Path',
+        Fields: 'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio',
         Recursive: 'true',
       },
     });

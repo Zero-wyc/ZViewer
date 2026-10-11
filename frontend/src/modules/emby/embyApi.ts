@@ -126,6 +126,25 @@ export async function browseEmbyMount(
   return data.entries || []
 }
 
+/** 全库搜索（官方 API SearchTerm 递归检索，返回条目结构与 browse 一致） */
+export async function searchEmbyMount(
+  id: number,
+  term: string
+): Promise<EmbyDirectoryEntry[]> {
+  const res = await apiFetch(
+    `/api/emby/mounts/${id}/search?term=${encodeURIComponent(term)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    entries?: EmbyDirectoryEntry[]
+    message?: string
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '搜索 Emby 失败')
+  }
+  return data.entries || []
+}
+
 export async function resolveEmby(
   mountId: number,
   path: string
@@ -176,7 +195,7 @@ export function buildEmbyImageUrl(
   mountId: number,
   itemId: string,
   tag?: string,
-  maxWidth = 300,
+  maxWidth = 300
 ): string {
   const query = new URLSearchParams({
     itemId,

@@ -126,6 +126,25 @@ export async function browseJellyfinMount(
   return data.entries || []
 }
 
+/** 全库搜索（官方 API SearchTerm 递归检索，返回条目结构与 browse 一致） */
+export async function searchJellyfinMount(
+  id: number,
+  term: string
+): Promise<JellyfinDirectoryEntry[]> {
+  const res = await apiFetch(
+    `/api/jellyfin/mounts/${id}/search?term=${encodeURIComponent(term)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    entries?: JellyfinDirectoryEntry[]
+    message?: string
+  }
+  if (!res.ok || !data.success) {
+    throw new Error(data.message || '搜索 Jellyfin 失败')
+  }
+  return data.entries || []
+}
+
 export async function resolveJellyfin(
   mountId: number,
   path: string

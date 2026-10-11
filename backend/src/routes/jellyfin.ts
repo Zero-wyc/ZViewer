@@ -320,6 +320,38 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
   }
 });
 
+// 搜索 - GET /mounts/:id/search?term=
+// 官方 API：GET /Users/{userId}/Items?SearchTerm=&Recursive=true（与 Emby 兼容）
+router.get('/mounts/:id/search', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const mountId = Number(req.params.id);
+    if (Number.isNaN(mountId)) {
+      res.status(400).json({ success: false, message: '挂载 ID 不正确', code: 'INVALID_PARAMS' });
+      return;
+    }
+    const term = typeof req.query.term === 'string' ? req.query.term.trim() : '';
+    if (!term) {
+      res.status(400).json({ success: false, message: '搜索关键词不能为空', code: 'INVALID_PARAMS' });
+      return;
+    }
+    const repo = userMountRepository();
+    const mount = await repo.findOneBy({ id: mountId, userId: req.user!.userId, type: 'jellyfin' });
+    if (!mount) {
+      res.status(404).json({ success: false, message: '挂载不存在或无权限' });
+      return;
+    }
+
+    const session = await resolveJellyfinSession(mount);
+    const items = await session.client.search(session.userId, term);
+    res.json({ success: true, entries: items.map(mapJellyfinEntry) });
+  } catch (err) {
+    console.error('[jellyfin] search mount error:', err);
+    const code = extractErrorCode(err);
+    const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 400;
+    res.status(status).json({ success: false, message: extractErrorMessage(err, '搜索 Jellyfin 失败'), code });
+  }
+});
+
 // 解析 - GET /resolve?mountId=&path=
 router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
