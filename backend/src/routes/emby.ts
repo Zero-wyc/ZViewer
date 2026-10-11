@@ -89,6 +89,14 @@ function mapEmbyEntry(item: EmbyItem) {
     // 刮削元数据（瀑布流海报墙用）：Primary 主海报 tag + 年份
     imageTag: item.ImageTags?.Primary,
     productionYear: item.ProductionYear,
+    // 分集序号（剧集卡分集列表标签 SxEy 用）
+    indexNumber: item.IndexNumber,
+    parentIndexNumber: item.ParentIndexNumber,
+    // 时长（秒）：RunTimeTicks / 10^7
+    duration:
+      typeof item.RunTimeTicks === 'number'
+        ? Math.round(item.RunTimeTicks / 10_000_000)
+        : undefined,
   };
 }
 

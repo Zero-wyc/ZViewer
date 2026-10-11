@@ -31,6 +31,13 @@ export interface BilibiliVideoPage {
   epId?: number
   /** PGC：B站 badge（'会员'/'限免'/''），用于标注会员专享集 */
   badge?: string
+  /**
+   * Emby/Jellyfin 剧集卡：分集 itemId（切集时按此 path 重新解析）。
+   * 非挂载源分P无此字段。
+   */
+  path?: string
+  /** Emby/Jellyfin 剧集卡：分集所属挂载 ID（切集解析用） */
+  mountId?: number
 }
 
 export interface ResolvedSource {

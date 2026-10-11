@@ -34,7 +34,11 @@ export interface MediaLibraryBrowserProps {
   mountId: number | null
   open: boolean
   onClose: () => void
-  onSelectFiles?: (paths: string[]) => void
+  /**
+   * 选中回调。paths 为条目 path 列表；entries 为对应完整条目信息
+   * （含 embyType/imageTag 等，供剧集整卡添加等场景判断类型），可能为 undefined。
+   */
+  onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
   selectable?: boolean
   /** 浏览函数（Emby/Jellyfin 传入各自实现），默认 Emby */
   browse?: (mountId: number, path?: string) => Promise<EmbyDirectoryEntry[]>
@@ -239,7 +243,10 @@ export default function EmbyBrowser({
 
   const confirmSelection = () => {
     if (selectedFiles.length === 0) return
-    onSelectFiles?.(selectedFiles.map((f) => f.path))
+    onSelectFiles?.(
+      selectedFiles.map((f) => f.path),
+      selectedFiles
+    )
     onClose()
   }
 

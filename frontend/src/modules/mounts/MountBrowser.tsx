@@ -3,6 +3,7 @@ import type { WebDAVMount } from '@/modules/webdav/types'
 import type { OpenListMount } from '@/modules/openlist/types'
 import type { FTPMount } from '@/modules/ftp/types'
 import type { EmbyMount } from '@/modules/emby/types'
+import type { EmbyDirectoryEntry } from '@/modules/emby/types'
 import type { JellyfinMount } from '@/modules/jellyfin/types'
 import WebDAVBrowser from '@/modules/webdav/WebDAVBrowser'
 import OpenListBrowser from '@/modules/openlist/OpenListBrowser'
@@ -23,7 +24,8 @@ interface MountBrowserProps {
   open: boolean
   onClose: () => void
   onSelectFile?: (path: string) => void
-  onSelectFiles?: (paths: string[]) => void
+  /** entries：选中条目的完整信息（emby/jellyfin 剧集整卡添加需要 embyType/imageTag） */
+  onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
   selectable?: boolean
 }
 
@@ -35,9 +37,9 @@ export default function MountBrowser({
   onSelectFiles,
   selectable = false,
 }: MountBrowserProps) {
-  const handleFiles = (paths: string[]) => {
+  const handleFiles = (paths: string[], entries?: EmbyDirectoryEntry[]) => {
     if (onSelectFiles) {
-      onSelectFiles(paths)
+      onSelectFiles(paths, entries)
     } else if (onSelectFile && paths[0]) {
       onSelectFile(paths[0])
     }

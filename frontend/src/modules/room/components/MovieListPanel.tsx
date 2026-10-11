@@ -32,7 +32,8 @@ import {
   getBilibiliParseOptions,
 } from '@/modules/bilibili/parseOptions'
 import { useCliAgentStore } from '@/store/cliAgentStore'
-import { getEmbyApiMovieSource } from '@/modules/emby/embyApi'
+import { getEmbyApiMovieSource, resolveEmby } from '@/modules/emby/embyApi'
+import { resolveJellyfin } from '@/modules/jellyfin/jellyfinApi'
 import type { EmbyVersionInfo } from '@/modules/emby/types'
 import { cn } from '@/lib/utils'
 
@@ -364,6 +365,36 @@ export function MovieListPanel({
       return
     }
 
+    // Emby/Jellyfin 剧集卡切集：按分集 itemId 重新解析并更新 movie.path。
+    // 代理模式 url 保持 stream URL 语义（/stream 端点每次请求实时读
+    // movie.path），追加 ep 参数仅用于触发房主端 loadMovie 重载并广播观众；
+    // 直链模式 url 换成分集的新鲜直链（旧 token 已随旧集失效）。
+    if (movie.sourceType === 'emby' || movie.sourceType === 'jellyfin') {
+      const targetPage = movie.pages?.find((p) => p.page === page)
+      if (!targetPage?.path || !targetPage.mountId) return
+      setPageLoadingId(movie.id)
+      try {
+        const resolveFn =
+          movie.sourceType === 'emby' ? resolveEmby : resolveJellyfin
+        const resolved = await resolveFn(targetPage.mountId, targetPage.path)
+        await updateMovie(roomId, movie.id, {
+          path: targetPage.path,
+          url: movie.directLink
+            ? (resolved.directUrl ?? resolved.videoUrl)
+            : `/api/${movie.sourceType}/stream?movieId=${movie.id}&ep=${page}`,
+          format: resolved.format,
+          duration: resolved.duration,
+          currentPage: page,
+        })
+      } catch (err) {
+        console.error('[MovieListPanel] change emby episode error:', err)
+        message.error(err instanceof Error ? err.message : '切换分集失败')
+      } finally {
+        setPageLoadingId(null)
+      }
+      return
+    }
+
     setPageLoadingId(movie.id)
     try {
       const parsePrefs = getBilibiliParseOptions(movie.id)
@@ -632,7 +663,8 @@ export function MovieListPanel({
                             color: 'var(--md-sys-color-on-tertiary-container)',
                           }}
                         >
-                          <ListVideo className="h-2.5 w-2.5" />P
+                          <ListVideo className="h-2.5 w-2.5" />
+                          {movie.sourceType === 'bilibili' ? 'P' : ''}
                           {movie.currentPage ?? 1}/{movie.pages.length}
                         </Tag>
                       )}
@@ -659,7 +691,9 @@ export function MovieListPanel({
                         />
                       )}
                     {isHost &&
-                      movie.sourceType === 'bilibili' &&
+                      (movie.sourceType === 'bilibili' ||
+                        movie.sourceType === 'emby' ||
+                        movie.sourceType === 'jellyfin') &&
                       movie.pages &&
                       movie.pages.length > 1 && (
                         <Select
@@ -667,9 +701,12 @@ export function MovieListPanel({
                           size="sm"
                           value={String(movie.currentPage ?? 1)}
                           options={movie.pages.map((p) => ({
-                            label: `P${p.page} ${p.part}${
-                              p.badge ? ` · ${p.badge}` : ''
-                            }`,
+                            label:
+                              movie.sourceType === 'bilibili'
+                                ? `P${p.page} ${p.part}${
+                                    p.badge ? ` · ${p.badge}` : ''
+                                  }`
+                                : p.part,
                             value: String(p.page),
                           }))}
                           disabled={

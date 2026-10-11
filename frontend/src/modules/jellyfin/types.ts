@@ -38,11 +38,21 @@ export interface JellyfinTestResult {
 export interface JellyfinDirectoryEntry {
   name: string
   path: string
-  /** file = 可播放条目（电影/单集），directory = 可继续浏览（媒体库/剧集/季） */
+  /** file = 可播放条目（电影/单集/剧集），directory = 可继续浏览（媒体库/季） */
   type: 'file' | 'directory'
   /** Jellyfin 条目类型（CollectionFolder/Series/Season/Movie/Episode/Video） */
   embyType?: string
   childCount?: number
+  /** 刮削主海报 tag（ImageTags.Primary，海报墙用） */
+  imageTag?: string
+  /** 刮削年份 */
+  productionYear?: number
+  /** 单集序号（Episode：集号 E） */
+  indexNumber?: number
+  /** 父级序号（Episode：季号 S） */
+  parentIndexNumber?: number
+  /** 时长（秒，RunTimeTicks 换算；缺失为 undefined） */
+  duration?: number
 }
 
 export interface JellyfinResolvedSource {

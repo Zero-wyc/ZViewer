@@ -79,6 +79,12 @@ export interface EmbyItem {
   ImageTags?: { Primary?: string };
   /** 海报宽高比（PrimaryImageAspectRatio，约 0.66 = 2:3 竖版海报） */
   PrimaryImageAspectRatio?: number;
+  /** 单集序号（Episode：集号 E） */
+  IndexNumber?: number;
+  /** 父级序号（Episode：季号 S） */
+  ParentIndexNumber?: number;
+  /** 运行时长（ticks，1 tick = 100ns；秒 = ticks / 10^7） */
+  RunTimeTicks?: number;
   /** 媒体源信息（PlaybackInfo 或带 Fields=MediaSources 时返回） */
   MediaSources?: EmbyMediaSource[];
 }

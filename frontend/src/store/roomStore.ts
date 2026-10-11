@@ -118,6 +118,10 @@ export interface MovieDto {
         duration: number
         epId?: number
         badge?: string
+        /** Emby/Jellyfin 剧集卡：分集 itemId（切集解析用） */
+        path?: string
+        /** Emby/Jellyfin 剧集卡：分集所属挂载 ID */
+        mountId?: number
       }[]
     | null
   currentPage: number | null
@@ -367,6 +371,10 @@ interface RoomState {
             duration: number
             epId?: number
             badge?: string
+            /** Emby/Jellyfin 剧集卡：分集 itemId（切集解析用） */
+            path?: string
+            /** Emby/Jellyfin 剧集卡：分集所属挂载 ID */
+            mountId?: number
           }[]
         | null
       currentPage?: number
@@ -404,6 +412,10 @@ interface RoomState {
             duration: number
             epId?: number
             badge?: string
+            /** Emby/Jellyfin 剧集卡：分集 itemId（切集解析用） */
+            path?: string
+            /** Emby/Jellyfin 剧集卡：分集所属挂载 ID */
+            mountId?: number
           }[]
         | null
       currentPage?: number

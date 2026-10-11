@@ -11,7 +11,7 @@ interface JellyfinBrowserProps {
   mountId: number | null
   open: boolean
   onClose: () => void
-  onSelectFiles?: (paths: string[]) => void
+  onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
   selectable?: boolean
 }
 
