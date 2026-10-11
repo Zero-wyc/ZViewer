@@ -134,7 +134,7 @@ export default function RoomsListPage() {
 
   return (
     <div className="flex-1 p-4 sm:p-6">
-      <Card className="relative mx-auto w-full max-w-6xl">
+      <Card className="relative mx-auto flex min-h-[calc(100vh-9rem)] w-full max-w-6xl flex-col">
         <PageBackButton to="/" />
 
         <div className="mb-6 pt-8 text-center">
@@ -259,8 +259,8 @@ export default function RoomsListPage() {
           <div
             className={
               viewMode === 'tile'
-                ? 'grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3'
-                : 'grid gap-3'
+                ? 'grid flex-1 grid-cols-1 content-start gap-3 sm:grid-cols-2 lg:grid-cols-3'
+                : 'grid flex-1 content-start gap-3'
             }
           >
             {rooms.length === 0 ? (
