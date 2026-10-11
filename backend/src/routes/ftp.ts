@@ -22,9 +22,13 @@ const router = Router();
 const userMountRepository = () => AppDataSource.getRepository(UserMount);
 
 function mountToParams(mount: UserMount): FTPConnectionParams {
+  // 归一化挂载路径：无前导 / 的路径（如 'videos'）会被 basic-ftp 的 cd
+  // 解释为相对登录目录，行为因服务器而异；统一补前导 / 保证绝对语义。
+  const rawPath = mount.path || '/';
+  const path = rawPath.startsWith('/') ? rawPath : '/' + rawPath;
   return {
     serverUrl: mount.serverUrl!,
-    path: mount.path || '/',
+    path,
     port: mount.port || undefined,
     username: mount.username || undefined,
     password: mount.password || undefined,

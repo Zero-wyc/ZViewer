@@ -368,11 +368,11 @@ export async function listWebDAVDirectory(
       (async () => {
         try {
           const connection = createConnection(params);
-          const listPath = targetPath
-            ? normalizePath(targetPath)
-            : params.path.endsWith('/')
-              ? normalizePath(params.path)
-              : normalizePath(params.path.split('/').slice(0, -1).join('/') || '/');
+          // 未传 targetPath 时以 params.path（挂载根目录）为基准列出。
+          // 注意：不能对 params.path 取父目录——mount.path 是目录路径且
+          // 保存时不带末尾斜杠（如 '/videos'），旧逻辑会把它当成文件路径
+          // 取出父目录 '/'，导致挂载路径设置失效、浏览永远落在服务器根目录。
+          const listPath = normalizePath(targetPath || params.path || '/');
           const readdir = promisify(
             connection.readdir.bind(connection) as (
               path: string,
