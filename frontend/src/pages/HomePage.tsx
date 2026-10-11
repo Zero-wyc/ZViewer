@@ -142,25 +142,21 @@ function HomePage() {
       <Card className="relative flex items-stretch overflow-hidden !p-0">
         {/* 主内容区：固定 28rem 宽，不随面板收展变化 */}
         <div className="relative w-[28rem] max-w-[calc(100vw-3rem)] p-4 text-center md:p-6">
-          {/* 快捷房间面板触发按钮：卡片右上角，桌面端向右延伸面板，
-            移动端无延伸空间直接跳转房间列表页 */}
+          {/* 快捷房间面板触发按钮：卡片右上角，无边框纯图标（与影片列表面板按钮同款），
+            桌面端向右延伸面板，移动端无延伸空间直接跳转房间列表页 */}
           <button
             type="button"
             onClick={toggleRoomsPanel}
             className={cn(
-              'absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)] border transition-all duration-200 hover:scale-105 active:scale-95',
+              'absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-105 active:scale-95',
               roomsPanelOpen
-                ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                ? 'text-[var(--md-sys-color-primary)]'
                 : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
             )}
-            style={{
-              borderColor: 'var(--md-sys-color-outline-variant)',
-              backgroundColor: roomsPanelOpen ? undefined : 'var(--glass-bg)',
-            }}
             title="当前房间"
             aria-label="查看当前房间列表"
           >
-            <PanelRightOpen className="h-4 w-4" />
+            <PanelRightOpen className="h-4.5 w-4.5" />
           </button>
           <div className="mb-6">
             <Fade delay={80} className="inline-block">
