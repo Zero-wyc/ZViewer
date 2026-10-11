@@ -283,7 +283,7 @@ export function BiliSearchModal({
             <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
               {/* column-width 260px 自适应列数：网页全屏/高分辨率下自动
               显示更多列（卡片更小），而不是固定列数把卡片拉大 */}
-              <div className="[columns:auto_260px] gap-3">
+              <div className="[columns:auto_200px] gap-3">
                 {items.map((v) => (
                   <button
                     key={v.bvid}
