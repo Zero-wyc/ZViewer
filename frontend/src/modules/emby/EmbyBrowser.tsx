@@ -485,7 +485,7 @@ export default function EmbyBrowser({
         </div>
       }
     >
-      <div className="relative min-h-[320px]">
+      <div className="relative flex h-full min-h-[420px] flex-col">
         {error ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <Text className="text-base text-[var(--md-sys-color-error)]">
@@ -628,10 +628,12 @@ export default function EmbyBrowser({
                 </div>
 
                 {viewMode === 'wall' ? (
-                  /* 海报墙视图：直接消费刮削内容（Primary 海报经后端代理） */
-                  <div className="zen-scroll h-[420px] overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-3">
+                  /* 海报墙视图：直接消费刮削内容（Primary 海报经后端代理）。
+                      auto-fill 按容器宽度自适应列数：网页全屏（分辨率更高）时
+                      显示更多更小的卡片，而不是把固定列数的卡片拉大 */
+                  <div className="zen-scroll min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-3">
                     {entries.length > 0 ? (
-                      <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
+                      <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
                         {entries.map(renderWallCard)}
                       </div>
                     ) : (
@@ -641,7 +643,7 @@ export default function EmbyBrowser({
                     )}
                   </div>
                 ) : (
-                  <div className="grid h-[420px] grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm md:grid-cols-2">
+                  <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm md:grid-cols-2">
                     {/* 左侧：上级目录（小屏单栏时隐藏，导航由面包屑承担） */}
                     <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
                       <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
@@ -693,9 +695,9 @@ export default function EmbyBrowser({
               </>
             ) : /* 搜索结果区：列表 = 单列条目；海报墙 = 刮削海报 grid */
             viewMode === 'wall' ? (
-              <div className="zen-scroll h-[420px] overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-3">
+              <div className="zen-scroll min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-3">
                 {searchResults.length > 0 ? (
-                  <div className="grid grid-cols-3 gap-3 md:grid-cols-4 lg:grid-cols-5">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3">
                     {searchResults.map(renderWallCard)}
                   </div>
                 ) : (
@@ -705,7 +707,7 @@ export default function EmbyBrowser({
                 )}
               </div>
             ) : (
-              <div className="zen-scroll h-[420px] overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-2">
+              <div className="zen-scroll min-h-0 flex-1 overflow-y-auto rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80 p-2">
                 {searchResults.length > 0 ? (
                   searchResults.map((entry) => renderEntry(entry, 'right'))
                 ) : (

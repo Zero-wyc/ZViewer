@@ -230,7 +230,7 @@ export function BiliSearchModal({
                   />
                 </div>
               ) : (
-                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(230px,1fr))] gap-2">
                   {detailPages.map((p) => (
                     <button
                       key={p.page}
@@ -281,7 +281,9 @@ export function BiliSearchModal({
             {/* 结果区：瀑布流（外层滚动，内层 multi-column 平衡分列，
             列内卡片 break-inside-avoid 不跨列截断） */}
             <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
-              <div className="columns-2 gap-3 sm:columns-3 lg:columns-4">
+              {/* column-width 260px 自适应列数：网页全屏/高分辨率下自动
+              显示更多列（卡片更小），而不是固定列数把卡片拉大 */}
+              <div className="[columns:auto_260px] gap-3">
                 {items.map((v) => (
                   <button
                     key={v.bvid}
