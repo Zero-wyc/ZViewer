@@ -7,7 +7,6 @@
 import {
   stripPassword,
   extractErrorMessage,
-  upgradeDirectUrlValidated,
   probeForMountSave,
 } from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
@@ -15,8 +14,8 @@ import { AppDataSource } from '../data-source';
 import { UserMount } from '../entities/UserMount';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import { JellyfinClient, JellyfinError } from '../services/jellyfin-client';
-import { detectMediaFormat } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, proxyHttpUpstream, StreamMovieError } from '../services/proxy';
+import { buildEmbyResolvePayload } from '../services/emby-versions';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
 const router = Router();
@@ -352,7 +351,8 @@ router.get('/mounts/:id/search', async (req: AuthenticatedRequest, res: Response
   }
 });
 
-// 解析 - GET /resolve?mountId=&path=
+// 解析 - GET /resolve?mountId=&path=[&ms=]
+// ms=MediaSourceId：多版本（多清晰度）影片指定版本；缺省取服务器默认（最高码率）
 router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const mountIdRaw = req.query.mountId;
@@ -378,50 +378,69 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
       return;
     }
     const session = await resolveJellyfinSession(mount);
-    const info = await session.client.playbackInfo(itemId, session.userId);
-    const source = info.MediaSources[0];
-    if (!source) {
-      res.status(400).json({ success: false, message: '该条目无可用媒体源', code: 'NO_MEDIA_SOURCE' });
-      return;
-    }
-    const title = source.Path?.split(/[\\/]/).pop() || `item-${itemId}`;
-
-    // ── 音频编码兼容性检测 ──────────────────────────────
-    // 与 emby.ts 一致：检测到浏览器不支持的音轨时切换为 Jellyfin 服务端转码 HLS
-    const BROWSER_SUPPORTED_AUDIO = new Set(['aac', 'mp3', 'flac', 'opus', 'vorbis']);
-    const audioStream = source.MediaStreams?.find((s) => s.Type === 'Audio');
-    const audioCodec = audioStream?.Codec ?? null;
-    const audioIncompatible =
-      !!audioStream &&
-      !!audioStream.Codec &&
-      !BROWSER_SUPPORTED_AUDIO.has(audioStream.Codec.toLowerCase());
-    // 不兼容即转码：与 emby.ts 一致，不再设全局开关门控
-    const needsAudioTranscode = audioIncompatible;
-
-    const format = needsAudioTranscode ? 'hls' : detectMediaFormat(source.Path ?? title);
-    const transcodeQuery = needsAudioTranscode ? '&at=1' : '';
-    const proxyUrl = `/api/jellyfin/proxy?mountId=${mountId}&path=${encodeURIComponent(itemId)}${transcodeQuery}`;
-    // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
-    // （浏览器直连零带宽）；否则保持 http，HTTPS 页面下走服务器代理
-    const directUrlRaw = needsAudioTranscode
-      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
-    // 升级前对 https 端点现场活性校验，防陈旧缓存产出不可达的 https 直链
-    const directUrl = await upgradeDirectUrlValidated(mount, directUrlRaw);
-    res.json({
-      success: true,
-      title,
-      videoUrl: proxyUrl,
-      directUrl,
-      format,
-      duration: 0,
-      audioCodec,
-      needsAudioTranscode,
-      jellyfin: { itemId, container: source.Container ?? '' },
+    const mediaSourceId = typeof req.query.ms === 'string' ? req.query.ms : undefined;
+    const payload = await buildEmbyResolvePayload({
+      session,
+      mount,
+      itemId,
+      mountId,
+      apiPrefix: 'jellyfin',
+      mediaSourceId,
     });
+    res.json({ success: true, ...payload });
   } catch (err) {
     console.error('[jellyfin] resolve error:', err);
     res.status(400).json({ success: false, message: extractErrorMessage(err, '解析 Jellyfin 条目失败'), code: extractErrorCode(err) });
+  }
+});
+
+// 按影片 ID 解析 - GET /movie-source?movieId=[&ms=]
+// 房主在影片列表切换多版本影片的清晰度时使用：无需 mountId，
+// 复用 /stream 同款 movieId → 挂载凭证链路，返回版本列表与所选版本的播放地址。
+router.get('/movie-source', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const movieIdRaw = req.query.movieId;
+    if (movieIdRaw === undefined) {
+      res.status(400).json({ success: false, message: '缺少 movieId 参数' });
+      return;
+    }
+    const movieId = Number(movieIdRaw);
+    if (Number.isNaN(movieId)) {
+      res.status(400).json({ success: false, message: 'movieId 不正确' });
+      return;
+    }
+
+    const { movie, mount } = await resolveMovieStream(movieId, 'jellyfin');
+    if (!mount) {
+      res.status(404).json({ success: false, message: '未找到对应的 Jellyfin 挂载配置' });
+      return;
+    }
+    if (!movie.path) {
+      res.status(400).json({ success: false, message: '该影片缺少 itemId 信息' });
+      return;
+    }
+
+    const session = await resolveJellyfinSession(mount);
+    const mediaSourceId = typeof req.query.ms === 'string' ? req.query.ms : undefined;
+    const payload = await buildEmbyResolvePayload({
+      session,
+      mount,
+      itemId: movie.path,
+      mountId: mount.id,
+      apiPrefix: 'jellyfin',
+      mediaSourceId,
+      movieId,
+    });
+    res.json({ success: true, ...payload });
+  } catch (err) {
+    if (err instanceof StreamMovieError) {
+      if (!res.headersSent) {
+        res.status(err.status).json({ success: false, message: err.message, code: err.code });
+      }
+      return;
+    }
+    console.error('[jellyfin] movie-source error:', err);
+    res.status(400).json({ success: false, message: extractErrorMessage(err, '解析 Jellyfin 影片版本失败'), code: extractErrorCode(err) });
   }
 });
 
@@ -433,9 +452,12 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
   try {
     const session = await resolveJellyfinSession(mount);
     const audioTranscode = req.query.at === '1';
+    // 多版本选档：ms=MediaSourceId，透传给 upstream 选定播放版本
+    const ms = typeof req.query.ms === 'string' ? req.query.ms : '';
+    const msSuffix = ms ? `&MediaSourceId=${encodeURIComponent(ms)}` : '';
     const upstreamUrl = audioTranscode
-      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/stream?static=true&api_key=${session.token}`;
+      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000${msSuffix}`
+      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/stream?static=true&api_key=${session.token}${msSuffix}`;
 
     await proxyHttpUpstream(req, res, {
       url: upstreamUrl,
@@ -483,9 +505,13 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
     const audioTranscode =
       req.query.at === '1' ||
       (movie.format ?? '').toLowerCase() === 'hls';
+    // 多版本选档：movie.url 可能形如 /api/jellyfin/stream?movieId=N&ms=X（版本切换
+    // 由 updateMovie 持久化），此处透传 MediaSourceId 给 upstream
+    const ms = typeof req.query.ms === 'string' ? req.query.ms : '';
+    const msSuffix = ms ? `&MediaSourceId=${encodeURIComponent(ms)}` : '';
     const upstreamUrl = audioTranscode
-      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
+      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000${msSuffix}`
+      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}${msSuffix}`;
 
     await proxyHttpUpstream(req, res, {
       url: upstreamUrl,

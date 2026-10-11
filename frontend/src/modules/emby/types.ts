@@ -62,4 +62,19 @@ export interface EmbyResolvedSource {
   needsAudioTranscode?: boolean
   /** 音轨不兼容但管理后台音频转码开关关闭，浏览器可能无声 */
   audioTranscodeDisabled?: boolean
+  /** 多版本（多清晰度）列表（单版本时也返回，仅一项） */
+  versions?: EmbyVersionInfo[]
+  /** 当前选中版本的 MediaSource.Id */
+  mediaSourceId?: string
+}
+
+/** Emby/Jellyfin 影片版本条目（多清晰度/多版本选择用） */
+export interface EmbyVersionInfo {
+  /** MediaSource.Id（切换版本时回传 ms 参数） */
+  id: string
+  /** 展示标签，如 `1080P · MKV · 12.3GB` */
+  label: string
+  height?: number
+  size?: number
+  container?: string
 }

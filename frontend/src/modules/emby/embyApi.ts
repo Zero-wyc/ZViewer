@@ -12,6 +12,7 @@ import type {
   EmbyTestResult,
   EmbyDirectoryEntry,
   EmbyResolvedSource,
+  EmbyVersionInfo,
 } from './types'
 
 function jsonHeaders(): Record<string, string> {
@@ -183,6 +184,68 @@ export async function resolveEmby(
 
 export function buildEmbyProxyUrl(mountId: number, path: string): string {
   return buildProxyUrl('emby', { mountId, path })
+}
+
+export interface EmbyMovieSourceResult {
+  title: string
+  videoUrl: string
+  /** 按 movieId 的播放 URL（/api/{api}/stream?movieId=N&ms=X），观众可访问 */
+  streamUrl?: string
+  directUrl?: string
+  format: MediaFormat
+  duration: number
+  audioCodec?: string | null
+  needsAudioTranscode?: boolean
+  versions: EmbyVersionInfo[]
+  mediaSourceId: string
+  multiVersion: boolean
+}
+
+/**
+ * 按影片 ID 获取 Emby/Jellyfin 影片的版本列表与播放地址。
+ * - 不带 mediaSourceId：返回版本列表 + 默认版本（服务器默认，通常最高码率）
+ * - 带 mediaSourceId：返回指定版本的播放地址（房主切换清晰度用）
+ * 同时覆盖 'emby' 与 'jellyfin'（后端路由结构一致，仅前缀不同）。
+ */
+export async function getEmbyApiMovieSource(
+  api: 'emby' | 'jellyfin',
+  movieId: number,
+  mediaSourceId?: string
+): Promise<EmbyMovieSourceResult> {
+  const query = new URLSearchParams({ movieId: String(movieId) })
+  if (mediaSourceId) query.set('ms', mediaSourceId)
+  const res = await apiFetch(`/api/${api}/movie-source?${query.toString()}`)
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    title?: string
+    videoUrl?: string
+    streamUrl?: string
+    directUrl?: string
+    format?: MediaFormat
+    duration?: number
+    audioCodec?: string | null
+    needsAudioTranscode?: boolean
+    versions?: EmbyVersionInfo[]
+    mediaSourceId?: string
+    multiVersion?: boolean
+  }
+  if (!res.ok || !data.success || !data.videoUrl) {
+    throw new Error(data.message || '获取影片版本信息失败')
+  }
+  return {
+    title: data.title || '',
+    videoUrl: data.videoUrl,
+    streamUrl: data.streamUrl,
+    directUrl: data.directUrl,
+    format: data.format || 'mp4',
+    duration: data.duration ?? 0,
+    audioCodec: data.audioCodec ?? null,
+    needsAudioTranscode: data.needsAudioTranscode === true,
+    versions: data.versions || [],
+    mediaSourceId: data.mediaSourceId || '',
+    multiVersion: data.multiVersion === true,
+  }
 }
 
 /**

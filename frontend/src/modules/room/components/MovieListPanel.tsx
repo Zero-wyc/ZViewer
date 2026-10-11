@@ -32,6 +32,8 @@ import {
   getBilibiliParseOptions,
 } from '@/modules/bilibili/parseOptions'
 import { useCliAgentStore } from '@/store/cliAgentStore'
+import { getEmbyApiMovieSource } from '@/modules/emby/embyApi'
+import type { EmbyVersionInfo } from '@/modules/emby/types'
 import { cn } from '@/lib/utils'
 
 interface MovieListPanelProps {
@@ -52,6 +54,8 @@ const SOURCE_LABELS: Record<string, string> = {
   ftp: 'FTP',
   openlist: 'OpenList',
   smb: 'SMB',
+  emby: 'Emby',
+  jellyfin: 'Jellyfin',
 }
 
 /** 格式标签映射，用于在影片卡片中显示真实媒体格式 */
@@ -92,9 +96,7 @@ export function MovieListPanel({
     (state) => state.viewerCliResolvedSource
   )
   const mode = useRoomStore((state) => state.mode)
-  const autoContinueEnabled = useRoomStore(
-    (state) => state.autoContinueEnabled
-  )
+  const autoContinueEnabled = useRoomStore((state) => state.autoContinueEnabled)
   const setAutoContinueEnabled = useRoomStore(
     (state) => state.setAutoContinueEnabled
   )
@@ -643,6 +645,17 @@ export function MovieListPanel({
                           onChange={(value) => handlePageChange(movie, value)}
                         />
                       )}
+                    {isHost &&
+                      !isScreenShare &&
+                      (movie.sourceType === 'emby' ||
+                        movie.sourceType === 'jellyfin') && (
+                        <EmbyVersionSelect
+                          movie={movie}
+                          api={
+                            movie.sourceType === 'emby' ? 'emby' : 'jellyfin'
+                          }
+                        />
+                      )}
                   </div>
                   {(isHost || canManage) && (
                     <Button
@@ -838,5 +851,100 @@ function BilibiliQualitySelect({
       }
       onChange={onChange}
     />
+  )
+}
+
+/**
+ * Emby/Jellyfin 多版本（多清晰度）选择器。
+ *
+ * 同一部影片在 Emby/Jellyfin 中可能有多个 MediaSource（如 1080P 与 4K 高码率版），
+ * 添加影片时默认取服务器默认版本（通常最高码率），低清晰度无法选择。
+ * 本选择器懒加载版本列表（首次点击下拉时请求 /api/{api}/movie-source），
+ * 房主选中某版本后重新解析并 updateMovie：
+ * - 代理模式：url 写为 /api/{api}/stream?movieId=N&ms=X（观众可访问，不依赖挂载归属）
+ * - 直链模式：url 写为带 MediaSourceId 的 Emby 直链
+ * 房主端检测到 movie.url 变化会自动重新加载并广播给观众（复用既有 loadMovie 链路）。
+ */
+interface EmbyVersionSelectProps {
+  movie: Movie
+  api: 'emby' | 'jellyfin'
+}
+
+function EmbyVersionSelect({ movie, api }: EmbyVersionSelectProps) {
+  const roomId = useRoomStore((s) => s.roomId)
+  const [versions, setVersions] = useState<EmbyVersionInfo[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
+
+  // 懒加载版本列表：首次点开下拉时请求（避免列表里每个 Emby 影片都打 API）
+  const ensureLoaded = () => {
+    if (versions || loading || loadFailed) return
+    setLoading(true)
+    getEmbyApiMovieSource(api, movie.id)
+      .then((data) => setVersions(data.versions))
+      .catch((err) => {
+        console.error('[MovieListPanel] load emby versions error:', err)
+        setLoadFailed(true)
+      })
+      .finally(() => setLoading(false))
+  }
+
+  const currentId = selectedId ?? versions?.[0]?.id ?? ''
+
+  const handleChange = async (value: string) => {
+    if (!roomId || switching || value === currentId) return
+    // 版本列表尚未加载完成时的占位项，不可选择
+    if (value === '__loading__') return
+    setSwitching(true)
+    try {
+      const data = await getEmbyApiMovieSource(api, movie.id, value)
+      // 代理模式影片 url 必须是 stream 形式（观众可访问）；直链模式用带
+      // MediaSourceId 的 Emby 直链。format/audioCodec 同步更新（切到的版本
+      // 音轨可能不兼容，format 会变为 hls 触发服务端转码）。
+      const nextUrl = movie.directLink
+        ? data.directUrl || data.streamUrl || data.videoUrl
+        : data.streamUrl || data.videoUrl
+      await useRoomStore.getState().updateMovie(roomId, movie.id, {
+        url: nextUrl,
+        format: data.format,
+        ...(data.audioCodec ? { audioCodec: data.audioCodec } : {}),
+        ...(data.duration ? { duration: data.duration } : {}),
+      })
+      setSelectedId(value)
+      message.success('已切换清晰度')
+    } catch (err) {
+      console.error('[MovieListPanel] change emby version error:', err)
+      message.error(err instanceof Error ? err.message : '切换清晰度失败')
+    } finally {
+      setSwitching(false)
+    }
+  }
+
+  if (loadFailed) return null
+
+  return (
+    <div onClickCapture={ensureLoaded}>
+      <Select
+        className="mt-1.5"
+        size="sm"
+        value={currentId}
+        placeholder={loading ? '加载清晰度...' : '选择清晰度'}
+        options={
+          versions && versions.length > 0
+            ? versions.map((v) => ({ label: v.label, value: v.id }))
+            : [
+                {
+                  label: loading ? '加载中...' : '点击加载清晰度',
+                  value: '__loading__',
+                },
+              ]
+        }
+        disabled={switching}
+        onChange={handleChange}
+        aria-label="切换影片清晰度版本"
+      />
+    </div>
   )
 }

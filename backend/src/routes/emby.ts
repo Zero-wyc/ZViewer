@@ -11,7 +11,6 @@
 import {
   stripPassword,
   extractErrorMessage,
-  upgradeDirectUrlValidated,
   probeForMountSave,
 } from '../modules/shared/mount-utils';
 import { Router, Request, Response } from 'express';
@@ -23,8 +22,8 @@ import {
   EmbyError,
   type EmbyItem,
 } from '../services/emby-client';
-import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { resolveUserMount, resolveMovieStream, proxyHttpUpstream, StreamMovieError } from '../services/proxy';
+import { buildEmbyResolvePayload } from '../services/emby-versions';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
 const router = Router();
@@ -440,7 +439,8 @@ router.get('/mounts/:id/search', async (req: AuthenticatedRequest, res: Response
   }
 });
 
-// 解析 - GET /resolve?mountId=&path=（path 为 Emby itemId）
+// 解析 - GET /resolve?mountId=&path=[&ms=]（path 为 Emby itemId）
+// ms=MediaSourceId：多版本（多清晰度）影片指定版本；缺省取服务器默认（最高码率）
 router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const mountIdRaw = req.query.mountId;
@@ -472,68 +472,75 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
     }
 
     const session = await resolveEmbySession(mount);
-    const info = await session.client.playbackInfo(itemId, session.userId);
-    const source = info.MediaSources[0];
-    if (!source) {
-      res.status(400).json({ success: false, message: '该条目无可用媒体源', code: 'NO_MEDIA_SOURCE' });
-      return;
-    }
-
-    // ── 音频编码兼容性检测 ──────────────────────────────
-    // static=true 直推原始容器时，若音轨是 DTS/EAC3/TrueHD 等浏览器
-    // <video> 不支持的编码，画面正常但完全无声（取决于片源音轨，因此"有概率"）。
-    // 检测到不兼容音轨时自动切换为 Emby 服务端转码的 HLS 流（音频强制 AAC），
-    // 由前端 hls-engine 接管播放，代价是 Emby 服务器承担实时转码开销。
-    const BROWSER_SUPPORTED_AUDIO = new Set(['aac', 'mp3', 'flac', 'opus', 'vorbis']);
-    const audioStream = source.MediaStreams?.find((s) => s.Type === 'Audio');
-    const audioCodec = audioStream?.Codec ?? null;
-    const audioIncompatible =
-      !!audioStream &&
-      !!audioStream.Codec &&
-      !BROWSER_SUPPORTED_AUDIO.has(audioStream.Codec.toLowerCase());
-    // 不兼容即转码：直推会让浏览器完全无声，Emby 服务端转码的代价远小于
-    // 无声播放，故不再设全局开关门控。
-    const needsAudioTranscode = audioIncompatible;
-
-    // 标题：从 source.Path 取文件名，或回退 itemId
-    const title =
-      source.Path?.split(/[\\/]/).pop() || `item-${itemId}`;
-    const format = needsAudioTranscode ? 'hls' : detectMediaFormat(source.Path ?? title);
-
-    // 代理 URL（本服务中转，带 token 转发，前端无需知道 Emby 地址）
-    // at=1：audio-transcode，代理层转发到 Emby 转码端点而非 static 直推
-    const transcodeQuery = needsAudioTranscode ? '&at=1' : '';
-    const proxyUrl = `/api/emby/proxy?mountId=${mountId}&path=${encodeURIComponent(itemId)}${transcodeQuery}`;
-
-    // 直连 URL（浏览器直连 Emby，要求前端可访问 Emby 服务器）
-    // 需要音频转码时改为 Emby 官方转码播放列表（HLS，服务端强制音频 AAC）
-    // 配置期探测的 HTTPS 能力：源站支持 TLS 时升级 http 直链为 https
-    // （浏览器直连零带宽）；否则保持 http，HTTPS 页面下走服务器代理
-    const directUrlRaw = needsAudioTranscode
-      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
-    // 升级前对 https 端点现场活性校验，防陈旧缓存产出不可达的 https 直链
-    const directUrl = await upgradeDirectUrlValidated(mount, directUrlRaw);
-
-    res.json({
-      success: true,
-      title,
-      videoUrl: proxyUrl,
-      directUrl,
-      format,
-      duration: 0,
-      audioCodec,
-      needsAudioTranscode,
-      emby: {
-        itemId,
-        container: source.Container ?? '',
-      },
+    const mediaSourceId = typeof req.query.ms === 'string' ? req.query.ms : undefined;
+    const payload = await buildEmbyResolvePayload({
+      session,
+      mount,
+      itemId,
+      mountId,
+      apiPrefix: 'emby',
+      mediaSourceId,
     });
+    res.json({ success: true, ...payload });
   } catch (err) {
     console.error('[emby] resolve error:', err);
     res.status(400).json({
       success: false,
       message: extractErrorMessage(err, '解析 Emby 条目失败'),
+      code: extractErrorCode(err),
+    });
+  }
+});
+
+// 按影片 ID 解析 - GET /movie-source?movieId=[&ms=]
+// 房主在影片列表切换多版本影片的清晰度时使用：无需 mountId，
+// 复用 /stream 同款 movieId → 挂载凭证链路，返回版本列表与所选版本的播放地址。
+router.get('/movie-source', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
+  try {
+    const movieIdRaw = req.query.movieId;
+    if (movieIdRaw === undefined) {
+      res.status(400).json({ success: false, message: '缺少 movieId 参数' });
+      return;
+    }
+    const movieId = Number(movieIdRaw);
+    if (Number.isNaN(movieId)) {
+      res.status(400).json({ success: false, message: 'movieId 不正确' });
+      return;
+    }
+
+    const { movie, mount } = await resolveMovieStream(movieId, 'emby');
+    if (!mount) {
+      res.status(404).json({ success: false, message: '未找到对应的 Emby 挂载配置' });
+      return;
+    }
+    if (!movie.path) {
+      res.status(400).json({ success: false, message: '该影片缺少 itemId 信息' });
+      return;
+    }
+
+    const session = await resolveEmbySession(mount);
+    const mediaSourceId = typeof req.query.ms === 'string' ? req.query.ms : undefined;
+    const payload = await buildEmbyResolvePayload({
+      session,
+      mount,
+      itemId: movie.path,
+      mountId: mount.id,
+      apiPrefix: 'emby',
+      mediaSourceId,
+      movieId,
+    });
+    res.json({ success: true, ...payload });
+  } catch (err) {
+    if (err instanceof StreamMovieError) {
+      if (!res.headersSent) {
+        res.status(err.status).json({ success: false, message: err.message, code: err.code });
+      }
+      return;
+    }
+    console.error('[emby] movie-source error:', err);
+    res.status(400).json({
+      success: false,
+      message: extractErrorMessage(err, '解析 Emby 影片版本失败'),
       code: extractErrorCode(err),
     });
   }
@@ -550,9 +557,12 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
   try {
     const session = await resolveEmbySession(mount);
     const audioTranscode = req.query.at === '1';
+    // 多版本选档：ms=MediaSourceId，透传给 upstream 选定播放版本
+    const ms = typeof req.query.ms === 'string' ? req.query.ms : '';
+    const msSuffix = ms ? `&MediaSourceId=${encodeURIComponent(ms)}` : '';
     const upstreamUrl = audioTranscode
-      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/stream?static=true&api_key=${session.token}`;
+      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000${msSuffix}`
+      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(targetPath)}/stream?static=true&api_key=${session.token}${msSuffix}`;
 
     await proxyHttpUpstream(req, res, {
       url: upstreamUrl,
@@ -614,9 +624,13 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
     const audioTranscode =
       req.query.at === '1' ||
       (movie.format ?? '').toLowerCase() === 'hls';
+    // 多版本选档：movie.url 可能形如 /api/emby/stream?movieId=N&ms=X（版本切换
+    // 由 updateMovie 持久化），此处透传 MediaSourceId 给 upstream
+    const ms = typeof req.query.ms === 'string' ? req.query.ms : '';
+    const msSuffix = ms ? `&MediaSourceId=${encodeURIComponent(ms)}` : '';
     const upstreamUrl = audioTranscode
-      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000`
-      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}`;
+      ? `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/main.m3u8?api_key=${session.token}&AudioCodec=aac&TranscodingMaxAudioChannels=2&VideoBitrate=8000000&AudioBitrate=192000${msSuffix}`
+      : `${session.client.baseUrl}/emby/Videos/${encodeURIComponent(itemId)}/stream?static=true&api_key=${session.token}${msSuffix}`;
 
     await proxyHttpUpstream(req, res, {
       url: upstreamUrl,

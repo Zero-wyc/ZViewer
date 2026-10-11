@@ -45,6 +45,8 @@ export interface EmbyMediaStream {
   IsExternal?: boolean;
   DeliveryMethod?: string; // 'External' | 'Embedded' | 'Hls' ...
   DeliveryUrl?: string;
+  /** 视频流分辨率高度（多版本标签用，如 1080） */
+  Height?: number;
 }
 
 /** Emby 媒体源（MediaSource），含流列表。 */
@@ -52,6 +54,10 @@ export interface EmbyMediaSource {
   Id: string;
   Path: string;
   Container?: string;
+  /** 文件大小（字节），多版本标签用 */
+  Size?: number;
+  /** 多版本时的版本名（部分服务器返回） */
+  Name?: string;
   DirectPlayUrl?: string;
   TranscodingUrl?: string;
   MediaStreams?: EmbyMediaStream[];
