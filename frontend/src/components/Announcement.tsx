@@ -250,6 +250,7 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
     if (isFirstLaunch || (isVersionUpdate && announceAutoPopupOnUpdate)) {
       openWindow()
     }
+
     setUnseen(Boolean(appVersion) && (isFirstLaunch || isVersionUpdate))
   }, [fetched, appVersion, announceAutoPopupOnUpdate, openWindow])
 
