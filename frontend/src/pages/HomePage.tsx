@@ -151,12 +151,12 @@ function HomePage() {
               'absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-105 active:scale-95',
               roomsPanelOpen
                 ? 'text-[var(--md-sys-color-primary)]'
-                : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                : 'text-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
             )}
             title="当前房间"
             aria-label="查看当前房间列表"
           >
-            <PanelRightOpen className="h-4.5 w-4.5" />
+            <PanelRightOpen className="h-3.5 w-3.5" />
           </button>
           <div className="mb-6">
             <Fade delay={80} className="inline-block">
