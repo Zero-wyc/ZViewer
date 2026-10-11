@@ -12,7 +12,6 @@ import {
   User,
   PanelRightOpen,
   Users,
-  CircleDot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -135,10 +134,11 @@ function HomePage() {
 
   return (
     <div className="flex-1 flex items-center justify-center p-6">
-      {/* 主卡固定 28rem（与原 max-w-md 一致）不随面板收展变宽，
-          面板无缝贴主卡右缘（gap-0 + 面板左缘无边框直角） */}
-      <div className="flex items-stretch">
-        <Card className="relative w-[28rem] max-w-[calc(100vw-3rem)] text-center">
+      {/* 单一 Card 容器：主内容与右侧房间面板同处一张卡，
+          面板在卡内以宽度 0↔300px 展开，天然无缝、圆角一致 */}
+      <Card className="relative flex items-stretch overflow-hidden !p-0">
+        {/* 主内容区：固定 28rem 宽，不随面板收展变化 */}
+        <div className="relative w-[28rem] max-w-[calc(100vw-3rem)] p-4 text-center md:p-6">
           {/* 快捷房间面板触发按钮：卡片右上角，桌面端向右延伸面板，
             移动端无延伸空间直接跳转房间列表页 */}
           <button
@@ -376,11 +376,9 @@ function HomePage() {
               <span>主题设置可在右上角菜单中调整</span>
             </div>
           </Fade>
-        </Card>
+        </div>
 
-        {/* 右侧延伸面板：宽 0↔300px 动画（与主题菜单侧面板同范式），
-            桌面端显示；高度随主卡拉伸，列表内部滚动。
-            左缘无边框直角（rounded-l-none border-l-0）与主卡右缘无缝黏合 */}
+        {/* 卡内右侧房间面板：与主内容同一 Card，仅以左分隔线区隔 */}
         <div
           className="relative hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block"
           style={{
@@ -390,12 +388,9 @@ function HomePage() {
         >
           <div
             className={cn(
-              'glass absolute inset-y-0 left-0 flex w-[300px] flex-col overflow-hidden rounded-r-[var(--md-sys-shape-corner)] border border-l-0 shadow-lg transition-opacity duration-300',
+              'absolute inset-y-0 left-0 flex w-[300px] flex-col border-l border-[var(--md-sys-color-outline-variant)] transition-opacity duration-300',
               roomsPanelOpen ? 'opacity-100' : 'opacity-0'
             )}
-            style={{
-              borderColor: 'var(--md-sys-color-outline-variant)',
-            }}
             aria-hidden={!roomsPanelOpen}
           >
             <div className="flex flex-none items-center gap-2 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3">
@@ -403,8 +398,15 @@ function HomePage() {
               <span className="flex-1 text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
                 当前房间
               </span>
-              <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                {roomsLoading ? '…' : `${quickRooms.length} 个`}
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums"
+                style={{
+                  backgroundColor:
+                    'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+                  color: 'var(--md-sys-color-primary)',
+                }}
+              >
+                {roomsLoading ? '…' : `${quickRooms.length} 个进行中`}
               </span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-2">
@@ -423,22 +425,48 @@ function HomePage() {
                     <button
                       key={room.roomId}
                       type="button"
-                      className="w-full rounded-[var(--md-sys-shape-corner)] border border-transparent px-2.5 py-2 text-left transition-all hover:border-[var(--md-sys-color-outline-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                      className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline-variant)] bg-[color-mix(in_srgb,var(--md-sys-color-surface-container)_45%,transparent)] p-3 text-left transition-all hover:-translate-y-0.5 hover:border-[var(--md-sys-color-outline)] hover:shadow-md"
                       onClick={() =>
                         navigate(
                           `/join?roomId=${encodeURIComponent(room.roomId)}`
                         )
                       }
                     >
-                      <div className="flex items-center gap-1.5">
-                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--md-sys-color-on-surface)]">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            'h-2 w-2 shrink-0 rounded-full',
+                            room.sharerOnline
+                              ? 'bg-[var(--md-sys-color-primary)]'
+                              : 'bg-[var(--md-sys-color-outline-variant)]'
+                          )}
+                          style={
+                            room.sharerOnline
+                              ? {
+                                  boxShadow:
+                                    '0 0 6px color-mix(in srgb, var(--md-sys-color-primary) 70%, transparent)',
+                                }
+                              : undefined
+                          }
+                        />
+                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--md-sys-color-on-surface)]">
                           {room.name || room.roomId}
                         </span>
                         {room.hasPassword && (
-                          <Shield className="h-3 w-3 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
+                          <Shield className="h-3.5 w-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
                         )}
+                        <span
+                          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
+                          style={{
+                            backgroundColor:
+                              'color-mix(in srgb, var(--md-sys-color-secondary) 12%, transparent)',
+                            color: 'var(--md-sys-color-secondary)',
+                          }}
+                        >
+                          {room.mode === 'screen-share' ? '投屏' : '一起看'}
+                        </span>
                       </div>
-                      <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                      <div className="mt-1.5 flex items-center gap-2 pl-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]">
                         <span className="tabular-nums">{room.roomId}</span>
                         <span className="flex items-center gap-0.5">
                           <Users className="h-3 w-3" />
@@ -446,16 +474,12 @@ function HomePage() {
                         </span>
                         <span
                           className={cn(
-                            'flex items-center gap-0.5',
+                            'ml-auto',
                             room.sharerOnline &&
                               'text-[var(--md-sys-color-primary)]'
                           )}
                         >
-                          <CircleDot className="h-3 w-3" />
-                          {room.sharerOnline ? '在线' : '离线'}
-                        </span>
-                        <span>
-                          {room.mode === 'screen-share' ? '投屏' : '一起看'}
+                          {room.sharerOnline ? '分享中' : '已离线'}
                         </span>
                       </div>
                     </button>
@@ -476,7 +500,7 @@ function HomePage() {
             </div>
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   )
 }
