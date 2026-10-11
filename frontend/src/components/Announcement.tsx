@@ -248,6 +248,7 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
     const isFirstLaunch = seen == null
     const isVersionUpdate = seen != null && appVersion && seen !== appVersion
     if (isFirstLaunch || (isVersionUpdate && announceAutoPopupOnUpdate)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 自动弹出公告属挂载期一次性决策，非派生状态
       openWindow()
     }
 
