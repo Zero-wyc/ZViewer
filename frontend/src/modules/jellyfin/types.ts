@@ -68,4 +68,6 @@ export interface JellyfinResolvedSource {
   needsAudioTranscode?: boolean
   /** 音轨不兼容但管理后台音频转码开关关闭，浏览器可能无声 */
   audioTranscodeDisabled?: boolean
+  /** 是否存在多版本（多个 MediaSource）；单版本时前端不渲染清晰度选择框 */
+  multiVersion?: boolean
 }

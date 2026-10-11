@@ -294,7 +294,10 @@ export class EmbyClient {
       query: {
         ParentId: parentId,
         IncludeItemTypes: includeItemTypes,
-        Fields: 'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio',
+        // IndexNumber/ParentIndexNumber/RunTimeTicks 必须显式列入 Fields，
+        // 否则 Emby/Jellyfin 不返回（分集 SxEy 标签与时长依赖）
+        Fields:
+          'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio,IndexNumber,ParentIndexNumber,RunTimeTicks',
         Recursive: parentId ? undefined : 'false',
       },
     });
@@ -361,7 +364,8 @@ export class EmbyClient {
       path: `/emby/Users/${encodeURIComponent(userId)}/Items`,
       query: {
         SearchTerm: term,
-        Fields: 'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio',
+        Fields:
+          'ChildCount,MediaSources,Path,ProductionYear,PrimaryImageAspectRatio,IndexNumber,ParentIndexNumber,RunTimeTicks',
         Recursive: 'true',
       },
     });

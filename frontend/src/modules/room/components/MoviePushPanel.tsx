@@ -758,6 +758,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         serverUrl: mount?.serverUrl,
         path: episodes[0].path,
         directLink,
+        multiVersion: first.multiVersion,
         pages: episodes,
         currentPage: 1,
       })
@@ -909,6 +910,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 serverUrl: mount?.serverUrl,
                 path: normalizedPath,
                 directLink: embyDirectLink,
+                multiVersion: resolved.multiVersion,
               })
             }
             added++
@@ -933,6 +935,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 serverUrl: mount?.serverUrl,
                 path: normalizedPath,
                 directLink: jellyfinDirectLink,
+                multiVersion: resolved.multiVersion,
               })
             }
             added++

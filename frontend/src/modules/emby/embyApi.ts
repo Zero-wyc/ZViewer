@@ -166,6 +166,7 @@ export async function resolveEmby(
     audioCodec?: string | null
     needsAudioTranscode?: boolean
     audioTranscodeDisabled?: boolean
+    multiVersion?: boolean
   }
   if (!res.ok || !data.success || !data.videoUrl) {
     throw new Error(data.message || '解析 Emby 条目失败')
@@ -179,6 +180,7 @@ export async function resolveEmby(
     audioCodec: data.audioCodec ?? null,
     needsAudioTranscode: data.needsAudioTranscode === true,
     audioTranscodeDisabled: data.audioTranscodeDisabled === true,
+    multiVersion: data.multiVersion === true,
   }
 }
 

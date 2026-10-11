@@ -151,6 +151,14 @@ export class Movie {
   cliOnly!: boolean;
 
   /**
+   * Emby/Jellyfin 专属：是否存在多版本（多个 MediaSource）。
+   * 添加影片时由 resolve 的 multiVersion 物化；false 时前端
+   * 不渲染清晰度版本选择框（单版本影片无需选择）。
+   */
+  @Column({ type: 'boolean', default: false })
+  multiVersion!: boolean;
+
+  /**
    * ani-subs 番剧源元数据（JSON 字符串）。
    *
    * 存储 sourceId 和 episode 信息，用于播放时重新解析播放地址。

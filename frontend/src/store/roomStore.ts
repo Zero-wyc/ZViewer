@@ -71,6 +71,8 @@ export interface Movie {
   playsvideoEnabled?: boolean
   /** 仅允许 CLI 模式（B站 番剧/影视）：全房间必须各自连接 CLI 观看，服务器零媒体流量 */
   cliOnly?: boolean
+  /** Emby/Jellyfin 专属：是否存在多版本；false 时影片卡不渲染清晰度选择框 */
+  multiVersion?: boolean
   // 以下为前端解析得到的临时字段（不持久化到后端）
   cid?: number
   duration?: number
@@ -133,6 +135,8 @@ export interface MovieDto {
   playsvideoEnabled?: boolean
   /** 仅允许 CLI 模式（B站 番剧/影视）：全房间必须各自连接 CLI 观看 */
   cliOnly?: boolean
+  /** Emby/Jellyfin 专属：是否存在多版本；false 时不渲染清晰度选择框 */
+  multiVersion?: boolean
   /** ani-subs 番剧源元数据（仅 source='anime' 时有值） */
   sourceMeta: AniSubsSourceMeta | null
   order: number
@@ -155,6 +159,7 @@ export function mapDtoToMovie(dto: MovieDto): Movie {
     directLink: dto.directLink,
     playsvideoEnabled: dto.playsvideoEnabled !== false,
     cliOnly: dto.cliOnly === true,
+    multiVersion: dto.multiVersion === true,
     audioUrl: dto.audioUrl ?? undefined,
     format: (dto.format as Movie['format']) ?? undefined,
     videoCodec: dto.videoCodec ?? undefined,
@@ -383,6 +388,8 @@ interface RoomState {
       username?: string
       password?: string
       directLink?: boolean
+      /** Emby/Jellyfin 专属：是否存在多版本；false 时不渲染清晰度选择框 */
+      multiVersion?: boolean
       /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
       playsvideoEnabled?: boolean
       sourceMeta?: AniSubsSourceMeta | null
@@ -427,6 +434,8 @@ interface RoomState {
       sourceMeta?: AniSubsSourceMeta | null
       /** 仅允许 CLI 模式（B站 番剧/影视） */
       cliOnly?: boolean
+      /** Emby/Jellyfin 专属：是否存在多版本；false 时不渲染清晰度选择框 */
+      multiVersion?: boolean
     }
   ) => Promise<void>
   removeMovie: (roomId: string, movieId: number) => Promise<void>

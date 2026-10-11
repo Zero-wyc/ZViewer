@@ -1011,6 +1011,9 @@ function EmbyVersionSelect({ movie, api }: EmbyVersionSelectProps) {
   }
 
   if (loadFailed) return null
+  // 单版本影片不渲染选择框：添加时已物化 multiVersion；懒加载后仅 1 个版本同样隐藏
+  if (movie.multiVersion === false) return null
+  if (versions && versions.length <= 1) return null
 
   return (
     <div onClickCapture={ensureLoaded}>
