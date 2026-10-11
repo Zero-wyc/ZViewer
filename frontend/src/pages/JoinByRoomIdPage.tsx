@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { LogIn } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
@@ -9,7 +9,11 @@ import { Input } from '@/components/ui/Input'
 
 export default function JoinByRoomIdPage() {
   const navigate = useNavigate()
-  const [roomIdInput, setRoomIdInput] = useState('')
+  // 支持 /join?roomId=xxx 预填房间号（主页快捷房间面板入口）
+  const [searchParams] = useSearchParams()
+  const [roomIdInput, setRoomIdInput] = useState(
+    () => searchParams.get('roomId')?.trim() ?? ''
+  )
 
   const handleJoin = () => {
     const trimmed = roomIdInput.trim()

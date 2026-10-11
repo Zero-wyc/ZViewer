@@ -10,6 +10,9 @@ import {
   Loader2,
   Settings,
   User,
+  PanelRightOpen,
+  Users,
+  CircleDot,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
@@ -19,7 +22,20 @@ import { useAuthStore } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useSocket } from '@/hooks/useSocket'
 import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
+import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
+
+/** 主页快捷房间面板的房间条目（/api/rooms 返回结构子集） */
+interface QuickRoomItem {
+  roomId: string
+  name: string | null
+  status: 'active' | 'closed'
+  maxViewers: number
+  hasPassword: boolean
+  viewerCount: number
+  sharerOnline: boolean
+  mode: 'screen-share' | 'watch-together'
+}
 
 const Fade = ({
   children,
@@ -82,227 +98,377 @@ function HomePage() {
   const isConnecting =
     autoLoginStatus !== 'done' || (!connected && !allowDisconnected)
 
+  // ===== 快捷房间面板：主卡右侧延伸面板，展示当前存在的房间 =====
+  const [roomsPanelOpen, setRoomsPanelOpen] = useState(false)
+  const [quickRooms, setQuickRooms] = useState<QuickRoomItem[]>([])
+  const [roomsLoading, setRoomsLoading] = useState(false)
+
+  const fetchQuickRooms = async () => {
+    setRoomsLoading(true)
+    try {
+      const res = await apiFetch('/api/rooms')
+      const data = (await res.json()) as {
+        success: boolean
+        rooms?: QuickRoomItem[]
+      }
+      if (data.success && data.rooms) {
+        // 只展示进行中的房间
+        setQuickRooms(data.rooms.filter((r) => r.status === 'active'))
+      }
+    } catch (err) {
+      console.error('[HomePage] fetch quick rooms error:', err)
+    } finally {
+      setRoomsLoading(false)
+    }
+  }
+
+  const toggleRoomsPanel = () => {
+    const next = !roomsPanelOpen
+    setRoomsPanelOpen(next)
+    if (next) void fetchQuickRooms()
+  }
+
   return (
     <div className="flex-1 flex items-center justify-center p-6">
-      <Card className="w-full max-w-md text-center">
-        <div className="mb-6">
-          <Fade delay={80} className="inline-block">
-            <img
-              src="/favicon.jpg"
-              alt="ZViewer"
-              className="w-16 h-16 rounded-2xl mx-auto object-cover"
-              style={{
-                boxShadow:
-                  '0 12px 32px -8px color-mix(in srgb, var(--md-sys-color-primary) 35%, transparent)',
-              }}
-            />
-          </Fade>
-          <Fade delay={120}>
-            <Title level={2} className="m-0">
-              ZViewer
-            </Title>
-            <Paragraph type="secondary" className="m-0 mt-2">
-              多人同步追番、观影与远程共享平台
-            </Paragraph>
-          </Fade>
-        </div>
+      <div className="flex items-stretch gap-3">
+        <Card className="relative w-full max-w-md text-center">
+          {/* 快捷房间面板触发按钮：卡片右上角，桌面端向右延伸面板，
+            移动端无延伸空间直接跳转房间列表页 */}
+          <button
+            type="button"
+            onClick={toggleRoomsPanel}
+            className={cn(
+              'absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)] border transition-all duration-200 hover:scale-105 active:scale-95',
+              roomsPanelOpen
+                ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+            )}
+            style={{
+              borderColor: 'var(--md-sys-color-outline-variant)',
+              backgroundColor: roomsPanelOpen ? undefined : 'var(--glass-bg)',
+            }}
+            title="当前房间"
+            aria-label="查看当前房间列表"
+          >
+            <PanelRightOpen className="h-4 w-4" />
+          </button>
+          <div className="mb-6">
+            <Fade delay={80} className="inline-block">
+              <img
+                src="/favicon.jpg"
+                alt="ZViewer"
+                className="w-16 h-16 rounded-2xl mx-auto object-cover"
+                style={{
+                  boxShadow:
+                    '0 12px 32px -8px color-mix(in srgb, var(--md-sys-color-primary) 35%, transparent)',
+                }}
+              />
+            </Fade>
+            <Fade delay={120}>
+              <Title level={2} className="m-0">
+                ZViewer
+              </Title>
+              <Paragraph type="secondary" className="m-0 mt-2">
+                多人同步追番、观影与远程共享平台
+              </Paragraph>
+            </Fade>
+          </div>
 
-        <Space direction="vertical" className="w-full px-1">
-          {isGuest ? (
-            <>
-              <Fade delay={180}>
-                <Paragraph className="m-0 text-sm">
-                  当前以游客身份访问，可加入房间观看、发送评论与弹幕
-                </Paragraph>
-              </Fade>
-              <Fade delay={220} className="w-full">
-                <Button
-                  size="lg"
-                  icon={<LayoutDashboard className="h-5 w-5" />}
-                  block
-                  onClick={() => navigate('/rooms')}
-                >
-                  房间列表
-                </Button>
-              </Fade>
-              <Fade delay={260} className="w-full">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  icon={<PlayCircle className="h-5 w-5" />}
-                  block
-                  onClick={() => navigate('/join')}
-                >
-                  加入房间
-                </Button>
-              </Fade>
-              <Fade delay={300}>
-                <Paragraph type="secondary" className="text-xs m-0">
-                  登录后可保留历史与身份，注册后需管理员审核
-                </Paragraph>
-              </Fade>
-            </>
-          ) : (
-            <>
-              <Fade delay={180} className="w-full">
-                <Button
-                  variant="primary"
-                  size="lg"
-                  icon={<Share2 className="h-5 w-5" />}
-                  block
-                  disabled={!canCreateRoom}
-                  onClick={() => canCreateRoom && navigate('/room')}
-                >
-                  开始共享
-                </Button>
-              </Fade>
-              {!canCreateRoom && (
-                <Fade delay={220}>
-                  <Paragraph type="secondary" className="text-xs m-0">
-                    {isGuest
-                      ? '登录后可创建房间'
-                      : '当前仅管理员可创建房间，请联系管理员开启权限'}
+          <Space direction="vertical" className="w-full px-1">
+            {isGuest ? (
+              <>
+                <Fade delay={180}>
+                  <Paragraph className="m-0 text-sm">
+                    当前以游客身份访问，可加入房间观看、发送评论与弹幕
                   </Paragraph>
                 </Fade>
-              )}
-              <Fade delay={260} className="w-full">
-                <Button
-                  size="lg"
-                  icon={<LayoutDashboard className="h-5 w-5" />}
-                  block
-                  onClick={() => navigate('/rooms')}
-                >
-                  房间列表
-                </Button>
-              </Fade>
-              <Fade delay={300} className="w-full">
-                <Button
-                  size="lg"
-                  icon={<PlayCircle className="h-5 w-5" />}
-                  block
-                  onClick={() => navigate('/join')}
-                >
-                  加入房间
-                </Button>
-              </Fade>
-
-              {isAdmin && (
-                <Fade delay={360} className="w-full">
+                <Fade delay={220} className="w-full">
                   <Button
-                    variant="secondary"
                     size="lg"
-                    icon={<Shield className="h-5 w-5" />}
+                    icon={<LayoutDashboard className="h-5 w-5" />}
                     block
-                    onClick={() => navigate('/admin')}
+                    onClick={() => navigate('/rooms')}
                   >
-                    权限管理
+                    房间列表
                   </Button>
                 </Fade>
-              )}
-            </>
-          )}
-        </Space>
-
-        <Fade delay={400}>
-          <div className="mt-6 flex flex-col items-center gap-2">
-            {user ? (
-              <div
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor: 'var(--glass-bg)',
-                  color: 'var(--md-sys-color-on-surface)',
-                  border: '1px solid var(--md-sys-color-outline)',
-                }}
-              >
-                {isRoot ? (
-                  <>
-                    <Shield
-                      className="w-3.5 h-3.5"
-                      style={{ color: 'var(--md-sys-color-primary)' }}
-                    />
-                    超级管理员：{user.username}
-                  </>
-                ) : isAdmin ? (
-                  <>
-                    <Shield
-                      className="w-3.5 h-3.5"
-                      style={{ color: 'var(--md-sys-color-primary)' }}
-                    />
-                    管理员：{user.username}
-                  </>
-                ) : (
-                  <>
-                    <User className="w-3.5 h-3.5" />
-                    当前用户：{user.username}
-                  </>
+                <Fade delay={260} className="w-full">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    icon={<PlayCircle className="h-5 w-5" />}
+                    block
+                    onClick={() => navigate('/join')}
+                  >
+                    加入房间
+                  </Button>
+                </Fade>
+                <Fade delay={300}>
+                  <Paragraph type="secondary" className="text-xs m-0">
+                    登录后可保留历史与身份，注册后需管理员审核
+                  </Paragraph>
+                </Fade>
+              </>
+            ) : (
+              <>
+                <Fade delay={180} className="w-full">
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    icon={<Share2 className="h-5 w-5" />}
+                    block
+                    disabled={!canCreateRoom}
+                    onClick={() => canCreateRoom && navigate('/room')}
+                  >
+                    开始共享
+                  </Button>
+                </Fade>
+                {!canCreateRoom && (
+                  <Fade delay={220}>
+                    <Paragraph type="secondary" className="text-xs m-0">
+                      {isGuest
+                        ? '登录后可创建房间'
+                        : '当前仅管理员可创建房间，请联系管理员开启权限'}
+                    </Paragraph>
+                  </Fade>
                 )}
-              </div>
-            ) : (
-              <div
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor: 'var(--glass-bg)',
-                  color: 'var(--md-sys-color-on-surface-variant)',
-                  border: '1px solid var(--md-sys-color-outline)',
-                }}
-              >
-                <WifiOff className="w-3.5 h-3.5" />
-                正在校验登录状态…
-              </div>
-            )}
-            {connected ? (
-              <div
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-secondary) 12%, transparent)',
-                  color: 'var(--md-sys-color-secondary)',
-                  border:
-                    '1px solid color-mix(in srgb, var(--md-sys-color-secondary) 25%, transparent)',
-                }}
-              >
-                <Wifi className="w-3.5 h-3.5" />
-                已连接
-              </div>
-            ) : isConnecting ? (
-              <div
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
-                  color: 'var(--md-sys-color-primary)',
-                  border:
-                    '1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
-                }}
-              >
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                连接中…
-              </div>
-            ) : (
-              <div
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                style={{
-                  backgroundColor:
-                    'color-mix(in srgb, var(--md-sys-color-error) 12%, transparent)',
-                  color: 'var(--md-sys-color-error)',
-                  border:
-                    '1px solid color-mix(in srgb, var(--md-sys-color-error) 25%, transparent)',
-                }}
-              >
-                <WifiOff className="w-3.5 h-3.5" />
-                连接断开
-              </div>
-            )}
-          </div>
-        </Fade>
+                <Fade delay={260} className="w-full">
+                  <Button
+                    size="lg"
+                    icon={<LayoutDashboard className="h-5 w-5" />}
+                    block
+                    onClick={() => navigate('/rooms')}
+                  >
+                    房间列表
+                  </Button>
+                </Fade>
+                <Fade delay={300} className="w-full">
+                  <Button
+                    size="lg"
+                    icon={<PlayCircle className="h-5 w-5" />}
+                    block
+                    onClick={() => navigate('/join')}
+                  >
+                    加入房间
+                  </Button>
+                </Fade>
 
-        <Fade delay={460}>
-          <div className="mt-5 flex items-center justify-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            <Settings className="h-3 w-3" />
-            <span>主题设置可在右上角菜单中调整</span>
+                {isAdmin && (
+                  <Fade delay={360} className="w-full">
+                    <Button
+                      variant="secondary"
+                      size="lg"
+                      icon={<Shield className="h-5 w-5" />}
+                      block
+                      onClick={() => navigate('/admin')}
+                    >
+                      权限管理
+                    </Button>
+                  </Fade>
+                )}
+              </>
+            )}
+          </Space>
+
+          <Fade delay={400}>
+            <div className="mt-6 flex flex-col items-center gap-2">
+              {user ? (
+                <div
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    backgroundColor: 'var(--glass-bg)',
+                    color: 'var(--md-sys-color-on-surface)',
+                    border: '1px solid var(--md-sys-color-outline)',
+                  }}
+                >
+                  {isRoot ? (
+                    <>
+                      <Shield
+                        className="w-3.5 h-3.5"
+                        style={{ color: 'var(--md-sys-color-primary)' }}
+                      />
+                      超级管理员：{user.username}
+                    </>
+                  ) : isAdmin ? (
+                    <>
+                      <Shield
+                        className="w-3.5 h-3.5"
+                        style={{ color: 'var(--md-sys-color-primary)' }}
+                      />
+                      管理员：{user.username}
+                    </>
+                  ) : (
+                    <>
+                      <User className="w-3.5 h-3.5" />
+                      当前用户：{user.username}
+                    </>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    backgroundColor: 'var(--glass-bg)',
+                    color: 'var(--md-sys-color-on-surface-variant)',
+                    border: '1px solid var(--md-sys-color-outline)',
+                  }}
+                >
+                  <WifiOff className="w-3.5 h-3.5" />
+                  正在校验登录状态…
+                </div>
+              )}
+              {connected ? (
+                <div
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--md-sys-color-secondary) 12%, transparent)',
+                    color: 'var(--md-sys-color-secondary)',
+                    border:
+                      '1px solid color-mix(in srgb, var(--md-sys-color-secondary) 25%, transparent)',
+                  }}
+                >
+                  <Wifi className="w-3.5 h-3.5" />
+                  已连接
+                </div>
+              ) : isConnecting ? (
+                <div
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+                    color: 'var(--md-sys-color-primary)',
+                    border:
+                      '1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
+                  }}
+                >
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  连接中…
+                </div>
+              ) : (
+                <div
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
+                  style={{
+                    backgroundColor:
+                      'color-mix(in srgb, var(--md-sys-color-error) 12%, transparent)',
+                    color: 'var(--md-sys-color-error)',
+                    border:
+                      '1px solid color-mix(in srgb, var(--md-sys-color-error) 25%, transparent)',
+                  }}
+                >
+                  <WifiOff className="w-3.5 h-3.5" />
+                  连接断开
+                </div>
+              )}
+            </div>
+          </Fade>
+
+          <Fade delay={460}>
+            <div className="mt-5 flex items-center justify-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              <Settings className="h-3 w-3" />
+              <span>主题设置可在右上角菜单中调整</span>
+            </div>
+          </Fade>
+        </Card>
+
+        {/* 右侧延伸面板：宽 0↔300px 动画（与主题菜单侧面板同范式），
+            桌面端显示；高度随主卡拉伸，列表内部滚动 */}
+        <div
+          className="relative hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block"
+          style={{
+            width: roomsPanelOpen ? 300 : 0,
+            willChange: 'width',
+          }}
+        >
+          <div
+            className={cn(
+              'glass absolute inset-y-0 left-0 flex w-[300px] flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] border shadow-lg transition-opacity duration-300',
+              roomsPanelOpen ? 'opacity-100' : 'opacity-0'
+            )}
+            style={{
+              borderColor: 'var(--md-sys-color-outline-variant)',
+            }}
+            aria-hidden={!roomsPanelOpen}
+          >
+            <div className="flex flex-none items-center gap-2 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3">
+              <LayoutDashboard className="h-4 w-4 text-[var(--md-sys-color-primary)]" />
+              <span className="flex-1 text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
+                当前房间
+              </span>
+              <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                {roomsLoading ? '…' : `${quickRooms.length} 个`}
+              </span>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {roomsLoading ? (
+                <div className="flex h-20 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  加载中…
+                </div>
+              ) : quickRooms.length === 0 ? (
+                <div className="flex h-20 items-center justify-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                  暂无进行中的房间
+                </div>
+              ) : (
+                <div className="flex flex-col gap-1.5">
+                  {quickRooms.map((room) => (
+                    <button
+                      key={room.roomId}
+                      type="button"
+                      className="w-full rounded-[var(--md-sys-shape-corner)] border border-transparent px-2.5 py-2 text-left transition-all hover:border-[var(--md-sys-color-outline-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
+                      onClick={() =>
+                        navigate(
+                          `/join?roomId=${encodeURIComponent(room.roomId)}`
+                        )
+                      }
+                    >
+                      <div className="flex items-center gap-1.5">
+                        <span className="min-w-0 flex-1 truncate text-xs font-medium text-[var(--md-sys-color-on-surface)]">
+                          {room.name || room.roomId}
+                        </span>
+                        {room.hasPassword && (
+                          <Shield className="h-3 w-3 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
+                        )}
+                      </div>
+                      <div className="mt-1 flex items-center gap-2 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
+                        <span className="tabular-nums">{room.roomId}</span>
+                        <span className="flex items-center gap-0.5">
+                          <Users className="h-3 w-3" />
+                          {room.viewerCount}/{room.maxViewers}
+                        </span>
+                        <span
+                          className={cn(
+                            'flex items-center gap-0.5',
+                            room.sharerOnline &&
+                              'text-[var(--md-sys-color-primary)]'
+                          )}
+                        >
+                          <CircleDot className="h-3 w-3" />
+                          {room.sharerOnline ? '在线' : '离线'}
+                        </span>
+                        <span>
+                          {room.mode === 'screen-share' ? '投屏' : '一起看'}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex-none border-t border-[var(--md-sys-color-outline-variant)] p-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<LayoutDashboard className="h-3.5 w-3.5" />}
+                block
+                onClick={() => navigate('/rooms')}
+              >
+                查看全部房间
+              </Button>
+            </div>
           </div>
-        </Fade>
-      </Card>
+        </div>
+      </div>
     </div>
   )
 }
