@@ -87,6 +87,8 @@ export interface EmbyItem {
   RunTimeTicks?: number;
   /** 媒体源信息（PlaybackInfo 或带 Fields=MediaSources 时返回） */
   MediaSources?: EmbyMediaSource[];
+  /** 原始文件路径（Fields 含 Path 时返回；分集集号解析兜底用） */
+  Path?: string;
 }
 
 export interface EmbyPlaybackInfo {

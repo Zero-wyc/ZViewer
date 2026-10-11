@@ -77,6 +77,7 @@ import {
   resolveEmby,
   browseEmbyMount,
   buildEmbyImageUrl,
+  parseEpisodeFromFilePath,
 } from '@/modules/emby/embyApi'
 import type { EmbyDirectoryEntry } from '@/modules/emby/types'
 import {
@@ -714,14 +715,24 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       for (const season of episodeSources) {
         const eps = await browse(seriesMountId, season.path)
         eps
-          .filter((e) => e.type === 'file' && e.embyType === 'Episode')
+          // Episode = 刮削库分集；Video = 非刮削库的普通视频文件（无 IndexNumber）
+          .filter(
+            (e) =>
+              e.type === 'file' &&
+              (e.embyType === 'Episode' || e.embyType === 'Video')
+          )
           .forEach((ep) => {
-            const label =
-              ep.indexNumber != null
-                ? `S${ep.parentIndexNumber ?? '?'}E${ep.indexNumber}`
-                : season !== series
-                  ? season.name
-                  : ''
+            // 集号标签：优先 Emby IndexNumber（SxEy），缺失时从文件名解析集号兜底
+            let label: string
+            if (ep.indexNumber != null) {
+              label = `S${ep.parentIndexNumber ?? '?'}E${ep.indexNumber}`
+            } else {
+              const parsed = ep.filePath
+                ? parseEpisodeFromFilePath(ep.filePath)
+                : null
+              label = parsed ? `EP${parsed.episode}` : ''
+            }
+            if (!label && season !== series) label = season.name
             episodes.push({
               page: episodes.length + 1,
               cid: 0,

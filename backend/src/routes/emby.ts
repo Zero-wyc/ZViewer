@@ -97,6 +97,8 @@ function mapEmbyEntry(item: EmbyItem) {
       typeof item.RunTimeTicks === 'number'
         ? Math.round(item.RunTimeTicks / 10_000_000)
         : undefined,
+    // 原始文件路径（非刮削库的分集无 IndexNumber，前端从文件名解析集号兜底）
+    filePath: item.Path,
   };
 }
 

@@ -269,3 +269,34 @@ export function buildEmbyImageUrl(
   if (tag) query.set('tag', tag)
   return `/api/${api}/mounts/${mountId}/image?${query.toString()}`
 }
+
+/**
+ * 从分集文件路径解析集号（Emby/Jellyfin IndexNumber 缺失时的兜底）。
+ *
+ * 非刮削库的分集常为普通 Video 条目（无 IndexNumber），只能靠文件名：
+ * - `S01E02` / `s1e2`（标准剧集命名）
+ * - `第 03 话` / `第03集`（中日番剧命名）
+ * - `[01]`（ Fansub 发布组习惯：组名/标题/集号/规格分段方括号）
+ * - `EP12` / ` E12` / `.12.`（常见分隔符集号）
+ * 返回 { season?, episode }；解析失败返回 null。
+ */
+export function parseEpisodeFromFilePath(
+  filePath: string
+): { season?: number; episode: number } | null {
+  const base = filePath.split(/[\\/]/).pop() ?? filePath
+  let m = base.match(/S(\d{1,2})\s*E(\d{1,3})/i)
+  if (m) return { season: Number(m[1]), episode: Number(m[2]) }
+  m = base.match(/第\s*(\d{1,4})\s*[话話集]/)
+  if (m) return { episode: Number(m[1]) }
+  // 合集范围命名 [01-28]：取起始集
+  m = base.match(/\[(\d{1,4})\s*[-–]\s*\d{1,4}\]/)
+  if (m) return { episode: Number(m[1]) }
+  m = base.match(/\[(\d{1,4})\]/)
+  if (m) return { episode: Number(m[1]) }
+  m = base.match(/(?:^|[\s._\-[])(?:E|EP|ep)(\d{1,4})(?=$|[\s._\-\]])/)
+  if (m) return { episode: Number(m[1]) }
+  // 兜底：空白/点分隔的独立 2-3 位数字（不含 -，避免 [01-28] 的末尾误判）
+  m = base.match(/(?:^|[\s._])(\d{2,3})(?=$|[\s._])/)
+  if (m) return { episode: Number(m[1]) }
+  return null
+}

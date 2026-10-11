@@ -53,6 +53,8 @@ export interface JellyfinDirectoryEntry {
   parentIndexNumber?: number
   /** 时长（秒，RunTimeTicks 换算；缺失为 undefined） */
   duration?: number
+  /** 原始文件路径（非刮削分集无 IndexNumber，前端从文件名解析集号兜底） */
+  filePath?: string
 }
 
 export interface JellyfinResolvedSource {

@@ -28,7 +28,12 @@ import { Spinner } from '@/components/ui/Spinner'
 import { Input } from '@/components/ui/Input'
 import { Text } from '@/components/ui/Typography'
 import { cn } from '@/lib/utils'
-import { browseEmbyMount, buildEmbyImageUrl, searchEmbyMount } from './embyApi'
+import {
+  browseEmbyMount,
+  buildEmbyImageUrl,
+  parseEpisodeFromFilePath,
+  searchEmbyMount,
+} from './embyApi'
 import type { EmbyDirectoryEntry } from './types'
 
 export interface MediaLibraryBrowserProps {
@@ -258,10 +263,13 @@ export default function EmbyBrowser({
     onClose()
   }
 
-  /** 剧集/季条目支持一键整卡添加（Series=整部剧，Season=整季） */
+  /** 剧集/季/普通文件夹条目支持一键整卡添加（Series=整部剧，Season=整季，
+   *  Folder=该目录下全部视频文件；CollectionFolder=媒体库根不显示） */
   const canQuickAdd = (entry: EmbyDirectoryEntry) =>
     !!onQuickAddSeries &&
-    (entry.embyType === 'Series' || entry.embyType === 'Season')
+    (entry.embyType === 'Series' ||
+      entry.embyType === 'Season' ||
+      (entry.type === 'directory' && entry.embyType !== 'CollectionFolder'))
 
   const quickAddLabel = (entry: EmbyDirectoryEntry) =>
     entry.embyType === 'Season' ? '添加整季' : '添加整部影片'
@@ -295,12 +303,21 @@ export default function EmbyBrowser({
 
   /**
    * 条目显示名：Episode 常全部同名（如「Sousou no Frieren」×28），
-   * 无法分辨集数——有 SxEy 序号时前置显示为「S1E3 · 名称」。
+   * 无法分辨集数——识别顺序：
+   * 1. Episode 类型自带 IndexNumber → 「S1E3 · 名称」
+   * 2. 无序号时从文件路径解析集号（非刮削库的 Video 条目）→ 「EP03 · 名称」
    */
   const entryDisplayName = (entry: EmbyDirectoryEntry) => {
     if (entry.embyType === 'Episode' && entry.indexNumber != null) {
       const label = `S${entry.parentIndexNumber ?? '?'}E${entry.indexNumber}`
       return `${label} · ${entry.name}`
+    }
+    if (entry.type === 'file' && entry.filePath) {
+      const parsed = parseEpisodeFromFilePath(entry.filePath)
+      if (parsed) {
+        const season = parsed.season != null ? `S${parsed.season}` : ''
+        return `EP${season}${parsed.episode} · ${entry.name}`
+      }
     }
     return entry.name
   }
