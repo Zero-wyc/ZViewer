@@ -135,8 +135,10 @@ function HomePage() {
 
   return (
     <div className="flex-1 flex items-center justify-center p-6">
-      <div className="flex items-stretch gap-3">
-        <Card className="relative w-full max-w-md text-center">
+      {/* 主卡固定 28rem（与原 max-w-md 一致）不随面板收展变宽，
+          面板无缝贴主卡右缘（gap-0 + 面板左缘无边框直角） */}
+      <div className="flex items-stretch">
+        <Card className="relative w-[28rem] max-w-[calc(100vw-3rem)] text-center">
           {/* 快捷房间面板触发按钮：卡片右上角，桌面端向右延伸面板，
             移动端无延伸空间直接跳转房间列表页 */}
           <button
@@ -377,7 +379,8 @@ function HomePage() {
         </Card>
 
         {/* 右侧延伸面板：宽 0↔300px 动画（与主题菜单侧面板同范式），
-            桌面端显示；高度随主卡拉伸，列表内部滚动 */}
+            桌面端显示；高度随主卡拉伸，列表内部滚动。
+            左缘无边框直角（rounded-l-none border-l-0）与主卡右缘无缝黏合 */}
         <div
           className="relative hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block"
           style={{
@@ -387,7 +390,7 @@ function HomePage() {
         >
           <div
             className={cn(
-              'glass absolute inset-y-0 left-0 flex w-[300px] flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] border shadow-lg transition-opacity duration-300',
+              'glass absolute inset-y-0 left-0 flex w-[300px] flex-col overflow-hidden rounded-r-[var(--md-sys-shape-corner)] border border-l-0 shadow-lg transition-opacity duration-300',
               roomsPanelOpen ? 'opacity-100' : 'opacity-0'
             )}
             style={{
