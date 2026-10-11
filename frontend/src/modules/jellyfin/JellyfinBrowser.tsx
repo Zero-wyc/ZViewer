@@ -12,6 +12,7 @@ interface JellyfinBrowserProps {
   open: boolean
   onClose: () => void
   onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
+  onQuickAddSeries?: (entry: EmbyDirectoryEntry) => void
   selectable?: boolean
 }
 
@@ -20,6 +21,7 @@ export default function JellyfinBrowser({
   open,
   onClose,
   onSelectFiles,
+  onQuickAddSeries,
   selectable = false,
 }: JellyfinBrowserProps) {
   return (
@@ -28,6 +30,7 @@ export default function JellyfinBrowser({
       open={open}
       onClose={onClose}
       onSelectFiles={onSelectFiles}
+      onQuickAddSeries={onQuickAddSeries}
       selectable={selectable}
       imageApi="jellyfin"
       browse={

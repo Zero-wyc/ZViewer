@@ -26,6 +26,8 @@ interface MountBrowserProps {
   onSelectFile?: (path: string) => void
   /** entries：选中条目的完整信息（emby/jellyfin 剧集整卡添加需要 embyType/imageTag） */
   onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
+  /** 一键添加整部影片（emby/jellyfin 的 Series/Season 条目快捷按钮） */
+  onQuickAddSeries?: (entry: EmbyDirectoryEntry) => void
   selectable?: boolean
 }
 
@@ -35,6 +37,7 @@ export default function MountBrowser({
   onClose,
   onSelectFile,
   onSelectFiles,
+  onQuickAddSeries,
   selectable = false,
 }: MountBrowserProps) {
   const handleFiles = (paths: string[], entries?: EmbyDirectoryEntry[]) => {
@@ -89,6 +92,7 @@ export default function MountBrowser({
         open={open}
         onClose={onClose}
         onSelectFiles={selectable ? handleFiles : undefined}
+        onQuickAddSeries={onQuickAddSeries}
         selectable={selectable}
       />
     )
@@ -101,6 +105,7 @@ export default function MountBrowser({
         open={open}
         onClose={onClose}
         onSelectFiles={selectable ? handleFiles : undefined}
+        onQuickAddSeries={onQuickAddSeries}
         selectable={selectable}
       />
     )

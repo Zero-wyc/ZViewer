@@ -20,6 +20,7 @@ import {
   List,
   Search,
   X,
+  ListPlus,
 } from 'lucide-react'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
@@ -39,6 +40,12 @@ export interface MediaLibraryBrowserProps {
    * （含 embyType/imageTag 等，供剧集整卡添加等场景判断类型），可能为 undefined。
    */
   onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
+  /**
+   * 一键添加整部影片（Series → 整部剧 / Season → 整季）。
+   * 提供时，剧集/季条目上会渲染快捷按钮，点击直接走整卡添加流程，
+   * 无需进入目录逐个勾选分集。
+   */
+  onQuickAddSeries?: (entry: EmbyDirectoryEntry) => void
   selectable?: boolean
   /** 浏览函数（Emby/Jellyfin 传入各自实现），默认 Emby */
   browse?: (mountId: number, path?: string) => Promise<EmbyDirectoryEntry[]>
@@ -82,6 +89,7 @@ export default function EmbyBrowser({
   open,
   onClose,
   onSelectFiles,
+  onQuickAddSeries,
   browse = browseEmbyMount,
   search = searchEmbyMount,
   title = '浏览 Emby 媒体库',
@@ -250,6 +258,41 @@ export default function EmbyBrowser({
     onClose()
   }
 
+  /** 剧集/季条目支持一键整卡添加（Series=整部剧，Season=整季） */
+  const canQuickAdd = (entry: EmbyDirectoryEntry) =>
+    !!onQuickAddSeries &&
+    (entry.embyType === 'Series' || entry.embyType === 'Season')
+
+  const quickAddLabel = (entry: EmbyDirectoryEntry) =>
+    entry.embyType === 'Season' ? '添加整季' : '添加整部影片'
+
+  /** 快捷整卡添加按钮（list 行尾 / wall 卡片右下角浮层），阻断条目点击 */
+  const renderQuickAddButton = (
+    entry: EmbyDirectoryEntry,
+    variant: 'row' | 'overlay'
+  ) => {
+    if (!canQuickAdd(entry)) return null
+    return (
+      <button
+        type="button"
+        className={cn(
+          'flex items-center gap-1 rounded-[var(--md-sys-shape-corner)] font-medium transition-all',
+          variant === 'row'
+            ? 'shrink-0 px-2 py-1 text-xs text-[var(--md-sys-color-primary)] opacity-0 hover:bg-[var(--md-sys-color-primary-container)] group-hover:opacity-100'
+            : 'absolute bottom-1.5 right-1.5 bg-black/60 px-1.5 py-1 text-[10px] leading-none text-white opacity-0 hover:bg-[var(--md-sys-color-primary)] group-hover:opacity-100'
+        )}
+        title={quickAddLabel(entry)}
+        onClick={(e) => {
+          e.stopPropagation()
+          onQuickAddSeries?.(entry)
+        }}
+      >
+        <ListPlus className="h-3.5 w-3.5" />
+        {variant === 'row' ? quickAddLabel(entry) : '整部'}
+      </button>
+    )
+  }
+
   const renderEntry = (entry: EmbyDirectoryEntry, side: 'left' | 'right') => {
     const isSelected = selectedPaths.has(entry.path)
     const isDirectory = entry.type === 'directory'
@@ -299,6 +342,8 @@ export default function EmbyBrowser({
             {entry.childCount} 项
           </span>
         )}
+
+        {side === 'right' && renderQuickAddButton(entry, 'row')}
 
         {!isDirectory && (showCheckbox || isSelected) && (
           <span
@@ -376,6 +421,7 @@ export default function EmbyBrowser({
               {entry.childCount ?? 0} 项
             </div>
           )}
+          {renderQuickAddButton(entry, 'overlay')}
           {multiSelectMode && !isDirectory && (
             <div
               className="absolute left-1.5 top-1.5"

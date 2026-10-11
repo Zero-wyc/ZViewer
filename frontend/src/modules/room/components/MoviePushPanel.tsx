@@ -676,6 +676,127 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceType, mounts])
 
+  /**
+   * 剧集整卡添加：枚举剧集全部分集（逐季 browse），解析第一集作为初始播放源，
+   * 生成单张剧集卡——pages 存分集列表（{page, part, path, mountId, duration}），
+   * 播放列表卡片内切换分集时按 path 重新解析并更新 movie.path。
+   * 传入 Season 条目时等价于「添加整季」（该目录下枚举到的 Episode 全部入列）。
+   */
+  const addEmbySeriesCard = useCallback(
+    async (
+      api: 'emby' | 'jellyfin',
+      seriesMountId: number,
+      series: EmbyDirectoryEntry
+    ) => {
+      const browse = api === 'emby' ? browseEmbyMount : browseJellyfinMount
+      const resolveFn = api === 'emby' ? resolveEmby : resolveJellyfin
+      const directLink = api === 'emby' ? embyDirectLink : jellyfinDirectLink
+
+      setResolveProgress(`正在枚举《${series.name}》的分集...`)
+      // 逐季枚举分集：Series 下为 Season（目录），Season 下为 Episode（file）
+      const seasons = await browse(seriesMountId, series.path)
+      const seasonDirs = seasons.filter(
+        (s) => s.type === 'directory' && s.embyType === 'Season'
+      )
+      const episodeSources =
+        seasonDirs.length > 0
+          ? seasonDirs
+          : // 无季结构的剧集（分集直接挂在 Series 下）：整组当作单季
+            [series]
+      const episodes: {
+        page: number
+        cid: number
+        part: string
+        duration: number
+        path: string
+        mountId: number
+      }[] = []
+      for (const season of episodeSources) {
+        const eps = await browse(seriesMountId, season.path)
+        eps
+          .filter((e) => e.type === 'file' && e.embyType === 'Episode')
+          .forEach((ep) => {
+            const label =
+              ep.indexNumber != null
+                ? `S${ep.parentIndexNumber ?? '?'}E${ep.indexNumber}`
+                : season !== series
+                  ? season.name
+                  : ''
+            episodes.push({
+              page: episodes.length + 1,
+              cid: 0,
+              part: label ? `${label} · ${ep.name}` : ep.name,
+              duration: ep.duration ?? 0,
+              path: ep.path,
+              mountId: seriesMountId,
+            })
+          })
+      }
+      if (episodes.length === 0) {
+        throw new Error(`《${series.name}》下没有可播放的分集`)
+      }
+
+      // 解析第一集作为初始播放源（代理模式 url 会被后端重写为 stream URL）
+      setResolveProgress(
+        `正在解析《${series.name}》第 1 集（共 ${episodes.length} 集）...`
+      )
+      const first = await resolveFn(seriesMountId, episodes[0].path)
+      const mount = mounts.find((m) => m.id === seriesMountId)
+      await addMovie(roomId!, {
+        url: directLink && first.directUrl ? first.directUrl : first.videoUrl,
+        title: series.name,
+        cover: buildEmbyImageUrl(
+          api,
+          seriesMountId,
+          series.path,
+          series.imageTag,
+          300
+        ),
+        source: api,
+        format: first.format,
+        duration: first.duration,
+        serverUrl: mount?.serverUrl,
+        path: episodes[0].path,
+        directLink,
+        pages: episodes,
+        currentPage: 1,
+      })
+    },
+    [embyDirectLink, jellyfinDirectLink, mounts, roomId, addMovie]
+  )
+
+  /** 一键添加整部影片（海报墙/列表条目快捷按钮）：Series=整部剧，Season=整季 */
+  const handleQuickAddSeries = useCallback(
+    async (entry: EmbyDirectoryEntry) => {
+      if (!isHost) {
+        message.info('只有房主可以添加影片')
+        return
+      }
+      if (!roomId) {
+        message.error('未连接房间')
+        return
+      }
+      const mountId = Number(selectedMountId)
+      if (!mountId) {
+        message.warning('请选择已保存的挂载')
+        return
+      }
+      if (sourceType !== 'emby' && sourceType !== 'jellyfin') return
+      setLoading(true)
+      try {
+        await addEmbySeriesCard(sourceType, mountId, entry)
+        message.success(`已添加《${entry.name}》`)
+      } catch (err) {
+        console.error('[MoviePushPanel] quick add series error:', err)
+        message.error(err instanceof Error ? err.message : '添加整部影片失败')
+      } finally {
+        setLoading(false)
+        setResolveProgress('')
+      }
+    },
+    [isHost, roomId, selectedMountId, sourceType, addEmbySeriesCard]
+  )
+
   const handleSelectFilesFromMount = useCallback(
     async (paths: string[], entries?: EmbyDirectoryEntry[]) => {
       if (!isHost) {
@@ -691,91 +812,6 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       if (!mountId) {
         message.warning('请选择已保存的挂载')
         return
-      }
-
-      /**
-       * 剧集整卡添加：枚举剧集全部分集（逐季 browse），解析第一集作为初始播放源，
-       * 生成单张剧集卡——pages 存分集列表（{page, part, path, mountId, duration}），
-       * 播放列表卡片内切换分集时按 path 重新解析并更新 movie.path。
-       */
-      const addEmbySeries = async (
-        api: 'emby' | 'jellyfin',
-        seriesMountId: number,
-        series: EmbyDirectoryEntry
-      ) => {
-        const browse = api === 'emby' ? browseEmbyMount : browseJellyfinMount
-        const resolveFn = api === 'emby' ? resolveEmby : resolveJellyfin
-        const directLink = api === 'emby' ? embyDirectLink : jellyfinDirectLink
-
-        setResolveProgress(`正在枚举《${series.name}》的分集...`)
-        // 逐季枚举分集：Series 下为 Season（目录），Season 下为 Episode（file）
-        const seasons = await browse(seriesMountId, series.path)
-        const seasonDirs = seasons.filter(
-          (s) => s.type === 'directory' && s.embyType === 'Season'
-        )
-        const episodeSources =
-          seasonDirs.length > 0
-            ? seasonDirs
-            : // 无季结构的剧集（分集直接挂在 Series 下）：整组当作单季
-              [series]
-        const episodes: {
-          page: number
-          cid: number
-          part: string
-          duration: number
-          path: string
-          mountId: number
-        }[] = []
-        for (const season of episodeSources) {
-          const eps = await browse(seriesMountId, season.path)
-          eps
-            .filter((e) => e.type === 'file' && e.embyType === 'Episode')
-            .forEach((ep) => {
-              const label =
-                ep.indexNumber != null
-                  ? `S${ep.parentIndexNumber ?? '?'}E${ep.indexNumber}`
-                  : season !== series
-                    ? season.name
-                    : ''
-              episodes.push({
-                page: episodes.length + 1,
-                cid: 0,
-                part: label ? `${label} · ${ep.name}` : ep.name,
-                duration: ep.duration ?? 0,
-                path: ep.path,
-                mountId: seriesMountId,
-              })
-            })
-        }
-        if (episodes.length === 0) {
-          throw new Error(`《${series.name}》下没有可播放的分集`)
-        }
-
-        // 解析第一集作为初始播放源（代理模式 url 会被后端重写为 stream URL）
-        setResolveProgress(
-          `正在解析《${series.name}》第 1 集（共 ${episodes.length} 集）...`
-        )
-        const first = await resolveFn(seriesMountId, episodes[0].path)
-        const mount = mounts.find((m) => m.id === seriesMountId)
-        await addMovie(roomId, {
-          url: directLink && first.directUrl ? first.directUrl : first.videoUrl,
-          title: series.name,
-          cover: buildEmbyImageUrl(
-            api,
-            seriesMountId,
-            series.path,
-            series.imageTag,
-            300
-          ),
-          source: api,
-          format: first.format,
-          duration: first.duration,
-          serverUrl: mount?.serverUrl,
-          path: episodes[0].path,
-          directLink,
-          pages: episodes,
-          currentPage: 1,
-        })
       }
 
       setLoading(true)
@@ -854,7 +890,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             const entry = entries?.find((e) => e.path === normalizedPath)
             if (entry?.embyType === 'Series') {
               // 剧集整卡添加：枚举全部分集 → 一张剧集卡（pages 装分集列表）
-              await addEmbySeries('emby', mountId, entry)
+              await addEmbySeriesCard('emby', mountId, entry)
             } else {
               // Emby：解析播放信息，支持服务器转发（默认）或直链直连
               const resolved = await resolveEmby(mountId, normalizedPath)
@@ -879,7 +915,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           } else if (sourceType === 'jellyfin') {
             const entry = entries?.find((e) => e.path === normalizedPath)
             if (entry?.embyType === 'Series') {
-              await addEmbySeries('jellyfin', mountId, entry)
+              await addEmbySeriesCard('jellyfin', mountId, entry)
             } else {
               const resolved = await resolveJellyfin(mountId, normalizedPath)
               const title =
@@ -916,6 +952,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       roomId,
       selectedMountId,
       sourceType,
+      addEmbySeriesCard,
       webdav.serverUrl,
       webdavDirectLink,
       isWebdavInternal,
@@ -2456,6 +2493,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           open={!!browsingMount}
           onClose={() => setBrowsingMount(null)}
           onSelectFiles={handleSelectFilesFromMount}
+          onQuickAddSeries={handleQuickAddSeries}
           selectable
         />
       )}

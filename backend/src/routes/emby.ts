@@ -141,13 +141,21 @@ router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response)
       });
       sendImage(buffer, contentType);
     } catch (imgErr) {
+      // 回退：逐个尝试带 Primary 海报的后代条目（竖版优先），
+      // 单个候选原图 404（ImageTags 与实际图不同步）时继续下一个
       try {
-        const childId = await session.client.findPosterChild(session.userId, itemId);
-        if (!childId) throw imgErr;
-        const { buffer, contentType } = await session.client.itemImage(childId, { maxWidth });
-        sendImage(buffer, contentType);
+        const candidates = await session.client.findPosterChildren(session.userId, itemId);
+        for (const childId of candidates) {
+          try {
+            const { buffer, contentType } = await session.client.itemImage(childId, { maxWidth });
+            sendImage(buffer, contentType);
+            return;
+          } catch {
+            // 尝试下一个候选
+          }
+        }
+        throw imgErr;
       } catch {
-        // 回退也失败：按原错误处理
         throw imgErr;
       }
     }
