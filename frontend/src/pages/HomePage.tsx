@@ -101,7 +101,14 @@ function HomePage() {
     autoLoginStatus !== 'done' || (!connected && !allowDisconnected)
 
   // ===== 快捷房间面板：主卡右侧延伸面板，展示当前存在的房间 =====
-  const [roomsPanelOpen, setRoomsPanelOpen] = useState(false)
+  // 展开状态持久化到 localStorage，刷新后保持上次的开合状态
+  const [roomsPanelOpen, setRoomsPanelOpen] = useState(() => {
+    try {
+      return localStorage.getItem('home-rooms-panel-open') === '1'
+    } catch {
+      return false
+    }
+  })
   const [quickRooms, setQuickRooms] = useState<QuickRoomItem[]>([])
   const [roomsLoading, setRoomsLoading] = useState(false)
 
@@ -124,6 +131,14 @@ function HomePage() {
     }
   }
 
+  // 上次展开进入页面时自动拉取一次房间列表
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    if (roomsPanelOpen) void fetchQuickRooms()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 仅挂载时执行一次
+  }, [])
+  /* eslint-enable react-hooks/set-state-in-effect */
+
   const toggleRoomsPanel = () => {
     // 移动端（<md）无右侧延伸空间：直接跳转房间列表页
     if (typeof window !== 'undefined' && window.innerWidth < 768) {
@@ -132,7 +147,24 @@ function HomePage() {
     }
     const next = !roomsPanelOpen
     setRoomsPanelOpen(next)
+    try {
+      localStorage.setItem('home-rooms-panel-open', next ? '1' : '0')
+    } catch {
+      /* 忽略存储异常 */
+    }
     if (next) void fetchQuickRooms()
+  }
+
+  /** 面板条目点击直接进房（与房间列表页「加入房间」按钮同一跳转语义） */
+  const joinRoomDirectly = (room: QuickRoomItem) => {
+    if (room.status !== 'active') return
+    navigate(`/room/${room.roomId}`, {
+      state: {
+        fromList: true,
+        hasPassword: room.hasPassword,
+        name: room.name,
+      },
+    })
   }
 
   return (
@@ -423,7 +455,8 @@ function HomePage() {
                   {quickRooms.map((room) => (
                     <div
                       key={room.roomId}
-                      className="glass-card flex flex-col gap-1.5 p-3 sm:flex-row sm:items-center sm:justify-between"
+                      className="glass-card flex cursor-pointer flex-col gap-1.5 p-3 transition-opacity hover:opacity-90 sm:flex-row sm:items-center sm:justify-between"
+                      onClick={() => joinRoomDirectly(room)}
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -463,11 +496,10 @@ function HomePage() {
                         variant="primary"
                         size="sm"
                         icon={<PlayCircle className="h-4 w-4" />}
-                        onClick={() =>
-                          navigate(
-                            `/join?roomId=${encodeURIComponent(room.roomId)}`
-                          )
-                        }
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          joinRoomDirectly(room)
+                        }}
                         disabled={room.status !== 'active'}
                       >
                         加入房间
