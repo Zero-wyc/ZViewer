@@ -151,7 +151,7 @@ function HomePage() {
               'absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-105 active:scale-95',
               roomsPanelOpen
                 ? 'text-[var(--md-sys-color-primary)]'
-                : 'text-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
+                : 'text-[var(--md-sys-color-outline)]'
             )}
             title="当前房间"
             aria-label="查看当前房间列表"
