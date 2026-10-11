@@ -156,7 +156,7 @@ function HomePage() {
             title="当前房间"
             aria-label="查看当前房间列表"
           >
-            <PanelRightOpen className="h-3.5 w-3.5" />
+            <PanelRightOpen className="h-4 w-4" />
           </button>
           <div className="mb-6">
             <Fade delay={80} className="inline-block">
