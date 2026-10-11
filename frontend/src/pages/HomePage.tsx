@@ -11,12 +11,14 @@ import {
   Settings,
   User,
   PanelRightOpen,
-  Users,
+  Lock,
+  Unlock,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { Tag } from '@/components/ui/Tag'
 import { Space } from '@/components/ui/Space'
-import { Title, Paragraph } from '@/components/ui/Typography'
+import { Title, Paragraph, Text } from '@/components/ui/Typography'
 import { useAuthStore } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useSocket } from '@/hooks/useSocket'
@@ -29,6 +31,7 @@ interface QuickRoomItem {
   roomId: string
   name: string | null
   status: 'active' | 'closed'
+  requireApproval: boolean
   maxViewers: number
   hasPassword: boolean
   viewerCount: number
@@ -378,17 +381,17 @@ function HomePage() {
           </Fade>
         </div>
 
-        {/* 卡内右侧房间面板：与主内容同一 Card，仅以左分隔线区隔 */}
+        {/* 卡内右侧房间面板：与主内容同一 Card、同宽（28rem），仅以左分隔线区隔 */}
         <div
           className="relative hidden shrink-0 overflow-hidden transition-[width] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] md:block"
           style={{
-            width: roomsPanelOpen ? 300 : 0,
+            width: roomsPanelOpen ? 448 : 0,
             willChange: 'width',
           }}
         >
           <div
             className={cn(
-              'absolute inset-y-0 left-0 flex w-[300px] flex-col border-l border-[var(--md-sys-color-outline-variant)] transition-opacity duration-300',
+              'absolute inset-y-0 left-0 flex w-[28rem] flex-col border-l border-[var(--md-sys-color-outline-variant)] transition-opacity duration-300',
               roomsPanelOpen ? 'opacity-100' : 'opacity-0'
             )}
             aria-hidden={!roomsPanelOpen}
@@ -420,69 +423,60 @@ function HomePage() {
                   暂无进行中的房间
                 </div>
               ) : (
-                <div className="flex flex-col gap-1.5">
+                <div className="flex flex-col gap-3">
                   {quickRooms.map((room) => (
-                    <button
+                    <div
                       key={room.roomId}
-                      type="button"
-                      className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline-variant)] bg-[color-mix(in_srgb,var(--md-sys-color-surface-container)_45%,transparent)] p-3 text-left transition-all hover:-translate-y-0.5 hover:border-[var(--md-sys-color-outline)] hover:shadow-md"
-                      onClick={() =>
-                        navigate(
-                          `/join?roomId=${encodeURIComponent(room.roomId)}`
-                        )
-                      }
+                      className="glass-card flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div className="flex items-center gap-2">
-                        <span
-                          className={cn(
-                            'h-2 w-2 shrink-0 rounded-full',
-                            room.sharerOnline
-                              ? 'bg-[var(--md-sys-color-primary)]'
-                              : 'bg-[var(--md-sys-color-outline-variant)]'
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <span className="truncate text-sm font-medium text-[var(--md-sys-color-on-surface)]">
+                            {room.name || room.roomId}
+                          </span>
+                          <Tag color="success">进行中</Tag>
+                          {room.requireApproval ? (
+                            <Tag color="warning">需确认</Tag>
+                          ) : (
+                            <Tag color="cyan">直接加入</Tag>
                           )}
-                          style={
-                            room.sharerOnline
-                              ? {
-                                  boxShadow:
-                                    '0 0 6px color-mix(in srgb, var(--md-sys-color-primary) 70%, transparent)',
-                                }
-                              : undefined
-                          }
-                        />
-                        <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-[var(--md-sys-color-on-surface)]">
-                          {room.name || room.roomId}
-                        </span>
-                        {room.hasPassword && (
-                          <Shield className="h-3.5 w-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
-                        )}
-                        <span
-                          className="rounded-full px-2 py-0.5 text-[10px] font-medium"
-                          style={{
-                            backgroundColor:
-                              'color-mix(in srgb, var(--md-sys-color-secondary) 12%, transparent)',
-                            color: 'var(--md-sys-color-secondary)',
-                          }}
-                        >
-                          {room.mode === 'screen-share' ? '投屏' : '一起看'}
-                        </span>
-                      </div>
-                      <div className="mt-1.5 flex items-center gap-2 pl-4 text-[11px] text-[var(--md-sys-color-on-surface-variant)]">
-                        <span className="tabular-nums">{room.roomId}</span>
-                        <span className="flex items-center gap-0.5">
-                          <Users className="h-3 w-3" />
-                          {room.viewerCount}/{room.maxViewers}
-                        </span>
-                        <span
-                          className={cn(
-                            'ml-auto',
-                            room.sharerOnline &&
-                              'text-[var(--md-sys-color-primary)]'
+                          {room.hasPassword ? (
+                            <Tag color="purple">
+                              <Lock className="mr-1 inline h-3 w-3" />
+                              有密码
+                            </Tag>
+                          ) : (
+                            <Tag color="default">
+                              <Unlock className="mr-1 inline h-3 w-3" />
+                              无密码
+                            </Tag>
                           )}
-                        >
-                          {room.sharerOnline ? '分享中' : '已离线'}
-                        </span>
+                          <Tag color="default">
+                            {room.mode === 'screen-share'
+                              ? '屏幕共享'
+                              : '一起看'}
+                          </Tag>
+                        </div>
+                        <Text type="secondary" className="text-xs">
+                          房间 ID: {room.roomId} · 观众 {room.viewerCount} /{' '}
+                          {room.maxViewers} · 分享端
+                          {room.sharerOnline ? '在线' : '离线'}
+                        </Text>
                       </div>
-                    </button>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        icon={<PlayCircle className="h-4 w-4" />}
+                        onClick={() =>
+                          navigate(
+                            `/join?roomId=${encodeURIComponent(room.roomId)}`
+                          )
+                        }
+                        disabled={room.status !== 'active'}
+                      >
+                        加入房间
+                      </Button>
+                    </div>
                   ))}
                 </div>
               )}
