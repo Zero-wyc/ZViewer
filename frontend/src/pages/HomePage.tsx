@@ -408,7 +408,7 @@ function HomePage() {
                 {roomsLoading ? '…' : `${quickRooms.length} 个进行中`}
               </span>
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+            <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
               {roomsLoading ? (
                 <div className="flex h-20 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -423,7 +423,7 @@ function HomePage() {
                   {quickRooms.map((room) => (
                     <div
                       key={room.roomId}
-                      className="glass-card flex flex-col gap-2 p-4 sm:flex-row sm:items-center sm:justify-between"
+                      className="glass-card flex flex-col gap-1.5 p-3 sm:flex-row sm:items-center sm:justify-between"
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-1.5">
@@ -476,17 +476,6 @@ function HomePage() {
                   ))}
                 </div>
               )}
-            </div>
-            <div className="flex-none border-t border-[var(--md-sys-color-outline-variant)] p-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                icon={<LayoutDashboard className="h-3.5 w-3.5" />}
-                block
-                onClick={() => navigate('/rooms')}
-              >
-                查看全部房间
-              </Button>
             </div>
           </div>
         </div>
