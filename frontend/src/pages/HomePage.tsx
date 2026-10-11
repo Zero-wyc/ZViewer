@@ -123,6 +123,11 @@ function HomePage() {
   }
 
   const toggleRoomsPanel = () => {
+    // 移动端（<md）无右侧延伸空间：直接跳转房间列表页
+    if (typeof window !== 'undefined' && window.innerWidth < 768) {
+      navigate('/rooms')
+      return
+    }
     const next = !roomsPanelOpen
     setRoomsPanelOpen(next)
     if (next) void fetchQuickRooms()
