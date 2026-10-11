@@ -45,6 +45,7 @@ import {
 } from '../store-settings'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { usePlaybackPosition } from '../hooks/usePlaybackPosition'
+import { useVolumeSliderDrag } from '../hooks/useVolumeSliderDrag'
 import { OverflowMarquee } from './OverflowMarquee'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
 import {
@@ -158,39 +159,10 @@ export function MusicWidgetBar() {
   }, [canControl, playMode, setPlayMode])
 
   // ===== 音量横条滑块（仅本地生效不参与房间同步） =====
-  // Hydrogen vue-slider :duration=0.3 等价：非拖动变化 0.3s 平滑补间，
-  // 拖动期间即时跟手（无过渡）
-  const volumeTrackRef = useRef<HTMLDivElement>(null)
-  const [volumeDragging, setVolumeDragging] = useState(false)
-
-  const handleVolumePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setVolumeDragging(true)
-      const compute = (clientX: number) => {
-        const el = volumeTrackRef.current
-        if (!el) return
-        const rect = el.getBoundingClientRect()
-        if (rect.width <= 0) return
-        const ratio = Math.min(
-          1,
-          Math.max(0, (clientX - rect.left) / rect.width)
-        )
-        setVolume(ratio)
-      }
-      compute(e.clientX)
-      const handleMove = (ev: PointerEvent) => compute(ev.clientX)
-      const handleUp = () => {
-        window.removeEventListener('pointermove', handleMove)
-        window.removeEventListener('pointerup', handleUp)
-        setVolumeDragging(false)
-      }
-      window.addEventListener('pointermove', handleMove)
-      window.addEventListener('pointerup', handleUp)
-    },
-    [setVolume]
-  )
+  // 拖拽逻辑抽为 useVolumeSliderDrag 共享（与播放卡同款：拖动期间锁定
+  // 页面滚动/文本选择，touch-slider 禁触屏滚动）
+  const { volumeTrackRef, volumeDragging, handleVolumePointerDown } =
+    useVolumeSliderDrag(setVolume)
 
   // ===== 喜欢（Hydrogen likeSong：NCM 登录且当前有歌可见；乐观更新） =====
   const songId = currentSong?.songId ?? null
@@ -561,7 +533,7 @@ export function MusicWidgetBar() {
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(volume * 100)}
-              className="relative h-[7px] cursor-pointer"
+              className="touch-slider relative h-[7px] cursor-pointer"
               style={{
                 border: '1px solid var(--md-sys-color-on-surface)',
                 boxShadow: '0 0 0 0.5px var(--md-sys-color-on-surface)',

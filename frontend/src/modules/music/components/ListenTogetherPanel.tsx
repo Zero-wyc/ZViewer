@@ -28,7 +28,6 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
   useState,
   useSyncExternalStore,
 } from 'react'
@@ -90,6 +89,7 @@ import { useSeekLock } from '../hooks/useSeekLock'
 import { usePlayerUiTone } from '../hooks/usePlayerUiTone'
 import { useLandscapeToolbarFlash } from '../hooks/useLandscapeToolbarFlash'
 import { useToolbarScrollable } from '../hooks/useToolbarScrollable'
+import { useVolumeSliderDrag } from '../hooks/useVolumeSliderDrag'
 import { useFullscreenToggle } from '../hooks/useFullscreenToggle'
 
 export interface ListenTogetherPanelProps {
@@ -487,39 +487,10 @@ function ListenTogetherInner({
   }, [playMode, setPlayMode])
 
   // ===== 音量横条滑块（仅本地生效不参与房间同步） =====
-  // Hydrogen vue-slider :duration=0.3 等价：非拖动变化 0.3s 平滑补间，
-  // 拖动期间即时跟手（无过渡）
-  const volumeTrackRef = useRef<HTMLDivElement>(null)
-  const [volumeDragging, setVolumeDragging] = useState(false)
-
-  const handleVolumePointerDown = useCallback(
-    (e: React.PointerEvent) => {
-      e.preventDefault()
-      e.stopPropagation()
-      setVolumeDragging(true)
-      const compute = (clientX: number) => {
-        const el = volumeTrackRef.current
-        if (!el) return
-        const rect = el.getBoundingClientRect()
-        if (rect.width <= 0) return
-        const ratio = Math.min(
-          1,
-          Math.max(0, (clientX - rect.left) / rect.width)
-        )
-        setVolume(ratio)
-      }
-      compute(e.clientX)
-      const handleMove = (ev: PointerEvent) => compute(ev.clientX)
-      const handleUp = () => {
-        window.removeEventListener('pointermove', handleMove)
-        window.removeEventListener('pointerup', handleUp)
-        setVolumeDragging(false)
-      }
-      window.addEventListener('pointermove', handleMove)
-      window.addEventListener('pointerup', handleUp)
-    },
-    [setVolume]
-  )
+  // 拖拽逻辑抽为 useVolumeSliderDrag 共享（与顶栏 widget 同款：拖动期间
+  // 锁定页面滚动/文本选择，滑条常挂 touch-slider 禁触屏滚动）
+  const { volumeTrackRef, volumeDragging, handleVolumePointerDown } =
+    useVolumeSliderDrag(setVolume)
 
   // ===== 设置驱动（Hydrogen settingsStore 消费点） =====
   const coverBlur = useMusicSettingsStore((s) => s.coverBlur)
