@@ -293,6 +293,18 @@ export default function EmbyBrowser({
     )
   }
 
+  /**
+   * 条目显示名：Episode 常全部同名（如「Sousou no Frieren」×28），
+   * 无法分辨集数——有 SxEy 序号时前置显示为「S1E3 · 名称」。
+   */
+  const entryDisplayName = (entry: EmbyDirectoryEntry) => {
+    if (entry.embyType === 'Episode' && entry.indexNumber != null) {
+      const label = `S${entry.parentIndexNumber ?? '?'}E${entry.indexNumber}`
+      return `${label} · ${entry.name}`
+    }
+    return entry.name
+  }
+
   const renderEntry = (entry: EmbyDirectoryEntry, side: 'left' | 'right') => {
     const isSelected = selectedPaths.has(entry.path)
     const isDirectory = entry.type === 'directory'
@@ -332,9 +344,9 @@ export default function EmbyBrowser({
 
         <span
           className="min-w-0 flex-1 truncate text-[15px] font-medium"
-          title={entry.name}
+          title={entryDisplayName(entry)}
         >
-          {entry.name}
+          {entryDisplayName(entry)}
         </span>
 
         {entry.childCount !== undefined && entry.childCount > 0 && (
@@ -441,9 +453,9 @@ export default function EmbyBrowser({
         <div className="p-1.5">
           <Text
             className="block truncate text-[11px] font-medium leading-tight"
-            title={entry.name}
+            title={entryDisplayName(entry)}
           >
-            {entry.name}
+            {entryDisplayName(entry)}
           </Text>
           {entry.productionYear != null && (
             <Text type="secondary" className="block text-[10px] leading-tight">
