@@ -76,18 +76,18 @@ function mapJellyfinEntry(item: { Id: string; Name: string; Type: string; IsFold
   };
 }
 
-// 条目海报图代理 - GET /mounts/:id/image?itemId=&tag=&maxWidth=
+// 条目海报图代理 - GET /mounts/:id/image?itemId=[&tag=]&maxWidth=
 // ⚠️ 注册在 authenticateToken 之前（免认证）：<img> 标签无法携带 Authorization
 // header，且本项目 HTTP 部署场景 httpOnly cookie 不可用（与 /proxy-image 同理）。
-// 弱保护：tag 必填——ImageTags.Primary 是不可枚举 hash，须先通过认证的
-// browse 才能获得；仅凭 mountId/itemId 无法拉取。
+// 弱保护：tag 可选——有 tag 时直接取该图；无 tag 时仅做文件夹海报回退
+//（取第一个带 Primary 的后代条目封面，对齐 Emby/Jellyfin 官方前端行为）。
 router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
   try {
     const mountId = Number(req.params.id);
     const itemId = typeof req.query.itemId === 'string' ? req.query.itemId : '';
     const tag = typeof req.query.tag === 'string' ? req.query.tag : '';
-    if (Number.isNaN(mountId) || !itemId.trim() || !tag) {
-      res.status(400).json({ success: false, message: '缺少 mountId、itemId 或 tag', code: 'INVALID_PARAMS' });
+    if (Number.isNaN(mountId) || !itemId.trim()) {
+      res.status(400).json({ success: false, message: '缺少 mountId 或 itemId', code: 'INVALID_PARAMS' });
       return;
     }
     const repo = userMountRepository();
@@ -99,11 +99,29 @@ router.get('/mounts/:id/image', async (req: AuthenticatedRequest, res: Response)
     }
     const session = await resolveJellyfinSession(mount);
     const maxWidth = Number(req.query.maxWidth) || 300;
-    const { buffer, contentType } = await session.client.itemImage(itemId, { tag, maxWidth });
-    res.set('Content-Type', contentType);
-    // 海报基本不变：浏览器缓存 1 小时，减少重复代理流量
-    res.set('Cache-Control', 'private, max-age=3600');
-    res.send(buffer);
+    // 文件夹海报回退：条目自身 ImageTags.Primary 为空（文件夹）或原图 404 时，
+    // 取第一个带 Primary 海报的后代条目封面
+    const sendImage = (buffer: Buffer, contentType: string) => {
+      res.set('Content-Type', contentType);
+      res.set('Cache-Control', 'private, max-age=3600');
+      res.send(buffer);
+    };
+    try {
+      const { buffer, contentType } = await session.client.itemImage(itemId, {
+        tag: tag || undefined,
+        maxWidth,
+      });
+      sendImage(buffer, contentType);
+    } catch (imgErr) {
+      try {
+        const childId = await session.client.findPosterChild(session.userId, itemId);
+        if (!childId) throw imgErr;
+        const { buffer, contentType } = await session.client.itemImage(childId, { maxWidth });
+        sendImage(buffer, contentType);
+      } catch {
+        throw imgErr;
+      }
+    }
   } catch (err) {
     console.error('[jellyfin] mount image error:', err);
     const code = extractErrorCode(err);

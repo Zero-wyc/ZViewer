@@ -340,31 +340,30 @@ export default function EmbyBrowser({
         }}
       >
         <div className="relative aspect-[2/3] w-full bg-[var(--glass-bg)]">
-          {entry.imageTag ? (
-            <img
-              src={buildEmbyImageUrl(
-                imageApi,
-                mountId ?? 0,
-                entry.path,
-                entry.imageTag,
-                300
-              )}
-              alt={entry.name}
-              loading="lazy"
-              className="h-full w-full object-cover"
-              onError={(e) => {
-                ;(e.target as HTMLImageElement).style.visibility = 'hidden'
-              }}
-            />
-          ) : (
-            <div className="flex h-full w-full items-center justify-center">
-              {isDirectory ? (
-                <Folder className="h-8 w-8 opacity-40" />
-              ) : (
-                <Film className="h-8 w-8 opacity-40" />
-              )}
-            </div>
-          )}
+          {/* 图标兜底层：无 Primary tag 的文件夹经后端回退取子项海报，
+              图片加载失败（onError 隐藏）时露出图标 */}
+          <div className="absolute inset-0 flex items-center justify-center">
+            {isDirectory ? (
+              <Folder className="h-8 w-8 opacity-40" />
+            ) : (
+              <Film className="h-8 w-8 opacity-40" />
+            )}
+          </div>
+          <img
+            src={buildEmbyImageUrl(
+              imageApi,
+              mountId ?? 0,
+              entry.path,
+              entry.imageTag,
+              300
+            )}
+            alt={entry.name}
+            loading="lazy"
+            className="relative h-full w-full object-cover"
+            onError={(e) => {
+              ;(e.target as HTMLImageElement).style.visibility = 'hidden'
+            }}
+          />
           {isDirectory && (
             <div className="absolute right-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
               {entry.childCount ?? 0} 项

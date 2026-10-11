@@ -317,6 +317,34 @@ export class EmbyClient {
     });
   }
 
+  /**
+   * 查找后代中第一个带 Primary 海报的条目（文件夹海报回退用）。
+   *
+   * Emby 官方前端对无海报的文件夹（如按目录整理的剧集库）会回退显示
+   * 内部子项的封面；Items 列表的 ImageTags 对此类文件夹通常为空，
+   * 前端因此拿不到 tag。此方法递归取前若干个子项，优先竖版海报
+   * （PrimaryImageAspectRatio < 0.9，接近 2:3），否则取任意带 Primary 者。
+   */
+  async findPosterChild(userId: string, parentId: string): Promise<string | null> {
+    const res = await this.request<{ Items?: EmbyItem[] }>({
+      path: `/emby/Users/${encodeURIComponent(userId)}/Items`,
+      query: {
+        ParentId: parentId,
+        Recursive: 'true',
+        Limit: 12,
+        Fields: 'PrimaryImageAspectRatio',
+        SortBy: 'SortName',
+        SortOrder: 'Ascending',
+      },
+    });
+    const items = res.Items ?? [];
+    const withPoster = items.filter((it) => it.ImageTags?.Primary);
+    const portrait = withPoster.find(
+      (it) => (it.PrimaryImageAspectRatio ?? 1) < 0.9,
+    );
+    return (portrait ?? withPoster[0])?.Id ?? null;
+  }
+
   /** 搜索 GET /emby/Users/{userId}/Items?SearchTerm=（官方 API，Recursive=true） */
   async search(userId: string, term: string): Promise<EmbyItem[]> {
     const res = await this.request<{ Items?: EmbyItem[] }>({
