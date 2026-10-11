@@ -1,0 +1,8 @@
+[使用前请务必查看这个教程文档](https://docx.zviewer.zero251.xyz/)
+
+[以及务必查看本章节](https://docx.zviewer.zero251.xyz/basic/network) 务必！
+
+默认的账户和密码为root
+
+有问题和意见请去QQ群或者Github issues反馈喵
+[QQ群](https://qun.qq.com/universal-share/share?ac=1&authKey=nveI1E5Z6t5sTDfIW4gX0J1fklUNyDB5qJH68%2Bl5yrYC7BZ1n9gQ3Jx42SqUub0I&busi_data=eyJncm91cENvZGUiOiIxMDc3NjUyNDY0IiwidG9rZW4iOiJkaUgxRnJCV3U1cThRNXFLSVNJNzRHdlFWc3Z4RWVHZ0NYSmx5UEh1TEVSdEIzNXlraDBxTjA2NEt4MGdkdHlsIiwidWluIjoiMTU3ODU1MjIwMyJ9&data=d_1_yMNGpV7bG6CrHOUCZPQY6nKMfDwbiiAlgYTHlKO1gQATJHWTEMHxWJQXVY_yFjAjj9pCVOFrttngayaDJgulcWRxx1s7htzorqfZpQ4&svctype=5&tempid=h5_group_info):1077652464
