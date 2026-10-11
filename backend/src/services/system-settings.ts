@@ -23,6 +23,7 @@ const DEFAULT_SETTINGS: Partial<SystemSettings> = {
   playsvideoEnabled: true,
   roomMultiInstanceLogin: false,
   voiceTransportMode: 'udp',
+  announceAutoPopupOnUpdate: true,
 };
 
 /**

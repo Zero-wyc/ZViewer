@@ -537,6 +537,7 @@ router.get(
           voiceTransportMode: settings.voiceTransportMode,
           livekitExternalUrl: settings.livekitExternalUrl,
           roomPermissionMatrix: settings.roomPermissionMatrix,
+          announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
         },
       });
     } catch (err) {
@@ -555,7 +556,7 @@ router.put(
   ): Promise<void> => {
     try {
       const {
-        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, livekitExternalUrl, roomPermissionMatrix,
+        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, livekitExternalUrl, roomPermissionMatrix, announceAutoPopupOnUpdate,
       } = req.body;
       // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
       const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
@@ -767,6 +768,16 @@ router.put(
         settings.roomPermissionMatrix =
           roomPermissionMatrix as SystemSettings['roomPermissionMatrix'];
       }
+      if (announceAutoPopupOnUpdate !== undefined) {
+        if (typeof announceAutoPopupOnUpdate !== 'boolean') {
+          res.status(400).json({
+            success: false,
+            message: 'announceAutoPopupOnUpdate 必须是布尔值',
+          });
+          return;
+        }
+        settings.announceAutoPopupOnUpdate = announceAutoPopupOnUpdate;
+      }
       await settingsRepo.save(settings);
 
       // 语音传输模式变更即时生效：热重启 livekit 子进程（模式未变化时无操作）
@@ -795,6 +806,7 @@ router.put(
           voiceTransportMode: settings.voiceTransportMode,
           livekitExternalUrl: settings.livekitExternalUrl,
           roomPermissionMatrix: settings.roomPermissionMatrix,
+          announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
         },
       });
     } catch (err) {

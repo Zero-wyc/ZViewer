@@ -148,6 +148,8 @@ interface AdminSettings {
   voiceTransportMode: 'udp' | 'tcp'
   /** 自定义 LiveKit 服务器地址（客户端连接；空=按页面域名自动推导） */
   livekitExternalUrl: string
+  /** 版本更新后是否自动弹出公告（首次启动强制弹出不受此开关限制） */
+  announceAutoPopupOnUpdate: boolean
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]
@@ -192,6 +194,7 @@ export default function AdminPage() {
     cdnProxyUrl: 'https://gh-proxy.com',
     roomMultiInstanceLogin: false,
     livekitExternalUrl: '',
+    announceAutoPopupOnUpdate: true,
     voiceTransportMode: 'udp',
   })
   const [loading, setLoading] = useState(false)
@@ -841,6 +844,7 @@ export default function AdminPage() {
         roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
         livekitExternalUrl: settings.livekitExternalUrl,
         voiceTransportMode: settings.voiceTransportMode,
+        announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig
@@ -1096,9 +1100,7 @@ export default function AdminPage() {
                     title="移除无人的房间"
                   >
                     <span className="sm:hidden">清理</span>
-                    <span className="hidden sm:inline">
-                      移除无人的房间
-                    </span>
+                    <span className="hidden sm:inline">移除无人的房间</span>
                   </Button>
                 </>
               )}
@@ -1597,6 +1599,26 @@ export default function AdminPage() {
                   />
                   <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
                     仅供测试：开启后同一账号的每个浏览器标签页将作为独立成员同时进入房间与语音（互不顶替，语音成员表会出现多个同名成员）；关闭时重复进入同一房间会被拒绝，语音重复加入会顶替旧页面。
+                  </p>
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  公告
+                </Title>
+                <div className="mb-6 max-w-md">
+                  <Switch
+                    label="版本更新后自动弹出公告"
+                    checked={settings.announceAutoPopupOnUpdate}
+                    onChange={(e) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        announceAutoPopupOnUpdate: e.target.checked,
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    公告内容来自 GitHub 仓库根目录的
+                    announce.md。开启后客户端检测到版本号变化时自动弹出公告面板；关闭后仅首次启动强制弹出一次，之后只能通过顶栏公告按钮手动查看。
                   </p>
                 </div>
 

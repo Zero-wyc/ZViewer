@@ -73,6 +73,7 @@ import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
 import { CustomColorPanel } from '@/components/CustomColorPanel'
 import { cn } from '@/lib/utils'
 import { useRoomExitGuard } from '@/hooks/useRoomExitGuard'
+import { AnnouncementButton } from '@/components/Announcement'
 
 export function Header() {
   const {
@@ -109,6 +110,8 @@ export function Header() {
   const [userClosing, setUserClosing] = useState(false)
   const [backgroundModalOpen, setBackgroundModalOpen] = useState(false)
   const [serverModalOpen, setServerModalOpen] = useState(false)
+  /** 公告面板开闭（AnnouncementButton 回传）：沉浸模式下锁定顶栏显隐 */
+  const [announceOpen, setAnnounceOpen] = useState(false)
 
   // 任一菜单/弹窗打开时锁定顶栏（鼠标移动到 portal 内容会触发根元素
   // mouseleave，不锁定会把还开着的菜单连顶栏一起收走）
@@ -118,7 +121,8 @@ export function Header() {
     userOpen ||
     userClosing ||
     backgroundModalOpen ||
-    serverModalOpen
+    serverModalOpen ||
+    announceOpen
   const headerShown = !immersive || hoverVisible || menuLocked
 
   // 菜单/弹窗全部关闭后复位悬停显隐：菜单开启期间根元素 mouseleave 被抑制，
@@ -415,6 +419,8 @@ export function Header() {
         </button>
 
         <div className="flex items-center gap-1.5">
+          {/* 公告按钮（含首次启动/版本更新自动弹出逻辑） */}
+          <AnnouncementButton onOpenChange={setAnnounceOpen} />
           <a
             href="https://github.com/Zero-wyc/ZViewer"
             target="_blank"

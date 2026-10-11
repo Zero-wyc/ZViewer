@@ -25,6 +25,7 @@ import {
 } from '../middleware/rate-limit';
 import { AVATARS_DIR } from '../services/paths';
 import { writeAuditLog } from '../services/audit';
+import { getLocalVersion } from '../services/updater';
 
 const router = Router();
 const userRepository = () => AppDataSource.getRepository(User);
@@ -342,6 +343,8 @@ router.get(
           bilibiliPgcDefaultMode: settings.bilibiliPgcDefaultMode,
           playsvideoEnabled: settings.playsvideoEnabled,
           roomPermissionMatrix: settings.roomPermissionMatrix,
+          announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
+          appVersion: getLocalVersion(),
         },
       });
     } catch (err) {

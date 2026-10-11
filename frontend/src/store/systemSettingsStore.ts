@@ -39,6 +39,10 @@ export interface SystemSettings {
   roomMultiInstanceLogin: boolean
   /** 自定义 LiveKit 服务器地址（客户端连接；空=按页面域名自动推导或环境变量） */
   livekitExternalUrl: string
+  /** 版本更新后是否自动弹出公告（首次启动强制弹出不受此开关限制） */
+  announceAutoPopupOnUpdate: boolean
+  /** 后端本地版本号（public-settings 下发，用于公告「版本更新自动弹出」判定） */
+  appVersion: string
   dataSourceConfig?: Record<string, unknown> | null
 }
 
@@ -73,6 +77,8 @@ const DEFAULT_SETTINGS: SystemSettings = {
   cdnProxyUrl: 'https://gh-proxy.com',
   roomMultiInstanceLogin: false,
   livekitExternalUrl: '',
+  announceAutoPopupOnUpdate: true,
+  appVersion: '',
   dataSourceConfig: null,
 }
 

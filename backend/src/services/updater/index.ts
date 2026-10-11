@@ -173,7 +173,7 @@ function httpsGetJson<T>(url: string): Promise<T> {
  * - tag 推送 (v*)：版本号为 tag 名（如 1.0.0）
  * - main 分支推送：版本号为 0.0.0-dev.<sha前7位>
  */
-function getLocalVersion(): string {
+export function getLocalVersion(): string {
   const root = projectRoot();
   const pkgPath = path.join(root, 'package.json');
   try {

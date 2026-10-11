@@ -145,6 +145,15 @@ export class SystemSettings {
   @Column({ type: 'text', default: '' })
   livekitExternalUrl!: string;
 
+  /**
+   * 版本更新后是否自动弹出公告（管理员基础设置）。
+   * - true（默认）：检测到前端版本号变化时自动弹出公告面板
+   * - false：仅首次启动强制弹出一次，版本更新不再自动弹出
+   * 首次启动（本地无已读记录）不受此开关限制，始终强制弹出。
+   */
+  @Column({ type: 'boolean', default: true })
+  announceAutoPopupOnUpdate!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
 
