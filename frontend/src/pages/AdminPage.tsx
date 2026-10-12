@@ -828,7 +828,7 @@ export default function AdminPage() {
     setSavingSettings(true)
     try {
       // 仅在 dataSourceConfig 有值时传递，避免 null 覆盖已有配置；
-      // dataSourceConfig 的编辑入口在"数据源设置"卡片，不在权限管理页面。
+      // dataSourceConfig 的编辑入口在"数据源设置"卡片，不在管理页面。
       const payload: Record<string, unknown> = {
         autoDeleteInactiveRooms: settings.autoDeleteInactiveRooms,
         autoDeleteAfterHours: settings.autoDeleteAfterHours,
@@ -938,9 +938,9 @@ export default function AdminPage() {
             <Shield className="h-6 w-6" />
           </div>
           <Title level={3} className="m-0">
-            权限管理
+            管理页面
           </Title>
-          <Text type="secondary">管理用户角色与房间状态</Text>
+          <Text type="secondary">管理用户账号、房间运行与服务器基础设置</Text>
         </div>
 
         <div className="mb-6 flex flex-wrap items-center justify-center gap-2">

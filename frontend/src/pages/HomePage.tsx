@@ -300,7 +300,7 @@ function HomePage() {
                       block
                       onClick={() => navigate('/admin')}
                     >
-                      权限管理
+                      管理页面
                     </Button>
                   </Fade>
                 )}

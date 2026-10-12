@@ -355,7 +355,7 @@ export function Header() {
       ? [
           {
             icon: <Shield className="w-4 h-4" />,
-            label: '权限管理',
+            label: '管理页面',
             to: '/admin',
           },
         ]
