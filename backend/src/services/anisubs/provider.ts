@@ -32,9 +32,15 @@ export function createWebSelectorProvider(
     name: displayName,
 
     async search(keyword: string): Promise<AniSubsSearchResult[]> {
+      let searchTerm = keyword.trim();
+      if (config.searchRemoveSpecial)
+        searchTerm = searchTerm.replace(/[^\p{L}\p{N}\s]/gu, ' ').trim();
+      if (config.searchUseOnlyFirstWord)
+        searchTerm = searchTerm.split(/\s+/)[0];
+      if (!searchTerm) return [];
       const searchUrl = config.searchUrl.replace(
         /\{keyword\}/g,
-        encodeURIComponent(keyword),
+        encodeURIComponent(searchTerm),
       );
       const html = await fetchHtml(searchUrl, config.matchVideo?.cookies);
       const subjects = parseSearchResults(html, config, searchUrl);
@@ -51,6 +57,7 @@ export function createWebSelectorProvider(
         .map((s) => ({
           id: s.url,
           title: s.title,
+          cover: s.cover,
           source: sourceId,
         }));
     },
@@ -124,15 +131,8 @@ function extractTextContent(tagName: string, xml: string): string {
   return decodeXmlEntities(stripCdata(match[1]).trim());
 }
 
-function extractAttribute(
-  tagName: string,
-  attr: string,
-  xml: string,
-): string {
-  const regex = new RegExp(
-    `<${tagName}[^>]*\\s${attr}="([^"]*)"[^>]*>`,
-    'i',
-  );
+function extractAttribute(tagName: string, attr: string, xml: string): string {
+  const regex = new RegExp(`<${tagName}[^>]*\\s${attr}="([^"]*)"[^>]*>`, 'i');
   const match = xml.match(regex);
   return match ? decodeXmlEntities(match[1]) : '';
 }

@@ -8,6 +8,11 @@
 import { load } from 'cheerio';
 import type { AniSubsSearchConfig, AniSubsMediaFormat } from './types';
 import { fetchText, type FetchTextResult } from './httpClient';
+import {
+  createSearchPosterReader,
+  imageUrl,
+  selectJsonPath,
+} from '../anime/searchMetadata';
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
@@ -56,9 +61,7 @@ export function buildBrowserHeaders(
  * 检测响应是否被 Cloudflare 拦截（JS Challenge / Managed Challenge）。
  * 兼容 Response 和 FetchTextResult 两种输入。
  */
-export function isCloudflareBlocked(
-  res: Response | FetchTextResult,
-): boolean {
+export function isCloudflareBlocked(res: Response | FetchTextResult): boolean {
   const status = res.status;
   if (status !== 403 && status !== 503) return false;
   const server =
@@ -182,6 +185,7 @@ export function detectMediaFormat(url: string): AniSubsMediaFormat {
 interface SubjectLink {
   title: string;
   url: string;
+  cover?: string;
 }
 
 interface EpisodeInfo {
@@ -201,7 +205,8 @@ function selectSubjectLinksA(
   const results: SubjectLink[] = [];
   $(selector).each((_idx: number, el: unknown) => {
     const $el = $(asCheerioInput(el));
-    const title = $el.text().trim();
+    const title =
+      $el.text().trim() || $el.attr('title') || $el.attr('alt') || '';
     let url = $el.attr('href') || '';
     if (!url && $el.is('img')) {
       const parent = $el.closest('a');
@@ -244,15 +249,46 @@ export function parseSearchResults(
   searchUrl: string,
 ): SubjectLink[] {
   const $ = load(html);
-  const baseUrl = resolveBaseUrl(searchUrl);
+  const baseUrl = config.rawBaseUrl || searchUrl;
   const formatId = config.subjectFormatId || 'a';
+  if (
+    formatId === 'json-path-indexed' &&
+    config.selectorSubjectFormatJsonPathIndexed
+  ) {
+    const document: unknown = JSON.parse(html);
+    const selectors = config.selectorSubjectFormatJsonPathIndexed;
+    const names = selectJsonPath(document, selectors.selectNames);
+    const links = selectJsonPath(document, selectors.selectLinks);
+    const covers = selectors.selectCovers
+      ? selectJsonPath(document, selectors.selectCovers)
+      : [];
+    return names.flatMap((title, index) => {
+      const url = imageUrl(
+        typeof links[index] === 'string' ? links[index] : undefined,
+        baseUrl,
+      );
+      return typeof title === 'string' && title.trim() && url
+        ? [
+            {
+              title: title.trim(),
+              url,
+              cover: imageUrl(
+                typeof covers[index] === 'string' ? covers[index] : undefined,
+                baseUrl,
+              ),
+            },
+          ]
+        : [];
+    });
+  }
+  const readPoster = createSearchPosterReader(html, baseUrl);
 
   if (formatId === 'a' && config.selectorSubjectFormatA) {
     return selectSubjectLinksA(
       $,
       config.selectorSubjectFormatA.selectLists,
       baseUrl,
-    );
+    ).map((subject) => ({ ...subject, cover: readPoster(subject.url) }));
   }
 
   if (formatId === 'indexed' && config.selectorSubjectFormatIndexed) {
@@ -261,9 +297,11 @@ export function parseSearchResults(
       config.selectorSubjectFormatIndexed.selectNames,
       config.selectorSubjectFormatIndexed.selectLinks,
       baseUrl,
-    );
+    ).map((subject) => ({ ...subject, cover: readPoster(subject.url) }));
   }
 
+  if (formatId !== 'a' && formatId !== 'indexed')
+    throw new Error(`不支持的搜索结果格式: ${formatId}`);
   return [];
 }
 
@@ -299,6 +337,9 @@ function extractEpisodesIndexGrouped(
         if (!url && channelConfig.selectEpisodeLinksFromList) {
           url =
             $ep.find(channelConfig.selectEpisodeLinksFromList).attr('href') ||
+            $ep
+              .closest(channelConfig.selectEpisodeLinksFromList)
+              .attr('href') ||
             '';
         }
         if (!title || !url) return;
@@ -330,7 +371,10 @@ function extractEpisodesNoChannel(
     const title = $ep.text().trim();
     let url = $ep.attr('href') || '';
     if (!url && config.selectEpisodeLinks) {
-      url = $ep.find(config.selectEpisodeLinks).attr('href') || '';
+      url =
+        $ep.find(config.selectEpisodeLinks).attr('href') ||
+        $ep.closest(config.selectEpisodeLinks).attr('href') ||
+        '';
     }
     if (!title || !url) return;
     const episodeNumber = extractEpisodeNumber(
