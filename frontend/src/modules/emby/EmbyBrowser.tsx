@@ -70,6 +70,7 @@ export interface MediaLibraryBrowserProps {
   episodeGrid?: boolean
   /** Keep anime keywords while changing sources or browsing episodes. */
   preserveSearchTerm?: boolean
+  searchOnSourceChange?: boolean
   rootLabel?: string
   searchPlaceholder?: string
   emptyText?: string
@@ -119,6 +120,7 @@ export default function EmbyBrowser({
   showParentDirectory = true,
   episodeGrid = false,
   preserveSearchTerm = false,
+  searchOnSourceChange = false,
   rootLabel = '媒体库',
   searchPlaceholder = '搜索媒体库（电影 / 剧集 / 单集）',
   emptyText = '当前目录为空',
@@ -208,23 +210,6 @@ export default function EmbyBrowser({
     [mountId, browse]
   )
 
-  // React Compiler 严格规则误报：Modal 打开时重置浏览状态并加载媒体库。
-  /* eslint-disable react-hooks/set-state-in-effect */
-  useEffect(() => {
-    if (open && mountId !== null) {
-      setCrumbs([])
-      setEntries([])
-      setParentEntries([])
-      setSelectedPaths(new Set())
-      setMultiSelectMode(false)
-      if (!preserveSearchTerm) setSearchTerm('')
-      setSearchView(false)
-      setSearchResults([])
-      void load([])
-    }
-  }, [open, mountId, load, preserveSearchTerm])
-  /* eslint-enable react-hooks/set-state-in-effect */
-
   const doSearch = useCallback(
     async (term: string) => {
       const trimmed = term.trim()
@@ -253,6 +238,49 @@ export default function EmbyBrowser({
     },
     [search, mountId, busy]
   )
+
+  const browserContext = useRef<{
+    open: boolean
+    mountId: number | null
+    load: typeof load
+  } | null>(null)
+  // Reset source contents once per context change; typing must never trigger a search.
+  /* eslint-disable react-hooks/set-state-in-effect */
+  useEffect(() => {
+    const previous = browserContext.current
+    browserContext.current = { open, mountId, load }
+    if (!open || mountId === null) return
+    if (
+      previous?.open &&
+      previous.mountId === mountId &&
+      previous.load === load
+    )
+      return
+    setCrumbs([])
+    setEntries([])
+    setParentEntries([])
+    setSelectedPaths(new Set())
+    setMultiSelectMode(false)
+    if (!preserveSearchTerm) setSearchTerm('')
+    setSearchView(false)
+    setSearchResults([])
+    const switchedSource =
+      previous?.open &&
+      previous.mountId !== null &&
+      previous.mountId !== mountId
+    if (searchOnSourceChange && switchedSource && searchTerm.trim())
+      void doSearch(searchTerm)
+    else void load([])
+  }, [
+    open,
+    mountId,
+    load,
+    preserveSearchTerm,
+    searchOnSourceChange,
+    searchTerm,
+    doSearch,
+  ])
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   /** 当前展示的条目：搜索态 = 搜索结果，否则 = 当前目录 */
   const displayEntries = searchActive ? searchResults : entries

@@ -21,8 +21,9 @@ test('shared anime browser scrolls large results, shows posters and retries fail
         window.searchCalls=[]
         const search=async(source,keyword)=>{
           window.searchCalls.push({source,keyword})
-          if(keyword==='slow') { await new Promise(resolve=>window.finishSlowSearch=resolve); window.slowCompleted=true }
-          return Array.from({length:120},(_,i)=>({id:source+'/show/'+i,title:'Show '+i,source,cover:location.origin+(i===0?'/blocked.svg':'/cover.svg')}))
+          const slow=source==='b'&&keyword==='slow'
+          if(slow) { await new Promise(resolve=>window.finishSlowSearch=resolve); window.slowCompleted=true }
+          return Array.from({length:120},(_,i)=>({id:source+'/show/'+i,title:(slow?'Old result ':'Show ')+i,source,cover:location.origin+(i===0?'/blocked.svg':'/cover.svg')}))
         }
         const getEpisodes=async()=>Array.from({length:3600},(_,i)=>({id:String(i),title:'Episode '+i,episodeNumber:i+1,playbackParams:{}}))
         window.batches=[];window.closeCount=0
@@ -105,6 +106,7 @@ test('shared anime browser scrolls large results, shows posters and retries fail
       await page.getByRole('button', { name: 'Fixture A', exact: true }).click()
       await page.getByRole('button', { name: 'Fixture B', exact: true }).click()
       await page.locator('.zen-dropdown-exit').waitFor({ state: 'detached' })
+      await page.getByText('Show 119', { exact: true }).waitFor()
       assert.equal(await keyword.inputValue(), '保留关键词')
       assert.ok(
         await page
@@ -123,7 +125,11 @@ test('shared anime browser scrolls large results, shows posters and retries fail
       await page.evaluate(() => window.finishSlowSearch())
       await page.waitForFunction(() => window.slowCompleted)
       assert.equal(await keyword.inputValue(), 'slow')
-      assert.equal(await page.getByText('Show 0', { exact: true }).count(), 0)
+      await page.getByText('Show 119', { exact: true }).waitFor()
+      assert.equal(
+        await page.getByText('Old result 0', { exact: true }).count(),
+        0
+      )
       assert.ok(
         await page
           .getByRole('button', { name: '退出网页全屏', exact: true })
@@ -139,6 +145,7 @@ test('shared anime browser scrolls large results, shows posters and retries fail
         .first()
         .click()
       await page.getByRole('button', { name: 'Fixture B', exact: true }).click()
+      await page.getByText('Show 119', { exact: true }).waitFor()
       assert.equal(await keyword.inputValue(), 'stable')
       assert.equal(
         await page.getByText('Episode 0', { exact: true }).count(),
@@ -150,9 +157,18 @@ test('shared anime browser scrolls large results, shows posters and retries fail
           .isVisible()
       )
       assert.deepEqual(await page.evaluate(() => window.searchCalls), [
+        { source: 'b', keyword: '保留关键词' },
         { source: 'b', keyword: 'slow' },
+        { source: 'a', keyword: 'slow' },
         { source: 'a', keyword: 'stable' },
+        { source: 'b', keyword: 'stable' },
       ])
+      await page.locator('.zen-dropdown-exit').waitFor({ state: 'detached' })
+      await keyword.fill('   ')
+      await page.getByRole('button', { name: 'Fixture B', exact: true }).click()
+      await page.getByRole('button', { name: 'Fixture A', exact: true }).click()
+      await page.locator('.zen-dropdown-exit').waitFor({ state: 'detached' })
+      assert.equal(await page.evaluate(() => window.searchCalls.length), 5)
     }
     await page.goto(base)
     await page.getByRole('button', { name: 'Fixture A', exact: true }).waitFor()

@@ -202,6 +202,7 @@ export function AnimeSourceBrowser({
       showParentDirectory={false}
       episodeGrid
       preserveSearchTerm
+      searchOnSourceChange
       browse={browse}
       search={doSearch}
       onSelectFiles={addFiles}
@@ -221,6 +222,7 @@ export function AnimeSourceBrowser({
             placeholder="选择数据源"
             disabled={!sources.length || disabled || addingSeries}
             onChange={(value) => {
+              if (value === sourceId) return
               sourceGeneration.current++
               shows.current = []
               selections.current.clear()
