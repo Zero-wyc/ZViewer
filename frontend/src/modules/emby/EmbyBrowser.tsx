@@ -6,7 +6,7 @@
  * - 左列 = 上级目录的条目（父级文件夹），点击进入
  * - 右列 = 当前目录条目（文件夹进入，文件选中/添加）
  */
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Folder,
   Film,
@@ -44,7 +44,10 @@ export interface MediaLibraryBrowserProps {
    * 选中回调。paths 为条目 path 列表；entries 为对应完整条目信息
    * （含 embyType/imageTag 等，供剧集整卡添加等场景判断类型），可能为 undefined。
    */
-  onSelectFiles?: (paths: string[], entries?: EmbyDirectoryEntry[]) => void
+  onSelectFiles?: (
+    paths: string[],
+    entries?: EmbyDirectoryEntry[]
+  ) => void | Promise<void | string[]>
   /**
    * 一键添加整部影片（Series → 整部剧 / Season → 整季）。
    * 提供时，剧集/季条目上会渲染快捷按钮，点击直接走整卡添加流程，
@@ -60,6 +63,16 @@ export interface MediaLibraryBrowserProps {
   title?: string
   /** 海报图代理的 API 前缀（Jellyfin 传 'jellyfin'），默认 'emby' */
   imageApi?: 'emby' | 'jellyfin'
+  /** Adapters can reuse the same browser controls for other media libraries. */
+  toolbar?: React.ReactNode
+  searchPrefix?: React.ReactNode
+  showParentDirectory?: boolean
+  episodeGrid?: boolean
+  rootLabel?: string
+  searchPlaceholder?: string
+  emptyText?: string
+  renderPoster?: (entry: EmbyDirectoryEntry) => React.ReactNode
+  disabled?: boolean
 }
 
 interface Crumb {
@@ -99,6 +112,15 @@ export default function EmbyBrowser({
   search = searchEmbyMount,
   title = '浏览 Emby 媒体库',
   imageApi = 'emby',
+  toolbar,
+  searchPrefix,
+  showParentDirectory = true,
+  episodeGrid = false,
+  rootLabel = '媒体库',
+  searchPlaceholder = '搜索媒体库（电影 / 剧集 / 单集）',
+  emptyText = '当前目录为空',
+  renderPoster,
+  disabled = false,
 }: MediaLibraryBrowserProps) {
   /** 面包屑历史栈：不含根（根 = 媒体库） */
   const [crumbs, setCrumbs] = useState<Crumb[]>([])
@@ -110,6 +132,8 @@ export default function EmbyBrowser({
   const [error, setError] = useState('')
   const [selectedPaths, setSelectedPaths] = useState<Set<string>>(new Set())
   const [multiSelectMode, setMultiSelectMode] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const busy = disabled || adding
   /** 视图模式：list = 双列文件列表，wall = 刮削海报瀑布流 */
   const [viewMode, setViewMode] = useState<'list' | 'wall'>(() => {
     const saved = localStorage.getItem('media-library-view-mode')
@@ -119,6 +143,7 @@ export default function EmbyBrowser({
   const [searchTerm, setSearchTerm] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<EmbyDirectoryEntry[]>([])
+  const searchRequest = useRef(0)
   const searchActive = searchTerm.trim().length > 0
 
   const switchViewMode = (mode: 'list' | 'wall') => {
@@ -128,10 +153,12 @@ export default function EmbyBrowser({
 
   const currentPath =
     crumbs.length > 0 ? crumbs[crumbs.length - 1].path : undefined
+  const compactEpisodes = episodeGrid && !!currentPath && !searchActive
 
   const load = useCallback(
     async (nextCrumbs: Crumb[]) => {
       if (mountId === null) return
+      searchRequest.current++
       setLoading(true)
       setError('')
       try {
@@ -187,23 +214,27 @@ export default function EmbyBrowser({
   const doSearch = useCallback(
     async (term: string) => {
       const trimmed = term.trim()
-      if (!search || mountId === null) return
+      if (!search || mountId === null || busy) return
+      const request = ++searchRequest.current
       if (!trimmed) {
         setSearchResults([])
         return
       }
       setSearching(true)
+      setError('')
       try {
         const data = await search(mountId, trimmed)
+        if (request !== searchRequest.current) return
         setSearchResults(data)
       } catch (err) {
+        if (request !== searchRequest.current) return
         setSearchResults([])
         setError(err instanceof Error ? err.message : '搜索失败')
       } finally {
-        setSearching(false)
+        if (request === searchRequest.current) setSearching(false)
       }
     },
-    [search, mountId]
+    [search, mountId, busy]
   )
 
   /** 当前展示的条目：搜索态 = 搜索结果，否则 = 当前目录 */
@@ -228,9 +259,14 @@ export default function EmbyBrowser({
     void load([...base, { name: entry.name, path: entry.path }])
   }
 
-  const goRoot = () => void load([])
+  const goRoot = () => {
+    setSearchTerm('')
+    setSearchResults([])
+    void load([])
+  }
 
   const toggleSelection = (path: string) => {
+    if (busy) return
     setSelectedPaths((prev) => {
       const next = new Set(prev)
       if (next.has(path)) {
@@ -254,13 +290,25 @@ export default function EmbyBrowser({
     [selectedPaths, displayEntries, searchActive, parentEntries]
   )
 
-  const confirmSelection = () => {
-    if (selectedFiles.length === 0) return
-    onSelectFiles?.(
-      selectedFiles.map((f) => f.path),
-      selectedFiles
-    )
-    onClose()
+  const confirmSelection = async () => {
+    if (busy || selectedFiles.length === 0) return
+    setAdding(true)
+    try {
+      const added = await onSelectFiles?.(
+        selectedFiles.map((f) => f.path),
+        selectedFiles
+      )
+      if (Array.isArray(added)) {
+        setSelectedPaths(
+          (previous) =>
+            new Set([...previous].filter((path) => !added.includes(path)))
+        )
+        if (selectedFiles.some((file) => !added.includes(file.path))) return
+      }
+      onClose()
+    } finally {
+      setAdding(false)
+    }
   }
 
   /** 剧集/季/普通文件夹条目支持一键整卡添加（Series=整部剧，Season=整季，
@@ -290,6 +338,7 @@ export default function EmbyBrowser({
             : 'absolute bottom-1.5 right-1.5 bg-black/60 px-1.5 py-1 text-[10px] leading-none text-white opacity-0 hover:bg-[var(--md-sys-color-primary)] group-hover:opacity-100'
         )}
         title={quickAddLabel(entry)}
+        disabled={busy}
         onClick={(e) => {
           e.stopPropagation()
           onQuickAddSeries?.(entry)
@@ -333,8 +382,11 @@ export default function EmbyBrowser({
     entry: EmbyDirectoryEntry
   ): { text: string; className: string } | null => {
     if (entry.embyType === 'Series') {
-      const count = entry.recursiveItemCount ?? entry.childCount ?? 0
-      return { text: `${count} 集`, className: 'bg-emerald-600/85' }
+      const count = entry.recursiveItemCount ?? entry.childCount
+      return {
+        text: count == null ? '剧集' : `${count} 集`,
+        className: 'bg-emerald-600/85',
+      }
     }
     if (entry.embyType === 'Movie') {
       if (entry.filePath) {
@@ -386,6 +438,7 @@ export default function EmbyBrowser({
             : 'hover:bg-[var(--md-sys-color-surface-container-high)] hover:translate-x-0.5'
         )}
         onClick={() => {
+          if (busy) return
           if (isDirectory) {
             if (side === 'left') {
               openLeftDirectory(entry)
@@ -411,7 +464,7 @@ export default function EmbyBrowser({
         </span>
 
         {(() => {
-          const badge = entryBadge(entry)
+          const badge = compactEpisodes ? null : entryBadge(entry)
           return badge ? (
             <span
               className={cn(
@@ -475,6 +528,7 @@ export default function EmbyBrowser({
               : 'border-transparent hover:-translate-y-0.5 hover:shadow-md'
         )}
         onClick={() => {
+          if (busy) return
           if (isDirectory) {
             openDirectory(entry)
           } else {
@@ -492,22 +546,26 @@ export default function EmbyBrowser({
               <Film className="h-8 w-8 opacity-40" />
             )}
           </div>
-          <img
-            src={buildEmbyImageUrl(
-              imageApi,
-              mountId ?? 0,
-              entry.path,
-              entry.imageTag,
-              300
-            )}
-            alt={entry.name}
-            loading="lazy"
-            className="relative h-full w-full object-cover"
-            onError={(e) => {
-              ;(e.target as HTMLImageElement).style.visibility = 'hidden'
-            }}
-          />
-          {isDirectory && (
+          {renderPoster ? (
+            renderPoster(entry)
+          ) : (
+            <img
+              src={buildEmbyImageUrl(
+                imageApi,
+                mountId ?? 0,
+                entry.path,
+                entry.imageTag,
+                300
+              )}
+              alt={entry.name}
+              loading="lazy"
+              className="relative h-full w-full object-cover"
+              onError={(e) => {
+                ;(e.target as HTMLImageElement).style.visibility = 'hidden'
+              }}
+            />
+          )}
+          {isDirectory && entry.childCount != null && (
             <div className="absolute right-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
               {entry.childCount ?? 0} 项
             </div>
@@ -558,10 +616,10 @@ export default function EmbyBrowser({
 
   const breadcrumb = useMemo(
     () => [
-      { name: '媒体库', path: undefined as string | undefined },
+      { name: rootLabel, path: undefined as string | undefined },
       ...crumbs,
     ],
-    [crumbs]
+    [crumbs, rootLabel]
   )
 
   const loadingSkeletons = (
@@ -602,9 +660,11 @@ export default function EmbyBrowser({
   return (
     <Modal
       open={open}
-      onClose={onClose}
+      onClose={() => {
+        if (!busy) onClose()
+      }}
       title={title}
-      className="max-w-4xl"
+      className="h-[624px] max-w-4xl"
       fullscreenable
       footer={
         <div className="flex w-full items-center justify-between">
@@ -621,15 +681,21 @@ export default function EmbyBrowser({
               : '多选模式可批量添加'}
           </Text>
           <div className="flex items-center gap-3">
-            <Button variant="secondary" size="md" onClick={onClose}>
+            <Button
+              variant="secondary"
+              size="md"
+              onClick={onClose}
+              disabled={busy}
+            >
               取消
             </Button>
             <Button
               variant="primary"
               size="md"
               icon={<Plus className="h-4 w-4" />}
-              onClick={confirmSelection}
-              disabled={selectedFiles.length === 0}
+              onClick={() => void confirmSelection()}
+              loading={adding}
+              disabled={busy || selectedFiles.length === 0}
             >
               {multiSelectMode
                 ? `添加 (${selectedFiles.length})`
@@ -639,7 +705,12 @@ export default function EmbyBrowser({
         </div>
       }
     >
-      <div className="relative flex h-full min-h-[420px] flex-col">
+      <div className="relative flex h-full min-h-0 flex-col">
+        {toolbar && (
+          <fieldset disabled={busy} className="shrink-0">
+            {toolbar}
+          </fieldset>
+        )}
         {error ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <Text className="text-base text-[var(--md-sys-color-error)]">
@@ -659,7 +730,12 @@ export default function EmbyBrowser({
           <>
             {search && (
               <div className="mb-3 flex items-center gap-2">
-                <div className="relative flex-1">
+                {searchPrefix && (
+                  <fieldset disabled={busy} className="w-28 shrink-0 sm:w-48">
+                    {searchPrefix}
+                  </fieldset>
+                )}
+                <div className="relative min-w-0 flex-1">
                   <Input
                     size="md"
                     value={searchTerm}
@@ -673,7 +749,8 @@ export default function EmbyBrowser({
                         void doSearch(searchTerm)
                       }
                     }}
-                    placeholder="搜索媒体库（电影 / 剧集 / 单集）"
+                    placeholder={searchPlaceholder}
+                    disabled={busy}
                     className="w-full pr-9"
                   />
                   {searchTerm && (
@@ -681,6 +758,8 @@ export default function EmbyBrowser({
                       type="button"
                       className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
                       onClick={() => {
+                        searchRequest.current++
+                        setSearching(false)
                         setSearchTerm('')
                         setSearchResults([])
                       }}
@@ -695,7 +774,7 @@ export default function EmbyBrowser({
                   size="md"
                   icon={<Search className="h-4 w-4" />}
                   loading={searching}
-                  disabled={!searchTerm.trim()}
+                  disabled={busy || !searchTerm.trim()}
                   onClick={() => void doSearch(searchTerm)}
                   className="h-[42px] shrink-0"
                 >
@@ -703,84 +782,103 @@ export default function EmbyBrowser({
                 </Button>
               </div>
             )}
-            {!searchActive ? (
-              <>
-                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                    {breadcrumb.map((item, index) => (
-                      <span
-                        key={item.path ?? 'root'}
-                        className="flex items-center"
-                      >
-                        {index > 0 && <ChevronRight className="mx-1 h-4 w-4" />}
-                        <button
-                          className="rounded-lg px-2 py-1 hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
-                          onClick={() => {
-                            if (item.path === undefined) {
-                              goRoot()
-                            } else {
-                              void load(crumbs.slice(0, index))
-                            }
-                          }}
-                        >
-                          {item.name}
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-
-                  {/* 视图切换：列表 / 海报墙 */}
-                  <div
-                    className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
-                    style={{
-                      borderColor: 'var(--md-sys-color-outline-variant)',
-                    }}
-                  >
+            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap items-center gap-1.5 text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                {(searchActive
+                  ? [{ name: '搜索结果', path: undefined }]
+                  : breadcrumb
+                ).map((item, index) => (
+                  <span key={item.path ?? 'root'} className="flex items-center">
+                    {index > 0 && <ChevronRight className="mx-1 h-4 w-4" />}
                     <button
-                      type="button"
-                      onClick={() => switchViewMode('list')}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1 text-xs font-medium transition-all',
-                        viewMode === 'list'
-                          ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                          : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
-                      )}
-                      title="列表视图"
+                      className="rounded-lg px-2 py-1 hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-on-surface)]"
+                      onClick={() => {
+                        if (item.path === undefined) {
+                          goRoot()
+                        } else {
+                          void load(crumbs.slice(0, index))
+                        }
+                      }}
                     >
-                      <List className="h-3.5 w-3.5" />
-                      列表
+                      {item.name}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => switchViewMode('wall')}
-                      className={cn(
-                        'flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1 text-xs font-medium transition-all',
-                        viewMode === 'wall'
-                          ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-                          : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
-                      )}
-                      title="海报墙视图（拉取刮削封面）"
-                    >
-                      <LayoutGrid className="h-3.5 w-3.5" />
-                      海报墙
-                    </button>
-                  </div>
+                  </span>
+                ))}
+              </div>
 
-                  <Button
-                    variant={multiSelectMode ? 'primary' : 'secondary'}
-                    size="sm"
-                    icon={<ListChecks className="h-4 w-4" />}
-                    onClick={() => {
-                      setMultiSelectMode((prev) => {
-                        if (prev) setSelectedPaths(new Set())
-                        return !prev
-                      })
-                    }}
+              {/* 视图切换：列表 / 海报墙 */}
+              {!compactEpisodes && (
+                <div
+                  className="inline-flex rounded-[var(--md-sys-shape-corner)] border p-0.5"
+                  style={{
+                    borderColor: 'var(--md-sys-color-outline-variant)',
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={() => switchViewMode('list')}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1 text-xs font-medium transition-all',
+                      viewMode === 'list'
+                        ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                        : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
+                    )}
+                    title="列表视图"
                   >
-                    {multiSelectMode ? '退出多选' : '多选'}
-                  </Button>
+                    <List className="h-3.5 w-3.5" />
+                    列表
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => switchViewMode('wall')}
+                    className={cn(
+                      'flex items-center gap-1.5 rounded-[calc(var(--md-sys-shape-corner)-2px)] px-2.5 py-1 text-xs font-medium transition-all',
+                      viewMode === 'wall'
+                        ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
+                        : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
+                    )}
+                    title="海报墙视图（拉取刮削封面）"
+                  >
+                    <LayoutGrid className="h-3.5 w-3.5" />
+                    海报墙
+                  </button>
                 </div>
+              )}
 
+              <Button
+                variant={multiSelectMode ? 'primary' : 'secondary'}
+                size="sm"
+                icon={<ListChecks className="h-4 w-4" />}
+                disabled={busy}
+                onClick={() => {
+                  setMultiSelectMode((prev) => {
+                    if (prev) setSelectedPaths(new Set())
+                    return !prev
+                  })
+                }}
+              >
+                {multiSelectMode ? '退出多选' : '多选'}
+              </Button>
+            </div>
+
+            {compactEpisodes ? (
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80">
+                <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-2 text-sm font-semibold">
+                  集数（{entries.length}）
+                </div>
+                <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-2">
+                  <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+                    {entries.map((entry) => renderEntry(entry, 'right'))}
+                  </div>
+                  {entries.length === 0 && (
+                    <Text className="block py-8 text-center text-sm">
+                      暂无集数信息
+                    </Text>
+                  )}
+                </div>
+              </div>
+            ) : !searchActive ? (
+              <>
                 {viewMode === 'wall' ? (
                   /* 海报墙视图：直接消费刮削内容（Primary 海报经后端代理）。
                       auto-fill 按容器宽度自适应列数：网页全屏（分辨率更高）时
@@ -792,42 +890,49 @@ export default function EmbyBrowser({
                       </div>
                     ) : (
                       <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                        当前目录为空
+                        {emptyText}
                       </Text>
                     )}
                   </div>
                 ) : (
-                  <div className="grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm md:grid-cols-2">
+                  <div
+                    className={cn(
+                      'grid min-h-0 flex-1 grid-cols-1 gap-4 overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] backdrop-blur-sm',
+                      showParentDirectory && 'md:grid-cols-2'
+                    )}
+                  >
                     {/* 左侧：上级目录（小屏单栏时隐藏，导航由面包屑承担） */}
-                    <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
-                      <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                        上级目录
-                      </div>
-                      <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-3">
-                        {currentPath ? (
-                          parentEntries.length > 0 ? (
-                            parentEntries.map((entry) =>
-                              entry.type === 'directory'
-                                ? renderEntry(entry, 'left')
-                                : null
+                    {showParentDirectory && (
+                      <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
+                        <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+                          上级目录
+                        </div>
+                        <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-3">
+                          {currentPath ? (
+                            parentEntries.length > 0 ? (
+                              parentEntries.map((entry) =>
+                                entry.type === 'directory'
+                                  ? renderEntry(entry, 'left')
+                                  : null
+                              )
+                            ) : (
+                              <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                                上级目录为空
+                              </Text>
                             )
                           ) : (
-                            <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                              上级目录为空
-                            </Text>
-                          )
-                        ) : (
-                          <div className="flex flex-col items-center gap-3 py-10 text-center">
-                            <Folder className="h-8 w-8 text-[var(--md-sys-color-outline)]" />
-                            <Text className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                              当前位于媒体库根目录
-                              <br />
-                              在右侧进入媒体库后即可查看上级
-                            </Text>
-                          </div>
-                        )}
+                            <div className="flex flex-col items-center gap-3 py-10 text-center">
+                              <Folder className="h-8 w-8 text-[var(--md-sys-color-outline)]" />
+                              <Text className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                                当前位于媒体库根目录
+                                <br />
+                                在右侧进入媒体库后即可查看上级
+                              </Text>
+                            </div>
+                          )}
+                        </div>
                       </div>
-                    </div>
+                    )}
 
                     {/* 右侧：当前目录 */}
                     <div className="flex min-h-0 flex-col bg-[var(--md-sys-color-surface)]/80">
@@ -839,7 +944,7 @@ export default function EmbyBrowser({
                           entries.map((entry) => renderEntry(entry, 'right'))
                         ) : (
                           <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                            当前目录为空
+                            {emptyText}
                           </Text>
                         )}
                       </div>

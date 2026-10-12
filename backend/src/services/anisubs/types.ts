@@ -64,6 +64,7 @@ export interface AniSubsMediaSource {
 /** web-selector 抓取配置（ani-subs JSON schema 子集） */
 export interface AniSubsSearchConfig {
   searchUrl: string;
+  rawBaseUrl?: string;
   searchUseOnlyFirstWord?: boolean;
   searchRemoveSpecial?: boolean;
   searchUseSubjectNamesCount?: number;
@@ -80,6 +81,7 @@ export interface AniSubsSearchConfig {
   selectorSubjectFormatJsonPathIndexed?: {
     selectNames: string;
     selectLinks: string;
+    selectCovers?: string;
     preferShorterName?: boolean;
   };
   channelFormatId?: 'index-grouped' | 'no-channel' | string;

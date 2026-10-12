@@ -7,9 +7,13 @@
  */
 
 import type { AniSubsSourceProvider, AniSubsEpisode } from './types';
-import { fetchSubscription, buildProvidersFromSubscription } from './subscription';
+import {
+  fetchSubscription,
+  buildProvidersFromSubscription,
+} from './subscription';
 import { AppDataSource } from '../../data-source';
 import { SystemSettings } from '../../entities/SystemSettings';
+import { defaultSourceOverride } from './defaultCompatibility';
 
 export * from './types';
 
@@ -77,7 +81,10 @@ export async function buildProviders(
     if (!url || typeof url !== 'string') continue;
     try {
       const subscription = await fetchSubscription(url);
-      const subsProviders = buildProvidersFromSubscription(subscription);
+      const subsProviders = buildProvidersFromSubscription(
+        subscription,
+        (source) => defaultSourceOverride(url, source),
+      );
       console.log(
         `[anisubs] 订阅 ${url}: 构建了 ${Object.keys(subsProviders).length} 个 provider`,
       );
@@ -87,7 +94,9 @@ export async function buildProviders(
     }
   }
 
-  console.log(`[anisubs] buildProviders: 共 ${Object.keys(providers).length} 个 provider`);
+  console.log(
+    `[anisubs] buildProviders: 共 ${Object.keys(providers).length} 个 provider`,
+  );
 
   return providers;
 }

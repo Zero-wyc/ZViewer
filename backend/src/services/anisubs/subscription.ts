@@ -90,10 +90,7 @@ function buildProviderFromMediaSource(
     }
   }
 
-  if (
-    source.factoryId === 'web-selector' &&
-    source.arguments.searchConfig
-  ) {
+  if (source.factoryId === 'web-selector' && source.arguments.searchConfig) {
     return {
       id,
       provider: createWebSelectorProvider(
@@ -110,12 +107,17 @@ function buildProviderFromMediaSource(
 /** 从订阅构建所有 provider，返回 id → provider 映射 */
 export function buildProvidersFromSubscription(
   subscription: AniSubsSubscription,
+  transform: (source: AniSubsMediaSource) => AniSubsMediaSource | null = (
+    source,
+  ) => source,
 ): Record<string, AniSubsSourceProvider> {
   const providers: Record<string, AniSubsSourceProvider> = {};
   const sources = subscription.exportedMediaSourceDataList?.mediaSources || [];
 
   sources.forEach((source, index) => {
-    const result = buildProviderFromMediaSource(source, index);
+    const normalized = transform(source);
+    if (!normalized) return;
+    const result = buildProviderFromMediaSource(normalized, index);
     if (result) {
       providers[result.id] = result.provider;
     }
