@@ -523,6 +523,7 @@ router.get(
         settings: {
           autoDeleteInactiveRooms: settings.autoDeleteInactiveRooms,
           autoDeleteAfterHours: settings.autoDeleteAfterHours,
+          roomDefaultMusicVolume: settings.roomDefaultMusicVolume,
           dataSourceConfig: settings.dataSourceConfig,
           registrationMode: settings.registrationMode,
           roomCreationMode: settings.roomCreationMode,
@@ -556,8 +557,15 @@ router.put(
   ): Promise<void> => {
     try {
       const {
-        autoDeleteInactiveRooms, autoDeleteAfterHours, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, livekitExternalUrl, roomPermissionMatrix, announceAutoPopupOnUpdate,
+        autoDeleteInactiveRooms, autoDeleteAfterHours, roomDefaultMusicVolume, dataSourceConfig, registrationMode, roomCreationMode, betaFeaturesEnabled, dashDisabled, bilibiliDefaultParseMode, bilibiliPgcDefaultMode, cdnAccelerate, cdnProxyUrl, playsvideoEnabled, roomMultiInstanceLogin, voiceTransportMode, livekitExternalUrl, roomPermissionMatrix, announceAutoPopupOnUpdate,
       } = req.body;
+      if (roomDefaultMusicVolume !== undefined && (
+        !Number.isInteger(roomDefaultMusicVolume) ||
+        roomDefaultMusicVolume < 0 || roomDefaultMusicVolume > 100
+      )) {
+        res.status(400).json({ success: false, message: '一起听默认音量必须是 0 到 100 的整数' });
+        return;
+      }
       // 房间权限矩阵校验：对象且仅允许已知动作与已知角色字段（布尔值）
       const MATRIX_ACTIONS = ['addMovie', 'manageMovie', 'musicQueue', 'kickViewer', 'muteViewer'];
       const MATRIX_FIELDS = ['moderator', 'admin', 'user'];
@@ -706,6 +714,9 @@ router.put(
       const settings = await getSystemSettings();
       settings.autoDeleteInactiveRooms = autoDeleteInactiveRooms;
       settings.autoDeleteAfterHours = autoDeleteAfterHours;
+      if (roomDefaultMusicVolume !== undefined) {
+        settings.roomDefaultMusicVolume = roomDefaultMusicVolume;
+      }
       if (dataSourceConfig !== undefined) {
         settings.dataSourceConfig = dataSourceConfig as Record<string, unknown>;
         clearAnimeProvidersCache();
@@ -792,6 +803,7 @@ router.put(
         settings: {
           autoDeleteInactiveRooms: settings.autoDeleteInactiveRooms,
           autoDeleteAfterHours: settings.autoDeleteAfterHours,
+          roomDefaultMusicVolume: settings.roomDefaultMusicVolume,
           dataSourceConfig: settings.dataSourceConfig,
           registrationMode: settings.registrationMode,
           roomCreationMode: settings.roomCreationMode,

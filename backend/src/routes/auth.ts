@@ -344,6 +344,7 @@ router.get(
           playsvideoEnabled: settings.playsvideoEnabled,
           roomPermissionMatrix: settings.roomPermissionMatrix,
           announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
+          roomDefaultMusicVolume: settings.roomDefaultMusicVolume,
           appVersion: getLocalVersion(),
         },
       });

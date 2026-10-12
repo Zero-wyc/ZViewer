@@ -13,6 +13,7 @@
     "dev:frontend": "npm run dev -w frontend",
     "build": "npm run build -ws",
     "test:media": "node --experimental-strip-types --test scripts/media-regression.test.mjs",
+    "test:music": "node --test scripts/music-regression.test.mjs",
     "lint": "npm run lint -ws",
     "start": "node scripts/start.js",
     "build:exe": "node scripts/build-exe.js",

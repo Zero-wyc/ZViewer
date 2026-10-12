@@ -28,6 +28,7 @@ import { cn } from '@/lib/utils'
 import { Switch } from '@/components/ui/Switch'
 import { Input } from '@/components/ui/Input'
 import { InputNumber } from '@/components/ui/InputNumber'
+import { Slider } from '@/components/ui/Slider'
 import { Select } from '@/components/ui/Select'
 import { AniSubsGithubBrowser } from '@/modules/admin/components/AniSubsGithubBrowser'
 import { message } from '@/components/ui/message'
@@ -130,6 +131,7 @@ type PermissionMatrix = Record<
 interface AdminSettings {
   autoDeleteInactiveRooms: boolean
   autoDeleteAfterHours: number
+  roomDefaultMusicVolume: number
   registrationMode: RegistrationMode
   roomCreationMode: RoomCreationMode
   roomPermissionMatrix: PermissionMatrix | null
@@ -182,6 +184,7 @@ export default function AdminPage() {
   const [settings, setSettings] = useState<AdminSettings>({
     autoDeleteInactiveRooms: true,
     autoDeleteAfterHours: 24,
+    roomDefaultMusicVolume: 50,
     registrationMode: 'approval',
     roomCreationMode: 'admin-only',
     roomPermissionMatrix: null,
@@ -200,6 +203,19 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
+  const [editingMusicVolume, setEditingMusicVolume] = useState(false)
+  const [musicVolumeDraft, setMusicVolumeDraft] = useState('50')
+  const commitMusicVolume = () => {
+    if (/^\d{1,3}$/.test(musicVolumeDraft)) {
+      const value = Number(musicVolumeDraft)
+      if (value <= 100) {
+        setSettings((prev) => ({ ...prev, roomDefaultMusicVolume: value }))
+        setEditingMusicVolume(false)
+        return
+      }
+    }
+    message.error('请输入 0～100 的整数')
+  }
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [userDelete, setUserDelete] = useState<AdminUser | null>(null)
   const [userApprove, setUserApprove] = useState<AdminUser | null>(null)
@@ -832,6 +848,7 @@ export default function AdminPage() {
       const payload: Record<string, unknown> = {
         autoDeleteInactiveRooms: settings.autoDeleteInactiveRooms,
         autoDeleteAfterHours: settings.autoDeleteAfterHours,
+        roomDefaultMusicVolume: settings.roomDefaultMusicVolume,
         registrationMode: settings.registrationMode,
         roomCreationMode: settings.roomCreationMode,
         betaFeaturesEnabled: settings.betaFeaturesEnabled,
@@ -1156,7 +1173,7 @@ export default function AdminPage() {
                   size="sm"
                   onClick={handleSaveSettings}
                   loading={savingSettings}
-                  disabled={savingSettings}
+                  disabled={savingSettings || editingMusicVolume}
                 >
                   保存
                 </Button>
@@ -1496,6 +1513,66 @@ export default function AdminPage() {
                       }))
                     }
                   />
+                </div>
+
+                <Title level={5} className="mb-4 mt-6">
+                  房间默认音量
+                </Title>
+                <div className="mb-6 max-w-md">
+                  <div className="mb-2 flex items-center justify-between text-sm text-[var(--md-sys-color-on-surface-variant)]">
+                    <span id="room-music-volume-label">一起听默认音量</span>
+                    {editingMusicVolume ? (
+                      <input
+                        autoFocus
+                        type="text"
+                        inputMode="numeric"
+                        aria-label="输入默认音量（0～100）"
+                        value={musicVolumeDraft}
+                        maxLength={3}
+                        className="w-16 rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-2 py-1 text-right tabular-nums focus:border-[var(--md-sys-color-primary)] focus:outline-none"
+                        onChange={(e) => setMusicVolumeDraft(e.target.value)}
+                        onFocus={(e) => e.currentTarget.select()}
+                        onBlur={commitMusicVolume}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') commitMusicVolume()
+                          if (e.key === 'Escape') setEditingMusicVolume(false)
+                        }}
+                      />
+                    ) : (
+                      <button
+                        type="button"
+                        aria-label="手动输入默认音量"
+                        title="点击输入 0～100 的整数"
+                        className="rounded-[var(--md-sys-shape-corner)] px-2 py-1 tabular-nums transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-primary)]"
+                        onClick={() => {
+                          setMusicVolumeDraft(
+                            String(settings.roomDefaultMusicVolume ?? 50)
+                          )
+                          setEditingMusicVolume(true)
+                        }}
+                      >
+                        {settings.roomDefaultMusicVolume ?? 50}%
+                      </button>
+                    )}
+                  </div>
+                  <Slider
+                    aria-labelledby="room-music-volume-label"
+                    min={0}
+                    max={100}
+                    step={1}
+                    showValue={false}
+                    value={settings.roomDefaultMusicVolume ?? 50}
+                    onChange={(value) =>
+                      setSettings((prev) => ({
+                        ...prev,
+                        roomDefaultMusicVolume: value,
+                      }))
+                    }
+                  />
+                  <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                    默认
+                    50%。用户首次使用一起听时生效；已保存的本地音量优先，调节音量仅影响自己的播放。
+                  </p>
                 </div>
 
                 <Title level={5} className="mb-4 mt-6">
@@ -2158,7 +2235,7 @@ export default function AdminPage() {
                   size="sm"
                   onClick={handleSaveSettings}
                   loading={savingSettings}
-                  disabled={savingSettings}
+                  disabled={savingSettings || editingMusicVolume}
                 >
                   保存
                 </Button>
