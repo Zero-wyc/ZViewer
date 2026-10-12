@@ -4,6 +4,60 @@ const { createKazumiProvider } = require('../dist/services/kazumi/provider');
 const kazumi = require('../dist/services/kazumi/scraper');
 const anisubs = require('../dist/services/anisubs/scraper');
 const { buildProvidersFromRules } = require('../dist/services/kazumi/ruleLoader');
+const { createWebSelectorProvider } = require('../dist/services/anisubs/provider');
+const { createSearchPosterReader } = require('../dist/services/anime/searchMetadata');
+const { defaultSourceOverride } = require('../dist/services/anisubs/defaultCompatibility');
+const { buildProvidersFromSubscription } = require('../dist/services/anisubs/subscription');
+
+test('Kazumi extracts data-bg posters, decodes queries and keeps titles scoped', async (t) => {
+  mockFetch(t, () => '<ul><li><div><a href="/show/1" data-bg="//img.example/1.jpg?a=1&amp;b=2"></a><a href="/show/1">First</a></div></li><li><a href="/show/2">Second</a></li></ul>');
+  const results = await createKazumiProvider('fixture', {...rule, searchName: '//a[last()]', searchResult: '//a[last()]'}).search('test');
+  assert.equal(results[0].cover, 'https://img.example/1.jpg?a=1&b=2');
+  assert.equal(results[1].cover, undefined);
+});
+
+test('ani-subs finds sibling lazy posters and resolves path-relative URLs', () => {
+  const html = '<ul><li><a href="show/1"><img src="data:image/gif;base64,AA" data-original="../covers/1.jpg"></a><h3><a href="show/1">First</a></h3></li><li><h3><a href="show/2">Second</a></h3></li></ul>';
+  const results = anisubs.parseSearchResults(html, {searchUrl:'', subjectFormatId:'a', selectorSubjectFormatA:{selectLists:'h3 a'}}, 'https://anime.example/catalog/search');
+  assert.equal(results[0].url, 'https://anime.example/catalog/show/1');
+  assert.equal(results[0].cover, 'https://anime.example/covers/1.jpg');
+  assert.equal(results[1].cover, undefined);
+  assert.equal(createSearchPosterReader('<a href="/1" data-bg="javascript:alert(1)">Bad</a>', 'https://anime.example/')('https://anime.example/1'), undefined);
+});
+
+test('JSON indexed subscriptions preserve missing-field positions and raw base URLs', () => {
+  const results = anisubs.parseSearchResults(JSON.stringify({data:{videos:[{name:'One',slug:'one'}, {name:'Two',slug:'two',pic:'/two.jpg'}]}}), {
+    searchUrl:'',rawBaseUrl:'https://anime.example/video/',subjectFormatId:'json-path-indexed',
+    selectorSubjectFormatJsonPathIndexed:{selectNames:'$.data.videos[*].name',selectLinks:'$.data.videos[*].slug',selectCovers:'$.data.videos[*].pic'},
+  },'https://anime.example/api/search');
+  assert.equal(results[0].url, 'https://anime.example/video/one');
+  assert.equal(results[0].cover, undefined);
+  assert.equal(results[1].cover, 'https://anime.example/two.jpg');
+});
+
+test('ani-subs honours keyword normalisation and copies poster metadata to API results', async (t) => {
+  mockFetch(t, url => {
+    assert.equal(new URL(url).searchParams.get('q'), '辉夜');
+    return '<a href="/show" data-bg="/poster.jpg">辉夜</a>';
+  });
+  const results = await createWebSelectorProvider('fixture','Fixture',{searchUrl:'https://anime.example/search?q={keyword}',searchRemoveSpecial:true,searchUseOnlyFirstWord:true,selectorSubjectFormatA:{selectLists:'a'}}).search('辉夜： 第一季');
+  assert.equal(results[0].cover,'https://anime.example/poster.jpg');
+});
+
+test('episode selectors pointing to spans/buttons use the containing link', () => {
+  const results = anisubs.parseEpisodes('<ul><li><a href="episode/1"><span>第1集</span></a></li></ul>',{
+    searchUrl:'',channelFormatId:'index-grouped',selectorChannelFormatFlattened:{selectChannelNames:'.name',selectEpisodeLists:'ul',selectEpisodesFromList:'a span',selectEpisodeLinksFromList:'a'},
+  },'https://anime.example/show');
+  assert.equal(results.length,1);
+  assert.equal(results[0].url,'https://anime.example/episode/1');
+});
+
+test('default source filtering preserves IDs and does not alter custom subscriptions', () => {
+  const subscription={exportedMediaSourceDataList:{mediaSources:['E-ACG','Fixture'].map(name=>({factoryId:'web-selector',arguments:{name,searchConfig:{searchUrl:'https://anime.example/search',selectorSubjectFormatA:{selectLists:'a'}}}}))}};
+  const providers=buildProvidersFromSubscription(subscription,source=>defaultSourceOverride('https://sub.creamycake.org/v1/css1.json',source));
+  assert.deepEqual(Object.keys(providers),['ani_subs_web-selector_1']);
+  assert.equal(Object.keys(buildProvidersFromSubscription(subscription,source=>defaultSourceOverride('https://custom.example/css1.json',source))).length,2);
+});
 
 const rule = {
   name: 'Fixture',

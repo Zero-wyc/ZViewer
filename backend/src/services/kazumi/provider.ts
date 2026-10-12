@@ -23,6 +23,7 @@ import {
   toAbsoluteUrl,
   resolveVideoUrl,
 } from './scraper';
+import { createSearchPosterReader } from '../anime/searchMetadata';
 
 interface EpisodeInfo {
   id: string;
@@ -49,7 +50,8 @@ export function createKazumiProvider(
         referer: rule.referer || rule.baseURL,
       });
       const doc = parseHtmlDocument(html);
-      const baseUrl = resolveBaseUrl(searchUrl);
+      const baseUrl = searchUrl;
+      const readPoster = createSearchPosterReader(html, baseUrl);
 
       const listNodes = selectXPath(doc, rule.searchList);
       const results: KazumiSearchResult[] = [];
@@ -75,6 +77,7 @@ export function createKazumiProvider(
           results.push({
             id: url,
             title,
+            cover: readPoster(url),
             source: sourceId,
           });
         }
