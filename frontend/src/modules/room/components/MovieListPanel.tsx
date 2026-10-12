@@ -175,16 +175,17 @@ export function MovieListPanel({
   }
 
   /**
-   * 移除全部影片（影片列表弹窗，房主/房管）。
+   * 移除全部影片（卡片与展开弹窗共用，权限由服务端校验）。
    * 二次确认：首次点击进入「确认清空」态（3s 超时回退），再次点击才执行。
    */
   const handleClearAll = async () => {
-    if (!clearConfirming) {
-      setClearConfirming(true)
-      window.setTimeout(() => setClearConfirming(false), 3000)
+    if (
+      clearingAll ||
+      removingId !== null ||
+      movies.length === 0 ||
+      isScreenShare
+    )
       return
-    }
-    setClearConfirming(false)
     if (!isHost && !canManage) {
       message.info('只有房主或房管可以移除影片')
       return
@@ -193,10 +194,17 @@ export function MovieListPanel({
       message.error('未连接房间')
       return
     }
+    if (!clearConfirming) {
+      setClearConfirming(true)
+      window.setTimeout(() => setClearConfirming(false), 3000)
+      return
+    }
+    setClearConfirming(false)
     setClearingAll(true)
     try {
       await clearMovies(roomId)
-      message.success('已移除全部影片')
+      setSearch('')
+      message.success('已清空影片列表')
     } catch (err) {
       console.error('[MovieListPanel] clear movies error:', err)
       message.error(err instanceof Error ? err.message : '移除全部影片失败')
@@ -204,6 +212,21 @@ export function MovieListPanel({
       setClearingAll(false)
     }
   }
+
+  const renderClearButton = () =>
+    (isHost || canManage) && !isScreenShare ? (
+      <Button
+        size="sm"
+        variant={clearConfirming ? 'danger' : 'secondary'}
+        icon={<Trash2 className="h-3.5 w-3.5" />}
+        onClick={handleClearAll}
+        loading={clearingAll}
+        disabled={movies.length === 0 || removingId !== null || !roomId}
+        title="清空房间影片列表，包括搜索隐藏的影片"
+      >
+        {clearingAll ? '清空中…' : clearConfirming ? '确认清空？' : '一键清除'}
+      </Button>
+    ) : null
 
   const handleQualityChange = async (movie: Movie, value: string) => {
     if (!isHost || isScreenShare || !roomId) return
@@ -779,7 +802,7 @@ export function MovieListPanel({
 
   return (
     <div className="glass-card zen-card flex h-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">
-      {/* 卡片头部：图标 + 标题 + 影片数量 + 全屏按钮 */}
+      {/* 卡片头部：图标 + 标题 + 影片数量 + 清空/全屏按钮 */}
       <div className="flex items-center gap-2.5 border-b border-[var(--glass-border)] px-4 py-3">
         <div
           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
@@ -801,6 +824,7 @@ export function MovieListPanel({
             {filteredMovies.length} 部影片
           </Text>
         </div>
+        {renderClearButton()}
         <button
           type="button"
           onClick={() => setShowListModal(true)}
@@ -836,22 +860,7 @@ export function MovieListPanel({
               placeholder="搜索影片…"
               className="min-w-0 flex-1 px-2.5"
             />
-            {(isHost || canManage) && movies.length > 0 && !isScreenShare && (
-              <Button
-                size="sm"
-                variant={clearConfirming ? 'danger' : 'secondary'}
-                icon={<Trash2 className="h-3.5 w-3.5" />}
-                onClick={handleClearAll}
-                disabled={clearingAll}
-                title="移除列表中的全部影片"
-              >
-                {clearConfirming
-                  ? '确认清空？'
-                  : clearingAll
-                    ? '移除中…'
-                    : '移除全部'}
-              </Button>
-            )}
+            {renderClearButton()}
             {isHost && !isScreenShare && (
               <Switch
                 label="自动连播"
