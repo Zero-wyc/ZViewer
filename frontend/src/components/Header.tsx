@@ -57,6 +57,7 @@ import {
   resetSessionExpired,
 } from '@/lib/api'
 import { resetSocket, reconnectSocket } from '@/hooks/useSocket'
+import { useIsMobile } from '@/hooks/useMediaQuery'
 import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -87,6 +88,7 @@ export function Header() {
   /** 鼠标悬停触发的显示状态 */
   const [hoverVisible, setHoverVisible] = useState(false)
   const { user, logout, isAuthenticated } = useAuthStore()
+  const isMobile = useIsMobile()
   const {
     isDark,
     setDark,
@@ -433,17 +435,20 @@ export function Header() {
           >
             <GithubIcon className="w-4 h-4" />
           </a>
-          <button
-            type="button"
-            onClick={handleDownloadCli}
-            className="p-2 rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] bg-[var(--glass-bg)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
-            style={{
-              border: '1px solid var(--md-sys-color-outline)',
-            }}
-            title="下载 CLI 高画质代理"
-          >
-            <Download className="w-4 h-4" />
-          </button>
+          {/* 手机端隐藏 CLI 下载入口（移动端不支持 CLI 代理，无下载意义） */}
+          {!isMobile && (
+            <button
+              type="button"
+              onClick={handleDownloadCli}
+              className="p-2 rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] bg-[var(--glass-bg)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
+              style={{
+                border: '1px solid var(--md-sys-color-outline)',
+              }}
+              title="下载 CLI 高画质代理"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          )}
 
           <button
             type="button"

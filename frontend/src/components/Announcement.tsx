@@ -14,7 +14,6 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Megaphone, ExternalLink, Loader2 } from 'lucide-react'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { Modal } from '@/components/ui/Modal'
-import { Button } from '@/components/ui/Button'
 import { cn } from '@/lib/utils'
 
 /** 已读记录 localStorage key（值为上次已读的 appVersion） */
@@ -286,7 +285,8 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
         title="公告"
         className="max-w-lg"
         footer={
-          <div className="flex w-full items-center justify-between gap-2">
+          // 关闭走 Modal 右上角 X 与遮罩点击（footer 里不再放重复的关闭按钮）
+          <div className="flex w-full items-center">
             <a
               href="https://github.com/Zero-wyc/ZViewer/blob/main/announce.md"
               target="_blank"
@@ -295,9 +295,6 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
             >
               <ExternalLink className="h-3.5 w-3.5" />在 GitHub 查看原始公告
             </a>
-            <Button variant="secondary" size="sm" onClick={closeWindow}>
-              关闭
-            </Button>
           </div>
         }
       >
