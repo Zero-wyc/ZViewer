@@ -18,10 +18,15 @@ test('shared anime browser scrolls large results, shows posters and retries fail
         import { AnimeSourceBrowser } from './src/modules/room/components/AnimeSourceBrowser'
         const getSources=async()=>[{id:'a',name:'Fixture A'},{id:'b',name:'Fixture B'}]
         localStorage.setItem('zviewer-access-token','fixture-token')
-        const search=async(source)=>Array.from({length:120},(_,i)=>({id:source+'/show/'+i,title:'Show '+i,source,cover:location.origin+(i===0?'/blocked.svg':'/cover.svg')}))
+        window.searchCalls=[]
+        const search=async(source,keyword)=>{
+          window.searchCalls.push({source,keyword})
+          if(keyword==='slow') { await new Promise(resolve=>window.finishSlowSearch=resolve); window.slowCompleted=true }
+          return Array.from({length:120},(_,i)=>({id:source+'/show/'+i,title:'Show '+i,source,cover:location.origin+(i===0?'/blocked.svg':'/cover.svg')}))
+        }
         const getEpisodes=async()=>Array.from({length:3600},(_,i)=>({id:String(i),title:'Episode '+i,episodeNumber:i+1,playbackParams:{}}))
         window.batches=[];window.closeCount=0
-        createRoot(document.getElementById('root')).render(<AnimeSourceBrowser open kind="kazumi" title="Fixture"
+        createRoot(document.getElementById('root')).render(<AnimeSourceBrowser open kind={new URLSearchParams(location.search).get('kind')||'kazumi'} title="Fixture"
           getSources={getSources} search={search} getEpisodes={getEpisodes}
           onOpenChange={()=>window.closeCount++} onSelectEpisode={()=>{throw Error('Selection must wait for confirmation')}}
           onSelectEpisodes={async items=>{window.batches.push(items);return window.batches.length===1?[items[0].episode.id]:items.map(i=>i.episode.id)}} />)
@@ -55,7 +60,7 @@ test('shared anime browser scrolls large results, shows posters and retries fail
     } else if (req.url === '/blocked.svg') {
       res.statusCode = 403
       res.end('blocked')
-    } else if (req.url.startsWith('/api/stream/kazumi/proxy?')) {
+    } else if (/^\/api\/stream\/(?:kazumi|anisubs)\/proxy\?/.test(req.url)) {
       assert.equal(req.headers.authorization, 'Bearer fixture-token')
       res.setHeader('Content-Type', 'image/svg+xml')
       res.end(
@@ -88,7 +93,68 @@ test('shared anime browser scrolls large results, shows posters and retries fail
       console.error('fixture page error:', error.message)
     )
     page.setDefaultTimeout(10000)
-    await page.goto(`http://127.0.0.1:${server.address().port}`)
+    const base = `http://127.0.0.1:${server.address().port}`
+    for (const kind of ['kazumi', 'anisubs']) {
+      await page.goto(base + '?kind=' + kind)
+      await page
+        .getByRole('button', { name: 'Fixture A', exact: true })
+        .waitFor()
+      await page.getByRole('button', { name: '网页全屏', exact: true }).click()
+      const keyword = page.getByPlaceholder('输入番剧名称搜索')
+      await keyword.fill('保留关键词')
+      await page.getByRole('button', { name: 'Fixture A', exact: true }).click()
+      await page.getByRole('button', { name: 'Fixture B', exact: true }).click()
+      await page.locator('.zen-dropdown-exit').waitFor({ state: 'detached' })
+      assert.equal(await keyword.inputValue(), '保留关键词')
+      assert.ok(
+        await page
+          .getByRole('button', { name: '退出网页全屏', exact: true })
+          .isVisible()
+      )
+      await keyword.fill('slow')
+      await page.getByRole('button', { name: '搜索', exact: true }).click()
+      await page.waitForFunction(() => !!window.finishSlowSearch)
+      await page
+        .getByRole('button', { name: 'Fixture B', exact: true })
+        .first()
+        .click()
+      await page.getByRole('button', { name: 'Fixture A', exact: true }).click()
+      await page.locator('.zen-dropdown-exit').waitFor({ state: 'detached' })
+      await page.evaluate(() => window.finishSlowSearch())
+      await page.waitForFunction(() => window.slowCompleted)
+      assert.equal(await keyword.inputValue(), 'slow')
+      assert.equal(await page.getByText('Show 0', { exact: true }).count(), 0)
+      assert.ok(
+        await page
+          .getByRole('button', { name: '退出网页全屏', exact: true })
+          .isVisible()
+      )
+      await keyword.fill('stable')
+      await page.getByRole('button', { name: '搜索', exact: true }).click()
+      await page.getByText('Show 0', { exact: true }).click()
+      await page.getByText('Episode 3599', { exact: true }).waitFor()
+      assert.equal(await keyword.inputValue(), 'stable')
+      await page
+        .getByRole('button', { name: 'Fixture A', exact: true })
+        .first()
+        .click()
+      await page.getByRole('button', { name: 'Fixture B', exact: true }).click()
+      assert.equal(await keyword.inputValue(), 'stable')
+      assert.equal(
+        await page.getByText('Episode 0', { exact: true }).count(),
+        0
+      )
+      assert.ok(
+        await page
+          .getByRole('button', { name: '退出网页全屏', exact: true })
+          .isVisible()
+      )
+      assert.deepEqual(await page.evaluate(() => window.searchCalls), [
+        { source: 'b', keyword: 'slow' },
+        { source: 'a', keyword: 'stable' },
+      ])
+    }
+    await page.goto(base)
     await page.getByRole('button', { name: 'Fixture A', exact: true }).waitFor()
     const rowAligned = await page
       .getByRole('button', { name: 'Fixture A', exact: true })

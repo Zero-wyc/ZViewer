@@ -68,6 +68,8 @@ export interface MediaLibraryBrowserProps {
   searchPrefix?: React.ReactNode
   showParentDirectory?: boolean
   episodeGrid?: boolean
+  /** Keep anime keywords while changing sources or browsing episodes. */
+  preserveSearchTerm?: boolean
   rootLabel?: string
   searchPlaceholder?: string
   emptyText?: string
@@ -116,6 +118,7 @@ export default function EmbyBrowser({
   searchPrefix,
   showParentDirectory = true,
   episodeGrid = false,
+  preserveSearchTerm = false,
   rootLabel = '媒体库',
   searchPlaceholder = '搜索媒体库（电影 / 剧集 / 单集）',
   emptyText = '当前目录为空',
@@ -143,8 +146,12 @@ export default function EmbyBrowser({
   const [searchTerm, setSearchTerm] = useState('')
   const [searching, setSearching] = useState(false)
   const [searchResults, setSearchResults] = useState<EmbyDirectoryEntry[]>([])
+  const [searchView, setSearchView] = useState(false)
   const searchRequest = useRef(0)
-  const searchActive = searchTerm.trim().length > 0
+  const loadRequest = useRef(0)
+  const searchActive = preserveSearchTerm
+    ? searchView
+    : searchTerm.trim().length > 0
 
   const switchViewMode = (mode: 'list' | 'wall') => {
     setViewMode(mode)
@@ -158,7 +165,9 @@ export default function EmbyBrowser({
   const load = useCallback(
     async (nextCrumbs: Crumb[]) => {
       if (mountId === null) return
+      const request = ++loadRequest.current
       searchRequest.current++
+      setSearching(false)
       setLoading(true)
       setError('')
       try {
@@ -167,6 +176,7 @@ export default function EmbyBrowser({
             ? nextCrumbs[nextCrumbs.length - 1].path
             : undefined
         const data = await browse(mountId, target)
+        if (request !== loadRequest.current) return
         setEntries(data)
         setCrumbs(nextCrumbs)
 
@@ -178,18 +188,21 @@ export default function EmbyBrowser({
         if (parent !== undefined) {
           try {
             const parentData = await browse(mountId, parent)
+            if (request !== loadRequest.current) return
             setParentEntries(parentData)
           } catch {
+            if (request !== loadRequest.current) return
             setParentEntries([])
           }
         } else {
           setParentEntries([])
         }
       } catch (err) {
+        if (request !== loadRequest.current) return
         const msg = err instanceof Error ? err.message : '加载失败'
         setError(msg)
       } finally {
-        setLoading(false)
+        if (request === loadRequest.current) setLoading(false)
       }
     },
     [mountId, browse]
@@ -204,11 +217,12 @@ export default function EmbyBrowser({
       setParentEntries([])
       setSelectedPaths(new Set())
       setMultiSelectMode(false)
-      setSearchTerm('')
+      if (!preserveSearchTerm) setSearchTerm('')
+      setSearchView(false)
       setSearchResults([])
       void load([])
     }
-  }, [open, mountId, load])
+  }, [open, mountId, load, preserveSearchTerm])
   /* eslint-enable react-hooks/set-state-in-effect */
 
   const doSearch = useCallback(
@@ -216,6 +230,9 @@ export default function EmbyBrowser({
       const trimmed = term.trim()
       if (!search || mountId === null || busy) return
       const request = ++searchRequest.current
+      loadRequest.current++
+      setLoading(false)
+      setSearchView(!!trimmed)
       if (!trimmed) {
         setSearchResults([])
         return
@@ -243,7 +260,8 @@ export default function EmbyBrowser({
   const openDirectory = (entry: EmbyDirectoryEntry) => {
     // 搜索结果进入目录：清搜索态并重置面包屑（搜索结果与浏览路径无层级关系）
     if (searchActive) {
-      setSearchTerm('')
+      if (!preserveSearchTerm) setSearchTerm('')
+      setSearchView(false)
       setSearchResults([])
       void load([{ name: entry.name, path: entry.path }])
       return
@@ -260,7 +278,8 @@ export default function EmbyBrowser({
   }
 
   const goRoot = () => {
-    setSearchTerm('')
+    if (!preserveSearchTerm) setSearchTerm('')
+    setSearchView(false)
     setSearchResults([])
     void load([])
   }
@@ -741,6 +760,7 @@ export default function EmbyBrowser({
                     value={searchTerm}
                     onChange={(e) => {
                       setSearchTerm(e.target.value)
+                      setSearchView(!!e.target.value.trim())
                       if (!e.target.value.trim()) setSearchResults([])
                     }}
                     onKeyDown={(e) => {
@@ -761,6 +781,7 @@ export default function EmbyBrowser({
                         searchRequest.current++
                         setSearching(false)
                         setSearchTerm('')
+                        setSearchView(false)
                         setSearchResults([])
                       }}
                       aria-label="清除搜索"

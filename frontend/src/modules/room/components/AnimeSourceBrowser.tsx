@@ -188,8 +188,11 @@ export function AnimeSourceBrowser({
 
   return (
     <EmbyBrowser
-      key={sourceId}
-      mountId={sourceId ? 1 : null}
+      mountId={
+        sourceId
+          ? sources.findIndex((source) => source.id === sourceId) + 1
+          : null
+      }
       open={open}
       onClose={() => onOpenChange(false)}
       title={title}
@@ -198,6 +201,7 @@ export function AnimeSourceBrowser({
       emptyText="输入关键词开始搜索番剧"
       showParentDirectory={false}
       episodeGrid
+      preserveSearchTerm
       browse={browse}
       search={doSearch}
       onSelectFiles={addFiles}
