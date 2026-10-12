@@ -39,48 +39,19 @@ import {
   useRef,
   useState,
 } from 'react'
-import type { Socket } from 'socket.io-client'
 import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
-import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
+import { fetchPersonalFmPool, usePersonalFmStore } from '../personal-fm'
+import type { FmSongItem } from '../personal-fm'
 import type { NcmSong } from '../types'
 import { cn } from '@/lib/utils'
 import { MusicLoginGate, PageBlockHeader } from './MusicLoginGate'
 
 export interface MusicFmPageProps {
-  socket: Socket | null
   roomId?: string
-  /** 队列管理权限（房主/房管）——FM 播放需经 queue-upsert */
-  canManage: boolean
-}
-
-/** /personal_fm、/personal/fm/mode 响应条目（网易云结构） */
-interface FmSongItem {
-  id: number
-  name: string
-  artists?: Array<{ name?: string }>
-  album?: { name?: string; picUrl?: string }
-  duration?: number
-}
-
-/** FmSongItem → NcmSong */
-function mapFmSong(item: FmSongItem): NcmSong {
-  return {
-    songId: item.id,
-    name: item.name,
-    artist: (item.artists ?? [])
-      .map((a) => a.name)
-      .filter(Boolean)
-      .join(' / '),
-    album: item.album?.name ?? '',
-    cover: item.album?.picUrl
-      ? `${item.album.picUrl.replace('http://', 'https://')}?param=300y300`
-      : '',
-    durationMs: item.duration ?? 0,
-    vip: false,
-  }
+  isHost: boolean
 }
 
 /** 漫游模式（Hydrogen FM_MODE_OPTIONS） */
@@ -99,10 +70,8 @@ const FM_SCENE_SUBMODE_OPTIONS = [
   { value: 'NIGHT_EMO', label: '夜晚情绪' },
 ] as const
 
-/** 每次补拉的候选数量（Hydrogen FM_MODE_REQUEST_LIMIT） */
-const FM_MODE_REQUEST_LIMIT = 6
 /** 候选池低水位阈值（低于该值触发补拉） */
-const FM_POOL_LOW_WATER = 2
+
 /** 封面轮播 FLIP 动画时长（Hydrogen --fm-cover-transition-duration） */
 const COVER_SHIFT_DURATION_MS = 1500
 /** 封面轮播 FLIP 缓动（Hydrogen --fm-cover-transition-ease） */
@@ -279,31 +248,38 @@ interface CoverSlot {
   clickable: boolean
 }
 
-export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
+export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
   const loginStatus = useMusicStore((s) => s.loginStatus)
   const currentKey = useMusicStore((s) => s.currentKey)
   const isPlaying = useMusicStore((s) => s.isPlaying)
-  const { playSong, togglePlay, canControl } = useMusicPlayer()
-  const { add } = useQueueAdd(socket, roomId, canManage)
+  const {
+    playFmSong: startFmSong,
+    togglePlay,
+    canControl: playerCanControl,
+  } = useMusicPlayer()
+  const canControl = isHost && playerCanControl
 
   /** 候选池（待播放的 FM 歌曲队列） */
-  const [pool, setPool] = useState<NcmSong[]>([])
+  const pool = usePersonalFmStore((s) => s.pool)
+  const setPool = usePersonalFmStore((s) => s.setPool)
   /** 已播放历史（上一首回退用） */
-  const [history, setHistory] = useState<NcmSong[]>([])
+  const history = usePersonalFmStore((s) => s.history)
+  const setHistory = usePersonalFmStore((s) => s.setHistory)
   /** 页面视图中的当前 FM 歌曲（与播放器 currentKey 对齐） */
-  const [current, setCurrent] = useState<NcmSong | null>(null)
+  const current = usePersonalFmStore((s) => s.current)
   /** 首屏拉取中（fm-loading） */
   const [loading, setLoading] = useState(false)
   /** 右侧候选补拉中（placeholder 文案 NEXT LOADING） */
-  const [isPrefetching, setIsPrefetching] = useState(false)
+  const isPrefetching = loading
   /** 首屏获取彻底失败（fm-empty + 重试） */
   const [loadFailed, setLoadFailed] = useState(false)
 
   // ===== 漫游模式（Hydrogen selectedFmMode / selectedFmSubmode） =====
-  const [fmMode, setFmMode] = useState<string>('DEFAULT')
-  const [fmSubmode, setFmSubmode] = useState<string>('FOCUS')
+  const fmMode = usePersonalFmStore((s) => s.mode)
+  const setFmMode = usePersonalFmStore((s) => s.setMode)
+  const fmSubmode = usePersonalFmStore((s) => s.submode)
+  const setFmSubmode = usePersonalFmStore((s) => s.setSubmode)
   const [modePanelOpen, setModePanelOpen] = useState(false)
-  const [modeSwitching, setModeSwitching] = useState(false)
 
   // ===== 开场动画（panel intro；仅挂载时一次） =====
   const [introActive, setIntroActive] = useState(true)
@@ -428,106 +404,40 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
   // ===== 数据获取 =====
 
   /** 拉取一批 FM 候选（DEFAULT → /personal_fm；其余 → /personal/fm/mode） */
-  const poolFetchingRef = useRef(false)
-  const fetchPool = useCallback(
-    async (opts?: { silent?: boolean }) => {
-      if (poolFetchingRef.current) return
-      poolFetchingRef.current = true
-      setLoading(true)
-      try {
-        let list: FmSongItem[] = []
-        if (fmMode === 'DEFAULT') {
-          const { data } = await apiGet<{ data?: FmSongItem[] }>(
-            '/api/music/ncm/personal_fm'
-          )
-          list = Array.isArray(data?.data) ? data.data : []
-        } else {
-          const params = new URLSearchParams({
-            mode: fmMode,
-            limit: String(FM_MODE_REQUEST_LIMIT),
-          })
-          if (fmMode === 'SCENE_RCMD') params.set('submode', fmSubmode)
-          const { data } = await apiGet<{ data?: FmSongItem[] }>(
-            `/api/music/ncm/personal/fm/mode?${params.toString()}`
-          )
-          list = Array.isArray(data?.data) ? data.data : []
-        }
-        // 模式接口无数据时回退默认漫游源
-        if (list.length === 0 && fmMode !== 'DEFAULT') {
-          const { data } = await apiGet<{ data?: FmSongItem[] }>(
-            '/api/music/ncm/personal_fm'
-          )
-          list = Array.isArray(data?.data) ? data.data : []
-        }
-        if (list.length > 0) {
-          setLoadFailed(false)
-          const mapped = list.map(mapFmSong).filter((s) => s.songId > 0)
-          setPool((prev) => {
-            const seen = new Set(prev.map((s) => s.songId))
-            const fresh = mapped.filter((s) => !seen.has(s.songId))
-            return [...prev, ...fresh]
-          })
-          // 首屏引导：候选池就绪后展示第一首（不自动播放，交由用户点击）
-          setCurrent((prev) => {
-            if (prev != null) return prev
-            return mapped[0] ?? null
-          })
-        } else if (!opts?.silent) {
-          setLoadFailed(true)
-        }
-      } catch (err) {
-        console.error('[MusicFmPage] 私人漫游获取失败:', err)
-        if (!opts?.silent) setLoadFailed(true)
-      } finally {
-        poolFetchingRef.current = false
-        setLoading(false)
-      }
-    },
-    [fmMode, fmSubmode]
-  )
+  const fetchPool = useCallback(async (opts?: { silent?: boolean }) => {
+    setLoading(true)
+    try {
+      await fetchPersonalFmPool(async (url) => {
+        const { data } = await apiGet<{ data?: FmSongItem[] }>(url)
+        return Array.isArray(data?.data) ? data.data : []
+      })
+      const fm = usePersonalFmStore.getState()
+      setLoadFailed(!opts?.silent && fm.pool.length === 0 && !fm.current)
+    } catch (err) {
+      console.error('[MusicFmPage] 私人漫游获取失败:', err)
+      if (!opts?.silent) setLoadFailed(true)
+    } finally {
+      setLoading(false)
+    }
+  }, [])
 
   // 登录后拉取首批候选
   useEffect(() => {
     if (!loginStatus.loggedIn) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 登录态驱动的外部数据请求（setState 均在异步回调中）
     void fetchPool()
-  }, [loginStatus.loggedIn, fetchPool])
-
-  /** 候选池低水位补拉（<2 时静默补一批；无下一首时占位显示 NEXT LOADING） */
-  const refillPoolIfNeeded = useCallback(
-    (opts?: { showPending?: boolean }) => {
-      if (opts?.showPending) setIsPrefetching(true)
-      void fetchPool({ silent: true }).finally(() => {
-        if (opts?.showPending) setIsPrefetching(false)
-      })
-    },
-    [fetchPool]
-  )
+  }, [loginStatus.loggedIn, fetchPool, fmMode, fmSubmode])
 
   /** 把 FM 歌曲加入房间队列并立即播放（canControl 语义） */
   const playFmSong = useCallback(
-    (song: NcmSong) => {
-      if (!socket || !roomId) {
-        message.error('未连接房间')
-        return
-      }
-      add(songToUpsertItem(song))
-      playSong({
-        id: -1,
-        roomId,
-        songId: song.songId,
-        name: song.name,
-        artist: song.artist,
-        album: song.album,
-        cover: song.cover,
-        durationMs: song.durationMs,
-        vip: false,
-        order: 0,
-        addedBy: '',
+    async (song: NcmSong) => {
+      if (!roomId) return false
+      return startFmSong(song).catch((err: unknown) => {
+        message.error(err instanceof Error ? err.message : '漫游播放失败')
+        return false
       })
-      setCurrent(song)
     },
-    [socket, roomId, add, playSong]
+    [roomId, startFmSong]
   )
 
   /** 封面切换统一入口：捕获旧位置 → 变更状态（FLIP 在 useLayoutEffect 播放） */
@@ -543,28 +453,26 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
   /** 播放下一首：候选池出队 → upsert + playSong（带 FLIP 位移）。
    *  出队目标必须排除当前曲（首屏拉取 / handlePrev 回池都会让 pool 含 current，
    *  若不排除会导致 center/right 两槽渲染同一首歌、React key 重复渲染错乱） */
-  const handleNext = useCallback(() => {
+  const handleNext = useCallback(async () => {
     if (!canControl) return
-    const nextIdx = pool.findIndex((s) => s.songId !== current?.songId)
-    if (nextIdx < 0) {
-      refillPoolIfNeeded({ showPending: true })
-      message.info('漫游候选获取中，请稍后再试')
+    let next = pool.find((s) => s.songId !== current?.songId)
+    if (!next) {
+      await fetchPool({ silent: true })
+      next = usePersonalFmStore
+        .getState()
+        .pool.find((s) => s.songId !== current?.songId)
+    }
+    if (!next) {
+      message.info('暂时没有新的漫游歌曲')
       return
     }
-    const next = pool[nextIdx]
-    // 出队下一首的同时移除旧 current：首屏拉取（current=池首）与模式切换重拉
-    // 都会让池残留 current，切歌后它会同时命中 left 槽（history 末尾）与
-    // right 槽（池首个非当前曲），两槽同 key 渲染错乱成四卡、封面偏离中间
-    const rest = pool.filter(
-      (s, i) => i !== nextIdx && s.songId !== current?.songId
-    )
     shiftCover('next', () => {
-      setPool(rest)
-      if (rest.length < FM_POOL_LOW_WATER) refillPoolIfNeeded()
+      void playFmSong(next!).then((started) => {
+        if (started && current)
+          setHistory((prev) => [...prev, current].slice(-100))
+      })
     })
-    if (current) setHistory((prev) => [...prev, current])
-    playFmSong(next)
-  }, [canControl, pool, current, shiftCover, playFmSong, refillPoolIfNeeded])
+  }, [canControl, pool, current, shiftCover, playFmSong, fetchPool, setHistory])
 
   /** 上一首：沿已播放历史回退（带 FLIP 位移）。
    *  被打断的当前曲放回池头供续播（后续 next 按“池首个非当前曲”继续）；
@@ -578,14 +486,25 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     }
     const prev = history[history.length - 1]
     shiftCover('prev', () => {
-      setHistory((list) => list.slice(0, -1))
-      setPool((p) => {
-        const merged = current ? [current, ...p] : p
-        return merged.filter((s) => s.songId !== prev.songId)
+      void playFmSong(prev).then((started) => {
+        if (!started) return
+        setHistory((list) => list.slice(0, -1))
+        if (current)
+          setPool((p) => [
+            current,
+            ...p.filter((s) => s.songId !== current.songId),
+          ])
       })
     })
-    playFmSong(prev)
-  }, [canControl, history, current, shiftCover, playFmSong])
+  }, [
+    canControl,
+    history,
+    current,
+    shiftCover,
+    playFmSong,
+    setHistory,
+    setPool,
+  ])
 
   /** 大封面播放：已在播当前曲则切播放/暂停，否则播放当前曲（首屏引导） */
   const handleCoverPlay = useCallback(() => {
@@ -610,8 +529,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     } catch (err) {
       console.error('[MusicFmPage] fm_trash 失败:', err)
     }
-    if (current) setHistory((prev) => [...prev, current])
-    handleNext()
+    void handleNext()
   }, [canControl, current, handleNext])
 
   // ===== 模式切换（Hydrogen changeFmMode / changeFmSubmode） =====
@@ -626,7 +544,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
 
   /** 切模式：清空候选池与历史（保留当前曲）→ 静默按新模式重拉 */
   const changeFmMode = (mode: string) => {
-    if (modeSwitching || loading) return
+    if (loading) return
     if (fmMode === mode) return
     setFmMode(mode)
     if (mode === 'SCENE_RCMD') {
@@ -636,18 +554,15 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
     }
     setFmSubmode('FOCUS')
     setModePanelOpen(false)
-    setModeSwitching(true)
     setPool([])
-    void fetchPool({ silent: true }).finally(() => setModeSwitching(false))
   }
 
   const changeFmSubmode = (submode: string) => {
-    if (modeSwitching || loading) return
+    if (loading) return
     setFmSubmode(submode)
     setModePanelOpen(false)
-    setModeSwitching(true)
     setPool([])
-    void fetchPool({ silent: true }).finally(() => setModeSwitching(false))
+    void fetchPool({ silent: true })
   }
 
   // MODE 面板点击外部关闭
@@ -834,7 +749,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
         <div className="absolute right-[22px] top-[18px] z-[8] flex w-[360px] max-w-[calc(100vw-72px)] flex-col items-end max-md:right-3 max-md:top-3 max-md:max-w-[220px]">
           <button
             type="button"
-            disabled={loading || modeSwitching}
+            disabled={loading}
             onClick={(e) => {
               e.stopPropagation()
               setModePanelOpen((v) => !v)
@@ -898,7 +813,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
                   <button
                     key={mode.value}
                     type="button"
-                    disabled={loading || modeSwitching}
+                    disabled={loading}
                     onClick={() => changeFmMode(mode.value)}
                     className={cn(
                       'inline-flex min-h-[34px] flex-col items-center justify-center gap-0.5 px-1.5 py-[5px] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60'
@@ -939,7 +854,7 @@ export function MusicFmPage({ socket, roomId, canManage }: MusicFmPageProps) {
                     <button
                       key={scene.value}
                       type="button"
-                      disabled={loading || modeSwitching}
+                      disabled={loading}
                       onClick={() => changeFmSubmode(scene.value)}
                       className="inline-flex min-h-[34px] flex-col items-center justify-center gap-0.5 px-1.5 py-[5px] transition-transform hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
                       style={{

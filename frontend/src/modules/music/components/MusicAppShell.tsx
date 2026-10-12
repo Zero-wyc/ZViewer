@@ -379,9 +379,7 @@ function ShellInner({
       <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px] max-md:pb-[calc(96px+env(safe-area-inset-bottom))]">
         {page === 'home' && <MusicHomePage {...pageProps} />}
         {page === 'search' && <MusicSearchPage {...pageProps} />}
-        {page === 'fm' && (
-          <MusicFmPage socket={socket} roomId={roomId} canManage={canManage} />
-        )}
+        {page === 'fm' && <MusicFmPage roomId={roomId} isHost={isHost} />}
         {page === 'mymusic' && <MusicMyPage {...pageProps} />}
         {page === 'cloud' && <MusicCloudPage {...pageProps} />}
         {page === 'bilibili' && (

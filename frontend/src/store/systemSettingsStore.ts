@@ -17,6 +17,8 @@ export type PermissionMatrix = Record<
 export interface SystemSettings {
   autoDeleteInactiveRooms: boolean
   autoDeleteAfterHours: number
+  /** 一起听初始音量（0–100）；仅作为未保存本地音量时的默认值。 */
+  roomDefaultMusicVolume: number
   registrationMode: RegistrationMode
   /** 房间创建权限模式：admin-only=仅管理员，all-users=所有登录用户（不含 guest） */
   roomCreationMode: RoomCreationMode
@@ -65,6 +67,7 @@ interface SystemSettingsState extends SystemSettings {
 const DEFAULT_SETTINGS: SystemSettings = {
   autoDeleteInactiveRooms: true,
   autoDeleteAfterHours: 24,
+  roomDefaultMusicVolume: 50,
   registrationMode: 'approval',
   roomCreationMode: 'admin-only',
   roomPermissionMatrix: null,

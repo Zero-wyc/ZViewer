@@ -17,6 +17,10 @@ export class SystemSettings {
   @Column({ type: 'integer', default: 24 })
   autoDeleteAfterHours!: number;
 
+  /** 一起听初始音量（百分比）；用户已保存的本地音量优先。 */
+  @Column({ type: 'integer', default: 50 })
+  roomDefaultMusicVolume!: number;
+
   @Column({ type: 'json', nullable: true })
   dataSourceConfig!: Record<string, unknown> | null;
 

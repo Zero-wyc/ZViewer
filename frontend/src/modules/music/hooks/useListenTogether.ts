@@ -2,6 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { useShallow } from 'zustand/react/shallow'
 import { useRoomStore } from '@/store/roomStore'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { initialMusicVolume } from '../utils/volume'
+import {
+  advancePersonalFm,
+  fetchPersonalFmPool,
+  usePersonalFmStore,
+} from '../personal-fm'
+import type { FmSongItem } from '../personal-fm'
 import {
   ROOM_MEDIA_TEARDOWN_EVENT,
   type RoomMediaTeardownDetail,
@@ -31,6 +39,7 @@ import type {
   MusicQueueItem,
   MusicSyncState,
   PlayMode,
+  NcmSong,
 } from '../types'
 
 /** Socket 事件名（与后端 MusicSyncHandler 约定，见 spec「音乐播放同步」节） */
@@ -146,15 +155,14 @@ const CONTROL_ACTION_TEXT: Record<MusicControlRequest['action'], string> = {
 /** 音乐本地音量持久化 key（与视频播放器的 zc-player-volume 相互独立） */
 const VOLUME_STORAGE_KEY = 'zc-music-volume'
 
-/** 读取持久化的本地音量（0-1，无效/缺失时回退 1） */
+/** 读取持久化的本地音量（0-1，无效/缺失时使用服务器默认音量） */
 function loadPersistedVolume(): number {
+  const fallback = useSystemSettingsStore.getState().roomDefaultMusicVolume
   try {
     const saved = localStorage.getItem(VOLUME_STORAGE_KEY)
-    if (!saved) return 1
-    const v = parseFloat(saved)
-    return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 1
+    return initialMusicVolume(saved, fallback)
   } catch {
-    return 1
+    return initialMusicVolume(null, fallback)
   }
 }
 
@@ -365,6 +373,8 @@ export interface UseListenTogetherResult {
   volume: number
   /** 设置本地播放音量（0-1，持久化到 localStorage；0 视为静音） */
   setVolume: (volume: number) => void
+  /** 启动 FM 会话；确认入队后播放，候选耗尽时自动补拉。 */
+  playFmSong: (song: NcmSong) => Promise<boolean>
   /** 当前主音频元素（惰性创建；预载升格时会被替换，可视化消费方需感知） */
   getAudio: () => HTMLAudioElement | null
 }
@@ -469,6 +479,8 @@ export function useListenTogether({
 
   // 本地音量（仅本地生效；创建 audio 元素时应用，见 getAudio）
   const [volume, setVolumeState] = useState(loadPersistedVolume)
+  const volumeAdjustedRef = useRef(false)
+  const fmPlayRequestRef = useRef(0)
 
   // ===== Refs =====
   /** 音频元素（惰性创建，不挂 DOM） */
@@ -510,6 +522,23 @@ export function useListenTogether({
       audioRef.current = audio
     }
     return audioRef.current
+  }, [])
+
+  // 公开设置可能晚于播放器挂载返回。仅在本次未手调且无本地记录时应用。
+  useEffect(() => {
+    const applyDefault = () => {
+      if (volumeAdjustedRef.current) return
+      const value = loadPersistedVolume()
+      volumeRef.current = value
+      setVolumeState(value)
+      if (audioRef.current) {
+        audioRef.current.volume = value
+        audioRef.current.muted = value === 0
+      }
+    }
+    const unsubscribe = useSystemSettingsStore.subscribe(applyDefault)
+    void useSystemSettingsStore.getState().fetchSettings()
+    return unsubscribe
   }, [])
 
   /**
@@ -1066,6 +1095,8 @@ export function useListenTogether({
    */
   const switchSong = useCallback(
     (direction: 'next' | 'prev'): boolean => {
+      fmPlayRequestRef.current++
+      usePersonalFmStore.getState().deactivate()
       const target = computeTargetSong(direction)
       if (!target) return false
       const targetKey = musicItemKey(target)
@@ -1081,6 +1112,122 @@ export function useListenTogether({
       return true
     },
     [computeTargetSong, loadAndPlaySong, broadcastSyncState]
+  )
+
+  const fmAdvancingRef = useRef(false)
+  const refillFm = useCallback(
+    () =>
+      fetchPersonalFmPool(async (url) => {
+        const { data } = await apiGet<{ data?: FmSongItem[] }>(url)
+        return Array.isArray(data?.data) ? data.data : []
+      }),
+    []
+  )
+  const enqueueFm = useCallback(
+    (song: NcmSong, targetRoom: string) =>
+      new Promise<void>((resolve, reject) => {
+        const activeSocket = socketRef.current
+        if (!activeSocket?.connected) {
+          reject(new Error('未连接房间'))
+          return
+        }
+        activeSocket.timeout(8000).emit(
+          'music:queue-upsert',
+          {
+            roomId: targetRoom,
+            item: song,
+            afterCurrent: true,
+          },
+          (
+            err: Error | null,
+            response: { success?: boolean; message?: string }
+          ) => {
+            if (err || !response?.success)
+              reject(new Error(response?.message || '漫游歌曲入队失败'))
+            else resolve()
+          }
+        )
+      }),
+    []
+  )
+  const playFmItem = useCallback(
+    (song: NcmSong, targetRoom: string) => {
+      const item: MusicQueueItem = {
+        ...song,
+        roomId: targetRoom,
+        id: -1,
+        order: 0,
+        addedBy: '',
+      }
+      loadAndPlaySong(item, 0, true)
+      broadcastSyncState({
+        keyOverride: musicItemKey(item),
+        isPlaying: true,
+        positionSec: 0,
+      })
+    },
+    [loadAndPlaySong, broadcastSyncState]
+  )
+  const tryFmContinue = useCallback((): boolean => {
+    const state = useMusicStore.getState()
+    const fm = usePersonalFmStore.getState()
+    const targetRoom = roomIdRef.current
+    // 仅房主推进共享 FM；观众仍等待同步，不自行添加曲目。
+    if (
+      !isHostRef.current ||
+      !targetRoom ||
+      fm.activeRoomId !== targetRoom ||
+      fm.activeKey == null ||
+      fm.activeKey !== state.currentKey
+    )
+      return false
+    if (fmAdvancingRef.current) return true
+    fmAdvancingRef.current = true
+    void advancePersonalFm(targetRoom, state.currentKey, {
+      refill: refillFm,
+      enqueue: (song) => enqueueFm(song, targetRoom),
+      play: (song) => {
+        playFmItem(song, targetRoom)
+        if (usePersonalFmStore.getState().pool.length < 2)
+          void refillFm().catch(() => {})
+      },
+      isCurrent: () =>
+        roomIdRef.current === targetRoom &&
+        isHostRef.current &&
+        useMusicStore.getState().currentKey === state.currentKey,
+    })
+      .catch((err: unknown) => {
+        message.error(err instanceof Error ? err.message : '漫游续播失败')
+      })
+      .finally(() => {
+        fmAdvancingRef.current = false
+      })
+    return true
+  }, [enqueueFm, playFmItem, refillFm])
+
+  const playFmSong = useCallback(
+    async (song: NcmSong) => {
+      const targetRoom = roomIdRef.current
+      if (!isHostRef.current || !targetRoom)
+        throw new Error('私人漫游由房主控制')
+      const request = ++fmPlayRequestRef.current
+      usePersonalFmStore.getState().invalidate()
+      const generation = usePersonalFmStore.getState().generation
+      await enqueueFm(song, targetRoom)
+      if (
+        request !== fmPlayRequestRef.current ||
+        roomIdRef.current !== targetRoom ||
+        !isHostRef.current ||
+        usePersonalFmStore.getState().generation !== generation
+      )
+        return false
+      usePersonalFmStore.getState().activate(targetRoom, song)
+      playFmItem(song, targetRoom)
+      if (usePersonalFmStore.getState().pool.length < 2)
+        void refillFm().catch(() => {})
+      return true
+    },
+    [enqueueFm, playFmItem, refillFm]
   )
 
   /**
@@ -1210,6 +1357,7 @@ export function useListenTogether({
   const togglePlay = useCallback(() => {
     if (!hasControl()) return
     if (useMusicStore.getState().currentKey == null) return
+    if (fmAdvancingRef.current) usePersonalFmStore.getState().invalidate()
     const audio = getAudio()
     const wantPlay = audio.paused
     if (wantPlay) {
@@ -1234,6 +1382,7 @@ export function useListenTogether({
    */
   const next = useCallback(() => {
     if (!hasControl()) return
+    if (tryFmContinue()) return
     const state = useMusicStore.getState()
     // 单曲队列特例：computeTargetSong('next') 对唯一曲目返回自身重播
     // （switchSong 视为成功），会绕过末尾判定——按顺序播放时点「下一首」
@@ -1264,7 +1413,7 @@ export function useListenTogether({
         }
       }
     }
-  }, [switchSong, hasControl, tryBiliContinueOnNext])
+  }, [switchSong, hasControl, tryBiliContinueOnNext, tryFmContinue])
 
   /** 上一首（按播放模式计算目标） */
   const prev = useCallback(() => {
@@ -1307,6 +1456,8 @@ export function useListenTogether({
   const playSong = useCallback(
     (item: MusicQueueItem) => {
       if (!hasControl()) return
+      fmPlayRequestRef.current++
+      usePersonalFmStore.getState().deactivate()
       loadAndPlaySong(item, 0, true)
       if (isHostRef.current) {
         broadcastSyncState({
@@ -1326,6 +1477,7 @@ export function useListenTogether({
         1,
         Math.max(0, Number.isFinite(value) ? value : 0)
       )
+      volumeAdjustedRef.current = true
       const audio = getAudio()
       audio.muted = clamped === 0
       audio.volume = clamped
@@ -1348,6 +1500,8 @@ export function useListenTogether({
    */
   const playBiliSong = useCallback(
     async (item: MusicQueueItem) => {
+      fmPlayRequestRef.current++
+      usePersonalFmStore.getState().deactivate()
       if (!isBiliItem(item) || !item.biliBvid) return
       const notice = useMusicStore.getState().setSyncNotice
       notice('正在解析 B站 视频音频…')
@@ -1709,6 +1863,7 @@ export function useListenTogether({
       }
       return
     }
+    if (tryFmContinue()) return
     if (playMode === 'order') {
       // 按顺序播放：顺序推进，末尾不回绕。队列末尾自动触发 B站 推荐
       // 续播——与手动点「下一首」同一管线（biliAutoContinue 开启时拉
@@ -1734,7 +1889,13 @@ export function useListenTogether({
     }
     // 顺序循环 / 随机：切换下一首（各自按规则循环/重洗）
     switchSong('next')
-  }, [getAudio, switchSong, broadcastSyncState, tryBiliContinueOnNext])
+  }, [
+    getAudio,
+    switchSong,
+    broadcastSyncState,
+    tryBiliContinueOnNext,
+    tryFmContinue,
+  ])
 
   // 音频元素事件绑定：handler 集合元素无关（升格时随元素迁移），此处只做
   // 初始主元素的挂载/卸载；ended 经 endedHandlerRef 间接调用最新实现
@@ -2131,6 +2292,7 @@ export function useListenTogether({
   //（store 不在此重置，由 Task 6 的离开房间流程统一调用 reset）
   useEffect(() => {
     return () => {
+      usePersonalFmStore.getState().reset()
       const audio = audioRef.current
       if (audio) {
         audio.pause()
@@ -2167,6 +2329,8 @@ export function useListenTogether({
     const handleTeardown = (e: Event) => {
       const detail = (e as CustomEvent<RoomMediaTeardownDetail>).detail
       const full = detail?.full ?? true
+      fmPlayRequestRef.current++
+      usePersonalFmStore.getState().deactivate()
       const stopEl = (el: HTMLAudioElement) => {
         el.pause()
         if (full) {
@@ -2209,6 +2373,7 @@ export function useListenTogether({
     seek,
     setPlayMode,
     playSong,
+    playFmSong,
     playBiliSong,
     addBiliRecommendations,
     requestControl,

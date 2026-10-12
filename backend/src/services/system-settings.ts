@@ -13,6 +13,7 @@ import { SystemSettings } from '../entities/SystemSettings';
 const DEFAULT_SETTINGS: Partial<SystemSettings> = {
   autoDeleteInactiveRooms: true,
   autoDeleteAfterHours: 24,
+  roomDefaultMusicVolume: 50,
   registrationMode: 'approval',
   roomCreationMode: 'admin-only',
   betaFeaturesEnabled: false,
