@@ -112,6 +112,12 @@ export interface SyncStatePayload {
    * 广播（socket 重连窗口），主动请求全量状态自愈，避免 diff 合并基线错位。
    */
   seq?: number;
+  /**
+   * 客户端发送时刻的 Unix 毫秒时间戳。
+   * 服务端据此补偿传输延迟（clamp 0~1.5s × playbackRate），
+   * 使持久化基线锚定在服务器时间轴上（Step 1：服务器权威化写入）。
+   */
+  clientTs?: number;
 }
 
 /** 控制动作类型 */
@@ -127,6 +133,11 @@ export interface SyncControlPayload {
   roomId: string;
   action: ControlAction;
   value?: number;
+  /**
+   * 客户端发送时刻的 Unix 毫秒时间戳。
+   * 服务端对 play/seek 指令补偿传输延迟（同 SyncStatePayload.clientTs）。
+   */
+  clientTs?: number;
 }
 
 /** 心跳 payload */
@@ -138,6 +149,11 @@ export interface HeartbeatPayload {
   playbackRate: number;
   /** suppressed 标记：源切换/恢复进度期间的心跳，仅用于存活检测，不用于状态同步 */
   suppressed?: boolean;
+  /**
+   * 客户端发送时刻的 Unix 毫秒时间戳。
+   * 服务端据此补偿传输延迟后再合并进播放记忆基线（仅播放中）。
+   */
+  clientTs?: number;
 }
 
 /** 轨道类型 */

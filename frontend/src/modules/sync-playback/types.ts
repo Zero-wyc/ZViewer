@@ -99,6 +99,12 @@ export interface StatePayload {
   diff?: Partial<WatchTogetherState>
   /** 房主侧递增序号：观众检测跳号即请求全量状态自愈（避免 diff 基线错位） */
   seq?: number
+  /**
+   * 发送时刻的 Unix 毫秒时间戳。
+   * 服务端据此补偿传输延迟（clamp 0~1.5s × rate，仅播放中），
+   * 使持久化基线锚定在服务器时间轴上（Step 1：服务器权威化写入）。
+   */
+  clientTs?: number
 }
 
 /** `host-heartbeat` 事件 payload：房主定时广播的轻量心跳信息 */
@@ -120,6 +126,11 @@ export interface HeartbeatPayload {
    * 观众端误判房主离线，进入自主控制模式。
    */
   suppressed?: boolean
+  /**
+   * 发送时刻的 Unix 毫秒时间戳。
+   * 服务端据此补偿传输延迟后再合并进播放记忆基线（仅播放中）。
+   */
+  clientTs?: number
 }
 
 /** 统一心跳协议（#14）：房主在线 / 房主离线共用同一事件 */

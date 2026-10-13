@@ -39,13 +39,18 @@ export class HeartbeatHandler implements SocketEventHandler {
           // 心跳落盘（10s 节流，service 内部控制）：房主连续播放期间没有
           // 离散 state 事件，外推基线会逐渐陈旧；心跳携带真实 currentTime，
           // 合并进播放记忆后房主断线的服务器外推与恢复进度不再超前。
+          // clientTs：服务端补偿传输延迟后再合并（仅播放中，clamp 0~1.5s × rate）。
           // 不 await：落盘失败不应阻塞心跳转发。
           void playbackMemoryService
-            .applyHostHeartbeat(payload.roomId, {
-              currentTime: payload.currentTime,
-              isPlaying: payload.isPlaying,
-              playbackRate: payload.playbackRate,
-            })
+            .applyHostHeartbeat(
+              payload.roomId,
+              {
+                currentTime: payload.currentTime,
+                isPlaying: payload.isPlaying,
+                playbackRate: payload.playbackRate,
+              },
+              payload.clientTs,
+            )
             .catch((err) => {
               console.error('[host-heartbeat] applyHostHeartbeat error:', err);
             });

@@ -72,6 +72,8 @@ export function useHostBroadcast({
         state: stateWithCli,
         diff,
         seq: seqRef.current,
+        // 发送时刻时间戳：服务端据此补偿传输延迟，使持久化基线锚定服务器时间轴
+        clientTs: Date.now(),
       })
     },
     [socket, roomId, isHostRef]
@@ -80,7 +82,12 @@ export function useHostBroadcast({
   const sendControl = useCallback(
     (action: ControlAction, value?: number) => {
       if (!socket || !isHostRef.current) return
-      socket.emit(SOCKET_EVENT.CONTROL, { roomId, action, value })
+      socket.emit(SOCKET_EVENT.CONTROL, {
+        roomId,
+        action,
+        value,
+        clientTs: Date.now(),
+      })
     },
     [socket, roomId, isHostRef]
   )
@@ -102,6 +109,7 @@ export function useHostBroadcast({
       roomId,
       state: newState,
       seq: seqRef.current,
+      clientTs: Date.now(),
     })
   }, [socket, roomId, isHostRef, videoRef])
 

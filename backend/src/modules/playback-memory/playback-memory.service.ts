@@ -22,6 +22,7 @@ import { PlaybackState } from '../../entities/PlaybackState';
 import type { PlaybackStateDto, SyncStateDto } from '../shared/dto/sync-state.dto';
 import type { QualityOptionDto } from '../shared/dto/sync-state.dto';
 import type { StorageAdapter } from '../../services/storage';
+import { compensateTransportDelay } from './transport-delay';
 
 /** DB 写入节流间隔（毫秒）。房主高频更新时避免每次都写 DB。 */
 const DB_WRITE_THROTTLE_MS = 2000;
@@ -73,16 +74,30 @@ export class PlaybackMemoryService {
    * @param roomId 房间 ID
    * @param state 房主广播的完整状态
    * @param hostSocketId 房主 socket ID
+   * @param clientTs 客户端发送时刻（Unix 毫秒）。提供时补偿传输延迟
+   *   （clamp 0~1.5s × playbackRate，仅播放中），使基线锚定服务器时间轴。
+   *   已在调用侧做过显式补偿（如 applyControlToPlayback）时不要传。
    */
   async setPlayback(
     roomId: string,
     state: SyncStateDto,
     hostSocketId: string,
+    clientTs?: number,
   ): Promise<void> {
     const now = Date.now();
     const currentMovieId = await this.getCurrentMovieId(roomId);
+    // 写侧传输延迟补偿：房主上报的 currentTime 是发出时刻的值，
+    // 播放中到达服务器时已推进 delay × rate，补回后再入基线（Step 1）。
+    const compensatedCurrentTime = compensateTransportDelay({
+      currentTime: state.currentTime,
+      clientTs,
+      playbackRate: state.playbackRate,
+      isPlaying: state.isPlaying,
+      now,
+    });
     const playbackState: PlaybackStateDto = {
       ...state,
+      currentTime: compensatedCurrentTime,
       currentMovieId,
       updatedAt: now,
     };
@@ -211,6 +226,7 @@ export class PlaybackMemoryService {
   async applyHostHeartbeat(
     roomId: string,
     heartbeat: { currentTime: number; isPlaying: boolean; playbackRate: number },
+    clientTs?: number,
   ): Promise<void> {
     const cached = this.cache.get(roomId);
     // 无既有状态（房主尚未广播过完整 state）时不创建：
@@ -218,7 +234,13 @@ export class PlaybackMemoryService {
     if (!cached) return;
 
     const now = Date.now();
-    cached.state.currentTime = heartbeat.currentTime;
+    cached.state.currentTime = compensateTransportDelay({
+      currentTime: heartbeat.currentTime,
+      clientTs,
+      playbackRate: heartbeat.playbackRate,
+      isPlaying: heartbeat.isPlaying,
+      now,
+    });
     cached.state.isPlaying = heartbeat.isPlaying;
     if (heartbeat.playbackRate > 0) {
       cached.state.playbackRate = heartbeat.playbackRate;

@@ -65,6 +65,7 @@ export function useHostHeartbeat({
           roomId,
           ...alivePayload,
           suppressed: true,
+          clientTs: Date.now(),
         })
         return
       }
@@ -73,7 +74,12 @@ export function useHostHeartbeat({
         isPlaying: built.isPlaying,
         playbackRate: built.playbackRate,
       }
-      socket.emit(SOCKET_EVENT.HOST_HEARTBEAT, { roomId, ...payload })
+      // clientTs：服务端据此补偿传输延迟后再合并进播放记忆基线
+      socket.emit(SOCKET_EVENT.HOST_HEARTBEAT, {
+        roomId,
+        ...payload,
+        clientTs: Date.now(),
+      })
     }, HEARTBEAT_INTERVAL_MS)
 
     return () => {

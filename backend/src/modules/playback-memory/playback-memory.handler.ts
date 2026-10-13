@@ -16,6 +16,7 @@ import type { AckCallback, SocketEventHandler } from '../socket';
 import { safeAck } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
 import { playbackMemoryService } from './playback-memory.service';
+import { compensateTransportDelay } from './transport-delay';
 import type {
   SyncStatePayload,
   SyncControlPayload,
@@ -48,10 +49,13 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
           }
 
           // 持久化到 playbackMemoryService（内存 + DB）
+          // clientTs：服务端补偿传输延迟（clamp 0~1.5s × rate，仅播放中），
+          // 使持久化基线锚定在服务器时间轴上（Step 1：服务器权威化写入）
           await playbackMemoryService.setPlayback(
             payload.roomId,
             payload.state,
             socket.id,
+            payload.clientTs,
           );
 
           // 广播给房间内其他成员（不含 roomId，接收端按 socket 所在房间处理）
@@ -135,12 +139,13 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
             value: payload.value,
           });
 
-          // 更新持久化状态（控制指令影响状态）
+          // 更新持久化状态（控制指令影响状态，内部按动作做传输延迟补偿）
           await this.applyControlToPlayback(
             payload.roomId,
             payload.action,
             payload.value,
             socket.id,
+            payload.clientTs,
           );
 
           safeAck(callback, { success: true });
@@ -155,9 +160,10 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
   /**
    * 将控制指令应用到持久化播放状态。
    *
-   * - play/pause：更新 isPlaying
-   * - seek：更新 currentTime
-   * - rate：更新 playbackRate
+   * - play：更新 isPlaying，并补偿在途推进（播放瞬间房主已前进 delay × rate）
+   * - pause：更新 isPlaying，进度凝固不补偿
+   * - seek：更新 currentTime，仅当 seek 后仍处于播放态时补偿在途推进
+   * - rate：先推算当前进度再更新倍速，不额外补偿
    *
    * 这些更新会重置 lastUpdatedAt，确保下次推算从正确的时间点开始。
    */
@@ -166,6 +172,7 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
     action: string,
     value: number | undefined,
     hostSocketId: string,
+    clientTs?: number,
   ): Promise<void> {
     const current = await playbackMemoryService.getRawPlayback(roomId);
     if (!current) return;
@@ -173,9 +180,18 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
     let newState = { ...current };
 
     switch (action) {
-      case 'play':
+      case 'play': {
         newState.isPlaying = true;
+        // 暂停凝固的基线进度 + 在途推进（播放已按下 delay × rate）
+        const advanced = await playbackMemoryService.getAdvancedPlayback(roomId);
+        newState.currentTime = compensateTransportDelay({
+          currentTime: advanced?.currentTime ?? newState.currentTime,
+          clientTs,
+          playbackRate: newState.playbackRate,
+          isPlaying: true,
+        });
         break;
+      }
       case 'pause':
         newState.isPlaying = false;
         // 暂停时更新 currentTime 为当前推算值（凝固进度）
@@ -186,7 +202,14 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
         break;
       case 'seek':
         if (typeof value === 'number' && Number.isFinite(value) && value >= 0) {
-          newState.currentTime = value;
+          // seek 后仍播放中：房主 seek 到目标点后在途已推进 delay × rate；
+          // seek 后暂停态进度凝固，不补偿。
+          newState.currentTime = compensateTransportDelay({
+            currentTime: value,
+            clientTs,
+            playbackRate: newState.playbackRate,
+            isPlaying: newState.isPlaying,
+          });
           // 不改变 isPlaying——seek 后房主仍可播放/暂停，实际状态由下一个心跳同步；
           // 旧实现强制设为 false 导致观众端在 seek 后暂停、收到心跳后才恢复，造成抖动
         }
@@ -203,7 +226,8 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
         break;
     }
 
-    // 移除 hostSocketId（不在 SyncStateDto 中），单独更新
+    // 移除 hostSocketId（不在 SyncStateDto 中），单独更新。
+    // 此处已完成显式补偿，setPlayback 不再传 clientTs，避免二次补偿。
     const { hostSocketId: _omit, ...stateOnly } = newState as typeof newState & {
       hostSocketId?: string | null;
     };
