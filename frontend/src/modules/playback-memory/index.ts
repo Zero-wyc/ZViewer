@@ -41,4 +41,8 @@ export {
 } from './services'
 
 // Types
-export type { ServerHeartbeatPayload, RequestStateAckData } from './types'
+export type {
+  ServerHeartbeatPayload,
+  RequestStateAckData,
+  CheckStatusAckData,
+} from './types'

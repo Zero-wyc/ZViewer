@@ -23,8 +23,14 @@ export const SOCKET_EVENT = {
   STATE: 'watch-together-state',
   /** 房主发送控制指令（play/pause/seek/rate） */
   CONTROL: 'watch-together-control',
-  /** 观众请求房主当前状态（用于初始同步） */
+  /** 观众请求当前播放状态（ack 直返服务器推算状态） */
   REQUEST_STATE: 'watch-together-request-state',
+  /**
+   * 观众主动自检（Step 3，参考 synctv CHECK_STATUS）：
+   * 观众每 10s 上报本地播放状态，服务端与权威推算状态比对（±10s 容差），
+   * 分歧超限通过 ack 下发权威进度——服务器周期心跳丢失时的自愈通道。
+   */
+  CHECK_STATUS: 'watch-together-check-status',
   /** 影片列表更新 */
   MOVIE_LIST: 'movie-list',
   /** 当前播放影片变更 */
@@ -108,6 +114,14 @@ export const HEARTBEAT_INTERVAL_MS = 5000
  * v3：从 6s 提升至 15s（3 倍心跳间隔），避免网络抖动导致误判。
  */
 export const HEARTBEAT_TIMEOUT_MS = 15000
+
+/**
+ * 观主动自检间隔（毫秒，Step 3）。
+ * 观众每隔该时长 emit CHECK_STATUS 上报本地状态，服务端比对 ±10s 容差，
+ * 超限才下发权威进度。作为服务器心跳（2s）丢失时的自愈通道，
+ * 间隔远大于心跳周期，正常情况下自检几乎不触发纠偏。
+ */
+export const CHECK_STATUS_INTERVAL_MS = 10000
 
 /**
  * 状态广播时的 currentTime 差异阈值（秒）。

@@ -21,8 +21,11 @@ import type { RefObject, MutableRefObject } from 'react'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
-import { SOCKET_EVENT } from '@/modules/sync-playback/constants'
 import type { SyncHeartbeatPayload } from '@/modules/sync-playback/types'
+import {
+  SOCKET_EVENT,
+  CHECK_STATUS_INTERVAL_MS,
+} from '@/modules/sync-playback/constants'
 import { safePlay } from '@/modules/sync-playback/safePlay'
 import {
   executeSeek,
@@ -31,13 +34,15 @@ import {
   getAdaptiveSeekThreshold,
 } from '@/modules/sync-playback/services'
 import type { SeekToResult } from '@/modules/sync-playback/services'
-import type { ServerHeartbeatPayload } from '../types'
+import type { ServerHeartbeatPayload, CheckStatusAckData } from '../types'
 import {
   isBilibiliUrlExpired,
   isVideoSourceExpired,
 } from '../services/url-expiry'
 
 export interface UseServerHeartbeatOptions {
+  /** 房间 ID（自检上报需要，服务端据此校验在房） */
+  roomId: string
   isHostRef: MutableRefObject<boolean>
   videoRef: RefObject<HTMLVideoElement | null>
   suppressEventsRef: MutableRefObject<boolean>
@@ -74,6 +79,7 @@ function isSameExceptProgress(
 }
 
 export function useServerHeartbeat({
+  roomId,
   isHostRef,
   videoRef,
   suppressEventsRef,
@@ -277,6 +283,61 @@ export function useServerHeartbeat({
       socket.off(SOCKET_EVENT.SYNC_HEARTBEAT, handleSyncHeartbeat)
     }
   }, [socket, isHostRef, handleServerHeartbeat])
+
+  // 观众主动自检（CHECK_STATUS，Step 3）：每 10s 上报本地播放状态，
+  // 服务端与权威推算状态比对（±10s 容差），分歧超限通过 ack 下发权威进度。
+  // 作为服务器心跳（2s）丢失（socket 重连窗口 / 网络抖动）时的自愈通道；
+  // 正常情况下自检不会触发纠偏（容差远大于心跳校正阈值 3s/6s）。
+  useEffect(() => {
+    if (!socket || isHostRef.current) return
+
+    const checkInFlightRef = { current: false }
+
+    const intervalId = setInterval(() => {
+      const video = videoRef.current
+      // 守卫：源未就绪 / 抑制期（源切换、缓冲下载）/ 自主控制 / 过期 / seek 进行中 / 上一查在途
+      if (!video || !video.currentSrc) return
+      if (suppressEventsRef.current) return
+      if (hostOfflineRef.current) return
+      if (urlExpiredRef.current) return
+      if (isReloadingRef.current) return
+      if (video.seeking) return
+      if (checkInFlightRef.current) return
+      checkInFlightRef.current = true
+
+      socket.emit(
+        SOCKET_EVENT.CHECK_STATUS,
+        {
+          roomId,
+          currentTime: video.currentTime,
+          isPlaying: !video.paused,
+          playbackRate: video.playbackRate,
+          clientTs: Date.now(),
+        },
+        (response: { success: boolean; data?: CheckStatusAckData | null }) => {
+          checkInFlightRef.current = false
+          if (!response?.success || !response.data?.needsSync) return
+          const state = response.data.state
+          if (!state) return
+          // ack 等待期间可能进入抑制 / 自主控制，应用前再校验一次
+          if (suppressEventsRef.current || hostOfflineRef.current) return
+          // 复用服务器心跳的校正路径（两阶段软同步 / 硬 seek）
+          handleServerHeartbeat({ roomId: '', state })
+        }
+      )
+    }, CHECK_STATUS_INTERVAL_MS)
+
+    return () => {
+      clearInterval(intervalId)
+    }
+  }, [
+    socket,
+    isHostRef,
+    videoRef,
+    suppressEventsRef,
+    roomId,
+    handleServerHeartbeat,
+  ])
 
   // 监听 host-disconnected：仅提示，不暂停播放
   useEffect(() => {

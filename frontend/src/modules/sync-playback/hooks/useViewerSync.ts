@@ -96,6 +96,7 @@ export function useViewerSync({
 
   // 3. 订阅服务器心跳（Step 2：观众进度的唯一权威路径，两阶段自适应校正）
   useServerHeartbeat({
+    roomId,
     isHostRef,
     videoRef,
     suppressEventsRef,

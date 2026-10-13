@@ -17,9 +17,11 @@ import { safeAck } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
 import { playbackMemoryService } from './playback-memory.service';
 import { compensateTransportDelay } from './transport-delay';
+import { needsProgressSync } from './check-status';
 import type {
   SyncStatePayload,
   SyncControlPayload,
+  CheckStatusPayload,
 } from '../shared/dto';
 
 export class PlaybackMemoryHandler implements SocketEventHandler {
@@ -97,9 +99,10 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
 
           if (state) {
             // 直接通过 ack 返回状态（用于房主重连/观众初始加载）
+            // serverTs：服务器应答时刻，客户端可据此估算时钟偏移（时钟校准铺路）
             safeAck(callback, {
               success: true,
-              data: { state },
+              data: { state, serverTs: Date.now() },
             });
           } else {
             // 房间无播放状态，广播给其他成员让房主主动同步
@@ -152,6 +155,55 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
         } catch (err) {
           console.error('[watch-together-control] error:', err);
           safeAck(callback, { success: false, message: '控制失败' });
+        }
+      },
+    );
+    // --- 观众主动自检（CHECK_STATUS，Step 3）---
+    // 观众每 10s 上报本地播放状态，服务端与权威推算状态比对（±10s 容差），
+    // 分歧超限才通过 ack 下发权威推算状态——服务器周期心跳丢失
+    // （socket 重连窗口 / 网络抖动）时的自愈通道，参考 synctv CHECK_STATUS。
+    socket.on(
+      'watch-together-check-status',
+      async (payload: CheckStatusPayload, callback?: AckCallback) => {
+        try {
+          // 校验在房间内（观众自检，房主无需参与）
+          if (
+            !(await roomPermissionService.isInRoom(socket, payload.roomId))
+          ) {
+            return safeAck(callback, {
+              success: false,
+              message: '不在该房间中',
+            });
+          }
+
+          const serverTs = Date.now();
+          const serverState =
+            await playbackMemoryService.getAdvancedPlayback(payload.roomId);
+          if (!serverState) {
+            return safeAck(callback, {
+              success: true,
+              data: { needsSync: false, serverTs },
+            });
+          }
+
+          const needsSync = needsProgressSync({
+            clientCurrentTime: payload.currentTime,
+            clientIsPlaying: payload.isPlaying,
+            clientPlaybackRate: payload.playbackRate,
+            clientTs: payload.clientTs,
+            serverCurrentTime: serverState.currentTime,
+            serverIsPlaying: serverState.isPlaying,
+          });
+
+          safeAck(callback, {
+            success: true,
+            data: needsSync
+              ? { needsSync: true, state: serverState, serverTs }
+              : { needsSync: false, serverTs },
+          });
+        } catch (err) {
+          console.error('[watch-together-check-status] error:', err);
+          safeAck(callback, { success: false, message: '自检失败' });
         }
       },
     );

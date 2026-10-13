@@ -156,9 +156,27 @@ export interface HeartbeatPayload {
   clientTs?: number;
 }
 
+/**
+ * 观众主动自检 payload（CHECK_STATUS，Step 3）。
+ *
+ * 观众每 10s 上报本地播放状态，服务端与权威推算状态比对
+ * （needsProgressSync，±10s 容差），分歧超限才通过 ack 下发权威进度，
+ * 作为服务器周期心跳丢失（socket 重连窗口等）时的自愈通道。
+ */
+export interface CheckStatusPayload {
+  roomId: string;
+  /** 观众本地播放进度（秒） */
+  currentTime: number;
+  /** 观众本地是否正在播放 */
+  isPlaying: boolean;
+  /** 观众本地播放倍速（仅用于延迟补偿外推，不参与判定） */
+  playbackRate: number;
+  /** 观众发送时刻的 Unix 毫秒时间戳，用于传输延迟补偿 */
+  clientTs?: number;
+}
+
 /** 轨道类型 */
 export type TrackType = 'danmaku' | 'subtitle';
-
 /** 轨道变更 payload */
 export interface TrackChangePayload {
   roomId: string;
