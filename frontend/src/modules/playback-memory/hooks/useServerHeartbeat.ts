@@ -1,14 +1,18 @@
 /**
  * useServerHeartbeat Hook
  *
- * 订阅服务器心跳事件（server-heartbeat）。
+ * 订阅服务器心跳事件（sync-heartbeat source='server'）——观众进度的唯一权威来源。
  *
- * 旧架构：房主每 2s 广播 host-heartbeat，房主断开后观众 6s 超时暂停。
- * 新架构：服务器每 2s 广播 server-heartbeat（仅房主离线时），观众端继续播放。
+ * 演进：
+ * - 旧架构：房主每 2s 广播 host-heartbeat，房主断开后观众 6s 超时暂停。
+ * - 中间态：服务器仅在房主离线时广播 server-heartbeat 接管。
+ * - 当前（Step 2，服务器权威化）：服务器每 2s 恒定广播（房主在线/离线同一路径），
+ *   观众进度校正统一走服务器推算值；房主侧 watch-together-state / control
+ *   降级为「源信息 + 即时操作事件」通道。
  *
  * 行为：
- * - 收到 server-heartbeat 时，更新本地状态（基于服务器推算的进度）
- * - 不再因房主离线而暂停播放
+ * - 收到 server-heartbeat 时，做两阶段自适应进度校正（软同步倍速追赶 / 硬 seek）
+ * - 房主离线（host-disconnected）后观众进入自主控制模式，不再应用服务器心跳
  * - 监听 host-disconnected 仅显示提示，不暂停
  * - 检测 URL 过期后暂停并提示
  */
@@ -20,7 +24,13 @@ import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import { SOCKET_EVENT } from '@/modules/sync-playback/constants'
 import type { SyncHeartbeatPayload } from '@/modules/sync-playback/types'
 import { safePlay } from '@/modules/sync-playback/safePlay'
-import { shouldSeekToHost } from '@/modules/sync-playback/services'
+import {
+  executeSeek,
+  shouldSoftSync,
+  getCatchUpRate,
+  getAdaptiveSeekThreshold,
+} from '@/modules/sync-playback/services'
+import type { SeekToResult } from '@/modules/sync-playback/services'
 import type { ServerHeartbeatPayload } from '../types'
 import {
   isBilibiliUrlExpired,
@@ -34,9 +44,34 @@ export interface UseServerHeartbeatOptions {
   setWatchTogether: (state: WatchTogetherState) => void
   /** 当前播放状态（用于 URL 过期检测） */
   watchTogether: WatchTogetherState
+  /** seek 到目标时间（MSE 流不重建 MediaSource，由 useVideoSource 提供） */
+  seekTo: (video: HTMLVideoElement, targetTime: number) => Promise<SeekToResult>
+  /** MSE seek 失败时调用（如 video.error），用 forceReload 重新加载 */
+  reloadVideo: (video: HTMLVideoElement) => Promise<void>
 }
 
 export type UseServerHeartbeatReturn = void
+
+/**
+ * 判断两个状态除进度字段（currentTime）外是否等价。
+ * 用于服务器心跳时跳过无意义的 setWatchTogether（避免每 2s 无谓重渲染）：
+ * 进度由视频元素自身的播放自然推进，store 中的 currentTime 仅在
+ * 非进度字段变化（换源/播放状态/倍速/清晰度等）时才需要更新。
+ */
+function isSameExceptProgress(
+  a: WatchTogetherState,
+  b: WatchTogetherState
+): boolean {
+  const keys = new Set([
+    ...(Object.keys(a) as (keyof WatchTogetherState)[]),
+    ...(Object.keys(b) as (keyof WatchTogetherState)[]),
+  ])
+  for (const key of keys) {
+    if (key === 'currentTime') continue
+    if (a[key] !== b[key]) return false
+  }
+  return true
+}
 
 export function useServerHeartbeat({
   isHostRef,
@@ -44,6 +79,8 @@ export function useServerHeartbeat({
   suppressEventsRef,
   setWatchTogether,
   watchTogether,
+  seekTo,
+  reloadVideo,
 }: UseServerHeartbeatOptions): UseServerHeartbeatReturn {
   const { socket } = useSocket()
   // 防止重复提示"房主已离开"
@@ -65,6 +102,10 @@ export function useServerHeartbeat({
   useEffect(() => {
     watchTogetherRef.current = watchTogether
   }, [watchTogether])
+  // 软同步追赶进行中标记（P2-Opt#9 策略移植自旧 host 心跳路径）
+  const catchUpActiveRef = useRef(false)
+  // 硬 seek 并发锁（executeSeek 要求）
+  const isReloadingRef = useRef(false)
 
   // 处理服务器心跳：更新本地状态
   const handleServerHeartbeat = useCallback(
@@ -118,17 +159,16 @@ export function useServerHeartbeat({
         }
       }
 
-      suppressEventsRef.current = true
-      setWatchTogether(state)
-
-      if (!video) {
-        suppressEventsRef.current = false
-        return
+      // 更新 store：仅非进度字段变化时写入，进度由视频自然播放推进，
+      // 避免每 2s 心跳的 currentTime 差异触发无谓的全量重渲染
+      if (!isSameExceptProgress(watchTogetherRef.current, state)) {
+        setWatchTogether(state)
       }
+
+      if (!video) return
 
       // URL 过期后不再应用状态（等待房主重连）
       if (urlExpiredRef.current) {
-        suppressEventsRef.current = false
         return
       }
 
@@ -141,40 +181,82 @@ export function useServerHeartbeat({
         urlExpiredRef.current = true
         if (!video.paused) video.pause()
         message.warning('视频源已过期，等待房主重连')
-        suppressEventsRef.current = false
         return
       }
 
-      // 自适应 seek 跟随
-      if (
-        shouldSeekToHost(
-          video.currentTime,
-          state.currentTime,
-          state.playbackRate
-        )
-      ) {
-        try {
-          video.currentTime = state.currentTime
-        } catch {
-          // ignore
-        }
-      }
-
-      // 同步播放/暂停状态
+      // ① 同步播放/暂停状态
       if (state.isPlaying && video.paused) {
         void safePlay(video)
       } else if (!state.isPlaying && !video.paused) {
         video.pause()
       }
 
-      // 同步倍速
-      if (video.playbackRate !== state.playbackRate) {
+      // ② 同步倍速（软同步追赶期间跳过，避免覆盖追赶倍速打断收敛）
+      if (
+        !catchUpActiveRef.current &&
+        state.playbackRate > 0 &&
+        video.playbackRate !== state.playbackRate
+      ) {
         video.playbackRate = state.playbackRate
       }
 
-      suppressEventsRef.current = false
+      // ③ 两阶段自适应进度校正（服务器为进度权威，Step 2）：
+      //    diff ≤ 自适应阈值 → 忽略，自然播放；
+      //    阈值 < diff ≤ 硬 seek 阈值 且播放中 → 软同步倍速渐进追赶；
+      //    diff > 硬 seek 阈值 → 硬 seek（走统一 executeSeek，MSE Range seek
+      //    / 缓冲区检测 / 失败重载，与旧 host 心跳路径同策略）。
+      const rate = state.playbackRate > 0 ? state.playbackRate : 1
+      const diff = Math.abs(video.currentTime - state.currentTime)
+      const threshold = getAdaptiveSeekThreshold(rate)
+
+      if (diff <= threshold) {
+        // 差异已收敛 → 结束软同步，恢复服务器权威基准倍速
+        if (catchUpActiveRef.current) {
+          catchUpActiveRef.current = false
+          if (state.playbackRate > 0) {
+            video.playbackRate = state.playbackRate
+          }
+        }
+      } else if (
+        state.isPlaying &&
+        shouldSoftSync(video.currentTime, state.currentTime, rate)
+      ) {
+        // 软同步：小幅差异通过微调倍速追赶（暂停态无进度推进，不适用）
+        if (!catchUpActiveRef.current) {
+          catchUpActiveRef.current = true
+        }
+        const catchUpRate = getCatchUpRate(rate)
+        if (video.playbackRate !== catchUpRate) {
+          video.playbackRate = catchUpRate
+        }
+      } else {
+        // 硬 seek：大幅差异直接跳转
+        if (catchUpActiveRef.current) {
+          catchUpActiveRef.current = false
+        }
+        void executeSeek({
+          video,
+          targetTime: state.currentTime,
+          state,
+          seekTo,
+          suppressEventsRef,
+          isReloadingRef,
+          onSeekFailed: reloadVideo,
+        }).then((didSeek) => {
+          // 未触发 MSE seek 时执行普通 seek
+          if (!didSeek) {
+            suppressEventsRef.current = true
+            try {
+              video.currentTime = state.currentTime
+            } catch {
+              // ignore
+            }
+            suppressEventsRef.current = false
+          }
+        })
+      }
     },
-    [videoRef, suppressEventsRef, setWatchTogether]
+    [videoRef, suppressEventsRef, setWatchTogether, seekTo, reloadVideo]
   )
 
   // 订阅服务器心跳

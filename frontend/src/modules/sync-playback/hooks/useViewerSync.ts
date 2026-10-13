@@ -4,14 +4,15 @@
  * 观众侧同步编排 Hook：组合所有观众需要的同步子 hook，提供统一入口。
  *
  * 组合的子 hook：
- * - useViewerStateSync: 接收房主 state/control 事件（房主在线时）
+ * - useViewerStateSync: 接收房主 state/control 事件（源信息 + 即时操作事件通道）
  * - usePlaybackStateRequest: 从服务器请求初始状态（ack 直返，房主离线时也能获取）
- * - useServerHeartbeat: 订阅服务器心跳（房主离线时服务器接管广播）
+ * - useServerHeartbeat: 订阅服务器心跳（Step 2：观众进度的唯一权威路径）
  *
- * 新架构设计：
- * - 房主在线时：通过 watch-together-state / watch-together-control 实时同步
- * - 房主离线时：服务器每 2s 广播 server-heartbeat，观众继续播放
- * - 观众加入时：优先从服务器获取推算后的状态（不依赖房主响应）
+ * 服务器权威化架构（Step 2）：
+ * - 服务器每 2s 恒定广播 sync-heartbeat(source='server')，房主在线/离线同一条进度路径
+ * - 观众进度校正（软同步追赶 / 硬 seek）统一由 useServerHeartbeat 处理
+ * - 房主侧 state/control 仅承载源信息与 play/pause/seek/rate 即时操作
+ * - 房主离线时观众进入自主控制模式（不应用服务器心跳），URL 过期由 video error 兜底
  *
  * 共享 lastAppliedSourceUrlRef：usePlaybackStateRequest 完成 attach 后写入此 ref，
  * 避免后续 useViewerStateSync 收到同 sourceUrl 的 state 时误判为 source 变化，
@@ -25,7 +26,7 @@ import { useRef } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import type { WatchTogetherState } from '../types'
 import type { SeekToResult } from '../services'
-import { useViewerStateSync, useViewerHeartbeat } from './useViewerStateSync'
+import { useViewerStateSync } from './useViewerStateSync'
 import {
   useServerHeartbeat,
   usePlaybackStateRequest,
@@ -69,7 +70,7 @@ export function useViewerSync({
   // 并发触发第二个 attach（两个并发 attach 互相 reset → 黑屏）。
   const lastAppliedSourceUrlRef = useRef<string | null>(null)
 
-  // 1. 接收房主实时状态（房主在线时）
+  // 1. 接收房主实时状态（源信息 + 即时操作事件通道）
   useViewerStateSync({
     roomId,
     isHostRef,
@@ -82,14 +83,7 @@ export function useViewerSync({
     lastAppliedSourceUrlRef,
   })
 
-  // 2. 订阅房主心跳（房主在线时，每 5s 校正进度漂移）
-  useViewerHeartbeat({
-    isHostRef,
-    videoRef,
-    suppressEventsRef,
-  })
-
-  // 3. 从服务器请求初始状态（加入房间时，ack 直返）
+  // 2. 从服务器请求初始状态（加入房间时，ack 直返）
   usePlaybackStateRequest({
     roomId,
     isHostRef,
@@ -100,12 +94,14 @@ export function useViewerSync({
     lastAppliedSourceUrlRef,
   })
 
-  // 4. 订阅服务器心跳（房主离线时服务器接管广播，观众继续播放）
+  // 3. 订阅服务器心跳（Step 2：观众进度的唯一权威路径，两阶段自适应校正）
   useServerHeartbeat({
     isHostRef,
     videoRef,
     suppressEventsRef,
     setWatchTogether,
     watchTogether,
+    seekTo,
+    reloadVideo,
   })
 }

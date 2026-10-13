@@ -25,14 +25,10 @@ export type UseHostHeartbeatReturn = void
  * - suppressEventsRef 期间不广播，避免源切换/恢复进度期间发送错误心跳
  * - 心跳为轻量事件（仅 currentTime + isPlaying），观众端据此校正进度漂移
  *
- * 观众端通过 useViewerHeartbeat（在 useViewerSync 中组合）监听该事件：
- * - 重置"房主离线"计时器
- * - 进度差异 > SEEK_FOLLOW_THRESHOLD（3s）时 seek 到房主进度
- * - 小差异不操作，让视频自然播放
- *
- * **修复说明**：旧实现前端 emit `host-heartbeat` 但后端无转发 handler，
- * 导致观众端永远收不到心跳，6s 后必然误报"房主已离线"。
- * 新增后端 handler 后该功能恢复正常。
+ * 观众端不再直接消费该心跳（Step 2 服务器权威化）：
+ * 后端将心跳合并进播放记忆基线（applyHostHeartbeat，含传输延迟补偿），
+ * 由服务器每 2s 恒定广播 sync-heartbeat(source='server') 作为观众进度的
+ * 唯一权威来源；观众端进度校正统一在 useServerHeartbeat 中处理。
  */
 export function useHostHeartbeat({
   roomId,

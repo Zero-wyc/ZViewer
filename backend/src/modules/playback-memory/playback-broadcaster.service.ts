@@ -2,19 +2,21 @@
  * 播放状态定时广播服务（服务器心跳）。
  *
  * 旧架构：房主每 2s 广播 host-heartbeat，房主断开后观众 6s 超时暂停。
- * 新架构：服务器每 2s 广播 server-heartbeat + 推算后的播放状态，
- *         房主断开后服务器继续广播，观众可继续观看。
+ * 中间态：服务器仅在房主离线时广播 server-heartbeat 接管。
+ * 当前（Step 2，服务器权威化）：服务器每 2s 恒定广播 sync-heartbeat
+ * (source='server')，房主在线/离线同一条进度路径——观众进度统一以
+ * 服务器推算值（advanceState，基线已经 Step 1 传输延迟补偿）为权威，
+ * 房主侧 watch-together-state/control 降级为「源信息 + 即时操作事件」通道。
  *
  * 核心逻辑：
  * - 每 2s 遍历所有有播放状态的房间
  * - 推算当前 currentTime（基于 lastUpdatedAt + isPlaying + playbackRate）
- * - 广播 server-heartbeat 事件给房间所有成员
- * - 若房主在线，则跳过广播（房主自己会广播 watch-together-state）
- *   仅在房主断开期间接管广播
+ * - 广播 server-heartbeat + sync-heartbeat(source='server') 给房间所有成员
+ * - 房间无在线 socket 时跳过广播
  *
  * 性能：
  * - 单个 setInterval，遍历内存缓存中的房间
- * - 每个房间仅一次 DB 读取（缓存命中时纯内存操作）
+ * - 每个房间仅一次读取（缓存命中时纯内存操作）
  */
 import type { Server as SocketIOServer } from 'socket.io';
 import { playbackMemoryService } from './playback-memory.service';
@@ -70,12 +72,9 @@ export class PlaybackBroadcasterService {
     const roomIds = playbackMemoryService.getActiveRoomIds();
     for (const roomId of roomIds) {
       try {
-        // 只在房主离线时由服务器接管广播
-        if (playbackMemoryService.isHostOnline(roomId)) {
-          continue;
-        }
-
-        // 检查房间是否有在线成员（socket），无观众时跳过广播
+        // 检查房间是否有在线成员（socket），无观众时跳过广播。
+        // 注意：不再按 isHostOnline 跳过——服务器心跳是观众进度的唯一权威
+        // 来源（Step 2），房主在线时同样恒定广播。
         const roomSockets = this.io.sockets.adapter.rooms.get(roomId);
         if (!roomSockets || roomSockets.size === 0) {
           continue;

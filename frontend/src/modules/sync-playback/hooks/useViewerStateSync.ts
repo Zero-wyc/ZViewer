@@ -3,21 +3,10 @@ import type { RefObject, MutableRefObject } from 'react'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
 import { useRoomStore } from '@/store/roomStore'
-import type {
-  WatchTogetherState,
-  StatePayload,
-  ControlPayload,
-  SyncHeartbeatPayload,
-} from '../types'
+import type { WatchTogetherState, StatePayload, ControlPayload } from '../types'
 import { SOCKET_EVENT } from '../constants'
 import { safePlay } from '../safePlay'
-import {
-  executeSeek,
-  mergeStateDiff,
-  shouldSoftSync,
-  getCatchUpRate,
-  getAdaptiveSeekThreshold,
-} from '../services'
+import { executeSeek, mergeStateDiff } from '../services'
 import type { SeekToResult } from '../services'
 import {
   fetchBlobsForBufferMode,
@@ -67,14 +56,15 @@ export type UseViewerStateSyncReturn = void
  *    - sourceUrl 变化 → applySourceToVideo（含完整同步）
  *    - isPlaying 变化 → play/pause
  *    - playbackRate 变化 → 设置 playbackRate
- *    - currentTime 不再单独设置（由 host-heartbeat 校正）
+ *    - currentTime 不再单独设置（由服务器心跳校正）
  *
  * 2. **串行化 applySourceToVideo（Bug #8 修复）**：
  *    sourceUrl 变化时用 isApplyingRef 锁 + pendingStateRef 缓存最新 state，串行处理。
  *
- * 3. **进度校正由 host-heartbeat 驱动**：
- *    收到 state 时不再设置 currentTime，进度校正完全由 useViewerHeartbeat 处理
- *    （差异 > SEEK_FOLLOW_THRESHOLD=3s 才 seek，小差异让视频自然播放）。
+ * 3. **进度校正由服务器心跳驱动（Step 2，服务器权威化）**：
+ *    收到 state 时不再设置 currentTime，进度校正统一由 useServerHeartbeat 处理
+ *    （服务器每 2s 广播推算进度，差异超阈值才校正，小差异让视频自然播放）。
+ *    房主广播的 state/control 降级为「源信息 + 即时操作事件」通道。
  *
  * 4. **seek 到未缓冲区域的 MSE seek**：
  *    观众端跟随房主 seek 时（通过 control 事件），若目标位置不在缓冲范围内且为 MSE 流，
@@ -247,8 +237,8 @@ export function useViewerStateSync({
         }
       }
 
-      // 2.3 currentTime 不再单独设置（由 host-heartbeat 校正）
-      // 进度校正由 useViewerHeartbeat 处理，避免高频 seek 卡顿
+      // 2.3 currentTime 不再单独设置（由服务器心跳校正）
+      // 进度校正由 useServerHeartbeat 处理，避免高频 seek 卡顿
     }
 
     const handleState = (payload: StatePayload) => {
@@ -390,152 +380,4 @@ export function useViewerStateSync({
     isHostRef,
     lastAppliedSourceUrlRef,
   ])
-}
-
-/**
- * 观众心跳订阅 Hook：监听房主的 `host-heartbeat` 事件，
- * 用于进度校正与房主离线检测。
- *
- * v3 新增：之前观众端未订阅 host-heartbeat，导致：
- * - 房主在线时观众端无法校正进度漂移
- * - 房主心跳超时检测失效（虽然有 server-heartbeat 兜底）
- *
- * 行为：
- * - 收到 host-heartbeat 时，重置房主离线计时器
- * - 进度差异 > SEEK_FOLLOW_THRESHOLD（3s）时 seek 到房主进度
- * - 小差异不操作，让视频自然播放
- * - isPlaying 变化时同步 play/pause
- */
-export function useViewerHeartbeat({
-  isHostRef,
-  videoRef,
-  suppressEventsRef,
-}: {
-  isHostRef: MutableRefObject<boolean>
-  videoRef: RefObject<HTMLVideoElement | null>
-  suppressEventsRef: MutableRefObject<boolean>
-}): void {
-  const { socket } = useSocket()
-  // seek 并发锁
-  const isReloadingRef = useRef(false)
-  // 缓存上次应用的 isPlaying，用于判断是否需要 play/pause
-  const lastAppliedIsPlayingRef = useRef<boolean | null>(null)
-
-  // P2-Opt#9：软同步追赶状态
-  const catchUpActiveRef = useRef(false)
-  const catchUpBaseRateRef = useRef(1)
-
-  useEffect(() => {
-    if (!socket || isHostRef.current) return
-
-    const handleHeartbeat = (payload: {
-      currentTime: number
-      isPlaying: boolean
-      playbackRate?: number
-      suppressed?: boolean
-    }) => {
-      const video = videoRef.current
-      if (!video) return
-      if (suppressEventsRef.current) return
-
-      // suppressed 标记的心跳仅存活检测，不用于状态同步
-      if (payload.suppressed) return
-
-      // 从心跳提取 playbackRate（兼容旧版本缺失，缺省按 1x）
-      const rate =
-        typeof payload.playbackRate === 'number' && payload.playbackRate > 0
-          ? payload.playbackRate
-          : 1
-
-      // isPlaying 变化时同步 play/pause
-      if (lastAppliedIsPlayingRef.current !== payload.isPlaying) {
-        suppressEventsRef.current = true
-        if (payload.isPlaying && video.paused) {
-          void safePlay(video)
-        } else if (!payload.isPlaying && !video.paused) {
-          video.pause()
-        }
-        lastAppliedIsPlayingRef.current = payload.isPlaying
-        suppressEventsRef.current = false
-      }
-
-      // 进度校正：软同步 + 硬 seek 两阶段策略（P2-Opt#9）
-      // 软同步区间：差异 > 阈值 但 ≤ HARD_SEEK_THRESHOLD_SEC → 调整 playbackRate 渐进追赶
-      // 硬 seek 区间：差异 > HARD_SEEK_THRESHOLD_SEC → 直接跳转
-      const diff = Math.abs(video.currentTime - payload.currentTime)
-      const threshold = getAdaptiveSeekThreshold(rate)
-
-      if (diff <= threshold) {
-        // 差异已收敛 → 取消软同步，恢复基准倍速
-        if (catchUpActiveRef.current) {
-          catchUpActiveRef.current = false
-          video.playbackRate = catchUpBaseRateRef.current
-        }
-      } else if (shouldSoftSync(video.currentTime, payload.currentTime, rate)) {
-        // 软同步：小幅差异通过微调倍速追赶
-        if (!catchUpActiveRef.current) {
-          catchUpActiveRef.current = true
-          catchUpBaseRateRef.current = video.playbackRate
-        }
-        const catchUpRate = getCatchUpRate(rate)
-        if (video.playbackRate !== catchUpRate) {
-          video.playbackRate = catchUpRate
-        }
-      } else {
-        // 硬 seek：大幅差异（> HARD_SEEK_THRESHOLD_SEC）直接跳转
-        if (catchUpActiveRef.current) {
-          catchUpActiveRef.current = false
-          video.playbackRate = catchUpBaseRateRef.current
-        }
-        const state = useRoomStore.getState().watchTogether
-        const targetTime = payload.currentTime
-        void executeSeek({
-          video,
-          targetTime,
-          state,
-          seekTo: async (_video, time) => {
-            try {
-              _video.currentTime = time
-              return { success: true }
-            } catch {
-              return { success: false }
-            }
-          },
-          suppressEventsRef,
-          isReloadingRef,
-        }).then((didSeek) => {
-          if (!didSeek) {
-            suppressEventsRef.current = true
-            try {
-              video.currentTime = targetTime
-            } catch {
-              // ignore
-            }
-            suppressEventsRef.current = false
-          }
-        })
-      }
-    }
-
-    // 统一心跳协议（#14）：只监听 sync-heartbeat（source='host'）。
-    // 后端同时转发旧 host-heartbeat 与新 sync-heartbeat，若两者都绑定会导致
-    // 每条心跳被处理两遍（重复校正计算 + zustand 双倍 notify），故不再绑定旧事件。
-    const handleSyncHeartbeat = (payload: SyncHeartbeatPayload) => {
-      if (
-        payload.source === 'host' &&
-        typeof payload.currentTime === 'number'
-      ) {
-        handleHeartbeat({
-          currentTime: payload.currentTime,
-          isPlaying: !!payload.isPlaying,
-          playbackRate: payload.playbackRate,
-          suppressed: payload.suppressed,
-        })
-      }
-    }
-    socket.on(SOCKET_EVENT.SYNC_HEARTBEAT, handleSyncHeartbeat)
-    return () => {
-      socket.off(SOCKET_EVENT.SYNC_HEARTBEAT, handleSyncHeartbeat)
-    }
-  }, [socket, isHostRef, videoRef, suppressEventsRef])
 }
