@@ -4,21 +4,21 @@
 
 **[English](README.en.md)** | 中文
 
-<p align="left">
-  <a href="LICENSE">
-    <img src="https://img.shields.io/github/license/Zero-wyc/ZViewer?style=flat-square&logo=github&label=LICENSE&labelColor=333&color=blue" alt="MIT">
-  </a>
-  <img src="https://img.shields.io/github/stars/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Stars&labelColor=333&color=blue" alt="Stars">
-  <a href="https://github.com/Zero-wyc/ZViewer/releases">
-    <img src="https://img.shields.io/github/v/release/Zero-wyc/ZViewer?style=flat-square&logo=github&label=RELEASE&labelColor=333&color=green" alt="Release">
-  </a>
-  <img src="https://img.shields.io/github/contributors/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Contributors&labelColor=333&color=brightgreen" alt="Contributors">
-  <img src="https://img.shields.io/github/repo-size/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Size&labelColor=333&color=yellow" alt="Repo Size">
-  <img src="https://img.shields.io/github/last-commit/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Last%20Commit&labelColor=inactive" alt="Last Commit">
-  <img src="https://img.shields.io/github/languages/top/Zero-wyc/ZViewer?style=flat-square&logo=typescript&labelColor=333&color=3178C6" alt="Top Language">
-  <a href="https://t.me/Zero_251">
-    <img src="https://img.shields.io/badge/Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram">
-  </a>
+<p align="left">  
+  <a href="LICENSE">  
+    <img src="https://img.shields.io/github/license/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=LICENSE\&labelColor=333\&color=blue" alt="MIT">  
+  </a>  
+  <img src="https://img.shields.io/github/stars/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Stars\&labelColor=333\&color=blue" alt="Stars">  
+  <a href="https://github.com/Zero-wyc/ZViewer/releases">  
+    <img src="https://img.shields.io/github/v/release/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=RELEASE\&labelColor=333\&color=green" alt="Release">  
+  </a>  
+  <img src="https://img.shields.io/github/contributors/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Contributors\&labelColor=333\&color=brightgreen" alt="Contributors">  
+  <img src="https://img.shields.io/github/repo-size/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Size\&labelColor=333\&color=yellow" alt="Repo Size">  
+  <img src="https://img.shields.io/github/last-commit/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Last%20Commit\&labelColor=inactive" alt="Last Commit">  
+  <img src="https://img.shields.io/github/languages/top/Zero-wyc/ZViewer?style=flat-square\&logo=typescript\&labelColor=333\&color=3178C6" alt="Top Language">  
+  <a href="https://t.me/Zero_251">  
+    <img src="https://img.shields.io/badge/Telegram-26A5E4?style=flat-square\&logo=telegram\&logoColor=white" alt="Telegram">  
+  </a>  
 </p>
 
 ---
@@ -75,21 +75,21 @@
 
 ## 功能一览
 
-| 模块 | 功能 |
-|---|---|
-| 一起看房间 | 多人同步观影；房主控制播放，观众可申请暂停 / 快进 |
-| 视频源 | Bilibili（分 P、清晰度切换、大会员画质）、MP4 直链、WebDAV / FTP / OpenList 网盘挂载、Emby / Jellyfin 媒体库、服务器本地影片目录挂载 |
-| 播放兼容 | 浏览器支持格式直连播放；MKV / AVI / TS / WMV 浏览器端解析重封装；DTS / AC3 / EAC3 音轨浏览器端实时转 AAC； |
-| 播放模式 | 三种按需切换：CLI 本地代理（大会员 4K 高码率，不耗服务器流量）、服务器 DASH 转发（全房高清，消耗带宽）、MP4 直链转发（最高 720P，兼容性兜底） |
-| 弹幕 | Bilibili 官方 / DandanPlay / 本地 XML·JSON 弹幕文件多轨道叠加渲染；同一视频可挂多条 B 站弹幕轨道 |
-| 字幕 | 稀疏探测字幕引擎，SRT / ASS / SSA / VTT / SMI / SUB 与 MKV 内嵌字幕统一转换渲染 |
-| 互动 | 评论、语音聊天（LiveKit WebRTC；一起看 / 一起听 / 屏幕共享全场景，UDP/TCP 传输模式可切换） |
-| 推流 | WebRTC 屏幕共享；OBS RTMP 推流 + HTTP-FLV 拉流 |
-| 一起听 | 网易云音乐 × 哔哩哔哩 |
-| 音乐工具 | 视频标题一键搜索网易云同名歌曲并一键收藏歌单；播放列表自动补位推荐；bilibili / music 双收藏夹一键收藏；B 站 MV / PV 设为歌词页背景；歌词逐句同步滚动 |
-| 个性化 | Material You 动态主题、自定义主题色与颜色强度、玻璃拟态、自定义背景、精简动画；弹幕 / 字幕字体字号独立调节 |
-| 管理运维 | 一键自动更新；Docker / 单文件版开箱即用 |
-| ZViewerCLI | Go 编写的本地代理，用你自己的 Cookie 在本地解析 B 站高画质并代理视频流，全房间共享大会员画质且不耗服务器流量（详见下文） |
+| 模块         | 功能                                                                                            |
+| ---------- | --------------------------------------------------------------------------------------------- |
+| 一起看房间      | 多人同步观影；房主控制播放，观众可申请暂停 / 快进                                                                    |
+| 视频源        | Bilibili（分 P、清晰度切换、大会员画质）、MP4 直链、WebDAV / FTP / OpenList 网盘挂载、Emby / Jellyfin 媒体库、服务器本地影片目录挂载 |
+| 播放兼容       | 浏览器支持格式直连播放；MKV / AVI / TS / WMV 浏览器端解析重封装；DTS / AC3 / EAC3 音轨浏览器端实时转 AAC；                    |
+| 播放模式       | 三种按需切换：CLI 本地代理（大会员 4K 高码率，不耗服务器流量）、服务器 DASH 转发（全房高清，消耗带宽）、MP4 直链转发（最高 720P，兼容性兜底）            |
+| 弹幕         | Bilibili 官方 / DandanPlay / 本地 XML·JSON 弹幕文件多轨道叠加渲染；同一视频可挂多条 B 站弹幕轨道                           |
+| 字幕         | 稀疏探测字幕引擎，SRT / ASS / SSA / VTT / SMI / SUB 与 MKV 内嵌字幕统一转换渲染                                   |
+| 互动         | 评论、语音聊天（LiveKit WebRTC；一起看 / 一起听 / 屏幕共享全场景，UDP/TCP 传输模式可切换）                                   |
+| 推流         | WebRTC 屏幕共享；OBS RTMP 推流 + HTTP-FLV 拉流                                                         |
+| 一起听        | 网易云音乐 × 哔哩哔哩                                                                                  |
+| 音乐工具       | 视频标题一键搜索网易云同名歌曲并一键收藏歌单；播放列表自动补位推荐；bilibili / music 双收藏夹一键收藏；B 站 MV / PV 设为歌词页背景；歌词逐句同步滚动      |
+| 个性化        | Material You 动态主题、自定义主题色与颜色强度、玻璃拟态、自定义背景、精简动画；弹幕 / 字幕字体字号独立调节                                 |
+| 管理运维       | 一键自动更新；Docker / 单文件版开箱即用                                                                      |
+| ZViewerCLI | Go 编写的本地代理，用你自己的 Cookie 在本地解析 B 站高画质并代理视频流，全房间共享大会员画质且不耗服务器流量（详见下文）                           |
 
 ---
 
@@ -149,14 +149,14 @@ npm start
 
 ### 端口
 
-| 端口 | 用途 | 是否对外 |
-|---|---|---|
-| 3333/tcp | 统一入口：HTTP/HTTPS API、WebSocket、前端页面、`/live` FLV 代理 | 是 |
-| 3333/udp | LiveKit WebRTC 媒体传输（语音聊天，与页面同号不同协议） | 是 |
-| 3334 | RTMP 推流（OBS，TCP 二进制协议无法与 HTTP 复用） | 是 |
-| 3335 | HTTP-FLV 拉流（Node Media Server 内部端口） | 否 |
-| 5349 | TURN/TLS 媒体中继（可选启用，UDP 被拦时的 TCP 兜底通道） | 是 |
-| 3337/tcp | LiveKit ICE/TCP 媒体直连（管理端切换「语音传输模式 = TCP」时启用；UDP 被墙时的直连兜底） | 按需 |
+| 端口       | 用途                                                        | 是否对外 |
+| -------- | --------------------------------------------------------- | ---- |
+| 3333/tcp | 统一入口：HTTP/HTTPS API、WebSocket、前端页面、`/live` FLV 代理         | 是    |
+| 3333/udp | LiveKit WebRTC 媒体传输（语音聊天，与页面同号不同协议）                       | 是    |
+| 3334     | RTMP 推流（OBS，TCP 二进制协议无法与 HTTP 复用）                         | 是    |
+| 3335     | HTTP-FLV 拉流（Node Media Server 内部端口）                       | 否    |
+| 5349     | TURN/TLS 媒体中继（可选启用，UDP 被拦时的 TCP 兜底通道）                     | 是    |
+| 3337/tcp | LiveKit ICE/TCP 媒体直连（管理端切换「语音传输模式 = TCP」时启用；UDP 被墙时的直连兜底） | 按需   |
 
 OBS 推流地址：`rtmp://<host>:3334/live`。语音聊天的信令经 3333 的 `/rtc` 反代，无需额外端口。
 
@@ -279,11 +279,11 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 网易云上游
 ```
 
-| 角色 | 权限 |
-|---|---|
-| `root` | 全部房间控制/删除、用户审核、角色管理、管理后台 |
-| `admin` | 创建并完全控制自己的房间 |
-| `user` | 加入房间、评论弹幕 |
+| 角色      | 权限                                            |
+| ------- | --------------------------------------------- |
+| `root`  | 全部房间控制/删除、用户审核、角色管理、管理后台                      |
+| `admin` | 创建并完全控制自己的房间                                  |
+| `user`  | 加入房间、评论弹幕                                     |
 | `guest` | 同 user（注册后默认 guest + pending，root 审核通过转 user） |
 
 ## 语音高级配置
@@ -294,10 +294,10 @@ RTMP 3334 → Node Media Server → FLV 3335（内部）
 
 管理端「基础设置 → 语音传输模式」可切换语音媒体通道，保存后自动热重启语音服务（进行中的语音短暂中断后自动重连）：
 
-| 模式 | livekit-server 启动参数 | 部署侧要求 |
-|---|---|---|
-| UDP（默认） | `--udp-port 3333` | 放行 3333/udp |
-| TCP | `--udp-port 3333` + `--tcp-port 3337` | 额外放行 3337/tcp（Docker 需补端口映射） |
+| 模式      | livekit-server 启动参数                   | 部署侧要求                        |
+| ------- | ------------------------------------- | ---------------------------- |
+| UDP（默认） | `--udp-port 3333`                     | 放行 3333/udp                  |
+| TCP     | `--udp-port 3333` + `--tcp-port 3337` | 额外放行 3337/tcp（Docker 需补端口映射） |
 
 TCP 模式为 LiveKit 原生 ICE/TCP **直连**：服务器同时广播 UDP 与 TCP 两路候选，由浏览器 ICE 自动选路——UDP 可用时走低延迟直连，被运营商/企业防火墙拦截时自动经 3337/tcp 连接。UDP 通道始终开启（LiveKit 不支持禁用 UDP 候选），TCP 模式是「加开兜底」而非「替换」；端口可用环境变量 `LIVEKIT_RTC_TCP_PORT` 覆盖。
 
@@ -323,6 +323,7 @@ TCP 模式为 LiveKit 原生 ICE/TCP **直连**：服务器同时广播 UDP 与 
       - /etc/letsencrypt:/app/cert:ro   # 挂载宿主证书目录
 ```
 
+
 - 域名必须与证书一致，且解析到本服务器
 - **必须正式证书**（Let's Encrypt 等），自签证书不被浏览器 WebRTC 信任
 - `LIVEKIT_TURN_EXTERNAL_TLS=true` 可在 TLS 由外部反代终结时使用
@@ -340,27 +341,27 @@ STUN 探测失败（纯内网部署且无出网、特殊 NAT）时，ICE 会广�
 
 ## 环境变量
 
-| 变量 | 说明 | 默认值 |
-|---|---|---|
-| `PORT` | 后端端口 | `3333` |
-| `HOST` | 监听地址 | 空（双栈） |
-| `NODE_ENV` | 运行环境 | `production` |
-| `DATABASE_URL` | SQLite 路径或 PostgreSQL 连接串 | `<config>/dev.sqlite` |
-| `CONFIG_DIR` | 数据根目录 | `<project-root>/config` |
-| `CORS_ORIGIN` | CORS 来源，逗号分隔 | `*` |
-| `JWT_ACCESS_SECRET` | Access 密钥（生产必须修改） | — |
-| `JWT_REFRESH_SECRET` | Refresh 密钥（生产必须修改） | — |
-| `JWT_ACCESS_EXPIRES_IN` | Access 有效期 | `15m` |
-| `JWT_REFRESH_EXPIRES_IN` | Refresh 有效期 | `7d` |
-| `RTMP_PORT` | RTMP 推流端口 | `3334` |
-| `HTTP_FLV_PORT` | FLV 拉流端口（内部） | `3335` |
-| `LIVEKIT_EXTERNAL` | `1` 时跳过内嵌 LiveKit，使用外置服务 | `0` |
-| `LIVEKIT_BIND` | 内嵌 LiveKit 监听地址 | `::`（双栈） |
-| `LIVEKIT_NODE_IP` | ICE 广播地址；留空时自动启用 LiveKit 原生 STUN 外部 IP 发现（需可出网），NAT 复杂环境手动指定公网 IP | 空（自动） |
-| `LIVEKIT_RTC_TCP_PORT` | ICE/TCP 端口（管理端「语音传输模式 = TCP」时开启的直连兜底通道） | `3337` |
-| `LIVEKIT_TURN_DOMAIN` | TURN/TLS 域名（与 CERT/KEY 三者齐全即启用 TCP 5349 兜底中继，域名寻址不依赖公网 IP） | — |
-| `LIVEKIT_TURN_CERT` | TURN TLS 证书路径（必须正式证书，自签不被浏览器 WebRTC 信任） | — |
-| `LIVEKIT_TURN_KEY` | TURN TLS 私钥路径 | — |
+| 变量                       | 说明                                                                | 默认值                     |
+| ------------------------ | ----------------------------------------------------------------- | ----------------------- |
+| `PORT`                   | 后端端口                                                              | `3333`                  |
+| `HOST`                   | 监听地址                                                              | 空（双栈）                   |
+| `NODE_ENV`               | 运行环境                                                              | `production`            |
+| `DATABASE_URL`           | SQLite 路径或 PostgreSQL 连接串                                         | `<config>/dev.sqlite`   |
+| `CONFIG_DIR`             | 数据根目录                                                             | `<project-root>/config` |
+| `CORS_ORIGIN`            | CORS 来源，逗号分隔                                                      | `*`                     |
+| `JWT_ACCESS_SECRET`      | Access 密钥（生产必须修改）                                                 | —                       |
+| `JWT_REFRESH_SECRET`     | Refresh 密钥（生产必须修改）                                                | —                       |
+| `JWT_ACCESS_EXPIRES_IN`  | Access 有效期                                                        | `15m`                   |
+| `JWT_REFRESH_EXPIRES_IN` | Refresh 有效期                                                       | `7d`                    |
+| `RTMP_PORT`              | RTMP 推流端口                                                         | `3334`                  |
+| `HTTP_FLV_PORT`          | FLV 拉流端口（内部）                                                      | `3335`                  |
+| `LIVEKIT_EXTERNAL`       | `1` 时跳过内嵌 LiveKit，使用外置服务                                          | `0`                     |
+| `LIVEKIT_BIND`           | 内嵌 LiveKit 监听地址                                                   | `::`（双栈）                |
+| `LIVEKIT_NODE_IP`        | ICE 广播地址；留空时自动启用 LiveKit 原生 STUN 外部 IP 发现（需可出网），NAT 复杂环境手动指定公网 IP | 空（自动）                   |
+| `LIVEKIT_RTC_TCP_PORT`   | ICE/TCP 端口（管理端「语音传输模式 = TCP」时开启的直连兜底通道）                           | `3337`                  |
+| `LIVEKIT_TURN_DOMAIN`    | TURN/TLS 域名（与 CERT/KEY 三者齐全即启用 TCP 5349 兜底中继，域名寻址不依赖公网 IP）        | —                       |
+| `LIVEKIT_TURN_CERT`      | TURN TLS 证书路径（必须正式证书，自签不被浏览器 WebRTC 信任）                           | —                       |
+| `LIVEKIT_TURN_KEY`       | TURN TLS 私钥路径                                                     | —                       |
 
 ## 构建和更新
 
@@ -404,10 +405,10 @@ ZViewer/
 
 ## Star History
 
-<a href="https://star-history.com/#Zero-wyc/ZViewer&Zero-wyc/ZViewerCLI&Zero-wyc/ZViewerAPP&Date">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP&type=Date" />
- </picture>
+<a href="https://star-history.com/#Zero-wyc/ZViewer\&Zero-wyc/ZViewerCLI\&Zero-wyc/ZViewerAPP\&Date">  
+ <picture>  
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP\&type=Date\&theme=dark" />  
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP\&type=Date" />  
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP\&type=Date" />  
+ </picture>  
 </a>
