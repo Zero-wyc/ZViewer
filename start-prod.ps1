@@ -306,6 +306,13 @@ function Select-CertHost {
     Write-Host "        - 域名：需已解析到本机，且 80 端口可访问（ACME HTTP-01 验证）"
     Write-Host "        - 公网 IP：Let's Encrypt 已支持（2026-01 GA），证书约 6 天有效，到期需重新签发"
     Write-Host "        - 内网 IP 无法通过 ACME 验证，请选 1 使用自签证书"
+    Write-Host ""
+    Write-Host "  [建议] 正式部署对外服务时，更推荐使用 1Panel、宝塔等面板，" -ForegroundColor Yellow
+    Write-Host "         或 Cloudflare、腾讯云 EdgeOne、阿里云 ESA 等更专业的" -ForegroundColor Yellow
+    Write-Host "         证书/边缘服务来签发和管理证书，自动续期、运维更省心。" -ForegroundColor Yellow
+    Write-Host "         仅本机或内网想用 HTTPS 的话，选 1 签个本地自签证书即可；" -ForegroundColor Yellow
+    Write-Host "         一般不建议使用本脚本内置的 ACME 自动签发功能。" -ForegroundColor Yellow
+    Write-Host ""
     $choice = Read-Host "  请输入 1 或 2（直接回车默认 1）"
     if ($choice -eq '2') {
         $hostValue = (Read-Host "  请输入公网域名或公网 IP 地址").Trim()
