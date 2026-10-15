@@ -281,9 +281,10 @@ export function BiliSearchModal({
             {/* 结果区：瀑布流（外层滚动，内层 multi-column 平衡分列，
             列内卡片 break-inside-avoid 不跨列截断） */}
             <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pr-0.5">
-              {/* column-width 260px 自适应列数：网页全屏/高分辨率下自动
-              显示更多列（卡片更小），而不是固定列数把卡片拉大 */}
-              <div className="[columns:auto_200px] gap-3">
+              {/* column-width 180px 自适应列数：弹窗默认宽度（max-w-4xl，
+              内容区约 848px）下正好排 4 列视频卡片；网页全屏/高分辨率下
+              仍自动显示更多列（卡片更小），而不是固定列数把卡片拉大 */}
+              <div className="[columns:auto_180px] gap-3">
                 {items.map((v) => (
                   <button
                     key={v.bvid}
