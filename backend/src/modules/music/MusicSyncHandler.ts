@@ -13,21 +13,28 @@
  * - music:queue-reorder   房主/房管拖拽排序（按 ids 顺序重排 order）→ 广播 music:queue-changed
  * - music:queue-clear     房主/房管清空队列 → 广播 music:queue-changed（空队列）
  * - music:queue-changed   全房间广播 { roomId, items: MusicQueueItemPayload[] }（完整队列，按 order 升序）
- * - music:sync-state      房主广播播放状态 → socket.to(roomId) 转发给其他成员
- * - music:host-heartbeat  房主每 2s 心跳（携带完整同步状态）→ 转发；同时更新内存快照
+ * - music:sync-state      房主广播播放状态（附 clientTs）→ 写入服务器基线（写侧传输延迟
+ *                         补偿，锚定服务器时间轴）→ socket.to(roomId) 转发给其他成员
+ * - music:host-heartbeat  房主每 2s 心跳（携带完整同步状态 + clientTs）→ 合并进服务器
+ *                         基线（10s 节流落盘）→ 转发保留作旧前端兼容 + 新前端 fallback
+ * - music:sync-heartbeat  服务器每 2s 广播推算状态（source='server'，观众进度唯一
+ *                         权威来源；由 MusicBroadcasterService 驱动，本文件不处理）
+ * - music:check-status    观众每 10s 主动自检（±10s 容差）→ ack 下发权威状态 + 服务器时间戳
  * - music:control-request 观众申请控制 → 仅转发给房主（附加申请者 socketId/用户名）
  * - music:control-response 房主应答 → 定向转发给申请者（回传 from 供其校验）
  * - music:sync-ack        观众切歌同步成功回执 → 仅转发给房主（附加用户名，
  *                         供房主左下角「xx 已同步」提示）
- * - music:get-state       观众/重连房主 join 房间后查询当前队列 + 最新同步状态（ack 返回）
+ * - music:get-state       观众/重连房主 join 房间后查询当前队列 + 最新同步状态（ack 返回，
+ *                         附 serverTs 与 hostOnline 供观众端初始化自主控制模式）
  *
- * 状态恢复：与 watch-together 的 playbackMemoryService 不同，音乐同步状态
- * 体量小且强依赖房主在线（房主离线时观众自主控制），采用内存 Map 保存
- * 每个房间最新 MusicSyncState（sync-state / 心跳时更新），get-state 返回；
- * 队列本身持久化在 MusicQueueItem 表，后端重启后仍可恢复。
+ * 状态恢复：与 watch-together 的 playbackMemoryService 对齐——音乐同步状态由
+ * musicPlaybackMemoryService 持有（内存缓存 + MusicPlaybackState 表节流落盘，
+ * 写侧补偿锚定服务器时间轴），后端重启后 get-state 经 DB 恢复续播；
+ * 队列本身持久化在 MusicQueueItem 表。
  *
  * 设计对齐 voice-chat.handler.ts（register/isSocketInRoom/权限调用方式）
- * 与 sync-playback 的 HeartbeatHandler / SeekApprovalHandler（心跳转发、申请制）。
+ * 与 sync-playback 的 HeartbeatHandler / PlaybackMemoryHandler（心跳转发、
+ * check-status 自检）。
  */
 import type { Server as SocketIOServer, Socket } from 'socket.io';
 import { In } from 'typeorm';
@@ -38,10 +45,14 @@ import type { AckCallback, SocketEventHandler } from '../socket';
 import { safeAck } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
 import { roomSessionService } from '../room/room-session.service';
+import { musicPlaybackMemoryService } from './music-playback-memory.service';
+import { needsProgressSync } from '../playback-memory';
+import type {
+  MusicPlayMode,
+  MusicSyncStatePayload,
+} from './music-sync.types';
 
-/** 播放模式（与前端 music/types.ts 的 PlayMode 对齐；
- *  order = 按顺序播放，不循环，B站 推荐连播仅此模式启用） */
-type MusicPlayMode = 'sequence' | 'order' | 'repeat-one' | 'shuffle';
+export type { MusicPlayMode, MusicSyncStatePayload };
 
 /** 合法的控制申请动作（与前端 MusicControlRequest['action'] 对齐）；
  *  addQueue = 观众申请添加音频到播放队列（携带 item 载荷，房主端按
@@ -59,29 +70,6 @@ const CONTROL_ACTIONS = [
   'playItem',
 ] as const;
 type ControlAction = (typeof CONTROL_ACTIONS)[number];
-
-/**
- * 房间音乐同步状态快照（房主 sync-state / 心跳携带，
- * 与前端 MusicSyncState 对齐）。
- */
-export interface MusicSyncStatePayload {
-  /** 当前曲目 songId（null 表示未在播放；B站 曲目恒为 null，兼容旧客户端） */
-  trackSongId: number | null;
-  /**
-   * 当前曲目完整 key（`ncm:<songId>` / `bili:<bvid>:<cid>`；null 表示未播放）。
-   * B站 曲目全房间同步广播用（B站 播放列表已并入房间队列）；保留
-   * trackSongId 供旧客户端兼容。前端 > 此版本以 trackKey 为权威
-   */
-  trackKey: string | null;
-  /** 是否正在播放 */
-  isPlaying: boolean;
-  /** 播放进度（秒） */
-  positionSec: number;
-  /** 播放模式 */
-  playMode: MusicPlayMode;
-  /** 状态生成时间戳（毫秒） */
-  updatedAt: number;
-}
 
 /**
  * 队列条目广播结构（与前端 MusicQueueItem 契约对齐；
@@ -122,20 +110,34 @@ interface MusicQueueUpsertItem {
   recommended?: boolean;
 }
 
-/** music:get-state 的 ack 应答（队列 + 最新同步状态） */
+/** music:get-state 的 ack 应答（队列 + 最新同步状态 + 服务器时间戳/房主在线标记） */
 export type GetStateResponse =
-  | { success: true; queue: MusicQueueItemPayload[]; syncState: MusicSyncStatePayload | null }
+  | {
+      success: true;
+      queue: MusicQueueItemPayload[];
+      syncState: MusicSyncStatePayload | null;
+      /** 服务器当前时间（毫秒），供观众端时钟参考 */
+      serverTs?: number;
+      /** 房主是否在线（缺省 = 旧后端；false 时观众直接进入自主控制模式） */
+      hostOnline?: boolean;
+    }
   | { success: false; message: string };
 
-/** 房间最新同步状态（内存）：sync-state / 心跳时更新，get-state 时返回 */
-const musicSyncStates = new Map<string, MusicSyncStatePayload>();
+/** music:check-status 的 ack 应答数据（与一起看 CheckStatusAckData 同构） */
+export interface MusicCheckStatusAckData {
+  needsSync: boolean;
+  serverTs: number;
+  /** needsSync=true 时携带服务器权威推算状态 */
+  state?: MusicSyncStatePayload;
+}
 
 /**
- * 清理房间的音乐同步内存状态（房间删除时由 deleteRoomAndRelations 调用，
- * 防止 Map 残留）。
+ * 清理房间的音乐同步状态（房间删除时由 deleteRoomAndRelations 调用）。
+ * 状态已收编进 musicPlaybackMemoryService（内存缓存 + DB 落盘），
+ * 此处委托清理（含 DB 行删除，防止残留）。
  */
 export function clearMusicSyncState(roomId: string): void {
-  musicSyncStates.delete(roomId);
+  void musicPlaybackMemoryService.clear(roomId);
 }
 
 /**
@@ -390,7 +392,7 @@ export class MusicSyncHandler implements SocketEventHandler {
           let order = (items[items.length - 1]?.order ?? 0) + 1;
           let insertAfterIndex = -1;
           if (payload.afterCurrent === true) {
-            const syncState = musicSyncStates.get(roomId);
+            const syncState = await musicPlaybackMemoryService.getRawState(roomId);
             const trackKey = syncState?.trackKey ?? null;
             if (trackKey?.startsWith('bili:')) {
               const sourceId = trackKey.slice(5);
@@ -605,11 +607,11 @@ export class MusicSyncHandler implements SocketEventHandler {
 
     // ==================== 播放状态同步（房主专属） ====================
 
-    // --- 房主广播播放状态（换曲/播放暂停/进度/播放模式） ---
+    // --- 房主广播播放状态（换曲/播放暂停/进度/播放模式；附 clientTs） ---
     socket.on(
       'music:sync-state',
       async (
-        payload: { roomId: string } & MusicSyncStatePayload,
+        payload: { roomId: string; clientTs?: number } & MusicSyncStatePayload,
         callback?: AckCallback,
       ) => {
         try {
@@ -632,9 +634,22 @@ export class MusicSyncHandler implements SocketEventHandler {
             return safeAck(callback, { success: false, message: '同步状态无效' });
           }
 
-          // 更新内存快照（观众中途加入 / 房主重连恢复的数据源）
-          musicSyncStates.set(roomId, state);
-          // 转发给房间内其他成员（不含发送者；保留 roomId 供前端防御跨房间残留）
+          // 写入服务器基线（Step 1 写侧传输延迟补偿：房主上报的 positionSec
+          // 是发出时刻的值，播放中到达服务器时已推进 delay 秒，补回后基线
+          // 锚定服务器时间轴——观众进度统一改读服务器推算值（Step 2）的前提）。
+          // clientTs 可选：旧前端不携带时由服务端原样接收（无补偿）。
+          const clientTs =
+            typeof payload.clientTs === 'number' && Number.isFinite(payload.clientTs)
+              ? payload.clientTs
+              : undefined;
+          await musicPlaybackMemoryService.setPlayback(
+            roomId,
+            state,
+            socket.id,
+            clientTs,
+          );
+          // 转发给房间内其他成员（不含发送者；保留 roomId 供前端防御跨房间残留）。
+          // 旧前端兼容路径 + 新前端「即时操作低延迟通道」，进度权威在服务器心跳。
           socket.to(roomId).emit('music:sync-state', { roomId, ...state });
           safeAck(callback, { success: true });
         } catch (err) {
@@ -644,13 +659,14 @@ export class MusicSyncHandler implements SocketEventHandler {
       },
     );
 
-    // --- 房主心跳（每 2s，携带完整同步状态） ---
-    // 与 HeartbeatHandler 同模式：转发给房间其他成员（观众据此判定房主在线
-    // 并对齐进度），同时更新内存快照。
+    // --- 房主心跳（每 2s，携带完整同步状态 + clientTs） ---
+    // 与 HeartbeatHandler 同模式：合并进服务器基线（10s 节流落盘，供
+    // MusicBroadcasterService 外推广播）后转发给房间其他成员。转发保留作
+    // 旧前端兼容；新前端观众不直接消费（仅 7s 无服务器心跳时 fallback）。
     socket.on(
       'music:host-heartbeat',
       async (
-        payload: { roomId: string } & MusicSyncStatePayload,
+        payload: { roomId: string; clientTs?: number } & MusicSyncStatePayload,
         callback?: AckCallback,
       ) => {
         try {
@@ -673,12 +689,93 @@ export class MusicSyncHandler implements SocketEventHandler {
             return safeAck(callback, { success: false, message: '心跳状态无效' });
           }
 
-          musicSyncStates.set(roomId, state);
+          // 合并进基线（含写侧补偿；音乐心跳是完整状态，无缓存可自建）
+          const clientTs =
+            typeof payload.clientTs === 'number' && Number.isFinite(payload.clientTs)
+              ? payload.clientTs
+              : undefined;
+          await musicPlaybackMemoryService.applyHostHeartbeat(
+            roomId,
+            state,
+            socket.id,
+            clientTs,
+          );
           socket.to(roomId).emit('music:host-heartbeat', { roomId, ...state });
           safeAck(callback, { success: true });
         } catch (err) {
           console.error('[music:host-heartbeat] error:', err);
           safeAck(callback, { success: false, message: '心跳转发失败' });
+        }
+      },
+    );
+
+    // --- 观众主动自检（CHECK_STATUS，Step 3） ---
+    // 每 10s 上报本地播放状态，服务端与权威推算状态比对（±10s 容差，
+    // 只比 isPlaying + 补偿后进度），分歧超限通过 ack 下发权威状态——
+    // 作为服务器心跳丢失（socket 重连窗口/网络抖动）时的自愈通道。
+    socket.on(
+      'music:check-status',
+      async (
+        payload: {
+          roomId: string;
+          positionSec: number;
+          isPlaying: boolean;
+          clientTs?: number;
+        },
+        callback?: AckCallback,
+      ) => {
+        try {
+          const roomId = payload?.roomId;
+          if (
+            typeof roomId !== 'string' ||
+            !roomId ||
+            !isSocketInRoom(socket, roomId)
+          ) {
+            return safeAck(callback, { success: false, message: '不在该房间中' });
+          }
+          if (
+            typeof payload?.positionSec !== 'number' ||
+            !Number.isFinite(payload.positionSec) ||
+            payload.positionSec < 0 ||
+            typeof payload?.isPlaying !== 'boolean'
+          ) {
+            return safeAck(callback, { success: false, message: '自检参数无效' });
+          }
+
+          const serverTs = Date.now();
+          const serverState =
+            await musicPlaybackMemoryService.getAdvancedState(roomId);
+          if (!serverState) {
+            return safeAck(callback, {
+              success: true,
+              data: { needsSync: false, serverTs },
+            });
+          }
+
+          const clientTs =
+            typeof payload.clientTs === 'number' && Number.isFinite(payload.clientTs)
+              ? payload.clientTs
+              : undefined;
+          const needsSync = needsProgressSync({
+            clientCurrentTime: payload.positionSec,
+            clientIsPlaying: payload.isPlaying,
+            clientPlaybackRate: 1,
+            clientTs,
+            serverCurrentTime: serverState.positionSec,
+            serverIsPlaying: serverState.isPlaying,
+          });
+
+          safeAck(callback, {
+            success: true,
+            data: {
+              needsSync,
+              serverTs,
+              ...(needsSync ? { state: serverState } : {}),
+            },
+          });
+        } catch (err) {
+          console.error('[music:check-status] error:', err);
+          safeAck(callback, { success: false, message: '自检失败' });
         }
       },
     );
@@ -857,8 +954,12 @@ export class MusicSyncHandler implements SocketEventHandler {
           }
 
           const queue = await buildQueuePayload(roomId);
-          const syncState = musicSyncStates.get(roomId) ?? null;
-          safeGetStateAck(callback, { success: true, queue, syncState });
+          // 服务器推算后的权威状态（内存未命中读 DB——后端重启后恢复续播的关键）
+          const syncState =
+            await musicPlaybackMemoryService.getAdvancedState(roomId);
+          const serverTs = Date.now();
+          const hostOnline = await roomSessionService.isSharerOnline(roomId);
+          safeGetStateAck(callback, { success: true, queue, syncState, serverTs, hostOnline });
         } catch (err) {
           console.error('[music:get-state] error:', err);
           safeGetStateAck(callback, { success: false, message: '获取队列失败' });

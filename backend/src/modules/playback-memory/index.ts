@@ -21,3 +21,12 @@ export {
   PlaybackBroadcasterService,
 } from './playback-broadcaster.service';
 export { PlaybackMemoryHandler } from './playback-memory.handler';
+// 泛型纯函数导出：供 music 模块复用（一起听服务器权威同步），叶子依赖、无循环
+export {
+  compensateTransportDelay,
+  TRANSPORT_DELAY_COMPENSATION_MAX_SEC,
+} from './transport-delay';
+export {
+  needsProgressSync,
+  CHECK_STATUS_TOLERANCE_SEC,
+} from './check-status';

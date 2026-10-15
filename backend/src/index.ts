@@ -21,6 +21,7 @@ import { Comment } from './entities/Comment';
 import { SystemSettings } from './entities/SystemSettings';
 import { Movie as MovieEntity } from './entities/Movie';
 import { PlaybackState } from './entities/PlaybackState';
+import { MusicPlaybackState } from './entities/MusicPlaybackState';
 import { MusicQueueItem } from './entities/MusicQueueItem';
 import { PROJECT_ROOT } from './services/paths';
 import { proxyHttpUpstream } from './services/proxy/http-proxy';
@@ -91,6 +92,8 @@ import {
   stopNcmApiService,
 } from './modules/music/ncm-api.service';
 import { MusicSyncHandler, clearMusicSyncState } from './modules/music/MusicSyncHandler';
+import { musicBroadcasterService } from './modules/music/music-broadcaster.service';
+import { musicPlaybackMemoryService } from './modules/music/music-playback-memory.service';
 import { ensureUploadsRoot } from './services/server-files/pathResolver';
 import {
   AVATARS_DIR,
@@ -111,6 +114,7 @@ export async function deleteRoomAndRelations(
   const movieRepo = AppDataSource.getRepository(MovieEntity);
   const commentRepo = AppDataSource.getRepository(Comment);
   const playbackStateRepo = AppDataSource.getRepository(PlaybackState);
+  const musicPlaybackStateRepo = AppDataSource.getRepository(MusicPlaybackState);
   const musicQueueRepo = AppDataSource.getRepository(MusicQueueItem);
 
   // 清理运行时状态（通过 RoomStateService 而非直接操作全局 Map）
@@ -125,11 +129,13 @@ export async function deleteRoomAndRelations(
   );
 
   // 删除关联数据
-  // 注意删除顺序：PlaybackState 通过外键引用 Room，必须在删除 Room 之前清除，
+  // 注意删除顺序：PlaybackState / MusicPlaybackState 通过外键引用 Room，
+  // 必须在删除 Room 之前清除，
   // 否则 SQLite 会抛 FOREIGN KEY constraint failed（Movie/Comment 无外键约束不敏感）
   await movieRepo.delete({ roomId });
   await commentRepo.delete({ roomId });
   await playbackStateRepo.delete({ roomId });
+  await musicPlaybackStateRepo.delete({ roomId });
   await musicQueueRepo.delete({ roomId });
 
   // 删除房间
@@ -636,6 +642,8 @@ async function bootstrap() {
 
   // 启动播放记忆定时广播服务（房主断开期间由服务器接管广播）
   playbackBroadcasterService.start(io);
+  // 启动一起听音乐服务器心跳广播（观众进度唯一权威来源）
+  musicBroadcasterService.start(io);
 
   io.on('connection', (socket) => {
     console.log(`Socket connected: ${socket.id}`);
@@ -672,6 +680,7 @@ async function bootstrap() {
     // 先刷新所有脏数据到 DB，避免最多 2s 的播放进度丢失
     try {
       await playbackMemoryService.flushAllDirty();
+      await musicPlaybackMemoryService.flushAllDirty();
     } catch (err) {
       console.error('[flushAllDirty] error:', err);
     }

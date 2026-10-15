@@ -11,6 +11,7 @@ import { Movie } from './entities/Movie';
 import { UserMount } from './entities/UserMount';
 import { SystemSettings } from './entities/SystemSettings';
 import { PlaybackState } from './entities/PlaybackState';
+import { MusicPlaybackState } from './entities/MusicPlaybackState';
 import { ServerFolder } from './entities/ServerFolder';
 import { DanmakuTrack } from './entities/DanmakuTrack';
 import { RoomDanmakuMeta } from './entities/RoomDanmakuMeta';
@@ -33,7 +34,7 @@ export const AppDataSource = new DataSource({
   useLocalForage: false,
   synchronize: true,
   logging: process.env.NODE_ENV === 'development',
-  entities: [Room, Session, User, Comment, BilibiliCredential, NcmCredential, MusicQueueItem, Movie, UserMount, SystemSettings, PlaybackState, ServerFolder, DanmakuTrack, RoomDanmakuMeta, AuditLog],
+  entities: [Room, Session, User, Comment, BilibiliCredential, NcmCredential, MusicQueueItem, Movie, UserMount, SystemSettings, PlaybackState, MusicPlaybackState, ServerFolder, DanmakuTrack, RoomDanmakuMeta, AuditLog],
   migrations: [],
   subscribers: [],
 });
