@@ -46,6 +46,29 @@ interface AdminUser {
   createdAt: string
 }
 
+/**
+ * 常用 TVBox 配置接口快捷填充项（点击仅填入输入框，仍需「检测并添加」
+ * 确认拉取与入列）。仅为管理端录入便利，不在运行时默认启用任何源。
+ */
+const CMS_SOURCE_PRESETS: { label: string; url: string }[] = [
+  {
+    label: 'qist/tvbox · 电视合集',
+    url: 'https://raw.githubusercontent.com/qist/tvbox/master/jsm.json',
+  },
+  {
+    label: 'qist/tvbox · CF 镜像',
+    url: 'https://qist.wyfc.qzz.io/jsm.json',
+  },
+  {
+    label: 'qist/tvbox · 饭太硬',
+    url: 'https://raw.githubusercontent.com/qist/tvbox/master/fty.json',
+  },
+  {
+    label: 'qist/tvbox · drpy 混合',
+    url: 'https://raw.githubusercontent.com/qist/tvbox/master/js.json',
+  },
+]
+
 interface AdminRoom {
   id: number
   roomId: string
@@ -1946,6 +1969,22 @@ export default function AdminPage() {
                         >
                           检测并添加
                         </Button>
+                      </div>
+                      <div className="mb-2 flex flex-wrap items-center gap-1.5">
+                        <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                          常用接口一键填入：
+                        </span>
+                        {CMS_SOURCE_PRESETS.map((preset) => (
+                          <button
+                            key={preset.url}
+                            type="button"
+                            onClick={() => setCmsInspectUrl(preset.url)}
+                            disabled={cmsInspecting}
+                            className="rounded-full border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-2.5 py-1 text-xs text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:border-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-surface)] disabled:opacity-40"
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
                       </div>
                       <textarea
                         rows={3}
