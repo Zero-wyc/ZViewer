@@ -115,8 +115,12 @@ export async function probeContentDuration(
  * (直链模式不回退服务器中转)。
  *
  * @throws Error 带修复指引的错误;非该场景正常返回
+ *
+ * 导出供 hls 引擎复用:m3u8 直链源(HLS 引擎)与 mp4 直链源(direct
+ * 引擎)遵循同一「直链模式不回退服务器中转」语义,混合内容前置校验
+ * 必须一致,否则 m3u8 直链在 https 页面下会静默走服务器代理。
  */
-function assertDirectLinkReachable(
+export function assertDirectLinkReachable(
   targetUrl: string,
   noProxyFallback: boolean
 ): void {

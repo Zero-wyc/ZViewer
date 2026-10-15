@@ -7,12 +7,21 @@
  *
  * 跨域处理：通过自定义 ProxyLoader 拦截 hls.js 的所有网络请求（m3u8 主清单、
  * ts 分片、密钥等），将跨域 URL 包装为服务器代理 URL，绕过浏览器 CORS 限制。
+ *
+ * 直链模式（noProxyFallback，一起看挂载直链影片）例外：与 direct 引擎
+ * 同语义——清单/子清单/分片/密钥一律源站直连，不经服务器中转（服务器
+ * 零媒体流量）；源站需允许跨域（CORS），失败直接向用户抛错，不静默转代理。
  */
 import Hls from 'hls.js'
 import { getApiUrl } from '@/lib/api'
-import { readHlsProxySource, buildHlsProxyRequest, isServerApiUrl } from '../services/hls-proxy'
+import {
+  readHlsProxySource,
+  buildHlsProxyRequest,
+  isServerApiUrl,
+} from '../services/hls-proxy'
 import type { PlayerEngine, PlayerSource, EngineAttachResult } from '../types'
 import { resetVideoElement, waitForMetadata } from '../utils'
+import { assertDirectLinkReachable } from './direct-route'
 import {
   resolveProxyUrl,
   isLocalUrl,
@@ -35,8 +44,16 @@ function canPlayNativeHls(video: HTMLVideoElement): boolean {
  *
  * 关键：加载完成后需恢复 context.url 与 response.url 为原始 URL，
  * 否则 hls.js 会基于代理 URL 解析 m3u8 中的相对路径 ts 分片，导致拼接错误。
+ *
+ * noProxyFallback（直链模式）：跨域请求保持源站直连，不走服务器代理——
+ * 直链语义是源站直传、服务器零媒体流量；源站 CORS/防盗链不可直连时由
+ * hls.js fatal error 直接向用户抛错，不静默转中转。
  */
-function createProxyLoader(sourceUrl: string, headers?: Record<string, string>) {
+function createProxyLoader(
+  sourceUrl: string,
+  headers?: Record<string, string>,
+  noProxyFallback?: boolean
+) {
   const BaseLoader = Hls.DefaultConfig.loader
   const logicalUrl = (value: string) => value
   const transportUrl = (value: string) => value
@@ -50,25 +67,50 @@ function createProxyLoader(sourceUrl: string, headers?: Record<string, string>) 
       const logical = logicalUrl(originalUrl)
       const proxyRequest = readHlsProxySource(logical, apiBase)
       const manifestBaseUrl = proxyRequest?.url ?? logical
-      if (isServerApiUrl(logical, apiBase) || isLocalUrl(logical) || isRelativeUrl(logical)) {
+      if (
+        isServerApiUrl(logical, apiBase) ||
+        isLocalUrl(logical) ||
+        isRelativeUrl(logical)
+      ) {
         // Includes Kazumi/AniSubs proxies: never proxy our own authenticated API.
         context.url = transportUrl(originalUrl)
       } else if (proxySource) {
         // Child playlists, segments, maps and keys inherit the same proxy headers.
-        context.url = transportUrl(buildHlsProxyRequest(manifestBaseUrl, proxySource))
+        context.url = transportUrl(
+          buildHlsProxyRequest(manifestBaseUrl, proxySource)
+        )
+      } else if (noProxyFallback) {
+        // 直链模式：子清单/分片/密钥一律源站直连，不经服务器中转。
+        // context.url 保持 originalUrl，manifestBaseUrl 与之一致，
+        // hls.js 基于原始 URL 解析 m3u8 相对路径分片，无拼接错误。
+        context.url = transportUrl(originalUrl)
       } else {
-        context.url = headers ? resolveProxyUrl(originalUrl, headers, 'hls') : buildProxyUrl(originalUrl)
+        context.url = headers
+          ? resolveProxyUrl(originalUrl, headers, 'hls')
+          : buildProxyUrl(originalUrl)
       }
       context.url = appendAuthToken(context.url)
-      if (proxyRequest || context.url !== originalUrl || manifestBaseUrl !== originalUrl) {
+      if (
+        proxyRequest ||
+        context.url !== originalUrl ||
+        manifestBaseUrl !== originalUrl
+      ) {
         const originalOnSuccess = callbacks.onSuccess
         // hls.js callback order is response, stats, context, networkDetails.
         // Restore both URL fields before it resolves any relative playlist URI.
-        callbacks.onSuccess = (response: any, stats: any, ctx: any, networkDetails: any) => {
+        // hls.js 回调参数无公开类型定义，此处沿用 any 直传。
+        /* eslint-disable @typescript-eslint/no-explicit-any */
+        callbacks.onSuccess = (
+          response: any,
+          stats: any,
+          ctx: any,
+          networkDetails: any
+        ) => {
           if (response) response.url = manifestBaseUrl
           if (ctx) ctx.url = manifestBaseUrl
           originalOnSuccess(response, stats, ctx, networkDetails)
         }
+        /* eslint-enable @typescript-eslint/no-explicit-any */
       }
       super.load(context, config, callbacks)
     }
@@ -131,11 +173,25 @@ export const hlsEngine: PlayerEngine = {
   ): Promise<EngineAttachResult> {
     resetVideoElement(video)
 
-    const targetUrl = resolveProxyUrl(source.url, source.headers, source.format)
+    const noProxyFallback = source.noProxyFallback === true
+    // 统一代理策略：直链模式（noProxyFallback）跳过混合内容代理分支，
+    // 保持源站直传语义（服务器零媒体流量）
+    const targetUrl = resolveProxyUrl(
+      source.url,
+      source.headers,
+      source.format,
+      {
+        noProxyFallback,
+      }
+    )
+    // 直链模式前置校验：HTTPS 页面下的 http 直链必然失败（浏览器混合内容
+    // 强制升级），发请求前直接给出可操作指引，不静默转服务器中转
+    assertDirectLinkReachable(targetUrl, noProxyFallback)
     console.log('[hls-engine] attach start', {
       originalUrl: source.url?.slice(0, 80),
       resolvedUrl: targetUrl?.slice(0, 80),
       format: source.format,
+      noProxyFallback,
     })
 
     // 优先使用 hls.js：支持 MSE 的浏览器（Chrome/Firefox/Edge）通过 hls.js 附加，
@@ -145,7 +201,7 @@ export const hlsEngine: PlayerEngine = {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
-        loader: createProxyLoader(targetUrl, source.headers),
+        loader: createProxyLoader(targetUrl, source.headers, noProxyFallback),
         // 内存控制：hls.js 默认 maxMaxBufferLength=600s、backBufferLength=Infinity——
         // 已播数据永不清理，长视频播放 1-2 小时后 MSE SourceBuffer 累积到 GB 级内存。
         // 前向缓冲 30s 保证平滑，硬上限 120s 兜底极低码率，已播仅保留 90s
@@ -188,6 +244,15 @@ export const hlsEngine: PlayerEngine = {
           hls.destroy()
         } catch {
           /* ignore */
+        }
+        if (noProxyFallback) {
+          // 直链模式：不回退服务器中转，错误直接透出并补充可操作指引
+          const reason = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `直链播放失败：${reason}。m3u8 直链源需允许浏览器跨域直连（CORS），` +
+              '不经服务器中转；请检查源站可达性与跨域配置',
+            { cause: err }
+          )
         }
         throw err
       }
