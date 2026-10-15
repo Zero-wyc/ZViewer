@@ -6,18 +6,18 @@
 
 <p align="left">  
   <a href="LICENSE">  
-    <img src="https://img.shields.io/github/license/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=LICENSE\&labelColor=333\&color=blue" alt="MIT">  
+    <img src="https://img.shields.io/github/license/Zero-wyc/ZViewer?style=flat-square&logo=github&label=LICENSE&labelColor=333&color=blue" alt="MIT">  
   </a>  
-  <img src="https://img.shields.io/github/stars/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Stars\&labelColor=333\&color=blue" alt="Stars">  
+  <img src="https://img.shields.io/github/stars/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Stars&labelColor=333&color=blue" alt="Stars">  
   <a href="https://github.com/Zero-wyc/ZViewer/releases">  
-    <img src="https://img.shields.io/github/v/release/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=RELEASE\&labelColor=333\&color=green" alt="Release">  
+    <img src="https://img.shields.io/github/v/release/Zero-wyc/ZViewer?style=flat-square&logo=github&label=RELEASE&labelColor=333&color=green" alt="Release">  
   </a>  
-  <img src="https://img.shields.io/github/contributors/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Contributors\&labelColor=333\&color=brightgreen" alt="Contributors">  
-  <img src="https://img.shields.io/github/repo-size/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Size\&labelColor=333\&color=yellow" alt="Repo Size">  
-  <img src="https://img.shields.io/github/last-commit/Zero-wyc/ZViewer?style=flat-square\&logo=github\&label=Last%20Commit\&labelColor=inactive" alt="Last Commit">  
-  <img src="https://img.shields.io/github/languages/top/Zero-wyc/ZViewer?style=flat-square\&logo=typescript\&labelColor=333\&color=3178C6" alt="Top Language">  
+  <img src="https://img.shields.io/github/contributors/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Contributors&labelColor=333&color=brightgreen" alt="Contributors">  
+  <img src="https://img.shields.io/github/repo-size/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Size&labelColor=333&color=yellow" alt="Repo Size">  
+  <img src="https://img.shields.io/github/last-commit/Zero-wyc/ZViewer?style=flat-square&logo=github&label=Last%20Commit&labelColor=inactive" alt="Last Commit">  
+  <img src="https://img.shields.io/github/languages/top/Zero-wyc/ZViewer?style=flat-square&logo=typescript&labelColor=333&color=3178C6" alt="Top Language">  
   <a href="https://t.me/Zero_251">  
-    <img src="https://img.shields.io/badge/Telegram-26A5E4?style=flat-square\&logo=telegram\&logoColor=white" alt="Telegram">  
+    <img src="https://img.shields.io/badge/Telegram-26A5E4?style=flat-square&logo=telegram&logoColor=white" alt="Telegram">  
   </a>  
 </p>
 
@@ -34,6 +34,16 @@
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200643035.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200707122.webp) |
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260930211758831.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201053941.webp) |
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200715093.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201139524.webp) |
+
+## Star History
+
+<a href="https://star-history.com/#Zero-wyc/ZViewer&Zero-wyc/ZViewerCLI&Zero-wyc/ZViewerAPP&Date">  
+ <picture>  
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP&type=Date&theme=dark" />  
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP&type=Date" />  
+   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP&type=Date" />  
+ </picture>  
+</a>
 
 ## 浏览器要求
 
@@ -402,13 +412,3 @@ ZViewer/
 ├── docker/           # Docker 入口脚本
 └── build-all.js      # 单文件编译脚本
 ```
-
-## Star History
-
-<a href="https://star-history.com/#Zero-wyc/ZViewer\&Zero-wyc/ZViewerCLI\&Zero-wyc/ZViewerAPP\&Date">  
- <picture>  
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP\&type=Date\&theme=dark" />  
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP\&type=Date" />  
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Zero-wyc/ZViewer,Zero-wyc/ZViewerCLI,Zero-wyc/ZViewerAPP\&type=Date" />  
- </picture>  
-</a>
