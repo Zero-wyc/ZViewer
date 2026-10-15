@@ -7,7 +7,12 @@
  * 避免每次请求重复拉取配置。
  */
 
-import type { CmsSourceProvider, CmsSite, CmsEpisode } from './types';
+import type {
+  CmsSourceProvider,
+  CmsSite,
+  CmsEpisode,
+  CmsSearchResult,
+} from './types';
 import { createCmsProvider } from './cmsProvider';
 import {
   loadTvboxCmsSites,
@@ -160,4 +165,83 @@ export function normalizePlaybackParams(raw: unknown): CmsEpisode['playbackParam
     playFromIndex: Number(body?.playFromIndex) || 0,
     episodeIndex: Number(body?.episodeIndex) || 0,
   };
+}
+
+// --- 聚合搜索 ---
+
+/** 聚合搜索结果项（跨站点合并去重后） */
+export interface CmsAggregateSearchResult {
+  /** 复合 id：`${source}::${vodId}`（detail/resolve 仍按 source+vodId 定位） */
+  id: string;
+  /** 站点 provider key（真实站点，非复合 id） */
+  source: string;
+  /** 站点显示名 */
+  siteName: string;
+  /** 原始 vodId */
+  vodId: string;
+  title: string;
+  cover?: string;
+  description?: string;
+  remark?: string;
+}
+
+/** 标题归一化：小写 + 去空白/标点（聚合去重键） */
+function normalizeTitle(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/[\s\p{P}\p{S}]+/gu, '');
+}
+
+/**
+ * 聚合搜索全部站点：并发查询（allSettled 容错，单站失败不影响整体），
+ * 按归一化标题去重（同名影片保留备注更完整/首个结果）。
+ */
+export async function searchAllProviders(
+  keyword: string,
+  options: { perSourceLimit?: number } = {},
+): Promise<CmsAggregateSearchResult[]> {
+  const providers = Object.entries(await getProviders());
+  if (providers.length === 0) return [];
+
+  const perSourceLimit = options.perSourceLimit ?? 15;
+  const settled = await Promise.allSettled(
+    providers.map(async ([key, provider]) => {
+      const results = await provider.search(keyword);
+      return results
+        .slice(0, perSourceLimit)
+        .map((r) => ({ ...r, siteName: provider.site.name }));
+    }),
+  );
+
+  const merged: CmsAggregateSearchResult[] = [];
+  const seen = new Map<string, CmsAggregateSearchResult>();
+  for (const outcome of settled) {
+    if (outcome.status !== 'fulfilled') continue;
+    for (const item of outcome.value) {
+      if (!item.id || !item.title) continue;
+      const key = normalizeTitle(item.title);
+      const existing = seen.get(key);
+      if (existing) {
+        // 去重：保留有备注（更新至第x集等）的一方，否则保留先到者
+        if (!existing.remark && item.remark) {
+          existing.remark = item.remark;
+          existing.cover = existing.cover ?? item.cover;
+        }
+        continue;
+      }
+      const entry: CmsAggregateSearchResult = {
+        id: `${item.source}::${item.id}`,
+        source: item.source,
+        siteName: item.siteName,
+        vodId: item.id,
+        title: item.title,
+        cover: item.cover,
+        description: item.description,
+        remark: item.remark,
+      };
+      seen.set(key, entry);
+      merged.push(entry);
+    }
+  }
+  return merged;
 }

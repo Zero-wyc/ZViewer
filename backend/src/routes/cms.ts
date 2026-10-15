@@ -21,6 +21,7 @@ import {
   listSources,
   getProvider,
   normalizePlaybackParams,
+  searchAllProviders,
 } from '../services/cms';
 import { loadTvboxCmsSites } from '../services/cms/tvboxConfigLoader';
 import { proxyHttpUpstream } from '../services/proxy';
@@ -108,6 +109,53 @@ router.get('/search', async (req: AuthenticatedRequest, res: Response) => {
     });
   }
 });
+
+// --- 聚合搜索（全部站点并发，标题归一化去重） ---
+
+const searchAllInflight = new Map<string, Promise<unknown>>();
+
+router.get(
+  '/search-all',
+  async (req: AuthenticatedRequest, res: Response) => {
+    const keyword = req.query.keyword;
+    if (typeof keyword !== 'string' || !keyword.trim()) {
+      res.status(400).json({ success: false, message: '缺少 keyword 参数' });
+      return;
+    }
+
+    const trimmed = keyword.trim();
+    const existing = searchAllInflight.get(trimmed);
+    if (existing) {
+      try {
+        res.json(await existing);
+      } catch (err) {
+        console.error('[cms] search-all error (inflight):', err);
+        res.status(502).json({
+          success: false,
+          message: err instanceof Error ? err.message : '聚合搜索失败',
+        });
+      }
+      return;
+    }
+
+    const promise = searchAllProviders(trimmed)
+      .then((results) => ({ success: true, results }))
+      .finally(() => {
+        searchAllInflight.delete(trimmed);
+      });
+    searchAllInflight.set(trimmed, promise);
+
+    try {
+      res.json(await promise);
+    } catch (err) {
+      console.error('[cms] search-all error:', err);
+      res.status(502).json({
+        success: false,
+        message: err instanceof Error ? err.message : '聚合搜索失败',
+      });
+    }
+  },
+);
 
 // --- 影片详情与剧集 ---
 

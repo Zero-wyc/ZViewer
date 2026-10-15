@@ -26,6 +26,20 @@ export interface CmsSearchResult {
   source: string
 }
 
+/** 聚合搜索结果项（/cms/search-all，跨站点去重后） */
+export interface CmsAggregateSearchResult {
+  /** 复合 id：`${source}::${vodId}` */
+  id: string
+  /** 真实站点 key */
+  source: string
+  siteName: string
+  vodId: string
+  title: string
+  cover?: string
+  description?: string
+  remark?: string
+}
+
 /** 播放组定位参数（/cms/resolve 的 params） */
 export interface CmsPlaybackParams {
   vodId: string

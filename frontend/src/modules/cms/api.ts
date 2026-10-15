@@ -8,6 +8,7 @@ import { apiFetch, getApiUrl } from '@/lib/api'
 import type {
   CmsSource,
   CmsSearchResult,
+  CmsAggregateSearchResult,
   CmsPlaybackParams,
   CmsVodDetail,
   CmsResolvedSource,
@@ -44,6 +45,27 @@ export async function searchCms(
   }
   if (!res.ok || !data.success || !Array.isArray(data.results)) {
     throw new Error(data.message || '搜索失败')
+  }
+  return data.results
+}
+
+/**
+ * 聚合搜索全部站点（标题归一化去重）。
+ * 结果 id 为复合 id `${source}::${vodId}`，source 为真实站点 key。
+ */
+export async function searchAllCms(
+  keyword: string
+): Promise<CmsAggregateSearchResult[]> {
+  const res = await apiFetch(
+    `${getBaseUrl()}/search-all?keyword=${encodeURIComponent(keyword)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    results?: CmsAggregateSearchResult[]
+  }
+  if (!res.ok || !data.success || !Array.isArray(data.results)) {
+    throw new Error(data.message || '聚合搜索失败')
   }
   return data.results
 }

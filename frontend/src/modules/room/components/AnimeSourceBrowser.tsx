@@ -121,13 +121,16 @@ export function AnimeSourceBrowser({
       if (cached) return cached
       const show = shows.current.find((item) => item.id === path)
       if (!show) return []
+      // 聚合搜索模式下搜索结果自带真实站点 key（result.source），
+      // 详情/选集必须路由到该站点而非当前下拉选中项（__all__）
+      const siteKey = show.source || sourceId
       const generation = sourceGeneration.current
-      const items = await getEpisodes(sourceId, path)
+      const items = await getEpisodes(siteKey, path)
       if (generation !== sourceGeneration.current) return []
       const entries = items.map((episode): EmbyDirectoryEntry => {
         const key = JSON.stringify([path, episode.id])
         selections.current.set(key, {
-          sourceId,
+          sourceId: siteKey,
           episode,
           title: `${show.title} - ${episode.title}`,
         })

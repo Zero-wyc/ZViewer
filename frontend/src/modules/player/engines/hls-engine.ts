@@ -29,6 +29,7 @@ import {
   buildProxyUrl,
   appendAuthToken,
 } from '../services/url-proxy'
+import { isCmsProxyEndpoint, filterM3u8AdSegments } from './hls-ad-filter'
 
 /** Safari 等原生 HLS 支持检测 */
 function canPlayNativeHls(video: HTMLVideoElement): boolean {
@@ -59,6 +60,11 @@ function createProxyLoader(
   const transportUrl = (value: string) => value
   const apiBase = getApiUrl()
   const proxySource = readHlsProxySource(logicalUrl(sourceUrl), apiBase)
+  // 广告过滤仅对 CMS 采集源代理链路生效（对应 TVBox rules/ads 能力，
+  // 见 hls-ad-filter.ts）；其他来源一律原样透传
+  const adFilterEnabled = proxySource
+    ? isCmsProxyEndpoint(proxySource.endpoint)
+    : false
 
   return class ProxyLoader extends BaseLoader {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -108,6 +114,15 @@ function createProxyLoader(
         ) => {
           if (response) response.url = manifestBaseUrl
           if (ctx) ctx.url = manifestBaseUrl
+          // CMS 播放列表：hls.js 解析前剔除疑似广告分片（仅文本清单）
+          if (
+            adFilterEnabled &&
+            ctx?.type !== 'fragment' &&
+            typeof response?.data === 'string' &&
+            response.data.startsWith('#EXTM3U')
+          ) {
+            response.data = filterM3u8AdSegments(response.data, manifestBaseUrl)
+          }
           originalOnSuccess(response, stats, ctx, networkDetails)
         }
         /* eslint-enable @typescript-eslint/no-explicit-any */
