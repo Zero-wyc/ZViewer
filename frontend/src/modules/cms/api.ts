@@ -1,0 +1,131 @@
+/**
+ * CMS 采集源前端模块 — API 客户端
+ *
+ * 对接后端 /api/stream/cms/* 路由。
+ */
+
+import { apiFetch, getApiUrl } from '@/lib/api'
+import type {
+  CmsSource,
+  CmsSearchResult,
+  CmsPlaybackParams,
+  CmsVodDetail,
+  CmsResolvedSource,
+} from './types'
+
+const getBaseUrl = () => `${getApiUrl()}/api/stream/cms`
+
+/** 列出可用采集站点（来自管理员配置的 TVBox 接口） */
+export async function getCmsSources(): Promise<CmsSource[]> {
+  const res = await apiFetch(`${getBaseUrl()}/sources`)
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    sources?: CmsSource[]
+  }
+  if (!res.ok || !data.success || !Array.isArray(data.sources)) {
+    throw new Error(data.message || '获取采集源失败')
+  }
+  return data.sources
+}
+
+/** 站点内搜索影片 */
+export async function searchCms(
+  source: string,
+  keyword: string
+): Promise<CmsSearchResult[]> {
+  const res = await apiFetch(
+    `${getBaseUrl()}/search?source=${encodeURIComponent(source)}&keyword=${encodeURIComponent(keyword)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    results?: CmsSearchResult[]
+  }
+  if (!res.ok || !data.success || !Array.isArray(data.results)) {
+    throw new Error(data.message || '搜索失败')
+  }
+  return data.results
+}
+
+/** 获取影片详情与剧集列表 */
+export async function getCmsDetail(
+  source: string,
+  vodId: string
+): Promise<CmsVodDetail> {
+  const res = await apiFetch(
+    `${getBaseUrl()}/detail?source=${encodeURIComponent(source)}&vodId=${encodeURIComponent(vodId)}`
+  )
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    detail?: CmsVodDetail
+  }
+  if (!res.ok || !data.success || !data.detail) {
+    throw new Error(data.message || '获取影片详情失败')
+  }
+  return data.detail
+}
+
+/** 解析播放直链（实时，60s 服务端缓存） */
+export async function resolveCmsEpisode(
+  source: string,
+  params: CmsPlaybackParams
+): Promise<CmsResolvedSource> {
+  const res = await apiFetch(`${getBaseUrl()}/resolve`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ source, params }),
+  })
+  const data = (await res.json()) as {
+    success: boolean
+    message?: string
+    url?: string
+    headers?: Record<string, string>
+    format?: CmsResolvedSource['format']
+  }
+  if (!res.ok || !data.success || !data.url) {
+    throw new Error(data.message || '解析播放地址失败')
+  }
+  return {
+    url: data.url,
+    headers: data.headers,
+    format: data.format,
+  }
+}
+
+/**
+ * 构建代理 URL，将防盗链 headers 编码到查询参数中。
+ * 浏览器无法直接设置 video.src 的 Referer/UA，需走后端代理。
+ */
+export function buildCmsProxyUrl(
+  url: string,
+  headers?: Record<string, string>
+): string {
+  if (!headers || Object.keys(headers).length === 0) return url
+  const params = new URLSearchParams({ url })
+  if (headers.Referer) params.set('referer', headers.Referer)
+  if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])
+  if (headers.Origin) params.set('origin', headers.Origin)
+  if (headers.Cookie) params.set('cookie', headers.Cookie)
+  return `${getBaseUrl()}/proxy?${params.toString()}`
+}
+
+/**
+ * 判断 URL 是否需要走代理：
+ * - 携带防盗链 headers：浏览器无法直接设置，必须代理
+ * - 跨域：部分 CDN 会拒绝无 CORS 头的请求
+ */
+export function needsCmsProxy(
+  url: string,
+  headers?: Record<string, string>
+): boolean {
+  if (headers && Object.keys(headers).length > 0) return true
+  try {
+    const baseUrl = getApiUrl()
+    const target = new URL(url, baseUrl)
+    return target.origin !== baseUrl
+  } catch {
+    return false
+  }
+}

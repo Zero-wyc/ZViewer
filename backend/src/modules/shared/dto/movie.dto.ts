@@ -20,7 +20,8 @@ export type MovieSourceType =
   | 'ftp'
   | 'openlist'
   | 'smb'
-  | 'anime';
+  | 'anime'
+  | 'cms';
 
 /**
  * 影片 DTO —— 客户端与服务端统一的影片表示。
@@ -121,17 +122,31 @@ export interface MovieDto {
    * 存储 sourceId 和 episode 信息，用于播放时重新解析播放地址。
    * 仅 source='anime' 时有值。
    * 结构：{ sourceId: string, episode: { id, title, episodeNumber, playbackParams }, originalTitle: string }
+   *
+   * CMS 采集源（source='cms'）复用同一 JSON 列，结构见 CmsSourceMeta：
+   * { sourceId, vodId, vodTitle, playFromIndex, episodeIndex, episodeTitle }。
+   * 采集站直链普遍短时效/防盗链，播放时经 sourceMeta 实时重解析。
    */
-  sourceMeta?: {
-    sourceId: string;
-    episode: {
-      id: string;
-      title: string;
-      episodeNumber: number;
-      playbackParams: Record<string, unknown>;
-    };
-    originalTitle: string;
-  } | null;
+  sourceMeta?:
+    | {
+        sourceId: string;
+        episode: {
+          id: string;
+          title: string;
+          episodeNumber: number;
+          playbackParams: Record<string, unknown>;
+        };
+        originalTitle: string;
+      }
+    | {
+        sourceId: string;
+        vodId: string;
+        vodTitle: string;
+        playFromIndex: number;
+        episodeIndex: number;
+        episodeTitle: string;
+      }
+    | null;
   /** 排序序号 */
   order?: number;
   /** 创建时间（ISO 字符串） */

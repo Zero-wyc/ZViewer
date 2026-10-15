@@ -24,11 +24,15 @@ export interface AnimeSourceBrowserProps {
 }
 
 interface Props extends AnimeSourceBrowserProps {
-  kind: 'kazumi' | 'anisubs'
+  kind: 'kazumi' | 'anisubs' | 'cms'
   title: string
   getSources: () => Promise<AniSubsSource[]>
   search: (source: string, keyword: string) => Promise<AniSubsSearchResult[]>
   getEpisodes: (source: string, identifier: string) => Promise<AniSubsEpisode[]>
+  /** 搜索框占位文案（默认番剧语义） */
+  searchPlaceholder?: string
+  /** 空状态文案（默认番剧语义） */
+  emptyText?: string
 }
 
 /** Same cards, navigation and confirmation footer as Emby/Jellyfin. */
@@ -42,6 +46,8 @@ export function AnimeSourceBrowser({
   getSources,
   search,
   getEpisodes,
+  searchPlaceholder = '输入番剧名称搜索',
+  emptyText = '输入关键词开始搜索番剧',
 }: Props) {
   const [sources, setSources] = useState<AniSubsSource[]>([])
   const [sourceId, setSourceId] = useState('')
@@ -197,8 +203,8 @@ export function AnimeSourceBrowser({
       onClose={() => onOpenChange(false)}
       title={title}
       rootLabel="搜索结果"
-      searchPlaceholder="输入番剧名称搜索"
-      emptyText="输入关键词开始搜索番剧"
+      searchPlaceholder={searchPlaceholder}
+      emptyText={emptyText}
       showParentDirectory={false}
       episodeGrid
       preserveSearchTerm

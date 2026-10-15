@@ -25,6 +25,12 @@ import {
   buildAniSubsProxyUrl,
   needsAniSubsProxy,
 } from '@/modules/anisubs'
+import {
+  resolveCmsEpisode,
+  buildCmsProxyUrl,
+  needsCmsProxy,
+} from '@/modules/cms/api'
+import type { CmsSourceMeta } from '@/modules/cms/types'
 
 /** 房主刷新恢复时由后端返回的最近一次播放状态（源相关子集） */
 export interface RecoverySourceInfo {
@@ -393,7 +399,7 @@ export async function resolveBilibiliOnline(
 export async function resolveAnimeOnline(
   movie: Movie
 ): Promise<ResolvedMovieSource> {
-  if (!movie.sourceMeta) {
+  if (!movie.sourceMeta || !('episode' in movie.sourceMeta)) {
     throw new Error('番剧源元数据缺失，请重新添加该番剧')
   }
 
@@ -418,10 +424,53 @@ export async function resolveAnimeOnline(
 }
 
 /**
+ * 在线解析 CMS 采集源播放地址。
+ *
+ * 采集站直链普遍短时效且带 Referer/UA 防盗链，每次播放（含刷新恢复）
+ * 都通过 sourceMeta 调用后端 /cms/resolve 实时解析（60s 服务端缓存）。
+ * 解析结果必带防盗链 headers → 统一包装为后端 /cms/proxy 代理 URL，
+ * 浏览器无法为 video.src 设置 Referer/UA，必须走代理。
+ *
+ * @throws sourceMeta 缺失或解析失败时抛错
+ */
+export async function resolveCmsOnline(
+  movie: Movie
+): Promise<ResolvedMovieSource> {
+  const meta = movie.sourceMeta as CmsSourceMeta | null
+  if (!meta || !('vodId' in meta) || !meta.vodId) {
+    throw new Error('采集源影片元数据缺失，请重新添加该影片')
+  }
+
+  const resolved = await resolveCmsEpisode(meta.sourceId, {
+    vodId: meta.vodId,
+    playFromIndex: meta.playFromIndex,
+    episodeIndex: meta.episodeIndex,
+  })
+
+  // 防盗链处理：resolve 结果带 Referer/UA headers，统一走后端代理 URL
+  const finalUrl = needsCmsProxy(resolved.url, resolved.headers)
+    ? buildCmsProxyUrl(resolved.url, resolved.headers)
+    : resolved.url
+
+  return {
+    sourceUrl: finalUrl,
+    audioUrl: undefined,
+    format: resolved.format as MediaFormat | undefined,
+    videoCodec: undefined,
+    audioCodec: undefined,
+    duration: movie.duration ?? 0,
+    headers: undefined,
+    reusedRecoveryUrl: false,
+    playsvideoEnabled: movie.playsvideoEnabled !== false,
+  }
+}
+
+/**
  * 解析影片的播放源。
  *
  * - B站 源：在线解析 playurl（带解析进度回调）；
  * - ani-subs 番剧源：通过 sourceMeta 在线解析（URL 短期有效，每次重新解析）；
+ * - CMS 采集源：通过 sourceMeta 实时解析（直链短时效/防盗链，每次重新解析）；
  * - 房主刷新恢复（recovery）且旧 URL 可用：优先复用旧 URL，
  *   标记 reusedRecoveryUrl，attach 失败时由调用方回退到在线解析；
  * - openlist/webdav 直链影片：播放时向后端实时解析新鲜直链
@@ -469,6 +518,12 @@ export async function resolveMovieSource({
     // ani-subs 番剧源：URL 短期有效，每次播放都通过 sourceMeta 重新解析
     // recovery 场景下也强制重新解析，因为旧 URL 大概率已过期
     return resolveAnimeOnline(movie)
+  }
+
+  if (sourceType === 'cms') {
+    // CMS 采集源：直链短时效/防盗链，每次播放都通过 sourceMeta 实时重解析
+    // recovery 场景同样不复用旧 URL
+    return resolveCmsOnline(movie)
   }
 
   // 非 B站 源：直接使用影片记录字段（Movie 类型不含 headers，见 roomStore）

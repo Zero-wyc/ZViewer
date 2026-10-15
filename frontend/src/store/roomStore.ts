@@ -8,6 +8,7 @@ import type { BilibiliVideoPage } from '@/modules/bilibili/types'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import type { AniSubsEpisode } from '@/modules/anisubs/types'
+import type { CmsSourceMeta } from '@/modules/cms/types'
 import { useMusicStore } from '@/modules/music/store'
 
 /**
@@ -51,7 +52,15 @@ export interface RoomSettings {
 }
 
 export type MovieSourceType =
-  'bilibili' | 'mp4' | 'webdav' | 'ftp' | 'openlist' | 'smb' | string
+  | 'bilibili'
+  | 'mp4'
+  | 'webdav'
+  | 'ftp'
+  | 'openlist'
+  | 'smb'
+  | 'anime'
+  | 'cms'
+  | string
 
 export interface Movie {
   id: number
@@ -97,10 +106,11 @@ export interface Movie {
   /** 当前播放的分集序号（从 1 开始，默认 1） */
   currentPage?: number
   /**
-   * ani-subs 番剧源元数据。
-   * 仅 sourceType='anime' 时有值，用于播放时重新解析播放地址。
+   * 番剧/采集源影片元数据。
+   * 仅 sourceType='anime'（AniSubsSourceMeta）或 'cms'（CmsSourceMeta）时有值，
+   * 用于播放时重新解析播放地址（两类源 URL 均短时效/防盗链）。
    */
-  sourceMeta?: AniSubsSourceMeta | null
+  sourceMeta?: AniSubsSourceMeta | CmsSourceMeta | null
 }
 
 export interface MovieDto {
@@ -407,7 +417,7 @@ interface RoomState {
       multiVersion?: boolean
       /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
       playsvideoEnabled?: boolean
-      sourceMeta?: AniSubsSourceMeta | null
+      sourceMeta?: AniSubsSourceMeta | CmsSourceMeta | null
     }
   ) => Promise<ReturnType<typeof mapDtoToMovie> | undefined>
   updateMovie: (
@@ -448,7 +458,7 @@ interface RoomState {
       directLink?: boolean
       /** 直链模式传输方式：false（默认）强制直链直连，true 允许服务器中转 */
       directLinkProxy?: boolean
-      sourceMeta?: AniSubsSourceMeta | null
+      sourceMeta?: AniSubsSourceMeta | CmsSourceMeta | null
       /** 仅允许 CLI 模式（B站 番剧/影视） */
       cliOnly?: boolean
       /** Emby/Jellyfin 专属：是否存在多版本；false 时不渲染清晰度选择框 */

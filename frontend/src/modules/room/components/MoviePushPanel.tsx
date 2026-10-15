@@ -36,6 +36,14 @@ import {
   needsKazumiProxy,
   type KazumiEpisode,
 } from '@/modules/kazumi'
+import { CmsSelector } from '@/modules/cms/CmsSelector'
+import {
+  resolveCmsEpisode,
+  buildCmsProxyUrl,
+  needsCmsProxy,
+} from '@/modules/cms/api'
+import type { CmsSourceMeta, CmsPlaybackParams } from '@/modules/cms/types'
+import type { AnimeEpisodeSelection } from './AnimeEpisodePicker'
 import {
   resolveBilibili,
   resolveFTP,
@@ -113,6 +121,7 @@ type SourceType =
   | 'jellyfin'
   | 'anime'
   | 'kazumi'
+  | 'cms'
   | 'server-files'
 
 const ALL_SOURCE_OPTIONS: {
@@ -129,6 +138,7 @@ const ALL_SOURCE_OPTIONS: {
   { value: 'jellyfin', label: 'Jellyfin' },
   { value: 'anime', label: 'ani-subs 番剧源' },
   { value: 'kazumi', label: 'Kazumi 番剧源' },
+  { value: 'cms', label: 'TVBox 采集源' },
   { value: 'server-files', label: '服务器文件', rootOnly: true },
 ]
 
@@ -250,6 +260,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [avatarError, setAvatarError] = useState(false)
   const [animeOpen, setAnimeOpen] = useState(false)
   const [kazumiOpen, setKazumiOpen] = useState(false)
+  const [cmsOpen, setCmsOpen] = useState(false)
   const [serverFilesBrowserOpen, setServerFilesBrowserOpen] = useState(false)
   const [serverFilePath, setServerFilePath] = useState('')
   const [qrModalOpen, setQrModalOpen] = useState(false)
@@ -272,7 +283,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   useEffect(() => {
     if (
       !betaFeaturesEnabled &&
-      (sourceType === 'anime' || sourceType === 'kazumi')
+      (sourceType === 'anime' ||
+        sourceType === 'kazumi' ||
+        sourceType === 'cms')
     ) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 仅在 betaFeaturesEnabled 切换时回退一次，非每次渲染触发
       setSourceType('bilibili')
@@ -589,6 +602,171 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       fetchMovies,
       setPendingPreviewPlay,
       playsvideoEnabled,
+    ]
+  )
+
+  // --- CMS 采集源（TVBox） ---
+
+  /** 从剧集 id 反解 CMS 播放定位参数（id = vodId|playFromIndex|episodeIndex） */
+  const parseCmsParams = (
+    episode: AniSubsEpisode
+  ): CmsPlaybackParams | null => {
+    const params = episode.playbackParams as Partial<CmsPlaybackParams> | null
+    if (
+      !params ||
+      typeof params.vodId !== 'string' ||
+      !params.vodId ||
+      typeof params.playFromIndex !== 'number' ||
+      typeof params.episodeIndex !== 'number'
+    ) {
+      return null
+    }
+    return {
+      vodId: params.vodId,
+      playFromIndex: params.playFromIndex,
+      episodeIndex: params.episodeIndex,
+    }
+  }
+
+  const buildCmsMoviePayload = useCallback(
+    (
+      sourceId: string,
+      params: CmsPlaybackParams,
+      title: string,
+      episodeTitle: string
+    ) => ({
+      url: `cms://${sourceId}/${params.vodId}|${params.playFromIndex}|${params.episodeIndex}`,
+      title,
+      source: 'cms',
+      // CMS 直链短时效/防盗链：只落 sourceMeta 元数据，播放时实时重解析
+      sourceMeta: {
+        sourceId,
+        vodId: params.vodId,
+        vodTitle: title,
+        playFromIndex: params.playFromIndex,
+        episodeIndex: params.episodeIndex,
+        episodeTitle,
+      } satisfies CmsSourceMeta,
+    }),
+    []
+  )
+
+  const handleSelectCmsEpisodes = useCallback(
+    async (items: AnimeEpisodeSelection[]): Promise<string[]> => {
+      // 批量添加：不做逐集解析（CMS resolve 每次都是一次源站请求），
+      // 仅落 sourceMeta，播放时实时解析
+      if (!isHost || !roomId) {
+        message.error(!isHost ? '只有房主可以添加影片' : '未连接房间')
+        return []
+      }
+      const added: string[] = []
+      setLoading(true)
+      try {
+        for (const [index, item] of items.entries()) {
+          setResolveProgress(`正在添加 ${index + 1}/${items.length} 集...`)
+          try {
+            const params = parseCmsParams(item.episode)
+            if (!params) throw new Error('剧集定位参数无效')
+            await addMovie(
+              roomId,
+              buildCmsMoviePayload(
+                item.sourceId,
+                params,
+                item.title,
+                item.episode.title
+              )
+            )
+            added.push(item.episode.id)
+          } catch (err) {
+            console.error(
+              '[MoviePushPanel] batch add cms episode failed:',
+              item.title,
+              err
+            )
+          }
+        }
+        if (added.length === items.length) {
+          message.success(`已添加 ${added.length} 集`)
+        } else {
+          message.warning(
+            `已添加 ${added.length} 集，${items.length - added.length} 集失败，可重试`
+          )
+        }
+        await fetchMovies(roomId)
+      } catch (err) {
+        message.error(err instanceof Error ? err.message : '刷新影片列表失败')
+      } finally {
+        setLoading(false)
+        setResolveProgress('')
+      }
+      return added
+    },
+    [isHost, roomId, addMovie, fetchMovies, buildCmsMoviePayload]
+  )
+
+  const handleSelectCmsEpisode = useCallback(
+    async (sourceId: string, episode: AniSubsEpisode, title: string) => {
+      if (!isHost) {
+        message.info('只有房主可以播放影片')
+        return
+      }
+      if (!roomId) {
+        message.error('未连接房间')
+        return
+      }
+
+      const params = parseCmsParams(episode)
+      if (!params) {
+        message.error('剧集定位参数无效，请重新搜索')
+        return
+      }
+
+      setLoading(true)
+      try {
+        // 预览：实时解析直链（采集站 Referer/UA 防盗链 → 统一走后端代理）
+        const resolved = await resolveCmsEpisode(sourceId, params)
+
+        const finalUrl = needsCmsProxy(resolved.url, resolved.headers)
+          ? buildCmsProxyUrl(resolved.url, resolved.headers)
+          : resolved.url
+
+        setPendingPreviewPlay({
+          url: finalUrl,
+          title,
+          sourceType: 'cms',
+          format: resolved.format,
+          playsvideoEnabled,
+        })
+
+        // 落库：sourceMeta 元数据（直链短时效），播放时实时重解析
+        void addMovie(
+          roomId,
+          buildCmsMoviePayload(sourceId, params, title, episode.title)
+        )
+          .then(() => fetchMovies(roomId))
+          .catch((err) => {
+            console.error(
+              '[MoviePushPanel] addMovie/fetchMovies after cms preview failed:',
+              err
+            )
+          })
+
+        message.success('已开始播放并加入列表')
+      } catch (err) {
+        console.error('[MoviePushPanel] select cms episode error:', err)
+        message.error(err instanceof Error ? err.message : '加载影片集数失败')
+      } finally {
+        setLoading(false)
+      }
+    },
+    [
+      isHost,
+      roomId,
+      addMovie,
+      fetchMovies,
+      setPendingPreviewPlay,
+      playsvideoEnabled,
+      buildCmsMoviePayload,
     ]
   )
 
@@ -1674,6 +1852,22 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       )
     }
 
+    if (sourceType === 'cms') {
+      return (
+        <Button
+          variant="primary"
+          size="md"
+          block
+          loading={loading}
+          icon={<Search className="h-4 w-4" />}
+          onClick={() => setCmsOpen(true)}
+          disabled={!isHost}
+        >
+          搜索影片
+        </Button>
+      )
+    }
+
     if (sourceType === 'bilibili') {
       if (resolvedMovie) {
         return (
@@ -2232,7 +2426,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               (opt) =>
                 (!opt.rootOnly || userRole === 'root') &&
                 (betaFeaturesEnabled ||
-                  (opt.value !== 'anime' && opt.value !== 'kazumi')) &&
+                  (opt.value !== 'anime' &&
+                    opt.value !== 'kazumi' &&
+                    opt.value !== 'cms')) &&
                 // 挂载类型需有对应挂载才显示
                 !(
                   ['webdav', 'ftp', 'openlist', 'emby', 'jellyfin'].includes(
@@ -2501,6 +2697,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           onSelectEpisodes={(items) =>
             handleSelectAnimeEpisodes('kazumi', items)
           }
+          disabled={!isHost || loading}
+        />
+      )}
+
+      {sourceType === 'cms' && (
+        <CmsSelector
+          open={cmsOpen}
+          onOpenChange={setCmsOpen}
+          onSelectEpisode={handleSelectCmsEpisode}
+          onSelectEpisodes={handleSelectCmsEpisodes}
           disabled={!isHost || loading}
         />
       )}

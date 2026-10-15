@@ -936,14 +936,15 @@ export function useWatchTogether({
       try {
         if (sourceType === 'bilibili' && !(isRecovery && recovery?.sourceUrl)) {
           resolved = await resolveOnline()
-        } else if (sourceType === 'anime') {
-          // ani-subs 番剧源：每次播放都通过 sourceMeta 重新解析
+        } else if (sourceType === 'anime' || sourceType === 'cms') {
+          // ani-subs 番剧源 / CMS 采集源：每次播放都通过 sourceMeta 重新解析
+          // （URL 短期有效/防盗链，recovery 旧 URL 不复用）
           setIsResolving(true)
           try {
             resolved = await resolveMovieSource({
               movie,
               sourceType,
-              recovery: null, // anime 源不复用 recovery URL（短期有效）
+              recovery: null,
             })
           } finally {
             setIsResolving(false)

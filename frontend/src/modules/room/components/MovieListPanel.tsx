@@ -66,6 +66,9 @@ const SOURCE_LABELS: Record<string, string> = {
   smb: 'SMB',
   emby: 'Emby',
   jellyfin: 'Jellyfin',
+  anime: '番剧源',
+  kazumi: 'Kazumi',
+  cms: '采集源',
 }
 
 /** 格式标签映射，用于在影片卡片中显示真实媒体格式 */

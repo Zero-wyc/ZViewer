@@ -10,7 +10,7 @@ export function AnimePoster({
 }: {
   cover?: string
   title: string
-  kind: 'kazumi' | 'anisubs'
+  kind: 'kazumi' | 'anisubs' | 'cms'
   referer: string
 }) {
   const [failed, setFailed] = useState(false)
