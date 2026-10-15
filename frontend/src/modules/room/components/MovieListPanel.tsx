@@ -1,5 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Play, Trash2, Film, Monitor, ListVideo, Maximize } from 'lucide-react'
+import {
+  Play,
+  Trash2,
+  Film,
+  Monitor,
+  ListVideo,
+  Maximize,
+  Repeat,
+} from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Switch } from '@/components/ui/Switch'
@@ -824,6 +832,31 @@ export function MovieListPanel({
             {filteredMovies.length} 部影片
           </Text>
         </div>
+        {isHost && !isScreenShare && (
+          <button
+            type="button"
+            onClick={() => setAutoContinueEnabled(!autoContinueEnabled)}
+            className={cn(
+              'flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]',
+              autoContinueEnabled &&
+                'bg-[var(--md-sys-color-secondary-container)]'
+            )}
+            style={{
+              color: autoContinueEnabled
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-on-surface-variant)',
+            }}
+            title={
+              autoContinueEnabled
+                ? '自动连播已开启：播完当前影片后自动播放列表下一部，到末尾停止'
+                : '自动连播已关闭：开启后播完当前影片自动播放列表下一部'
+            }
+            aria-label="自动连播"
+            aria-pressed={autoContinueEnabled}
+          >
+            <Repeat className="h-3.5 w-3.5" />
+          </button>
+        )}
         {renderClearButton()}
         <button
           type="button"
