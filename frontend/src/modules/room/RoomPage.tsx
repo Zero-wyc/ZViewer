@@ -146,6 +146,8 @@ function RoomPage() {
     currentUserId != null && moderators.includes(Number(currentUserId))
   const [hostPeerConnection, setHostPeerConnection] =
     useState<RTCPeerConnection | null>(null)
+  // 房主采集实测帧率（由 WebrtcSharePage 的帧率计提升，供 SharingStatusPanel 显示）
+  const [hostCaptureFps, setHostCaptureFps] = useState<number | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
   // 房主 P2P 状态（由 WebrtcSharePage 提升）
   const [p2pState, setP2pState] = useState<P2PStateSnapshot>({
@@ -474,7 +476,9 @@ function RoomPage() {
             isHost
             isWebFullscreen={isWebFullscreen}
             onToggleWebFullscreen={() => setIsWebFullscreen((prev) => !prev)}
-            initialPlayback={playerRemountKey === 'init' ? recoveredPlayback : null}
+            initialPlayback={
+              playerRemountKey === 'init' ? recoveredPlayback : null
+            }
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
@@ -484,6 +488,7 @@ function RoomPage() {
       ) : (
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
+          onCaptureFpsChange={setHostCaptureFps}
           onP2PStateChange={setP2pState}
         />
       )
@@ -519,6 +524,7 @@ function RoomPage() {
           />
         }
         peerConnection={hostPeerConnection}
+        captureFps={hostCaptureFps}
         p2pEnabled={p2pState.enabled}
         p2pPC={p2pState.pc}
         p2pStatus={p2pState.status}

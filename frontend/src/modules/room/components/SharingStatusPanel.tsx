@@ -20,6 +20,12 @@ import type { P2PStatus } from '@/modules/p2p/types'
 export interface SharingStatusPanelProps {
   /** 服务器中转 PC（P2P 未启用时使用） */
   pc: RTCPeerConnection | null
+  /**
+   * 采集实测帧率（发送端专属，来自 MediaStreamTrackProcessor 帧率计）。
+   * 与下方「帧率」（发送/接收帧率，来自 outbound/inbound-rtp）分离展示：
+   * 采集高而发送低 = 编码丢帧；码率上不去 = 网络不足。
+   */
+  captureFps?: number | null
   /** 当前角色：发送端 / 接收端 */
   mode: 'sender' | 'receiver'
   /** 基础共享模式标签：服务器中转 / P2P 直连 */
@@ -170,6 +176,7 @@ function getP2PStatusColor(
 
 export function SharingStatusPanel({
   pc,
+  captureFps,
   mode,
   sharingMode,
   p2pEnabled,
@@ -269,9 +276,22 @@ export function SharingStatusPanel({
 
       {/* 实时统计字段列表 */}
       <div className="flex flex-col gap-2 overflow-y-auto pr-1">
+        {mode === 'sender' && (
+          <StatRow
+            icon={<Gauge className="h-3.5 w-3.5" />}
+            label="采集帧率"
+            hint="捕获源实测，近零开销"
+            value={
+              captureFps === null || captureFps === undefined
+                ? '-'
+                : `${captureFps.toFixed(1)} fps`
+            }
+          />
+        )}
         <StatRow
           icon={<Gauge className="h-3.5 w-3.5" />}
           label="帧率"
+          hint={mode === 'sender' ? '编码后发送帧率' : undefined}
           value={fpsText}
         />
         <StatRow

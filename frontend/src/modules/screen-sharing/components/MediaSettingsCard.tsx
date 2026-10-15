@@ -49,7 +49,6 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
               options={FRAME_RATE_OPTIONS}
               value={String(frameRate)}
               onChange={(value) => onFrameRateChange(Number(value))}
-              disabled={isSharing}
             />
           </div>
           <div>
@@ -64,7 +63,6 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
               onChange={(value) =>
                 onMaxBitrateChange(value === undefined ? 8 : value)
               }
-              disabled={isSharing}
             />
             <Paragraph
               type="secondary"
@@ -94,7 +92,7 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
 
         {isSharing && (
           <Paragraph type="secondary" className="m-0 text-xs">
-            共享期间无法修改媒体设置，请先结束共享。
+            共享期间修改帧率/码率即时生效，无需重启共享；系统音频与麦克风仍需先结束共享。
           </Paragraph>
         )}
       </Space>

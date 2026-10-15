@@ -26,6 +26,7 @@ import { message } from '@/components/ui/message'
 import { useLocalMediaStream } from '../hooks/useLocalMediaStream'
 import { useHostPeerConnections } from '../hooks/useHostPeerConnections'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
+import { createCaptureFrameMeter } from '../utils/frameMeter'
 import { useP2PTunnel } from '@/modules/p2p'
 import type { P2PStatus } from '@/modules/p2p/types'
 import { MediaSettingsCard } from './MediaSettingsCard'
@@ -47,6 +48,8 @@ interface WebrtcSharePageProps {
   className?: string
   style?: React.CSSProperties
   onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
+  /** 采集实测帧率变化回调，提升到 RoomPage 供 SharingStatusPanel 显示 */
+  onCaptureFpsChange?: (fps: number | null) => void
   /** P2P 状态变化回调，提升到 RoomPage 供 RoomLayout 的 SharingStatusPanel 使用 */
   onP2PStateChange?: (state: P2PStateSnapshot) => void
 }
@@ -55,6 +58,7 @@ function WebrtcSharePage({
   className,
   style,
   onStatsPeerConnectionChange,
+  onCaptureFpsChange,
   onP2PStateChange,
 }: WebrtcSharePageProps) {
   const navigate = useNavigate()
@@ -320,6 +324,32 @@ function WebrtcSharePage({
   useEffect(() => {
     onStatsPeerConnectionChange?.(statsPeerConnection)
   }, [statsPeerConnection, onStatsPeerConnectionChange])
+
+  // 采集实测帧率计：MediaStreamTrackProcessor 纯数帧，近零开销。
+  // 与观众 PC 的 outbound-rtp 发送帧率分离展示，用于定位瓶颈
+  // （采集低=捕获问题；采集高发送低=编码丢帧；码率上不去=网络）。
+  const [captureFps, setCaptureFps] = useState<number | null>(null)
+  useEffect(() => {
+    if (!stream) return
+    const videoTrack = stream.getVideoTracks()[0]
+    if (!videoTrack) return
+    const meter = createCaptureFrameMeter(videoTrack)
+    if (!meter) return
+    const timer = window.setInterval(() => {
+      const fps = meter.sample()
+      if (fps !== undefined) setCaptureFps(fps)
+    }, 1000)
+    return () => {
+      window.clearInterval(timer)
+      meter.stop()
+      // 共享流停止时同步清零，避免面板残留最后一次采样值
+      setCaptureFps(null)
+    }
+  }, [stream])
+
+  useEffect(() => {
+    onCaptureFpsChange?.(captureFps)
+  }, [captureFps, onCaptureFpsChange])
 
   useEffect(() => {
     setIsSharing(isSharing)

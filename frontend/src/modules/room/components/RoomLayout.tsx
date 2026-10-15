@@ -44,6 +44,8 @@ interface RoomLayoutProps {
    * 当前由调用方按需传入（未来通过 ref/context 从 SharePage/WatchPage 提升后接入）。
    */
   peerConnection?: RTCPeerConnection | null
+  /** 采集实测帧率（发送端，来自 WebrtcSharePage 帧率计；无观众时也有值） */
+  captureFps?: number | null
   /** 共享角色：发送端 / 接收端 */
   sharingRole?: 'sender' | 'receiver'
   /** 共享模式标签，默认服务器中转 */
@@ -128,6 +130,7 @@ export function RoomLayout({
   rightPanel,
   controlLabels,
   peerConnection = null,
+  captureFps = null,
   sharingRole = 'sender',
   sharingMode = 'server-relay',
   p2pEnabled = false,
@@ -181,6 +184,7 @@ export function RoomLayout({
   const effectiveRightPanel = isSharing ? (
     <SharingStatusPanel
       pc={peerConnection}
+      captureFps={captureFps}
       mode={sharingRole}
       sharingMode={sharingMode}
       p2pEnabled={p2pEnabled}

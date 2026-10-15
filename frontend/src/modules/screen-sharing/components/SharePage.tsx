@@ -28,6 +28,8 @@ interface SharePageProps {
   className?: string
   style?: React.CSSProperties
   onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
+  /** 采集实测帧率变化回调，透传到 RoomPage 供 SharingStatusPanel 显示 */
+  onCaptureFpsChange?: (fps: number | null) => void
   /** P2P 状态变化回调，透传到 RoomPage 供 RoomLayout 使用 */
   onP2PStateChange?: (state: P2PStateSnapshot) => void
 }
@@ -36,6 +38,7 @@ function SharePage({
   className,
   style,
   onStatsPeerConnectionChange,
+  onCaptureFpsChange,
   onP2PStateChange,
 }: SharePageProps) {
   const { socket } = useSocket()
@@ -167,6 +170,7 @@ function SharePage({
           className={className}
           style={style}
           onStatsPeerConnectionChange={onStatsPeerConnectionChange}
+          onCaptureFpsChange={onCaptureFpsChange}
           onP2PStateChange={onP2PStateChange}
         />
       )}

@@ -322,6 +322,33 @@ export function useLocalMediaStream(
     }
   }, [frameRate, shareSystemAudio, shareMicrophone, starting, isSharing])
 
+  // 共享期间帧率热更新：用户在媒体设置中修改帧率时，对采集 track 即时
+  // applyConstraints（编码器上限由 useHostPeerConnections 的
+  // setParameters 热更新同步生效），无需停止共享。start() 内部的初始
+  // 应用不受影响：appliedFrameRateRef 已等于当前值，此处不会重复执行。
+  const appliedFrameRateRef = useRef(frameRate)
+  useEffect(() => {
+    if (appliedFrameRateRef.current === frameRate) return
+    appliedFrameRateRef.current = frameRate
+    const track = localStreamRef.current?.getVideoTracks()[0]
+    if (!track || track.readyState !== 'live') return
+    void track
+      .applyConstraints({
+        frameRate: { ideal: frameRate, max: frameRate },
+      })
+      .then(() => {
+        console.log(
+          '[useLocalMediaStream] hot frameRate applied:',
+          frameRate,
+          'actual:',
+          track.getSettings().frameRate
+        )
+      })
+      .catch((err) => {
+        console.warn('[useLocalMediaStream] hot frameRate apply error:', err)
+      })
+  }, [frameRate, stream])
+
   const pause = useCallback(() => {
     localStreamRef.current?.getVideoTracks().forEach((track) => {
       track.enabled = false

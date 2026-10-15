@@ -9,23 +9,38 @@ import type {
 } from '../types'
 
 /**
- * 根据目标帧率计算推荐最低码率（bps）。
+ * 对单个视频 sender 应用编码参数（码率 / 帧率上限 / 降级策略）。
  *
- * 码率不足是 60fps 无法维持的首要原因：编码器在带宽受限时会主动降帧
- * 来维持单帧画质。degradationPreference='maintain-resolution' 让编码器
- * 在受限时优先降帧率而非降分辨率（屏幕共享以清晰度优先），但仍需保证
- * 最低码率阈值。
+ * - 码率直接使用用户设置值，不再用推荐值做 Math.max 兜底（此前用户调低
+ *   会被静默覆盖，导致「参数设置无效」）。推荐码率仅作为 UI 提示。
+ * - degradationPreference 保持默认 balanced（显式设置等价于默认值）：
+ *   带宽/编码算力不足时编码器按 libwebrtc 默认策略平滑降级（降帧率与
+ *   降分辨率结合），而不是此前 'maintain-resolution' 钉死下「只能疯狂
+ *   丢帧、不许降分辨率」的幻灯片式卡顿。此前钉死是为修 Firefox 按 1.5×
+ *   步进降分辨率后迟滞不恢复的问题，但代价在弱网/弱机场景被放大。
+ * - scaleResolutionDownBy=1 仅作初始值（Firefox 46+ 支持），钉住开局
+ *   即降采样；后续动态降级由 degradationPreference 决定。
  *
- * 参考值（1080p）：
- * - 15fps: 4 Mbps
- * - 30fps: 8 Mbps
- * - 45fps: 12 Mbps
- * - 60fps: 16 Mbps
+ * 供建 PC 时和「共享期间参数热更新」两条路径复用。
  */
-function computeRecommendedBitrate(frameRate: number): number {
-  // 线性公式：0.267 Mbps/fps * frameRate，最低 2 Mbps
-  const mbps = Math.max(2, frameRate * 0.267)
-  return Math.round(mbps * 1000 * 1000)
+async function applyVideoSenderParams(
+  sender: RTCRtpSender,
+  frameRate: number,
+  maxBitrateMbps: number
+): Promise<void> {
+  try {
+    const params = sender.getParameters()
+    if (!params.encodings || params.encodings.length === 0) {
+      params.encodings = [{}]
+    }
+    params.encodings[0].maxBitrate = Math.round(maxBitrateMbps * 1000 * 1000)
+    params.encodings[0].maxFramerate = frameRate
+    params.encodings[0].scaleResolutionDownBy = 1
+    params.degradationPreference = 'balanced'
+    await sender.setParameters(params)
+  } catch (err) {
+    console.warn('[useHostPeerConnections] set sender parameters error:', err)
+  }
 }
 
 interface UseHostPeerConnectionsOptions {
@@ -93,11 +108,6 @@ export function useHostPeerConnections(
   const [connectionCount, setConnectionCount] = useState(0)
   const [statsPeerConnection, setStatsPeerConnection] =
     useState<RTCPeerConnection | null>(null)
-  // 本地统计 PC：房主开始共享后即使没有观众也提供 outbound-rtp 统计
-  // 无观众时 SharingStatusPanel 的 pc 不为 null，可显示帧率/分辨率/码率等
-  const [localStatsPc, setLocalStatsPc] = useState<RTCPeerConnection | null>(
-    null
-  )
   const [viewerIds, setViewerIds] = useState<string[]>([])
 
   const peerConnectionsRef = useRef<Map<string, RTCPeerConnection>>(new Map())
@@ -105,51 +115,35 @@ export function useHostPeerConnections(
   const pendingIceCandidatesRef = useRef<Map<string, RTCIceCandidateInit[]>>(
     new Map()
   )
-  const localStatsPcRef = useRef<RTCPeerConnection | null>(null)
+
+  // 注意：不再创建「本地统计 PC」。此前为了让房主在无观众时也能看
+  // outbound-rtp 统计，把视频 track addTrack 进了一个永不协商的
+  // RTCPeerConnection——Chrome 中这就是 dummy-peer 语义，编码器会照常
+  // 全速运行，等于 1080p 同时编码两份。CPU 过载时 libwebrtc 主动丢帧，
+  // 真实发送的那路跟着被拖垮（低帧率 + 卡顿的首要根因）。
+  // 无观众时的采集帧率改由 MediaStreamTrackProcessor 帧率计
+  // （utils/frameMeter.ts）在 WebrtcSharePage 中以近零开销测得。
 
   const updateConnectionCount = useCallback(() => {
     setConnectionCount(peerConnectionsRef.current.size)
   }, [])
 
-  // 本地统计 PC：房主开始共享后立即创建，无需观众连接即可提供 outbound-rtp 统计
-  // 编码器在 track 加入 sender 后即开始工作，pc.getStats() 可获取帧率/分辨率/码率
-  // 有观众连接后 statsPeerConnection 切换为观众 PC（含 RTT/丢包等完整统计）
-  // 所有观众离开后回退到本地统计 PC，保持面板数据不中断
+  // 共享期间参数热更新：用户在 MediaSettingsCard 修改帧率/码率时，
+  // 对所有活跃观众 PC 的视频 sender 重新 setParameters，无需重启共享
+  // （localStream 存在时才会有效果，创建 PC 时的初始参数同样走
+  // applyVideoSenderParams，二者幂等）。
   useEffect(() => {
-    if (!localStream) {
-      // stream 清空时清理本地统计 PC
-      if (localStatsPcRef.current) {
-        localStatsPcRef.current.close()
-        localStatsPcRef.current = null
-        setLocalStatsPc(null)
+    if (!localStream) return
+    for (const pc of peerConnectionsRef.current.values()) {
+      if (pc.connectionState === 'closed' || pc.signalingState === 'closed') {
+        continue
       }
-      return
-    }
-
-    const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS })
-    localStatsPcRef.current = pc
-
-    // 添加视频 track 到 sender，触发编码器工作
-    const videoTrack = localStream.getVideoTracks()[0]
-    if (videoTrack) {
-      pc.addTrack(videoTrack, localStream)
-    }
-    // 添加音频 track（系统音频）
-    localStream.getAudioTracks().forEach((track) => {
-      pc.addTrack(track, localStream)
-    })
-
-    setLocalStatsPc(pc)
-    console.log('[useHostPeerConnections] local stats PC created')
-
-    return () => {
-      pc.close()
-      if (localStatsPcRef.current === pc) {
-        localStatsPcRef.current = null
-        setLocalStatsPc(null)
+      const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video')
+      if (videoSender) {
+        void applyVideoSenderParams(videoSender, frameRate, maxBitrateMbps)
       }
     }
-  }, [localStream])
+  }, [localStream, frameRate, maxBitrateMbps])
 
   const createPeerConnection = useCallback(
     async (viewerSocketId: string) => {
@@ -233,55 +227,11 @@ export function useHostPeerConnections(
         })
       }
 
-      // 配置编码器：根据帧率自动调整最低码率，避免码率不足导致编码器降帧
-      // 参考 WebRTC 官方推荐码率：
-      // - 1080p 30fps: 6-10 Mbps
-      // - 1080p 60fps: 14-20 Mbps
+      // 配置编码器：码率/帧率/降级策略统一走 applyVideoSenderParams
+      // （用户设置值直接生效，共享期间也可热更新）
       const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video')
       if (videoSender) {
-        try {
-          const params = videoSender.getParameters()
-          if (!params.encodings || params.encodings.length === 0) {
-            params.encodings = [{}]
-          }
-          // 根据帧率计算推荐最低码率，用户设置值低于推荐值时自动提升
-          const recommendedMinBitrate = computeRecommendedBitrate(frameRate)
-          const userBitrate = maxBitrateMbps * 1000 * 1000
-          params.encodings[0].maxBitrate = Math.max(
-            userBitrate,
-            recommendedMinBitrate
-          )
-          params.encodings[0].maxFramerate = frameRate
-          // 显式钉死初始缩放系数为 1（Firefox 46+ 支持），不给浏览器
-          // "开局即降采样"的空间；动态自适应仍由 degradationPreference 决定
-          params.encodings[0].scaleResolutionDownBy = 1
-          // maintain-resolution: 带宽/编码算力不足时降帧率、保持分辨率。
-          //
-          // 修复 Firefox 720p 问题：此前用 maintain-framerate，Firefox
-          // (138 起实装 setParameters 的该参数)会在带宽或编码压力下按
-          // libwebrtc 1.5× 步进降分辨率——1920x1080 一步降到 1280x720 并
-          // 因带宽估计迟滞长期保持。改为 maintain-resolution 后编码器
-          // 只降帧率不降分辨率，对"一起看电影"场景清晰度优先更合理。
-          // （Firefox <138 忽略该参数退回 balanced，当前发行版均已 >=138）
-          params.degradationPreference = 'maintain-resolution'
-          await videoSender.setParameters(params)
-          console.log(
-            '[useHostPeerConnections] sender params set:',
-            'maxBitrate=',
-            params.encodings[0].maxBitrate,
-            'maxFramerate=',
-            params.encodings[0].maxFramerate,
-            'user=',
-            userBitrate,
-            'recommendedMin=',
-            recommendedMinBitrate
-          )
-        } catch (err) {
-          console.warn(
-            '[useHostPeerConnections] set sender parameters error:',
-            err
-          )
-        }
+        await applyVideoSenderParams(videoSender, frameRate, maxBitrateMbps)
       }
 
       pc.onicecandidate = (event) => {
@@ -390,11 +340,12 @@ export function useHostPeerConnections(
         pc.close()
         peerConnectionsRef.current.delete(data.viewerSocketId)
         updateConnectionCount()
+        // 观众离开后：切换到下一个观众 PC；无观众时为 null（采集帧率
+        // 由 WebrtcSharePage 的帧率计继续显示，不依赖 PC）
         const nextPc = peerConnectionsRef.current.values().next().value as
           RTCPeerConnection | undefined
-        // 观众离开后：切换到下一个观众 PC，或回退到本地统计 PC
         setStatsPeerConnection((prev) =>
-          prev === pc ? (nextPc ?? localStatsPcRef.current) : prev
+          prev === pc ? (nextPc ?? null) : prev
         )
       }
       readyViewerIdsRef.current.delete(data.viewerSocketId)
@@ -472,23 +423,14 @@ export function useHostPeerConnections(
     peerConnectionsRef.current.clear()
     readyViewerIdsRef.current.clear()
     pendingIceCandidatesRef.current.clear()
-    // 清理本地统计 PC
-    if (localStatsPcRef.current) {
-      localStatsPcRef.current.close()
-      localStatsPcRef.current = null
-      setLocalStatsPc(null)
-    }
     setStatsPeerConnection(null)
     setConnectionCount(0)
   }, [])
 
-  // 优先使用观众 PC（含 RTT/丢包等完整统计），无观众时回退到本地统计 PC
-  // 这样房主开始共享后即使没有观众，SharingStatusPanel 也能显示帧率/分辨率/码率
-  const effectiveStatsPc = statsPeerConnection ?? localStatsPc
-
+  // 统计 PC 只来自真实观众连接（不再有本地统计 PC 回退）
   return {
     connectionCount,
-    statsPeerConnection: effectiveStatsPc,
+    statsPeerConnection,
     viewerIds,
     handleSignalAnswer,
     handleSignalIceCandidate,
