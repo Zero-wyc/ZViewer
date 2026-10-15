@@ -4,7 +4,7 @@
  * - 公告内容拉取 GitHub 仓库根目录 announce.md（raw 直连，失败回退
  *   master 分支与 CDN 代理前缀）。
  * - 点击图标打开公告窗口（Modal 居中二级窗口，非顶栏下拉面板）。
- * - 自动弹出：
+ * - 自动弹出（仅 root 用户）：
  *   1. 首次启动（本地无已读版本记录）→ 强制弹出一次；
  *   2. 版本更新（public-settings 下发的 appVersion 与本地记录不同）→
  *      弹出，受管理员基础设置 announceAutoPopupOnUpdate 开关控制。
@@ -13,6 +13,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Megaphone, ExternalLink, Loader2 } from 'lucide-react'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { useAuthStore } from '@/store/authStore'
 import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
 
@@ -197,6 +198,8 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
     cdnProxyUrl,
     fetched,
   } = useSystemSettingsStore()
+  /** 仅 root 用户参与自动弹出（首次启动/版本更新），其余角色只能手动打开 */
+  const isRoot = useAuthStore((s) => s.user?.role === 'root')
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -246,13 +249,17 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
     }
     const isFirstLaunch = seen == null
     const isVersionUpdate = seen != null && appVersion && seen !== appVersion
-    if (isFirstLaunch || (isVersionUpdate && announceAutoPopupOnUpdate)) {
+    // 自动弹出仅限 root 用户；其他角色保持静默，只能手动点图标查看
+    if (
+      isRoot &&
+      (isFirstLaunch || (isVersionUpdate && announceAutoPopupOnUpdate))
+    ) {
       // eslint-disable-next-line react-hooks/set-state-in-effect -- 自动弹出公告属挂载期一次性决策，非派生状态
       openWindow()
     }
 
     setUnseen(Boolean(appVersion) && (isFirstLaunch || isVersionUpdate))
-  }, [fetched, appVersion, announceAutoPopupOnUpdate, openWindow])
+  }, [fetched, appVersion, announceAutoPopupOnUpdate, isRoot, openWindow])
 
   return (
     <>
