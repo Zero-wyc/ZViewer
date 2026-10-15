@@ -55,3 +55,46 @@ export const BG_VIDEO_CATCHUP_GAIN_SEC = 4
  *  seek 耗时内音频多走的量（背景视频无声，轻微变速无感知） */
 export const BG_VIDEO_MAX_RATE = 1.5
 export const BG_VIDEO_MIN_RATE = 0.6
+
+// ==================== 一起听同步信令（架构对齐一起看 sync-playback） ====================
+// 服务器权威心跳架构：房主上行（sync-state / host-heartbeat）附 clientTs，
+// 服务器写侧补偿传输延迟锚定服务器时间轴；服务器每 2s 广播推算状态
+// （music:sync-heartbeat source='server'）——观众进度唯一权威来源；
+// 观众每 10s check-status 主动自检（±10s 容差）作心跳丢失时的自愈通道。
+
+/** 一起听 Socket 事件名（与后端 MusicSyncHandler / MusicBroadcasterService 约定） */
+export const MUSIC_SOCKET_EVENT = {
+  /** 房主离散操作广播（换曲/播放暂停/seek/模式；低延迟操作通道） */
+  SYNC_STATE: 'music:sync-state',
+  /** 房主心跳（服务器基线更新通道；新前端观众仅在 fallback 时消费） */
+  HOST_HEARTBEAT: 'music:host-heartbeat',
+  /** 服务器心跳广播（source='server'，观众进度唯一权威来源） */
+  SYNC_HEARTBEAT: 'music:sync-heartbeat',
+  /** 观众主动自检（±10s 容差，服务器心跳丢失时的自愈通道） */
+  CHECK_STATUS: 'music:check-status',
+  /** 队列变更全房间广播 */
+  QUEUE_CHANGED: 'music:queue-changed',
+  /** 观众申请制控制 */
+  CONTROL_REQUEST: 'music:control-request',
+  CONTROL_RESPONSE: 'music:control-response',
+  /** 观众切歌同步成功回执 */
+  SYNC_ACK: 'music:sync-ack',
+  /** 加入房间后的初始状态查询（ack 返回 queue/syncState/serverTs/hostOnline） */
+  GET_STATE: 'music:get-state',
+  /** 房主断连（房间级通用事件，服务器广播；观众进入自主控制模式） */
+  HOST_DISCONNECTED: 'host-disconnected',
+  /** 房主重连就绪（房间级通用事件，服务器广播；观众恢复跟随） */
+  SHARER_READY: 'sharer-ready',
+} as const
+
+/** 观众 CHECK_STATUS 自检间隔（毫秒；远大于 2s 服务器心跳周期） */
+export const MUSIC_CHECK_STATUS_INTERVAL_MS = 10000
+
+/**
+ * 服务器心跳失联判定（毫秒）：超过该时长未收到 music:sync-heartbeat 时，
+ * 观众回退消费房主心跳（兼容旧后端未广播服务器心跳的窗口）。
+ */
+export const SERVER_HEARTBEAT_STALE_MS = 7000
+
+/** 观众同曲进度对齐阈值（秒）：偏差超过该值才 seek，小偏差自然播放 */
+export const SYNC_ALIGN_THRESHOLD_SEC = 2

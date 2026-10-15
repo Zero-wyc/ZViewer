@@ -1,9 +1,14 @@
 /**
  * 一起听（Listen Together）模块共享类型。
  *
- * 与后端约定的事件契约（Task 3 MusicSyncHandler）：
- * - `music:sync-state`：房主广播 MusicSyncState（换曲/播放暂停/进度/播放模式）
- * - `music:host-heartbeat`：房主每 2s 心跳，携带完整 MusicSyncState
+ * 与后端约定的事件契约（Task 3 MusicSyncHandler / MusicBroadcasterService）：
+ * - `music:sync-state`：房主广播 MusicSyncState（换曲/播放暂停/进度/播放模式；
+ *   低延迟操作通道）
+ * - `music:host-heartbeat`：房主每 2s 心跳，携带完整 MusicSyncState（服务器
+ *   基线更新通道；观众仅在服务器心跳失联时 fallback 消费）
+ * - `music:sync-heartbeat`：服务器每 2s 广播推算状态（source='server'），
+ *   观众进度唯一权威来源
+ * - `music:check-status`：观众每 10s 主动自检（±10s 容差），ack 下发权威状态
  * - `music:queue-changed`：队列变更后全房间广播完整队列（items: MusicQueueItem[]）
  * - `music:control-request` / `music:control-response`：观众申请制控制
  */
@@ -83,6 +88,34 @@ export interface MusicSyncState {
   playMode: PlayMode
   /** 状态生成时间戳（毫秒） */
   updatedAt: number
+}
+
+/** 服务器心跳广播 payload（music:sync-heartbeat，source='server'） */
+export interface MusicSyncHeartbeatPayload {
+  roomId: string
+  source: 'server'
+  /** 服务器推算的权威状态（positionSec 已按服务器时间轴外推到当前时刻） */
+  state: MusicSyncState
+}
+
+/** 观众自检上行 payload（music:check-status） */
+export interface MusicCheckStatusPayload {
+  roomId: string
+  /** 观众本地播放进度（秒） */
+  positionSec: number
+  /** 观众是否正在播放 */
+  isPlaying: boolean
+  /** 观众发送时刻的 Unix 毫秒时间戳（服务器据此补偿传输延迟） */
+  clientTs?: number
+}
+
+/** 观众自检 ack 应答数据（与一起看 CheckStatusAckData 同构） */
+export interface MusicCheckStatusAckData {
+  needsSync: boolean
+  /** 服务器当前时间（毫秒） */
+  serverTs: number
+  /** needsSync=true 时携带服务器权威推算状态 */
+  state?: MusicSyncState
 }
 
 /** 观众控制申请（观众 → 房主） */

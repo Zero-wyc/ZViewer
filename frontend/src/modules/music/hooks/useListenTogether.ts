@@ -26,6 +26,7 @@ import {
 } from '@/modules/room/watch-together/resolveSource'
 import { message } from '@/components/ui/message'
 import { compensatePositionSec } from '../utils/syncMath'
+import { needsMusicAlign } from '../utils/serverSync'
 import {
   useMusicStore,
   musicItemKey,
@@ -33,57 +34,48 @@ import {
   activeQueueOf,
 } from '../store'
 import { useMusicSettingsStore, normalizeMusicLevel } from '../store-settings'
+import {
+  MUSIC_SOCKET_EVENT,
+  SYNC_ALIGN_THRESHOLD_SEC,
+  MUSIC_CHECK_STATUS_INTERVAL_MS,
+  SERVER_HEARTBEAT_STALE_MS,
+} from '../constants'
 import type {
+  MusicCheckStatusAckData,
   MusicControlRequest,
   MusicControlResponse,
   MusicQueueItem,
+  MusicSyncHeartbeatPayload,
   MusicSyncState,
   PlayMode,
   NcmSong,
 } from '../types'
 
-/** Socket 事件名（与后端 MusicSyncHandler 约定，见 spec「音乐播放同步」节） */
-const MUSIC_EVENT = {
-  /** 房主广播播放状态（换曲/播放暂停/进度/播放模式） */
-  SYNC_STATE: 'music:sync-state',
-  /** 房主心跳（每 2s，携带完整 MusicSyncState） */
-  HOST_HEARTBEAT: 'music:host-heartbeat',
-  /** 队列变更后全房间广播完整队列 */
-  QUEUE_CHANGED: 'music:queue-changed',
-  /** 观众控制申请（观众 → 房主） */
-  CONTROL_REQUEST: 'music:control-request',
-  /** 控制申请应答（房主 → 申请者） */
-  CONTROL_RESPONSE: 'music:control-response',
-  /** 观众切歌同步成功回执（观众 → 房主，房主左下角「xx 已同步」提示） */
-  SYNC_ACK: 'music:sync-ack',
-  /** 加入房间时查询当前队列 + 最新同步状态（ack 返回） */
-  GET_STATE: 'music:get-state',
-} as const
+/**
+ * Socket 事件名（与后端 MusicSyncHandler / MusicBroadcasterService 约定）。
+ * 事件常量已集中到 constants.ts（架构对齐一起看 sync-playback/constants），
+ * 此处保留别名以复用既有引用点。
+ */
+const MUSIC_EVENT = MUSIC_SOCKET_EVENT
 
 /**
  * music:get-state 的 ack 应答（与后端 MusicSyncHandler 契约一致）。
- * syncState 为服务端缓存的房主最新同步状态（房间从未播放时为 null）。
+ * syncState 为服务器推算后的权威状态（positionSec 已按服务器时间轴外推，
+ * 后端重启后从 DB 恢复；房间从未播放时为 null）。
  */
 interface GetStateResponse {
   success: boolean
   message?: string
   queue?: MusicQueueItem[]
   syncState?: MusicSyncState | null
+  /** 服务器当前时间（毫秒；旧后端缺省） */
+  serverTs?: number
+  /** 房主是否在线（缺省 = 旧后端，维持心跳超时判定；false 时直接进入自主控制） */
+  hostOnline?: boolean
 }
 
-/** 房主心跳广播间隔（毫秒） */
+/** 房主心跳广播间隔（毫秒）。心跳是服务器基线更新通道，观众不直接消费 */
 const HOST_HEARTBEAT_INTERVAL_MS = 2000
-
-/**
- * 观众判定房主离线的心跳超时（毫秒）。
- * 取心跳间隔的 3.5 倍：容忍一次心跳延迟/丢包的网络抖动——此前 5s（2.5 倍）
- * 时 interval 单次抖动即可能误判；配合房主端可见性补发，真实离线的发现
- * 延迟仍在可接受范围。
- */
-const HOST_OFFLINE_TIMEOUT_MS = 7000
-
-/** 观众离线判定的轮询间隔（毫秒） */
-const HOST_OFFLINE_CHECK_INTERVAL_MS = 1000
 
 /** B站 相关推荐一次加入的条数上限（手动「自动推荐」与列表末尾自动扩展均为前 3 条） */
 const BILI_RECOMMEND_LIMIT = 3
@@ -134,9 +126,6 @@ async function fetchBiliRecs(bvid: string): Promise<BiliRelatedItem[]> {
     .filter((r) => r.bvid && r.cid && !existing.has(biliRecKey(r)))
     .slice(0, BILI_RECOMMEND_LIMIT)
 }
-
-/** 观众进度对齐阈值（秒）：与房主进度差超过该值才 seek */
-const SYNC_ALIGN_THRESHOLD_SEC = 2
 
 /** 音频流音质兜底值（实际档位从音乐设置 store 读取，设置页可改） */
 const FALLBACK_STREAM_LEVEL = 'exhigh'
@@ -438,14 +427,19 @@ function playAudioWithRetry(el: HTMLAudioElement, onGiveUp?: () => void): void {
  * 一起听核心 Hook：音频播放引擎 + 房主/观众同步。
  *
  * 结构对齐 useWatchTogether（socket 事件注册、房主/观众分支、
- * 心跳、申请制、房主离线判定 hostOffline → canControl），但大幅简化：
+ * 心跳、申请制、hostOffline → canControl），同步信令对齐一起看的
+ * 「服务器权威心跳」架构（Step1/2/3）：
  * - 音频元素惰性创建（useRef 持有，创建即挂 DOM display:none——
  *   MediaSession 系统媒体通知要求媒体元素在 DOM 内，见 mountMediaElement），
  *   src 走 /api/music/stream 代理
  * - 房主：togglePlay/next/prev/seek/setPlayMode 直接操作 audio 并广播
- *   'music:sync-state'；ended 按 playMode 自动切歌；每 2s 心跳
- * - 观众：监听 sync-state/心跳对齐（进度差 >2s 才 seek）；
- *   5s 未收到心跳置 hostOffline（收到即恢复）；控制走申请制
+ *   'music:sync-state'（附 clientTs，服务器写侧补偿）；ended 按 playMode
+ *   自动切歌；每 2s 心跳（服务器基线更新通道，观众不直接消费）
+ * - 观众：进度唯一权威来源 = 服务器每 2s 广播的 music:sync-heartbeat
+ *   (source='server')（positionSec 已按服务器时间轴外推，差 >2s 才 seek）；
+ *   每 10s check-status 主动自检（±10s 容差）自愈；房主心跳仅在服务器
+ *   心跳失联 7s 时 fallback；hostOffline 由服务器 host-disconnected /
+ *   sharer-ready 事件驱动；控制走申请制
  * - 随机模式：Fisher-Yates 洗牌序列存 ref，一轮结束重新洗牌
  *   （参考 Hydrogen utils/player/queue.js 的思路实现的简版）
  */
@@ -491,8 +485,12 @@ export function useListenTogether({
   const shuffleListRef = useRef<string[] | null>(null)
   /** 当前曲目在洗牌序列中的位置（-1 表示尚未开始） */
   const shufflePosRef = useRef(-1)
-  /** 观众最近一次收到房主心跳的时间戳（0 表示尚未开始计时，由离线判定 effect 初始化） */
-  const lastHeartbeatAtRef = useRef(0)
+  /**
+   * 观众最近一次收到服务器心跳（music:sync-heartbeat source='server'）的
+   * 时间戳（0 表示尚未收到）。房主心跳仅在该时间戳超过 SERVER_HEARTBEAT_STALE_MS
+   * 失联时作 fallback 消费（旧后端兼容），双通道并存会导致重复处理。
+   */
+  const lastServerHeartbeatAtRef = useRef(0)
   /** 房主端待审批的观众申请 */
   const pendingControlRef = useRef<MusicControlRequest | null>(null)
   /** 本地音量镜像（getAudio 创建元素时读取，避免依赖 state） */
@@ -597,6 +595,8 @@ export function useListenTogether({
       }
       currentSocket.emit(MUSIC_EVENT.SYNC_STATE, {
         roomId: currentRoomId,
+        // Step1：附发出时刻时间戳，服务器写侧补偿传输延迟后基线锚定服务器时间轴
+        clientTs: Date.now(),
         ...payload,
       })
     },
@@ -1667,14 +1667,22 @@ export function useListenTogether({
   }, [])
 
   /**
-   * 观众：应用房主广播/心跳携带的同步状态。
+   * 观众：应用同步状态（服务器心跳 / 房主广播 / 心跳 fallback / get-state 共用）。
    * - 曲目 key 变化（trackSongId 匹配）→ 换源加载
    * - isPlaying 变化 → play/pause
    * - 进度差 >2s → seek 对齐（小差异让音频自然播放）
    * - playMode → 同步到 store
+   *
+   * options.compensate 两条路径的语义（勿混淆）：
+   * - false：服务器权威路径（music:sync-heartbeat source='server' / get-state /
+   *   check-status ack）。payload.positionSec 已由服务器按权威时间轴外推到
+   *   「当前时刻」，直接使用——本地再补偿会重复推进。
+   * - true（默认）：旧路径（房主 sync-state 直发 / 心跳 fallback）。payload
+   *   是房主发出时刻的快照，用 compensatePositionSec 补偿在途推进
+   *   （观众本地时钟 vs 房主 updatedAt，存在跨设备钟差，仅兜底）。
    */
   const applyViewerSync = useCallback(
-    (payload: MusicSyncState) => {
+    (payload: MusicSyncState, options?: { compensate?: boolean }) => {
       const store = useMusicStore.getState()
       const audio = getAudio()
       // 权威曲目 key：trackKey 优先（B站 曲目也同步），回退 trackSongId
@@ -1695,8 +1703,11 @@ export function useListenTogether({
           store.queue.some((q) => musicItemKey(q) === trackKey)
         )
       if (viewerSyncBlocked) return
-      // 传输延迟补偿后的目标进度（暂停态/时钟异常时即原值）
-      const targetPositionSec = compensatePositionSec(payload)
+      // 目标进度：服务器路径直接用（已外推）；旧路径做传输延迟补偿
+      const targetPositionSec =
+        options?.compensate === false
+          ? payload.positionSec
+          : compensatePositionSec(payload)
 
       // 1. 曲目变化 → 换源加载（按 key 从队列匹配条目）
       if (trackKey !== store.currentKey) {
@@ -1739,8 +1750,11 @@ export function useListenTogether({
 
       // 3. 进度对齐：差值超过阈值才 seek，避免高频打断
       if (
-        Math.abs(audio.currentTime - targetPositionSec) >
-        SYNC_ALIGN_THRESHOLD_SEC
+        needsMusicAlign(
+          audio.currentTime,
+          targetPositionSec,
+          SYNC_ALIGN_THRESHOLD_SEC
+        )
       ) {
         try {
           audio.currentTime = targetPositionSec
@@ -1910,15 +1924,21 @@ export function useListenTogether({
     endedHandlerRef.current = () => handleEnded()
   }, [handleEnded])
 
-  // 房主心跳：每 2s 广播当前 MusicSyncState（观众据此对齐进度并判定房主在线）。
-  // 后台标签页的 timer 会被浏览器节流（暂停播放的页面尤其明显）导致心跳停发、
-  // 观众误判房主离线：回前台时立即补发一次心跳，观众端恢复离线判定与状态同步
-  //（后台期间的进度漂移由 compensatePositionSec 的 10s 补偿上限兜底）
+  // 房主心跳：每 2s 广播当前 MusicSyncState（附 clientTs）。观众端不再直接
+  // 消费该心跳（Step2）：它由服务器合并进基线（写侧补偿 + 10s 节流落盘），
+  // 供服务器每 2s 外推广播 music:sync-heartbeat(source='server')——观众进度的
+  // 唯一权威路径；旧转发保留供旧前端兼容与新前端失联 fallback。
+  // 后台标签页的 timer 会被浏览器节流导致心跳停发：回前台时立即补发一次，
+  // 加速服务器基线收敛（观众端进度此时由服务器外推持续兜底）
   useEffect(() => {
     if (!socket || !roomId || !isHost) return
     const emitHeartbeat = () => {
       const payload = buildSyncPayload()
-      socket.emit(MUSIC_EVENT.HOST_HEARTBEAT, { roomId, ...payload })
+      socket.emit(MUSIC_EVENT.HOST_HEARTBEAT, {
+        roomId,
+        clientTs: Date.now(),
+        ...payload,
+      })
     }
     const timer = setInterval(emitHeartbeat, HOST_HEARTBEAT_INTERVAL_MS)
     const handleVisibility = () => {
@@ -1931,24 +1951,108 @@ export function useListenTogether({
     }
   }, [socket, roomId, isHost, buildSyncPayload])
 
-  // 观众：房主离线判定——超时未收到心跳置 hostOffline，收到即恢复（见事件监听）。
-  // 自身后台时本页 timer 同样被节流，无法区分「房主停发」与「自身节流导致的
-  // 大间隔」，hidden 期间跳过判定（恢复前台后下一次轮询立即给出正确结论）
+  // 观众：服务器心跳消费（Step2，进度唯一权威路径）。
+  // state.positionSec 已由服务器按权威时间轴外推到「当前时刻」，直接应用
+  // 不再做本地时钟补偿（compensatePositionSec 的跨设备钟差隐患由此消除）。
+  // hostOffline（自主控制模式）期间整条忽略，避免拉回观众自主操作；
+  // lastServerHeartbeatAtRef 供房主心跳 fallback 判定（防双通道重复处理）
   useEffect(() => {
     if (!socket || !roomId || isHost) return
-    // 加入时重置计时，给予首个心跳的宽限期
-    lastHeartbeatAtRef.current = Date.now()
+    const handleServerHeartbeat = (payload: MusicSyncHeartbeatPayload) => {
+      if (!payload || payload.source !== 'server' || !payload.state) return
+      // 防御：仅接受当前房间的事件（切换房间时旧事件残留）
+      if (payload.roomId && payload.roomId !== roomIdRef.current) return
+      lastServerHeartbeatAtRef.current = Date.now()
+      if (useMusicStore.getState().hostOffline) return
+      applyViewerSync(payload.state, { compensate: false })
+    }
+    socket.on(MUSIC_EVENT.SYNC_HEARTBEAT, handleServerHeartbeat)
+    return () => {
+      socket.off(MUSIC_EVENT.SYNC_HEARTBEAT, handleServerHeartbeat)
+    }
+  }, [socket, roomId, isHost, applyViewerSync])
+
+  // 观众：CHECK_STATUS 主动自检（Step3）。每 10s 上报本地播放状态，服务器
+  // 与权威推算状态比对（±10s 容差），分歧超限经 ack 下发权威状态——作为
+  // 服务器心跳丢失（socket 重连窗口/网络抖动）时的自愈通道；正常情况下
+  // 自检不触发纠偏（容差远大于主路径 2s 对齐阈值）
+  useEffect(() => {
+    if (!socket || !roomId || isHost) return
+    let checkInFlight = false
     const timer = setInterval(() => {
-      if (document.visibilityState !== 'visible') return
+      // 守卫：上一查在途 / 断连 / 自主控制 / 音频未就绪 / seek 进行中
+      if (checkInFlight) return
+      const currentSocket = socketRef.current
+      const currentRoomId = roomIdRef.current
+      if (!currentSocket || !currentRoomId) return
+      if (useMusicStore.getState().hostOffline) return
+      const audio = audioRef.current
+      if (!audio || !audio.currentSrc || audio.seeking) return
+      // 本地 B站 插播试听中：不参与自检（与 applyViewerSync 的保护一致）
+      const store = useMusicStore.getState()
+      const localBiliItemKey =
+        store.biliItem != null ? musicItemKey(store.biliItem) : null
       if (
-        Date.now() - lastHeartbeatAtRef.current > HOST_OFFLINE_TIMEOUT_MS &&
-        !useMusicStore.getState().hostOffline
+        store.currentKey?.startsWith('bili:') === true &&
+        store.currentKey === localBiliItemKey
       ) {
-        useMusicStore.getState().setHostOffline(true)
+        return
       }
-    }, HOST_OFFLINE_CHECK_INTERVAL_MS)
+
+      checkInFlight = true
+      currentSocket.emit(
+        MUSIC_EVENT.CHECK_STATUS,
+        {
+          roomId: currentRoomId,
+          positionSec: audio.currentTime,
+          isPlaying: !audio.paused,
+          clientTs: Date.now(),
+        },
+        (response: {
+          success?: boolean
+          data?: MusicCheckStatusAckData | null
+        }) => {
+          checkInFlight = false
+          if (!response?.success || !response.data?.needsSync) return
+          const state = response.data.state
+          if (!state) return
+          // ack 等待期间可能进入自主控制，应用前再校验一次
+          if (useMusicStore.getState().hostOffline) return
+          applyViewerSync(state, { compensate: false })
+        }
+      )
+    }, MUSIC_CHECK_STATUS_INTERVAL_MS)
     return () => {
       clearInterval(timer)
+    }
+  }, [socket, roomId, isHost, applyViewerSync])
+
+  // 观众：房主离线判定改由服务器事件驱动（服务器心跳恒定后，观众无法再靠
+  // 房主心跳超时判离线）。host-disconnected（房主断连，服务器广播）→ 置
+  // hostOffline 进入自主控制（canControl = isHost || hostOffline）；sharer-ready
+  // （房主重连就绪）→ 恢复跟随。「房主已离线后观众才加入」的场景由 get-state
+  // ack 的 hostOnline 字段兜底（见下方 get-state effect）
+  useEffect(() => {
+    if (!socket || !roomId || isHost) return
+    const handleHostDisconnected = () => {
+      const store = useMusicStore.getState()
+      if (!store.hostOffline) {
+        store.setHostOffline(true)
+        store.setSyncNotice('房主已断开连接，可自主控制播放')
+      }
+    }
+    const handleSharerReady = () => {
+      const store = useMusicStore.getState()
+      if (store.hostOffline) {
+        store.setHostOffline(false)
+        store.setSyncNotice('房主已恢复，继续跟随播放')
+      }
+    }
+    socket.on(MUSIC_EVENT.HOST_DISCONNECTED, handleHostDisconnected)
+    socket.on(MUSIC_EVENT.SHARER_READY, handleSharerReady)
+    return () => {
+      socket.off(MUSIC_EVENT.HOST_DISCONNECTED, handleHostDisconnected)
+      socket.off(MUSIC_EVENT.SHARER_READY, handleSharerReady)
     }
   }, [socket, roomId, isHost])
 
@@ -1992,9 +2096,24 @@ export function useListenTogether({
             // 队列变化使洗牌序列失效：标记待重建
             shuffleListRef.current = null
           }
+          // 观众：服务器上报房主在线状态（false = 房主已离线后加入，直接进入
+          // 自主控制；缺省 = 旧后端，维持原行为）。房主自身不需要该标记
+          if (!isHostRef.current && res.hostOnline === false) {
+            const store = useMusicStore.getState()
+            if (!store.hostOffline) {
+              store.setHostOffline(true)
+              store.setSyncNotice('房主不在线，可自主控制播放')
+            }
+          } else if (!isHostRef.current && res.hostOnline === true) {
+            if (useMusicStore.getState().hostOffline) {
+              useMusicStore.getState().setHostOffline(false)
+            }
+          }
           if (res.syncState) {
-            // 按同步状态恢复本地播放（换曲加载/播放状态/进度/播放模式）
-            applyViewerSync(res.syncState)
+            // 按同步状态恢复本地播放（换曲加载/播放状态/进度/播放模式）。
+            // syncState 已是服务器推算的权威状态（updatedAt 为服务器时间），
+            // 直接使用不再本地补偿
+            applyViewerSync(res.syncState, { compensate: false })
           }
         }
       )
@@ -2027,18 +2146,25 @@ export function useListenTogether({
       applyViewerSync(payload)
     }
 
-    // 观众：房主心跳（重置离线计时 + 状态对齐）
+    // 观众：房主心跳（仅作 fallback——服务器心跳失联超过 SERVER_HEARTBEAT_STALE_MS
+    // 时才消费，兼容旧后端未广播 music:sync-heartbeat 的窗口；正常情况下
+    // 服务器心跳每 2s 到达，双通道并存会导致同一状态被重复处理）。
+    // hostOffline 恢复不再依赖心跳（改由 sharer-ready / get-state hostOnline
+    // 驱动），此处保留恢复逻辑兼容旧后端（无 sharer-ready 变更的场景）
     const handleHostHeartbeat = (
       payload: MusicSyncState & { roomId?: string }
     ) => {
       if (!payload || isHostRef.current) return
       if (payload.roomId && payload.roomId !== roomIdRef.current) return
-      lastHeartbeatAtRef.current = Date.now()
+      const serverHeartbeatFresh =
+        Date.now() - lastServerHeartbeatAtRef.current <=
+        SERVER_HEARTBEAT_STALE_MS
+      if (serverHeartbeatFresh) return
       const store = useMusicStore.getState()
       if (store.hostOffline) {
         store.setHostOffline(false)
       }
-      applyViewerSync(payload)
+      applyViewerSync(payload, { compensate: true })
     }
 
     // 全员：队列变更（后端广播完整队列）
