@@ -9,6 +9,7 @@ import { SystemSettings } from '../entities/SystemSettings';
 import { getSystemSettings, deleteRoomAndRelations } from '../index';
 import { clearAnimeProvidersCache } from '../services/anime';
 import { clearCache as clearKazumiCache } from '../services/kazumi';
+import { clearCache as clearCmsCache } from '../services/cms';
 import { clearCache as clearAniSubsCache } from '../services/anisubs';
 import {
   authenticateToken,
@@ -722,6 +723,7 @@ router.put(
         clearAnimeProvidersCache();
         clearKazumiCache();
         clearAniSubsCache();
+        clearCmsCache();
       }
       if (registrationMode !== undefined) {
         settings.registrationMode = registrationMode as 'open' | 'approval' | 'closed';

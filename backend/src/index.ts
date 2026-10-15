@@ -31,6 +31,7 @@ import danmakuRoutes from './routes/danmaku';
 import animeSourcesRoutes from './routes/animeSources';
 import anisubsRoutes from './routes/anisubs';
 import kazumiRoutes from './routes/kazumi';
+import cmsRoutes from './routes/cms';
 import serverFilesRoutes from './routes/serverFiles';
 import musicRoutes from './routes/music';
 import { createMountRouter } from './routes/webdav';
@@ -321,6 +322,7 @@ async function bootstrap() {
   app.use('/api/stream/anime', animeSourcesRoutes);
   app.use('/api/stream/anisubs', anisubsRoutes);
   app.use('/api/stream/kazumi', kazumiRoutes);
+  app.use('/api/stream/cms', cmsRoutes);
   app.use('/api/server-files', serverFilesRoutes);
   // 一起听音乐模块：NCM API 通用转发 / 登录态 / 音频流代理（可选鉴权，游客可匿名调用）
   app.use('/api/music', musicRoutes);

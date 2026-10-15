@@ -155,6 +155,7 @@ interface AdminSettings {
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]
+    cmsSources?: string[]
     rssSources?: Array<{ id: string; name?: string; url: string }>
     thirdPartySources?: Array<{
       id: string
@@ -203,6 +204,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
   const [savingSettings, setSavingSettings] = useState(false)
+  const [cmsInspectUrl, setCmsInspectUrl] = useState('')
+  const [cmsInspecting, setCmsInspecting] = useState(false)
   const [editingMusicVolume, setEditingMusicVolume] = useState(false)
   const [musicVolumeDraft, setMusicVolumeDraft] = useState('50')
   const commitMusicVolume = () => {
@@ -837,6 +840,61 @@ export default function AdminPage() {
       message.error('删除所有房间失败')
     } finally {
       setDeleteAllLoading(false)
+    }
+  }
+
+  const handleInspectCmsSource = async () => {
+    const url = cmsInspectUrl.trim()
+    if (!url) {
+      message.error('请输入 TVBox 配置接口地址')
+      return
+    }
+    if (!/^https?:\/\//i.test(url)) {
+      message.error('配置地址必须是 http(s) URL')
+      return
+    }
+    setCmsInspecting(true)
+    try {
+      const res = await apiFetch(
+        `/api/stream/cms/inspect?url=${encodeURIComponent(url)}&refresh=1`,
+        { headers: authHeaders }
+      )
+      const data = (await res.json()) as {
+        success: boolean
+        sites?: Array<{ key: string; name: string }>
+        message?: string
+      }
+      if (data.success && data.sites) {
+        if (data.sites.length === 0) {
+          message.warning('配置拉取成功，但没有识别到 CMS 采集源（type 1）')
+        } else {
+          const preview = data.sites
+            .slice(0, 5)
+            .map((s) => s.name)
+            .join('、')
+          message.success(
+            `识别到 ${data.sites.length} 个 CMS 采集源：${preview}${data.sites.length > 5 ? ' 等' : ''}`
+          )
+        }
+        // 检测成功后自动加入配置列表（去重），随「保存设置」持久化
+        setSettings((prev) => ({
+          ...prev,
+          dataSourceConfig: {
+            ...prev.dataSourceConfig,
+            cmsSources: (prev.dataSourceConfig?.cmsSources || []).includes(url)
+              ? prev.dataSourceConfig?.cmsSources
+              : [...(prev.dataSourceConfig?.cmsSources || []), url],
+          },
+        }))
+        setCmsInspectUrl('')
+      } else {
+        message.error(data.message ?? '拉取配置失败')
+      }
+    } catch (err) {
+      console.error('[AdminPage] inspect cms source error:', err)
+      message.error('拉取配置失败')
+    } finally {
+      setCmsInspecting(false)
     }
   }
 
@@ -1864,6 +1922,57 @@ export default function AdminPage() {
                           }))
                         }
                       />
+                    </div>
+
+                    <Title level={5} className="mb-4 mt-6">
+                      TVBox 采集源（CMS）
+                    </Title>
+                    <div className="mb-6">
+                      <label className="mb-1.5 block text-sm font-medium text-[var(--md-sys-color-on-surface-variant)]">
+                        TVBox 配置接口地址（自动提取其中的苹果 CMS
+                        采集站，检测成功后加入下方列表）
+                      </label>
+                      <div className="mb-2 flex gap-2">
+                        <Input
+                          value={cmsInspectUrl}
+                          onChange={(e) => setCmsInspectUrl(e.target.value)}
+                          placeholder="https://example.com/jsm.json"
+                          className="flex-1"
+                        />
+                        <Button
+                          onClick={handleInspectCmsSource}
+                          loading={cmsInspecting}
+                          disabled={cmsInspecting}
+                        >
+                          检测并添加
+                        </Button>
+                      </div>
+                      <textarea
+                        rows={3}
+                        className="w-full rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-sm text-[var(--md-sys-color-on-surface)] placeholder:text-[var(--md-sys-color-on-surface-variant)] focus:border-[var(--md-sys-color-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--md-sys-color-primary)]"
+                        placeholder="https://raw.githubusercontent.com/qist/tvbox/master/jsm.json"
+                        value={(
+                          settings.dataSourceConfig?.cmsSources || []
+                        ).join('\n')}
+                        onChange={(e) =>
+                          setSettings((prev) => ({
+                            ...prev,
+                            dataSourceConfig: {
+                              ...prev.dataSourceConfig,
+                              cmsSources: e.target.value
+                                .split('\n')
+                                .map((s) => s.trim())
+                                .filter(Boolean),
+                            },
+                          }))
+                        }
+                      />
+                      <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                        留空则不启用 CMS 采集源；系统不内置任何默认源。TVBox
+                        配置每日漂移，服务端按 10 分钟缓存自动刷新；仅支持苹果
+                        CMS（type 1）采集站，jar 插件源与 JS
+                        规则源不在支持范围。
+                      </p>
                     </div>
                   </>
                 )}
