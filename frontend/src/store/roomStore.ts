@@ -67,6 +67,12 @@ export interface Movie {
   path?: string | null
   username?: string | null
   directLink?: boolean
+  /**
+   * 直链模式的媒体传输方式（仅 directLink=true 时有意义）。
+   * - false（默认）：强制直链直连，直连失败直接报错不回退中转
+   * - true：允许服务器中转，直连失败自动回退服务器代理
+   */
+  directLinkProxy?: boolean
   /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
   playsvideoEnabled?: boolean
   /** 仅允许 CLI 模式（B站 番剧/影视）：全房间必须各自连接 CLI 观看，服务器零媒体流量 */
@@ -131,6 +137,12 @@ export interface MovieDto {
   path: string | null
   username: string | null
   directLink: boolean
+  /**
+   * 直链模式的媒体传输方式（仅 directLink=true 时有意义）。
+   * - false（默认）：强制直链直连，直连失败直接报错不回退中转
+   * - true：允许服务器中转，直连失败自动回退服务器代理
+   */
+  directLinkProxy?: boolean
   /** 影片级浏览器播放引擎（playsvideo）开关 */
   playsvideoEnabled?: boolean
   /** 仅允许 CLI 模式（B站 番剧/影视）：全房间必须各自连接 CLI 观看 */
@@ -157,6 +169,7 @@ export function mapDtoToMovie(dto: MovieDto): Movie {
     path: dto.path,
     username: dto.username,
     directLink: dto.directLink,
+    directLinkProxy: dto.directLinkProxy === true,
     playsvideoEnabled: dto.playsvideoEnabled !== false,
     cliOnly: dto.cliOnly === true,
     multiVersion: dto.multiVersion === true,
@@ -388,6 +401,8 @@ interface RoomState {
       username?: string
       password?: string
       directLink?: boolean
+      /** 直链模式传输方式：false（默认）强制直链直连，true 允许服务器中转 */
+      directLinkProxy?: boolean
       /** Emby/Jellyfin 专属：是否存在多版本；false 时不渲染清晰度选择框 */
       multiVersion?: boolean
       /** 影片级浏览器播放引擎（playsvideo）开关：false 时强制原生直连播放 */
@@ -431,6 +446,8 @@ interface RoomState {
       username?: string
       password?: string
       directLink?: boolean
+      /** 直链模式传输方式：false（默认）强制直链直连，true 允许服务器中转 */
+      directLinkProxy?: boolean
       sourceMeta?: AniSubsSourceMeta | null
       /** 仅允许 CLI 模式（B站 番剧/影视） */
       cliOnly?: boolean

@@ -215,6 +215,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   })
   const [webdavDirectLink, setWebdavDirectLink] = useState(false)
   const [openlistDirectLink, setOpenlistDirectLink] = useState(false)
+  // 直链模式的媒体传输方式：false（默认）强制直链直连，true 允许服务器中转
+  const [directLinkProxy, setDirectLinkProxy] = useState(false)
   const [embyDirectLink, setEmbyDirectLink] = useState(false)
   const [jellyfinDirectLink, setJellyfinDirectLink] = useState(false)
   const [ftp, setFtp] = useState<FTPParams>({
@@ -866,6 +868,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 serverUrl,
                 path: normalizedPath,
                 directLink: true,
+                directLinkProxy,
               })
             } else {
               // 代理模式：resolve 返回相对 proxy URL，后端随后用 movieId 重写为 stream URL
@@ -969,6 +972,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       addEmbySeriesCard,
       webdav.serverUrl,
       webdavDirectLink,
+      directLinkProxy,
       isWebdavInternal,
       ftp.serverUrl,
       ftp.username,
@@ -1426,6 +1430,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           title,
           source: 'mp4',
           format: detectedFormat !== 'unknown' ? detectedFormat : undefined,
+          // 视频直链影片统一走直链模式：默认强制直链直连（noProxyFallback），
+          // 开关关闭（directLinkProxy=true）时保持直链 URL 但允许服务器中转
+          directLink: true,
+          directLinkProxy,
         })
         resetForm()
         message.success('影片已添加')
@@ -1493,6 +1501,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           serverUrl: mountServerUrl,
           path: mountPath,
           directLink: isDirect,
+          directLinkProxy: isDirect ? directLinkProxy : undefined,
         })
         resetForm()
         message.success('影片已添加')
@@ -1814,6 +1823,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             }
           />
           <Dropdown
+            label="播放方式"
             value={
               isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'
             }
@@ -1827,6 +1837,17 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             ]}
             onChange={(value) => setWebdavDirectLink(value === 'direct')}
           />
+          {webdavDirectLink && !isWebdavInternal && (
+            <Dropdown
+              label="直链传输方式"
+              value={directLinkProxy ? 'proxy' : 'direct'}
+              options={[
+                { value: 'direct', label: '强制直链直连（默认）' },
+                { value: 'proxy', label: '允许服务器中转' },
+              ]}
+              onChange={(value) => setDirectLinkProxy(value === 'proxy')}
+            />
+          )}
           {isWebdavInternal && (
             <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
@@ -1994,6 +2015,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             }}
           />
           <Dropdown
+            label="播放方式"
             value={
               isOpenlistInternal
                 ? 'proxy'
@@ -2011,6 +2033,17 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             ]}
             onChange={(value) => setOpenlistDirectLink(value === 'direct')}
           />
+          {openlistDirectLink && !isOpenlistInternal && (
+            <Dropdown
+              label="直链传输方式"
+              value={directLinkProxy ? 'proxy' : 'direct'}
+              options={[
+                { value: 'direct', label: '强制直链直连（默认）' },
+                { value: 'proxy', label: '允许服务器中转' },
+              ]}
+              onChange={(value) => setDirectLinkProxy(value === 'proxy')}
+            />
+          )}
           {isOpenlistInternal && (
             <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
@@ -2213,6 +2246,46 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           {renderSourceForm()}
 
           {renderActionButton()}
+
+          {/* 直链直连开关：仅「视频直链」源显示。默认开启——浏览器直连源站、
+              服务器零媒体流量（m3u8 分片/MP4 均源站直传，直连失败直接报错）；
+              关闭后允许服务器中转（跨域/防盗链自动兜底）。挂载类源的同类
+              开关在各源表单内（直链模式 → 直链传输方式）。 */}
+          {sourceType === 'mp4' && (
+            <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
+              <div className="min-w-0">
+                <Text className="block text-xs font-medium">直链直连</Text>
+                <Text
+                  type="secondary"
+                  className="block text-[11px] leading-snug mt-0.5"
+                >
+                  开启（默认）：浏览器直连源站，服务器零媒体流量，直连失败直接报错。关闭：经服务器中转，跨域/防盗链自动兜底。
+                </Text>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={!directLinkProxy}
+                disabled={!isHost}
+                onClick={() => setDirectLinkProxy((prev) => !prev)}
+                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  backgroundColor: !directLinkProxy
+                    ? 'var(--md-sys-color-primary)'
+                    : 'var(--md-sys-color-outline)',
+                }}
+              >
+                <span
+                  className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
+                  style={{
+                    transform: !directLinkProxy
+                      ? 'translateX(18px)'
+                      : 'translateX(2px)',
+                  }}
+                />
+              </button>
+            </div>
+          )}
 
           {/* 浏览器转码引擎开关：仅挂载/文件类源显示。B站 源解析出的
               MP4/DASH 浏览器必定原生可播，无转码需求，隐藏开关避免困惑。 */}

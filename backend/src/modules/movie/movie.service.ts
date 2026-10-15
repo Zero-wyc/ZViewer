@@ -221,6 +221,7 @@ export class MovieService {
       username: typeof data.username === 'string' ? data.username : null,
       password: typeof data.password === 'string' ? data.password : null,
       directLink: data.directLink === true,
+      directLinkProxy: data.directLinkProxy === true,
       multiVersion: data.multiVersion === true,
       wasmEngine: data.wasmEngine === true,
       playsvideoEnabled: data.playsvideoEnabled !== false,
@@ -284,6 +285,7 @@ export class MovieService {
     if (typeof data.username === 'string') update.username = data.username;
     if (typeof data.password === 'string') update.password = data.password;
     if (typeof data.directLink === 'boolean') update.directLink = data.directLink;
+    if (typeof data.directLinkProxy === 'boolean') update.directLinkProxy = data.directLinkProxy;
     if (typeof data.wasmEngine === 'boolean') update.wasmEngine = data.wasmEngine;
     if (typeof data.playsvideoEnabled === 'boolean') update.playsvideoEnabled = data.playsvideoEnabled;
     if (typeof data.cliOnly === 'boolean') update.cliOnly = data.cliOnly;
@@ -372,6 +374,7 @@ export class MovieService {
       username: movie.username,
       password: movie.password,
       directLink: movie.directLink,
+      directLinkProxy: movie.directLinkProxy === true,
       wasmEngine: movie.wasmEngine,
       playsvideoEnabled: movie.playsvideoEnabled !== false,
       cliOnly: movie.cliOnly === true,

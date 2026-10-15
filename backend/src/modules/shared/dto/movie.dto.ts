@@ -85,6 +85,12 @@ export interface MovieDto {
   /** 是否为直链 */
   directLink?: boolean;
   /**
+   * 直链模式的媒体传输方式（仅 directLink=true 时有意义）。
+   * - false（默认）：强制直链直连，失败不回退服务器中转
+   * - true：允许服务器中转，直连失败自动回退服务器代理
+   */
+  directLinkProxy?: boolean;
+  /**
    * 影片级转码引擎标记（已废弃，保留字段以兼容既有数据）。
    *
    * playsvideo 的启用现由前端 `shouldUsePlaysVideo` 依据容器与音轨编码

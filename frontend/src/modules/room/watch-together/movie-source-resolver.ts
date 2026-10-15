@@ -534,6 +534,10 @@ export async function resolveMovieSource({
     headers: undefined,
     reusedRecoveryUrl: false,
     playsvideoEnabled: movie.playsvideoEnabled !== false,
-    noProxyFallback: movie.directLink === true,
+    // 挂载直链模式（movie.directLink）：默认强制直链直连（noProxyFallback），
+    // 直连失败不回退服务器代理，直接提示。影片级「允许服务器中转」开关
+    // （directLinkProxy）开启时保持直链 URL 语义但允许回退/走服务器中转。
+    noProxyFallback:
+      movie.directLink === true && movie.directLinkProxy !== true,
   }
 }

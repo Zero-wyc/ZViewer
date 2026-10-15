@@ -139,7 +139,12 @@ export function useWatchTogether({
   // （直接调用 createSuppressRef() 会每次渲染创建全新对象，count 归零），
   // 且不在渲染期间读写 ref（react-hooks v6 refs 规则）。
   const [suppressEventsRef] = useState(createSuppressRef)
-  const lastLoadedMovieRef = useRef<{ id: number; url: string } | null>(null)
+  const lastLoadedMovieRef = useRef<{
+    id: number
+    url: string
+    /** 直链传输方式：纳入去重比较，切换「允许服务器中转」后自动重载生效 */
+    directLinkProxy?: boolean
+  } | null>(null)
   // 房主刷新恢复：用于在 loadMovie 完成后应用 initialPlayback.currentTime 并暂停
   // 通过 ref 暂存，避免修改 effect 依赖导致 loadMovie 重新触发
   // 采用 latest ref pattern：每次渲染同步，确保 loadMovie 内部读到最新值
@@ -357,7 +362,12 @@ export function useWatchTogether({
     const handleCurrentMovie = (payload: { movieId: number | null }) => {
       // 保留恢复时的旧影片，但接受有权限成员发起的非空切片事件。
       // 否则服务端已选择新片，房主仍持续广播旧片源。
-      if (isHostRef.current && useRoomStore.getState().currentMovieId && payload.movieId === null) return
+      if (
+        isHostRef.current &&
+        useRoomStore.getState().currentMovieId &&
+        payload.movieId === null
+      )
+        return
       setCurrentMovieId(payload.movieId)
     }
 
@@ -836,10 +846,14 @@ export function useWatchTogether({
     const movie = movies.find((m) => m.id === currentMovieId)
     if (!movie) return
 
-    // 避免 movies 列表刷新时重复加载同一部影片
+    // 避免 movies 列表刷新时重复加载同一部影片。
+    // directLinkProxy 纳入比较：切换「允许服务器中转」开关后，
+    // noProxyFallback 语义变化需要重新 loadMovie 才能生效。
     if (
       lastLoadedMovieRef.current?.id === movie.id &&
-      lastLoadedMovieRef.current?.url === movie.url
+      lastLoadedMovieRef.current?.url === movie.url &&
+      lastLoadedMovieRef.current?.directLinkProxy ===
+        (movie.directLinkProxy === true)
     ) {
       return
     }
@@ -864,7 +878,11 @@ export function useWatchTogether({
     resetSuppression(suppressEventsRef)
 
     suppressEventsRef.current = true
-    lastLoadedMovieRef.current = { id: movie.id, url: movie.url }
+    lastLoadedMovieRef.current = {
+      id: movie.id,
+      url: movie.url,
+      directLinkProxy: movie.directLinkProxy === true,
+    }
 
     /** 带解析进度 UI 的在线解析（B站），读取 localStorage 中该影片的播放模式偏好 */
     const resolveOnline = async (
@@ -1278,9 +1296,7 @@ export function useWatchTogether({
 
     const handleEnded = () => {
       const state = useRoomStore.getState()
-      const idx = state.movies.findIndex(
-        (m) => m.id === state.currentMovieId
-      )
+      const idx = state.movies.findIndex((m) => m.id === state.currentMovieId)
       if (idx === -1) return
       if (idx >= state.movies.length - 1) {
         message.info('已连播到影片列表末尾')

@@ -121,6 +121,17 @@ export class Movie {
   directLink!: boolean;
 
   /**
+   * 直链模式的媒体传输方式（仅 directLink=true 时有意义）。
+   *
+   * - false（默认）：强制直链直连——浏览器直连源站，服务器零媒体流量；
+   *   直连失败（CORS/防盗链/签名过期）直接向用户报错，不回退服务器中转
+   * - true：允许服务器中转——仍以直链 URL 为源，直连失败自动回退服务器
+   *   代理；m3u8 跨域清单/分片直接走服务器代理
+   */
+  @Column({ type: 'boolean', default: false })
+  directLinkProxy!: boolean;
+
+  /**
    * 影片级转码引擎标记（已废弃，仅保留数据库列避免迁移）。
    *
    * 原为「添加影片时勾选且检测到需要（DTS 等不兼容音轨）」的触发条件。
