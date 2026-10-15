@@ -7,6 +7,7 @@ import {
   ListVideo,
   Maximize,
   Repeat,
+  Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
@@ -221,8 +222,47 @@ export function MovieListPanel({
     }
   }
 
-  const renderClearButton = () =>
-    (isHost || canManage) && !isScreenShare ? (
+  /**
+   * 清空影片列表按钮，两种形态：
+   * - 'icon'：卡片头部纯图标按钮，与右侧「展开完整列表」图标按钮设计一致；
+   *   二次确认态以红色图标 + title 提示（3s 超时回退，逻辑在 handleClearAll）。
+   * - 'text'：展开弹窗内的文字按钮（保留原有带文案形态）。
+   */
+  const renderClearButton = (style: 'icon' | 'text' = 'text') => {
+    if (!((isHost || canManage) && !isScreenShare)) return null
+    if (style === 'icon') {
+      const disabled =
+        clearingAll || movies.length === 0 || removingId !== null || !roomId
+      const label = clearConfirming
+        ? '确认清空？再次点击执行'
+        : '清空房间影片列表，包括搜索隐藏的影片'
+      return (
+        <button
+          type="button"
+          onClick={handleClearAll}
+          disabled={disabled}
+          className={cn(
+            'flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]',
+            disabled && 'cursor-not-allowed opacity-40'
+          )}
+          style={{
+            color: clearConfirming
+              ? 'var(--md-sys-color-error)'
+              : 'var(--md-sys-color-on-surface-variant)',
+          }}
+          title={label}
+          aria-label={label}
+          aria-pressed={clearConfirming}
+        >
+          {clearingAll ? (
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          ) : (
+            <Trash2 className="h-3.5 w-3.5" />
+          )}
+        </button>
+      )
+    }
+    return (
       <Button
         size="sm"
         variant={clearConfirming ? 'danger' : 'secondary'}
@@ -234,7 +274,8 @@ export function MovieListPanel({
       >
         {clearingAll ? '清空中…' : clearConfirming ? '确认清空？' : '一键清除'}
       </Button>
-    ) : null
+    )
+  }
 
   const handleQualityChange = async (movie: Movie, value: string) => {
     if (!isHost || isScreenShare || !roomId) return
@@ -857,7 +898,7 @@ export function MovieListPanel({
             <Repeat className="h-3.5 w-3.5" />
           </button>
         )}
-        {renderClearButton()}
+        {renderClearButton('icon')}
         <button
           type="button"
           onClick={() => setShowListModal(true)}
@@ -893,7 +934,7 @@ export function MovieListPanel({
               placeholder="搜索影片…"
               className="min-w-0 flex-1 px-2.5"
             />
-            {renderClearButton()}
+            {renderClearButton('text')}
             {isHost && !isScreenShare && (
               <Switch
                 label="自动连播"
