@@ -148,9 +148,13 @@ export function useLocalMediaStream(
       const useTestStream =
         new URLSearchParams(window.location.search).get('testStream') === 'true'
 
-      // 帧率约束：max 设置硬上限，ideal 设置期望值。
-      // 屏幕共享场景下浏览器会在画面静止时主动降帧（节能优化），
-      // 后续通过 contentHint='motion' + 编码器 maxFramerate 共同保证输出帧率。
+      // 帧率约束：只使用 ideal，不设置 max（借鉴 mirotalk
+      // getScreenShareVideoConstraints 的写法）。
+      // Chromium 桌面采集器对 max 帧率约束做严格模式匹配，无法精确满足时
+      // 会回落到默认档（30fps）——这正是「选择 60 帧仍为 30 帧」的根因；
+      // ideal 语义下 Chrome 会以目标帧率为期望尽可能采集。
+      // 编码器输出上限由 useHostPeerConnections 的 encodings.maxFramerate
+      // 负责，采集侧无需重复设限。
       //
       // 分辨率约束：仅使用 ideal，不设置 max。
       // Firefox 对 getDisplayMedia 的 max 约束解释与 Chrome 不同：
@@ -158,7 +162,7 @@ export function useLocalMediaStream(
       // 在无法精确匹配时回退到下一级标准分辨率（通常是 720p）。
       // 移除 max 后，Firefox 和 Chrome 都会以 ideal 为目标选择最接近的可用分辨率。
       const videoConstraints: MediaTrackConstraints = {
-        frameRate: { ideal: frameRate, max: frameRate },
+        frameRate: { ideal: frameRate },
         width: { ideal: 1920 },
         height: { ideal: 1080 },
       }
@@ -199,9 +203,11 @@ export function useLocalMediaStream(
       setIsSharing(true)
       setIsPaused(false)
 
-      // 对视频轨道应用目标帧率约束并设置 contentHint
+      // 对视频轨道设置 contentHint 并做分辨率兜底
       // - contentHint='motion' 告知浏览器/编码器内容为动态画面，避免静止检测降帧
-      // - applyConstraints 使用 max 硬约束帧率上限，避免编码器超过目标帧率浪费带宽
+      // - 帧率不再二次 applyConstraints 限 max：Chromium 对 max 约束的严格
+      //   匹配会把桌面采集钳回 30fps；编码器输出上限已由 sender 的
+      //   encodings.maxFramerate 负责（useHostPeerConnections）
       // - 分辨率兜底：部分浏览器（尤其 Firefox）在 getDisplayMedia 时可能返回
       //   低于 ideal 的分辨率（如 720p），此处尝试通过 applyConstraints 提升到 1080p
       // - 必须 await 确保 PC 建立前约束已生效
@@ -242,25 +248,18 @@ export function useLocalMediaStream(
             }
           }
 
-          try {
-            await track.applyConstraints({
-              frameRate: { max: frameRate },
-            })
-            const settings = track.getSettings()
-            console.log(
-              '[useLocalMediaStream] applied frameRate constraint, actual:',
-              settings.frameRate,
-              'target:',
-              frameRate,
-              'resolution:',
-              `${settings.width}x${settings.height}`
-            )
-          } catch (err) {
-            console.warn(
-              '[useLocalMediaStream] applyConstraints frameRate error:',
-              err
-            )
-          }
+          // 采集实际帧率以日志为准，不再二次 applyConstraints 限 max
+          // （Chromium 对 max 约束的严格匹配会把桌面采集钳回 30fps）
+          const captureSettings = track.getSettings()
+          console.log(
+            '[useLocalMediaStream] capture settings:',
+            'frameRate:',
+            captureSettings.frameRate,
+            'target:',
+            frameRate,
+            'resolution:',
+            `${captureSettings.width}x${captureSettings.height}`
+          )
         })
       )
 
@@ -334,7 +333,9 @@ export function useLocalMediaStream(
     if (!track || track.readyState !== 'live') return
     void track
       .applyConstraints({
-        frameRate: { ideal: frameRate, max: frameRate },
+        // 裸数值=ideal 语义（借鉴 mirotalk setLocalMaxFps），不用 max：
+        // Chromium 对 max 的严格匹配会把桌面采集钳回 30fps
+        frameRate,
       })
       .then(() => {
         console.log(
