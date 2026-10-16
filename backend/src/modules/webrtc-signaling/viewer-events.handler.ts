@@ -91,5 +91,37 @@ export class ViewerEventsHandler implements SocketEventHandler {
         }
       },
     );
+    // --- 房主共享启动失败：广播给房间内观众，避免观众在等待页无限挂起 ---
+    // （借鉴 mirotalk handleToggleScreenException：启动失败也要保证观众端
+    // 状态一致，给出明确提示而不是一直黑屏等待）
+    socket.on(
+      'sharer-error',
+      async (
+        payload: { roomId: string; message?: string },
+        callback?: (response: { success: boolean; message?: string }) => void,
+      ) => {
+        try {
+          if (!(await roomPermissionService.isRoomHost(socket, payload.roomId))) {
+            return callback?.({ success: false, message: '无权限' });
+          }
+
+          console.log(
+            `[sharer-error] broadcast from sharer=${socket.id} to room=${payload.roomId}`,
+          );
+          socket.to(payload.roomId).emit('sharer-error', {
+            roomId: payload.roomId,
+            message:
+              typeof payload.message === 'string' && payload.message.length > 0 && payload.message.length <= 200
+                ? payload.message
+                : '房主屏幕共享启动失败，等待房主重试',
+          });
+
+          callback?.({ success: true });
+        } catch (err) {
+          console.error('[sharer-error] error:', err);
+          callback?.({ success: false, message: '处理失败' });
+        }
+      },
+    );
   }
 }

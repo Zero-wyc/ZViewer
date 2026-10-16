@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/Button'
 import { useSocket } from '@/hooks/useSocket'
 import { useSubtitles, type EmbeddedSource } from '@/hooks/useSubtitles'
 import { useCliAgent } from '@/hooks/useCliAgent'
+import { useWakeLock } from '@/hooks/useWakeLock'
 import { useRoomStore } from '@/store/roomStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { usePlayerPrefsStore } from '@/store/playerPrefsStore'
@@ -1589,6 +1590,10 @@ export function WatchTogetherCore({
 
   // ── 观众申请按钮（渲染用）──────────────────────────────
   const isPlaying = useVideoPlayingState(video)
+
+  // 防息屏：移动/平板设备正在播放时保持屏幕常亮
+  // （移植自 mirotalk wakeLock；暂停/桌面设备/页面不可见时内部自动失效）
+  useWakeLock(isPlaying)
 
   // ── 房主端申请审批通知列表（与重构前一致）─────────────────
   // React Compiler 误报：以下 push 操作构建的是纯渲染数据（通知列表），

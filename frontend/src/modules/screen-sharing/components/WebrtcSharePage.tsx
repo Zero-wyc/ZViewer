@@ -266,11 +266,20 @@ function WebrtcSharePage({
     else pause()
   }, [isPaused, pause, resume])
 
+  // 开始共享：失败时向房间广播 sharer-error（借鉴 mirotalk
+  // handleToggleScreenException 的一致性广播）——观众可能已进入等待页，
+  // 明确提示「启动失败，等待房主重试」而不是无限黑屏等待
+  const handleStart = useCallback(async () => {
+    const ok = await start()
+    if (ok || !socket || !currentRoomId) return
+    socket.emit('sharer-error', { roomId: currentRoomId })
+  }, [start, socket, currentRoomId])
+
   const handleRefresh = useCallback(async () => {
     stop()
     cleanupPeerConnections()
-    await start()
-  }, [stop, cleanupPeerConnections, start])
+    await handleStart()
+  }, [stop, cleanupPeerConnections, handleStart])
 
   // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中走
   // replaceTrack 热切换——重新采集 → 替换观众 sender track → 本地换流，
@@ -516,7 +525,7 @@ function WebrtcSharePage({
               variant="primary"
               className="mt-5 w-full"
               icon={<Monitor className="h-5 w-5" />}
-              onClick={start}
+              onClick={handleStart}
               loading={starting}
               disabled={starting || closing}
             >

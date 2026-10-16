@@ -51,8 +51,12 @@ export interface UseLocalMediaStreamResult {
   switchingResolution: boolean
   /** 错误信息 */
   error: string | null
-  /** 开始共享：调用 getDisplayMedia + 合并麦克风 + applyConstraints */
-  start: () => Promise<void>
+  /**
+   * 开始共享：调用 getDisplayMedia + 合并麦克风 + applyConstraints。
+   * 返回是否成功启动（失败/取消返回 false，供调用方做一致性广播等处理；
+   * 正在启动或已在共享中的重复调用视为成功，不触发失败逻辑）。
+   */
+  start: () => Promise<boolean>
   /** 停止共享：停止所有 track、清理 micStream、清空 video.srcObject */
   stop: () => void
   /** 暂停：设置视频 track.enabled = false */
@@ -117,9 +121,9 @@ export function useLocalMediaStream(
     setIsPaused(false)
   }, [localVideoRef])
 
-  const start = useCallback(async () => {
+  const start = useCallback(async (): Promise<boolean> => {
     // 防重复点击：正在启动或正在共享时直接返回
-    if (starting || isSharing) return
+    if (starting || isSharing) return true
 
     // 前置检查 1：getDisplayMedia 仅在安全上下文（HTTPS 或 localhost）可用
     if (
@@ -144,7 +148,7 @@ export function useLocalMediaStream(
       }
       setError(reason)
       message.error('屏幕共享不可用：当前为非安全上下文')
-      return
+      return false
     }
 
     // 前置检查 2：iframe 嵌套环境检测
@@ -178,7 +182,7 @@ export function useLocalMediaStream(
           `   ${window.location.href}`
         setError(reason)
         message.error('屏幕共享不可用：iframe 环境未获授权')
-        return
+        return false
       }
     }
 
@@ -334,6 +338,7 @@ export function useLocalMediaStream(
       }
       videoEndedHandlerRef.current = endedHandler
       mediaStream.getVideoTracks()[0]?.addEventListener('ended', endedHandler)
+      return true
     } catch (err) {
       console.error('[useLocalMediaStream] getDisplayMedia error:', err)
       // 区分错误类型给出明确提示
@@ -364,6 +369,7 @@ export function useLocalMediaStream(
       }
       setError(reason)
       message.error(reason)
+      return false
     } finally {
       setStarting(false)
     }

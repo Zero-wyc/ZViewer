@@ -26,6 +26,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
+import { useWakeLock } from '@/hooks/useWakeLock'
 import { useP2PTunnel } from '@/modules/p2p'
 import type { P2PStatus } from '@/modules/p2p/types'
 import { useViewerPeerConnection } from '../hooks/useViewerPeerConnection'
@@ -178,6 +179,10 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   // WebRTC 控制栏自动隐藏（逻辑仿照 WatchTogetherCore）
   const webrtcControlBarVisible = useControlBarAutoHide(webrtcStageRef)
 
+  // 防息屏：移动/平板观众正在观看共享画面时保持屏幕常亮
+  // （移植自 mirotalk wakeLock；桌面设备与页面不可见时内部自动失效）
+  useWakeLock(hasRemoteStream && isPlaying)
+
   // WebRTC 网页全屏模式下按 ESC 退出
   useEffect(() => {
     if (!isWebFullscreen) return
@@ -202,6 +207,20 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       socket.off('sharer-ready', handleSharerReadyEvent)
     }
   }, [socket, roomId, handleSharerReady])
+
+  // 订阅 sharer-error 事件：房主共享启动失败时明确提示，
+  // 避免观众在等待页无限挂起（借鉴 mirotalk 的一致性广播）
+  useEffect(() => {
+    if (!socket) return
+    const handleSharerError = (data: { roomId: string; message?: string }) => {
+      if (data.roomId !== roomId) return
+      message.warning(data.message ?? '房主屏幕共享启动失败，等待房主重试')
+    }
+    socket.on('sharer-error', handleSharerError)
+    return () => {
+      socket.off('sharer-error', handleSharerError)
+    }
+  }, [socket, roomId])
 
   // video 元素 resolution / PiP 监听
   useEffect(() => {
