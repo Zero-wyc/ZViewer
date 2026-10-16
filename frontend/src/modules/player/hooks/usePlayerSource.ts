@@ -156,6 +156,13 @@ export interface UsePlayerSourceOptions {
    * 其自动重载链路负责，调用方应自行过滤。
    */
   onPlaybackError?: (err: Error) => void
+  /**
+   * attach 进度回调（引擎支持时触发，playsvideo 已实现）：解析容器 /
+   * 建关键帧索引 / 转码 worker 就绪 / 分段产出等阶段。供调用方在
+   * 解析/重载 loading 态展示进度。世代守卫由本 Hook 内部处理
+   * （被新加载取代的 attach 不再回调）。
+   */
+  onAttachProgress?: (stage: string, detail?: string) => void
 }
 
 export interface UsePlayerSourceReturn {
@@ -231,6 +238,8 @@ export function usePlayerSource(
   >(async () => {})
   // 播放期错误回调的稳定引用（调用方可能每次渲染传入新函数）
   const onPlaybackErrorRef = useRef(options.onPlaybackError)
+  // attach 进度回调的稳定引用（同上）
+  const onAttachProgressRef = useRef(options.onAttachProgress)
   // 卸载标记：切换影片时 WatchTogetherPanel 按 key 整体重挂载
   // （usePlayerRemountKey），旧面板的 loadMovie effect 已启动的 attach
   // 会在卸载后继续完成。没有该标记时，attach 会把引擎挂到已被 React
@@ -246,6 +255,10 @@ export function usePlayerSource(
   useEffect(() => {
     onPlaybackErrorRef.current = options.onPlaybackError
   }, [options.onPlaybackError])
+
+  useEffect(() => {
+    onAttachProgressRef.current = options.onAttachProgress
+  }, [options.onAttachProgress])
 
   /** 将操作排入串行队列（前驱无论成败都继续执行） */
   const enqueue = useCallback(<T>(task: () => Promise<T>): Promise<T> => {
@@ -424,14 +437,27 @@ export function usePlayerSource(
         // 取本会话发起序号（后发起者赢）与 attach 世代基准
         const sessionSeq = ++engineSessionSeq
         epoch = attachEpochRef.current
+        // 注入 attach 进度回调：浅拷贝避免污染调用方持有的 source 对象；
+        // 世代守卫——被新加载/卸载取代的 attach 不再向 UI 回调
+        const sourceWithProgress: PlayerSource =
+          onAttachProgressRef.current != null
+            ? {
+                ...source,
+                onAttachProgress: (stage, detail) => {
+                  if (attachEpochRef.current === epoch) {
+                    onAttachProgressRef.current?.(stage, detail)
+                  }
+                },
+              }
+            : source
         resetVideoElement(video)
         appliedSourceUrlRef.current = source.url
         // playsvideo 的启用由 shouldUsePlaysVideo 依据影片级开关、容器/
         // 音轨与浏览器能力决定；开启后 MKV/avi/ts/wmv 等一律走管线，
         // 无原生快速路径，失败也不回退原生。
-        const engine = selectEngine(source)
+        const engine = selectEngine(sourceWithProgress)
         try {
-          const result = await engine.attach(video, source)
+          const result = await engine.attach(video, sourceWithProgress)
           if (attachEpochRef.current !== epoch) {
             // 等待期间被新加载/卸载取代：本次落地作废，立即释放引擎
             // 并静默退出——错误与状态都不属于本次会话
@@ -453,7 +479,7 @@ export function usePlayerSource(
           // 引擎取流报 401/403。媒体请求不走 apiFetch（无内置刷新），
           // 此处强制 refresh 后重试一次；引擎内 appendAuthToken 实时读取
           // localStorage，重试自动携带新 token。authRetried 防止无限循环。
-          if (isAuthExpiredError(err, source) && !authRetried) {
+          if (isAuthExpiredError(err, sourceWithProgress) && !authRetried) {
             const refreshed = await refreshAccessToken()
             if (refreshed) {
               // 刷新期间被新加载/卸载取代：放弃重试（新会话自会取源）
@@ -461,7 +487,7 @@ export function usePlayerSource(
               console.warn(
                 '[usePlayerSource] 媒体请求鉴权失效，token 已刷新，重试 attach'
               )
-              return attachInnerRef.current(video, source, true)
+              return attachInnerRef.current(video, sourceWithProgress, true)
             }
           }
           if (engine.type === 'playsvideo') {
@@ -481,7 +507,7 @@ export function usePlayerSource(
         }
 
         // attach 成功：注册播放期 error 监听（提示的统一入口）
-        registerPlaybackErrorWatch(video, source)
+        registerPlaybackErrorWatch(video, sourceWithProgress)
       } catch (err) {
         // 等待期间（回退链 / registerPlaybackErrorWatch）被新加载取代：
         // 静默退出，不回滚标记、不向上报错（调用方的错误提示会误导用户）

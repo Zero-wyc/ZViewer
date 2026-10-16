@@ -62,13 +62,18 @@ import {
 import { assertDirectLinkReachable } from './direct-route'
 
 /**
- * 引擎准备超时（毫秒）。
+ * 引擎准备超时模型（活动超时制，替代旧 60s 绝对超时）。
  *
- * 起播需完成探测 + 关键帧索引 + 首段产出，大文件或慢源可能耗时较久；
- * 超时后 attach 直接失败并向上抛错——**不降级原生播放**（原生解码
- * DTS/AC3 等编码会无声或再次失败），由用户决定重载或调整影片级开关。
+ * 起播需完成探测 + 关键帧索引 + 首段产出，大文件或慢源可能耗时较久。
+ * worker 在这些长耗时阶段每 3s 发 progress 心跳（本地补丁），主线程
+ * 任一进展事件到达即重置活动计时器——慢源只要仍在取流/处理就不被
+ * 硬杀；真死源（完全无事件）45s 即报错。绝对兜底防病态场景
+ * （事件持续但永不 ready）无限等待。超时后 attach 直接失败并向上
+ * 抛错——**不降级原生播放**（原生解码 DTS/AC3 等编码会无声或再次
+ * 失败），由用户决定重载或调整影片级开关。
  */
-const READY_TIMEOUT_MS = 60_000
+const ACTIVITY_TIMEOUT_MS = 45_000
+const ABSOLUTE_TIMEOUT_MS = 300_000
 
 /**
  * 诊断 hook：定位 endOfStream 调用来源。
@@ -233,7 +238,7 @@ class PlaysVideoController implements PlayerController {
 
     try {
       engine.loadUrl(url)
-      await this.waitReady(engine)
+      await this.waitReady(engine, this.source.onAttachProgress)
     } catch (err) {
       // 起播失败（容器不支持 / 探测超时 / 取流不可达）：
       // 必须终结本世代并释放 worker，否则旧管线残留会与回退引擎竞争 video。
@@ -292,46 +297,121 @@ class PlaysVideoController implements PlayerController {
   }
 
   /**
-   * 等待引擎 ready / error。
+   * 等待引擎 ready / error（活动超时制）。
    *
-   * 同时监听 error 事件与超时——只触发 error 不触发 ready 的失败若
-   * 不 reject，Promise 永不 settle，会卡死 attach 串行队列（播放器假死）。
+   * - 活动超时：progress 心跳（probe/index/ffmpeg/seg0）与 decision /
+   *   workerstate / segmentstate / subtitle 事件任一到达即重置计时器；
+   * - 绝对兜底：整体超过 ABSOLUTE_TIMEOUT_MS 强制失败。
+   *
+   * 同时把进展经 onProgress 透出（stage + 可选 detail），供上层在
+   * 解析/重载 loading 态展示进度。
    *
    * 世代校验不在这里做：监听器注册时 gen 必然等于当前世代，判断无意义；
    * 真正的作废检查在 attach 的 await 之后进行。
    */
-  private waitReady(engine: PlaysVideoEngine): Promise<void> {
+  private waitReady(
+    engine: PlaysVideoEngine,
+    onProgress?: (stage: string, detail?: string) => void
+  ): Promise<void> {
     return new Promise((resolve, reject) => {
+      let activityTimer: ReturnType<typeof setTimeout> | null = null
+      let lastSegmentsDetail: string | null = null
+      let workersReported = false
       const cleanup = () => {
         engine.removeEventListener('ready', onReady)
         engine.removeEventListener('error', onError)
-        clearTimeout(timer)
+        engine.removeEventListener('progress', onProgressEvent)
+        engine.removeEventListener('playbackdecision', onDecision)
+        engine.removeEventListener('workerstatechange', onWorkerActivity)
+        engine.removeEventListener('segmentstatechange', onSegmentActivity)
+        engine.removeEventListener('subtitle-status', onActivity)
+        clearTimeout(activityTimer)
+        clearTimeout(absoluteTimer)
         if (this.pendingReadyReject === onRejectExternal) {
           this.pendingReadyReject = null
         }
+      }
+      const fail = (err: Error) => {
+        cleanup()
+        reject(err)
+      }
+      const resetActivity = () => {
+        if (activityTimer) clearTimeout(activityTimer)
+        activityTimer = setTimeout(() => {
+          fail(
+            new Error(
+              `浏览器转码引擎 ${Math.round(ACTIVITY_TIMEOUT_MS / 1000)}s 无进展（源站无响应或处理停滞），可尝试重载影片`
+            )
+          )
+        }, ACTIVITY_TIMEOUT_MS)
       }
       const onReady = () => {
         cleanup()
         resolve()
       }
-      const onError = (e: Event) => {
+      const onError = (e: CustomEvent<{ message?: string }>) => {
         cleanup()
-        const detail = (e as CustomEvent<{ message?: string }>).detail
-        reject(new Error(detail?.message || 'playsvideo 引擎启动失败'))
+        reject(new Error(e.detail?.message || 'playsvideo 引擎启动失败'))
       }
       // destroyEngine 触发的外部唤醒（cleanup / 新世代接管 / 卸载）
       const onRejectExternal = (err: Error) => {
         cleanup()
         reject(err)
       }
-      const timer = setTimeout(() => {
-        cleanup()
-        reject(new Error('playsvideo 引擎准备超时（60s）'))
-      }, READY_TIMEOUT_MS)
+      const onActivity = () => resetActivity()
+      const onProgressEvent = (e: CustomEvent<{ stage?: string }>) => {
+        resetActivity()
+        if (e.detail?.stage) onProgress?.(e.detail.stage)
+      }
+      const onDecision = (
+        e: CustomEvent<{
+          evaluation?: { recommended?: { option?: { mode?: string } } }
+        }>
+      ) => {
+        resetActivity()
+        const mode = e.detail?.evaluation?.recommended?.option?.mode
+        onProgress?.('decision', typeof mode === 'string' ? mode : undefined)
+      }
+      const onWorkerActivity = () => {
+        resetActivity()
+        // worker 状态事件高频（每个 job 更新一次），仅首次透出启动信号
+        if (!workersReported) {
+          workersReported = true
+          onProgress?.('workers')
+        }
+      }
+      const onSegmentActivity = (
+        e: CustomEvent<{ segments?: { phase: string }[] }>
+      ) => {
+        resetActivity()
+        const segs = e.detail?.segments
+        if (!segs?.length) return
+        const done = segs.filter((s) =>
+          ['ready', 'delivered', 'cache-hit'].includes(s.phase)
+        ).length
+        const detail = `${done}/${segs.length}`
+        if (detail !== lastSegmentsDetail) {
+          lastSegmentsDetail = detail
+          onProgress?.('segments', detail)
+        }
+      }
+      const absoluteTimer = setTimeout(() => {
+        fail(
+          new Error(
+            `浏览器转码引擎准备超时（${Math.round(ABSOLUTE_TIMEOUT_MS / 60_000)} 分钟），可尝试重载影片`
+          )
+        )
+      }, ABSOLUTE_TIMEOUT_MS)
 
+      resetActivity()
       this.pendingReadyReject = onRejectExternal
       engine.addEventListener('ready', onReady)
       engine.addEventListener('error', onError)
+      engine.addEventListener('progress', onProgressEvent)
+      engine.addEventListener('playbackdecision', onDecision)
+      engine.addEventListener('workerstatechange', onWorkerActivity)
+      engine.addEventListener('segmentstatechange', onSegmentActivity)
+      engine.addEventListener('subtitle-status', onActivity)
     })
   }
 

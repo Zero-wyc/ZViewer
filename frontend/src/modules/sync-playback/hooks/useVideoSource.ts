@@ -16,7 +16,7 @@
  * 交由 useWatchTogether.loadMovie 重新解析 B站 并加载最新地址，
  * 避免两个 effect 并发调用 applySourceToVideo 导致 MSE 互相 abort。
  */
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import { useRoomStore } from '@/store/roomStore'
 import { message } from '@/components/ui/message'
@@ -192,6 +192,25 @@ export interface UseVideoSourceReturn {
   seekTo: (video: HTMLVideoElement, targetTime: number) => Promise<SeekToResult>
   /** 重载视频源（重载按钮用）：从当前播放位置附近重新 attach */
   reloadVideo: (video: HTMLVideoElement) => Promise<void>
+  /**
+   * attach 进度（引擎支持时更新，playsvideo 已实现）：解析/重载 loading 态
+   * 展示「正在进行哪个阶段」。attach 完成/失败/被取代后复位为 null。
+   */
+  attachProgress: { stage: string; detail?: string } | null
+}
+
+/**
+ * attach 进度阶段 → 中文文案（spinner 下方展示）。
+ * stage 取值见 PlayerSource.onAttachProgress 注释。
+ */
+export const ATTACH_STAGE_LABELS: Record<string, string> = {
+  probe: '正在解析容器与轨道',
+  index: '正在建立关键帧索引',
+  ffmpeg: '正在加载音频转码组件',
+  seg0: '正在生成首个分段',
+  decision: '已选定播放路径',
+  workers: '正在启动转码 worker',
+  segments: '正在产出分段',
 }
 
 /**
@@ -356,9 +375,20 @@ export function useVideoSource({
     [suppressEventsRef, videoRef]
   )
 
+  // attach 进度（playsvideo 引擎经 PlayerSource.onAttachProgress 上报；
+  // attach 完成/失败/被取代时复位 null，见 applySourceToVideo 与 reloadVideo）
+  const [attachProgress, setAttachProgress] = useState<{
+    stage: string
+    detail?: string
+  } | null>(null)
+  const handleAttachProgress = useCallback((stage: string, detail?: string) => {
+    setAttachProgress({ stage, detail })
+  }, [])
+
   const { attachSource, cleanup, seekTo, forceReload } = usePlayerSource({
     videoRef,
     onPlaybackError: handlePlaybackError,
+    onAttachProgress: handleAttachProgress,
   })
   const restoredRef = useRef(false)
 
@@ -476,6 +506,7 @@ export function useVideoSource({
           void safePlay(video)
         }
         suppressEventsRef.current = false
+        setAttachProgress(null)
       })
       .catch((err: unknown) => {
         // MSE attach 失败时必须释放 suppressEventsRef，否则房主端
@@ -483,6 +514,7 @@ export function useVideoSource({
         // 导致观众端永久黑屏。
         console.error('[useVideoSource] 恢复视频源失败:', err)
         suppressEventsRef.current = false
+        setAttachProgress(null)
         // 向用户展示错误（如不支持的视频格式），避免黑屏无反馈
         message.error(err instanceof Error ? err.message : '视频源加载失败')
       })
@@ -526,6 +558,7 @@ export function useVideoSource({
         message.error(err instanceof Error ? err.message : '视频重载失败')
       } finally {
         suppressEventsRef.current = false
+        setAttachProgress(null)
         useRoomStore.getState().setReloadingState(false, null)
       }
     },
@@ -582,5 +615,6 @@ export function useVideoSource({
     restoredRef,
     seekTo,
     reloadVideo,
+    attachProgress,
   }
 }

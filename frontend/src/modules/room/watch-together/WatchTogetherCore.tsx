@@ -36,6 +36,7 @@ import {
 } from '@/components/DanmakuLayer'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
+import { ATTACH_STAGE_LABELS } from '@/modules/sync-playback/hooks/useVideoSource'
 import { FullscreenCommentDock } from './FullscreenCommentDock'
 import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
 import type { DanmakuItem } from '@/modules/danmaku/types'
@@ -144,6 +145,7 @@ export function WatchTogetherCore({
     setWatchTogether,
     forceSync,
     isResolving,
+    attachProgress,
     currentQuality,
     availableQualities,
     reloadVideo,
@@ -1820,7 +1822,19 @@ export function WatchTogetherCore({
       {(isResolving || isReloading) &&
         createPortal(
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-            <Spinner size={36} />
+            {/* attach 进度文案（playsvideo 引擎阶段）；无进度时仅 spinner */}
+            {attachProgress ? (
+              <div className="flex flex-col items-center gap-3">
+                <Spinner size={36} />
+                <div className="text-xs text-white/70">
+                  {ATTACH_STAGE_LABELS[attachProgress.stage] ??
+                    attachProgress.stage}
+                  {attachProgress.detail ? ` ${attachProgress.detail}` : ''}
+                </div>
+              </div>
+            ) : (
+              <Spinner size={36} />
+            )}
           </div>,
           slots.panelRoot
         )}

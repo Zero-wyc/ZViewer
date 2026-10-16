@@ -290,6 +290,24 @@ function queuePipelineSetup(task) {
         self.postMessage({ type: 'error', message: String(err) });
     });
 }
+/**
+ * [本地补丁] 长耗时阶段心跳：主线程在 probe/index/ffmpeg/seg0 等阶段
+ * 收不到任何事件，无法区分「慢源正常处理中」与「源站死亡/处理停滞」。
+ * 此包装在 await 期间每 3s 向主线程发一条 progress 心跳，供引擎派发
+ * progress 事件，驱动上层的活动超时（有进展就不超时）与加载进度展示。
+ */
+const HEARTBEAT_INTERVAL_MS = 3000;
+async function withHeartbeat(stage, fn) {
+    const timer = setInterval(() => {
+        self.postMessage({ type: 'progress', stage });
+    }, HEARTBEAT_INTERVAL_MS);
+    try {
+        return await fn();
+    }
+    finally {
+        clearInterval(timer);
+    }
+}
 function makeProcessorConfig() {
     if (!demux) {
         throw new Error('No demux — handleProbe must run first');
@@ -381,7 +399,7 @@ async function handleProbe(demuxFn) {
         demux.dispose();
     }
     const tDemux = performance.now();
-    demux = await demuxFn();
+    demux = await withHeartbeat('probe', demuxFn);
     wlog(`demux done ${elapsed(tDemux)} codec=${demux.videoCodec}/${demux.audioCodec} dur=${demux.duration.toFixed(1)}s`);
     // Send codec info so engine can check canPlayType on the main thread
     self.postMessage({
@@ -407,16 +425,16 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
     else {
         const tIndex = performance.now();
         const mkvIndex = currentBlob
-            ? await buildMkvKeyframeIndexFromBlob(currentBlob, demux.videoTrack.id)
+            ? await withHeartbeat('index', () => buildMkvKeyframeIndexFromBlob(currentBlob, demux.videoTrack.id))
             : currentUrl
-                ? await buildMkvKeyframeIndexFromUrl(currentUrl, demux.videoTrack.id)
+                ? await withHeartbeat('index', () => buildMkvKeyframeIndexFromUrl(currentUrl, demux.videoTrack.id))
                 : null;
         if (mkvIndex) {
             index = mkvIndex;
             wlog(`mkv-cues done ${elapsed(tIndex)} keyframes=${index.keyframes.length}`);
         }
         else {
-            index = await getKeyframeIndex(demux.videoSink, demux.duration);
+            index = await withHeartbeat('index', () => getKeyframeIndex(demux.videoSink, demux.duration));
             wlog(`keyframe-index done ${elapsed(tIndex)} keyframes=${index.keyframes.length}`);
         }
     }
@@ -431,7 +449,7 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         demux.audioCodec !== null &&
             audioNeedsTranscode(codecProber, demux.audioCodec, demux.audioDecoderConfig?.codec);
     if (doTranscode && demux.audioCodec && !transcodePool.hasWorkers()) {
-        await ffmpeg.loadForCodec(demux.audioCodec);
+        await withHeartbeat('ffmpeg', () => ffmpeg.loadForCodec(demux.audioCodec));
     }
     audioDecoderConfig = doTranscode
         ? makeAacDecoderConfig(demux.audioDecoderConfig)
@@ -447,7 +465,7 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         endList: true,
     });
     const tSeg0 = performance.now();
-    const seg0Result = await processSegmentWithAbort(makeProcessorConfig(), 0);
+    const seg0Result = await withHeartbeat('seg0', () => processSegmentWithAbort(makeProcessorConfig(), 0));
     segmentCache.set(0, seg0Result.mediaData);
     if (seg0Result.initSegment) {
         initSegment = seg0Result.initSegment;

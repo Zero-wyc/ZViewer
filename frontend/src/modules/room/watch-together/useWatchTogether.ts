@@ -213,13 +213,18 @@ export function useWatchTogether({
   }, [isHost])
 
   // 1. 视频源管理：applySourceToVideo / cleanupMedia / restoredRef / seekTo / reloadVideo
-  const { applySourceToVideo, cleanupMedia, seekTo, reloadVideo } =
-    useVideoSource({
-      videoRef,
-      suppressEventsRef,
-      watchTogether,
-      isHostRef,
-    })
+  const {
+    applySourceToVideo,
+    cleanupMedia,
+    seekTo,
+    reloadVideo,
+    attachProgress,
+  } = useVideoSource({
+    videoRef,
+    suppressEventsRef,
+    watchTogether,
+    isHostRef,
+  })
 
   // 2. 房主同步编排（组合广播+状态请求+心跳+事件绑定，内部按 isHostRef 判断）
   const { broadcastState, sendControl, forceSync } = useHostSync({
@@ -1438,6 +1443,8 @@ export function useWatchTogether({
     changeQuality,
     // B站 解析进度
     isResolving,
+    // 浏览器转码引擎 attach 进度（spinner 下方展示，null = 无进度）
+    attachProgress,
     // B站 重新解析
     reloadBilibili,
     // 影片加载失败信息与手动重试（供 UI 显示"重试"入口）

@@ -13,6 +13,10 @@ export interface ReadyDetail {
 export interface ErrorDetail {
     message: string;
 }
+/** [本地补丁] worker 长耗时阶段心跳（probe/index/ffmpeg/seg0） */
+export interface ProgressDetail {
+    stage: string;
+}
 export interface LoadingDetail {
     file?: File;
     url?: string;
@@ -88,6 +92,7 @@ export interface CodecPath {
 interface EngineEventMap {
     ready: CustomEvent<ReadyDetail>;
     error: CustomEvent<ErrorDetail>;
+    progress: CustomEvent<ProgressDetail>;
     loading: CustomEvent<LoadingDetail>;
     'subtitle-status': CustomEvent<SubtitleStatusDetail>;
     workerstatechange: CustomEvent<WorkerStateDetail>;

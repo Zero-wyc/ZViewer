@@ -160,6 +160,19 @@ export interface PlayerSource {
    * 会让服务器带宽悄悄跑满，且掩盖了源站/直链本身的问题。
    */
   noProxyFallback?: boolean
+  /**
+   * attach 进度回调（可选，引擎实现可选支持；playsvideo 已实现）。
+   *
+   * stage 为引擎自定义阶段标识——playsvideo 的取值：
+   * 'probe'（解析容器与轨道）/ 'index'（建立关键帧索引）/
+   * 'ffmpeg'（加载音频转码组件）/ 'seg0'（生成首个分段）/
+   * 'decision'（播放路径决策）/ 'workers'（转码 worker 启动）/
+   * 'segments'（分段产出，detail 为 "N/M"）。
+   * 供调用方在解析/重载 loading 态展示进度，并区分「慢源正常处理」
+   * 与「源站死亡」。不可序列化的运行时字段（与 flvRuntimeEvents 同类），
+   * 不参与任何广播/存储。
+   */
+  onAttachProgress?: (stage: string, detail?: string) => void
 }
 
 /**

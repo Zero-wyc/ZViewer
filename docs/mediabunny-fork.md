@@ -76,18 +76,23 @@
 ## vendored playsvideo 的维护（2026-10-16 起，替代 patch-package）
 
 - 源码树：`frontend/vendor/playsvideo/**`——上游 npm 包 0.4.7 的完整副本，
-  **5 个本地补丁已直接改在 dist 产物里**（MKV cue 按视频轨过滤、AAC priming
-  丢帧、字幕探测容错、formatCuesToWebVTT 内联、分段 padding 泄漏过滤）。
+  **6 个本地改动已直接改在 dist 产物里**（前 5 个为行为修复：MKV cue 按
+  视频轨过滤、AAC priming 丢帧、字幕探测容错、formatCuesToWebVTT 内联、
+  分段 padding 泄漏过滤；第 6 个为功能增强：worker 长耗时阶段心跳——
+  probe/index/ffmpeg/seg0 期间每 3s postMessage `progress`，engine 转发为
+  `progress` 事件，驱动上层活动超时与加载进度展示，见
+  `worker.js` 的 `withHeartbeat` 与 `engine.js` 的 `handleWorkerMessage`）。
   原 `patches/playsvideo+0.4.7.patch` 与根 postinstall 的 patch-package 已
   随 vendor 化移除。
 - 依赖声明：vendored package.json 的 `mediabunny` 已从
   `github:kzahel/mediabunny#integration` 改为 `file:../mediabunny`——安装期
   完全自包含，GitHub 不可达时也能装。
-- 升级 playsvideo 前：先对照上游（npm / GitHub tag）确认 5 个补丁是否已有
-  等价修复（截至 2026-10 均无），再重新执行「拷贝上游 → 重放补丁 → 更新
-  vendor」三步。
+- 升级 playsvideo 前：先对照上游（npm / GitHub tag）确认 6 个本地改动是否
+  已有等价实现（截至 2026-10 均无），再重新执行「拷贝上游 → 重放改动 →
+  更新 vendor」三步。
 - 校验补丁已生效：
-  `grep "buildMkvKeyframeIndexFromSource(source, demux.videoTrack.id)" node_modules/playsvideo/dist/engine.js`。
+  `grep "buildMkvKeyframeIndexFromSource(source, demux.videoTrack.id)" node_modules/playsvideo/dist/engine.js`；
+  校验心跳已生效：`grep "withHeartbeat" node_modules/playsvideo/dist/worker.js`。
 - `.gitignore`（frontend/）已对 `vendor/playsvideo/dist/` 做反忽略放行，
   修改 `.gitignore` 的 `dist` 规则时勿破坏。
 

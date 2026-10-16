@@ -595,6 +595,12 @@ export class PlaysVideoEngine extends EventTarget {
     }
     handleWorkerMessage(event) {
         const msg = event.data;
+        if (msg.type === 'progress') {
+            // [本地补丁] worker 长耗时阶段（probe/index/ffmpeg/seg0）的心跳：
+            // 派发 progress 事件供上层驱动活动超时与加载进度展示
+            this.dispatchEvent(new CustomEvent('progress', { detail: { stage: msg.stage } }));
+            return;
+        }
         if (msg.type === 'probed') {
             // Worker finished demux — decide passthrough vs pipeline
             const media = {

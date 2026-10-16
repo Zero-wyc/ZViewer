@@ -1,7 +1,7 @@
 {
   "name": "playsvideo",
   "version": "0.4.7",
-  "description": "Vendored fork of kzahel/playsvideo@v0.4.7（npm 最新版，上游已冻结）+ ZViewer 本地补丁 5 处（详见仓库 docs/mediabunny-fork.md）。mediabunny 依赖指向相邻的 vendored fork，不触碰 GitHub。",
+  "description": "Vendored fork of kzahel/playsvideo@v0.4.7（npm 最新版，上游已冻结）+ ZViewer 本地改动 6 处（5 处行为修复 + worker 长耗时阶段心跳，详见仓库 docs/mediabunny-fork.md）。mediabunny 依赖指向相邻的 vendored fork，不触碰 GitHub。",
   "license": "MIT",
   "repository": {
     "type": "git",
