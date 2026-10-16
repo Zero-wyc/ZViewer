@@ -57,6 +57,9 @@ export type UseViewerStateSyncReturn = void
  *    - isPlaying 变化 → play/pause
  *    - playbackRate 变化 → 设置 playbackRate
  *    - currentTime 不再单独设置（由服务器心跳校正）
+ *      例外：房主 forceSync（「同步进度」按钮，payload 无 diff 字段）时
+ *      强制应用 currentTime（executeSeek 硬校正 + 失败重建引擎），使按钮
+ *      成为绕过心跳校正链死区的强制恢复手段。
  *
  * 2. **串行化 applySourceToVideo（Bug #8 修复）**：
  *    sourceUrl 变化时用 isApplyingRef 锁 + pendingStateRef 缓存最新 state，串行处理。
@@ -109,7 +112,8 @@ export function useViewerStateSync({
      */
     const applyStateChanges = async (
       state: WatchTogetherState,
-      isSourceChange: boolean
+      isSourceChange: boolean,
+      force = false
     ) => {
       const video = videoRef.current
       if (!video) return
@@ -212,8 +216,8 @@ export function useViewerStateSync({
       }
 
       // 2. 非 sourceUrl 变化：按字段分离同步
-      // 2.1 isPlaying 变化 → play/pause
-      if (lastAppliedIsPlayingRef.current !== state.isPlaying) {
+      // 2.1 isPlaying 变化 → play/pause（forceSync 全量权威广播时跳过增量缓存直接应用）
+      if (force || lastAppliedIsPlayingRef.current !== state.isPlaying) {
         if (state.isPlaying && video.paused) {
           void safePlay(video)
         } else if (!state.isPlaying && !video.paused) {
@@ -224,6 +228,7 @@ export function useViewerStateSync({
 
       // 2.2 playbackRate 变化 → 设置 playbackRate
       if (
+        force ||
         lastAppliedPlaybackRateRef.current === null ||
         Math.abs(
           (lastAppliedPlaybackRateRef.current as number) - state.playbackRate
@@ -237,8 +242,36 @@ export function useViewerStateSync({
         }
       }
 
-      // 2.3 currentTime 不再单独设置（由服务器心跳校正）
-      // 进度校正由 useServerHeartbeat 处理，避免高频 seek 卡顿
+      // 2.3 currentTime：常规广播不单独设置（由服务器心跳校正），避免高频 seek 卡顿。
+      // forceSync（房主「同步进度」按钮，payload 无 diff 字段）时执行硬校正：
+      // 心跳校正链（useServerHeartbeat）在事件抑制/引擎卡死等场景会被静默拦截
+      // 或长时间转圈等待，按钮必须能绕过它们把观众拉回房主进度——MSE seek
+      // 失败时经 onSeekFailed → reloadVideo 重建引擎，与「重载视频」等效。
+      if (force && state.currentTime > 0) {
+        const timeDiff = Math.abs(video.currentTime - state.currentTime)
+        if (timeDiff > 0.5) {
+          void executeSeek({
+            video,
+            targetTime: state.currentTime,
+            state,
+            seekTo,
+            suppressEventsRef,
+            isReloadingRef,
+            onSeekFailed: reloadVideo,
+          }).then((didSeek) => {
+            // 非 MSE 流 / 目标已在缓冲内：普通 seek 即可
+            if (!didSeek) {
+              suppressEventsRef.current = true
+              try {
+                video.currentTime = state.currentTime
+              } catch {
+                // ignore
+              }
+              suppressEventsRef.current = false
+            }
+          })
+        }
+      }
     }
 
     const handleState = (payload: StatePayload) => {
@@ -253,7 +286,11 @@ export function useViewerStateSync({
         lastSeqRef.current = payload.seq
       }
 
-      // P1-Opt#7：增量状态合并——优先使用 diff 合并到现有 state，避免全量替换
+      // P1-Opt#7：增量状态合并——优先使用 diff 合并到现有 state，避免全量替换。
+      // diff 字段缺失 = 房主 forceSync（「同步进度」按钮 / 清晰度切换后立即推送）：
+      // 广播链路 broadcastState 恒携带 diff（computeStateDiff），仅 forceSync 不带，
+      // 据此可靠区分。观众端对这类全量广播做强制应用（含 currentTime 硬校正）。
+      const isForceSync = payload.diff === undefined
       const state = payload.diff
         ? mergeStateDiff(
             useRoomStore.getState().watchTogether,
@@ -265,10 +302,10 @@ export function useViewerStateSync({
       const isSourceChange = lastAppliedSourceUrlRef.current !== state.sourceUrl
       setWatchTogether(state)
 
-      const processState = async (s: WatchTogetherState) => {
+      const processState = async (s: WatchTogetherState, force = false) => {
         isApplyingRef.current = true
         try {
-          await applyStateChanges(s, isSourceChange)
+          await applyStateChanges(s, isSourceChange, force)
         } catch (err: unknown) {
           console.error('[useViewerStateSync] applyStateChanges failed:', err)
           message.error(err instanceof Error ? err.message : '视频源加载失败')
@@ -306,7 +343,7 @@ export function useViewerStateSync({
 
       // 非 sourceUrl 变化：直接同步，不需要串行化（各自 acquire/release 配对）
       suppressEventsRef.current = true
-      void processState(state).then(() => {
+      void processState(state, isForceSync).then(() => {
         suppressEventsRef.current = false
       })
     }
