@@ -159,4 +159,4 @@ ZViewer 已经有与 TVBox 同构的三段式架构，**Kazumi 就是现成范�
 3. **源漂移**：TVBox 配置每日更新，需要「配置刷新」入口 + 站点失效检测（resolve 连续失败 N 次标记停用）。
 4. **SSRF**：后端拉取用户提供的接口 URL / CMS API，需复用 kazumi 侧已有的域名安全校验。
 5. **广告与杂链**：采集站 m3u8 常夹带广告分片，Phase 3 的过滤规则值得提前设计字段。
-6. **验证口径**：沿用项目惯例——`pnpm --dir frontend test`、tsc/eslint 0 错 0 警，完成即本地 commit（不 push）。
+6. **验证口径**：沿用项目惯例——`npm test -w frontend`、tsc/eslint 0 错 0 警，完成即本地 commit（不 push）。
