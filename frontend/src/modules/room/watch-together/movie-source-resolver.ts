@@ -549,9 +549,12 @@ export async function resolveMovieSource({
   }
 
   // 其余源（webdav / openlist / ftp / smb / emby / jellyfin / url 等）：
-  // format 兜底从 URL 扩展名自动推断。MKV 快速路径判定与 server-files
-  // 一致：原生友好编码直通原生播放，跨域 URL 由 direct 引擎的代理策略
-  // （直连失败回退服务器代理）兜底，原生失败再回退 playsvideo 管线。
+  // format 兜底从 URL 扩展名自动推断。MKV 无原生快速路径：一律交给
+  // playsvideo 引擎处理（见 shouldUsePlaysVideo——浏览器对 MKV 的原生
+  // 支持仅限 H.264/AAC 且容错面窄，DTS/AC3 等音轨还需浏览器端转码），
+  // 由引擎探测容器/编码后自动选择直通或重封装管线，播放失败**不回退**
+  // 原生播放（回退会造成无声或再次失败）。跨域 URL 取流策略由
+  // resolvePlaysVideoUrl 决定（默认经服务器代理；挂载直链模式源站直传）。
   // 挂载直链模式（directLink）例外：直连失败不回退服务器代理，直接提示。
   //
   // openlist/webdav 直链影片：播放时向后端实时解析新鲜直链，不使用固化的

@@ -76,9 +76,10 @@ const REMUX_ONLY_FORMATS = ['avi', 'ts', 'wmv']
  * 1. **avi / ts / wmv** —— 浏览器无法原生打开，只能重封装。
  * 2. **mkv** —— 一律交给 playsvideo，无原生快速路径。理由有二：浏览器
  *    对 MKV 的原生支持仅限 H.264/AAC 组合，容错面窄；且 DTS/AC3 等音轨
- *    需要浏览器端转码。playsvideo 在直通模式下仍是 `video.src` 原生
- *    解码，不产生重封装开销。（内嵌字幕与此选择无关：由自研提取器
- *    subtitles/mkv-embedded 提供）
+ *    需要浏览器端转码。（注意：playsvideo 的直通模式——保持 `video.src`
+ *    原生解码、零重封装开销——仅本地 File 源可用；URL 源一律走重封装 +
+ *    HLS 管线，起播需完成探测/索引/首段产出。内嵌字幕与此选择无关：
+ *    由自研提取器 subtitles/mkv-embedded 提供）
  * 3. **其他容器（mp4 / webm / mov）** —— 仅当音轨明确不被浏览器支持时
  *    介入。这类源原生播放已经完美，无谓地走一遍 demux 只会徒增延迟与
  *    代理流量。
