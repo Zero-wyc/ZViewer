@@ -10,6 +10,7 @@
 import { AppDataSource } from '../../data-source';
 import { Movie } from '../../entities/Movie';
 import { UserMount } from '../../entities/UserMount';
+import { TtlCache } from '../../utils/ttl-cache';
 import type { MountType } from '../../services/proxy/mount-proxy';
 
 export class StreamMovieError extends Error {
@@ -52,6 +53,27 @@ function pruneNotFoundCache(now: number): void {
   }
 }
 
+// ── 影片流解析缓存 ─────────────────────────────────────
+// /stream 每个 Range 请求都查一次 Movie + UserMount；影片/挂载记录变更
+// 频率极低，30s TTL 缓存即可显著削减 DB 压力。movie.service 的
+// updateMovie/deleteMovie/clearMovies 调用 invalidateMovieStreamCache
+// 主动失效，保证切源/改路径后 30s 内立即生效。
+const MOVIE_STREAM_CACHE_TTL_MS = 30_000;
+const movieStreamCache = new TtlCache<ResolvedMovieStream>({
+  ttlMs: MOVIE_STREAM_CACHE_TTL_MS,
+  maxSize: 500,
+});
+
+/** 影片更新/删除后调用：失效该影片的流解析缓存 */
+export function invalidateMovieStreamCache(movieId: number): void {
+  movieStreamCache.delete(String(movieId));
+}
+
+/** 批量删除影片后调用：清空全部流解析缓存 */
+export function clearMovieStreamCache(): void {
+  movieStreamCache.clear();
+}
+
 /**
  * 解析影片流所需的 Movie 与凭证。
  * @param movieId 影片 ID
@@ -68,6 +90,13 @@ export async function resolveMovieStream(
     throw new StreamMovieError('影片不存在', 'NOT_FOUND', 404, true);
   }
   pruneNotFoundCache(now);
+
+  const streamCacheKey = String(movieId);
+  const cached = movieStreamCache.get(streamCacheKey);
+  if (cached) {
+    return cached;
+  }
+
   const movie = await AppDataSource.getRepository(Movie).findOneBy({ id: movieId });
   if (!movie) {
     notFoundCache.set(movieId, now);
@@ -88,5 +117,12 @@ export async function resolveMovieStream(
     password = password || mount.password || undefined;
   }
 
-  return { movie, username, password, mount: mount ?? undefined };
+  const resolved: ResolvedMovieStream = {
+    movie,
+    username,
+    password,
+    mount: mount ?? undefined,
+  };
+  movieStreamCache.set(streamCacheKey, resolved);
+  return resolved;
 }

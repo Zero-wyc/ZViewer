@@ -14,6 +14,10 @@
  */
 import { AppDataSource } from '../../data-source';
 import { Movie } from '../../entities/Movie';
+import {
+  invalidateMovieStreamCache,
+  clearMovieStreamCache,
+} from '../../services/proxy/stream-movie';
 import type { MovieDto, MovieSourceType } from '../shared';
 
 /** 影片实体别名，便于类型引用 */
@@ -293,6 +297,8 @@ export class MovieService {
     if (data.sourceMeta !== undefined) update.sourceMeta = normalizeSourceMeta(data.sourceMeta);
 
     await repo.update({ id: movie.id }, update);
+    // 切源/改路径/改凭证后立即失效流解析缓存（/stream 30s TTL 缓存的失效钩子）
+    invalidateMovieStreamCache(movie.id);
 
     // 重新查询以获取更新后的实体（含 ValueTransformer 解密后的 password）
     const refreshed = await repo.findOneBy({ id: movie.id, roomId });
@@ -309,6 +315,7 @@ export class MovieService {
     const movie = await repo.findOneBy({ id: movieId, roomId });
     if (!movie) return false;
     await repo.remove(movie);
+    invalidateMovieStreamCache(movieId);
     return true;
   }
 
@@ -321,6 +328,7 @@ export class MovieService {
   async clearMovies(roomId: string): Promise<number> {
     const repo = AppDataSource.getRepository(Movie);
     const affected = await repo.delete({ roomId });
+    clearMovieStreamCache();
     return affected.affected ?? 0;
   }
 

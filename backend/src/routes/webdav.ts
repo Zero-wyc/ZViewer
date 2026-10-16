@@ -35,6 +35,7 @@ import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import {
   resolveUserMount,
   resolveMovieStream,
+  invalidateUserMountCache,
   pipeRangeStream,
   StreamMovieError,
 } from '../services/proxy';
@@ -212,6 +213,7 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         userId: req.user!.userId,
       } as UserMount);
       await repo.save(mount);
+      invalidateUserMountCache(mount.id);
       const httpsWarning = await probeForMountSave(mount);
 
       res.status(201).json({
@@ -290,6 +292,7 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       }
       mount.directLink = resolveDirectLinkWithInternalCheck(params.serverUrl, directLink === true);
       await repo.save(mount);
+      invalidateUserMountCache(mount.id);
       const httpsWarning = await probeForMountSave(mount);
 
       res.json({
@@ -328,6 +331,7 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       }
 
       await repo.remove(mount);
+      invalidateUserMountCache(mount.id);
       res.json({ success: true });
     } catch (err) {
       console.error(`[${logTag}] delete mount error:`, err);

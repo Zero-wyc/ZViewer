@@ -14,11 +14,14 @@ export {
 } from './range-stream';
 export {
   resolveUserMount,
+  invalidateUserMountCache,
   type MountType,
   type ResolvedMount,
 } from './mount-proxy';
 export {
   resolveMovieStream,
+  invalidateMovieStreamCache,
+  clearMovieStreamCache,
   StreamMovieError,
   type ResolvedMovieStream,
 } from './stream-movie';

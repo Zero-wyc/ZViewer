@@ -39,14 +39,14 @@ import {
   OpenListError,
   fetchOpenListFileInfo,
   fetchOpenListDirectUrl,
-  listOpenListDirectory,
+  listOpenListDirectoryCached,
   searchOpenListFiles,
   testOpenListConnection,
   getOpenListUserMe,
 } from '../services/openlist';
 import { hashAlistPassword, isAlistHashedPassword } from '../services/openlist-client';
 // StreamMovieError：影片不存在等业务错误单行 warn + 精确状态码（避免重试风暴刷屏）
-import { StreamMovieError } from '../services/proxy';
+import { StreamMovieError, invalidateUserMountCache } from '../services/proxy';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { proxyHttpUpstream } from '../services/proxy/http-proxy';
 import { TtlCache } from '../utils/ttl-cache';
@@ -270,6 +270,7 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       userId: req.user!.userId,
     } as UserMount);
     await repo.save(mount);
+    invalidateUserMountCache(mount.id);
     // 直链模式 + http 源：同步探测并返回 warning（源站不支持 TLS 时提示
     // 配置 HTTPS 或改为服务器中转）；其余组合异步探测持久化
     const httpsWarning = await probeForMountSave(mount);
@@ -361,6 +362,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     // serverUrl 变更时重置探测结果（旧值对应旧地址）
     if (serverChanged) mount.httpsDirect = null;
     await repo.save(mount);
+    invalidateUserMountCache(mount.id);
     const httpsWarning = await probeForMountSave(mount);
 
     res.json({
@@ -396,6 +398,7 @@ router.delete('/mounts/:id', async (req: AuthenticatedRequest, res: Response): P
     }
 
     await repo.remove(mount);
+    invalidateUserMountCache(mount.id);
     res.json({ success: true });
   } catch (err) {
     console.error('[openlist] delete mount error:', err);
@@ -428,7 +431,9 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
     const perPage = Number(req.query.perPage) || 100;
 
     try {
-      const result = await listOpenListDirectory(
+      // 缓存版（60s TTL，对齐 WebDAV webdavDirCache）：浏览界面反复进出/翻页
+      // 免重复打上游 AList API；mounts/test 保持直连不缓存（防陈旧缓存误报连通）
+      const result = await listOpenListDirectoryCached(
         mount.serverUrl,
         mount.username || undefined,
         mount.password || undefined,

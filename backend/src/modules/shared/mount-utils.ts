@@ -5,6 +5,7 @@
  */
 import { AppDataSource } from '../../data-source';
 import { UserMount } from '../../entities/UserMount';
+import { TtlCache } from '../../utils/ttl-cache';
 
 /** 移除挂载对象的密码字段，返回安全的响应对象。 */
 export function stripPassword(mount: UserMount): Omit<UserMount, 'password'> {
@@ -19,6 +20,18 @@ export function extractErrorMessage(err: unknown, fallback: string): string {
 
 /** HTTPS 能力探测超时（毫秒） */
 const HTTPS_PROBE_TIMEOUT_MS = 5000;
+
+/**
+ * https 端点活性探测结果缓存（按 host，60s TTL）。
+ *
+ * upgradeDirectUrlValidated 每次直链解析都现场 HEAD 探测（最多 5s 超时），
+ * 起播前白等；60s 窗口内直接复用上次结果，源站 TLS 状态变化最多延迟
+ * 60s 感知（自愈写回仅在首次探测失败时执行，缓存命中不再重复写库）。
+ */
+const httpsLivenessCache = new TtlCache<boolean>({
+  ttlMs: 60_000,
+  maxSize: 200,
+});
 
 /**
  * 探测源站 HTTPS 直连能力（配置期执行，结果随挂载持久化）。
@@ -105,34 +118,41 @@ export async function upgradeDirectUrlValidated(
     return directUrl;
   }
   if (u.protocol !== 'http:') return directUrl;
-  // 现场校验缓存的 TLS 能力（HEAD 根路径，任何 HTTP 响应即握手成功）
-  let alive = false;
-  try {
-    const res = await fetch(`https://${u.host}`, {
-      method: 'HEAD',
-      signal: AbortSignal.timeout(HTTPS_PROBE_TIMEOUT_MS),
-      headers: { 'user-agent': 'ZViewer-HttpsProbe' },
-    });
-    alive = res.status >= 200 && res.status < 600;
-    try {
-      await res.body?.cancel();
-    } catch {
-      /* ignore */
-    }
-  } catch {
+  // 现场校验缓存的 TLS 能力（HEAD 根路径，任何 HTTP 响应即握手成功），
+  // 结果按 host 缓存 60s——每次 direct-url 都探测会在起播前白等最多 5s
+  let alive = httpsLivenessCache.get(u.host);
+  if (alive === null) {
     alive = false;
+    try {
+      const res = await fetch(`https://${u.host}`, {
+        method: 'HEAD',
+        signal: AbortSignal.timeout(HTTPS_PROBE_TIMEOUT_MS),
+        headers: { 'user-agent': 'ZViewer-HttpsProbe' },
+      });
+      alive = res.status >= 200 && res.status < 600;
+      try {
+        await res.body?.cancel();
+      } catch {
+        /* ignore */
+      }
+    } catch {
+      alive = false;
+    }
+    httpsLivenessCache.set(u.host, alive);
+    if (!alive) {
+      // 缓存陈旧：源站当前不支持 TLS，改写缓存并保持 http 直链
+      console.warn(
+        `[mount-utils] httpsDirect 缓存已陈旧（${u.host} 当前 TLS 握手失败），改写为 false 并返回 http 直链`
+      );
+      mount.httpsDirect = false;
+      try {
+        await AppDataSource.getRepository(UserMount).save(mount);
+      } catch {
+        /* 写回失败不影响本次返回 */
+      }
+    }
   }
   if (alive) return maybeUpgradeDirectUrl(directUrl, true);
-  // 缓存陈旧：源站当前不支持 TLS，改写缓存并保持 http 直链
-  console.warn(
-    `[mount-utils] httpsDirect 缓存已陈旧（${u.host} 当前 TLS 握手失败），改写为 false 并返回 http 直链`
-  );
-  mount.httpsDirect = false;
-  try {
-    await AppDataSource.getRepository(UserMount).save(mount);
-  } catch {
-    /* 写回失败不影响本次返回 */
-  }
   return directUrl;
 }
 

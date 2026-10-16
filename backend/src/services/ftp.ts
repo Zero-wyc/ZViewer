@@ -1,5 +1,6 @@
 import { Client } from 'basic-ftp';
 import { Readable, PassThrough } from 'node:stream';
+import { TtlCache } from '../utils/ttl-cache';
 
 const DEFAULT_TIMEOUT = 10000; // 10 秒
 
@@ -229,4 +230,30 @@ export async function listFTPDirectory(
     })(),
     'FTP 连接',
   );
+}
+
+/**
+ * 目录缓存（60s TTL，对齐 WebDAV webdavDirCache）：浏览界面反复进出目录
+ * 免重复 FTP 登录+LIST（每次列目录都是一次完整连接生命周期）。
+ * 仅 browse 路由使用，mounts/test 保持直连不缓存（防陈旧缓存误报连通）。
+ */
+const ftpDirCache = new TtlCache<FTPDirectoryEntry[]>({
+  ttlMs: 60 * 1000,
+  maxSize: 300,
+});
+
+/** listFTPDirectory 的缓存版本：浏览界面专用。 */
+export async function listFTPDirectoryCached(
+  params: FTPConnectionParams,
+  targetPath?: string,
+): Promise<FTPDirectoryEntry[]> {
+  const dir = targetPath ?? params.path ?? '/';
+  const key = `${params.serverUrl}|${params.port || 21}|${params.username || ''}|${dir}`;
+  const cached = ftpDirCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const data = await listFTPDirectory(params, targetPath);
+  ftpDirCache.set(key, data);
+  return data;
 }

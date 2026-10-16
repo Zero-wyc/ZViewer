@@ -31,6 +31,7 @@ import {
 } from './openlist-client';
 import { OpenListError, normalizeOpenListServerUrl } from './openlist-errors';
 import { getOpenListToken, invalidateOpenListToken } from './openlist-token-cache';
+import { TtlCache } from '../utils/ttl-cache';
 
 // 导出错误类型和工具函数供路由使用
 export { OpenListError, normalizeOpenListServerUrl, isInternalOpenListServer, isInternalNetworkHost } from './openlist-errors';
@@ -272,6 +273,35 @@ export async function listOpenListDirectory(
     provider: data.provider,
     readme: data.readme,
   };
+}
+
+/**
+ * 目录浏览缓存（60s TTL，对齐 WebDAV webdavDirCache）。
+ * 浏览界面反复进出/翻页时免重复登录上游 AList API；
+ * 仅 browse 路由使用，mounts/test 保持直连不缓存（防陈旧缓存误报连通）。
+ */
+const openListDirCache = new TtlCache<OpenListBrowseResult>({
+  ttlMs: 60 * 1000,
+  maxSize: 300,
+});
+
+/** listOpenListDirectory 的缓存版本：浏览界面专用。 */
+export async function listOpenListDirectoryCached(
+  serverUrl: string,
+  username: string | undefined,
+  password: string | undefined,
+  path: string,
+  page: number = 1,
+  perPage: number = 100,
+): Promise<OpenListBrowseResult> {
+  const key = `${serverUrl}|${username || ''}|${path}|${page}|${perPage}`;
+  const cached = openListDirCache.get(key);
+  if (cached) {
+    return cached;
+  }
+  const data = await listOpenListDirectory(serverUrl, username, password, path, page, perPage);
+  openListDirCache.set(key, data);
+  return data;
 }
 
 /**

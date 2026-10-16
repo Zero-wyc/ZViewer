@@ -5,6 +5,7 @@ import { UserMount } from '../entities/UserMount';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import {
   listFTPDirectory,
+  listFTPDirectoryCached,
   statFTPFile,
   statFTPFileCached,
   createFTPReadStream,
@@ -14,6 +15,7 @@ import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import {
   resolveUserMount,
   resolveMovieStream,
+  invalidateUserMountCache,
   parseRangeHeader,
   pipeRangeStream, StreamMovieError } from '../services/proxy';
 
@@ -149,6 +151,7 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       userId: req.user!.userId,
     } as UserMount);
     await repo.save(mount);
+    invalidateUserMountCache(mount.id);
 
     res.status(201).json({
       success: true,
@@ -225,6 +228,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
       mount.password = password || null;
     }
     await repo.save(mount);
+    invalidateUserMountCache(mount.id);
 
     res.json({
       success: true,
@@ -257,6 +261,7 @@ router.delete('/mounts/:id', async (req: AuthenticatedRequest, res: Response): P
     }
 
     await repo.remove(mount);
+    invalidateUserMountCache(mount.id);
     res.json({ success: true });
   } catch (err) {
     console.error('[ftp] delete mount error:', err);
@@ -295,7 +300,9 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
     }
 
     try {
-      const entries = await listFTPDirectory(params);
+      // 缓存版（60s TTL，对齐 WebDAV webdavDirCache）：浏览界面反复进出目录
+      // 免重复 FTP 登录+LIST；mounts/test 保持直连不缓存（防陈旧缓存误报连通）
+      const entries = await listFTPDirectoryCached(params, browsePath);
       res.json({ success: true, entries });
     } catch (err) {
       res.status(400).json({

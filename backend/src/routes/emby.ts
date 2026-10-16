@@ -22,7 +22,7 @@ import {
   EmbyError,
   type EmbyItem,
 } from '../services/emby-client';
-import { resolveUserMount, resolveMovieStream, proxyHttpUpstream, StreamMovieError } from '../services/proxy';
+import { resolveUserMount, resolveMovieStream, invalidateUserMountCache, proxyHttpUpstream, StreamMovieError } from '../services/proxy';
 import { buildEmbyResolvePayload } from '../services/emby-versions';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
 
@@ -307,6 +307,7 @@ router.post('/mounts', async (req: AuthenticatedRequest, res: Response): Promise
       directLink: directLink === true,
     });
     await repo.save(mount);
+    invalidateUserMountCache(mount.id);
     const httpsWarning = await probeForMountSave(mount);
     res.status(201).json({
       success: true,
@@ -359,6 +360,7 @@ router.put('/mounts/:id', async (req: AuthenticatedRequest, res: Response): Prom
     }
 
     await repo.save(mount);
+    invalidateUserMountCache(mount.id);
     const httpsWarning = await probeForMountSave(mount);
     res.json({
       success: true,
@@ -390,6 +392,7 @@ router.delete('/mounts/:id', async (req: AuthenticatedRequest, res: Response): P
       return;
     }
     await repo.remove(mount);
+    invalidateUserMountCache(mount.id);
     res.json({ success: true });
   } catch (err) {
     console.error('[emby] delete mount error:', err);
