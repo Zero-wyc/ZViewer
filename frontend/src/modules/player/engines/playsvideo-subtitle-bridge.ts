@@ -18,7 +18,81 @@
  * 引擎 attach 会开启新会话，旧会话的字幕可能在切换后才提取完成。发布时
  * 携带世代号，消费侧据此丢弃过期结果，避免切影片后旧字幕串台。
  */
-import { parseSubtitle, type ParsedCue } from '@/lib/subtitleParser'
+import {
+  parseSubtitle,
+  type ParsedCue,
+  type SubtitleFormat,
+} from '@/lib/subtitleParser'
+import type { SubtitleParseResponse } from '@/lib/subtitle-parser.worker'
+
+// ── worker 化解析（主线程保底回退）────────────────────────
+// 多条几 MB 的 ASS/SSA 轨道并发取回时，主线程同帧解析会卡 UI 数秒；
+// 解析下放 worker 后主线程只承担 fetch 与结果接收。
+
+let parserWorker: Worker | null = null
+let parserWorkerBroken = false
+
+/**
+ * 尝试在 worker 中解析字幕文本。
+ *
+ * @returns 解析结果；worker 不可用（构建失败 / 运行出错）时返回 null，
+ *          调用方回退主线程 parseSubtitle，功能不降级
+ */
+function parseOffMainThread(
+  text: string,
+  format: SubtitleFormat
+): Promise<ParsedCue[] | null> {
+  if (parserWorkerBroken) return Promise.resolve(null)
+  if (!parserWorker) {
+    try {
+      parserWorker = new Worker(
+        new URL('../../../lib/subtitle-parser.worker.ts', import.meta.url),
+        { type: 'module' }
+      )
+    } catch (err) {
+      console.warn(
+        '[playsvideo-subtitles] 解析 worker 创建失败，回退主线程解析:',
+        err
+      )
+      parserWorkerBroken = true
+      return Promise.resolve(null)
+    }
+  }
+  const worker = parserWorker
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      worker.removeEventListener('message', onMessage)
+      worker.removeEventListener('error', onError)
+    }
+    const onMessage = (e: MessageEvent<SubtitleParseResponse>) => {
+      cleanup()
+      if (e.data.error) {
+        console.warn('[playsvideo-subtitles] worker 解析失败:', e.data.error)
+      }
+      resolve(e.data.cues)
+    }
+    // worker 加载/运行级错误（脚本 404、CSP 等）：终止并标记损坏，
+    // 后续解析直接走主线程，避免每条轨道都等一次失败
+    const onError = (err: ErrorEvent) => {
+      cleanup()
+      console.warn(
+        '[playsvideo-subtitles] 解析 worker 出错，回退主线程:',
+        err.message
+      )
+      parserWorkerBroken = true
+      try {
+        worker.terminate()
+      } catch {
+        /* ignore */
+      }
+      parserWorker = null
+      resolve(null)
+    }
+    worker.addEventListener('message', onMessage)
+    worker.addEventListener('error', onError)
+    worker.postMessage({ text, format })
+  })
+}
 
 /** playsvideo 提取出的一条内嵌字幕轨（已解析为 ZViewer 内部格式）。 */
 export interface PlaysVideoEmbeddedSubtitle {
@@ -112,5 +186,9 @@ export async function fetchPlaysVideoTrackCues(
     return []
   }
   if (!text.trim()) return []
+  // 解析优先在 worker 中进行（CPU 密集，几 MB ASS 的主线程解析会卡 UI）；
+  // worker 不可用时回退主线程，功能不降级
+  const viaWorker = await parseOffMainThread(text, 'vtt')
+  if (viaWorker) return viaWorker
   return parseSubtitle(text, 'vtt')
 }

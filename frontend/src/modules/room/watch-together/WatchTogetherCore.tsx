@@ -50,7 +50,8 @@ import { useVideoPlayingState } from '@/modules/art-player/useVideoPlayingState'
 import { SettingsPanel } from '@/components/VideoPlayer/SettingsPanel'
 import { SubtitleOverlay } from '@/components/VideoPlayer/SubtitleOverlay'
 import { isCliProxyUrl } from '@/modules/player/services/url-proxy'
-import { normalizeAudioCodec } from '@/lib/audioCodecs'
+import { normalizeAudioCodec, needsBrowserTranscode } from '@/lib/audioCodecs'
+import { isPlaysVideoSupported } from '@/modules/player'
 import type { ArtSlots } from './WatchTogetherPanel'
 import {
   isIOSDevice,
@@ -141,6 +142,12 @@ export function WatchTogetherCore({
     (state) =>
       state.movies.find((m) => m.id === state.currentMovieId)?.path ?? null
   )
+  // 当前影片的「浏览器转码引擎」开关（缺省视为开启，与 shouldUsePlaysVideo
+  // 的 `!== false` 宽松语义一致），用于音频编码提示的分支判断
+  const currentMoviePlaysvideoEnabled = useRoomStore((state) => {
+    const m = state.movies.find((mv) => mv.id === state.currentMovieId)
+    return m ? m.playsvideoEnabled !== false : true
+  })
   const {
     watchTogether,
     setWatchTogether,
@@ -203,12 +210,16 @@ export function WatchTogetherCore({
   const canEnableEmbedded = isHost && embeddedSource !== null
 
   // ── 音频编码兼容性提示 ──────────────────────────────
-  // 浏览器 <video> 仅支持 AAC/MP3/Opus/FLAC 等少数音频编码。
-  // DTS/AC3/EAC3 等编码的处理方式：
+  // 浏览器 <video> 仅支持 AAC/MP3/Opus/Vorbis/FLAC 等少数音频编码
+  // （白名单口径统一引用 lib/audioCodecs，与引擎选择 needsBrowserTranscode
+  // 同源）。DTS/AC3/EAC3 等编码的处理方式：
   // - emby/jellyfin 源：resolve 阶段自动切换为远端媒体服务器转码 HLS
   // - 浏览器端转码引擎（playsvideo）：在浏览器内重封装容器并将不兼容
   //   音轨实时转码为 AAC（中转与直链均支持，无需服务端 FFmpeg）
-  // - 开关关闭：直推原始流，视频可能无声——提示用户到管理后台开启开关。
+  // - 引擎不会接管（影片级开关关闭 / 浏览器不支持运行）：直推原始流，
+  //   视频将无声——提示用户到影片解析设置开启开关。
+  // 只有真正不被浏览器支持的编码才提示：此前对任何非空编码都弹提示，
+  // AAC 等原生可播的轨道会被误报「不受浏览器支持」。
   // 编码名经 normalizeAudioCodec 归一化（B站 DASH 的 mp4a.40.x 实为 AAC，
   // 不归一化会误弹「不受浏览器支持」提示）。
   const lastAudioNoticeRef = useRef('')
@@ -216,6 +227,8 @@ export function WatchTogetherCore({
     if (!watchTogether.sourceUrl) return
     const codec = normalizeAudioCodec(watchTogether.audioCodec)
     if (!codec) return
+    // 白名单内的编码浏览器原生可播，无需任何提示
+    if (!needsBrowserTranscode(codec)) return
 
     // 同一影片+编码只提示一次，避免每次 state 更新都弹
     const key = `${currentMovieId ?? ''}:${codec}`
@@ -230,12 +243,18 @@ export function WatchTogetherCore({
         `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，已由媒体服务器转码为 AAC`,
         'info'
       )
-    } else {
-      // 本地文件 / WebDAV / OpenList / FTP / 直链源：playsvideo 引擎会
-      // 在起播时探测并自行决定直通或转码，无需任何开关许可。
+    } else if (currentMoviePlaysvideoEnabled && isPlaysVideoSupported()) {
+      // playsvideo 将接管本源（影片级开关未关 + 浏览器具备 MSE/Worker
+      // 运行条件）：引擎起播时探测编码并自动转码为 AAC，无需干预。
       addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，playsvideo 引擎正在浏览器内实时转码为 AAC`,
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，浏览器转码引擎正在实时转码为 AAC`,
         'info'
+      )
+    } else {
+      // 引擎不会接管：直推原始流必然无声，给出可操作的修复指引
+      addPlayerNotice(
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持且浏览器转码引擎未启用，播放将无声；可在影片解析设置中开启「浏览器转码引擎」后重试`,
+        'error'
       )
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -244,6 +263,7 @@ export function WatchTogetherCore({
     watchTogether.audioCodec,
     currentMovieId,
     currentMovieSourceType,
+    currentMoviePlaysvideoEnabled,
   ])
 
   // ── 切换影片时自动搜索同目录字幕 + 内嵌字幕 ──────────────

@@ -226,7 +226,15 @@ class PlaysVideoController implements PlayerController {
   private subtitleGen = 0
   /** 已处理过的 <track> 元素，避免重复提取（addtrack 可能重发） */
   private handledTrackEls = new WeakSet<HTMLTrackElement>()
-  /** 本会话已发布字幕轨数量，用于推算轨道序号 */
+  /**
+   * 轨道序号：**挂载时同步分配**（MutationObserver 回调），而非提取完成时
+   * 按完成序推算。playsvideo 按 subtitleTracks 顺序 appendChild，挂载序即
+   * 轨道序；各轨道的 fetch + 解析是异步并发的，完成序与挂载序无关——按
+   * 完成序分配会让 index 与 subtitleTracks 的 label/language/codec 元数据
+   * 错位（内容大的轨道后完成即被挤到后面的序号）。
+   */
+  private subtitleOrdinals = new WeakMap<HTMLTrackElement, number>()
+  /** 已分配的轨道序号计数（配合 subtitleOrdinals 使用） */
   private publishedSubtitleCount = 0
   /** 撤销 addtrack 监听（cleanup 时调用） */
   private unbindSubtitles: (() => void) | null = null
@@ -519,6 +527,9 @@ class PlaysVideoController implements PlayerController {
       for (const mutation of mutations) {
         for (const node of mutation.addedNodes) {
           if (node instanceof HTMLTrackElement) {
+            // 挂载时同步分配序号（见 subtitleOrdinals 注释）
+            const ordinal = this.publishedSubtitleCount++
+            this.subtitleOrdinals.set(node, ordinal)
             void this.extractSubtitleTrack(node, gen)
           }
         }
@@ -552,8 +563,10 @@ class PlaysVideoController implements PlayerController {
     )
     if (cues.length === 0) return
 
-    // 轨道序号按挂载顺序推算：playsvideo 依 subtitleTracks 顺序依次 append
-    const ordinal = this.publishedSubtitleCount++
+    // 轨道序号在挂载时已分配（observer 同步写入 subtitleOrdinals）；
+    // 兜底扫描路径（绑定前已存在的轨道）没有分配记录，按完成序补分配
+    const ordinal =
+      this.subtitleOrdinals.get(element) ?? this.publishedSubtitleCount++
     const info = this.engine?.subtitleTracks?.[ordinal]
 
     publishPlaysVideoSubtitle(gen, {
