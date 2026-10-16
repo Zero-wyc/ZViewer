@@ -32,6 +32,8 @@ import {
   getEffectivePreferMp4,
 } from '@/modules/room/watch-together/movie-source-resolver'
 import { isCliProxyUrl } from '@/modules/player/services/url-proxy'
+import { getAccessToken, isAccessTokenExpired } from '@/lib/authTransport'
+import { refreshAccessToken } from '@/lib/api'
 import type { WatchTogetherState } from '../types'
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import { safePlay } from '../safePlay'
@@ -306,14 +308,52 @@ export function useVideoSource({
 }: UseVideoSourceOptions): UseVideoSourceReturn {
   // 播放期错误提示（usePlayerSource 统一判定后回调）：
   // B站源由 useWatchTogether 的 stalled/error 自动重载链路负责，此处过滤
+  //
+  // token 过期自愈：播放期媒体请求不走 apiFetch（无内置刷新），access token
+  // 过期后 hls.js / mediabunny 拉段 401 → video error，旧逻辑只提示
+  // 「播放中断，可尝试重载影片」让用户手动救。此处识别「token 已过期」
+  // 的播放期错误，自动 refresh + reloadVideo（复用其进度快照恢复、观众端
+  // resolveViewerEffectiveState 同源与 suppressEvents 保护）。
+  // 防循环：上次自愈所用的 token 完成续期后才允许再次触发——refresh 失败
+  // 时 localStorage token 不变，自愈被永久阻塞，回归手动重载路径。
+  const authAutoReloadTokenRef = useRef<string | null>(null)
+  const authReloadInFlightRef = useRef(false)
+  // reloadVideo 定义在后（依赖 forceReload / resolveViewerEffectiveState），
+  // 经 ref 前向引用（attachInnerRef 同款模式）
+  const reloadVideoRef = useRef<(video: HTMLVideoElement) => Promise<void>>(
+    async () => {}
+  )
   const handlePlaybackError = useCallback(
     (err: Error) => {
       const state = useRoomStore.getState().watchTogether
       if (state.sourceType === 'bilibili') return
       if (suppressEventsRef.current) return
+      const currentToken = getAccessToken()
+      if (
+        state.sourceUrl &&
+        !authReloadInFlightRef.current &&
+        isAccessTokenExpired() &&
+        currentToken !== authAutoReloadTokenRef.current
+      ) {
+        authAutoReloadTokenRef.current = currentToken
+        authReloadInFlightRef.current = true
+        console.warn(
+          '[useVideoSource] 播放期媒体请求疑似 access token 过期，自动刷新并重载当前进度'
+        )
+        void (async () => {
+          try {
+            await refreshAccessToken()
+            const video = videoRef.current
+            if (video) await reloadVideoRef.current(video)
+          } finally {
+            authReloadInFlightRef.current = false
+          }
+        })()
+        return
+      }
       message.error(err.message)
     },
-    [suppressEventsRef]
+    [suppressEventsRef, videoRef]
   )
 
   const { attachSource, cleanup, seekTo, forceReload } = usePlayerSource({
@@ -491,6 +531,11 @@ export function useVideoSource({
     },
     [forceReload, resolveViewerEffectiveState, suppressEventsRef]
   )
+  // 同步 reloadVideo 稳定引用（commit 后执行，供播放期 token 过期自愈调用；
+  // 播放期错误晚于首次 commit，无空窗）
+  useEffect(() => {
+    reloadVideoRef.current = reloadVideo
+  }, [reloadVideo])
 
   // seek 到未缓冲区域时的处理：
   // 当用户回退到 SourceBuffer 中已被清理的位置时，视频会卡死（没有数据可播放）。

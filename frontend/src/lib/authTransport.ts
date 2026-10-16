@@ -49,6 +49,34 @@ export function getAccessToken(): string {
   return readStored(ACCESS_TOKEN_KEY) || ''
 }
 
+/**
+ * 判断当前存储的 access token（HTTP 通道）是否已过期。
+ *
+ * token 为后端签发的 JWT（默认 1h），payload.exp 仅用于过期判断（不做
+ * 签名验证——前端无需验证真伪，只需知道「后端会不会拒绝它」）。供播放器
+ * 做「播放期 token 过期自愈」判定：媒体请求不走 apiFetch（无内置刷新），
+ * token 过期后 hls.js / mediabunny 拉段 401 → video error，播放器据此
+ * 触发自动 refresh + 重载。
+ *
+ * 无 token / 非 JWT / 无法解析时返回 false——宁可不触发自动恢复，
+ * 也不误伤其他错误路径（HTTPS 纯 cookie 用户可能没有本地 token）。
+ */
+export function isAccessTokenExpired(): boolean {
+  const token = getAccessToken()
+  if (!token) return false
+  const parts = token.split('.')
+  if (parts.length !== 3) return false
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/')
+    const payload = JSON.parse(atob(base64)) as { exp?: unknown }
+    if (typeof payload.exp !== 'number') return false
+    // 3s 时钟偏移余量：接近过期的 token 拉长片段时随时会失败
+    return Date.now() >= payload.exp * 1000 - 3000
+  } catch {
+    return false
+  }
+}
+
 export function getRefreshToken(): string {
   return readStored(REFRESH_TOKEN_KEY) || ''
 }
