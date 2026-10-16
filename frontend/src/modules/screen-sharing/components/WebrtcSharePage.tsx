@@ -27,6 +27,11 @@ import { useLocalMediaStream } from '../hooks/useLocalMediaStream'
 import { useHostPeerConnections } from '../hooks/useHostPeerConnections'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
+import {
+  loadMediaSettings,
+  saveMediaSettings,
+} from '../utils/mediaSettingsStorage'
+import type { ResolutionPreset } from '../constants'
 import { useP2PTunnel } from '@/modules/p2p'
 import type { P2PStatus } from '@/modules/p2p/types'
 import { MediaSettingsCard } from './MediaSettingsCard'
@@ -68,12 +73,40 @@ function WebrtcSharePage({
   const roomId = useRoomStore((state) => state.roomId)
   const currentRoomId = roomId ?? ''
 
-  const [frameRate, setFrameRate] = useState(30)
-  const [maxBitrateMbps, setMaxBitrateMbps] = useState(8)
-  const [shareSystemAudio, setShareSystemAudio] = useState(false)
-  const [shareMicrophone, setShareMicrophone] = useState(false)
+  // 媒体设置持久化（借鉴 mirotalk lsSettings）：进房时恢复上次选择，
+  // 变化时写回 localStorage
+  const [savedSettings] = useState(loadMediaSettings)
+  const [frameRate, setFrameRate] = useState(savedSettings.frameRate)
+  const [maxBitrateMbps, setMaxBitrateMbps] = useState(
+    savedSettings.maxBitrateMbps
+  )
+  const [shareSystemAudio, setShareSystemAudio] = useState(
+    savedSettings.shareSystemAudio
+  )
+  const [shareMicrophone, setShareMicrophone] = useState(
+    savedSettings.shareMicrophone
+  )
+  const [resolutionPreset, setResolutionPreset] = useState(
+    savedSettings.resolutionPreset
+  )
   const [closing, setClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+
+  useEffect(() => {
+    saveMediaSettings({
+      frameRate,
+      maxBitrateMbps,
+      shareSystemAudio,
+      shareMicrophone,
+      resolutionPreset,
+    })
+  }, [
+    frameRate,
+    maxBitrateMbps,
+    shareSystemAudio,
+    shareMicrophone,
+    resolutionPreset,
+  ])
 
   // 帧率切换时自动调整推荐码率（仅在未共享时）
   // 码率不足是 60fps 降帧的首要原因，自动提升到推荐值避免用户手动调整
@@ -104,16 +137,19 @@ function WebrtcSharePage({
     isSharing,
     starting,
     isPaused,
+    switchingResolution,
     error: mediaError,
     start,
     stop,
     pause,
     resume,
+    switchResolution,
   } = useLocalMediaStream({
     frameRate,
     maxBitrateMbps,
     shareSystemAudio,
     shareMicrophone,
+    resolutionPreset,
     onStreamEnded: () => handleStreamEndedRef.current(),
     localVideoRef,
   })
@@ -127,6 +163,7 @@ function WebrtcSharePage({
     handleViewerReady,
     handleViewerJoined,
     handleViewerLeft,
+    replaceVideoTrack,
     cleanup: cleanupPeerConnections,
   } = useHostPeerConnections({
     socket,
@@ -234,6 +271,30 @@ function WebrtcSharePage({
     cleanupPeerConnections()
     await start()
   }, [stop, cleanupPeerConnections, start])
+
+  // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中走
+  // replaceTrack 热切换——重新采集 → 替换观众 sender track → 本地换流，
+  // PC 全程存活、观众无感（借鉴 mirotalk refreshMyStreamToPeers）。
+  // 重新采集失败（用户取消授权等）时回滚档位显示。
+  const handleResolutionChange = useCallback(
+    async (next: ResolutionPreset) => {
+      if (next === resolutionPreset) return
+      if (!isSharing) {
+        setResolutionPreset(next)
+        return
+      }
+      const prev = resolutionPreset
+      setResolutionPreset(next)
+      const newTrack = await switchResolution(next)
+      if (!newTrack) {
+        setResolutionPreset(prev)
+        return
+      }
+      await replaceVideoTrack(newTrack)
+      message.success('分辨率已切换')
+    },
+    [resolutionPreset, isSharing, switchResolution, replaceVideoTrack]
+  )
 
   useSignalingChannel({
     socket,
@@ -439,11 +500,16 @@ function WebrtcSharePage({
               maxBitrateMbps={maxBitrateMbps}
               shareSystemAudio={shareSystemAudio}
               shareMicrophone={shareMicrophone}
+              resolutionPreset={resolutionPreset}
               isSharing={isSharing}
+              switchingResolution={switchingResolution}
               onFrameRateChange={handleFrameRateChange}
               onMaxBitrateChange={setMaxBitrateMbps}
               onShareSystemAudioChange={setShareSystemAudio}
               onShareMicrophoneChange={setShareMicrophone}
+              onResolutionChange={(value) => {
+                void handleResolutionChange(value)
+              }}
             />
 
             <Button

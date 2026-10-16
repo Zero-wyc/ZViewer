@@ -76,6 +76,12 @@ interface UseHostPeerConnectionsResult {
   handleViewerJoined: (data: ViewerEventPayload) => void
   /** 处理观众 viewer-left 事件（清理 PC） */
   handleViewerLeft: (data: ViewerEventPayload) => void
+  /**
+   * 共享中热替换视频 track（借鉴 mirotalk replaceTrack 换轨模式）：
+   * 对所有活跃观众 PC 的视频 sender 执行 replaceTrack，PC 全程存活、
+   * 无需重协商，观众无感。编码参数（码率/帧率/降级策略）随 sender 保留。
+   */
+  replaceVideoTrack: (track: MediaStreamTrack) => Promise<void>
   /** 清理所有 PC（停止共享时调用） */
   cleanup: () => void
 }
@@ -413,6 +419,31 @@ export function useHostPeerConnections(
     []
   )
 
+  // 共享中热替换视频 track：分辨率档位切换时由 WebrtcSharePage 调用。
+  // replaceTrack 不触发重协商，编码参数随 sender 保留，无需重新 setParameters。
+  const replaceVideoTrack = useCallback(async (track: MediaStreamTrack) => {
+    for (const [viewerSocketId, pc] of peerConnectionsRef.current) {
+      if (pc.connectionState === 'closed' || pc.signalingState === 'closed') {
+        continue
+      }
+      const videoSender = pc.getSenders().find((s) => s.track?.kind === 'video')
+      if (!videoSender) continue
+      try {
+        await videoSender.replaceTrack(track)
+        console.log(
+          '[useHostPeerConnections] video track replaced for',
+          viewerSocketId
+        )
+      } catch (err) {
+        console.warn(
+          '[useHostPeerConnections] replaceTrack error for',
+          viewerSocketId,
+          err
+        )
+      }
+    }
+  }, [])
+
   const cleanup = useCallback(() => {
     peerConnectionsRef.current.forEach((pc) => {
       pc.onicecandidate = null
@@ -437,6 +468,7 @@ export function useHostPeerConnections(
     handleViewerReady,
     handleViewerJoined,
     handleViewerLeft,
+    replaceVideoTrack,
     cleanup,
   }
 }

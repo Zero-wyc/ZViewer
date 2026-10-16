@@ -1,12 +1,35 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import { message } from '@/components/ui/message'
+import type { ResolutionPreset } from '../constants'
+import { RESOLUTION_DIMENSIONS } from '../constants'
+
+/**
+ * 按档位构造视频约束：帧率只给 ideal（Chromium 对 max 的严格匹配会把
+ * 桌面采集钳回 30fps），宽高按档位 ideal 下发（native 不下发，跟随本机）。
+ */
+function buildVideoConstraints(
+  frameRate: number,
+  preset: ResolutionPreset
+): MediaTrackConstraints {
+  const constraints: MediaTrackConstraints = {
+    frameRate: { ideal: frameRate },
+  }
+  const dims = RESOLUTION_DIMENSIONS[preset]
+  if (dims) {
+    constraints.width = { ideal: dims.width }
+    constraints.height = { ideal: dims.height }
+  }
+  return constraints
+}
 
 export interface UseLocalMediaStreamOptions {
   frameRate: number
   maxBitrateMbps: number
   shareSystemAudio: boolean
   shareMicrophone: boolean
+  /** 分辨率档位（start 时下发采集约束；共享中切换走 switchResolution） */
+  resolutionPreset: ResolutionPreset
   /** 视频 track ended 时的回调（用于触发 close-room 等业务逻辑） */
   onStreamEnded?: () => void
   /** 本地预览 video 元素 ref（可选，用于自动绑定 srcObject） */
@@ -24,6 +47,8 @@ export interface UseLocalMediaStreamResult {
   starting: boolean
   /** 是否暂停（视频 track.enabled = false） */
   isPaused: boolean
+  /** 是否正在热切换分辨率（重新采集中） */
+  switchingResolution: boolean
   /** 错误信息 */
   error: string | null
   /** 开始共享：调用 getDisplayMedia + 合并麦克风 + applyConstraints */
@@ -34,6 +59,15 @@ export interface UseLocalMediaStreamResult {
   pause: () => void
   /** 恢复：设置视频 track.enabled = true */
   resume: () => void
+  /**
+   * 共享中热切换分辨率：按新档位重新采集视频 track，替换本地流并停旧
+   * 采集（借鉴 mirotalk replaceTrack 换轨模式——观众端由调用方对 sender
+   * 执行 replaceTrack，无重协商、观众无感）。返回新视频 track；失败或
+   * 用户取消授权时返回 null（本地状态保持不变）。
+   */
+  switchResolution: (
+    preset: ResolutionPreset
+  ) => Promise<MediaStreamTrack | null>
 }
 
 export function useLocalMediaStream(
@@ -43,6 +77,7 @@ export function useLocalMediaStream(
     frameRate,
     shareSystemAudio,
     shareMicrophone,
+    resolutionPreset,
     onStreamEnded,
     localVideoRef,
   } = options
@@ -52,10 +87,15 @@ export function useLocalMediaStream(
   const [isSharing, setIsSharing] = useState(false)
   const [starting, setStarting] = useState(false)
   const [isPaused, setIsPaused] = useState(false)
+  const [switchingResolution, setSwitchingResolution] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const localStreamRef = useRef<MediaStream | null>(null)
   const micStreamRef = useRef<MediaStream | null>(null)
+  /** 当前视频 track 的 ended 监听（热切换分辨率时需从旧 track 摘除） */
+  const videoEndedHandlerRef = useRef<(() => void) | null>(null)
+  /** 防止分辨率切换并发重入 */
+  const switchingResolutionRef = useRef(false)
 
   // 用 ref 持有最新的 onStreamEnded，避免 start 函数依赖变化导致重建
   const onStreamEndedRef = useRef(onStreamEnded)
@@ -161,11 +201,12 @@ export function useLocalMediaStream(
       // 当 max 恰好等于显示器原生分辨率时，Firefox 会将其视为严格约束，
       // 在无法精确匹配时回退到下一级标准分辨率（通常是 720p）。
       // 移除 max 后，Firefox 和 Chrome 都会以 ideal 为目标选择最接近的可用分辨率。
-      const videoConstraints: MediaTrackConstraints = {
-        frameRate: { ideal: frameRate },
-        width: { ideal: 1920 },
-        height: { ideal: 1080 },
-      }
+      // 视频约束统一由 buildVideoConstraints 构造：帧率只给 ideal，
+      // 宽高按分辨率档位 ideal 下发（native 不下发跟随本机）。
+      const videoConstraints = buildVideoConstraints(
+        frameRate,
+        resolutionPreset
+      )
 
       let mediaStream: MediaStream
       if (useTestStream) {
@@ -220,18 +261,21 @@ export function useLocalMediaStream(
             settingsBefore
           )
 
-          // 分辨率兜底：如果浏览器返回的分辨率低于 1080p，尝试提升
+          // 分辨率兜底：浏览器返回的分辨率低于档位目标时尝试提升
           // applyConstraints 对分辨率的调整能力有限（取决于捕获源），
-          // 但在某些场景下能从 720p 提升到 1080p
+          // 但在某些场景下能从 720p 提升到目标档位；native 档不兜底
+          const dims = RESOLUTION_DIMENSIONS[resolutionPreset]
           if (
+            dims &&
             settingsBefore.width &&
             settingsBefore.height &&
-            (settingsBefore.width < 1920 || settingsBefore.height < 1080)
+            (settingsBefore.width < dims.width ||
+              settingsBefore.height < dims.height)
           ) {
             try {
               await track.applyConstraints({
-                width: { ideal: 1920 },
-                height: { ideal: 1080 },
+                width: { ideal: dims.width },
+                height: { ideal: dims.height },
               })
               const afterResolution = track.getSettings()
               console.log(
@@ -282,10 +326,14 @@ export function useLocalMediaStream(
         })
       })
 
-      // 视频 track 结束时（如用户通过浏览器 UI 停止共享）触发回调
-      mediaStream.getVideoTracks()[0]?.addEventListener('ended', () => {
+      // 视频 track 结束时（如用户通过浏览器 UI 停止共享）触发回调。
+      // handler 存入 ref：热切换分辨率换轨时需先从旧 track 摘除，
+      // 否则 stop 旧 track 会误触发 close-room
+      const endedHandler = () => {
         onStreamEndedRef.current?.()
-      })
+      }
+      videoEndedHandlerRef.current = endedHandler
+      mediaStream.getVideoTracks()[0]?.addEventListener('ended', endedHandler)
     } catch (err) {
       console.error('[useLocalMediaStream] getDisplayMedia error:', err)
       // 区分错误类型给出明确提示
@@ -319,7 +367,14 @@ export function useLocalMediaStream(
     } finally {
       setStarting(false)
     }
-  }, [frameRate, shareSystemAudio, shareMicrophone, starting, isSharing])
+  }, [
+    frameRate,
+    shareSystemAudio,
+    shareMicrophone,
+    resolutionPreset,
+    starting,
+    isSharing,
+  ])
 
   // 共享期间帧率热更新：用户在媒体设置中修改帧率时，对采集 track 即时
   // applyConstraints（编码器上限由 useHostPeerConnections 的
@@ -349,6 +404,105 @@ export function useLocalMediaStream(
         console.warn('[useLocalMediaStream] hot frameRate apply error:', err)
       })
   }, [frameRate, stream])
+
+  // 共享中热切换分辨率：重新采集视频 track → 替换本地流 → 停旧采集。
+  // 借鉴 mirotalk refreshMyStreamToPeers 的换轨模式：观众端由调用方
+  // （WebrtcSharePage）对所有 sender 执行 replaceTrack，PC 全程存活、
+  // 无重协商、观众无感。关键陷阱：旧 track.stop() 会触发 ended 事件，
+  // 必须先摘除监听，否则会误走 close-room 流程。
+  const switchResolution = useCallback(
+    async (preset: ResolutionPreset): Promise<MediaStreamTrack | null> => {
+      const currentStream = localStreamRef.current
+      const oldTrack = currentStream?.getVideoTracks()[0]
+      if (!currentStream || !oldTrack || oldTrack.readyState !== 'live') {
+        return null
+      }
+      if (switchingResolutionRef.current) return null
+      switchingResolutionRef.current = true
+      setSwitchingResolution(true)
+      try {
+        const useTestStream =
+          new URLSearchParams(window.location.search).get('testStream') ===
+          'true'
+        const videoConstraints = buildVideoConstraints(frameRate, preset)
+
+        // 仅重新采集视频（audio: false 避免再次弹出音频授权）；
+        // 已有的系统音频/麦克风 track 原样保留
+        let captured: MediaStream
+        if (useTestStream) {
+          captured = await navigator.mediaDevices.getUserMedia({
+            video: {
+              ...videoConstraints,
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+            },
+          })
+        } else {
+          captured = await navigator.mediaDevices.getDisplayMedia({
+            video: videoConstraints,
+            audio: false,
+          })
+        }
+        const newTrack = captured.getVideoTracks()[0]
+        if (!newTrack) {
+          captured.getTracks().forEach((t) => t.stop())
+          return null
+        }
+        newTrack.contentHint = 'motion'
+        // 保持暂停状态一致（暂停 = track.enabled = false）
+        newTrack.enabled = oldTrack.enabled
+
+        // ended 监听迁移：先摘旧再挂新，随后才能安全 stop 旧 track
+        if (videoEndedHandlerRef.current) {
+          oldTrack.removeEventListener('ended', videoEndedHandlerRef.current)
+        }
+        const endedHandler = () => {
+          onStreamEndedRef.current?.()
+        }
+        videoEndedHandlerRef.current = endedHandler
+        newTrack.addEventListener('ended', endedHandler)
+
+        // 换入本地流：新 MediaStream（视频替换，音频沿用原 track）
+        const nextStream = new MediaStream([
+          newTrack,
+          ...currentStream.getAudioTracks(),
+        ])
+        localStreamRef.current = nextStream
+        setStream(nextStream)
+
+        // 停旧采集（监听已摘除，不会触发 onStreamEnded）
+        try {
+          oldTrack.stop()
+        } catch {
+          // ignore
+        }
+
+        const settings = newTrack.getSettings()
+        console.log(
+          '[useLocalMediaStream] resolution switched:',
+          preset,
+          'actual:',
+          `${settings.width}x${settings.height}`,
+          'frameRate:',
+          settings.frameRate
+        )
+        return newTrack
+      } catch (err) {
+        const errName = (err as { name?: string })?.name
+        if (errName === 'NotAllowedError') {
+          message.info('已取消授权，保持当前分辨率')
+        } else {
+          console.warn('[useLocalMediaStream] switchResolution error:', err)
+          message.warning('切换分辨率失败，保持当前分辨率')
+        }
+        return null
+      } finally {
+        switchingResolutionRef.current = false
+        setSwitchingResolution(false)
+      }
+    },
+    [frameRate]
+  )
 
   const pause = useCallback(() => {
     localStreamRef.current?.getVideoTracks().forEach((track) => {
@@ -393,10 +547,12 @@ export function useLocalMediaStream(
     isSharing,
     starting,
     isPaused,
+    switchingResolution,
     error,
     start,
     stop,
     pause,
     resume,
+    switchResolution,
   }
 }

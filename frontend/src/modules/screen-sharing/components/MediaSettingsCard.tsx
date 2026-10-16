@@ -5,18 +5,24 @@ import { Text, Paragraph } from '@/components/ui/Typography'
 import { Switch } from '@/components/ui/Switch'
 import { InputNumber } from '@/components/ui/InputNumber'
 import { Select } from '@/components/ui/Select'
-import { FRAME_RATE_OPTIONS } from '../constants'
+import type { ResolutionPreset } from '../constants'
+import { FRAME_RATE_OPTIONS, RESOLUTION_OPTIONS } from '../constants'
 
 interface MediaSettingsCardProps {
   frameRate: number
   maxBitrateMbps: number
   shareSystemAudio: boolean
   shareMicrophone: boolean
+  /** 分辨率档位 */
+  resolutionPreset: ResolutionPreset
   isSharing: boolean
+  /** 正在热切换分辨率（重新采集中，禁用选择器防重入） */
+  switchingResolution?: boolean
   onFrameRateChange: (value: number) => void
   onMaxBitrateChange: (value: number) => void
   onShareSystemAudioChange: (checked: boolean) => void
   onShareMicrophoneChange: (checked: boolean) => void
+  onResolutionChange: (value: ResolutionPreset) => void
 }
 
 export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
@@ -25,11 +31,14 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
     maxBitrateMbps,
     shareSystemAudio,
     shareMicrophone,
+    resolutionPreset,
     isSharing,
+    switchingResolution,
     onFrameRateChange,
     onMaxBitrateChange,
     onShareSystemAudioChange,
     onShareMicrophoneChange,
+    onResolutionChange,
   } = props
 
   return (
@@ -73,6 +82,29 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
               {frameRate >= 45 && '，码率不足将导致降帧'}
             </Paragraph>
           </div>
+          <div>
+            <label className="mb-1.5 block text-xs font-medium text-[var(--md-sys-color-on-surface-variant)]">
+              分辨率
+            </label>
+            <Select
+              options={RESOLUTION_OPTIONS}
+              value={resolutionPreset}
+              onChange={(value) =>
+                onResolutionChange(value as ResolutionPreset)
+              }
+              disabled={switchingResolution}
+            />
+            <Paragraph
+              type="secondary"
+              className="m-0 mt-1 text-[10px] leading-tight"
+            >
+              {switchingResolution
+                ? '正在重新采集...'
+                : isSharing
+                  ? '共享中切换即时生效，观众无感'
+                  : '共享中可随时切换'}
+            </Paragraph>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -92,7 +124,7 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
 
         {isSharing && (
           <Paragraph type="secondary" className="m-0 text-xs">
-            共享期间修改帧率/码率即时生效，无需重启共享；系统音频与麦克风仍需先结束共享。
+            共享期间修改帧率/码率/分辨率即时生效，无需重启共享；系统音频与麦克风仍需先结束共享。
           </Paragraph>
         )}
       </Space>
