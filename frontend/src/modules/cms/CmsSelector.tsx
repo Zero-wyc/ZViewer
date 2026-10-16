@@ -47,6 +47,7 @@ export function CmsSelector(props: AnimeSourceBrowserProps) {
       getSources={getCmsSourcesCompat}
       search={searchCmsCompat}
       getEpisodes={getCmsEpisodesCompat}
+      noSourcesHint="未找到可用采集源，请管理员在后台「TVBox 采集源」添加配置接口"
     />
   )
 }

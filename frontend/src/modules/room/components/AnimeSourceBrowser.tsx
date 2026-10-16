@@ -33,6 +33,8 @@ interface Props extends AnimeSourceBrowserProps {
   searchPlaceholder?: string
   /** 空状态文案（默认番剧语义） */
   emptyText?: string
+  /** 无可用数据源时的提示（默认指向管理面板订阅配置） */
+  noSourcesHint?: string
 }
 
 /** Same cards, navigation and confirmation footer as Emby/Jellyfin. */
@@ -48,6 +50,7 @@ export function AnimeSourceBrowser({
   getEpisodes,
   searchPlaceholder = '输入番剧名称搜索',
   emptyText = '输入关键词开始搜索番剧',
+  noSourcesHint = '未找到可用数据源，请在管理面板检查订阅配置',
 }: Props) {
   const [sources, setSources] = useState<AniSubsSource[]>([])
   const [sourceId, setSourceId] = useState('')
@@ -72,9 +75,7 @@ export function AnimeSourceBrowser({
             ? current
             : items[0]?.id || ''
         )
-        setSourceError(
-          items.length ? '' : '未找到可用数据源，请在管理面板检查订阅配置'
-        )
+        setSourceError(items.length ? '' : noSourcesHint)
       })
       .catch((err: unknown) => {
         if (!cancelled)
@@ -83,7 +84,7 @@ export function AnimeSourceBrowser({
     return () => {
       cancelled = true
     }
-  }, [getSources, open])
+  }, [getSources, noSourcesHint, open])
 
   const mapShows = useCallback(
     (items: AniSubsSearchResult[]): EmbyDirectoryEntry[] =>

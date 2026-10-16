@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState, type ChangeEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type ChangeEvent,
+} from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Users,
@@ -229,6 +235,8 @@ export default function AdminPage() {
   const [savingSettings, setSavingSettings] = useState(false)
   const [cmsInspectUrl, setCmsInspectUrl] = useState('')
   const [cmsInspecting, setCmsInspecting] = useState(false)
+  /** 最近一次已持久化的 cmsSources JSON（避免失焦保存重复 PUT） */
+  const cmsSavedJsonRef = useRef<string | null>(null)
   const [editingMusicVolume, setEditingMusicVolume] = useState(false)
   const [musicVolumeDraft, setMusicVolumeDraft] = useState('50')
   const commitMusicVolume = () => {
@@ -866,6 +874,62 @@ export default function AdminPage() {
     }
   }
 
+  /**
+   * 仅持久化 dataSourceConfig（CMS 采集源等数据源配置的独立保存通道）。
+   * payload 必须携带后端硬校验的 autoDelete* 字段，其余字段传 undefined
+   * 即可跳过（后端按 !== undefined 条件更新），不会提交页面上其他未保存的编辑。
+   */
+  const persistDataSourceConfig = useCallback(
+    async (nextConfig: NonNullable<AdminSettings['dataSourceConfig']>) => {
+      const res = await apiFetch('/api/admin/settings', {
+        method: 'PUT',
+        headers: authHeaders,
+        body: JSON.stringify({
+          autoDeleteInactiveRooms: settings.autoDeleteInactiveRooms,
+          autoDeleteAfterHours: settings.autoDeleteAfterHours,
+          dataSourceConfig: nextConfig,
+        }),
+      })
+      const data = (await res.json()) as {
+        success: boolean
+        settings?: AdminSettings
+        message?: string
+      }
+      if (!data.success) {
+        throw new Error(data.message ?? '保存失败')
+      }
+      if (data.settings) {
+        setSettings(data.settings)
+      }
+      cmsSavedJsonRef.current = JSON.stringify(
+        data.settings?.dataSourceConfig ?? nextConfig
+      )
+      invalidateSystemSettings()
+      void fetchPublicSettings()
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [
+      authHeaders,
+      settings.autoDeleteInactiveRooms,
+      settings.autoDeleteAfterHours,
+    ]
+  )
+
+  /** textarea 手动编辑 cmsSources 失焦时自动保存（有变更才 PUT） */
+  const handleCmsSourcesBlur = async () => {
+    const cfg = settings.dataSourceConfig
+    if (!cfg) return
+    const json = JSON.stringify(cfg)
+    if (json === cmsSavedJsonRef.current) return
+    try {
+      await persistDataSourceConfig(cfg)
+      message.success('采集源配置已保存并生效')
+    } catch (err) {
+      console.error('[AdminPage] save cms sources error:', err)
+      message.error(err instanceof Error ? err.message : '采集源配置保存失败')
+    }
+  }
+
   const handleInspectCmsSource = async () => {
     const url = cmsInspectUrl.trim()
     if (!url) {
@@ -889,33 +953,33 @@ export default function AdminPage() {
       }
       if (data.success && data.sites) {
         if (data.sites.length === 0) {
-          message.warning('配置拉取成功，但没有识别到 CMS 采集源（type 1）')
+          message.warning(
+            '配置拉取成功，但没有识别到 CMS 采集源（type 1），未保存'
+          )
         } else {
+          // 检测成功后立即合并并持久化（去重）——不依赖「保存设置」按钮，
+          // 否则配置只存在于本地 state，刷新/漏点保存即丢失导致搜索空结果
+          const existing = settings.dataSourceConfig?.cmsSources || []
+          const nextConfig = {
+            ...settings.dataSourceConfig,
+            cmsSources: existing.includes(url) ? existing : [...existing, url],
+          }
+          await persistDataSourceConfig(nextConfig)
           const preview = data.sites
             .slice(0, 5)
             .map((s) => s.name)
             .join('、')
           message.success(
-            `识别到 ${data.sites.length} 个 CMS 采集源：${preview}${data.sites.length > 5 ? ' 等' : ''}`
+            `识别到 ${data.sites.length} 个 CMS 采集源：${preview}${data.sites.length > 5 ? ' 等' : ''}（已保存，即刻生效）`
           )
+          setCmsInspectUrl('')
         }
-        // 检测成功后自动加入配置列表（去重），随「保存设置」持久化
-        setSettings((prev) => ({
-          ...prev,
-          dataSourceConfig: {
-            ...prev.dataSourceConfig,
-            cmsSources: (prev.dataSourceConfig?.cmsSources || []).includes(url)
-              ? prev.dataSourceConfig?.cmsSources
-              : [...(prev.dataSourceConfig?.cmsSources || []), url],
-          },
-        }))
-        setCmsInspectUrl('')
       } else {
         message.error(data.message ?? '拉取配置失败')
       }
     } catch (err) {
       console.error('[AdminPage] inspect cms source error:', err)
-      message.error('拉取配置失败')
+      message.error(err instanceof Error ? err.message : '拉取配置失败')
     } finally {
       setCmsInspecting(false)
     }
@@ -2005,9 +2069,11 @@ export default function AdminPage() {
                             },
                           }))
                         }
+                        onBlur={handleCmsSourcesBlur}
                       />
                       <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                        留空则不启用 CMS 采集源；系统不内置任何默认源。TVBox
+                        留空则不启用 CMS
+                        采集源；系统不内置任何默认源。检测添加或编辑失焦后自动保存生效；TVBox
                         配置每日漂移，服务端按 10 分钟缓存自动刷新；仅支持苹果
                         CMS（type 1）采集站，jar 插件源与 JS
                         规则源不在支持范围。
