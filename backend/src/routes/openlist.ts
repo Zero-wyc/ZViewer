@@ -25,7 +25,6 @@
 import { Router, Response } from 'express';
 import { AppDataSource } from '../data-source';
 import { UserMount } from '../entities/UserMount';
-import { Movie } from '../entities/Movie';
 import { authenticateToken, AuthenticatedRequest } from '../middleware/auth';
 import {
   stripPassword,
@@ -46,14 +45,13 @@ import {
 } from '../services/openlist';
 import { hashAlistPassword, isAlistHashedPassword } from '../services/openlist-client';
 // StreamMovieError：影片不存在等业务错误单行 warn + 精确状态码（避免重试风暴刷屏）
-import { StreamMovieError, invalidateUserMountCache } from '../services/proxy';
+import { StreamMovieError, resolveMovieStream, invalidateUserMountCache } from '../services/proxy';
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { proxyHttpUpstream } from '../services/proxy/http-proxy';
 import { TtlCache } from '../utils/ttl-cache';
 
 const router = Router();
 const userMountRepository = () => AppDataSource.getRepository(UserMount);
-const movieRepository = () => AppDataSource.getRepository(Movie);
 
 /** raw_url 缓存条目：避免每次 /stream 都调用 /api/fs/get */
 interface RawUrlCacheEntry {
@@ -765,34 +763,20 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
       return;
     }
 
-    const movie = await movieRepository().findOneBy({ id: movieId });
-    if (!movie) {
-      res.status(404).json({ success: false, message: '影片不存在' });
-      return;
-    }
-    if (!movie.serverUrl || !movie.path) {
-      res.status(400).json({ success: false, message: '该影片未挂载服务器信息' });
-      return;
-    }
+    // 统一走 resolveMovieStream（与 webdav/ftp/emby/jellyfin 一致）：
+    // 影片不存在/未挂载抛 StreamMovieError（下方 catch 对应分支处理）；
+    // 挂载解析优先 movie.sourceMountId（新增影片已锚定），旧数据回退
+    // serverUrl 匹配（normalize 后），凭证从挂载补全
+    const { movie, username, password } = await resolveMovieStream(
+      movieId,
+      'openlist',
+      { normalizeServerUrl: normalizeOpenListServerUrl },
+    );
 
-    // 规范化服务器地址（OpenList 自动补 /dav / 补 scheme）
-    // 必须在凭证回退查询之前：挂载表存的 serverUrl 是 normalize 后的地址，
-    // 若用未 normalize 的 movie.serverUrl 匹配会因 /dav 后缀差异而落空。
-    const normalizedServerUrl = normalizeOpenListServerUrl(movie.serverUrl);
-
-    // 凭证回退：Movie 表可能未存储 username/password（旧数据），从 UserMount 表补全
-    let username = movie.username || undefined;
-    let password = movie.password || undefined;
-    if (!username || !password) {
-      const mount = await userMountRepository().findOneBy({
-        serverUrl: normalizedServerUrl,
-        type: 'openlist',
-      });
-      if (mount) {
-        username = username || mount.username || undefined;
-        password = password || mount.password || undefined;
-      }
-    }
+    // 规范化服务器地址（OpenList 自动补 /dav / 补 scheme），raw_url 解析用。
+    // serverUrl/path 非空由 resolveMovieStream 保证（未挂载会抛 NO_SERVER）
+    const normalizedServerUrl = normalizeOpenListServerUrl(movie.serverUrl!);
+    const moviePath = movie.path!;
 
     // 获取 raw_url（带缓存）
     const cacheKey = `movie:${movieId}`;
@@ -802,7 +786,7 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
         normalizedServerUrl,
         username,
         password,
-        movie.path,
+        moviePath,
         cacheKey,
       );
     } catch (err) {
@@ -813,7 +797,7 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
           normalizedServerUrl,
           username,
           password,
-          movie.path,
+          moviePath,
           cacheKey,
         );
       } catch (err2) {
@@ -829,7 +813,7 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
     }
 
     // 透传 raw_url
-    const contentType = getContentType(detectMediaFormat(entry.name || movie.path));
+    const contentType = getContentType(detectMediaFormat(entry.name || moviePath));
     await proxyHttpUpstream(req, res, {
       url: entry.rawUrl,
       cors: 'wildcard',

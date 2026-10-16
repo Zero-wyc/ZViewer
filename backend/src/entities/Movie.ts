@@ -108,6 +108,16 @@ export class Movie {
   @Column({ type: 'varchar', nullable: true })
   serverUrl!: string | null;
 
+  /**
+   * 添加/更新影片时锚定的挂载 ID（运行时 /stream 凭证解析优先按此取挂载）。
+   *
+   * 旧数据为 null：/stream 回退按 serverUrl + source 匹配挂载——同服务器
+   * 被多个用户挂载（凭证不同）时匹配结果不确定，此列消除该歧义。
+   * 挂载删除后回退 serverUrl 匹配兜底。
+   */
+  @Column({ type: 'integer', nullable: true })
+  sourceMountId!: number | null;
+
   @Column({ type: 'varchar', nullable: true })
   path!: string | null;
 

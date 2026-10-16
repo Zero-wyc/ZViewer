@@ -14,11 +14,47 @@
  */
 import { AppDataSource } from '../../data-source';
 import { Movie } from '../../entities/Movie';
+import { UserMount } from '../../entities/UserMount';
+import { normalizeOpenListServerUrl } from '../../services/openlist';
 import {
   invalidateMovieStreamCache,
   clearMovieStreamCache,
 } from '../../services/proxy/stream-movie';
 import type { MovieDto, MovieSourceType } from '../shared';
+
+/** 挂载型影片源（serverUrl/path 凭证来自 UserMount） */
+const MOUNT_SOURCE_TYPES = ['webdav', 'openlist', 'ftp', 'emby', 'jellyfin'];
+
+/**
+ * 按 source + serverUrl 反查挂载并返回锚定 ID。
+ *
+ * 同一服务器可能被多个用户挂载（凭证不同），优先取 userId 命中的
+ * 挂载（推送者自己的），否则取任意一条。openlist 的 movie.serverUrl
+ * 存原始输入，匹配前需 normalize（挂载表存规范化地址）。
+ */
+async function resolveSourceMountId(
+  source: string | null | undefined,
+  serverUrl: string | null | undefined,
+  userId?: number,
+): Promise<number | null> {
+  const src = (source || '').toLowerCase();
+  if (!src || !serverUrl || !MOUNT_SOURCE_TYPES.includes(src)) return null;
+  const normalize = (url: string): string =>
+    src === 'openlist' ? normalizeOpenListServerUrl(url) : url.trim();
+  const target = normalize(serverUrl);
+  const candidates = await AppDataSource.getRepository(UserMount).find({
+    where: { type: src as UserMount['type'] },
+  });
+  const matched = candidates.filter(
+    (m) => m.serverUrl && normalize(m.serverUrl) === target,
+  );
+  if (matched.length === 0) return null;
+  const picked =
+    (userId !== undefined
+      ? matched.find((m) => m.userId === userId)
+      : undefined) ?? matched[0];
+  return picked.id;
+}
 
 /** 影片实体别名，便于类型引用 */
 type MovieEntity = Movie;
@@ -175,7 +211,7 @@ export class MovieService {
    *
    * @returns 序列化后的 MovieDto
    */
-  async createMovie(roomId: string, data: Partial<MovieDto>): Promise<MovieDto> {
+  async createMovie(roomId: string, data: Partial<MovieDto>, userId?: number): Promise<MovieDto> {
     const repo = AppDataSource.getRepository(Movie);
 
     // 调试日志：检查 pages 字段是否被正确接收
@@ -193,6 +229,14 @@ export class MovieService {
       order: { order: 'DESC' },
     });
     const nextOrder = existing.length > 0 ? existing[0].order + 1 : 0;
+
+    // 锚定挂载：/stream 凭证解析优先按 sourceMountId 取挂载（旧数据回退
+    // serverUrl 匹配），消除同服务器多用户挂载时的凭证歧义
+    const sourceMountId = await resolveSourceMountId(
+      typeof data.source === 'string' ? data.source : null,
+      typeof data.serverUrl === 'string' ? data.serverUrl : null,
+      userId,
+    );
 
     const movie = repo.create({
       roomId,
@@ -221,6 +265,7 @@ export class MovieService {
           ? data.currentPage
           : null,
       serverUrl: typeof data.serverUrl === 'string' ? data.serverUrl : null,
+      sourceMountId,
       path: typeof data.path === 'string' ? data.path : null,
       username: typeof data.username === 'string' ? data.username : null,
       password: typeof data.password === 'string' ? data.password : null,
@@ -263,6 +308,7 @@ export class MovieService {
     roomId: string,
     movieId: number,
     data: Partial<MovieDto>,
+    userId?: number,
   ): Promise<MovieDto | null> {
     const repo = AppDataSource.getRepository(Movie);
     const movie = await repo.findOneBy({ id: movieId, roomId });
@@ -295,6 +341,17 @@ export class MovieService {
     if (typeof data.cliOnly === 'boolean') update.cliOnly = data.cliOnly;
     if (typeof data.multiVersion === 'boolean') update.multiVersion = data.multiVersion;
     if (data.sourceMeta !== undefined) update.sourceMeta = normalizeSourceMeta(data.sourceMeta);
+
+    // serverUrl/source 变更时重新锚定挂载（显式传 sourceMountId 时以调用方为准）
+    if (data.sourceMountId !== undefined) {
+      update.sourceMountId = data.sourceMountId;
+    } else if (update.serverUrl !== undefined || update.source !== undefined) {
+      update.sourceMountId = await resolveSourceMountId(
+        update.source ?? movie.source,
+        update.serverUrl ?? movie.serverUrl,
+        userId,
+      );
+    }
 
     await repo.update({ id: movie.id }, update);
     // 切源/改路径/改凭证后立即失效流解析缓存（/stream 30s TTL 缓存的失效钩子）
@@ -378,6 +435,7 @@ export class MovieService {
       pages: parsePagesArray(movie.pages),
       currentPage: movie.currentPage,
       serverUrl: movie.serverUrl,
+      sourceMountId: movie.sourceMountId,
       path: movie.path,
       username: movie.username,
       password: movie.password,

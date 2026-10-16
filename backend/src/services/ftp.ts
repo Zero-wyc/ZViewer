@@ -5,12 +5,16 @@ import { TtlCache } from '../utils/ttl-cache';
 const DEFAULT_TIMEOUT = 10000; // 10 秒
 
 function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${label} 超时`)), DEFAULT_TIMEOUT),
-    ),
-  ]);
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new Error(`${label} 超时`)), DEFAULT_TIMEOUT);
+    }),
+    // 竞速结束后清理定时器：不清理会让每个 FTP 调用残留一个 10s 定时器
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 export interface FTPConnectionParams {

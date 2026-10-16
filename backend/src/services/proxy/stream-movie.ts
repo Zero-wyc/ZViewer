@@ -74,14 +74,28 @@ export function clearMovieStreamCache(): void {
   movieStreamCache.clear();
 }
 
+export interface ResolveMovieStreamOptions {
+  /**
+   * 挂载回退匹配前对 movie.serverUrl 做规范化（openlist 存原始输入地址，
+   * 挂载表存 normalize 后地址，不 normalize 会因 /dav 后缀差异匹配落空）。
+   */
+  normalizeServerUrl?: (url: string) => string;
+}
+
 /**
  * 解析影片流所需的 Movie 与凭证。
+ *
+ * 挂载解析优先级：
+ * 1. movie.sourceMountId（添加/更新影片时锚定的挂载，消除多挂载歧义）；
+ * 2. 按 serverUrl + source 匹配（旧数据兜底，挂载删除后也走此路径）。
+ *
  * @param movieId 影片 ID
- * @param source  挂载源类型（webdav/ftp/emby/jellyfin）
+ * @param source  挂载源类型（webdav/ftp/emby/jellyfin/openlist）
  */
 export async function resolveMovieStream(
   movieId: number,
   source: MountType,
+  options?: ResolveMovieStreamOptions,
 ): Promise<ResolvedMovieStream> {
   const now = Date.now();
   // 熔断：窗口内已知不存在的 movieId 直接失败（不打库、不打日志）
@@ -106,12 +120,22 @@ export async function resolveMovieStream(
     throw new StreamMovieError('该影片未挂载服务器信息', 'NO_SERVER', 400);
   }
 
+  const mountRepo = AppDataSource.getRepository(UserMount);
+  // 优先按锚定的挂载 ID 取（同服务器多用户挂载时凭证确定）
+  let mount: UserMount | null = null;
+  if (movie.sourceMountId) {
+    mount = await mountRepo.findOneBy({ id: movie.sourceMountId, type: source });
+  }
+  // 旧数据兜底：按 serverUrl 匹配（openlist 需先 normalize）
+  if (!mount) {
+    const targetUrl = options?.normalizeServerUrl
+      ? options.normalizeServerUrl(movie.serverUrl)
+      : movie.serverUrl;
+    mount = await mountRepo.findOneBy({ serverUrl: targetUrl, type: source });
+  }
+
   let username = movie.username || undefined;
   let password = movie.password || undefined;
-  const mount = await AppDataSource.getRepository(UserMount).findOneBy({
-    serverUrl: movie.serverUrl,
-    type: source,
-  });
   if (mount) {
     username = username || mount.username || undefined;
     password = password || mount.password || undefined;

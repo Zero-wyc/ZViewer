@@ -140,9 +140,11 @@ export async function fetchOpenListFileInfo(
     targetPath = '/' + targetPath;
   }
 
-  // 内部 FsGet，带 401 自动重试
+  // 内部 FsGet，带 401 自动重试；activeToken 供字幕并行解析复用
+  let activeToken: string | undefined;
   const fsGetWithRetry = async (): Promise<AlistFsGetData> => {
     const token = await getOpenListToken(serverUrl, username, password, mode);
+    activeToken = token;
     try {
       return await alistFsGet(apiBaseUrl, token, targetPath, undefined);
     } catch (err) {
@@ -150,6 +152,7 @@ export async function fetchOpenListFileInfo(
       if (err instanceof OpenListError && err.code === 'AUTH_FAILED' && token) {
         invalidateOpenListToken(serverUrl, username);
         const newToken = await getOpenListToken(serverUrl, username, password, mode);
+        activeToken = newToken;
         return await alistFsGet(apiBaseUrl, newToken, targetPath, undefined);
       }
       throw err;
@@ -184,29 +187,35 @@ export async function fetchOpenListFileInfo(
     throw new OpenListError('OpenList 未返回 raw_url', 'UNREACHABLE');
   }
 
-  // 解析同目录字幕文件（related 中 type === 4 的项）
+  // 解析同目录字幕文件（related 中 type === 4 的项），并行获取（原逐个串行，
+  // N 个字幕 = N 次串行上游往返，直接拖慢 resolve 响应）
   const subtitles: Array<{ name: string; rawUrl: string }> = [];
   if (fsData.related && fsData.related.length > 0) {
     const prefix = targetPath.replace(/\/[^/]*$/, '/');
-    for (const related of fsData.related) {
-      // type === 4 表示字幕文件（AList 约定）
-      if (related.type !== 4) continue;
-      // 跳过 XML 字幕（通常是弹幕元数据，非文本字幕）
-      if (related.name.toLowerCase().endsWith('.xml')) continue;
-      try {
-        const subtitlePath = prefix + related.name;
-        const subToken = await getOpenListToken(serverUrl, username, password, mode);
-        const subFs = await alistFsGet(apiBaseUrl, subToken, subtitlePath, undefined);
-        let subRawUrl = subFs.raw_url;
-        if (subRawUrl && !subRawUrl.startsWith('http://') && !subRawUrl.startsWith('https://')) {
-          subRawUrl = `${apiBaseUrl}${subRawUrl.startsWith('/') ? subRawUrl : '/' + subRawUrl}`;
-        }
-        if (subRawUrl) {
-          subtitles.push({ name: related.name, rawUrl: subRawUrl });
-        }
-      } catch {
-        // 字幕获取失败不影响主流程
-      }
+    const resolved = await Promise.all(
+      fsData.related
+        // type === 4 表示字幕文件（AList 约定）；跳过 XML 字幕（通常是弹幕元数据，非文本字幕）
+        .filter(
+          (related) =>
+            related.type === 4 && !related.name.toLowerCase().endsWith('.xml'),
+        )
+        .map(async (related) => {
+          try {
+            const subtitlePath = prefix + related.name;
+            const subFs = await alistFsGet(apiBaseUrl, activeToken, subtitlePath, undefined);
+            let subRawUrl = subFs.raw_url;
+            if (subRawUrl && !subRawUrl.startsWith('http://') && !subRawUrl.startsWith('https://')) {
+              subRawUrl = `${apiBaseUrl}${subRawUrl.startsWith('/') ? subRawUrl : '/' + subRawUrl}`;
+            }
+            return subRawUrl ? { name: related.name, rawUrl: subRawUrl } : null;
+          } catch {
+            // 字幕获取失败不影响主流程
+            return null;
+          }
+        }),
+    );
+    for (const item of resolved) {
+      if (item) subtitles.push(item);
     }
   }
 

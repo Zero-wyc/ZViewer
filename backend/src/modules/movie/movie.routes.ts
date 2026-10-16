@@ -131,7 +131,7 @@ export function createMovieRouter(io: SocketIOServer): Router {
           }
         }
 
-        const movie = await movieService.createMovie(roomId, data);
+        const movie = await movieService.createMovie(roomId, data, req.user?.userId);
         await movieBroadcasterService.broadcastMovieList(io, roomId);
         res.status(201).json({ success: true, movie });
       } catch (err) {
@@ -246,7 +246,7 @@ export function createMovieRouter(io: SocketIOServer): Router {
           }
         }
 
-        const updated = await movieService.updateMovie(roomId, movieId, data);
+        const updated = await movieService.updateMovie(roomId, movieId, data, req.user?.userId);
         if (!updated) {
           res.status(404).json({ success: false, message: '影片不存在' });
           return;

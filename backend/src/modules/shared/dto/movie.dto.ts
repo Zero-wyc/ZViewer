@@ -77,6 +77,11 @@ export interface MovieDto {
   currentPage?: number | null;
   /** WebDAV/FTP 服务器 URL */
   serverUrl?: string | null;
+  /**
+   * 锚定的挂载 ID（后端运行时凭证解析优先按此取挂载）。
+   * 旧数据为 null：/stream 回退按 serverUrl + source 匹配挂载。
+   */
+  sourceMountId?: number | null;
   /** WebDAV/FTP 路径 */
   path?: string | null;
   /** WebDAV/FTP 用户名 */

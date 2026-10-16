@@ -11,15 +11,19 @@ function withTimeout<T>(
   label: string,
   timeoutMs: number = DEFAULT_TIMEOUT,
 ): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(
         () => reject(new WebDAVError(`${label} 超时`, 'TIMEOUT')),
         timeoutMs,
-      ),
-    ),
-  ]);
+      );
+    }),
+    // 竞速结束后清理定时器：不清理会让每个 WebDAV 调用残留定时器
+  ]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 }
 
 // 错误类型：携带错误码便于上层路由处理
@@ -328,27 +332,15 @@ export function createWebDAVReadStream(
 export function buildWebDAVDirectUrl(
   serverUrl: string,
   path: string,
-  username?: string,
-  password?: string,
+  _username?: string,
+  _password?: string,
 ): string {
   const normalizedUrl = normalizeServerUrl(serverUrl);
   // 路径保持服务器真名原样，不做乱码修复（与 normalizePath 策略一致）
   const encodedPath = normalizePath(path);
-  // WebDAV 协议不支持生成真实直链，仅返回 serverUrl+path 拼接。
-  // 若提供了认证信息，嵌入 Basic Auth（http://user:pass@host/path），
-  // 让浏览器可以直接播放需要认证的 WebDAV 文件。
-  // 注意：密码暴露在 URL 中，仅适用于内网/可信环境。
-  if (username && password) {
-    try {
-      const parsed = new URL(normalizedUrl);
-      parsed.username = encodeURIComponent(username);
-      parsed.password = encodeURIComponent(password);
-      parsed.pathname = encodedPath;
-      return parsed.toString();
-    } catch {
-      // URL 解析失败，回退到简单拼接
-    }
-  }
+  // 历史版本曾将 Basic Auth 以 user:pass@ 形式嵌入 URL——现代浏览器对子资源
+  // 一律剥离 URL 内嵌凭证（Chrome 59+ / Firefox 均不发送），该分支实际从未
+  // 生效且误导排查，已移除；参数保留仅为兼容既有调用方签名。
   return `${normalizedUrl}${encodedPath}`;
 }
 
