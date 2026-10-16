@@ -19,7 +19,7 @@
     "build:exe": "node scripts/build-exe.js",
     "build:backend-exe": "node scripts/build-exe.js",
     "build:all": "node build-all.js",
-    "postinstall": "patch-package && node scripts/prune-pkg-bloat.js"
+    "postinstall": "node scripts/prune-pkg-bloat.js"
   },
   "pkg": {
     "assets": [
@@ -30,8 +30,7 @@
   "devDependencies": {
     "@playwright/test": "^1.62.0",
     "@yao-pkg/pkg": "^6.23.0",
-    "concurrently": "^8.2.2",
-    "patch-package": "^8.0.1"
+    "concurrently": "^8.2.2"
   },
   "dependencies": {
     "@types/multer": "^2.2.0",

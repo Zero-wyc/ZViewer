@@ -18,6 +18,11 @@ dist-ssr
 !vendor/mediabunny/dist/
 !vendor/mediabunny/dist/**
 
+# vendored playsvideo fork（0.4.7 + 5 个本地补丁，详见 docs/mediabunny-fork.md）：
+# 同理放行其 dist，否则补丁后的运行时产物无法入库
+!vendor/playsvideo/dist/
+!vendor/playsvideo/dist/**
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

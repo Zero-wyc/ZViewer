@@ -1,0 +1,1 @@
+{"version":3,"file":"source-signal.d.ts","sourceRoot":"","sources":["../../src/pipeline/source-signal.ts"],"names":[],"mappings":"AAAA;;;;;;;;;GASG;AACH,MAAM,WAAW,eAAe;IAC9B,gBAAgB,CAAC,MAAM,EAAE,WAAW,GAAG,IAAI,GAAG,IAAI,CAAC;CACpD;AAED,wBAAgB,iBAAiB,CAAC,MAAM,EAAE,OAAO,GAAG,MAAM,IAAI,eAAe,CAM5E;AAED;;;GAGG;AACH,wBAAgB,UAAU,CAAC,MAAM,CAAC,EAAE,WAAW,GAAG,IAAI,CAIrD"}

@@ -1,0 +1,66 @@
+{
+  "name": "playsvideo",
+  "version": "0.4.7",
+  "description": "Vendored fork of kzahel/playsvideo@v0.4.7（npm 最新版，上游已冻结）+ ZViewer 本地补丁 5 处（详见仓库 docs/mediabunny-fork.md）。mediabunny 依赖指向相邻的 vendored fork，不触碰 GitHub。",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kzahel/playsvideo"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "vite",
+    "build": "pnpm run build:site && pnpm run build:lib",
+    "build:site": "vite build",
+    "build:lib": "rm -rf dist && tsc -p tsconfig.lib.json && mkdir -p dist/vendor && cp -r src/vendor/ffmpeg-core-audio dist/vendor/ffmpeg-core-audio",
+    "build:extension": "vite build --config vite.config.extension.ts",
+    "test": "vitest run",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:integration:hevc-gop": "vitest run tests/integration/hevc-gop-regression.test.ts",
+    "test:watch": "vitest",
+    "test:e2e": "npx playwright test",
+    "typecheck": "tsc --noEmit",
+    "format": "biome format --write .",
+    "format:check": "biome format .",
+    "lint": "biome lint .",
+    "check": "biome check --write .",
+    "download:ffmpeg-core": "node scripts/download-ffmpeg-core.mjs",
+    "setup": "pnpm install && pnpm run download:ffmpeg-core",
+    "deploy:worker": "cd worker && npx wrangler deploy",
+    "deploy:site": "pnpm run build:site && pnpm --filter app build && bash scripts/deploy.sh",
+    "deploy": "pnpm run deploy:site && pnpm run deploy:worker",
+    "prepublishOnly": "pnpm run build:lib"
+  },
+  "dependencies": {
+    "hls.js": "^1.5.0",
+    "mediabunny": "file:../mediabunny"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.4.6",
+    "@playwright/test": "^1.58.2",
+    "@types/node": "^25.3.3",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.0.0",
+    "dexie": "^4.0.0",
+    "dexie-react-hooks": "^1.1.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.0.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

@@ -44,7 +44,7 @@
     "livekit-client": "^2.22.3",
     "lucide-react": "^1.23.0",
     "mediabunny": "file:vendor/mediabunny",
-    "playsvideo": "0.4.7",
+    "playsvideo": "file:vendor/playsvideo",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.30.4",

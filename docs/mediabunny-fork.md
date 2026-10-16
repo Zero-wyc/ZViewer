@@ -1,7 +1,7 @@
 # playsvideo / mediabunny 引用链说明
 
-本文档解释 playsvideo 播放引擎依赖的「垫片」体系：为什么存在三层 mediabunny
-引用、为什么 playsvideo 版本必须锁定、补丁如何维护。改动任何一层前请先读完。
+本文档解释 playsvideo 播放引擎依赖的「垫片」体系：vendored fork 的来源与
+维护方式、各层引用机制的职责。改动任何一层前请先读完。
 
 ## 背景事实（2026-10 查证）
 
@@ -26,26 +26,36 @@
 
 ## 三层 mediabunny 引用机制
 
-同一个 vendored fork（`frontend/vendor/mediabunny/`，源码入库）被三层机制
-引用，各层职责不同、互为防线：
+## 引用机制总览
+
+两个 vendored fork（`frontend/vendor/mediabunny/` 与
+`frontend/vendor/playsvideo/`，源码均入库）通过以下机制接入：
 
 | 层 | 位置 | 作用域 | 职责 |
 |---|---|---|---|
-| 1. npm overrides | 根 `package.json` → `overrides.mediabunny = file:frontend/vendor/mediabunny` | 安装期 | 把 playsvideo 内部声明的 `github:kzahel/mediabunny#integration` 重定向到 vendored 副本，保证提升到根 node_modules 的 `mediabunny` 就是 fork（含 DTS 补丁） |
-| 2. 显式依赖 | `frontend/package.json` → `"mediabunny": "file:vendor/mediabunny"` | 安装期 + 文档化 | 显式声明依赖；若第 1 层被误删，防止解析到 npm 官方 1.55+（会崩溃的那个版本） |
-| 3. Vite alias | `frontend/vite.config.ts` → `resolve.alias.mediabunny` | 构建/运行期 | dev 与 build 都强制解析到 vendor 源码，不依赖 npm 安装方式与 node_modules 布局 |
+| 1. vendored playsvideo | `frontend/package.json` → `"playsvideo": "file:vendor/playsvideo"` | 安装期 | 播放引擎本体（0.4.7 + 5 个本地补丁直接改在源码里），其 package.json 声明 `"mediabunny": "file:../mediabunny"` 指向相邻 fork，安装期不触碰 GitHub/npm registry |
+| 2. npm overrides | 根 `package.json` → `overrides.mediabunny = file:frontend/vendor/mediabunny` | 安装期 | 防线：把依赖树中任何 `mediabunny` 解析统一钉到 vendored 副本（vendored playsvideo 已自包含声明，此层为冗余保护） |
+| 3. 显式依赖 | `frontend/package.json` → `"mediabunny": "file:vendor/mediabunny"` | 安装期 + 文档化 | 显式声明；防止误删 override 后静默解析到 npm 官方 1.55+（会崩溃的版本） |
+| 4. Vite alias | `frontend/vite.config.ts` → `resolve.alias.mediabunny` | 构建/运行期 | dev 与 build 都强制解析到 vendor 源码，不依赖 npm 安装方式与 node_modules 布局 |
 
 **断掉某一层会怎样：**
 
-- 断第 1 层（overrides）：npm 直接安装 GitHub fork tarball——内容与 vendor
-  副本不一致（丢失本地 DTS 补丁），且每次安装结果随上游分支漂移。
-- 断第 2 层（显式依赖）：短期内仍能工作（第 1 层已把包提升到根
-  node_modules），但失去「误删 override 后静默解析到官方 1.55+」的保护。
-- 断第 3 层（alias）：依赖 node_modules 解析，通常仍工作；但 vendor 目录
+- 断第 1 层（vendored playsvideo 依赖）：回退 npm registry 版本，本地 5 个
+  补丁全部消失（MKV 音视频起点错位、切段静音帧、字幕探测崩溃等回归）。
+- 断第 2/3 层（overrides / 显式 mediabunny 依赖）：vendored playsvideo 的
+  `file:../mediabunny` 仍能解析；但失去对「任何其他 mediabunny 引入方式」
+  的钉死保护，误装官方 1.55+ 会崩溃。
+- 断第 4 层（alias）：依赖 node_modules 解析，通常仍工作；但 vendor 目录
   更新后若未重跑 npm install，dev/build 会用到过期的 node_modules 副本。
 
-两处 `file:` 路径写法不同是正常的：`file:vendor/mediabunny` 相对 frontend
-包目录解析，`file:frontend/vendor/mediabunny` 相对仓库根解析，指向同一目录。
+`file:` 路径写法差异是正常的：`file:vendor/playsvideo` 相对 frontend 包
+目录解析，`file:frontend/vendor/mediabunny` 相对仓库根解析；
+`file:../mediabunny`（vendored playsvideo 内部）相对其自身目录解析。三者
+指向 `frontend/vendor/` 下的同一批目录。
+
+安装后形态：`frontend/node_modules/playsvideo` 为指向 vendor 的 symlink
+（npm 对 workspace 内 file: 依赖不做根提升），`node_modules/mediabunny`
+为指向 vendor 的 symlink（根提升）。
 
 ## vendored mediabunny 的维护
 
@@ -62,15 +72,23 @@
 - 源码必须入库（`.gitignore` 已对 `vendor/mediabunny/dist/` 做了强制
   include）：CI 环境无法访问 GitHub 时构建仍可进行。
 
-## playsvideo 补丁的维护
+## vendored playsvideo 的维护（2026-10-16 起，替代 patch-package）
 
-- 补丁文件：`patches/playsvideo+0.4.7.patch`，经根 `postinstall` 的
-  **patch-package** 应用（`npm install` 时自动执行）。
-- 版本**必须锁定精确版本**（`"playsvideo": "0.4.7"`，无 caret）：补丁是对
-  dist 产物的逐行 diff，上游任何版本变动都会导致 apply 失败。
-- 升级 playsvideo 前：先对照上游确认 5 个补丁是否已有等价修复，再重做
-  patch（对 dist 打补丁意味着每次升级都要人工重放）。
-- 校验补丁已生效：`grep "buildMkvKeyframeIndexFromSource(source, demux.videoTrack.id)" node_modules/playsvideo/dist/engine.js`。
+- 源码树：`frontend/vendor/playsvideo/**`——上游 npm 包 0.4.7 的完整副本，
+  **5 个本地补丁已直接改在 dist 产物里**（MKV cue 按视频轨过滤、AAC priming
+  丢帧、字幕探测容错、formatCuesToWebVTT 内联、分段 padding 泄漏过滤）。
+  原 `patches/playsvideo+0.4.7.patch` 与根 postinstall 的 patch-package 已
+  随 vendor 化移除。
+- 依赖声明：vendored package.json 的 `mediabunny` 已从
+  `github:kzahel/mediabunny#integration` 改为 `file:../mediabunny`——安装期
+  完全自包含，GitHub 不可达时也能装。
+- 升级 playsvideo 前：先对照上游（npm / GitHub tag）确认 5 个补丁是否已有
+  等价修复（截至 2026-10 均无），再重新执行「拷贝上游 → 重放补丁 → 更新
+  vendor」三步。
+- 校验补丁已生效：
+  `grep "buildMkvKeyframeIndexFromSource(source, demux.videoTrack.id)" node_modules/playsvideo/dist/engine.js`。
+- `.gitignore`（frontend/）已对 `vendor/playsvideo/dist/` 做反忽略放行，
+  修改 `.gitignore` 的 `dist` 规则时勿破坏。
 
 ## Vite 侧的配套配置（勿随手清理）
 
