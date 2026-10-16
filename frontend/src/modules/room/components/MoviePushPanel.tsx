@@ -1617,7 +1617,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           source: 'mp4',
           format: detectedFormat !== 'unknown' ? detectedFormat : undefined,
           // 视频直链影片统一走直链模式：默认强制直链直连（noProxyFallback），
-          // 开关关闭（directLinkProxy=true）时保持直链 URL 但允许服务器中转
+          // 「服务器中转」开关开启（directLinkProxy=true）时保持直链 URL
+          // 但允许服务器中转（直连失败自动回退）
           directLink: true,
           directLinkProxy,
         })
@@ -2451,30 +2452,32 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
           {renderActionButton()}
 
-          {/* 直链直连开关：仅「视频直链」源显示。默认开启——浏览器直连源站、
-              服务器零媒体流量（m3u8 分片/MP4 均源站直传，直连失败直接报错）；
-              关闭后允许服务器中转（跨域/防盗链自动兜底）。挂载类源的同类
+          {/* 服务器中转开关：仅「视频直链」源显示。默认关闭——一律直连
+              源站、服务器零媒体流量（m3u8 分片/MP4 均源站直传，直连失败
+              直接报错）；开启后允许服务器中转（直连失败自动回退，m3u8
+              跨域分片经服务器代理）。底层走 directLinkProxy（与数据源
+              开关方向相反，UI 已统一为「开=中转」）。挂载类源的同类
               开关在各源表单内（直链模式 → 直链传输方式）。 */}
           {sourceType === 'mp4' && (
             <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
               <div className="min-w-0">
-                <Text className="block text-xs font-medium">直链直连</Text>
+                <Text className="block text-xs font-medium">服务器中转</Text>
                 <Text
                   type="secondary"
                   className="block text-[11px] leading-snug mt-0.5"
                 >
-                  开启（默认）：浏览器直连源站，服务器零媒体流量，直连失败直接报错。关闭：经服务器中转，跨域/防盗链自动兜底。
+                  关闭（默认）：一律直连源站，服务器零媒体流量，直连失败直接报错。开启：允许经服务器中转，直连失败自动回退，占用服务器流量。
                 </Text>
               </div>
               <button
                 type="button"
                 role="switch"
-                aria-checked={!directLinkProxy}
+                aria-checked={directLinkProxy}
                 disabled={!isHost}
                 onClick={() => setDirectLinkProxy((prev) => !prev)}
                 className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 style={{
-                  backgroundColor: !directLinkProxy
+                  backgroundColor: directLinkProxy
                     ? 'var(--md-sys-color-primary)'
                     : 'var(--md-sys-color-outline)',
                 }}
@@ -2482,7 +2485,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 <span
                   className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
                   style={{
-                    transform: !directLinkProxy
+                    transform: directLinkProxy
                       ? 'translateX(18px)'
                       : 'translateX(2px)',
                   }}
