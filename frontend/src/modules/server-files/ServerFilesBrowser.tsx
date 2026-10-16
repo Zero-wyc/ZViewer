@@ -14,6 +14,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
+import { EmptyState } from '@/components/ui/EmptyState'
 import {
   browseServerFiles,
   listServerRoots,
@@ -448,9 +449,7 @@ export default function ServerFilesBrowser({
                           : null
                       )
                     ) : (
-                      <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                        上级目录为空
-                      </Text>
+                      <EmptyState text="上级目录为空" className="py-8" />
                     )
                   ) : (
                     <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
@@ -469,9 +468,7 @@ export default function ServerFilesBrowser({
                   {entries.length > 0 ? (
                     entries.map((entry) => renderEntry(entry, 'right'))
                   ) : (
-                    <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                      当前目录为空
-                    </Text>
+                    <EmptyState text="当前目录为空" className="py-8" />
                   )}
                 </div>
               </div>

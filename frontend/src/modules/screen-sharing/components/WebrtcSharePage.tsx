@@ -23,6 +23,7 @@ import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useLocalMediaStream } from '../hooks/useLocalMediaStream'
 import { useHostPeerConnections } from '../hooks/useHostPeerConnections'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
@@ -76,6 +77,7 @@ function WebrtcSharePage({
   // 媒体设置持久化（借鉴 mirotalk lsSettings）：进房时恢复上次选择，
   // 变化时写回 localStorage
   const [savedSettings] = useState(loadMediaSettings)
+  const copy = useCopyToClipboard()
   const [frameRate, setFrameRate] = useState(savedSettings.frameRate)
   const [maxBitrateMbps, setMaxBitrateMbps] = useState(
     savedSettings.maxBitrateMbps
@@ -236,18 +238,18 @@ function WebrtcSharePage({
   }, [socket, currentRoomId])
 
   const handleCopy = useCallback(() => {
-    navigator.clipboard
-      .writeText(`${window.location.origin}/room/${currentRoomId}`)
-      .then(() => message.success('观看链接已复制'))
-  }, [currentRoomId])
+    void copy(`${window.location.origin}/room/${currentRoomId}`, {
+      successMessage: '观看链接已复制',
+    })
+  }, [copy, currentRoomId])
 
   const handleCopyError = useCallback(() => {
     if (!mediaError) return
-    navigator.clipboard
-      .writeText(mediaError)
-      .then(() => message.success('错误详情已复制，可粘贴给管理员'))
-      .catch(() => message.error('复制失败，请手动选择文本复制'))
-  }, [mediaError])
+    void copy(mediaError, {
+      successMessage: '错误详情已复制，可粘贴给管理员',
+      errorMessage: '复制失败，请手动选择文本复制',
+    })
+  }, [copy, mediaError])
 
   const inIframe = (() => {
     try {

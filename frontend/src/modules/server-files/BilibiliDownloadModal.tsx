@@ -35,6 +35,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
@@ -943,28 +944,19 @@ function DirBrowseSidePanel({
         className="glass flex h-full max-h-[calc(100vh-160px)] flex-col overflow-hidden border-l border-[var(--glass-border)] p-3"
         style={{ width: SIDE_PANEL_WIDTH }}
       >
-        <div className="mb-2 flex shrink-0 items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-              style={{
-                backgroundColor: 'var(--md-sys-color-primary-container)',
-                color: 'var(--md-sys-color-on-primary-container)',
-              }}
+        <SectionHeader
+          icon={<Folder className="h-4 w-4" />}
+          title="选择目录"
+          className="mb-2 shrink-0"
+          extra={
+            <button
+              onClick={onClose}
+              className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
             >
-              <Folder className="h-4 w-4" />
-            </div>
-            <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-              选择目录
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-          >
-            <Check className="h-4 w-4" />
-          </button>
-        </div>
+              <Check className="h-4 w-4" />
+            </button>
+          }
+        />
 
         <div className="mb-2 flex shrink-0 items-center gap-2">
           <Button

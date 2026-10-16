@@ -27,6 +27,7 @@ import { Button } from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/Spinner'
 import { Input } from '@/components/ui/Input'
 import { Text } from '@/components/ui/Typography'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { cn } from '@/lib/utils'
 import {
   browseEmbyMount,
@@ -920,9 +921,7 @@ export default function EmbyBrowser({
                     {entries.map((entry) => renderEntry(entry, 'right'))}
                   </div>
                   {entries.length === 0 && (
-                    <Text className="block py-8 text-center text-sm">
-                      暂无集数信息
-                    </Text>
+                    <EmptyState text="暂无集数信息" className="py-8" />
                   )}
                 </div>
               </div>
@@ -965,9 +964,10 @@ export default function EmbyBrowser({
                                   : null
                               )
                             ) : (
-                              <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                                上级目录为空
-                              </Text>
+                              <EmptyState
+                                text="上级目录为空"
+                                className="py-8"
+                              />
                             )
                           ) : (
                             <div className="flex flex-col items-center gap-3 py-10 text-center">

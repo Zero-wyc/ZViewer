@@ -29,6 +29,7 @@ import { Space } from '@/components/ui/Space'
 import { Title, Text } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { Spinner } from '@/components/ui/Spinner'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { ConfirmModal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
 import { Switch } from '@/components/ui/Switch'
@@ -1325,9 +1326,7 @@ export default function AdminPage() {
               </div>
             </div>
             {users.length === 0 ? (
-              <div className="py-12 text-center">
-                <Text type="secondary">暂无用户</Text>
-              </div>
+              <EmptyState text="暂无用户" className="py-12" />
             ) : (
               users.map((u) => {
                 const isRootUser = u.role === 'root' || u.username === 'root'
@@ -1441,9 +1440,7 @@ export default function AdminPage() {
             }
           >
             {rooms.length === 0 ? (
-              <div className="col-span-full py-12 text-center">
-                <Text type="secondary">暂无房间</Text>
-              </div>
+              <EmptyState text="暂无房间" className="col-span-full py-12" />
             ) : (
               <>
                 <div

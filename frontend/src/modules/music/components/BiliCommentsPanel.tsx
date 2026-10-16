@@ -15,6 +15,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { message } from '@/components/ui/message'
+import { writeTextToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
 import {
   fetchBiliComments,
@@ -121,10 +122,7 @@ function BiliCommentText({
     <div
       className="ac-comment-text"
       onClick={() => {
-        void navigator.clipboard
-          ?.writeText(text)
-          .then(() => onCopy(true))
-          .catch(() => onCopy(false))
+        void writeTextToClipboard(text).then(onCopy)
       }}
     >
       {parts.map((part, i) => {

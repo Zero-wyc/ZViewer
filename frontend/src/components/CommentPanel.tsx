@@ -11,6 +11,7 @@ import { Space } from '@/components/ui/Space'
 import { Switch } from '@/components/ui/Switch'
 import { Text } from '@/components/ui/Typography'
 import { Avatar } from '@/components/ui/Avatar'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { message } from '@/components/ui/message'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { useAuthStore } from '@/store/authStore'
@@ -202,17 +203,11 @@ export function CommentPanel({
             >
               {comments.length === 0 ? (
                 // 空状态独立于评论列表流：占满评论区空白处并水平垂直居中
-                <div className="flex h-full w-full flex-col items-center justify-center gap-2 text-center">
-                  <MessagesSquare
-                    className="h-8 w-8 opacity-40"
-                    style={{
-                      color: 'var(--md-sys-color-on-surface-variant)',
-                    }}
-                  />
-                  <Text type="secondary" className="text-center text-xs">
-                    暂无评论，快来第一条吧
-                  </Text>
-                </div>
+                <EmptyState
+                  icon={<MessagesSquare className="h-8 w-8" />}
+                  text="暂无评论，快来第一条吧"
+                  variant="centered"
+                />
               ) : (
                 <Space
                   direction="vertical"

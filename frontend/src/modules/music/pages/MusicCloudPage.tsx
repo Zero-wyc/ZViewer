@@ -28,7 +28,6 @@ import {
   FileText,
   Image,
   LayoutGrid,
-  Loader2,
   Music2,
   Trash2,
   X,
@@ -38,6 +37,7 @@ import type { Socket } from 'socket.io-client'
 import { apiFetch, apiGet } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { useMusicStore } from '../store'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
@@ -1000,13 +1000,11 @@ export function MusicCloudPage({
             手机端整页滚动，容器给最小高度保证空态可见） */}
         <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pt-1 max-md:min-h-[240px]">
           {loading && (
-            <div
-              className="flex items-center gap-2 px-2 py-3 text-sm"
-              style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-            >
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              正在获取云盘文件…
-            </div>
+            <LoadingLine
+              text="正在获取云盘文件…"
+              spinnerClassName="h-3.5 w-3.5"
+              className="h-auto justify-start px-2 py-3 text-sm"
+            />
           )}
           {!loading && visibleItems.length === 0 && (
             <div

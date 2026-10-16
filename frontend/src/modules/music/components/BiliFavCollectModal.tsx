@@ -20,6 +20,7 @@ import { useEffect, useRef, useState } from 'react'
 import { ListMusic, Loader2, X } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { cn } from '@/lib/utils'
 import { CloudModal, type CloudModalHandle } from './CloudModal'
 import {
@@ -144,10 +145,10 @@ export function BiliFavCollectModal({
               </div>
               <div className="zen-scroll relative min-h-0 flex-1 overflow-y-auto px-3 py-3">
                 {loading && (
-                  <div className="flex items-center justify-center gap-2 py-6 text-xs font-bold text-white/60">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    正在获取收藏夹…
-                  </div>
+                  <LoadingLine
+                    text="正在获取收藏夹…"
+                    className="h-auto py-6 font-bold text-white/60"
+                  />
                 )}
                 {!loading && error && (
                   <p className="py-4 text-center text-xs font-bold text-white/60">

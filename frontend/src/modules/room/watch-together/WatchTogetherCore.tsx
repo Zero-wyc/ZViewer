@@ -22,6 +22,7 @@ import { message } from '@/components/ui/message'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { useSocket } from '@/hooks/useSocket'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useSubtitles, type EmbeddedSource } from '@/hooks/useSubtitles'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useWakeLock } from '@/hooks/useWakeLock'
@@ -1348,39 +1349,23 @@ export function WatchTogetherCore({
 
   // 弹幕点击：复制文本到剪贴板
   // 弹幕渲染时可能拼接了 "发送者: 内容" 前缀，复制时去掉前缀只保留内容部分
-  const handleDanmakuClick = useCallback((text: string) => {
-    // 提取内容：若文本以 "xxx: " 开头（发送者前缀），则取冒号后内容；否则用原文
-    const colonIdx = text.indexOf(': ')
-    const content =
-      colonIdx >= 0 && colonIdx < 30 ? text.slice(colonIdx + 2) : text
-    const textToCopy = content.trim() || text.trim()
-    if (!textToCopy) return
+  const copy = useCopyToClipboard()
+  const handleDanmakuClick = useCallback(
+    (text: string) => {
+      // 提取内容：若文本以 "xxx: " 开头（发送者前缀），则取冒号后内容；否则用原文
+      const colonIdx = text.indexOf(': ')
+      const content =
+        colonIdx >= 0 && colonIdx < 30 ? text.slice(colonIdx + 2) : text
+      const textToCopy = content.trim() || text.trim()
+      if (!textToCopy) return
 
-    const fallbackCopy = () => {
-      const textarea = document.createElement('textarea')
-      textarea.value = textToCopy
-      textarea.style.position = 'fixed'
-      textarea.style.opacity = '0'
-      document.body.appendChild(textarea)
-      textarea.select()
-      try {
-        document.execCommand('copy')
-        message.success('已复制弹幕内容')
-      } catch {
-        message.error('复制失败')
-      }
-      document.body.removeChild(textarea)
-    }
-
-    if (navigator.clipboard && window.isSecureContext) {
-      navigator.clipboard
-        .writeText(textToCopy)
-        .then(() => message.success('已复制弹幕内容'))
-        .catch(() => fallbackCopy())
-    } else {
-      fallbackCopy()
-    }
-  }, [])
+      void copy(textToCopy, {
+        successMessage: '已复制弹幕内容',
+        errorMessage: '复制失败',
+      })
+    },
+    [copy]
+  )
 
   const handleSendDanmaku = useCallback(
     (text: string) => {

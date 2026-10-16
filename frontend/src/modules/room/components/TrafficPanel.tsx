@@ -12,6 +12,7 @@ import { createPortal } from 'react-dom'
 import { Activity, ArrowDown, ArrowUp, ChevronDown, Server } from 'lucide-react'
 import { useAuthStore } from '@/store/authStore'
 import { apiFetch } from '@/lib/api'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import {
   getLocalTraffic,
   installTrafficCounter,
@@ -150,33 +151,22 @@ export function TrafficPanel({
       )}
     >
       {/* 标题栏 */}
-      <div className="mb-2 flex items-center gap-2">
-        <div
-          className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-          style={{
-            backgroundColor: 'var(--md-sys-color-primary-container)',
-            color: 'var(--md-sys-color-on-primary-container)',
-          }}
-        >
-          <Activity className="h-4 w-4" />
-        </div>
-        <div className="flex flex-1 flex-col">
-          <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-            流量统计
-          </span>
-          <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-            本次会话 · HTTP
-          </span>
-        </div>
-        {!embedded && (
-          <button
-            onClick={() => setExpanded(false)}
-            className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+      <SectionHeader
+        icon={<Activity className="h-4 w-4" />}
+        title="流量统计"
+        subtitle="本次会话 · HTTP"
+        className="mb-2"
+        extra={
+          !embedded && (
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          )
+        }
+      />
 
       {/* 本机流量 */}
       {rows.map((row) => (

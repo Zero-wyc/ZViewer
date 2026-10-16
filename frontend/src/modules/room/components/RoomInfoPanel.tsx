@@ -24,6 +24,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { message } from '@/components/ui/message'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
@@ -79,6 +80,7 @@ export function RoomInfoPanel({
   isHost: isHostProp,
 }: RoomInfoPanelProps) {
   const { connected, socket } = useSocket()
+  const copy = useCopyToClipboard()
   const viewers = useRoomStore((state) => state.viewers)
   const roomName = useRoomStore((state) => state.roomName)
   const roomMode = useRoomStore((state) => state.mode)
@@ -250,21 +252,17 @@ export function RoomInfoPanel({
   ])
 
   const handleCopyRoomId = async () => {
-    try {
-      await navigator.clipboard.writeText(roomId)
-      message.success('房间 ID 已复制')
-    } catch {
-      message.error('复制失败')
-    }
+    await copy(roomId, {
+      successMessage: '房间 ID 已复制',
+      errorMessage: '复制失败',
+    })
   }
 
   const handleCopyLink = async () => {
-    try {
-      await navigator.clipboard.writeText(shareUrl)
-      message.success('分享链接已复制')
-    } catch {
-      message.error('复制失败')
-    }
+    await copy(shareUrl, {
+      successMessage: '分享链接已复制',
+      errorMessage: '复制失败',
+    })
   }
 
   const handleSaveName = async () => {

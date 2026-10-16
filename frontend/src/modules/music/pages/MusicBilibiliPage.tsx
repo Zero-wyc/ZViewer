@@ -51,6 +51,7 @@ import {
   type BiliCustomKind,
 } from '@/modules/bilibili/bilibiliApi'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
@@ -2574,10 +2575,11 @@ export function MusicBilibiliPage({
           )}
           {/* 右侧视频区：加载动画 / 错误 / 空态 / 网格四态切换（左栏常驻） */}
           {loading ? (
-            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 py-12 text-base text-[var(--md-sys-color-on-surface-variant)]">
-              <Loader2 className="h-6 w-6 animate-spin" />
-              正在获取视频…
-            </div>
+            <LoadingLine
+              text="正在获取视频…"
+              spinnerClassName="h-6 w-6"
+              className="h-auto min-w-0 flex-1 py-12 text-base"
+            />
           ) : error ? (
             <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 py-12 text-center">
               <span className="text-base text-[var(--md-sys-color-on-surface-variant)]">

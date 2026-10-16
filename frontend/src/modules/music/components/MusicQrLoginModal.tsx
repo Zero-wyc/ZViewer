@@ -6,11 +6,11 @@
  */
 import { useEffect } from 'react'
 import { createPortal } from 'react-dom'
-import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { useNcmLogin } from '../hooks/useNcmLogin'
 import { cn } from '@/lib/utils'
 
@@ -88,12 +88,11 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
               style={{ width: 200, height: 200 }}
             >
               {status === 'generating' ? (
-                <div className="flex flex-col items-center gap-2">
-                  <Loader2 className="h-6 w-6 animate-spin text-[var(--md-sys-color-primary)]" />
-                  <Text type="secondary" className="text-xs">
-                    正在生成二维码…
-                  </Text>
-                </div>
+                <LoadingLine
+                  text="正在生成二维码…"
+                  spinnerClassName="h-6 w-6 text-[var(--md-sys-color-primary)]"
+                  className="h-auto"
+                />
               ) : (
                 <Spinner size={28} tip="正在生成二维码" />
               )}

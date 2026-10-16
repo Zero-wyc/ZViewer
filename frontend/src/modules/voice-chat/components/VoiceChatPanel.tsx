@@ -17,6 +17,7 @@ import type { Socket } from 'socket.io-client'
 import { useVoiceChat, type VoiceMember } from '../hooks/useVoiceChat'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Slider } from '@/components/ui/Slider'
 import { message } from '@/components/ui/message'
 
@@ -92,20 +93,11 @@ export function VoiceChatPanel({
       }
     >
       {/* 标题栏 */}
-      <div className="mb-2 flex items-center gap-2">
-        <div
-          className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-          style={{
-            backgroundColor: 'var(--md-sys-color-primary-container)',
-            color: 'var(--md-sys-color-on-primary-container)',
-          }}
-        >
-          <Headphones className="h-4 w-4" />
-        </div>
-        <div className="flex flex-1 flex-col">
-          <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-            语音聊天
-          </span>
+      <SectionHeader
+        icon={<Headphones className="h-4 w-4" />}
+        title="语音聊天"
+        className="mb-2"
+        subtitle={
           <div className="flex items-center gap-1.5">
             <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
               {joined ? `${memberCount} 人在线` : '未连接'}
@@ -134,16 +126,18 @@ export function VoiceChatPanel({
               </span>
             )}
           </div>
-        </div>
-        {!embedded && (
-          <button
-            onClick={() => setExpanded(false)}
-            className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </button>
-        )}
-      </div>
+        }
+        extra={
+          !embedded && (
+            <button
+              onClick={() => setExpanded(false)}
+              className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+            >
+              <ChevronDown className="h-4 w-4" />
+            </button>
+          )
+        }
+      />
 
       {/* 全局音量 */}
       {joined && (

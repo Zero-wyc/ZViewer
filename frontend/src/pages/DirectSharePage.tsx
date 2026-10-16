@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Copy, Monitor, Power, Link2, CheckCircle2 } from 'lucide-react'
+import { Monitor, Power, Link2, CheckCircle2 } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
+import { CopyButton } from '@/components/ui/CopyButton'
 import { Card } from '@/components/ui/Card'
 import { Space } from '@/components/ui/Space'
 import { Title, Paragraph } from '@/components/ui/Typography'
@@ -221,12 +222,6 @@ function DirectSharePage() {
     }
   }
 
-  const handleCopyOffer = () => {
-    navigator.clipboard.writeText(offerCode).then(() => {
-      message.success('直连码已复制')
-    })
-  }
-
   const handleConnectAnswer = async () => {
     const pc = pcRef.current
     if (!pc) {
@@ -339,15 +334,14 @@ function DirectSharePage() {
                 rows={6}
                 className="w-full rounded-lg border border-slate-300 bg-slate-50 p-3 font-mono text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
-              <Button
+              <CopyButton
+                value={offerCode}
+                label="复制直连码"
+                successMessage="直连码已复制"
                 variant="primary"
-                icon={<Copy className="h-4 w-4" />}
                 block
                 className="mt-2"
-                onClick={handleCopyOffer}
-              >
-                复制直连码
-              </Button>
+              />
             </div>
           )}
 

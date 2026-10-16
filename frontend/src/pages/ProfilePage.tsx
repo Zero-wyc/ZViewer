@@ -24,6 +24,8 @@ import { Avatar } from '@/components/ui/Avatar'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
 import { Tag } from '@/components/ui/Tag'
+import { SectionHeader } from '@/components/ui/SectionHeader'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { Title, Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { useAuthStore, type User as AuthUser } from '@/store/authStore'
@@ -67,6 +69,7 @@ export default function ProfilePage() {
   const navigate = useNavigate()
   const { user, setUser } = useAuthStore()
   const { betaFeaturesEnabled } = useSystemSettingsStore()
+  const copy = useCopyToClipboard()
 
   useEffect(() => {
     if (user?.role === 'guest') {
@@ -183,25 +186,16 @@ export default function ProfilePage() {
         message.warning('未获取到 Cookie，请重新登录网易云音乐')
         return
       }
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(data.cookie)
-      } else {
-        const textarea = document.createElement('textarea')
-        textarea.value = data.cookie
-        textarea.style.position = 'fixed'
-        textarea.style.opacity = '0'
-        document.body.appendChild(textarea)
-        textarea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textarea)
-      }
-      message.success('Cookie 已复制到剪贴板')
+      await copy(data.cookie, {
+        successMessage: 'Cookie 已复制到剪贴板',
+        errorMessage: '复制 Cookie 失败',
+      })
     } catch {
       message.error('复制 Cookie 失败')
     } finally {
       setNcmCookieCopyLoading(false)
     }
-  }, [])
+  }, [copy])
 
   /** 网易云 Cookie 登录（POST /api/music/ncm-cookie-login） */
   const handleNcmCookieLogin = useCallback(async () => {
@@ -364,27 +358,16 @@ export default function ProfilePage() {
         message.warning('未获取到 Cookie，请重新登录 B站')
         return
       }
-      // HTTPS 下用 Clipboard API；HTTP 局域网环境会缺失 navigator.clipboard，
-      // 回退到临时 textarea + execCommand 方案
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(cookie)
-      } else {
-        const textarea = document.createElement('textarea')
-        textarea.value = cookie
-        textarea.style.position = 'fixed'
-        textarea.style.opacity = '0'
-        document.body.appendChild(textarea)
-        textarea.select()
-        document.execCommand('copy')
-        document.body.removeChild(textarea)
-      }
-      message.success('Cookie 已复制到剪贴板')
+      await copy(cookie, {
+        successMessage: 'Cookie 已复制到剪贴板',
+        errorMessage: '复制 Cookie 失败',
+      })
     } catch {
       message.error('复制 Cookie 失败')
     } finally {
       setCookieCopyLoading(false)
     }
-  }, [])
+  }, [copy])
 
   const handleCookieLogin = useCallback(async () => {
     const trimmed = cookieInput.trim()
@@ -608,18 +591,11 @@ export default function ProfilePage() {
         <div className="grid gap-4 sm:grid-cols-2">
           {/* ZViewer 账号信息 */}
           <div className="glass-card p-4">
-            <div className="mb-3 flex items-center gap-2">
-              <div
-                className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-primary-container)',
-                  color: 'var(--md-sys-color-on-primary-container)',
-                }}
-              >
-                <Shield className="h-4 w-4" />
-              </div>
-              <Text className="text-sm font-medium">ZViewer 账号</Text>
-            </div>
+            <SectionHeader
+              icon={<Shield className="h-4 w-4" />}
+              title="ZViewer 账号"
+              className="mb-3"
+            />
             <div className="space-y-2">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-3">
@@ -647,46 +623,30 @@ export default function ProfilePage() {
                   编辑信息
                 </Button>
               </div>
-              <div
-                className="mt-2 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium"
-                style={{
-                  backgroundColor: isAdmin
-                    ? 'var(--md-sys-color-primary-container)'
-                    : 'var(--glass-bg)',
-                  color: isAdmin
-                    ? 'var(--md-sys-color-on-primary-container)'
-                    : 'var(--md-sys-color-on-surface)',
-                  border: '1px solid var(--md-sys-color-outline)',
-                }}
-              >
-                {isAdmin ? (
-                  <>
+              <Tag
+                className="mt-2 py-1"
+                color={isAdmin ? 'primary' : 'default'}
+                icon={
+                  isAdmin ? (
                     <Shield className="h-3 w-3" />
-                    管理员
-                  </>
-                ) : (
-                  <>
+                  ) : (
                     <User className="h-3 w-3" />
-                    普通用户
-                  </>
-                )}
-              </div>
+                  )
+                }
+              >
+                {isAdmin ? '管理员' : '普通用户'}
+              </Tag>
             </div>
           </div>
 
           {/* 账号绑定（网易云 / B站，平台切换展示） */}
           <div className="glass-card p-4">
             <div className="mb-3 flex items-center gap-4">
-              <div
-                className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                style={{
-                  backgroundColor: 'var(--md-sys-color-tertiary-container)',
-                  color: 'var(--md-sys-color-on-tertiary-container)',
-                }}
-              >
-                <Link2 className="h-4 w-4" />
-              </div>
-              <Text className="text-sm font-medium">账号绑定</Text>
+              <SectionHeader
+                icon={<Link2 className="h-4 w-4" />}
+                title="账号绑定"
+                tone="tertiary"
+              />
 
               {/* 平台切换按钮（M3 segmented 胶囊）：紧贴标题右侧，展示已绑定的 B站 / 网易云账号 */}
               <div

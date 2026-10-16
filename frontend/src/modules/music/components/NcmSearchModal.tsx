@@ -29,6 +29,7 @@ import {
 } from 'lucide-react'
 import { apiGet, apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { CloudModal } from './CloudModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
 import { extractSongTitle } from '../utils/songTitle'
@@ -376,10 +377,11 @@ export function NcmSearchModal({
           {/* 结果列表（延后到展开动画结束挂载） */}
           <div className="relative z-[1] mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             {unfoldDone && searching && results.length === 0 && (
-              <div className="flex items-center justify-center gap-2 py-10 text-xs text-white/55">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在搜索…
-              </div>
+              <LoadingLine
+                text="正在搜索…"
+                spinnerClassName="h-3.5 w-3.5"
+                className="h-auto py-10 text-white/55"
+              />
             )}
             {unfoldDone && !searching && searched && results.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-xs text-white/55">

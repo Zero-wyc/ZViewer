@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { EmptyState } from '@/components/ui/EmptyState'
 
 interface BrowseEntry {
   name: string
@@ -174,12 +175,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
             {error}
           </div>
         ) : entries.length === 0 ? (
-          <div
-            className="py-4 text-center text-[11px]"
-            style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-          >
-            目录为空
-          </div>
+          <EmptyState text="目录为空" className="py-4" />
         ) : (
           <div className="flex flex-col gap-0.5">
             {entries.map((entry) => {

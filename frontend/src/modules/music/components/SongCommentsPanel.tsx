@@ -20,6 +20,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { writeTextToClipboard } from '@/hooks/useCopyToClipboard'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { cn } from '@/lib/utils'
@@ -457,10 +458,7 @@ function CommentText({
     <div
       className="ac-comment-text"
       onClick={() => {
-        void navigator.clipboard
-          ?.writeText(text)
-          .then(() => onCopy(true))
-          .catch(() => onCopy(false))
+        void writeTextToClipboard(text).then(onCopy)
       }}
     >
       {segments.map((seg, i) =>

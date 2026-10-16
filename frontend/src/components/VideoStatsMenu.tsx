@@ -4,6 +4,7 @@ import { Activity, Copy, Terminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Tag } from '@/components/ui/Tag'
 import { message } from '@/components/ui/message'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useConnectionStats } from '@/modules/screen-sharing/hooks/useConnectionStats'
 import { useVideoIntrinsicSize } from '@/hooks/useVideoIntrinsicSize'
 import { getActiveEngineType } from '@/modules/player'
@@ -257,6 +258,7 @@ export function VideoStatsMenu({
   directLink,
 }: VideoStatsMenuProps) {
   const [open, setOpen] = useState(false)
+  const copy = useCopyToClipboard()
   const [position, setPosition] = useState<Position>({ x: 0, y: 0 })
   const [stats, setStats] = useState<VideoStats | null>(null)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -542,14 +544,11 @@ export function VideoStatsMenu({
       lines.push(`抖动: ${stats.jitter}`)
     }
     lines.push(`缓冲健康度: ${stats.bufferHealth}`)
-    try {
-      await navigator.clipboard.writeText(lines.join('\n'))
-      message.success('统计信息已复制到剪贴板')
-    } catch (err) {
-      console.error('[VideoStatsMenu] copy error:', err)
-      message.error('复制失败，请检查浏览器剪贴板权限')
-    }
-  }, [stats, isWebRtc, sourceType, format, directLink, sourceUrl])
+    await copy(lines.join('\n'), {
+      successMessage: '统计信息已复制到剪贴板',
+      errorMessage: '复制失败，请检查浏览器剪贴板权限',
+    })
+  }, [copy, stats, isWebRtc, sourceType, format, directLink, sourceUrl])
 
   const handleOpenDevPanel = useCallback(() => {
     if (!videoElement) return

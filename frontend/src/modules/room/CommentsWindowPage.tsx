@@ -15,8 +15,8 @@
  */
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Loader2 } from 'lucide-react'
 import { Text } from '@/components/ui/Typography'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { CommentPanel } from '@/components/CommentPanel'
@@ -139,12 +139,11 @@ export default function CommentsWindowPage() {
           <CommentPanel socket={socket} roomId={roomId} />
         </div>
       ) : joinState === 'connecting' ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--md-sys-color-primary)]" />
-          <Text type="secondary" className="text-xs">
-            正在加入房间…
-          </Text>
-        </div>
+        <LoadingLine
+          text="正在加入房间…"
+          spinnerClassName="h-6 w-6 text-[var(--md-sys-color-primary)]"
+          className="h-auto flex-1"
+        />
       ) : joinState === 'need-password' ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
           <Text className="text-sm font-medium">该房间已设密码</Text>

@@ -18,6 +18,7 @@ import { Select } from '@/components/ui/Select'
 import { Space } from '@/components/ui/Space'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
 import { useDanmakuStore } from '@/store/danmakuStore'
@@ -360,12 +361,7 @@ export function DanmakuSearchModal({
 
             {/* 左栏 loading 指示(常驻左栏内部,不改变弹窗整体高度) */}
             {loading && step === 'search' && (
-              <div className="flex shrink-0 items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                <Text type="secondary" className="text-xs">
-                  加载中…
-                </Text>
-              </div>
+              <LoadingLine className="h-auto shrink-0 py-2" />
             )}
           </div>
         </div>
@@ -421,11 +417,17 @@ export function DanmakuSearchModal({
                       <Text className="truncate text-sm">{episode.title}</Text>
                     </div>
                     <Button
-                      variant={addedEpisodeIds.has(episode.id) ? 'secondary' : 'primary'}
+                      variant={
+                        addedEpisodeIds.has(episode.id)
+                          ? 'secondary'
+                          : 'primary'
+                      }
                       size="sm"
                       className="h-7 shrink-0 px-2.5 text-xs"
                       loading={addingEpisodeId === episode.id}
-                      disabled={!!addingEpisodeId || addedEpisodeIds.has(episode.id)}
+                      disabled={
+                        !!addingEpisodeId || addedEpisodeIds.has(episode.id)
+                      }
                       onClick={() => handleAddEpisode(episode)}
                     >
                       {addedEpisodeIds.has(episode.id) ? '已添加' : '添加'}
@@ -433,14 +435,7 @@ export function DanmakuSearchModal({
                   </div>
                 ))}
 
-                {loading && (
-                  <div className="flex items-center justify-center gap-2 py-2 text-[var(--md-sys-color-on-surface-variant)]">
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    <Text type="secondary" className="text-xs">
-                      加载中…
-                    </Text>
-                  </div>
-                )}
+                {loading && <LoadingLine className="h-auto py-2" />}
               </div>
             </div>
           )}

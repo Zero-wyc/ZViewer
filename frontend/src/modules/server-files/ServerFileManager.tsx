@@ -29,6 +29,8 @@ import { Input } from '@/components/ui/Input'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
 import { Spinner } from '@/components/ui/Spinner'
 import { Switch } from '@/components/ui/Switch'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Text } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import {
@@ -388,23 +390,11 @@ export default function ServerFileManager() {
     <div className="glass-card p-4">
       {/* 头部 */}
       <div className="mb-4 flex flex-col gap-3">
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-            style={{
-              backgroundColor: 'var(--md-sys-color-primary-container)',
-              color: 'var(--md-sys-color-on-primary-container)',
-            }}
-          >
-            <HardDrive className="h-4 w-4" />
-          </div>
-          <div className="flex flex-col">
-            <Text className="text-sm font-medium">服务器文件</Text>
-            <Text className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-              SERVER FILES
-            </Text>
-          </div>
-        </div>
+        <SectionHeader
+          icon={<HardDrive className="h-4 w-4" />}
+          title="服务器文件"
+          subtitle="SERVER FILES"
+        />
         <div className="flex flex-wrap gap-2">
           <Button
             variant="ghost"
@@ -627,13 +617,11 @@ export default function ServerFileManager() {
           <Spinner tip="加载中..." size={28} />
         </div>
       ) : entries.length === 0 ? (
-        <div className="py-6 text-center">
-          <Text type="secondary" className="text-sm">
-            {readonly
-              ? '当前目录为空'
-              : '当前目录为空，点击上方「上传文件」添加'}
-          </Text>
-        </div>
+        <EmptyState
+          text={
+            readonly ? '当前目录为空' : '当前目录为空，点击上方「上传文件」添加'
+          }
+        />
       ) : (
         <div className="space-y-1.5">
           {entries.map((entry) => (
@@ -729,29 +717,20 @@ export default function ServerFileManager() {
               {/* 主面板 */}
               <div className="glass w-full flex-shrink-0 flex-col p-5 md:w-[360px] md:flex">
                 {/* 标题栏 */}
-                <div className="mb-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-                      style={{
-                        backgroundColor:
-                          'var(--md-sys-color-primary-container)',
-                        color: 'var(--md-sys-color-on-primary-container)',
-                      }}
+                <SectionHeader
+                  icon={<HardDrive className="h-4 w-4" />}
+                  title="添加服务器目录"
+                  className="mb-4"
+                  titleClassName="text-base font-semibold"
+                  extra={
+                    <button
+                      onClick={() => setAddRootModalOpen(false)}
+                      className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
                     >
-                      <HardDrive className="h-4 w-4" />
-                    </div>
-                    <h3 className="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
-                      添加服务器目录
-                    </h3>
-                  </div>
-                  <button
-                    onClick={() => setAddRootModalOpen(false)}
-                    className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+                      <X className="h-4 w-4" />
+                    </button>
+                  }
+                />
 
                 {/* 表单内容 */}
                 <div className="flex flex-col gap-3">

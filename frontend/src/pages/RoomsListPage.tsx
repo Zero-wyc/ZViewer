@@ -16,6 +16,7 @@ import { Card } from '@/components/ui/Card'
 import { Title, Text } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { Spinner } from '@/components/ui/Spinner'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { message } from '@/components/ui/message'
 import { useAuthStore } from '@/store/authStore'
 import { apiFetch } from '@/lib/api'
@@ -266,9 +267,10 @@ export default function RoomsListPage() {
           >
             {rooms.length === 0 ? (
               <Fade delay={200} className="col-span-full">
-                <div className="col-span-full py-12 text-center">
-                  <Text type="secondary">暂无可用房间</Text>
-                </div>
+                <EmptyState
+                  text="暂无可用房间"
+                  className="col-span-full py-12"
+                />
               </Fade>
             ) : (
               rooms.map((room, idx) => (

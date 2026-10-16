@@ -38,10 +38,11 @@
  *   走 offset 分页，不做后台并发水合；容器 scrollbar-gutter stable 保持宽度稳定
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Loader2, ListMusic } from 'lucide-react'
+import { ListMusic } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { useMusicStore } from '../store'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
@@ -1073,10 +1074,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           style={{ scrollbarGutter: 'stable' }}
         >
           {detailLoading && (
-            <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              正在获取歌曲…
-            </div>
+            <LoadingLine
+              text="正在获取歌曲…"
+              spinnerClassName="h-3.5 w-3.5"
+              className="h-auto justify-start px-2 py-3 text-sm"
+            />
           )}
           {!detailLoading && filteredSongs.length === 0 && (
             <div className="flex flex-1 items-center justify-center py-10 text-sm text-[var(--md-sys-color-on-surface-variant)]">
@@ -1118,10 +1120,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               className="flex h-12 items-center justify-center gap-2 text-sm text-[var(--md-sys-color-on-surface-variant)]"
             >
               {detailLoadingMore ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  正在加载更多歌曲…
-                </>
+                <LoadingLine
+                  text="正在加载更多歌曲…"
+                  spinnerClassName="h-3.5 w-3.5"
+                  className="h-auto text-sm"
+                />
               ) : (
                 <span>继续下滑加载更多</span>
               )}
@@ -1281,10 +1284,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {/* ===== 歌单（我创建的 / 我收藏的） ===== */}
           {listType1 === 0 &&
             (playlistsLoading ? (
-              <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在获取…
-              </div>
+              <LoadingLine
+                text="正在获取…"
+                spinnerClassName="h-3.5 w-3.5"
+                className="h-auto justify-start px-2 py-3 text-sm"
+              />
             ) : (listType2 === 0 ? createdPlaylists : subscribedPlaylists)
                 .length === 0 ? (
               <LibraryEmptyHint
@@ -1318,10 +1322,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {/* ===== 收藏（专辑 / 歌手 / MV / 电台） ===== */}
           {listType1 === 1 &&
             (subLoading ? (
-              <div className="flex items-center gap-2 px-2 py-3 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在获取…
-              </div>
+              <LoadingLine
+                text="正在获取…"
+                spinnerClassName="h-3.5 w-3.5"
+                className="h-auto justify-start px-2 py-3 text-sm"
+              />
             ) : listType2 === 0 ? (
               subAlbums.length === 0 ? (
                 <LibraryEmptyHint text="暂无收藏的专辑" />

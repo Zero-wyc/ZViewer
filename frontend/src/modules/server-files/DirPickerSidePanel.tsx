@@ -1,5 +1,6 @@
 import { ChevronLeft, HardDrive, Folder, Check } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
 import type { SystemDirEntry } from './types'
@@ -63,28 +64,19 @@ export function DirPickerSidePanel({
         style={{ width: SIDE_PANEL_WIDTH, maxWidth: 'calc(100vw - 2rem)' }}
       >
         {/* 标题栏 */}
-        <div className="mb-2 flex shrink-0 items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-              style={{
-                backgroundColor: 'var(--md-sys-color-primary-container)',
-                color: 'var(--md-sys-color-on-primary-container)',
-              }}
+        <SectionHeader
+          icon={<HardDrive className="h-4 w-4" />}
+          title="选择目录"
+          className="mb-2 shrink-0"
+          extra={
+            <button
+              onClick={onClose}
+              className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
             >
-              <HardDrive className="h-4 w-4" />
-            </div>
-            <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-              选择目录
-            </span>
-          </div>
-          <button
-            onClick={onClose}
-            className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-          >
-            <Check className="h-4 w-4" />
-          </button>
-        </div>
+              <Check className="h-4 w-4" />
+            </button>
+          }
+        />
 
         {/* 路径栏 + 返回 */}
         <div className="mb-2 flex shrink-0 items-center gap-2">

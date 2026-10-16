@@ -8,6 +8,7 @@
 import { useState } from 'react'
 import { ChevronDown, Settings } from 'lucide-react'
 import { RoomInfoPanel } from './RoomInfoPanel'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import { cn } from '@/lib/utils'
 
 interface RoomInfoFabProps {
@@ -29,31 +30,20 @@ export function RoomInfoFab({ roomId, isHost }: RoomInfoFabProps) {
           )}
         >
           {/* 标题栏 */}
-          <div className="mb-2 flex items-center gap-2">
-            <div
-              className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-              style={{
-                backgroundColor: 'var(--md-sys-color-primary-container)',
-                color: 'var(--md-sys-color-on-primary-container)',
-              }}
-            >
-              <Settings className="h-4 w-4" />
-            </div>
-            <div className="flex flex-1 flex-col">
-              <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-                房间状态
-              </span>
-              <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                ROOM INFO
-              </span>
-            </div>
-            <button
-              onClick={() => setExpanded(false)}
-              className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </button>
-          </div>
+          <SectionHeader
+            icon={<Settings className="h-4 w-4" />}
+            title="房间状态"
+            subtitle="ROOM INFO"
+            className="mb-2"
+            extra={
+              <button
+                onClick={() => setExpanded(false)}
+                className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </button>
+            }
+          />
 
           {/* 房间状态内容（自身可滚动，避免超出视口） */}
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">

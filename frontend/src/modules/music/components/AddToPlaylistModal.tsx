@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Loader2, Plus } from 'lucide-react'
 import { apiPost } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { CloudModal, type CloudModalHandle } from './CloudModal'
 import {
   prefetchUserPlaylists,
@@ -223,13 +224,11 @@ export function AddToPlaylistModal({
             {/* 列表内容延后到展开动画结束再挂载（防中途批量渲染掉帧；
               hover 预取通常已就绪，此门只是保证动画期间的确定性流畅） */}
             {unfoldDone && loadState === 'loading' && (
-              <div
-                className="flex items-center justify-center gap-2 py-10 text-xs"
-                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-              >
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                正在获取歌单…
-              </div>
+              <LoadingLine
+                text="正在获取歌单…"
+                spinnerClassName="h-3.5 w-3.5"
+                className="h-auto py-10"
+              />
             )}
             {unfoldDone && loadState === 'error' && (
               <div

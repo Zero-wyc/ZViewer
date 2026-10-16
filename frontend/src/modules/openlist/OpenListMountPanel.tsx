@@ -9,6 +9,8 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { InputPassword } from '@/components/ui/InputPassword'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
+import { EmptyState } from '@/components/ui/EmptyState'
+import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Switch } from '@/components/ui/Switch'
 import { Tag } from '@/components/ui/Tag'
@@ -316,39 +318,29 @@ export default function OpenListMountPanel() {
 
   return (
     <div className="glass-card p-4">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <div
-            className="flex h-8 w-8 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
-            style={{
-              backgroundColor: 'var(--md-sys-color-secondary-container)',
-              color: 'var(--md-sys-color-on-secondary-container)',
-            }}
+      <SectionHeader
+        icon={<Globe className="h-4 w-4" />}
+        title="OpenList 挂载"
+        tone="secondary"
+        className="mb-4"
+        extra={
+          <Button
+            variant="primary"
+            size="sm"
+            icon={<Plus className="h-4 w-4" />}
+            onClick={openAddModal}
           >
-            <Globe className="h-4 w-4" />
-          </div>
-          <Text className="text-sm font-medium">OpenList 挂载</Text>
-        </div>
-        <Button
-          variant="primary"
-          size="sm"
-          icon={<Plus className="h-4 w-4" />}
-          onClick={openAddModal}
-        >
-          添加挂载
-        </Button>
-      </div>
+            添加挂载
+          </Button>
+        }
+      />
 
       {loading && mounts.length === 0 ? (
         <div className="py-6">
           <Spinner tip="加载 OpenList 挂载列表..." size={28} />
         </div>
       ) : mounts.length === 0 ? (
-        <div className="py-6 text-center">
-          <Text type="secondary" className="text-sm">
-            暂无保存的 OpenList 挂载配置
-          </Text>
-        </div>
+        <EmptyState text="暂无保存的 OpenList 挂载配置" />
       ) : (
         <div className="space-y-3">{mounts.map(renderMountItem)}</div>
       )}

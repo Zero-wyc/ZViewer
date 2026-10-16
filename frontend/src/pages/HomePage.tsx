@@ -16,6 +16,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
+import { LoadingLine } from '@/components/ui/LoadingLine'
 import { Tag } from '@/components/ui/Tag'
 import { Space } from '@/components/ui/Space'
 import { Title, Paragraph, Text } from '@/components/ui/Typography'
@@ -311,92 +312,61 @@ function HomePage() {
           <Fade delay={400}>
             <div className="mt-6 flex flex-col items-center gap-2">
               {user ? (
-                <div
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                  style={{
-                    backgroundColor: 'var(--glass-bg)',
-                    color: 'var(--md-sys-color-on-surface)',
-                    border: '1px solid var(--md-sys-color-outline)',
-                  }}
-                >
-                  {isRoot ? (
-                    <>
+                <Tag
+                  className="px-3 py-1.5"
+                  icon={
+                    isRoot || isAdmin ? (
                       <Shield
                         className="w-3.5 h-3.5"
                         style={{ color: 'var(--md-sys-color-primary)' }}
                       />
-                      超级管理员：{user.username}
-                    </>
-                  ) : isAdmin ? (
-                    <>
-                      <Shield
-                        className="w-3.5 h-3.5"
-                        style={{ color: 'var(--md-sys-color-primary)' }}
-                      />
-                      管理员：{user.username}
-                    </>
-                  ) : (
-                    <>
+                    ) : (
                       <User className="w-3.5 h-3.5" />
-                      当前用户：{user.username}
-                    </>
-                  )}
-                </div>
-              ) : (
-                <div
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                  style={{
-                    backgroundColor: 'var(--glass-bg)',
-                    color: 'var(--md-sys-color-on-surface-variant)',
-                    border: '1px solid var(--md-sys-color-outline)',
-                  }}
+                    )
+                  }
                 >
-                  <WifiOff className="w-3.5 h-3.5" />
+                  {isRoot
+                    ? `超级管理员：${user.username}`
+                    : isAdmin
+                      ? `管理员：${user.username}`
+                      : `当前用户：${user.username}`}
+                </Tag>
+              ) : (
+                <Tag
+                  className="px-3 py-1.5"
+                  icon={<WifiOff className="w-3.5 h-3.5" />}
+                  style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                >
                   正在校验登录状态…
-                </div>
+                </Tag>
               )}
               {connected ? (
-                <div
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                  style={{
-                    backgroundColor:
-                      'color-mix(in srgb, var(--md-sys-color-secondary) 12%, transparent)',
-                    color: 'var(--md-sys-color-secondary)',
-                    border:
-                      '1px solid color-mix(in srgb, var(--md-sys-color-secondary) 25%, transparent)',
-                  }}
+                <Tag
+                  tinted
+                  color="success"
+                  icon={<Wifi className="w-3.5 h-3.5" />}
+                  className="px-3 py-1.5"
                 >
-                  <Wifi className="w-3.5 h-3.5" />
                   已连接
-                </div>
+                </Tag>
               ) : isConnecting ? (
-                <div
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                  style={{
-                    backgroundColor:
-                      'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
-                    color: 'var(--md-sys-color-primary)',
-                    border:
-                      '1px solid color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
-                  }}
+                <Tag
+                  tinted
+                  color="primary"
+                  icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                  className="px-3 py-1.5"
                 >
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
                   连接中…
-                </div>
+                </Tag>
               ) : (
-                <div
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium"
-                  style={{
-                    backgroundColor:
-                      'color-mix(in srgb, var(--md-sys-color-error) 12%, transparent)',
-                    color: 'var(--md-sys-color-error)',
-                    border:
-                      '1px solid color-mix(in srgb, var(--md-sys-color-error) 25%, transparent)',
-                  }}
+                <Tag
+                  tinted
+                  color="danger"
+                  icon={<WifiOff className="w-3.5 h-3.5" />}
+                  className="px-3 py-1.5"
                 >
-                  <WifiOff className="w-3.5 h-3.5" />
                   连接断开
-                </div>
+                </Tag>
               )}
             </div>
           </Fade>
@@ -442,10 +412,7 @@ function HomePage() {
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3.5">
               {roomsLoading ? (
-                <div className="flex h-20 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  加载中…
-                </div>
+                <LoadingLine />
               ) : quickRooms.length === 0 ? (
                 <div className="flex h-20 items-center justify-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
                   暂无进行中的房间

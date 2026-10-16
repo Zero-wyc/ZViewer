@@ -21,6 +21,7 @@ import { Loader2 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { NcmBannerItem, NcmSong } from '../types'
 import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
@@ -402,6 +403,7 @@ export function BreakingNewsModal({
   const { add } = useQueueAdd(socket, roomId, canManage)
   const { playSong } = useMusicPlayer()
   const [loading, setLoading] = useState(false)
+  const copy = useCopyToClipboard()
   const [errorText, setErrorText] = useState('')
   const [detail, setDetail] = useState<BreakingNewsDetailData | null>(null)
   /** 弹窗请求代际（关闭/切换时作废旧请求） */
@@ -534,12 +536,10 @@ export function BreakingNewsModal({
       message.info('暂无可复制链接')
       return
     }
-    try {
-      await navigator.clipboard.writeText(shareUrl)
-      message.success('链接已复制')
-    } catch {
-      message.error('复制失败')
-    }
+    await copy(shareUrl, {
+      successMessage: '链接已复制',
+      errorMessage: '复制失败',
+    })
   }
 
   return (

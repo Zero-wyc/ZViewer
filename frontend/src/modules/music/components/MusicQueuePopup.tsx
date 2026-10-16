@@ -20,6 +20,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { Crosshair, X, Trash2, Loader2, Sparkles } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
+import { EmptyState } from '@/components/ui/EmptyState'
 import { useMusicStore, musicItemKey } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { EqBars } from './SongRow'
@@ -282,14 +283,15 @@ export function MusicQueuePopup({
         className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-2"
       >
         {list.length === 0 ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
-            <ListMusicIcon />
-            <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              {isBiliView
+          <EmptyState
+            icon={<ListMusicIcon />}
+            text={
+              isBiliView
                 ? 'B站播放列表为空，去哔哩哔哩页点播视频'
-                : '队列为空，去搜索添加歌曲'}
-            </span>
-          </div>
+                : '队列为空，去搜索添加歌曲'
+            }
+            variant="centered"
+          />
         ) : (
           list.map((item) => {
             const itemKey = musicItemKey(item)

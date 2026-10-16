@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
-import { Download, Copy, Radio, ExternalLink } from 'lucide-react'
+import { Download, Radio, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { CopyButton } from '@/components/ui/CopyButton'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Card } from '@/components/ui/Card'
 import { message } from '@/components/ui/message'
@@ -52,19 +53,6 @@ export function StreamPushPage({
     }
   }, [roomId])
 
-  const handleCopyRtmp = useCallback(() => {
-    const fullText = `${rtmpUrl}/${effectiveStreamKey}`
-    navigator.clipboard
-      .writeText(fullText)
-      .then(() => message.success('推流地址已复制'))
-  }, [rtmpUrl, effectiveStreamKey])
-
-  const handleCopyStreamKey = useCallback(() => {
-    navigator.clipboard
-      .writeText(effectiveStreamKey)
-      .then(() => message.success('流密钥已复制'))
-  }, [effectiveStreamKey])
-
   return (
     <div
       className={`h-full min-h-0 overflow-y-auto p-6 space-y-4 ${className ?? ''}`}
@@ -88,14 +76,13 @@ export function StreamPushPage({
             <Text className="flex-1 truncate rounded px-3 py-1.5 font-mono text-sm">
               {rtmpUrl}
             </Text>
-            <Button
+            <CopyButton
+              value={`${rtmpUrl}/${effectiveStreamKey}`}
+              label="复制地址"
+              successMessage="推流地址已复制"
               size="sm"
               variant="ghost"
-              icon={<Copy className="h-4 w-4" />}
-              onClick={handleCopyRtmp}
-            >
-              复制地址
-            </Button>
+            />
           </div>
         </div>
 
@@ -107,14 +94,13 @@ export function StreamPushPage({
             <Text className="flex-1 truncate rounded px-3 py-1.5 font-mono text-sm">
               {effectiveStreamKey}
             </Text>
-            <Button
+            <CopyButton
+              value={effectiveStreamKey}
+              label="复制密钥"
+              successMessage="流密钥已复制"
               size="sm"
               variant="ghost"
-              icon={<Copy className="h-4 w-4" />}
-              onClick={handleCopyStreamKey}
-            >
-              复制密钥
-            </Button>
+            />
           </div>
           {!streamKey && (
             <Paragraph type="danger" className="m-0 text-xs">
