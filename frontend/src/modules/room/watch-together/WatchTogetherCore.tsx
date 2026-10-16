@@ -48,6 +48,7 @@ import { useVideoPlayingState } from '@/modules/art-player/useVideoPlayingState'
 import { SettingsPanel } from '@/components/VideoPlayer/SettingsPanel'
 import { SubtitleOverlay } from '@/components/VideoPlayer/SubtitleOverlay'
 import { isCliProxyUrl } from '@/modules/player/services/url-proxy'
+import { normalizeAudioCodec } from '@/lib/audioCodecs'
 import type { ArtSlots } from './WatchTogetherPanel'
 import {
   isIOSDevice,
@@ -205,18 +206,13 @@ export function WatchTogetherCore({
   // - 浏览器端转码引擎（playsvideo）：在浏览器内重封装容器并将不兼容
   //   音轨实时转码为 AAC（中转与直链均支持，无需服务端 FFmpeg）
   // - 开关关闭：直推原始流，视频可能无声——提示用户到管理后台开启开关。
-  const BROWSER_SUPPORTED_AUDIO = new Set([
-    'aac',
-    'mp3',
-    'opus',
-    'vorbis',
-    'flac',
-  ])
+  // 编码名经 normalizeAudioCodec 归一化（B站 DASH 的 mp4a.40.x 实为 AAC，
+  // 不归一化会误弹「不受浏览器支持」提示）。
   const lastAudioNoticeRef = useRef('')
   useEffect(() => {
     if (!watchTogether.sourceUrl) return
-    const codec = watchTogether.audioCodec?.toLowerCase()
-    if (!codec || BROWSER_SUPPORTED_AUDIO.has(codec)) return
+    const codec = normalizeAudioCodec(watchTogether.audioCodec)
+    if (!codec) return
 
     // 同一影片+编码只提示一次，避免每次 state 更新都弹
     const key = `${currentMovieId ?? ''}:${codec}`
