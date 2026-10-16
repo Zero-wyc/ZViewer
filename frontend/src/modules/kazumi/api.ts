@@ -113,22 +113,3 @@ export function buildKazumiProxyUrl(
   if (headers.Cookie) params.set('cookie', headers.Cookie)
   return `${getBaseUrl()}/proxy?${params.toString()}`
 }
-
-/**
- * 判断 URL 是否需要走代理：
- * - 携带防盗链 headers：浏览器无法直接设置，必须代理
- * - 跨域：部分 CDN 会拒绝无 CORS 头的请求
- */
-export function needsKazumiProxy(
-  url: string,
-  headers?: Record<string, string>
-): boolean {
-  if (headers && Object.keys(headers).length > 0) return true
-  try {
-    const baseUrl = getApiUrl()
-    const target = new URL(url, baseUrl)
-    return target.origin !== baseUrl
-  } catch {
-    return false
-  }
-}

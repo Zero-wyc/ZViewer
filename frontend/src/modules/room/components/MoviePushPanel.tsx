@@ -27,22 +27,16 @@ import { AniSubsSelector } from '@/modules/anisubs/AniSubsSelector'
 import {
   resolveAniSubsEpisode,
   buildAniSubsProxyUrl,
-  needsAniSubsProxy,
   type AniSubsEpisode,
 } from '@/modules/anisubs'
 import { KazumiSelector } from '@/modules/kazumi/KazumiSelector'
 import {
   resolveKazumiEpisode,
   buildKazumiProxyUrl,
-  needsKazumiProxy,
   type KazumiEpisode,
 } from '@/modules/kazumi'
 import { CmsSelector } from '@/modules/cms/CmsSelector'
-import {
-  resolveCmsEpisode,
-  buildCmsProxyUrl,
-  needsCmsProxy,
-} from '@/modules/cms/api'
+import { resolveCmsEpisode, buildCmsProxyUrl } from '@/modules/cms/api'
 import type { CmsSourceMeta, CmsPlaybackParams } from '@/modules/cms/types'
 import type { AnimeEpisodeSelection } from './AnimeEpisodePicker'
 import {
@@ -428,14 +422,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 item.sourceId,
                 item.episode
               )
-              const url =
-                needsKazumiProxy(resolved.url, resolved.headers) || serverProxy
-                  ? buildKazumiProxyUrl(
-                      resolved.url,
-                      resolved.headers,
-                      serverProxy
-                    )
-                  : resolved.url
+              // 代理决策：仅由服务器中转模式（serverProxy）决定，不自动兜底
+              const url = serverProxy
+                ? buildKazumiProxyUrl(resolved.url, resolved.headers, true)
+                : resolved.url
               await addMovie(roomId, {
                 url,
                 title: item.title,
@@ -487,13 +477,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       try {
         const resolved = await resolveAniSubsEpisode(sourceId, episode)
 
-        // 防盗链处理：若返回 headers（Referer/UA 等），走后端代理 URL
-        // 浏览器无法为 video.src 设置 Referer/UA，必须代理；
-        // 服务器中转模式（serverProxy）开启时无 headers 也强制代理
-        const finalUrl =
-          needsAniSubsProxy(resolved.url, resolved.headers) || serverProxy
-            ? buildAniSubsProxyUrl(resolved.url, resolved.headers, serverProxy)
-            : resolved.url
+        // 防盗链处理：是否走服务器代理仅由服务器中转模式（serverProxy）
+        // 决定——开启时包装为代理 URL（携带 Referer/UA 等参数），关闭时
+        // 一律直连（浏览器无法为 video.src 设置 Referer/UA，带防盗链的
+        // 源不开中转无法播放）
+        const finalUrl = serverProxy
+          ? buildAniSubsProxyUrl(resolved.url, resolved.headers, true)
+          : resolved.url
 
         // 1. 触发实时预览播放（通过 store 解耦 useWatchTogether）
         //    代理 URL 已包含防盗链信息，无需再传 headers
@@ -564,10 +554,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       try {
         const resolved = await resolveKazumiEpisode(sourceId, episode)
 
-        const finalUrl =
-          needsKazumiProxy(resolved.url, resolved.headers) || serverProxy
-            ? buildKazumiProxyUrl(resolved.url, resolved.headers, serverProxy)
-            : resolved.url
+        // 代理决策：仅由服务器中转模式（serverProxy）决定，不自动兜底
+        const finalUrl = serverProxy
+          ? buildKazumiProxyUrl(resolved.url, resolved.headers, true)
+          : resolved.url
 
         setPendingPreviewPlay({
           url: finalUrl,
@@ -733,14 +723,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
       setLoading(true)
       try {
-        // 预览：实时解析直链（采集站 Referer/UA 防盗链 → 统一走后端代理；
-        // 服务器中转模式开启时无 headers 也强制代理）
+        // 预览：实时解析直链；是否走服务器代理仅由服务器中转模式
+        // （serverProxy）决定，不自动兜底
         const resolved = await resolveCmsEpisode(sourceId, params)
 
-        const finalUrl =
-          needsCmsProxy(resolved.url, resolved.headers) || serverProxy
-            ? buildCmsProxyUrl(resolved.url, resolved.headers, serverProxy)
-            : resolved.url
+        const finalUrl = serverProxy
+          ? buildCmsProxyUrl(resolved.url, resolved.headers, true)
+          : resolved.url
 
         setPendingPreviewPlay({
           url: finalUrl,
@@ -2503,9 +2492,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           )}
 
           {/* 服务器中转开关：仅数据源类（ani/kazumi/cms）显示。默认关闭——
-              解析直链可直连则直连（携带防盗链 headers 时自动经服务器代理）；
-              开启后媒体流一律经服务器中转（ani/cms 播放时实时重解析消费，
-              kazumi 添加时物化为代理 URL）。 */}
+              一律直连源站，服务器零媒体流量（带防盗链的源不开中转无法播放，
+              浏览器无法设置 Referer/UA）；开启后媒体流一律经服务器中转。
+              ani/cms 播放时实时重解析消费，kazumi 添加时物化为代理 URL。 */}
           {(sourceType === 'anime' ||
             sourceType === 'kazumi' ||
             sourceType === 'cms') && (
@@ -2516,7 +2505,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   type="secondary"
                   className="block text-[11px] leading-snug mt-0.5"
                 >
-                  关闭（默认）：直链可直连则直连，防盗链时自动经服务器代理。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。
+                  关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。
                 </Text>
               </div>
               <button

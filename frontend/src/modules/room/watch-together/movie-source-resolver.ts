@@ -20,16 +20,8 @@ import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import type { QualityOption } from './resolveSource'
 import { buildServerFileProxyUrl } from '@/modules/server-files/serverFilesApi'
 import { resolveMovieDirectUrl } from '@/modules/direct-link/directLinkApi'
-import {
-  resolveAniSubsEpisode,
-  buildAniSubsProxyUrl,
-  needsAniSubsProxy,
-} from '@/modules/anisubs'
-import {
-  resolveCmsEpisode,
-  buildCmsProxyUrl,
-  needsCmsProxy,
-} from '@/modules/cms/api'
+import { resolveAniSubsEpisode, buildAniSubsProxyUrl } from '@/modules/anisubs'
+import { resolveCmsEpisode, buildCmsProxyUrl } from '@/modules/cms/api'
 import type { CmsSourceMeta } from '@/modules/cms/types'
 
 /** 房主刷新恢复时由后端返回的最近一次播放状态（源相关子集） */
@@ -391,8 +383,10 @@ export async function resolveBilibiliOnline(
  * ani-subs 的视频地址通常带 token/signature，短期有效（几分钟到几小时）。
  * 每次播放（含刷新恢复）都通过 sourceMeta 重新解析，确保使用最新地址。
  *
- * 防盗链处理：若返回 headers（Referer/UA 等），构建后端代理 URL。
- * 浏览器无法为 video.src 设置 Referer/UA，必须走代理。
+ * 防盗链处理：是否走服务器代理完全由影片级「服务器中转」开关
+ * （movie.serverProxy）决定——开启时包装为后端代理 URL（携带 Referer/UA
+ * 等防盗链参数），关闭时一律直连源站（即使源返回防盗链 headers，
+ * 浏览器无法为 video.src 设置 Referer/UA，带防盗链的源不开中转无法播放）。
  *
  * @throws sourceMeta 缺失或解析失败时抛错
  */
@@ -406,12 +400,10 @@ export async function resolveAnimeOnline(
   const { sourceId, episode } = movie.sourceMeta
   const resolved = await resolveAniSubsEpisode(sourceId, episode)
 
-  // 代理决策：服务器中转模式（movie.serverProxy）强制包装为代理 URL；
-  // 否则仅防盗链 headers / 跨域时走代理（浏览器无法设置 Referer/UA）
-  const forceProxy = movie.serverProxy === true
+  // 代理决策：仅由服务器中转模式（movie.serverProxy）决定，不自动兜底
   const finalUrl =
-    forceProxy || needsAniSubsProxy(resolved.url, resolved.headers)
-      ? buildAniSubsProxyUrl(resolved.url, resolved.headers, forceProxy)
+    movie.serverProxy === true
+      ? buildAniSubsProxyUrl(resolved.url, resolved.headers, true)
       : resolved.url
 
   return {
@@ -429,10 +421,11 @@ export async function resolveAnimeOnline(
 /**
  * 在线解析 CMS 采集源播放地址。
  *
- * 采集站直链普遍短时效且带 Referer/UA 防盗链，每次播放（含刷新恢复）
+ * 采集站直链普遍短时效且常带 Referer/UA 防盗链，每次播放（含刷新恢复）
  * 都通过 sourceMeta 调用后端 /cms/resolve 实时解析（60s 服务端缓存）。
- * 解析结果必带防盗链 headers → 统一包装为后端 /cms/proxy 代理 URL，
- * 浏览器无法为 video.src 设置 Referer/UA，必须走代理。
+ * 是否走服务器代理完全由影片级「服务器中转」开关（movie.serverProxy）
+ * 决定——开启时统一包装为后端 /cms/proxy 代理 URL，关闭时一律直连
+ * （即使源返回防盗链 headers，浏览器无法设置 Referer/UA，不开中转无法播放）。
  *
  * @throws sourceMeta 缺失或解析失败时抛错
  */
@@ -450,12 +443,10 @@ export async function resolveCmsOnline(
     episodeIndex: meta.episodeIndex,
   })
 
-  // 代理决策：服务器中转模式（movie.serverProxy）强制包装为代理 URL；
-  // 否则仅防盗链 headers / 跨域时走代理（浏览器无法设置 Referer/UA）
-  const forceProxy = movie.serverProxy === true
+  // 代理决策：仅由服务器中转模式（movie.serverProxy）决定，不自动兜底
   const finalUrl =
-    forceProxy || needsCmsProxy(resolved.url, resolved.headers)
-      ? buildCmsProxyUrl(resolved.url, resolved.headers, forceProxy)
+    movie.serverProxy === true
+      ? buildCmsProxyUrl(resolved.url, resolved.headers, true)
       : resolved.url
 
   return {
