@@ -50,7 +50,7 @@ interface RoomItem {
   hasPassword: boolean
   viewerCount: number
   sharerOnline: boolean
-  mode: 'screen-share' | 'watch-together'
+  mode: 'screen-share' | 'watch-together' | 'listen-together'
   lastAccessedAt: string
   createdAt: string
 }
@@ -129,6 +129,7 @@ export default function RoomsListPage() {
 
   const getModeLabel = (mode: RoomItem['mode']) => {
     if (mode === 'watch-together') return '一起看'
+    if (mode === 'listen-together') return '一起听'
     return '屏幕共享'
   }
 

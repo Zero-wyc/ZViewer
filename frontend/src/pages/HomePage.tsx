@@ -36,7 +36,7 @@ interface QuickRoomItem {
   hasPassword: boolean
   viewerCount: number
   sharerOnline: boolean
-  mode: 'screen-share' | 'watch-together'
+  mode: 'screen-share' | 'watch-together' | 'listen-together'
 }
 
 const Fade = ({
@@ -483,7 +483,9 @@ function HomePage() {
                           <Tag color="default">
                             {room.mode === 'screen-share'
                               ? '屏幕共享'
-                              : '一起看'}
+                              : room.mode === 'listen-together'
+                                ? '一起听'
+                                : '一起看'}
                           </Tag>
                         </div>
                         <Text type="secondary" className="text-xs">
