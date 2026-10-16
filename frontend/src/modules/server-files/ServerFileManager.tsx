@@ -9,7 +9,6 @@
  * 文件播放通过房间内 MoviePushPanel 的「服务器文件」源类型完成。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import {
   ChevronLeft,
   File,
@@ -27,6 +26,7 @@ import {
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Modal, ConfirmModal } from '@/components/ui/Modal'
+import { ModalShell } from '@/components/ui/ModalShell'
 import { Spinner } from '@/components/ui/Spinner'
 import { Switch } from '@/components/ui/Switch'
 import { EmptyState } from '@/components/ui/EmptyState'
@@ -205,8 +205,8 @@ export default function ServerFileManager() {
   }, [])
 
   // 目录选取器：进入子目录
-  const handleDirPickerEnter = (entry: SystemDirEntry) => {
-    void loadDirPicker(entry.absPath)
+  const handleDirPickerEnter = (entryKey: string) => {
+    void loadDirPicker(entryKey)
   }
 
   // 目录选取器：返回上一级
@@ -688,140 +688,119 @@ export default function ServerFileManager() {
       )}
 
       {/* 添加根目录 Popup（主面板 + 副面板 flex 布局，向右延伸） */}
-      {addRootModalOpen &&
-        createPortal(
-          <div
-            className="fixed inset-0 flex items-start justify-center px-4"
-            style={{
-              zIndex: 999,
-              paddingTop: '80px',
-            }}
-          >
-            {/* 轻量遮罩（点击关闭） */}
-            <div
-              className="absolute inset-0 bg-black/20"
-              style={{
-                backdropFilter: 'blur(var(--glass-blur-mask))',
-                WebkitBackdropFilter: 'blur(var(--glass-blur-mask))',
-              }}
-              onClick={() => setAddRootModalOpen(false)}
+      <ModalShell
+        open={addRootModalOpen}
+        onClose={() => setAddRootModalOpen(false)}
+        align="top"
+        backdrop="light"
+        animate={false}
+        className="flex max-h-[calc(100vh-160px)] max-w-[calc(100vw-2rem)] flex-col md:flex-row"
+      >
+        {/* 主面板 */}
+        <div className="glass w-full flex-shrink-0 flex-col p-5 md:w-[360px] md:flex">
+          {/* 标题栏 */}
+          <SectionHeader
+            icon={<HardDrive className="h-4 w-4" />}
+            title="添加服务器目录"
+            className="mb-4"
+            titleClassName="text-base font-semibold"
+            extra={
+              <button
+                onClick={() => setAddRootModalOpen(false)}
+                className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            }
+          />
+
+          {/* 表单内容 */}
+          <div className="flex flex-col gap-3">
+            <Input
+              label="名称"
+              value={newRootName}
+              onChange={(e) => setNewRootName(e.target.value)}
+              placeholder="如：影视库、下载目录"
+              autoFocus
             />
-            {/* 主面板 + 副面板 flex 容器 */}
-            <div
-              className="glass-strong relative z-10 flex max-h-[calc(100vh-160px)] max-w-[calc(100vw-2rem)] flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)] shadow-lg md:flex-row"
-              style={{
-                boxShadow:
-                  '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
-              }}
-            >
-              {/* 主面板 */}
-              <div className="glass w-full flex-shrink-0 flex-col p-5 md:w-[360px] md:flex">
-                {/* 标题栏 */}
-                <SectionHeader
-                  icon={<HardDrive className="h-4 w-4" />}
-                  title="添加服务器目录"
-                  className="mb-4"
-                  titleClassName="text-base font-semibold"
-                  extra={
-                    <button
-                      onClick={() => setAddRootModalOpen(false)}
-                      className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
-                    >
-                      <X className="h-4 w-4" />
-                    </button>
-                  }
+            {/* 服务器目录选取 */}
+            <div className="flex flex-col gap-1.5">
+              <Text className="text-sm font-medium">服务器目录</Text>
+              <div className="flex gap-2">
+                <Input
+                  value={newRootPath}
+                  onChange={(e) => setNewRootPath(e.target.value)}
+                  placeholder="点击右侧按钮浏览选取目录"
+                  className="flex-1"
                 />
-
-                {/* 表单内容 */}
-                <div className="flex flex-col gap-3">
-                  <Input
-                    label="名称"
-                    value={newRootName}
-                    onChange={(e) => setNewRootName(e.target.value)}
-                    placeholder="如：影视库、下载目录"
-                    autoFocus
-                  />
-                  {/* 服务器目录选取 */}
-                  <div className="flex flex-col gap-1.5">
-                    <Text className="text-sm font-medium">服务器目录</Text>
-                    <div className="flex gap-2">
-                      <Input
-                        value={newRootPath}
-                        onChange={(e) => setNewRootPath(e.target.value)}
-                        placeholder="点击右侧按钮浏览选取目录"
-                        className="flex-1"
-                      />
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        icon={<HardDrive className="h-3.5 w-3.5" />}
-                        onClick={handleDirPickerToggle}
-                      >
-                        {dirPickerOpen ? '收起' : '浏览'}
-                      </Button>
-                    </div>
-                  </div>
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex flex-col">
-                      <Text className="text-sm font-medium">只读模式</Text>
-                      <Text
-                        type="secondary"
-                        className="text-[10px] uppercase tracking-wide"
-                      >
-                        禁止上传/新建/重命名/删除
-                      </Text>
-                    </div>
-                    <Switch
-                      checked={newRootReadonly}
-                      onChange={(e) => setNewRootReadonly(e.target.checked)}
-                    />
-                  </div>
-                  <Text
-                    type="secondary"
-                    className="text-[10px] leading-relaxed"
-                  >
-                    点击「浏览」在服务器文件系统中导航选取目录，也可手动输入路径。
-                    目录必须存在且服务器进程有访问权限。
-                  </Text>
-                </div>
-
-                {/* 底部按钮 */}
-                <div className="mt-5 flex items-center justify-end gap-3">
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => setAddRootModalOpen(false)}
-                  >
-                    取消
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => void handleAddRoot()}
-                    disabled={addingRoot}
-                  >
-                    {addingRoot ? '添加中...' : '添加'}
-                  </Button>
-                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  icon={<HardDrive className="h-3.5 w-3.5" />}
+                  onClick={handleDirPickerToggle}
+                >
+                  {dirPickerOpen ? '收起' : '浏览'}
+                </Button>
               </div>
-
-              {/* 副面板：目录浏览（向右延伸，width 动画） */}
-              <DirPickerSidePanel
-                open={dirPickerOpen}
-                loading={dirPickerLoading}
-                error={dirPickerError}
-                entries={dirPickerEntries}
-                currentPath={dirPickerPath}
-                isRoot={dirPickerIsRoot}
-                onEnter={handleDirPickerEnter}
-                onBack={handleDirPickerBack}
-                onSelect={handleDirPickerSelect}
-                onClose={() => setDirPickerOpen(false)}
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex flex-col">
+                <Text className="text-sm font-medium">只读模式</Text>
+                <Text
+                  type="secondary"
+                  className="text-[10px] uppercase tracking-wide"
+                >
+                  禁止上传/新建/重命名/删除
+                </Text>
+              </div>
+              <Switch
+                checked={newRootReadonly}
+                onChange={(e) => setNewRootReadonly(e.target.checked)}
               />
             </div>
-          </div>,
-          document.body
-        )}
+            <Text type="secondary" className="text-[10px] leading-relaxed">
+              点击「浏览」在服务器文件系统中导航选取目录，也可手动输入路径。
+              目录必须存在且服务器进程有访问权限。
+            </Text>
+          </div>
+
+          {/* 底部按钮 */}
+          <div className="mt-5 flex items-center justify-end gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setAddRootModalOpen(false)}
+            >
+              取消
+            </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => void handleAddRoot()}
+              disabled={addingRoot}
+            >
+              {addingRoot ? '添加中...' : '添加'}
+            </Button>
+          </div>
+        </div>
+
+        {/* 副面板：目录浏览（向右延伸，width 动画） */}
+        <DirPickerSidePanel
+          open={dirPickerOpen}
+          loading={dirPickerLoading}
+          error={dirPickerError}
+          entries={dirPickerEntries.map((e) => ({
+            key: e.absPath,
+            name: e.name,
+          }))}
+          currentPath={dirPickerPath}
+          isRoot={dirPickerIsRoot}
+          onEnter={handleDirPickerEnter}
+          onBack={handleDirPickerBack}
+          onSelect={handleDirPickerSelect}
+          onClose={() => setDirPickerOpen(false)}
+        />
+      </ModalShell>
 
       {/* 新建文件夹 Modal */}
       <Modal

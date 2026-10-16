@@ -10,6 +10,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, Music, SearchX } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
+import { formatDurationMs } from '@/lib/utils'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
@@ -69,20 +70,6 @@ function mapSong(song: CloudsearchSong): NcmSong {
     // fee=1（VIP 曲目）与 fee=4（购买专辑）未登录时不可播
     vip: song.fee === 1 || song.fee === 4,
   }
-}
-
-/**
- * 歌曲时长格式化（对齐 Hydrogen songTime）：
- * 毫秒 → mm:ss，超过 1 小时 → HH:mm:ss，无数据 → '--:--'
- */
-function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '--:--'
-  const totalSec = Math.floor(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return h > 0 ? `${String(h).padStart(2, '0')}:${mmss}` : mmss
 }
 
 export function MusicSearchPage({

@@ -33,6 +33,11 @@ import {
   canRoomViewerPerform,
 } from '@/store/systemSettingsStore'
 import { cn } from '@/lib/utils'
+import {
+  USER_ROLE_LABELS,
+  USER_ROLE_CSS_COLORS,
+  type UserRole,
+} from '@/lib/roles'
 
 interface RoomInfoPanelProps {
   roomId: string
@@ -41,27 +46,10 @@ interface RoomInfoPanelProps {
 
 type SettingsTab = 'info' | 'viewers' | 'permissions'
 
-// 后端 socket.data.role 取值
-type UserRole = 'root' | 'admin' | 'user' | 'guest'
-
-const ROLE_LABELS: Record<UserRole, string> = {
-  root: '超级管理员',
-  admin: '管理员',
-  user: '普通用户',
-  guest: '游客',
-}
-
-const ROLE_COLORS: Record<UserRole, string> = {
-  root: 'var(--md-sys-color-error)',
-  admin: 'var(--md-sys-color-primary)',
-  user: 'var(--md-sys-color-tertiary)',
-  guest: 'var(--md-sys-color-outline)',
-}
-
 function RoleBadge({ role }: { role?: string }) {
-  if (!role || !(role in ROLE_LABELS)) return null
-  const label = ROLE_LABELS[role as UserRole]
-  const color = ROLE_COLORS[role as UserRole]
+  if (!role || !(role in USER_ROLE_LABELS)) return null
+  const label = USER_ROLE_LABELS[role as UserRole]
+  const color = USER_ROLE_CSS_COLORS[role as UserRole]
   return (
     <span
       className="shrink-0 rounded px-1 py-0.5 text-[10px] font-medium"

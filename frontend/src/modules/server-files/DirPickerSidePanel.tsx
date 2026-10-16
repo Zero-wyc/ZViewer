@@ -3,12 +3,19 @@ import { Button } from '@/components/ui/Button'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
-import type { SystemDirEntry } from './types'
 
 /** 副面板宽度（px） */
 export const SIDE_PANEL_WIDTH = 300
 /** 动画时长 */
 const DURATION = 240
+
+/** 目录条目的通用形态（调用方把 SystemDirEntry / ServerFileEntry 映射过来） */
+export interface DirPickerEntry {
+  /** 唯一 key（完整路径），onEnter 回传 */
+  key: string
+  /** 展示名 */
+  name: string
+}
 
 export interface DirPickerSidePanelProps {
   /** 是否展开 */
@@ -16,19 +23,21 @@ export interface DirPickerSidePanelProps {
   /** 加载中 */
   loading: boolean
   /** 错误信息 */
-  error: string
+  error?: string
   /** 目录条目列表 */
-  entries: SystemDirEntry[]
+  entries: DirPickerEntry[]
   /** 当前路径 */
   currentPath: string
-  /** 是否为系统根 */
+  /** 路径为空时的占位文案 */
+  currentPathPlaceholder?: string
+  /** 是否处于根级（根级禁用返回 + 图标用硬盘） */
   isRoot: boolean
-  /** 进入子目录 */
-  onEnter: (entry: SystemDirEntry) => void
+  /** 进入子目录（回传条目 key） */
+  onEnter: (entryKey: string) => void
   /** 返回上一级 */
   onBack: () => void
-  /** 选择当前目录 */
-  onSelect: () => void
+  /** 选择当前目录（提供时在底部渲染「选择此目录」按钮） */
+  onSelect?: () => void
   /** 关闭面板 */
   onClose: () => void
 }
@@ -36,6 +45,7 @@ export interface DirPickerSidePanelProps {
 /**
  * 目录选取副面板（flex 子元素，通过 width 动画向右展开）。
  * 作为主面板的 flex 兄弟元素，展开时宽度从 0 过渡到 SIDE_PANEL_WIDTH。
+ * 服务器文件管理器与 B站下载弹窗共用。
  */
 export function DirPickerSidePanel({
   open,
@@ -43,6 +53,7 @@ export function DirPickerSidePanel({
   error,
   entries,
   currentPath,
+  currentPathPlaceholder = '服务器根目录',
   isRoot,
   onEnter,
   onBack,
@@ -93,7 +104,7 @@ export function DirPickerSidePanel({
             className="min-w-0 flex-1 truncate text-xs text-[var(--md-sys-color-on-surface-variant)]"
             title={currentPath}
           >
-            {currentPath || '服务器根目录'}
+            {currentPath || currentPathPlaceholder}
           </Text>
         </div>
 
@@ -114,8 +125,8 @@ export function DirPickerSidePanel({
           ) : (
             entries.map((entry) => (
               <div
-                key={entry.absPath}
-                onClick={() => onEnter(entry)}
+                key={entry.key}
+                onClick={() => onEnter(entry.key)}
                 className="flex cursor-pointer items-center gap-2 rounded p-1.5 transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
               >
                 <div
@@ -138,7 +149,7 @@ export function DirPickerSidePanel({
         </div>
 
         {/* 选择当前目录按钮 */}
-        {!isRoot && currentPath && !loading && !error && (
+        {onSelect && !isRoot && currentPath && !loading && !error && (
           <Button
             variant="primary"
             size="sm"

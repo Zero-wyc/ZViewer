@@ -33,7 +33,7 @@ import { LoadingLine } from '@/components/ui/LoadingLine'
 import { CloudModal } from './CloudModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
 import { extractSongTitle } from '../utils/songTitle'
-import { cn } from '@/lib/utils'
+import { cn, formatDurationMs } from '@/lib/utils'
 
 interface NcmSearchModalProps {
   open: boolean
@@ -73,15 +73,6 @@ interface NcmSongLite {
 
 /** 搜索结果条数上限 */
 const SEARCH_LIMIT = 20
-
-/** 毫秒 → mm:ss（无数据 --:--） */
-function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '--:--'
-  const totalSec = Math.floor(ms / 1000)
-  const m = Math.floor(totalSec / 60)
-  const s = totalSec % 60
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
 
 /** 搜索条目 → 精简结构（双结构兼容，与 MusicSearchPage.mapSong 同思路） */
 function mapSong(song: CloudsearchSong): NcmSongLite {

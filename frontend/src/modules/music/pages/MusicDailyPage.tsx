@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { apiGet } from '@/lib/api'
+import { formatDurationMs } from '@/lib/utils'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
@@ -78,15 +79,6 @@ function mapSong(song: CommonSongItem): NcmSong {
     durationMs: song.dt ?? 0,
     vip: song.fee === 1 || song.fee === 4,
   }
-}
-
-/** 毫秒时长格式化为 m:ss */
-function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '0:00'
-  const totalSec = Math.floor(ms / 1000)
-  const m = Math.floor(totalSec / 60)
-  const s = totalSec % 60
-  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 /** 日期下拉交互与反色高亮样式（Hydrogen RecommendSongs scoped SCSS 平替，
@@ -652,7 +644,7 @@ export function MusicDailyPanel({
             cover={song.cover}
             name={song.name}
             artist={song.artist}
-            duration={formatDurationMs(song.durationMs)}
+            duration={formatDurationMs(song.durationMs, '0:00')}
             vip={song.vip}
             disabled={song.vip && !loginStatus.loggedIn}
             active={`ncm:${song.songId}` === currentKey}

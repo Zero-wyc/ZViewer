@@ -19,6 +19,7 @@ import { Space } from '@/components/ui/Space'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Modal } from '@/components/ui/Modal'
 import { Tag } from '@/components/ui/Tag'
+import { formatDuration } from '@/lib/utils'
 
 import { message } from '@/components/ui/message'
 import { useRoomStore } from '@/store/roomStore'
@@ -155,17 +156,6 @@ function extractTitleFromUrl(url: string) {
 function normalizeMountPath(path: string): string {
   if (!path) return path
   return path.trim().replace(/^\/+/, '/')
-}
-
-function formatDuration(seconds: number): string {
-  if (!seconds || seconds <= 0) return ''
-  const h = Math.floor(seconds / 3600)
-  const m = Math.floor((seconds % 3600) / 60)
-  const s = Math.floor(seconds % 60)
-  if (h > 0) {
-    return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  }
-  return `${m}:${String(s).padStart(2, '0')}`
 }
 
 interface MoviePushPanelProps {
@@ -2871,7 +2861,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                             'text-[var(--md-sys-color-on-primary-container)]'
                         )}
                       >
-                        {formatDuration(page.duration)}
+                        {formatDuration(page.duration, '')}
                         {page.badge ? ` · ${page.badge}` : ''}
                       </Text>
                     )}

@@ -26,6 +26,7 @@ import {
   type BilibiliVideoViewInfo,
 } from '@/modules/bilibili/bilibiliApi'
 import { buildBilibiliImageProxyUrl } from '@/modules/room/watch-together/resolveSource'
+import { formatDuration } from '@/lib/utils'
 
 interface BiliSearchModalProps {
   open: boolean
@@ -37,17 +38,6 @@ interface BiliSearchModalProps {
 /** 剥离 B站 搜索标题里的 <em class="keyword"> 高亮标记 */
 function stripEm(title: string): string {
   return title.replace(/<\/?em[^>]*>/g, '')
-}
-
-/** 秒 → mm:ss / h:mm:ss */
-function formatDuration(sec: number): string {
-  const s = Math.max(Math.round(sec), 0)
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  const r = s % 60
-  return h > 0
-    ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}`
-    : `${m}:${String(r).padStart(2, '0')}`
 }
 
 /** 播放/弹幕数万位缩写 */

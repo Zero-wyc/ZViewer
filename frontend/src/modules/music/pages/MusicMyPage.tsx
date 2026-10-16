@@ -49,7 +49,7 @@ import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
-import { cn } from '@/lib/utils'
+import { cn, formatDurationMs } from '@/lib/utils'
 import { MusicLoginGate, PageBlockHeader } from './MusicLoginGate'
 import { MusicDailyPanel } from './MusicDailyPage'
 
@@ -170,20 +170,6 @@ interface PlaylistTrackItem {
   al?: { name?: string; picUrl?: string }
   dt?: number
   fee?: number
-}
-
-/**
- * 歌曲时长格式化（对齐 Hydrogen songTime）：
- * 毫秒 → mm:ss，超过 1 小时 → HH:mm:ss，无数据 → '--:--'
- */
-function formatDurationMs(ms: number): string {
-  if (!Number.isFinite(ms) || ms <= 0) return '--:--'
-  const totalSec = Math.floor(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  const mmss = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return h > 0 ? `${String(h).padStart(2, '0')}:${mmss}` : mmss
 }
 
 /** 网易云歌曲 → NcmSong（PlaylistTrackItem 形态） */

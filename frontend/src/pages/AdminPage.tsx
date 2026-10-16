@@ -32,6 +32,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { ConfirmModal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
+import { USER_ROLE_LABELS, USER_ROLE_TAG_COLORS } from '@/lib/roles'
 import { Switch } from '@/components/ui/Switch'
 import { Input } from '@/components/ui/Input'
 import { InputNumber } from '@/components/ui/InputNumber'
@@ -712,14 +713,8 @@ export default function AdminPage() {
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
-        const roleLabelMap: Record<AdminUser['role'], string> = {
-          root: '超级管理员',
-          admin: '管理员',
-          user: '普通用户',
-          guest: '游客',
-        }
         message.success(
-          `已将 ${targetUser.username} 设为 ${roleLabelMap[nextRole]}`
+          `已将 ${targetUser.username} 设为 ${USER_ROLE_LABELS[nextRole]}`
         )
         await fetchUsers()
       } else {
@@ -1330,27 +1325,6 @@ export default function AdminPage() {
             ) : (
               users.map((u) => {
                 const isRootUser = u.role === 'root' || u.username === 'root'
-                const roleLabelMap: Record<AdminUser['role'], string> = {
-                  root: '超级管理员',
-                  admin: '管理员',
-                  user: '普通用户',
-                  guest: '游客',
-                }
-                const roleColorMap: Record<
-                  AdminUser['role'],
-                  | 'default'
-                  | 'primary'
-                  | 'success'
-                  | 'warning'
-                  | 'danger'
-                  | 'cyan'
-                  | 'purple'
-                > = {
-                  root: 'primary',
-                  admin: 'cyan',
-                  user: 'default',
-                  guest: 'default',
-                }
                 return (
                   <div
                     key={u.id}
@@ -1363,11 +1337,11 @@ export default function AdminPage() {
                         <span className="truncate font-medium text-[var(--md-sys-color-on-surface)]">
                           {u.username}
                         </span>
-                        <Tag color={roleColorMap[u.role]}>
+                        <Tag color={USER_ROLE_TAG_COLORS[u.role]}>
                           {u.role === 'root' || u.role === 'admin' ? (
                             <Shield className="mr-1 inline h-3 w-3" />
                           ) : null}
-                          {roleLabelMap[u.role]}
+                          {USER_ROLE_LABELS[u.role]}
                         </Tag>
                         {u.status === 'pending' ? (
                           <Tag color="warning">待审核</Tag>

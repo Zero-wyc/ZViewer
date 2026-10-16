@@ -6,7 +6,7 @@
  * - 复用 WatchTogetherCore 的业务回调：播放/暂停、seek、音量、倍速、弹幕、同步、重载、设置、全屏。
  * - 房主端可直接操作；观众端进度条只读并触发申请跳转，倍速下拉禁用。
  */
-import { forwardRef, useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Play,
   Pause,
@@ -31,6 +31,7 @@ import {
   markUserPaused,
 } from '@/modules/player/services/pause-intent'
 import { DanmakuInput } from '@/components/VideoPlayer/parts/DanmakuInput'
+import { IconButton } from '@/components/VideoControls/IconButton'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
@@ -631,7 +632,9 @@ export function PlayerControlBar({
         {/* 控制按钮行 */}
         <div className="flex items-center gap-1 md:gap-1.5">
           {/* 播放 / 暂停 */}
-          <ControlButton
+          <IconButton
+            size="bar"
+            stopPropagation
             label={
               canControl
                 ? isPlaying
@@ -643,9 +646,8 @@ export function PlayerControlBar({
             }
             disabled={!canControl && (isPlaying ? pausePending : playPending)}
             onClick={handlePlayPauseClick}
-          >
-            {isPlaying ? <Pause size={18} /> : <Play size={18} />}
-          </ControlButton>
+            icon={isPlaying ? <Pause size={18} /> : <Play size={18} />}
+          />
 
           {/* 时间 */}
           <div className="select-none px-0.5 md:px-1 text-[10px] md:text-xs font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
@@ -655,12 +657,13 @@ export function PlayerControlBar({
           </div>
 
           {/* 弹幕开关：开启时不显示底色，通过图标是否带斜线区分状态 */}
-          <ControlButton
+          <IconButton
+            size="bar"
+            stopPropagation
             label={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
             onClick={onToggleDanmaku}
-          >
-            <DanmakuIcon off={!danmakuEnabled} />
-          </ControlButton>
+            icon={<DanmakuIcon off={!danmakuEnabled} />}
+          />
 
           {/* 弹幕输入框（桌面端显示） */}
           <div className="hidden min-w-0 flex-1 items-center gap-1 md:flex">
@@ -669,16 +672,19 @@ export function PlayerControlBar({
 
           {/* 倍速 */}
           <div ref={rateContainerRef} className="relative">
-            <ControlButton
+            <IconButton
+              size="bar"
+              stopPropagation
               label="播放倍速"
               disabled={!canControl}
               active={rateOpen}
               onClick={() => canControl && setRateOpen((v) => !v)}
-            >
-              <span className="min-w-[2ch] text-xs font-semibold">
-                {playbackRate}x
-              </span>
-            </ControlButton>
+              icon={
+                <span className="min-w-[2ch] text-xs font-semibold">
+                  {playbackRate}x
+                </span>
+              }
+            />
             {rateOpen && canControl && (
               <div className="glass absolute bottom-full left-1/2 z-30 mb-2 -translate-x-1/2 overflow-hidden rounded-xl p-1 shadow-lg">
                 {RATES.map((rate) => {
@@ -712,12 +718,13 @@ export function PlayerControlBar({
             onMouseEnter={openVolume}
             onMouseLeave={scheduleCloseVolume}
           >
-            <ControlButton
+            <IconButton
+              size="bar"
+              stopPropagation
               label={muted || volume === 0 ? '取消静音' : '静音'}
               onClick={toggleMute}
-            >
-              <VolumeIcon size={18} />
-            </ControlButton>
+              icon={<VolumeIcon size={18} />}
+            />
             {volumeOpen && (
               <div
                 className="glass absolute bottom-full left-1/2 z-30 flex -translate-x-1/2 flex-col items-center gap-2 rounded-xl p-2 pb-3 pt-4 shadow-lg"
@@ -744,61 +751,75 @@ export function PlayerControlBar({
           {/* 房主专属：同步进度（桌面端直接显示） */}
           {isHost && (
             <div className="hidden md:block">
-              <ControlButton label="同步进度" onClick={onSync}>
-                <RotateCcw size={18} />
-              </ControlButton>
+              <IconButton
+                size="bar"
+                stopPropagation
+                label="同步进度"
+                onClick={onSync}
+                icon={<RotateCcw size={18} />}
+              />
             </div>
           )}
 
           {/* 重载视频：桌面端直接显示 */}
           <div className="hidden md:block">
-            <ControlButton label="重载视频" onClick={onReload}>
-              <RotateCw size={18} />
-            </ControlButton>
+            <IconButton
+              size="bar"
+              stopPropagation
+              label="重载视频"
+              onClick={onReload}
+              icon={<RotateCw size={18} />}
+            />
           </div>
 
           {/* 隐藏/显示控制栏 */}
-          <ControlButton
+          <IconButton
+            size="bar"
+            stopPropagation
             label={controlBarHideMode ? '显示控制栏' : '隐藏控制栏'}
             active={controlBarHideMode}
             onClick={onToggleHideMode}
-          >
-            {controlBarHideMode ? <Eye size={18} /> : <EyeOff size={18} />}
-          </ControlButton>
+            icon={controlBarHideMode ? <Eye size={18} /> : <EyeOff size={18} />}
+          />
 
           {/* 设置 */}
-          <ControlButton
+          <IconButton
             ref={settingsButtonRef}
+            size="bar"
+            stopPropagation
             label="设置"
             active={settingsOpen}
             onClick={onToggleSettings}
-          >
-            <Settings size={18} />
-          </ControlButton>
+            icon={<Settings size={18} />}
+          />
 
           {/* 网页全屏：桌面端直接显示 */}
           <div className="hidden md:block">
-            <ControlButton
+            <IconButton
+              size="bar"
+              stopPropagation
               label={isWebFullscreen ? '退出网页全屏' : '网页全屏'}
               onClick={onToggleWebFullscreen}
-            >
-              {isWebFullscreen ? (
-                <Minimize size={18} />
-              ) : (
-                <Maximize size={18} />
-              )}
-            </ControlButton>
+              icon={
+                isWebFullscreen ? (
+                  <Minimize size={18} />
+                ) : (
+                  <Maximize size={18} />
+                )
+              }
+            />
           </div>
 
           {/* 移动端“更多”菜单：收纳同步/重载/网页全屏 */}
           <div ref={moreContainerRef} className="relative md:hidden">
-            <ControlButton
+            <IconButton
+              size="bar"
+              stopPropagation
               label="更多"
               active={moreOpen}
               onClick={() => setMoreOpen((v) => !v)}
-            >
-              <MoreHorizontal size={18} />
-            </ControlButton>
+              icon={<MoreHorizontal size={18} />}
+            />
             {moreOpen && (
               <div className="glass absolute right-0 bottom-full z-30 mb-2 w-36 overflow-hidden rounded-xl p-1 shadow-lg">
                 {isHost && (
@@ -845,54 +866,17 @@ export function PlayerControlBar({
           </div>
 
           {/* 全屏 */}
-          <ControlButton
+          <IconButton
+            size="bar"
+            stopPropagation
             label={isFullscreen ? '退出全屏' : '全屏'}
             onClick={onToggleFullscreen}
-          >
-            {isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
-          </ControlButton>
+            icon={
+              isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />
+            }
+          />
         </div>
       </div>
     </div>
   )
 }
-
-interface ControlButtonProps {
-  label: string
-  active?: boolean
-  disabled?: boolean
-  onClick?: () => void
-  children: React.ReactNode
-}
-
-const ControlButton = forwardRef<HTMLButtonElement, ControlButtonProps>(
-  function ControlButton({ label, active, disabled, onClick, children }, ref) {
-    return (
-      <button
-        ref={ref}
-        type="button"
-        title={label}
-        aria-label={label}
-        aria-pressed={active}
-        disabled={disabled}
-        onClick={(e) => {
-          e.stopPropagation()
-          onClick?.()
-        }}
-        className={cn(
-          'flex h-7 w-7 md:h-8 md:w-8 shrink-0 items-center justify-center rounded-lg text-[var(--md-sys-color-on-surface)] outline-none',
-          'transition-all duration-200',
-          'hover:bg-[var(--md-sys-color-surface-container-highest)]',
-          'focus-visible:ring-2 focus-visible:ring-[var(--md-sys-color-primary)] focus-visible:ring-offset-1 focus-visible:ring-offset-[var(--md-sys-color-surface)]',
-          'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent',
-          active &&
-            'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
-        )}
-      >
-        {children}
-      </button>
-    )
-  }
-)
-
-export { ControlButton }
