@@ -2,6 +2,7 @@ import { Connection, BasicAuthenticator } from 'webdav-client';
 import { Readable } from 'node:stream';
 import { promisify } from 'node:util';
 import { TtlCache } from '../utils/ttl-cache';
+import { parseRangeHeader as parseSharedRangeHeader } from './proxy/range-stream';
 
 const DEFAULT_TIMEOUT = 10000; // 10 秒（各调用按操作类型显式放宽）
 
@@ -414,37 +415,6 @@ export async function listWebDAVDirectory(
   }
 }
 
-// 解析 HTTP Range 头，返回 start/end（end 为包含的闭区间边界）
-function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } {
-  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
-  if (!match) {
-    return { start: 0, end: fileSize - 1 };
-  }
-  const startStr = match[1];
-  const endStr = match[2];
-  let start: number;
-  let end: number;
-  if (startStr === '' && endStr === '') {
-    start = 0;
-    end = fileSize - 1;
-  } else if (startStr === '') {
-    // 后缀范围：取最后 N 字节
-    const suffix = parseInt(endStr, 10);
-    if (!Number.isFinite(suffix) || suffix <= 0) {
-      return { start: 0, end: fileSize - 1 };
-    }
-    start = Math.max(0, fileSize - suffix);
-    end = fileSize - 1;
-  } else {
-    start = parseInt(startStr, 10);
-    end = endStr === '' ? fileSize - 1 : parseInt(endStr, 10);
-  }
-  if (!Number.isFinite(start) || start < 0) start = 0;
-  if (!Number.isFinite(end) || end >= fileSize) end = fileSize - 1;
-  if (start > end) start = end;
-  return { start, end };
-}
-
 // ── 文件 stat 缓存 ─────────────────────────────────────
 // 视频播放/seek 期间会产生大量 Range 请求，每次都 PROPFIND 取 fileSize
 // 会多一次上游往返（高延迟 WebDAV 下显著拖慢 seek 响应）。
@@ -479,26 +449,40 @@ export async function statWebDAVFileCached(
   return info;
 }
 
-// 创建带 Range 的 WebDAV 读取流；未提供 rangeHeader 时返回完整流
+// 创建带 Range 的 WebDAV 读取流；未提供 rangeHeader 时返回完整流。
+// Range 解析复用 range-stream 的共享实现：开放式请求（bytes=N-，浏览器
+// <video> 探测请求的标准形态）被收敛为 8MiB 有界分片——旧实现把开放式
+// Range 原样透传给源站（end=fileSize-1），探测请求会触发源站全文件传输
+//（数百 MB～数 GB），客户端拿到元数据后立即断开，已传部分全部作废。
 export async function createWebDAVReadStreamWithRange(
   params: WebDAVConnectionParams,
   rangeHeader?: string,
-): Promise<{ stream: Readable; fileSize: number; start: number; end: number }> {
+): Promise<{
+  stream: Readable;
+  fileSize: number;
+  start: number;
+  end: number;
+  /** 是否按 Range 语义输出（206）；无 Range / fileSize 未知 / 非法 Range 时为 false（200 全量） */
+  ranged: boolean;
+}> {
   const info = await statWebDAVFileCached(params);
   const fileSize = info.size;
   // info.path 可能是 fallback 修正后的服务器真名路径，流请求必须与其一致
   const streamPath = info.path || params.path;
 
-  // fileSize 未知/为 0（部分服务器 getProperties 缺失或不一致）时禁止发
-  // Range 请求：video 元素发来的 bytes=0- 会被解释成 bytes=0--1，上游
-  // 返回 416 导致播放/seek 全挂；退化为不带 Range 的全量 GET（状态 200），
+  const parsed =
+    rangeHeader?.trim() && fileSize > 0
+      ? parseSharedRangeHeader(rangeHeader, fileSize)
+      : null;
+
+  // 无 Range / fileSize 未知（部分服务器 getProperties 缺失，带 Range 的
+  // 请求会被上游 416）/非法 Range：退化为不带 Range 的全量 GET（状态 200），
   // 浏览器自行处理并可继续 seek（后端 Range 透传在下次请求重试）
-  if (!rangeHeader?.trim() || fileSize <= 0) {
+  if (!parsed || parsed === 'invalid') {
     const stream = createWebDAVReadStream({ ...params, path: streamPath });
-    return { stream, fileSize, start: 0, end: fileSize - 1 };
+    return { stream, fileSize, start: 0, end: fileSize - 1, ranged: false };
   }
 
-  const { start, end } = parseRangeHeader(rangeHeader, fileSize);
   const connection = createConnection(params);
   // webdav-client 的 connection.get 不支持 range 选项，需直接构造 stream 请求
   // 通过 connection.stream({ url, method, headers }) 发送带 Range 头的 GET 请求
@@ -513,10 +497,16 @@ export async function createWebDAVReadStreamWithRange(
     url: normalizePath(streamPath),
     method: 'GET',
     headers: {
-      Range: `bytes=${start}-${end}`,
+      Range: `bytes=${parsed.start}-${parsed.end}`,
     },
   });
-  return { stream, fileSize, start, end };
+  return {
+    stream,
+    fileSize,
+    start: parsed.start,
+    end: parsed.end,
+    ranged: true,
+  };
 }
 
 // 目录缓存：key=`${mountId}:${targetPath || params.path}`

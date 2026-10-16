@@ -56,8 +56,33 @@ export async function statFTPFile(
           secure,
         });
 
-        const dir = params.path.split('/').slice(0, -1).join('/') || '/';
         const filename = params.path.split('/').pop() || '';
+
+        // 优先 SIZE/MDTM 单文件命令（各 1 次往返），替代 cd + LIST 全目录扫描：
+        // stat 经 statFTPFileCached 服务于每次 Range 请求，高延迟 FTP 下
+        // 全目录 LIST 是 seek 延迟的主要来源。SIZE/MDTM 并非所有服务器支持
+        // （部分还用 550 同时表示「文件不存在」），失败时回退 cd + LIST 旧
+        // 路径，错误语义保持不变（LIST 会对不存在的文件抛「FTP 文件不存在」）。
+        try {
+          const size = await client.size(params.path);
+          let lastModified: Date | undefined;
+          try {
+            // MDTM 为可选命令，失败不阻塞（仅丢失时间戳）
+            lastModified = await client.lastMod(params.path);
+          } catch {
+            lastModified = undefined;
+          }
+          return {
+            name: filename,
+            path: params.path,
+            size,
+            lastModified,
+          };
+        } catch {
+          // 回退 LIST：服务器不支持 SIZE 或文件不存在
+        }
+
+        const dir = params.path.split('/').slice(0, -1).join('/') || '/';
         await client.cd(dir);
         const list = await client.list();
         const file = list.find((item) => item.name === filename && item.type === 1);

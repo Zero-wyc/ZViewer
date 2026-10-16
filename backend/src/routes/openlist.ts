@@ -75,8 +75,11 @@ const rawUrlCache = new TtlCache<RawUrlCacheEntry>({
 });
 const RAW_URL_TTL_MS = 5 * 60 * 1000;
 
+/** 单飞去重：并发解析同一 cacheKey（多人同时进房间/同影片并发 Range）时共享同一个上游 /api/fs/get */
+const rawUrlInFlight = new Map<string, Promise<RawUrlCacheEntry>>();
+
 /**
- * 获取 raw_url（带缓存）。
+ * 获取 raw_url（带缓存 + 单飞去重）。
  * 优先从缓存读取；未命中或过期时调用 fetchOpenListFileInfo 获取新直链。
  * AList 的 raw_url 通常带签名（sign 参数），签名有效期取决于存储后端配置，
  * 5 分钟 TTL 在绝大多数场景下足够。
@@ -93,20 +96,47 @@ async function getCachedRawUrl(
     return cached;
   }
 
-  const info = await fetchOpenListFileInfo(serverUrl, username, password, path);
-  const entry: RawUrlCacheEntry = {
-    rawUrl: info.rawUrl,
-    name: info.name,
-    size: info.size,
-    expireAt: Date.now() + RAW_URL_TTL_MS,
-  };
-  rawUrlCache.set(cacheKey, entry);
-  return entry;
+  // 单飞：并发未命中只触发一次上游解析（对齐 movie-direct-resolver 的 inFlight 模式）
+  const pending = rawUrlInFlight.get(cacheKey);
+  if (pending) {
+    return pending;
+  }
+  const promise = (async () => {
+    const info = await fetchOpenListFileInfo(serverUrl, username, password, path);
+    const entry: RawUrlCacheEntry = {
+      rawUrl: info.rawUrl,
+      name: info.name,
+      size: info.size,
+      expireAt: Date.now() + RAW_URL_TTL_MS,
+    };
+    rawUrlCache.set(cacheKey, entry);
+    return entry;
+  })().finally(() => {
+    rawUrlInFlight.delete(cacheKey);
+  });
+  rawUrlInFlight.set(cacheKey, promise);
+  return promise;
 }
 
 /** 失效指定 movieId 的 raw_url 缓存 */
 function invalidateRawUrlCache(cacheKey: string): void {
   rawUrlCache.delete(cacheKey);
+}
+
+/**
+ * 上游认证/签名类错误（401/403/410）时失效 raw_url 缓存。
+ * proxyHttpUpstream 在发头前已设置 res.statusCode 为上游状态码，调用点位于
+ * 其 await 返回之后——此处仅做缓存失效，不重发响应（客户端下一次 Range
+ * 请求自然拿到新直链）。
+ */
+function invalidateRawUrlCacheOnUpstreamAuthError(
+  res: Response,
+  cacheKey: string,
+): void {
+  const status = res.statusCode;
+  if (status === 401 || status === 403 || status === 410) {
+    invalidateRawUrlCache(cacheKey);
+  }
 }
 
 router.use(authenticateToken);
@@ -701,6 +731,10 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
       logTag: 'openlist-proxy',
       errorMessage: 'OpenList 代理流错误',
     });
+    // 上游对 raw_url 返回 401/403/410 通常意味着签名直链已过期：立即失效
+    // raw_url 缓存，下一次 Range 请求重新 /api/fs/get 取新直链——否则 5 分钟
+    // TTL 窗口内所有请求都拿着死 URL 反复 403
+    invalidateRawUrlCacheOnUpstreamAuthError(res, cacheKey);
   } catch (err) {
     console.error('[openlist] proxy error:', err);
     if (!res.headersSent) {
@@ -798,6 +832,8 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
       logTag: 'openlist-stream',
       errorMessage: 'OpenList 影片流错误',
     });
+    // 签名直链过期自愈（同 /proxy：401/403/410 即失效缓存，下次请求重取）
+    invalidateRawUrlCacheOnUpstreamAuthError(res, cacheKey);
   } catch (err) {
     // 业务错误（影片不存在/未挂载）：单行 warn + 精确状态码，避免客户端
     // 重试风暴把完整堆栈刷进日志

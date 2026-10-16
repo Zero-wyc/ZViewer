@@ -471,12 +471,14 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       let fileSize: number;
       let start: number;
       let end: number;
+      let ranged: boolean;
       try {
         const result = await createWebDAVReadStreamWithRange(params, rangeHeader);
         stream = result.stream;
         fileSize = result.fileSize;
         start = result.start;
         end = result.end;
+        ranged = result.ranged;
       } catch (err) {
         const code = extractErrorCode(err);
         const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
@@ -494,7 +496,9 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         fileSize,
         start,
         end,
-        ranged: !!rangeHeader,
+        // 用实际语义而非客户端请求头：退化全量 GET（无 Range/fileSize 未知/
+        // 非法 Range）时必须回 200，否则 206 + 错误 Content-Range 会挂掉播放
+        ranged,
         logTag,
         errorMessage: `${displayName} 代理流错误`,
         errorCode: 'UNREACHABLE',
@@ -661,12 +665,14 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       let fileSize: number;
       let start: number;
       let end: number;
+      let ranged: boolean;
       try {
         const result = await createWebDAVReadStreamWithRange(params, rangeHeader);
         stream = result.stream;
         fileSize = result.fileSize;
         start = result.start;
         end = result.end;
+        ranged = result.ranged;
       } catch (err) {
         const code = extractErrorCode(err);
         const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
@@ -684,7 +690,8 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         fileSize,
         start,
         end,
-        ranged: !!rangeHeader,
+        // 用实际语义而非客户端请求头（同 /proxy，防退化路径产出错误 206）
+        ranged,
         logTag: `${logTag}-stream`,
         errorMessage: `${displayName} 影片流错误`,
         errorCode: 'UNREACHABLE',
