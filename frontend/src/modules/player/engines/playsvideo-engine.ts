@@ -40,6 +40,7 @@
  * 标签且丢弃样式表头，所以 ASS 特效在此链路下不可恢复地退化为纯文本。
  */
 import { PlaysVideoEngine } from 'playsvideo'
+import type { KeyframeIndex } from 'playsvideo'
 import {
   fetchPlaysVideoTrackCues,
   publishPlaysVideoSubtitle,
@@ -166,6 +167,49 @@ function resolvePlaysVideoUrl(source: PlayerSource): string {
 }
 
 /**
+ * 关键帧索引 URL 级复用缓存（内存 LRU + TTL）。
+ *
+ * MKV 管线的索引构建需经 Range 请求读 Cues，大文件 + 慢源可达数秒；
+ * 重载按钮、recovery 回退重解析、切回同一影片等场景 URL 不变，索引
+ * 完全可复用。来源：attach 成功后从 worker 回传的
+ * `engine.builtKeyframeIndex`（本地补丁）读取；下次同 URL attach 经
+ * `loadUrl(url, { keyframeIndex })` 传入，worker 跳过构建直接用。
+ *
+ * 失效策略：内存缓存（页面刷新即清）+ TTL 10 分钟 + 容量 4（LRU）。
+ * 同 URL 文件被替换的窗口期会拿到过期索引（seek 定位偏移），窗口受
+ * TTL 约束可接受；探测失败（null）不缓存，允许下次重试。
+ */
+interface CachedKeyframeIndex {
+  index: KeyframeIndex
+  cachedAt: number
+}
+
+const KEYFRAME_INDEX_CACHE_MAX = 4
+const KEYFRAME_INDEX_TTL_MS = 10 * 60_000
+const keyframeIndexCache = new Map<string, CachedKeyframeIndex>()
+
+function peekCachedKeyframeIndex(url: string): KeyframeIndex | null {
+  const entry = keyframeIndexCache.get(url)
+  if (!entry) return null
+  if (Date.now() - entry.cachedAt > KEYFRAME_INDEX_TTL_MS) {
+    keyframeIndexCache.delete(url)
+    return null
+  }
+  return entry.index
+}
+
+function putCachedKeyframeIndex(url: string, index: KeyframeIndex): void {
+  // Map 保持插入序：删后重插实现 LRU 触顶淘汰最旧
+  keyframeIndexCache.delete(url)
+  keyframeIndexCache.set(url, { index, cachedAt: Date.now() })
+  while (keyframeIndexCache.size > KEYFRAME_INDEX_CACHE_MAX) {
+    const oldest = keyframeIndexCache.keys().next().value
+    if (oldest === undefined) break
+    keyframeIndexCache.delete(oldest)
+  }
+}
+
+/**
  * playsvideo 播放控制器。
  *
  * 每次 attach 都创建全新引擎世代（内部持有 worker + hls.js 实例），
@@ -237,7 +281,15 @@ class PlaysVideoController implements PlayerController {
     this.bindSubtitleBridge()
 
     try {
-      engine.loadUrl(url)
+      // 关键帧索引复用：同 URL 的重载/切回直接传入缓存索引，worker 跳过
+      // Range 探测（大文件 + 慢源可省数秒起播时间）。缓存 key 用 source.url
+      // （原始地址，不含 token）——token 每次刷新都会变，用最终请求 URL
+      // 做 key 会让 token 刷新后的重载全部 miss。
+      const cachedIndex = peekCachedKeyframeIndex(this.source.url)
+      engine.loadUrl(
+        url,
+        cachedIndex ? { keyframeIndex: cachedIndex } : undefined
+      )
       await this.waitReady(engine, this.source.onAttachProgress)
     } catch (err) {
       // 起播失败（容器不支持 / 探测超时 / 取流不可达）：
@@ -271,6 +323,13 @@ class PlaysVideoController implements PlayerController {
     // 世代已被取代：本次 attach 的结果作废，静默让位
     if (gen !== this.generation) {
       return ''
+    }
+
+    // 回存 worker 本地构建的关键帧索引（缓存命中时 worker 直接用传入
+    // 索引、不重建不回传，不会重复缓存）
+    const builtIndex = engine.builtKeyframeIndex
+    if (builtIndex && this.source.url) {
+      putCachedKeyframeIndex(this.source.url, builtIndex)
     }
 
     // 时长兜底：HLS 模式下 video.duration 由 hls.js 填充，

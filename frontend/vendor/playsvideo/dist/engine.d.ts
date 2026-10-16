@@ -147,6 +147,8 @@ export declare class PlaysVideoEngine extends EventTarget {
     get codecPath(): CodecPath;
     get transcodeWorkerStates(): WasmWorkerState[];
     get segmentStates(): SegmentState[];
+    /** [本地补丁] 最近一次 pipeline 本地构建的关键帧索引（prebuilt 传入时为 null），供上层复用缓存 */
+    get builtKeyframeIndex(): KeyframeIndex | null;
     constructor(video: HTMLVideoElement, options?: EngineOptions);
     loadFile(file: File, opts?: {
         keyframeIndex?: KeyframeIndex;

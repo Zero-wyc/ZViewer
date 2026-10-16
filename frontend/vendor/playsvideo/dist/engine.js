@@ -98,6 +98,12 @@ export class PlaysVideoEngine extends EventTarget {
     get transcodeWorkerStates() {
         return this._transcodeWorkerStates.map((worker) => ({ ...worker }));
     }
+    // [本地补丁] 最近一次 pipeline 自己构建的关键帧索引（prebuilt 传入时为
+    // null）。供上层在 attach 完成后读取并做 URL 级复用缓存（重载 / 切回
+    // 同一影片时经 loadUrl 的 keyframeIndex 传入，跳过 Range 探测）。
+    get builtKeyframeIndex() {
+        return this._builtKeyframeIndex;
+    }
     get segmentStates() {
         return Array.from(this._segmentStates.values())
             .sort((a, b) => a.index - b.index)
@@ -229,6 +235,9 @@ export class PlaysVideoEngine extends EventTarget {
         this._passthrough = false;
         this._pendingFileType = null;
         this._keyframeIndex = null;
+        // [本地补丁] 上一次 pipeline 自己构建的关键帧索引（builtKeyframeIndex
+        // getter 供上层复用缓存）；reset 清空避免 passthrough 残留旧值
+        this._builtKeyframeIndex = null;
         this._codecPath = {
             mode: 'pipeline',
             sourceVideo: { short: null, full: null },
@@ -654,6 +663,9 @@ export class PlaysVideoEngine extends EventTarget {
             this._totalSegments = msg.totalSegments;
             this._durationSec = msg.durationSec;
             this._subtitleTracks = msg.subtitleTracks ?? [];
+            // [本地补丁] worker 本地构建的关键帧索引（prebuilt 时为 null），
+            // 经 builtKeyframeIndex getter 供上层做 URL 级复用缓存
+            this._builtKeyframeIndex = msg.keyframeIndex ?? null;
             this._phase = 'ready';
             this._codecPath = {
                 mode: 'pipeline',

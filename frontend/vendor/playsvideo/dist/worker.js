@@ -418,6 +418,10 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         throw new Error('No demux — handleProbe must run first');
     const t0 = performance.now();
     let index;
+    // [本地补丁] 本地构建的索引随 ready 消息回传主线程，供上层做 URL 级
+    // 复用缓存（重载/切回同一影片时经 loadUrl 的 keyframeIndex 传入，
+    // 跳过 Range 探测）。prebuilt 场景主线程本就持有，不回传。
+    let builtKeyframeIndex = null;
     if (prebuiltKeyframeIndex) {
         index = prebuiltKeyframeIndex;
         wlog(`keyframe-index pre-built keyframes=${index.keyframes.length}`);
@@ -437,6 +441,7 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
             index = await withHeartbeat('index', () => getKeyframeIndex(demux.videoSink, demux.duration));
             wlog(`keyframe-index done ${elapsed(tIndex)} keyframes=${index.keyframes.length}`);
         }
+        builtKeyframeIndex = index;
     }
     const tPlan = performance.now();
     plan = buildSegmentPlan({
@@ -488,6 +493,7 @@ async function handleRemuxPipeline(prebuiltKeyframeIndex) {
         outputAudioCodec: doTranscode ? 'aac' : demux.audioCodec,
         outputAudioCodecFull: audioDecoderConfig?.codec ?? null,
         subtitleTracks: demux.subtitleTracks,
+        keyframeIndex: builtKeyframeIndex,
     }, { transfer: [] }); // don't transfer initData — we need to keep it
     schedulePrefetch(1);
 }

@@ -76,12 +76,15 @@
 ## vendored playsvideo 的维护（2026-10-16 起，替代 patch-package）
 
 - 源码树：`frontend/vendor/playsvideo/**`——上游 npm 包 0.4.7 的完整副本，
-  **6 个本地改动已直接改在 dist 产物里**（前 5 个为行为修复：MKV cue 按
+  **7 个本地改动已直接改在 dist 产物里**（前 5 个为行为修复：MKV cue 按
   视频轨过滤、AAC priming 丢帧、字幕探测容错、formatCuesToWebVTT 内联、
-  分段 padding 泄漏过滤；第 6 个为功能增强：worker 长耗时阶段心跳——
+  分段 padding 泄漏过滤；后 2 个为功能增强：⑥ worker 长耗时阶段心跳——
   probe/index/ffmpeg/seg0 期间每 3s postMessage `progress`，engine 转发为
-  `progress` 事件，驱动上层活动超时与加载进度展示，见
-  `worker.js` 的 `withHeartbeat` 与 `engine.js` 的 `handleWorkerMessage`）。
+  `progress` 事件，驱动上层活动超时与加载进度展示，见 `worker.js` 的
+  `withHeartbeat`；⑦ 关键帧索引复用——worker 构建索引后随 ready 消息
+  回传主线程，经 `engine.builtKeyframeIndex` getter 供上层做 URL 级
+  LRU 缓存，重载/切回时经 `loadUrl` 的 `keyframeIndex` 传入跳过 Range
+  探测，见 `handleRemuxPipeline` 的 `builtKeyframeIndex`）。
   原 `patches/playsvideo+0.4.7.patch` 与根 postinstall 的 patch-package 已
   随 vendor 化移除。
 - 依赖声明：vendored package.json 的 `mediabunny` 已从
