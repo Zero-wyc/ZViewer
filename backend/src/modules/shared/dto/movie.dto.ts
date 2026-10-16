@@ -97,6 +97,12 @@ export interface MovieDto {
    */
   directLinkProxy?: boolean;
   /**
+   * 数据源影片（ani-subs / Kazumi / CMS 采集源）的服务器中转模式。
+   * - false（默认）：直链可直连则直连，仅防盗链 headers 时经服务器代理
+   * - true：媒体流一律经服务器中转
+   */
+  serverProxy?: boolean;
+  /**
    * 影片级转码引擎标记（已废弃，保留字段以兼容既有数据）。
    *
    * playsvideo 的启用现由前端 `shouldUsePlaysVideo` 依据容器与音轨编码

@@ -217,6 +217,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [openlistDirectLink, setOpenlistDirectLink] = useState(false)
   // 直链模式的媒体传输方式：false（默认）强制直链直连，true 允许服务器中转
   const [directLinkProxy, setDirectLinkProxy] = useState(false)
+  // 数据源影片（ani/kazumi/cms）服务器中转模式：true 时媒体流一律经服务器
+  const [serverProxy, setServerProxy] = useState(false)
   const [embyDirectLink, setEmbyDirectLink] = useState(false)
   const [jellyfinDirectLink, setJellyfinDirectLink] = useState(false)
   const [ftp, setFtp] = useState<FTPParams>({
@@ -419,20 +421,27 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   episode: item.episode,
                   originalTitle: item.title,
                 },
+                serverProxy,
               })
             } else {
               const resolved = await resolveKazumiEpisode(
                 item.sourceId,
                 item.episode
               )
-              const url = needsKazumiProxy(resolved.url, resolved.headers)
-                ? buildKazumiProxyUrl(resolved.url, resolved.headers)
-                : resolved.url
+              const url =
+                needsKazumiProxy(resolved.url, resolved.headers) || serverProxy
+                  ? buildKazumiProxyUrl(
+                      resolved.url,
+                      resolved.headers,
+                      serverProxy
+                    )
+                  : resolved.url
               await addMovie(roomId, {
                 url,
                 title: item.title,
                 source: 'kazumi',
                 format: resolved.format,
+                serverProxy,
               })
             }
             added.push(item.episode.id)
@@ -460,7 +469,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       }
       return added
     },
-    [isHost, roomId, addMovie, fetchMovies]
+    [isHost, roomId, addMovie, fetchMovies, serverProxy]
   )
 
   const handleSelectAnimeEpisode = useCallback(
@@ -479,10 +488,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         const resolved = await resolveAniSubsEpisode(sourceId, episode)
 
         // 防盗链处理：若返回 headers（Referer/UA 等），走后端代理 URL
-        // 浏览器无法为 video.src 设置 Referer/UA，必须代理
-        const finalUrl = needsAniSubsProxy(resolved.url, resolved.headers)
-          ? buildAniSubsProxyUrl(resolved.url, resolved.headers)
-          : resolved.url
+        // 浏览器无法为 video.src 设置 Referer/UA，必须代理；
+        // 服务器中转模式（serverProxy）开启时无 headers 也强制代理
+        const finalUrl =
+          needsAniSubsProxy(resolved.url, resolved.headers) || serverProxy
+            ? buildAniSubsProxyUrl(resolved.url, resolved.headers, serverProxy)
+            : resolved.url
 
         // 1. 触发实时预览播放（通过 store 解耦 useWatchTogether）
         //    代理 URL 已包含防盗链信息，无需再传 headers
@@ -509,6 +520,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             episode,
             originalTitle: title,
           },
+          serverProxy,
         })
           .then(() => fetchMovies(roomId))
           .catch((err) => {
@@ -533,6 +545,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       fetchMovies,
       setPendingPreviewPlay,
       playsvideoEnabled,
+      serverProxy,
     ]
   )
 
@@ -551,9 +564,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       try {
         const resolved = await resolveKazumiEpisode(sourceId, episode)
 
-        const finalUrl = needsKazumiProxy(resolved.url, resolved.headers)
-          ? buildKazumiProxyUrl(resolved.url, resolved.headers)
-          : resolved.url
+        const finalUrl =
+          needsKazumiProxy(resolved.url, resolved.headers) || serverProxy
+            ? buildKazumiProxyUrl(resolved.url, resolved.headers, serverProxy)
+            : resolved.url
 
         setPendingPreviewPlay({
           url: finalUrl,
@@ -568,6 +582,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           title,
           source: 'kazumi',
           format: resolved.format,
+          serverProxy,
         })
           .then(() => fetchMovies(roomId))
           .catch((err) => {
@@ -592,6 +607,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       fetchMovies,
       setPendingPreviewPlay,
       playsvideoEnabled,
+      serverProxy,
     ]
   )
 
@@ -623,7 +639,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       sourceId: string,
       params: CmsPlaybackParams,
       title: string,
-      episodeTitle: string
+      episodeTitle: string,
+      serverProxy = false
     ) => ({
       url: `cms://${sourceId}/${params.vodId}|${params.playFromIndex}|${params.episodeIndex}`,
       title,
@@ -637,6 +654,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         episodeIndex: params.episodeIndex,
         episodeTitle,
       } satisfies CmsSourceMeta,
+      // 服务器中转模式：播放时实时重解析路径消费（resolveCmsOnline）
+      serverProxy,
     }),
     []
   )
@@ -663,7 +682,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 item.sourceId,
                 params,
                 item.title,
-                item.episode.title
+                item.episode.title,
+                serverProxy
               )
             )
             added.push(item.episode.id)
@@ -691,7 +711,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       }
       return added
     },
-    [isHost, roomId, addMovie, fetchMovies, buildCmsMoviePayload]
+    [isHost, roomId, addMovie, fetchMovies, buildCmsMoviePayload, serverProxy]
   )
 
   const handleSelectCmsEpisode = useCallback(
@@ -713,12 +733,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
       setLoading(true)
       try {
-        // 预览：实时解析直链（采集站 Referer/UA 防盗链 → 统一走后端代理）
+        // 预览：实时解析直链（采集站 Referer/UA 防盗链 → 统一走后端代理；
+        // 服务器中转模式开启时无 headers 也强制代理）
         const resolved = await resolveCmsEpisode(sourceId, params)
 
-        const finalUrl = needsCmsProxy(resolved.url, resolved.headers)
-          ? buildCmsProxyUrl(resolved.url, resolved.headers)
-          : resolved.url
+        const finalUrl =
+          needsCmsProxy(resolved.url, resolved.headers) || serverProxy
+            ? buildCmsProxyUrl(resolved.url, resolved.headers, serverProxy)
+            : resolved.url
 
         setPendingPreviewPlay({
           url: finalUrl,
@@ -731,7 +753,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         // 落库：sourceMeta 元数据（直链短时效），播放时实时重解析
         void addMovie(
           roomId,
-          buildCmsMoviePayload(sourceId, params, title, episode.title)
+          buildCmsMoviePayload(
+            sourceId,
+            params,
+            title,
+            episode.title,
+            serverProxy
+          )
         )
           .then(() => fetchMovies(roomId))
           .catch((err) => {
@@ -757,6 +785,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setPendingPreviewPlay,
       playsvideoEnabled,
       buildCmsMoviePayload,
+      serverProxy,
     ]
   )
 
@@ -2465,6 +2494,48 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
                   style={{
                     transform: !directLinkProxy
+                      ? 'translateX(18px)'
+                      : 'translateX(2px)',
+                  }}
+                />
+              </button>
+            </div>
+          )}
+
+          {/* 服务器中转开关：仅数据源类（ani/kazumi/cms）显示。默认关闭——
+              解析直链可直连则直连（携带防盗链 headers 时自动经服务器代理）；
+              开启后媒体流一律经服务器中转（ani/cms 播放时实时重解析消费，
+              kazumi 添加时物化为代理 URL）。 */}
+          {(sourceType === 'anime' ||
+            sourceType === 'kazumi' ||
+            sourceType === 'cms') && (
+            <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
+              <div className="min-w-0">
+                <Text className="block text-xs font-medium">服务器中转</Text>
+                <Text
+                  type="secondary"
+                  className="block text-[11px] leading-snug mt-0.5"
+                >
+                  关闭（默认）：直链可直连则直连，防盗链时自动经服务器代理。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。
+                </Text>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={serverProxy}
+                disabled={!isHost}
+                onClick={() => setServerProxy((prev) => !prev)}
+                className="relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                style={{
+                  backgroundColor: serverProxy
+                    ? 'var(--md-sys-color-primary)'
+                    : 'var(--md-sys-color-outline)',
+                }}
+              >
+                <span
+                  className="inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform"
+                  style={{
+                    transform: serverProxy
                       ? 'translateX(18px)'
                       : 'translateX(2px)',
                   }}

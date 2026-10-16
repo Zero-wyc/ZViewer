@@ -142,6 +142,18 @@ export class Movie {
   directLinkProxy!: boolean;
 
   /**
+   * 数据源影片（ani-subs / Kazumi / CMS 采集源）的服务器中转模式。
+   *
+   * - false（默认）：解析出的直链可直连则直连，仅携带防盗链 headers
+   *   （Referer/UA 等，浏览器无法直接设置）时经服务器代理
+   * - true：媒体流一律经服务器中转——解析结果统一包装为服务器代理 URL，
+   *   房间内所有成员的媒体流量都走服务器（ ani/cms 播放时实时重解析消费
+   *   本字段；kazumi 在添加时物化为代理 URL）
+   */
+  @Column({ type: 'boolean', default: false })
+  serverProxy!: boolean;
+
+  /**
    * 影片级转码引擎标记（已废弃，仅保留数据库列避免迁移）。
    *
    * 原为「添加影片时勾选且检测到需要（DTS 等不兼容音轨）」的触发条件。

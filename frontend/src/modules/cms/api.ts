@@ -119,12 +119,15 @@ export async function resolveCmsEpisode(
 /**
  * 构建代理 URL，将防盗链 headers 编码到查询参数中。
  * 浏览器无法直接设置 video.src 的 Referer/UA，需走后端代理。
+ *
+ * @param force 服务器中转模式：无 headers 也强制包装为代理 URL
  */
 export function buildCmsProxyUrl(
   url: string,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  force = false
 ): string {
-  if (!headers || Object.keys(headers).length === 0) return url
+  if (!force && (!headers || Object.keys(headers).length === 0)) return url
   const params = new URLSearchParams({ url })
   if (headers.Referer) params.set('referer', headers.Referer)
   if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])

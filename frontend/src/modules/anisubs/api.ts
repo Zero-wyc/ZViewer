@@ -101,12 +101,15 @@ export async function resolveAniSubsEpisode(
  * 使用相对路径：解析 URL 仅在运行时使用（每次播放重新解析，不入库），
  * 相对路径在所有客户端都指向各自同源后端，跨域部署下不会产生
  * 「指向他人 API 地址」的自代理环。
+ *
+ * @param force 服务器中转模式：无 headers 也强制包装为代理 URL
  */
 export function buildAniSubsProxyUrl(
   url: string,
-  headers?: Record<string, string>
+  headers?: Record<string, string>,
+  force = false
 ): string {
-  if (!headers || Object.keys(headers).length === 0) return url
+  if (!force && (!headers || Object.keys(headers).length === 0)) return url
   const params = new URLSearchParams({ url })
   if (headers.Referer) params.set('referer', headers.Referer)
   if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])

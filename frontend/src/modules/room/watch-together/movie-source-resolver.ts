@@ -406,10 +406,13 @@ export async function resolveAnimeOnline(
   const { sourceId, episode } = movie.sourceMeta
   const resolved = await resolveAniSubsEpisode(sourceId, episode)
 
-  // 防盗链处理：若返回 headers，走后端代理 URL
-  const finalUrl = needsAniSubsProxy(resolved.url, resolved.headers)
-    ? buildAniSubsProxyUrl(resolved.url, resolved.headers)
-    : resolved.url
+  // 代理决策：服务器中转模式（movie.serverProxy）强制包装为代理 URL；
+  // 否则仅防盗链 headers / 跨域时走代理（浏览器无法设置 Referer/UA）
+  const forceProxy = movie.serverProxy === true
+  const finalUrl =
+    forceProxy || needsAniSubsProxy(resolved.url, resolved.headers)
+      ? buildAniSubsProxyUrl(resolved.url, resolved.headers, forceProxy)
+      : resolved.url
 
   return {
     sourceUrl: finalUrl,
@@ -447,10 +450,13 @@ export async function resolveCmsOnline(
     episodeIndex: meta.episodeIndex,
   })
 
-  // 防盗链处理：resolve 结果带 Referer/UA headers，统一走后端代理 URL
-  const finalUrl = needsCmsProxy(resolved.url, resolved.headers)
-    ? buildCmsProxyUrl(resolved.url, resolved.headers)
-    : resolved.url
+  // 代理决策：服务器中转模式（movie.serverProxy）强制包装为代理 URL；
+  // 否则仅防盗链 headers / 跨域时走代理（浏览器无法设置 Referer/UA）
+  const forceProxy = movie.serverProxy === true
+  const finalUrl =
+    forceProxy || needsCmsProxy(resolved.url, resolved.headers)
+      ? buildCmsProxyUrl(resolved.url, resolved.headers, forceProxy)
+      : resolved.url
 
   return {
     sourceUrl: finalUrl,
