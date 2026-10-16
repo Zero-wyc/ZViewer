@@ -142,7 +142,7 @@ export function useWatchTogether({
   const lastLoadedMovieRef = useRef<{
     id: number
     url: string
-    /** 直链传输方式：纳入去重比较，切换「允许服务器中转」后自动重载生效 */
+    /** 直链传输方式：纳入去重比较，切换「服务器中转」后自动重载生效 */
     directLinkProxy?: boolean
   } | null>(null)
   // 房主刷新恢复：用于在 loadMovie 完成后应用 initialPlayback.currentTime 并暂停
@@ -852,7 +852,7 @@ export function useWatchTogether({
     if (!movie) return
 
     // 避免 movies 列表刷新时重复加载同一部影片。
-    // directLinkProxy 纳入比较：切换「允许服务器中转」开关后，
+    // directLinkProxy 纳入比较：切换「服务器中转」开关后，
     // noProxyFallback 语义变化需要重新 loadMovie 才能生效。
     if (
       lastLoadedMovieRef.current?.id === movie.id &&

@@ -135,8 +135,9 @@ export class Movie {
    *
    * - false（默认）：强制直链直连——浏览器直连源站，服务器零媒体流量；
    *   直连失败（CORS/防盗链/签名过期）直接向用户报错，不回退服务器中转
-   * - true：允许服务器中转——仍以直链 URL 为源，直连失败自动回退服务器
-   *   代理；m3u8 跨域清单/分片直接走服务器代理
+   * - true：媒体流一律经服务器中转——非清单类格式（m3u8/mpd）解析层
+   *   预包装为服务器代理 URL，不做直连尝试；m3u8 清单/分片由 hls-engine
+   *   ProxyLoader 全量代理
    */
   @Column({ type: 'boolean', default: false })
   directLinkProxy!: boolean;

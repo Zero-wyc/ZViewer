@@ -93,7 +93,7 @@ export interface MovieDto {
   /**
    * 直链模式的媒体传输方式（仅 directLink=true 时有意义）。
    * - false（默认）：强制直链直连，失败不回退服务器中转
-   * - true：允许服务器中转，直连失败自动回退服务器代理
+   * - true：媒体流一律经服务器中转，不做直连尝试
    */
   directLinkProxy?: boolean;
   /**

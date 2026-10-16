@@ -209,7 +209,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   })
   const [webdavDirectLink, setWebdavDirectLink] = useState(false)
   const [openlistDirectLink, setOpenlistDirectLink] = useState(false)
-  // 直链模式的媒体传输方式：false（默认）强制直链直连，true 允许服务器中转
+  // 直链模式的媒体传输方式：false（默认）强制直链直连，true 一律经服务器中转
   const [directLinkProxy, setDirectLinkProxy] = useState(false)
   // 数据源影片（ani/kazumi/cms）服务器中转模式：true 时媒体流一律经服务器
   const [serverProxy, setServerProxy] = useState(false)
@@ -1617,8 +1617,8 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           source: 'mp4',
           format: detectedFormat !== 'unknown' ? detectedFormat : undefined,
           // 视频直链影片统一走直链模式：默认强制直链直连（noProxyFallback），
-          // 「服务器中转」开关开启（directLinkProxy=true）时保持直链 URL
-          // 但允许服务器中转（直连失败自动回退）
+          // 「服务器中转」开关开启（directLinkProxy=true）时媒体流一律经
+          // 服务器中转（解析层预包装代理 URL），不做直连尝试
           directLink: true,
           directLinkProxy,
         })
@@ -2046,7 +2046,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               value={directLinkProxy ? 'proxy' : 'direct'}
               options={[
                 { value: 'direct', label: '强制直链直连（默认）' },
-                { value: 'proxy', label: '允许服务器中转' },
+                { value: 'proxy', label: '服务器中转' },
               ]}
               onChange={(value) => setDirectLinkProxy(value === 'proxy')}
             />
@@ -2242,7 +2242,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
               value={directLinkProxy ? 'proxy' : 'direct'}
               options={[
                 { value: 'direct', label: '强制直链直连（默认）' },
-                { value: 'proxy', label: '允许服务器中转' },
+                { value: 'proxy', label: '服务器中转' },
               ]}
               onChange={(value) => setDirectLinkProxy(value === 'proxy')}
             />
@@ -2454,10 +2454,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
           {/* 服务器中转开关：仅「视频直链」源显示。默认关闭——一律直连
               源站、服务器零媒体流量（m3u8 分片/MP4 均源站直传，直连失败
-              直接报错）；开启后允许服务器中转（直连失败自动回退，m3u8
-              跨域分片经服务器代理）。底层走 directLinkProxy（与数据源
-              开关方向相反，UI 已统一为「开=中转」）。挂载类源的同类
-              开关在各源表单内（直链模式 → 直链传输方式）。 */}
+              直接报错）；开启后媒体流一律经服务器中转，不做直连尝试
+              （非 HLS 预包装代理 URL，HLS 由引擎 ProxyLoader 全量代理）。
+              底层走 directLinkProxy（与数据源开关方向相反，UI 已统一为
+              「开=中转」）。挂载类源的同类开关在各源表单内（直链模式 →
+              直链传输方式）。 */}
           {sourceType === 'mp4' && (
             <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
               <div className="min-w-0">
@@ -2466,7 +2467,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   type="secondary"
                   className="block text-[11px] leading-snug mt-0.5"
                 >
-                  关闭（默认）：一律直连源站，服务器零媒体流量，直连失败直接报错。开启：允许经服务器中转，直连失败自动回退，占用服务器流量。
+                  关闭（默认）：一律直连源站，服务器零媒体流量，直连失败直接报错。开启：媒体流一律经服务器中转，不做直连尝试。
                 </Text>
               </div>
               <button
