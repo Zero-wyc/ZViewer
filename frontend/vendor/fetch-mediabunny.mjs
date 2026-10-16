@@ -16,17 +16,22 @@
  *   当前盘符绝对路径），手写 POSIX 相对路径拼接。
  * - jsDelivr 会限流（偶发 403），带重试并回退 raw.githubusercontent.com。
  *
- * 用法：node fetch-mediabunny.mjs
+ * 用法：node fetch-mediabunny.mjs（抓取 pristine 源码 + 自动重放本地补丁）
  */
 import { mkdir, writeFile, rm } from 'node:fs/promises';
 import { dirname, resolve as presolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { applyLocalPatches } from './local-patches.mjs';
 
 const REPO = 'kzahel/mediabunny';
-const BRANCH = 'integration';
+// 固定 commit SHA（= integration 分支 2026-03-08 的 HEAD，"Finalize rebuilt
+// integration branch"）。不要改回分支名 @integration——分支会漂移/force push，
+// 固定 SHA 才能保证重新抓取与入库副本完全一致。若确需更新 REF，必须先对照
+// local-patches.mjs 重估全部补丁（--check 会校验 find/replace 是否仍唯一匹配）。
+const REF = 'cd3cd2beb9c122dfa6fa89edbd7a73f2fa9df7a0';
 const BASES = [
-  `https://cdn.jsdelivr.net/gh/${REPO}@${BRANCH}/`,
-  `https://raw.githubusercontent.com/${REPO}/${BRANCH}/`,
+  `https://cdn.jsdelivr.net/gh/${REPO}@${REF}/`,
+  `https://raw.githubusercontent.com/${REPO}/${REF}/`,
 ];
 const SCRIPT_DIR = dirname(fileURLToPath(import.meta.url));
 const ROOT = presolve(SCRIPT_DIR, 'mediabunny') + '/';
@@ -131,3 +136,8 @@ try {
 }
 await crawl();
 console.log('Downloaded files:', done.size);
+
+// 抓取完成（pristine 源码），自动重放本地补丁（DTS 支持 + FLAC 位深修复）。
+// 补丁缺失/上游漂移会抛错退出，绝不静默产出"缺补丁"的 vendor 副本。
+const { applied, skipped, total } = await applyLocalPatches();
+console.log(`Local patches: applied=${applied} skipped=${skipped} / ${total}`);

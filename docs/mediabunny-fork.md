@@ -24,8 +24,6 @@
 结论：不存在「升级到最新版」这条路。策略是锁定 + vendor 化，等上游适配
 官方 mediabunny 后再重估。
 
-## 三层 mediabunny 引用机制
-
 ## 引用机制总览
 
 两个 vendored fork（`frontend/vendor/mediabunny/` 与
@@ -62,13 +60,16 @@
 - 源码树：`frontend/vendor/mediabunny/dist/modules/src/**`（含同名 .d.ts，
   供 tsc 解析 playsvideo 的声明文件）。
 - 抓取脚本：`node frontend/vendor/fetch-mediabunny.mjs`——从
-  `kzahel/mediabunny` 抓取 fork 源码。**建议固定 commit SHA 而非分支名**
-  （当前 integration HEAD：`cd3cd2beb9c122dfa6fa89edbd7a73f2fa9df7a0`），
-  否则分支漂移会让重抓结果与入库副本不一致。
-- **DTS 补丁是手工的**：抓取后需按 `vendor/mediabunny/package.json`
-  description 中的说明，在 `matroska/ebml.js`、
-  `matroska/matroska-demuxer.js`、`codec.js` 重打 `[本地补丁]` 标记处的
-  DTS 支持（A_DTS demux，供 playsvideo 转码 DTS 音轨）。重新抓取时务必执行。
+  `kzahel/mediabunny` 抓取 fork 源码，**已固定 commit SHA**
+  （`cd3cd2beb9c122dfa6fa89edbd7a73f2fa9df7a0`，integration 分支 2026-03-08
+  HEAD），重新抓取结果与入库副本逐字节一致，不受分支漂移影响。
+- **本地补丁已程序化**（`frontend/vendor/local-patches.mjs`）：DTS 支持
+  （`codec.js` ×3、`matroska/ebml.js`、`matroska/matroska-demuxer.js`）+
+  FLAC 位深修复（`isobmff/isobmff-boxes.js`），共 6 条。抓取脚本抓完会
+  **自动重放**全部补丁；也可单独执行 `node frontend/vendor/local-patches.mjs`
+  （补丁脚本幂等、行尾无关，`--check` 只校验不改文件）。find/replace 无法
+  唯一匹配时脚本会报错退出——这意味着 REF 被更新过或文件被手工改动，必须
+  人工重估，绝不静默产出缺补丁的副本。详见 `vendor/mediabunny/LOCAL-PATCHES.md`。
 - 源码必须入库（`.gitignore` 已对 `vendor/mediabunny/dist/` 做了强制
   include）：CI 环境无法访问 GitHub 时构建仍可进行。
 

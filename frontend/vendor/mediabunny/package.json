@@ -2,7 +2,7 @@
   "name": "mediabunny",
   "version": "1.38.1",
   "type": "module",
-  "description": "本地 vendored 副本：kzahel/mediabunny@integration 分支源码（playsvideo 0.4.x 依赖的 fork），并叠加 DTS 支持本地补丁（见 matroska/ebml.js / matroska/matroska-demuxer.js / codec.js 中的 [本地补丁] 标记）。用 frontend/vendor/fetch-mediabunny.mjs 可重新抓取（抓完需重打 DTS 补丁）。",
+  "description": "本地 vendored 副本：kzahel/mediabunny 固定 commit cd3cd2be（integration 分支 2026-03-08 HEAD）源码，并叠加本地补丁（DTS 支持 + FLAC 位深，见 ../local-patches.mjs 与 LOCAL-PATCHES.md）。重新抓取：node ../fetch-mediabunny.mjs（自动抓取固定 SHA + 重放补丁，完全可复现）。",
   "main": "dist/modules/src/index.js",
   "module": "dist/modules/src/index.js",
   "exports": {
