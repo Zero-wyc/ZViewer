@@ -24,7 +24,9 @@
  * 两个必须绕开的限制：
  * 1. **不支持自定义请求头**：`loadUrl()` 内部由 mediabunny `UrlSource` 裸
  *    fetch 取流，无法携带防盗链 Referer/UA，也受 CORS 约束。因此跨域源
- *   一律走后端 `/api/stream/proxy`（同源、后端注入 headers、透传 Range）。
+ *   一律走后端 `/api/stream/proxy`（同源、后端注入 headers、透传 Range）；
+ *   挂载直链模式（noProxyFallback）例外——保持源站直传零中转语义，
+ *   要求源站允许 CORS，失败直接报错不回退代理（见 resolvePlaysVideoUrl）。
  * 2. **内嵌字幕由 playsvideo 提取，但由 ZViewer 渲染**：
  *    playsvideo 的产物是本机 `<track>` + blob URL，无法经 socket 广播给
  *    观众，因此 playsvideo-subtitle-bridge 会把它们取回并解析成
@@ -57,6 +59,7 @@ import {
   isLocalUrl,
   isRelativeUrl,
 } from '../services/url-proxy'
+import { assertDirectLinkReachable } from './direct-route'
 
 /**
  * 引擎准备超时（毫秒）。
@@ -134,6 +137,12 @@ export function isPlaysVideoSupported(): boolean {
  * 本引擎**必须**保证同源：mediabunny 的裸 fetch 既带不了防盗链头，
  * 也过不了 CORS。故跨域源一律后端代理——代价是服务器承担流量，
  * 换来的是任意容器/编码都能播。
+ *
+ * 例外：挂载直链模式（noProxyFallback，一起看挂载直链影片）与 direct/hls
+ * 引擎同语义——源站直传、服务器零媒体流量。mediabunny 裸 fetch 直连跨域
+ * 源站需要源站允许 CORS，失败不回退代理（静默转代理会让服务器带宽跑满
+ * 并掩盖直链本身的问题），由 attach 错误路径补充可操作指引。
+ * 带防盗链 headers 的源不适用本例外：裸 fetch 带不了 headers，仍走代理。
  */
 function resolvePlaysVideoUrl(source: PlayerSource): string {
   const url = source.url
@@ -141,6 +150,12 @@ function resolvePlaysVideoUrl(source: PlayerSource): string {
   // 同源 / 相对路径（如 /api/webdav/stream、/api/server-files/raw）：
   // 直接请求，仅需补 token（HTTP 环境下无 auth cookie）。
   if (isLocalUrl(url) || isRelativeUrl(url)) return appendAuthToken(url)
+  // 挂载直链模式：保持源站直传语义。前置校验与 direct/hls 引擎一致
+  // （HTTPS 页面下的 http 直链必然失败，发请求前给出可操作指引）。
+  if (source.noProxyFallback === true && !source.headers) {
+    assertDirectLinkReachable(url, true)
+    return url
+  }
   // 跨域：走后端代理，由后端注入防盗链头并透传 Range。
   return buildProxyUrl(url)
 }
@@ -225,6 +240,25 @@ class PlaysVideoController implements PlayerController {
       if (this.engine === engine) {
         this.destroyEngine()
         this.generation++
+      }
+      // 直链模式：不回退服务器中转，错误透出并补充可操作指引。
+      // mediabunny 的 CORS / 网络失败报「Failed to fetch」等泛化文案，
+      // 需要指明「源站需允许跨域直连」；前置校验（assertDirectLinkReachable）
+      // 抛出的错误已带指引，直接透传避免文案嵌套。
+      if (
+        this.source.noProxyFallback === true &&
+        !this.source.headers &&
+        this.source.url &&
+        !isLocalUrl(this.source.url) &&
+        !isRelativeUrl(this.source.url) &&
+        !(err instanceof Error && err.message.startsWith('直链播放失败'))
+      ) {
+        const reason = err instanceof Error ? err.message : String(err)
+        throw new Error(
+          `直链播放失败：${reason}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），` +
+            '不经服务器中转；请检查源站可达性与跨域配置，或关闭影片的挂载直链模式',
+          { cause: err }
+        )
       }
       throw err
     }
