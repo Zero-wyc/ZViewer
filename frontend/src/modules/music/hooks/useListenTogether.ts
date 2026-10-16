@@ -1963,6 +1963,18 @@ export function useListenTogether({
       // 防御：仅接受当前房间的事件（切换房间时旧事件残留）
       if (payload.roomId && payload.roomId !== roomIdRef.current) return
       lastServerHeartbeatAtRef.current = Date.now()
+      // 持续校正房主离线标记（必须在 hostOffline 早退守卫之前执行）：
+      // 服务器心跳恒定广播，携带的 hostOnline 覆盖「观众在房主离线后才加入/
+      // 刷新/socket 重连而错过 host-disconnected 事件」的场景——否则观众误
+      // 以为房主在线，暂停按钮走「向房主申请」死路且心跳拉回播放（无法暂停
+      // bug）。恢复跟随时不做提示（与 sharer-ready 路径一致由提示条承接）。
+      const store = useMusicStore.getState()
+      if (payload.hostOnline === false && !store.hostOffline) {
+        store.setHostOffline(true)
+        store.setSyncNotice('房主已断开连接，可自主控制播放')
+      } else if (payload.hostOnline === true && store.hostOffline) {
+        useMusicStore.getState().setHostOffline(false)
+      }
       if (useMusicStore.getState().hostOffline) return
       applyViewerSync(payload.state, { compensate: false })
     }

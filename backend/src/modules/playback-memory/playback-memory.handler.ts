@@ -15,6 +15,7 @@ import type { Server as SocketIOServer, Socket } from 'socket.io';
 import type { AckCallback, SocketEventHandler } from '../socket';
 import { safeAck } from '../socket';
 import { roomPermissionService } from '../room/room-permission.service';
+import { roomSessionService } from '../room/room-session.service';
 import { playbackMemoryService } from './playback-memory.service';
 import { compensateTransportDelay } from './transport-delay';
 import { needsProgressSync } from './check-status';
@@ -100,9 +101,15 @@ export class PlaybackMemoryHandler implements SocketEventHandler {
           if (state) {
             // 直接通过 ack 返回状态（用于房主重连/观众初始加载）
             // serverTs：服务器应答时刻，客户端可据此估算时钟偏移（时钟校准铺路）
+            // hostOnline：房主离线后加入的观众据此直接进入自主控制模式
+            //（与一起听 get-state 的 hostOnline 对齐），否则观众端会误以为
+            // 房主在线——暂停申请发向已离线的房主且心跳持续拉回播放。
+            const hostOnline = await roomSessionService.isSharerOnline(
+              payload.roomId,
+            );
             safeAck(callback, {
               success: true,
-              data: { state, serverTs: Date.now() },
+              data: { state, serverTs: Date.now(), hostOnline },
             });
           } else {
             // 房间无播放状态，广播给其他成员让房主主动同步

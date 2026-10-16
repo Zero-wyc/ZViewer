@@ -405,7 +405,12 @@ export function WatchTogetherCore({
   // ── 房主离线状态 ──────────────────────────────────────
   // 房主离开后观众进入自主控制模式，可直接 play/pause/seek，无需向房主申请。
   // 房主重连后恢复申请模式。
-  const [hostOffline, setHostOffline] = useState(false)
+  // 状态放 roomStore 单一数据源：除本处事件监听外，useServerHeartbeat
+  // （服务器心跳 hostOnline 持续校正）与 usePlaybackStateRequest（加入时
+  // ack hostOnline 兜底）也会写入——覆盖观众在房主离线后才加入/刷新/
+  // socket 重连而错过 host-disconnected 事件的场景（无法暂停 bug）。
+  const hostOffline = useRoomStore((state) => state.hostOffline)
+  const setHostOffline = useRoomStore((state) => state.setHostOffline)
 
   const autoApproveRequests = useRoomStore((state) => state.autoApproveRequests)
   const autoApproveRef = useRef(autoApproveRequests)
@@ -424,7 +429,7 @@ export function WatchTogetherCore({
       socket.off('host-disconnected', handleHostDisconnected)
       socket.off('sharer-ready', handleHostReconnect)
     }
-  }, [socket, isHost])
+  }, [socket, isHost, setHostOffline])
 
   // ── 弹幕状态 ─────────────────────────────────────────
   const danmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)

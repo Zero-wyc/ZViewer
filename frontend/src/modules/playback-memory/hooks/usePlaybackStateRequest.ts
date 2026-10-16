@@ -92,6 +92,17 @@ export function usePlaybackStateRequest({
           retryCountRef.current = 10 // 拿到状态后停止重试
 
           const state = response.data.state
+
+          // hostOnline=false：观众在房主离线后才加入/刷新页面，直接进入
+          // 自主控制模式（roomStore.hostOffline → canControl）。否则观众
+          // 误以为房主在线：暂停走「向房主申请」死路，且服务器心跳每 2s
+          // 用 isPlaying=true 把暂停拉回播放（无法暂停 bug）。
+          if (response.data.hostOnline === false) {
+            useRoomStore.getState().setHostOffline(true)
+          } else if (response.data.hostOnline === true) {
+            useRoomStore.getState().setHostOffline(false)
+          }
+
           // 重试等待期间可能已通过房主广播（useViewerStateSync）应用过该源，
           // 此时不再重复 attach，避免重复解析 / 覆盖已就绪的播放器
           if (lastAppliedSourceUrlRef.current === state.sourceUrl) {

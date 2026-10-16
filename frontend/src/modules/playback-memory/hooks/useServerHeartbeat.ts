@@ -20,6 +20,7 @@ import { useEffect, useRef, useCallback } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
+import { useRoomStore } from '@/store/roomStore'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import type { SyncHeartbeatPayload } from '@/modules/sync-playback/types'
 import {
@@ -112,6 +113,14 @@ export function useServerHeartbeat({
   const catchUpActiveRef = useRef(false)
   // 硬 seek 并发锁（executeSeek 要求）
   const isReloadingRef = useRef(false)
+  // 卡死看门狗：本地进度零推进检测（lastTime + 最近一次推进时刻 + 最近一次自动重载时刻）
+  const stallWatchRef = useRef({
+    lastTime: -1,
+    lastAdvancedAt: 0,
+    lastReloadAt: 0,
+  })
+  // 因事件抑制被跳过的心跳计数（可观测性：抑制泄漏时暴露问题）
+  const suppressedSkipCountRef = useRef(0)
 
   // 处理服务器心跳：更新本地状态
   const handleServerHeartbeat = useCallback(
@@ -119,7 +128,21 @@ export function useServerHeartbeat({
       // 缓冲下载期间跳过：useViewerStateSync/usePlaybackStateRequest 在下载时
       // 设置 suppressEventsRef=true，若此处提前释放会破坏下载期间的抑制标记，
       // 导致旧源触发的 video 事件回环。下载完成后下一帧心跳会自然应用最新状态。
-      if (suppressEventsRef.current) return
+      if (suppressEventsRef.current) {
+        // 可观测性：源切换/缓冲下载期间跳过属正常；若持续累计（超过抑制租约
+        // 上限 5min）说明存在 acquire/release 不配对泄漏，校正链会被静默拦截
+        // （症状：观众不再跟随房主，仅换源广播/刷新页面能恢复）。
+        suppressedSkipCountRef.current += 1
+        if (suppressedSkipCountRef.current % 15 === 0) {
+          console.warn(
+            `[useServerHeartbeat] 已连续 ${suppressedSkipCountRef.current} 次心跳因事件抑制被跳过（约 ${suppressedSkipCountRef.current * 2}s）——若非源切换/缓冲下载期间出现，请检查抑制配对`
+          )
+        }
+        return
+      }
+      if (suppressedSkipCountRef.current > 0) {
+        suppressedSkipCountRef.current = 0
+      }
 
       // 房主离线后观众进入自主控制模式：不再应用服务器推算的播放状态，
       // 避免 isPlaying/currentTime 强制覆盖观众的 play/pause/seek 操作。
@@ -206,6 +229,37 @@ export function useServerHeartbeat({
         video.playbackRate = state.playbackRate
       }
 
+      // ②.5 卡死自愈看门狗：房主在播而本地进度持续零推进（非暂停 / 非 seeking /
+      // 非重载中）达 15s，判定播放管线卡死（引擎停摆 / 数据饥饿 / 解码异常），
+      // 直接 reloadVideo 重建引擎自愈——等价于用户手动「重载视频」，避免
+      // 2s 心跳反复硬 seek 期间的无限转圈。30s 冷却防止不可恢复场景（如 URL
+      // 失效）下频繁重建；暂停/seeking 期间持续刷新计时，恢复播放后重新计数。
+      if (state.isPlaying && !video.paused && !video.seeking) {
+        const watch = stallWatchRef.current
+        const now = Date.now()
+        if (Math.abs(video.currentTime - watch.lastTime) > 0.05) {
+          watch.lastTime = video.currentTime
+          watch.lastAdvancedAt = now
+        }
+        if (
+          watch.lastAdvancedAt > 0 &&
+          now - watch.lastAdvancedAt > 15000 &&
+          now - watch.lastReloadAt > 30000 &&
+          !isReloadingRef.current
+        ) {
+          watch.lastReloadAt = now
+          watch.lastAdvancedAt = now
+          console.warn(
+            '[useServerHeartbeat] 房主播放中但本地进度 15s 无推进，自动重载视频自愈'
+          )
+          void reloadVideo(video)
+          return
+        }
+      } else {
+        stallWatchRef.current.lastTime = video.currentTime
+        stallWatchRef.current.lastAdvancedAt = Date.now()
+      }
+
       // ③ 两阶段自适应进度校正（服务器为进度权威，Step 2）：
       //    diff ≤ 自适应阈值 → 忽略，自然播放；
       //    阈值 < diff ≤ 硬 seek 阈值 且播放中 → 软同步倍速渐进追赶；
@@ -274,6 +328,25 @@ export function useServerHeartbeat({
     // 每条心跳被处理两遍（setWatchTogether 双倍 notify → 渲染翻倍），故不绑旧事件。
     const handleSyncHeartbeat = (payload: SyncHeartbeatPayload) => {
       if (payload.source === 'server' && payload.state) {
+        // 持续校正房主离线标记（必须在 handleServerHeartbeat 的 hostOffline
+        // 早退守卫之前执行）：服务器心跳恒定广播，携带的 hostOnline 覆盖
+        // 「观众在房主离线后才加入/刷新/socket 重连而错过 host-disconnected
+        // 事件」的场景——否则观众误以为房主在线，暂停操作每 2s 被心跳的
+        // isPlaying=true 拉回播放（无法暂停 bug）。
+        // hostOnline=true 时恢复跟随（错过 sharer-ready 的兜底），并设置
+        // 重连过渡标记让恢复后的首次校正是平滑的（P3-Opt#15 同路径）。
+        if (payload.hostOnline === false && !hostOfflineRef.current) {
+          hostOfflineRef.current = true
+          hostLeftNotifiedRef.current = false
+          useRoomStore.getState().setHostOffline(true)
+          message.info('房主已离开，您可以自主控制播放')
+        } else if (payload.hostOnline === true && hostOfflineRef.current) {
+          hostOfflineRef.current = false
+          hostLeftNotifiedRef.current = false
+          urlExpiredRef.current = false
+          reconnectTransitionRef.current = true
+          useRoomStore.getState().setHostOffline(false)
+        }
         handleServerHeartbeat({ roomId: '', state: payload.state })
       }
     }
@@ -345,6 +418,7 @@ export function useServerHeartbeat({
 
     const handleHostDisconnected = () => {
       hostOfflineRef.current = true
+      useRoomStore.getState().setHostOffline(true)
       if (hostLeftNotifiedRef.current) return
       hostLeftNotifiedRef.current = true
       // 仅提示，不暂停播放（观众进入自主控制模式）
@@ -356,6 +430,7 @@ export function useServerHeartbeat({
       hostOfflineRef.current = false
       hostLeftNotifiedRef.current = false
       urlExpiredRef.current = false
+      useRoomStore.getState().setHostOffline(false)
       // P3-Opt#15：设置重连过渡标记，下次心跳判断是否需平滑同步
       reconnectTransitionRef.current = true
     }

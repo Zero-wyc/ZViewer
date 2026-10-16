@@ -18,7 +18,8 @@ import {
  * - currentKey 为当前曲目的权威标识（`ncm:<songId>`），与队列条目匹配；
  *   currentSongId 为其兼容字段
  * - positionSec 为本地 audio 进度镜像（timeupdate 驱动），供进度条/歌词消费
- * - hostOffline 为观众端的房主离线判定（心跳超时），决定 canControl
+ * - hostOffline 为观众端的房主离线判定（host-disconnected / sharer-ready 事件
+ *   + 服务器心跳与 get-state ack 的 hostOnline 持续校正），决定 canControl
  * - loginStatus 由 useNcmLogin 维护
  * - syncNotice 为播放器左上角提示文字（自动消失逻辑由组件实现）
  * - page / playerOverlayOpen / queuePopupOpen / loginModalOpen 为 Hydrogen

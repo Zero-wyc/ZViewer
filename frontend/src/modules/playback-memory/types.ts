@@ -15,6 +15,8 @@ import type { WatchTogetherState } from '@/modules/sync-playback/types'
 export interface ServerHeartbeatPayload {
   roomId: string
   state: WatchTogetherState
+  /** 房主在线状态（服务器随心跳持续下发，驱动观众自主控制模式判定） */
+  hostOnline?: boolean
 }
 
 /**
@@ -27,6 +29,11 @@ export interface RequestStateAckData {
   state: WatchTogetherState | null
   /** 服务器应答时刻（Unix 毫秒），客户端可据此估算时钟偏移（时钟校准铺路） */
   serverTs?: number
+  /**
+   * 房主在线状态（与一起听 get-state 的 hostOnline 对齐）。
+   * false = 观众在房主离线后才加入/刷新，应直接进入自主控制模式。
+   */
+  hostOnline?: boolean
 }
 
 /**

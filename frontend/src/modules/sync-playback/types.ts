@@ -144,6 +144,12 @@ export interface SyncHeartbeatPayload {
   suppressed?: boolean
   /** 房主离线时由服务器推算的完整状态 */
   state?: WatchTogetherState
+  /**
+   * 服务器心跳附带的房主在线状态（仅 source='server' 时由后端填充）。
+   * 观众端据此持续校正「自主控制模式」标记——覆盖观众在房主离线后才
+   * 加入/刷新/socket 重连而错过 host-disconnected 事件的场景。
+   */
+  hostOnline?: boolean
 }
 
 /** `viewer-joined` 事件 payload：观众加入房间通知 */

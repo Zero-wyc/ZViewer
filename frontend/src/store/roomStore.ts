@@ -325,6 +325,16 @@ interface RoomState {
    */
   autoContinueEnabled: boolean
   setAutoContinueEnabled: (enabled: boolean) => void
+  /**
+   * 观众端「房主已离线」标记（一起看自主控制模式）。
+   * canControl = isHost || hostOffline：房主离线后观众可直接 play/pause/seek，
+   * 服务器心跳不再强制拉回 isPlaying。
+   * 驱动源：host-disconnected / sharer-ready 事件 + 服务器心跳/请求状态 ack
+   * 持续下发的 hostOnline 字段（覆盖观众在房主离线后才加入/刷新/重连而
+   * 错过事件的场景）。
+   */
+  hostOffline: boolean
+  setHostOffline: (offline: boolean) => void
   /** OBS 推流状态（stream-push 子模式专用）。
    * - live：NMS 已收到推流
    * - offline：NMS 未收到推流或推流已结束
@@ -514,6 +524,7 @@ const defaultState = {
   } | null,
   autoApproveRequests: true,
   autoContinueEnabled: false,
+  hostOffline: false,
   streamStatus: 'unknown' as StreamStatus,
   streamKey: null,
 }
@@ -623,6 +634,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
   toggleAutoApproveRequests: () =>
     set((state) => ({ autoApproveRequests: !state.autoApproveRequests })),
   setAutoContinueEnabled: (enabled) => set({ autoContinueEnabled: enabled }),
+  setHostOffline: (offline) => set({ hostOffline: offline }),
   setActiveRoomId: (id) => set({ activeRoomId: id }),
   exitRoom: () => {
     set({ ...defaultState })

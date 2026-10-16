@@ -20,9 +20,36 @@
  */
 import type { Server as SocketIOServer } from 'socket.io';
 import { playbackMemoryService } from './playback-memory.service';
+import { roomSessionService } from '../room/room-session.service';
 
 /** 服务器心跳广播间隔（毫秒） */
 const SERVER_HEARTBEAT_INTERVAL_MS = 2000;
+
+/** hostOnline 查询缓存 TTL（毫秒）：避免每 2s × 每房间都打一次 Session 表 */
+const HOST_ONLINE_CACHE_TTL_MS = 5000;
+
+/** 房主在线状态缓存：roomId → { online, ts } */
+const hostOnlineCache = new Map<
+  string,
+  { online: boolean; ts: number }
+>();
+
+/** 查询房间房主在线状态（5s TTL 缓存，心跳广播高频调用用） */
+async function isHostOnlineCached(roomId: string): Promise<boolean> {
+  const cached = hostOnlineCache.get(roomId);
+  if (cached && Date.now() - cached.ts < HOST_ONLINE_CACHE_TTL_MS) {
+    return cached.online;
+  }
+  let online = false;
+  try {
+    online = await roomSessionService.isSharerOnline(roomId);
+  } catch {
+    // 查询失败按离线处理：观众端进入自主控制模式比误判在线更安全
+    online = false;
+  }
+  hostOnlineCache.set(roomId, { online, ts: Date.now() });
+  return online;
+}
 
 export class PlaybackBroadcasterService {
   private intervalId: NodeJS.Timeout | null = null;
@@ -83,14 +110,22 @@ export class PlaybackBroadcasterService {
         const state = await playbackMemoryService.getAdvancedPlayback(roomId);
         if (!state) continue;
 
+        // hostOnline：随心跳持续下发给观众端，驱动「房主离线 → 观众自主控制
+        // 模式」的判定——覆盖观众在房主离线后才加入/刷新页面/socket 重连而
+        // 错过 host-disconnected 事件的场景（否则服务器心跳每 2s 用
+        // isPlaying=true 把观众的暂停操作拉回播放，表现为「无法暂停」）。
+        const hostOnline = await isHostOnlineCached(roomId);
+
         this.io.to(roomId).emit('server-heartbeat', {
           roomId,
           state,
+          hostOnline,
         });
         // 统一心跳协议（#14）：新增 sync-heartbeat 事件（source: 'server'）
         this.io.to(roomId).emit('sync-heartbeat', {
           source: 'server',
           state,
+          hostOnline,
         });
       } catch (err) {
         console.error(`[PlaybackBroadcaster] 广播房间 ${roomId} 失败:`, err);

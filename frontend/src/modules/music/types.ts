@@ -96,6 +96,12 @@ export interface MusicSyncHeartbeatPayload {
   source: 'server'
   /** 服务器推算的权威状态（positionSec 已按服务器时间轴外推到当前时刻） */
   state: MusicSyncState
+  /**
+   * 房主在线状态（后端随心跳持续下发）。观众端据此持续校正 hostOffline
+   * （自主控制模式标记）——覆盖观众在房主离线后才加入/刷新/socket 重连
+   * 而错过 host-disconnected 事件、get-state hostOnline 又已过期的场景。
+   */
+  hostOnline?: boolean
 }
 
 /** 观众自检上行 payload（music:check-status） */
