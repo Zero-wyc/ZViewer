@@ -170,3 +170,34 @@
 - eslint 口径：改动文件 0 错 0 警；
 - 大文件重构坚持"纯搬迁零行为变更"，靠 noUnusedLocals 清 import；
 - 同一文件禁止并行 Edit；Windows 下注意 CRLF（prettier 报 ␍ 时 `sed -i 's/\r$//'`）。
+
+---
+
+## 六、P4 — 剩余单体与业务下沉（已完成，2026-10-18）
+
+P0~P3 完成后复盘的遗留热点：后端仍有"路由内写业务"，前端两个评论面板仍是平行实现，
+解析器两条分支仍有复制段。P4 按"业务下沉 + 共用层"处理：
+
+| 项 | 处理 | 结果 |
+|---|---|---|
+| `routes/music.ts`(1367) | 整套 REST 迁入 `modules/music/music.routes.ts`（256 行，仅注册+参数校验），业务拆为 `ncm-api-client` / `ncm-cookie.service`（cookie 解析合并、凭证回退链）/ `ncm-stream.service`（音质降级链、直链与音质缓存、FLAC 采样率探测、Range 转发）/ `ncm-stream.handlers`（stream、song-quality 端点）/ `ncm-account.service`（登录态 VIP 判定、专辑补齐）/ `ncm-forward.service`（/ncm 转发、云盘上传）；`optionalAuth` 提升为 `middleware/auth.ts` 的 `optionalAuthenticate` | 路由层不再碰 `AppDataSource` 与 NCM 协议细节；`routes/register.ts` 改装配 `createMusicRouter()` |
+| `routes/serverFiles.ts`(945) | multer 存储配置与 `uniqueFilename` → `services/server-files/upload.ts`；`downloadToFile` → `download.service.ts`；`/bilibili-download` 全流程编排（NDJSON 进度、VIP 强校验、下载头、失败清理）→ `bilibili-download.service.ts`；服务层直接从 `getCredential` 取 Cookie（不再依赖 `routes/stream/helpers`） | 945→681，路由只剩目录/文件操作端点 |
+| 评论面板 `SongCommentsPanel`(1327)+`BiliCommentsPanel`(667) | 新增 `components/comments/`：`style.ts`（ac-* 样式表唯一副本）、`CommentChrome.tsx`（FrameCorners / 分区标题 / 状态框 / LIKE_PATH）、`CommentsShell.tsx`（滚动容器+标题+HOT/LATEST+状态，headerExtra 插槽装输入区/游客提示）、`format.ts`（相对时间，秒/毫秒两种入参）、`comment-total-cache.ts`（徽章缓存与事件，斩断 B站 面板→网易云面板的反向依赖） | 1994→1561（-433），UI 骨架单点维护 |
+| `services/bilibili/resolver.ts`(1113) | UGC/PGC 共用片段抽到模块级：`createEmitter`（进度事件）、`toResolveError`（PgcError→ResolveError 归一）、`cdnUnreachableError`（5 处统一文案/错误码）、`selectDashSources`（skipCdnCheck 直连 / 并行探测音视频可达地址，替换两处逐行相同的 CDN 选择块） | 行数持平，重复逻辑单点化；两条编排的**结构差异**（season 集定位 vs pages、试看语义）保留 |
+
+验证：后端 `tsc --noEmit` + 真实进程冒烟（临时 PROJECT_ROOT，`/api/music/login/status`、`/ncm` 转发、
+`/album/full`、`/stream` 的 206/302/直链缓存、`/server-files/{roots,upload,browse,bilibili-download}`、
+`/stream/resolve-bilibili` 的 UGC 成功与 PGC 成功/地区限制错误分支）；前端 `tsc` + eslint（0 error）
++ `npm test -w frontend`（38 pass）+ `vite build`。
+
+## 七、P4 后仍待处理（按价值排序）
+
+1. `MusicBilibiliPage.tsx`(2362)：主组件仍有约 40 个 useState，"取数/筛选/收藏/分页"可继续下沉 hook。
+2. `MoviePushPanel.tsx`(2346)：来源表单已拆，但面板仍聚合 11 个媒体源模块与 3 个 store。
+3. `useListenTogether.ts`(1980)：`useMusicSync` 明确缓做（6 个 handler 横跨 ~18 个上游符号、零重复，强拆负价值），需先补同步协议端到端测试。
+4. `MusicMyPage`(1582)/`MusicFmPage`(1201)/`MusicCloudPage`(1125)：列表页同构骨架可收敛。
+5. `ProfilePage`(1313)：B站/网易云 Cookie 登录平行实现、28 个 useState。
+6. 后端 `routes/{subtitles,openlist,webdav,admin}.ts`(928/902/732/834)：仍有路由内业务与直写仓库，按 music 的模式继续下沉。
+7. kazumi/anisubs 前端 api 近逐行同构（各 ~110 行）、embyApi/jellyfinApi 九函数对：可用工厂合并，但需先确认响应类型差异。
+8. 手测清单（播放核心未被本轮触及，仍需回归）：起播/暂停/seek、预载升格、无缝衔接、三模式切歌、B站懒解析连播、断线 vs 房间关闭。
+
