@@ -1374,6 +1374,262 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
 
   // 统一添加影片：对 webdav/ftp/openlist/mp4 合并 resolve+add 为单步操作
   // bilibili 仍走两步：先 handleResolve 解析 → 选清晰度 → handleAddMovie 添加
+  // 各来源的添加流程拆为独立函数（纯搬迁），handleAddMovie 只做分发。
+
+  const addBilibiliMovie = async () => {
+    const title = resolvedMovie.title || url.trim()
+    // 存展开后的完整地址：短链（b23.tv 等）由后端解析时 302 展开，
+    // 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性
+    const movieUrl = resolvedMovie.resolvedUrl || url.trim()
+    const added = await addMovie(roomId, {
+      url: movieUrl,
+      title,
+      source: 'bilibili',
+      audioUrl: resolvedMovie.audioUrl,
+      format: resolvedMovie.format,
+      videoCodec: resolvedMovie.videoCodec,
+      audioCodec: resolvedMovie.audioCodec,
+      duration: resolvedMovie.duration,
+      cid: resolvedMovie.cid,
+      currentQn: resolvedMovie.currentQn,
+      acceptQuality: resolvedMovie.acceptQuality,
+      pages: resolvedMovie.pages,
+      currentPage: resolvedMovie.currentPage ?? 1,
+    })
+    // 对齐预览与正式播放的解析语义，消除引擎翻转：
+    // 添加时的解析（CLI 连接=CLI DASH，未连接=服务器默认 DASH）
+    // 与播放时的重新解析若偏好不一致，引擎会在 videojs10-dash 与
+    // videojs10 间翻转。此处按实际解析路径持久化偏好：
+    // - CLI 路径：启用 CLI 锁定 DASH（与一起看 cliPrevPreferMp4 同语义）
+    // - 服务器路径：按管理员基础设置的默认解析参数物化
+    //   （普通视频走「默认解析模式」，番剧/影视走「番剧/影视默认模式」）
+    // 均可在影片的解析设置中手动更改。
+    if (added) {
+      const sysSettings = useSystemSettingsStore.getState()
+      const pgc = isBilibiliPgcMovie(added)
+      // 番剧/影视默认模式为「仅 CLI」时物化 Movie.cliOnly：
+      // 全体成员必须连接本机 ZViewer CLI 观看，服务器仅做同步信令
+      const pgcCliOnly = pgc && sysSettings.bilibiliPgcDefaultMode === 'cliOnly'
+      if (pgcCliOnly && added.cliOnly !== true) {
+        void useRoomStore
+          .getState()
+          .updateMovie(roomId, added.id, { cliOnly: true })
+      }
+      if (pgcCliOnly || resolvedViaCliRef.current) {
+        setBilibiliParseOptions(added.id, {
+          cliEnabled: true,
+          preferMp4: false,
+        })
+      } else {
+        const defaultMode = pgc
+          ? sysSettings.bilibiliPgcDefaultMode
+          : sysSettings.bilibiliDefaultParseMode
+        setBilibiliParseOptions(added.id, {
+          preferMp4: defaultMode !== 'dash',
+        })
+      }
+    }
+    resetForm()
+    message.success('影片已添加')
+  }
+
+  const addMp4Movie = async () => {
+    if (!url.trim()) {
+      message.warning('请输入视频地址')
+      return
+    }
+    const movieUrl = url.trim()
+    const title = extractTitleFromUrl(movieUrl)
+    // 自动检测媒体格式：m3u8 -> hls，mp4/mkv/webm -> 对应格式
+    // 后端存储 format 字段，播放时据此选择 HLS/Direct 引擎
+    const detectedFormat = detectMediaFormat(movieUrl)
+    await addMovie(roomId, {
+      url: movieUrl,
+      title,
+      source: 'mp4',
+      format: detectedFormat !== 'unknown' ? detectedFormat : undefined,
+      // 视频直链影片统一走直链模式：默认强制直链直连（noProxyFallback），
+      // 「服务器中转」开关开启（directLinkProxy=true）时媒体流一律经
+      // 服务器中转（解析层预包装代理 URL），不做直连尝试
+      directLink: true,
+      directLinkProxy,
+    })
+    resetForm()
+    message.success('影片已添加')
+  }
+
+  const addPathMountMovie = async () => {
+    // WebDAV 与 OpenList 共用同一套协议逻辑，仅 API 前缀与直链获取不同
+    // 内网地址强制使用服务器转发（浏览器无法直连内网服务器）
+    const isDirect =
+      sourceType === 'webdav'
+        ? isWebdavInternal
+          ? false
+          : webdavDirectLink
+        : isOpenlistInternal
+          ? false
+          : openlistDirectLink
+    const mountPath = (
+      sourceType === 'webdav' ? webdav.path : openlist.path
+    ).trim()
+    const mountServerUrl =
+      (sourceType === 'webdav'
+        ? webdav.serverUrl
+        : openlist.serverUrl
+      ).trim() || undefined
+    const label = sourceType === 'webdav' ? 'WebDAV' : 'OpenList'
+    const resolveMount =
+      sourceType === 'webdav' ? resolveWebDAV : resolveOpenList
+    const fetchDirect =
+      sourceType === 'webdav' ? fetchWebDAVDirectUrl : fetchOpenListDirectUrl
+
+    if (!mountPath) {
+      message.warning('请填写文件路径')
+      return
+    }
+    const mountId = Number(selectedMountId)
+    if (!mountId) {
+      message.warning(`请选择已保存的 ${label} 挂载`)
+      return
+    }
+    let title: string
+    let movieUrl: string
+    let format: MediaFormat = 'mp4'
+    let duration: number | undefined
+
+    if (isDirect) {
+      // 直链模式：后端通过挂载凭证获取直链 URL（OpenList 为 AList 签名直链，WebDAV 为拼接）
+      setResolveProgress(`正在获取 ${label} 直链...`)
+      movieUrl = await fetchDirect(mountId, mountPath)
+      title = extractTitleFromUrl(mountPath)
+    } else {
+      // 代理模式：resolve 返回相对 proxy URL，后端随后用 movieId 重写为 stream URL
+      setResolveProgress(`正在解析 ${label} 文件...`)
+      const resolved = await resolveMount(mountId, mountPath)
+      title = resolved.title || extractTitleFromUrl(mountPath)
+      movieUrl = resolved.videoUrl
+      format = resolved.format
+      duration = resolved.duration
+    }
+    await addMovie(roomId, {
+      url: movieUrl,
+      title,
+      source: sourceType,
+      format,
+      duration,
+      serverUrl: mountServerUrl,
+      path: mountPath,
+      directLink: isDirect,
+      directLinkProxy: isDirect ? directLinkProxy : undefined,
+    })
+    resetForm()
+    message.success('影片已添加')
+  }
+
+  const addFtpMovie = async () => {
+    if (!ftp.serverUrl.trim() || !ftp.path.trim()) {
+      message.warning('请填写服务器地址与路径')
+      return
+    }
+    setResolveProgress('正在解析 FTP 文件...')
+    // 优先使用已保存挂载的新 API；手动填写时回退到旧 API
+    const mountId = Number(selectedMountId)
+    let title: string
+    let movieUrl: string
+    let format: MediaFormat
+
+    if (mountId) {
+      const resolved = await resolveFTPNew(mountId, ftp.path.trim())
+      title = resolved.title || extractTitleFromUrl(ftp.path.trim())
+      movieUrl = resolved.videoUrl
+      format = resolved.format
+    } else {
+      const resolved = await resolveFTP({
+        serverUrl: ftp.serverUrl.trim(),
+        path: ftp.path.trim(),
+        port: ftp.port,
+        username: ftp.username || undefined,
+        password: ftp.password || undefined,
+      })
+      title = resolved.title || extractTitleFromUrl(ftp.path.trim())
+      movieUrl = resolved.videoUrl
+      format = resolved.format
+    }
+    await addMovie(roomId, {
+      url: movieUrl,
+      title,
+      source: 'ftp',
+      format,
+      serverUrl: ftp.serverUrl.trim(),
+      path: ftp.path.trim(),
+      username: ftp.username || undefined,
+      password: ftp.password || undefined,
+    })
+    resetForm()
+    message.success('影片已添加')
+  }
+
+  // Emby 与 Jellyfin 同构：仅服务名标签、resolve API 与直链开关不同
+  const addMediaServerMovie = async (label: 'Emby' | 'Jellyfin') => {
+    const resolveMount = label === 'Emby' ? resolveEmby : resolveJellyfin
+    const directLink = label === 'Emby' ? embyDirectLink : jellyfinDirectLink
+    const source = label === 'Emby' ? 'emby' : 'jellyfin'
+    const mountId = Number(selectedMountId)
+    if (!mountId) {
+      message.warning(`请选择已保存的 ${label} 挂载`)
+      return
+    }
+    // Emby/Jellyfin 是媒体库型，需通过浏览选择条目（itemId）
+    // 手动输入场景仅支持已复制的 itemId 直加
+    const itemId = url.trim()
+    if (!itemId) {
+      message.warning(`请通过「浏览 ${label} 媒体库」选择条目，或粘贴 itemId`)
+      return
+    }
+    setResolveProgress(`正在解析 ${label} 条目...`)
+    const resolved = await resolveMount(mountId, itemId)
+    const mount = mounts.find((m) => m.id === mountId)
+    await addMovie(roomId, {
+      url:
+        directLink && resolved.directUrl
+          ? resolved.directUrl
+          : resolved.videoUrl,
+      title: resolved.title || extractTitleFromUrl(itemId),
+      source,
+      format: resolved.format,
+      duration: resolved.duration,
+      serverUrl: mount?.serverUrl,
+      path: itemId,
+      directLink,
+    })
+    resetForm()
+    message.success('影片已添加')
+  }
+
+  const addServerFilesMovie = async () => {
+    if (!serverFilePath.trim()) {
+      message.warning('请选择服务器文件')
+      return
+    }
+    setResolveProgress('正在解析服务器文件...')
+    const resolved = await resolveServerFile(serverFilePath.trim())
+    const movieUrl = buildServerFileProxyUrl(serverFilePath.trim())
+    // 音轨编码来自后端 resolve（ffprobe），仅作元数据存储：playsvideo
+    // 的启用由播放时的 shouldUsePlaysVideo 依据容器与音轨自行判定，
+    // 添加影片时不再需要前端补探测。
+    await addMovie(roomId, {
+      url: movieUrl,
+      title: resolved.title,
+      source: 'server-files',
+      format: resolved.format as MediaFormat,
+      path: serverFilePath.trim(),
+      duration: resolved.duration ?? undefined,
+      audioCodec: resolved.audioCodec ?? undefined,
+    })
+    resetForm()
+    message.success('影片已添加')
+  }
+
   const handleAddMovie = async () => {
     if (!isHost) {
       message.info('只有房主可以添加影片')
@@ -1388,277 +1644,19 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     setResolveProgress('正在添加影片...')
     try {
       if (sourceType === 'bilibili' && resolvedMovie) {
-        const title = resolvedMovie.title || url.trim()
-        // 存展开后的完整地址：短链（b23.tv 等）由后端解析时 302 展开，
-        // 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性
-        const movieUrl = resolvedMovie.resolvedUrl || url.trim()
-        const added = await addMovie(roomId, {
-          url: movieUrl,
-          title,
-          source: 'bilibili',
-          audioUrl: resolvedMovie.audioUrl,
-          format: resolvedMovie.format,
-          videoCodec: resolvedMovie.videoCodec,
-          audioCodec: resolvedMovie.audioCodec,
-          duration: resolvedMovie.duration,
-          cid: resolvedMovie.cid,
-          currentQn: resolvedMovie.currentQn,
-          acceptQuality: resolvedMovie.acceptQuality,
-          pages: resolvedMovie.pages,
-          currentPage: resolvedMovie.currentPage ?? 1,
-        })
-        // 对齐预览与正式播放的解析语义，消除引擎翻转：
-        // 添加时的解析（CLI 连接=CLI DASH，未连接=服务器默认 DASH）
-        // 与播放时的重新解析若偏好不一致，引擎会在 videojs10-dash 与
-        // videojs10 间翻转。此处按实际解析路径持久化偏好：
-        // - CLI 路径：启用 CLI 锁定 DASH（与一起看 cliPrevPreferMp4 同语义）
-        // - 服务器路径：按管理员基础设置的默认解析参数物化
-        //   （普通视频走「默认解析模式」，番剧/影视走「番剧/影视默认模式」）
-        // 均可在影片的解析设置中手动更改。
-        if (added) {
-          const sysSettings = useSystemSettingsStore.getState()
-          const pgc = isBilibiliPgcMovie(added)
-          // 番剧/影视默认模式为「仅 CLI」时物化 Movie.cliOnly：
-          // 全体成员必须连接本机 ZViewer CLI 观看，服务器仅做同步信令
-          const pgcCliOnly =
-            pgc && sysSettings.bilibiliPgcDefaultMode === 'cliOnly'
-          if (pgcCliOnly && added.cliOnly !== true) {
-            void useRoomStore
-              .getState()
-              .updateMovie(roomId, added.id, { cliOnly: true })
-          }
-          if (pgcCliOnly || resolvedViaCliRef.current) {
-            setBilibiliParseOptions(added.id, {
-              cliEnabled: true,
-              preferMp4: false,
-            })
-          } else {
-            const defaultMode = pgc
-              ? sysSettings.bilibiliPgcDefaultMode
-              : sysSettings.bilibiliDefaultParseMode
-            setBilibiliParseOptions(added.id, {
-              preferMp4: defaultMode !== 'dash',
-            })
-          }
-        }
-        resetForm()
-        message.success('影片已添加')
+        await addBilibiliMovie()
       } else if (sourceType === 'mp4') {
-        if (!url.trim()) {
-          message.warning('请输入视频地址')
-          return
-        }
-        const movieUrl = url.trim()
-        const title = extractTitleFromUrl(movieUrl)
-        // 自动检测媒体格式：m3u8 -> hls，mp4/mkv/webm -> 对应格式
-        // 后端存储 format 字段，播放时据此选择 HLS/Direct 引擎
-        const detectedFormat = detectMediaFormat(movieUrl)
-        await addMovie(roomId, {
-          url: movieUrl,
-          title,
-          source: 'mp4',
-          format: detectedFormat !== 'unknown' ? detectedFormat : undefined,
-          // 视频直链影片统一走直链模式：默认强制直链直连（noProxyFallback），
-          // 「服务器中转」开关开启（directLinkProxy=true）时媒体流一律经
-          // 服务器中转（解析层预包装代理 URL），不做直连尝试
-          directLink: true,
-          directLinkProxy,
-        })
-        resetForm()
-        message.success('影片已添加')
+        await addMp4Movie()
       } else if (sourceType === 'webdav' || sourceType === 'openlist') {
-        // WebDAV 与 OpenList 共用同一套协议逻辑，仅 API 前缀与直链获取不同
-        // 内网地址强制使用服务器转发（浏览器无法直连内网服务器）
-        const isDirect =
-          sourceType === 'webdav'
-            ? isWebdavInternal
-              ? false
-              : webdavDirectLink
-            : isOpenlistInternal
-              ? false
-              : openlistDirectLink
-        const mountPath = (
-          sourceType === 'webdav' ? webdav.path : openlist.path
-        ).trim()
-        const mountServerUrl =
-          (sourceType === 'webdav'
-            ? webdav.serverUrl
-            : openlist.serverUrl
-          ).trim() || undefined
-        const label = sourceType === 'webdav' ? 'WebDAV' : 'OpenList'
-        const resolveMount =
-          sourceType === 'webdav' ? resolveWebDAV : resolveOpenList
-        const fetchDirect =
-          sourceType === 'webdav'
-            ? fetchWebDAVDirectUrl
-            : fetchOpenListDirectUrl
-
-        if (!mountPath) {
-          message.warning('请填写文件路径')
-          return
-        }
-        const mountId = Number(selectedMountId)
-        if (!mountId) {
-          message.warning(`请选择已保存的 ${label} 挂载`)
-          return
-        }
-        let title: string
-        let movieUrl: string
-        let format: MediaFormat = 'mp4'
-        let duration: number | undefined
-
-        if (isDirect) {
-          // 直链模式：后端通过挂载凭证获取直链 URL（OpenList 为 AList 签名直链，WebDAV 为拼接）
-          setResolveProgress(`正在获取 ${label} 直链...`)
-          movieUrl = await fetchDirect(mountId, mountPath)
-          title = extractTitleFromUrl(mountPath)
-        } else {
-          // 代理模式：resolve 返回相对 proxy URL，后端随后用 movieId 重写为 stream URL
-          setResolveProgress(`正在解析 ${label} 文件...`)
-          const resolved = await resolveMount(mountId, mountPath)
-          title = resolved.title || extractTitleFromUrl(mountPath)
-          movieUrl = resolved.videoUrl
-          format = resolved.format
-          duration = resolved.duration
-        }
-        await addMovie(roomId, {
-          url: movieUrl,
-          title,
-          source: sourceType,
-          format,
-          duration,
-          serverUrl: mountServerUrl,
-          path: mountPath,
-          directLink: isDirect,
-          directLinkProxy: isDirect ? directLinkProxy : undefined,
-        })
-        resetForm()
-        message.success('影片已添加')
+        await addPathMountMovie()
       } else if (sourceType === 'ftp') {
-        if (!ftp.serverUrl.trim() || !ftp.path.trim()) {
-          message.warning('请填写服务器地址与路径')
-          return
-        }
-        setResolveProgress('正在解析 FTP 文件...')
-        // 优先使用已保存挂载的新 API；手动填写时回退到旧 API
-        const mountId = Number(selectedMountId)
-        let title: string
-        let movieUrl: string
-        let format: MediaFormat = 'mp4'
-
-        if (mountId) {
-          const resolved = await resolveFTPNew(mountId, ftp.path.trim())
-          title = resolved.title || extractTitleFromUrl(ftp.path.trim())
-          movieUrl = resolved.videoUrl
-          format = resolved.format
-        } else {
-          const resolved = await resolveFTP({
-            serverUrl: ftp.serverUrl.trim(),
-            path: ftp.path.trim(),
-            port: ftp.port,
-            username: ftp.username || undefined,
-            password: ftp.password || undefined,
-          })
-          title = resolved.title || extractTitleFromUrl(ftp.path.trim())
-          movieUrl = resolved.videoUrl
-          format = resolved.format
-        }
-        await addMovie(roomId, {
-          url: movieUrl,
-          title,
-          source: 'ftp',
-          format,
-          serverUrl: ftp.serverUrl.trim(),
-          path: ftp.path.trim(),
-          username: ftp.username || undefined,
-          password: ftp.password || undefined,
-        })
-        resetForm()
-        message.success('影片已添加')
+        await addFtpMovie()
       } else if (sourceType === 'emby') {
-        const mountId = Number(selectedMountId)
-        if (!mountId) {
-          message.warning('请选择已保存的 Emby 挂载')
-          return
-        }
-        // Emby 是媒体库型，需通过浏览选择条目（itemId）
-        // 手动输入场景仅支持已复制的 itemId 直加
-        const itemId = url.trim()
-        if (!itemId) {
-          message.warning('请通过「浏览 Emby 媒体库」选择条目，或粘贴 itemId')
-          return
-        }
-        setResolveProgress('正在解析 Emby 条目...')
-        const resolved = await resolveEmby(mountId, itemId)
-        const mount = mounts.find((m) => m.id === mountId)
-        await addMovie(roomId, {
-          url:
-            embyDirectLink && resolved.directUrl
-              ? resolved.directUrl
-              : resolved.videoUrl,
-          title: resolved.title || extractTitleFromUrl(itemId),
-          source: 'emby',
-          format: resolved.format,
-          duration: resolved.duration,
-          serverUrl: mount?.serverUrl,
-          path: itemId,
-          directLink: embyDirectLink,
-        })
-        resetForm()
-        message.success('影片已添加')
+        await addMediaServerMovie('Emby')
       } else if (sourceType === 'jellyfin') {
-        const mountId = Number(selectedMountId)
-        if (!mountId) {
-          message.warning('请选择已保存的 Jellyfin 挂载')
-          return
-        }
-        const itemId = url.trim()
-        if (!itemId) {
-          message.warning(
-            '请通过「浏览 Jellyfin 媒体库」选择条目，或粘贴 itemId'
-          )
-          return
-        }
-        setResolveProgress('正在解析 Jellyfin 条目...')
-        const resolved = await resolveJellyfin(mountId, itemId)
-        const mount = mounts.find((m) => m.id === mountId)
-        await addMovie(roomId, {
-          url:
-            jellyfinDirectLink && resolved.directUrl
-              ? resolved.directUrl
-              : resolved.videoUrl,
-          title: resolved.title || extractTitleFromUrl(itemId),
-          source: 'jellyfin',
-          format: resolved.format,
-          duration: resolved.duration,
-          serverUrl: mount?.serverUrl,
-          path: itemId,
-          directLink: jellyfinDirectLink,
-        })
-        resetForm()
-        message.success('影片已添加')
+        await addMediaServerMovie('Jellyfin')
       } else if (sourceType === 'server-files') {
-        if (!serverFilePath.trim()) {
-          message.warning('请选择服务器文件')
-          return
-        }
-        setResolveProgress('正在解析服务器文件...')
-        const resolved = await resolveServerFile(serverFilePath.trim())
-        const movieUrl = buildServerFileProxyUrl(serverFilePath.trim())
-        // 音轨编码来自后端 resolve（ffprobe），仅作元数据存储：playsvideo
-        // 的启用由播放时的 shouldUsePlaysVideo 依据容器与音轨自行判定，
-        // 添加影片时不再需要前端补探测。
-        await addMovie(roomId, {
-          url: movieUrl,
-          title: resolved.title,
-          source: 'server-files',
-          format: resolved.format as MediaFormat,
-          path: serverFilePath.trim(),
-          duration: resolved.duration ?? undefined,
-          audioCodec: resolved.audioCodec ?? undefined,
-        })
-        resetForm()
-        message.success('影片已添加')
+        await addServerFilesMovie()
       }
     } catch (err) {
       console.error('[MoviePushPanel] add movie error:', err)
