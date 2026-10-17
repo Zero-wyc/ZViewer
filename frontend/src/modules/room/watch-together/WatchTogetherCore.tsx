@@ -13,6 +13,7 @@
  * 底部控制栏由 PlayerControlBar 直接渲染为覆盖层。
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import type Artplayer from 'artplayer'
 import { cn, formatDuration } from '@/lib/utils'
@@ -37,6 +38,7 @@ import {
 } from '@/components/DanmakuLayer'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
+import { useRequestChannel, type PendingApproval } from './useRequestChannel'
 import { ATTACH_STAGE_LABELS } from '@/modules/sync-playback/hooks/useVideoSource'
 import { FullscreenCommentDock } from './FullscreenCommentDock'
 import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
@@ -209,63 +211,6 @@ export function WatchTogetherCore({
   })()
   const canEnableEmbedded = isHost && embeddedSource !== null
 
-  // ── 音频编码兼容性提示 ──────────────────────────────
-  // 浏览器 <video> 仅支持 AAC/MP3/Opus/Vorbis/FLAC 等少数音频编码
-  // （白名单口径统一引用 lib/audioCodecs，与引擎选择 needsBrowserTranscode
-  // 同源）。DTS/AC3/EAC3 等编码的处理方式：
-  // - emby/jellyfin 源：resolve 阶段自动切换为远端媒体服务器转码 HLS
-  // - 浏览器端转码引擎（playsvideo）：在浏览器内重封装容器并将不兼容
-  //   音轨实时转码为 AAC（中转与直链均支持，无需服务端 FFmpeg）
-  // - 引擎不会接管（影片级开关关闭 / 浏览器不支持运行）：直推原始流，
-  //   视频将无声——提示用户到影片解析设置开启开关。
-  // 只有真正不被浏览器支持的编码才提示：此前对任何非空编码都弹提示，
-  // AAC 等原生可播的轨道会被误报「不受浏览器支持」。
-  // 编码名经 normalizeAudioCodec 归一化（B站 DASH 的 mp4a.40.x 实为 AAC，
-  // 不归一化会误弹「不受浏览器支持」提示）。
-  const lastAudioNoticeRef = useRef('')
-  useEffect(() => {
-    if (!watchTogether.sourceUrl) return
-    const codec = normalizeAudioCodec(watchTogether.audioCodec)
-    if (!codec) return
-    // 白名单内的编码浏览器原生可播，无需任何提示
-    if (!needsBrowserTranscode(codec)) return
-
-    // 同一影片+编码只提示一次，避免每次 state 更新都弹
-    const key = `${currentMovieId ?? ''}:${codec}`
-    if (lastAudioNoticeRef.current === key) return
-    lastAudioNoticeRef.current = key
-
-    if (
-      currentMovieSourceType === 'emby' ||
-      currentMovieSourceType === 'jellyfin'
-    ) {
-      addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，已由媒体服务器转码为 AAC`,
-        'info'
-      )
-    } else if (currentMoviePlaysvideoEnabled && isPlaysVideoSupported()) {
-      // playsvideo 将接管本源（影片级开关未关 + 浏览器具备 MSE/Worker
-      // 运行条件）：引擎起播时探测编码并自动转码为 AAC，无需干预。
-      addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，浏览器转码引擎正在实时转码为 AAC`,
-        'info'
-      )
-    } else {
-      // 引擎不会接管：直推原始流必然无声，给出可操作的修复指引
-      addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持且浏览器转码引擎未启用，播放将无声；可在影片解析设置中开启「浏览器转码引擎」后重试`,
-        'error'
-      )
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    watchTogether.sourceUrl,
-    watchTogether.audioCodec,
-    currentMovieId,
-    currentMovieSourceType,
-    currentMoviePlaysvideoEnabled,
-  ])
-
   // ── 切换影片时自动搜索同目录字幕 + 内嵌字幕 ──────────────
   // 当房主切换到新影片时，清空旧字幕并：
   // - WebDAV/FTP/OpenList/服务器文件：在影片所在目录中搜索同名字幕文件
@@ -374,53 +319,6 @@ export function WatchTogetherCore({
   const [confirmJoin, setConfirmJoin] = useState<{
     viewerSocketId: string
   } | null>(null)
-  // 合并后的申请状态（P2-Opt#11）：支持多观众合并
-  const [seekRequest, setSeekRequest] = useState<{
-    /** 申请者 socket ID 列表 */
-    viewerSocketIds: string[]
-    /** 申请者用户名列表（用于展示） */
-    viewerUsernames: string[]
-    /** 目标时间 */
-    time: number
-    /** 合并窗口开始时间戳，用于判断是否在 5s 合并窗口内 */
-    windowStart: number
-  } | null>(null)
-  const [pauseRequest, setPauseRequest] = useState<{
-    viewerSocketIds: string[]
-    viewerUsernames: string[]
-    windowStart: number
-  } | null>(null)
-  const [playRequest, setPlayRequest] = useState<{
-    viewerSocketIds: string[]
-    viewerUsernames: string[]
-    windowStart: number
-  } | null>(null)
-  const [seekPending, setSeekPending] = useState(false)
-  const [pausePending, setPausePending] = useState(false)
-  const [playPending, setPlayPending] = useState(false)
-  // 申请超时 ref：房主不回应时自动清除 pending，避免永久阻塞
-  const seekPendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
-  const pausePendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
-  const playPendingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
-  // 镜像 pending 状态到 ref（response 事件闭包读取最新值，避免 stale closure）
-  const seekPendingRef = useRef(false)
-  const pausePendingRef = useRef(false)
-  const playPendingRef = useRef(false)
-  useEffect(() => {
-    seekPendingRef.current = seekPending
-  }, [seekPending])
-  useEffect(() => {
-    pausePendingRef.current = pausePending
-  }, [pausePending])
-  useEffect(() => {
-    playPendingRef.current = playPending
-  }, [playPending])
 
   // ── 房主离线状态 ──────────────────────────────────────
   // 房主离开后观众进入自主控制模式，可直接 play/pause/seek，无需向房主申请。
@@ -489,6 +387,121 @@ export function WatchTogetherCore({
     },
     []
   )
+
+  // ── 音频编码兼容性提示 ──────────────────────────────
+  // 浏览器 <video> 仅支持 AAC/MP3/Opus/Vorbis/FLAC 等少数音频编码
+  // （白名单口径统一引用 lib/audioCodecs，与引擎选择 needsBrowserTranscode
+  // 同源）。DTS/AC3/EAC3 等编码的处理方式：
+  // - emby/jellyfin 源：resolve 阶段自动切换为远端媒体服务器转码 HLS
+  // - 浏览器端转码引擎（playsvideo）：在浏览器内重封装容器并将不兼容
+  //   音轨实时转码为 AAC（中转与直链均支持，无需服务端 FFmpeg）
+  // - 引擎不会接管（影片级开关关闭 / 浏览器不支持运行）：直推原始流，
+  //   视频将无声——提示用户到影片解析设置开启开关。
+  // 只有真正不被浏览器支持的编码才提示：此前对任何非空编码都弹提示，
+  // AAC 等原生可播的轨道会被误报「不受浏览器支持」。
+  // 编码名经 normalizeAudioCodec 归一化（B站 DASH 的 mp4a.40.x 实为 AAC，
+  // 不归一化会误弹「不受浏览器支持」提示）。
+  const lastAudioNoticeRef = useRef('')
+  useEffect(() => {
+    if (!watchTogether.sourceUrl) return
+    const codec = normalizeAudioCodec(watchTogether.audioCodec)
+    if (!codec) return
+    // 白名单内的编码浏览器原生可播，无需任何提示
+    if (!needsBrowserTranscode(codec)) return
+
+    // 同一影片+编码只提示一次，避免每次 state 更新都弹
+    const key = `${currentMovieId ?? ''}:${codec}`
+    if (lastAudioNoticeRef.current === key) return
+    lastAudioNoticeRef.current = key
+
+    if (
+      currentMovieSourceType === 'emby' ||
+      currentMovieSourceType === 'jellyfin'
+    ) {
+      addPlayerNotice(
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，已由媒体服务器转码为 AAC`,
+        'info'
+      )
+    } else if (currentMoviePlaysvideoEnabled && isPlaysVideoSupported()) {
+      // playsvideo 将接管本源（影片级开关未关 + 浏览器具备 MSE/Worker
+      // 运行条件）：引擎起播时探测编码并自动转码为 AAC，无需干预。
+      addPlayerNotice(
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，浏览器转码引擎正在实时转码为 AAC`,
+        'info'
+      )
+    } else {
+      // 引擎不会接管：直推原始流必然无声，给出可操作的修复指引
+      addPlayerNotice(
+        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持且浏览器转码引擎未启用，播放将无声；可在影片解析设置中开启「浏览器转码引擎」后重试`,
+        'error'
+      )
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    watchTogether.sourceUrl,
+    watchTogether.audioCodec,
+    currentMovieId,
+    currentMovieSourceType,
+    currentMoviePlaysvideoEnabled,
+  ])
+
+  // ── 观众申请通道（seek / pause / play）─────────────────
+  // 三类申请协议同构（emit {kind}-request → 房主审批 → {kind}-response），
+  // 差异仅「同意后本地生效动作」「请求附加字段」「合并键」，统一由 hook 承载。
+  const seekChannel = useRequestChannel({
+    kind: 'seek',
+    socket,
+    roomId,
+    isHost,
+    videoRef,
+    autoApproveRef,
+    addPlayerNotice,
+    // 房主同意后本地跳转；观众端由房主广播的 seek 驱动，不重复设置 currentTime
+    applyOnHostGrant: (video, detail) => {
+      if (typeof detail.time === 'number' && Number.isFinite(detail.time)) {
+        video.currentTime = detail.time
+      }
+    },
+    // 只有目标时间相同的申请才在 5s 窗口内合并，避免不同跳转点混为一条
+    mergeKeyOf: (detail) => String(detail.time),
+  })
+  const pauseChannel = useRequestChannel({
+    kind: 'pause',
+    socket,
+    roomId,
+    isHost,
+    videoRef,
+    autoApproveRef,
+    addPlayerNotice,
+    applyOnHostGrant: (video) => video.pause(),
+    // 观众收到同意后主动暂停：房主端 video 可能已暂停（重复申请），
+    // 此时不会广播 pause，观众端 isPlaying 不更新会让按钮一直显示「申请暂停」。
+    applyOnViewerConfirm: (video) => {
+      if (!video.paused) video.pause()
+    },
+  })
+  const playChannel = useRequestChannel({
+    kind: 'play',
+    socket,
+    roomId,
+    isHost,
+    videoRef,
+    autoApproveRef,
+    addPlayerNotice,
+    applyOnHostGrant: (video) => {
+      void video.play().catch(() => {
+        /* 浏览器自动播放策略可能拒绝，忽略 */
+      })
+    },
+    // 同上：房主端 play() 被自动播放策略拒绝时不广播 play，观众需自行起播
+    applyOnViewerConfirm: (video) => {
+      if (video.paused) {
+        void video.play().catch(() => {
+          /* 浏览器自动播放策略可能拒绝，忽略 */
+        })
+      }
+    },
+  })
 
   // ── 控制栏显隐状态 ────────────────────────────────────
   // ── 移动端检测：粗指针（触屏）或支持多点触控即视为移动端 ──
@@ -869,250 +882,6 @@ export function WatchTogetherCore({
     }
   }, [socket, isHost])
 
-  useEffect(() => {
-    if (!socket || !isHost) return
-
-    const handleSeekRequest = (data: {
-      viewerSocketId: string
-      viewerUsername?: string
-      time: number
-    }) => {
-      if (!data?.viewerSocketId) return
-      if (autoApproveRef.current) {
-        if (Number.isFinite(data.time) && videoRef.current) {
-          videoRef.current.currentTime = data.time
-        }
-        socket.emit(
-          'seek-response',
-          {
-            roomId,
-            viewerSocketId: data.viewerSocketId,
-            accept: true,
-            time: data.time,
-          },
-          () => {
-            /* ack */
-          }
-        )
-        return
-      }
-      // P2-Opt#11：多观众申请合并——5s 内同目标时间的 seek 合并为一条
-      setSeekRequest((prev) => {
-        if (
-          prev &&
-          prev.time === data.time &&
-          Date.now() - prev.windowStart < 5000
-        ) {
-          return {
-            ...prev,
-            viewerSocketIds: [...prev.viewerSocketIds, data.viewerSocketId],
-            viewerUsernames: data.viewerUsername
-              ? [...prev.viewerUsernames, data.viewerUsername]
-              : prev.viewerUsernames,
-          }
-        }
-        return {
-          viewerSocketIds: [data.viewerSocketId],
-          viewerUsernames: data.viewerUsername ? [data.viewerUsername] : [],
-          time: data.time,
-          windowStart: Date.now(),
-        }
-      })
-    }
-
-    socket.on('seek-request', handleSeekRequest)
-    return () => {
-      socket.off('seek-request', handleSeekRequest)
-    }
-  }, [socket, isHost, roomId, videoRef])
-
-  useEffect(() => {
-    if (!socket || !isHost) return
-
-    const handlePauseRequest = (data: {
-      viewerSocketId: string
-      viewerUsername?: string
-    }) => {
-      if (!data?.viewerSocketId) return
-      if (autoApproveRef.current) {
-        videoRef.current?.pause()
-        socket.emit(
-          'pause-response',
-          { roomId, viewerSocketId: data.viewerSocketId, accept: true },
-          () => {
-            /* ack */
-          }
-        )
-        return
-      }
-      // P2-Opt#11：5s 内合并 pause 申请
-      setPauseRequest((prev) => {
-        if (prev && Date.now() - prev.windowStart < 5000) {
-          return {
-            ...prev,
-            viewerSocketIds: [...prev.viewerSocketIds, data.viewerSocketId],
-            viewerUsernames: data.viewerUsername
-              ? [...prev.viewerUsernames, data.viewerUsername]
-              : prev.viewerUsernames,
-          }
-        }
-        return {
-          viewerSocketIds: [data.viewerSocketId],
-          viewerUsernames: data.viewerUsername ? [data.viewerUsername] : [],
-          windowStart: Date.now(),
-        }
-      })
-    }
-
-    socket.on('pause-request', handlePauseRequest)
-    return () => {
-      socket.off('pause-request', handlePauseRequest)
-    }
-  }, [socket, isHost, roomId, videoRef])
-
-  useEffect(() => {
-    if (!socket || !isHost) return
-
-    const handlePlayRequest = (data: {
-      viewerSocketId: string
-      viewerUsername?: string
-    }) => {
-      if (!data?.viewerSocketId) return
-      if (autoApproveRef.current) {
-        if (videoRef.current) {
-          void videoRef.current.play().catch(() => {
-            /* 浏览器自动播放策略可能拒绝，忽略 */
-          })
-        }
-        socket.emit(
-          'play-response',
-          { roomId, viewerSocketId: data.viewerSocketId, accept: true },
-          () => {
-            /* ack */
-          }
-        )
-        return
-      }
-      setPlayRequest((prev) => {
-        if (prev && Date.now() - prev.windowStart < 5000) {
-          return {
-            ...prev,
-            viewerSocketIds: [...prev.viewerSocketIds, data.viewerSocketId],
-            viewerUsernames: data.viewerUsername
-              ? [...prev.viewerUsernames, data.viewerUsername]
-              : prev.viewerUsernames,
-          }
-        }
-        return {
-          viewerSocketIds: [data.viewerSocketId],
-          viewerUsernames: data.viewerUsername ? [data.viewerUsername] : [],
-          windowStart: Date.now(),
-        }
-      })
-    }
-
-    socket.on('play-request', handlePlayRequest)
-    return () => {
-      socket.off('play-request', handlePlayRequest)
-    }
-  }, [socket, isHost, roomId, videoRef])
-
-  // 观众：监听房主对申请的回应
-  useEffect(() => {
-    if (!socket || isHost) return
-
-    const handleSeekResponse = (data: { accept: boolean; time?: number }) => {
-      if (!seekPendingRef.current) return
-      setSeekPending(false)
-      if (seekPendingTimeoutRef.current) {
-        clearTimeout(seekPendingTimeoutRef.current)
-        seekPendingTimeoutRef.current = null
-      }
-      if (data?.accept) {
-        // 自动通过模式下申请时已提示“已跳转”，此处不再重复提示
-        if (!autoApproveRef.current) {
-          addPlayerNotice(
-            `房主已同意跳转到 ${formatDuration(data.time ?? 0)}`,
-            'success'
-          )
-        }
-      } else {
-        addPlayerNotice('房主拒绝了您的跳转申请', 'info')
-      }
-    }
-    const handlePauseResponse = (data: { accept: boolean }) => {
-      if (!pausePendingRef.current) return
-      setPausePending(false)
-      if (pausePendingTimeoutRef.current) {
-        clearTimeout(pausePendingTimeoutRef.current)
-        pausePendingTimeoutRef.current = null
-      }
-      if (data?.accept) {
-        // 房主同意暂停：主动暂停 video，确保 isPlaying 状态正确。
-        // 房主端 video 可能已经处于暂停状态（如重复申请暂停），
-        // 此时 video.pause() 不触发 'pause' 事件，handlePause 不执行，
-        // sendControl('pause') 不发送，观众端 isPlaying 不会更新，
-        // 导致按钮始终显示"申请暂停"而非"申请继续播放"。
-        const video = videoRef.current
-        if (video && !video.paused) {
-          video.pause()
-        }
-        // 自动通过模式下申请时已提示“已暂停”，此处不再重复提示
-        if (!autoApproveRef.current) {
-          addPlayerNotice('房主已同意暂停', 'success')
-        }
-      } else {
-        addPlayerNotice('房主拒绝了您的暂停申请', 'info')
-      }
-    }
-    const handlePlayResponse = (data: { accept: boolean }) => {
-      if (!playPendingRef.current) return
-      setPlayPending(false)
-      if (playPendingTimeoutRef.current) {
-        clearTimeout(playPendingTimeoutRef.current)
-        playPendingTimeoutRef.current = null
-      }
-      if (data?.accept) {
-        // 房主同意播放：主动播放 video，确保 isPlaying 状态正确。
-        // 房主端 video.play() 可能被浏览器自动播放策略拒绝，
-        // 'play' 事件不触发，sendControl('play') 不发送，
-        // 观众端 isPlaying 不会更新，导致按钮始终显示"申请继续播放"。
-        const video = videoRef.current
-        if (video && video.paused) {
-          void video.play().catch(() => {
-            /* 浏览器自动播放策略可能拒绝，忽略 */
-          })
-        }
-        // 自动通过模式下申请时已提示“继续播放”，此处不再重复提示
-        if (!autoApproveRef.current) {
-          addPlayerNotice('房主已同意继续播放', 'success')
-        }
-      } else {
-        addPlayerNotice('房主拒绝了您的继续播放申请', 'info')
-      }
-    }
-
-    socket.on('seek-response', handleSeekResponse)
-    socket.on('pause-response', handlePauseResponse)
-    socket.on('play-response', handlePlayResponse)
-    return () => {
-      socket.off('seek-response', handleSeekResponse)
-      socket.off('pause-response', handlePauseResponse)
-      socket.off('play-response', handlePlayResponse)
-      // 组件卸载时清理 pending timeout，避免定时器残留
-      if (seekPendingTimeoutRef.current)
-        clearTimeout(seekPendingTimeoutRef.current)
-      if (pausePendingTimeoutRef.current)
-        clearTimeout(pausePendingTimeoutRef.current)
-      if (playPendingTimeoutRef.current)
-        clearTimeout(playPendingTimeoutRef.current)
-      seekPendingTimeoutRef.current = null
-      pausePendingTimeoutRef.current = null
-      playPendingTimeoutRef.current = null
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [socket, isHost])
-
   // 所有用户：监听房间模式切换
   useEffect(() => {
     if (!socket) return
@@ -1166,201 +935,41 @@ export function WatchTogetherCore({
     setConfirmJoin(null)
   }, [confirmJoin, socket])
 
-  const handleAcceptSeek = useCallback(() => {
-    if (!seekRequest) return
-    const { viewerSocketIds, time } = seekRequest
-    if (!socket || viewerSocketIds.length === 0) return
-    if (videoRef.current && Number.isFinite(time)) {
-      videoRef.current.currentTime = time
-    }
-    for (const sid of viewerSocketIds) {
-      socket.emit(
-        'seek-response',
-        { roomId, viewerSocketId: sid, accept: true, time },
-        () => {}
-      )
-    }
-    setSeekRequest(null)
-  }, [seekRequest, socket, videoRef, roomId])
+  // ── 观众申请审批 / 发起（统一走 useRequestChannel）─────────
+  // 房主端：request 为待审批申请（5s 合并），approve/reject 逐一回应申请者；
+  // 观众端：pending 为等待房主回应的状态，sendRequest 发起申请。
+  const {
+    request: seekRequest,
+    approve: handleAcceptSeek,
+    reject: handleRejectSeek,
+    clear: clearSeekRequest,
+    sendRequest: sendSeekRequest,
+  } = seekChannel
+  const {
+    request: pauseRequest,
+    approve: handleAcceptPause,
+    reject: handleRejectPause,
+    clear: clearPauseRequest,
+    pending: pausePending,
+    sendRequest: handleRequestPause,
+  } = pauseChannel
+  const {
+    request: playRequest,
+    approve: handleAcceptPlay,
+    reject: handleRejectPlay,
+    clear: clearPlayRequest,
+    pending: playPending,
+    sendRequest: handleRequestPlay,
+  } = playChannel
 
-  const handleRejectSeek = useCallback(() => {
-    if (!seekRequest) return
-    const { viewerSocketIds } = seekRequest
-    if (!socket || viewerSocketIds.length === 0) return
-    for (const sid of viewerSocketIds) {
-      socket.emit(
-        'seek-response',
-        { roomId, viewerSocketId: sid, accept: false },
-        () => {}
-      )
-    }
-    setSeekRequest(null)
-  }, [seekRequest, socket, roomId])
-
-  const handleAcceptPause = useCallback(() => {
-    if (!pauseRequest) return
-    const { viewerSocketIds } = pauseRequest
-    if (!socket || viewerSocketIds.length === 0) return
-    videoRef.current?.pause()
-    for (const sid of viewerSocketIds) {
-      socket.emit(
-        'pause-response',
-        { roomId, viewerSocketId: sid, accept: true },
-        () => {}
-      )
-    }
-    setPauseRequest(null)
-  }, [pauseRequest, socket, videoRef, roomId])
-
-  const handleRejectPause = useCallback(() => {
-    if (!pauseRequest) return
-    const { viewerSocketIds } = pauseRequest
-    if (!socket || viewerSocketIds.length === 0) return
-    for (const sid of viewerSocketIds) {
-      socket.emit(
-        'pause-response',
-        { roomId, viewerSocketId: sid, accept: false },
-        () => {}
-      )
-    }
-    setPauseRequest(null)
-  }, [pauseRequest, socket, roomId])
-
-  const handleAcceptPlay = useCallback(() => {
-    if (!playRequest) return
-    const { viewerSocketIds } = playRequest
-    if (!socket || viewerSocketIds.length === 0) return
-    if (videoRef.current) {
-      void videoRef.current.play().catch(() => {})
-    }
-    for (const sid of viewerSocketIds) {
-      socket.emit(
-        'play-response',
-        { roomId, viewerSocketId: sid, accept: true },
-        () => {}
-      )
-    }
-    setPlayRequest(null)
-  }, [playRequest, socket, videoRef, roomId])
-
-  const handleRejectPlay = useCallback(() => {
-    if (!playRequest) return
-    const { viewerSocketIds } = playRequest
-    if (!socket || viewerSocketIds.length === 0) return
-    for (const sid of viewerSocketIds) {
-      socket.emit(
-        'play-response',
-        { roomId, viewerSocketId: sid, accept: false },
-        () => {}
-      )
-    }
-    setPlayRequest(null)
-  }, [playRequest, socket, roomId])
-
-  // ── 观众申请发起（与重构前一致）─────────────────────────
+  // 跳转申请需携带目标时间，非法时间直接丢弃（不发申请）
   const handleRequestSeek = useCallback(
     (time: number) => {
-      if (!socket || isHost || seekPending) return
       if (!Number.isFinite(time)) return
-      setSeekPending(true)
-      // 超时机制：房主 15s 内不回应则清除 pending，允许再次申请
-      if (seekPendingTimeoutRef.current)
-        clearTimeout(seekPendingTimeoutRef.current)
-      seekPendingTimeoutRef.current = setTimeout(() => {
-        setSeekPending(false)
-        seekPendingTimeoutRef.current = null
-        addPlayerNotice('跳转申请已超时，房主未回应', 'info')
-      }, 15000)
-      socket.emit(
-        'seek-request',
-        { roomId, time },
-        (response: { success: boolean; message?: string }) => {
-          if (!response.success) {
-            // 服务器拒绝（如房间非直播模式）：清除 pending 和 timeout
-            if (seekPendingTimeoutRef.current) {
-              clearTimeout(seekPendingTimeoutRef.current)
-              seekPendingTimeoutRef.current = null
-            }
-            setSeekPending(false)
-            addPlayerNotice(response.message || '申请跳转失败', 'error')
-          } else {
-            // 服务器已转发给房主，timeout 保留（由 seek-response 事件或超时回退清除）
-            addPlayerNotice(
-              autoApproveRef.current
-                ? '已跳转'
-                : '已发送跳转申请，等待房主确认',
-              'info'
-            )
-          }
-        }
-      )
+      sendSeekRequest({ time })
     },
-    [socket, isHost, roomId, seekPending, addPlayerNotice]
+    [sendSeekRequest]
   )
-
-  const handleRequestPause = useCallback(() => {
-    if (!socket || isHost || pausePending) return
-    setPausePending(true)
-    if (pausePendingTimeoutRef.current)
-      clearTimeout(pausePendingTimeoutRef.current)
-    pausePendingTimeoutRef.current = setTimeout(() => {
-      setPausePending(false)
-      pausePendingTimeoutRef.current = null
-      addPlayerNotice('暂停申请已超时，房主未回应', 'info')
-    }, 15000)
-    socket.emit(
-      'pause-request',
-      { roomId },
-      (response: { success: boolean; message?: string }) => {
-        if (!response.success) {
-          if (pausePendingTimeoutRef.current) {
-            clearTimeout(pausePendingTimeoutRef.current)
-            pausePendingTimeoutRef.current = null
-          }
-          setPausePending(false)
-          addPlayerNotice(response.message || '申请暂停失败', 'error')
-        } else {
-          addPlayerNotice(
-            autoApproveRef.current ? '已暂停' : '已发送暂停申请，等待房主确认',
-            'info'
-          )
-        }
-      }
-    )
-  }, [socket, isHost, roomId, pausePending, addPlayerNotice])
-
-  const handleRequestPlay = useCallback(() => {
-    if (!socket || isHost || playPending) return
-    setPlayPending(true)
-    if (playPendingTimeoutRef.current)
-      clearTimeout(playPendingTimeoutRef.current)
-    playPendingTimeoutRef.current = setTimeout(() => {
-      setPlayPending(false)
-      playPendingTimeoutRef.current = null
-      addPlayerNotice('继续播放申请已超时，房主未回应', 'info')
-    }, 15000)
-    socket.emit(
-      'play-request',
-      { roomId },
-      (response: { success: boolean; message?: string }) => {
-        if (!response.success) {
-          if (playPendingTimeoutRef.current) {
-            clearTimeout(playPendingTimeoutRef.current)
-            playPendingTimeoutRef.current = null
-          }
-          setPlayPending(false)
-          addPlayerNotice(response.message || '申请继续播放失败', 'error')
-        } else {
-          addPlayerNotice(
-            autoApproveRef.current
-              ? '继续播放'
-              : '已发送继续播放申请，等待房主确认',
-            'info'
-          )
-        }
-      }
-    )
-  }, [socket, isHost, roomId, playPending, addPlayerNotice])
 
   // ── 控制栏操作 ─────────────────────────────────────────
   const handleToggleDanmaku = useCallback(() => {
@@ -1490,8 +1099,11 @@ export function WatchTogetherCore({
   )
   const [commentDockPinned, setCommentDockPinned] = useState(false)
 
-  // 退全屏时解除钉住,避免下次进全屏时侧边栏莫名常开
+  // 退全屏时解除钉住,避免下次进全屏时侧边栏莫名常开。
+  // 全屏状态由 Fullscreen API / 网页全屏外部驱动,无法在渲染期推导,
+  // 此处的同步属于「响应外部系统状态变化」的合法用法。
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 全屏退出事件驱动
     if (!isFullscreen) setCommentDockPinned(false)
   }, [isFullscreen])
 
@@ -1599,9 +1211,6 @@ export function WatchTogetherCore({
   useWakeLock(isPlaying)
 
   // ── 房主端申请审批通知列表（与重构前一致）─────────────────
-  // React Compiler 误报：以下 push 操作构建的是纯渲染数据（通知列表），
-  // 回调在后续事件处理中执行，不存在 render 期间读取 ref 的问题。
-  /* eslint-disable react-hooks/refs */
   const requestNotifications: RequestNotificationItem[] = useMemo(() => {
     const list: RequestNotificationItem[] = []
     if (confirmJoin) {
@@ -1624,81 +1233,69 @@ export function WatchTogetherCore({
         ),
       })
     }
-    if (seekRequest) {
+    // 三类播放申请共用同一审批卡片骨架，仅标题与动作文案不同
+    const pushViewerRequest = (
+      req: PendingApproval | null,
+      opts: {
+        id: string
+        title: string
+        onOk: () => void
+        onCancel: () => void
+        action: (req: PendingApproval) => ReactNode
+      }
+    ) => {
+      if (!req) return
       list.push({
-        id: 'seek',
-        title: '跳转申请',
+        id: opts.id,
+        title: opts.title,
         okText: '同意',
         cancelText: '拒绝',
-        onOk: handleAcceptSeek,
-        onCancel: handleRejectSeek,
+        onOk: opts.onOk,
+        onCancel: opts.onCancel,
         autoCloseMs: 12000,
         content: (
           <>
             观众{' '}
             <span style={{ color: 'var(--md-sys-color-primary)' }}>
-              {seekRequest.viewerUsernames[0] ||
-                seekRequest.viewerSocketIds[0].slice(0, 8)}
-              {seekRequest.viewerSocketIds.length > 1
-                ? ` 等 ${seekRequest.viewerSocketIds.length} 位观众`
+              {req.viewerUsernames[0] || req.viewerSocketIds[0].slice(0, 8)}
+              {req.viewerSocketIds.length > 1
+                ? ` 等 ${req.viewerSocketIds.length} 位观众`
                 : ''}
             </span>{' '}
-            申请跳转到{' '}
-            <span style={{ color: 'var(--md-sys-color-primary)' }}>
-              {formatDuration(seekRequest.time)}
-            </span>
+            {opts.action(req)}
           </>
         ),
       })
     }
-    if (pauseRequest) {
-      list.push({
-        id: 'pause',
-        title: '暂停申请',
-        okText: '同意',
-        cancelText: '拒绝',
-        onOk: handleAcceptPause,
-        onCancel: handleRejectPause,
-        autoCloseMs: 12000,
-        content: (
-          <>
-            观众{' '}
-            <span style={{ color: 'var(--md-sys-color-primary)' }}>
-              {pauseRequest.viewerUsernames[0] ||
-                pauseRequest.viewerSocketIds[0].slice(0, 8)}
-              {pauseRequest.viewerSocketIds.length > 1
-                ? ` 等 ${pauseRequest.viewerSocketIds.length} 位观众`
-                : ''}
-            </span>{' '}
-            申请暂停播放
-          </>
-        ),
-      })
-    }
-    if (playRequest) {
-      list.push({
-        id: 'play',
-        title: '播放申请',
-        okText: '同意',
-        cancelText: '拒绝',
-        onOk: handleAcceptPlay,
-        onCancel: handleRejectPlay,
-        autoCloseMs: 12000,
-        content: (
-          <>
-            观众{' '}
-            <span style={{ color: 'var(--md-sys-color-primary)' }}>
-              {playRequest.viewerUsernames[0] ||
-                playRequest.viewerSocketIds[0].slice(0, 8)}
-              {playRequest.viewerSocketIds.length > 1
-                ? ` 等 ${playRequest.viewerSocketIds.length} 位观众`
-                : ''}
-            </span>{' '}
-            申请继续播放
-          </>
-        ),
-      })
-    }
+
+    pushViewerRequest(seekRequest, {
+      id: 'seek',
+      title: '跳转申请',
+      onOk: handleAcceptSeek,
+      onCancel: handleRejectSeek,
+      action: (req) => (
+        <>
+          申请跳转到{' '}
+          <span style={{ color: 'var(--md-sys-color-primary)' }}>
+            {formatDuration(req.detail.time ?? 0)}
+          </span>
+        </>
+      ),
+    })
+    pushViewerRequest(pauseRequest, {
+      id: 'pause',
+      title: '暂停申请',
+      onOk: handleAcceptPause,
+      onCancel: handleRejectPause,
+      action: () => '申请暂停播放',
+    })
+    pushViewerRequest(playRequest, {
+      id: 'play',
+      title: '播放申请',
+      onOk: handleAcceptPlay,
+      onCancel: handleRejectPlay,
+      action: () => '申请继续播放',
+    })
     return list
   }, [
     confirmJoin,
@@ -1714,14 +1311,16 @@ export function WatchTogetherCore({
     handleAcceptPlay,
     handleRejectPlay,
   ])
-  /* eslint-enable react-hooks/refs */
 
-  const handleCloseNotification = useCallback((id: string) => {
-    if (id === 'join') setConfirmJoin(null)
-    else if (id === 'seek') setSeekRequest(null)
-    else if (id === 'pause') setPauseRequest(null)
-    else if (id === 'play') setPlayRequest(null)
-  }, [])
+  const handleCloseNotification = useCallback(
+    (id: string) => {
+      if (id === 'join') setConfirmJoin(null)
+      else if (id === 'seek') clearSeekRequest()
+      else if (id === 'pause') clearPauseRequest()
+      else if (id === 'play') clearPlayRequest()
+    },
+    [clearSeekRequest, clearPauseRequest, clearPlayRequest]
+  )
 
   return (
     <>
