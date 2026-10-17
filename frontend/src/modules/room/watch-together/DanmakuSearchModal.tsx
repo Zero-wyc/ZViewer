@@ -21,6 +21,7 @@ import { message } from '@/components/ui/message'
 import { LoadingLine } from '@/components/ui/LoadingLine'
 import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
+import { formatCountShort } from '@/lib/format'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import {
   searchDanmaku,
@@ -34,14 +35,6 @@ import {
   type DanmakuSearchResult,
   type DanmakuEpisode,
 } from '@/modules/danmaku/types'
-
-/** 格式化数字：万 / 亿 */
-function formatCount(n: number | undefined): string {
-  if (n == null) return '-'
-  if (n >= 1_0000_0000) return `${(n / 1_0000_0000).toFixed(1)}亿`
-  if (n >= 1_0000) return `${(n / 1_0000).toFixed(1)}万`
-  return String(n)
-}
 
 interface DanmakuSearchModalProps {
   open: boolean
@@ -323,19 +316,21 @@ export function DanmakuSearchModal({
                       <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
                         <span className="flex items-center gap-0.5">
                           <Play className="h-3 w-3" />
-                          {formatCount(stats.play)}
+                          {formatCountShort(stats.play, { placeholder: '-' })}
                         </span>
                         <span className="flex items-center gap-0.5">
                           <ThumbsUp className="h-3 w-3" />
-                          {formatCount(stats.like)}
+                          {formatCountShort(stats.like, { placeholder: '-' })}
                         </span>
                         <span className="flex items-center gap-0.5">
                           <Coins className="h-3 w-3" />
-                          {formatCount(stats.coin)}
+                          {formatCountShort(stats.coin, { placeholder: '-' })}
                         </span>
                         <span className="flex items-center gap-0.5">
                           <ListVideo className="h-3 w-3" />
-                          {formatCount(stats.danmaku)}
+                          {formatCountShort(stats.danmaku, {
+                            placeholder: '-',
+                          })}
                         </span>
                       </div>
                     )}

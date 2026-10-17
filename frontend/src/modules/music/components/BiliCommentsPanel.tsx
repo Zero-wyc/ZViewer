@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { message } from '@/components/ui/message'
 import { writeTextToClipboard } from '@/hooks/useCopyToClipboard'
 import { cn } from '@/lib/utils'
+import { formatCountShort } from '@/lib/format'
 import {
   fetchBiliComments,
   fetchBiliCommentReplies,
@@ -61,14 +62,6 @@ interface FloorState {
 
 const FLOOR_REPLY_LIMIT = 10
 const COMMENTS_PREFETCH_PX = 200
-
-/** 数量缩写（>=1w 显示 x.xw） */
-function formatBiliCount(n: number): string {
-  if (n >= 10_000) {
-    return `${(n / 10_000).toFixed(1).replace(/\.0$/, '')}w`
-  }
-  return String(n)
-}
 
 /** 相对时间格式化（秒级 Unix 入参，与网易云评论区同语义） */
 function formatBiliCommentTime(sec: number): string {
@@ -573,7 +566,9 @@ function BiliCard({
             <path d={LIKE_PATH} />
           </svg>
           <span className="ac-control-text">
-            {comment.like > 0 ? formatBiliCount(comment.like) : 'LIKE'}
+            {comment.like > 0
+              ? formatCountShort(comment.like, { style: 'letter' })
+              : 'LIKE'}
           </span>
         </div>
       </div>
@@ -626,7 +621,9 @@ function BiliCard({
                           </svg>
                           <span className="ac-control-text">
                             {reply.like > 0
-                              ? formatBiliCount(reply.like)
+                              ? formatCountShort(reply.like, {
+                                  style: 'letter',
+                                })
                               : 'LIKE'}
                           </span>
                         </div>

@@ -74,27 +74,12 @@ import type {
   RegionTagRule,
   RegionTagSource,
 } from '../utils/biliRegionFilter'
-import { cn } from '@/lib/utils'
+import { cn, formatDuration } from '@/lib/utils'
+import { formatCountShort } from '@/lib/format'
 import { NcmSearchModal } from '../components/NcmSearchModal'
 
 /** 子页标识（custom = 用户通过链接添加的自定义栏目） */
 type BiliTab = 'region' | 'fav' | 'custom'
-
-/** 秒 → mm:ss */
-function formatSec(total: number): string {
-  if (!Number.isFinite(total) || total <= 0) return '--:--'
-  const m = Math.floor(total / 60)
-  const s = Math.floor(total % 60)
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-}
-
-/** B站 风格计数：≥1e8 → x.x亿；≥1e4 → x.x万；否则原数 */
-function formatCount(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) return ''
-  if (n >= 1e8) return `${(n / 1e8).toFixed(1)}亿`
-  if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`
-  return String(n)
-}
 
 /** 秒级时间戳 → B站 风格相对日期（x分钟前 / x小时前 / x天前 / M-D） */
 function formatDate(sec: number): string {
@@ -2672,7 +2657,9 @@ export function MusicBilibiliPage({
                           style={{ textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
                         >
                           <Play className="h-3 w-3 fill-white text-white" />
-                          {formatCount(item.view ?? 0)}
+                          {formatCountShort(item.view, {
+                            nonPositiveAsPlaceholder: true,
+                          })}
                         </span>
                       )}
                       {/* 左下：弹幕数 */}
@@ -2682,7 +2669,9 @@ export function MusicBilibiliPage({
                           style={{ textShadow: '0 1px 3px rgba(0,0,0,0.7)' }}
                         >
                           <MessageCircle className="h-3 w-3 fill-white text-white" />
-                          {formatCount(item.danmaku ?? 0)}
+                          {formatCountShort(item.danmaku, {
+                            nonPositiveAsPlaceholder: true,
+                          })}
                         </span>
                       )}
                       {/* 右下：时长 + 加入播放队列（canManage 时显示，hover 显形）。
@@ -2730,7 +2719,7 @@ export function MusicBilibiliPage({
                           </button>
                         )}
                         <span className="rounded bg-black/70 px-1 py-px text-[13px] font-medium tabular-nums text-white">
-                          {formatSec(item.duration)}
+                          {formatDuration(item.duration, '--:--')}
                         </span>
                       </div>
                       {/* hover / 当前播放遮罩 */}

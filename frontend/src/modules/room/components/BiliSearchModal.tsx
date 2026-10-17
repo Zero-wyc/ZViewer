@@ -27,6 +27,7 @@ import {
 } from '@/modules/bilibili/bilibiliApi'
 import { buildBilibiliImageProxyUrl } from '@/modules/room/watch-together/resolveSource'
 import { formatDuration } from '@/lib/utils'
+import { formatCountShort } from '@/lib/format'
 
 interface BiliSearchModalProps {
   open: boolean
@@ -38,14 +39,6 @@ interface BiliSearchModalProps {
 /** 剥离 B站 搜索标题里的 <em class="keyword"> 高亮标记 */
 function stripEm(title: string): string {
   return title.replace(/<\/?em[^>]*>/g, '')
-}
-
-/** 播放/弹幕数万位缩写 */
-function formatCount(n?: number): string {
-  if (n == null) return ''
-  if (n >= 100_000_000) return `${(n / 100_000_000).toFixed(1)}亿`
-  if (n >= 10_000) return `${(n / 10_000).toFixed(1)}万`
-  return String(n)
 }
 
 export function BiliSearchModal({
@@ -326,10 +319,10 @@ export function BiliSearchModal({
                         }}
                       >
                         {v.view != null && (
-                          <span>{formatCount(v.view)}播放</span>
+                          <span>{formatCountShort(v.view)}播放</span>
                         )}
                         {v.danmaku != null && (
-                          <span>{formatCount(v.danmaku)}弹幕</span>
+                          <span>{formatCountShort(v.danmaku)}弹幕</span>
                         )}
                       </div>
                     </div>
