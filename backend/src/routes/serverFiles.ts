@@ -22,8 +22,6 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import type { Stats } from 'node:fs';
-import { createWriteStream } from 'node:fs';
-import multer from 'multer';
 import { AppDataSource } from '../data-source';
 import { ServerFolder } from '../entities/ServerFolder';
 import { authenticateToken, requireRoot, AuthenticatedRequest } from '../middleware/auth';
@@ -38,15 +36,8 @@ import {
   basename,
   type RootRegistry,
 } from '../services/server-files/pathResolver';
-import {
-  resolveBilibiliVideo,
-  extractBvid,
-  expandBilibiliShortLink,
-  normalizeResolveError,
-  type ResolveProgress,
-} from '../services/bilibili/resolver';
-import { VIP_ONLY_QNS } from '../services/bilibili/permission';
-import { getUserCookie } from '../routes/stream/helpers';
+import { upload } from '../services/server-files/upload';
+import { handleBilibiliDownload } from '../services/server-files/bilibili-download.service';
 
 const router = Router();
 
@@ -74,61 +65,6 @@ const MAX_UPLOAD_SIZE = 10 * 1024 * 1024 * 1024;
 
 /** ServerFolder 仓库。 */
 const folderRepo = () => AppDataSource.getRepository(ServerFolder);
-
-/** multer 存储：写到目标目录（运行时按 root 解析）。 */
-const storage = multer.diskStorage({
-  destination: (req, _file, cb) => {
-    const targetDir = typeof req.body.targetDir === 'string' ? req.body.targetDir : '/';
-    loadRootRegistry()
-      .then((roots) => {
-        try {
-          const { abs, root } = resolveSafePath(targetDir, roots);
-          if (root.readonly) {
-            cb(new Error('该根目录为只读'), '');
-            return;
-          }
-          if (!fs.existsSync(abs)) {
-            fs.mkdirSync(abs, { recursive: true });
-          }
-          // 把目标目录绝对路径暂存到 req 上，filename 阶段读取以处理重名。
-          // multer 保证 filename 在 destination 之后调用。
-          (req as Request & { __targetDirAbs?: string }).__targetDirAbs = abs;
-          cb(null, abs);
-        } catch (err) {
-          cb(err as Error, '');
-        }
-      })
-      .catch((err) => cb(err as Error, ''));
-  },
-  filename: (req, file, cb) => {
-    const dirAbs = (req as Request & { __targetDirAbs?: string }).__targetDirAbs;
-    const original = Buffer.from(file.originalname, 'latin1').toString('utf8');
-    if (!dirAbs) {
-      cb(null, original);
-      return;
-    }
-    // 重名时追加序号，避免覆盖已有文件
-    cb(null, uniqueFilename(dirAbs, original));
-  },
-});
-
-const upload = multer({
-  storage,
-  limits: { fileSize: MAX_UPLOAD_SIZE },
-});
-
-/** 重名文件追加序号（a.mp4 → a (1).mp4）。 */
-function uniqueFilename(dirAbs: string, filename: string): string {
-  const target = path.join(dirAbs, filename);
-  if (!fs.existsSync(target)) return filename;
-  const ext = path.extname(filename);
-  const stem = path.basename(filename, ext);
-  for (let i = 1; i < 10000; i++) {
-    const candidate = `${stem} (${i})${ext}`;
-    if (!fs.existsSync(path.join(dirAbs, candidate))) return candidate;
-  }
-  return `${stem}-${Date.now()}${ext}`;
-}
 
 // ============ 1. 根目录管理 ============
 
@@ -737,209 +673,9 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
 });
 
 // ============ 9. 下载 B站 视频到服务器 ============
+// 编排逻辑（解析 → VIP 校验 → 流式下载 → NDJSON 进度）见
+// services/server-files/bilibili-download.service.ts
 
-/**
- * 流式下载文件到本地路径。
- *
- * 优化点：
- * - 下载失败时自动清理不完整的文件
- * - 进度回调节流：每 2% 或 512KB 触发一次，避免过度回调
- *
- * @returns 文件大小（字节）
- */
-async function downloadToFile(
-  url: string,
-  filePath: string,
-  headers?: Record<string, string>,
-  onProgress?: (received: number, total: number, percent: number) => void
-): Promise<number> {
-  const res = await fetch(url, { headers, redirect: 'follow' });
-  if (!res.ok || !res.body) {
-    throw new Error(`下载失败：HTTP ${res.status} ${res.statusText}`);
-  }
-
-  const total = Number(res.headers.get('content-length') || '0');
-  let received = 0;
-  let lastPercent = 0;
-
-  const fileStream = createWriteStream(filePath);
-  const reader = res.body.getReader();
-
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      if (value) {
-        fileStream.write(Buffer.from(value));
-        received += value.length;
-        const percent = total > 0 ? Math.floor((received / total) * 100) : 0;
-        if (percent >= lastPercent + 2 || (total === 0 && received % (512 * 1024) === 0)) {
-          lastPercent = percent;
-          onProgress?.(received, total, percent);
-        }
-      }
-    }
-
-    await new Promise<void>((resolve, reject) => {
-      fileStream.end((err?: Error) => (err ? reject(err) : resolve()));
-    });
-  } catch (err) {
-    // 下载失败时清理不完整的文件
-    try { fs.unlinkSync(filePath); } catch { /* ignore */ }
-    throw err;
-  }
-
-  return received;
-}
-
-/**
- * POST /bilibili-download — 解析 B站 视频并下载到服务器指定目录。
- *
- * 采用 NDJSON 流式响应，实时推送解析、下载进度：
- *   { status: 'parsing', step, message }
- *   { status: 'downloading', phase: 'video', received, total, percent }
- *   { status: 'done', file: { name, path, size } }
- *   { status: 'error', message, code }
- *
- * 仅 MP4 单文件直链模式（最高 720P）。高画质（DASH 分离流需服务器
- * FFmpeg 合并）已随服务器端 FFmpeg 一并移除，请使用 CLI 模式下载高画质。
- */
-router.post('/bilibili-download', async (req: AuthenticatedRequest, res: Response): Promise<void> => {
-  const rawUrl = typeof req.body.url === 'string' ? req.body.url.trim() : '';
-  // 短链展开：b23.tv 等分享短链先 302 展开为完整视频地址再校验/解析
-  const url = await expandBilibiliShortLink(rawUrl);
-  const targetDir = typeof req.body.targetDir === 'string' ? req.body.targetDir.trim() : '';
-  const filename = typeof req.body.filename === 'string' ? req.body.filename.trim() : '';
-  const qn =
-    typeof req.body.qn === 'number' && Number.isFinite(req.body.qn)
-      ? req.body.qn
-      : undefined;
-  const page =
-    typeof req.body.page === 'number' && Number.isFinite(req.body.page)
-      ? req.body.page
-      : undefined;
-  const userId = req.user?.userId;
-
-  if (!url) {
-    res.status(400).json({ success: false, message: '缺少视频链接或 BV 号' });
-    return;
-  }
-  if (!extractBvid(url)) {
-    res.status(400).json({ success: false, message: '无法解析 B站 BV 号' });
-    return;
-  }
-  if (!targetDir) {
-    res.status(400).json({ success: false, message: '缺少目标目录' });
-    return;
-  }
-
-  // NDJSON 流式响应
-  res.setHeader('Content-Type', 'application/x-ndjson');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'close');
-  res.setHeader('X-Accel-Buffering', 'no');
-  res.setHeader('Transfer-Encoding', 'chunked');
-
-  const send = (payload: Record<string, unknown>): void => {
-    res.write(JSON.stringify(payload) + '\n');
-    const flushable = res as unknown as { flush?: () => void };
-    if (typeof flushable.flush === 'function') flushable.flush();
-  };
-  const fail = (message: string, code?: string): void => {
-    send({ success: false, status: 'error', message, code });
-    res.end();
-  };
-
-  try {
-    // 1. 解析目标目录
-    const roots = await loadRootRegistry();
-    const { abs: dirAbs, root } = resolveSafePath(targetDir, roots);
-    if (root.readonly) {
-      fail('该根目录为只读');
-      return;
-    }
-    if (!fs.existsSync(dirAbs)) {
-      fs.mkdirSync(dirAbs, { recursive: true });
-    }
-
-    // 2. 获取用户 B站 Cookie
-    const cookie = (await getUserCookie(userId)) || undefined;
-
-    // 3. 解析 B站 视频（按模式选择 preferMp4，下载场景跳过 CDN 健康检查）
-    send({ status: 'parsing', step: 'resolve', message: '正在解析视频地址...' });
-    const result = await resolveBilibiliVideo({
-      url,
-      userId: userId !== undefined ? String(userId) : undefined,
-      cookie,
-      qn,
-      preferMp4: true,
-      page,
-      // 下载场景跳过 CDN HEAD 健康检查（3.5s 超时），
-      // 下载本身即连接验证，失败时由 backupUrl 重试
-      skipCdnCheck: true,
-      onProgress: (msg: ResolveProgress) => {
-        send({ status: 'parsing', step: msg.step, message: msg.message });
-      },
-    });
-
-    if (!result.videoUrl) {
-      fail('解析失败：未获取到视频直链');
-      return;
-    }
-
-    // 3.5 VIP 权限校验：非大会员账号不允许下载 VIP 专属清晰度
-    // 后端 filterQualitiesByVip 已经过滤，这里作为强校验防止前端绕过
-    if (qn && VIP_ONLY_QNS.includes(qn) && result.vipStatus !== 1) {
-      fail(
-        '该清晰度需要大会员账号，请先在个人中心绑定大会员账号后重试，或选择 1080P 及以下清晰度',
-        'VIP_REQUIRED',
-      );
-      return;
-    }
-
-    // 4. 确定文件名
-    const title = (filename || result.title || `bilibili_${Date.now()}`).replace(/[\\/:*?"<>|]/g, '_');
-    const finalName = uniqueFilename(dirAbs, `${title}.mp4`);
-    const targetPath = path.join(dirAbs, finalName);
-
-    // 通用下载头（防盗链）
-    const downloadHeaders = {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      Referer: 'https://www.bilibili.com',
-      Origin: 'https://www.bilibili.com',
-      ...(cookie ? { Cookie: cookie } : {}),
-    };
-
-    // MP4 单文件直接下载
-    send({ status: 'downloading', phase: 'video', message: '开始下载...', received: 0, total: 0, percent: 0 });
-
-    try {
-      await downloadToFile(result.videoUrl, targetPath, downloadHeaders, (received, total, percent) => {
-        send({ status: 'downloading', phase: 'video', received, total, percent });
-      });
-    } catch (err) {
-      try { fs.unlinkSync(targetPath); } catch { /* ignore */ }
-      fail(`下载失败：${err instanceof Error ? err.message : '写入文件失败'}`);
-      return;
-    }
-
-    // 5. 完成
-    const size = fs.statSync(targetPath).size;
-    send({
-      success: true,
-      status: 'done',
-      file: {
-        name: finalName,
-        path: toPrefixedPath(root, targetPath),
-        size,
-      },
-    });
-    res.end();
-  } catch (err) {
-    console.error('[server-files] bilibili-download error:', err);
-    const normalized = normalizeResolveError(err);
-    fail(normalized.message, normalized.code);
-  }
-});
+router.post('/bilibili-download', handleBilibiliDownload);
 
 export default router;
