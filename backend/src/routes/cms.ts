@@ -57,6 +57,8 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response) => {
       cookie: typeof q.cookie === 'string' ? q.cookie : undefined,
     },
     cors: 'wildcard',
+    // 浏览器媒体缓存 6min：慢源分片 seek 回看直接命中本地缓存，不再回源重拉
+    cacheControl: 'private, max-age=360',
     logTag: 'cms',
     errorMessage: '代理媒体失败',
   });
