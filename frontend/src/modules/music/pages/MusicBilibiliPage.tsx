@@ -102,6 +102,7 @@ import {
   fetchRegionTagPage,
   sleep,
 } from './biliListCache'
+import { useDragSort } from '../hooks/useDragSort'
 
 /** 子页标识（custom = 用户通过链接添加的自定义栏目） */
 type BiliTab = 'region' | 'fav' | 'custom'
@@ -398,11 +399,6 @@ export function MusicBilibiliPage({
   /** 左栏音乐种类排序编辑模式：拖动条目（触屏用上下箭头）调整上下位置，
    *  桌面左栏与移动端 chips 共用同一开关（列表同源，顺序自动同步） */
   const [tagEditMode, setTagEditMode] = useState(false)
-  const dragTagIndexRef = useRef<number | null>(null)
-  const [draggingTagName, setDraggingTagName] = useState<string | null>(null)
-  const [dropTargetTagName, setDropTargetTagName] = useState<string | null>(
-    null
-  )
   /** 分类标签规则设置弹窗：正在编辑的分类名（null = 关闭） */
   const [tagRulesEditName, setTagRulesEditName] = useState<string | null>(null)
   /** 分区限定屏蔽词弹窗：正在编辑的分区名（null = 关闭；入口在左栏分类条目右上角） */
@@ -775,10 +771,6 @@ export function MusicBilibiliPage({
    *  移动端触屏不支持 DnD，显示左右箭头兜底）。内置 tab（音乐分区/
    *  我的收藏）固定在最前不参与排序；排序即时持久化 localStorage ===== */
   const [tabEditMode, setTabEditMode] = useState(false)
-  /** 拖拽源在 customTabs 中的下标（ref 避免高频 dragover 重渲染依赖） */
-  const dragTabIndexRef = useRef<number | null>(null)
-  const [draggingTabId, setDraggingTabId] = useState<string | null>(null)
-  const [dropTargetTabId, setDropTargetTabId] = useState<string | null>(null)
 
   /** 把 customTabs[from] 移动到 to 位置并持久化 */
   const handleMoveCustomTab = useCallback((from: number, to: number) => {
@@ -800,50 +792,14 @@ export function MusicBilibiliPage({
     })
   }, [])
 
-  const handleCustomTabDragStart = useCallback(
-    (index: number, id: string, e: React.DragEvent) => {
-      dragTabIndexRef.current = index
-      setDraggingTabId(id)
-      e.dataTransfer.effectAllowed = 'move'
-      // Firefox 需要 setData 才会启动拖拽
-      e.dataTransfer.setData('text/plain', id)
-    },
-    []
-  )
-
-  const handleCustomTabDragOver = useCallback(
-    (index: number, id: string, e: React.DragEvent) => {
-      if (dragTabIndexRef.current === null || dragTabIndexRef.current === index)
-        return
-      // 允许 drop；悬停目标高亮指示插入位置
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
-      setDropTargetTabId((prev) => (prev === id ? prev : id))
-    },
-    []
-  )
-
-  const handleCustomTabDrop = useCallback(
-    (index: number, e: React.DragEvent) => {
-      e.preventDefault()
-      const from = dragTabIndexRef.current
-      if (from !== null && from !== index) {
-        // 指示线画在目标 chip 前缘（= 插入到它前面）：向后拖时先移除会使
-        // 目标左移一位，最终位置需减一校正（向上拖不变）
-        handleMoveCustomTab(from, from < index ? index - 1 : index)
-      }
-      dragTabIndexRef.current = null
-      setDraggingTabId(null)
-      setDropTargetTabId(null)
-    },
-    [handleMoveCustomTab]
-  )
-
-  const handleCustomTabDragEnd = useCallback(() => {
-    dragTabIndexRef.current = null
-    setDraggingTabId(null)
-    setDropTargetTabId(null)
-  }, [])
+  const {
+    draggingId: draggingTabId,
+    dropTargetId: dropTargetTabId,
+    handleDragStart: handleCustomTabDragStart,
+    handleDragOver: handleCustomTabDragOver,
+    handleDrop: handleCustomTabDrop,
+    handleDragEnd: handleCustomTabDragEnd,
+  } = useDragSort(handleMoveCustomTab)
 
   /** 删除自定义栏目并清理其列表缓存；删除当前选中项时回到音乐分区 */
   const handleDeleteCustomTab = useCallback(
@@ -970,50 +926,14 @@ export function MusicBilibiliPage({
     })
   }, [])
 
-  const handleRegionTagDragStart = useCallback(
-    (index: number, name: string, e: React.DragEvent) => {
-      dragTagIndexRef.current = index
-      setDraggingTagName(name)
-      e.dataTransfer.effectAllowed = 'move'
-      // Firefox 需要 setData 才会启动拖拽
-      e.dataTransfer.setData('text/plain', name)
-    },
-    []
-  )
-
-  const handleRegionTagDragOver = useCallback(
-    (index: number, name: string, e: React.DragEvent) => {
-      if (dragTagIndexRef.current === null || dragTagIndexRef.current === index)
-        return
-      // 允许 drop；悬停目标条目显示上缘指示线（= 插入到它前面）
-      e.preventDefault()
-      e.dataTransfer.dropEffect = 'move'
-      setDropTargetTagName((prev) => (prev === name ? prev : name))
-    },
-    []
-  )
-
-  const handleRegionTagDrop = useCallback(
-    (index: number, e: React.DragEvent) => {
-      e.preventDefault()
-      const from = dragTagIndexRef.current
-      if (from !== null && from !== index) {
-        // 指示线语义 =「插入到目标条目之前」：向后拖时先移除会使目标
-        // 左移一位，最终位置需减一校正（向上拖不变）
-        handleMoveRegionTag(from, from < index ? index - 1 : index)
-      }
-      dragTagIndexRef.current = null
-      setDraggingTagName(null)
-      setDropTargetTagName(null)
-    },
-    [handleMoveRegionTag]
-  )
-
-  const handleRegionTagDragEnd = useCallback(() => {
-    dragTagIndexRef.current = null
-    setDraggingTagName(null)
-    setDropTargetTagName(null)
-  }, [])
+  const {
+    draggingId: draggingTagName,
+    dropTargetId: dropTargetTagName,
+    handleDragStart: handleRegionTagDragStart,
+    handleDragOver: handleRegionTagDragOver,
+    handleDrop: handleRegionTagDrop,
+    handleDragEnd: handleRegionTagDragEnd,
+  } = useDragSort(handleMoveRegionTag)
 
   // ===== 分类标签词规则（多 tag 筛选）设置 =====
   const updateTagRules = useCallback(
