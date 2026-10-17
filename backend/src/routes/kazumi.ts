@@ -23,6 +23,7 @@ import {
 } from '../services/kazumi';
 import { proxyHttpUpstream } from '../services/proxy';
 import { isInternalServerUrl } from '../services/network-utils';
+import { ResolveCache, stableStringify } from '../utils/resolve-cache';
 
 const router = Router();
 
@@ -143,6 +144,18 @@ router.get('/episodes', async (req: AuthenticatedRequest, res: Response) => {
 
 // --- 解析播放地址 ---
 
+/**
+ * 解析结果缓存（60s TTL + 单飞去重，对齐 /cms/resolve）。
+ *
+ * 播放主路径走添加时物化的 movie.url，极少调到这里；但配置页试播、
+ * 重推等场景仍会命中，缓存避免同集重复「抓播放页 → 递归解析」。
+ */
+const resolveCache = new ResolveCache<{
+  url: string;
+  headers?: Record<string, string>;
+  format?: string;
+}>(60 * 1000);
+
 router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
   const source = req.body.source;
   const episode = req.body.episode;
@@ -163,13 +176,16 @@ router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
   }
 
   const normalized = normalizeEpisode(episode);
+  const cacheKey = `${source.trim()}|${stableStringify(normalized.playbackParams)}`;
 
   try {
-    const result = await provider.getPlaybackUrl(normalized);
-    if (!result) {
-      res.status(404).json({ success: false, message: '无法解析播放地址' });
-      return;
-    }
+    const result = await resolveCache.run(cacheKey, async () => {
+      const resolved = await provider.getPlaybackUrl(normalized);
+      if (!resolved) {
+        throw new Error('无法解析播放地址');
+      }
+      return resolved;
+    });
     res.json({
       success: true,
       url: result.url,
@@ -177,11 +193,13 @@ router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
       format: result.format,
     });
   } catch (err) {
-    console.error('[kazumi] resolve error:', err);
-    res.status(502).json({
-      success: false,
-      message: err instanceof Error ? err.message : '解析播放地址失败',
-    });
+    const message = err instanceof Error ? err.message : '解析播放地址失败';
+    if (message === '无法解析播放地址') {
+      res.status(404).json({ success: false, message });
+    } else {
+      console.error('[kazumi] resolve error:', err);
+      res.status(502).json({ success: false, message });
+    }
   }
 });
 

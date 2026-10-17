@@ -23,6 +23,7 @@ import {
 } from '../services/anisubs';
 import { proxyHttpUpstream } from '../services/proxy';
 import { isInternalServerUrl } from '../services/network-utils';
+import { ResolveCache, stableStringify } from '../utils/resolve-cache';
 
 const router = Router();
 
@@ -143,6 +144,19 @@ router.get('/episodes', async (req: AuthenticatedRequest, res: Response) => {
 
 // --- 解析播放地址 ---
 
+/**
+ * 解析结果缓存（60s TTL + 单飞去重，对齐 /cms/resolve）。
+ *
+ * ani 源 URL 短时效带签名，60s 窗口内多人/多请求共享一次解析，
+ * 避免每次播放（含 seek 后重载）都完整走一遍「抓剧集页 → 递归解析」
+ * 的上游请求——源站有速率限制时这是最易被打爆的一环。
+ */
+const resolveCache = new ResolveCache<{
+  url: string;
+  headers?: Record<string, string>;
+  format?: string;
+}>(60 * 1000);
+
 router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
   const source = req.body.source;
   const episode = req.body.episode;
@@ -163,13 +177,16 @@ router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
   }
 
   const normalized = normalizeEpisode(episode);
+  const cacheKey = `${source.trim()}|${stableStringify(normalized.playbackParams)}`;
 
   try {
-    const result = await provider.getPlaybackUrl(normalized);
-    if (!result) {
-      res.status(404).json({ success: false, message: '无法解析播放地址' });
-      return;
-    }
+    const result = await resolveCache.run(cacheKey, async () => {
+      const resolved = await provider.getPlaybackUrl(normalized);
+      if (!resolved) {
+        throw new Error('无法解析播放地址');
+      }
+      return resolved;
+    });
     res.json({
       success: true,
       url: result.url,
@@ -177,11 +194,13 @@ router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
       format: result.format,
     });
   } catch (err) {
-    console.error('[anisubs] resolve error:', err);
-    res.status(502).json({
-      success: false,
-      message: err instanceof Error ? err.message : '解析播放地址失败',
-    });
+    const message = err instanceof Error ? err.message : '解析播放地址失败';
+    if (message === '无法解析播放地址') {
+      res.status(404).json({ success: false, message });
+    } else {
+      console.error('[anisubs] resolve error:', err);
+      res.status(502).json({ success: false, message });
+    }
   }
 });
 
