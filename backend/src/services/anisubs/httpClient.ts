@@ -29,6 +29,42 @@ function escapePsString(s: string): string {
   return s.replace(/'/g, "''");
 }
 
+/** 从 Content-Type 提取 charset 参数（无声明返回 null） */
+function charsetFromContentType(contentType: string | undefined): string | null {
+  if (!contentType) return null;
+  const m = /charset\s*=\s*"?([\w-]+)"?/i.exec(contentType);
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * 按字符集解码响应字节。
+ *
+ * 优先使用服务器声明的 charset；未声明时严格 UTF-8 解码嗅探，
+ * 失败（含 BOM 外非法序列）回退 GB18030（GB2312/GBK 的超集，国内
+ * TVBox 配置/CMS 站点常见编码）——Node fetch 的 res.text() 与 PS 5.1
+ * Invoke-WebRequest 在 charset 缺失时分别默认 UTF-8/ISO-8859-1，
+ * 都会产生中文乱码，此函数统一纠正。
+ */
+export function decodeBody(bytes: Uint8Array, contentType?: string): string {
+  const declared = charsetFromContentType(contentType);
+  if (declared && declared !== 'utf-8' && declared !== 'utf8') {
+    try {
+      return new TextDecoder(declared).decode(bytes);
+    } catch {
+      // 未识别的 charset 标签 → 继续嗅探
+    }
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    try {
+      return new TextDecoder('gb18030').decode(bytes);
+    } catch {
+      return new TextDecoder('utf-8').decode(bytes);
+    }
+  }
+}
+
 /**
  * 通过 PowerShell 子进程获取 URL 内容。
  * .NET 的 HttpClient/WebRequest 使用 Schannel，TLS 指纹与浏览器不同，
@@ -79,8 +115,18 @@ try {
   if ($srv) { Write-Output "__SERVER__:$srv" }
   $ray = $r.Headers['cf-ray']
   if ($ray) { Write-Output "__CFRAY__:$ray" }
+  $ctype = $r.Headers['Content-Type']
+  if ($ctype) { Write-Output "__CTYPE__:$ctype" }
   Write-Output "__BODY_START__"
-  Write-Output $r.Content
+  # 输出原始字节（base64）：PS 5.1 Invoke-WebRequest 对无 charset 的文本响应
+  # 默认按 ISO-8859-1 解码会产生中文乱码，交由 Node 侧 decodeBody 统一解码
+  $raw = $r.RawContentStream
+  if ($raw) {
+    Write-Output "__B64__"
+    Write-Output ([Convert]::ToBase64String($raw.ToArray()))
+  } else {
+    Write-Output $r.Content
+  }
   Write-Output "__BODY_END__"
 } catch {
   $code = 0
@@ -127,6 +173,8 @@ try {
         if (serverMatch) headers['server'] = serverMatch[1].trim();
         const cfRayMatch = stdout.match(/__CFRAY__:(.+)/);
         if (cfRayMatch) headers['cf-ray'] = cfRayMatch[1].trim();
+        const ctypeMatch = stdout.match(/__CTYPE__:(.+)/);
+        if (ctypeMatch) headers['content-type'] = ctypeMatch[1].trim();
 
         const errorMatch = stdout.match(/__ERROR__:(.+)/);
         const error = errorMatch ? errorMatch[1].trim() : undefined;
@@ -135,10 +183,17 @@ try {
         const bodyEndIdx = stdout.lastIndexOf('__BODY_END__');
         let body = '';
         if (bodyStartIdx !== -1 && bodyEndIdx !== -1 && bodyEndIdx > bodyStartIdx) {
-          body = stdout
+          const rawBody = stdout
             .slice(bodyStartIdx + '__BODY_START__'.length, bodyEndIdx)
             .replace(/^\r?\n/, '')
             .replace(/\r?\n$/, '');
+          if (rawBody.startsWith('__B64__')) {
+            // 原始字节 base64 → 按 charset 智能解码
+            const b64 = rawBody.slice('__B64__'.length).replace(/\s+/g, '');
+            body = decodeBody(Buffer.from(b64, 'base64'), headers['content-type']);
+          } else {
+            body = rawBody;
+          }
         }
 
         resolve({
@@ -172,7 +227,10 @@ export async function fetchText(
       signal: controller.signal,
     });
     clearTimeout(timer);
-    const body = await res.text();
+    // 字节级获取 + 智能解码：res.text() 在 charset 缺失时按 UTF-8 硬解，
+    // GBK 编码的 TVBox 配置/CMS 页面会中文乱码
+    const buf = await res.arrayBuffer();
+    const body = decodeBody(new Uint8Array(buf), res.headers.get('content-type') ?? undefined);
 
     // 提取关键响应头
     const responseHeaders: Record<string, string> = {};
