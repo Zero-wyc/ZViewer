@@ -25,6 +25,7 @@ import {
   verifyAccessToken,
 } from '../middleware/auth';
 import { getNcmApiBase } from '../modules/music/ncm-api.service';
+import { TtlCache } from '../utils/ttl-cache';
 import { DEFAULT_PROXY_UA } from '../services/proxy/http-proxy';
 
 const router = Router();
@@ -40,32 +41,10 @@ const router = Router();
  */
 const DIRECT_URL_TTL_MS = 15 * 60 * 1000;
 const DIRECT_URL_CACHE_MAX = 500;
-const directUrlCache = new Map<string, { url: string; expireAt: number }>();
-
-function getDirectUrlCache(key: string): string | null {
-  const hit = directUrlCache.get(key);
-  if (!hit) return null;
-  if (Date.now() >= hit.expireAt) {
-    directUrlCache.delete(key);
-    return null;
-  }
-  return hit.url;
-}
-
-function setDirectUrlCache(key: string, url: string): void {
-  // 简单防膨胀：超限时先清过期项，仍超限则清空重建
-  if (directUrlCache.size >= DIRECT_URL_CACHE_MAX) {
-    const now = Date.now();
-    for (const [k, v] of directUrlCache) {
-      if (now >= v.expireAt) directUrlCache.delete(k);
-    }
-    if (directUrlCache.size >= DIRECT_URL_CACHE_MAX) directUrlCache.clear();
-  }
-  directUrlCache.set(key, {
-    url,
-    expireAt: Date.now() + DIRECT_URL_TTL_MS,
-  });
-}
+const directUrlCache = new TtlCache<string>({
+  ttlMs: DIRECT_URL_TTL_MS,
+  maxSize: DIRECT_URL_CACHE_MAX,
+});
 
 // ==================== 可选鉴权 ====================
 
@@ -826,6 +805,74 @@ router.post(
  */
 const QUALITY_CHAIN = ['lossless', 'exhigh', 'higher', 'standard'] as const;
 
+/** 按请求档位取降级链切片（未知名质从链头开始） */
+function resolveQualityLevels(requestedLevel: string): string[] {
+  const chainStart = (QUALITY_CHAIN as readonly string[]).indexOf(
+    requestedLevel,
+  );
+  return (QUALITY_CHAIN as readonly string[]).slice(
+    chainStart >= 0 ? chainStart : 0,
+  );
+}
+
+/**
+ * 凭证回退链（/stream 与 /song-quality 共用）：
+ * 当前用户凭证 → 房主凭证（请求带 roomId 时）。
+ * 实现 spec「房主登录网易云后全房间可播 VIP」：观众自己未登录/
+ * 无凭证时，借用房主的持久化凭证解析直链。
+ */
+async function resolveNcmCredentialForRequest(
+  userId: number | undefined,
+  roomId: string,
+): Promise<Awaited<ReturnType<typeof loadCredential>>> {
+  const credential = await loadCredential(userId);
+  if (credential) return credential;
+  if (roomId) {
+    const room = await AppDataSource.getRepository(Room).findOneBy({
+      roomId,
+    });
+    if (room?.ownerUserId) {
+      return loadCredential(room.ownerUserId);
+    }
+  }
+  return null;
+}
+
+/**
+ * 沿降级链解析歌曲直链数据（/stream 与 /song-quality 共用）。
+ * v1 路由失败（依赖残缺 404 / 网络抛错）时回退老接口 /song/url；
+ * freeTrialInfo 非空（试听片段）与不可用同等对待，继续降级。
+ */
+async function resolveSongUrlAlongChain(
+  songId: number,
+  levels: string[],
+  cookieHeader: string,
+): Promise<{
+  resolved: Record<string, unknown> | null;
+  lastData: Record<string, unknown> | null;
+}> {
+  let resolved: Record<string, unknown> | null = null;
+  let lastData: Record<string, unknown> | null = null;
+  for (const level of levels) {
+    const result = await callNcmApi(
+      `/song/url/v1?id=${songId}&level=${level}`,
+      cookieHeader,
+    ).catch(() => null);
+    let data = result ? extractSongUrlData(result.body) : null;
+    if (!data) {
+      data = await resolveSongUrlLegacy(songId, level, cookieHeader);
+    }
+    if (!data) continue;
+    lastData = data;
+    const url = data.url;
+    if (typeof url === 'string' && url && data.freeTrialInfo == null) {
+      resolved = data;
+      break;
+    }
+  }
+  return { resolved, lastData };
+}
+
 /** 音频流转发缓冲区大小（与 serverFiles 的 STREAM_HIGH_WATER_MARK 一致） */
 const AUDIO_STREAM_HIGH_WATER_MARK = 1024 * 1024;
 
@@ -1039,29 +1086,14 @@ router.get(
         typeof req.query.level === 'string' && req.query.level
           ? req.query.level
           : 'exhigh';
-      const chainStart = (QUALITY_CHAIN as readonly string[]).indexOf(
-        requestedLevel,
-      );
-      const levels = (QUALITY_CHAIN as readonly string[]).slice(
-        chainStart >= 0 ? chainStart : 0,
-      );
+      const levels = resolveQualityLevels(requestedLevel);
 
-      // 凭证回退链：当前用户凭证 → 房主凭证（请求带 roomId 时）。
-      // 实现 spec「房主登录网易云后全房间可播 VIP」：观众自己未登录/
-      // 无凭证时，借用房主的持久化凭证解析直链。
-      let credential = await loadCredential(req.user?.userId);
-      if (!credential) {
-        const roomId =
-          typeof req.query.roomId === 'string' ? req.query.roomId : '';
-        if (roomId) {
-          const room = await AppDataSource.getRepository(Room).findOneBy({
-            roomId,
-          });
-          if (room?.ownerUserId) {
-            credential = await loadCredential(room.ownerUserId);
-          }
-        }
-      }
+      const roomId =
+        typeof req.query.roomId === 'string' ? req.query.roomId : '';
+      const credential = await resolveNcmCredentialForRequest(
+        req.user?.userId,
+        roomId,
+      );
       const cookieHeader = credential
         ? toCookieHeader(credential.cookies)
         : '';
@@ -1078,7 +1110,7 @@ router.get(
       );
       if (directMode) {
         // 先查缓存（key 含凭证归属：VIP 直链只发给经同一凭证链解析的请求）
-        const cached = getDirectUrlCache(
+        const cached = directUrlCache.get(
           `${directCredKey}:${requestedLevel}:${songId}`
         );
         if (cached) {
@@ -1093,27 +1125,11 @@ router.get(
       }
 
       // 沿降级链解析直链；记录最后一次响应的 data 供错误分类
-      let resolved: Record<string, unknown> | null = null;
-      let lastData: Record<string, unknown> | null = null;
-      for (const level of levels) {
-        const result = await callNcmApi(
-          `/song/url/v1?id=${songId}&level=${level}`,
-          cookieHeader,
-        ).catch(() => null);
-        let data = result ? extractSongUrlData(result.body) : null;
-        // v1 路由失败（依赖残缺 404 / 网络抛错）时回退老接口 /song/url
-        if (!data) {
-          data = await resolveSongUrlLegacy(songId, level, cookieHeader);
-        }
-        if (!data) continue;
-        lastData = data;
-        const url = data.url;
-        // freeTrialInfo 非空表示试听片段（30s），与不可用同等对待
-        if (typeof url === 'string' && url && data.freeTrialInfo == null) {
-          resolved = data;
-          break;
-        }
-      }
+      const { resolved, lastData } = await resolveSongUrlAlongChain(
+        songId,
+        levels,
+        cookieHeader,
+      );
 
       if (!resolved) {
         // 错误分类：试听标记 → VIP；无版权 → NO_COPYRIGHT；其余 → 解析失败
@@ -1176,7 +1192,7 @@ router.get(
         // 实际解析档位可能与请求档位不同（降级链），按实际档位缓存
         const resolvedLevel =
           typeof resolved.level === 'string' ? resolved.level : requestedLevel;
-        setDirectUrlCache(
+        directUrlCache.set(
           `${directCredKey}:${resolvedLevel}:${songId}`,
           safeUrl,
         );
@@ -1209,40 +1225,10 @@ interface SongQualityMeta {
   type: string;
   level: string;
 }
-const qualityMetaCache = new Map<
-  string,
-  { expireAt: number; meta: SongQualityMeta }
->();
-
-function getQualityMetaCache(
-  key: string,
-): SongQualityMeta | null {
-  const hit = qualityMetaCache.get(key);
-  if (!hit) return null;
-  if (Date.now() >= hit.expireAt) {
-    qualityMetaCache.delete(key);
-    return null;
-  }
-  return hit.meta;
-}
-
-function setQualityMetaCache(
-  key: string,
-  meta: SongQualityMeta,
-): void {
-  if (qualityMetaCache.size >= QUALITY_META_CACHE_MAX) {
-    const now = Date.now();
-    for (const [k, v] of qualityMetaCache) {
-      if (now >= v.expireAt) qualityMetaCache.delete(k);
-    }
-    if (qualityMetaCache.size >= QUALITY_META_CACHE_MAX)
-      qualityMetaCache.clear();
-  }
-  qualityMetaCache.set(key, {
-    expireAt: Date.now() + QUALITY_META_TTL_MS,
-    meta,
-  });
-}
+const qualityMetaCache = new TtlCache<SongQualityMeta>({
+  ttlMs: QUALITY_META_TTL_MS,
+  maxSize: QUALITY_META_CACHE_MAX,
+});
 
 /**
  * FLAC SAMPLE_RATE 兜底探测：NCM 上游 /song/url/v1 的 data[0] 未必带 sr
@@ -1303,61 +1289,33 @@ router.get(
         typeof req.query.level === 'string' && req.query.level
           ? req.query.level
           : 'exhigh';
-      const chainStart = (QUALITY_CHAIN as readonly string[]).indexOf(
-        requestedLevel,
-      );
-      const levels = (QUALITY_CHAIN as readonly string[]).slice(
-        chainStart >= 0 ? chainStart : 0,
-      );
+      const levels = resolveQualityLevels(requestedLevel);
 
       // 凭证回退链与 /stream 一致：当前用户 → 房主（请求带 roomId 时）
-      let credential = await loadCredential(req.user?.userId);
-      if (!credential) {
-        const roomId =
-          typeof req.query.roomId === 'string' ? req.query.roomId : '';
-        if (roomId) {
-          const room = await AppDataSource.getRepository(Room).findOneBy({
-            roomId,
-          });
-          if (room?.ownerUserId) {
-            credential = await loadCredential(room.ownerUserId);
-          }
-        }
-      }
+      const roomId =
+        typeof req.query.roomId === 'string' ? req.query.roomId : '';
+      const credential = await resolveNcmCredentialForRequest(
+        req.user?.userId,
+        roomId,
+      );
+      const cookieHeader = credential
+        ? toCookieHeader(credential.cookies)
+        : '';
       const credKey = String(credential?.userId ?? req.user?.userId ?? 0);
 
       const cacheKey = `${credKey}:${requestedLevel}:${songId}`;
-      const cached = getQualityMetaCache(cacheKey);
+      const cached = qualityMetaCache.get(cacheKey);
       if (cached) {
         res.json({ success: true, songId, cached: true, ...cached });
         return;
       }
 
-      // 与 /stream 同构的降级链解析（仅取元数据，不获取音频）
-      let resolved: Record<string, unknown> | null = null;
-      let lastData: Record<string, unknown> | null = null;
-      for (const level of levels) {
-        const result = await callNcmApi(
-          `/song/url/v1?id=${songId}&level=${level}`,
-          credential ? toCookieHeader(credential.cookies) : '',
-        ).catch(() => null);
-        let data = result ? extractSongUrlData(result.body) : null;
-        // v1 路由失败时回退老接口 /song/url（与 /stream 一致）
-        if (!data) {
-          data = await resolveSongUrlLegacy(
-            songId,
-            level,
-            credential ? toCookieHeader(credential.cookies) : '',
-          );
-        }
-        if (!data) continue;
-        lastData = data;
-        const url = data.url;
-        if (typeof url === 'string' && url && data.freeTrialInfo == null) {
-          resolved = data;
-          break;
-        }
-      }
+      // 与 /stream 共用的降级链解析（仅取元数据，不获取音频）
+      const { resolved, lastData } = await resolveSongUrlAlongChain(
+        songId,
+        levels,
+        cookieHeader,
+      );
       if (!resolved) {
         if (lastData && lastData.freeTrialInfo != null) {
           res
@@ -1393,7 +1351,7 @@ router.get(
         type,
         level: levelStr,
       };
-      setQualityMetaCache(cacheKey, meta);
+      qualityMetaCache.set(cacheKey, meta);
       res.json({ success: true, songId, ...meta });
     } catch (err) {
       console.error('[music] song-quality error:', err);
