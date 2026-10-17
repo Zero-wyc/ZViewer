@@ -199,18 +199,35 @@ function isDevVersion(version: string): boolean {
 }
 
 /**
- * 比较语义化版本号 a.b.c。
+ * 比较语义化版本号 a.b.c（支持 prerelease 后缀，如 1.2.0-beta.1）。
  * 返回 >0 表示 a>b，<0 表示 a<b，0 表示相等。
+ * 遵循 semver 规则：同数值版本下，无 prerelease 者更新（1.2.0 > 1.2.0-beta.1）；
+ * 两个 prerelease 按后缀字典序比较。
  */
 function compareVersions(a: string, b: string): number {
-  const normalize = (v: string) => v.replace(/^v/, '');
-  const partsA = normalize(a).split('.').map(Number);
-  const partsB = normalize(b).split('.').map(Number);
-  for (let i = 0; i < Math.max(partsA.length, partsB.length); i++) {
-    const va = partsA[i] || 0;
-    const vb = partsB[i] || 0;
+  const parse = (v: string) => {
+    const normalized = v.replace(/^v/, '');
+    // 拆出 prerelease 后缀（1.2.0-beta.1 → 数值核 1.2.0 + pre 'beta.1'），
+    // 避免 Number('0-beta') 产生 NaN 被静默当 0 处理。
+    const dashIdx = normalized.indexOf('-');
+    const core = dashIdx === -1 ? normalized : normalized.slice(0, dashIdx);
+    const pre = dashIdx === -1 ? '' : normalized.slice(dashIdx + 1);
+    return { parts: core.split('.').map((n) => Number(n) || 0), pre };
+  };
+  const pa = parse(a);
+  const pb = parse(b);
+  const len = Math.max(pa.parts.length, pb.parts.length);
+  for (let i = 0; i < len; i++) {
+    const va = pa.parts[i] || 0;
+    const vb = pb.parts[i] || 0;
     if (va > vb) return 1;
     if (va < vb) return -1;
+  }
+  if (!pa.pre && pb.pre) return 1;
+  if (pa.pre && !pb.pre) return -1;
+  if (pa.pre && pb.pre) {
+    if (pa.pre > pb.pre) return 1;
+    if (pa.pre < pb.pre) return -1;
   }
   return 0;
 }
