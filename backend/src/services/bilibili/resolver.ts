@@ -341,6 +341,65 @@ function getCurrentPageDuration(info: BilibiliVideoInfo, cid?: number): number {
 }
 
 /**
+ * 构造解析进度回调（UGC / PGC 两条编排共用同一 NDJSON 事件结构）。
+ */
+function createEmitter(
+  onProgress: ResolveOptions['onProgress'],
+): (step: string, message: string) => void {
+  return (step, message) => onProgress?.({ status: 'parsing', step, message });
+}
+
+/**
+ * 将底层异常归一化为 Error（PGC 业务错误保留错误码）。
+ */
+function toResolveError(err: unknown): Error {
+  if (err instanceof PgcError) return new ResolveError(err.message, err.code);
+  return err instanceof Error ? err : new Error(String(err));
+}
+
+/** B站 媒体 CDN 全部不可达（统一文案与错误码） */
+function cdnUnreachableError(): ResolveError {
+  return new ResolveError(
+    '当前网络无法访问 B站 媒体服务器，请稍后重试',
+    'CDN_UNREACHABLE',
+  );
+}
+
+/**
+ * DASH 选源（UGC / PGC 共用）：
+ * - skipCdnCheck=true（下载场景）直接使用 baseUrl 并升级 HTTPS，避免 HEAD 探测延迟；
+ * - 否则并行探测音视频可达地址（backupUrl 兜底），失败项返回 null。
+ */
+async function selectDashSources(
+  playUrl: BilibiliPlayUrlResult,
+  skipCdnCheck: boolean | undefined,
+): Promise<{ videoUrl: string | null; audioUrl: string | null }> {
+  const video = playUrl.bestVideo;
+  if (!video) return { videoUrl: null, audioUrl: null };
+  if (skipCdnCheck) {
+    return {
+      videoUrl: upgradeBilibiliUrlToHttps(video.baseUrl),
+      audioUrl: playUrl.bestAudio
+        ? upgradeBilibiliUrlToHttps(playUrl.bestAudio.baseUrl)
+        : null,
+    };
+  }
+  const [videoUrl, audioUrl] = await Promise.all([
+    findReachableMediaUrl({
+      baseUrl: video.baseUrl,
+      backupUrl: video.backupUrl,
+    }),
+    playUrl.bestAudio
+      ? findReachableMediaUrl({
+          baseUrl: playUrl.bestAudio.baseUrl,
+          backupUrl: playUrl.bestAudio.backupUrl,
+        })
+      : Promise.resolve(null),
+  ]);
+  return { videoUrl, audioUrl };
+}
+
+/**
  * 在 DASH 所有 CDN 均不可达时降级为 MP4 直链。
  *
  * 使用 B站 HTML5 播放器接口（platform=html5）获取无防盗链 MP4 直链，
@@ -422,14 +481,7 @@ async function resolvePgcVideo(
 ): Promise<ResolveResult> {
   const { cookie, qn, codec, onProgress, preferMp4, page, cid, skipCdnCheck, forceDash } = opts;
 
-  const emit = (step: string, message: string) => {
-    onProgress?.({ status: 'parsing', step, message });
-  };
-
-  const toResolveError = (err: unknown): Error => {
-    if (err instanceof PgcError) return new ResolveError(err.message, err.code);
-    return err instanceof Error ? err : new Error(String(err));
-  };
+  const emit = createEmitter(onProgress);
 
   if (!cookie) {
     emit('vip', '正在准备匿名会话...');
@@ -687,34 +739,14 @@ async function resolvePgcVideo(
 
   if (playUrl.format === 'dash' && playUrl.bestVideo) {
     emit('cdn', '正在选择可用 CDN...');
-    let videoUrl: string | null;
-    let audioUrl: string | null = null;
-    if (skipCdnCheck) {
-      videoUrl = upgradeBilibiliUrlToHttps(playUrl.bestVideo.baseUrl);
-      audioUrl = playUrl.bestAudio
-        ? upgradeBilibiliUrlToHttps(playUrl.bestAudio.baseUrl)
-        : null;
-    } else {
-      [videoUrl, audioUrl] = await Promise.all([
-        findReachableMediaUrl({
-          baseUrl: playUrl.bestVideo.baseUrl,
-          backupUrl: playUrl.bestVideo.backupUrl,
-        }),
-        playUrl.bestAudio
-          ? findReachableMediaUrl({
-              baseUrl: playUrl.bestAudio.baseUrl,
-              backupUrl: playUrl.bestAudio.backupUrl,
-            })
-          : Promise.resolve(null),
-      ]);
-    }
+    const { videoUrl, audioUrl } = await selectDashSources(
+      playUrl,
+      skipCdnCheck,
+    );
 
     if (!videoUrl) {
       if (forceDash) {
-        throw new ResolveError(
-          '当前网络无法访问 B站 媒体服务器，请稍后重试',
-          'CDN_UNREACHABLE',
-        );
+        throw cdnUnreachableError();
       }
       emit('fallback', 'DASH 地址不可用，尝试 MP4 直链...');
       let mp4PlayUrl: BilibiliPlayUrlResult | null = null;
@@ -728,10 +760,7 @@ async function resolvePgcVideo(
       if (mp4PlayUrl) {
         return buildMp4Result(mp4PlayUrl, await resolveMp4Url(mp4PlayUrl));
       }
-      throw new ResolveError(
-        '当前网络无法访问 B站 媒体服务器，请稍后重试',
-        'CDN_UNREACHABLE',
-      );
+      throw cdnUnreachableError();
     }
 
     return buildDashResult(
@@ -791,9 +820,7 @@ export async function resolveBilibiliVideo(
   }
   const effectivePage = page ?? urlPage;
 
-  const emit = (step: string, message: string) => {
-    onProgress?.({ status: 'parsing', step, message });
-  };
+  const emit = createEmitter(onProgress);
 
   // 未登录（无 Cookie）：先预热匿名会话——匿名请求缺 Cookie 极易触发
   // B站 412 风控（每次重试 1-2s 退避，本流程含 3+ 个 API 请求，累计可
@@ -970,35 +997,15 @@ export async function resolveBilibiliVideo(
 
     // skipCdnCheck=true 时直接使用 baseUrl，避免 HEAD 探测延迟（下载场景）
     // 下载失败时由调用方重试 backupUrl
-    let videoUrl: string | null;
-    let audioUrl: string | null = null;
-    if (skipCdnCheck) {
-      videoUrl = upgradeBilibiliUrlToHttps(playUrl.bestVideo.baseUrl);
-      audioUrl = playUrl.bestAudio
-        ? upgradeBilibiliUrlToHttps(playUrl.bestAudio.baseUrl)
-        : null;
-    } else {
-      [videoUrl, audioUrl] = await Promise.all([
-        findReachableMediaUrl({
-          baseUrl: playUrl.bestVideo.baseUrl,
-          backupUrl: playUrl.bestVideo.backupUrl,
-        }),
-        playUrl.bestAudio
-          ? findReachableMediaUrl({
-              baseUrl: playUrl.bestAudio.baseUrl,
-              backupUrl: playUrl.bestAudio.backupUrl,
-            })
-          : Promise.resolve(null),
-      ]);
-    }
+    const { videoUrl, audioUrl } = await selectDashSources(
+      playUrl,
+      skipCdnCheck,
+    );
 
     if (!videoUrl) {
       if (forceDash) {
         // 强制 DASH 模式：禁用 MP4 降级，直接报错
-        throw new ResolveError(
-          '当前网络无法访问 B站 媒体服务器，请稍后重试',
-          'CDN_UNREACHABLE',
-        );
+        throw cdnUnreachableError();
       }
       emit('fallback', 'DASH 地址不可用，尝试 MP4 直链...');
       const mp4 = await fallbackToMp4(
@@ -1029,10 +1036,7 @@ export async function resolveBilibiliVideo(
           resolvedUrl: url,
         };
       }
-      throw new ResolveError(
-        '当前网络无法访问 B站 媒体服务器，请稍后重试',
-        'CDN_UNREACHABLE',
-      );
+      throw cdnUnreachableError();
     }
 
     return {
@@ -1069,10 +1073,7 @@ export async function resolveBilibiliVideo(
       ? upgradeBilibiliUrlToHttps(playUrl.durl[0].url)
       : await findReachableMediaUrl({ baseUrl: playUrl.durl[0].url });
     if (!mp4Url) {
-      throw new ResolveError(
-        '当前网络无法访问 B站 媒体服务器，请稍后重试',
-        'CDN_UNREACHABLE',
-      );
+      throw cdnUnreachableError();
     }
     // 收窄清晰度列表到 MP4 支持范围
     const mp4AcceptQuality = narrowAcceptQualityForMp4(acceptQuality);
