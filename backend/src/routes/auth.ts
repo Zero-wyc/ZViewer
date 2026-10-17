@@ -5,7 +5,7 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { AppDataSource } from '../data-source';
 import { User } from '../entities/User';
-import { getSystemSettings } from '../index';
+import { getSystemSettings } from '../services/system-settings';
 import {
   generateTokens,
   verifyRefreshToken,

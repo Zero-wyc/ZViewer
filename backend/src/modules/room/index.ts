@@ -6,6 +6,7 @@
 export { RoomStateService, roomStateService, type RoomRuntimeState, HOST_RECONNECT_GRACE_MS } from './room-state.service';
 export { RoomPermissionService, roomPermissionService } from './room-permission.service';
 export { RoomSessionService, roomSessionService } from './room-session.service';
+export { deleteRoomAndRelations } from './room-removal.service';
 export { RoomLifecycleHandler } from './handlers/room-lifecycle.handler';
 export { RoomSettingsHandler } from './handlers/room-settings.handler';
 export { RoomDisconnectHandler } from './handlers/room-disconnect.handler';

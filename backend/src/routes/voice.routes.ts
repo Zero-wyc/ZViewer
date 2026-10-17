@@ -18,7 +18,7 @@ import { Router, Response } from 'express';
 import { AccessToken, RoomServiceClient, TrackType } from 'livekit-server-sdk';
 import { AppDataSource } from '../data-source';
 import { Room } from '../entities/Room';
-import { getSystemSettings } from '../index';
+import { getSystemSettings } from '../services/system-settings';
 import {
   authenticateToken,
   AuthenticatedRequest,
