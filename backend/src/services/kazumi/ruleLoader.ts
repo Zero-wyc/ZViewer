@@ -66,8 +66,15 @@ async function fetchRuleDocument(url: string): Promise<unknown> {
 /** 获取 Kazumi 规则 JSON（经 PowerShell fallback 绕过 TLS 拦截） */
 export async function fetchKazumiRule(url: string): Promise<KazumiRule> {
   const data = (await fetchRuleDocument(url)) as KazumiRule;
-  if (!data.name || !data.baseURL || !data.searchURL) {
-    throw new Error('规则格式不正确（缺少 name/baseURL/searchURL）');
+  // apiLevel 9 规则允许 searchURL 为空（searchMode=api 时走 searchApiConfig）
+  const hasApiSearch =
+    data.searchMode === 'api' &&
+    typeof data.searchApiConfig?.request?.url === 'string' &&
+    data.searchApiConfig.request.url.trim() !== '';
+  if (!data.name || !data.baseURL || (!data.searchURL && !hasApiSearch)) {
+    throw new Error(
+      '规则格式不正确（缺少 name/baseURL，且无 searchURL 或 api 搜索配置）',
+    );
   }
   return data;
 }

@@ -22,7 +22,15 @@ import {
   resolveBaseUrl,
   toAbsoluteUrl,
   resolveVideoUrl,
+  normalizeEpisodeUrl,
+  detectMediaFormat,
 } from './scraper';
+import {
+  apiSearch,
+  apiChapters,
+  usesApiSearch,
+  usesApiChapters,
+} from './api-rule';
 import { createSearchPosterReader } from '../anime/searchMetadata';
 
 interface EpisodeInfo {
@@ -41,6 +49,27 @@ export function createKazumiProvider(
     name: rule.name,
 
     async search(keyword: string): Promise<KazumiSearchResult[]> {
+      // API 模式：JSON 接口 + JSONPath（apiLevel 9 规则，searchURL 为空）
+      if (usesApiSearch(rule)) {
+        const items = await apiSearch(rule, keyword);
+        const seen = new Set<string>();
+        return items
+          .filter((item) => {
+            // 详情地址归一化：裸 id 对 baseURL 补全（对齐上游 normalizeEpisodeUrl）
+            const src = normalizeEpisodeUrl(rule.baseURL, item.src);
+            if (!src || seen.has(src)) return false;
+            seen.add(src);
+            item.src = src;
+            return true;
+          })
+          .slice(0, 20)
+          .map((item) => ({
+            id: item.src,
+            title: item.name,
+            source: sourceId,
+          }));
+      }
+
       const searchUrl = rule.searchURL.replace(
         /@keyword/g,
         encodeURIComponent(keyword),
@@ -94,7 +123,29 @@ export function createKazumiProvider(
     },
 
     async getEpisodes(identifier: string): Promise<KazumiEpisode[]> {
-      const subjectUrl = identifier;
+      // 归一化详情地址：旧规则为绝对 URL（幂等），新 API 规则可能是裸 id
+      const subjectUrl = normalizeEpisodeUrl(rule.baseURL, identifier);
+
+      // API 模式：章节 JSON 接口（nested/delimited）
+      if (usesApiChapters(rule)) {
+        const roads = await apiChapters(rule, subjectUrl);
+        const episodes: KazumiEpisode[] = [];
+        for (const road of roads) {
+          for (let i = 0; i < road.urls.length; i++) {
+            const title = road.titles[i];
+            const url = road.urls[i];
+            const episodeNumber = extractEpisodeNumber(title);
+            episodes.push({
+              id: `${title}-${episodeNumber}-${url}`,
+              title,
+              episodeNumber: episodeNumber || 1,
+              playbackParams: { episodeUrl: url },
+            });
+          }
+        }
+        return episodes;
+      }
+
       const html = await fetchHtml(subjectUrl, {
         userAgent: rule.userAgent,
         referer: rule.referer || rule.baseURL,
@@ -142,14 +193,20 @@ export function createKazumiProvider(
       if (typeof episodeUrl !== 'string' || !episodeUrl) {
         throw new Error('缺少剧集页面地址');
       }
-      const result = await resolveVideoUrl(episodeUrl, rule);
-      if (!result) {
-        return null;
-      }
       const headers: Record<string, string> = {};
       headers.Referer = rule.referer || rule.baseURL;
       if (rule.userAgent) {
         headers['User-Agent'] = rule.userAgent;
+      }
+      // API 章节规则的 episodeUrlPath 可直接产出媒体地址（.m3u8/.mp4/.flv），
+      // 无需再当播放页抓取解析
+      const directFormat = detectMediaFormat(episodeUrl);
+      if (directFormat !== 'unknown') {
+        return { url: episodeUrl, headers, format: directFormat };
+      }
+      const result = await resolveVideoUrl(episodeUrl, rule);
+      if (!result) {
+        return null;
       }
       return {
         url: result.url,

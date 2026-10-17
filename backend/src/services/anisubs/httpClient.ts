@@ -12,6 +12,12 @@ import { execFile } from 'child_process';
 export interface FetchTextOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
+  /** HTTP 方法，默认 GET（仅 GET/POST） */
+  method?: string;
+  /** 请求体（POST 时使用，字符串原样发送） */
+  body?: string;
+  /** 请求体 Content-Type（POST 时使用） */
+  contentType?: string;
 }
 
 export interface FetchTextResult {
@@ -74,6 +80,9 @@ function fetchViaPowerShell(
   url: string,
   headers: Record<string, string>,
   timeoutMs: number,
+  method?: string,
+  body?: string,
+  contentType?: string,
 ): Promise<FetchTextResult> {
   // PowerShell 5.1 不允许在 -Headers 中设置 User-Agent，需用 -UserAgent 参数
   const userAgent = headers['User-Agent'] || headers['user-agent'] || '';
@@ -96,6 +105,9 @@ function fetchViaPowerShell(
 
   const psSeconds = Math.ceil(timeoutMs / 1000);
   const uaEscaped = escapePsString(userAgent);
+  const psMethod = (method || 'GET').toUpperCase();
+  const bodyEscaped = body != null ? escapePsString(body) : '';
+  const ctypeEscaped = escapePsString(contentType || '');
 
   // PowerShell 脚本：用 Invoke-WebRequest 获取内容，通过标记分隔输出
   const script = `
@@ -109,6 +121,11 @@ ${headerLines}
 try {
   $params = @{ Uri = $url; Headers = $headers; UseBasicParsing = $true; TimeoutSec = ${psSeconds} }
   if ($ua) { $params['UserAgent'] = $ua }
+  if ('${psMethod}' -ne 'GET') { $params['Method'] = '${psMethod}' }
+  $body = '${bodyEscaped}'
+  if ($body) { $params['Body'] = $body }
+  $ctype = '${ctypeEscaped}'
+  if ($ctype) { $params['ContentType'] = $ctype }
   $r = Invoke-WebRequest @params
   Write-Output "__STATUS__:$($r.StatusCode)"
   $srv = $r.Headers['server']
@@ -216,14 +233,22 @@ export async function fetchText(
   url: string,
   options: FetchTextOptions = {},
 ): Promise<FetchTextResult> {
-  const { headers = {}, timeoutMs = 20000 } = options;
+  const {
+    headers = {},
+    timeoutMs = 20000,
+    method,
+    body: reqBody,
+    contentType: reqContentType,
+  } = options;
 
   // 快速路径：Node.js fetch
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
     const res = await fetch(url, {
+      method: method || 'GET',
       headers,
+      body: method && method.toUpperCase() !== 'GET' ? reqBody : undefined,
       signal: controller.signal,
     });
     clearTimeout(timer);
@@ -247,6 +272,6 @@ export async function fetchText(
     };
   } catch {
     // fetch 失败（TLS 指纹拦截/超时/网络错误），使用 PowerShell fallback
-    return fetchViaPowerShell(url, headers, timeoutMs);
+    return fetchViaPowerShell(url, headers, timeoutMs, method, reqBody, reqContentType);
   }
 }

@@ -33,6 +33,63 @@ export function resolveBaseUrl(url: string): string {
   }
 }
 
+function isHttpScheme(scheme: string): boolean {
+  return scheme === 'http:' || scheme === 'https:';
+}
+
+/**
+ * 集数/详情页 URL 归一化（对齐上游 episode_url.dart 的 normalizeEpisodeUrl）。
+ * 相对路径（含裸 id）基于 baseUrl 补全；同站 URL 协议统一到 baseUrl 声明的
+ * 协议；去除 path 尾斜杠（根路径保留）与空 query。幂等。
+ */
+export function normalizeEpisodeUrl(baseUrl: string, raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return '';
+
+  let base: URL | null = null;
+  try {
+    const u = new URL(baseUrl.trim());
+    if (isHttpScheme(u.protocol) && u.host) base = u;
+  } catch {
+    base = null;
+  }
+
+  let resolved: URL | null = null;
+  try {
+    const u = new URL(trimmed);
+    if (isHttpScheme(u.protocol) && u.host) resolved = u;
+  } catch {
+    resolved = null;
+  }
+  if (!resolved && base) {
+    try {
+      resolved = new URL(trimmed, base);
+    } catch {
+      resolved = null;
+    }
+  }
+  if (!resolved || !resolved.host) return trimmed;
+
+  if (
+    base &&
+    isHttpScheme(base.protocol) &&
+    isHttpScheme(resolved.protocol) &&
+    resolved.protocol !== base.protocol &&
+    resolved.host === base.host &&
+    resolved.port === base.port
+  ) {
+    resolved.protocol = base.protocol;
+  }
+
+  let path = resolved.pathname;
+  while (path.length > 1 && path.endsWith('/')) {
+    path = path.slice(0, -1);
+  }
+  resolved.pathname = path;
+
+  return resolved.toString();
+}
+
 /** 获取 HTML 页面内容（经 PowerShell fallback 绕过 TLS 拦截） */
 export async function fetchHtml(
   url: string,
@@ -236,9 +293,50 @@ async function resolveIframeVideoUrl(
   return resolveIframeVideoUrl(nestedUrl, iframeUrl, userAgent, depth + 1);
 }
 
+function decodeJsUnescape(s: string): string {
+  return s.replace(/%u([0-9A-Fa-f]{4})/g, (_m, hex: string) =>
+    String.fromCharCode(parseInt(hex, 16)),
+  );
+}
+
+/**
+ * 解析苹果 CMS 播放页内嵌的 player_aaaa 配置。
+ * encrypt 0=明文 / 1=base64 / 2=unescape(base64)；encrypt 3 为各站私有
+ * 变体（需其播放器 JS），无法通用还原，返回 undefined 交给后续回退链。
+ */
+function resolvePlayerAaaa(html: string): string | undefined {
+  const m = html.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})\s*<\/script>/i);
+  if (!m?.[1]) return undefined;
+  let config: Record<string, unknown>;
+  try {
+    config = JSON.parse(m[1].replace(/\\\//g, '/')) as Record<string, unknown>;
+  } catch {
+    return undefined;
+  }
+  const rawUrl = typeof config.url === 'string' ? config.url.trim() : '';
+  if (!rawUrl) return undefined;
+  const encrypt = Number(config.encrypt ?? 0);
+  try {
+    if (encrypt === 1) {
+      const decoded = Buffer.from(rawUrl, 'base64').toString('utf8');
+      return /^https?:\/\//.test(decoded) ? decoded : undefined;
+    }
+    if (encrypt === 2) {
+      const decoded = decodeJsUnescape(
+        Buffer.from(rawUrl, 'base64').toString('binary'),
+      );
+      return /^https?:\/\//.test(decoded) ? decoded : undefined;
+    }
+    // encrypt 0（明文）：由外层 configPatterns 已覆盖，这里不重复处理
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 /**
  * 解析剧集页面的真实视频地址。
- * 三级回退：直接正则匹配 → 播放器配置 url 字段 → iframe 嵌套递归。
+ * 回退链：直接正则匹配 → player_aaaa 配置 → 播放器配置 url 字段 → iframe 嵌套递归。
  */
 export async function resolveVideoUrl(
   episodeUrl: string,
@@ -258,7 +356,14 @@ export async function resolveVideoUrl(
     return { url, format: detectMediaFormat(url) };
   }
 
-  // 2. 匹配 DPlayer / 常见播放器配置中的 url 字段
+  // 2. 苹果 CMS player_aaaa 配置（encrypt 1/2 编码还原）
+  const aaaaUrl = resolvePlayerAaaa(html);
+  if (aaaaUrl) {
+    const url = absolute(aaaaUrl);
+    return { url, format: detectMediaFormat(url) };
+  }
+
+  // 3. 匹配 DPlayer / 常见播放器配置中的 url 字段
   const configPatterns = [
     /["']url["']\s*[:=]\s*["'](https?:\/\/[^"']+)["']/gi,
     /video\s*:\s*\{[^}]*url\s*:\s*["'](https?:\/\/[^"']+)["']/gi,
@@ -272,7 +377,7 @@ export async function resolveVideoUrl(
     }
   }
 
-  // 3. 匹配 iframe src，部分站点通过 iframe 嵌套播放器
+  // 4. 匹配 iframe src，部分站点通过 iframe 嵌套播放器
   const iframeMatch = html.match(/<iframe[^>]+src=["']([^"']+)["']/i);
   if (iframeMatch?.[1]) {
     const iframeUrl = absolute(iframeMatch[1]);
