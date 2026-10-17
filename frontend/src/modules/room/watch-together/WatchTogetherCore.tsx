@@ -23,26 +23,21 @@ import { message } from '@/components/ui/message'
 import { Spinner } from '@/components/ui/Spinner'
 import { Button } from '@/components/ui/Button'
 import { useSocket } from '@/hooks/useSocket'
-import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useSubtitles, type EmbeddedSource } from '@/hooks/useSubtitles'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { useRoomStore } from '@/store/roomStore'
-import { useDanmakuStore } from '@/store/danmakuStore'
 import { usePlayerPrefsStore } from '@/store/playerPrefsStore'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
-import {
-  DanmakuLayer,
-  type DanmakuLayerHandle,
-} from '@/components/DanmakuLayer'
+import { DanmakuLayer } from '@/components/DanmakuLayer'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { useWatchTogether } from './useWatchTogether'
 import { useRequestChannel, type PendingApproval } from './useRequestChannel'
+import { useDanmakuBridge } from './useDanmakuBridge'
+import { useControlBarVisibility } from './useControlBarVisibility'
 import { ATTACH_STAGE_LABELS } from '@/modules/sync-playback/hooks/useVideoSource'
 import { FullscreenCommentDock } from './FullscreenCommentDock'
-import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
-import type { DanmakuItem } from '@/modules/danmaku/types'
 import {
   RequestNotification,
   type RequestNotificationItem,
@@ -349,25 +344,26 @@ export function WatchTogetherCore({
     }
   }, [socket, isHost, setHostOffline])
 
-  // ── 弹幕状态 ─────────────────────────────────────────
-  const danmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
-  const danmakuItemsRef = useRef<DanmakuItem[]>([])
-  const loadedTracksRef = useRef<Set<string>>(new Set())
-  const [danmakuEnabled, setDanmakuEnabled] = useState(true)
-
-  const tracks = useDanmakuStore((state) => state.tracks)
-  const tracksRef = useRef(tracks)
-  useEffect(() => {
-    tracksRef.current = tracks
-  }, [tracks])
-  const style = useDanmakuStore((state) => state.style)
-  const blockKeywords = useDanmakuStore((state) => state.blockKeywords)
-  const setDefaultTrack = useDanmakuStore((state) => state.setDefaultTrack)
-  const setStyle = useDanmakuStore((state) => state.setStyle)
-  const setFilters = useDanmakuStore((state) => state.setFilters)
-  const setAdvancedStyle = useDanmakuStore((state) => state.setAdvancedStyle)
-  const resetStyle = useDanmakuStore((state) => state.resetStyle)
-  const addRealtime = useDanmakuStore((state) => state.addRealtime)
+  // ── 弹幕桥接（官方弹幕加载/轨道同步/实时收发，见 useDanmakuBridge）──
+  const {
+    danmakuLayerRef,
+    danmakuEnabled,
+    blockKeywords,
+    style,
+    setStyle,
+    setFilters,
+    setAdvancedStyle,
+    resetStyle,
+    handleToggleDanmaku,
+    handleDanmakuClick,
+    handleSendDanmaku,
+  } = useDanmakuBridge({
+    socket,
+    roomId,
+    videoRef,
+    cid: watchTogether.cid,
+    sourceType: watchTogether.sourceType,
+  })
 
   // ── 面板开关 ─────────────────────────────────────────
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -503,7 +499,6 @@ export function WatchTogetherCore({
     },
   })
 
-  // ── 控制栏显隐状态 ────────────────────────────────────
   // ── 移动端检测：粗指针（触屏）或支持多点触控即视为移动端 ──
   const isMobile = useMemo(
     () =>
@@ -513,13 +508,13 @@ export function WatchTogetherCore({
     []
   )
 
-  // 控制栏可见性：移动端默认隐藏（触摸显示），桌面端默认显示
-  const [controlBarVisible, setControlBarVisible] = useState(!isMobile)
-  const [controlBarHideMode, setControlBarHideMode] = useState(false)
-  const controlBarCooldownRef = useRef<number>(0)
-  const controlBarIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null
-  )
+  // ── 控制栏显隐状态机（pointer/touch 事件与冷却逻辑，见
+  // useControlBarVisibility）──
+  const { controlBarVisible, controlBarHideMode, handleToggleHideMode } =
+    useControlBarVisibility({
+      stageRef,
+      isMobile,
+    })
 
   // ── 原生全屏状态跟踪 ────────────────────────────────
   // iOS 不支持容器全屏，全屏状态由 isWebFullscreen 提供；
@@ -567,251 +562,6 @@ export function WatchTogetherCore({
       })
     }
   }, [stageRef, iosDevice, onToggleWebFullscreen])
-
-  // ── 控制栏显隐逻辑 ────────────────────────────────────
-  // 桌面端：鼠标 2s 内无移动即自动隐藏，暂停时不强制显示。
-  // 移动端：默认隐藏，手指触摸屏幕时显示，3s 后自动隐藏。
-  // 开启“隐藏模式”后，点击按钮立即隐藏并进入 2s 冷却，冷却期间任何方式都无法显示，
-  // 冷却结束后仅当指针位于播放器底部时才显示（桌面端）/ 触摸即显示（移动端）。
-  useEffect(() => {
-    const stage = stageRef.current
-    if (!stage) return
-
-    const BOTTOM_HEIGHT = 80
-    // 移动端触摸显示后 3s 自动隐藏；桌面端鼠标空闲 2s 自动隐藏
-    const HIDE_DELAY = isMobile ? 3000 : 2000
-
-    const clearIdleTimer = () => {
-      if (controlBarIdleTimerRef.current) {
-        clearTimeout(controlBarIdleTimerRef.current)
-        controlBarIdleTimerRef.current = null
-      }
-    }
-
-    const scheduleIdleHide = () => {
-      clearIdleTimer()
-      controlBarIdleTimerRef.current = setTimeout(() => {
-        setControlBarVisible(false)
-      }, HIDE_DELAY)
-    }
-
-    const handlePointerMove = (e: PointerEvent) => {
-      if (controlBarHideMode) {
-        const now = Date.now()
-        if (now < controlBarCooldownRef.current) {
-          // 冷却期间无视任何显示请求
-          scheduleIdleHide()
-          return
-        }
-        const rect = stage.getBoundingClientRect()
-        const inBottom = e.clientY >= rect.bottom - BOTTOM_HEIGHT
-        setControlBarVisible(inBottom)
-        scheduleIdleHide()
-        return
-      }
-      setControlBarVisible(true)
-      // 触摸滑动：手指按住期间一直显示，不启动隐藏计时，松开后再计时
-      if (e.pointerType === 'touch') {
-        clearIdleTimer()
-        return
-      }
-      scheduleIdleHide()
-    }
-
-    const handlePointerLeave = (e: PointerEvent) => {
-      // 触摸场景不因 pointerleave 隐藏：触摸的显隐由 pointerup / touch 事件控制
-      // （部分浏览器触摸时会派发 pointerleave，若在此隐藏会导致控制栏刚显示就消失）
-      if (e.pointerType === 'touch') return
-      setControlBarVisible(false)
-      clearIdleTimer()
-    }
-
-    const handlePointerDown = (e: PointerEvent) => {
-      setControlBarVisible(true)
-      // 移动端触摸：按住期间一直显示，松开（pointerup）后再计时隐藏
-      if (e.pointerType === 'touch' && !controlBarHideMode) {
-        clearIdleTimer()
-        return
-      }
-      handlePointerMove(e)
-    }
-
-    const handlePointerUp = (e: PointerEvent) => {
-      // 触摸松开：开始 3s 隐藏倒计时
-      if (e.pointerType === 'touch' && !controlBarHideMode) {
-        scheduleIdleHide()
-      }
-    }
-
-    // ── touch 事件兜底（旧设备 / 不支持 PointerEvent 的浏览器）────
-    const handleTouchStart = () => {
-      setControlBarVisible(true)
-      if (!controlBarHideMode) {
-        clearIdleTimer()
-      }
-    }
-    const handleTouchMove = () => {
-      // 触摸滑动：手指按住期间一直显示，不启动隐藏计时
-      setControlBarVisible(true)
-      if (!controlBarHideMode) {
-        clearIdleTimer()
-      }
-    }
-    const handleTouchEnd = () => {
-      // 触摸松开：开始 3s 隐藏倒计时
-      if (!controlBarHideMode) {
-        scheduleIdleHide()
-      }
-    }
-
-    stage.addEventListener('pointermove', handlePointerMove)
-    stage.addEventListener('pointerleave', handlePointerLeave)
-    stage.addEventListener('pointerdown', handlePointerDown)
-    // pointerup 绑到 window：确保手指在任意位置松开都能触发隐藏计时
-    window.addEventListener('pointerup', handlePointerUp)
-    window.addEventListener('pointercancel', handlePointerUp)
-    // touch 兜底
-    stage.addEventListener('touchstart', handleTouchStart, { passive: true })
-    stage.addEventListener('touchmove', handleTouchMove, { passive: true })
-    stage.addEventListener('touchend', handleTouchEnd, { passive: true })
-    stage.addEventListener('touchcancel', handleTouchEnd, { passive: true })
-
-    if (!isMobile) {
-      // 桌面端：初始默认显示，随后按空闲逻辑自动隐藏
-      scheduleIdleHide()
-    }
-    // 移动端：初始已隐藏（见 useState 初始值），触摸屏幕时显示并 3s 后自动隐藏
-
-    return () => {
-      stage.removeEventListener('pointermove', handlePointerMove)
-      stage.removeEventListener('pointerleave', handlePointerLeave)
-      stage.removeEventListener('pointerdown', handlePointerDown)
-      window.removeEventListener('pointerup', handlePointerUp)
-      window.removeEventListener('pointercancel', handlePointerUp)
-      stage.removeEventListener('touchstart', handleTouchStart)
-      stage.removeEventListener('touchmove', handleTouchMove)
-      stage.removeEventListener('touchend', handleTouchEnd)
-      stage.removeEventListener('touchcancel', handleTouchEnd)
-      clearIdleTimer()
-    }
-  }, [stageRef, controlBarHideMode, isMobile])
-
-  const handleToggleHideMode = useCallback(() => {
-    setControlBarHideMode((prev) => {
-      const next = !prev
-      if (next) {
-        setControlBarVisible(false)
-        controlBarCooldownRef.current = Date.now() + 2000
-      } else {
-        setControlBarVisible(true)
-        controlBarCooldownRef.current = 0
-      }
-      return next
-    })
-  }, [])
-
-  // 加载 B站 官方弹幕：缓存后通过 DanmakuLayer 时间轴弹幕接口加载
-  useEffect(() => {
-    const cid = watchTogether.cid
-    if (!cid || watchTogether.sourceType !== 'bilibili') {
-      danmakuItemsRef.current = []
-      setDefaultTrack([])
-      danmakuLayerRef.current?.loadDanmakuTrack('default', [])
-      danmakuLayerRef.current?.clear()
-      return
-    }
-    // 切换B站视频时立即清空旧弹幕，避免异步加载新弹幕期间
-    // 旧弹幕仍保留在 danmaku.js comments 数组中被重新发射
-    danmakuLayerRef.current?.loadDanmakuTrack('default', [])
-    danmakuLayerRef.current?.clear()
-    fetchBilibiliDanmakuByCid(cid)
-      .then((items) => {
-        danmakuItemsRef.current = items
-        setDefaultTrack(items)
-        danmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
-        danmakuLayerRef.current?.seek(videoRef.current?.currentTime ?? 0)
-      })
-      .catch((err) => {
-        console.error('[WatchTogether] load danmaku error:', err)
-      })
-  }, [watchTogether.cid, watchTogether.sourceType, setDefaultTrack, videoRef])
-
-  // 弹幕开关重新开启时，重新加载当前时间轴弹幕并 seek 到当前时间
-  useEffect(() => {
-    if (!danmakuEnabled) return
-    const items = danmakuItemsRef.current
-    if (items.length > 0) {
-      danmakuLayerRef.current?.loadDanmakuTrack('default', items, 0)
-      danmakuLayerRef.current?.seek(videoRef.current?.currentTime ?? 0)
-    }
-  }, [danmakuEnabled, videoRef])
-
-  // 同步 store 中的轨道变化到弹幕引擎
-  useEffect(() => {
-    const layer = danmakuLayerRef.current
-    if (!layer) return
-    const current = new Set<string>()
-    tracks.forEach((track) => {
-      if (track.hidden) {
-        return
-      }
-      layer.loadDanmakuTrack(track.trackId, track.items, track.offset)
-      current.add(track.trackId)
-    })
-    loadedTracksRef.current.forEach((id) => {
-      if (!current.has(id)) {
-        layer.removeDanmakuTrack(id)
-      }
-    })
-    loadedTracksRef.current = current
-  }, [tracks])
-
-  // 侧栏屏蔽 / 删除弹幕后刷新弹幕层：先以最新轨道数据重新加载引擎，
-  // 再清屏并按当前时间重载，避免 tracks 与 refreshSignal 效果时序不一致
-  // 导致被删除/恢复的弹幕仍被渲染。
-  const refreshSignal = useDanmakuStore((state) => state.refreshSignal)
-  useEffect(() => {
-    const layer = danmakuLayerRef.current
-    if (!layer) return
-    // 使用 ref 读取最新 tracks，确保清屏前引擎已应用删除/恢复后的数据
-    tracksRef.current.forEach((track) => {
-      if (track.hidden) return
-      layer.loadDanmakuTrack(track.trackId, track.items, track.offset)
-    })
-    const current = videoRef.current?.currentTime ?? 0
-    layer.clear()
-    layer.seek(current)
-    // 立即按当前时间补发当前窗口内的弹幕，避免等待下一次 timeupdate，
-    // 让删除/恢复后的画面立刻呈现剩余弹幕。
-    layer.syncTime(current)
-  }, [refreshSignal, videoRef, tracksRef])
-
-  // 实时弹幕接收（'danmaku' 事件）：上屏 + 记录到实时弹幕列表
-  useEffect(() => {
-    if (!socket) return
-    const handleDanmaku = (payload: {
-      id?: string
-      text: string
-      sender?: string
-    }) => {
-      if (!payload?.text) return
-      danmakuLayerRef.current?.sendDanmaku(payload.text, {
-        sender: payload.sender,
-      })
-      addRealtime({
-        id:
-          payload.id ??
-          `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        content: payload.text,
-        sender: payload.sender,
-        time: videoRef.current?.currentTime ?? 0,
-      })
-    }
-    socket.on('danmaku', handleDanmaku)
-    return () => {
-      socket.off('danmaku', handleDanmaku)
-    }
-  }, [socket, addRealtime, videoRef])
 
   // 视频加载后，仅在 store 中尚未获得权威 duration 时，用 video.duration 兜底填充。
   useEffect(() => {
@@ -969,70 +719,6 @@ export function WatchTogetherCore({
       sendSeekRequest({ time })
     },
     [sendSeekRequest]
-  )
-
-  // ── 控制栏操作 ─────────────────────────────────────────
-  const handleToggleDanmaku = useCallback(() => {
-    setDanmakuEnabled((prev) => !prev)
-  }, [])
-
-  // 弹幕点击：复制文本到剪贴板
-  // 弹幕渲染时可能拼接了 "发送者: 内容" 前缀，复制时去掉前缀只保留内容部分
-  const copy = useCopyToClipboard()
-  const handleDanmakuClick = useCallback(
-    (text: string) => {
-      // 提取内容：若文本以 "xxx: " 开头（发送者前缀），则取冒号后内容；否则用原文
-      const colonIdx = text.indexOf(': ')
-      const content =
-        colonIdx >= 0 && colonIdx < 30 ? text.slice(colonIdx + 2) : text
-      const textToCopy = content.trim() || text.trim()
-      if (!textToCopy) return
-
-      void copy(textToCopy, {
-        successMessage: '已复制弹幕内容',
-        errorMessage: '复制失败',
-      })
-    },
-    [copy]
-  )
-
-  const handleSendDanmaku = useCallback(
-    (text: string) => {
-      const trimmed = text.trim()
-      if (!trimmed) return
-
-      const item: DanmakuItem = {
-        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        content: trimmed,
-        time: videoRef.current?.currentTime ?? 0,
-        mode: 1,
-        color: 16777215,
-        size: 25,
-      }
-
-      // 本地立即上屏（发送者自己看到）
-      danmakuLayerRef.current?.sendDanmaku(trimmed, { sender: '我' })
-      addRealtime({ ...item, self: true, sender: '我' })
-
-      if (!socket) return
-      // 发送评论（持久化 + 广播 new-comment）
-      socket.emit(
-        'send-comment',
-        { roomId, content: trimmed, isDanmaku: true },
-        (response: { success: boolean; message?: string }) => {
-          if (!response.success) {
-            message.error(response.message ?? '弹幕发送失败')
-          }
-        }
-      )
-      // 广播弹幕事件（其他客户端通过 'danmaku' 事件上屏）
-      socket.emit('send-danmaku', {
-        roomId,
-        content: trimmed,
-        videoTime: videoRef.current?.currentTime ?? 0,
-      })
-    },
-    [socket, roomId, videoRef, addRealtime]
   )
 
   const handleSync = useCallback(() => {
