@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Play,
   Trash2,
@@ -19,11 +19,7 @@ import { Modal } from '@/components/ui/Modal'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore, type Movie } from '@/store/roomStore'
-import {
-  resolveBilibiliWithOptions,
-  filterQualitiesByVip,
-  getBilibiliUserInfo,
-} from '@/modules/bilibili/bilibiliApi'
+import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
 import {
   extractBvid,
   extractBangumiId,
@@ -123,28 +119,10 @@ export function MovieListPanel({
   const [clearingAll, setClearingAll] = useState(false)
   const [qualityLoadingId, setQualityLoadingId] = useState<number | null>(null)
   const [pageLoadingId, setPageLoadingId] = useState<number | null>(null)
-  const [bilibiliVip, setBilibiliVip] = useState(false)
   const isScreenShare = mode === 'screen-share'
 
   // 弹窗显示完整影片列表
   const [showListModal, setShowListModal] = useState(false)
-
-  // 获取当前 B站 会员状态，用于过滤清晰度列表
-  const hasBilibiliMovie = movies.some((m) => m.sourceType === 'bilibili')
-  useEffect(() => {
-    if (!hasBilibiliMovie) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 无 B站影片时重置会员状态
-      setBilibiliVip(false)
-      return
-    }
-    let cancelled = false
-    getBilibiliUserInfo().then((info) => {
-      if (!cancelled) setBilibiliVip(info?.vipStatus === 1)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [hasBilibiliMovie])
 
   const filteredMovies = useMemo(() => {
     if (!search.trim()) return movies
@@ -752,7 +730,6 @@ export function MovieListPanel({
                           isHost={isHost}
                           isScreenShare={isScreenShare}
                           qualityLoadingId={qualityLoadingId}
-                          bilibiliVip={bilibiliVip}
                           selectedQn={
                             viewerCliResolvedSource?.movieId === movie.id
                               ? viewerCliResolvedSource.resolved.currentQn
@@ -970,7 +947,6 @@ interface BilibiliQualitySelectProps {
   isHost: boolean
   isScreenShare: boolean
   qualityLoadingId: number | null
-  bilibiliVip: boolean
   selectedQn?: number
   onChange: (value: string) => void
 }
@@ -980,7 +956,6 @@ function BilibiliQualitySelect({
   isHost,
   isScreenShare,
   qualityLoadingId,
-  bilibiliVip,
   selectedQn,
   onChange,
 }: BilibiliQualitySelectProps) {
@@ -1011,12 +986,10 @@ function BilibiliQualitySelect({
       value={String(
         selectedQn ?? movie.currentQn ?? movie.acceptQuality[0]?.id
       )}
-      options={filterQualitiesByVip(movie.acceptQuality, bilibiliVip).map(
-        (q) => ({
-          label: q.resolution ? `${q.label} · ${q.resolution}` : q.label,
-          value: String(q.id),
-        })
-      )}
+      options={movie.acceptQuality.map((q) => ({
+        label: q.resolution ? `${q.label} · ${q.resolution}` : q.label,
+        value: String(q.id),
+      }))}
       disabled={
         !canChangeQuality ||
         isScreenShare ||

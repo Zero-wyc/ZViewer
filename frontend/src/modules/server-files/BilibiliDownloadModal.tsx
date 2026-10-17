@@ -47,10 +47,9 @@ import {
   listServerRoots,
 } from './serverFilesApi'
 import { DirPickerSidePanel } from './DirPickerSidePanel'
+import { VIP_ONLY_QNS } from '@/modules/bilibili/quality'
 import type { ServerFileEntry, ServerFileRoot } from './types'
 
-/** 需要大会员的清晰度 qn 列表 */
-const VIP_ONLY_QNS = [112, 116, 120, 125, 126, 127]
 /** MP4 模式最高 qn（B站 html5 MP4 接口实际最高仅 720P） */
 const MP4_MAX_QN = 64
 

@@ -44,10 +44,7 @@ import {
   type FTPParams,
 } from '@/modules/movie-source/resolveSource'
 import { useBilibiliQrLogin } from '@/modules/bilibili/useBilibiliQrLogin'
-import {
-  resolveBilibiliWithOptions,
-  filterQualitiesByVip,
-} from '@/modules/bilibili/bilibiliApi'
+import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
 import { setBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import { BiliSearchModal } from './BiliSearchModal'
 import {
@@ -2012,11 +2009,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                     resolvedMovie.currentQn ??
                       resolvedMovie.acceptQuality[0]?.id
                   )}
-                  options={filterQualitiesByVip(
-                    resolvedMovie.acceptQuality,
-                    bilibiliUser?.vipStatus === 1 ||
-                      resolvedMovie.vipStatus === 1
-                  ).map((q) => ({
+                  options={resolvedMovie.acceptQuality.map((q) => ({
                     label: q.resolution
                       ? `${q.label} · ${q.resolution}`
                       : q.label,

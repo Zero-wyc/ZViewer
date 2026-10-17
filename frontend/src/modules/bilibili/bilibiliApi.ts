@@ -2,13 +2,15 @@ import { apiFetch } from '@/lib/api'
 import type {
   BilibiliQrData,
   BilibiliUserInfo,
-  QualityOption,
   ResolveProgressLine,
   ResolvedSource,
 } from './types'
 
-/** VIP 专属清晰度 qn 列表（非会员不可用） */
-export const VIP_ONLY_QNS = [112, 116, 120, 125, 126, 127]
+/**
+ * VIP 专属清晰度 qn 列表：前端唯一拷贝（UI 标记用），定义见 ./quality。
+ * 权限过滤以服务端为准，此处保留 re-export 供历史引用兼容。
+ */
+export { VIP_ONLY_QNS } from './quality'
 
 /** 一起听「哔哩哔哩」页的视频条目（分区/收藏通用） */
 export interface BilibiliVideoItem {
@@ -222,23 +224,6 @@ export async function getBilibiliAiSubtitle(
     throw new Error(data.message || '获取 AI 字幕失败')
   }
   return data.lines ?? []
-}
-
-/**
- * 根据会员状态过滤清晰度列表。
- * 非会员严格过滤 VIP 专属清晰度，过滤后为空时回退到 1080P。
- */
-export function filterQualitiesByVip(
-  list: QualityOption[] | undefined,
-  isVip: boolean
-): QualityOption[] {
-  const original = list ?? []
-  if (isVip) return original
-  const filtered = original.filter((q) => !VIP_ONLY_QNS.includes(q.id))
-  if (filtered.length === 0) {
-    return [{ id: 80, label: '1080P', resolution: '1920x1080' }]
-  }
-  return filtered
 }
 
 /**
