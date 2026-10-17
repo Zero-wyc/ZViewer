@@ -65,8 +65,8 @@ import {
   COMMENT_TOTAL_EVENT,
   getCommentCountBadge,
   getCommentTargetKey,
-  prefetchSongCommentTotal,
-} from './SongCommentsPanel'
+} from './comments/comment-total-cache'
+import { prefetchSongCommentTotal } from './SongCommentsPanel'
 import { prefetchBiliCommentTotal } from './BiliCommentsPanel'
 import { NcmSearchModal } from './NcmSearchModal'
 import { CARD_TONE_VARS } from '../utils/playerTone'

@@ -27,12 +27,13 @@ import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
 } from '@/modules/movie-source/resolveSource'
+import { FrameCorners, LIKE_PATH } from './comments/CommentChrome'
+import { CommentsShell } from './comments/CommentsShell'
 import {
-  COMMENTS_STYLE,
-  LIKE_PATH,
   hasCommentTotal,
   setCommentTotal,
-} from './SongCommentsPanel'
+} from './comments/comment-total-cache'
+import { formatCommentTimeFromSeconds } from './comments/format'
 
 /**
  * 预取 B站 评论总数（播放器评论徽章预加载）：复用评论接口按时间首页
@@ -63,41 +64,12 @@ interface FloorState {
 const FLOOR_REPLY_LIMIT = 10
 const COMMENTS_PREFETCH_PX = 200
 
-/** 相对时间格式化（秒级 Unix 入参，与网易云评论区同语义） */
-function formatBiliCommentTime(sec: number): string {
-  const ts = Number(sec) * 1000
-  if (!Number.isFinite(ts) || ts <= 0) return '刚刚'
-  const diff = Date.now() - ts
-  const minute = 60_000
-  const hour = 60 * minute
-  const day = 24 * hour
-  const month = 30 * day
-  const year = 365 * day
-  if (diff < minute) return '刚刚'
-  if (diff < hour) return `${Math.floor(diff / minute)}分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)}小时前`
-  if (diff < month) return `${Math.floor(diff / day)}天前`
-  if (diff < year) return `${Math.floor(diff / month)}个月前`
-  return `${Math.floor(diff / year)}年前`
-}
-
 /** 头像/表情图代理（hdslb 直链应用内 403，统一走后端防盗链代理） */
 function proxyBiliImage(url: string): string {
   if (!url) {
     return 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs='
   }
   return isBilibiliImageUrl(url) ? buildBilibiliImageProxyUrl(url) : url
-}
-
-function FrameCorners() {
-  return (
-    <>
-      <div className="ac-frame-corner ac-frame-tl" aria-hidden="true" />
-      <div className="ac-frame-corner ac-frame-tr" aria-hidden="true" />
-      <div className="ac-frame-corner ac-frame-bl" aria-hidden="true" />
-      <div className="ac-frame-corner ac-frame-br" aria-hidden="true" />
-    </>
-  )
 }
 
 /** 评论文本（[表情] 渲染 + 点击复制原文） */
@@ -401,110 +373,49 @@ export function BiliCommentsPanel({ bvid }: { bvid: string }) {
 
   // ==================== 渲染 ====================
   return (
-    <div
-      ref={containerRef}
+    <CommentsShell
+      containerRef={containerRef}
       onScroll={handleCommentsScroll}
-      className="arknights-comments"
-    >
-      <style>{COMMENTS_STYLE}</style>
-
-      {/* COMMENTS 标题（角标框架） */}
-      <div className="ac-comments-header">
-        <div className="ac-header-frame">
-          <FrameCorners />
-          <div className="flex flex-col items-center">
-            <span className="ac-header-title">COMMENTS</span>
-            <div className="ac-title-underline" />
-          </div>
-        </div>
-      </div>
-
-      {/* 游客提示：未登录 B站 仅开放前 3 条主楼 */}
-      {loginLimited && (
-        <div className="ac-login-prompt">
-          <div className="ac-prompt-frame">
-            <FrameCorners />
-            <span className="ac-prompt-text">
-              LOGIN FOR FULL COMMENTS（游客仅前 3 条）
-            </span>
-          </div>
-        </div>
-      )}
-
-      {/* HOT COMMENTS */}
-      {hotComments.length > 0 && (
-        <div>
-          <div className="ac-section-header">
-            <div>
-              <span className="ac-section-title">HOT COMMENTS</span>
-              <span className="ac-section-count">[{hotComments.length}]</span>
-            </div>
-            <div className="ac-section-line" />
-          </div>
-          {hotComments.map((c) => (
-            <BiliCard
-              key={c.rpid}
-              comment={c}
-              isHot
-              floorState={floorStates[String(c.rpid)]}
-              onToggleFloor={toggleFloorReplies}
-              onLoadMoreFloor={loadMoreFloorReplies}
-              onRetryFloor={retryFloorReplies}
-            />
-          ))}
-        </div>
-      )}
-
-      {/* LATEST COMMENTS */}
-      <div>
-        <div className="ac-section-header">
-          <div>
-            <span className="ac-section-title">LATEST COMMENTS</span>
-            <span className="ac-section-count">[{total}]</span>
-          </div>
-          <div className="ac-section-line" />
-        </div>
-        {comments.map((c) => (
-          <BiliCard
-            key={c.rpid}
-            comment={c}
-            floorState={floorStates[String(c.rpid)]}
-            onToggleFloor={toggleFloorReplies}
-            onLoadMoreFloor={loadMoreFloorReplies}
-            onRetryFloor={retryFloorReplies}
-          />
-        ))}
-      </div>
-
-      {/* 状态区（加载中 / 暂无更多 / 无评论） */}
-      {loading && (
-        <div className="ac-status-section">
-          <div className="ac-status-frame relative">
-            <FrameCorners />
-            <div className="ac-loading-content">
-              <div className="ac-loading-indicator" />
-              <span className="ac-status-text">LOADING...</span>
+      headerExtra={
+        /* 游客提示：未登录 B站 仅开放前 3 条主楼 */
+        loginLimited && (
+          <div className="ac-login-prompt">
+            <div className="ac-prompt-frame">
+              <FrameCorners />
+              <span className="ac-prompt-text">
+                LOGIN FOR FULL COMMENTS（游客仅前 3 条）
+              </span>
             </div>
           </div>
-        </div>
-      )}
-      {!hasMore && comments.length > 0 && (
-        <div className="ac-status-section">
-          <div className="ac-status-frame relative">
-            <FrameCorners />
-            <span className="ac-status-text">NO MORE COMMENTS</span>
-          </div>
-        </div>
-      )}
-      {!loading && comments.length === 0 && hotComments.length === 0 && (
-        <div className="ac-status-section">
-          <div className="ac-status-frame relative">
-            <FrameCorners />
-            <span className="ac-status-text">NO COMMENTS YET</span>
-          </div>
-        </div>
-      )}
-    </div>
+        )
+      }
+      hotCount={hotComments.length}
+      hot={hotComments.map((c) => (
+        <BiliCard
+          key={c.rpid}
+          comment={c}
+          isHot
+          floorState={floorStates[String(c.rpid)]}
+          onToggleFloor={toggleFloorReplies}
+          onLoadMoreFloor={loadMoreFloorReplies}
+          onRetryFloor={retryFloorReplies}
+        />
+      ))}
+      total={total}
+      listCount={comments.length}
+      list={comments.map((c) => (
+        <BiliCard
+          key={c.rpid}
+          comment={c}
+          floorState={floorStates[String(c.rpid)]}
+          onToggleFloor={toggleFloorReplies}
+          onLoadMoreFloor={loadMoreFloorReplies}
+          onRetryFloor={retryFloorReplies}
+        />
+      ))}
+      loading={loading}
+      hasMore={hasMore}
+    />
   )
 }
 
@@ -548,7 +459,7 @@ function BiliCard({
         <div className="ac-user-info">
           <span className="ac-username">{comment.name || '匿名用户'}</span>
           <span className="ac-timestamp">
-            {formatBiliCommentTime(comment.time)}
+            {formatCommentTimeFromSeconds(comment.time)}
             {comment.location ? ` · ${comment.location}` : ''}
           </span>
         </div>
@@ -603,7 +514,7 @@ function BiliCard({
                           {reply.name || '匿名用户'}
                         </span>
                         <span className="ac-floor-time">
-                          {formatBiliCommentTime(reply.time)}
+                          {formatCommentTimeFromSeconds(reply.time)}
                           {reply.location ? ` · ${reply.location}` : ''}
                         </span>
                       </div>
