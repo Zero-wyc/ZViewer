@@ -1,5 +1,6 @@
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import type { MediaFormat } from '@/lib/mediaFormat'
+import { buildAntileechProxyUrl } from '@/lib/antileech-proxy-url'
 import { apiFetch, getApiUrl, safeJson } from '@/lib/api'
 
 // Bilibili 模块化后的 re-export：保持向后兼容
@@ -188,13 +189,7 @@ export function buildAnimeProxyUrl(
   url: string,
   headers?: Record<string, string>
 ): string {
-  if (!headers || Object.keys(headers).length === 0) return url
-  const params = new URLSearchParams({ url })
-  if (headers.Referer) params.set('referer', headers.Referer)
-  if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])
-  if (headers.Origin) params.set('origin', headers.Origin)
-  if (headers.Cookie) params.set('cookie', headers.Cookie)
-  return `${getApiUrl()}/api/stream/anime/proxy?${params.toString()}`
+  return buildAntileechProxyUrl('anime', url, headers)
 }
 
 export interface FollowingBangumi {

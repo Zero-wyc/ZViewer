@@ -5,6 +5,7 @@
  * 完全独立于 resolveSource.ts 中的 Anime* API 函数。
  */
 
+import { buildAntileechProxyUrl } from '@/lib/antileech-proxy-url'
 import { apiFetch, getApiUrl } from '@/lib/api'
 import type {
   AniSubsSource,
@@ -109,11 +110,8 @@ export function buildAniSubsProxyUrl(
   headers?: Record<string, string>,
   force = false
 ): string {
-  if (!force && (!headers || Object.keys(headers).length === 0)) return url
-  const params = new URLSearchParams({ url })
-  if (headers.Referer) params.set('referer', headers.Referer)
-  if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])
-  if (headers.Origin) params.set('origin', headers.Origin)
-  if (headers.Cookie) params.set('cookie', headers.Cookie)
-  return `/api/stream/anisubs/proxy?${params.toString()}`
+  return buildAntileechProxyUrl('anisubs', url, headers, {
+    force,
+    relative: true,
+  })
 }

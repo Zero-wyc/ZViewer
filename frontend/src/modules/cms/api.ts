@@ -4,6 +4,7 @@
  * 对接后端 /api/stream/cms/* 路由。
  */
 
+import { buildAntileechProxyUrl } from '@/lib/antileech-proxy-url'
 import { apiFetch, getApiUrl } from '@/lib/api'
 import type {
   CmsSource,
@@ -127,11 +128,5 @@ export function buildCmsProxyUrl(
   headers?: Record<string, string>,
   force = false
 ): string {
-  if (!force && (!headers || Object.keys(headers).length === 0)) return url
-  const params = new URLSearchParams({ url })
-  if (headers.Referer) params.set('referer', headers.Referer)
-  if (headers['User-Agent']) params.set('userAgent', headers['User-Agent'])
-  if (headers.Origin) params.set('origin', headers.Origin)
-  if (headers.Cookie) params.set('cookie', headers.Cookie)
-  return `${getBaseUrl()}/proxy?${params.toString()}`
+  return buildAntileechProxyUrl('cms', url, headers, { force })
 }
