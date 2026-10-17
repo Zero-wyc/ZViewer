@@ -26,7 +26,7 @@ import {
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import {
   COMMENTS_STYLE,
   LIKE_PATH,

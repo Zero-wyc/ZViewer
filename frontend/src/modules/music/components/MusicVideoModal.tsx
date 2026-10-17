@@ -26,7 +26,7 @@ import type { BilibiliUserInfo, BilibiliQrData } from '@/modules/bilibili/types'
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import { message } from '@/components/ui/message'
 import {
   getMusicVideo,

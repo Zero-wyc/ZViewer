@@ -29,7 +29,7 @@ import {
 import {
   getEffectivePreferMp4,
   isBilibiliPgcMovie,
-} from '@/modules/room/watch-together/movie-source-resolver'
+} from '@/modules/movie-source/resolver'
 import { useCliAgent } from '@/hooks/useCliAgent'
 import { useAuthStore } from '@/store/authStore'
 import { getApiUrl } from '@/lib/api'

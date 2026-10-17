@@ -20,7 +20,7 @@ import {
 } from 'react'
 import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
 import { resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
-import { getActiveCliProxyUrl } from '@/modules/room/watch-together/movie-source-resolver'
+import { getActiveCliProxyUrl } from '@/modules/movie-source/resolver'
 import {
   getMusicVideo,
   subscribeMusicVideo,

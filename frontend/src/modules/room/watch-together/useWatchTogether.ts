@@ -14,7 +14,7 @@ import {
   type Movie,
   mapDtoToMovie,
 } from '@/store/roomStore'
-import { type QualityOption } from './resolveSource'
+import { type QualityOption } from '@/modules/movie-source/resolveSource'
 import { useBilibiliQuality } from '@/modules/bilibili/useBilibiliQuality'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import {
@@ -37,7 +37,7 @@ import {
   resolveBilibiliOnline,
   getEffectivePreferMp4,
   type ResolvedMovieSource,
-} from './movie-source-resolver'
+} from '@/modules/movie-source/resolver'
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import {
   fetchBlobsForBufferMode,

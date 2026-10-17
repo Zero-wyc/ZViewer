@@ -1,7 +1,7 @@
 import { Input } from '@/components/ui/Input'
 import { Space } from '@/components/ui/Space'
 import type { UnionMount } from '@/modules/mounts'
-import type { FTPParams } from '@/modules/room/watch-together/resolveSource'
+import type { FTPParams } from '@/modules/movie-source/resolveSource'
 import { MountPicker, PathInput, SingleLineInput } from './shared'
 
 interface FtpSourceFormProps {

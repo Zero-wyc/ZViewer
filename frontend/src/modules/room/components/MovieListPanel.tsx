@@ -35,7 +35,7 @@ import { BilibiliParseSettings } from './BilibiliParseSettings'
 import {
   getEffectivePreferMp4,
   getActiveCliProxyUrl,
-} from '@/modules/room/watch-together/movie-source-resolver'
+} from '@/modules/movie-source/resolver'
 import {
   useBilibiliParsePreferences,
   getBilibiliParseOptions,

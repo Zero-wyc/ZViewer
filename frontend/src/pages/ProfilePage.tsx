@@ -36,7 +36,7 @@ import {
   getBilibiliCookie,
   buildBilibiliImageProxyUrl,
   type BilibiliUserInfo,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import { useBilibiliQrLogin } from '@/modules/bilibili/useBilibiliQrLogin'
 import MountManager from '@/modules/mounts/MountManager'
 import ServerFileManager from '@/modules/server-files/ServerFileManager'

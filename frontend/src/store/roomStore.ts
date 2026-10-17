@@ -3,7 +3,7 @@ import { apiFetch, safeJson } from '@/lib/api'
 import type {
   ResolvedSource,
   QualityOption,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import type { BilibiliVideoPage } from '@/modules/bilibili/types'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'

@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 import {
   useMusicSettingsStore,

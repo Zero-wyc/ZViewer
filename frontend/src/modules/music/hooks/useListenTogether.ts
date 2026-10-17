@@ -19,11 +19,11 @@ import { appendAuthToken } from '@/modules/player/services/url-proxy'
 import { buildProxyUrl } from '@/modules/player/services/url-proxy'
 import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
 import { resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
-import { getActiveCliProxyUrl } from '@/modules/room/watch-together/movie-source-resolver'
+import { getActiveCliProxyUrl } from '@/modules/movie-source/resolver'
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import { message } from '@/components/ui/message'
 import { compensatePositionSec } from '../utils/syncMath'
 import { needsMusicAlign } from '../utils/serverSync'

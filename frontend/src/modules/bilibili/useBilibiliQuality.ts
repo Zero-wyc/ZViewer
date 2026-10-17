@@ -16,7 +16,7 @@ import {
 import {
   getActiveCliProxyUrl,
   getEffectivePreferMp4,
-} from '@/modules/room/watch-together/movie-source-resolver'
+} from '@/modules/movie-source/resolver'
 
 function qualitiesEqual(a: QualityOption[], b: QualityOption[]): boolean {
   if (a.length !== b.length) return false

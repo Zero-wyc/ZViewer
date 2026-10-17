@@ -1,5 +1,5 @@
 import { message } from '@/components/ui/message'
-import type { ResolvedSource } from '@/modules/room/watch-together/resolveSource'
+import type { ResolvedSource } from '@/modules/movie-source/resolveSource'
 import { CliConnectionError, CliResolveError } from './cliApi'
 
 export interface BilibiliCliFallbackParams {

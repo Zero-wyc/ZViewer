@@ -42,7 +42,7 @@ import {
   type BilibiliUserInfo,
   type ResolvedSource,
   type FTPParams,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import { useBilibiliQrLogin } from '@/modules/bilibili/useBilibiliQrLogin'
 import {
   resolveBilibiliWithOptions,
@@ -60,7 +60,7 @@ import { resolveBilibiliWithCliFallback } from '@/modules/bilibili/resolveWithCl
 import {
   getActiveCliProxyUrl,
   isBilibiliPgcMovie,
-} from '@/modules/room/watch-together/movie-source-resolver'
+} from '@/modules/movie-source/resolver'
 import {
   resolveOpenList,
   fetchOpenListDirectUrl,

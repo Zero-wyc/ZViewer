@@ -30,7 +30,7 @@ import {
   getActiveCliProxyUrl,
   resolveBilibiliOnline,
   getEffectivePreferMp4,
-} from '@/modules/room/watch-together/movie-source-resolver'
+} from '@/modules/movie-source/resolver'
 import { isCliProxyUrl } from '@/modules/player/services/url-proxy'
 import { getAccessToken, isAccessTokenExpired } from '@/lib/authTransport'
 import { refreshAccessToken } from '@/lib/api'

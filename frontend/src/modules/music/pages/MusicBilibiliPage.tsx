@@ -53,7 +53,7 @@ import { LoadingLine } from '@/components/ui/LoadingLine'
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicStore, musicItemKey } from '../store'

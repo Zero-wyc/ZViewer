@@ -25,7 +25,7 @@ import {
   type BilibiliVideoItem,
   type BilibiliVideoViewInfo,
 } from '@/modules/bilibili/bilibiliApi'
-import { buildBilibiliImageProxyUrl } from '@/modules/room/watch-together/resolveSource'
+import { buildBilibiliImageProxyUrl } from '@/modules/movie-source/resolveSource'
 import { formatDuration } from '@/lib/utils'
 import { formatCountShort } from '@/lib/format'
 

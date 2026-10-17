@@ -31,7 +31,7 @@ import {
 import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
-} from '@/modules/room/watch-together/resolveSource'
+} from '@/modules/movie-source/resolveSource'
 import {
   DANMAKU_SOURCE_OPTIONS,
   type DanmakuSource,
