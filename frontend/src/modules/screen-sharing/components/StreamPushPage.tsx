@@ -77,9 +77,9 @@ export function StreamPushPage({
               {rtmpUrl}
             </Text>
             <CopyButton
-              value={`${rtmpUrl}/${effectiveStreamKey}`}
+              value={rtmpUrl}
               label="复制地址"
-              successMessage="推流地址已复制"
+              successMessage="推流地址已复制（不含流密钥）"
               size="sm"
               variant="ghost"
             />
