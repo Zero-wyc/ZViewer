@@ -31,15 +31,13 @@ import { message } from '@/components/ui/message'
 import { useAuthStore, type User as AuthUser } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import {
-  getBilibiliQrCode,
-  pollBilibiliQrCode,
   getBilibiliUserInfo,
-  logoutBilibili,
   loginBilibiliWithCookie,
   getBilibiliCookie,
   buildBilibiliImageProxyUrl,
   type BilibiliUserInfo,
 } from '@/modules/room/watch-together/resolveSource'
+import { useBilibiliQrLogin } from '@/modules/bilibili/useBilibiliQrLogin'
 import MountManager from '@/modules/mounts/MountManager'
 import ServerFileManager from '@/modules/server-files/ServerFileManager'
 import { BilibiliDownloadModal } from '@/modules/server-files/BilibiliDownloadModal'
@@ -81,13 +79,6 @@ export default function ProfilePage() {
     null
   )
   const [bilibiliLoading, setBilibiliLoading] = useState(true)
-  const [qrModalOpen, setQrModalOpen] = useState(false)
-  const [qrDataUrl, setQrDataUrl] = useState('')
-  const [qrStatus, setQrStatus] = useState(0)
-  const [qrMessage, setQrMessage] = useState('请使用哔哩哔哩 App 扫码登录')
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isPollingRef = useRef(false)
-  const qrRetryCountRef = useRef(0)
 
   // Cookie 登录
   const [cookieModalOpen, setCookieModalOpen] = useState(false)
@@ -250,6 +241,21 @@ export default function ProfilePage() {
     setBilibiliUser(info)
   }, [])
 
+  const {
+    qrModalOpen,
+    qrDataUrl,
+    qrStatus,
+    qrMessage,
+    handleOpenQrModal,
+    handleCloseQrModal,
+    handleLogoutBilibili,
+  } = useBilibiliQrLogin({
+    onLoginSuccess: loadBilibiliUser,
+    onLogoutSuccess: () => setBilibiliUser(null),
+    logoutErrorMessage: '退出 B站 登录失败',
+    logTag: 'ProfilePage',
+  })
+
   useEffect(() => {
     let mounted = true
     const load = async () => {
@@ -261,92 +267,6 @@ export default function ProfilePage() {
     void load()
     return () => {
       mounted = false
-    }
-  }, [])
-
-  const stopQrPolling = useCallback(() => {
-    isPollingRef.current = false
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current)
-      pollTimerRef.current = null
-    }
-  }, [])
-
-  const startQrPolling = useCallback(
-    (key: string) => {
-      if (isPollingRef.current) return
-      isPollingRef.current = true
-      qrRetryCountRef.current = 0
-
-      const poll = async () => {
-        if (!isPollingRef.current) return
-        try {
-          const result = await pollBilibiliQrCode(key)
-          qrRetryCountRef.current = 0
-          setQrStatus(result.status)
-          if (result.status === 0) {
-            setQrMessage('请使用哔哩哔哩 App 扫码登录')
-          } else if (result.status === 1) {
-            setQrMessage('已扫码，请在 App 中确认登录')
-          } else if (result.status === 2) {
-            setQrMessage('登录成功')
-            setQrModalOpen(false)
-            await loadBilibiliUser()
-            message.success('B站 登录成功')
-            stopQrPolling()
-            return
-          } else if (result.status === 3) {
-            setQrMessage('二维码已过期，请重新获取')
-            stopQrPolling()
-            return
-          }
-          pollTimerRef.current = setTimeout(poll, 2000)
-        } catch (err) {
-          console.error('[ProfilePage] QR poll error:', err)
-          qrRetryCountRef.current += 1
-          if (qrRetryCountRef.current <= 2) {
-            setQrMessage('轮询状态失败，正在重试…')
-            pollTimerRef.current = setTimeout(poll, 2000)
-          } else {
-            setQrMessage('轮询状态失败，请重新获取')
-            stopQrPolling()
-          }
-        }
-      }
-
-      void poll()
-    },
-    [loadBilibiliUser, stopQrPolling]
-  )
-
-  const handleOpenQrModal = useCallback(async () => {
-    stopQrPolling()
-    setQrStatus(0)
-    setQrMessage('请使用哔哩哔哩 App 扫码登录')
-    setQrDataUrl('')
-    setQrModalOpen(true)
-    try {
-      const data = await getBilibiliQrCode()
-      setQrDataUrl(data.qrDataUrl)
-      void startQrPolling(data.qrcodeKey)
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取二维码失败')
-      setQrModalOpen(false)
-    }
-  }, [stopQrPolling, startQrPolling])
-
-  const handleCloseQrModal = useCallback(() => {
-    stopQrPolling()
-    setQrModalOpen(false)
-  }, [stopQrPolling])
-
-  const handleLogoutBilibili = useCallback(async () => {
-    try {
-      await logoutBilibili()
-      setBilibiliUser(null)
-      message.success('已退出 B站 登录')
-    } catch {
-      message.error('退出 B站 登录失败')
     }
   }, [])
 
@@ -551,12 +471,6 @@ export default function ProfilePage() {
       setAvatarLoading(false)
     }
   }, [setUser])
-
-  useEffect(() => {
-    return () => {
-      stopQrPolling()
-    }
-  }, [stopQrPolling])
 
   if (!user) {
     return (

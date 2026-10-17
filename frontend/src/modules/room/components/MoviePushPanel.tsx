@@ -43,15 +43,13 @@ import {
   resolveBilibili,
   resolveFTP,
   buildBilibiliImageProxyUrl,
-  getBilibiliQrCode,
-  pollBilibiliQrCode,
   getBilibiliLoginStatus,
   getBilibiliUserInfo,
-  logoutBilibili,
   type BilibiliUserInfo,
   type ResolvedSource,
   type FTPParams,
 } from '@/modules/room/watch-together/resolveSource'
+import { useBilibiliQrLogin } from '@/modules/bilibili/useBilibiliQrLogin'
 import {
   resolveBilibiliWithOptions,
   filterQualitiesByVip,
@@ -249,13 +247,26 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const [cmsOpen, setCmsOpen] = useState(false)
   const [serverFilesBrowserOpen, setServerFilesBrowserOpen] = useState(false)
   const [serverFilePath, setServerFilePath] = useState('')
-  const [qrModalOpen, setQrModalOpen] = useState(false)
-  const [qrDataUrl, setQrDataUrl] = useState('')
-  const [qrStatus, setQrStatus] = useState(0)
-  const [qrMessage, setQrMessage] = useState('请使用哔哩哔哩 App 扫码登录')
-  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const isPollingRef = useRef(false)
-  const qrRetryCountRef = useRef(0)
+  const {
+    qrModalOpen,
+    qrDataUrl,
+    qrStatus,
+    qrMessage,
+    handleOpenQrModal,
+    handleCloseQrModal,
+    handleLogoutBilibili,
+  } = useBilibiliQrLogin({
+    onLoginSuccess: async () => {
+      setBilibiliLoggedIn(true)
+      const info = await getBilibiliUserInfo()
+      if (info) setBilibiliUser(info)
+    },
+    onLogoutSuccess: () => {
+      setBilibiliLoggedIn(false)
+      setBilibiliUser(null)
+    },
+    logTag: 'MoviePushPanel',
+  })
   // 多 P 视频分集选择弹窗
   const [showPageSelector, setShowPageSelector] = useState(false)
   const [pageSelectLoading, setPageSelectLoading] = useState(false)
@@ -301,94 +312,6 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 头像变化时重置错误状态
     setAvatarError(false)
   }, [bilibiliUser?.avatar])
-
-  const stopQrPolling = useCallback(() => {
-    isPollingRef.current = false
-    if (pollTimerRef.current) {
-      clearTimeout(pollTimerRef.current)
-      pollTimerRef.current = null
-    }
-  }, [])
-
-  const startQrPolling = useCallback(
-    (key: string) => {
-      if (isPollingRef.current) return
-      isPollingRef.current = true
-      qrRetryCountRef.current = 0
-
-      const poll = async () => {
-        if (!isPollingRef.current) return
-        try {
-          const result = await pollBilibiliQrCode(key)
-          qrRetryCountRef.current = 0
-          setQrStatus(result.status)
-          if (result.status === 0) {
-            setQrMessage('请使用哔哩哔哩 App 扫码登录')
-          } else if (result.status === 1) {
-            setQrMessage('已扫码，请在 App 中确认登录')
-          } else if (result.status === 2) {
-            setQrMessage('登录成功')
-            setBilibiliLoggedIn(true)
-            const info = await getBilibiliUserInfo()
-            if (info) setBilibiliUser(info)
-            setQrModalOpen(false)
-            message.success('B站 登录成功')
-            stopQrPolling()
-            return
-          } else if (result.status === 3) {
-            setQrMessage('二维码已过期，请重新获取')
-            stopQrPolling()
-            return
-          }
-          pollTimerRef.current = setTimeout(poll, 2000)
-        } catch (err) {
-          console.error('[MoviePushPanel] QR poll error:', err)
-          qrRetryCountRef.current += 1
-          if (qrRetryCountRef.current <= 2) {
-            setQrMessage('轮询状态失败，正在重试…')
-            pollTimerRef.current = setTimeout(poll, 2000)
-          } else {
-            setQrMessage('轮询状态失败，请重新获取')
-            stopQrPolling()
-          }
-        }
-      }
-
-      void poll()
-    },
-    [stopQrPolling]
-  )
-
-  const handleOpenQrModal = useCallback(async () => {
-    stopQrPolling()
-    setQrStatus(0)
-    setQrMessage('请使用哔哩哔哩 App 扫码登录')
-    setQrModalOpen(true)
-    try {
-      const data = await getBilibiliQrCode()
-      setQrDataUrl(data.qrDataUrl)
-      startQrPolling(data.qrcodeKey)
-    } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取二维码失败')
-      setQrModalOpen(false)
-    }
-  }, [stopQrPolling, startQrPolling])
-
-  const handleCloseQrModal = useCallback(() => {
-    stopQrPolling()
-    setQrModalOpen(false)
-  }, [stopQrPolling])
-
-  const handleLogoutBilibili = useCallback(async () => {
-    try {
-      await logoutBilibili()
-      setBilibiliLoggedIn(false)
-      setBilibiliUser(null)
-      message.success('已退出 B站 登录')
-    } catch {
-      message.error('退出登录失败')
-    }
-  }, [])
 
   const handleSelectAnimeEpisodes = useCallback(
     async (
@@ -785,12 +708,6 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         console.error('[MoviePushPanel] fetch mounts error:', err)
       })
   }, [])
-
-  useEffect(() => {
-    return () => {
-      stopQrPolling()
-    }
-  }, [stopQrPolling])
 
   const handleMountSelect = (value: string) => {
     setSelectedMountId(value)
