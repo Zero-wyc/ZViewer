@@ -31,6 +31,7 @@ import {
 } from '@/lib/fullscreen-utils'
 import { WatchTogetherCore } from './WatchTogetherCore'
 import { ViewerCliRequiredOverlay } from './ViewerCliRequiredOverlay'
+import type { ArtSlots } from './types'
 import '@/modules/art-player/art-overrides.css'
 
 interface WatchTogetherPanelProps {
@@ -68,15 +69,8 @@ interface WatchTogetherPanelProps {
   } | null
 }
 
-/** ArtPlayer 插槽集合：Core 通过 createPortal 向其中渲染组件 */
-export interface ArtSlots {
-  /** 弹幕图层根（art layer） */
-  danmakuRoot: HTMLDivElement
-  /** 覆盖层根（加载动画，art layer） */
-  overlayRoot: HTMLDivElement
-  /** 浮动面板根（设置 / 空源占位，append 到 $player） */
-  panelRoot: HTMLDivElement
-}
+/** ArtPlayer 插槽集合：Core 通过 createPortal 向其中渲染组件（定义见 ./types） */
+export type { ArtSlots }
 
 export function WatchTogetherPanel({
   roomId,

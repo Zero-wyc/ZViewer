@@ -2,7 +2,6 @@
  * P2P 直连模块类型定义
  */
 import type { Socket } from 'socket.io-client'
-import type { SignalingClient } from './signaling-client'
 
 /** P2P 隧道状态机 */
 export type P2PStatus = 'idle' | 'connecting' | 'connected' | 'failed'
@@ -38,12 +37,19 @@ export interface SignalingClientConfig {
   onIceCandidate: (from: string, candidate: RTCIceCandidateInit) => void
 }
 
+/** P2P 隧道所需的信令发送能力（SignalingClient 结构化实现，避免与实现类互相引用） */
+export interface P2PSignalingChannel {
+  sendOffer(to: string, sdp: RTCSessionDescriptionInit): void
+  sendAnswer(to: string, sdp: RTCSessionDescriptionInit): void
+  sendIceCandidate(to: string, candidate: RTCIceCandidateInit): void
+}
+
 /** P2P 隧道配置 */
 export interface P2PTunnelConfig {
   role: P2PRole
   localStream?: MediaStream | null
   remotePeerId?: string | null
-  signaling: SignalingClient
+  signaling: P2PSignalingChannel
   onStatusChange?: P2PStatusChangeHandler
 }
 

@@ -14,9 +14,9 @@
  * - 状态变更通过回调通知外部，不直接 setState
  */
 import { ICE_SERVERS, ICE_TIMEOUT_MS } from './constants'
-import { SignalingClient } from './signaling-client'
 import type {
   P2PRole,
+  P2PSignalingChannel,
   P2PStatus,
   P2PStatusChangeHandler,
   P2PTunnelConfig,
@@ -25,7 +25,7 @@ import type {
 
 export class P2PTunnel implements P2PTunnelInstance {
   private readonly role: P2PRole
-  private readonly signaling: SignalingClient
+  private readonly signaling: P2PSignalingChannel
   private readonly onStatusChange?: P2PStatusChangeHandler
 
   private localStream: MediaStream | null

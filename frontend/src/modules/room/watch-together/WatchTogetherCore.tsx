@@ -49,7 +49,7 @@ import { SubtitleOverlay } from '@/components/VideoPlayer/SubtitleOverlay'
 import { isCliProxyUrl } from '@/modules/player/services/url-proxy'
 import { normalizeAudioCodec, needsBrowserTranscode } from '@/lib/audioCodecs'
 import { isPlaysVideoSupported } from '@/modules/player'
-import type { ArtSlots } from './WatchTogetherPanel'
+import type { ArtSlots } from './types'
 import {
   isIOSDevice,
   supportsContainerFullscreen,

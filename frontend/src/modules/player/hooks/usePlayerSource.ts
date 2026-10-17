@@ -28,22 +28,20 @@
  */
 import { useCallback, useEffect, useRef } from 'react'
 import type { RefObject, MutableRefObject } from 'react'
+import { selectEngine, shouldUsePlaysVideo } from '../engine-selector'
+import { resetVideoElement, formatVideoLoadError } from '../utils'
 import {
-  selectEngine,
-  shouldUsePlaysVideo,
-  resetVideoElement,
   resolveProxyUrl,
   isLocalUrl,
   isRelativeUrl,
-} from '@/modules/player'
+} from '../services/url-proxy'
 import type {
   PlayerSource,
   PlayerController,
   EngineAttachResult,
   EngineType,
-} from '@/modules/player'
+} from '../types'
 import { refreshAccessToken } from '@/lib/api'
-import { formatVideoLoadError } from '@/modules/player/utils'
 
 import {
   isBrowserPlayableFormat,
