@@ -21,8 +21,7 @@ import {
   getProvider,
   normalizeEpisode,
 } from '../services/anisubs';
-import { proxyHttpUpstream } from '../services/proxy';
-import { isInternalServerUrl } from '../services/network-utils';
+import { createAntileechProxyHandler } from './antileech-proxy';
 import { ResolveCache, stableStringify } from '../utils/resolve-cache';
 
 const router = Router();
@@ -31,37 +30,7 @@ router.use(authenticateToken);
 
 // --- 媒体代理 ---
 
-router.get('/proxy', async (req: AuthenticatedRequest, res: Response) => {
-  const url = req.query.url;
-  if (typeof url !== 'string' || !url.trim()) {
-    res.status(400).json({ success: false, message: '缺少 url 参数' });
-    return;
-  }
-
-  // SSRF 防护：本代理允许客户端携带任意 Cookie/Referer 头转发，
-  // 不得被用于探测内网服务；数据源均为公网站点，拦截无业务影响。
-  if (isInternalServerUrl(url.trim())) {
-    res.status(403).json({ success: false, message: '不允许代理内网地址' });
-    return;
-  }
-
-  const q = req.query;
-  await proxyHttpUpstream(req, res, {
-    url: url.trim(),
-    headers: {
-      referer: typeof q.referer === 'string' ? q.referer : undefined,
-      origin: typeof q.origin === 'string' ? q.origin : undefined,
-      userAgent: typeof q.userAgent === 'string' ? q.userAgent : undefined,
-      cookie: typeof q.cookie === 'string' ? q.cookie : undefined,
-    },
-    cors: 'wildcard',
-    // 浏览器媒体缓存 6min：慢源分片 seek 回看直接命中本地缓存，
-    // 不再回源重拉（private 仅本机缓存，不带凭证语义可安全缓存）
-    cacheControl: 'private, max-age=360',
-    logTag: 'anisubs',
-    errorMessage: '代理媒体失败',
-  });
-});
+router.get('/proxy', createAntileechProxyHandler('anisubs'));
 
 // --- 列出数据源 ---
 
