@@ -409,6 +409,41 @@ export function authenticateToken(
   }
 }
 
+/**
+ * 可选鉴权中间件：携带有效 token 时注入 req.user；未登录 / token 无效时
+ * 按匿名放行（音乐等对游客开放的只读/降级功能使用）。
+ *
+ * 与 authenticateToken 的区别：无 token / token 失效不返回 401 而是继续处理。
+ * token 失效检查（改密后吊销）逻辑与 authenticateToken 保持一致。
+ */
+export function optionalAuthenticate(
+  req: AuthenticatedRequest,
+  _res: Response,
+  next: NextFunction,
+): void {
+  const token = extractAccessToken(req);
+  if (!token) return next();
+  try {
+    const payload = verifyAccessToken(token);
+    if (payload.userId !== 0) {
+      const invalidBefore = getTokenInvalidBefore(payload.userId);
+      const iat = payload.iat;
+      if (
+        invalidBefore !== null &&
+        typeof iat === 'number' &&
+        iat * 1000 < invalidBefore
+      ) {
+        // 已被吊销的 token 按匿名处理
+        return next();
+      }
+    }
+    req.user = payload;
+  } catch {
+    // token 无效按匿名处理
+  }
+  next();
+}
+
 /** 仅允许 root 超级管理员访问的路由中间件。 */
 export function requireRoot(
   req: AuthenticatedRequest,

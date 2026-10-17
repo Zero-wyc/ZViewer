@@ -17,7 +17,7 @@ import anisubsRoutes from './anisubs';
 import kazumiRoutes from './kazumi';
 import cmsRoutes from './cms';
 import serverFilesRoutes from './serverFiles';
-import musicRoutes from './music';
+import { createMusicRouter } from '../modules/music/music.routes';
 import { createMountRouter } from './webdav';
 import openlistRoutes from './openlist';
 import directResolveRoutes from './direct-resolve';
@@ -58,7 +58,7 @@ export function registerHttpRoutes(app: Express, io: SocketIOServer): void {
   app.use('/api/stream/cms', cmsRoutes);
   app.use('/api/server-files', serverFilesRoutes);
   // 一起听音乐模块：NCM API 通用转发 / 登录态 / 音频流代理（可选鉴权，游客可匿名调用）
-  app.use('/api/music', musicRoutes);
+  app.use('/api/music', createMusicRouter());
   app.use('/api/stream', streamRoutes);
   // CLI 本地代理端点：供 ZViewer CLI 使用，使用用户自己的 Cookie 解析高画质
   app.use('/api/cli', cliRoutes);
