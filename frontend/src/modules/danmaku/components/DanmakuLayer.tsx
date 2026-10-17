@@ -4,7 +4,7 @@ import type { DanmakuItem } from '@/modules/danmaku/types'
 import {
   DanmakuEngineAdapter,
   type SendDanmakuOptions,
-} from '@/modules/room/watch-together/danmakuEngine'
+} from '@/modules/danmaku/engine'
 import type {
   DanmakuAdvancedStyle,
   DanmakuTypeFilters,

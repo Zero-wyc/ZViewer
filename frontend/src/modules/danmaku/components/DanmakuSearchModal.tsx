@@ -28,7 +28,10 @@ import {
   getDanmakuEpisodes,
   fetchDanmaku,
 } from '@/modules/danmaku/api'
-import { buildBilibiliImageProxyUrl, isBilibiliImageUrl } from './resolveSource'
+import {
+  buildBilibiliImageProxyUrl,
+  isBilibiliImageUrl,
+} from '@/modules/room/watch-together/resolveSource'
 import {
   DANMAKU_SOURCE_OPTIONS,
   type DanmakuSource,

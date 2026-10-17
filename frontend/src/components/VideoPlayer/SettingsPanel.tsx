@@ -20,7 +20,7 @@ import type { SubtitleTrack, EmbeddedTrackInfo } from '@/hooks/useSubtitles'
 import {
   DanmakuStylePanel,
   DanmakuAdvancedSettings,
-} from '@/modules/room/watch-together/DanmakuStylePanel'
+} from '@/modules/danmaku/components/DanmakuStylePanel'
 import { AnimatedSidePanel } from './AnimatedSidePanel'
 import { SubtitleBrowser } from './SubtitleBrowser'
 import { DEFAULT_DANMAKU_STYLE } from '@/store/danmakuStore'
@@ -261,7 +261,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   <div className="flex items-center justify-between">
                     <span
                       className="text-[11px] font-medium uppercase tracking-wide"
-                      style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-surface-variant)',
+                      }}
                     >
                       开启全屏时鼠标移动至最右侧显示评论区
                     </span>

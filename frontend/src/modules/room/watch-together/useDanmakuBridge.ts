@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDanmakuStore } from '@/store/danmakuStore'
-import type { DanmakuLayerHandle } from '@/components/DanmakuLayer'
+import type { DanmakuLayerHandle } from '@/modules/danmaku/components/DanmakuLayer'
 import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
 import type { DanmakuItem } from '@/modules/danmaku/types'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'

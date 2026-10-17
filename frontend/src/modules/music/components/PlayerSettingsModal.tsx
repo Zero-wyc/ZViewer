@@ -7,7 +7,7 @@ import { DEFAULT_DANMAKU_STYLE, useDanmakuStore } from '@/store/danmakuStore'
 import {
   DanmakuAdvancedSettings,
   DanmakuStylePanel,
-} from '@/modules/room/watch-together/DanmakuStylePanel'
+} from '@/modules/danmaku/components/DanmakuStylePanel'
 import { FontPickerPanel } from '@/components/ui/FontPicker'
 import { getBilibiliUserInfo } from '@/modules/bilibili/bilibiliApi'
 import {

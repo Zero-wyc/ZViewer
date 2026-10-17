@@ -17,7 +17,7 @@
 import { useEffect, useRef } from 'react'
 import { fetchBilibiliDanmakuByCid } from '@/modules/danmaku/api'
 import type { DanmakuItem } from '@/modules/danmaku/types'
-import type { DanmakuLayerHandle } from '@/components/DanmakuLayer'
+import type { DanmakuLayerHandle } from '@/modules/danmaku/components/DanmakuLayer'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { useMusicSettingsStore } from '../store-settings'
 import { getPositionSec } from './usePlaybackPosition'

@@ -48,7 +48,7 @@ import {
 } from '../store-settings'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
-import { DanmakuLayer } from '@/components/DanmakuLayer'
+import { DanmakuLayer } from '@/modules/danmaku/components/DanmakuLayer'
 import { BiliFavCollectModal } from './BiliFavCollectModal'
 import type { LyricLine } from '../utils/lrc'
 import {

@@ -18,8 +18,8 @@ import { useAuthStore } from '@/store/authStore'
 import { useRoomStore } from '@/store/roomStore'
 import { cn, formatIsoTime } from '@/lib/utils'
 import type { Socket } from 'socket.io-client'
-import { DanmakuTrackCard } from '@/modules/room/watch-together/DanmakuTrackCard'
-import { RealtimeDanmakuCard } from '@/modules/room/watch-together/RealtimeDanmakuCard'
+import { DanmakuTrackCard } from '@/modules/danmaku/components/DanmakuTrackCard'
+import { RealtimeDanmakuCard } from '@/modules/danmaku/components/RealtimeDanmakuCard'
 
 export interface CommentItem {
   id: number
