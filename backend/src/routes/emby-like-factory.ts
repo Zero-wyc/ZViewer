@@ -28,6 +28,7 @@ import {
 } from '../services/proxy';
 import { buildEmbyResolvePayload } from '../services/emby-versions';
 import { normalizeServerUrlWithScheme } from '../services/network-utils';
+import { mapMountErrorCodeToStatus, sendStreamMovieErrorResponse } from '../utils/stream-response';
 
 export interface EmbyLikeRouterOptions {
   /** UserMount.type 挂载类型 */
@@ -185,7 +186,7 @@ export function createEmbyLikeRouter(options: EmbyLikeRouterOptions): Router {
     } catch (err) {
       console.error(`[${logTag}] mount image error:`, err);
       const code = extractErrorCode(err);
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 404;
+      const status = mapMountErrorCodeToStatus(code, 404, { notFound: false, timeout: 504 });
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, '获取海报失败'),
@@ -454,7 +455,7 @@ export function createEmbyLikeRouter(options: EmbyLikeRouterOptions): Router {
     } catch (err) {
       console.error(`[${logTag}] browse mount error:`, err);
       const code = extractErrorCode(err);
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400, { notFound: false, timeout: 504 });
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, `浏览 ${label} 失败`),
@@ -495,7 +496,7 @@ export function createEmbyLikeRouter(options: EmbyLikeRouterOptions): Router {
     } catch (err) {
       console.error(`[${logTag}] search mount error:`, err);
       const code = extractErrorCode(err);
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'TIMEOUT' ? 504 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400, { notFound: false, timeout: 504 });
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, `搜索 ${label} 失败`),
@@ -646,7 +647,7 @@ export function createEmbyLikeRouter(options: EmbyLikeRouterOptions): Router {
       });
     } catch (err) {
       console.error(`[${logTag}] proxy error:`, err);
-      const status = extractErrorCode(err) === 'AUTH_FAILED' ? 401 : 502;
+      const status = mapMountErrorCodeToStatus(extractErrorCode(err), 502, { notFound: false });
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, `代理 ${label} 视频流失败`),
@@ -716,19 +717,12 @@ export function createEmbyLikeRouter(options: EmbyLikeRouterOptions): Router {
       // 业务错误（影片不存在/未挂载）：单行 warn + 精确状态码，避免客户端
       // 重试风暴把完整堆栈刷进日志
       if (err instanceof StreamMovieError) {
-        // 熔断缓存命中（非首次判定）完全静默：客户端重试风暴不应刷日志
-        if (!err.fromCache)
-        console.warn(`[${logTag}] stream ${err.code} ${err.status}: ${err.message}`);
-        if (!res.headersSent) {
-          res.status(err.status).json({ success: false, message: err.message, code: err.code });
-        } else {
-          res.destroy();
-        }
+        sendStreamMovieErrorResponse(res, err, { logTag });
         return;
       }
       console.error(`[${logTag}] stream error:`, err);
       if (!res.headersSent) {
-        const status = extractErrorCode(err) === 'AUTH_FAILED' ? 401 : 502;
+        const status = mapMountErrorCodeToStatus(extractErrorCode(err), 502, { notFound: false });
         res.status(status).json({
           success: false,
           message: extractErrorMessage(err, `${label} 视频流代理失败`),

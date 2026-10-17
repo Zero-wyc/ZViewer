@@ -49,6 +49,7 @@ import { StreamMovieError, resolveMovieStream, invalidateUserMountCache } from '
 import { detectMediaFormat, getContentType } from '../services/mediaFormat';
 import { proxyHttpUpstream } from '../services/proxy/http-proxy';
 import { TtlCache } from '../utils/ttl-cache';
+import { mapMountErrorCodeToStatus, sendStreamMovieErrorResponse } from '../utils/stream-response';
 
 const router = Router();
 const userMountRepository = () => AppDataSource.getRepository(UserMount);
@@ -458,7 +459,7 @@ router.get('/mounts/:id/browse', async (req: AuthenticatedRequest, res: Response
       res.json({ success: true, entries, total: result.total, provider: result.provider });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400);
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, '浏览 OpenList 失败'),
@@ -524,7 +525,7 @@ router.get('/resolve', async (req: AuthenticatedRequest, res: Response): Promise
       });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400);
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, '解析 OpenList 文件失败'),
@@ -597,7 +598,7 @@ router.get('/direct-url', async (req: AuthenticatedRequest, res: Response): Prom
       });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
-      const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400);
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, '获取 OpenList 直链失败'),
@@ -644,7 +645,7 @@ router.get('/me', async (req: AuthenticatedRequest, res: Response): Promise<void
       res.json({ success: true, info: me });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
-      const status = code === 'AUTH_FAILED' ? 401 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400, { notFound: false });
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, '获取 OpenList 账号信息失败'),
@@ -715,7 +716,7 @@ router.get('/proxy', async (req: AuthenticatedRequest, res: Response): Promise<v
         );
       } catch (err2) {
         const code = err2 instanceof OpenListError ? err2.code : 'UNREACHABLE';
-        const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+        const status = mapMountErrorCodeToStatus(code, 400);
         res.status(status).json({
           success: false,
           message: extractErrorMessage(err2, '打开 OpenList 流失败'),
@@ -802,7 +803,7 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
         );
       } catch (err2) {
         const code = err2 instanceof OpenListError ? err2.code : 'UNREACHABLE';
-        const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+        const status = mapMountErrorCodeToStatus(code, 400);
         res.status(status).json({
           success: false,
           message: extractErrorMessage(err2, '打开 OpenList 流失败'),
@@ -827,14 +828,7 @@ router.get('/stream', async (req: AuthenticatedRequest, res: Response): Promise<
     // 业务错误（影片不存在/未挂载）：单行 warn + 精确状态码，避免客户端
     // 重试风暴把完整堆栈刷进日志
     if (err instanceof StreamMovieError) {
-      // 熔断缓存命中（非首次判定）完全静默：客户端重试风暴不应刷日志
-      if (!err.fromCache)
-      console.warn(`[openlist] stream ${err.code} ${err.status}: ${err.message}`);
-      if (!res.headersSent) {
-        res.status(err.status).json({ success: false, message: err.message, code: err.code });
-      } else {
-        res.destroy();
-      }
+      sendStreamMovieErrorResponse(res, err, { logTag: 'openlist' });
       return;
     }
     console.error('[openlist] stream error:', err);
@@ -892,7 +886,7 @@ router.get('/search', async (req: AuthenticatedRequest, res: Response): Promise<
       res.json({ success: true, entries: result.entries, total: result.total });
     } catch (err) {
       const code = err instanceof OpenListError ? err.code : 'UNREACHABLE';
-      const status = code === 'AUTH_FAILED' ? 401 : 400;
+      const status = mapMountErrorCodeToStatus(code, 400, { notFound: false });
       res.status(status).json({
         success: false,
         message: extractErrorMessage(err, '搜索 OpenList 文件失败'),

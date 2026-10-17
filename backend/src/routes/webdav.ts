@@ -39,6 +39,7 @@ import {
   pipeRangeStream,
   StreamMovieError,
 } from '../services/proxy';
+import { mapMountErrorCodeToStatus, sendStreamMovieErrorResponse } from '../utils/stream-response';
 
 export interface MountRouterOptions {
   /** 挂载类型（'webdav' | 'openlist'） */
@@ -485,7 +486,7 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         ranged = result.ranged;
       } catch (err) {
         const code = extractErrorCode(err);
-        const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+        const status = mapMountErrorCodeToStatus(code, 400);
         res.status(status).json({
           success: false,
           message: extractErrorMessage(err, `打开 ${displayName} 流失败`),
@@ -590,7 +591,7 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         // 明确是 AList 服务器但路径/凭证有问题：直接报错，不回退拼接
         if (err instanceof OpenListError) {
           if (err.code === 'NOT_FOUND' || err.code === 'AUTH_FAILED') {
-            const status = err.code === 'AUTH_FAILED' ? 401 : 404;
+            const status = mapMountErrorCodeToStatus(err.code, 404);
             res.status(status).json({
               success: false,
               message: err.message,
@@ -679,7 +680,7 @@ export function createMountRouter(opts: MountRouterOptions): Router {
         ranged = result.ranged;
       } catch (err) {
         const code = extractErrorCode(err);
-        const status = code === 'AUTH_FAILED' ? 401 : code === 'NOT_FOUND' ? 404 : 400;
+        const status = mapMountErrorCodeToStatus(code, 400);
         res.status(status).json({
           success: false,
           message: extractErrorMessage(err, `打开 ${displayName} 流失败`),
@@ -704,27 +705,13 @@ export function createMountRouter(opts: MountRouterOptions): Router {
       // 业务错误（影片不存在/未挂载）单行 warn：这类错误会被客户端重试放大
       // （实测 3 天 3717 次），完整堆栈会把日志撑到数 MB
       if (err instanceof StreamMovieError) {
-        // 熔断缓存命中（非首次判定）完全静默：客户端重试风暴不应刷日志
-        if (!err.fromCache) {
-          console.warn(
-            `[${logTag}] stream ${err.code} ${err.status}: ${err.message} (movieId=${req.query.movieId})`,
-          );
-        }
-      } else {
-        console.error(`[${logTag}] stream error:`, err);
-      }
-      if (err instanceof StreamMovieError) {
-        if (!res.headersSent) {
-          res.status(err.status).json({
-            success: false,
-            message: err.message,
-            code: err.code,
-          });
-        } else {
-          res.destroy();
-        }
+        sendStreamMovieErrorResponse(res, err, {
+          logTag,
+          extraLog: `(movieId=${req.query.movieId})`,
+        });
         return;
       }
+      console.error(`[${logTag}] stream error:`, err);
       if (!res.headersSent) {
         res.status(502).json({ success: false, message: `代理 ${displayName} 影片失败` });
       } else {
