@@ -1,21 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Link2,
   QrCode,
   LogOut,
   FileVideo,
   User,
   Plus,
-  Search,
   Crown,
-  FolderOpen,
-  Clapperboard,
   ListVideo,
 } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
 import { Dropdown } from '@/components/ui/Dropdown'
-import { Space } from '@/components/ui/Space'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Modal } from '@/components/ui/Modal'
 import { Tag } from '@/components/ui/Tag'
@@ -102,19 +96,18 @@ import {
 import { useAuthStore } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { cn } from '@/lib/utils'
-
-type SourceType =
-  | 'bilibili'
-  | 'mp4'
-  | 'webdav'
-  | 'ftp'
-  | 'openlist'
-  | 'emby'
-  | 'jellyfin'
-  | 'anime'
-  | 'kazumi'
-  | 'cms'
-  | 'server-files'
+import {
+  BilibiliSourceForm,
+  FtpSourceForm,
+  MediaServerSourceForm,
+  Mp4SourceForm,
+  PathMountSourceForm,
+  ServerFilesSourceForm,
+  SourceActionButton,
+  SourceHint,
+  normalizeMountPath,
+  type SourceType,
+} from './source-forms'
 
 const ALL_SOURCE_OPTIONS: {
   value: string
@@ -142,11 +135,6 @@ function extractTitleFromUrl(url: string) {
   } catch {
     return url
   }
-}
-
-function normalizeMountPath(path: string): string {
-  if (!path) return path
-  return path.trim().replace(/^\/+/, '/')
 }
 
 interface MoviePushPanelProps {
@@ -1682,574 +1670,146 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   }
 
   // bilibili 需要先解析再选清晰度；anime 有独立搜索弹窗；其他源点击"添加"直接 resolve+add
-  const renderActionButton = () => {
-    if (sourceType === 'anime') {
-      return (
-        <Button
-          variant="primary"
-          size="md"
-          block
-          loading={loading}
-          icon={<Search className="h-4 w-4" />}
-          onClick={() => setAnimeOpen(true)}
-          disabled={!isHost}
-        >
-          搜索番剧
-        </Button>
-      )
-    }
-
-    if (sourceType === 'kazumi') {
-      return (
-        <Button
-          variant="primary"
-          size="md"
-          block
-          loading={loading}
-          icon={<Search className="h-4 w-4" />}
-          onClick={() => setKazumiOpen(true)}
-          disabled={!isHost}
-        >
-          搜索番剧
-        </Button>
-      )
-    }
-
-    if (sourceType === 'cms') {
-      return (
-        <Button
-          variant="primary"
-          size="md"
-          block
-          loading={loading}
-          icon={<Search className="h-4 w-4" />}
-          onClick={() => setCmsOpen(true)}
-          disabled={!isHost}
-        >
-          搜索影片
-        </Button>
-      )
-    }
-
-    if (sourceType === 'bilibili') {
-      if (resolvedMovie) {
-        return (
-          <Button
-            variant="primary"
-            size="md"
-            block
-            loading={loading}
-            icon={<Plus className="h-4 w-4" />}
-            onClick={handleAddMovie}
-            disabled={!isHost}
-          >
-            添加
-          </Button>
-        )
-      }
-      return (
-        <Button
-          variant="primary"
-          size="md"
-          block
-          loading={loading}
-          icon={<Link2 className="h-4 w-4" />}
-          onClick={() => void handleResolve()}
-          disabled={!isHost}
-        >
-          解析
-        </Button>
-      )
-    }
-
-    // mp4 / webdav / ftp / openlist：单步"添加"
-    return (
-      <Button
-        variant="primary"
-        size="md"
-        block
-        loading={loading}
-        icon={<Plus className="h-4 w-4" />}
-        onClick={() => void handleAddMovie()}
-        disabled={!isHost}
-      >
-        添加
-      </Button>
-    )
-  }
+  const renderActionButton = () => (
+    <SourceActionButton
+      sourceType={sourceType}
+      loading={loading}
+      disabled={!isHost}
+      resolved={Boolean(resolvedMovie)}
+      onOpenAnimeSource={() => setAnimeOpen(true)}
+      onOpenKazumiSource={() => setKazumiOpen(true)}
+      onOpenCmsSource={() => setCmsOpen(true)}
+      onAdd={() => void handleAddMovie()}
+      onResolve={() => void handleResolve()}
+    />
+  )
 
   const renderSourceForm = () => {
-    const getMountOptions = (type: MountType) => [
-      { value: '', label: '手动填写' },
-      ...mounts
-        .filter((m) => m.type === type)
-        .map((m) => ({ value: String(m.id), label: m.name })),
-    ]
-
-    if (sourceType === 'bilibili') {
-      return (
-        <div className="flex gap-1.5">
-          <Input
-            size="sm"
-            value={url}
-            onChange={(e) => setUrl(e.target.value)}
-            placeholder="视频 Url 或 bv 号"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void handleResolve()
-              }
-            }}
-          />
-          <Button
-            variant="secondary"
-            size="sm"
-            title="搜索 B站 视频"
+    switch (sourceType) {
+      case 'bilibili':
+        return (
+          <BilibiliSourceForm
+            url={url}
+            onChangeUrl={setUrl}
             disabled={!isHost}
-            onClick={() => setBiliSearchOpen(true)}
-          >
-            <Search className="h-4 w-4" />
-          </Button>
-        </div>
-      )
-    }
-
-    if (sourceType === 'mp4') {
-      return (
-        <Input
-          size="sm"
-          value={url}
-          onChange={(e) => setUrl(e.target.value)}
-          placeholder="MP4/WebM 等视频直链"
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault()
-              void handleAddMovie()
-            }
-          }}
-        />
-      )
-    }
-
-    if (sourceType === 'webdav') {
-      return (
-        <Space direction="vertical" className="w-full" size="sm">
-          <Dropdown
-            label="使用已保存的 WebDAV 挂载"
-            value={selectedMountId}
-            options={getMountOptions('webdav')}
-            onChange={handleMountSelect}
+            onResolve={() => void handleResolve()}
+            onOpenSearch={() => setBiliSearchOpen(true)}
           />
-          {selectedMountId && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const mount = mounts.find(
-                  (m) => m.id === Number(selectedMountId)
-                )
-                if (mount) setBrowsingMount(mount)
-              }}
-            >
-              浏览文件
-            </Button>
-          )}
-          {!selectedMountId && (
-            <Input
-              size="sm"
-              value={webdav.serverUrl}
-              onChange={(e) =>
-                setWebdav((prev) => ({ ...prev, serverUrl: e.target.value }))
-              }
-              placeholder="WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
-            />
-          )}
-          <Input
-            size="sm"
-            value={webdav.path}
-            onChange={(e) =>
-              setWebdav((prev) => ({
-                ...prev,
-                path: normalizeMountPath(e.target.value),
-              }))
-            }
-            placeholder={
-              selectedMountId
-                ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
-                : '文件路径，如 /movies/video.mp4'
-            }
+        )
+      case 'mp4':
+        return (
+          <Mp4SourceForm
+            url={url}
+            onChangeUrl={setUrl}
+            onAdd={() => void handleAddMovie()}
           />
-          <Dropdown
-            label="播放方式"
-            value={
-              isWebdavInternal ? 'proxy' : webdavDirectLink ? 'direct' : 'proxy'
-            }
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              {
-                value: 'direct',
-                label: '直链直连',
-                disabled: isWebdavInternal,
-              },
-            ]}
-            onChange={(value) => setWebdavDirectLink(value === 'direct')}
+        )
+      case 'webdav':
+        return (
+          <PathMountSourceForm
+            key="webdav"
+            mountType="webdav"
+            mountLabel="使用已保存的 WebDAV 挂载"
+            serverPlaceholder="WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
+            mounts={mounts}
+            selectedMountId={selectedMountId}
+            onMountSelect={handleMountSelect}
+            onBrowseMount={setBrowsingMount}
+            value={webdav}
+            onPatch={(patch) => setWebdav((prev) => ({ ...prev, ...patch }))}
+            directLink={webdavDirectLink}
+            onChangeDirectLink={setWebdavDirectLink}
+            directLinkProxy={directLinkProxy}
+            onChangeDirectLinkProxy={setDirectLinkProxy}
+            isInternal={isWebdavInternal}
           />
-          {webdavDirectLink && !isWebdavInternal && (
-            <Dropdown
-              label="直链传输方式"
-              value={directLinkProxy ? 'proxy' : 'direct'}
-              options={[
-                { value: 'direct', label: '强制直链直连（默认）' },
-                { value: 'proxy', label: '服务器中转' },
-              ]}
-              onChange={(value) => setDirectLinkProxy(value === 'proxy')}
-            />
-          )}
-          {isWebdavInternal && (
-            <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
-            </div>
-          )}
-        </Space>
-      )
-    }
-
-    if (sourceType === 'ftp') {
-      return (
-        <Space direction="vertical" className="w-full" size="sm">
-          <Dropdown
-            label="使用已保存的 FTP 挂载"
-            value={selectedMountId}
-            options={getMountOptions('ftp')}
-            onChange={handleMountSelect}
+        )
+      case 'openlist':
+        return (
+          <PathMountSourceForm
+            key="openlist"
+            mountType="openlist"
+            mountLabel="使用已保存的 OpenList 挂载"
+            serverPlaceholder="OpenList 服务器地址（直链模式必填，已选挂载自动填充）"
+            mounts={mounts}
+            selectedMountId={selectedMountId}
+            onMountSelect={handleMountSelect}
+            onBrowseMount={setBrowsingMount}
+            value={openlist}
+            onPatch={(patch) => setOpenlist((prev) => ({ ...prev, ...patch }))}
+            onSubmitPath={() => void handleAddMovie()}
+            directLink={openlistDirectLink}
+            onChangeDirectLink={setOpenlistDirectLink}
+            directLinkProxy={directLinkProxy}
+            onChangeDirectLinkProxy={setDirectLinkProxy}
+            isInternal={isOpenlistInternal}
           />
-          {selectedMountId && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const mount = mounts.find(
-                  (m) => m.id === Number(selectedMountId)
-                )
-                if (mount) setBrowsingMount(mount)
-              }}
-            >
-              浏览文件
-            </Button>
-          )}
-          {!selectedMountId && (
-            <>
-              <Input
-                size="sm"
-                value={ftp.serverUrl}
-                onChange={(e) =>
-                  setFtp((prev) => ({ ...prev, serverUrl: e.target.value }))
-                }
-                placeholder="FTP 服务器地址，如 ftp.example.com"
-              />
-              <Input
-                size="sm"
-                type="number"
-                value={String(ftp.port)}
-                onChange={(e) =>
-                  setFtp((prev) => ({
-                    ...prev,
-                    port: Number(e.target.value) || 21,
-                  }))
-                }
-                placeholder="端口，默认 21"
-              />
-              <Input
-                size="sm"
-                value={ftp.username}
-                onChange={(e) =>
-                  setFtp((prev) => ({ ...prev, username: e.target.value }))
-                }
-                placeholder="用户名（可选）"
-              />
-              <Input
-                size="sm"
-                type="password"
-                value={ftp.password}
-                onChange={(e) =>
-                  setFtp((prev) => ({ ...prev, password: e.target.value }))
-                }
-                placeholder="密码（可选）"
-              />
-            </>
-          )}
-          <Input
-            size="sm"
-            value={ftp.path}
-            onChange={(e) =>
-              setFtp((prev) => ({
-                ...prev,
-                path: normalizeMountPath(e.target.value),
-              }))
-            }
-            placeholder={
-              selectedMountId
-                ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
-                : '文件路径，如 /movies/video.mp4'
-            }
+        )
+      case 'ftp':
+        return (
+          <FtpSourceForm
+            mounts={mounts}
+            selectedMountId={selectedMountId}
+            onMountSelect={handleMountSelect}
+            onBrowseMount={setBrowsingMount}
+            value={ftp}
+            onPatch={(patch) => setFtp((prev) => ({ ...prev, ...patch }))}
           />
-        </Space>
-      )
-    }
-
-    if (sourceType === 'anime') {
-      return (
-        <div className="rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--glass-bg)] p-3">
-          <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            从 ani-subs 订阅源搜索番剧并选择集数播放。
-          </Text>
-        </div>
-      )
-    }
-
-    if (sourceType === 'kazumi') {
-      return (
-        <div className="rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)] bg-[var(--glass-bg)] p-3">
-          <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
+        )
+      case 'emby':
+        return (
+          <MediaServerSourceForm
+            key="emby"
+            name="Emby"
+            mounts={mounts}
+            selectedMountId={selectedMountId}
+            onMountSelect={handleMountSelect}
+            onBrowseMount={setBrowsingMount}
+            url={url}
+            onChangeUrl={setUrl}
+            onAdd={() => void handleAddMovie()}
+            directLink={embyDirectLink}
+            onChangeDirectLink={setEmbyDirectLink}
+          />
+        )
+      case 'jellyfin':
+        return (
+          <MediaServerSourceForm
+            key="jellyfin"
+            name="Jellyfin"
+            mounts={mounts}
+            selectedMountId={selectedMountId}
+            onMountSelect={handleMountSelect}
+            onBrowseMount={setBrowsingMount}
+            url={url}
+            onChangeUrl={setUrl}
+            onAdd={() => void handleAddMovie()}
+            directLink={jellyfinDirectLink}
+            onChangeDirectLink={setJellyfinDirectLink}
+          />
+        )
+      case 'anime':
+        return (
+          <SourceHint>从 ani-subs 订阅源搜索番剧并选择集数播放。</SourceHint>
+        )
+      case 'kazumi':
+        return (
+          <SourceHint>
             从 Kazumi XPath 规则源搜索番剧并选择集数播放。
-          </Text>
-        </div>
-      )
+          </SourceHint>
+        )
+      case 'server-files':
+        return (
+          <ServerFilesSourceForm
+            path={serverFilePath}
+            onChangePath={setServerFilePath}
+            onOpenBrowser={() => setServerFilesBrowserOpen(true)}
+            onAdd={() => void handleAddMovie()}
+          />
+        )
+      default:
+        return null
     }
-
-    if (sourceType === 'openlist') {
-      return (
-        <Space direction="vertical" className="w-full" size="sm">
-          <Dropdown
-            label="使用已保存的 OpenList 挂载"
-            value={selectedMountId}
-            options={getMountOptions('openlist')}
-            onChange={handleMountSelect}
-          />
-          {selectedMountId && (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                const mount = mounts.find(
-                  (m) => m.id === Number(selectedMountId)
-                )
-                if (mount) setBrowsingMount(mount)
-              }}
-            >
-              浏览文件
-            </Button>
-          )}
-          {!selectedMountId && (
-            <Input
-              size="sm"
-              value={openlist.serverUrl}
-              onChange={(e) =>
-                setOpenlist((prev) => ({ ...prev, serverUrl: e.target.value }))
-              }
-              placeholder="OpenList 服务器地址（直链模式必填，已选挂载自动填充）"
-            />
-          )}
-          <Input
-            size="sm"
-            value={openlist.path}
-            onChange={(e) =>
-              setOpenlist((prev) => ({
-                ...prev,
-                path: normalizeMountPath(e.target.value),
-              }))
-            }
-            placeholder={
-              selectedMountId
-                ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
-                : '文件路径，如 /movies/video.mp4'
-            }
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void handleAddMovie()
-              }
-            }}
-          />
-          <Dropdown
-            label="播放方式"
-            value={
-              isOpenlistInternal
-                ? 'proxy'
-                : openlistDirectLink
-                  ? 'direct'
-                  : 'proxy'
-            }
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              {
-                value: 'direct',
-                label: '直链直连',
-                disabled: isOpenlistInternal,
-              },
-            ]}
-            onChange={(value) => setOpenlistDirectLink(value === 'direct')}
-          />
-          {openlistDirectLink && !isOpenlistInternal && (
-            <Dropdown
-              label="直链传输方式"
-              value={directLinkProxy ? 'proxy' : 'direct'}
-              options={[
-                { value: 'direct', label: '强制直链直连（默认）' },
-                { value: 'proxy', label: '服务器中转' },
-              ]}
-              onChange={(value) => setDirectLinkProxy(value === 'proxy')}
-            />
-          )}
-          {isOpenlistInternal && (
-            <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
-            </div>
-          )}
-        </Space>
-      )
-    }
-
-    if (sourceType === 'emby') {
-      return (
-        <Space direction="vertical" className="w-full" size="sm">
-          <Dropdown
-            label="使用已保存的 Emby 挂载"
-            value={selectedMountId}
-            options={getMountOptions('emby')}
-            onChange={handleMountSelect}
-          />
-          {selectedMountId && (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Clapperboard className="h-4 w-4" />}
-              onClick={() => {
-                const mount = mounts.find(
-                  (m) => m.id === Number(selectedMountId)
-                )
-                if (mount) setBrowsingMount(mount)
-              }}
-            >
-              浏览 Emby 媒体库
-            </Button>
-          )}
-          {!selectedMountId && (
-            <Input
-              size="sm"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="粘贴 Emby itemId（可选，一般通过浏览选择）"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void handleAddMovie()
-                }
-              }}
-            />
-          )}
-          <Dropdown
-            label="播放方式"
-            value={embyDirectLink ? 'direct' : 'proxy'}
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连' },
-            ]}
-            onChange={(value) => setEmbyDirectLink(value === 'direct')}
-          />
-          <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            {selectedMountId
-              ? '已选择挂载，点击「浏览 Emby 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。'
-              : '选择挂载后点击「浏览 Emby 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问 Emby 服务器。'}
-          </Text>
-        </Space>
-      )
-    }
-
-    if (sourceType === 'jellyfin') {
-      return (
-        <Space direction="vertical" className="w-full" size="sm">
-          <Dropdown
-            label="使用已保存的 Jellyfin 挂载"
-            value={selectedMountId}
-            options={getMountOptions('jellyfin')}
-            onChange={handleMountSelect}
-          />
-          {selectedMountId && (
-            <Button
-              variant="secondary"
-              size="sm"
-              icon={<Clapperboard className="h-4 w-4" />}
-              onClick={() => {
-                const mount = mounts.find(
-                  (m) => m.id === Number(selectedMountId)
-                )
-                if (mount) setBrowsingMount(mount)
-              }}
-            >
-              浏览 Jellyfin 媒体库
-            </Button>
-          )}
-          {!selectedMountId && (
-            <Input
-              size="sm"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="粘贴 Jellyfin itemId（可选，一般通过浏览选择）"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  void handleAddMovie()
-                }
-              }}
-            />
-          )}
-          <Dropdown
-            label="播放方式"
-            value={jellyfinDirectLink ? 'direct' : 'proxy'}
-            options={[
-              { value: 'proxy', label: '服务器转发' },
-              { value: 'direct', label: '直链直连' },
-            ]}
-            onChange={(value) => setJellyfinDirectLink(value === 'direct')}
-          />
-          <Text className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            {selectedMountId
-              ? '已选择挂载，点击「浏览 Jellyfin 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。'
-              : '选择挂载后点击「浏览 Jellyfin 媒体库」逐级选择电影 / 剧集，多选模式可批量添加。服务器转发由本服务中转（跨域/防盗链友好）；直链直连由浏览器直接访问 Jellyfin 服务器。'}
-          </Text>
-        </Space>
-      )
-    }
-
-    if (sourceType === 'server-files') {
-      return (
-        <Space direction="vertical" className="w-full" size="sm">
-          <Button
-            variant="secondary"
-            size="sm"
-            icon={<FolderOpen className="h-4 w-4" />}
-            onClick={() => setServerFilesBrowserOpen(true)}
-          >
-            浏览服务器文件
-          </Button>
-          <Input
-            size="sm"
-            value={serverFilePath}
-            onChange={(e) => setServerFilePath(e.target.value)}
-            placeholder="手动输入路径，或点击上方按钮浏览选择（支持多选批量添加）"
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault()
-                void handleAddMovie()
-              }
-            }}
-          />
-        </Space>
-      )
-    }
-
-    return null
   }
 
   return (
