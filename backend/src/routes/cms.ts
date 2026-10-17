@@ -190,9 +190,11 @@ router.get('/detail', async (req: AuthenticatedRequest, res: Response) => {
   }
 });
 
-// --- 解析播放地址（60s TTL 缓存 + 单飞去重） ---
+// --- 解析播放地址（6min TTL 缓存 + 单飞去重） ---
+// 采集站解析（详情 API + 播放页抓取）较慢，拉长窗口让多人同集共享一次解析；
+// 采集直链普遍短时效但仍在几分钟以上，6min 窗口内复用一般安全
 
-const RESOLVE_CACHE_TTL_MS = 60 * 1000;
+const RESOLVE_CACHE_TTL_MS = 6 * 60 * 1000;
 
 interface ResolveCacheEntry {
   result: unknown;

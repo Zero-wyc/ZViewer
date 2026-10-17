@@ -145,17 +145,18 @@ router.get('/episodes', async (req: AuthenticatedRequest, res: Response) => {
 // --- 解析播放地址 ---
 
 /**
- * 解析结果缓存（60s TTL + 单飞去重，对齐 /cms/resolve）。
+ * 解析结果缓存（6min TTL + 单飞去重，对齐 /cms/resolve）。
  *
- * ani 源 URL 短时效带签名，60s 窗口内多人/多请求共享一次解析，
- * 避免每次播放（含 seek 后重载）都完整走一遍「抓剧集页 → 递归解析」
- * 的上游请求——源站有速率限制时这是最易被打爆的一环。
+ * ani 源 URL 短时效带签名，但源站页面抓取+解析很慢（TLS 回退更慢），
+ * 拉长到 6min 让窗口内多人/多请求共享一次解析，避免每次播放
+ * （含 seek 后重载）都完整走一遍「抓剧集页 → 递归解析」的上游请求。
  */
+const RESOLVE_CACHE_TTL_MS = 6 * 60 * 1000;
 const resolveCache = new ResolveCache<{
   url: string;
   headers?: Record<string, string>;
   format?: string;
-}>(60 * 1000);
+}>(RESOLVE_CACHE_TTL_MS);
 
 router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
   const source = req.body.source;

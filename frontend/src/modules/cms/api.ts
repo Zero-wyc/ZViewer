@@ -89,7 +89,7 @@ export async function getCmsDetail(
   return data.detail
 }
 
-/** 解析播放直链（实时，60s 服务端缓存） */
+/** 解析播放直链（实时，6min 服务端缓存） */
 export async function resolveCmsEpisode(
   source: string,
   params: CmsPlaybackParams

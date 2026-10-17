@@ -145,16 +145,17 @@ router.get('/episodes', async (req: AuthenticatedRequest, res: Response) => {
 // --- 解析播放地址 ---
 
 /**
- * 解析结果缓存（60s TTL + 单飞去重，对齐 /cms/resolve）。
+ * 解析结果缓存（6min TTL + 单飞去重，对齐 /cms/resolve）。
  *
  * 播放主路径走添加时物化的 movie.url，极少调到这里；但配置页试播、
  * 重推等场景仍会命中，缓存避免同集重复「抓播放页 → 递归解析」。
  */
+const RESOLVE_CACHE_TTL_MS = 6 * 60 * 1000;
 const resolveCache = new ResolveCache<{
   url: string;
   headers?: Record<string, string>;
   format?: string;
-}>(60 * 1000);
+}>(RESOLVE_CACHE_TTL_MS);
 
 router.post('/resolve', async (req: AuthenticatedRequest, res: Response) => {
   const source = req.body.source;

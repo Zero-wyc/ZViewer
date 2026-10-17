@@ -423,7 +423,7 @@ export async function resolveAnimeOnline(
  * 在线解析 CMS 采集源播放地址。
  *
  * 采集站直链普遍短时效且常带 Referer/UA 防盗链，每次播放（含刷新恢复）
- * 都通过 sourceMeta 调用后端 /cms/resolve 实时解析（60s 服务端缓存）。
+ * 都通过 sourceMeta 调用后端 /cms/resolve 实时解析（6min 服务端缓存）。
  * 是否走服务器代理完全由影片级「服务器中转」开关（movie.serverProxy）
  * 决定——开启时统一包装为后端 /cms/proxy 代理 URL，关闭时一律直连
  * （即使源返回防盗链 headers，浏览器无法设置 Referer/UA，不开中转无法播放）。
