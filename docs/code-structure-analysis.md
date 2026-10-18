@@ -201,3 +201,8 @@ P0~P3 完成后复盘的遗留热点：后端仍有"路由内写业务"，前端
 7. kazumi/anisubs 前端 api 近逐行同构（各 ~110 行）、embyApi/jellyfinApi 九函数对：可用工厂合并，但需先确认响应类型差异。
 8. 手测清单（播放核心未被本轮触及，仍需回归）：起播/暂停/seek、预载升格、无缝衔接、三模式切歌、B站懒解析连播、断线 vs 房间关闭。
 
+
+## P5 进行中
+
+- **P5-1 MoviePushPanel 提交器化（已完成，10d80f1+5271597）**：各来源添加流程迁 `components/movie-submit.ts`（SubmitMovieContext 上下文 + 六提交器，与 source-forms/ 对称）；B站解析/切清晰度/切分P 迁 `components/useBilibiliResolve.ts`。2346→1871，纯搬迁零行为变更（行多重集 diff 仅签名行/prettier 换行/hook return）。
+- 经验：hook 返回的 setter 进入面板 effect 后，react-hooks 规则的「首个违规点」会后移——原 disable-next-line 注释会被 eslint --fix 当 unused 指令删除，需把 disable 移到新的首个违规行（本例 setOpenlist）。
