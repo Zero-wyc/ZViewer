@@ -95,17 +95,18 @@ go test ./...
 | 字幕与轨道 | ✅ | `subtitle-update`（整份透传 + 缓存）/ `subtitle-request`（补发，无 ack）/ `track-change`（区分缺失与 null） |
 | 观众申请与回应 | ✅ | `seek-request` / `pause-request` / `play-request` 转给在线房主（附申请者身份），`*-response` 定向回发 |
 | 服务器周期心跳 | ✅ | 每 2s 遍历有播放状态的房间推 `server-heartbeat` + `sync-heartbeat(source:'server')`；房主掉线后观众端靠它继续推进；顺带每 30s 清理陈旧缓存 |
-| 实时事件（业务） | 🚧 | 已接 38 / 68 个上行事件；评论弹幕、一起听、WebRTC 信令、推流待迁移 |
+| 评论 / 弹幕 / 批注 | ✅ | `send-comment` / `comment-history` / `join-room-panel`（独立窗口，无 session）/ `send-danmaku`（落实时日志 + meta 广播）/ `annotation-stroke` / `clear-annotations`（零参事件） |
+| 实时事件（业务） | 🚧 | 已接 44 / 68 个上行事件；一起听、WebRTC 信令、推流待迁移 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层接了 38 个上行事件**（房间 28 步 + 成员 46 步 + 播放 68 步 Node↔Go 对拍零差异），
-下行的服务器周期心跳与陈旧缓存清理也已补齐（房主断线后观众端能继续播，这条链路对拍有断言）。
-还缺的是：
+**实时层接了 44 个上行事件**（房间 28 步 + 成员 46 步 + 播放 68 步 + 评论弹幕 32 步
+Node↔Go 对拍零差异），下行的服务器周期心跳与陈旧缓存清理也已补齐
+（房主断线后观众端能继续播，这条链路对拍有断言）。还缺的是：
 
-- 评论弹幕广播、一起听音乐、WebRTC 信令、推流；
+- 一起听音乐（`~3,170` 行，含独立的心跳/队列/搜索）、WebRTC 信令（`~280` 行，还要接媒体面）、推流；
 - Redis 存储适配器（多实例共享播放状态，单实例部署用不到）。
 
 这些路径上的前端操作会静默无响应（事件没有监听器），不是报错。
@@ -121,7 +122,7 @@ backend-go/
 ├── internal/
 │   ├── config/             环境变量与数据路径
 │   ├── db/                 连接、DSN、schema 守卫
-│   ├── store/              既有 SQLite 表的读写（user / settings / audit / movie / room / mount / 弹幕）
+│   ├── store/              既有 SQLite 表的读写（user / settings / audit / movie / room / mount / 弹幕 / 评论）
 │   ├── auth/               JWT、cookie、鉴权中间件
 │   ├── ratelimit/          进程内固定窗口限流
 │   ├── netutil/            内网判定与 URL 规范化（SSRF 唯一事实源）
@@ -133,7 +134,7 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请（38 事件）
+│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请、评论弹幕批注（44 事件）
 │   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
@@ -169,6 +170,7 @@ backend-go/
     ├── sio-rooms-driver.js     房间/房主/观众对拍驱动器（28 步）
     ├── sio-members-driver.js   房间设置与成员管理对拍驱动器（46 步）
     ├── sio-playback-driver.js  播放控制/影片列表/字幕轨道/跳转申请 + 服务器心跳对拍驱动器（68 步）
+    ├── sio-comments-driver.js  评论/弹幕/批注对拍驱动器（32 步，额外比事件参数个数）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
@@ -225,6 +227,20 @@ Go 侧"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE）
 是脏数据的高发区——后端重启、房主换了设备、socket 重连都会留下失效的旧值。
 按 session 判在场会把这些陈旧缓存一直留着（session 表里房主仍然是 sharer），
 按连接存活判才能清掉。反过来说，**没有连接信息时按在线处理**：宁可留着，不要误删。
+
+**为什么「评论独立窗口」不走完整进房流程**：`join-room-panel` 只往
+`socket.data.panelRoomIds` 写一个标记再 `socket.join`，不建 session、不占人数位、
+不走审批。它要的是「能读这个房间的评论/弹幕」，而不是「进入这个房间」——建 session
+会把房间人数顶满，连带影响别人的准入。代价是「在房判定」必须多一条分支：
+先看 `panelRoomIds`，命中就改判 `canReadRoom`（而不是查 session），再回落正常路径。
+这条分支漏了不会报错，只会让独立窗口「发出去没有任何反应」——所以放在
+`Service.IsInRoom` 里统一处理，而不是在六个 handler 里各写一遍。
+
+**为什么对拍驱动器要记「事件参数个数」**：`clear-annotations` 在 Node 里是
+`io.to(room).emit('clear-annotations')`，零参数。Go 侧如果按常规写
+`EmitRoom(roomID, event, nil)`，线上编码出来是 `["clear-annotations", null]`——
+客户端的 `(...args)` 会拿到长度为 1 的数组，payload 是 `null` 而不是 `undefined`。
+只比 payload 时两边看起来一样（都没内容），必须把 `argc` 一起比才能暴露。
 
 **为什么 OpenList 要做三层缓存**：token（12h）避免每次 /stream 都登录（AList 登录有限流）；
 raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几十个 Range）；

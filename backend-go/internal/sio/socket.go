@@ -73,6 +73,20 @@ func (s *Socket) DeleteData(key string) {
 	delete(s.Data, key)
 }
 
+// SetData 写入连接上的一个 data 键（与 DeleteData 同样的并发理由：
+// 用户名回填缓存可能由别的协程读到，必须走 socket 自己的锁）。
+func (s *Socket) SetData(key string, value any) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Data == nil {
+		s.Data = make(map[string]any)
+	}
+	s.Data[key] = value
+}
+
 // Emit 向该客户端发送事件，对应 `socket.emit(event, ...args)`。
 func (s *Socket) Emit(event string, args ...any) {
 	data, err := encodeEventData(event, args)

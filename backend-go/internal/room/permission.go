@@ -52,7 +52,15 @@ func (s *Service) IsRoomHost(ctx context.Context, socketID, roomID string) (bool
 }
 
 // IsInRoom 判断 socket 是否在该房间内（任意角色，带 5s 缓存）。
+//
+// 有一条例外：`join-room-panel`（评论独立窗口）进来的连接**没有 session**，
+// 只有 socket.data.panelRoomIds 里的标记。这条分支必须查在缓存之前，
+// 且改判 canReadRoom —— Node 的 roomPermissionService.isInRoom 就是先看
+// panelRoomIds 再回落 session，少了它评论独立窗口发不出任何消息。
 func (s *Service) IsInRoom(ctx context.Context, socketID, roomID string) (bool, error) {
+	if data := s.socketData(socketID); panelJoined(data, roomID) {
+		return s.canReadRoom(ctx, roomID, data)
+	}
 	key := permKey(socketID, roomID, "isInRoom")
 	if v, ok := s.perm.get(key); ok {
 		return v, nil
@@ -64,6 +72,91 @@ func (s *Service) IsInRoom(ctx context.Context, socketID, roomID string) (bool, 
 	result := sess != nil
 	s.perm.set(key, result)
 	return result, nil
+}
+
+// socketData 读连接上的身份数据；Hub 未装配或无此连接时返回 nil。
+func (s *Service) socketData(socketID string) map[string]any {
+	if s.Hub == nil || socketID == "" {
+		return nil
+	}
+	return s.Hub.SocketData(socketID)
+}
+
+// panelJoined 判断连接是否通过 join-room-panel 加入了该房间的评论面板。
+func panelJoined(data map[string]any, roomID string) bool {
+	if data == nil || roomID == "" {
+		return false
+	}
+	switch list := data["panelRoomIds"].(type) {
+	case []string:
+		for _, id := range list {
+			if id == roomID {
+				return true
+			}
+		}
+	case []any:
+		for _, item := range list {
+			if id, ok := item.(string); ok && id == roomID {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// canReadRoom 对应 services/room-access.ts#canReadRoom。
+//
+// 与 api 层那份（internal/api/movie.go#canReadRoom）是同一个 TS 函数的两份
+// 实现：房间层不能 import api。改这里的顺序时那边必须同步，否则
+// 「REST 能读、socket 读不了」这类错位极难排查。
+//
+// 顺序有意义：root/owner 先放行（房间关闭也能管），再要求房间 active，
+// 最后才是「有没有未结束的会话」；游客必须按 guestId 匹配。
+func (s *Service) canReadRoom(ctx context.Context, roomID string, data map[string]any) (bool, error) {
+	if data == nil {
+		return false, nil
+	}
+	room, err := s.Rooms.FindByRoomID(ctx, roomID)
+	if err != nil {
+		if errors.Is(err, store.ErrRoomNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	role, _ := data["role"].(string)
+	userID := dataUserID(data)
+	guestID, _ := data["guestId"].(string)
+
+	if role == RoleRoot {
+		return true, nil
+	}
+	if userID > 0 && room.OwnerUserID != nil && *room.OwnerUserID == userID {
+		return true, nil
+	}
+	if room.Status != "active" {
+		return false, nil
+	}
+	if userID == 0 && guestID == "" {
+		return false, nil
+	}
+	return s.Rooms.HasActiveSession(ctx, roomID, userID, guestID)
+}
+
+// dataUserID 从 socket.data 里取 userId（缺失或类型不对时为 0）。
+func dataUserID(data map[string]any) int64 {
+	switch v := data["userId"].(type) {
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	case int:
+		return int64(v)
+	case json.Number:
+		if i, err := v.Int64(); err == nil {
+			return i
+		}
+	}
+	return 0
 }
 
 // IsRoomModerator 判断 socket 是否为该房间房管（带 5s 缓存）。

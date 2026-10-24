@@ -71,10 +71,19 @@ func main() {
 	// 三者是单向依赖（房间层只认接口），所以构造顺序固定，不能调换。
 	socketSrv := sio.NewServer(sio.Options{})
 	hub := realtime.NewSocketHub(socketSrv)
-	roomSvc := room.NewService(
-		conn, rooms, sessions, settings, movies,
-		room.NewPlaybackMemory(conn), hub, log.Default(),
-	)
+	roomSvc := room.NewService(room.Deps{
+		DB:       conn,
+		Rooms:    rooms,
+		Sessions: sessions,
+		Settings: settings,
+		Movies:   movies,
+		Comments: store.NewComments(conn),
+		Metas:    metas,
+		Users:    users,
+		Playback: room.NewPlaybackMemory(conn),
+		Hub:      hub,
+		Logger:   log.Default(),
+	})
 
 	server := api.New(api.Deps{
 		Cfg:      cfg,

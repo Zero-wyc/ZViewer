@@ -168,6 +168,7 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindMovieList(sc)
 	s.bindSubtitleAndTracks(sc)
 	s.bindSeekApproval(sc)
+	s.bindComments(sc)
 }
 
 // ---------- 房间生命周期 ----------

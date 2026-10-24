@@ -7,9 +7,9 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~31,200（含测试 5,860） | 42,653 | 73.1% |
+| 代码行 | ~32,400（含测试 6,270） | 42,653 | 75.9% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
-| 实时事件 | 38 | 68（上行） | 55.9% |
+| 实时事件 | 44 | 68（上行） | 64.7% |
 | 数据库表 | 11（user / movie / room / session / playback_states / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 68.8% |
 
 ## 二、阶段 0：基座（已完成）
@@ -115,7 +115,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 房间设置 / 成员管理（禁言、踢人、转交房主、审批） | ~900 | ✅ 见 3.3（12 个事件 / 46 步对拍） | 语音禁言随 WebRTC 阶段 |
 | 影片列表 / 当前播放（socket 侧） | ~1,100 | ✅ 见 3.4（5 个事件） | |
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
-| 评论 / 弹幕广播 | ~1,200 | ⏳ | |
+| 评论 / 弹幕广播 | ~470（实测） | ✅ 见 3.6（6 个事件 / 32 步对拍） | |
 | 共享播放记忆 | ~1,550 | ✅ 见 3.4 / 3.5：读写、推算、补偿、2s 定时广播、陈旧缓存清理全做 | |
 | WebRTC 信令 | ~280 | ⏳ | |
 | 推流（NMS → mediamtx/lal） | ~580 | ⏳ | 需复刻推流鉴权与 `stream-status` |
@@ -304,8 +304,39 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 集合、`source` 值、`hostOnline` 的类型——去重后比较。键的**存在性**正是要验的语义
 （`server-heartbeat` 有 `roomId`、`sync-heartbeat` 没有），数量与时刻不是。
 
-## 六、阶段 4：挂载源与系统（约 50 人日）
+### 3.6 评论 / 弹幕 / 批注（阶段 12）
 
+`backend/src/modules/comment/`（291 + 60 + 115 = 466 行）的 Go 版：
+`internal/room/comment_handlers.go`（478 行）+ `internal/store/comment.go`（96 行）。
+实时事件 38 → **44 / 68**。
+
+| 事件 | 权限 / 校验 | 广播 |
+|---|---|---|
+| `send-comment` | 在房（含面板标记）→ 内容 trim 非空 → 未被禁言 | `new-comment`（**含发送者**） |
+| `comment-history` | 在房 | ack 返回 `comments[]`（按 createdAt 升序） |
+| `join-room-panel` | 房间存在 → active → `canReadRoom` | 无广播，只写 `panelRoomIds` + `socket.join` |
+| `send-danmaku` | 在房 → 内容非空 → 未被禁言 | `danmaku` + `danmaku-meta-updated` |
+| `annotation-stroke` | 在房 | `annotation-stroke`（附 `senderId`） |
+| `clear-annotations` | 房主 | `clear-annotations`（**零参数**） |
+
+三处容易做错的地方：
+
+- **评论独立窗口没有 session**：`join-room-panel` 只写 `socket.data.panelRoomIds` 并
+  `socket.join`，不建 session、不占人数位、不走审批。因此 `isInRoom` 必须先看
+  `panelRoomIds` 再回落 session，并且这一步要改判 `canReadRoom`（Node 的
+  `roomPermissionService.isInRoom` 就是这么写的）。少了这条分支，独立评论窗口一个
+  字都发不出去，且**没有任何报错**。
+- **`join-room-panel` 之后必须立刻失效权限缓存**：同一个 socket 之前查过一次
+  `isInRoom=false` 会被缓存 5s，不失效则进面板后 5 秒内发评论仍被拒。
+- **实时弹幕的 `time` 键**：`videoTime` 缺失时 Node 的对象里没有 `time`（`undefined`
+  被 `JSON.stringify` 丢弃），写成 `time: 0` 会把弹幕钉在第 0 秒。Go 用
+  `*float64` + `omitempty`，只有真正的有限数才写。
+
+对拍：`DRIVER=sio-comments-driver.js TAG=comments bash scripts/sio-rooms-parity.sh`
+→ **32 个步骤完全一致**。驱动器额外记录**参数个数**（`argc`）：
+`clear-annotations` 是零参数事件，Go 侧若传 `nil` 会变成 `[null]`，只比 payload 看不出差异。
+
+## 六、阶段 4：挂载源与系统（约 50 人日）
 | 单元 | TS 行数（估） | 状态 |
 |---|---:|---|
 | 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
@@ -542,6 +573,17 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | `track-change` 的 `value` 要能区分「缺失」与「显式 null」 | `track-sync.handler.ts` | `null` 是「关闭该轨道」，缺失是「没带这个字段」，前端两处判断不同 |
 | 申请类事件（`seek/pause/play-request`）转发时要**附加 `viewerSocketId` + `viewerUsername`**，房主不在线直接拒 | `seek-approval.handler.ts` | 不附身份房主端弹不出「谁想跳转」；不拒会让前端停在「等待房主确认」 |
 | 回应类事件（`*-response`）只做定向转发，**不改播放状态** | 同上 | 房主端接受时已自行 seek/pause/play 并广播过 control，服务端再改一次会重复推进进度 |
+| 「在房判定」必须先看 `socket.data.panelRoomIds`（评论独立窗口），命中则改判 `canReadRoom`，再回落 session | `room-permission.service.ts#isInRoom` | 独立窗口**没有 session**；少了这条分支评论窗口发不出任何消息，且不报错 |
+| `join-room-panel` 成功后要**立刻失效权限缓存** | `comment.handler.ts` | 同一 socket 之前查过 `isInRoom=false` 会缓存 5s，不失效则进面板后 5 秒内发言全被拒 |
+| `join-room-panel` 不建 session、不占人数位、不走审批 | 同上 | 它只是「读评论」的轻量入口，建 session 会把房间人数顶满并影响准入 |
+| `send-comment` / `send-danmaku` 的 `new-comment` / `danmaku` 用 `io.to(roomId)`（**发送者也收**） | 同上 | 评论要立刻在自己界面上屏，靠回显会有一帧延迟 |
+| 实时弹幕日志的 `time` 键在 `videoTime` 缺失时**必须整个消失**，不能写 0 | `danmaku-meta.service.ts#appendRealtime` | 写 0 会把弹幕钉在第 0 秒；`JSON.stringify(undefined)` 会丢键 |
+| 弹幕辅助数据落库/广播失败**不影响弹幕上屏** | `comment.handler.ts#send-danmaku` | 实时弹幕的价值是「此刻看到」，存储失败只记日志 |
+| 实时弹幕日志上限 **500 条**，超出丢弃最旧的 | `REALTIME_LOG_LIMIT` | 这是「最近弹幕」而非全量存档，不截断会让 meta 行无限膨胀 |
+| `danmaku-meta-updated` 三个字段**恒为数组**（坏数据回落到 `[]`） | `serializeDanmakuMeta` | 前端直接 `.map`，`null` 会抛 TypeError |
+| `clear-annotations` 是**零参数**事件，且只有房主能发 | 同上 | 用 `payload=nil` 会编成 `[null]`，前端 handler 收到 null 而非 undefined |
+| `annotation-stroke` 只转发 `{stroke, senderId}`，`stroke` 缺失时整个键消失 | 同上 | 笔画的内部结构归客户端管，服务端不解析（解析就会限制前端演进） |
+| 评论历史按 `createdAt` **升序**，同毫秒按插入序兜底 | `comment.service.ts#listComments` | 只按 createdAt 排时同毫秒多条顺序不稳定，前端历史列表会跳 |
 
 ## 七之二、刻意与 Node 不同的地方
 

@@ -306,6 +306,67 @@ func (m *Metas) ReplaceBlockAndDeleted(ctx context.Context, roomID, blockKeyword
 	return meta, nil
 }
 
+// RealtimeLogLimit 是实时弹幕记录的条数上限（超出丢弃最旧的），
+// 与 Node 的 danmaku-meta.service.ts#REALTIME_LOG_LIMIT 一致。
+const RealtimeLogLimit = 500
+
+// AppendRealtime 往实时弹幕日志追加一条，超过上限丢弃最旧的。
+//
+// entry 是**已经序列化好的 JSON**：Node 侧 entry 的 time 字段是
+// `undefined` 时整个键不出现（`JSON.stringify` 丢 undefined），
+// 用结构体接再序列化会补出 `"time":0`，前端会把弹幕钉在第 0 秒。
+// 因此调用方负责决定字段的有无，这里只做数组拼接。
+func (m *Metas) AppendRealtime(ctx context.Context, roomID string, entry json.RawMessage) (*DanmakuMeta, error) {
+	meta, err := m.GetOrCreate(ctx, roomID)
+	if err != nil {
+		return nil, err
+	}
+
+	list := make([]json.RawMessage, 0, 8)
+	if trimmed := strings.TrimSpace(meta.RealtimeLog); trimmed != "" && trimmed != "null" {
+		if err := json.Unmarshal([]byte(trimmed), &list); err != nil {
+			// 列里是坏 JSON：按空列表处理，不因为一条脏数据把发弹幕整条链路打断。
+			list = list[:0]
+		}
+	}
+	list = append(list, entry)
+	if len(list) > RealtimeLogLimit {
+		list = list[len(list)-RealtimeLogLimit:]
+	}
+
+	encoded, err := marshalCompactArray(list)
+	if err != nil {
+		return nil, fmt.Errorf("序列化实时弹幕失败: %w", err)
+	}
+	if _, err := m.conn.ExecContext(ctx, `
+		UPDATE "room_danmaku_meta"
+		SET "realtimeLog" = ?, "updatedAt" = datetime('now')
+		WHERE "id" = ?
+	`, encoded, meta.ID); err != nil {
+		return nil, fmt.Errorf("更新实时弹幕失败: %w", err)
+	}
+	meta.RealtimeLog = encoded
+	return meta, nil
+}
+
+// marshalCompactArray 输出与 `JSON.stringify(array)` 同形的紧凑 JSON。
+func marshalCompactArray(list []json.RawMessage) (string, error) {
+	var buf bytes.Buffer
+	buf.WriteByte('[')
+	for i, item := range list {
+		if i > 0 {
+			buf.WriteByte(',')
+		}
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, item); err != nil {
+			return "", err
+		}
+		buf.Write(compact.Bytes())
+	}
+	buf.WriteByte(']')
+	return buf.String(), nil
+}
+
 // JSONArrayText 复刻 `JSON.stringify(arr)` 的最小形态。
 //
 // 只为写库时保持与 Node 一致的文本（紧凑、无空格）。传入内容必须已经是

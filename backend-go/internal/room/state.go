@@ -35,6 +35,12 @@ type Hub interface {
 	// 零个参数；用 payload=nil 走 EmitRoomExcept 会变成 `[null]`，
 	// 客户端 handler 拿到的第一个参数是 null 而不是 undefined。
 	EmitRoomExceptNoArgs(roomID, exceptSocketID, event string)
+	// EmitRoomNoArgs 是 EmitRoom 的「不带参数」版本。
+	//
+	// `io.to(roomId).emit('clear-annotations')` 发的是零个参数；用 payload=nil
+	// 会变成 `[null]`，前端 `socket.on('clear-annotations', () => ...)` 虽然
+	// 还能跑，但带参数的 handler 会收到 null 而不是 undefined。
+	EmitRoomNoArgs(roomID, event string)
 	// EmitTo 只推给指定连接（对应 `io.to(socket.id).emit()`）。
 	EmitTo(socketID, event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
@@ -58,6 +64,11 @@ type Hub interface {
 	SocketData(socketID string) map[string]any
 	// DeleteSocketData 清除连接上的某个 data 键（拒绝审批时清 pendingRoomId）。
 	DeleteSocketData(socketID, key string)
+	// SetSocketData 写入连接上的某个 data 键。
+	//
+	// 目前只有「用户名回填缓存」用：Node 的 getUsername 查库后会写回
+	// socket.data.username，同一个 socket 后续发言不再查库。
+	SetSocketData(socketID, key string, value any)
 }
 
 // RuntimeState 是房间的运行时状态（重启即丢失，DB 才是事实源）。
@@ -89,6 +100,9 @@ type Service struct {
 	Sessions  *store.Sessions
 	Settings  *store.Settings
 	MovieRepo *store.Movies
+	Comments  *store.Comments
+	Metas     *store.Metas
+	Users     *store.Users
 	Playback  *PlaybackMemory
 	Hub       Hub
 	Logger    *log.Logger
@@ -105,19 +119,41 @@ type Service struct {
 	perm    *permCache
 }
 
+// Deps 是房间服务的依赖集合。
+//
+// 参数从 8 个涨到 11 个之后用结构体：新增仓库只改一处，
+// 也不会再出现「位置传错、编译还过」的同类错误。
+type Deps struct {
+	DB       *sql.DB
+	Rooms    *store.Rooms
+	Sessions *store.Sessions
+	Settings *store.Settings
+	Movies   *store.Movies
+	Comments *store.Comments
+	Metas    *store.Metas
+	Users    *store.Users
+	Playback *PlaybackMemory
+	Hub      Hub
+	Logger   *log.Logger
+}
+
 // NewService 构造房间服务。
-func NewService(db *sql.DB, rooms *store.Rooms, sessions *store.Sessions, settings *store.Settings, movies *store.Movies, playback *PlaybackMemory, hub Hub, logger *log.Logger) *Service {
+func NewService(deps Deps) *Service {
+	logger := deps.Logger
 	if logger == nil {
 		logger = log.Default()
 	}
 	return &Service{
-		DB:        db,
-		Rooms:     rooms,
-		Sessions:  sessions,
-		Settings:  settings,
-		MovieRepo: movies,
-		Playback:  playback,
-		Hub:       hub,
+		DB:        deps.DB,
+		Rooms:     deps.Rooms,
+		Sessions:  deps.Sessions,
+		Settings:  deps.Settings,
+		MovieRepo: deps.Movies,
+		Comments:  deps.Comments,
+		Metas:     deps.Metas,
+		Users:     deps.Users,
+		Playback:  deps.Playback,
+		Hub:       deps.Hub,
 		Logger:    logger,
 		states:    make(map[string]*RuntimeState),
 		timers:    make(map[string]*time.Timer),

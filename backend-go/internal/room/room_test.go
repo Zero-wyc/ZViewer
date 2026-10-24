@@ -20,12 +20,15 @@ CREATE TABLE "room" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" v
 CREATE TABLE "session" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "socketId" varchar NOT NULL, "role" varchar CHECK( "role" IN ('sharer','viewer') ) NOT NULL, "userId" integer, "startedAt" datetime NOT NULL DEFAULT (datetime('now')), "endedAt" datetime, "guestId" varchar, CONSTRAINT "FK_6bfcd8b79900d13de31fc4098f2" FOREIGN KEY ("roomId") REFERENCES "room" ("roomId") ON DELETE CASCADE ON UPDATE NO ACTION);
 CREATE TABLE "playback_states" ("roomId" varchar(50) PRIMARY KEY NOT NULL, "sourceUrl" text NOT NULL, "sourceType" varchar(50) NOT NULL, "audioUrl" text, "format" varchar(20), "videoCodec" varchar(50), "audioCodec" varchar(50), "cid" bigint, "isPlaying" boolean NOT NULL DEFAULT (0), "currentTime" double NOT NULL, "playbackRate" double NOT NULL DEFAULT (1), "duration" double NOT NULL DEFAULT (0), "currentQn" integer, "acceptQuality" text, "headers" text, "isPreview" boolean NOT NULL DEFAULT (0), "previewTitle" varchar(200), "bufferMode" boolean NOT NULL DEFAULT (0), "currentMovieId" integer, "lastUpdatedAt" bigint NOT NULL, "hostSocketId" varchar(50), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "noProxyFallback" boolean, CONSTRAINT "FK_0b6bb13f02277263045c6aa108e" FOREIGN KEY ("roomId") REFERENCES "room" ("roomId") ON DELETE CASCADE ON UPDATE NO ACTION);
 CREATE TABLE "music_playback_states" ("roomId" varchar(50) PRIMARY KEY NOT NULL, "trackSongId" integer, "trackKey" text, "isPlaying" boolean NOT NULL DEFAULT (0), "positionSec" double NOT NULL DEFAULT (0), "playMode" varchar(20) NOT NULL DEFAULT ('sequence'), "lastUpdatedAt" bigint NOT NULL, "hostSocketId" varchar(50), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), CONSTRAINT "FK_2e193fbae181ec89918248d21de" FOREIGN KEY ("roomId") REFERENCES "room" ("roomId") ON DELETE CASCADE ON UPDATE NO ACTION);
+CREATE TABLE "comment" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "username" varchar NOT NULL, "content" varchar NOT NULL, "isDanmaku" boolean NOT NULL DEFAULT (0), "createdAt" datetime NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE "room_danmaku_meta" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "blockKeywords" text NOT NULL DEFAULT ('[]'), "deletedLog" text NOT NULL DEFAULT ('[]'), "realtimeLog" text NOT NULL DEFAULT ('[]'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')));
 `
 
 // fakeHub 记录所有广播，用于断言「发没发、发给谁」。
 type fakeHub struct {
 	rooms       []string
 	roomsExcept []string
+	roomsNoArgs []string
 	direct      []string
 	left        []string
 	joined      []string
@@ -49,6 +52,15 @@ func (h *fakeHub) EmitRoomExcept(roomID, exceptSocketID, event string, _ any) {
 }
 func (h *fakeHub) EmitRoomExceptNoArgs(roomID, exceptSocketID, event string) {
 	h.roomsExcept = append(h.roomsExcept, roomID+"|"+exceptSocketID+"|"+event)
+}
+func (h *fakeHub) EmitRoomNoArgs(roomID, event string) {
+	h.roomsNoArgs = append(h.roomsNoArgs, roomID+"|"+event)
+}
+func (h *fakeHub) SetSocketData(id, key string, value any) {
+	if _, ok := h.socketData[id]; !ok {
+		h.socketData[id] = make(map[string]any)
+	}
+	h.socketData[id][key] = value
 }
 func (h *fakeHub) EmitTo(socketID, event string, _ any) {
 	h.direct = append(h.direct, socketID+"|"+event)
@@ -113,7 +125,16 @@ func newTestEnv(t *testing.T) *testEnv {
 	hub := newFakeHub()
 	rooms := store.NewRooms(conn)
 	sessions := store.NewSessions(conn)
-	svc := NewService(conn, rooms, sessions, nil, nil, NewPlaybackMemory(conn), hub, nil)
+	svc := NewService(Deps{
+		DB:       conn,
+		Rooms:    rooms,
+		Sessions: sessions,
+		Comments: store.NewComments(conn),
+		Metas:    store.NewMetas(conn),
+		Users:    store.NewUsers(conn),
+		Playback: NewPlaybackMemory(conn),
+		Hub:      hub,
+	})
 	return &testEnv{svc: svc, db: conn, hub: hub}
 }
 

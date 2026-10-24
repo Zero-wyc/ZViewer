@@ -64,6 +64,15 @@ func (h *SocketHub) EmitRoomExceptNoArgs(roomID, exceptSocketID, event string) {
 	b.Emit(event)
 }
 
+// EmitRoomNoArgs 向房间内所有连接发送一个**无参数**事件
+// （对应 `io.to(roomId).emit('event')`）。
+func (h *SocketHub) EmitRoomNoArgs(roomID, event string) {
+	if h == nil || h.srv == nil || roomID == "" {
+		return
+	}
+	h.srv.To(roomID).Emit(event)
+}
+
 // EmitTo 只推给指定连接（对应 `io.to(socketId).emit()`）。
 func (h *SocketHub) EmitTo(socketID, event string, payload any) {
 	if h == nil || h.srv == nil || socketID == "" {
@@ -131,6 +140,16 @@ func (h *SocketHub) DeleteSocketData(socketID, key string) {
 	}
 	if sc := h.srv.SocketByID(socketID); sc != nil {
 		sc.DeleteData(key)
+	}
+}
+
+// SetSocketData 写入连接上的 data 键（用户名回填缓存用）。
+func (h *SocketHub) SetSocketData(socketID, key string, value any) {
+	if h == nil || h.srv == nil || socketID == "" {
+		return
+	}
+	if sc := h.srv.SocketByID(socketID); sc != nil {
+		sc.SetData(key, value)
 	}
 }
 
