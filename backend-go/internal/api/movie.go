@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -365,6 +366,7 @@ func (s *Server) handleCreateMovie(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, "POST /movies", err)
 		return
 	}
+	s.broadcastMovieList(r.Context(), roomID)
 	httpx.JSON(w, http.StatusCreated, map[string]any{"success": true, "movie": toMovieDTO(created)})
 }
 
@@ -455,6 +457,7 @@ func (s *Server) handleUpdateMovie(w http.ResponseWriter, r *http.Request) {
 	// 切源/改路径/改凭证后立即失效流解析缓存：否则 30s 内 /stream 仍在用
 	// 旧凭证打旧地址，用户会以为「改了没生效」。
 	s.Stream.Invalidate(movieID)
+	s.broadcastMovieList(r.Context(), roomID)
 	httpx.OK(w, map[string]any{"success": true, "movie": toMovieDTO(updated)})
 }
 
@@ -477,6 +480,7 @@ func (s *Server) handleDeleteMovie(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Stream.Invalidate(movieID)
+	s.broadcastMovieList(r.Context(), roomID)
 	httpx.OK(w, map[string]any{"success": true})
 }
 
@@ -491,6 +495,7 @@ func (s *Server) handleClearMovies(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.Stream.Clear()
+	s.broadcastMovieList(r.Context(), roomID)
 	httpx.OK(w, map[string]any{"success": true, "removed": removed})
 }
 
@@ -525,7 +530,21 @@ func (s *Server) handleReorderMovies(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, "POST /movies/reorder", err)
 		return
 	}
+	s.broadcastMovieList(r.Context(), roomID)
 	httpx.OK(w, map[string]any{"success": true})
+}
+
+// broadcastMovieList 在影片写操作后把最新列表推给房间。
+//
+// 少了这一步的表现很隐蔽：REST 返回 200、库里也改了，但观众端列表不动，
+// 要刷新页面才看得到——因为前端只监听 movie-list 事件。
+func (s *Server) broadcastMovieList(ctx context.Context, roomID string) {
+	if s.RoomSvc == nil {
+		return
+	}
+	if err := s.RoomSvc.BroadcastMovieList(ctx, roomID); err != nil {
+		log.Printf("[movies] 广播影片列表失败 %s: %v", roomID, err)
+	}
 }
 
 // isMountSourceType 与 store 里的判定保持一致（api 层只需要判断

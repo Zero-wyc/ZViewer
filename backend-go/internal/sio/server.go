@@ -73,8 +73,9 @@ type Server struct {
 	rooms   map[string]map[*Socket]struct{}
 	sockets map[*Socket]struct{}
 
-	authFn  func(*Handshake) error
-	connect func(*Socket)
+	authFn     func(*Handshake) error
+	packetAuth func(*Socket) error
+	connect    func(*Socket)
 }
 
 // NewServer 构造服务端，参数为零值时套用 Node 侧默认值。
@@ -90,6 +91,12 @@ func NewServer(opts Options) *Server {
 // UseAuth 注册鉴权钩子，对应 Node 的 `io.use(socketAuthMiddleware)`。
 // 返回错误则给客户端发 connect_error，连接建立不起来。
 func (s *Server) UseAuth(fn func(*Handshake) error) { s.authFn = fn }
+
+// UsePacketAuth 注册逐包鉴权钩子，对应 Node 的 `socket.use(...)`。
+//
+// 返回错误时会先断开连接再丢弃该包。存在的理由很具体：令牌可能在建连之后
+// 被撤销（改密码、管理员封禁），只在握手时校验等于「已登录的旧连接永久有效」。
+func (s *Server) UsePacketAuth(fn func(*Socket) error) { s.packetAuth = fn }
 
 // OnConnect 注册连接建立后的回调，对应 Node 的 `io.on('connection')`。
 func (s *Server) OnConnect(fn func(*Socket)) { s.connect = fn }
@@ -522,6 +529,13 @@ func (s *Server) dispatchEvent(sess *session, p sioPacket) {
 		// 还没发 CONNECT 就发事件，按协议属于非法序列，丢弃
 		return
 	}
+	if s.packetAuth != nil {
+		// 与 Node 一致：鉴权失败直接断开，不执行处理器（也不回 ack）。
+		if err := s.packetAuth(sc); err != nil {
+			sc.Disconnect("io server disconnect")
+			return
+		}
+	}
 	ackID := int64(-1)
 	if p.HasID {
 		ackID = p.ID
@@ -577,6 +591,12 @@ func (s *Server) attachSocket(sess *session, authData string) {
 	s.roomsMu.Lock()
 	s.sockets[sc] = struct{}{}
 	s.roomsMu.Unlock()
+
+	// 每个 socket 自动加入以自身 ID 命名的房间——socket.io 的 Socket 构造函数
+	// 就是这么做的，`io.to(socket.id).emit(...)` 因此能定向到单个连接。
+	// 少了这一步，所有「只推给某一个人」的事件（join-approved / viewer-kicked
+	// / moderators-changed）都会静默发不出去，且不报错。
+	s.joinRoom(sc, sc.ID)
 
 	if s.connect != nil {
 		s.connect(sc)
@@ -701,6 +721,40 @@ func (s *Server) allSockets() []*Socket {
 func (s *Server) To(rooms ...string) *Broadcast {
 	return &Broadcast{srv: s, rooms: rooms}
 }
+
+// SocketByID 返回指定 ID 的连接，不存在或已断开时返回 nil。
+//
+// 对应 Node 的 `io.sockets.sockets.get(id)`。socket ID 就是会话 ID，
+// 直接查会话表即可，不必遍历全部连接（房间广播与踢人都是高频路径）。
+func (s *Server) SocketByID(id string) *Socket {
+	if id == "" {
+		return nil
+	}
+	sess := s.session(id)
+	if sess == nil {
+		return nil
+	}
+	sess.mu.Lock()
+	sc := sess.socket
+	closed := sess.closed
+	sess.mu.Unlock()
+	if sc == nil || closed {
+		return nil
+	}
+	sc.mu.Lock()
+	gone := sc.closed
+	sc.mu.Unlock()
+	if gone {
+		return nil
+	}
+	return sc
+}
+
+// Connected 判断指定 ID 的连接是否仍在线。
+func (s *Server) Connected(id string) bool { return s.SocketByID(id) != nil }
+
+// RoomSockets 返回房间内所有在线连接（拷贝，便于在遍历中踢人）。
+func (s *Server) RoomSockets(room string) []*Socket { return s.roomSockets(room) }
 
 // Emit 向所有已连接 socket 广播（io.emit）。
 func (s *Server) Emit(event string, args ...any) {

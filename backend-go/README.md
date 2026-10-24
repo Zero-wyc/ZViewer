@@ -81,16 +81,21 @@ go test ./...
 | Emby / Jellyfin 海报 | ✅ | `/mounts/{id}/image` 免认证，复刻 Express 弱 ETag + 304（瀑布流不重复拉图） |
 | Emby 登录缓存 | ✅ | `sha256(服务器+账号+密码)` 键、24h TTL、500 上限、并发单飞；401 时先丢陈旧缓存再重登 |
 | Socket.IO 协议层 | ✅ | Engine.IO v4（polling + WebSocket，自动升级）+ Socket.IO v5（事件/双向 ack/房间）；手写 RFC 6455 |
-| 实时事件（业务） | ⏳ | 68 个上行事件与 19 个处理器待迁移；协议层已验收，见 MIGRATION.md 3.1 |
+| 实时层接入 | ✅ | `/socket.io/` 挂在与 REST 同一中间件链上；握手鉴权（cookie → auth.token → query.token）+ 逐包重校验 + 到期断开 |
+| 房间生命周期 | ✅ | `create-room` / `host-leave` / `close-room` / `admin-close-room`，含 8 位房间号、bcrypt 密码、旧房间收尾 |
+| 房主与观众会话 | ✅ | `register-host`（重连复用会话）/ `request-join`（免审批、白名单、审批三条路径）/ `disconnect`；人数上限串行准入 |
+| 房间运行时状态 | ✅ | 影片列表 / 当前影片 / 播放状态 / 字幕缓存 + 房主重连宽限定时器（10 分钟） |
+| 播放记忆 | ✅ | 按 `lastUpdatedAt + isPlaying × playbackRate` 推算进度、超时长钉住；关闭房间时清理 |
+| 实时事件（业务） | 🚧 | 已接 7 / 68 个上行事件（房间生命周期 + 房主/观众会话）；播放控制、成员管理、评论弹幕、一起听、WebRTC 信令待迁移 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层（Socket.IO）业务事件尚未接**：协议层（Engine.IO v4 + Socket.IO v5 + RFC 6455，
-自研）已完成并用真实 `socket.io-client@4.8.3` 验证通过，但 68 个上行事件一个都还没注册。
-房间的创建/进房/准入审批/成员管理/播放同步仍在那层，所以现在只有「房间列表 + 弹幕数据」能跑；
-`/api/*` 里凡是 REST 未覆盖的路径仍会落到 SPA 回退，`/socket.io/` 也还没挂到主服务上。
+**实时层只接了 7 个事件**：建房、房主注册/重连、房主离开、关房、管理员关房、观众进房、
+断线收尾已经可用（28 步 Node↔Go 对拍零差异），但房间设置、成员管理（禁言/踢人/转交房主/审批）、
+播放控制（`play-movie` / `watch-together-*` / 心跳）、评论弹幕、一起听、WebRTC 信令都还没注册——
+这些路径上的前端操作会静默无响应（事件没有监听器），不是报错。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
 迁移期这是刻意的：宁可明确失败，也不要返回半个可用但语义错误的响应。
@@ -115,7 +120,7 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── realtime/           房间事件广播契约（socket.io 未迁移前为 Noop）
+│   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
 └── scripts/
@@ -146,6 +151,8 @@ backend-go/
     ├── parity-node-emby.js     Node 侧最小应用（只挂 emby / jellyfin 两个 Router）
     ├── parity-emby-run.js      Emby 对拍驱动器
     ├── mock-emby.js            最小 Emby 模拟服务器（登录/回退/多版本/DTS/HLS）
+    ├── sio-rooms-parity.sh     房间实时层与 Node 双向对拍（起真实 Node 后端，28 步事件流比较）
+    ├── sio-rooms-driver.js     实时对拍驱动器（真 socket.io-client，规范化 socketId/roomId/时间列）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
@@ -205,6 +212,18 @@ raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几
 时必须主动给挂起的轮询补一个 `noop`，否则升级要等满 25 秒。这些都在
 `internal/sio/*_test.go` 里逐条锁死了，验证则直接用仓库里那份 `socket.io-client@4.8.3`
 （`scripts/spike-sio.sh`，17 项）——自己写客户端去测自己实现，等于用同一份错误理解对两遍。
+
+**为什么 WS 升级不能用 `w.(http.Hijacker)`**：主服务为了访问日志把 `ResponseWriter`
+包成了 `statusRecorder`（记录状态码与字节数）。那层包装不实现 `Hijacker`，直接断言必然失败，
+而失败只体现在 socket.io-client 的 `websocket error` 里——REST 接口一切正常，
+很容易误判成协议层有问题。改成 `http.NewResponseController(w).Hijack()` 后会顺着
+`Unwrap()` 找到真正的写入器。这个坑是双向对拍第一次跑就撞出来的：Go 侧四个客户端全部连不上，
+Node 侧 28 步全过。
+
+**为什么每个 socket 要自动加入以自身 ID 命名的房间**：socket.io 的 `Socket` 构造函数
+就是这么做的，`io.to(socket.id).emit(...)` 全靠它。少了这一步，所有「只推给某一个人」的事件
+（`join-approved` / `viewer-kicked` / `moderators-changed`）都会静默发不出去，
+既不报错也没有日志——排查时会先怀疑业务条件没命中。
 
 **为什么弹幕接口要自己解 deflate**：B 站 `x/v1/dm/list.so` **无条件**返回
 `Content-Encoding: deflate`（即便请求写 `Accept-Encoding: identity`），且是**裸 deflate**

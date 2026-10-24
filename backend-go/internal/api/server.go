@@ -22,6 +22,8 @@ import (
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/ratelimit"
 	"zviewer/backend/internal/realtime"
+	"zviewer/backend/internal/room"
+	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/webdav"
 )
@@ -49,6 +51,10 @@ type Deps struct {
 	Auth     *auth.Authenticator
 	// Bilibili 是 B站 解析服务（迁移期由 Go 侧独立持有，不通过 Node 转手）。
 	Bilibili *bilibili.Service
+	// RoomSvc 是房间实时业务（生命周期 / 会话 / 运行时状态）。
+	RoomSvc *room.Service
+	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
+	Socket *sio.Server
 }
 
 // Server 持有路由所需的全部依赖。
@@ -76,7 +82,7 @@ func New(deps Deps) *Server {
 		// 没有实时层时退化为丢弃事件，不能让 handler 撞上 nil 接口。
 		deps.Bus = realtime.Noop{}
 	}
-	return &Server{
+	s := &Server{
 		Deps: deps,
 		// 与 middleware/rate-limit.ts#passwordLimiter 参数一致
 		passwordLimiter: ratelimit.New(3, time.Minute),
@@ -86,6 +92,11 @@ func New(deps Deps) *Server {
 		ftpDirs:         ftp.NewDirCache(),
 		ftpTickets:      newFTPTickets(),
 	}
+	// 房间层需要「按房间读影片 DTO」，DTO 定义在 api 包里，只能反向注入。
+	if deps.RoomSvc != nil {
+		deps.RoomSvc.SetMovieLister(s.movieList)
+	}
+	return s
 }
 
 // Handler 返回完整可用的 http.Handler。
@@ -103,6 +114,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
+	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// 头像静态资源无需鉴权（通过 URL 公开访问）

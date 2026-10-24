@@ -74,6 +74,14 @@ func (a *Authenticator) RequireRoot(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
+// AssertActive 是 assertActive 的对外入口，供实时层逐包校验复用。
+//
+// HTTP 中间件与 socket 逐包鉴权必须用同一套判定，否则会出现
+// 「HTTP 已 401 但 socket 还能发包」这种半失效状态。
+func (a *Authenticator) AssertActive(ctx context.Context, claims *Claims) error {
+	return a.assertActive(ctx, claims)
+}
+
 // assertActive 复刻 assertTokenActive：
 // 游客只校验 guestId 存在；正式用户还要核对状态、角色与吊销时间戳。
 func (a *Authenticator) assertActive(ctx context.Context, claims *Claims) error {

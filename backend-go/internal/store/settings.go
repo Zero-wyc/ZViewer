@@ -13,13 +13,16 @@ import (
 // 该表由 TypeORM 以 synchronize 方式生成，Go 版只读取自己认识的列，
 // 新增列由 Node 版继续维护，两边互不覆盖。
 type SystemSettings struct {
-	ID                        int64
-	AutoDeleteInactiveRooms   bool
-	AutoDeleteAfterHours      int
-	RoomDefaultMusicVolume    int
-	RegistrationMode          string
-	RoomCreationMode          string
-	RoomPermissionMatrix      json.RawMessage
+	ID                      int64
+	AutoDeleteInactiveRooms bool
+	AutoDeleteAfterHours    int
+	RoomDefaultMusicVolume  int
+	RegistrationMode        string
+	RoomCreationMode        string
+	RoomPermissionMatrix    json.RawMessage
+	// RoomMultiInstanceLogin 为 true 时允许同一账号多端同时进入同一房间
+	// （仅供测试）。默认 false：重复进入会被 ALREADY_IN_ROOM 挡下。
+	RoomMultiInstanceLogin    bool
 	BetaFeaturesEnabled       bool
 	DashDisabled              bool
 	BilibiliDefaultParseMode  string
@@ -47,14 +50,15 @@ func (s *Settings) Get(ctx context.Context) (*SystemSettings, error) {
 	)
 	err := s.conn.QueryRowContext(ctx, `
 		SELECT "id", "autoDeleteInactiveRooms", "autoDeleteAfterHours", "roomDefaultMusicVolume",
-		       "registrationMode", "roomCreationMode", "roomPermissionMatrix", "betaFeaturesEnabled",
+		       "registrationMode", "roomCreationMode", "roomPermissionMatrix",
+		       "roomMultiInstanceLogin", "betaFeaturesEnabled",
 		       "dashDisabled", "bilibiliDefaultParseMode", "bilibiliPgcDefaultMode",
 		       "playsvideoEnabled", "announceAutoPopupOnUpdate"
 		FROM "system_settings" ORDER BY "id" ASC LIMIT 1
 	`).Scan(
 		&settings.ID, &settings.AutoDeleteInactiveRooms, &settings.AutoDeleteAfterHours,
 		&settings.RoomDefaultMusicVolume, &settings.RegistrationMode, &settings.RoomCreationMode,
-		&matrix, &settings.BetaFeaturesEnabled, &settings.DashDisabled,
+		&matrix, &settings.RoomMultiInstanceLogin, &settings.BetaFeaturesEnabled, &settings.DashDisabled,
 		&settings.BilibiliDefaultParseMode, &settings.BilibiliPgcDefaultMode,
 		&settings.PlaysvideoEnabled, &settings.AnnounceAutoPopupOnUpdate,
 	)

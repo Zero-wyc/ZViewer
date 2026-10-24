@@ -7,9 +7,10 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~24,000（含测试 4,645） | 42,653 | 56.3% |
+| 代码行 | ~26,900（含测试 5,110） | 42,653 | 63.1% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
-| 数据库表 | 10（user / movie / room / session / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 62.5% |
+| 实时事件 | 7 | 68（上行） | 10.3% |
+| 数据库表 | 11（user / movie / room / session / playback_states / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 68.8% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -108,13 +109,14 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 
 | 单元 | TS 行数（估） | 状态 | 卡点 |
 |---|---:|---|---|
-| Socket.IO 兼容层 | ~500（自研协议层） | ✅ 见 3.1（协议层完成，业务事件未接） | |
-| 房间 REST（列表/改名/弹幕轨道/弹幕辅助数据） | ~450 | ✅ 见 4.3（实时部分仍 ⏳） |
-| 房间 / 权限 / 成员（socket.io 部分） | ~2,300 | ⏳ | |
-| 影片列表 / 当前播放 | ~1,100 | ⏳ | |
+| Socket.IO 兼容层 | ~500（自研协议层） | ✅ 见 3.1 | |
+| 实时层接入 + 房间生命周期 + 房主/观众会话 | ~1,400 | ✅ 见 3.2（7 个事件 / 28 步对拍） | |
+| 房间 REST（列表/改名/弹幕轨道/弹幕辅助数据） | ~450 | ✅ 见 4.3（实时部分见 3.2） | |
+| 房间设置 / 成员管理（禁言、踢人、转交房主、审批） | ~900 | ⏳ | 依赖 `roomPermissionMatrix` 与 `voiceMuted` |
+| 影片列表 / 当前播放（socket 侧） | ~1,100 | 🚧 `movie-list` / `current-movie` 广播已接，`play-movie` 等控制事件未做 | |
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
 | 评论 / 弹幕广播 | ~1,200 | ⏳ | |
-| 共享播放记忆 | ~1,550 | ⏳ | |
+| 共享播放记忆 | ~1,550 | 🚧 读取/推算/清理已做，写入与定时广播未做 | |
 | WebRTC 信令 | ~280 | ⏳ | |
 | 推流（NMS → mediamtx/lal） | ~580 | ⏳ | 需复刻推流鉴权与 `stream-status` |
 
@@ -158,12 +160,49 @@ mux.Handle("/socket.io/", srv)
 
 尚未覆盖（都不影响协议层，属于业务面）：
 
-- CORS 与凭据头：现在依赖同源访问，`/socket.io/` 还没接上 REST 那套 CORS 中间件；
-  开发态前端跑 Vite 5173 直连 3333 时会需要它。
 - 二进制载荷（`BINARY_EVENT` 的分包重组）：本项目全部走 JSON，注释里留了位置。
 - 多命名空间：只实现 `/`；收到其他 nsp 会按协议回 `connect_error` 而不是静默丢弃。
-- `io.use` 的逐包鉴权（Node 侧 `socket.use` 会在每个包上重校验令牌是否被撤销）：
-  需要在 `dispatchSio` 前加钩子，等接通真实鉴权时一并做。
+
+CORS 与逐包鉴权已在 3.2 接上（挂在同一中间件链 + `UsePacketAuth`）。
+
+### 3.2 实时层接入与房间生命周期（阶段 8）
+
+`/socket.io/` 挂在**与 REST 同一个 mux 与中间件链**上（Node 也是挂在同一个
+express 实例），鉴权分两层：
+
+- 握手层 `UseAuth`（≈ `io.use(socketAuthMiddleware)`）：cookie `access_token`
+  → `handshake.auth.token` → `query.token`，三者顺序必须一致；缺令牌回
+  `connect_error: 未提供认证令牌`。
+- 逐包层 `UsePacketAuth`（≈ `socket.use`）：每个上行事件前重校验令牌与账号状态，
+  失败直接断开。少了这层，改密码后旧连接仍然能发包——这是「已登录永久有效」的漏洞。
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/api/sio.go` | ~165 | 挂载 `/socket.io/`、两层鉴权、令牌到期断开、影片 DTO 注入 |
+| `internal/room/handlers.go` | ~880 | 7 个事件：`create-room` / `host-leave` / `close-room` / `admin-close-room` / `register-host` / `request-join` / `disconnect` |
+| `internal/room/session.go` | ~245 | 房主注册（复用会话）、观众准入（串行化）、会话结束、最近房主宽限 |
+| `internal/room/state.go` | ~410 | 运行时状态（影片/当前影片/播放/字幕）、重连定时器、关闭房间、5s 权限缓存 |
+| `internal/room/playback.go` | ~275 | 播放记忆读取与时间推算、hostSocketId、关闭时清理 |
+| `internal/room/permission.go` | ~80 | `canCreateRoom`、`isRoomHost` / `isInRoom`（带缓存） |
+| `internal/room/broadcast.go` | ~95 | `movie-list` / `current-movie` 广播与「正在播的影片被删」清理 |
+| `internal/realtime/siohub.go` | ~100 | `*sio.Server` → `realtime.Bus` + `room.Hub` 适配器 |
+| `internal/store/session.go` | ~260 | session 表读写（在场判定的唯一事实源） |
+
+对拍脚本 `scripts/sio-rooms-parity.sh`：起**真实的 Node 后端**（ts-node 跑
+`src/index.ts`，独立 `CONFIG_DIR` + 独立 DB 副本）与 Go 后端，用同一份驱动器
+`sio-rooms-driver.js`（真实 `socket.io-client@4.8.3`）跑 28 个步骤，比较
+**ack 应答 + 该步收到的事件集合**。规范化只做三件事：socketId → 角色别名、
+roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
+
+覆盖：游客建房被拒、参数校验（人数/模式）、建房、重复 register-host、
+非房主 register-host、观众进房/重复进房、房间满员、REST 增删改影片触发的
+`movie-list` 广播、非房主 close-room / admin-close-room / host-leave 被拒、
+观众断线、房主 host-leave 与重连恢复、close-room（含踢人）、关闭后再进房、
+密码房（错密码/对密码）、管理员强制关闭（房主不被踢）。
+
+**尚未覆盖**：房间设置、成员管理（禁言/踢人/转交房主/审批）、
+`play-movie` 等播放控制、聊天/评论/弹幕广播、一起听、WebRTC 信令、推流。
+`cmd/sio-spike` 仍保留，等这些接完再删。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
@@ -337,8 +376,30 @@ mux.Handle("/socket.io/", srv)
 | 版本标签体积用 JS `toFixed(1)`，不是 Go 的 `%.1f` | `services/emby-versions.ts` | 恰好半分时 JS 进位、Go 取偶：1.25GiB 是 `1.3GB` 而非 `1.2GB`（1.25×2^30 是精确可表示值，真会碰上） |
 | 房间/会话/挂载的时间列同样按 **UTC** 解释 | 实测（`rooms-parity.sh`） | 与 `movie` 表同一路径（sql.js 驱动水合时补 `Z`），不要套用 `tokenInvalidBefore` 的本地时区逻辑 |
 | REST 写出房间事件时必须走 `realtime.Bus`，事件名集中定义 | `realtime/bus.go` | 现在 `Noop` 丢弃事件，但调用点与载荷形状要一次写对，socket.io 落地后只换实现 |
-| Socket.IO **业务事件**未接通前，房间的**创建/进房/准入审批/在线成员/播放同步**一律不可用 | `modules/room` 等 | 协议层（3.1）已可用，但 68 个上行事件都还没注册；把「协议层通过」当成「房间可用」会导致误判进度 |
+| Socket.IO 业务事件只接了 7 个，剩余 61 个上行事件仍不可用 | `modules/room` 等 | 房间能创建/进人/关闭，但播放控制、成员管理、评论弹幕、一起听、WebRTC 信令都还没注册；别把「能建房」当成「房间可用」 |
 | 字幕接口失败也是 `200 + success:true + lines:[] + message` | `routes/stream/bilibili-videos.routes.ts` | 改成 4xx/5xx 会让前端当成请求失败去重试，只会继续掷骰子 |
+| 每个 socket 必须自动加入**以自身 ID 命名的房间** | socket.io `Socket` 构造函数 | `io.to(socket.id).emit(...)` 全靠它；少了这步，所有「只推给某一个人」的事件（`join-approved` / `viewer-kicked` / `moderators-changed`）都会静默发不出去且不报错 |
+| WS 升级必须走 `http.NewResponseController(w).Hijack()`，不能直接 `w.(http.Hijacker)` | 主服务的 `statusRecorder` 包装 | 包装层不实现 `Hijacker`，直接断言会失败；表现是「REST 全部正常，WebSocket 永远连不上，客户端只报 websocket error」 |
+| 握手取令牌顺序：cookie `access_token` → `handshake.auth.token` → `query.token` | `middleware/socket-auth.ts` | 只认 `auth.token` 会让同源带 cookie 的常规浏览器场景全部 `connect_error`，表现为「刷新后一直显示未连接」 |
+| 令牌必须在**每个上行包**上重校验，并在 `exp` 到期时主动断开 | `socket.use` + `setTimeout(revoke, exp)` | 只在握手校验等于给旧连接发永久通行证：改密码 / 封禁后旧连接仍能继续控制房间 |
+| 房主注册（`register-host`）成功后要先 `join(roomId)` 再广播 `movie-list` | `roomSessionService.registerHost` | 顺序反了房主自己收不到列表；后端重启后内存影片为空，`play-movie` 会一直报「影片不存在」 |
+| 房主重连必须**复用**同一个 sharer 会话（改 socketId），不新建行 | `roomSessionService.registerHost` | 新建会让一个房间攒下多条 sharer 记录，`getRecentSharer` 的「最近一条」判定随之漂移 |
+| `movies` 字段在没有影片时是 `[]`，**不是 `null`** | `roomStateService` 初始化 | 前端按数组使用（`.map` / `.length`），`null` 直接白屏；Go 侧 `Movies()` 因此永不为 nil |
+| `host-disconnected` / `room-closed` 的广播必须**先于**踢人 | `roomStateService.closeRoomAndNotify` | 反过来的话被踢的客户端收不到通知，前端会停在播放页而不是跳回房间列表 |
+| `close-room` 时**不断开**房主连接（`sharerSocketId` 排除），其余人先 `leave` 再 `disconnect` | 同上 | 房主关房后还要继续用这条连接创建下一个房间 |
+| 房主宽限期 = 重连 10 分钟 / 观众可加入 5 分钟，两套时长不能混用 | `room-state.service.ts` / `viewer-join.handler.ts` | 统一成一个值会让「房主掉线 6 分钟后观众进不来」或「房间空转 10 分钟还能进人」 |
+| 重连超时后是否关房取决于 `autoDeleteInactiveRooms`；**读设置失败时按关闭处理** | `roomStateService.closeRoomAfterHostGrace` | 异常态下让房间泄漏比误关更难收拾 |
+| 人数上限判定用 `>=`：`maxViewers=1` 时第二个人必须被挡 | `roomSessionService.admitViewer` | 写成 `>` 会让房间永远多出一个人 |
+| 观众准入（校验人数 + 插入会话）必须**串行** | `admitViewer` 的 `admissions` 链 | 并发进房时两个请求都读到 n-1 然后双双通过，房间直接超员 |
+| 游客准入按 `guestId` 绑定，登录用户不写 `guestId` | `Session.guestId` | 所有游客共享 `userId=0`，只看 userId 会让游客互相冒用准入 |
+| 权限缓存（`isRoomHost`/`isInRoom`）TTL 5s，但 session 变更时必须**立刻失效** | `roomPermissionService.invalidatePermissionCache` | 只靠 TTL 会让被踢/被转交的人在 5 秒内继续有权限，表现为「踢了没反应，几秒后才掉」 |
+| 建房前先退出旧房间并结束旧 sharer 会话 | `room-lifecycle.handler.ts#create-room` | 否则同一个 socket 同时在新旧两个房间，新房间会显示旧房间的影片列表 |
+| `create-room` 的 `mode` / `maxViewers` 只在**显式传入**时校验，缺省不校验 | 同上 | 把 `undefined` 当非法值会让「只传 name」的调用全部失败 |
+| 房间密码用 bcrypt（cost 10）存 `room.password`，`root` 进房跳过校验 | `room-lifecycle` / `viewer-join` | cost 与 Node `bcrypt.hash(pw, 10)` 一致才能互验；root 跳过是为了管理员救场 |
+| REST 的影片写操作（增删改/清空/重排）完成后**必须广播 `movie-list`** | `movie.routes.ts` | 少了这一步：接口 200、库里也改了，但观众端列表不动，要刷新页面才看得到 |
+| 当前播放的影片被删时要广播 `current-movie: {movieId: null}` | `movie-broadcaster.service.ts` | 观众端靠这条事件停止播放；只发 `movie-list` 会出现「列表里没这片，播放器还在放」 |
+| `viewer-left` 统一用 `viewerSocketId` 字段 | `viewer-list.service.ts` | 历史上前端两种字段名都读过，混用会让在线人数偶发不减少 |
+| 房管/房主身份的 `role` 与账号 `role` 是两套值，补发在线观众时要用 **账号 role**（`user`/`admin`），新观众自己的 `viewer-joined` 才写死 `viewer` | `viewer.service.ts#getOnlineViewers` | 混用会让前端把普通观众显示成「观众」、把账号角色判错 |
 
 ## 七之二、刻意与 Node 不同的地方
 

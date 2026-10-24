@@ -78,13 +78,14 @@ func upgradeWebSocket(w http.ResponseWriter, r *http.Request, maxPayload int64) 
 	if v := strings.TrimSpace(r.Header.Get("Sec-WebSocket-Version")); v != "13" {
 		return nil, fmt.Errorf("websocket: 不支持的版本 %q", v)
 	}
-	hj, ok := w.(http.Hijacker)
-	if !ok {
-		return nil, errors.New("websocket: 响应写入器不支持 Hijack")
-	}
-	conn, brw, err := hj.Hijack()
+	// 用 ResponseController 而不是直接 `w.(http.Hijacker)`：主服务会把
+	// ResponseWriter 包成 statusRecorder（记录状态码与字节数），那层包装
+	// 不实现 Hijacker，直接断言必然失败——表现是「HTTP 接口一切正常，
+	// 但 WebSocket 永远连不上，只报 websocket error」。ResponseController
+	// 会顺着 Unwrap 找到真正的写入器。
+	conn, brw, err := http.NewResponseController(w).Hijack()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("websocket: Hijack 失败: %w", err)
 	}
 	sum := sha1.Sum([]byte(key + wsAcceptGUID))
 	accept := base64.StdEncoding.EncodeToString(sum[:])

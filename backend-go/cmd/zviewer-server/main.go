@@ -23,6 +23,9 @@ import (
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
+	"zviewer/backend/internal/realtime"
+	"zviewer/backend/internal/room"
+	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 )
 
@@ -62,6 +65,16 @@ func main() {
 	mounts := store.NewMounts(conn)
 	tracks := store.NewTracks(conn)
 	metas := store.NewMetas(conn)
+	sessions := store.NewSessions(conn)
+
+	// 实时层：socket 服务端 → 广播适配器 → 房间业务。
+	// 三者是单向依赖（房间层只认接口），所以构造顺序固定，不能调换。
+	socketSrv := sio.NewServer(sio.Options{})
+	hub := realtime.NewSocketHub(socketSrv)
+	roomSvc := room.NewService(
+		conn, rooms, sessions, settings,
+		room.NewPlaybackMemory(conn), hub, log.Default(),
+	)
 
 	server := api.New(api.Deps{
 		Cfg:      cfg,
@@ -79,6 +92,9 @@ func main() {
 		Tokens:   tokens,
 		Auth:     auth.NewAuthenticator(tokens, users),
 		Bilibili: bilibili.NewService(conn),
+		Bus:      hub,
+		RoomSvc:  roomSvc,
+		Socket:   socketSrv,
 	})
 
 	httpServer := &http.Server{

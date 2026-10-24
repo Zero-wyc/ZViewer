@@ -26,11 +26,20 @@ type Room struct {
 	RequireApproval bool
 	// HasPassword 对应 Node 的 `hasPassword: !!room.password`：
 	// 空串也算没有密码（`!!''` 为 false）。
-	HasPassword    bool
-	OwnerUserID    *int64
-	LastAccessedAt time.Time
-	CreatedAt      time.Time
-	UpdatedAt      time.Time
+	HasPassword bool
+	// Password 是 bcrypt 密文，只在服务端内部使用（房间密码校验）。
+	// 对外一律通过 HasPassword 表达，禁止下发。
+	Password        *string
+	ShareMethod     string
+	StreamKey       *string
+	MutedViewers    string
+	ApprovedViewers string
+	Moderators      string
+	VoiceMuted      string
+	OwnerUserID     *int64
+	LastAccessedAt  time.Time
+	CreatedAt       time.Time
+	UpdatedAt       time.Time
 }
 
 // Rooms 提供房间表读写。
@@ -42,8 +51,9 @@ type Rooms struct {
 func NewRooms(conn *sql.DB) *Rooms { return &Rooms{conn: conn} }
 
 const roomColumns = `"id", "roomId", "name", "status", "mode", "maxViewers",
-	"requireApproval", "password", "ownerUserId",
-	"lastAccessedAt", "createdAt", "updatedAt"`
+	"requireApproval", "password", "shareMethod", "streamKey",
+	"mutedViewers", "approvedViewers", "moderators", "voiceMuted",
+	"ownerUserId", "lastAccessedAt", "createdAt", "updatedAt"`
 
 // FindByRoomID 读取房间。
 func (r *Rooms) FindByRoomID(ctx context.Context, roomID string) (*Room, error) {
@@ -162,6 +172,81 @@ func (r *Rooms) Rename(ctx context.Context, roomID, name string) error {
 	return nil
 }
 
+// Create 插入房间并回填 ID。调用方负责生成唯一 roomId。
+//
+// 只显式写 Node 侧 `roomRepo.create({...})` 给出的那些列，其余交给表默认值：
+// 多写一列就多一处与 TypeORM 的潜在分叉（默认值、空串 vs NULL）。
+func (r *Rooms) Create(ctx context.Context, room *Room) error {
+	now := time.Now()
+	res, err := r.conn.ExecContext(ctx, `
+		INSERT INTO "room" ("roomId", "name", "password", "maxViewers", "status",
+			"mode", "requireApproval", "ownerUserId", "lastAccessedAt")
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, room.RoomID, nullableStringPtr(room.Name), nullableStringPtr(room.Password),
+		room.MaxViewers, room.Status, room.Mode, room.RequireApproval,
+		nullableInt64(room.OwnerUserID), FormatSQLiteTime(now))
+	if err != nil {
+		return fmt.Errorf("创建房间失败: %w", err)
+	}
+	if id, err := res.LastInsertId(); err == nil {
+		room.ID = id
+	}
+	room.LastAccessedAt = now
+	return nil
+}
+
+// SetStatus 修改房间状态（active / closed）。
+func (r *Rooms) SetStatus(ctx context.Context, roomID, status string) error {
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "status" = ?, "updatedAt" = ? WHERE "roomId" = ?
+	`, status, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改房间状态失败: %w", err)
+	}
+	return nil
+}
+
+// SetOwner 设置房间归属用户（无主房间被接管时用）。
+//
+// 允许传 nil：关闭房间/转移所有权时要把 ownerUserId 置空。
+func (r *Rooms) SetOwner(ctx context.Context, roomID string, userID *int64) error {
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "ownerUserId" = ?, "updatedAt" = ? WHERE "roomId" = ?
+	`, nullableInt64(userID), FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改房间归属失败: %w", err)
+	}
+	return nil
+}
+
+// TouchLastAccess 刷新最后访问时间。
+func (r *Rooms) TouchLastAccess(ctx context.Context, roomID string) error {
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "lastAccessedAt" = ? WHERE "roomId" = ?
+	`, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("刷新房间访问时间失败: %w", err)
+	}
+	return nil
+}
+
+// SetListColumns 覆盖三个 JSON 数组列（mutedViewers / approvedViewers / moderators）。
+//
+// 三列常常要一起改（例如转交房主时同时动 owner 与 moderators），
+// 但**不要**因此把 ownerUserId 也塞进来：职责分开后，调用点更不容易
+// 忘带某一列的现值（这是 MountPatch 那类「按列整行覆盖」的老坑）。
+func (r *Rooms) SetListColumns(ctx context.Context, roomID string, muted, approved, moderators string) error {
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "mutedViewers" = ?, "approvedViewers" = ?, "moderators" = ?,
+			"updatedAt" = ?
+		WHERE "roomId" = ?
+	`, muted, approved, moderators, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改房间成员列失败: %w", err)
+	}
+	return nil
+}
+
 func scanRoom(row rowScanner) (*Room, error) {
 	var (
 		room       Room
@@ -171,6 +256,12 @@ func scanRoom(row rowScanner) (*Room, error) {
 		maxViewers sql.NullInt64
 		approval   sql.NullInt64
 		password   sql.NullString
+		shareMeth  sql.NullString
+		streamKey  sql.NullString
+		muted      sql.NullString
+		approved   sql.NullString
+		moderators sql.NullString
+		voiceMuted sql.NullString
 		owner      sql.NullInt64
 		lastAccess sql.NullString
 		createdAt  sql.NullString
@@ -178,8 +269,9 @@ func scanRoom(row rowScanner) (*Room, error) {
 	)
 	err := row.Scan(
 		&room.ID, &room.RoomID, &name, &status, &mode, &maxViewers,
-		&approval, &password, &owner,
-		&lastAccess, &createdAt, &updatedAt,
+		&approval, &password, &shareMeth, &streamKey,
+		&muted, &approved, &moderators, &voiceMuted,
+		&owner, &lastAccess, &createdAt, &updatedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -190,6 +282,13 @@ func scanRoom(row rowScanner) (*Room, error) {
 	room.MaxViewers = maxViewers.Int64
 	room.RequireApproval = approval.Int64 != 0
 	room.HasPassword = password.Valid && password.String != ""
+	room.Password = nullString(password)
+	room.ShareMethod = shareMeth.String
+	room.StreamKey = nullString(streamKey)
+	room.MutedViewers = muted.String
+	room.ApprovedViewers = approved.String
+	room.Moderators = moderators.String
+	room.VoiceMuted = voiceMuted.String
 	if owner.Valid {
 		v := owner.Int64
 		room.OwnerUserID = &v
