@@ -129,6 +129,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
+	s.registerBilibiliAccountRoutes(mux)
+	s.registerBilibiliBrowseRoutes(mux)
 	s.registerServerFilesRoutes(mux)
 	s.registerDirectResolveRoutes(mux)
 	s.registerStatsRoutes(mux)

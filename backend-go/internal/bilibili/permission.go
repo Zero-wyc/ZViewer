@@ -73,6 +73,8 @@ type Service struct {
 	WBI    *WBIManager
 	Caches *Caches
 	Creds  *CredentialStore
+	// Browse 是一起听「哔哩哔哩」页/收藏夹用到的短 TTL 缓存。
+	Browse *BrowseCaches
 }
 
 // NewService 构造 B站 解析服务。
@@ -83,6 +85,7 @@ func NewService(conn *sql.DB) *Service {
 		WBI:    NewWBIManager(client),
 		Caches: NewCaches(),
 		Creds:  NewCredentialStore(conn),
+		Browse: NewBrowseCaches(),
 	}
 }
 

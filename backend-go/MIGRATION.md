@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~43,780（含测试 9,600） | 42,653 | 100%+ |
-| HTTP 端点 | 107 | ~300 | 35.7% |
+| 代码行 | ~47,000（含测试 10,000） | 42,653 | 100%+ |
+| HTTP 端点 | 129 | ~300 | 43.0% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -626,6 +626,94 @@ $ bash backend-go/scripts/http-subtitles-parity.sh
 服务器的分支；真实取数由各自的 package 单测与 mount 对拍脚本覆盖。
 
 
+### 3.11 B站 账号与内容浏览（阶段 17）
+
+`routes/stream/bilibili-{account,videos,comments,lists,favorites,bangumi}.routes.ts`
+（1,775 行）+ `helpers.ts`（233 行）→ `internal/bilibili` 的 account / browse /
+comments / collections / favorites / bangumi 六个文件 + `internal/api` 的两个路由文件。
+HTTP 面 107 → **129**。
+
+| 端点组 | 端点 | 实现位置 |
+|---|---|---|
+| 账号 | `qr` / `qr/poll` / `login-status` / `cookie` / `cookie-login` / `logout` / `user-info` | `internal/api/bilibili_account.go`（265 行）+ `internal/bilibili/account.go`（430 行） |
+| 视频 | `view` / `region-new` / `related` / `search` | `internal/api/bilibili_browse.go`（560 行）+ `internal/bilibili/browse.go`（700 行） |
+| 评论 | `comments` / `comment-replies` | `internal/bilibili/comments.go`（275 行） |
+| 栏目 | `link-meta` / `collection-videos` | `internal/bilibili/collections.go`（310 行） |
+| 收藏 | `fav-videos` / `fav-folders` / `fav-list-videos` / `fav/collect` / `fav/status` | `internal/bilibili/favorites.go`（460 行） |
+| 追番 | `following-bangumi` / `bangumi-episodes` | `internal/bilibili/bangumi.go`（215 行） |
+
+支撑改动：
+
+| 文件 | 内容 |
+|---|---|
+| `internal/bilibili/credential.go` | 补 `Save`（UPDATE 优先、未命中才 INSERT）与 `Clear`，base64 与 Node 逐字节兼容 |
+| `internal/bilibili/permission.go` | `Service` 增加 `Browse *BrowseCaches` 字段 |
+| `internal/bilibili/account.go` | 二维码生成（新增依赖 `github.com/skip2/go-qrcode`）、扫码轮询、SSO 逐跳收 Cookie、Cookie 校验 |
+| 新增依赖 | `github.com/skip2/go-qrcode`（二维码 PNG；这是本轮唯一新增的第三方依赖） |
+
+对拍：`bash backend-go/scripts/http-bilibili-parity.sh`
+→ **36 个步骤完全一致**。
+
+对拍方式与前面几轮不同：这批端点真的会打上游 B站，返回值随线上数据变化，
+逐字段比对必然抖动。驱动器按端点性质分三档比较：
+
+| 模式 | 比什么 | 用在哪 |
+|---|---|---|
+| `exact` | 状态码 + 完整响应体 | 参数校验、未绑定 B站 的 401 分支、login-status / cookie / logout |
+| `shape` | 状态码 + 递归类型骨架（键集合与值类型，数组只取首元素形状） | view / region-new / related / search / comments / bangumi-episodes / qr |
+| `status` | 只比状态码 | 上游结果不稳定（不存在的合集 id、公开收藏夹） |
+
+`shape` 模式额外对「空列表」重试两次：B站 对匿名请求偶发 `code 0 + 空列表`
+的软风控（不报错、只是没数据），两侧各撞一次就成了假差异。
+
+两侧都**刻意不绑定 B站**：没有真实 Cookie 就不该假装能验「收藏成功」，
+收藏夹/追番因此全部落在 401 分支。真实写路径（收藏 / 取消收藏）由
+`favorites_test` 之外的假上游单测与手工冒烟负责。
+
+#### 十一处「只有对拍（或读源码）才照得出来」的细节
+
+1. **`/bilibili/view` 的 `pages` 不能复用解析链的 `VideoPage`**。后者带
+   `duration`，而 Node 的该端点只下发 `page` / `part` / `cid`。复用会让响应
+   骨架多一个键（这也是本轮唯一被对拍抓出来的形状差异）。
+2. **`fav-videos` 的收藏夹选择顺序是四级 `??`**：显式 `mediaId` 命中 →
+   `id === mid`（默认收藏夹）→ `list[0]` → 显式 id 兜底。写成「显式 id 优先」
+   会让「传了一个不在列表里的 id」时选错夹。
+3. **收藏夹列表在没有 `count` 时只翻一页**。Node 的 `total` 初值是
+   `+Infinity`，每轮改成 `count ?? rawList.length`——接口不给 count 时它变成 0
+   （取的是 append **之前**的长度），循环立刻结束。Go 侧初值必须写 `MaxInt64`，
+   写 `-1` 会一页都不翻。
+4. **扫码登录有两套状态语义**：新版是 `data.code`（86101/86090/86038 → 0/1/3，
+   `code=0 && url` 才是 2），旧版是 `data.status`。映射顺序是「先看 code，
+   未命中回落 status ?? -1」，不能只看一个。
+5. **登录 Cookie 在 SSO 跳转链的每一跳里**。poll 只给一个跨域 URL，
+   `SESSDATA` / `bili_jct` / `DedeUserID` 分散在 passport → biliGame 的若干次
+   302 里，必须 `redirect: manual` 逐跳收 Set-Cookie，三个键缺一不可
+   （缺 `bili_jct` 之后所有收藏/投币都会 -400）。
+6. **搜索是虚拟分页**：单一排序最多 50 页（B站 硬限制），第 51 页起切换排序
+   分片（click / dm / stow），映射写错一位就会出现「第 51 页翻回第 1 页」。
+7. **评论必须带 buvid**：`reply/main` 缺 `buvid3` 直接命中 `-352` 风控；
+   而且匿名只放前 3 条主楼（`is_end` 提前为 true），响应里的 `loginLimited`
+   就是给前端提示「登录后查看全部」用的。
+8. **`link-meta` 的 `/lists/{sid}` 分不出合集还是系列**。判据是
+   `seasons_archives_list` 返回的 `meta.mid` 与链接 mid 是否一致——一致才是合集；
+   不一致说明这个数字恰好是**别的 UP** 的合集 id，必须回退按系列查。
+9. **401 文案有三套**：收藏夹/收藏状态是「B站 未登录」，`following-bangumi`
+   是「未登录 B站」，`cookie-login` 在 userId 缺失时是「未登录」。同一类判定
+   三种措辞，全是直接展示给用户的原文。
+10. **`/user-info` 失败也是 200**。上游报错时把 `err.message`（含
+    `B站 API 业务错误 [-101] 账号未登录: …`）原样放进 `message` 返回 200，
+    前端据此显示「未登录」而不是弹「请求失败」。
+11. **`fav/status` 未收藏时 `folderId` / `folderTitle` 整键消失**。Node 给的
+    是 `undefined`，`JSON.stringify` 会丢键；Go 写成 `0` / `""` 会让前端的
+    「已收藏在 X 夹」判断拿到空壳。
+
+#### 刻意与 Node 不同的一处
+
+收藏 / 取消收藏的 POST **不重试**。Node 的 `bilibiliFetch` 对所有请求都做
+412 重试，但写操作重投会把刚做出的变更再翻一次（收了又取消），比直接报错
+更难收拾。失败时用户点一次就好，混淆的副作用不可逆。
+
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -895,6 +983,15 @@ $ bash backend-go/scripts/http-subtitles-parity.sh
 | `DELETE /admin/rooms/:roomId` **不写审计**，`batch-delete` 写 | `routes/admin.ts` | 同一件事两条路径一条有记录一条没有。补齐会让「逐个删」与「批量删」的审计条数对不上 |
 | 设置 PUT 是**整行写**，且未提交字段保持原值 | `routes/admin.ts` + `system-settings.ts` | Node 是「读实体→改几个字段→整行 save」；做成部分列 UPDATE 会让「显式 null 清空」与「未提交」两种语义分叉 |
 | 重开房间后必须**清权限缓存** | `roomPermissionService.invalidatePermissionCache` | 缓存里有 5s 的 `isInRoom=false`，不失效则重开后头 5 秒观众发言仍被拒（表现为「重开了但进不去」） |
+| `/bilibili/view` 的 `pages` 只下发 `page`/`part`/`cid`，**不带 duration** | `bilibili-videos.routes.ts` | 复用解析链的 `VideoPage` 会多一个键，前端分集下拉会显示冗余信息 |
+| `fav-videos` 的收藏夹选择必须按 `mediaId → id===mid → list[0] → 显式 id` 四级回落 | `bilibili-favorites.routes.ts` | 改动顺序会让「传了列表外 id」时选错收藏夹 |
+| 收藏夹列表缺 `count` 时**只翻一页**（`total` 初值 +∞、每轮改成本轮 append 前的长度） | 同上 | 初值写 -1 会让一页都不翻（Go 侧必须 `MaxInt64`） |
+| 扫码状态的映射是「先看 `data.code`，未命中回落 `data.status ?? -1`」 | `bilibili-account.routes.ts` | 只看一边会让旧版接口的「已扫码」永远显示成「未扫码」 |
+| 扫码成功后必须**逐跳**跟随 SSO 链收 Set-Cookie，且要求 `SESSDATA`+`bili_jct`+`DedeUserID` 齐全 | `helpers.ts#fetchCookiesFromSsoUrl` | 少收一跳就只有半个登录态：缺 `bili_jct` 时收藏/投币全部 -400 |
+| 评论请求必须拼上 `buvid3`/`buvid4`，且 `loginLimited = !用户Cookie` | `bilibili-comments.routes.ts` | 缺 buvid 直接 -352 风控；把 buvid 当登录态会让前端误以为能翻页 |
+| `link-meta` 判合集/系列必须比对 `meta.mid` 与链接 mid | `bilibili-lists.routes.ts` | sid 是两套命名空间，只按数字查会把别人的合集当成系列 |
+| `fav/status` 未收藏时 `folderId`/`folderTitle` **整键消失** | `bilibili-favorites.routes.ts` | 写 0 / 空串会让前端「已收藏在 X 夹」拿到空壳 |
+| 收藏/取消收藏的写请求**不重试** | 刻意与 Node 不同 | 重投会把刚做的变更翻回去（收了又取消），副作用不可逆 |
 
 ## 七之二、刻意与 Node 不同的地方
 

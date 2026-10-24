@@ -74,3 +74,60 @@ func decodeBase64(s string) string {
 	}
 	return string(decoded)
 }
+
+// encodeBase64 与 Node 的 Buffer.from(text,'utf8').toString('base64') 一致。
+//
+// 这不是加密，只是避免明文直接出现在库里；换成任何"更强的"算法都会让
+// Node 版读回来是乱码（回滚保障就断了）。
+func encodeBase64(s string) string {
+	return base64.StdEncoding.EncodeToString([]byte(s))
+}
+
+// Save 写入或更新用户凭证（对应 credential.ts#saveCredential）。
+//
+// userId 是 varchar 列，Node 侧存的是 String(userId)；这里同样用字符串，
+// 让 "1" 与 1 在 SQLite 的隐式转换里走同一条索引。
+func (s *CredentialStore) Save(ctx context.Context, userID, cookie, refreshToken string) error {
+	encodedCookie := encodeBase64(cookie)
+	var encodedRefresh any
+	if refreshToken != "" {
+		encodedRefresh = encodeBase64(refreshToken)
+	}
+
+	res, err := s.conn.ExecContext(ctx,
+		`UPDATE "bilibili_credential"
+		    SET "cookie" = ?, "refreshToken" = ?, "updatedAt" = datetime('now')
+		  WHERE "userId" = ?`,
+		encodedCookie, encodedRefresh, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("更新 B站 凭证失败: %w", err)
+	}
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("更新 B站 凭证失败: %w", err)
+	}
+	if affected > 0 {
+		return nil
+	}
+
+	_, err = s.conn.ExecContext(ctx,
+		`INSERT INTO "bilibili_credential" ("userId", "cookie", "refreshToken", "createdAt", "updatedAt")
+		 VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+		userID, encodedCookie, encodedRefresh,
+	)
+	if err != nil {
+		return fmt.Errorf("写入 B站 凭证失败: %w", err)
+	}
+	return nil
+}
+
+// Clear 删除用户凭证（对应 credential.ts#clearCredential）。
+func (s *CredentialStore) Clear(ctx context.Context, userID string) error {
+	if _, err := s.conn.ExecContext(ctx,
+		`DELETE FROM "bilibili_credential" WHERE "userId" = ?`, userID,
+	); err != nil {
+		return fmt.Errorf("清除 B站 凭证失败: %w", err)
+	}
+	return nil
+}
