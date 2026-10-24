@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~47,000（含测试 10,000） | 42,653 | 100%+ |
-| HTTP 端点 | 129 | ~300 | 43.0% |
+| 代码行 | ~49,100（含测试 10,700） | 42,653 | 100%+ |
+| HTTP 端点 | 135 | ~300 | 45.0% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -714,6 +714,64 @@ HTTP 面 107 → **129**。
 更难收拾。失败时用户点一次就好，混淆的副作用不可逆。
 
 
+### 3.12 CMS 采集源（阶段 18）
+
+`routes/cms.ts`（274 行）+ `services/cms/*`（797 行）+ `utils/resolve-cache.ts`
++ `utils/githubCdn.ts` → `internal/cms`（1,140 行）+ `internal/api/cms.go`（230 行）。
+HTTP 面 129 → **135**（`/proxy` 早已由 `registerProxyRoutes` 统一挂载，不重复计）。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| `GET /sources` | 列出 TVBox 配置里的 CMS 站点 | `service.go#Sources` |
+| `GET /search` | 单站搜索 | `provider.go#Search` |
+| `GET /search-all` | 全站并发聚合 + 标题去重 | `service.go#SearchAll` + `SearchAllCoalesced` |
+| `GET /detail` | 详情与播放组 | `provider.go#Detail` |
+| `POST /resolve` | 解析直链（6 分钟缓存 + 单飞） | `service.go#Resolve` + `resolve_cache.go` |
+| `GET /inspect` | 预览配置（admin/root） | `tvbox.go#Load` |
+
+支撑实现：
+
+| 文件 | 内容 |
+|---|---|
+| `internal/cms/http.go` | `fetchText` + `decodeBody`（charset 嗅探：声明 → UTF-8 → GB18030） |
+| `internal/cms/tvbox.go` | TVBox 配置解析（type 1 过滤、跳转配置递归 ≤2 层、10 分钟缓存 + 单飞 + 过期兜底） |
+| `internal/cms/provider.go` | 苹果 CMS V10 客户端（videolist → detail 双 ac 兼容、`vod_play_url` 解析） |
+| `internal/cms/resolve_cache.go` | 泛型 TTL + 单飞 + 容量淘汰缓存 |
+| `internal/api/cms.go` | 6 个 handler；`inspect` 用 `auth.ClaimsFrom(ctx).Role` 判 admin/root |
+
+对拍：`bash backend-go/scripts/http-cms-parity.sh`
+→ **25 个步骤完全一致（状态码 + 响应体）**。上游是本地假采集站
+（`scripts/mock-cms.js`：TVBox 配置 + 两个 CMS 接口 + 一份 GBK 配置），
+数据固定，所以全部按 exact 比较——CMS 的「解析」本来就是纯函数。
+
+#### 六处必须守住的细节
+
+1. **`ac=videolist` 拿不到非空列表时要回退 `ac=detail`**。部分老站只认后者，
+   少了这一步表现为「搜索永远没结果」，而且不报错。
+2. **`vod_play_url` 的分组下标必须保留原始 `$$$` 序号**。空组会被跳过，但
+   `playFromIndex` 是**原始下标**而不是「第几个非空组」——用后者会让
+   「线路二」播成「线路三」。
+3. **`parsePlayGroups` 与 `resolve` 共用同一套分组语义**：resolve 直接从原始串
+   按组/集取地址（不经中间对象），保证直链是当下最新的；两边对 `#`/`$` 的
+   切分规则必须逐字一致。
+4. **charset 必须嗅探**：TVBox 配置与采集站大量是 GBK 且不声明 charset。
+   优先级是「声明的 charset → 严格 UTF-8 → GB18030」；少了这一步中文站名
+   整片乱码，表象却是「配置里没有 CMS 源」。
+5. **配置拉取失败要用过期缓存兜底**，且空注册表不缓存。TVBox 配置源本身
+   可用性波动很大，「拉不到就一个源都没有」是最差的降级。
+6. **聚合搜索的站点顺序必须稳定**（按配置顺序），去重时保留先到者的位置、
+   只在「先到者没有备注」时补上后来者的备注与封面。顺序一乱，前端列表
+   每次刷新都换序，看过的条目会「跳走」。
+
+#### 刻意与 Node 不同的一处
+
+**不迁 PowerShell TLS 兜底**。Node 版 `fetchText` 在 fetch 失败后会起
+`powershell Invoke-WebRequest`（借 .NET/Schannel 的 TLS 指纹绕过 Cloudflare）。
+Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；在服务端
+起子进程既慢又会把错误信息变形。真遇到按指纹拦截的站点，应改 UA/Referer
+或换源，而不是加回子进程。
+
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -992,6 +1050,11 @@ HTTP 面 107 → **129**。
 | `link-meta` 判合集/系列必须比对 `meta.mid` 与链接 mid | `bilibili-lists.routes.ts` | sid 是两套命名空间，只按数字查会把别人的合集当成系列 |
 | `fav/status` 未收藏时 `folderId`/`folderTitle` **整键消失** | `bilibili-favorites.routes.ts` | 写 0 / 空串会让前端「已收藏在 X 夹」拿到空壳 |
 | 收藏/取消收藏的写请求**不重试** | 刻意与 Node 不同 | 重投会把刚做的变更翻回去（收了又取消），副作用不可逆 |
+| CMS 列表接口 `ac=videolist` 为空必须回退 `ac=detail` | `cmsProvider.ts#requestVodList` | 部分老站只认 detail，少了这步表现为「搜索永远没结果」且不报错 |
+| `vod_play_url` 的 `playFromIndex` 是**原始 `$$$` 下标**（跳过空组但不重编号） | `cmsProvider.ts#parsePlayGroups` | 重编号会让「线路二」播成「线路三」 |
+| 配置/页面文本必须按「声明 charset → UTF-8 → GB18030」嗅探 | `anisubs/httpClient.ts#decodeBody` | TVBox 配置大量是 GBK 且不声明，硬解 UTF-8 会让中文源名整片乱码 |
+| 配置拉取失败要回退过期缓存，且空注册表不写缓存 | `tvboxConfigLoader.ts` | 配置源本身波动大，「拉不到就零个源」是最差降级 |
+| 聚合搜索按配置顺序输出，去重保留先到者位置、只补缺失的备注/封面 | `services/cms/index.ts#searchAllProviders` | 顺序不稳会让前端列表每次刷新都换序 |
 
 ## 七之二、刻意与 Node 不同的地方
 
@@ -1004,6 +1067,8 @@ HTTP 面 107 → **129**。
 | FTP `serverUrl` 的主机解析 | `serverUrl.replace(/^ftp/i, '')` 把 `ftp.example.com` 变成 `example.com` | 按 scheme 前缀或裸主机正确处理，完整保留 `ftp.example.com` | 前者是笔误级别的正则（想剥 `ftp://` 协议头），实际结果是「主机名以 ftp 开头就必然连不上」 |
 | FTP 裸主机里的端口 | `host:2121` 会被整段当主机名交给 `net.connect`，端口参数被忽略 | `host:port` 形态直接采用其中的端口 | 同一个函数里既然已经从 URL 取 `hostname`，裸主机形态也该认端口 |
 | Emby m3u8 里的非法子资源 | 改写回调抛错，整个请求 500（已吐出的分片作废） | 该条 URI 置空，其余条目照常输出 | 抛错会让「一个坏分片」拖垮整段播放列表；置空既不影响其余分片，也绝不把带 `api_key` 的原始地址回退给客户端 |
+| B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
+| CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
 
 ## 八、每个单元的完成定义（DoD）
 

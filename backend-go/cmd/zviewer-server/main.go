@@ -19,6 +19,7 @@ import (
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
+	"zviewer/backend/internal/cms"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/openlist"
@@ -121,6 +122,7 @@ func main() {
 		ServerFolders: serverFolders,
 		Files:         filesRegistry,
 		Subtitles:     subtitle.NewService(streamResolver, filesRegistry),
+		CMS:           cms.NewService(settings),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

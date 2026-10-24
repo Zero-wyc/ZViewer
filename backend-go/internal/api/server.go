@@ -15,6 +15,7 @@ import (
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
+	"zviewer/backend/internal/cms"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
@@ -61,6 +62,8 @@ type Deps struct {
 	Files *serverfiles.Registry
 	// Subtitles 是字幕取数服务（搜索 / 浏览 / 加载 / Emby 内嵌轨道）。
 	Subtitles *subtitle.Service
+	// CMS 是 CMS 采集源注册表（TVBox 配置 → 苹果 CMS 站点）。
+	CMS *cms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -138,6 +141,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerCLIRoutes(mux)
 	s.registerAdminRoutes(mux)
 	s.registerSubtitleRoutes(mux)
+	s.registerCMSRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
