@@ -60,6 +60,8 @@ func main() {
 	movies := store.NewMovies(conn)
 	rooms := store.NewRooms(conn)
 	mounts := store.NewMounts(conn)
+	tracks := store.NewTracks(conn)
+	metas := store.NewMetas(conn)
 
 	server := api.New(api.Deps{
 		Cfg:      cfg,
@@ -70,6 +72,8 @@ func main() {
 		Movies:   movies,
 		Rooms:    rooms,
 		Mounts:   mounts,
+		Tracks:   tracks,
+		Metas:    metas,
 		Stream:   proxy.NewStreamResolver(movies, rooms, mounts),
 		OpenList: openlist.NewClient(),
 		Tokens:   tokens,

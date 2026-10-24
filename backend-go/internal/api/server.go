@@ -20,7 +20,9 @@ import (
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/ratelimit"
+	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/webdav"
 )
 
 // Deps 是 Server 的依赖集合，全部由 main 注入，便于测试替换。
@@ -33,6 +35,11 @@ type Deps struct {
 	Movies   *store.Movies
 	Rooms    *store.Rooms
 	Mounts   *store.Mounts
+	Tracks   *store.Tracks
+	Metas    *store.Metas
+	// Bus 是房间事件广播器。实时层（socket.io）未迁移前用 realtime.Noop，
+	// 接入后只替换实现，handler 无需改动。
+	Bus realtime.Bus
 	// Stream 是影片流凭证解析器（/api/<source>/stream 共用）。
 	Stream *proxy.StreamResolver
 	// OpenList 是 AList 客户端（token / raw_url 三层缓存都在里面）。
@@ -50,14 +57,24 @@ type Server struct {
 	// passwordLimiter 是改密端点限流器（每用户 1 分钟 3 次）。
 	// 放进程内存即可：单机部署，重启后计数清零只会放宽限制。
 	passwordLimiter *ratelimit.Limiter
+
+	// WebDAV 的两级缓存：属性 30s（seek 时不重复 PROPFIND）、目录 60s。
+	webdavStats *webdav.StatCache
+	webdavDirs  *webdav.DirCache
 }
 
 // New 构造 Server。
 func New(deps Deps) *Server {
+	if deps.Bus == nil {
+		// 没有实时层时退化为丢弃事件，不能让 handler 撞上 nil 接口。
+		deps.Bus = realtime.Noop{}
+	}
 	return &Server{
 		Deps: deps,
 		// 与 middleware/rate-limit.ts#passwordLimiter 参数一致
 		passwordLimiter: ratelimit.New(3, time.Minute),
+		webdavStats:     webdav.NewStatCache(),
+		webdavDirs:      webdav.NewDirCache(),
 	}
 }
 
@@ -69,6 +86,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerProfileRoutes(mux)
 	s.registerProxyRoutes(mux)
 	s.registerMovieRoutes(mux)
+	s.registerRoomRoutes(mux)
+	s.registerWebDAVRoutes(mux)
 	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)

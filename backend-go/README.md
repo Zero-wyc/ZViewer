@@ -68,10 +68,19 @@ go test ./...
 | 房间准入 | ✅ | `canReadRoom`：root/owner 直通，其余要求房间 active + 未结束会话（游客按 guestId） |
 | 挂载凭证回填 | ✅ | 按 `sourceMountId` 优先、`serverUrl` 兜底，影片自身凭证优先于挂载 |
 | OpenList 影片流 | ✅ | `/api/openlist/stream`，token(12h)/raw_url(5min)/单飞三层缓存，Range 透传 |
+| 房间 REST | ✅ | 列表（含在线观众/sharer 聚合）、改名、弹幕轨道 CRUD/批量替换、弹幕辅助数据 |
+| 房间事件契约 | ✅ | `internal/realtime` 定义事件名与载荷；实时层未迁移前用 `NoopBus` 丢弃（接口行为不变） |
+| WebDAV 挂载 | ✅ | 挂载 CRUD、连接测试、目录浏览、文件解析，全部按 `id + userId + type` 限定归属 |
+| WebDAV 流代理 | ✅ | `/api/webdav/proxy` 与 `/api/webdav/stream`，Range 收敛、stat(30s)/dir(60s) 缓存 |
+| 直链与 HTTPS 升级 | ✅ | `/api/webdav/direct-url`，内网拒绝、AList 优先、现场活性校验防陈旧升级 |
 
 ## 尚未实现
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **26 / 300**。
+见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **45 / 300**。
+
+**实时层（Socket.IO）尚未迁移**：房间的创建/进房/准入审批/成员管理/播放同步都在
+那层，所以现在只有「房间列表 + 弹幕数据」能跑；`/api/*` 里凡是 REST 未覆盖的路径
+仍会落到 SPA 回退。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
 迁移期这是刻意的：宁可明确失败，也不要返回半个可用但语义错误的响应。
@@ -84,13 +93,16 @@ backend-go/
 ├── internal/
 │   ├── config/             环境变量与数据路径
 │   ├── db/                 连接、DSN、schema 守卫
-│   ├── store/              既有 SQLite 表的读写（user / settings / audit / movie）
+│   ├── store/              既有 SQLite 表的读写（user / settings / audit / movie / room / mount / 弹幕）
 │   ├── auth/               JWT、cookie、鉴权中间件
 │   ├── ratelimit/          进程内固定窗口限流
 │   ├── netutil/            内网判定与 URL 规范化（SSRF 唯一事实源）
 │   ├── proxy/              上游媒体代理、Range 解析、影片流凭证解析与流式输出
 │   ├── bilibili/           B 站解析链（wbi/playurl/pgc/resolver/弹幕/字幕/CDN）
 │   ├── openlist/           AList 客户端（登录 / fs-get / 三层缓存）
+│   ├── webdav/             WebDAV 客户端（PROPFIND / Range GET / stat 与目录缓存）
+│   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
+│   ├── realtime/           房间事件广播契约（socket.io 未迁移前为 Noop）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
 └── scripts/
@@ -106,6 +118,13 @@ backend-go/
     ├── parity-node-movies.js   直接用 Node 的 TypeORM 层读写（绕开完整服务启动）
     ├── openlist-stream-smoke.sh OpenList 影片流冒烟（mock AList，9 用例）
     ├── mock-alist.js           最小 AList 模拟服务器
+    ├── rooms-parity.sh         房间 REST 与 Node 逐字节对拍（28 步）
+    ├── parity-node-rooms.js    Node 侧最小应用（只挂 rooms Router）
+    ├── parity-rooms-run.js     房间对拍驱动器
+    ├── webdav-parity.sh        WebDAV 端点与 Node 逐字节对拍（25 步）
+    ├── parity-node-webdav.js   Node 侧最小应用（只挂 webdav Router）
+    ├── parity-webdav-run.js    WebDAV 对拍驱动器
+    ├── mock-webdav.js          最小 WebDAV 模拟服务器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
 ```
 

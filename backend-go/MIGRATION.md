@@ -7,9 +7,9 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~13,400（含测试 2,820） | 42,653 | 31.4% |
-| HTTP 端点 | 26 | ~300 | 8.7% |
-| 数据库表 | 8（user / movie 已可写；system_settings / audit_logs / room / session / user_mount 读写齐备） | 16 | 50% |
+| 代码行 | ~16,400（含测试 2,860） | 42,653 | 38.4% |
+| HTTP 端点 | 45 | ~300 | 15.0% |
+| 数据库表 | 10（user / movie / room / session / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 62.5% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -109,7 +109,8 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 单元 | TS 行数（估） | 状态 | 卡点 |
 |---|---:|---|---|
 | Socket.IO 兼容层 | （基础，非业务） | ⏳ | **Go 侧 v4 协议需先做 spike 验证** |
-| 房间 / 权限 / 成员 | ~2,300 | ⏳ | |
+| 房间 REST（列表/改名/弹幕轨道/弹幕辅助数据） | ~450 | ✅ 见 4.3（实时部分仍 ⏳） |
+| 房间 / 权限 / 成员（socket.io 部分） | ~2,300 | ⏳ | |
 | 影片列表 / 当前播放 | ~1,100 | ⏳ | |
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
 | 评论 / 弹幕广播 | ~1,200 | ⏳ | |
@@ -122,7 +123,8 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 单元 | TS 行数（估） | 状态 |
 |---|---:|---|
 | 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
-| WebDAV / FTP 流代理 | ~800 | ⏳ 读取层已就绪，缺协议客户端 |
+| WebDAV 挂载 + 流代理 | ~800 | ✅ 见 4.2 |
+| FTP 流代理 | ~520 | ⏳ 读取层已就绪，缺 FTP 客户端 |
 | Emby / Jellyfin 协议仿真 | ~1,250 | ⏳ |
 | 服务器文件浏览 | ~1,200 | ⏳ |
 | 一起听音乐（含 NCM） | ~3,170 | ⏳ |
@@ -150,6 +152,41 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 - `scripts/movie-smoke.sh`——真实库副本上的 14 个用例（CRUD、权限、必填、内网强制转发、凭证回填、密文校验）；
 - `scripts/movie-parity.sh`——与 Node 逐字段对拍（种子 0 差异、跨实现读 0 差异、双向密码加解密）；
 - `scripts/openlist-stream-smoke.sh`——mock AList 上的 9 个用例（206/200/416、缓存命中、AUTH_FAILED、NOT_FOUND）。
+
+### 4.2 WebDAV 挂载与流代理
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/webdav/webdav.go` | ~660 | PROPFIND（Depth 0/1）、`encodeURIComponent` 等价编码、href→相对路径、Range GET、stat(30s)/dir(60s) 缓存 |
+| `internal/mountutil/mountutil.go` | ~260 | HTTPS 能力探测与直链升级（含现场活性校验 + 自愈写回）、内网强制中转 |
+| `internal/store/mount.go` | ~300 | 挂载 CRUD（全部按 `id + userId + type` 限定归属）、`SaveHTTPSDirect` |
+| `internal/api/webdav.go` | ~600 | 10 个端点：mounts CRUD / test / browse / resolve / proxy / direct-url / stream |
+
+端点：`GET/POST /api/webdav/mounts`、`POST /api/webdav/mounts/test`、
+`PUT/DELETE /api/webdav/mounts/{id}`、`GET /api/webdav/mounts/{id}/browse`、
+`GET /api/webdav/{resolve,proxy,direct-url,stream}`。
+
+验证脚本：
+- `scripts/mock-webdav.js`——极简 WebDAV 服务器（中文/空格文件名、严格 Basic Auth、Range）；
+- `scripts/webdav-parity.sh`——25 步逐字节对拍（挂载 CRUD、浏览、解析、四种 Range 形态、
+  内网直链拒绝、错密码错误码、影片流凭证回退）。
+
+### 4.3 房间 REST
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/store/room.go` | ~300 | 房间读取（全列）、`status='active'` 列表、在线观众/sharer 批量聚合、改名 |
+| `internal/store/danmaku.go` | ~390 | 弹幕轨道 upsert/批量替换/偏移更新、弹幕辅助数据（屏蔽词/已删除/实时记录） |
+| `internal/api/rooms.go` | ~520 | 9 个端点 + DTO + `requireRoomControlMsg`（每个端点自己的 403 文案） |
+| `internal/realtime/bus.go` | ~30 | 房间事件广播契约（`realtime.Noop` 占位，等 socket.io 迁移后替换实现） |
+
+端点：`GET /api/rooms`、`PUT /api/rooms/{roomId}/name`、
+`GET/POST /api/rooms/{roomId}/danmaku-tracks`、`POST .../danmaku-tracks/bulk`、
+`PUT .../danmaku-tracks/{trackId}/offset`、`DELETE .../danmaku-tracks/{trackId}`、
+`GET/PUT /api/rooms/{roomId}/danmaku-meta`。
+
+验证脚本：`scripts/rooms-parity.sh`——28 步逐字节对拍（含 upsert 去重、批量替换事务、
+`realtimeLog` 不被覆盖、`viewerCount`/`sharerOnline` 聚合、`hasPassword` 语义、四种权限边界）。
 
 ---
 
@@ -188,6 +225,13 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | MP4 直链上限 720P（`fnval=1 + platform=html5`） | `services/bilibili/playurl.ts` | 1080P+ 只有 DASH 支持，承诺 MP4 高清晰度会拿到低档 |
 | 弹幕接口必定回 `Content-Encoding: deflate`（**裸 deflate**，无 zlib 头） | `services/bilibili/danmaku.ts` | Go 的 transport 只自动解 gzip；不解压就读到乱码，正则一条都匹配不上，表现为"接口成功但弹幕为空"且不报错 |
 | 字幕必须过 **oid 带外校验 + 时长带内校验 + 一致性投票**，任一不过即丢弃 | `services/bilibili/subtitle.ts` | `x/player/v2` 会随机返回**别的视频**的字幕，且字幕 JSON 里没有任何视频标识，无法自证；"择优录取"会让错字幕照常上屏 |
+| `user_mount` 的 `password` / `apiKey` 是**明文**（全仓只有 `Movie` 实体的列带 AES transformer） | `entities/UserMount.ts` | 照 Movie 那样解密会把真实密码判成"解密失败"而静默丢成 nil，所有挂载变成无凭证访问（第 4 阶段曾这么写，第 5 阶段修正为"能解就解、解不出按明文"） |
+| WebDAV 代理的 `Content-Type` 由**源站**决定，不要按扩展名覆盖 | `webdav-client` → `request#pipeDest` | `request` 库把流 pipe 给响应时会把上游响应头整份照抄；按扩展名强行改会让同一台 NAS 出现"Node 播得动、Go 播不动" |
+| 目录列表项必须带 `size`（缺 `getcontentlength` 时填 0） | `webdav-client#readdir` | 少字段会让前端排序/展示出现 `undefined` 参与比较 |
+| WebDAV 路径编码必须与 `encodeURIComponent` 逐字符一致 | `services/webdav.ts#normalizePath` | `url.PathEscape` 的转义集合不同（`!*'()` vs `$&+,;=:@`），文件名含这些字符时两端会指向不同 URL |
+| 房间/会话/挂载的时间列同样按 **UTC** 解释 | 实测（`rooms-parity.sh`） | 与 `movie` 表同一路径（sql.js 驱动水合时补 `Z`），不要套用 `tokenInvalidBefore` 的本地时区逻辑 |
+| REST 写出房间事件时必须走 `realtime.Bus`，事件名集中定义 | `realtime/bus.go` | 现在 `Noop` 丢弃事件，但调用点与载荷形状要一次写对，socket.io 落地后只换实现 |
+| Socket.IO 未迁移期间，房间的**创建/进房/准入审批/在线成员**一律不可用 | `modules/room` | REST 只覆盖列表/改名/弹幕数据；把 REST 通过当成"房间可用"会导致误判进度 |
 | 字幕接口失败也是 `200 + success:true + lines:[] + message` | `routes/stream/bilibili-videos.routes.ts` | 改成 4xx/5xx 会让前端当成请求失败去重试，只会继续掷骰子 |
 
 ## 八、每个单元的完成定义（DoD）

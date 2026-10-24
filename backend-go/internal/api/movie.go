@@ -218,20 +218,7 @@ func (s *Server) requireRoomRead(w http.ResponseWriter, r *http.Request, roomID 
 
 // requireRoomControl 校验「房间存在 + root/owner」，并返回房间。
 func (s *Server) requireRoomControl(w http.ResponseWriter, r *http.Request, roomID, scope string) (*store.Room, bool) {
-	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
-	if err != nil {
-		if errors.Is(err, store.ErrRoomNotFound) {
-			httpx.NotFound(w, "房间不存在")
-			return nil, false
-		}
-		httpx.InternalError(w, scope, err)
-		return nil, false
-	}
-	if !canControlRoom(auth.ClaimsFrom(r.Context()), room) {
-		httpx.Forbidden(w, "无权限：仅 root 或房间创建者可操作影片")
-		return nil, false
-	}
-	return room, true
+	return s.requireRoomControlMsg(w, r, roomID, scope, "无权限：仅 root 或房间创建者可操作影片")
 }
 
 // ==================== 请求体 ====================
