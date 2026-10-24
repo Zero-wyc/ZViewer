@@ -73,10 +73,13 @@ go test ./...
 | WebDAV 挂载 | ✅ | 挂载 CRUD、连接测试、目录浏览、文件解析，全部按 `id + userId + type` 限定归属 |
 | WebDAV 流代理 | ✅ | `/api/webdav/proxy` 与 `/api/webdav/stream`，Range 收敛、stat(30s)/dir(60s) 缓存 |
 | 直链与 HTTPS 升级 | ✅ | `/api/webdav/direct-url`，内网拒绝、AList 优先、现场活性校验防陈旧升级 |
+| FTP 挂载 | ✅ | 挂载 CRUD、连接测试、目录浏览（MLSD / LIST 双格式）、SIZE/MDTM stat |
+| FTP 流代理 | ✅ | `/api/ftp/proxy` 与 `/api/ftp/stream`，REST 分段 + stat(30s)/dir(60s) 缓存 |
+| FTP 临时连接 | ✅ | `/api/stream/resolve-ftp` + `proxy-ftp`，凭证走服务端票据（30min 滑动续期） |
 
 ## 尚未实现
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **45 / 300**。
+见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **56 / 300**。
 
 **实时层（Socket.IO）尚未迁移**：房间的创建/进房/准入审批/成员管理/播放同步都在
 那层，所以现在只有「房间列表 + 弹幕数据」能跑；`/api/*` 里凡是 REST 未覆盖的路径
@@ -101,6 +104,7 @@ backend-go/
 │   ├── bilibili/           B 站解析链（wbi/playurl/pgc/resolver/弹幕/字幕/CDN）
 │   ├── openlist/           AList 客户端（登录 / fs-get / 三层缓存）
 │   ├── webdav/             WebDAV 客户端（PROPFIND / Range GET / stat 与目录缓存）
+│   ├── ftp/                FTP/FTPS 客户端（被动模式 / REST 分段 / MLSD·LIST·DOS 解析）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
 │   ├── realtime/           房间事件广播契约（socket.io 未迁移前为 Noop）
 │   ├── httpx/              统一 JSON 响应与错误
@@ -125,6 +129,10 @@ backend-go/
     ├── parity-node-webdav.js   Node 侧最小应用（只挂 webdav Router）
     ├── parity-webdav-run.js    WebDAV 对拍驱动器
     ├── mock-webdav.js          最小 WebDAV 模拟服务器
+    ├── ftp-parity.sh           FTP 端点与 Node 逐字节对拍（34 步 × MLSD/LIST 两种模式）
+    ├── parity-node-ftp.js      Node 侧最小应用（只挂 ftp 两个 Router）
+    ├── parity-ftp-run.js       FTP 对拍驱动器
+    ├── mock-ftp.js             最小 FTP 模拟服务器（MLSD/LIST 双形态）
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
 ```
 

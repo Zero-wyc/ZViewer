@@ -313,8 +313,10 @@ func (s *Server) handleUpdateWebDAVMount(w http.ResponseWriter, r *http.Request)
 	}
 	requestedDirect := body.DirectLink != nil && *body.DirectLink
 	patch := store.MountPatch{
-		Name:        strings.TrimSpace(*body.Name),
-		ServerURL:   &params.ServerURL,
+		Name:      strings.TrimSpace(*body.Name),
+		ServerURL: &params.ServerURL,
+		// WebDAV 不用端口：带上现值，避免覆盖时被清空
+		Port:        mount.Port,
 		Path:        &params.Path,
 		DirectLink:  mountutil.ResolveDirectLinkWithInternalCheck(params.ServerURL, requestedDirect),
 		HttpsDirect: httpsDirect,

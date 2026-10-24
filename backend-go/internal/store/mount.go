@@ -163,8 +163,12 @@ func (m *Mounts) Create(ctx context.Context, in MountInput) (*Mount, error) {
 // 全部字段必填（指针可为 nil 表示写成 NULL）：更新语义是「整条覆盖」，
 // 与 Node 侧 save(完整实体) 一致，而不是部分更新。
 type MountPatch struct {
-	Name        string
-	ServerURL   *string
+	Name      string
+	ServerURL *string
+	// Port 是按列覆盖：null 等于清空端口，所以调用方必须显式传入
+	// 「期望的目标值」——WebDAV 那种不关心端口的挂载要把现值带进来，
+	// 否则一次改名就会把端口清成 NULL。
+	Port        *int64
 	Path        *string
 	Username    *string
 	Password    *string // nil = 写成 NULL；调用方需要「不传就沿用旧密码」时自行填旧值
@@ -176,10 +180,10 @@ type MountPatch struct {
 func (m *Mounts) Update(ctx context.Context, id, userID int64, mountType string, patch MountPatch) error {
 	res, err := m.conn.ExecContext(ctx, `
 		UPDATE "user_mount"
-		SET "name" = ?, "serverUrl" = ?, "path" = ?, "username" = ?, "password" = ?,
+		SET "name" = ?, "serverUrl" = ?, "port" = ?, "path" = ?, "username" = ?, "password" = ?,
 		    "directLink" = ?, "httpsDirect" = ?, "updatedAt" = datetime('now')
 		WHERE "id" = ? AND "userId" = ? AND "type" = ?
-	`, patch.Name, patch.ServerURL, patch.Path, patch.Username, patch.Password,
+	`, patch.Name, patch.ServerURL, patch.Port, patch.Path, patch.Username, patch.Password,
 		patch.DirectLink, patch.HttpsDirect, id, userID, mountType)
 	if err != nil {
 		return fmt.Errorf("更新挂载失败: %w", err)

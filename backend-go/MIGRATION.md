@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~16,400（含测试 2,860） | 42,653 | 38.4% |
-| HTTP 端点 | 45 | ~300 | 15.0% |
+| 代码行 | ~18,750（含测试 3,235） | 42,653 | 44.0% |
+| HTTP 端点 | 56 | ~300 | 18.7% |
 | 数据库表 | 10（user / movie / room / session / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 62.5% |
 
 ## 二、阶段 0：基座（已完成）
@@ -124,7 +124,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 |---|---:|---|
 | 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
 | WebDAV 挂载 + 流代理 | ~800 | ✅ 见 4.2 |
-| FTP 流代理 | ~520 | ⏳ 读取层已就绪，缺 FTP 客户端 |
+| FTP 挂载 + 流代理 | ~660 | ✅ 见 4.4 |
 | Emby / Jellyfin 协议仿真 | ~1,250 | ⏳ |
 | 服务器文件浏览 | ~1,200 | ⏳ |
 | 一起听音乐（含 NCM） | ~3,170 | ⏳ |
@@ -188,6 +188,24 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 验证脚本：`scripts/rooms-parity.sh`——28 步逐字节对拍（含 upsert 去重、批量替换事务、
 `realtimeLog` 不被覆盖、`viewerCount`/`sharerOnline` 聚合、`hasPassword` 语义、四种权限边界）。
 
+### 4.4 FTP 挂载与流代理
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/ftp/ftp.go` | ~760 | 自研 FTP/FTPS 客户端：被动模式（EPSV→PASV 回退）、SIZE/MDTM、REST 分段、MLSD/LIST/DOS 三种目录格式解析、stat(30s)/dir(60s) 缓存 |
+| `internal/api/ftp.go` | ~660 | 11 个端点：挂载 CRUD / test / browse / resolve / proxy / stream，外加临时连接的 `resolve-ftp` + `proxy-ftp`（票据链路） |
+
+端点：`GET/POST /api/ftp/mounts`、`POST /api/ftp/mounts/test`、`PUT/DELETE /api/ftp/mounts/{id}`、
+`GET /api/ftp/mounts/{id}/browse`、`GET /api/ftp/{resolve,proxy,stream}`、
+`GET /api/stream/{resolve-ftp,proxy-ftp}`。
+
+验证脚本：
+- `scripts/mock-ftp.js`——极简 FTP 服务器（MLSD/LIST 双形态、`nosize.mkv` 触发 stat 回退、
+  中文+空格名、错误的 PASV 报文路径）；
+- `scripts/ftp-parity.sh`——34 步逐字节对拍。**两种目录格式各跑一遍**：
+  `bash ftp-parity.sh`（MLSD）与 `LIST_ONLY=1 bash ftp-parity.sh`（老式 LIST），
+  两种模式都必须全绿——MLSD 有可靠时间戳、LIST 没有，DTO 的字段集因此不同。
+
 ---
 
 ## 七、必须保留的行为不变量
@@ -229,10 +247,26 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | WebDAV 代理的 `Content-Type` 由**源站**决定，不要按扩展名覆盖 | `webdav-client` → `request#pipeDest` | `request` 库把流 pipe 给响应时会把上游响应头整份照抄；按扩展名强行改会让同一台 NAS 出现"Node 播得动、Go 播不动" |
 | 目录列表项必须带 `size`（缺 `getcontentlength` 时填 0） | `webdav-client#readdir` | 少字段会让前端排序/展示出现 `undefined` 参与比较 |
 | WebDAV 路径编码必须与 `encodeURIComponent` 逐字符一致 | `services/webdav.ts#normalizePath` | `url.PathEscape` 的转义集合不同（`!*'()` vs `$&+,;=:@`），文件名含这些字符时两端会指向不同 URL |
+| FTP 的 `stat` 必须先 SIZE/MDTM、失败才回退 CWD+LIST | `services/ftp.ts#statFTPFile` | 视频 seek 每个 Range 请求都要 stat；全目录 LIST 在高延迟 FTP 上是秒级延迟。回退路径必须保留（老服务器 SIZE 返 550） |
+| FTP 目录项 `type` 只有 `item.type === 1` 才是 `file`，符号链接算 `directory` | `routes/ftp.ts#listFTPDirectory` | 前端按 directory 渲染才允许再进一层；把符号链接标成 file 会让用户点不进 NAS 的常见目录链接 |
+| FTP 代理**必须**把响应体截到 `Content-Range` 声明的长度 | 实测（Node 会把整个文件写出去） | FTP 的 REST 只能定起点，服务端一直发到文件尾；Node 侧实际字节数 > Content-Length，curl 会报 "Excess found in a read"。这是 Go 侧**刻意修掉的协议违规**，见下 |
+| FTP 端口要用 `port` 列，不要从 `serverUrl` 里解析 | `routes/ftp.ts#mountToParams` | 两处都填时以 `port` 为准；`serverUrl` 只取主机名 |
+| 临时连接（`resolve-ftp`）的凭证只能走服务端票据 | `routes/stream/ftp.ts` | 旧实现在 `video.src` 里带明文密码，会泄漏到浏览器历史与代理日志；票据与签发者 userId 绑定、30min 滑动续期 |
 | 房间/会话/挂载的时间列同样按 **UTC** 解释 | 实测（`rooms-parity.sh`） | 与 `movie` 表同一路径（sql.js 驱动水合时补 `Z`），不要套用 `tokenInvalidBefore` 的本地时区逻辑 |
 | REST 写出房间事件时必须走 `realtime.Bus`，事件名集中定义 | `realtime/bus.go` | 现在 `Noop` 丢弃事件，但调用点与载荷形状要一次写对，socket.io 落地后只换实现 |
 | Socket.IO 未迁移期间，房间的**创建/进房/准入审批/在线成员**一律不可用 | `modules/room` | REST 只覆盖列表/改名/弹幕数据；把 REST 通过当成"房间可用"会导致误判进度 |
 | 字幕接口失败也是 `200 + success:true + lines:[] + message` | `routes/stream/bilibili-videos.routes.ts` | 改成 4xx/5xx 会让前端当成请求失败去重试，只会继续掷骰子 |
+
+## 七之二、刻意与 Node 不同的地方
+
+这些是「对拍里对不上、但 Go 侧认为自己对」的点。改回去之前请先读原因——
+每一条都对应一个会让用户看见的故障。
+
+| 位置 | Node 的行为 | Go 的行为 | 为什么改 |
+|---|---|---|---|
+| FTP 流代理的响应体 | REST 只定起点、服务端发到文件尾，但 `Content-Length` 只声明请求区间 → 实际字节数**多于**声明，curl 报 `Excess found in a read`，部分播放器直接判定流损坏 | 按声明长度截断（`io.LimitReader`） | HTTP/1.1 要求响应体长度必须等于 `Content-Length`；多出来的字节会被当成下一个响应。对拍脚本因此只比较「声明长度内的字节」 |
+| FTP `serverUrl` 的主机解析 | `serverUrl.replace(/^ftp/i, '')` 把 `ftp.example.com` 变成 `example.com` | 按 scheme 前缀或裸主机正确处理，完整保留 `ftp.example.com` | 前者是笔误级别的正则（想剥 `ftp://` 协议头），实际结果是「主机名以 ftp 开头就必然连不上」 |
+| FTP 裸主机里的端口 | `host:2121` 会被整段当主机名交给 `net.connect`，端口参数被忽略 | `host:port` 形态直接采用其中的端口 | 同一个函数里既然已经从 URL 取 `hostname`，裸主机形态也该认端口 |
 
 ## 八、每个单元的完成定义（DoD）
 

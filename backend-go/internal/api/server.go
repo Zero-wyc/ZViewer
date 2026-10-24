@@ -16,6 +16,7 @@ import (
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
@@ -61,6 +62,12 @@ type Server struct {
 	// WebDAV 的两级缓存：属性 30s（seek 时不重复 PROPFIND）、目录 60s。
 	webdavStats *webdav.StatCache
 	webdavDirs  *webdav.DirCache
+
+	// FTP 的两级缓存：stat 30s（seek 时不重复登录+SIZE）、目录 60s。
+	ftpStats *ftp.StatCache
+	ftpDirs  *ftp.DirCache
+	// ftpTickets 是临时 FTP 连接的播放票据（凭证不进播放 URL）。
+	ftpTickets *ftpTickets
 }
 
 // New 构造 Server。
@@ -75,6 +82,9 @@ func New(deps Deps) *Server {
 		passwordLimiter: ratelimit.New(3, time.Minute),
 		webdavStats:     webdav.NewStatCache(),
 		webdavDirs:      webdav.NewDirCache(),
+		ftpStats:        ftp.NewStatCache(),
+		ftpDirs:         ftp.NewDirCache(),
+		ftpTickets:      newFTPTickets(),
 	}
 }
 
@@ -88,6 +98,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerMovieRoutes(mux)
 	s.registerRoomRoutes(mux)
 	s.registerWebDAVRoutes(mux)
+	s.registerFTPRoutes(mux)
 	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
