@@ -46,6 +46,24 @@ func (h *SocketHub) EmitRoomExcept(roomID, exceptSocketID, event string, payload
 	b.Emit(event, payload)
 }
 
+// EmitRoomExceptNoArgs 向房间内除指定连接外的连接发送一个**无参数**事件。
+//
+// 对应 Node 的 `socket.to(roomId).emit('event')`。用 EmitRoomExcept 传 nil
+// 会编成 `["event", null]`，客户端 handler 的 payload 是 null 而不是
+// undefined，按条件判断 `if (payload)` 的代码两边的走法就不同了。
+func (h *SocketHub) EmitRoomExceptNoArgs(roomID, exceptSocketID, event string) {
+	if h == nil || h.srv == nil || roomID == "" {
+		return
+	}
+	b := h.srv.To(roomID)
+	if exceptSocketID != "" {
+		if sc := h.srv.SocketByID(exceptSocketID); sc != nil {
+			b = b.Except(sc)
+		}
+	}
+	b.Emit(event)
+}
+
 // EmitTo 只推给指定连接（对应 `io.to(socketId).emit()`）。
 func (h *SocketHub) EmitTo(socketID, event string, payload any) {
 	if h == nil || h.srv == nil || socketID == "" {

@@ -29,6 +29,12 @@ type Hub interface {
 	// EmitRoomExcept 向房间内除指定连接外的所有连接广播
 	// （对应 Node 的 `socket.to(roomId).emit()`，发送者自己收不到）。
 	EmitRoomExcept(roomID, exceptSocketID, event string, payload any)
+	// EmitRoomExceptNoArgs 是 EmitRoomExcept 的「不带参数」版本。
+	//
+	// `socket.to(roomId).emit('watch-together-request-state')` 这类事件发的是
+	// 零个参数；用 payload=nil 走 EmitRoomExcept 会变成 `[null]`，
+	// 客户端 handler 拿到的第一个参数是 null 而不是 undefined。
+	EmitRoomExceptNoArgs(roomID, exceptSocketID, event string)
 	// EmitTo 只推给指定连接（对应 `io.to(socket.id).emit()`）。
 	EmitTo(socketID, event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
@@ -53,6 +59,13 @@ type RuntimeState struct {
 	// Movies 是当前影片列表。用 any 承载：DTO 的字段由 api 层定义，
 	// 房间层只负责「存着并按原样广播」，多一层转换就多一处漂移机会。
 	Movies []any
+	// MovieIDs 与 Movies 一一对应的 id 列表。
+	//
+	// 单独存是因为 play-movie 要做「这片还在列表里吗」的判定：从 DTO 里
+	// 反查 id 得先序列化一遍（房间层不能 import api 认识 DTO 类型），
+	// 而广播清理 currentMovieId 用的就是这份 ID 集合——两处共用同一份，
+	// 才不会出现「列表里有、play-movie 说不存在」。
+	MovieIDs []int64
 	// CurrentMovieID 当前播放的影片 ID（int64 或 nil）。
 	CurrentMovieID any
 	// Playback 是房主最近一次广播的播放状态。
@@ -65,13 +78,14 @@ type RuntimeState struct {
 //
 // 单例，所有 handler 与 REST 共用同一份内存状态。
 type Service struct {
-	DB       *sql.DB
-	Rooms    *store.Rooms
-	Sessions *store.Sessions
-	Settings *store.Settings
-	Playback *PlaybackMemory
-	Hub      Hub
-	Logger   *log.Logger
+	DB        *sql.DB
+	Rooms     *store.Rooms
+	Sessions  *store.Sessions
+	Settings  *store.Settings
+	MovieRepo *store.Movies
+	Playback  *PlaybackMemory
+	Hub       Hub
+	Logger    *log.Logger
 
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
@@ -86,21 +100,22 @@ type Service struct {
 }
 
 // NewService 构造房间服务。
-func NewService(db *sql.DB, rooms *store.Rooms, sessions *store.Sessions, settings *store.Settings, playback *PlaybackMemory, hub Hub, logger *log.Logger) *Service {
+func NewService(db *sql.DB, rooms *store.Rooms, sessions *store.Sessions, settings *store.Settings, movies *store.Movies, playback *PlaybackMemory, hub Hub, logger *log.Logger) *Service {
 	if logger == nil {
 		logger = log.Default()
 	}
 	return &Service{
-		DB:       db,
-		Rooms:    rooms,
-		Sessions: sessions,
-		Settings: settings,
-		Playback: playback,
-		Hub:      hub,
-		Logger:   logger,
-		states:   make(map[string]*RuntimeState),
-		timers:   make(map[string]*time.Timer),
-		perm:     newPermCache(),
+		DB:        db,
+		Rooms:     rooms,
+		Sessions:  sessions,
+		Settings:  settings,
+		MovieRepo: movies,
+		Playback:  playback,
+		Hub:       hub,
+		Logger:    logger,
+		states:    make(map[string]*RuntimeState),
+		timers:    make(map[string]*time.Timer),
+		perm:      newPermCache(),
 	}
 }
 
@@ -123,12 +138,17 @@ func (s *Service) State(roomID string) *RuntimeState {
 	return st
 }
 
-// SetMovies 覆盖影片列表。传 nil 时按空列表处理，避免广播出 `movies: null`。
-func (s *Service) SetMovies(roomID string, movies []any) {
+// SetMovies 覆盖影片列表与 id 集合。传 nil 时按空列表处理，避免广播出 `movies: null`。
+func (s *Service) SetMovies(roomID string, movies []any, ids []int64) {
 	if movies == nil {
 		movies = []any{}
 	}
-	s.State(roomID).Movies = movies
+	if ids == nil {
+		ids = []int64{}
+	}
+	st := s.State(roomID)
+	st.Movies = movies
+	st.MovieIDs = ids
 }
 
 // Movies 返回当前影片列表（永不为 nil）。
@@ -141,7 +161,17 @@ func (s *Service) Movies(roomID string) []any {
 	return []any{}
 }
 
-// SetCurrentMovie 设置当前播放影片。
+// MovieIDs 返回当前影片列表的 id 集合（永不为 nil）。
+func (s *Service) MovieIDs(roomID string) []int64 {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st := s.states[roomID]; st != nil && st.MovieIDs != nil {
+		return st.MovieIDs
+	}
+	return []int64{}
+}
+
+// SetCurrentMovie 设置当前播放影片（传 nil 表示清空）。
 func (s *Service) SetCurrentMovie(roomID string, movieID any) {
 	s.State(roomID).CurrentMovieID = movieID
 }

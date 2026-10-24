@@ -47,6 +47,9 @@ func (h *fakeHub) EmitRoom(roomID, event string, _ any) { h.rooms = append(h.roo
 func (h *fakeHub) EmitRoomExcept(roomID, exceptSocketID, event string, _ any) {
 	h.roomsExcept = append(h.roomsExcept, roomID+"|"+exceptSocketID+"|"+event)
 }
+func (h *fakeHub) EmitRoomExceptNoArgs(roomID, exceptSocketID, event string) {
+	h.roomsExcept = append(h.roomsExcept, roomID+"|"+exceptSocketID+"|"+event)
+}
 func (h *fakeHub) EmitTo(socketID, event string, _ any) {
 	h.direct = append(h.direct, socketID+"|"+event)
 }
@@ -109,7 +112,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	hub := newFakeHub()
 	rooms := store.NewRooms(conn)
 	sessions := store.NewSessions(conn)
-	svc := NewService(conn, rooms, sessions, nil, NewPlaybackMemory(conn), hub, nil)
+	svc := NewService(conn, rooms, sessions, nil, nil, NewPlaybackMemory(conn), hub, nil)
 	return &testEnv{svc: svc, db: conn, hub: hub}
 }
 
@@ -290,7 +293,7 @@ func TestCloseAndNotify(t *testing.T) {
 	}
 	env.hub.online["viewer-a"] = true
 	env.hub.members["ROOMGGGG"] = []string{"host", "viewer-a"}
-	env.svc.SetMovies("ROOMGGGG", []any{map[string]any{"id": 1}})
+	env.svc.SetMovies("ROOMGGGG", []any{map[string]any{"id": 1}}, []int64{1})
 	env.svc.SetSubtitle("ROOMGGGG", map[string]any{"trackId": 3})
 
 	if err := env.svc.CloseAndNotify(ctx, "ROOMGGGG", "host"); err != nil {

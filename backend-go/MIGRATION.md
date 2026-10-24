@@ -7,9 +7,9 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~28,900（含测试 5,370） | 42,653 | 67.8% |
+| 代码行 | ~30,600（含测试 5,650） | 42,653 | 71.8% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
-| 实时事件 | 19 | 68（上行） | 27.9% |
+| 实时事件 | 38 | 68（上行） | 55.9% |
 | 数据库表 | 11（user / movie / room / session / playback_states / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 68.8% |
 
 ## 二、阶段 0：基座（已完成）
@@ -113,10 +113,10 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 实时层接入 + 房间生命周期 + 房主/观众会话 | ~1,400 | ✅ 见 3.2（7 个事件 / 28 步对拍） | |
 | 房间 REST（列表/改名/弹幕轨道/弹幕辅助数据） | ~450 | ✅ 见 4.3（实时部分见 3.2） | |
 | 房间设置 / 成员管理（禁言、踢人、转交房主、审批） | ~900 | ✅ 见 3.3（12 个事件 / 46 步对拍） | 语音禁言随 WebRTC 阶段 |
-| 影片列表 / 当前播放（socket 侧） | ~1,100 | 🚧 `movie-list` / `current-movie` 广播已接，`play-movie` 等控制事件未做 | |
+| 影片列表 / 当前播放（socket 侧） | ~1,100 | ✅ 见 3.4（5 个事件） | |
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
 | 评论 / 弹幕广播 | ~1,200 | ⏳ | |
-| 共享播放记忆 | ~1,550 | 🚧 读取/推算/清理已做，写入与定时广播未做 | |
+| 共享播放记忆 | ~1,550 | 🚧 见 3.4：写入/推算/补偿/清理已做（19 个事件之一半），**服务器周期心跳与陈旧缓存清理未做** | `playback-broadcaster.service.ts` 的 2s 定时广播 |
 | WebRTC 信令 | ~280 | ⏳ | |
 | 推流（NMS → mediamtx/lal） | ~580 | ⏳ | 需复刻推流鉴权与 `stream-status` |
 
@@ -231,6 +231,54 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 
 **尚未覆盖**：语音禁言（`voiceMuted` 列，属 WebRTC 阶段）、房管对房管的边界用例
 （只有房主侧覆盖）、`update-room-mode` 的枚举校验（Node 也不校验，刻意保持一致）。
+
+### 3.4 播放控制、影片列表与跳转申请（阶段 10）
+
+19 个事件，全部落在已有的 `room.Service` 上，没有新增表。实时事件 19 → 38 / 68。
+
+| 事件组 | 事件 | 实现位置 |
+|---|---|---|
+| 播放控制 | `watch-together-state` / `watch-together-request-state` / `watch-together-control` / `watch-together-check-status` / `host-heartbeat` | `internal/room/playback_handlers.go`（450 行） |
+| 影片列表 | `add-movie` / `remove-movie` / `play-movie` / `request-movie-list` / `request-current-movie` | `internal/room/movie_handlers.go`（306 行） |
+| 字幕 / 轨道 | `subtitle-update` / `subtitle-request` / `track-change` | `internal/room/sync_handlers.go`（237 行） |
+| 观众申请 | `seek-request` / `seek-response` / `pause-request` / `pause-response` / `play-request` / `play-response` | 同上 |
+
+支撑改动：
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/room/playback_write.go` | ~245 | `SetPlayback`（合并 + 时间戳 + 2s 节流落盘）、`ApplyHostHeartbeat`（10s 节流）、`flushToDB`（整行 upsert）、`Raw` / `ActiveRoomIDs` / `HasCache` |
+| `internal/room/transport_delay.go` | ~105 | `CompensateTransportDelay`（写侧延迟补偿，clamp 0~1.5s × rate）、`NeedsProgressSync`（自检判定，容差 10s） |
+| `internal/room/playback.go` | 结构升级 | 缓存从 `map[string]*Playback` 换成带 `lastDBWriteAt` / `dirty` 的条目（节流需要） |
+| `internal/room/playback_write_test.go` | ~270 | 补偿边界、自检容差、节流落盘、`hostSocketId` 保留、心跳不建缓存 |
+| `internal/realtime/siohub.go` | +20 | `EmitRoomExceptNoArgs`（表达「零参数事件」，见下） |
+
+对拍：`DRIVER=sio-playback-driver.js TAG=playback bash scripts/sio-rooms-parity.sh`
+→ **66 个步骤完全一致**。驱动器带两条额外的规范化：
+- `currentTime` / `duration` / `time` 与全部时间戳不删键，替换成 `<TIME>` / `<TS>`——
+  值两侧必然不同，但「键在不在」能比也必须比；
+- 影片 `id` / `movieId` 按首次出现顺序映射成 `MOVIE1` / `MOVIE2`。
+
+覆盖：建/进房、`add-movie`（房主成功 / 普通用户按矩阵默认被拒）、`request-movie-list`
+（房内 / 房外）、`request-current-movie`（没有在播 / 有在播 / 删掉之后）、
+`watch-together-state`（非房主被拒 / 正常）、`request-state`（**无状态时 data=null
+且广播零参 request-state** / 有状态时返回推算值 + hostOnline / 房外被拒）、
+`control`（play / rate / seek / seek 负数 / pause / 未知动作 / 非 watch-together 模式被拒）、
+`check-status`（一致 / isPlaying 分歧 / 房外）、`host-heartbeat`（非房主被拒 / 正常 /
+`suppressed` / screen-share 模式**仍转发**）、`subtitle-update`（非房主被拒 / 正常 /
+缺 roomId）、`subtitle-request`（收到缓存的 subtitle-update / 房间不存在静默）、
+`track-change`（非房主被拒 / 字幕索引 / 弹幕轨道 / `value: null`）、
+六件套申请与回应（非房内被拒 / 房主离线拒绝 / 接受 / 拒绝 / 非房主回应被拒）、
+`play-movie`（正常 / 非房主被拒 / 影片不存在）、`remove-movie`（正常 / 重复删 /
+非房主被拒）、`close-room`。
+
+**尚未覆盖**：
+- **服务器周期心跳**（`sync-heartbeat` / `source: 'server'`）：由
+  `playbackBroadcasterService` 每 2s 主动推，Go 侧定时器还没做。对拍驱动器会
+  过滤这一路（触发时刻不可控，两侧步骤边界会被切歪），**别把「对拍通过」当成
+  「房主断线后观众能继续播」**——那条链路还断着。
+- 陈旧缓存清理（`cleanupStaleCache`，房主离线 10 分钟 + 无观众时删）。
+- Redis 存储适配器（`setStorageAdapter`，多实例共享）。单实例部署用不到。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
@@ -444,6 +492,24 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | `update-room-settings` 的 `password` 只认**字符串**：`null`/缺失=不动，空串=清空（列写 NULL） | 同上 | 把 null 当清空会让「只改人数」的调用顺手把密码删掉 |
 | `room-settings-updated` 下发的 `password` 是**密文本身**（与 Node 一致） | 同上 | 前端只用它判断「有没有密码」；改成布尔会让两端载荷形状不同 |
 | `update-room-settings` 先校验 `maxViewers`（整数 1..100）再写库，非法时**整条不落库** | 同上 | Node 是「先改内存实体、校验失败直接 return」，没走到 save；分开写会产生「密码改了但人数没改」的半截状态 |
+| 写播放状态前必须做**传输延迟补偿**：`currentTime += clamp((now-clientTs)/1000, 0, 1.5) × rate`，暂停态与缺 `clientTs` 不补偿 | `playback-memory/transport-delay.ts` | 房主上报的是「发出时刻」的进度，到服务器已前进一个 RTT；不补的话观众每次请求状态都比房主慢半拍，越播越明显 |
+| 补偿只能做一次：`applyControlToPlayback` 里已显式补过，再调 `setPlayback` 时必须**不传 clientTs** | `playback-memory.handler.ts#applyControlToPlayback` | 传了就是二次补偿，进度会凭空多走 1.5s |
+| `seek` 控制**不改变 `isPlaying`** | 同上 | 旧实现强制置 false，观众端 seek 后会暂停、等下次心跳才恢复，肉眼可见地抖一下 |
+| `watch-together-state` 落库后广播，与心跳落盘都要**节流**（state 2s / 心跳 10s），内存永远是权威 | `playback-memory.service.ts` | 不节流会让房主 500ms 一次的推送把 SQLite 写成瓶颈（迁移期还与 Node 共库） |
+| `setPlayback` 覆盖整个 state 时必须**保留 `hostSocketId`** | 同上 | 丢了会让 `isHostOnline` 在房主在线时返 false，服务器心跳与房主广播同时发，观众进度来回跳 |
+| 心跳**不校验房间模式**（screen-share 下同样转发） | `heartbeat.handler.ts` | 观众端靠心跳重置「房主离线」计时器，漏转发 = 6 秒后误报离线并暂停播放 |
+| 心跳在**没有播放缓存时不能创建**（直接返回） | `playback-memory.service.ts#applyHostHeartbeat` | 心跳缺 `sourceUrl` 等字段，凭空建一条会让观众加入时拿到「有状态但源为空」的记录 |
+| `watch-together-state` / `control` 要先判「活跃房主」再判「房间是 watch-together 模式」 | `playback-memory.handler.ts` | 顺序反了会把「没权限」的人告知成「模式不支持」，前端提示语对不上 |
+| `watch-together-request-state` 无状态时：ack 里 `data` 必须是**显式 null**，同时向房间广播**零参数**的 `watch-together-request-state` | 同上 | `data` 键缺失与 `data:null` 前端走不同分支；带 `null` 参数的广播会让观众端 `if (payload)` 判成真 |
+| 观众自检（`check-status`）容差 **10s**，且**不比对 playbackRate** | `check-status.ts` | 观众软同步追赶会临时 +0.1 倍速，比倍速会在追赶期误触发纠偏、打断收敛；容差必须显著大于主路径阈值 |
+| `add-movie` 走的是 `createMovie`，**不做** REST 那套 url/title 必填校验、挂载凭证回填、内网强制代理 | `movie-list.handler.ts` | 两条路径本来就不是一套校验，照搬 REST 会让 socket 侧能加的「先占位后补链接」影片被拒 |
+| `play-movie` 广播 `current-movie` 用 `io.to(room)`（**发送者也收**），与 `p2p-mode-change` 的 `socket.to` 相反 | 同上 | 切换当前影片要所有人（含发起者）同步到同一个 id |
+| `request-current-movie` 的载荷**恒带 `movieId` 键**（没在播就是 `null`），不能 `omitempty` | 同上 | Node 的 `getCurrentMovieId` 对「没选过」与「已清空」都返回 null |
+| `subtitle-update` 转发的是**整份原始载荷**（含 `roomId`），并缓存供 `subtitle-request` 补发 | `subtitle-sync.handler.ts` | 观众端把整份 payload 合并进本地状态，少一个键就少同步一项 |
+| `subtitle-request` **没有 ack**，非法输入静默返回 | 同上 | 加了 ack 会让前端的 `emit` 多一个回调，行为虽不坏但与 Node 不一致 |
+| `track-change` 的 `value` 要能区分「缺失」与「显式 null」 | `track-sync.handler.ts` | `null` 是「关闭该轨道」，缺失是「没带这个字段」，前端两处判断不同 |
+| 申请类事件（`seek/pause/play-request`）转发时要**附加 `viewerSocketId` + `viewerUsername`**，房主不在线直接拒 | `seek-approval.handler.ts` | 不附身份房主端弹不出「谁想跳转」；不拒会让前端停在「等待房主确认」 |
+| 回应类事件（`*-response`）只做定向转发，**不改播放状态** | 同上 | 房主端接受时已自行 seek/pause/play 并广播过 control，服务端再改一次会重复推进进度 |
 
 ## 七之二、刻意与 Node 不同的地方
 

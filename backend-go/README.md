@@ -89,16 +89,24 @@ go test ./...
 | 房间设置 | ✅ | `update-room-name`（root 或 owner）/ `update-room-mode` / `update-room-settings`（密码·人数·审批）/ `p2p-mode-change`（发送者不收） |
 | 成员管理 | ✅ | 审批（`approve-join` / `reject-join`）、踢人、禁言/解禁、房管任命/撤销、转交房主（事务 + 房管名单清理） |
 | 权限矩阵与防篡权 | ✅ | `roomPermissionMatrix` 缺省值对齐（房管/admin 允许、user 拒绝）；房管不可操作房主/其他房管/root |
-| 实时事件（业务） | 🚧 | 已接 19 / 68 个上行事件；播放控制、评论弹幕、一起听、WebRTC 信令待迁移 |
+| 播放控制 | ✅ | `watch-together-state` / `request-state`（无状态时 `data:null` + 零参广播）/ `control`（play·pause·seek·rate）/ `check-status`（容差 10s）；写入带传输延迟补偿与 2s 节流落盘 |
+| 房主心跳 | ✅ | `host-heartbeat` 双发（老事件 + `sync-heartbeat`）、不校验房间模式、落盘 10s 节流 |
+| 影片列表（socket 侧） | ✅ | `add-movie` / `remove-movie` / `play-movie` / `request-movie-list` / `request-current-movie`，走 `canViewerPerform` 矩阵 |
+| 字幕与轨道 | ✅ | `subtitle-update`（整份透传 + 缓存）/ `subtitle-request`（补发，无 ack）/ `track-change`（区分缺失与 null） |
+| 观众申请与回应 | ✅ | `seek-request` / `pause-request` / `play-request` 转给在线房主（附申请者身份），`*-response` 定向回发 |
+| 实时事件（业务） | 🚧 | 已接 38 / 68 个上行事件；评论弹幕、一起听、WebRTC 信令、推流待迁移 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层只接了 19 个事件**：建房、房主注册/重连、房主离开、关房、管理员关房、观众进房、
-断线收尾、房间设置（改名/切模式/改设置/P2P）、成员管理（审批/踢人/禁言/房管/转交房主）
-已经可用（房间 28 步 + 成员 46 步 Node↔Go 对拍零差异），但播放控制
-（`play-movie` / `watch-together-*` / 心跳）、评论弹幕、一起听、WebRTC 信令都还没注册——
+**实时层接了 38 个事件**（房间 28 步 + 成员 46 步 + 播放 66 步 Node↔Go 对拍零差异），
+但还有两块关键能力没做：
+
+- **服务器周期心跳**（`sync-heartbeat` / `source: 'server'`，每 2s）与**陈旧缓存清理**——
+  所以别把「播放对拍通过」当成「房主断线后观众能继续播」，那条链路还断着；
+- 评论弹幕广播、一起听音乐、WebRTC 信令、推流。
+
 这些路径上的前端操作会静默无响应（事件没有监听器），不是报错。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
@@ -124,7 +132,7 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆、权限、设置与成员管理（19 事件）
+│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（含写入/补偿/节流）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请（38 事件）
 │   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
@@ -159,6 +167,7 @@ backend-go/
     ├── sio-rooms-parity.sh     实时层与 Node 双向对拍（起真实 Node 后端；DRIVER/TAG 可换场景）
     ├── sio-rooms-driver.js     房间/房主/观众对拍驱动器（28 步）
     ├── sio-members-driver.js   房间设置与成员管理对拍驱动器（46 步）
+    ├── sio-playback-driver.js  播放控制/影片列表/字幕轨道/跳转申请对拍驱动器（66 步）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
@@ -190,6 +199,18 @@ Go 侧"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE）
 无时区标记时 JS 取本地时区；而 `movie.createdAt` 是 sql.js 驱动从 DATE 列解出来的
 `Date` 对象，已经是 UTC 解释好的。曾按前者类推给影片时间加了 +8h，对拍立刻差 8 小时——
 **这类跨实现的语义只能实测，读一两个函数推断必错**。
+
+**为什么播放事件转发的是原始 JSON 字节**：`watch-together-state` 的 `state` 字段是
+客户端上报的 `SyncStateDto`，而 Go 解析用的 `Playback` 结构体多了
+`hostSocketId` / `updatedAt` / `currentMovieId` 三个字段。反序列化再序列化会把它们
+「顺手补出来」，前端拿到的 state 形状就与 Node 版不同。所以转发一律走
+`json.RawMessage`，只有「写进播放记忆」那一步才解析。
+
+**为什么延迟补偿只能做一次**：`watch-together-control` 已经按动作显式补偿过
+（play 补在途推进、seek 按当前 isPlaying 决定补不补），随后调 `setPlayback` 时
+必须不传 `clientTs`——传了就是同一段 RTT 被补两次，进度凭空多走最多 1.5s。
+这条规则在 `transport_delay.go` 与 `playback_handlers.go` 里各写了一遍注释，
+因为它属于「读代码看不出来、只在长连接上体现」的隐性约定。
 
 **为什么 OpenList 要做三层缓存**：token（12h）避免每次 /stream 都登录（AList 登录有限流）；
 raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几十个 Range）；

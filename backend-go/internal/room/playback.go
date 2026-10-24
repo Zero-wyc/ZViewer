@@ -35,10 +35,13 @@ type Playback struct {
 	AcceptQuality   json.RawMessage `json:"acceptQuality,omitempty"`
 	Headers         json.RawMessage `json:"headers,omitempty"`
 	NoProxyFallback *bool           `json:"noProxyFallback,omitempty"`
-	IsPreview       bool            `json:"isPreview"`
-	PreviewTitle    *string         `json:"previewTitle,omitempty"`
-	BufferMode      *bool           `json:"bufferMode,omitempty"`
-	CurrentMovieID  *int64          `json:"currentMovieId,omitempty"`
+	// IsPreview 用 omitempty：Node 的播放记忆在内存里是「客户端上报的 state
+	// 原样 + 几个补丁字段」，前端没传 isPreview 时对象里就没这个键；
+	// 恒输出 false 会让 request-state 的 ack 多出一个 Node 没有的字段。
+	IsPreview      bool    `json:"isPreview,omitempty"`
+	PreviewTitle   *string `json:"previewTitle,omitempty"`
+	BufferMode     *bool   `json:"bufferMode,omitempty"`
+	CurrentMovieID *int64  `json:"currentMovieId,omitempty"`
 	// UpdatedAt 是 Unix 毫秒时间戳（对应 DB 的 lastUpdatedAt），
 	// 服务器据此推算当前实际进度。
 	UpdatedAt int64 `json:"updatedAt"`
@@ -52,21 +55,33 @@ func (p *Playback) clone() *Playback {
 	return &cp
 }
 
+// cachedPlayback 是内存缓存条目。
+//
+// 单独记 lastDBWriteAt / dirty 是为了节流落盘：房主每 500ms 推一次状态、
+// 每 2s 发一次心跳，每次都写 DB 会把 SQLite 写成瓶颈（且迁移期与 Node
+// 共用同一个库，写放大直接变成两边互相抢锁）。内存永远是最新的，
+// DB 只用于持久化与重启恢复。
+type cachedPlayback struct {
+	state *Playback
+	// lastDBWriteAt 是最近一次落盘的时刻（Unix 毫秒），0 表示从未写过。
+	lastDBWriteAt int64
+	// dirty 表示内存已变更但还没落盘。
+	dirty bool
+}
+
 // PlaybackMemory 管理播放状态的「内存缓存 + DB 持久化」。
 //
-// 与 Node 版一致：读优先内存，写同步更新内存。迁移期只覆盖房间生命周期
-// 需要的那部分（读、推算、改 hostSocketId、清理），高频写入与节流落盘
-// 属于一起听/心跳的范畴，等迁移到 sync-playback 时再补。
+// 与 Node 版一致：读优先内存，写同步更新内存、按节流窗口异步落盘。
 type PlaybackMemory struct {
 	conn *sql.DB
 
 	mu    sync.Mutex
-	cache map[string]*Playback
+	cache map[string]*cachedPlayback
 }
 
 // NewPlaybackMemory 构造播放记忆服务。
 func NewPlaybackMemory(conn *sql.DB) *PlaybackMemory {
-	return &PlaybackMemory{conn: conn, cache: make(map[string]*Playback)}
+	return &PlaybackMemory{conn: conn, cache: make(map[string]*cachedPlayback)}
 }
 
 // ErrNoPlayback 表示房间没有任何播放状态。
@@ -81,8 +96,8 @@ const playbackColumns = `"roomId", "sourceUrl", "sourceType", "audioUrl", "forma
 // load 读缓存，未命中回落 DB 并回填缓存。
 func (m *PlaybackMemory) load(ctx context.Context, roomID string) (*Playback, error) {
 	m.mu.Lock()
-	if p, ok := m.cache[roomID]; ok {
-		cp := p.clone()
+	if c, ok := m.cache[roomID]; ok && c.state != nil {
+		cp := c.state.clone()
 		m.mu.Unlock()
 		return cp, nil
 	}
@@ -100,10 +115,10 @@ func (m *PlaybackMemory) load(ctx context.Context, roomID string) (*Playback, er
 
 	m.mu.Lock()
 	// 并发读同一房间时可能已被别的协程填入，保留先到的那份（内容相同）。
-	if existing, ok := m.cache[roomID]; ok {
-		p = existing
+	if existing, ok := m.cache[roomID]; ok && existing.state != nil {
+		p = existing.state
 	} else {
-		m.cache[roomID] = p
+		m.cache[roomID] = &cachedPlayback{state: p, lastDBWriteAt: time.Now().UnixMilli()}
 	}
 	cp := p.clone()
 	m.mu.Unlock()
@@ -146,8 +161,8 @@ func (m *PlaybackMemory) Advanced(ctx context.Context, roomID string) (*Playback
 // 这里凭空插一条会让观众加入时看到「有播放状态但 sourceUrl 为空」。
 func (m *PlaybackMemory) UpdateHostSocket(ctx context.Context, roomID string, hostSocketID *string) error {
 	m.mu.Lock()
-	if p, ok := m.cache[roomID]; ok {
-		p.HostSocketID = hostSocketID
+	if c, ok := m.cache[roomID]; ok && c.state != nil {
+		c.state.HostSocketID = hostSocketID
 	}
 	m.mu.Unlock()
 
@@ -163,10 +178,33 @@ func (m *PlaybackMemory) UpdateHostSocket(ctx context.Context, roomID string, ho
 func (m *PlaybackMemory) HostSocketID(roomID string) string {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if p, ok := m.cache[roomID]; ok && p.HostSocketID != nil {
-		return *p.HostSocketID
+	if c, ok := m.cache[roomID]; ok && c.state != nil && c.state.HostSocketID != nil {
+		return *c.state.HostSocketID
 	}
 	return ""
+}
+
+// HasCache 判断房间是否有内存缓存条目。
+//
+// 与「读 DB」不同：这里只问「这个房间当前是否有人在同步播放」。
+// host-heartbeat 的落盘节流依赖它——没有缓存说明房主还没广播过完整状态，
+// 单凭心跳的 currentTime 拼不出完整播放状态（缺 sourceUrl 等），不能建。
+func (m *PlaybackMemory) HasCache(roomID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	_, ok := m.cache[roomID]
+	return ok
+}
+
+// ActiveRoomIDs 返回所有有播放状态的房间（供定时广播/清理遍历）。
+func (m *PlaybackMemory) ActiveRoomIDs() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := make([]string, 0, len(m.cache))
+	for roomID := range m.cache {
+		out = append(out, roomID)
+	}
+	return out
 }
 
 // Clear 清除房间的播放记忆（内存 + DB）。关闭房间时调用。

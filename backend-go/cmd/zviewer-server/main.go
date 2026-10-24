@@ -72,7 +72,7 @@ func main() {
 	socketSrv := sio.NewServer(sio.Options{})
 	hub := realtime.NewSocketHub(socketSrv)
 	roomSvc := room.NewService(
-		conn, rooms, sessions, settings,
+		conn, rooms, sessions, settings, movies,
 		room.NewPlaybackMemory(conn), hub, log.Default(),
 	)
 

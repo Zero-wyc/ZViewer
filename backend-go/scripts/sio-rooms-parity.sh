@@ -48,6 +48,10 @@ for name, role in (('sio-owner', 'user'), ('sio-viewer', 'user'), ('sio-admin', 
 row = c.execute('SELECT "id" FROM "system_settings" ORDER BY "id" LIMIT 1').fetchone()
 if row:
     c.execute('UPDATE "system_settings" SET "roomCreationMode"=? WHERE "id"=?', ('all-users', row[0]))
+# 影片表必须清干净并重置自增序列：驱动器会比对 movie-list / current-movie
+# 里的影片 id，两次跑的起点不同就是假差异（阶段 9 曾因此误判）。
+c.execute('DELETE FROM "movie"')
+c.execute('DELETE FROM sqlite_sequence WHERE name = "movie"')
 c.commit()
 PY
 }

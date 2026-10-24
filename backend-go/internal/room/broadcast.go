@@ -37,7 +37,7 @@ func (s *Service) BroadcastMovieList(ctx context.Context, roomID string) error {
 	if err != nil {
 		return err
 	}
-	s.SetMovies(roomID, list.DTOs)
+	s.SetMovies(roomID, list.DTOs, list.IDs)
 
 	if cur := s.CurrentMovieID(roomID); cur != nil {
 		if id, ok := asInt64(cur); ok && !containsID(list.IDs, id) {

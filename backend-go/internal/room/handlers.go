@@ -113,6 +113,19 @@ func ackFailCode(ack func(...any), code, message string) {
 	safeAck(ack, AckResponse{Success: false, Code: code, Message: message})
 }
 
+// ackRaw 原样发送应答体。
+//
+// AckResponse 的 Data 带 omitempty，表达不了「data 键存在但值为 null」；
+// watch-together-request-state 里 `data: null` 是「房间暂无播放状态」的
+// 显式信号，前端靠它区分「没数据」与「字段缺失」，所以那条事件绕开结构体。
+func ackRaw(ack func(...any), resp any) {
+	if ack == nil {
+		return
+	}
+	defer func() { _ = recover() }()
+	ack(resp)
+}
+
 // ==================== payload 解析 ====================
 
 // decodePayload 把事件第一个参数解成结构体。
@@ -148,6 +161,13 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindRegisterHost(sc)
 	s.bindViewerJoin(sc)
 	s.bindViewerManagement(sc)
+	// 播放控制 / 影片列表 / 字幕轨道 / 跳转申请：顺序不影响行为
+	// （事件名两两不重叠），但保持与 Node 侧 register-handlers 相近的
+	// 排列，方便对照。
+	s.bindPlaybackSync(sc)
+	s.bindMovieList(sc)
+	s.bindSubtitleAndTracks(sc)
+	s.bindSeekApproval(sc)
 }
 
 // ---------- 房间生命周期 ----------
