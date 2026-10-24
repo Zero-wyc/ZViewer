@@ -243,6 +243,29 @@ func (r *Rooms) SetMode(ctx context.Context, roomID, mode string) error {
 	return nil
 }
 
+// SetShareMethod 修改房间投屏子模式，并在需要时写入推流密钥。
+//
+// streamKey 为 nil 表示不动该列：切到 stream-push 时若已有密钥就复用，
+// 无条件覆盖会让 OBS 里已经填好的推流码下次连接就失效。
+func (r *Rooms) SetShareMethod(ctx context.Context, roomID, shareMethod string, streamKey *string) error {
+	if streamKey == nil {
+		_, err := r.conn.ExecContext(ctx, `
+			UPDATE "room" SET "shareMethod" = ?, "updatedAt" = ? WHERE "roomId" = ?
+		`, shareMethod, FormatSQLiteTime(time.Now()), roomID)
+		if err != nil {
+			return fmt.Errorf("修改投屏子模式失败: %w", err)
+		}
+		return nil
+	}
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "shareMethod" = ?, "streamKey" = ?, "updatedAt" = ? WHERE "roomId" = ?
+	`, shareMethod, *streamKey, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改投屏子模式失败: %w", err)
+	}
+	return nil
+}
+
 // RoomSettingsPatch 是 update-room-settings 的三列补丁：字段为 nil 表示不改。
 //
 // 三列都用指针而不是「零值即不改」：`requireApproval=false` 是合法取值，

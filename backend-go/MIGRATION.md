@@ -7,10 +7,10 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~32,400（含测试 6,270） | 42,653 | 75.9% |
+| 代码行 | ~36,100（含测试 6,985） | 42,653 | 84.7% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
-| 实时事件 | 44 | 68（上行） | 64.7% |
-| 数据库表 | 11（user / movie / room / session / playback_states / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 68.8% |
+| 实时事件 | 65 | 65（上行业务事件） | 100% |
+| 数据库表 | 13（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 81.3% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -117,8 +117,10 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
 | 评论 / 弹幕广播 | ~470（实测） | ✅ 见 3.6（6 个事件 / 32 步对拍） | |
 | 共享播放记忆 | ~1,550 | ✅ 见 3.4 / 3.5：读写、推算、补偿、2s 定时广播、陈旧缓存清理全做 | |
-| WebRTC 信令 | ~280 | ⏳ | |
-| 推流（NMS → mediamtx/lal） | ~580 | ⏳ | 需复刻推流鉴权与 `stream-status` |
+| 一起听音乐（实时层） | ~3,170 | ✅ 见 3.7（11 个事件 + 服务器心跳 / 48 步对拍） | NCM 内部 API 与流代理属阶段 4 |
+| WebRTC 信令 | ~280 | ✅ 见 3.7（6 个事件 / 36 步对拍，媒体面不在后端） | |
+| CLI 代理 / 预览源 / 投屏子模式 | ~350 | ✅ 见 3.7（5 个事件） | |
+| 推流（NMS → mediamtx/lal） | ~580 | ⏳ | Go 版未内嵌 RTMP 服务器，见 3.7「已知缺口」 |
 
 ### 3.1 Socket.IO 协议层（spike 已通过）
 
@@ -200,9 +202,9 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 观众断线、房主 host-leave 与重连恢复、close-room（含踢人）、关闭后再进房、
 密码房（错密码/对密码）、管理员强制关闭（房主不被踢）。
 
-**尚未覆盖**（阶段 9 已补掉其中的房间设置与成员管理）：`play-movie` 等播放控制、
-聊天/评论/弹幕广播、一起听、WebRTC 信令、推流。
-`cmd/sio-spike` 仍保留，等这些接完再删。
+**尚未覆盖**（阶段 9~13 已逐项补齐房间设置、成员管理、播放控制、评论弹幕、一起听、
+WebRTC 信令）：只剩**推流**（NMS，见 3.7 已知缺口）。`cmd/sio-spike` 是协议层的临时
+验证二进制，业务事件接完后可以删，但它那 17 项传输形态断言仍有参考价值。
 
 ### 3.3 房间设置与成员管理（阶段 9）
 
@@ -234,7 +236,7 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 
 ### 3.4 播放控制、影片列表与跳转申请（阶段 10）
 
-19 个事件，全部落在已有的 `room.Service` 上，没有新增表。实时事件 19 → 38 / 68。
+19 个事件，全部落在已有的 `room.Service` 上，没有新增表。实时事件 19 → 38 / 65。
 
 | 事件组 | 事件 | 实现位置 |
 |---|---|---|
@@ -280,7 +282,7 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 ### 3.5 服务器周期心跳与陈旧缓存清理（阶段 11）
 
 `backend/src/modules/playback-memory/playback-broadcaster.service.ts`（139 行）的 Go 版：
-`internal/room/broadcaster.go`（229 行）。实时事件数**不变**（38 / 68）——这一层没有新增
+`internal/room/broadcaster.go`（229 行）。实时事件数**不变**（38 / 65）——这一层没有新增
 上行事件，它填的是下行的定时器。
 
 | 能力 | Node | Go | 说明 |
@@ -308,7 +310,7 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 
 `backend/src/modules/comment/`（291 + 60 + 115 = 466 行）的 Go 版：
 `internal/room/comment_handlers.go`（478 行）+ `internal/store/comment.go`（96 行）。
-实时事件 38 → **44 / 68**。
+实时事件 38 → **43 / 65**。
 
 | 事件 | 权限 / 校验 | 广播 |
 |---|---|---|
@@ -336,6 +338,69 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 → **32 个步骤完全一致**。驱动器额外记录**参数个数**（`argc`）：
 `clear-annotations` 是零参数事件，Go 侧若传 `nil` 会变成 `[null]`，只比 payload 看不出差异。
 
+### 3.7 一起听 / WebRTC 信令 / CLI 代理（阶段 13，实时层收尾）
+
+新增 22 个事件，累计 **65 / 65**：上行业务事件全部接完。三块一起做，因为它们共享同一批
+基础设施（`Hub` 的全局广播、`socket.data` 跨协程访问、定向中继），分开做要改三遍接口。
+
+| 事件组 | 事件 | 实现位置 |
+|---|---|---|
+| 一起听队列 | `music:queue-upsert` / `queue-remove` / `queue-clear` / `queue-reorder` | `internal/room/music_handlers.go`（1,093 行） |
+| 一起听同步 | `music:sync-state` / `host-heartbeat` / `check-status` / `get-state` | 同上 |
+| 一起听申请制 | `music:control-request` / `control-response` / `sync-ack` | 同上 |
+| WebRTC 信令 | `signal-offer` / `signal-answer` / `signal-ice-candidate` | `internal/room/webrtc_handlers.go`（215 行） |
+| 观众就绪 | `viewer-ready` / `sharer-ready` / `sharer-error` | 同上 |
+| CLI 代理 | `cli-register` / `cli-list-agents`（+ 断线全局广播） | `internal/room/misc_handlers.go`（334 行） |
+| 零散能力 | `play-preview-source` / `update-share-method` / `query-stream-push-availability` | 同上 |
+
+支撑改动：
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/store/music.go` | ~360 | `music_queue_item` 与 `music_playback_states` 两张表的读写（队列排序 / 压实 / 时长解析 / 基线 upsert） |
+| `internal/room/music_state.go` | ~660 | 音乐播放基线：内存缓存、写侧补偿、外推到歌曲时长即凝固、2s/10s 两档节流落盘、陈旧缓存清理、payload 严格校验 |
+| `internal/room/music_broadcaster.go` | ~180 | 每 2s 广播 `music:sync-heartbeat(source:'server')` + 5s TTL 的 `hostOnline` + 30s 清理 |
+| `internal/room/music_test.go` | ~700 | 校验边界、外推凝固、补偿两端钳位、重启恢复、order 压实、失效行真删、清理跳过脏数据 |
+| `internal/sio/socket.go` | +18 | `GetData`：断线回调里读 `socket.data`（那时连接已从服务端索引移除，Hub 查不到） |
+| `internal/realtime/siohub.go` | +26 | `EmitGlobal`（`io.emit`）、`SocketRooms`（信令的「同房间」判定要看**目标连接**的房间） |
+| `internal/room/state.go` | +20 | `Hub` 接口补两个方法；`Deps.Music`；关闭房间改调 `Music.Clear`（内存 + DB 一起清） |
+| `cmd/zviewer-server/main.go` | +12 | 装配音乐基线与广播器；退出时**先停定时器再落盘** |
+
+对拍（同一套 `sio-rooms-parity.sh`，靠 `DRIVER`/`TAG` 复用）：
+
+- `DRIVER=sio-music-driver.js TAG=music` → **48 个步骤完全一致**，14 条断言，心跳形状一致；
+- `DRIVER=sio-misc-driver.js TAG=misc` → **36 个步骤完全一致**，13 条断言。
+
+八处「只有对拍才照得出来」的细节：
+
+1. **队列 order 右移必须从当前条目的下一条开始**。从当前条目自身开始右移会让它与新条目
+   order 相同，连续插入时整批平局，SQLite 退化成 rowid 随机序——前端表现是「点下一首
+   跳到推荐批次里的任意一首」。驱动器用名字断言顺序而不只看条数。
+2. **`music:control-request` 的 `item` 必须原样透传**。用解析后的结构体转发会把
+   `biliBvid` / `biliCid` / `recommended` 补成 `null`，而 Node 是 `{ item: payload.item }`
+   （键直接不存在）。这是本轮唯一一条被对拍抓出来的真差异。
+3. **`music:get-state` 的 `syncState` 键恒存在**（值为 `null`），且 ack 是**顶层**摊开
+   （`queue` / `syncState` / `serverTs` / `hostOnline`），不是 `{ success, data }` 包装。
+4. **`music:check-status` 成功时也走 `{ success: true, data: {...} }`**，失败才是
+   `{ success: false, message }`——两种形态不能混用同一个结构体。
+5. **`music:sync-heartbeat` 不进步骤缓冲**（与 3.5 的服务器心跳同理），改比「形状集合」：
+   键集合 / `source` / `state` 的键集合 / `hostOnline` 类型 / `isPlaying` 类型。
+6. **`cli-list-agents` 的 roomId 只在参数本身是裸字符串时才回显**。Node 是
+   `typeof roomId === 'string'`，传 `{ roomId }` 反而不满足。驱动器三种形态都覆盖了。
+7. **`query-stream-push-availability` 必须带一个占位参数**。Node 的 handler 签名是
+   `(_payload, callback)`，`emit(event, cb)` 会把回调当成 payload，ack 永远不回（驱动器
+   第一次就是这么超时的）。
+8. **CLI 断线广播从 `socket.data` 读、不能走 Hub**。`detachSocket` 先把连接从服务端索引
+   移除再跑断线回调，`Hub.SocketData` 此时返回 nil，`cli-agent-unavailable` 就发不出来。
+
+**已知缺口**：`update-share-method` 切到 `stream-push` 一律失败。Go 版没有内嵌
+Node-Media-Server（纯 Node 依赖，RTMP 3334 + HTTP-FLV 3335，迁它等于重写一个媒体服务器），
+`streamPushAvailable()` 恒为 `false`——等价于 Node 版设了 `STREAM_PUSH_ENABLED=0`：
+查询返回不可用、切换提示「请联系管理员检查 NMS 配置」。切回 `webrtc` 正常。
+要补这块，需要接一个独立的 RTMP/FLV 服务器（mediamtx / lal）并复刻推流鉴权与
+`stream-status` 广播。
+
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 | 单元 | TS 行数（估） | 状态 |
 |---|---:|---|
@@ -344,7 +409,7 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | FTP 挂载 + 流代理 | ~660 | ✅ 见 4.4 |
 | Emby / Jellyfin 协议仿真 | ~1,600 | ✅ 见 4.5 |
 | 服务器文件浏览 | ~1,200 | ⏳ |
-| 一起听音乐（含 NCM） | ~3,170 | ⏳ |
+| 一起听音乐（含 NCM） | ~3,170 | ✅ 实时层已迁（见 3.7）；NCM 内部 API 与流代理属本阶段 ⏳ |
 | 管理端 / 统计 / 客户端日志 | ~900 | ⏳ |
 | 更新器（下载/解压/sha256） | ~1,400 | ⏳ |
 | ACME / 自签证书 | ~1,020 | ⏳ |

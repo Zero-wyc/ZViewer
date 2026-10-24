@@ -96,20 +96,28 @@ go test ./...
 | 观众申请与回应 | ✅ | `seek-request` / `pause-request` / `play-request` 转给在线房主（附申请者身份），`*-response` 定向回发 |
 | 服务器周期心跳 | ✅ | 每 2s 遍历有播放状态的房间推 `server-heartbeat` + `sync-heartbeat(source:'server')`；房主掉线后观众端靠它继续推进；顺带每 30s 清理陈旧缓存 |
 | 评论 / 弹幕 / 批注 | ✅ | `send-comment` / `comment-history` / `join-room-panel`（独立窗口，无 session）/ `send-danmaku`（落实时日志 + meta 广播）/ `annotation-stroke` / `clear-annotations`（零参事件） |
-| 实时事件（业务） | 🚧 | 已接 44 / 68 个上行事件；一起听、WebRTC 信令、推流待迁移 |
+| 一起听（listen-together） | ✅ | 队列 CRUD（含 `afterCurrent` 插入与 order 压实）/ `sync-state` / `host-heartbeat` / `check-status` / `get-state` / 观众申请制控制；播放基线走「写侧补偿 + 2s 服务器心跳」 |
+| WebRTC 信令 | ✅ | `signal-offer` / `signal-answer` / `signal-ice-candidate` 同房间中继；`viewer-ready` / `sharer-ready` / `sharer-error` |
+| CLI 代理 / 预览源 / 子模式 | ✅ | `cli-register` / `cli-list-agents`（+ 断线全局广播）/ `play-preview-source` / `update-share-method` / `query-stream-push-availability` |
+| 实时事件（业务） | ✅ | **65 / 65 个上行事件全部接完**；仅「推流（NMS）」未迁，见 MIGRATION 3.7 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层接了 44 个上行事件**（房间 28 步 + 成员 46 步 + 播放 68 步 + 评论弹幕 32 步
-Node↔Go 对拍零差异），下行的服务器周期心跳与陈旧缓存清理也已补齐
-（房主断线后观众端能继续播，这条链路对拍有断言）。还缺的是：
+**实时层 65 个上行业务事件全部接完**（房间 28 步 + 成员 46 步 + 播放 68 步 +
+评论弹幕 32 步 + 一起听 48 步 + 信令与零散 36 步，Node↔Go 对拍零差异），
+下行侧的两条服务器心跳（一起看 `server-heartbeat` / 一起听 `music:sync-heartbeat`）
+与陈旧缓存清理也已经补齐——房主断线后观众端仍能继续播，这条链路对拍有断言。
 
-- 一起听音乐（`~3,170` 行，含独立的心跳/队列/搜索）、WebRTC 信令（`~280` 行，还要接媒体面）、推流；
+还缺的是：
+
+- **推流（NMS）**：Go 版没有内嵌 RTMP 服务器，`update-share-method` 切到 `stream-push`
+  一律拒绝（等价于 Node 设 `STREAM_PUSH_ENABLED=0`）；
+- NCM 内部 API 与音乐流代理（一起听的**实时层**已迁，搜索/播放地址解析仍在 Node 侧）；
 - Redis 存储适配器（多实例共享播放状态，单实例部署用不到）。
 
-这些路径上的前端操作会静默无响应（事件没有监听器），不是报错。
+这些路径上的前端操作会静默无响应（事件没有监听器）或明确报错，不会返回半个可用但语义错误的结果。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
 迁移期这是刻意的：宁可明确失败，也不要返回半个可用但语义错误的响应。
@@ -134,7 +142,7 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请、评论弹幕批注（44 事件）
+│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请、评论弹幕批注、一起听音乐、WebRTC 信令、CLI 代理（65 事件）
 │   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
@@ -171,6 +179,8 @@ backend-go/
     ├── sio-members-driver.js   房间设置与成员管理对拍驱动器（46 步）
     ├── sio-playback-driver.js  播放控制/影片列表/字幕轨道/跳转申请 + 服务器心跳对拍驱动器（68 步）
     ├── sio-comments-driver.js  评论/弹幕/批注对拍驱动器（32 步，额外比事件参数个数）
+    ├── sio-music-driver.js     一起听对拍驱动器（48 步 + 音乐服务器心跳形状 + 14 条断言）
+    ├── sio-misc-driver.js      信令/观众就绪/CLI 代理/预览源/子模式对拍驱动器（36 步 + 13 条断言）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）

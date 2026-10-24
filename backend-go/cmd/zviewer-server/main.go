@@ -71,6 +71,11 @@ func main() {
 	// 三者是单向依赖（房间层只认接口），所以构造顺序固定，不能调换。
 	socketSrv := sio.NewServer(sio.Options{})
 	hub := realtime.NewSocketHub(socketSrv)
+	// 一起听的播放基线：内存 + DB。isHostOnline 需要核对连接是否还在，
+	// 所以要在拿到 Hub 之后再注入一次。
+	musicMemory := room.NewMusicMemory(conn)
+	musicMemory.SetLogger(log.Default())
+	musicMemory.SetHub(hub)
 	roomSvc := room.NewService(room.Deps{
 		DB:       conn,
 		Rooms:    rooms,
@@ -83,6 +88,7 @@ func main() {
 		Playback: room.NewPlaybackMemory(conn),
 		Hub:      hub,
 		Logger:   log.Default(),
+		Music:    musicMemory,
 	})
 
 	server := api.New(api.Deps{
@@ -111,6 +117,11 @@ func main() {
 	// 第一口气要等满一个周期。
 	broadcaster := room.NewBroadcaster(roomSvc, log.Default())
 	broadcaster.Start()
+
+	// 一起听的服务器心跳：每 2s 广播 music:sync-heartbeat(source='server')，
+	// 观众进度唯一权威来源；顺带每 30s 清理陈旧基线缓存。
+	musicBroadcaster := room.NewMusicBroadcaster(roomSvc, log.Default())
+	musicBroadcaster.Start()
 
 	httpServer := &http.Server{
 		Addr:    listenAddr(cfg),
@@ -148,7 +159,9 @@ func main() {
 	// 先停定时器再落盘：广播器不停的话，落盘期间还会继续改内存状态，
 	// 刚写进 DB 的那份立刻就旧了。
 	broadcaster.Stop()
+	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)
+	musicMemory.FlushAllDirty(ctx)
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[shutdown] 强制关闭: %v", err)

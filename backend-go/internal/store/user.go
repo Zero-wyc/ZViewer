@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -48,6 +49,43 @@ func (u *Users) FindByID(ctx context.Context, id int64) (*User, error) {
 func (u *Users) FindByUsername(ctx context.Context, username string) (*User, error) {
 	row := u.conn.QueryRowContext(ctx, `SELECT `+userColumns+` FROM "user" WHERE "username" = ? LIMIT 1`, username)
 	return scanUser(row)
+}
+
+// UsernamesByIDs 批量取「用户 ID → 用户名」映射。
+//
+// 一起听队列要把 addedBy（用户 ID）解析成用户名再广播；逐条 FindByID
+// 在队列十几条时就是十几次往返，且游客（id<=0）根本查不到。不存在的 ID
+// 直接缺席，调用方按「用户#<id>」兜底。
+func (u *Users) UsernamesByIDs(ctx context.Context, ids []int64) (map[int64]string, error) {
+	out := make(map[int64]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	rows, err := u.conn.QueryContext(ctx,
+		`SELECT "id", "username" FROM "user" WHERE "id" IN (`+strings.Join(placeholders, ",")+`)`,
+		args...)
+	if err != nil {
+		return nil, fmt.Errorf("查询用户名失败: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, fmt.Errorf("查询用户名失败: %w", err)
+		}
+		out[id] = name
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("查询用户名失败: %w", err)
+	}
+	return out, nil
 }
 
 // Count 返回用户总数（用于判断是否需要初始化 root 账号）。

@@ -22,6 +22,7 @@ CREATE TABLE "playback_states" ("roomId" varchar(50) PRIMARY KEY NOT NULL, "sour
 CREATE TABLE "music_playback_states" ("roomId" varchar(50) PRIMARY KEY NOT NULL, "trackSongId" integer, "trackKey" text, "isPlaying" boolean NOT NULL DEFAULT (0), "positionSec" double NOT NULL DEFAULT (0), "playMode" varchar(20) NOT NULL DEFAULT ('sequence'), "lastUpdatedAt" bigint NOT NULL, "hostSocketId" varchar(50), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), CONSTRAINT "FK_2e193fbae181ec89918248d21de" FOREIGN KEY ("roomId") REFERENCES "room" ("roomId") ON DELETE CASCADE ON UPDATE NO ACTION);
 CREATE TABLE "comment" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "username" varchar NOT NULL, "content" varchar NOT NULL, "isDanmaku" boolean NOT NULL DEFAULT (0), "createdAt" datetime NOT NULL DEFAULT (datetime('now')));
 CREATE TABLE "room_danmaku_meta" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "blockKeywords" text NOT NULL DEFAULT ('[]'), "deletedLog" text NOT NULL DEFAULT ('[]'), "realtimeLog" text NOT NULL DEFAULT ('[]'), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')));
+CREATE TABLE "music_queue_item" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "source" text NOT NULL DEFAULT ('ncm'), "songId" integer NOT NULL, "sourceId" text, "name" text NOT NULL, "artist" text NOT NULL, "album" text NOT NULL, "cover" text, "durationMs" integer NOT NULL, "vip" boolean NOT NULL DEFAULT (0), "order" integer NOT NULL, "addedBy" integer NOT NULL DEFAULT (0), "recommended" boolean NOT NULL DEFAULT (0), "createdAt" datetime NOT NULL DEFAULT (datetime('now')));
 `
 
 // fakeHub 记录所有广播，用于断言「发没发、发给谁」。
@@ -30,6 +31,7 @@ type fakeHub struct {
 	roomsExcept []string
 	roomsNoArgs []string
 	direct      []string
+	global      []string
 	left        []string
 	joined      []string
 	kicked      []string
@@ -65,11 +67,25 @@ func (h *fakeHub) SetSocketData(id, key string, value any) {
 func (h *fakeHub) EmitTo(socketID, event string, _ any) {
 	h.direct = append(h.direct, socketID+"|"+event)
 }
+func (h *fakeHub) EmitGlobal(event string, _ any) {
+	h.global = append(h.global, event)
+}
 func (h *fakeHub) SocketIDs(roomID string) []string { return h.members[roomID] }
-func (h *fakeHub) MemberCount(roomID string) int    { return len(h.members[roomID]) }
-func (h *fakeHub) Connected(id string) bool         { return h.online[id] }
-func (h *fakeHub) Leave(id, roomID string)          { h.left = append(h.left, id+"|"+roomID) }
-func (h *fakeHub) Join(id, roomID string)           { h.joined = append(h.joined, id+"|"+roomID) }
+func (h *fakeHub) SocketRooms(socketID string) []string {
+	out := []string{socketID}
+	for roomID, ids := range h.members {
+		for _, id := range ids {
+			if id == socketID {
+				out = append(out, roomID)
+			}
+		}
+	}
+	return out
+}
+func (h *fakeHub) MemberCount(roomID string) int { return len(h.members[roomID]) }
+func (h *fakeHub) Connected(id string) bool      { return h.online[id] }
+func (h *fakeHub) Leave(id, roomID string)       { h.left = append(h.left, id+"|"+roomID) }
+func (h *fakeHub) Join(id, roomID string)        { h.joined = append(h.joined, id+"|"+roomID) }
 func (h *fakeHub) DeleteSocketData(id, key string) {
 	if data, ok := h.socketData[id]; ok {
 		delete(data, key)
@@ -125,6 +141,9 @@ func newTestEnv(t *testing.T) *testEnv {
 	hub := newFakeHub()
 	rooms := store.NewRooms(conn)
 	sessions := store.NewSessions(conn)
+	// 音乐基线要核对「房主连接是否还在线」，必须拿到同一个假 Hub。
+	music := NewMusicMemory(conn)
+	music.SetHub(hub)
 	svc := NewService(Deps{
 		DB:       conn,
 		Rooms:    rooms,
@@ -134,6 +153,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Users:    store.NewUsers(conn),
 		Playback: NewPlaybackMemory(conn),
 		Hub:      hub,
+		Music:    music,
 	})
 	return &testEnv{svc: svc, db: conn, hub: hub}
 }

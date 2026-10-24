@@ -169,6 +169,13 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindSubtitleAndTracks(sc)
 	s.bindSeekApproval(sc)
 	s.bindComments(sc)
+	// 一起听音乐：队列 CRUD / 播放状态与心跳 / 观众申请制控制。
+	// 事件名与前面的模块无重叠，位置不影响行为。
+	s.bindMusic(sc)
+	// WebRTC 信令与观众就绪。
+	s.bindWebRTC(sc)
+	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
+	s.bindMisc(sc)
 }
 
 // ---------- 房间生命周期 ----------

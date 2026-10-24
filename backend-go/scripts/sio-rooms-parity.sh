@@ -52,6 +52,11 @@ if row:
 # 里的影片 id，两次跑的起点不同就是假差异（阶段 9 曾因此误判）。
 c.execute('DELETE FROM "movie"')
 c.execute('DELETE FROM sqlite_sequence WHERE name = "movie"')
+# 一起听：队列与播放基线同样要清。残留的队列条目会让 music:queue-changed
+# 两侧的条目 id 与 order 起点完全不同（阶段 13 的驱动器按名字断言顺序）。
+c.execute('DELETE FROM "music_queue_item"')
+c.execute('DELETE FROM sqlite_sequence WHERE name = "music_queue_item"')
+c.execute('DELETE FROM "music_playback_states"')
 c.commit()
 PY
 }

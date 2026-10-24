@@ -185,6 +185,18 @@ func (s *Service) IsRoomModerator(ctx context.Context, socketID, roomID string) 
 	return result, nil
 }
 
+// IsRoomHostOrModerator 判断 socket 是否房主或房管（播放预览源用）。
+func (s *Service) IsRoomHostOrModerator(ctx context.Context, socketID, roomID string) (bool, error) {
+	host, err := s.IsRoomHost(ctx, socketID, roomID)
+	if err != nil {
+		return false, err
+	}
+	if host {
+		return true, nil
+	}
+	return s.IsRoomModerator(ctx, socketID, roomID)
+}
+
 // CanViewerPerform 判定「房内某动作」是否允许（管理员设置页的权限矩阵）。
 //
 // 短路顺序与 Node 一致，不要重排：

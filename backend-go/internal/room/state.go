@@ -43,8 +43,18 @@ type Hub interface {
 	EmitRoomNoArgs(roomID, event string)
 	// EmitTo 只推给指定连接（对应 `io.to(socket.id).emit()`）。
 	EmitTo(socketID, event string, payload any)
+	// EmitGlobal 向**所有连接**广播（对应 `io.emit()`）。
+	//
+	// CLI 代理上下线与房间无关：一个 CLI 实例对服务器上所有房间可用，
+	// 所以只能全局广播，由前端各自按用户名过滤。
+	EmitGlobal(event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
 	SocketIDs(roomID string) []string
+	// SocketRooms 返回某条连接所在的房间列表（对应 `socket.rooms`）。
+	//
+	// WebRTC 信令要判断「两个连接是否同处一个房间」：那条判定必须看
+	// **目标连接**的房间，而不是当前连接的。
+	SocketRooms(socketID string) []string
 	// MemberCount 返回房间内连接数（对应 Node 的
 	// `io.sockets.adapter.rooms.get(roomId).size`）。
 	//
@@ -107,6 +117,10 @@ type Service struct {
 	Hub       Hub
 	Logger    *log.Logger
 
+	// MusicQueue / Music 是一起听的队列仓储与播放基线。
+	MusicQueue *store.MusicQueue
+	Music      *MusicMemory
+
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
 
@@ -135,6 +149,9 @@ type Deps struct {
 	Playback *PlaybackMemory
 	Hub      Hub
 	Logger   *log.Logger
+	// Music 是一起听的播放基线（内存 + DB）；不传则退化成零值，
+	// 一起听事件会因空指针不可用——装配时必须提供。
+	Music *MusicMemory
 }
 
 // NewService 构造房间服务。
@@ -155,9 +172,13 @@ func NewService(deps Deps) *Service {
 		Playback:  deps.Playback,
 		Hub:       deps.Hub,
 		Logger:    logger,
-		states:    make(map[string]*RuntimeState),
-		timers:    make(map[string]*time.Timer),
-		perm:      newPermCache(),
+
+		MusicQueue: store.NewMusicQueue(deps.DB),
+		Music:      deps.Music,
+
+		states: make(map[string]*RuntimeState),
+		timers: make(map[string]*time.Timer),
+		perm:   newPermCache(),
 	}
 }
 
@@ -354,9 +375,12 @@ func (s *Service) CloseAndNotify(ctx context.Context, roomID, sharerSocketID str
 	if err := s.Playback.Clear(ctx, roomID); err != nil {
 		s.Logger.Printf("[room] 清理播放记忆失败 %s: %v", roomID, err)
 	}
-	// 一起听（music_playback_states）尚未迁移业务，但关闭房间必须一并清掉，
-	// 否则下次同 ID 房间进来会接着放上一首。
-	if _, err := s.DB.ExecContext(ctx,
+	// 一起听：内存缓存与 music_playback_states 一起清，否则同 ID 房间
+	// 再进来会接着上一首播。队列条目不清——那属于「删房间」的级联范围，
+	// 软关闭（close-room）不动它，与 Node 的 deleteRoom 分界一致。
+	if s.Music != nil {
+		s.Music.Clear(ctx, roomID)
+	} else if _, err := s.DB.ExecContext(ctx,
 		`DELETE FROM "music_playback_states" WHERE "roomId" = ?`, roomID); err != nil {
 		s.Logger.Printf("[room] 清理音乐播放状态失败 %s: %v", roomID, err)
 	}

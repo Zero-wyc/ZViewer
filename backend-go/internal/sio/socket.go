@@ -87,6 +87,24 @@ func (s *Socket) SetData(key string, value any) {
 	s.Data[key] = value
 }
 
+// GetData 读取连接上的一个 data 键。
+//
+// 与 SetData / DeleteData 同一把锁：`socket.data` 会被别的协程读
+// （权限判定、断线回调里的 CLI 代理信息），直接暴露 map 就是数据竞争。
+// 断线回调里必须走这里——那时连接已从服务端索引移除，Hub 那边查不到了。
+func (s *Socket) GetData(key string) (any, bool) {
+	if s == nil {
+		return nil, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Data == nil {
+		return nil, false
+	}
+	v, ok := s.Data[key]
+	return v, ok
+}
+
 // Emit 向该客户端发送事件，对应 `socket.emit(event, ...args)`。
 func (s *Socket) Emit(event string, args ...any) {
 	data, err := encodeEventData(event, args)

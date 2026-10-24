@@ -73,6 +73,16 @@ func (h *SocketHub) EmitRoomNoArgs(roomID, event string) {
 	h.srv.To(roomID).Emit(event)
 }
 
+// EmitGlobal 向所有连接广播（对应 `io.emit()`）。
+//
+// CLI 代理上下线走这条：代理是服务器级资源，不隶属任何房间。
+func (h *SocketHub) EmitGlobal(event string, payload any) {
+	if h == nil || h.srv == nil {
+		return
+	}
+	h.srv.Emit(event, payload)
+}
+
 // EmitTo 只推给指定连接（对应 `io.to(socketId).emit()`）。
 func (h *SocketHub) EmitTo(socketID, event string, payload any) {
 	if h == nil || h.srv == nil || socketID == "" {
@@ -92,6 +102,21 @@ func (h *SocketHub) SocketIDs(roomID string) []string {
 		out = append(out, sc.ID)
 	}
 	return out
+}
+
+// SocketRooms 返回某条连接所在的房间列表（对应 `socket.rooms`）。
+//
+// socket.io 把连接自己的 socketId 也算作「房间」，这里原样返回——
+// 判定同房间时要跳过它，调用方（信令中继）自己过滤。
+func (h *SocketHub) SocketRooms(socketID string) []string {
+	if h == nil || h.srv == nil || socketID == "" {
+		return nil
+	}
+	sc := h.srv.SocketByID(socketID)
+	if sc == nil {
+		return nil
+	}
+	return sc.Rooms()
 }
 
 // MemberCount 返回房间内连接数。
