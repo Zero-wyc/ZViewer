@@ -94,18 +94,19 @@ go test ./...
 | 影片列表（socket 侧） | ✅ | `add-movie` / `remove-movie` / `play-movie` / `request-movie-list` / `request-current-movie`，走 `canViewerPerform` 矩阵 |
 | 字幕与轨道 | ✅ | `subtitle-update`（整份透传 + 缓存）/ `subtitle-request`（补发，无 ack）/ `track-change`（区分缺失与 null） |
 | 观众申请与回应 | ✅ | `seek-request` / `pause-request` / `play-request` 转给在线房主（附申请者身份），`*-response` 定向回发 |
+| 服务器周期心跳 | ✅ | 每 2s 遍历有播放状态的房间推 `server-heartbeat` + `sync-heartbeat(source:'server')`；房主掉线后观众端靠它继续推进；顺带每 30s 清理陈旧缓存 |
 | 实时事件（业务） | 🚧 | 已接 38 / 68 个上行事件；评论弹幕、一起听、WebRTC 信令、推流待迁移 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层接了 38 个事件**（房间 28 步 + 成员 46 步 + 播放 66 步 Node↔Go 对拍零差异），
-但还有两块关键能力没做：
+**实时层接了 38 个上行事件**（房间 28 步 + 成员 46 步 + 播放 68 步 Node↔Go 对拍零差异），
+下行的服务器周期心跳与陈旧缓存清理也已补齐（房主断线后观众端能继续播，这条链路对拍有断言）。
+还缺的是：
 
-- **服务器周期心跳**（`sync-heartbeat` / `source: 'server'`，每 2s）与**陈旧缓存清理**——
-  所以别把「播放对拍通过」当成「房主断线后观众能继续播」，那条链路还断着；
-- 评论弹幕广播、一起听音乐、WebRTC 信令、推流。
+- 评论弹幕广播、一起听音乐、WebRTC 信令、推流；
+- Redis 存储适配器（多实例共享播放状态，单实例部署用不到）。
 
 这些路径上的前端操作会静默无响应（事件没有监听器），不是报错。
 
@@ -132,7 +133,7 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（含写入/补偿/节流）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请（38 事件）
+│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请（38 事件）
 │   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
@@ -167,7 +168,7 @@ backend-go/
     ├── sio-rooms-parity.sh     实时层与 Node 双向对拍（起真实 Node 后端；DRIVER/TAG 可换场景）
     ├── sio-rooms-driver.js     房间/房主/观众对拍驱动器（28 步）
     ├── sio-members-driver.js   房间设置与成员管理对拍驱动器（46 步）
-    ├── sio-playback-driver.js  播放控制/影片列表/字幕轨道/跳转申请对拍驱动器（66 步）
+    ├── sio-playback-driver.js  播放控制/影片列表/字幕轨道/跳转申请 + 服务器心跳对拍驱动器（68 步）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
@@ -211,6 +212,19 @@ Go 侧"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE）
 必须不传 `clientTs`——传了就是同一段 RTT 被补两次，进度凭空多走最多 1.5s。
 这条规则在 `transport_delay.go` 与 `playback_handlers.go` 里各写了一遍注释，
 因为它属于「读代码看不出来、只在长连接上体现」的隐性约定。
+
+**为什么对拍里周期心跳只比「形状」不比条数**：服务器心跳是 2s 定时器推的，
+两侧相位必然不同，逐条比只会得到随机噪声（阶段 10 就是靠过滤这一路才稳定）。
+但「过滤掉」等于放弃验证，所以改成收集心跳的**形状集合**——payload 的键、`state`
+的键、`source` 的值、`hostOnline` 的类型——去重后比较。键的**存在性**正是语义
+（`server-heartbeat` 有 `roomId`、`sync-heartbeat` 没有），而时刻和条数不是。
+另外配两条确定性断言（等一轮心跳 / 房主断线后等 `hostOnline:false`），
+因为「定时器到底有没有在跑」只能靠等，不能靠算。
+
+**为什么清理要用「连接存活」而不是「session 里的房主」**：`playback_states.hostSocketId`
+是脏数据的高发区——后端重启、房主换了设备、socket 重连都会留下失效的旧值。
+按 session 判在场会把这些陈旧缓存一直留着（session 表里房主仍然是 sharer），
+按连接存活判才能清掉。反过来说，**没有连接信息时按在线处理**：宁可留着，不要误删。
 
 **为什么 OpenList 要做三层缓存**：token（12h）避免每次 /stream 都登录（AList 登录有限流）；
 raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几十个 Range）；

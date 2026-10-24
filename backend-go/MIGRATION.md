@@ -7,7 +7,7 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~30,600（含测试 5,650） | 42,653 | 71.8% |
+| 代码行 | ~31,200（含测试 5,860） | 42,653 | 73.1% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
 | 实时事件 | 38 | 68（上行） | 55.9% |
 | 数据库表 | 11（user / movie / room / session / playback_states / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 68.8% |
@@ -116,7 +116,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 影片列表 / 当前播放（socket 侧） | ~1,100 | ✅ 见 3.4（5 个事件） | |
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
 | 评论 / 弹幕广播 | ~1,200 | ⏳ | |
-| 共享播放记忆 | ~1,550 | 🚧 见 3.4：写入/推算/补偿/清理已做（19 个事件之一半），**服务器周期心跳与陈旧缓存清理未做** | `playback-broadcaster.service.ts` 的 2s 定时广播 |
+| 共享播放记忆 | ~1,550 | ✅ 见 3.4 / 3.5：读写、推算、补偿、2s 定时广播、陈旧缓存清理全做 | |
 | WebRTC 信令 | ~280 | ⏳ | |
 | 推流（NMS → mediamtx/lal） | ~580 | ⏳ | 需复刻推流鉴权与 `stream-status` |
 
@@ -254,7 +254,7 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | `internal/realtime/siohub.go` | +20 | `EmitRoomExceptNoArgs`（表达「零参数事件」，见下） |
 
 对拍：`DRIVER=sio-playback-driver.js TAG=playback bash scripts/sio-rooms-parity.sh`
-→ **66 个步骤完全一致**。驱动器带两条额外的规范化：
+→ **68 个步骤完全一致**（含阶段 11 加的两条心跳断言）。驱动器带两条额外的规范化：
 - `currentTime` / `duration` / `time` 与全部时间戳不删键，替换成 `<TIME>` / `<TS>`——
   值两侧必然不同，但「键在不在」能比也必须比；
 - 影片 `id` / `movieId` 按首次出现顺序映射成 `MOVIE1` / `MOVIE2`。
@@ -273,12 +273,36 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 非房主被拒）、`close-room`。
 
 **尚未覆盖**：
-- **服务器周期心跳**（`sync-heartbeat` / `source: 'server'`）：由
-  `playbackBroadcasterService` 每 2s 主动推，Go 侧定时器还没做。对拍驱动器会
-  过滤这一路（触发时刻不可控，两侧步骤边界会被切歪），**别把「对拍通过」当成
-  「房主断线后观众能继续播」**——那条链路还断着。
-- 陈旧缓存清理（`cleanupStaleCache`，房主离线 10 分钟 + 无观众时删）。
 - Redis 存储适配器（`setStorageAdapter`，多实例共享）。单实例部署用不到。
+- 阶段 11 之前这里写着「服务器周期心跳未做，别把对拍通过当成房主断线后能继续播」。
+  该缺口已在 3.5 补齐，那两句话不再成立。
+
+### 3.5 服务器周期心跳与陈旧缓存清理（阶段 11）
+
+`backend/src/modules/playback-memory/playback-broadcaster.service.ts`（139 行）的 Go 版：
+`internal/room/broadcaster.go`（229 行）。实时事件数**不变**（38 / 68）——这一层没有新增
+上行事件，它填的是下行的定时器。
+
+| 能力 | Node | Go | 说明 |
+|---|---|---|---|
+| 2s 心跳 | `broadcastAll` | `Broadcaster.broadcastAll` | 遍历 `ActiveRoomIDs()`；房间无连接跳过；同时发 `server-heartbeat` 与 `sync-heartbeat`（`source: 'server'`） |
+| 房主在线判定 | `isHostOnlineCached` | `isHostOnlineCached` | 5s TTL；查询失败按离线处理 |
+| 30s 清理 | `cleanupStaleCache` + `cleanupStaleStates` | `PlaybackMemory.CleanupStaleCache` + `Service.CleanupStaleStates` | 播放记忆先清（房主连接不在 + 10 分钟未更新），运行时状态后清（房主连接不在 + 无播放记忆） |
+| 退出落盘 | `flushAllDirty` | `FlushAllDirty` | SIGINT/SIGTERM 时**先停定时器再落盘** |
+
+这条链路补完，「房主断线后观众继续播」才真正闭环：房主断开后 `hostOnline` 翻 false，
+但心跳继续按推算值推进，观众端不再因房主心跳超时而暂停。
+
+对拍驱动器新增两处**确定性**断言（心跳是定时器推的，只能等，不能算）：
+
+- `await-server-heartbeat`：房主首次广播 state 后，等最多 6s 收到一轮服务器心跳；
+- `heartbeat-after-host-offline`：`owner.disconnect()` 后等最多 12s 收到 `hostOnline: false`
+  的心跳（两端都有 5s 判定缓存，正常 7s 内翻转）。收尾改用 `admin-close-room`。
+
+周期心跳本身**不进步骤缓冲**：两端相位必然不同，塞进 buffer 会把步骤边界切歪（阶段 10
+就是靠过滤这一路才稳定下来的）。改成收集「形状集合」——payload 的键集合、`state` 的键
+集合、`source` 值、`hostOnline` 的类型——去重后比较。键的**存在性**正是要验的语义
+（`server-heartbeat` 有 `roomId`、`sync-heartbeat` 没有），数量与时刻不是。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
@@ -504,6 +528,14 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | 观众自检（`check-status`）容差 **10s**，且**不比对 playbackRate** | `check-status.ts` | 观众软同步追赶会临时 +0.1 倍速，比倍速会在追赶期误触发纠偏、打断收敛；容差必须显著大于主路径阈值 |
 | `add-movie` 走的是 `createMovie`，**不做** REST 那套 url/title 必填校验、挂载凭证回填、内网强制代理 | `movie-list.handler.ts` | 两条路径本来就不是一套校验，照搬 REST 会让 socket 侧能加的「先占位后补链接」影片被拒 |
 | `play-movie` 广播 `current-movie` 用 `io.to(room)`（**发送者也收**），与 `p2p-mode-change` 的 `socket.to` 相反 | 同上 | 切换当前影片要所有人（含发起者）同步到同一个 id |
+| 服务器心跳**不按房主在线跳过**，只按「房间有没有连接」跳过 | `playback-broadcaster.service.ts#broadcastAll` | 服务器推算值是观众进度的**唯一权威来源**；房主在线时也发，否则房主广播与服务器心跳两条时间轴在观众端打架 |
+| 每轮同时发 `server-heartbeat`（带 `roomId`）与 `sync-heartbeat`（`source:'server'`，**不带** `roomId`） | 同上 | 老前端只认前者、统一协议只认后者；`sync-heartbeat` 与音乐侧共用事件名，多带一个 `roomId` 会让两条协议分叉 |
+| 房主在线判定带 **5s TTL 缓存**，查询失败按**离线**处理 | 同上 `isHostOnlineCached` | 每 2s × 每房间打一次 session 表太贵；失败按在线会让观众端永远进不了自主控制模式 |
+| 清理顺序：**先清播放记忆，再清房间运行时状态** | `playback-broadcaster.service.ts#start` / `room-state.service.ts#cleanupStaleStates` | 运行时状态的判据里含「有没有播放记忆」，反过来清永远清不掉 |
+| 清理用的「房主在线」是**连接存活**（`hostSocketId` 那条 socket 在不在），不是 session 表的房主 | `playback-memory.service.ts#isHostOnline` | 后端重启后从 DB 恢复的 `hostSocketId` 早已失效，按 session 判会把陈旧缓存一直留着 |
+| 清理时 `connected` 回调缺失按**在线**处理（不清） | 同上 | 没有连接信息时宁可留着播放记忆，也不要误删 |
+| 陈旧判定阈值 **10 分钟**，且**先落盘再删**（DB 记录一起删） | `cleanupStaleCache` | 房主可能只是掉线，重连后要接着播；DB 记录留着会在下次重启被当成有效状态读出来 |
+| 进程退出：**先停定时器再 `flushAllDirty`**，最后才 `Shutdown` | `index.ts#gracefulShutdown` | 定时器不停，落盘期间还有新状态写进内存，刚写进 DB 的那份立刻变旧 |
 | `request-current-movie` 的载荷**恒带 `movieId` 键**（没在播就是 `null`），不能 `omitempty` | 同上 | Node 的 `getCurrentMovieId` 对「没选过」与「已清空」都返回 null |
 | `subtitle-update` 转发的是**整份原始载荷**（含 `roomId`），并缓存供 `subtitle-request` 补发 | `subtitle-sync.handler.ts` | 观众端把整份 payload 合并进本地状态，少一个键就少同步一项 |
 | `subtitle-request` **没有 ack**，非法输入静默返回 | 同上 | 加了 ack 会让前端的 `emit` 多一个回调，行为虽不坏但与 Node 不一致 |

@@ -97,6 +97,12 @@ func main() {
 		Socket:   socketSrv,
 	})
 
+	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），
+	// 顺带每 30s 清理陈旧缓存。必须在开始接客之前启动，否则观众进房后
+	// 第一口气要等满一个周期。
+	broadcaster := room.NewBroadcaster(roomSvc, log.Default())
+	broadcaster.Start()
+
 	httpServer := &http.Server{
 		Addr:    listenAddr(cfg),
 		Handler: server.Handler(),
@@ -129,6 +135,12 @@ func main() {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+
+	// 先停定时器再落盘：广播器不停的话，落盘期间还会继续改内存状态，
+	// 刚写进 DB 的那份立刻就旧了。
+	broadcaster.Stop()
+	roomSvc.Playback.FlushAllDirty(ctx)
+
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[shutdown] 强制关闭: %v", err)
 	}

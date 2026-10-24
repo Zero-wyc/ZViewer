@@ -160,12 +160,26 @@ for name in names:
         diff += 1
 
 total = len(names)
+
+# 服务器周期心跳：不按步骤比，比「形状集合」（键集合 / source / hostOnline 类型）。
+# 触发时刻两边必然不同，逐条比只会得到噪声。
+hb_diff = 0
+ha, hb = a.get('heartbeats'), b.get('heartbeats')
+has_hb = ha is not None or hb is not None
+if has_hb and ha != hb:
+    hb_diff = 1
+    print('✗ 服务器心跳形状不同')
+    print('   node:', json.dumps(ha, ensure_ascii=False, sort_keys=True))
+    print('   go  :', json.dumps(hb, ensure_ascii=False, sort_keys=True))
+
 print()
-if diff == 0:
-    print(f'✓ {total} 个步骤完全一致（ack + 事件流）')
+if diff == 0 and hb_diff == 0:
+    extra = '；心跳形状一致' if has_hb else ''
+    print(f'✓ {total} 个步骤完全一致（ack + 事件流）{extra}')
 else:
-    print(f'✗ {diff} / {total} 个步骤存在差异')
-sys.exit(0 if diff == 0 else 1)
+    tail = '；心跳形状不一致' if hb_diff else ''
+    print(f'✗ {diff} / {total} 个步骤存在差异{tail}')
+sys.exit(0 if diff == 0 and hb_diff == 0 else 1)
 PY
 rc=$?
 echo "（产物：$WORK/node.json / $WORK/go.json）"

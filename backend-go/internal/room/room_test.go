@@ -54,6 +54,7 @@ func (h *fakeHub) EmitTo(socketID, event string, _ any) {
 	h.direct = append(h.direct, socketID+"|"+event)
 }
 func (h *fakeHub) SocketIDs(roomID string) []string { return h.members[roomID] }
+func (h *fakeHub) MemberCount(roomID string) int    { return len(h.members[roomID]) }
 func (h *fakeHub) Connected(id string) bool         { return h.online[id] }
 func (h *fakeHub) Leave(id, roomID string)          { h.left = append(h.left, id+"|"+roomID) }
 func (h *fakeHub) Join(id, roomID string)           { h.joined = append(h.joined, id+"|"+roomID) }

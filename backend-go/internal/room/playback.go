@@ -207,6 +207,81 @@ func (m *PlaybackMemory) ActiveRoomIDs() []string {
 	return out
 }
 
+// IsHostOnline 判断「缓存的 hostSocketId 那条连接是否还在线」。
+//
+// 注意与 Service.IsSharerOnline 的区别：那个查的是 session 表（谁是房主），
+// 这个查的是连接存活（那条 socket 还在不在）。清理逻辑必须用后者——
+// 后端重启后从 DB 恢复出来的 hostSocketId 早已失效，只按 session 判断
+// 会把陈旧缓存一直留着。
+//
+// connected 为 nil 时按「有人」处理，与 Node 侧 `this.io` 未注入时的
+// `return true` 一致（宁可不清，也不要在没有连接信息时误删播放状态）。
+func (m *PlaybackMemory) IsHostOnline(roomID string, connected func(socketID string) bool) bool {
+	socketID := m.HostSocketID(roomID)
+	if socketID == "" {
+		return false
+	}
+	if connected == nil {
+		return true
+	}
+	return connected(socketID)
+}
+
+// cacheStaleThreshold 是「多久没更新就算陈旧」的阈值（对应 Node 的
+// CACHE_STALE_THRESHOLD_MS）。房主离线超过这个时长的播放状态不再值得保留。
+const cacheStaleThreshold = 10 * time.Minute
+
+// CleanupStaleCache 清理陈旧缓存：房主连接已断开且状态超过 10 分钟没更新。
+//
+// 脏数据先落盘再清——直接删缓存会丢掉最后 2s 的进度（房主可能只是掉线，
+// 重连后要接着播）。
+func (m *PlaybackMemory) CleanupStaleCache(ctx context.Context, isHostOnline func(roomID string) bool) {
+	if isHostOnline == nil {
+		isHostOnline = func(string) bool { return false }
+	}
+	now := time.Now().UnixMilli()
+
+	type stale struct {
+		roomID string
+		dirty  bool
+	}
+	var targets []stale
+
+	m.mu.Lock()
+	for roomID, c := range m.cache {
+		if isHostOnline(roomID) {
+			continue
+		}
+		if c.state == nil || now-c.state.UpdatedAt <= cacheStaleThreshold.Milliseconds() {
+			continue
+		}
+		targets = append(targets, stale{roomID: roomID, dirty: c.dirty})
+	}
+	m.mu.Unlock()
+
+	for _, t := range targets {
+		if t.dirty {
+			if err := m.flushToDB(ctx, t.roomID); err != nil {
+				// 落盘失败就本轮不删：留着下个周期再试，比丢掉进度好。
+				continue
+			}
+		}
+		if err := m.Clear(ctx, t.roomID); err != nil {
+			continue
+		}
+	}
+}
+
+// FlushAllDirty 把全部脏数据落盘（进程退出前调用，最多丢 2s 进度）。
+func (m *PlaybackMemory) FlushAllDirty(ctx context.Context) {
+	for _, roomID := range m.ActiveRoomIDs() {
+		if err := m.flushToDB(ctx, roomID); err != nil {
+			// 退出路径上不中断其余房间的落盘。
+			continue
+		}
+	}
+}
+
 // Clear 清除房间的播放记忆（内存 + DB）。关闭房间时调用。
 func (m *PlaybackMemory) Clear(ctx context.Context, roomID string) error {
 	m.mu.Lock()

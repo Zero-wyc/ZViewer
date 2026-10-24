@@ -85,6 +85,14 @@ func (h *SocketHub) SocketIDs(roomID string) []string {
 	return out
 }
 
+// MemberCount 返回房间内连接数。
+func (h *SocketHub) MemberCount(roomID string) int {
+	if h == nil || h.srv == nil || roomID == "" {
+		return 0
+	}
+	return len(h.srv.RoomSockets(roomID))
+}
+
 // Connected 判断连接是否仍在线。
 func (h *SocketHub) Connected(socketID string) bool {
 	if h == nil || h.srv == nil {

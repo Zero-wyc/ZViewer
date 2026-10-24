@@ -116,12 +116,50 @@ function stable(value) {
 const WATCHED = [
   'movie-list', 'current-movie',
   'watch-together-state', 'watch-together-control', 'watch-together-request-state',
-  'host-heartbeat', 'sync-heartbeat',
+  'host-heartbeat', 'sync-heartbeat', 'server-heartbeat',
   'subtitle-update', 'track-change',
   'seek-request', 'seek-response', 'pause-request', 'pause-response',
   'play-request', 'play-response',
   'viewer-joined', 'viewer-left', 'room-closed', 'room-mode-changed',
 ];
+
+/**
+ * 服务器周期心跳单独收集，不进步骤缓冲。
+ *
+ * 原因：它是 2s 周期定时器推的，两端的相位必然不同——放进 buffer 会把
+ * 「这一步收到了哪些事件」切得两边不一样，每次跑都随机多出假差异。
+ * 改成「形状去重」比较：payload 的键集合、state 的键集合、source 值、
+ * hostOnline 的类型。这些是确定性的，而数量与时刻不是。
+ */
+const heartbeats = [];
+
+function isServerHeartbeat(event, payload) {
+  if (event === 'server-heartbeat') return true;
+  return event === 'sync-heartbeat' && !!payload && payload.source === 'server';
+}
+
+/** 心跳的「形状」：只保留确定性的部分。 */
+function heartbeatShape(entry) {
+  const payload = entry.payload || {};
+  const state = payload.state && typeof payload.state === 'object' ? payload.state : null;
+  return {
+    event: entry.event,
+    keys: Object.keys(payload).sort(),
+    stateKeys: state ? Object.keys(state).sort() : null,
+    source: payload.source === undefined ? '<undefined>' : payload.source,
+    hostOnline: typeof payload.hostOnline,
+  };
+}
+
+/** 把收到的心跳压成「形状集合」（确定性、与触发时刻无关）。 */
+function summarizeHeartbeats(entries) {
+  const seen = new Map();
+  for (const entry of entries) {
+    const shape = heartbeatShape(entry);
+    seen.set(stable(shape), shape);
+  }
+  return Array.from(seen.keys()).sort().map((k) => seen.get(k));
+}
 
 function connect(name, token) {
   const socket = io(BASE, {
@@ -135,11 +173,12 @@ function connect(name, token) {
   });
   for (const ev of WATCHED) {
     socket.on(ev, (payload) => {
-      // 服务器周期心跳（sync-heartbeat / source='server'）由
-      // playbackBroadcaster 每 2s 主动推，Go 侧还没迁移这个定时器。
-      // 它的触发时刻不可控，会把「步骤边界」切得两边不一样——这里必须过滤，
-      // 否则每次跑都会随机多出几处假差异。
-      if (ev === 'sync-heartbeat' && payload && payload.source === 'server') return;
+      // 服务器周期心跳由 playbackBroadcaster 每 2s 主动推，触发时刻不可控，
+      // 单独收集（见 heartbeats 的注释），不进步骤缓冲。
+      if (isServerHeartbeat(ev, payload)) {
+        heartbeats.push({ client: name, event: ev, payload });
+        return;
+      }
       buffer.push({ client: name, event: ev, payload });
     });
   }
@@ -166,6 +205,16 @@ function emitAck(socket, event, payload, timeoutMs = 4000) {
 
 function wait(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/** 轮询等待条件成立（心跳是定时器推的，只能等，不能算）。 */
+async function waitFor(predicate, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    await wait(100);
+  }
+  return predicate();
 }
 
 async function step(name, payload, ackResponse) {
@@ -301,6 +350,13 @@ async function main() {
 
   const stateAfter = await emitAck(viewer, 'watch-together-request-state', { roomId });
   await step('request-state-after-push', { roomId }, stateAfter);
+
+  // ==================== 服务器周期心跳（房主在线） ====================
+  // 房主已广播过 state：房间有人、有播放记忆，服务器应开始每 2s 推一轮。
+  // 等一轮是确定性的（周期固定 2s），比「跑完数收到几条」稳。
+  const beforeFirstHeartbeat = heartbeats.length;
+  const firstHeartbeat = await waitFor(() => heartbeats.length > beforeFirstHeartbeat, 6000);
+  await step('await-server-heartbeat', { roomId }, { received: firstHeartbeat });
 
   // ---- 控制：play / rate / seek / pause ----
   const controlByViewer = await emitAck(viewer, 'watch-together-control', { roomId, action: 'play' });
@@ -471,20 +527,35 @@ async function main() {
   await step('request-current-movie-after-remove', { roomId },
     await emitAck(viewer, 'request-current-movie', { roomId }));
 
-  // ==================== 收尾 ====================
-  // close-room 的 Node handler 只认 `(callback)` 一个参数，
-  // 传 null 会被当成 ack 回调本身（于是永远不回 ack）。必须不传载荷。
-  await step('close-room', undefined, await emitAck(owner, 'close-room'));
-
+  // ==================== 房主掉线后服务器接管 ====================
+  // 这是整条链路的真实目的：房主没了，观众端的进度得继续推进。
+  // hostOnline 有个 5s 判定缓存，所以最多要等到「缓存过期 + 一个周期」，
+  // 给 12s 余量；两端缓存策略相同，正常情况下都在 7s 内翻成 false。
   owner.disconnect();
+  const offlineWait = await waitFor(
+    () => heartbeats.some((h) => h.payload && h.payload.hostOnline === false),
+    12000,
+  );
+  const lastAfterOffline = heartbeats.filter((h) => h.payload && h.payload.hostOnline === false).pop();
+  await step('heartbeat-after-host-offline', { roomId }, {
+    received: offlineWait,
+    hostOnline: lastAfterOffline ? lastAfterOffline.payload.hostOnline : null,
+  });
+
+  // ==================== 收尾 ====================
+  // 房主连接已断，改用管理员关房（close-room 只认房主）。
+  await step('admin-close-room-after-host-offline', { roomId },
+    await emitAck(admin, 'admin-close-room', { roomId }));
+
   viewer.disconnect();
   admin.disconnect();
   guest.disconnect();
   await wait(200);
 
+  log.heartbeats = summarizeHeartbeats(heartbeats);
   fs.writeFileSync(OUT, JSON.stringify(log, null, 2));
   const total = log.steps.length;
-  console.log(`steps=${total} -> ${OUT}`);
+  console.log(`steps=${total} heartbeats=${log.heartbeats.length} -> ${OUT}`);
 }
 
 main().catch((err) => {

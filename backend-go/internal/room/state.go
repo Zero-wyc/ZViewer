@@ -39,6 +39,12 @@ type Hub interface {
 	EmitTo(socketID, event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
 	SocketIDs(roomID string) []string
+	// MemberCount 返回房间内连接数（对应 Node 的
+	// `io.sockets.adapter.rooms.get(roomId).size`）。
+	//
+	// 服务器心跳据此判断「这个房间还有人吗」：没人就跳过，否则会对着
+	// 空房间每 2s 空转一次序列化。
+	MemberCount(roomID string) int
 	// Connected 判断连接是否仍在线。
 	Connected(socketID string) bool
 	// Leave 让连接退出房间（保持连接本身不断开）。
@@ -221,6 +227,14 @@ func (s *Service) Delete(roomID string) {
 	s.mu.Lock()
 	delete(s.states, roomID)
 	s.mu.Unlock()
+}
+
+// HasState 判断房间是否还留着运行时状态（不创建）。
+func (s *Service) HasState(roomID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.states[roomID]
+	return ok
 }
 
 // ---------------------------------------------------------------------------
