@@ -26,6 +26,9 @@ const HostReconnectGrace = 10 * time.Minute
 type Hub interface {
 	// EmitRoom 向房间内所有连接广播。
 	EmitRoom(roomID, event string, payload any)
+	// EmitRoomExcept 向房间内除指定连接外的所有连接广播
+	// （对应 Node 的 `socket.to(roomId).emit()`，发送者自己收不到）。
+	EmitRoomExcept(roomID, exceptSocketID, event string, payload any)
 	// EmitTo 只推给指定连接（对应 `io.to(socket.id).emit()`）。
 	EmitTo(socketID, event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
@@ -34,11 +37,15 @@ type Hub interface {
 	Connected(socketID string) bool
 	// Leave 让连接退出房间（保持连接本身不断开）。
 	Leave(socketID, roomID string)
+	// Join 让**另一条**连接加入房间（审批通过时房主替观众加）。
+	Join(socketID, roomID string)
 	// Disconnect 断开连接（对应 `socket.disconnect(true)`）。
 	Disconnect(socketID string)
 	// SocketData 读取连接上的身份数据（userId / username / role）。
 	// 连接已断开时返回 nil。
 	SocketData(socketID string) map[string]any
+	// DeleteSocketData 清除连接上的某个 data 键（拒绝审批时清 pendingRoomId）。
+	DeleteSocketData(socketID, key string)
 }
 
 // RuntimeState 是房间的运行时状态（重启即丢失，DB 才是事实源）。
@@ -357,7 +364,7 @@ func (c *permCache) invalidate(socketID, roomID string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if socketID != "" && roomID != "" {
-		for _, m := range []string{"isRoomHost", "isInRoom"} {
+		for _, m := range []string{"isRoomHost", "isInRoom", "isRoomModerator"} {
 			delete(c.entries, permKey(socketID, roomID, m))
 		}
 		return

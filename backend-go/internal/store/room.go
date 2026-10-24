@@ -3,8 +3,10 @@ package store
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -226,6 +228,104 @@ func (r *Rooms) TouchLastAccess(ctx context.Context, roomID string) error {
 	`, FormatSQLiteTime(time.Now()), roomID)
 	if err != nil {
 		return fmt.Errorf("刷新房间访问时间失败: %w", err)
+	}
+	return nil
+}
+
+// SetMode 修改房间模式（对应 update-room-mode）。
+func (r *Rooms) SetMode(ctx context.Context, roomID, mode string) error {
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "mode" = ?, "updatedAt" = ? WHERE "roomId" = ?
+	`, mode, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改房间模式失败: %w", err)
+	}
+	return nil
+}
+
+// RoomSettingsPatch 是 update-room-settings 的三列补丁：字段为 nil 表示不改。
+//
+// 三列都用指针而不是「零值即不改」：`requireApproval=false` 是合法取值，
+// 用 bool 零值判断会让「关闭审批」这个方向永远改不掉。
+type RoomSettingsPatch struct {
+	// Password 是已加密的密文；指向空串表示清空密码（列写 NULL）。
+	Password        *string
+	MaxViewers      *int64
+	RequireApproval *bool
+}
+
+// PatchSettings 按列更新房间设置。
+//
+// 只写调用方显式给出的列：少写一列不会把别的列冲成 NULL，
+// 这是与 SetListColumns 一致的「别整行覆盖」纪律。
+func (r *Rooms) PatchSettings(ctx context.Context, roomID string, patch RoomSettingsPatch) error {
+	sets := make([]string, 0, 4)
+	args := make([]any, 0, 5)
+	if patch.Password != nil {
+		sets = append(sets, `"password" = ?`)
+		if *patch.Password == "" {
+			// Node 侧清空密码是 `room.password = null`，落库是 NULL 不是空串；
+			// 写成空串会让 `hasPassword = !!password` 仍然为 false，
+			// 但两种形态会让对拍与后续迁移多一种分支。
+			args = append(args, nil)
+		} else {
+			args = append(args, *patch.Password)
+		}
+	}
+	if patch.MaxViewers != nil {
+		sets = append(sets, `"maxViewers" = ?`)
+		args = append(args, *patch.MaxViewers)
+	}
+	if patch.RequireApproval != nil {
+		sets = append(sets, `"requireApproval" = ?`)
+		args = append(args, *patch.RequireApproval)
+	}
+	if len(sets) == 0 {
+		return nil
+	}
+	sets = append(sets, `"updatedAt" = ?`)
+	args = append(args, FormatSQLiteTime(time.Now()), roomID)
+
+	_, err := r.conn.ExecContext(ctx,
+		`UPDATE "room" SET `+strings.Join(sets, ", ")+` WHERE "roomId" = ?`, args...)
+	if err != nil {
+		return fmt.Errorf("修改房间设置失败: %w", err)
+	}
+	return nil
+}
+
+// SetModerators 覆盖房管名单（JSON 数组列）。
+func (r *Rooms) SetModerators(ctx context.Context, roomID string, ids []int64) error {
+	return r.setIDList(ctx, roomID, "moderators", ids)
+}
+
+// SetMutedViewers 覆盖禁言名单（JSON 数组列）。
+func (r *Rooms) SetMutedViewers(ctx context.Context, roomID string, ids []int64) error {
+	return r.setIDList(ctx, roomID, "mutedViewers", ids)
+}
+
+// SetApprovedViewers 覆盖审批白名单（JSON 数组列）。
+func (r *Rooms) SetApprovedViewers(ctx context.Context, roomID string, ids []int64) error {
+	return r.setIDList(ctx, roomID, "approvedViewers", ids)
+}
+
+// setIDList 写单个 JSON 数组列。
+//
+// 表名/列名只由本文件的三个包装传入（不来自请求参数），因此可以直接拼接；
+// 值一律走占位符。
+func (r *Rooms) setIDList(ctx context.Context, roomID, column string, ids []int64) error {
+	if ids == nil {
+		ids = []int64{}
+	}
+	encoded, err := json.Marshal(ids)
+	if err != nil {
+		return fmt.Errorf("编码 %s 失败: %w", column, err)
+	}
+	_, err = r.conn.ExecContext(ctx,
+		`UPDATE "room" SET "`+column+`" = ?, "updatedAt" = ? WHERE "roomId" = ?`,
+		string(encoded), FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("修改 %s 失败: %w", column, err)
 	}
 	return nil
 }

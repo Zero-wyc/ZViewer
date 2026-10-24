@@ -7,9 +7,9 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~26,900（含测试 5,110） | 42,653 | 63.1% |
+| 代码行 | ~28,900（含测试 5,370） | 42,653 | 67.8% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
-| 实时事件 | 7 | 68（上行） | 10.3% |
+| 实时事件 | 19 | 68（上行） | 27.9% |
 | 数据库表 | 11（user / movie / room / session / playback_states / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 68.8% |
 
 ## 二、阶段 0：基座（已完成）
@@ -112,7 +112,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | Socket.IO 兼容层 | ~500（自研协议层） | ✅ 见 3.1 | |
 | 实时层接入 + 房间生命周期 + 房主/观众会话 | ~1,400 | ✅ 见 3.2（7 个事件 / 28 步对拍） | |
 | 房间 REST（列表/改名/弹幕轨道/弹幕辅助数据） | ~450 | ✅ 见 4.3（实时部分见 3.2） | |
-| 房间设置 / 成员管理（禁言、踢人、转交房主、审批） | ~900 | ⏳ | 依赖 `roomPermissionMatrix` 与 `voiceMuted` |
+| 房间设置 / 成员管理（禁言、踢人、转交房主、审批） | ~900 | ✅ 见 3.3（12 个事件 / 46 步对拍） | 语音禁言随 WebRTC 阶段 |
 | 影片列表 / 当前播放（socket 侧） | ~1,100 | 🚧 `movie-list` / `current-movie` 广播已接，`play-movie` 等控制事件未做 | |
 | 观众端同步状态机 | ~1,800 | ⏳ | 必须走 `resolveViewerEffectiveState` |
 | 评论 / 弹幕广播 | ~1,200 | ⏳ | |
@@ -200,9 +200,37 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 观众断线、房主 host-leave 与重连恢复、close-room（含踢人）、关闭后再进房、
 密码房（错密码/对密码）、管理员强制关闭（房主不被踢）。
 
-**尚未覆盖**：房间设置、成员管理（禁言/踢人/转交房主/审批）、
-`play-movie` 等播放控制、聊天/评论/弹幕广播、一起听、WebRTC 信令、推流。
+**尚未覆盖**（阶段 9 已补掉其中的房间设置与成员管理）：`play-movie` 等播放控制、
+聊天/评论/弹幕广播、一起听、WebRTC 信令、推流。
 `cmd/sio-spike` 仍保留，等这些接完再删。
+
+### 3.3 房间设置与成员管理（阶段 9）
+
+在 3.2 的 `room.Service` 之上补齐 12 个事件，复用同一套 session / 权限 /
+运行时状态，没有新增表。
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/room/settings_handlers.go` | ~325 | `update-room-name` / `update-room-mode` / `update-room-settings` / `p2p-mode-change` |
+| `internal/room/viewer_handlers.go` | ~700 | `approve-join` / `reject-join` / `kick-viewer` / `mute-viewer` / `unmute-viewer` / `transfer-host` / `appoint-moderator` / `dismiss-moderator` |
+| `internal/room/permission.go` | ~280（原 80） | 追加 `isRoomModerator`（带缓存）、`canViewerPerform`（权限矩阵）、`canModeratorActOn`（防篡权）、`getOrReactivateSharer`（重连自愈）、`setModerators` |
+| `internal/room/room_settings_test.go` | ~250 | 矩阵默认值、按角色判定、防篡权文案、转交房主、禁言名单、房管上限 |
+
+对拍：`DRIVER=sio-members-driver.js TAG=members bash scripts/sio-rooms-parity.sh`
+（同一脚本，靠 `DRIVER`/`TAG` 复用启动与比较逻辑）→ 46 个步骤完全一致。
+驱动器额外加一条规范化：`password` 一律替换成 `<HASH>`（bcrypt 随机盐，
+同一明文两次加密结果不同，只能比「有没有密码」）。
+
+覆盖：改名（非 owner 被拒 / 空名 / 房间不存在）、切模式（非房主被拒）、
+改设置（非房主被拒 / 人数 0 与 5.5 被拒 / 正常改 / 关审批 / 设密码 / 清密码）、
+`p2p-mode-change`（**发送者收不到**、非房内被拒）、禁言（非房管被拒 / 游客被拒 /
+禁言 / 解禁）、任命房管（游客 / 房主本人 / 正常 / 幂等）、房管防篡权（不可动房主）、
+撤销房管（幂等）、转交房主（非房主被拒 / 转给游客被拒 / 正常转交 + 房管名单清理）、
+踢人（目标不存在 / 正常踢 + `viewer-kicked` + `viewer-left`）、
+审批（无 socket / 批准 / 批完再拒 / 拒绝）。
+
+**尚未覆盖**：语音禁言（`voiceMuted` 列，属 WebRTC 阶段）、房管对房管的边界用例
+（只有房主侧覆盖）、`update-room-mode` 的枚举校验（Node 也不校验，刻意保持一致）。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
@@ -376,7 +404,7 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | 版本标签体积用 JS `toFixed(1)`，不是 Go 的 `%.1f` | `services/emby-versions.ts` | 恰好半分时 JS 进位、Go 取偶：1.25GiB 是 `1.3GB` 而非 `1.2GB`（1.25×2^30 是精确可表示值，真会碰上） |
 | 房间/会话/挂载的时间列同样按 **UTC** 解释 | 实测（`rooms-parity.sh`） | 与 `movie` 表同一路径（sql.js 驱动水合时补 `Z`），不要套用 `tokenInvalidBefore` 的本地时区逻辑 |
 | REST 写出房间事件时必须走 `realtime.Bus`，事件名集中定义 | `realtime/bus.go` | 现在 `Noop` 丢弃事件，但调用点与载荷形状要一次写对，socket.io 落地后只换实现 |
-| Socket.IO 业务事件只接了 7 个，剩余 61 个上行事件仍不可用 | `modules/room` 等 | 房间能创建/进人/关闭，但播放控制、成员管理、评论弹幕、一起听、WebRTC 信令都还没注册；别把「能建房」当成「房间可用」 |
+| Socket.IO 业务事件只接了 19 个，剩余 49 个上行事件仍不可用 | `modules/room` 等 | 房间能创建/进人/改设置/管成员/关闭，但播放控制、评论弹幕、一起听、WebRTC 信令都还没注册；别把「能建房」当成「房间可用」 |
 | 字幕接口失败也是 `200 + success:true + lines:[] + message` | `routes/stream/bilibili-videos.routes.ts` | 改成 4xx/5xx 会让前端当成请求失败去重试，只会继续掷骰子 |
 | 每个 socket 必须自动加入**以自身 ID 命名的房间** | socket.io `Socket` 构造函数 | `io.to(socket.id).emit(...)` 全靠它；少了这步，所有「只推给某一个人」的事件（`join-approved` / `viewer-kicked` / `moderators-changed`）都会静默发不出去且不报错 |
 | WS 升级必须走 `http.NewResponseController(w).Hijack()`，不能直接 `w.(http.Hijacker)` | 主服务的 `statusRecorder` 包装 | 包装层不实现 `Hijacker`，直接断言会失败；表现是「REST 全部正常，WebSocket 永远连不上，客户端只报 websocket error」 |
@@ -400,6 +428,22 @@ roomId → `ROOM*`、抹掉时间列（两侧落库精度不同）。
 | 当前播放的影片被删时要广播 `current-movie: {movieId: null}` | `movie-broadcaster.service.ts` | 观众端靠这条事件停止播放；只发 `movie-list` 会出现「列表里没这片，播放器还在放」 |
 | `viewer-left` 统一用 `viewerSocketId` 字段 | `viewer-list.service.ts` | 历史上前端两种字段名都读过，混用会让在线人数偶发不减少 |
 | 房管/房主身份的 `role` 与账号 `role` 是两套值，补发在线观众时要用 **账号 role**（`user`/`admin`），新观众自己的 `viewer-joined` 才写死 `viewer` | `viewer.service.ts#getOnlineViewers` | 混用会让前端把普通观众显示成「观众」、把账号角色判错 |
+| `update-room-name` 的权限是「root 或房间 owner」，**不是** sharer | `room-settings.handler.ts` | 用 isRoomHost 会把「房主掉线由管理员改名」挡在外面 |
+| 权限矩阵缺省值：房管/admin **允许**（只有显式 `false` 才拒），user **拒绝**（必须显式为 `true` 才允许） | `roomPermissionService#matrixAllow` | 两个方向不对称，统一成「必须为 true」会让所有房管在矩阵上线前先失效 |
+| 房主在 `canViewerPerform` 里先短路放行，root 次之，之后才查矩阵 | 同上 | 房主是房间唯一内容源，受矩阵约束会出现「房主禁不了自己房间的人」 |
+| 房管防篡权：房管不能操作房主 / 其他房管 / root（**房主不受此限**） | `roomPermissionService#canModeratorActOn` | 缺这道判定，房管可以踢掉房主、或房管互踢形成夺权 |
+| 禁言按 `userId` 存，**游客（userId<=0）必须拒绝**并提示改用踢出 | `viewer-management.handler.ts#mute-viewer` | 所有游客共享 userId=0，禁一个等于禁全体 |
+| `unmute-viewer` 不做防篡权、不挡游客（与 mute 不对称） | 同上 | Node 侧就是如此；补齐会让解禁在边界场景下报出 Node 不会报的错 |
+| 转交房主必须**事务**完成，且新房主若原为房管要从 `moderators` 移除 | `roomSessionService#transferHost` | 无事务会出现「owner 改了、角色没换」的半截状态；不清名单会让房主多一个「房管」徽标并留下脏数据 |
+| `appoint-moderator` 的检查顺序：游客 → 房主本人 → 已在名单（幂等成功） → 目标在房间内 → 人数上限 10 | `viewer-management.handler.ts` | 顺序换了会改变提示文案；「已在名单」返回 `{success:true}` 且**不带 data** |
+| 审批通过后**必须清掉 `pendingRoomId`**，否则房主再点「拒绝」仍会成功 | `roomSessionService#admitViewer` | 这是对拍抓到的真实差异：标记不清会让同一个申请被反复批准/拒绝 |
+| `approve-join` 的事件顺序：`join-approved` → `moderators-changed` → `movie-list` → `current-movie` → 字幕 → `viewer-joined` → 白名单 → 补发在线观众 | `viewer-management.handler.ts#approve-join` | 与 `finishJoin` 的顺序**不同**（那边房管列表在末尾），别把两条路径合并 |
+| `p2p-mode-change` 用 `socket.to(room)` 语义：**发送者自己收不到** | `room-settings.handler.ts` | 用 `io.to(room)` 会让发起端收到自己刚发的状态，前端乐观更新时来回抖 |
+| 只有登录用户（userId>0）被批准后才写入 `approvedViewers` 白名单 | `viewer-management.handler.ts` | 游客没有稳定身份，写进去只会污染白名单 |
+| `update-room-mode` **不校验 mode 枚举**，只信任前端取值 | `room-settings.handler.ts` | Node 侧就没有校验；加一道会在新旧前端混用时报出 Node 不会报的错 |
+| `update-room-settings` 的 `password` 只认**字符串**：`null`/缺失=不动，空串=清空（列写 NULL） | 同上 | 把 null 当清空会让「只改人数」的调用顺手把密码删掉 |
+| `room-settings-updated` 下发的 `password` 是**密文本身**（与 Node 一致） | 同上 | 前端只用它判断「有没有密码」；改成布尔会让两端载荷形状不同 |
+| `update-room-settings` 先校验 `maxViewers`（整数 1..100）再写库，非法时**整条不落库** | 同上 | Node 是「先改内存实体、校验失败直接 return」，没走到 save；分开写会产生「密码改了但人数没改」的半截状态 |
 
 ## 七之二、刻意与 Node 不同的地方
 

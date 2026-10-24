@@ -24,13 +24,15 @@ CREATE TABLE "music_playback_states" ("roomId" varchar(50) PRIMARY KEY NOT NULL,
 
 // fakeHub 记录所有广播，用于断言「发没发、发给谁」。
 type fakeHub struct {
-	rooms      []string
-	direct     []string
-	left       []string
-	kicked     []string
-	online     map[string]bool
-	members    map[string][]string
-	socketData map[string]map[string]any
+	rooms       []string
+	roomsExcept []string
+	direct      []string
+	left        []string
+	joined      []string
+	kicked      []string
+	online      map[string]bool
+	members     map[string][]string
+	socketData  map[string]map[string]any
 }
 
 func newFakeHub() *fakeHub {
@@ -42,12 +44,21 @@ func newFakeHub() *fakeHub {
 }
 
 func (h *fakeHub) EmitRoom(roomID, event string, _ any) { h.rooms = append(h.rooms, roomID+"|"+event) }
+func (h *fakeHub) EmitRoomExcept(roomID, exceptSocketID, event string, _ any) {
+	h.roomsExcept = append(h.roomsExcept, roomID+"|"+exceptSocketID+"|"+event)
+}
 func (h *fakeHub) EmitTo(socketID, event string, _ any) {
 	h.direct = append(h.direct, socketID+"|"+event)
 }
-func (h *fakeHub) SocketIDs(roomID string) []string    { return h.members[roomID] }
-func (h *fakeHub) Connected(id string) bool            { return h.online[id] }
-func (h *fakeHub) Leave(id, roomID string)             { h.left = append(h.left, id+"|"+roomID) }
+func (h *fakeHub) SocketIDs(roomID string) []string { return h.members[roomID] }
+func (h *fakeHub) Connected(id string) bool         { return h.online[id] }
+func (h *fakeHub) Leave(id, roomID string)          { h.left = append(h.left, id+"|"+roomID) }
+func (h *fakeHub) Join(id, roomID string)           { h.joined = append(h.joined, id+"|"+roomID) }
+func (h *fakeHub) DeleteSocketData(id, key string) {
+	if data, ok := h.socketData[id]; ok {
+		delete(data, key)
+	}
+}
 func (h *fakeHub) Disconnect(id string)                { h.kicked = append(h.kicked, id) }
 func (h *fakeHub) SocketData(id string) map[string]any { return h.socketData[id] }
 

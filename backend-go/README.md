@@ -86,15 +86,19 @@ go test ./...
 | 房主与观众会话 | ✅ | `register-host`（重连复用会话）/ `request-join`（免审批、白名单、审批三条路径）/ `disconnect`；人数上限串行准入 |
 | 房间运行时状态 | ✅ | 影片列表 / 当前影片 / 播放状态 / 字幕缓存 + 房主重连宽限定时器（10 分钟） |
 | 播放记忆 | ✅ | 按 `lastUpdatedAt + isPlaying × playbackRate` 推算进度、超时长钉住；关闭房间时清理 |
-| 实时事件（业务） | 🚧 | 已接 7 / 68 个上行事件（房间生命周期 + 房主/观众会话）；播放控制、成员管理、评论弹幕、一起听、WebRTC 信令待迁移 |
+| 房间设置 | ✅ | `update-room-name`（root 或 owner）/ `update-room-mode` / `update-room-settings`（密码·人数·审批）/ `p2p-mode-change`（发送者不收） |
+| 成员管理 | ✅ | 审批（`approve-join` / `reject-join`）、踢人、禁言/解禁、房管任命/撤销、转交房主（事务 + 房管名单清理） |
+| 权限矩阵与防篡权 | ✅ | `roomPermissionMatrix` 缺省值对齐（房管/admin 允许、user 拒绝）；房管不可操作房主/其他房管/root |
+| 实时事件（业务） | 🚧 | 已接 19 / 68 个上行事件；播放控制、评论弹幕、一起听、WebRTC 信令待迁移 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层只接了 7 个事件**：建房、房主注册/重连、房主离开、关房、管理员关房、观众进房、
-断线收尾已经可用（28 步 Node↔Go 对拍零差异），但房间设置、成员管理（禁言/踢人/转交房主/审批）、
-播放控制（`play-movie` / `watch-together-*` / 心跳）、评论弹幕、一起听、WebRTC 信令都还没注册——
+**实时层只接了 19 个事件**：建房、房主注册/重连、房主离开、关房、管理员关房、观众进房、
+断线收尾、房间设置（改名/切模式/改设置/P2P）、成员管理（审批/踢人/禁言/房管/转交房主）
+已经可用（房间 28 步 + 成员 46 步 Node↔Go 对拍零差异），但播放控制
+（`play-movie` / `watch-together-*` / 心跳）、评论弹幕、一起听、WebRTC 信令都还没注册——
 这些路径上的前端操作会静默无响应（事件没有监听器），不是报错。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
@@ -120,6 +124,7 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
+│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆、权限、设置与成员管理（19 事件）
 │   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
@@ -151,8 +156,9 @@ backend-go/
     ├── parity-node-emby.js     Node 侧最小应用（只挂 emby / jellyfin 两个 Router）
     ├── parity-emby-run.js      Emby 对拍驱动器
     ├── mock-emby.js            最小 Emby 模拟服务器（登录/回退/多版本/DTS/HLS）
-    ├── sio-rooms-parity.sh     房间实时层与 Node 双向对拍（起真实 Node 后端，28 步事件流比较）
-    ├── sio-rooms-driver.js     实时对拍驱动器（真 socket.io-client，规范化 socketId/roomId/时间列）
+    ├── sio-rooms-parity.sh     实时层与 Node 双向对拍（起真实 Node 后端；DRIVER/TAG 可换场景）
+    ├── sio-rooms-driver.js     房间/房主/观众对拍驱动器（28 步）
+    ├── sio-members-driver.js   房间设置与成员管理对拍驱动器（46 步）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）

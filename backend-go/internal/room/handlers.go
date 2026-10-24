@@ -138,14 +138,16 @@ func decodePayload[T any](args []json.RawMessage) (T, bool) {
 
 // AttachSocket 把房间相关事件挂到一条新连接上。
 //
-// 注册顺序即 Node 侧 createSocketRegistry 的顺序（生命周期 → 房主注册 →
-// 观众加入 → 断线）；同一事件被多个模块认领时以先注册者为准，
-// 所以这里不能随意调换。
+// 注册顺序即 Node 侧 createSocketRegistry 的顺序
+// （生命周期 → 房间设置 → 断线 → 房主注册 → 观众加入 → 观众管理）；
+// 同一事件被多个模块认领时以先注册者为准，所以这里不能随意调换。
 func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindLifecycle(sc)
+	s.bindRoomSettings(sc)
+	s.bindDisconnect(sc)
 	s.bindRegisterHost(sc)
 	s.bindViewerJoin(sc)
-	s.bindDisconnect(sc)
+	s.bindViewerManagement(sc)
 }
 
 // ---------- 房间生命周期 ----------

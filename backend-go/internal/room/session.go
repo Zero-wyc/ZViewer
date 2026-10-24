@@ -162,6 +162,12 @@ func (s *Service) AdmitViewer(ctx context.Context, socketID, roomID string, user
 	if err := s.Sessions.Create(ctx, sess); err != nil {
 		return nil, err
 	}
+	// 清掉待审批标记。Node 侧 admitViewer 里也是**只在新建成会话时**清
+	// （上面的「已在房间」早退路径不清）。不清的话房主批准之后再点「拒绝」
+	// 仍然会成功——reject-join 就是靠这个标记判断有没有待审批申请。
+	if s.Hub != nil {
+		s.Hub.DeleteSocketData(socketID, pendingRoomIDKey)
+	}
 	s.perm.invalidate(socketID, roomID)
 	return sess, nil
 }

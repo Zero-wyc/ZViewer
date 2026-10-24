@@ -55,6 +55,24 @@ func (s *Socket) OnDisconnect(fn func(reason string)) {
 	s.disconnectHandlers = append(s.disconnectHandlers, fn)
 }
 
+// DeleteData 删除连接上的一个 data 键。
+//
+// 为什么需要专门的方法：`pendingRoomId`（待审批标记）由**房主**的 handler
+// 代替被审批的观众清除，也就是跨连接、跨协程写别人的 Data。Data 是公开
+// map，直接 delete 会与读方（SocketData 拷贝）形成数据竞争，所以统一
+// 用 socket 自己的互斥锁包一层。
+func (s *Socket) DeleteData(key string) {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.Data == nil {
+		return
+	}
+	delete(s.Data, key)
+}
+
 // Emit 向该客户端发送事件，对应 `socket.emit(event, ...args)`。
 func (s *Socket) Emit(event string, args ...any) {
 	data, err := encodeEventData(event, args)

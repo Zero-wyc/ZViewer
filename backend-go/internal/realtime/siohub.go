@@ -28,6 +28,24 @@ func (h *SocketHub) EmitRoom(roomID, event string, payload any) {
 	h.srv.To(roomID).Emit(event, payload)
 }
 
+// EmitRoomExcept 向房间内除指定连接外的所有连接广播。
+//
+// 对应 Node 的 `socket.to(roomId).emit()`：发送者自己**收不到**。
+// p2p-mode-change 这类「我改了、通知别人」的事件必须走这条，
+// 用 EmitRoom 会让发起端收到自己刚发的状态，前端做乐观更新时来回抖。
+func (h *SocketHub) EmitRoomExcept(roomID, exceptSocketID, event string, payload any) {
+	if h == nil || h.srv == nil || roomID == "" {
+		return
+	}
+	b := h.srv.To(roomID)
+	if exceptSocketID != "" {
+		if sc := h.srv.SocketByID(exceptSocketID); sc != nil {
+			b = b.Except(sc)
+		}
+	}
+	b.Emit(event, payload)
+}
+
 // EmitTo 只推给指定连接（对应 `io.to(socketId).emit()`）。
 func (h *SocketHub) EmitTo(socketID, event string, payload any) {
 	if h == nil || h.srv == nil || socketID == "" {
@@ -64,6 +82,29 @@ func (h *SocketHub) Leave(socketID, roomID string) {
 	}
 	if sc := h.srv.SocketByID(socketID); sc != nil {
 		sc.Leave(roomID)
+	}
+}
+
+// Join 让指定连接加入房间。
+//
+// 审批通过时房主要替**观众**那条连接加房间（对应 Node 的
+// `roomSessionService.admitViewer(viewerSocket, ...)` 里的 `socket.join`）。
+func (h *SocketHub) Join(socketID, roomID string) {
+	if h == nil || h.srv == nil || socketID == "" || roomID == "" {
+		return
+	}
+	if sc := h.srv.SocketByID(socketID); sc != nil {
+		sc.Join(roomID)
+	}
+}
+
+// DeleteSocketData 清除连接上的 data 键（拒绝审批时清 pendingRoomId）。
+func (h *SocketHub) DeleteSocketData(socketID, key string) {
+	if h == nil || h.srv == nil || socketID == "" {
+		return
+	}
+	if sc := h.srv.SocketByID(socketID); sc != nil {
+		sc.DeleteData(key)
 	}
 }
 

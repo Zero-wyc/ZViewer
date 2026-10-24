@@ -2,19 +2,25 @@
 # 房间实时层 Node ↔ Go 双向对拍（阶段 8）。
 #
 # 与前几个对拍脚本的区别：这次比较的不是 HTTP 响应，而是**事件流**。
-# 同一份驱动器（sio-rooms-driver.js）先后打到 Node 真身与 Go 实现，
-# 每步收集「收到的事件 + ack 应答」，规范化 socketId / roomId / 时间字段
-# 后逐步骤 diff。
+# 同一份驱动器（默认 sio-rooms-driver.js；可用 DRIVER 换成 sio-members-driver.js
+# 等其它场景）先后打到 Node 真身与 Go 实现，每步收集「收到的事件 + ack 应答」，
+# 规范化 socketId / roomId / 时间字段后逐步骤 diff。
 #
 # Node 侧刻意用**真实后端**（ts-node 跑 src/index.ts）而不是最小 express
 # 应用：房间业务的事件顺序依赖十几个服务（permission / session / state /
 # playback-memory / movie-broadcaster），手搭最小应用等于把被测对象换掉。
 #
 # 用法：bash backend-go/scripts/sio-rooms-parity.sh
+#       DRIVER=sio-members-driver.js TAG=members bash backend-go/scripts/sio-rooms-parity.sh
+#
+# DRIVER/TAG 让同一套「起两侧真后端 + 逐步骤 diff」的机制复用到别的驱动器上，
+# 不必为每个场景复制一份 160 行的启动/比较逻辑。
 set -u
 
 REPO=/f/Code/ZViewer/ZViewer
-WORK=/tmp/zvsio-rooms
+DRIVER=${DRIVER:-sio-rooms-driver.js}
+TAG=${TAG:-rooms}
+WORK=/tmp/zvsio-$TAG
 PY=C:/Users/Zero_/.workbuddy/binaries/python/versions/3.13.12/python.exe
 NODE=C:/Users/Zero_/.workbuddy/binaries/node/versions/22.22.2-6/node.exe
 GOBIN="$WORK/zviewerd.exe"
@@ -70,7 +76,7 @@ if ! wait_ready "$NODE_PORT" "Node 后端" "$WORK/node.log" "Server is running o
 fi
 
 echo "=== 在 Node 上跑驱动器 ==="
-"$NODE" "$script_dir/sio-rooms-driver.js" "http://127.0.0.1:$NODE_PORT" "$WORK/node.json" || {
+"$NODE" "$script_dir/$DRIVER" "http://127.0.0.1:$NODE_PORT" "$WORK/node.json" || {
   echo "!! Node 驱动失败"; grep -n "error" "$WORK/node.json" | head -5
 }
 kill_tree "$NODE_PID"
@@ -97,7 +103,7 @@ if ! wait_ready "$GO_PORT" "Go 后端" "$WORK/go.log" "监听"; then
 fi
 
 echo "=== 在 Go 上跑驱动器 ==="
-"$NODE" "$script_dir/sio-rooms-driver.js" "http://127.0.0.1:$GO_PORT" "$WORK/go.json" || {
+"$NODE" "$script_dir/$DRIVER" "http://127.0.0.1:$GO_PORT" "$WORK/go.json" || {
   echo "!! Go 驱动失败"; grep -n "error" "$WORK/go.json" | head -5
 }
 kill_tree "$GO_PID"
