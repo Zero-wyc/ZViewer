@@ -7,9 +7,9 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~1,600 | 42,653 | 3.8% |
-| HTTP 端点 | 8 | ~300 | 2.7% |
-| 数据库表 | 3（user / system_settings / audit_logs 只读为主） | 16 | 19% |
+| 代码行 | ~3,000 | 42,653 | 7.0% |
+| HTTP 端点 | 12 | ~300 | 4.0% |
+| 数据库表 | 4（user 已可写 / system_settings / audit_logs / 只读为主） | 16 | 25% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -27,15 +27,21 @@
 | 静态资源 + SPA 回退 | `internal/api` | ✅ | 头像 7d、`/ffmpeg/` 1y；未知 `/api/` 返回 404 JSON |
 | 鉴权接口 | `internal/api` | ✅ | login / register / guest / refresh / logout / me / registration-mode / public-settings |
 
-## 三、阶段 1：鉴权收尾（下一步，约 3 人日）
+## 三、阶段 1：鉴权收尾（已完成）
 
-| 单元 | 源文件 | 状态 | 备注 |
+| 单元 | 源文件 | 状态 | 验收口径 |
 |---|---|---|---|
-| 修改密码 | `routes/auth.ts` PATCH `/password` | ⏳ | 必须同时更新 `tokenInvalidBefore` 并吊销旧 token |
-| 修改资料 | PATCH `/profile` | ⏳ | 用户名唯一性校验与现有逻辑一致 |
-| 头像上传/删除 | POST `/avatar`、DELETE | ⏳ | 依赖 multipart，落盘 `<AVATARS_DIR>/<id>-<ts>.<ext>` |
+| 修改密码 | `routes/auth.ts` PATCH `/password` | ✅ | 校验旧密码 → 落新哈希 → 写 `tokenInvalidBefore`；旧 token 立刻 401（`profile_integration_test.go`） |
+| 改密限流 | `middleware/rate-limit.ts#passwordLimiter` | ✅ | 每用户 1 分钟 3 次，第 4 次 429「操作过于频繁，请稍后再试」 |
+| 修改用户名 | `routes/auth.ts` PATCH `/username` | ✅ | 仅 root；只校验 trim 后非空（**不要**套用注册的 2–24 位规则）；重名 409 |
+| 头像上传 | POST `/avatar` | ✅ | 5MB / JPG·PNG·GIF·WEBP；落盘 `<id>-<毫秒时间戳>.<ext>`；旧文件清理；匿名可 GET |
+| 头像删除 | DELETE `/avatar` | ✅ | 置 `avatar = null` 并删文件；非 `/uploads/avatars/` 前缀一律不动 |
+| 审计 | `services/audit.ts` | ✅ | `password_changed` / `username_changed` 落库，失败不影响主流程 |
 | 登录失败锁 | `middleware/rate-limit.ts` | ⏳ | 默认关闭（`ENABLE_LOGIN_LOCK`），可最后做 |
 | 管理员用户管理 | `routes/admin.ts` | ⏳ | 与 admin 模块一起迁，勿单独拆 |
+
+验收脚本：`scripts/profile-smoke.sh`（在 `config/dev.sqlite` **副本**上跑真进程，
+含"用 Node 的判定规则复核 Go 写入的吊销时间"这一步）。
 
 ## 四、阶段 2：无状态解析（约 45 人日）
 
@@ -98,6 +104,7 @@
 | 语音通道不设 UDP/TCP 开关，服务端恒发两条候选 | `livekit` 配置 | 加开关会让本该走 UDP 的场景退化 |
 | HTTP 请求不写 auth cookie | `middleware/auth.ts` | 非 Secure 的 `SameSite=None` 会被浏览器丢弃，登录死循环 |
 | 桌面托管时 `/api/system/update/*` 返回 409 | `services/desktop-runtime.ts` | 网页更新只换后端产物，会与 GUI 整包版本脱节 |
+| 时间列写入必须**带毫秒**；`tokenInvalidBefore` 必须写**带 Z 的 ISO 串** | `DateUtils.mixedDateToUtcDatetimeString` | 截到秒会让同一秒内签发的令牌在改密后仍有效；无时区串在 TypeORM 水合时按本地时区解释，会让"Go 已吊销、Node 仍放行" |
 
 ## 八、每个单元的完成定义（DoD）
 

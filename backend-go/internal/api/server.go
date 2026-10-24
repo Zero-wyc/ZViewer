@@ -16,6 +16,7 @@ import (
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/httpx"
+	"zviewer/backend/internal/ratelimit"
 	"zviewer/backend/internal/store"
 )
 
@@ -33,16 +34,27 @@ type Deps struct {
 // Server 持有路由所需的全部依赖。
 type Server struct {
 	Deps
+
+	// passwordLimiter 是改密端点限流器（每用户 1 分钟 3 次）。
+	// 放进程内存即可：单机部署，重启后计数清零只会放宽限制。
+	passwordLimiter *ratelimit.Limiter
 }
 
 // New 构造 Server。
-func New(deps Deps) *Server { return &Server{Deps: deps} }
+func New(deps Deps) *Server {
+	return &Server{
+		Deps: deps,
+		// 与 middleware/rate-limit.ts#passwordLimiter 参数一致
+		passwordLimiter: ratelimit.New(3, time.Minute),
+	}
+}
 
 // Handler 返回完整可用的 http.Handler。
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
 	s.registerAuthRoutes(mux)
+	s.registerProfileRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// 头像静态资源无需鉴权（通过 URL 公开访问）
