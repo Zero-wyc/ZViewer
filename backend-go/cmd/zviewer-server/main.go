@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"zviewer/backend/internal/anime"
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
@@ -97,6 +98,9 @@ func main() {
 
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
 	streamResolver := proxy.NewStreamResolver(movies, rooms, mounts)
+	// 同一个 B站 服务实例同时给 API 与动漫源（B站番剧源）用：
+	// 凭证缓存、WBI 密钥、buvid 都在实例内，分成两份会重复握手。
+	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
 	server := api.New(api.Deps{
@@ -114,7 +118,7 @@ func main() {
 		OpenList: openlist.NewClient(),
 		Tokens:   tokens,
 		Auth:     auth.NewAuthenticator(tokens, users),
-		Bilibili: bilibili.NewService(conn),
+		Bilibili: biliService,
 		Bus:      hub,
 		RoomSvc:  roomSvc,
 		Socket:   socketSrv,
@@ -123,6 +127,7 @@ func main() {
 		Files:         filesRegistry,
 		Subtitles:     subtitle.NewService(streamResolver, filesRegistry),
 		CMS:           cms.NewService(settings),
+		Anime:         anime.NewService(settings, biliService),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

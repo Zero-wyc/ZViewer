@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~49,100（含测试 10,700） | 42,653 | 100%+ |
-| HTTP 端点 | 135 | ~300 | 45.0% |
+| 代码行 | ~51,400（含测试 11,700） | 42,653 | 100%+ |
+| HTTP 端点 | 139 | ~300 | 46.3% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -772,6 +772,67 @@ Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个�
 或换源，而不是加回子进程。
 
 
+### 3.13 动漫源（阶段 19）
+
+`routes/animeSources.ts`（149 行）+ `services/anime/*`（922 行）
+→ `internal/anime`（1,054 行）+ `internal/api/anime.go`（217 行）。
+HTTP 面 135 → **139**（`/proxy` 同样早已由 `registerProxyRoutes` 统一挂载）。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| `GET /sources` | 列出数据源（内置 B站 + 配置出来的 RSS/第三方） | `service.go#List` |
+| `GET /search` | 按关键词搜索 | 由 provider 决定（见下表） |
+| `GET /episodes` | 取分集 | 同上 |
+| `POST /resolve` | 解析播放地址 | 同上 |
+
+| 数据源 | 文件 | 说明 |
+|---|---|---|
+| `bilibili_bangumi` | `bilibili.go` | 关键词里能抠出 seasonId（`ss123`/`ep45`/裸数字）时**直连** pgc season，否则走 WBI 搜索 |
+| `rss_{id}` | `rss.go` | RSS 2.0 / Atom，正则解析（不引 XML 解析器） |
+| `third_party_{id}` | `thirdparty.go` | URL 模板（`{keyword}`/`{id}`）+ 字段回落链 |
+
+顺带给 `internal/bilibili` 补了两个方法（`bangumi.go`）：
+`SearchBangumi`（WBI 签名的 `media_bangumi` 搜索）与 `BangumiSeason`
+（季信息 + 分集，含 `aid`）。**同一份 pgc 载荷有两套分集选取语义**：
+
+- 路由 `/bangumi-episodes` 是 `result.episodes || result.main_section?.episodes || []`
+  再「为空则拍平 section」——**空数组在 JS 里是 truthy**，所以 episodes 为空时
+  不回落 main_section，直接进 section 拍平；
+- 动漫源 `getBangumiEpisodes` 是三步都要求**非空**才采用（`if (x && x.length > 0)`）。
+
+两处不能合并，改一处会让另一处回归。`BangumiEpisodes` 的 section 兜底条件
+也在这轮被修正（原来是 `season.Episodes == nil`，应为 `len(episodes) == 0 &&
+season.Section != nil`）——线上数据 episodes 非空时看不出来。
+
+对拍：`bash backend-go/scripts/http-anime-parity.sh`
+→ **23 个步骤完全一致（状态码 + 响应体）**。上游是本地假站点
+（`scripts/mock-anime.js`：一份 RSS、一份 Atom、一组第三方端点），
+数据固定所以按 exact 比较；唯一真打 B站 的「直连 seasonId」步骤用 shape。
+
+#### 四处必须守住的细节
+
+1. **`SearchResult` 的 `cover` / `description` 必须用指针**。Node 侧
+   「字段不存在」与「空串」在 JSON 里是两种形态（前者整键消失）：RSS 源的
+   `description` 永远存在（可能为空串），B站源的 `description` 只有上游给了
+   才有。用 `string` + `omitempty` 会把两者混为一谈。
+2. **`third_party` 的 `id` 回落链是 `id ?? animeId ?? seasonId ?? ''`**，
+   而 `cover` 走的是**真值**判断（空串/0 都当没有）。两个操作符在 JS 里
+   语义不同，Go 侧必须分开实现（`lookup` 跳过 null，
+   `truthy` 判假值）。
+3. **URL 模板里的 `encodeURIComponent` 要用 `%20` 而不是 `+`**。
+   Go 的 `url.QueryEscape` 把空格编成 `+`（表单语义），放进路径段会变成
+   字面量加号。对拍脚本专门让假上游回显**原始查询串**来锁这一点。
+4. **默认端点自带占位符**：`{baseUrl}/episodes/{id}` 里本来就有 `{id}`，
+   所以「含占位就插值，否则拼 `?id=`」的分支只对**用户自定义的**
+   无占位模板生效。写成「默认走查询串」会让分集请求 404。
+
+#### 刻意与 Node 不同的一处
+
+**上游请求加了 30s 超时**。Node 的 `fetch` 没有超时，一个挂住的上游会永久
+占着那条请求（Node 侧是事件循环里的一个 promise，Go 侧是一个泄漏的
+goroutine + 连接）。超时后错误文案是 Go 自己的 `context deadline exceeded`，
+与 Node 的 `fetch failed` 不同——只在上游真的挂死时才会看到。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1068,6 +1129,7 @@ Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个�
 | FTP 裸主机里的端口 | `host:2121` 会被整段当主机名交给 `net.connect`，端口参数被忽略 | `host:port` 形态直接采用其中的端口 | 同一个函数里既然已经从 URL 取 `hostname`，裸主机形态也该认端口 |
 | Emby m3u8 里的非法子资源 | 改写回调抛错，整个请求 500（已吐出的分片作废） | 该条 URI 置空，其余条目照常输出 | 抛错会让「一个坏分片」拖垮整段播放列表；置空既不影响其余分片，也绝不把带 `api_key` 的原始地址回退给客户端 |
 | B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
+| 动漫源的上游请求超时 | `fetch` 无超时，挂住的上游会永久占住请求 | 30s 超时（`internal/anime/http.go`），超时报 `context deadline exceeded` | Go 侧挂住就是一条泄漏的 goroutine + 连接，没有事件循环帮你回收；上游真挂死时错误文案会与 Node 不同，属于可接受的差异 |
 | CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
 
 ## 八、每个单元的完成定义（DoD）

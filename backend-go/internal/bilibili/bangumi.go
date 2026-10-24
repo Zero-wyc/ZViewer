@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -106,16 +107,46 @@ func (s *Service) FollowingBangumi(ctx context.Context, userID, cookie string, p
 	return items, nil
 }
 
-// BangumiEpisodes 取指定番剧的集数列表。
-func (s *Service) BangumiEpisodes(ctx context.Context, cookie, seasonID string) ([]BangumiEpisode, error) {
+// ErrBangumiInfo 表示 pgc season 载荷里没有 result（对应 Node 的抛错文案）。
+var ErrBangumiInfo = errors.New("获取番剧信息失败")
+
+// rawSeasonEpisode 是 pgc season 里的一集（原始字段）。
+type rawSeasonEpisode struct {
+	Bvid        string          `json:"bvid"`
+	Cid         int64           `json:"cid"`
+	Aid         *int64          `json:"aid"`
+	Title       string          `json:"title"`
+	LongTitle   string          `json:"long_title"`
+	TitleFormat string          `json:"title_format"`
+	Index       json.RawMessage `json:"index"`
+}
+
+// rawSeason 是 pgc/view/web/season 的 result 载荷。
+type rawSeason struct {
+	SeasonID    json.RawMessage    `json:"season_id"`
+	Title       string             `json:"title"`
+	Cover       string             `json:"cover"`
+	Episodes    []rawSeasonEpisode `json:"episodes"`
+	MainSection *struct {
+		Episodes []rawSeasonEpisode `json:"episodes"`
+	} `json:"main_section"`
+	Section []struct {
+		Episodes []rawSeasonEpisode `json:"episodes"`
+	} `json:"section"`
+}
+
+// fetchSeason 拉取 pgc season 载荷。
+//
+// pgc 的载荷在**顶层 result**；旧实现兼容的 data.result 也一并认。
+// found=false 表示两处都没拿到（Node 侧是 `undefined`）。
+func (s *Service) fetchSeason(ctx context.Context, cookie, seasonID string) (*rawSeason, bool, error) {
 	env, err := s.Client.Fetch(ctx,
 		"https://api.bilibili.com/pgc/view/web/season?season_id="+encodeComponent(seasonID),
 		FetchOptions{Cookie: cookie})
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
-	// pgc 的载荷在**顶层 result**；旧实现兼容的 data.result 也一并认。
 	raw := env.Result
 	if len(raw) == 0 || string(raw) == "null" {
 		var wrapped struct {
@@ -125,76 +156,246 @@ func (s *Service) BangumiEpisodes(ctx context.Context, cookie, seasonID string) 
 			raw = wrapped.Result
 		}
 	}
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, false, nil
+	}
 
-	type rawEpisode struct {
-		Bvid        string          `json:"bvid"`
-		Cid         int64           `json:"cid"`
-		Title       string          `json:"title"`
-		LongTitle   string          `json:"long_title"`
-		TitleFormat string          `json:"title_format"`
-		Index       json.RawMessage `json:"index"`
+	var season rawSeason
+	if err := json.Unmarshal(raw, &season); err != nil {
+		return nil, false, err
 	}
-	var season struct {
-		Episodes    []rawEpisode `json:"episodes"`
-		MainSection *struct {
-			Episodes []rawEpisode `json:"episodes"`
-		} `json:"main_section"`
-		Section []struct {
-			Episodes []rawEpisode `json:"episodes"`
-		} `json:"section"`
+	return &season, true, nil
+}
+
+// episodeDisplayTitle 复刻
+// `[title_format, long_title].filter(Boolean).join(' ') || long_title || title || ”`。
+func episodeDisplayTitle(ep rawSeasonEpisode) string {
+	parts := make([]string, 0, 2)
+	if ep.TitleFormat != "" {
+		parts = append(parts, ep.TitleFormat)
 	}
-	if len(raw) > 0 && string(raw) != "null" {
-		if err := json.Unmarshal(raw, &season); err != nil {
-			return nil, err
+	if ep.LongTitle != "" {
+		parts = append(parts, ep.LongTitle)
+	}
+	title := strings.Join(parts, " ")
+	if title == "" {
+		title = ep.LongTitle
+	}
+	if title == "" {
+		title = ep.Title
+	}
+	return title
+}
+
+// episodeDisplayIndex 复刻 `ep.title || ep.index || idx + 1`。
+//
+// JS 里 0 与空串都是 falsy，因此 index 为 0 时会继续落到序号。
+func episodeDisplayIndex(ep rawSeasonEpisode, idx int) any {
+	if ep.Title != "" {
+		return ep.Title
+	}
+	if len(ep.Index) > 0 && string(ep.Index) != "null" {
+		var decoded any
+		if err := json.Unmarshal(ep.Index, &decoded); err == nil {
+			switch value := decoded.(type) {
+			case string:
+				if value != "" {
+					return value
+				}
+			case float64:
+				if value != 0 {
+					return value
+				}
+			case bool:
+				if value {
+					return value
+				}
+			}
 		}
 	}
+	return idx + 1
+}
 
-	// `result.episodes || result.main_section?.episodes || []`：
-	// episodes 存在但为空数组时不再回退（JS 里空数组是 truthy）。
+// BangumiEpisodes 取指定番剧的集数列表（/api/stream/bilibili/bangumi-episodes 用）。
+//
+// 分集选取与 Node 路由一致：`result.episodes || result.main_section?.episodes || []`，
+// 随后「为空再拍平 section」。**注意空数组在 JS 里是 truthy**，所以 episodes 是空数组时
+// 不回落 main_section，而是直接走 section 拍平那一步。
+func (s *Service) BangumiEpisodes(ctx context.Context, cookie, seasonID string) ([]BangumiEpisode, error) {
+	season, found, err := s.fetchSeason(ctx, cookie, seasonID)
+	if err != nil {
+		return nil, err
+	}
+	items := make([]BangumiEpisode, 0, 8)
+	if !found {
+		return items, nil
+	}
+
 	episodes := season.Episodes
 	if episodes == nil && season.MainSection != nil {
 		episodes = season.MainSection.Episodes
 	}
-	if len(episodes) == 0 && season.Episodes == nil {
+	if len(episodes) == 0 && season.Section != nil {
 		for _, section := range season.Section {
 			episodes = append(episodes, section.Episodes...)
 		}
 	}
 
-	items := make([]BangumiEpisode, 0, len(episodes))
 	for idx, ep := range episodes {
-		titleParts := make([]string, 0, 2)
-		if ep.TitleFormat != "" {
-			titleParts = append(titleParts, ep.TitleFormat)
-		}
-		if ep.LongTitle != "" {
-			titleParts = append(titleParts, ep.LongTitle)
-		}
-		title := strings.Join(titleParts, " ")
-		if title == "" {
-			title = ep.LongTitle
-		}
-		if title == "" {
-			title = ep.Title
-		}
-
-		var index any = idx + 1
-		if ep.Title != "" {
-			index = ep.Title
-		} else if len(ep.Index) > 0 && string(ep.Index) != "null" {
-			var decoded any
-			if err := json.Unmarshal(ep.Index, &decoded); err == nil {
-				index = decoded
-			}
-		}
 		items = append(items, BangumiEpisode{
 			Bvid:  ep.Bvid,
 			Cid:   ep.Cid,
-			Title: title,
-			Index: index,
+			Title: episodeDisplayTitle(ep),
+			Index: episodeDisplayIndex(ep, idx),
 		})
 	}
 	return items, nil
+}
+
+// BangumiSeasonEpisode 是动漫源用的分集（比路由 DTO 多 aid）。
+type BangumiSeasonEpisode struct {
+	Bvid  string
+	Cid   int64
+	Aid   *int64
+	Title string
+	Index any
+}
+
+// BangumiSeasonInfo 是 pgc season 的季信息 + 分集。
+type BangumiSeasonInfo struct {
+	SeasonID int64
+	Title    string
+	Cover    string
+	Episodes []BangumiSeasonEpisode
+}
+
+// BangumiSeason 取番剧季信息（services/anime/providers/bilibiliBangumi 用）。
+//
+// 分集选取与 **anime provider** 一致，且和路由那版**语义不同**：
+// 这里三步都要求「非空」才采用（`if (result.episodes && result.episodes.length > 0)`），
+// 路由那版是 `||` 短路。两处不能合并，改一处会让另一处回归。
+func (s *Service) BangumiSeason(ctx context.Context, cookie, seasonID string) (*BangumiSeasonInfo, error) {
+	season, found, err := s.fetchSeason(ctx, cookie, seasonID)
+	if err != nil {
+		return nil, err
+	}
+	if !found {
+		return nil, ErrBangumiInfo
+	}
+
+	var episodes []rawSeasonEpisode
+	switch {
+	case len(season.Episodes) > 0:
+		episodes = season.Episodes
+	case season.MainSection != nil && len(season.MainSection.Episodes) > 0:
+		episodes = season.MainSection.Episodes
+	case season.Section != nil:
+		for _, section := range season.Section {
+			episodes = append(episodes, section.Episodes...)
+		}
+	}
+
+	info := &BangumiSeasonInfo{
+		SeasonID: seasonIDNumber(season.SeasonID),
+		Title:    season.Title,
+		Cover:    NormalizeImageURL(season.Cover),
+		Episodes: make([]BangumiSeasonEpisode, 0, len(episodes)),
+	}
+	for idx, ep := range episodes {
+		info.Episodes = append(info.Episodes, BangumiSeasonEpisode{
+			Bvid:  ep.Bvid,
+			Cid:   ep.Cid,
+			Aid:   ep.Aid,
+			Title: episodeDisplayTitle(ep),
+			Index: episodeDisplayIndex(ep, idx),
+		})
+	}
+	return info, nil
+}
+
+// seasonIDNumber 复刻 `Number(result.season_id) || 0`。
+func seasonIDNumber(raw json.RawMessage) int64 {
+	if len(raw) == 0 || string(raw) == "null" {
+		return 0
+	}
+	var number float64
+	if err := json.Unmarshal(raw, &number); err == nil {
+		return int64(number)
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err != nil {
+		return 0
+	}
+	return parseIntLoose(text)
+}
+
+// BangumiSearchResult 是番剧搜索的一条结果（动漫源内部结构）。
+type BangumiSearchResult struct {
+	SeasonID int64
+	Title    string
+	Cover    string
+	// Description 为 nil 表示上游没有这个字段（Node 侧是 undefined，整键消失）。
+	Description *string
+	Link        string
+}
+
+// SearchBangumi 用 WBI 签名搜索番剧（media_bangumi）。
+//
+// 搜索接口已强制 WBI，未签名会返回 HTML 错误页而不是 JSON，
+// 因此必须走 wbi/search/type 并同步签名。
+func (s *Service) SearchBangumi(ctx context.Context, keyword, cookie string) ([]BangumiSearchResult, error) {
+	imgKey, subKey, err := s.WBI.Keys(ctx, cookie)
+	if err != nil {
+		return nil, err
+	}
+	signed := SignParams(NewParams().
+		Set("keyword", keyword).
+		Set("search_type", "media_bangumi").
+		Set("page", "1").
+		Set("page_size", "20"), imgKey, subKey)
+
+	env, err := s.Client.Fetch(ctx,
+		"https://api.bilibili.com/x/web-interface/wbi/search/type?"+signed.Encode(),
+		FetchOptions{Cookie: cookie})
+	if err != nil {
+		return nil, err
+	}
+
+	// `data.result` 是数组（不是 data.result.result）。
+	var payload struct {
+		Result []struct {
+			SeasonID    json.RawMessage `json:"season_id"`
+			MediaID     json.RawMessage `json:"media_id"`
+			Title       string          `json:"title"`
+			Cover       string          `json:"cover"`
+			Description *string         `json:"description"`
+			Link        string          `json:"link"`
+		} `json:"result"`
+	}
+	if _, err := DecodeDataInto(env, &payload); err != nil {
+		return nil, err
+	}
+
+	limit := len(payload.Result)
+	if limit > 10 {
+		limit = 10
+	}
+	results := make([]BangumiSearchResult, 0, limit)
+	htmlTagPattern := regexp.MustCompile(`<[^>]+>`)
+	for _, item := range payload.Result[:limit] {
+		seasonID := seasonIDNumber(item.SeasonID)
+		if seasonID == 0 {
+			seasonID = seasonIDNumber(item.MediaID)
+		}
+		results = append(results, BangumiSearchResult{
+			SeasonID:    seasonID,
+			Title:       htmlTagPattern.ReplaceAllString(item.Title, ""),
+			Cover:       NormalizeImageURL(item.Cover),
+			Description: item.Description,
+			Link:        item.Link,
+		})
+	}
+	return results, nil
 }
 
 // parseIntLoose 对应 JS 的 Number(x)：非法值一律当 0。

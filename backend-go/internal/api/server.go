@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"zviewer/backend/internal/anime"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/cms"
@@ -64,6 +65,8 @@ type Deps struct {
 	Subtitles *subtitle.Service
 	// CMS 是 CMS 采集源注册表（TVBox 配置 → 苹果 CMS 站点）。
 	CMS *cms.Service
+	// Anime 是动漫源注册表（B站番剧 + RSS + 第三方 HTTP 源）。
+	Anime *anime.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -142,6 +145,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAdminRoutes(mux)
 	s.registerSubtitleRoutes(mux)
 	s.registerCMSRoutes(mux)
+	s.registerAnimeRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
