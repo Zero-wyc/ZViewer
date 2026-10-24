@@ -7,10 +7,10 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~36,100（含测试 6,985） | 42,653 | 84.7% |
-| HTTP 端点 | 78 | ~300 | 26.0% |
+| 代码行 | ~39,530（含测试 7,928） | 42,653 | 92.7% |
+| HTTP 端点 | 90 | ~300 | 30.0% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
-| 数据库表 | 13（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 81.3% |
+| 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -400,6 +400,97 @@ Node-Media-Server（纯 Node 依赖，RTMP 3334 + HTTP-FLV 3335，迁它等于�
 要补这块，需要接一个独立的 RTMP/FLV 服务器（mediamtx / lal）并复刻推流鉴权与
 `stream-status` 广播。
 
+### 3.8 服务器文件与系统端点（阶段 14，HTTP 面开张）
+
+实时层 65/65 收口后，HTTP 面从 78 推到 **90 / ~300**。这一批的共同点是
+**「不依赖挂载表、不依赖第三方 Node 依赖」**——纯文件系统 + 纯 SQL 就能闭合，
+所以先做。同时把第一个 HTTP 对拍脚本立起来（此前只有 socket 对拍）。
+
+#### 服务器文件域（12 个端点）
+
+| 端点 | 方法 | 鉴权 | 实现位置 |
+|---|---|---|---|
+| `/api/server-files/roots` | GET / POST / DELETE | requireRoot | `internal/api/serverfiles.go`（873 行） |
+| `/api/server-files/browse` | GET | requireRoot | 同上 |
+| `/api/server-files/browse-system` | GET | requireRoot | 同上 |
+| `/api/server-files/upload` | POST（流式 multipart） | requireRoot | 同上 |
+| `/api/server-files/folder` | POST | requireRoot | 同上 |
+| `/api/server-files/rename` | POST | requireRoot | 同上 |
+| `/api/server-files/file` | DELETE | requireRoot | 同上 |
+| `/api/server-files/bilibili-download` | POST（NDJSON 流） | requireRoot | 同上 |
+| `/api/server-files/resolve` | GET | **require（观众也用）** | 同上 |
+| `/api/server-files/proxy` | GET / HEAD | **require（观众也用）** | 同上 |
+
+> `/resolve` 与 `/proxy` **故意降到普通登录用户**：观众要能播房主用
+> 「服务器文件」推送过来的本地视频。管理类操作才要 root。
+
+支撑包：
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/serverfiles/paths.go` | 210 | 前缀式路径协议（`uploads:` / `custom:<id>:` / 旧式裸路径）、越权拦截、拼音排序 |
+| `internal/serverfiles/upload.go` | 213 | 流式落盘、10GB 上限、只读根拒绝、重名改名、文件名修复 |
+| `internal/serverfiles/download.go` | 119 | URL → 本地文件（B站下载用），失败删残片，进度按 2% 节流 |
+| `internal/store/serverfolder.go` | 127 | `server_folder` 表（第 14 张表）读写 |
+
+#### 分散的 4 个端点
+
+| 端点 | 方法 | 鉴权 | 要点 |
+|---|---|---|---|
+| `/api/stats/traffic` | GET | requireRoot | 取不到时回 **501**，不是 0 |
+| `/api/client-logs` | POST | **不鉴权** | 游客报错最需要收集；4MB 上限；异步落盘后立刻 204 |
+| `/api/direct-resolve/movie` | GET | 房间读权限 | 直链 TTL 缓存 + 单飞；内网地址拒绝 |
+| `/api/cli/resolve` | GET | **不鉴权** | 调用方是用户本机 CLI，Cookie 原样透传，跳过 CDN 检查 |
+
+`internal/api/directresolve.go`（281 行）的状态码映射：`NOT_FOUND` / `MOUNT_NOT_FOUND`
+→ 404、`AUTH_FAILED` → 401、其余 → 400。
+
+#### 对拍
+
+`bash backend-go/scripts/http-serverfiles-parity.sh`
+→ **65 个步骤完全一致（状态码 + 响应头 + 响应体），1 处已登记已知差异**。
+
+HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应头 + 响应体」，所以
+`normalize()` 只做三件事——绝对路径替换成 `<UPLOADS>` / `<CUSTOM>`、ISO 时间戳替换成
+`<TIME>`（**替换不删键**，键存在与否是语义）、JSON 键排序（`stable()`）消除键序假差异。
+统计类端点只比键集合不比数值（机器负载每次都不同）。
+`KNOWN_DIFFS` 白名单登记「刻意不一致」，输出 `~` 而非 `✗`，不阻塞通过。
+
+已知差异：`upload-readonly-root`——Node 侧 multer 的错误直落 express 默认处理器，
+回 **500 + HTML 错误页**；Go 回 **400 + JSON 可读文案**。
+
+#### 八处「只有对拍才照得出来」的细节
+
+1. **`UPLOADS_DIR` 必须保持 Node 的「原值比较」语义**。Node 的 `UPLOADS_ROOT` 直接取
+   env 原值、不做 `path.resolve`，而 `add-root` 拿 `path.resolve(absPath)` 与它比较——
+   只要字符串形态不同（`C:/a` vs `C:\a`、POSIX vs Windows）就不相等，「该目录已是默认
+   空间」的守卫会**静默失效**，uploads 根被当成自定义根写进表，之后 `custom:1` 指向错误
+   目录、`readonly` 全错。Go 侧**不得**对 `UPLOADS_DIR` 做额外 `Clean` 化，脚本侧则一律
+   用 `cygpath -w` 规范化后再传。这一条一口气造出 5 处假差异，是本轮最贵的坑。
+2. **416 响应**不写响应体。播放器只看状态码与 `Content-Range`，塞一段 JSON 反而会
+   让它把响应当成媒体数据解析。
+3. **`ToPrefixedPath` 必须判 `rel == "."`**。`filepath.Clean` 会把 `.../uploads/` 变成
+   `...\uploads`（正斜杠 → 平台分隔符），与 `root.AbsPath` 字符串不等，
+   `filepath.Rel` 得 `"."`，会输出 `uploads:/.` 而不是 `uploads:/`。
+4. **越权判断用 `filepath.Rel`，不能用字符串前缀**。Windows 盘符根（`D:\`）自带分隔符，
+   字符串拼接会拼出 `D:\\` 而误判。
+5. **目录项没有 `size` 键**。Node 里是 `undefined`，`JSON.stringify` 整键丢弃；
+   Go 用 `*int64` + `omitempty` 复刻（写成 0 会让前端排序把目录排到最前/最后）。
+6. **隐藏文件剔除 + 目录在前 + 拼音排序**。排序用 `golang.org/x/text/collate` +
+   `language.SimplifiedChinese` 复刻 JS 的 `localeCompare(name, 'zh-Hans-CN')`；
+   Collator **非并发安全**，必须加互斥锁。「阿」要排在「波」之前——码点序是相反的。
+7. **上传必须流式**（`r.MultipartReader()`）。`ParseMultipartForm` 会把整个请求体先落临时
+   文件，10GB 上传等于写两遍盘。`targetDir` 字段必须**排在文件 part 之前**才能边收边定根。
+8. **根目录注册表带 30s TTL + 主动失效**。`/proxy` 在 seek/预取时高频到达，每次查
+   `server_folder` 全表是纯浪费；增删时 `Invalidate()` 保证改完立刻生效。
+
+#### 直链解析的三条硬约束
+
+- **缓存 key 不含 userId**：`type|serverURL|path`——同一源文件跨影片、跨房间共享解析结果。
+- **`UpgradeDirectURLValidated` 必须现场再探一次**：`httpsDirect` 是配置期一次性探测的
+  持久缓存，源站拆掉反向代理后陈旧的 `true` 会变成永远连不上。
+- **openlist 失败不回退拼接**，webdav 仅在非 AList 错误时才回退 `webdav.DirectURL`。
+
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 | 单元 | TS 行数（估） | 状态 |
@@ -649,6 +740,17 @@ Node-Media-Server（纯 Node 依赖，RTMP 3334 + HTTP-FLV 3335，迁它等于�
 | `clear-annotations` 是**零参数**事件，且只有房主能发 | 同上 | 用 `payload=nil` 会编成 `[null]`，前端 handler 收到 null 而非 undefined |
 | `annotation-stroke` 只转发 `{stroke, senderId}`，`stroke` 缺失时整个键消失 | 同上 | 笔画的内部结构归客户端管，服务端不解析（解析就会限制前端演进） |
 | 评论历史按 `createdAt` **升序**，同毫秒按插入序兜底 | `comment.service.ts#listComments` | 只按 createdAt 排时同毫秒多条顺序不稳定，前端历史列表会跳 |
+| **`UPLOADS_DIR` 不做额外 `Clean` 化**，保持 Node 的「env 原值」语义 | `routes/server-files.ts` | Node 的 `UPLOADS_ROOT` 是 env 原值、`add-root` 用 `path.resolve` 与它比较；Go 侧一旦规范化，字符串形态分叉会让「该目录已是默认空间」的守卫静默失效，uploads 根被写进 `server_folder`，之后所有 `custom:N` 指向错误目录、`readonly` 全错 |
+| 服务器文件路径必须用 **`filepath.Rel`** 判越权，不能拼字符串前缀 | `internal/serverfiles` | Windows 盘符根（`D:\`）自带分隔符，字符串拼接会拼出 `D:\\` 把合法路径误判成越权 |
+| `ToPrefixedPath` 必须把 `rel == "."` 当成根路径 | 同上 | `filepath.Clean` 把正斜杠换成正平台分隔符，与 `root.AbsPath` 字符串不等；不判 `"."` 会输出 `uploads:/.`，前端面包屑与「当前目录」比较全部失配 |
+| 416 响应**不写响应体** | `range-stream.ts#sendRangeNotSatisfiable` | Node 是 `res.status(416).setHeader(); res.end()`。播放器只看状态码与 `Content-Range`，塞 JSON 会让它把响应当成媒体数据解析 |
+| 目录项的 `size` 键**整个消失**（不是 0） | `server-files` 目录 DTO | Node 的 `size` 是 `undefined`，`JSON.stringify` 丢键。写 0 会让前端排序把目录与空文件混在一起 |
+| 上传必须用**流式** multipart 读取，且 `targetDir` 字段要排在文件 part 之前 | `routes/server-files.ts` | `ParseMultipartForm` 先把整个请求体落临时文件，10GB 上传写两遍盘；字段顺序反了则边收边定根会失败 |
+| 服务器文件根目录注册表带 **30s TTL + 主动失效** | `internal/serverfiles/paths.go` | `/proxy` 在 seek/预取时高频到达，每次查 `server_folder` 全表是纯浪费；只做 TTL 则「新增根后立刻浏览」看不到 |
+| 直链解析缓存 key **不含 userId**（`type\|serverURL\|path`） | `internal/api/directresolve.go` | 同一源文件跨影片、跨房间共享解析结果；带 userId 会让缓存命中率归零并放大上游压力 |
+| 直链升级前必须**现场再探**一次（`UpgradeDirectURLValidated`） | `mountutil` | `httpsDirect` 是配置期一次性探测的持久缓存，源站拆掉反向代理后陈旧的 `true` 会变成永远连不上 |
+| 流量统计取不到时回 **501**，不能回 0 | `routes/stats.ts` | 回 0 会让用户以为服务器真的没流量 |
+| 客户端日志端点**不鉴权** | `routes/client-logs.ts` | 登录页/游客态的报错最需要收集；鉴权会让最该有日志的场景一条都没有 |
 
 ## 七之二、刻意与 Node 不同的地方
 

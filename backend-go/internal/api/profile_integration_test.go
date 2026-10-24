@@ -21,6 +21,7 @@ import (
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/store"
 )
 
@@ -41,6 +42,15 @@ const userDDL = `CREATE TABLE "user" (
 	CONSTRAINT "UQ_user_username" UNIQUE ("username")
 )`
 
+const serverFolderDDL = `CREATE TABLE "server_folder" (
+	"id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"name" varchar NOT NULL,
+	"absPath" varchar NOT NULL,
+	"readonly" boolean NOT NULL DEFAULT (0),
+	"createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+	"updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+)`
+
 const auditDDL = `CREATE TABLE "audit_logs" (
 	"id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
 	"actorUserId" integer,
@@ -55,10 +65,12 @@ const auditDDL = `CREATE TABLE "audit_logs" (
 )`
 
 type testEnv struct {
-	handler  http.Handler
-	conn     *sql.DB
-	tokens   *auth.Manager
-	avatars  string
+	handler http.Handler
+	conn    *sql.DB
+	tokens  *auth.Manager
+	avatars string
+	// uploads 是服务器文件默认根（uploads:/）的绝对路径。
+	uploads  string
 	users    *store.Users
 	audit    *store.Audit
 	teardown func()
@@ -74,7 +86,7 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("打开测试库失败: %v", err)
 	}
-	for _, ddl := range []string{userDDL, auditDDL} {
+	for _, ddl := range []string{userDDL, auditDDL, serverFolderDDL} {
 		if _, err := conn.Exec(ddl); err != nil {
 			t.Fatalf("建表失败: %v", err)
 		}
@@ -102,6 +114,8 @@ func newTestEnv(t *testing.T) *testEnv {
 	settings := store.NewSettings(conn)
 	audit := store.NewAudit(conn)
 
+	serverFolders := store.NewServerFolders(conn)
+
 	srv := api.New(api.Deps{
 		Cfg:      cfg,
 		DB:       conn,
@@ -110,6 +124,9 @@ func newTestEnv(t *testing.T) *testEnv {
 		Audit:    audit,
 		Tokens:   tokens,
 		Auth:     auth.NewAuthenticator(tokens, users),
+
+		ServerFolders: serverFolders,
+		Files:         serverfiles.NewRegistry(serverFolders, cfg.UploadsDir),
 	})
 
 	return &testEnv{
@@ -117,6 +134,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		conn:     conn,
 		tokens:   tokens,
 		avatars:  cfg.AvatarsDir,
+		uploads:  cfg.UploadsDir,
 		users:    users,
 		audit:    audit,
 		teardown: func() { conn.Close() },

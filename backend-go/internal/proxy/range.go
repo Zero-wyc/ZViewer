@@ -108,9 +108,13 @@ func ParseRangeHeader(rangeHeader string, fileSize int64, maxChunkBytes int64) (
 //
 // 必须带 `Content-Range: bytes */size`（RFC 9110）：客户端据此知道真实
 // 文件大小，否则会把 416 当成服务端故障而不是"这个位置没有数据"。
+//
+// 刻意**不写响应体**：与 range-stream.ts#sendRangeNotSatisfiable 一致
+// （Node 侧是 `res.status(416).setHeader(...); res.end()`）。播放器只看
+// 状态码与 Content-Range，塞一段 JSON 反而会让它把响应当成媒体数据解析。
 func SendRangeNotSatisfiable(w http.ResponseWriter, fileSize int64) {
 	w.Header().Set("Content-Range", "bytes */"+strconv.FormatInt(fileSize, 10))
-	writeJSON(w, http.StatusRequestedRangeNotSatisfiable, `{"success":false,"message":"请求的范围无效"}`)
+	w.WriteHeader(http.StatusRequestedRangeNotSatisfiable)
 }
 
 // PipeRangeStreamOptions 描述一次字节流输出。

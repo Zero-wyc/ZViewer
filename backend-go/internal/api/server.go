@@ -23,6 +23,7 @@ import (
 	"zviewer/backend/internal/ratelimit"
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
+	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/webdav"
@@ -53,6 +54,10 @@ type Deps struct {
 	Bilibili *bilibili.Service
 	// RoomSvc 是房间实时业务（生命周期 / 会话 / 运行时状态）。
 	RoomSvc *room.Service
+	// ServerFolders 是服务器文件管理的自定义根目录表。
+	ServerFolders *store.ServerFolders
+	// Files 是服务器文件的根目录注册表（含 30s TTL 缓存与路径安全解析）。
+	Files *serverfiles.Registry
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -74,6 +79,9 @@ type Server struct {
 	ftpDirs  *ftp.DirCache
 	// ftpTickets 是临时 FTP 连接的播放票据（凭证不进播放 URL）。
 	ftpTickets *ftpTickets
+
+	// 直链实时解析：5 分钟 TTL 缓存 + 单飞去重。
+	directResolveState
 }
 
 // New 构造 Server。
@@ -91,6 +99,10 @@ func New(deps Deps) *Server {
 		ftpStats:        ftp.NewStatCache(),
 		ftpDirs:         ftp.NewDirCache(),
 		ftpTickets:      newFTPTickets(),
+		directResolveState: directResolveState{
+			directCache:    make(map[string]directResolveCacheEntry, 16),
+			directInflight: make(map[string]chan directResolveResult, 4),
+		},
 	}
 	// 房间层需要「按房间读影片 DTO」，DTO 定义在 api 包里，只能反向注入。
 	if deps.RoomSvc != nil {
@@ -114,6 +126,11 @@ func (s *Server) Handler() http.Handler {
 	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
+	s.registerServerFilesRoutes(mux)
+	s.registerDirectResolveRoutes(mux)
+	s.registerStatsRoutes(mux)
+	s.registerClientLogRoutes(mux)
+	s.registerCLIRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

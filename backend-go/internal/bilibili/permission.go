@@ -37,6 +37,12 @@ const (
 // vipOnlyQns 是大会员专属清晰度。
 var vipOnlyQns = map[int]bool{112: true, 116: true, 120: true, 125: true, 126: true, 127: true}
 
+// IsVipOnlyQn 判断清晰度是否为大会员专属。
+//
+// 服务端下载等「绕过前端过滤」的场景要用它做二次强校验，
+// 否则前端改个 qn 参数就能下走会员画质。
+func IsVipOnlyQn(qn int) bool { return vipOnlyQns[qn] }
+
 // Quality 是一条可选清晰度。
 type Quality struct {
 	ID         int    `json:"id"`

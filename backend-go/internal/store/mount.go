@@ -115,6 +115,20 @@ func (m *Mounts) FindByServerURL(ctx context.Context, userID int64, serverURL, m
 	return scanMount(row)
 }
 
+// FindByServerURLAny 按 serverUrl + type 查找挂载，**不限定 user**。
+//
+// 用于直链实时解析：请求者是房间成员而非挂载所有者，movie 表也不存 userId，
+// 只能按「同一台服务器 + 同一类型」反查。多用户在同一台 AList 上各有挂载时
+// 命中任意一条都能用（凭证可互通），这也是 Node 侧 findOneBy 的实际语义。
+func (m *Mounts) FindByServerURLAny(ctx context.Context, serverURL, mountType string) (*Mount, error) {
+	row := m.conn.QueryRowContext(ctx, `
+		SELECT `+mountColumns+` FROM "user_mount"
+		WHERE "serverUrl" = ? AND "type" = ?
+		LIMIT 1
+	`, serverURL, mountType)
+	return scanMount(row)
+}
+
 // FindByRoomOwner 按房间房主的挂载查找（旧数据兜底路径）。
 func (m *Mounts) FindByRoomOwner(ctx context.Context, ownerUserID int64, serverURL, mountType string) (*Mount, error) {
 	row := m.conn.QueryRowContext(ctx, `

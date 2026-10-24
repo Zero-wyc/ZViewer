@@ -25,6 +25,7 @@ import (
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
+	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 )
@@ -66,6 +67,7 @@ func main() {
 	tracks := store.NewTracks(conn)
 	metas := store.NewMetas(conn)
 	sessions := store.NewSessions(conn)
+	serverFolders := store.NewServerFolders(conn)
 
 	// 实时层：socket 服务端 → 广播适配器 → 房间业务。
 	// 三者是单向依赖（房间层只认接口），所以构造顺序固定，不能调换。
@@ -110,6 +112,9 @@ func main() {
 		Bus:      hub,
 		RoomSvc:  roomSvc,
 		Socket:   socketSrv,
+
+		ServerFolders: serverFolders,
+		Files:         serverfiles.NewRegistry(serverFolders, cfg.UploadsDir),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），
