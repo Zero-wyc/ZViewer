@@ -140,3 +140,30 @@ func ResolveInternalAddresses(hostname string) ([]string, error) {
 	}
 	return internal, nil
 }
+
+// jsUnreserved 是 encodeURIComponent 不转义的字符集。
+const jsUnreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
+
+// EncodeURIComponent 复刻 JS 的 encodeURIComponent。
+//
+// 不能用 url.PathEscape：它把 `!*'()` 也转义、却把 `$&+,;=:@` 原样留下，
+// 与 Node 侧发出去的 URL 就不是同一串了。文件名 / 条目 ID 里带这些字符时，
+// 两端对不上会变成「Node 能播、Go 404」这种最难查的差异。
+//
+// 与 bilibili 的 wbi 签名同源：签名失效的根因之一就是空格被编成 `+`。
+func EncodeURIComponent(raw string) string {
+	var b strings.Builder
+	b.Grow(len(raw) + 8)
+	for i := 0; i < len(raw); i++ {
+		c := raw[i]
+		if strings.IndexByte(jsUnreserved, c) >= 0 {
+			b.WriteByte(c)
+			continue
+		}
+		const hex = "0123456789ABCDEF"
+		b.WriteByte('%')
+		b.WriteByte(hex[c>>4])
+		b.WriteByte(hex[c&0x0F])
+	}
+	return b.String()
+}

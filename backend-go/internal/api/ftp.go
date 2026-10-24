@@ -269,6 +269,9 @@ func (s *Server) handleUpdateFTPMount(w http.ResponseWriter, r *http.Request) {
 		ServerURL: &params.ServerURL,
 		Port:      port,
 		Path:      &storePath,
+		// FTP 不用 apiKey / embyUserId：带现值，避免按列覆盖时被清空
+		APIKey:     mount.APIKey,
+		EmbyUserID: mount.EmbyUserID,
 		// FTP 挂载天然不支持直链；沿用库里的状态，避免改名把它改脏
 		DirectLink:  mount.DirectLink,
 		HttpsDirect: mount.HttpsDirect,

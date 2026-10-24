@@ -76,10 +76,14 @@ go test ./...
 | FTP 挂载 | ✅ | 挂载 CRUD、连接测试、目录浏览（MLSD / LIST 双格式）、SIZE/MDTM stat |
 | FTP 流代理 | ✅ | `/api/ftp/proxy` 与 `/api/ftp/stream`，REST 分段 + stat(30s)/dir(60s) 缓存 |
 | FTP 临时连接 | ✅ | `/api/stream/resolve-ftp` + `proxy-ftp`，凭证走服务端票据（30min 滑动续期） |
+| Emby / Jellyfin 挂载 | ✅ | 前缀参数化的一套 handler 注册两次：挂载 CRUD、连接测试、目录浏览、搜索 |
+| Emby / Jellyfin 播放 | ✅ | `/resolve` + `/movie-source` + `/proxy` + `/stream`，多版本选择、DTS 等不兼容音轨自动转 HLS |
+| Emby / Jellyfin 海报 | ✅ | `/mounts/{id}/image` 免认证，复刻 Express 弱 ETag + 304（瀑布流不重复拉图） |
+| Emby 登录缓存 | ✅ | `sha256(服务器+账号+密码)` 键、24h TTL、500 上限、并发单飞；401 时先丢陈旧缓存再重登 |
 
 ## 尚未实现
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **56 / 300**。
+见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
 **实时层（Socket.IO）尚未迁移**：房间的创建/进房/准入审批/成员管理/播放同步都在
 那层，所以现在只有「房间列表 + 弹幕数据」能跑；`/api/*` 里凡是 REST 未覆盖的路径
@@ -105,6 +109,7 @@ backend-go/
 │   ├── openlist/           AList 客户端（登录 / fs-get / 三层缓存）
 │   ├── webdav/             WebDAV 客户端（PROPFIND / Range GET / stat 与目录缓存）
 │   ├── ftp/                FTP/FTPS 客户端（被动模式 / REST 分段 / MLSD·LIST·DOS 解析）
+│   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
 │   ├── realtime/           房间事件广播契约（socket.io 未迁移前为 Noop）
 │   ├── httpx/              统一 JSON 响应与错误
@@ -133,6 +138,10 @@ backend-go/
     ├── parity-node-ftp.js      Node 侧最小应用（只挂 ftp 两个 Router）
     ├── parity-ftp-run.js       FTP 对拍驱动器
     ├── mock-ftp.js             最小 FTP 模拟服务器（MLSD/LIST 双形态）
+    ├── emby-parity.sh          Emby/Jellyfin 端点与 Node 逐字节对拍（52 步）
+    ├── parity-node-emby.js     Node 侧最小应用（只挂 emby / jellyfin 两个 Router）
+    ├── parity-emby-run.js      Emby 对拍驱动器
+    ├── mock-emby.js            最小 Emby 模拟服务器（登录/回退/多版本/DTS/HLS）
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
 ```
 
@@ -170,6 +179,17 @@ raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几
 **为什么凭证解密失败要返回 nil 而不是空串**：调用方用 `!= nil` 判断"有没有凭证"，
 空串指针会被当成"有凭证但为空"，进而覆盖挂载表里的真实密码。表现是"配了密码却提示未授权"，
 而且日志里什么都看不到——排查成本极高。
+
+**为什么 Emby 登录缓存要「单飞 + 401 丢陈旧」**：Emby 对并发 `authenticatebyname` 会限流，
+浏览瀑布流时几十个请求同时进来必须共用同一次登录，否则一半请求直接 401。
+但只做缓存会踩另一个坑：令牌过期后重登命中 24h 缓存，拿回来的还是同一个失效令牌，
+重试必然继续 401——表现是「密码明明是对的，但令牌过期后永远连不上」。
+所以 401 分支先把缓存里那条（且仅当它正是当前令牌）删掉再重登，见 `emby/client.go#dropStaleLogin`。
+
+**为什么 Emby 的 HLS 改写要白名单 + 抹令牌**：`/proxy` 会拿上游地址去请求，
+不限定「同源 + 同 `videos/{itemId}/` 前缀」就是一个开放代理，能读内网、能带令牌打任意地址；
+而拆分改写时若不删掉 `api_key`/`X-Emby-Token`，整份 playlist 会把令牌发给每个观众。
+非法子资源 Go 侧选择「置空该条」而非 Node 的「抛错 500」，理由见 MIGRATION「七之二」。
 
 **为什么弹幕接口要自己解 deflate**：B 站 `x/v1/dm/list.so` **无条件**返回
 `Content-Encoding: deflate`（即便请求写 `Accept-Encoding: identity`），且是**裸 deflate**

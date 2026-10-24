@@ -206,7 +206,10 @@ func ProxyHTTPUpstream(w http.ResponseWriter, r *http.Request, opts HTTPOptions)
 			return
 		}
 		h := w.Header()
-		h.Set("Content-Type", "application/vnd.apple.mpegurl")
+		// 必须带 charset：Node 用的是 express 的 res.send(string)，
+		// 它会给任何字符串响应体补 `; charset=utf-8`。少了这半句，
+		// 两端 Content-Type 不一，播放器对 HLS 的嗅探策略也可能不同。
+		h.Set("Content-Type", "application/vnd.apple.mpegurl; charset=utf-8")
 		h.Set("Cache-Control", "private, no-store")
 		w.WriteHeader(resp.StatusCode)
 		_, _ = io.WriteString(w, rewritePlaylist(string(body), finalURL, opts.RewriteHLSUri))

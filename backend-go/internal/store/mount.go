@@ -168,10 +168,14 @@ type MountPatch struct {
 	// Port 是按列覆盖：null 等于清空端口，所以调用方必须显式传入
 	// 「期望的目标值」——WebDAV 那种不关心端口的挂载要把现值带进来，
 	// 否则一次改名就会把端口清成 NULL。
-	Port        *int64
-	Path        *string
-	Username    *string
-	Password    *string // nil = 写成 NULL；调用方需要「不传就沿用旧密码」时自行填旧值
+	Port     *int64
+	Path     *string
+	Username *string
+	Password *string // nil = 写成 NULL；调用方需要「不传就沿用旧密码」时自行填旧值
+	// APIKey / EmbyUserID 只有 emby 系挂载会用；其他挂载必须带上现值，
+	// 与 Port 同一个道理（整行按列覆盖，nil 就是清空）。
+	APIKey      *string
+	EmbyUserID  *string
 	DirectLink  bool
 	HttpsDirect *bool
 }
@@ -181,9 +185,11 @@ func (m *Mounts) Update(ctx context.Context, id, userID int64, mountType string,
 	res, err := m.conn.ExecContext(ctx, `
 		UPDATE "user_mount"
 		SET "name" = ?, "serverUrl" = ?, "port" = ?, "path" = ?, "username" = ?, "password" = ?,
+		    "apiKey" = ?, "embyUserId" = ?,
 		    "directLink" = ?, "httpsDirect" = ?, "updatedAt" = datetime('now')
 		WHERE "id" = ? AND "userId" = ? AND "type" = ?
 	`, patch.Name, patch.ServerURL, patch.Port, patch.Path, patch.Username, patch.Password,
+		patch.APIKey, patch.EmbyUserID,
 		patch.DirectLink, patch.HttpsDirect, id, userID, mountType)
 	if err != nil {
 		return fmt.Errorf("更新挂载失败: %w", err)

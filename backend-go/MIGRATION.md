@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~18,750（含测试 3,235） | 42,653 | 44.0% |
-| HTTP 端点 | 56 | ~300 | 18.7% |
+| 代码行 | ~21,575（含测试 3,778） | 42,653 | 50.6% |
+| HTTP 端点 | 78 | ~300 | 26.0% |
 | 数据库表 | 10（user / movie / room / session / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 62.5% |
 
 ## 二、阶段 0：基座（已完成）
@@ -125,7 +125,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
 | WebDAV 挂载 + 流代理 | ~800 | ✅ 见 4.2 |
 | FTP 挂载 + 流代理 | ~660 | ✅ 见 4.4 |
-| Emby / Jellyfin 协议仿真 | ~1,250 | ⏳ |
+| Emby / Jellyfin 协议仿真 | ~1,600 | ✅ 见 4.5 |
 | 服务器文件浏览 | ~1,200 | ⏳ |
 | 一起听音乐（含 NCM） | ~3,170 | ⏳ |
 | 管理端 / 统计 / 客户端日志 | ~900 | ⏳ |
@@ -206,6 +206,26 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
   `bash ftp-parity.sh`（MLSD）与 `LIST_ONLY=1 bash ftp-parity.sh`（老式 LIST），
   两种模式都必须全绿——MLSD 有可靠时间戳、LIST 没有，DTO 的字段集因此不同。
 
+### 4.5 Emby / Jellyfin 协议仿真
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/emby/client.go` | ~700 | REST 客户端：登录（24h 缓存 + 单飞 + 401 重登）、`/Users/Me` 回退 `/Users`、Views / Items / Images / Search / PlaybackInfo / Subtitles |
+| `internal/emby/versions.go` | ~330 | 多版本（MediaSource）选择、版本标签（复刻 JS `toFixed`）、resolve 载荷与 `Path ?? title` 语义 |
+| `internal/api/emby.go` | ~1,050 | 一套 handler 注册两次（emby / jellyfin）：挂载 CRUD、test、browse、search、海报（免认证 + 弱 ETag）、resolve、movie-source、proxy、stream |
+
+端点（每个前缀 12 个 × 2 = 24）：`GET /api/{emby,jellyfin}/mounts`、
+`POST .../mounts/test`、`POST .../mounts`、`PUT/DELETE .../mounts/{id}`、
+`GET .../mounts/{id}/browse`、`GET .../mounts/{id}/search`、
+`GET .../mounts/{id}/image`（免认证）、`GET .../resolve`、`GET .../movie-source`、
+`GET .../proxy`、`GET .../stream`。
+
+验证脚本：
+- `scripts/mock-emby.js`——最小 Emby（登录校验客户端标识头、`/Users/Me` 对特定账号返 500、
+  缺 Path / 缺海报的条目、多版本、DTS 音轨、空 MediaSources、Range 流、带 api_key 的 m3u8、
+  `POST /__invalidate` 清会话）；
+- `scripts/emby-parity.sh`——**52 步**逐步骤对拍，m3u8 **按全文**比对。
+
 ---
 
 ## 七、必须保留的行为不变量
@@ -252,6 +272,17 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | FTP 代理**必须**把响应体截到 `Content-Range` 声明的长度 | 实测（Node 会把整个文件写出去） | FTP 的 REST 只能定起点，服务端一直发到文件尾；Node 侧实际字节数 > Content-Length，curl 会报 "Excess found in a read"。这是 Go 侧**刻意修掉的协议违规**，见下 |
 | FTP 端口要用 `port` 列，不要从 `serverUrl` 里解析 | `routes/ftp.ts#mountToParams` | 两处都填时以 `port` 为准；`serverUrl` 只取主机名 |
 | 临时连接（`resolve-ftp`）的凭证只能走服务端票据 | `routes/stream/ftp.ts` | 旧实现在 `video.src` 里带明文密码，会泄漏到浏览器历史与代理日志；票据与签发者 userId 绑定、30min 滑动续期 |
+| Emby 登录结果按 `sha256(server+账号+密码)` 缓存 24h、上限 500，**并发共用同一个登录过程** | `services/emby-client.ts#login` | Emby 对并发 authenticatebyname 会限流；缓存掉重复登录是浏览瀑布流不卡的前提 |
+| 401 重登前必须**丢弃陈旧登录缓存**（仅当缓存 token 正是当前 token） | `services/emby-client.ts#request` | 不丢的话重登会拿回同一个失效令牌，重试必然还是 401，表现为「密码是对的，但 token 过期后永远连不上」 |
+| `X-Emby-Authorization`（MediaBrowser Client=…）每个请求都要带，登录尤其必需 | `services/emby-client.ts` | 缺它登录直接 400；DeviceId 必须是**进程级常量**，每请求换一个会把服务器会话表刷爆 |
+| `/Users/Me` 失败要回退 `/Users` 并**优先取管理员** | `services/emby-client.ts#me` | 部分 Emby 版本 `/Users/Me` 返 500；取到普通账号会让媒体库列表为空 |
+| emby/jellyfin 挂载的 `directLink` **不套**内网强制中转 | `routes/emby-like-factory.ts` | 内网判定在**影片级**（`movie.routes.ts`）做，挂载存的是用户偏好；在挂载层加会和 Node 行为分叉 |
+| HLS 子资源（`?resource=`）必须限定同源 + 同 `videos/{itemId}/` 前缀，且改写时抹掉 `api_key` | `routes/emby-like-factory.ts#validateHlsResource` | 否则 `/proxy` 就是开放代理（可读内网、可带令牌打任意地址）；令牌留在 playlist 里等于把它发给每个观众 |
+| 改写后的 m3u8 响应 `Content-Type` 必须带 `; charset=utf-8` | express `res.send(string)` | Express 给任何字符串响应体补 charset；少了这半句两端 Content-Type 就不一致 |
+| 海报端点免认证，且必须复刻 Express 的**弱 ETag + 304** | `<img>` 无法带 Authorization 头 | 没有 ETag 每次滚动瀑布流都重拉图；ETag 格式是 `W/"<hex长度>-<sha1 base64 前 27 位>"` |
+| 条目 DTO 里上游缺失的字段要**整键消失**，不能下发 `""`/`0` | `res.json` 丢弃 undefined | 前端用 `entry.filePath ?? 解析文件名` 兜底，空串会让兜底失效 |
+| `format` 取 `source.Path ?? title`：Path **缺失**用 title、Path 为**空串**用空串（→ unknown） | `services/emby-versions.ts` | 两种情形必须区分，否则「路径为空」的条目会被判成 mp4/mkv |
+| 版本标签体积用 JS `toFixed(1)`，不是 Go 的 `%.1f` | `services/emby-versions.ts` | 恰好半分时 JS 进位、Go 取偶：1.25GiB 是 `1.3GB` 而非 `1.2GB`（1.25×2^30 是精确可表示值，真会碰上） |
 | 房间/会话/挂载的时间列同样按 **UTC** 解释 | 实测（`rooms-parity.sh`） | 与 `movie` 表同一路径（sql.js 驱动水合时补 `Z`），不要套用 `tokenInvalidBefore` 的本地时区逻辑 |
 | REST 写出房间事件时必须走 `realtime.Bus`，事件名集中定义 | `realtime/bus.go` | 现在 `Noop` 丢弃事件，但调用点与载荷形状要一次写对，socket.io 落地后只换实现 |
 | Socket.IO 未迁移期间，房间的**创建/进房/准入审批/在线成员**一律不可用 | `modules/room` | REST 只覆盖列表/改名/弹幕数据；把 REST 通过当成"房间可用"会导致误判进度 |
@@ -267,6 +298,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | FTP 流代理的响应体 | REST 只定起点、服务端发到文件尾，但 `Content-Length` 只声明请求区间 → 实际字节数**多于**声明，curl 报 `Excess found in a read`，部分播放器直接判定流损坏 | 按声明长度截断（`io.LimitReader`） | HTTP/1.1 要求响应体长度必须等于 `Content-Length`；多出来的字节会被当成下一个响应。对拍脚本因此只比较「声明长度内的字节」 |
 | FTP `serverUrl` 的主机解析 | `serverUrl.replace(/^ftp/i, '')` 把 `ftp.example.com` 变成 `example.com` | 按 scheme 前缀或裸主机正确处理，完整保留 `ftp.example.com` | 前者是笔误级别的正则（想剥 `ftp://` 协议头），实际结果是「主机名以 ftp 开头就必然连不上」 |
 | FTP 裸主机里的端口 | `host:2121` 会被整段当主机名交给 `net.connect`，端口参数被忽略 | `host:port` 形态直接采用其中的端口 | 同一个函数里既然已经从 URL 取 `hostname`，裸主机形态也该认端口 |
+| Emby m3u8 里的非法子资源 | 改写回调抛错，整个请求 500（已吐出的分片作废） | 该条 URI 置空，其余条目照常输出 | 抛错会让「一个坏分片」拖垮整段播放列表；置空既不影响其余分片，也绝不把带 `api_key` 的原始地址回退给客户端 |
 
 ## 八、每个单元的完成定义（DoD）
 

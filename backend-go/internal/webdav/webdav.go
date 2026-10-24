@@ -16,7 +16,6 @@ import (
 	"crypto/tls"
 	"encoding/xml"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -26,6 +25,7 @@ import (
 	"sync"
 	"time"
 
+	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/proxy"
 )
 
@@ -135,26 +135,12 @@ func serverPathPrefix(serverURL string) string {
 	return path
 }
 
-// jsUnreserved 是 encodeURIComponent 不转义的字符集。
-const jsUnreserved = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_.!~*'()"
-
 // encodePathSegment 复刻 JS 的 encodeURIComponent。
 //
-// 不能用 url.PathEscape：它把 `!*'()` 也转义、却把 `$&+,;=:@` 原样留下，
-// 与 Node 侧发出去的 URL 就不是同一串了。文件名里带这些字符时，
-// 两端对不上会导致「Node 能播、Go 404」这种最难查的差异。
+// 实现已收敛到 netutil（emby/jellyfin 的条目 ID 编码需要逐字符一致），
+// 这里只保留调用点，避免出现第二份「差不多的转义表」。
 func encodePathSegment(seg string) string {
-	var b strings.Builder
-	b.Grow(len(seg) + 8)
-	for i := 0; i < len(seg); i++ {
-		c := seg[i]
-		if strings.IndexByte(jsUnreserved, c) >= 0 {
-			b.WriteByte(c)
-			continue
-		}
-		fmt.Fprintf(&b, "%%%02X", c)
-	}
-	return b.String()
+	return netutil.EncodeURIComponent(seg)
 }
 
 // NormalizePath 复刻 normalizePath：补前导斜杠、按段解码再编码。

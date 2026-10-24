@@ -316,8 +316,11 @@ func (s *Server) handleUpdateWebDAVMount(w http.ResponseWriter, r *http.Request)
 		Name:      strings.TrimSpace(*body.Name),
 		ServerURL: &params.ServerURL,
 		// WebDAV 不用端口：带上现值，避免覆盖时被清空
-		Port:        mount.Port,
-		Path:        &params.Path,
+		Port: mount.Port,
+		Path: &params.Path,
+		// WebDAV 不用 apiKey / embyUserId：同样带现值，避免覆盖时被清空
+		APIKey:      mount.APIKey,
+		EmbyUserID:  mount.EmbyUserID,
 		DirectLink:  mountutil.ResolveDirectLinkWithInternalCheck(params.ServerURL, requestedDirect),
 		HttpsDirect: httpsDirect,
 	}

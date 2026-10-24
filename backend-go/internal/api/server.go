@@ -99,6 +99,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerRoomRoutes(mux)
 	s.registerWebDAVRoutes(mux)
 	s.registerFTPRoutes(mux)
+	s.registerEmbyRoutes(mux)
 	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
