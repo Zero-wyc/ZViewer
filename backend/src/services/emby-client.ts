@@ -18,9 +18,18 @@ function loginKey(server: string, username: string, password: string): string {
 
 const DEFAULT_TIMEOUT_MS = 10000;
 
+/**
+ * Emby/Jellyfin 客户端名称标识。
+ *
+ * 1. 允许通过环境变量 EMBY_CLIENT_NAME 自定义（如部分私有服务器限制客户端名时可按需伪装）；
+ * 2. trim() + || 'ZViewer'：避免 .env 中配置为空字符串或纯空格时产生 Client="" 导致服务端鉴权失败；
+ * 3. replace(/"/g, '')：过滤双引号，防止破坏后续 X-Emby-Authorization 请求头的键值格式。
+ */
+const EMBY_CLIENT = (process.env.EMBY_CLIENT_NAME?.trim() || 'ZViewer').replace(/"/g, '');
+
 /** Emby 客户端标识头（所有请求都需要，登录请求尤其必需） */
 const EMBY_AUTHORIZATION_HEADER =
-  'MediaBrowser Client="ZViewer", Device="Web Browser", DeviceId="zviewer-web-' +
+  `MediaBrowser Client="${EMBY_CLIENT}", Device="Web Browser", DeviceId="zviewer-web-` +
   Math.random().toString(36).slice(2, 12) +
   '", Version="1.0.0"';
 
