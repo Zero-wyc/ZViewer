@@ -109,10 +109,12 @@ go test ./...
 | 管理端用户 | ✅ | 列表（7 列 DTO，不含 passwordHash）/ 改角色（吊销令牌）/ 审核（guest→user）/ 删除 |
 | 管理端房间 | ✅ | 列表（含 closed + 在线人数批量聚合）/ 物理删除（级联 7 张关联表）/ 重开（清权限缓存）/ 批量删 / 全删 / 清理无人 |
 | 管理端设置 | ✅ | 18 个字段逐项校验（枚举·范围·矩阵结构·ws 前缀），全部通过才整行保存 |
+| 字幕搜索与加载 | ✅ | `/api/subtitles/*` 5 端点：四源（server-files / ftp / openlist / webdav）同目录同名搜索、目录浏览、按路径读内容 |
+| Emby 内嵌字幕 | ✅ | 读 PlaybackInfo 的 `MediaStreams` 列轨道，按轨道 index 调 Emby 转封装接口取内容；`index=1.5` 必须查不到（数字相等而非截断） |
 
 ## 尚未实现
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **102 / 300**。
+见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **107 / 300**。
 
 **实时层 65 个上行业务事件全部接完**（房间 28 步 + 成员 46 步 + 播放 68 步 +
 评论弹幕 32 步 + 一起听 48 步 + 信令与零散 36 步，Node↔Go 对拍零差异），
@@ -126,8 +128,8 @@ go test ./...
 - **NCM 音乐搜索与播放地址解析**（`/api/music/ncm/*` 等 9 类端点）：一起听的**实时层**已迁，
   但这些端点依赖 `@neteasecloudmusicapienhanced/api` 这个纯 Node 包（Node 版起了一个
   36530 端口的内部服务），Go 侧要改成外部进程 / HTTP 客户端模型，尚未动手；
-- **动漫源**（anime / anisubs / kazumi / cms，各 6–8 个）、**字幕管理**（6 个）、
-  **更新器**（7 个）、**语音 LiveKit**（3 个）、**定时任务**（房间自动清理等，
+- **动漫源**（anime / anisubs / kazumi / cms，各 6–8 个）、**更新器**（7 个）、
+  **语音 LiveKit**（3 个）、**定时任务**（房间自动清理等，
   Node 是启动即跑 + 每小时一次，删 `lastAccessedAt` 超期的 active 房间）；
 - Redis 存储适配器（多实例共享播放状态，单实例部署用不到）。
 
@@ -156,7 +158,8 @@ backend-go/
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
 │   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── serverfiles/        服务器文件域：前缀路径协议、越权拦截、流式上传、直链下载、拼音排序
+│   ├── serverfiles/        服务器文件域：前缀路径协议、越权拦截、流式上传、直链下载、中文排序（汉字优先于拉丁）
+│   ├── subtitle/           字幕域：四源同名搜索 / 目录浏览 / 内容加载 / Emby 内嵌轨道
 │   ├── traffic/            网络流量采样（Windows netstat / Linux /proc/net/dev / macOS netstat）
 │   ├── clientlog/          客户端日志落盘（一次 Open 写完一批，不并发抢文件）
 │   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请、评论弹幕批注、一起听音乐、WebRTC 信令、CLI 代理（65 事件）
@@ -202,6 +205,8 @@ backend-go/
     ├── http-serverfiles-driver.js  服务器文件/统计/客户端日志/直链/CLI 对拍驱动器（65 步，比较状态码 + 响应头 + 响应体）
     ├── http-admin-parity.sh     管理端 12 端点与 Node 逐字节对拍（63 步）
     ├── http-admin-driver.js     管理端对拍驱动器（用户/房间/设置，有状态序列）
+    ├── http-subtitles-parity.sh 字幕 5 端点与 Node 逐字节对拍（44 步，固定影片 id 种子）
+    ├── http-subtitles-driver.js 字幕对拍驱动器（守卫/搜索/浏览/加载/内嵌轨道）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）

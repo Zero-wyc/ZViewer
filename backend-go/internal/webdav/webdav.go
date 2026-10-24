@@ -634,6 +634,15 @@ func OpenRangeStream(ctx context.Context, params Params, rangeHeader string, cac
 	}, nil
 }
 
+// OpenReadStream 直接打开整文件 GET 流（不先 PROPFIND）。
+//
+// 对齐 Node 的 createWebDAVReadStream：字幕这类「整份读进内存」的调用方
+// 不需要 fileSize，多一次 PROPFIND 纯属浪费一次上游往返。
+// 播放路径请用 OpenRangeStream（它需要 fileSize 才能算分片）。
+func OpenReadStream(ctx context.Context, params Params) (io.ReadCloser, string, error) {
+	return openGET(ctx, params, params.Path, "")
+}
+
 // openGET 发起 GET（可带 Range），返回响应体。
 //
 // 上游 4xx 一律转成业务错误：416 说明 fileSize 是陈旧的，调用方下一轮

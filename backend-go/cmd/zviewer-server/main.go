@@ -28,6 +28,7 @@ import (
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/subtitle"
 )
 
 func main() {
@@ -93,6 +94,10 @@ func main() {
 		Music:    musicMemory,
 	})
 
+	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
+	streamResolver := proxy.NewStreamResolver(movies, rooms, mounts)
+	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
+
 	server := api.New(api.Deps{
 		Cfg:      cfg,
 		DB:       conn,
@@ -104,7 +109,7 @@ func main() {
 		Mounts:   mounts,
 		Tracks:   tracks,
 		Metas:    metas,
-		Stream:   proxy.NewStreamResolver(movies, rooms, mounts),
+		Stream:   streamResolver,
 		OpenList: openlist.NewClient(),
 		Tokens:   tokens,
 		Auth:     auth.NewAuthenticator(tokens, users),
@@ -114,7 +119,8 @@ func main() {
 		Socket:   socketSrv,
 
 		ServerFolders: serverFolders,
-		Files:         serverfiles.NewRegistry(serverFolders, cfg.UploadsDir),
+		Files:         filesRegistry,
+		Subtitles:     subtitle.NewService(streamResolver, filesRegistry),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

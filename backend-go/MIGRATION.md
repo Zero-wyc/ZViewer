@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~41,850（含测试 8,944） | 42,653 | 98.1% |
-| HTTP 端点 | 102 | ~300 | 34.0% |
+| 代码行 | ~43,780（含测试 9,600） | 42,653 | 100%+ |
+| HTTP 端点 | 107 | ~300 | 35.7% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -59,7 +59,7 @@
 | B 站解析（wbi/playurl/pgc/vip/cdn/弹幕/字幕） | ~5,900 | `internal/bilibili` | ✅ 见下方「2.1」 |
 | 动漫源（kazumi 规则引擎 / anime / anisubs / cms） | ~5,400 | `internal/anime` | ⏳ |
 | 弹幕源（多源聚合：bilibili / bahamut / dandanplay） | ~1,460 | `internal/danmaku` | ⏳ B站 单源已完成（在 `internal/bilibili`），多源聚合与 bahamut/dandanplay 未做 |
-| 字幕源（多源） | ~1,000 | `internal/subtitle` | ⏳ B站 单源已完成，其余字幕源未做 |
+| 字幕源（多源） | ~1,000 | `internal/subtitle` | ✅ 见 3.10（5 端点 + 44 步对拍） |
 | LiveKit WS 隧道 + 凭证 | ~1,200 | `internal/voice` | ⏳ |
 
 ### 2.1 B 站解析链（已完成）
@@ -560,6 +560,72 @@ Node 单侧删掉，于是房间列表少一行、`count` 也差一。对拍脚�
 「定时任务」阶段一起做。
 
 
+### 3.10 字幕（阶段 16）
+
+`routes/subtitles.ts`（290 行）+ `modules/subtitle/subtitle-source.service.ts`（715 行）
+→ `internal/subtitle`（服务层）+ `internal/api/subtitles.go`（路由层）。
+
+| 端点 | 方法 | 要点 |
+|---|---|---|
+| `/api/subtitles/search` | GET | 同目录下**前缀同名**的字幕（`EP01.mkv` 命中 `EP01.chs.srt`），内容一并返回 |
+| `/api/subtitles/browse` | GET | 目录浏览；目录在前 → 简体中文排序；目录项**无 `size` 键** |
+| `/api/subtitles/load` | GET | 返回**文件内容**（非 URL），前端转 data URL 走 socket 同步 |
+| `/api/subtitles/embedded-tracks` | GET | 仅 emby / jellyfin；读 PlaybackInfo 的 `MediaStreams` |
+| `/api/subtitles/embedded-extract` | GET | 调 Emby `Subtitles/{i}/Stream.{ext}`，Emby 负责转封装 |
+
+支撑改动：
+
+| 文件 | 内容 |
+|---|---|
+| `internal/subtitle/service.go` | 四源（server-files / ftp / openlist / webdav）取数编排 + Emby 内嵌轨道 |
+| `internal/api/subtitles.go` | 5 个 handler + `sendSubtitleError`（按端点区分兜底状态码）+ `jsNumber` |
+| `internal/openlist/openlist.go` | 新增 `ListDir` / `fsList`（AList `/api/fs/list`，带 401 重登） |
+| `internal/webdav/webdav.go` | 新增 `OpenReadStream`（整文件 GET，不先 PROPFIND） |
+| `internal/serverfiles/paths.go` | `CompareNames` 补 CLDR 中文「汉字优先于拉丁」重排 |
+
+#### 五条必须保留的行为不变量
+
+1. **`router.use(authenticateToken, requireMovieReadAccess)` 是路由级中间件**。它先于
+   handler 执行，所以「缺 movieId」永远是中间件的 400「movieId 参数无效」，
+   各 handler 自己写的「缺少 movieId 参数」「影片不存在」**全是死代码**。照抄 handler
+   里的分支会得到两套状态码，前端一改就露。
+2. **`index` 缺失与 `index=''` 不是一回事**。`Number(undefined)` 是 NaN（400），
+   `Number('')` 是 0（合法，轨道 0）。只看「解析结果是否有限」会把前者误判成 0，
+   于是从「缺少或无效的 movieId/index 参数」掉到「该影片未挂载服务器信息」。
+3. **`index=1.5` 必须查不到轨道**。Node 是 `s.Index === streamIndex` 的数字相等，
+   不是截断比较；Go 用 `float64` 承载，`int(1.5)` 会误命中轨道 1。
+4. **`/embedded-tracks` 与 `/embedded-extract` 的 catch 默认 400**（不是 500），
+   而 `/search` `/browse` `/load` 的 catch 默认 500。四个 catch 两种默认值。
+5. **`/browse` 的排序是契约，`/search` 的不是**。browse 两侧都显式排序（目录在前 +
+   中文排序），search 两侧都是目录原序（Node 的 `readdirSync` 不排序）。对拍时
+   search 结果按 filename 排序后再比。
+
+#### 中文排序：x/text 与 ICU 正好相反
+
+`collate.New(language.SimplifiedChinese)` 走 CLDR **根规则**（拉丁字母在汉字之前），
+而 Node 的 `localeCompare(name, 'zh-Hans-CN')` 走 CLDR **zh 定制**（汉字在拉丁之前）。
+实测：
+
+```
+Node:  '_x' < '#tag' < '1.txt' < '123' < '阿凡达.srt' < '波西米亚.srt' < 'a.mkv' < 'Z.mkv'
+x/text:'_x' < '#tag' < '1.txt' < '123' < 'a.mkv' < 'Z.mkv' < '阿凡达.srt' < '波西米亚.srt'
+```
+
+纯 ASCII 目录看不出差别，一旦混入中文标题整段颠倒。修法是在 `CompareNames` 里先按
+**首个非空字符**分级（标点/数字 1 → 汉字 2 → 其他字母 3），同级再交给 Collator——
+这样纯 ASCII 目录的相对顺序与改动前完全一致，中日韩与拉丁混排也回到 Node 的顺序。
+
+#### 验收
+
+```
+$ bash backend-go/scripts/http-subtitles-parity.sh
+✓ 44 个步骤完全一致（状态码 + 响应体）
+```
+
+远端源（webdav / ftp / openlist）本轮只覆盖「缺 serverUrl → 400」这类不需要真实
+服务器的分支；真实取数由各自的 package 单测与 mount 对拍脚本覆盖。
+
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -820,6 +886,7 @@ Node 单侧删掉，于是房间列表少一行、`count` 也差一。对拍脚�
 | 直链升级前必须**现场再探**一次（`UpgradeDirectURLValidated`） | `mountutil` | `httpsDirect` 是配置期一次性探测的持久缓存，源站拆掉反向代理后陈旧的 `true` 会变成永远连不上 |
 | 流量统计取不到时回 **501**，不能回 0 | `routes/stats.ts` | 回 0 会让用户以为服务器真的没流量 |
 | 客户端日志端点**不鉴权** | `routes/client-logs.ts` | 登录页/游客态的报错最需要收集；鉴权会让最该有日志的场景一条都没有 |
+| 中文排序必须**汉字优先于拉丁** | `Intl.Collator('zh-Hans-CN')` | x/text 走 CLDR 根规则（拉丁在前）正好相反；纯 ASCII 目录看不出来，中英混合目录整段颠倒 |
 | 管理端三套 403 文案**不能合并** | `middleware/auth.ts#requireRoot` / `admin.ts#adminOnly` / `admin.ts#rootOnly` | 「仅超级管理员可操作」「仅管理员可操作」「仅 root 可操作」是同一个判定的三种措辞，全部直接展示给用户；合并成一个等于改前端文案 |
 | 管理端列表 `ORDER BY "createdAt" DESC` **不补 tiebreaker** | `routes/admin.ts` | Node 就这一句 SQL。自己加 `id DESC` 会让「同一秒创建的多行」排出与 Node 相反的顺序；两侧跑同一个 SQLite，同一句 SQL 才最忠实 |
 | 改角色必须**吊销令牌**，审核通过**不吊销** | `routes/admin.ts` | 改角色不吊销 = 被降级的管理员在令牌过期前仍带 admin 权限（JWT 里的 role 是旧值）；审核通过时吊销会让刚被批准的访客立刻掉线，掉的正是「等审核」那条会话 |

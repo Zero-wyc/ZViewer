@@ -21,8 +21,10 @@ import (
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/subtitle"
 )
 
 // userDDL / auditDDL 与现有库（TypeORM 生成）逐字一致。
@@ -124,7 +126,8 @@ const sessionDDL = `CREATE TABLE "session" (
 
 // roomRelationDDLs 是房间级联删除会扫到的关联表（列只保留测试用得到的 roomId）。
 const roomRelationDDLs = `
-CREATE TABLE "movie" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);
+CREATE TABLE "movie" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL, "url" varchar NOT NULL DEFAULT (''), "title" varchar NOT NULL DEFAULT (''), "cover" varchar, "source" varchar, "audioUrl" varchar, "format" varchar, "videoCodec" varchar, "audioCodec" varchar, "duration" float, "cid" integer, "currentQn" integer, "acceptQuality" text, "pages" text, "currentPage" integer, "serverUrl" varchar, "path" varchar, "username" varchar, "password" varchar, "directLink" boolean NOT NULL DEFAULT (0), "wasmEngine" boolean NOT NULL DEFAULT (0), "playsvideoEnabled" boolean NOT NULL DEFAULT (1), "cliOnly" boolean NOT NULL DEFAULT (0), "multiVersion" boolean NOT NULL DEFAULT (0), "sourceMeta" text, "order" integer NOT NULL DEFAULT (0), "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')), "sourceMountId" integer, "serverProxy" boolean NOT NULL DEFAULT (0));
+CREATE TABLE "user_mount" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "userId" integer NOT NULL, "type" varchar NOT NULL, "name" varchar NOT NULL, "serverUrl" varchar, "port" integer, "path" varchar, "username" varchar, "password" varchar, "indexUrl" varchar, "apiKey" varchar, "embyUserId" varchar, "directLink" boolean NOT NULL DEFAULT (0), "httpsDirect" boolean, "createdAt" datetime NOT NULL DEFAULT (datetime('now')), "updatedAt" datetime NOT NULL DEFAULT (datetime('now')));
 CREATE TABLE "comment" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);
 CREATE TABLE "playback_states" ("roomId" varchar PRIMARY KEY NOT NULL, "sourceUrl" TEXT);
 CREATE TABLE "music_playback_states" ("roomId" varchar PRIMARY KEY NOT NULL, "trackKey" TEXT);
@@ -191,6 +194,11 @@ func newTestEnv(t *testing.T) *testEnv {
 	audit := store.NewAudit(conn)
 
 	serverFolders := store.NewServerFolders(conn)
+	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
+	movies := store.NewMovies(conn)
+	rooms := store.NewRooms(conn)
+	mounts := store.NewMounts(conn)
+	streamResolver := proxy.NewStreamResolver(movies, rooms, mounts)
 
 	srv := api.New(api.Deps{
 		Cfg:      cfg,
@@ -202,11 +210,16 @@ func newTestEnv(t *testing.T) *testEnv {
 		Auth:     auth.NewAuthenticator(tokens, users),
 
 		ServerFolders: serverFolders,
-		Files:         serverfiles.NewRegistry(serverFolders, cfg.UploadsDir),
+		Files:         filesRegistry,
+		Subtitles:     subtitle.NewService(streamResolver, filesRegistry),
+
+		// 字幕端点的 requireMovieReadAccess 要读 movie 行。
+		Movies: movies,
+		Mounts: mounts,
 
 		// 管理端房间端点要读写 room / session；RoomSvc 保持 nil，
 		// 于是删除走 store 的级联（房间层的内存清理由 internal/room 的测试覆盖）。
-		Rooms: store.NewRooms(conn),
+		Rooms: rooms,
 	})
 
 	return &testEnv{

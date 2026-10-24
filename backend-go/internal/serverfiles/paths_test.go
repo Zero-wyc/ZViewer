@@ -250,3 +250,28 @@ func TestCompareNamesChinese(t *testing.T) {
 		t.Fatal("同一字符串比较结果必须为 0")
 	}
 }
+
+// TestCompareNamesScriptOrder 钉住 CLDR 中文的「汉字优先于拉丁」规则。
+//
+// x/text 走 CLDR 根规则（拉丁在前），比 Node 的 Intl.Collator('zh-Hans-CN')
+// 正好相反。这条差异在纯 ASCII 目录里看不出来，一旦目录里混了中文标题就会
+// 整段颠倒（中英文剧集列表一眼可见），必须独立断言。
+func TestCompareNamesScriptOrder(t *testing.T) {
+	if CompareNames("阿凡达", "a.mkv") >= 0 {
+		t.Fatal("汉字应排在拉丁字母之前")
+	}
+	if CompareNames("EP01.ass", "波西米亚") <= 0 {
+		t.Fatal("汉字应排在拉丁字母之前（EP01.ass 与 波西米亚）")
+	}
+	// 标点/数字仍排在汉字之前（ICU 的中文排序并不是「汉字最前」）。
+	if CompareNames("1.txt", "阿凡达") >= 0 {
+		t.Fatal("数字应排在汉字之前")
+	}
+	if CompareNames("_x", "阿凡达") >= 0 {
+		t.Fatal("符号应排在汉字之前")
+	}
+	// 同一级内不受影响。
+	if CompareNames("1.txt", "2.txt") >= 0 {
+		t.Fatal("同级内仍应按字典序")
+	}
+}

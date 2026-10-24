@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"golang.org/x/text/collate"
 	"golang.org/x/text/language"
@@ -203,8 +204,45 @@ var (
 )
 
 // CompareNames 按简体中文排序规则比较两个文件名。
+//
+// 除了 Collator 本身，还要补一条 CLDR 中文（`zh-Hans-CN`）的**汉字重排**规则：
+// ICU 的 zh 排序把汉字整体排在拉丁字母**之前**，而 x/text 用的是 CLDR 根规则
+// （拉丁在前）。实测 Node 侧
+//
+//	'_x' < '#tag' < '1.txt' < '123' < '阿凡达' < '波西米亚' < 'a.mkv' < 'Z.mkv'
+//
+// 而 `collate.New(language.SimplifiedChinese)` 给出的是拉丁在前、汉字在后。
+// 不补这条，中英混合的目录在 Go 侧会排成「EP01.ass … 阿凡达.srt」，与 Node
+// 的「阿凡达.srt … EP01.ass」完全颠倒——用户看到的就是「文件顺序乱了」。
+//
+// 分级只看**首个非空字符**：
+//
+//	1 = 标点 / 数字 / 符号（ICU 里排在所有字母之前）
+//	2 = 汉字
+//	3 = 其他字母（拉丁等）
+//
+// 同一级内仍交给 Collator，所以纯 ASCII 目录的相对顺序与改动前完全一致。
 func CompareNames(a, b string) int {
+	if ra, rb := scriptRank(a), scriptRank(b); ra != rb {
+		return ra - rb
+	}
 	collatorMu.Lock()
 	defer collatorMu.Unlock()
 	return collator.CompareString(a, b)
+}
+
+// scriptRank 返回上面那套分级（首个非空字符决定整串）。
+func scriptRank(s string) int {
+	for _, r := range s {
+		switch {
+		case unicode.Is(unicode.Han, r):
+			return 2
+		case unicode.IsLetter(r):
+			return 3
+		default:
+			return 1
+		}
+	}
+	// 空串按标点级处理（Node 里空名字会排在最前）。
+	return 1
 }

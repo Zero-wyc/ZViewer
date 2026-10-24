@@ -26,6 +26,7 @@ import (
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/subtitle"
 	"zviewer/backend/internal/webdav"
 )
 
@@ -58,6 +59,8 @@ type Deps struct {
 	ServerFolders *store.ServerFolders
 	// Files 是服务器文件的根目录注册表（含 30s TTL 缓存与路径安全解析）。
 	Files *serverfiles.Registry
+	// Subtitles 是字幕取数服务（搜索 / 浏览 / 加载 / Emby 内嵌轨道）。
+	Subtitles *subtitle.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -132,6 +135,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerClientLogRoutes(mux)
 	s.registerCLIRoutes(mux)
 	s.registerAdminRoutes(mux)
+	s.registerSubtitleRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
