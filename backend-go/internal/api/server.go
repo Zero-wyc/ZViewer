@@ -55,6 +55,7 @@ func (s *Server) Handler() http.Handler {
 
 	s.registerAuthRoutes(mux)
 	s.registerProfileRoutes(mux)
+	s.registerProxyRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// 头像静态资源无需鉴权（通过 URL 公开访问）

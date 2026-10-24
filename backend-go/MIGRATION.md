@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~3,000 | 42,653 | 7.0% |
-| HTTP 端点 | 12 | ~300 | 4.0% |
+| 代码行 | ~5,400（含测试 1,500） | 42,653 | 12.7% |
+| HTTP 端点 | 16 | ~300 | 5.3% |
 | 数据库表 | 4（user 已可写 / system_settings / audit_logs / 只读为主） | 16 | 25% |
 
 ## 二、阶段 0：基座（已完成）
@@ -50,12 +50,20 @@
 
 | 单元 | TS 行数（估） | Go 包（拟） | 状态 |
 |---|---:|---|---|
-| HTTP 反代 + 防抖代理 | ~1,240 | `internal/proxy` | ⏳ |
+| 内网地址判定 / URL 规范化 | ~110 | `internal/netutil` | ✅ |
+| HTTP 上游媒体代理（`http-proxy.ts`） | ~460 | `internal/proxy` | ✅ |
+| Range 解析与流式输出（`range-stream.ts`） | ~230 | `internal/proxy` | ✅ |
+| 防盗链代理端点 ×4（`antileech-proxy.ts`） | ~50 | `internal/api` | ✅ |
+| 挂载代理 / 影片流解析（`mount-proxy.ts`、`stream-movie.ts`） | ~260 | `internal/proxy` | ⏳ 依赖 mount / movie 表，随阶段 3 一起迁 |
 | B 站解析（wbi/playurl/pgc/vip/cdn/弹幕/字幕） | ~5,900 | `internal/bilibili` | ⏳ |
 | 动漫源（kazumi 规则引擎 / anime / anisubs / cms） | ~5,400 | `internal/anime` | ⏳ |
 | 弹幕源（bilibili / bahamut / dandanplay） | ~1,460 | `internal/danmaku` | ⏳ |
 | 字幕源 | ~1,000 | `internal/subtitle` | ⏳ |
 | LiveKit WS 隧道 + 凭证 | ~1,200 | `internal/voice` | ⏳ |
+
+**反代验收口径**：`go test ./internal/proxy` 覆盖 Range 收敛/透传、非 2xx 透传、
+JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定向）；
+`scripts/proxy-smoke.sh` 在真实公网源上验证 200 / 206 / 416 / 404 与通配 CORS。
 
 ## 五、阶段 3：实时核心（约 60 人日，最重）
 
