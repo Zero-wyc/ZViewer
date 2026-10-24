@@ -56,6 +56,7 @@ bili_test.json
 test-dev.sqlite
 # 对拍脚本（backend-go/scripts/bilibili-parity.sh）的工作目录：整库副本 + 双端日志
 .tmp-parity/
+.tmp-movie-parity/
 
 # ---- 编辑器与 IDE ----
 .vscode/

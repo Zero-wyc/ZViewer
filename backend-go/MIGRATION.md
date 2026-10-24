@@ -7,9 +7,9 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~10,200（含测试 2,300） | 42,653 | 24.0% |
-| HTTP 端点 | 19 | ~300 | 6.3% |
-| 数据库表 | 4（user 已可写 / system_settings / audit_logs / 只读为主） | 16 | 25% |
+| 代码行 | ~13,400（含测试 2,820） | 42,653 | 31.4% |
+| HTTP 端点 | 26 | ~300 | 8.7% |
+| 数据库表 | 8（user / movie 已可写；system_settings / audit_logs / room / session / user_mount 读写齐备） | 16 | 50% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -121,7 +121,8 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 
 | 单元 | TS 行数（估） | 状态 |
 |---|---:|---|
-| WebDAV / OpenList / FTP | ~2,300 | ⏳ |
+| 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
+| WebDAV / FTP 流代理 | ~800 | ⏳ 读取层已就绪，缺协议客户端 |
 | Emby / Jellyfin 协议仿真 | ~1,250 | ⏳ |
 | 服务器文件浏览 | ~1,200 | ⏳ |
 | 一起听音乐（含 NCM） | ~3,170 | ⏳ |
@@ -129,6 +130,26 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 更新器（下载/解压/sha256） | ~1,400 | ⏳ |
 | ACME / 自签证书 | ~1,020 | ⏳ |
 | CLI 代理端点 | ~280 | ⏳ |
+
+### 4.1 影片库与挂载流（已完成部分）
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/store/movie.go` | ~640 | 影片 CRUD、order 自增、`sourceMountId` 锚定、JSON 列规范化、时间解析 |
+| `internal/store/movie_crypto.go` | ~130 | 凭证列的 AES-256-CBC（与 Node 的 `encryptMovieField` 逐字节兼容） |
+| `internal/store/room.go` / `mount.go` | ~190 | 房间存在性、会话准入、挂载读取（含凭证解密） |
+| `internal/api/movie.go` | ~430 | 6 个影片 REST 端点 + DTO 序列化 |
+| `internal/proxy/moviestream.go` | ~230 | `resolveMovieStream`（熔断 + 30s 缓存 + 凭证回退） |
+| `internal/openlist/openlist.go` | ~480 | AList 客户端：token(12h) / raw_url(5min) / 单飞 |
+| `internal/api/openlist.go` | ~150 | `GET /api/openlist/stream`（签名直链 + Range 透传） |
+
+端点：`GET/POST/DELETE /api/rooms/{roomId}/movies`、`POST .../movies/reorder`、
+`PUT/DELETE /api/rooms/{roomId}/movies/{movieId}`、`GET /api/openlist/stream`。
+
+验证脚本：
+- `scripts/movie-smoke.sh`——真实库副本上的 14 个用例（CRUD、权限、必填、内网强制转发、凭证回填、密文校验）；
+- `scripts/movie-parity.sh`——与 Node 逐字段对拍（种子 0 差异、跨实现读 0 差异、双向密码加解密）；
+- `scripts/openlist-stream-smoke.sh`——mock AList 上的 9 个用例（206/200/416、缓存命中、AUTH_FAILED、NOT_FOUND）。
 
 ---
 
@@ -152,6 +173,14 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | HTTP 请求不写 auth cookie | `middleware/auth.ts` | 非 Secure 的 `SameSite=None` 会被浏览器丢弃，登录死循环 |
 | 桌面托管时 `/api/system/update/*` 返回 409 | `services/desktop-runtime.ts` | 网页更新只换后端产物，会与 GUI 整包版本脱节 |
 | 时间列写入必须**带毫秒**；`tokenInvalidBefore` 必须写**带 Z 的 ISO 串** | `DateUtils.mixedDateToUtcDatetimeString` | 截到秒会让同一秒内签发的令牌在改密后仍有效；无时区串在 TypeORM 水合时按本地时区解释，会让"Go 已吊销、Node 仍放行" |
+| 影片表的时间列按 **UTC** 解释，不要加本地时区偏移 | `movie.service.ts` + 实测对拍 | 这条与上一条不冲突但极易混：`tokenInvalidBefore` 是手写字符串，TypeORM 会 `new Date()` 按本地解释；而 `movie.createdAt` 走 sql.js 驱动的 DATE 列，driver 抛出的已经是按 UTC 解释的 Date。**曾经按前者类推加了 +8h，对拍立刻差 8 小时**——跨实现的语义只能实测 |
+| 影片 DTO 的 `username` / `password` **恒为 null**，连 socket 广播也不下发 | `movie.service.ts#serializeMovie` | 传了就等于把房主的 NAS 账号发给房间内每个观众 |
+| 更新影片时传 `null` **不清空**字段（`acceptQuality`/`pages`/`sourceMeta` 除外，它们是"显式 null = 清空"） | `movie.service.ts#updateMovie` | Node 用 `typeof x === 'string'` 判定，null 的 typeof 是 object 所以跳过；实现成"null 即清空"会让前端表单里未填的字段把已存值抹掉 |
+| 挂载型源（openlist/webdav/emby/jellyfin）遇内网地址时强制 `directLink=false` | `movie.routes.ts` | 公网访问者浏览器根本连不到 192.168.x.x，直链只会一直转圈 |
+| 代理模式新增影片后要把 `url` 重写成 `/api/<source>/stream?movieId=<id>` | `movie.service.ts#createMovie` | 保留原始直链会让观众端绕开服务器、且依赖各自的挂载表 |
+| 凭证列解密失败要返回 **nil**，不能返回空串指针 | `internal/store` | 空串会被当成"有密码但为空"，覆盖挂载表里的真实密码，表现为"配了密码却提示未授权"且无日志可查 |
+| OpenList token 缓存 key 必须是 `baseURL` + `username` 两段 | `openlist-token-cache.ts` | 只按 baseURL 缓存会让"改了密码"在 12 小时内不生效（旧 token 仍被复用） |
+| OpenList 的 raw_url 若为相对路径，必须补全成绝对地址 | `services/openlist.ts` | AList 未配 `site_url` 时返回 `/d/xxx?sign=`，直接交给代理层是非法 URL |
 | 请求参数编码必须等价于 **`encodeURIComponent`**，不能用 `url.QueryEscape` | `services/bilibili/params.ts` | 空格编 `+`、以及转义 `!*()'~` 会让 `w_rid` 与服务端重算的串不同，签名全线失效（表现为全部 -403/-352） |
 | PGC 接口载荷在**顶层 `result`**，UGC 在 `data` | `services/bilibili/pgc.ts` | 只读 `data` 会让番剧解析永远拿到空载荷，报错文案却像"接口失败" |
 | `currentQn` 必须反映**实际选中的轨道**，不是 `data.quality` | `services/bilibili/playurl.ts` | 低权限时 `quality` 高于真实下发轨道，前端会显示错误清晰度 |

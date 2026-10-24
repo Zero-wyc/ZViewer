@@ -17,6 +17,8 @@ import (
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/httpx"
+	"zviewer/backend/internal/openlist"
+	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/ratelimit"
 	"zviewer/backend/internal/store"
 )
@@ -29,6 +31,12 @@ type Deps struct {
 	Settings *store.Settings
 	Audit    *store.Audit
 	Movies   *store.Movies
+	Rooms    *store.Rooms
+	Mounts   *store.Mounts
+	// Stream 是影片流凭证解析器（/api/<source>/stream 共用）。
+	Stream *proxy.StreamResolver
+	// OpenList 是 AList 客户端（token / raw_url 三层缓存都在里面）。
+	OpenList *openlist.Client
 	Tokens   *auth.Manager
 	Auth     *auth.Authenticator
 	// Bilibili 是 B站 解析服务（迁移期由 Go 侧独立持有，不通过 Node 转手）。
@@ -60,6 +68,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerAuthRoutes(mux)
 	s.registerProfileRoutes(mux)
 	s.registerProxyRoutes(mux)
+	s.registerMovieRoutes(mux)
+	s.registerMountStreamRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
@@ -97,7 +107,10 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 			return
 		}
 		start := time.Now()
-		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		// status 留 0：由第一次 WriteHeader 决定；若整个请求没显式写头，
+		// 日志里按隐式 200 处理。预置成 200 会让所有错误响应都记成 200，
+		// 排查「接口一直返回 200 但前端报错」时会直接把人带偏。
+		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		if !strings.HasPrefix(r.URL.Path, "/api/") {
 			return
@@ -106,7 +119,11 @@ func (s *Server) requestLogger(next http.Handler) http.Handler {
 		if rec.bytes > 0 {
 			size = humanSize(rec.bytes)
 		}
-		log.Printf("[req] %s %d %s %s %s", r.Method, rec.status, size, time.Since(start).Round(time.Millisecond), r.URL.Path)
+		status := rec.status
+		if status == 0 {
+			status = http.StatusOK
+		}
+		log.Printf("[req] %s %d %s %s %s", r.Method, status, size, time.Since(start).Round(time.Millisecond), r.URL.Path)
 	})
 }
 
@@ -145,9 +162,17 @@ type statusRecorder struct {
 }
 
 func (r *statusRecorder) WriteHeader(code int) {
-	r.status = code
+	if r.status == 0 {
+		r.status = code
+	}
 	r.ResponseWriter.WriteHeader(code)
 }
+
+// Unwrap 让 http.ResponseController 能穿透到真实 ResponseWriter。
+//
+// 代理/SSE 的流式输出依赖 SetWriteDeadline、Flush 等能力；ResponseController
+// 找不到 Unwrap 会直接报 unsupported，包一层就等于把流式能力包没了。
+func (r *statusRecorder) Unwrap() http.ResponseWriter { return r.ResponseWriter }
 
 func (r *statusRecorder) Write(p []byte) (int, error) {
 	n, err := r.ResponseWriter.Write(p)

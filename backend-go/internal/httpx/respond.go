@@ -31,6 +31,15 @@ func Fail(w http.ResponseWriter, status int, message string) {
 	JSON(w, status, map[string]any{"success": false, "message": message})
 }
 
+// FailWithCode 写出 {success:false, message, code} 形式的错误。
+//
+// 带 code 的场合是「前端要按错误类型分流」的接口：影片流代理要让前端区分
+// AUTH_FAILED（去改挂载密码）与 NOT_FOUND（文件被挪走），只给一句文案
+// 前端就只能干瞪眼。
+func FailWithCode(w http.ResponseWriter, status int, message, code string) {
+	JSON(w, status, map[string]any{"success": false, "message": message, "code": code})
+}
+
 // BadRequest 400。
 func BadRequest(w http.ResponseWriter, message string) { Fail(w, http.StatusBadRequest, message) }
 

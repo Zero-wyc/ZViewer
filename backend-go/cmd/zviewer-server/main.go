@@ -21,6 +21,8 @@ import (
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/db"
+	"zviewer/backend/internal/openlist"
+	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/store"
 )
 
@@ -55,13 +57,21 @@ func main() {
 	settings := store.NewSettings(conn)
 	audit := store.NewAudit(conn)
 
+	movies := store.NewMovies(conn)
+	rooms := store.NewRooms(conn)
+	mounts := store.NewMounts(conn)
+
 	server := api.New(api.Deps{
 		Cfg:      cfg,
 		DB:       conn,
 		Users:    users,
 		Settings: settings,
 		Audit:    audit,
-		Movies:   store.NewMovies(conn),
+		Movies:   movies,
+		Rooms:    rooms,
+		Mounts:   mounts,
+		Stream:   proxy.NewStreamResolver(movies, rooms, mounts),
+		OpenList: openlist.NewClient(),
 		Tokens:   tokens,
 		Auth:     auth.NewAuthenticator(tokens, users),
 		Bilibili: bilibili.NewService(conn),

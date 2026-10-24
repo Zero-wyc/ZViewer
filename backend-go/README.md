@@ -63,10 +63,15 @@ go test ./...
 | `resolve-bilibili` NDJSON | ✅ | 逐行推进度，结果行含全部字段；前端可直接替换 |
 | B 站弹幕 | ✅ | `/api/stream/bilibili/danmaku`（cid 或 bvid），自行解压裸 deflate |
 | B 站字幕 | ✅ | `/api/stream/bilibili/ai-subtitle`，oid 带外校验 + 时长带内校验 + 一致性投票 |
+| 影片库 CRUD | ✅ | 6 个 `/api/rooms/{roomId}/movies` 端点，含 order 自增、重排序、清空 |
+| 影片凭证加密 | ✅ | AES-256-CBC，与 Node 的 `encryptMovieField` 逐字节互通（双向实测） |
+| 房间准入 | ✅ | `canReadRoom`：root/owner 直通，其余要求房间 active + 未结束会话（游客按 guestId） |
+| 挂载凭证回填 | ✅ | 按 `sourceMountId` 优先、`serverUrl` 兜底，影片自身凭证优先于挂载 |
+| OpenList 影片流 | ✅ | `/api/openlist/stream`，token(12h)/raw_url(5min)/单飞三层缓存，Range 透传 |
 
 ## 尚未实现
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **19 / 300**。
+见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **26 / 300**。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
 迁移期这是刻意的：宁可明确失败，也不要返回半个可用但语义错误的响应。
@@ -83,8 +88,9 @@ backend-go/
 │   ├── auth/               JWT、cookie、鉴权中间件
 │   ├── ratelimit/          进程内固定窗口限流
 │   ├── netutil/            内网判定与 URL 规范化（SSRF 唯一事实源）
-│   ├── proxy/              上游媒体代理、Range 解析与流式输出
+│   ├── proxy/              上游媒体代理、Range 解析、影片流凭证解析与流式输出
 │   ├── bilibili/           B 站解析链（wbi/playurl/pgc/resolver/弹幕/字幕/CDN）
+│   ├── openlist/           AList 客户端（登录 / fs-get / 三层缓存）
 │   ├── httpx/              统一 JSON 响应与错误
 │   └── api/                路由与处理器
 └── scripts/
@@ -93,7 +99,13 @@ backend-go/
     ├── proxy-smoke.sh          代理端点冒烟（真实公网源）
     ├── bilibili-smoke.sh       B 站解析 / 弹幕 / 字幕冒烟（真库副本 + 真接口，15 用例）
     ├── bilibili-parity.sh      Node 与 Go 逐字段对拍（6 用例，差异数作为退出码）
-    ├── parity-compare.js       对拍比对器
+    ├── parity-compare.js       B 站解析对拍比对器
+    ├── movie-smoke.sh          影片 REST 冒烟（真库副本，14 用例）
+    ├── movie-parity.sh         影片列表与 Node 逐字段对拍 + 双向密码加解密
+    ├── parity-compare-movies.js 影片列表比对器
+    ├── parity-node-movies.js   直接用 Node 的 TypeORM 层读写（绕开完整服务启动）
+    ├── openlist-stream-smoke.sh OpenList 影片流冒烟（mock AList，9 用例）
+    ├── mock-alist.js           最小 AList 模拟服务器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
 ```
 
@@ -117,6 +129,20 @@ Go 侧"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE）
 发起显式 Range，4K 下单个 m4s 常有 8–15 MB，截断会让它拿到不完整 fragment、
 反复重试，表现为"只有 4K 卡顿、1080P 正常"。这两条规则在 `ClampRangeHeader`
 的注释里也写了，改动前请先读。
+
+**为什么影片时间列按 UTC 解释、tokenInvalidBefore 却要带 Z**：两者走的是不同路径。
+`tokenInvalidBefore` 是代码手写的字符串交给 TypeORM，它按 `new Date(str)` 语义处理，
+无时区标记时 JS 取本地时区；而 `movie.createdAt` 是 sql.js 驱动从 DATE 列解出来的
+`Date` 对象，已经是 UTC 解释好的。曾按前者类推给影片时间加了 +8h，对拍立刻差 8 小时——
+**这类跨实现的语义只能实测，读一两个函数推断必错**。
+
+**为什么 OpenList 要做三层缓存**：token（12h）避免每次 /stream 都登录（AList 登录有限流）；
+raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几十个 Range）；
+单飞让并发进房的多个请求共用一个上游调用。少了任一层，一次正常播放就会把上游打成热点。
+
+**为什么凭证解密失败要返回 nil 而不是空串**：调用方用 `!= nil` 判断"有没有凭证"，
+空串指针会被当成"有凭证但为空"，进而覆盖挂载表里的真实密码。表现是"配了密码却提示未授权"，
+而且日志里什么都看不到——排查成本极高。
 
 **为什么弹幕接口要自己解 deflate**：B 站 `x/v1/dm/list.so` **无条件**返回
 `Content-Encoding: deflate`（即便请求写 `Accept-Encoding: identity`），且是**裸 deflate**
