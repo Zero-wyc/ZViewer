@@ -8,16 +8,17 @@ import (
 )
 
 // AuditEntry 对应 "audit_logs" 表。
-//
-// 只保留 Go 侧当前会写的字段；其余列（target 等）留空由后续模块补齐。
 type AuditEntry struct {
 	ActorUserID   *int64
 	ActorUsername string
 	ActorRole     string
 	Action        string
-	IP            string
-	Success       bool
-	Detail        string
+	// Target 是被操作对象的标识（如 `user:3 (alice)`、`room:12345678`）。
+	// 管理端依赖它做"谁对谁做了什么"的追溯，非管理员操作可以留空。
+	Target  string
+	IP      string
+	Success bool
+	Detail  string
 }
 
 // Audit 提供审计日志写入。
@@ -39,13 +40,14 @@ func (a *Audit) Write(ctx context.Context, entry AuditEntry) error {
 	}
 	_, err := a.conn.ExecContext(ctx, `
 		INSERT INTO "audit_logs"
-			("actorUserId", "actorUsername", "actorRole", "action", "ip", "success", "detail", "createdAt")
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+			("actorUserId", "actorUsername", "actorRole", "action", "target", "ip", "success", "detail", "createdAt")
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`,
 		nullableInt64(entry.ActorUserID),
 		nullableString(entry.ActorUsername),
 		role,
 		entry.Action,
+		nullableString(entry.Target),
 		nullableString(entry.IP),
 		entry.Success,
 		nullableString(entry.Detail),

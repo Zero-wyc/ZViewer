@@ -88,6 +88,63 @@ func (u *Users) UsernamesByIDs(ctx context.Context, ids []int64) (map[int64]stri
 	return out, nil
 }
 
+// ListAll 返回全部用户，按创建时间倒序（管理端用户列表）。
+//
+// **刻意不加 `id DESC` 兜底**：Node 是 `find({ order: { createdAt: 'DESC' } })`，
+// 生成的就是单纯的 `ORDER BY "createdAt" DESC`。两侧跑的是同一个 SQLite、
+// 同一份数据，并列行的相对顺序自然一致；自己加个 tiebreaker 反而会在
+// 「同一秒注册的多个用户」上跟 Node 排出相反的顺序，对拍立刻炸。
+func (u *Users) ListAll(ctx context.Context) ([]*User, error) {
+	rows, err := u.conn.QueryContext(ctx,
+		`SELECT `+userColumns+` FROM "user" ORDER BY "createdAt" DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("查询用户列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	list := make([]*User, 0, 32)
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, fmt.Errorf("读取用户行失败: %w", err)
+		}
+		list = append(list, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历用户列表失败: %w", err)
+	}
+	return list, nil
+}
+
+// UpdateRole 修改用户角色。
+func (u *Users) UpdateRole(ctx context.Context, id int64, role string) error {
+	res, err := u.conn.ExecContext(ctx,
+		`UPDATE "user" SET "role" = ?, `+touchUpdatedAt+` WHERE "id" = ?`,
+		role, FormatSQLiteTime(time.Now()), id,
+	)
+	return ensureAffected(res, err, "修改用户角色失败")
+}
+
+// Approve 审核通过用户：status 置 active，guest 顺带提升为 user。
+//
+// 注意**不吊销令牌**：Node 的 approve 分支只 save，没有 invalidateUserTokens。
+// 补上会让刚被批准的访客立刻掉线，而它连的正是「等审核」那条会话。
+func (u *Users) Approve(ctx context.Context, id int64) error {
+	res, err := u.conn.ExecContext(ctx, `
+		UPDATE "user" SET
+			"status" = 'active',
+			"role" = CASE WHEN "role" = 'guest' THEN 'user' ELSE "role" END,
+			`+touchUpdatedAt+`
+		WHERE "id" = ?`, FormatSQLiteTime(time.Now()), id)
+	return ensureAffected(res, err, "审核用户失败")
+}
+
+// Delete 物理删除用户。
+func (u *Users) Delete(ctx context.Context, id int64) error {
+	res, err := u.conn.ExecContext(ctx, `DELETE FROM "user" WHERE "id" = ?`, id)
+	return ensureAffected(res, err, "删除用户失败")
+}
+
 // Count 返回用户总数（用于判断是否需要初始化 root 账号）。
 func (u *Users) Count(ctx context.Context) (int64, error) {
 	var n int64
@@ -207,7 +264,7 @@ func nullableStringPtr(v *string) any {
 	return *v
 }
 
-func scanUser(row *sql.Row) (*User, error) {
+func scanUser(row rowScanner) (*User, error) {
 	var (
 		user      User
 		avatar    sql.NullString

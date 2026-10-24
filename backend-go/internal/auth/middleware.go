@@ -74,6 +74,37 @@ func (a *Authenticator) RequireRoot(next http.HandlerFunc) http.HandlerFunc {
 	})
 }
 
+// RequireAdmin 允许超级管理员与管理员（对应 Node 的 adminOnly）。
+//
+// 文案是 `routes/admin.ts#adminOnly` 的原文，与 RequireRoot 的
+// 「仅超级管理员可操作」不同——两条 403 分属不同模块，对拍要逐字相等。
+func (a *Authenticator) RequireAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return a.Require(func(w http.ResponseWriter, r *http.Request) {
+		claims := ClaimsFrom(r.Context())
+		if claims == nil || (claims.Role != RoleRoot && claims.Role != RoleAdmin) {
+			httpx.Forbidden(w, "无权限：仅管理员可操作")
+			return
+		}
+		next(w, r)
+	})
+}
+
+// RequireRootExact 与 RequireRoot 判定相同，但文案取
+// `routes/admin.ts#rootOnly` / `routes/updater.ts` 的「仅 root 可操作」。
+//
+// 同一个权限判定在两处模块有两套文案，是 Node 侧的历史事实：
+// `middleware/auth.ts#requireRoot` 用「仅超级管理员可操作」（serverFiles 走它），
+// admin / updater 各自内联了一份「仅 root 可操作」。不要为了"统一"合并成一个。
+func (a *Authenticator) RequireRootExact(next http.HandlerFunc) http.HandlerFunc {
+	return a.Require(func(w http.ResponseWriter, r *http.Request) {
+		if claims := ClaimsFrom(r.Context()); claims == nil || claims.Role != RoleRoot {
+			httpx.Forbidden(w, "无权限：仅 root 可操作")
+			return
+		}
+		next(w, r)
+	})
+}
+
 // AssertActive 是 assertActive 的对外入口，供实时层逐包校验复用。
 //
 // HTTP 中间件与 socket 逐包鉴权必须用同一套判定，否则会出现

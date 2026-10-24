@@ -131,6 +131,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerStatsRoutes(mux)
 	s.registerClientLogRoutes(mux)
 	s.registerCLIRoutes(mux)
+	s.registerAdminRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

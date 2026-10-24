@@ -106,10 +106,13 @@ go test ./...
 | 流量统计 | ✅ | `/api/stats/traffic`：Windows/Linux/macOS 三平台采样，取不到时回 501 而非 0 |
 | 客户端日志 | ✅ | `/api/client-logs`：不鉴权（游客报错最需要收集）、4MB 上限、异步落盘即返 204 |
 | CLI 本地解析代理 | ✅ | `/api/cli/resolve`：调用方是用户本机 CLI，B 站 Cookie 原样透传，跳过 CDN 检查 |
+| 管理端用户 | ✅ | 列表（7 列 DTO，不含 passwordHash）/ 改角色（吊销令牌）/ 审核（guest→user）/ 删除 |
+| 管理端房间 | ✅ | 列表（含 closed + 在线人数批量聚合）/ 物理删除（级联 7 张关联表）/ 重开（清权限缓存）/ 批量删 / 全删 / 清理无人 |
+| 管理端设置 | ✅ | 18 个字段逐项校验（枚举·范围·矩阵结构·ws 前缀），全部通过才整行保存 |
 
 ## 尚未实现
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **90 / 300**。
+见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **102 / 300**。
 
 **实时层 65 个上行业务事件全部接完**（房间 28 步 + 成员 46 步 + 播放 68 步 +
 评论弹幕 32 步 + 一起听 48 步 + 信令与零散 36 步，Node↔Go 对拍零差异），
@@ -123,8 +126,9 @@ go test ./...
 - **NCM 音乐搜索与播放地址解析**（`/api/music/ncm/*` 等 9 类端点）：一起听的**实时层**已迁，
   但这些端点依赖 `@neteasecloudmusicapienhanced/api` 这个纯 Node 包（Node 版起了一个
   36530 端口的内部服务），Go 侧要改成外部进程 / HTTP 客户端模型，尚未动手；
-- **管理端**（`routes/admin.ts` 13 个端点）、**动漫源**（anime / anisubs / kazumi / cms，
-  各 6–8 个）、**字幕管理**（6 个）、**更新器**（7 个）、**语音 LiveKit**（3 个）；
+- **动漫源**（anime / anisubs / kazumi / cms，各 6–8 个）、**字幕管理**（6 个）、
+  **更新器**（7 个）、**语音 LiveKit**（3 个）、**定时任务**（房间自动清理等，
+  Node 是启动即跑 + 每小时一次，删 `lastAccessedAt` 超期的 active 房间）；
 - Redis 存储适配器（多实例共享播放状态，单实例部署用不到）。
 
 这些路径上的前端操作会静默无响应（事件没有监听器）或明确报错，不会返回半个可用但语义错误的结果。
@@ -196,6 +200,8 @@ backend-go/
     ├── sio-misc-driver.js      信令/观众就绪/CLI 代理/预览源/子模式对拍驱动器（36 步 + 13 条断言）
     ├── http-serverfiles-parity.sh  HTTP 端点与 Node 逐字节对拍（起真实 Node 后端，65 步）
     ├── http-serverfiles-driver.js  服务器文件/统计/客户端日志/直链/CLI 对拍驱动器（65 步，比较状态码 + 响应头 + 响应体）
+    ├── http-admin-parity.sh     管理端 12 端点与 Node 逐字节对拍（63 步）
+    ├── http-admin-driver.js     管理端对拍驱动器（用户/房间/设置，有状态序列）
     ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
     ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）

@@ -197,6 +197,78 @@ func (r *Rooms) Create(ctx context.Context, room *Room) error {
 	return nil
 }
 
+// ListAll 返回全部房间（含已关闭），按创建时间倒序（管理端房间列表）。
+//
+// 与 ListActive 的区别：管理端要看到 closed 的房间才能「重新开启」，
+// 所以不能按 status 过滤。同样**不加 `id DESC` 兜底**——见 Users.ListAll 的说明。
+func (r *Rooms) ListAll(ctx context.Context) ([]*Room, error) {
+	rows, err := r.conn.QueryContext(ctx,
+		`SELECT `+roomColumns+` FROM "room" ORDER BY "createdAt" DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("查询房间列表失败: %w", err)
+	}
+	defer rows.Close()
+
+	list := make([]*Room, 0, 16)
+	for rows.Next() {
+		room, err := scanRoom(rows)
+		if err != nil {
+			return nil, fmt.Errorf("读取房间行失败: %w", err)
+		}
+		list = append(list, room)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历房间列表失败: %w", err)
+	}
+	return list, nil
+}
+
+// DeleteCascade 物理删除房间及其全部关联数据（一个事务内完成）。
+//
+// 顺序不能改：playback_states / music_playback_states / music_queue_item
+// 通过外键引用 room，必须在删 room 之前清掉，否则 SQLite 抛
+// FOREIGN KEY constraint failed（movie / comment 无外键约束不敏感）。
+//
+// 与 Node 的 deleteRoomAndRelations 相比这里**不碰内存**——
+// 运行时状态与音乐基线的清理由 room 层的 DeleteRoomAndRelations 负责，
+// 仓储层只做持久化。
+func (r *Rooms) DeleteCascade(ctx context.Context, roomID string) error {
+	tx, err := r.conn.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("删除房间失败: %w", err)
+	}
+	defer func() {
+		_ = tx.Rollback() // 已提交时是无操作
+	}()
+
+	now := FormatSQLiteTime(time.Now())
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE "session" SET "endedAt" = ? WHERE "roomId" = ? AND "endedAt" IS NULL`,
+		now, roomID); err != nil {
+		return fmt.Errorf("结束房间会话失败: %w", err)
+	}
+
+	relations := []string{
+		"movie", "comment", "playback_states", "music_playback_states",
+		"music_queue_item", "danmaku_track", "room_danmaku_meta",
+	}
+	for _, table := range relations {
+		if _, err := tx.ExecContext(ctx,
+			`DELETE FROM "`+table+`" WHERE "roomId" = ?`, roomID); err != nil {
+			return fmt.Errorf("删除房间关联数据(%s)失败: %w", table, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `DELETE FROM "room" WHERE "roomId" = ?`, roomID); err != nil {
+		return fmt.Errorf("删除房间失败: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("删除房间失败: %w", err)
+	}
+	return nil
+}
+
 // SetStatus 修改房间状态（active / closed）。
 func (r *Rooms) SetStatus(ctx context.Context, roomID, status string) error {
 	_, err := r.conn.ExecContext(ctx, `

@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~39,530（含测试 7,928） | 42,653 | 92.7% |
-| HTTP 端点 | 90 | ~300 | 30.0% |
+| 代码行 | ~41,850（含测试 8,944） | 42,653 | 98.1% |
+| HTTP 端点 | 102 | ~300 | 34.0% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -492,19 +492,88 @@ HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应�
 - **openlist 失败不回退拼接**，webdav 仅在非 AList 错误时才回退 `webdav.DirectURL`。
 
 
+### 3.9 管理端（阶段 15）
+
+`routes/admin.ts` 的 12 个端点，一次接完。这个模块几乎全在读写既有表，
+没有第三方依赖，所以是 HTTP 面里最容易做成「完全一致」的一块。
+
+| 端点 | 方法 | 权限 | 要点 |
+|---|---|---|---|
+| `/api/admin/users` | GET | admin+ | 7 列 DTO（**不含 passwordHash / tokenInvalidBefore**） |
+| `/api/admin/users/{id}/role` | PATCH | root | 只收 admin/user；root 账户不可改；改完**吊销令牌** |
+| `/api/admin/users/{id}/approve` | POST | root | status→active、guest→user；**不吊销令牌** |
+| `/api/admin/users/{id}` | DELETE | root | root 不可删；删完吊销令牌 |
+| `/api/admin/rooms` | GET | admin+ | 含 closed；批量查在线人数与 sharer 状态（消 N+1） |
+| `/api/admin/rooms/{roomId}` | DELETE | root 或房主 admin | **物理删除**（级联），且**不写审计** |
+| `/api/admin/rooms/{roomId}/reopen` | POST | root 或房主 admin | 仅 closed 可重开；清权限缓存 |
+| `/api/admin/rooms/batch-delete` | POST | root | 逐个删，单个失败不中断，写审计 |
+| `/api/admin/rooms/delete-all` | POST | root | 全删，**不写审计** |
+| `/api/admin/rooms/cleanup-unused` | POST | admin+ | closed 直接清；active 需无未结束会话；admin 只清自己的 |
+| `/api/admin/settings` | GET | admin+ | 18 个字段 + `desktopManaged`（运行时标识，不落库） |
+| `/api/admin/settings` | PUT | admin+ | 逐字段校验，全部通过才整行保存 |
+
+支撑改动：
+
+| 文件 | 内容 |
+|---|---|
+| `internal/store/settings.go` | 补 4 列（`dataSourceConfig` / `cdnAccelerate` / `cdnProxyUrl` / `livekitExternalUrl`）+ `GetOrCreate` + `Save`（整行写） |
+| `internal/store/user.go` | `ListAll` / `UpdateRole` / `Approve` / `Delete`；`scanUser` 改收 `rowScanner` |
+| `internal/store/room.go` | `ListAll`（含 closed）+ `DeleteCascade`（一个事务删 7 张关联表 + room） |
+| `internal/store/audit.go` | `AuditEntry` 补 `Target`（管理端审计要记「对谁做了什么」） |
+| `internal/room/room_removal.go` | `DeleteRoomAndRelations`：内存 → 级联落库 → `room-closed` 广播 → 踢人 |
+| `internal/auth/middleware.go` | `RequireAdmin` / `RequireRootExact`（两套 403 文案） |
+| `internal/api/admin.go` | 12 个 handler + JSON 取值助手 |
+
+对拍：`bash backend-go/scripts/http-admin-parity.sh`
+→ **63 个步骤完全一致（状态码 + 响应体），0 处已知差异**。
+
+#### 六处只有对拍（或读源码）才照得出来的细节
+
+1. **三套 403 文案不能合并**。`middleware/auth.ts#requireRoot` 是「无权限：仅超级管理员可操作」
+   （serverFiles 走它），`admin.ts#adminOnly` 是「无权限：仅管理员可操作」，
+   `admin.ts#rootOnly` / `updater.ts` 是「无权限：仅 root 可操作」。同一个权限判定、
+   三处不同措辞，全都是直接展示给用户的原文。
+2. **列表排序不能加 tiebreaker**。Node 是 `find({order:{createdAt:'DESC'}})` → 单纯
+   `ORDER BY "createdAt" DESC`。自己补个 `id DESC` 看似"更稳"，实际会在
+   「同一秒创建的多行」上与 Node 排出相反顺序——两侧跑的是同一个 SQLite、同一份数据，
+   用同一句 SQL 才是最忠实的做法（对拍脚本也因此必须显式错开 `createdAt`）。
+3. **改角色要吊销令牌，审核通过不要**。改角色不吊销 = 被降级的管理员在令牌过期前
+   仍带着 admin 权限通过每一条 `RequireAdmin`；而审核通过时吊销会让刚被批准的访客
+   立刻掉线，掉的正是「等审核」那条会话。
+4. **`Number.endsWith` 与 `Number.isNaN` 要分开判**。`/users/abc/role` 在 Node 是
+   400「用户 ID 不正确」（`Number('abc')` 是 NaN），而 `/users/1.5/role` 是 404
+   「用户不存在」（1.5 是合法数字、查不到行）。实现成一个「解析失败就 400」会让后者错。
+5. **批量删除把不存在的房间号也计入 `count`**。`deleteRoomAndRelations` 不校验存在性
+   （`DELETE` 0 行不报错），Node 的 `count++` 照样执行。这不是 bug，是必须保留的行为——
+   单条删除有 404 守卫，批量删除没有。
+6. **DELETE /rooms/:roomId 不写审计，batch-delete 写**。同一件事两条路径，一条有记录一条没有。
+
+#### 已知缺口：房间自动清理定时器
+
+Node 有 `modules/room/room-cleanup.service.ts`：启动即跑一轮 + 每小时一次，删除
+`status='active'` 且 `lastAccessedAt` 早于 `autoDeleteAfterHours` 的房间。Go 侧**还没迁这个
+调度器**，所以长时间不访问的活跃房间不会被自动清除。
+
+这个缺口在对拍里**会以假差异的形式冒出来**：种子库 `config/dev.sqlite` 里的历史房间会被
+Node 单侧删掉，于是房间列表少一行、`count` 也差一。对拍脚本的解法是种数据前整表清空
+`room` + `session`，并把种下去的 `lastAccessedAt` 设成"现在"。补这个调度器等
+「定时任务」阶段一起做。
+
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
+
 | 单元 | TS 行数（估） | 状态 |
 |---|---:|---|
 | 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
 | WebDAV 挂载 + 流代理 | ~800 | ✅ 见 4.2 |
 | FTP 挂载 + 流代理 | ~660 | ✅ 见 4.4 |
 | Emby / Jellyfin 协议仿真 | ~1,600 | ✅ 见 4.5 |
-| 服务器文件浏览 | ~1,200 | ⏳ |
+| 服务器文件浏览 | ~1,200 | ✅ 见 3.8（12 端点 + 65 步对拍） |
 | 一起听音乐（含 NCM） | ~3,170 | ✅ 实时层已迁（见 3.7）；NCM 内部 API 与流代理属本阶段 ⏳ |
-| 管理端 / 统计 / 客户端日志 | ~900 | ⏳ |
+| 管理端 / 统计 / 客户端日志 | ~900 | ✅ 见 3.8 / 3.9（63 步对拍） |
 | 更新器（下载/解压/sha256） | ~1,400 | ⏳ |
 | ACME / 自签证书 | ~1,020 | ⏳ |
-| CLI 代理端点 | ~280 | ⏳ |
+| CLI 代理端点 | ~280 | ✅ 见 3.8 |
 
 ### 4.1 影片库与挂载流（已完成部分）
 
@@ -751,6 +820,14 @@ HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应�
 | 直链升级前必须**现场再探**一次（`UpgradeDirectURLValidated`） | `mountutil` | `httpsDirect` 是配置期一次性探测的持久缓存，源站拆掉反向代理后陈旧的 `true` 会变成永远连不上 |
 | 流量统计取不到时回 **501**，不能回 0 | `routes/stats.ts` | 回 0 会让用户以为服务器真的没流量 |
 | 客户端日志端点**不鉴权** | `routes/client-logs.ts` | 登录页/游客态的报错最需要收集；鉴权会让最该有日志的场景一条都没有 |
+| 管理端三套 403 文案**不能合并** | `middleware/auth.ts#requireRoot` / `admin.ts#adminOnly` / `admin.ts#rootOnly` | 「仅超级管理员可操作」「仅管理员可操作」「仅 root 可操作」是同一个判定的三种措辞，全部直接展示给用户；合并成一个等于改前端文案 |
+| 管理端列表 `ORDER BY "createdAt" DESC` **不补 tiebreaker** | `routes/admin.ts` | Node 就这一句 SQL。自己加 `id DESC` 会让「同一秒创建的多行」排出与 Node 相反的顺序；两侧跑同一个 SQLite，同一句 SQL 才最忠实 |
+| 改角色必须**吊销令牌**，审核通过**不吊销** | `routes/admin.ts` | 改角色不吊销 = 被降级的管理员在令牌过期前仍带 admin 权限（JWT 里的 role 是旧值）；审核通过时吊销会让刚被批准的访客立刻掉线，掉的正是「等审核」那条会话 |
+| `Number('abc')`=NaN → **400**，`Number('1.5')` 是合法数字 → **404** | `routes/admin.ts` 的 `Number.isNaN(id)` | 只写「解析失败就 400」会让小数 ID 报出 Node 不会报的错；两种结果必须分开判 |
+| 批量删除把**不存在**的房间号也计入 `count` | `room-removal.service.ts` | `deleteRoomAndRelations` 不校验存在性，`DELETE` 0 行不报错。单条删除有 404 守卫，批量删除没有——别"修正" |
+| `DELETE /admin/rooms/:roomId` **不写审计**，`batch-delete` 写 | `routes/admin.ts` | 同一件事两条路径一条有记录一条没有。补齐会让「逐个删」与「批量删」的审计条数对不上 |
+| 设置 PUT 是**整行写**，且未提交字段保持原值 | `routes/admin.ts` + `system-settings.ts` | Node 是「读实体→改几个字段→整行 save」；做成部分列 UPDATE 会让「显式 null 清空」与「未提交」两种语义分叉 |
+| 重开房间后必须**清权限缓存** | `roomPermissionService.invalidatePermissionCache` | 缓存里有 5s 的 `isInRoom=false`，不失效则重开后头 5 秒观众发言仍被拒（表现为「重开了但进不去」） |
 
 ## 七之二、刻意与 Node 不同的地方
 

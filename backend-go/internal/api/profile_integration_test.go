@@ -64,6 +64,74 @@ const auditDDL = `CREATE TABLE "audit_logs" (
 	"createdAt" datetime NOT NULL DEFAULT (datetime('now'))
 )`
 
+// settingsDDL 供管理端设置端点使用；列集合必须与 TypeORM 生成的表一致，
+// 否则「整行 UPDATE」会在测试里通过、在真实库上因缺列而失败。
+const settingsDDL = `CREATE TABLE "system_settings" (
+	"id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"autoDeleteInactiveRooms" boolean NOT NULL DEFAULT (1),
+	"autoDeleteAfterHours" INTEGER NOT NULL DEFAULT (24),
+	"roomDefaultMusicVolume" INTEGER NOT NULL DEFAULT (50),
+	"dataSourceConfig" json,
+	"registrationMode" TEXT NOT NULL DEFAULT ('approval'),
+	"roomCreationMode" TEXT NOT NULL DEFAULT ('admin-only'),
+	"roomPermissionMatrix" json,
+	"betaFeaturesEnabled" boolean NOT NULL DEFAULT (0),
+	"dashDisabled" boolean NOT NULL DEFAULT (0),
+	"bilibiliDefaultParseMode" TEXT NOT NULL DEFAULT ('mp4'),
+	"bilibiliPgcDefaultMode" TEXT NOT NULL DEFAULT ('mp4'),
+	"cdnAccelerate" boolean NOT NULL DEFAULT (0),
+	"playsvideoEnabled" boolean NOT NULL DEFAULT (1),
+	"cdnProxyUrl" TEXT NOT NULL DEFAULT ('https://gh-proxy.com'),
+	"roomMultiInstanceLogin" boolean NOT NULL DEFAULT (0),
+	"livekitExternalUrl" TEXT NOT NULL DEFAULT (''),
+	"announceAutoPopupOnUpdate" boolean NOT NULL DEFAULT (1),
+	"createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+	"updatedAt" datetime NOT NULL DEFAULT (datetime('now'))
+)`
+
+// roomDDL / sessionDDL 供管理端房间端点使用。
+const roomDDL = `CREATE TABLE "room" (
+	"id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"roomId" varchar NOT NULL,
+	"name" varchar,
+	"password" varchar,
+	"maxViewers" INTEGER NOT NULL DEFAULT (10),
+	"status" varchar NOT NULL DEFAULT ('active'),
+	"mode" varchar NOT NULL DEFAULT ('screen-share'),
+	"shareMethod" varchar NOT NULL DEFAULT ('webrtc'),
+	"streamKey" varchar,
+	"requireApproval" boolean NOT NULL DEFAULT (0),
+	"ownerUserId" INTEGER,
+	"mutedViewers" TEXT NOT NULL DEFAULT ('[]'),
+	"approvedViewers" TEXT NOT NULL DEFAULT ('[]'),
+	"moderators" TEXT NOT NULL DEFAULT ('[]'),
+	"voiceMuted" TEXT NOT NULL DEFAULT ('[]'),
+	"createdAt" datetime NOT NULL DEFAULT (datetime('now')),
+	"updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
+	"lastAccessedAt" datetime NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+)`
+
+const sessionDDL = `CREATE TABLE "session" (
+	"id" integer PRIMARY KEY AUTOINCREMENT NOT NULL,
+	"roomId" varchar NOT NULL,
+	"socketId" varchar NOT NULL,
+	"role" varchar NOT NULL,
+	"userId" INTEGER,
+	"startedAt" datetime NOT NULL DEFAULT (datetime('now')),
+	"endedAt" datetime,
+	"guestId" varchar
+)`
+
+// roomRelationDDLs 是房间级联删除会扫到的关联表（列只保留测试用得到的 roomId）。
+const roomRelationDDLs = `
+CREATE TABLE "movie" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);
+CREATE TABLE "comment" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);
+CREATE TABLE "playback_states" ("roomId" varchar PRIMARY KEY NOT NULL, "sourceUrl" TEXT);
+CREATE TABLE "music_playback_states" ("roomId" varchar PRIMARY KEY NOT NULL, "trackKey" TEXT);
+CREATE TABLE "music_queue_item" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);
+CREATE TABLE "danmaku_track" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);
+CREATE TABLE "room_danmaku_meta" ("id" integer PRIMARY KEY AUTOINCREMENT NOT NULL, "roomId" varchar NOT NULL);`
+
 type testEnv struct {
 	handler http.Handler
 	conn    *sql.DB
@@ -86,9 +154,17 @@ func newTestEnv(t *testing.T) *testEnv {
 	if err != nil {
 		t.Fatalf("打开测试库失败: %v", err)
 	}
-	for _, ddl := range []string{userDDL, auditDDL, serverFolderDDL} {
+	for _, ddl := range []string{userDDL, auditDDL, serverFolderDDL, settingsDDL, roomDDL, sessionDDL} {
 		if _, err := conn.Exec(ddl); err != nil {
 			t.Fatalf("建表失败: %v", err)
+		}
+	}
+	for _, ddl := range strings.Split(roomRelationDDLs, ";") {
+		if strings.TrimSpace(ddl) == "" {
+			continue
+		}
+		if _, err := conn.Exec(ddl); err != nil {
+			t.Fatalf("建关联表失败: %v", err)
 		}
 	}
 
@@ -127,6 +203,10 @@ func newTestEnv(t *testing.T) *testEnv {
 
 		ServerFolders: serverFolders,
 		Files:         serverfiles.NewRegistry(serverFolders, cfg.UploadsDir),
+
+		// 管理端房间端点要读写 room / session；RoomSvc 保持 nil，
+		// 于是删除走 store 的级联（房间层的内存清理由 internal/room 的测试覆盖）。
+		Rooms: store.NewRooms(conn),
 	})
 
 	return &testEnv{
