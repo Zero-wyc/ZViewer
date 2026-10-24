@@ -7,7 +7,7 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~21,575（含测试 3,778） | 42,653 | 50.6% |
+| 代码行 | ~24,000（含测试 4,645） | 42,653 | 56.3% |
 | HTTP 端点 | 78 | ~300 | 26.0% |
 | 数据库表 | 10（user / movie / room / session / user_mount / danmaku_track / room_danmaku_meta 已可读写；system_settings / audit_logs 读写齐备） | 16 | 62.5% |
 
@@ -108,7 +108,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 
 | 单元 | TS 行数（估） | 状态 | 卡点 |
 |---|---:|---|---|
-| Socket.IO 兼容层 | （基础，非业务） | ⏳ | **Go 侧 v4 协议需先做 spike 验证** |
+| Socket.IO 兼容层 | ~500（自研协议层） | ✅ 见 3.1（协议层完成，业务事件未接） | |
 | 房间 REST（列表/改名/弹幕轨道/弹幕辅助数据） | ~450 | ✅ 见 4.3（实时部分仍 ⏳） |
 | 房间 / 权限 / 成员（socket.io 部分） | ~2,300 | ⏳ | |
 | 影片列表 / 当前播放 | ~1,100 | ⏳ | |
@@ -117,6 +117,53 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 共享播放记忆 | ~1,550 | ⏳ | |
 | WebRTC 信令 | ~280 | ⏳ | |
 | 推流（NMS → mediamtx/lal） | ~580 | ⏳ | 需复刻推流鉴权与 `stream-status` |
+
+### 3.1 Socket.IO 协议层（spike 已通过）
+
+结论：**自研可行，不引第三方库**。Go 侧需要的行为与 Node 的 socket.io 完全一致，
+而现成的 Go 实现（go-socket.io 等）停在协议 v3/v4 早期、且不保证与 socket.io-client
+4.8 的字节级兼容；手写反而可控——和 FTP / WebDAV / B 站解析链是同一个理由。
+
+| 文件 | 行数 | 内容 |
+|---|---:|---|
+| `internal/sio/packet.go` | ~170 | Engine.IO v4 包类型（open/ping/pong/message/upgrade/noop）+ Socket.IO v5 包编解码（namespace、ack id、附件数）+ `\x1e` 多包分隔 |
+| `internal/sio/websocket.go` | ~245 | RFC 6455 服务端：握手、掩码、分片重组、ping/pong、close 握手 |
+| `internal/sio/server.go` | ~715 | 会话管理、polling（长轮询 + 超时 noop）、WebSocket probe 升级、心跳回收、包分发、房间索引 |
+| `internal/sio/socket.go` | ~270 | Socket 门面（On/OnDisconnect/Emit/EmitWithAck/Join/Leave/Disconnect）与 Broadcast（to / except） |
+| `cmd/sio-spike/main.go` | ~185 | **临时**验证二进制，业务事件接入后删除 |
+
+验证脚本：`scripts/spike-sio.sh`——编译 spike 服务端，再用**真实的
+`socket.io-client@4.8.3`**（仓库根 `node_modules` 里那一个，与前端同版本）跑 17 项断言：
+
+| 分组 | 覆盖 |
+|---|---|
+| 传输形态 | polling 起步自动升级 WebSocket / 强制 polling / 直连 WebSocket |
+| 连接与鉴权 | `socket.id` 与握手 sid 一致、`socket.data` 生效、缺令牌返回 `connect_error` |
+| 事件与 ack | 单参数与多参数 ack、服务端主动发起的双向 ack |
+| 房间与广播 | `socket.to(room)` 排除自己、`io.to(room)` 含自己、未加入房间收不到 |
+| 大载荷 | 5 MB 上行 / 3 MB 下行（`maxPayload` 设 20 MB） |
+| 断线与保活 | 客户端主动断、服务端主动断、跨 `pingInterval` 心跳保活 |
+
+Go 单测另外锁住协议细节（`internal/sio/*_test.go`，867 行）：编码黄金值、解码拒绝
+非法输入、帧长度跨 125/126/65535 三档、分片重组、以及**升级时 noop 冲刷挂起轮询**。
+
+接入方式（下一步）：
+
+```go
+srv := sio.NewServer(sio.Options{})
+srv.UseAuth(func(h *sio.Handshake) error { /* JWT + tokenInvalidBefore */ })
+srv.OnConnect(func(sc *sio.Socket) { /* 按 SocketEventHandler 拆分注册 */ })
+mux.Handle("/socket.io/", srv)
+```
+
+尚未覆盖（都不影响协议层，属于业务面）：
+
+- CORS 与凭据头：现在依赖同源访问，`/socket.io/` 还没接上 REST 那套 CORS 中间件；
+  开发态前端跑 Vite 5173 直连 3333 时会需要它。
+- 二进制载荷（`BINARY_EVENT` 的分包重组）：本项目全部走 JSON，注释里留了位置。
+- 多命名空间：只实现 `/`；收到其他 nsp 会按协议回 `connect_error` 而不是静默丢弃。
+- `io.use` 的逐包鉴权（Node 侧 `socket.use` 会在每个包上重校验令牌是否被撤销）：
+  需要在 `dispatchSio` 前加钩子，等接通真实鉴权时一并做。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
@@ -245,6 +292,11 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 三类数据源（anime/kazumi/cms）都有 `serverProxy`；Kazumi 必须落 `sourceMeta` | 添加影片流程 | 缺 meta 只能靠 URL 解包回退，Referer/UA 会丢 |
 | 推流鉴权按 `streamKey` 查 Room 且校验为 `stream-push` 子模式 | `modules/stream-push` | 直接用 roomId 会泄露房间号且无法独立轮换密钥 |
 | 语音通道不设 UDP/TCP 开关，服务端恒发两条候选 | `livekit` 配置 | 加开关会让本该走 UDP 的场景退化 |
+| Engine.IO 收到 `2probe` 时必须往**轮询**通道补一个 `noop` | engine.io `Socket#onProbe` | 不发的话客户端要等满 `pingInterval` 才能停下长轮询，页面表现为「打开好几秒才转成 WebSocket」 |
+| 长轮询到期回 `noop`（`6`），不能回空响应 | engine.io polling | 空 200 会被客户端当成传输错误，直接重连 |
+| CONNECT 应答（`40{"sid":…}`）必须先于 `connection` 回调里的任何 `emit` | socket.io server | 顺序反了客户端会把先到的事件当成「尚未连接」丢弃，表现为「刚进房的首个事件总是丢」 |
+| ack id 中 `0` 是合法值，**不能**用字段零值表示「没有 ack id」 | socket.io-parser | 用零值判空会把 CONNECT 应答编成 `400{"sid":…}`，客户端解析出的 sid 直接是错的 |
+| `maxPayload` 必须是 20 MB | `index.ts#new SocketIOServer` | 房主广播的 `subtitle-update` 带完整 ASS 轨道可达数 MB，默认 1 MB 会让大字幕同步静默失败 |
 | HTTP 请求不写 auth cookie | `middleware/auth.ts` | 非 Secure 的 `SameSite=None` 会被浏览器丢弃，登录死循环 |
 | 桌面托管时 `/api/system/update/*` 返回 409 | `services/desktop-runtime.ts` | 网页更新只换后端产物，会与 GUI 整包版本脱节 |
 | 时间列写入必须**带毫秒**；`tokenInvalidBefore` 必须写**带 Z 的 ISO 串** | `DateUtils.mixedDateToUtcDatetimeString` | 截到秒会让同一秒内签发的令牌在改密后仍有效；无时区串在 TypeORM 水合时按本地时区解释，会让"Go 已吊销、Node 仍放行" |
@@ -285,7 +337,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 版本标签体积用 JS `toFixed(1)`，不是 Go 的 `%.1f` | `services/emby-versions.ts` | 恰好半分时 JS 进位、Go 取偶：1.25GiB 是 `1.3GB` 而非 `1.2GB`（1.25×2^30 是精确可表示值，真会碰上） |
 | 房间/会话/挂载的时间列同样按 **UTC** 解释 | 实测（`rooms-parity.sh`） | 与 `movie` 表同一路径（sql.js 驱动水合时补 `Z`），不要套用 `tokenInvalidBefore` 的本地时区逻辑 |
 | REST 写出房间事件时必须走 `realtime.Bus`，事件名集中定义 | `realtime/bus.go` | 现在 `Noop` 丢弃事件，但调用点与载荷形状要一次写对，socket.io 落地后只换实现 |
-| Socket.IO 未迁移期间，房间的**创建/进房/准入审批/在线成员**一律不可用 | `modules/room` | REST 只覆盖列表/改名/弹幕数据；把 REST 通过当成"房间可用"会导致误判进度 |
+| Socket.IO **业务事件**未接通前，房间的**创建/进房/准入审批/在线成员/播放同步**一律不可用 | `modules/room` 等 | 协议层（3.1）已可用，但 68 个上行事件都还没注册；把「协议层通过」当成「房间可用」会导致误判进度 |
 | 字幕接口失败也是 `200 + success:true + lines:[] + message` | `routes/stream/bilibili-videos.routes.ts` | 改成 4xx/5xx 会让前端当成请求失败去重试，只会继续掷骰子 |
 
 ## 七之二、刻意与 Node 不同的地方

@@ -80,14 +80,17 @@ go test ./...
 | Emby / Jellyfin 播放 | ✅ | `/resolve` + `/movie-source` + `/proxy` + `/stream`，多版本选择、DTS 等不兼容音轨自动转 HLS |
 | Emby / Jellyfin 海报 | ✅ | `/mounts/{id}/image` 免认证，复刻 Express 弱 ETag + 304（瀑布流不重复拉图） |
 | Emby 登录缓存 | ✅ | `sha256(服务器+账号+密码)` 键、24h TTL、500 上限、并发单飞；401 时先丢陈旧缓存再重登 |
+| Socket.IO 协议层 | ✅ | Engine.IO v4（polling + WebSocket，自动升级）+ Socket.IO v5（事件/双向 ack/房间）；手写 RFC 6455 |
+| 实时事件（业务） | ⏳ | 68 个上行事件与 19 个处理器待迁移；协议层已验收，见 MIGRATION.md 3.1 |
 
 ## 尚未实现
 
 见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **78 / 300**。
 
-**实时层（Socket.IO）尚未迁移**：房间的创建/进房/准入审批/成员管理/播放同步都在
-那层，所以现在只有「房间列表 + 弹幕数据」能跑；`/api/*` 里凡是 REST 未覆盖的路径
-仍会落到 SPA 回退。
+**实时层（Socket.IO）业务事件尚未接**：协议层（Engine.IO v4 + Socket.IO v5 + RFC 6455，
+自研）已完成并用真实 `socket.io-client@4.8.3` 验证通过，但 68 个上行事件一个都还没注册。
+房间的创建/进房/准入审批/成员管理/播放同步仍在那层，所以现在只有「房间列表 + 弹幕数据」能跑；
+`/api/*` 里凡是 REST 未覆盖的路径仍会落到 SPA 回退，`/socket.io/` 也还没挂到主服务上。
 
 除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
 迁移期这是刻意的：宁可明确失败，也不要返回半个可用但语义错误的响应。
@@ -110,6 +113,7 @@ backend-go/
 │   ├── webdav/             WebDAV 客户端（PROPFIND / Range GET / stat 与目录缓存）
 │   ├── ftp/                FTP/FTPS 客户端（被动模式 / REST 分段 / MLSD·LIST·DOS 解析）
 │   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
+│   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
 │   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
 │   ├── realtime/           房间事件广播契约（socket.io 未迁移前为 Noop）
 │   ├── httpx/              统一 JSON 响应与错误
@@ -142,6 +146,8 @@ backend-go/
     ├── parity-node-emby.js     Node 侧最小应用（只挂 emby / jellyfin 两个 Router）
     ├── parity-emby-run.js      Emby 对拍驱动器
     ├── mock-emby.js            最小 Emby 模拟服务器（登录/回退/多版本/DTS/HLS）
+    ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
+    ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
     └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
 ```
 
@@ -190,6 +196,15 @@ raw_url（5min）避免每个 Range 请求都打 `/api/fs/get`（一次播放几
 不限定「同源 + 同 `videos/{itemId}/` 前缀」就是一个开放代理，能读内网、能带令牌打任意地址；
 而拆分改写时若不删掉 `api_key`/`X-Emby-Token`，整份 playlist 会把令牌发给每个观众。
 非法子资源 Go 侧选择「置空该条」而非 Node 的「抛错 500」，理由见 MIGRATION「七之二」。
+
+**为什么 Socket.IO 也要自己写**：现成的 Go 实现大多停在协议 v3/v4 早期，
+对 socket.io-client 4.8 的线上格式并不保证兼容；不兼容的表现是「连上了但事件全丢」，
+比连不上更难查。协议本身不大（Engine.IO 的包就是单字节前缀 + 载荷，Socket.IO 的包是
+`<type><nsp,><id><json>`），真正费事的是几处反直觉的细节——比如 ack id 的 `0` 是合法值，
+拿字段零值当「没有 ack id」会把 CONNECT 应答编成 `400{"sid":…}`；再比如收到 `2probe`
+时必须主动给挂起的轮询补一个 `noop`，否则升级要等满 25 秒。这些都在
+`internal/sio/*_test.go` 里逐条锁死了，验证则直接用仓库里那份 `socket.io-client@4.8.3`
+（`scripts/spike-sio.sh`，17 项）——自己写客户端去测自己实现，等于用同一份错误理解对两遍。
 
 **为什么弹幕接口要自己解 deflate**：B 站 `x/v1/dm/list.so` **无条件**返回
 `Content-Encoding: deflate`（即便请求写 `Accept-Encoding: identity`），且是**裸 deflate**
