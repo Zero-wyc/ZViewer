@@ -4,3 +4,8 @@
 # Shell scripts must use LF line endings, otherwise bash reports:
 #   /usr/bin/env: 'bash\r': No such file or directory
 *.sh text eol=lf
+
+# Go 源码同样必须 LF：core.autocrlf=true 会把检出结果转成 CRLF，
+# 而 gofmt 视 CRLF 为「未格式化」，于是 `gofmt -l .` 会把每个文件都列出来，
+# 让「格式检查通过」这个门禁形同虚设（也制造无意义的大 diff）。
+*.go text eol=lf

@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"zviewer/backend/internal/auth"
+	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/ratelimit"
@@ -27,8 +28,11 @@ type Deps struct {
 	Users    *store.Users
 	Settings *store.Settings
 	Audit    *store.Audit
+	Movies   *store.Movies
 	Tokens   *auth.Manager
 	Auth     *auth.Authenticator
+	// Bilibili 是 B站 解析服务（迁移期由 Go 侧独立持有，不通过 Node 转手）。
+	Bilibili *bilibili.Service
 }
 
 // Server 持有路由所需的全部依赖。
@@ -56,6 +60,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerAuthRoutes(mux)
 	s.registerProfileRoutes(mux)
 	s.registerProxyRoutes(mux)
+	s.registerStreamRoutes(mux)
+	s.registerBilibiliExtraRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 
 	// 头像静态资源无需鉴权（通过 URL 公开访问）

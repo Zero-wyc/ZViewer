@@ -18,6 +18,7 @@ import (
 
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
+	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/store"
@@ -60,8 +61,10 @@ func main() {
 		Users:    users,
 		Settings: settings,
 		Audit:    audit,
+		Movies:   store.NewMovies(conn),
 		Tokens:   tokens,
 		Auth:     auth.NewAuthenticator(tokens, users),
+		Bilibili: bilibili.NewService(conn),
 	})
 
 	httpServer := &http.Server{
