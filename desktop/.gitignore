@@ -4,6 +4,7 @@ artifacts/
 release/
 release-*/
 dist-gui/
+dist-gui-*/
 exports/
 assets/ZViewer.ProcessHost.exe
 *.log
