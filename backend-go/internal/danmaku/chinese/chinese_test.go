@@ -79,3 +79,17 @@ func TestConversionIsIdempotent(t *testing.T) {
 		t.Errorf("二次转换漂移：%q -> %q", once, twice)
 	}
 }
+
+// CRLF 检出（Windows 上 core.autocrlf=true 的默认行为）不能让 value 带上 \r。
+func TestParseDictionaryToleratesCRLF(t *testing.T) {
+	lf := parseDictionary("周杰伦\t周杰倫\n乾隆\t乾隆\n")
+	crlf := parseDictionary("周杰伦\t周杰倫\r\n乾隆\t乾隆\r\n")
+	if len(lf.table) != 2 || len(crlf.table) != 2 {
+		t.Fatalf("词条数 = %d / %d，期望 2 / 2", len(lf.table), len(crlf.table))
+	}
+	for key, value := range lf.table {
+		if crlf.table[key] != value {
+			t.Errorf("%s 的值 = %q，期望 %q", key, crlf.table[key], value)
+		}
+	}
+}

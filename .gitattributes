@@ -9,3 +9,7 @@
 # 而 gofmt 视 CRLF 为「未格式化」，于是 `gofmt -l .` 会把每个文件都列出来，
 # 让「格式检查通过」这个门禁形同虚设（也制造无意义的大 diff）。
 *.go text eol=lf
+
+# 简繁词典必须是 LF：Go 侧按行切分后直接取 `key\tvalue`，
+# 一旦检出成 CRLF，value 尾巴会带上 \r，转出来的文本里就多出回车。
+backend-go/internal/danmaku/chinese/data/*.tsv text eol=lf

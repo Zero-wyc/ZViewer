@@ -109,9 +109,16 @@ func loadDictionary(name string) *dictionary {
 		// embed 的文件一定存在；真缺了说明构建产物不对，早点炸掉比静默降级好。
 		panic(fmt.Sprintf("简繁词典缺失: %s (%v)", name, err))
 	}
+	return parseDictionary(string(raw))
+}
+
+// parseDictionary 把 TSV 文本解析成词典（单独抽出来便于测 CRLF 检出）。
+func parseDictionary(content string) *dictionary {
 	table := make(map[string]string, 4096)
 	maxLen := 1
-	for _, line := range strings.Split(string(raw), "\n") {
+	for _, line := range strings.Split(content, "\n") {
+		// 防御 CRLF 检出：value 尾部带 \r 会让转换结果里多出一个回车。
+		line = strings.TrimSuffix(line, "\r")
 		if line == "" {
 			continue
 		}
