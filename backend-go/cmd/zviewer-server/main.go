@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -130,7 +131,20 @@ func main() {
 
 	conn, err := db.Open(cfg.DatabasePath, cfg.SQLiteWAL)
 	if err != nil {
-		log.Fatalf("[db] %v", err)
+		// 首次启动（库文件不存在）自动初始化：分发版解压即用，不需要用户
+		// 先敲一条命令。**只在库不存在时**这么做——库存在但结构不符仍然直接
+		// 报错退出，绝不自动补表改列。
+		if !errors.Is(err, db.ErrNotExist) {
+			log.Fatalf("[db] %v", err)
+		}
+		log.Printf("[db] 首次启动，正在初始化数据库: %s", cfg.DatabasePath)
+		if bootErr := bootstrapFreshDatabase(cfg); bootErr != nil {
+			log.Fatalf("[db] 数据库初始化失败: %v", bootErr)
+		}
+		conn, err = db.Open(cfg.DatabasePath, cfg.SQLiteWAL)
+		if err != nil {
+			log.Fatalf("[db] %v", err)
+		}
 	}
 	defer conn.Close()
 
@@ -369,6 +383,39 @@ func journalLabel(wal bool) string {
 		return "WAL（默认）"
 	}
 	return "delete（SQLITE_WAL=0 显式关闭）"
+}
+
+// bootstrapFreshDatabase 初始化一个全新的库：建表、补索引、创建初始管理员。
+//
+// 只在库文件不存在时调用（见启动路径）。密码随机，写进
+// `<CONFIG_DIR>/initial-admin.txt`（0600）并打到日志——用户首次登录后应改密并删掉该文件。
+func bootstrapFreshDatabase(cfg *config.Config) error {
+	ctx := context.Background()
+	conn, err := db.OpenForInit(cfg.DatabasePath, cfg.SQLiteWAL)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	if err := db.InitSchema(ctx, conn); err != nil {
+		return err
+	}
+	if err := db.EnsureIndexes(ctx, conn); err != nil {
+		return err
+	}
+	password, created, err := db.SeedAdmin(ctx, conn, "")
+	if err != nil {
+		return err
+	}
+	if created {
+		path := filepath.Join(cfg.ConfigDir, "initial-admin.txt")
+		content := "用户名: root\n密码: " + password + "\n\n首次登录后请立即修改密码，并删除本文件。\n"
+		if werr := os.WriteFile(path, []byte(content), 0o600); werr != nil {
+			return fmt.Errorf("写入初始密码文件失败: %w", werr)
+		}
+		log.Printf("[db] 已创建初始管理员 root，密码写入 %s", path)
+	}
+	return db.VerifySchema(conn)
 }
 
 // hasFlag 判断命令行里是否带某个开关。

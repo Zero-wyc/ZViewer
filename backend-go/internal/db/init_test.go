@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -20,6 +21,20 @@ func openTemp(t *testing.T) (*sql.DB, string) {
 	}
 	t.Cleanup(func() { conn.Close() })
 	return conn, path
+}
+
+// Open 对"库文件不存在"必须返回 ErrNotExist：启动路径靠它区分
+// 「首次启动可以自动初始化」与「库坏了必须报错退出」，不能用字符串匹配。
+func TestOpenMissingDatabaseReturnsErrNotExist(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nope.sqlite")
+	conn, err := Open(path, false)
+	if conn != nil {
+		conn.Close()
+		t.Fatal("库不存在时不应返回连接")
+	}
+	if !errors.Is(err, ErrNotExist) {
+		t.Fatalf("期望 ErrNotExist，实际: %v", err)
+	}
 }
 
 func TestInitSchemaCreatesAllTables(t *testing.T) {

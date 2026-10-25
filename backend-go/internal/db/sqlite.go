@@ -12,6 +12,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -21,13 +22,17 @@ import (
 	_ "modernc.org/sqlite" // 纯 Go 驱动，无 CGO，交叉编译友好
 )
 
+// ErrNotExist 表示库文件还不存在（首次启动）。
+//
+// 调用方靠 errors.Is 区分「库没有」和「库坏了」：前者可以自动初始化，
+// 后者必须报错退出。不要用字符串匹配。
+var ErrNotExist = errors.New("数据库不存在")
+
 // Open 打开数据库并校验 schema。
 func Open(path string, wal bool) (*sql.DB, error) {
 	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
-			return nil, fmt.Errorf("数据库不存在: %s\n"+
-				"新机器请先执行一次 `zviewer-server --init-db`（会建表并打印初始管理员密码）；\n"+
-				"已有数据请确认 CONFIG_DIR / DATABASE_URL 指向了正确的库", path)
+			return nil, fmt.Errorf("%w: %s", ErrNotExist, path)
 		}
 		return nil, fmt.Errorf("数据库不可访问: %s: %w", path, err)
 	}
