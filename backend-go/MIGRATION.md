@@ -87,8 +87,18 @@
 | 番剧 | `pgc.go` | 载荷取自顶层 `result`（不是 `data`）；试看集时长取 `durl[0].length` |
 | CDN 探测 | `cdn.go` | 并行 HEAD，405 视为可达，全失败保留首个 |
 | 解析主流程 | `resolver.go` | UGC / PGC 双分支、MP4 回退、NDJSON 进度 |
+| MP4 直链清晰度 | `permission.go#Mp4TargetQn` | **未登录也按 720P 请求**（见下）；显式 qn 只做 720P 截断 |
 | 弹幕 | `danmaku.go` | XML 正则 + 五实体解码；**裸 deflate** 自行解压 |
 | 字幕 | `subtitle.go` | oid 带外校验 + 时长带内校验 + 6 次采样一致性投票，未过校验一律返回空 |
+
+**MP4 模式的匿名清晰度（2026-10-25 修）**：
+
+MP4 直链（`fnval=1` + `platform=html5` + `high_quality=1`）对**未登录**用户也能给 720P，
+而 DASH 的匿名上限是 480P。此前 MP4 分支直接沿用 `GetDefaultQn`，匿名就被压到 `qn=32`，
+更糟的是目标视频没有 480P 档时 B站 会落到 **360P**（实测 `qn=32 → quality=16`）。
+现在统一走 `Mp4TargetQn`：未显式指定时匿名顶到 `MP4MaxQn(64)`，显式选择只做 720P 截断。
+B站 对超权限请求是**静默降级**（匿名 `qn=80` 实测返回 `quality=64`、`code=0`），不会报错。
+实测同一条视频：改前 `currentQn=32`（480P/360P），改后 `currentQn=64`（720P）。
 
 **验收脚本**：
 

@@ -185,3 +185,29 @@ func GetDefaultQn(isVip, hasCookie bool) int {
 	}
 	return DefaultQn
 }
+
+// Mp4TargetQn 计算 MP4 直链（fnval=1 + platform=html5）该请求的 qn。
+//
+// 与 DASH 的关键差异：MP4 对**未登录**用户也能给到 720P，而 DASH 的匿名上限是
+// 480P（AnonymousMaxQn）。以前这里直接沿用 GetDefaultQn，匿名就被压到 32，
+// 实测更糟：目标视频没有 480P 档时 B站 会落到 **360P**（quality=16）——
+// 这就是「MP4 模式只能 480P，可它明明能到 720P」的根因。
+//
+// 规则：
+//   - 未显式指定（qn<=0）：未登录直接按 MP4 上限 720P 请求；登录用户取各自默认值；
+//   - 显式指定：尊重用户选择，只做 720P 截断（MP4 硬上限）。
+//
+// 超权限请求不会报错：实测匿名 qn=80 返回 code=0 且 quality=64，B站 静默降级，
+// 所以「要得高一点」是安全的，实际档位以返回的 quality 为准。
+func Mp4TargetQn(requested int, isVip, hasCookie bool) int {
+	if requested <= 0 {
+		if !hasCookie {
+			return MP4MaxQn
+		}
+		requested = GetDefaultQn(isVip, hasCookie)
+	}
+	if requested > MP4MaxQn {
+		return MP4MaxQn
+	}
+	return requested
+}

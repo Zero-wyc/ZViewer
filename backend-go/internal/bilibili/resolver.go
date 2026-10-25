@@ -15,8 +15,10 @@ import (
 
 // MP4MaxQn 是 B站 MP4 直链能达到的最高清晰度（720P）。
 //
-// 实测：无论是否会员，fnval=1 + platform=html5 最高只给 720P；
+// 实测：无论是否会员、**是否登录**，fnval=1 + platform=html5 最高只给 720P；
 // 1080P+/4K/HDR/8K 仅 DASH 支持。这是服务端硬限制，无法用参数绕过。
+// 注意「未登录也能到 720P」——所以匿名场景绝不能沿用 DASH 的上限 32（480P）：
+// 目标视频没有 480P 档时，要 qn=32 会直接落到 360P。取值统一走 Mp4TargetQn。
 const MP4MaxQn = 64
 
 // ResolveProgress 是一条解析进度事件。
@@ -460,10 +462,9 @@ func (s *Service) resolveUGC(ctx context.Context, opts ResolveOptions, bvid, exp
 	// 用户明确选了 MP4，再悄悄切回 DASH 属于违背预期。
 	if opts.PreferMp4 {
 		opts.emit("cdn", "正在获取 MP4 直链（直连模式）...")
-		qn := requestedQn
-		if qn > MP4MaxQn {
-			qn = MP4MaxQn
-		}
+		// 用 opts.Qn 而不是已按登录态兜过的 requestedQn：匿名默认值 32 是 DASH
+		// 的上限（480P），套到 MP4 上会白白丢掉 720P，还可能落到 360P。
+		qn := Mp4TargetQn(opts.Qn, isVip, hasCookie)
 		mp4, mp4URL, err := s.fallbackToMP4(ctx, bvid, effectiveCid, opts.Cookie, qn, isVip, opts.SkipCdnCheck)
 		if err != nil {
 			return nil, err
@@ -548,13 +549,9 @@ func (s *Service) resolveUGC(ctx context.Context, opts ResolveOptions, bvid, exp
 				return nil, cdnUnreachable()
 			}
 			opts.emit("fallback", "DASH 地址不可用，尝试 MP4 直链...")
-			qn := effectiveQn
-			if qn == 0 {
-				qn = requestedQn
-			}
-			if qn > MP4MaxQn {
-				qn = MP4MaxQn
-			}
+			// 退路同样按 MP4 的能力请求：这里如果用 effectiveQn（DASH 的匿名档
+			// 只有 480P），退回去的 MP4 也会被一并压到 480P/360P。
+			qn := Mp4TargetQn(opts.Qn, isVip, hasCookie)
 			mp4, mp4URL, mp4Err := s.fallbackToMP4(ctx, bvid, effectiveCid, opts.Cookie, qn, isVip, opts.SkipCdnCheck)
 			if mp4Err == nil && mp4 != nil {
 				result := base()
@@ -783,10 +780,9 @@ func (s *Service) resolvePGC(ctx context.Context, opts ResolveOptions, id Bangum
 			message = "该集为会员专享，正在获取试看片段..."
 		}
 		opts.emit("playurl", message)
-		qn := requestedQn
-		if qn > MP4MaxQn {
-			qn = MP4MaxQn
-		}
+		// 与 UGC 同一套取值：匿名也要按 MP4 的 720P 上限请求，
+		// 否则番剧的 MP4 模式同样会被 DASH 的匿名上限（480P）带低。
+		qn := Mp4TargetQn(opts.Qn, isVip, hasCookie)
 		mp4, err := fetchPgcMP4(qn)
 		if err != nil {
 			return nil, toResolveError(err)
@@ -864,13 +860,7 @@ func (s *Service) resolvePGC(ctx context.Context, opts ResolveOptions, id Bangum
 				return nil, cdnUnreachable()
 			}
 			opts.emit("fallback", "DASH 地址不可用，尝试 MP4 直链...")
-			qn := effectiveQn
-			if qn == 0 {
-				qn = requestedQn
-			}
-			if qn > MP4MaxQn {
-				qn = MP4MaxQn
-			}
+			qn := Mp4TargetQn(opts.Qn, isVip, hasCookie)
 			mp4, mp4Err := fetchPgcMP4(qn)
 			if mp4Err == nil && mp4 != nil {
 				return buildMp4Result(mp4, resolveMp4URL(mp4)), nil

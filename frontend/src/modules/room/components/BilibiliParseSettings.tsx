@@ -529,7 +529,7 @@ export function BilibiliParseSettings({
                     ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
                     : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
                   : displayPreferMp4
-                    ? 'MP4 直链，seek 流畅，清晰度通常 480P/720P'
+                    ? 'MP4 直链，seek 流畅，清晰度最高 720P（未登录也是 720P）'
                     : 'DASH 分离流，支持 1080P/4K，seek 需缓冲'}
             </div>
           </div>

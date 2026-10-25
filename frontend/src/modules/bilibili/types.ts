@@ -137,7 +137,7 @@ export interface ResolveProgressLine {
 
 export interface BilibiliParseOptions {
   /**
-   * 播放模式偏好：true=MP4 直链（流畅，seek 无卡顿，清晰度通常 480P/720P）；
+   * 播放模式偏好：true=MP4 直链（流畅，seek 无卡顿，最高 720P——未登录 B站 也是 720P）；
    * false/undefined=DASH 分离流（高清，支持 1080P/4K，seek 需 MSE 重新缓冲）。
    */
   preferMp4?: boolean

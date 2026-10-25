@@ -173,3 +173,32 @@ func TestGetDefaultQn(t *testing.T) {
 		t.Fatalf("未登录默认 qn = %d, 期望 %d", got, AnonymousMaxQn)
 	}
 }
+
+// TestMp4TargetQn 覆盖 MP4 直链的 qn 取值。
+//
+// 回归点：匿名默认值曾经沿用 GetDefaultQn（480P），而 MP4 对未登录也能给 720P，
+// 结果是「MP4 模式只能 480P / 偶尔 360P」。匿名未指定时必须顶到 MP4MaxQn。
+func TestMp4TargetQn(t *testing.T) {
+	cases := []struct {
+		name             string
+		requested        int
+		isVip, hasCookie bool
+		want             int
+	}{
+		{"匿名未指定 → 顶到 720P", 0, false, false, MP4MaxQn},
+		{"匿名显式 480P → 尊重用户选择", 32, false, false, 32},
+		{"匿名超出上限 → 截到 720P", 80, false, false, MP4MaxQn},
+		{"登录非会员未指定 → 1080P 截到 720P", 0, false, true, MP4MaxQn},
+		{"会员未指定 → 4K 截到 720P", 0, true, true, MP4MaxQn},
+		{"会员显式 1080P60 → 截到 720P", 116, true, true, MP4MaxQn},
+		{"登录非会员显式 720P → 原样", 64, false, true, 64},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := Mp4TargetQn(tc.requested, tc.isVip, tc.hasCookie); got != tc.want {
+				t.Errorf("Mp4TargetQn(%d, vip=%t, cookie=%t) = %d, 期望 %d",
+					tc.requested, tc.isVip, tc.hasCookie, got, tc.want)
+			}
+		})
+	}
+}
