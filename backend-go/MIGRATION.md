@@ -1707,6 +1707,11 @@ HTTPS 启动分支。
       媒体代理 2 里的 1 条），已按 3.22 补齐；这条检查单本身抓出了「台账说完成、
       实际只迁了一条」的漏项，以后每次改路由都要重跑。
 - [ ] 停 Node 进程 → 仅 Go 运行 24h 无告警
+      → **压缩版已就绪并跑通**：`bash backend-go/scripts/soak.sh`（默认 120s，4 并发，
+      11 个代表性端点）实测 60s **74,148 次请求 / 0 超时 / 0 个 5xx / 吞吐无衰减
+      （后半程 1.05×前半程）/ 无 panic**。真机 24h 用同一条命令：
+      `SOAK_SECONDS=86400 bash backend-go/scripts/soak.sh`（这一步只能在目标机器上做，
+      需要停掉 Node 进程独占 `config/dev.sqlite`）。
 - [x] `config/` 目录双向兼容验证：Go 写入后 Node 仍能读（回滚保障）
       → `bash backend-go/scripts/config-roundtrip.sh`：同一份 `cfg/` 上跑三轮
       （Go 写 → Node 读写 → Go 再读），快照全等；另加两条硬断言：Node 启动后
