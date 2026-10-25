@@ -28,6 +28,7 @@ import (
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
+	"zviewer/backend/internal/livekit"
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
@@ -179,6 +180,15 @@ func main() {
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
 	stopCleanupScheduler := roomSvc.StartCleanupScheduler(cleanupCtx)
 
+	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
+	// 没有外部编排，必须由后端作为伴生进程拉起——否则语音直接不可用。
+	// 环境变量注入是同步的（/api/voice/token 立刻能签），找二进制/下载/等端口
+	// 放后台，不阻塞 HTTP 监听。
+	livekitMgr := livekit.New(livekit.ConfigFromEnv())
+	livekitMgr.PrepareEnv()
+	livekitCtx, stopLivekit := context.WithCancel(context.Background())
+	go livekitMgr.Run(livekitCtx)
+
 	// HTTPS 模式：证书缺失时自动签一张本机自签证书。
 	// 屏幕共享与语音在非安全上下文里会被浏览器禁用，局域网用户靠这张证书
 	// 才能用上它们（首次访问需手动信任）。
@@ -240,6 +250,9 @@ func main() {
 	// 刚写进 DB 的那份立刻就旧了。
 	stopCleanupScheduler()
 	stopCleanup()
+	// 伴生进程先停：它是外部依赖，留着只会让客户端在退出过程中继续重连
+	stopLivekit()
+	livekitMgr.Stop()
 	broadcaster.Stop()
 	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)

@@ -104,16 +104,14 @@ jobs:
           fi
           echo "Injecting version: $VERSION"
           node -e "const fs=require('fs');const p=require('./package.json');p.version='$VERSION';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')"
-          # 同步更新 backend/package.json
-          node -e "const fs=require('fs');const p=require('./backend/package.json');p.version='$VERSION';fs.writeFileSync('./backend/package.json',JSON.stringify(p,null,2)+'\n')"
 
       - name: Install dependencies
         run: npm ci
 
       - name: Build & package single-file
         # build-all.js --win/--linux 会依次执行：
-        #   1. tsc 编译后端 → 2. vite 构建前端 → 3. pkg 打包 3 个 exe
-        #   4. 复制启动脚本 → 5. 产物输出到 dist/win/ 或 dist/linux/
+        #   1. vite 构建前端 → 2. go build 交叉编译后端
+        #   3. 下载 livekit-server 伴生二进制 → 4. 复制启动脚本 → 5. 产物输出到 dist/<平台>/
         run: node build-all.js ${{ matrix.flag }}
 
       - name: Package artifacts (Linux)

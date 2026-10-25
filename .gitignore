@@ -1,5 +1,6 @@
 # ---- 依赖与构建产物 ----
 node_modules/
+node_modules.old/
 dist/
 build/
 .zcode/
@@ -41,9 +42,6 @@ config/
 # 不加这行从干净仓库 clone 出来 `go build ./...` 直接失败。
 !backend-go/internal/config/
 
-# ---- 后端旧上传路径（新路径统一在 config/uploads/） ----
-backend/uploads/
-
 # ---- SSL 证书与私钥（禁止提交） ----
 *.pem
 *.key
@@ -59,10 +57,6 @@ apply-update.bat
 # ---- 本地测试产物 ----
 bili_test.json
 test-dev.sqlite
-# 对拍脚本（backend-go/scripts/bilibili-parity.sh）的工作目录：整库副本 + 双端日志
-.tmp-parity/
-.tmp-movie-parity/
-
 # ---- 编辑器与 IDE ----
 .vscode/
 .idea/

@@ -2020,3 +2020,69 @@ Node 启动后的 before 快照必须逐字段等于 Go 的 after；Node 再写�
 Go 第三次启动的 before 快照又必须等于 Node 的 after。任何一侧「写得进去、另一侧读不出来」
 都会在这里断掉，包括最容易漏的「读出来但类型变了」（比如布尔被写成 0/1）。
 
+## 十、Node 后端下线（阶段 5 收尾，2026-10-25）
+
+`backend/` 已物理删除，Node 版不再作为回滚路径存在。删之前的验收口径与删之后的
+可验证性见第九节；这一节只记录「删了什么、还留了什么、怎么复验」。
+
+### 10.1 删除清单
+
+| 对象 | 规模 | 说明 |
+|---|---|---|
+| `backend/` | 234 个文件（含 `dist/`、`src/`、`package.json`） | Node/Express 后端整体下线 |
+| `backend/dev-bin/livekit-server.exe` | 56 MB | **未删**，`git mv` 到 `backend-go/dev-bin/`，Go 包起伴生进程仍需要它 |
+| `backend-go/scripts/` 下的对拍工具 | 65 个（13 组 `http-*-parity.sh` + driver、`sio-rooms-parity.sh`、`config-roundtrip.sh`、4 个 fixture 生成器、mock） | 参照实现已不存在，留着只会一直红 |
+| `scripts/server-regression/` | 7 个（`npm run test:server`） | 直接 spawn `backend/dist/index.js`，必然失效 |
+| `scripts/{generate-cert,acme-client,prune-pkg-bloat,analyze-pkg-log}.js` | 4 个 | 证书签发与 pkg 瘦身都已在 Go 侧/构建链实现 |
+| `release-zip.ps1` | 1 个 | 与 `npm run package` 重复的旧打包脚本 |
+| 根 `node_modules/` | 重装 | `workspaces` 改成只剩 `frontend`，express/typeorm/ts-node/sql.js 等全部移除 |
+
+`.tmp-parity/`、`.tmp-movie-parity/` 两个对拍工作目录（合计约 1.7 MB）也一并删掉，
+`.gitignore` 里对应的两条规则同时移除。
+
+### 10.2 留下的东西（不是漏删）
+
+- **契约快照** `backend-go/testdata/contract/{routes,events}.json`（189 端点 / 65 事件）：
+  `route-parity.sh --fixture` 与 `events-parity.sh` 在 `backend/` 不存在时**自动退回快照模式**，
+  「端点/事件全覆盖」这条验收在 Node 退场后仍然可跑，不依赖 ts-node。
+- **`regression-sweep.sh` 收敛到 13 个纯 Go 脚本**：所有 Node 参照脚本已从清单里摘掉，
+  跑完仍是 7 分半左右，全绿。
+- **`scripts/dev-backend.js` / `scripts/build-backend.js`**：Go 热重载与产物编译的唯一入口，
+  不含任何 Node 后端逻辑。
+
+### 10.3 复验口径
+
+```bash
+npm run test:go          # go test ./...（含 livekit 包单测）
+npm run lint:go          # gofmt -l + go vet
+npm run test:regression  # 13 个纯 Go 脚本，约 7-8 分钟
+npm run build            # 前端 + Go 后端产物
+```
+
+任何一条红了都不算收尾完成。删除后首次全量回归的结果记录在本节末尾（见 10.4）。
+
+### 10.4 删除后的实测结果
+
+删除 `backend/`、`node_modules/` 重装之后再跑一遍，口径不变：
+
+| 检查 | 结果 |
+|---|---|
+| `gofmt -l .` | 无输出 |
+| `go vet ./...` | 通过 |
+| `go test ./...` | 全部 ok（含 `internal/livekit` 0.119s） |
+| `npm run test:regression` | **通过 13 / 失败 0 / 跳过 0，1m43s** |
+
+13 项分别是：`route-parity`、`events-parity`、`profile-smoke`、`movie-smoke`、
+`proxy-smoke`、`openlist-stream-smoke`、`bilibili-smoke`、`compat-smoke`、`https-smoke`、
+`desktop-env-smoke`、`frontend-smoke`、`soak`、`spike-sio`。
+
+有两点值得记下来：
+
+1. **耗时从 7m26s 掉到 1m43s**：33 项里那 20 个起 Node 参照实现的对拍脚本占了绝大部分时间，
+   删掉之后只剩纯 Go 冒烟。这不是覆盖度缩水——端点/事件的「全覆盖」已经由契约快照承接
+   （189 端点 / 65 事件），`route-parity.sh --fixture` 与 `events-parity.sh` 每次都跑。
+2. **`npm install` 之后仍有少量 extraneous 包**（`@babel/*`、`@types/babel__*`），
+   是前端工具链的传递依赖残留在根 `node_modules` 里；`npm prune` 一次即可清掉，
+   不影响构建与回归。
+
+

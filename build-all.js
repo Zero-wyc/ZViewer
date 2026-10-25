@@ -27,7 +27,6 @@ const readline = require('readline');
 // ==================== 配置 ====================
 
 const ROOT = path.resolve(__dirname);
-const BACKEND = path.join(ROOT, 'backend');
 const FRONTEND = path.join(ROOT, 'frontend');
 const DIST_EXE = path.join(ROOT, 'dist');
 const PKG_CONFIG = path.join(ROOT, 'package.json');
@@ -71,17 +70,11 @@ const PLATFORM_PRESETS = [
 
 const SKIP_BUILD = process.argv.includes('--skip-build');
 
-// 后端实现：go（默认，Go 重写版）| node（旧实现，保留用于回滚对比）
-//
-// 切换后分发包里的 `zviewer-backend.exe` 由 `backend-go` 编译产出，
+// 后端只有 Go 实现（backend-go）。原来的 Node 后端（`backend/` + pkg 打包）
+// 已在 2026-10 的收尾里删除，因此不再有 `--backend=node` 开关：
+// 分发包里的 `zviewer-backend.exe` 一律由 `backend-go` 交叉编译产出，
 // 桌面壳仍按**子进程**托管它（ZViewer.ProcessHost.exe + Job Object），
 // 环境变量契约不变 —— 由 backend-go/scripts/desktop-env-smoke.sh 守着。
-const backendArg = process.argv.find((a) => a.startsWith('--backend='));
-const BACKEND_IMPL = backendArg ? backendArg.split('=')[1] : 'go';
-if (!['go', 'node'].includes(BACKEND_IMPL)) {
-  console.error(`--backend 只支持 go / node，收到: ${BACKEND_IMPL}`);
-  process.exit(1);
-}
 
 // 命令行快捷方式
 const CLI_SHORTCUTS = {
@@ -258,9 +251,10 @@ function buildFrontend() {
   const frontendDist = path.join(FRONTEND, 'dist');
   if (!SKIP_BUILD) {
     log('运行 vite build...');
-    // 从 backend/.env（或 .env.example）读取 NMS 端口并透传给前端构建，
-    // 前端 OBS 推流/FLV 拉流地址据此生成（VITE_RTMP_PORT / VITE_HTTP_FLV_PORT）
-    for (const candidate of [path.join(BACKEND, '.env'), path.join(BACKEND, '.env.example')]) {
+    // 从项目根 .env（或 .env.example）读取 NMS 端口并透传给前端构建，
+    // 前端 OBS 推流/FLV 拉流地址据此生成（VITE_RTMP_PORT / VITE_HTTP_FLV_PORT）。
+    // 两者都没有时保持前端默认值（3334 / 3335），与 Go 侧 nms 的默认一致。
+    for (const candidate of [path.join(ROOT, '.env'), path.join(ROOT, '.env.example')]) {
       if (!fs.existsSync(candidate)) continue;
       const envContent = fs.readFileSync(candidate, 'utf8');
       const rtmpMatch = envContent.match(/^\s*RTMP_PORT\s*=\s*"?(\d+)"?/m);
@@ -289,30 +283,9 @@ function buildFrontend() {
 
 function buildBackend() {
   console.log('');
-  if (BACKEND_IMPL === 'go') {
-    console.log('>>> 后端实现: Go（backend-go），跳过 TypeScript 编译');
-    // Go 侧不依赖 backend/dist；入口检查交给 packageBackend 里的 go build
-    return null;
-  }
-  console.log('>>> 编译后端 TypeScript...');
-  const backendDist = path.join(BACKEND, 'dist', 'index.js');
-  if (!SKIP_BUILD) {
-    log('运行 tsc...');
-    execSync('npm run build', { cwd: BACKEND, stdio: 'inherit' });
-    success('TypeScript 编译完成');
-  } else {
-    if (!fs.existsSync(backendDist)) {
-      error('后端编译产物不存在，无法跳过构建');
-      process.exit(1);
-    }
-    log('跳过后端编译 (--skip-build)');
-  }
-
-  if (!fs.existsSync(backendDist)) {
-    error('后端编译失败：未生成 dist/index.js');
-    process.exit(1);
-  }
-  return backendDist;
+  console.log('>>> 后端实现: Go（backend-go），无需额外的编译步骤');
+  // Go 侧由 packageBackend 里的 `go build` 交叉编译，这里不产出中间产物。
+  return null;
 }
 
 // 交叉编译 Go 后端到指定产物。
@@ -340,15 +313,7 @@ function buildGoBackend(target, outputPath) {
 
 function packageBackend(targetPlatforms, frontendDist) {
   console.log('');
-  console.log(`>>> 打包后端 (${BACKEND_IMPL === 'go' ? 'go build' : 'pkg'})...`);
-
-  const entry = path.join(BACKEND, 'dist', 'index.js');
-  if (BACKEND_IMPL === 'node' && !fs.existsSync(entry)) {
-    error(`后端入口不存在: ${entry}`);
-    process.exit(1);
-  }
-
-  // 数据库使用 sql.js（wasm）驱动，纯 JS 无原生模块，无需复制
+  console.log('>>> 打包后端 (go build)...');
 
   const results = [];
 
@@ -362,40 +327,19 @@ function packageBackend(targetPlatforms, frontendDist) {
 
       log(`打包后端 → ${target} (${platform.label})...`);
 
-      if (BACKEND_IMPL === 'go') {
-        try {
-          buildGoBackend(target, outputPath);
-        } catch (e) {
-          error(`Go 后端编译失败 (${target}): ${e.message}`);
-          process.exit(1);
-        }
-      } else {
-        const cmd = [
-          'npx', 'pkg',
-          JSON.stringify(entry),
-          '--targets', target,
-          '--output', JSON.stringify(outputPath),
-          // 禁用 v8 bytecode cache：保证 cross-compile 的产物在目标平台可运行
-          '--public',
-          '--public-packages', '"*"',
-          '-c', JSON.stringify(PKG_CONFIG),
-        ].join(' ');
-
-        try {
-          execSync(cmd, { cwd: ROOT, stdio: 'inherit' });
-        } catch (e) {
-          warn(`后端打包失败 (${target}): ${e.message}`);
-          continue;
-        }
+      try {
+        buildGoBackend(target, outputPath);
+      } catch (e) {
+        error(`Go 后端编译失败 (${target}): ${e.message}`);
+        process.exit(1);
       }
-
       if (!fs.existsSync(outputPath)) {
         warn(`后端打包失败：未生成 ${outputPath}`);
         continue;
       }
 
       // 语音聊天（LiveKit）：下载 livekit-server 伴生二进制随产物分发，
-      // 后端启动时自动拉起（见 services/livekit-server.manager.ts）。
+      // 后端启动时自动拉起（见 backend-go/internal/livekit）。
       // 版本与产物命名见 livekit-server GitHub releases。
       const LIVEKIT_VERSION = 'v1.13.7';
       const isWin = target.includes('win');
@@ -454,14 +398,14 @@ function packageBackend(targetPlatforms, frontendDist) {
         }
       }
 
-      // 复制后端 .env；保留 PORT 等端口配置，
+      // 复制项目根的 .env；保留 PORT 等端口配置，
       // 由启动脚本（start.sh / start-win.ps1）读取并按需覆盖 exe 的环境变量。
-      // CI 环境中 backend/.env 被 .gitignore 排除，回退到 .env.example。
+      // CI 环境中 .env 被 .gitignore 排除，回退到 .env.example。
       const envDest = path.join(outputFolder, '.env');
       if (!fs.existsSync(envDest)) {
         const envCandidates = [
-          path.join(BACKEND, '.env'),
-          path.join(BACKEND, '.env.example'),
+          path.join(ROOT, '.env'),
+          path.join(ROOT, '.env.example'),
         ];
         const envSrc = envCandidates.find((p) => fs.existsSync(p));
         if (envSrc) {
@@ -669,12 +613,7 @@ async function main() {
   if (shouldBuildBackend) {
     buildBackend();
   } else {
-    const backendDist = path.join(BACKEND, 'dist', 'index.js');
-    if (!fs.existsSync(backendDist)) {
-      error('后端编译产物不存在');
-      process.exit(1);
-    }
-    log('使用现有后端编译产物');
+    log('跳过后端编译 (--skip-build)：沿用产物目录里已有的 zviewer-backend');
   }
 
   // 3. 打包后端 exe（含复制 frontend/dist 到产物目录）

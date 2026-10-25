@@ -23,22 +23,23 @@ function readPort(file, pattern, label) {
   if (!match) throw new Error(`${label}：在 ${file} 里找不到端口定义`);
   return Number(match[1]);
 }
-const MANAGER = 'backend/src/services/livekit-server.manager.ts';
+// 端口默认值的唯一事实源：Go 包 internal/livekit（Node 版已随 backend/ 删除）
+const MANAGER = 'backend-go/internal/livekit/livekit.go';
 const CONFIG = 'desktop/controller/config.go';
 const pairs = [
   {
     label: '语音 UDP / 网页端口',
-    backend: readPort(MANAGER, /const UDP_PORT = (\d+);/, '主项目语音 UDP'),
+    backend: readPort(MANAGER, /defaultUDPPort\s*=\s*(\d+)/, '主项目语音 UDP'),
     desktop: readPort(CONFIG, /Port: (\d+), RtmpPort/, '桌面端网页端口')
   },
   {
     label: 'LiveKit 信令',
-    backend: readPort(MANAGER, /const HTTP_PORT = (\d+);/, '主项目 LiveKit 信令'),
+    backend: readPort(MANAGER, /defaultHTTPPort\s*=\s*(\d+)/, '主项目 LiveKit 信令'),
     desktop: readPort(CONFIG, /LivekitPort: (\d+), LivekitTcpPort/, '桌面端 LiveKit 信令')
   },
   {
     label: '语音 RTC TCP',
-    backend: readPort(MANAGER, /const TCP_PORT = Number\(CONFIGURED_TCP_PORT\) \|\| (\d+);/, '主项目 RTC TCP'),
+    backend: readPort(MANAGER, /defaultTCPPort\s*=\s*(\d+)/, '主项目 RTC TCP'),
     desktop: readPort(CONFIG, /LivekitTcpPort: (\d+),/, '桌面端 RTC TCP')
   }
 ];

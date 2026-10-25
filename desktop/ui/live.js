@@ -5,7 +5,7 @@
   const { state, icon, esc, heading, button, notice, tutorial } = ui;
   const $ = selector => document.querySelector(selector);
   const labels = { stopped: '未启动', starting: '启动中', running: '运行中', stopping: '停止中', error: '异常', degraded: '待检查', connecting: '连接中', registered: '代理已注册' };
-  // LiveKit 信令端口固定为主项目的 HTTP_PORT（backend/src/services/livekit-server.manager.ts），
+  // LiveKit 信令端口固定为主项目的 defaultHTTPPort（backend-go/internal/livekit/livekit.go），
   // 面板只读展示：它由 /rtc 反代使用，允许改动只会让面板与实际监听错位。
   const LIVEKIT_SIGNAL_PORT = 3336;
   let initialized = false, busy = false, serviceDraft = null, cliEmbedPending = false, ipv6Pending = false, ipv6Tried = false;

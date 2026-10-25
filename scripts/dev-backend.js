@@ -61,8 +61,15 @@ function build(outFile) {
   return new Promise((resolve) => {
     const proc = spawn(
       'go',
-      // dev 构建不 strip（-s -w 会让链接慢一点），也不 -trimpath（要看到真实路径的报错）
-      ['build', '-o', outFile, './cmd/zviewer-server'],
+      [
+        'build',
+        // dev 构建不 strip（-s -w 会让链接慢一点），也不 -trimpath（要看到真实路径的报错）。
+        // devBuild=1 允许 LiveKit 二进制缺失时联网下载；生产构建不带这个标记
+        // （用户机器上静默抓 56MB 是不可接受的）。
+        '-ldflags', '-X zviewer/backend/internal/livekit.devBuild=1',
+        '-o', outFile,
+        './cmd/zviewer-server',
+      ],
       {
         cwd: GO_DIR,
         stdio: 'inherit',

@@ -4,8 +4,7 @@
   "private": true,
   "description": "ZViewer —— 基于浏览器的在线观影与屏幕共享平台。",
   "workspaces": [
-    "frontend",
-    "backend"
+    "frontend"
   ],
   "scripts": {
     "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\" --kill-others",
@@ -24,30 +23,12 @@
     "test:music": "node --test scripts/music-regression.test.mjs",
     "start": "node scripts/start.js",
     "build:exe": "node scripts/build-exe.js",
-    "build:backend-exe": "node scripts/build-exe.js",
-    "build:all": "node build-all.js",
-    "postinstall": "node scripts/prune-pkg-bloat.js",
-    "dev:backend:node": "npm run dev -w backend",
-    "build:node-backend": "npm run build -w backend",
-    "lint:node-backend": "npm run lint -w backend",
-    "test:server": "node scripts/server-regression/run.cjs"
-  },
-  "pkg": {
-    "assets": [
-      "node_modules/sql.js/dist/sql-wasm.wasm",
-      "backend/.env"
-    ]
+    "build:all": "node build-all.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",
-    "@yao-pkg/pkg": "^6.23.0",
+    "bcryptjs": "^3.0.3",
     "concurrently": "^8.2.2"
-  },
-  "dependencies": {
-    "@types/multer": "^2.2.0",
-    "multer": "^2.2.0",
-    "node-forge": "^1.4.0",
-    "sql.js": "^1.14.1"
   },
   "main": "index.js",
   "repository": {

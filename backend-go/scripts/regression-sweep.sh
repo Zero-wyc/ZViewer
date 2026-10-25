@@ -26,26 +26,6 @@ mkdir -p "$WORK"
 SCRIPTS=(
   route-parity.sh
   events-parity.sh
-  http-bilibili-parity.sh
-  http-anime-parity.sh
-  http-anisubs-parity.sh
-  http-cms-parity.sh
-  http-kazumi-parity.sh
-  http-music-parity.sh
-  http-openlist-parity.sh
-  http-serverfiles-parity.sh
-  http-subtitles-parity.sh
-  http-updater-parity.sh
-  http-voice-parity.sh
-  http-streampush-parity.sh
-  http-admin-parity.sh
-  webdav-parity.sh
-  ftp-parity.sh
-  emby-parity.sh
-  movie-parity.sh
-  rooms-parity.sh
-  bilibili-parity.sh
-  sio-rooms-parity.sh
   profile-smoke.sh
   movie-smoke.sh
   proxy-smoke.sh
@@ -54,9 +34,9 @@ SCRIPTS=(
   compat-smoke.sh
   https-smoke.sh
   desktop-env-smoke.sh
-  config-roundtrip.sh
   frontend-smoke.sh
   soak.sh
+  spike-sio.sh
 )
 
 # frontend-smoke 的构建（tsc + vite build）单独跑过一次就够了；这里只跑浏览器断言，
