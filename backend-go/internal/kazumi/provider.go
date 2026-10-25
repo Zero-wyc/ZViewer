@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"zviewer/backend/internal/anisubs"
+	"zviewer/backend/internal/netutil"
 )
 
 // Provider 工厂，对应 services/kazumi/provider.ts。
@@ -84,7 +85,7 @@ func (p *ruleProvider) Search(ctx context.Context, keyword string) ([]SearchResu
 	}
 
 	searchURL := keywordPattern.ReplaceAllStringFunc(p.rule.SearchURL, func(string) string {
-		return anisubs.EncodeURIComponent(keyword)
+		return netutil.EncodeURIComponent(keyword)
 	})
 	markup, err := fetchHTML(ctx, searchURL, p.rule.UserAgent, firstNonEmpty(p.rule.Referer, p.rule.BaseURL))
 	if err != nil {

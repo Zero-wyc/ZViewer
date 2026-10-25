@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+
+	"zviewer/backend/internal/netutil"
 )
 
 // 第三方 HTTP 番剧源，对应 services/anime/providers/thirdParty.ts。
@@ -39,14 +40,6 @@ type ThirdPartyConfig struct {
 // placeholderPattern 匹配 URL 模板里的 {name} 占位。
 var placeholderPattern = regexp.MustCompile(`\{([\w]+)\}`)
 
-// encodeURIComponent 对齐 JS 的 encodeURIComponent。
-//
-// Go 的 url.QueryEscape 会把空格编成 `+`（表单语义），放进路径段会变成字面量
-// 加号；JS 编码器只吐 %20，所以这里把 `+` 换回来。
-func encodeURIComponent(value string) string {
-	return strings.ReplaceAll(url.QueryEscape(value), "+", "%20")
-}
-
 // interpolateURL 把 {name} 换成 encodeURIComponent 后的值，缺失时换空串。
 func interpolateURL(template string, params map[string]string) string {
 	return placeholderPattern.ReplaceAllStringFunc(template, func(placeholder string) string {
@@ -55,7 +48,7 @@ func interpolateURL(template string, params map[string]string) string {
 		if !ok {
 			return ""
 		}
-		return encodeURIComponent(value)
+		return netutil.EncodeURIComponent(value)
 	})
 }
 
@@ -115,7 +108,7 @@ func (p *thirdPartyProvider) buildURL(template, fallback, placeholder, queryKey,
 	if strings.Contains(template, placeholder) {
 		return interpolateURL(template, map[string]string{queryKey: value})
 	}
-	return template + "?" + queryKey + "=" + encodeURIComponent(value)
+	return template + "?" + queryKey + "=" + netutil.EncodeURIComponent(value)
 }
 
 // unwrapList 兼容「裸数组」与「{ data: [...] }」。

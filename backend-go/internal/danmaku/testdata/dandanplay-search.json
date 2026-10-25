@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "animes": [
+    {"animeId":11,"animeTitle":"孤獨搖滾！","imageUrl":"https://img.example/11.jpg","typeDescription":"TV","started":"2022-10-08"},
+    {"animeId":12,"animeTitle":"孤獨","typeDescription":"TV"},
+    {"animeId":13,"animeTitle":"無封面","started":"2021"}
+  ]
+}

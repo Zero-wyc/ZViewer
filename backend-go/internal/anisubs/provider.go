@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+
+	"zviewer/backend/internal/netutil"
 )
 
 // web-selector provider，对应 services/anisubs/provider.ts#createWebSelectorProvider。
@@ -43,7 +45,7 @@ func (p *webSelectorProvider) Search(ctx context.Context, keyword string) ([]Sea
 		return []SearchResult{}, nil
 	}
 
-	searchURL := strings.ReplaceAll(p.config.SearchURL, "{keyword}", EncodeURIComponent(term))
+	searchURL := strings.ReplaceAll(p.config.SearchURL, "{keyword}", netutil.EncodeURIComponent(term))
 	html, err := fetchHTML(ctx, searchURL, p.cookies())
 	if err != nil {
 		return nil, err

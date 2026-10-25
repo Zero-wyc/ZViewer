@@ -19,6 +19,7 @@ import (
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/cms"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/kazumi"
@@ -73,6 +74,8 @@ type Deps struct {
 	AniSubs *anisubs.Service
 	// Kazumi 是 Kazumi 规则源注册表（XPath 抓站 + API 规则）。
 	Kazumi *kazumi.Service
+	// Danmaku 是多源弹幕注册表（B站视频/番剧 + 巴哈姆特 + 弹弹play）。
+	Danmaku *danmaku.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -154,6 +157,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAnimeRoutes(mux)
 	s.registerAniSubsRoutes(mux)
 	s.registerKazumiRoutes(mux)
+	s.registerDanmakuRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

@@ -1,0 +1,8 @@
+[
+  {"text":"第一條彈幕","time":1500,"color":"#ff0000","position":0,"sn":101,"size":2},
+  {"text":"第二條","time":"2500","color":"16711680","position":1,"sn":"102","size":3},
+  {"text":"第三條","time":3000,"color":"#0f0","position":2,"sn":103},
+  {"text":"第四條","time":4000,"color":"#12zz","position":9,"sn":104,"size":9},
+  {"text":"   ","time":5000,"sn":105},
+  {"text":"","time":6000,"sn":106}
+]

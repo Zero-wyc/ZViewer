@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"zviewer/backend/internal/anisubs"
+	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/webfetch"
 )
 
@@ -118,7 +118,7 @@ func isRuleName(name string) bool {
 
 // buildIndexedRuleURL 把索引地址换成「同目录下的 <name>.json」。
 func buildIndexedRuleURL(indexURL, name string) string {
-	encoded := anisubs.EncodeURIComponent(name)
+	encoded := netutil.EncodeURIComponent(name)
 	lower := strings.ToLower(indexURL)
 	const marker = "index.json"
 

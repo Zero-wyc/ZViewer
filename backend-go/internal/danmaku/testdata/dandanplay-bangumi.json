@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "bangumi": {
+    "animeId": 11,
+    "animeTitle": "孤獨搖滾！",
+    "episodes": [
+      {"episodeId":101,"episodeTitle":"第1集","episodeNumber":1},
+      {"episodeId":102,"episodeTitle":"第2集","episodeNumber":"2"},
+      {"episodeId":103,"episodeTitle":"OVA"}
+    ]
+  }
+}

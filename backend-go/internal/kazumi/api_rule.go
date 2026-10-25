@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"zviewer/backend/internal/anisubs"
+	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/webfetch"
 )
 
@@ -305,7 +305,7 @@ func renderTemplate(template string, variables map[string]any, encode bool) (str
 				}
 				text := jsStringOrEmpty(value)
 				if encode {
-					text = anisubs.EncodeURIComponent(text)
+					text = netutil.EncodeURIComponent(text)
 				}
 				builder.WriteString(text)
 				i = end
@@ -619,7 +619,7 @@ func APISearch(ctx context.Context, rule *Rule, keyword string) ([]SearchItem, e
 		// 对齐上游：模板是**普通替换**（@source 可以紧跟字母），来源值 URL 编码。
 		src := source
 		if template != "" {
-			src = strings.ReplaceAll(template, "@source", anisubs.EncodeURIComponent(source))
+			src = strings.ReplaceAll(template, "@source", netutil.EncodeURIComponent(source))
 		}
 		results = append(results, SearchItem{Name: name, Src: src})
 	}

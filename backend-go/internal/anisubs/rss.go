@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/webfetch"
 )
 
@@ -173,7 +174,7 @@ func (p *rssProvider) Search(ctx context.Context, keyword string) ([]SearchResul
 	// 支持 `{keyword}` 占位（如 nyaa.land）。
 	feedURL := p.feedURL
 	if strings.Contains(feedURL, "{keyword}") {
-		feedURL = strings.ReplaceAll(feedURL, "{keyword}", EncodeURIComponent(keyword))
+		feedURL = strings.ReplaceAll(feedURL, "{keyword}", netutil.EncodeURIComponent(keyword))
 	}
 	items, err := fetchFeedItems(ctx, feedURL)
 	if err != nil {

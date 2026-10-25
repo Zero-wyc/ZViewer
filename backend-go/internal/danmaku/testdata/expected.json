@@ -1,0 +1,240 @@
+{
+  "bahamut-search": {
+    "ok": [
+      {
+        "id": "1234",
+        "title": "孤獨搖滾！",
+        "cover": "https://p2.bahamut.com.tw/B/2KU/1234.jpg",
+        "source": "bahamut",
+        "extra": {
+          "sn": "1234"
+        }
+      },
+      {
+        "id": "5678",
+        "title": "進擊的巨人 & 後篇",
+        "cover": "https://ani.gamer.com.tw/cover/5678.jpg",
+        "source": "bahamut",
+        "extra": {
+          "sn": "5678"
+        }
+      },
+      {
+        "id": "9012",
+        "title": "番剧 SN9012",
+        "cover": "https://p2.bahamut.com.tw/B/2KU/9012.jpg",
+        "source": "bahamut",
+        "extra": {
+          "sn": "9012"
+        }
+      }
+    ]
+  },
+  "bahamut-episodes": {
+    "ok": [
+      {
+        "id": "9001",
+        "title": "第 1 集",
+        "episodeNumber": 1,
+        "playbackParams": {
+          "sn": "9001"
+        }
+      },
+      {
+        "id": "9002",
+        "title": "第 2 集",
+        "episodeNumber": 2,
+        "playbackParams": {
+          "sn": "9002"
+        }
+      },
+      {
+        "id": "9003",
+        "title": "第 OVA 集",
+        "episodeNumber": 3,
+        "playbackParams": {
+          "sn": "9003"
+        }
+      }
+    ]
+  },
+  "bahamut-episodes-single": {
+    "ok": [
+      {
+        "id": "7777",
+        "title": "第 1 集",
+        "episodeNumber": 1,
+        "playbackParams": {
+          "sn": "7777"
+        }
+      }
+    ]
+  },
+  "bahamut-danmaku": {
+    "ok": [
+      {
+        "id": "101",
+        "content": "第一條彈幕",
+        "time": 1.5,
+        "mode": 0,
+        "color": 16711680,
+        "size": 28
+      },
+      {
+        "id": "102",
+        "content": "第二條",
+        "time": 2.5,
+        "mode": 1,
+        "color": 376510080,
+        "size": 36
+      },
+      {
+        "id": "103",
+        "content": "第三條",
+        "time": 3,
+        "mode": 2,
+        "color": 65280,
+        "size": 25
+      },
+      {
+        "id": "104",
+        "content": "第四條",
+        "time": 4,
+        "mode": 0,
+        "color": 18,
+        "size": 25
+      }
+    ]
+  },
+  "bahamut-danmaku-wrapped": {
+    "ok": [
+      {
+        "id": "201",
+        "content": "包在 data 裡",
+        "time": 1.2,
+        "mode": 1,
+        "color": 255,
+        "size": 20
+      }
+    ]
+  },
+  "dandanplay-search": {
+    "ok": [
+      {
+        "id": "11",
+        "title": "孤獨搖滾！",
+        "cover": "https://img.example/11.jpg",
+        "description": "TV / 2022-10-08",
+        "source": "dandanplay",
+        "extra": {
+          "animeId": 11
+        }
+      },
+      {
+        "id": "12",
+        "title": "孤獨",
+        "description": "TV",
+        "source": "dandanplay",
+        "extra": {
+          "animeId": 12
+        }
+      },
+      {
+        "id": "13",
+        "title": "無封面",
+        "description": "2021",
+        "source": "dandanplay",
+        "extra": {
+          "animeId": 13
+        }
+      }
+    ]
+  },
+  "dandanplay-episodes": {
+    "ok": [
+      {
+        "id": "11-101",
+        "title": "孤獨搖滾！ - 第1集",
+        "episodeNumber": 1,
+        "playbackParams": {
+          "animeId": 11,
+          "episodeId": 101
+        }
+      },
+      {
+        "id": "11-102",
+        "title": "孤獨搖滾！ - 第2集",
+        "episodeNumber": 2,
+        "playbackParams": {
+          "animeId": 11,
+          "episodeId": 102
+        }
+      },
+      {
+        "id": "11-103",
+        "title": "孤獨搖滾！ - OVA",
+        "episodeNumber": 3,
+        "playbackParams": {
+          "animeId": 11,
+          "episodeId": 103
+        }
+      }
+    ]
+  },
+  "dandanplay-episodes-empty": {
+    "ok": [
+      {
+        "id": "12-1",
+        "title": "空番劇",
+        "episodeNumber": 1,
+        "playbackParams": {
+          "animeId": 12
+        }
+      }
+    ]
+  },
+  "dandanplay-danmaku": {
+    "ok": [
+      {
+        "id": "1001",
+        "content": "彈幕一",
+        "time": 1.5,
+        "mode": 0,
+        "color": 16777215,
+        "size": 25
+      },
+      {
+        "id": "1002",
+        "content": "底部",
+        "time": 2,
+        "mode": 2,
+        "color": 255,
+        "size": 18
+      },
+      {
+        "id": "1003",
+        "content": "顶部",
+        "time": 3,
+        "mode": 1,
+        "color": 65280,
+        "size": 36
+      },
+      {
+        "id": "1004",
+        "content": "特殊",
+        "time": 4,
+        "mode": 0,
+        "color": 16777215,
+        "size": 25
+      },
+      {
+        "id": "1005",
+        "content": "无参数",
+        "time": 0,
+        "mode": 0,
+        "color": 16777215,
+        "size": 25
+      }
+    ]
+  }
+}

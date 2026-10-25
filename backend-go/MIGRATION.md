@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~56,100（含测试 13,900） | 42,653 | 100%+ |
-| HTTP 端点 | 147 | ~300 | 49.0% |
+| 代码行 | ~58,100（含测试 14,500） | 42,653 | 100%+ |
+| HTTP 端点 | 151 | ~300 | 50.3% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -951,6 +951,68 @@ HTTP 面 143 → **147**（`/proxy` 同样早已由 `registerProxyRoutes` 挂载
 与 API 规则的三个接口（POST JSON 搜索、nested、delimited）。索引指向
 `index.json` 而不是逐个规则文件，顺带锁住「坏规则跳过但下标不塌陷」
 （期望 id 是 `kazumi_0/1/2/4`）。
+
+### 3.16 多源弹幕（阶段 22）
+
+`routes/danmaku.ts`（218 行）+ `services/danmaku/*`（1,213 行）
+→ `internal/danmaku`（1,644 行）+ `internal/api/danmaku.go`（237 行）。
+HTTP 面 147 → **151**。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| `GET /sources` | 四个内置源（顺序即下拉框顺序） | `service.go` |
+| `GET /search` | 简繁三路并行搜索 + 去重 + 模糊优先 | `api/danmaku.go#handleDanmakuSearch` |
+| `GET /episodes` | 取分集 | 各 provider |
+| `POST /fetch` | 取弹幕（统一成 rolling/top/bottom 三档） | 各 provider |
+
+| 源 | 文件 | 上游 |
+|---|---|---|
+| `bilibili-video` | `bilibili.go` | 复用已迁的 `Search` / `GetVideoInfo` / `GetDanmaku` |
+| `bilibili-bangumi` | `bilibili.go` | 复用 `SearchBangumi` / `BangumiSeason` / `GetDanmaku` |
+| `bahamut` | `bahamut.go` | 抓 HTML（搜索页/作品页）+ 弹幕接口 |
+| `dandanplay` | `dandanplay.go` | 开放平台 API（签名认证） |
+
+#### 简繁转换不能用近似表
+
+`toTraditional` / `toSimplified` 决定搜索关键词，转错就是「巴哈姆特一条都搜不到」。
+Node 用的是 opencc-js，Go 侧没有等价库，所以**把词典导出来自己实现最长匹配**：
+
+- `scripts/gen-opencc-data.js` 从 `node_modules/opencc-js` 导出 7 份词表（1.0MB）；
+- `internal/danmaku/chinese` 按 opencc-js 的结构跑：**组内多份词表合并成一棵
+  Trie，组与组之间才是多趟**。
+
+那个「组内合并」不是实现细节，是语义：`周杰伦 → 周杰倫`、`面条 → 麪條`
+（再过一趟 TWVariants 才是 `麵條`）、`乾隆`（繁→简时不许变成「干隆」）全靠
+长词优先。一开始我按「一个词表一趟」实现，逐字那一趟先改掉 `杰→傑`，词条
+就再也匹配不上，实测得到 `周傑倫`、`頭發` 这种半对半错的结果。
+
+#### 三处必须守住的细节
+
+1. **弹弹play 的 mode 1/2 与统一格式相反**：它 1=底部、2=顶部，统一格式
+   1=顶部、2=底部。照抄不换位会让顶部弹幕跑到底部。
+2. **`parseInt` 只吃前缀**：`#12zz` 要得 18（`parseInt('12zz',16)`），
+   `16711680` 会被当成十六进制（37.6 亿）而不是十进制。Go 的 `strconv` 遇到
+   尾随垃圾直接报错，所以写了个 `parseIntPrefix`。
+3. **`SearchItem` 新增的三个字段不能进 JSON**：弹幕搜索要 `aid` / `favorites` /
+   `review`，但 `/bilibili/search` 的 DTO 只有 8 个键。三个字段一律
+   `json:"-"`，否则 stage 17 的 36 步对拍立刻挂。
+
+#### 对拍方式：Node 生成期望值
+
+弹幕源的上游地址全是硬编码的（`ani.gamer.com.tw` / `api.dandanplay.net`），
+没法像其它模块那样起假站。改成：
+
+- `internal/danmaku/testdata/` 放夹具（搜索页 HTML、作品页 HTML、三个接口 JSON）；
+- `scripts/gen-danmaku-fixtures.js` 把 Node 的 `globalThis.fetch` 换掉、按
+  「host + path」返回夹具，然后调 **Node 的 provider**，把输出写成 `expected.json`；
+- Go 侧 `provider_test.go` 用同一份夹具跑自己的 provider，逐字段与 `expected.json` 比对。
+
+9 个用例（巴哈姆特搜索/多集/单集回落/弹幕两态、弹弹play 搜索/多集/空集/弹幕）
+全部一致。这比写死断言强：期望值来自真实实现，不是我以为的实现。
+
+另：`/search` 的简繁合并逻辑（三路并行 → 按原顺序合并 → 按 id 去重 →
+标题命中的排前面）在 `internal/api/danmaku_test.go` 里用「按关键词返回不同
+夹具」的 transport 锁住。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 

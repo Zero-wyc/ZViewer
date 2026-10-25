@@ -24,6 +24,7 @@ import (
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/serverfiles"
@@ -219,6 +220,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Anime:         anime.NewService(settings, bilibili.NewService(conn)),
 		AniSubs:       anisubs.NewService(settings),
 		Kazumi:        kazumi.NewService(settings),
+		Danmaku:       danmaku.NewService(bilibili.NewService(conn)),
 
 		// 字幕端点的 requireMovieReadAccess 要读 movie 行。
 		Movies: movies,

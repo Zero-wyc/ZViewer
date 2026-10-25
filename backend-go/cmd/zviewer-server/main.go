@@ -23,6 +23,7 @@ import (
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/cms"
 	"zviewer/backend/internal/config"
+	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/openlist"
@@ -132,6 +133,7 @@ func main() {
 		Anime:         anime.NewService(settings, biliService),
 		AniSubs:       anisubs.NewService(settings),
 		Kazumi:        kazumi.NewService(settings),
+		Danmaku:       danmaku.NewService(biliService),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

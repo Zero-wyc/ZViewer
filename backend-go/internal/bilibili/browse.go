@@ -82,6 +82,13 @@ type SearchItem struct {
 	Danmaku  int64  `json:"danmaku"`
 	Duration int    `json:"duration"`
 	Tag      string `json:"tag"`
+
+	// 下面三个只给弹幕源的搜索结果用（`/api/stream/danmaku/search` 要
+	// aid 与收藏/评论数），**不进 /bilibili/search 的响应**：Node 那边的
+	// toPayload 只透出上面 8 个字段，多一个键就是对拍差异。
+	Aid       int64 `json:"-"`
+	Favorites int64 `json:"-"`
+	Review    int64 `json:"-"`
 }
 
 // ListItem 是合集 / 系列 / 收藏夹条目的统一载荷。
@@ -438,10 +445,13 @@ func (s *Service) searchVideosPaged(ctx context.Context, keyword, cookie string,
 	var payload struct {
 		Result []struct {
 			Bvid        string          `json:"bvid"`
+			Aid         int64           `json:"aid"`
 			Title       string          `json:"title"`
 			Pic         string          `json:"pic"`
 			Play        int64           `json:"play"`
 			VideoReview int64           `json:"video_review"`
+			Favorites   int64           `json:"favorites"`
+			Review      int64           `json:"review"`
 			Duration    json.RawMessage `json:"duration"`
 			Author      string          `json:"author"`
 			Tag         string          `json:"tag"`
@@ -455,14 +465,17 @@ func (s *Service) searchVideosPaged(ctx context.Context, keyword, cookie string,
 	items := make([]SearchItem, 0, len(payload.Result))
 	for _, item := range payload.Result {
 		items = append(items, SearchItem{
-			Bvid:     item.Bvid,
-			Title:    cleanTitle(item.Title),
-			Pic:      normalizeSearchPic(item.Pic),
-			UpName:   item.Author,
-			View:     item.Play,
-			Danmaku:  item.VideoReview,
-			Duration: parseSearchDuration(item.Duration),
-			Tag:      item.Tag,
+			Bvid:      item.Bvid,
+			Title:     cleanTitle(item.Title),
+			Pic:       normalizeSearchPic(item.Pic),
+			UpName:    item.Author,
+			View:      item.Play,
+			Danmaku:   item.VideoReview,
+			Duration:  parseSearchDuration(item.Duration),
+			Tag:       item.Tag,
+			Aid:       item.Aid,
+			Favorites: item.Favorites,
+			Review:    item.Review,
 		})
 	}
 	return items, payload.NumResults, nil
