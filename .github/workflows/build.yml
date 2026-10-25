@@ -417,6 +417,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # GitCode 的预发布状态只能靠 release_status 表达（pre/latest），
+      # 必须沿用 GitHub 上同一个 Release 的 prerelease 标记，否则 GitCode 会把
+      # 预发布当正式版推给用户（更新源默认就是 GitCode）。
+      - name: Read prerelease flag
+        id: pre
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          FLAG=$(gh release view "$TAG_NAME" --json isPrerelease --jq '.isPrerelease' 2>/dev/null || echo false)
+          echo "tag=$TAG_NAME prerelease=$FLAG"
+          echo "value=$FLAG" >> "$GITHUB_OUTPUT"
+
       # === 大陆镜像：把同一份 Release 与附件发到 GitCode（附加动作，失败不影响 GitHub 发版） ===
       - name: Push tag to GitCode
         if: env.GITCODE_TOKEN != ''
@@ -440,7 +454,7 @@ jobs:
           TAG: ${{ github.ref_name }}
           RELEASE_NAME: ${{ github.ref_name }}
           RELEASE_BODY_FILE: release_body.md
-          PRERELEASE: '0'
+          PRERELEASE: ${{ steps.pre.outputs.value == 'true' && '1' || '0' }}
           TARGET_COMMITISH: main
           ASSETS: >-
             zviewer-linux-x64.tar.gz

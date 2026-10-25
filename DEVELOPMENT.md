@@ -235,6 +235,25 @@ node scripts/sync-gitcode-release.mjs      # 加 DRY_RUN=1 只打印计划
 - 下载直链 `https://gitcode.com/<owner>/<repo>/releases/download/<tag>/<file>` 匿名可下且永久有效。
 - Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
 
+### 6.2 应用内的「更新源」开关
+
+网页端（管理页 → 设置 → 版本更新）与桌面 GUI（检查更新弹窗）都有「使用 GitCode 更新源」，**默认开启**；
+关掉回到 GitHub。两个实现各自独立：
+
+| 端 | 实现 | 偏好存放 |
+| --- | --- | --- |
+| 网页端一键更新 | `internal/updater/source.go` | `config/update-source.json`（`{"useGitCode": true}`） |
+| 桌面 GUI 自动更新 | `desktop/controller/update.go` | `settings.json` 的 `updateGitCode` |
+
+- 偏好**不写数据库**：`system_settings` 是整行表，加列会让存量库的 SELECT 直接失败（本项目「绝不自动改表结构」）。
+  `config/` 在自动更新时会被备份还原，所以这个文件不会丢。
+- 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode` 优先于偏好文件（仅后端）。
+- GitCode 失败或**镜像仓库还没有 Release**（CI 没跑完）时自动回退 GitHub，界面上的「更新来源」显示实际来源。
+- GitCode 的 Release 列表没有 `html_url` / `published_at`、assets 里混着源码包，差异在
+  `normalizeGitCodeReleases`（后端）与 `normalizeGitCodeRelease`（桌面端）里抹平。
+- 桌面端下载白名单已加入 `gitcode.com` / `raw.gitcode.com`；GitCode 源的附件**不套** CDN 前缀
+  （附件 id 是 GitCode 自己的编号，套 GitHub 资产端点会 404）。
+
 ---
 
 ## 7. 质量门禁

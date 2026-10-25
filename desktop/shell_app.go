@@ -352,9 +352,15 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 	case "update-apply":
 		return a.applyUpdate()
 	case "update-page":
-		target := a.ctrl.UpdateReport().PageURL
+		report := a.ctrl.UpdateReport()
+		target := report.PageURL
 		if target == "" {
-			target = "https://github.com/Zero-wyc/ZViewer/releases"
+			// 没有具体发布页时给仓库的 releases 列表，按当前来源站给对应地址。
+			if report.Source == "gitcode" {
+				target = "https://gitcode.com/Zero-wyc/ZViewer/releases"
+			} else {
+				target = "https://github.com/Zero-wyc/ZViewer/releases"
+			}
 		}
 		runtime.BrowserOpenURL(a.ctx, target)
 		return true, nil
@@ -371,6 +377,18 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 			return nil, errors.New("缺少反代参数")
 		}
 		if _, err := a.ctrl.Save(patch, nil); err != nil {
+			return nil, err
+		}
+		report := a.ctrl.CheckUpdate(true)
+		a.emitUpdate()
+		return report, nil
+	case "update-source":
+		// 更新源开关（GitCode / GitHub）：保存后立即重查，界面直接显示新源的结果。
+		enabled, ok := payload["enabled"].(bool)
+		if !ok {
+			return nil, errors.New("缺少更新源参数")
+		}
+		if _, err := a.ctrl.Save(map[string]any{"updateGitCode": enabled}, nil); err != nil {
 			return nil, err
 		}
 		report := a.ctrl.CheckUpdate(true)

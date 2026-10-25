@@ -63,6 +63,8 @@ func TestGetUpdateInfoMatchesNode(t *testing.T) {
 	svc := New(root, nil)
 	svc.APIBase = server.URL
 	svc.GOOS = "windows"
+	// 显式走 GitHub 源：默认源是 GitCode（真实网络），测试必须钉在假站上。
+	svc.Source = SourceGitHub
 	svc.SetSettingsReader(func(context.Context) (bool, string, error) { return false, "", nil })
 
 	// 每个用例都走同一个路径，逐条确认请求形状没变。
@@ -116,6 +118,7 @@ func TestCheckUpdateIgnoresCDN(t *testing.T) {
 	svc := New(root, nil)
 	svc.APIBase = server.URL
 	svc.GOOS = "windows"
+	svc.Source = SourceGitHub
 	svc.SetSettingsReader(func(context.Context) (bool, string, error) {
 		return true, "https://gh-proxy.example", nil
 	})

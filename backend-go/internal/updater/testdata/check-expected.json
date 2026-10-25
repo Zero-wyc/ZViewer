@@ -39,7 +39,8 @@
         "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.0.0/zviewer-windows-x64.zip",
         "isPrerelease": false,
         "assetName": "zviewer-windows-x64.zip",
-        "assetSize": 12345
+        "assetSize": 12345,
+        "source": "github"
       }
     },
     "stable-newer": {
@@ -76,7 +77,8 @@
         "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
         "isPrerelease": false,
         "assetName": "zviewer-windows-x64.zip",
-        "assetSize": 34567
+        "assetSize": 34567,
+        "source": "github"
       }
     },
     "stable-newer-with-pre-on-top": {
@@ -133,7 +135,8 @@
         "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
         "isPrerelease": false,
         "assetName": "zviewer-windows-x64.zip",
-        "assetSize": 34567
+        "assetSize": 34567,
+        "source": "github"
       }
     },
     "prerelease-mode-takes-first": {
@@ -190,7 +193,8 @@
         "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
         "isPrerelease": true,
         "assetName": "zviewer-windows-x64.zip",
-        "assetSize": 56789
+        "assetSize": 56789,
+        "source": "github"
       }
     },
     "prerelease-mode-stable-first": {
@@ -247,7 +251,8 @@
         "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
         "isPrerelease": false,
         "assetName": "zviewer-windows-x64.zip",
-        "assetSize": 34567
+        "assetSize": 34567,
+        "source": "github"
       }
     },
     "only-prerelease-stable-mode": {
@@ -284,7 +289,8 @@
         "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
         "isPrerelease": true,
         "assetName": "zviewer-windows-x64.zip",
-        "assetSize": 56789
+        "assetSize": 56789,
+        "source": "github"
       }
     },
     "missing-asset": {

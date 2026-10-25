@@ -3,12 +3,14 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/updater"
 )
 
 // registerAdminRoutes 挂载管理端端点（对应 routes/admin.ts，12 个）。
@@ -556,18 +558,22 @@ func (s *Server) invalidateRoomPermissions(roomID string) {
 // 字段顺序与 routes/admin.ts 一致，方便人工比对；JSON 对拍会先排序，
 // 所以顺序本身不构成契约，**键集合**才是。
 type adminSettingsDTO struct {
-	AutoDeleteInactiveRooms   bool            `json:"autoDeleteInactiveRooms"`
-	AutoDeleteAfterHours      int             `json:"autoDeleteAfterHours"`
-	RoomDefaultMusicVolume    int             `json:"roomDefaultMusicVolume"`
-	DataSourceConfig          json.RawMessage `json:"dataSourceConfig"`
-	RegistrationMode          string          `json:"registrationMode"`
-	RoomCreationMode          string          `json:"roomCreationMode"`
-	BetaFeaturesEnabled       bool            `json:"betaFeaturesEnabled"`
-	DashDisabled              bool            `json:"dashDisabled"`
-	BilibiliDefaultParseMode  string          `json:"bilibiliDefaultParseMode"`
-	BilibiliPgcDefaultMode    string          `json:"bilibiliPgcDefaultMode"`
-	CdnAccelerate             bool            `json:"cdnAccelerate"`
-	CdnProxyURL               string          `json:"cdnProxyUrl"`
+	AutoDeleteInactiveRooms  bool            `json:"autoDeleteInactiveRooms"`
+	AutoDeleteAfterHours     int             `json:"autoDeleteAfterHours"`
+	RoomDefaultMusicVolume   int             `json:"roomDefaultMusicVolume"`
+	DataSourceConfig         json.RawMessage `json:"dataSourceConfig"`
+	RegistrationMode         string          `json:"registrationMode"`
+	RoomCreationMode         string          `json:"roomCreationMode"`
+	BetaFeaturesEnabled      bool            `json:"betaFeaturesEnabled"`
+	DashDisabled             bool            `json:"dashDisabled"`
+	BilibiliDefaultParseMode string          `json:"bilibiliDefaultParseMode"`
+	BilibiliPgcDefaultMode   string          `json:"bilibiliPgcDefaultMode"`
+	CdnAccelerate            bool            `json:"cdnAccelerate"`
+	CdnProxyURL              string          `json:"cdnProxyUrl"`
+	// UpdateUseGitCode 是「更新源」开关（true=GitCode 大陆镜像，false=GitHub）。
+	// 它**不在数据库里**：system_settings 是整行表，加列会让存量库读不出来，
+	// 所以落在 config/update-source.json，见 updater.ReadSourcePreference。
+	UpdateUseGitCode          bool            `json:"updateUseGitCode"`
 	PlaysvideoEnabled         bool            `json:"playsvideoEnabled"`
 	RoomMultiInstanceLogin    bool            `json:"roomMultiInstanceLogin"`
 	LivekitExternalURL        string          `json:"livekitExternalUrl"`
@@ -578,7 +584,7 @@ type adminSettingsDTO struct {
 	DesktopManaged bool `json:"desktopManaged"`
 }
 
-func adminSettingsOf(cfg *store.SystemSettings) adminSettingsDTO {
+func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool) adminSettingsDTO {
 	dataSource := cfg.DataSourceConfig
 	if len(dataSource) == 0 {
 		dataSource = json.RawMessage("null")
@@ -600,6 +606,7 @@ func adminSettingsOf(cfg *store.SystemSettings) adminSettingsDTO {
 		BilibiliPgcDefaultMode:    cfg.BilibiliPgcDefaultMode,
 		CdnAccelerate:             cfg.CdnAccelerate,
 		CdnProxyURL:               cfg.CdnProxyURL,
+		UpdateUseGitCode:          updateUseGitCode,
 		PlaysvideoEnabled:         cfg.PlaysvideoEnabled,
 		RoomMultiInstanceLogin:    cfg.RoomMultiInstanceLogin,
 		LivekitExternalURL:        cfg.LivekitExternalURL,
@@ -615,7 +622,15 @@ func (s *Server) handleAdminGetSettings(w http.ResponseWriter, r *http.Request) 
 		httpx.InternalError(w, "admin-get-settings", err)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg)})
+	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode())})
+}
+
+// updateUseGitCode 读取当前更新源开关；Updater 未装配时按默认（GitCode）返回。
+func (s *Server) updateUseGitCode() bool {
+	if s.Updater == nil {
+		return true
+	}
+	return updater.ReadSourcePreference(s.Updater.Root)
 }
 
 // 房间权限矩阵的合法动作与角色字段（与 routes/admin.ts 的两个常量表一致）。
@@ -816,12 +831,31 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 		}
 		cfg.AnnounceAutoPopupOnUpdate = v
 	}
+	// 更新源开关落在 config/update-source.json（不写库），与数据库整行保存解耦。
+	if raw, ok := body["updateUseGitCode"]; ok {
+		v, ok := rawBool(raw)
+		if !ok {
+			httpx.BadRequest(w, "updateUseGitCode 必须是布尔值")
+			return
+		}
+		if s.Updater == nil {
+			httpx.InternalError(w, "admin-update-settings", errors.New("更新器未初始化"))
+			return
+		}
+		// 前端每次保存都会带上这个键，值没变就不落盘（少一次写文件与 mtime 变化）。
+		if updater.ReadSourcePreference(s.Updater.Root) != v {
+			if err := updater.WriteSourcePreference(s.Updater.Root, v); err != nil {
+				httpx.InternalError(w, "admin-update-settings", err)
+				return
+			}
+		}
+	}
 
 	if err := s.Settings.Save(ctx, cfg); err != nil {
 		httpx.InternalError(w, "admin-update-settings", err)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg)})
+	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode())})
 }
 
 // ---------------------------------------------------------------------------

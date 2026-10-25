@@ -238,15 +238,19 @@
     const progress = name === 'downloading' ? `<div class="update-progress"><i style="width:${Math.min(100, Math.max(0, report.progress))}%"></i></div>` : '';
     const meta = report?.checkedAt ? `上次检查 ${esc(report.checkedAt)}` : '尚未检查';
     const auto = state.live ? Boolean(state.config?.autoCheckUpdate ?? report?.autoCheck) : true;
+    const gitcode = state.live ? Boolean(state.config?.updateGitCode ?? true) : true;
+    const source = report?.source || (gitcode ? 'gitcode' : 'github');
+    const sourceText = source === 'gitcode' ? 'gitcode.com/Zero-wyc/ZViewer（大陆镜像）' : 'github.com/Zero-wyc/ZViewer';
     const proxy = state.live ? Boolean(state.config?.updateProxy ?? report?.proxy) : true;
     const proxyURL = state.config?.updateProxyUrl || report?.proxyUrl || 'https://gh-proxy.com';
-    return `<div class="update-head"><div><h2>软件更新</h2><p>github.com/Zero-wyc/ZViewer${report?.notes ? ` · ${esc(report.notes)}` : ''}</p></div><span class="pill ${tone}"><i></i>${updateLabels[name] || '未检查'}</span></div>
+    return `<div class="update-head"><div><h2>软件更新</h2><p>${sourceText}${report?.notes ? ` · ${esc(report.notes)}` : ''}</p></div><span class="pill ${tone}"><i></i>${updateLabels[name] || '未检查'}</span></div>
       <div class="update-grid"><div><span>当前版本</span><strong>v${esc(current)}</strong></div><div><span>最新版本</span><strong>${latest}</strong></div></div>
       <p class="update-state">${updateBody(report)}</p>${progress}
       <div class="modal-actions">${updateActions(report)}</div>
       <div class="switch-row update-auto"><div><strong>自动检查更新</strong><p>启动后检查一次，此后每 6 小时一次。</p></div><button class="switch" role="switch" aria-label="自动检查更新" aria-checked="${auto}" data-action="update-auto" ${state.live ? '' : 'disabled'}></button></div>
-      <div class="switch-row update-proxy"><div><strong>使用前置反代</strong><p>通过反代访问 GitHub，默认 gh-proxy，可换成其它服务商。</p></div><button class="switch" role="switch" aria-label="使用前置反代" aria-checked="${proxy}" data-action="update-proxy" ${state.live ? '' : 'disabled'}></button></div>
-      <div class="update-proxy-field"><input class="search-input" id="update-proxy-url" aria-label="反代前缀地址" value="${esc(proxyURL)}" placeholder="https://gh-proxy.com" spellcheck="false" ${state.live && proxy ? '' : 'disabled'}></div>
+      <div class="switch-row update-source"><div><strong>使用 GitCode 更新源</strong><p>从大陆镜像下载，国内网络无需代理；不可用时自动回退 GitHub。</p></div><button class="switch" role="switch" aria-label="使用 GitCode 更新源" aria-checked="${gitcode}" data-action="update-source" ${state.live ? '' : 'disabled'}></button></div>
+      <div class="switch-row update-proxy"><div><strong>使用前置反代</strong><p>仅 GitHub 源生效；GitCode 源直连对象存储，不需要代理。</p></div><button class="switch" role="switch" aria-label="使用前置反代" aria-checked="${proxy}" data-action="update-proxy" ${state.live && source === 'github' ? '' : 'disabled'}></button></div>
+      <div class="update-proxy-field"><input class="search-input" id="update-proxy-url" aria-label="反代前缀地址" value="${esc(proxyURL)}" placeholder="https://gh-proxy.com" spellcheck="false" ${state.live && source === 'github' && proxy ? '' : 'disabled'}></div>
       <p class="update-note">${icon('info')}<span>${meta}</span></p>`;
   }
   function openUpdate() {
@@ -259,7 +263,7 @@
     const report = snapshot?.update || null;
     const dot = $('#update-dot');
     if (dot) dot.hidden = !(report && report.available && report.state !== 'downloading');
-    const key = report ? `${report.state}|${report.progress}|${report.latest}|${report.error}|${snapshot?.config?.autoCheckUpdate}|${snapshot?.config?.updateProxy}|${snapshot?.config?.updateProxyUrl}|${report.checkedAt}` : '';
+    const key = report ? `${report.state}|${report.progress}|${report.latest}|${report.error}|${report.source}|${snapshot?.config?.autoCheckUpdate}|${snapshot?.config?.updateGitCode}|${snapshot?.config?.updateProxy}|${snapshot?.config?.updateProxyUrl}|${report.checkedAt}` : '';
     if (state.updateOpen && $('#modal')?.open && key !== state.updateKey) {
       state.updateKey = key;
       $('#modal-content').innerHTML = updateModal();
@@ -697,6 +701,17 @@
     else if (name === 'update-auto') {
       if (!state.live) { toast('仅桌面版可用'); return; }
       await updateCommand('save', { config: { autoCheckUpdate: !updateReport()?.autoCheck } });
+      state.updateKey = '';
+      $('#modal-content').innerHTML = updateModal();
+    }
+    else if (name === 'update-source') {
+      if (!state.live) { toast('仅桌面版可用'); return; }
+      const report = updateReport();
+      const enabled = !Boolean(state.config?.updateGitCode ?? report?.source === 'gitcode');
+      toast('正在重新检查…');
+      const next = await updateCommand('update-source', { enabled });
+      if (!next) return;
+      state.config = { ...state.config, updateGitCode: enabled };
       state.updateKey = '';
       $('#modal-content').innerHTML = updateModal();
     }

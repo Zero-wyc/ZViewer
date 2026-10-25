@@ -37,6 +37,8 @@ export interface UpdateInfo {
   isPrerelease: boolean
   assetName: string
   assetSize: number
+  /** 本次结果的来源：gitcode（大陆镜像）或 github（GitCode 不可用时会自动回退） */
+  source?: 'gitcode' | 'github'
 }
 
 /** 更新进度状态：由 SSE 流式接口推送 */
@@ -104,6 +106,8 @@ export interface AdminSettings {
   playsvideoEnabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
+  /** 更新源开关：true=GitCode 大陆镜像（默认），false=GitHub */
+  updateUseGitCode: boolean
   /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
   roomMultiInstanceLogin: boolean
   /** 自定义 LiveKit 服务器地址（客户端连接；空=按页面域名自动推导） */

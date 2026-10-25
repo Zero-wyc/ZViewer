@@ -997,6 +997,7 @@ main > div { padding: 0 var(--page-padding) var(--gap-xl); max-width: 1120px; }
 .update-progress { height: 4px; margin-top: 10px; border-radius: 2px; background: var(--divider); overflow: hidden; }
 .update-progress i { display: block; height: 100%; background: var(--accent); transition: width .2s linear; }
 .update-auto { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--divider); }
+.update-source { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider); }
 .update-proxy { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--divider); }
 .update-proxy-field { margin-top: 10px; }
 .update-proxy-field .search-input { width: 100%; font-family: var(--font-mono); font-size: 12px; }

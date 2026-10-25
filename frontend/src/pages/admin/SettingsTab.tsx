@@ -617,17 +617,44 @@ export function SettingsTab({
                     }}
                   />
                 </div>
+                {/* 更新源：GitCode 镜像 vs GitHub */}
+                <div className="pb-3 mb-3 border-b border-[var(--md-sys-color-outline-variant)]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex-1 min-w-0 pr-3">
+                      <Text className="text-sm font-medium">
+                        使用 GitCode 更新源
+                      </Text>
+                      <Text type="secondary" className="block text-xs mt-0.5">
+                        开启后从 gitcode.com（同一份 Release
+                        的大陆镜像）检查并下载更新，国内网络无需代理；关闭则回到
+                        GitHub。GitCode 不可用时会自动回退 GitHub。
+                      </Text>
+                    </div>
+                    <Switch
+                      checked={settings.updateUseGitCode !== false}
+                      onChange={(e) =>
+                        onSettingsChange((prev) => ({
+                          ...prev,
+                          updateUseGitCode: e.target.checked,
+                        }))
+                      }
+                    />
+                  </div>
+                </div>
                 {/* CDN 加速配置 */}
                 <div className="pb-3 mb-3 border-b border-[var(--md-sys-color-outline-variant)]">
                   <div className="flex items-center justify-between pb-3">
                     <div className="flex-1 min-w-0 pr-3">
                       <Text className="text-sm font-medium">更新 CDN 加速</Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
-                        开启后，更新检测和 Release 下载将走 CDN 代理加速
+                        {settings.updateUseGitCode !== false
+                          ? '仅 GitHub 源生效；当前使用 GitCode 源，无需代理'
+                          : '开启后，更新检测和 Release 下载将走 CDN 代理加速'}
                       </Text>
                     </div>
                     <Switch
                       checked={settings.cdnAccelerate}
+                      disabled={settings.updateUseGitCode !== false}
                       onChange={(e) =>
                         onSettingsChange((prev) => ({
                           ...prev,
@@ -636,29 +663,33 @@ export function SettingsTab({
                       }
                     />
                   </div>
-                  {settings.cdnAccelerate && (
-                    <div className="space-y-3">
-                      <div>
-                        <Text className="mb-1.5 block text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                          CDN 代理地址
-                        </Text>
-                        <Input
-                          value={settings.cdnProxyUrl}
-                          onChange={(e) =>
-                            onSettingsChange((prev) => ({
-                              ...prev,
-                              cdnProxyUrl: e.target.value.trim(),
-                            }))
-                          }
-                          placeholder="https://gh-proxy.com"
-                        />
-                        <Text type="secondary" className="block text-xs mt-1.5">
-                          使用 GitHub 代理前缀方式加速，默认
-                          https://gh-proxy.com，可替换为自建代理。
-                        </Text>
+                  {settings.cdnAccelerate &&
+                    settings.updateUseGitCode === false && (
+                      <div className="space-y-3">
+                        <div>
+                          <Text className="mb-1.5 block text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
+                            CDN 代理地址
+                          </Text>
+                          <Input
+                            value={settings.cdnProxyUrl}
+                            onChange={(e) =>
+                              onSettingsChange((prev) => ({
+                                ...prev,
+                                cdnProxyUrl: e.target.value.trim(),
+                              }))
+                            }
+                            placeholder="https://gh-proxy.com"
+                          />
+                          <Text
+                            type="secondary"
+                            className="block text-xs mt-1.5"
+                          >
+                            使用 GitHub 代理前缀方式加速，默认
+                            https://gh-proxy.com，可替换为自建代理。
+                          </Text>
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
                 </div>
                 {/* 更新进度条：下载/上传/解压/启动各阶段实时显示 */}
                 {updateProgress && (
@@ -740,6 +771,14 @@ export function SettingsTab({
                         </span>
                       </Text>
                     </div>
+                    {updateInfo.source && (
+                      <Text type="secondary" className="text-xs">
+                        更新来源：
+                        {updateInfo.source === 'gitcode'
+                          ? 'GitCode 镜像（gitcode.com）'
+                          : 'GitHub'}
+                      </Text>
+                    )}
                     {updateInfo.isPrerelease && (
                       <div className="inline-flex rounded-full bg-[var(--md-sys-color-tertiary-container)] px-2 py-0.5">
                         <span className="text-[10px] font-medium uppercase tracking-wide text-[var(--md-sys-color-on-tertiary-container)]">

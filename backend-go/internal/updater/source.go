@@ -1,0 +1,186 @@
+package updater
+
+// 更新源：GitHub（原链路）与 GitCode（大陆镜像）。
+//
+// 为什么偏好落在文件而不是数据库：`system_settings` 是 TypeORM 生成的整行表，
+// Go 侧「绝不自动改表结构」——加一列会让存量库的 SELECT 直接失败（启动即炸），
+// 而 `--init-db` 只服务空库。这里是一个纯运行期偏好，写
+// `config/update-source.json` 即可：config/ 在自动更新时会被备份还原，不会丢。
+//
+// 默认值刻意是 GitCode：GitHub 在大陆经常连不上，而 GitCode 是同一份 Release
+// 的镜像；GitCode 不可用时自动回退 GitHub，不会比原来更难用。
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+)
+
+const (
+	// SourceGitHub 是原链路：api.github.com + 可选 CDN 前缀。
+	SourceGitHub = "github"
+	// SourceGitCode 是大陆镜像：api.gitcode.com，直连对象存储，不需要代理。
+	SourceGitCode = "gitcode"
+
+	// gitCodeAPIBase 是 GitCode OpenAPI 基址。
+	gitCodeAPIBase = "https://api.gitcode.com/api/v5"
+	// gitCodeSiteBase 用来拼发布页地址：GitCode 的 release 列表不带 html_url。
+	gitCodeSiteBase = "https://gitcode.com"
+
+	// sourceFileName 是更新源偏好的文件名，落在 <root>/config/ 下。
+	sourceFileName = "update-source.json"
+)
+
+// sourcePreference 是配置文件形状。用指针接住「字段缺失」，缺失按默认处理。
+type sourcePreference struct {
+	UseGitCode *bool `json:"useGitCode"`
+}
+
+// SourcePreferencePath 返回偏好文件路径。
+func SourcePreferencePath(root string) string {
+	return filepath.Join(root, "config", sourceFileName)
+}
+
+// ReadSourcePreference 读取偏好；文件缺失或格式不对时按默认（GitCode）处理。
+//
+// 读失败一律当默认值而不是报错：这个开关只影响「从哪个站取更新」，
+// 不该因为它把整个检查更新拦死。
+func ReadSourcePreference(root string) bool {
+	raw, err := os.ReadFile(SourcePreferencePath(root))
+	if err != nil {
+		return true
+	}
+	var pref sourcePreference
+	if err := json.Unmarshal(raw, &pref); err != nil || pref.UseGitCode == nil {
+		return true
+	}
+	return *pref.UseGitCode
+}
+
+// WriteSourcePreference 原子写入偏好（先写 .tmp 再 rename，避免半截文件）。
+func WriteSourcePreference(root string, useGitCode bool) error {
+	path := SourcePreferencePath(root)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	raw, err := json.MarshalIndent(sourcePreference{UseGitCode: &useGitCode}, "", "  ")
+	if err != nil {
+		return err
+	}
+	temp := path + ".tmp"
+	if err := os.WriteFile(temp, append(raw, '\n'), 0o644); err != nil {
+		return err
+	}
+	return os.Rename(temp, path)
+}
+
+// updateSource 决议本次使用的更新源。
+//
+// 优先级：Service.Source（测试/调用方显式指定）> 环境变量 > 配置文件 > 默认 GitCode。
+// 环境变量留给运维：`ZVIEWER_UPDATE_SOURCE=github` 可在不碰界面的情况下改回原链路。
+func (s *Service) updateSource() string {
+	if s.Source != "" {
+		return s.Source
+	}
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ZVIEWER_UPDATE_SOURCE"))) {
+	case SourceGitHub:
+		return SourceGitHub
+	case SourceGitCode:
+		return SourceGitCode
+	}
+	if ReadSourcePreference(s.Root) {
+		return SourceGitCode
+	}
+	return SourceGitHub
+}
+
+func (s *Service) gitCodeAPI() string {
+	base := strings.TrimSpace(s.GitCodeAPIBase)
+	if base == "" {
+		base = gitCodeAPIBase
+	}
+	return strings.TrimRight(base, "/")
+}
+
+// fetchGitHubReleases 走原 GitHub 链路。
+func (s *Service) fetchGitHubReleases(ctx context.Context) ([]githubRelease, error) {
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=10", s.APIBase, repoOwner, repoName)
+	var releases []githubRelease
+	if err := s.httpGetJSON(ctx, apiURL, &releases); err != nil {
+		return nil, err
+	}
+	return releases, nil
+}
+
+// fetchGitCodeReleases 走 GitCode 镜像。
+//
+// 响应形状与 GitHub 高度相似（tag_name / body / prerelease / assets），差异都在
+// normalizeGitCodeReleases 里抹平；这里只负责取一次列表。
+func (s *Service) fetchGitCodeReleases(ctx context.Context) ([]githubRelease, error) {
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=10", s.gitCodeAPI(), repoOwner, repoName)
+	var releases []githubRelease
+	if err := s.httpGetJSON(ctx, apiURL, &releases); err != nil {
+		return nil, err
+	}
+	return normalizeGitCodeReleases(releases), nil
+}
+
+// normalizeGitCodeReleases 把 GitCode 的字段差异补齐成 GitHub 的形状：
+//
+//   - 没有 html_url：按站内路由拼 /releases/tag/<tag>；
+//   - 没有 published_at：用 created_at 顶替（只用于界面展示）；
+//   - 预发布用 release_status="pre" 表达，同时补写 prerelease；
+//   - assets 里混着源码包（type="source"），只保留 type="attach" 的上传附件，
+//     否则同名规则在别的仓库上可能撞车。
+func normalizeGitCodeReleases(releases []githubRelease) []githubRelease {
+	for i := range releases {
+		release := &releases[i]
+		if release.HTMLURL == "" && release.TagName != "" {
+			release.HTMLURL = fmt.Sprintf("%s/%s/%s/releases/tag/%s",
+				gitCodeSiteBase, repoOwner, repoName, url.PathEscape(release.TagName))
+		}
+		if release.PublishedAt == nil && release.CreatedAt != "" {
+			created := release.CreatedAt
+			release.PublishedAt = &created
+		}
+		if release.ReleaseStatus == "pre" {
+			release.Prerelease = true
+		}
+		if len(release.Assets) == 0 {
+			continue
+		}
+		assets := make([]githubAsset, 0, len(release.Assets))
+		for _, asset := range release.Assets {
+			if asset.Type == "source" {
+				continue
+			}
+			assets = append(assets, asset)
+		}
+		release.Assets = assets
+	}
+	return releases
+}
+
+// fetchReleases 取发布列表，返回「实际生效的来源」。
+//
+// GitCode 失败或还没有 Release（镜像仓库刚建、CI 还没跑完）时自动回退 GitHub：
+// 这时候让整个检查更新报「未找到任何发布版本」比回退更难用。
+func (s *Service) fetchReleases(ctx context.Context, source string) ([]githubRelease, string, error) {
+	if source == SourceGitCode {
+		releases, err := s.fetchGitCodeReleases(ctx)
+		if err == nil && len(releases) > 0 {
+			return releases, SourceGitCode, nil
+		}
+		if err != nil {
+			logf("GitCode 源不可用，回退 GitHub：%v", err)
+		} else {
+			logf("GitCode 源暂无发布版本，回退 GitHub")
+		}
+	}
+	releases, err := s.fetchGitHubReleases(ctx)
+	return releases, SourceGitHub, err
+}

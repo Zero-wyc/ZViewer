@@ -21,24 +21,26 @@ import (
 
 // Config 对应 config.cjs 的 defaults。
 type Config struct {
-	Port            int        `json:"port"`
-	RtmpPort        int        `json:"rtmpPort"`
-	FlvPort         int        `json:"flvPort"`
-	LivekitPort     int        `json:"livekitPort"`
-	LivekitTcpPort  int        `json:"livekitTcpPort"`
-	BindHost        string     `json:"bindHost"`
-	Https           bool       `json:"https"`
-	CloseToTray     bool       `json:"closeToTray"`
-	LaunchAtLogin   bool       `json:"launchAtLogin"`
-	AutoStart       bool       `json:"autoStart"`
-	AutoCheckUpdate bool       `json:"autoCheckUpdate"`
-	UpdateProxy     bool       `json:"updateProxy"`
-	UpdateProxyURL  string     `json:"updateProxyUrl"`
-	Domain          string     `json:"domain"`
-	LanIP           string     `json:"lanIp"`
-	Cli             CliConfig  `json:"cli"`
-	Frp             FrpConfig  `json:"frp"`
-	Mesh            MeshConfig `json:"mesh"`
+	Port            int    `json:"port"`
+	RtmpPort        int    `json:"rtmpPort"`
+	FlvPort         int    `json:"flvPort"`
+	LivekitPort     int    `json:"livekitPort"`
+	LivekitTcpPort  int    `json:"livekitTcpPort"`
+	BindHost        string `json:"bindHost"`
+	Https           bool   `json:"https"`
+	CloseToTray     bool   `json:"closeToTray"`
+	LaunchAtLogin   bool   `json:"launchAtLogin"`
+	AutoStart       bool   `json:"autoStart"`
+	AutoCheckUpdate bool   `json:"autoCheckUpdate"`
+	UpdateProxy     bool   `json:"updateProxy"`
+	UpdateProxyURL  string `json:"updateProxyUrl"`
+	// UpdateGitCode 选择更新源：true=GitCode 大陆镜像（默认），false=GitHub。
+	UpdateGitCode bool       `json:"updateGitCode"`
+	Domain        string     `json:"domain"`
+	LanIP         string     `json:"lanIp"`
+	Cli           CliConfig  `json:"cli"`
+	Frp           FrpConfig  `json:"frp"`
+	Mesh          MeshConfig `json:"mesh"`
 }
 
 type CliConfig struct {
@@ -72,7 +74,7 @@ func DefaultConfig() Config {
 		// 局域网 IPv4 与 IPv6。仅本机使用可在“应用设置”改回 127.0.0.1。
 		BindHost: "::", Https: false,
 		CloseToTray: true, LaunchAtLogin: false, AutoStart: false, AutoCheckUpdate: true,
-		UpdateProxy: true, UpdateProxyURL: DefaultUpdateProxy,
+		UpdateProxy: true, UpdateProxyURL: DefaultUpdateProxy, UpdateGitCode: true,
 		Domain: "localhost", LanIP: "",
 		Cli: CliConfig{Port: 9333, AutoStart: false, User: ""},
 		Frp: FrpConfig{Host: "", Port: 7000, AdvertiseIP: "", Voice: true, Rtmp: true, Tcp: false,
@@ -275,6 +277,13 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 		return target, err
 	}
 	target.UpdateProxyURL = proxy
+	// 老配置里没有这个键：缺省保持默认 true（GitCode），不要被 asBool 的零值改回 false。
+	// 值类型不对时同样保留默认，而不是当成「关闭」。
+	if raw, exists := base["updateGitCode"]; exists {
+		if flag, ok := raw.(bool); ok {
+			target.UpdateGitCode = flag
+		}
+	}
 
 	domain, ok := asString(base["domain"])
 	if !ok || !IsHostname(domain) || net.ParseIP(domain) != nil {

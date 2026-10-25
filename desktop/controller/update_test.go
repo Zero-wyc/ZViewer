@@ -111,14 +111,14 @@ func TestNormalizeUpdateProxy(t *testing.T) {
 
 func TestDownloadCandidates(t *testing.T) {
 	asset := releaseAsset{ID: 659024627, Name: "zviewer-windows-x64-GUI.zip", URL: "https://github.com/o/r/releases/download/v1/zviewer-windows-x64-GUI.zip"}
-	first, fallback := downloadCandidates(asset, DefaultUpdateProxy)
+	first, fallback := downloadCandidates(asset, DefaultUpdateProxy, updateSourceGitHub)
 	if first != DefaultUpdateProxy+"/"+asset.URL {
 		t.Fatalf("proxy url = %q", first)
 	}
 	if fallback != "https://api.github.com/repos/Zero-wyc/ZViewer/releases/assets/659024627" {
 		t.Fatalf("fallback = %q", fallback)
 	}
-	first, fallback = downloadCandidates(asset, "")
+	first, fallback = downloadCandidates(asset, "", updateSourceGitHub)
 	if first != "https://api.github.com/repos/Zero-wyc/ZViewer/releases/assets/659024627" || fallback != "" {
 		t.Fatalf("direct candidates = %q / %q", first, fallback)
 	}
@@ -141,5 +141,89 @@ func TestAllowedUpdateHost(t *testing.T) {
 	}
 	if !publicHost("gh-proxy.com") || !publicHost("8.8.8.8") {
 		t.Fatal("public hosts should pass")
+	}
+}
+
+// TestPickGitCodeRelease 覆盖 GitCode 列表挑选：预发布、源码包与 tag 形状。
+func TestPickGitCodeRelease(t *testing.T) {
+	list := []releaseInfo{
+		{Tag: "latest", ReleaseStatus: "pre", Name: "Latest Build (main)"},
+		{Tag: "nightly", Prerelease: false},
+		{
+			Tag:  "v5.0.1",
+			Name: "v5.0.1",
+			Assets: []releaseAsset{
+				{Name: "v5.0.1.zip", Type: "source", URL: "https://raw.gitcode.com/o/r/archive/v5.0.1.zip"},
+				{Name: "zviewer-windows-x64-GUI.zip", Type: "attach", Size: 2048, URL: "https://gitcode.com/Zero-wyc/ZViewer/releases/download/v5.0.1/zviewer-windows-x64-GUI.zip"},
+			},
+		},
+	}
+	info, err := pickGitCodeRelease(list)
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if info.Tag != "v5.0.1" {
+		t.Fatalf("应跳过预发布与非法 tag，实际 %q", info.Tag)
+	}
+	if info.URL != "https://gitcode.com/Zero-wyc/ZViewer/releases/tag/v5.0.1" {
+		t.Fatalf("发布页地址未补齐: %q", info.URL)
+	}
+	if len(info.Assets) != 1 || info.Assets[0].Name != "zviewer-windows-x64-GUI.zip" {
+		t.Fatalf("源码包应被过滤: %+v", info.Assets)
+	}
+	asset, ok := pickUpdateAsset(info.Assets)
+	if !ok || asset.Size != 2048 {
+		t.Fatalf("应挑到 GUI 运行包: %+v ok=%v", asset, ok)
+	}
+
+	if _, err := pickGitCodeRelease(list[:2]); err != errNoRelease {
+		t.Fatalf("只有预发布时应返回 errNoRelease，实际 %v", err)
+	}
+}
+
+// TestGitCodeAssetDownloadCandidates 确认 GitCode 源不会套反代前缀。
+func TestGitCodeAssetDownloadCandidates(t *testing.T) {
+	asset := releaseAsset{
+		ID:   9831,
+		Name: "zviewer-windows-x64-GUI.zip",
+		URL:  "https://gitcode.com/Zero-wyc/ZViewer/releases/download/v5.0.1/zviewer-windows-x64-GUI.zip",
+	}
+	first, fallback := downloadCandidates(asset, "", updateSourceGitCode)
+	if first != asset.URL || fallback != "" {
+		t.Fatalf("GitCode 源应直连: %q / %q", first, fallback)
+	}
+	if !allowedUpdateHost("gitcode.com", nil) || !allowedUpdateHost("raw.gitcode.com", nil) {
+		t.Fatal("GitCode 域名应在下载白名单内")
+	}
+}
+
+// TestDefaultConfigUsesGitCodeSource：默认必须是大陆镜像。
+func TestDefaultConfigUsesGitCodeSource(t *testing.T) {
+	if !DefaultConfig().UpdateGitCode {
+		t.Fatal("默认更新源应为 GitCode")
+	}
+}
+
+// TestValidateUpdateSourceDefault：老配置缺键时保持 GitCode，显式 false 才回 GitHub。
+func TestValidateUpdateSourceDefault(t *testing.T) {
+	base := map[string]any{
+		"port": "3333", "rtmpPort": "3334", "flvPort": "3335",
+		"livekitPort": "3336", "livekitTcpPort": "3337",
+		"bindHost": "::", "https": false, "updateProxyUrl": "",
+	}
+	cfg, err := Validate(base)
+	if err != nil {
+		t.Fatalf("Validate 失败: %v", err)
+	}
+	if !cfg.UpdateGitCode {
+		t.Fatal("缺省应保持 GitCode 源")
+	}
+	base["updateGitCode"] = false
+	cfg, err = Validate(base)
+	if err != nil {
+		t.Fatalf("Validate 失败: %v", err)
+	}
+	if cfg.UpdateGitCode {
+		t.Fatal("显式 false 应切回 GitHub")
 	}
 }

@@ -48,6 +48,11 @@ type Service struct {
 	Settings *store.Settings
 	// APIBase 默认 https://api.github.com。对拍时可指向本地假站。
 	APIBase string
+	// GitCodeAPIBase 默认 https://api.gitcode.com/api/v5，测试可覆盖。
+	GitCodeAPIBase string
+	// Source 显式指定更新源（gitcode / github）；空串时按「偏好文件 > 环境变量」
+	// 决议，见 source.go 的 updateSource。测试用它绕开真实网络。
+	Source string
 	// GOOS 默认 runtime.GOOS，测试可覆盖以覆盖两个产物名。
 	GOOS string
 
@@ -162,17 +167,17 @@ func (s *Service) GetUpdateInfo(ctx context.Context, includePrerelease bool) (*U
 	currentVersion := LocalVersion(s.Root)
 	assetName := PlatformAssetName(s.goos())
 
-	// 读一遍 settings：检查更新本身不用 CDN（理由见下），但 settings 读失败
-	// 时 Node 会整体失败——保留这个副作用，否则「设置表坏了」会被静默吞掉。
+	// 检查更新不走 CDN（理由见下），但 settings 读失败时 Node 会整体失败——
+	// 保留这个副作用，否则「设置表坏了」会被静默吞掉。
 	if _, err := s.cdn(ctx); err != nil {
 		return nil, err
 	}
 
-	// 检查更新直连 GitHub API：gh-proxy 这类代理转发 api.github.com 时用
+	// 更新源：默认 GitCode（大陆镜像），失败自动回退 GitHub。
+	// 检查更新直连官方 API：gh-proxy 这类代理转发 api.github.com 时用
 	// 代理方的 IP 出网，多用户共用极易触发 403 rate limit。CDN 只用于下载。
-	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=10", s.APIBase, repoOwner, repoName)
-	var releases []githubRelease
-	if err := s.httpGetJSON(ctx, apiURL, &releases); err != nil {
+	releases, source, err := s.fetchReleases(ctx, s.updateSource())
+	if err != nil {
 		return nil, err
 	}
 	if len(releases) == 0 {
@@ -196,6 +201,7 @@ func (s *Service) GetUpdateInfo(ctx context.Context, includePrerelease bool) (*U
 		IsPrerelease:   release.Prerelease,
 		AssetName:      asset.Name,
 		AssetSize:      asset.Size,
+		Source:         source,
 	}
 	if release.Body != nil {
 		info.ReleaseNotes = *release.Body

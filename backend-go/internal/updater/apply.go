@@ -27,6 +27,10 @@ func (s *Service) ApplyUpdate(
 	if err != nil {
 		return nil, err
 	}
+	// GitCode 的附件直连华为云对象存储，套 CDN 前缀既没用、失败文案还会误导用户。
+	if info.Source == SourceGitCode {
+		cdn = nil
+	}
 	downloadURL := info.DownloadURL
 	if cdn != nil && cdn.proxyURL != "" {
 		downloadURL = ApplyCDNToURL(downloadURL, cdn.proxyURL)

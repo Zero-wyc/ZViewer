@@ -30,11 +30,24 @@ const updateRepo = "Zero-wyc/ZViewer"
 // DefaultUpdateProxy 是默认的前缀式反代；GitHub 附件直连较慢时用它取同一份文件。
 const DefaultUpdateProxy = "https://gh-proxy.com"
 
+// 更新源标识：与网页端 updater.SourceGitHub / SourceGitCode 保持同名。
+const (
+	updateSourceGitHub  = "github"
+	updateSourceGitCode = "gitcode"
+)
+
+// gitCodeAPIBase 是 GitCode OpenAPI 基址；gitCodeSite 用来拼发布页地址
+// （GitCode 的 release 列表不带 html_url）。附件直链与官方镜像同源，无需反代。
+const (
+	gitCodeAPIBase = "https://api.gitcode.com/api/v5"
+	gitCodeSite    = "https://gitcode.com"
+)
+
 var (
 	errNoRelease = errors.New("没有可用的正式版本")
 	// 发布页里同时有命令行的 zviewer-windows-x64.zip，只认带 -GUI 后缀的运行包。
 	updateAssetExp = regexp.MustCompile(`(?i)^zviewer-windows-[^/]*-gui\.zip$`)
-	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com)$`)
+	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitcode\.com|raw\.gitcode\.com)$`)
 	updateTagExp   = regexp.MustCompile(`^v?\d+`)
 )
 
@@ -75,7 +88,10 @@ type UpdateReport struct {
 	AutoCheck bool   `json:"autoCheck"`
 	Proxy     bool   `json:"proxy"`
 	ProxyURL  string `json:"proxyUrl"`
-	Path      string `json:"-"`
+	// Source 是本次结果的实际来源：gitcode（默认，大陆镜像）或 github。
+	// GitCode 不可用时会自动回退 GitHub，界面据此显示从哪个站取的版本。
+	Source string `json:"source"`
+	Path   string `json:"-"`
 }
 
 type releaseAsset struct {
@@ -83,6 +99,8 @@ type releaseAsset struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
 	URL  string `json:"browser_download_url"`
+	// Type 是 GitCode 独有字段：attach（上传附件）/ source（源码包）。
+	Type string `json:"type"`
 }
 
 type releaseInfo struct {
@@ -92,6 +110,16 @@ type releaseInfo struct {
 	Prerelease bool           `json:"prerelease"`
 	Draft      bool           `json:"draft"`
 	Assets     []releaseAsset `json:"assets"`
+	// ReleaseStatus 是 GitCode 独有字段：pre / latest。
+	ReleaseStatus string `json:"release_status"`
+}
+
+// updateUseGitCode 读取更新源开关；未初始化配置时按默认（GitCode）处理。
+func (c *Controller) updateUseGitCode() bool {
+	if c.store == nil {
+		return true
+	}
+	return c.store.Value.UpdateGitCode
 }
 
 // autoCheckEnabled 读取自动检查开关；未初始化配置时按开启处理。
@@ -145,12 +173,12 @@ func (c *Controller) CheckUpdate(force bool) UpdateReport {
 	c.emit()
 
 	prefix := c.updateProxyPrefix()
-	info, err := fetchLatestRelease(c.version, prefix)
+	info, source, err := c.fetchRelease(prefix)
 	usedProxy := prefix
-	if err != nil && prefix != "" {
+	if err != nil && prefix != "" && source == updateSourceGitHub {
 		// 反代不可用时回退直连，避免一个失效的前缀把检查更新整体卡死。
 		usedProxy = ""
-		info, err = fetchLatestRelease(c.version, "")
+		info, err = fetchLatestReleaseFromGitHub(c.version, "")
 	}
 	c.updateMu.Lock()
 	c.updateBusy = false
@@ -161,12 +189,15 @@ func (c *Controller) CheckUpdate(force bool) UpdateReport {
 	case errors.Is(err, errNoRelease):
 		c.update.State, c.update.Available, c.update.Latest = "latest", false, ""
 		c.update.Error = ""
+		c.update.Source = source
 	case err != nil:
 		c.update.State, c.update.Available = "error", false
 		c.update.Error = err.Error()
 		c.update.Proxy, c.update.ProxyURL = false, ""
+		c.update.Source = ""
 	default:
-		c.update.Proxy, c.update.ProxyURL = usedProxy != "", usedProxy
+		c.update.Source = source
+		c.update.Proxy, c.update.ProxyURL = source == updateSourceGitHub && usedProxy != "", usedProxy
 		c.update.Latest = strings.TrimPrefix(strings.TrimSpace(info.Tag), "v")
 		c.update.PageURL = info.URL
 		c.update.Notes = strings.TrimSpace(info.Name)
@@ -184,7 +215,12 @@ func (c *Controller) CheckUpdate(force bool) UpdateReport {
 		c.update.State = "available"
 		c.update.Asset = asset.Name
 		c.update.Size = asset.Size
-		c.updateURL, c.updateFallbackURL = downloadCandidates(asset, usedProxy)
+		candidateProxy := usedProxy
+		if source != updateSourceGitHub {
+			// GitCode 直连对象存储，套反代前缀没有意义
+			candidateProxy = ""
+		}
+		c.updateURL, c.updateFallbackURL = downloadCandidates(asset, candidateProxy, source)
 		c.update.Progress = 0
 	}
 	report := c.update
@@ -350,9 +386,94 @@ func (c *Controller) packagePath(tag, asset string) string {
 	return filepath.Join(c.dir, "updates", tag, filepath.Base(name))
 }
 
-// fetchLatestRelease 取最新正式版；仓库只有预发布时会返回 errNoRelease。
+// fetchRelease 按设置取最新正式版：GitCode（默认）优先，失败自动回退 GitHub。
+//
+// 回退是刻意的：用户开着 GitCode 但镜像仓库还没跑 CI（没有 Release）时，
+// 不该直接报错——GitHub 上的同一份 Release 仍然可用。
+func (c *Controller) fetchRelease(prefix string) (releaseInfo, string, error) {
+	if c.updateUseGitCode() {
+		info, err := fetchLatestReleaseFromGitCode(c.version)
+		if err == nil {
+			return info, updateSourceGitCode, nil
+		}
+		if errors.Is(err, errNoRelease) {
+			c.Log("GitCode 源暂无正式版，回退 GitHub", "update", "INFO")
+		} else {
+			c.Log("GitCode 更新源不可用，回退 GitHub："+err.Error(), "update", "WARN")
+		}
+	}
+	info, err := fetchLatestReleaseFromGitHub(c.version, prefix)
+	return info, updateSourceGitHub, err
+}
+
+// fetchLatestReleaseFromGitCode 从 GitCode 镜像取最新正式版。
+//
+// GitCode 没有 GitHub 那种 /releases/latest（只有列表接口），所以取列表后
+// 自己挑第一条「非预发布且 tag 像版本号」的记录；源码包资产在 normalize 里剔掉。
+func fetchLatestReleaseFromGitCode(current string) (releaseInfo, error) {
+	client := &http.Client{Timeout: 15 * time.Second}
+	endpoint := gitCodeAPIBase + "/repos/" + updateRepo + "/releases?per_page=10"
+	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
+	if err != nil {
+		return releaseInfo{}, err
+	}
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", "ZViewerDesktop/"+current)
+	response, err := client.Do(request)
+	if err != nil {
+		return releaseInfo{}, errors.New("无法连接 GitCode：" + err.Error())
+	}
+	defer response.Body.Close()
+	if response.StatusCode == http.StatusNotFound {
+		return releaseInfo{}, errNoRelease
+	}
+	if response.StatusCode != http.StatusOK {
+		return releaseInfo{}, fmt.Errorf("GitCode 返回 %d", response.StatusCode)
+	}
+	var list []releaseInfo
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&list); err != nil {
+		return releaseInfo{}, errors.New("发布信息解析失败")
+	}
+	return pickGitCodeRelease(list)
+}
+
+// pickGitCodeRelease 从列表里挑最新正式版：跳过预发布与不像版本号的 tag。
+func pickGitCodeRelease(list []releaseInfo) (releaseInfo, error) {
+	for _, info := range list {
+		if info.Draft || info.Prerelease || strings.EqualFold(info.ReleaseStatus, "pre") {
+			continue
+		}
+		if !updateTagExp.MatchString(info.Tag) {
+			continue
+		}
+		return normalizeGitCodeRelease(info), nil
+	}
+	return releaseInfo{}, errNoRelease
+}
+
+// normalizeGitCodeRelease 补齐 GitCode 与 GitHub 的字段差异：
+// 没有 html_url 时按站内路由拼发布页地址；assets 里混着的源码包（type=source）剔掉。
+func normalizeGitCodeRelease(info releaseInfo) releaseInfo {
+	if info.URL == "" && info.Tag != "" {
+		info.URL = gitCodeSite + "/" + updateRepo + "/releases/tag/" + url.PathEscape(info.Tag)
+	}
+	if len(info.Assets) == 0 {
+		return info
+	}
+	assets := make([]releaseAsset, 0, len(info.Assets))
+	for _, asset := range info.Assets {
+		if asset.Type == "source" {
+			continue
+		}
+		assets = append(assets, asset)
+	}
+	info.Assets = assets
+	return info
+}
+
+// fetchLatestReleaseFromGitHub 取 GitHub 最新正式版；仓库只有预发布时会返回 errNoRelease。
 // prefix 非空时把请求经前缀反代转发，例如 https://gh-proxy.com/https://api.github.com/...。
-func fetchLatestRelease(current, prefix string) (releaseInfo, error) {
+func fetchLatestReleaseFromGitHub(current, prefix string) (releaseInfo, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	endpoint := proxyURL(prefix, "https://api.github.com/repos/"+updateRepo+"/releases/latest")
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
@@ -406,7 +527,11 @@ func assetDownloadURL(asset releaseAsset) string {
 // downloadCandidates 返回首选与回退地址。
 // 走反代时首选是 github.com 直链套前缀（反代只代理 github.com 一类地址），回退是 API 端点；
 // 不走反代时首选 API 端点，没有回退。
-func downloadCandidates(asset releaseAsset, prefix string) (string, string) {
+// GitCode 源的附件 id 是 GitCode 自己的编号，不能套 GitHub 的资产端点，只能直连。
+func downloadCandidates(asset releaseAsset, prefix, source string) (string, string) {
+	if source == updateSourceGitCode {
+		return asset.URL, ""
+	}
 	direct := assetDownloadURL(asset)
 	if prefix == "" {
 		return direct, ""

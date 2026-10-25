@@ -38,6 +38,9 @@ type UpdateInfo struct {
 	IsPrerelease   bool   `json:"isPrerelease"`
 	AssetName      string `json:"assetName"`
 	AssetSize      int64  `json:"assetSize"`
+	// Source 是本次结果的实际来源（gitcode / github）。GitCode 不可用时
+	// 会自动回退 GitHub，前端据此显示「来自哪个镜像」。
+	Source string `json:"source"`
 }
 
 // Result 是 apply / upload 的返回体（也是 SSE 里 done 事件的语义来源）。
@@ -87,19 +90,25 @@ type cdnConfig struct {
 // githubRelease / githubAsset 只声明用得到的字段。
 //
 // body / published_at 在 GitHub 上可能为 null，用指针接住，
-// 避免 null 让整个反序列化失败。
+// 避免 null 让整个反序列化失败。GitCode 的差异（无 html_url / published_at，
+// 改用 created_at + release_status）在 source.go 的 normalize 里补齐。
 type githubRelease struct {
-	TagName     string        `json:"tag_name"`
-	Name        *string       `json:"name"`
-	Body        *string       `json:"body"`
-	HTMLURL     string        `json:"html_url"`
-	PublishedAt *string       `json:"published_at"`
-	Prerelease  bool          `json:"prerelease"`
-	Assets      []githubAsset `json:"assets"`
+	TagName     string  `json:"tag_name"`
+	Name        *string `json:"name"`
+	Body        *string `json:"body"`
+	HTMLURL     string  `json:"html_url"`
+	PublishedAt *string `json:"published_at"`
+	CreatedAt   string  `json:"created_at"`
+	Prerelease  bool    `json:"prerelease"`
+	// ReleaseStatus 是 GitCode 独有字段：pre / latest。
+	ReleaseStatus string        `json:"release_status"`
+	Assets        []githubAsset `json:"assets"`
 }
 
 type githubAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Size               int64  `json:"size"`
+	// Type 是 GitCode 独有字段：attach（上传附件）/ source（源码包）。
+	Type string `json:"type"`
 }
