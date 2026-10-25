@@ -4,6 +4,7 @@ package controller
 // 保留原有状态机、错误文案与就绪判定顺序，前端 UI 无需改动即可对接。
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -87,24 +88,29 @@ type Controller struct {
 	cli   *CliProxy
 	mesh  *MeshManager
 
-	mu            sync.RWMutex
-	events        []Event
-	redactions    []string
-	backend       *Proc
-	frp           *Proc
-	livekit       *Proc
-	tunnel        *Proc
-	backendState  string
-	voiceState    string
-	frpState      string
-	tunnelState   string
-	tunnelURL     string
-	tunnelMessage string
-	tunnelExe     string
-	active        *Config
-	frpRegistered map[string]bool
-	voiceKey      string
-	voiceSecret   string
+	mu                 sync.RWMutex
+	events             []Event
+	redactions         []string
+	backend            *Proc
+	frp                *Proc
+	livekit            *Proc
+	tunnel             *Proc
+	backendState       string
+	voiceState         string
+	frpState           string
+	tunnelState        string
+	tunnelURL          string
+	tunnelMessage      string
+	tunnelExe          string
+	tunnelCandidateURL string
+	tunnelHealth       string
+	tunnelLatencyMs    int64
+	tunnelGeneration   uint64
+	tunnelProbeCancel  context.CancelFunc
+	active             *Config
+	frpRegistered      map[string]bool
+	voiceKey           string
+	voiceSecret        string
 
 	ipv6Mu sync.Mutex
 	ipv6   *IPv6Report

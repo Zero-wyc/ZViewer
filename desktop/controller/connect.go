@@ -37,6 +37,8 @@ type TunnelReport struct {
 	Available bool   `json:"available"`
 	State     string `json:"state"`
 	URL       string `json:"url"`
+	Health    string `json:"health"`
+	LatencyMs int64  `json:"latencyMs"`
 	Message   string `json:"message"`
 }
 
@@ -343,9 +345,9 @@ func (c *Controller) downloadCloudflared(downloadURL, expectedSHA256 string, rep
 
 func (c *Controller) tunnelReport() TunnelReport {
 	c.mu.RLock()
-	state, url, message := c.tunnelState, c.tunnelURL, c.tunnelMessage
+	state, url, health, latency, message := c.tunnelState, c.tunnelURL, c.tunnelHealth, c.tunnelLatencyMs, c.tunnelMessage
 	c.mu.RUnlock()
-	return TunnelReport{Available: c.cloudflared() != "", State: state, URL: url, Message: message}
+	return TunnelReport{Available: c.cloudflared() != "", State: state, URL: url, Health: health, LatencyMs: latency, Message: message}
 }
 
 func (c *Controller) setTunnelState(state, message string) {
@@ -354,20 +356,176 @@ func (c *Controller) setTunnelState(state, message string) {
 	c.mu.Unlock()
 }
 
-func (c *Controller) handleTunnelLine(line string) {
+func (c *Controller) handleTunnelLine(line string, generation uint64) {
 	if match := tunnelPattern.FindString(line); match != "" {
 		c.mu.Lock()
-		changed := c.tunnelURL != match
-		c.tunnelURL = match
+		if generation != c.tunnelGeneration {
+			c.mu.Unlock()
+			return
+		}
+		changed := c.tunnelCandidateURL != match
+		var previousCancel context.CancelFunc
+		if changed {
+			previousCancel = c.tunnelProbeCancel
+			c.tunnelProbeCancel = nil
+			c.tunnelCandidateURL = match
+			c.tunnelURL = ""
+			c.tunnelHealth = "checking"
+			c.tunnelLatencyMs = 0
+		}
 		if c.tunnelState != "stopping" {
-			c.tunnelState = "running"
+			c.tunnelState = "health-checking"
+			c.tunnelMessage = "已分配临时地址，正在检查本机源站与公网访问…"
 		}
 		c.mu.Unlock()
+		if previousCancel != nil {
+			previousCancel()
+		}
 		if changed {
-			c.log("Cloudflare Tunnel 已就绪："+match, "tunnel", "INFO")
-			c.emit()
+			c.log("Cloudflare 已分配临时隧道地址，开始健康检查", "tunnel", "INFO")
+		}
+		c.emit()
+		c.scheduleTunnelHealthCheck(generation)
+	}
+}
+
+func (c *Controller) scheduleTunnelHealthCheck(generation uint64) {
+	c.mu.Lock()
+	if generation != c.tunnelGeneration || c.tunnel == nil || c.tunnelCandidateURL == "" || c.tunnelProbeCancel != nil {
+		c.mu.Unlock()
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	c.tunnelProbeCancel = cancel
+	proc, candidate := c.tunnel, c.tunnelCandidateURL
+	c.mu.Unlock()
+	go c.checkTunnelHealth(ctx, cancel, proc, generation, candidate)
+}
+
+func probePublicTunnel(ctx context.Context, candidate string) (time.Duration, error) {
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(candidate, "/")+"/", nil)
+	if err != nil {
+		return 0, err
+	}
+	request.Header.Set("Cache-Control", "no-cache")
+	request.Header.Set("User-Agent", "ZViewerDesktop-TunnelHealth")
+	started := time.Now()
+	client := &http.Client{Timeout: 5 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer response.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 16<<10))
+	latency := time.Since(started)
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return latency, fmt.Errorf("公网地址返回 HTTP %d", response.StatusCode)
+	}
+	return latency, nil
+}
+
+func waitForTunnelOrigin(port int, secure bool, caPath string) bool {
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		if probeBackend(port, secure, caPath) {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return false
+		}
+		time.Sleep(400 * time.Millisecond)
+	}
+}
+
+func (c *Controller) checkTunnelHealth(ctx context.Context, cancel context.CancelFunc, proc *Proc, generation uint64, candidate string) {
+	defer func() {
+		cancel()
+		c.mu.Lock()
+		if generation == c.tunnelGeneration && c.tunnelCandidateURL == candidate {
+			c.tunnelProbeCancel = nil
+		}
+		c.mu.Unlock()
+	}()
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	successes := 0
+	latencyTotal := time.Duration(0)
+	lastError := "Cloudflare 临时地址尚未返回可用页面"
+	for {
+		c.mu.RLock()
+		current := generation == c.tunnelGeneration && c.tunnel == proc && c.tunnelCandidateURL == candidate && c.tunnelState == "health-checking"
+		c.mu.RUnlock()
+		if !current || ctx.Err() != nil {
+			if ctx.Err() != nil && current {
+				c.failTunnelHealth(proc, generation, lastError)
+			}
+			return
+		}
+		latency, err := probePublicTunnel(ctx, candidate)
+		if err == nil {
+			successes++
+			latencyTotal += latency
+			if successes >= 2 {
+				averageMs := latencyTotal.Milliseconds() / int64(successes)
+				c.mu.Lock()
+				if generation == c.tunnelGeneration && c.tunnel == proc && c.tunnelCandidateURL == candidate && c.tunnelState == "health-checking" {
+					c.tunnelURL = candidate
+					c.tunnelState = "running"
+					c.tunnelHealth = "healthy"
+					c.tunnelLatencyMs = averageMs
+					c.tunnelMessage = "启动健康检查通过；运行期间不会自动切换隧道地址。"
+					c.mu.Unlock()
+					c.log(fmt.Sprintf("Cloudflare Tunnel 健康检查通过：%s，连续 2 次访问成功，平均延迟 %d ms", candidate, averageMs), "tunnel", "INFO")
+					c.emit()
+					return
+				}
+				c.mu.Unlock()
+				return
+			}
+		} else {
+			successes = 0
+			latencyTotal = 0
+			lastError = err.Error()
+		}
+		select {
+		case <-ctx.Done():
+		case <-ticker.C:
 		}
 	}
+}
+
+func (c *Controller) failTunnelHealth(proc *Proc, generation uint64, reason string) {
+	c.mu.Lock()
+	if generation != c.tunnelGeneration || c.tunnel != proc {
+		c.mu.Unlock()
+		return
+	}
+	c.tunnelState = "stopping"
+	c.tunnelMessage = "健康检查未通过，正在停止不可用隧道…"
+	c.mu.Unlock()
+	c.emit()
+	stopErr := c.kill(proc, c.cloudflared())
+	c.mu.Lock()
+	if generation != c.tunnelGeneration {
+		c.mu.Unlock()
+		return
+	}
+	if c.tunnel == proc {
+		c.tunnel = nil
+	}
+	c.tunnelURL = ""
+	c.tunnelCandidateURL = ""
+	c.tunnelHealth = "unhealthy"
+	c.tunnelLatencyMs = 0
+	c.tunnelState = "error"
+	c.tunnelMessage = "隧道健康检查未通过（" + reason + "），已停止隧道；请检查本机服务或稍后重试。"
+	if stopErr != nil {
+		c.tunnelMessage += " 停止进程时发生错误：" + stopErr.Error()
+	}
+	message := c.tunnelMessage
+	c.mu.Unlock()
+	c.log(message, "tunnel", "ERROR")
+	c.emit()
 }
 
 // StartTunnel 用 cloudflared 的快速隧道把本机网页端口映射到临时地址。
@@ -397,6 +555,37 @@ func (c *Controller) startTunnel() (any, error) {
 	if proc != nil {
 		_ = c.stopTunnel()
 	}
+	config := c.store.Value
+	if active != nil {
+		config = *active
+	}
+	if config.Port <= 0 {
+		message := "请先在应用设置中确认网页端口"
+		c.setTunnelState("error", message)
+		c.emit()
+		return nil, errors.New(message)
+	}
+	c.mu.Lock()
+	c.tunnelURL = ""
+	c.tunnelHealth = "checking"
+	c.tunnelLatencyMs = 0
+	c.mu.Unlock()
+	c.setTunnelState("health-checking", "正在检查本机 ZViewer 服务的 /health 接口…")
+	c.emit()
+	probeCA := ""
+	if config.Https {
+		probeCA = c.certs.Paths().CA
+	}
+	if !waitForTunnelOrigin(config.Port, config.Https, probeCA) {
+		message := fmt.Sprintf("本机源站健康检查失败：%s://127.0.0.1:%d/health 无法正常响应，请先确认 ZViewer 主服务已启动且健康检查通过。", map[bool]string{true: "https", false: "http"}[config.Https], config.Port)
+		c.mu.Lock()
+		c.tunnelHealth, c.tunnelLatencyMs = "unhealthy", 0
+		c.mu.Unlock()
+		c.setTunnelState("error", message)
+		c.log(message, "tunnel", "ERROR")
+		c.emit()
+		return nil, errors.New(message)
+	}
 	exe := c.cloudflared()
 	if exe == "" {
 		c.setTunnelState("downloading", "正在从 Cloudflare 官方 GitHub 下载 cloudflared…")
@@ -413,6 +602,9 @@ func (c *Controller) startTunnel() (any, error) {
 		var err error
 		exe, err = c.downloadCloudflared(downloadURL, checksum, false)
 		if err != nil {
+			c.mu.Lock()
+			c.tunnelHealth = "unhealthy"
+			c.mu.Unlock()
 			c.setTunnelState("error", err.Error())
 			c.emit()
 			return nil, err
@@ -444,13 +636,6 @@ func (c *Controller) startTunnel() (any, error) {
 			}
 		}
 	}
-	config := c.store.Value
-	if active != nil {
-		config = *active
-	}
-	if config.Port <= 0 {
-		return nil, errors.New("请先在应用设置中确认网页端口")
-	}
 	scheme := "http"
 	if config.Https {
 		scheme = "https"
@@ -459,60 +644,99 @@ func (c *Controller) startTunnel() (any, error) {
 	if config.Https {
 		args = append(args, "--no-tls-verify")
 	}
-	c.setTunnelState("connecting", "")
 	c.mu.Lock()
+	c.tunnelGeneration++
+	generation := c.tunnelGeneration
+	c.tunnelCandidateURL = ""
 	c.tunnelURL = ""
+	c.tunnelHealth = "checking"
+	c.tunnelLatencyMs = 0
 	c.mu.Unlock()
+	c.setTunnelState("connecting", "正在建立隧道并等待公网健康检查…")
+	c.emit()
 	started, err := startProcess("", exe, args, nil, filepath.Dir(exe), func(line string) {
-		c.log(line, "tunnel", classifyLevel(line))
-		c.handleTunnelLine(line)
+		c.log(tunnelPattern.ReplaceAllString(line, "[等待健康检查]"), "tunnel", classifyLevel(line))
+		c.handleTunnelLine(line, generation)
 	})
 	if err != nil {
-		c.setTunnelState("error", "无法启动 cloudflared："+err.Error())
+		message := "无法启动 cloudflared：" + err.Error()
+		c.mu.Lock()
+		c.tunnelHealth = "unhealthy"
+		c.mu.Unlock()
+		c.setTunnelState("error", message)
+		c.emit()
 		return nil, err
 	}
 	c.mu.Lock()
+	if c.tunnelGeneration != generation {
+		c.mu.Unlock()
+		_ = c.kill(started, exe)
+		return nil, errors.New("Tunnel 启动已被取消")
+	}
 	c.tunnel = started
 	c.mu.Unlock()
+	c.scheduleTunnelHealthCheck(generation)
 	go func() {
 		code := started.Wait()
 		c.mu.Lock()
-		if c.tunnel != started {
+		if c.tunnel != started || c.tunnelGeneration != generation {
 			c.mu.Unlock()
 			return
 		}
 		c.tunnel = nil
 		c.tunnelURL = ""
+		c.tunnelCandidateURL = ""
+		cancel := c.tunnelProbeCancel
+		c.tunnelProbeCancel = nil
 		if c.tunnelState == "stopping" {
 			c.tunnelState = "stopped"
 		} else {
 			c.tunnelState = "error"
+			c.tunnelHealth = "unhealthy"
+			c.tunnelMessage = fmt.Sprintf("cloudflared 进程已退出（%d），隧道不可用。", code)
 		}
 		failed := c.tunnelState == "error"
+		message := c.tunnelMessage
 		c.mu.Unlock()
+		if cancel != nil {
+			cancel()
+		}
 		level := "INFO"
 		if failed {
 			level = "ERROR"
 		}
-		c.log(fmt.Sprintf("Cloudflare Tunnel 已退出（%d）", code), "tunnel", level)
+		c.log(message, "tunnel", level)
 		c.emit()
 	}()
-	c.log("正在建立 Cloudflare 快速隧道，地址稍后显示", "tunnel", "INFO")
+	c.log("正在建立 Cloudflare 快速隧道，地址通过健康检查后才会显示", "tunnel", "INFO")
 	return c.Snapshot(), nil
 }
 
 func (c *Controller) stopTunnel() error {
-	c.mu.RLock()
+	c.mu.Lock()
 	proc := c.tunnel
-	c.mu.RUnlock()
+	c.tunnelGeneration++
+	c.tunnelCandidateURL = ""
+	c.tunnelURL = ""
+	c.tunnelHealth = "stopped"
+	c.tunnelLatencyMs = 0
+	cancel := c.tunnelProbeCancel
+	c.tunnelProbeCancel = nil
 	if proc == nil {
-		c.mu.Lock()
-		c.tunnelURL = ""
+		c.tunnelState = "stopped"
+		c.tunnelMessage = ""
 		c.mu.Unlock()
-		c.setTunnelState("stopped", "")
+		if cancel != nil {
+			cancel()
+		}
 		return nil
 	}
-	c.setTunnelState("stopping", "")
+	c.tunnelState = "stopping"
+	c.tunnelMessage = "正在停止隧道…"
+	c.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 	if err := c.kill(proc, c.cloudflared()); err != nil {
 		c.setTunnelState("error", "停止 cloudflared 失败")
 		return err
@@ -521,9 +745,13 @@ func (c *Controller) stopTunnel() error {
 	if c.tunnel == proc {
 		c.tunnel = nil
 	}
+	c.tunnelCandidateURL = ""
 	c.tunnelURL = ""
+	c.tunnelHealth = "stopped"
+	c.tunnelLatencyMs = 0
+	c.tunnelMessage = ""
+	c.tunnelState = "stopped"
 	c.mu.Unlock()
-	c.setTunnelState("stopped", "")
 	return nil
 }
 
