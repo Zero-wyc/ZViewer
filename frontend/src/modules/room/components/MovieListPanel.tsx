@@ -1015,7 +1015,7 @@ function BilibiliQualitySelect({
       />
       {effectivePreferMp4 && (
         <Paragraph className="m-0 mt-1 text-[10px] leading-tight opacity-60">
-          MP4 模式最高 720P，切换 DASH 模式可选 4K / HDR
+          MP4 最高 720P，DASH 与 CLI 模式才能获取高画质
         </Paragraph>
       )}
     </>
