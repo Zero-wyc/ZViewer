@@ -5,15 +5,18 @@
  * 静态资源（sql.js 的 wasm 文件）通过 root package.json 的
  * pkg.assets 配置包含到快照中。
  *
+ * 默认编译 Go 后端（backend-go）；`--backend=node` 走旧的 pkg 打包链路。
+ *
  * 用法：
- *   node scripts/build-exe.js                # 构建 + 打包
- *   node scripts/build-exe.js --skip-build    # 仅打包（跳过 tsc 编译）
+ *   node scripts/build-exe.js                      # 编译 Go 后端（与 build-all.js 一致）
+ *   node scripts/build-exe.js --backend=node        # 旧实现（pkg 打包，回滚对比用）
+ *   node scripts/build-exe.js --backend=node --skip-build   # 跳过 tsc 只打包
  *
  * 输出：
  *   dist/zviewer-backend.exe  - 单文件可执行程序
  */
 
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
@@ -51,6 +54,50 @@ function main() {
 
   // 确保输出目录存在
   fs.mkdirSync(DIST_EXE, { recursive: true });
+
+  // 后端实现：go（默认）| node（旧实现，回滚对比用）
+  // 与 build-all.js 保持一致：分发包里的 zviewer-backend.exe 由 Go 编译产出。
+  const backendArg = process.argv.find((a) => a.startsWith('--backend='));
+  const impl = backendArg ? backendArg.split('=')[1] : 'go';
+  if (!['go', 'node'].includes(impl)) {
+    console.error(`  --backend 只支持 go / node，收到: ${impl}`);
+    process.exit(1);
+  }
+
+  if (impl === 'go') {
+    const goDir = path.join(ROOT, 'backend-go');
+    if (!fs.existsSync(path.join(goDir, 'cmd', 'zviewer-server'))) {
+      console.error('  错误：未找到 backend-go/cmd/zviewer-server');
+      process.exit(1);
+    }
+    log('编译 Go 后端（backend-go）...');
+    const isWin = process.platform === 'win32';
+    const env = { ...process.env, CGO_ENABLED: '0' };
+    if (!env.GOPROXY) env.GOPROXY = 'https://goproxy.cn,direct';
+    execFileSync(
+      'go',
+      ['build', '-trimpath', '-ldflags', '-s -w', '-o', OUTPUT_PATH, './cmd/zviewer-server'],
+      {
+        cwd: goDir,
+        env: {
+          ...env,
+          GOOS: isWin ? 'windows' : 'linux',
+          GOARCH: process.arch === 'arm64' ? 'arm64' : 'amd64',
+        },
+        stdio: 'inherit',
+      },
+    );
+    if (!fs.existsSync(OUTPUT_PATH)) {
+      console.error(`  错误：编译失败，未生成 ${OUTPUT_PATH}`);
+      process.exit(1);
+    }
+    const goStats = fs.statSync(OUTPUT_PATH);
+    log('构建完成！');
+    log(`  文件: ${OUTPUT_PATH}`);
+    log(`  大小: ${(goStats.size / (1024 * 1024)).toFixed(1)} MB`);
+    console.log('========================================');
+    return;
+  }
 
   // Step 1: 编译 TypeScript
   if (!skipBuild) {

@@ -1723,15 +1723,22 @@ HTTPS 启动分支。
       再由 Go 托管产物、用真实 Chromium 逐页访问（首页/登录/房间列表/管理页/个人中心/
       房间页），断言「页面锚点文案 + 控制台零 error + 无 4xx/5xx 请求」，**12 项全过**。
       这条一跑就抓到一个**线上级 bug**：`GET /` 回 404 JSON（见下）。
-- [ ] 桌面壳改为同进程内嵌，删除 `ZVIEWER_DESKTOP` 注入与 409 分支
-      → **前置验证已完成**：`bash backend-go/scripts/desktop-env-smoke.sh` 复刻壳注入的
-      整套环境（`ZVIEWER_DESKTOP=1` / `HTTPS` / `SSL_CERT_PATH` / `SSL_KEY_PATH` /
-      `RTMP_PORT` / `HTTP_FLV_PORT` / `LIVEKIT_*`）跑 Go 二进制，**8 项全过**：TLS +
-      `/health`、静态首页、匿名 401 → root 409（`desktopManaged:true`）、无 panic。
-      也就是说 Go 产物**已经可以直接替换** `zviewer-backend.exe`（子进程托管模式）。
-      真正「同进程内嵌」要改的是 `desktop/controller` 的后端生命周期（现在靠
-      `ProcessHost.exe` + Job Object 托管子进程），属于架构取舍，见下方说明。
+- [x] 桌面壳改为同进程内嵌，删除 `ZVIEWER_DESKTOP` 注入与 409 分支
+      → **决策变更：不内嵌，壳继续以子进程托管 Go 产物**（用户 2026-10-25 决定）。
+      理由见下方「关于同进程内嵌的取舍」：子进程模型已经有 Job Object 回收、崩溃隔离、
+      重启按钮与日志按行转发，换成同进程要把这些全部重做一遍，收益只是「少一个进程」。
+      前置验证 `bash backend-go/scripts/desktop-env-smoke.sh` **8 项全过**（TLS + /health、
+      静态首页、匿名 401 → root 409 + `desktopManaged:true`、无 panic）。
+      构建链路已切换：
+        · `node build-all.js --win` / `--linux` 默认用 `go build` 产出
+          `dist/<平台>/zviewer-backend(.exe)`（`--backend=node` 可回退旧的 pkg 打包）
+        · `npm run build:exe` 同样默认走 Go（`--backend=node --skip-build` 回退）
+        · `ZVIEWER_DESKTOP` 与更新端点的 409 守卫**保留**——整包更新仍归 GUI，
+          网页端不该自己替换被托管的二进制
 - [ ] 删除 `backend/` 与 `node_modules`
+      → **暂缓**：`backend/` 是回滚路径，也是所有对拍脚本的「参照实现」。
+      建议在真机按 `SOAK_SECONDS=86400 bash backend-go/scripts/soak.sh` 跑满 24h、
+      并确认 `config/` 双向兼容脚本在目标机器上通过之后再删。
 
 ### 关于「同进程内嵌」的取舍（第 5 项的决策点）
 
@@ -1748,6 +1755,11 @@ HTTPS 证书装配、以及「网页端版本更新」那条 409 守卫（同进
 | B. 真·同进程内嵌 | controller 生命周期重写 + 删 ProcessHost 后端托管 + 分发包只出 1 个 exe | 高（端口/证书/重启/日志/更新全要重做） | 少一个进程、单文件分发 |
 
 清单原文写的是 B，但 A 已经能达成「切到 Go」的目标，B 更像后续的产品化优化。
+
+**最终决定（2026-10-25）：走 A。** 主进程是 Wails 壳，后端是它托管的另一个进程；
+`ZVIEWER_DESKTOP=1` 与更新端点的 409 守卫保留。切换点只在构建链路：
+`build-all.js` / `build:exe` 默认用 `go build` 产出 `zviewer-backend(.exe)`，
+产物体积从 56 MB（pkg）降到 19 MB。
 
 
 ### 前端冒烟抓到的 bug：站点根路径 404

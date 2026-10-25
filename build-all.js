@@ -19,7 +19,7 @@
  *   node build-all.js --skip-build   # 跳过 tsc/vite 编译
  */
 
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const readline = require('readline');
@@ -70,6 +70,18 @@ const PLATFORM_PRESETS = [
 ]
 
 const SKIP_BUILD = process.argv.includes('--skip-build');
+
+// 后端实现：go（默认，Go 重写版）| node（旧实现，保留用于回滚对比）
+//
+// 切换后分发包里的 `zviewer-backend.exe` 由 `backend-go` 编译产出，
+// 桌面壳仍按**子进程**托管它（ZViewer.ProcessHost.exe + Job Object），
+// 环境变量契约不变 —— 由 backend-go/scripts/desktop-env-smoke.sh 守着。
+const backendArg = process.argv.find((a) => a.startsWith('--backend='));
+const BACKEND_IMPL = backendArg ? backendArg.split('=')[1] : 'go';
+if (!['go', 'node'].includes(BACKEND_IMPL)) {
+  console.error(`--backend 只支持 go / node，收到: ${BACKEND_IMPL}`);
+  process.exit(1);
+}
 
 // 命令行快捷方式
 const CLI_SHORTCUTS = {
@@ -277,6 +289,11 @@ function buildFrontend() {
 
 function buildBackend() {
   console.log('');
+  if (BACKEND_IMPL === 'go') {
+    console.log('>>> 后端实现: Go（backend-go），跳过 TypeScript 编译');
+    // Go 侧不依赖 backend/dist；入口检查交给 packageBackend 里的 go build
+    return null;
+  }
   console.log('>>> 编译后端 TypeScript...');
   const backendDist = path.join(BACKEND, 'dist', 'index.js');
   if (!SKIP_BUILD) {
@@ -298,12 +315,35 @@ function buildBackend() {
   return backendDist;
 }
 
+// 交叉编译 Go 后端到指定产物。
+//
+// CGO_ENABLED=0 是硬要求：SQLite 驱动用纯 Go 的 modernc.org/sqlite，
+// 开了 cgo 就没法在 Windows 宿主上直接产出 linux 二进制。
+function buildGoBackend(target, outputPath) {
+  const isWin = target.includes('win');
+  const isArm = target.includes('arm64');
+  const env = {
+    ...process.env,
+    GOOS: isWin ? 'windows' : 'linux',
+    GOARCH: isArm ? 'arm64' : 'amd64',
+    CGO_ENABLED: '0',
+  };
+  // GOPROXY 走国内镜像：proxy.golang.org 在本机不通（见 NOTES-GO）
+  if (!env.GOPROXY) env.GOPROXY = 'https://goproxy.cn,direct';
+
+  execFileSync(
+    'go',
+    ['build', '-trimpath', '-ldflags', '-s -w', '-o', outputPath, './cmd/zviewer-server'],
+    { cwd: path.join(ROOT, 'backend-go'), env, stdio: 'inherit' },
+  );
+}
+
 function packageBackend(targetPlatforms, frontendDist) {
   console.log('');
-  console.log('>>> 打包后端 exe...');
+  console.log(`>>> 打包后端 (${BACKEND_IMPL === 'go' ? 'go build' : 'pkg'})...`);
 
   const entry = path.join(BACKEND, 'dist', 'index.js');
-  if (!fs.existsSync(entry)) {
+  if (BACKEND_IMPL === 'node' && !fs.existsSync(entry)) {
     error(`后端入口不存在: ${entry}`);
     process.exit(1);
   }
@@ -322,22 +362,31 @@ function packageBackend(targetPlatforms, frontendDist) {
 
       log(`打包后端 → ${target} (${platform.label})...`);
 
-      const cmd = [
-        'npx', 'pkg',
-        JSON.stringify(entry),
-        '--targets', target,
-        '--output', JSON.stringify(outputPath),
-        // 禁用 v8 bytecode cache：保证 cross-compile 的产物在目标平台可运行
-        '--public',
-        '--public-packages', '"*"',
-        '-c', JSON.stringify(PKG_CONFIG),
-      ].join(' ');
+      if (BACKEND_IMPL === 'go') {
+        try {
+          buildGoBackend(target, outputPath);
+        } catch (e) {
+          error(`Go 后端编译失败 (${target}): ${e.message}`);
+          process.exit(1);
+        }
+      } else {
+        const cmd = [
+          'npx', 'pkg',
+          JSON.stringify(entry),
+          '--targets', target,
+          '--output', JSON.stringify(outputPath),
+          // 禁用 v8 bytecode cache：保证 cross-compile 的产物在目标平台可运行
+          '--public',
+          '--public-packages', '"*"',
+          '-c', JSON.stringify(PKG_CONFIG),
+        ].join(' ');
 
-      try {
-        execSync(cmd, { cwd: ROOT, stdio: 'inherit' });
-      } catch (e) {
-        warn(`后端打包失败 (${target}): ${e.message}`);
-        continue;
+        try {
+          execSync(cmd, { cwd: ROOT, stdio: 'inherit' });
+        } catch (e) {
+          warn(`后端打包失败 (${target}): ${e.message}`);
+          continue;
+        }
       }
 
       if (!fs.existsSync(outputPath)) {
