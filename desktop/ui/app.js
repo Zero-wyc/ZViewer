@@ -29,7 +29,7 @@
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
     download: '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
-    refresh: '<path d="M20 7v5h-5M4 17v-5h5m-5-1a8 8 0 0 1 14-6l2 3M4 16l2 3a8 8 0 0 0 14-6"/>',
+    refresh: '<path fill="currentColor" stroke="none" d="M3.1 10.75A9 9 0 0 1 18.9 6.2l1.9-1.9v6.45h-6.45l2.7-2.7A6.5 6.5 0 0 0 5.62 10.75Z"/><path fill="currentColor" stroke="none" transform="rotate(180 12 12)" d="M3.1 10.75A9 9 0 0 1 18.9 6.2l1.9-1.9v6.45h-6.45l2.7-2.7A6.5 6.5 0 0 0 5.62 10.75Z"/>',
     pause: '<path d="M8 4v16M16 4v16"/>',
     folder: '<path d="M3 6h7l2 3h9v12H3Zm0 0V3h7l2 3h9v3"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>'
