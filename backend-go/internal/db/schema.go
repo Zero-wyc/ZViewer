@@ -63,8 +63,8 @@ func VerifySchema(conn *sql.DB) error {
 	if len(missing) > 0 {
 		sort.Strings(missing)
 		return fmt.Errorf(
-			"数据库结构与 Node 版不一致，缺少 %d 张表: %s\n"+
-				"请先用 Node 版后端启动一次以完成建表，或检查 DATABASE_URL 是否指向了正确的库",
+			"数据库结构不完整，缺少 %d 张表: %s\n"+
+				"空库请执行一次 `zviewer-server --init-db`；已有数据请检查 DATABASE_URL 是否指向了正确的库",
 			len(missing), strings.Join(missing, ", "),
 		)
 	}

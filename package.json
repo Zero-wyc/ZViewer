@@ -11,6 +11,8 @@
     "dev:backend": "node scripts/dev-backend.js",
     "dev:backend:once": "node scripts/dev-backend.js --no-watch",
     "dev:frontend": "npm run dev -w frontend",
+    "db:init": "cd backend-go && go run ./cmd/zviewer-server --init-db",
+    "db:backup": "cd backend-go && go run ./cmd/zviewer-server --backup-db",
     "build": "npm run build:backend && npm run build:frontend",
     "build:frontend": "npm run build -w frontend",
     "build:backend": "node scripts/build-backend.js",

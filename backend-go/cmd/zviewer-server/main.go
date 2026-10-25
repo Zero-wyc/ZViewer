@@ -75,6 +75,50 @@ func main() {
 		log.Fatalf("[config] %v", err)
 	}
 
+	// `--init-db` 是唯一的建表入口，只用于空库（新机器 / 新克隆仓库）。
+	// 必须走 OpenForInit：此时库里还没有表，Open 的结构校验会直接失败。
+	if args := os.Args[1:]; hasFlag(args, "--init-db") {
+		initConn, err := db.OpenForInit(cfg.DatabasePath, cfg.SQLiteWAL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		defer initConn.Close()
+
+		ctx := context.Background()
+		if err := db.InitSchema(ctx, initConn); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		if err := db.EnsureIndexes(ctx, initConn); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		adminUser, _ := flagValue(args, "--admin-user")
+		password, created, err := db.SeedAdmin(ctx, initConn, adminUser)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		// 建完再自检一遍：确保 schema.sql 与 VerifySchema 的口径没有分叉。
+		if err := db.VerifySchema(initConn); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] 建表后自检失败: %v\n", err)
+			os.Exit(1)
+		}
+
+		fmt.Printf("  [完成] 数据库已初始化: %s\n", cfg.DatabasePath)
+		fmt.Printf("         表 %d 张，日志模式 %s\n", len(db.RequiredTables), journalLabel(cfg.SQLiteWAL))
+		if created {
+			name, _ := flagValue(args, "--admin-user")
+			if name == "" {
+				name = "root"
+			}
+			fmt.Printf("\n  初始管理员: %s / %s\n", name, password)
+			fmt.Println("  密码只显示这一次，请立刻登录并在「个人设置」里修改。")
+		}
+		return
+	}
+
 	conn, err := db.Open(cfg.DatabasePath, cfg.SQLiteWAL)
 	if err != nil {
 		log.Fatalf("[db] %v", err)
