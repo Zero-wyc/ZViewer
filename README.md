@@ -151,13 +151,18 @@ npm start               # 启动
 
 ```bash
 npm run dev             # 同时起后端与前端
-npm run dev:backend     # 只起 Go 后端（go run）
+npm run dev:backend     # 只起 Go 后端（改 .go 保存即重启）
 npm run dev:frontend    # 只起前端
 
 npm run lint:go         # gofmt + go vet
 npm run test:go         # go test ./...
 npm run test:regression # 全部 Node↔Go 对拍与冒烟（33 个脚本，约 8 分钟）
 ```
+
+后端热重载由 `scripts/dev-backend.js` 提供（不需要装 air 之类的外部工具）：
+监听 `backend-go/**/*.{go,mod,sum}`，先编译到临时产物、**成功之后才换进程**，
+所以改到一半带着语法错误保存时旧进程仍在服务，修好保存即自动恢复。
+不想要热重载时用 `npm run dev:backend:once`。
 
 或使用脚本完成依赖安装、构建与启动：
 

@@ -155,13 +155,19 @@ Development mode (Go backend + Vite HMR; the dev server proxies `/api` to port 3
 
 ```bash
 npm run dev             # Backend and frontend together
-npm run dev:backend     # Go backend only (go run)
+npm run dev:backend     # Go backend only (restarts when a .go file is saved)
 npm run dev:frontend    # Frontend only
 
 npm run lint:go         # gofmt + go vet
 npm run test:go         # go test ./...
 npm run test:regression # All Node↔Go parity + smoke scripts (33 scripts, ~8 min)
 ```
+
+Backend hot reload is provided by `scripts/dev-backend.js` (no `air` or other external tool
+needed): it watches `backend-go/**/*.{go,mod,sum}`, compiles to a temporary binary and only
+then swaps the process — so saving a half-written file with a syntax error keeps the old
+process serving, and fixing it restores the new build automatically. Use
+`npm run dev:backend:once` to disable the watcher.
 
 Or use the script that handles dependency installation, build and startup:
 

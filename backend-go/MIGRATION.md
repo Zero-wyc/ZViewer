@@ -1443,6 +1443,59 @@ HTTPS 启动分支。
 > 任何 `Start-Process` 都会抛「已添加项」。这是**执行环境**的问题，真实用户从
 > `start-prod.bat`（cmd 启动）不会有；启动分支本身只改了 `-FilePath` / `-WorkingDirectory`。
 
+### 3.25 开发热重载（阶段 31）
+
+Node 后端原来靠 `ts-node-dev` 改完即重启；迁到 Go 后 `go run` 没有这层，改一行要
+手动 Ctrl+C 重跑。这里补上，实现是 `scripts/dev-backend.js`（约 240 行，只用 Node
+内置模块）。
+
+**为什么自己写而不是装 `air`**：`air` 要做 `go install`（走代理 + 本机编译一遍），
+而它干的活就是「监听 → build → 换进程」。仓库开发链已经全在 Node 上，自己写一份
+零安装、`npm run dev` 直接可用，也不用给贡献者多写一条环境准备说明。
+
+**为什么编译到临时文件而不是继续 `go run`**：
+
+1. `go run` 会 fork 出真正的服务进程，父进程被 kill 时子进程可能残留在端口上
+   （Windows 上表现为「端口占用、新版本起不来」）。自己 `go build` 再 spawn，
+   pid 就是我们启动的那个，能确定地杀掉。
+2. `go run` 的产物在 `go-build` 缓存里、名字不可控，没法清理，也没法判断
+   「现在跑的是不是最新一次编译」。
+
+**与 `air` 一致的语义（都是刻意的）**：
+
+- **先编译、成功才换进程**。改到一半带语法错误保存，旧进程继续对外服务，
+  终端里打出 `internal\api\xxx.go:3:14: syntax error: ...`；修好保存即自动恢复。
+  `go run` 式的「先杀再编译」会让服务在每次半成品保存时都断一截。
+- **编译中又有保存** → 记一个 pending，本次编译结束后再跑一轮（不会并发编译，
+  也不会丢掉最后一次改动）。
+- **debounce 250ms**：编辑器保存常常一次抛多个事件（写入、属性、改名），
+  不攒一下会连编译两三次。
+
+**几个实现细节**：
+
+- 监听 `backend-go/**/*.{go,mod,sum}`，`fs.watch(recursive)`；排除 `testdata` /
+  `scripts` / `tmp` / `node_modules` / `dist` / `.git`（改测试数据不该重启）。
+- 临时产物写 `<tmp>/zviewer-dev-backend/zviewer-server-<序号>.exe`：每次新文件名，
+  避开 Windows 上「旧进程还占着同名 exe、链接失败」；启动新进程后删掉除当前之外的旧文件。
+- 子进程 cwd 是仓库根（与 `start-prod` 一致），所以 `findProjectRootUpward` 的
+  探测结果与生产完全一样。
+- Windows 没有 SIGINT 给别的进程，换进程用 TerminateProcess；Go 版每个事务都直接
+  落盘（没有内存库快照），强杀不丢数据。`Ctrl+C` / `npm run dev` 的 `--kill-others`
+  会带上整棵树，子进程不会残留（脚本里也注册了 `exit` 兜底）。
+- `npm run dev:backend:once`（`--no-watch`）保留「只编译运行一次」的语义，给
+  CI / 临时排查用。
+
+**验证（都是实跑，临时库 + 34941 端口）**：
+
+| 场景 | 结果 |
+|---|---|
+| 首次启动 | 编译 1.4s，`已启动（PID …）`，`/health` 200 |
+| 新增一个 `.go` 文件 | 触发重启，旧 PID 消失、新 PID 起在 1.8s |
+| 改成语法错误 | `syntax error` + `编译失败：保留当前正在运行的进程`；`/health` 仍 200、`startedAt` 未变 |
+| 修好保存 | 自动重启；编译期间又删掉文件 → 打 `排队中的改动` 后再重启一次 |
+| 临时目录 | 只剩当前 `zviewer-server-N.exe`，旧产物已清 |
+| `--no-watch` | 只启动一次、不打印监听行、`/health` 200 |
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
