@@ -7,17 +7,19 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~64,000（含测试 16,900） | 42,653 | 100%+ |
-| HTTP 端点 | 169 | ~170 | ~99% |
-
-> **端点总数口径修正**：早期写的「~300」是粗估（把 emby/jellyfin 双前缀、同一路径的
-> 多方法与注释一并计入）。按「`router.get/post/put/delete` 注册行」重新点过：
-> Node 侧 **173 条**（含 1 条 `/health` 与少量注释误计），Go 侧 **166 处注册 /
-> 178 条运行时规则**（emby/jellyfin 双前缀由一次注册展开）。模块级已全覆盖，
-> 剩余差异只可能是「同一处理器合并了路径参数写法」，交给阶段 5 的
-> 「`/api/*` 无 404 兜底命中」实测兜底。
+| 代码行 | ~66,300（含测试 17,800） | 42,653 | 100%+ |
+| HTTP 端点 | 182 | 182（Node 运行时实测 189 条 `/api` 路由全命中） | 100% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备；bilibili_credential / ncm_credential 已可读写） | 16 | 100% |
+
+> **端点总数的口径**（两次修正后的最终版）：早期写的「~300」是粗估（把 emby/jellyfin
+> 双前缀、同一路径的多方法、注释里的示例串都算进去了）。现在不再用静态计数当结论，
+> 而是 `scripts/route-parity.sh`：把 Node 的 Express 路由表**运行时**导出来（189 条
+> `/api`），逐条打到 Go 上，看是否落到 `/api/` 的 404 兜底。结果 **189/189 全命中、
+> 0 次 panic**。Go 侧源码里是 179 处 `HandleFunc` 注册（emby/jellyfin 与四源代理
+> 由循环展开成更多运行时规则）。同一个脚本的静态模式（按 `DYNAMIC_PREFIXES` 展开
+> 变量前缀）也已经是零缺口：Node 189 条对应 Go 188 条——差的 1 条是 Node 显式
+> 声明的 `HEAD /api/server-files/proxy`，Go 的 `GET` 注册天然接受 HEAD。
 
 ## 二、阶段 0：基座（已完成）
 
@@ -1325,11 +1327,59 @@ HTTPS 启动分支。
 - ACME 真连 CA 无法自动化（需要公网域名 + 80 端口），这条由上面的假 CA 覆盖；
   真机验证方式是 `--gen-cert <域名> --staging`。
 
+### 3.22 OpenList 挂载与解析（阶段 28，13 端点）
+
+这一节是**阶段 5 检查单逼出来的**：之前台账把「挂载源（openlist/webdav/ftp/emby）」
+记成已完成，实际只迁了 `GET /api/openlist/stream` 一条。`scripts/route-parity.sh`
+（Node 路由表运行时导出 → 逐条打 Go）一跑就红了 13 条：
+
+| 缺口 | 端点 |
+|---|---|
+| OpenList 挂载管理 | `GET/POST /api/openlist/mounts`、`POST /mounts/test`、`PUT/DELETE /mounts/{id}`、`GET /mounts/{id}/browse` |
+| OpenList 文件解析 | `GET /api/openlist/resolve`、`/direct-url`、`/me`、`/proxy`、`/search` |
+| stream 媒体代理 | `GET /api/stream/proxy`（带鉴权）、`GET /api/stream/proxy-image`（免鉴权） |
+
+`routes/openlist.ts`（789 行）→ `internal/api/openlist_mounts.go`（约 600 行）+
+`internal/openlist` 扩到约 780 行（新增分页列举、搜索、me、连通性测试）。
+
+#### 与 WebDAV 那套只有三处不同
+
+1. **地址要补 `/dav`**：`NormalizeServerURL` 会补 scheme、补 `/dav`。用户填
+   `192.168.1.5:5244`，挂载表里存 `http://192.168.1.5:5244/dav`，两边不一致就永远
+   匹配不上（表象是「影片有密码却提示未授权」）。
+2. **密码要哈希后落库**：`sha256(明文 + "-https://github.com/alist-org/alist")`，
+   与 AList 官方前端一致。落库形态同时决定登录走 `/api/auth/login` 还是
+   `/api/auth/login/hash`（靠「64 位 hex」判断）。
+   **测试连接也必须用哈希后的密码**，否则会出现「测试通过、保存后失败」。
+3. **流代理透传的是 `fs/get` 的带签名 `raw_url`**，不是 WebDAV 的字节流。
+
+#### 三个容易漏的行为
+
+- **`/direct-url` 对内网地址硬拒**（`INTERNAL_NETWORK_FORBIDDEN`）：即使挂载记录里
+  `directLink=true` 也要再拦一次——旧数据可能带着过期的直链设置，而浏览器根本连不到
+  `192.168.x.x`，给了直链只会让播放器停在「加载中」。
+- **`/me` 与 `/search` 的 NOT_FOUND 不映射成 404**（Node 传 `notFound:false`）：
+  「没搜到」不是资源不存在，回 404 会被前端当成路由错误。`/mounts/{id}/browse`
+  相反，`NOT_FOUND → 404`。
+- **签名直链过期自愈**：上游对 `raw_url` 回 401/403/410 时立刻失效 raw_url 缓存，
+  下一次 Range 请求重新 `fs/get`。为此给 `proxy.HTTPOptions` 加了
+  `OnUpstreamStatus` 回调——不然 5 分钟 TTL 窗口内所有分片都会拿着死 URL 反复 403。
+
+#### 验证
+
+- `scripts/http-openlist-parity.sh`：假 AList（`scripts/mock-alist.js`，两侧连同一个
+  实例）+ 两侧同一个种子库，**25 步零差异**（鉴权、列表、浏览含 object not found、
+  解析、直链、me、搜索、整段与 Range 流代理、连通性测试三态、增改删、
+  `proxy-image` 的 400/403、`/api/stream/proxy` 的正常代理与缺参）。
+- `internal/api/openlist_mounts_test.go`：7 个用例覆盖「密码哈希落库 / 地址补 `/dav` /
+  越权 404 / 删除后列表为空且再删 404 / 内网直链拒绝 / Range 透传 206」。
+- `scripts/openlist-stream-smoke.sh` 回归通过（`/stream` 的行为未变）。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
 |---|---:|---|
-| 影片库 CRUD + 挂载流（OpenList） | ~1,500 | ✅ 见 4.1 |
+| 影片库 CRUD + 挂载（OpenList 含 CRUD/浏览/解析/直链/me/搜索，见 3.22） | ~1,900 | ✅ 见 4.1 + 3.22 |
 | WebDAV 挂载 + 流代理 | ~800 | ✅ 见 4.2 |
 | FTP 挂载 + 流代理 | ~660 | ✅ 见 4.4 |
 | Emby / Jellyfin 协议仿真 | ~1,600 | ✅ 见 4.5 |
@@ -1351,7 +1401,7 @@ HTTPS 启动分支。
 | `internal/store/room.go` / `mount.go` | ~190 | 房间存在性、会话准入、挂载读取（含凭证解密） |
 | `internal/api/movie.go` | ~430 | 6 个影片 REST 端点 + DTO 序列化 |
 | `internal/proxy/moviestream.go` | ~230 | `resolveMovieStream`（熔断 + 30s 缓存 + 凭证回退） |
-| `internal/openlist/openlist.go` | ~480 | AList 客户端：token(12h) / raw_url(5min) / 单飞 |
+| `internal/openlist/openlist.go` | ~780 | AList 客户端：token(12h) / raw_url(5min) / 单飞 / 分页列举 / 搜索 / me / 连通性测试 |
 | `internal/api/openlist.go` | ~150 | `GET /api/openlist/stream`（签名直链 + Range 透传） |
 
 端点：`GET/POST/DELETE /api/rooms/{roomId}/movies`、`POST .../movies/reorder`、
@@ -1638,6 +1688,8 @@ HTTPS 启动分支。
 | `obs-config` 补推流码的写库粒度 | `roomRepo.save(room)` 整行写（含 shareMethod 等） | 只 `UPDATE "streamKey"` 一列 | 整行写会把并发修改的其他列覆盖回读到的旧值；「先下配置、再切子模式」是正常流程，不该被顺带改掉 |
 | `SERVER_HOST` 推导时的 IPv6 | `host.split(':')[0]` 把 `[::1]:3333` 切成 `[`，生成 `rtmp://[:3334/live` | `SplitHostPort` 后补回方括号，生成 `rtmp://[::1]:3334/live` | Node 那行对 IPv6 是明显的坏地址；Go 修好它不影响任何 IPv4/域名场景 |
 | `/live` 的反代实现 | 复用通用 `proxyHttpUpstream`（含 Range 收敛、https→http 降级、HLS 改写） | 专用极简反代：透传 Range/条件头、wildcard CORS、32KB 分块 + 立即 flush | FLV 是长连接推送，套用「Range 收敛 + 30s 连接超时」那套反而会掐断直播流；这里只需要「字节搬运 + 及时 flush」 |
+| OpenList 列表的错误文案 | `listOpenListDirectory` 原样抛上游文案（`[AList 服务器] object not found`） | 与 Node 完全一致：`ListDirPaged` 不翻译，只有 `FetchFileInfo` 才改写成人话 | 一开始 Go 在 `ListDir` 里做了「认证失败/目录不存在」的改写，对拍立刻报差异。翻译只该发生在**用户直接看见播放失败原因**的那一层 |
+| OpenList 挂载删除的一致性 | 在「刚 PUT 过该挂载」的对拍序列里，`DELETE` 回了 200 但行仍在列表里（sql.js 持久化的写后读不一致），第二次 DELETE 也可能回 200 | 每次写都直接落盘：删除后列表立即为空，再删一次 404 | 「删了没删掉」对用户是数据安全问题，不能对齐。因此对拍不断言「删除后列表」，该语义由 `openlist_mounts_test.go` 断言 |
 
 ## 八、每个单元的完成定义（DoD）
 
@@ -1649,7 +1701,11 @@ HTTPS 启动分支。
 
 ## 九、切换检查单（阶段 5）
 
-- [ ] 全部端点覆盖，Go 侧 `/api/*` 无 404 兜底命中
+- [x] 全部端点覆盖，Go 侧 `/api/*` 无 404 兜底命中
+      → `bash backend-go/scripts/route-parity.sh`：Node 运行时 189 条 `/api` 路由逐条
+      打到 Go，**189/189 命中、0 次 panic**。首次跑出 13 条缺口（OpenList 12 + stream
+      媒体代理 2 里的 1 条），已按 3.22 补齐；这条检查单本身抓出了「台账说完成、
+      实际只迁了一条」的漏项，以后每次改路由都要重跑。
 - [ ] 停 Node 进程 → 仅 Go 运行 24h 无告警
 - [ ] `config/` 目录双向兼容验证：Go 写入后 Node 仍能读（回滚保障）
 - [ ] 前端全链路回归（首页 / 房间 / 一起听 / 管理端）

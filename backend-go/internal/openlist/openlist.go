@@ -163,12 +163,15 @@ type fsGetData struct {
 
 // DirEntry 是 /api/fs/list 返回的单条目录项。
 //
-// 只保留字幕浏览/挂载浏览真正用到的字段：AList 还下发 sign/thumb/type 等，
-// 那些是给 Web UI 渲染图标用的，服务端不需要。
+// 只保留真正用到的字段：AList 还下发 sign/thumb 等，那些是给 Web UI 渲染
+// 图标用的，服务端不需要。Modified 是浏览界面的「修改时间」列（原样透传，
+// AList 给的是 RFC3339 字符串，不做二次解析）。
 type DirEntry struct {
-	Name  string `json:"name"`
-	Size  int64  `json:"size"`
-	IsDir bool   `json:"is_dir"`
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	IsDir    bool   `json:"is_dir"`
+	Type     int    `json:"type"`
+	Modified string `json:"modified"`
 }
 
 // DirListing 是目录列举结果。
@@ -420,13 +423,19 @@ func (c *Client) fsGet(ctx context.Context, serverURL, username, password, path 
 //
 // 与 fsGet 的重试逻辑一致：token 过期时必须重登一次，否则进程长时间运行后
 // 会在 token 到期（约 12 小时）之后持续列举失败。
-func (c *Client) fsList(ctx context.Context, serverURL, username, password, path string) (*fsListData, error) {
+func (c *Client) fsList(ctx context.Context, serverURL, username, password, path string, page, perPage int) (*fsListData, error) {
 	baseURL := ToAPIBaseURL(NormalizeServerURL(serverURL))
+	if page <= 0 {
+		page = 1
+	}
+	if perPage <= 0 {
+		perPage = 100
+	}
 	body := map[string]any{
 		"path":     path,
 		"password": "",
-		"page":     1,
-		"per_page": 100,
+		"page":     page,
+		"per_page": perPage,
 		"refresh":  false,
 	}
 
@@ -462,6 +471,11 @@ func (c *Client) fsList(ctx context.Context, serverURL, username, password, path
 // （失败就保留原值），再补前导斜杠。少了 decode 这一步，带空格或中文的
 // 目录名会被当成已编码字符串再编码一次，AList 回「文件不存在」。
 func (c *Client) ListDir(ctx context.Context, serverURL, username, password, path string) (*DirListing, error) {
+	return c.ListDirPaged(ctx, serverURL, username, password, path, 1, 100)
+}
+
+// ListDirPaged 是带分页的目录列举（浏览界面翻页用）。
+func (c *Client) ListDirPaged(ctx context.Context, serverURL, username, password, path string, page, perPage int) (*DirListing, error) {
 	targetPath := path
 	if decoded, err := url.PathUnescape(path); err == nil {
 		targetPath = decoded
@@ -470,14 +484,11 @@ func (c *Client) ListDir(ctx context.Context, serverURL, username, password, pat
 		targetPath = "/" + targetPath
 	}
 
-	data, err := c.fsList(ctx, serverURL, username, password, targetPath)
+	data, err := c.fsList(ctx, serverURL, username, password, targetPath, page, perPage)
 	if err != nil {
-		switch CodeOf(err) {
-		case CodeAuthFailed:
-			return nil, newError(CodeAuthFailed, "OpenList 认证失败，请检查挂载的用户名和密码")
-		case CodeNotFound:
-			return nil, newError(CodeNotFound, "目录不存在或路径错误: %s", targetPath)
-		}
+		// 不在这里翻译错误：Node 的 listOpenListDirectory 也是原样往上抛，
+		// 由路由层决定文案。只有 FetchFileInfo 才做「认证失败/文件不存在」的
+		// 友好改写（那是用户直接看到的播放失败原因）。
 		return nil, err
 	}
 
@@ -615,6 +626,126 @@ func (c *Client) CachedFileInfo(ctx context.Context, cacheKey, serverURL, userna
 	c.mu.Unlock()
 	close(call.done)
 	return info, err
+}
+
+// ---------------------------------------------------------------------------
+// 搜索 / 账号信息 / 连通性（挂载管理页用）
+// ---------------------------------------------------------------------------
+
+// SearchEntry 是 /api/fs/search 的一条命中。
+//
+// 字段名刻意用 camelCase：Node 的搜索路由把 AList 的 snake_case 结果重组成
+// `{name,size,isDir,type,modified,sign,thumb}` 再下发，前端按这套键读。
+type SearchEntry struct {
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	IsDir    bool   `json:"isDir"`
+	Type     int    `json:"type"`
+	Modified string `json:"modified"`
+	Sign     string `json:"sign"`
+	Thumb    string `json:"thumb"`
+}
+
+// SearchResult 是搜索结果。
+type SearchResult struct {
+	Entries []SearchEntry
+	Total   int64
+}
+
+type fsSearchData struct {
+	Content []struct {
+		Parent string `json:"parent"`
+		Name   string `json:"name"`
+		IsDir  bool   `json:"is_dir"`
+		Size   int64  `json:"size"`
+		Type   int    `json:"type"`
+	} `json:"content"`
+	Total int64 `json:"total"`
+}
+
+// SearchFiles 按关键词搜索（带 401 重试一次）。
+func (c *Client) SearchFiles(ctx context.Context, serverURL, username, password, parent, keywords string) (*SearchResult, error) {
+	baseURL := ToAPIBaseURL(NormalizeServerURL(serverURL))
+	body := map[string]any{
+		"parent":   parent,
+		"keywords": keywords,
+		"password": "",
+		"scope":    0,
+		"page":     1,
+		"per_page": 100,
+	}
+
+	run := func(tok string) (json.RawMessage, error) {
+		return c.request(ctx, baseURL, http.MethodPost, "/api/fs/search", body, tok)
+	}
+	tok, err := c.token(ctx, serverURL, username, password)
+	if err != nil {
+		return nil, err
+	}
+	raw, err := run(tok)
+	if err != nil {
+		if CodeOf(err) == CodeAuthFailed && tok != "" {
+			c.InvalidateToken(serverURL, username)
+			if tok, err = c.token(ctx, serverURL, username, password); err != nil {
+				return nil, err
+			}
+			raw, err = run(tok)
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	var data fsSearchData
+	if err := json.Unmarshal(raw, &data); err != nil {
+		return nil, newError(CodeUnreachable, "AList fs/search 解析失败: %v", err)
+	}
+	entries := make([]SearchEntry, 0, len(data.Content))
+	for _, e := range data.Content {
+		entries = append(entries, SearchEntry{
+			Name:  e.Name,
+			Size:  e.Size,
+			IsDir: e.IsDir,
+			Type:  e.Type,
+		})
+	}
+	return &SearchResult{Entries: entries, Total: data.Total}, nil
+}
+
+// Me 取当前账号信息（用户中心展示）。
+//
+// 匿名挂载（没填用户名）时 Node 直接返回 null，这里同样返回 nil, nil：
+// 前端据此隐藏「账号信息」区块，而不是报一个「未登录」的错误。
+func (c *Client) Me(ctx context.Context, serverURL, username, password string) (json.RawMessage, error) {
+	tok, err := c.token(ctx, serverURL, username, password)
+	if err != nil {
+		return nil, err
+	}
+	if tok == "" {
+		return nil, nil
+	}
+	baseURL := ToAPIBaseURL(NormalizeServerURL(serverURL))
+	raw, err := c.request(ctx, baseURL, http.MethodGet, "/api/me", nil, tok)
+	if err != nil {
+		if CodeOf(err) == CodeAuthFailed {
+			c.InvalidateToken(serverURL, username)
+		}
+		return nil, err
+	}
+	return raw, nil
+}
+
+// TestConnection 验证地址/凭证/路径三者可用（挂载新增与编辑时调用）。
+//
+// 只列举 1 条：目的不是拿数据，是确认「登录拿得到 token」且「path 有权限」。
+// 只测根目录时 path 填错也能"测试通过"，浏览/播放才发现问题。
+func (c *Client) TestConnection(ctx context.Context, serverURL, username, password, path string) error {
+	targetPath := path
+	if targetPath == "" {
+		targetPath = "/"
+	}
+	_, err := c.ListDirPaged(ctx, serverURL, username, password, targetPath, 1, 1)
+	return err
 }
 
 func isTimeout(err error) bool {

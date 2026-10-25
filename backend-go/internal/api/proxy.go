@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"net/url"
 	"strings"
 
 	"zviewer/backend/internal/httpx"
@@ -15,11 +16,126 @@ import (
 // 收敛成一个处理器 + 四个挂载点：新增数据源时只加一个模块名。
 var antileechModules = []string{"anime", "anisubs", "kazumi", "cms"}
 
+// bilibiliReferer 是 B站 CDN 要求带的 Referer（缺了会 403）。
+const bilibiliReferer = "https://www.bilibili.com"
+
+// bilibiliMediaHostSuffixes / Exact 是「该不该加 B站 Referer」的判定表。
+//
+// 必须列表化而不是子串匹配：旧实现是子串正则，任何 URL 里含 mcdn/akamaized
+// 的第三方域名都会被误加 B站 Referer，把正常请求变成一个假 403。
+var bilibiliMediaHostSuffixes = []string{
+	"bilibili.com",
+	"bilivideo.com",
+	"hdslb.com",
+	"biliimg.com",
+	"bstatic.com",
+	"mountaintoys.cn",
+	"pili-video.com",
+	"boss-pgc.com",
+}
+
+// akamaized 是共享 CDN，只能精确白名单 B站 的海外边缘节点。
+var bilibiliMediaHostExact = []string{"upos-hz-mirrorakam.akamaized.net"}
+
+func isBilibiliMediaHost(hostname string) bool {
+	host := strings.ToLower(hostname)
+	for _, domain := range bilibiliMediaHostSuffixes {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			return true
+		}
+	}
+	for _, exact := range bilibiliMediaHostExact {
+		if host == exact {
+			return true
+		}
+	}
+	return false
+}
+
+// allowedImageDomains 是 /proxy-image 的白名单（图片代理免认证，必须收紧）。
+var allowedImageDomains = []string{"bilibili.com", "hdslb.com", "bilivideo.com", "biliimg.com"}
+
 func (s *Server) registerProxyRoutes(mux *http.ServeMux) {
 	for _, module := range antileechModules {
 		tag := module
 		mux.HandleFunc("GET /api/stream/"+module+"/proxy", s.Auth.Require(s.antileechProxy(tag)))
 	}
+	// 公共图片代理：img 标签带不了认证头，而 B站 图床要 Referer，
+	// 所以这个端点**必须**在鉴权之外（Node 侧挂在 authenticateToken 之前）。
+	mux.HandleFunc("GET /api/stream/proxy-image", s.handleStreamImageProxy)
+	// 媒体代理：前端 fetch 带凭证（credentials: include），CORS 交给全局
+	// 中间件反射 Origin，不能用通配。
+	mux.HandleFunc("GET /api/stream/proxy", s.Auth.Require(s.handleStreamMediaProxy))
+}
+
+// handleStreamImageProxy 是 B站 图片代理（仅白名单域名）。
+func (s *Server) handleStreamImageProxy(w http.ResponseWriter, r *http.Request) {
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if rawURL == "" {
+		httpx.BadRequest(w, "缺少 url 参数")
+		return
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		httpx.BadRequest(w, "非法的 URL")
+		return
+	}
+	allowed := false
+	host := strings.ToLower(parsed.Hostname())
+	for _, domain := range allowedImageDomains {
+		if host == domain || strings.HasSuffix(host, "."+domain) {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		httpx.Forbidden(w, "仅允许 B站 域名图片")
+		return
+	}
+	proxy.ProxyHTTPUpstream(w, r, proxy.HTTPOptions{
+		URL:     rawURL,
+		Headers: proxy.UpstreamHeaders{Referer: bilibiliReferer},
+		// img 标签不携带凭证，CORS 交由全局中间件反射 Origin
+		CORS:               proxy.CORSGlobal,
+		DefaultContentType: "image/jpeg",
+		CacheControl:       "public, max-age=3600",
+		LogTag:             "stream",
+		ErrorMessage:       "代理图片失败",
+	})
+}
+
+// handleStreamMediaProxy 是 B站 CDN 媒体代理。
+//
+// 非 B站 的 URL（第三方 m3u8 直链）不加 B站 头：带上错误的 Referer
+// 会让源站直接拒绝。
+func (s *Server) handleStreamMediaProxy(w http.ResponseWriter, r *http.Request) {
+	rawURL := strings.TrimSpace(r.URL.Query().Get("url"))
+	if rawURL == "" {
+		httpx.BadRequest(w, "缺少 url 参数")
+		return
+	}
+	headers := proxy.UpstreamHeaders{}
+	if parsed, err := url.Parse(rawURL); err == nil && isBilibiliMediaHost(parsed.Hostname()) {
+		headers.Referer = bilibiliReferer
+		headers.Origin = bilibiliReferer
+	}
+	// 按后缀推断 Content-Type：m3u8 与 ts 分片拿不到正确类型时，
+	// 播放器会把它们当 mp4 处理，表现为「能加载、播不动」。
+	lower := strings.ToLower(rawURL)
+	contentType := "video/mp4"
+	if strings.Contains(lower, ".m3u8") {
+		contentType = "application/vnd.apple.mpegurl"
+	} else if strings.Contains(lower, ".ts") {
+		contentType = "video/mp2t"
+	}
+	proxy.ProxyHTTPUpstream(w, r, proxy.HTTPOptions{
+		URL:                rawURL,
+		Headers:            headers,
+		CORS:               proxy.CORSGlobal,
+		DefaultContentType: contentType,
+		LogTag:             "stream",
+		ErrorMessage:       "代理媒体失败",
+	})
 }
 
 // antileechProxy 生成防盗链媒体代理处理器。

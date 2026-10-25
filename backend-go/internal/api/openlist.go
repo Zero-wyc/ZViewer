@@ -122,34 +122,8 @@ func (s *Server) handleOpenListStream(w http.ResponseWriter, r *http.Request) {
 	moviePath := *resolved.Movie.Path
 	cacheKey := "movie:" + strconv.FormatInt(movieID, 10)
 
-	info, err := s.OpenList.CachedFileInfo(r.Context(), cacheKey, serverURL, resolved.Username, resolved.Password, moviePath)
-	if err != nil {
-		// 签名可能已过期：清缓存重取一次。第二次仍失败才算真失败。
-		s.OpenList.InvalidateRawURL(cacheKey)
-		info, err = s.OpenList.CachedFileInfo(r.Context(), cacheKey, serverURL, resolved.Username, resolved.Password, moviePath)
-		if err != nil {
-			sendStreamError(w, "openlist", err)
-			return
-		}
-	}
-
-	name := info.Name
-	if name == "" {
-		name = moviePath
-	}
-	contentType := proxy.ContentTypeForFormat(proxy.DetectMediaFormat(name))
-
-	rec := &statusRecorder{ResponseWriter: w}
-	proxy.ProxyHTTPUpstream(rec, r, proxy.HTTPOptions{
-		URL:                info.RawURL,
-		CORS:               proxy.CORSWildcard,
-		DefaultContentType: contentType,
-		LogTag:             "openlist-stream",
-		ErrorMessage:       "OpenList 影片流错误",
-	})
-	// 上游回 401/403/410 意味着签名失效：清掉缓存，客户端下一次 Range
-	// 请求就会重新 fs/get 拿新直链。这里不能直接重发响应（头已经出去了）。
-	if rec.status == http.StatusUnauthorized || rec.status == http.StatusForbidden || rec.status == http.StatusGone {
-		s.OpenList.InvalidateRawURL(cacheKey)
-	}
+	// 与 /api/openlist/proxy 共用同一套转发与「签名过期自愈」逻辑，
+	// 差异只有缓存 key 与日志前缀。
+	s.proxyOpenListFile(w, r, "openlist-stream", "OpenList 影片流错误", cacheKey,
+		serverURL, resolved.Username, resolved.Password, moviePath)
 }

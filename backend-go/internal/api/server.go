@@ -34,6 +34,7 @@ import (
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
+	"zviewer/backend/internal/ttlcache"
 	"zviewer/backend/internal/updater"
 	"zviewer/backend/internal/voice"
 	"zviewer/backend/internal/webdav"
@@ -103,6 +104,9 @@ type Server struct {
 	// WebDAV 的两级缓存：属性 30s（seek 时不重复 PROPFIND）、目录 60s。
 	webdavStats *webdav.StatCache
 	webdavDirs  *webdav.DirCache
+	// OpenList 的目录缓存（60s，对齐 Node 的 openListDirCache）：
+	// 浏览界面反复进出/翻页时免重复打上游 AList API。
+	openListDirs *ttlcache.Cache[*openlist.DirListing]
 
 	// FTP 的两级缓存：stat 30s（seek 时不重复登录+SIZE）、目录 60s。
 	ftpStats *ftp.StatCache
@@ -133,12 +137,18 @@ func New(deps Deps) *Server {
 		// 探测不到外部 NMS 时只是报告不可用（不影响其它路由）。
 		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
+	if deps.OpenList == nil {
+		// 客户端自带 token / raw_url 缓存，全进程共用一个实例；
+		// 单测构造 Server 时不显式注入，避免每个用例都要记得传。
+		deps.OpenList = openlist.NewClient()
+	}
 	s := &Server{
 		Deps: deps,
 		// 与 middleware/rate-limit.ts#passwordLimiter 参数一致
 		passwordLimiter: ratelimit.New(3, time.Minute),
 		webdavStats:     webdav.NewStatCache(),
 		webdavDirs:      webdav.NewDirCache(),
+		openListDirs:    ttlcache.New[*openlist.DirListing](60_000, 300),
 		ftpStats:        ftp.NewStatCache(),
 		ftpDirs:         ftp.NewDirCache(),
 		ftpTickets:      newFTPTickets(),
@@ -167,6 +177,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerFTPRoutes(mux)
 	s.registerEmbyRoutes(mux)
 	s.registerMountStreamRoutes(mux)
+	s.registerOpenListMountRoutes(mux)
 	s.registerStreamRoutes(mux)
 	s.registerBilibiliExtraRoutes(mux)
 	s.registerBilibiliAccountRoutes(mux)

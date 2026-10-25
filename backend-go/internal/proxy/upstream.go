@@ -90,6 +90,10 @@ type HTTPOptions struct {
 	ErrorMessage string
 	// PublicOnly 为 true 时拒绝内网目标和内网重定向（公网数据源必开）
 	PublicOnly bool
+	// OnUpstreamStatus 可选：上游返回非 2xx 时回调。
+	// 用于「签名直链过期」这类自愈场景——调用方在这里失效自己的直链缓存，
+	// 下一次请求就会重新换链，而不是在 TTL 窗口内拿着死 URL 反复 403。
+	OnUpstreamStatus func(status int)
 	// RewriteHLSUri 可选：改写 m3u8 里的每一条 URI
 	RewriteHLSUri func(uri, playlistURL string) string
 	// Client 可选：注入自定义 client（测试用）
@@ -179,6 +183,9 @@ func ProxyHTTPUpstream(w http.ResponseWriter, r *http.Request, opts HTTPOptions)
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		traffic(okLabel(resp.StatusCode))
+		if opts.OnUpstreamStatus != nil {
+			opts.OnUpstreamStatus(resp.StatusCode)
+		}
 		if opts.CORS == CORSWildcard {
 			SetWildcardCORS(w)
 		}
