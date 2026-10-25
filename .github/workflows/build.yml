@@ -277,20 +277,45 @@ jobs:
       - name: Generate release body
         shell: bash
         run: |
+          REL="https://github.com/${GITHUB_REPOSITORY}/releases/download/latest"
           {
             echo "自动构建产物（main 分支最新代码）。"
             echo ""
-            echo "下载说明："
-            echo "- Windows: 下载 \`zviewer-windows-x64.zip\`，解压后运行 \`start.bat\`"
-            echo "- Windows GUI: 下载 \`zviewer-windows-x64-GUI.zip\`，解压后运行 \`ZViewerDesktop.exe\`"
-            echo "- Linux: 下载 \`zviewer-linux-x64.tar.gz\`，解压后运行 \`./start.sh\`"
-            echo "- Docker: \`docker pull zerowyc0721/zviewer:dev\`（main 分支最新构建；正式版请用 \`:latest\` 或具体版本号）"
+            echo "## 下载"
+            echo ""
+            # 正文给直链的原因见 tag 发布那一步的注释：文件列表是异步加载的，
+            # 国内网络下拉不出来时页面只剩 source code。
+            echo "- **Windows**: [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) — 解压后运行 \`start.bat\`"
+            echo "- **Windows GUI**: [zviewer-windows-x64-GUI.zip](${REL}/zviewer-windows-x64-GUI.zip) — 解压后运行 \`ZViewerDesktop.exe\`"
+            echo "- **Linux**: [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) — 解压后运行 \`./start.sh\`"
+            echo "- **Docker**: \`docker pull zerowyc0721/zviewer:dev\`（main 分支最新构建；正式版请用 \`:latest\` 或具体版本号）"
+            echo ""
+            echo "> 页面底部的文件列表加载不出来时，直接点上面的链接下载。"
             echo ""
             echo "构建提交: ${GITHUB_SHA}"
             echo "构建时间: ${COMMIT_TS}"
           } > release_body_latest.md
         env:
           COMMIT_TS: ${{ github.event.head_commit.timestamp }}
+
+      # softprops/action-gh-release 只做"追加/覆盖同名"，不会清掉历史附件。
+      # 之前 `gh release delete` 偶发失败被 `|| true` 吞掉，latest 里就留下了
+      # 旧命名时代的产物（ZViewer-Windows-v0.0.0-dev.*、SHA256SUMS.txt），
+      # 用户可能下到旧包。这里显式清一遍，保证只剩三个标准文件。
+      - name: Remove stale assets from latest
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view latest >/dev/null 2>&1; then
+            for name in $(gh release view latest --json assets --jq '.assets[].name'); do
+              case "$name" in
+                zviewer-linux-x64.tar.gz|zviewer-windows-x64.zip|zviewer-windows-x64-GUI.zip) continue ;;
+              esac
+              echo "清理历史附件: $name"
+              gh release delete-asset latest "$name" --yes || true
+            done
+          fi
 
       - name: Create prerelease (latest)
         uses: softprops/action-gh-release@v3
@@ -393,6 +418,7 @@ jobs:
         run: |
           CURRENT_TAG="${GITHUB_REF#refs/tags/}"
           VERSION="${CURRENT_TAG#v}"
+          REPO_SLUG="${GITHUB_REPOSITORY}"
 
           # checkout(fetch-depth: 0) 通常已取全 tag；显式再拉一次，防止浅取场景缺 tag
           git fetch --tags --force --quiet || true
@@ -417,12 +443,18 @@ jobs:
             echo ""
             echo "---"
             echo ""
-            echo "## 下载说明"
+            echo "## 下载"
             echo ""
-            echo "- **Windows**: 下载 \`zviewer-windows-x64.zip\`，解压后运行 \`start.bat\`"
-            echo "- **Windows GUI**: 下载 \`zviewer-windows-x64-GUI.zip\`，解压后运行 \`ZViewerDesktop.exe\`"
-            echo "- **Linux**: 下载 \`zviewer-linux-x64.tar.gz\`，解压后运行 \`./start.sh\`"
+            # 正文里必须给直链：GitHub 新版页面的文件列表是异步加载的，
+            # 国内网络下那一段经常请求失败，页面就只剩服务端直出的
+            # source code，看起来像"只发了源码"。直链不依赖那段异步请求。
+            REL="https://github.com/${REPO_SLUG}/releases/download/${CURRENT_TAG}"
+            echo "- **Windows**: [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) — 解压后运行 \`start.bat\`"
+            echo "- **Windows GUI**: [zviewer-windows-x64-GUI.zip](${REL}/zviewer-windows-x64-GUI.zip) — 解压后运行 \`ZViewerDesktop.exe\`"
+            echo "- **Linux**: [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) — 解压后运行 \`./start.sh\`"
             echo "- **Docker**: \`docker pull zerowyc0721/zviewer:${VERSION}\`"
+            echo ""
+            echo "> 页面底部的文件列表加载不出来时，直接点上面的链接下载。"
           } > release_body.md
           echo "=== Generated release body ==="
           cat release_body.md

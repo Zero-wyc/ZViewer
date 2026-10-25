@@ -104,10 +104,18 @@ Release 中的 `ZViewer-Windows-<版本>-x64.zip` 是原生桌面控制台（Go 
 > 启动日志会打印一条 `[cleanup] 已清理 v4 遗留文件 …`。`config/` 下的数据库、证书、上传文件不受影响；
 > 源码目录（含 `.git` 或 `frontend/src`）不会做目录级清理。
 
-从 [Releases](https://github.com/Zero-wyc/ZViewer/releases) 下载对应平台压缩包，解压后：
+从 [Releases](https://github.com/Zero-wyc/ZViewer/releases) 下载，或直接点下面的直链：
 
-- **Windows**：双击 `start.bat`，进入交互菜单
-- **Linux**：执行 `./start.sh`（不带参数），进入交互菜单
+| 平台 | 文件 | 解压后 |
+| --- | --- | --- |
+| Windows（GUI 控制台） | [zviewer-windows-x64-GUI.zip](https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64-GUI.zip) | 运行 `ZViewerDesktop.exe` |
+| Windows（单文件） | [zviewer-windows-x64.zip](https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip) | 运行 `start.bat` |
+| Linux | [zviewer-linux-x64.tar.gz](https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-linux-x64.tar.gz) | 运行 `./start.sh` |
+
+> 表格里是 `main` 分支的最新构建，要正式版本请到 [Releases](https://github.com/Zero-wyc/ZViewer/releases) 按版本号选择。
+> Release 页面底部的文件列表有时加载不出来（只剩 `source code`），此时点上面的直链即可，附件一直都在。
+
+Windows 双击 `start.bat`、Linux 执行 `./start.sh`（不带参数）都会进入交互菜单。
 
 在菜单中选择 `1` 启动服务，完成后访问 `http://localhost:3333`。
 
