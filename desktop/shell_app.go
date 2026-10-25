@@ -343,6 +343,8 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 		}
 		a.emitUpdate()
 		return true, nil
+	case "tunnel-refresh":
+		return a.ctrl.RefreshTunnel()
 	case "update-check":
 		return a.ctrl.CheckUpdate(true), nil
 	case "update-download":

@@ -56,6 +56,8 @@ html { scrollbar-width: thin; scrollbar-color: color-mix(in srgb, var(--text-pri
   -webkit-font-smoothing: antialiased;
 }
 [data-glyph] { display: inline-flex; align-items: center; justify-content: center; }
+[data-icon] { display: inline-flex; align-items: center; justify-content: center; line-height: 1; flex-shrink: 0; }
+[data-icon] > svg { display: block; }
 
 /* ---------- 标题栏（WinUI 3 caption，高 32px） ---------- */
 .windowbar {
@@ -167,6 +169,10 @@ nav a:active, .settings-link:active, .docs-link:active { background: var(--subtl
 nav a.active, .settings-link.active { background: var(--subtle-hover); font-weight: 400; }
 nav a.active::before, .settings-link.active::before { opacity: 1; transform: translateY(-50%) scaleY(1); }
 nav svg, .settings-link svg, .docs-link svg { width: 16px; height: 16px; color: var(--text-secondary); flex-shrink: 0; }
+nav a > [data-icon], .settings-link > [data-icon], .docs-link > [data-icon] {
+  width: 16px; height: 16px; flex: 0 0 16px;
+}
+.nav-label { display: block; line-height: var(--line-body); }
 nav a .icon-glyph, .settings-link .icon-glyph, .docs-link .icon-glyph { color: var(--text-secondary); }
 .nav-key {
   margin-left: auto; color: var(--text-tertiary);
@@ -410,6 +416,12 @@ main > div { padding: 0 var(--page-padding) var(--gap-xl); max-width: 1120px; }
 }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn.primary:active:not(:disabled) { background: var(--accent-pressed); color: var(--accent-text); }
+.btn.tunnel-primary { background: #0067c0; border-color: #0067c0; color: #fff; }
+.btn.tunnel-primary:hover:not(:disabled) { background: #005a9e; border-color: #005a9e; }
+.btn.tunnel-primary:active:not(:disabled) { background: #004578; border-color: #004578; color: #fff; }
+.btn.danger { background: #c42b1c; border-color: #c42b1c; color: #fff; }
+.btn.danger:hover:not(:disabled) { background: #a4262c; border-color: #a4262c; }
+.btn.danger:active:not(:disabled) { background: #7a1b20; border-color: #7a1b20; color: #fff; }
 .btn.dark { background: var(--text-primary); color: var(--layer); border-color: transparent; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-primary); box-shadow: none; }
 .btn.ghost:hover:not(:disabled) { background: var(--subtle-hover); }
@@ -1034,9 +1046,9 @@ dialog p { margin-top: 8px; color: var(--text-secondary); font-size: 12px; line-
 @media (max-width: 900px) {
   .sidebar { width: 48px; padding: 0 4px 8px; }
   .sidebar .brand > div, .sidebar .workspace, .nav-caption, .nav-key,
-  .sidebar-bottom span:not(.icon-glyph) { display: none; }
+  .sidebar-bottom .nav-label, .sidebar-bottom .docs-link > span:last-child { display: none; }
   nav a { justify-content: center; padding: 0; }
-  nav a > :not(.icon-glyph):not(svg) { display: none; }
+  nav a > :not([data-icon]):not(.icon-glyph):not(svg) { display: none; }
   .main-shell { left: 48px; }
   .service-grid, .bottom-grid { grid-template-columns: 1fr; }
   .connect-grid { grid-template-columns: 1fr; }

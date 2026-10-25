@@ -5,6 +5,7 @@ package controller
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -54,12 +55,16 @@ func (p *Proc) Wait() int {
 
 // startProcess 启动受管进程；onLine 在两个输出流上持续被调用，保证管道不会被写满。
 func startProcess(hostExe, target string, extraArgs, env []string, cwd string, onLine func(string)) (*Proc, error) {
+	return startProcessContext(context.Background(), hostExe, target, extraArgs, env, cwd, onLine)
+}
+
+func startProcessContext(ctx context.Context, hostExe, target string, extraArgs, env []string, cwd string, onLine func(string)) (*Proc, error) {
 	hosted := isWindows() && hostExe != ""
 	var cmd *exec.Cmd
 	if hosted {
-		cmd = exec.Command(hostExe, append([]string{target}, extraArgs...)...)
+		cmd = exec.CommandContext(ctx, hostExe, append([]string{target}, extraArgs...)...)
 	} else {
-		cmd = exec.Command(target, extraArgs...)
+		cmd = exec.CommandContext(ctx, target, extraArgs...)
 	}
 	if cwd != "" {
 		cmd.Dir = cwd

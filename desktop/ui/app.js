@@ -29,7 +29,7 @@
     info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6m0-10h.01"/>',
     download: '<path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/>',
     copy: '<rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V3H3v13h5"/>',
-    refresh: '<path d="M20 7v5h-5M4 17v-5h5m-5-1a8 8 0 0 1 14-6l2 3M4 16l2 3a8 8 0 0 0 14-6"/>',
+    refresh: '<path fill="currentColor" stroke="none" d="M3.1 10.75A9 9 0 0 1 18.9 6.2l1.9-1.9v6.45h-6.45l2.7-2.7A6.5 6.5 0 0 0 5.62 10.75Z"/><path fill="currentColor" stroke="none" transform="rotate(180 12 12)" d="M3.1 10.75A9 9 0 0 1 18.9 6.2l1.9-1.9v6.45h-6.45l2.7-2.7A6.5 6.5 0 0 0 5.62 10.75Z"/>',
     pause: '<path d="M8 4v16M16 4v16"/>',
     folder: '<path d="M3 6h7l2 3h9v12H3Zm0 0V3h7l2 3h9v3"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 1v2m0 18v2M1 12h2m18 0h2M4 4l2 2m12 12 2 2M4 20l2-2M18 6l2-2"/>'
@@ -145,8 +145,12 @@
     },
     connect: {
       title: '连接方式教程',
-      caption: '五种方式的取舍',
+      caption: '新手推荐 Cloudflare Tunnel',
       sections: [
+        {
+          title: '新手推荐：Cloudflare Tunnel',
+          body: '<p>没有 VPS、也不想配置 FRP 的新手可以先用这项。点击“一键启动隧道”，桌面端会自动获取 cloudflared 并启动，不需要注册隧道账号或填写服务器地址、端口和密钥。</p><p>程序会把当前本机网页服务映射到 Cloudflare 提供的临时 <code>trycloudflare.com</code> 地址。停止或刷新隧道后旧地址失效；固定域名需要自己准备域名并配置 Cloudflare。</p>'
+        },
         {
           title: 'IPv6 直连',
           body: '<p>运营商已下发公网 IPv6 时，外网设备直接用本机地址访问，不经过第三方中转。</p><p>页面给出带端口的完整地址，复制到浏览器即可打开。需在路由器与 Windows 防火墙放行该端口；运营商前缀变化后地址随之变化。</p>'
@@ -164,12 +168,8 @@
           body: '<p>相关设备安装同一款虚拟局域网软件（ZeroTier、Tailscale、EasyTier 等），加入同一虚拟网络，再用分配的虚拟 IP 访问本机。</p><p>不向公网开放端口，网络外的设备无法访问；需要每个人都安装虚拟局域网软件。</p>'
         },
         {
-          title: 'Cloudflare Tunnel',
-          body: '<p><strong>先备一张外国银行卡，每月免费 1000 GB 流量。</strong>固定域名的用法要把自有域名托管到 Cloudflare，开通时须绑定境外支付方式；只取临时地址则不必绑卡。</p><p>cloudflared 由本机向 Cloudflare 边缘发起出站连接，所以不需要公网 IP、端口映射，也不必在路由器或防火墙放行入站端口；外网访问的是 Cloudflare 一侧的地址。</p><p>临时地址走快速隧道（TryCloudflare），形如 <code>xxx.trycloudflare.com</code>，随隧道关闭失效；固定地址走命名隧道，需账号与自有域名。</p>'
-        },
-        {
           title: '怎么选',
-          body: '<ul><li><strong>有公网 IPv6</strong>：选 IPv6 直连，链路最短，带宽不受中转限制。</li><li><strong>没有公网 IP、不想维护服务器</strong>：选服务商 FRP，注册后填地址与密钥即可，代价是带宽与域名受服务商限制。</li><li><strong>没有公网 IP、手上有 VPS</strong>：选自建 FRP，端口与带宽可自行安排，需自己放行端口并运维。</li><li><strong>访问者固定、人数不多</strong>：选虚拟局域网，不暴露公网，边界最简单，但每个人都要安装软件。</li><li><strong>要固定域名、又不想开放公网端口</strong>：选 Cloudflare Tunnel，需要一张外国银行卡，每月免费 1000 GB 流量。</li></ul>'
+          body: '<ul><li><strong>新手、没有 VPS</strong>：先试 Cloudflare Tunnel，一键启动临时地址，不用自己配服务器。</li><li><strong>已经有服务商账号</strong>：可以用服务商 FRP，按其说明填写地址、端口与密钥。</li><li><strong>有 VPS 且需要自主管理</strong>：用自建 FRP，自己维护服务端并放行端口。</li><li><strong>有公网 IPv6</strong>：可选 IPv6 直连，少一层中转，但要配置路由器与防火墙。</li><li><strong>访问者固定且不想开放公网</strong>：选择虚拟局域网，所有设备都要安装并加入同一网络。</li></ul>'
         }
       ],
       foot: '五种方式都要求本机 ZViewer 服务已启动；IPv6 与自建 FRP 还需在路由器、防火墙或安全组放行对应端口。'
@@ -304,7 +304,7 @@
     return heading('服务总览', '本机服务的运行状态。') +
       `<section class="hero"><div class="hero-copy"><h2>${state.running ? '演示运行中' : '服务未启动'}</h2><p>${state.running ? '界面演示，未连接真实后端。' : '启动后可访问网页端与管理页面。'}</p><div class="hero-actions">${button(state.running ? '停止演示' : '启动演示', 'toggle-run', state.running ? 'stop' : 'play', 'primary')}<button class="text-button" data-action="open-manager">打开管理页面 ${icon('external')}</button></div></div></section>` +
       `<div class="section-title"><h2>服务状态</h2><small>演示数据</small></div><div class="service-grid">${service('ZViewer 主服务', '网页与 API', 'server', 'orange', state.running ? '演示运行' : '未启动', '默认监听端口', ':3333 / TCP')}${service('语音与推流', '语音与 RTMP 推流', 'mic', 'green', state.running ? '演示待就绪' : '未启动', '默认语音 / 推流', ':3333 / :3334')}${service('高画质代理', 'ZViewerCLI 代理', 'terminal', '', '未启动', '本机代理端口', '127.0.0.1:9333')}</div>` +
-      `<div class="bottom-grid"><section><div class="section-title"><h2>常用操作</h2><small>快捷入口</small></div><div class="setup-list"><button class="setup-row" data-nav="cert"><span class="step">${icon('lock')}</span><div><strong>签发本机 HTTPS 证书</strong><p>localhost</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="frp"><span class="step">${icon('network')}</span><div><strong>配置 FRP 服务器</strong><p>填写 VPS 地址与端口映射</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="settings"><span class="step">${icon('tray')}</span><div><strong>关闭到托盘</strong><p>在通知区域保留图标</p></div>${icon('arrow')}</button></div></section><section><div class="section-title"><h2>最近活动</h2><button class="text-button" data-nav="logs">全部日志 ${icon('arrow')}</button></div><div class="activity-list">${activity()}</div></section></div><div class="footnote">${icon('info')}服务、连接与证书操作均为演示。</div>`;
+      `<div class="bottom-grid"><section><div class="section-title"><h2>常用操作</h2><small>快捷入口</small></div><div class="setup-list"><button class="setup-row" data-nav="cert"><span class="step">${icon('lock')}</span><div><strong>签发本机 HTTPS 证书</strong><p>localhost</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="connect"><span class="step">${icon('cloud')}</span><div><strong>新手推荐：Cloudflare Tunnel</strong><p>一键启动，无需额外配置</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="settings"><span class="step">${icon('tray')}</span><div><strong>关闭到托盘</strong><p>在通知区域保留图标</p></div>${icon('arrow')}</button></div></section><section><div class="section-title"><h2>最近活动</h2><button class="text-button" data-nav="logs">全部日志 ${icon('arrow')}</button></div><div class="activity-list">${activity()}</div></section></div><div class="footnote">${icon('info')}服务、连接与证书操作均为演示。</div>`;
   }
   function validPort(value) { return /^\d+$/.test(String(value)) && Number(value) >= 1 && Number(value) <= 65535; }
   function validHost(value) {
@@ -511,7 +511,6 @@
       ['frp 官方文档', 'gofrp.org', 'https://gofrp.org/zh-cn/docs/']
     ],
     tunnel: [
-      ['cloudflared 下载', 'github.com/cloudflare', 'https://github.com/cloudflare/cloudflared/releases/latest'],
       ['Cloudflare 文档', 'developers.cloudflare.com', 'https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/']
     ]
   };
@@ -526,15 +525,19 @@
     const live = Boolean(state.live), v6 = state.ipv6;
     const config = live ? state.server?.active || state.config || {} : {};
     const port = config.port || 3333;
-    // IPv6：地址只来自外部接口，没有则明确显示“没有”；对外给出带端口的完整 URL，可直接粘贴到浏览器。
+    // 外部接口只证明 IPv6 出口，不能证明本机端口可从公网访问。
     const v6Url = v6?.ok ? `${config.https ? 'https' : 'http'}://[${v6.address}]:${port}/` : '';
+    const v6Listening = config.bindHost === '::';
+    const v6ServiceRunning = live && state.server?.backend === 'running';
+    const v6CopyReady = Boolean(v6?.ok && v6Listening && v6ServiceRunning);
+    const v6Note = !v6Listening ? '当前服务未监听 IPv6，外部设备无法访问。请在应用设置把监听范围改为「所有地址 · IPv4 + IPv6」，保存后重启服务。' : !v6ServiceRunning ? '主服务尚未运行，请先启动服务。' : `已检测到 IPv6 出口；此地址仍需从外网验证。路由器与 Windows 防火墙需允许入站 ${port} 端口，HTTPS 还需在证书页按 IPv6 地址签发证书。`;
     const v6Body = (!v6
       ? `<p class="connect-value is-empty">未检测</p><p class="connect-note">正在通过外部接口检测。</p>`
       : v6.ok
-        ? `<p class="connect-value"><code>${esc(v6Url)}</code></p><p class="connect-note">${esc(v6.source)} · ${esc(v6.checkedAt)}。需在路由器与防火墙放行 ${esc(port)} 端口。</p>`
+        ? `<p class="connect-value"><code>${esc(v6Url)}</code></p><p class="connect-note">${esc(v6Note)}</p>`
         : `<p class="connect-value is-empty">没有</p><p class="connect-note">${esc(v6.reason || '没有探测到公网 IPv6。')}</p>`) +
       `<p class="connect-hint">如果你有 IPv4 公网地址，那么应该不需要我教你其他的了。</p>`;
-    const v6Actions = `${button(v6 ? '重新检测' : '检测 IPv6', 'probe-ipv6', 'refresh')}${v6?.ok ? `<button class="btn" data-copy="${esc(v6Url)}">${icon('copy')}复制地址</button>` : ''}`;
+    const v6Actions = `${button(v6 ? '重新检测' : '检测 IPv6', 'probe-ipv6', 'refresh')}${v6CopyReady ? `<button class="btn" data-copy="${esc(v6Url)}">${icon('copy')}复制候选地址</button>` : v6?.ok ? `<button class="btn primary" data-nav="settings">${icon('settings')}配置监听范围</button>` : ''}`;
 
     // EasyTier 虚拟组网卡片：入网后直接给出虚拟 IP 的访问地址，未入网时说清下一步动作。
     const meshReport = live ? state.server?.mesh : null;
@@ -555,28 +558,38 @@
     const frpStatus = live ? `frpc ${frpLabels[frpState] || '未连接'}` : '';
 
     const tunnel = live ? state.server.tunnel : null;
-    const tunnelLabels = { stopped: '未运行', connecting: '连接中', stopping: '停止中', error: '异常' };
-    const tunnelStatus = !tunnel || !tunnel.available ? '需安装' : tunnel.state === 'running' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
-    const tunnelBusy = Boolean(tunnel) && ['connecting', 'running'].includes(tunnel.state);
+    const tunnelLabels = { stopped: '未运行', checking: '检查更新', downloading: '下载中', connecting: '连接中', refreshing: '自动刷新', reconnecting: '原地址重连中', 'health-checking': '健康检测', stopping: '停止中', error: '异常' };
+    const tunnelStarting = ['checking', 'downloading', 'connecting', 'refreshing', 'health-checking'].includes(tunnel?.state);
+    const tunnelStatus = tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
+    const tunnelStopping = tunnel?.state === 'stopping';
+    const tunnelCanStop = Boolean(tunnel) && ['running', 'reconnecting'].includes(tunnel.state);
     let tunnelBody;
     if (!tunnel) {
       tunnelBody = `<p class="connect-value is-empty">桌面版中可用</p><p class="connect-note">不需要公网 IP；地址随隧道关闭失效。固定域名需外国银行卡。</p>`;
     } else if (!tunnel.available) {
-      tunnelBody = `<p class="connect-value is-empty">未找到 cloudflared</p><p class="connect-note">把 cloudflared.exe 放进运行包目录后重开本页。</p>`;
+      tunnelBody = `<p class="connect-value is-empty">${tunnel.state === 'health-checking' ? '正在检查本机服务' : tunnel.state === 'downloading' ? '正在获取 cloudflared' : tunnel.state === 'error' ? '启动条件未通过' : '首次使用时自动下载'}</p><p class="connect-note">${esc(tunnel.message || '点击一键启动，程序会从 Cloudflare 官方 GitHub 获取组件并启动临时隧道。')}</p>`;
     } else if (tunnel.url) {
-      tunnelBody = `<p class="connect-value"><code>${esc(tunnel.url)}</code></p><p class="connect-note">经 Cloudflare 中转，仅本次会话有效。</p>`;
+      tunnelBody = `<p class="connect-value"><code>${esc(tunnel.url)}</code></p><p class="connect-note">${tunnel.health === 'degraded' ? esc(tunnel.message) : `启动检查通过 · ${Number(tunnel.latencyMs || 0)} ms · HTTP/2。运行中保持当前地址。`}</p>`;
     } else {
-      tunnelBody = `<p class="connect-value is-empty">${tunnelLabels[tunnel.state] || '未运行'}</p><p class="connect-note">${tunnel.state === 'error' ? '隧道已退出。' : '启动后自动分配地址。'}</p>`;
+      tunnelBody = `<p class="connect-value is-empty">${tunnelLabels[tunnel.state] || '未运行'}</p><p class="connect-note">${esc(tunnel.message || (tunnel.state === 'error' ? '隧道已退出。' : '启动后检查本机源站与公网访问，检查通过才显示地址。'))}</p>`;
     }
-    const tunnelActions = !tunnel || !tunnel.available
-      ? `<a class="btn" href="https://github.com/cloudflare/cloudflared/releases/latest" data-external="https://github.com/cloudflare/cloudflared/releases/latest">${icon('download')}下载 cloudflared</a>`
-      : `${button(tunnelBusy ? '停止隧道' : '启动隧道', tunnelBusy ? 'tunnel-stop' : 'tunnel-start', tunnelBusy ? 'stop' : 'cloud', 'primary')}${tunnel.url ? `<button class="btn" data-copy="${esc(tunnel.url)}">${icon('copy')}复制地址</button>` : ''}`;
+    const tunnelActions = tunnelStarting
+      ? `<button class="btn primary tunnel-primary" type="button" disabled>${icon('refresh')}${esc(tunnelLabels[tunnel.state])}…${Number(tunnel.refreshCount || 0) ? `（刷新 ${Number(tunnel.refreshCount)}/5）` : ''}</button>${button(Number(tunnel.refreshCount || 0) ? '中断自动刷新' : '中断启动', 'tunnel-stop', 'stop', 'danger')}`
+      : tunnelStopping
+        ? `<button class="btn danger" type="button" disabled>${icon('stop')}正在停止隧道…</button>`
+        : `${button(tunnelCanStop ? '停止隧道' : !tunnel?.available ? '一键启动隧道' : '启动隧道', tunnelCanStop ? 'tunnel-stop' : 'tunnel-start', tunnelCanStop ? 'stop' : 'cloud', tunnelCanStop ? 'danger' : 'primary tunnel-primary')}${tunnel.url ? `<button class="btn" data-copy="${esc(tunnel.url)}">${icon('copy')}复制地址</button>${button('刷新隧道', 'tunnel-refresh', 'refresh')}` : ''}`;
 
-    return heading('连接方式', '外网访问本机服务的五种方式。', tutorial('connect')) +
+    return heading('连接方式', '新手推荐 Cloudflare Tunnel：无需 VPS，一键下载并启动；其他方式可按需选择。', tutorial('connect')) +
       `<div class="connect-grid">${
         connectCard({
+          name: 'cloud', title: 'Cloudflare Tunnel · 新手推荐', copy: '一键启动，无需额外配置。',
+          status: tunnelStatus, tone: tunnel?.state === 'running' ? 'green' : '',
+          body: tunnelBody + linkList(connectLinks.tunnel), actions: tunnelActions
+        })
+      }${
+        connectCard({
           name: 'globe', color: 'orange', title: 'IPv6 直连', copy: '运营商下发公网 IPv6 时，外网设备直接访问该地址。',
-          status: !v6 ? '未检测' : v6.ok ? '可用' : '没有', tone: v6?.ok ? 'green' : '',
+          status: !v6 ? '未检测' : !v6.ok ? '没有' : !v6Listening ? '未监听 IPv6' : !v6ServiceRunning ? '服务未运行' : '待外网验证', tone: '',
           body: v6Body, actions: v6Actions
         })
       }${
@@ -598,12 +611,6 @@
           status: meshStatus, tone: meshOnline ? 'green' : '',
           body: meshBody,
           actions: `<button class="btn primary" data-nav="mesh">${icon('arrow')}配置 EasyTier</button>`
-        })
-      }${
-        connectCard({
-          name: 'cloud', title: 'Cloudflare Tunnel', copy: 'cloudflared 从本机向外建立隧道，由 Cloudflare 分配地址。',
-          status: tunnelStatus, tone: tunnel?.state === 'running' ? 'green' : '',
-          body: tunnelBody + linkList(connectLinks.tunnel), actions: tunnelActions
         })
       }</div>` +
       `<div class="footnote">${icon('info')}没有公网 IPv4 时，后四种方式都能中转；同时只用一条入口。</div>`;
@@ -680,7 +687,7 @@
     else if (name === 'probe-ipv6' || name === 'ipv6-cert') toast('仅桌面版可用');
     else if (name === 'mesh-probe' || name === 'mesh-fill') toast('仅桌面版可用');
     else if (name === 'mesh-config-save' || name === 'mesh-config-connect' || name === 'mesh-config-import' || name === 'mesh-config-template') toast('仅桌面版可用');
-    else if (name === 'tunnel-start' || name === 'tunnel-stop') toast('仅桌面版可用');
+    else if (name === 'tunnel-start' || name === 'tunnel-stop' || name === 'tunnel-refresh') toast('仅桌面版可用');
     else if (name === 'close-modal') $('#modal').close();
     else if (name === 'open-update') openUpdate();
     else if (name === 'update-check') await updateCommand('update-check');
