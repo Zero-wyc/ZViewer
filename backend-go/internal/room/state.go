@@ -197,10 +197,24 @@ func NewService(deps Deps) *Service {
 // 运行时状态
 // ---------------------------------------------------------------------------
 
-// State 返回房间运行时状态，不存在时创建空状态。
+// State 返回房间运行时状态的快照，不存在时创建空状态。
 func (s *Service) State(roomID string) *RuntimeState {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	st := s.stateLocked(roomID)
+	cp := *st
+	cp.Movies = append([]any{}, st.Movies...)
+	cp.MovieIDs = append([]int64{}, st.MovieIDs...)
+	if st.Playback != nil {
+		cp.Playback = st.Playback.clone()
+	}
+	return &cp
+}
+
+// stateLocked returns the mutable entry. The caller must hold s.mu until it
+// finishes reading or writing it; returning an entry from State used to unlock
+// before every setter wrote to it.
+func (s *Service) stateLocked(roomID string) *RuntimeState {
 	st := s.states[roomID]
 	if st == nil {
 		// movies 必须初始化成空切片而不是 nil：下发给前端的 `{movies}` 里
@@ -220,9 +234,11 @@ func (s *Service) SetMovies(roomID string, movies []any, ids []int64) {
 	if ids == nil {
 		ids = []int64{}
 	}
-	st := s.State(roomID)
-	st.Movies = movies
-	st.MovieIDs = ids
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := s.stateLocked(roomID)
+	st.Movies = append([]any{}, movies...)
+	st.MovieIDs = append([]int64{}, ids...)
 }
 
 // Movies 返回当前影片列表（永不为 nil）。
@@ -230,7 +246,7 @@ func (s *Service) Movies(roomID string) []any {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if st := s.states[roomID]; st != nil && st.Movies != nil {
-		return st.Movies
+		return append([]any{}, st.Movies...)
 	}
 	return []any{}
 }
@@ -240,14 +256,16 @@ func (s *Service) MovieIDs(roomID string) []int64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if st := s.states[roomID]; st != nil && st.MovieIDs != nil {
-		return st.MovieIDs
+		return append([]int64{}, st.MovieIDs...)
 	}
 	return []int64{}
 }
 
 // SetCurrentMovie 设置当前播放影片（传 nil 表示清空）。
 func (s *Service) SetCurrentMovie(roomID string, movieID any) {
-	s.State(roomID).CurrentMovieID = movieID
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stateLocked(roomID).CurrentMovieID = movieID
 }
 
 // CurrentMovieID 返回当前播放影片 ID（无则为 nil）。
@@ -262,22 +280,29 @@ func (s *Service) CurrentMovieID(roomID string) any {
 
 // SetPlayback 缓存房主广播的播放状态。
 func (s *Service) SetPlayback(roomID string, p *Playback) {
-	s.State(roomID).Playback = p
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p != nil {
+		p = p.clone()
+	}
+	s.stateLocked(roomID).Playback = p
 }
 
 // GetPlayback 返回缓存的播放状态（未推算）。
 func (s *Service) GetPlayback(roomID string) *Playback {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if st := s.states[roomID]; st != nil {
-		return st.Playback
+	if st := s.states[roomID]; st != nil && st.Playback != nil {
+		return st.Playback.clone()
 	}
 	return nil
 }
 
 // SetSubtitle 缓存房主最近一次广播的字幕状态。
 func (s *Service) SetSubtitle(roomID string, subtitle any) {
-	s.State(roomID).Subtitle = subtitle
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.stateLocked(roomID).Subtitle = subtitle
 }
 
 // Subtitle 返回缓存的字幕状态。

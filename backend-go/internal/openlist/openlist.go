@@ -198,8 +198,9 @@ type envelope struct {
 // ---------------------------------------------------------------------------
 
 type tokenEntry struct {
-	token  string
-	expire time.Time
+	token        string
+	expire       time.Time
+	passwordHash [sha256.Size]byte
 }
 
 type rawEntry struct {
@@ -360,9 +361,10 @@ func (c *Client) token(ctx context.Context, serverURL, username, password string
 	}
 	baseURL := ToAPIBaseURL(NormalizeServerURL(serverURL))
 	key := baseURL + "|" + username
+	passwordHash := sha256.Sum256([]byte(password))
 
 	c.mu.Lock()
-	if e, ok := c.tokens[key]; ok && time.Now().Before(e.expire) {
+	if e, ok := c.tokens[key]; ok && time.Now().Before(e.expire) && e.passwordHash == passwordHash {
 		c.mu.Unlock()
 		return e.token, nil
 	}
@@ -381,7 +383,7 @@ func (c *Client) token(ctx context.Context, serverURL, username, password string
 			}
 		}
 	}
-	c.tokens[key] = tokenEntry{token: tok, expire: time.Now().Add(tokenTTL)}
+	c.tokens[key] = tokenEntry{token: tok, expire: time.Now().Add(tokenTTL), passwordHash: passwordHash}
 	c.mu.Unlock()
 	return tok, nil
 }

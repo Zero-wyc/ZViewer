@@ -64,6 +64,7 @@ func (m *PlaybackMemory) SetPlayback(
 		next.HostSocketID = c.state.HostSocketID
 	}
 	c.state = &next
+	c.revision++
 	c.dirty = true
 	lastWrite := c.lastDBWriteAt
 	m.mu.Unlock()
@@ -116,6 +117,7 @@ func (m *PlaybackMemory) ApplyHostHeartbeat(
 		c.state.PlaybackRate = hb.PlaybackRate
 	}
 	c.state.UpdatedAt = now
+	c.revision++
 	shouldFlush := now-c.lastDBWriteAt > heartbeatPersistThrottleMS
 	if shouldFlush {
 		c.dirty = true
@@ -144,6 +146,8 @@ func (m *PlaybackMemory) FlushToDB(ctx context.Context, roomID string) error {
 // 这里写的一定是完整快照，按列合并反而可能留下上一部影片的残留字段
 // （比如换了影片但 audioUrl 没清）。
 func (m *PlaybackMemory) flushToDB(ctx context.Context, roomID string) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.Lock()
 	c := m.cache[roomID]
 	if c == nil || c.state == nil || !c.dirty {
@@ -151,6 +155,7 @@ func (m *PlaybackMemory) flushToDB(ctx context.Context, roomID string) error {
 		return nil
 	}
 	state := c.state.clone()
+	revision := c.revision
 	m.mu.Unlock()
 
 	now := store.FormatSQLiteTime(time.Now())
@@ -204,7 +209,7 @@ func (m *PlaybackMemory) flushToDB(ctx context.Context, roomID string) error {
 
 	m.mu.Lock()
 	// 落盘期间可能又有新写入，只在「仍是我们刚写的那份」时清脏标记。
-	if cur := m.cache[roomID]; cur != nil && cur.state != nil && cur.state.UpdatedAt == state.UpdatedAt {
+	if cur := m.cache[roomID]; cur == c && cur.revision == revision {
 		cur.dirty = false
 		cur.lastDBWriteAt = nowMillis()
 	}

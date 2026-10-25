@@ -362,7 +362,16 @@ export function useWatchTogether({
       const filtered = payload.movies.filter(
         (m) => !m.roomId || m.roomId === currentRoomId
       )
+      const selectedMovieId = useRoomStore.getState().currentMovieId
       setMovies(filtered.map(mapDtoToMovie))
+      // The host ignores an empty current-movie during recovery, but an
+      // authoritative list that no longer contains the selection is a deletion.
+      if (
+        selectedMovieId != null &&
+        !filtered.some((m) => m.id === selectedMovieId)
+      ) {
+        setCurrentMovieId(null)
+      }
     }
 
     const handleCurrentMovie = (payload: { movieId: number | null }) => {
@@ -1246,6 +1255,9 @@ export function useWatchTogether({
   // 避免已删除的影片继续在播放器中播放。房主与观众端均生效。
   useEffect(() => {
     if (currentMovieId !== null) return
+    const state = useRoomStore.getState().watchTogether
+    // Preview playback intentionally has no library movie ID.
+    if (state.isPreview) return
     const video = videoRef.current
     if (video) {
       suppressEventsRef.current = true
@@ -1257,7 +1269,19 @@ export function useWatchTogether({
     cleanupMedia()
     lastLoadedMovieRef.current = null
     failedLoadMovieIdsRef.current.clear()
-  }, [currentMovieId, cleanupMedia, videoRef, suppressEventsRef])
+    // Clear the source snapshot as well as the element, otherwise a remount or
+    // state/heartbeat handler can attach the deleted movie again.
+    if (state.sourceUrl || state.isPlaying) {
+      setWatchTogether({
+        sourceUrl: '',
+        sourceType: 'url',
+        isPlaying: false,
+        currentTime: 0,
+        playbackRate: state.playbackRate,
+        duration: 0,
+      })
+    }
+  }, [currentMovieId, cleanupMedia, videoRef, suppressEventsRef, setWatchTogether])
 
   // 组件卸载或切换房间时释放 MSE blob URL 与音频同步资源
   useEffect(() => {

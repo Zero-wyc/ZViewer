@@ -10,6 +10,8 @@ ZViewer 后端的**唯一实现**（module `zviewer/backend`，Go 1.26）。历�
 迁移台账（阶段、验收口径、刻意保留的差异、外部依赖）在 [MIGRATION.md](./MIGRATION.md)；
 日常开发、构建、排错入口在仓库根目录的 `DEVELOPMENT.md`。
 
+Go 重构后的并发、播放落盘与会话边界专项检查见 [2026-10-25 检查与修复记录](./AUDIT-2026-10-25.md)。
+
 ## 快速开始
 
 ```bash

@@ -579,24 +579,28 @@ func (s *Server) attachSocket(sess *session, authData string) {
 		acks:     make(map[int64]func(...any)),
 	}
 
-	// 先回 CONNECT 再跑业务回调：Node 也是先发 40{"sid"} 再 emit("connection")。
-	// 反过来的话，业务回调里立刻 emit 的事件会先于 CONNECT 到达，
-	// 客户端会把它当成「尚未连接」而丢弃。
-	sess.enqueueRaw(sioPacket{Type: sioConnect, Data: `{"sid":` + strconv.Quote(sc.ID) + `}`}.encode())
-
 	sess.mu.Lock()
+	// Authentication can block while another POST connects, or the transport
+	// closes. Recheck before publishing a socket, under the same lock as close.
+	if sess.closed || sess.socket != nil {
+		sess.mu.Unlock()
+		return
+	}
 	sess.socket = sc
-	sess.mu.Unlock()
-
+	// Publish the socket and its private room together, before closeSession can
+	// detach it. Otherwise disconnect can finish just before these indexes grow.
+	sc.rooms[sc.ID] = struct{}{}
 	s.roomsMu.Lock()
 	s.sockets[sc] = struct{}{}
+	if s.rooms[sc.ID] == nil {
+		s.rooms[sc.ID] = make(map[*Socket]struct{})
+	}
+	s.rooms[sc.ID][sc] = struct{}{}
 	s.roomsMu.Unlock()
+	sess.mu.Unlock()
 
-	// 每个 socket 自动加入以自身 ID 命名的房间——socket.io 的 Socket 构造函数
-	// 就是这么做的，`io.to(socket.id).emit(...)` 因此能定向到单个连接。
-	// 少了这一步，所有「只推给某一个人」的事件（join-approved / viewer-kicked
-	// / moderators-changed）都会静默发不出去，且不报错。
-	s.joinRoom(sc, sc.ID)
+	// CONNECT must precede events emitted by the business callback.
+	sess.enqueueRaw(sioPacket{Type: sioConnect, Data: `{"sid":` + strconv.Quote(sc.ID) + `}`}.encode())
 
 	if s.connect != nil {
 		s.connect(sc)
@@ -607,18 +611,16 @@ func (s *Server) attachSocket(sess *session, authData string) {
 // 房间（服务端级）
 // ---------------------------------------------------------------------------
 
-// 房间的锁序约定：**先 sc.mu，再 roomsMu，且两者不嵌套**。
-//
-// 两把锁分开取（而不是嵌套）是刻意的：嵌套时 joinRoom 与 leaveAllRooms
-// 只要顺序相反就是 ABBA 死锁，而这种死锁只在并发 join/断线时偶发，极难复现。
+// Membership mutations hold sc.mu then roomsMu, in that order. Both indexes
+// must change atomically with respect to other mutations of the same socket.
+// Readers of roomsMu release it before acquiring any socket lock.
 func (s *Server) joinRoom(sc *Socket, room string) {
 	sc.mu.Lock()
+	defer sc.mu.Unlock()
 	if sc.closed {
-		sc.mu.Unlock()
 		return
 	}
 	sc.rooms[room] = struct{}{}
-	sc.mu.Unlock()
 
 	s.roomsMu.Lock()
 	set := s.rooms[room]
@@ -632,8 +634,8 @@ func (s *Server) joinRoom(sc *Socket, room string) {
 
 func (s *Server) leaveRoom(sc *Socket, room string) {
 	sc.mu.Lock()
+	defer sc.mu.Unlock()
 	delete(sc.rooms, room)
-	sc.mu.Unlock()
 
 	s.roomsMu.Lock()
 	if set := s.rooms[room]; set != nil {
@@ -646,15 +648,13 @@ func (s *Server) leaveRoom(sc *Socket, room string) {
 }
 
 func (s *Server) leaveAllRooms(sc *Socket) {
-	// 先在 sc.mu 下摘出快照并清空，再单独处理服务端索引；
-	// 直接遍历 sc.rooms 会在并发 join 时触发 map 读写竞态。
 	sc.mu.Lock()
+	defer sc.mu.Unlock()
 	rooms := make([]string, 0, len(sc.rooms))
 	for room := range sc.rooms {
 		rooms = append(rooms, room)
 	}
 	sc.rooms = make(map[string]struct{})
-	sc.mu.Unlock()
 
 	s.roomsMu.Lock()
 	for _, room := range rooms {
@@ -684,12 +684,6 @@ func (s *Server) roomSockets(room string) []*Socket {
 }
 
 func (s *Server) detachSocket(sc *Socket, reason string) {
-	s.leaveAllRooms(sc)
-
-	s.roomsMu.Lock()
-	delete(s.sockets, sc)
-	s.roomsMu.Unlock()
-
 	sc.mu.Lock()
 	if sc.closed {
 		sc.mu.Unlock()
@@ -700,6 +694,13 @@ func (s *Server) detachSocket(sc *Socket, reason string) {
 	sc.disconnectHandlers = nil
 	sc.acks = make(map[int64]func(...any))
 	sc.mu.Unlock()
+
+	// Mark closed before clearing memberships, so an in-flight Join cannot
+	// reinsert this socket after leaveAllRooms has taken its snapshot.
+	s.leaveAllRooms(sc)
+	s.roomsMu.Lock()
+	delete(s.sockets, sc)
+	s.roomsMu.Unlock()
 
 	for _, fn := range handlers {
 		fn(reason)

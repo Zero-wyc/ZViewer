@@ -232,12 +232,20 @@ func (s *Service) kickViewer(ctx context.Context, roomID, viewerSocketID string)
 	if s.Hub == nil || !s.Hub.Connected(viewerSocketID) {
 		return false, nil
 	}
+	target, err := s.Sessions.FindActiveByRoomSocket(ctx, roomID, viewerSocketID)
+	if err != nil {
+		return false, err
+	}
+	if target == nil || target.Role != store.SessionRoleViewer {
+		return false, nil
+	}
 	s.Hub.EmitTo(viewerSocketID, "viewer-kicked", map[string]any{
 		"reason": "房主已将您移出房间",
 	})
-	if _, err := s.EndSession(ctx, viewerSocketID); err != nil {
+	if err := s.Sessions.EndByID(ctx, target.ID); err != nil {
 		return false, err
 	}
+	s.perm.invalidate(viewerSocketID, roomID)
 	s.Hub.Leave(viewerSocketID, roomID)
 	s.Hub.Disconnect(viewerSocketID)
 	return true, nil
@@ -416,34 +424,44 @@ func (s *Service) handleTransferHost(sc *sio.Socket, args []json.RawMessage, ack
 // 新房主若原本是房管，必须从名单里移除：房主天然拥有全部权限，
 // 留着这条会让前端给房主多打一个「房管」徽标，也是脏数据。
 func (s *Service) transferHost(ctx context.Context, roomID, newSocketID, oldSocketID string, newOwnerUID int64) ([]int64, error) {
+	if newSocketID == oldSocketID || newOwnerUID <= 0 {
+		return nil, ErrNoPermission
+	}
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE "session" SET "role" = ? WHERE "socketId" = ? AND "role" = ?`,
-		store.SessionRoleViewer, oldSocketID, store.SessionRoleSharer); err != nil {
-		return nil, fmt.Errorf("降级原房主失败: %w", err)
+	var moderators string
+	err = tx.QueryRowContext(ctx,
+		`SELECT "moderators" FROM "room" WHERE "roomId" = ? AND "status" = 'active' LIMIT 1`, roomID).
+		Scan(&moderators)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrRoomClosed
 	}
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE "session" SET "role" = ? WHERE "socketId" = ? AND "role" = ?`,
-		store.SessionRoleSharer, newSocketID, store.SessionRoleViewer); err != nil {
+	if err != nil {
+		return nil, fmt.Errorf("读取房间失败: %w", err)
+	}
+	// Constrain both updates to live sessions in this room. The old queries also
+	// promoted viewers in unrelated rooms and rewrote ended session history.
+	result, err := tx.ExecContext(ctx,
+		`UPDATE "session" SET "role" = ? WHERE "roomId" = ? AND "socketId" = ? AND "role" = ? AND "userId" = ? AND "endedAt" IS NULL`,
+		store.SessionRoleSharer, roomID, newSocketID, store.SessionRoleViewer, newOwnerUID)
+	if err != nil {
 		return nil, fmt.Errorf("升级新房主失败: %w", err)
 	}
-
-	var (
-		owner      sql.NullInt64
-		moderators string
-	)
-	err = tx.QueryRowContext(ctx,
-		`SELECT "ownerUserId", "moderators" FROM "room" WHERE "roomId" = ? LIMIT 1`, roomID).
-		Scan(&owner, &moderators)
-	// 房间不存在时跳过 rooms 部分（Node 侧 findOne 返回 undefined 就是这样），
-	// 角色互换照样要提交。
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("读取房间失败: %w", err)
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		return nil, ErrViewerGone
+	}
+	result, err = tx.ExecContext(ctx,
+		`UPDATE "session" SET "role" = ? WHERE "roomId" = ? AND "socketId" = ? AND "role" = ? AND "endedAt" IS NULL`,
+		store.SessionRoleViewer, roomID, oldSocketID, store.SessionRoleSharer)
+	if err != nil {
+		return nil, fmt.Errorf("降级原房主失败: %w", err)
+	}
+	if count, err := result.RowsAffected(); err != nil || count != 1 {
+		return nil, ErrNotHost
 	}
 
 	var nextModerators []int64
