@@ -258,6 +258,7 @@ services:
 | `LIVEKIT_TURN_DOMAIN`    | TURN/TLS 域名                           | —                       |
 | `LIVEKIT_TURN_CERT`      | TURN TLS 证书路径                         | —                       |
 | `LIVEKIT_TURN_KEY`       | TURN TLS 私钥路径                         | —                       |
+| `EMBY_CLIENT_NAME`       | Emby / Jellyfin 客户端标识名（`X-Emby-Authorization`）；部分服务器限制客户端名时改这里 | `ZViewer`               |
 
 ### 推流与一起听
 

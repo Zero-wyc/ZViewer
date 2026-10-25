@@ -265,6 +265,7 @@ services:
 | `LIVEKIT_TURN_DOMAIN`    | TURN/TLS domain                           | —                       |
 | `LIVEKIT_TURN_CERT`      | TURN TLS certificate path                         | —                       |
 | `LIVEKIT_TURN_KEY`       | TURN TLS private key path                         | —                       |
+| `EMBY_CLIENT_NAME`       | Emby / Jellyfin client name (`X-Emby-Authorization`); change it when a server restricts client names | `ZViewer`               |
 
 ### Push and Listen Together
 

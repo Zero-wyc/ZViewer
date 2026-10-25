@@ -1676,11 +1676,18 @@ RTMP 音视频消息的载荷与 FLV tag body 是同一份字节，所以实现�
 `GET .../mounts/{id}/image`（免认证）、`GET .../resolve`、`GET .../movie-source`、
 `GET .../proxy`、`GET .../stream`。
 
-验证脚本：
-- `scripts/mock-emby.js`——最小 Emby（登录校验客户端标识头、`/Users/Me` 对特定账号返 500、
+验证（`mock-emby.js` / `emby-parity.sh` 已随 Node 后端删除，结论保留、覆盖改由单测承担）：
+- 当时的对拍：最小 Emby 假站（登录校验客户端标识头、`/Users/Me` 对特定账号返 500、
   缺 Path / 缺海报的条目、多版本、DTS 音轨、空 MediaSources、Range 流、带 api_key 的 m3u8、
-  `POST /__invalidate` 清会话）；
-- `scripts/emby-parity.sh`——**52 步**逐步骤对拍，m3u8 **按全文**比对。
+  `POST /__invalidate` 清会话），**52 步**逐步骤一致，m3u8 **按全文**比对；
+- 现在：`internal/emby/*_test.go` 覆盖登录缓存单飞 + 401 重登、多版本选择、版本标签、
+  客户端标识头形状。
+
+**客户端标识名可配置（`EMBY_CLIENT_NAME`）**：`X-Emby-Authorization` 里的
+`Client="ZViewer"` 原本是写死的，部分私有服务器会按客户端名做白名单（改成 `Emby Web` /
+`SenPlayer` 才放行）。现在默认仍是 `ZViewer`，设了环境变量就替换：空值/纯空格回落默认，
+双引号与 CR/LF 会被剥掉（否则会截断 `Client="…"` 的键值或造出非法头）。
+DeviceId 仍是进程级常量，见 `internal/emby/clientname_test.go`。
 
 ---
 

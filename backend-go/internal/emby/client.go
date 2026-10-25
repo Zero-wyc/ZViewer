@@ -25,6 +25,7 @@ import (
 	"io"
 	"math/big"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -175,14 +176,43 @@ func (c *Client) setToken(token string) {
 	c.mu.Unlock()
 }
 
+// defaultEmbyClientName 是默认的客户端标识名。
+//
+// 私有 Emby/Jellyfin 常见「客户端名白名单」策略：写死 ZViewer 会被直接拒绝
+// （401 或无法建立会话）。允许用 EMBY_CLIENT_NAME 覆盖（如 "Emby Web"），
+// 未设置 / 空白时仍是 ZViewer，保持向下兼容。
+const defaultEmbyClientName = "ZViewer"
+
+// resolveClientName 归一化客户端标识名。
+//
+// 三条规则都是「宁可回退，也不要发出一个非法请求头」：
+//   - TrimSpace：`.env` 里写 `EMBY_CLIENT_NAME=` 或带尾随空格时不能产生 Client=""；
+//   - 去掉双引号：这个值要拼进 `Client="…"`，带引号会截断键值格式；
+//   - 去掉 CR/LF：环境变量里混入换行会造出非法头，Go 会直接拒绝整个请求。
+func resolveClientName(raw string) string {
+	name := strings.NewReplacer(`"`, "", "\r", "", "\n", "").Replace(strings.TrimSpace(raw))
+	if name == "" {
+		return defaultEmbyClientName
+	}
+	return name
+}
+
+// authHeaderFromEnv 按当前环境变量构造客户端标识头。
+//
+// 运行期只解析一次（见 embyAuthHeader）：环境变量属于部署配置，热改没有意义，
+// 而每个请求都读一遍 os.Getenv 会在浏览瀑布流时反复取同一把锁。
+func authHeaderFromEnv() string {
+	return buildAuthHeader(resolveClientName(os.Getenv("EMBY_CLIENT_NAME")))
+}
+
 // embyAuthHeader 是 X-Emby-Authorization 客户端标识。
 //
 // DeviceId 在 Node 侧是进程级常量（Math.random().toString(36).slice(2,12)），
 // 这里同样只在进程启动时生成一次：Emby 会按 DeviceId 聚合会话，
 // 每个请求换一个 ID 会让服务器会话表爆掉。
-var embyAuthHeader = buildAuthHeader()
+var embyAuthHeader = authHeaderFromEnv()
 
-func buildAuthHeader() string {
+func buildAuthHeader(clientName string) string {
 	const alphabet = "0123456789abcdefghijklmnopqrstuvwxyz"
 	buf := make([]byte, 10)
 	for i := range buf {
@@ -193,7 +223,7 @@ func buildAuthHeader() string {
 		}
 		buf[i] = alphabet[n.Int64()]
 	}
-	return `MediaBrowser Client="ZViewer", Device="Web Browser", DeviceId="zviewer-web-` +
+	return `MediaBrowser Client="` + clientName + `", Device="Web Browser", DeviceId="zviewer-web-` +
 		string(buf) + `", Version="1.0.0"`
 }
 
