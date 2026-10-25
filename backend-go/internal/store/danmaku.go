@@ -274,6 +274,19 @@ func (m *Metas) GetOrCreate(ctx context.Context, roomID string) (*DanmakuMeta, e
 		VALUES (?, '[]', '[]', '[]')
 	`, roomID)
 	if err != nil {
+		// 并发首读的必然后果：两个请求都 SELECT 不到、都去 INSERT，而
+		// "roomId" 上有 UNIQUE 索引，后到的那个必然撞约束。这不是错误——
+		// 说明另一个请求刚刚把行建好了，重读一次拿它建好的那条即可。
+		//
+		// Node 版没有这个问题（sql.js 单线程、await 之间不会被同类写入插队），
+		// 所以对拍脚本永远抓不到，只有并发压测（scripts/soak.sh）才会暴露成 500。
+		var again DanmakuMeta
+		if readErr := m.conn.QueryRowContext(ctx, `
+			SELECT "id", "roomId", "blockKeywords", "deletedLog", "realtimeLog"
+			FROM "room_danmaku_meta" WHERE "roomId" = ? ORDER BY "id" ASC LIMIT 1
+		`, roomID).Scan(&again.ID, &again.RoomID, &again.BlockKeywords, &again.DeletedLog, &again.RealtimeLog); readErr == nil {
+			return &again, nil
+		}
 		return nil, fmt.Errorf("创建弹幕辅助数据失败: %w", err)
 	}
 	id, _ := res.LastInsertId()

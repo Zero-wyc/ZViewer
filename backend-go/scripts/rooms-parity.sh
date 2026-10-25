@@ -28,12 +28,19 @@ cp "$REPO/config/dev.sqlite" "$WORK/go/dev.sqlite"
 echo "=== 编译 Go 服务 ==="
 (cd "$REPO/backend-go" && go build -o "$BIN" ./cmd/zviewer-server) || exit 1
 
+# 三个时间点统一在这里算一次：两份种子库必须拿到完全相同的时间字符串，
+# 否则跨秒时两侧列表里的 lastAccessedAt 会差 1 秒，对拍随机红。
+T_FRESH=$(date -u +"%Y-%m-%d %H:%M:%S.000")
+T_HOUR_AGO=$(date -u -d "-1 hour" +"%Y-%m-%d %H:%M:%S.000")
+T_OLD=$(date -u -d "-2 days" +"%Y-%m-%d %H:%M:%S.000")
+
 echo "=== 写入相同种子（两份库）==="
 HASH=$(cd "$REPO" && node -e "console.log(require('bcryptjs').hashSync('rooms-pass-1234',10))")
 for db in "$WORK/node/dev.sqlite" "$WORK/go/dev.sqlite"; do
-  "$PY" - "$db" "$HASH" "$ROOM_A" "$ROOM_B" <<'PY' || exit 1
+  "$PY" - "$db" "$HASH" "$ROOM_A" "$ROOM_B" "$T_FRESH" "$T_HOUR_AGO" "$T_OLD" <<'PY' || exit 1
 import sqlite3, sys
 db, pw_hash, room_a, room_b = sys.argv[1:5]
+t_fresh, t_hour_ago, t_old = sys.argv[5], sys.argv[6], sys.argv[7]
 c = sqlite3.connect(db)
 
 def user(name, role):
@@ -47,11 +54,18 @@ other = user('rooms-other', 'user')
 v1 = user('rooms-viewer1', 'user')
 v2 = user('rooms-viewer2', 'user')
 
-for rid in (room_a, room_b):
-    c.execute('DELETE FROM "danmaku_track" WHERE "roomId"=?', (rid,))
-    c.execute('DELETE FROM "room_danmaku_meta" WHERE "roomId"=?', (rid,))
-    c.execute('DELETE FROM "session" WHERE "roomId"=?', (rid,))
-    c.execute('DELETE FROM "room" WHERE "roomId"=?', (rid,))
+# 时间基准必须取「现在」：基线库里的历史房间 lastAccessedAt 早就超过
+# autoDeleteAfterHours，Go 启动即跑一轮房间清理会把它们（以及挂在它们身上的影片）
+# 删掉，而 Node 侧的最小应用不跑清理 —— 结果就是「列表/影片」两侧必然不一致。
+# 所以这里清空房间与影片，全部按 now 重新播种。
+# 三个时间点由 bash 侧算一次后传进来：**两份种子库必须拿到同一组字符串**，
+# 否则跨秒时两侧列表里的 lastAccessedAt 会差 1 秒，对拍随机红（踩过）。
+
+c.execute('DELETE FROM "movie"')
+c.execute('DELETE FROM "danmaku_track"')
+c.execute('DELETE FROM "room_danmaku_meta"')
+c.execute('DELETE FROM "session"')
+c.execute('DELETE FROM "room"')
 
 # 房间 A：房主=owner，时间列刻意给固定值，保证两端 toISOString 一致且排序稳定
 c.execute('''INSERT INTO "room"
@@ -59,7 +73,7 @@ c.execute('''INSERT INTO "room"
      "lastAccessedAt","createdAt","updatedAt")
     VALUES (?,?,?,?,?,?,?,?,?,?)''',
     (room_a, '对拍房间A', 'active', 'watch-together', 12, 0, owner,
-     '2026-01-02 03:04:05.000', '2026-01-01 00:00:00.000', '2026-01-02 03:04:05.000'))
+     t_fresh, t_old, t_fresh))
 
 # 房间 B：用于验证 viewerCount / sharerOnline 聚合；
 # password 刻意写一个非空值，验证 hasPassword 的「有无」语义（true）而非内容。
@@ -68,11 +82,11 @@ c.execute('''INSERT INTO "room"
      "lastAccessedAt","createdAt","updatedAt")
     VALUES (?,?,?,?,?,?,?,?,?,?,?)''',
     (room_b, '对拍房间B', 'not-a-real-hash', 'active', 'watch-together', 10, 1, other,
-     '2026-01-01 00:00:00.000', '2026-01-01 00:00:00.000', '2026-01-01 00:00:00.000'))
+     t_hour_ago, t_old, t_hour_ago))
 
 def session(rid, sock, role, uid):
     c.execute('''INSERT INTO "session" ("roomId","socketId","role","userId","guestId","startedAt","endedAt")
-                 VALUES (?,?,?,?,NULL,'2026-01-01 00:00:00.000',NULL)''', (rid, sock, role, uid))
+                 VALUES (?,?,?,?,NULL,?,NULL)''', (rid, sock, role, uid, t_old))
 
 session(room_b, 'sock-v1', 'viewer', v1)
 session(room_b, 'sock-v2', 'viewer', v2)

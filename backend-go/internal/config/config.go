@@ -134,10 +134,17 @@ func resolveProjectRoot() string {
 }
 
 // findProjectRootUpward 逐级向上探测项目特征目录。
+//
+// 判据是「同时有 frontend 与后端源码目录」。**backend-go 也算后端目录**：
+// 删掉 Node 的 backend/ 之后，只认 backend 会让 `go run` 从 backend-go 起步时
+// 一路向上找不到根，最后退到临时目录——表现为「数据库空了、设置全丢」，
+// 而且只在开发态（go run 的 exe 在 TEMP）才出现，很难联想到根目录探测。
 func findProjectRootUpward(start string) string {
 	dir := start
 	for i := 0; i < 8; i++ {
-		if isDir(filepath.Join(dir, "frontend")) && isDir(filepath.Join(dir, "backend")) {
+		hasFrontend := isDir(filepath.Join(dir, "frontend"))
+		hasBackend := isDir(filepath.Join(dir, "backend")) || isDir(filepath.Join(dir, "backend-go"))
+		if hasFrontend && hasBackend {
 			return dir
 		}
 		parent := filepath.Dir(dir)

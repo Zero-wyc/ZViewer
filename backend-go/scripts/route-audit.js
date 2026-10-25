@@ -16,6 +16,15 @@
  *   node backend-go/scripts/route-audit.js                 # 静态 diff
  *   node backend-go/scripts/route-audit.js --probe http://127.0.0.1:PORT
  *   node backend-go/scripts/route-audit.js --json          # 机器可读
+ *
+ * 契约快照（删除 backend/ 之后仍然能保证端点覆盖）：
+ *   node backend-go/scripts/route-audit.js --snapshot backend-go/testdata/contract/routes.json
+ *   node backend-go/scripts/route-audit.js --fixture  backend-go/testdata/contract/routes.json \
+ *        --probe http://127.0.0.1:PORT
+ *
+ * `--snapshot` 把 Node 运行时路由表冻结成 JSON；`--fixture` 则完全不需要 Node
+ * （不 require ts-node、不碰 backend/），只做行为探测。两者配合，Node 退场后
+ * 「每条历史端点都还在」这条保证依然可执行。
  */
 'use strict';
 
@@ -263,6 +272,46 @@ async function probe(base, routes) {
 }
 
 // ---------------------------------------------------------------------------
+// 契约快照：把 Node 路由表冻结成 JSON（Node 退场后的参照物）
+// ---------------------------------------------------------------------------
+
+const FIXTURE_VERSION = 1;
+
+function loadFixture(file) {
+  const abs = path.isAbsolute(file) ? file : path.join(REPO, file);
+  if (!fs.existsSync(abs)) {
+    throw new Error(`契约快照不存在: ${abs}（先跑 --snapshot 生成）`);
+  }
+  const data = JSON.parse(fs.readFileSync(abs, 'utf8'));
+  if (!Array.isArray(data.routes) || !data.routes.length) {
+    throw new Error(`契约快照格式不对（缺 routes 数组）: ${abs}`);
+  }
+  return data.routes.map((r) => ({ method: r.method, path: r.path }));
+}
+
+function writeFixture(file, routes) {
+  const abs = path.isAbsolute(file) ? file : path.join(REPO, file);
+  fs.mkdirSync(path.dirname(abs), { recursive: true });
+  const uniq = new Map();
+  for (const r of routes) uniq.set(r.method + ' ' + r.path, { method: r.method, path: r.path });
+  const list = [...uniq.values()].sort((a, b) =>
+    a.path === b.path ? a.method.localeCompare(b.method) : a.path.localeCompare(b.path),
+  );
+  const payload = {
+    version: FIXTURE_VERSION,
+    note:
+      'Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。' +
+      'backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。' +
+      '仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。',
+    generatedAt: new Date().toISOString(),
+    total: list.length,
+    routes: list,
+  };
+  fs.writeFileSync(abs, JSON.stringify(payload, null, 2) + '\n', 'utf8');
+  return { abs, total: list.length };
+}
+
+// ---------------------------------------------------------------------------
 // 主流程
 // ---------------------------------------------------------------------------
 
@@ -270,9 +319,33 @@ async function main() {
   const argv = process.argv.slice(2);
   const probeIdx = argv.indexOf('--probe');
   const probeBase = probeIdx >= 0 ? argv[probeIdx + 1] : null;
+  const snapIdx = argv.indexOf('--snapshot');
+  const snapFile = snapIdx >= 0 ? argv[snapIdx + 1] : null;
+  const fixtureIdx = argv.indexOf('--fixture');
+  const fixtureFile = fixtureIdx >= 0 ? argv[fixtureIdx + 1] : null;
   const wantJson = argv.includes('--json');
 
-  const nodeRoutes = collectNodeRoutes().filter((r) => inScope(r.path));
+  // --snapshot 必须先跑（它要 Node 还活着）
+  if (snapFile) {
+    const nodeRoutes = collectNodeRoutes().filter((r) => inScope(r.path));
+    const { abs, total } = writeFixture(snapFile, nodeRoutes);
+    console.log(`✓ 契约快照已写入 ${abs}`);
+    console.log(`  ${total} 条（/api/* 与 /health，去重排序）`);
+    return 0;
+  }
+
+  let nodeRoutes;
+  if (fixtureFile) {
+    nodeRoutes = loadFixture(fixtureFile);
+    if (!wantJson) console.log(`（使用契约快照 ${fixtureFile}：${nodeRoutes.length} 条）`);
+  } else {
+    if (!fs.existsSync(BACKEND)) {
+      console.error('backend/ 已不存在，且没给 --fixture。用：');
+      console.error('  --fixture backend-go/testdata/contract/routes.json --probe http://127.0.0.1:PORT');
+      return 2;
+    }
+    nodeRoutes = collectNodeRoutes().filter((r) => inScope(r.path));
+  }
 
   if (probeBase) {
     const results = await probe(probeBase, nodeRoutes);

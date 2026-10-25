@@ -31,10 +31,12 @@ echo "=== 准备用户与影片种子 ==="
 HASH=$(cd "$REPO" && node -e "console.log(require('bcryptjs').hashSync('emby-owner-pass',10))")
 
 seed_db() {
-  "$PY" - "$1" "$HASH" "$EMBY_URL" "$ROOM" <<'PY'
+  "$PY" - "$1" "$HASH" "$EMBY_URL" "$ROOM" "$SEED_NOW" <<'PY'
 import sqlite3, sys
-db, pw_hash, emby_url, room = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
+db, pw_hash, emby_url, room, _now = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5]
 c = sqlite3.connect(db)
+# _now 由 bash 侧算一次后传进来：两份种子库必须拿到**同一个**时间字符串，
+# 否则跨秒时两侧列表里的 lastAccessedAt 会差 1 秒，对拍随机红。
 c.execute('DELETE FROM "user" WHERE "username"=?', ('emby-owner',))
 c.execute('INSERT INTO "user" ("username","passwordHash","role","status") VALUES (?,?,?,?)',
           ('emby-owner', pw_hash, 'user', 'active'))
@@ -47,11 +49,13 @@ c.execute('DELETE FROM "user_mount" WHERE "userId"=? AND "type" IN (?,?)', (uid,
 # 靠 serverUrl + type + 房主回退到挂载取凭证。
 c.execute('DELETE FROM "movie" WHERE "roomId"=?', (room,))
 c.execute('DELETE FROM "room" WHERE "roomId"=?', (room,))
+# lastAccessedAt 必须写「现在」：写死的历史时间会被 Go 启动时的房间清理判成
+# 「长期无人访问」直接删掉，连带挂在它身上的影片一起消失（Node 侧最小应用不跑清理，
+# 于是后续所有「影片流」步骤都会变成一头 404 一头 206）。
 c.execute('''INSERT INTO "room" ("roomId","name","status","mode","ownerUserId",
              "lastAccessedAt","createdAt","updatedAt")
-             VALUES (?,?,?,?,?,'2026-01-01 00:00:00.000',
-                    '2026-01-01 00:00:00.000','2026-01-01 00:00:00.000')''',
-          (room, 'Emby 对拍房', 'active', 'watch-together', uid))
+             VALUES (?,?,?,?,?,?,?,?)''',
+          (room, 'Emby 对拍房', 'active', 'watch-together', uid, _now, _now, _now))
 # 影片一：静态流（format=mkv）
 c.execute('''INSERT INTO "movie" ("roomId","url","title","source","serverUrl","path","format","order")
              VALUES (?,?,?,?,?,?,?,1)''',
@@ -70,6 +74,8 @@ PY
 }
 
 MOVIE_IDS=""
+# 种子时间戳统一在这里算一次：两份库必须用同一个值，跨秒会让对拍随机红
+SEED_NOW=$(date -u +"%Y-%m-%d %H:%M:%S.000")
 for db in "$WORK/node/dev.sqlite" "$WORK/go/dev.sqlite"; do
   OUT=$(seed_db "$db") || exit 1
   echo "  种子(userId movie1 movie2): $OUT"

@@ -9,7 +9,15 @@
 # 两边静态解析都会互相误报。静态扫描保留在 route-audit.js 里做快速预检，
 # 最终判定以本脚本的行为探测为准。
 #
-# 用法：bash backend-go/scripts/route-parity.sh
+# 用法：
+#   bash backend-go/scripts/route-parity.sh            # 自动：backend/ 还在就用 Node 实时路由表
+#   bash backend-go/scripts/route-parity.sh --fixture  # 强制用契约快照（不需要 Node）
+#
+# 端点清单的来源有两种：
+#   · backend/ 还在 → 直接遍历 Node 的 Express 路由表（最权威，能发现 Node 新增了什么）
+#   · backend/ 已删 → 用 backend-go/testdata/contract/routes.json（删除前冻结的快照）
+# 两种来源下探测逻辑完全相同，所以「Go 侧是否覆盖了全部历史端点」这条保证不会因为
+# 删掉 Node 而失效。
 set -u
 
 REPO=/f/Code/ZViewer/ZViewer
@@ -17,6 +25,11 @@ TAG=route-parity
 WORK=/tmp/zv-$TAG
 NODE=C:/Users/Zero_/.workbuddy/binaries/node/versions/22.22.2-6/node.exe
 GOBIN="$WORK/zviewerd.exe"
+FIXTURE=backend-go/testdata/contract/routes.json
+
+USE_FIXTURE=0
+[ -d "$REPO/backend/src" ] || USE_FIXTURE=1
+[ "${1:-}" = "--fixture" ] && USE_FIXTURE=1
 
 script_dir=$(cd "$(dirname "$0")" && pwd)
 # shellcheck source=lib-proc.sh
@@ -48,7 +61,15 @@ if ! wait_ready "$PORT" "Go 后端" "$WORK/go.log" "监听"; then
 fi
 
 echo "=== 逐条探测 ==="
-"$NODE" "$REPO/backend-go/scripts/route-audit.js" --probe "http://127.0.0.1:$PORT"
+AUDIT_ARGS=(--probe "http://127.0.0.1:$PORT")
+if [ "$USE_FIXTURE" = "1" ]; then
+  echo "（端点清单来源：契约快照 $FIXTURE）"
+  [ -f "$REPO/$FIXTURE" ] || { echo "!! 契约快照缺失：$FIXTURE"; kill_tree "$PID"; exit 1; }
+  AUDIT_ARGS=(--fixture "$FIXTURE" "${AUDIT_ARGS[@]}")
+else
+  echo "（端点清单来源：Node 运行时路由表）"
+fi
+"$NODE" "$REPO/backend-go/scripts/route-audit.js" "${AUDIT_ARGS[@]}"
 CODE=$?
 
 # 探测过程中出现的 5xx / panic 也要看：panic 说明某条路由的实现是坏的。

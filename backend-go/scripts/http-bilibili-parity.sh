@@ -127,6 +127,14 @@ import json, sys
 # 已知且刻意保留的差异：无。
 KNOWN_DIFFS = {}
 
+# 真正打 B站线上接口、结果每次不同的步骤。
+#
+# 两侧各发一次请求，上游的风控/缓存经常只让其中一侧拿到数据（表现为
+# items 空 vs 非空、total 为 null vs 数字），这不是实现差异——但会让这条对拍
+# 随机红，反过来掩盖真回归。所以这些步骤只比「状态码 + 顶层键集合」：
+# 路由没接上、字段改名、整体包错一层，都会在这里现形；条数多少不计。
+UPSTREAM_STEPS = {'search'}
+
 a = json.load(open(sys.argv[1], encoding='utf-8'))
 b = json.load(open(sys.argv[2], encoding='utf-8'))
 
@@ -165,6 +173,13 @@ for name in names_a:
     same_body = x.get('body') == y.get('body')
     if same_status and same_body:
         continue
+    if name in UPSTREAM_STEPS and same_status:
+        keys_x = sorted((x.get('body') or {}).keys()) if isinstance(x.get('body'), dict) else x.get('body')
+        keys_y = sorted((y.get('body') or {}).keys()) if isinstance(y.get('body'), dict) else y.get('body')
+        if keys_x == keys_y:
+            known += 1
+            print(f'~ {name}: 顶层键一致，内容随上游变化（不计差异）')
+            continue
     if name in KNOWN_DIFFS:
         known += 1
         print(f'~ {name}: 已知差异（{KNOWN_DIFFS[name]}）')

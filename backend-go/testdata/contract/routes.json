@@ -1,0 +1,764 @@
+{
+  "version": 1,
+  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。",
+  "generatedAt": "2026-10-25T05:47:58.398Z",
+  "total": 189,
+  "routes": [
+    {
+      "method": "GET",
+      "path": "/api/admin/rooms"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/rooms/:roomId"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rooms/:roomId/reopen"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rooms/batch-delete"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rooms/cleanup-unused"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rooms/delete-all"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/settings"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/admin/settings"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/users"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/users/:id"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/users/:id/approve"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/admin/users/:id/role"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/auth/avatar"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/avatar"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/guest"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/login"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/logout"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/me"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/password"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/public-settings"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/refresh"
+    },
+    {
+      "method": "POST",
+      "path": "/api/auth/register"
+    },
+    {
+      "method": "GET",
+      "path": "/api/auth/registration-mode"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/auth/username"
+    },
+    {
+      "method": "GET",
+      "path": "/api/cli/resolve"
+    },
+    {
+      "method": "POST",
+      "path": "/api/client-logs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/direct-resolve/movie"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/mounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/emby/mounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/emby/mounts/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/emby/mounts/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/mounts/:id/browse"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/mounts/:id/image"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/mounts/:id/search"
+    },
+    {
+      "method": "POST",
+      "path": "/api/emby/mounts/test"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/movie-source"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/proxy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/emby/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ftp/mounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ftp/mounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/ftp/mounts/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/ftp/mounts/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ftp/mounts/:id/browse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/ftp/mounts/test"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ftp/proxy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ftp/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/ftp/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/mounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/jellyfin/mounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/jellyfin/mounts/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/jellyfin/mounts/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/mounts/:id/browse"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/mounts/:id/image"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/mounts/:id/search"
+    },
+    {
+      "method": "POST",
+      "path": "/api/jellyfin/mounts/test"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/movie-source"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/proxy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/jellyfin/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/music/album/full"
+    },
+    {
+      "method": "POST",
+      "path": "/api/music/cloud/upload"
+    },
+    {
+      "method": "GET",
+      "path": "/api/music/login/status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/music/logout"
+    },
+    {
+      "method": "GET",
+      "path": "/api/music/ncm-cookie"
+    },
+    {
+      "method": "POST",
+      "path": "/api/music/ncm-cookie-login"
+    },
+    {
+      "method": "GET",
+      "path": "/api/music/song-quality"
+    },
+    {
+      "method": "GET",
+      "path": "/api/music/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/direct-url"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/me"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/mounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/openlist/mounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/openlist/mounts/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/openlist/mounts/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/mounts/:id/browse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/openlist/mounts/test"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/proxy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/openlist/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/rooms"
+    },
+    {
+      "method": "GET",
+      "path": "/api/rooms/:roomId/danmaku-meta"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/rooms/:roomId/danmaku-meta"
+    },
+    {
+      "method": "GET",
+      "path": "/api/rooms/:roomId/danmaku-tracks"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rooms/:roomId/danmaku-tracks"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rooms/:roomId/danmaku-tracks/:trackId"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/rooms/:roomId/danmaku-tracks/:trackId/offset"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rooms/:roomId/danmaku-tracks/bulk"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rooms/:roomId/movies"
+    },
+    {
+      "method": "GET",
+      "path": "/api/rooms/:roomId/movies"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rooms/:roomId/movies"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rooms/:roomId/movies/:movieId"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/rooms/:roomId/movies/:movieId"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rooms/:roomId/movies/reorder"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/rooms/:roomId/name"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server-files/bilibili-download"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server-files/browse"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server-files/browse-system"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/server-files/file"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server-files/folder"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server-files/proxy"
+    },
+    {
+      "method": "HEAD",
+      "path": "/api/server-files/proxy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server-files/rename"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server-files/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/server-files/roots"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server-files/roots"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/server-files/roots/:id"
+    },
+    {
+      "method": "POST",
+      "path": "/api/server-files/upload"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stats/traffic"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream-push/obs-config/:roomId"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anime/episodes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anime/proxy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/anime/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anime/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anime/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anisubs/episodes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anisubs/proxy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/anisubs/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anisubs/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/anisubs/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/ai-subtitle"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/bangumi-episodes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/collection-videos"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/comment-replies"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/comments"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/cookie"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/bilibili/cookie-login"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/danmaku"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/fav-folders"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/fav-list-videos"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/fav-videos"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/bilibili/fav/collect"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/fav/status"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/following-bangumi"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/link-meta"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/login-status"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/bilibili/logout"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/qr"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/qr/poll"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/region-new"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/related"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/user-info"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/bilibili/view"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/cms/detail"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/cms/inspect"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/cms/proxy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/cms/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/cms/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/cms/search-all"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/cms/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/danmaku/episodes"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/danmaku/fetch"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/danmaku/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/danmaku/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/kazumi/episodes"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/kazumi/proxy"
+    },
+    {
+      "method": "POST",
+      "path": "/api/stream/kazumi/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/kazumi/search"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/kazumi/sources"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/proxy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/proxy-ftp"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/proxy-image"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/resolve-bilibili"
+    },
+    {
+      "method": "GET",
+      "path": "/api/stream/resolve-ftp"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subtitles/browse"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subtitles/embedded-extract"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subtitles/embedded-tracks"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subtitles/load"
+    },
+    {
+      "method": "GET",
+      "path": "/api/subtitles/search"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/update/apply"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/update/apply-stream"
+    },
+    {
+      "method": "GET",
+      "path": "/api/system/update/check"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/update/upload"
+    },
+    {
+      "method": "POST",
+      "path": "/api/system/update/upload-stream"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/kick"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/mute"
+    },
+    {
+      "method": "POST",
+      "path": "/api/voice/token"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webdav/direct-url"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webdav/mounts"
+    },
+    {
+      "method": "POST",
+      "path": "/api/webdav/mounts"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/webdav/mounts/:id"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/webdav/mounts/:id"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webdav/mounts/:id/browse"
+    },
+    {
+      "method": "POST",
+      "path": "/api/webdav/mounts/test"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webdav/proxy"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webdav/resolve"
+    },
+    {
+      "method": "GET",
+      "path": "/api/webdav/stream"
+    },
+    {
+      "method": "GET",
+      "path": "/health"
+    }
+  ]
+}

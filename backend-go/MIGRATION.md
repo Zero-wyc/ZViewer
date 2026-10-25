@@ -1375,6 +1375,32 @@ HTTPS 启动分支。
   越权 404 / 删除后列表为空且再删 404 / 内网直链拒绝 / Range 透传 206」。
 - `scripts/openlist-stream-smoke.sh` 回归通过（`/stream` 的行为未变）。
 
+### 3.23 全量回归与两处修复（阶段 29，为删除 `backend/` 做准备）
+
+删除 Node 之前的最后一轮体检：新增 `scripts/regression-sweep.sh` 串行跑完 32 个脚本，
+新增两份**契约快照**（端点 189 / 事件 65）让覆盖检查在 Node 退场后仍可执行。
+
+三处实质改动：
+
+1. **`Metas.GetOrCreate` 并发首读 500**（产品 bug，soak 抓到）：`SELECT` 不到就
+   `INSERT`，而 `roomId` 有 UNIQUE 索引；4 并发首次打开同一房间时，后到的请求必然
+   撞约束 → 500。修法：INSERT 失败后重读一次（说明别人刚建好）。
+   `TestMetasGetOrCreateConcurrent` 用文件库 + 16 并发钉住，并已验证「去掉修复必红」。
+2. **四个挂载/房间对拍脚本的种子时间戳过期**（测试时间炸弹）：`lastAccessedAt`
+   写死 `2026-01-01`，被 Go 启动清理当成长期无人访问删掉，而 Node 侧最小应用不跑清理。
+   改成以 now 为基准 + 清空基线库历史房间。
+3. **项目根探测只认 `backend/`**（删库后才会炸的隐患）：`findProjectRootUpward` 原来
+   要求「同时有 `frontend` 与 `backend`」。删掉 `backend/` 后，`go run`（exe 在 TEMP）
+   从 `backend-go` 起步会一路找不到根，退化成临时目录 —— 表现为「数据库空了、设置全丢」。
+   现在 `backend-go` 也算后端目录，`internal/config/config_test.go` 三个用例钉住。
+
+#### 验证
+
+- `bash backend-go/scripts/regression-sweep.sh`：33 个脚本全绿（见第九节表格）。
+- `bash backend-go/scripts/route-parity.sh --fixture`：**只读契约快照、不需要 Node 后端**，
+  189 条全部命中；`bash backend-go/scripts/events-parity.sh`：65 / 65 精确相等。
+- `gofmt -l .` 空、`go vet ./...`、`go test ./...` 全绿。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1706,6 +1732,10 @@ HTTPS 启动分支。
       打到 Go，**189/189 命中、0 次 panic**。首次跑出 13 条缺口（OpenList 12 + stream
       媒体代理 2 里的 1 条），已按 3.22 补齐；这条检查单本身抓出了「台账说完成、
       实际只迁了一条」的漏项，以后每次改路由都要重跑。
+      配套 `bash backend-go/scripts/events-parity.sh`：19 个 handler / **65 个上行事件
+      与 Go 精确相等**（零缺失零多余），`disconnect` 走 `OnDisconnect` 单独核对。
+      两者的端点/事件清单已冻结成契约快照（见下「契约快照」），删掉 `backend/` 后
+      仍可继续跑。
 - [ ] 停 Node 进程 → 仅 Go 运行 24h 无告警
       → **压缩版已就绪并跑通**：`bash backend-go/scripts/soak.sh`（默认 120s，4 并发，
       11 个代表性端点）实测 60s **74,148 次请求 / 0 超时 / 0 个 5xx / 吞吐无衰减
@@ -1736,9 +1766,102 @@ HTTPS 启动分支。
         · `ZVIEWER_DESKTOP` 与更新端点的 409 守卫**保留**——整包更新仍归 GUI，
           网页端不该自己替换被托管的二进制
 - [ ] 删除 `backend/` 与 `node_modules`
-      → **暂缓**：`backend/` 是回滚路径，也是所有对拍脚本的「参照实现」。
-      建议在真机按 `SOAK_SECONDS=86400 bash backend-go/scripts/soak.sh` 跑满 24h、
-      并确认 `config/` 双向兼容脚本在目标机器上通过之后再删。
+      → **暂缓，但前置工作已做完**：`backend/` 是回滚路径，不能凭「迁移完成」就删。
+      两步走：① 真机按 `SOAK_SECONDS=86400 bash backend-go/scripts/soak.sh` 跑满 24h
+      并跑通 `config-roundtrip.sh`；② 再按下面「删除 `backend/` 的影响面」逐项收尾。
+      在真机验证通过之前，保留 `backend/` 的回滚能力（`git checkout` 即可恢复源码，
+      `npm install` 恢复依赖）。
+
+### 全量回归汇总：`regression-sweep.sh`
+
+一条命令按顺序跑完仓库里全部 33 个验收脚本（串行——它们各自要占随机端口起进程，
+并行会互相踩），输出「通过/失败/耗时」表，失败项自动打印日志尾部：
+
+```bash
+bash backend-go/scripts/regression-sweep.sh            # 全部
+bash backend-go/scripts/regression-sweep.sh http-voice # 只跑名字匹配的
+```
+
+第一次跑就红了 6 项，没有一项是「随机抖动」，每一类都有明确根因：
+
+| 失败项 | 根因 | 处理 |
+|---|---|---|
+| `rooms-parity` / `webdav-parity` / `ftp-parity` / `emby-parity` | **种子时间戳过期**：这些脚本把房间的 `lastAccessedAt` 写死成 `2026-01-01`，而 Go 启动即跑一轮「长期无人访问房间清理」（阈值 24h），把种子房间连同挂在它身上的影片一起删了；Node 侧用的是最小 express 应用、不跑清理，于是「列表/影片流」一侧 200 一侧 404 | 种子改成「以 now 为基准」的相对时间，并清空基线库里的历史房间/影片（`rooms-parity` 的三处时间列也一并参数化） |
+| `sio-rooms-parity` | **自伤**：跑 sweep 的同时我用 `taskkill /IM zviewerd.exe` 清理实验进程，把它刚拉起的 Go 服务一起杀了（表现为「Go 侧缺少该步骤」「事件不同」） | 重跑即通过；教训是「按镜像名杀进程」在并发跑测试时是危险的 |
+| `http-bilibili-parity` | `search` 一步打的是 B站**线上**搜索接口，上游返回骨架偶有变化 | 重跑通过；这类外部依赖项在对账里天然有抖动，不能当成回归失败 |
+| `soak` | **真 bug**：`GET /api/rooms/:id/danmaku-meta` 偶发 500 —— `Metas.GetOrCreate` 是「SELECT 不到就 INSERT」，而 `roomId` 上有 UNIQUE 索引；4 并发同时首次打开房间时后到的必撞约束 | `GetOrCreate` 在 INSERT 失败后重读一次（另一请求已建好）；新增 `TestMetasGetOrCreateConcurrent`（16 并发、文件库、断言只有 1 行），已验证「去掉修复必红」 |
+
+其中 soak 那条只有**并发**才能暴露：Node 版 sql.js 单线程，`await` 之间不会被同类写入
+插队，所以 13 套 HTTP 对拍全部通过，问题一直藏到压测才现形。
+
+最终结果（修完之后）：
+
+```
+汇总：通过 33 / 失败 0 / 跳过 0          总耗时 7m26s
+route-parity 9s   events-parity 2s    http-bilibili 35s   http-anime 17s
+http-anisubs 15s  http-cms 16s        http-kazumi 15s     http-music 13s
+http-openlist 13s http-serverfiles 17s http-subtitles 16s http-updater 15s
+http-voice 14s    http-streampush 12s  http-admin 16s      webdav 7s
+ftp 7s            emby 7s              movie 10s           rooms 6s
+bilibili 17s      sio-rooms 39s        profile-smoke 3s    movie-smoke 4s
+proxy-smoke 4s    openlist-smoke 4s    bilibili-smoke 10s  compat-smoke 1s
+https-smoke 5s    desktop-env 4s       config-roundtrip 43s frontend 16s
+soak 34s
+```
+
+另外两个「只有跑全套才会撞见」的坑，记在这里省得下次再踩：
+
+- **同一脚本内两次种子必须用同一个时间戳**：`rooms-parity` 的种子脚本对 node/go 两个库
+  各调用一次，各自 `datetime.now()` 会差 1 秒，`:48` 与 `:49` 落到列表里就是 2 处差异，
+  且只在跨秒时偶发（跑 3 次可能全绿）。现在由 bash 侧算一次再传参。四个脚本统一如此。
+- **不要一边跑 sweep 一边按镜像名杀进程**：`taskkill /IM zviewerd.exe` 会把脚本刚拉起的
+  服务一起杀掉，表现成「Go 侧缺少该步骤」「事件不同」，看起来像实现 bug。
+
+### 契约快照：让「端点/事件全覆盖」在 Node 退场后仍然可验证
+
+删掉 `backend/` 会连带废掉两件事的**判定依据**——`route-parity.sh`（Node 运行时路由表）
+与 `events-parity.sh`（Node 运行时事件表）都以 Node 为参照。所以在删之前先把参照物冻结：
+
+| 快照 | 内容 | 生成方式 |
+|---|---|---|
+| `backend-go/testdata/contract/routes.json` | **189** 条 `/api/*` + `/health`（含方法） | `node backend-go/scripts/route-audit.js --snapshot backend-go/testdata/contract/routes.json` |
+| `backend-go/testdata/contract/events.json` | **65** 个上行 Socket 业务事件 + `lifecycle:[disconnect]` + 19 个 handler 名单 | `node backend-go/scripts/event-audit.js --snapshot backend-go/testdata/contract/events.json` |
+
+两个脚本都支持 `--fixture`：**只读快照、不 require ts-node、不碰 `backend/`**。
+
+- `route-parity.sh` 会自动判断：`backend/src` 还在 → 用实时路由表（能发现 Node 新增了什么）；
+  不在 → 自动切 `--fixture backend-go/testdata/contract/routes.json`（也可显式 `--fixture`）。
+- `events-parity.sh` 同理：`backend/src` 存在时现采 Node 事件表，否则用快照。
+
+冻结时踩到两个坑（都已在脚本里处理）：
+
+1. **事件表不能静态抓源码**：`socket.on('...')` 的匹配会混进 `SIGINT/SIGTERM`、
+   `close/data/end/finish/timeout`、NMS 的 `prePublish/postPublish/donePublish/postClose`、
+   甚至 EventEmitter 的 `error`。改成**运行时 harness**——拿生产同一份
+   `createSocketRegistry()`，用会记账的假 socket 调 `registerAll()`，`on()` 挂上什么就是什么，
+   得 19 handler / 65 事件（`disconnect` 是框架级，单列）。
+2. **Go 侧有三条事件是循环注册的**：`for _, event := range []string{"signal-offer",
+   "signal-answer", "signal-ice-candidate"} { sc.On(event, ...) }`，只认字面量 `.On("x")`
+   会把它们误判成「缺失」。但本包里 `[]string{...}` 也用来装角色名
+   （`isInRoom`/`isRoomHost`/`isRoomModerator`），所以只有在字面量后 4 行内出现 `.On(`
+   时才当作事件列表。修好后 **Node 65 / Go 65 精确相等，零多余零缺失**。
+
+### 删除 `backend/` 的影响面（删之前必须处理的引用点）
+
+按「会不会直接坏」排序，删 `backend/` 时逐条处理：
+
+| 引用点 | 现状 | 处理 |
+|---|---|---|
+| `backend-go/scripts/` 下 **20 个**脚本（13 个 `http-*-parity.sh` + `sio-rooms-parity.sh` + `config-roundtrip.sh` + 4 个 fixture/dump 生成器 + `route-audit.js`） | 起 Node 后端做参照 | 迁移期工具，随 `backend/` 下线；`route-parity.sh` / `events-parity.sh` 已改为会自动退回契约快照，可以留作长期回归 |
+| 根 `package.json` 的 `workspaces: ["frontend","backend"]` | 引用 backend workspace | 改成 `["frontend"]`，同时改 `dev`（→ `go run ./cmd/zviewer-server` 或前端 dev + Go dev）、`build`/`lint`（`-ws` 只剩前端）、`dev:backend`、删 `test:server` |
+| `scripts/server-regression/*`（7 个文件，`npm run test:server`） | 直接 spawn `backend/dist/index.js` 做 Node 服务级回归 | 与 backend 一起删除（Go 侧对应覆盖是 `go test ./...` + smoke 脚本） |
+| `scripts/prune-pkg-bloat.js`（postinstall） | 为 pkg 打包瘦身 | pkg 已不用（构建默认 `go build`），postinstall 可删 |
+| `build-all.js` / `scripts/build-exe.js` | 已默认 `--backend=go` | 删掉 `--backend=node` 分支与 `pkg` 配置块 |
+| `node_modules/`（含 ts-node、express、typeorm、sql.js…） | 只有对拍脚本与 server-regression 需要 | 随上面两项一起删；前端仍需要 `npm install`，但依赖会大幅缩减 |
+
+**推荐顺序**：真机 24h → `config-roundtrip.sh` 通过 → 冻结快照（已完成）→ 改根 `package.json`
+与构建脚本 → 删 `scripts/server-regression` 与 Node 对拍脚本 → 最后 `git rm -r backend`
+与 `node_modules`。每一步之后都能 `gofmt/vet/test` + `regression-sweep.sh` 复验。
 
 ### 关于「同进程内嵌」的取舍（第 5 项的决策点）
 
