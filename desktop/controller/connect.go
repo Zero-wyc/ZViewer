@@ -372,120 +372,133 @@ func (c *Controller) handleTunnelLine(line string) {
 
 // StartTunnel 用 cloudflared 的快速隧道把本机网页端口映射到临时地址。
 func (c *Controller) StartTunnel() (any, error) {
+	return c.exclusive(c.startTunnel)
+}
+
+// RefreshTunnel 先停止当前快速隧道，再检查组件更新并重新启动以获取新地址。
+func (c *Controller) RefreshTunnel() (any, error) {
 	return c.exclusive(func() (any, error) {
-		c.mu.RLock()
-		proc, state := c.tunnel, c.tunnelState
-		active := c.active
-		c.mu.RUnlock()
-		if proc != nil && state != "error" {
-			return c.Snapshot(), nil
-		}
-		if proc != nil {
-			_ = c.stopTunnel()
-		}
-		exe := c.cloudflared()
-		if exe == "" {
-			c.setTunnelState("downloading", "正在从 Cloudflare 官方 GitHub 下载 cloudflared…")
-			c.emit()
-			release, latest, releaseErr := latestCloudflaredRelease()
-			downloadURL, checksum := cloudflaredDownloadURL, ""
-			if releaseErr == nil {
-				downloadURL = "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
-				checksum = checksumForRelease(release.Body)
-			}
-			if releaseErr != nil {
-				c.log("获取 cloudflared Release 版本失败，将尝试下载官方 latest："+releaseErr.Error(), "tunnel", "WARN")
-			}
-			var err error
-			exe, err = c.downloadCloudflared(downloadURL, checksum, false)
-			if err != nil {
-				c.setTunnelState("error", err.Error())
-				c.emit()
-				return nil, err
-			}
-			if releaseErr == nil {
-				c.log("已安装 cloudflared "+latest, "tunnel", "INFO")
-			}
-		} else {
-			c.setTunnelState("checking", "正在检查 cloudflared 组件更新…")
-			c.emit()
-			release, latest, err := latestCloudflaredRelease()
-			if err != nil {
-				c.log("检查 cloudflared 更新失败，继续使用当前版本："+err.Error(), "tunnel", "WARN")
-			} else {
-				installed := installedCloudflaredVersion(exe)
-				if cloudflaredVersionIsOlder(installed, latest) {
-					c.setTunnelState("downloading", "发现 cloudflared 新版本 "+latest+"，正在更新…")
-					c.emit()
-					downloadURL := "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
-					updated, updateErr := c.downloadCloudflared(downloadURL, checksumForRelease(release.Body), true)
-					if updateErr != nil {
-						c.log("更新 cloudflared 失败，继续使用当前版本："+updateErr.Error(), "tunnel", "WARN")
-					} else {
-						exe = updated
-						c.log("cloudflared 已更新至 "+latest, "tunnel", "INFO")
-					}
-				} else {
-					c.log("cloudflared 已是最新版本（"+installed+"）", "tunnel", "INFO")
-				}
-			}
-		}
-		config := c.store.Value
-		if active != nil {
-			config = *active
-		}
-		if config.Port <= 0 {
-			return nil, errors.New("请先在应用设置中确认网页端口")
-		}
-		scheme := "http"
-		if config.Https {
-			scheme = "https"
-		}
-		args := []string{"tunnel", "--url", fmt.Sprintf("%s://127.0.0.1:%d", scheme, config.Port), "--no-autoupdate"}
-		if config.Https {
-			args = append(args, "--no-tls-verify")
-		}
-		c.setTunnelState("connecting", "")
-		c.mu.Lock()
-		c.tunnelURL = ""
-		c.mu.Unlock()
-		started, err := startProcess("", exe, args, nil, filepath.Dir(exe), func(line string) {
-			c.log(line, "tunnel", classifyLevel(line))
-			c.handleTunnelLine(line)
-		})
-		if err != nil {
-			c.setTunnelState("error", "无法启动 cloudflared："+err.Error())
+		if err := c.stopTunnel(); err != nil {
 			return nil, err
 		}
-		c.mu.Lock()
-		c.tunnel = started
-		c.mu.Unlock()
-		go func() {
-			code := started.Wait()
-			c.mu.Lock()
-			if c.tunnel != started {
-				c.mu.Unlock()
-				return
-			}
-			c.tunnel = nil
-			c.tunnelURL = ""
-			if c.tunnelState == "stopping" {
-				c.tunnelState = "stopped"
-			} else {
-				c.tunnelState = "error"
-			}
-			failed := c.tunnelState == "error"
-			c.mu.Unlock()
-			level := "INFO"
-			if failed {
-				level = "ERROR"
-			}
-			c.log(fmt.Sprintf("Cloudflare Tunnel 已退出（%d）", code), "tunnel", level)
-			c.emit()
-		}()
-		c.log("正在建立 Cloudflare 快速隧道，地址稍后显示", "tunnel", "INFO")
-		return c.Snapshot(), nil
+		c.emit()
+		return c.startTunnel()
 	})
+}
+
+func (c *Controller) startTunnel() (any, error) {
+	c.mu.RLock()
+	proc, state := c.tunnel, c.tunnelState
+	active := c.active
+	c.mu.RUnlock()
+	if proc != nil && state != "error" {
+		return c.Snapshot(), nil
+	}
+	if proc != nil {
+		_ = c.stopTunnel()
+	}
+	exe := c.cloudflared()
+	if exe == "" {
+		c.setTunnelState("downloading", "正在从 Cloudflare 官方 GitHub 下载 cloudflared…")
+		c.emit()
+		release, latest, releaseErr := latestCloudflaredRelease()
+		downloadURL, checksum := cloudflaredDownloadURL, ""
+		if releaseErr == nil {
+			downloadURL = "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
+			checksum = checksumForRelease(release.Body)
+		}
+		if releaseErr != nil {
+			c.log("获取 cloudflared Release 版本失败，将尝试下载官方 latest："+releaseErr.Error(), "tunnel", "WARN")
+		}
+		var err error
+		exe, err = c.downloadCloudflared(downloadURL, checksum, false)
+		if err != nil {
+			c.setTunnelState("error", err.Error())
+			c.emit()
+			return nil, err
+		}
+		if releaseErr == nil {
+			c.log("已安装 cloudflared "+latest, "tunnel", "INFO")
+		}
+	} else {
+		c.setTunnelState("checking", "正在检查 cloudflared 组件更新…")
+		c.emit()
+		release, latest, err := latestCloudflaredRelease()
+		if err != nil {
+			c.log("检查 cloudflared 更新失败，继续使用当前版本："+err.Error(), "tunnel", "WARN")
+		} else {
+			installed := installedCloudflaredVersion(exe)
+			if cloudflaredVersionIsOlder(installed, latest) {
+				c.setTunnelState("downloading", "发现 cloudflared 新版本 "+latest+"，正在更新…")
+				c.emit()
+				downloadURL := "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
+				updated, updateErr := c.downloadCloudflared(downloadURL, checksumForRelease(release.Body), true)
+				if updateErr != nil {
+					c.log("更新 cloudflared 失败，继续使用当前版本："+updateErr.Error(), "tunnel", "WARN")
+				} else {
+					exe = updated
+					c.log("cloudflared 已更新至 "+latest, "tunnel", "INFO")
+				}
+			} else {
+				c.log("cloudflared 已是最新版本（"+installed+"）", "tunnel", "INFO")
+			}
+		}
+	}
+	config := c.store.Value
+	if active != nil {
+		config = *active
+	}
+	if config.Port <= 0 {
+		return nil, errors.New("请先在应用设置中确认网页端口")
+	}
+	scheme := "http"
+	if config.Https {
+		scheme = "https"
+	}
+	args := []string{"tunnel", "--url", fmt.Sprintf("%s://127.0.0.1:%d", scheme, config.Port), "--no-autoupdate"}
+	if config.Https {
+		args = append(args, "--no-tls-verify")
+	}
+	c.setTunnelState("connecting", "")
+	c.mu.Lock()
+	c.tunnelURL = ""
+	c.mu.Unlock()
+	started, err := startProcess("", exe, args, nil, filepath.Dir(exe), func(line string) {
+		c.log(line, "tunnel", classifyLevel(line))
+		c.handleTunnelLine(line)
+	})
+	if err != nil {
+		c.setTunnelState("error", "无法启动 cloudflared："+err.Error())
+		return nil, err
+	}
+	c.mu.Lock()
+	c.tunnel = started
+	c.mu.Unlock()
+	go func() {
+		code := started.Wait()
+		c.mu.Lock()
+		if c.tunnel != started {
+			c.mu.Unlock()
+			return
+		}
+		c.tunnel = nil
+		c.tunnelURL = ""
+		if c.tunnelState == "stopping" {
+			c.tunnelState = "stopped"
+		} else {
+			c.tunnelState = "error"
+		}
+		failed := c.tunnelState == "error"
+		c.mu.Unlock()
+		level := "INFO"
+		if failed {
+			level = "ERROR"
+		}
+		c.log(fmt.Sprintf("Cloudflare Tunnel 已退出（%d）", code), "tunnel", level)
+		c.emit()
+	}()
+	c.log("正在建立 Cloudflare 快速隧道，地址稍后显示", "tunnel", "INFO")
+	return c.Snapshot(), nil
 }
 
 func (c *Controller) stopTunnel() error {
@@ -493,6 +506,9 @@ func (c *Controller) stopTunnel() error {
 	proc := c.tunnel
 	c.mu.RUnlock()
 	if proc == nil {
+		c.mu.Lock()
+		c.tunnelURL = ""
+		c.mu.Unlock()
 		c.setTunnelState("stopped", "")
 		return nil
 	}
@@ -502,6 +518,9 @@ func (c *Controller) stopTunnel() error {
 		return err
 	}
 	c.mu.Lock()
+	if c.tunnel == proc {
+		c.tunnel = nil
+	}
 	c.tunnelURL = ""
 	c.mu.Unlock()
 	c.setTunnelState("stopped", "")

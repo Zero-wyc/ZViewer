@@ -413,6 +413,9 @@ main > div { padding: 0 var(--page-padding) var(--gap-xl); max-width: 1120px; }
 .btn.tunnel-primary { background: #0067c0; border-color: #0067c0; color: #fff; }
 .btn.tunnel-primary:hover:not(:disabled) { background: #005a9e; border-color: #005a9e; }
 .btn.tunnel-primary:active:not(:disabled) { background: #004578; border-color: #004578; color: #fff; }
+.btn.danger { background: #c42b1c; border-color: #c42b1c; color: #fff; }
+.btn.danger:hover:not(:disabled) { background: #a4262c; border-color: #a4262c; }
+.btn.danger:active:not(:disabled) { background: #7a1b20; border-color: #7a1b20; color: #fff; }
 .btn.dark { background: var(--text-primary); color: var(--layer); border-color: transparent; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-primary); box-shadow: none; }
 .btn.ghost:hover:not(:disabled) { background: var(--subtle-hover); }

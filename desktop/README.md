@@ -152,7 +152,7 @@ IPv6 直连：打开页面时由程序经外部接口（`v6.ident.me` 等仅解�
 
 虚拟局域网：内置「EasyTier 虚拟组网」（左侧栏“高级 → EasyTier 虚拟组网”），本机直接加入虚拟网络，其他设备按虚拟 IP 访问，详见下一节。
 
-Cloudflare Tunnel：点击“连接方式”中的蓝色“一键启动隧道”，程序会检查运行包和 PATH；首次使用时从 Cloudflare 官方 GitHub Release 下载 Windows x64 `cloudflared.exe` 到运行包 `runtime/`，验证下载内容后立即启动快速隧道。每次从停止状态启动前都会查询官方最新版本；若有更新则先下载并在 Release 提供校验值时核对 SHA-256，再替换运行包中的组件。检查或更新暂时失败时保留旧文件并继续启动。运行中可停止并复制 `trycloudflare.com` 临时地址。首次下载需要联网和运行包目录写入权限；隧道关闭后地址失效。固定域名请改用 Cloudflare 命名隧道，需要 Cloudflare 账号与自有域名。
+Cloudflare Tunnel：点击“连接方式”中的蓝色“一键启动隧道”，程序会检查运行包和 PATH；首次使用时从 Cloudflare 官方 GitHub Release 下载 Windows x64 `cloudflared.exe` 到运行包 `runtime/`，验证下载内容后立即启动快速隧道。每次从停止状态启动前都会查询官方最新版本；若有更新则先下载并在 Release 提供校验值时核对 SHA-256，再替换运行包中的组件。检查或更新暂时失败时保留旧文件并继续启动。运行中可停止隧道、复制地址或刷新隧道以获取新地址；刷新会使旧地址失效。快速隧道无需 VPS、隧道账号或 FRP 配置，操作提示为“一键启动，无需额外配置”。首次下载需要联网和运行包目录写入权限；隧道关闭后地址失效。固定域名请改用 Cloudflare 命名隧道，需要 Cloudflare 账号与自有域名。
 
 ## EasyTier 虚拟组网
 
