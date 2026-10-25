@@ -34,6 +34,7 @@ import (
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/sio"
+	"zviewer/backend/internal/ssl"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
 )
@@ -50,6 +51,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("[config] %v", err)
 	}
+
+	// `--gen-cert` 是独立的证书签发入口：签完即退出，不连库、不起服务。
+	// 必须在 db.Open 之前分流——Node 版也是在 bootstrap() 之前判断的。
+	if args := os.Args[1:]; hasFlag(args, "--gen-cert") {
+		if hasFlag(args, "--help") || hasFlag(args, "-h") {
+			ssl.PrintUsage(os.Stdout)
+			return
+		}
+		if err := ssl.RunGenCert(context.Background(), args, cfg.ConfigDir, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] 证书生成失败: %v\n", err)
+			fmt.Fprintln(os.Stderr, "  如需继续使用自签证书，请加 --selfsigned 参数")
+			os.Exit(1)
+		}
+		return
+	}
+
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatalf("[config] %v", err)
 	}
@@ -160,6 +177,24 @@ func main() {
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
 	stopCleanupScheduler := roomSvc.StartCleanupScheduler(cleanupCtx)
 
+	// HTTPS 模式：证书缺失时自动签一张本机自签证书。
+	// 屏幕共享与语音在非安全上下文里会被浏览器禁用，局域网用户靠这张证书
+	// 才能用上它们（首次访问需手动信任）。
+	certPaths := ssl.Paths(cfg.ConfigDir)
+	if cfg.UseTLS {
+		if !fileExists(certPaths.CertPath) || !fileExists(certPaths.KeyPath) {
+			log.Printf("[HTTPS] SSL 证书不存在，自动生成本地自签证书...")
+			if _, err := ssl.EnsureSelfSigned(ssl.SelfSignedOptions{
+				Paths: certPaths,
+				Log:   func(line string) { log.Print(line) },
+			}); err != nil {
+				log.Fatalf("[HTTPS] 自签证书生成失败: %v", err)
+			}
+			log.Printf("[HTTPS] 自签证书生成完成（浏览器首次访问需信任自签证书）")
+		}
+		log.Printf("[HTTPS] 使用证书: %s", certPaths.CertPath)
+	}
+
 	httpServer := &http.Server{
 		Addr:    listenAddr(cfg),
 		Handler: server.Handler(),
@@ -175,7 +210,13 @@ func main() {
 
 	errCh := make(chan error, 1)
 	go func() {
-		if err := httpServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		var err error
+		if cfg.UseTLS {
+			err = httpServer.ListenAndServeTLS(certPaths.CertPath, certPaths.KeyPath)
+		} else {
+			err = httpServer.ListenAndServe()
+		}
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
 			errCh <- err
 		}
 	}()
@@ -221,4 +262,19 @@ func journalLabel(wal bool) string {
 		return "WAL"
 	}
 	return "delete（保持 sql.js 原模式）"
+}
+
+// hasFlag 判断命令行里是否带某个开关。
+func hasFlag(args []string, flag string) bool {
+	for _, a := range args {
+		if a == flag {
+			return true
+		}
+	}
+	return false
+}
+
+func fileExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }

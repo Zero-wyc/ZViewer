@@ -7,8 +7,15 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~62,900（含测试 15,900） | 42,653 | 100%+ |
-| HTTP 端点 | 169 | ~300 | 56.3% |
+| 代码行 | ~64,000（含测试 16,900） | 42,653 | 100%+ |
+| HTTP 端点 | 169 | ~170 | ~99% |
+
+> **端点总数口径修正**：早期写的「~300」是粗估（把 emby/jellyfin 双前缀、同一路径的
+> 多方法与注释一并计入）。按「`router.get/post/put/delete` 注册行」重新点过：
+> Node 侧 **173 条**（含 1 条 `/health` 与少量注释误计），Go 侧 **166 处注册 /
+> 178 条运行时规则**（emby/jellyfin 双前缀由一次注册展开）。模块级已全覆盖，
+> 剩余差异只可能是「同一处理器合并了路径参数写法」，交给阶段 5 的
+> 「`/api/*` 无 404 兜底命中」实测兜底。
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备；bilibili_credential / ncm_credential 已可读写） | 16 | 100% |
 
@@ -1265,6 +1272,59 @@ socket 事件会反复问，每次握手太浪费）。部署含义：只跑 Go 
 `internal/api/streampush_test.go` 用假 NMS 覆盖（字节透传、头、原始 URI 含查询串、
 不可用回落 SPA、长连接首块即时可见）。
 
+### 3.21 ACME / 自签证书（阶段 27，收尾）
+
+`services/ssl/*`（1,023 行：`self-signed-cert` / `acme-client` / `cert-cli`）→
+`internal/ssl`（cert / acme / cli，共约 1,100 行）+ `main.go` 的 `--gen-cert` 分流与
+HTTPS 启动分支。
+
+这一块不是 HTTP 端点，而是**启动期与 CLI 行为**：`HTTPS=true` 时自动签自签证书、
+`--gen-cert` 支持「域名 → Let's Encrypt / 内网 → 自签」双模式。
+
+#### 三个入口
+
+| 入口 | 行为 |
+|---|---|
+| `HTTPS=true` 启动 | 证书缺失 → 自动签自签（CN=localhost），随后 `ListenAndServeTLS` |
+| `--gen-cert [host] [选项]` | 签发后退出，**不连库、不起服务** |
+| `--gen-cert --help` | 打印用法后退出 |
+
+`--gen-cert` 必须在 `db.Open` 之前分流——Node 也是在 `bootstrap()` 之前判断的，
+先连库会让「只想签个证书」的场景因为数据库被占用而失败。
+
+#### 四处必须守住的细节
+
+1. **私钥形态是 PKCS#1**（`BEGIN RSA PRIVATE KEY`）。Node 用 node-forge 的
+   `privateKeyToPem`，产出 PKCS#1；域名密钥则用 `export({type:'pkcs8'})`，是 PKCS#8。
+   两个形态不能混：自签私钥写成 PKCS#8 时 Node 侧仍然能读，但两端的文件不再可互换，
+   排查「换了实现之后证书加载失败」会多绕一圈。
+2. **RFC 7638 指纹的键顺序是 `e → kty → n`**，且 n 不能带前导零。顺序错了
+   keyAuthorization 就不对，表象是 CA 来取挑战文件时 404 或内容不匹配。
+   单测里用 RFC 7638 §3.1 的官方示例公钥做黄金值
+   （`NzbLsXh8uDCcd-6MNwXF4W_7noWXFZAfHkxZsRGC9Xs` 那一条）。
+3. **POST-as-GET 的 payload 必须是空串**，不是 `{}`。ACME 的授权/订单/证书下载
+   都是 POST + 空 payload；写成 `{}` 会被 Boulder 当成「停用授权」而报错。
+4. **公网 IP 证书要带 `profile: "shortlived"`**（Let's Encrypt 的硬要求，160 小时），
+   不带直接拒单。DNS 证书不带。
+
+#### 为什么手写 ACME 而不是用 x/crypto/acme
+
+三条理由：IP 标识符 + shortlived profile 的支持取决于库版本；错误文案与轮询节奏
+（3s / 120s / 60s）是用户可见行为；手写之后可以用假 ACME 服务器把整条链路跑成单测。
+
+#### 验证
+
+- `internal/ssl/acme_test.go`：假 ACME 服务器会**真的按 RFC 流程验签**（nonce 一次性、
+  签名、`protected.url` 与请求路径一致），并在收到 challenge 通知后**真的用 HTTP 去
+  挑战端口取 keyAuthorization**——这比「断言收到了某个字段」强得多，能抓住
+  「本机挑战服务器没起来」「token 没写进去」「指纹算错」三类致命问题。
+  还校验 finalize 的 CSR 能解析、SAN 正确、签名有效。
+- `bash backend-go/scripts/https-smoke.sh` → **19 项检查全过**：用法文案、自签 CN/SAN/
+  10 年有效期（openssl 复核）、二次运行跳过、`--force` 指纹变化、域名写进 SAN、
+  `HTTPS=true` 自动生成 + TLS 握手 + `/health`、明文 HTTP 拿不到业务响应。
+- ACME 真连 CA 无法自动化（需要公网域名 + 80 端口），这条由上面的假 CA 覆盖；
+  真机验证方式是 `--gen-cert <域名> --staging`。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1279,7 +1339,7 @@ socket 事件会反复问，每次握手太浪费）。部署含义：只跑 Go 
 | OBS 推流（配置下发 + /live 反代） | ~580 | ✅ 见 3.20（1 端点 + 6 步对拍） |
 | 管理端 / 统计 / 客户端日志 | ~900 | ✅ 见 3.8 / 3.9（63 步对拍） |
 | 更新器（下载/解压/sha256） | ~1,400 | ✅ 见 3.18（5 端点 + 16 步对拍） |
-| ACME / 自签证书 | ~1,020 | ⏳ |
+| ACME / 自签证书 | ~1,020 | ✅ 见 3.21（`--gen-cert` CLI + HTTPS 启动 + 19 项冒烟） |
 | CLI 代理端点 | ~280 | ✅ 见 3.8 |
 
 ### 4.1 影片库与挂载流（已完成部分）
