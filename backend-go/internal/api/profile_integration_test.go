@@ -147,9 +147,11 @@ type testEnv struct {
 	tokens  *auth.Manager
 	avatars string
 	// uploads 是服务器文件默认根（uploads:/）的绝对路径。
-	uploads  string
-	users    *store.Users
-	audit    *store.Audit
+	uploads string
+	users   *store.Users
+	audit   *store.Audit
+	// dist 是前端产物目录（静态托管用例往里放 index.html / assets）
+	dist     string
 	teardown func()
 }
 
@@ -241,6 +243,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		uploads:  cfg.UploadsDir,
 		users:    users,
 		audit:    audit,
+		dist:     cfg.FrontendDist,
 		teardown: func() { conn.Close() },
 	}
 }

@@ -1713,9 +1713,34 @@ HTTPS 启动分支。
       `jwt-secrets.json` 的 sha256 不变（能解析、没重生成），以及证书双向互操作
       （node-forge 生成的证书 Go 能加载、Go `--gen-cert` 的证书 Node 能加载）。
       细节见本节末尾「config/ 兼容性实测」。
-- [ ] 前端全链路回归（首页 / 房间 / 一起听 / 管理端）
+- [x] 前端全链路回归（首页 / 房间 / 一起听 / 管理端）
+      → `bash backend-go/scripts/frontend-smoke.sh`：前端 `tsc` + `vite build` + 单测，
+      再由 Go 托管产物、用真实 Chromium 逐页访问（首页/登录/房间列表/管理页/个人中心/
+      房间页），断言「页面锚点文案 + 控制台零 error + 无 4xx/5xx 请求」，**12 项全过**。
+      这条一跑就抓到一个**线上级 bug**：`GET /` 回 404 JSON（见下）。
 - [ ] 桌面壳改为同进程内嵌，删除 `ZVIEWER_DESKTOP` 注入与 409 分支
 - [ ] 删除 `backend/` 与 `node_modules`
+
+### 前端冒烟抓到的 bug：站点根路径 404
+
+`spaHandler` 的目录穿越防护写的是 `strings.HasPrefix(full, dist+separator)`，
+而 `path.Clean("/") + filepath.Join` 得到的是 `full == dist`（没有尾分隔符），
+于是**访问 `/` 直接回 404 JSON**——用户打开域名看到的是
+`{"success":false,"message":"资源不存在"}`。子路由（`/login`、`/room/x`）反而正常，
+所以静态检查、API 对拍、`https-smoke` 全都没发现，只有真浏览器打开首页才暴露。
+
+修法：单独放行 `full == dist`（根目录本身），其余仍按前缀校验；
+补 `internal/api/static_test.go` 把边界钉住：`/` 回 index.html、前端路由回退、
+`/api/*` 未被回退吃掉、`POST /` 405、目录穿越读不到 dist 外文件、产物缺失时明确 404。
+
+### 为什么这条回归必须用浏览器
+
+API 对拍能证明「接口对不对」，但证明不了「页面能不能用」：这次两个问题都在
+浏览器侧——根路径 404（服务端返回 JSON 而不是 HTML），以及**明文 HTTP 下不写 cookie**
+（两侧刻意一致：SameSite=None 必须配 Secure）。前端在 HTTP 模式把 token 放
+localStorage、由 `authTransport` 附加 `Authorization` / socket `auth.token`；
+冒烟脚本必须按这个真实链路注入 token，否则会误判成「登录无效」。
+
 
 ### config/ 兼容性实测（第 3 项的细节）
 

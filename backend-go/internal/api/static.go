@@ -45,8 +45,11 @@ func (s *Server) spaHandler() http.Handler {
 		clean := path.Clean("/" + r.URL.Path)
 		full := filepath.Join(dist, filepath.FromSlash(clean))
 
-		// 目录穿越防护：Join 已 Clean，但仍显式确认落在 dist 内
-		if !strings.HasPrefix(full, filepath.Clean(dist)+string(os.PathSeparator)) {
+		// 目录穿越防护：Join 已 Clean，但仍显式确认落在 dist 内。
+		// 注意 `/` 会得到 full == dist（没有尾分隔符），必须单独放行，
+		// 否则访问站点根路径会变成 404 —— 这条被前端冒烟抓到过。
+		distClean := filepath.Clean(dist)
+		if full != distClean && !strings.HasPrefix(full, distClean+string(os.PathSeparator)) {
 			httpx.NotFound(w, "资源不存在")
 			return
 		}
