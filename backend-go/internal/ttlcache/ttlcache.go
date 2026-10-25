@@ -91,3 +91,39 @@ func (c *Cache[T]) removeOrder(key string) {
 		}
 	}
 }
+
+// Get 只读查缓存（命中且未过期）。
+//
+// 给「键要先算出来才知道用哪个」的场景用：音乐直链缓存的实际档位由降级链
+// 决定，只能先 Get 请求档位、解析完拿到真实档位再 Set，套不进 Run 的单飞模型。
+func (c *Cache[T]) Get(key string) (T, bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	cached, ok := c.entries[key]
+	if !ok {
+		var zero T
+		return zero, false
+	}
+	if time.Now().UnixMilli()-cached.fetchedAt >= c.ttlMs {
+		delete(c.entries, key)
+		c.removeOrder(key)
+		var zero T
+		return zero, false
+	}
+	return cached.value, true
+}
+
+// Set 写入缓存（同键覆盖并刷新过期时间）。
+func (c *Cache[T]) Set(key string, value T) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if _, exists := c.entries[key]; exists {
+		c.removeOrder(key)
+	} else if len(c.entries) >= c.maxSize && len(c.order) > 0 {
+		oldest := c.order[0]
+		c.order = c.order[1:]
+		delete(c.entries, oldest)
+	}
+	c.entries[key] = entry[T]{value: value, fetchedAt: time.Now().UnixMilli()}
+	c.order = append(c.order, key)
+}

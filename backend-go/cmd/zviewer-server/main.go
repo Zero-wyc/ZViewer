@@ -26,6 +26,7 @@ import (
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
+	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/realtime"
@@ -134,6 +135,7 @@ func main() {
 		AniSubs:       anisubs.NewService(settings),
 		Kazumi:        kazumi.NewService(settings),
 		Danmaku:       danmaku.NewService(biliService),
+		NCM:           ncm.NewService(conn, cfg.NCMAPIBase),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

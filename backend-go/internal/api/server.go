@@ -23,6 +23,7 @@ import (
 	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/kazumi"
+	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/ratelimit"
@@ -76,6 +77,8 @@ type Deps struct {
 	Kazumi *kazumi.Service
 	// Danmaku 是多源弹幕注册表（B站视频/番剧 + 巴哈姆特 + 弹弹play）。
 	Danmaku *danmaku.Service
+	// NCM 是一起听的网易云服务（凭证 + 转发 + 音质降级链 + 音频流）。
+	NCM *ncm.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -158,6 +161,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerAniSubsRoutes(mux)
 	s.registerKazumiRoutes(mux)
 	s.registerDanmakuRoutes(mux)
+	s.registerMusicRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

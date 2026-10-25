@@ -36,6 +36,11 @@ log/
 # 首次部署时由后端自动创建。
 config/
 
+# 例外：backend-go 的 internal/config 是**源码目录**（配置解析），
+# 不是运行时数据目录。`config/` 规则会把同名的任何目录一并吞掉，
+# 不加这行从干净仓库 clone 出来 `go build ./...` 直接失败。
+!backend-go/internal/config/
+
 # ---- 后端旧上传路径（新路径统一在 config/uploads/） ----
 backend/uploads/
 

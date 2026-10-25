@@ -7,10 +7,10 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~58,500（含测试 14,700） | 42,653 | 100%+ |
-| HTTP 端点 | 151 | ~300 | 50.3% |
+| 代码行 | ~60,800（含测试 15,200） | 42,653 | 100%+ |
+| HTTP 端点 | 160 | ~300 | 53.3% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
-| 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
+| 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备；bilibili_credential / ncm_credential 已可读写） | 16 | 100% |
 
 ## 二、阶段 0：基座（已完成）
 
@@ -1015,6 +1015,87 @@ Node 用的是 opencc-js，Go 侧没有等价库，所以**把词典导出来自
 标题命中的排前面）在 `internal/api/danmaku_test.go` 里用「按关键词返回不同
 夹具」的 transport 锁住。
 
+### 3.17 一起听音乐（阶段 23）
+
+`modules/music/{music.routes,ncm-api.service,ncm-api-client,ncm-account.service,
+ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.ts`
+（1,381 行）→ `internal/ncm`（1,267 行）+ `internal/api/music.go`（491 行）
++ `store.NcmCredentials`（150 行）。HTTP 面 151 → **160**。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| ANY `/api/music/ncm/*` | 注入当前用户 cookie 后转发到内部 NCM 服务 | `forward.go#Forward` |
+| `GET /ncm-cookie` | 导出持久化 Cookie（迁移/备份） | `api/music.go` |
+| `POST /ncm-cookie-login` | Cookie 登录（两种输入格式）+ 校验登录态 | `api/music.go` |
+| `POST /cloud/upload` | 云盘上传（multipart 原样流转发） | `forward.go#CloudUpload` |
+| `GET /album/full` | 专辑详情（登录态截断时匿名补齐） | `account.go` |
+| `GET /login/status` | 登录状态（按需补昵称/头像/会员） | `account.go` |
+| `POST /logout` | 删除持久化凭证 | `api/music.go` |
+| `GET /stream` | 音质降级链解析 + Range 流式转发 / 直链 302 | `stream.go` + `api/music.go` |
+| `GET /song-quality` | 实际解析音质元数据（15 分钟缓存） | `api/music.go` |
+
+#### 最大的一处架构差异：NCM 服务外部化
+
+Node 用 `@neteasecloudmusicapienhanced/api` 在**本进程内**起一个
+`127.0.0.1:36530` 的 HTTP 服务，所有网易云协议都落在那 3 万行 npm 包里。
+Go 不可能重新实现它，所以改成**外部化**：
+
+- `NCM_API_BASE`（默认 `http://127.0.0.1:36530`，端口沿用 Node 版）指向一个
+  已经跑起来的 NCM API 服务；
+- 「服务在不在」用一次轻量探测复刻 Node 的 `getNcmApiBase()` 非空语义：
+  在线缓存 30s、离线缓存 3s，避免每次请求都等连接超时；
+- 服务不可达时 `/api/music/*` 一律 503 `NCM_UNAVAILABLE`，与 Node 同文案。
+
+**部署含义**：只跑 Go 版时，音乐功能需要额外跑一个 NCM API 服务；不跑就只有
+「一起看」可用，音乐面板会收到 503。这是本次迁移唯一一处**新增外部依赖**。
+
+#### 六处必须守住的细节
+
+1. **扫码三接口必须无 cookie 调用**（`/login/qr/key|create|check`）。网易云按
+   请求携带的 cookie 判定登录态，注入旧凭据（尤其过期的 MUSIC_U）会让二维码
+   轮询进 800 循环，表现为「二维码扫了没反应」。对拍里专门有一步回显 cookie。
+2. **转发要剥掉客户端传的 `cookie` / `noCookie`**（query 与 body 两处），否则
+   客户端能用参数覆盖服务端注入的登录态——这是个越权口子，不是洁癖。
+3. **每次调用都要带 `timestamp`**。内部服务挂了 2 分钟的 apicache，缓存 key
+   只含 method+URL（不含 cookie），不同登录态会互相串味（匿名结果被 VIP 用户
+   拿到）。唯一化 URL 是唯一解。
+4. **弹弹play 那条之外的 mode 陷阱：音乐这边是 `/song/url/v1` 的 `level` 与
+   老接口的 `br`**。v1 依赖残缺时模块顶层 require 会抛 MODULE_NOT_FOUND，路由
+   返回 404；老接口 `/song/url` 没这个依赖、始终可用，所以降级链里必须回退它，
+   并把 `level` 补写进响应，否则缓存与元数据都会缺档位。
+5. **`freeTrialInfo` 非空 = 试听片段 = 不可用**。继续沿降级链走；整链都失败时
+   它是 `VIP_REQUIRED` 的判据（不是 `RESOLVE_FAILED`）。
+6. **直链必须是 `*.music.126.net`**。上游给什么都要自己核一遍域名——否则一个
+   被污染的响应就能把服务端变成任意地址的下载器（SSRF）。直链模式下还要把
+   `http://` 改写成 `https://`，不然 https 页面会被 mixed content 拦。
+
+#### 刻意与 Node 不同
+
+- **`NCM_API_BASE` 的默认值与探测**：Node 的 base 只在自己启动成功后才有值，
+  不会指向一个「别人起的」服务。Go 默认就看 36530，这是外部化的必然结果；
+  如果那个端口上跑着不兼容的服务，行为会与 Node 不同（Node 会 503）。
+- **不迁移 `ncm-api.service.ts` 的启动/重试逻辑**（端口 +1 重试、就绪轮询）。
+  那是「拉起 npm 包」的胶水，外部化之后没有意义。
+
+#### 对拍方式：给 Node 换上游
+
+Node 的 base 是模块级变量、没有 setter。对拍驱动器
+（`scripts/ncm-parity-preload.js`）在加载前把 `ncm-api.service` 的编译产物塞进
+`require.cache`，让 `getNcmApiBase()` 返回假服务地址；Go 侧读同一个
+`NCM_API_BASE`。两侧打同一份假上游（`scripts/mock-ncm.js`），数据固定
+→ 全部 exact 比较。
+
+`bash backend-go/scripts/http-music-parity.sh` → **41 个步骤完全一致**。
+覆盖游客/登录/退出三种身份、Cookie 登录两种输入格式、凭证落库、转发注入与
+剥离、扫码不带 cookie、上游 3xx 与非 JSON、专辑匿名补齐、音质降级链（试听 /
+无版权 / 非白名单域名 / 老接口回退）、直链 302 与缓存、音质元数据与缓存、
+云盘 multipart 透传。
+
+**代理模式（`direct=0`）的对拍缺一步**：假上游的直链域名必须是
+`*.music.126.net` 才能过 SSRF 校验，而那个域名不可能指向本地假站。所以
+`ProxyAudio` 的 Range/206 透传由 `internal/ncm/ncm_test.go` 的
+`TestProxyAudioPassesThroughRange` 覆盖（httptest 上游 + Range 断言）。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1313,6 +1394,7 @@ Node 用的是 opencc-js，Go 侧没有等价库，所以**把词典导出来自
 | B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
 | 动漫源的上游请求超时 | `fetch` 无超时，挂住的上游会永久占住请求 | 30s 超时（`internal/anime/http.go`），超时报 `context deadline exceeded` | Go 侧挂住就是一条泄漏的 goroutine + 连接，没有事件循环帮你回收；上游真挂死时错误文案会与 Node 不同，属于可接受的差异 |
 | CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
+| 一起听的 NCM 上游从哪来 | 进程内起 `@neteasecloudmusicapienhanced/api`（127.0.0.1:36530） | `NCM_API_BASE` 指向外部服务，并用探测决定 `NCM_UNAVAILABLE` | Go 不带那 3 万行 npm 包；不跑外部服务时音乐面板收到 503，属于**新增部署依赖** |
 | Kazumi 生成 URL 里的 query 顺序 | 按规则 JSON 里的书写顺序 | 按键名排序 | Go 的 map 无插入序；上游对参数顺序不敏感，只在多键 `episodePage.query` 时可见 |
 | Kazumi 生成 URL 里的 `~` | `URLSearchParams` 编成 `%7E` | `url.Values.Encode` 保留 `~` | 同上，纯编码口味差异 |
 | ani-subs 抓站的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 net/http（`internal/webfetch`） | 同 CMS 那条：Go 的 TLS 栈本来就是独立指纹；真被按指纹拦时该换源，而不是在服务端起子进程 |
