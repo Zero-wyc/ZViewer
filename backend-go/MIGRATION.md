@@ -1707,7 +1707,29 @@ HTTPS 启动分支。
       媒体代理 2 里的 1 条），已按 3.22 补齐；这条检查单本身抓出了「台账说完成、
       实际只迁了一条」的漏项，以后每次改路由都要重跑。
 - [ ] 停 Node 进程 → 仅 Go 运行 24h 无告警
-- [ ] `config/` 目录双向兼容验证：Go 写入后 Node 仍能读（回滚保障）
+- [x] `config/` 目录双向兼容验证：Go 写入后 Node 仍能读（回滚保障）
+      → `bash backend-go/scripts/config-roundtrip.sh`：同一份 `cfg/` 上跑三轮
+      （Go 写 → Node 读写 → Go 再读），快照全等；另加两条硬断言：Node 启动后
+      `jwt-secrets.json` 的 sha256 不变（能解析、没重生成），以及证书双向互操作
+      （node-forge 生成的证书 Go 能加载、Go `--gen-cert` 的证书 Node 能加载）。
+      细节见本节末尾「config/ 兼容性实测」。
 - [ ] 前端全链路回归（首页 / 房间 / 一起听 / 管理端）
 - [ ] 桌面壳改为同进程内嵌，删除 `ZVIEWER_DESKTOP` 注入与 409 分支
 - [ ] 删除 `backend/` 与 `node_modules`
+
+### config/ 兼容性实测（第 3 项的细节）
+
+`config/` 里只有四类东西，每类都有自己的兼容风险：
+
+| 文件 | 风险 | 实测结论 |
+|---|---|---|
+| `dev.sqlite` | Node 用 sql.js **整库导出**写盘，Go 用 SQLite 页写 | 双向可读：Go 写的用户/设置/根目录 Node 全看得到，Node 写的 Go 也看得到（含 bcrypt 口令哈希、system_settings 列、server_folder 行） |
+| `jwt-secrets.json` | 键名/结构不一致会让另一侧重新生成，**回滚瞬间所有已签发 token 失效** | 两侧同为 `{"access","refresh"}`；Node 启动后文件 sha256 不变（说明是解析复用而非重写） |
+| `ssl/` | 私钥形态：Node 用 node-forge 的 **PKCS#1**（`BEGIN RSA PRIVATE KEY`） | 双向可加载：仓库里现成的 node-forge 证书能被 Go 起 HTTPS；Go `--gen-cert` 的证书 Node 也能起 HTTPS |
+| `uploads/` `media/` | 纯文件，没有格式 | 只做「服务启动后目录仍可用」的间接验证 |
+
+验证方式刻意做成**三轮快照对比**而不是单点断言：Go 第一次写入标记（41/41/dash=true），
+Node 启动后的 before 快照必须逐字段等于 Go 的 after；Node 再写自己的标记（52/52/dash=false），
+Go 第三次启动的 before 快照又必须等于 Node 的 after。任何一侧「写得进去、另一侧读不出来」
+都会在这里断掉，包括最容易漏的「读出来但类型变了」（比如布尔被写成 0/1）。
+
