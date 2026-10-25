@@ -142,22 +142,10 @@ func (s *Server) handleAnimeResolve(w http.ResponseWriter, r *http.Request) {
 
 	// `!episode || typeof episode !== 'object'`：数组也算 object，会一路传到底
 	// （只是取不到任何字段），这里保持一致。
-	if len(body.Episode) == 0 || string(body.Episode) == "null" {
+	raw, ok := decodeEpisodeObject(body.Episode)
+	if !ok {
 		httpx.Fail(w, http.StatusBadRequest, "缺少 episode 参数")
 		return
-	}
-	var asAny any
-	if err := json.Unmarshal(body.Episode, &asAny); err != nil {
-		httpx.Fail(w, http.StatusBadRequest, "缺少 episode 参数")
-		return
-	}
-	raw, isObject := asAny.(map[string]any)
-	if !isObject {
-		if _, isArray := asAny.([]any); !isArray {
-			httpx.Fail(w, http.StatusBadRequest, "缺少 episode 参数")
-			return
-		}
-		raw = map[string]any{}
 	}
 
 	result, err := provider.PlaybackURL(r.Context(), normalizeAnimeEpisode(raw))
@@ -184,34 +172,13 @@ func (s *Server) handleAnimeResolve(w http.ResponseWriter, r *http.Request) {
 
 // normalizeAnimeEpisode 把前端传来的 episode 规整成内部结构。
 //
-// 与 Node 逐条对应：
-//
-//	id/title  String(x ?? '')
-//	集号      Number(x) || 1
-//	播放参数  是对象就用，否则 {}
+// 规则见 normalizeEpisodeFields（与 anisubs 的 /resolve 共用）。
 func normalizeAnimeEpisode(raw map[string]any) anime.Episode {
-	id := ""
-	if value, present := raw["id"]; present && value != nil {
-		id = anime.JSString(value)
-	}
-	title := ""
-	if value, present := raw["title"]; present && value != nil {
-		title = anime.JSString(value)
-	}
-	episodeNumber := 1
-	if value, present := raw["episodeNumber"]; present {
-		if number, ok := anime.ToFloat(value); ok && number != 0 {
-			episodeNumber = int(number)
-		}
-	}
-	params := map[string]any{}
-	if value, ok := raw["playbackParams"].(map[string]any); ok {
-		params = value
-	}
+	id, title, episodeNumber, params := normalizeEpisodeFields(raw)
 	return anime.Episode{
 		ID:             id,
 		Title:          title,
-		EpisodeNumber:  episodeNumber,
+		EpisodeNumber:  int(episodeNumber),
 		PlaybackParams: params,
 	}
 }

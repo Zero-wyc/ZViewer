@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"zviewer/backend/internal/anime"
+	"zviewer/backend/internal/anisubs"
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
@@ -128,6 +129,7 @@ func main() {
 		Subtitles:     subtitle.NewService(streamResolver, filesRegistry),
 		CMS:           cms.NewService(settings),
 		Anime:         anime.NewService(settings, biliService),
+		AniSubs:       anisubs.NewService(settings),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

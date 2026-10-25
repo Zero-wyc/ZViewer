@@ -19,6 +19,7 @@ import (
 	_ "modernc.org/sqlite"
 
 	"zviewer/backend/internal/anime"
+	"zviewer/backend/internal/anisubs"
 	"zviewer/backend/internal/api"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
@@ -215,6 +216,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		Files:         filesRegistry,
 		Subtitles:     subtitle.NewService(streamResolver, filesRegistry),
 		Anime:         anime.NewService(settings, bilibili.NewService(conn)),
+		AniSubs:       anisubs.NewService(settings),
 
 		// 字幕端点的 requireMovieReadAccess 要读 movie 行。
 		Movies: movies,

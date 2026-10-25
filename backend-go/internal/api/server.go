@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"zviewer/backend/internal/anime"
+	"zviewer/backend/internal/anisubs"
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/bilibili"
 	"zviewer/backend/internal/cms"
@@ -67,6 +68,8 @@ type Deps struct {
 	CMS *cms.Service
 	// Anime 是动漫源注册表（B站番剧 + RSS + 第三方 HTTP 源）。
 	Anime *anime.Service
+	// AniSubs 是 ani-subs 订阅源注册表（web-selector 抓站 + RSS）。
+	AniSubs *anisubs.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -146,6 +149,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerSubtitleRoutes(mux)
 	s.registerCMSRoutes(mux)
 	s.registerAnimeRoutes(mux)
+	s.registerAniSubsRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

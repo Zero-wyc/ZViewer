@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~51,400（含测试 11,700） | 42,653 | 100%+ |
-| HTTP 端点 | 139 | ~300 | 46.3% |
+| 代码行 | ~54,300（含测试 12,800） | 42,653 | 100%+ |
+| HTTP 端点 | 143 | ~300 | 47.7% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -833,6 +833,64 @@ season.Section != nil`）——线上数据 episodes 非空时看不出来。
 goroutine + 连接）。超时后错误文案是 Go 自己的 `context deadline exceeded`，
 与 Node 的 `fetch failed` 不同——只在上游真的挂死时才会看到。
 
+### 3.14 ani-subs 订阅源（阶段 20）
+
+`routes/anisubs.ts`（180 行）+ `services/anisubs/*`（1,679 行）
+→ `internal/anisubs`（1,651 行）+ `internal/api/anisubs.go`（218 行）。
+HTTP 面 139 → **143**（`/proxy` 同样早已由 `registerProxyRoutes` 挂载）。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| `GET /sources` | 订阅展开后的数据源列表 | `service.go#List` + `subscription.go` |
+| `GET /search` | 抓列表页 / JSON 接口搜索 | `scraper.go#ParseSearchResults` |
+| `GET /episodes` | 抓详情页取分集 | `scraper.go#ParseEpisodes` |
+| `POST /resolve` | 抓剧集页正则匹配播放地址（6 分钟缓存 + 单飞） | `scraper.go#ResolveVideoURL` + `ttlcache` |
+
+顺手抽了两个共用包：
+
+| 包 | 用途 | 原实现 |
+|---|---|---|
+| `internal/webfetch` | 上游文本抓取（charset 嗅探、Cloudflare 判定） | `cms/http.go` + `anisubs/httpClient.ts` 两份拷贝 |
+| `internal/ttlcache` | TTL + 单飞 + 容量淘汰缓存 | `cms/resolve_cache.go` + `utils/resolve-cache.ts` |
+
+新增依赖两个：`PuerkitoBio/goquery`（cascadia，CSS3 选择器）与
+`dlclark/regexp2`（回溯正则）。
+
+#### 五处必须守住的细节
+
+1. **正则必须用 regexp2，不能用 RE2**。ani-subs 的 `matchVideoUrl` 大量使用
+   `(?!...)` 负向先行断言（例如 `(?!.*http)` 排除「URL 里还套着 URL」），
+   Go 的 `regexp` 编不出来 → 直接 `compileRule` 失败 → 一半数据源「匹配不到
+   播放地址」。regexp2 是回溯引擎，**必须设 MatchTimeout**（规则来自社区，
+   碰上灾难性回溯不能把进程拖住）。
+2. **`Accept-Encoding` 一定要剥掉**。浏览器头里写着 `gzip, deflate, br`，
+   照抄给 Go 会让服务端回 brotli，而 `net/http` 只会自动解 gzip（且只在它
+   自己加的请求头时才解）——最后拿到的是一堆二进制，表象是「页面里找不到
+   选择器」。`webfetch` 统一剥，单测里锁住了。
+3. **`matchVideo.addHeadersToVideo.referer` 是三态**：键不存在 → 回落剧集页
+   地址；存在且为空串 → **不带 Referer**；存在且非空 → 用它。用 `string` 会
+   把中间那态吃掉（表现为某些防盗链源 403）。
+4. **集号必须用 float64**。规则允许 `第 1.5 话`，Node 侧 `episodeNumber` 就是
+   number，`id` 也和集号拼在一起（`第 1.5 话-1.5`）——取整会让 id 与前端
+   记录对不上。
+5. **内置订阅副本要吃掉 UTF-8 BOM**。两份 `default-*.json` 都带 BOM，Node 的
+   JSON 加载器会剥、Go 的 `json.Unmarshal` 不会；不处理就是启动后
+   「一个源都没有」。副本内容与 Node 侧逐字节相同，更新订阅时两边一起换。
+
+#### 与 Node 的两处可见差异
+
+- **`[*]` 作用在对象上时按键名排序**（JS 用属性插入序，Go 的 map 无序）。
+  订阅里几乎都是数组，实际触发概率极低，排序至少保证可复现。
+- **JSON 解析失败的错误文案不同**：Node 是 `Unexpected token '<' ...`，
+  Go 是 `invalid character '<' looking for beginning of value`。都是 502。
+
+对拍：`bash backend-go/scripts/http-anisubs-parity.sh`
+→ **19 个步骤完全一致（状态码 + 响应体）**。上游是本地假站
+（`scripts/mock-anisubs.js`：订阅 JSON + 列表页（a 格式/JSONPath 格式）+
+详情页（无线路/线路分组）+ 剧集页 + RSS），数据固定所以全 exact。
+抓站逻辑（选择器、JSONPath、正则规则、URL 补全、Referer 回落）都走真实
+HTTP，一步到位覆盖两侧的解析差异。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1131,6 +1189,8 @@ goroutine + 连接）。超时后错误文案是 Go 自己的 `context deadline 
 | B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
 | 动漫源的上游请求超时 | `fetch` 无超时，挂住的上游会永久占住请求 | 30s 超时（`internal/anime/http.go`），超时报 `context deadline exceeded` | Go 侧挂住就是一条泄漏的 goroutine + 连接，没有事件循环帮你回收；上游真挂死时错误文案会与 Node 不同，属于可接受的差异 |
 | CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
+| ani-subs 抓站的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 net/http（`internal/webfetch`） | 同 CMS 那条：Go 的 TLS 栈本来就是独立指纹；真被按指纹拦时该换源，而不是在服务端起子进程 |
+| 浏览器头的 `Accept-Encoding` | 原样发送 `gzip, deflate, br` | 一律剥掉，交给 transport 自己协商 | Go 只会自动解 gzip，服务端回 brotli 时拿到的是二进制，表象是「页面里找不到选择器」，极难排查 |
 
 ## 八、每个单元的完成定义（DoD）
 
