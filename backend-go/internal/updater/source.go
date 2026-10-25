@@ -13,6 +13,7 @@ package updater
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -167,19 +168,21 @@ func normalizeGitCodeReleases(releases []githubRelease) []githubRelease {
 
 // fetchReleases 取发布列表，返回「实际生效的来源」。
 //
-// GitCode 失败或还没有 Release（镜像仓库刚建、CI 还没跑完）时自动回退 GitHub：
-// 这时候让整个检查更新报「未找到任何发布版本」比回退更难用。
+// GitCode 失败或还没有 Release 时**直接报错，不回退 GitHub**：用户选了哪个源
+// 就从哪个源取，静默换源会让人以为镜像可用、实际流量却悄悄走了境外。
+// 错误文案里给出改回 GitHub 的入口，用户想换是自己换。
 func (s *Service) fetchReleases(ctx context.Context, source string) ([]githubRelease, string, error) {
 	if source == SourceGitCode {
 		releases, err := s.fetchGitCodeReleases(ctx)
-		if err == nil && len(releases) > 0 {
-			return releases, SourceGitCode, nil
-		}
 		if err != nil {
-			logf("GitCode 源不可用，回退 GitHub：%v", err)
-		} else {
-			logf("GitCode 源暂无发布版本，回退 GitHub")
+			return nil, SourceGitCode, fmt.Errorf(
+				"GitCode 更新源不可用：%v（可在更新设置中关闭「使用 GitCode 更新源」改用 GitHub）", err)
 		}
+		if len(releases) == 0 {
+			return nil, SourceGitCode, errors.New(
+				"GitCode 镜像暂无发布版本（可在更新设置中关闭「使用 GitCode 更新源」改用 GitHub）")
+		}
+		return releases, SourceGitCode, nil
 	}
 	releases, err := s.fetchGitHubReleases(ctx)
 	return releases, SourceGitHub, err

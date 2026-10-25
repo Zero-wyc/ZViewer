@@ -386,21 +386,19 @@ func (c *Controller) packagePath(tag, asset string) string {
 	return filepath.Join(c.dir, "updates", tag, filepath.Base(name))
 }
 
-// fetchRelease 按设置取最新正式版：GitCode（默认）优先，失败自动回退 GitHub。
+// fetchRelease 按设置取最新正式版：选了 GitCode 就只走 GitCode。
 //
-// 回退是刻意的：用户开着 GitCode 但镜像仓库还没跑 CI（没有 Release）时，
-// 不该直接报错——GitHub 上的同一份 Release 仍然可用。
+// **不做静默回退**：用户选大陆镜像就是为了不碰 GitHub，悄悄换源会让人以为
+// 镜像可用、实际却在境外取包。失败就把错误显式抛到界面上，换不换由用户决定。
 func (c *Controller) fetchRelease(prefix string) (releaseInfo, string, error) {
 	if c.updateUseGitCode() {
 		info, err := fetchLatestReleaseFromGitCode(c.version)
-		if err == nil {
-			return info, updateSourceGitCode, nil
+		if err != nil {
+			c.Log("GitCode 更新源不可用："+err.Error(), "update", "ERROR")
+			return releaseInfo{}, updateSourceGitCode,
+				fmt.Errorf("GitCode 更新源不可用：%s（可在更新设置中关闭「使用 GitCode 更新源」）", err.Error())
 		}
-		if errors.Is(err, errNoRelease) {
-			c.Log("GitCode 源暂无正式版，回退 GitHub", "update", "INFO")
-		} else {
-			c.Log("GitCode 更新源不可用，回退 GitHub："+err.Error(), "update", "WARN")
-		}
+		return info, updateSourceGitCode, nil
 	}
 	info, err := fetchLatestReleaseFromGitHub(c.version, prefix)
 	return info, updateSourceGitHub, err
@@ -433,6 +431,11 @@ func fetchLatestReleaseFromGitCode(current string) (releaseInfo, error) {
 	var list []releaseInfo
 	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&list); err != nil {
 		return releaseInfo{}, errors.New("发布信息解析失败")
+	}
+	if len(list) == 0 {
+		// 与「只有预发布」区分：一条记录都没有说明镜像还没同步过 Release，
+		// 不是「已是最新」，必须让用户看到错误。
+		return releaseInfo{}, errors.New("镜像暂无发布版本")
 	}
 	return pickGitCodeRelease(list)
 }

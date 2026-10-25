@@ -248,7 +248,8 @@ node scripts/sync-gitcode-release.mjs      # 加 DRY_RUN=1 只打印计划
 - 偏好**不写数据库**：`system_settings` 是整行表，加列会让存量库的 SELECT 直接失败（本项目「绝不自动改表结构」）。
   `config/` 在自动更新时会被备份还原，所以这个文件不会丢。
 - 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode` 优先于偏好文件（仅后端）。
-- GitCode 失败或**镜像仓库还没有 Release**（CI 没跑完）时自动回退 GitHub，界面上的「更新来源」显示实际来源。
+- **不做自动回退**：选了 GitCode 就只走 GitCode，拉取失败或镜像还没有 Release 时直接把错误显示出来
+  （文案里带「去设置里关掉这个开关」的指引）。静默换源会让人以为镜像可用、流量却悄悄走了境外。
 - GitCode 的 Release 列表没有 `html_url` / `published_at`、assets 里混着源码包，差异在
   `normalizeGitCodeReleases`（后端）与 `normalizeGitCodeRelease`（桌面端）里抹平。
 - 桌面端下载白名单已加入 `gitcode.com` / `raw.gitcode.com`；GitCode 源的附件**不套** CDN 前缀

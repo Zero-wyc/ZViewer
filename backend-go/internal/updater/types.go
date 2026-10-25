@@ -38,8 +38,8 @@ type UpdateInfo struct {
 	IsPrerelease   bool   `json:"isPrerelease"`
 	AssetName      string `json:"assetName"`
 	AssetSize      int64  `json:"assetSize"`
-	// Source 是本次结果的实际来源（gitcode / github）。GitCode 不可用时
-	// 会自动回退 GitHub，前端据此显示「来自哪个镜像」。
+	// Source 是本次结果的实际来源（gitcode / github）。按设置的源取数，
+	// 不做静默回退：GitCode 失败时整个检查更新报错，由用户自己决定是否换源。
 	Source string `json:"source"`
 }
 

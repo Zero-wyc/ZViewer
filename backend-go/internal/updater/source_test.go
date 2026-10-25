@@ -162,8 +162,8 @@ func TestGetUpdateInfoFromGitCode(t *testing.T) {
 	}
 }
 
-// TestGetUpdateInfoFallsBackToGitHub：GitCode 挂了（镜像还没跑 CI）不能让检查更新失败。
-func TestGetUpdateInfoFallsBackToGitHub(t *testing.T) {
+// TestGetUpdateInfoGitCodeFailureErrors：GitCode 拉取失败必须直接报错，不能偷偷回退 GitHub。
+func TestGetUpdateInfoGitCodeFailureErrors(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, "5.0.0")
 
@@ -172,20 +172,11 @@ func TestGetUpdateInfoFallsBackToGitHub(t *testing.T) {
 	}))
 	defer gitcode.Close()
 
+	githubHits := 0
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		githubHits++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[
-		  {
-		    "tag_name": "v5.0.1",
-		    "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v5.0.1",
-		    "prerelease": false,
-		    "published_at": "2026-10-25T10:38:53Z",
-		    "assets": [
-		      {"name": "zviewer-windows-x64.zip", "size": 4096,
-		       "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v5.0.1/zviewer-windows-x64.zip"}
-		    ]
-		  }
-		]`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer github.Close()
 
@@ -196,20 +187,18 @@ func TestGetUpdateInfoFallsBackToGitHub(t *testing.T) {
 	svc.GOOS = "windows"
 	svc.SetSettingsReader(func(context.Context) (bool, string, error) { return false, "", nil })
 
-	info, err := svc.GetUpdateInfo(context.Background(), false)
-	if err != nil {
-		t.Fatalf("GitCode 失败应回退 GitHub 而不是报错: %v", err)
+	if _, err := svc.GetUpdateInfo(context.Background(), false); err == nil {
+		t.Fatal("GitCode 失败时应报错")
+	} else if !strings.Contains(err.Error(), "GitCode 更新源不可用") {
+		t.Fatalf("错误文案应指明更新源: %v", err)
 	}
-	if info.Source != SourceGitHub {
-		t.Fatalf("回退后来源应为 github，实际 %q", info.Source)
-	}
-	if info.AssetSize != 4096 {
-		t.Fatalf("应取到 GitHub 的附件信息: %+v", info)
+	if githubHits != 0 {
+		t.Fatalf("不应回退 GitHub，实际请求了 %d 次", githubHits)
 	}
 }
 
-// TestGitCodeEmptyFallsBackToGitHub：镜像仓库还没跑过 CI（releases 为空）时也要能更新。
-func TestGitCodeEmptyFallsBackToGitHub(t *testing.T) {
+// TestGitCodeEmptyErrors：镜像仓库还没跑过 CI（releases 为空）同样直接报错。
+func TestGitCodeEmptyErrors(t *testing.T) {
 	root := t.TempDir()
 	writePackageJSON(t, root, "5.0.0")
 
@@ -219,13 +208,11 @@ func TestGitCodeEmptyFallsBackToGitHub(t *testing.T) {
 	}))
 	defer gitcode.Close()
 
+	githubHits := 0
 	github := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		githubHits++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`[
-		  {"tag_name": "v5.0.2", "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v5.0.2",
-		   "prerelease": false, "published_at": "2026-10-25T10:38:53Z",
-		   "assets": [{"name": "zviewer-windows-x64.zip", "size": 1, "browser_download_url": "https://github.com/x.zip"}]}
-		]`))
+		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer github.Close()
 
@@ -236,11 +223,12 @@ func TestGitCodeEmptyFallsBackToGitHub(t *testing.T) {
 	svc.GOOS = "windows"
 	svc.SetSettingsReader(func(context.Context) (bool, string, error) { return false, "", nil })
 
-	info, err := svc.GetUpdateInfo(context.Background(), false)
-	if err != nil {
-		t.Fatalf("GitCode 无 Release 时应回退 GitHub: %v", err)
+	if _, err := svc.GetUpdateInfo(context.Background(), false); err == nil {
+		t.Fatal("GitCode 无 Release 时应报错")
+	} else if !strings.Contains(err.Error(), "暂无发布版本") {
+		t.Fatalf("错误文案应说明没有发布版本: %v", err)
 	}
-	if info.Source != SourceGitHub || info.RemoteVersion != "v5.0.2" {
-		t.Fatalf("回退结果异常: %+v", info)
+	if githubHits != 0 {
+		t.Fatalf("不应回退 GitHub，实际请求了 %d 次", githubHits)
 	}
 }

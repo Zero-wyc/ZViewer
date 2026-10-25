@@ -248,7 +248,7 @@
       <p class="update-state">${updateBody(report)}</p>${progress}
       <div class="modal-actions">${updateActions(report)}</div>
       <div class="switch-row update-auto"><div><strong>自动检查更新</strong><p>启动后检查一次，此后每 6 小时一次。</p></div><button class="switch" role="switch" aria-label="自动检查更新" aria-checked="${auto}" data-action="update-auto" ${state.live ? '' : 'disabled'}></button></div>
-      <div class="switch-row update-source"><div><strong>使用 GitCode 更新源</strong><p>从大陆镜像下载，国内网络无需代理；不可用时自动回退 GitHub。</p></div><button class="switch" role="switch" aria-label="使用 GitCode 更新源" aria-checked="${gitcode}" data-action="update-source" ${state.live ? '' : 'disabled'}></button></div>
+      <div class="switch-row update-source"><div><strong>使用 GitCode 更新源</strong><p>从大陆镜像下载，国内网络无需代理；不可用时直接报错，不自动换源。</p></div><button class="switch" role="switch" aria-label="使用 GitCode 更新源" aria-checked="${gitcode}" data-action="update-source" ${state.live ? '' : 'disabled'}></button></div>
       <div class="switch-row update-proxy"><div><strong>使用前置反代</strong><p>仅 GitHub 源生效；GitCode 源直连对象存储，不需要代理。</p></div><button class="switch" role="switch" aria-label="使用前置反代" aria-checked="${proxy}" data-action="update-proxy" ${state.live && source === 'github' ? '' : 'disabled'}></button></div>
       <div class="update-proxy-field"><input class="search-input" id="update-proxy-url" aria-label="反代前缀地址" value="${esc(proxyURL)}" placeholder="https://gh-proxy.com" spellcheck="false" ${state.live && source === 'github' && proxy ? '' : 'disabled'}></div>
       <p class="update-note">${icon('info')}<span>${meta}</span></p>`;

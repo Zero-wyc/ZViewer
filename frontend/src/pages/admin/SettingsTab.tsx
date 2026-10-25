@@ -626,8 +626,8 @@ export function SettingsTab({
                       </Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
                         开启后从 gitcode.com（同一份 Release
-                        的大陆镜像）检查并下载更新，国内网络无需代理；关闭则回到
-                        GitHub。GitCode 不可用时会自动回退 GitHub。
+                        的大陆镜像）检查并下载更新，国内网络无需代理；关闭则改走
+                        GitHub。不会自动换源：GitCode 不可用时直接报错。
                       </Text>
                     </div>
                     <Switch
