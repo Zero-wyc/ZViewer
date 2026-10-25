@@ -24,6 +24,7 @@ import (
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/ncm"
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/ratelimit"
@@ -34,6 +35,7 @@ import (
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
 	"zviewer/backend/internal/updater"
+	"zviewer/backend/internal/voice"
 	"zviewer/backend/internal/webdav"
 )
 
@@ -82,6 +84,10 @@ type Deps struct {
 	NCM *ncm.Service
 	// Updater 是网页端一键更新（GitHub Releases + 平台更新脚本）。
 	Updater *updater.Service
+	// Voice 是语音聊天的服务端一半（LiveKit 凭证 + Twirp 管理调用）。
+	Voice *voice.Service
+	// NMS 是 OBS 推流的媒体服务探测器（外部 NMS 的可用性 + 推流地址）。
+	NMS *nms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -118,6 +124,14 @@ func New(deps Deps) *Server {
 	// 单测构造 Server 就不用关心这个字段（必须在拷贝进 Server 之前完成）。
 	if deps.Updater == nil {
 		deps.Updater = updater.New(deps.Cfg.ProjectRoot, deps.Settings)
+	}
+	if deps.Voice == nil {
+		deps.Voice = voice.New(deps.Settings)
+	}
+	if deps.NMS == nil {
+		// 单测构造 Server 时不必关心推流配置：默认按环境变量解析，
+		// 探测不到外部 NMS 时只是报告不可用（不影响其它路由）。
+		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
 	s := &Server{
 		Deps: deps,
@@ -171,6 +185,12 @@ func (s *Server) Handler() http.Handler {
 	s.registerDanmakuRoutes(mux)
 	s.registerMusicRoutes(mux)
 	s.registerUpdaterRoutes(mux)
+	s.registerVoiceRoutes(mux)
+	s.registerRTCRoutes(mux)
+	// 推流（OBS）：REST 下发配置，/live 反代到外部 NMS。
+	// /live 必须在 mux.Handle("/", SPA 回退) 之前注册，否则会被回成 index.html。
+	s.registerStreamPushRoutes(mux)
+	s.registerLiveRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

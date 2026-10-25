@@ -103,6 +103,7 @@ echo "=== 启动 Go 后端（端口 $GO_PORT）==="
   DATABASE_URL="$WORK/go/dev.sqlite" \
   CONFIG_DIR="$WORK/go" \
   PORT=$GO_PORT \
+  STREAM_PUSH_ENABLED=0 \
   "$GOBIN" > "$WORK/go.log" 2>&1
 ) &
 GO_PID=$!

@@ -366,6 +366,20 @@ func (r *Rooms) SetShareMethod(ctx context.Context, roomID, shareMethod string, 
 	return nil
 }
 
+// SetStreamKey 只写推流码。
+//
+// 与 SetShareMethod 分开是因为「下载 OBS 配置时补一个推流码」不该顺带
+// 改动 shareMethod：房间可能还没切到 stream-push，先拿到配置再切是正常流程。
+func (r *Rooms) SetStreamKey(ctx context.Context, roomID, streamKey string) error {
+	_, err := r.conn.ExecContext(ctx, `
+		UPDATE "room" SET "streamKey" = ?, "updatedAt" = ? WHERE "roomId" = ?
+	`, streamKey, FormatSQLiteTime(time.Now()), roomID)
+	if err != nil {
+		return fmt.Errorf("写入推流码失败: %w", err)
+	}
+	return nil
+}
+
 // RoomSettingsPatch 是 update-room-settings 的三列补丁：字段为 nil 表示不改。
 //
 // 三列都用指针而不是「零值即不改」：`requireApproval=false` 是合法取值，

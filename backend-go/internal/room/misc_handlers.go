@@ -1,12 +1,12 @@
 package room
 
 import (
-	"crypto/rand"
 	"encoding/json"
 	"net"
 	"net/url"
 	"strings"
 
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 )
@@ -48,7 +48,7 @@ func (s *Service) bindMisc(sc *sio.Socket) {
 		s.handleUpdateShareMethod(sc, args, ack)
 	})
 	sc.On("query-stream-push-availability", func(_ []json.RawMessage, ack func(...any)) {
-		ackOK(ack, map[string]any{"available": streamPushAvailable()})
+		ackOK(ack, map[string]any{"available": s.NMS.Available()})
 	})
 	// CLI 代理断开：全局广播下线。必须挂在断线回调里（Node 的 CliHandler
 	// 同样监听 disconnect），且要在连接被服务端索引移除之后仍能读到
@@ -218,34 +218,10 @@ func (s *Service) handlePlayPreviewSource(sc *sio.Socket, args []json.RawMessage
 // ===========================================================================
 // 投屏子模式（webrtc ↔ stream-push）
 // ===========================================================================
-
-// streamKeyAlphabet 与 Node 的 generateStreamKey 字符集一致：
-// 去掉易混淆的 0 / O / I / l / 1（OBS 里手抄推流码时最容易看错的那几个）。
-const streamKeyAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
-
-// generateStreamKey 生成 8 位推流码。
-func generateStreamKey() string {
-	buf := make([]byte, 8)
-	if _, err := rand.Read(buf); err != nil {
-		// 熵源故障时退化成固定长度占位串：宁可让用户重试，
-		// 也不要写一个空密钥进库（OBS 那边会表现为「推流码无效」）。
-		return "STREAMKY"
-	}
-	out := make([]byte, 8)
-	for i, b := range buf {
-		out[i] = streamKeyAlphabet[int(b)%len(streamKeyAlphabet)]
-	}
-	return string(out)
-}
-
-// streamPushAvailable 报告 OBS 推流（Node-Media-Server）是否可用。
 //
-// Go 版**没有内嵌 NMS**：node-media-server 是纯 Node 依赖（RTMP 3334 +
-// HTTP-FLV 3335），迁移它等于重写一个媒体服务器，不属于本次范围。
-// 因此这里恒为 false，行为等价于 Node 版设置了 STREAM_PUSH_ENABLED=0：
-// 查询返回不可用、切换被拒绝并提示检查 NMS 配置。
-// 「Node 配了 NMS 就能推流」的差异记在 MIGRATION.md 的已知缺口里。
-func streamPushAvailable() bool { return false }
+// 推流码生成与「NMS 在不在」都收在 internal/nms：REST 的 OBS 配置端点与
+// 这里的 socket 事件必须给出同一个答案，各写一份迟早会出现
+// 「事件说不可用、接口却给了推流码」的错位。
 
 // handleUpdateShareMethod 处理房主切换投屏子模式。
 func (s *Service) handleUpdateShareMethod(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
@@ -298,7 +274,7 @@ func (s *Service) handleUpdateShareMethod(sc *sio.Socket, args []json.RawMessage
 	}
 
 	// 切到 stream-push 前校验 NMS 是否可用（不可用时提示管理员）。
-	if shareMethod == "stream-push" && !streamPushAvailable() {
+	if shareMethod == "stream-push" && !s.NMS.Available() {
 		ackFail(ack, "推流服务不可用，请联系管理员检查 NMS 配置")
 		return
 	}
@@ -306,7 +282,7 @@ func (s *Service) handleUpdateShareMethod(sc *sio.Socket, args []json.RawMessage
 	// 切到 stream-push 时补一个推流码（已有则复用，别覆盖 OBS 里填好的值）。
 	var newKey *string
 	if shareMethod == "stream-push" && (room.StreamKey == nil || *room.StreamKey == "") {
-		k := generateStreamKey()
+		k := nms.GenerateStreamKey()
 		newKey = &k
 	}
 	if err := s.Rooms.SetShareMethod(ctx, roomID, shareMethod, newKey); err != nil {

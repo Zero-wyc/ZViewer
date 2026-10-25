@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/store"
 )
 
@@ -121,6 +122,9 @@ type Service struct {
 	MusicQueue *store.MusicQueue
 	Music      *MusicMemory
 
+	// NMS 是推流服务探测器（update-share-method / query-stream-push-availability）。
+	NMS *nms.Service
+
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
 
@@ -152,6 +156,9 @@ type Deps struct {
 	// Music 是一起听的播放基线（内存 + DB）；不传则退化成零值，
 	// 一起听事件会因空指针不可用——装配时必须提供。
 	Music *MusicMemory
+	// NMS 是 OBS 推流服务的可用性探测器。不传时按环境变量兜底构造：
+	// 推流事件仍可用，只是探测不到外部 NMS 时报告不可用。
+	NMS *nms.Service
 }
 
 // NewService 构造房间服务。
@@ -159,6 +166,9 @@ func NewService(deps Deps) *Service {
 	logger := deps.Logger
 	if logger == nil {
 		logger = log.Default()
+	}
+	if deps.NMS == nil {
+		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
 	return &Service{
 		DB:        deps.DB,
@@ -175,6 +185,7 @@ func NewService(deps Deps) *Service {
 
 		MusicQueue: store.NewMusicQueue(deps.DB),
 		Music:      deps.Music,
+		NMS:        deps.NMS,
 
 		states: make(map[string]*RuntimeState),
 		timers: make(map[string]*time.Timer),

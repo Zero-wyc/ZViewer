@@ -27,6 +27,7 @@ import (
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/ncm"
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/realtime"
@@ -80,6 +81,9 @@ func main() {
 	// 三者是单向依赖（房间层只认接口），所以构造顺序固定，不能调换。
 	socketSrv := sio.NewServer(sio.Options{})
 	hub := realtime.NewSocketHub(socketSrv)
+	// 推流探测器只构造一次：房间 socket 事件与 /api/stream-push 必须拿到
+	// 同一个答案，分开构造会让可用性缓存在两边各自漂移。
+	streamPush := nms.New(nms.ConfigFromEnv())
 	// 一起听的播放基线：内存 + DB。isHostOnline 需要核对连接是否还在，
 	// 所以要在拿到 Hub 之后再注入一次。
 	musicMemory := room.NewMusicMemory(conn)
@@ -98,6 +102,7 @@ func main() {
 		Hub:      hub,
 		Logger:   log.Default(),
 		Music:    musicMemory,
+		NMS:      streamPush,
 	})
 
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
@@ -136,6 +141,7 @@ func main() {
 		Kazumi:        kazumi.NewService(settings),
 		Danmaku:       danmaku.NewService(biliService),
 		NCM:           ncm.NewService(conn, cfg.NCMAPIBase),
+		NMS:           streamPush,
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

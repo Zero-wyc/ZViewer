@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~60,800（含测试 15,200） | 42,653 | 100%+ |
-| HTTP 端点 | 165 | ~300 | 55.0% |
+| 代码行 | ~62,900（含测试 15,900） | 42,653 | 100%+ |
+| HTTP 端点 | 169 | ~300 | 56.3% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备；bilibili_credential / ncm_credential 已可读写） | 16 | 100% |
 
@@ -60,7 +60,7 @@
 | 动漫源（kazumi 规则引擎 / anime / anisubs / cms） | ~5,400 | `internal/anime` | ⏳ |
 | 弹幕源（多源聚合：bilibili / bahamut / dandanplay） | ~1,460 | `internal/danmaku` | ⏳ B站 单源已完成（在 `internal/bilibili`），多源聚合与 bahamut/dandanplay 未做 |
 | 字幕源（多源） | ~1,000 | `internal/subtitle` | ✅ 见 3.10（5 端点 + 44 步对拍） |
-| LiveKit WS 隧道 + 凭证 | ~1,200 | `internal/voice` | ⏳ |
+| LiveKit WS 隧道 + 凭证 | ~1,200 | `internal/voice` | ✅ 见 3.19（3 端点 + 14 步对拍） |
 
 ### 2.1 B 站解析链（已完成）
 
@@ -120,7 +120,7 @@ JSON Content-Type 纠正、m3u8 改写、超时 504、SSRF（字面量 + 重定�
 | 一起听音乐（实时层） | ~3,170 | ✅ 见 3.7（11 个事件 + 服务器心跳 / 48 步对拍） | NCM 内部 API 与流代理属阶段 4 |
 | WebRTC 信令 | ~280 | ✅ 见 3.7（6 个事件 / 36 步对拍，媒体面不在后端） | |
 | CLI 代理 / 预览源 / 投屏子模式 | ~350 | ✅ 见 3.7（5 个事件） | |
-| 推流（NMS → mediamtx/lal） | ~580 | ⏳ | Go 版未内嵌 RTMP 服务器，见 3.7「已知缺口」 |
+| 推流（NMS → 外部 RTMP/FLV 服务） | ~580 | ✅ 见 3.20（1 端点 + `/live` 反代 + 6 步对拍） |
 
 ### 3.1 Socket.IO 协议层（spike 已通过）
 
@@ -393,12 +393,10 @@ WebRTC 信令）：只剩**推流**（NMS，见 3.7 已知缺口）。`cmd/sio-s
 8. **CLI 断线广播从 `socket.data` 读、不能走 Hub**。`detachSocket` 先把连接从服务端索引
    移除再跑断线回调，`Hub.SocketData` 此时返回 nil，`cli-agent-unavailable` 就发不出来。
 
-**已知缺口**：`update-share-method` 切到 `stream-push` 一律失败。Go 版没有内嵌
-Node-Media-Server（纯 Node 依赖，RTMP 3334 + HTTP-FLV 3335，迁它等于重写一个媒体服务器），
-`streamPushAvailable()` 恒为 `false`——等价于 Node 版设了 `STREAM_PUSH_ENABLED=0`：
-查询返回不可用、切换提示「请联系管理员检查 NMS 配置」。切回 `webrtc` 正常。
-要补这块，需要接一个独立的 RTMP/FLV 服务器（mediamtx / lal）并复刻推流鉴权与
-`stream-status` 广播。
+**原已知缺口（已补齐）**：`update-share-method` 切到 `stream-push` 曾一律失败——Go 不内嵌
+Node-Media-Server，`streamPushAvailable()` 恒为 `false`。阶段 25 改成**外部化 NMS**：
+`internal/nms` 探测上游 TCP 端口，可用性判定、推流码生成、`share-method-changed`
+广播与 Node 完全一致，见 3.20。
 
 ### 3.8 服务器文件与系统端点（阶段 14，HTTP 面开张）
 
@@ -1184,6 +1182,89 @@ Node 侧返回 **200**：Windows 分支用 `powershell Expand-Archive` 解压，
 拉进 typeorm 全部 entity），调 Node 的 `getUpdateInfo` 生成
 `testdata/check-expected.json`，Go 单测拿同一份 releases 喂假 GitHub 逐字段比对。
 
+### 3.19 语音（阶段 25，3 端点）
+
+`routes/voice.routes.ts`（232 行）→ `internal/voice`（340 行）+ `internal/api/voice.go`
+（337 行）。媒体面完全在 LiveKit，后端只做三件事：签 token、调 Twirp 禁言/踢人、
+告诉客户端连哪个地址。
+
+| 端点 | 语义 |
+|---|---|
+| `POST /api/voice/token` | 400 缺 roomId → 404 房间不存在或已关闭 → 403 尚未获准进入房间 → 503 未配置 → 200 `{success,url,token}` |
+| `POST /api/voice/mute` | 400 缺参 → 403 无权限 → 404 目标不在语音中 → 静音 AUDIO 轨 + 写 metadata |
+| `POST /api/voice/kick` | 400 缺参 → 403 无权限 → `RemoveParticipant` |
+
+#### 五处必须守住的细节
+
+1. **`trackKind` 把缺失的 `type` 当成 AUDIO**。protojson 省略零值枚举，AUDIO 轨的
+   `type` 字段常常整个不存在；当成「未知」就会漏禁言，表现是「管理员点了禁言但对方还能说」。
+2. **客户端 token 带 `sub`、admin token 不带**。客户端 `user:<id>` 让重连顶替同一条轨，
+   游客 `guest:<base36 时间戳><4 位随机>` 每次加入换一次性身份（否则两个游客互顶）。
+   admin token 只带 `video.roomAdmin + video.room`，10 分钟有效。
+3. **JWT header 只有 `alg`**，与 livekit-server-sdk 同形；claims 字段名必须是 camelCase
+   （`roomJoin` 而不是 `room_join`），写错不报错、只是没权限。
+4. **禁言只 mute 音频轨，metadata 每次都要写**。解禁时不调 `MutePublishedTrack`，
+   但仍要 `UpdateParticipant({metadata:{adminMuted:false}})`——客户端靠它恢复麦克风。
+5. **权限是四级**：root / admin-房主 / 房主 / 房管（`moderators` JSON 数组）。
+   少一级就会出现「房管禁不了人」，多一级就是越权。
+
+#### 对拍方式：假 LiveKit
+
+`scripts/mock-livekit.js` 固定两个参与者（各带 AUDIO/VIDEO 轨）、记录收到的 Twirp 调用；
+`http-voice-parity.sh` → **14 个步骤完全一致**（含 JWT payload 与三次管理的调用序列）。
+
+- 请求形状与 sdk 一致：`POST /twirp/livekit.RoomService/<Method>`，JSON 体，camelCase。
+- 比较 JWT 时**忽略 `iat/exp/nbf`**：Node 的 jose 会自动加 `iat`，Go 不加；只比
+  `iss/sub/name/video` 与 `(exp-nbf)/3600`。
+- 503（未配置密钥）不在对拍里（两侧都得配好密钥才能跑其余步骤），由
+  `internal/api/voice_test.go` 覆盖。
+
+### 3.20 OBS 推流（阶段 26，1 端点 + `/live` 反代）
+
+`modules/stream-push/*`（547 行）→ `internal/nms`（230 行）+ `internal/api/streampush.go`
+（420 行）。REST 只有 `GET /api/stream-push/obs-config/:roomId`，外加 `/live` 的
+HTTP-FLV 反代与两个 socket 事件（`update-share-method` / `query-stream-push-availability`，
+早前已在实时层迁完，本阶段把「恒 false」换成真探测）。
+
+#### 最大的架构差异：NMS 外部化
+
+`node-media-server` 是纯 Node 库（RTMP 3334 + HTTP-FLV 3335），Go 侧不内嵌，改成：
+
+| 变量 | 作用 |
+|---|---|
+| `NMS_HTTP_FLV_URL` | `/live` 反代上游 + 可用性探测目标（默认 `http://127.0.0.1:3335`） |
+| `RTMP_PORT` | OBS 配置里的推流端口（默认 3334） |
+| `SERVER_HOST` | 推流地址里的主机名（缺省从请求 Host 推导） |
+| `STREAM_PUSH_ENABLED=0` | 与 Node **同名开关**：显式关闭，不探测、恒不可用 |
+
+可用性 = 「上游 TCP 端口连得上」，带 5s 缓存（Node 是进程内布尔量、零延迟；
+socket 事件会反复问，每次握手太浪费）。部署含义：只跑 Go 版时推流需要额外跑
+一个 NMS 兼容服务（node-media-server / SRS / mediamtx 均可），与一起听的 NCM
+外部服务同一套策略。
+
+#### 四处必须守住的细节
+
+1. **OBS 场景集合的形状要逐字段贴近**：`sources[0]`（场景）**没有** `private_settings`，
+   `sources[1]`（rtmp_output）**有**——多一个键就可能被 OBS 的版本迁移改写。
+   `private_settings` 必须初始化成 `{}`（nil map 会序列化成 `null`）。
+2. **`shareMethod` 不在 obs-config 里落库**。Node 是 `roomRepo.save(room)` 整行写；
+   Go 只写 `streamKey` 一列——「先下配置、再切子模式」是正常流程，顺带改 shareMethod
+   会把刚切好的状态打回去，整行写还会覆盖并发修改的其他列。
+3. **Host 头在 Go 是 `r.Host`**，不在 `r.Header` 里。用 `r.Header.Get("Host")` 会永远
+   拿到空串 → 推流地址变成 `rtmp://localhost:3334/live`（局域网里推不上去）。
+4. **`/live` 在 NMS 不可用时要落到 SPA 回退**（Node 的 `return next()`），不是 502。
+   路径不以 `/api/` 开头，最终返回 index.html。注册顺序必须在 `mux.Handle("/")` 之前。
+
+#### 对拍与单测
+
+`bash backend-go/scripts/http-streampush-parity.sh` → **6 个步骤完全一致**
+（401 / 404 / 400 / 首次生成推流码 / 二次复用同一码 / 已有码复用）。推流码随机，
+驱动侧归一化成 `<KEY>` 并额外断言「两处一致」「二次请求没换码」。
+
+`/live` 不进对拍：需要一条真实 RTMP 推流才有字节可比。由
+`internal/api/streampush_test.go` 用假 NMS 覆盖（字节透传、头、原始 URI 含查询串、
+不可用回落 SPA、长连接首块即时可见）。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1193,7 +1274,9 @@ Node 侧返回 **200**：Windows 分支用 `powershell Expand-Archive` 解压，
 | FTP 挂载 + 流代理 | ~660 | ✅ 见 4.4 |
 | Emby / Jellyfin 协议仿真 | ~1,600 | ✅ 见 4.5 |
 | 服务器文件浏览 | ~1,200 | ✅ 见 3.8（12 端点 + 65 步对拍） |
-| 一起听音乐（含 NCM） | ~3,170 | ✅ 实时层已迁（见 3.7）；NCM 内部 API 与流代理属本阶段 ⏳ |
+| 一起听音乐（含 NCM） | ~3,170 | ✅ 见 3.17（9 端点 + 41 步对拍） |
+| 语音（LiveKit 凭证 + 禁言/踢人） | ~430 | ✅ 见 3.19（3 端点 + 14 步对拍） |
+| OBS 推流（配置下发 + /live 反代） | ~580 | ✅ 见 3.20（1 端点 + 6 步对拍） |
 | 管理端 / 统计 / 客户端日志 | ~900 | ✅ 见 3.8 / 3.9（63 步对拍） |
 | 更新器（下载/解压/sha256） | ~1,400 | ✅ 见 3.18（5 端点 + 16 步对拍） |
 | ACME / 自签证书 | ~1,020 | ⏳ |
@@ -1490,6 +1573,11 @@ Node 侧返回 **200**：Windows 分支用 `powershell Expand-Archive` 解压，
 | 更新包解压失败（Windows） | `powershell Expand-Archive` 对非压缩包**退出码仍为 0**（错误只写 stderr），于是 Node 认为解压成功，继续生成更新脚本并 detached 拉起它 | `archive/zip` 直接报错 → 500「解压失败: …」，不会产生任何脚本 | 这是 Node 的缺陷而非特性：实测对着垃圾字节走一遍，脚本真的被拉起来了，它会 `taskkill /IM node.exe` 并把仓库根 `config/` 挪走（随后恢复）。解压失败必须硬失败 |
 | 更新包解压实现 | Windows 用 PowerShell、Linux 的 zip 用 adm-zip、tar.gz 用系统 `tar` | 一律标准库 `archive/zip` + `archive/tar` | 容器里没有 `tar`/`unzip` 也要能更新；三套实现还会带来三套失败语义。代价是「解压失败」的具体文案与 Node 不同，对拍只比状态码 |
 | 更新脚本的自删除 | bat 结尾 `del "%~f0"` 的注释与实际不符（脚本并未删除自己） | 不尝试自删 | 自删依赖「脚本已读入内存」这个未定义行为，两种结果都能接受，不做无意义的对齐 |
+| OBS 推流的媒体服务 | 进程内 `require('node-media-server')` 起 RTMP 3334 + HTTP-FLV 3335 | 外部化：`NMS_HTTP_FLV_URL` 指向已运行的 NMS/mediamtx，可用性 = TCP 探得通（5s 缓存） | Go 不带那个 Node 库；重写 RTMP 服务器不属于本次范围。代价是**新增部署依赖**，没跑外部 NMS 时前端显示「推流服务不可用」 |
+| 推流可用性判定的时延 | 进程内布尔量，零延迟 | 5s TTL + 300ms TCP 探测 | socket 事件会反复问；每次握手不划算。最坏情况是「NMS 刚起来 5s 内仍报不可用」 |
+| `obs-config` 补推流码的写库粒度 | `roomRepo.save(room)` 整行写（含 shareMethod 等） | 只 `UPDATE "streamKey"` 一列 | 整行写会把并发修改的其他列覆盖回读到的旧值；「先下配置、再切子模式」是正常流程，不该被顺带改掉 |
+| `SERVER_HOST` 推导时的 IPv6 | `host.split(':')[0]` 把 `[::1]:3333` 切成 `[`，生成 `rtmp://[:3334/live` | `SplitHostPort` 后补回方括号，生成 `rtmp://[::1]:3334/live` | Node 那行对 IPv6 是明显的坏地址；Go 修好它不影响任何 IPv4/域名场景 |
+| `/live` 的反代实现 | 复用通用 `proxyHttpUpstream`（含 Range 收敛、https→http 降级、HLS 改写） | 专用极简反代：透传 Range/条件头、wildcard CORS、32KB 分块 + 立即 flush | FLV 是长连接推送，套用「Range 收敛 + 30s 连接超时」那套反而会掐断直播流；这里只需要「字节搬运 + 及时 flush」 |
 
 ## 八、每个单元的完成定义（DoD）
 

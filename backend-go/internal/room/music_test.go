@@ -319,35 +319,6 @@ func TestNormalizeLocalCliProxyURL(t *testing.T) {
 	}
 }
 
-func TestGenerateStreamKey(t *testing.T) {
-	seen := make(map[string]struct{}, 32)
-	for i := 0; i < 32; i++ {
-		key := generateStreamKey()
-		if len(key) != 8 {
-			t.Fatalf("长度 = %d, want 8（key=%q）", len(key), key)
-		}
-		for _, c := range key {
-			if !containsRune(streamKeyAlphabet, c) {
-				t.Fatalf("出现字符集外的字符 %q（key=%q）", c, key)
-			}
-		}
-		seen[key] = struct{}{}
-	}
-	// 32 次全撞的可能性极低（55^8），这里只防「返回值恒定」这种低级错误。
-	if len(seen) < 30 {
-		t.Errorf("32 次只生成 %d 个不同密钥，随机性可疑", len(seen))
-	}
-}
-
-func containsRune(s string, r rune) bool {
-	for _, c := range s {
-		if c == r {
-			return true
-		}
-	}
-	return false
-}
-
 // ===========================================================================
 // 播放基线：外推、凝固、补偿
 // ===========================================================================
