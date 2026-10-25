@@ -307,7 +307,10 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # === 大陆镜像：把 tag 与附件同步到 GitCode（只做附加动作，失败不影响 GitHub 发版） ===
+      # 注意：GitCode 的「仓库镜像 → Pull」会让仓库变成只读（官方限制：禁用推送代码/Tag/建 Release），
+      # 所以这里一并负责主线同步；项目里必须关掉 Pull 镜像，否则整步会被 403 拒绝。
       - name: Push tag to GitCode
+        id: gitcode-push
         if: env.GITCODE_TOKEN != ''
         continue-on-error: true
         shell: bash
@@ -315,13 +318,38 @@ jobs:
           GIT_TERMINAL_PROMPT: '0'
         run: |
           git tag -f latest "${GITHUB_SHA}"
-          git remote add gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git" 2>/dev/null \
-            || git remote set-url gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
-          # latest 是移动 tag，必须 --force
-          git push gitcode "refs/tags/latest:refs/tags/latest" --force
+          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
+          HINT='GitCode 拒绝写入：provider=image repository（Pull 镜像仓只读）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑；关闭后代码同步由本 workflow 负责。'
+          # 只读镜像仓的重试没有意义：标记后跳过后续建 Release，只留一条可操作的报错
+          push_or_stop() {
+            local log
+            if log=$(git push "$@" 2>&1); then
+              echo "$log"
+              return 0
+            fi
+            echo "$log"
+            if echo "$log" | grep -qi 'image repository'; then
+              echo "::error::$HINT"
+              echo "readonly=true" >> "$GITHUB_OUTPUT"
+              return 1
+            fi
+            return 2
+          }
+          # 主线：非强制推送；latest 是移动 tag，必须 --force
+          set +e
+          push_or_stop gitcode "HEAD:refs/heads/main"
+          CODE=$?
+          if [ "$CODE" = 0 ]; then
+            push_or_stop gitcode "refs/tags/latest:refs/tags/latest" --force
+            CODE=$?
+          fi
+          # 1 = 只读镜像仓（已输出可操作的报错），按绿色跳过；其它失败照常标红
+          [ "$CODE" = 1 ] && exit 0
+          exit "$CODE"
 
       - name: Publish to GitCode Release
-        if: env.GITCODE_TOKEN != ''
+        if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
         continue-on-error: true
         env:
           TAG: latest
@@ -432,7 +460,9 @@ jobs:
           echo "value=$FLAG" >> "$GITHUB_OUTPUT"
 
       # === 大陆镜像：把同一份 Release 与附件发到 GitCode（附加动作，失败不影响 GitHub 发版） ===
+      # GitCode 的 Pull 镜像仓是只读的（官方限制），项目里必须关掉「仓库镜像 → Pull」。
       - name: Push tag to GitCode
+        id: gitcode-push
         if: env.GITCODE_TOKEN != ''
         continue-on-error: true
         shell: bash
@@ -442,13 +472,23 @@ jobs:
           TAG_NAME="${GITHUB_REF#refs/tags/}"
           # 本地 tag 与触发构建的提交对齐（checkout 已取全 tag，这里只做兜底）
           git tag -f "${TAG_NAME}" "${GITHUB_SHA}"
-          git remote add gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git" 2>/dev/null \
-            || git remote set-url gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
+          HINT='GitCode 拒绝写入：provider=image repository（Pull 镜像仓只读）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑；关闭后代码同步由本 workflow 负责。'
           # 只推 tag：commit 对象随 tag 一起送达，不覆盖镜像仓库的分支
-          git push gitcode "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force
+          if ! log=$(git push gitcode "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force 2>&1); then
+            echo "$log"
+            if echo "$log" | grep -qi 'image repository'; then
+              echo "::error::$HINT"
+              echo "readonly=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            exit 1
+          fi
+          echo "$log"
 
       - name: Publish to GitCode Release
-        if: env.GITCODE_TOKEN != ''
+        if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
         continue-on-error: true
         env:
           TAG: ${{ github.ref_name }}

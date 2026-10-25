@@ -59,6 +59,15 @@ const repoUrl = `${API}/repos/${OWNER}/${REPO}`;
 const releaseUrl = `${repoUrl}/releases/${encodeURIComponent(TAG)}`;
 const withToken = (url) => `${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(TOKEN)}`;
 
+/** GitCode 的 Pull 镜像仓是只读的，任何写操作都会返回这条固定文案。 */
+const MIRROR_REPO_HINT =
+  '仓库是只读镜像仓（image repository）：GitCode 的「仓库镜像 → Pull」会禁用所有写入。' +
+  '请到 GitCode 项目设置 → 仓库镜像 关闭 Pull 镜像后重跑（关闭后代码由 CI 推送）。';
+
+function isImageRepoError(err) {
+  return /image repository/i.test(String(err?.body || err?.message || ''));
+}
+
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 带退避重试；对 4xx（除 429）不重试，直接抛出。 */
@@ -138,10 +147,13 @@ async function main() {
       await request(withToken(releaseUrl), { method: 'DELETE' }, { label: '删除已有 Release', attempts: 2 });
     }
   } catch (err) {
-    if (err.status !== 404) throw err;
+    if (err.status !== 404) {
+      if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
+      throw err;
+    }
   }
 
-  // 3) 创建 Release。tag 尚未在 GitCode 存在时（镜像还没同步、或直接推 tag 失败），
+  // 3) 创建 Release。tag 尚未在 GitCode 存在时（还没有任何 Release），
   //    用 target_commitish 让 GitCode 自己建 tag，避免整次同步白跑。
   const postRelease = (extra = {}) =>
     request(
@@ -158,9 +170,18 @@ async function main() {
   try {
     created = await postRelease();
   } catch (err) {
+    if (isImageRepoError(err)) {
+      // 只读镜像仓：重试没有意义，直接给操作指引
+      throw new Error(MIRROR_REPO_HINT);
+    }
     if (!TARGET_COMMITISH) throw err;
     warn(`创建 Release 失败（${err.message}），改用 target_commitish=${TARGET_COMMITISH} 重试`);
-    created = await postRelease({ target_commitish: TARGET_COMMITISH });
+    try {
+      created = await postRelease({ target_commitish: TARGET_COMMITISH });
+    } catch (retryErr) {
+      if (isImageRepoError(retryErr)) throw new Error(MIRROR_REPO_HINT);
+      throw retryErr;
+    }
   }
   log(`Release ${TAG} 已创建（HTTP ${created.status}）`);
 

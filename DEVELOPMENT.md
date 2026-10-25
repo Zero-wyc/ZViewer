@@ -196,22 +196,30 @@ npm run package        # 出 ZIP + SHA256
 **同一份 Release 与附件**再发一份到 [GitCode](https://gitcode.com)（CSDN 与华为云 CodeArts 联合运营的平台，
 与 AtomGit 已合并同站），大陆用户直接走 `gitcode.com` 下载。
 
-**为什么不能只靠 GitCode 的「仓库镜像」**：镜像只同步分支 / 标签 / 提交，**不搬 Release 和附件**。
-所以流程是「代码靠镜像，Release 靠 API」：
+**为什么不能只靠 GitCode 的「仓库镜像」**（两个理由，都会踩坑）：
 
-1. `git tag -f <tag> $GITHUB_SHA` + `git push gitcode refs/tags/<tag> --force`
-   —— 直接把标签（连同 commit 对象）推到 GitCode，不等镜像的定时同步。
-   推失败（例如镜像仓库不允许写入）时，脚本会用 `TARGET_COMMITISH=main` 让 GitCode 自己补建 tag。
+1. 镜像只同步分支 / 标签 / 提交，**不搬 Release 和附件**；
+2. 更硬的限制：项目一旦开启「仓库镜像 → Pull」，GitCode 会**禁用所有写操作**（推代码、建 Tag、建 Release
+   全部 403，报 `This operation is not allowed because the repository is an image repository`）。
+   ——官方文档写明这是为了避免双写。
+
+所以流程是「代码和 Release 都由 CI 推」：
+
+1. `git push gitcode HEAD:refs/heads/main` + `git push gitcode refs/tags/<tag> --force`
+   —— 主线与标签直接推过去，替代 Pull 镜像的定时同步（Pull 镜像每天才拉一次，本来就慢）。
 2. `node scripts/sync-gitcode-release.mjs`
    —— 同名 Release 已存在则先删再建 → `GET /releases/{tag}/upload_url` 取华为云 OBS 预签名地址 →
    `PUT` 原始字节 → 回读校验并把下载地址写进 Job Summary。
+
+> 推 tag 失败时脚本会用 `TARGET_COMMITISH=main` 让 GitCode 自己补建 tag（只读镜像仓会先被拦下并给出指引）。
 
 两步都是 `continue-on-error: true`：**GitCode 出问题不影响 GitHub 发版**，只在 job 上显示黄叹号。
 
 一次性配置：
 
 1. gitcode.com「导入项目」从 GitHub 导入 `Zero-wyc/ZViewer`，仓库**必须公开**（私有则下载要登录，失去意义）。
-2. 项目设置 → 仓库镜像 → **Pull** 填 `https://github.com/Zero-wyc/ZViewer.git`（可选，只同步代码）。
+2. **不要开「仓库镜像 → Pull」**。已经开了的，去 项目设置 → 仓库镜像 把它删掉/关掉，否则仓库只读，
+   推 tag 与建 Release 一律 403。代码同步由 workflow 的 `git push` 承担。
 3. 头像 → 设置 → 私人令牌 → 生成（勾仓库读写），只显示一次。
 4. GitHub 仓库 → Settings → Secrets → Actions，新增 `GITCODE_TOKEN`。
 
@@ -232,6 +240,11 @@ node scripts/sync-gitcode-release.mjs      # 加 DRY_RUN=1 只打印计划
 - Release 主键**就是 tag 名**：`GET|PATCH|DELETE /repos/{owner}/{repo}/releases/{tag}`；附件删除是
   `DELETE /releases/{tag}/attach_files/{attach_file_id}`（脚本直接删 Release，更省事）。
 - 日志出现 `访问仓库失败：HTTP 401` = 令牌过期或没权限；`HTTP 404` = GitCode 上还没有该仓库。
+- 日志出现 `This operation is not allowed because the repository is an image repository` /
+  `error_code_name":"UN_KNOW` 且提到 image repository = 项目还开着「仓库镜像 → Pull」，
+  仓库处于只读态：去 项目设置 → 仓库镜像 关掉后重跑（脚本与 workflow 都会直接给出这句指引）。
+- 若 GitCode 侧无法取消 Pull 镜像，就新建一个**空仓库**（不要用「导入」），把 `build.yml` 里的
+  `GITCODE_REPO` 指向它，再推一次 main / tag —— 代码、标签、Release 都由 CI 推上去。
 - 下载直链 `https://gitcode.com/<owner>/<repo>/releases/download/<tag>/<file>` 匿名可下且永久有效。
 - Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
 
