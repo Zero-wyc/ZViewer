@@ -239,7 +239,8 @@ services:
 | `PORT`                   | Backend port                                  | `3333`                  |
 | `HOST`                   | Listen address                                  | empty (dual-stack)                   |
 | `CONFIG_DIR`             | Data root directory                                 | `<project-root>/config` |
-| `DATABASE_URL`           | SQLite path or PostgreSQL connection string             | `<config>/dev.sqlite`   |
+| `DATABASE_URL`           | SQLite file path (relative to `CONFIG_DIR`, or absolute) | `<config>/dev.sqlite`   |
+| `SQLITE_WAL`             | Journal mode; set `0` to fall back to `journal_mode=delete` | WAL enabled          |
 | `CORS_ORIGIN`            | CORS origins, comma-separated                          | `*`                     |
 | `JWT_ACCESS_SECRET`      | Access secret (must be changed in production)                     | —                       |
 | `JWT_REFRESH_SECRET`     | Refresh secret (must be changed in production)                    | —                       |

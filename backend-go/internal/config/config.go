@@ -55,8 +55,12 @@ type Config struct {
 	NCMAPIBase string
 
 	// SQLiteWAL 为 true 时把数据库切到 WAL 日志模式。
-	// 默认关闭：现有库由 sql.js 以 journal_mode=delete 创建，
-	// 迁移期若仍可能被 Node 版打开，保持原模式最安全。
+	//
+	// **默认开启**（Node 后端已于 2026-10-25 删除，不再有第二个进程按
+	// journal_mode=delete 打开同一个库）。WAL 下读不会被写阻塞，崩溃恢复
+	// 只要重放 -wal 文件；代价是库里多出 `-wal` / `-shm` 两个旁文件，
+	// 备份不能直接复制主文件（见 `db.Backup`）。
+	// 需要退回旧模式时显式设 `SQLITE_WAL=0`。
 	SQLiteWAL bool
 }
 
@@ -77,7 +81,7 @@ func Load() (*Config, error) {
 		CORS:         parseCORSOrigin(os.Getenv("CORS_ORIGIN")),
 		UseTLS:       os.Getenv("HTTPS") == "true",
 		StartedAt:    time.Now(),
-		SQLiteWAL:    os.Getenv("SQLITE_WAL") == "1",
+		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 	}
 	cfg.AvatarsDir = envOr("AVATARS_DIR", filepath.Join(cfg.UploadsDir, "avatars"))
 	cfg.NCMAPIBase = envOr("NCM_API_BASE", "http://127.0.0.1:36530")

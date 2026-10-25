@@ -2085,4 +2085,77 @@ npm run build            # 前端 + Go 后端产物
    是前端工具链的传递依赖残留在根 `node_modules` 里；`npm prune` 一次即可清掉，
    不影响构建与回归。
 
+## 十一、数据库选型与调优（2026-10-25）
+
+### 11.1 结论：不换库，继续 SQLite
+
+Node 下线后重新评估过一次「换 PostgreSQL / MySQL」，结论是**不换**。判断依据是
+实测负载，不是偏好：
+
+| 维度 | 实测值 | 含义 |
+|---|---|---|
+| 库大小 | 148 KB（开发库），16 表 69 行 | 距离需要独立数据库服务的量级差 3-4 个数量级 |
+| 写入模式 | 心跳**不落库**；播放状态是脏标记 + 显式 flush；弹幕追加 JSON；评论/审计低频 | 没有高频写热点，单写者完全够 |
+| 压测 | 60s 7.4 万请求、0 超时 0 5xx，**只用了 2 条连接** | 当前 `MaxOpenConns=2` 还有余量 |
+| 部署形态 | 单进程 Go：桌面壳子进程 / Docker 单文件 / 单机 `npm start` | 没有多实例、没有第二台机器共享库 |
+
+PG / MySQL 唯一强于 SQLite 的是**多写者并发 + 多实例共享**，而这两点本项目都用不到；
+换过去要多付独立进程（60~400 MB 常驻）、一套服务运维，以及一次真正的移植工程
+（11 处 `LastInsertId` 改 `RETURNING`、16 张表 DDL 重写、`?` 占位符全量重绑、
+20 多个测试文件的建表语句、数据迁移），换回的却是**更慢的单机读延迟**（多一次 TCP 往返）。
+
+> 什么时候才真的该换：多机共享同一个库 / 多实例水平扩展 / 需要外部（CLI、BI、另一台机器）
+> 直连数据库 / 单表千万行以上且持续高并发写。四条占一条再谈换库。
+
+### 11.2 开启 WAL（默认）
+
+`SQLITE_WAL` 从「显式 `1` 才开」改成「**默认开，`0` 显式关**」。当初默认关是因为要跟
+Node 版共用同一个库、怕改写文件头的 journal 模式；`backend/` 删除后这个前提不存在了。
+
+收益：读不被写阻塞（WAL 下读者看快照，写者追加 `-wal`），崩溃恢复只需重放 `-wal`，
+并且可以不停服做一致性快照。
+
+代价与配套（都已处理）：
+
+- 库里会出现 `dev.sqlite-wal`、`dev.sqlite-shm` 两个旁文件。**直接复制主文件会丢最近
+  提交的事务且看起来完全正常**，所以备份必须走 `VACUUM INTO`。
+- Docker / 桌面壳挂载的是整个 `config/` 目录，旁文件跟着走，无需额外配置。
+- 需要退回旧模式时设 `SQLITE_WAL=0`，`journalLabel` 会在启动日志里标明当前模式。
+
+### 11.3 补三条索引
+
+`VerifySchema` 只校验表与列，索引从来没被管过，而 TypeORM 建库时漏了两处高频查询：
+
+| 索引 | 目标查询 | 依据 |
+|---|---|---|
+| `idx_danmaku_track_room` | `WHERE "roomId" = ? ORDER BY "id"` | 弹幕取数全按房间；二级索引隐含 rowid，单列即可同时满足过滤与排序 |
+| `idx_session_active_room` | `roomId + role/socketId/userId + endedAt IS NULL` | 五个查询都以 `roomId` 起头且都带 `endedAt IS NULL` |
+| `idx_session_active_socket` | `socketId + endedAt IS NULL` | 断线重连时按 socket 反查会话 |
+
+后两条用**部分索引**（`WHERE "endedAt" IS NULL`）：只索引活跃行，索引更小、写放大更低，
+且谓词与查询完全一致才会被查询计划采用。`indexes_test.go` 里用 `EXPLAIN QUERY PLAN`
+钉住「必须真的用上」，避免建了等于没建。
+
+与「绝不自动建表」的边界：**表/列的增删改仍然一律拒绝**（`VerifySchema` 缺表缺列直接
+退出）；索引是纯性能结构，`CREATE INDEX IF NOT EXISTS` 幂等，建与不建都不改变任何一行
+的可读性。启动时 `EnsureIndexes` 跑一次，连跑三次也只会是空操作（有测试覆盖）。
+
+### 11.4 热备份入口
+
+```bash
+zviewer-server --backup-db <目标文件>      # 或 --backup-db=<目标文件>
+```
+
+走 `VACUUM INTO`：在单个读事务里把整库重写成新文件，WAL 下也一致，**不需要停服**。
+目标文件已存在时直接报错而不是覆盖（避免把上一份备份冲掉）。实测：
+`config/dev.sqlite` 副本 → 备份 156 KB，`room_danmaku_meta` 11 行完全一致，
+新库的 `journal_mode` 回到 `delete`（新文件本来就没有 WAL）。
+
+### 11.5 README 的一处旧描述
+
+`DATABASE_URL` 在 README 里一直被写成「SQLite 路径或 PostgreSQL 连接串」，但
+`resolveDatabasePath` 只把它当文件路径用（相对 `CONFIG_DIR` 或绝对路径），
+从来没有任何 PG 代码路径。已按实际行为改正，避免再被当成「支持换库」。
+
+
 

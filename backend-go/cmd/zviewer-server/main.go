@@ -15,6 +15,7 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -79,6 +80,33 @@ func main() {
 		log.Fatalf("[db] %v", err)
 	}
 	defer conn.Close()
+
+	// 补建 Go 侧需要的索引（幂等，不改表结构）。放在最早期：后面的
+	// 业务查询都假设这些索引已经存在。
+	if err := db.EnsureIndexes(context.Background(), conn); err != nil {
+		log.Fatalf("[db] %v", err)
+	}
+
+	// `--backup-db <目标文件>` 是独立的热备份入口：快照写完即退出，
+	// 不启动 HTTP/Socket 服务，也不会动源库。用于 cron / 桌面壳的定时备份。
+	if args := os.Args[1:]; hasFlag(args, "--backup-db") {
+		dest, ok := flagValue(args, "--backup-db")
+		if !ok {
+			fmt.Fprintln(os.Stderr, "用法: zviewer-server --backup-db <目标文件>")
+			os.Exit(1)
+		}
+		if err := db.Backup(context.Background(), conn, dest); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		info, statErr := os.Stat(dest)
+		if statErr == nil {
+			fmt.Printf("  [完成] 数据库已备份到 %s（%.1f KB）\n", dest, float64(info.Size())/1024)
+		} else {
+			fmt.Printf("  [完成] 数据库已备份到 %s\n", dest)
+		}
+		return
+	}
 
 	tokens, err := auth.NewManager(cfg.ConfigDir)
 	if err != nil {
@@ -276,19 +304,36 @@ func listenAddr(cfg *config.Config) string {
 
 func journalLabel(wal bool) string {
 	if wal {
-		return "WAL"
+		return "WAL（默认）"
 	}
-	return "delete（保持 sql.js 原模式）"
+	return "delete（SQLITE_WAL=0 显式关闭）"
 }
 
 // hasFlag 判断命令行里是否带某个开关。
 func hasFlag(args []string, flag string) bool {
 	for _, a := range args {
-		if a == flag {
+		if a == flag || strings.HasPrefix(a, flag+"=") {
 			return true
 		}
 	}
 	return false
+}
+
+// flagValue 取 `--flag value` 或 `--flag=value` 的值。
+func flagValue(args []string, flag string) (string, bool) {
+	for i, a := range args {
+		if a == flag {
+			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+				return args[i+1], true
+			}
+			return "", false
+		}
+		if strings.HasPrefix(a, flag+"=") {
+			v := strings.TrimPrefix(a, flag+"=")
+			return v, v != ""
+		}
+	}
+	return "", false
 }
 
 func fileExists(path string) bool {

@@ -234,7 +234,8 @@ services:
 | `PORT`                   | 后端端口                                  | `3333`                  |
 | `HOST`                   | 监听地址                                  | 空（双栈）                   |
 | `CONFIG_DIR`             | 数据根目录                                 | `<project-root>/config` |
-| `DATABASE_URL`           | SQLite 路径或 PostgreSQL 连接串             | `<config>/dev.sqlite`   |
+| `DATABASE_URL`           | SQLite 文件路径（相对 `CONFIG_DIR` 或绝对路径）      | `<config>/dev.sqlite`   |
+| `SQLITE_WAL`             | 日志模式；设 `0` 退回 `journal_mode=delete`      | 启用 WAL                |
 | `CORS_ORIGIN`            | CORS 来源，逗号分隔                          | `*`                     |
 | `JWT_ACCESS_SECRET`      | Access 密钥（生产必须修改）                     | —                       |
 | `JWT_REFRESH_SECRET`     | Refresh 密钥（生产必须修改）                    | —                       |
