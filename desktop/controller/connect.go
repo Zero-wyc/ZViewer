@@ -6,15 +6,19 @@ package controller
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -30,10 +34,15 @@ type IPv6Report struct {
 
 // TunnelReport 是 cloudflared 快速隧道的状态。
 type TunnelReport struct {
-	Available bool   `json:"available"`
-	State     string `json:"state"`
-	URL       string `json:"url"`
-	Message   string `json:"message"`
+	Available    bool   `json:"available"`
+	State        string `json:"state"`
+	URL          string `json:"url"`
+	Health       string `json:"health"`
+	LatencyMs    int64  `json:"latencyMs"`
+	RefreshCount int    `json:"refreshCount"`
+	MaxRefreshes int    `json:"maxRefreshes"`
+	Protocol     string `json:"protocol"`
+	Message      string `json:"message"`
 }
 
 // ipv6Sources 均只有 AAAA 记录；按国内可达性排序。
@@ -122,7 +131,7 @@ func (c *Controller) ProbeIPv6(force bool) IPv6Report {
 			return report
 		}
 	}
-	report.Reason = "没有探测到公网 IPv6：外部接口无法通过 IPv6 访问本机。"
+	report.Reason = "没有探测到公网 IPv6 出口：本机未能通过 IPv6 访问外部检测接口。"
 	c.ipv6, c.ipv6At = &report, time.Now()
 	return report
 }
@@ -154,136 +163,185 @@ func (c *Controller) cloudflared() string {
 	return found
 }
 
-func (c *Controller) tunnelReport() TunnelReport {
-	c.mu.RLock()
-	state, url, message := c.tunnelState, c.tunnelURL, c.tunnelMessage
-	c.mu.RUnlock()
-	return TunnelReport{Available: c.cloudflared() != "", State: state, URL: url, Message: message}
+const cloudflaredReleaseAPI = "https://api.github.com/repos/cloudflare/cloudflared/releases/latest"
+const cloudflaredDownloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
+
+var cloudflaredVersionPattern = regexp.MustCompile(`(?i)(\d{4})\.(\d+)\.(\d+)`)
+var cloudflaredChecksumPattern = regexp.MustCompile(`(?m)^\s*\x60?cloudflared-windows-amd64\.exe:\s*([0-9a-fA-F]{64})\x60?\s*$`)
+
+func checksumForRelease(body string) string {
+	if match := cloudflaredChecksumPattern.FindStringSubmatch(body); len(match) == 2 {
+		return strings.ToLower(match[1])
+	}
+	return ""
 }
 
-func (c *Controller) setTunnelState(state, message string) {
-	c.mu.Lock()
-	c.tunnelState, c.tunnelMessage = state, message
-	c.mu.Unlock()
+type cloudflaredRelease struct {
+	TagName string `json:"tag_name"`
+	Body    string `json:"body"`
 }
 
-func (c *Controller) handleTunnelLine(line string) {
-	if match := tunnelPattern.FindString(line); match != "" {
-		c.mu.Lock()
-		changed := c.tunnelURL != match
-		c.tunnelURL = match
-		if c.tunnelState != "stopping" {
-			c.tunnelState = "running"
-		}
-		c.mu.Unlock()
-		if changed {
-			c.log("Cloudflare Tunnel 已就绪："+match, "tunnel", "INFO")
-			c.emit()
+func latestCloudflaredRelease(parent context.Context) (cloudflaredRelease, string, error) {
+	ctx, cancel := context.WithTimeout(parent, 6*time.Second)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cloudflaredReleaseAPI, nil)
+	if err != nil {
+		return cloudflaredRelease{}, "", err
+	}
+	request.Header.Set("Accept", "application/vnd.github+json")
+	request.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	request.Header.Set("User-Agent", "ZViewerDesktop")
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return cloudflaredRelease{}, "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return cloudflaredRelease{}, "", fmt.Errorf("GitHub Release API 返回 HTTP %d", response.StatusCode)
+	}
+	var release cloudflaredRelease
+	if err := json.NewDecoder(io.LimitReader(response.Body, 2<<20)).Decode(&release); err != nil {
+		return cloudflaredRelease{}, "", fmt.Errorf("读取 GitHub Release 信息失败：%w", err)
+	}
+	match := cloudflaredVersionPattern.FindStringSubmatch(release.TagName)
+	if len(match) != 4 || match[0] != strings.TrimPrefix(release.TagName, "v") {
+		return cloudflaredRelease{}, "", fmt.Errorf("Cloudflare Release 版本号无效：%q", release.TagName)
+	}
+	return release, match[0], nil
+}
+
+func installedCloudflaredVersion(parent context.Context, exe string) string {
+	ctx, cancel := context.WithTimeout(parent, 3*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, exe, "--version")
+	hideWindow(cmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	match := cloudflaredVersionPattern.FindStringSubmatch(string(output))
+	if len(match) != 4 {
+		return ""
+	}
+	return match[0]
+}
+
+func cloudflaredVersionIsOlder(installed, latest string) bool {
+	installedParts := cloudflaredVersionPattern.FindStringSubmatch(installed)
+	latestParts := cloudflaredVersionPattern.FindStringSubmatch(latest)
+	if len(installedParts) != 4 || len(latestParts) != 4 {
+		return true
+	}
+	for index := 1; index <= 3; index++ {
+		current, _ := strconv.Atoi(installedParts[index])
+		newest, _ := strconv.Atoi(latestParts[index])
+		if current != newest {
+			return current < newest
 		}
 	}
+	return false
 }
 
-// StartTunnel 用 cloudflared 的快速隧道把本机网页端口映射到临时地址。
-func (c *Controller) StartTunnel() (any, error) {
-	return c.exclusive(func() (any, error) {
-		c.mu.RLock()
-		proc, state := c.tunnel, c.tunnelState
-		active := c.active
-		c.mu.RUnlock()
-		if proc != nil && state != "error" {
-			return c.Snapshot(), nil
+// downloadCloudflared 获取 Cloudflare 官方 Windows x64 单文件，先落到同目录临时文件，
+// 确认是合理大小的 PE 文件后再原子改名，避免断线留下损坏的 cloudflared.exe。
+func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, expectedSHA256 string, replaceExisting bool) (string, error) {
+	if c.root == "" {
+		return "", errors.New("无法确定运行包目录，不能保存 cloudflared.exe")
+	}
+	if err := os.MkdirAll(c.root, 0o755); err != nil {
+		return "", fmt.Errorf("无法创建运行包目录：%w", err)
+	}
+	target := filepath.Join(c.root, "cloudflared.exe")
+	if fileExists(target) && !replaceExisting {
+		return target, nil
+	}
+	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
+	defer cancel()
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
+	if err != nil {
+		return "", err
+	}
+	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(request *http.Request, via []*http.Request) error {
+		if request.URL.Scheme != "https" {
+			return errors.New("Cloudflare 下载发生了非 HTTPS 跳转")
 		}
-		if proc != nil {
-			_ = c.stopTunnel()
+		host := strings.ToLower(request.URL.Hostname())
+		if host != "github.com" && !strings.HasSuffix(host, ".githubusercontent.com") {
+			return fmt.Errorf("Cloudflare 下载跳转到非 GitHub 主机：%s", host)
 		}
-		exe := c.cloudflared()
-		if exe == "" {
-			return nil, errors.New("未找到 cloudflared.exe；请下载后放入运行包目录，或加入 PATH")
+		if len(via) >= 10 {
+			return errors.New("Cloudflare 下载跳转次数过多")
 		}
-		config := c.store.Value
-		if active != nil {
-			config = *active
-		}
-		if config.Port <= 0 {
-			return nil, errors.New("请先在应用设置中确认网页端口")
-		}
-		scheme := "http"
-		if config.Https {
-			scheme = "https"
-		}
-		args := []string{"tunnel", "--url", fmt.Sprintf("%s://127.0.0.1:%d", scheme, config.Port), "--no-autoupdate"}
-		if config.Https {
-			args = append(args, "--no-tls-verify")
-		}
-		c.setTunnelState("connecting", "")
-		c.mu.Lock()
-		c.tunnelURL = ""
-		c.mu.Unlock()
-		started, err := startProcess("", exe, args, nil, filepath.Dir(exe), func(line string) {
-			c.log(line, "tunnel", classifyLevel(line))
-			c.handleTunnelLine(line)
-		})
-		if err != nil {
-			c.setTunnelState("error", "无法启动 cloudflared："+err.Error())
-			return nil, err
-		}
-		c.mu.Lock()
-		c.tunnel = started
-		c.mu.Unlock()
-		go func() {
-			code := started.Wait()
-			c.mu.Lock()
-			if c.tunnel != started {
-				c.mu.Unlock()
-				return
-			}
-			c.tunnel = nil
-			c.tunnelURL = ""
-			if c.tunnelState == "stopping" {
-				c.tunnelState = "stopped"
-			} else {
-				c.tunnelState = "error"
-			}
-			failed := c.tunnelState == "error"
-			c.mu.Unlock()
-			level := "INFO"
-			if failed {
-				level = "ERROR"
-			}
-			c.log(fmt.Sprintf("Cloudflare Tunnel 已退出（%d）", code), "tunnel", level)
-			c.emit()
-		}()
-		c.log("正在建立 Cloudflare 快速隧道，地址稍后显示", "tunnel", "INFO")
-		return c.Snapshot(), nil
-	})
-}
-
-func (c *Controller) stopTunnel() error {
-	c.mu.RLock()
-	proc := c.tunnel
-	c.mu.RUnlock()
-	if proc == nil {
-		c.setTunnelState("stopped", "")
 		return nil
+	}}
+	response, err := client.Do(request)
+	if err != nil {
+		return "", fmt.Errorf("下载 cloudflared 失败：%w", err)
 	}
-	c.setTunnelState("stopping", "")
-	if err := c.kill(proc, c.cloudflared()); err != nil {
-		c.setTunnelState("error", "停止 cloudflared 失败")
-		return err
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("下载 cloudflared 失败：HTTP %d", response.StatusCode)
+	}
+	if response.ContentLength > 100<<20 {
+		return "", errors.New("cloudflared 文件超过 100 MB，已取消下载")
+	}
+	tmp, err := os.CreateTemp(c.root, ".cloudflared-*.download")
+	if err != nil {
+		return "", fmt.Errorf("无法在运行包目录创建下载文件：%w", err)
+	}
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+	limited := &io.LimitedReader{R: response.Body, N: (100 << 20) + 1}
+	hasher := sha256.New()
+	size, copyErr := io.Copy(io.MultiWriter(tmp, hasher), limited)
+	closeErr := tmp.Close()
+	if copyErr != nil {
+		return "", fmt.Errorf("保存 cloudflared 失败：%w", copyErr)
+	}
+	if closeErr != nil {
+		return "", fmt.Errorf("写入 cloudflared 失败：%w", closeErr)
+	}
+	if size <= 1<<20 || size > 100<<20 {
+		return "", fmt.Errorf("cloudflared 下载文件大小异常（%d 字节）", size)
+	}
+	if expectedSHA256 != "" && hex.EncodeToString(hasher.Sum(nil)) != expectedSHA256 {
+		return "", errors.New("cloudflared SHA-256 与 Cloudflare Release 校验值不一致")
+	}
+	file, err := os.Open(tmpPath)
+	if err != nil {
+		return "", err
+	}
+	var signature [2]byte
+	_, readErr := io.ReadFull(file, signature[:])
+	file.Close()
+	if readErr != nil || signature != [2]byte{'M', 'Z'} {
+		return "", errors.New("下载内容不是有效的 Windows 程序文件")
+	}
+	backup := ""
+	if fileExists(target) {
+		old, err := os.CreateTemp(c.root, ".cloudflared-previous-*.exe")
+		if err != nil {
+			return "", fmt.Errorf("无法准备 cloudflared 更新回滚文件：%w", err)
+		}
+		backup = old.Name()
+		old.Close()
+		os.Remove(backup)
+		if err := os.Rename(target, backup); err != nil {
+			return "", fmt.Errorf("无法暂存旧版 cloudflared：%w", err)
+		}
+	}
+	if err := os.Rename(tmpPath, target); err != nil {
+		if backup != "" {
+			_ = os.Rename(backup, target)
+		}
+		return "", fmt.Errorf("无法安装 cloudflared 到运行包目录：%w", err)
+	}
+	if backup != "" {
+		_ = os.Remove(backup)
 	}
 	c.mu.Lock()
-	c.tunnelURL = ""
+	c.tunnelExe = target
 	c.mu.Unlock()
-	c.setTunnelState("stopped", "")
-	return nil
+	c.log("已从 Cloudflare 官方 GitHub 下载 cloudflared.exe", "tunnel", "INFO")
+	return target, nil
 }
-
-// StopTunnel 停止隧道并广播状态。
-func (c *Controller) StopTunnel() error {
-	err := c.stopTunnel()
-	c.emit()
-	return err
-}
-
-// TunnelReport 供宿主层读取当前隧道状态。
-func (c *Controller) TunnelReport() TunnelReport { return c.tunnelReport() }

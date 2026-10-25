@@ -25,7 +25,7 @@
     return heading('服务总览', '本机服务的运行状态。') +
       `<section class="hero"><div class="hero-copy"><h2>${s.backend === 'running' ? '服务运行中' : s.backend === 'starting' ? '服务启动中' : '服务未启动'}</h2><p>${c.https ? 'https' : 'http'}://localhost:${esc(c.port)}<br>${c.bindHost === '127.0.0.1' ? '仅本机访问' : c.bindHost === '0.0.0.0' ? '局域网 IPv4' : '所有地址 · IPv4 + IPv6'} · ${s.backend === 'running' ? '健康检查通过' : '等待启动'}</p><div class="hero-actions">${button(s.pid ? '停止服务' : '启动服务', 'toggle-run', s.pid ? 'stop' : 'play', 'primary')}${button('打开网页端','open-web','globe','primary')}<button class="text-button" data-action="open-manager">打开管理页面 ${icon('external')}</button></div></div></section>` +
       `<div class="section-title"><h2>服务状态</h2><button class="text-button" data-nav="settings">监听端口 ${esc(c.port)} · 修改设置 ${icon('arrow')}</button></div><div class="service-grid">${card('ZViewer 主服务','网页与 API','server',s.backend,`${c.port} / TCP`)}${card('语音与推流','LiveKit 进程','mic',s.voice,`语音 UDP ${c.port} / RTMP ${c.rtmpPort}`,s.voicePid)}${card('高画质代理','ZViewerCLI 代理','terminal',cli.state,cliInfo,cli.pid)}</div>` +
-      `<div class="bottom-grid"><section><div class="section-title"><h2>常用操作</h2><small>快捷入口</small></div><div class="setup-list"><button class="setup-row" data-nav="cert"><span class="step">${icon('lock')}</span><div><strong>签发本机 HTTPS 证书</strong><p>localhost</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="frp"><span class="step">${icon('network')}</span><div><strong>配置 FRP 服务器</strong><p>VPS 地址与端口映射</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="settings"><span class="step">${icon('settings')}</span><div><strong>修改监听端口</strong><p>下次启动生效</p></div>${icon('arrow')}</button></div></section><section><div class="section-title"><h2>最近活动</h2><button class="text-button" data-nav="logs">全部日志 ${icon('arrow')}</button></div><div class="activity-list">${activity()}</div></section></div><div class="footnote">${icon('info')}显示本地进程状态。</div>`;
+      `<div class="bottom-grid"><section><div class="section-title"><h2>常用操作</h2><small>快捷入口</small></div><div class="setup-list"><button class="setup-row" data-nav="cert"><span class="step">${icon('lock')}</span><div><strong>签发本机 HTTPS 证书</strong><p>localhost</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="connect"><span class="step">${icon('cloud')}</span><div><strong>新手推荐：Cloudflare Tunnel</strong><p>一键启动，无需额外配置</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="settings"><span class="step">${icon('settings')}</span><div><strong>修改监听端口</strong><p>下次启动生效</p></div>${icon('arrow')}</button></div></section><section><div class="section-title"><h2>最近活动</h2><button class="text-button" data-nav="logs">全部日志 ${icon('arrow')}</button></div><div class="activity-list">${activity()}</div></section></div><div class="footnote">${icon('info')}显示本地进程状态。</div>`;
   }
   function frpCode() {
     const f = state.frp, c = state.config;
@@ -310,13 +310,14 @@
       state.ipv6 = report; ui.render();
       ui.toast(report.ok ? `公网 IPv6：${report.address}` : '没有探测到公网 IPv6');
     }
-    else if (action === 'tunnel-start') { await command('tunnel-start'); ui.render(); ui.toast('正在建立 Cloudflare 隧道，地址显示后即可使用'); }
-    else if (action === 'tunnel-stop') { await command('tunnel-stop'); ui.render(); ui.toast('Cloudflare 隧道已停止'); }
+    else if (action === 'tunnel-start') { await command('tunnel-start'); ui.render(); ui.toast('正在检查本机服务和隧道健康度，通过后显示访问地址'); }
+    else if (action === 'tunnel-stop') { await command('tunnel-stop'); ui.render(); ui.toast('已停止隧道和自动刷新'); }
+    else if (action === 'tunnel-refresh') { await command('tunnel-refresh'); ui.render(); ui.toast('隧道已刷新，正在获取新地址'); }
     else if (action === 'export-logs') await command('export',{kind:'logs'});
     else if (action === 'export-ca') await command('export',{kind:'ca'});
     else if (action === 'open-data') await command('open-data');
   }
-  const actions = new Set(['toggle-run','restart','open-manager','open-web','cli-start','cli-stop','cli-open','cli-save','local-cert','ipv6-cert','start-http','save-service','save-frp','toggle-frp','export-frp','frp-import','frp-save','frp-connect','frp-generate','mesh-save','mesh-toggle','mesh-generate','mesh-invite','mesh-probe','mesh-fill','mesh-config-save','mesh-config-connect','mesh-config-import','mesh-config-template','export-logs','export-ca','open-data','probe-ipv6','tunnel-start','tunnel-stop']);
+  const actions = new Set(['toggle-run','restart','open-manager','open-web','cli-start','cli-stop','cli-open','cli-save','local-cert','ipv6-cert','start-http','save-service','save-frp','toggle-frp','export-frp','frp-import','frp-save','frp-connect','frp-generate','mesh-save','mesh-toggle','mesh-generate','mesh-invite','mesh-probe','mesh-fill','mesh-config-save','mesh-config-connect','mesh-config-import','mesh-config-template','export-logs','export-ca','open-data','probe-ipv6','tunnel-start','tunnel-stop','tunnel-refresh']);
   function cliValues() { return { port: $('#cli-port').value, autoStart: $('#cli-auto-start').getAttribute('aria-checked') === 'true', user: $('#cli-user').value.trim() }; }
   function meshValues() {
     return {
