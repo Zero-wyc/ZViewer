@@ -144,9 +144,14 @@ The backend is Go (`backend-go/`, requires Go 1.26+); the frontend is React + Vi
 
 ```bash
 npm install             # Install frontend dependencies
+npm run db:init         # First run: create the database and the initial admin (password printed once)
 npm run build           # Production build (Go backend + frontend)
 npm start               # Start
 ```
+
+> Editing the code? See [DEVELOPMENT.md](DEVELOPMENT.md) for prerequisites, directory map,
+> hot-reload internals, regression scripts and the full checklist for changing a DB column.
+> (Written in Chinese.)
 
 `npm run build` compiles the Go backend to `dist/zviewer-backend(.exe)` and then builds the
 frontend; `npm start` launches that binary (logs go to `log/backend.log`).

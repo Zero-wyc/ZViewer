@@ -140,9 +140,12 @@ Release 中的 `ZViewer-Windows-<版本>-x64.zip` 是原生桌面控制台（Go 
 
 ```bash
 npm install             # 安装前端依赖
+npm run db:init         # 首次：建库并创建初始管理员（密码只打印一次）
 npm run build           # 生产构建（Go 后端 + 前端）
 npm start               # 启动
 ```
+
+> 要改代码，看 [DEVELOPMENT.md](DEVELOPMENT.md)：环境要求、目录职责、热重载原理、回归脚本、数据库改字段的完整步骤都在那里。
 
 `npm run build` 会先把 Go 后端编译成 `dist/zviewer-backend(.exe)`，再构建前端产物；
 `npm start` 直接拉起该二进制（日志写在 `log/backend.log`）。

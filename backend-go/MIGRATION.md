@@ -2157,5 +2157,43 @@ zviewer-server --backup-db <目标文件>      # 或 --backup-db=<目标文件>
 `resolveDatabasePath` 只把它当文件路径用（相对 `CONFIG_DIR` 或绝对路径），
 从来没有任何 PG 代码路径。已按实际行为改正，避免再被当成「支持换库」。
 
+## 十二、新库自举：`--init-db`（2026-10-25）
+
+写开发文档时撞上一个硬问题：`config/` 在 `.gitignore` 里、代码又「绝不自动建表」，
+于是**新克隆的仓库根本起不来**。更糟的是 `db.Open` 的报错还写着「请先用 Node 版完成
+初始化」——Node 已经删了，这条提示指向一个不存在的东西。
+
+补上了唯一一条建表入口：
+
+```bash
+npm run db:init        # 等价于 zviewer-server --init-db
+```
+
+它做四件事，顺序不能换：
+
+1. `db.OpenForInit` 打开（不存在则创建）库文件，**跳过 VerifySchema**——此时库里还没有表，
+   走正常 `Open` 必然失败；
+2. `db.InitSchema` 执行 `internal/db/schema.sql`（16 张表，从线上库逐字导出，`go:embed` 内嵌）。
+   **库里有任何一张表就拒绝**，避免在半初始化的库上盖结构；
+3. `db.EnsureIndexes` 补三条索引；
+4. `db.SeedAdmin` 在 user 表为空时建 `root`，密码随机 12 位、**只打印一次**、不落盘不写日志。
+   这一步不可省：注册接口永远只创建 `role=user / status=pending` 的角色（审批模式默认开启），
+   新库没有任何人能审批——自举路径只能在这里。
+
+最后再跑一次 `VerifySchema` 自检，把 `schema.sql` 与校验口径钉在一起（`init_test.go` 里也有
+同样的断言，任何一方改动对不上就会红）。
+
+实测：空目录 → `npm run db:init` → 输出 16 张表 + root 密码 → 起服务 → `/health` 200 →
+用该密码 `POST /api/auth/login` 拿到 accessToken。整条链路可走通。
+
+顺带清掉的东西：
+
+- 根目录孤立的 `go.mod`（`module zviewer-cli`、go 1.22.5，没有任何 .go 文件引用它；
+  CLI 是独立仓库且自带 go.mod）。留着会让 `go build ./...` 在根目录报「no Go files」。
+- `.env.example` 里 Node 时代的段落：`NODE_ENV`（Go 不读）、「PostgreSQL 配置（可选）」
+  整段（含「修改后端 data-source.ts」这种已经不存在的指引）。补了 `SQLITE_WAL` 与
+  `db:init` 的说明。
+
+
 
 
