@@ -11,7 +11,7 @@
     "dev:backend": "node scripts/dev-backend.js",
     "dev:backend:once": "node scripts/dev-backend.js --no-watch",
     "dev:frontend": "npm run dev -w frontend",
-    "build": "npm run build:frontend",
+    "build": "npm run build:backend && npm run build:frontend",
     "build:frontend": "npm run build -w frontend",
     "build:backend": "node scripts/build-backend.js",
     "lint": "npm run lint:frontend",
