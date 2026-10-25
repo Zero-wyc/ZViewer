@@ -2178,6 +2178,33 @@ npm run build            # 前端 + Go 后端产物
    是前端工具链的传递依赖残留在根 `node_modules` 里；`npm prune` 一次即可清掉，
    不影响构建与回归。
 
+### 10.5 升级收尾：自动清理 v4（Node）遗留文件
+
+Node 版用户点「一键更新」升到 5.0 时，**执行更新的还是 v4 的更新脚本**——它只会解压覆盖，
+不认识 Go 版的新布局。所以清理不能放在更新脚本里（改不了已发布的旧脚本），
+而是放在 **Go 后端首次启动**：`internal/updater/legacy.go#CleanLegacyArtifacts`，
+幂等，每次启动跑一遍，没东西可删时静默。
+
+删什么（只有确定不属于 Go 布局的）：
+
+| 目标 | 条件 | 理由 |
+|---|---|---|
+| `zviewer-frontend.exe` / `zviewer-frontend` | 任何布局 | v5 由后端托管前端静态文件，不再有独立前端进程 |
+| `zviewer-cert.exe` / `zviewer-cert` | 任何布局 | 证书签发已内置到 `zviewer-server --gen-cert` |
+| `node_modules/` / `backend/` | 仅发布包布局 | Node 时代的依赖与源码目录；Go 版不需要 |
+| `config/media` 下的 `.ts`/`.m3u8`/`.flv`/`.m4s` | 仅发布包布局 | node-media-server 的 HLS 切片；Go 推流是内存转封装，不落盘 |
+
+「发布包布局」= 有 `frontend/dist/index.html`、**没有** `frontend/src`、**没有** `.git`。
+源码树（含 `.git` 或 `frontend/src`）只删那两个可执行文件，绝不删目录——那里的
+`node_modules`/`backend` 是开发者的东西。
+
+`config/` 下的数据库、证书、上传文件、头像一律不碰；清理失败只记日志，不影响启动。
+启动时会打一行：`[cleanup] 已清理 v4 遗留文件 N 项（约 X MB）：…`。
+
+验收：`go test ./internal/updater -run Legacy` 覆盖发布包布局（全部清理 + 幂等）、
+源码树（只删可执行文件）、空 root 三种场景；另用真实二进制在临时目录实测过一次
+（删 5 项、保留 `keep.txt`、随后正常启动并监听）。
+
 ## 十一、数据库选型与调优（2026-10-25）
 
 ### 11.1 结论：不换库，继续 SQLite

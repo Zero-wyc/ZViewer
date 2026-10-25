@@ -41,6 +41,7 @@ import (
 	"zviewer/backend/internal/ssl"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
+	"zviewer/backend/internal/updater"
 )
 
 func main() {
@@ -73,6 +74,14 @@ func main() {
 
 	if err := cfg.EnsureDirs(); err != nil {
 		log.Fatalf("[config] %v", err)
+	}
+
+	// v4（Node）→ v5（Go）升级收尾：删掉 Node 版专属、Go 版不再使用的文件。
+	// 放在最早期（不依赖 DB、不依赖网络），幂等；只有「发布包布局」才做目录级清理，
+	// 源码树（.git / frontend/src）一律不碰。清理失败只记日志，不影响启动。
+	if cleaned := updater.CleanLegacyArtifacts(cfg.ProjectRoot, cfg.MediaDir, log.Printf); !cleaned.Empty() {
+		log.Printf("[cleanup] 已清理 v4 遗留文件 %d 项（约 %.1f MB）：%s",
+			len(cleaned.Removed), float64(cleaned.Freed)/(1<<20), strings.Join(cleaned.Removed, ", "))
 	}
 
 	// `--init-db` 是唯一的建表入口，只用于空库（新机器 / 新克隆仓库）。

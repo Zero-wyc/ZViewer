@@ -99,6 +99,11 @@ Release 中的 `ZViewer-Windows-<版本>-x64.zip` 是原生桌面控制台（Go 
 
 ### 单文件版
 
+> **从 4.x（Node 版）升级到 5.x（Go 版）**：更新完成后第一次启动会自动清理 Node 时代遗留的文件
+> （`zviewer-frontend.exe`、`zviewer-cert`、`node_modules/`、`backend/`、`config/media` 里的推流切片），
+> 启动日志会打印一条 `[cleanup] 已清理 v4 遗留文件 …`。`config/` 下的数据库、证书、上传文件不受影响；
+> 源码目录（含 `.git` 或 `frontend/src`）不会做目录级清理。
+
 从 [Releases](https://github.com/Zero-wyc/ZViewer/releases) 下载对应平台压缩包，解压后：
 
 - **Windows**：双击 `start.bat`，进入交互菜单

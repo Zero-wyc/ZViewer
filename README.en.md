@@ -101,6 +101,12 @@ See `desktop/README.md` for build and debug instructions.
 
 ### Single-File Build (Recommended)
 
+> **Upgrading from 4.x (Node) to 5.x (Go)**: the first start after the update automatically removes
+> files left over from the Node era (`zviewer-frontend.exe`, `zviewer-cert`, `node_modules/`, `backend/`,
+> and stream segments under `config/media`), and logs a single `[cleanup] ...` line.
+> Nothing under `config/` (database, certificates, uploads) is touched, and source checkouts
+> (those containing `.git` or `frontend/src`) are never cleaned at the directory level.
+
 Download the archive for your platform from [Releases](https://github.com/Zero-wyc/ZViewer/releases), extract it, then:
 
 - **Windows**: double-click `start.bat` to open the interactive menu
