@@ -114,7 +114,7 @@ func main() {
 				name = "root"
 			}
 			fmt.Printf("\n  初始管理员: %s / %s\n", name, password)
-			fmt.Println("  密码只显示这一次，请立刻登录并在「个人设置」里修改。")
+			fmt.Println("  初始密码默认为 root，请立刻登录并在「个人设置」里修改。")
 		}
 		return
 	}

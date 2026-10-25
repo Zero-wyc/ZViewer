@@ -2269,7 +2269,7 @@ npm run db:init        # 等价于 zviewer-server --init-db
 2. `db.InitSchema` 执行 `internal/db/schema.sql`（16 张表，从线上库逐字导出，`go:embed` 内嵌）。
    **库里有任何一张表就拒绝**，避免在半初始化的库上盖结构；
 3. `db.EnsureIndexes` 补三条索引；
-4. `db.SeedAdmin` 在 user 表为空时建 `root`，密码随机 12 位、**只打印一次**、不落盘不写日志。
+4. `db.SeedAdmin` 在 user 表为空时建 `root`，初始密码固定为 `root`，仅以 bcrypt 哈希存入数据库；已有账号密码不变。命令行显示登录信息，桌面壳仅在本机窗口提示，不将明文密码写入运行日志。登录后沿用 `mustChangePassword` 提示修改初始密码。
    这一步不可省：注册接口永远只创建 `role=user / status=pending` 的角色（审批模式默认开启），
    新库没有任何人能审批——自举路径只能在这里。
 

@@ -2,12 +2,9 @@ package db
 
 import (
 	"context"
-	"crypto/rand"
 	"database/sql"
 	_ "embed"
-	"errors"
 	"fmt"
-	"math/big"
 	"strings"
 
 	"golang.org/x/crypto/bcrypt"
@@ -54,7 +51,7 @@ func InitSchema(ctx context.Context, conn *sql.DB) error {
 //
 // 为什么必须由代码建：注册接口永远只创建 role=user、status=pending 的账号
 // （审批模式默认开启），新库没有任何人能审批——自举路径只能是这里。
-// 密码随机生成并返回给调用方打印一次，不落盘、不写日志。
+// 初始密码固定为 root，数据库仅保存 bcrypt 哈希；已有账号不会被重置。
 func SeedAdmin(ctx context.Context, conn *sql.DB, username string) (string, bool, error) {
 	if username == "" {
 		username = "root"
@@ -68,10 +65,7 @@ func SeedAdmin(ctx context.Context, conn *sql.DB, username string) (string, bool
 		return "", false, nil
 	}
 
-	password, err := randomPassword(12)
-	if err != nil {
-		return "", false, err
-	}
+	password := "root"
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {
 		return "", false, fmt.Errorf("生成口令哈希失败: %w", err)
@@ -123,18 +117,4 @@ func firstLine(s string) string {
 		}
 	}
 	return ""
-}
-
-func randomPassword(n int) (string, error) {
-	const alphabet = "abcdefghijkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-	max := big.NewInt(int64(len(alphabet)))
-	var b strings.Builder
-	for i := 0; i < n; i++ {
-		idx, err := rand.Int(rand.Reader, max)
-		if err != nil {
-			return "", errors.New("生成随机密码失败: " + err.Error())
-		}
-		b.WriteByte(alphabet[idx.Int64()])
-	}
-	return b.String(), nil
 }

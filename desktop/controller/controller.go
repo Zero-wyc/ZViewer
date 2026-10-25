@@ -53,24 +53,25 @@ type Snapshot struct {
 	FrpPid     *int         `json:"frpPid"`
 	TokenSaved bool         `json:"tokenSaved"`
 	// MeshSecretSaved 只表示组网密钥有密文，界面据此显示「已保存，留空沿用」。
-	MeshSecretSaved bool            `json:"meshSecretSaved"`
-	Certificate     CertInfo        `json:"certificate"`
-	Events          []Event         `json:"events"`
-	Root            string          `json:"root"`
-	FrpcAvailable   bool            `json:"frpcAvailable"`
-	Runtime         RuntimeFiles    `json:"runtime"`
+	MeshSecretSaved bool         `json:"meshSecretSaved"`
+	Certificate     CertInfo     `json:"certificate"`
+	Events          []Event      `json:"events"`
+	Root            string       `json:"root"`
+	FrpcAvailable   bool         `json:"frpcAvailable"`
+	Runtime         RuntimeFiles `json:"runtime"`
 }
 
 type Options struct {
-	Root          string
-	StateDir      string
-	Frpc          string
-	CliExecutable string
-	HostExe       string
-	Helper        string
-	Version       string
-	Cipher        Cipher
-	OnUpdate      func()
+	Root           string
+	StateDir       string
+	Frpc           string
+	CliExecutable  string
+	HostExe        string
+	Helper         string
+	Version        string
+	Cipher         Cipher
+	OnUpdate       func()
+	OnInitialAdmin func(InitialAdmin)
 }
 
 type Controller struct {
@@ -121,20 +122,22 @@ type Controller struct {
 	livekitMu   sync.Mutex
 	livekitStop bool
 
-	onUpdate func()
+	onUpdate       func()
+	onInitialAdmin func(InitialAdmin)
 }
 
 func New(opts Options) (*Controller, error) {
 	c := &Controller{
-		root:         opts.Root,
-		dir:          opts.StateDir,
-		frpc:         opts.Frpc,
-		hostExe:      opts.HostExe,
-		helper:       opts.Helper,
-		version:      opts.Version,
-		onUpdate:     opts.OnUpdate,
-		events:       []Event{},
-		backendState: "stopped", voiceState: "stopped", frpState: "stopped", tunnelState: "stopped",
+		root:           opts.Root,
+		dir:            opts.StateDir,
+		frpc:           opts.Frpc,
+		hostExe:        opts.HostExe,
+		helper:         opts.Helper,
+		version:        opts.Version,
+		onUpdate:       opts.OnUpdate,
+		onInitialAdmin: opts.OnInitialAdmin,
+		events:         []Event{},
+		backendState:   "stopped", voiceState: "stopped", frpState: "stopped", tunnelState: "stopped",
 		frpRegistered: map[string]bool{},
 		update:        UpdateReport{State: "idle", Current: opts.Version},
 	}
@@ -614,6 +617,9 @@ func (c *Controller) startBackend() (any, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := c.ensureDatabase(exe, env); err != nil {
+		return nil, err
+	}
 	if err := c.startLivekit(env); err != nil {
 		return nil, err
 	}
@@ -674,7 +680,7 @@ func (c *Controller) startBackend() (any, error) {
 		current := c.backend
 		c.mu.RUnlock()
 		if current != proc || proc.Exited() {
-			break
+			return nil, fmt.Errorf("后端启动后提前退出（退出码 %d），请查看运行日志", proc.Wait())
 		}
 		probeCA := ""
 		if config.Https {
