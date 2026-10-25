@@ -250,7 +250,18 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # 大陆镜像（GitCode，CSDN 平台）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+      GITCODE_OWNER: Zero-wyc
+      GITCODE_REPO: ZViewer
     steps:
+      # 供 GitCode 同步步骤推送 tag（附件下载不依赖 checkout，单独放在最前）
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
       - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:
@@ -262,22 +273,31 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # GitHub 与 GitCode 共用同一份说明，避免两边文案漂移
+      - name: Generate release body
+        shell: bash
+        run: |
+          {
+            echo "自动构建产物（main 分支最新代码）。"
+            echo ""
+            echo "下载说明："
+            echo "- Windows: 下载 \`zviewer-windows-x64.zip\`，解压后运行 \`start.bat\`"
+            echo "- Windows GUI: 下载 \`zviewer-windows-x64-GUI.zip\`，解压后运行 \`ZViewerDesktop.exe\`"
+            echo "- Linux: 下载 \`zviewer-linux-x64.tar.gz\`，解压后运行 \`./start.sh\`"
+            echo "- Docker: \`docker pull zerowyc0721/zviewer:dev\`（main 分支最新构建；正式版请用 \`:latest\` 或具体版本号）"
+            echo ""
+            echo "构建提交: ${GITHUB_SHA}"
+            echo "构建时间: ${COMMIT_TS}"
+          } > release_body_latest.md
+        env:
+          COMMIT_TS: ${{ github.event.head_commit.timestamp }}
+
       - name: Create prerelease (latest)
         uses: softprops/action-gh-release@v3
         with:
           tag_name: latest
           name: Latest Build (main)
-          body: |
-            自动构建产物（main 分支最新代码）。
-
-            下载说明：
-            - Windows: 下载 `zviewer-windows-x64.zip`，解压后运行 `start.bat`
-            - Windows GUI: 下载 `zviewer-windows-x64-GUI.zip`，解压后运行 `ZViewerDesktop.exe`
-            - Linux: 下载 `zviewer-linux-x64.tar.gz`，解压后运行 `./start.sh`
-            - Docker: `docker pull zerowyc0721/zviewer:dev`（main 分支最新构建；正式版请用 `:latest` 或具体版本号）
-
-            构建提交: ${{ github.sha }}
-            构建时间: ${{ github.event.head_commit.timestamp }}
+          body_path: release_body_latest.md
           files: |
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip
@@ -286,6 +306,35 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # === 大陆镜像：把 tag 与附件同步到 GitCode（只做附加动作，失败不影响 GitHub 发版） ===
+      - name: Push tag to GitCode
+        if: env.GITCODE_TOKEN != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          git tag -f latest "${GITHUB_SHA}"
+          git remote add gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git" 2>/dev/null \
+            || git remote set-url gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          # latest 是移动 tag，必须 --force
+          git push gitcode "refs/tags/latest:refs/tags/latest" --force
+
+      - name: Publish to GitCode Release
+        if: env.GITCODE_TOKEN != ''
+        continue-on-error: true
+        env:
+          TAG: latest
+          RELEASE_NAME: Latest Build (main)
+          RELEASE_BODY_FILE: release_body_latest.md
+          PRERELEASE: '1'
+          TARGET_COMMITISH: main
+          ASSETS: >-
+            zviewer-linux-x64.tar.gz
+            zviewer-windows-x64.zip
+            zviewer-windows-x64-GUI.zip
+        run: node scripts/sync-gitcode-release.mjs
+
   # tag 推送：创建正式版 Release
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -293,6 +342,11 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      # 大陆镜像（GitCode，CSDN 平台）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+      GITCODE_OWNER: Zero-wyc
+      GITCODE_REPO: ZViewer
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -362,3 +416,34 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # === 大陆镜像：把同一份 Release 与附件发到 GitCode（附加动作，失败不影响 GitHub 发版） ===
+      - name: Push tag to GitCode
+        if: env.GITCODE_TOKEN != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+        run: |
+          TAG_NAME="${GITHUB_REF#refs/tags/}"
+          # 本地 tag 与触发构建的提交对齐（checkout 已取全 tag，这里只做兜底）
+          git tag -f "${TAG_NAME}" "${GITHUB_SHA}"
+          git remote add gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git" 2>/dev/null \
+            || git remote set-url gitcode "https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          # 只推 tag：commit 对象随 tag 一起送达，不覆盖镜像仓库的分支
+          git push gitcode "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force
+
+      - name: Publish to GitCode Release
+        if: env.GITCODE_TOKEN != ''
+        continue-on-error: true
+        env:
+          TAG: ${{ github.ref_name }}
+          RELEASE_NAME: ${{ github.ref_name }}
+          RELEASE_BODY_FILE: release_body.md
+          PRERELEASE: '0'
+          TARGET_COMMITISH: main
+          ASSETS: >-
+            zviewer-linux-x64.tar.gz
+            zviewer-windows-x64.zip
+            zviewer-windows-x64-GUI.zip
+        run: node scripts/sync-gitcode-release.mjs

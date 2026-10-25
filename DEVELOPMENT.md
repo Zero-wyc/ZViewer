@@ -190,6 +190,51 @@ npm run package        # 出 ZIP + SHA256
 
 > `cd desktop && go build -tags production .` 会覆盖**已入库**的 `desktop/desktop.exe`，日常别这么编；用 `npm run shell:build`。
 
+### 6.1 发版与大陆镜像（GitHub → GitCode）
+
+`.github/workflows/build.yml` 推 `main` 出 `latest` 预发布、推 `v*` 出正式版。两个 release job 末尾都会把
+**同一份 Release 与附件**再发一份到 [GitCode](https://gitcode.com)（CSDN 与华为云 CodeArts 联合运营的平台，
+与 AtomGit 已合并同站），大陆用户直接走 `gitcode.com` 下载。
+
+**为什么不能只靠 GitCode 的「仓库镜像」**：镜像只同步分支 / 标签 / 提交，**不搬 Release 和附件**。
+所以流程是「代码靠镜像，Release 靠 API」：
+
+1. `git tag -f <tag> $GITHUB_SHA` + `git push gitcode refs/tags/<tag> --force`
+   —— 直接把标签（连同 commit 对象）推到 GitCode，不等镜像的定时同步。
+   推失败（例如镜像仓库不允许写入）时，脚本会用 `TARGET_COMMITISH=main` 让 GitCode 自己补建 tag。
+2. `node scripts/sync-gitcode-release.mjs`
+   —— 同名 Release 已存在则先删再建 → `GET /releases/{tag}/upload_url` 取华为云 OBS 预签名地址 →
+   `PUT` 原始字节 → 回读校验并把下载地址写进 Job Summary。
+
+两步都是 `continue-on-error: true`：**GitCode 出问题不影响 GitHub 发版**，只在 job 上显示黄叹号。
+
+一次性配置：
+
+1. gitcode.com「导入项目」从 GitHub 导入 `Zero-wyc/ZViewer`，仓库**必须公开**（私有则下载要登录，失去意义）。
+2. 项目设置 → 仓库镜像 → **Pull** 填 `https://github.com/Zero-wyc/ZViewer.git`（可选，只同步代码）。
+3. 头像 → 设置 → 私人令牌 → 生成（勾仓库读写），只显示一次。
+4. GitHub 仓库 → Settings → Secrets → Actions，新增 `GITCODE_TOKEN`。
+
+> 没配 `GITCODE_TOKEN` 时同步步骤整体跳过（`if: env.GITCODE_TOKEN != ''`），发版行为与未接入时一致。
+
+手工补历史版本：
+
+```bash
+GITCODE_TOKEN=<令牌> TAG=v5.0.0 RELEASE_NAME=v5.0.0 \
+RELEASE_BODY_FILE=release_body.md \
+ASSETS="zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip" \
+node scripts/sync-gitcode-release.mjs      # 加 DRY_RUN=1 只打印计划
+```
+
+排查要点：
+
+- 单附件上限 **2 GB**（当前产物 37～65 MB）；`GITCODE_API_BASE` 默认 `https://api.gitcode.com/api/v5`。
+- Release 主键**就是 tag 名**：`GET|PATCH|DELETE /repos/{owner}/{repo}/releases/{tag}`；附件删除是
+  `DELETE /releases/{tag}/attach_files/{attach_file_id}`（脚本直接删 Release，更省事）。
+- 日志出现 `访问仓库失败：HTTP 401` = 令牌过期或没权限；`HTTP 404` = GitCode 上还没有该仓库。
+- 下载直链 `https://gitcode.com/<owner>/<repo>/releases/download/<tag>/<file>` 匿名可下且永久有效。
+- Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
+
 ---
 
 ## 7. 质量门禁
