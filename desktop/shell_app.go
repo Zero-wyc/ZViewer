@@ -49,6 +49,13 @@ func (a *App) bootstrap() error {
 		Version:       a.version,
 		Cipher:        controller.Dpapi{},
 		OnUpdate:      a.emitUpdate,
+		OnInitialAdmin: func(admin controller.InitialAdmin) {
+			_, _ = runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+				Type:    runtime.InfoDialog,
+				Title:   "首次启动 · 管理员登录信息",
+				Message: fmt.Sprintf("数据库已初始化。\n\n管理员账号：%s\n初始密码：%s\n\n请先保存登录信息，登录后在个人设置中修改密码。\n密码不会写入运行日志。", admin.Username, admin.Password),
+			})
+		},
 	})
 	if err != nil {
 		return err
