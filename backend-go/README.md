@@ -22,7 +22,7 @@ go build -o bin/zviewer-server.exe ./cmd/zviewer-server
 ```
 
 首次运行前先建库（只需要一次）：`npm run db:init`（即 `--init-db`，建 16 张表并打印
-root 的随机密码）。默认监听 `:3333`，读取 `<项目根>/config/dev.sqlite`。
+初始管理员登录信息，默认账号和密码为 `root` / `root`）。登录后请修改初始密码；已有账号不会被重置。默认监听 `:3333`，读取 `<项目根>/config/dev.sqlite`。
 
 日常开发用 `npm run dev`（前端 Vite + 本目录热重载）；端口被占时用 `PORT=3401`。
 **不要手动 `go run`**：它 fork 出真正的服务进程，父进程被 kill 后子进程会占住端口。

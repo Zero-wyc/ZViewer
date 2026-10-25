@@ -144,10 +144,12 @@ The backend is Go (`backend-go/`, requires Go 1.26+); the frontend is React + Vi
 
 ```bash
 npm install             # Install frontend dependencies
-npm run db:init         # First run: create the database and the initial admin (password printed once)
+npm run db:init         # First run: create the database and the initial admin root / root
 npm run build           # Production build (Go backend + frontend)
 npm start               # Start
 ```
+
+The initial administrator username and password are `root` / `root`. Change the password after signing in. Existing account passwords are preserved.
 
 > Editing the code? See [DEVELOPMENT.md](DEVELOPMENT.md) for prerequisites, directory map,
 > hot-reload internals, regression scripts and the full checklist for changing a DB column.

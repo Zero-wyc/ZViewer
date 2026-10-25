@@ -98,7 +98,7 @@ func TestEnsureDatabasePackagedBackend(t *testing.T) {
 	if err := c.ensureDatabase(exe, env); err != nil {
 		t.Fatal(err)
 	}
-	if deliveries != 1 || admin.Username != "root" || len(admin.Password) < 12 {
+	if deliveries != 1 || admin.Username != "root" || admin.Password != "root" {
 		t.Fatal("initial admin was not delivered to the local window callback")
 	}
 	database := backendDatabasePath(root, env)

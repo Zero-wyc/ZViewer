@@ -63,13 +63,13 @@ cp .env.example .env           # 按需改端口与密钥
 npm run db:init                # 建 16 张表 + 索引，并打印初始管理员密码
 ```
 
-`db:init` 的输出像这样，**密码只出现这一次**：
+`db:init` 的输出像这样，初始管理员账号和密码固定为 **`root` / `root`**：
 
 ```
   [完成] 数据库已初始化: <repo>/config/dev.sqlite
          表 16 张，日志模式 WAL（默认）
 
-  初始管理员: root / QgYKEBx5BLww
+  初始管理员: root / root
 ```
 
 然后：
@@ -78,7 +78,7 @@ npm run db:init                # 建 16 张表 + 索引，并打印初始管理�
 npm run dev
 ```
 
-打开 http://localhost:5174 ，用 root + 上面的密码登录，第一件事是去「个人设置」改密码。
+打开 http://localhost:5174 ，用 `root` / `root` 登录，第一件事是去「个人设置」改密码。已有账号的密码不会被初始化流程重置。
 
 > 已有数据的机器不需要 `db:init`，把旧 `config/` 目录整份拷过来即可。`db:init` 对非空库会直接拒绝，不会覆盖。
 

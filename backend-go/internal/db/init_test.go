@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // openTemp 打开一个空的临时库（不校验 schema）。
@@ -66,23 +68,39 @@ func TestSeedAdminOnlyCreatesOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SeedAdmin: %v", err)
 	}
-	if !created || len(password) != 12 {
-		t.Fatalf("应创建一个 12 位密码的管理员，实际 created=%v len=%d", created, len(password))
+	if !created || password != "root" {
+		t.Fatalf("应创建初始密码为 root 的管理员，实际 created=%v", created)
 	}
 
-	var role, status string
+	var role, status, passwordHash string
 	if err := conn.QueryRowContext(ctx,
-		`SELECT "role", "status" FROM "user" WHERE "username" = 'root'`,
-	).Scan(&role, &status); err != nil {
+		`SELECT "role", "status", "passwordHash" FROM "user" WHERE "username" = 'root'`,
+	).Scan(&role, &status, &passwordHash); err != nil {
 		t.Fatalf("读取管理员失败: %v", err)
 	}
 	if role != "root" || status != "active" {
 		t.Fatalf("管理员角色/状态不对: role=%s status=%s", role, status)
 	}
+	if passwordHash == "root" || bcrypt.CompareHashAndPassword([]byte(passwordHash), []byte("root")) != nil {
+		t.Fatal("初始密码必须以可验证的 bcrypt 哈希保存")
+	}
+	changedHash, err := bcrypt.GenerateFromPassword([]byte("changed-test-password"), bcrypt.MinCost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := conn.ExecContext(ctx, `UPDATE "user" SET "passwordHash" = ? WHERE "username" = 'root'`, string(changedHash)); err != nil {
+		t.Fatal(err)
+	}
 
 	// 已有用户时不能再建，否则每次 --init-db 都会多出一个 root。
-	if _, created, err := SeedAdmin(ctx, conn, ""); err != nil || created {
+	if password, created, err := SeedAdmin(ctx, conn, ""); err != nil || created || password != "" {
 		t.Fatalf("第二次 SeedAdmin 不应创建: created=%v err=%v", created, err)
+	}
+	if err := conn.QueryRowContext(ctx, `SELECT "passwordHash" FROM "user" WHERE "username" = 'root'`).Scan(&passwordHash); err != nil {
+		t.Fatal(err)
+	}
+	if passwordHash != string(changedHash) {
+		t.Fatal("已有管理员修改过的密码被重置")
 	}
 }
 
