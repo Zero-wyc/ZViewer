@@ -216,9 +216,12 @@ npm run test:regression
 3. **备份不能用 `cp`**。WAL 模式下最近提交的事务在 `-wal` 旁文件里，单拷主文件会静默丢数据，而且文件看起来完全正常。
 
 ```bash
-npm run db:backup -- ../config/backup-$(date +%Y%m%d).sqlite
+npm run db:backup -- ../config/db-backups/zviewer-20261025.sqlite
 # 等价于 zviewer-server --backup-db <目标文件>（内部 VACUUM INTO，热备、不覆盖）
 ```
+
+路径是相对 `backend-go/` 的（脚本会先 `cd backend-go`），也可以直接给绝对路径。
+注意 npm 脚本在 Windows 下由 cmd 执行，**`$(date)` 这类写法不可用**，日期自己填。
 
 ### 8.2 加字段要动哪几处
 
