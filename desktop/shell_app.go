@@ -243,7 +243,12 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 			return nil, err
 		}
 		if a.packaged {
-			_ = setLoginItem(config.LaunchAtLogin)
+			// 写注册表失败不能静默：开关会显示"已打开"，但登录后其实不会自启。
+			// 配置已经落盘，所以这里只报失败原因，不回滚 launchAtLogin。
+			if itemErr := setLoginItem(config.LaunchAtLogin); itemErr != nil {
+				a.ctrl.Log("写入开机启动项失败: "+itemErr.Error(), "console", "ERROR")
+				return config, errors.New("配置已保存，但写入 Windows 开机启动项失败：" + itemErr.Error())
+			}
 		}
 		return config, nil
 	case "https":

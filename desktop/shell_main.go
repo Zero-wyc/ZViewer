@@ -70,6 +70,17 @@ func looksLikeRuntime(dir string) bool {
 		fileExists(filepath.Join(dir, "frontend", "dist", "index.html"))
 }
 
+// packagedInstall 判断当前是否为分发版（exe 同级带 runtime/）。
+//
+// 判据必须是「runtime 目录里真的有后端与前端产物」，不能写成
+// `fileExists(filepath.Join(exeDir, "runtime"))`——fileExists 内部要求
+// `!info.IsDir()`，传目录永远返回 false。曾经就是这么写的，后果是分发版里
+// packaged 恒为 false：开机启动开关点了报「请在已构建的桌面程序中设置」，
+// 而且即便放行也永远不会去写 HKCU 的 Run 项。
+func packagedInstall(exeDir string) bool {
+	return looksLikeRuntime(filepath.Join(exeDir, "runtime"))
+}
+
 // resolveRuntimeRoot 与 desktop/lib/runtime.cjs 的选择顺序一致。
 func resolveRuntimeRoot(exeDir string) string {
 	override := argValue("runtime-root")
@@ -158,7 +169,7 @@ func main() {
 		frpc:     companion(root, exeDir, "frpc.exe", []string{"frp_0.71.1_windows_amd64", "frpc.exe"}),
 		cli:      companion(root, exeDir, "zviewer-cli-windows-amd64.exe", []string{"zviewer-cli", "zviewer-cli-windows-amd64.exe"}),
 		hostExe:  resolveHostExe(exeDir, root),
-		packaged: fileExists(filepath.Join(exeDir, "runtime")),
+		packaged: packagedInstall(exeDir),
 	}
 	if err := app.bootstrap(); err != nil {
 		fatalDialog("ZViewer 配置读取失败", err.Error()+"\n配置目录："+stateDir)
