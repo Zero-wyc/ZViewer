@@ -79,3 +79,33 @@ func TestIsCloudflareBlocked(t *testing.T) {
 		})
 	}
 }
+
+func TestProxyGitHubURL(t *testing.T) {
+	cases := []struct {
+		raw  string
+		want string
+	}{
+		{
+			raw:  "https://raw.githubusercontent.com/Predidit/KazumiRules/main/index.json",
+			want: "https://gh-proxy.com/https://raw.githubusercontent.com/Predidit/KazumiRules/main/index.json",
+		},
+		{
+			raw:  "https://github.com/a/b",
+			want: "https://gh-proxy.com/https://github.com/a/b",
+		},
+		{
+			raw:  "https://api.github.com/repos/a/b",
+			want: "https://gh-proxy.com/https://api.github.com/repos/a/b",
+		},
+		// 非 GitHub 地址原样返回（ani-subs 自定义订阅常挂在自建服务器上）。
+		{raw: "https://example.com/sub.json", want: "https://example.com/sub.json"},
+		{raw: "", want: ""},
+	}
+	for _, c := range cases {
+		t.Run(c.raw, func(t *testing.T) {
+			if got := ProxyGitHubURL(c.raw); got != c.want {
+				t.Errorf("ProxyGitHubURL(%q) = %q，期望 %q", c.raw, got, c.want)
+			}
+		})
+	}
+}

@@ -7,8 +7,8 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~54,300（含测试 12,800） | 42,653 | 100%+ |
-| HTTP 端点 | 143 | ~300 | 47.7% |
+| 代码行 | ~56,100（含测试 13,900） | 42,653 | 100%+ |
+| HTTP 端点 | 147 | ~300 | 49.0% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
 
@@ -891,6 +891,67 @@ HTTP 面 139 → **143**（`/proxy` 同样早已由 `registerProxyRoutes` 挂载
 抓站逻辑（选择器、JSONPath、正则规则、URL 补全、Referer 回落）都走真实
 HTTP，一步到位覆盖两侧的解析差异。
 
+### 3.15 Kazumi 规则源（阶段 21）
+
+`routes/kazumi.ts`（179 行）+ `services/kazumi/*`（1,751 行）
+→ `internal/kazumi`（2,309 行）+ `internal/api/kazumi.go`（198 行）。
+HTTP 面 143 → **147**（`/proxy` 同样早已由 `registerProxyRoutes` 挂载）。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| `GET /sources` | 规则展开后的数据源列表（id = `kazumi_{展开下标}`） | `ruleloader.go` + `service.go` |
+| `GET /search` | `searchMode=xpath` 抓搜索页 / `=api` 走 JSON | `provider.go` / `api_rule.go#APISearch` |
+| `GET /episodes` | `chapterMode=xpath` 抓详情页 / `=api` 走 JSON | `provider.go` / `api_rule.go#APIChapters` |
+| `POST /resolve` | 抓播放页并沿回退链取地址（6 分钟缓存 + 单飞） | `scraper.go#resolveVideoURL` |
+
+规则的两套运行时：
+
+| 模式 | 实现 | 说明 |
+|---|---|---|
+| XPath | `scraper.go` | x/net/html 建树 + antchfx/xpath 查询；`parser` 比 Node 少两次序列化 |
+| API | `api_rule.go` | 受限 JSONPath（`$.a.b[*]['k']`）+ `@var` 模板 + GET/POST（json/form） |
+
+新增依赖两个：`antchfx/htmlquery`（含 `xpath`）与 `golang.org/x/net/html`（后者本已在依赖树里）。
+
+#### 六处必须守住的细节
+
+1. **`textContent` 不含注释**。DOM 的 textContent 只拼文本节点；页面上写
+   `<!-- 注解 -->番剧三` 时，Node 得到「番剧三」，把注释也算进去会多出几个字。
+   （对拍第一轮就抓到了这条。）
+2. **集号正则不能复用 anisubs 的**。`ExtractEpisodeNumber` 的默认规则只有
+   `第 N 话/集`，命不中返回 0；Kazumi 的正则是
+   `第\s*(\d+(?:\.\d+)?)\s*[话集]|(\d+(?:\.\d+)?)`，`EP12` 要得 12。
+3. **单 `/` 开头是绝对路径**。`ezdmw` 的 `chapterResult` 是
+   `/self::*[@class='line_button1']/following-sibling::a[...]`；Node 只给
+   `//` 开头的表达式补 `.`，所以它在**文档根**上求值（结果是空）。Go 侧必须
+   显式切回文档根，否则会「意外修好」这条规则、与 Node 行为不一致。
+   `//x` 则始终是「当前子树」（navigator 的根落在 scope 上即可等价）。
+4. **URL 归一化的端口比较要用显式端口**。WHATWG 解析会把默认端口丢掉，
+   所以 `http://a.com` 与 `https://a.com` 的 `port` 都是空串；按「有效端口」
+   比（80 vs 443）会漏掉「同站换协议」这一支（Node 确实会把 http 改成 https）。
+5. **序列化要按 WHATWG 的可见规则自己拼**：空 path 补 `/`、默认端口去掉、
+   主机小写、path 百分号编码。Go 的 `url.String()` 这四样都不做，直接用会
+   让同一部番在两侧得出两个不同的 id。
+6. **`renderMap` 的 `String()` 与 `renderTemplate` 的空串不是一套语义**：
+   `renderTemplate` 里 null → `''`，`renderMap`（headers/query）里 null →
+   `'null'`。两个都要照抄，别合并。
+
+#### 三处可见差异
+
+- **query 参数按键名排序**。Node 用对象插入序，Go 的 map 无序。上游对参数
+  顺序不敏感，只在「生成的播放页 URL 里有多个 query 键」时才看得出来。
+- **`~` 不编码**。`url.Values.Encode` 保留 `~`，而 `URLSearchParams` 编成
+  `%7E`。
+- **`[*]` 作用在对象上时按键名排序**（同 anisubs 那条）。
+
+对拍：`bash backend-go/scripts/http-kazumi-parity.sh`
+→ **20 个步骤完全一致（状态码 + 响应体）**。假站 `scripts/mock-kazumi.js`
+提供规则索引（含非法名、坏规则）、XPath 规则的搜索/详情页、6 种播放页
+（直链 / `player_aaaa` 两种加密 / iframe 嵌套 / HHJX bootstrap / youku 拿不到）
+与 API 规则的三个接口（POST JSON 搜索、nested、delimited）。索引指向
+`index.json` 而不是逐个规则文件，顺带锁住「坏规则跳过但下标不塌陷」
+（期望 id 是 `kazumi_0/1/2/4`）。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1189,6 +1250,8 @@ HTTP，一步到位覆盖两侧的解析差异。
 | B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
 | 动漫源的上游请求超时 | `fetch` 无超时，挂住的上游会永久占住请求 | 30s 超时（`internal/anime/http.go`），超时报 `context deadline exceeded` | Go 侧挂住就是一条泄漏的 goroutine + 连接，没有事件循环帮你回收；上游真挂死时错误文案会与 Node 不同，属于可接受的差异 |
 | CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
+| Kazumi 生成 URL 里的 query 顺序 | 按规则 JSON 里的书写顺序 | 按键名排序 | Go 的 map 无插入序；上游对参数顺序不敏感，只在多键 `episodePage.query` 时可见 |
+| Kazumi 生成 URL 里的 `~` | `URLSearchParams` 编成 `%7E` | `url.Values.Encode` 保留 `~` | 同上，纯编码口味差异 |
 | ani-subs 抓站的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 net/http（`internal/webfetch`） | 同 CMS 那条：Go 的 TLS 栈本来就是独立指纹；真被按指纹拦时该换源，而不是在服务端起子进程 |
 | 浏览器头的 `Accept-Encoding` | 原样发送 `gzip, deflate, br` | 一律剥掉，交给 transport 自己协商 | Go 只会自动解 gzip，服务端回 brotli 时拿到的是二进制，表象是「页面里找不到选择器」，极难排查 |
 

@@ -21,6 +21,7 @@ import (
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
+	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/ratelimit"
@@ -70,6 +71,8 @@ type Deps struct {
 	Anime *anime.Service
 	// AniSubs 是 ani-subs 订阅源注册表（web-selector 抓站 + RSS）。
 	AniSubs *anisubs.Service
+	// Kazumi 是 Kazumi 规则源注册表（XPath 抓站 + API 规则）。
+	Kazumi *kazumi.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -150,6 +153,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerCMSRoutes(mux)
 	s.registerAnimeRoutes(mux)
 	s.registerAniSubsRoutes(mux)
+	s.registerKazumiRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

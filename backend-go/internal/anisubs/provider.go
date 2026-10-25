@@ -43,7 +43,7 @@ func (p *webSelectorProvider) Search(ctx context.Context, keyword string) ([]Sea
 		return []SearchResult{}, nil
 	}
 
-	searchURL := strings.ReplaceAll(p.config.SearchURL, "{keyword}", encodeURIComponent(term))
+	searchURL := strings.ReplaceAll(p.config.SearchURL, "{keyword}", EncodeURIComponent(term))
 	html, err := fetchHTML(ctx, searchURL, p.cookies())
 	if err != nil {
 		return nil, err
@@ -131,6 +131,6 @@ func (p *webSelectorProvider) cookies() string {
 }
 
 // encodeURIComponent 对齐 JS 的 encodeURIComponent（空格给 %20，不给 +）。
-func encodeURIComponent(value string) string {
+func EncodeURIComponent(value string) string {
 	return strings.ReplaceAll(url.QueryEscape(value), "+", "%20")
 }

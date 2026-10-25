@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/url"
-	"strings"
 	"time"
 
 	"zviewer/backend/internal/webfetch"
@@ -138,11 +137,9 @@ func FetchSubscription(ctx context.Context, rawURL string) (*Subscription, error
 }
 
 // proxyGitHubURL 与 Node 的 proxyGitHubUrl 逐字一致（前缀式代理）。
+//
+// 实现放在 webfetch 里：Kazumi 的规则拉取也要走同一条改写，两处各写一份
+// 迟早会分叉（比如只改一边的代理域名）。
 func proxyGitHubURL(raw string) string {
-	if strings.HasPrefix(raw, "https://github.com/") ||
-		strings.HasPrefix(raw, "https://raw.githubusercontent.com/") ||
-		strings.HasPrefix(raw, "https://api.github.com/") {
-		return "https://gh-proxy.com/" + raw
-	}
-	return raw
+	return webfetch.ProxyGitHubURL(raw)
 }

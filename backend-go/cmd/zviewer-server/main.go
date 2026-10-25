@@ -24,6 +24,7 @@ import (
 	"zviewer/backend/internal/cms"
 	"zviewer/backend/internal/config"
 	"zviewer/backend/internal/db"
+	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/realtime"
@@ -130,6 +131,7 @@ func main() {
 		CMS:           cms.NewService(settings),
 		Anime:         anime.NewService(settings, biliService),
 		AniSubs:       anisubs.NewService(settings),
+		Kazumi:        kazumi.NewService(settings),
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），
