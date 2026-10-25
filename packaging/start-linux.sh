@@ -226,15 +226,15 @@ do_start() {
 
   echo "  启动后端..."
   if [ "$HTTPS_MODE" -eq 1 ]; then
-    PORT="$BACKEND_PORT" NODE_ENV=production RTMP_PORT="$RTMP_PORT" HTTP_FLV_PORT="$HTTP_FLV_PORT" HTTPS=true \
+    PORT="$BACKEND_PORT" RTMP_PORT="$RTMP_PORT" HTTP_FLV_PORT="$HTTP_FLV_PORT" HTTPS=true \
       nohup "$BACKEND_BIN" >> "$LOG_DIR/backend.log" 2>> "$LOG_DIR/backend.err.log" &
   else
-    PORT="$BACKEND_PORT" NODE_ENV=production RTMP_PORT="$RTMP_PORT" HTTP_FLV_PORT="$HTTP_FLV_PORT" \
+    PORT="$BACKEND_PORT" RTMP_PORT="$RTMP_PORT" HTTP_FLV_PORT="$HTTP_FLV_PORT" \
       nohup "$BACKEND_BIN" >> "$LOG_DIR/backend.log" 2>> "$LOG_DIR/backend.err.log" &
   fi
   local_backend_pid=$!
 
-  # 等待后端就绪（TypeORM 初始化 + NMS 启动需要数秒）
+  # 等待后端就绪（数据库结构校验 + 各服务启动需要数秒）
   echo "  等待后端就绪..."
   if ! wait_port_ready "$BACKEND_PORT"; then
     echo "  错误：后端在 30 秒内未就绪，请检查日志: $LOG_DIR/backend.err.log" >&2

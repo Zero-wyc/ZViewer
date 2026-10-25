@@ -93,9 +93,10 @@
 **验收脚本**：
 
 - `scripts/bilibili-smoke.sh`：真库副本 + 真 B站 接口，15 个用例（解析 / 弹幕 / 字幕）。
-- `scripts/bilibili-parity.sh`：Node 与 Go 双进程**逐字段对拍**，6 个用例
-  （UGC 默认 / 降清晰度 / MP4、PGC 免费集 / 会员专享集 / 切集），目前差异总数 **0**。
-  比对器独立成 `scripts/parity-compare.js`，进程管理抽到 `scripts/lib-proc.sh`。
+- ~~`scripts/bilibili-parity.sh`：Node 与 Go 双进程**逐字段对拍**，6 个用例
+  （UGC 默认 / 降清晰度 / MP4、PGC 免费集 / 会员专享集 / 切集），当时差异总数 **0**。~~
+  该脚本随 Node 后端一起删除；现在由 `scripts/bilibili-smoke.sh`（真接口，15 用例）覆盖，
+  进程管理仍用 `scripts/lib-proc.sh`。
 
 **测试脚本自身的两个坑**（曾导致对拍结论完全错误，已固化到 `lib-proc.sh`）：
 
@@ -1400,7 +1401,8 @@ HTTPS 启动分支。
 
 #### 验证
 
-- `bash backend-go/scripts/regression-sweep.sh`：33 个脚本全绿（见第九节表格）。
+- `bash backend-go/scripts/regression-sweep.sh`：当时 33 个脚本全绿（含 Node 参照脚本）；
+  删除 Node 后收敛为 **13 个纯 Go 脚本**（见第九节与 10.4）。
 - `bash backend-go/scripts/route-parity.sh --fixture`：**只读契约快照、不需要 Node 后端**，
   189 条全部命中；`bash backend-go/scripts/events-parity.sh`：65 / 65 精确相等。
 - `gofmt -l .` 空、`go vet ./...`、`go test ./...` 全绿。
@@ -1946,7 +1948,7 @@ RTMP 音视频消息的载荷与 FLV tag body 是同一份字节，所以实现�
 
 ### 全量回归汇总：`regression-sweep.sh`
 
-一条命令按顺序跑完仓库里全部 33 个验收脚本（串行——它们各自要占随机端口起进程，
+一条命令按顺序跑完仓库里全部 **13 个**纯 Go 验收脚本（串行——它们各自要占随机端口起进程，
 并行会互相踩），输出「通过/失败/耗时」表，失败项自动打印日志尾部：
 
 ```bash
@@ -2129,7 +2131,7 @@ Go 第三次启动的 before 快照又必须等于 Node 的 after。任何一侧
 ```bash
 npm run test:go          # go test ./...（含 livekit 包单测）
 npm run lint:go          # gofmt -l + go vet
-npm run test:regression  # 13 个纯 Go 脚本，约 7-8 分钟
+npm run test:regression  # 13 个纯 Go 脚本，约 2 分钟
 npm run build            # 前端 + Go 后端产物
 ```
 

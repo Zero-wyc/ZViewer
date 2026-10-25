@@ -252,7 +252,6 @@ function Invoke-Start([switch]$BackendOnly) {
     $flvEnv = Read-PortValue -Key 'HTTP_FLV_PORT'
     $backendEnv = @{
         PORT = "$Port"
-        NODE_ENV = "production"
         HOST = "::"
         RTMP_PORT = if ($rtmpEnv) { "$rtmpEnv" } else { "3334" }
         HTTP_FLV_PORT = if ($flvEnv) { "$flvEnv" } else { "3335" }
@@ -261,7 +260,7 @@ function Invoke-Start([switch]$BackendOnly) {
     $backend = Start-ExeWithEnv -FilePath $backendExe -EnvVars $backendEnv  `
         -OutFile "$logDir/backend.log" -ErrFile "$logDir/backend.err.log"
 
-    # 等待后端就绪（TypeORM 初始化 + NMS 启动需要数秒）
+    # 等待后端就绪（数据库结构校验 + 各服务启动需要数秒）
     Write-Host "  等待后端就绪..."
     if (-not (Wait-PortReady $Port)) {
         Write-Host "  错误：后端在 30 秒内未就绪，请检查日志: $logDir\backend.err.log" -ForegroundColor Red

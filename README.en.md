@@ -76,8 +76,8 @@ Project docs: [docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz)
 - **Format compatibility**: MKV / AVI / TS / WMV, DTS / AC3 / EAC3 and other formats that browsers cannot play natively
 - **Playback modes**: CLI local proxy (high quality, no server traffic), server DASH relay, MP4 direct link (up to 720P) — switch on demand
 - **Danmaku & subtitles**: Bilibili official / DandanPlay / local XML·JSON (multiple tracks); SRT / ASS / SSA / VTT / SMI / SUB
-- **Interaction & streaming**: comments, voice chat (UDP / TCP picked automatically, no manual switch), WebRTC screen sharing, OBS push
-- **Listen together**: NetEase Cloud Music × Bilibili; playlists auto-filled with recommendations, one-click favorites into both folders, MV lyrics page background
+- **Interaction & streaming**: comments, voice chat (UDP / TCP picked automatically, no manual switch), WebRTC screen sharing, OBS push (RTMP ingest and HTTP-FLV delivery run inside the backend — no extra media server to install)
+- **Listen together**: NetEase Cloud Music × Bilibili; playlists auto-filled with recommendations, one-click favorites into both folders, MV lyrics page background (needs an NCM API service of your own, see "Push and listen together")
 - **Personalization**: Material You dynamic theme, custom theme colors and backgrounds, glassmorphism, independent danmaku and subtitle font sizes
 - **Operations**: one-click auto update; Docker / single-file builds ready out of the box
 
@@ -165,7 +165,7 @@ npm run dev:frontend    # Frontend only
 
 npm run lint:go         # gofmt + go vet
 npm run test:go         # go test ./...
-npm run test:regression # All Node↔Go parity + smoke scripts (33 scripts, ~8 min)
+npm run test:regression # All contract parity + smoke scripts (13 Go-only scripts, ~2 min)
 ```
 
 Backend hot reload is provided by `scripts/dev-backend.js` (no `air` or other external tool
@@ -232,7 +232,8 @@ services:
 - Replace `zviewer-data` with your actual data directory
 - Image tags: `latest` and `X.Y` only move when an official release is published (a `vX.Y.Z` tag is pushed), while `X.Y.Z` pins an exact version; `dev` follows the latest `main` build and may be unstable — for early testing only
 - The image starts in HTTP mode; HTTPS is up to you: an edge service such as Cloudflare, ESA or EdgeOne, or a panel such as aaPanel / 1Panel that issues and renews certificates, reverse-proxied to 3333 (issuing production certificates from the command line is not recommended)
-- `/app/config` holds the database (`dev.sqlite`), certificates (`ssl/`), uploads (`uploads/`) and stream segments (`media/`)
+- `/app/config` holds the database (`dev.sqlite`), certificates (`ssl/`) and uploads (`uploads/`); `media/` is a reserved directory — push streams are remuxed in memory and never written to disk
+- **Listen together needs an extra NCM API service** (see "Push and Listen Together"): the bundled compose file starts one with `--profile music`; with plain `docker run`, start your own and point `NCM_API_BASE` at it
 - Web-based updates remain available in Docker mode
 
 ## Deployment Configuration
@@ -249,8 +250,11 @@ services:
 | `CORS_ORIGIN`            | CORS origins, comma-separated                          | `*`                     |
 | `JWT_ACCESS_SECRET`      | Access secret (must be changed in production)                     | —                       |
 | `JWT_REFRESH_SECRET`     | Refresh secret (must be changed in production)                    | —                       |
-| `RTMP_PORT`              | RTMP push port                             | `3334`                  |
-| `HTTP_FLV_PORT`          | FLV pull port (internal)                          | `3335`                  |
+| `RTMP_PORT`              | RTMP push port (listened by the backend itself, OBS connects here) | `3334`                  |
+| `HTTP_FLV_PORT`          | FLV pull port (internal, only reachable via `/live` on 3333)     | `3335`                  |
+| `NMS_BIND`               | Listen address of the built-in media server             | `0.0.0.0`               |
+| `NMS_HTTP_FLV_URL`       | Point at an external media server (SRS / node-media-server); setting it disables the built-in one | empty (built-in) |
+| `NCM_API_BASE`           | NetEase Cloud Music API used by listen-together (external service) | `http://127.0.0.1:36530` |
 | `LIVEKIT_EXTERNAL`       | `1` uses an external LiveKit and skips the bundled one               | `0`                     |
 | `LIVEKIT_NODE_IP`        | ICE advertised address; set the public IP manually for complex NAT or no outbound internet       | empty (automatic STUN)             |
 | `LIVEKIT_BIND`           | LiveKit HTTP/signaling listen address (affects 3336 only, not media ports) | empty (dual-stack, all addresses) |
@@ -261,6 +265,32 @@ services:
 | `LIVEKIT_TURN_DOMAIN`    | TURN/TLS domain                           | —                       |
 | `LIVEKIT_TURN_CERT`      | TURN TLS certificate path                         | —                       |
 | `LIVEKIT_TURN_KEY`       | TURN TLS private key path                         | —                       |
+
+### Push and Listen Together
+
+**OBS push works out of the box**: the backend ingests RTMP on 3334 and serves HTTP-FLV on 3335
+in-process, so there is no node-media-server / SRS to install and no extra container. In OBS,
+set the server to `rtmp://<your-host>:3334/live` and the stream key to the one shown in the room.
+To use an external media server (cluster, existing SRS) set `NMS_HTTP_FLV_URL`; the backend then
+stops listening on those two ports.
+
+**Listen together needs an external NetEase Cloud Music API service.** The backend only proxies
+`/api/music/ncm/*`; it does not implement the NetEase protocol. Pick one:
+
+```bash
+# 1) start it together with zviewer (optional service in the bundled compose file)
+docker compose -f docker-compose.linux-single.yml --profile music up -d
+
+# 2) run the community image on the default 36530
+docker run -d --name zviewer-ncm -p 127.0.0.1:36530:3000 binaryify/netease_cloud_music_api:latest
+
+# 3) point at any NCM API you already run (including the enhanced fork)
+NCM_API_BASE=http://192.168.1.20:36530 ./start-prod.sh start
+```
+
+Without that service **only the music endpoints return 503 `NCM_UNAVAILABLE`** (the UI shows the
+music service as unavailable); watching, rooms, danmaku, voice and push are unaffected. The backend
+prints the effective `NCM_API_BASE` at startup.
 
 ### Voice Transport
 

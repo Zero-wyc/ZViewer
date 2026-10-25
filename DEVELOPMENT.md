@@ -124,7 +124,7 @@ npm run dev:frontend       # 只起前端
 | 3336 | LiveKit 信令 | LiveKit 伴生进程 |
 | 3337 | LiveKit ICE/TCP（可 `=0` 关闭） | LiveKit 伴生进程 |
 | 3338 | LiveKit TURN/TLS | LiveKit 伴生进程 |
-| 36530 | 网易云 API（外部服务，一起听用） | 需自行启动 |
+| 36530 | 网易云 API（外部服务，一起听用） | 外部容器/进程（见 5.2.1） |
 
 ### 5.2.1 两个「不是 Go 写的东西」
 

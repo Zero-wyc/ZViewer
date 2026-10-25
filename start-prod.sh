@@ -170,7 +170,7 @@ cmd_start() {
   local backend_pid=$!
   popd >/dev/null
 
-  # 等待后端就绪（TypeORM 初始化 + NMS 启动需要数秒）
+  # 等待后端就绪（数据库结构校验 + 各服务启动需要数秒）
   echo "  等待后端就绪..."
   if ! wait_port_ready "$BACKEND_PORT"; then
     echo "  错误：后端在 30 秒内未就绪，请检查日志: $LOG_DIR/backend.log" >&2

@@ -13,11 +13,10 @@ import (
 // ErrRoomNotFound 表示房间不存在。
 var ErrRoomNotFound = errors.New("房间不存在")
 
-// Room 对应 "room" 表。
+// Room 对应 "room" 表，是 REST、房间清理与推流配置共用的读取模型。
 //
-// 迁移期只映射 REST 层用得到的列：房间创建/准入/在线统计走 socket.io，
-// 那部分尚未迁移，所以密文列（password 只有「有没有」的语义）、
-// streamKey、成员名单（mutedViewers 等）都不落结构体。
+// 两个字段有额外的序列化约束：password 是 bcrypt 密文，对外只通过 HasPassword
+// 表达（禁止下发）；streamKey 由 `UPDATE "streamKey"` 单独写，别整行回写。
 type Room struct {
 	ID              int64
 	RoomID          string

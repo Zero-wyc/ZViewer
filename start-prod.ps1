@@ -192,7 +192,6 @@ function Invoke-Start {
     "" | Set-Content "$logDir/backend.err.log" -Encoding UTF8
 
     $env:PORT = "$Port"
-    $env:NODE_ENV = "production"
     $env:HOST = "::"
 
     if ($Https) {
@@ -207,7 +206,7 @@ function Invoke-Start {
         -RedirectStandardOutput "$logDir/backend.log" `
         -RedirectStandardError "$logDir/backend.err.log" -PassThru
 
-    # 等待后端就绪（TypeORM 初始化 + NMS 启动需要数秒）
+    # 等待后端就绪（数据库结构校验 + 各服务启动需要数秒）
     Write-Host "  等待后端就绪..."
     if (-not (Wait-PortReady $Port)) {
         Write-Host "  错误：后端在 30 秒内未就绪，请检查日志: $logDir\backend.err.log" -ForegroundColor Red

@@ -1,15 +1,14 @@
 # ZViewer Go 后端
 
-Node 后端（`backend/`）的 Go 重写。当前处于**迁移进行中**：基础层与鉴权已可用，业务模块逐个接续。
+ZViewer 后端的**唯一实现**（module `zviewer/backend`，Go 1.26）。历史上的 Node 后端
+（`backend/`）已于 2026-10-25 物理删除——没有第二份实现，也没有回滚路径。
 
-## 与 Node 版的关系
+数据库与 `config/` 由本进程独占。`testdata/contract/{routes,events}.json` 是删除前冻结的
+端点/事件契约快照，`scripts/route-parity.sh --fixture` 与 `scripts/events-parity.sh`
+靠它继续保证「历史端点与事件一个都没丢」。
 
-两者**共用同一个数据库文件和同一份 `config/`**，不做数据迁移、不改表结构。
-
-由此产生一条硬约束：
-
-> **两个进程不能同时运行。** 端口都是 3333，且 Node 版用 sql.js（整库进内存 + 全量重写文件），
-> 同时写会互相覆盖且不留痕迹。切换时务必停一个再起另一个。
+迁移台账（阶段、验收口径、刻意保留的差异、外部依赖）在 [MIGRATION.md](./MIGRATION.md)；
+日常开发、构建、排错入口在仓库根目录的 `DEVELOPMENT.md`。
 
 ## 快速开始
 
@@ -22,13 +21,11 @@ go build -o bin/zviewer-server.exe ./cmd/zviewer-server
 ./bin/zviewer-server.exe
 ```
 
-默认监听 `:3333`，行为与 Node 版一致（读取 `<项目根>/config/dev.sqlite`）。
+首次运行前先建库（只需要一次）：`npm run db:init`（即 `--init-db`，建 16 张表并打印
+root 的随机密码）。默认监听 `:3333`，读取 `<项目根>/config/dev.sqlite`。
 
-开发期想避开与 Node 版抢端口：
-
-```bash
-PORT=3401 ./bin/zviewer-server.exe
-```
+日常开发用 `npm run dev`（前端 Vite + 本目录热重载）；端口被占时用 `PORT=3401`。
+**不要手动 `go run`**：它 fork 出真正的服务进程，父进程被 kill 后子进程会占住端口。
 
 跑测试：
 
@@ -36,13 +33,13 @@ PORT=3401 ./bin/zviewer-server.exe
 go test ./...
 ```
 
-## 已实现（本轮）
+## 能力清单
 
 | 能力 | 状态 | 说明 |
 |---|---|---|
 | 环境与路径解析 | ✅ | `PROJECT_ROOT` / `CONFIG_DIR` / `DATABASE_URL` 规则与 `paths.ts` 一致 |
 | `.env` 加载 | ✅ | 不覆盖已存在的环境变量，支持三种候选路径 |
-| SQLite 打开 | ✅ | `modernc.org/sqlite`（纯 Go、无 CGO），默认保持 `journal_mode=delete` |
+| SQLite 打开 | ✅ | `modernc.org/sqlite`（纯 Go、无 CGO），**默认 WAL**（`SQLITE_WAL=0` 退回 delete） |
 | Schema 守卫 | ✅ | 校验 16 张表与 `user` 关键列，不符即拒绝启动（不自行建表） |
 | JWT 签发/校验 | ✅ | HS256，密钥复用 `config/jwt-secrets.json` |
 | 跨语言互通 | ✅ | Node 签发的 token Go 能验，反之亦然（已实测） |
@@ -55,7 +52,7 @@ go test ./...
 | 头像上传 | ✅ | multipart、5MB、JPG/PNG/GIF/WEBP，落盘 `<id>-<毫秒>.<ext>` 并清理旧文件 |
 | 防盗链媒体代理 | ✅ | `/api/stream/{anime,anisubs,kazumi,cms}/proxy`，Range 收敛 8MiB、SSRF 拦截、通配 CORS |
 | Range 与流式输出 | ✅ | 单段解析、206/416、`Content-Range`，客户端断连即停上游 |
-| 健康检查 | ✅ | 字段与 Node 版一致（`startedAt` 为毫秒时间戳） |
+| 健康检查 | ✅ | 字段与旧版一致（`startedAt` 为毫秒时间戳） |
 | 静态资源 + SPA 回退 | ✅ | 头像强缓存 7d、`/ffmpeg/` 强缓存 1y |
 | CORS | ✅ | 任意来源反射 / 关闭 / 白名单三态 |
 | B 站解析（UGC） | ✅ | WBI 签名、DASH 选轨、qn 降级、MP4 直连；与 Node 逐字段对拍一致 |
@@ -69,7 +66,7 @@ go test ./...
 | 挂载凭证回填 | ✅ | 按 `sourceMountId` 优先、`serverUrl` 兜底，影片自身凭证优先于挂载 |
 | OpenList 影片流 | ✅ | `/api/openlist/stream`，token(12h)/raw_url(5min)/单飞三层缓存，Range 透传 |
 | 房间 REST | ✅ | 列表（含在线观众/sharer 聚合）、改名、弹幕轨道 CRUD/批量替换、弹幕辅助数据 |
-| 房间事件契约 | ✅ | `internal/realtime` 定义事件名与载荷；实时层未迁移前用 `NoopBus` 丢弃（接口行为不变） |
+| 房间事件契约 | ✅ | `internal/realtime` 定义事件名与载荷，生产实现是 `SocketHub`（REST 与 socket 事件同一条广播路径） |
 | WebDAV 挂载 | ✅ | 挂载 CRUD、连接测试、目录浏览、文件解析，全部按 `id + userId + type` 限定归属 |
 | WebDAV 流代理 | ✅ | `/api/webdav/proxy` 与 `/api/webdav/stream`，Range 收敛、stat(30s)/dir(60s) 缓存 |
 | 直链与 HTTPS 升级 | ✅ | `/api/webdav/direct-url`，内网拒绝、AList 优先、现场活性校验防陈旧升级 |
@@ -135,86 +132,79 @@ go test ./...
 backend-go/
 ├── cmd/zviewer-server/     入口：装配依赖、监听、优雅退出
 ├── internal/
-│   ├── config/             环境变量与数据路径
-│   ├── db/                 连接、DSN、schema 守卫
-│   ├── store/              既有 SQLite 表的读写（user / settings / audit / movie / room / mount / 服务器文件根 / 弹幕 / 评论）
-│   ├── auth/               JWT、cookie、鉴权中间件
-│   ├── ratelimit/          进程内固定窗口限流
-│   ├── netutil/            内网判定与 URL 规范化（SSRF 唯一事实源）
-│   ├── proxy/              上游媒体代理、Range 解析、影片流凭证解析与流式输出
-│   ├── bilibili/           B 站解析链（wbi/playurl/pgc/resolver/弹幕/字幕/CDN）
-│   ├── openlist/           AList 客户端（登录 / fs-get / 三层缓存）
-│   ├── webdav/             WebDAV 客户端（PROPFIND / Range GET / stat 与目录缓存）
-│   ├── ftp/                FTP/FTPS 客户端（被动模式 / REST 分段 / MLSD·LIST·DOS 解析）
-│   ├── emby/               Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
-│   ├── sio/                Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
-│   ├── mountutil/          挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── serverfiles/        服务器文件域：前缀路径协议、越权拦截、流式上传、直链下载、中文排序（汉字优先于拉丁）
-│   ├── subtitle/           字幕域：四源同名搜索 / 目录浏览 / 内容加载 / Emby 内嵌轨道
-│   ├── traffic/            网络流量采样（Windows netstat / Linux /proc/net/dev / macOS netstat）
-│   ├── clientlog/          客户端日志落盘（一次 Open 写完一批，不并发抢文件）
-│   ├── room/               房间业务：生命周期、会话准入、运行时状态、播放记忆（写入/补偿/节流/定时广播/清理）、权限、设置与成员管理、播放控制、影片列表、字幕轨道、跳转申请、评论弹幕批注、一起听音乐、WebRTC 信令、CLI 代理（65 事件）
-│   ├── realtime/           房间事件广播契约 + `*sio.Server` 适配器（Bus / room.Hub）
-│   ├── httpx/              统一 JSON 响应与错误
-│   └── api/                路由与处理器
+│   ├── anime/           动漫源：B 站番剧 + 第三方 URL 模板（encodeURIComponent 等价编码）
+│   ├── anisubs/         ani-subs 订阅源：regexp2 规则（负向先行断言）+ 抓站
+│   ├── api/             路由与处理器（唯一的 HTTP 层）
+│   ├── auth/            JWT、cookie、鉴权中间件
+│   ├── bilibili/        B 站解析链（wbi/playurl/pgc/resolver/弹幕/字幕/CDN/账号与浏览）
+│   ├── clientlog/       客户端日志落盘（一次 Open 写完一批，不并发抢文件）
+│   ├── cms/             苹果CMS / TVBox 采集源（配置 10min 缓存 + 播放地址解析）
+│   ├── config/          环境变量与数据路径
+│   ├── danmaku/         多源弹幕（B 站 / 弹弹play / 本地）；danmaku/chinese 为简繁词典与转换
+│   ├── db/              连接、DSN、schema 守卫、索引与热备份
+│   ├── emby/            Emby/Jellyfin 客户端（登录缓存单飞 / 多版本选择 / 版本标签）
+│   ├── ftp/             FTP/FTPS 客户端（被动模式 / REST 分段 / MLSD·LIST·DOS 解析）
+│   ├── httpx/           统一 JSON 响应与错误
+│   ├── kazumi/          Kazumi JSON 规则引擎（受限 JSONPath + @var 模板 + 章节解析）
+│   ├── livekit/         LiveKit 伴生进程托管（查找 / 下载 / 拉起 / 探活）
+│   ├── mountutil/       挂载共用：HTTPS 能力探测、直链升级、内网强制中转
+│   ├── ncm/             网易云音乐转发（外部 NCM_API_BASE + 登录态 / 扫码 / 直链域名白名单）
+│   ├── netutil/         内网判定与 URL 规范化（SSRF 唯一事实源）、encodeURIComponent 唯一实现
+│   ├── nms/             内置媒体服务：RTMP 收流 + HTTP-FLV 分发（AMF0 / chunk 重组 / GOP 缓存 / 流注册）
+│   ├── openlist/        AList 客户端（登录 / fs-get / 三层缓存）
+│   ├── proxy/           上游媒体代理、Range 解析、影片流凭证解析、/live 专用反代
+│   ├── ratelimit/       进程内固定窗口限流
+│   ├── realtime/        房间事件广播契约 + SocketHub（`*sio.Server` 适配器）
+│   ├── room/            房间业务：生命周期、准入、运行时状态、播放记忆、权限、设置与成员、播放控制、字幕轨道、评论弹幕批注、一起听、WebRTC 信令、CLI 代理（65 事件）
+│   ├── serverfiles/     服务器文件域：前缀路径协议、越权拦截、流式上传、直链下载、中文排序（汉字优先）
+│   ├── sio/             Socket.IO 协议层（Engine.IO v4 双传输 / Socket.IO v5 编解码 / RFC 6455）
+│   ├── ssl/             证书：自签 + ACME（RFC 8555）+ `--gen-cert` CLI
+│   ├── store/           SQLite 表读写（user / movie / room / session / mount / 弹幕 / 评论 / 音乐 / 凭证）
+│   ├── subtitle/        字幕域：四源同名搜索 / 目录浏览 / 内容加载 / Emby 内嵌轨道
+│   ├── traffic/         网络流量采样（Windows netstat / Linux /proc/net/dev / macOS netstat）
+│   ├── ttlcache/        TTL 缓存 + 单飞 + 容量淘汰（cms / anisubs / kazumi 共用）
+│   ├── updater/         更新器（检查 / 下载 / 校验 / 解压 / 生成脚本）
+│   ├── voice/           语音：LiveKit token 与成员管理（禁言 / 踢人）
+│   ├── webdav/          WebDAV 客户端（PROPFIND / Range GET / stat 与目录缓存）
+│   └── webfetch/        抓站共用：charset 嗅探、剥 Accept-Encoding、CF 判定、GitHub 加速改写
 └── scripts/
-    ├── compat-smoke.sh         跨语言互通冒烟
-    ├── profile-smoke.sh        账号维护端点冒烟（真实库副本）
-    ├── proxy-smoke.sh          代理端点冒烟（真实公网源）
-    ├── bilibili-smoke.sh       B 站解析 / 弹幕 / 字幕冒烟（真库副本 + 真接口，15 用例）
-    ├── bilibili-parity.sh      Node 与 Go 逐字段对拍（6 用例，差异数作为退出码）
-    ├── parity-compare.js       B 站解析对拍比对器
-    ├── movie-smoke.sh          影片 REST 冒烟（真库副本，14 用例）
-    ├── movie-parity.sh         影片列表与 Node 逐字段对拍 + 双向密码加解密
-    ├── parity-compare-movies.js 影片列表比对器
-    ├── parity-node-movies.js   直接用 Node 的 TypeORM 层读写（绕开完整服务启动）
-    ├── openlist-stream-smoke.sh OpenList 影片流冒烟（mock AList，9 用例）
-    ├── mock-alist.js           最小 AList 模拟服务器
-    ├── rooms-parity.sh         房间 REST 与 Node 逐字节对拍（28 步）
-    ├── parity-node-rooms.js    Node 侧最小应用（只挂 rooms Router）
-    ├── parity-rooms-run.js     房间对拍驱动器
-    ├── webdav-parity.sh        WebDAV 端点与 Node 逐字节对拍（25 步）
-    ├── parity-node-webdav.js   Node 侧最小应用（只挂 webdav Router）
-    ├── parity-webdav-run.js    WebDAV 对拍驱动器
-    ├── mock-webdav.js          最小 WebDAV 模拟服务器
-    ├── ftp-parity.sh           FTP 端点与 Node 逐字节对拍（34 步 × MLSD/LIST 两种模式）
-    ├── parity-node-ftp.js      Node 侧最小应用（只挂 ftp 两个 Router）
-    ├── parity-ftp-run.js       FTP 对拍驱动器
-    ├── mock-ftp.js             最小 FTP 模拟服务器（MLSD/LIST 双形态）
-    ├── emby-parity.sh          Emby/Jellyfin 端点与 Node 逐字节对拍（52 步）
-    ├── parity-node-emby.js     Node 侧最小应用（只挂 emby / jellyfin 两个 Router）
-    ├── parity-emby-run.js      Emby 对拍驱动器
-    ├── mock-emby.js            最小 Emby 模拟服务器（登录/回退/多版本/DTS/HLS）
-    ├── sio-rooms-parity.sh     实时层与 Node 双向对拍（起真实 Node 后端；DRIVER/TAG 可换场景）
-    ├── sio-rooms-driver.js     房间/房主/观众对拍驱动器（28 步）
-    ├── sio-members-driver.js   房间设置与成员管理对拍驱动器（46 步）
-    ├── sio-playback-driver.js  播放控制/影片列表/字幕轨道/跳转申请 + 服务器心跳对拍驱动器（68 步）
-    ├── sio-comments-driver.js  评论/弹幕/批注对拍驱动器（32 步，额外比事件参数个数）
-    ├── sio-music-driver.js     一起听对拍驱动器（48 步 + 音乐服务器心跳形状 + 14 条断言）
-    ├── sio-misc-driver.js      信令/观众就绪/CLI 代理/预览源/子模式对拍驱动器（36 步 + 13 条断言）
-    ├── http-serverfiles-parity.sh  HTTP 端点与 Node 逐字节对拍（起真实 Node 后端，65 步）
-    ├── http-serverfiles-driver.js  服务器文件/统计/客户端日志/直链/CLI 对拍驱动器（65 步，比较状态码 + 响应头 + 响应体）
-    ├── http-admin-parity.sh     管理端 12 端点与 Node 逐字节对拍（63 步）
-    ├── http-admin-driver.js     管理端对拍驱动器（用户/房间/设置，有状态序列）
-    ├── http-subtitles-parity.sh 字幕 5 端点与 Node 逐字节对拍（44 步，固定影片 id 种子）
-    ├── http-subtitles-driver.js 字幕对拍驱动器（守卫/搜索/浏览/加载/内嵌轨道）
-    ├── spike-sio.sh            Socket.IO 协议层验证（起 cmd/sio-spike + 真实客户端，17 项）
-    ├── spike-sio.js            用 socket.io-client@4.8.3 驱动的验证器
-    └── lib-proc.sh             测试进程的启动/探活/回收（见下方"为什么需要它"）
+    ├── bilibili-smoke.sh          B 站解析 / 弹幕 / 字幕冒烟（真库副本 + 真接口，15 用例）
+    ├── compat-smoke.sh            跨语言互通冒烟（token / bcrypt / 配置 / 证书）
+    ├── desktop-env-smoke.sh       桌面托管环境冒烟（ZVIEWER_DESKTOP=1 / 端口注入）
+    ├── event-audit.js             事件覆盖审计（--snapshot 冻结 / --fixture 复用快照）
+    ├── events-parity.sh           65 个上游事件逐条探测是否落到实现
+    ├── frontend-smoke.js          浏览器断言脚本（由 frontend-smoke.sh 调用）
+    ├── frontend-smoke.sh          前端全链路冒烟（Chromium，12 项）
+    ├── gen-opencc-data.js         从 opencc-js 导出简繁词典（danmaku/chinese 用）
+    ├── https-smoke.sh             HTTPS / ACME / 自签证书冒烟（19 项，openssl 复核）
+    ├── lib-proc.sh                测试进程的启动/探活/回收（随机端口 + WINPID 树强杀）
+    ├── mock-alist.js              最小 AList 模拟服务器
+    ├── movie-smoke.sh             影片 REST 冒烟（真库副本，14 用例）
+    ├── openlist-stream-smoke.sh   OpenList 影片流冒烟（mock AList，9 用例）
+    ├── profile-smoke.sh           账号维护端点冒烟（真实库副本）
+    ├── proxy-smoke.sh             代理端点冒烟（真实公网源）
+    ├── regression-sweep.sh        全量回归：串行跑完其余脚本，失败即停
+    ├── route-audit.js             路由覆盖审计（静态预检 / --snapshot 冻结清单）
+    ├── route-parity.sh            189 条历史路由逐条探测（--fixture 不依赖 Node）
+    ├── soak-driver.js             soak 压测驱动器
+    ├── soak.sh                    并发压测（默认 60s 压缩版，SOAK_SECONDS=86400 真机）
+    ├── spike-sio.js               socket.io-client 驱动的协议层验证器
+    └── spike-sio.sh               Socket.IO 协议层验证（cmd/sio-spike + 真实客户端，17 项）
 ```
 
-分层原则与 Node 版一致：`api` 只做 HTTP 解析与响应，`store` 只管数据，`auth` 不感知业务。
+分层原则沿用旧版：`api` 只做 HTTP 解析与响应，`store` 只管数据，`auth` 不感知业务。
 新增模块一律按这个方向依赖，**不允许 `api` 之外的层 import `api`**。
 
 ## 关键设计决定
 
-**为什么不用 WAL**：WAL 会改写库文件头的 journal 模式并生成 `-wal`/`-shm` 旁文件，属于持久化变更。
-迁移期 Node 版可能仍会打开同一个库，保持 `delete` 模式最安全。
-确认 Node 版彻底下线后，设 `SQLITE_WAL=1` 即可开启。
+**为什么默认 WAL**：Node 下线后不再有第二个进程按 `delete` 模式打开同一个库，
+WAL 的读不阻塞写、崩溃只需重放 `-wal` 的收益就能拿到。代价是多两个旁文件
+（`-wal` / `-shm`），所以**备份必须走 `--backup-db`（VACUUM INTO），不能直接复制 .sqlite**。
 
-**为什么不自动建表**：TypeORM 的 `synchronize` 会持续比对 schema。
-Go 侧"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE），
-下次 Node 启动就会静默重建表——那是最容易丢数据的一条路径。宁可启动失败。
+**为什么不自动建表**：结构唯一事实源是 `internal/db/schema.sql`，启动时对不上就拒绝服务。
+"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE），老库与新库就会静默分叉，
+是最容易丢数据的一条路径。唯一允许的自动 DDL 是幂等的 `db.EnsureIndexes`；
+建表只有一个入口：`npm run db:init`。
 
 **为什么开放式 Range 要截断、显式 Range 不截断**：浏览器 `<video>` 的探测请求是
 `bytes=0-`（开放式），直接透传会让上游把整个文件推过来，而播放器拿到元数据就断开，
@@ -233,7 +223,7 @@ Go 侧"顺手补建"的 DDL 只要有一处差异（CHECK、DEFAULT、COLLATE）
 **为什么播放事件转发的是原始 JSON 字节**：`watch-together-state` 的 `state` 字段是
 客户端上报的 `SyncStateDto`，而 Go 解析用的 `Playback` 结构体多了
 `hostSocketId` / `updatedAt` / `currentMovieId` 三个字段。反序列化再序列化会把它们
-「顺手补出来」，前端拿到的 state 形状就与 Node 版不同。所以转发一律走
+「顺手补出来」，前端拿到的 state 形状就与旧版不同。所以转发一律走
 `json.RawMessage`，只有「写进播放记忆」那一步才解析。
 
 **为什么延迟补偿只能做一次**：`watch-together-control` 已经按动作显式补偿过

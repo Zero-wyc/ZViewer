@@ -52,8 +52,8 @@ type Deps struct {
 	Mounts   *store.Mounts
 	Tracks   *store.Tracks
 	Metas    *store.Metas
-	// Bus 是房间事件广播器。实时层（socket.io）未迁移前用 realtime.Noop，
-	// 接入后只替换实现，handler 无需改动。
+	// Bus 是房间事件广播器（生产由 realtime.SocketHub 实现）。
+	// 未注入时退化为 realtime.Noop：只为「最小装配」的场景兜底，生产路径不会是 Noop。
 	Bus realtime.Bus
 	// Stream 是影片流凭证解析器（/api/<source>/stream 共用）。
 	Stream *proxy.StreamResolver
