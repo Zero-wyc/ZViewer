@@ -410,6 +410,9 @@ main > div { padding: 0 var(--page-padding) var(--gap-xl); max-width: 1120px; }
 }
 .btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
 .btn.primary:active:not(:disabled) { background: var(--accent-pressed); color: var(--accent-text); }
+.btn.tunnel-primary { background: #0067c0; border-color: #0067c0; color: #fff; }
+.btn.tunnel-primary:hover:not(:disabled) { background: #005a9e; border-color: #005a9e; }
+.btn.tunnel-primary:active:not(:disabled) { background: #004578; border-color: #004578; color: #fff; }
 .btn.dark { background: var(--text-primary); color: var(--layer); border-color: transparent; }
 .btn.ghost { background: transparent; border-color: transparent; color: var(--text-primary); box-shadow: none; }
 .btn.ghost:hover:not(:disabled) { background: var(--subtle-hover); }
