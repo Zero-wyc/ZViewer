@@ -147,6 +147,11 @@ func main() {
 	musicBroadcaster := room.NewMusicBroadcaster(roomSvc, log.Default())
 	musicBroadcaster.Start()
 
+	// 房间清理定时任务：启动即跑一轮，之后每小时删一次长期无人访问的房间。
+	// 用可取消的 ctx 而不是空 context：优雅退出时要能停掉。
+	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
+	stopCleanupScheduler := roomSvc.StartCleanupScheduler(cleanupCtx)
+
 	httpServer := &http.Server{
 		Addr:    listenAddr(cfg),
 		Handler: server.Handler(),
@@ -182,6 +187,8 @@ func main() {
 
 	// 先停定时器再落盘：广播器不停的话，落盘期间还会继续改内存状态，
 	// 刚写进 DB 的那份立刻就旧了。
+	stopCleanupScheduler()
+	stopCleanup()
 	broadcaster.Stop()
 	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)

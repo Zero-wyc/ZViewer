@@ -7,7 +7,7 @@
 
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
-| 代码行 | ~58,100（含测试 14,500） | 42,653 | 100%+ |
+| 代码行 | ~58,500（含测试 14,700） | 42,653 | 100%+ |
 | HTTP 端点 | 151 | ~300 | 50.3% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备） | 16 | 87.5% |
@@ -548,16 +548,17 @@ HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应�
    单条删除有 404 守卫，批量删除没有。
 6. **DELETE /rooms/:roomId 不写审计，batch-delete 写**。同一件事两条路径，一条有记录一条没有。
 
-#### 已知缺口：房间自动清理定时器
+#### 房间自动清理定时器（阶段 22 补齐）
 
-Node 有 `modules/room/room-cleanup.service.ts`：启动即跑一轮 + 每小时一次，删除
-`status='active'` 且 `lastAccessedAt` 早于 `autoDeleteAfterHours` 的房间。Go 侧**还没迁这个
-调度器**，所以长时间不访问的活跃房间不会被自动清除。
+`modules/room/room-cleanup.service.ts` 已迁到 `internal/room/cleanup.go`：
+`StartCleanupScheduler` 启动即跑一轮 + 每小时一次，删除 `status='active'` 且
+`lastAccessedAt` 早于 `autoDeleteAfterHours` 的房间（`autoDeleteInactiveRooms`
+关闭时整轮跳过）。store 侧加了 `Rooms.ListStaleActive`。
 
-这个缺口在对拍里**会以假差异的形式冒出来**：种子库 `config/dev.sqlite` 里的历史房间会被
-Node 单侧删掉，于是房间列表少一行、`count` 也差一。对拍脚本的解法是种数据前整表清空
-`room` + `session`，并把种下去的 `lastAccessedAt` 设成"现在"。补这个调度器等
-「定时任务」阶段一起做。
+**注意这个定时器会让对拍出现假差异**：种子库 `config/dev.sqlite` 里的历史房间会被
+单侧删掉，于是房间列表少一行、`count` 也差一。房间类对拍脚本的解法一直是种数据前
+整表清空 `room` + `session`，并把种下去的 `lastAccessedAt` 设成"现在"——补了调度器
+之后这条纪律更要守住。
 
 
 ### 3.10 字幕（阶段 16）

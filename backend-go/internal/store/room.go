@@ -98,6 +98,34 @@ func (r *Rooms) ListActive(ctx context.Context) ([]*Room, error) {
 	return list, nil
 }
 
+// ListStaleActive 返回「状态 active 且最后访问时间早于阈值」的房间号。
+//
+// 对应房间清理定时任务的 `where: { status: 'active', lastAccessedAt: LessThan(threshold) }`。
+// 只取 roomId：清理只拿它喂 DeleteRoomAndRelations，多读几列是白读。
+func (r *Rooms) ListStaleActive(ctx context.Context, threshold time.Time) ([]string, error) {
+	rows, err := r.conn.QueryContext(ctx, `
+		SELECT "roomId" FROM "room"
+		WHERE "status" = 'active' AND "lastAccessedAt" < ?
+	`, threshold.UTC().Format("2006-01-02 15:04:05"))
+	if err != nil {
+		return nil, fmt.Errorf("查询待清理房间失败: %w", err)
+	}
+	defer rows.Close()
+
+	var roomIDs []string
+	for rows.Next() {
+		var roomID string
+		if err := rows.Scan(&roomID); err != nil {
+			return nil, fmt.Errorf("读取待清理房间失败: %w", err)
+		}
+		roomIDs = append(roomIDs, roomID)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("遍历待清理房间失败: %w", err)
+	}
+	return roomIDs, nil
+}
+
 // SessionCounts 是房间在线统计：观众数与 sharer（投屏端）是否存在。
 type SessionCounts struct {
 	Viewers map[string]int64
