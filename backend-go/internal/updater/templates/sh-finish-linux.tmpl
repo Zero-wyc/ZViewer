@@ -1,0 +1,24 @@
+echo "{{TAG}} 重新启动服务..."
+# 关键：必须传递 start 参数！
+# start.sh 无参数时默认进入交互菜单（read 等待输入），
+# 而更新脚本在后台运行，用户无法看到菜单也无法输入，
+# 导致服务永远无法启动，看起来像"文件没有替换"。
+cd "$ROOT"
+if [ -f "$ROOT/start.sh" ]; then
+  nohup ./start.sh start > /dev/null 2>&1 &
+else
+  # 回退方案：start.sh 不存在时直接启动后端 exe，手动设置环境变量
+  # 统一端口：前后端共用同一端口（默认 3333），由后端托管前端静态文件
+  echo "{{TAG}} 未找到 start.sh，直接启动 exe"
+  # 从 .env 读取端口（若存在），否则使用默认值
+  ENV_PORT=""
+  if [ -f "$ROOT/.env" ]; then
+    ENV_PORT=$(grep -E '^PORT=' "$ROOT/.env" | head -n 1 | cut -d= -f2- | tr -d '"' | xargs)
+  fi
+  PORT="${ENV_PORT:-3333}"
+  PORT="$PORT" NODE_ENV=production HOST=::     nohup "$ROOT/zviewer-backend" > /dev/null 2>&1 &
+fi
+
+echo "{{TAG}} 更新完成，服务正在启动... $(date)"
+rm -f "$0"
+exit 0

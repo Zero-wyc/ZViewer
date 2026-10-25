@@ -1,0 +1,317 @@
+{
+  "currentVersion": "1.0.0",
+  "platformAssetHint": {
+    "win32": "zviewer-windows-x64.zip",
+    "linux": "zviewer-linux-x64.tar.gz"
+  },
+  "cases": {
+    "stable-equal": {
+      "includePrerelease": false,
+      "releases": [
+        {
+          "tag_name": "v1.0.0",
+          "name": "v1.0.0",
+          "body": "修复：<更新> & 其它\n- 条目一",
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.0.0",
+          "published_at": "2026-09-01T00:00:00Z",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.0.0/zviewer-windows-x64.zip",
+              "size": 12345
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.0.0/zviewer-linux-x64.tar.gz",
+              "size": 23456
+            }
+          ]
+        }
+      ],
+      "ok": {
+        "currentVersion": "1.0.0",
+        "remoteVersion": "v1.0.0",
+        "hasUpdate": false,
+        "releaseNotes": "修复：<更新> & 其它\n- 条目一",
+        "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.0.0",
+        "publishedAt": "2026-09-01T00:00:00Z",
+        "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.0.0/zviewer-windows-x64.zip",
+        "isPrerelease": false,
+        "assetName": "zviewer-windows-x64.zip",
+        "assetSize": 12345
+      }
+    },
+    "stable-newer": {
+      "includePrerelease": false,
+      "releases": [
+        {
+          "tag_name": "v1.2.0",
+          "name": "v1.0.0",
+          "body": "修复：<更新> & 其它\n- 条目一",
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+          "published_at": "2026-10-01T00:00:00Z",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+              "size": 34567
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-linux-x64.tar.gz",
+              "size": 45678
+            }
+          ]
+        }
+      ],
+      "ok": {
+        "currentVersion": "1.0.0",
+        "remoteVersion": "v1.2.0",
+        "hasUpdate": true,
+        "releaseNotes": "修复：<更新> & 其它\n- 条目一",
+        "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+        "publishedAt": "2026-10-01T00:00:00Z",
+        "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+        "isPrerelease": false,
+        "assetName": "zviewer-windows-x64.zip",
+        "assetSize": 34567
+      }
+    },
+    "stable-newer-with-pre-on-top": {
+      "includePrerelease": false,
+      "releases": [
+        {
+          "tag_name": "latest",
+          "name": "Latest build",
+          "body": null,
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/latest",
+          "published_at": "2026-10-20T00:00:00Z",
+          "prerelease": true,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
+              "size": 56789
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-linux-x64.tar.gz",
+              "size": 67890
+            }
+          ]
+        },
+        {
+          "tag_name": "v1.2.0",
+          "name": "v1.0.0",
+          "body": "修复：<更新> & 其它\n- 条目一",
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+          "published_at": "2026-10-01T00:00:00Z",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+              "size": 34567
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-linux-x64.tar.gz",
+              "size": 45678
+            }
+          ]
+        }
+      ],
+      "ok": {
+        "currentVersion": "1.0.0",
+        "remoteVersion": "v1.2.0",
+        "hasUpdate": true,
+        "releaseNotes": "修复：<更新> & 其它\n- 条目一",
+        "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+        "publishedAt": "2026-10-01T00:00:00Z",
+        "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+        "isPrerelease": false,
+        "assetName": "zviewer-windows-x64.zip",
+        "assetSize": 34567
+      }
+    },
+    "prerelease-mode-takes-first": {
+      "includePrerelease": true,
+      "releases": [
+        {
+          "tag_name": "latest",
+          "name": "Latest build",
+          "body": null,
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/latest",
+          "published_at": "2026-10-20T00:00:00Z",
+          "prerelease": true,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
+              "size": 56789
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-linux-x64.tar.gz",
+              "size": 67890
+            }
+          ]
+        },
+        {
+          "tag_name": "v1.2.0",
+          "name": "v1.0.0",
+          "body": "修复：<更新> & 其它\n- 条目一",
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+          "published_at": "2026-10-01T00:00:00Z",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+              "size": 34567
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-linux-x64.tar.gz",
+              "size": 45678
+            }
+          ]
+        }
+      ],
+      "ok": {
+        "currentVersion": "1.0.0",
+        "remoteVersion": "latest",
+        "hasUpdate": true,
+        "releaseNotes": "",
+        "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/latest",
+        "publishedAt": "2026-10-20T00:00:00Z",
+        "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
+        "isPrerelease": true,
+        "assetName": "zviewer-windows-x64.zip",
+        "assetSize": 56789
+      }
+    },
+    "prerelease-mode-stable-first": {
+      "includePrerelease": true,
+      "releases": [
+        {
+          "tag_name": "v1.2.0",
+          "name": "v1.0.0",
+          "body": "修复：<更新> & 其它\n- 条目一",
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+          "published_at": "2026-10-01T00:00:00Z",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+              "size": 34567
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-linux-x64.tar.gz",
+              "size": 45678
+            }
+          ]
+        },
+        {
+          "tag_name": "latest",
+          "name": "Latest build",
+          "body": null,
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/latest",
+          "published_at": "2026-10-20T00:00:00Z",
+          "prerelease": true,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
+              "size": 56789
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-linux-x64.tar.gz",
+              "size": 67890
+            }
+          ]
+        }
+      ],
+      "ok": {
+        "currentVersion": "1.0.0",
+        "remoteVersion": "v1.2.0",
+        "hasUpdate": true,
+        "releaseNotes": "修复：<更新> & 其它\n- 条目一",
+        "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+        "publishedAt": "2026-10-01T00:00:00Z",
+        "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/v1.2.0/zviewer-windows-x64.zip",
+        "isPrerelease": false,
+        "assetName": "zviewer-windows-x64.zip",
+        "assetSize": 34567
+      }
+    },
+    "only-prerelease-stable-mode": {
+      "includePrerelease": false,
+      "releases": [
+        {
+          "tag_name": "latest",
+          "name": "Latest build",
+          "body": null,
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/latest",
+          "published_at": "2026-10-20T00:00:00Z",
+          "prerelease": true,
+          "assets": [
+            {
+              "name": "zviewer-windows-x64.zip",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
+              "size": 56789
+            },
+            {
+              "name": "zviewer-linux-x64.tar.gz",
+              "browser_download_url": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-linux-x64.tar.gz",
+              "size": 67890
+            }
+          ]
+        }
+      ],
+      "ok": {
+        "currentVersion": "1.0.0",
+        "remoteVersion": "latest",
+        "hasUpdate": false,
+        "releaseNotes": "",
+        "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/latest",
+        "publishedAt": "2026-10-20T00:00:00Z",
+        "downloadUrl": "https://github.com/Zero-wyc/ZViewer/releases/download/latest/zviewer-windows-x64.zip",
+        "isPrerelease": true,
+        "assetName": "zviewer-windows-x64.zip",
+        "assetSize": 56789
+      }
+    },
+    "missing-asset": {
+      "includePrerelease": false,
+      "releases": [
+        {
+          "tag_name": "v1.2.0",
+          "name": "v1.0.0",
+          "body": "修复：<更新> & 其它\n- 条目一",
+          "html_url": "https://github.com/Zero-wyc/ZViewer/releases/tag/v1.2.0",
+          "published_at": "2026-10-01T00:00:00Z",
+          "prerelease": false,
+          "assets": [
+            {
+              "name": "zviewer-darwin-arm64.zip",
+              "browser_download_url": "https://example.com/x.zip",
+              "size": 1
+            }
+          ]
+        }
+      ],
+      "error": "Release v1.2.0 中未找到平台对应的构建产物 zviewer-windows-x64.zip"
+    },
+    "empty-releases": {
+      "includePrerelease": false,
+      "releases": [],
+      "error": "未找到任何发布版本"
+    }
+  }
+}

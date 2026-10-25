@@ -1,0 +1,65 @@
+#!/bin/bash
+set -e
+
+ROOT="{{ROOT}}"
+TEMP_DIR="{{TEMP_DIR}}"
+EXTRACTED_DIR="{{EXTRACTED_DIR}}"
+CONFIG_DIR="$ROOT/config"
+CONFIG_BACKUP="$ROOT/.config-backup-$$"
+{{EXTRA_VARS}}
+LOG_FILE="$ROOT/update.log"
+
+# 将输出重定向到日志文件，方便诊断更新失败原因
+exec >> "$LOG_FILE" 2>&1
+
+echo ""
+echo "========================================"
+echo "{{TAG}} 开始执行 $(date)"
+echo "========================================"
+
+echo "{{TAG}} 等待后端返回响应..."
+sleep 3
+
+{{STOP_SECTION}}
+
+# 备份 config 目录（包含数据库、用户上传等持久化数据）
+echo "{{TAG}} 备份 config 目录..."
+if [ -d "$CONFIG_DIR" ]; then
+  cp -r "$CONFIG_DIR" "$CONFIG_BACKUP"
+{{AFTER_BACKUP}}
+  echo "{{TAG}} 已备份 config 到 $CONFIG_BACKUP"
+fi
+
+echo "{{TAG}} 应用新文件..."
+if [ ! -d "$EXTRACTED_DIR" ]; then
+  echo "[错误] 未找到解压目录：$EXTRACTED_DIR"
+  if [ -d "$CONFIG_BACKUP" ]; then
+    cp -rf "$CONFIG_BACKUP" "$CONFIG_DIR"
+  fi
+  exit 1
+fi
+
+{{APPLY_SECTION}}
+
+# 验证关键文件是否存在
+if [ ! -f "$ROOT/zviewer-backend" ]; then
+  echo "[错误] 更新后未找到 zviewer-backend，更新包可能损坏"
+  if [ -d "$CONFIG_BACKUP" ]; then
+    cp -rf "$CONFIG_BACKUP" "$CONFIG_DIR"
+  fi
+  exit 1
+fi
+
+# 恢复 config 目录
+echo "{{TAG}} 恢复 config 目录..."
+if [ -d "$CONFIG_BACKUP" ]; then
+  mkdir -p "$CONFIG_DIR"
+  cp -rf "$CONFIG_BACKUP/"* "$CONFIG_DIR/" 2>/dev/null || true
+  rm -rf "$CONFIG_BACKUP"
+  echo "{{TAG}} 已恢复 config 目录（用户数据已保留）"
+fi
+
+echo "{{TAG}} 清理临时文件..."
+rm -rf "$TEMP_DIR"
+
+{{FINISH_SECTION}}

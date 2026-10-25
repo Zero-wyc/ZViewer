@@ -1,0 +1,135 @@
+@echo off
+chcp 65001 >nul
+setlocal enabledelayedexpansion
+
+set "ROOT={{ROOT}}"
+set "TEMP_DIR={{TEMP_DIR}}"
+set "EXTRACTED_DIR={{EXTRACTED_DIR}}"
+set "PIDS_FILE=%ROOT%\.prod.pids.json"
+set "CONFIG_DIR=%ROOT%\config"
+set "CONFIG_BACKUP="
+set "LOG_FILE=%ROOT%\update.log"
+
+:: 将主逻辑输出重定向到日志文件，方便诊断更新失败原因
+call :do_update >> "%LOG_FILE%" 2>&1
+exit /b
+
+:do_update
+echo.
+echo ========================================
+echo [更新脚本] 开始执行 %date% %time%
+echo ========================================
+
+echo [更新脚本] 等待后端返回响应...
+:: 使用 ping 替代 timeout：timeout 在非交互式/隐藏窗口下会报错
+ping 127.0.0.1 -n 4 >nul
+
+echo [更新脚本] 停止现有服务...
+:: 停止单文件版本进程
+:: 注意：不使用 /T 参数。/T 会杀掉整个进程树，包括执行本脚本的 cmd.exe
+:: （cmd.exe 是 node.exe 的子进程），导致脚本在 taskkill 后中断。
+:: 去掉 /T 后只杀指定名称的进程本身，cmd.exe 不受影响，脚本继续执行。
+taskkill /F /IM zviewer-frontend.exe >nul 2>&1
+taskkill /F /IM zviewer-backend.exe >nul 2>&1
+
+:: 停止 Node.js 开发模式进程
+if exist "%PIDS_FILE%" (
+  powershell -NoProfile -ExecutionPolicy Bypass -Command "    $pids = Get-Content '%PIDS_FILE%' -Raw | ConvertFrom-Json;     foreach ($key in $pids.PSObject.Properties.Name) {       $info = $pids.$key;       if ($info.pid) {         Stop-Process -Id $info.pid -Force -ErrorAction SilentlyContinue;       }     }"
+  del "%PIDS_FILE%"
+)
+taskkill /F /IM node.exe >nul 2>&1
+
+:: 等待端口释放（taskkill 后端口可能处于 TIME_WAIT 状态）
+echo [更新脚本] 等待端口释放...
+ping 127.0.0.1 -n 4 >nul
+
+:: 备份 config 目录（包含数据库、用户上传文件、头像等全部用户数据）
+echo [更新脚本] 备份 config 目录...
+if exist "%CONFIG_DIR%" (
+  set "BACKUP_NAME=.config-backup-!RANDOM!"
+  set "CONFIG_BACKUP=%ROOT%\!BACKUP_NAME!"
+  xcopy /E /Y /I "%CONFIG_DIR%" "!CONFIG_BACKUP!" >nul
+  if errorlevel 1 (
+    echo [错误] config 目录备份失败
+    exit /b 1
+  )
+  echo [更新脚本] 已备份 config 到 !BACKUP_NAME!
+  rmdir /S /Q "%CONFIG_DIR%"
+)
+
+echo [更新脚本] 应用新文件...
+if not exist "%EXTRACTED_DIR%" (
+  echo [错误] 未找到解压目录：%EXTRACTED_DIR%
+  if exist "!CONFIG_BACKUP!" (
+    xcopy /E /Y /I "!CONFIG_BACKUP!" "%CONFIG_DIR%" >nul
+  )
+  exit /b 1
+)
+
+xcopy /E /Y /I "%EXTRACTED_DIR%\*" "%ROOT%\" >nul
+if errorlevel 1 (
+  echo [错误] 文件复制失败
+  if exist "!CONFIG_BACKUP!" (
+    xcopy /E /Y /I "!CONFIG_BACKUP!" "%CONFIG_DIR%" >nul
+  )
+  exit /b 1
+)
+
+:: 验证关键文件是否复制成功
+if not exist "%ROOT%\zviewer-backend.exe" (
+  echo [错误] 更新后未找到 zviewer-backend.exe，更新包可能损坏
+  if exist "!CONFIG_BACKUP!" (
+    xcopy /E /Y /I "!CONFIG_BACKUP!" "%CONFIG_DIR%" >nul
+  )
+  exit /b 1
+)
+
+:: 恢复 config 目录（保留用户数据）
+echo [更新脚本] 恢复 config 目录...
+if exist "!CONFIG_BACKUP!" (
+  if not exist "%CONFIG_DIR%" (
+    mkdir "%CONFIG_DIR%"
+  )
+  xcopy /E /Y /I "!CONFIG_BACKUP!\*" "%CONFIG_DIR%" >nul
+  rmdir /S /Q "!CONFIG_BACKUP!"
+  echo [更新脚本] 已恢复 config 目录（用户数据已保留）
+) else (
+  echo [更新脚本] 未检测到 config 备份（可能是首次部署），跳过恢复
+)
+
+echo [更新脚本] 清理临时文件...
+rmdir /S /Q "%TEMP_DIR%"
+
+echo [更新脚本] 重新启动服务...
+:: 直接调用 powershell 执行 start.ps1，绕过 start.bat
+:: start.bat 中如果 PowerShell 检查失败会执行 pause，在隐藏窗口下会无限等待
+:: 直接调用 powershell -File start.ps1 start 可避免此问题
+set "PS1=%ROOT%\start.ps1"
+if not exist "%PS1%" set "PS1=%ROOT%\start-win.ps1"
+if exist "%PS1%" (
+  :: 使用 start /b 在后台启动 powershell，不创建可见窗口
+  :: powershell 会异步启动后端和前端（Start-Process -WindowStyle Hidden），然后退出
+  start "" /b powershell -NoProfile -ExecutionPolicy Bypass -File "%PS1%" start
+) else if exist "%ROOT%\start.bat" (
+  :: 回退到 start.bat start（传递 start 参数避免进入交互菜单）
+  start "" /b "%ROOT%\start.bat" start
+) else (
+  :: 最终回退：直接启动后端 exe，手动设置环境变量
+  :: 统一端口：前后端共用同一端口（默认 3333），由后端托管前端静态文件
+  echo [更新脚本] 未找到 start.ps1/start.bat，直接启动 exe
+  if exist "%ROOT%\.env" (
+    for /f "usebackq tokens=1,* delims==" %%a in ("%ROOT%\.env") do (
+      if /i "%%a"=="PORT" set "PORT=%%b"
+    )
+  )
+  if not defined PORT set "PORT=3333"
+  set "NODE_ENV=production"
+  set "HOST=::"
+  start "" /D "%ROOT%" "%ROOT%\zviewer-backend.exe"
+)
+
+echo [更新脚本] 更新完成，服务正在启动... %date% %time%
+:: 先 exit 再 del：del 自身后脚本立即退出，exit 不会执行
+:: 改为：先退出，由 cmd 在退出后自动释放文件句柄（无法自我删除）
+:: 实际上 del "%~f0" 在 bat 中是可行的，因为脚本已被读入内存
+exit /b 0

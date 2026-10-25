@@ -13,3 +13,8 @@
 # 简繁词典必须是 LF：Go 侧按行切分后直接取 `key\tvalue`，
 # 一旦检出成 CRLF，value 尾巴会带上 \r，转出来的文本里就多出回车。
 backend-go/internal/danmaku/chinese/data/*.tsv text eol=lf
+
+# 更新脚本模板必须是 LF：它们会被原样渲染成 apply-update.sh 交给 bash。
+# 检出成 CRLF 时 bash 会因为 shebang 里的 \r 直接报错（我踩过一次，
+# 表现为「更新脚本一闪而过、文件没替换」）。bat 不受影响——写盘前统一转 CRLF。
+backend-go/internal/updater/templates/*.tmpl text eol=lf

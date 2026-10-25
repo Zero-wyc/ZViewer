@@ -1,0 +1,9 @@
+echo "{{TAG}} 停止现有服务..."
+# 使用 pgrep + 排除自身 PID，避免 pkill -f 匹配到执行本脚本的 bash 进程
+# （当部署路径包含 "zviewer-backend" 时，bash 命令行会匹配 pkill 模式）
+for pid in $(pgrep -f "zviewer-frontend" 2>/dev/null); do
+  [ "$pid" != "$SELF_PID" ] && kill -9 "$pid" 2>/dev/null || true
+done
+for pid in $(pgrep -f "zviewer-backend" 2>/dev/null); do
+  [ "$pid" != "$SELF_PID" ] && kill -9 "$pid" 2>/dev/null || true
+done

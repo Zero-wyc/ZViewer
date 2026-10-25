@@ -33,6 +33,7 @@ import (
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
+	"zviewer/backend/internal/updater"
 	"zviewer/backend/internal/webdav"
 )
 
@@ -79,6 +80,8 @@ type Deps struct {
 	Danmaku *danmaku.Service
 	// NCM 是一起听的网易云服务（凭证 + 转发 + 音质降级链 + 音频流）。
 	NCM *ncm.Service
+	// Updater 是网页端一键更新（GitHub Releases + 平台更新脚本）。
+	Updater *updater.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
 }
@@ -110,6 +113,11 @@ func New(deps Deps) *Server {
 	if deps.Bus == nil {
 		// 没有实时层时退化为丢弃事件，不能让 handler 撞上 nil 接口。
 		deps.Bus = realtime.Noop{}
+	}
+	// 更新器要项目根定位更新包落点。main 不显式注入时按配置兜底，
+	// 单测构造 Server 就不用关心这个字段（必须在拷贝进 Server 之前完成）。
+	if deps.Updater == nil {
+		deps.Updater = updater.New(deps.Cfg.ProjectRoot, deps.Settings)
 	}
 	s := &Server{
 		Deps: deps,
@@ -162,6 +170,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerKazumiRoutes(mux)
 	s.registerDanmakuRoutes(mux)
 	s.registerMusicRoutes(mux)
+	s.registerUpdaterRoutes(mux)
 	s.registerSocketRoutes(mux)
 	mux.HandleFunc("GET /health", s.handleHealth)
 

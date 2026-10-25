@@ -1,0 +1,37 @@
+# ==================== 第 1 步：创建重启标记 ====================
+# 先创建标记，确保后续 kill 后端时 entrypoint 能检测到并等待更新完成
+touch "$RESTART_MARKER"
+echo "{{TAG}} 已创建重启标记: $RESTART_MARKER"
+
+# ==================== 第 2 步：终止后端进程 ====================
+# 必须先终止后端，再复制文件。否则 cp -rf 会截断正在运行的二进制，
+# 导致后端进程崩溃（SIGBUS/SIGSEGV），entrypoint 在标记创建前检测到退出，
+# 误判为异常退出并停止容器。
+echo "{{TAG}} 正在终止后端进程..."
+BACKEND_PID=""
+if [ -f "$ROOT/.backend.pid" ]; then
+  BACKEND_PID=$(cat "$ROOT/.backend.pid" 2>/dev/null)
+fi
+if [ -z "$BACKEND_PID" ]; then
+  BACKEND_PID=$(pgrep -f "zviewer-backend" 2>/dev/null | head -n 1)
+fi
+if [ -n "$BACKEND_PID" ]; then
+  echo "{{TAG}} 终止后端进程 PID=$BACKEND_PID"
+  # 先发 SIGTERM 触发 graceful shutdown（刷新数据库脏数据），
+  # 等待最多 5 秒，仍未退出则 SIGKILL 强制终止
+  kill -TERM "$BACKEND_PID" 2>/dev/null || true
+  for i in 1 2 3 4 5; do
+    if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+      break
+    fi
+    sleep 1
+  done
+  if kill -0 "$BACKEND_PID" 2>/dev/null; then
+    echo "{{TAG}} 后端未响应 SIGTERM，强制终止"
+    kill -9 "$BACKEND_PID" 2>/dev/null || true
+  fi
+  # 等待进程完全退出和端口释放
+  sleep 2
+else
+  echo "{{TAG}} 未找到后端进程，可能已退出"
+fi

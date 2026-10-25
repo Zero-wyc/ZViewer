@@ -8,7 +8,7 @@
 | 维度 | 已完成 | 总量 | 覆盖率 |
 |---|---:|---:|---:|
 | 代码行 | ~60,800（含测试 15,200） | 42,653 | 100%+ |
-| HTTP 端点 | 160 | ~300 | 53.3% |
+| HTTP 端点 | 165 | ~300 | 55.0% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
 | 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备；bilibili_credential / ncm_credential 已可读写） | 16 | 100% |
 
@@ -1096,6 +1096,94 @@ Node 的 base 是模块级变量、没有 setter。对拍驱动器
 `ProxyAudio` 的 Range/206 透传由 `internal/ncm/ncm_test.go` 的
 `TestProxyAudioPassesThroughRange` 覆盖（httptest 上游 + Range 断言）。
 
+### 3.18 更新器（阶段 24）
+
+`services/updater/{index,script-templates}.ts`（1,131 行）+ `routes/updater.ts`
+（266 行）→ `internal/updater`（~1,000 行）+ `internal/api/updater.go`（300 行）
++ `internal/updater/templates/*.tmpl`（8 份脚本模板）。HTTP 面 160 → **165**。
+
+| 端点 | 说明 | 实现 |
+|---|---|---|
+| `GET /api/system/update/check` | 查 GitHub Releases，判定是否有更新 | `github.go#GetUpdateInfo` |
+| `POST /apply-stream` | 下载 + 应用（SSE 进度） | `apply.go#ApplyUpdate` |
+| `POST /apply` | 同上，无进度（兼容旧前端） | 同上 |
+| `POST /upload-stream` | 上传包 + 应用（SSE 进度） | `apply.go#ApplyUpdateFromFile` |
+| `POST /upload` | 同上，无进度 | 同上 |
+
+三层门禁顺序照抄 Node：`authenticateToken`（401）→ root（403「无权限：仅 root
+可操作」）→ 桌面托管（409 + `desktopManaged: true`）。顺序不能换——409 放在
+鉴权前面等于对陌生人宣告「这台是桌面版」。
+
+#### 核心设计：本进程永不替换自己
+
+Node 与 Go 走的是同一条路：下载/解压都做完后，生成一份平台脚本
+（Windows `apply-update.bat`、裸机 Linux `apply-update.sh`、容器
+`apply-update.sh` 的另一个差异段），detached 拉起后立刻返回。
+
+脚本负责：停服 → 备份 `config/` → 覆盖程序文件 → 恢复 `config/` → 重启。
+之所以不能在本进程里干，两个平台的限制都是硬的：
+
+- Windows 不允许覆盖正在运行的 exe（`ERROR_SHARING_VIOLATION`）；
+- Linux 覆盖运行中的 ELF 会把进程打成 SIGBUS（`cp` 截断正在被映射的段）。
+
+容器版还有第三层差异：先 `touch .restart-backend` 再按 PID 发 SIGTERM，
+让 entrypoint 的监控循环知道「这次退出是更新」而不是崩溃，随后由它重启后端
+（不重启容器，`config` volume 状态保持）。
+
+#### 脚本模板用 go:embed 而不是 Go 字符串
+
+TS 模板字面量里的 `\` + 换行是 **LineContinuation，编译后反斜杠与换行都不存在**
+（bat 里那段 PowerShell 续行实际拼成了一行）。手抄成 Go raw string 必然抄成
+「看着像但字节不同」的版本，而这两份脚本要原样落盘并被 cmd/bash 执行。
+
+所以加了 `scripts/dump-updater-templates.js`：把 Node 导出的 8 个字符串原样写进
+`internal/updater/templates/*.tmpl`，Go 侧 `//go:embed` 读入，只重写占位符渲染
+（多轮替换，最多四轮——差异段自身还带 `{{TAG}}`）。改了 Node 模板就重跑一次导出。
+模板文件在 `.gitattributes` 里钉了 `eol=lf`：检出成 CRLF 时 bash 会因为 shebang
+里的 `\r` 直接报错，表象是「更新脚本一闪而过、文件没替换」。
+
+#### 版本判定：四类分支一个纯函数
+
+`selectRelease` 单独抽出来是因为它的分支最多、又没法在对拍里覆盖
+（本地版本取自 `package.json`，进程内改不了）：
+
+| 本地版本 | includePrerelease | 取哪条 release | hasUpdate |
+|---|---|---|---|
+| 任意 | true | 列表第一条（GitHub 按 created_at 降序） | 见下 |
+| `0.0.0` / `0.0.0-dev.*` | true | 第一条 | 恒 true |
+| 正式版 | true | 第一条 | 第一条是预发布 → true；否则语义化比较 |
+| `0.0.0` | false | 第一条正式版（无则第一条） | 恒 true |
+| `0.0.0-dev.*` | false | 第一条正式版 | 恒 true |
+| 正式版 | false | 第一条正式版（无则第一条，但不提示更新） | 语义化比较 |
+
+`CompareVersions` 逐段复刻 `Number(x) || 0`：`core.split('.').map(Number)` 对
+`0-dev.<sha>` 这种段会产生 NaN，Node 静默按 0 处理，Go 必须同样宽松。
+prerelease 后缀按**字典序**比较（`beta.2 > beta.10`），看着反直觉但 Node 一直
+这么跑——两端不一致会让同一个 release 给出相反的「有没有更新」。
+
+#### 对拍：只覆盖拒绝路径
+
+`bash backend-go/scripts/http-updater-parity.sh` → **16 个步骤完全一致**
+（401 ×5、403 ×5、400 ×3、SSE error 事件、扩展名校验）。
+
+成功路径不进军对拍脚本：它会真的下载发布包、覆盖程序文件，并拉起一个
+**第一件事就是 `taskkill /IM node.exe`、把仓库根 `config/` 挪走**的脚本。
+
+这不是理论风险。第一版脚本里塞了一步「扩展名对但内容不是压缩包」，实测
+Node 侧返回 **200**：Windows 分支用 `powershell Expand-Archive` 解压，非压缩包
+时错误只落在 stderr、**退出码仍是 0**，于是 Node 一路走到拉起脚本，把当次对拍
+的 Node 进程连同仓库根的 `config/` 一起处理了一遍（脚本在 `ping` 等待阶段被
+`kill_tree` 打断，`config` 随后恢复，未造成损失）。Go 用标准库解压，同输入直接
+`解压失败` → 500。
+
+这一条已记进「刻意与 Node 不同的地方」：Node 的「假成功」是它自己的缺陷，
+不该被当成对拍基线；Go 的行为由 `internal/api/updater_test.go` 单测钉住。
+
+版本判定的期望值另走 `scripts/gen-updater-fixtures.js`：把 `https.get` 换成
+按 URL 回夹具的实现、`system-settings` 直接塞进 `require.cache`（否则会链条式
+拉进 typeorm 全部 entity），调 Node 的 `getUpdateInfo` 生成
+`testdata/check-expected.json`，Go 单测拿同一份 releases 喂假 GitHub 逐字段比对。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1107,7 +1195,7 @@ Node 的 base 是模块级变量、没有 setter。对拍驱动器
 | 服务器文件浏览 | ~1,200 | ✅ 见 3.8（12 端点 + 65 步对拍） |
 | 一起听音乐（含 NCM） | ~3,170 | ✅ 实时层已迁（见 3.7）；NCM 内部 API 与流代理属本阶段 ⏳ |
 | 管理端 / 统计 / 客户端日志 | ~900 | ✅ 见 3.8 / 3.9（63 步对拍） |
-| 更新器（下载/解压/sha256） | ~1,400 | ⏳ |
+| 更新器（下载/解压/sha256） | ~1,400 | ✅ 见 3.18（5 端点 + 16 步对拍） |
 | ACME / 自签证书 | ~1,020 | ⏳ |
 | CLI 代理端点 | ~280 | ✅ 见 3.8 |
 
@@ -1399,6 +1487,9 @@ Node 的 base 是模块级变量、没有 setter。对拍驱动器
 | Kazumi 生成 URL 里的 `~` | `URLSearchParams` 编成 `%7E` | `url.Values.Encode` 保留 `~` | 同上，纯编码口味差异 |
 | ani-subs 抓站的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 net/http（`internal/webfetch`） | 同 CMS 那条：Go 的 TLS 栈本来就是独立指纹；真被按指纹拦时该换源，而不是在服务端起子进程 |
 | 浏览器头的 `Accept-Encoding` | 原样发送 `gzip, deflate, br` | 一律剥掉，交给 transport 自己协商 | Go 只会自动解 gzip，服务端回 brotli 时拿到的是二进制，表象是「页面里找不到选择器」，极难排查 |
+| 更新包解压失败（Windows） | `powershell Expand-Archive` 对非压缩包**退出码仍为 0**（错误只写 stderr），于是 Node 认为解压成功，继续生成更新脚本并 detached 拉起它 | `archive/zip` 直接报错 → 500「解压失败: …」，不会产生任何脚本 | 这是 Node 的缺陷而非特性：实测对着垃圾字节走一遍，脚本真的被拉起来了，它会 `taskkill /IM node.exe` 并把仓库根 `config/` 挪走（随后恢复）。解压失败必须硬失败 |
+| 更新包解压实现 | Windows 用 PowerShell、Linux 的 zip 用 adm-zip、tar.gz 用系统 `tar` | 一律标准库 `archive/zip` + `archive/tar` | 容器里没有 `tar`/`unzip` 也要能更新；三套实现还会带来三套失败语义。代价是「解压失败」的具体文案与 Node 不同，对拍只比状态码 |
+| 更新脚本的自删除 | bat 结尾 `del "%~f0"` 的注释与实际不符（脚本并未删除自己） | 不尝试自删 | 自删依赖「脚本已读入内存」这个未定义行为，两种结果都能接受，不做无意义的对齐 |
 
 ## 八、每个单元的完成定义（DoD）
 
