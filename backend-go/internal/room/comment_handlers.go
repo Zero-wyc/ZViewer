@@ -226,7 +226,7 @@ func (s *Service) handleJoinRoomPanel(sc *sio.Socket, args []json.RawMessage, ac
 		return
 	}
 
-	allowed, err := s.canReadRoom(ctx, payload.RoomID, sc.Data)
+	allowed, err := s.canReadRoom(ctx, payload.RoomID, sc.DataSnapshot())
 	if err != nil {
 		s.Logger.Printf("[join-room-panel] 准入判定失败: %v", err)
 		ackFail(ack, "加入失败")
@@ -237,7 +237,8 @@ func (s *Service) handleJoinRoomPanel(sc *sio.Socket, args []json.RawMessage, ac
 		return
 	}
 
-	sc.SetData("panelRoomIds", appendPanelRoom(sc.Data["panelRoomIds"], payload.RoomID))
+	panelRooms, _ := sc.GetData("panelRoomIds")
+	sc.SetData("panelRoomIds", appendPanelRoom(panelRooms, payload.RoomID))
 	sc.Join(payload.RoomID)
 
 	// panel 标记会改变「在房判定」的结果，缓存必须立刻失效，

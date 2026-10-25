@@ -86,10 +86,12 @@ func (s *Server) socketAuth(h *sio.Handshake) error {
 // 为什么不能在握手时校验一次就够：令牌可能在连接存活期间被撤销
 // （改密码 / 管理员封禁 / 角色变更），只校验握手等于给旧连接发永久通行证。
 func (s *Server) socketPacketAuth(sc *sio.Socket) error {
-	if v, ok := sc.Data["isCliAgent"].(bool); ok && v {
+	value, _ := sc.GetData("isCliAgent")
+	if v, ok := value.(bool); ok && v {
 		return nil
 	}
-	token, _ := sc.Data["__token"].(string)
+	value, _ = sc.GetData("__token")
+	token, _ := value.(string)
 	if token == "" {
 		return errors.New("认证令牌已撤销或已过期")
 	}
@@ -108,7 +110,8 @@ func (s *Server) socketPacketAuth(sc *sio.Socket) error {
 // 与 Node 的 `setTimeout(revoke, exp*1000 - Date.now())` 一致：光靠逐包校验
 // 只能拦住「还在发包的连接」，静默挂着的长连接会一直活着。
 func (s *Server) armTokenExpiry(sc *sio.Socket) {
-	exp, ok := sc.Data["exp"].(int64)
+	value, _ := sc.GetData("exp")
+	exp, ok := value.(int64)
 	if !ok || exp <= 0 {
 		return
 	}

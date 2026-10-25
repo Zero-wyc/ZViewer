@@ -33,7 +33,7 @@ func handlerCtx() (context.Context, context.CancelFunc) {
 // ==================== socket.data 读取 ====================
 
 func socketUserID(sc *sio.Socket) *int64 {
-	v, ok := sc.Data["userId"]
+	v, ok := sc.GetData("userId")
 	if !ok {
 		return nil
 	}
@@ -55,21 +55,24 @@ func socketUserID(sc *sio.Socket) *int64 {
 }
 
 func socketRole(sc *sio.Socket) string {
-	if v, ok := sc.Data["role"].(string); ok {
+	value, _ := sc.GetData("role")
+	if v, ok := value.(string); ok {
 		return v
 	}
 	return RoleGuest
 }
 
 func socketUsername(sc *sio.Socket) *string {
-	if v, ok := sc.Data["username"].(string); ok && v != "" {
+	value, _ := sc.GetData("username")
+	if v, ok := value.(string); ok && v != "" {
 		return &v
 	}
 	return nil
 }
 
 func socketGuestID(sc *sio.Socket) *string {
-	if v, ok := sc.Data["guestId"].(string); ok && v != "" {
+	value, _ := sc.GetData("guestId")
+	if v, ok := value.(string); ok && v != "" {
 		return &v
 	}
 	return nil
@@ -645,7 +648,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 		return
 	}
 
-	sc.Data["pendingRoomId"] = payload.RoomID
+	sc.SetData(pendingRoomIDKey, payload.RoomID)
 	if s.Hub != nil {
 		s.Hub.EmitTo(sharer.SocketID, "join-request", map[string]any{"viewerSocketId": sc.ID})
 	}

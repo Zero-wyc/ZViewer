@@ -2,7 +2,10 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,10 +27,8 @@ const directResolveCacheTTL = 5 * time.Minute
 // directResolveCacheMax 是缓存条目上限（超出按最久未用淘汰）。
 const directResolveCacheMax = 500
 
-// directResolveCache 是「类型|服务器|路径 → 直链」缓存。
-//
-// key 里刻意不含 userId：同一源文件会被多个影片、多个房间共享，
-// 凭证由挂载反查得到，与请求者无关。
+// Cache entries are shared only for the same target, effective credentials and
+// HTTPS preference. Different upstream users can see different files at /a.mp4.
 type directResolveCacheEntry struct {
 	url       string
 	expiresAt time.Time
@@ -43,10 +44,6 @@ type directResolveTarget struct {
 	Kind      string // openlist / webdav
 	ServerURL string
 	Path      string
-}
-
-func (t directResolveTarget) cacheKey() string {
-	return t.Kind + "|" + t.ServerURL + "|" + t.Path
 }
 
 // directResolveError 是带业务码的解析失败（路由据此映射状态码）。
@@ -111,8 +108,16 @@ func (s *Server) resolveMovieDirectURL(ctx context.Context, movie *store.Movie) 
 		return "", newDirectResolveError("INVALID_MOVIE",
 			"该影片不是 openlist/webdav 直链影片，或缺少挂载服务器信息")
 	}
+	if netutil.IsInternalServerURL(target.ServerURL) {
+		return "", newDirectResolveError("INTERNAL_NETWORK_FORBIDDEN",
+			"该挂载为内网地址，无法使用直链模式，请使用服务器转发")
+	}
+	access, accessErr := s.directResolveAccess(ctx, movie, target)
+	if accessErr != nil {
+		return "", accessErr
+	}
 
-	key := target.cacheKey()
+	key := access.cacheKey(target)
 	s.directMu.Lock()
 	if entry, hit := s.directCache[key]; hit {
 		if time.Now().Before(entry.expiresAt) {
@@ -124,26 +129,36 @@ func (s *Server) resolveMovieDirectURL(ctx context.Context, movie *store.Movie) 
 	// 单飞：同一 key 并发解析只打一次上游（多人同时进房很常见）。
 	if pending, inflight := s.directInflight[key]; inflight {
 		s.directMu.Unlock()
-		result := <-pending
-		return result.url, result.err
+		select {
+		case <-pending.done:
+			return pending.result.url, pending.result.err
+		case <-ctx.Done():
+			return "", newDirectResolveError("UNREACHABLE", ctx.Err().Error())
+		}
 	}
-	ch := make(chan directResolveResult, 1)
-	s.directInflight[key] = ch
+	call := &directResolveCall{done: make(chan struct{})}
+	s.directInflight[key] = call
 	s.directMu.Unlock()
 
-	url, err := s.resolveDirectUncached(ctx, movie, target)
+	url, err := s.resolveDirectUncached(ctx, target, access)
 
 	s.directMu.Lock()
+	call.result = directResolveResult{url: url, err: err}
 	delete(s.directInflight, key)
 	if err == nil {
 		s.pruneDirectCacheLocked()
 		s.directCache[key] = directResolveCacheEntry{url: url, expiresAt: time.Now().Add(directResolveCacheTTL)}
 	}
+	// Closing a completion channel broadcasts to every waiter; sending one result
+	// would leave the other waiters reading zero values after the channel closes.
+	close(call.done)
 	s.directMu.Unlock()
-
-	ch <- directResolveResult{url: url, err: err}
-	close(ch)
 	return url, err
+}
+
+type directResolveCall struct {
+	done   chan struct{}
+	result directResolveResult
 }
 
 type directResolveResult struct {
@@ -196,40 +211,67 @@ func extractDirectTarget(movie *store.Movie) (directResolveTarget, bool) {
 	return directResolveTarget{Kind: kind, ServerURL: serverURL, Path: path}, true
 }
 
-// resolveDirectUncached 真正打上游（调用方已保证 target 有效）。
-func (s *Server) resolveDirectUncached(ctx context.Context, movie *store.Movie, target directResolveTarget) (string, *directResolveError) {
-	// 内网源站：浏览器拿到的 raw_url 根本连不上，直链模式无意义。
-	if netutil.IsInternalServerURL(target.ServerURL) {
-		return "", newDirectResolveError("INTERNAL_NETWORK_FORBIDDEN",
-			"该挂载为内网地址，无法使用直链模式，请使用服务器转发")
-	}
+type directResolveAccess struct {
+	mount              *store.Mount
+	username, password string
+}
 
-	// 反查挂载：直链影片的请求者是房间成员而不是挂载所有者（movie 不存 userId），
-	// 所以按 serverUrl + type 匹配，与 /stream 的凭证回退同一模式。
+func (a directResolveAccess) cacheKey(target directResolveTarget) string {
+	var httpsDirect *bool
+	if a.mount != nil {
+		httpsDirect = a.mount.HttpsDirect
+	}
+	// JSON provides unambiguous field boundaries; credentials never appear in the
+	// key in plaintext. Resolve them before lookup so edits cannot reuse old URLs.
+	raw, _ := json.Marshal([]any{target.Kind, target.ServerURL, target.Path, a.username, a.password, httpsDirect})
+	return fmt.Sprintf("%x", sha256.Sum256(raw))
+}
+
+// Match the /stream credential priority: anchored mount, room owner's legacy
+// mount, then movie-local credentials overriding the mount defaults. Never pick
+// an arbitrary user's mount just because it has the same server URL.
+func (s *Server) directResolveAccess(ctx context.Context, movie *store.Movie, target directResolveTarget) (directResolveAccess, *directResolveError) {
 	var mount *store.Mount
 	if s.Mounts != nil {
-		found, err := s.Mounts.FindByServerURLAny(ctx, target.ServerURL, target.Kind)
-		if err == nil {
-			mount = found
-		} else if !errors.Is(err, store.ErrMountNotFound) {
-			return "", newDirectResolveError("UNREACHABLE", err.Error())
+		if movie.SourceMountID != nil {
+			found, err := s.Mounts.FindByID(ctx, *movie.SourceMountID, target.Kind)
+			if err == nil {
+				mount = found
+			} else if !errors.Is(err, store.ErrMountNotFound) {
+				return directResolveAccess{}, newDirectResolveError("UNREACHABLE", err.Error())
+			}
+		}
+		if mount == nil && s.Rooms != nil {
+			room, err := s.Rooms.FindByRoomID(ctx, movie.RoomID)
+			if err != nil && !errors.Is(err, store.ErrRoomNotFound) {
+				return directResolveAccess{}, newDirectResolveError("UNREACHABLE", err.Error())
+			}
+			if err == nil && room.OwnerUserID != nil && *room.OwnerUserID > 0 {
+				found, err := s.Mounts.FindByRoomOwner(ctx, *room.OwnerUserID, target.ServerURL, target.Kind)
+				if err == nil {
+					mount = found
+				} else if !errors.Is(err, store.ErrMountNotFound) {
+					return directResolveAccess{}, newDirectResolveError("UNREACHABLE", err.Error())
+				}
+			}
 		}
 	}
-	// 凭证回退：挂载已删除时用影片记录自身的凭证（可能为空）。
-	username, password := "", ""
+	access := directResolveAccess{mount: mount, username: derefString(movie.Username), password: derefString(movie.Password)}
 	if mount != nil {
-		username = derefString(mount.Username)
-		password = derefString(mount.Password)
+		if access.username == "" {
+			access.username = derefString(mount.Username)
+		}
+		if access.password == "" {
+			access.password = derefString(mount.Password)
+		}
 	}
-	if username == "" {
-		username = derefString(movie.Username)
-	}
-	if password == "" {
-		password = derefString(movie.Password)
-	}
+	return access, nil
+}
 
+// resolveDirectUncached 真正打上游（调用方已保证 target 与凭证有效）。
+func (s *Server) resolveDirectUncached(ctx context.Context, target directResolveTarget, access directResolveAccess) (string, *directResolveError) {
 	rawDirectURL := ""
-	info, infoErr := s.OpenList.FetchFileInfo(ctx, target.ServerURL, username, password, target.Path)
+	info, infoErr := s.OpenList.FetchFileInfo(ctx, target.ServerURL, access.username, access.password, target.Path)
 	if infoErr == nil {
 		rawDirectURL = info.RawURL
 	} else {
@@ -246,8 +288,8 @@ func (s *Server) resolveDirectUncached(ctx context.Context, movie *store.Movie, 
 		rawDirectURL = webdav.DirectURL(target.ServerURL, target.Path)
 	}
 
-	if mount != nil {
-		return mountutil.UpgradeDirectURLValidated(ctx, s.Mounts, mount, rawDirectURL), nil
+	if access.mount != nil {
+		return mountutil.UpgradeDirectURLValidated(ctx, s.Mounts, access.mount, rawDirectURL), nil
 	}
 	// 无挂载记录：无法做 httpsDirect 探测，原样返回（保持旧行为）。
 	return rawDirectURL, nil
@@ -277,5 +319,5 @@ func derefString(v *string) string {
 type directResolveState struct {
 	directMu       sync.Mutex
 	directCache    map[string]directResolveCacheEntry
-	directInflight map[string]chan directResolveResult
+	directInflight map[string]*directResolveCall
 }

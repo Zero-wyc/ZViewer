@@ -74,7 +74,8 @@ const (
 
 // cachedMusic 是内存缓存条目。
 type cachedMusic struct {
-	state MusicSyncState
+	state    MusicSyncState
+	revision uint64
 	// durationSec 是当前曲目时长（秒）；nil = 未知/不在队列，外推不截断。
 	durationSec *float64
 	// durationKey 是上面那个时长对应的 trackKey（避免同曲反复查队列表）。
@@ -93,8 +94,9 @@ type MusicMemory struct {
 	hub    Hub
 	logger *log.Logger
 
-	mu    sync.Mutex
-	cache map[string]*cachedMusic
+	mu        sync.Mutex
+	cache     map[string]*cachedMusic
+	persistMu sync.Mutex
 }
 
 // NewMusicMemory 构造音乐播放基线服务。
@@ -217,6 +219,7 @@ func (m *MusicMemory) applyStateLocked(c *cachedMusic, state MusicSyncState, hos
 		c.hostSocketID = &sid
 	}
 	c.state = state
+	c.revision++
 	c.dirty = true
 }
 
@@ -283,6 +286,8 @@ func (m *MusicMemory) GetRawState(ctx context.Context, roomID string) (*MusicSyn
 
 // UpdateHostSocket 更新房主连接（房主重连/断开；nil = 断开）。
 func (m *MusicMemory) UpdateHostSocket(ctx context.Context, roomID string, hostSocketID *string) {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.Lock()
 	if c := m.cache[roomID]; c != nil {
 		if hostSocketID == nil {
@@ -291,6 +296,7 @@ func (m *MusicMemory) UpdateHostSocket(ctx context.Context, roomID string, hostS
 			sid := *hostSocketID
 			c.hostSocketID = &sid
 		}
+		c.revision++
 	}
 	m.mu.Unlock()
 	if err := m.states.SetHostSocket(ctx, roomID, hostSocketID); err != nil {
@@ -311,6 +317,8 @@ func (m *MusicMemory) ActiveRoomIDs() []string {
 
 // Clear 清除房间基线（房间关闭/删除时调用，含 DB 行）。
 func (m *MusicMemory) Clear(ctx context.Context, roomID string) {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.Lock()
 	delete(m.cache, roomID)
 	m.mu.Unlock()
@@ -373,14 +381,16 @@ func (m *MusicMemory) isHostOnlineLocked(c *cachedMusic) bool {
 
 // advanceState 把状态外推到当前时刻。
 func (m *MusicMemory) advanceState(ctx context.Context, roomID string, c *cachedMusic) *MusicSyncState {
+	m.mu.Lock()
 	state := c.state
+	m.mu.Unlock()
 	if !state.IsPlaying {
 		return &state
 	}
 	now := nowMillis()
 	advanced := state.PositionSec + float64(now-state.UpdatedAt)/1000
 
-	dur := m.ensureDurationSec(ctx, roomID, c)
+	dur := m.ensureDurationSec(ctx, roomID, c, derefString(state.TrackKey))
 	if dur != nil && *dur > 0 && advanced >= *dur {
 		state.PositionSec = *dur
 		state.IsPlaying = false
@@ -407,19 +417,15 @@ func (m *MusicMemory) refreshDuration(ctx context.Context, roomID string) {
 }
 
 // ensureDurationSec 确保 cached.durationSec 与当前 trackKey 匹配，返回时长（秒）。
-func (m *MusicMemory) ensureDurationSec(ctx context.Context, roomID string, c *cachedMusic) *float64 {
+func (m *MusicMemory) ensureDurationSec(ctx context.Context, roomID string, c *cachedMusic, key string) *float64 {
 	m.mu.Lock()
-	key := derefString(c.state.TrackKey)
 	if c.durationKey == key {
 		d := c.durationSec
 		m.mu.Unlock()
 		return d
 	}
 	m.mu.Unlock()
-	m.resolveDuration(ctx, roomID, c, key)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return c.durationSec
+	return m.resolveDuration(ctx, roomID, c, key)
 }
 
 // resolveDuration 按 trackKey 从队列解析时长并写回缓存。
@@ -428,7 +434,7 @@ func (m *MusicMemory) ensureDurationSec(ctx context.Context, roomID string, c *c
 //	bili:key → source='bili' AND sourceId = key[5:]
 //
 // 条目不在队列（本地插播竞态）或 durationMs<=0 → nil（不截断）。
-func (m *MusicMemory) resolveDuration(ctx context.Context, roomID string, c *cachedMusic, trackKey string) {
+func (m *MusicMemory) resolveDuration(ctx context.Context, roomID string, c *cachedMusic, trackKey string) *float64 {
 	var sec *float64
 	if trackKey != "" {
 		var item *store.MusicQueueItem
@@ -455,13 +461,20 @@ func (m *MusicMemory) resolveDuration(ctx context.Context, roomID string, c *cac
 		}
 	}
 	m.mu.Lock()
-	c.durationSec = sec
-	c.durationKey = trackKey
+	// A slow lookup for the previous song must not replace the new song's
+	// duration cache. Return its result only to the original playback snapshot.
+	if derefString(c.state.TrackKey) == trackKey {
+		c.durationSec = sec
+		c.durationKey = trackKey
+	}
 	m.mu.Unlock()
+	return sec
 }
 
 // FlushToDB 把指定房间的脏数据写入 DB。
 func (m *MusicMemory) FlushToDB(ctx context.Context, roomID string) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.Lock()
 	c := m.cache[roomID]
 	if c == nil || !c.dirty {
@@ -469,6 +482,7 @@ func (m *MusicMemory) FlushToDB(ctx context.Context, roomID string) error {
 		return nil
 	}
 	snapshot := c.state
+	revision := c.revision
 	hostID := c.hostSocketID
 	m.mu.Unlock()
 
@@ -493,7 +507,7 @@ func (m *MusicMemory) FlushToDB(ctx context.Context, roomID string) error {
 
 	m.mu.Lock()
 	// 落盘期间可能又有新写入：只在「仍是刚写的那份」时清脏标记。
-	if cur := m.cache[roomID]; cur != nil && cur.state.UpdatedAt == snapshot.UpdatedAt {
+	if cur := m.cache[roomID]; cur == c && cur.revision == revision {
 		cur.dirty = false
 		cur.lastDBWriteAt = nowMillis()
 	}

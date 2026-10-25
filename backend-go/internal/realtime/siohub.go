@@ -200,12 +200,8 @@ func (h *SocketHub) SocketData(socketID string) map[string]any {
 		return nil
 	}
 	sc := h.srv.SocketByID(socketID)
-	if sc == nil || sc.Data == nil {
+	if sc == nil {
 		return nil
 	}
-	out := make(map[string]any, len(sc.Data))
-	for k, v := range sc.Data {
-		out[k] = v
-	}
-	return out
+	return sc.DataSnapshot()
 }

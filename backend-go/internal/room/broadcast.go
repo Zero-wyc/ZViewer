@@ -38,10 +38,16 @@ func (s *Service) BroadcastMovieList(ctx context.Context, roomID string) error {
 		return err
 	}
 	s.SetMovies(roomID, list.DTOs, list.IDs)
+	var playbackErr error
 
 	if cur := s.CurrentMovieID(roomID); cur != nil {
 		if id, ok := asInt64(cur); ok && !containsID(list.IDs, id) {
 			s.SetCurrentMovie(roomID, nil)
+			s.SetPlayback(roomID, nil)
+			s.SetSubtitle(roomID, nil)
+			// A current-movie=null broadcast alone is insufficient: the next
+			// heartbeat or reconnect could restore the deleted source from memory.
+			playbackErr = s.Playback.Clear(ctx, roomID)
 			if s.Hub != nil {
 				s.Hub.EmitRoom(roomID, "current-movie", map[string]any{"movieId": nil})
 			}
@@ -51,7 +57,7 @@ func (s *Service) BroadcastMovieList(ctx context.Context, roomID string) error {
 	if s.Hub != nil {
 		s.Hub.EmitRoom(roomID, "movie-list", map[string]any{"movies": list.DTOs})
 	}
-	return nil
+	return playbackErr
 }
 
 // asInt64 把运行时状态里的 currentMovieId 归一成 int64。

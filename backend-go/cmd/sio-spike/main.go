@@ -75,7 +75,8 @@ func main() {
 
 		sc.On("whoami", func(_ []json.RawMessage, ack func(...any)) {
 			if ack != nil {
-				ack(sc.ID, sc.Data["userId"])
+				userID, _ := sc.GetData("userId")
+				ack(sc.ID, userID)
 			}
 		})
 

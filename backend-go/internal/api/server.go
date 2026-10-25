@@ -154,7 +154,7 @@ func New(deps Deps) *Server {
 		ftpTickets:      newFTPTickets(),
 		directResolveState: directResolveState{
 			directCache:    make(map[string]directResolveCacheEntry, 16),
-			directInflight: make(map[string]chan directResolveResult, 4),
+			directInflight: make(map[string]*directResolveCall, 4),
 		},
 	}
 	// 房间层需要「按房间读影片 DTO」，DTO 定义在 api 包里，只能反向注入。

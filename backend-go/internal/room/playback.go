@@ -63,6 +63,8 @@ func (p *Playback) clone() *Playback {
 // DB 只用于持久化与重启恢复。
 type cachedPlayback struct {
 	state *Playback
+	// A millisecond timestamp can identify multiple different updates.
+	revision uint64
 	// lastDBWriteAt 是最近一次落盘的时刻（Unix 毫秒），0 表示从未写过。
 	lastDBWriteAt int64
 	// dirty 表示内存已变更但还没落盘。
@@ -77,6 +79,9 @@ type PlaybackMemory struct {
 
 	mu    sync.Mutex
 	cache map[string]*cachedPlayback
+	// Serialize snapshots written to SQLite, host updates and deletion so a
+	// delayed older flush cannot overwrite a newer write or resurrect cleared data.
+	persistMu sync.Mutex
 }
 
 // NewPlaybackMemory 构造播放记忆服务。
@@ -160,9 +165,12 @@ func (m *PlaybackMemory) Advanced(ctx context.Context, roomID string) (*Playback
 // 房间没有播放状态时**不做任何事**——Node 侧同样只 update 不 insert，
 // 这里凭空插一条会让观众加入时看到「有播放状态但 sourceUrl 为空」。
 func (m *PlaybackMemory) UpdateHostSocket(ctx context.Context, roomID string, hostSocketID *string) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.Lock()
 	if c, ok := m.cache[roomID]; ok && c.state != nil {
 		c.state.HostSocketID = hostSocketID
+		c.revision++
 	}
 	m.mu.Unlock()
 
@@ -242,22 +250,28 @@ func (m *PlaybackMemory) CleanupStaleCache(ctx context.Context, isHostOnline fun
 	now := time.Now().UnixMilli()
 
 	type stale struct {
-		roomID string
-		dirty  bool
+		roomID   string
+		dirty    bool
+		entry    *cachedPlayback
+		revision uint64
 	}
 	var targets []stale
 
-	m.mu.Lock()
-	for roomID, c := range m.cache {
+	// The online callback may call IsHostOnline/HostSocketID, which takes m.mu.
+	// Never invoke it while holding the playback-cache lock.
+	for _, roomID := range m.ActiveRoomIDs() {
 		if isHostOnline(roomID) {
 			continue
 		}
-		if c.state == nil || now-c.state.UpdatedAt <= cacheStaleThreshold.Milliseconds() {
+		m.mu.Lock()
+		c := m.cache[roomID]
+		if c == nil || c.state == nil || now-c.state.UpdatedAt <= cacheStaleThreshold.Milliseconds() {
+			m.mu.Unlock()
 			continue
 		}
-		targets = append(targets, stale{roomID: roomID, dirty: c.dirty})
+		targets = append(targets, stale{roomID: roomID, dirty: c.dirty, entry: c, revision: c.revision})
+		m.mu.Unlock()
 	}
-	m.mu.Unlock()
 
 	for _, t := range targets {
 		if t.dirty {
@@ -266,7 +280,7 @@ func (m *PlaybackMemory) CleanupStaleCache(ctx context.Context, isHostOnline fun
 				continue
 			}
 		}
-		if err := m.Clear(ctx, t.roomID); err != nil {
+		if err := m.clearStale(ctx, t.roomID, t.entry, t.revision); err != nil {
 			continue
 		}
 	}
@@ -284,10 +298,30 @@ func (m *PlaybackMemory) FlushAllDirty(ctx context.Context) {
 
 // Clear 清除房间的播放记忆（内存 + DB）。关闭房间时调用。
 func (m *PlaybackMemory) Clear(ctx context.Context, roomID string) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
 	m.mu.Lock()
 	delete(m.cache, roomID)
 	m.mu.Unlock()
 
+	return m.deletePlaybackRow(ctx, roomID)
+}
+
+func (m *PlaybackMemory) clearStale(ctx context.Context, roomID string, expected *cachedPlayback, revision uint64) error {
+	m.persistMu.Lock()
+	defer m.persistMu.Unlock()
+	m.mu.Lock()
+	c := m.cache[roomID]
+	if c != expected || c.revision != revision || c.dirty {
+		m.mu.Unlock()
+		return nil
+	}
+	delete(m.cache, roomID)
+	m.mu.Unlock()
+	return m.deletePlaybackRow(ctx, roomID)
+}
+
+func (m *PlaybackMemory) deletePlaybackRow(ctx context.Context, roomID string) error {
 	if _, err := m.conn.ExecContext(ctx,
 		`DELETE FROM "playback_states" WHERE "roomId" = ?`, roomID); err != nil {
 		return fmt.Errorf("清理播放状态失败: %w", err)

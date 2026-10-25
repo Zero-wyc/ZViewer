@@ -16,8 +16,10 @@ type EventHandler func(args []json.RawMessage, ack func(...any))
 
 // Socket 是一条已连接的客户端，对应 Node 的 `socket` 对象。
 type Socket struct {
-	ID   string
-	Nsp  string
+	ID  string
+	Nsp string
+	// Data is initialized before publication. Once connected, access it through
+	// GetData / DataSnapshot / SetData / DeleteData, including reads of fixed keys.
 	Data map[string]any
 
 	srv  *Server
@@ -103,6 +105,21 @@ func (s *Socket) GetData(key string) (any, bool) {
 	}
 	v, ok := s.Data[key]
 	return v, ok
+}
+
+// DataSnapshot copies the data map under the same lock as SetData/DeleteData.
+// Copying an unlocked map still races with writers and can crash the process.
+func (s *Socket) DataSnapshot() map[string]any {
+	if s == nil {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := make(map[string]any, len(s.Data))
+	for key, value := range s.Data {
+		out[key] = value
+	}
+	return out
 }
 
 // Emit 向该客户端发送事件，对应 `socket.emit(event, ...args)`。

@@ -2,6 +2,7 @@ package room
 
 import (
 	"context"
+	"sync"
 	"time"
 )
 
@@ -62,11 +63,13 @@ func (s *Service) CleanupInactiveRooms(ctx context.Context) int {
 // 启动即跑一轮不能省：进程重启前挂着「早该清掉」的房间，等一小时才清
 // 会让首屏列表里一直躺着僵尸房间。
 func (s *Service) StartCleanupScheduler(ctx context.Context) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
 	ticker := time.NewTicker(CleanupInterval)
 	done := make(chan struct{})
 
 	go func() {
 		defer close(done)
+		defer cancel()
 		s.CleanupInactiveRooms(ctx)
 		for {
 			select {
@@ -78,13 +81,12 @@ func (s *Service) StartCleanupScheduler(ctx context.Context) (stop func()) {
 		}
 	}()
 
-	var stopped bool
+	var stopOnce sync.Once
 	return func() {
-		if stopped {
-			return
-		}
-		stopped = true
-		ticker.Stop()
+		stopOnce.Do(func() {
+			cancel()
+			ticker.Stop()
+		})
 		select {
 		case <-done:
 		case <-time.After(5 * time.Second):
