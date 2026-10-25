@@ -136,10 +136,27 @@ Release 中的 `ZViewer-Windows-<版本>-x64.zip` 是原生桌面控制台（Go 
 
 ### 源码
 
+后端是 Go（`backend-go/`，需要 Go 1.26+），前端是 React + Vite。
+
 ```bash
-npm install             # 安装依赖
-npm run build           # 生产构建
+npm install             # 安装前端依赖
+npm run build           # 生产构建（Go 后端 + 前端）
 npm start               # 启动
+```
+
+`npm run build` 会先把 Go 后端编译成 `dist/zviewer-backend(.exe)`，再构建前端产物；
+`npm start` 直接拉起该二进制（日志写在 `log/backend.log`）。
+
+开发模式（Go 后端 + Vite HMR，前端默认把 `/api` 代理到 3333）：
+
+```bash
+npm run dev             # 同时起后端与前端
+npm run dev:backend     # 只起 Go 后端（go run）
+npm run dev:frontend    # 只起前端
+
+npm run lint:go         # gofmt + go vet
+npm run test:go         # go test ./...
+npm run test:regression # 全部 Node↔Go 对拍与冒烟（33 个脚本，约 8 分钟）
 ```
 
 或使用脚本完成依赖安装、构建与启动：

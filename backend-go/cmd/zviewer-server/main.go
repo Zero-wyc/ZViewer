@@ -10,9 +10,11 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -254,7 +256,9 @@ func listenAddr(cfg *config.Config) string {
 		// 不指定 host 时监听双栈，与 Node 版默认行为一致
 		return fmt.Sprintf(":%d", cfg.Port)
 	}
-	return fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+	// IPv6 字面量必须加方括号：HOST="::" 直接拼会得到 ":::3333"，Listen 直接失败。
+	// start-prod.ps1 就是显式设 HOST="::" 来要双栈，Node 版能接受这种写法。
+	return net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port))
 }
 
 func journalLabel(wal bool) string {

@@ -140,10 +140,27 @@ You can also skip the menu and pass a command directly, e.g. `start.bat start` /
 
 ### From Source
 
+The backend is Go (`backend-go/`, requires Go 1.26+); the frontend is React + Vite.
+
 ```bash
-npm install             # Install dependencies
-npm run build           # Production build
+npm install             # Install frontend dependencies
+npm run build           # Production build (Go backend + frontend)
 npm start               # Start
+```
+
+`npm run build` compiles the Go backend to `dist/zviewer-backend(.exe)` and then builds the
+frontend; `npm start` launches that binary (logs go to `log/backend.log`).
+
+Development mode (Go backend + Vite HMR; the dev server proxies `/api` to port 3333):
+
+```bash
+npm run dev             # Backend and frontend together
+npm run dev:backend     # Go backend only (go run)
+npm run dev:frontend    # Frontend only
+
+npm run lint:go         # gofmt + go vet
+npm run test:go         # go test ./...
+npm run test:regression # All Node↔Go parity + smoke scripts (33 scripts, ~8 min)
 ```
 
 Or use the script that handles dependency installation, build and startup:

@@ -26,7 +26,8 @@ $ErrorActionPreference = "Stop"
 
 $rootDir = $PSScriptRoot
 if (-not $rootDir) { $rootDir = (Get-Location).Path }
-$backendDir = Join-Path $rootDir "backend"
+# 后端已迁到 Go（backend-go/）；产物由 scripts/build-backend.js 产出到 dist/
+$backendExe = Join-Path $rootDir "dist\zviewer-backend.exe"
 $frontendDir = Join-Path $rootDir "frontend"
 $logDir = Join-Path $rootDir "log"
 $pidsFile = Join-Path $rootDir ".prod.pids.json"
@@ -80,10 +81,10 @@ function Stop-ProcessByPort($localPort) {
 }
 
 function Test-DepsInstalled {
+    # 后端是 Go（go build 从模块缓存取依赖），这里只需要前端构建链
     return (Test-Path (Join-Path $rootDir "node_modules")) -and
-           (Test-Path (Join-Path $rootDir "node_modules\express")) -and
-           (Test-Path (Join-Path $rootDir "node_modules\sql.js")) -and
-           (Test-Path (Join-Path $rootDir "node_modules\typeorm"))
+           (Test-Path (Join-Path $rootDir "node_modules\vite")) -and
+           (Test-Path (Join-Path $rootDir "node_modules\typescript"))
 }
 
 function Install-Deps {
@@ -104,10 +105,13 @@ function Install-Deps {
 }
 
 function Build-Projects {
-    Write-Host "  构建后端..."
-    Push-Location $backendDir
+    Write-Host "  构建后端（Go）..."
+    if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
+        throw "找不到 go 命令，请先安装 Go 工具链（后端已迁移到 Go）"
+    }
+    Push-Location $rootDir
     try {
-        npm run build
+        & node (Join-Path $rootDir "scripts\build-backend.js")
         if ($LASTEXITCODE -ne 0) { throw "后端构建失败" }
     } finally { Pop-Location }
 
@@ -162,9 +166,8 @@ function Invoke-Start {
         Write-Host "  跳过构建（如需构建请加 -Build）"
     }
 
-    $backendArtifact = Join-Path $backendDir "dist/index.js"
-    if (-not (Test-Path $backendArtifact)) {
-        throw "后端构建产物缺失: $backendArtifact，请先执行 build 或加 -Build 启动"
+    if (-not (Test-Path $backendExe)) {
+        throw "后端构建产物缺失: $backendExe，请先执行 build 或加 -Build 启动"
     }
     # 后端统一托管前端静态文件，需 frontend/dist 存在；BackendOnly 模式跳过此检查
     if (-not $BackendOnly) {
@@ -177,14 +180,11 @@ function Invoke-Start {
     # HTTPS 模式：生成自签证书
     if ($Https) {
       Write-Host "  生成自签 SSL 证书..."
-      $certScript = Join-Path $rootDir "scripts\generate-cert.js"
-      if (-not (Test-Path $certScript)) {
-        throw "证书生成脚本缺失: $certScript"
-      }
-      & node $certScript
-      if ($LASTEXITCODE -ne 0) {
-        throw "SSL 证书生成失败"
-      }
+      Push-Location $rootDir
+      try {
+        & $backendExe --gen-cert
+        if ($LASTEXITCODE -ne 0) { throw "SSL 证书生成失败" }
+      } finally { Pop-Location }
     }
 
     New-Item -ItemType Directory -Path $logDir -Force | Out-Null
@@ -197,15 +197,13 @@ function Invoke-Start {
 
     if ($Https) {
       $env:HTTPS = "true"
-      # 证书路径使用默认值，由 generate-cert.js 生成
-      $sslDir = Join-Path $rootDir "config\ssl"
-      $env:SSL_CERT_PATH = Join-Path $sslDir "cert.pem"
-      $env:SSL_KEY_PATH = Join-Path $sslDir "key.pem"
+      # 证书路径由 Go 侧按 CONFIG_DIR 推导（<CONFIG_DIR>/ssl），这里不再显式指定：
+      # 写死 config/ssl 会在用户覆盖 CONFIG_DIR 时指向错误的证书。
     }
 
     Write-Host "  启动后端..."
-    $backend = Start-Process -FilePath "node" -ArgumentList "dist/index.js" `
-        -WorkingDirectory $backendDir -WindowStyle Hidden `
+    $backend = Start-Process -FilePath $backendExe `
+        -WorkingDirectory $rootDir -WindowStyle Hidden `
         -RedirectStandardOutput "$logDir/backend.log" `
         -RedirectStandardError "$logDir/backend.err.log" -PassThru
 
@@ -277,10 +275,9 @@ function Invoke-Status {
         Write-Host "    记录 PID: $($existing.backend.pid) ($backendState)"
     }
 
-    $backendArtifact = Join-Path $backendDir "dist/index.js"
     $frontendArtifact = Join-Path $frontendDir "dist/index.html"
     Write-Host "  构建产物:"
-    Write-Host "    后端: $(if (Test-Path $backendArtifact) { '存在' } else { '缺失' })"
+    Write-Host "    后端: $(if (Test-Path $backendExe) { '存在' } else { '缺失' })  ($backendExe)"
     Write-Host "    前端: $(if (Test-Path $frontendArtifact) { '存在' } else { '缺失' })"
 }
 
@@ -359,17 +356,20 @@ function Test-PrivateIpAddress([string]$HostValue) {
     return $false
 }
 
-# 一键签发证书：交互选择类型后调用 scripts/generate-cert.js
+# 一键签发证书：交互选择类型后交给 Go 后端的 --gen-cert
+# （域名/公网 IP 会自动走 Let's Encrypt，localhost/内网 IP 走自签）
 function Invoke-Cert {
-    $certScript = Join-Path $rootDir "scripts\generate-cert.js"
-    if (-not (Test-Path $certScript)) {
-        Write-Host "  [错误] 证书生成脚本缺失: $certScript" -ForegroundColor Red
+    if (-not (Test-Path $backendExe)) {
+        Write-Host "  [错误] 后端产物缺失: $backendExe，请先执行 build" -ForegroundColor Red
         return 1
     }
     $certHost = Select-CertHost
     Write-Host "  [证书] 签发类型: $certHost"
-    & node $certScript $certHost
-    $code = $LASTEXITCODE
+    Push-Location $rootDir
+    try {
+        & $backendExe --gen-cert $certHost
+        $code = $LASTEXITCODE
+    } finally { Pop-Location }
     Write-Host ""
     if ($code -ne 0) {
         Write-Host "  [证书] 签发失败（退出码 $code）" -ForegroundColor Red
@@ -381,15 +381,18 @@ function Invoke-Cert {
 
 # HTTPS 启动：交互选择证书类型 → 签发 → 以 HTTPS 启动
 function Invoke-HttpsStart {
-    $certScript = Join-Path $rootDir "scripts\generate-cert.js"
-    if (-not (Test-Path $certScript)) {
-        Write-Host "  [错误] 证书生成脚本缺失: $certScript" -ForegroundColor Red
+    if (-not (Test-Path $backendExe)) {
+        Write-Host "  [错误] 后端产物缺失: $backendExe，请先执行 build" -ForegroundColor Red
         return 1
     }
     $certHost = Select-CertHost
     Write-Host "  [证书] 签发类型: $certHost"
-    & node $certScript $certHost
-    if ($LASTEXITCODE -ne 0) {
+    Push-Location $rootDir
+    try {
+        & $backendExe --gen-cert $certHost
+        $certCode = $LASTEXITCODE
+    } finally { Pop-Location }
+    if ($certCode -ne 0) {
         Write-Host "  [证书] 签发失败，HTTPS 启动中止" -ForegroundColor Red
         return 1
     }

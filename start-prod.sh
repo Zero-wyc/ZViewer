@@ -5,8 +5,12 @@ set -euo pipefail
 # 命令：start | backend | stop | restart | status | logs | build | help
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_DIR="$ROOT_DIR/backend"
+# 后端已迁到 Go（backend-go/）；产物统一由 scripts/build-backend.js 产出到 dist/。
 FRONTEND_DIR="$ROOT_DIR/frontend"
+BACKEND_BIN="$ROOT_DIR/dist/zviewer-backend"
+case "${OSTYPE:-}" in
+  msys*|cygwin*|win32) BACKEND_BIN="$BACKEND_BIN.exe" ;;
+esac
 LOG_DIR="$ROOT_DIR/log"
 PIDS_FILE="$ROOT_DIR/.prod.pids.json"
 
@@ -89,8 +93,12 @@ install_deps() {
 }
 
 build() {
-  echo "  构建后端..."
-  (cd "$BACKEND_DIR" && npm run build)
+  echo "  构建后端（Go）..."
+  if ! command -v go >/dev/null 2>&1; then
+    echo "  错误：找不到 go 命令，请先安装 Go 工具链（后端已迁移到 Go）" >&2
+    exit 1
+  fi
+  node "$ROOT_DIR/scripts/build-backend.js" || exit 1
   echo "  构建前端..."
   (cd "$FRONTEND_DIR" && npm run build)
   echo "  构建完成"
@@ -126,9 +134,8 @@ cmd_start() {
     echo "  跳过构建（如需构建请加 --build）"
   fi
 
-  local backend_artifact="$BACKEND_DIR/dist/index.js"
-  if [[ ! -f "$backend_artifact" ]]; then
-    echo "  错误：后端构建产物缺失: $backend_artifact" >&2
+  if [[ ! -f "$BACKEND_BIN" ]]; then
+    echo "  错误：后端构建产物缺失: $BACKEND_BIN（先跑 build 或加 --build）" >&2
     exit 1
   fi
   # 后端统一托管前端静态文件，需 frontend/dist 存在；BackendOnly 模式跳过此检查
@@ -143,8 +150,7 @@ cmd_start() {
   # HTTPS 模式：生成自签证书
   if [[ "$HTTPS_MODE" -eq 1 ]]; then
     echo "  生成自签 SSL 证书..."
-    node "$ROOT_DIR/scripts/generate-cert.js"
-    if [[ $? -ne 0 ]]; then
+    if ! (cd "$ROOT_DIR" && "$BACKEND_BIN" --gen-cert); then
       echo "  SSL 证书生成失败" >&2
       exit 1
     fi
@@ -156,11 +162,10 @@ cmd_start() {
   : > "$LOG_DIR/backend.log"
 
   echo "  启动后端..."
-  pushd "$BACKEND_DIR" >/dev/null
-  PORT="$BACKEND_PORT" \
-    NODE_ENV="production" \
-    HTTPS="$([[ "$HTTPS_MODE" -eq 1 ]] && echo "true" || echo "")" \
-    nohup node dist/index.js > "$LOG_DIR/backend.log" 2>&1 &
+  # 在仓库根启动：Go 版按「当前目录向上找 frontend + backend-go」定位项目根，
+  # 从 dist/ 里启动也能找到，但显式给 PROJECT_ROOT 少一层猜测。
+  pushd "$ROOT_DIR" >/dev/null
+  PORT="$BACKEND_PORT"     PROJECT_ROOT="$ROOT_DIR"     HTTPS="$([[ "$HTTPS_MODE" -eq 1 ]] && echo "true" || echo "")"     nohup "$BACKEND_BIN" > "$LOG_DIR/backend.log" 2>&1 &
   local backend_pid=$!
   popd >/dev/null
 
@@ -205,7 +210,7 @@ cmd_stop() {
     [[ -n "$frontend_pid" ]] && kill "$frontend_pid" 2>/dev/null || true
     rm -f "$PIDS_FILE"
   fi
-  pkill -f "node.*backend/dist" 2>/dev/null || true
+  pkill -f "zviewer-backend" 2>/dev/null || true
   # 兜底：按统一端口清理（含历史遗留的 vite preview 进程）
   pkill -f "vite preview" 2>/dev/null || true
   kill_port "$BACKEND_PORT"
@@ -227,10 +232,9 @@ cmd_status() {
     echo "  未运行"
   fi
 
-  local backend_artifact="$BACKEND_DIR/dist/index.js"
   local frontend_artifact="$FRONTEND_DIR/dist/index.html"
   echo "  构建产物:"
-  echo "    后端: $([[ -f "$backend_artifact" ]] && echo '存在' || echo '缺失')"
+  echo "    后端: $([[ -f "$BACKEND_BIN" ]] && echo '存在' || echo '缺失')  ($BACKEND_BIN)"
   echo "    前端: $([[ -f "$frontend_artifact" ]] && echo '存在' || echo '缺失')"
 }
 

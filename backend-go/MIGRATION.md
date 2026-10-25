@@ -1401,6 +1401,48 @@ HTTPS 启动分支。
   189 条全部命中；`bash backend-go/scripts/events-parity.sh`：65 / 65 精确相等。
 - `gofmt -l .` 空、`go vet ./...`、`go test ./...` 全绿。
 
+### 3.24 运行/开发入口切到 Go（阶段 30）
+
+删 `backend/` 之前必须先把「怎么起服务」这件事的入口换掉，否则删完 `npm run dev`、
+`npm start`、`start-prod.*` 全部指着 `backend/dist/index.js`。
+
+| 入口 | 改前 | 改后 |
+|---|---|---|
+| `npm run dev` / `dev:backend` | `npm run dev -w backend`（ts-node-dev） | `cd backend-go && go run ./cmd/zviewer-server` |
+| `npm run build` | `npm run build -ws`（含后端 tsc） | `build:frontend` + `build:backend`（`scripts/build-backend.js`） |
+| `npm run lint` | `-ws`（含后端 `tsc --noEmit`） | `lint:frontend`；新增 `lint:go`（`gofmt -l . && go vet ./...`） |
+| `npm run test:server` | Node 服务级回归 | 保留到删 `backend/` 为止；新增 `test:go`、`test:regression` |
+| `start-prod.sh` / `.ps1` | `node dist/index.js`（WorkingDirectory=backend） | `dist/zviewer-backend(.exe)`（WorkingDirectory=仓库根 + `PROJECT_ROOT`） |
+
+几处必须一起改的细节：
+
+- **产物路径统一**：新增 `scripts/build-backend.js` 作为唯一编译入口（`go build -trimpath
+  -ldflags "-s -w"`，`CGO_ENABLED=0`，平台后缀自动加）。三个调用方（npm script、
+  `start-prod.sh`、`start-prod.ps1`）都调它，避免「产物名各写一份、总有一处忘」。
+- **`HOST="::"` 会拼出 `:::3333`**：`start-prod.ps1` 显式设 `HOST="::"` 要双栈，Node 能接受，
+  而 `fmt.Sprintf("%s:%d")` 拼出来的字符串 `net.Listen` 直接失败（服务起不来）。
+  改用 `net.JoinHostPort` → `[::]:3333`，`main_test.go` 用 5 组取值钉住。
+  实测 `[::]:34925` 同时接受 `127.0.0.1` 与 `[::1]`。
+- **HTTPS 自签不再走 `scripts/generate-cert.js`**：`start-prod.*` 的 `cert` / `https` 菜单
+  直接调 `zviewer-backend --gen-cert [host]`（域名→Let's Encrypt，localhost/内网→自签）。
+- **`SSL_CERT_PATH` / `SSL_KEY_PATH` 不再写死 `config/ssl`**：Go 侧按 `CONFIG_DIR` 推导，
+  写死会在用户覆盖 `CONFIG_DIR` 时指向错误的证书。
+- **依赖检查改判据**：`start-prod.*` 原来检查 `node_modules/{express,sql.js,typeorm}`，
+  现在只检查前端构建链（`vite` / `typescript`），否则 Go 版永远判成「依赖未安装」。
+
+#### 验证（都是实跑）
+
+- `npm run dev:backend` → 起在 34921，`/health` 200；`npm run build:backend` → 19.3 MB。
+- `bash start-prod.sh build` → Go 后端 + 前端全部构建成功。
+- `start-prod.ps1 build` / `status` → 产物 19.3 MB、状态显示 `dist\zviewer-backend.exe 存在`。
+- `HOST=:: ` 直跑二进制：`监听 [::]:34925`，v4 与 v6 的 `/health` 都通。
+- 回归：`route-parity.sh` 189/189、`desktop-env-smoke.sh` 8 项、`go test ./...` 全绿。
+
+> 注：`start-prod.ps1 start` 的 `Start-Process` 分支没能在本机验证——当前会话的
+> PowerShell 进程环境里 `Path`/`PATH` 同时存在（PowerShell 5.1 的已知行为），
+> 任何 `Start-Process` 都会抛「已添加项」。这是**执行环境**的问题，真实用户从
+> `start-prod.bat`（cmd 启动）不会有；启动分支本身只改了 `-FilePath` / `-WorkingDirectory`。
+
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
 | 单元 | TS 行数（估） | 状态 |
@@ -1771,6 +1813,9 @@ HTTPS 启动分支。
       并跑通 `config-roundtrip.sh`；② 再按下面「删除 `backend/` 的影响面」逐项收尾。
       在真机验证通过之前，保留 `backend/` 的回滚能力（`git checkout` 即可恢复源码，
       `npm install` 恢复依赖）。
+      **已完成的收尾**：运行/开发入口已全部切到 Go（见 3.24）——`npm run dev` /
+      `npm run build` / `npm start` / `start-prod.sh|ps1` 都不再依赖 `backend/dist`，
+      也不再需要 `node_modules` 里的 express/typeorm/sql.js。
 
 ### 全量回归汇总：`regression-sweep.sh`
 
