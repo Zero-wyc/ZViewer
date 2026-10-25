@@ -338,9 +338,13 @@ function packageBackend(targetPlatforms, frontendDist) {
         continue;
       }
 
-      // 语音聊天（LiveKit）：下载 livekit-server 伴生二进制随产物分发，
-      // 后端启动时自动拉起（见 backend-go/internal/livekit）。
-      // 版本与产物命名见 livekit-server GitHub releases。
+      // 语音聊天（LiveKit）：伴生二进制随产物分发，后端启动时自动拉起
+      // （见 backend-go/internal/livekit）。
+      //
+      // **优先用仓库内的那份**（backend-go/dev-bin/），不联网：
+      // 它和 dev 环境跑的是同一个文件，构建结果可复现，也不受 GitHub
+      // Releases 可达性影响（国内网络下这条下载经常卡住）。
+      // 仓库里没有对应平台的二进制时才回落到下载。
       const LIVEKIT_VERSION = 'v1.13.7';
       const isWin = target.includes('win');
       const lkAsset = isWin
@@ -348,8 +352,21 @@ function packageBackend(targetPlatforms, frontendDist) {
         : `livekit_${LIVEKIT_VERSION.slice(1)}_linux_amd64.tar.gz`;
       const lkUrl = `https://github.com/livekit/livekit-server/releases/download/${LIVEKIT_VERSION}/${lkAsset}`;
       const lkDest = path.join(outputFolder, isWin ? 'livekit-server.exe' : 'livekit-server');
+      const lkDevBin = path.join(ROOT, 'backend-go', 'dev-bin', isWin ? 'livekit-server.exe' : 'livekit-server');
       if (fs.existsSync(lkDest)) {
         success(`livekit-server 已存在: ${platform.folder}/`);
+      } else if (fs.existsSync(lkDevBin)) {
+        fs.copyFileSync(lkDevBin, lkDest);
+        if (!isWin) {
+          try { fs.chmodSync(lkDest, 0o755); } catch { /* non-Unix host */ }
+        }
+        // 产物里一直跟着一份 livekit 的 LICENSE（原先来自 zip 解压），
+        // 改成直接复制二进制后要显式带上，否则分发包少了第三方许可。
+        const lkLicense = path.join(path.dirname(lkDevBin), 'LICENSE');
+        if (fs.existsSync(lkLicense)) {
+          fs.copyFileSync(lkLicense, path.join(outputFolder, 'LICENSE'));
+        }
+        success(`livekit-server: 用仓库内二进制 backend-go/dev-bin/${path.basename(lkDevBin)} → ${platform.folder}/`);
       } else {
         const tmpArchive = path.join(outputFolder, lkAsset);
         try {
