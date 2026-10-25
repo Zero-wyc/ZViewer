@@ -87,7 +87,7 @@ type Deps struct {
 	Updater *updater.Service
 	// Voice 是语音聊天的服务端一半（LiveKit 凭证 + Twirp 管理调用）。
 	Voice *voice.Service
-	// NMS 是 OBS 推流的媒体服务探测器（外部 NMS 的可用性 + 推流地址）。
+	// NMS 是 OBS 推流的媒体服务（默认进程内托管，可用性 + 推流地址）。
 	NMS *nms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
@@ -134,7 +134,7 @@ func New(deps Deps) *Server {
 	}
 	if deps.NMS == nil {
 		// 单测构造 Server 时不必关心推流配置：默认按环境变量解析，
-		// 探测不到外部 NMS 时只是报告不可用（不影响其它路由）。
+		// 未启动 / 外部服务不可达时只是报告不可用（不影响其它路由）。
 		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
 	if deps.OpenList == nil {
@@ -198,7 +198,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerUpdaterRoutes(mux)
 	s.registerVoiceRoutes(mux)
 	s.registerRTCRoutes(mux)
-	// 推流（OBS）：REST 下发配置，/live 反代到外部 NMS。
+	// 推流（OBS）：REST 下发配置，/live 反代到媒体服务（默认是进程内那个）。
 	// /live 必须在 mux.Handle("/", SPA 回退) 之前注册，否则会被回成 index.html。
 	s.registerStreamPushRoutes(mux)
 	s.registerLiveRoutes(mux)

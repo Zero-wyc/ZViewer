@@ -9,7 +9,7 @@ import { apiFetch, getFlvBaseUrl, getRtmpHost, getRtmpPort } from '@/lib/api'
  * 使用 FLV_BASE_URL（支持用户自定义或环境变量 VITE_FLV_BASE_URL），
  * 默认按当前页面协议推断：
  * - HTTPS 页面默认使用相对路径 `/live`，假设生产环境通过 Nginx/Caddy 等反向代理
- *   将 `/live` 映射到 Node Media Server 的 HTTP-FLV 端口（默认 3335）。
+ *   由后端把 `/live` 反代到媒体服务的 HTTP-FLV 端口（默认进程内 3335）。
  * - HTTP 页面默认直连 `http://host:3335`，用于本地开发。
  *
  * 最终地址格式为 `${base}/live/${streamKey}.flv`

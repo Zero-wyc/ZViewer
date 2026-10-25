@@ -76,10 +76,11 @@ wait_port_ready() {
 }
 
 deps_ok() {
+  # 与 start-prod.ps1 保持一致：只检查构建期真正需要的东西。
+  # 后端是 Go，node_modules 里只需要 vite / typescript（前端构建）。
   [[ -d "$ROOT_DIR/node_modules" ]] \
-    && [[ -d "$ROOT_DIR/node_modules/express" ]] \
-    && [[ -d "$ROOT_DIR/node_modules/sql.js" ]] \
-    && [[ -d "$ROOT_DIR/node_modules/typeorm" ]]
+    && [[ -d "$ROOT_DIR/node_modules/vite" ]] \
+    && [[ -d "$ROOT_DIR/node_modules/typescript" ]]
 }
 
 install_deps() {

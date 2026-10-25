@@ -17,8 +17,9 @@ import (
 
 // OBS 推流模式（复刻 modules/stream-push + routes/stream-push 的 REST 部分）。
 //
-// 媒体服务（NMS）本身不内嵌在 Go 进程里，见 internal/nms 的包注释：
-// `/live` 只是把 HTTP-FLV 请求反代到外部 NMS，`/api/stream-push/*` 只负责
+// 媒体服务默认由 Go 进程内托管（见 internal/nms），也可以指向外部服务：
+// `/live` 把 HTTP-FLV 请求反代到媒体服务（默认进程内，`internal/nms`；
+// 设了 NMS_HTTP_FLV_URL 时是外部服务），`/api/stream-push/*` 只负责
 // 下发 OBS 配置。两者都依赖同一个可用性探测。
 
 func (s *Server) registerStreamPushRoutes(mux *http.ServeMux) {

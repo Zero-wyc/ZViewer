@@ -118,7 +118,7 @@ export let SOCKET_URL = computeSocketUrl()
 
 /**
  * 当前生效的 HTTP-FLV 拉流基础地址。
- * 默认使用相对路径 ''（即 /live），由后端反向代理到 Node Media Server（HTTP_FLV_PORT）。
+ * 默认使用相对路径 ''（即 /live），由后端反向代理到媒体服务（默认进程内，HTTP_FLV_PORT）。
  * 统一端口后无需单独暴露 NMS 端口；如需独立子域名可显式设置。
  */
 export let FLV_BASE_URL = computeFlvBaseUrl()

@@ -112,31 +112,22 @@ go test ./...
 | 字幕搜索与加载 | ✅ | `/api/subtitles/*` 5 端点：四源（server-files / ftp / openlist / webdav）同目录同名搜索、目录浏览、按路径读内容 |
 | Emby 内嵌字幕 | ✅ | 读 PlaybackInfo 的 `MediaStreams` 列轨道，按轨道 index 调 Emby 转封装接口取内容；`index=1.5` 必须查不到（数字相等而非截断） |
 
-## 尚未实现
+## 剩余边界
 
-见 [MIGRATION.md](./MIGRATION.md)。当前 HTTP 端点覆盖率约 **107 / 300**。
+迁移已收尾：HTTP **182 组端点 / 189 条历史路由全命中**、实时事件 **65 / 65**、
+数据库 **16 / 16** 表可读写，口径见 [MIGRATION.md](./MIGRATION.md)（第一节 + 第十节实测）。
 
-**实时层 65 个上行业务事件全部接完**（房间 28 步 + 成员 46 步 + 播放 68 步 +
-评论弹幕 32 步 + 一起听 48 步 + 信令与零散 36 步，Node↔Go 对拍零差异），
-下行侧的两条服务器心跳（一起看 `server-heartbeat` / 一起听 `music:sync-heartbeat`）
-与陈旧缓存清理也已经补齐——房主断线后观众端仍能继续播，这条链路对拍有断言。
+真正不属于「Go 重写范围」的只剩三处，且都不影响主链路：
 
-还缺的是：
+- **NCM 音乐 API 是外部服务**：`/api/music/ncm/*` 只做转发，`NCM_API_BASE` 指向
+  外部网易云 API（`docker compose --profile music` 可一并拉起）。
+  不可达时音乐接口返回 503 `NCM_UNAVAILABLE`，其余功能不受影响。
+- **Redis 存储适配器**（多实例共享播放状态）未迁——单实例部署用不到。
+- 媒体服务（RTMP/HTTP-FLV）**已内嵌**（`internal/nms`）：RTMP 收流 3334、
+  HTTP-FLV 出流 3335，`/live` 反代到本地这个端口；`NMS_HTTP_FLV_URL` 可指向外部
+  SRS/node-media-server，此时不再内嵌。
 
-- **推流（NMS）**：Go 版没有内嵌 RTMP 服务器，`update-share-method` 切到 `stream-push`
-  一律拒绝（等价于 Node 设 `STREAM_PUSH_ENABLED=0`）；
-- **NCM 音乐搜索与播放地址解析**（`/api/music/ncm/*` 等 9 类端点）：一起听的**实时层**已迁，
-  但这些端点依赖 `@neteasecloudmusicapienhanced/api` 这个纯 Node 包（Node 版起了一个
-  36530 端口的内部服务），Go 侧要改成外部进程 / HTTP 客户端模型，尚未动手；
-- **动漫源**（anime / anisubs / kazumi / cms，各 6–8 个）、**更新器**（7 个）、
-  **语音 LiveKit**（3 个）、**定时任务**（房间自动清理等，
-  Node 是启动即跑 + 每小时一次，删 `lastAccessedAt` 超期的 active 房间）；
-- Redis 存储适配器（多实例共享播放状态，单实例部署用不到）。
-
-这些路径上的前端操作会静默无响应（事件没有监听器）或明确报错，不会返回半个可用但语义错误的结果。
-
-除鉴权、代理与 B 站解析链外的所有 `/api/*` 都会落到 SPA 回退并返回 `404 接口不存在`——
-迁移期这是刻意的：宁可明确失败，也不要返回半个可用但语义错误的响应。
+刻意与旧实现不同的地方（都是修缺陷，不是没迁完）见 MIGRATION 第七之二。
 
 ## 目录结构
 

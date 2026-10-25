@@ -10,7 +10,7 @@
 | 代码行 | ~66,300（含测试 17,800） | 42,653 | 100%+ |
 | HTTP 端点 | 182 | 182（Node 运行时实测 189 条 `/api` 路由全命中） | 100% |
 | 实时事件 | 65 | 65（上行业务事件） | 100% |
-| 数据库表 | 14（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder 已可读写；system_settings / audit_logs 读写齐备；bilibili_credential / ncm_credential 已可读写） | 16 | 100% |
+| 数据库表 | 16（user / movie / room / session / playback_states / music_playback_states / music_queue_item / user_mount / danmaku_track / room_danmaku_meta / server_folder / comment / system_settings / audit_logs / bilibili_credential / ncm_credential） | 16 | 100% |
 
 > **端点总数的口径**（两次修正后的最终版）：早期写的「~300」是粗估（把 emby/jellyfin
 > 双前缀、同一路径的多方法、注释里的示例串都算进去了）。现在不再用静态计数当结论，
@@ -1237,6 +1237,10 @@ HTTP-FLV 反代与两个 socket 事件（`update-share-method` / `query-stream-p
 
 #### 最大的架构差异：NMS 外部化
 
+> 2026-10-25 补：这条外部化方案在**阶段 33 改回进程内实现**（见 3.26），
+> 下面「外部化」的配置与探测语义作为**可选路径**保留（`NMS_HTTP_FLV_URL`）。
+> 保留这一段是为了记住当时的取舍与探测缓存的原因。
+
 `node-media-server` 是纯 Node 库（RTMP 3334 + HTTP-FLV 3335），Go 侧不内嵌，改成：
 
 | 变量 | 作用 |
@@ -1495,6 +1499,76 @@ Node 后端原来靠 `ts-node-dev` 改完即重启；迁到 Go 后 `go run` 没�
 | 修好保存 | 自动重启；编译期间又删掉文件 → 打 `排队中的改动` 后再重启一次 |
 | 临时目录 | 只剩当前 `zviewer-server-N.exe`，旧产物已清 |
 | `--no-watch` | 只启动一次、不打印监听行、`/health` 200 |
+
+### 3.26 内置媒体服务：RTMP 收流 + HTTP-FLV 分发（阶段 33）
+
+阶段 26 把 NMS 外部化了（3.20），代价是「开箱推流」这条产品行为丢了：容器镜像、
+ZIP 产物包、桌面壳都不带媒体服务，用户装完看到的是「推流服务不可用」。
+本阶段把它收回来——**进程内实现**，不再有任何外部二进制依赖。
+
+#### 为什么不用现成的媒体服务器
+
+| 方案 | 问题 |
+|---|---|
+| 继续外置 SRS / node-media-server | 单文件交付与桌面壳装不进去；node-media-server 还要 Node 运行时 |
+| mediamtx | 只支持 RTMP/RTSP/HLS/WebRTC/SRT，**没有 HTTP-FLV 输出**，前端 flv.js 得整体换 |
+| SRS | 功能对得上（RTMP in + HTTP-FLV out），但 Windows 版是 Cygwin 构建的安装包，打进 ZIP/桌面壳不现实 |
+
+而这条链路的真实需求很窄：**OBS 推 H.264/AAC，浏览器拉 FLV**，全程**转封装不转码**。
+RTMP 音视频消息的载荷与 FLV tag body 是同一份字节，所以实现量可控（约 1,300 行）。
+
+#### 实现拆分（`internal/nms/`）
+
+| 文件 | 内容 |
+|---|---|
+| `rtmp_chunk.go` | chunk 流读写：fmt0-3 头、扩展时间戳、chunk size 协商、消息重组；写侧只用 fmt0 + fmt3 |
+| `amf0.go` | AMF0 编解码（number/boolean/string/object/ECMA array/strict array/date/null），嵌套上限 32 层 |
+| `rtmp_session.go` | 简单握手 + 命令分发：`connect` / `releaseStream` / `FCPublish` / `createStream` / `publish` / `deleteStream`，`@setDataFrame` 元数据 |
+| `streamhub.go` | 流注册表 + GOP 缓存（12 MB / 1200 tag 上限）+ 订阅者广播（队列满丢帧、关键帧丢失直接断开）+ FLV tag 编码 |
+| `embedded.go` | 监听与生命周期、`/live/{key}.flv` 的 HTTP-FLV 输出（joined 时补发元数据 + 序列头 + GOP） |
+| `nms.go` | 保留原有 `Service`（可用性 / 推流地址 / 推流码），新增 `Start` / `Close` 与内嵌模式 |
+
+配置优先级：`NMS_HTTP_FLV_URL` 有值 → 外部模式（不再监听本地端口，可用性退回 TCP 探测）；
+为空 → 内嵌模式（默认）。`NMS_EMBEDDED=0` 强制不内嵌，`NMS_BIND` 指定监听地址，
+`STREAM_PUSH_ENABLED=0` 仍然整体关闭。启动失败（端口被占）不致命：记一行日志后
+自动降级成外部探测模式。
+
+#### 五个必须守住的细节
+
+1. **每条消息换新缓冲**。chunk 组装时若复用 `payload[:0]`，后面到的帧会覆盖已被
+   hub 长期持有的序列头 / GOP 缓存——表现是「前几秒画面正常、之后花屏」，
+   而且只在缓存帧多于一条时出现，非常难查。
+2. **chunk size 是单向的**。服务端发 `Set Chunk Size(4096)` 只约束**自己写出**的块；
+   客户端仍需按 128 解析，直到它自己发 `Set Chunk Size`。测试端漏了这一步就会
+   把续块当新消息，卡死在读超时。
+3. **`Set Chunk Size` 消息本身要用旧块大小写出去**，写完再切换写侧状态。
+4. **GOP 缓存只在关键帧处重置**，否则观众进来先看到一段 P 帧（花屏到下一个关键帧）。
+   `subscribe` 的补发顺序固定：`onMetaData` → 视频序列头 → 音频序列头 → GOP。
+5. **订阅者广播不能阻塞**：队列满时音频/普通帧直接丢（下个关键帧自愈），
+   关键帧丢了就断开该订阅者，让播放器重连重新对齐——绝不能让一个卡住的
+   HTTP 客户端拖慢推流解析。
+
+#### 验证
+
+`go test ./internal/nms/` 覆盖：AMF0 往返、chunk 重组（800 字节跨块）、
+**假推流端到端**（握手 → connect → publish → 元数据/序列头/关键帧 → HTTP 拉流 →
+按 FLV 结构逐 tag 断言）、流不存在回 404、`Start`/`Close` 的可用性、端口被占时降级。
+
+端到端用例里的假客户端只做「协议上合法的最小事」，等价于 OBS 的 librtmp 行为：
+握手 → `connect` → `releaseStream` → `FCPublish` → `createStream` → `publish`，
+之后发 `@setDataFrame` + AVC/AAC 序列头 + 关键帧。
+
+#### 交付形态的变化
+
+| 形态 | 之前 | 现在 |
+|---|---|---|
+| 源码 `npm run dev` | 需要自己跑 NMS | 开箱即用 |
+| Docker 单容器 | 3334 没人监听 | 后端进程内监听，镜像无需改 |
+| Windows ZIP / 桌面壳 | 无推流 | 开箱即用 |
+| 已有外部媒体服务 | 设 `NMS_HTTP_FLV_URL` | 行为不变（自动转外部模式） |
+
+一起听（NCM）仍然是外部服务，见第十三节「外部依赖」——那部分是网易云协议实现，
+不属于 Go 重写的范围，交付上改为「compose 可选服务 + 明确降级」。
 
 ## 六、阶段 4：挂载源与系统（约 50 人日）
 
@@ -1804,7 +1878,7 @@ Node 后端原来靠 `ts-node-dev` 改完即重启；迁到 Go 后 `go run` 没�
 | 更新包解压失败（Windows） | `powershell Expand-Archive` 对非压缩包**退出码仍为 0**（错误只写 stderr），于是 Node 认为解压成功，继续生成更新脚本并 detached 拉起它 | `archive/zip` 直接报错 → 500「解压失败: …」，不会产生任何脚本 | 这是 Node 的缺陷而非特性：实测对着垃圾字节走一遍，脚本真的被拉起来了，它会 `taskkill /IM node.exe` 并把仓库根 `config/` 挪走（随后恢复）。解压失败必须硬失败 |
 | 更新包解压实现 | Windows 用 PowerShell、Linux 的 zip 用 adm-zip、tar.gz 用系统 `tar` | 一律标准库 `archive/zip` + `archive/tar` | 容器里没有 `tar`/`unzip` 也要能更新；三套实现还会带来三套失败语义。代价是「解压失败」的具体文案与 Node 不同，对拍只比状态码 |
 | 更新脚本的自删除 | bat 结尾 `del "%~f0"` 的注释与实际不符（脚本并未删除自己） | 不尝试自删 | 自删依赖「脚本已读入内存」这个未定义行为，两种结果都能接受，不做无意义的对齐 |
-| OBS 推流的媒体服务 | 进程内 `require('node-media-server')` 起 RTMP 3334 + HTTP-FLV 3335 | 外部化：`NMS_HTTP_FLV_URL` 指向已运行的 NMS/mediamtx，可用性 = TCP 探得通（5s 缓存） | Go 不带那个 Node 库；重写 RTMP 服务器不属于本次范围。代价是**新增部署依赖**，没跑外部 NMS 时前端显示「推流服务不可用」 |
+| OBS 推流的媒体服务 | 进程内 `require('node-media-server')` 起 RTMP 3334 + HTTP-FLV 3335 | **已改为进程内实现**（`internal/nms`，阶段 33，见 3.26）；`NMS_HTTP_FLV_URL` 仅作为「用外部媒体服务」的可选路径，可用性 = TCP 探得通（5s 缓存） | 当初外部化是为了不重写 RTMP 服务器；结果是三种交付形态都不带媒体服务，开箱推流直接不可用，等于丢了一条产品能力，所以补了进程内实现 |
 | 推流可用性判定的时延 | 进程内布尔量，零延迟 | 5s TTL + 300ms TCP 探测 | socket 事件会反复问；每次握手不划算。最坏情况是「NMS 刚起来 5s 内仍报不可用」 |
 | `obs-config` 补推流码的写库粒度 | `roomRepo.save(room)` 整行写（含 shareMethod 等） | 只 `UPDATE "streamKey"` 一列 | 整行写会把并发修改的其他列覆盖回读到的旧值；「先下配置、再切子模式」是正常流程，不该被顺带改掉 |
 | `SERVER_HOST` 推导时的 IPv6 | `host.split(':')[0]` 把 `[::1]:3333` 切成 `[`，生成 `rtmp://[:3334/live` | `SplitHostPort` 后补回方括号，生成 `rtmp://[::1]:3334/live` | Node 那行对 IPv6 是明显的坏地址；Go 修好它不影响任何 IPv4/域名场景 |
@@ -2193,6 +2267,34 @@ npm run db:init        # 等价于 zviewer-server --init-db
 - `.env.example` 里 Node 时代的段落：`NODE_ENV`（Go 不读）、「PostgreSQL 配置（可选）」
   整段（含「修改后端 data-source.ts」这种已经不存在的指引）。补了 `SQLITE_WAL` 与
   `db:init` 的说明。
+
+## 十三、外部依赖：一起听的 NCM API（阶段 33）
+
+Go 后端**不含**网易云协议实现：`/api/music/ncm/*` 全部转发到 `NCM_API_BASE`
+（默认 `http://127.0.0.1:36530`）。这是重写时唯一无法「用 Go 重写一遍」的模块——
+它背后是 `@neteasecloudmusicapienhanced/api` 那个三万行 npm 包（weapi/eapi 加密、
+登录态、几十个接口），照抄一遍既超出范围，也没有可验证的对照实现。
+
+之前的状态是「代码迁完了、交付没跟上」：镜像、ZIP 产物包、桌面壳都不带这个服务，
+用户装完能点开音乐面板，但所有请求 503。这个阶段补的是**交付形态**：
+
+| 交付形态 | NCM 怎么办 |
+|---|---|
+| Docker compose | 新增可选服务 `ncm`（`profiles: ["music"]`，镜像 `binaryify/netease_cloud_music_api`，宿主回环 36530），zviewer 的 `NCM_API_BASE` 默认指向 `http://ncm:3000` |
+| 源码运行 | `.env.example` 写明三段起法（compose / 单独 docker run / 指向自建服务），DEVELOPMENT 5.2.1 同步 |
+| Windows 桌面 / ZIP | 仍需要外部服务；README 与入口脚本明确写出「没配时只有音乐不可用」 |
+| 自建 / 增强版 NCM | 直接设 `NCM_API_BASE`，不启 compose 服务即可 |
+
+配套的可见性：
+
+- 后端启动日志打印 `NCM_API_BASE`（不可达时这一行就是排查起点）；
+- 容器入口脚本在没配 `NCM_API_BASE` 时启动横幅直接提示「音乐面板不可用」；
+- 不可达语义仍是 503 `NCM_UNAVAILABLE`（前端有对应文案），**不影响其它任何功能**。
+
+刻意不做的：不打包 Node 运行时、不在 Go 里实现 weapi/eapi。那等于把刚删掉的
+Node 运行时再塞回来，或者引入一份没人维护的加密实现——两者都比「明确的外部依赖 +
+明确降级」更难维护。
+
 
 
 

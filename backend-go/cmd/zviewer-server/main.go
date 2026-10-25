@@ -176,6 +176,12 @@ func main() {
 	// 推流探测器只构造一次：房间 socket 事件与 /api/stream-push 必须拿到
 	// 同一个答案，分开构造会让可用性缓存在两边各自漂移。
 	streamPush := nms.New(nms.ConfigFromEnv())
+	// 媒体服务（RTMP 收流 + HTTP-FLV 分发）默认就由本进程托管：
+	// 单文件部署没有外部编排，与 LiveKit 同理。起不来只降级不致命
+	// （端口可能被运维自己的 NMS 占着，此时退回「探测外部服务」）。
+	if err := streamPush.Start(); err != nil {
+		log.Printf("[nms] 推流服务降级为外部探测模式: %v", err)
+	}
 	// 一起听的播放基线：内存 + DB。isHostOnline 需要核对连接是否还在，
 	// 所以要在拿到 Hub 之后再注入一次。
 	musicMemory := room.NewMusicMemory(conn)
@@ -290,6 +296,7 @@ func main() {
 
 	log.Printf("[start] ZViewer Go 后端 平台=%s 项目根=%s", config.Platform(), cfg.ProjectRoot)
 	log.Printf("[start] 数据库=%s (journal=%s)", cfg.DatabasePath, journalLabel(cfg.SQLiteWAL))
+	log.Printf("[start] 一起听音乐上游 NCM_API_BASE=%s（不可达时音乐接口回 503，不影响其它功能）", cfg.NCMAPIBase)
 	log.Printf("[start] 监听 %s", httpServer.Addr)
 
 	errCh := make(chan error, 1)
@@ -322,6 +329,8 @@ func main() {
 	// 刚写进 DB 的那份立刻就旧了。
 	stopCleanupScheduler()
 	stopCleanup()
+	// 媒体服务随进程退出：先断推流/拉流连接，再关 HTTP。
+	_ = streamPush.Close(ctx)
 	// 伴生进程先停：它是外部依赖，留着只会让客户端在退出过程中继续重连
 	stopLivekit()
 	livekitMgr.Stop()

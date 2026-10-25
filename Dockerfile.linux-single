@@ -19,8 +19,10 @@ RUN apt-get update \
 WORKDIR /app
 
 # 复制单文件产物（统一端口：后端托管前端静态文件，无需前端 exe）
-# 语音聊天：LiveKit 伴生二进制直接打入镜像，容器启动时由后端管理器自动
-# 拉起（见 services/livekit-server.manager.ts）——单容器即含完整语音能力。
+# 语音聊天：LiveKit 伴生二进制直接打入镜像，容器启动时由 Go 后端的
+# internal/livekit 自动拉起——单容器即含完整语音能力。
+# OBS 推流：RTMP 收流 + HTTP-FLV 分发由 Go 后端**进程内**提供
+# （internal/nms，3334 / 3335），不需要额外容器，也不需要外部媒体服务。
 # 注意：二进制来自 build-all.js 产物（CI 下缺失会硬失败），直接 docker
 # build 前需先跑 node build-all.js --linux
 COPY dist/linux/zviewer-backend .
@@ -37,9 +39,10 @@ RUN mkdir -p config/ssl config/uploads config/media log \
 # 暴露端口
 # 3333/tcp: 统一端口 - 后端 REST API + WebSocket (Socket.IO) + 前端静态文件 + /live HTTP-FLV 代理
 # 3333/udp: LiveKit WebRTC 媒体传输（与页面同号不同协议）
-# 3334/tcp: RTMP 推流端口 (OBS 连接)
+# 3334/tcp: RTMP 推流端口 (OBS 连接，由后端进程内监听)
 # 3337/tcp: 语音 ICE/TCP 直连（管理端「语音传输模式=TCP」时启用）
 # 3338/tcp: 语音 TURN/TLS 中继（配齐 LIVEKIT_TURN_* 三项才启用，可与 3337 并存）
+# 3335/tcp 是后端进程内的 HTTP-FLV 上游，只经 3333 的 /live 反代访问，不对外暴露。
 EXPOSE 3333/tcp 3333/udp 3334/tcp 3337/tcp 3338/tcp
 
 # Entrypoint（HTTP 模式，仅启动后端，由后端统一提供 API + 前端静态文件）

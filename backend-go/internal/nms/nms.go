@@ -1,20 +1,20 @@
-// Package nms 管理 OBS 推流模式依赖的媒体服务（RTMP 接收 + HTTP-FLV 分发）。
+// Package nms 提供 OBS 推流模式依赖的媒体服务（RTMP 接收 + HTTP-FLV 分发）。
 //
-// 与 Node 版最大的差异：`node-media-server` 是纯 Node 库，Go 侧不内嵌，
-// 改成**外部化**——`NMS_HTTP_FLV_URL`（默认 `http://127.0.0.1:3335`）指向
-// 已经跑起来的 NMS 兼容服务（node-media-server / SRS / mediamtx 均可）。
+// 默认**进程内自带**（`embedded.go`）：RTMP 收在 `RTMP_PORT`（3334），
+// HTTP-FLV 出在 `HTTP_FLV_PORT`（3335），`/live` 由后端反代到本地这个端口。
+// 这样源码运行、单容器部署、桌面壳三种交付形态都能开箱推流，
+// 与 Node 版进程内 `node-media-server` 的产品行为一致。
 //
-// 可用性语义与 Node 的 `nmsService.isAvailable()` 对齐（「能推流吗」），
-// 只是判据从「进程内实例启动成功」换成「上游 TCP 端口连得上」，
-// 并带 5s 缓存：socket 事件里会反复问，每次都做一次 TCP 握手太浪费。
-//
-// 部署含义：只跑 Go 版时，OBS 推流需要额外跑一个 NMS（与一起听的 NCM
-// 外部服务同一套策略）；没跑时前端会显示「推流服务不可用」。
+// 想用外部媒体服务（SRS / node-media-server / 自建集群）时，设
+// `NMS_HTTP_FLV_URL` 指过去即可——此时不再监听本地端口，可用性改用
+// TCP 探测（5s 缓存），语义与 Node 的 `nmsService.isAvailable()` 对齐
+// （「能推流吗」）。
 package nms
 
 import (
 	"context"
 	"crypto/rand"
+	"log"
 	"net"
 	"net/url"
 	"os"
@@ -51,14 +51,21 @@ type Config struct {
 	// Disabled 对应 STREAM_PUSH_ENABLED=0：与 Node 同名开关，
 	// 显式关闭时不探测、一律报告不可用（对拍脚本靠它让两侧一致）。
 	Disabled bool
+	// Embedded 为 true 时由本进程托管 RTMP + HTTP-FLV（默认）。
+	// 显式配了 NMS_HTTP_FLV_URL、或设 NMS_EMBEDDED=0 时转为外部模式。
+	Embedded bool
+	// BindHost 是内嵌服务的监听地址（NMS_BIND，默认 0.0.0.0）。
+	BindHost string
 }
 
 // ConfigFromEnv 读取配置，语义与 Node 版一致：
 //
-//	RTMP_PORT      推流端口（默认 3334）
-//	HTTP_FLV_PORT  拉流端口（默认 3335，仅在 NMS_HTTP_FLV_URL 缺省时生效）
-//	NMS_HTTP_FLV_URL  显式上游（优先，可指向外部 NMS）
-//	SERVER_HOST    推流地址里的主机名（缺省从请求 Host 推导）
+//	RTMP_PORT         推流端口（默认 3334）
+//	HTTP_FLV_PORT     拉流端口（默认 3335，仅在 NMS_HTTP_FLV_URL 缺省时生效）
+//	NMS_HTTP_FLV_URL  显式上游（优先，指向外部媒体服务，此时不内嵌）
+//	NMS_EMBEDDED      0 = 即使没配 URL 也不内嵌（调试外部服务时用）
+//	NMS_BIND          内嵌服务的监听地址（默认 0.0.0.0）
+//	SERVER_HOST       推流地址里的主机名（缺省从请求 Host 推导）
 func ConfigFromEnv() Config {
 	httpFlvPort := DefaultHTTPFLVPort
 	if raw := strings.TrimSpace(os.Getenv("HTTP_FLV_PORT")); raw != "" {
@@ -66,9 +73,14 @@ func ConfigFromEnv() Config {
 			httpFlvPort = v
 		}
 	}
-	base := strings.TrimSpace(os.Getenv("NMS_HTTP_FLV_URL"))
+	explicitBase := strings.TrimSpace(os.Getenv("NMS_HTTP_FLV_URL"))
+	base := explicitBase
 	if base == "" {
 		base = "http://127.0.0.1:" + strconv.Itoa(httpFlvPort)
+	}
+	embedded := explicitBase == ""
+	if raw := strings.TrimSpace(os.Getenv("NMS_EMBEDDED")); raw == "0" {
+		embedded = false
 	}
 
 	rtmpPort := DefaultRtmpPort
@@ -83,6 +95,8 @@ func ConfigFromEnv() Config {
 		RtmpPort:    rtmpPort,
 		ServerHost:  strings.TrimSpace(os.Getenv("SERVER_HOST")),
 		Disabled:    os.Getenv("STREAM_PUSH_ENABLED") == "0",
+		Embedded:    embedded,
+		BindHost:    strings.TrimSpace(os.Getenv("NMS_BIND")),
 	})
 }
 
@@ -156,48 +170,128 @@ func GenerateStreamKey() string {
 }
 
 // Service 是推流服务的可用性探测器（并发安全）。
+//
+// 内嵌模式下它同时持有媒体服务实例：`Start` 起监听，`Close` 收尾；
+// 外部模式下只做探测，与之前的行为完全一致。
 type Service struct {
 	cfg Config
 
 	// 便于单测替换：
 	// now   —— 时间来源（验证缓存窗口）
 	// probe —— 探测实现（验证失败/成功两条路径）
-	now   func() time.Time
-	probe func(ctx context.Context) error
-
+	now     func() time.Time
+	probe   func(ctx context.Context) error
+	logf    func(string, ...any)
 	mu      sync.Mutex
 	checked time.Time
 	value   bool
 	has     bool
+	// embedded 非空表示媒体服务由本进程托管（内嵌模式且启动成功）。
+	embedded *embeddedServer
 }
 
 // New 构造探测器。
 func New(cfg Config) *Service {
 	s := &Service{cfg: Normalize(cfg), now: time.Now}
 	s.probe = s.tcpProbe
+	s.logf = log.Printf
 	return s
 }
 
-// Config 返回归一化后的配置（api 层用它拼推流地址与拉流上游）。
-func (s *Service) Config() Config { return s.cfg }
+// SetLogger 替换日志输出（单测里静音用）。
+func (s *Service) SetLogger(logf func(string, ...any)) {
+	if logf == nil {
+		return
+	}
+	s.mu.Lock()
+	s.logf = logf
+	s.mu.Unlock()
+}
 
-// Available 报告推流服务是否可用（带 TTL 缓存）。
-func (s *Service) Available() bool {
-	if s.cfg.Disabled {
-		return false
+// Start 在内嵌模式下启动 RTMP + HTTP-FLV 监听。
+//
+// 启动失败（端口被占、无权限）不返回致命错误：调用方只记日志，
+// 服务降级成「探测外部 NMS」，与之前纯外部模式的语义一致——
+// 推流不可用不该拖垮整个后端。
+func (s *Service) Start() error {
+	s.mu.Lock()
+	cfg := s.cfg
+	logf := s.logf
+	s.mu.Unlock()
+
+	if cfg.Disabled || !cfg.Embedded {
+		return nil
+	}
+
+	srv := newEmbeddedServer(cfg, logf)
+	if err := srv.start(); err != nil {
+		logf("[nms] 内置媒体服务启动失败（%v），改为探测外部媒体服务 %s", err, cfg.HTTPFLVBase)
+		s.mu.Lock()
+		s.cfg.Embedded = false
+		s.mu.Unlock()
+		return err
 	}
 
 	s.mu.Lock()
+	s.embedded = srv
+	s.mu.Unlock()
+	return nil
+}
+
+// Close 停止内嵌媒体服务（优雅退出时调用）。
+func (s *Service) Close(ctx context.Context) error {
+	s.mu.Lock()
+	srv := s.embedded
+	s.embedded = nil
+	logf := s.logf
+	s.mu.Unlock()
+
+	if srv == nil {
+		return nil
+	}
+	if len(srv.hub.streamKeys()) > 0 {
+		logf("[nms] 关闭时仍有 %d 路推流在推", len(srv.hub.streamKeys()))
+	}
+	return srv.close(ctx)
+}
+
+// Config 返回归一化后的配置（api 层用它拼推流地址与拉流上游）。
+func (s *Service) Config() Config {
+	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.cfg
+}
+
+// Available 报告推流服务是否可用（内嵌模式看监听是否就绪；外部模式带 TTL 缓存）。
+func (s *Service) Available() bool {
+	s.mu.Lock()
+	if s.cfg.Disabled {
+		s.mu.Unlock()
+		return false
+	}
+	if s.cfg.Embedded {
+		srv := s.embedded
+		s.mu.Unlock()
+		return srv != nil && srv.isReady()
+	}
 
 	now := s.now()
 	if s.has && now.Sub(s.checked) < availabilityTTL {
-		return s.value
+		value := s.value
+		s.mu.Unlock()
+		return value
 	}
-	s.value = s.probe(context.Background()) == nil
+	s.mu.Unlock()
+
+	// 探测不放锁：TCP 拨号最长 300ms，不能让并发请求排队。
+	ok := s.probe(context.Background()) == nil
+
+	s.mu.Lock()
+	s.value = ok
 	s.checked = now
 	s.has = true
-	return s.value
+	s.mu.Unlock()
+	return ok
 }
 
 // Invalidate 强制下一次 Available 重新探测。
@@ -212,7 +306,11 @@ func (s *Service) Invalidate() {
 // tcpProbe 连一次上游 TCP 端口。NMS 的 HTTP 服务对任意路径都会先建立连接，
 // 因此「连得上」就等价于「服务在跑」，不需要发 HTTP 请求。
 func (s *Service) tcpProbe(ctx context.Context) error {
-	u, err := url.Parse(s.cfg.HTTPFLVBase)
+	s.mu.Lock()
+	base := s.cfg.HTTPFLVBase
+	s.mu.Unlock()
+
+	u, err := url.Parse(base)
 	if err != nil {
 		return err
 	}
