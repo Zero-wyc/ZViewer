@@ -1724,7 +1724,31 @@ HTTPS 启动分支。
       房间页），断言「页面锚点文案 + 控制台零 error + 无 4xx/5xx 请求」，**12 项全过**。
       这条一跑就抓到一个**线上级 bug**：`GET /` 回 404 JSON（见下）。
 - [ ] 桌面壳改为同进程内嵌，删除 `ZVIEWER_DESKTOP` 注入与 409 分支
+      → **前置验证已完成**：`bash backend-go/scripts/desktop-env-smoke.sh` 复刻壳注入的
+      整套环境（`ZVIEWER_DESKTOP=1` / `HTTPS` / `SSL_CERT_PATH` / `SSL_KEY_PATH` /
+      `RTMP_PORT` / `HTTP_FLV_PORT` / `LIVEKIT_*`）跑 Go 二进制，**8 项全过**：TLS +
+      `/health`、静态首页、匿名 401 → root 409（`desktopManaged:true`）、无 panic。
+      也就是说 Go 产物**已经可以直接替换** `zviewer-backend.exe`（子进程托管模式）。
+      真正「同进程内嵌」要改的是 `desktop/controller` 的后端生命周期（现在靠
+      `ProcessHost.exe` + Job Object 托管子进程），属于架构取舍，见下方说明。
 - [ ] 删除 `backend/` 与 `node_modules`
+
+### 关于「同进程内嵌」的取舍（第 5 项的决策点）
+
+现状：壳把后端当**受管子进程**（`ProcessHost.exe` + Job Object），退出时整棵进程树回收。
+把它改成同进程要动的地方很多：start/stop/restart 状态机、日志按行转发、端口占用检查、
+HTTPS 证书装配、以及「网页端版本更新」那条 409 守卫（同进程后这条守卫仍然需要，
+因为整包更新归 GUI 管，除非把更新链路也搬进壳里）。
+
+而现在 Go 产物在壳注入的环境下**行为已经与 Node 一致**（上面 8 项），所以有两条路：
+
+| 方案 | 改动 | 风险 | 收益 |
+|---|---|---|---|
+| A. 保持子进程，只换二进制 | 打包脚本把 `zviewer-backend.exe` 换成 Go 构建产物 | 低（沿用 Job Object、崩溃隔离、重启按钮） | 迁移完成，且保留崩溃隔离 |
+| B. 真·同进程内嵌 | controller 生命周期重写 + 删 ProcessHost 后端托管 + 分发包只出 1 个 exe | 高（端口/证书/重启/日志/更新全要重做） | 少一个进程、单文件分发 |
+
+清单原文写的是 B，但 A 已经能达成「切到 Go」的目标，B 更像后续的产品化优化。
+
 
 ### 前端冒烟抓到的 bug：站点根路径 404
 
