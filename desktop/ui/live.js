@@ -311,7 +311,7 @@
       ui.toast(report.ok ? `公网 IPv6：${report.address}` : '没有探测到公网 IPv6');
     }
     else if (action === 'tunnel-start') { await command('tunnel-start'); ui.render(); ui.toast('正在检查本机服务和隧道健康度，通过后显示访问地址'); }
-    else if (action === 'tunnel-stop') { await command('tunnel-stop'); ui.render(); ui.toast('Cloudflare 隧道已停止'); }
+    else if (action === 'tunnel-stop') { await command('tunnel-stop'); ui.render(); ui.toast('已停止隧道和自动刷新'); }
     else if (action === 'tunnel-refresh') { await command('tunnel-refresh'); ui.render(); ui.toast('隧道已刷新，正在获取新地址'); }
     else if (action === 'export-logs') await command('export',{kind:'logs'});
     else if (action === 'export-ca') await command('export',{kind:'ca'});

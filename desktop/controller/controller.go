@@ -102,11 +102,13 @@ type Controller struct {
 	tunnelURL          string
 	tunnelMessage      string
 	tunnelExe          string
-	tunnelCandidateURL string
 	tunnelHealth       string
 	tunnelLatencyMs    int64
 	tunnelGeneration   uint64
-	tunnelProbeCancel  context.CancelFunc
+	tunnelCancel       context.CancelFunc
+	tunnelDone         chan struct{}
+	tunnelLifecycleMu  sync.Mutex
+	tunnelRefreshCount int
 	active             *Config
 	frpRegistered      map[string]bool
 	voiceKey           string
@@ -664,6 +666,7 @@ func (c *Controller) startBackend() (any, error) {
 		c.log(fmt.Sprintf("后端进程已退出（%d）", code), "backend", level)
 		c.stopFrpSafely()
 		if !intentional {
+			c.stopTunnelForOriginFailure()
 			c.mu.RLock()
 			livekitRunning := c.livekit != nil
 			c.mu.RUnlock()
