@@ -44,6 +44,9 @@ var specialPaths = map[string]bool{
 	"/login/qr/create":    true,
 	"/login/qr/key":       true,
 	"/playlist/track/all": true,
+	// /check/music 不在 frontendPaths 里（只由 api/music.go 调用），列在这里是为了
+	// 说明它同样是「不是拼路径」的专门实现。
+	"/check/music": true,
 }
 
 // TestEveryFrontendPathRouted 保证前端 44 条路径一条不落地有归属。
@@ -213,5 +216,76 @@ func TestUnknownPath(t *testing.T) {
 	_, err := newAPIWith(stub).call(context.Background(), "/not-a-real-endpoint", params{}, "")
 	if !errors.Is(err, unknownPathError) {
 		t.Fatalf("未知路径应返回 unknownPathError，实际 %v", err)
+	}
+}
+
+// TestVipInfoMapping 校验会员信息走 web 的 front 段。
+//
+// `/api/vip/info` 是不存在的路径（上游 404「接口未找到」），这里把上游路径钉死，
+// 免得以后又被写成裸 /api/vip/info。
+func TestVipInfoMapping(t *testing.T) {
+	stub := &stubCaller{}
+	invoke(t, stub, "/vip/info?uid=42")
+	if len(stub.calls) != 1 {
+		t.Fatalf("应当调用一次上游，实际 %d 次", len(stub.calls))
+	}
+	call := stub.calls[0]
+	if call.Path != "/api/music-vip-membership/front/vip/info" {
+		t.Fatalf("上游路径错误: %s", call.Path)
+	}
+	if call.Crypto != cryptoWeapi {
+		t.Fatalf("通道错误: %s", call.Crypto)
+	}
+	if call.Data["userId"] != "42" {
+		t.Fatalf("userId 未透传: %#v", call.Data["userId"])
+	}
+}
+
+// TestCheckMusicPlayable 校验可播时压成 success=true，且 br 是数字。
+func TestCheckMusicPlayable(t *testing.T) {
+	stub := &stubCaller{reply: `{"code":200,"data":[{"code":200,"url":"http://m8.music.126.net/a.mp3"}]}`}
+	result := invoke(t, stub, "/check/music?id=347230")
+	call := stub.calls[0]
+	if call.Path != "/api/song/enhance/player/url" || call.Crypto != cryptoWeapi {
+		t.Fatalf("上游路径/通道错误: %s %s", call.Path, call.Crypto)
+	}
+	if call.Data["ids"] != "[347230]" {
+		t.Fatalf("ids 拼装错误: %#v", call.Data["ids"])
+	}
+	if _, ok := call.Data["br"].(int); !ok {
+		t.Fatalf("br 必须是数字（字符串会被上游当成 0）: %#v", call.Data["br"])
+	}
+	body, _ := result.Body.(map[string]any)
+	if body["success"] != true {
+		t.Fatalf("可播应回 success=true: %#v", body)
+	}
+}
+
+// TestCheckMusicUnplayable 校验拿不到地址时压成 success=false，并保留上游 code。
+func TestCheckMusicUnplayable(t *testing.T) {
+	stub := &stubCaller{reply: `{"code":200,"data":[{"code":404,"url":null}]}`}
+	result := invoke(t, stub, "/check/music?id=1")
+	body, _ := result.Body.(map[string]any)
+	if body["success"] != false {
+		t.Fatalf("不可播应回 success=false: %#v", body)
+	}
+	if body["songCode"] != int64(404) {
+		t.Fatalf("上游歌曲状态码应被保留: %#v", body)
+	}
+	if body["code"] != 200 {
+		t.Fatalf("接口本身是成功的，外层 code 必须 200: %#v", body)
+	}
+}
+
+// TestCheckMusicMissingID 缺 id 时不发上游请求，直接回 400。
+func TestCheckMusicMissingID(t *testing.T) {
+	stub := &stubCaller{}
+	result := invoke(t, stub, "/check/music")
+	if len(stub.calls) != 0 {
+		t.Fatalf("缺 id 不该打扰上游，实际调用 %d 次", len(stub.calls))
+	}
+	body, _ := result.Body.(map[string]any)
+	if body["code"] != 400 {
+		t.Fatalf("缺 id 应回 400: %#v", body)
 	}
 }

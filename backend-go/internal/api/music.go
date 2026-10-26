@@ -278,16 +278,19 @@ func (s *Server) handleNcmStream(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
+		// 全档都失败且不是试听 → 再问一次上游「这首歌到底能不能播」，
+		// 用它把「本身没版权/已下架」与「上游偶发失败」分开。
 		check, err := s.NCM.Call(r.Context(), "/check/music?id="+strconv.FormatInt(songIDInt, 10), cookieHeader)
 		if err != nil {
-			log.Printf("[music] stream error: %v", err)
+			log.Printf("[music] 版权检查失败: %v", err)
 			httpx.JSON(w, http.StatusBadGateway, map[string]any{
 				"code": "UPSTREAM_ERROR", "message": "音频流代理失败",
 			})
 			return
 		}
 		if checkBody, ok := check.Body.(map[string]any); ok {
-			if noCopyright, ok := checkBody["success"].(bool); ok && !noCopyright {
+			if playable, ok := checkBody["success"].(bool); ok && !playable {
+				log.Printf("[music] 歌曲 %d 不可播（上游 songCode=%v）", songIDInt, checkBody["songCode"])
 				httpx.JSON(w, http.StatusNotFound, map[string]any{
 					"code": "NO_COPYRIGHT", "message": "该歌曲暂无版权",
 				})

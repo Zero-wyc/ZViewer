@@ -41,6 +41,9 @@ func TestLiveUpstream(t *testing.T) {
 		{"/user/account", 200},
 		{"/likelist?uid=1", 301},
 		{"/user/cloud", 301},
+		// 会员信息走 front 段：匿名的表现是 301「用户未登录」，而不是 404
+		// 「接口未找到」——后者说明上游路径写错了（曾经就是）。
+		{"/vip/info", 301},
 	}
 	for _, item := range cases {
 		path, p := parseQueryPath(item.path)
@@ -57,6 +60,25 @@ func TestLiveUpstream(t *testing.T) {
 		}
 		t.Logf("%-45s code=%v", item.path, body["code"])
 	}
+}
+
+// TestLiveCheckMusic 验证 `/check/music` 的上游映射真能得出「可播/不可播」结论。
+//
+// 这个接口不需要登录（免费歌匿名叫也能拿到地址），所以能作为常规验收口。
+// 压扁逻辑的桩测试在 dispatch_test.go#TestCheckMusicPlayable。
+func TestLiveCheckMusic(t *testing.T) {
+	if os.Getenv("NCM_LIVE") == "" {
+		t.Skip("未设置 NCM_LIVE=1，跳过真实上游对拍")
+	}
+	result, err := newAPI().call(context.Background(), "/check/music", params{"id": "347230"}, "")
+	if err != nil {
+		t.Fatalf("调用失败: %v", err)
+	}
+	body, _ := result.Body.(map[string]any)
+	if body["success"] != true {
+		t.Fatalf("免费歌应当可播，实际 body=%v", body)
+	}
+	t.Logf("免费歌 347230 success=%v code=%v", body["success"], body["code"])
 }
 
 // TestLiveCloudUploadRequiresLogin 验证 `/cloud` 的 multipart 能被解析，并且匿名

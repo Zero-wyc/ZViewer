@@ -147,7 +147,7 @@ backend-go/
 │   ├── kazumi/          Kazumi JSON 规则引擎（受限 JSONPath + @var 模板 + 章节解析）
 │   ├── livekit/         LiveKit 伴生进程托管（查找 / 下载 / 拉起 / 探活）
 │   ├── mountutil/       挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── ncm/             网易云音乐（自实现 weapi/eapi 加密 + 48 个接口 + 扫码 + 云盘上传 + 音质降级）
+│   ├── ncm/             网易云音乐（自实现 weapi/eapi 加密 + 50 个接口 + 扫码 + 云盘上传 + 音质降级）
 │   ├── netutil/         内网判定与 URL 规范化（SSRF 唯一事实源）、encodeURIComponent 唯一实现
 │   ├── nms/             内置媒体服务：RTMP 收流 + HTTP-FLV 分发（AMF0 / chunk 重组 / GOP 缓存 / 流注册）
 │   ├── openlist/        AList 客户端（登录 / fs-get / 三层缓存）

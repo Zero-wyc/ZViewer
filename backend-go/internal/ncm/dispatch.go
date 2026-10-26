@@ -81,6 +81,8 @@ func (a *api) call(ctx context.Context, path string, p params, cookie string) (*
 		return qrCreate(p), nil
 	case "/playlist/track/all":
 		return a.playlistTrackAll(ctx, p, cookie)
+	case "/check/music":
+		return a.checkMusic(ctx, p, cookie)
 	}
 
 	spec, ok := routes[path]
@@ -209,6 +211,59 @@ func (a *api) playlistTrackAll(ctx context.Context, p params, cookie string) (*R
 	}
 	songs.Cookies = append(detail.Cookies, songs.Cookies...)
 	return songs, nil
+}
+
+// checkMusic 判断某首歌此刻能不能播（`/api/song/enhance/player/url` 的压扁版）。
+//
+// 上游只回 `data[0].{code,url}` 这种数组形状，而唯一的调用方
+// （`api/music.go` 解析链失败后的收尾分支）只需要一个布尔结论：能不能播。
+// 所以这里就地压成 `{success,songCode}`，调用方不必理解上游数组——
+// 与 qrCreate / playlistTrackAll 一样属于「不是拼路径」的专门实现。
+//
+// 字段叫 `songCode` 而不是 `code`：外层 `code` 向来表示「接口调用结果」，
+// 把它复用成「歌曲状态码」会让 `{code:404}` 看起来像接口 404。
+//
+// 注意 `br` 必须是数字：上游按数字解析，传字符串会被当成 0 从而降质。
+func (a *api) checkMusic(ctx context.Context, p params, cookie string) (*Result, error) {
+	songID := p.S("id")
+	if songID == "" {
+		return &Result{Body: map[string]any{"code": 400, "message": "缺少 id"}}, nil
+	}
+	result, err := a.forward(ctx, cryptoWeapi, "/api/song/enhance/player/url", map[string]any{
+		"ids": "[" + songID + "]",
+		"br":  p.I("br", 999000),
+	}, cookie)
+	if err != nil {
+		return nil, err
+	}
+	playable, songCode := false, int64(0)
+	if first := firstDataItem(result.Body); first != nil {
+		songCode = int64Or(first["code"], 0)
+		audioURL, _ := first["url"].(string)
+		playable = songCode == 200 && audioURL != ""
+	}
+	return &Result{
+		Body: map[string]any{
+			"code":     200,
+			"success":  playable,
+			"songCode": songCode,
+		},
+		Cookies: result.Cookies,
+	}, nil
+}
+
+// firstDataItem 取上游 `data[0]`（拿不到就是 nil）。
+func firstDataItem(body any) map[string]any {
+	root, ok := body.(map[string]any)
+	if !ok {
+		return nil
+	}
+	items, ok := root["data"].([]any)
+	if !ok || len(items) == 0 {
+		return nil
+	}
+	first, _ := items[0].(map[string]any)
+	return first
 }
 
 // playlistTrackIDs 从歌单详情响应里抽出 trackIds（保持原顺序）。

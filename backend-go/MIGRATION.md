@@ -1875,7 +1875,7 @@ DeviceId 仍是进程级常量，见 `internal/emby/clientname_test.go`。
 | B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
 | 动漫源的上游请求超时 | `fetch` 无超时，挂住的上游会永久占住请求 | 30s 超时（`internal/anime/http.go`），超时报 `context deadline exceeded` | Go 侧挂住就是一条泄漏的 goroutine + 连接，没有事件循环帮你回收；上游真挂死时错误文案会与 Node 不同，属于可接受的差异 |
 | CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
-| 一起听的 NCM 上游从哪来 | 进程内起 `@neteasecloudmusicapienhanced/api`（127.0.0.1:36530） | 同进程内自实现（`internal/ncm`：加密 + 48 个接口），无外部服务、无子进程 | 保留了「网易云接口」这个能力，换掉了实现；前端调用面不变 |
+| 一起听的 NCM 上游从哪来 | 进程内起 `@neteasecloudmusicapienhanced/api`（127.0.0.1:36530） | 同进程内自实现（`internal/ncm`：加密 + 50 个接口），无外部服务、无子进程 | 保留了「网易云接口」这个能力，换掉了实现；前端调用面不变 |
 | Kazumi 生成 URL 里的 query 顺序 | 按规则 JSON 里的书写顺序 | 按键名排序 | Go 的 map 无插入序；上游对参数顺序不敏感，只在多键 `episodePage.query` 时可见 |
 | Kazumi 生成 URL 里的 `~` | `URLSearchParams` 编成 `%7E` | `url.Values.Encode` 保留 `~` | 同上，纯编码口味差异 |
 | ani-subs 抓站的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 net/http（`internal/webfetch`） | 同 CMS 那条：Go 的 TLS 栈本来就是独立指纹；真被按指纹拦时该换源，而不是在服务端起子进程 |
@@ -2302,7 +2302,7 @@ npm run db:init        # 等价于 zviewer-server --init-db
 
 ## 十三、一起听的 NCM API：自实现（阶段 35）
 
-`internal/ncm` **自己实现**网易云协议：weapi / eapi / linuxapi 加密、44 条路由表的
+`internal/ncm` **自己实现**网易云协议：weapi / eapi / linuxapi 加密、45 条路由表的
 参数映射、扫码登录、云盘上传、音质降级链，全部在同一个包里。
 
 历史沿革值得记一笔，因为方向改过两次：
@@ -2318,8 +2318,8 @@ npm run db:init        # 等价于 zviewer-server --init-db
 | 文件 | 职责 |
 |---|---|
 | `upstream.go` | 真实网易云 HTTP 调用：加密、UA、cookie 组装、zlib 兜底 |
-| `routes.go` | 44 条表驱动路由：对外路径 → 上游路径 + 参数 |
-| `dispatch.go` | 分发；少数接口有本地实现（二维码、歌单两段式） |
+| `routes.go` | 45 条表驱动路由：对外路径 → 上游路径 + 参数 |
+| `dispatch.go` | 分发；少数接口有专门实现（二维码、歌单两段式、可播检查） |
 | `cloud.go` | 云盘上传五步链 + NOS 直传 |
 | `forward.go` | 前端入口：剥客户端登录态、注入凭证、cookie 落库 |
 | `account.go` | 登录状态、会员兜底、专辑补齐 |
@@ -2340,7 +2340,7 @@ npm run db:init        # 等价于 zviewer-server --init-db
 | `Set-Cookie` 原样回传（登录态落库） | `Result.Cookies` 字段 |
 | 3xx `Location` 透传 | 删除：进程内实现不产生重定向，这条分支从未被走到 |
 | 请求体流式透传（云盘上传） | `api.upload(ctx, cookie, contentType, io.Reader)` 直接收 `r.Body` |
-| 44 条路径通用转发 | 保留：`api.call(ctx, path, params, cookie)` 仍是表驱动 |
+| 45 条路径通用转发 | 保留：`api.call(ctx, path, params, cookie)` 仍是表驱动 |
 
 代价对比：阶段 34 的链路是「`httptest` 风格往返 → JSON 编码 → JSON 解码 → 业务层」，
 现在只剩最后一步。那一次 JSON 编解码不是浪费——它正是「新增接口只改一行路由表」
@@ -2348,23 +2348,26 @@ npm run db:init        # 等价于 zviewer-server --init-db
 
 ### 13.3 实现范围
 
-- **48 个接口**：44 条表驱动路由（含 `/song/url` 降级回退、`/song/url/v1` 直链）
-  + 4 条专门实现（`/login/qr/key`、`/login/qr/create`、`/playlist/track/all`、`/cloud`）
+- **50 个接口**：45 条表驱动路由（含 `/song/url` 降级回退、`/song/url/v1` 直链）
+  + 5 条专门实现（`/login/qr/key`、`/login/qr/create`、`/playlist/track/all`、
+  `/check/music`、`/cloud`）
 - **四种通道**：weapi（双层 AES-CBC + RSA 无填充）、eapi（AES-ECB + md5 摘要，
   默认通道）、linuxapi（`/song/url` 老接口）、明文 api
-- **三个本地实现**：扫码二维码（`go-qrcode` 生成 PNG data URL，不请求上游）、
+- **四个专门实现**：扫码二维码（`go-qrcode` 生成 PNG data URL，不请求上游）、
   `/playlist/track/all`（两段式：先取歌单 trackIds 再批量 song/detail）、
+  `/check/music`（`/api/song/enhance/player/url` 压扁成 `{success,songCode}`）、
   `/cloud`（判重 → 凭证 → NOS 直传 → 回填信息 → 发布）
 - **依赖**：标准库 + `skip2/go-qrcode` + `dhowden/tag`（读 ID3/FLAC/MP4 标签，
   仅上传时用，纯 Go 无传递依赖），没有任何网易云 SDK
 
 ### 13.4 验收口径
 
-- `internal/ncm` 单测 24 项：加密往返（eapi/linuxapi 可解密回原文并校验摘要）、
-  44 条路径全覆盖、参数映射快照、二维码本地生成、两段式取数、转发层剥客户端登录态、
-  云盘上传五步链（含 `needUpload=false` 与 objectKey `%2F` 编码）
+- `internal/ncm` 单测：加密往返（eapi/linuxapi 可解密回原文并校验摘要）、
+  路径全覆盖（前端 44 条 + 内部 2 条）、参数映射快照、二维码本地生成、两段式取数、
+  可播检查压扁、转发层剥客户端登录态、云盘上传五步链（含 `needUpload=false`
+  与 objectKey `%2F` 编码）
 - `NCM_LIVE=1 go test ./internal/ncm -run TestLiveUpstream`：匿名打真实上游
-  12 个端点，全部返回预期 code（200 / 未登录的 301）
+  13 个端点，全部返回预期 code（200 / 未登录的 301）；`TestLiveCheckMusic` 验可播检查
 - 端到端（真实后端 + curl）：`banner`、`cloudsearch`、`song/detail`、`lyric`、
   `song/url/v1`、`playlist/detail`、`comment/new`、`toplist`、`personalized`、
   `user/account`、`search/suggest`、`personal_fm` 全 200；扫码三步
@@ -2387,6 +2390,13 @@ npm run db:init        # 等价于 zviewer-server --init-db
   再用 `/api/nos/token/alloc` 换 token，直接 POST 到 `wanproxy.127.net` 返回的节点，
   不经过 music.163.com。`objectKey` 里的 `/` 必须先替换成 `%2F` 再拼 URL——
   用 `url.PathEscape` 会把 `%` 二次编码、签名路径对不上。上限 512 MB。
-- **`/vip/info` 与 `/check/music` 不在路由表里**：前者是会员三档兜底、后者用于
-  「暂无版权」判定；两者都已有降级路径（回落到 `profile.vipType` / 通用
-  `RESOLVE_FAILED`），想补齐得先确认上游路径。
+- **`/vip/info` 走的是 web 的 front 段**：上游真实路径是
+  `/api/music-vip-membership/front/vip/info`（weapi，`userId` 显式传），
+  只有它回 `associator` / `musicPackage` / `redplus` 三档对象，`applyVIPInfo` 依赖这个字段集。
+  **`/api/vip/info` 是不存在的路径**（上游 404「接口未找到」）；匿名调用回 301「用户未登录」，
+  此时 `applyVIPInfo` 静默 no-op 并继续回写账号资料。
+- **`/check/music` 是 `/api/song/enhance/player/url` 的压扁版**：上游只回
+  `data[0].{code,url}`，本包就地压成 `{code:200, success, songCode}`——
+  `success = songCode==200 && url != ""`。上游对下架/不存在的歌回 `code:404, url=null`，
+  所以 `api/music.go` 的 `NO_COPYRIGHT` 分支现在真的可达（修复前该路由不存在，
+  这里只会拿到 `unknownPathError` 并统一回 502）。`br` 必须传数字，字符串会被上游当成 0 降质。

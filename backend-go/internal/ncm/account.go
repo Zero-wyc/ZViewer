@@ -65,7 +65,7 @@ func (s *Service) refreshProfileIfNeeded(ctx context.Context, credential *store.
 
 	// 2) profile 仍判定不出会员 → /vip/info 三档兜底
 	if credential.VIPType == nil || *credential.VIPType == 0 {
-		vipResp, err := s.Call(ctx, "/vip/info", cookieHeader)
+		vipResp, err := s.Call(ctx, "/vip/info?uid="+strconv.FormatInt(credential.UserID, 10), cookieHeader)
 		if err != nil {
 			log.Printf("[ncm] login/status 会员信息补全失败: %v", err)
 			return

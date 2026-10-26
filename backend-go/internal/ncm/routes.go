@@ -256,6 +256,12 @@ var routes = map[string]route{
 	"/user/account": {crypto: cryptoWeapi, build: func(params) (string, map[string]any) {
 		return "/api/nuser/account/get", map[string]any{}
 	}},
+	// 会员信息。**必须走 web 的 front 段**：只有它回 associator / musicPackage /
+	// redplus 三档对象（`applyVIPInfo` 依赖），client 段字段集不同；`/api/vip/info`
+	// 是不存在的路径（上游 404「接口未找到」）。匿名调用回 301「用户未登录」。
+	"/vip/info": {crypto: cryptoWeapi, build: func(p params) (string, map[string]any) {
+		return "/api/music-vip-membership/front/vip/info", map[string]any{"userId": p.S("uid", "0")}
+	}},
 	"/user/subcount": {crypto: cryptoWeapi, build: func(params) (string, map[string]any) {
 		return "/api/subcount", map[string]any{}
 	}},
