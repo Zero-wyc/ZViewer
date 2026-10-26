@@ -43,7 +43,7 @@ import {
   User,
   X,
 } from 'lucide-react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet, apiPost } from '../musicApi'
 import { useMusicStore } from '../store'
 import { useMusicSettingsStore } from '../store-settings'
 import type { MusicPage } from '../store'

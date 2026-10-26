@@ -1,7 +1,7 @@
 // Command zviewer-server 是 ZViewer 后端的 Go 实现。
 //
 // 迁移策略：与 Node 版**共用同一个 SQLite 数据库和同一份 config/**，
-// 不做数据迁移、不改表结构，因此两个进程不能同时运行——
+// 保留旧表并显式升级播放元数据可空列；两个进程不能同时运行——
 // 端口只能二选一（默认都是 3333），避免两边同时写库。
 package main
 
@@ -232,6 +232,10 @@ func main() {
 	// 凭证缓存、WBI 密钥、buvid 都在实例内，分成两份会重复握手。
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
+
+	ncmBase, stopNCM := ncm.StartBundled(context.Background(), cfg.ProjectRoot, cfg.ConfigDir, cfg.NCMAPIBase)
+	cfg.NCMAPIBase = ncmBase
+	defer stopNCM()
 
 	server := api.New(api.Deps{
 		Cfg:      cfg,

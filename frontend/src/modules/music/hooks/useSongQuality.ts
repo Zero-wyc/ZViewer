@@ -6,7 +6,7 @@
  * 切歌时清空旧值（render 期派生重置，避免闪显上一首的音质）。
  */
 import { useEffect, useMemo, useState } from 'react'
-import { apiGet } from '@/lib/api'
+import { apiGet } from '../musicApi'
 import { useMusicSettingsStore } from '../store-settings'
 
 interface SongQuality {

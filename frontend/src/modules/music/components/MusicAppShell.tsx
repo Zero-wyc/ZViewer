@@ -18,6 +18,7 @@ import type { Socket } from 'socket.io-client'
 import { Spinner } from '@/components/ui/Spinner'
 import { cn } from '@/lib/utils'
 import { useMusicStore } from '../store'
+import { useMusicService } from '../musicApi'
 import { useMusicPlayer, MusicPlayerContext } from '../hooks/useMusicPlayer'
 import { MusicPlayerProvider } from '../MusicPlayerContext'
 import { ListenTogetherPanel } from './ListenTogetherPanel'
@@ -119,6 +120,8 @@ function ShellInner({
   isModeSwitching: boolean
 }) {
   const page = useMusicStore((s) => s.page)
+  const serviceError = useMusicService(s => s.error)
+  const serviceRevision = useMusicService(s => s.revision)
   const playerOverlayOpen = useMusicStore((s) => s.playerOverlayOpen)
   const playerOverlayClosing = useMusicStore((s) => s.playerOverlayClosing)
   const queuePopupOpen = useMusicStore((s) => s.queuePopupOpen)
@@ -376,7 +379,10 @@ function ShellInner({
 
       {/* ===== 内容页（flex-1 滚动，多页切换；底部让位给悬浮播放条，
           手机端底距收窄并叠加 iOS 安全区） ===== */}
-      <main className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px] max-md:pb-[calc(96px+env(safe-area-inset-bottom))]">
+      {serviceError && <div role="alert" className="mx-4 flex items-center justify-between gap-3 rounded-xl p-3 text-sm bg-[var(--md-sys-color-error-container)] text-[var(--md-sys-color-on-error-container)]">
+        <span>{serviceError}</span><button className="min-h-11 shrink-0 px-3" onClick={() => useMusicService.setState(s => ({ error: null, revision: s.revision + 1 }))}>重试</button>
+      </div>}
+      <main key={serviceRevision} className="zen-scroll min-h-0 flex-1 overflow-y-auto pb-[118px] max-md:pb-[calc(96px+env(safe-area-inset-bottom))]">
         {page === 'home' && <MusicHomePage {...pageProps} />}
         {page === 'search' && <MusicSearchPage {...pageProps} />}
         {page === 'fm' && <MusicFmPage roomId={roomId} isHost={isHost} />}

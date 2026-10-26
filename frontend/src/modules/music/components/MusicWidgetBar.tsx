@@ -1,3 +1,5 @@
+import { getApiUrl } from '@/lib/api'
+import { musicCoverUrl } from '../utils/neteaseImage'
 /**
  * 底部播放控制栏（Hydrogen MusicWidget 1:1 复刻，fixed 悬浮范式）。
  *
@@ -36,7 +38,7 @@ import {
   Shuffle,
   ListEnd,
 } from 'lucide-react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet, apiPost } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import {
@@ -316,7 +318,7 @@ export function MusicWidgetBar() {
     }
   }, [currentSong, setPendingAlbumDetail, setPage])
 
-  const cover = currentSong?.cover
+  const cover = musicCoverUrl(currentSong?.cover, 120, getApiUrl())
   const songName = currentSong?.name ?? '一起听'
   const artist = currentSong?.artist ?? ''
 

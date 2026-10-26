@@ -18,7 +18,7 @@
  * 评论总数写入模块缓存（getCommentCountBadge 供播放器切换按钮徽章）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiGet } from '@/lib/api'
+import { apiGet } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { writeTextToClipboard } from '@/hooks/useCopyToClipboard'
 import { useMusicStore } from '../store'

@@ -193,6 +193,7 @@ CREATE TABLE IF NOT EXISTS "playback_states" (
   "createdAt" datetime NOT NULL DEFAULT (datetime('now')),
   "updatedAt" datetime NOT NULL DEFAULT (datetime('now')),
   "noProxyFallback" boolean,
+  "metadata" text,
   CONSTRAINT "FK_0b6bb13f02277263045c6aa108e" FOREIGN KEY ("roomId") REFERENCES "room" ("roomId") ON DELETE CASCADE ON UPDATE NO ACTION
 );
 

@@ -1,3 +1,5 @@
+import { getApiUrl } from '@/lib/api'
+import { musicCoverUrl } from '../utils/neteaseImage'
 /**
  * 一起听完整播放器（点击底栏封面展开，Hydrogen MusicPlayer.vue + Player.vue
  * + Lyric.vue 的 React 1:1 复刻）。
@@ -213,7 +215,7 @@ function ListenTogetherInner({
   const currentKey = useMusicStore((s) => s.currentKey)
 
   const songId = currentSong?.songId
-  const cover = currentSong?.cover
+  const cover = musicCoverUrl(currentSong?.cover, 600, getApiUrl())
 
   // ===== 自定义视频背景（Hydrogen PlayerVideo 复刻）：当前歌曲有 B站 视频
   // 关联时，解析（默认 720P 直链 / CLI 开启时高画质 DASH）后作为静音背景

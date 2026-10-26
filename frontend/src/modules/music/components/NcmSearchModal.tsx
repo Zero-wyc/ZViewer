@@ -27,7 +27,7 @@ import {
   Search,
   SearchX,
 } from 'lucide-react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet, apiPost } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { LoadingLine } from '@/components/ui/LoadingLine'
 import { CloudModal } from './CloudModal'

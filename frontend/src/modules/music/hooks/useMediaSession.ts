@@ -4,8 +4,8 @@
  * 手机端播放时歌曲（封面/歌名/歌手）出现在系统状态栏，锁屏/后台
  * 可直接 播放/暂停/上下曲/拖进度。
  *
- * - metadata：曲名/歌手/专辑/封面。B站 封面在入队时已统一代理化
- *   （store setQueue 兜底），代理 URL 与网易云直链均可直接作 artwork；
+ * - metadata：曲名/歌手/专辑/封面。队列仅保存可跨设备使用的原始地址，
+ *   B站 图片展示时使用当前查看者连接的图片代理；
  *   相对路径经 new URL 解析为绝对地址（MediaSession 拉取 artwork 无页面
  *   上下文，相对路径会解析失败）
  * - 动作：play/pause/previoustrack/nexttrack/seekto/seekbackward/
@@ -23,6 +23,8 @@
  */
 import { useEffect } from 'react'
 import { useMusicPlayer } from './useMusicPlayer'
+import { getApiUrl } from '@/lib/api'
+import { musicCoverUrl } from '../utils/neteaseImage'
 
 /** 浏览器是否支持 Media Session（不支持的桌面/旧环境整体静默跳过） */
 function isMediaSessionSupported(): boolean {
@@ -33,7 +35,7 @@ function isMediaSessionSupported(): boolean {
 function toArtwork(cover: string | undefined): MediaImage[] {
   if (!cover) return []
   try {
-    return [{ src: new URL(cover, window.location.href).href }]
+    return [{ src: new URL(musicCoverUrl(cover, 600, getApiUrl()), window.location.href).href }]
   } catch {
     return []
   }

@@ -1,3 +1,4 @@
+import { portableMusicCoverUrl } from '../utils/neteaseImage'
 /**
  * 添加到队列的共享逻辑（各内容页复用，逻辑迁移自 MusicSearchPanel）。
  *
@@ -86,6 +87,7 @@ export function useQueueAdd(
   /** 实际入队（emit + 行内「已添加」态 + 可选顶部提示） */
   const doAdd = useCallback(
     (item: QueueUpsertItem, afterCurrent: boolean, notify: boolean) => {
+      item = { ...item, cover: portableMusicCoverUrl(item.cover) }
       if (!socket || !roomId) return
       socket.emit(
         'music:queue-upsert',
@@ -124,6 +126,7 @@ export function useQueueAdd(
         message.error('未连接房间')
         return
       }
+      item = { ...item, cover: portableMusicCoverUrl(item.cover) }
       const afterCurrent = opts?.afterCurrent ?? false
       const notify = opts?.notify ?? false
       // 观众（无 canManage）：走 control-request 申请，由房主按「自动通过」

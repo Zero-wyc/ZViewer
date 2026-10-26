@@ -2,6 +2,7 @@ package room
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -158,15 +159,19 @@ func (m *PlaybackMemory) flushToDB(ctx context.Context, roomID string) error {
 	revision := c.revision
 	m.mu.Unlock()
 
+	metadata, err := json.Marshal(state.PlaybackMetadata)
+	if err != nil {
+		return fmt.Errorf("编码播放元数据失败: %w", err)
+	}
 	now := store.FormatSQLiteTime(time.Now())
-	_, err := m.conn.ExecContext(ctx, `
+	_, err = m.conn.ExecContext(ctx, `
 		INSERT INTO "playback_states" (
 			"roomId", "sourceUrl", "sourceType", "audioUrl", "format",
 			"videoCodec", "audioCodec", "cid", "isPlaying", "currentTime",
 			"playbackRate", "duration", "currentQn", "acceptQuality", "headers",
 			"noProxyFallback", "isPreview", "previewTitle", "bufferMode",
-			"currentMovieId", "lastUpdatedAt", "hostSocketId", "updatedAt"
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+			"currentMovieId", "lastUpdatedAt", "hostSocketId", "updatedAt", "metadata"
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT("roomId") DO UPDATE SET
 			"sourceUrl" = excluded."sourceUrl",
 			"sourceType" = excluded."sourceType",
@@ -189,7 +194,8 @@ func (m *PlaybackMemory) flushToDB(ctx context.Context, roomID string) error {
 			"currentMovieId" = excluded."currentMovieId",
 			"lastUpdatedAt" = excluded."lastUpdatedAt",
 			"hostSocketId" = excluded."hostSocketId",
-			"updatedAt" = excluded."updatedAt"
+			"updatedAt" = excluded."updatedAt",
+ "metadata" = excluded."metadata"
 	`,
 		roomID, state.SourceURL, state.SourceType, nullableStr(state.AudioURL),
 		nullableStr(state.Format), nullableStr(state.VideoCodec), nullableStr(state.AudioCodec),
@@ -201,7 +207,7 @@ func (m *PlaybackMemory) flushToDB(ctx context.Context, roomID string) error {
 		// bufferMode 是 NOT NULL 列（noProxyFallback 可空），缺失要落 0 而不是 NULL。
 		boolToInt(derefBool(state.BufferMode)),
 		nullIntVal(state.CurrentMovieID), state.UpdatedAt,
-		nullableStr(state.HostSocketID), now,
+		nullableStr(state.HostSocketID), now, string(metadata),
 	)
 	if err != nil {
 		return fmt.Errorf("写入播放状态失败: %w", err)

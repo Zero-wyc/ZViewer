@@ -112,6 +112,7 @@ var ErrBangumiInfo = errors.New("获取番剧信息失败")
 
 // rawSeasonEpisode 是 pgc season 里的一集（原始字段）。
 type rawSeasonEpisode struct {
+	ID          int64           `json:"id"`
 	Bvid        string          `json:"bvid"`
 	Cid         int64           `json:"cid"`
 	Aid         *int64          `json:"aid"`

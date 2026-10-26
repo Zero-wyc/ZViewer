@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"errors"
 	"log"
 	"net/http"
 	"strconv"
@@ -87,6 +86,15 @@ func (s *Server) handleResolveBilibili(w http.ResponseWriter, r *http.Request) {
 		requesterID = claims.UserID
 	}
 
+	// Reject unapproved movie access before any upstream request or credential lookup.
+	var sharedMovie *store.Movie
+	if _, supplied := query["movieId"]; supplied {
+		var ok bool
+		sharedMovie, ok = s.requireMovieReadAccess(w, r)
+		if !ok {
+			return
+		}
+	}
 	// 短链展开：b23.tv 分享链接先 302 展开为完整地址，BV 识别与 ?p=N 才能生效。
 	expanded := bilibili.ExpandShortLink(r.Context(), rawURL)
 
@@ -126,17 +134,20 @@ func (s *Server) handleResolveBilibili(w http.ResponseWriter, r *http.Request) {
 	// 解析身份默认是请求者自己；带 movieId 时改用影片所属房间房主的 Cookie，
 	// 让观众拿到与房主一致的解析结果（房主是大会员时才有完整会员集）。
 	cookieOwnerID := requesterID
-	if movieIDParam := query.Get("movieId"); movieIDParam != "" {
-		if movieID, err := strconv.ParseInt(movieIDParam, 10, 64); err == nil && movieID > 0 && s.Movies != nil {
-			ownerID, ownerErr := s.Movies.RoomOwnerUserID(r.Context(), movieID)
-			switch {
-			case ownerErr == nil:
-				cookieOwnerID = ownerID
-			case errors.Is(ownerErr, store.ErrMovieNotFound):
-				log.Printf("[bilibili] movieId=%d 房间无房主或影片不存在，回退请求者 Cookie", movieID)
-			default:
-				log.Printf("[bilibili] movieId=%d 查询房主失败，回退请求者 Cookie: %v", movieID, ownerErr)
-			}
+	if sharedMovie != nil {
+		if !s.bilibiliMovieMatches(r.Context(), sharedMovie, expanded) {
+			httpx.FailWithCode(w, http.StatusBadRequest, "请求资源不属于当前影片", "MOVIE_RESOURCE_MISMATCH")
+			return
+		}
+		sharedRoom, err := s.Rooms.FindByRoomID(r.Context(), sharedMovie.RoomID)
+		if err != nil {
+			httpx.InternalError(w, "解析影片房主", err)
+			return
+		}
+		// A guest-owned room has no stored Bilibili identity: resolve anonymously.
+		cookieOwnerID = 0
+		if sharedRoom.OwnerUserID != nil {
+			cookieOwnerID = *sharedRoom.OwnerUserID
 		}
 	}
 
