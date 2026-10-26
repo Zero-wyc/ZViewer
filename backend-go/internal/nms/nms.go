@@ -15,6 +15,7 @@ import (
 	"context"
 	"crypto/rand"
 	"log"
+	"math/big"
 	"net"
 	"net/url"
 	"os"
@@ -154,16 +155,18 @@ func hostOnly(hostHeader string) string {
 // 去掉易混淆的 0 / O / I / l / 1（OBS 里手抄推流码时最容易看错的那几个）。
 const streamKeyAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 
-// GenerateStreamKey 生成 32 位独立发布密钥。旧 8 位密钥须由房主重领。
+const StreamKeyLength = 8
+
+// GenerateStreamKey 生成 8 位独立发布密钥，使用均匀的密码学随机数。
 func GenerateStreamKey() string {
-	buf := make([]byte, 32)
-	if _, err := rand.Read(buf); err != nil {
-		// 熵源故障时不签发可猜测的发布能力。
-		panic("无法生成安全推流密钥")
-	}
-	out := make([]byte, 32)
-	for i, b := range buf {
-		out[i] = streamKeyAlphabet[int(b)%len(streamKeyAlphabet)]
+	out := make([]byte, StreamKeyLength)
+	limit := big.NewInt(int64(len(streamKeyAlphabet)))
+	for i := range out {
+		n, err := rand.Int(rand.Reader, limit)
+		if err != nil {
+			panic("无法生成安全推流密钥")
+		}
+		out[i] = streamKeyAlphabet[n.Int64()]
 	}
 	return string(out)
 }

@@ -58,16 +58,18 @@ func (s *Server) handleObsConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 兼容旧房间或「先建房后切到投屏」：没有推流码就补一个再写回。
-	// Node 是 roomRepo.save(room)（整行写），Go 只写这一列——整行写在这里
-	// 没有语义收益，反而会把并发修改的其他列覆盖回本次读到时的旧值。
+	// 缺码或旧 32 位码在房主下载配置时原子迁移到八位，已有八位码保持稳定。
 	streamKey := ""
 	if room.StreamKey != nil {
 		streamKey = *room.StreamKey
 	}
-	if len(streamKey) < 32 {
-		streamKey = nms.GenerateStreamKey()
-		if err := s.Rooms.SetStreamKey(r.Context(), roomID, streamKey); err != nil {
+	if len(streamKey) != nms.StreamKeyLength {
+		streamKey, err = s.Rooms.EnsureStreamKey(r.Context(), roomID, room.OwnerUserID, nms.GenerateStreamKey())
+		if errors.Is(err, store.ErrRoomNotFound) {
+			httpx.Forbidden(w, "房间已关闭或房主已变更，请重新获取配置")
+			return
+		}
+		if err != nil {
 			httpx.InternalError(w, "GET /api/stream-push/obs-config", err)
 			return
 		}
@@ -489,7 +491,7 @@ func (s *Server) watchKey(ctx context.Context, ticket, roomID string) (string, b
 	return *room.StreamKey, true
 }
 func (s *Server) authorizePublish(ctx context.Context, key string) bool {
-	if s.DB == nil || len(key) < 32 {
+	if s.DB == nil || len(key) != nms.StreamKeyLength {
 		return false
 	}
 	var count int

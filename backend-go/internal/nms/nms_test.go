@@ -13,8 +13,8 @@ func TestGenerateStreamKey(t *testing.T) {
 	seen := make(map[string]struct{}, 32)
 	for i := 0; i < 32; i++ {
 		key := GenerateStreamKey()
-		if len(key) != 32 {
-			t.Fatalf("长度 = %d, want 32（key=%q）", len(key), key)
+		if len(key) != 8 {
+			t.Fatalf("长度 = %d, want 8（key=%q）", len(key), key)
 		}
 		for _, c := range key {
 			if !strings.ContainsRune(streamKeyAlphabet, c) {

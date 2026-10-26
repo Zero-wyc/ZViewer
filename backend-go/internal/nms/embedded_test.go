@@ -71,6 +71,8 @@ func dialPublisher(t *testing.T, port int) *fakePublisher {
 
 func (p *fakePublisher) handshake() {
 	p.t.Helper()
+	_ = p.conn.SetDeadline(time.Now().Add(3 * time.Second))
+	defer p.conn.SetDeadline(time.Time{})
 	c1 := make([]byte, handshakeSize)
 	if _, err := rand.Read(c1); err != nil {
 		p.t.Fatalf("生成 C1 失败: %v", err)
@@ -89,7 +91,15 @@ func (p *fakePublisher) handshake() {
 	if _, err := io.ReadFull(p.conn, s1); err != nil {
 		p.t.Fatalf("读 S1 失败: %v", err)
 	}
-	if _, err := p.conn.Write(make([]byte, handshakeSize)); err != nil {
+	// 与 OBS 一样，在发送任何 RTMP 命令前必须收到 S2。
+	s2 := make([]byte, handshakeSize)
+	if _, err := io.ReadFull(p.conn, s2); err != nil {
+		p.t.Fatalf("读 S2 失败: %v", err)
+	}
+	if !bytes.Equal(s2[:4], c1[:4]) || !bytes.Equal(s2[8:], c1[8:]) {
+		p.t.Fatal("S2 未回显 C1 的时间和随机数据")
+	}
+	if _, err := p.conn.Write(s1); err != nil {
 		p.t.Fatalf("写 C2 失败: %v", err)
 	}
 }

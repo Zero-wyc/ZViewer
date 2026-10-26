@@ -365,18 +365,24 @@ func (r *Rooms) SetShareMethod(ctx context.Context, roomID, shareMethod string, 
 	return nil
 }
 
-// SetStreamKey 只写推流码。
+// EnsureStreamKey 原子补齐/迁移推流码，并返回实际保存的码。
 //
-// 与 SetShareMethod 分开是因为「下载 OBS 配置时补一个推流码」不该顺带
-// 改动 shareMethod：房间可能还没切到 stream-push，先拿到配置再切是正常流程。
-func (r *Rooms) SetStreamKey(ctx context.Context, roomID, streamKey string) error {
-	_, err := r.conn.ExecContext(ctx, `
-		UPDATE "room" SET "streamKey" = ?, "updatedAt" = ? WHERE "roomId" = ?
-	`, streamKey, FormatSQLiteTime(time.Now()), roomID)
-	if err != nil {
-		return fmt.Errorf("写入推流码失败: %w", err)
+// 并发下载必须复用已生成的八位码；旧房主的请求不能覆盖转交后的码。
+// 不改 shareMethod，保留先下载配置、再切换 OBS 模式的流程。
+func (r *Rooms) EnsureStreamKey(ctx context.Context, roomID string, ownerUserID *int64, candidate string) (string, error) {
+	var key string
+	err := r.conn.QueryRowContext(ctx, `
+		UPDATE "room" SET "streamKey" = CASE WHEN length("streamKey") = ? THEN "streamKey" ELSE ? END,
+		"updatedAt" = ? WHERE "roomId" = ? AND "ownerUserId" IS ? AND "status" = 'active' AND "mode" = 'screen-share'
+		RETURNING "streamKey"
+	`, len(candidate), candidate, FormatSQLiteTime(time.Now()), roomID, nullableInt64(ownerUserID)).Scan(&key)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrRoomNotFound
 	}
-	return nil
+	if err != nil {
+		return "", fmt.Errorf("写入推流码失败: %w", err)
+	}
+	return key, nil
 }
 
 // RoomSettingsPatch 是 update-room-settings 的三列补丁：字段为 nil 表示不改。
