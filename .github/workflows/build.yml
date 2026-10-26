@@ -257,8 +257,6 @@ jobs:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
       GITCODE_OWNER: Zero-wyc
       GITCODE_REPO: ZViewer
-      # 单个附件最多重传 2 次：慢链路下一次重传可能又是十几分钟，不宜无限重试
-      UPLOAD_ATTEMPTS: '2'
     steps:
       # 供 GitCode 同步步骤推送 tag（附件下载不依赖 checkout，单独放在最前）
       - name: Checkout
@@ -301,6 +299,16 @@ jobs:
           } > release_body_latest.md
         env:
           COMMIT_TS: ${{ github.event.head_commit.timestamp }}
+
+      # GitCode 与 GitHub 的下载地址不同，直接复用上面那份说明会让大陆用户点到 GitHub 直链。
+      # 单独生成一份改写后的正文（GitHub 那边仍保留 GitHub 直链），发布时传给 GitCode。
+      - name: Generate GitCode release body
+        shell: bash
+        run: |
+          sed -E \
+            "s#https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/#https://gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}/releases/download/dev/#g" \
+            release_body_latest.md > release_body_latest.gitcode.md
+          grep -c 'gitcode.com' release_body_latest.gitcode.md
 
       # softprops/action-gh-release 只做"追加/覆盖同名"，不会清掉历史附件。
       # 之前 `gh release delete` 偶发失败被 `|| true` 吞掉，latest 里就留下了
@@ -379,19 +387,31 @@ jobs:
           [ "$CODE" = 1 ] && exit 0
           exit "$CODE"
 
+      # 用 space-ast/action-git-release 发布，而不是自研脚本：
+      # 它的 GitCode provider 是照着真实仓库联调过的（space-ast/ast 的附件长期可用），
+      # 关键差异在「上传到底算不算成功」的判定——只认带 id 的 attach 记录，
+      # PUT 成功但平台没登记时判失败并重传；400/405 还会回退成 multipart POST。
+      # 自研脚本按 type !== 'source' 判定，可能把平台的中转记录当成已挂上的附件。
       - name: Publish to GitCode Release
         if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        env:
-          TAG: dev
-          RELEASE_NAME: Latest Build (main)
-          RELEASE_BODY_FILE: release_body_latest.md
-          PRERELEASE: '1'
-          TARGET_COMMITISH: main
-          ASSETS: >-
+        uses: space-ast/action-git-release@v1
+        with:
+          platform: gitcode
+          token: ${{ secrets.GITCODE_TOKEN }}
+          repository: ${{ env.GITCODE_OWNER }}/${{ env.GITCODE_REPO }}
+          # GitCode 的 /releases/latest 是「最新 Release」别名，按 tag 寻址会打到正式版，
+          # 所以 main 分支的镜像 Release 用 dev 这个 tag。
+          tag_name: dev
+          name: Latest Build (main)
+          body_path: release_body_latest.gitcode.md
+          prerelease: 'true'
+          target_commitish: main
+          files: |
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip
             zviewer-windows-x64-GUI.zip
-        run: node scripts/sync-gitcode-release.mjs
+          overwrite_files: 'true'
+          fail_on_unmatched_files: 'true'
 
   # tag 推送：创建正式版 Release
   release:
@@ -407,8 +427,6 @@ jobs:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
       GITCODE_OWNER: Zero-wyc
       GITCODE_REPO: ZViewer
-      # 单个附件最多重传 2 次：慢链路下一次重传可能又是十几分钟，不宜无限重试
-      UPLOAD_ATTEMPTS: '2'
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -467,6 +485,16 @@ jobs:
           } > release_body.md
           echo "=== Generated release body ==="
           cat release_body.md
+
+      # 同上：GitCode 版正文把 GitHub 直链换成本站直链，两份正文各发各的。
+      - name: Generate GitCode release body
+        shell: bash
+        run: |
+          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
+          sed -E \
+            "s#https://github.com/${GITHUB_REPOSITORY}/releases/download/${CURRENT_TAG}/#https://gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}/releases/download/${CURRENT_TAG}/#g" \
+            release_body.md > release_body.gitcode.md
+          grep -c 'gitcode.com' release_body.gitcode.md
 
       - name: Download all artifacts
         uses: actions/download-artifact@v7
@@ -528,16 +556,23 @@ jobs:
           fi
           echo "$log"
 
+      # 与 release-latest 同理由：GitCode provider 来自 space-ast/action-git-release，
+      # 上传判定、重传与 multipart 回退都按真实平台行为实现过。
       - name: Publish to GitCode Release
         if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        env:
-          TAG: ${{ github.ref_name }}
-          RELEASE_NAME: ${{ github.ref_name }}
-          RELEASE_BODY_FILE: release_body.md
-          PRERELEASE: ${{ steps.pre.outputs.value == 'true' && '1' || '0' }}
-          TARGET_COMMITISH: main
-          ASSETS: >-
+        uses: space-ast/action-git-release@v1
+        with:
+          platform: gitcode
+          token: ${{ secrets.GITCODE_TOKEN }}
+          repository: ${{ env.GITCODE_OWNER }}/${{ env.GITCODE_REPO }}
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          body_path: release_body.gitcode.md
+          prerelease: ${{ steps.pre.outputs.value }}
+          target_commitish: main
+          files: |
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip
             zviewer-windows-x64-GUI.zip
-        run: node scripts/sync-gitcode-release.mjs
+          overwrite_files: 'true'
+          fail_on_unmatched_files: 'true'
