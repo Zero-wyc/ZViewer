@@ -305,6 +305,14 @@ func (c *Controller) prepareCloudflared(ctx context.Context, generation uint64, 
 			c.log("已通过 "+name+" 下载 cloudflared.exe", "tunnel", "INFO")
 			return updated, nil
 		}
+		var installErr *cloudflaredInstallError
+		if errors.As(err, &installErr) {
+			if exe != "" && fileExists(exe) {
+				c.log("组件文件安装失败，使用现有组件："+err.Error(), "tunnel", "WARN")
+				return exe, nil
+			}
+			return "", err
+		}
 		if selected != cloudflaredSourceGitHub {
 			fallback = "前置反代下载失败，已回退 GitHub 官方。"
 			c.log(fallback+err.Error(), "tunnel", "WARN")

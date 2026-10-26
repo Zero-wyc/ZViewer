@@ -579,7 +579,8 @@
     } else {
       tunnelBody = `<p class="connect-value is-empty">${tunnelLabels[tunnel.state] || '未运行'}</p><p class="connect-note">${esc(tunnel.message || (tunnel.state === 'error' ? '隧道已退出。' : '启动后检查本机源站与公网访问，检查通过才显示地址。'))}</p>`;
     }
-    const tunnelSourceControl = `<label class="tunnel-source" title="用于 cloudflared 组件下载和更新检查"><span>获取源</span><select id="cloudflared-source" aria-label="cloudflared 获取源" ${tunnelStarting || tunnelStopping ? 'disabled' : ''}><option value="proxy" ${tunnelSource === 'proxy' ? 'selected' : ''}>GitHub 前置反代（推荐）</option><option value="github" ${tunnelSource === 'github' ? 'selected' : ''}>GitHub 官方</option></select></label>`;
+    const tunnelSourceVisible = !tunnelStarting && !tunnelCanStop && !tunnelStopping;
+    const tunnelSourceControl = tunnelSourceVisible ? `<label class="tunnel-source" title="用于 cloudflared 组件下载和更新检查"><span>获取源</span><select id="cloudflared-source" aria-label="cloudflared 获取源"><option value="proxy" ${tunnelSource === 'proxy' ? 'selected' : ''}>GitHub 前置反代（推荐）</option><option value="github" ${tunnelSource === 'github' ? 'selected' : ''}>GitHub 官方</option></select></label>` : '';
     const tunnelActions = (tunnelStarting
       ? `<button class="btn primary tunnel-primary" type="button" disabled>${icon('refresh')}${esc(tunnelLabels[tunnel.state])}…${Number(tunnel.refreshCount || 0) ? `（刷新 ${Number(tunnel.refreshCount)}/5）` : ''}</button>${button(Number(tunnel.refreshCount || 0) ? '中断自动刷新' : '中断启动', 'tunnel-stop', 'stop', 'danger')}`
       : tunnelStopping
@@ -591,7 +592,7 @@
         connectCard({
           name: 'cloud', title: 'Cloudflare Tunnel · 新手推荐', copy: '一键启动，无需额外配置。',
           status: tunnelStatus, tone: tunnel?.state === 'running' ? 'green' : '',
-          body: tunnelBody + linkList(connectLinks.tunnel) + `<p class="connect-note">组件下载及更新检查共用此源。${tunnelSource === 'proxy' ? '反代不可用时自动回退 GitHub 官方。' : ''}</p>`, actions: tunnelActions
+          body: tunnelBody + linkList(connectLinks.tunnel) + (tunnelSourceVisible ? `<p class="connect-note">组件下载及更新检查共用此源。${tunnelSource === 'proxy' ? '反代不可用时自动回退 GitHub 官方。' : ''}</p>` : ''), actions: tunnelActions
         })
       }${
         connectCard({

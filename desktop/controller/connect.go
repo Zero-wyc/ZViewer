@@ -320,7 +320,7 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 		return "", fmt.Errorf("无法在运行包目录创建下载文件：%w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer removeCloudflaredTemporaryFile(tmpPath)
 	limited := &io.LimitedReader{R: response.Body, N: (100 << 20) + 1}
 	hasher := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(tmp, hasher), limited)
@@ -337,37 +337,24 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	if expectedSHA256 != "" && hex.EncodeToString(hasher.Sum(nil)) != expectedSHA256 {
 		return "", errors.New("cloudflared SHA-256 与 Cloudflare Release 校验值不一致")
 	}
-	file, err := os.Open(tmpPath)
-	if err != nil {
-		return "", err
-	}
 	var signature [2]byte
-	_, readErr := io.ReadFull(file, signature[:])
-	file.Close()
-	if readErr != nil || signature != [2]byte{'M', 'Z'} {
+	readErr := retryCloudflaredFileOperation(ctx, func() error {
+		file, err := os.Open(tmpPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.ReadFull(file, signature[:])
+		return err
+	})
+	if readErr != nil {
+		return "", &cloudflaredInstallError{fmt.Errorf("无法读取下载的 cloudflared 文件：%w", readErr)}
+	}
+	if signature != [2]byte{'M', 'Z'} {
 		return "", errors.New("下载内容不是有效的 Windows 程序文件")
 	}
-	backup := ""
-	if fileExists(target) {
-		old, err := os.CreateTemp(c.root, ".cloudflared-previous-*.exe")
-		if err != nil {
-			return "", fmt.Errorf("无法准备 cloudflared 更新回滚文件：%w", err)
-		}
-		backup = old.Name()
-		old.Close()
-		os.Remove(backup)
-		if err := os.Rename(target, backup); err != nil {
-			return "", fmt.Errorf("无法暂存旧版 cloudflared：%w", err)
-		}
-	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		if backup != "" {
-			_ = os.Rename(backup, target)
-		}
-		return "", fmt.Errorf("无法安装 cloudflared 到运行包目录：%w", err)
-	}
-	if backup != "" {
-		_ = os.Remove(backup)
+	if err := installCloudflared(ctx, tmpPath, target); err != nil {
+		return "", err
 	}
 	c.mu.Lock()
 	c.tunnelExe = target
