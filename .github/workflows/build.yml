@@ -248,6 +248,8 @@ jobs:
     if: github.ref == 'refs/heads/main'
     needs: [build, build-gui]
     runs-on: ubuntu-latest
+    # 附件要从 GitHub runner 跨境传到华为云 OBS，139MB 实测可能跑十几分钟；给足上限
+    timeout-minutes: 90
     permissions:
       contents: write
     env:
@@ -255,6 +257,8 @@ jobs:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
       GITCODE_OWNER: Zero-wyc
       GITCODE_REPO: ZViewer
+      # 单个附件最多重传 2 次：慢链路下一次重传可能又是十几分钟，不宜无限重试
+      UPLOAD_ATTEMPTS: '2'
     steps:
       # 供 GitCode 同步步骤推送 tag（附件下载不依赖 checkout，单独放在最前）
       - name: Checkout
@@ -334,6 +338,8 @@ jobs:
       # === 大陆镜像：把 tag 与附件同步到 GitCode（只做附加动作，失败不影响 GitHub 发版） ===
       # 注意：GitCode 的「仓库镜像 → Pull」会让仓库变成只读（官方限制：禁用推送代码/Tag/建 Release），
       # 所以这里一并负责主线同步；项目里必须关掉 Pull 镜像，否则整步会被 403 拒绝。
+      # 另注：GitCode 侧 main 分支镜像的 tag 用 `dev`，**不能叫 latest**——`/releases/latest`
+      # 在 GitCode API 里是「最新 Release」的别名，按 tag 寻址会打到正式版 Release 上。
       - name: Push tag to GitCode
         id: gitcode-push
         if: env.GITCODE_TOKEN != ''
@@ -342,7 +348,7 @@ jobs:
         env:
           GIT_TERMINAL_PROMPT: '0'
         run: |
-          git tag -f latest "${GITHUB_SHA}"
+          git tag -f dev "${GITHUB_SHA}"
           REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
           git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
           HINT='GitCode 拒绝写入：provider=image repository（Pull 镜像仓只读）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑；关闭后代码同步由本 workflow 负责。'
@@ -361,12 +367,12 @@ jobs:
             fi
             return 2
           }
-          # 主线：非强制推送；latest 是移动 tag，必须 --force
+          # 主线：非强制推送；dev 是移动 tag，必须 --force
           set +e
           push_or_stop gitcode "HEAD:refs/heads/main"
           CODE=$?
           if [ "$CODE" = 0 ]; then
-            push_or_stop gitcode "refs/tags/latest:refs/tags/latest" --force
+            push_or_stop gitcode "refs/tags/dev:refs/tags/dev" --force
             CODE=$?
           fi
           # 1 = 只读镜像仓（已输出可操作的报错），按绿色跳过；其它失败照常标红
@@ -375,9 +381,8 @@ jobs:
 
       - name: Publish to GitCode Release
         if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        continue-on-error: true
         env:
-          TAG: latest
+          TAG: dev
           RELEASE_NAME: Latest Build (main)
           RELEASE_BODY_FILE: release_body_latest.md
           PRERELEASE: '1'
@@ -393,6 +398,8 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/')
     needs: [build, build-gui]
     runs-on: ubuntu-latest
+    # 附件要从 GitHub runner 跨境传到华为云 OBS，139MB 实测可能跑十几分钟；给足上限
+    timeout-minutes: 90
     permissions:
       contents: write
     env:
@@ -400,6 +407,8 @@ jobs:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
       GITCODE_OWNER: Zero-wyc
       GITCODE_REPO: ZViewer
+      # 单个附件最多重传 2 次：慢链路下一次重传可能又是十几分钟，不宜无限重试
+      UPLOAD_ATTEMPTS: '2'
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -521,7 +530,6 @@ jobs:
 
       - name: Publish to GitCode Release
         if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        continue-on-error: true
         env:
           TAG: ${{ github.ref_name }}
           RELEASE_NAME: ${{ github.ref_name }}

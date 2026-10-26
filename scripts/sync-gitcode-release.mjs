@@ -18,12 +18,25 @@
  *   TARGET_COMMITISH     tag 在 GitCode 上不存在时用它建 tag（分支名或 commit SHA），默认 main
  *   GITCODE_API_BASE     默认 https://api.gitcode.com/api/v5
  *   DRY_RUN              1 = 只打印计划，不写远端
+ *   NO_RECREATE          1 = 已存在同名 Release 时原地补传附件（不删不重建），失败重跑用
+ *   DIAG                 1 = 只读诊断：打印仓库/Release/上传地址结构，不写任何东西
+ *   UPLOAD_ATTEMPTS      单个附件最多尝试次数（含首次），默认 3
  *
  * 行为：同名 Release 已存在则先删后建（附件随 Release 一起消失），因此可重复执行。
- * 任一附件失败都不影响其它附件，最终有失败则以退出码 1 结束（CI 侧配 continue-on-error）。
+ * 任一附件失败都不影响其它附件，最终有失败则以退出码 1 结束。
+ *
+ * === 历史坑（2026-10-26 修）===
+ * 旧版用内置 fetch 做附件 PUT，结果**每个 Release 都只剩 source code、一个附件都没有**：
+ * undici 的 fetch 有 300s 的 `headersTimeout`，它从请求发出就开始计时、**不等请求体发完**。
+ * GitHub runner → 华为云 OBS 这条跨境链路实测只有 ~100KB/s，36MB 的包根本传不完 300s，
+ * 稳定在 ~301s 被掐断（`TypeError: fetch failed` / UND_ERR_HEADERS_TIMEOUT）。
+ * 现在改为 `node:https` 直连 PUT：socket 不设空闲超时，只保留「10 分钟无进展」的停滞检测，
+ * 并且**每传完一个附件都回读 Release 校验真的挂上了**，校验不过就重传、最终失败会让整步标红。
  */
 
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import path from 'node:path';
 
 const API = (process.env.GITCODE_API_BASE || 'https://api.gitcode.com/api/v5').replace(/\/+$/, '');
@@ -36,13 +49,28 @@ const BODY_FILE = (process.env.RELEASE_BODY_FILE || '').trim();
 const PRERELEASE = ['1', 'true', 'yes'].includes((process.env.PRERELEASE || '').toLowerCase());
 const TARGET_COMMITISH = (process.env.TARGET_COMMITISH || 'main').trim();
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase());
+const NO_RECREATE = ['1', 'true', 'yes'].includes((process.env.NO_RECREATE || '').toLowerCase());
+const DIAG = ['1', 'true', 'yes'].includes((process.env.DIAG || '').toLowerCase());
+// 默认把正文里的 GitHub 下载直链改写成 GitCode 直链（镜像页面上给 GitHub 链接等于没给）
+const REWRITE_LINKS = !['0', 'false', 'no'].includes((process.env.REWRITE_GITHUB_LINKS || '1').toLowerCase());
+const UPLOAD_ATTEMPTS = Math.max(1, Number(process.env.UPLOAD_ATTEMPTS || 3) || 3);
 const ASSETS = (process.env.ASSETS || '')
   .split(/[\s,]+/)
   .map((s) => s.trim())
   .filter(Boolean);
 
+/** 单次上传允许「无任何进展」多久（毫秒）。跨境慢链路给足余量，真卡死才中断。 */
+const STALL_TIMEOUT_MS = 10 * 60 * 1000;
+
 const log = (...args) => console.log('[gitcode]', ...args);
 const warn = (...args) => console.warn('[gitcode][warn]', ...args);
+
+/** 收集报告，最后统一打到日志与 GITHUB_STEP_SUMMARY（CI 页面上直接可见，不用翻日志）。 */
+const report = { steps: [], files: [], error: null, releaseUrl: '' };
+const note = (line) => {
+  report.steps.push(line);
+  log(line);
+};
 
 function skip(reason) {
   log(`跳过：${reason}`);
@@ -54,9 +82,22 @@ if (!TAG) {
   console.error('[gitcode][error] 缺少 TAG 环境变量');
   process.exit(1);
 }
+/**
+ * GitCode 把 `/releases/latest` 当作「仓库最新 Release」的别名：
+ * 用 tag=latest 时 GET 会返回**别的** Release（比如 v5.0.4），接着 DELETE 又 404，
+ * 整步静默失败、GitCode 上永远没有 latest 镜像。所以 tag 一律不能叫 latest。
+ */
+if (TAG.toLowerCase() === 'latest') {
+  console.error(
+    '[gitcode][error] tag 不能叫 latest：GitCode 的 /releases/latest 是「最新 Release」别名，按 tag 寻址会打到别的 Release。\n' +
+      '  请给 GitCode 侧换一个 tag（本仓库 main 分支镜像用 dev）。',
+  );
+  process.exit(1);
+}
 
 const repoUrl = `${API}/repos/${OWNER}/${REPO}`;
 const releaseUrl = `${repoUrl}/releases/${encodeURIComponent(TAG)}`;
+const pageUrl = `https://gitcode.com/${OWNER}/${REPO}/releases/tag/${TAG}`;
 const withToken = (url) => `${url}${url.includes('?') ? '&' : '?'}access_token=${encodeURIComponent(TOKEN)}`;
 
 /** GitCode 的 Pull 镜像仓是只读的，任何写操作都会返回这条固定文案。 */
@@ -99,6 +140,74 @@ async function request(url, init = {}, { attempts = 4, label = '' } = {}) {
   throw lastErr;
 }
 
+/** 用 node:https 直连 PUT 字节（内置 fetch 有 300s headersTimeout，会掐断大附件上传）。 */
+function putBytes(url, headers, body, { onProgress } = {}) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = new URL(url);
+    } catch (err) {
+      reject(new Error(`上传地址不是合法 URL：${err.message}`));
+      return;
+    }
+    const mod = target.protocol === 'http:' ? http : https;
+    const req = mod.request(
+      target,
+      {
+        method: 'PUT',
+        headers: { ...headers, 'Content-Length': String(body.length) },
+        agent: false,
+        timeout: 0, // 关掉 socket 空闲超时，改用下面的停滞检测
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (chunk) => {
+          if (chunks.length < 16) chunks.push(chunk);
+        });
+        res.on('end', () => {
+          finish();
+          resolve({
+            status: res.statusCode,
+            body: Buffer.concat(chunks).toString('utf8').slice(0, 600),
+          });
+        });
+      },
+    );
+
+    const startedAt = Date.now();
+    let lastMark = startedAt;
+    let lastBytes = 0;
+    let settled = false;
+    const tick = setInterval(() => {
+      const written = req.socket ? req.socket.bytesWritten : 0;
+      const seconds = (Date.now() - startedAt) / 1000;
+      const stalledFor = Date.now() - lastMark;
+      if (written > lastBytes) {
+        lastBytes = written;
+        lastMark = Date.now();
+      } else if (stalledFor > STALL_TIMEOUT_MS) {
+        const err = new Error(`上传停滞超过 ${Math.round(STALL_TIMEOUT_MS / 60000)} 分钟，主动中断`);
+        err.fatal = true;
+        req.destroy(err);
+        return;
+      }
+      if (onProgress) onProgress({ written, total: body.length, seconds, stalledFor });
+    }, 15000);
+
+    function finish() {
+      settled = true;
+      clearInterval(tick);
+    }
+
+    req.on('error', (err) => {
+      finish();
+      if (settled) return;
+      reject(err);
+    });
+    req.end(body);
+  });
+}
+
 async function readBody() {
   if (!BODY_FILE) return `由 GitHub Actions 自动同步的 ${TAG} 构建。`;
   try {
@@ -109,8 +218,80 @@ async function readBody() {
   }
 }
 
+async function getRelease() {
+  const res = await request(withToken(`${releaseUrl}?temp_download_url=false`), {}, { label: '回读 Release', attempts: 3 });
+  return res.json();
+}
+
+/** 正文里的 GitHub 下载直链（镜像页面上给 GitHub 链接，大陆用户点了还是下不动）。 */
+const GITHUB_DL = /https:\/\/github\.com\/[^\s/()]+\/[^\s/()]+\/releases\/download\/[^\s/()]+\//g;
+
+/** 把说明里的 GitHub 直链换成本站直链；失败只告警，不影响附件。 */
+async function rewriteBodyLinks(currentBody) {
+  if (!REWRITE_LINKS) return;
+  const hits = currentBody.match(GITHUB_DL) || [];
+  if (!hits.length) return;
+  const patched = currentBody.replace(GITHUB_DL, `https://gitcode.com/${OWNER}/${REPO}/releases/download/${TAG}/`);
+  try {
+    await request(
+      withToken(releaseUrl),
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag_name: TAG, name: RELEASE_NAME, body: patched }),
+      },
+      { label: '改写发布说明里的下载直链', attempts: 2 },
+    );
+    note(`发布说明里的 ${hits.length} 条 GitHub 下载直链已改成本站直链`);
+  } catch (err) {
+    warn(`改写发布说明失败（附件不受影响）：${err.message}`);
+  }
+}
+
+/** Release 里真正上传的附件；`type: source` 是 GitCode 自动生成的四个源码包。 */
+const attachmentsOf = (release) => (release?.assets || []).filter((a) => a.type !== 'source');
+
+async function isAttached(name) {
+  const release = await getRelease();
+  return attachmentsOf(release).some((a) => a.name === name);
+}
+
 async function main() {
-  log(`目标仓库 ${OWNER}/${REPO}，tag=${TAG}，预发布=${PRERELEASE}，附件 ${ASSETS.length} 个`);
+  report.releaseUrl = pageUrl;
+  note(`目标仓库 ${OWNER}/${REPO}，tag=${TAG}，预发布=${PRERELEASE}，附件 ${ASSETS.length} 个`);
+
+  // 0) 只读诊断：不打任何写操作，用来确认权限、tag、上传地址是否正常
+  if (DIAG) {
+    try {
+      const repoRes = await request(withToken(repoUrl), {}, { label: '读取仓库', attempts: 2 });
+      const repoInfo = await repoRes.json().catch(() => ({}));
+      note(`仓库可见：${repoInfo?.path_with_namespace || `${OWNER}/${REPO}`}`);
+    } catch (err) {
+      note(`读取仓库失败：${err.message}`);
+    }
+    try {
+      const release = await getRelease();
+      note(`Release 存在：附件 ${attachmentsOf(release).length} 个（源码包 ${(release.assets || []).length - attachmentsOf(release).length} 个）`);
+    } catch (err) {
+      note(`Release 读取失败（${err.status || '?'}）：${err.message}`);
+    }
+    for (const file of ASSETS) {
+      const name = path.basename(file);
+      try {
+        const res = await request(
+          withToken(`${releaseUrl}/upload_url?file_name=${encodeURIComponent(name)}`),
+          {},
+          { label: `${name} 获取上传地址`, attempts: 2 },
+        );
+        const sign = await res.json();
+        const host = sign?.url ? new URL(sign.url).host : '(无)';
+        note(`上传地址 OK：${name} → ${host}，header 键：${Object.keys(sign?.headers || {}).join(', ') || '(空)'}`);
+      } catch (err) {
+        note(`上传地址失败：${name} → ${err.message}`);
+      }
+    }
+    return;
+  }
 
   const body = await readBody();
   const payload = {
@@ -121,10 +302,8 @@ async function main() {
   };
 
   if (DRY_RUN) {
-    log('[dry-run] POST', `${repoUrl}/releases`, JSON.stringify({ ...payload, body: `<${body.length} 字符>` }));
-    for (const file of ASSETS) {
-      log('[dry-run] 上传', file);
-    }
+    note(`[dry-run] POST ${repoUrl}/releases ${JSON.stringify({ ...payload, body: `<${body.length} 字符>` })}`);
+    for (const file of ASSETS) note(`[dry-run] 上传 ${file}`);
     return;
   }
 
@@ -139,13 +318,11 @@ async function main() {
     process.exit(1);
   }
 
-  // 2) 已存在同名 Release 先删掉：附件名每次构建都一样，直接重建最省事
+  // 2) 已存在同名 Release：默认先删后建（附件名每次构建都一样，重建最省事）；
+  //    NO_RECREATE=1 时只补传缺失附件，保留原说明。
+  let existing = null;
   try {
-    const res = await request(withToken(releaseUrl), {}, { label: '查询已有 Release', attempts: 2 });
-    if (res.ok) {
-      log(`已存在 Release ${TAG}，先删除（含旧附件）`);
-      await request(withToken(releaseUrl), { method: 'DELETE' }, { label: '删除已有 Release', attempts: 2 });
-    }
+    existing = await getRelease();
   } catch (err) {
     if (err.status !== 404) {
       if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
@@ -153,124 +330,173 @@ async function main() {
     }
   }
 
-  // 3) 创建 Release。tag 尚未在 GitCode 存在时（还没有任何 Release），
-  //    用 target_commitish 让 GitCode 自己建 tag，避免整次同步白跑。
-  const postRelease = (extra = {}) =>
-    request(
-      withToken(`${repoUrl}/releases`),
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...payload, ...extra }),
-      },
-      { label: '创建 Release' },
-    );
-
-  let created;
-  try {
-    created = await postRelease();
-  } catch (err) {
-    if (isImageRepoError(err)) {
-      // 只读镜像仓：重试没有意义，直接给操作指引
-      throw new Error(MIRROR_REPO_HINT);
-    }
-    if (!TARGET_COMMITISH) throw err;
-    warn(`创建 Release 失败（${err.message}），改用 target_commitish=${TARGET_COMMITISH} 重试`);
-    try {
-      created = await postRelease({ target_commitish: TARGET_COMMITISH });
-    } catch (retryErr) {
-      if (isImageRepoError(retryErr)) throw new Error(MIRROR_REPO_HINT);
-      throw retryErr;
+  if (existing) {
+    if (NO_RECREATE) {
+      note(`Release ${TAG} 已存在，NO_RECREATE=1：跳过删除/重建，只补传附件`);
+    } else {
+      note(`Release ${TAG} 已存在，先删除（含旧附件）`);
+      try {
+        await request(withToken(releaseUrl), { method: 'DELETE' }, { label: '删除已有 Release', attempts: 2 });
+        existing = null;
+      } catch (err) {
+        if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
+        throw err;
+      }
     }
   }
-  log(`Release ${TAG} 已创建（HTTP ${created.status}）`);
 
-  // 4) 逐个上传附件：先取预签名地址，再 PUT 原始字节
-  const failed = [];
+  // 3) 创建 Release。tag 尚未在 GitCode 存在时，必须带 target_commitish 让平台自己建 tag，
+  //    所以从第一次请求就带上（旧版只在重试时才带，latest 这类移动 tag 常常第一次就 400）。
+  if (!existing) {
+    const postRelease = (extra = {}) =>
+      request(
+        withToken(`${repoUrl}/releases`),
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...payload, ...extra }),
+        },
+        { label: '创建 Release', attempts: 2 },
+      );
+
+    try {
+      const created = await postRelease(TARGET_COMMITISH ? { target_commitish: TARGET_COMMITISH } : {});
+      note(`Release ${TAG} 已创建（HTTP ${created.status}）`);
+    } catch (err) {
+      if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
+      note(`创建 Release 失败：${err.message}`);
+      throw err;
+    }
+  }
+
+  // 4) 逐个上传附件：先取预签名地址，再 PUT 原始字节，最后回读校验真的挂上了
   for (const [index, file] of ASSETS.entries()) {
     const name = path.basename(file);
     const tagText = `[${index + 1}/${ASSETS.length}] ${name}`;
-    let size;
+    const entry = { name, size: 0, seconds: 0, attempts: 0, status: 'pending', detail: '' };
+    report.files.push(entry);
+
     let bytes;
     try {
       bytes = await fs.readFile(file);
-      size = bytes.length;
+      entry.size = bytes.length;
     } catch (err) {
-      warn(`${tagText} 读取失败，跳过：${err.message}`);
-      failed.push(name);
+      entry.status = 'failed';
+      entry.detail = `读取失败：${err.message}`;
+      warn(`${tagText} ${entry.detail}`);
       continue;
     }
 
-    log(`${tagText} 开始上传（${(size / 1048576).toFixed(1)} MB）`);
+    note(`${tagText} 开始上传（${(entry.size / 1048576).toFixed(1)} MB）`);
     const startedAt = Date.now();
-    try {
-      const signRes = await request(
-        withToken(`${releaseUrl}/upload_url?file_name=${encodeURIComponent(name)}`),
-        {},
-        { label: `${name} 获取上传地址`, attempts: 3 },
-      );
-      const sign = await signRes.json();
-      if (!sign?.url) throw new Error(`上传地址响应异常：${JSON.stringify(sign).slice(0, 200)}`);
 
-      const putRes = await fetch(sign.url, {
-        method: 'PUT',
-        headers: { ...(sign.headers || {}), 'Content-Length': String(size) },
-        body: bytes,
-        signal: AbortSignal.timeout(20 * 60 * 1000),
-      });
-      if (!putRes.ok) {
-        const text = await putRes.text().catch(() => '');
-        throw new Error(`PUT 失败：HTTP ${putRes.status} ${text.slice(0, 200)}`);
+    for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
+      entry.attempts = attempt;
+      try {
+        const signRes = await request(
+          withToken(`${releaseUrl}/upload_url?file_name=${encodeURIComponent(name)}`),
+          {},
+          { label: `${name} 获取上传地址`, attempts: 3 },
+        );
+        const sign = await signRes.json();
+        if (!sign?.url) throw new Error(`上传地址响应异常：${JSON.stringify(sign).slice(0, 200)}`);
+
+        const putRes = await putBytes(sign.url, sign.headers || {}, bytes, {
+          onProgress: ({ written, seconds }) => {
+            if (seconds < 15) return;
+            const pct = ((written / entry.size) * 100).toFixed(0);
+            log(`${tagText} 上传中 ${pct}%（${(written / 1048576).toFixed(1)}/${(entry.size / 1048576).toFixed(1)} MB，${seconds.toFixed(0)}s）`);
+          },
+        });
+
+        // 203 = 对象写进 OBS 了，但平台回调没成功 → 附件不会出现在 Release 里，必须重传
+        if (putRes.status === 203) throw new Error(`PUT HTTP 203（对象已写入但平台回调未登记）：${putRes.body}`);
+        if (putRes.status < 200 || putRes.status >= 300) throw new Error(`PUT HTTP ${putRes.status}：${putRes.body}`);
+
+        // 回读校验：PUT 成功 ≠ 附件挂上（回调丢失时就是这样，旧版因此静默零附件）
+        let ok = await isAttached(name);
+        if (!ok) {
+          await sleep(3000);
+          ok = await isAttached(name);
+        }
+        if (!ok) throw new Error('PUT 成功但 Release 附件列表里没有该文件（回调未登记）');
+
+        entry.status = 'ok';
+        entry.seconds = (Date.now() - startedAt) / 1000;
+        note(
+          `${tagText} 上传完成并已挂到 Release，用时 ${entry.seconds.toFixed(1)}s（${(entry.size / 1048576 / entry.seconds).toFixed(2)} MB/s）`,
+        );
+        break;
+      } catch (err) {
+        entry.status = 'failed';
+        entry.detail = err.message;
+        warn(`${tagText} 第 ${attempt}/${UPLOAD_ATTEMPTS} 次失败：${err.message}`);
+        if (err.fatal) break;
+        if (attempt < UPLOAD_ATTEMPTS) await sleep(attempt * 5000);
       }
-      const seconds = (Date.now() - startedAt) / 1000;
-      log(`${tagText} 上传完成，用时 ${seconds.toFixed(1)}s（${(size / 1048576 / seconds).toFixed(1)} MB/s）`);
-    } catch (err) {
-      warn(`${tagText} 上传失败：${err.message}`);
-      failed.push(name);
     }
   }
 
-  // 5) 回读校验，产出大陆下载地址（回读失败不影响「已上传成功」的事实，单独降级处理）
+  // 5) 最终回读，产出大陆下载地址
+  await rewriteBodyLinks(body);
+
   let release = null;
   try {
-    const finalRes = await request(withToken(`${releaseUrl}?temp_download_url=false`), {}, { label: '回读 Release', attempts: 3 });
-    release = await finalRes.json();
+    release = await getRelease();
   } catch (err) {
-    warn(`回读 Release 失败（附件可能已上传成功）：${err.message}`);
+    warn(`回读 Release 失败：${err.message}`);
   }
-  const remote = new Set((release?.assets || []).map((a) => a.name));
+  const uploaded = new Set(attachmentsOf(release).map((a) => a.name));
   const links = [];
-  for (const file of ASSETS) {
-    const name = path.basename(file);
-    if (failed.includes(name)) continue;
-    // 回读到列表时以远端为准；回读失败则按上传成功的记录乐观输出
-    if (release && !remote.has(name)) continue;
-    const found = (release?.assets || []).find((a) => a.name === name);
-    links.push(found?.browser_download_url || `https://gitcode.com/${OWNER}/${REPO}/releases/download/${TAG}/${encodeURIComponent(name)}`);
+  const missing = [];
+  for (const entry of report.files) {
+    // 以远端实况为准：远端没有就算失败，不再「乐观输出」
+    if (release ? !uploaded.has(entry.name) : entry.status !== 'ok') {
+      missing.push(entry.name);
+      continue;
+    }
+    const found = attachmentsOf(release).find((a) => a.name === entry.name);
+    links.push(found?.browser_download_url || `https://gitcode.com/${OWNER}/${REPO}/releases/download/${TAG}/${encodeURIComponent(entry.name)}`);
   }
 
-  log(`GitCode Release 页面：https://gitcode.com/${OWNER}/${REPO}/releases/tag/${TAG}`);
-  for (const link of links) log(`下载：${link}`);
-
-  if (process.env.GITHUB_STEP_SUMMARY) {
-    const lines = [
-      '## GitCode（大陆镜像）Release',
-      '',
-      `- 版本页：https://gitcode.com/${OWNER}/${REPO}/releases/tag/${TAG}`,
-      ...links.map((l) => `- ${l}`),
-    ];
-    if (failed.length) lines.push('', `> 上传失败：${failed.join('、')}`);
-    await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`).catch(() => {});
+  note(`GitCode Release 页面：${pageUrl}`);
+  for (const link of links) note(`下载：${link}`);
+  if (missing.length) note(`未出现在 Release 里：${missing.join('、')}`);
+  if (release) {
+    note(`远端附件实况：${attachmentsOf(release).length} 个上传附件 + ${(release.assets || []).length - attachmentsOf(release).length} 个源码包`);
   }
-
-  if (failed.length) {
-    console.error(`[gitcode][error] ${failed.length} 个附件未同步：${failed.join('、')}`);
-    process.exit(1);
+  if (missing.length) {
+    note(`失败详情：${report.files.filter((f) => missing.includes(f.name)).map((f) => `${f.name}（${f.detail || '未知原因'}）`).join('；')}`);
+    throw new Error(`${missing.length} 个附件未同步：${missing.join('、')}`);
   }
-  log('全部附件同步完成');
+  note('全部附件同步完成');
 }
 
-main().catch((err) => {
-  console.error('[gitcode][error]', err?.message || err);
-  process.exit(1);
-});
+async function writeSummary() {
+  if (!process.env.GITHUB_STEP_SUMMARY) return;
+  const lines = [
+    `## GitCode（大陆镜像）Release ${TAG}`,
+    '',
+    `- 版本页：${pageUrl}`,
+    ...report.steps.filter((s) => /下载：|未出现|远端附件|目标仓库/.test(s)).map((s) => `- ${s}`),
+  ];
+  if (report.files.length) {
+    lines.push('', '| 附件 | 大小 | 次数 | 耗时 | 结果 |', '| --- | --- | --- | --- | --- |');
+    for (const f of report.files) {
+      const size = f.size ? `${(f.size / 1048576).toFixed(1)} MB` : '-';
+      const took = f.seconds ? `${f.seconds.toFixed(0)}s` : '-';
+      const result = f.status === 'ok' ? '✅ 已上传' : `❌ ${f.detail || '失败'}`;
+      lines.push(`| ${f.name} | ${size} | ${f.attempts} | ${took} | ${result} |`);
+    }
+  }
+  if (report.error) lines.push('', '```', report.error, '```');
+  await fs.appendFile(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`).catch(() => {});
+}
+
+main()
+  .catch(async (err) => {
+    report.error = err?.message || String(err);
+    console.error('[gitcode][error]', report.error);
+    process.exitCode = 1;
+  })
+  .finally(writeSummary);

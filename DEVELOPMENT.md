@@ -196,6 +196,10 @@ npm run package        # 出 ZIP + SHA256
 **同一份 Release 与附件**再发一份到 [GitCode](https://gitcode.com)（CSDN 与华为云 CodeArts 联合运营的平台，
 与 AtomGit 已合并同站），大陆用户直接走 `gitcode.com` 下载。
 
+> GitCode 侧 main 分支镜像的 tag 是 **`dev`**，不是 `latest`：GitCode API 把 `/releases/latest`
+> 当作「仓库最新 Release」的别名，tag 叫 `latest` 时 `GET` 会返回正式版、`DELETE` 又 404，
+> 整步静默失败。脚本对 `TAG=latest` 会直接报错退出。
+
 **为什么不能只靠 GitCode 的「仓库镜像」**（两个理由，都会踩坑）：
 
 1. 镜像只同步分支 / 标签 / 提交，**不搬 Release 和附件**；
@@ -207,13 +211,17 @@ npm run package        # 出 ZIP + SHA256
 
 1. `git push gitcode HEAD:refs/heads/main` + `git push gitcode refs/tags/<tag> --force`
    —— 主线与标签直接推过去，替代 Pull 镜像的定时同步（Pull 镜像每天才拉一次，本来就慢）。
+   main 分支那次推的是 `dev` 这个移动 tag。
 2. `node scripts/sync-gitcode-release.mjs`
    —— 同名 Release 已存在则先删再建 → `GET /releases/{tag}/upload_url` 取华为云 OBS 预签名地址 →
-   `PUT` 原始字节 → 回读校验并把下载地址写进 Job Summary。
+   `node:https` 直连 `PUT` 原始字节 → **回读 Release 确认附件真的挂上了** → 把说明里的 GitHub 直链
+   改成本站直链 → 下载地址写进 Job Summary。
 
-> 推 tag 失败时脚本会用 `TARGET_COMMITISH=main` 让 GitCode 自己补建 tag（只读镜像仓会先被拦下并给出指引）。
+> 推 tag 失败时脚本会用 `TARGET_COMMITISH` 让 GitCode 自建 tag（只读镜像仓会先被拦下并给出指引）。
 
-两步都是 `continue-on-error: true`：**GitCode 出问题不影响 GitHub 发版**，只在 job 上显示黄叹号。
+「Push tag」仍是 `continue-on-error: true`（GitCode 出问题不影响 GitHub 发版）；
+**「Publish to GitCode Release」不再吞异常**——附件没传上去就让这一步标红，并在 Job Summary 里给出
+每个附件的重试次数、耗时与失败原因（历史教训：旧版把失败吞掉，连续 3 个版本都只有 source code）。
 
 一次性配置：
 
@@ -232,14 +240,30 @@ GITCODE_TOKEN=<令牌> TAG=v5.0.0 RELEASE_NAME=v5.0.0 \
 RELEASE_BODY_FILE=release_body.md \
 ASSETS="zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip" \
 node scripts/sync-gitcode-release.mjs      # 加 DRY_RUN=1 只打印计划
+
+# 已有 Release 只缺附件（不删不重建、保留原说明）
+GITCODE_TOKEN=<令牌> TAG=v5.0.4 NO_RECREATE=1 \
+ASSETS="zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip" \
+node scripts/sync-gitcode-release.mjs
 ```
 
 排查要点：
 
 - 单附件上限 **2 GB**（当前产物 37～65 MB）；`GITCODE_API_BASE` 默认 `https://api.gitcode.com/api/v5`。
+- **附件上传不能用内置 `fetch`**：undici 的 `headersTimeout` 默认 300s，从请求发出就开始计时，
+  **不等请求体发完**；GitHub runner → 华为云 OBS 这条链路慢，37MB 的包会在 ~301s 被掐断
+  （`TypeError: fetch failed`）。脚本因此改用 `node:https` 直连 PUT，只保留「10 分钟无进展」的停滞检测。
+  这一条是 2026-10-26 之前「Release 里只有 source code」的真正原因。
+- **`GET /releases/latest` 是别名**，指向仓库最新 Release，不是 tag 叫 latest 的 Release；
+  按 tag 寻址时 tag 不能取 `latest`（main 分支镜像改用 `dev`）。
+- **上传成功 ≠ 附件挂上**：`PUT` 返回 203 表示对象写进 OBS 但平台回调没登记，附件不会出现在 Release 里。
+  脚本每个附件传完都回读 `assets` 校验，缺失就重传，最终仍缺失则整步失败（`UPLOAD_ATTEMPTS` 默认 3，
+  workflow 里设 2 以控制耗时）。
 - Release 主键**就是 tag 名**：`GET|PATCH|DELETE /repos/{owner}/{repo}/releases/{tag}`；附件删除是
   `DELETE /releases/{tag}/attach_files/{attach_file_id}`（脚本直接删 Release，更省事）。
 - 日志出现 `访问仓库失败：HTTP 401` = 令牌过期或没权限；`HTTP 404` = GitCode 上还没有该仓库。
+- 只想排障不想写远端：`DIAG=1` 只读诊断（仓库可读性 / Release 是否存在 / 上传地址与 header 键）；
+  `NO_RECREATE=1` 原地补传缺失附件，不删不重建；`REWRITE_GITHUB_LINKS=0` 关掉正文直链改写。
 - 日志出现 `This operation is not allowed because the repository is an image repository` /
   `error_code_name":"UN_KNOW` 且提到 image repository = 项目还开着「仓库镜像 → Pull」，
   仓库处于只读态：去 项目设置 → 仓库镜像 关掉后重跑（脚本与 workflow 都会直接给出这句指引）。
