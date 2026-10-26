@@ -1037,8 +1037,9 @@ Node 用的是 opencc-js，Go 侧没有等价库，所以**把词典导出来自
 
 `modules/music/{music.routes,ncm-api.service,ncm-api-client,ncm-account.service,
 ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.ts`
-（1,381 行）→ `internal/ncm`（1,267 行）+ `internal/api/music.go`（491 行）
-+ `store.NcmCredentials`（150 行）。HTTP 面 151 → **160**。
+（1,381 行）→ `internal/ncm`（1,354 行，另有 406 行测试）+ `internal/api/music.go`
+（491 行）+ `store.NcmCredentials`（150 行）；阶段 34 再补 `internal/ncmapi`
+（1,425 行 + 493 行测试）承接原来那个 npm 包的协议层。HTTP 面 151 → **160**。
 
 | 端点 | 说明 | 实现 |
 |---|---|---|
@@ -1052,20 +1053,20 @@ ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.t
 | `GET /stream` | 音质降级链解析 + Range 流式转发 / 直链 302 | `stream.go` + `api/music.go` |
 | `GET /song-quality` | 实际解析音质元数据（15 分钟缓存） | `api/music.go` |
 
-#### 最大的一处架构差异：NCM 服务外部化
+#### 最大的一处架构差异：NCM 服务（阶段 23 外部化 → 阶段 34 进程内）
 
-Node 用 `@neteasecloudmusicapienhanced/api` 在**本进程内**起一个
-`127.0.0.1:36530` 的 HTTP 服务，所有网易云协议都落在那 3 万行 npm 包里。
-Go 不可能重新实现它，所以改成**外部化**：
+阶段 23 把网易云协议**外部化**了：Node 用 `@neteasecloudmusicapienhanced/api`
+在本进程内起`127.0.0.1:36530` 的服务，Go 不可能重写那 3 万行所以改成指向外部服务。
 
-- `NCM_API_BASE`（默认 `http://127.0.0.1:36530`，端口沿用 Node 版）指向一个
-  已经跑起来的 NCM API 服务；
-- 「服务在不在」用一次轻量探测复刻 Node 的 `getNcmApiBase()` 非空语义：
-  在线缓存 30s、离线缓存 3s，避免每次请求都等连接超时；
-- 服务不可达时 `/api/music/*` 一律 503 `NCM_UNAVAILABLE`，与 Node 同文案。
+阶段 34 补上了这块：`internal/ncmapi` 复刻同一个 REST 方言并跑在进程内，
+`NCM_API_BASE` 由 `StartBundled` 改写成回环随机端口，**默认交付不再需要额外服务**。
+外部化路径没有删——显式 `NCM_API_BASE` 或 `NCM_UPSTREAM=node` 仍会走外部/随包 Node。
+细节见**第十三节**。
 
-**部署含义**：只跑 Go 版时，音乐功能需要额外跑一个 NCM API 服务；不跑就只有
-「一起看」可用，音乐面板会收到 503。这是本次迁移唯一一处**新增外部依赖**。
+`internal/ncm` 这一侧的行为完全没变，仍然负责：凭证读写、转发（注入 cookie、
+绕 apicache、剥客户端传的 `cookie`/`noCookie`）、业务编排（音质降级链、直链缓存、
+音频流 Range 代理）。判断上游在不在仍靠一次轻量探测：在线缓存 30s、离线 3s，
+不可达时一律 503 `NCM_UNAVAILABLE`——只是现在它基本不会触发了。
 
 #### 六处必须守住的细节
 
@@ -2314,32 +2315,61 @@ npm run db:init        # 等价于 zviewer-server --init-db
   整段（含「修改后端 data-source.ts」这种已经不存在的指引）。补了 `SQLITE_WAL` 与
   `db:init` 的说明。
 
-## 十三、外部依赖：一起听的 NCM API（阶段 33）
+## 十三、一起听的 NCM API：进程内实现（阶段 34）
 
-Go 后端**不含**网易云协议实现：`/api/music/ncm/*` 全部转发到 `NCM_API_BASE`
-（默认 `http://127.0.0.1:36530`）。这是重写时唯一无法「用 Go 重写一遍」的模块——
-它背后是 `@neteasecloudmusicapienhanced/api` 那个三万行 npm 包（weapi/eapi 加密、
-登录态、几十个接口），照抄一遍既超出范围，也没有可验证的对照实现。
+`internal/ncm` **不实现**网易云协议：`/api/music/ncm/*` 一律转发到
+`NCM_API_BASE`，路径方言沿用 NeteaseCloudMusicApi。这意味着「换掉 Node」不需要
+动这一层——只要在同一个 HTTP 边界换上游实现，凭证注入、cookie 落库、音质降级链、
+直链缓存、音频 Range 代理全部原样复用，前端 44 处调用一处都不改。
 
-之前的状态是「代码迁完了、交付没跟上」：镜像、ZIP 产物包、桌面壳都不带这个服务，
-用户装完能点开音乐面板，但所有请求 503。这个阶段补的是**交付形态**：
+阶段 34 新增 `internal/ncmapi`：把那个 npm 包的协议翻译成 Go，在进程内提供同方言
+的 HTTP 服务（回环随机端口）。**默认交付形态里不再有 Node 运行时。**
 
-| 交付形态 | NCM 怎么办 |
-|---|---|
-| Docker compose | 新增可选服务 `ncm`（`profiles: ["music"]`，镜像 `binaryify/netease_cloud_music_api`，宿主回环 36530），zviewer 的 `NCM_API_BASE` 默认指向 `http://ncm:3000` |
-| 源码运行 | `.env.example` 写明三段起法（compose / 单独 docker run / 指向自建服务），DEVELOPMENT 5.2.1 同步 |
-| Windows 桌面 / ZIP | 仍需要外部服务；README 与入口脚本明确写出「没配时只有音乐不可用」 |
-| 自建 / 增强版 NCM | 直接设 `NCM_API_BASE`，不启 compose 服务即可 |
+### 13.1 三种来源与优先级
 
-配套的可见性：
+| 优先级 | 触发条件 | 上游 |
+|---|---|---|
+| 1 | 显式 `NCM_API_BASE` | 该地址，不启动任何内置组件 |
+| 2 | 默认 | `internal/ncmapi`，`http://127.0.0.1:<内核分配的随机端口>` |
+| 3 | `NCM_UPSTREAM=node`，或进程内启动失败 | 随包 `ncm/` 里的 Node 组件（历史路径，保留回退） |
 
-- 后端启动日志打印 `NCM_API_BASE`（不可达时这一行就是排查起点）；
-- 容器入口脚本在没配 `NCM_API_BASE` 时启动横幅直接提示「音乐面板不可用」；
-- 不可达语义仍是 503 `NCM_UNAVAILABLE`（前端有对应文案），**不影响其它任何功能**。
+随机端口是刻意的：不会被同机其他实例误连，也不会和用户自建的 36530 撞车。
+外部服务语义完全保留——compose 的 `--profile music`、自建 NeteaseCloudMusicApi、
+GUI 的随包 Node 都还能用，`NCM_API_BASE` 一设就退回原路径。
 
-刻意不做的：不打包 Node 运行时、不在 Go 里实现 weapi/eapi。那等于把刚删掉的
-Node 运行时再塞回来，或者引入一份没人维护的加密实现——两者都比「明确的外部依赖 +
-明确降级」更难维护。
+### 13.2 实现范围
+
+- **46 条路由**：前端实际调用 44 条 + `/song/url`（音质降级回退）+ `/song/url/v1`（直链）
+- **四种通道**：weapi（双层 AES-CBC + RSA 无填充）、eapi（AES-ECB + md5 摘要，
+  Enhanced 版的默认通道）、linuxapi（`/song/url` 老接口）、明文 api
+- **两个本地实现**：扫码二维码（`go-qrcode` 生成 PNG data URL，无需上游）、
+  `/playlist/track/all`（两段式：先取歌单 trackIds 再批量 song/detail）
+- **零新增网易云依赖**：只用标准库 + `skip2/go-qrcode`（后端本就在用），
+  没有引入任何网易云 SDK，加密与协议全部自己实现
+
+### 13.3 验收口径
+
+- `internal/ncmapi` 单测 17 项：加密往返（eapi/linuxapi 可解密回原文并校验摘要）、
+  44 条路径全覆盖、参数映射快照、二维码本地生成、两段式取数
+- `NCM_LIVE=1 go test ./internal/ncmapi -run TestLiveUpstream`：匿名打真实上游
+  12 个端点，全部返回预期 code（200 / 未登录的 301）
+- 端到端（真实后端 + curl）：`banner`、`search`、`song/detail`、`lyric`、
+  `song/url/v1`、`playlist/detail`、`comment/new`、`toplist`、`personalized`
+  与扫码三步（unikey → qrimg → 801）全部通过
+- `regression-sweep.sh` 13 个验收脚本全绿
+
+### 13.4 已知边界（改这块之前必须知道）
+
+- **密钥轮换是长期负债**：`presetKey`、RSA 公钥、`eapiKey` 一换这里就要跟。
+  出处是 Node 版 `util/crypto.js`，两边同源，改时照抄即可。
+- **没有 anonymous_token / realIP / 解灰**：Enhanced 版用匿名 token 兜底未登录
+  场景、随机国内 IP 绕地域限制、unblockmusic 解灰。这里都没做，后果是海外 IP
+  更容易吃到 460、未登录时部分接口权限更低。需要这些能力时指向外部服务。
+- **xeapi / neapi 未实现**：Enhanced 版给 `/song/url/v1` 用 xeapi（x25519），
+  这里用 weapi。实测 VIP 账号能拿到真 FLAC（798–1508 kbps，`type=flac`），
+  所以没有跟进的必要；哪天 weapi 被关掉，这是第一个要补的地方。
+- **`os` 必须显式注入 pc**：SDK 默认 `os=ios`，网页通道必须 `os=pc`，否则
+  `personal_fm` 这类接口行为会漂（匿名只给 1 首而不是 3 首）。`profileFor()` 负责这件事。
 
 
 

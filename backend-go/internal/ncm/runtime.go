@@ -8,17 +8,42 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
+
+	"zviewer/backend/internal/ncmapi"
 )
 
-// StartBundled starts the private music runtime only when NCM_API_BASE was not
-// configured by the operator. Each backend gets its own loopback port and temp
-// directory; credentials remain in the backend's per-user credential store.
+// StartBundled 决定音乐接口的来源，返回基地址与停止函数。
+//
+// 优先级（每一层都能单独回退，方便灰度与排障）：
+//  1. 显式 NCM_API_BASE —— 运维指定外部服务，进程内实现与随包组件都不启动；
+//  2. 进程内 Go 实现（默认）—— internal/ncmapi 监听回环随机端口，无子进程、
+//     无 Node 运行时；
+//  3. 随包 Node 组件（NCM_UPSTREAM=node，或进程内启动失败且有 ncm/ 目录）。
+//
+// 每层都自带回环随机端口：不会被同机其他实例误连，也不会和用户自建的
+// 36530 撞车。凭证仍由后端自己的 per-user 凭证库管理，与谁提供协议无关。
 func StartBundled(parent context.Context, root, configDir, base string) (string, func()) {
 	noop := func() {}
 	if os.Getenv("NCM_API_BASE") != "" {
 		return base, noop
 	}
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("NCM_UPSTREAM")))
+	if mode != "node" {
+		local, stop, err := ncmapi.Listen()
+		if err == nil {
+			log.Printf("[ncm] 音乐接口由进程内实现提供: %s", local)
+			return local, stop
+		}
+		log.Printf("[ncm] 内置音乐接口启动失败，改用随包组件: %v", err)
+	}
+	return startBundledNode(parent, root, configDir, base)
+}
+
+// startBundledNode 拉起随包 Node 组件（历史路径，保留作回退）。
+func startBundledNode(parent context.Context, root, configDir, base string) (string, func()) {
+	noop := func() {}
 	runtimeDir := filepath.Join(root, "ncm")
 	node := filepath.Join(runtimeDir, "node.exe")
 	if _, err := os.Stat(node); err != nil {

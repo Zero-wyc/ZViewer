@@ -46,12 +46,12 @@ type Config struct {
 	StartedAt    time.Time
 	RestartCount int
 
-	// NCMAPIBase 是内部网易云 API 服务地址（一起听音乐模块的上游）。
+	// NCMAPIBase 是网易云音乐接口的上游地址（一起听音乐模块）。
 	//
-	// 与 Node 版不同：那边用 `@neteasecloudmusicapienhanced/api` 在本进程内起
-	// 一个 127.0.0.1:36530 的服务；Go 版通过 HTTP 调用独立服务。
-	// 显式配置优先；GUI 未配置时由随包 ncm 组件提供私有回环地址。
-	// 服务不可用时转发、流等端点返回 503 NCM_UNAVAILABLE，登录状态仍保留缓存。
+	// 默认值是 `internal/ncm.StartBundled` 启动**进程内实现**（internal/ncmapi）
+	// 后改写的回环随机端口；显式配置 `NCM_API_BASE` 时原样使用，不再启动内置
+	// 组件（`NCM_UPSTREAM=node` 可切回随包 Node）。
+	// 上游不可用时转发、流等端点返回 503 NCM_UNAVAILABLE，登录状态仍保留缓存。
 	NCMAPIBase string
 
 	// SQLiteWAL 为 true 时把数据库切到 WAL 日志模式。
