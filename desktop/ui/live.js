@@ -183,7 +183,7 @@
     ui.syncWorkspace?.();
     $('#footer-status').textContent = snapshot.backend === 'running' ? `本地服务运行中 · ${current().port}` : `本地服务 · ${labels[snapshot.backend]}`;
   }
-  function tunnelKey(snapshot) { const t = snapshot?.tunnel; return t ? `${t.available}|${t.state}|${t.url}|${t.message}|${snapshot.config?.cloudflaredSource}` : ''; }
+  function tunnelKey(snapshot) { const t = snapshot?.tunnel; return t ? `${t.available}|${t.state}|${t.url}|${t.message}|${t.errorCode}|${snapshot.config?.cloudflaredSource}` : ''; }
   // 外部访问地址由主服务端口与 HTTPS 决定，两者变化都要重绘入口卡片；
   // 组网卡片的地址还会随入网状态与虚拟 IP 变化。
   function entryKey(snapshot) { const c = snapshot?.active || snapshot?.config || {}; return `${c.port}|${c.https}|${snapshot?.mesh?.state}|${snapshot?.mesh?.virtualIp}`; }

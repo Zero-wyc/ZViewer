@@ -164,7 +164,7 @@ func TestTransferHostSwapsRolesAndCleansModerators(t *testing.T) {
 		t.Fatalf("owner 应为 2，实际 %v", newOwner)
 	}
 	room, err := env.svc.Rooms.FindByRoomID(ctx, "ROOMS003")
-	if err != nil || room.StreamKey == nil || *room.StreamKey == "old-private-publish-key" || len(*room.StreamKey) != 32 {
+	if err != nil || room.StreamKey == nil || *room.StreamKey == "old-private-publish-key" || len(*room.StreamKey) != 8 {
 		t.Fatal("owner transfer did not revoke old publisher", room, err)
 	}
 	if err := env.svc.Rooms.SetStatus(ctx, "ROOMS003", "closed"); err != nil {

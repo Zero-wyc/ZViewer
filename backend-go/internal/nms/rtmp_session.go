@@ -43,12 +43,12 @@ func newRTMPConn(srv *embeddedServer, conn net.Conn) *rtmpConn {
 func (c *rtmpConn) serve() {
 	defer c.conn.Close()
 	defer c.unpublish()
-	_ = c.conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	_ = c.conn.SetDeadline(time.Now().Add(handshakeTimeout))
 	if err := c.handshake(); err != nil {
 		c.srv.logf("[nms] RTMP 握手失败 %s: %v", c.conn.RemoteAddr(), err)
 		return
 	}
-	_ = c.conn.SetReadDeadline(time.Time{})
+	_ = c.conn.SetDeadline(time.Time{})
 
 	c.cr = newChunkReader(c.conn)
 	c.cw = newChunkWriter(c.conn)
@@ -73,8 +73,8 @@ func (c *rtmpConn) serve() {
 
 // handshake 走「简单握手」（明文，不带 digest）。
 //
-// OBS / ffmpeg / librtmp 都支持它；带 digest 的复杂握手只在加密 RTMP 时才有意义，
-// 推流场景不需要。C1 的内容我们直接丢弃（不校验时间与随机数）。
+// S1 的版本字段为零，协商 OBS / FFmpeg 支持的简单握手。
+// 必须回传 S2：客户端收到 S2 后才能开始发送 RTMP 命令。
 func (c *rtmpConn) handshake() error {
 	var c0 [1]byte
 	if _, err := io.ReadFull(c.conn, c0[:]); err != nil {
@@ -88,12 +88,16 @@ func (c *rtmpConn) handshake() error {
 		return err
 	}
 
-	// S1：4 字节时间（0）+ 4 字节零 + 1528 字节随机
-	s1 := make([]byte, handshakeSize)
+	// 一次返回 S0/S1/S2，避免等待 C2 的客户端与服务端互相等待。
+	response := make([]byte, 1+2*handshakeSize)
+	response[0] = handshakeVersion
+	s1 := response[1 : 1+handshakeSize]
 	if _, err := rand.Read(s1[8:]); err != nil {
 		return err
 	}
-	if _, err := c.conn.Write(append([]byte{handshakeVersion}, s1...)); err != nil {
+	// 简单握手的 S2 回显 C1 的时间及随机数据。
+	copy(response[1+handshakeSize:], c1)
+	if _, err := io.Copy(c.conn, bytes.NewReader(response)); err != nil {
 		return err
 	}
 

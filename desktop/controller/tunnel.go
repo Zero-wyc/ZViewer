@@ -48,7 +48,7 @@ type tunnelCandidate struct {
 
 func (c *Controller) tunnelReport() TunnelReport {
 	c.mu.RLock()
-	report := TunnelReport{State: c.tunnelState, URL: c.tunnelURL, Health: c.tunnelHealth, LatencyMs: c.tunnelLatencyMs, Message: c.tunnelMessage, RefreshCount: c.tunnelRefreshCount, MaxRefreshes: tunnelMaxRefreshes, Protocol: "http2"}
+	report := TunnelReport{State: c.tunnelState, URL: c.tunnelURL, Health: c.tunnelHealth, LatencyMs: c.tunnelLatencyMs, Message: c.tunnelMessage, ErrorCode: c.tunnelErrorCode, RefreshCount: c.tunnelRefreshCount, MaxRefreshes: tunnelMaxRefreshes, Protocol: "http2"}
 	c.mu.RUnlock()
 	report.Available = c.cloudflared() != ""
 	return report
@@ -63,6 +63,7 @@ func (c *Controller) updateTunnel(generation uint64, state, message string, upda
 		return false
 	}
 	c.tunnelState, c.tunnelMessage = state, message
+	c.tunnelErrorCode = ""
 	if update != nil {
 		update()
 	}
@@ -112,6 +113,7 @@ func (c *Controller) startTunnel() (any, error) {
 	c.tunnelRefreshCount = 0
 	c.tunnelURL, c.tunnelMessage = "", "正在检查本机源站…"
 	c.tunnelState, c.tunnelHealth = "health-checking", "checking"
+	c.tunnelErrorCode = ""
 	c.tunnelLatencyMs = 0
 	c.mu.Unlock()
 	c.emit()
@@ -321,7 +323,7 @@ func (c *Controller) prepareCloudflared(ctx context.Context, generation uint64, 
 			downloadURL = "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
 			checksum = checksumForRelease(release.Body)
 		}
-		c.updateTunnel(generation, "downloading", fallback+"正在通过 "+name+" 下载 cloudflared，完成后启动…", nil)
+		c.updateTunnel(generation, "downloading", fallback+"正在通过 "+name+" 下载 cloudflared，完成后启动。持续收到数据会继续下载，连续 1 分钟无响应才中断。", nil)
 		updated, err := c.downloadCloudflared(ctx, cloudflaredSourceURL(selected, downloadURL), checksum, exe != "")
 		if ctx.Err() != nil {
 			return "", ctx.Err()
@@ -486,7 +488,12 @@ func (c *Controller) runTunnelSession(ctx context.Context, cancel context.Cancel
 	}()
 	fail := func(err error) {
 		if ctx.Err() == nil {
-			c.updateTunnel(generation, "error", err.Error(), func() { c.tunnelURL = ""; c.tunnelHealth = "unhealthy" })
+			c.updateTunnel(generation, "error", err.Error(), func() {
+				c.tunnelURL, c.tunnelHealth = "", "unhealthy"
+				if errors.Is(err, errCloudflaredDownloadIdle) {
+					c.tunnelErrorCode = cloudflaredDownloadIdleCode
+				}
+			})
 			c.log(err.Error(), "tunnel", "ERROR")
 		}
 	}
@@ -576,6 +583,7 @@ func (c *Controller) stopTunnel() error {
 	defer c.tunnelLifecycleMu.Unlock()
 	c.mu.Lock()
 	cancel, done, proc := c.tunnelCancel, c.tunnelDone, c.tunnel
+	c.tunnelErrorCode = ""
 	if cancel == nil {
 		c.tunnelState, c.tunnelHealth = "stopped", "stopped"
 		c.tunnelURL, c.tunnelMessage = "", ""
