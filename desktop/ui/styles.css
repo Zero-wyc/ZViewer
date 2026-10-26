@@ -689,8 +689,12 @@ main > div { padding: 0 var(--page-padding) var(--gap-xl); max-width: 1120px; }
 .connect-value.is-empty { color: var(--text-tertiary); }
 .connect-note { margin: 0; color: var(--text-secondary); font-size: 12px; line-height: 17px; }
 .connect-hint { margin: 0; padding-top: 10px; border-top: 1px dashed var(--divider); color: var(--text-tertiary); font-size: 12px; line-height: 17px; }
-.connect-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.connect-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .connect-actions .btn { text-decoration: none; }
+.tunnel-source { display: flex; align-items: center; gap: 8px; min-width: 0; color: var(--text-secondary); font-size: 12px; }
+.tunnel-source > span { flex-shrink: 0; }
+.tunnel-source .select { width: 184px; max-width: 100%; }
+.tunnel-source .select-trigger:disabled { opacity: .55; cursor: default; }
 .link-list { display: flex; flex-direction: column; border: 1px solid var(--divider); border-radius: var(--radius-control); overflow: hidden; }
 .link-list a {
   display: flex; align-items: center; gap: 8px;

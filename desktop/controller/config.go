@@ -35,12 +35,14 @@ type Config struct {
 	UpdateProxy     bool   `json:"updateProxy"`
 	UpdateProxyURL  string `json:"updateProxyUrl"`
 	// UpdateGitCode 选择更新源：true=GitCode 大陆镜像（默认），false=GitHub。
-	UpdateGitCode bool       `json:"updateGitCode"`
-	Domain        string     `json:"domain"`
-	LanIP         string     `json:"lanIp"`
-	Cli           CliConfig  `json:"cli"`
-	Frp           FrpConfig  `json:"frp"`
-	Mesh          MeshConfig `json:"mesh"`
+	UpdateGitCode bool `json:"updateGitCode"`
+	// CloudflaredSource 独立控制隧道组件的版本检查与下载，与 GUI 自身更新源无关。
+	CloudflaredSource string     `json:"cloudflaredSource"`
+	Domain            string     `json:"domain"`
+	LanIP             string     `json:"lanIp"`
+	Cli               CliConfig  `json:"cli"`
+	Frp               FrpConfig  `json:"frp"`
+	Mesh              MeshConfig `json:"mesh"`
 }
 
 type CliConfig struct {
@@ -75,7 +77,8 @@ func DefaultConfig() Config {
 		BindHost: "::", Https: false,
 		CloseToTray: true, LaunchAtLogin: false, AutoStart: false, AutoCheckUpdate: true,
 		UpdateProxy: true, UpdateProxyURL: DefaultUpdateProxy, UpdateGitCode: true,
-		Domain: "localhost", LanIP: "",
+		CloudflaredSource: cloudflaredSourceProxy,
+		Domain:            "localhost", LanIP: "",
 		Cli: CliConfig{Port: 9333, AutoStart: false, User: ""},
 		Frp: FrpConfig{Host: "", Port: 7000, AdvertiseIP: "", Voice: true, Rtmp: true, Tcp: false,
 			WebPort: 3333, VoicePort: 3333, RtmpPort: 3334, TcpPort: 3337, Mode: "form", Format: "toml"},
@@ -277,6 +280,11 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 		return target, err
 	}
 	target.UpdateProxyURL = proxy
+	source, ok := asString(base["cloudflaredSource"])
+	if !ok || (source != cloudflaredSourceProxy && source != cloudflaredSourceGitHub) {
+		return target, errors.New("cloudflared 获取源无效，请选择 GitHub 前置反代或 GitHub 官方")
+	}
+	target.CloudflaredSource = source
 	// 老配置里没有这个键：缺省保持默认 true（GitCode），不要被 asBool 的零值改回 false。
 	// 值类型不对时同样保留默认，而不是当成「关闭」。
 	if raw, exists := base["updateGitCode"]; exists {

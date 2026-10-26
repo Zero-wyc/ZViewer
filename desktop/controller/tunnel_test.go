@@ -155,12 +155,19 @@ func TestTunnelStopCancelsVersionRequest(t *testing.T) {
 			defer origin.Close()
 			controller.store.Value.Port = origin.Listener.Addr().(*net.TCPAddr).Port
 			controller.store.Value.Https = false
+			// 主服务沿用旧配置运行时，隧道也必须读取刚保存的获取源。
+			active := controller.store.Value.Clone()
+			active.CloudflaredSource = cloudflaredSourceGitHub
+			controller.active = &active
 			if err := os.WriteFile(filepath.Join(dir, "cloudflared.exe"), []byte("never execute this fixture"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			entered := make(chan struct{})
 			previous := http.DefaultClient
 			http.DefaultClient = &http.Client{Transport: tunnelRoundTripFunc(func(r *http.Request) (*http.Response, error) {
+				if r.URL.String() != cloudflaredSourceURL(cloudflaredSourceProxy, cloudflaredReleaseAPI) {
+					t.Errorf("used stale active source for version check: %s", r.URL)
+				}
 				close(entered)
 				<-r.Context().Done()
 				return nil, r.Context().Err()
