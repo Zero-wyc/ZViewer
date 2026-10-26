@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"os/exec"
@@ -44,6 +45,7 @@ type TunnelReport struct {
 	MaxRefreshes int    `json:"maxRefreshes"`
 	Protocol     string `json:"protocol"`
 	Message      string `json:"message"`
+	ErrorCode    string `json:"errorCode,omitempty"`
 }
 
 // ipv6Sources 均只有 AAAA 记录；按国内可达性排序。
@@ -286,8 +288,10 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	if fileExists(target) && !replaceExisting {
 		return target, nil
 	}
-	ctx, cancel := context.WithTimeout(parent, 2*time.Minute)
-	defer cancel()
+	ctx, watchdog := newCloudflaredDownloadWatchdog(parent)
+	defer watchdog.cancel(nil)
+	defer watchdog.stop()
+	ctx = httptrace.WithClientTrace(ctx, &httptrace.ClientTrace{GotFirstResponseByte: watchdog.activity})
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, downloadURL, nil)
 	if err != nil {
 		return "", err
@@ -295,7 +299,19 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	if !validCloudflaredDownloadURL(downloadURL) {
 		return "", errors.New("cloudflared 下载地址不在允许的 HTTPS 来源中")
 	}
-	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(request *http.Request, via []*http.Request) error {
+	transport := http.DefaultTransport
+	if base, ok := transport.(*http.Transport); ok {
+		// The watchdog covers dialing, TLS, headers and the body. Shorter
+		// transport timeouts must not abort a download before its idle limit.
+		clone := base.Clone()
+		clone.DialContext = (&net.Dialer{KeepAlive: 30 * time.Second}).DialContext
+		clone.TLSHandshakeTimeout = 0
+		clone.ResponseHeaderTimeout = 0
+		transport = clone
+		defer clone.CloseIdleConnections()
+	}
+	client := &http.Client{Transport: transport, CheckRedirect: func(request *http.Request, via []*http.Request) error {
+		watchdog.activity()
 		if !validCloudflaredDownloadURL(request.URL.String()) {
 			return fmt.Errorf("cloudflared 下载跳转到不允许的来源：%s", request.URL.Hostname())
 		}
@@ -306,9 +322,13 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	}}
 	response, err := client.Do(request)
 	if err != nil {
+		if errors.Is(context.Cause(ctx), errCloudflaredDownloadIdle) {
+			return "", errCloudflaredDownloadIdle
+		}
 		return "", fmt.Errorf("下载 cloudflared 失败：%w", err)
 	}
 	defer response.Body.Close()
+	watchdog.activity()
 	if response.StatusCode != http.StatusOK {
 		return "", fmt.Errorf("下载 cloudflared 失败：HTTP %d", response.StatusCode)
 	}
@@ -321,12 +341,17 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	}
 	tmpPath := tmp.Name()
 	defer removeCloudflaredTemporaryFile(tmpPath)
-	limited := &io.LimitedReader{R: response.Body, N: (100 << 20) + 1}
+	limited := &io.LimitedReader{R: cloudflaredProgressReader{Reader: response.Body, watchdog: watchdog}, N: (100 << 20) + 1}
 	hasher := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(tmp, hasher), limited)
+	// File validation and installation have their own cancellation/retry rules.
+	watchdog.stop()
 	closeErr := tmp.Close()
+	if errors.Is(context.Cause(ctx), errCloudflaredDownloadIdle) {
+		return "", errCloudflaredDownloadIdle
+	}
 	if copyErr != nil {
-		return "", fmt.Errorf("保存 cloudflared 失败：%w", copyErr)
+		return "", fmt.Errorf("接收或保存 cloudflared 失败：%w", copyErr)
 	}
 	if closeErr != nil {
 		return "", fmt.Errorf("写入 cloudflared 失败：%w", closeErr)

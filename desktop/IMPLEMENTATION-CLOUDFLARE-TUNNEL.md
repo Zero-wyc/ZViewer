@@ -8,6 +8,10 @@
 
 本机 `/health` 最多检查两次，单次最多 1.5 秒。组件版本每次手动启动/刷新检查一次，自动刷新复用已检查的组件；官方更新请求和下载均可取消。下载仍先写临时文件，再检查大小、PE 标记和 Release 提供的 SHA-256；更新失败保留旧组件，PATH 文件不被改写。
 
+组件下载没有总时长上限。从发起请求开始，只有连续 1 分钟未收到响应或下载数据才取消本次下载；首个响应字节、重定向响应和每次实际收到的文件数据都会刷新空闲期限。下载持续有数据时，即使超过原来的 2 分钟也会继续。连接、TLS 和响应头等传输阶段统一由该空闲期限约束；文件下载完成后立即停止计时，后续校验与安装遵循各自的取消和文件重试规则。
+
+空闲超时使用独立错误 `errCloudflaredDownloadIdle`；隧道快照返回 `errorCode: cloudflared_download_idle_timeout`，GUI 状态为「下载超时」、卡片标题为「组件下载超时」，详情提示「cloudflared 下载超时：连续 1 分钟未收到响应或下载数据，已中断。请检查网络或切换获取源后重试。」。重新启动或停止后清除旧错误码。反代超时仍按原有策略回退官方；用户主动取消不显示空闲超时，也不继续回退。
+
 ## 组件获取源
 
 连接方式卡片的启动按钮旁提供「获取源」下拉框，独立保存为 `cloudflaredSource`：`proxy`（默认，GitHub 前置反代）或 `github`（GitHub 官方）。旧配置缺少此项时自动采用默认值。版本检查和安装文件下载共用同一来源；默认通过 `https://gh-proxy.com/` 前缀获取官方 Release API 和 Windows x64 附件。反代版本检查或下载失败时自动回退官方直连，界面进度和 `tunnel` 日志记录原因；用户中断后不回退、不继续请求。两种来源都失败时保留现有组件。
@@ -42,3 +46,7 @@ Windows 可能在写入完成后继续占用下载文件，使读取或原子重
 2026-10-26 后续修复使用 `CreateFile` 建立真实的 Windows 共享锁，在反代返回 502、官方源下载完成后暂时锁住下载文件：修复前重现「The process cannot access the file because it is being used by another process」，修复后同一用例安装成功。`controller/cloudflared_install_windows_test.go` 另覆盖旧组件与下载文件的临时锁、取消时恢复旧组件，以及持续占用时不切源重下。浏览器夹具检查了 11 次状态转换：停止/错误时显示来源，所有活动状态隐藏，再次停止时恢复原选择；此检查未启动用户业务服务或公网隧道。
 
 构建：`npm --prefix desktop run check`，`go test ./...`（在 desktop 目录），`npm --prefix desktop run shell:build -- --release`。产物为 `desktop/build/bin/ZViewerDesktop.exe`，替换运行包壳时保留 runtime 业务数据与用户配置。
+
+`controller/cloudflared_download_test.go` 使用 Go `testing/synctest` 的虚拟时钟验证：首次请求无响应满 1 分钟、收到部分数据后连续 1 分钟停滞、空读取不能续期、手动取消、响应头与重定向刷新期限，以及持续 3 分钟的慢速下载成功。失败与取消均验证旧组件保留和临时文件清理；完成后额外推进时间确认计时器已停止。
+
+2026-10-26 本次空闲时限修复通过 desktop 全套 `go test -count=1 ./...`、`go vet ./...`、JS 检查与 Windows 发布构建。隔离浏览器预览验证下载中、空闲超时、其他错误及停止四种状态，专用超时提示和获取源入口显示正常。真实组件下载测试在临时目录通过默认反代完成官方 cloudflared 2026.10.3 的下载、校验、安装和 `--version` 检查，耗时约 43 秒；未启动公网隧道。本地 GUI 按现有 5.0.4 基线附加 `cloudflared-idle.20261026.1` 构建标识，仅同步控制台 EXE。

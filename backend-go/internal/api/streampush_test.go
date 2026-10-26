@@ -2,6 +2,7 @@ package api_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"net"
@@ -9,9 +10,11 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 	"zviewer/backend/internal/auth"
+	"zviewer/backend/internal/store"
 )
 
 // insertPushRoom 插一个投屏房间：streamKey 允许为 nil（NULL）。
@@ -179,8 +182,8 @@ func TestObsConfigGeneratesStreamKey(t *testing.T) {
 	}
 
 	key := cfg.Sources[1].Settings.Key
-	if len(key) != 32 {
-		t.Fatalf("推流码长度 = %d, want 32（%q）", len(key), key)
+	if len(key) != 8 {
+		t.Fatalf("推流码长度 = %d, want 8（%q）", len(key), key)
 	}
 	if cfg.Service.Settings.Key != key {
 		t.Error("两个位置的推流码必须一致")
@@ -197,7 +200,7 @@ func TestObsConfigReusesExistingStreamKey(t *testing.T) {
 	defer env.teardown()
 	userID := env.seedUser(t, "alice", "pass1234", "user", "active")
 	token := env.token(t, userID, "user", "alice")
-	existing := strings.Repeat("AbCd2345", 4)
+	existing := "AbCd2345"
 	env.insertPushRoom(t, "PUSH0004", "screen-share", &existing)
 	env.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId=?`, userID, "PUSH0004")
 
@@ -210,6 +213,54 @@ func TestObsConfigReusesExistingStreamKey(t *testing.T) {
 	}
 	if stored := env.roomStreamKey(t, "PUSH0004"); stored == nil || *stored != existing {
 		t.Fatalf("已有推流码被覆盖: %v", stored)
+	}
+}
+
+func TestObsConfigMigratesLegacyKeyOnceUnderConcurrentDownloads(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	userID := env.seedUser(t, "obs-owner", "pass1234", "user", "active")
+	token := env.token(t, userID, "user", "obs-owner")
+	legacy := strings.Repeat("AbCd2345", 4)
+	env.insertPushRoom(t, "MIGRATE8", "screen-share", &legacy)
+	env.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId=?`, userID, "MIGRATE8")
+	responses := make(chan *httptest.ResponseRecorder, 12)
+	var wg sync.WaitGroup
+	for range 12 {
+		wg.Go(func() {
+			req := httptest.NewRequest("GET", "/api/stream-push/obs-config/MIGRATE8", nil)
+			req.Header.Set("Authorization", "Bearer "+token)
+			rec := httptest.NewRecorder()
+			env.handler.ServeHTTP(rec, req)
+			responses <- rec
+		})
+	}
+	wg.Wait()
+	close(responses)
+	stored := env.roomStreamKey(t, "MIGRATE8")
+	if stored == nil || len(*stored) != 8 {
+		t.Fatal("旧 32 位码未迁移为八位")
+	}
+	for rec := range responses {
+		var cfg struct {
+			Service struct {
+				Settings struct {
+					Key string `json:"key"`
+				} `json:"settings"`
+			} `json:"service"`
+		}
+		if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &cfg) != nil || cfg.Service.Settings.Key != *stored {
+			t.Fatalf("并发配置未返回同一个已保存的八位码：%d %s", rec.Code, rec.Body.String())
+		}
+	}
+	// 过期房主或已关闭房间的迟到迁移不能改写当前码。
+	otherOwner := userID + 1
+	if _, err := store.NewRooms(env.conn).EnsureStreamKey(context.Background(), "MIGRATE8", &otherOwner, "NEWKEY88"); err == nil {
+		t.Fatal("房主不匹配时仍允许更新")
+	}
+	env.conn.Exec(`UPDATE room SET status='closed' WHERE roomId='MIGRATE8'`)
+	if _, err := store.NewRooms(env.conn).EnsureStreamKey(context.Background(), "MIGRATE8", &userID, "NEWKEY88"); err == nil {
+		t.Fatal("已关闭房间仍允许更新")
 	}
 }
 

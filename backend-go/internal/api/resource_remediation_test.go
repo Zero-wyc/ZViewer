@@ -27,7 +27,7 @@ func TestRemediationOBSBoundaryAndForwardedHost(t *testing.T) {
 	defer e.teardown()
 	owner := e.seedUser(t, "publish-owner", "fixture-password", "user", "active")
 	ownerToken := e.token(t, owner, "user", "publish-owner")
-	key := "LEGACY88"
+	key := strings.Repeat("LEGACY88", 4)
 	e.insertPushRoom(t, "SECURE01", "screen-share", &key)
 	e.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId='SECURE01'`, owner)
 	if got, _ := e.doObsConfig(t, "SECURE01", e.guestToken(t), "localhost:3333"); got.StatusCode != 403 {
@@ -282,7 +282,7 @@ func TestRemediationWatchTicketRevokedWithSession(t *testing.T) {
 	owner := e.seedUser(t, "watch-host", "fixture-password", "user", "active")
 	viewer := e.seedUser(t, "watch-viewer", "fixture-password", "user", "active")
 	token := e.token(t, viewer, "user", "watch-viewer")
-	key := strings.Repeat("K", 32)
+	key := "K2345678"
 	e.insertPushRoom(t, "WATCH002", "screen-share", &key)
 	e.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId='WATCH002'`, owner)
 	endpoint := "/api/stream-push/watch/WATCH002"

@@ -564,7 +564,8 @@
     const tunnel = live ? state.server.tunnel : null;
     const tunnelLabels = { stopped: '未运行', checking: '检查更新', downloading: '下载中', connecting: '连接中', refreshing: '自动刷新', reconnecting: '原地址重连中', 'health-checking': '健康检测', stopping: '停止中', error: '异常' };
     const tunnelStarting = ['checking', 'downloading', 'connecting', 'refreshing', 'health-checking'].includes(tunnel?.state);
-    const tunnelStatus = tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
+    const tunnelDownloadTimedOut = tunnel?.state === 'error' && tunnel.errorCode === 'cloudflared_download_idle_timeout';
+    const tunnelStatus = tunnelDownloadTimedOut ? '下载超时' : tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
     const tunnelStopping = tunnel?.state === 'stopping';
     const tunnelCanStop = Boolean(tunnel) && ['running', 'reconnecting'].includes(tunnel.state);
     const tunnelSource = (live ? state.config?.cloudflaredSource : state.cloudflaredSource) || 'proxy';
@@ -572,6 +573,8 @@
     let tunnelBody;
     if (!tunnel) {
       tunnelBody = `<p class="connect-value is-empty">桌面版中可用</p><p class="connect-note">不需要公网 IP；地址随隧道关闭失效。固定域名需外国银行卡。</p>`;
+    } else if (tunnelDownloadTimedOut) {
+      tunnelBody = `<p class="connect-value is-empty">组件下载超时</p><p class="connect-note">${esc(tunnel.message)}</p>`;
     } else if (!tunnel.available) {
       tunnelBody = `<p class="connect-value is-empty">${tunnel.state === 'health-checking' ? '正在检查本机服务' : tunnel.state === 'downloading' ? '正在获取 cloudflared' : tunnel.state === 'error' ? '启动条件未通过' : '首次使用时自动下载'}</p><p class="connect-note">${esc(tunnel.message || `点击一键启动，程序会通过 ${tunnelSourceName} 获取组件并启动临时隧道。`)}</p>`;
     } else if (tunnel.url) {
