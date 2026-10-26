@@ -155,7 +155,9 @@ func TestTunnelStopCancelsVersionRequest(t *testing.T) {
 			defer origin.Close()
 			controller.store.Value.Port = origin.Listener.Addr().(*net.TCPAddr).Port
 			controller.store.Value.Https = false
-			// 主服务沿用旧配置运行时，隧道也必须读取刚保存的获取源。
+			// 主服务沿用旧配置运行时，隧道也必须读取刚保存的获取源：
+			// 保存的源是反代，运行中的 active 还停在 GitHub，用哪个源由 store 决定。
+			controller.store.Value.CloudflaredSource = cloudflaredSourceProxy
 			active := controller.store.Value.Clone()
 			active.CloudflaredSource = cloudflaredSourceGitHub
 			controller.active = &active

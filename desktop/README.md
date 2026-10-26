@@ -19,7 +19,8 @@ GUI 分发**不包含任何 Node 运行时**：一起听的网易云接口由 Go
 | GUI 入口                 | 运行目录中的 `ZViewerDesktop.exe`              |
 | 进程监管宿主                 | 同目录 `assets/ZViewer.ProcessHost.exe`     |
 | 后端、LiveKit、FRP、CLI 与网页 | `runtime/` 内的程序与 `runtime/frontend/dist` |
-| EasyTier 虚拟组网组件          | `runtime/mesh/`（easytier-core / easytier-cli） |
+| EasyTier 虚拟组网组件          | `runtime/mesh/`（首次使用组网时下载，本体不含） |
+| Cloudflare 隧道组件           | `runtime/cloudflared.exe`（首次启动隧道时下载，本体不含） |
 | 后端环境与业务数据              | `runtime/.env`、`runtime/config`          |
 | GUI 设置、证书、FRP 凭据与日志    | `%APPDATA%/ZViewerDesktop`               |
 | ZViewerCLI 自身的登录配置     | `%USERPROFILE%/.zviewer/config.json`     |
@@ -156,13 +157,13 @@ IPv6 直连：外部接口检测的是本机的 IPv6 **出口**，不等于从�
 
 虚拟局域网：内置「EasyTier 虚拟组网」（左侧栏“高级 → EasyTier 虚拟组网”），本机直接加入虚拟网络，其他设备按虚拟 IP 访问，详见下一节。
 
-Cloudflare Tunnel：蓝色“一键启动隧道”会先检查本机 `/health`、查询组件更新，再通过 HTTP/2 建立到 Cloudflare 的连接，避开部分网络中 QUIC/UDP 建立后又超时的问题。按钮旁的“获取源”默认选用 GitHub 前置反代（`https://gh-proxy.com`），也可切换为 GitHub 官方；选择自动保存，组件下载和更新检查均使用此源，反代不可用时自动回退官方直连，详情记录在隧道日志。更改在下次启动或刷新隧道时生效，无需重启主服务，独立于 GUI 自身的软件更新源。首次自动下载组件到 `runtime/cloudflared.exe`，更新失败可继续使用现有组件。同一次启动内，等候地址分配和连接注册完成后再进行公网检查：单次请求最多 2 秒，两次失败即自动刷新，最多刷新 5 次（首次加刷新共 6 个候选）；连续两次访问到同一本机服务的健康接口后才显示地址。检测、下载、连接和刷新期间均有红色中断按钮。成功后保持地址，断线只交给 cloudflared 在原地址重连，GUI 不自动换地址；连接异常会显示重连或源站错误，主服务意外退出时停止隧道。运行中可手动停止、复制地址或刷新隧道。快速隧道无需 VPS、隧道账号或 FRP 配置，提示语为“一键启动，无需额外配置”；它依赖外部网络，启动检查通过不保证之后始终可达。固定域名需要 Cloudflare 命名隧道、账号与自有域名。
+Cloudflare Tunnel：蓝色“一键启动隧道”会先检查本机 `/health`，再按需获取 cloudflared 组件，然后通过 HTTP/2 建立到 Cloudflare 的连接，避开部分网络中 QUIC/UDP 建立后又超时的问题。按钮旁的“获取源”默认选用 GitCode 镜像（仓库 `public/` 里的组件，按 `api.gitcode.com` 的仓库直链下载，国内可直连），也可切换为 GitHub 官方或 GitHub 前置反代（`https://gh-proxy.com`）；选择自动保存，镜像不可用时自动回退 GitHub 官方，详情记录在隧道日志。更改在下次启动或刷新隧道时生效，无需重启主服务，独立于 GUI 自身的软件更新源。首次自动下载组件到 `runtime/cloudflared.exe`（约 55 MB，SHA-256 校验），更新失败可继续使用现有组件。同一次启动内，等候地址分配和连接注册完成后再进行公网检查：单次请求最多 2 秒，两次失败即自动刷新，最多刷新 5 次（首次加刷新共 6 个候选）；连续两次访问到同一本机服务的健康接口后才显示地址。检测、下载、连接和刷新期间均有红色中断按钮。成功后保持地址，断线只交给 cloudflared 在原地址重连，GUI 不自动换地址；连接异常会显示重连或源站错误，主服务意外退出时停止隧道。运行中可手动停止、复制地址或刷新隧道。快速隧道无需 VPS、隧道账号或 FRP 配置，提示语为“一键启动，无需额外配置”；它依赖外部网络，启动检查通过不保证之后始终可达。固定域名需要 Cloudflare 命名隧道、账号与自有域名。
 
 获取源选项仅在隧道已停止或启动失败时显示，启动、运行、重连与停止过程中隐藏，停止完成后恢复选择。Windows 暂时占用下载文件时会短时重试安装；持续的本地文件占用不再通过换源反复下载，更新失败时保留可用的旧组件。
 
 ## EasyTier 虚拟组网
 
-入口在左侧栏“高级 → EasyTier 虚拟组网”。包内自带 [EasyTier](https://github.com/EasyTier/EasyTier) 2.6.4（`runtime/mesh/`），以 `no_tun` 方式运行：不需要管理员权限、不创建虚拟网卡、不需要任何账号。本机加入虚拟网络后，网络内其他设备可以用虚拟 IP 访问本机的网页、推流与语音端口；本机本身不能主动访问其他节点。
+入口在左侧栏“高级 → EasyTier 虚拟组网”。组网组件不随包分发：第一次进这个页面时点「下载组网组件」按需获取 [EasyTier](https://github.com/EasyTier/EasyTier) 2.6.4（约 33 MB，来自仓库 `public/` 的 GitCode 直链，装好后存放在 `runtime/mesh/`）。运行时以 `no_tun` 方式启动：不需要管理员权限、不创建虚拟网卡、不需要任何账号。本机加入虚拟网络后，网络内其他设备可以用虚拟 IP 访问本机的网页、推流与语音端口；本机本身不能主动访问其他节点。
 
 组网只需要一组网络名称与网络密钥，两者在同一个网络里必须一致。点“生成新的网络名与密钥”会自动填好并保存，复制“入网说明”发给对方即可。
 
@@ -228,11 +229,11 @@ Cloudflare Tunnel：蓝色“一键启动隧道”会先检查本机 `/health`�
 | 组件 | 版本 | 许可证 | 分发包内文件 |
 | --- | --- | --- | --- |
 | [frp](https://github.com/fatedier/frp) 客户端 | 0.71.1 | Apache-2.0 | `runtime/frpc.exe`、`LICENSE-FRP.txt` |
-| [EasyTier](https://github.com/EasyTier/EasyTier) | 2.6.4 | LGPL-3.0 | `runtime/mesh/`、`LICENSE-EasyTier.txt` |
+| [EasyTier](https://github.com/EasyTier/EasyTier) | 2.6.4 | LGPL-3.0 | 可选组件：`public/` 组件库，下载后落在 `runtime/mesh/`，另附 `LICENSE-EasyTier.txt` |
 | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) | 0.2.1 | MIT | `runtime/zviewer-cli-windows-amd64.exe`、`LICENSE-ZViewerCLI.txt` |
 | [LiveKit](https://github.com/livekit/livekit) server | 见运行包 | Apache-2.0 | `runtime/livekit-server.exe` |
 
-EasyTier 为 LGPL-3.0：本项目按原样聚合分发其官方发布包中的未修改二进制，未做任何链接或修改；对应源码可从 <https://github.com/EasyTier/EasyTier/tree/v2.6.4> 获取，许可证全文随包提供。需要替换该组件时，用自己的构建产物覆盖 `runtime/mesh/` 下的同名文件即可。
+EasyTier 为 LGPL-3.0：本项目按原样分发其官方发布包中的未修改二进制（官方 zip 原样放在仓库 `public/`，桌面端安装时只解出运行必需文件），未做任何链接或修改；对应源码可从 <https://github.com/EasyTier/EasyTier/tree/v2.6.4> 获取，许可证全文随组件库提供。需要替换该组件时，用同样的方式更新 `public/` 里的 zip 与 `desktop/controller/components.go` 中的版本/摘要。
 
 ## 上游贡献
 

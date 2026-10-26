@@ -139,7 +139,7 @@
           <div class="form-actions">${button('保存配置','save-service','check','primary')}${state.server.pid ? button('重启使配置生效','restart','refresh') : ''}</div>
         </div>
       </div><div class="panel section-title"><div><h2>窗口与系统托盘</h2>${toggle('closeToTray','关闭窗口时隐藏到托盘','')}${toggle('launchAtLogin','登录 Windows 后自动启动控制台','')}${toggle('autoStart','打开控制台时自动启动服务','')}</div></div></section>
-      <aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">${esc(state.info.version)} <small>LOCAL BUILD</small></div><p class="settings-description">配置保存在当前用户目录，FRP 密钥加密保存。</p><div class="panel-line"></div><div class="subheading">当前运行包</div><p class="runtime-path">${esc(state.server.root)}</p><div class="file-check"><span>后端</span><span>${state.info.runtime.backend ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>FRP 0.71.1</span><span>${state.server.frpcAvailable ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>ZViewerCLI</span><span>${state.server.cli?.available ? '已检测到' : '缺失'}</span></div><div class="live-toolbar">${button('配置文件夹','open-data','folder')}${button('托盘菜单','tray-preview','tray')}</div></aside></div>`;
+      <aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">${esc(state.info.version)} <small>LOCAL BUILD</small></div><p class="settings-description">配置保存在当前用户目录，FRP 密钥加密保存。</p><div class="panel-line"></div><div class="subheading">当前运行包</div><p class="runtime-path">${esc(state.server.root)}</p><div class="file-check"><span>后端</span><span>${state.info.runtime.backend ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>FRP 0.71.1</span><span>${state.server.frpcAvailable ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>ZViewerCLI</span><span>${state.server.cli?.available ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>Cloudflare 组件</span><span>${state.server.components?.cloudflared?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>EasyTier 组件</span><span>${state.server.components?.easytier?.available ? '已下载' : '按需下载'}</span></div><div class="live-toolbar">${button('配置文件夹','open-data','folder')}${button('托盘菜单','tray-preview','tray')}</div></aside></div>`;
   }
   function logs() {
     return ui.preview.logs()
@@ -278,6 +278,10 @@
         ui.render();
         ui.toast('组网配置已保存');
       }
+    } else if (action === 'mesh-install') {
+      await command('component-install', { name: 'easytier' });
+      ui.render();
+      ui.toast('正在下载组网组件，下载完成后按钮会变成「保存并入网」');
     } else if (action === 'mesh-generate') {
       const credentials = await command('mesh-generate');
       state.meshDraft = { ...meshValues(), networkName: credentials.networkName };
@@ -317,7 +321,7 @@
     else if (action === 'export-ca') await command('export',{kind:'ca'});
     else if (action === 'open-data') await command('open-data');
   }
-  const actions = new Set(['toggle-run','restart','open-manager','open-web','cli-start','cli-stop','cli-open','cli-save','local-cert','ipv6-cert','start-http','save-service','save-frp','toggle-frp','export-frp','frp-import','frp-save','frp-connect','frp-generate','mesh-save','mesh-toggle','mesh-generate','mesh-invite','mesh-probe','mesh-fill','mesh-config-save','mesh-config-connect','mesh-config-import','mesh-config-template','export-logs','export-ca','open-data','probe-ipv6','tunnel-start','tunnel-stop','tunnel-refresh']);
+  const actions = new Set(['toggle-run','restart','open-manager','open-web','cli-start','cli-stop','cli-open','cli-save','local-cert','ipv6-cert','start-http','save-service','save-frp','toggle-frp','export-frp','frp-import','frp-save','frp-connect','frp-generate','mesh-install','mesh-save','mesh-toggle','mesh-generate','mesh-invite','mesh-probe','mesh-fill','mesh-config-save','mesh-config-connect','mesh-config-import','mesh-config-template','export-logs','export-ca','open-data','probe-ipv6','tunnel-start','tunnel-stop','tunnel-refresh']);
   function cliValues() { return { port: $('#cli-port').value, autoStart: $('#cli-auto-start').getAttribute('aria-checked') === 'true', user: $('#cli-user').value.trim() }; }
   function meshValues() {
     return {

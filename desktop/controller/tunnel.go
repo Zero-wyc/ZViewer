@@ -272,6 +272,30 @@ func (c *Controller) prepareCloudflared(ctx context.Context, generation uint64, 
 			return "", err
 		}
 		name := cloudflaredSourceName(selected)
+		if selected == cloudflaredSourceGitCode {
+			// GitCode 镜像给的是钉死版本的仓库直链：有文件就直接用，缺了才下载。
+			// 不查 GitHub Release API——大陆网络正是查不通才要用镜像。
+			if exe != "" {
+				return exe, nil
+			}
+			c.updateTunnel(generation, "downloading", fallback+"正在通过 "+name+" 下载 cloudflared，完成后启动…", nil)
+			updated, err := c.downloadCloudflared(ctx, cloudflaredSpec.mirrorURL(), cloudflaredSpec.SHA256, false)
+			if ctx.Err() != nil {
+				return "", ctx.Err()
+			}
+			if err == nil {
+				c.log("已通过 "+name+" 下载 cloudflared.exe", "tunnel", "INFO")
+				return updated, nil
+			}
+			var installErr *cloudflaredInstallError
+			if errors.As(err, &installErr) {
+				// 本地落盘失败换源也没用，直接报给用户。
+				return "", err
+			}
+			fallback = "GitCode 镜像不可用，已回退 GitHub 官方。"
+			c.log(fallback+err.Error(), "tunnel", "WARN")
+			continue
+		}
 		c.updateTunnel(generation, "checking", fallback+"正在通过 "+name+" 检查 cloudflared 更新…", nil)
 		release, latest, releaseErr := latestCloudflaredRelease(ctx, selected)
 		if ctx.Err() != nil {

@@ -277,6 +277,9 @@ func (a *App) dispatch(action string, payload map[string]any) (any, error) {
 			return nil, err
 		}
 		return map[string]any{"url": url}, nil
+	case "component-install":
+		// 可选组件（cloudflared / easytier）：后台下载，进度随快照推送。
+		return a.ctrl.InstallComponent(payloadString(payload, "name"))
 	case "mesh-start":
 		return a.ctrl.StartMesh()
 	case "mesh-stop":

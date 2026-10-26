@@ -140,7 +140,12 @@ func (c *Controller) ProbePublicPeers(list []string) []MeshPeerProbe {
 // AutoStartMesh 在控制台启动后按配置入网；失败只记日志，不阻塞界面。
 func (c *Controller) AutoStartMesh() {
 	config := c.store.Value
-	if !config.Mesh.Enabled || !c.mesh.Available() {
+	if !config.Mesh.Enabled {
+		return
+	}
+	if !c.mesh.Available() {
+		// 组件是按需下载的：没下载时不要当成故障反复重试，只说一句话。
+		c.log("组网组件尚未下载，已跳过自动入网", "mesh", "WARN")
 		return
 	}
 	secret, err := c.store.MeshSecret()

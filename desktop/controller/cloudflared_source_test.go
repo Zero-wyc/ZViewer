@@ -16,10 +16,10 @@ import (
 
 func TestCloudflaredSourceConfig(t *testing.T) {
 	config, err := Validate(map[string]any{})
-	if err != nil || config.CloudflaredSource != cloudflaredSourceProxy {
-		t.Fatalf("old settings must default to proxy: %+v, %v", config, err)
+	if err != nil || config.CloudflaredSource != cloudflaredSourceGitCode {
+		t.Fatalf("old settings must default to the GitCode mirror: %+v, %v", config, err)
 	}
-	for _, invalid := range []any{"gitcode", "", true, nil} {
+	for _, invalid := range []any{"mirror", "", true, nil} {
 		if _, err := Validate(map[string]any{"cloudflaredSource": invalid}); err == nil {
 			t.Fatalf("accepted invalid source: %v", invalid)
 		}

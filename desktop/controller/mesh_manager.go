@@ -81,10 +81,13 @@ func NewMeshManager(root, dir, hostExe string, kill func(*Proc, string) error,
 func (m *MeshManager) corePath() string { return filepath.Join(m.binDir, "easytier-core.exe") }
 func (m *MeshManager) cliPath() string  { return filepath.Join(m.binDir, "easytier-cli.exe") }
 
+// BinDir 是组件的落盘目录；可选组件下载器把 easytier-core/cli 解到这个目录。
+func (m *MeshManager) BinDir() string { return m.binDir }
+
 // customPath 是配置文件模式下用户那份 TOML 的位置。
 func (m *MeshManager) customPath() string { return meshCustomPath(m.dir) }
 
-// Available 表示分出包里带了组网组件。
+// Available 表示组网组件已经下载到运行包里（本体不再随包携带）。
 func (m *MeshManager) Available() bool {
 	return fileExists(m.corePath()) && fileExists(m.cliPath())
 }
@@ -173,7 +176,7 @@ func (m *MeshManager) handleLine(line string) {
 // Start 拉起 easytier-core 并等到虚拟 IP 分配完成。
 func (m *MeshManager) Start(cfg MeshConfig, secret string) (MeshStatus, error) {
 	if !m.Available() {
-		return m.Snapshot(), errors.New("缺少组网组件，请使用完整运行包")
+		return m.Snapshot(), errors.New("组网组件尚未下载，请先点「下载组网组件」")
 	}
 	if isWindows() && !fileExists(m.hostExe) {
 		return m.Snapshot(), errors.New("缺少进程监管组件")

@@ -2,6 +2,10 @@
 // 产物默认 desktop/dist-gui/zviewer-windows-x64-GUI，可用 ZVIEWER_OUT_DIR 改写。
 // 目录名与命令行包一致，仅追加 GUI 后缀，使同一次发布里两个包一眼可辨。
 //
+// Cloudflare（cloudflared）与 EasyTier 组网组件**不再随包分发**：它们是可选组件，
+// 由 GUI 第一次用到时从仓库的 public/（同步到 GitCode）按需下载。
+// 打包流程因此不再需要 easytier 缓存，只需要 FRP。
+//
 // 用法：
 //   node scripts/build-dist.mjs               完整打包
 //   node scripts/build-dist.mjs --skip-tools  跳过 FRP 下载（缓存已就绪时）
@@ -20,7 +24,6 @@ const pkg = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8'));
 const flags = new Set(process.argv.slice(2));
 const tools = join(desktop, '.runtime', 'tools');
 const frpDir = join(tools, 'frp_0.71.1_windows_amd64');
-const meshDir = join(tools, 'easytier');
 const cliDir = join(tools, 'zviewer-cli');
 const runtimeSource = process.env.ZVIEWER_RUNTIME_ROOT || join(repo, 'dist', 'win');
 // CLI 固定从运行包的网页目录取：build-all 会把 frontend/public 的
@@ -65,13 +68,9 @@ cpSync(join(runtimeSource, 'frontend', 'dist'), join(runtime, 'frontend', 'dist'
 for (const name of ['frpc.exe']) {
   if (existsSync(join(frpDir, name))) copyFileSync(join(frpDir, name), join(runtime, name));
 }
-// EasyTier 虚拟组网：壳在 runtime/mesh 里找 easytier-core / easytier-cli，缺 core 包直接报错。
-requireFile(join(meshDir, 'easytier-core.exe'), '缺少组网组件，先跑 scripts/prepare-tools.ps1 或去掉 --skip-tools');
-const meshTarget = join(runtime, 'mesh');
-mkdirSync(meshTarget, { recursive: true });
-for (const name of ['easytier-core.exe', 'easytier-cli.exe', 'Packet.dll', 'WinDivert64.sys', 'wintun.dll']) {
-  if (existsSync(join(meshDir, name))) copyFileSync(join(meshDir, name), join(meshTarget, name));
-}
+// Cloudflare（cloudflared）与 EasyTier 组网组件不再随包分发：它们在仓库 public/ 组件库里，
+// GUI 第一次用到时按 GitCode 直链下载（controller/components.go）。
+// 打包因此不再需要 easytier 缓存，也不再往 runtime/mesh 复制任何文件。
 copyFileSync(join(desktop, 'assets', 'ZViewer.ProcessHost.exe'), join(distribution, 'assets', 'ZViewer.ProcessHost.exe'));
 
 // CLI 固定放进 runtime/：壳只从运行包里找它，缺了就等于没有高画质代理。
@@ -86,8 +85,8 @@ for (const [source, target] of [['LICENSE', 'LICENSE-ZViewer.txt']]) {
   if (existsSync(file)) copyFileSync(file, join(distribution, target));
 }
 if (existsSync(join(frpDir, 'LICENSE'))) copyFileSync(join(frpDir, 'LICENSE'), join(distribution, 'LICENSE-FRP.txt'));
-// EasyTier 是 LGPL-3.0，聚合分发未修改的二进制必须带上许可证全文。
-const meshLicense = join(meshDir, 'LICENSE-EasyTier.txt');
+// EasyTier 是 LGPL-3.0：包内不再含其二进制，许可证随组件库（public/）一起分发。
+const meshLicense = join(repo, 'public', 'LICENSE-EasyTier.txt');
 if (existsSync(meshLicense)) copyFileSync(meshLicense, join(distribution, 'LICENSE-EasyTier.txt'));
 // 首次启动由壳自己生成独立 JWT 密钥，分发包里只放样例，绝不带真实 .env。
 rmSync(join(runtime, '.env'), { force: true });
@@ -115,8 +114,6 @@ const tracked = [
   'runtime/zviewer-backend.exe',
   'runtime/livekit-server.exe',
   'runtime/frpc.exe',
-  'runtime/mesh/easytier-core.exe',
-  'runtime/mesh/easytier-cli.exe',
   'runtime/zviewer-cli-windows-amd64.exe'
 ];
 const CLI_ENTRY = 'runtime/zviewer-cli-windows-amd64.exe';
@@ -139,7 +136,11 @@ const manifest = {
   signed: false,
   iconEmbedded: true,
   frp: '0.71.1',
-  mesh: '2.6.4',
+  // 可选组件不在包内：这里只登记版本与组件库来源，方便核对用户实际下载到的东西。
+  components: {
+    cloudflared: { version: '2026.10.3', delivery: 'download', library: 'public/cloudflared-windows-amd64.exe' },
+    easytier: { version: '2.6.4', delivery: 'download', library: 'public/easytier-windows-x86_64-v2.6.4.zip' }
+  },
   cli: cliMeta(cliSource),
   fileCount: walk(distribution).length,
   files

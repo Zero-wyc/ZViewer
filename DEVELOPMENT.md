@@ -179,6 +179,23 @@ npm run package        # 出 ZIP + SHA256
 
 > `cd desktop && go build -tags production .` 会覆盖**已入库**的 `desktop/desktop.exe`，日常别这么编；用 `npm run shell:build`。
 
+#### 桌面可选组件（public/）
+
+桌面 GUI **不再随包**带 cloudflared 与 EasyTier：两者放在仓库根目录的 `public/`（组件库），
+随仓库同步到 GitCode，GUI 第一次用到时下载（`desktop/controller/components.go`）。
+
+| 组件 | 文件 | 下载端点 |
+| --- | --- | --- |
+| Cloudflare Tunnel | `public/cloudflared-windows-amd64.exe` | `https://api.gitcode.com/api/v5/repos/Zero-wyc/ZViewer/raw/public/<文件>?ref=main` |
+| EasyTier 组网 | `public/easytier-windows-x86_64-v2.6.4.zip` | 同上 |
+
+**`raw.gitcode.com/.../raw/<branch>/<path>` 不能用**：那是预览通道，exe/zip 一律 `403 暂不支持预览`；
+`api.gitcode.com` 的 `raw` 端点才是按字节返回（支持 Range，55 MB 实测可下）。
+
+升级组件：`desktop/scripts/fetch-components.ps1` 拉文件 → 同步 `components.go` 里的
+`Version` / `Size` / `SHA256` → `cd desktop && go test ./controller -run Component`（常量与真实文件
+不一致会直接失败）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）。
+
 ### 6.1 发版与大陆镜像（GitHub → GitCode）
 
 `.github/workflows/build.yml` 推 `main` 出 `latest` 预发布、推 `v*` 出正式版。两个 release job 末尾都会把

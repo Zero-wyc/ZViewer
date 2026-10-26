@@ -60,6 +60,9 @@ type Snapshot struct {
 	Root            string       `json:"root"`
 	FrpcAvailable   bool         `json:"frpcAvailable"`
 	Runtime         RuntimeFiles `json:"runtime"`
+	// Components 是可选组件的状态（cloudflared / easytier）：
+	// 它们不再随运行包分发，界面按 available 决定显示「下载」还是「已就绪」。
+	Components ComponentsReport `json:"components"`
 }
 
 type Options struct {
@@ -87,6 +90,8 @@ type Controller struct {
 	certs *Certificates
 	cli   *CliProxy
 	mesh  *MeshManager
+	// components 记录可选组件的下载进度（本体不随运行包分发）。
+	components componentState
 
 	mu                 sync.RWMutex
 	events             []Event
@@ -274,6 +279,7 @@ func (c *Controller) Snapshot() Snapshot {
 		Pid:  backendPid, VoicePid: livekid, FrpPid: frpPid,
 		Tunnel:          c.tunnelReport(),
 		Update:          c.UpdateReport(),
+		Components:      c.componentReport(),
 		TokenSaved:      c.store.HasToken(),
 		MeshSecretSaved: c.store.HasMeshSecret(),
 		Certificate:     c.certs.Inspect(),

@@ -42,7 +42,7 @@
   try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('zviewer-ui-prefs') || '{}') }; } catch { /* Use safe defaults if storage is unavailable. */ }
   const state = {
     page: 'overview', running: false, certReady: false, native: false, info: null,
-    ipv6: null, cloudflaredSource: 'proxy',
+    ipv6: null, cloudflaredSource: 'gitcode',
     frp: { host: '', port: 7000, voice: true, rtmp: true, tcp: false, webPort: 3333, voicePort: 3333, rtmpPort: 3334, tcpPort: 3337 },
     logLevel: 'all', logSource: 'all', logSearch: '', paused: false, cliDraft: null, cliEmbedUrl: '',
     meshDraft: null, meshSecretDraft: '', meshProbe: null,
@@ -421,6 +421,14 @@
     const live = Boolean(state.live), meshLabels = { stopped: '未入网', starting: '入网中', running: '已入网', stopping: '正在退出', error: '异常' };
     const saved = state.config?.mesh || { enabled: false, networkName: '', peers: [], listenPort: 11010 };
     const m = state.server?.mesh || { state: 'stopped', available: true, peers: [], virtualIp: '', message: '' };
+    // 组网组件是按需下载的：本体不含 easytier-core/cli，缺了就先给下载入口。
+    const component = state.server?.components?.easytier || { available: m.available !== false, state: 'idle', progress: 0, message: '' };
+    const missing = component.available === false;
+    const downloading = component.state === 'downloading' || component.state === 'installing';
+    const installButton = downloading
+      ? `<button class="btn primary" type="button" disabled>${icon('download')}${component.state === 'installing' ? '正在安装…' : `正在下载 ${Number(component.progress) || 0}%`}</button>`
+      : button('下载组网组件', 'mesh-install', 'download', 'primary');
+    const componentCard = missing ? `<div class="help-card"><strong>组网组件未下载</strong><p>首次组网需要下载 EasyTier 组件（约 33 MB），装好后就保存在运行包里，之后不再重复下载。</p><div class="live-toolbar">${installButton}</div>${component.message ? `<p class="field-note">${esc(component.message)}</p>` : ''}</div>` : '';
     const draft = state.meshDraft || {};
     const c = { ...saved, ...draft };
     const running = ['starting', 'running'].includes(m.state);
@@ -433,7 +441,7 @@
     const peers = m.peers || [];
     // 「在线设备」只数其他设备：本机也会出现在对端列表里，算进去会永远多一台。
     const remotePeers = peers.filter(peer => !peer.self);
-    const status = live ? meshLabels[m.state] || '未入网' : '界面预览';
+    const status = live ? (missing ? '缺少组件' : meshLabels[m.state] || '未入网') : '界面预览';
     const secretValue = state.meshSecretDraft || '';
     const peerCard = peer => {
       const meta = [peer.ipv4, peer.latency && peer.latency !== '-' ? `${peer.latency} ms` : ''].filter(Boolean).join(' · ');
@@ -469,14 +477,14 @@
         <label class="field"><span>对端地址 <small>填一个即可，可留空</small></span><textarea id="mesh-peers" class="codebox config-editor mesh-peers-editor" spellcheck="false" autocomplete="off" placeholder="tcp://1.2.3.4:11010">${esc((c.peers || []).join('\n'))}</textarea></label>
         <span class="field-note">同一局域网里填对方的本机地址即可；双方都在 NAT 后面时，需要一台双方都能连到的中转节点，填自己的 VPS 地址。对端地址只负责首次发现，填一个能连上的就够。</span>
         <div class="validation" id="mesh-error" role="alert">${esc(m.message || '')}</div>
-        <div class="form-actions">${button('保存','mesh-save','check')}${button('生成新的网络名与密钥','mesh-generate','refresh')}${button(running ? '停止组网' : '保存并入网','mesh-toggle','mesh','primary')}</div>
+        <div class="form-actions">${button('保存','mesh-save','check')}${button('生成新的网络名与密钥','mesh-generate','refresh')}${missing ? installButton : button(running ? '停止组网' : '保存并入网','mesh-toggle','mesh','primary')}</div>
       </section>
       <aside class="panel"><div class="panel-heading"><h2>本机地址</h2></div>
         <p class="connect-value ${access ? '' : 'is-empty'}">${access ? `<code>${esc(access)}</code>` : waiting ? '等待设备接入' : '尚未入网'}</p>
         <div class="meta-list"><div class="meta-line"><span>虚拟 IP</span><span>${esc(m.virtualIp || '—')}</span></div><div class="meta-line"><span>组网端口</span><span>${esc(saved.listenPort || 11010)}</span></div><div class="meta-line"><span>网页端口</span><span>${esc(server.port || 3333)}</span></div><div class="meta-line"><span>在线设备</span><span>${remotePeers.length ? `${remotePeers.length} 台` : '—'}</span></div><div class="meta-line"><span>自动入网</span><span>${saved.enabled ? '已开启' : '已关闭'}</span></div>${m.version ? `<div class="meta-line"><span>组网版本</span><span>${esc(m.version)}</span></div>` : ''}</div>
         ${waiting && lanPeers.length ? `<div class="check-item">${icon('link')}<div><strong>让对方先连本机</strong><br>把 <code>${esc(lanPeers[0])}</code> 填进对方客户端的「对端地址」。</div></div>` : ''}
         <div class="live-toolbar">${access ? `<button class="btn" data-copy="${esc(access)}">${icon('copy')}复制观看地址</button>` : ''}${m.state === 'running' ? button('复制入网说明','mesh-invite','copy') : ''}</div>
-        ${m.available === false ? notice('当前运行包不含组网组件，请使用完整安装包。') : notice('本机不需要管理员权限；朋友的设备装 EasyTier 客户端后按同样的网络名称与密钥加入。')}
+        ${componentCard}${m.available === false ? '' : notice('本机不需要管理员权限；朋友的设备装 EasyTier 客户端后按同样的网络名称与密钥加入。')}
       </aside></div>
       <section class="panel mesh-public-panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">${icon('globe')}</span><div><h2>公共对端服务器</h2><p class="cli-caption">社区维护 · 随时可能失效</p></div></div><span class="pill ${probeTone}"><i></i>${esc(probeSummary)}</span></div>
         <div class="mesh-public-list">${publicPeers.map(publicRow).join('') || '<div class="empty">没有可用的候选节点。</div>'}</div>
@@ -489,7 +497,7 @@
         <textarea class="codebox config-editor mesh-config-editor" id="mesh-config-editor" spellcheck="false" autocomplete="off" aria-label="EasyTier 配置文件内容" placeholder="${MESH_CONFIG_PLACEHOLDER}">${esc(meshFileContent())}</textarea>
         <div class="code-footer"><span>${conf?.path ? '保存位置 ' + esc(conf.path) : '尚未保存'}</span><span>TOML</span></div>
         <div class="validation" id="mesh-error" role="alert">${esc(state.meshConfigError || m.message || '')}</div>
-        <div class="form-actions">${button('导入文件','mesh-config-import','folder')}${button('按图形配置填充','mesh-config-template','refresh')}${button('保存','mesh-config-save','check')}${button(running ? '停止组网' : '保存并入网','mesh-config-connect','mesh','primary')}</div>
+        <div class="form-actions">${button('导入文件','mesh-config-import','folder')}${button('按图形配置填充','mesh-config-template','refresh')}${button('保存','mesh-config-save','check')}${missing ? installButton : button(running ? '停止组网' : '保存并入网','mesh-config-connect','mesh','primary')}</div>
       </section>
       <aside class="panel"><div class="panel-heading"><h2>使用说明</h2></div>
         <div class="check-item">${icon('terminal')}<div><strong>直接粘贴</strong><br>整份 TOML 粘进编辑框，保存后按文件里的网络名称、密钥与对端地址加入。</div></div>
@@ -497,6 +505,7 @@
         <div class="check-item">${icon('shield')}<div><strong>自动补 flags</strong><br>启动时写入 no_tun = true 与 bind_device = false；没有 [flags] 段时会补上。</div></div>
         <div class="check-item">${icon('info')}<div><strong>只接受 TOML</strong><br>其他格式无法保存。</div></div>
         <div class="panel-line"></div>
+        ${componentCard}
         <div class="meta-list"><div class="meta-line"><span>虚拟 IP</span><span>${esc(m.virtualIp || '—')}</span></div><div class="meta-line"><span>在线设备</span><span>${remotePeers.length ? `${remotePeers.length} 台` : '—'}</span></div><div class="meta-line"><span>自动入网</span><span>${saved.enabled ? '已开启' : '已关闭'}</span></div></div>
         <div class="live-toolbar">${access ? `<button class="btn" data-copy="${esc(access)}">${icon('copy')}复制观看地址</button>` : ''}${m.state === 'running' ? button('复制入网说明','mesh-invite','copy') : ''}</div>
         <p class="field-note">对端地址写在 <code>[[peer]]</code> 段的 <code>uri</code> 里，一行一个，可写多条；想用公共对端卡片测速填入，切到“图形配置”页。</p>
@@ -567,8 +576,8 @@
     const tunnelStatus = tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
     const tunnelStopping = tunnel?.state === 'stopping';
     const tunnelCanStop = Boolean(tunnel) && ['running', 'reconnecting'].includes(tunnel.state);
-    const tunnelSource = (live ? state.config?.cloudflaredSource : state.cloudflaredSource) || 'proxy';
-    const tunnelSourceName = tunnelSource === 'github' ? 'GitHub 官方' : 'GitHub 前置反代';
+    const tunnelSource = (live ? state.config?.cloudflaredSource : state.cloudflaredSource) || 'gitcode';
+    const tunnelSourceName = tunnelSource === 'github' ? 'GitHub 官方' : tunnelSource === 'proxy' ? 'GitHub 前置反代' : 'GitCode 镜像';
     let tunnelBody;
     if (!tunnel) {
       tunnelBody = `<p class="connect-value is-empty">桌面版中可用</p><p class="connect-note">不需要公网 IP；地址随隧道关闭失效。固定域名需外国银行卡。</p>`;
@@ -580,7 +589,7 @@
       tunnelBody = `<p class="connect-value is-empty">${tunnelLabels[tunnel.state] || '未运行'}</p><p class="connect-note">${esc(tunnel.message || (tunnel.state === 'error' ? '隧道已退出。' : '启动后检查本机源站与公网访问，检查通过才显示地址。'))}</p>`;
     }
     const tunnelSourceVisible = !tunnelStarting && !tunnelCanStop && !tunnelStopping;
-    const tunnelSourceControl = tunnelSourceVisible ? `<label class="tunnel-source" title="用于 cloudflared 组件下载和更新检查"><span>获取源</span><select id="cloudflared-source" aria-label="cloudflared 获取源"><option value="proxy" ${tunnelSource === 'proxy' ? 'selected' : ''}>GitHub 前置反代（推荐）</option><option value="github" ${tunnelSource === 'github' ? 'selected' : ''}>GitHub 官方</option></select></label>` : '';
+    const tunnelSourceControl = tunnelSourceVisible ? `<label class="tunnel-source" title="cloudflared 组件的下载来源"><span>获取源</span><select id="cloudflared-source" aria-label="cloudflared 获取源"><option value="gitcode" ${tunnelSource === 'gitcode' ? 'selected' : ''}>GitCode 镜像（推荐）</option><option value="github" ${tunnelSource === 'github' ? 'selected' : ''}>GitHub 官方</option><option value="proxy" ${tunnelSource === 'proxy' ? 'selected' : ''}>GitHub 前置反代</option></select></label>` : '';
     const tunnelActions = (tunnelStarting
       ? `<button class="btn primary tunnel-primary" type="button" disabled>${icon('refresh')}${esc(tunnelLabels[tunnel.state])}…${Number(tunnel.refreshCount || 0) ? `（刷新 ${Number(tunnel.refreshCount)}/5）` : ''}</button>${button(Number(tunnel.refreshCount || 0) ? '中断自动刷新' : '中断启动', 'tunnel-stop', 'stop', 'danger')}`
       : tunnelStopping

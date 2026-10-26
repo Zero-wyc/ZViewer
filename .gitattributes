@@ -18,3 +18,7 @@ backend-go/internal/danmaku/chinese/data/*.tsv text eol=lf
 # 检出成 CRLF 时 bash 会因为 shebang 里的 \r 直接报错（我踩过一次，
 # 表现为「更新脚本一闪而过、文件没替换」）。bat 不受影响——写盘前统一转 CRLF。
 backend-go/internal/updater/templates/*.tmpl text eol=lf
+
+# 组件库里的二进制必须原样保存：GUI 按固定 SHA-256 校验下载结果，行尾转换会直接毁掉文件。
+public/*.exe -text
+public/*.zip -text

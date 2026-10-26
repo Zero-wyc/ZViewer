@@ -168,19 +168,25 @@ const cloudflaredReleaseAPI = "https://api.github.com/repos/cloudflare/cloudflar
 const cloudflaredDownloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
 
 const (
-	cloudflaredSourceProxy  = "proxy"
-	cloudflaredSourceGitHub = "github"
+	// cloudflaredSourceGitCode 是默认源：仓库里的 public/ 目录随仓库同步到 GitCode，
+	// 直链按字节返回而且国内可达，不需要 GitHub Release API。
+	cloudflaredSourceGitCode = "gitcode"
+	cloudflaredSourceProxy   = "proxy"
+	cloudflaredSourceGitHub  = "github"
 )
 
 func cloudflaredSourceName(source string) string {
-	if source == cloudflaredSourceGitHub {
+	switch source {
+	case cloudflaredSourceGitCode:
+		return "GitCode 镜像"
+	case cloudflaredSourceGitHub:
 		return "GitHub 官方"
 	}
 	return "GitHub 前置反代"
 }
 
 func cloudflaredSourceURL(source, target string) string {
-	if source == cloudflaredSourceGitHub {
+	if source == cloudflaredSourceGitHub || source == cloudflaredSourceGitCode {
 		return target
 	}
 	return proxyURL(DefaultUpdateProxy, target)
@@ -194,7 +200,8 @@ func validCloudflaredDownloadURL(raw string) bool {
 	}
 	host := strings.ToLower(parsed.Hostname())
 	proxy, _ := url.Parse(DefaultUpdateProxy)
-	return host == proxy.Hostname() || host == "github.com" || strings.HasSuffix(host, ".githubusercontent.com")
+	return host == proxy.Hostname() || host == "github.com" || host == "api.gitcode.com" || host == "gitcode.com" ||
+		strings.HasSuffix(host, ".githubusercontent.com")
 }
 
 var cloudflaredVersionPattern = regexp.MustCompile(`(?i)(\d{4})\.(\d+)\.(\d+)`)
@@ -296,7 +303,9 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 		return "", errors.New("cloudflared 下载地址不在允许的 HTTPS 来源中")
 	}
 	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(request *http.Request, via []*http.Request) error {
-		if !validCloudflaredDownloadURL(request.URL.String()) {
+		// 首跳必须是允许的来源；GitHub / GitCode 都会再跳到各自的对象存储，
+		// 那一跳只要求公网 HTTPS——内容随后有大小、PE 头和 SHA-256 三重校验。
+		if !validCloudflaredDownloadURL(request.URL.String()) && !publicHost(request.URL.Hostname()) {
 			return fmt.Errorf("cloudflared 下载跳转到不允许的来源：%s", request.URL.Hostname())
 		}
 		if len(via) >= 10 {

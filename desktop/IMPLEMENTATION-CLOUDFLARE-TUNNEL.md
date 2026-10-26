@@ -10,13 +10,15 @@
 
 ## 组件获取源
 
-连接方式卡片的启动按钮旁提供「获取源」下拉框，独立保存为 `cloudflaredSource`：`proxy`（默认，GitHub 前置反代）或 `github`（GitHub 官方）。旧配置缺少此项时自动采用默认值。版本检查和安装文件下载共用同一来源；默认通过 `https://gh-proxy.com/` 前缀获取官方 Release API 和 Windows x64 附件。反代版本检查或下载失败时自动回退官方直连，界面进度和 `tunnel` 日志记录原因；用户中断后不回退、不继续请求。两种来源都失败时保留现有组件。
+连接方式卡片的启动按钮旁提供「获取源」下拉框，独立保存为 `cloudflaredSource`：`gitcode`（默认，GitCode 镜像）、`github`（GitHub 官方）或 `proxy`（GitHub 前置反代）。旧配置缺少此项时自动采用 `gitcode`，老用户已保存的 `proxy` / `github` 仍然有效。GitCode 源不查 Release API：组件钉死版本，文件来自仓库 `public/` 的直链，缺失时直接下载并校验 `controller/components.go` 里的 SHA-256；失败自动回退 GitHub 官方，界面进度和 `tunnel` 日志记录原因。用户中断后不回退、不继续请求。都失败时保留现有组件。
 
-获取源独立于 GUI 自身的软件更新设置。更改后下次启动或刷新隧道生效，无需重启主服务。仅在隧道已停止或启动失败后显示来源下拉；检测、下载、连接、自动刷新、运行、原地址重连和停止期间均隐藏，停止完成后恢复所保存的选择。下载只允许固定反代域名及 GitHub 附件域名的 HTTPS 跳转。
+**下载端点必须是 `api.gitcode.com/api/v5/repos/{owner}/{repo}/raw/{path}?ref={branch}`**。站点的 `raw.gitcode.com/{owner}/{repo}/raw/{branch}/{path}` 是预览通道，除被预览过的 README/LICENSE 一类文档外一律 `403 暂不支持预览`，exe/zip 拿不到；api/v5 端点返回 `application/octet-stream` 并支持 Range。2026-10-26 实测：2.6 MB 的 CLI 与 56 MB 的 livekit-server 均可完整下载。
+
+获取源独立于 GUI 自身的软件更新设置。更改后下次启动或刷新隧道生效，无需重启主服务。仅在隧道已停止或启动失败后显示来源下拉；检测、下载、连接、自动刷新、运行、原地址重连和停止期间均隐藏，停止完成后恢复所保存的选择。下载首跳只允许固定反代域名、GitHub 与 GitCode 域名；后续跳到对象存储时要求公网 HTTPS，内容再由大小、PE 头与 SHA-256 校验。
 
 Windows 可能在写入完成后继续占用下载文件，使读取或原子重命名返回 `ERROR_SHARING_VIOLATION` / `ERROR_ACCESS_DENIED`。组件读取、安装与旧文件暂存对此每 100 ms 重试，最多 5 秒，遵循当前会话取消信号。安装失败或取消时恢复已暂存的旧文件，清理下载与回滚临时文件也对短时占用做有限重试。持续的本地安装错误不触发换源重下；旧组件仍在时继续使用旧组件，无可用组件时报告本地文件问题。回滚失败时保留旧文件并在错误中给出位置。
 
-2026-10-26 检查 GitCode 的 `gh_mirrors/cl/cloudflared` 镜像，发行版为 0；`cloudflare/cloudflared` Release API 返回空列表，无法用作二进制更新源。SourceForge 提供 2026.10.3 Windows x64 文件，本机直连 1 MiB 抽样约 0.2 MB/s；默认反代同文件抽样约 0.8 MB/s。该结果只反映本次网络，不代表各地速度。
+2026-10-26 检查 GitCode 的 `gh_mirrors/cl/cloudflared` 镜像，发行版为 0；`cloudflare/cloudflared` Release API 返回空列表，外部镜像都不能当二进制更新源。改用本仓库自己的 `public/` 组件库（直链见上节），版本钉死为 2026.10.3 并校验 SHA-256；GitHub 官方发布页保留为回退地址。
 
 ## 连接和健康判定
 

@@ -9,6 +9,7 @@
     "check": "node scripts/check.cjs",
     "shell:build": "node scripts/build-shell.mjs",
     "shell:dist": "node scripts/build-dist.mjs",
+    "components:fetch": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/fetch-components.ps1",
     "package": "python scripts/package-release.py"
   }
 }

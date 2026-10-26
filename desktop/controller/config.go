@@ -77,7 +77,7 @@ func DefaultConfig() Config {
 		BindHost: "::", Https: false,
 		CloseToTray: true, LaunchAtLogin: false, AutoStart: false, AutoCheckUpdate: true,
 		UpdateProxy: true, UpdateProxyURL: DefaultUpdateProxy, UpdateGitCode: true,
-		CloudflaredSource: cloudflaredSourceProxy,
+		CloudflaredSource: cloudflaredSourceGitCode,
 		Domain:            "localhost", LanIP: "",
 		Cli: CliConfig{Port: 9333, AutoStart: false, User: ""},
 		Frp: FrpConfig{Host: "", Port: 7000, AdvertiseIP: "", Voice: true, Rtmp: true, Tcp: false,
@@ -281,8 +281,8 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 	}
 	target.UpdateProxyURL = proxy
 	source, ok := asString(base["cloudflaredSource"])
-	if !ok || (source != cloudflaredSourceProxy && source != cloudflaredSourceGitHub) {
-		return target, errors.New("cloudflared 获取源无效，请选择 GitHub 前置反代或 GitHub 官方")
+	if !ok || (source != cloudflaredSourceGitCode && source != cloudflaredSourceProxy && source != cloudflaredSourceGitHub) {
+		return target, errors.New("cloudflared 获取源无效，请选择 GitCode 镜像、GitHub 前置反代或 GitHub 官方")
 	}
 	target.CloudflaredSource = source
 	// 老配置里没有这个键：缺省保持默认 true（GitCode），不要被 asBool 的零值改回 false。
