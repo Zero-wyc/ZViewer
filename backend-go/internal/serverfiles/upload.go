@@ -56,7 +56,7 @@ func (r *Registry) ReceiveUploads(ctx context.Context, reader *multipart.Reader)
 
 	cleanup := func() {
 		for _, p := range written {
-			_ = os.Remove(p)
+			_ = RemoveAll(root, p)
 		}
 	}
 
@@ -106,7 +106,7 @@ func (r *Registry) ReceiveUploads(ctx context.Context, reader *multipart.Reader)
 				cleanup()
 				return nil, ErrRootReadonly
 			}
-			if mkErr := os.MkdirAll(abs, 0o755); mkErr != nil {
+			if mkErr := MkdirAll(resRoot, abs, 0o755); mkErr != nil {
 				_ = part.Close()
 				cleanup()
 				return nil, mkErr
@@ -116,7 +116,7 @@ func (r *Registry) ReceiveUploads(ctx context.Context, reader *multipart.Reader)
 
 		finalName := UniqueFilename(dirAbs, RepairFilename(name))
 		targetPath := filepath.Join(dirAbs, finalName)
-		size, writeErr := writePart(part, targetPath)
+		size, writeErr := writePart(part, targetPath, root)
 		_ = part.Close()
 		if writeErr != nil {
 			cleanup()
@@ -137,8 +137,8 @@ func (r *Registry) ReceiveUploads(ctx context.Context, reader *multipart.Reader)
 }
 
 // writePart 把单个 part 写入磁盘，超过 MaxUploadSize 时中断。
-func writePart(part io.Reader, targetPath string) (int64, error) {
-	dst, err := os.Create(targetPath)
+func writePart(part io.Reader, targetPath string, root RootInfo) (int64, error) {
+	dst, err := OpenFile(root, targetPath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return 0, err
 	}
@@ -146,15 +146,15 @@ func writePart(part io.Reader, targetPath string) (int64, error) {
 	written, copyErr := io.Copy(dst, io.LimitReader(part, MaxUploadSize+1))
 	closeErr := dst.Close()
 	if copyErr != nil {
-		_ = os.Remove(targetPath)
+		_ = RemoveAll(root, targetPath)
 		return 0, copyErr
 	}
 	if closeErr != nil {
-		_ = os.Remove(targetPath)
+		_ = RemoveAll(root, targetPath)
 		return 0, closeErr
 	}
 	if written > MaxUploadSize {
-		_ = os.Remove(targetPath)
+		_ = RemoveAll(root, targetPath)
 		return 0, ErrUploadTooLarge
 	}
 	return written, nil

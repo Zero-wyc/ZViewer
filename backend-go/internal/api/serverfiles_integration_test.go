@@ -287,8 +287,8 @@ func TestServerFilesMutations(t *testing.T) {
 func TestServerFilesResolveAndProxy(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
-	userID := env.seedUser(t, "viewer", "viewer-pw", "user", "active")
-	userToken := env.token(t, userID, "user", "viewer")
+	userID := env.seedUser(t, "viewer", "viewer-pw", "root", "active")
+	userToken := env.token(t, userID, "root", "viewer")
 
 	content := []byte("0123456789")
 	target := filepath.Join(env.uploads, "sample.mkv")

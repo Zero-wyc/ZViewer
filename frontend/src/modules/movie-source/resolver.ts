@@ -669,7 +669,7 @@ export async function resolveMovieSource({
   if (sourceType === 'server-files' && movie.path) {
     const format = movie.format || detectMediaFormat(movie.path)
     return {
-      sourceUrl: buildServerFileProxyUrl(movie.path),
+      sourceUrl: buildServerFileProxyUrl(movie.path, movie.id),
       audioUrl: movie.audioUrl,
       format,
       videoCodec: movie.videoCodec,

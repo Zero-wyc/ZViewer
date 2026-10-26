@@ -1,3 +1,4 @@
+import { readSubtitleLoadResponse } from './subtitleResponse'
 /**
  * 字幕目录浏览器组件。
  *
@@ -36,13 +37,6 @@ interface BrowseResponse {
   message?: string
 }
 
-interface LoadResponse {
-  success: boolean
-  filename?: string
-  format?: string
-  content?: string
-  message?: string
-}
 
 interface SubtitleBrowserProps {
   movieId: number
@@ -104,11 +98,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
           path: entry.path,
         })
         const res = await apiFetch(`/api/subtitles/load?${params}`)
-        const data = (await res.json()) as LoadResponse
-        if (!res.ok || !data.success || !data.content) {
-          setError(data.message || '加载字幕失败')
-          return
-        }
+        const data = await readSubtitleLoadResponse(res)
         onSelect(
           data.content,
           data.filename || entry.name,

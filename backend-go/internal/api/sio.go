@@ -162,7 +162,7 @@ func (s *Server) movieList(ctx context.Context, roomID string) (*room.MovieList,
 	dtos := make([]any, 0, len(movies))
 	ids := make([]int64, 0, len(movies))
 	for _, m := range movies {
-		dtos = append(dtos, toMovieDTO(m))
+		dtos = append(dtos, s.authorizedMovieDTO(m))
 		ids = append(ids, m.ID)
 	}
 	return &room.MovieList{DTOs: dtos, IDs: ids}, nil

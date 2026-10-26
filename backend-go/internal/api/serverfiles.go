@@ -209,12 +209,12 @@ func (s *Server) handleSFBrowse(w http.ResponseWriter, r *http.Request) {
 // stat 失败的子项直接跳过（断链的符号链接、权限不足的文件），
 // 与 Node 里 `catch { return null }` 后 filter 掉 null 等价。
 func listEntries(root serverfiles.RootInfo, abs string) ([]sfEntryDTO, error) {
-	info, err := os.Stat(abs)
+	info, err := serverfiles.Stat(root, abs)
 	if err != nil || !info.IsDir() {
 		// 目录不存在 / 不是目录：Node 回 200 + 空列表，前端据此显示空态。
 		return []sfEntryDTO{}, nil
 	}
-	items, err := os.ReadDir(abs)
+	items, err := serverfiles.ReadDir(root, abs)
 	if err != nil {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func listEntries(root serverfiles.RootInfo, abs string) ([]sfEntryDTO, error) {
 			continue
 		}
 		childAbs := filepath.Join(abs, item.Name())
-		childInfo, statErr := os.Stat(childAbs)
+		childInfo, statErr := serverfiles.Stat(root, childAbs)
 		if statErr != nil {
 			continue
 		}
@@ -404,11 +404,11 @@ func (s *Server) handleSFCreateFolder(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, "路径越权")
 		return
 	}
-	if _, err := os.Stat(targetAbs); err == nil {
+	if _, err := serverfiles.Stat(root, targetAbs); err == nil {
 		httpx.BadRequest(w, "同名项目已存在")
 		return
 	}
-	if err := os.MkdirAll(targetAbs, 0o755); err != nil {
+	if err := serverfiles.MkdirAll(root, targetAbs, 0o755); err != nil {
 		httpx.BadRequest(w, err.Error())
 		return
 	}
@@ -439,7 +439,7 @@ func (s *Server) handleSFRename(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if _, err := os.Stat(oldAbs); err != nil {
+	if _, err := serverfiles.Stat(root, oldAbs); err != nil {
 		httpx.NotFound(w, "原文件不存在")
 		return
 	}
@@ -449,12 +449,12 @@ func (s *Server) handleSFRename(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if oldAbs != newAbs {
-		if _, err := os.Stat(newAbs); err == nil {
+		if _, err := serverfiles.Stat(root, newAbs); err == nil {
 			httpx.BadRequest(w, "同名项目已存在")
 			return
 		}
 	}
-	if err := os.Rename(oldAbs, newAbs); err != nil {
+	if err := serverfiles.Rename(root, oldAbs, newAbs); err != nil {
 		httpx.BadRequest(w, err.Error())
 		return
 	}
@@ -477,11 +477,11 @@ func (s *Server) handleSFDeleteFile(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, "不能删除根目录")
 		return
 	}
-	if _, err := os.Stat(targetAbs); err != nil {
+	if _, err := serverfiles.Stat(root, targetAbs); err != nil {
 		httpx.NotFound(w, "文件不存在")
 		return
 	}
-	if err := os.RemoveAll(targetAbs); err != nil {
+	if err := serverfiles.RemoveAll(root, targetAbs); err != nil {
 		httpx.BadRequest(w, err.Error())
 		return
 	}
@@ -491,7 +491,10 @@ func (s *Server) handleSFDeleteFile(w http.ResponseWriter, r *http.Request) {
 // ==================== 7. 解析为播放地址 ====================
 
 func (s *Server) handleSFResolve(w http.ResponseWriter, r *http.Request) {
-	target := r.URL.Query().Get("path")
+	target, allowed := s.serverFileTarget(w, r)
+	if !allowed {
+		return
+	}
 	if strings.TrimSpace(target) == "" {
 		httpx.BadRequest(w, "缺少 path 参数")
 		return
@@ -501,12 +504,12 @@ func (s *Server) handleSFResolve(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, err.Error())
 		return
 	}
-	targetAbs, _, resolveErr := serverfiles.ResolveSafePath(target, roots)
+	targetAbs, root, resolveErr := serverfiles.ResolveSafePath(target, roots)
 	if resolveErr != nil {
 		httpx.BadRequest(w, resolveErr.Error())
 		return
 	}
-	info, statErr := os.Stat(targetAbs)
+	info, statErr := serverfiles.Stat(root, targetAbs)
 	if statErr != nil || info.IsDir() {
 		httpx.NotFound(w, "文件不存在")
 		return
@@ -517,7 +520,7 @@ func (s *Server) handleSFResolve(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"title":   name,
 		// 相对路径：前端按当前 origin 解析，反向代理后 http/https 才不会错。
-		"videoUrl": "/api/server-files/proxy?path=" + urlQueryEscape(target),
+		"videoUrl": "/api/server-files/proxy?" + r.URL.RawQuery,
 		"format":   format,
 		// 音轨探测已前端化（浏览器内 MKV demux），服务端不再返回。
 		"audioCodec": nil,
@@ -536,7 +539,10 @@ const (
 )
 
 func (s *Server) handleSFProxy(w http.ResponseWriter, r *http.Request) {
-	target := r.URL.Query().Get("path")
+	target, allowed := s.serverFileTarget(w, r)
+	if !allowed {
+		return
+	}
 	if strings.TrimSpace(target) == "" {
 		if r.Method == http.MethodHead {
 			w.WriteHeader(http.StatusBadRequest)
@@ -554,7 +560,7 @@ func (s *Server) handleSFProxy(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, err.Error())
 		return
 	}
-	targetAbs, _, resolveErr := serverfiles.ResolveSafePath(target, roots)
+	targetAbs, root, resolveErr := serverfiles.ResolveSafePath(target, roots)
 	if resolveErr != nil {
 		if r.Method == http.MethodHead {
 			w.WriteHeader(http.StatusBadRequest)
@@ -563,7 +569,7 @@ func (s *Server) handleSFProxy(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, resolveErr.Error())
 		return
 	}
-	info, statErr := os.Stat(targetAbs)
+	info, statErr := serverfiles.Stat(root, targetAbs)
 	if statErr != nil || info.IsDir() {
 		if r.Method == http.MethodHead {
 			w.WriteHeader(http.StatusNotFound)
@@ -605,7 +611,7 @@ func (s *Server) handleSFProxy(w http.ResponseWriter, r *http.Request) {
 		if parsed != nil {
 			start, end = parsed.Start, parsed.End
 		}
-		f, openErr := os.Open(targetAbs)
+		f, openErr := serverfiles.Open(root, targetAbs)
 		if openErr != nil {
 			httpx.Fail(w, http.StatusBadRequest, "文件读取失败")
 			return
@@ -633,7 +639,7 @@ func (s *Server) handleSFProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	f, openErr := os.Open(targetAbs)
+	f, openErr := serverfiles.Open(root, targetAbs)
 	if openErr != nil {
 		httpx.Fail(w, http.StatusBadRequest, "文件读取失败")
 		return
@@ -709,7 +715,7 @@ func (s *Server) handleSFBilibiliDownload(w http.ResponseWriter, r *http.Request
 		fail("该根目录为只读", "")
 		return
 	}
-	if mkErr := os.MkdirAll(dirAbs, 0o755); mkErr != nil {
+	if mkErr := serverfiles.MkdirAll(root, dirAbs, 0o755); mkErr != nil {
 		fail(mkErr.Error(), "")
 		return
 	}
@@ -785,8 +791,8 @@ func (s *Server) handleSFBilibiliDownload(w http.ResponseWriter, r *http.Request
 				"status": "downloading", "phase": "video",
 				"received": p.Received, "total": p.Total, "percent": p.Percent,
 			})
-		}); dlErr != nil {
-		_ = os.Remove(targetPath)
+		}, root); dlErr != nil {
+		_ = serverfiles.RemoveAll(root, targetPath)
 		fail("下载失败："+dlErr.Error(), "")
 		return
 	}
@@ -871,3 +877,24 @@ func bilibiliExpand(r *http.Request, raw string) string {
 
 // bilibiliExtractBvid 提取 BV/av 号（空串表示无法识别）。
 func bilibiliExtractBvid(input string) string { return bilibili.ExtractBvid(input) }
+
+// A movie ID maps to the stored path after room admission. A supplied path is
+// never an alternative fallback for an unapproved viewer.
+func (s *Server) serverFileTarget(w http.ResponseWriter, r *http.Request) (string, bool) {
+	if r.URL.Query().Get("movieId") != "" {
+		movie, ok := s.requireMovieReadAccess(w, r)
+		if !ok {
+			return "", false
+		}
+		if derefOr(movie.Source, "") != "server-files" || movie.Path == nil {
+			httpx.BadRequest(w, "影片不是服务器文件")
+			return "", false
+		}
+		return *movie.Path, true
+	}
+	if claims := claimsOf(r); claims == nil || claims.Role != auth.RoleRoot {
+		httpx.Forbidden(w, "路径型文件接口仅限管理员；请使用 movieId 播放")
+		return "", false
+	}
+	return r.URL.Query().Get("path"), true
+}

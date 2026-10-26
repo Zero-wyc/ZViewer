@@ -6,14 +6,20 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
+	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/openlist"
 )
 
 // ErrMovieNotFound 表示影片不存在。
 var ErrMovieNotFound = errors.New("影片不存在")
+var ErrInvalidMovieInput = errors.New("url 和 title 为必填项")
+var ErrInvalidSourceMount = errors.New("挂载不存在、归属或来源不匹配")
+var ErrLocalFileShare = errors.New("仅管理员可发布或更改服务器文件路径")
 
 // Movie 对应 "movie" 表。
 //
@@ -75,6 +81,7 @@ type MovieInput struct {
 	Pages             json.RawMessage
 	CurrentPage       *int64
 	ServerURL         *string
+	SourceMountID     *int64
 	Path              *string
 	Username          *string
 	Password          *string
@@ -109,6 +116,7 @@ type MoviePatch struct {
 	Pages             json.RawMessage `json:"-"`
 	CurrentPage       *int64
 	ServerURL         *string
+	SourceMountID     *int64
 	Path              *string
 	Username          *string
 	Password          *string
@@ -208,6 +216,9 @@ func (m *Movies) ListByRoom(ctx context.Context, roomID string) ([]*Movie, error
 // `/api/<source>/stream?movieId=<id>`——这样房间内任何成员（含观众）都能
 // 访问该影片流，不依赖各自的挂载表。
 func (m *Movies) Create(ctx context.Context, roomID string, in MovieInput, userID int64) (*Movie, error) {
+	if derefString(in.Source) == "server-files" && !m.canShareLocalFiles(ctx, userID) {
+		return nil, ErrLocalFileShare
+	}
 	var maxOrder sql.NullInt64
 	err := m.conn.QueryRowContext(ctx,
 		`SELECT MAX("order") FROM "movie" WHERE "roomId" = ?`, roomID).Scan(&maxOrder)
@@ -219,11 +230,28 @@ func (m *Movies) Create(ctx context.Context, roomID string, in MovieInput, userI
 		nextOrder = maxOrder.Int64 + 1
 	}
 
-	mountID, err := m.resolveSourceMountID(ctx, in.Source, in.ServerURL, userID)
+	if strings.TrimSpace(in.URL) == "" || strings.TrimSpace(in.Title) == "" {
+		return nil, ErrInvalidMovieInput
+	}
+	if isMountSource(derefString(in.Source)) && (netutil.IsInternalServerURL(derefString(in.ServerURL)) || netutil.IsInternalServerURL(in.URL)) {
+		in.DirectLink = false
+	}
+	mountID, err := m.selectSourceMountID(ctx, in.Source, in.ServerURL, in.SourceMountID, userID)
 	if err != nil {
 		return nil, err
 	}
 
+	// All write paths bind credentials to the same validated mount selection.
+	if id, ok := mountID.(int64); ok {
+		mount, err := NewMounts(m.conn).FindByID(ctx, id, derefString(in.Source))
+		if err != nil {
+			return nil, err
+		}
+		in.Username, in.Password = mount.Username, mount.Password
+	}
+	if id, ok := mountID.(int64); ok {
+		in.Cover = portableMovieCover(in.Cover, derefString(in.Source), id, derefString(in.Path))
+	}
 	encPassword, err := encryptOptional(in.Password)
 	if err != nil {
 		return nil, err
@@ -277,6 +305,40 @@ func (m *Movies) Update(ctx context.Context, roomID string, id int64, patch Movi
 	current, err := m.FindInRoom(ctx, roomID, id)
 	if err != nil {
 		return nil, err
+	}
+
+	src, serverURL, mediaURL := current.Source, current.ServerURL, current.URL
+	if patch.Source != nil {
+		src = patch.Source
+	}
+	if patch.ServerURL != nil {
+		serverURL = patch.ServerURL
+	}
+	if patch.URL != nil {
+		mediaURL = *patch.URL
+	}
+	if derefString(src) == "server-files" && !m.canShareLocalFiles(ctx, userID) &&
+		(derefString(current.Source) != "server-files" || (patch.Path != nil && derefString(patch.Path) != derefString(current.Path))) {
+		return nil, ErrLocalFileShare
+	}
+	if isMountSource(derefString(src)) && (netutil.IsInternalServerURL(derefString(serverURL)) || netutil.IsInternalServerURL(mediaURL)) {
+		off := false
+		patch.DirectLink = &off
+		streamURL := fmt.Sprintf("/api/%s/stream?movieId=%d", derefString(src), id)
+		patch.URL = &streamURL
+	}
+	if patch.Cover != nil {
+		item := current.Path
+		if patch.Path != nil {
+			item = patch.Path
+		}
+		selected := current.SourceMountID
+		if patch.SourceMountIDTouched {
+			selected = patch.SourceMountID
+		}
+		if selected != nil {
+			patch.Cover = portableMovieCover(patch.Cover, derefString(src), *selected, derefString(item))
+		}
 	}
 
 	sets := make([]string, 0, 20)
@@ -383,11 +445,27 @@ func (m *Movies) Update(ctx context.Context, roomID string, id int64, patch Movi
 		if serverURL == nil {
 			serverURL = current.ServerURL
 		}
-		mountID, err := m.resolveSourceMountID(ctx, src, serverURL, userID)
+		selected := current.SourceMountID
+		if patch.SourceMountIDTouched {
+			selected = patch.SourceMountID
+		}
+		mountID, err := m.selectSourceMountID(ctx, src, serverURL, selected, userID)
 		if err != nil {
 			return nil, err
 		}
 		add("sourceMountId", mountID)
+		if selectedID, ok := mountID.(int64); ok {
+			mount, err := NewMounts(m.conn).FindByID(ctx, selectedID, derefString(src))
+			if err != nil {
+				return nil, err
+			}
+			encrypted, err := encryptOptional(mount.Password)
+			if err != nil {
+				return nil, err
+			}
+			add("username", mount.Username)
+			add("password", encrypted)
+		}
 	}
 
 	if len(sets) > 0 {
@@ -733,4 +811,47 @@ func boolInt(v bool) int {
 // reflect.DeepEqual 直接失败。
 func truncateToMillis(t time.Time) time.Time {
 	return t.Truncate(time.Millisecond)
+}
+
+// selectSourceMountID preserves explicit selection, never silently switching accounts.
+func (m *Movies) selectSourceMountID(ctx context.Context, source, serverURL *string, selected *int64, userID int64) (any, error) {
+	if selected == nil {
+		return m.resolveSourceMountID(ctx, source, serverURL, userID)
+	}
+	src := strings.ToLower(derefString(source))
+	mount, err := NewMounts(m.conn).FindByID(ctx, *selected, src)
+	if err != nil || mount.UserID != userID || userID <= 0 || !isMountSource(src) || serverURL == nil {
+		return nil, ErrInvalidSourceMount
+	}
+	normalize := func(u string) string {
+		if src == "openlist" {
+			return NormalizeOpenListServerURL(u)
+		}
+		return strings.TrimRight(netutil.NormalizeServerURLWithScheme(u), "/")
+	}
+	if normalize(derefString(mount.ServerURL)) != normalize(*serverURL) {
+		return nil, ErrInvalidSourceMount
+	}
+	return mount.ID, nil
+}
+
+func portableMovieCover(cover *string, source string, mountID int64, itemID string) *string {
+	if cover == nil || (source != "emby" && source != "jellyfin") || itemID == "" {
+		return cover
+	}
+	u, err := url.Parse(*cover)
+	if err != nil {
+		return cover
+	}
+	expected := "/api/" + source + "/mounts/" + strconv.FormatInt(mountID, 10) + "/image"
+	if !strings.HasSuffix(u.Path, expected) || u.Query().Get("itemId") == "" {
+		return cover
+	}
+	canonical := expected + "?itemId=" + url.QueryEscape(u.Query().Get("itemId"))
+	return &canonical
+}
+
+func (m *Movies) canShareLocalFiles(ctx context.Context, userID int64) bool {
+	var role string
+	return m.conn.QueryRowContext(ctx, `SELECT role FROM user WHERE id=? AND status='active'`, userID).Scan(&role) == nil && role == "root"
 }

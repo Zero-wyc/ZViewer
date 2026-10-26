@@ -171,7 +171,8 @@ export async function resolveServerFile(
  * 相对路径在任何客户端都解析到「该客户端自己可达」的同源后端
  * （dev 由 vite proxy 转发，生产由后端同源托管）。
  */
-export function buildServerFileProxyUrl(path: string): string {
+export function buildServerFileProxyUrl(path: string, movieId?: number): string {
+  if (movieId != null && movieId > 0) return `/api/server-files/proxy?movieId=${movieId}`
   return `/api/server-files/proxy?path=${encodeURIComponent(path)}`
 }
 

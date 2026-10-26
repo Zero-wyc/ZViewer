@@ -1,8 +1,14 @@
 package api
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
+	_ "golang.org/x/image/webp"
+	"image"
+	_ "image/gif"
+	_ "image/jpeg"
+	_ "image/png"
 	"io"
 	"net/http"
 	"os"
@@ -27,8 +33,7 @@ const (
 
 // avatarAllowedTypes 是允许的 MIME。
 //
-// 与 Node 版一样按客户端声明的 Content-Type 判断，不做内容嗅探——
-// 嗅探会把一些老设备的合法 JPEG 判成 application/octet-stream 而拒收。
+// 上传按图片解码器校验实际内容；此 MIME 表用于静态资源的防嗅探输出。
 var avatarAllowedTypes = map[string]bool{
 	"image/jpeg": true,
 	"image/png":  true,
@@ -231,17 +236,31 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 		httpx.BadRequest(w, "头像上传失败："+multipartErrorText(err))
 		return
 	}
-	file, header, err := r.FormFile(avatarFieldName)
+	file, _, err := r.FormFile(avatarFieldName)
 	if err != nil {
 		httpx.BadRequest(w, "未接收到头像文件")
 		return
 	}
 	defer file.Close()
 
-	if !avatarAllowedTypes[header.Header.Get("Content-Type")] {
-		// Node 版让 multer 的 Error 冒到全局错误处理（500 HTML）。
-		// 前端本来就会先拦一道，这里改成结构化 400，前端能直接显示 message。
-		httpx.BadRequest(w, "仅支持 JPG / PNG / GIF / WEBP 格式")
+	defer r.MultipartForm.RemoveAll()
+	data, err := io.ReadAll(io.LimitReader(file, avatarMaxBytes+1))
+	if err != nil {
+		httpx.BadRequest(w, "头像读取失败")
+		return
+	}
+	if len(data) > avatarMaxBytes {
+		httpx.BadRequest(w, "头像文件不能超过 5MB")
+		return
+	}
+	config, format, err := image.DecodeConfig(bytes.NewReader(data))
+	ext := map[string]string{"jpeg": ".jpg", "png": ".png", "gif": ".gif", "webp": ".webp"}[format]
+	if err != nil || ext == "" || config.Width <= 0 || config.Height <= 0 || int64(config.Width)*int64(config.Height) > 40_000_000 {
+		httpx.BadRequest(w, "仅支持有效的 JPG / PNG / GIF / WEBP 图片")
+		return
+	}
+	if _, _, err := image.Decode(bytes.NewReader(data)); err != nil {
+		httpx.BadRequest(w, "图片内容损坏")
 		return
 	}
 
@@ -260,14 +279,14 @@ func (s *Server) handleUploadAvatar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filename := fmt.Sprintf("%d-%d%s", user.ID, time.Now().UnixMilli(), avatarExt(header.Filename))
+	filename := fmt.Sprintf("%d-%d%s", user.ID, time.Now().UnixMilli(), ext)
 	dstPath := filepath.Join(s.Cfg.AvatarsDir, filename)
 	dst, err := os.OpenFile(dstPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o644)
 	if err != nil {
 		httpx.InternalError(w, "upload-avatar/create", err)
 		return
 	}
-	written, copyErr := io.Copy(dst, io.LimitReader(file, avatarMaxBytes+1))
+	written, copyErr := io.Copy(dst, bytes.NewReader(data))
 	closeErr := dst.Close()
 	if copyErr != nil || closeErr != nil {
 		_ = os.Remove(dstPath)

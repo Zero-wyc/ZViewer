@@ -123,6 +123,7 @@ func TestTransferHostSwapsRolesAndCleansModerators(t *testing.T) {
 	ctx := context.Background()
 	owner := int64(1)
 	env.insertRoom(t, "ROOMS003", &owner, 10, false)
+	env.db.Exec(`UPDATE room SET streamKey='old-private-publish-key' WHERE roomId='ROOMS003'`)
 	// 新房主原本是房管：转交后必须从名单里移除
 	if err := env.svc.SetModerators(ctx, "ROOMS003", []int64{2, 3}); err != nil {
 		t.Fatalf("写入房管失败: %v", err)
@@ -161,6 +162,17 @@ func TestTransferHostSwapsRolesAndCleansModerators(t *testing.T) {
 	}
 	if !newOwner.Valid || newOwner.Int64 != 2 {
 		t.Fatalf("owner 应为 2，实际 %v", newOwner)
+	}
+	room, err := env.svc.Rooms.FindByRoomID(ctx, "ROOMS003")
+	if err != nil || room.StreamKey == nil || *room.StreamKey == "old-private-publish-key" || len(*room.StreamKey) != 32 {
+		t.Fatal("owner transfer did not revoke old publisher", room, err)
+	}
+	if err := env.svc.Rooms.SetStatus(ctx, "ROOMS003", "closed"); err != nil {
+		t.Fatal(err)
+	}
+	room, err = env.svc.Rooms.FindByRoomID(ctx, "ROOMS003")
+	if err != nil || room.StreamKey != nil {
+		t.Fatal("closed room retained publisher key", room, err)
 	}
 }
 

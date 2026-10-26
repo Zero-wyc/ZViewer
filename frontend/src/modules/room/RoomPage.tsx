@@ -1,3 +1,4 @@
+import { usePosterRefresh } from '@/hooks/usePosterRefresh'
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
@@ -52,6 +53,7 @@ function clearHostRoomMark(roomId: string) {
 
 function RoomPage() {
   const { roomId } = useParams<{ roomId?: string }>()
+  usePosterRefresh(roomId)
   // 身份判断：仅通过 sessionStorage 标记判断房主身份，URL 不再携带 role/mode 参数。
   // 房主创建房间时写入 sessionStorage，刷新后仍可识别；观众进入时 sessionStorage 无标记。
   const isHost = roomId ? isHostOfRoom(roomId) : false

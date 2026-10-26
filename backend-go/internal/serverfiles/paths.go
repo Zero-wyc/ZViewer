@@ -160,6 +160,27 @@ func ResolveSafePath(input string, roots []RootInfo) (abs string, root RootInfo,
 	if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
 		return "", RootInfo{}, ErrPathEscape
 	}
+	// Validate existing ancestors as well as a not-yet-created target. Actual I/O
+	// below still uses os.Root to close the check/use race.
+	if scope, e := os.OpenRoot(root.AbsPath); e == nil {
+		defer scope.Close()
+		check := rel
+		for {
+			_, e = scope.Stat(check)
+			if e == nil {
+				break
+			}
+			if !os.IsNotExist(e) {
+				return "", RootInfo{}, ErrPathEscape
+			}
+			if check == "." {
+				break
+			}
+			check = filepath.Dir(check)
+		}
+	} else if !os.IsNotExist(e) {
+		return "", RootInfo{}, e
+	}
 	return absolute, root, nil
 }
 
@@ -245,4 +266,85 @@ func scriptRank(s string) int {
 	}
 	// 空串按标点级处理（Node 里空名字会排在最前）。
 	return 1
+}
+
+// Rooted I/O prevents symlink/junction replacement from escaping the registered
+// root between validation and use. The configured root itself may be a link.
+func rooted(root RootInfo, absolute string) (*os.Root, string, error) {
+	rel, err := filepath.Rel(root.AbsPath, absolute)
+	if err != nil || !filepath.IsLocal(rel) {
+		return nil, "", ErrPathEscape
+	}
+	scope, err := os.OpenRoot(root.AbsPath)
+	return scope, rel, err
+}
+func OpenFile(root RootInfo, absolute string, flags int, mode os.FileMode) (*os.File, error) {
+	if root.Readonly && flags&(os.O_WRONLY|os.O_RDWR|os.O_CREATE|os.O_TRUNC|os.O_APPEND) != 0 {
+		return nil, ErrRootReadonly
+	}
+	scope, rel, err := rooted(root, absolute)
+	if err != nil {
+		return nil, err
+	}
+	defer scope.Close()
+	return scope.OpenFile(rel, flags, mode)
+}
+func Open(root RootInfo, absolute string) (*os.File, error) {
+	return OpenFile(root, absolute, os.O_RDONLY, 0)
+}
+func Stat(root RootInfo, absolute string) (os.FileInfo, error) {
+	scope, rel, err := rooted(root, absolute)
+	if err != nil {
+		return nil, err
+	}
+	defer scope.Close()
+	return scope.Stat(rel)
+}
+func ReadDir(root RootInfo, absolute string) ([]os.DirEntry, error) {
+	f, err := Open(root, absolute)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return f.ReadDir(-1)
+}
+func MkdirAll(root RootInfo, absolute string, mode os.FileMode) error {
+	if root.Readonly {
+		return ErrRootReadonly
+	}
+	scope, rel, err := rooted(root, absolute)
+	if err != nil {
+		return err
+	}
+	defer scope.Close()
+	return scope.MkdirAll(rel, mode)
+}
+func Rename(root RootInfo, old, next string) error {
+	if root.Readonly {
+		return ErrRootReadonly
+	}
+	scope, rel, err := rooted(root, old)
+	if err != nil {
+		return err
+	}
+	defer scope.Close()
+	nextRel, err := filepath.Rel(root.AbsPath, next)
+	if err != nil || !filepath.IsLocal(nextRel) {
+		return ErrPathEscape
+	}
+	return scope.Rename(rel, nextRel)
+}
+func RemoveAll(root RootInfo, absolute string) error {
+	if root.Readonly {
+		return ErrRootReadonly
+	}
+	scope, rel, err := rooted(root, absolute)
+	if err != nil {
+		return err
+	}
+	defer scope.Close()
+	if rel == "." {
+		return ErrPathEscape
+	}
+	return scope.RemoveAll(rel)
 }

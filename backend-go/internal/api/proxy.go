@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -93,7 +94,17 @@ func (s *Server) handleStreamImageProxy(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	proxy.ProxyHTTPUpstream(w, r, proxy.HTTPOptions{
-		URL:     rawURL,
+		URL:        rawURL,
+		PublicOnly: true,
+		ValidateTarget: func(u *url.URL) error {
+			for _, domain := range allowedImageDomains {
+				host := strings.ToLower(u.Hostname())
+				if host == domain || strings.HasSuffix(host, "."+domain) {
+					return nil
+				}
+			}
+			return errors.New("仅允许 B站 域名图片")
+		},
 		Headers: proxy.UpstreamHeaders{Referer: bilibiliReferer},
 		// img 标签不携带凭证，CORS 交由全局中间件反射 Origin
 		CORS:               proxy.CORSGlobal,
@@ -114,6 +125,10 @@ func (s *Server) handleStreamMediaProxy(w http.ResponseWriter, r *http.Request) 
 		httpx.BadRequest(w, "缺少 url 参数")
 		return
 	}
+	if netutil.IsInternalServerURL(rawURL) {
+		httpx.Forbidden(w, "内网媒体请使用已授权影片或挂载接口")
+		return
+	}
 	headers := proxy.UpstreamHeaders{}
 	if parsed, err := url.Parse(rawURL); err == nil && isBilibiliMediaHost(parsed.Hostname()) {
 		headers.Referer = bilibiliReferer
@@ -130,6 +145,7 @@ func (s *Server) handleStreamMediaProxy(w http.ResponseWriter, r *http.Request) 
 	}
 	proxy.ProxyHTTPUpstream(w, r, proxy.HTTPOptions{
 		URL:                rawURL,
+		PublicOnly:         true,
 		Headers:            headers,
 		CORS:               proxy.CORSGlobal,
 		DefaultContentType: contentType,

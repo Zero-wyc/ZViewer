@@ -299,7 +299,6 @@ func (s *Service) handleUpdateShareMethod(sc *sio.Socket, args []json.RawMessage
 	s.Hub.EmitRoom(roomID, "share-method-changed", map[string]any{
 		"roomId":      roomID,
 		"shareMethod": shareMethod,
-		"streamKey":   streamKey,
 	})
 	ackOK(ack, map[string]any{
 		"shareMethod": shareMethod,

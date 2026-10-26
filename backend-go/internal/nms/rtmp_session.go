@@ -2,6 +2,7 @@ package nms
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"errors"
@@ -31,6 +32,8 @@ type rtmpConn struct {
 	key             string
 	publishing      bool
 	publishStreamID uint32
+	publishCancel   context.CancelFunc
+	lease           *liveStream
 }
 
 func newRTMPConn(srv *embeddedServer, conn net.Conn) *rtmpConn {
@@ -40,7 +43,6 @@ func newRTMPConn(srv *embeddedServer, conn net.Conn) *rtmpConn {
 func (c *rtmpConn) serve() {
 	defer c.conn.Close()
 	defer c.unpublish()
-
 	_ = c.conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
 	if err := c.handshake(); err != nil {
 		c.srv.logf("[nms] RTMP 握手失败 %s: %v", c.conn.RemoteAddr(), err)
@@ -52,6 +54,9 @@ func (c *rtmpConn) serve() {
 	c.cw = newChunkWriter(c.conn)
 
 	for {
+		if c.publishing && !c.srv.publishAllowed(context.Background(), c.key) {
+			return
+		}
 		msg, err := c.cr.readMessage()
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {
@@ -116,13 +121,13 @@ func (c *rtmpConn) handle(msg rtmpMessage) error {
 		c.handleData(msg)
 	case msgAudio:
 		if c.publishing {
-			if !c.srv.hub.audio(c.key, msg.Timestamp, msg.Payload) {
+			if !c.srv.hub.audio(c.key, msg.Timestamp, msg.Payload, c.lease) {
 				return errRTMPProtocol
 			}
 		}
 	case msgVideo:
 		if c.publishing {
-			if !c.srv.hub.video(c.key, msg.Timestamp, msg.Payload) {
+			if !c.srv.hub.video(c.key, msg.Timestamp, msg.Payload, c.lease) {
 				return errRTMPProtocol
 			}
 		}
@@ -218,11 +223,38 @@ func (c *rtmpConn) onPublish(streamID uint32, streamName string) {
 		return
 	}
 
+	if c.publishing || strings.Split(c.app, "?")[0] != "live" || c.srv.publishAllowed == nil || !c.srv.publishAllowed(context.Background(), key) {
+		c.sendCommand(streamID, "onStatus", 0, nil, map[string]any{"level": "error", "code": "NetStream.Publish.BadName", "description": "发布未授权或已有发布者"})
+		return
+	}
+	lease := c.srv.hub.start(key)
+	if lease == nil {
+		c.sendCommand(streamID, "onStatus", 0, nil, map[string]any{"level": "error", "code": "NetStream.Publish.BadName", "description": "已有发布者"})
+		return
+	}
+	c.lease = lease
+
 	c.key = key
 	c.publishing = true
 	c.publishStreamID = streamID
-	c.srv.hub.start(key)
-	c.srv.logf("[nms] 开始推流 %s（来自 %s）", key, c.conn.RemoteAddr())
+	ctx, cancel := context.WithCancel(context.Background())
+	c.publishCancel = cancel
+	go func(key string) {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if !c.srv.publishAllowed(ctx, key) {
+					_ = c.conn.Close()
+					return
+				}
+			}
+		}
+	}(key)
+	c.srv.logf("[nms] 开始推流（来自 %s）", c.conn.RemoteAddr())
 
 	// 先 StreamBegin 再 onStatus：部分客户端要靠 StreamBegin 才开始发帧。
 	c.sendUserControl(0, streamID)
@@ -239,8 +271,12 @@ func (c *rtmpConn) unpublish() {
 		return
 	}
 	c.publishing = false
-	c.srv.hub.stop(c.key)
-	c.srv.logf("[nms] 推流结束 %s", c.key)
+	if c.publishCancel != nil {
+		c.publishCancel()
+		c.publishCancel = nil
+	}
+	c.srv.hub.stop(c.key, c.lease)
+	c.srv.logf("[nms] 推流结束")
 }
 
 func (c *rtmpConn) handleData(msg rtmpMessage) {
@@ -277,7 +313,7 @@ func (c *rtmpConn) handleData(msg rtmpMessage) {
 	if !ok {
 		return
 	}
-	c.srv.hub.setMetadata(c.key, meta)
+	c.srv.hub.setMetadata(c.key, meta, c.lease)
 }
 
 // ---- 发送侧 ----

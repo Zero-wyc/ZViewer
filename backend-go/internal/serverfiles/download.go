@@ -32,6 +32,7 @@ func DownloadToFile(
 	url, filePath string,
 	headers map[string]string,
 	onProgress func(DownloadProgress),
+	roots ...RootInfo,
 ) (int64, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -55,7 +56,19 @@ func DownloadToFile(
 		total = 0
 	}
 
-	dst, err := os.Create(filePath)
+	var dst *os.File
+	if len(roots) == 1 {
+		dst, err = OpenFile(roots[0], filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	} else {
+		dst, err = os.Create(filePath)
+	}
+	remove := func() {
+		if len(roots) == 1 {
+			_ = RemoveAll(roots[0], filePath)
+		} else {
+			_ = os.Remove(filePath)
+		}
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -71,7 +84,7 @@ func DownloadToFile(
 		if n > 0 {
 			if _, writeErr := dst.Write(buf[:n]); writeErr != nil {
 				_ = dst.Close()
-				_ = os.Remove(filePath)
+				remove()
 				return received, writeErr
 			}
 			received += int64(n)
@@ -94,13 +107,13 @@ func DownloadToFile(
 		}
 		if readErr != nil {
 			_ = dst.Close()
-			_ = os.Remove(filePath)
+			remove()
 			return received, readErr
 		}
 	}
 
 	if err := dst.Close(); err != nil {
-		_ = os.Remove(filePath)
+		remove()
 		return received, err
 	}
 	return received, nil

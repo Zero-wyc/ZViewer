@@ -1,15 +1,14 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Download, Radio, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { CopyButton } from '@/components/ui/CopyButton'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Card } from '@/components/ui/Card'
 import { message } from '@/components/ui/message'
-import { useRoomStore } from '@/store/roomStore'
 import {
-  buildFlvUrl,
+  useWatchPlayback,
   downloadObsConfig,
-  getRtmpPushUrl,
+  getPublishConfiguration,
 } from '../streamPushApi'
 import { FlvPlayer } from './FlvPlayer'
 
@@ -31,13 +30,21 @@ export function StreamPushPage({
   className,
   style,
 }: StreamPushPageProps) {
-  const streamKey = useRoomStore((state) => state.streamKey)
+  const [publish, setPublish] = useState<{ room: string; server: string; key: string; error: string }>({ room: roomId, server: '', key: '', error: '' })
   const [downloading, setDownloading] = useState(false)
   const [previewMode, setPreviewMode] = useState(false)
 
-  const rtmpUrl = getRtmpPushUrl()
-  const effectiveStreamKey = streamKey ?? roomId
-  const flvUrl = buildFlvUrl(effectiveStreamKey)
+  useEffect(() => {
+    const controller = new AbortController()
+    setPublish({ room: roomId, server: '', key: '', error: '' })
+    void getPublishConfiguration(roomId, controller.signal).then(config => {
+      if (!controller.signal.aborted) setPublish({ room: roomId, ...config, error: '' })
+    }).catch(error => { if (!controller.signal.aborted) setPublish({ room: roomId, server: '', key: '', error: error instanceof Error ? error.message : '获取发布配置失败' }) })
+    return () => controller.abort()
+  }, [roomId])
+  const rtmpUrl = publish.room === roomId ? publish.server : ''
+  const effectiveStreamKey = publish.room === roomId ? publish.key : ''
+  const { url: flvUrl, error: watchError } = useWatchPlayback(roomId, previewMode)
 
   const handleDownloadConfig = useCallback(async () => {
     setDownloading(true)
@@ -102,10 +109,9 @@ export function StreamPushPage({
               variant="ghost"
             />
           </div>
-          {!streamKey && (
+          {!effectiveStreamKey && (
             <Paragraph type="danger" className="m-0 text-xs">
-              未获取到独立推流密钥，当前显示的是房间号。请先点击「下载 OBS
-              配置文件」重新导入，或刷新页面后再试。
+              {publish.error || '正在获取发布配置，请稍候'}
             </Paragraph>
           )}
         </div>
@@ -131,7 +137,7 @@ export function StreamPushPage({
 
       {previewMode && (
         <Card className="aspect-video w-full min-h-[480px] overflow-hidden p-0">
-          <FlvPlayer src={flvUrl} muted autoPlay />
+          {flvUrl ? <FlvPlayer src={flvUrl} muted autoPlay /> : <Paragraph>{watchError || '正在获取观看权限'}</Paragraph>}
         </Card>
       )}
 

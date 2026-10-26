@@ -52,29 +52,21 @@ func newStreamHub() *streamHub {
 	return &streamHub{streams: make(map[string]*liveStream, 4)}
 }
 
-func (h *streamHub) start(key string) {
+func (h *streamHub) start(key string) *liveStream {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	ls := h.streams[key]
-	if ls == nil {
-		ls = &liveStream{key: key, subs: make(map[*flvSub]struct{}, 2)}
-		h.streams[key] = ls
-		return
+	if h.streams[key] != nil {
+		return nil
 	}
-	// 同一个推流码重推：保留订阅者（刷新页面/重连期间不断流），
-	// 但元数据与 GOP 必须重置，否则新流会带着旧流的关键帧缓存开播。
-	ls.meta = nil
-	ls.audioSeq = nil
-	ls.videoSeq = nil
-	ls.gop = nil
-	ls.gopBytes = 0
+	h.streams[key] = &liveStream{key: key, subs: make(map[*flvSub]struct{}, 2)}
+	return h.streams[key]
 }
 
-func (h *streamHub) stop(key string) {
+func (h *streamHub) stop(key string, owner ...*liveStream) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ls := h.streams[key]
-	if ls == nil {
+	if ls == nil || (len(owner) > 0 && owner[0] != ls) {
 		return
 	}
 	delete(h.streams, key)
@@ -84,16 +76,16 @@ func (h *streamHub) stop(key string) {
 	ls.subs = map[*flvSub]struct{}{}
 }
 
-func (h *streamHub) setMetadata(key string, meta map[string]any) {
+func (h *streamHub) setMetadata(key string, meta map[string]any, owner ...*liveStream) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if ls := h.streams[key]; ls != nil {
+	if ls := h.streams[key]; ls != nil && (len(owner) == 0 || owner[0] == ls) {
 		ls.meta = meta
 	}
 }
 
 // audio / video 返回 false 表示当前没有这个推流码（推流已断开）。
-func (h *streamHub) audio(key string, ts uint32, payload []byte) bool {
+func (h *streamHub) audio(key string, ts uint32, payload []byte, owner ...*liveStream) bool {
 	if len(payload) == 0 {
 		return true
 	}
@@ -102,7 +94,7 @@ func (h *streamHub) audio(key string, ts uint32, payload []byte) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ls := h.streams[key]
-	if ls == nil {
+	if ls == nil || (len(owner) > 0 && owner[0] != ls) {
 		return false
 	}
 	if isAudioSequenceHeader(payload) {
@@ -113,7 +105,7 @@ func (h *streamHub) audio(key string, ts uint32, payload []byte) bool {
 	return true
 }
 
-func (h *streamHub) video(key string, ts uint32, payload []byte) bool {
+func (h *streamHub) video(key string, ts uint32, payload []byte, owner ...*liveStream) bool {
 	if len(payload) == 0 {
 		return true
 	}
@@ -122,7 +114,7 @@ func (h *streamHub) video(key string, ts uint32, payload []byte) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ls := h.streams[key]
-	if ls == nil {
+	if ls == nil || (len(owner) > 0 && owner[0] != ls) {
 		return false
 	}
 	if isVideoSequenceHeader(payload) {

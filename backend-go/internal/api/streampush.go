@@ -2,13 +2,18 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
 	"log"
 	"net"
 	"net/http"
+	"net/url"
+	"os"
 	"strings"
+	"time"
+	"zviewer/backend/internal/auth"
 
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/nms"
@@ -25,6 +30,7 @@ import (
 func (s *Server) registerStreamPushRoutes(mux *http.ServeMux) {
 	// 下载 OBS 场景集合配置（含推流地址与推流码），必须登录。
 	mux.HandleFunc("GET /api/stream-push/obs-config/{roomId}", s.Auth.Require(s.handleObsConfig))
+	mux.HandleFunc("GET /api/stream-push/watch/{roomId}", s.Auth.Require(s.handleWatchTicket))
 }
 
 // handleObsConfig 生成 OBS 场景集合 JSON。
@@ -43,6 +49,10 @@ func (s *Server) handleObsConfig(w http.ResponseWriter, r *http.Request) {
 		httpx.InternalError(w, "GET /api/stream-push/obs-config", err)
 		return
 	}
+	if !canControlRoom(auth.ClaimsFrom(r.Context()), room) || room.Status != "active" {
+		httpx.Forbidden(w, "仅活动房间的房主或管理员可获取发布配置")
+		return
+	}
 	if room.Mode != "screen-share" {
 		httpx.BadRequest(w, "该房间不是投屏模式")
 		return
@@ -55,7 +65,7 @@ func (s *Server) handleObsConfig(w http.ResponseWriter, r *http.Request) {
 	if room.StreamKey != nil {
 		streamKey = *room.StreamKey
 	}
-	if streamKey == "" {
+	if len(streamKey) < 32 {
 		streamKey = nms.GenerateStreamKey()
 		if err := s.Rooms.SetStreamKey(r.Context(), roomID, streamKey); err != nil {
 			httpx.InternalError(w, "GET /api/stream-push/obs-config", err)
@@ -64,7 +74,7 @@ func (s *Server) handleObsConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Go 把 Host 头单独放在 r.Host（不进 r.Header），等价 Node 的 req.headers.host。
-	serverURL := s.NMS.Config().RtmpServerURL(r.Host)
+	serverURL := s.NMS.Config().RtmpServerURL(trustedRtmpHost(r))
 	payload := buildOBSConfig(serverURL, streamKey)
 
 	// Node 用 res.json + 显式 Content-Disposition：浏览器直接存成文件。
@@ -256,6 +266,11 @@ var livePassthroughHeaders = []string{
 // NMS 不可用时**不报错**，而是交回 SPA 回退（Node 的 `return next()` 之后
 // 落到静态中间件）：路径不以 /api/ 开头，最终返回 index.html。
 func (s *Server) handleLiveProxy(w http.ResponseWriter, r *http.Request) {
+	key, valid := s.watchKey(r.Context(), r.URL.Query().Get("ticket"), strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/live/"), ".flv"))
+	if !valid {
+		httpx.Forbidden(w, "请重新获取房间观看权限")
+		return
+	}
 	if !s.NMS.Available() {
 		// 与 Node 的 `if (!nmsService.isAvailable()) return next()` 一致：
 		// 交回后续中间件，最终落到 SPA 回退（不是 502）。
@@ -263,8 +278,25 @@ func (s *Server) handleLiveProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := s.NMS.Config().LiveUpstream(r.URL.RequestURI())
-	upstream, err := http.NewRequestWithContext(r.Context(), r.Method, target, nil)
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if _, valid := s.watchKey(ctx, r.URL.Query().Get("ticket"), strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/live/"), ".flv")); !valid {
+					cancel()
+					return
+				}
+			}
+		}
+	}()
+	target := s.NMS.Config().LiveUpstream("/live/" + url.PathEscape(key) + ".flv?ticket=" + url.QueryEscape(r.URL.Query().Get("ticket")))
+	upstream, err := http.NewRequestWithContext(ctx, r.Method, target, nil)
 	if err != nil {
 		httpx.Fail(w, http.StatusBadGateway, "HTTP-FLV 拉流代理失败")
 		return
@@ -289,7 +321,11 @@ func (s *Server) handleLiveProxy(w http.ResponseWriter, r *http.Request) {
 		if r.Context().Err() != nil {
 			return
 		}
-		log.Printf("[live] 拉流失败 %s: %v", target, err)
+		var urlErr *url.Error
+		if errors.As(err, &urlErr) {
+			err = urlErr.Err
+		}
+		log.Printf("[live] 拉流失败: %v", err)
 		var netErr net.Error
 		if errors.As(err, &netErr) && netErr.Timeout() {
 			httpx.Fail(w, http.StatusGatewayTimeout, "上游请求超时")
@@ -378,3 +414,100 @@ func setWildcardCORS(w http.ResponseWriter) {
 
 // defaultProxyUA 是上游默认 UA（与 Node 的 DEFAULT_PROXY_UA 同一串）。
 const defaultProxyUA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+
+// Forwarded hosts are trusted only for an explicitly configured proxy network.
+func trustedRtmpHost(r *http.Request) string {
+	remote, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.Host
+	}
+	ip := net.ParseIP(remote)
+	trusted := false
+	for _, raw := range strings.Split(os.Getenv("TRUSTED_PROXY_CIDRS"), ",") {
+		_, cidr, err := net.ParseCIDR(strings.TrimSpace(raw))
+		if err == nil && cidr.Contains(ip) {
+			trusted = true
+		}
+	}
+	if !trusted {
+		return r.Host
+	}
+	forwarded := strings.TrimSpace(r.Header.Get("X-Forwarded-Host"))
+	if forwarded == "" || strings.ContainsAny(forwarded, ",/\\@?# \r\n\t") {
+		return r.Host
+	}
+	u, err := url.Parse("http://" + forwarded)
+	if err != nil || u.Hostname() == "" {
+		return r.Host
+	}
+	return forwarded
+}
+
+type watchGrant struct {
+	RoomID string      `json:"r"`
+	Claims auth.Claims `json:"c"`
+}
+
+func (s *Server) handleWatchTicket(w http.ResponseWriter, r *http.Request) {
+	roomID := r.PathValue("roomId")
+	if !s.requireRoomRead(w, r, roomID) {
+		return
+	}
+	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
+	if err != nil || room.Status != "active" || room.Mode != "screen-share" || room.ShareMethod != "stream-push" || room.StreamKey == nil {
+		httpx.Forbidden(w, "房间当前未启用推流观看")
+		return
+	}
+	body, _ := json.Marshal(watchGrant{roomID, *auth.ClaimsFrom(r.Context())})
+	ticket := s.Tokens.SignCapability("flv-watch", string(body), 12*time.Hour)
+	w.Header().Set("Cache-Control", "no-store")
+	httpx.OK(w, map[string]any{"success": true, "url": "/live/" + url.PathEscape(roomID) + ".flv?ticket=" + url.QueryEscape(ticket)})
+}
+func (s *Server) watchKey(ctx context.Context, ticket, roomID string) (string, bool) {
+	if s.Tokens == nil {
+		return "", false
+	}
+	raw, err := s.Tokens.VerifyCapability(ticket, "flv-watch")
+	if err != nil {
+		return "", false
+	}
+	var grant watchGrant
+	if json.Unmarshal([]byte(raw), &grant) != nil || grant.RoomID != roomID {
+		return "", false
+	}
+	if err := s.Auth.AssertActive(ctx, &grant.Claims); err != nil {
+		return "", false
+	}
+	allowed, err := s.canReadRoom(ctx, roomID, &grant.Claims)
+	if err != nil || !allowed {
+		return "", false
+	}
+	room, err := s.Rooms.FindByRoomID(ctx, roomID)
+	if err != nil || room.Status != "active" || room.Mode != "screen-share" || room.ShareMethod != "stream-push" || room.StreamKey == nil {
+		return "", false
+	}
+	return *room.StreamKey, true
+}
+func (s *Server) authorizePublish(ctx context.Context, key string) bool {
+	if s.DB == nil || len(key) < 32 {
+		return false
+	}
+	var count int
+	err := s.DB.QueryRowContext(ctx, `SELECT COUNT(*) FROM room WHERE streamKey = ? AND status = 'active' AND mode = 'screen-share' AND shareMethod = 'stream-push'`, key).Scan(&count)
+	return err == nil && count == 1
+}
+func (s *Server) authorizeFLV(ctx context.Context, key, ticket string) bool {
+	if s.Tokens == nil {
+		return false
+	}
+	raw, err := s.Tokens.VerifyCapability(ticket, "flv-watch")
+	if err != nil {
+		return false
+	}
+	var grant watchGrant
+	if json.Unmarshal([]byte(raw), &grant) != nil {
+		return false
+	}
+	expected, ok := s.watchKey(ctx, ticket, grant.RoomID)
+	return ok && expected == key
+}

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -17,6 +18,32 @@ import (
 func (s *Server) avatarsHandler() http.Handler {
 	files := http.FileServer(http.Dir(s.Cfg.AvatarsDir))
 	return http.StripPrefix("/uploads/avatars/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		name := path.Base(r.URL.Path)
+		if strings.TrimPrefix(r.URL.Path, "/") != name || name == "." || name == "/" {
+			http.NotFound(w, r)
+			return
+		}
+		f, err := os.Open(filepath.Join(s.Cfg.AvatarsDir, name))
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+		defer f.Close()
+		info, err := f.Stat()
+		if err != nil || !info.Mode().IsRegular() {
+			http.NotFound(w, r)
+			return
+		}
+		head := make([]byte, 512)
+		n, _ := io.ReadFull(f, head)
+		mime := http.DetectContentType(head[:n])
+		if !avatarAllowedTypes[mime] {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", mime)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; sandbox")
 		// 文件名内容哈希不变，可长期强缓存
 		w.Header().Set("Cache-Control", "public, max-age=604800, immutable")
 		files.ServeHTTP(w, r)
