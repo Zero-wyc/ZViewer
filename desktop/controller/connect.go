@@ -282,6 +282,7 @@ func cloudflaredVersionIsOlder(installed, latest string) bool {
 
 // downloadCloudflared 获取 Cloudflare 官方 Windows x64 单文件，先落到同目录临时文件，
 // 确认是合理大小的 PE 文件后再原子改名，避免断线留下损坏的 cloudflared.exe。
+// expectedSHA256 只用于官方 Release 自带校验值的情况（调用方拿不到就传空，例如仓库直链）。
 func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, expectedSHA256 string, replaceExisting bool) (string, error) {
 	if c.root == "" {
 		return "", errors.New("无法确定运行包目录，不能保存 cloudflared.exe")
@@ -304,7 +305,8 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	}
 	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(request *http.Request, via []*http.Request) error {
 		// 首跳必须是允许的来源；GitHub / GitCode 都会再跳到各自的对象存储，
-		// 那一跳只要求公网 HTTPS——内容随后有大小、PE 头和 SHA-256 三重校验。
+		// 那一跳只要求公网 HTTPS——内容随后有大小和 PE 头把关，官方 Release
+		// 提供校验值时再额外比一次摘要。
 		if !validCloudflaredDownloadURL(request.URL.String()) && !publicHost(request.URL.Hostname()) {
 			return fmt.Errorf("cloudflared 下载跳转到不允许的来源：%s", request.URL.Hostname())
 		}

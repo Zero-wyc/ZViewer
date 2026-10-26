@@ -13,14 +13,13 @@ package controller
 // 一律返回 403「暂不支持预览」，exe/zip 永远下不到；api/v5 的 raw 端点
 // 才是真正按字节返回（支持 Range），这里只用后者。
 //
-// 每个组件都钉死版本与 SHA-256：public/ 里的文件被换掉而 Go 常量没跟着改时，
-// components_test.go 会直接失败，避免线上出现「下载下来校验不过、一直重试」。
+// 每个组件只钉死版本与文件名，下载后不比对摘要：组件库里的文件随时可能被换成新版本，
+// 若把哈希写进代码，换一次文件就要跟着改常量、发一次版，反而更容易出现「一直校验不过」。
+// 下载完整性靠大小上限、Content-Length 与安装阶段的格式检查（PE 头 / ZIP 结构）保证。
 
 import (
 	"archive/zip"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -51,8 +50,8 @@ type componentSpec struct {
 	// File 是 public/ 下的文件名，同时也是 GitCode 直链的最后一段。
 	File    string
 	Version string
-	Size    int64
-	SHA256  string
+	// Size 只用于进度估算与上限保护，不作为强校验（换文件时不必同步）。
+	Size int64
 	// GitHub 是不依赖镜像的官方来源；镜像不可达时用它兜底。
 	GitHub string
 	// Files 非空表示这是压缩包，只取这几个文件（按 basename 匹配）。
@@ -64,7 +63,6 @@ var cloudflaredSpec = componentSpec{
 	File:    "cloudflared-windows-amd64.exe",
 	Version: "2026.10.3",
 	Size:    55329336,
-	SHA256:  "76b2805253d0d6ffacb092a7acfbee99e7af6917835c0c5410e23f3ef5052da2",
 	GitHub:  "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-windows-amd64.exe",
 }
 
@@ -73,7 +71,6 @@ var meshSpec = componentSpec{
 	File:    "easytier-windows-x86_64-v2.6.4.zip",
 	Version: "2.6.4",
 	Size:    32657720,
-	SHA256:  "27af91e270e554709b048bd32327fefd2dfce5062ae1e8701af7550c6f525f84",
 	GitHub:  "https://github.com/EasyTier/EasyTier/releases/download/v2.6.4/easytier-windows-x86_64-v2.6.4.zip",
 	// 只取运行所需文件：官方包里的 easytier-web*.exe 是网页控制台，用不到。
 	Files: []string{"easytier-core.exe", "easytier-cli.exe", "Packet.dll", "WinDivert64.sys", "wintun.dll"},
@@ -290,7 +287,7 @@ func (c *Controller) installComponentFrom(ctx context.Context, spec componentSpe
 	return extractComponentZip(tempPath, c.mesh.BinDir(), spec.Files)
 }
 
-// downloadComponentFile 逐字节写入并校验；只接受 https 的已知来源。
+// downloadComponentFile 逐字节写入临时文件：只校验来源、体积上限与非空，不比对摘要。
 func downloadComponentFile(ctx context.Context, link, target string, spec componentSpec, onProgress func(done, total int64)) error {
 	parsed, err := url.Parse(link)
 	if err != nil || !strings.EqualFold(parsed.Scheme, "https") || !allowedComponentHost(parsed.Hostname()) {
@@ -306,7 +303,7 @@ func downloadComponentFile(ctx context.Context, link, target string, spec compon
 				return errors.New("组件下载被重定向到非 HTTPS 地址")
 			}
 			// GitHub 会跳到对象存储，GitCode 也可能跳到自己的 CDN：只要求公网 HTTPS，
-			// 具体内容随后用 SHA-256 校验，重定向本身不构成信任。
+			// 内容由大小上限与安装阶段的格式检查把关，重定向本身不构成信任。
 			if !publicHost(request.URL.Hostname()) {
 				return fmt.Errorf("组件下载跳转到未知来源：%s", request.URL.Hostname())
 			}
@@ -339,8 +336,7 @@ func downloadComponentFile(ctx context.Context, link, target string, spec compon
 		total = spec.Size
 	}
 	writer := &progressWriter{dst: file, total: total, report: onProgress}
-	hasher := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(writer, hasher), io.LimitReader(response.Body, componentMaxBytes+1))
+	written, copyErr := io.Copy(writer, io.LimitReader(response.Body, componentMaxBytes+1))
 	closeErr := file.Close()
 	if copyErr != nil {
 		return fmt.Errorf("下载组件失败：%w", copyErr)
@@ -351,13 +347,8 @@ func downloadComponentFile(ctx context.Context, link, target string, spec compon
 	if written > componentMaxBytes {
 		return errors.New("组件文件超过预期大小，已取消下载")
 	}
-	if spec.Size > 0 && written != spec.Size {
-		return fmt.Errorf("组件大小不符（%d/%d 字节）", written, spec.Size)
-	}
-	if spec.SHA256 != "" {
-		if digest := hex.EncodeToString(hasher.Sum(nil)); digest != spec.SHA256 {
-			return errors.New("组件 SHA-256 与仓库记录不一致")
-		}
+	if written == 0 {
+		return errors.New("下载内容为空")
 	}
 	return nil
 }

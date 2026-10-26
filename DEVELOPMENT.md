@@ -192,9 +192,9 @@ npm run package        # 出 ZIP + SHA256
 **`raw.gitcode.com/.../raw/<branch>/<path>` 不能用**：那是预览通道，exe/zip 一律 `403 暂不支持预览`；
 `api.gitcode.com` 的 `raw` 端点才是按字节返回（支持 Range，55 MB 实测可下）。
 
-升级组件：`desktop/scripts/fetch-components.ps1` 拉文件 → 同步 `components.go` 里的
-`Version` / `Size` / `SHA256` → `cd desktop && go test ./controller -run Component`（常量与真实文件
-不一致会直接失败）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）。
+升级组件：`desktop/scripts/fetch-components.ps1` 拉文件 → 同步 `components.go` 里的 `Version`
+（`Size` 只影响进度显示，可顺手改） → `cd desktop && go test ./controller -run Component`
+（只检查目录里的文件是有效二进制，**不比对摘要**）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）。
 
 ### 6.1 发版与大陆镜像（GitHub → GitCode）
 

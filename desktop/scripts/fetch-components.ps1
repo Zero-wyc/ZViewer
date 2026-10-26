@@ -2,12 +2,12 @@
 #
 # 这两个二进制**不进桌面运行包**，而是放在仓库 public/ 里随仓库同步到 GitCode；
 # GUI 第一次用到时按 GitCode 直链下载（desktop/controller/components.go）。
-# 本脚本只给维护者用：升级组件版本时跑一次，改完记得同步 Go 里的版本与 SHA-256，
-# 否则 controller/components_test.go 会直接失败。
+# 本脚本只给维护者用：升级组件版本时改下面的版本号跑一次，再同步 Go 里的 Version。
+# 桌面端下载时**不做** SHA-256 校验，这里的摘要只用来判断本地缓存是不是要的那个版本。
 #
 #   powershell -ExecutionPolicy Bypass -File scripts/fetch-components.ps1
 #
-# 已存在且摘要一致的文件会跳过，不会重复下载。
+# 已存在且摘要一致的文件会跳过；是别的版本则重新下载覆盖。
 $ErrorActionPreference = 'Stop'
 $desktopDir = Split-Path -Parent $PSScriptRoot
 $repoDir = Split-Path -Parent $desktopDir
@@ -24,10 +24,10 @@ function File-Sha256([string]$File) {
 function Fetch-Verified([string]$Url, [string]$File, [string]$Sha256) {
     if (Test-Path -LiteralPath $File) {
         if ((File-Sha256 $File) -ieq $Sha256) {
-            Write-Output "已存在且校验通过：$(Split-Path -Leaf $File)"
+            Write-Output "已存在且是同一版本：$(Split-Path -Leaf $File)"
             return
         }
-        throw "已有文件摘要不一致，先确认版本再删除它：$File"
+        Write-Output "已有文件是其他版本，重新下载：$(Split-Path -Leaf $File)"
     }
     $temp = "$File.download"
     [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -36,9 +36,9 @@ function Fetch-Verified([string]$Url, [string]$File, [string]$Sha256) {
     try { $client.DownloadFile($Url, $temp) } finally { $client.Dispose() }
     if ((File-Sha256 $temp) -ine $Sha256) {
         Remove-Item -LiteralPath $temp -Force -ErrorAction SilentlyContinue
-        throw "下载内容与记录的 SHA-256 不一致：$Url"
+        throw "下载内容与记录的 SHA-256 不一致（上游换了文件？先核对版本）：$Url"
     }
-    Move-Item -LiteralPath $temp -Destination $File
+    Move-Item -LiteralPath $temp -Destination $File -Force
     Write-Output "已下载并校验：$(Split-Path -Leaf $File)"
 }
 
@@ -60,4 +60,4 @@ Fetch-Verified "https://raw.githubusercontent.com/EasyTier/EasyTier/v$etVersion/
 
 Write-Output ''
 Write-Output '组件库已就绪：public/cloudflared-windows-amd64.exe、public/easytier-windows-x86_64-v2.6.4.zip'
-Write-Output '升级版本后请同步 desktop/controller/components.go 里的 Version / Size / SHA256。'
+Write-Output '升级版本后请同步 desktop/controller/components.go 里的 Version（Size 只用于进度显示，可顺手改）。'

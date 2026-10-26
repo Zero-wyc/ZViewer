@@ -1,12 +1,11 @@
 package controller
 
 // 可选组件（public/ 组件库 + GitCode 仓库直链）的固定约束：
-// 版本、大小、摘要必须与仓库里的真实文件一致，否则线上会出现「下下来校验不过」。
+// 每个组件在 public/ 里必须是真实存在的二进制（exe 要有 MZ 头、zip 要有包结构）。
+// 这里**不比对摘要与大小**：组件库换文件时不必改 Go 常量，下载时也不做哈希校验。
 
 import (
 	"archive/zip"
-	"crypto/sha256"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
@@ -24,21 +23,30 @@ func TestComponentCatalogMatchesLibraryFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s 缺少组件文件 public/%s：%v", spec.Name, spec.File, err)
 		}
-		if info.Size() != spec.Size {
-			t.Fatalf("%s 大小与 public/%s 不一致：go=%d file=%d", spec.Name, spec.File, spec.Size, info.Size())
+		if info.Size() == 0 {
+			t.Fatalf("%s 的组件文件 public/%s 是空的", spec.Name, spec.File)
 		}
+		head := make([]byte, 4)
 		file, err := os.Open(path)
 		if err != nil {
 			t.Fatal(err)
 		}
-		hasher := sha256.New()
-		_, copyErr := io.Copy(hasher, file)
+		_, readErr := io.ReadFull(file, head)
 		closeErr := file.Close()
-		if copyErr != nil || closeErr != nil {
-			t.Fatalf("读取 public/%s 失败：%v %v", spec.File, copyErr, closeErr)
+		if readErr != nil || closeErr != nil {
+			t.Fatalf("读取 public/%s 失败：%v %v", spec.File, readErr, closeErr)
 		}
-		if digest := hex.EncodeToString(hasher.Sum(nil)); digest != spec.SHA256 {
-			t.Fatalf("%s 摘要不一致：go=%s file=%s", spec.Name, spec.SHA256, digest)
+		if len(spec.Files) == 0 {
+			if head[0] != 'M' || head[1] != 'Z' {
+				t.Fatalf("%s 不是 Windows 可执行文件（缺少 MZ 头）", spec.Name)
+			}
+			continue
+		}
+		if head[0] != 'P' || head[1] != 'K' {
+			t.Fatalf("%s 不是有效的 ZIP 包", spec.Name)
+		}
+		if _, err := zip.OpenReader(path); err != nil {
+			t.Fatalf("%s 的组件包无法打开：%v", spec.Name, err)
 		}
 	}
 }

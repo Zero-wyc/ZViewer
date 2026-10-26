@@ -31,10 +31,10 @@ GUI 运行包只带壳、后端、网页、FRP 与 CLI。Cloudflare 与 EasyTier
 
 ## 升级组件
 
-1. 跑 `desktop/scripts/fetch-components.ps1`（按脚本里钉死的版本与 SHA-256 下载到本目录）；
-   升版本时先改脚本里的版本号和摘要。
-2. 同步 `desktop/controller/components.go` 里的 `Version` / `Size` / `SHA256`。
-3. 跑 `cd desktop && go test ./controller -run Component`：常量与真实文件不一致会直接失败。
+1. 跑 `desktop/scripts/fetch-components.ps1`（按脚本里钉死的版本下载到本目录）。
+2. 同步 `desktop/controller/components.go` 里的 `Version`（`Size` 只影响进度显示，可顺手改）。
+3. 跑 `cd desktop && go test ./controller -run Component`：目录里的文件必须是有效二进制。
 4. 提交后等仓库同步到 GitCode，`ref=main` 的直链即刻生效。
 
-桌面端会校验 SHA-256，不认识的文件不会被装进运行包；镜像不可达时逐个回退到上游官方地址。
+桌面端**不比对 SHA-256**：组件库换文件时不必改代码里的哈希，下载完整性靠大小上限与安装阶段的
+PE 头 / ZIP 结构检查；镜像不可达时逐个回退到上游官方地址。

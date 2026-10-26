@@ -274,12 +274,13 @@ func (c *Controller) prepareCloudflared(ctx context.Context, generation uint64, 
 		name := cloudflaredSourceName(selected)
 		if selected == cloudflaredSourceGitCode {
 			// GitCode 镜像给的是钉死版本的仓库直链：有文件就直接用，缺了才下载。
-			// 不查 GitHub Release API——大陆网络正是查不通才要用镜像。
+			// 不查 GitHub Release API——大陆网络正是查不通才要用镜像；
+			// 也不比对摘要（仓库文件换了不必改代码），只做大小与 PE 头检查。
 			if exe != "" {
 				return exe, nil
 			}
 			c.updateTunnel(generation, "downloading", fallback+"正在通过 "+name+" 下载 cloudflared，完成后启动…", nil)
-			updated, err := c.downloadCloudflared(ctx, cloudflaredSpec.mirrorURL(), cloudflaredSpec.SHA256, false)
+			updated, err := c.downloadCloudflared(ctx, cloudflaredSpec.mirrorURL(), "", false)
 			if ctx.Err() != nil {
 				return "", ctx.Err()
 			}
