@@ -47,6 +47,9 @@ func startBundledNode(parent context.Context, root, configDir, base string) (str
 	runtimeDir := filepath.Join(root, "ncm")
 	node := filepath.Join(runtimeDir, "node.exe")
 	if _, err := os.Stat(node); err != nil {
+		// 显式要求 Node 却没带组件（源码运行/单文件版）时说清楚，
+		// 否则表现为「音乐面板一直 503」而日志里没有任何线索。
+		log.Print("[ncm] 未找到随包音乐组件，音乐接口保持未配置状态")
 		return base, noop
 	}
 	if _, err := os.Stat(filepath.Join(runtimeDir, "start.cjs")); err != nil {
