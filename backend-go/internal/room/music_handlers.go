@@ -271,7 +271,7 @@ func (s *Service) musicQueuePayload(ctx context.Context, roomID string) ([]music
 			Name:        it.Name,
 			Artist:      it.Artist,
 			Album:       it.Album,
-			Cover:       derefString(it.Cover),
+			Cover:       portableMusicCover(derefString(it.Cover)),
 			DurationMs:  it.DurationMs,
 			VIP:         it.VIP,
 			Order:       it.Order,
@@ -418,6 +418,10 @@ func (s *Service) handleMusicQueueUpsert(sc *sio.Socket, args []json.RawMessage,
 		row.SourceID = &sourceID
 	}
 
+	if row.Cover != nil {
+		cover := portableMusicCover(*row.Cover)
+		row.Cover = &cover
+	}
 	if _, err := s.MusicQueue.Insert(ctx, row); err != nil {
 		s.Logger.Printf("[music:queue-upsert] 写入失败: %v", err)
 		ackFail(ack, "添加歌曲失败")

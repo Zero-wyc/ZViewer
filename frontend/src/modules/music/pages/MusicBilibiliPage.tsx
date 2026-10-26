@@ -1,3 +1,4 @@
+import { portableMusicCoverUrl } from '../utils/neteaseImage'
 /**
  * 哔哩哔哩页（一起听顶部导航新入口）。
  *
@@ -965,7 +966,7 @@ export function MusicBilibiliPage({
           name: item.title,
           artist: item.upName || '哔哩哔哩',
           album: '',
-          cover: item.pic,
+          cover: portableMusicCoverUrl(item.pic),
           durationMs: Math.round((item.duration || 0) * 1000),
           vip: false,
           biliBvid: item.bvid,
@@ -1050,7 +1051,7 @@ export function MusicBilibiliPage({
             name: item.title,
             artist: item.upName || '哔哩哔哩',
             album: '',
-            cover: item.pic,
+            cover: portableMusicCoverUrl(item.pic),
             durationMs: Math.round((item.duration || 0) * 1000),
             vip: false,
             order: 0,
@@ -1085,7 +1086,7 @@ export function MusicBilibiliPage({
           name: item.title,
           artist: item.upName || '哔哩哔哩',
           album: '',
-          cover: item.pic,
+          cover: portableMusicCoverUrl(item.pic),
           durationMs: Math.round((item.duration || 0) * 1000),
           vip: false,
           order: 0,

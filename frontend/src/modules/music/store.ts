@@ -1,8 +1,5 @@
 import { create } from 'zustand'
-import {
-  buildBilibiliImageProxyUrl,
-  isBilibiliImageUrl,
-} from '@/modules/movie-source/resolveSource'
+import { musicCoverUrl, portableMusicCoverUrl } from './utils/neteaseImage'
 import type { MusicQueueItem, PlayMode, NcmLoginStatus } from './types'
 import {
   useMusicSettingsStore,
@@ -278,17 +275,11 @@ export const useMusicStore = create<MusicState>((set) => ({
   ...defaultState,
   setQueue: (items) =>
     set({
-      // B站 CDN 封面直链（hdslb.com）有 Referer 防盗链，直连会 403：在
-      // 队列写入的统一入口做代理化兜底——相关推荐等未经哔哩哔哩页
-      // withCoverProxy 预处理的原始直链在此转换，已有代理封面（指向
-      // /api/stream/proxy-image）与网易云封面不受影响，历史落库的原始
-      // 直链也在展示层一并修复
+      // Keep artwork portable across hosts, viewers and reconnects.
       queue: [...items]
         .sort((a, b) => a.order - b.order)
         .map((it) =>
-          it.cover && isBilibiliImageUrl(it.cover)
-            ? { ...it, cover: buildBilibiliImageProxyUrl(it.cover) }
-            : it
+          it.cover ? { ...it, cover: musicCoverUrl(portableMusicCoverUrl(it.cover), 300) } : it
         ),
     }),
   setCurrentKey: (key) => {
@@ -324,7 +315,7 @@ export const useMusicStore = create<MusicState>((set) => ({
       const next = s.syncAcks.filter((ack) => ack.at > cutoff)
       return next.length === s.syncAcks.length ? s : { syncAcks: next }
     }),
-  setBiliItem: (item) => set({ biliItem: item }),
+  setBiliItem: (item) => set({ biliItem: item ? { ...item, cover: portableMusicCoverUrl(item.cover) } : null }),
   markBiliRecommended: (keys) =>
     set((s) => {
       const merged = [...s.biliRecommendedKeys]

@@ -1,3 +1,4 @@
+import { portableMusicCoverUrl } from '../utils/neteaseImage'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { useShallow } from 'zustand/react/shallow'
@@ -20,10 +21,6 @@ import { buildProxyUrl } from '@/modules/player/services/url-proxy'
 import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
 import { resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
 import { getActiveCliProxyUrl } from '@/modules/movie-source/resolver'
-import {
-  buildBilibiliImageProxyUrl,
-  isBilibiliImageUrl,
-} from '@/modules/movie-source/resolveSource'
 import { message } from '@/components/ui/message'
 import { compensatePositionSec } from '../utils/syncMath'
 import { needsMusicAlign } from '../utils/serverSync'
@@ -119,7 +116,7 @@ function biliRecToUpsertItem(r: BiliRelatedItem) {
     name: r.title,
     artist: r.upName || '哔哩哔哩',
     album: '',
-    cover: r.pic,
+    cover: portableMusicCoverUrl(r.pic),
     durationMs: Math.round((r.duration || 0) * 1000),
     vip: false,
     biliBvid: r.bvid,
@@ -928,9 +925,7 @@ export function useListenTogether({
       name: first.title,
       artist: first.upName || '哔哩哔哩',
       album: '',
-      cover: isBilibiliImageUrl(first.pic)
-        ? buildBilibiliImageProxyUrl(first.pic)
-        : first.pic,
+      cover: portableMusicCoverUrl(first.pic),
       durationMs: Math.round((first.duration || 0) * 1000),
       vip: false,
       order: 0,
