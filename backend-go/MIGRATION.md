@@ -1059,7 +1059,8 @@ ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.t
 在本进程内起`127.0.0.1:36530` 的服务，Go 不可能重写那 3 万行所以改成指向外部服务。
 
 阶段 34 补上了这块：`internal/ncmapi` 复刻同一个 REST 方言并跑在进程内，
-`NCM_API_BASE` 由 `StartBundled` 改写成回环随机端口，**默认交付不再需要额外服务**。
+`NCM_API_BASE` 由 `StartBundled` 改写成哨兵地址 `http://ncm.internal`（请求由
+自定义 `RoundTripper` 直接交给 handler，**不建连接、不占端口**），**默认交付不再需要额外服务**。
 外部化路径没有删——显式 `NCM_API_BASE` 或 `NCM_UPSTREAM=node` 仍会走外部/随包 Node。
 细节见**第十三节**。
 
@@ -2323,17 +2324,24 @@ npm run db:init        # 等价于 zviewer-server --init-db
 直链缓存、音频 Range 代理全部原样复用，前端 44 处调用一处都不改。
 
 阶段 34 新增 `internal/ncmapi`：把那个 npm 包的协议翻译成 Go，在进程内提供同方言
-的 HTTP 服务（回环随机端口）。**默认交付形态里不再有 Node 运行时。**
+的 HTTP 服务。**默认交付形态里不再有 Node 运行时。**
 
 ### 13.1 三种来源与优先级
 
 | 优先级 | 触发条件 | 上游 |
 |---|---|---|
 | 1 | 显式 `NCM_API_BASE` | 该地址，不启动任何内置组件 |
-| 2 | 默认 | `internal/ncmapi`，`http://127.0.0.1:<内核分配的随机端口>` |
-| 3 | `NCM_UPSTREAM=node`，或进程内启动失败 | 随包 `ncm/` 里的 Node 组件（历史路径，保留回退） |
+| 2 | 默认 | `internal/ncmapi`，基地址是哨兵 `http://ncm.internal`（进程内直连，不监听端口） |
+| 3 | `NCM_LOOPBACK=1` | 同一份实现改挂回环 TCP 随机端口，只为能用 curl 看原始响应 |
+| 4 | `NCM_UPSTREAM=node` | 随包 `ncm/` 里的 Node 组件（历史路径，保留回退） |
 
-随机端口是刻意的：不会被同机其他实例误连，也不会和用户自建的 36530 撞车。
+**为什么是「HTTP 语义 + 进程内传输」而不是直接函数调用**：`internal/ncm` 依赖的
+不是 HTTP 本身，而是这层方言的四项语义——状态码、`Set-Cookie` 原样回传（登录态落库
+靠它）、3xx `Location` 透传（`/song/url/v1_302` 这类端点）、请求体流式透传（云盘上传
+把 `r.Body` 直接转出去）。自定义 `RoundTripper` 直接 `ServeHTTP` 就能全部保留，
+同时省掉内核往返和监听端口：`netstat` 里看不到音乐服务，安全软件也不会把它当成
+一个本机服务。
+
 外部服务语义完全保留——compose 的 `--profile music`、自建 NeteaseCloudMusicApi、
 GUI 的随包 Node 都还能用，`NCM_API_BASE` 一设就退回原路径。
 

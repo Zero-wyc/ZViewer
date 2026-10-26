@@ -18,12 +18,12 @@ import (
 //
 // 优先级（每一层都能单独回退，方便灰度与排障）：
 //  1. 显式 NCM_API_BASE —— 运维指定外部服务，进程内实现与随包组件都不启动；
-//  2. 进程内 Go 实现（默认）—— internal/ncmapi 监听回环随机端口，无子进程、
-//     无 Node 运行时；
-//  3. 随包 Node 组件（NCM_UPSTREAM=node，或进程内启动失败且有 ncm/ 目录）。
+//  2. 进程内 Go 实现（默认）—— internal/ncmapi 直接在进程里响应，**不监听端口**，
+//     请求经自定义 RoundTripper 直达 handler；
+//  3. NCM_LOOPBACK=1 —— 同一份实现改挂回环 TCP，只为能用 curl 看原始响应；
+//  4. 随包 Node 组件（NCM_UPSTREAM=node，或上面两步失败且有 ncm/ 目录）。
 //
-// 每层都自带回环随机端口：不会被同机其他实例误连，也不会和用户自建的
-// 36530 撞车。凭证仍由后端自己的 per-user 凭证库管理，与谁提供协议无关。
+// 凭证仍由后端自己的 per-user 凭证库管理，与谁提供协议无关。
 func StartBundled(parent context.Context, root, configDir, base string) (string, func()) {
 	noop := func() {}
 	if os.Getenv("NCM_API_BASE") != "" {
@@ -31,12 +31,17 @@ func StartBundled(parent context.Context, root, configDir, base string) (string,
 	}
 	mode := strings.ToLower(strings.TrimSpace(os.Getenv("NCM_UPSTREAM")))
 	if mode != "node" {
-		local, stop, err := ncmapi.Listen()
-		if err == nil {
-			log.Printf("[ncm] 音乐接口由进程内实现提供: %s", local)
-			return local, stop
+		if loopback := strings.ToLower(strings.TrimSpace(os.Getenv("NCM_LOOPBACK"))); loopback == "1" || loopback == "true" {
+			if local, stop, err := ncmapi.Listen(); err == nil {
+				log.Printf("[ncm] 音乐接口由进程内实现提供（回环 TCP，排障模式）: %s", local)
+				return local, stop
+			} else {
+				log.Printf("[ncm] 回环模式启动失败，改为进程内直连: %v", err)
+			}
 		}
-		log.Printf("[ncm] 内置音乐接口启动失败，改用随包组件: %v", err)
+		local, stop := ncmapi.StartInProcess()
+		log.Print("[ncm] 音乐接口由进程内实现提供（不监听端口）")
+		return local, stop
 	}
 	return startBundledNode(parent, root, configDir, base)
 }

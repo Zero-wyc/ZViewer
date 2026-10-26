@@ -284,8 +284,8 @@ services:
 （集群、已有 SRS）时设 `NMS_HTTP_FLV_URL`，此时后端不再监听这两个端口。
 
 **一起听（网易云）开箱可用**：后端进程内自带网易云接口实现（`internal/ncmapi`，
-含 weapi/eapi/linuxapi 加密与 44 个接口），启动时监听回环随机端口，
-`/api/music/ncm/*` 转发过去——不需要额外进程，也不需要 Node 运行时。
+含 weapi/eapi/linuxapi 加密与 44 个接口），请求在进程内直接交给它处理，
+**不监听端口、不占额外进程，也不需要 Node 运行时**。
 需要 enhanced 版那几项能力（匿名 token、随机国内 IP、解灰）时才改用外部服务：
 
 ```bash

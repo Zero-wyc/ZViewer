@@ -37,9 +37,10 @@ type Service struct {
 
 // NewService 构造服务。base 为空时所有端点返回 503 NCM_UNAVAILABLE。
 func NewService(conn *sql.DB, base string) *Service {
+	base = strings.TrimRight(strings.TrimSpace(base), "/")
 	return &Service{
-		Base:   strings.TrimRight(strings.TrimSpace(base), "/"),
-		Client: NewClient(),
+		Base:   base,
+		Client: NewClient(base),
 		Creds:  store.NewNcmCredentials(conn),
 		Rooms:  store.NewRooms(conn),
 	}

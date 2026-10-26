@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"zviewer/backend/internal/ncmapi"
 )
 
 // Client 是内部 NCM API 服务的调用客户端。
@@ -19,12 +21,23 @@ type Client struct {
 	HTTP *http.Client
 }
 
-// NewClient 构造客户端。
+// NewClient 构造客户端。base 决定传输层：
+//
+//   - 进程内实现的哨兵地址 → 直接 ServeHTTP，不占端口、不走内核；
+//   - 随包 Node 组件 / 外部服务 → 正常 TCP。
+//
+// 传输层换了但 URL 形态没换，所以凭证注入、cookie 落库、音质降级、直链缓存
+// 这一整层不需要感知上游在哪。
 //
 // **不设整体超时**：时长由请求自带的 context 决定（浏览器断连即取消）。
 // 与 Node 的 fetch 一致——长音频解析本来就可能跑几十秒。
-func NewClient() *Client {
+func NewClient(base string) *Client {
+	var transport http.RoundTripper
+	if base == ncmapi.LoopbackBase {
+		transport = ncmapi.InProcessTransport()
+	}
 	return &Client{HTTP: &http.Client{
+		Transport: transport,
 		// 转发要自己看 3xx 的 Location（/song/url/v1_302 之类的重定向端点），
 		// 所以一律不跟随
 		CheckRedirect: func(*http.Request, []*http.Request) error {

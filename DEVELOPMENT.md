@@ -134,11 +134,13 @@ npm run dev:frontend       # 只起前端
 
 **一起听（网易云）默认也是进程内实现的**：`internal/ncmapi` 复刻了
 NeteaseCloudMusicApi 的 REST 方言（weapi/eapi/linuxapi 加密 + 44 条接口），后端启动时
-监听回环随机端口，`/api/music/ncm/*` 转发过去，**不需要任何额外进程，也不需要 Node**。
+把它挂成进程内上游（基地址哨兵 `http://ncm.internal`，请求直接 `ServeHTTP`，
+**不监听端口**），`/api/music/ncm/*` 转发过去，**不需要任何额外进程，也不需要 Node**。
 三档可切换，按优先级从高到低：
 
 ```bash
-npm run dev                          # 默认：进程内实现（回环随机端口）
+npm run dev                          # 默认：进程内实现（不占端口）
+NCM_LOOPBACK=1 npm run dev           # 同一份实现挂回环 TCP，方便 curl 看原始响应
 NCM_UPSTREAM=node npm run dev        # 回退：随包 Node 组件（要求 exe 同级有 ncm/）
 NCM_API_BASE=http://127.0.0.1:36530 npm run dev   # 外部服务
 ```
