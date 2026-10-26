@@ -198,7 +198,8 @@ npm run package        # 出 ZIP + SHA256
 
 ### 6.1 发版与大陆镜像（GitHub → GitCode）
 
-`.github/workflows/build.yml` 推 `main` 出 `latest` 预发布、推 `v*` 出正式版。两个 release job 末尾都会把
+`.github/workflows/build.yml` 推 `main` 出 `dev` 预发布（tag **不能叫 `latest`**，原因见下方排查要点）、
+推 `v*` 出正式版。两个 release job 末尾都会把
 **同一份 Release 与附件**再发一份到 [GitCode](https://gitcode.com)（CSDN 与华为云 CodeArts 联合运营的平台，
 与 AtomGit 已合并同站），大陆用户直接走 `gitcode.com` 下载。
 
@@ -222,6 +223,8 @@ npm run package        # 出 ZIP + SHA256
    —— 同名 Release 已存在则先删再建 → `GET /releases/{tag}/upload_url` 取华为云 OBS 预签名地址 →
    `node:https` 直连 `PUT` 原始字节 → **回读 Release 确认附件真的挂上了** → 把说明里的 GitHub 直链
    改成本站直链 → 下载地址写进 Job Summary。
+   新建的 Release 若**一个附件都没挂上**，脚本会把空壳删掉——否则页面上只剩 4 个自动生成的
+   源码包，用户会以为这个项目不发二进制（`KEEP_EMPTY_RELEASE=1` 可保留空壳）。
 
 > 推 tag 失败时脚本会用 `TARGET_COMMITISH` 让 GitCode 自建 tag（只读镜像仓会先被拦下并给出指引）。
 
@@ -255,6 +258,10 @@ node scripts/sync-gitcode-release.mjs
 
 排查要点：
 
+- **「Release 页面上只有 source code」＝ 附件一个都没上传成功**。先核对实况，别看页面：
+  `curl -s "https://api.gitcode.com/api/v5/repos/<owner>/<repo>/releases?per_page=20"` →
+  每个 Release 的 `assets` 里除 `type: "source"` 之外的条目数就是真实附件数（源码包固定 4 个，
+  `name` 是 `<tag>.zip/.tar.gz/.tar.bz2/.tar`）。
 - 单附件上限 **2 GB**（当前产物 37～65 MB）；`GITCODE_API_BASE` 默认 `https://api.gitcode.com/api/v5`。
 - **附件上传不能用内置 `fetch`**：undici 的 `headersTimeout` 默认 300s，从请求发出就开始计时，
   **不等请求体发完**；GitHub runner → 华为云 OBS 这条链路慢，37MB 的包会在 ~301s 被掐断

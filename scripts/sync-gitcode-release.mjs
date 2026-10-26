@@ -21,9 +21,13 @@
  *   NO_RECREATE          1 = 已存在同名 Release 时原地补传附件（不删不重建），失败重跑用
  *   DIAG                 1 = 只读诊断：打印仓库/Release/上传地址结构，不写任何东西
  *   UPLOAD_ATTEMPTS      单个附件最多尝试次数（含首次），默认 3
+ *   KEEP_EMPTY_RELEASE   1 = 附件全失败时也保留 Release（默认会删掉空壳，见下）
  *
  * 行为：同名 Release 已存在则先删后建（附件随 Release 一起消失），因此可重复执行。
  * 任一附件失败都不影响其它附件，最终有失败则以退出码 1 结束。
+ * **例外**：如果本次是新建的 Release、且一个附件都没挂上，会把该 Release 删掉，
+ * 避免页面上只剩 4 个自动生成的源码包（用户会以为这个项目不发二进制）。
+ * 部分成功（≥1 个附件挂上）不删，只把缺失的列出来。
  *
  * === 历史坑（2026-10-26 修）===
  * 旧版用内置 fetch 做附件 PUT，结果**每个 Release 都只剩 source code、一个附件都没有**：
@@ -32,6 +36,10 @@
  * 稳定在 ~301s 被掐断（`TypeError: fetch failed` / UND_ERR_HEADERS_TIMEOUT）。
  * 现在改为 `node:https` 直连 PUT：socket 不设空闲超时，只保留「10 分钟无进展」的停滞检测，
  * 并且**每传完一个附件都回读 Release 校验真的挂上了**，校验不过就重传、最终失败会让整步标红。
+ *
+ * 还有一个同源的症状要单独处理：Release 是**先创建、后上传**的，所以上传全挂时
+ * 平台上会留下一个「只有 source code」的 Release——用户看到的就是「这个项目不发二进制」。
+ * 因此新增：新建的 Release 若一个附件都没挂上，直接删掉（`KEEP_EMPTY_RELEASE=1` 可关闭）。
  */
 
 import fs from 'node:fs/promises';
@@ -54,6 +62,7 @@ const DIAG = ['1', 'true', 'yes'].includes((process.env.DIAG || '').toLowerCase(
 // 默认把正文里的 GitHub 下载直链改写成 GitCode 直链（镜像页面上给 GitHub 链接等于没给）
 const REWRITE_LINKS = !['0', 'false', 'no'].includes((process.env.REWRITE_GITHUB_LINKS || '1').toLowerCase());
 const UPLOAD_ATTEMPTS = Math.max(1, Number(process.env.UPLOAD_ATTEMPTS || 3) || 3);
+const KEEP_EMPTY_RELEASE = ['1', 'true', 'yes'].includes((process.env.KEEP_EMPTY_RELEASE || '').toLowerCase());
 const ASSETS = (process.env.ASSETS || '')
   .split(/[\s,]+/)
   .map((s) => s.trim())
@@ -347,6 +356,7 @@ async function main() {
 
   // 3) 创建 Release。tag 尚未在 GitCode 存在时，必须带 target_commitish 让平台自己建 tag，
   //    所以从第一次请求就带上（旧版只在重试时才带，latest 这类移动 tag 常常第一次就 400）。
+  let createdHere = false;
   if (!existing) {
     const postRelease = (extra = {}) =>
       request(
@@ -361,6 +371,7 @@ async function main() {
 
     try {
       const created = await postRelease(TARGET_COMMITISH ? { target_commitish: TARGET_COMMITISH } : {});
+      createdHere = true;
       note(`Release ${TAG} 已创建（HTTP ${created.status}）`);
     } catch (err) {
       if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
@@ -467,6 +478,17 @@ async function main() {
   }
   if (missing.length) {
     note(`失败详情：${report.files.filter((f) => missing.includes(f.name)).map((f) => `${f.name}（${f.detail || '未知原因'}）`).join('；')}`);
+    // 空壳 Release 比没有 Release 更误导：页面上只剩 4 个自动生成的源码包，
+    // 用户会以为这个项目不发二进制。只在「本次新建 + 回读成功 + 一个都没挂上」时删；
+    // 部分成功保留（已挂上的附件仍可用），回读失败也保留（避免误删其实传成功的）。
+    if (createdHere && release && !KEEP_EMPTY_RELEASE && uploaded.size === 0) {
+      try {
+        await request(withToken(releaseUrl), { method: 'DELETE' }, { label: '删除空 Release', attempts: 2 });
+        note(`一个附件都没挂上，已删除空 Release ${TAG}（避免页面只剩源码包；KEEP_EMPTY_RELEASE=1 可保留）`);
+      } catch (err) {
+        warn(`删除空 Release 失败（请到 GitCode 手动删）：${err.message}`);
+      }
+    }
     throw new Error(`${missing.length} 个附件未同步：${missing.join('、')}`);
   }
   note('全部附件同步完成');
