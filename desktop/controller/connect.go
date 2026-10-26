@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -166,6 +167,36 @@ func (c *Controller) cloudflared() string {
 const cloudflaredReleaseAPI = "https://api.github.com/repos/cloudflare/cloudflared/releases/latest"
 const cloudflaredDownloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
 
+const (
+	cloudflaredSourceProxy  = "proxy"
+	cloudflaredSourceGitHub = "github"
+)
+
+func cloudflaredSourceName(source string) string {
+	if source == cloudflaredSourceGitHub {
+		return "GitHub 官方"
+	}
+	return "GitHub 前置反代"
+}
+
+func cloudflaredSourceURL(source, target string) string {
+	if source == cloudflaredSourceGitHub {
+		return target
+	}
+	return proxyURL(DefaultUpdateProxy, target)
+}
+
+// 组件下载只接受固定来源与其 HTTPS 附件主机，不允许被反代重定向到任意站点。
+func validCloudflaredDownloadURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	if err != nil || parsed.Scheme != "https" || parsed.User != nil || (parsed.Port() != "" && parsed.Port() != "443") {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	proxy, _ := url.Parse(DefaultUpdateProxy)
+	return host == proxy.Hostname() || host == "github.com" || strings.HasSuffix(host, ".githubusercontent.com")
+}
+
 var cloudflaredVersionPattern = regexp.MustCompile(`(?i)(\d{4})\.(\d+)\.(\d+)`)
 var cloudflaredChecksumPattern = regexp.MustCompile(`(?m)^\s*\x60?cloudflared-windows-amd64\.exe:\s*([0-9a-fA-F]{64})\x60?\s*$`)
 
@@ -181,10 +212,10 @@ type cloudflaredRelease struct {
 	Body    string `json:"body"`
 }
 
-func latestCloudflaredRelease(parent context.Context) (cloudflaredRelease, string, error) {
+func latestCloudflaredRelease(parent context.Context, source string) (cloudflaredRelease, string, error) {
 	ctx, cancel := context.WithTimeout(parent, 6*time.Second)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cloudflaredReleaseAPI, nil)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, cloudflaredSourceURL(source, cloudflaredReleaseAPI), nil)
 	if err != nil {
 		return cloudflaredRelease{}, "", err
 	}
@@ -261,13 +292,12 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	if err != nil {
 		return "", err
 	}
+	if !validCloudflaredDownloadURL(downloadURL) {
+		return "", errors.New("cloudflared 下载地址不在允许的 HTTPS 来源中")
+	}
 	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(request *http.Request, via []*http.Request) error {
-		if request.URL.Scheme != "https" {
-			return errors.New("Cloudflare 下载发生了非 HTTPS 跳转")
-		}
-		host := strings.ToLower(request.URL.Hostname())
-		if host != "github.com" && !strings.HasSuffix(host, ".githubusercontent.com") {
-			return fmt.Errorf("Cloudflare 下载跳转到非 GitHub 主机：%s", host)
+		if !validCloudflaredDownloadURL(request.URL.String()) {
+			return fmt.Errorf("cloudflared 下载跳转到不允许的来源：%s", request.URL.Hostname())
 		}
 		if len(via) >= 10 {
 			return errors.New("Cloudflare 下载跳转次数过多")
@@ -290,7 +320,7 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 		return "", fmt.Errorf("无法在运行包目录创建下载文件：%w", err)
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer removeCloudflaredTemporaryFile(tmpPath)
 	limited := &io.LimitedReader{R: response.Body, N: (100 << 20) + 1}
 	hasher := sha256.New()
 	size, copyErr := io.Copy(io.MultiWriter(tmp, hasher), limited)
@@ -307,41 +337,27 @@ func (c *Controller) downloadCloudflared(parent context.Context, downloadURL, ex
 	if expectedSHA256 != "" && hex.EncodeToString(hasher.Sum(nil)) != expectedSHA256 {
 		return "", errors.New("cloudflared SHA-256 与 Cloudflare Release 校验值不一致")
 	}
-	file, err := os.Open(tmpPath)
-	if err != nil {
-		return "", err
-	}
 	var signature [2]byte
-	_, readErr := io.ReadFull(file, signature[:])
-	file.Close()
-	if readErr != nil || signature != [2]byte{'M', 'Z'} {
+	readErr := retryCloudflaredFileOperation(ctx, func() error {
+		file, err := os.Open(tmpPath)
+		if err != nil {
+			return err
+		}
+		defer file.Close()
+		_, err = io.ReadFull(file, signature[:])
+		return err
+	})
+	if readErr != nil {
+		return "", &cloudflaredInstallError{fmt.Errorf("无法读取下载的 cloudflared 文件：%w", readErr)}
+	}
+	if signature != [2]byte{'M', 'Z'} {
 		return "", errors.New("下载内容不是有效的 Windows 程序文件")
 	}
-	backup := ""
-	if fileExists(target) {
-		old, err := os.CreateTemp(c.root, ".cloudflared-previous-*.exe")
-		if err != nil {
-			return "", fmt.Errorf("无法准备 cloudflared 更新回滚文件：%w", err)
-		}
-		backup = old.Name()
-		old.Close()
-		os.Remove(backup)
-		if err := os.Rename(target, backup); err != nil {
-			return "", fmt.Errorf("无法暂存旧版 cloudflared：%w", err)
-		}
-	}
-	if err := os.Rename(tmpPath, target); err != nil {
-		if backup != "" {
-			_ = os.Rename(backup, target)
-		}
-		return "", fmt.Errorf("无法安装 cloudflared 到运行包目录：%w", err)
-	}
-	if backup != "" {
-		_ = os.Remove(backup)
+	if err := installCloudflared(ctx, tmpPath, target); err != nil {
+		return "", err
 	}
 	c.mu.Lock()
 	c.tunnelExe = target
 	c.mu.Unlock()
-	c.log("已从 Cloudflare 官方 GitHub 下载 cloudflared.exe", "tunnel", "INFO")
 	return target, nil
 }

@@ -183,7 +183,7 @@
     ui.syncWorkspace?.();
     $('#footer-status').textContent = snapshot.backend === 'running' ? `本地服务运行中 · ${current().port}` : `本地服务 · ${labels[snapshot.backend]}`;
   }
-  function tunnelKey(snapshot) { const t = snapshot?.tunnel; return t ? `${t.available}|${t.state}|${t.url}` : ''; }
+  function tunnelKey(snapshot) { const t = snapshot?.tunnel; return t ? `${t.available}|${t.state}|${t.url}|${t.message}|${snapshot.config?.cloudflaredSource}` : ''; }
   // 外部访问地址由主服务端口与 HTTPS 决定，两者变化都要重绘入口卡片；
   // 组网卡片的地址还会随入网状态与虚拟 IP 变化。
   function entryKey(snapshot) { const c = snapshot?.active || snapshot?.config || {}; return `${c.port}|${c.https}|${snapshot?.mesh?.state}|${snapshot?.mesh?.virtualIp}`; }
@@ -435,6 +435,15 @@
       act(btn.dataset.action).catch(error=>ui.toast(error.message.replace(/^.*Error: /,'')));
     }
   },true);
+  document.addEventListener('change', event => {
+    if (!state.live || event.target.id !== 'cloudflared-source') return;
+    if (busy) { ui.render(); return; }
+    const source = event.target.value;
+    command('save', { config: { cloudflaredSource: source } })
+      .then(() => ui.toast('组件获取源已保存，下载和更新检查均使用此源'))
+      .catch(error => ui.toast(error.message.replace(/^.*Error: /, '')))
+      .finally(() => ui.render());
+  });
   document.addEventListener('input', event => {
     if (state.live && event.target.id === 'mesh-secret') { state.meshSecretDraft = event.target.value; return; }
     if (state.live && event.target.matches('#mesh-name,#mesh-peers,#mesh-port')) { state.meshDraft = meshValues(); return; }

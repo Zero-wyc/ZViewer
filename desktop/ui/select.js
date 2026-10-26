@@ -127,6 +127,7 @@
     select.classList.add('select-native');
     const trigger = document.createElement('button');
     trigger.type = 'button';
+    trigger.disabled = select.disabled;
     trigger.className = 'select-trigger';
     trigger.setAttribute('aria-haspopup', 'listbox');
     trigger.setAttribute('aria-expanded', 'false');

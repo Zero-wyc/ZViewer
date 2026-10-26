@@ -98,6 +98,8 @@ func (c *Controller) startTunnel() (any, error) {
 	if c.active != nil {
 		config = c.active.Clone()
 	}
+	// 源站使用正在运行的服务配置；获取源使用用户刚保存的选择，无需重启主服务。
+	config.CloudflaredSource = c.store.Value.CloudflaredSource
 	if config.Port <= 0 {
 		c.mu.Unlock()
 		return nil, errors.New("请先确认网页服务端口")
@@ -258,39 +260,71 @@ func probePublicTunnel(ctx context.Context, candidate string, startedAt int64, c
 	return time.Since(started), nil
 }
 
-func (c *Controller) prepareCloudflared(ctx context.Context, generation uint64) (string, error) {
+func (c *Controller) prepareCloudflared(ctx context.Context, generation uint64, source string) (string, error) {
 	exe := c.cloudflared()
-	state, message := "checking", "正在检查 cloudflared 更新…"
-	if exe == "" {
-		state, message = "downloading", "正在获取 cloudflared…"
+	sources := []string{source}
+	if source != cloudflaredSourceGitHub {
+		sources = append(sources, cloudflaredSourceGitHub)
 	}
-	c.updateTunnel(generation, state, message, nil)
-	release, latest, releaseErr := latestCloudflaredRelease(ctx)
-	if ctx.Err() != nil {
-		return "", ctx.Err()
+	fallback := ""
+	for _, selected := range sources {
+		if err := ctx.Err(); err != nil {
+			return "", err
+		}
+		name := cloudflaredSourceName(selected)
+		c.updateTunnel(generation, "checking", fallback+"正在通过 "+name+" 检查 cloudflared 更新…", nil)
+		release, latest, releaseErr := latestCloudflaredRelease(ctx, selected)
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if releaseErr != nil {
+			if selected != cloudflaredSourceGitHub {
+				fallback = "前置反代不可用，已回退 GitHub 官方。"
+				c.log(fallback+releaseErr.Error(), "tunnel", "WARN")
+				continue
+			}
+			if exe != "" {
+				c.log("组件更新检查失败，使用现有组件："+releaseErr.Error(), "tunnel", "WARN")
+				return exe, nil
+			}
+		}
+		if exe != "" && !cloudflaredVersionIsOlder(installedCloudflaredVersion(ctx, exe), latest) {
+			return exe, ctx.Err()
+		}
+		downloadURL, checksum := cloudflaredDownloadURL, ""
+		if releaseErr == nil {
+			downloadURL = "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
+			checksum = checksumForRelease(release.Body)
+		}
+		c.updateTunnel(generation, "downloading", fallback+"正在通过 "+name+" 下载 cloudflared，完成后启动…", nil)
+		updated, err := c.downloadCloudflared(ctx, cloudflaredSourceURL(selected, downloadURL), checksum, exe != "")
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		if err == nil {
+			c.log("已通过 "+name+" 下载 cloudflared.exe", "tunnel", "INFO")
+			return updated, nil
+		}
+		var installErr *cloudflaredInstallError
+		if errors.As(err, &installErr) {
+			if exe != "" && fileExists(exe) {
+				c.log("组件文件安装失败，使用现有组件："+err.Error(), "tunnel", "WARN")
+				return exe, nil
+			}
+			return "", err
+		}
+		if selected != cloudflaredSourceGitHub {
+			fallback = "前置反代下载失败，已回退 GitHub 官方。"
+			c.log(fallback+err.Error(), "tunnel", "WARN")
+			continue
+		}
+		if exe != "" {
+			c.log("组件更新失败，使用现有组件："+err.Error(), "tunnel", "WARN")
+			return exe, nil
+		}
+		return "", err
 	}
-	if exe != "" && releaseErr != nil {
-		c.log("组件更新检查失败，使用现有组件："+releaseErr.Error(), "tunnel", "WARN")
-		return exe, nil
-	}
-	if exe != "" && !cloudflaredVersionIsOlder(installedCloudflaredVersion(ctx, exe), latest) {
-		return exe, ctx.Err()
-	}
-	downloadURL, checksum := cloudflaredDownloadURL, ""
-	if releaseErr == nil {
-		downloadURL = "https://github.com/cloudflare/cloudflared/releases/download/" + release.TagName + "/cloudflared-windows-amd64.exe"
-		checksum = checksumForRelease(release.Body)
-	}
-	c.updateTunnel(generation, "downloading", "正在下载 cloudflared，完成后启动…", nil)
-	updated, err := c.downloadCloudflared(ctx, downloadURL, checksum, exe != "")
-	if ctx.Err() != nil {
-		return "", ctx.Err()
-	}
-	if err != nil && exe != "" {
-		c.log("组件更新失败，使用现有组件："+err.Error(), "tunnel", "WARN")
-		return exe, nil
-	}
-	return updated, err
+	return "", errors.New("没有可用的 cloudflared 获取源")
 }
 
 func stopTunnelCandidate(candidate *tunnelCandidate) error {
@@ -449,7 +483,7 @@ func (c *Controller) runTunnelSession(ctx context.Context, cancel context.Cancel
 		fail(fmt.Errorf("本机源站 %s 未通过健康检查：%w", tunnelOriginURL(config), err))
 		return
 	}
-	exe, err := c.prepareCloudflared(ctx, generation)
+	exe, err := c.prepareCloudflared(ctx, generation, config.CloudflaredSource)
 	if err != nil {
 		fail(err)
 		return

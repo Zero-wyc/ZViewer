@@ -42,7 +42,7 @@
   try { prefs = { ...prefs, ...JSON.parse(localStorage.getItem('zviewer-ui-prefs') || '{}') }; } catch { /* Use safe defaults if storage is unavailable. */ }
   const state = {
     page: 'overview', running: false, certReady: false, native: false, info: null,
-    ipv6: null,
+    ipv6: null, cloudflaredSource: 'proxy',
     frp: { host: '', port: 7000, voice: true, rtmp: true, tcp: false, webPort: 3333, voicePort: 3333, rtmpPort: 3334, tcpPort: 3337 },
     logLevel: 'all', logSource: 'all', logSearch: '', paused: false, cliDraft: null, cliEmbedUrl: '',
     meshDraft: null, meshSecretDraft: '', meshProbe: null,
@@ -567,28 +567,32 @@
     const tunnelStatus = tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
     const tunnelStopping = tunnel?.state === 'stopping';
     const tunnelCanStop = Boolean(tunnel) && ['running', 'reconnecting'].includes(tunnel.state);
+    const tunnelSource = (live ? state.config?.cloudflaredSource : state.cloudflaredSource) || 'proxy';
+    const tunnelSourceName = tunnelSource === 'github' ? 'GitHub 官方' : 'GitHub 前置反代';
     let tunnelBody;
     if (!tunnel) {
       tunnelBody = `<p class="connect-value is-empty">桌面版中可用</p><p class="connect-note">不需要公网 IP；地址随隧道关闭失效。固定域名需外国银行卡。</p>`;
     } else if (!tunnel.available) {
-      tunnelBody = `<p class="connect-value is-empty">${tunnel.state === 'health-checking' ? '正在检查本机服务' : tunnel.state === 'downloading' ? '正在获取 cloudflared' : tunnel.state === 'error' ? '启动条件未通过' : '首次使用时自动下载'}</p><p class="connect-note">${esc(tunnel.message || '点击一键启动，程序会从 Cloudflare 官方 GitHub 获取组件并启动临时隧道。')}</p>`;
+      tunnelBody = `<p class="connect-value is-empty">${tunnel.state === 'health-checking' ? '正在检查本机服务' : tunnel.state === 'downloading' ? '正在获取 cloudflared' : tunnel.state === 'error' ? '启动条件未通过' : '首次使用时自动下载'}</p><p class="connect-note">${esc(tunnel.message || `点击一键启动，程序会通过 ${tunnelSourceName} 获取组件并启动临时隧道。`)}</p>`;
     } else if (tunnel.url) {
       tunnelBody = `<p class="connect-value"><code>${esc(tunnel.url)}</code></p><p class="connect-note">${tunnel.health === 'degraded' ? esc(tunnel.message) : `启动检查通过 · ${Number(tunnel.latencyMs || 0)} ms · HTTP/2。运行中保持当前地址。`}</p>`;
     } else {
       tunnelBody = `<p class="connect-value is-empty">${tunnelLabels[tunnel.state] || '未运行'}</p><p class="connect-note">${esc(tunnel.message || (tunnel.state === 'error' ? '隧道已退出。' : '启动后检查本机源站与公网访问，检查通过才显示地址。'))}</p>`;
     }
-    const tunnelActions = tunnelStarting
+    const tunnelSourceVisible = !tunnelStarting && !tunnelCanStop && !tunnelStopping;
+    const tunnelSourceControl = tunnelSourceVisible ? `<label class="tunnel-source" title="用于 cloudflared 组件下载和更新检查"><span>获取源</span><select id="cloudflared-source" aria-label="cloudflared 获取源"><option value="proxy" ${tunnelSource === 'proxy' ? 'selected' : ''}>GitHub 前置反代（推荐）</option><option value="github" ${tunnelSource === 'github' ? 'selected' : ''}>GitHub 官方</option></select></label>` : '';
+    const tunnelActions = (tunnelStarting
       ? `<button class="btn primary tunnel-primary" type="button" disabled>${icon('refresh')}${esc(tunnelLabels[tunnel.state])}…${Number(tunnel.refreshCount || 0) ? `（刷新 ${Number(tunnel.refreshCount)}/5）` : ''}</button>${button(Number(tunnel.refreshCount || 0) ? '中断自动刷新' : '中断启动', 'tunnel-stop', 'stop', 'danger')}`
       : tunnelStopping
         ? `<button class="btn danger" type="button" disabled>${icon('stop')}正在停止隧道…</button>`
-        : `${button(tunnelCanStop ? '停止隧道' : !tunnel?.available ? '一键启动隧道' : '启动隧道', tunnelCanStop ? 'tunnel-stop' : 'tunnel-start', tunnelCanStop ? 'stop' : 'cloud', tunnelCanStop ? 'danger' : 'primary tunnel-primary')}${tunnel.url ? `<button class="btn" data-copy="${esc(tunnel.url)}">${icon('copy')}复制地址</button>${button('刷新隧道', 'tunnel-refresh', 'refresh')}` : ''}`;
+        : `${button(tunnelCanStop ? '停止隧道' : !tunnel?.available ? '一键启动隧道' : '启动隧道', tunnelCanStop ? 'tunnel-stop' : 'tunnel-start', tunnelCanStop ? 'stop' : 'cloud', tunnelCanStop ? 'danger' : 'primary tunnel-primary')}${tunnel?.url ? `<button class="btn" data-copy="${esc(tunnel.url)}">${icon('copy')}复制地址</button>${button('刷新隧道', 'tunnel-refresh', 'refresh')}` : ''}`) + tunnelSourceControl;
 
     return heading('连接方式', '新手推荐 Cloudflare Tunnel：无需 VPS，一键下载并启动；其他方式可按需选择。', tutorial('connect')) +
       `<div class="connect-grid">${
         connectCard({
           name: 'cloud', title: 'Cloudflare Tunnel · 新手推荐', copy: '一键启动，无需额外配置。',
           status: tunnelStatus, tone: tunnel?.state === 'running' ? 'green' : '',
-          body: tunnelBody + linkList(connectLinks.tunnel), actions: tunnelActions
+          body: tunnelBody + linkList(connectLinks.tunnel) + (tunnelSourceVisible ? `<p class="connect-note">组件下载及更新检查共用此源。${tunnelSource === 'proxy' ? '反代不可用时自动回退 GitHub 官方。' : ''}</p>` : ''), actions: tunnelActions
         })
       }${
         connectCard({
@@ -814,6 +818,7 @@
   });
   document.addEventListener('change', event => {
     const target = event.target;
+    if (target.id === 'cloudflared-source' && !state.live) { state.cloudflaredSource = target.value; render(); }
     if (target.matches('[data-frp-check]')) { state.frp[target.dataset.frpCheck] = target.checked; const code = $('#frp-code'); if (code) code.textContent = frpConfig(); }
     if (target.id === 'log-source') { state.logSource = target.value; if (!state.paused) refreshLogs(); }
     if (target.id === 'log-level') { state.logLevel = target.value; if (!state.paused) refreshLogs(); }
