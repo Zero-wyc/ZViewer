@@ -101,6 +101,7 @@ type Controller struct {
 	tunnelState        string
 	tunnelURL          string
 	tunnelMessage      string
+	tunnelErrorCode    string
 	tunnelExe          string
 	tunnelHealth       string
 	tunnelLatencyMs    int64
