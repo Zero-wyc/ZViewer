@@ -12,7 +12,6 @@ import (
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
-	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/store"
 )
 
@@ -279,7 +278,7 @@ func (s *Server) handleListMovies(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]movieDTO, 0, len(movies))
 	for _, m := range movies {
-		out = append(out, toMovieDTO(m))
+		out = append(out, s.authorizedMovieDTO(m))
 	}
 	httpx.OK(w, map[string]any{"success": true, "movies": out})
 }
@@ -301,38 +300,17 @@ func (s *Server) handleCreateMovie(w http.ResponseWriter, r *http.Request) {
 	}
 
 	claims := auth.ClaimsFrom(r.Context())
-
-	// WebDAV / OpenList：前端不传凭证（挂载列表 API 不返回密码），
-	// 后端从 user_mount 表按 userId + serverUrl 自动补全。
-	sourceType := body.sourceType()
-	if (sourceType == "webdav" || sourceType == "openlist") && body.ServerURL != nil {
-		if body.Username == nil || body.Password == nil {
-			mount, err := s.Mounts.FindByServerURL(r.Context(), claims.UserID, *body.ServerURL, sourceType)
-			if err == nil {
-				if body.Username == nil && mount.Username != nil {
-					body.Username = mount.Username
-				}
-				if body.Password == nil && mount.Password != nil {
-					body.Password = mount.Password
-				}
-			}
+	var selectedMount *int64
+	if body.SourceMountID != nil && string(body.SourceMountID) != "null" {
+		id, ok := parseRawPositiveID(body.SourceMountID)
+		if !ok {
+			httpx.BadRequest(w, "无效的 sourceMountId")
+			return
 		}
+		selectedMount = &id
 	}
 
-	// 内网地址强制使用服务器转发：浏览器（尤其公网访问者）无法直连内网 NAS。
-	// 覆盖全部挂载型源——emby/jellyfin 的直链 URL 同样指向挂载的 NAS。
 	directLink := body.DirectLink != nil && *body.DirectLink
-	if directLink && isMountSourceType(sourceType) {
-		checkURL := ""
-		if body.ServerURL != nil && *body.ServerURL != "" {
-			checkURL = *body.ServerURL
-		} else if body.URL != nil {
-			checkURL = *body.URL
-		}
-		if checkURL != "" && netutil.IsInternalServerURL(checkURL) {
-			directLink = false
-		}
-	}
 
 	playsvideo := body.PlaysvideoEnabled == nil || *body.PlaysvideoEnabled
 
@@ -352,6 +330,7 @@ func (s *Server) handleCreateMovie(w http.ResponseWriter, r *http.Request) {
 		Pages:             body.Pages,
 		CurrentPage:       body.CurrentPage,
 		ServerURL:         body.ServerURL,
+		SourceMountID:     selectedMount,
 		Path:              body.Path,
 		Username:          body.Username,
 		Password:          body.Password,
@@ -363,11 +342,19 @@ func (s *Server) handleCreateMovie(w http.ResponseWriter, r *http.Request) {
 		SourceMeta:        body.SourceMeta,
 	}, claims.UserID)
 	if err != nil {
+		if errors.Is(err, store.ErrLocalFileShare) {
+			httpx.Forbidden(w, err.Error())
+			return
+		}
+		if errors.Is(err, store.ErrInvalidSourceMount) || errors.Is(err, store.ErrInvalidMovieInput) {
+			httpx.BadRequest(w, err.Error())
+			return
+		}
 		httpx.InternalError(w, "POST /movies", err)
 		return
 	}
 	s.broadcastMovieList(r.Context(), roomID)
-	httpx.JSON(w, http.StatusCreated, map[string]any{"success": true, "movie": toMovieDTO(created)})
+	httpx.JSON(w, http.StatusCreated, map[string]any{"success": true, "movie": s.authorizedMovieDTO(created)})
 }
 
 func (s *Server) handleUpdateMovie(w http.ResponseWriter, r *http.Request) {
@@ -383,37 +370,6 @@ func (s *Server) handleUpdateMovie(w http.ResponseWriter, r *http.Request) {
 	if err := httpx.DecodeJSON(r, &body); err != nil {
 		httpx.BadRequest(w, "请求体格式无效")
 		return
-	}
-
-	// 内网地址强制服务器转发：传了 directLink=true 时要按「更新后」的
-	// serverUrl / url 判定，都没传则回落到库里的现有值。
-	if body.DirectLink != nil && *body.DirectLink {
-		checkURL := ""
-		if body.ServerURL != nil && *body.ServerURL != "" {
-			checkURL = *body.ServerURL
-		} else if body.URL != nil && *body.URL != "" {
-			checkURL = *body.URL
-		}
-		if checkURL == "" {
-			existing, err := s.Movies.FindInRoom(r.Context(), roomID, movieID)
-			if err == nil {
-				src := ""
-				if existing.Source != nil {
-					src = strings.ToLower(*existing.Source)
-				}
-				if isMountSourceType(src) {
-					if existing.ServerURL != nil && netutil.IsInternalServerURL(*existing.ServerURL) {
-						checkURL = *existing.ServerURL
-					} else if netutil.IsInternalServerURL(existing.URL) {
-						checkURL = existing.URL
-					}
-				}
-			}
-		}
-		if checkURL != "" && netutil.IsInternalServerURL(checkURL) {
-			off := false
-			body.DirectLink = &off
-		}
 	}
 
 	patch := store.MoviePatch{
@@ -445,8 +401,24 @@ func (s *Server) handleUpdateMovie(w http.ResponseWriter, r *http.Request) {
 		SourceMeta:           body.SourceMeta,
 		SourceMountIDTouched: body.SourceMountID != nil,
 	}
+	if body.SourceMountID != nil && string(body.SourceMountID) != "null" {
+		id, valid := parseRawPositiveID(body.SourceMountID)
+		if !valid {
+			httpx.BadRequest(w, "无效的 sourceMountId")
+			return
+		}
+		patch.SourceMountID = &id
+	}
 	updated, err := s.Movies.Update(r.Context(), roomID, movieID, patch, auth.ClaimsFrom(r.Context()).UserID)
 	if err != nil {
+		if errors.Is(err, store.ErrLocalFileShare) {
+			httpx.Forbidden(w, err.Error())
+			return
+		}
+		if errors.Is(err, store.ErrInvalidSourceMount) {
+			httpx.BadRequest(w, err.Error())
+			return
+		}
 		if errors.Is(err, store.ErrMovieNotFound) {
 			httpx.NotFound(w, "影片不存在")
 			return
@@ -458,7 +430,7 @@ func (s *Server) handleUpdateMovie(w http.ResponseWriter, r *http.Request) {
 	// 旧凭证打旧地址，用户会以为「改了没生效」。
 	s.Stream.Invalidate(movieID)
 	s.broadcastMovieList(r.Context(), roomID)
-	httpx.OK(w, map[string]any{"success": true, "movie": toMovieDTO(updated)})
+	httpx.OK(w, map[string]any{"success": true, "movie": s.authorizedMovieDTO(updated)})
 }
 
 func (s *Server) handleDeleteMovie(w http.ResponseWriter, r *http.Request) {
@@ -547,17 +519,6 @@ func (s *Server) broadcastMovieList(ctx context.Context, roomID string) {
 	}
 }
 
-// isMountSourceType 与 store 里的判定保持一致（api 层只需要判断
-// 「这条影片的直链是否指向挂载的 NAS」）。
-func isMountSourceType(source string) bool {
-	switch source {
-	case "webdav", "openlist", "ftp", "emby", "jellyfin":
-		return true
-	default:
-		return false
-	}
-}
-
 // parseIDParam 解析正整数路径参数，失败时已写好 400 响应。
 func parseIDParam(w http.ResponseWriter, raw, name string) (int64, bool) {
 	var id int64
@@ -566,4 +527,17 @@ func parseIDParam(w http.ResponseWriter, raw, name string) (int64, bool) {
 		return 0, false
 	}
 	return id, true
+}
+
+func parseRawPositiveID(raw json.RawMessage) (int64, bool) {
+	var id int64
+	if json.Unmarshal(raw, &id) == nil {
+		return id, id > 0
+	}
+	var text string
+	if json.Unmarshal(raw, &text) != nil {
+		return 0, false
+	}
+	_, err := fmt.Sscan(text, &id)
+	return id, err == nil && id > 0 && fmt.Sprint(id) == text
 }

@@ -299,8 +299,8 @@ func (r *Rooms) DeleteCascade(ctx context.Context, roomID string) error {
 // SetStatus 修改房间状态（active / closed）。
 func (r *Rooms) SetStatus(ctx context.Context, roomID, status string) error {
 	_, err := r.conn.ExecContext(ctx, `
-		UPDATE "room" SET "status" = ?, "updatedAt" = ? WHERE "roomId" = ?
-	`, status, FormatSQLiteTime(time.Now()), roomID)
+		UPDATE "room" SET "status" = ?, "streamKey" = CASE WHEN ? = 'closed' THEN NULL ELSE "streamKey" END, "updatedAt" = ? WHERE "roomId" = ?
+	`, status, status, FormatSQLiteTime(time.Now()), roomID)
 	if err != nil {
 		return fmt.Errorf("修改房间状态失败: %w", err)
 	}

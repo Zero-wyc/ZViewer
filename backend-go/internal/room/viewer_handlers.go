@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"time"
 
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 )
@@ -103,15 +104,10 @@ func (s *Service) handleApproveJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	}
 	s.Hub.Join(payload.ViewerSocketID, sharer.RoomID)
 
-	var streamKey any
-	if room.StreamKey != nil {
-		streamKey = *room.StreamKey
-	}
 	s.Hub.EmitTo(payload.ViewerSocketID, "join-approved", map[string]any{
 		"roomId":      sharer.RoomID,
 		"mode":        room.Mode,
 		"shareMethod": room.ShareMethod,
-		"streamKey":   streamKey,
 		"name":        room.Name,
 	})
 
@@ -409,6 +405,11 @@ func (s *Service) handleTransferHost(sc *sio.Socket, args []json.RawMessage, ack
 		"oldHostSocketId": sc.ID,
 		"newOwnerUserId":  *newOwnerUID,
 	})
+	if room, err := s.Rooms.FindByRoomID(ctx, payload.RoomID); err == nil {
+		s.Hub.EmitTo(payload.ViewerSocketID, "share-method-changed", map[string]any{"roomId": payload.RoomID, "shareMethod": room.ShareMethod, "streamKey": room.StreamKey})
+		s.Hub.EmitTo(sc.ID, "share-method-changed", map[string]any{"roomId": payload.RoomID, "shareMethod": room.ShareMethod, "streamKey": nil})
+	}
+
 	if nextModerators != nil {
 		s.Hub.EmitRoom(payload.RoomID, "moderators-changed", map[string]any{
 			"roomId":     payload.RoomID,
@@ -479,9 +480,9 @@ func (s *Service) transferHost(ctx context.Context, roomID, newSocketID, oldSock
 			encodedMods = encodeIDList(nextModerators)
 		}
 		if _, err := tx.ExecContext(ctx, `
-			UPDATE "room" SET "ownerUserId" = ?, "moderators" = ?, "updatedAt" = ?
+			UPDATE "room" SET "ownerUserId" = ?, "moderators" = ?, "streamKey" = CASE WHEN "streamKey" IS NULL THEN NULL ELSE ? END, "updatedAt" = ?
 			WHERE "roomId" = ?
-		`, newOwnerUID, encodedMods, store.FormatSQLiteTime(time.Now()), roomID); err != nil {
+		`, newOwnerUID, encodedMods, nms.GenerateStreamKey(), store.FormatSQLiteTime(time.Now()), roomID); err != nil {
 			return nil, fmt.Errorf("更新房间归属失败: %w", err)
 		}
 	}

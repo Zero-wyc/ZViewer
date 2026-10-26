@@ -1,3 +1,4 @@
+import { neteaseImageUrl, fallbackNcmAvatar } from '../utils/neteaseImage'
 /**
  * 「在网易云搜索」弹窗（B站 歌曲快捷收藏）。
  *
@@ -393,7 +394,7 @@ export function NcmSearchModal({
                     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-sm bg-white/8">
                       {song.cover ? (
                         <img
-                          src={`${song.cover}?param=80y80`}
+                          src={neteaseImageUrl(song.cover, 80)} onError={fallbackNcmAvatar}
                           alt=""
                           loading="lazy"
                           className="h-full w-full object-cover"

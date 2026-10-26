@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/png"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -545,7 +547,7 @@ func TestAvatarLifecycle(t *testing.T) {
 
 	t.Run("非图片被拒", func(t *testing.T) {
 		resp := env.doMultipart(t, "/api/auth/avatar", token, "avatar", "a.txt", "text/plain", []byte("hello"))
-		if resp.status != http.StatusBadRequest || resp.message() != "仅支持 JPG / PNG / GIF / WEBP 格式" {
+		if resp.status != http.StatusBadRequest || !strings.Contains(resp.message(), "JPG / PNG / GIF / WEBP") {
 			t.Fatalf("期望 400 格式提示，实际 %d %q", resp.status, resp.message())
 		}
 	})
@@ -560,7 +562,7 @@ func TestAvatarLifecycle(t *testing.T) {
 	var firstURL string
 	t.Run("上传成功", func(t *testing.T) {
 		resp := env.doMultipart(t, "/api/auth/avatar", token, "avatar", "my-photo.PNG", "image/png",
-			[]byte("\x89PNG\r\n\x1a\nfake"))
+			validAvatar(t))
 		if resp.status != http.StatusOK {
 			t.Fatalf("期望 200，实际 %d %s", resp.status, resp.raw)
 		}
@@ -598,7 +600,7 @@ func TestAvatarLifecycle(t *testing.T) {
 	t.Run("二次上传会清掉旧文件", func(t *testing.T) {
 		oldName := filepath.Base(firstURL)
 		resp := env.doMultipart(t, "/api/auth/avatar", token, "avatar", "second.jpg", "image/jpeg",
-			[]byte("\xff\xd8\xff\xe0fake"))
+			validAvatar(t))
 		if resp.status != http.StatusOK {
 			t.Fatalf("期望 200，实际 %d %s", resp.status, resp.raw)
 		}
@@ -648,4 +650,13 @@ func TestAvatarOversize(t *testing.T) {
 	if len(entries) != 0 {
 		t.Fatalf("超限请求不应留下文件，实际 %d 个", len(entries))
 	}
+}
+
+func validAvatar(t *testing.T) []byte {
+	t.Helper()
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, image.NewRGBA(image.Rect(0, 0, 2, 2))); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }

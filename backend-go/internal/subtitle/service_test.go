@@ -302,8 +302,8 @@ func TestLoadServerFiles(t *testing.T) {
 	}
 
 	_, err = svc.LoadSubtitleFile(ctx, movie, "uploads:/anime")
-	if !errorsAs(err, &se) || se.Status != 404 {
-		t.Fatalf("目录应返回 404，得到 %v", err)
+	if !errorsAs(err, &se) || se.Status != 400 {
+		t.Fatalf("非字幕应返回 400，得到 %v", err)
 	}
 }
 

@@ -655,7 +655,6 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	ackOKMsg(ack, "等待分享端确认", map[string]any{
 		"mode":        room.Mode,
 		"shareMethod": room.ShareMethod,
-		"streamKey":   room.StreamKey,
 	})
 }
 
@@ -684,9 +683,7 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 		"shareMethod": room.ShareMethod,
 		"name":        room.Name,
 	}
-	if withModerators {
-		approved["streamKey"] = room.StreamKey
-	}
+
 	if s.Hub != nil {
 		s.Hub.EmitTo(sc.ID, "join-approved", approved)
 		s.Hub.EmitTo(sc.ID, "movie-list", map[string]any{"movies": s.Movies(roomID)})
@@ -715,7 +712,6 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 	ackOKMsg(ack, "已加入房间", map[string]any{
 		"mode":        room.Mode,
 		"shareMethod": room.ShareMethod,
-		"streamKey":   room.StreamKey,
 	})
 }
 

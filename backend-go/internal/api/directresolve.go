@@ -237,11 +237,13 @@ func (s *Server) directResolveAccess(ctx context.Context, movie *store.Movie, ta
 			found, err := s.Mounts.FindByID(ctx, *movie.SourceMountID, target.Kind)
 			if err == nil {
 				mount = found
-			} else if !errors.Is(err, store.ErrMountNotFound) {
+			} else if errors.Is(err, store.ErrMountNotFound) {
+				return directResolveAccess{}, newDirectResolveError("MOUNT_NOT_FOUND", "指定挂载已删除，请重新选择挂载")
+			} else {
 				return directResolveAccess{}, newDirectResolveError("UNREACHABLE", err.Error())
 			}
 		}
-		if mount == nil && s.Rooms != nil {
+		if mount == nil && movie.SourceMountID == nil && s.Rooms != nil {
 			room, err := s.Rooms.FindByRoomID(ctx, movie.RoomID)
 			if err != nil && !errors.Is(err, store.ErrRoomNotFound) {
 				return directResolveAccess{}, newDirectResolveError("UNREACHABLE", err.Error())
@@ -258,10 +260,10 @@ func (s *Server) directResolveAccess(ctx context.Context, movie *store.Movie, ta
 	}
 	access := directResolveAccess{mount: mount, username: derefString(movie.Username), password: derefString(movie.Password)}
 	if mount != nil {
-		if access.username == "" {
+		if movie.SourceMountID != nil || access.username == "" {
 			access.username = derefString(mount.Username)
 		}
-		if access.password == "" {
+		if movie.SourceMountID != nil || access.password == "" {
 			access.password = derefString(mount.Password)
 		}
 	}

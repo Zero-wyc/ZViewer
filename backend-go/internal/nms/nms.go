@@ -120,7 +120,7 @@ func (c Config) RtmpServerURL(hostHeader string) string {
 	if host == "" {
 		host = hostOnly(hostHeader)
 	}
-	return "rtmp://" + host + ":" + strconv.Itoa(c.RtmpPort) + "/live"
+	return "rtmp://" + net.JoinHostPort(strings.Trim(host, "[]"), strconv.Itoa(c.RtmpPort)) + "/live"
 }
 
 // LiveUpstream 拼接 /live 拉流的上游地址（requestURI 含查询串）。
@@ -154,15 +154,14 @@ func hostOnly(hostHeader string) string {
 // 去掉易混淆的 0 / O / I / l / 1（OBS 里手抄推流码时最容易看错的那几个）。
 const streamKeyAlphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
 
-// GenerateStreamKey 生成 8 位推流码。
+// GenerateStreamKey 生成 32 位独立发布密钥。旧 8 位密钥须由房主重领。
 func GenerateStreamKey() string {
-	buf := make([]byte, 8)
+	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
-		// 熵源故障时退化成固定长度占位串：宁可让用户重试，
-		// 也不要写一个空密钥进库（OBS 那边会表现为「推流码无效」）。
-		return "STREAMKY"
+		// 熵源故障时不签发可猜测的发布能力。
+		panic("无法生成安全推流密钥")
 	}
-	out := make([]byte, 8)
+	out := make([]byte, 32)
 	for i, b := range buf {
 		out[i] = streamKeyAlphabet[int(b)%len(streamKeyAlphabet)]
 	}
@@ -187,7 +186,9 @@ type Service struct {
 	value   bool
 	has     bool
 	// embedded 非空表示媒体服务由本进程托管（内嵌模式且启动成功）。
-	embedded *embeddedServer
+	embedded         *embeddedServer
+	authorizePublish func(context.Context, string) bool
+	authorizeWatch   func(context.Context, string, string) bool
 }
 
 // New 构造探测器。
@@ -224,6 +225,8 @@ func (s *Service) Start() error {
 	}
 
 	srv := newEmbeddedServer(cfg, logf)
+	srv.publishAllowed = s.publishAllowed
+	srv.watchAllowed = s.watchAllowed
 	if err := srv.start(); err != nil {
 		logf("[nms] 内置媒体服务启动失败（%v），改为探测外部媒体服务 %s", err, cfg.HTTPFLVBase)
 		s.mu.Lock()
@@ -328,4 +331,24 @@ func (s *Service) tcpProbe(ctx context.Context) error {
 		return err
 	}
 	return conn.Close()
+}
+
+// SetAuthorizers attaches authoritative room state after API assembly. Until
+// configured, both network media surfaces fail closed.
+func (s *Service) SetAuthorizers(publish func(context.Context, string) bool, watch func(context.Context, string, string) bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.authorizePublish, s.authorizeWatch = publish, watch
+}
+func (s *Service) publishAllowed(ctx context.Context, key string) bool {
+	s.mu.Lock()
+	fn := s.authorizePublish
+	s.mu.Unlock()
+	return fn != nil && fn(ctx, key)
+}
+func (s *Service) watchAllowed(ctx context.Context, key, ticket string) bool {
+	s.mu.Lock()
+	fn := s.authorizeWatch
+	s.mu.Unlock()
+	return fn != nil && fn(ctx, key, ticket)
 }

@@ -157,6 +157,7 @@ func New(deps Deps) *Server {
 			directInflight: make(map[string]*directResolveCall, 4),
 		},
 	}
+	s.NMS.SetAuthorizers(s.authorizePublish, s.authorizeFLV)
 	// 房间层需要「按房间读影片 DTO」，DTO 定义在 api 包里，只能反向注入。
 	if deps.RoomSvc != nil {
 		deps.RoomSvc.SetMovieLister(s.movieList)

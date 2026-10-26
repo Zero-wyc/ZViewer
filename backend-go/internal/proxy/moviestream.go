@@ -39,7 +39,7 @@ const (
 type ResolvedMovieStream struct {
 	Movie *store.Movie
 	Mount *store.Mount
-	// Username / Password 是「影片自身凭证 → 挂载凭证」回退后的结果。
+	// 有显式挂载时使用其当前凭证；无挂载身份的旧记录保留影片凭证优先。
 	Username string
 	Password string
 }
@@ -106,7 +106,7 @@ type ResolveOptions struct {
 //
 // 挂载解析优先级：
 //  1. movie.sourceMountId（添加/更新时锚定的挂载，多挂载场景下唯一确定）；
-//  2. 按 serverUrl + source + 房间房主 匹配（旧数据兜底；挂载被删也走这条）。
+//  2. 按 serverUrl + source + 房间房主 匹配（仅没有 sourceMountId 的旧数据兜底）。
 func (r *StreamResolver) Resolve(ctx context.Context, movieID int64, source string, opts *ResolveOptions) (*ResolvedMovieStream, error) {
 	now := time.Now()
 
@@ -115,7 +115,7 @@ func (r *StreamResolver) Resolve(ctx context.Context, movieID int64, source stri
 		r.mu.Unlock()
 		return nil, &StreamError{Message: "影片不存在", Code: "NOT_FOUND", Status: http.StatusNotFound, FromCache: true}
 	}
-	if e, ok := r.streams[movieID]; ok && now.Before(e.expire) {
+	if e, ok := r.streams[movieID]; ok && now.Before(e.expire) && e.value.Movie.SourceMountID == nil {
 		r.mu.Unlock()
 		return e.value, nil
 	}
@@ -138,11 +138,16 @@ func (r *StreamResolver) Resolve(ctx context.Context, movieID int64, source stri
 
 	var mount *store.Mount
 	if movie.SourceMountID != nil {
-		if m, err := r.Mounts.FindByID(ctx, *movie.SourceMountID, source); err == nil {
-			mount = m
+		m, err := r.Mounts.FindByID(ctx, *movie.SourceMountID, source)
+		if errors.Is(err, store.ErrMountNotFound) {
+			return nil, &StreamError{Message: "指定挂载已删除，请重新选择挂载", Code: "MOUNT_NOT_FOUND", Status: http.StatusNotFound}
 		}
+		if err != nil {
+			return nil, err
+		}
+		mount = m
 	}
-	if mount == nil {
+	if mount == nil && movie.SourceMountID == nil {
 		target := *movie.ServerURL
 		if opts != nil && opts.NormalizeServerURL != nil {
 			target = opts.NormalizeServerURL(target)
@@ -164,10 +169,10 @@ func (r *StreamResolver) Resolve(ctx context.Context, movieID int64, source stri
 		password = *movie.Password
 	}
 	if mount != nil {
-		if username == "" && mount.Username != nil {
+		if (movie.SourceMountID != nil || username == "") && mount.Username != nil {
 			username = *mount.Username
 		}
-		if password == "" && mount.Password != nil {
+		if (movie.SourceMountID != nil || password == "") && mount.Password != nil {
 			password = *mount.Password
 		}
 	}

@@ -20,23 +20,26 @@ import (
 // 这里只做「转封装」——不做转码，音视频包原样从 RTMP 搬到 FLV——
 // 因此实现量可控，且与 OBS 的默认输出（H.264/AAC）完全对齐。
 type embeddedServer struct {
-	cfg  Config
-	hub  *streamHub
-	logf func(string, ...any)
+	cfg            Config
+	hub            *streamHub
+	logf           func(string, ...any)
+	publishAllowed func(context.Context, string) bool
+	watchAllowed   func(context.Context, string, string) bool
 
 	rtmpLn  net.Listener
 	httpLn  net.Listener
 	httpSrv *http.Server
 
-	mu    sync.RWMutex
-	ready bool
+	mu          sync.RWMutex
+	ready       bool
+	connections map[net.Conn]struct{}
 }
 
 func newEmbeddedServer(cfg Config, logf func(string, ...any)) *embeddedServer {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &embeddedServer{cfg: cfg, hub: newStreamHub(), logf: logf}
+	return &embeddedServer{cfg: cfg, hub: newStreamHub(), logf: logf, connections: make(map[net.Conn]struct{})}
 }
 
 func (s *embeddedServer) start() error {
@@ -58,7 +61,7 @@ func (s *embeddedServer) start() error {
 		_ = rtmpLn.Close()
 		return err
 	}
-	httpAddr := net.JoinHostPort(bind, strconv.Itoa(httpPort))
+	httpAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort))
 	httpLn, err := net.Listen("tcp", httpAddr)
 	if err != nil {
 		_ = rtmpLn.Close()
@@ -100,7 +103,18 @@ func (s *embeddedServer) acceptRTMP(ln net.Listener) {
 		if err != nil {
 			return
 		}
-		go newRTMPConn(s, conn).serve()
+		s.mu.Lock()
+		if !s.ready {
+			s.mu.Unlock()
+			_ = conn.Close()
+			return
+		}
+		s.connections[conn] = struct{}{}
+		s.mu.Unlock()
+		go func() {
+			defer func() { s.mu.Lock(); delete(s.connections, conn); s.mu.Unlock() }()
+			newRTMPConn(s, conn).serve()
+		}()
 	}
 }
 
@@ -115,7 +129,13 @@ func (s *embeddedServer) close(ctx context.Context) error {
 	s.ready = false
 	httpSrv := s.httpSrv
 	rtmpLn := s.rtmpLn
+	for conn := range s.connections {
+		_ = conn.Close()
+	}
 	s.mu.Unlock()
+	for _, key := range s.hub.streamKeys() {
+		s.hub.stop(key)
+	}
 
 	if httpSrv != nil {
 		_ = httpSrv.Shutdown(ctx)
@@ -151,6 +171,10 @@ func (s *embeddedServer) handleFLV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if s.watchAllowed == nil || !s.watchAllowed(r.Context(), key, r.URL.Query().Get("ticket")) {
+		http.Error(w, "观看权限已失效", http.StatusForbidden)
+		return
+	}
 	// 容忍「页面先连、OBS 后推」的时序：最多等 2s 再判 404。
 	sub, backlog := s.hub.subscribe(key, 2*time.Second)
 	if sub == nil {
@@ -181,8 +205,14 @@ func (s *embeddedServer) handleFLV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
+		case <-ticker.C:
+			if !s.watchAllowed(r.Context(), key, r.URL.Query().Get("ticket")) {
+				return
+			}
 		case tag, ok := <-sub.ch:
 			if !ok {
 				return

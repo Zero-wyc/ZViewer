@@ -19,6 +19,7 @@ import (
 	"strconv"
 	"strings"
 
+	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/subtitle"
 )
@@ -53,6 +54,10 @@ func sendSubtitleError(w http.ResponseWriter, scope string, err error, message s
 	}
 	if msg := err.Error(); msg != "" {
 		message = msg
+	}
+	if status == http.StatusRequestEntityTooLarge {
+		httpx.FailWithCode(w, status, message, "SUBTITLE_TOO_LARGE")
+		return
 	}
 	httpx.Fail(w, status, message)
 }
@@ -96,6 +101,10 @@ func (s *Server) handleSubtitleBrowse(w http.ResponseWriter, r *http.Request) {
 		targetPath = raw
 	}
 
+	if !s.subtitlePathAllowed(r, movie.RoomID, *movie.Path, targetPath, true) {
+		httpx.Forbidden(w, "只能浏览当前影片的字幕目录")
+		return
+	}
 	result, err := s.Subtitles.BrowseMovieDirectory(r.Context(), movie, targetPath)
 	if err != nil {
 		sendSubtitleError(w, "browse", err, "浏览目录失败", http.StatusInternalServerError)
@@ -126,6 +135,10 @@ func (s *Server) handleSubtitleLoad(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if movie.Path == nil || !s.subtitlePathAllowed(r, movie.RoomID, *movie.Path, filePath, false) {
+		httpx.Forbidden(w, "字幕不属于当前影片目录")
+		return
+	}
 	result, err := s.Subtitles.LoadSubtitleFile(r.Context(), movie, filePath)
 	if err != nil {
 		sendSubtitleError(w, "load", err, "加载字幕失败", http.StatusInternalServerError)
@@ -236,4 +249,12 @@ func jsNumber(raw string) (float64, error) {
 		return 0, nil
 	}
 	return strconv.ParseFloat(trimmed, 64)
+}
+
+func (s *Server) subtitlePathAllowed(r *http.Request, roomID, moviePath, target string, directory bool) bool {
+	if subtitle.WithinMovieDirectory(moviePath, target, directory) {
+		return true
+	}
+	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
+	return err == nil && canControlRoom(auth.ClaimsFrom(r.Context()), room)
 }

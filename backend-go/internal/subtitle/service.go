@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -209,7 +209,7 @@ func readLimited(rc io.ReadCloser, max int64) (string, error) {
 		return "", err
 	}
 	if int64(len(buf)) > max {
-		return "", errors.New("字幕文件过大（超过 2MB）")
+		return "", newError(413, "字幕文件不能超过 2 MiB")
 	}
 	return string(buf), nil
 }
@@ -250,7 +250,7 @@ func (s *Service) readOpenListFileContent(
 		return "", err
 	}
 	if len(buf) > MaxSubtitleBytes {
-		return "", errors.New("字幕文件过大（超过 2MB）")
+		return "", newError(413, "字幕文件不能超过 2 MiB")
 	}
 	return string(buf), nil
 }
@@ -292,15 +292,15 @@ func (s *Service) SearchSubtitlesInMovieDir(ctx context.Context, movie *store.Mo
 		if err != nil {
 			return nil, err
 		}
-		dirAbs, _, err := serverfiles.ResolveSafePath(dirPath, roots)
+		dirAbs, root, err := serverfiles.ResolveSafePath(dirPath, roots)
 		if err != nil {
 			return nil, err
 		}
-		st, err := os.Stat(dirAbs)
+		st, err := serverfiles.Stat(root, dirAbs)
 		if err != nil || !st.IsDir() {
 			return nil, nil
 		}
-		items, err := os.ReadDir(dirAbs)
+		items, err := serverfiles.ReadDir(root, dirAbs)
 		if err != nil {
 			return nil, err
 		}
@@ -314,11 +314,11 @@ func (s *Service) SearchSubtitlesInMovieDir(ctx context.Context, movie *store.Mo
 				continue
 			}
 			filePath := joinPath(dirPath, name)
-			fileAbs, _, err := serverfiles.ResolveSafePath(filePath, roots)
+			fileAbs, root, err := serverfiles.ResolveSafePath(filePath, roots)
 			if err != nil {
 				continue
 			}
-			content, err := os.ReadFile(fileAbs)
+			content, err := readLocalSubtitle(ctx, root, fileAbs)
 			if err != nil {
 				// 单条字幕读失败不影响其余字幕（Node 侧同样是 warn + 跳过）。
 				continue
@@ -326,7 +326,7 @@ func (s *Service) SearchSubtitlesInMovieDir(ctx context.Context, movie *store.Mo
 			results = append(results, SearchResult{
 				Filename: name,
 				Format:   strings.TrimPrefix(ext, "."),
-				Content:  string(content),
+				Content:  content,
 			})
 		}
 		return results, nil
@@ -453,15 +453,15 @@ func (s *Service) BrowseMovieDirectory(
 		if err != nil {
 			return nil, err
 		}
-		dirAbs, _, err := serverfiles.ResolveSafePath(targetPath, roots)
+		dirAbs, root, err := serverfiles.ResolveSafePath(targetPath, roots)
 		if err != nil {
 			return nil, err
 		}
-		st, err := os.Stat(dirAbs)
+		st, err := serverfiles.Stat(root, dirAbs)
 		if err != nil || !st.IsDir() {
 			return &BrowseResult{Entries: entries, CurrentPath: targetPath, ParentPath: nil}, nil
 		}
-		items, err := os.ReadDir(dirAbs)
+		items, err := serverfiles.ReadDir(root, dirAbs)
 		if err != nil {
 			return nil, err
 		}
@@ -477,7 +477,7 @@ func (s *Service) BrowseMovieDirectory(
 				entry.Type = "file"
 				entry.IsSubtitle = isSubtitleExt(Ext(name))
 				// 目录没有 size：Node 里是 undefined，JSON 里整键消失。
-				if info, err := os.Stat(filepath.Join(dirAbs, name)); err == nil {
+				if info, err := serverfiles.Stat(root, filepath.Join(dirAbs, name)); err == nil {
 					size := info.Size()
 					entry.Size = &size
 				}
@@ -577,6 +577,9 @@ func (s *Service) BrowseMovieDirectory(
 func (s *Service) LoadSubtitleFile(
 	ctx context.Context, movie *store.Movie, filePath string,
 ) (*LoadResult, error) {
+	if !isSubtitleExt(Ext(filePath)) {
+		return nil, newError(400, "仅支持字幕文件")
+	}
 	source := strings.ToLower(deref(movie.Source))
 	filename := BaseName(filePath)
 	ext := Ext(filename)
@@ -587,19 +590,19 @@ func (s *Service) LoadSubtitleFile(
 		if err != nil {
 			return nil, err
 		}
-		fileAbs, _, err := serverfiles.ResolveSafePath(filePath, roots)
+		fileAbs, root, err := serverfiles.ResolveSafePath(filePath, roots)
 		if err != nil {
 			return nil, err
 		}
-		st, err := os.Stat(fileAbs)
+		st, err := serverfiles.Stat(root, fileAbs)
 		if err != nil || st.IsDir() {
 			return nil, newError(404, "字幕文件不存在")
 		}
-		buf, err := os.ReadFile(fileAbs)
+		buf, err := readLocalSubtitle(ctx, root, fileAbs)
 		if err != nil {
 			return nil, err
 		}
-		content = string(buf)
+		content = buf
 	} else {
 		c, err := s.fillCredentials(ctx, movie)
 		if err != nil {
@@ -882,4 +885,26 @@ func nullIfEmpty(v string) any {
 		return nil
 	}
 	return v
+}
+
+func readLocalSubtitle(ctx context.Context, root serverfiles.RootInfo, absolute string) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	f, err := serverfiles.Open(root, absolute)
+	if err != nil {
+		return "", err
+	}
+	return readLimited(f, MaxSubtitleBytes)
+}
+
+// WithinMovieDirectory compares normalized paths without granting sibling roots.
+func WithinMovieDirectory(moviePath, requested string, directory bool) bool {
+	clean := func(s string) string { return path.Clean("/" + strings.ReplaceAll(s, "\\", "/")) }
+	base := clean(Dirname(moviePath))
+	target := clean(requested)
+	if directory {
+		return target == base
+	}
+	return clean(Dirname(requested)) == base
 }

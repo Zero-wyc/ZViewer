@@ -1,3 +1,4 @@
+import { neteaseImageUrl, fallbackNcmAvatar } from '../utils/neteaseImage'
 /**
  * 「添加到我的歌单」弹窗（Hydrogen ContextMenu.add-to-playlist 结构复刻，
  * 视觉采用项目玻璃拟态 UI：glass-card 半透明面板 + MD 主题 token，
@@ -378,7 +379,7 @@ export function AddToPlaylistModal({
                       >
                         {item.coverImgUrl ? (
                           <img
-                            src={`${item.coverImgUrl}?param=90y90`}
+                            src={neteaseImageUrl(item.coverImgUrl, 90)} onError={fallbackNcmAvatar}
                             alt=""
                             loading="lazy"
                             className="h-full w-full object-cover"

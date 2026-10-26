@@ -45,8 +45,7 @@ func (s *Server) registerEmbyRoutes(mux *http.ServeMux) {
 		base := "/api/" + kind.Prefix
 		// 海报图免认证：<img> 无法带 Authorization 头，且本项目的 HTTP 部署
 		// 场景下 httpOnly cookie 也不可用（与 /proxy-image 同理）。
-		// 弱保护靠 tag：ImageTags.Primary 是不可枚举的 hash，必须先通过
-		// 认证的 browse 才能拿到。
+		// tag 是由认证 browse/影片快照签发的资源能力，不能使用上游缓存 hash 代替。
 		mux.HandleFunc("GET "+base+"/mounts/{id}/image", s.handleEmbyMountImage(kind))
 
 		mux.HandleFunc("GET "+base+"/mounts", s.Auth.Require(s.handleEmbyListMounts(kind)))
@@ -665,17 +664,17 @@ func (s *Server) handleEmbyMountImage(kind embyLikeKind) http.HandlerFunc {
 			failEmby(w, http.StatusBadRequest, "缺少 mountId 或 itemId", "INVALID_PARAMS")
 			return
 		}
-		// 免认证端点：不按 userId 过滤（没有身份可查），tag 即访问凭证。
-		mount, err := s.Mounts.FindByID(r.Context(), mountID, kind.MountType)
-		if err != nil {
-			if errors.Is(err, store.ErrMountNotFound) {
-				httpx.Fail(w, http.StatusNotFound, "挂载不存在")
-				return
-			}
-			log.Printf("[%s] mount image error: %v", kind.Prefix, err)
-			httpx.Fail(w, http.StatusNotFound, "获取海报失败")
+		grant, valid := s.verifyImageGrant(r, tag, kind.MountType, mountID, itemID)
+		if !valid {
+			httpx.Forbidden(w, "图片访问凭证无效或已过期，请刷新列表")
 			return
 		}
+		mount, err := s.Mounts.FindByID(r.Context(), mountID, kind.MountType)
+		if err != nil {
+			httpx.NotFound(w, "挂载不存在")
+			return
+		}
+		tag = grant.Tag
 
 		maxWidth := 300
 		if raw := query.Get("maxWidth"); raw != "" {
@@ -684,6 +683,10 @@ func (s *Server) handleEmbyMountImage(kind embyLikeKind) http.HandlerFunc {
 			}
 		}
 
+		if maxWidth < 1 || maxWidth > 1280 {
+			httpx.BadRequest(w, "海报尺寸超出范围")
+			return
+		}
 		session, err := s.mountSession(r, mount)
 		if err != nil {
 			s.failEmbyImage(w, kind, err)
@@ -790,7 +793,7 @@ func (s *Server) handleEmbyBrowseMount(kind embyLikeKind) http.HandlerFunc {
 			s.failEmbyList(w, kind, err, "浏览 "+kind.Label+" 失败")
 			return
 		}
-		httpx.OK(w, map[string]any{"success": true, "entries": mapEmbyEntries(items)})
+		httpx.OK(w, map[string]any{"success": true, "entries": s.authorizedEmbyEntries(r, kind, mount, items)})
 	}
 }
 
@@ -815,7 +818,7 @@ func (s *Server) handleEmbySearchMount(kind embyLikeKind) http.HandlerFunc {
 			s.failEmbyList(w, kind, err, "搜索 "+kind.Label+" 失败")
 			return
 		}
-		httpx.OK(w, map[string]any{"success": true, "entries": mapEmbyEntries(items)})
+		httpx.OK(w, map[string]any{"success": true, "entries": s.authorizedEmbyEntries(r, kind, mount, items)})
 	}
 }
 

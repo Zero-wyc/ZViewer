@@ -90,6 +90,8 @@ type HTTPOptions struct {
 	ErrorMessage string
 	// PublicOnly 为 true 时拒绝内网目标和内网重定向（公网数据源必开）
 	PublicOnly bool
+	// ValidateTarget applies the endpoint's resource policy to every redirect hop.
+	ValidateTarget func(*url.URL) error
 	// OnUpstreamStatus 可选：上游返回非 2xx 时回调。
 	// 用于「签名直链过期」这类自愈场景——调用方在这里失效自己的直链缓存，
 	// 下一次请求就会重新换链，而不是在 TTL 窗口内拿着死 URL 反复 403。
@@ -122,6 +124,9 @@ func ProxyHTTPUpstream(w http.ResponseWriter, r *http.Request, opts HTTPOptions)
 	client := opts.Client
 	if client == nil {
 		client = defaultClient()
+		if opts.PublicOnly {
+			client = publicClient
+		}
 	}
 
 	startTime := time.Now()
@@ -156,6 +161,7 @@ func ProxyHTTPUpstream(w http.ResponseWriter, r *http.Request, opts HTTPOptions)
 		state.stopTimer()
 		state.cancel()
 		requestURL = "http://" + strings.TrimPrefix(requestURL, "https://")
+		opts.URL = requestURL
 		logf("https 上游失败（%v），降级 http 重试: %s", err, truncateURL(requestURL))
 		state = newAttemptState(r.Context(), timeout)
 		resp, finalURL, err = state.fetch(client, r, opts)
@@ -281,7 +287,20 @@ func (s *attemptState) fetch(client *http.Client, r *http.Request, opts HTTPOpti
 	}
 
 	target := opts.URL
+	original, err := url.Parse(target)
+	if err != nil {
+		return nil, target, err
+	}
 	for hops := 0; hops <= maxRedirects; hops++ {
+		parsed, err := url.Parse(target)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.Hostname() == "" || parsed.User != nil {
+			return nil, target, errors.New("非法的代理目标")
+		}
+		if opts.ValidateTarget != nil {
+			if err := opts.ValidateTarget(parsed); err != nil {
+				return nil, target, err
+			}
+		}
 		if opts.PublicOnly {
 			if err := assertPublicTarget(target); err != nil {
 				return nil, target, err
@@ -292,13 +311,19 @@ func (s *attemptState) fetch(client *http.Client, r *http.Request, opts HTTPOpti
 			return nil, target, err
 		}
 		applyUpstreamHeaders(req, r, opts.Headers)
+		if !strings.EqualFold(parsed.Host, original.Host) || parsed.Scheme != original.Scheme {
+			// Credentials belong to the original authority, never a redirect's host.
+			for _, name := range []string{"Authorization", "Proxy-Authorization", "Cookie", "X-Emby-Token", "X-MediaBrowser-Token", "X-Api-Key"} {
+				req.Header.Del(name)
+			}
+		}
 
 		resp, err := client.Do(req)
 		if err != nil {
 			return nil, target, err
 		}
 
-		if !opts.PublicOnly || !isRedirect(resp.StatusCode) {
+		if !isRedirect(resp.StatusCode) {
 			return resp, target, nil
 		}
 		location := resp.Header.Get("Location")
@@ -320,19 +345,56 @@ func (s *attemptState) fetch(client *http.Client, r *http.Request, opts HTTPOpti
 
 // defaultClient 是不自动跟随重定向的 client（重定向由 attemptState.fetch 处理）。
 func defaultClient() *http.Client {
+	return sharedClient
+}
+
+var sharedClient = newProxyClient(false)
+var publicClient = newProxyClient(true)
+
+func newProxyClient(publicOnly bool) *http.Client {
+	dial := (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment, DialContext: dial,
+		ForceAttemptHTTP2: true, MaxIdleConns: 64, IdleConnTimeout: 90 * time.Second,
+		TLSHandshakeTimeout: 15 * time.Second, ExpectContinueTimeout: time.Second,
+	}
+	if publicOnly {
+		// Resolve and dial the same validated IP. Disable environment proxies, which
+		// would otherwise perform an unchecked second DNS resolution.
+		transport.Proxy = nil
+		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			if netutil.IsInternalNetworkHost(host) {
+				return nil, errors.New("不允许代理内网地址")
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, ip := range ips {
+				if !ip.IP.IsGlobalUnicast() || netutil.IsInternalNetworkHost(ip.String()) {
+					return nil, errors.New("不允许代理内网地址")
+				}
+			}
+			var last error
+			for _, ip := range ips {
+				conn, err := dial(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				last = err
+			}
+			if last == nil {
+				last = errors.New("目标没有可用地址")
+			}
+			return nil, last
+		}
+	}
 	return &http.Client{
-		Transport: &http.Transport{
-			Proxy: http.ProxyFromEnvironment,
-			DialContext: (&net.Dialer{
-				Timeout:   15 * time.Second,
-				KeepAlive: 30 * time.Second,
-			}).DialContext,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          64,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   15 * time.Second,
-			ExpectContinueTimeout: time.Second,
-		},
+		Transport: transport,
 		// 关掉自动重定向：需要逐跳检查 Location 是否指向内网
 		CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse

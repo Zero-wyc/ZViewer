@@ -7,8 +7,11 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
+	"zviewer/backend/internal/auth"
 )
 
 // insertPushRoom 插一个投屏房间：streamKey 允许为 nil（NULL）。
@@ -85,6 +88,7 @@ func TestObsConfigRejectsNonScreenShareRoom(t *testing.T) {
 	userID := env.seedUser(t, "alice", "pass1234", "user", "active")
 	token := env.token(t, userID, "user", "alice")
 	env.insertPushRoom(t, "PUSH0002", "watch-together", nil)
+	env.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId=?`, userID, "PUSH0002")
 
 	resp, body := env.doObsConfig(t, "PUSH0002", token, "")
 	if resp.StatusCode != http.StatusBadRequest {
@@ -101,6 +105,7 @@ func TestObsConfigGeneratesStreamKey(t *testing.T) {
 	userID := env.seedUser(t, "alice", "pass1234", "user", "active")
 	token := env.token(t, userID, "user", "alice")
 	env.insertPushRoom(t, "PUSH0003", "screen-share", nil)
+	env.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId=?`, userID, "PUSH0003")
 
 	resp, body := env.doObsConfig(t, "PUSH0003", token, "media.example.com:3333")
 	if resp.StatusCode != http.StatusOK {
@@ -174,8 +179,8 @@ func TestObsConfigGeneratesStreamKey(t *testing.T) {
 	}
 
 	key := cfg.Sources[1].Settings.Key
-	if len(key) != 8 {
-		t.Fatalf("推流码长度 = %d, want 8（%q）", len(key), key)
+	if len(key) != 32 {
+		t.Fatalf("推流码长度 = %d, want 32（%q）", len(key), key)
 	}
 	if cfg.Service.Settings.Key != key {
 		t.Error("两个位置的推流码必须一致")
@@ -192,8 +197,9 @@ func TestObsConfigReusesExistingStreamKey(t *testing.T) {
 	defer env.teardown()
 	userID := env.seedUser(t, "alice", "pass1234", "user", "active")
 	token := env.token(t, userID, "user", "alice")
-	existing := "AbCd2345"
+	existing := strings.Repeat("AbCd2345", 4)
 	env.insertPushRoom(t, "PUSH0004", "screen-share", &existing)
+	env.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId=?`, userID, "PUSH0004")
 
 	resp, body := env.doObsConfig(t, "PUSH0004", token, "media.example.com")
 	if resp.StatusCode != http.StatusOK {
@@ -218,6 +224,7 @@ func TestObsConfigHonorsServerHostEnv(t *testing.T) {
 	userID := env.seedUser(t, "alice", "pass1234", "user", "active")
 	token := env.token(t, userID, "user", "alice")
 	env.insertPushRoom(t, "PUSH0005", "screen-share", nil)
+	env.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId=?`, userID, "PUSH0005")
 
 	resp, body := env.doObsConfig(t, "PUSH0005", token, "192.168.1.10:3333")
 	if resp.StatusCode != http.StatusOK {
@@ -265,7 +272,7 @@ func TestLiveProxyForwardsFLV(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
 
-	req := httptest.NewRequest(http.MethodGet, "/live/ABCD1234.flv?token=1", nil)
+	req := httptest.NewRequest(http.MethodGet, env.watchURL(t), nil)
 	req.Header.Set("User-Agent", "OBS-Test/1.0")
 	rec := httptest.NewRecorder()
 	env.handler.ServeHTTP(rec, req)
@@ -289,7 +296,7 @@ func TestLiveProxyForwardsFLV(t *testing.T) {
 		t.Errorf("转发的字节不一致: %q", rec.Body.Bytes())
 	}
 	// 上游必须收到完整原始 URI（含查询串），Node 也是用 originalUrl 拼的
-	if capture.path != "/live/ABCD1234.flv?token=1" {
+	if !strings.HasPrefix(capture.path, "/live/ABCD1234.flv?ticket=") {
 		t.Errorf("上游路径 = %q", capture.path)
 	}
 	if capture.ua != "OBS-Test/1.0" {
@@ -310,7 +317,7 @@ func TestLiveProxyFallsBackWhenNMSUnavailable(t *testing.T) {
 	env := newTestEnv(t)
 	defer env.teardown()
 
-	req := httptest.NewRequest(http.MethodGet, "/live/ABCD1234.flv", nil)
+	req := httptest.NewRequest(http.MethodGet, env.watchURL(t), nil)
 	rec := httptest.NewRecorder()
 	env.handler.ServeHTTP(rec, req)
 
@@ -348,7 +355,7 @@ func TestLiveProxyStreamsIdleConnection(t *testing.T) {
 	srv := httptest.NewServer(env.handler)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/live/ABCD1234.flv")
+	resp, err := http.Get(srv.URL + env.watchURL(t))
 	if err != nil {
 		t.Fatalf("请求失败: %v", err)
 	}
@@ -361,4 +368,20 @@ func TestLiveProxyStreamsIdleConnection(t *testing.T) {
 	if string(buf) != "FIRST-CHUNK" {
 		t.Fatalf("首块内容 = %q", buf)
 	}
+}
+
+func (e *testEnv) watchURL(t *testing.T) string {
+	t.Helper()
+	id := e.seedUser(t, "watch-owner", "fixture-password", auth.RoleUser, "active")
+	key := "ABCD1234"
+	e.insertPushRoom(t, "WATCH001", "screen-share", &key)
+	if _, err := e.conn.Exec(`UPDATE room SET ownerUserId=? WHERE roomId='WATCH001'`, id); err != nil {
+		t.Fatal(err)
+	}
+	claims, err := e.tokens.VerifyAccess(e.token(t, id, auth.RoleUser, "watch-owner"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(map[string]any{"r": "WATCH001", "c": claims})
+	return "/live/WATCH001.flv?ticket=" + url.QueryEscape(e.tokens.SignCapability("flv-watch", string(raw), time.Hour))
 }

@@ -14,7 +14,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { CinemaLayout } from '@/modules/room/components/CinemaLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useSocket } from '@/hooks/useSocket'
-import { buildFlvUrl } from '../streamPushApi'
+import { useWatchPlayback } from '../streamPushApi'
 import { FlvPlayer } from './FlvPlayer'
 
 interface StreamPushViewerProps {
@@ -25,12 +25,11 @@ interface StreamPushViewerProps {
 
 function StreamPushViewer({
   roomId,
-  streamKey,
   streamStatus,
 }: StreamPushViewerProps) {
   const { socket } = useSocket()
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
-  const flvUrl = useMemo(() => buildFlvUrl(streamKey), [streamKey])
+  const { url: flvUrl, error: watchError } = useWatchPlayback(roomId)
 
   // 网页全屏模式下按 ESC 退出
   useEffect(() => {
@@ -55,10 +54,10 @@ function StreamPushViewer({
 
   const playerContent = (
     <div className="relative h-full w-full">
-      {!streamKey ? (
+      {!flvUrl ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
           <div className="text-base font-medium text-[var(--md-sys-color-error)]">
-            推流密钥未获取
+            {watchError || '正在获取观看权限'}
           </div>
           <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
             请等待房主切换为 OBS 推流模式后重试

@@ -37,6 +37,8 @@ func startTestServer(t *testing.T) (*embeddedServer, int, int) {
 		Embedded:    true,
 		BindHost:    "127.0.0.1",
 	}, t.Logf)
+	srv.publishAllowed = func(context.Context, string) bool { return true }
+	srv.watchAllowed = func(context.Context, string, string) bool { return true }
 	if err := srv.start(); err != nil {
 		t.Fatalf("启动内置媒体服务失败: %v", err)
 	}

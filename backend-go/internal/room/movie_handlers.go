@@ -11,11 +11,8 @@ import (
 
 // 影片列表的 socket 侧（对应 Node 的 MovieListHandler）。
 //
-// REST 与 socket 两条写路径共用同一个 store 层，但**不是同一套校验**：
-// REST 强制 url/title 必填、会按挂载表补全凭证、内网地址强制转代理；
-// socket 路径（Node 的 add-movie）一条都没有，它直接调 createMovie。
-// 所以这里也不能顺手复用 REST 的入参校验，否则前端通过 socket 添加的
-// 「先占位后补链接」影片会被拒绝，而 Node 版接受。
+// REST 与 Socket 共用 Movies.Create 的输入、显式挂载选择、凭证绑定及
+// 内网直链降级边界；空载荷不会再写出无效的占位影片。
 
 func (s *Service) bindMovieList(sc *sio.Socket) {
 	sc.On("add-movie", func(args []json.RawMessage, ack func(...any)) {
@@ -213,6 +210,7 @@ type movieInputBody struct {
 	Pages             json.RawMessage `json:"pages"`
 	CurrentPage       *int64          `json:"currentPage"`
 	ServerURL         *string         `json:"serverUrl"`
+	SourceMountID     *int64          `json:"sourceMountId"`
 	Path              *string         `json:"path"`
 	Username          *string         `json:"username"`
 	Password          *string         `json:"password"`
@@ -227,7 +225,7 @@ type movieInputBody struct {
 // parseMovieInput 把 socket 载荷转成 store 入参。
 //
 // 空的 / 缺失的 movie 字段全部按零值处理（Node 是 `payload.movie ?? {}`），
-// 不在这里拦「url 为空」——REST 会拦，socket 路径历史上不拦。
+// 最终必填校验由两条写入口共用的仓库完成。
 func parseMovieInput(raw json.RawMessage) store.MovieInput {
 	var body movieInputBody
 	if len(raw) > 0 {
@@ -255,6 +253,7 @@ func parseMovieInput(raw json.RawMessage) store.MovieInput {
 		Pages:             body.Pages,
 		CurrentPage:       body.CurrentPage,
 		ServerURL:         body.ServerURL,
+		SourceMountID:     body.SourceMountID,
 		Path:              body.Path,
 		Username:          body.Username,
 		Password:          body.Password,
