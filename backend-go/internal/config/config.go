@@ -48,9 +48,9 @@ type Config struct {
 
 	// NCMAPIBase 是网易云音乐接口的上游地址（一起听音乐模块）。
 	//
-	// 默认值是 `internal/ncm.StartBundled` 启动**进程内实现**（internal/ncmapi）
-	// 后改写的回环随机端口；显式配置 `NCM_API_BASE` 时原样使用，不再启动内置
-	// 组件（`NCM_UPSTREAM=node` 可切回随包 Node）。
+	// 默认值由 `internal/ncm.StartBundled` 改写成**进程内实现**（internal/ncmapi）
+	// 的哨兵地址 `http://ncm.internal`；显式配置 `NCM_API_BASE` 时原样使用，
+	// 内置实现不启动（`NCM_LOOPBACK=1` 只用于把内置实现挂回环 TCP 排障）。
 	// 上游不可用时转发、流等端点返回 503 NCM_UNAVAILABLE，登录状态仍保留缓存。
 	NCMAPIBase string
 

@@ -1,6 +1,6 @@
 # ZViewer Windows 桌面控制台
 
-GUI 分发包含私有网易云音乐运行组件 `runtime/ncm/`（Node 与锁定的 NCM API 依赖），无需另外安装 Node。后端随服务启动和关闭音乐子进程，使用独立回环端口；显式设置 `NCM_API_BASE` 时继续使用管理员指定的外部服务。打包入口会执行 `scripts/prepare-music.mjs`，不能仅复制 Go 后端而漏掉音乐组件。修复根因与验证见 [2026-10-26 对齐记录](../backend-go/ALIGNMENT-2026-10-26.md)。
+GUI 分发**不再包含任何 Node 运行时**：一起听的网易云接口由 Go 后端进程内提供（`internal/ncmapi`），不另起子进程、不监听端口；分发目录里没有 `runtime/ncm/`。显式设置 `NCM_API_BASE` 时改用管理员指定的外部服务。历史根因与验证见 [2026-10-26 对齐记录](../backend-go/ALIGNMENT-2026-10-26.md)。
 
 原生桌面控制台，管理现有 Windows 运行包，保留服务端网页。壳层是 Go + 系统 WebView2（Wails v2），分发目录只有一个 `ZViewerDesktop.exe`，不需要安装运行时，也没有 Electron。支持系统托盘、端口配置持久化、localhost HTTPS、自建 FRP、EasyTier 虚拟组网（免 TUN）和 ZViewerCLI 哔哩哔哩高画质代理；CLI 设置、扫码登录与连接操作直接在窗口右侧完成。
 

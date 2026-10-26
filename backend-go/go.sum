@@ -6,6 +6,8 @@ github.com/antchfx/htmlquery v1.3.7 h1:KCUklE1EO/xm6iS3CWx6iatFlcnENBk4I4UYa2pBm
 github.com/antchfx/htmlquery v1.3.7/go.mod h1:/uBTMnFEl6LaBlIgw3KZ+c061tAQdlfbCXObZoxwQf4=
 github.com/antchfx/xpath v1.3.9 h1:muXJSod6jRzhsiUjvduNSxsRSptFZ2GOJ1oMD1QkPSA=
 github.com/antchfx/xpath v1.3.9/go.mod h1:i54GszH55fYfBmoZXapTHN8T8tkcHfRgLyVwwqzXNcs=
+github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8 h1:OtSeLS5y0Uy01jaKK4mA/WVIYtpzVm63vLVAPzJXigg=
+github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8/go.mod h1:apkPC/CR3s48O2D7Y++n1XWEpgPNNCjXYga3PPbJe2E=
 github.com/dlclark/regexp2 v1.12.0 h1:0j4c5qQmnC6XOWNjP3PIXURXN2gWx76rd3KvgdPkCz8=
 github.com/dlclark/regexp2 v1.12.0/go.mod h1:DHkYz0B9wPfa6wondMfaivmHpzrQ3v9q8cnmRbL6yW8=
 github.com/dustin/go-humanize v1.1.0 h1:dbKTrvD0klcbBV/h4AWJdMuZogJACoMlvWIWZ5b2xWg=

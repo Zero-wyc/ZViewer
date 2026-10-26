@@ -2,15 +2,14 @@
 //
 // 本包**不实现**网易云的业务协议：所有端点都在一个「NCM API 服务」上拼
 // `/song/url/v1`、`/login/qr/key` 这类路径，由它负责 weapi/eapi 加密与协议细节。
-// 上游有三种来源（见 StartBundled），默认是同一进程内的 internal/ncmapi：
+// 上游有两种来源（见 StartBundled），默认是同一进程内的 internal/ncmapi：
 //
-//   - 进程内实现（默认）：internal/ncmapi 监听回环随机端口，无子进程；
-//   - 随包 Node 组件（`NCM_UPSTREAM=node`）：`ncm/node.exe`，历史路径，保留回退；
-//   - 外部服务（显式 `NCM_API_BASE`）：运维自建的 NeteaseCloudMusicApi。
+//   - 进程内实现（默认）：internal/ncmapi 直接在本进程内响应，不监听端口；
+//   - 外部服务（显式 `NCM_API_BASE`）：运维自建的 NeteaseCloudMusicApi（含增强版）。
 //
 // 本包只负责
 //
-//   - 凭证读写（cookie 解析/合并/持久化，与 Node 共用 ncm_credential 表）
+//   - 凭证读写（cookie 解析/合并/持久化）
 //   - 转发（注入 cookie、绕 apicache、剥客户端传入的 cookie/noCookie）
 //   - 业务编排（登录状态补全、专辑补齐、音质降级链、直链缓存、音频流转发）
 //

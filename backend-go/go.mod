@@ -6,6 +6,7 @@ require (
 	github.com/PuerkitoBio/goquery v1.13.0
 	github.com/antchfx/htmlquery v1.3.7
 	github.com/antchfx/xpath v1.3.9
+	github.com/dhowden/tag v0.0.0-20240417053706-3d75831295e8
 	github.com/dlclark/regexp2 v1.12.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e

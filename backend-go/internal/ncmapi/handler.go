@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	qrcode "github.com/skip2/go-qrcode"
 )
@@ -23,13 +24,25 @@ type Caller interface {
 // 直链缓存全部原样复用。
 type Handler struct {
 	caller Caller
+	// nos 只用于云盘上传：文件本体传到网易对象存储（不走 music.163.com），
+	// 需要更长的超时与独立的连接池。
+	nos *http.Client
 }
 
 // NewHandler 用真实上游构造 Handler。
-func NewHandler() *Handler { return &Handler{caller: NewClient()} }
+func NewHandler() *Handler { return &Handler{caller: NewClient(), nos: newNOSClient()} }
 
 // NewHandlerWith 用自定义调用器构造（单测用）。
-func NewHandlerWith(caller Caller) *Handler { return &Handler{caller: caller} }
+func NewHandlerWith(caller Caller) *Handler { return &Handler{caller: caller, nos: newNOSClient()} }
+
+// newNOSClient 是传文件用的客户端：不设整体超时（由请求 context 控制），
+// 但连接与响应头必须有上限。
+func newNOSClient() *http.Client {
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.ResponseHeaderTimeout = 30 * time.Second
+	transport.TLSHandshakeTimeout = 15 * time.Second
+	return &http.Client{Transport: transport}
+}
 
 // ServeHTTP 实现 http.Handler。
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -53,6 +66,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case "/playlist/track/all":
 		h.playlistTrackAll(w, r)
+		return
+	case "/cloud":
+		h.cloudUpload(w, r)
 		return
 	}
 

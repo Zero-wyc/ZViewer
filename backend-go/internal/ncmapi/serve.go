@@ -42,8 +42,8 @@ func StartInProcess() (string, func()) {
 
 // InProcessTransport 返回进程内上游的 RoundTripper；未启用时返回 nil。
 //
-// 调用方（internal/ncm）只在基地址等于 LoopbackBase 时使用它，所以外部服务
-// 与随包 Node 组件的路径完全不受影响。
+// 调用方（internal/ncm）只在基地址等于 LoopbackBase 时使用它，所以配置了
+// 外部服务（NCM_API_BASE）的部署完全不受影响。
 func InProcessTransport() http.RoundTripper {
 	inProcessMu.RLock()
 	handler := inProcess

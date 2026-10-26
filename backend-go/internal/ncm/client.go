@@ -24,7 +24,7 @@ type Client struct {
 // NewClient 构造客户端。base 决定传输层：
 //
 //   - 进程内实现的哨兵地址 → 直接 ServeHTTP，不占端口、不走内核；
-//   - 随包 Node 组件 / 外部服务 → 正常 TCP。
+//   - 外部服务（显式 NCM_API_BASE）→ 正常 TCP。
 //
 // 传输层换了但 URL 形态没换，所以凭证注入、cookie 落库、音质降级、直链缓存
 // 这一整层不需要感知上游在哪。

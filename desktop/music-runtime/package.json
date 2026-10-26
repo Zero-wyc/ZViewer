@@ -1,8 +1,0 @@
-{
-  "name": "zviewer-ncm-runtime",
-  "version": "1.0.0",
-  "private": true,
-  "dependencies": {
-    "@neteasecloudmusicapienhanced/api": "4.41.1"
-  }
-}

@@ -233,7 +233,7 @@ func main() {
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
-	ncmBase, stopNCM := ncm.StartBundled(context.Background(), cfg.ProjectRoot, cfg.ConfigDir, cfg.NCMAPIBase)
+	ncmBase, stopNCM := ncm.StartBundled(cfg.NCMAPIBase)
 	cfg.NCMAPIBase = ncmBase
 	defer stopNCM()
 

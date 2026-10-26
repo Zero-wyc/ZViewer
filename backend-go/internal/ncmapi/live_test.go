@@ -62,3 +62,31 @@ func TestLiveUpstream(t *testing.T) {
 		t.Logf("%-45s code=%v", item.path, body["code"])
 	}
 }
+
+// TestLiveCloudUploadRequiresLogin 验证 `/cloud` 真的挂在路由上、multipart 能被
+// 解析、并且匿名时按未登录拒绝（而不是 404「接口不存在」）。
+//
+// 只跑这一小段是因为真实上传会往账号云盘里塞一首歌，必须由用户在前端确认；
+// 完整链路由 cloud_test.go 的桩测试覆盖。
+func TestLiveCloudUploadRequiresLogin(t *testing.T) {
+	if os.Getenv("NCM_LIVE") == "" {
+		t.Skip("未设置 NCM_LIVE=1，跳过真实上游对拍")
+	}
+	body, contentType := cloudUploadBody(t)
+	request := httptest.NewRequest(http.MethodPost, LoopbackBase+"/cloud", body)
+	request.Header.Set("Content-Type", contentType)
+	recorder := httptest.NewRecorder()
+	NewHandler().ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("状态码 = %d，期望 401（匿名）；响应 %s", recorder.Code, recorder.Body.String())
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &parsed); err != nil {
+		t.Fatalf("响应不是 JSON: %s", recorder.Body.String())
+	}
+	if msg := upstreamMsg(parsed, ""); msg == "" {
+		t.Errorf("缺少错误文案: %s", recorder.Body.String())
+	}
+	t.Logf("匿名上传按预期被拒绝: %s", recorder.Body.String())
+}

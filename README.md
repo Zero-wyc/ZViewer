@@ -262,8 +262,8 @@ services:
 | `HTTP_FLV_PORT`          | FLV 拉流端口（内部，只经 3333 的 `/live` 反代访问）     | `3335`                  |
 | `NMS_BIND`               | 内置媒体服务的监听地址                            | `0.0.0.0`               |
 | `NMS_HTTP_FLV_URL`       | 指向外部媒体服务（SRS / node-media-server），设置后不再内嵌 | 空（内嵌）              |
-| `NCM_API_BASE`           | 一起听的上游地址；留空=进程内实现（自动分配回环端口）           | 空（进程内）              |
-| `NCM_UPSTREAM`           | 设为 `node` 时用随包 Node 组件，而不是进程内实现            | 空（Go）                  |
+| `NCM_API_BASE`           | 一起听的上游地址；留空=进程内实现（不监听端口）              | 空（进程内）              |
+| `NCM_LOOPBACK`           | `1` 时把内置实现挂回环 TCP，仅用于排障（能用 curl 看原始响应）     | 空（直连）                 |
 | `LIVEKIT_EXTERNAL`       | `1` 时使用外置 LiveKit，跳过内嵌               | `0`                     |
 | `LIVEKIT_NODE_IP`        | ICE 广播地址；NAT 复杂或无出网环境可手动指定公网 IP       | 空（自动 STUN）             |
 | `LIVEKIT_BIND`           | LiveKit HTTP/信令监听地址（仅影响 3336，媒体端口不受影响） | 空（双栈全地址）              |
@@ -284,8 +284,8 @@ services:
 （集群、已有 SRS）时设 `NMS_HTTP_FLV_URL`，此时后端不再监听这两个端口。
 
 **一起听（网易云）开箱可用**：后端进程内自带网易云接口实现（`internal/ncmapi`，
-含 weapi/eapi/linuxapi 加密与 44 个接口），请求在进程内直接交给它处理，
-**不监听端口、不占额外进程，也不需要 Node 运行时**。
+含 weapi/eapi/linuxapi 加密与 48 个端点，含扫码登录与云盘上传），请求在进程内直接
+交给它处理，**不监听端口、不占额外进程，也不需要 Node 运行时**。
 需要 enhanced 版那几项能力（匿名 token、随机国内 IP、解灰）时才改用外部服务：
 
 ```bash
@@ -300,7 +300,7 @@ docker run -d --name zviewer-ncm -p 127.0.0.1:36530:3000 \
 NCM_API_BASE=http://192.168.1.20:36530 ./start-prod.sh start
 ```
 
-显式 `NCM_API_BASE` 优先；`NCM_UPSTREAM=node` 可切回随包 Node 组件（GUI 分发里有）。
+显式 `NCM_API_BASE` 优先；`NCM_LOOPBACK=1` 只把内置实现挂回环 TCP 供排障。
 上游真的拿不到时，**只有音乐相关接口返回 503 `NCM_UNAVAILABLE`**（前端显示音乐服务不可用），
 观影、房间、弹幕、语音、推流全部照常。后端启动日志会打印音乐接口的实际来源。
 
