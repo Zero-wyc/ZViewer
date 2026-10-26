@@ -40,6 +40,13 @@
  * 还有一个同源的症状要单独处理：Release 是**先创建、后上传**的，所以上传全挂时
  * 平台上会留下一个「只有 source code」的 Release——用户看到的就是「这个项目不发二进制」。
  * 因此新增：新建的 Release 若一个附件都没挂上，直接删掉（`KEEP_EMPTY_RELEASE=1` 可关闭）。
+ *
+ * === 探针模式（PROBE_MODE=1）===
+ * v5.0.5 这次运行是**绿色**的（脚本最终回读确实看到 3 个附件），但几小时后 API 与页面
+ * 都只剩 4 个源码包。也就是说：上传链路没问题，是「传完之后被清掉」。
+ * 光看一次运行结束时的状态永远发现不了这种问题，所以加 `VERIFY_MINUTES=0,1,5,15,25`：
+ * 按分钟时点回读并打印附件 name/size/id，配合 `PROBE_MODE=1` 只观测、不让 job 失败。
+ * 用法见 `.github/workflows/gitcode-probe.yml`（手动触发）。
  */
 
 import fs from 'node:fs/promises';
@@ -63,6 +70,16 @@ const DIAG = ['1', 'true', 'yes'].includes((process.env.DIAG || '').toLowerCase(
 const REWRITE_LINKS = !['0', 'false', 'no'].includes((process.env.REWRITE_GITHUB_LINKS || '1').toLowerCase());
 const UPLOAD_ATTEMPTS = Math.max(1, Number(process.env.UPLOAD_ATTEMPTS || 3) || 3);
 const KEEP_EMPTY_RELEASE = ['1', 'true', 'yes'].includes((process.env.KEEP_EMPTY_RELEASE || '').toLowerCase());
+/**
+ * 探针模式：只观测不裁决。上传结束后按 VERIFY_MINUTES 的时点回读附件，
+ * 用来判断附件是「当时就在」还是「过一段时间被平台清理」——线上反复出现
+ * 「job 绿、页面只有源码包」，就是缺这一步观测。
+ */
+const PROBE_MODE = ['1', 'true', 'yes'].includes((process.env.PROBE_MODE || '').toLowerCase());
+const VERIFY_MINUTES = (process.env.VERIFY_MINUTES || '')
+  .split(/[\s,]+/)
+  .map((s) => Number(s))
+  .filter((n) => Number.isFinite(n) && n >= 0);
 const ASSETS = (process.env.ASSETS || '')
   .split(/[\s,]+/)
   .map((s) => s.trim())
@@ -235,26 +252,23 @@ async function getRelease() {
 /** 正文里的 GitHub 下载直链（镜像页面上给 GitHub 链接，大陆用户点了还是下不动）。 */
 const GITHUB_DL = /https:\/\/github\.com\/[^\s/()]+\/[^\s/()]+\/releases\/download\/[^\s/()]+\//g;
 
-/** 把说明里的 GitHub 直链换成本站直链；失败只告警，不影响附件。 */
-async function rewriteBodyLinks(currentBody) {
-  if (!REWRITE_LINKS) return;
-  const hits = currentBody.match(GITHUB_DL) || [];
-  if (!hits.length) return;
-  const patched = currentBody.replace(GITHUB_DL, `https://gitcode.com/${OWNER}/${REPO}/releases/download/${TAG}/`);
-  try {
-    await request(
-      withToken(releaseUrl),
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tag_name: TAG, name: RELEASE_NAME, body: patched }),
-      },
-      { label: '改写发布说明里的下载直链', attempts: 2 },
-    );
-    note(`发布说明里的 ${hits.length} 条 GitHub 下载直链已改成本站直链`);
-  } catch (err) {
-    warn(`改写发布说明失败（附件不受影响）：${err.message}`);
-  }
+/**
+ * 把说明里的 GitHub 直链换成本站直链。
+ *
+ * **只在创建 Release 时替换，不再上传完再 PATCH**：
+ * - GitCode 的 PATCH 参数是 formData（官方文档），发 JSON 一直被拒，脚本又只 warn，
+ *   所以这条改写从来没生效过（线上正文至今仍是 GitHub 链接）。
+ * - 更要紧的是，“上传完再动 Release”是上传之后唯一的写操作。附件被清掉的真实原因
+ *   还没定性，留着这一步等于给自己留一个无法排除的嫌疑人。
+ */
+function rewriteDownloadLinks(text) {
+  if (!REWRITE_LINKS) return { text, hits: 0 };
+  const hits = text.match(GITHUB_DL) || [];
+  if (!hits.length) return { text, hits: 0 };
+  return {
+    text: text.replace(GITHUB_DL, `https://gitcode.com/${OWNER}/${REPO}/releases/download/${TAG}/`),
+    hits: hits.length,
+  };
 }
 
 /** Release 里真正上传的附件；`type: source` 是 GitCode 自动生成的四个源码包。 */
@@ -263,6 +277,28 @@ const attachmentsOf = (release) => (release?.assets || []).filter((a) => a.type 
 async function isAttached(name) {
   const release = await getRelease();
   return attachmentsOf(release).some((a) => a.name === name);
+}
+
+/**
+ * 按分钟时点回读附件（探针模式）。
+ *
+ * 这一段的唯一目的，是把「上传完就绿、几小时后页面只剩源码包」变成可测数据：
+ * 每个时点打印附件的 name/size/id，谁在什么时候消失一目了然。
+ */
+async function runVerificationSchedule() {
+  const startedAt = Date.now();
+  for (const minutes of VERIFY_MINUTES) {
+    const waitMs = startedAt + minutes * 60_000 - Date.now();
+    if (waitMs > 0) await sleep(waitMs);
+    try {
+      const release = await getRelease();
+      const attached = attachmentsOf(release);
+      const detail = attached.map((a) => `${a.name}(${a.size ?? '?'}B,id=${a.id ?? '-'})`).join('、') || '（无）';
+      note(`T+${minutes}min 上传附件 ${attached.length} 个：${detail}`);
+    } catch (err) {
+      note(`T+${minutes}min 回读失败：${err.message}`);
+    }
+  }
 }
 
 async function main() {
@@ -302,7 +338,9 @@ async function main() {
     return;
   }
 
-  const body = await readBody();
+  const rawBody = await readBody();
+  const { text: body, hits: linkHits } = rewriteDownloadLinks(rawBody);
+  if (linkHits) note(`发布说明里的 ${linkHits} 条 GitHub 下载直链将写成本站直链`);
   const payload = {
     tag_name: TAG,
     name: RELEASE_NAME,
@@ -448,8 +486,7 @@ async function main() {
     }
   }
 
-  // 5) 最终回读，产出大陆下载地址
-  await rewriteBodyLinks(body);
+  // 5) 最终回读，产出大陆下载地址（正文已在创建时写好，这里不再 PATCH）
 
   let release = null;
   try {
@@ -476,6 +513,11 @@ async function main() {
   if (release) {
     note(`远端附件实况：${attachmentsOf(release).length} 个上传附件 + ${(release.assets || []).length - attachmentsOf(release).length} 个源码包`);
   }
+  if (VERIFY_MINUTES.length) await runVerificationSchedule();
+  if (PROBE_MODE) {
+    note('PROBE_MODE=1：只观测不裁决，附件缺失不影响退出码');
+    return;
+  }
   if (missing.length) {
     note(`失败详情：${report.files.filter((f) => missing.includes(f.name)).map((f) => `${f.name}（${f.detail || '未知原因'}）`).join('；')}`);
     // 空壳 Release 比没有 Release 更误导：页面上只剩 4 个自动生成的源码包，
@@ -500,7 +542,7 @@ async function writeSummary() {
     `## GitCode（大陆镜像）Release ${TAG}`,
     '',
     `- 版本页：${pageUrl}`,
-    ...report.steps.filter((s) => /下载：|未出现|远端附件|目标仓库/.test(s)).map((s) => `- ${s}`),
+    ...report.steps.filter((s) => /下载：|未出现|远端附件|目标仓库|T\+\d+min/.test(s)).map((s) => `- ${s}`),
   ];
   if (report.files.length) {
     lines.push('', '| 附件 | 大小 | 次数 | 耗时 | 结果 |', '| --- | --- | --- | --- | --- |');

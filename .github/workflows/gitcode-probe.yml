@@ -1,0 +1,58 @@
+name: GitCode 附件存活探针
+
+# 只做一件事：传一个 1 MB 文件到 GitCode Release，然后按分钟时点回读，
+# 看附件是「一直存在」还是「过一段时间被平台清掉」。
+#
+# 背景：v5.0.5 的 release job 是绿的（脚本结束前确实读到了 3 个附件），
+# 但几小时后 API 与页面都只剩 4 个源码包。到底是谁在删，只能靠观测。
+#
+# 手动触发；跑完记得去 GitCode 删掉 `probe-*` 这个 Release。
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_minutes:
+        description: '观测时点（分钟，逗号分隔）'
+        required: false
+        default: '0,1,5,15,25'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # 放在 job 级：步骤的 if 只能看到 job/workflow 级 env，
+    # 写在该步骤自己的 env 里会让 if 恒为空、整步被静默跳过。
+    env:
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: 生成 1 MB 测试文件
+        run: |
+          set -euo pipefail
+          head -c 1048576 /dev/urandom > probe-1mb.bin
+          ls -l probe-1mb.bin
+
+      - name: 上传并跟踪存活
+        if: env.GITCODE_TOKEN != ''
+        env:
+          TAG: probe-${{ github.run_id }}
+          RELEASE_NAME: probe-${{ github.run_id }}
+          ASSETS: probe-1mb.bin
+          # pre：不让这个临时 Release 顶掉正式版的 latest
+          PRERELEASE: '1'
+          # 只观测，附件缺失不让 job 变红
+          PROBE_MODE: '1'
+          KEEP_EMPTY_RELEASE: '1'
+          VERIFY_MINUTES: ${{ inputs.wait_minutes }}
+          UPLOAD_ATTEMPTS: '2'
+        run: node scripts/sync-gitcode-release.mjs
+
+      - name: 缺令牌
+        if: env.GITCODE_TOKEN == ''
+        run: |
+          echo "::error::没有 GITCODE_TOKEN，无法上传。请确认仓库 secret 已配置。"
+          exit 1
