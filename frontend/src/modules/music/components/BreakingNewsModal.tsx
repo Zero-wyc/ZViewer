@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiGet } from '@/lib/api'
+import { apiGet } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import type { NcmBannerItem, NcmSong } from '../types'

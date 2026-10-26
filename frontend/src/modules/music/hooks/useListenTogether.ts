@@ -14,7 +14,7 @@ import {
   ROOM_MEDIA_TEARDOWN_EVENT,
   type RoomMediaTeardownDetail,
 } from '@/lib/mediaTeardown'
-import { apiGet, getApiUrl } from '@/lib/api'
+import { apiGet, getApiUrl } from '../musicApi'
 import { appendAuthToken } from '@/modules/player/services/url-proxy'
 import { buildProxyUrl } from '@/modules/player/services/url-proxy'
 import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'

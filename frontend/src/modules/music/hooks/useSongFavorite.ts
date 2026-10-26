@@ -18,7 +18,7 @@
  * - 本地会话记忆 biliCollectedMark 与官方查询结果对齐
  */
 import { useCallback, useEffect, useState } from 'react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet, apiPost } from '../musicApi'
 import { message } from '@/components/ui/message'
 import {
   useMusicSettingsStore,

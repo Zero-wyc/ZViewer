@@ -14,7 +14,7 @@
  * - **切歌黑块滑出**：700ms 后滑出露出新歌名
  */
 import { useEffect, useState } from 'react'
-import { apiGet } from '@/lib/api'
+import { apiGet } from '../musicApi'
 import type { NcmLyricResponse } from '../types'
 import { mergeLyrics, type LyricLine } from '../utils/lrc'
 

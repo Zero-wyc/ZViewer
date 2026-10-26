@@ -29,7 +29,7 @@ const QR_STATUS_TEXT: Record<string, string> = {
 }
 
 export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
-  const { qrImg, status, startLogin, stopPolling, logout, loginStatus } =
+  const { qrImg, status, errorMessage, startLogin, stopPolling, logout, loginStatus } =
     useNcmLogin()
 
   // 挂载即启动扫码登录
@@ -94,7 +94,7 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
                   className="h-auto"
                 />
               ) : (
-                <Spinner size={28} tip="正在生成二维码" />
+                status === 'error' ? <span className="p-4 text-center text-sm">二维码暂不可用</span> : <Spinner size={28} tip="正在生成二维码" />
               )}
             </div>
           )}
@@ -108,9 +108,10 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
             }
             className="m-0 text-center text-xs"
           >
-            {QR_STATUS_TEXT[status] ?? '请使用网易云音乐 App 扫码登录'}
+            {errorMessage ?? QR_STATUS_TEXT[status] ?? '请使用网易云音乐 App 扫码登录'}
             {status === 'waiting' && '（二维码过期将自动刷新）'}
           </Paragraph>
+          {status === 'error' && <Button variant="secondary" size="sm" className="w-full" onClick={() => void startLogin()}>重新获取二维码</Button>}
           {/* 已登录账号：提供退出入口（与 Hydrogen app-option 账号登录/退出一致） */}
           {loginStatus.loggedIn && (
             <Button

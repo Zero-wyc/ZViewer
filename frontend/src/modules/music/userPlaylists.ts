@@ -4,7 +4,7 @@
  * 「添加到我的歌单」面板的数据源：触发按钮 hover 即预取，面板打开命中
  * 缓存零等待，列表挂载不与展开动画抢帧；TTL 5 分钟，新建歌单后失效。
  */
-import { apiGet } from '@/lib/api'
+import { apiGet } from './musicApi'
 
 /** 用户歌单条目（/user/playlist.playlist[] 子集） */
 export interface UserPlaylistItem {

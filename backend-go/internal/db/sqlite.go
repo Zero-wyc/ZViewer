@@ -4,8 +4,7 @@
 // 表结构与列名全部沿用 TypeORM 生成物，唯一事实源是 `schema.sql`。
 //
 // 启动路径（Open）只做三件事：连通性检查、VerifySchema、由调用方补索引；
-// **绝不建表、绝不加列**——结构不符时立刻报错退出，避免两套代码各自
-// "顺手补一下 schema" 导致结构漂移。
+// 校验旧契约后，仅执行显式、幂等的 Go 播放元数据增量迁移；缺基础表仍拒绝启动。
 //
 // 唯一的建表入口是显式的 `--init-db`（InitSchema），只用于空库。
 package db
@@ -48,6 +47,10 @@ func Open(path string, wal bool) (*sql.DB, error) {
 		return nil, fmt.Errorf("数据库连通性检查失败: %w", err)
 	}
 	if err := VerifySchema(conn); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if err := EnsurePlaybackMetadata(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}

@@ -19,7 +19,19 @@ import (
 //
 // 可选字段一律用指针 + omitempty：Node 侧 undefined 在 JSON.stringify 里
 // **整键消失**，下发 null 会让前端 `x ?? 默认值` 兜底失效。
+// PlaybackMetadata contains optional source policy and PGC fields. Pointers keep
+// absent, false and true distinct in snapshots and persisted JSON.
+type PlaybackMetadata struct {
+	PlaysvideoEnabled *bool   `json:"playsvideoEnabled,omitempty"`
+	HostCLIEnabled    *bool   `json:"hostCliEnabled,omitempty"`
+	EpID              *int64  `json:"epId,omitempty"`
+	SeasonID          *int64  `json:"seasonId,omitempty"`
+	SeasonTitle       *string `json:"seasonTitle,omitempty"`
+	Preview           *bool   `json:"preview,omitempty"`
+}
+
 type Playback struct {
+	PlaybackMetadata
 	SourceURL       string          `json:"sourceUrl"`
 	SourceType      string          `json:"sourceType"`
 	AudioURL        *string         `json:"audioUrl,omitempty"`
@@ -96,7 +108,7 @@ const playbackColumns = `"roomId", "sourceUrl", "sourceType", "audioUrl", "forma
 	"videoCodec", "audioCodec", "cid", "isPlaying", "currentTime", "playbackRate",
 	"duration", "currentQn", "acceptQuality", "headers", "noProxyFallback",
 	"isPreview", "previewTitle", "bufferMode", "currentMovieId",
-	"lastUpdatedAt", "hostSocketId"`
+	"lastUpdatedAt", "hostSocketId", "metadata"`
 
 // load 读缓存，未命中回落 DB 并回填缓存。
 func (m *PlaybackMemory) load(ctx context.Context, roomID string) (*Playback, error) {
@@ -347,13 +359,14 @@ func scanPlayback(row rowScanner) (*Playback, error) {
 		currentMovie sql.NullInt64
 		lastUpdated  sql.NullInt64
 		hostSocket   sql.NullString
+		metadata     sql.NullString
 		roomID       string
 	)
 	err := row.Scan(&roomID, &p.SourceURL, &p.SourceType, &audioURL, &format,
 		&videoCodec, &audioCodec, &cid, &p.IsPlaying, &p.CurrentTime, &p.PlaybackRate,
 		&p.Duration, &currentQn, &acceptQ, &headers, &noProxy,
 		&isPreview, &previewTitle, &bufferMode, &currentMovie,
-		&lastUpdated, &hostSocket)
+		&lastUpdated, &hostSocket, &metadata)
 	if err != nil {
 		return nil, err
 	}
@@ -372,6 +385,11 @@ func scanPlayback(row rowScanner) (*Playback, error) {
 	p.CurrentMovieID = nullInt(currentMovie)
 	p.UpdatedAt = lastUpdated.Int64
 	p.HostSocketID = nullStr(hostSocket)
+	if metadata.Valid {
+		if err := json.Unmarshal([]byte(metadata.String), &p.PlaybackMetadata); err != nil {
+			return nil, fmt.Errorf("读取播放元数据失败: %w", err)
+		}
+	}
 	return &p, nil
 }
 

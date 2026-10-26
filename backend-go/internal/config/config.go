@@ -49,9 +49,9 @@ type Config struct {
 	// NCMAPIBase 是内部网易云 API 服务地址（一起听音乐模块的上游）。
 	//
 	// 与 Node 版不同：那边用 `@neteasecloudmusicapienhanced/api` 在本进程内起
-	// 一个 127.0.0.1:36530 的服务；Go 版不带那个 npm 包，改成**外部化**——
-	// 由这个变量指向已经跑起来的 NCM 服务，默认沿用同一个端口，服务没起时
-	// `/api/music/*` 一律 503 NCM_UNAVAILABLE（与 Node 同语义）。
+	// 一个 127.0.0.1:36530 的服务；Go 版通过 HTTP 调用独立服务。
+	// 显式配置优先；GUI 未配置时由随包 ncm 组件提供私有回环地址。
+	// 服务不可用时转发、流等端点返回 503 NCM_UNAVAILABLE，登录状态仍保留缓存。
 	NCMAPIBase string
 
 	// SQLiteWAL 为 true 时把数据库切到 WAL 日志模式。

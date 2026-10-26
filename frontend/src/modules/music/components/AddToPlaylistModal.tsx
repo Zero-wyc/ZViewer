@@ -22,7 +22,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Check, Loader2, Plus } from 'lucide-react'
-import { apiPost } from '@/lib/api'
+import { apiPost } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { LoadingLine } from '@/components/ui/LoadingLine'
 import { CloudModal, type CloudModalHandle } from './CloudModal'

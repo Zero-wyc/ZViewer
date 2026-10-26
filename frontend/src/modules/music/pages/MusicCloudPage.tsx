@@ -34,7 +34,7 @@ import {
   type LucideIcon,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
-import { apiFetch, apiGet } from '@/lib/api'
+import { apiFetch, apiGet } from '../musicApi'
 import { cn } from '@/lib/utils'
 import { message } from '@/components/ui/message'
 import { LoadingLine } from '@/components/ui/LoadingLine'

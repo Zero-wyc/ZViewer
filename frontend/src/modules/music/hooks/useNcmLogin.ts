@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { apiGet, apiPost } from '@/lib/api'
+import { apiGet, apiPost } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import type { NcmLoginStatus } from '../types'
@@ -53,6 +53,7 @@ export interface UseNcmLoginResult {
   qrImg: string | null
   /** 扫码流程状态（waiting 待扫码 / scanned 已扫待确认 / success 成功） */
   status: NcmQrStatus
+  errorMessage: string | null
   /** 启动扫码登录：生成 key → 生成二维码 → 开始轮询 */
   startLogin: () => Promise<void>
   /** 停止轮询（关闭登录弹窗时调用） */
@@ -79,6 +80,8 @@ export interface UseNcmLoginResult {
 export function useNcmLogin(): UseNcmLoginResult {
   const [qrImg, setQrImg] = useState<string | null>(null)
   const [status, setStatus] = useState<NcmQrStatus>('idle')
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const generationRef = useRef(0)
   const loginStatus = useMusicStore((s) => s.loginStatus)
 
   /** 轮询定时器 */
@@ -168,6 +171,7 @@ export function useNcmLogin(): UseNcmLoginResult {
       clearInterval(pollTimerRef.current)
       pollTimerRef.current = null
     }
+    generationRef.current += 1
     qrKeyRef.current = null
   }, [])
 
@@ -176,9 +180,12 @@ export function useNcmLogin(): UseNcmLoginResult {
     (key: string) => {
       stopPolling()
       qrKeyRef.current = key
+      let pending = false
+      let failures = 0
       pollTimerRef.current = setInterval(() => {
         // key 已更换或已停止：本轮跳过
-        if (qrKeyRef.current !== key) return
+        if (qrKeyRef.current !== key || pending) return
+        pending = true
         void (async () => {
           try {
             const { data } = await apiGet<{
@@ -190,6 +197,7 @@ export function useNcmLogin(): UseNcmLoginResult {
               )}&timestamp=${Date.now()}`
             )
             if (qrKeyRef.current !== key) return
+            failures = 0
             const code = data?.data?.code ?? data?.code
             switch (code) {
               case QR_STATUS_CODE.WAITING:
@@ -213,9 +221,14 @@ export function useNcmLogin(): UseNcmLoginResult {
                 // 未知状态码：跳过本轮
                 break
             }
-          } catch {
-            // 网络错误：跳过本轮，等待下次轮询
-          }
+          } catch (err) {
+            if (qrKeyRef.current !== key) return
+            if (++failures >= 3 || (err instanceof Error && err.name === 'MusicServiceError')) {
+              stopPolling()
+              setErrorMessage(err instanceof Error ? err.message : '二维码状态查询失败，请重试')
+              setStatus('error')
+            }
+          } finally { pending = false }
         })()
       }, QR_POLL_INTERVAL_MS)
     },
@@ -226,17 +239,21 @@ export function useNcmLogin(): UseNcmLoginResult {
   const startLogin = useCallback(async () => {
     if (startingRef.current) return
     startingRef.current = true
+    stopPolling()
+    const generation = generationRef.current
     try {
-      stopPolling()
+      setErrorMessage(null)
       setStatus('generating')
       setQrImg(null)
       const key = await generateQrKey()
+      if (generation !== generationRef.current) return
       if (!key) {
         setStatus('error')
         message.error('生成登录二维码失败，请重试')
         return
       }
       const img = await createQr(key)
+      if (generation !== generationRef.current) return
       if (!img) {
         setStatus('error')
         message.error('生成登录二维码失败，请重试')
@@ -246,9 +263,11 @@ export function useNcmLogin(): UseNcmLoginResult {
       setStatus('waiting')
       startPolling(key)
     } catch (err) {
-      console.error('[useNcmLogin] 启动扫码登录失败:', err)
+      if (generation !== generationRef.current) return
+      const text = err instanceof Error ? err.message : '启动扫码登录失败，请重试'
+      setErrorMessage(text)
       setStatus('error')
-      message.error('启动扫码登录失败，请重试')
+      message.error(text)
     } finally {
       startingRef.current = false
     }
@@ -274,6 +293,7 @@ export function useNcmLogin(): UseNcmLoginResult {
   return {
     qrImg,
     status,
+    errorMessage,
     startLogin,
     stopPolling,
     loginStatus,
