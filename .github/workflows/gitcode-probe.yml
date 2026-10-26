@@ -1,20 +1,31 @@
 name: GitCode 附件存活探针
 
-# 只做一件事：传一个 1 MB 文件到 GitCode Release，然后按分钟时点回读，
+# 只做一件事：把文件传到 GitCode Release，然后按分钟时点回读，
 # 看附件是「一直存在」还是「过一段时间被平台清掉」。
 #
 # 背景：v5.0.5 的 release job 是绿的（脚本结束前确实读到了 3 个附件），
 # 但几小时后 API 与页面都只剩 4 个源码包。到底是谁在删，只能靠观测。
 #
-# 手动触发；跑完记得去 GitCode 删掉 `probe-*` 这个 Release。
+# 两种用法：
+#   1) 留空 observe_tag → 新建 probe-<run_id>，传 1MB + 40MB 各一个，
+#      在 0/1/5/15/30/60 分钟回读。两个大小是为了区分「平台整体清理」
+#      和「只有大文件被回收」。
+#   2) 填 observe_tag（比如 probe-123456）→ 只回读，不建不传不删。
+#      过几小时再跑一次，用来确认附件最终还在不在。
+#
+# 跑完记得去 GitCode 删掉 `probe-*` 这个 Release（GitCode 没有删 Release 的公开接口）。
 
 on:
   workflow_dispatch:
     inputs:
+      observe_tag:
+        description: '只回读该 tag，留空则新建 probe Release 并上传'
+        required: false
+        default: ''
       wait_minutes:
         description: '观测时点（分钟，逗号分隔）'
         required: false
-        default: '0,1,5,15,25'
+        default: '0,1,5,15,30,60'
 
 permissions:
   contents: read
@@ -22,26 +33,36 @@ permissions:
 jobs:
   probe:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 40MB 跨境上传 + 60 分钟观测，需要比常规 job 更宽的窗口
+    timeout-minutes: 120
     # 放在 job 级：步骤的 if 只能看到 job/workflow 级 env，
     # 写在该步骤自己的 env 里会让 if 恒为空、整步被静默跳过。
     env:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+      OBSERVE_TAG: ${{ inputs.observe_tag }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: 生成 1 MB 测试文件
+      # 与 build.yml 用同一个 node 版本，避免探针因 runner 自带版本差异白跑一次
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      - name: 生成测试文件
+        if: env.OBSERVE_TAG == ''
         run: |
           set -euo pipefail
           head -c 1048576 /dev/urandom > probe-1mb.bin
-          ls -l probe-1mb.bin
+          # 与真实产物同量级：37MB 的包里出现过问题，只用小文件测不出来
+          head -c 41943040 /dev/urandom > probe-40mb.bin
+          ls -l probe-1mb.bin probe-40mb.bin
 
       - name: 上传并跟踪存活
-        if: env.GITCODE_TOKEN != ''
+        if: env.OBSERVE_TAG == '' && env.GITCODE_TOKEN != ''
         env:
           TAG: probe-${{ github.run_id }}
           RELEASE_NAME: probe-${{ github.run_id }}
-          ASSETS: probe-1mb.bin
+          ASSETS: probe-1mb.bin probe-40mb.bin
           # pre：不让这个临时 Release 顶掉正式版的 latest
           PRERELEASE: '1'
           # 只观测，附件缺失不让 job 变红
@@ -49,6 +70,12 @@ jobs:
           KEEP_EMPTY_RELEASE: '1'
           VERIFY_MINUTES: ${{ inputs.wait_minutes }}
           UPLOAD_ATTEMPTS: '2'
+        run: node scripts/sync-gitcode-release.mjs
+
+      - name: 只读复核已有 tag
+        if: env.OBSERVE_TAG != '' && env.GITCODE_TOKEN != ''
+        env:
+          VERIFY_MINUTES: ${{ inputs.wait_minutes }}
         run: node scripts/sync-gitcode-release.mjs
 
       - name: 缺令牌

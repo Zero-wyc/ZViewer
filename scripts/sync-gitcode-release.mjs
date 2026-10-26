@@ -58,7 +58,13 @@ const API = (process.env.GITCODE_API_BASE || 'https://api.gitcode.com/api/v5').r
 const TOKEN = (process.env.GITCODE_TOKEN || '').trim();
 const OWNER = (process.env.GITCODE_OWNER || 'Zero-wyc').trim();
 const REPO = (process.env.GITCODE_REPO || 'ZViewer').trim();
-const TAG = (process.env.TAG || '').trim();
+/**
+ * 只读复核：只回读某个已存在的 tag，绝不建、绝不传、绝不删。
+ * 用来隔几小时再确认「附件还在不在」——这一步不需要再走一次上传，
+ * 也不消耗带宽，所以可以在观察到异常后随时补跑。
+ */
+const OBSERVE_TAG = (process.env.OBSERVE_TAG || '').trim();
+const TAG = (OBSERVE_TAG || process.env.TAG || '').trim();
 const RELEASE_NAME = (process.env.RELEASE_NAME || TAG).trim();
 const BODY_FILE = (process.env.RELEASE_BODY_FILE || '').trim();
 const PRERELEASE = ['1', 'true', 'yes'].includes((process.env.PRERELEASE || '').toLowerCase());
@@ -76,7 +82,7 @@ const KEEP_EMPTY_RELEASE = ['1', 'true', 'yes'].includes((process.env.KEEP_EMPTY
  * 「job 绿、页面只有源码包」，就是缺这一步观测。
  */
 const PROBE_MODE = ['1', 'true', 'yes'].includes((process.env.PROBE_MODE || '').toLowerCase());
-const VERIFY_MINUTES = (process.env.VERIFY_MINUTES || '')
+const VERIFY_MINUTES = (process.env.VERIFY_MINUTES || (OBSERVE_TAG ? '0' : ''))
   .split(/[\s,]+/)
   .map((s) => Number(s))
   .filter((n) => Number.isFinite(n) && n >= 0);
@@ -303,6 +309,15 @@ async function runVerificationSchedule() {
 
 async function main() {
   report.releaseUrl = pageUrl;
+
+  // 只读复核：不建、不传、不删，只按 VERIFY_MINUTES 的时点回读附件。
+  // 与 PROBE_MODE 的区别——它是「上传完再跟踪」，这里是「几小时后再来看一眼」。
+  if (OBSERVE_TAG) {
+    note(`只读复核 ${OWNER}/${REPO} 的 tag=${TAG}（不建、不传、不删）`);
+    await runVerificationSchedule();
+    return;
+  }
+
   note(`目标仓库 ${OWNER}/${REPO}，tag=${TAG}，预发布=${PRERELEASE}，附件 ${ASSETS.length} 个`);
 
   // 0) 只读诊断：不打任何写操作，用来确认权限、tag、上传地址是否正常
