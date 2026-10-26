@@ -124,40 +124,20 @@ npm run dev:frontend       # 只起前端
 | 3336 | LiveKit 信令 | LiveKit 伴生进程 |
 | 3337 | LiveKit ICE/TCP（可 `=0` 关闭） | LiveKit 伴生进程 |
 | 3338 | LiveKit TURN/TLS | LiveKit 伴生进程 |
-| 36530 | 网易云 API（**仅显式设 `NCM_API_BASE` 时**才会用到） | 外部容器/进程（可选，见 5.2.1） |
 
-### 5.2.1 两处曾经依赖外部进程的能力
+### 5.2.1 推流与一起听都不需要外部进程
 
 **推流（3334/3335）是后端进程内实现的**，源码运行、单容器、桌面壳都自带，不用装 SRS
 也不用装 node-media-server：RTMP 收流后按 FLV 转封装（不转码）从 `/live/{推流码}.flv`
 吐出去。只有想用外部媒体服务时才设 `NMS_HTTP_FLV_URL` 指过去，此时不再监听本地端口。
 
-**一起听（网易云）默认也是进程内实现的**：`internal/ncmapi` 复刻了
-NeteaseCloudMusicApi 的 REST 方言（weapi/eapi/linuxapi 加密 + 48 个端点），后端启动时
-把它挂成进程内上游（基地址哨兵 `http://ncm.internal`，请求直接 `ServeHTTP`，
-**不监听端口**），`/api/music/ncm/*` 转发过去，**不需要任何额外进程，也不需要 Node**。
-两档 + 一个排障开关：
+**一起听（网易云）同样是后端自带的**：`internal/ncm` 自己实现 weapi / eapi / linuxapi
+加密与 46 条接口（含扫码登录、云盘上传、音质降级）。前端一次 `/api/music/ncm/*`
+请求就是一次函数调用——**没有外部服务、没有回环端口、没有子进程、没有 Node 运行时**，
+也没有任何 `NCM_*` 环境变量可配（历史变量已全部移除，设了也不生效）。
 
-```bash
-npm run dev                          # 默认：进程内实现（不占端口）
-NCM_LOOPBACK=1 npm run dev           # 同一份实现挂回环 TCP，方便 curl 看原始响应
-NCM_API_BASE=http://127.0.0.1:36530 npm run dev   # 外部服务
-```
-
-需要 enhanced 版那几项能力（匿名 token、随机国内 IP、解灰）时才用外部服务：
-
-```bash
-# 1) docker compose（和 zviewer 同一个网络）
-docker compose -f docker-compose.linux-single.yml --profile music up -d
-
-# 2) 单独跑社区镜像
-docker run -d --name zviewer-ncm -p 127.0.0.1:36530:3000 \
-  binaryify/netease_cloud_music_api:latest
-```
-
-上游实在拿不到时只有音乐相关接口返回 503 `NCM_UNAVAILABLE`，播放/房间/推流都不受影响；
-后端启动日志会打印当前音乐接口来源（`音乐接口由进程内实现提供: http://127.0.0.1:xxxxx`
-或 `音乐上游 NCM_API_BASE=...`），排查时先看这一行。
+拿不到数据只有两种可能：网易云拒绝（风控 / 地区 / 版权，日志前缀 `[ncm]`），或者
+网络本身不通。没有「音乐服务未启动」这个状态，也不需要为它做部署。
 
 同时跑两个后端实例（比如 dev 和 prod 并存）时，第二个会因 3334/3335 被占用而
 **自动降级成外部探测模式**（日志里有一行 `内置媒体服务启动失败…降级`，推流在第二个实例上不可用）。

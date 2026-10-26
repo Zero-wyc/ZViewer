@@ -22,15 +22,14 @@ type LoginStatus struct {
 // GetLoginStatus 查询用户的网易云登录状态。
 //
 // 游客（userId<=0）直接返回未登录；有凭证时按需补全昵称/头像/会员信息。
-// base 为空（NCM 服务未配置）时跳过补全——补全失败不能影响「登录状态」本身，
-// 否则音乐面板会整体报错。
-func (s *Service) GetLoginStatus(ctx context.Context, base string, userID int64) (*LoginStatus, error) {
+// 补全失败不能影响「登录状态」本身，否则音乐面板会整体报错。
+func (s *Service) GetLoginStatus(ctx context.Context, userID int64) (*LoginStatus, error) {
 	credential, err := s.LoadCredential(ctx, userID)
 	if err != nil {
 		return nil, err
 	}
-	if credential != nil && base != "" {
-		s.refreshProfileIfNeeded(ctx, base, credential)
+	if credential != nil {
+		s.refreshProfileIfNeeded(ctx, credential)
 	}
 	status := &LoginStatus{LoggedIn: credential != nil}
 	if credential != nil {
@@ -46,7 +45,7 @@ func (s *Service) GetLoginStatus(ctx context.Context, base string, userID int64)
 //
 // 触发条件：凭证存在且 vipType 为空/0（买了会员之后存量缓存会被误判成普通用户）。
 // 任何一步失败都只告警、**不落库**——对应 Node 那个被 try/catch 包住的整体逻辑。
-func (s *Service) refreshProfileIfNeeded(ctx context.Context, base string, credential *store.NcmCredential) {
+func (s *Service) refreshProfileIfNeeded(ctx context.Context, credential *store.NcmCredential) {
 	if credential.VIPType != nil && *credential.VIPType != 0 {
 		return
 	}
@@ -56,7 +55,7 @@ func (s *Service) refreshProfileIfNeeded(ctx context.Context, base string, crede
 	}
 
 	// 1) /user/account 补昵称/头像/vipType
-	profileResp, err := s.Client.Call(ctx, base, "/user/account", cookieHeader)
+	profileResp, err := s.Call(ctx, "/user/account", cookieHeader)
 	if err != nil {
 		log.Printf("[ncm] login/status 账号资料补全失败: %v", err)
 		return
@@ -66,7 +65,7 @@ func (s *Service) refreshProfileIfNeeded(ctx context.Context, base string, crede
 
 	// 2) profile 仍判定不出会员 → /vip/info 三档兜底
 	if credential.VIPType == nil || *credential.VIPType == 0 {
-		vipResp, err := s.Client.Call(ctx, base, "/vip/info", cookieHeader)
+		vipResp, err := s.Call(ctx, "/vip/info", cookieHeader)
 		if err != nil {
 			log.Printf("[ncm] login/status 会员信息补全失败: %v", err)
 			return
@@ -173,9 +172,9 @@ func mergeProfileIntoCredential(credential *store.NcmCredential, profile *Profil
 //
 // albumID 用 float64：Node 只校验 `Number.isFinite(id) && id > 0`，**不要求整数**，
 // `?id=1.5` 会原样拼进上游 URL。这里同样按 JS 的数字字面量输出（1 不写成 1.0）。
-func (s *Service) AlbumWithFullSongs(ctx context.Context, base string, albumID float64, cookieHeader string) (any, error) {
+func (s *Service) AlbumWithFullSongs(ctx context.Context, albumID float64, cookieHeader string) (any, error) {
 	path := "/album?id=" + strconv.FormatFloat(albumID, 'f', -1, 64)
-	primary, err := s.Client.Call(ctx, base, path, cookieHeader)
+	primary, err := s.Call(ctx, path, cookieHeader)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +192,7 @@ func (s *Service) AlbumWithFullSongs(ctx context.Context, base string, albumID f
 		return body, nil
 	}
 
-	anonymous, err := s.Client.Call(ctx, base, path, "")
+	anonymous, err := s.Call(ctx, path, "")
 	if err != nil {
 		log.Printf("[ncm] 专辑匿名补齐失败: %v", err)
 		return body, nil

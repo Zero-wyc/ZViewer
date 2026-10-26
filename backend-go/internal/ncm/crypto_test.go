@@ -1,4 +1,4 @@
-package ncmapi
+package ncm
 
 import (
 	"crypto/aes"

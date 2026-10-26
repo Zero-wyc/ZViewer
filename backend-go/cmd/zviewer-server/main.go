@@ -233,10 +233,6 @@ func main() {
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
-	ncmBase, stopNCM := ncm.StartBundled(cfg.NCMAPIBase)
-	cfg.NCMAPIBase = ncmBase
-	defer stopNCM()
-
 	server := api.New(api.Deps{
 		Cfg:      cfg,
 		DB:       conn,
@@ -265,7 +261,7 @@ func main() {
 		AniSubs:       anisubs.NewService(settings),
 		Kazumi:        kazumi.NewService(settings),
 		Danmaku:       danmaku.NewService(biliService),
-		NCM:           ncm.NewService(conn, cfg.NCMAPIBase),
+		NCM:           ncm.NewService(conn),
 		NMS:           streamPush,
 	})
 
@@ -323,7 +319,7 @@ func main() {
 
 	log.Printf("[start] ZViewer Go 后端 平台=%s 项目根=%s", config.Platform(), cfg.ProjectRoot)
 	log.Printf("[start] 数据库=%s (journal=%s)", cfg.DatabasePath, journalLabel(cfg.SQLiteWAL))
-	log.Printf("[start] 一起听音乐上游 NCM_API_BASE=%s（不可达时音乐接口回 503，不影响其它功能）", cfg.NCMAPIBase)
+	log.Printf("[start] 一起听音乐接口=进程内实现（无外部服务、无子进程）")
 	log.Printf("[start] 监听 %s", httpServer.Addr)
 
 	errCh := make(chan error, 1)

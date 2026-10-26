@@ -77,7 +77,7 @@
 - **播放模式**：CLI 本地代理（高画质、不耗服务器流量）、服务器 DASH 转发、MP4 直链（最高 720P），按需切换
 - **弹幕与字幕**：B 站官方 / DandanPlay / 本地 XML·JSON（可多轨）；SRT / ASS / SSA / VTT / SMI / SUB
 - **互动与推流**：评论、语音聊天（UDP / TCP 通道自动择优，无需手动切换）、WebRTC 屏幕共享、OBS 推流（RTMP 收流与 HTTP-FLV 分发由后端进程内提供，不需要额外装媒体服务器）
-- **一起听**：网易云音乐 × 哔哩哔哩，歌单自动补位推荐、双收藏夹一键收藏、MV 歌词页背景（网易云接口由后端进程内提供，开箱可用；也可指向外部服务，见「部署配置 → 推流与一起听」）
+- **一起听**：网易云音乐 × 哔哩哔哩，歌单自动补位推荐、双收藏夹一键收藏、MV 歌词页背景（网易云接口由后端自带，无需任何外部服务）
 - **个性化**：Material You 动态主题、自定义主题色与背景、玻璃拟态、弹幕字幕字号独立调节
 - **运维**：一键自动更新，Docker / 单文件版开箱即用
 
@@ -241,7 +241,7 @@ services:
 - 镜像标签：`latest` 与 `X.Y` 只在发布正式版本（推送 `vX.Y.Z` tag）时更新，`X.Y.Z` 为固定版本；`dev` 跟随 main 分支最新构建，可能不稳定，仅供尝鲜
 - 镜像以 HTTP 模式启动，HTTPS 需自行配置：推荐 Cloudflare、ESA、EdgeOne 等边缘服务，或宝塔、1Panel 等面板自动签发并续期，再反代到 3333（不建议用命令行自助签发正式证书）
 - `/app/config` 含数据库（`dev.sqlite`）、证书（`ssl/`）、上传文件（`uploads/`）；`media/` 是预留目录，当前推流走内存转封装、不落盘
-- **一起听开箱可用**，网易云接口由后端进程内提供；要 enhanced 版能力（匿名 token、随机 IP、解灰）时加 `--profile music` 起 compose 里的服务，或把 `NCM_API_BASE` 指向自建服务（见「部署配置 → 推流与一起听」）
+- **一起听完全开箱可用**：网易云接口由后端自带（`internal/ncm`），不需要额外部署、不需要 Node；也不要再设 `NCM_*` 变量（历史变量已移除）
 - Docker 模式下仍可使用网页更新
 
 ## 部署配置
@@ -262,8 +262,6 @@ services:
 | `HTTP_FLV_PORT`          | FLV 拉流端口（内部，只经 3333 的 `/live` 反代访问）     | `3335`                  |
 | `NMS_BIND`               | 内置媒体服务的监听地址                            | `0.0.0.0`               |
 | `NMS_HTTP_FLV_URL`       | 指向外部媒体服务（SRS / node-media-server），设置后不再内嵌 | 空（内嵌）              |
-| `NCM_API_BASE`           | 一起听的上游地址；留空=进程内实现（不监听端口）              | 空（进程内）              |
-| `NCM_LOOPBACK`           | `1` 时把内置实现挂回环 TCP，仅用于排障（能用 curl 看原始响应）     | 空（直连）                 |
 | `LIVEKIT_EXTERNAL`       | `1` 时使用外置 LiveKit，跳过内嵌               | `0`                     |
 | `LIVEKIT_NODE_IP`        | ICE 广播地址；NAT 复杂或无出网环境可手动指定公网 IP       | 空（自动 STUN）             |
 | `LIVEKIT_BIND`           | LiveKit HTTP/信令监听地址（仅影响 3336，媒体端口不受影响） | 空（双栈全地址）              |
@@ -283,26 +281,13 @@ services:
 `rtmp://<你的地址>:3334/live`、推流码填房间页面给的码即可。想改用外部媒体服务
 （集群、已有 SRS）时设 `NMS_HTTP_FLV_URL`，此时后端不再监听这两个端口。
 
-**一起听（网易云）开箱可用**：后端进程内自带网易云接口实现（`internal/ncmapi`，
-含 weapi/eapi/linuxapi 加密与 48 个端点，含扫码登录与云盘上传），请求在进程内直接
-交给它处理，**不监听端口、不占额外进程，也不需要 Node 运行时**。
-需要 enhanced 版那几项能力（匿名 token、随机国内 IP、解灰）时才改用外部服务：
+**一起听（网易云）开箱可用**：网易云接口由后端自带（`internal/ncm`，自己实现
+weapi / eapi / linuxapi 加密与 48 个接口，含扫码登录与云盘上传），页面请求直接落到
+同一个进程里的函数，**没有外部服务、没有回环端口、没有子进程，也没有 Node 运行时**。
+它不带任何可配置项——不需要部署任何东西，也没有「音乐服务未启动」这种状态。
 
-```bash
-# 1) 和 zviewer 一起起（compose 内置可选服务）
-docker compose -f docker-compose.linux-single.yml --profile music up -d
-
-# 2) 单独起社区镜像，映射到 36530
-docker run -d --name zviewer-ncm -p 127.0.0.1:36530:3000 \
-  binaryify/netease_cloud_music_api:latest
-
-# 3) 指向任何已部署的 NCM API（含增强版）
-NCM_API_BASE=http://192.168.1.20:36530 ./start-prod.sh start
-```
-
-显式 `NCM_API_BASE` 优先；`NCM_LOOPBACK=1` 只把内置实现挂回环 TCP 供排障。
-上游真的拿不到时，**只有音乐相关接口返回 503 `NCM_UNAVAILABLE`**（前端显示音乐服务不可用），
-观影、房间、弹幕、语音、推流全部照常。后端启动日志会打印音乐接口的实际来源。
+拿不到数据只可能是网易云那边拒绝（风控 / 地区 / 版权，日志前缀 `[ncm]`），
+观影、房间、弹幕、语音、推流都不受影响。
 
 ### 语音传输
 

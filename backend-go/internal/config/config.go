@@ -46,14 +46,6 @@ type Config struct {
 	StartedAt    time.Time
 	RestartCount int
 
-	// NCMAPIBase 是网易云音乐接口的上游地址（一起听音乐模块）。
-	//
-	// 默认值由 `internal/ncm.StartBundled` 改写成**进程内实现**（internal/ncmapi）
-	// 的哨兵地址 `http://ncm.internal`；显式配置 `NCM_API_BASE` 时原样使用，
-	// 内置实现不启动（`NCM_LOOPBACK=1` 只用于把内置实现挂回环 TCP 排障）。
-	// 上游不可用时转发、流等端点返回 503 NCM_UNAVAILABLE，登录状态仍保留缓存。
-	NCMAPIBase string
-
 	// SQLiteWAL 为 true 时把数据库切到 WAL 日志模式。
 	//
 	// **默认开启**（Node 后端已于 2026-10-25 删除，不再有第二个进程按
@@ -84,7 +76,6 @@ func Load() (*Config, error) {
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 	}
 	cfg.AvatarsDir = envOr("AVATARS_DIR", filepath.Join(cfg.UploadsDir, "avatars"))
-	cfg.NCMAPIBase = envOr("NCM_API_BASE", "http://127.0.0.1:36530")
 
 	if raw := os.Getenv("PORT"); raw != "" {
 		port, err := strconv.Atoi(raw)

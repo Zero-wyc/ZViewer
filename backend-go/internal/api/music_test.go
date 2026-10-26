@@ -117,11 +117,8 @@ func TestMusicAlbumFullValidation(t *testing.T) {
 		}
 	}
 
-	// 合法 id（含小数）+ NCM 未启动 → 503
-	resp := env.do(t, http.MethodGet, "/api/music/album/full?id=5", token, nil)
-	if resp.code() != "NCM_UNAVAILABLE" || resp.status != http.StatusServiceUnavailable {
-		t.Errorf("响应 = %d %v", resp.status, resp.body)
-	}
+	// 合法 id 之后是上游解析链，由 internal/ncm 的单测覆盖：API 层只守参数闸门，
+	// 不在这里真连网易云。
 }
 
 func TestMusicStreamValidation(t *testing.T) {
@@ -143,20 +140,10 @@ func TestMusicStreamValidation(t *testing.T) {
 		}
 	}
 
-	// 合法 songId + NCM 未启动 → 503
-	resp := env.do(t, http.MethodGet, "/api/music/stream?songId=1001", "", nil)
-	if resp.code() != "NCM_UNAVAILABLE" {
-		t.Errorf("响应 = %d %v", resp.status, resp.body)
-	}
-
-	// song-quality 同参数规则
-	resp = env.do(t, http.MethodGet, "/api/music/song-quality?songId=abc", "", nil)
+	// 合法 songId 之后的解析链由 internal/ncm 覆盖；这里只验参数规则。
+	resp := env.do(t, http.MethodGet, "/api/music/song-quality?songId=abc", "", nil)
 	if resp.status != http.StatusBadRequest {
 		t.Errorf("song-quality 状态码 = %d", resp.status)
-	}
-	resp = env.do(t, http.MethodGet, "/api/music/song-quality?songId=1001", "", nil)
-	if resp.code() != "NCM_UNAVAILABLE" {
-		t.Errorf("song-quality 响应 = %d %v", resp.status, resp.body)
 	}
 }
 

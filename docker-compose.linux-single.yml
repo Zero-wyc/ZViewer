@@ -60,30 +60,10 @@ services:
       # 如需外置 LiveKit（多机部署），设 LIVEKIT_EXTERNAL=1 跳过内嵌拉起，
       # 并将 LIVEKIT_API_HOST 指向外部地址
       - LIVEKIT_EXTERNAL=${LIVEKIT_EXTERNAL:-0}
-      # 一起听（网易云）默认由后端进程内实现提供（internal/ncmapi），无需
-      # 额外服务。只有要 enhanced 版能力或自建服务时才显式设 NCM_API_BASE，
-      # 例如用下面的 `ncm` 服务：NCM_API_BASE=http://ncm:3000
-      - NCM_API_BASE=${NCM_API_BASE:-}
+      # 一起听（网易云）由后端自带（internal/ncm），不需要任何外部服务
     volumes:
       - zviewer-data:/app/config
     restart: unless-stopped
 
-  # 一起听的音乐后端（**可选**，默认不需要）：后端已自带进程内实现。
-  # 只有想要 enhanced 版特性（匿名 token、随机国内 IP、解灰）时才启用，
-  # 并把主服务的 NCM_API_BASE 指向 http://ncm:3000。启用方式：
-  #   docker compose --profile music up -d
-  # 端口只在回环上映射，方便在宿主机上直接用 curl 验证（不对外暴露）。
-  # 想换成自己构建/增强版接口时，改 image 或直接删掉本服务、把
-  # NCM_API_BASE 指向已有地址即可。
-  ncm:
-    image: binaryify/netease_cloud_music_api:latest
-    profiles: ["music"]
-    restart: unless-stopped
-    ports:
-      - "127.0.0.1:36530:3000"
-    volumes:
-      - ncm-data:/app/data
-
 volumes:
   zviewer-data:
-  ncm-data:

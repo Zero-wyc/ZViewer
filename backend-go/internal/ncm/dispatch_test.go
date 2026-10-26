@@ -1,10 +1,8 @@
-package ncmapi
+package ncm
 
 import (
 	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -15,14 +13,14 @@ type stubCaller struct {
 	reply string
 }
 
-// Do 实现 Caller。
-func (s *stubCaller) Do(_ context.Context, call Call) (*Result, error) {
+// Do 实现 caller。
+func (s *stubCaller) Do(_ context.Context, call Call) (*upstreamResult, error) {
 	s.calls = append(s.calls, call)
 	body := s.reply
 	if body == "" {
 		body = `{"code":200}`
 	}
-	return &Result{Status: 200, Body: []byte(body)}, nil
+	return &upstreamResult{Status: 200, Body: []byte(body)}, nil
 }
 
 // frontendPaths 是前端实际调用的路径全集（从 frontend/src 提取）。
@@ -63,7 +61,7 @@ func TestEveryFrontendPathRouted(t *testing.T) {
 // TestNoDanglingRoute 反向检查：表里的每条都能真正产出上游路径。
 func TestNoDanglingRoute(t *testing.T) {
 	for path, spec := range routes {
-		apiPath, _ := spec.build(Params{})
+		apiPath, _ := spec.build(params{})
 		if !strings.HasPrefix(apiPath, "/api/") {
 			t.Errorf("路径 %s 产出的上游路径异常: %q", path, apiPath)
 		}
@@ -73,29 +71,21 @@ func TestNoDanglingRoute(t *testing.T) {
 	}
 }
 
-// doGet 打一次 handler 并返回记录到的调用。
-func doGet(t *testing.T, stub *stubCaller, target string) *http.Response {
+// invoke 按浏览器侧的写法调一次分发器。
+func invoke(t *testing.T, stub *stubCaller, target string) *Result {
 	t.Helper()
-	server := httptest.NewServer(NewHandlerWith(stub))
-	defer server.Close()
-
-	request, err := http.NewRequest(http.MethodGet, server.URL+target, nil)
+	path, p := parseQueryPath(target)
+	result, err := newAPIWith(stub).call(context.Background(), path, p, "MUSIC_U=abc; __csrf=xyz")
 	if err != nil {
-		t.Fatalf("构造请求失败: %v", err)
+		t.Fatalf("%s 调用失败: %v", target, err)
 	}
-	request.Header.Set("Cookie", "MUSIC_U=abc; __csrf=xyz")
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		t.Fatalf("请求失败: %v", err)
-	}
-	t.Cleanup(func() { _ = response.Body.Close() })
-	return response
+	return result
 }
 
 // TestBannerMapping 校验 banner 的 clientType 映射与通道。
 func TestBannerMapping(t *testing.T) {
 	stub := &stubCaller{}
-	doGet(t, stub, "/banner?type=1&timestamp=1")
+	invoke(t, stub, "/banner?type=1")
 	if len(stub.calls) != 1 {
 		t.Fatalf("应当调用一次上游，实际 %d 次", len(stub.calls))
 	}
@@ -117,9 +107,8 @@ func TestBannerMapping(t *testing.T) {
 // TestSongDetailMapping 校验 c 参数拼装与类型。
 func TestSongDetailMapping(t *testing.T) {
 	stub := &stubCaller{}
-	doGet(t, stub, "/song/detail?ids=1,2,3")
-	data := stub.calls[0].Data
-	if data["c"] != `[{"id":1},{"id":2},{"id":3}]` {
+	invoke(t, stub, "/song/detail?ids=1,2,3")
+	if data := stub.calls[0].Data; data["c"] != `[{"id":1},{"id":2},{"id":3}]` {
 		t.Fatalf("c 参数错误: %#v", data["c"])
 	}
 }
@@ -137,7 +126,7 @@ func TestCommentNewCursor(t *testing.T) {
 	}
 	for _, item := range cases {
 		stub := &stubCaller{}
-		doGet(t, stub, "/comment/new?"+item.query)
+		invoke(t, stub, "/comment/new?"+item.query)
 		call := stub.calls[0]
 		if call.Path != "/api/v2/resource/comments" {
 			t.Fatalf("上游路径错误: %s", call.Path)
@@ -157,7 +146,7 @@ func TestCommentNewCursor(t *testing.T) {
 // TestSongURLKeepsLevelAndTypes 校验音质参数与类型（weapi 的参数是 JSON，类型敏感）。
 func TestSongURLKeepsLevelAndTypes(t *testing.T) {
 	stub := &stubCaller{}
-	doGet(t, stub, "/song/url/v1?id=123&level=hires")
+	invoke(t, stub, "/song/url/v1?id=123&level=hires")
 	call := stub.calls[0]
 	if call.Path != "/api/song/enhance/player/url/v1" {
 		t.Fatalf("上游路径错误: %s", call.Path)
@@ -173,50 +162,37 @@ func TestSongURLKeepsLevelAndTypes(t *testing.T) {
 // TestQrCreateIsLocal 二维码必须本地生成，不能打到上游（上游没有这个接口）。
 func TestQrCreateIsLocal(t *testing.T) {
 	stub := &stubCaller{}
-	response := doGet(t, stub, "/login/qr/create?key=abc&qrimg=true")
+	result := invoke(t, stub, "/login/qr/create?key=abc&qrimg=true")
 	if len(stub.calls) != 0 {
 		t.Fatalf("二维码生成不应调用上游，实际 %d 次", len(stub.calls))
 	}
-	var body struct {
-		Code int `json:"code"`
-		Data struct {
-			QRURL string `json:"qrurl"`
-			QRImg string `json:"qrimg"`
-		} `json:"data"`
+	body, _ := result.Body.(map[string]any)
+	data, _ := body["data"].(map[string]any)
+	qrURL, _ := data["qrurl"].(string)
+	image, _ := data["qrimg"].(string)
+	if !strings.Contains(qrURL, "codekey=abc") {
+		t.Fatalf("qrurl 错误: %s", qrURL)
 	}
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
-		t.Fatalf("响应不是合法 JSON: %v", err)
-	}
-	if !strings.Contains(body.Data.QRURL, "codekey=abc") {
-		t.Fatalf("qrurl 错误: %s", body.Data.QRURL)
-	}
-	if !strings.HasPrefix(body.Data.QRImg, "data:image/png;base64,") {
-		t.Fatalf("qrimg 不是 PNG data URL: %.40s", body.Data.QRImg)
+	if !strings.HasPrefix(image, "data:image/png;base64,") {
+		t.Fatalf("qrimg 不是 PNG data URL: %.40s", image)
 	}
 }
 
 // TestQRKeyWrapped 扫码 key 必须包在 data 里（前端读 data.data.unikey）。
 func TestQRKeyWrapped(t *testing.T) {
 	stub := &stubCaller{reply: `{"code":200,"unikey":"KEY123"}`}
-	response := doGet(t, stub, "/login/qr/key")
-	var body struct {
-		Code int `json:"code"`
-		Data struct {
-			UniKey string `json:"unikey"`
-		} `json:"data"`
-	}
-	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
-		t.Fatalf("响应不是合法 JSON: %v", err)
-	}
-	if body.Code != 200 || body.Data.UniKey != "KEY123" {
-		t.Fatalf("扫码 key 结构错误: %+v", body)
+	result := invoke(t, stub, "/login/qr/key")
+	body, _ := result.Body.(map[string]any)
+	data, _ := body["data"].(map[string]any)
+	if body["code"] != 200 || data["unikey"] != "KEY123" {
+		t.Fatalf("扫码 key 结构错误: %#v", result.Body)
 	}
 }
 
 // TestPlaylistTrackAllTwoStage 校验两段式取数：先详情再批量歌曲。
 func TestPlaylistTrackAllTwoStage(t *testing.T) {
 	stub := &stubCaller{reply: `{"code":200,"playlist":{"trackIds":[{"id":11},{"id":22},{"id":33}]},"songs":[]}`}
-	doGet(t, stub, "/playlist/track/all?id=99&limit=2&offset=1")
+	invoke(t, stub, "/playlist/track/all?id=99&limit=2&offset=1")
 	if len(stub.calls) != 2 {
 		t.Fatalf("应当调用两次上游，实际 %d 次", len(stub.calls))
 	}
@@ -231,20 +207,11 @@ func TestPlaylistTrackAllTwoStage(t *testing.T) {
 	}
 }
 
-// TestRootProbe 根路径必须 200，否则 internal/ncm 会把整个音乐域判成离线。
-func TestRootProbe(t *testing.T) {
+// TestUnknownPath 未知路径必须返回明确错误（路由层据此回 404）。
+func TestUnknownPath(t *testing.T) {
 	stub := &stubCaller{}
-	response := doGet(t, stub, "/")
-	if response.StatusCode != http.StatusOK {
-		t.Fatalf("根路径应当 200，实际 %d", response.StatusCode)
-	}
-}
-
-// TestUnknownPath404 未知路径必须 404（而不是静默 200 空对象）。
-func TestUnknownPath404(t *testing.T) {
-	stub := &stubCaller{}
-	response := doGet(t, stub, "/not-a-real-endpoint")
-	if response.StatusCode != http.StatusNotFound {
-		t.Fatalf("未知路径应当 404，实际 %d", response.StatusCode)
+	_, err := newAPIWith(stub).call(context.Background(), "/not-a-real-endpoint", params{}, "")
+	if !errors.Is(err, unknownPathError) {
+		t.Fatalf("未知路径应返回 unknownPathError，实际 %v", err)
 	}
 }

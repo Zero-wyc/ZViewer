@@ -111,15 +111,6 @@ func (s *Server) handleNcmCookieLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	base, ok := s.NCM.Available(r.Context())
-	if !ok {
-		// Node 在内部服务未启动时会在 fetch 处抛错，落到 500 分支
-		httpx.JSON(w, http.StatusInternalServerError, map[string]any{
-			"success": false, "message": "Cookie 登录失败",
-		})
-		return
-	}
-
 	credential, err := s.NCM.LoadCredential(r.Context(), userID)
 	if err != nil {
 		log.Printf("[music] 读取凭证失败: %v", err)
@@ -142,7 +133,7 @@ func (s *Server) handleNcmCookieLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	result, err := s.NCM.Client.Call(r.Context(), base, "/nuser/account/get", ncm.ToCookieHeader(string(encoded)))
+	result, err := s.NCM.Call(r.Context(), "/user/account", ncm.ToCookieHeader(string(encoded)))
 	if err != nil {
 		log.Printf("[music] ncm cookie-login error: %v", err)
 		httpx.JSON(w, http.StatusInternalServerError, map[string]any{
@@ -150,8 +141,8 @@ func (s *Server) handleNcmCookieLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	if len(result.SetCookies) > 0 {
-		merged = ncm.MergeCookies(merged, result.SetCookies)
+	if len(result.Cookies) > 0 {
+		merged = ncm.MergeCookies(merged, result.Cookies)
 	}
 	profile := ncm.ExtractProfile(result.Body)
 	if profile == nil {
@@ -191,19 +182,11 @@ func (s *Server) handleNcmAlbumFull(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	base, ok := s.NCM.Available(r.Context())
-	if !ok {
-		httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{
-			"code": "NCM_UNAVAILABLE", "message": "NCM 服务未启动",
-		})
-		return
-	}
-
 	credential, err := s.NCM.LoadCredential(r.Context(), musicUserID(r.Context()))
 	if err != nil {
 		log.Printf("[music] 读取凭证失败: %v", err)
 	}
-	body, err := s.NCM.AlbumWithFullSongs(r.Context(), base, id, ncm.CookieHeaderFor(credential))
+	body, err := s.NCM.AlbumWithFullSongs(r.Context(), id, ncm.CookieHeaderFor(credential))
 	if err != nil {
 		log.Printf("[music] 专辑详情获取失败: %v", err)
 		httpx.JSON(w, http.StatusBadGateway, map[string]any{
@@ -222,11 +205,7 @@ func (s *Server) handleNcmAlbumFull(w http.ResponseWriter, r *http.Request) {
 
 // handleNcmLoginStatus 查询当前用户的网易云登录状态。
 func (s *Server) handleNcmLoginStatus(w http.ResponseWriter, r *http.Request) {
-	base := ""
-	if available, ok := s.NCM.Available(r.Context()); ok {
-		base = available
-	}
-	status, err := s.NCM.GetLoginStatus(r.Context(), base, musicUserID(r.Context()))
+	status, err := s.NCM.GetLoginStatus(r.Context(), musicUserID(r.Context()))
 	if err != nil {
 		log.Printf("[music] login/status error: %v", err)
 		httpx.JSON(w, http.StatusInternalServerError, map[string]any{
@@ -265,14 +244,6 @@ func (s *Server) handleNcmStream(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	base, ok := s.NCM.Available(r.Context())
-	if !ok {
-		httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{
-			"code": "NCM_UNAVAILABLE", "message": "NCM 服务未启动",
-		})
-		return
-	}
-
 	userID := musicUserID(r.Context())
 	requestedLevel := query.Get("level")
 	if requestedLevel == "" {
@@ -299,7 +270,7 @@ func (s *Server) handleNcmStream(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resolved, lastData := s.NCM.ResolveSongURLAlongChain(r.Context(), base, songIDInt, levels, cookieHeader)
+	resolved, lastData := s.NCM.ResolveSongURLAlongChain(r.Context(), songIDInt, levels, cookieHeader)
 	if resolved == nil {
 		if lastData != nil && lastData["freeTrialInfo"] != nil {
 			httpx.JSON(w, http.StatusForbidden, map[string]any{
@@ -307,7 +278,7 @@ func (s *Server) handleNcmStream(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		check, err := s.NCM.Client.Call(r.Context(), base, "/check/music?id="+strconv.FormatInt(songIDInt, 10), cookieHeader)
+		check, err := s.NCM.Call(r.Context(), "/check/music?id="+strconv.FormatInt(songIDInt, 10), cookieHeader)
 		if err != nil {
 			log.Printf("[music] stream error: %v", err)
 			httpx.JSON(w, http.StatusBadGateway, map[string]any{
@@ -366,14 +337,6 @@ func (s *Server) handleNcmSongQuality(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	base, ok := s.NCM.Available(r.Context())
-	if !ok {
-		httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{
-			"code": "NCM_UNAVAILABLE", "message": "NCM 服务未启动",
-		})
-		return
-	}
-
 	userID := musicUserID(r.Context())
 	requestedLevel := query.Get("level")
 	if requestedLevel == "" {
@@ -399,7 +362,7 @@ func (s *Server) handleNcmSongQuality(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resolved, lastData := s.NCM.ResolveSongURLAlongChain(r.Context(), base, songIDInt, levels, cookieHeader)
+	resolved, lastData := s.NCM.ResolveSongURLAlongChain(r.Context(), songIDInt, levels, cookieHeader)
 	if resolved == nil {
 		if lastData != nil && lastData["freeTrialInfo"] != nil {
 			httpx.JSON(w, http.StatusForbidden, map[string]any{

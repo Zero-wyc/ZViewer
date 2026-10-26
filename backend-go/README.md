@@ -116,11 +116,8 @@ go test ./...
 迁移已收尾：HTTP **182 组端点 / 189 条历史路由全命中**、实时事件 **65 / 65**、
 数据库 **16 / 16** 表可读写，口径见 [MIGRATION.md](./MIGRATION.md)（第一节 + 第十节实测）。
 
-真正不属于「Go 重写范围」的只剩三处，且都不影响主链路：
+真正不属于「Go 重写范围」的只剩两处，且都不影响主链路：
 
-- **NCM 音乐 API 是外部服务**：`/api/music/ncm/*` 只做转发，`NCM_API_BASE` 指向
-  外部网易云 API（`docker compose --profile music` 可一并拉起）。
-  不可达时音乐接口返回 503 `NCM_UNAVAILABLE`，其余功能不受影响。
 - **Redis 存储适配器**（多实例共享播放状态）未迁——单实例部署用不到。
 - 媒体服务（RTMP/HTTP-FLV）**已内嵌**（`internal/nms`）：RTMP 收流 3334、
   HTTP-FLV 出流 3335，`/live` 反代到本地这个端口；`NMS_HTTP_FLV_URL` 可指向外部
@@ -150,7 +147,7 @@ backend-go/
 │   ├── kazumi/          Kazumi JSON 规则引擎（受限 JSONPath + @var 模板 + 章节解析）
 │   ├── livekit/         LiveKit 伴生进程托管（查找 / 下载 / 拉起 / 探活）
 │   ├── mountutil/       挂载共用：HTTPS 能力探测、直链升级、内网强制中转
-│   ├── ncm/             网易云音乐转发（外部 NCM_API_BASE + 登录态 / 扫码 / 直链域名白名单）
+│   ├── ncm/             网易云音乐（自实现 weapi/eapi 加密 + 48 个接口 + 扫码 + 云盘上传 + 音质降级）
 │   ├── netutil/         内网判定与 URL 规范化（SSRF 唯一事实源）、encodeURIComponent 唯一实现
 │   ├── nms/             内置媒体服务：RTMP 收流 + HTTP-FLV 分发（AMF0 / chunk 重组 / GOP 缓存 / 流注册）
 │   ├── openlist/        AList 客户端（登录 / fs-get / 三层缓存）

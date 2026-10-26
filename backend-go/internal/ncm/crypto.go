@@ -1,13 +1,12 @@
-// Package ncmapi 是网易云音乐 API 的进程内实现。
+// 网易云四套加密通道。
 //
-// 它复刻 NeteaseCloudMusicApi（npm 包 @neteasecloudmusicapienhanced/api）
-// 对外的 REST 路径方言，供 internal/ncm 的通用转发直接消费：路径、参数名、
-// 响应结构都与那个 Node 服务一致，因此换掉上游实现不需要改动 internal/ncm
-// 的一行代码，也不需要改动前端 44 处调用。
+// 对外路径与参数名沿用 NeteaseCloudMusicApi 的方言（前端 44 处调用依赖它），
+// 这里负责把参数表变成真实上游能接受的密文：weapi 双层 AES-CBC + RSA，
+// eapi AES-ECB + 摘要（默认通道），linuxapi 与明文 api 兜底。
 //
-// 这里只做「协议翻译」：入站请求参数 → 网易云真实上游路径 + 加密请求体。
-// 业务逻辑（凭证落库、音质降级、直链缓存、音频代理）仍在 internal/ncm。
-package ncmapi
+// 密钥与 RSA 公钥都是客户端侧的固定值，随网易云客户端版本变化——失效时的
+// 表现是所有接口一起 400/403，改这里的常量即可，与业务代码无关。
+package ncm
 
 import (
 	"crypto/aes"

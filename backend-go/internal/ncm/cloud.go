@@ -1,4 +1,4 @@
-package ncmapi
+package ncm
 
 import (
 	"context"
@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"os"
@@ -31,9 +33,9 @@ const (
 // lbsEndpoint 是上传节点查询地址（变量是为了单测能指向本地桩）。
 var lbsEndpoint = "https://wanproxy.127.net/lbs"
 
-// cloudUpload 是 `/cloud`：把浏览器上传的音频存进网易云音乐云盘。
+// upload 是 `/cloud`：把浏览器上传的音频存进网易云音乐云盘。
 //
-// 与 Node 版同样的四步链路（缺一步都不行）：
+// 与 Node 版同样的五步链路（缺一步都不行）：
 //
 //  1. /api/cloud/upload/check      —— 用 md5 判重，返回 needUpload 与 songId
 //  2. /api/nos/token/alloc         —— 拿 resourceId（回填云盘信息要用）
@@ -43,27 +45,20 @@ var lbsEndpoint = "https://wanproxy.127.net/lbs"
 //
 // 文件先落到临时文件：md5、ID3 元数据、上传三处都要读同一份字节，而 multipart
 // 的 part 只能顺序读一次。上传完成后必删。
-func (h *Handler) cloudUpload(w http.ResponseWriter, r *http.Request) {
-	file, err := receiveCloudFile(r)
+func (a *api) upload(ctx context.Context, cookie, contentType string, body io.Reader) (*Result, error) {
+	file, err := receiveCloudFile(contentType, body)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]any{"code": 400, "msg": err.Error()})
-		return
+		return nil, &apiError{Status: http.StatusBadRequest, Code: 400, Message: err.Error()}
 	}
 	defer file.remove()
 
-	ctx, cancel := context.WithTimeout(r.Context(), cloudMaxWait)
+	ctx, cancel := context.WithTimeout(ctx, cloudMaxWait)
 	defer cancel()
-	cookie := r.Header.Get("Cookie")
-	setCookies := func(result *Result) {
-		if result == nil {
-			return
-		}
-		for _, value := range result.Cookies {
-			w.Header().Add("Set-Cookie", value)
-		}
-	}
 
-	check, checkResult, err := h.callJSON(ctx, "/api/cloud/upload/check", cryptoEapi, map[string]any{
+	var cookies []string
+	collect := func(set []string) { cookies = append(cookies, set...) }
+
+	check, checkCookies, err := a.callJSON(ctx, "/api/cloud/upload/check", cryptoEapi, map[string]any{
 		"bitrate": cloudBitrate,
 		"ext":     "",
 		"length":  file.size,
@@ -71,20 +66,18 @@ func (h *Handler) cloudUpload(w http.ResponseWriter, r *http.Request) {
 		"songId":  "0",
 		"version": 1,
 	}, cookie)
-	setCookies(checkResult)
+	collect(checkCookies)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"code": 502, "msg": "云盘判重失败"})
-		return
+		return nil, &apiError{Status: http.StatusBadGateway, Code: 502, Message: "云盘判重失败"}
 	}
-	if code := intField(check, "code", 0); code != 200 {
-		writeJSON(w, http.StatusUnauthorized, map[string]any{"code": code, "msg": upstreamMsg(check, "网易云未登录或上传校验失败")})
-		return
+	if code := numberField(check, "code", 0); code != 200 {
+		return nil, &apiError{Status: http.StatusUnauthorized, Code: code, Message: upstreamMsg(check, "网易云未登录或上传校验失败")}
 	}
-	songID := stringField(check, "songId")
+	songID := textField(check, "songId")
 
 	// resourceId 走单独一次 alloc（bucket 留空），与 Node 完全一致；
 	// 真正的上传凭证在下面用带 bucket 的 alloc 再取一次。
-	alloc, allocResult, err := h.callJSON(ctx, "/api/nos/token/alloc", cryptoEapi, map[string]any{
+	alloc, allocCookies, err := a.callJSON(ctx, "/api/nos/token/alloc", cryptoEapi, map[string]any{
 		"bucket":      "",
 		"ext":         fileExtension(file.name),
 		"filename":    sanitizeFilename(file.name),
@@ -93,21 +86,20 @@ func (h *Handler) cloudUpload(w http.ResponseWriter, r *http.Request) {
 		"type":        "audio",
 		"md5":         file.md5,
 	}, cookie)
-	setCookies(allocResult)
+	collect(allocCookies)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"code": 502, "msg": "获取上传凭证失败"})
-		return
+		return nil, &apiError{Status: http.StatusBadGateway, Code: 502, Message: "获取上传凭证失败"}
 	}
 	resourceID := nestedString(alloc, "result", "resourceId")
 	if resourceID == "" {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"code": 502, "msg": "获取上传凭证失败"})
-		return
+		return nil, &apiError{Status: http.StatusBadGateway, Code: 502, Message: "获取上传凭证失败"}
 	}
 
 	if needUpload, _ := check["needUpload"].(bool); needUpload {
-		if err := h.uploadToNOS(ctx, file, cookie, setCookies); err != nil {
-			writeJSON(w, http.StatusBadGateway, map[string]any{"code": 502, "msg": "文件上传失败: " + err.Error()})
-			return
+		extra, err := a.uploadToNOS(ctx, file, cookie)
+		collect(extra)
+		if err != nil {
+			return nil, &apiError{Status: http.StatusBadGateway, Code: 502, Message: "文件上传失败: " + err.Error()}
 		}
 	}
 
@@ -122,7 +114,7 @@ func (h *Handler) cloudUpload(w http.ResponseWriter, r *http.Request) {
 		album = "未知专辑"
 	}
 
-	info, infoResult, err := h.callJSON(ctx, "/api/upload/cloud/info/v2", cryptoEapi, map[string]any{
+	info, infoCookies, err := a.callJSON(ctx, "/api/upload/cloud/info/v2", cryptoEapi, map[string]any{
 		"md5":        file.md5,
 		"songid":     songID,
 		"filename":   file.name,
@@ -132,50 +124,47 @@ func (h *Handler) cloudUpload(w http.ResponseWriter, r *http.Request) {
 		"bitrate":    cloudBitrate,
 		"resourceId": resourceID,
 	}, cookie)
-	setCookies(infoResult)
+	collect(infoCookies)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"code": 502, "msg": "写入云盘信息失败"})
-		return
+		return nil, &apiError{Status: http.StatusBadGateway, Code: 502, Message: "写入云盘信息失败"}
 	}
-	if code := intField(info, "code", 0); code != 200 {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"code": code, "msg": upstreamMsg(info, "写入云盘信息失败")})
-		return
+	if code := numberField(info, "code", 0); code != 200 {
+		return nil, &apiError{Status: http.StatusBadGateway, Code: code, Message: upstreamMsg(info, "写入云盘信息失败")}
 	}
 
 	published := songID
-	if value := stringField(info, "songId"); value != "" {
+	if value := textField(info, "songId"); value != "" {
 		published = value
 	}
-	result, pubResult, err := h.callJSON(ctx, "/api/cloud/pub/v2", cryptoEapi, map[string]any{
+	pub, pubCookies, err := a.callJSON(ctx, "/api/cloud/pub/v2", cryptoEapi, map[string]any{
 		"songid": published,
 	}, cookie)
-	setCookies(pubResult)
+	collect(pubCookies)
 	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]any{"code": 502, "msg": "发布到云盘失败"})
-		return
+		return nil, &apiError{Status: http.StatusBadGateway, Code: 502, Message: "发布到云盘失败"}
 	}
 
 	// Node 版返回的是 `{...check, ...pub}`：前端只看 code，其余字段（songId 等）
 	// 以发布结果为准。
-	merged := make(map[string]any, len(check)+len(result))
+	merged := make(map[string]any, len(check)+len(pub))
 	for key, value := range check {
 		merged[key] = value
 	}
-	for key, value := range result {
+	for key, value := range pub {
 		merged[key] = value
 	}
 	if _, ok := merged["code"]; !ok {
 		merged["code"] = 200
 	}
-	writeJSON(w, http.StatusOK, merged)
+	return &Result{Body: merged, Cookies: cookies}, nil
 }
 
-// uploadToNOS 把文件本体传到网易云对象存储。
+// uploadToNOS 把文件本体传到网易云对象存储，返回中途刷新的 Set-Cookie。
 //
 // objectKey 里的 "/" 必须**先**换成 %2F 再拼 URL（Node 就是这么做的）：换成
 // url.PathEscape 会把 % 二次编码，签名路径就对不上了。
-func (h *Handler) uploadToNOS(ctx context.Context, file *receivedFile, cookie string, setCookies func(*Result)) error {
-	alloc, allocResult, err := h.callJSON(ctx, "/api/nos/token/alloc", cryptoWeapi, map[string]any{
+func (a *api) uploadToNOS(ctx context.Context, file *receivedFile, cookie string) ([]string, error) {
+	alloc, cookies, err := a.callJSON(ctx, "/api/nos/token/alloc", cryptoWeapi, map[string]any{
 		"bucket":      cloudBucket,
 		"ext":         fileExtension(file.name),
 		"filename":    sanitizeFilename(file.name),
@@ -184,19 +173,18 @@ func (h *Handler) uploadToNOS(ctx context.Context, file *receivedFile, cookie st
 		"type":        "audio",
 		"md5":         file.md5,
 	}, cookie)
-	setCookies(allocResult)
 	if err != nil {
-		return errors.New("获取上传节点失败")
+		return cookies, errors.New("获取上传节点失败")
 	}
 	objectKey := nestedString(alloc, "result", "objectKey")
 	token := nestedString(alloc, "result", "token")
 	if objectKey == "" || token == "" {
-		return errors.New("获取上传节点失败")
+		return cookies, errors.New("获取上传节点失败")
 	}
 
-	node, err := h.uploadNode(ctx)
+	node, err := a.uploadNode(ctx)
 	if err != nil {
-		return err
+		return cookies, err
 	}
 	target := strings.TrimRight(node, "/") + "/" + cloudBucket + "/" +
 		strings.ReplaceAll(objectKey, "/", "%2F") +
@@ -204,39 +192,39 @@ func (h *Handler) uploadToNOS(ctx context.Context, file *receivedFile, cookie st
 
 	body, err := os.Open(file.path)
 	if err != nil {
-		return errors.New("读取临时文件失败")
+		return cookies, errors.New("读取临时文件失败")
 	}
 	defer body.Close()
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target, body)
 	if err != nil {
-		return errors.New("构造上传请求失败")
+		return cookies, errors.New("构造上传请求失败")
 	}
 	request.ContentLength = file.size
 	request.Header.Set("x-nos-token", token)
 	request.Header.Set("Content-MD5", file.md5)
 	request.Header.Set("Content-Type", file.mime)
 
-	response, err := h.nos.Do(request)
+	response, err := a.nos.Do(request)
 	if err != nil {
-		return errors.New("上传到存储节点超时或中断")
+		return cookies, errors.New("上传到存储节点超时或中断")
 	}
 	defer response.Body.Close()
 	detail, _ := io.ReadAll(io.LimitReader(response.Body, 4<<10))
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("存储节点返回 %d: %s", response.StatusCode, strings.TrimSpace(string(detail)))
+		return cookies, fmt.Errorf("存储节点返回 %d: %s", response.StatusCode, strings.TrimSpace(string(detail)))
 	}
-	return nil
+	return cookies, nil
 }
 
 // uploadNode 取一个可用的上传节点（网易的 LBS 接口）。
-func (h *Handler) uploadNode(ctx context.Context) (string, error) {
+func (a *api) uploadNode(ctx context.Context) (string, error) {
 	endpoint := lbsEndpoint + "?version=1.0&bucketname=" + url.QueryEscape(cloudBucket)
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return "", errors.New("构造节点查询失败")
 	}
-	response, err := h.nos.Do(request)
+	response, err := a.nos.Do(request)
 	if err != nil {
 		return "", errors.New("查询上传节点失败")
 	}
@@ -262,15 +250,17 @@ type receivedFile struct {
 // remove 删除临时文件（失败无副作用，只是留个垃圾）。
 func (f *receivedFile) remove() { _ = os.Remove(f.path) }
 
-// receiveCloudFile 从 multipart 里取出 songFile，边写临时文件边算 md5。
+// receiveCloudFile 从 multipart 里取出第一个文件，边写临时文件边算 md5。
 //
 // 文件名不需要 Node 那种 latin1→utf8 的修补：Go 的 multipart 按原始字节解码，
 // 中文名到这里已经是正确的 UTF-8。
-func receiveCloudFile(r *http.Request) (*receivedFile, error) {
-	reader, err := r.MultipartReader()
-	if err != nil {
+func receiveCloudFile(contentType string, body io.Reader) (*receivedFile, error) {
+	_, parameters, err := mime.ParseMediaType(contentType)
+	if err != nil || parameters["boundary"] == "" {
 		return nil, errors.New("需要 multipart/form-data 上传请求")
 	}
+	reader := multipart.NewReader(body, parameters["boundary"])
+
 	var received *receivedFile
 	for {
 		part, err := reader.NextPart()
@@ -301,14 +291,14 @@ func receiveCloudFile(r *http.Request) (*receivedFile, error) {
 			_ = os.Remove(temp.Name())
 			return nil, fmt.Errorf("文件超过 %d MB 上限", cloudMaxFileSize>>20)
 		}
-		mime := part.Header.Get("Content-Type")
-		if mime == "" {
-			mime = "audio/mpeg"
+		mimeType := part.Header.Get("Content-Type")
+		if mimeType == "" {
+			mimeType = "audio/mpeg"
 		}
 		received = &receivedFile{
 			path: temp.Name(),
 			name: part.FileName(),
-			mime: mime,
+			mime: mimeType,
 			size: size,
 			md5:  hex.EncodeToString(hasher.Sum(nil)),
 		}
@@ -319,28 +309,28 @@ func receiveCloudFile(r *http.Request) (*receivedFile, error) {
 	return received, nil
 }
 
-// callJSON 调一次上游并把响应解成 map（同时返回原始 Result 供 cookie 落库）。
-func (h *Handler) callJSON(
+// callJSON 调一次上游并把响应解成 map，同时带回 Set-Cookie 供凭证落库。
+func (a *api) callJSON(
 	ctx context.Context,
 	path string,
 	mode crypto,
 	data map[string]any,
 	cookie string,
-) (map[string]any, *Result, error) {
-	result, err := h.caller.Do(ctx, Call{Path: path, Crypto: mode, Data: data, Cookie: cookie})
+) (map[string]any, []string, error) {
+	result, err := a.client.Do(ctx, Call{Path: path, Crypto: mode, Data: data, Cookie: cookie})
 	if err != nil {
 		return nil, nil, err
 	}
 	var parsed map[string]any
 	if len(result.Body) > 0 {
 		if err := json.Unmarshal(result.Body, &parsed); err != nil {
-			return nil, result, err
+			return nil, result.Cookies, err
 		}
 	}
 	if parsed == nil {
 		parsed = map[string]any{}
 	}
-	return parsed, result, nil
+	return parsed, result.Cookies, nil
 }
 
 // readAudioTags 读 ID3/FLAC/MP4 里的标题、歌手、专辑（读不到就返回空串）。
@@ -387,7 +377,7 @@ func nestedString(root map[string]any, keys ...string) string {
 	current := root
 	for index, key := range keys {
 		if index == len(keys)-1 {
-			return stringField(current, key)
+			return textField(current, key)
 		}
 		next, ok := current[key].(map[string]any)
 		if !ok {
@@ -398,8 +388,8 @@ func nestedString(root map[string]any, keys ...string) string {
 	return ""
 }
 
-// stringField 取字符串字段（数字也转成字符串：songId 有时是 number）。
-func stringField(root map[string]any, key string) string {
+// textField 取字符串字段（数字也转成字符串：songId 有时是 number）。
+func textField(root map[string]any, key string) string {
 	switch value := root[key].(type) {
 	case string:
 		return value
@@ -412,8 +402,8 @@ func stringField(root map[string]any, key string) string {
 	}
 }
 
-// intField 取整型字段，缺失时返回兜底值。
-func intField(root map[string]any, key string, fallback int) int {
+// numberField 取整型字段，缺失时返回兜底值。
+func numberField(root map[string]any, key string, fallback int) int {
 	switch value := root[key].(type) {
 	case float64:
 		return int(value)

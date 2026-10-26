@@ -1,16 +1,14 @@
 package ncm
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
-	"time"
 
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/store"
@@ -27,7 +25,7 @@ var qrLoginPaths = map[string]struct{}{
 	"/login/qr/check":  {},
 }
 
-// Forward 是 `/api/music/ncm/*` 的通用转发。
+// Forward 是 `/api/music/ncm/*` 的通用入口。
 //
 // rest 是去掉 `/api/music/ncm` 前缀后的剩余路径（含 query，以 "/" 开头）。
 // userID 是可选鉴权解出的当前用户（游客为 0）。
@@ -39,15 +37,6 @@ func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, u
 		return
 	}
 
-	base, ok := s.Available(r.Context())
-	if !ok {
-		httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{
-			"code": "NCM_UNAVAILABLE", "message": "NCM 服务未启动",
-		})
-		return
-	}
-
-	// 拆出路径与查询串（Node 读的是挂载前缀之后的 req.url）
 	ncmPath, rawQuery := rest, ""
 	if index := strings.IndexByte(rest, '?'); index >= 0 {
 		ncmPath, rawQuery = rest[:index], rest[index+1:]
@@ -56,22 +45,17 @@ func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, u
 		ncmPath = "/" + ncmPath
 	}
 
-	params, err := url.ParseQuery(rawQuery)
+	query, err := url.ParseQuery(rawQuery)
 	if err != nil {
-		params = url.Values{}
+		query = url.Values{}
 	}
-	params.Del("cookie")
-	params.Del("noCookie")
-	// 唯一化 URL 绕过内部服务的 apicache（避免不同登录态共享缓存）
-	params.Set("timestamp", strconv.FormatInt(time.Now().UnixMilli(), 10))
-	target := base + ncmPath + "?" + params.Encode()
+	// 客户端传的登录态一律丢弃：cookie 只能由服务端按凭证注入。
+	query.Del("cookie")
+	query.Del("noCookie")
+	p := paramsFromQuery(query)
 
-	bodyPayload, err := forwardBody(r)
-	if err != nil {
-		httpx.JSON(w, http.StatusBadRequest, map[string]any{
-			"code": "BAD_REQUEST", "message": "请求体解析失败",
-		})
-		return
+	if body := readRequestBody(r); body != nil {
+		p.mergeBody(body)
 	}
 
 	cookieHeader := ""
@@ -85,67 +69,32 @@ func (s *Service) Forward(w http.ResponseWriter, r *http.Request, rest string, u
 		cookieHeader = CookieHeaderFor(cred)
 	}
 
-	contentType := ""
-	if bodyPayload != nil {
-		contentType = "application/json"
-	}
-	result, err := s.Client.Do(r.Context(), r.Method, target, bodyPayload, contentType, cookieHeader)
+	result, err := s.api.call(r.Context(), ncmPath, p, cookieHeader)
 	if err != nil {
-		log.Printf("[ncm] ncm 转发失败: %v", err)
-		httpx.JSON(w, http.StatusBadGateway, map[string]any{
-			"code": "UPSTREAM_ERROR", "message": "NCM 服务请求失败",
-		})
-		return
-	}
-
-	// 上游重定向（如 /song/url/v1_302）：不跟随音频直链，以 JSON 回传地址
-	if result.Status >= 300 && result.Status < 400 {
-		var location any
-		if result.Location != "" {
-			location = result.Location
-		}
-		httpx.JSON(w, http.StatusOK, map[string]any{"code": "REDIRECT", "location": location})
-		return
-	}
-
-	if !result.Parsed {
-		log.Printf("[ncm] ncm 转发响应非 JSON: %s %s → %d", r.Method, ncmPath, result.Status)
-		httpx.JSON(w, http.StatusBadGateway, map[string]any{
-			"code": "UPSTREAM_ERROR", "message": "NCM 服务返回了无法解析的响应",
-		})
+		writeInvokeError(w, ncmPath, err)
 		return
 	}
 
 	// 登录态 cookie 变化时持久化（仅正式用户；游客 userId=0 不落库）
-	if userID > 0 && len(result.SetCookies) > 0 && HasLoginCookies(result.SetCookies) {
+	if userID > 0 && len(result.Cookies) > 0 && HasLoginCookies(result.Cookies) {
 		existing := []string(nil)
 		if credential != nil {
 			existing = ParseStoredCookies(credential.Cookies)
 		}
-		if err := s.persistCookies(r.Context(), userID, MergeCookies(existing, result.SetCookies), result.Body); err != nil {
+		if err := s.persistCookies(r.Context(), userID, MergeCookies(existing, result.Cookies), result.Body); err != nil {
 			log.Printf("[ncm] 凭证落库失败: %v", err)
 			httpx.JSON(w, http.StatusBadGateway, map[string]any{
-				"code": "UPSTREAM_ERROR", "message": "NCM 服务请求失败",
+				"code": "UPSTREAM_ERROR", "message": "NCM 请求失败",
 			})
 			return
 		}
 	}
 
-	httpx.JSON(w, result.Status, result.Body)
+	httpx.JSON(w, http.StatusOK, result.Body)
 }
 
-// CloudUpload 是 `/api/music/cloud/upload`：multipart 原样流式转发到内部 /cloud。
-//
-// 通用转发把 POST body 当 JSON，承载不了文件；这里保持原始 multipart
-// （边界原样透传），并注入当前用户 cookie。
+// CloudUpload 是 `/api/music/cloud/upload`：把 multipart 文件流交给云盘上传链。
 func (s *Service) CloudUpload(w http.ResponseWriter, r *http.Request, userID int64) {
-	base, ok := s.Available(r.Context())
-	if !ok {
-		httpx.JSON(w, http.StatusServiceUnavailable, map[string]any{
-			"code": "NCM_UNAVAILABLE", "message": "NCM 服务未启动",
-		})
-		return
-	}
 	credential, err := s.LoadCredential(r.Context(), userID)
 	if err != nil {
 		log.Printf("[ncm] 读取凭证失败: %v", err)
@@ -164,60 +113,50 @@ func (s *Service) CloudUpload(w http.ResponseWriter, r *http.Request, userID int
 		return
 	}
 
-	target := base + "/cloud?timestamp=" + strconv.FormatInt(time.Now().UnixMilli(), 10)
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodPost, target, r.Body)
+	result, err := s.api.upload(r.Context(), CookieHeaderFor(credential), contentType, r.Body)
 	if err != nil {
-		httpx.JSON(w, http.StatusBadGateway, map[string]any{
-			"code": "UPSTREAM_ERROR", "message": "云盘上传请求失败",
-		})
-		return
-	}
-	// 有 Content-Length 就带上：multipart 上游（网易云）对分块传输未必友好
-	if r.ContentLength > 0 {
-		req.ContentLength = r.ContentLength
-	}
-	req.Header.Set("Cookie", CookieHeaderFor(credential))
-	req.Header.Set("Content-Type", contentType)
-
-	upstream, err := s.Client.HTTP.Do(req)
-	if err != nil {
-		log.Printf("[ncm] 云盘上传转发失败: %v", err)
-		httpx.JSON(w, http.StatusBadGateway, map[string]any{
-			"code": "UPSTREAM_ERROR", "message": "云盘上传请求失败",
-		})
-		return
-	}
-	defer upstream.Body.Close()
-
-	result, err := DecodeUpstream(upstream)
-	if err != nil {
-		log.Printf("[ncm] 云盘上传响应读取失败: %v", err)
-		httpx.JSON(w, http.StatusBadGateway, map[string]any{
-			"code": "UPSTREAM_ERROR", "message": "云盘上传请求失败",
-		})
-		return
-	}
-	if !result.Parsed {
-		log.Printf("[ncm] 云盘上传响应非 JSON: %d", result.Status)
-		httpx.JSON(w, http.StatusBadGateway, map[string]any{
-			"code": "UPSTREAM_ERROR", "message": "NCM 服务返回了无法解析的响应",
-		})
+		writeInvokeError(w, "/cloud", err)
 		return
 	}
 
-	// 上传链路可能刷新登录态 cookie，同通用转发逻辑持久化
-	if userID > 0 && len(result.SetCookies) > 0 && HasLoginCookies(result.SetCookies) {
+	// 上传链路可能刷新登录态 cookie，与通用入口同样落库
+	if userID > 0 && len(result.Cookies) > 0 && HasLoginCookies(result.Cookies) {
 		existing := ParseStoredCookies(credential.Cookies)
-		if err := s.persistCookies(r.Context(), userID, MergeCookies(existing, result.SetCookies), result.Body); err != nil {
+		if err := s.persistCookies(r.Context(), userID, MergeCookies(existing, result.Cookies), result.Body); err != nil {
 			log.Printf("[ncm] 凭证落库失败: %v", err)
 			httpx.JSON(w, http.StatusBadGateway, map[string]any{
-				"code": "UPSTREAM_ERROR", "message": "云盘上传请求失败",
+				"code": "UPSTREAM_ERROR", "message": "云盘上传失败",
 			})
 			return
 		}
 	}
 
-	httpx.JSON(w, result.Status, result.Body)
+	httpx.JSON(w, http.StatusOK, result.Body)
+}
+
+// Call 按对外路径调一次网易云接口（业务编排层用，如登录状态、音质解析）。
+func (s *Service) Call(ctx context.Context, path, cookieHeader string) (*Result, error) {
+	ncmPath, p := parseQueryPath(path)
+	return s.api.call(ctx, ncmPath, p, cookieHeader)
+}
+
+// writeInvokeError 把调用错误翻成对前端稳定的响应形状。
+//
+// 前端对这三类是有分支的：未知接口看到 404 会走降级、未登录的 401 会提示扫码、
+// 其余一律按「网易云不可用」重试，所以码值和文案都要固定。
+func writeInvokeError(w http.ResponseWriter, path string, err error) {
+	var detail *apiError
+	switch {
+	case errors.Is(err, unknownPathError):
+		httpx.JSON(w, http.StatusNotFound, map[string]any{"code": 404, "message": "接口不存在"})
+	case errors.As(err, &detail):
+		httpx.JSON(w, detail.Status, map[string]any{"code": detail.Code, "msg": detail.Message})
+	default:
+		log.Printf("[ncm] 接口调用失败 %s: %v", path, err)
+		httpx.JSON(w, http.StatusBadGateway, map[string]any{
+			"code": "UPSTREAM_ERROR", "message": "NCM 请求失败",
+		})
+	}
 }
 
 // PersistCredential 落库凭证并同步账号资料缓存（供 cookie 登录端点复用）。
@@ -227,13 +166,11 @@ func (s *Service) PersistCredential(ctx context.Context, userID int64, cookies [
 
 // persistCookies 落库凭证并同步账号资料缓存。
 func (s *Service) persistCookies(ctx context.Context, userID int64, cookies []string, body any) error {
-	profile := ExtractProfile(body)
-	patch := ProfilePatch(profile)
 	encoded, err := json.Marshal(cookies)
 	if err != nil {
 		return err
 	}
-	return s.Creds.Save(ctx, userID, string(encoded), patch)
+	return s.Creds.Save(ctx, userID, string(encoded), ProfilePatch(ExtractProfile(body)))
 }
 
 // ProfilePatch 把 profile 转成落库补丁（nil 字段表示「不改」）。
@@ -249,31 +186,16 @@ func ProfilePatch(profile *Profile) store.NcmProfilePatch {
 	}
 }
 
-// forwardBody 把 POST body 规整成要转发的字节串。
+// readRequestBody 读出 POST body 里的键值（超过 1 MB 的部分截断）。
 //
-// 与 Node 一致：对象形态剥掉 client 传的 cookie/noCookie（否则客户端能用
-// body 覆盖服务端注入的登录态）；数组/标量原样透传；空 body 返回 nil（不发）。
-func forwardBody(r *http.Request) ([]byte, error) {
+// 只有 POST 才有 body；解析失败或非对象返回 nil，由上游按缺参报错。
+func readRequestBody(r *http.Request) map[string]any {
 	if r.Method != http.MethodPost || r.Body == nil {
-		return nil, nil
+		return nil
 	}
 	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 	if err != nil {
-		return nil, err
+		return nil
 	}
-	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, nil
-	}
-	var parsed any
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		// Node 侧 express.json 会先 400；这里退化成原样透传，由上游决定
-		return raw, nil
-	}
-	object, isObject := parsed.(map[string]any)
-	if !isObject {
-		return raw, nil
-	}
-	delete(object, "cookie")
-	delete(object, "noCookie")
-	return json.Marshal(object)
+	return bodyParams(r.Header.Get("Content-Type"), raw)
 }

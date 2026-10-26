@@ -52,19 +52,17 @@ var levelToBR = map[string]int64{
 // 返回的 lastData 供错误分类用（试听标记 → VIP_REQUIRED）。
 func (s *Service) ResolveSongURLAlongChain(
 	ctx context.Context,
-	base string,
 	songID int64,
 	levels []string,
 	cookieHeader string,
 ) (resolved, lastData map[string]any) {
 	for _, level := range levels {
 		var data map[string]any
-		if resp, err := s.Client.Call(ctx, base,
-			"/song/url/v1?id="+formatInt(songID)+"&level="+level, cookieHeader); err == nil {
+		if resp, err := s.Call(ctx, "/song/url/v1?id="+formatInt(songID)+"&level="+level, cookieHeader); err == nil {
 			data = extractSongURLData(resp.Body)
 		}
 		if data == nil {
-			data = s.resolveSongURLLegacy(ctx, base, songID, level, cookieHeader)
+			data = s.resolveSongURLLegacy(ctx, songID, level, cookieHeader)
 		}
 		if data == nil {
 			continue
@@ -80,13 +78,11 @@ func (s *Service) ResolveSongURLAlongChain(
 
 // resolveSongURLLegacy 走老接口 `/song/url`（br 参数制）。
 //
-// 场景：内部 NCM 服务依赖残缺时，song_url_v1 模块顶层 require 会抛
-// MODULE_NOT_FOUND，路由返回 `{code:404,msg:'Not Found'}`；而 song_url
-// 模块没有这个依赖、始终可用。老接口响应没有 level 字段，按请求档位补写，
-// 让调用方的降级链/缓存逻辑与 v1 响应同构。
+// 场景：新版 `/song/url/v1` 拿不到可用地址（上游限流、接口调整）时兜底。
+// 老接口响应没有 level 字段，按请求档位补写，让调用方的降级链/缓存逻辑与
+// v1 响应同构。
 func (s *Service) resolveSongURLLegacy(
 	ctx context.Context,
-	base string,
 	songID int64,
 	level, cookieHeader string,
 ) map[string]any {
@@ -94,8 +90,7 @@ func (s *Service) resolveSongURLLegacy(
 	if !ok {
 		br = 320000
 	}
-	resp, err := s.Client.Call(ctx, base,
-		"/song/url?id="+formatInt(songID)+"&br="+strconv.FormatInt(br, 10), cookieHeader)
+	resp, err := s.Call(ctx, "/song/url?id="+formatInt(songID)+"&br="+strconv.FormatInt(br, 10), cookieHeader)
 	if err != nil {
 		return nil
 	}
@@ -107,6 +102,23 @@ func (s *Service) resolveSongURLLegacy(
 		data["level"] = level
 	}
 	return data
+}
+
+// extractSongURLData 取 `/song/url*` 响应里的 data[0]。
+func extractSongURLData(body any) map[string]any {
+	root, ok := body.(map[string]any)
+	if !ok {
+		return nil
+	}
+	data, ok := root["data"].([]any)
+	if !ok || len(data) == 0 {
+		return nil
+	}
+	first, ok := data[0].(map[string]any)
+	if !ok {
+		return nil
+	}
+	return first
 }
 
 // 直链缓存 / 音质元数据缓存（15 分钟，500 条）。

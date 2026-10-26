@@ -61,7 +61,7 @@ for (const name of ['zviewer-backend.exe', 'livekit-server.exe']) {
   copyFileSync(join(runtimeSource, name), join(runtime, name));
 }
 cpSync(join(runtimeSource, 'frontend', 'dist'), join(runtime, 'frontend', 'dist'), { recursive: true });
-// 音乐不再需要随包组件：网易云接口由 Go 后端进程内提供（internal/ncmapi）。
+// 音乐不需要随包组件：网易云接口由 Go 后端自带（internal/ncm）。
 for (const name of ['frpc.exe']) {
   if (existsSync(join(frpDir, name))) copyFileSync(join(frpDir, name), join(runtime, name));
 }

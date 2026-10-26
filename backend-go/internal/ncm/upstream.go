@@ -1,4 +1,4 @@
-package ncmapi
+package ncm
 
 import (
 	"bytes"
@@ -97,7 +97,7 @@ type Call struct {
 }
 
 // Result 是一次上游调用的结果。
-type Result struct {
+type upstreamResult struct {
 	// Status 是上游 HTTP 状态码（网易云业务错误用 body.code 表达，通常是 200）。
 	Status int
 	// Body 是原始响应字节（正常是 JSON）。
@@ -107,7 +107,7 @@ type Result struct {
 }
 
 // Do 执行一次上游调用。
-func (c *Client) Do(ctx context.Context, call Call) (*Result, error) {
+func (c *Client) Do(ctx context.Context, call Call) (*upstreamResult, error) {
 	mode := call.Crypto
 	if mode == "" {
 		mode = cryptoAPI
@@ -157,7 +157,7 @@ func (c *Client) Do(ctx context.Context, call Call) (*Result, error) {
 	if decoded, ok := inflate(raw); ok {
 		raw = decoded
 	}
-	return &Result{
+	return &upstreamResult{
 		Status:  response.StatusCode,
 		Body:    raw,
 		Cookies: response.Header.Values("Set-Cookie"),

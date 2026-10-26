@@ -1,9 +1,9 @@
-package ncmapi
+package ncm
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
+	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -21,7 +21,7 @@ type cloudStubCaller struct {
 	skipUpload bool
 }
 
-func (c *cloudStubCaller) Do(_ context.Context, call Call) (*Result, error) {
+func (c *cloudStubCaller) Do(_ context.Context, call Call) (*upstreamResult, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.paths = append(c.paths, call.Path)
@@ -47,7 +47,7 @@ func (c *cloudStubCaller) Do(_ context.Context, call Call) (*Result, error) {
 	default:
 		body = `{"code":404}`
 	}
-	return &Result{Status: 200, Body: []byte(body)}, nil
+	return &upstreamResult{Status: 200, Body: []byte(body)}, nil
 }
 
 // cloudUploadBody 构造一个最小 multipart 请求体。
@@ -93,31 +93,23 @@ func TestCloudUploadFullFlow(t *testing.T) {
 	defer func() { lbsEndpoint = previous }()
 
 	caller := &cloudStubCaller{}
-	handler := NewHandlerWith(caller)
+	handler := newAPIWith(caller)
 	handler.nos = nos.Client()
 
 	body, contentType := cloudUploadBody(t)
-	request := httptest.NewRequest(http.MethodPost, LoopbackBase+"/cloud?timestamp=1", body)
-	request.Header.Set("Content-Type", contentType)
-	request.Header.Set("Cookie", "MUSIC_U=abc; __csrf=xyz")
-	recorder := httptest.NewRecorder()
-	handler.cloudUpload(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("状态码 = %d，响应 %s", recorder.Code, recorder.Body.String())
+	result, err := handler.upload(context.Background(), "MUSIC_U=abc; __csrf=xyz", contentType, body)
+	if err != nil {
+		t.Fatalf("上传失败: %v", err)
 	}
-	var parsed map[string]any
-	if err := json.Unmarshal(recorder.Body.Bytes(), &parsed); err != nil {
-		t.Fatalf("响应不是 JSON: %s", recorder.Body.String())
-	}
-	if code := intField(parsed, "code", 0); code != 200 {
+	parsed, _ := result.Body.(map[string]any)
+	if code := numberField(parsed, "code", 0); code != 200 {
 		t.Errorf("code = %d，期望 200", code)
 	}
-	if songID := stringField(parsed, "songId"); songID != "456" {
+	if songID := textField(parsed, "songId"); songID != "456" {
 		t.Errorf("songId = %q，期望 456（以发布结果为准）", songID)
 	}
 
-	// star: 顺序必须与 Node 一致，alloc 出现两次（resourceId 与上传凭证）
+	// 顺序必须与 Node 一致，alloc 出现两次（resourceId 与上传凭证）
 	want := []string{
 		"/api/cloud/upload/check",
 		"/api/nos/token/alloc",
@@ -148,16 +140,11 @@ func TestCloudUploadFullFlow(t *testing.T) {
 // 不应再取上传凭证、也不该碰存储节点。
 func TestCloudUploadSkipsUploadWhenExists(t *testing.T) {
 	caller := &cloudStubCaller{skipUpload: true}
-	handler := NewHandlerWith(caller)
+	handler := newAPIWith(caller)
 
 	body, contentType := cloudUploadBody(t)
-	request := httptest.NewRequest(http.MethodPost, LoopbackBase+"/cloud", body)
-	request.Header.Set("Content-Type", contentType)
-	recorder := httptest.NewRecorder()
-	handler.cloudUpload(recorder, request)
-
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("状态码 = %d，响应 %s", recorder.Code, recorder.Body.String())
+	if _, err := handler.upload(context.Background(), "", contentType, body); err != nil {
+		t.Fatalf("上传失败: %v", err)
 	}
 	want := []string{"/api/cloud/upload/check", "/api/nos/token/alloc", "/api/upload/cloud/info/v2", "/api/cloud/pub/v2"}
 	if strings.Join(caller.paths, ",") != strings.Join(want, ",") {
@@ -167,13 +154,11 @@ func TestCloudUploadSkipsUploadWhenExists(t *testing.T) {
 
 // TestCloudUploadRejectsNonMultipart 覆盖参数错误。
 func TestCloudUploadRejectsNonMultipart(t *testing.T) {
-	handler := NewHandlerWith(&cloudStubCaller{})
-	request := httptest.NewRequest(http.MethodPost, LoopbackBase+"/cloud", strings.NewReader("{}"))
-	request.Header.Set("Content-Type", "application/json")
-	recorder := httptest.NewRecorder()
-	handler.cloudUpload(recorder, request)
-	if recorder.Code != http.StatusBadRequest {
-		t.Errorf("状态码 = %d，期望 400", recorder.Code)
+	handler := newAPIWith(&cloudStubCaller{})
+	_, err := handler.upload(context.Background(), "", "application/json", strings.NewReader("{}"))
+	var detail *apiError
+	if !errors.As(err, &detail) || detail.Status != http.StatusBadRequest {
+		t.Fatalf("错误 = %v，期望 400", err)
 	}
 }
 

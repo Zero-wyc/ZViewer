@@ -1,19 +1,18 @@
-// Package ncm 是「一起听」音乐模块的网易云（NCM）服务层。
+// Package ncm 是「一起听」音乐模块的网易云（NCM）实现。
 //
-// 本包**不实现**网易云的业务协议：所有端点都在一个「NCM API 服务」上拼
-// `/song/url/v1`、`/login/qr/key` 这类路径，由它负责 weapi/eapi 加密与协议细节。
-// 上游有两种来源（见 StartBundled），默认是同一进程内的 internal/ncmapi：
+// 这个包**自己实现**网易云协议：weapi / eapi / linuxapi 加密、40 多条接口的
+// 参数映射、扫码登录、云盘上传，全部在本进程内完成。没有外部服务、没有
+// HTTP 中转、没有子进程——前端一次 `/api/music/ncm/*` 请求就是一次函数调用。
 //
-//   - 进程内实现（默认）：internal/ncmapi 直接在本进程内响应，不监听端口；
-//   - 外部服务（显式 `NCM_API_BASE`）：运维自建的 NeteaseCloudMusicApi（含增强版）。
+// 分层（同包，靠文件区分）：
 //
-// 本包只负责
-//
-//   - 凭证读写（cookie 解析/合并/持久化）
-//   - 转发（注入 cookie、绕 apicache、剥客户端传入的 cookie/noCookie）
-//   - 业务编排（登录状态补全、专辑补齐、音质降级链、直链缓存、音频流转发）
-//
-// 上游不可达时一律 503 NCM_UNAVAILABLE（进程内实现正常时不会发生）。
+//	upstream.go  真实网易云 HTTP 调用（加密、UA、cookie 组装）
+//	routes.go    对外路径 → 上游路径的参数映射表
+//	dispatch.go  分发（少数接口有本地实现：二维码、歌单两段式取数）
+//	cloud.go     云盘上传五步链
+//	forward.go   前端入口：剥离客户端登录态、注入凭证、cookie 落库
+//	account.go   登录状态、专辑补齐
+//	stream.go    音质降级链、直链缓存、音频流代理
 package ncm
 
 import (

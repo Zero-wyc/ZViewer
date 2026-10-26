@@ -63,11 +63,7 @@ while true; do
     echo "  访问页面 : http://localhost:$PORT"
     echo "  RTMP 推流: rtmp://localhost:$RTMP_PORT/live （由后端进程内监听）"
     echo "  HTTP-FLV : http://localhost:$PORT/live/ （后端反代到进程内 $HTTP_FLV_PORT）"
-    if [ -n "${NCM_API_BASE:-}" ]; then
-      echo "  一起听   : 使用外部网易云接口 $NCM_API_BASE"
-    else
-      echo "  一起听   : 进程内实现（无需额外服务）"
-    fi
+    echo "  一起听   : 后端自带网易云接口，无需额外服务"
     echo "========================================"
   fi
 

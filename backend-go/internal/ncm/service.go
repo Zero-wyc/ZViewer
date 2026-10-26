@@ -4,65 +4,28 @@ import (
 	"context"
 	"database/sql"
 	"strconv"
-	"strings"
-	"sync"
-	"time"
 
 	"zviewer/backend/internal/store"
 )
 
-// 探测缓存：内部服务在线时 30 秒内不再探，离线时 3 秒后重试。
+// Service 是网易云服务层：接口调用 + 凭证 + 业务编排。
 //
-// 为什么需要探测：Base 有两种来源——进程内实现（哨兵地址，基本不会不可达）
-// 和外部服务（可能被停掉、重启中）。一次轻量探测能把「服务在不在」变成可缓存
-// 的状态，否则外部服务挂掉时每个请求都要等一次连接超时才报错。
-const (
-	probeOKTTL   = 30 * time.Second
-	probeFailTTL = 3 * time.Second
-)
-
-// Service 是网易云服务层：凭证 + 上游调用 + 业务编排。
+// 它同时承担「上游」的角色——`/api/music/ncm/*` 与音质解析都落在同一套
+// 进程内实现上，没有服务地址、没有可用性探测，也不存在「音乐服务未启动」
+// 这种状态：拿不到数据只可能是请求本身失败。
 type Service struct {
-	// Base 是内部 NCM API 服务地址（不带尾斜杠）；空串表示未配置。
-	Base   string
-	Client *Client
-	Creds  *store.NcmCredentials
-	Rooms  *store.Rooms
-
-	probeMu    sync.Mutex
-	probeUntil time.Time
-	probeOK    bool
+	api   *api
+	Creds *store.NcmCredentials
+	Rooms *store.Rooms
 }
 
-// NewService 构造服务。base 为空时所有端点返回 503 NCM_UNAVAILABLE。
-func NewService(conn *sql.DB, base string) *Service {
-	base = strings.TrimRight(strings.TrimSpace(base), "/")
+// NewService 构造服务。
+func NewService(conn *sql.DB) *Service {
 	return &Service{
-		Base:   base,
-		Client: NewClient(base),
-		Creds:  store.NewNcmCredentials(conn),
-		Rooms:  store.NewRooms(conn),
+		api:   newAPI(),
+		Creds: store.NewNcmCredentials(conn),
+		Rooms: store.NewRooms(conn),
 	}
-}
-
-// Available 返回可用的基地址；内部服务不可达时 ok=false（路由层回 503）。
-func (s *Service) Available(ctx context.Context) (string, bool) {
-	if s.Base == "" {
-		return "", false
-	}
-	s.probeMu.Lock()
-	defer s.probeMu.Unlock()
-	if time.Now().Before(s.probeUntil) {
-		return s.Base, s.probeOK
-	}
-	ok := s.Client.Probe(ctx, s.Base) == nil
-	s.probeOK = ok
-	if ok {
-		s.probeUntil = time.Now().Add(probeOKTTL)
-	} else {
-		s.probeUntil = time.Now().Add(probeFailTTL)
-	}
-	return s.Base, ok
 }
 
 // LoadCredential 读取用户持久化的网易云凭证；游客/未登录返回 (nil, nil)。
@@ -117,5 +80,5 @@ func CredentialKey(credential *store.NcmCredential, userID int64) string {
 	return formatInt(userID)
 }
 
-// formatInt 是 strconv.FormatInt 的短别名（拼 URL / 缓存键用得多）。
+// formatInt 是 strconv.FormatInt 的短别名（拼路径 / 缓存键用得多）。
 func formatInt(value int64) string { return strconv.FormatInt(value, 10) }

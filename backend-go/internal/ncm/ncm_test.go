@@ -4,19 +4,24 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
 
-// 假 NCM 上游：把收到的请求原样回显，便于断言「注入了什么」。
-func newFakeUpstream(t *testing.T, handler http.HandlerFunc) (*Service, *httptest.Server) {
-	t.Helper()
-	server := httptest.NewServer(handler)
-	t.Cleanup(server.Close)
-	return NewService(nil, server.URL), server
+// funcCaller 把函数适配成 caller（单测用）。
+type funcCaller func(ctx context.Context, call Call) (*upstreamResult, error)
+
+func (f funcCaller) Do(ctx context.Context, call Call) (*upstreamResult, error) {
+	return f(ctx, call)
+}
+
+// newTestService 构造一个上游被替换掉的服务。
+func newTestService(fake caller) *Service {
+	service := NewService(nil)
+	service.api = newAPIWith(fake)
+	return service
 }
 
 func TestCookieHelpers(t *testing.T) {
@@ -159,183 +164,134 @@ func TestValidateAudioURL(t *testing.T) {
 	}
 }
 
-func TestForwardPassthrough(t *testing.T) {
-	service, upstream := newFakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/redirect"):
-			w.Header().Set("Location", "/target")
-			w.WriteHeader(http.StatusFound)
-		case strings.HasSuffix(r.URL.Path, "/not-json"):
-			w.Header().Set("Content-Type", "text/html")
-			_, _ = w.Write([]byte("<html>nope</html>"))
-		default:
-			body, _ := io.ReadAll(r.Body)
-			query := map[string]string{}
-			for key, values := range r.URL.Query() {
-				if key == "timestamp" {
-					continue
-				}
-				query[key] = strings.Join(values, ",")
-			}
-			var parsed any
-			if len(body) > 0 {
-				_ = json.Unmarshal(body, &parsed)
-			}
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"method": r.Method,
-				"path":   r.URL.Path,
-				"cookie": r.Header.Get("Cookie"),
-				"query":  query,
-				"body":   parsed,
-			})
+// TestForwardPassesParams 覆盖转发层最容易被改坏的两件事：
+// 客户端传的登录态必须被丢弃、其余参数原样到达路由表。
+func TestForwardPassesParams(t *testing.T) {
+	// /echo 只在测试里存在：原样把参数表当成上游参数，便于断言。
+	routes["/echo"] = route{crypto: cryptoAPI, build: func(p params) (string, map[string]any) {
+		out := make(map[string]any, len(p))
+		for key, value := range p {
+			out[key] = value
 		}
-	})
-	_ = upstream
+		return "/api/echo", out
+	}}
+	t.Cleanup(func() { delete(routes, "/echo") })
 
-	// 客户端传的 cookie / noCookie 必须被剥掉
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/music/ncm/echo?cookie=evil&noCookie=1&x=2", nil)
-	service.Forward(rec, req, "/echo?cookie=evil&noCookie=1&x=2", 0)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("状态码 = %d，响应 = %s", rec.Code, rec.Body.String())
+	var seen []Call
+	service := newTestService(funcCaller(func(_ context.Context, call Call) (*upstreamResult, error) {
+		seen = append(seen, call)
+		raw, _ := json.Marshal(map[string]any{"path": call.Path, "cookie": call.Cookie, "data": call.Data})
+		return &upstreamResult{Body: raw}, nil
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/music/ncm/echo?cookie=evil&noCookie=1&x=2", nil)
+	service.Forward(recorder, request, "/echo?cookie=evil&noCookie=1&x=2", 0)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("状态码 = %d，响应 = %s", recorder.Code, recorder.Body.String())
 	}
-	var echoed struct {
-		Method string            `json:"method"`
-		Path   string            `json:"path"`
-		Cookie string            `json:"cookie"`
-		Query  map[string]string `json:"query"`
+	payload := lastCallPayload(t, seen, recorder)
+	if payload["path"] != "/api/echo" {
+		t.Errorf("上游路径 = %v", payload["path"])
 	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &echoed); err != nil {
-		t.Fatalf("解析回显失败: %v", err)
+	if payload["cookie"] != "" {
+		t.Errorf("游客不该注入 cookie，实际 %q", payload["cookie"])
 	}
-	if echoed.Path != "/echo" {
-		t.Errorf("路径 = %q", echoed.Path)
-	}
-	if _, present := echoed.Query["cookie"]; present {
+	data, _ := payload["data"].(map[string]any)
+	if _, present := data["cookie"]; present {
 		t.Error("query 里的 cookie 应被剥掉")
 	}
-	if _, present := echoed.Query["noCookie"]; present {
+	if _, present := data["noCookie"]; present {
 		t.Error("query 里的 noCookie 应被剥掉")
 	}
-	if echoed.Query["x"] != "2" {
-		t.Errorf("其余 query 应保留，实际 %v", echoed.Query)
-	}
-	if echoed.Cookie != "" {
-		t.Errorf("游客不该注入 cookie，实际 %q", echoed.Cookie)
+	if data["x"] != "2" {
+		t.Errorf("其余参数应保留，实际 %v", data)
 	}
 
 	// POST body 里的 cookie / noCookie 也要剥掉
-	rec = httptest.NewRecorder()
-	payload := bytes.NewBufferString(`{"cookie":"evil","noCookie":1,"a":2}`)
-	req = httptest.NewRequest(http.MethodPost, "/api/music/ncm/echo", payload)
-	req.Header.Set("Content-Type", "application/json")
-	service.Forward(rec, req, "/echo", 0)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST 状态码 = %d", rec.Code)
+	seen = nil
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/music/ncm/echo", bytes.NewBufferString(`{"cookie":"evil","noCookie":1,"a":2}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.Forward(recorder, request, "/echo", 0)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("POST 状态码 = %d", recorder.Code)
 	}
-	var postEcho struct {
-		Body map[string]any `json:"body"`
-	}
-	_ = json.Unmarshal(rec.Body.Bytes(), &postEcho)
-	if _, present := postEcho.Body["cookie"]; present {
+	payload = lastCallPayload(t, seen, recorder)
+	data, _ = payload["data"].(map[string]any)
+	if _, present := data["cookie"]; present {
 		t.Error("body 里的 cookie 应被剥掉")
 	}
-	if _, present := postEcho.Body["noCookie"]; present {
+	if _, present := data["noCookie"]; present {
 		t.Error("body 里的 noCookie 应被剥掉")
 	}
-	if postEcho.Body["a"] != float64(2) {
-		t.Errorf("其余字段应保留，实际 %v", postEcho.Body)
+	if data["a"] != "2" {
+		t.Errorf("其余字段应保留，实际 %v", data)
 	}
+}
 
-	// 上游 3xx → 200 + {code:'REDIRECT', location}
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/music/ncm/redirect", nil)
-	service.Forward(rec, req, "/redirect", 0)
-	if rec.Code != http.StatusOK {
-		t.Fatalf("重定向状态码 = %d", rec.Code)
+// lastCallPayload 取出响应体里的回显结构。
+func lastCallPayload(t *testing.T, calls []Call, recorder *httptest.ResponseRecorder) map[string]any {
+	t.Helper()
+	if len(calls) == 0 {
+		t.Fatalf("没有调用上游，响应 = %s", recorder.Body.String())
 	}
-	var redirect map[string]any
-	_ = json.Unmarshal(rec.Body.Bytes(), &redirect)
-	if redirect["code"] != "REDIRECT" || redirect["location"] != "/target" {
-		t.Errorf("重定向响应 = %v", redirect)
+	var payload map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("响应不是 JSON: %s", recorder.Body.String())
 	}
-
-	// 上游非 JSON → 502
-	rec = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodGet, "/api/music/ncm/not-json", nil)
-	service.Forward(rec, req, "/not-json", 0)
-	if rec.Code != http.StatusBadGateway {
-		t.Fatalf("非 JSON 状态码 = %d", rec.Code)
-	}
+	return payload
 }
 
 func TestForwardRejectsOtherMethods(t *testing.T) {
-	service := NewService(nil, "http://127.0.0.1:1")
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPut, "/api/music/ncm/echo", nil)
-	service.Forward(rec, req, "/echo", 0)
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("状态码 = %d，期望 405", rec.Code)
+	service := newTestService(&stubCaller{})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/api/music/ncm/echo", nil)
+	service.Forward(recorder, request, "/echo", 0)
+	if recorder.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("状态码 = %d，期望 405", recorder.Code)
 	}
 }
 
-func TestForwardUnavailable(t *testing.T) {
-	service := NewService(nil, "")
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/music/ncm/echo", nil)
-	service.Forward(rec, req, "/echo", 0)
-	if rec.Code != http.StatusServiceUnavailable {
-		t.Fatalf("状态码 = %d，期望 503", rec.Code)
+func TestForwardUnknownPath(t *testing.T) {
+	service := newTestService(&stubCaller{})
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/music/ncm/not-a-real-endpoint", nil)
+	service.Forward(recorder, request, "/not-a-real-endpoint", 0)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d，期望 404", recorder.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "NCM 服务未启动") {
-		t.Errorf("响应 = %s", rec.Body.String())
+	if !strings.Contains(recorder.Body.String(), "接口不存在") {
+		t.Errorf("响应 = %s", recorder.Body.String())
 	}
 }
 
 func TestResolveSongURLAlongChain(t *testing.T) {
-	service, _ := newFakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		level := r.URL.Query().Get("level")
-		w.Header().Set("Content-Type", "application/json")
-		switch {
-		case strings.HasSuffix(r.URL.Path, "/song/url/v1"):
-			if level == "lossless" {
-				_, _ = w.Write([]byte(`{"data":[{"url":"https://m801.music.126.net/a.flac","level":"lossless","freeTrialInfo":{"start":0,"end":30}}]}`))
-				return
-			}
-			_, _ = w.Write([]byte(`{"data":[{"url":"https://m801.music.126.net/a.mp3","level":"` + level + `","br":320000,"type":"mp3","sr":44100}]}`))
-		default:
-			// 老接口兜底：只在 lossless 档给地址
-			br := r.URL.Query().Get("br")
-			if br != "999000" {
-				_, _ = w.Write([]byte(`{"data":[{"url":null}]}`))
-				return
-			}
-			_, _ = w.Write([]byte(`{"data":[{"url":"https://m801.music.126.net/legacy.flac","br":999000}]}`))
+	// 试听片段（freeTrialInfo 非空）必须被跳过，继续降级到 exhigh。
+	service := newTestService(funcCaller(func(_ context.Context, call Call) (*upstreamResult, error) {
+		level, _ := call.Data["level"].(string)
+		if level == "lossless" {
+			return &upstreamResult{Body: []byte(`{"data":[{"url":"https://m801.music.126.net/a.flac","level":"lossless","freeTrialInfo":{"start":0,"end":30}}]}`)}, nil
 		}
-	})
+		return &upstreamResult{Body: []byte(`{"data":[{"url":"https://m801.music.126.net/a.mp3","level":"` + level + `","br":320000,"type":"mp3","sr":44100}]}`)}, nil
+	}))
 
-	// 试听片段跳过、继续降级到 exhigh
-	resolved, lastData := service.ResolveSongURLAlongChain(
-		context.Background(), service.Base, 1, QualityLevels("lossless"), "")
+	resolved, lastData := service.ResolveSongURLAlongChain(context.Background(), 1, QualityLevels("lossless"), "")
 	if resolved == nil || resolved["level"] != "exhigh" {
 		t.Fatalf("resolved = %v（lastData = %v）", resolved, lastData)
 	}
 }
 
 func TestResolveSongURLLegacyFallback(t *testing.T) {
-	service, _ := newFakeUpstream(t, func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasSuffix(r.URL.Path, "/song/url/v1") {
-			// v1 依赖残缺 → 404 非 JSON 结构，拿不到 data
-			w.WriteHeader(http.StatusNotFound)
-			_, _ = w.Write([]byte(`{"code":404,"msg":"Not Found"}`))
-			return
+	// v1 拿不到 data → 必须回退老接口，并补写 level。
+	service := newTestService(funcCaller(func(_ context.Context, call Call) (*upstreamResult, error) {
+		if _, legacy := call.Data["br"]; legacy {
+			return &upstreamResult{Body: []byte(`{"data":[{"url":"https://m801.music.126.net/legacy.mp3","br":320000,"type":"mp3"}]}`)}, nil
 		}
-		_, _ = w.Write([]byte(`{"data":[{"url":"https://m801.music.126.net/legacy.mp3","br":320000,"type":"mp3"}]}`))
-	})
+		return &upstreamResult{Body: []byte(`{"data":[]}`)}, nil
+	}))
 
-	resolved, _ := service.ResolveSongURLAlongChain(
-		context.Background(), service.Base, 2, []string{"exhigh"}, "")
+	resolved, _ := service.ResolveSongURLAlongChain(context.Background(), 2, []string{"exhigh"}, "")
 	if resolved == nil {
 		t.Fatal("应回退老接口拿到地址")
 	}
@@ -357,21 +313,21 @@ func TestProxyAudioPassesThroughRange(t *testing.T) {
 	}))
 	t.Cleanup(upstream.Close)
 
-	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/music/stream?songId=1", nil)
-	req.Header.Set("Range", "bytes=0-3")
-	ProxyAudio(rec, req, upstream.URL+"/a.mp3")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/music/stream?songId=1", nil)
+	request.Header.Set("Range", "bytes=0-3")
+	ProxyAudio(recorder, request, upstream.URL+"/a.mp3")
 
-	if rec.Code != http.StatusPartialContent {
-		t.Fatalf("状态码 = %d，期望 206", rec.Code)
+	if recorder.Code != http.StatusPartialContent {
+		t.Fatalf("状态码 = %d，期望 206", recorder.Code)
 	}
-	if rec.Body.String() != "abcd" {
-		t.Errorf("响应体 = %q", rec.Body.String())
+	if recorder.Body.String() != "abcd" {
+		t.Errorf("响应体 = %q", recorder.Body.String())
 	}
-	if got := rec.Header().Get("Content-Range"); got != "bytes 0-3/100" {
+	if got := recorder.Header().Get("Content-Range"); got != "bytes 0-3/100" {
 		t.Errorf("Content-Range = %q", got)
 	}
-	if got := rec.Header().Get("Accept-Ranges"); got != "bytes" {
+	if got := recorder.Header().Get("Accept-Ranges"); got != "bytes" {
 		t.Errorf("Accept-Ranges = %q", got)
 	}
 }

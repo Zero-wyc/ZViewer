@@ -1,53 +1,66 @@
-package ncmapi
+package ncm
 
 import (
 	"encoding/json"
-	"io"
-	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
 
-// Params 是入站请求参数（query 与 body 合并后的视图）。
+// params 是接口参数视图：query 与 body 合并后的字符串表。
 //
-// 合并顺序与 Node 版一致：body 先铺底，query 覆盖同名键（前端绝大多数接口用
-// query 传参，写操作才用 body）。
-type Params map[string]string
+// 全部转成字符串是有意的——网易云的参数最终都要进 JSON 或 form，而前端传的
+// 数字/布尔到了 Go 这里只剩「字面量」这一个有用信息，各路由再用 I/B 转回去。
+type params map[string]string
 
-// newParams 解析入站请求的参数。
-//
-// 支持三种承载方式：
-//   - query string（GET，也是前端的主要用法）
-//   - JSON object（POST，前端 apiPost 发的写操作）
-//   - form-urlencoded（极少数调用方）
-//
-// 非对象 JSON（数组/标量）与解析失败都忽略，不阻断——上游会因为缺参返回
-// 自己的错误码，比这里猜一个 400 更接近原行为。
-func newParams(r *http.Request) Params {
-	out := make(Params, len(r.URL.Query()))
-	if body := decodeBody(r); body != nil {
-		for key, value := range body {
-			out[key] = plainValue(value)
-		}
-	}
-	for key := range r.URL.Query() {
-		out[key] = r.URL.Query().Get(key)
+// paramsFromQuery 构造参数视图（body 由 mergeBody 补充）。
+func paramsFromQuery(query url.Values) params {
+	out := make(params, len(query))
+	for key := range query {
+		out[key] = query.Get(key)
 	}
 	return out
 }
 
-// decodeBody 读出 body 里的键值（JSON object 或 form）。
-func decodeBody(r *http.Request) map[string]any {
-	if r.Body == nil || r.Method != http.MethodPost {
-		return nil
+// parseQueryPath 把 "/song/url/v1?id=1&level=2" 拆成路径与参数。
+func parseQueryPath(path string) (string, params) {
+	index := strings.IndexByte(path, '?')
+	if index < 0 {
+		return path, params{}
 	}
-	contentType := r.Header.Get("Content-Type")
-	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
-	if err != nil || len(strings.TrimSpace(string(raw))) == 0 {
+	parsed, err := url.ParseQuery(path[index+1:])
+	if err != nil {
+		return path[:index], params{}
+	}
+	return path[:index], paramsFromQuery(parsed)
+}
+
+// mergeBody 把 JSON/form body 里的键填进参数表（不覆盖已有的 query 值）。
+//
+// 与 Node 版一致：query 优先。写操作（收藏、创建歌单）用 body 传参，读接口
+// 用 query，两者同时出现时以 query 为准。
+func (p params) mergeBody(body map[string]any) {
+	for key, value := range body {
+		if _, exists := p[key]; exists {
+			continue
+		}
+		p[key] = plainValue(value)
+	}
+}
+
+// bodyParams 解析请求体里的键值（JSON object 或 form-urlencoded）。
+//
+// 非对象 JSON（数组/标量）返回 nil：那些接口的参数都在 query 上，body 只是
+// 原始载荷，而上游要的是加密后的 params，本来就带不过去。
+func bodyParams(contentType string, raw []byte) map[string]any {
+	if len(strings.TrimSpace(string(raw))) == 0 {
 		return nil
 	}
 	if strings.Contains(contentType, "application/x-www-form-urlencoded") {
-		form := values(string(raw))
+		form, err := url.ParseQuery(string(raw))
+		if err != nil {
+			return nil
+		}
 		out := make(map[string]any, len(form))
 		for key := range form {
 			out[key] = form.Get(key)
@@ -58,11 +71,15 @@ func decodeBody(r *http.Request) map[string]any {
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return nil
 	}
+	// 客户端不允许自报登录态：cookie 由服务端按凭证注入，否则任何人都能
+	// 用 body 里的 cookie 冒充别人。
+	delete(parsed, "cookie")
+	delete(parsed, "noCookie")
 	return parsed
 }
 
 // S 取字符串参数（缺失或空串时用兜底值）。
-func (p Params) S(key string, fallback ...string) string {
+func (p params) S(key string, fallback ...string) string {
 	if value := p[key]; value != "" {
 		return value
 	}
@@ -72,14 +89,11 @@ func (p Params) S(key string, fallback ...string) string {
 	return ""
 }
 
-// Raw 取原始值（缺失时返回空串，不做兜底）。
-func (p Params) Raw(key string) string { return p[key] }
-
 // Has 判断参数是否存在且非空。
-func (p Params) Has(key string) bool { return p[key] != "" }
+func (p params) Has(key string) bool { return p[key] != "" }
 
 // I 取整数参数（解析失败时用兜底值）。
-func (p Params) I(key string, fallback int) int {
+func (p params) I(key string, fallback int) int {
 	value := p[key]
 	if value == "" {
 		return fallback
@@ -91,8 +105,8 @@ func (p Params) I(key string, fallback int) int {
 	return parsed
 }
 
-// B 取布尔参数（"false"/"0" 视为假，其余非空串视为真）。
-func (p Params) B(key string, fallback bool) bool {
+// B 取布尔参数（"false"/"0"/"no" 视为假，其余非空串视为真）。
+func (p params) B(key string, fallback bool) bool {
 	value := strings.ToLower(strings.TrimSpace(p[key]))
 	if value == "" {
 		return fallback
@@ -104,9 +118,6 @@ func (p Params) B(key string, fallback bool) bool {
 		return true
 	}
 }
-
-// Or 返回第一个非空值（参数缺失时用兜底）。
-func (p Params) Or(key string, fallback string) string { return p.S(key, fallback) }
 
 // resourceTypeMap 是评论资源的 threadId 前缀表（与 Node util/config.json 一致）。
 //
@@ -124,7 +135,7 @@ var resourceTypeMap = map[string]string{
 }
 
 // threadID 拼评论线程 id（缺省按歌曲处理）。
-func threadID(p Params) string {
+func threadID(p params) string {
 	prefix, ok := resourceTypeMap[p.S("type", "0")]
 	if !ok {
 		prefix = resourceTypeMap["0"]

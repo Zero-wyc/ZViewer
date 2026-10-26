@@ -1037,38 +1037,42 @@ Node 用的是 opencc-js，Go 侧没有等价库，所以**把词典导出来自
 
 `modules/music/{music.routes,ncm-api.service,ncm-api-client,ncm-account.service,
 ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.ts`
-（1,381 行）→ `internal/ncm`（1,354 行，另有 406 行测试）+ `internal/api/music.go`
-（491 行）+ `store.NcmCredentials`（150 行）；阶段 34 再补 `internal/ncmapi`
-（1,425 行 + 493 行测试）承接原来那个 npm 包的协议层。HTTP 面 151 → **160**。
+（1,381 行）→ `internal/ncm`（**2,816 行，含协议层** + 987 行测试）
++ `internal/api/music.go`（约 460 行）+ `store.NcmCredentials`（150 行）。
+HTTP 面 151 → **160**。
+
+`internal/ncm` 现在是**自包含**的：原来那个 npm 包的协议层（加密 + 接口映射）
+阶段 34 先做成独立的 `internal/ncmapi`，阶段 35 并回同一包并去掉 HTTP 中转，
+所以不再有「转发到某个服务」这一层。
 
 | 端点 | 说明 | 实现 |
 |---|---|---|
-| ANY `/api/music/ncm/*` | 注入当前用户 cookie 后转发到内部 NCM 服务 | `forward.go#Forward` |
+| ANY `/api/music/ncm/*` | 分发到网易云接口（注入凭证 cookie、剥客户端登录态） | `forward.go#Forward` |
 | `GET /ncm-cookie` | 导出持久化 Cookie（迁移/备份） | `api/music.go` |
 | `POST /ncm-cookie-login` | Cookie 登录（两种输入格式）+ 校验登录态 | `api/music.go` |
-| `POST /cloud/upload` | 云盘上传（multipart 原样流转发） | `forward.go#CloudUpload` |
+| `POST /cloud/upload` | 云盘上传（multipart 流 → 五步链） | `forward.go` + `cloud.go` |
 | `GET /album/full` | 专辑详情（登录态截断时匿名补齐） | `account.go` |
 | `GET /login/status` | 登录状态（按需补昵称/头像/会员） | `account.go` |
 | `POST /logout` | 删除持久化凭证 | `api/music.go` |
 | `GET /stream` | 音质降级链解析 + Range 流式转发 / 直链 302 | `stream.go` + `api/music.go` |
 | `GET /song-quality` | 实际解析音质元数据（15 分钟缓存） | `api/music.go` |
 
-#### 最大的一处架构差异：NCM 服务（阶段 23 外部化 → 阶段 34 进程内）
+#### 最大的一处架构差异：NCM 从外部服务 → 自实现（阶段 23 → 34 → 35）
 
 阶段 23 把网易云协议**外部化**了：Node 用 `@neteasecloudmusicapienhanced/api`
-在本进程内起`127.0.0.1:36530` 的服务，Go 不可能重写那 3 万行所以改成指向外部服务。
+在本进程内起 `127.0.0.1:36530` 的服务，Go 不可能重写那 3 万行所以改成指向外部服务。
 
-阶段 34 补上了这块：`internal/ncmapi` 复刻同一个 REST 方言并跑在进程内，
-`NCM_API_BASE` 由 `StartBundled` 改写成哨兵地址 `http://ncm.internal`（请求由
-自定义 `RoundTripper` 直接交给 handler，**不建连接、不占端口**），**默认交付不再需要额外服务**。
-随包 Node 组件（`desktop/music-runtime/` 与 `prepare-music.mjs`）已在阶段 34 收尾时删除，
-只剩「显式 `NCM_API_BASE` → 外部服务」这一条外部路径。
+阶段 34 补上了协议层（`internal/ncmapi`），但当时还保留了 HTTP 语义——用一个哨兵
+基地址 + 自定义 `RoundTripper` 把请求直接交给 handler。阶段 35 把这个中间层也拆了：
+既然**永远只有进程内这一个上游**，`NCM_API_BASE` / `NCM_LOOPBACK` / 可用性探测 /
+503 `NCM_UNAVAILABLE` 全部删除，前端一次请求就是一次函数调用。
+随包 Node 组件（`desktop/music-runtime/` 与 `prepare-music.mjs`）已在阶段 34 收尾时删除。
 细节见**第十三节**。
 
-`internal/ncm` 这一侧的行为完全没变，仍然负责：凭证读写、转发（注入 cookie、
-绕 apicache、剥客户端传的 `cookie`/`noCookie`）、业务编排（音质降级链、直链缓存、
-音频流 Range 代理）。判断上游在不在仍靠一次轻量探测：在线缓存 30s、离线 3s，
-不可达时一律 503 `NCM_UNAVAILABLE`——只是现在它基本不会触发了。
+`internal/ncm` 的业务职责没变：凭证读写、注入 cookie 并剥掉客户端传的
+`cookie`/`noCookie`、音质降级链、直链缓存、音频流 Range 代理。变化的是它的上游——
+从「一个可能不在的 HTTP 服务」变成「同一进程里的函数调用」，所以探测、503、
+时间戳唯一化这些「跨进程协商」的产物全部消失了。
 
 #### 六处必须守住的细节
 
@@ -1077,12 +1081,10 @@ ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.t
    轮询进 800 循环，表现为「二维码扫了没反应」。对拍里专门有一步回显 cookie。
 2. **转发要剥掉客户端传的 `cookie` / `noCookie`**（query 与 body 两处），否则
    客户端能用参数覆盖服务端注入的登录态——这是个越权口子，不是洁癖。
-3. **每次调用都要带 `timestamp`**。内部服务挂了 2 分钟的 apicache，缓存 key
-   只含 method+URL（不含 cookie），不同登录态会互相串味（匿名结果被 VIP 用户
-   拿到）。唯一化 URL 是唯一解。
-4. **弹弹play 那条之外的 mode 陷阱：音乐这边是 `/song/url/v1` 的 `level` 与
-   老接口的 `br`**。v1 依赖残缺时模块顶层 require 会抛 MODULE_NOT_FOUND，路由
-   返回 404；老接口 `/song/url` 没这个依赖、始终可用，所以降级链里必须回退它，
+3. **登录态只能由服务端注入**。请求里的 `cookie` / `noCookie`（query 与 body
+   两处）必须先剥掉再合并真实凭证，否则客户端能用参数覆盖服务端注入的登录态。
+4. **音乐这边有两套档位参数**：`/song/url/v1` 用 `level`，老接口 `/song/url`
+   用 `br`。v1 拿不到可用地址时（上游限流、风控、接口调整）必须回退老接口，
    并把 `level` 补写进响应，否则缓存与元数据都会缺档位。
 5. **`freeTrialInfo` 非空 = 试听片段 = 不可用**。继续沿降级链走；整链都失败时
    它是 `VIP_REQUIRED` 的判据（不是 `RESOLVE_FAILED`）。
@@ -1090,32 +1092,13 @@ ncm-cookie.service,ncm-forward.service,ncm-stream.service,ncm-stream.handlers}.t
    被污染的响应就能把服务端变成任意地址的下载器（SSRF）。直链模式下还要把
    `http://` 改写成 `https://`，不然 https 页面会被 mixed content 拦。
 
-#### 刻意与 Node 不同
+#### 与 Node 的差异（历史）
 
-- **`NCM_API_BASE` 的默认值与探测**：Node 的 base 只在自己启动成功后才有值，
-  不会指向一个「别人起的」服务。Go 默认就看 36530，这是外部化的必然结果；
-  如果那个端口上跑着不兼容的服务，行为会与 Node 不同（Node 会 503）。
-- **不迁移 `ncm-api.service.ts` 的启动/重试逻辑**（端口 +1 重试、就绪轮询）。
-  那是「拉起 npm 包」的胶水，外部化之后没有意义。
-
-#### 对拍方式：给 Node 换上游
-
-Node 的 base 是模块级变量、没有 setter。对拍驱动器
-（`scripts/ncm-parity-preload.js`）在加载前把 `ncm-api.service` 的编译产物塞进
-`require.cache`，让 `getNcmApiBase()` 返回假服务地址；Go 侧读同一个
-`NCM_API_BASE`。两侧打同一份假上游（`scripts/mock-ncm.js`），数据固定
-→ 全部 exact 比较。
-
-`bash backend-go/scripts/http-music-parity.sh` → **41 个步骤完全一致**。
-覆盖游客/登录/退出三种身份、Cookie 登录两种输入格式、凭证落库、转发注入与
-剥离、扫码不带 cookie、上游 3xx 与非 JSON、专辑匿名补齐、音质降级链（试听 /
-无版权 / 非白名单域名 / 老接口回退）、直链 302 与缓存、音质元数据与缓存、
-云盘 multipart 透传。
-
-**代理模式（`direct=0`）的对拍缺一步**：假上游的直链域名必须是
-`*.music.126.net` 才能过 SSRF 校验，而那个域名不可能指向本地假站。所以
-`ProxyAudio` 的 Range/206 透传由 `internal/ncm/ncm_test.go` 的
-`TestProxyAudioPassesThroughRange` 覆盖（httptest 上游 + Range 断言）。
+阶段 23 外部化时记录过两条差异（`NCM_API_BASE` 的默认值与探测、不迁拉起逻辑），
+以及一套对着假上游的 41 步对拍口径。阶段 34/35 之后 Node 侧已不存在，那些脚本
+与差异一并作废；音频代理的 Range/206 透传由
+`internal/ncm/ncm_test.go#TestProxyAudioPassesThroughRange` 覆盖。
+现行验收口径见**第十三节**。
 
 ### 3.18 更新器（阶段 24）
 
@@ -1892,7 +1875,7 @@ DeviceId 仍是进程级常量，见 `internal/emby/clientname_test.go`。
 | B站 收藏 / 取消收藏的 POST | `bilibiliFetch` 对 412 风控做 3 次重试（写请求也重试） | 写请求不重试，直接报错 | 重投会把刚做出的变更再翻一次（收了又取消），副作用不可逆；失败让用户点一次即可 |
 | 动漫源的上游请求超时 | `fetch` 无超时，挂住的上游会永久占住请求 | 30s 超时（`internal/anime/http.go`），超时报 `context deadline exceeded` | Go 侧挂住就是一条泄漏的 goroutine + 连接，没有事件循环帮你回收；上游真挂死时错误文案会与 Node 不同，属于可接受的差异 |
 | CMS/TVBox 文本抓取的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 Go 的 net/http，不设子进程兜底 | Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个前提；起子进程既慢又会把错误信息变形 |
-| 一起听的 NCM 上游从哪来 | 进程内起 `@neteasecloudmusicapienhanced/api`（127.0.0.1:36530） | `NCM_API_BASE` 指向外部服务，并用探测决定 `NCM_UNAVAILABLE` | Go 不带那 3 万行 npm 包；不跑外部服务时音乐面板收到 503，属于**新增部署依赖** |
+| 一起听的 NCM 上游从哪来 | 进程内起 `@neteasecloudmusicapienhanced/api`（127.0.0.1:36530） | 同进程内自实现（`internal/ncm`：加密 + 48 个接口），无外部服务、无子进程 | 保留了「网易云接口」这个能力，换掉了实现；前端调用面不变 |
 | Kazumi 生成 URL 里的 query 顺序 | 按规则 JSON 里的书写顺序 | 按键名排序 | Go 的 map 无插入序；上游对参数顺序不敏感，只在多键 `episodePage.query` 时可见 |
 | Kazumi 生成 URL 里的 `~` | `URLSearchParams` 编成 `%7E` | `url.Values.Encode` 保留 `~` | 同上，纯编码口味差异 |
 | ani-subs 抓站的重试与 TLS 兜底 | fetch 失败后起 `powershell Invoke-WebRequest` 借 .NET 的 TLS 指纹绕过 Cloudflare | 只用 net/http（`internal/webfetch`） | 同 CMS 那条：Go 的 TLS 栈本来就是独立指纹；真被按指纹拦时该换源，而不是在服务端起子进程 |
@@ -2317,78 +2300,93 @@ npm run db:init        # 等价于 zviewer-server --init-db
   整段（含「修改后端 data-source.ts」这种已经不存在的指引）。补了 `SQLITE_WAL` 与
   `db:init` 的说明。
 
-## 十三、一起听的 NCM API：进程内实现（阶段 34）
+## 十三、一起听的 NCM API：自实现（阶段 35）
 
-`internal/ncm` **不实现**网易云协议：`/api/music/ncm/*` 一律转发到
-`NCM_API_BASE`，路径方言沿用 NeteaseCloudMusicApi。这意味着「换掉 Node」不需要
-动这一层——只要在同一个 HTTP 边界换上游实现，凭证注入、cookie 落库、音质降级链、
-直链缓存、音频 Range 代理全部原样复用，前端 44 处调用一处都不改。
+`internal/ncm` **自己实现**网易云协议：weapi / eapi / linuxapi 加密、44 条路由表的
+参数映射、扫码登录、云盘上传、音质降级链，全部在同一个包里。
 
-阶段 34 新增 `internal/ncmapi`：把那个 npm 包的协议翻译成 Go，在进程内提供同方言
-的 HTTP 服务。**默认交付形态里不再有 Node 运行时**——随包 Node 组件
-（`desktop/music-runtime/`、`scripts/prepare-music.mjs`、`runtime*.go` 的子进程分支）
-已在同阶段收尾时物理删除，GUI 产物不再有 `runtime/ncm/`。
+历史沿革值得记一笔，因为方向改过两次：
 
-### 13.1 两种来源与优先级
-
-| 优先级 | 触发条件 | 上游 |
+| 阶段 | 做法 | 为什么改 |
 |---|---|---|
-| 1 | 显式 `NCM_API_BASE` | 该地址，不启动内置实现 |
-| 2 | 默认 | `internal/ncmapi`，基地址是哨兵 `http://ncm.internal`（进程内直连，不监听端口） |
-| 排障 | `NCM_LOOPBACK=1` | 同一份实现改挂回环 TCP 随机端口，只为能用 curl 看原始响应 |
+| 23 | 协议**外部化**（`NCM_API_BASE` 指向外部 NCM API 服务） | Go 不可能重写那 3 万行 npm 包 |
+| 34 | 新增 `internal/ncmapi` 复刻协议层，但保留 HTTP 语义（哨兵地址 + 自定义 `RoundTripper`） | 让「换上游」不改业务代码；当时还想保留外部服务做增强版 |
+| 35 | 并回 `internal/ncm`，**删掉 HTTP 中转**，调用即函数调用 | 上游永远只有一个、且永远在进程内，中间的传输层、探测、503 状态机全是死代码 |
 
-**为什么是「HTTP 语义 + 进程内传输」而不是直接函数调用**：`internal/ncm` 依赖的
-不是 HTTP 本身，而是这层方言的四项语义——状态码、`Set-Cookie` 原样回传（登录态落库
-靠它）、3xx `Location` 透传（`/song/url/v1_302` 这类端点）、请求体流式透传（云盘上传
-把 `r.Body` 直接转出去）。自定义 `RoundTripper` 直接 `ServeHTTP` 就能全部保留，
-同时省掉内核往返和监听端口：`netstat` 里看不到音乐服务，安全软件也不会把它当成
-一个本机服务。
+### 13.1 分层（单包，按文件划分）
 
-外部服务语义完全保留——compose 的 `--profile music`、自建 NeteaseCloudMusicApi
-（含增强版）都能用，`NCM_API_BASE` 一设就整个让位。
+| 文件 | 职责 |
+|---|---|
+| `upstream.go` | 真实网易云 HTTP 调用：加密、UA、cookie 组装、zlib 兜底 |
+| `routes.go` | 44 条表驱动路由：对外路径 → 上游路径 + 参数 |
+| `dispatch.go` | 分发；少数接口有本地实现（二维码、歌单两段式） |
+| `cloud.go` | 云盘上传五步链 + NOS 直传 |
+| `forward.go` | 前端入口：剥客户端登录态、注入凭证、cookie 落库 |
+| `account.go` | 登录状态、会员兜底、专辑补齐 |
+| `stream.go` | 音质降级链、直链缓存、音频 Range 代理 |
 
-### 13.2 实现范围
+**没有的东西**（阶段 35 删除）：`NCM_API_BASE`、`NCM_LOOPBACK`、`NCM_UPSTREAM`、
+`StartBundled`、可用性探测与缓存、503 `NCM_UNAVAILABLE`、哨兵地址
+`http://ncm.internal`、`handlerTransport` / `memoryResponse`、compose 的
+`--profile music` 服务、`.env` 里的 `NCM_*` 条目。设了这些变量也不会生效——
+代码里已经没有任何地方读它们。
 
-- **48 个端点**：44 条表驱动路由（含 `/song/url` 降级回退、`/song/url/v1` 直链）
+### 13.2 为什么可以直接函数调用
+
+之前保留 HTTP 语义是为了承载四件事，阶段 35 用更直接的方式各归各位：
+
+| 原依赖 | 现在 |
+|---|---|
+| `Set-Cookie` 原样回传（登录态落库） | `Result.Cookies` 字段 |
+| 3xx `Location` 透传 | 删除：进程内实现不产生重定向，这条分支从未被走到 |
+| 请求体流式透传（云盘上传） | `api.upload(ctx, cookie, contentType, io.Reader)` 直接收 `r.Body` |
+| 44 条路径通用转发 | 保留：`api.call(ctx, path, params, cookie)` 仍是表驱动 |
+
+代价对比：阶段 34 的链路是「`httptest` 风格往返 → JSON 编码 → JSON 解码 → 业务层」，
+现在只剩最后一步。那一次 JSON 编解码不是浪费——它正是「新增接口只改一行路由表」
+这个性质的来源。
+
+### 13.3 实现范围
+
+- **48 个接口**：44 条表驱动路由（含 `/song/url` 降级回退、`/song/url/v1` 直链）
   + 4 条专门实现（`/login/qr/key`、`/login/qr/create`、`/playlist/track/all`、`/cloud`）
 - **四种通道**：weapi（双层 AES-CBC + RSA 无填充）、eapi（AES-ECB + md5 摘要，
-  Enhanced 版的默认通道）、linuxapi（`/song/url` 老接口）、明文 api
-- **三个本地实现**：扫码二维码（`go-qrcode` 生成 PNG data URL，无需上游）、
+  默认通道）、linuxapi（`/song/url` 老接口）、明文 api
+- **三个本地实现**：扫码二维码（`go-qrcode` 生成 PNG data URL，不请求上游）、
   `/playlist/track/all`（两段式：先取歌单 trackIds 再批量 song/detail）、
-  `/cloud`（云盘上传：判重 → 凭证 → NOS 直传 → 回填信息 → 发布）
+  `/cloud`（判重 → 凭证 → NOS 直传 → 回填信息 → 发布）
 - **依赖**：标准库 + `skip2/go-qrcode` + `dhowden/tag`（读 ID3/FLAC/MP4 标签，
-  仅上传时用，纯 Go 无传递依赖），没有任何网易云 SDK，加密与协议全部自己实现
+  仅上传时用，纯 Go 无传递依赖），没有任何网易云 SDK
 
-### 13.3 验收口径
+### 13.4 验收口径
 
-- `internal/ncmapi` 单测 24 项：加密往返（eapi/linuxapi 可解密回原文并校验摘要）、
-  44 条路径全覆盖、参数映射快照、二维码本地生成、两段式取数、进程内传输的
-  HTTP 语义、云盘上传五步链路（含 `needUpload=false` 与 objectKey `%2F` 编码）
-- `NCM_LIVE=1 go test ./internal/ncmapi -run TestLiveUpstream`：匿名打真实上游
+- `internal/ncm` 单测 24 项：加密往返（eapi/linuxapi 可解密回原文并校验摘要）、
+  44 条路径全覆盖、参数映射快照、二维码本地生成、两段式取数、转发层剥客户端登录态、
+  云盘上传五步链（含 `needUpload=false` 与 objectKey `%2F` 编码）
+- `NCM_LIVE=1 go test ./internal/ncm -run TestLiveUpstream`：匿名打真实上游
   12 个端点，全部返回预期 code（200 / 未登录的 301）
-- 端到端（真实后端 + curl）：`banner`、`search`、`song/detail`、`lyric`、
-  `song/url/v1`、`playlist/detail`、`comment/new`、`toplist`、`personalized`
-  与扫码三步（unikey → qrimg → 801）全部通过
+- 端到端（真实后端 + curl）：`banner`、`cloudsearch`、`song/detail`、`lyric`、
+  `song/url/v1`、`playlist/detail`、`comment/new`、`toplist`、`personalized`、
+  `user/account`、`search/suggest`、`personal_fm` 全 200；扫码三步
+  （unikey 36 字符 → PNG data URL → 801）通过；未知路径 404
 - `regression-sweep.sh` 13 个验收脚本全绿
 
-### 13.4 已知边界（改这块之前必须知道）
+### 13.5 已知边界（改这块之前必须知道）
 
 - **密钥轮换是长期负债**：`presetKey`、RSA 公钥、`eapiKey` 一换这里就要跟。
   出处是 Node 版 `util/crypto.js`，两边同源，改时照抄即可。
-- **没有 anonymous_token / realIP / 解灰**：Enhanced 版用匿名 token 兜底未登录
-  场景、随机国内 IP 绕地域限制、unblockmusic 解灰。这里都没做，后果是海外 IP
-  更容易吃到 460、未登录时部分接口权限更低。需要这些能力时指向外部服务。
-- **xeapi / neapi 未实现**：Enhanced 版给 `/song/url/v1` 用 xeapi（x25519），
-  这里用 weapi。实测 VIP 账号能拿到真 FLAC（798–1508 kbps，`type=flac`），
-  所以没有跟进的必要；哪天 weapi 被关掉，这是第一个要补的地方。
-- **`os` 必须显式注入 pc**：SDK 默认 `os=ios`，网页通道必须 `os=pc`，否则
-  `personal_fm` 这类接口行为会漂（匿名只给 1 首而不是 3 首）。`profileFor()` 负责这件事。
-- **云盘上传走的是「NOS 直传」**：`/cloud` 会先落临时文件（拿 md5 与 ID3 标签），
+- **没有 anonymous_token / realIP / 解灰**：官方客户端那套匿名兜底、随机国内 IP、
+  unblockmusic 解灰都没做，后果是海外 IP 更容易吃到 460、未登录时部分接口权限更低。
+  这是刻意的取舍——现在没有外部服务可退回，需要这些能力只能在这里补。
+- **xeapi / neapi 未实现**：`/song/url/v1` 用 weapi。实测 VIP 账号能拿到真 FLAC
+  （798–1508 kbps，`type=flac`），所以没有跟进的必要；哪天 weapi 被关掉，
+  这是第一个要补的地方。
+- **`os` 必须显式注入 pc**：默认 `os=ios` 时 `personal_fm` 这类接口行为会漂
+  （匿名只给 1 首而不是 3 首）。`profileFor()` 负责这件事。
+- **云盘上传走「NOS 直传」**：`/cloud` 先落临时文件（拿 md5 与 ID3 标签），
   再用 `/api/nos/token/alloc` 换 token，直接 POST 到 `wanproxy.127.net` 返回的节点，
   不经过 music.163.com。`objectKey` 里的 `/` 必须先替换成 `%2F` 再拼 URL——
   用 `url.PathEscape` 会把 `%` 二次编码、签名路径对不上。上限 512 MB。
-
-
-
-
-
+- **`/vip/info` 与 `/check/music` 不在路由表里**：前者是会员三档兜底、后者用于
+  「暂无版权」判定；两者都已有降级路径（回落到 `profile.vipType` / 通用
+  `RESOLVE_FAILED`），想补齐得先确认上游路径。
