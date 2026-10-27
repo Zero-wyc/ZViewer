@@ -4,7 +4,7 @@
  * song-control 图标数量随歌曲能力增减（B站源/弹幕/收藏/评论…最多 17 枚），
  * 内容高度超出容器时把工具栏压回范围内并开放上下滑动（hide-scrollbar 不显
  * 滚动条）。布局侧只需常挂 `max-h-full`：只在超出时约束盒子，内容自然溢出
- * 不裁剪，同时作为 scrollHeight > clientHeight 的测量依据。
+ * 不裁剪。高度测量只计入正常文档流中的按钮和间距。
  *
  * 注意：overflow 裁剪会连同 x 轴一起生效，侧挂弹窗（播放队列 side placement）
  * 会被栏体裁掉——因此仅在滚动激活时才开放 overflow，并把弹窗切换为 sheet
@@ -26,7 +26,17 @@ export function useToolbarScrollable() {
   const measure = useCallback(() => {
     const el = toolbarRef.current
     if (!el) return
-    setScrollable(el.scrollHeight > el.clientHeight + 1)
+    // scrollHeight includes the side queue's positioned overflow. Switching it
+    // to a sheet changes that height again and can alternate state indefinitely.
+    // Measure only in-flow toolbar children, independent of popup placement.
+    const contentBottom = Array.from(el.children).reduce((bottom, child) => {
+      if (!(child instanceof HTMLElement)) return bottom
+      const position = getComputedStyle(child).position
+      if (position === 'absolute' || position === 'fixed') return bottom
+      return Math.max(bottom, child.offsetTop + child.offsetHeight)
+    }, 0)
+    const paddingBottom = parseFloat(getComputedStyle(el).paddingBottom) || 0
+    setScrollable(contentBottom + paddingBottom > el.clientHeight + 1)
   }, [])
 
   // 每次渲染后复测：条件图标（喜欢/弹幕/收藏/评论…）增减会改变内容高度

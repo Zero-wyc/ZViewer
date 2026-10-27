@@ -31,6 +31,7 @@ import {
   activeQueueOf,
 } from '../store'
 import { useMusicSettingsStore, normalizeMusicLevel } from '../store-settings'
+import { resolveBilibiliAudioWithFallback, selectBilibiliAudioStream } from '../utils/bilibiliAudioStream'
 import { loudnessNormalizer } from '../audio/loudnessNormalizer'
 import {
   MUSIC_SOCKET_EVENT,
@@ -249,16 +250,15 @@ async function resolveBiliAudio(
     playUrl = (r.audioUrl ?? r.videoUrl) as string
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   } else {
-    // CLI 未开启或未连接：服务器端解析 720P MP4 直链（音视频合一，
-    // audio 元素仅出声），经后端媒体代理注入 Referer 绕过防盗链
-    const r = await resolveBilibiliWithOptions(
+    // Prefer the independent audio track and preserve the selected part's CID.
+    // The media proxy supplies the Referer required by Bilibili's CDN.
+    const r = await resolveBilibiliAudioWithFallback(options => resolveBilibiliWithOptions(
       pageUrl,
       BILI_DEFAULT_QN,
       undefined,
-      { preferMp4: true }
-    )
-    if (!r.videoUrl) throw new Error('未获取到音频地址')
-    playUrl = buildProxyUrl(r.videoUrl)
+      { ...options, cid: item.biliCid }
+    ))
+    playUrl = buildProxyUrl(selectBilibiliAudioStream(r))
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   }
   setCachedBiliAudioUrl(mapKey, playUrl)

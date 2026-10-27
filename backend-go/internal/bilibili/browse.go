@@ -709,13 +709,12 @@ type ViewSummary struct {
 
 // ViewPage 是摘要里的分集条目。
 //
-// 刻意不复用 VideoPage：那个结构带 duration，而 Node 的 /bilibili/view
-// 只下发 page/part/cid——多出来的键会让前端的分集下拉显示冗余信息，
-// 也会让两端的响应骨架对不上。
+// duration 是当前分P的秒数，一起听拆分歌单时不能使用整个 BV 的合计时长。
 type ViewPage struct {
-	Page int    `json:"page"`
-	Part string `json:"part"`
-	Cid  int64  `json:"cid"`
+	Page     int    `json:"page"`
+	Part     string `json:"part"`
+	Cid      int64  `json:"cid"`
+	Duration int    `json:"duration"`
 }
 
 // VideoSummary 按 BV 号取视频摘要（添加视频弹窗「搜索」）。
@@ -738,9 +737,10 @@ func (s *Service) VideoSummary(ctx context.Context, bvid, cookie string) (*ViewS
 			Name string `json:"name"`
 		} `json:"owner"`
 		Pages []struct {
-			Page int    `json:"page"`
-			Part string `json:"part"`
-			Cid  int64  `json:"cid"`
+			Page     int    `json:"page"`
+			Part     string `json:"part"`
+			Cid      int64  `json:"cid"`
+			Duration int    `json:"duration"`
 		} `json:"pages"`
 	}
 	if _, err := DecodeDataInto(env, &raw); err != nil {
@@ -756,7 +756,7 @@ func (s *Service) VideoSummary(ctx context.Context, bvid, cookie string) (*ViewS
 		Pages:    make([]ViewPage, 0, len(raw.Pages)),
 	}
 	for _, p := range raw.Pages {
-		summary.Pages = append(summary.Pages, ViewPage{Page: p.Page, Part: p.Part, Cid: p.Cid})
+		summary.Pages = append(summary.Pages, ViewPage{Page: p.Page, Part: p.Part, Cid: p.Cid, Duration: p.Duration})
 	}
 	return summary, nil
 }

@@ -376,7 +376,7 @@ export interface BilibiliVideoViewInfo {
   duration: number
   upName: string
   cid: number
-  pages: { page: number; part: string; cid: number }[]
+  pages: { page: number; part: string; cid: number; duration?: number }[]
 }
 
 /**
@@ -498,6 +498,8 @@ export async function resolveBilibili(
     preferMp4?: boolean
     forceDash?: boolean
     page?: number
+    cid?: number
+    audioOnly?: boolean
     /**
      * 按该影片所属房间房主的 B站 Cookie 身份解析（后端按 movieId 查房间房主）。
      * 用于观众端借用房主解析身份的场景：房主为大会员时，会员专享集拿到
@@ -516,6 +518,7 @@ export async function resolveBilibili(
   if (options?.forceDash) {
     fetchUrl += `&forceDash=true`
   }
+  if (options?.cid != null && Number.isSafeInteger(options.cid) && options.cid > 0) fetchUrl += `&cid=${options.cid}`
   if (
     options?.page != null &&
     Number.isFinite(options.page) &&
@@ -573,6 +576,8 @@ export async function resolveBilibiliWithOptions(
     preferMp4?: boolean
     forceDash?: boolean
     page?: number
+    cid?: number
+    audioOnly?: boolean
     movieId?: number
   }
 ): Promise<ResolvedSource> {
@@ -580,6 +585,8 @@ export async function resolveBilibiliWithOptions(
     preferMp4: extraOptions?.preferMp4,
     forceDash: extraOptions?.forceDash,
     page: extraOptions?.page,
+    cid: extraOptions?.cid,
+    audioOnly: extraOptions?.audioOnly,
     movieId: extraOptions?.movieId,
   })
 }

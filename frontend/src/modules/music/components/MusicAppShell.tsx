@@ -407,7 +407,7 @@ function ShellInner({
         )}
       >
         <MusicWidgetBar />
-        {queuePopupOpen && (
+        {queuePopupOpen && !playerOverlayOpen && !playerOverlayClosing && (
           <MusicQueuePopup
             socket={socket}
             roomId={roomId}
