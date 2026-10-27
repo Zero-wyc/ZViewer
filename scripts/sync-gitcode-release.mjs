@@ -93,6 +93,8 @@ const ASSETS = (process.env.ASSETS || '')
 
 /** 单次上传允许「无任何进展」多久（毫秒）。跨境慢链路给足余量，真卡死才中断。 */
 const STALL_TIMEOUT_MS = 10 * 60 * 1000;
+// 请求体发完之后只等 OBS 回包：实测偶发一直不回，别把 10 分钟耗在这里，失败重传更快
+const RESPONSE_TIMEOUT_MS = 3 * 60 * 1000;
 
 const log = (...args) => console.log('[gitcode]', ...args);
 const warn = (...args) => console.warn('[gitcode][warn]', ...args);
@@ -197,7 +199,9 @@ function putBytes(url, headers, body, { onProgress } = {}) {
           if (chunks.length < 16) chunks.push(chunk);
         });
         res.on('end', () => {
-          finish();
+          clearInterval(tick);
+          if (settled) return;
+          settled = true;
           resolve({
             status: res.statusCode,
             body: Buffer.concat(chunks).toString('utf8').slice(0, 600),
@@ -213,27 +217,32 @@ function putBytes(url, headers, body, { onProgress } = {}) {
     const tick = setInterval(() => {
       const written = req.socket ? req.socket.bytesWritten : 0;
       const seconds = (Date.now() - startedAt) / 1000;
-      const stalledFor = Date.now() - lastMark;
       if (written > lastBytes) {
         lastBytes = written;
         lastMark = Date.now();
-      } else if (stalledFor > STALL_TIMEOUT_MS) {
-        const err = new Error(`上传停滞超过 ${Math.round(STALL_TIMEOUT_MS / 60000)} 分钟，主动中断`);
-        err.fatal = true;
+      }
+      const idleFor = Date.now() - lastMark;
+      // 请求体发完之后只剩等 OBS 回包：OBS 偶发不回包，卡 10 分钟没意义，
+      // 用更短的上限尽快失败重传。
+      const limit = lastBytes >= body.length ? RESPONSE_TIMEOUT_MS : STALL_TIMEOUT_MS;
+      if (idleFor > limit) {
+        const err = new Error(
+          lastBytes >= body.length
+            ? `请求体已发完，等待 OBS 响应超过 ${Math.round(limit / 1000)}s，主动中断`
+            : `上传停滞超过 ${Math.round(limit / 60000)} 分钟，主动中断`,
+        );
         req.destroy(err);
         return;
       }
-      if (onProgress) onProgress({ written, total: body.length, seconds, stalledFor });
+      if (onProgress) onProgress({ written, total: body.length, seconds, idleFor });
     }, 15000);
 
-    function finish() {
-      settled = true;
-      clearInterval(tick);
-    }
-
     req.on('error', (err) => {
-      finish();
+      clearInterval(tick);
       if (settled) return;
+      settled = true;
+      // 注意：不能先置 settled 再判断，否则这里会直接 return，
+      // Promise 永远不 settle，Node 在没有待处理句柄时以 0 退出 —— job 变绿但什么都没传上去。
       reject(err);
     });
     req.end(body);
@@ -501,7 +510,6 @@ async function main() {
         entry.status = 'failed';
         entry.detail = err.message;
         warn(`${tagText} 第 ${attempt}/${UPLOAD_ATTEMPTS} 次失败：${err.message}`);
-        if (err.fatal) break;
         if (attempt < UPLOAD_ATTEMPTS) await sleep(attempt * 5000);
       }
     }
