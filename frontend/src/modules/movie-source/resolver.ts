@@ -26,6 +26,8 @@ import { resolveCmsEpisode } from '@/modules/cms/api'
 import { buildAntileechProxyUrl } from '@/lib/antileech-proxy-url'
 import type { CmsSourceMeta } from '@/modules/cms/types'
 import { usesDirectMedia } from './media-policy'
+import { getEmbyApiMovieSource } from '@/modules/emby/embyApi'
+import { getEmbyMediaSourceId } from '@/modules/emby/playbackMode'
 
 /** 房主刷新恢复时由后端返回的最近一次播放状态（源相关子集） */
 export interface RecoverySourceInfo {
@@ -684,7 +686,31 @@ export async function resolveMovieSource({
     }
   }
 
-  // 其余源（webdav / openlist / ftp / smb / emby / jellyfin / url 等）：
+  // Refresh Emby capabilities and expiring credentials at playback time. This
+  // also repairs old HLS snapshots when the upstream forbids transcoding.
+  if (sourceType === 'emby' || sourceType === 'jellyfin') {
+    const source = await getEmbyApiMovieSource(
+      sourceType,
+      movie.id,
+      getEmbyMediaSourceId(movie.url),
+      movie.directLink === true
+    )
+    const sourceUrl = movie.directLink
+      ? source.resolvedDirectUrl || source.directUrl
+      : source.streamUrl
+    if (!sourceUrl) throw new Error('未取得影片播放地址')
+    return {
+      sourceUrl,
+      format: source.format,
+      audioCodec: source.audioCodec ?? undefined,
+      duration: source.duration || movie.duration || 0,
+      reusedRecoveryUrl: false,
+      playsvideoEnabled: movie.playsvideoEnabled !== false,
+      noProxyFallback: movie.directLink === true,
+    }
+  }
+
+  // 其余源（webdav / openlist / ftp / smb / url 等）：
   // format 兜底从 URL 扩展名自动推断。MKV 无原生快速路径：一律交给
   // playsvideo 引擎处理（见 shouldUsePlaysVideo——浏览器对 MKV 的原生
   // 支持仅限 H.264/AAC 且容错面窄，DTS/AC3 等音轨还需浏览器端转码），

@@ -42,10 +42,12 @@ export interface EmbyMovieSourceResult {
   /** 按 movieId 的播放 URL（/api/{api}/stream?movieId=N&ms=X），观众可访问 */
   streamUrl?: string
   directUrl?: string
+  resolvedDirectUrl?: string
   format: MediaFormat
   duration: number
   audioCodec?: string | null
   needsAudioTranscode?: boolean
+  audioTranscodeDisabled?: boolean
   versions: EmbyVersionInfo[]
   mediaSourceId: string
   multiVersion: boolean
@@ -60,10 +62,12 @@ export interface EmbyMovieSourceResult {
 export async function getEmbyApiMovieSource(
   api: 'emby' | 'jellyfin',
   movieId: number,
-  mediaSourceId?: string
+  mediaSourceId?: string,
+  resolveDirectRedirects = false
 ): Promise<EmbyMovieSourceResult> {
   const query = new URLSearchParams({ movieId: String(movieId) })
   if (mediaSourceId) query.set('ms', mediaSourceId)
+  if (resolveDirectRedirects) query.set('direct', '1')
   const res = await apiFetch(`/api/${api}/movie-source?${query.toString()}`)
   const data = (await res.json()) as {
     success: boolean
@@ -72,10 +76,12 @@ export async function getEmbyApiMovieSource(
     videoUrl?: string
     streamUrl?: string
     directUrl?: string
+    resolvedDirectUrl?: string
     format?: MediaFormat
     duration?: number
     audioCodec?: string | null
     needsAudioTranscode?: boolean
+    audioTranscodeDisabled?: boolean
     versions?: EmbyVersionInfo[]
     mediaSourceId?: string
     multiVersion?: boolean
@@ -88,10 +94,12 @@ export async function getEmbyApiMovieSource(
     videoUrl: data.videoUrl,
     streamUrl: data.streamUrl,
     directUrl: data.directUrl,
+    resolvedDirectUrl: data.resolvedDirectUrl,
     format: data.format || 'mp4',
     duration: data.duration ?? 0,
     audioCodec: data.audioCodec ?? null,
     needsAudioTranscode: data.needsAudioTranscode === true,
+    audioTranscodeDisabled: data.audioTranscodeDisabled === true,
     versions: data.versions || [],
     mediaSourceId: data.mediaSourceId || '',
     multiVersion: data.multiVersion === true,

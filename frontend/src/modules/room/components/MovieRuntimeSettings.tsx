@@ -5,7 +5,8 @@
  * 与添加影片面板的区别：这里的改动直接写回影片记录（updateMovie）并广播
  * 给全房间，属性能实时生效的运行开关，而非「对下一次添加生效」。
  *
- * - 服务器中转（movie.serverProxy）：ani-subs / Kazumi / CMS 三类数据源。
+ * - 服务器中转：ani-subs / Kazumi / CMS 使用 movie.serverProxy；
+ *   Emby / Jellyfin 使用 movie.directLink（取反），内网挂载隐藏切换项。
  *   解析链路每次播放都读该字段（resolveAnimeOnline / resolveKazumiOnline /
  *   resolveCmsOnline），所以改完需要重解析当前源。
  * - 浏览器转码（movie.playsvideoEnabled）：所有非 B站 影片。
@@ -24,6 +25,11 @@ import {
 import { Switch } from '@/components/ui'
 import { message } from '@/components/ui/message'
 import { useRoomStore } from '@/store/roomStore'
+import { getEmbyApiMovieSource } from '@/modules/emby/embyApi'
+import {
+  canSwitchEmbyPlayback,
+  getEmbyMediaSourceId,
+} from '@/modules/emby/playbackMode'
 import { cn } from '@/lib/utils'
 
 interface SwitchCardProps {
@@ -133,12 +139,17 @@ export function MovieRuntimeSettings({
 
   if (!movie) return null
 
-  // 三类数据源（ani-subs / Kazumi / CMS）都有「服务器中转」概念
+  // 内网 Emby/Jellyfin 沿用挂载策略，只能中转；其余地址均可切换。
   const showServerProxy =
     movie.sourceType === 'anime' ||
     movie.sourceType === 'kazumi' ||
-    movie.sourceType === 'cms'
-  const serverProxy = movie.serverProxy === true
+    movie.sourceType === 'cms' ||
+    canSwitchEmbyPlayback(movie)
+  const isEmbyLike =
+    movie.sourceType === 'emby' || movie.sourceType === 'jellyfin'
+  const serverProxy = isEmbyLike
+    ? movie.directLink !== true
+    : movie.serverProxy === true
   // 缺省视为开启，与 shouldUsePlaysVideo 的 `!== false` 宽松语义一致
   const playsvideoEnabled = movie.playsvideoEnabled !== false
 
@@ -156,7 +167,25 @@ export function MovieRuntimeSettings({
     if (!isHost || !roomId || saving) return
     setSaving(true)
     try {
-      await updateMovie(roomId, movieId, patch)
+      if (isEmbyLike && patch.serverProxy !== undefined) {
+        const api = movie.sourceType as 'emby' | 'jellyfin'
+        const source = await getEmbyApiMovieSource(
+          api,
+          movieId,
+          getEmbyMediaSourceId(movie.url)
+        )
+        const directLink = !patch.serverProxy
+        const url = directLink ? source.directUrl : source.streamUrl
+        if (!url) throw new Error('未取得影片播放地址')
+        await updateMovie(roomId, movieId, {
+          directLink,
+          url,
+          format: source.format,
+          ...(source.audioCodec ? { audioCodec: source.audioCodec } : {}),
+        })
+      } else {
+        await updateMovie(roomId, movieId, patch)
+      }
       // 正在播放的影片才需要即时重解析/重挂载；其余影片的值在下次加载时生效
       if (movieId === currentMovieId) {
         triggerMovieSourceReload()

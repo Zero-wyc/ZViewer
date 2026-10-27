@@ -231,6 +231,7 @@ func newTestEnv(t *testing.T) *testEnv {
 		// 字幕端点的 requireMovieReadAccess 要读 movie 行。
 		Movies: movies,
 		Mounts: mounts,
+		Stream: streamResolver,
 
 		// 管理端房间端点要读写 room / session；RoomSvc 保持 nil，
 		// 于是删除走 store 的级联（房间层的内存清理由 internal/room 的测试覆盖）。

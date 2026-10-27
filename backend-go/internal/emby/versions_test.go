@@ -218,6 +218,33 @@ func TestBuildResolvePayloadSingleVersion(t *testing.T) {
 	}
 }
 
+func TestBuildResolvePayloadRespectsDisabledTranscoding(t *testing.T) {
+	for _, prefix := range []string{"emby", "jellyfin"} {
+		t.Run(prefix, func(t *testing.T) {
+			sources := `[{"Id":"ms-dts","Path":"/media/episode.mkv","Container":"mkv","SupportsTranscoding":false,"MediaStreams":[{"Type":"Audio","Codec":"dts"}]}]`
+			session, baseURL := newFakeSession(t, sources)
+			noHTTPS := false
+			mount := &store.Mount{ID: 7, ServerURL: &baseURL, HttpsDirect: &noHTTPS}
+			movieID := int64(42)
+			payload, err := BuildResolvePayload(context.Background(), ResolveParams{
+				Session: session, Mount: mount, ItemID: "item-1", MountID: 7, Prefix: prefix, MovieID: &movieID,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if payload["format"] != "mkv" || payload["audioTranscodeDisabled"] != true || payload["needsAudioTranscode"] != true {
+				t.Fatalf("disabled transcoding must preserve MKV/DTS: %#v", payload)
+			}
+			if payload["streamUrl"] != "/api/"+prefix+"/stream?movieId=42&at=0" {
+				t.Fatal(payload["streamUrl"])
+			}
+			if direct := payload["directUrl"].(string); !strings.Contains(direct, "/stream?static=true") || strings.Contains(direct, "main.m3u8") {
+				t.Fatal("disabled transcoding returned HLS", direct)
+			}
+		})
+	}
+}
+
 func TestBuildResolvePayloadMultiVersionAndTranscode(t *testing.T) {
 	sources := `[
 		{"Id":"ms-hd","Path":"/media/a.mkv","Container":"mkv",

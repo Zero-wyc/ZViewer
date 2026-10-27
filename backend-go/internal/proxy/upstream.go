@@ -102,6 +102,52 @@ type HTTPOptions struct {
 	Client *http.Client
 }
 
+// ResolveUpstreamURL follows a media gateway's redirects without relaying its
+// media body. It shares the proxy's per-hop credential and target policy.
+// A final CDN can allow CORS even when the gateway's redirect response does not.
+func ResolveUpstreamURL(ctx context.Context, opts HTTPOptions) (string, error) {
+	timeout := 10 * time.Second
+	if opts.TimeoutMs > 0 {
+		timeout = time.Duration(opts.TimeoutMs) * time.Millisecond
+	}
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	client := opts.Client
+	if client == nil {
+		client = defaultClient()
+		if opts.PublicOnly {
+			client = publicClient
+		}
+	}
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		req, err := http.NewRequestWithContext(probeCtx, method, opts.URL, nil)
+		if err != nil {
+			return "", err
+		}
+		// Servers that reject HEAD get a single-byte GET, closed at headers.
+		if method == http.MethodGet {
+			req.Header.Set("Range", "bytes=0-0")
+		}
+		state := newAttemptState(probeCtx, timeout)
+		resp, finalURL, err := state.fetch(client, req, opts)
+		state.stopTimer()
+		if err != nil {
+			state.cancel()
+			return "", err
+		}
+		resp.Body.Close()
+		state.cancel()
+		if method == http.MethodHead && (resp.StatusCode == 405 || resp.StatusCode == 501) {
+			continue
+		}
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			return "", fmt.Errorf("media redirect returned HTTP %d", resp.StatusCode)
+		}
+		return finalURL, nil
+	}
+	return "", errors.New("media redirect resolution failed")
+}
+
 // ProxyHTTPUpstream 代理一个 HTTP 上游资源。
 //
 // 行为约定（与 Node 版一致，逐条都是踩过坑的）：

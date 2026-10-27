@@ -131,6 +131,8 @@ type ResolveParams struct {
 	MediaSourceID string
 	// MovieID 提供时额外返回 streamUrl（观众可访问，不依赖请求者自有挂载）。
 	MovieID *int64
+	// ResolveDirectRedirects is requested only for actual direct playback.
+	ResolveDirectRedirects bool
 }
 
 // BuildResolvePayload 构建 resolve / movie-source 的统一响应。
@@ -184,7 +186,12 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 		formatSource = *source.Path
 	}
 	format := string(proxy.DetectMediaFormat(formatSource))
-	if needsAudioTranscode {
+	// Some hosted libraries forbid transcoding and redirect even main.m3u8 to
+	// the original file. Keep its container so the browser can handle MKV/DTS.
+	transcodingAllowed := source.SupportsTranscoding == nil || *source.SupportsTranscoding
+	audioTranscodeDisabled := needsAudioTranscode && !transcodingAllowed
+	useAudioTranscode := needsAudioTranscode && !audioTranscodeDisabled
+	if useAudioTranscode {
 		format = "hls"
 	}
 
@@ -196,8 +203,11 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 		upstreamMsQuery = "&MediaSourceId=" + netutil.EncodeURIComponent(source.ID)
 	}
 	transcodeQuery := ""
-	if needsAudioTranscode {
+	if useAudioTranscode {
 		transcodeQuery = "&at=1"
+	} else if !transcodingAllowed {
+		// Explicitly override legacy movie rows whose persisted format is hls.
+		transcodeQuery = "&at=0"
 	}
 
 	itemEncoded := netutil.EncodeURIComponent(params.ItemID)
@@ -216,7 +226,7 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 	token := params.Session.Token()
 	baseURL := params.Session.Client.BaseURL
 	var directURLRaw string
-	if needsAudioTranscode {
+	if useAudioTranscode {
 		directURLRaw = baseURL + "/emby/Videos/" + itemEncoded +
 			"/main.m3u8?api_key=" + token +
 			"&AudioCodec=aac&TranscodingMaxAudioChannels=2" +
@@ -229,16 +239,17 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 
 	// format 是 'hls' 时前端才会挂 HLS 引擎，写成别的值等于播放不了。
 	payload := map[string]any{
-		"title":               title,
-		"videoUrl":            proxyURL,
-		"directUrl":           directURL,
-		"format":              format,
-		"duration":            0,
-		"audioCodec":          audioCodec,
-		"needsAudioTranscode": needsAudioTranscode,
-		"versions":            versions,
-		"mediaSourceId":       source.ID,
-		"multiVersion":        len(sources) > 1,
+		"title":                  title,
+		"videoUrl":               proxyURL,
+		"directUrl":              directURL,
+		"format":                 format,
+		"duration":               0,
+		"audioCodec":             audioCodec,
+		"needsAudioTranscode":    needsAudioTranscode,
+		"audioTranscodeDisabled": audioTranscodeDisabled,
+		"versions":               versions,
+		"mediaSourceId":          source.ID,
+		"multiVersion":           len(sources) > 1,
 		params.Prefix: map[string]any{
 			"itemId":    params.ItemID,
 			"container": containerValue(source.Container),
@@ -246,6 +257,20 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 	}
 	if params.MovieID != nil {
 		payload["streamUrl"] = streamURL
+	}
+	if params.ResolveDirectRedirects && !useAudioTranscode {
+		resolvedDirectURL, err := proxy.ResolveUpstreamURL(ctx, proxy.HTTPOptions{
+			URL: directURL,
+			Headers: proxy.UpstreamHeaders{Extra: map[string]string{
+				"X-Emby-Token": token, "Referer": baseURL,
+			}},
+		})
+		if err != nil {
+			return nil, &Error{Message: "解析直连媒体地址失败", Code: CodeUnreachable}
+		}
+		// Keep directUrl as the stable item/version identity. The signed CDN URL
+		// is ephemeral and must never replace movie.url in the database.
+		payload["resolvedDirectUrl"] = resolvedDirectURL
 	}
 	return payload, nil
 }
