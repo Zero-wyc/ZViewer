@@ -50,9 +50,12 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
+          # gh 需要仓库上下文；workflow_dispatch 进来时还没 checkout，没有 .git，
+          # 只能靠 GH_REPO 指定，否则 gh 会报 "not a git repository"。
           TAG="${INPUT_TAG}"
           if [ -z "$TAG" ]; then
             if [ "$RUN_BRANCH" = "main" ]; then
