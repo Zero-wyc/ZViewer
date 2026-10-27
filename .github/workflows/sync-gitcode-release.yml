@@ -1,0 +1,212 @@
+# 把 GitHub 上刚发布的 Release 同步到 GitCode（大陆镜像）。
+#
+# 为什么不用 `on: release`：Release 是 build.yml 用仓库自带的 GITHUB_TOKEN 创建的，
+# 而「由 GITHUB_TOKEN 触发的事件不会产生新的 workflow run」（GitHub 的防递归规则），
+# 所以 release 事件在本仓库永远不会落地。这里改听 build.yml 的 workflow_run 完成事件，
+# 等价于「有新 Release 发布就自动同步」，且天然排在构建与 GitHub 上传之后。
+#
+# 与构建解耦：GitCode 侧的同步失败（跨境慢链路、只读镜像仓）不再拖累 GitHub 发版；
+# 反过来也不需要重跑整个构建，直接在 Actions 里 Re-run 本 workflow 即可重试。
+
+name: Sync Release to GitCode
+
+on:
+  workflow_run:
+    workflows: ["Build (Single-File + Windows GUI)"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 要同步的 GitHub Release tag（latest = main 分支镜像；留空取最新正式版）
+        required: false
+
+permissions:
+  contents: read
+  actions: read
+
+# 同一时间只跑一轮：latest 会被频繁重建，两轮并发会把同一批大文件重复上传。
+concurrency:
+  group: sync-gitcode-release
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    # 构建失败/取消时没有可同步的 Release；build.yml 的手动触发只出 artifact 不发版，也跳过。
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+    runs-on: ubuntu-latest
+    # 三个附件共约 130MB，跨境传到华为云 OBS，给足上限
+    timeout-minutes: 90
+    env:
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+      GITCODE_OWNER: Zero-wyc
+      GITCODE_REPO: ZViewer
+    steps:
+      # 先算出「要同步哪个 GitHub Release、对应 GitCode 的哪个 tag」
+      - name: Resolve target release
+        id: resolve
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          TAG="${INPUT_TAG}"
+          if [ -z "$TAG" ]; then
+            if [ "$RUN_BRANCH" = "main" ]; then
+              # main 分支的构建产物发布在移动 tag latest 上
+              TAG=latest
+            elif [ -n "$RUN_BRANCH" ]; then
+              # tag 推送触发的构建：head_branch 就是 tag 名
+              TAG="$RUN_BRANCH"
+            else
+              # 手动触发且没填 tag：取 GitHub 上最新的正式版
+              TAG=$(gh release view --json tagName --jq '.tagName')
+            fi
+          fi
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "::error::无法确定要同步的 Release tag"
+            exit 1
+          fi
+
+          INFO=$(gh release view "$TAG" --json name,isPrerelease --jq '[.name, .isPrerelease] | @tsv')
+          NAME=${INFO%%$'\t'*}
+          IS_PRE=${INFO##*$'\t'}
+
+          # GitCode 的 /releases/latest 是「最新 Release」的别名，按 tag 寻址会打到正式版，
+          # 所以 main 分支的镜像 Release 用 dev 这个 tag。
+          if [ "$TAG" = "latest" ]; then
+            GC_TAG=dev
+          else
+            GC_TAG="$TAG"
+          fi
+
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "gitcode_tag=$GC_TAG" >> "$GITHUB_OUTPUT"
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${IS_PRE:-false}" >> "$GITHUB_OUTPUT"
+          echo "GitHub Release $TAG（prerelease=$IS_PRE）→ GitCode $GC_TAG"
+
+      - name: Checkout release tag
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ steps.resolve.outputs.tag }}
+          fetch-depth: 0
+
+      # main 推送时若 HEAD 已被 v* tag 指向，build.yml 的 gate 会跳过 dev 构建、不产生新
+      # Release。这一轮没有可同步的东西，留给版本 tag 那一轮，避免白传 130MB。
+      - name: Check whether this run produced a Release
+        id: gate
+        if: steps.resolve.outputs.tag == 'latest'
+        shell: bash
+        run: |
+          # 不用 `git tag | grep -q`：grep 提前退出会让 git tag 收到 SIGPIPE，
+          # 配合 pipefail 会把「命中」判成失败。
+          TAGS=$(git tag --points-at HEAD | grep '^v' || true)
+          if [ -n "$TAGS" ]; then
+            echo "HEAD 已被版本 tag 指向（$(echo $TAGS)），本轮没有新 Release，跳过"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download release assets
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download "${{ steps.resolve.outputs.tag }}" --dir . --clobber
+          ls -lh zviewer-*
+
+      # GitCode 与 GitHub 的下载地址不同，正文里的直链要换成本站地址；
+      # 否则「文件列表加载不出来」时用户点到的仍是 GitHub 直链。
+      - name: Generate GitCode release body
+        if: steps.gate.outputs.skip != 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.resolve.outputs.tag }}"
+          gh release view "$TAG" --json body --jq '.body // ""' > release_body.md
+          sed -E \
+            "s#https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/#https://gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}/releases/download/${{ steps.resolve.outputs.gitcode_tag }}/#g" \
+            release_body.md > release_body.gitcode.md
+          grep -c 'gitcode.com' release_body.gitcode.md || true
+
+      # 注意：GitCode 的「仓库镜像 → Pull」会让仓库只读（官方限制：禁用推送代码/Tag/建 Release），
+      # 项目里必须关掉 Pull 镜像，否则整步会被 403 拒绝。
+      - name: Push tag to GitCode
+        id: gitcode-push
+        if: steps.gate.outputs.skip != 'true' && env.GITCODE_TOKEN != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          GIT_TERMINAL_PROMPT: '0'
+          SOURCE_TAG: ${{ steps.resolve.outputs.tag }}
+          GC_TAG: ${{ steps.resolve.outputs.gitcode_tag }}
+        run: |
+          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
+          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
+          HINT='GitCode 拒绝写入：provider=image repository（Pull 镜像仓只读）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑；关闭后代码同步由本 workflow 负责。'
+          # 只读镜像仓的重试没有意义：标记后跳过后续建 Release，只留一条可操作的报错
+          push_or_stop() {
+            local log
+            if log=$(git push "$@" 2>&1); then
+              echo "$log"
+              return 0
+            fi
+            echo "$log"
+            if echo "$log" | grep -qi 'image repository'; then
+              echo "::error::$HINT"
+              echo "readonly=true" >> "$GITHUB_OUTPUT"
+              return 1
+            fi
+            return 2
+          }
+          git tag -f "$GC_TAG" HEAD
+          set +e
+          if [ "$SOURCE_TAG" = "latest" ]; then
+            # main 构建：主线与移动 tag dev 一起同步
+            push_or_stop gitcode "HEAD:refs/heads/main"
+            CODE=$?
+            if [ "$CODE" = 0 ]; then
+              push_or_stop gitcode "refs/tags/${GC_TAG}:refs/tags/${GC_TAG}" --force
+              CODE=$?
+            fi
+          else
+            # 版本 tag：commit 对象随 tag 一起送达，不去动镜像仓库的分支
+            push_or_stop gitcode "refs/tags/${GC_TAG}:refs/tags/${GC_TAG}" --force
+            CODE=$?
+            # 发版时 main 与 tag 一起推、gate 跳过了 dev 构建的情况：这个 tag 恰好就是
+            # GitHub main 的尖端，顺手把主线同步过去（非快进失败只警告，不倒推镜像 main）。
+            if [ "$CODE" = 0 ] && [ "$(git ls-remote origin refs/heads/main | cut -f1)" = "$(git rev-parse HEAD)" ]; then
+              push_or_stop gitcode "HEAD:refs/heads/main" || echo "::warning::GitCode main 未更新（非快进或被改写）"
+            fi
+          fi
+          # 1 = 只读镜像仓（已输出可操作的报错），按绿色跳过；其它失败照常标红
+          [ "$CODE" = 1 ] && exit 0
+          exit "$CODE"
+
+      # 用 space-ast/action-git-release 发布：它的 GitCode provider 只认带 id 的 attach 记录，
+      # PUT 成功但平台没登记时判失败并重传；400/405 还会回退成 multipart POST。
+      - name: Publish to GitCode Release
+        if: steps.gate.outputs.skip != 'true' && env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
+        uses: space-ast/action-git-release@v1
+        with:
+          platform: gitcode
+          token: ${{ secrets.GITCODE_TOKEN }}
+          repository: ${{ env.GITCODE_OWNER }}/${{ env.GITCODE_REPO }}
+          tag_name: ${{ steps.resolve.outputs.gitcode_tag }}
+          name: ${{ steps.resolve.outputs.name }}
+          body_path: release_body.gitcode.md
+          # GitCode 的预发布只能靠 release_status（pre/latest）表达，沿用 GitHub 同一个
+          # Release 的标记，否则预发布会被当成正式版推给用户（更新源默认就是 GitCode）。
+          prerelease: ${{ steps.resolve.outputs.prerelease }}
+          target_commitish: main
+          files: |
+            zviewer-linux-x64.tar.gz
+            zviewer-windows-x64.zip
+            zviewer-windows-x64-GUI.zip
+          overwrite_files: 'true'
+          fail_on_unmatched_files: 'true'

@@ -252,17 +252,9 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: write
-    env:
-      # 大陆镜像（GitCode，CSDN 平台）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
-      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
-      GITCODE_OWNER: Zero-wyc
-      GITCODE_REPO: ZViewer
     steps:
-      # 供 GitCode 同步步骤推送 tag（附件下载不依赖 checkout，单独放在最前）
       - name: Checkout
         uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
 
       - name: Download all artifacts
         uses: actions/download-artifact@v7
@@ -275,7 +267,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # GitHub 与 GitCode 共用同一份说明，避免两边文案漂移
+      # GitCode 镜像由 sync-gitcode-release.yml 读取这份正文并改写直链，这里只写 GitHub 版
       - name: Generate release body
         shell: bash
         run: |
@@ -299,16 +291,6 @@ jobs:
           } > release_body_latest.md
         env:
           COMMIT_TS: ${{ github.event.head_commit.timestamp }}
-
-      # GitCode 与 GitHub 的下载地址不同，直接复用上面那份说明会让大陆用户点到 GitHub 直链。
-      # 单独生成一份改写后的正文（GitHub 那边仍保留 GitHub 直链），发布时传给 GitCode。
-      - name: Generate GitCode release body
-        shell: bash
-        run: |
-          sed -E \
-            "s#https://github.com/${GITHUB_REPOSITORY}/releases/download/latest/#https://gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}/releases/download/dev/#g" \
-            release_body_latest.md > release_body_latest.gitcode.md
-          grep -c 'gitcode.com' release_body_latest.gitcode.md
 
       # softprops/action-gh-release 只做"追加/覆盖同名"，不会清掉历史附件。
       # 之前 `gh release delete` 偶发失败被 `|| true` 吞掉，latest 里就留下了
@@ -343,76 +325,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # === 大陆镜像：把 tag 与附件同步到 GitCode（只做附加动作，失败不影响 GitHub 发版） ===
-      # 注意：GitCode 的「仓库镜像 → Pull」会让仓库变成只读（官方限制：禁用推送代码/Tag/建 Release），
-      # 所以这里一并负责主线同步；项目里必须关掉 Pull 镜像，否则整步会被 403 拒绝。
-      # 另注：GitCode 侧 main 分支镜像的 tag 用 `dev`，**不能叫 latest**——`/releases/latest`
-      # 在 GitCode API 里是「最新 Release」的别名，按 tag 寻址会打到正式版 Release 上。
-      - name: Push tag to GitCode
-        id: gitcode-push
-        if: env.GITCODE_TOKEN != ''
-        continue-on-error: true
-        shell: bash
-        env:
-          GIT_TERMINAL_PROMPT: '0'
-        run: |
-          git tag -f dev "${GITHUB_SHA}"
-          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
-          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
-          HINT='GitCode 拒绝写入：provider=image repository（Pull 镜像仓只读）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑；关闭后代码同步由本 workflow 负责。'
-          # 只读镜像仓的重试没有意义：标记后跳过后续建 Release，只留一条可操作的报错
-          push_or_stop() {
-            local log
-            if log=$(git push "$@" 2>&1); then
-              echo "$log"
-              return 0
-            fi
-            echo "$log"
-            if echo "$log" | grep -qi 'image repository'; then
-              echo "::error::$HINT"
-              echo "readonly=true" >> "$GITHUB_OUTPUT"
-              return 1
-            fi
-            return 2
-          }
-          # 主线：非强制推送；dev 是移动 tag，必须 --force
-          set +e
-          push_or_stop gitcode "HEAD:refs/heads/main"
-          CODE=$?
-          if [ "$CODE" = 0 ]; then
-            push_or_stop gitcode "refs/tags/dev:refs/tags/dev" --force
-            CODE=$?
-          fi
-          # 1 = 只读镜像仓（已输出可操作的报错），按绿色跳过；其它失败照常标红
-          [ "$CODE" = 1 ] && exit 0
-          exit "$CODE"
-
-      # 用 space-ast/action-git-release 发布，而不是自研脚本：
-      # 它的 GitCode provider 是照着真实仓库联调过的（space-ast/ast 的附件长期可用），
-      # 关键差异在「上传到底算不算成功」的判定——只认带 id 的 attach 记录，
-      # PUT 成功但平台没登记时判失败并重传；400/405 还会回退成 multipart POST。
-      # 自研脚本按 type !== 'source' 判定，可能把平台的中转记录当成已挂上的附件。
-      - name: Publish to GitCode Release
-        if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        uses: space-ast/action-git-release@v1
-        with:
-          platform: gitcode
-          token: ${{ secrets.GITCODE_TOKEN }}
-          repository: ${{ env.GITCODE_OWNER }}/${{ env.GITCODE_REPO }}
-          # GitCode 的 /releases/latest 是「最新 Release」别名，按 tag 寻址会打到正式版，
-          # 所以 main 分支的镜像 Release 用 dev 这个 tag。
-          tag_name: dev
-          name: Latest Build (main)
-          body_path: release_body_latest.gitcode.md
-          prerelease: 'true'
-          target_commitish: main
-          files: |
-            zviewer-linux-x64.tar.gz
-            zviewer-windows-x64.zip
-            zviewer-windows-x64-GUI.zip
-          overwrite_files: 'true'
-          fail_on_unmatched_files: 'true'
-
   # tag 推送：创建正式版 Release
   release:
     if: startsWith(github.ref, 'refs/tags/')
@@ -422,11 +334,6 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: write
-    env:
-      # 大陆镜像（GitCode，CSDN 平台）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
-      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
-      GITCODE_OWNER: Zero-wyc
-      GITCODE_REPO: ZViewer
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -486,16 +393,6 @@ jobs:
           echo "=== Generated release body ==="
           cat release_body.md
 
-      # 同上：GitCode 版正文把 GitHub 直链换成本站直链，两份正文各发各的。
-      - name: Generate GitCode release body
-        shell: bash
-        run: |
-          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
-          sed -E \
-            "s#https://github.com/${GITHUB_REPOSITORY}/releases/download/${CURRENT_TAG}/#https://gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}/releases/download/${CURRENT_TAG}/#g" \
-            release_body.md > release_body.gitcode.md
-          grep -c 'gitcode.com' release_body.gitcode.md
-
       - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:
@@ -513,66 +410,3 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # GitCode 的预发布状态只能靠 release_status 表达（pre/latest），
-      # 必须沿用 GitHub 上同一个 Release 的 prerelease 标记，否则 GitCode 会把
-      # 预发布当正式版推给用户（更新源默认就是 GitCode）。
-      - name: Read prerelease flag
-        id: pre
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          FLAG=$(gh release view "$TAG_NAME" --json isPrerelease --jq '.isPrerelease' 2>/dev/null || echo false)
-          echo "tag=$TAG_NAME prerelease=$FLAG"
-          echo "value=$FLAG" >> "$GITHUB_OUTPUT"
-
-      # === 大陆镜像：把同一份 Release 与附件发到 GitCode（附加动作，失败不影响 GitHub 发版） ===
-      # GitCode 的 Pull 镜像仓是只读的（官方限制），项目里必须关掉「仓库镜像 → Pull」。
-      - name: Push tag to GitCode
-        id: gitcode-push
-        if: env.GITCODE_TOKEN != ''
-        continue-on-error: true
-        shell: bash
-        env:
-          GIT_TERMINAL_PROMPT: '0'
-        run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          # 本地 tag 与触发构建的提交对齐（checkout 已取全 tag，这里只做兜底）
-          git tag -f "${TAG_NAME}" "${GITHUB_SHA}"
-          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
-          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
-          HINT='GitCode 拒绝写入：provider=image repository（Pull 镜像仓只读）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑；关闭后代码同步由本 workflow 负责。'
-          # 只推 tag：commit 对象随 tag 一起送达，不覆盖镜像仓库的分支
-          if ! log=$(git push gitcode "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force 2>&1); then
-            echo "$log"
-            if echo "$log" | grep -qi 'image repository'; then
-              echo "::error::$HINT"
-              echo "readonly=true" >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-            exit 1
-          fi
-          echo "$log"
-
-      # 与 release-latest 同理由：GitCode provider 来自 space-ast/action-git-release，
-      # 上传判定、重传与 multipart 回退都按真实平台行为实现过。
-      - name: Publish to GitCode Release
-        if: env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        uses: space-ast/action-git-release@v1
-        with:
-          platform: gitcode
-          token: ${{ secrets.GITCODE_TOKEN }}
-          repository: ${{ env.GITCODE_OWNER }}/${{ env.GITCODE_REPO }}
-          tag_name: ${{ github.ref_name }}
-          name: ${{ github.ref_name }}
-          body_path: release_body.gitcode.md
-          prerelease: ${{ steps.pre.outputs.value }}
-          target_commitish: main
-          files: |
-            zviewer-linux-x64.tar.gz
-            zviewer-windows-x64.zip
-            zviewer-windows-x64-GUI.zip
-          overwrite_files: 'true'
-          fail_on_unmatched_files: 'true'
