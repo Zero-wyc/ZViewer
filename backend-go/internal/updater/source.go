@@ -18,7 +18,9 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 )
 
 const (
@@ -29,6 +31,11 @@ const (
 
 	// gitCodeAPIBase 是 GitCode OpenAPI 基址。
 	gitCodeAPIBase = "https://api.gitcode.com/api/v5"
+	// gitCodeReleasesPerPage 一次取满 GitCode 的 Release 列表。
+	//
+	// GitCode 的 /releases 按 created_at **升序**返回（GitHub 是降序）：只取前 10 条
+	// 拿到的是最旧的 10 个，仓库一旦超过 10 个 Release，最新版本就再也查不到了。
+	gitCodeReleasesPerPage = 100
 	// gitCodeSiteBase 用来拼发布页地址：GitCode 的 release 列表不带 html_url。
 	gitCodeSiteBase = "https://gitcode.com"
 
@@ -122,12 +129,45 @@ func (s *Service) fetchGitHubReleases(ctx context.Context) ([]githubRelease, err
 // 响应形状与 GitHub 高度相似（tag_name / body / prerelease / assets），差异都在
 // normalizeGitCodeReleases 里抹平；这里只负责取一次列表。
 func (s *Service) fetchGitCodeReleases(ctx context.Context) ([]githubRelease, error) {
-	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=10", s.gitCodeAPI(), repoOwner, repoName)
+	apiURL := fmt.Sprintf("%s/repos/%s/%s/releases?per_page=%d",
+		s.gitCodeAPI(), repoOwner, repoName, gitCodeReleasesPerPage)
 	var releases []githubRelease
 	if err := s.httpGetJSON(ctx, apiURL, &releases); err != nil {
 		return nil, err
 	}
-	return normalizeGitCodeReleases(releases), nil
+	return sortReleasesByCreatedDesc(normalizeGitCodeReleases(releases)), nil
+}
+
+// sortReleasesByCreatedDesc 把 GitCode 的列表排成 created_at 降序。
+//
+// selectRelease 依赖「releases[0] 是最新一次构建」，GitHub 天然满足（降序返回），
+// GitCode 却是升序——不排序就会拿最旧的 Release 去做版本判定。线上表现就是：
+// 明明已经是 v5.0.7，检查更新却报「Release v5.0.2 中未找到构建产物」。
+func sortReleasesByCreatedDesc(releases []githubRelease) []githubRelease {
+	parsed := 0
+	for _, release := range releases {
+		if _, err := time.Parse(time.RFC3339, release.CreatedAt); err == nil {
+			parsed++
+		}
+	}
+	// 时间戳一个都解析不了时，按 GitCode 的原始顺序（升序）直接反转，
+	// 不让顺序退回「最旧优先」。
+	if parsed == 0 {
+		for i, j := 0, len(releases)-1; i < j; i, j = i+1, j-1 {
+			releases[i], releases[j] = releases[j], releases[i]
+		}
+		return releases
+	}
+	sort.SliceStable(releases, func(i, j int) bool {
+		ti, erri := time.Parse(time.RFC3339, releases[i].CreatedAt)
+		tj, errj := time.Parse(time.RFC3339, releases[j].CreatedAt)
+		if erri == nil && errj == nil {
+			return ti.After(tj)
+		}
+		// 个别时间戳坏掉时退回字符串比较，仍按新的在前。
+		return releases[i].CreatedAt > releases[j].CreatedAt
+	})
+	return releases
 }
 
 // normalizeGitCodeReleases 把 GitCode 的字段差异补齐成 GitHub 的形状：

@@ -148,7 +148,7 @@ func TestGetUpdateInfoFromGitCode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("不应报错: %v", err)
 	}
-	if path != "/repos/Zero-wyc/ZViewer/releases?per_page=10" {
+	if path != "/repos/Zero-wyc/ZViewer/releases?per_page=100" {
 		t.Fatalf("请求路径异常: %q", path)
 	}
 	if info.Source != SourceGitCode {
@@ -159,6 +159,64 @@ func TestGetUpdateInfoFromGitCode(t *testing.T) {
 	}
 	if info.ReleaseURL != "https://gitcode.com/Zero-wyc/ZViewer/releases/tag/v5.0.1" {
 		t.Fatalf("发布页地址异常: %q", info.ReleaseURL)
+	}
+}
+
+// TestGetUpdateInfoGitCodeAscendingOrder 复现线上问题：GitCode 的 /releases 按
+// created_at **升序**返回（GitHub 是降序），最旧的 v5.0.2 是个只有源码包的空壳
+// Release。修复前会选中 v5.0.2，报「未找到平台对应的构建产物」。
+func TestGetUpdateInfoGitCodeAscendingOrder(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, "5.0.6")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`[
+		  {
+		    "tag_name": "v5.0.2",
+		    "prerelease": false,
+		    "release_status": "none",
+		    "created_at": "2026-10-26T00:29:23+08:00",
+		    "assets": [
+		      {"name": "v5.0.2.tar.gz", "type": "source", "browser_download_url": "https://raw.gitcode.com/v5.0.2.tar.gz"}
+		    ]
+		  },
+		  {
+		    "tag_name": "v5.0.6",
+		    "prerelease": false,
+		    "release_status": "latest",
+		    "created_at": "2026-10-26T22:51:14+08:00",
+		    "assets": [
+		      {"name": "zviewer-windows-x64.zip", "type": "attach", "size": 1024,
+		       "browser_download_url": "https://gitcode.com/Zero-wyc/ZViewer/releases/download/v5.0.6/zviewer-windows-x64.zip"}
+		    ]
+		  },
+		  {
+		    "tag_name": "v5.0.7",
+		    "prerelease": false,
+		    "release_status": "latest",
+		    "created_at": "2026-10-27T01:08:19+08:00",
+		    "assets": [
+		      {"name": "zviewer-windows-x64.zip", "type": "attach", "size": 2048,
+		       "browser_download_url": "https://gitcode.com/Zero-wyc/ZViewer/releases/download/v5.0.7/zviewer-windows-x64.zip"}
+		    ]
+		  }
+		]`))
+	}))
+	defer server.Close()
+
+	svc := New(root, nil)
+	svc.Source = SourceGitCode
+	svc.GitCodeAPIBase = server.URL
+	svc.GOOS = "windows"
+	svc.SetSettingsReader(func(context.Context) (bool, string, error) { return false, "", nil })
+
+	info, err := svc.GetUpdateInfo(context.Background(), false)
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if info.RemoteVersion != "v5.0.7" || !info.HasUpdate || info.AssetSize != 2048 {
+		t.Fatalf("应取 created_at 最新的版本，实际 %+v", info)
 	}
 }
 
