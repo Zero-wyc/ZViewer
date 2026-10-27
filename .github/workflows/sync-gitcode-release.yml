@@ -1,24 +1,31 @@
 # 把 GitHub 上刚发布的 Release 同步到 GitCode（大陆镜像）。
 #
+# 触发方式：由 build.yml 在 release / release-latest 成功后以 workflow_call 调用，
+# 也可以用 workflow_dispatch 手动补同步或重试。GitCode 相关逻辑全部留在这个文件里，
+# build.yml 只负责在发版完成后调用一次。
+#
 # 为什么不用 `on: release`：Release 是 build.yml 用仓库自带的 GITHUB_TOKEN 创建的，
 # 而「由 GITHUB_TOKEN 触发的事件不会产生新的 workflow run」（GitHub 的防递归规则），
-# 所以 release 事件在本仓库永远不会落地。这里改听 build.yml 的 workflow_run 完成事件，
-# 等价于「有新 Release 发布就自动同步」，且天然排在构建与 GitHub 上传之后。
-#
-# 与构建解耦：GitCode 侧的同步失败（跨境慢链路、只读镜像仓）不再拖累 GitHub 发版；
-# 反过来也不需要重跑整个构建，直接在 Actions 里 Re-run 本 workflow 即可重试。
+# 所以 release 事件在本仓库永远不会落地。
+# 为什么不用 `on: workflow_run`：本仓库实测该事件从未投递（仓库内 workflow_run 类型的
+# run 数为 0），监听器既不会自动触发也不报错；改成同一次运行内的 workflow_call，
+# 顺序天然排在 GitHub 发布之后，不再依赖事件投递。
 
 name: Sync Release to GitCode
 
 on:
-  workflow_run:
-    workflows: ["Build (Single-File + Windows GUI)"]
-    types: [completed]
+  workflow_call:
+    inputs:
+      tag:
+        description: 要同步的 GitHub Release tag（latest = main 分支镜像）
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       tag:
         description: 要同步的 GitHub Release tag（latest = main 分支镜像；留空取最新正式版）
         required: false
+        type: string
 
 permissions:
   contents: read
@@ -31,11 +38,6 @@ concurrency:
 
 jobs:
   sync:
-    # 构建失败/取消时没有可同步的 Release；build.yml 的手动触发只出 artifact 不发版，也跳过。
-    if: >-
-      github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' &&
-       github.event.workflow_run.event == 'push')
     runs-on: ubuntu-latest
     # 三个附件共约 130MB，跨境传到华为云 OBS，给足上限
     timeout-minutes: 90
@@ -51,23 +53,14 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          RUN_BRANCH: ${{ github.event.workflow_run.head_branch }}
           INPUT_TAG: ${{ inputs.tag }}
         run: |
           # gh 需要仓库上下文；workflow_dispatch 进来时还没 checkout，没有 .git，
           # 只能靠 GH_REPO 指定，否则 gh 会报 "not a git repository"。
           TAG="${INPUT_TAG}"
           if [ -z "$TAG" ]; then
-            if [ "$RUN_BRANCH" = "main" ]; then
-              # main 分支的构建产物发布在移动 tag latest 上
-              TAG=latest
-            elif [ -n "$RUN_BRANCH" ]; then
-              # tag 推送触发的构建：head_branch 就是 tag 名
-              TAG="$RUN_BRANCH"
-            else
-              # 手动触发且没填 tag：取 GitHub 上最新的正式版
-              TAG=$(gh release view --json tagName --jq '.tagName')
-            fi
+            # 手动触发且没填 tag：取 GitHub 上最新的正式版
+            TAG=$(gh release view --json tagName --jq '.tagName')
           fi
           if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
             echo "::error::无法确定要同步的 Release tag"

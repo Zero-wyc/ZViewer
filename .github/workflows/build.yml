@@ -410,3 +410,21 @@ jobs:
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # GitHub 侧发布成功后，把同一份产物同步到 GitCode。GitCode 的下载、改写正文、
+  # 推 tag、建 Release 全部在 sync-gitcode-release.yml 里维护；这里只是唯一调用点，
+  # 保证「先发布、后同步」的顺序。同步失败不影响已发布的 GitHub Release，
+  # 需要重试时到 Actions 手动运行 Sync Release to GitCode 即可。
+  sync-gitcode:
+    needs: [release, release-latest]
+    if: >-
+      always() &&
+      (needs.release.result == 'success' || needs.release-latest.result == 'success')
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/sync-gitcode-release.yml
+    secrets: inherit
+    # tag 推送用 tag 名；main 推送的产物发布在移动 tag latest 上。
+    with:
+      tag: ${{ github.ref_type == 'tag' && github.ref_name || 'latest' }}
