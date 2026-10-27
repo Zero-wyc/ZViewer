@@ -921,14 +921,15 @@ func (s *Server) handleEmbyMovieSource(kind embyLikeKind) http.HandlerFunc {
 		}
 		id := movieID
 		payload, err := emby.BuildResolvePayload(r.Context(), emby.ResolveParams{
-			Session:       session,
-			Mount:         resolved.Mount,
-			Mounts:        s.Mounts,
-			ItemID:        *resolved.Movie.Path,
-			MountID:       resolved.Mount.ID,
-			Prefix:        kind.Prefix,
-			MediaSourceID: r.URL.Query().Get("ms"),
-			MovieID:       &id,
+			Session:                session,
+			Mount:                  resolved.Mount,
+			Mounts:                 s.Mounts,
+			ItemID:                 *resolved.Movie.Path,
+			MountID:                resolved.Mount.ID,
+			Prefix:                 kind.Prefix,
+			MediaSourceID:          r.URL.Query().Get("ms"),
+			MovieID:                &id,
+			ResolveDirectRedirects: r.URL.Query().Get("direct") == "1",
 		})
 		if err != nil {
 			s.failEmbyResolve(w, kind, err, "解析 "+kind.Label+" 影片版本失败")
@@ -1148,8 +1149,9 @@ func (s *Server) handleEmbyStream(kind embyLikeKind) http.HandlerFunc {
 		// 转码判定：resolve 阶段发现音轨不兼容时会把 format 落成 'hls'。
 		// 不能只看 movie.url 有没有 at=1 —— 代理模式新增影片时 url 会被
 		// 重写成 /api/<prefix>/stream?movieId=N，at=1 在那一步就丢了。
-		audioTranscode := r.URL.Query().Get("at") == "1" ||
-			strings.EqualFold(derefEmbyID(resolved.Movie.Format), "hls")
+		transcodeMode := r.URL.Query().Get("at")
+		audioTranscode := transcodeMode == "1" ||
+			(transcodeMode == "" && strings.EqualFold(derefEmbyID(resolved.Movie.Format), "hls"))
 		upstreamURL := embyUpstreamURL(
 			session.Client.BaseURL, session.Token(), itemID,
 			audioTranscode, r.URL.Query().Get("ms"),

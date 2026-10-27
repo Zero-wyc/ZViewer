@@ -101,14 +101,15 @@ type EmbyMediaStream struct {
 
 // EmbyMediaSrc 是 MediaSource（同一部影片的多版本）。
 type EmbyMediaSrc struct {
-	ID             string            `json:"Id"`
-	Path           *string           `json:"Path"`
-	Container      *string           `json:"Container"`
-	Size           *int64            `json:"Size"`
-	Name           *string           `json:"Name"`
-	DirectPlayURL  string            `json:"DirectPlayUrl"`
-	TranscodingURL string            `json:"TranscodingUrl"`
-	MediaStreams   []EmbyMediaStream `json:"MediaStreams"`
+	ID                  string            `json:"Id"`
+	Path                *string           `json:"Path"`
+	Container           *string           `json:"Container"`
+	Size                *int64            `json:"Size"`
+	Name                *string           `json:"Name"`
+	DirectPlayURL       string            `json:"DirectPlayUrl"`
+	TranscodingURL      string            `json:"TranscodingUrl"`
+	SupportsTranscoding *bool             `json:"SupportsTranscoding"`
+	MediaStreams        []EmbyMediaStream `json:"MediaStreams"`
 }
 
 // LoginResult 是 authenticatebyname 的结果。

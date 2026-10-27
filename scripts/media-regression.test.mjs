@@ -65,6 +65,49 @@ function loadLocalTs(file, requireFn = () => { throw new Error('Unexpected impor
 
 const syncState = loadLocalTs('frontend/src/modules/sync-playback/services/state-merge.ts');
 const mediaPolicy = loadLocalTs('frontend/src/modules/movie-source/media-policy.ts');
+const addressPolicy = loadLocalTs('frontend/src/lib/netAddress.ts');
+const embyPlayback = loadLocalTs('frontend/src/modules/emby/playbackMode.ts', name => {
+  if (name === '@/lib/netAddress') return addressPolicy;
+  throw new Error(`Unexpected import: ${name}`);
+});
+
+test('Emby/Jellyfin relay toggle hides only private addresses and preserves versions', () => {
+  for (const sourceType of ['emby', 'jellyfin']) {
+    for (const serverUrl of ['http://192.168.1.2:8096', 'http://127.0.0.1:8096', 'http://nas:8096', 'http://[::1]:8096', 'http://10.0.0.1', '192.168.1.3:8096']) {
+      assert.equal(embyPlayback.canSwitchEmbyPlayback({sourceType,serverUrl}), false, serverUrl);
+    }
+    for (const serverUrl of ['https://media.example.com', 'http://media.example.com:8096', 'https://offline.example.com']) {
+      assert.equal(embyPlayback.canSwitchEmbyPlayback({sourceType,serverUrl}), true, serverUrl);
+    }
+  }
+  assert.equal(embyPlayback.canSwitchEmbyPlayback({sourceType:'webdav',serverUrl:'https://media.example.com'}),false);
+  assert.equal(embyPlayback.getEmbyMediaSourceId('/api/emby/stream?movieId=1&ms=version%202'),'version 2');
+  assert.equal(embyPlayback.getEmbyMediaSourceId('https://media.example.com/stream?api_key=fixture&MediaSourceId=version-4k'),'version-4k');
+});
+
+test('Emby/Jellyfin playback refreshes legacy HLS and keeps direct/relay mode', async () => {
+  for (const sourceType of ['emby','jellyfin']) {
+    for (const directLink of [false,true]) {
+      let selection;
+      const resolver = loadLocalTs('frontend/src/modules/movie-source/resolver.ts', name => {
+        if (name === './media-policy') return mediaPolicy;
+        if (name === '@/modules/emby/playbackMode') return embyPlayback;
+        if (name === '@/modules/emby/embyApi') return {getEmbyApiMovieSource:async (...args)=>{
+          selection=args;
+          return {directUrl:'https://media.example.com/original.mkv',resolvedDirectUrl:'https://cdn.example.com/original.mkv?signature=fixture',streamUrl:`/api/${sourceType}/stream?movieId=1&at=0&ms=v2`,format:'mkv',audioCodec:'dts',duration:0};
+        }};
+        return {};
+      });
+      const movie={id:1,sourceType,directLink,url:`/api/${sourceType}/stream?movieId=1&ms=v2`,format:'hls',playsvideoEnabled:true};
+      const result=await resolver.resolveMovieSource({movie,sourceType});
+      assert.deepEqual(selection,[sourceType,1,'v2',directLink]);
+      assert.equal(result.format,'mkv');
+      assert.equal(result.sourceUrl,directLink?'https://cdn.example.com/original.mkv?signature=fixture':`/api/${sourceType}/stream?movieId=1&at=0&ms=v2`);
+      assert.equal(result.noProxyFallback,directLink);
+      assert.equal(result.playsvideoEnabled,true);
+    }
+  }
+});
 
 test('data-source routing and statistics honor relay OFF/ON, including MP4 and previews', () => {
   for (const sourceType of ['anime', 'kazumi', 'cms']) {

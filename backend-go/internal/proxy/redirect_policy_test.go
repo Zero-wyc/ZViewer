@@ -39,6 +39,32 @@ func TestOrdinaryProxyFollowsRedirectsWithRange(t *testing.T) {
 	}
 }
 
+func TestResolveUpstreamURLUsesBoundedGETAndStripsRedirectCredentials(t *testing.T) {
+	var gotRange, leaked bool
+	cdn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotRange = r.Method == http.MethodGet && r.Header.Get("Range") == "bytes=0-0"
+		leaked = r.Header.Get("X-Emby-Token") != "" || r.Header.Get("Authorization") != "" || r.Header.Get("Cookie") != ""
+		w.WriteHeader(206)
+		io.WriteString(w, "x")
+	}))
+	defer cdn.Close()
+	final := cdn.URL + "/episode.mkv?signature=fixture"
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodHead {
+			w.WriteHeader(405)
+			return
+		}
+		http.Redirect(w, r, final, http.StatusFound)
+	}))
+	defer gateway.Close()
+	resolved, err := ResolveUpstreamURL(context.Background(), HTTPOptions{
+		URL: gateway.URL + "/stream", Headers: UpstreamHeaders{Cookie: "fixture", Extra: map[string]string{"X-Emby-Token": "fixture", "Authorization": "fixture"}},
+	})
+	if err != nil || resolved != final || !gotRange || leaked {
+		t.Fatal(resolved, err, gotRange, leaked)
+	}
+}
+
 func TestRedirectPolicyAndCredentialsApplyToEveryHop(t *testing.T) {
 	var leaked bool
 	rec := runProxy(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
