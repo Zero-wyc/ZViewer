@@ -46,6 +46,14 @@ jobs:
       GITCODE_OWNER: Zero-wyc
       GITCODE_REPO: ZViewer
     steps:
+      # 没有令牌时后面每一步都会被 if 跳过，job 会「绿色但什么都没做」。
+      # 这里直接失败，避免误以为同步成功。
+      - name: Check GitCode token
+        if: env.GITCODE_TOKEN == ''
+        run: |
+          echo "::error::没有 GITCODE_TOKEN，无法同步到 GitCode。请在仓库 Secrets 里配置后重跑。"
+          exit 1
+
       # 先算出「要同步哪个 GitHub Release、对应 GitCode 的哪个 tag」
       - name: Resolve target release
         id: resolve
@@ -79,10 +87,12 @@ jobs:
             GC_TAG="$TAG"
           fi
 
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "gitcode_tag=$GC_TAG" >> "$GITHUB_OUTPUT"
-          echo "name=$NAME" >> "$GITHUB_OUTPUT"
-          echo "prerelease=${IS_PRE:-false}" >> "$GITHUB_OUTPUT"
+          {
+            echo "tag=$TAG"
+            echo "gitcode_tag=$GC_TAG"
+            echo "name=$NAME"
+            echo "prerelease=${IS_PRE:-false}"
+          } >> "$GITHUB_OUTPUT"
           echo "GitHub Release $TAG（prerelease=$IS_PRE）→ GitCode $GC_TAG"
 
       - name: Checkout release tag
@@ -102,7 +112,7 @@ jobs:
           # 配合 pipefail 会把「命中」判成失败。
           TAGS=$(git tag --points-at HEAD | grep '^v' || true)
           if [ -n "$TAGS" ]; then
-            echo "HEAD 已被版本 tag 指向（$(echo $TAGS)），本轮没有新 Release，跳过"
+            echo "HEAD 已被版本 tag 指向（${TAGS//$'\n'/ }），本轮没有新 Release，跳过"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -184,25 +194,33 @@ jobs:
           [ "$CODE" = 1 ] && exit 0
           exit "$CODE"
 
-      # 用 space-ast/action-git-release 发布：它的 GitCode provider 只认带 id 的 attach 记录，
-      # PUT 成功但平台没登记时判失败并重传；400/405 还会回退成 multipart POST。
+      - name: Setup Node.js 26
+        if: steps.gate.outputs.skip != 'true' && env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
+        uses: actions/setup-node@v7
+        with:
+          node-version: '26'
+
+      # 为什么不用 space-ast/action-git-release：它用 undici 的 fetch 直传 130MB 附件，
+      # 实测会卡在整个步骤里不动（v5.0.8 那次挂起 50 分钟、一个附件都没挂上，直到 job
+      # 超时才结束）。scripts/sync-gitcode-release.mjs 是 node:https 直连 PUT，带
+      # Content-Length 与「10 分钟无进展」的停滞检测，v5.0.7 实测 15 分钟传完三个包并
+      # 回读校验真的挂上了。gitcode-repair.yml 用的也是这条链路，只留一条上传路径。
       - name: Publish to GitCode Release
         if: steps.gate.outputs.skip != 'true' && env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
-        uses: space-ast/action-git-release@v1
-        with:
-          platform: gitcode
-          token: ${{ secrets.GITCODE_TOKEN }}
-          repository: ${{ env.GITCODE_OWNER }}/${{ env.GITCODE_REPO }}
-          tag_name: ${{ steps.resolve.outputs.gitcode_tag }}
-          name: ${{ steps.resolve.outputs.name }}
-          body_path: release_body.gitcode.md
-          # GitCode 的预发布只能靠 release_status（pre/latest）表达，沿用 GitHub 同一个
-          # Release 的标记，否则预发布会被当成正式版推给用户（更新源默认就是 GitCode）。
-          prerelease: ${{ steps.resolve.outputs.prerelease }}
-          target_commitish: main
-          files: |
+        shell: bash
+        env:
+          # GitCode 的 tag：main 构建是 dev，版本 tag 与 GitHub 相同
+          TAG: ${{ steps.resolve.outputs.gitcode_tag }}
+          RELEASE_NAME: ${{ steps.resolve.outputs.name }}
+          RELEASE_BODY_FILE: release_body.gitcode.md
+          PRERELEASE: ${{ steps.resolve.outputs.prerelease == 'true' && '1' || '0' }}
+          TARGET_COMMITISH: main
+          # 单个附件最多 3 次（每次停滞超过 10 分钟自动中断），最坏情况仍能在 job 超时内结束
+          UPLOAD_ATTEMPTS: '3'
+          ASSETS: >-
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip
             zviewer-windows-x64-GUI.zip
-          overwrite_files: 'true'
-          fail_on_unmatched_files: 'true'
+        run: |
+          ls -lh zviewer-*
+          node scripts/sync-gitcode-release.mjs
