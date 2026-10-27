@@ -31,9 +31,11 @@ permissions:
   contents: read
   actions: read
 
-# 同一时间只跑一轮：latest 会被频繁重建，两轮并发会把同一批大文件重复上传。
+# 只对「同一个 tag」串行：latest 会被频繁重建，两轮并发会把同一批大文件重复上传。
+# 不能用一个全局锁——某一轮卡在上传里时，会把其它 tag（包括 build 自动调用进来的一轮）
+# 全部堵在 pending，自动同步看起来就像「没触发」。
 concurrency:
-  group: sync-gitcode-release
+  group: sync-gitcode-release-${{ inputs.tag }}
   cancel-in-progress: false
 
 jobs:
