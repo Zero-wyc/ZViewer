@@ -67,9 +67,6 @@ jobs:
       - name: 补传附件并核验
         env:
           RELEASE_NAME: ${{ inputs.tag }}
-          # 已存在的同名 Release 不删不重建，只补缺失的附件（跨境链路很贵，
-          # 已经在且可用的文件会被跳过）
-          NO_RECREATE: '1'
           VERIFY_DOWNLOAD: '1'
           UPLOAD_ATTEMPTS: '3'
           ASSETS: >-

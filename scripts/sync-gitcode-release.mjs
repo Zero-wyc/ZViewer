@@ -18,16 +18,12 @@
  *   TARGET_COMMITISH     tag 在 GitCode 上不存在时用它建 tag（分支名或 commit SHA），默认 main
  *   GITCODE_API_BASE     默认 https://api.gitcode.com/api/v5
  *   DRY_RUN              1 = 只打印计划，不写远端
- *   NO_RECREATE          1 = 已存在同名 Release 时原地补传附件（不删不重建），失败重跑用
  *   DIAG                 1 = 只读诊断：打印仓库/Release/上传地址结构，不写任何东西
  *   UPLOAD_ATTEMPTS      单个附件最多尝试次数（含首次），默认 3
- *   KEEP_EMPTY_RELEASE   1 = 附件全失败时也保留 Release（默认会删掉空壳，见下）
  *
- * 行为：同名 Release 已存在则先删后建（附件随 Release 一起消失），因此可重复执行。
+ * 行为：Release 已存在时**不删不重建**（GitCode 没有删 Release 的 API，DELETE 会 405），
+ * 只把同名附件先删后传，保证页面上每个名字只有一份、且是本次构建的产物。
  * 任一附件失败都不影响其它附件，最终有失败则以退出码 1 结束。
- * **例外**：如果本次是新建的 Release、且一个附件都没挂上，会把该 Release 删掉，
- * 避免页面上只剩 4 个自动生成的源码包（用户会以为这个项目不发二进制）。
- * 部分成功（≥1 个附件挂上）不删，只把缺失的列出来。
  *
  * === 历史坑（2026-10-26 修）===
  * 旧版用内置 fetch 做附件 PUT，结果**每个 Release 都只剩 source code、一个附件都没有**：
@@ -37,9 +33,15 @@
  * 现在改为 `node:https` 直连 PUT：socket 不设空闲超时，只保留「10 分钟无进展」的停滞检测，
  * 并且**每传完一个附件都回读 Release 校验真的挂上了**，校验不过就重传、最终失败会让整步标红。
  *
- * 还有一个同源的症状要单独处理：Release 是**先创建、后上传**的，所以上传全挂时
- * 平台上会留下一个「只有 source code」的 Release——用户看到的就是「这个项目不发二进制」。
- * 因此新增：新建的 Release 若一个附件都没挂上，直接删掉（`KEEP_EMPTY_RELEASE=1` 可关闭）。
+ * 还有一个同源的症状：Release 是**先创建、后上传**的，所以上传全挂时平台上会留下一个
+ * 「只有 source code」的 Release——用户看到的就是「这个项目不发二进制」。GitCode 没有
+ * 删 Release 的接口（DELETE 返回 405），这种情况只能重跑补传，脚本会把缺失的列出来。
+ *
+ * === 2026-10-27 修：不再「先删后建」===
+ * 旧版检测到同名 Release 就直接 DELETE /releases/{tag}，实测 GitCode 一律回 405
+ * METHOD_NOT_ALLOWED，于是手动/自动同步凡是遇到「Release 已存在」就整步失败。
+ * 现在改成保留 Release、对同名附件做「先删后传」（DELETE /releases/{tag}/attach_files/{id}），
+ * 既保证页面上每个名字只有一份、是本次构建的产物，也不会出现「删掉后传不上去」的空窗。
  *
  * === 探针模式（PROBE_MODE=1）===
  * v5.0.5 这次运行是**绿色**的（脚本最终回读确实看到 3 个附件），但几小时后 API 与页面
@@ -70,12 +72,10 @@ const BODY_FILE = (process.env.RELEASE_BODY_FILE || '').trim();
 const PRERELEASE = ['1', 'true', 'yes'].includes((process.env.PRERELEASE || '').toLowerCase());
 const TARGET_COMMITISH = (process.env.TARGET_COMMITISH || 'main').trim();
 const DRY_RUN = ['1', 'true', 'yes'].includes((process.env.DRY_RUN || '').toLowerCase());
-const NO_RECREATE = ['1', 'true', 'yes'].includes((process.env.NO_RECREATE || '').toLowerCase());
 const DIAG = ['1', 'true', 'yes'].includes((process.env.DIAG || '').toLowerCase());
 // 默认把正文里的 GitHub 下载直链改写成 GitCode 直链（镜像页面上给 GitHub 链接等于没给）
 const REWRITE_LINKS = !['0', 'false', 'no'].includes((process.env.REWRITE_GITHUB_LINKS || '1').toLowerCase());
 const UPLOAD_ATTEMPTS = Math.max(1, Number(process.env.UPLOAD_ATTEMPTS || 3) || 3);
-const KEEP_EMPTY_RELEASE = ['1', 'true', 'yes'].includes((process.env.KEEP_EMPTY_RELEASE || '').toLowerCase());
 /**
  * 探针模式：只观测不裁决。上传结束后按 VERIFY_MINUTES 的时点回读附件，
  * 用来判断附件是「当时就在」还是「过一段时间被平台清理」——线上反复出现
@@ -380,8 +380,8 @@ async function main() {
     process.exit(1);
   }
 
-  // 2) 已存在同名 Release：默认先删后建（附件名每次构建都一样，重建最省事）；
-  //    NO_RECREATE=1 时只补传缺失附件，保留原说明。
+  // 2) 同名 Release 已存在就复用：GitCode 没有删 Release 的接口，DELETE 会 405，
+  //    所以「先删后建」这条路在本平台行不通，只能在附件层面覆盖。
   let existing = null;
   try {
     existing = await getRelease();
@@ -393,23 +393,11 @@ async function main() {
   }
 
   if (existing) {
-    if (NO_RECREATE) {
-      note(`Release ${TAG} 已存在，NO_RECREATE=1：跳过删除/重建，只补传附件`);
-    } else {
-      note(`Release ${TAG} 已存在，先删除（含旧附件）`);
-      try {
-        await request(withToken(releaseUrl), { method: 'DELETE' }, { label: '删除已有 Release', attempts: 2 });
-        existing = null;
-      } catch (err) {
-        if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
-        throw err;
-      }
-    }
+    note(`Release ${TAG} 已存在：保留 Release，稍后按附件名覆盖`);
   }
 
   // 3) 创建 Release。tag 尚未在 GitCode 存在时，必须带 target_commitish 让平台自己建 tag，
   //    所以从第一次请求就带上（旧版只在重试时才带，latest 这类移动 tag 常常第一次就 400）。
-  let createdHere = false;
   if (!existing) {
     const postRelease = (extra = {}) =>
       request(
@@ -424,7 +412,6 @@ async function main() {
 
     try {
       const created = await postRelease(TARGET_COMMITISH ? { target_commitish: TARGET_COMMITISH } : {});
-      createdHere = true;
       note(`Release ${TAG} 已创建（HTTP ${created.status}）`);
     } catch (err) {
       if (isImageRepoError(err)) throw new Error(MIRROR_REPO_HINT);
@@ -433,7 +420,26 @@ async function main() {
     }
   }
 
-  // 4) 逐个上传附件：先取预签名地址，再 PUT 原始字节，最后回读校验真的挂上了
+  // 4) 同名附件先删后传。GitCode 删不了 Release，只能删附件；不删的话同名文件会叠加，
+  //    而且回读校验会被旧文件蒙混过关（PUT 失败也看起来「已挂上」）。
+  if (existing) {
+    const wanted = new Set(ASSETS.map((file) => path.basename(file)));
+    for (const asset of attachmentsOf(existing)) {
+      if (asset.id == null || !wanted.has(asset.name)) continue;
+      try {
+        await request(
+          withToken(`${releaseUrl}/attach_files/${encodeURIComponent(asset.id)}`),
+          { method: 'DELETE' },
+          { label: `删除旧附件 ${asset.name}`, attempts: 2 },
+        );
+        note(`已删除旧附件 ${asset.name}（id=${asset.id}），随后重传`);
+      } catch (err) {
+        warn(`删除旧附件 ${asset.name} 失败（${err.message}），继续上传（页面上可能短暂出现同名两份）`);
+      }
+    }
+  }
+
+  // 5) 逐个上传附件：先取预签名地址，再 PUT 原始字节，最后回读校验真的挂上了
   for (const [index, file] of ASSETS.entries()) {
     const name = path.basename(file);
     const tagText = `[${index + 1}/${ASSETS.length}] ${name}`;
@@ -501,7 +507,7 @@ async function main() {
     }
   }
 
-  // 5) 最终回读，产出大陆下载地址（正文已在创建时写好，这里不再 PATCH）
+  // 6) 最终回读，产出大陆下载地址（正文已在创建时写好，这里不再 PATCH）
 
   let release = null;
   try {
@@ -535,16 +541,9 @@ async function main() {
   }
   if (missing.length) {
     note(`失败详情：${report.files.filter((f) => missing.includes(f.name)).map((f) => `${f.name}（${f.detail || '未知原因'}）`).join('；')}`);
-    // 空壳 Release 比没有 Release 更误导：页面上只剩 4 个自动生成的源码包，
-    // 用户会以为这个项目不发二进制。只在「本次新建 + 回读成功 + 一个都没挂上」时删；
-    // 部分成功保留（已挂上的附件仍可用），回读失败也保留（避免误删其实传成功的）。
-    if (createdHere && release && !KEEP_EMPTY_RELEASE && uploaded.size === 0) {
-      try {
-        await request(withToken(releaseUrl), { method: 'DELETE' }, { label: '删除空 Release', attempts: 2 });
-        note(`一个附件都没挂上，已删除空 Release ${TAG}（避免页面只剩源码包；KEEP_EMPTY_RELEASE=1 可保留）`);
-      } catch (err) {
-        warn(`删除空 Release 失败（请到 GitCode 手动删）：${err.message}`);
-      }
+    // GitCode 删不了 Release（DELETE 405），「只有源码包」的空壳只能靠重跑补传。
+    if (release && uploaded.size === 0) {
+      note(`Release ${TAG} 目前一个附件都没有（页面只剩源码包），重跑本 workflow 即可补传`);
     }
     throw new Error(`${missing.length} 个附件未同步：${missing.join('、')}`);
   }
