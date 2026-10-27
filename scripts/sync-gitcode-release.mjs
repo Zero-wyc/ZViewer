@@ -21,9 +21,9 @@
  *   DIAG                 1 = 只读诊断：打印仓库/Release/上传地址结构，不写任何东西
  *   UPLOAD_ATTEMPTS      单个附件最多尝试次数（含首次），默认 3
  *
- * 行为：Release 已存在时**不删不重建**（GitCode 没有删 Release 的 API，DELETE 会 405），
- * 只把同名附件先删后传，保证页面上每个名字只有一份、且是本次构建的产物。
- * 任一附件失败都不影响其它附件，最终有失败则以退出码 1 结束。
+ * 行为：Release 已存在时**不删不重建**（GitCode 没有删 Release 的 API，DELETE 会 405）。
+ * 同名附件先比 sha256：与本次构建一致就原样保留、跳过上传；不一致才删掉重传。
+ * 任一附件失败都不影响其它附件，最终有失败则以退出码 1 结束；重跑会补齐缺的那几个。
  *
  * === 历史坑（2026-10-26 修）===
  * 旧版用内置 fetch 做附件 PUT，结果**每个 Release 都只剩 source code、一个附件都没有**：
@@ -51,7 +51,9 @@
  * 用法见 `.github/workflows/gitcode-probe.yml`（手动触发）。
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
 import http from 'node:http';
 import https from 'node:https';
 import path from 'node:path';
@@ -96,12 +98,13 @@ const STALL_TIMEOUT_MS = 10 * 60 * 1000;
 /**
  * 请求体发完之后等 OBS 回包的上限。
  *
- * OBS 收完对象还要回调 api.gitcode.com 登记附件，1MB 实测就要 41–100s，大文件更慢；
- * 实测 37MB 的一次上传里，请求体 15s 就发完了，OBS 却 10 分钟都没回包。
- * 参考实现（space-ast/action-git-release）给的是 60 分钟，这里取 30 分钟，
- * 同时靠 putBytes 里的 onIdleCheck 提前确认，不必真的等到这个上限。
+ * 这里必须给足：OBS 收完对象还要回调 api.gitcode.com 登记附件，而平台侧处理是**按体积线性变慢**的。
+ * 实测（2026-10-27）回包耗时：1MB ≈ 76s、5MB ≈ 510s，约 110s/MB —— 37MB 要一个多小时，
+ * 55MB 接近两小时；同一天上午平台状态好时，130MB 三个包合计只要 10 分钟。
+ * 之前设 3 分钟时 9 次上传全部被自己掐断，一个附件都没传上去。
+ * 处理慢的时候重传也救不了，所以宁可等，超时也由 job 总时长兜底。
  */
-const RESPONSE_TIMEOUT_MS = 30 * 60 * 1000;
+const RESPONSE_TIMEOUT_MS = 120 * 60 * 1000;
 
 const log = (...args) => console.log('[gitcode]', ...args);
 const warn = (...args) => console.warn('[gitcode][warn]', ...args);
@@ -324,6 +327,18 @@ async function isAttached(name) {
   return attachmentsOf(release).some((a) => a.name === name);
 }
 
+/** 本地文件的 sha256，格式与 GitCode 附件里的 `digest` 一致（`sha256:<hex>`）。 */
+async function sha256Of(file) {
+  const hash = crypto.createHash('sha256');
+  await new Promise((resolve, reject) => {
+    const stream = createReadStream(file);
+    stream.on('data', (chunk) => hash.update(chunk));
+    stream.on('end', resolve);
+    stream.on('error', reject);
+  });
+  return `sha256:${hash.digest('hex')}`;
+}
+
 /**
  * 轮询等附件出现在列表里。
  *
@@ -478,12 +493,32 @@ async function main() {
     }
   }
 
-  // 4) 同名附件先删后传。GitCode 删不了 Release，只能删附件；不删的话同名文件会叠加，
-  //    而且回读校验会被旧文件蒙混过关（PUT 失败也看起来「已挂上」）。
+  // 4) 已存在的同名附件：内容一样就留着，不一样才删掉重传。
+  //    GitCode 删不了 Release，只能删附件；但「先删后传」有风险——平台回调忙的时候要等一两个小时，
+  //    删掉后传不上去页面就只剩源码包了。所以先用 sha256 判断是不是本次构建的产物，是就跳过。
+  const kept = new Set();
   if (existing) {
-    const wanted = new Set(ASSETS.map((file) => path.basename(file)));
     for (const asset of attachmentsOf(existing)) {
-      if (asset.id == null || !wanted.has(asset.name)) continue;
+      if (asset.id == null) continue;
+      const file = ASSETS.find((f) => path.basename(f) === asset.name);
+      if (!file) continue;
+      let localDigest = null;
+      try {
+        localDigest = await sha256Of(file);
+      } catch (err) {
+        warn(`计算 ${asset.name} 的摘要失败（${err.message}），按需要重传处理`);
+      }
+      const size = await fs.stat(file).then((s) => s.size).catch(() => null);
+      const same = localDigest
+        ? asset.digest
+          ? asset.digest === localDigest
+          : size != null && asset.size === size
+        : false;
+      if (same) {
+        kept.add(asset.name);
+        note(`附件 ${asset.name} 已是本次构建的产物（${asset.digest ? 'sha256 一致' : '体积一致'}），保留并跳过上传`);
+        continue;
+      }
       try {
         await request(
           withToken(`${releaseUrl}/attach_files/${encodeURIComponent(asset.id)}`),
@@ -503,6 +538,13 @@ async function main() {
     const tagText = `[${index + 1}/${ASSETS.length}] ${name}`;
     const entry = { name, size: 0, seconds: 0, attempts: 0, status: 'pending', detail: '' };
     report.files.push(entry);
+
+    if (kept.has(name)) {
+      entry.status = 'ok';
+      entry.size = await fs.stat(file).then((s) => s.size).catch(() => 0);
+      note(`${tagText} 远端已是同一份文件，跳过上传`);
+      continue;
+    }
 
     let bytes;
     try {

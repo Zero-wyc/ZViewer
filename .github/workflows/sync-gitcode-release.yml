@@ -41,9 +41,10 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # 三个附件共约 130MB，传到华为云 OBS 后还要等平台回调登记；实测正常 10 分钟跑完，
-    # 平台回调变慢时单个附件可能耗到半小时，所以给足总时长上限。
-    timeout-minutes: 240
+    # 上传本身很快（130MB 半分钟发完），真正耗时的是平台回调登记附件：
+    # 平台忙时实测按体积线性变慢（约 110s/MB，37MB 要一个多小时），所以给足总时长。
+    # 单轮跑不完不要紧——重跑会跳过摘要一致的附件，只补传缺的那几个。
+    timeout-minutes: 300
     env:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
       GITCODE_OWNER: Zero-wyc
@@ -230,9 +231,9 @@ jobs:
           RELEASE_BODY_FILE: release_body.gitcode.md
           PRERELEASE: ${{ steps.resolve.outputs.prerelease == 'true' && '1' || '0' }}
           TARGET_COMMITISH: main
-          # 单个附件最多 2 次：每次要么等到回包、要么靠回读附件列表提前收工，
-          # 真失败的场景重传也很难救，多试只是白耗 job 时长
-          UPLOAD_ATTEMPTS: '2'
+          # 只试 1 次：平台回调慢的时候一次就要等一小时，重传只会更慢；
+          # 真失败的场景重跑本 workflow 即可（摘要一致的附件会被跳过）
+          UPLOAD_ATTEMPTS: '1'
           ASSETS: >-
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip
