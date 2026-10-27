@@ -93,8 +93,14 @@ const ASSETS = (process.env.ASSETS || '')
 
 /** 单次上传允许「无任何进展」多久（毫秒）。跨境慢链路给足余量，真卡死才中断。 */
 const STALL_TIMEOUT_MS = 10 * 60 * 1000;
-// 请求体发完之后只等 OBS 回包：实测偶发一直不回，别把 10 分钟耗在这里，失败重传更快
-const RESPONSE_TIMEOUT_MS = 3 * 60 * 1000;
+/**
+ * 请求体发完之后等 OBS 回包的上限。
+ *
+ * OBS 收完对象还要回调 api.gitcode.com 登记附件，1MB 实测就要 41–75s，36MB 的包更久。
+ * 之前设 3 分钟，结果 9 次上传全部在回包前被自己掐断，一个附件都没传上去。
+ * 参考实现（space-ast/action-git-release）给的是 60 分钟，10 分钟已经算保守。
+ */
+const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 
 const log = (...args) => console.log('[gitcode]', ...args);
 const warn = (...args) => console.warn('[gitcode][warn]', ...args);
@@ -295,6 +301,25 @@ async function isAttached(name) {
 }
 
 /**
+ * 轮询等附件出现在列表里。
+ *
+ * 为什么不拿 PUT 的状态码当结论：200 之外还有 203（OBS 收到对象、但回调 api 登记失败），
+ * 而 203 时附件有时其实已经登记；反过来，请求超时/断开也不代表对象没写进 OBS。
+ * 唯一可信的信号是 Release 的附件列表，所以一律回读定成败。
+ */
+async function waitAttached(name, watches, delayMs) {
+  for (let i = 0; i < watches; i += 1) {
+    try {
+      if (await isAttached(name)) return true;
+    } catch (err) {
+      warn(`回读附件列表失败：${err.message}`);
+    }
+    if (i < watches - 1) await sleep(delayMs);
+  }
+  return false;
+}
+
+/**
  * 按分钟时点回读附件（探针模式）。
  *
  * 这一段的唯一目的，是把「上传完就绿、几小时后页面只剩源码包」变成可测数据：
@@ -472,6 +497,14 @@ async function main() {
     for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt += 1) {
       entry.attempts = attempt;
       try {
+        // 上一轮可能对象已经写进 OBS、只是没等到回包：先回读一次，避免整包重传
+        if (attempt > 1 && (await waitAttached(name, 2, 5000))) {
+          entry.status = 'ok';
+          entry.seconds = (Date.now() - startedAt) / 1000;
+          note(`${tagText} 上一轮其实已登记，跳过重传`);
+          break;
+        }
+
         const signRes = await request(
           withToken(`${releaseUrl}/upload_url?file_name=${encodeURIComponent(name)}`),
           {},
@@ -480,25 +513,35 @@ async function main() {
         const sign = await signRes.json();
         if (!sign?.url) throw new Error(`上传地址响应异常：${JSON.stringify(sign).slice(0, 200)}`);
 
-        const putRes = await putBytes(sign.url, sign.headers || {}, bytes, {
-          onProgress: ({ written, seconds }) => {
-            if (seconds < 15) return;
-            const pct = ((written / entry.size) * 100).toFixed(0);
-            log(`${tagText} 上传中 ${pct}%（${(written / 1048576).toFixed(1)}/${(entry.size / 1048576).toFixed(1)} MB，${seconds.toFixed(0)}s）`);
-          },
-        });
-
-        // 203 = 对象写进 OBS 了，但平台回调没成功 → 附件不会出现在 Release 里，必须重传
-        if (putRes.status === 203) throw new Error(`PUT HTTP 203（对象已写入但平台回调未登记）：${putRes.body}`);
-        if (putRes.status < 200 || putRes.status >= 300) throw new Error(`PUT HTTP ${putRes.status}：${putRes.body}`);
-
-        // 回读校验：PUT 成功 ≠ 附件挂上（回调丢失时就是这样，旧版因此静默零附件）
-        let ok = await isAttached(name);
-        if (!ok) {
-          await sleep(3000);
-          ok = await isAttached(name);
+        let putRes = null;
+        try {
+          putRes = await putBytes(sign.url, sign.headers || {}, bytes, {
+            onProgress: ({ written, seconds }) => {
+              if (seconds < 15) return;
+              const pct = ((written / entry.size) * 100).toFixed(0);
+              log(`${tagText} 上传中 ${pct}%（${(written / 1048576).toFixed(1)}/${(entry.size / 1048576).toFixed(1)} MB，${seconds.toFixed(0)}s）`);
+            },
+          });
+        } catch (putErr) {
+          // 超时/断线都不等于没传上：对象可能已在 OBS 上，回调只是慢
+          warn(`${tagText} PUT 未拿到回包（${putErr.message}），先回读附件列表确认`);
         }
-        if (!ok) throw new Error('PUT 成功但 Release 附件列表里没有该文件（回调未登记）');
+
+        // 200 以外的状态码（尤其 203）同样以附件列表为准，不直接判失败
+        if (putRes && putRes.status !== 200) {
+          warn(`${tagText} OBS 回包 HTTP ${putRes.status}：${putRes.body}`);
+        }
+
+        const attachedNow = putRes
+          ? await waitAttached(name, 6, 15000)
+          : await waitAttached(name, 8, 20000);
+        if (!attachedNow) {
+          throw new Error(
+            putRes
+              ? `PUT HTTP ${putRes.status}，但附件列表里没有 ${name}：${putRes.body}`
+              : 'PUT 未拿到回包，回读也确认未登记',
+          );
+        }
 
         entry.status = 'ok';
         entry.seconds = (Date.now() - startedAt) / 1000;
