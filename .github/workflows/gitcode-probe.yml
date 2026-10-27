@@ -67,7 +67,6 @@ jobs:
           PRERELEASE: '1'
           # 只观测，附件缺失不让 job 变红
           PROBE_MODE: '1'
-          KEEP_EMPTY_RELEASE: '1'
           VERIFY_MINUTES: ${{ inputs.wait_minutes }}
           UPLOAD_ATTEMPTS: '2'
         run: node scripts/sync-gitcode-release.mjs
