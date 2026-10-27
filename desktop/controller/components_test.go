@@ -174,7 +174,7 @@ func TestComponentStatusReflectsDisk(t *testing.T) {
 	if status := c.componentStatus(cloudflaredSpec); status.Available || status.State != "idle" {
 		t.Fatalf("fresh install must be idle: %+v", status)
 	}
-	if err := os.WriteFile(filepath.Join(root, cloudflaredSpec.File), []byte("MZ"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(root, cloudflaredSpec.installName()), []byte("MZ"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	if status := c.componentStatus(cloudflaredSpec); !status.Available || status.State != "ready" {

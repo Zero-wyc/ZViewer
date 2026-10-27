@@ -48,7 +48,10 @@ const (
 type componentSpec struct {
 	Name string
 	// File 是 public/ 下的文件名，同时也是 GitCode 直链的最后一段。
-	File    string
+	File string
+	// Target 是安装到运行包里的文件名；空表示与 File 相同。
+	// cloudflared 的仓库文件叫 cloudflared-windows-amd64.exe，但桌面端统一用 cloudflared.exe。
+	Target  string
 	Version string
 	// Size 只用于进度估算与上限保护，不作为强校验（换文件时不必同步）。
 	Size int64
@@ -61,6 +64,7 @@ type componentSpec struct {
 var cloudflaredSpec = componentSpec{
 	Name:    componentCloudflared,
 	File:    "cloudflared-windows-amd64.exe",
+	Target:  "cloudflared.exe",
 	Version: "2026.10.3",
 	Size:    55329336,
 	GitHub:  "https://github.com/cloudflare/cloudflared/releases/download/2026.10.3/cloudflared-windows-amd64.exe",
@@ -147,12 +151,20 @@ func (s *componentState) setBusy(name string, value bool) {
 	s.running[name] = value
 }
 
+// installName 是组件装进运行包后使用的文件名。
+func (s componentSpec) installName() string {
+	if s.Target != "" {
+		return s.Target
+	}
+	return s.File
+}
+
 // componentInstalled 判断组件是否已在运行包里。
 func (c *Controller) componentInstalled(spec componentSpec) bool {
 	if spec.Name == componentMesh {
 		return c.mesh.Available()
 	}
-	return c.root != "" && fileExists(filepath.Join(c.root, spec.File))
+	return c.root != "" && fileExists(filepath.Join(c.root, spec.installName()))
 }
 
 // componentStatus 合并磁盘事实与下载状态：文件在就一定是 available。
@@ -281,7 +293,7 @@ func (c *Controller) installComponentFrom(ctx context.Context, spec componentSpe
 	c.components.set(status)
 	c.emit()
 	if len(spec.Files) == 0 {
-		target := filepath.Join(root, spec.File)
+		target := filepath.Join(root, spec.installName())
 		return installCloudflared(ctx, tempPath, target)
 	}
 	return extractComponentZip(tempPath, c.mesh.BinDir(), spec.Files)

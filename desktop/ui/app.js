@@ -572,9 +572,15 @@
 
     const tunnel = live ? state.server.tunnel : null;
     const tunnelLabels = { stopped: '未运行', checking: '检查更新', downloading: '下载中', connecting: '连接中', refreshing: '自动刷新', reconnecting: '原地址重连中', 'health-checking': '健康检测', stopping: '停止中', error: '异常' };
+    // cloudflared 是按需下载的组件：缺了就只给下载按钮，装好之后才出现「一键启动」。
+    const cloudflared = (live ? state.server?.components?.cloudflared : null) || { available: !(tunnel && tunnel.available === false), state: 'idle', progress: 0, message: '' };
+    const tunnelMissing = Boolean(tunnel) && cloudflared.available === false;
+    const tunnelInstalling = tunnelMissing && ['downloading', 'installing'].includes(cloudflared.state);
     const tunnelStarting = ['checking', 'downloading', 'connecting', 'refreshing', 'health-checking'].includes(tunnel?.state);
     const tunnelDownloadTimedOut = tunnel?.state === 'error' && tunnel.errorCode === 'cloudflared_download_idle_timeout';
-    const tunnelStatus = tunnelDownloadTimedOut ? '下载超时' : tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
+    const tunnelStatus = tunnelMissing
+      ? tunnelInstalling ? (cloudflared.state === 'installing' ? '安装组件中' : `下载组件 ${Number(cloudflared.progress) || 0}%`) : '组件未下载'
+      : tunnelDownloadTimedOut ? '下载超时' : tunnelStarting ? tunnelLabels[tunnel.state] : !tunnel || !tunnel.available ? tunnel?.state === 'error' ? '启动失败' : '一键启动' : tunnel.state === 'running' && tunnel.health !== 'degraded' ? '已连通' : tunnelLabels[tunnel.state] || '未运行';
     const tunnelStopping = tunnel?.state === 'stopping';
     const tunnelCanStop = Boolean(tunnel) && ['running', 'reconnecting'].includes(tunnel.state);
     const tunnelSource = (live ? state.config?.cloudflaredSource : state.cloudflaredSource) || 'gitcode';
@@ -582,6 +588,8 @@
     let tunnelBody;
     if (!tunnel) {
       tunnelBody = `<p class="connect-value is-empty">桌面版中可用</p><p class="connect-note">不需要公网 IP；地址随隧道关闭失效。固定域名需外国银行卡。</p>`;
+    } else if (tunnelMissing) {
+      tunnelBody = `<p class="connect-value is-empty">${tunnelInstalling ? (cloudflared.state === 'installing' ? '正在安装组件' : `正在下载组件 ${Number(cloudflared.progress) || 0}%`) : cloudflared.state === 'error' ? '组件下载失败' : '首次使用需先下载组件'}</p><p class="connect-note">${esc(cloudflared.message || `cloudflared 组件从 ${tunnelSourceName} 下载，装好后保存在运行包里，之后不再重复下载。`)}</p>`;
     } else if (tunnelDownloadTimedOut) {
       tunnelBody = `<p class="connect-value is-empty">组件下载超时</p><p class="connect-note">${esc(tunnel.message)}</p>`;
     } else if (!tunnel.available) {
@@ -591,9 +599,14 @@
     } else {
       tunnelBody = `<p class="connect-value is-empty">${tunnelLabels[tunnel.state] || '未运行'}</p><p class="connect-note">${esc(tunnel.message || (tunnel.state === 'error' ? '隧道已退出。' : '启动后检查本机源站与公网访问，检查通过才显示地址。'))}</p>`;
     }
-    const tunnelSourceVisible = !tunnelStarting && !tunnelCanStop && !tunnelStopping;
+    const tunnelSourceVisible = !tunnelStarting && !tunnelInstalling && !tunnelCanStop && !tunnelStopping;
     const tunnelSourceControl = tunnelSourceVisible ? `<label class="tunnel-source" title="cloudflared 组件的下载来源"><span>获取源</span><select id="cloudflared-source" aria-label="cloudflared 获取源"><option value="gitcode" ${tunnelSource === 'gitcode' ? 'selected' : ''}>GitCode 镜像（推荐）</option><option value="github" ${tunnelSource === 'github' ? 'selected' : ''}>GitHub 官方</option><option value="proxy" ${tunnelSource === 'proxy' ? 'selected' : ''}>GitHub 前置反代</option></select></label>` : '';
-    const tunnelActions = (tunnelStarting
+    const tunnelInstallAction = tunnelInstalling
+      ? `<button class="btn primary tunnel-primary" type="button" disabled>${icon('download')}${cloudflared.state === 'installing' ? '正在安装…' : `正在下载 ${Number(cloudflared.progress) || 0}%`}</button>`
+      : button('下载 cloudflared 组件', 'tunnel-install', 'download', 'primary tunnel-primary');
+    const tunnelActions = (tunnelMissing
+      ? tunnelInstallAction
+      : tunnelStarting
       ? `<button class="btn primary tunnel-primary" type="button" disabled>${icon('refresh')}${esc(tunnelLabels[tunnel.state])}…${Number(tunnel.refreshCount || 0) ? `（刷新 ${Number(tunnel.refreshCount)}/5）` : ''}</button>${button(Number(tunnel.refreshCount || 0) ? '中断自动刷新' : '中断启动', 'tunnel-stop', 'stop', 'danger')}`
       : tunnelStopping
         ? `<button class="btn danger" type="button" disabled>${icon('stop')}正在停止隧道…</button>`

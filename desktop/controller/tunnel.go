@@ -54,6 +54,23 @@ func (c *Controller) tunnelReport() TunnelReport {
 	return report
 }
 
+// mainServiceState 返回主服务（网页后端）状态：running / starting / stopped。
+// 源站健康检查失败时据此给出可读原因，而不是把 dial 127.0.0.1 的底层错误抛给用户。
+func (c *Controller) mainServiceState() string {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if c.active == nil {
+		return "stopped"
+	}
+	if c.backendState == "running" {
+		return "running"
+	}
+	if c.backendState == "starting" {
+		return "starting"
+	}
+	return "stopped"
+}
+
 // All startup work shares one context. Stop cancels downloads, probes and the
 // exact child process; an old worker cannot publish into a newer session.
 func (c *Controller) updateTunnel(generation uint64, state, message string, update func()) bool {
@@ -512,7 +529,14 @@ func (c *Controller) runTunnelSession(ctx context.Context, cancel context.Cancel
 		}
 	}
 	if err != nil {
-		fail(fmt.Errorf("本机源站 %s 未通过健康检查：%w", tunnelOriginURL(config), err))
+		switch c.mainServiceState() {
+		case "starting":
+			fail(errors.New("ZViewer 主进程正在启动，请稍后再一键启动隧道"))
+		case "stopped":
+			fail(errors.New("ZViewer 主进程未启动，请先启动主服务再开隧道"))
+		default:
+			fail(fmt.Errorf("本机源站 %s 未通过健康检查：%w", tunnelOriginURL(config), err))
+		}
 		return
 	}
 	exe, err := c.prepareCloudflared(ctx, generation, config.CloudflaredSource)
@@ -528,6 +552,9 @@ func (c *Controller) runTunnelSession(ctx context.Context, cancel context.Cancel
 			c.tunnelLatencyMs = 0
 		})
 		if _, err := c.probeTunnelOrigin(ctx, config); err != nil {
+			if c.mainServiceState() != "running" {
+				return fmt.Errorf("%w：ZViewer 主进程未在运行", errTunnelOrigin)
+			}
 			return fmt.Errorf("%w：%v", errTunnelOrigin, err)
 		}
 		var attemptErr error
