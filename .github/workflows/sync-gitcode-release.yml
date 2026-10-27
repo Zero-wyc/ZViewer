@@ -196,6 +196,18 @@ jobs:
           [ "$CODE" = 1 ] && exit 0
           exit "$CODE"
 
+      # 同步脚本必须用 main 上的最新版，不能用 Release tag 自带的那份：否则脚本修了
+      # 对存量 tag 永远不生效（v5.0.8 就是例子，tag 里还是旧的「先删后建」，一遇到
+      # 已存在的 Release 就 405）。取到 RUNNER_TEMP 再执行，工作目录仍是仓库根，
+      # ASSETS 里的相对路径不受影响。
+      - name: Fetch sync script from main
+        if: steps.gate.outputs.skip != 'true' && env.GITCODE_TOKEN != ''
+        shell: bash
+        run: |
+          git fetch --quiet origin main
+          git show FETCH_HEAD:scripts/sync-gitcode-release.mjs > "$RUNNER_TEMP/sync-gitcode-release.mjs"
+          echo "使用 main@$(git rev-parse --short FETCH_HEAD) 的同步脚本"
+
       - name: Setup Node.js 26
         if: steps.gate.outputs.skip != 'true' && env.GITCODE_TOKEN != '' && steps.gitcode-push.outputs.readonly != 'true'
         uses: actions/setup-node@v7
@@ -225,4 +237,4 @@ jobs:
             zviewer-windows-x64-GUI.zip
         run: |
           ls -lh zviewer-*
-          node scripts/sync-gitcode-release.mjs
+          node "$RUNNER_TEMP/sync-gitcode-release.mjs"
