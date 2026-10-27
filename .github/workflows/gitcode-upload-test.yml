@@ -1,7 +1,7 @@
-# 临时诊断：OBS 回调（obs_callback）失败时，附件到底有没有被登记。
+# 临时诊断：找 GitCode 附件上传的「体积临界点」。
 # 用完即删。
 
-name: GitCode 上传诊断
+name: GitCode 上传体积诊断
 
 on:
   workflow_dispatch:
@@ -12,101 +12,62 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       TOKEN: ${{ secrets.GITCODE_TOKEN }}
       API: https://api.gitcode.com/api/v5/repos/Zero-wyc/ZViewer
     steps:
-      - name: 造测试文件
-        run: head -c 1048576 /dev/urandom > t.bin
-
-      - name: 回看上一轮 probe 的附件
+      - name: 造不同体积的测试文件
         run: |
-          curl -sS "$API/releases/probe-upload-40490842393?access_token=$TOKEN&temp_download_url=false" -o old.json
-          python3 - <<'PY'
-          import json
-          d = json.load(open('old.json'))
-          for a in d.get('assets') or []:
-              print(f"  {a.get('type')} | {a.get('name')} | {a.get('size')} | id={a.get('id')}")
-          PY
+          head -c 1048576  /dev/urandom > f-1mb.bin
+          head -c 5242880  /dev/urandom > f-5mb.bin
+          head -c 20971520 /dev/urandom > f-20mb.bin
+          head -c 38797685 /dev/urandom > f-37mb.bin
+          ls -l f-*.bin
 
-      - name: 用例 A（curl PUT）
+      - name: 逐个上传并等待登记
         run: |
           set -uo pipefail
-          TAG="probe-curl-${{ github.run_id }}"
-          curl -sS -X POST "$API/releases?access_token=$TOKEN" -H 'Content-Type: application/json' \
-            -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"body\":\"diag\",\"release_status\":\"pre\",\"target_commitish\":\"main\"}" \
-            -o /dev/null -w 'create HTTP %{http_code}\n'
-          curl -sS "$API/releases/$TAG/upload_url?file_name=t.bin&access_token=$TOKEN" -o ticketA.json -w 'ticket HTTP %{http_code}\n'
-          python3 - <<'PY' > headersA.txt
-          import json
-          for k, v in (json.load(open('ticketA.json')).get('headers') or {}).items():
-              print(f'{k}: {v}')
-          PY
-          URL=$(python3 -c "import json;print(json.load(open('ticketA.json'))['url'])")
-          timeout 300 curl -sS -X PUT "$URL" -H @headersA.txt --data-binary @t.bin \
-            -o bodyA.txt -w 'PUT HTTP %{http_code} in %{time_total}s\n'
-          echo "body: $(head -c 300 bodyA.txt)"
+          TAG="probe-size-${{ github.run_id }}"
           echo "TAG=$TAG" >> "$GITHUB_ENV"
-
-      - name: 轮询 A 的登记情况（6 分钟）
-        run: |
-          set -uo pipefail
-          for i in $(seq 1 24); do
-            sleep 15
-            curl -sS "$API/releases/$TAG?access_token=$TOKEN&temp_download_url=false" -o "r$i.json"
-            python3 - "$i" <<'PY'
-          import json, sys
-          d = json.load(open(f"r{sys.argv[1]}.json"))
-          up = [f"{a.get('name')}({a.get('size')}B,id={a.get('id')})" for a in d.get('assets') or [] if a.get('type') != 'source']
-          print(f"  T+{int(sys.argv[1])*15}s 附件={up or '（无）'}")
-          PY
-          done
-
-      - name: 用例 B（node:https PUT，复现脚本行为）
-        run: |
-          set -uo pipefail
-          TAG="probe-node-${{ github.run_id }}"
           curl -sS -X POST "$API/releases?access_token=$TOKEN" -H 'Content-Type: application/json' \
             -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"body\":\"diag\",\"release_status\":\"pre\",\"target_commitish\":\"main\"}" \
             -o /dev/null -w 'create HTTP %{http_code}\n'
-          curl -sS "$API/releases/$TAG/upload_url?file_name=t.bin&access_token=$TOKEN" -o ticketB.json -w 'ticket HTTP %{http_code}\n'
-          node - <<'JS' || true
+          for f in f-1mb.bin f-5mb.bin f-20mb.bin f-37mb.bin; do
+            echo "===== $f"
+            curl -sS "$API/releases/$TAG/upload_url?file_name=$f&access_token=$TOKEN" -o t.json -w 'ticket HTTP %{http_code}\n'
+            node - "$f" <<'JS'
           const fs = require('fs');
           const https = require('https');
-          const t = JSON.parse(fs.readFileSync('ticketB.json', 'utf8'));
-          const body = fs.readFileSync('t.bin');
+          const name = process.argv[2];
+          const t = JSON.parse(fs.readFileSync('t.json', 'utf8'));
+          const body = fs.readFileSync(name);
           const u = new URL(t.url);
           const headers = { ...(t.headers || {}), 'Content-Length': String(body.length) };
           const started = Date.now();
+          const elapsed = () => ((Date.now() - started) / 1000).toFixed(1);
           const req = (u.protocol === 'http:' ? require('http') : https).request(
             u, { method: 'PUT', headers, agent: false, timeout: 0 },
             (res) => {
               const chunks = [];
               res.on('data', (c) => chunks.push(c));
               res.on('end', () => {
-                console.log('PUT %s in %ss body=%s', res.statusCode, ((Date.now() - started) / 1000).toFixed(1),
-                  Buffer.concat(chunks).toString().slice(0, 300));
+                console.log(`${name} PUT ${res.statusCode} in ${elapsed()}s body=${Buffer.concat(chunks).toString().slice(0, 200)}`);
                 process.exit(0);
               });
             },
           );
-          req.on('error', (e) => { console.log('ERROR', e.message); process.exit(1); });
+          req.on('error', (e) => { console.log(`${name} ERROR ${e.message} at ${elapsed()}s`); process.exit(1); });
+          const iv = setInterval(() => console.log(`${name} ${elapsed()}s written=${req.socket?.bytesWritten}`), 30000);
           req.end(body);
-          setTimeout(() => { console.log('TIMEOUT: no response in 300s'); process.exit(2); }, 300000);
+          setTimeout(() => { clearInterval(iv); console.log(`${name} TIMEOUT 10min，未回包`); process.exit(2); }, 600000);
           JS
-          echo "TAG=$TAG" >> "$GITHUB_ENV"
-
-      - name: 轮询 B 的登记情况（6 分钟）
-        run: |
-          set -uo pipefail
-          for i in $(seq 1 24); do
-            sleep 15
-            curl -sS "$API/releases/$TAG?access_token=$TOKEN&temp_download_url=false" -o "s$i.json"
-            python3 - "$i" <<'PY'
+            sleep 5
+            curl -sS "$API/releases/$TAG?access_token=$TOKEN&temp_download_url=false" -o r.json
+            python3 - "$f" <<'PY'
           import json, sys
-          d = json.load(open(f"s{sys.argv[1]}.json"))
+          d = json.load(open('r.json'))
           up = [f"{a.get('name')}({a.get('size')}B,id={a.get('id')})" for a in d.get('assets') or [] if a.get('type') != 'source']
-          print(f"  T+{int(sys.argv[1])*15}s 附件={up or '（无）'}")
+          print(f"  {sys.argv[1]} 登记结果：{up or '（无）'}")
           PY
           done
