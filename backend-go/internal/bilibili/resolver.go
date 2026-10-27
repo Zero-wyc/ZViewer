@@ -429,6 +429,9 @@ func (s *Service) resolveUGC(ctx context.Context, opts ResolveOptions, bvid, exp
 		}
 	}
 
+	if opts.Cid > 0 && effectiveCid != opts.Cid {
+		return nil, newResolveError("分P不存在或已失效", "CID_NOT_FOUND")
+	}
 	var pagesInfo []ResolvePageInfo
 	if len(info.Pages) > 0 {
 		pagesInfo = make([]ResolvePageInfo, 0, len(info.Pages))

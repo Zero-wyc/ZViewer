@@ -532,7 +532,7 @@ export function PlayerSongControl({
         >
           <ListMusic className="h-[max(2.5vh,20px)] w-[max(2.5vh,20px)]" />
         </button>
-        {queuePopupOpen && (
+        {!isPortraitMobile && queuePopupOpen && (
           <MusicQueuePopup
             socket={socket}
             roomId={roomId}

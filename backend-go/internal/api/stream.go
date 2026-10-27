@@ -118,6 +118,15 @@ func (s *Server) handleResolveBilibili(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	preferMp4Param := query.Get("preferMp4") == "true" || query.Get("preferMp4") == "1"
+	var cid int64
+	if rawCID := query.Get("cid"); rawCID != "" {
+		var err error
+		cid, err = strconv.ParseInt(rawCID, 10, 64)
+		if err != nil || cid <= 0 {
+			httpx.BadRequest(w, "分P CID 无效")
+			return
+		}
+	}
 	forceDashParam := query.Get("forceDash") == "true" || query.Get("forceDash") == "1"
 
 	// 服务器端禁用 DASH 时强制 MP4，并禁止 forceDash
@@ -171,6 +180,7 @@ func (s *Server) handleResolveBilibili(w http.ResponseWriter, r *http.Request) {
 		Qn:     qn,
 		Codec:  codec,
 		Page:   page,
+		Cid:    cid,
 		OnProgress: func(msg bilibili.ResolveProgress) {
 			writer.send(resolveProgressMessage{Status: msg.Status, Step: msg.Step, Message: msg.Message})
 		},

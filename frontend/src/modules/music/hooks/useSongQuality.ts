@@ -24,11 +24,12 @@ export function useSongQuality(songId: number | null | undefined) {
   const level = useMusicSettingsStore((s) => s.level)
   const [songQuality, setSongQuality] = useState<SongQuality | null>(null)
   // 切歌时清空（render 期调整，替代 effect 内同步 setState）
+  const qualitySongId = songId ?? null
   const [prevQualitySongId, setPrevQualitySongId] = useState<number | null>(
-    typeof songId === 'number' ? songId : -1
+    qualitySongId
   )
-  if (prevQualitySongId !== songId) {
-    setPrevQualitySongId(typeof songId === 'number' ? songId : -1)
+  if (!Object.is(prevQualitySongId, qualitySongId)) {
+    setPrevQualitySongId(qualitySongId)
     setSongQuality(null)
   }
   useEffect(() => {

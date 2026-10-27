@@ -1,4 +1,3 @@
-import { portableMusicCoverUrl } from '../utils/neteaseImage'
 /**
  * 哔哩哔哩页（一起听顶部导航新入口）。
  *
@@ -10,9 +9,8 @@ import { portableMusicCoverUrl } from '../utils/neteaseImage'
  * - 自定义栏目：粘贴 B站 链接添加的视频合集 / 系列 / 收藏夹
  *   （localStorage 持久化，后端 link-meta 解析 + 合集/收藏夹取数路由）
  *
- * 点击视频 → 解析音频（默认 720P 直链 / 设置开启 CLI 后高画质音轨）→
- * 作为本地插播「歌曲」播放（不入房间队列、不同步，见 useListenTogether
- * .playBiliSong）；歌词视图自动改用 B站 AI 字幕，播放页背景使用该视频。
+ * 房间内点击视频会按分P顺序导入队列，每个 CID 为一首歌；播放后可用
+ * 上一首、下一首及自动切歌。未进入房间时仅保留单P的本地试听。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -41,7 +39,6 @@ import {
   getBilibiliRegionNew,
   getBilibiliFavVideos,
   getBilibiliFavFolders,
-  getBilibiliVideoView,
   searchBilibiliVideos,
   fetchBiliCollectionVideos,
   fetchBiliFavListVideos,
@@ -56,9 +53,9 @@ import {
   isBilibiliImageUrl,
 } from '@/modules/movie-source/resolveSource'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
-import { useQueueAdd } from '../hooks/useQueueAdd'
+import { loadBilibiliParts, enqueueBilibiliParts } from '../bilibiliPlaylist'
+import { useRoomStore } from '@/store/roomStore'
 import { useMusicStore, musicItemKey } from '../store'
-import type { MusicQueueItem } from '../types'
 import {
   decorateRegionItems,
   filterByBlockWords,
@@ -194,13 +191,9 @@ export function MusicBilibiliPage({
 } = {}) {
   const { playBiliSong, playSong, currentSong, canControl } = useMusicPlayer()
   const currentKey = useMusicStore((s) => s.currentKey)
-  const biliRoomId = roomId
   /** 队列添加（封面右下角按钮）：canManage（房主/房管）可用 */
-  const { addedKeys, add: addQueueItem } = useQueueAdd(
-    socket,
-    biliRoomId,
-    canManage
-  )
+  const queuedItems = useMusicStore(s => s.queue)
+  const addedKeys = new Set(queuedItems.map(musicItemKey))
   /** 顶栏搜索框关键词（哔哩哔哩页时搜索 B站 视频；null = 常规 tab 内容） */
   const biliSearchKeyword = useMusicStore((s) => s.biliSearchKeyword)
   const setBiliSearchKeyword = useMusicStore((s) => s.setBiliSearchKeyword)
@@ -946,39 +939,50 @@ export function MusicBilibiliPage({
 
   /** 「在网易云搜索」弹窗：非空 = 打开（值为 B站 视频标题，自动提取歌名） */
   const [ncmSearchTitle, setNcmSearchTitle] = useState<string | null>(null)
-  /** 封面右下角按钮：把视频加入播放队列（权限在 useQueueAdd 内判断：
-   *  canManage 或房间控制自动通过开启；cid 缺失先经 view 补取） */
-  const handleAddToQueue = useCallback(
-    async (item: BilibiliVideoItem) => {
-      const key = `bili:${item.bvid}:${item.cid ?? 0}`
-      if (addedKeys.has(key)) {
-        message.info('已在播放队列中')
+  /** 分P按顺序逐首写入房间队列，离房或断线时停止当前批次。 */
+  const queueImportSequence = useRef(0)
+  const queueImportBusy = useRef(false)
+  useEffect(() => () => { queueImportSequence.current++; queueImportBusy.current = false }, [roomId, socket])
+  const importBilibiliVideo = useCallback(async (item: BilibiliVideoItem, startPlayback: boolean) => {
+    if (queueImportBusy.current) return
+    queueImportBusy.current = true
+    const request = ++queueImportSequence.current
+    const current = () => request === queueImportSequence.current && (!roomId || useRoomStore.getState().roomId === roomId) && (!socket || socket.connected)
+    setPlayingBvid(item.bvid)
+    try {
+      const tracks = (await loadBilibiliParts(item)).map(track => ({ ...track, roomId: roomId || '' }))
+      if (!current()) return
+      if (!socket || !roomId) {
+        if (tracks.length > 1) throw new Error('请先进入一起听房间，再导入分P歌单')
+        if (startPlayback) await playBiliSong(tracks[0])
+        else throw new Error('未连接房间')
         return
       }
-      try {
-        let cid = item.cid ?? 0
-        if (!cid) {
-          const view = await getBilibiliVideoView(item.bvid)
-          cid = view.cid
-        }
-        addQueueItem({
-          songId: 0,
-          name: item.title,
-          artist: item.upName || '哔哩哔哩',
-          album: '',
-          cover: portableMusicCoverUrl(item.pic),
-          durationMs: Math.round((item.duration || 0) * 1000),
-          vip: false,
-          biliBvid: item.bvid,
-          biliCid: cid,
-        })
-        message.success('已加入播放队列')
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : '获取视频信息失败')
-      }
-    },
-    [addedKeys, addQueueItem]
-  )
+      const manage = canControl || canManage
+      if (!manage && tracks.length > 1) throw new Error('请房主或房管导入多分P歌单')
+      if (tracks.length > 1) message.info('正在导入 ' + tracks.length + ' 首分P歌曲…')
+      await enqueueBilibiliParts(tracks, {
+        isCurrent: current,
+        play: startPlayback && canControl ? playSong : undefined,
+        enqueue: track => new Promise<void>((resolve, reject) => {
+          socket.timeout(10000).emit(manage ? 'music:queue-upsert' : 'music:control-request', {
+            roomId, item: track, afterCurrent: startPlayback && tracks.length === 1,
+            ...(!manage ? { action: 'addQueue' } : {}),
+          }, (error: Error | null, response: { success?: boolean; message?: string }) => {
+            if (error || response?.success !== true) reject(new Error(response?.message || '分P导入失败，请重试'))
+            else resolve()
+          })
+        }),
+      })
+      if (current()) message.success(manage ? '已加入 ' + tracks.length + ' 首歌曲' : '已申请添加，等待房主确认')
+    } catch (error) {
+      if (current()) message.error(error instanceof Error ? error.message : '分P导入失败')
+    } finally {
+      if (request === queueImportSequence.current) { queueImportBusy.current = false; setPlayingBvid(null) }
+    }
+  }, [roomId, socket, canControl, canManage, playBiliSong, playSong])
+
+  const handleAddToQueue = useCallback((item: BilibiliVideoItem) => importBilibiliVideo(item, false), [importBilibiliVideo])
 
   /** 添加屏蔽词：一次可输入多个（逗号/空格分隔），去重持久化，默认作用于全部 */
   const handleAddBlockWord = useCallback(() => {
@@ -1029,119 +1033,9 @@ export function MusicBilibiliPage({
   }, [])
 
   /**
-   * 点击视频：收藏列表条目无 cid 时先经 view 接口补取第一 P，
-   * 随后解析音频并作为本地插播歌曲播放。
+   * 点击视频：解析分P目录，入队后从第一首开始播放。
    */
-  const handlePlay = useCallback(
-    async (item: BilibiliVideoItem) => {
-      if (playingBvid) return
-      // 未连接房间：回退本地插播（个人试听，不入房间队列）
-      if (!socket || !roomId) {
-        setPlayingBvid(item.bvid)
-        try {
-          let cid = item.cid ?? 0
-          if (!cid) {
-            const view = await getBilibiliVideoView(item.bvid)
-            cid = view.cid
-          }
-          await playBiliSong({
-            id: -1,
-            roomId: '',
-            songId: 0,
-            name: item.title,
-            artist: item.upName || '哔哩哔哩',
-            album: '',
-            cover: portableMusicCoverUrl(item.pic),
-            durationMs: Math.round((item.duration || 0) * 1000),
-            vip: false,
-            order: 0,
-            addedBy: '',
-            biliBvid: item.bvid,
-            biliCid: cid,
-          })
-        } catch (err) {
-          message.error(err instanceof Error ? err.message : '视频解析失败')
-        } finally {
-          setPlayingBvid(null)
-        }
-        return
-      }
-      // 房间内点播：插入当前播放的下一首并全房间同步。
-      // - 有控制权（房主/房主离线观众）：直接入队 + 立即播放
-      // - 房管（无控制权）：直接入队，等队列推进
-      // - 观众：走 control-request 申请（control-request addQueue），由房主
-      //   按「自动通过」开关决定代理入队或拒绝（回执提示无权限）——观众端
-      //   本地不知房主开关状态，不能直连 queue-upsert（后端矩阵会拒绝）
-      setPlayingBvid(item.bvid)
-      try {
-        let cid = item.cid ?? 0
-        if (!cid) {
-          const view = await getBilibiliVideoView(item.bvid)
-          cid = view.cid
-        }
-        const queueItem: MusicQueueItem = {
-          id: -1,
-          roomId,
-          songId: 0,
-          name: item.title,
-          artist: item.upName || '哔哩哔哩',
-          album: '',
-          cover: portableMusicCoverUrl(item.pic),
-          durationMs: Math.round((item.duration || 0) * 1000),
-          vip: false,
-          order: 0,
-          addedBy: '',
-          biliBvid: item.bvid,
-          biliCid: cid,
-        }
-        // 插到当前播放的下一首（afterCurrent），全房间经 queue-changed 同步；
-        // 有控制权 → 立即播放并广播；房管（无控制权）→ 入队等队列推进；
-        // 观众 → 走 control-request 申请，由房主按自动通过开关决定
-        if (canControl || canManage) {
-          const ok = await new Promise<boolean>((resolve) => {
-            socket.emit(
-              'music:queue-upsert',
-              { roomId, item: queueItem, afterCurrent: true },
-              (res: { success?: boolean; message?: string }) =>
-                resolve(res?.success !== false)
-            )
-          })
-          if (!ok) {
-            message.error('添加到播放列表失败')
-            return
-          }
-          if (canControl) {
-            playSong(queueItem)
-          } else {
-            message.success('已加入播放列表')
-          }
-        } else {
-          // 观众：申请添加（无权限时房主端回执拒绝，提示见 control-response）
-          socket.emit('music:control-request', {
-            roomId,
-            action: 'addQueue',
-            item: {
-              songId: 0,
-              name: queueItem.name,
-              artist: queueItem.artist,
-              album: '',
-              cover: queueItem.cover,
-              durationMs: queueItem.durationMs,
-              vip: false,
-              biliBvid: queueItem.biliBvid,
-              biliCid: queueItem.biliCid,
-            },
-            afterCurrent: true,
-          })
-        }
-      } catch (err) {
-        message.error(err instanceof Error ? err.message : '视频解析失败')
-      } finally {
-        setPlayingBvid(null)
-      }
-    },
-    [playingBvid, playBiliSong, socket, roomId, canManage, canControl, playSong]
-  )
+  const handlePlay = useCallback((item: BilibiliVideoItem) => importBilibiliVideo(item, true), [importBilibiliVideo])
 
   /** 分页派生：total 已知时精确算总页数；未知时按「本页拉满」估算下一页 */
   const rawTotalPages =
