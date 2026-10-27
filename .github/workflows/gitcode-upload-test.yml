@@ -1,0 +1,84 @@
+# 临时诊断：看清 GitCode 预签名上传票据与 OBS 的真实回包。
+# 用完即删。
+
+name: GitCode 上传诊断
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TOKEN: ${{ secrets.GITCODE_TOKEN }}
+      TAG: probe-upload-${{ github.run_id }}
+      API: https://api.gitcode.com/api/v5/repos/Zero-wyc/ZViewer
+    steps:
+      - name: 造一个 1MB 文件
+        run: head -c 1048576 /dev/urandom > t.bin
+
+      - name: 创建 Release
+        run: |
+          set -x
+          curl -sS -X POST "$API/releases?access_token=$TOKEN" \
+            -H 'Content-Type: application/json' \
+            -d "{\"tag_name\":\"$TAG\",\"name\":\"$TAG\",\"body\":\"diag\",\"release_status\":\"pre\",\"target_commitish\":\"main\"}" \
+            -o create.json -w '\nHTTP %{http_code}\n'
+          head -c 400 create.json; echo
+
+      - name: 打印上传票据
+        run: |
+          curl -sS "$API/releases/$TAG/upload_url?file_name=t.bin&access_token=$TOKEN" -o ticket.json -w 'HTTP %{http_code}\n'
+          python3 - <<'PY'
+          import json
+          t = json.load(open('ticket.json'))
+          print('url      =', t.get('url'))
+          print('headers  =', json.dumps(t.get('headers') or {}, ensure_ascii=False))
+          PY
+
+      - name: curl 直传（看真实回包）
+        run: |
+          python3 - <<'PY' > headers.txt
+          import json
+          for k, v in (json.load(open('ticket.json')).get('headers') or {}).items():
+              print(f'{k}: {v}')
+          PY
+          URL=$(python3 -c "import json;print(json.load(open('ticket.json'))['url'])")
+          echo "PUT $URL"
+          timeout 120 curl -sS -v -X PUT "$URL" -H @headers.txt \
+            --data-binary @t.bin -o out.txt -w 'HTTP %{http_code} in %{time_total}s\n' 2>&1 | tail -25
+          echo "--- body:"; head -c 400 out.txt
+
+      - name: node:https 直传（复现脚本行为）
+        env:
+          TICKET: ticket.json
+        run: |
+          node - <<'JS'
+          const fs = require('fs');
+          const https = require('https');
+          const t = JSON.parse(fs.readFileSync('ticket.json', 'utf8'));
+          const body = fs.readFileSync('t.bin');
+          const u = new URL(t.url);
+          const headers = { ...(t.headers || {}), 'Content-Length': String(body.length) };
+          console.log('host=%s headers=%j', u.host, Object.keys(headers));
+          const started = Date.now();
+          const req = (u.protocol === 'http:' ? require('http') : https).request(
+            u, { method: 'PUT', headers, agent: false, timeout: 0 },
+            (res) => {
+              const chunks = [];
+              res.on('data', (c) => chunks.push(c));
+              res.on('end', () => {
+                console.log('RESPONSE %s in %ss body=%s', res.statusCode, ((Date.now()-started)/1000).toFixed(1), Buffer.concat(chunks).toString().slice(0,300));
+                process.exit(0);
+              });
+            },
+          );
+          req.on('error', (e) => { console.log('ERROR', e.message); process.exit(1); });
+          setInterval(() => console.log('waiting... bytesWritten=%s', req.socket?.bytesWritten), 15000);
+          req.end(body);
+          setTimeout(() => { console.log('TIMEOUT: no response in 90s'); process.exit(2); }, 90000);
+          JS
