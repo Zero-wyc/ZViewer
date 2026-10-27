@@ -41,8 +41,9 @@ concurrency:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    # 三个附件共约 130MB，跨境传到华为云 OBS，给足上限
-    timeout-minutes: 90
+    # 三个附件共约 130MB，传到华为云 OBS 后还要等平台回调登记；实测正常 10 分钟跑完，
+    # 平台回调变慢时单个附件可能耗到半小时，所以给足总时长上限。
+    timeout-minutes: 240
     env:
       GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
       GITCODE_OWNER: Zero-wyc
@@ -229,8 +230,9 @@ jobs:
           RELEASE_BODY_FILE: release_body.gitcode.md
           PRERELEASE: ${{ steps.resolve.outputs.prerelease == 'true' && '1' || '0' }}
           TARGET_COMMITISH: main
-          # 单个附件最多 3 次（每次停滞超过 10 分钟自动中断），最坏情况仍能在 job 超时内结束
-          UPLOAD_ATTEMPTS: '3'
+          # 单个附件最多 2 次：每次要么等到回包、要么靠回读附件列表提前收工，
+          # 真失败的场景重传也很难救，多试只是白耗 job 时长
+          UPLOAD_ATTEMPTS: '2'
           ASSETS: >-
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip

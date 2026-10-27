@@ -96,11 +96,12 @@ const STALL_TIMEOUT_MS = 10 * 60 * 1000;
 /**
  * 请求体发完之后等 OBS 回包的上限。
  *
- * OBS 收完对象还要回调 api.gitcode.com 登记附件，1MB 实测就要 41–75s，36MB 的包更久。
- * 之前设 3 分钟，结果 9 次上传全部在回包前被自己掐断，一个附件都没传上去。
- * 参考实现（space-ast/action-git-release）给的是 60 分钟，10 分钟已经算保守。
+ * OBS 收完对象还要回调 api.gitcode.com 登记附件，1MB 实测就要 41–100s，大文件更慢；
+ * 实测 37MB 的一次上传里，请求体 15s 就发完了，OBS 却 10 分钟都没回包。
+ * 参考实现（space-ast/action-git-release）给的是 60 分钟，这里取 30 分钟，
+ * 同时靠 putBytes 里的 onIdleCheck 提前确认，不必真的等到这个上限。
  */
-const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
+const RESPONSE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const log = (...args) => console.log('[gitcode]', ...args);
 const warn = (...args) => console.warn('[gitcode][warn]', ...args);
@@ -181,7 +182,7 @@ async function request(url, init = {}, { attempts = 4, label = '' } = {}) {
 }
 
 /** 用 node:https 直连 PUT 字节（内置 fetch 有 300s headersTimeout，会掐断大附件上传）。 */
-function putBytes(url, headers, body, { onProgress } = {}) {
+function putBytes(url, headers, body, { onProgress, onIdleCheck } = {}) {
   return new Promise((resolve, reject) => {
     let target;
     try {
@@ -220,6 +221,8 @@ function putBytes(url, headers, body, { onProgress } = {}) {
     let lastMark = startedAt;
     let lastBytes = 0;
     let settled = false;
+    let checking = false;
+    let lastCheckAt = 0;
     const tick = setInterval(() => {
       const written = req.socket ? req.socket.bytesWritten : 0;
       const seconds = (Date.now() - startedAt) / 1000;
@@ -228,8 +231,8 @@ function putBytes(url, headers, body, { onProgress } = {}) {
         lastMark = Date.now();
       }
       const idleFor = Date.now() - lastMark;
-      // 请求体发完之后只剩等 OBS 回包：OBS 偶发不回包，卡 10 分钟没意义，
-      // 用更短的上限尽快失败重传。
+      // 请求体发完后：正常情况下几十秒内 OBS 就会回包；回包迟迟不来时
+      // 靠下面的 onIdleCheck 回读附件列表，确认登记了就不必再等。
       const limit = lastBytes >= body.length ? RESPONSE_TIMEOUT_MS : STALL_TIMEOUT_MS;
       if (idleFor > limit) {
         const err = new Error(
@@ -241,6 +244,27 @@ function putBytes(url, headers, body, { onProgress } = {}) {
         return;
       }
       if (onProgress) onProgress({ written, total: body.length, seconds, idleFor });
+
+      // 请求体发完后，一边等回包一边回读附件列表。
+      // 实测大文件上传完后 OBS 可能长时间不回包，但附件有时早就登记好了——
+      // 只等回包会白白耗到超时重传，所以每 30s 查一次，确认已登记就直接收工。
+      if (!onIdleCheck || settled || checking || lastBytes < body.length) return;
+      if (Date.now() - lastCheckAt < 30000) return;
+      lastCheckAt = Date.now();
+      checking = true;
+      Promise.resolve()
+        .then(onIdleCheck)
+        .then((attached) => {
+          checking = false;
+          if (!attached || settled) return;
+          settled = true;
+          clearInterval(tick);
+          req.destroy(); // 附件已确认，回包不必再等
+          resolve({ status: 200, body: '已通过附件列表确认登记', verified: true });
+        })
+        .catch(() => {
+          checking = false;
+        });
     }, 15000);
 
     req.on('error', (err) => {
@@ -521,6 +545,8 @@ async function main() {
               const pct = ((written / entry.size) * 100).toFixed(0);
               log(`${tagText} 上传中 ${pct}%（${(written / 1048576).toFixed(1)}/${(entry.size / 1048576).toFixed(1)} MB，${seconds.toFixed(0)}s）`);
             },
+            // 请求体发完后每 30s 回读一次附件列表：登记好了就不用干等 OBS 回包
+            onIdleCheck: () => isAttached(name),
           });
         } catch (putErr) {
           // 超时/断线都不等于没传上：对象可能已在 OBS 上，回调只是慢
@@ -528,13 +554,15 @@ async function main() {
         }
 
         // 200 以外的状态码（尤其 203）同样以附件列表为准，不直接判失败
-        if (putRes && putRes.status !== 200) {
+        if (putRes && !putRes.verified && putRes.status !== 200) {
           warn(`${tagText} OBS 回包 HTTP ${putRes.status}：${putRes.body}`);
         }
 
-        const attachedNow = putRes
-          ? await waitAttached(name, 6, 15000)
-          : await waitAttached(name, 8, 20000);
+        const attachedNow = putRes?.verified
+          ? true
+          : putRes
+            ? await waitAttached(name, 6, 15000)
+            : await waitAttached(name, 8, 20000);
         if (!attachedNow) {
           throw new Error(
             putRes
