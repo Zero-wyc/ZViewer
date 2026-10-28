@@ -1,0 +1,86 @@
+# GitCode 侧主动「拉取」GitHub 上已发布的正式版 Release，并在本站发版。
+#
+# 为什么是拉不是推：
+#   GitHub 那侧跨境直传 130MB 附件到 GitCode 的 OBS，平台回调一慢就整步挂住，
+#   还会连累（或至少拖长）GitHub 自己的发版 job。改成这边定时拉：
+#   GitHub 只管构建 + 推 tag，GitCode 自己发现缺哪个版本就去补，失败下一轮再来。
+#
+# 触发：
+#   1. schedule 每小时一次（GitCode 的 cron 是 UTC，这里取每小时第 17 分，避开整点调度高峰）
+#   2. workflow_dispatch 手动补发/重试（可指定 tag、可强制重传）
+#
+# 前置条件（必须人工配一次）：
+#   - 仓库密钥 GITCODE_TOKEN：GitCode 个人令牌，需有本仓库的 releases / 附件写权限
+#   - 仓库密钥 GITHUB_TOKEN（可选）：只用于提高 GitHub API 限流额度，公开仓库不配也能跑
+#   - GitCode 仓库不能是「Pull 镜像」：镜像仓只读，建 Release 会被拒（provider=image repository）
+#   - 版本 tag 必须已经存在于 GitCode（由 GitHub 的 build.yml 推送）
+#
+# 同步范围：只处理正式版（tag 匹配 v<数字>、非 draft、非 prerelease）。
+#   main 分支的 `latest` 预发布每推送一次就重建，按小时轮询没有意义，故意不同步。
+#
+# 完整配置与排障见仓库根目录的 GITCODE-RELEASE-SYNC.md。
+
+name: Sync Release from GitHub
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '只同步指定 tag（如 v5.0.8），留空则自动挑选最新未同步的正式版'
+        required: false
+        default: ''
+      force:
+        description: '填 true 表示即使 GitCode 上已有也重新下载上传'
+        required: false
+        default: 'false'
+
+# GitCode 的 concurrency 是 enable/max/exceed-action 三件套（不是 GitHub 的 group 写法）。
+# 排队而不是抢占：上传跑到一半被掐断，平台侧可能留下半个附件。
+concurrency:
+  enable: true
+  max: 1
+  exceed-action: QUEUE
+
+env:
+  # 源仓库（GitHub）与目标仓库（GitCode）。仓库改名或换账号时改这里。
+  GITHUB_REPO: Zero-wyc/ZViewer
+  GITCODE_OWNER: Zero-wyc
+  GITCODE_REPO: ZViewer
+  # GitHub 直连下载失败时的加速前缀，留空表示只用直连
+  GH_PROXY: ''
+
+jobs:
+  sync:
+    name: Pull release
+    runs-on: [ubuntu-latest, x64, medium]
+    # 单个 130MB 附件在平台忙时要等一小时以上回包，一轮里可能还要补多个版本
+    timeout-minutes: 240
+    steps:
+      - name: Checkout
+        uses: checkout
+
+      - name: Setup Node.js
+        uses: setup-node
+        with:
+          node-version: '22'
+
+      - name: Pull releases from GitHub
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force }}
+          # 每轮最多补 1 个版本：一个包 130MB，一次拉多个容易把 job 拖到超时
+          MAX_SYNC: '1'
+        run: |
+          # GitCode 的 checkout 可能把代码放在工作目录，也可能放进 repo_workspace，
+          # 两种布局都兼容，避免因为 cwd 不对而报「找不到脚本」。
+          ROOT="$PWD"
+          if [ ! -f "$ROOT/scripts/pull-github-release.mjs" ] && [ -f "$PWD/repo_workspace/scripts/pull-github-release.mjs" ]; then
+            ROOT="$PWD/repo_workspace"
+          fi
+          echo "工作目录：$ROOT"
+          cd "$ROOT"
+          node scripts/pull-github-release.mjs
