@@ -15,8 +15,13 @@ name: sync-release
 displayName: 同步 GitHub 发行版到 Gitee
 
 triggers:
-  # 主路径：build.yml 把 v* tag 推过来就触发，事件驱动、不用轮询
+  # 显式声明分支：仓库默认分支是 main（从 GitHub 导入的，没有 master），
+  # 不写的话 Gitee Go 新建流水线常默认绑 master，导致 fetch 失败、checkout 报
+  # 「not a valid object name」直接退出
   push:
+    branches:
+      include:
+        - main
     tags:
       prefix:
         - v
