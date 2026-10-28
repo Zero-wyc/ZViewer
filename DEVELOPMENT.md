@@ -203,12 +203,14 @@ npm run package        # 出 ZIP + SHA256
 两种模式都只把**代码和 tag** 推到 [Gitee](https://gitee.com/Zero-wyc/ZViewer)，
 **不在 GitHub 侧建 Gitee 发行版**。
 
-发行版由 Gitee 侧自己拉：`.workflow/sync-release.yml` 在收到 `v*` tag 时触发，
-跑 `node scripts/sync-release-to-gitee.mjs` —— 从 GitHub 下载附件、建/更新 Gitee 发行版、
-multipart 上传、回读校验。另有每 12 小时的定时兜底，补「tag 到了但流水线失败」的漏。
+发版最后一步在 GitHub 的 release job 里做：`Publish to Gitee` 直接跑
+`node scripts/sync-release-to-gitee.mjs`，附件用 `LOCAL_ASSETS` 复用工作目录里刚构建好的三个包
+（不再从 GitHub 下载），建/更新 Gitee 发行版 → multipart 上传 → 回读校验。
 
-> 为什么不用每小时轮询：Gitee Go 按核分计费（免费 1000 核分/月 ≈ 2C4G 500 分钟），
-> 每小时一次一个月 700+ 次，额度直接见底。tag 触发是主路径，cron 只是兜底。
+> 为什么不在 Gitee Go 里跑：Gitee Go 的插件标识跟公开文档有出入，`npmbuild@1` 会被判
+> 「不支持的任务类型」，`.workflow/sync-release.yml` 目前只能手动点运行。
+> 而 Gitee 的附件上传是同步 multipart，从 GitHub 直接推是可靠的，不需要再绕一层。
+> 该文件保留作为手动补漏入口，调通后再开 trigger（默认无自动触发）。
 
 一次性配置：
 

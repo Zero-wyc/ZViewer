@@ -1,33 +1,26 @@
-# Gitee Go 流水线：把 GitHub 上的正式版 Release 同步到 Gitee 发行版。
+# Gitee Go 流水线（可选）：从 GitHub 拉取正式版 Release 并发布到 Gitee 发行版。
 #
-# 触发方式：
-#   1. push v* tag —— 主路径。GitHub 的发版 job 会把 tag 推到 Gitee，这里收到就开始同步
-#   2. 定时（每 12 小时）—— 兜底，补「tag 到了但流水线失败/没触发」的漏
-#   3. 网页上点「运行」—— 手动重跑
+# ⚠️ 现状：主路径已经是 GitHub 的 build.yml 直接推到 Gitee（同一个脚本，附件复用本地构建产物），
+# 这条流水线只作「补漏」：比如 GitHub 侧推送失败、或想手动重发某个历史版本。
 #
-# 为什么不用每小时轮询：Gitee Go 按核分计费（1000 核分/月 ≈ 2C4G 500 分钟），
-# 每小时跑一次一个月就 700+ 次，免费额度撑不住。
+# 因此这里**没有配置自动触发**，只能在 Gitee Go 页面点「运行」手动执行。
+# 旧写法（npmbuild@1 + inputs）在当前平台版本上会被判「不支持的任务类型」，
+# 所以改用新版插件标识 build@nodejs，命令直接写在 commands 里。
+# 等它在页面上跑绿了，再把下面的 triggers 打开：
 #
-# 前置条件：
-#   - 仓库「管理 → 环境变量」里配 GITEE_TOKEN（私人令牌，需 projects/repos 写权限）
-#   - 仓库已在 Gitee Go 中开通流水线（仓库导航 → DevOps → Gitee Go）
+#   triggers:
+#     push:
+#       tags:
+#         prefix:
+#           - v
+#     schedule:
+#       - cron: '0 30 0/12 * * ?'   # Quartz 六段式：每天 00:30 / 12:30 兜底
 #
-# 如果这份 YAML 没被识别：用网页上的「新建流水线 → Node 模板」生成，
-# 把执行命令改成 `node scripts/sync-release-to-gitee.mjs` 即可，字段名以平台生成的为准。
+# 前置条件：仓库「管理 → 环境变量」里配 GITEE_TOKEN（私人令牌，勾 projects）。
 
 version: '1.0'
 name: sync-release-from-github
 displayName: 同步 GitHub 发行版
-
-triggers:
-  push:
-    # 只认 v 开头的 tag；不配 branches，避免每次推送都跑一遍
-    tags:
-      prefix:
-        - v
-  # Quartz 六段式：秒 分 时 日 月 周。这里每天 00:30 与 12:30 各跑一次
-  schedule:
-    - cron: '0 30 0/12 * * ?'
 
 variables:
   GITHUB_REPO: Zero-wyc/ZViewer
@@ -35,20 +28,16 @@ variables:
   GITEE_REPO: ZViewer
 
 stages:
-  - stage:
-    name: sync
+  - stage: sync
     displayName: 同步发行版
     strategy: fast
     trigger: auto
     steps:
-      - step: npmbuild@1
+      - step: build@nodejs
         name: pull_release
         displayName: 拉取 GitHub 发行版并上传
-        inputs:
-          # 脚本只用 Node 内置模块，14 以上都能跑；给 20 是为了少踩老版本 TLS 的坑
-          nodeVersion: 20
-          goals: |
-            set -e
-            node -v
-            echo "同步 ${GITHUB_REPO} → ${GITEE_OWNER}/${GITEE_REPO}"
-            node scripts/sync-release-to-gitee.mjs
+        nodeVersion: 20
+        commands:
+          - node -v
+          - echo "同步 ${GITHUB_REPO} → ${GITEE_OWNER}/${GITEE_REPO}"
+          - node scripts/sync-release-to-gitee.mjs

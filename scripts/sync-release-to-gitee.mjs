@@ -47,6 +47,11 @@ const FORCE = truthy(env.FORCE);
 const DRY_RUN = truthy(env.DRY_RUN);
 const MAX_SYNC = Math.max(1, Number(env.MAX_SYNC || 1) || 1);
 const GH_PROXY = (env.GH_PROXY || '').replace(/\/+$/, '');
+/** 已经在本地就绪的附件（CI 里产物就在工作目录，没必要再从 GitHub 下一遍） */
+const LOCAL_ASSETS = (env.LOCAL_ASSETS || '')
+  .split(/[\s,]+/)
+  .map((s) => s.trim())
+  .filter(Boolean);
 const TARGET_BRANCH = (env.GITEE_TARGET_BRANCH || '').trim();
 /** Gitee 单个附件上限 100MB（GVP 200MB），超过就没必要浪费带宽去试 */
 const MAX_ASSET_BYTES = 100 * 1024 * 1024;
@@ -364,12 +369,23 @@ async function main() {
 
     const dir = await fsp.mkdtemp(path.join(os.tmpdir(), `zviewer-${tag}-`));
     try {
-      const toFetch = existing && !FORCE ? missing : assets;
+      const localMap = new Map(LOCAL_ASSETS.map((f) => [path.basename(f), f]));
+      const wanted = existing && !FORCE ? missing : assets;
       const files = [];
-      for (const asset of toFetch) {
+      for (const asset of wanted) {
         if (asset.size > MAX_ASSET_BYTES) {
           failures.push(`${tag}/${asset.name}（${(asset.size / 1048576).toFixed(1)}MB 超过 100MB 上限）`);
           continue;
+        }
+        const local = localMap.get(asset.name);
+        if (local) {
+          // 构建产物已经在工作目录，直接复用，省一次 130MB 的下载
+          const stat = await fsp.stat(local).catch(() => null);
+          if (stat) {
+            log(`  使用本地产物 ${asset.name}（${(stat.size / 1048576).toFixed(1)} MB）`);
+            files.push(local);
+            continue;
+          }
         }
         files.push(await downloadAsset(asset, dir));
       }

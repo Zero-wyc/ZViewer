@@ -1,25 +1,22 @@
-# Gitee 发版：GitHub 构建，Gitee 侧拉取发行版
+# Gitee 发版：GitHub 构建并推送，Gitee 侧托管下载
 
 ## 链路
 
 ```
-GitHub build.yml（手动触发构建，见下）
+GitHub build.yml（手动触发构建）
   ├─ 手动不填版本号 → 测试版 → GitHub prerelease（tag: latest）
   ├─ 手动填 vX.Y.Z  → 正式版 → 建 tag → GitHub Release
   ├─ 或直接 push v* tag → 同上
-  └─ 只推代码：main 分支、v* tag → git push 到 gitee.com/Zero-wyc/ZViewer
-
-Gitee .workflow/sync-release.yml（v* tag 触发，另有 12 小时兜底）
-  └─ node scripts/sync-release-to-gitee.mjs
-       ├─ 列 GitHub Release，筛 v* 正式版
-       ├─ 对照 Gitee 发行版，附件齐全就跳过
-       ├─ 缺的附件从 GitHub 下载（直连失败自动走 GH_PROXY）
-       ├─ 建/更新 Gitee 发行版（正文里的 GitHub 直链换成本站直链）
-       └─ multipart 上传附件，回读校验
+  ├─ 只推代码：main 分支、v* tag → git push 到 gitee.com/Zero-wyc/ZViewer
+  └─ Publish to Gitee：node scripts/sync-release-to-gitee.mjs（附件直接用本地构建产物）
+                          ↓ 建/更新发行版 + multipart 上传 + 回读校验
+                     gitee.com/Zero-wyc/ZViewer/releases
 ```
 
-和 GitCode 那套的区别：Gitee 的附件是普通 multipart 直传、同步返回结果，不需要等平台回调；
-发行版支持 PATCH / DELETE，正文能改、附件能重传；同一 tag 重复发版也不会报错。
+> 为什么最后一步在 GitHub 侧做：Gitee Go 的插件体系跟公开文档对不上，`npmbuild@1` 被判
+> 「不支持的任务类型」，流水线跑不起来。而 Gitee 的附件上传是同步 multipart，不存在
+> GitCode 那种「PUT 成功但平台没登记」的坑，从 GitHub 直接推是可靠的。
+> `.workflow/sync-release.yml` 保留为**手动补漏**入口（默认无自动触发），等它调通再开 trigger。
 
 ## 一次性配置
 
@@ -27,7 +24,7 @@ Gitee .workflow/sync-release.yml（v* tag 触发，另有 12 小时兜底）
 | --- | --- | --- |
 | 生成私人令牌 | gitee.com → 头像 → 设置 → 私人令牌 | 勾选 `projects`（仓库读写）即可 |
 | 配 `GITEE_TOKEN` | 仓库 → 管理 → 环境变量 | 名称必须是 `GITEE_TOKEN`，勾选「敏感信息」 |
-| 开通 Gitee Go | 仓库 → DevOps → Gitee Go | 每个仓库单独开通；免费额度 1000 核分/月（2C4G ≈ 500 分钟） |
+| 开通 Gitee Go（可选） | 仓库 → DevOps → Gitee Go | 只有想用「手动补漏」流水线时才需要；免费额度 1000 核分/月 |
 | GitHub 侧配 `GITEE_TOKEN` | GitHub 仓库 → Settings → Secrets | 同名同值，`build.yml` 推代码/tag 时用 |
 
 Gitee 侧可选环境变量：`GITHUB_TOKEN`（提高 GitHub API 限流额度）、`GH_PROXY`（如 `https://ghfast.top/`，GitHub 直连慢时用）、`MAX_SYNC`（单轮补几个版本，默认 1）。

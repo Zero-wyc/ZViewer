@@ -555,3 +555,29 @@ jobs:
             exit 1
           fi
           echo "$log"
+
+      # Gitee Go 的插件体系跟公开文档对不上（npmbuild@1 会被判「不支持的任务类型」），
+      # 与其让每次发版都挂一条红色流水线，不如在这里直接推一次，保证发版一定落到 Gitee。
+      # 附件已经在工作目录（download-artifact），脚本用 LOCAL_ASSETS 直接复用，不再从 GitHub 下载。
+      - name: Setup Node.js 22
+        if: env.GITEE_TOKEN != ''
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Publish to Gitee
+        if: env.GITEE_TOKEN != ''
+        continue-on-error: true
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ needs.prepare.outputs.tag }}
+          LOCAL_ASSETS: >-
+            zviewer-linux-x64.tar.gz
+            zviewer-windows-x64.zip
+            zviewer-windows-x64-GUI.zip
+        run: |
+          node scripts/sync-release-to-gitee.mjs || {
+            echo "::warning::Gitee 发版失败。修好后可在本机重跑：GITEE_TOKEN=*** TAG=${TAG} LOCAL_ASSETS=\"zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip\" node scripts/sync-release-to-gitee.mjs"
+            exit 1
+          }
