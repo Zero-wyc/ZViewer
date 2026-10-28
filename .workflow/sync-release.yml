@@ -33,12 +33,13 @@ stages:
       - step: build@nodejs
         name: sync_release
         displayName: 下载 GitHub 附件并上传到 Gitee
-        nodeVersion: 16.14.2
+        # 必须是 Gitee Go 预置镜像里真的存在的版本号，写错插件会在起任务前就失败，
+        # 日志只会停在 git checkout 那几行（不打印任何我们的命令）。
+        # 官方模板明确列出的可用值：8.16.2 / 10.17.0 / 12.16.1 / 14.16.0 / 15.12.0
+        nodeVersion: 14.16.0
         commands:
-          - set -e
-          - node -v
+          - node -v && pwd
+          # 环境变量直接写在命令前面，不依赖 export 在命令之间透传
           # 仓库「管理 → 环境变量」里配 RELEASE_TOKEN（Gitee 私人令牌，勾 projects）
-          - export GITEE_TOKEN="${RELEASE_TOKEN}"
           # 境内直连 GitHub 常「连上不来数据」，下行统一走加速
-          - export GH_PROXY="https://ghfast.top/"
-          - node scripts/sync-release-to-gitee.mjs
+          - GITEE_TOKEN="$RELEASE_TOKEN" GH_PROXY="https://ghfast.top/" node scripts/sync-release-to-gitee.mjs

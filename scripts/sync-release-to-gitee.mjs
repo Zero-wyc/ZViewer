@@ -5,7 +5,7 @@
  * 与之前 GitCode 那套的区别：
  * - Gitee 的附件是普通 multipart 直传，同步返回结果，不需要等平台异步回调；
  * - Release 支持 PATCH / DELETE，正文和附件都能正常修改；
- * - 只用 node:https / node:fs 内置模块（不用 fetch / FormData），
+ * - 只用 https / fs 内置模块（不用 fetch / FormData），
  *   Node 14 以上的环境都能跑，不挑 CI 镜像。
  *
  * 环境变量：
@@ -26,13 +26,13 @@
  *   TAG=v5.1.0 FORCE=1 node scripts/sync-release-to-gitee.mjs
  */
 
-import fs from 'node:fs';
-import fsp from 'node:fs/promises';
-import http from 'node:http';
-import https from 'node:https';
-import os from 'node:os';
-import path from 'node:path';
-import crypto from 'node:crypto';
+import fs from 'fs';
+import fsp from 'fs/promises';
+import http from 'http';
+import https from 'https';
+import os from 'os';
+import path from 'path';
+import crypto from 'crypto';
 
 const env = process.env;
 const GH_API = (env.GITHUB_API_BASE || 'https://api.github.com').replace(/\/+$/, '');
