@@ -24,9 +24,9 @@
     "test:media": "node --experimental-strip-types --test scripts/media-regression.test.mjs",
     "test:music": "node --experimental-vm-modules --test scripts/music-regression.test.mjs scripts/bilibili-parts.test.mjs scripts/music-toolbar.test.mjs scripts/music-quality.test.mjs",
     "start": "node scripts/start.js",
-    "release:pull": "node scripts/pull-github-release.mjs",
     "build:exe": "node scripts/build-exe.js",
-    "build:all": "node build-all.js"
+    "build:all": "node build-all.js",
+    "release:sync": "node scripts/sync-release-to-gitee.mjs"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

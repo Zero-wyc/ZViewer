@@ -196,93 +196,50 @@ npm run package        # 出 ZIP + SHA256
 （`Size` 只影响进度显示，可顺手改） → `cd desktop && go test ./controller -run Component`
 （只检查目录里的文件是有效二进制，**不比对摘要**）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）。
 
-### 6.1 发版与大陆镜像（GitHub → GitCode）
+### 6.1 发版与大陆镜像（GitHub → Gitee）
 
-`.github/workflows/build.yml` 推 `main` 出 `dev` 预发布（tag **不能叫 `latest`**，原因见下方排查要点）、
-推 `v*` 出正式版。两个 release job 末尾都会把
-**同一份 Release 与附件**再发一份到 [GitCode](https://gitcode.com)（CSDN 与华为云 CodeArts 联合运营的平台，
-与 AtomGit 已合并同站），大陆用户直接走 `gitcode.com` 下载。
+`.github/workflows/build.yml` **不再跟随 main 自动构建**：手动触发时填了 `vX.Y.Z` 才出正式版
+（自动建 tag 并发 GitHub Release），留空则只出测试版（GitHub 的 `latest` 预发布）。
+两种模式都只把**代码和 tag** 推到 [Gitee](https://gitee.com/Zero-wyc/ZViewer)，
+**不在 GitHub 侧建 Gitee 发行版**。
 
-> GitCode 侧 main 分支镜像的 tag 是 **`dev`**，不是 `latest`：GitCode API 把 `/releases/latest`
-> 当作「仓库最新 Release」的别名，tag 叫 `latest` 时 `GET` 会返回正式版、`DELETE` 又 404，
-> 整步静默失败。脚本对 `TAG=latest` 会直接报错退出。
+发行版由 Gitee 侧自己拉：`.workflow/sync-release.yml` 在收到 `v*` tag 时触发，
+跑 `node scripts/sync-release-to-gitee.mjs` —— 从 GitHub 下载附件、建/更新 Gitee 发行版、
+multipart 上传、回读校验。另有每 12 小时的定时兜底，补「tag 到了但流水线失败」的漏。
 
-**为什么不能只靠 GitCode 的「仓库镜像」**（两个理由，都会踩坑）：
-
-1. 镜像只同步分支 / 标签 / 提交，**不搬 Release 和附件**；
-2. 更硬的限制：项目一旦开启「仓库镜像 → Pull」，GitCode 会**禁用所有写操作**（推代码、建 Tag、建 Release
-   全部 403，报 `This operation is not allowed because the repository is an image repository`）。
-   ——官方文档写明这是为了避免双写。
-
-所以流程是「代码和 Release 都由 CI 推」：
-
-1. `git push gitcode HEAD:refs/heads/main` + `git push gitcode refs/tags/<tag> --force`
-   —— 主线与标签直接推过去，替代 Pull 镜像的定时同步（Pull 镜像每天才拉一次，本来就慢）。
-   main 分支那次推的是 `dev` 这个移动 tag。
-2. `node scripts/sync-gitcode-release.mjs`
-   —— 同名 Release 已存在则先删再建 → `GET /releases/{tag}/upload_url` 取华为云 OBS 预签名地址 →
-   `node:https` 直连 `PUT` 原始字节 → **回读 Release 确认附件真的挂上了** → 把说明里的 GitHub 直链
-   改成本站直链 → 下载地址写进 Job Summary。
-   新建的 Release 若**一个附件都没挂上**，脚本会把空壳删掉——否则页面上只剩 4 个自动生成的
-   源码包，用户会以为这个项目不发二进制（`KEEP_EMPTY_RELEASE=1` 可保留空壳）。
-
-> 推 tag 失败时脚本会用 `TARGET_COMMITISH` 让 GitCode 自建 tag（只读镜像仓会先被拦下并给出指引）。
-
-「Push tag」仍是 `continue-on-error: true`（GitCode 出问题不影响 GitHub 发版）；
-**「Publish to GitCode Release」不再吞异常**——附件没传上去就让这一步标红，并在 Job Summary 里给出
-每个附件的重试次数、耗时与失败原因（历史教训：旧版把失败吞掉，连续 3 个版本都只有 source code）。
+> 为什么不用每小时轮询：Gitee Go 按核分计费（免费 1000 核分/月 ≈ 2C4G 500 分钟），
+> 每小时一次一个月 700+ 次，额度直接见底。tag 触发是主路径，cron 只是兜底。
 
 一次性配置：
 
-1. gitcode.com「导入项目」从 GitHub 导入 `Zero-wyc/ZViewer`，仓库**必须公开**（私有则下载要登录，失去意义）。
-2. **不要开「仓库镜像 → Pull」**。已经开了的，去 项目设置 → 仓库镜像 把它删掉/关掉，否则仓库只读，
-   推 tag 与建 Release 一律 403。代码同步由 workflow 的 `git push` 承担。
-3. 头像 → 设置 → 私人令牌 → 生成（勾仓库读写），只显示一次。
-4. GitHub 仓库 → Settings → Secrets → Actions，新增 `GITCODE_TOKEN`。
+1. gitee.com「导入项目」从 GitHub 导入，仓库**必须公开**（私有则下载要登录，失去意义）。
+2. 仓库 → 管理 → 环境变量：新增 `GITEE_TOKEN`（私人令牌，勾 `projects`），勾「敏感信息」。
+3. 仓库 → DevOps → Gitee Go：开通流水线（每仓库单独开通）。
+4. GitHub 仓库 → Settings → Secrets → Actions：新增同名 `GITEE_TOKEN`，供 `git push` 用。
 
-> 没配 `GITCODE_TOKEN` 时同步步骤整体跳过（`if: env.GITCODE_TOKEN != ''`），发版行为与未接入时一致。
-
-手工补历史版本：
+手工补历史版本（本机跑，不占构建额度）：
 
 ```bash
-GITCODE_TOKEN=<令牌> TAG=v5.0.0 RELEASE_NAME=v5.0.0 \
-RELEASE_BODY_FILE=release_body.md \
-ASSETS="zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip" \
-node scripts/sync-gitcode-release.mjs      # 加 DRY_RUN=1 只打印计划
-
-# 已有 Release 只缺附件（不删不重建、保留原说明）
-GITCODE_TOKEN=<令牌> TAG=v5.0.4 NO_RECREATE=1 \
-ASSETS="zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip" \
-node scripts/sync-gitcode-release.mjs
+GITEE_TOKEN=<令牌> node scripts/sync-release-to-gitee.mjs            # 自动挑最新未同步的正式版
+GITEE_TOKEN=<令牌> TAG=v5.0.0 FORCE=1 node scripts/sync-release-to-gitee.mjs   # 强制重传
+DRY_RUN=1 GITEE_TOKEN=x node scripts/sync-release-to-gitee.mjs       # 只打印计划
 ```
 
 排查要点：
 
-- **「Release 页面上只有 source code」＝ 附件一个都没上传成功**。先核对实况，别看页面：
-  `curl -s "https://api.gitcode.com/api/v5/repos/<owner>/<repo>/releases?per_page=20"` →
-  每个 Release 的 `assets` 里除 `type: "source"` 之外的条目数就是真实附件数（源码包固定 4 个，
-  `name` 是 `<tag>.zip/.tar.gz/.tar.bz2/.tar`）。
-- 单附件上限 **2 GB**（当前产物 37～65 MB）；`GITCODE_API_BASE` 默认 `https://api.gitcode.com/api/v5`。
-- **附件上传不能用内置 `fetch`**：undici 的 `headersTimeout` 默认 300s，从请求发出就开始计时，
-  **不等请求体发完**；GitHub runner → 华为云 OBS 这条链路慢，37MB 的包会在 ~301s 被掐断
-  （`TypeError: fetch failed`）。脚本因此改用 `node:https` 直连 PUT，只保留「10 分钟无进展」的停滞检测。
-  这一条是 2026-10-26 之前「Release 里只有 source code」的真正原因。
-- **`GET /releases/latest` 是别名**，指向仓库最新 Release，不是 tag 叫 latest 的 Release；
-  按 tag 寻址时 tag 不能取 `latest`（main 分支镜像改用 `dev`）。
-- **上传成功 ≠ 附件挂上**：`PUT` 返回 203 表示对象写进 OBS 但平台回调没登记，附件不会出现在 Release 里。
-  脚本每个附件传完都回读 `assets` 校验，缺失就重传，最终仍缺失则整步失败（`UPLOAD_ATTEMPTS` 默认 3，
-  workflow 里设 2 以控制耗时）。
-- Release 主键**就是 tag 名**：`GET|PATCH|DELETE /repos/{owner}/{repo}/releases/{tag}`；附件删除是
-  `DELETE /releases/{tag}/attach_files/{attach_file_id}`（脚本直接删 Release，更省事）。
-- 日志出现 `访问仓库失败：HTTP 401` = 令牌过期或没权限；`HTTP 404` = GitCode 上还没有该仓库。
-- 只想排障不想写远端：`DIAG=1` 只读诊断（仓库可读性 / Release 是否存在 / 上传地址与 header 键）；
-  `NO_RECREATE=1` 原地补传缺失附件，不删不重建；`REWRITE_GITHUB_LINKS=0` 关掉正文直链改写。
-- 日志出现 `This operation is not allowed because the repository is an image repository` /
-  `error_code_name":"UN_KNOW` 且提到 image repository = 项目还开着「仓库镜像 → Pull」，
-  仓库处于只读态：去 项目设置 → 仓库镜像 关掉后重跑（脚本与 workflow 都会直接给出这句指引）。
-- 若 GitCode 侧无法取消 Pull 镜像，就新建一个**空仓库**（不要用「导入」），把 `build.yml` 里的
-  `GITCODE_REPO` 指向它，再推一次 main / tag —— 代码、标签、Release 都由 CI 推上去。
-- 下载直链 `https://gitcode.com/<owner>/<repo>/releases/download/<tag>/<file>` 匿名可下且永久有效。
+- **附件上限 100MB / 单仓库总量 1GB**（GVP 200MB / 5GB）。GUI 包约 70MB，脚本上传前会先校验；
+  总量 1GB 意味着大约 7 个版本就满，旧版本要定期删。
+- 上传接口是 `POST /repos/{owner}/{repo}/releases/{id}/attach_files`（multipart，字段名 `file`），
+  **同步返回结果**，不存在 GitCode「PUT 成功但平台没登记」那种情况；脚本仍会回读 `assets` 复核。
+- 发行版主键是 **id 不是 tag**：按 tag 查询用 `GET /releases/tags/{tag}`，改/删用 `GET|PATCH|DELETE /releases/{id}`，
+  附件删除是 `DELETE /releases/{id}/attach_files/{attach_file_id}`。
+- 正文里的 GitHub 直链会被改写为 `https://gitee.com/<owner>/<repo>/releases/download/<tag>/<file>`。
+- 脚本只用 `node:http(s)` / `fs` 等内置模块（**不用 fetch / FormData**），因此 Gitee Go 构建机上
+  Node 14 也能跑；流水线里给的是 `nodeVersion: 20`。
+- 定时表达式是 **Quartz 六段式**（秒 分 时 日 月 周），例如 `0 30 0/12 * * ?` = 每天 00:30 / 12:30。
+
+> **待办**：桌面端下载 cloudflared / EasyTier 的端点仍写着 `api.gitcode.com`（见 6 节表格）。
+> 如果 GitCode 仓库要停用，这两处需要一起改成 Gitee 的 raw 地址，否则 GUI 首次启动拉不到组件。
 - Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
 
 ### 6.2 应用内的「更新源」开关

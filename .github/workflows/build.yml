@@ -9,9 +9,9 @@
 # 为什么不再跟着 main 自动构建：每次提交都跑一遍 130MB×3 的跨平台构建太浪费，
 # 测试版改成需要时手动点一次；正式版必须显式给版本号，版本号不会被随手覆盖。
 #
-# 与 GitCode 的关系：这里只把**代码和 tag** 推到 GitCode，不再在这里建 GitCode Release。
-# GitCode 的 .gitcode/workflows/sync-release.yml 每小时自己拉取本仓库的正式版 Release
-# 并在 GitCode 发版——跨境传附件的活交给大陆机房去做，失败也不会连累这里的发版。
+# 与 Gitee 的关系：这里只把**代码和 tag** 推到 Gitee，不在 GitHub 侧建 Gitee 发行版。
+# Gitee 的 .workflow/sync-release.yml 在收到 v* tag 时自己拉取 GitHub Release 并上传附件
+# （另有 12 小时兜底轮询）——跨境下载 + 境内上传都在 Gitee 机房完成，失败也不会连累这里的发版。
 
 name: Build (Single-File + Windows GUI)
 
@@ -311,12 +311,12 @@ jobs:
     permissions:
       contents: write
     env:
-      # 大陆镜像（GitCode，CSDN 平台）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
-      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
-      GITCODE_OWNER: Zero-wyc
-      GITCODE_REPO: ZViewer
+      # 大陆镜像（Gitee）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_OWNER: Zero-wyc
+      GITEE_REPO: ZViewer
     steps:
-      # 供 GitCode 同步步骤推送代码（附件下载不依赖 checkout，单独放在最前）
+      # 供 Gitee 同步步骤推送代码（附件下载不依赖 checkout，单独放在最前）
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -334,7 +334,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # GitHub 与 GitCode 共用同一份说明，避免两边文案漂移
+      # GitHub 与 Gitee 共用同一份说明，避免两边文案漂移
       - name: Generate release body
         shell: bash
         run: |
@@ -396,33 +396,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 只同步代码：把 main 推过去，GitCode 上的 Release 由那边的定时流水线自己拉取创建。
-      # 注意：GitCode 的「仓库镜像 → Pull」会让仓库只读（官方限制：禁用推送代码/Tag/建 Release），
-      # 项目里必须关掉 Pull 镜像，否则这一步会被 403 拒绝。
-      - name: Push main branch to GitCode
-        if: env.GITCODE_TOKEN != '' && needs.prepare.outputs.ref_name == 'main'
+      # 只同步代码：把 main 推过去，Gitee 上的发行版由那边的流水线自己拉取创建。
+      - name: Push main branch to Gitee
+        if: env.GITEE_TOKEN != '' && needs.prepare.outputs.ref_name == 'main'
         continue-on-error: true
         shell: bash
         env:
           GIT_TERMINAL_PROMPT: '0'
         run: |
-          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
-          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
-          if ! log=$(git push gitcode "HEAD:refs/heads/main" 2>&1); then
+          REPO_URL="https://${GITEE_OWNER}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
+          git remote add gitee "$REPO_URL" 2>/dev/null || git remote set-url gitee "$REPO_URL"
+          if ! log=$(git push gitee "HEAD:refs/heads/main" 2>&1); then
             echo "$log"
-            if echo "$log" | grep -qi 'image repository'; then
-              echo "::error::GitCode 拒绝了写入：仓库是只读镜像仓（provider=image repository）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑。"
-            fi
+            echo "::error::推送到 Gitee 失败：确认 GITEE_TOKEN 有效且对 ${GITEE_OWNER}/${GITEE_REPO} 有写权限"
             exit 1
           fi
           echo "$log"
 
-          # 发版通常就在 main 尖端：顺带把 GitCode 的 main 快进过去，
-          # 避免长期只发版、不跑测试构建时 GitCode 的主线一直停在旧提交。
+          # 发版通常就在 main 尖端：顺带把 Gitee 的 main 快进过去，
+          # 避免长期只发版、不跑测试构建时 Gitee 的主线一直停在旧提交。
           # 非快进会失败，失败只警告，不倒推别人的主线。
           REMOTE_MAIN=$(git ls-remote origin refs/heads/main | cut -f1)
           if [ "${REMOTE_MAIN}" = "${TARGET_SHA}" ]; then
-            git push gitcode "HEAD:refs/heads/main" || echo "::warning::GitCode main 未更新（非快进或被改写），下次测试构建会补上"
+            git push gitee "HEAD:refs/heads/main" || echo "::warning::Gitee main 未更新（非快进或被改写），下次测试构建会补上"
           fi
 
   # 正式版：手动给了版本号（或直接推 v* tag）→ 建 tag 并发布 Release
@@ -435,10 +431,10 @@ jobs:
     permissions:
       contents: write
     env:
-      # 大陆镜像（GitCode，CSDN 平台）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
-      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
-      GITCODE_OWNER: Zero-wyc
-      GITCODE_REPO: ZViewer
+      # 大陆镜像（Gitee）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
+      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+      GITEE_OWNER: Zero-wyc
+      GITEE_REPO: ZViewer
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -536,11 +532,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 只推 tag，不在 GitHub 侧建 GitCode Release：GitCode 的
-      # .gitcode/workflows/sync-release.yml 每小时拉一次 GitHub Release 自己发版。
+      # 只推 tag，不在 GitHub 侧建 Gitee 发行版：Gitee 的 .workflow/sync-release.yml
+      # 收到 v* tag 后会自己拉取 GitHub Release 并上传附件。
       # commit 对象随 tag 一起送达，不动镜像仓库的分支。
-      - name: Push tag to GitCode
-        if: env.GITCODE_TOKEN != ''
+      - name: Push tag to Gitee
+        if: env.GITEE_TOKEN != ''
         continue-on-error: true
         shell: bash
         env:
@@ -549,15 +545,13 @@ jobs:
           TARGET_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
           # 本地 tag 与本次构建的提交对齐：手动发版时 tag 是刚刚由 Release API 建的，
-          # 本地还没有；直接把 SHA 作为 tag 目标，保证 GitCode 上的 tag 指到同一个 commit
+          # 本地还没有；直接把 SHA 作为 tag 目标，保证 Gitee 上的 tag 指到同一个 commit
           git tag -f "${TAG_NAME}" "${TARGET_SHA}"
-          REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
-          git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
-          if ! log=$(git push gitcode "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force 2>&1); then
+          REPO_URL="https://${GITEE_OWNER}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
+          git remote add gitee "$REPO_URL" 2>/dev/null || git remote set-url gitee "$REPO_URL"
+          if ! log=$(git push gitee "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force 2>&1); then
             echo "$log"
-            if echo "$log" | grep -qi 'image repository'; then
-              echo "::error::GitCode 拒绝了写入：仓库是只读镜像仓（provider=image repository）。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑。"
-            fi
+            echo "::error::推送到 Gitee 失败：确认 GITEE_TOKEN 有效且对 ${GITEE_OWNER}/${GITEE_REPO} 有写权限"
             exit 1
           fi
           echo "$log"
