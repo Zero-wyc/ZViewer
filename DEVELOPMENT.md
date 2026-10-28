@@ -203,12 +203,16 @@ npm run package        # 出 ZIP + SHA256
 两种模式都只把**代码和 tag** 推到 [Gitee](https://gitee.com/Zero-wyc/ZViewer)，
 **不在 GitHub 侧建 Gitee 发行版**。
 
-发版最后一步在 GitHub 的 release job 里做：`Publish to Gitee` 直接跑
-`node scripts/sync-release-to-gitee.mjs`，附件用 `LOCAL_ASSETS` 复用工作目录里刚构建好的三个包
-（不再从 GitHub 下载），建/更新 Gitee 发行版 → multipart 上传 → 回读校验。
+发行版由 Gitee 侧的 `.workflow/sync-release.yml`（Gitee Go 流水线）来做：`build.yml` 把 `v*` tag
+推过去后，境内构建机跑 `node scripts/sync-release-to-gitee.mjs`，从 GitHub 下载附件（走 ghfast.top）
+再上传到 Gitee，建/更新发行版 → multipart 上传 → 回读校验。
 
-失败后不必重新构建：`.github/workflows/sync-gitee.yml`（Actions → **Sync Release to Gitee**）
-只跑同步脚本，指定 `tag` 即可补发。同一个版本无法重跑 Build —— `prepare` 会以「该版本已有 Release」拦下。
+> 为什么不在 GitHub runner 上直接传：跨境上行被限速到十几 KB/s，130MB 半小时都传不完；
+> 境内机器到 Gitee 实测 9.7MB/s。Gitee Go 不可用时，把仓库变量 `GITEE_PUSH_FROM_GITHUB`
+> 设为 `true` 可切回 GitHub 侧上传（`Publish to Gitee` 步骤）。
+
+失败后不必重新构建：Gitee 流水线页面点「运行」重跑，或 `Actions → Sync Release to Gitee` 指定 `tag`。
+同一个版本无法重跑 Build —— `prepare` 会以「该版本已有 Release」拦下。
 
 > 为什么不在 Gitee Go 里跑：它的插件标识跟公开文档对不上（`npmbuild@1` 被判「不支持的任务类型」），
 > 流水线起不来；而 Gitee 的附件上传是同步 multipart，从 GitHub 直接推是可靠的，不需要再绕一层。

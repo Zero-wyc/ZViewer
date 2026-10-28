@@ -555,8 +555,10 @@ jobs:
           fi
           echo "$log"
 
-      # 发行版直接在这里建：不依赖 Gitee Go（它的插件标识跟公开文档对不上，跑不起来）。
-      # 附件已经在工作目录（download-artifact），脚本用 LOCAL_ASSETS 直接复用，不再从 GitHub 下载。
+      # 默认不在 GitHub 侧建 Gitee 发行版：托管 runner 跨境直传 Gitee 会被限速到十几 KB/s，
+      # 130MB 能传半小时以上，还会把整个发版拖红。发行版改由 .workflow/sync-release.yml
+      # 在 Gitee 自己的构建机上做（境内上行实测 9.7MB/s）。
+      # 万一 Gitee Go 不可用，把仓库变量 GITEE_PUSH_FROM_GITHUB 设为 true 可临时切回这条路。
       - name: Setup Node.js 22
         if: env.GITEE_TOKEN != ''
         uses: actions/setup-node@v7
@@ -564,7 +566,7 @@ jobs:
           node-version: '22'
 
       - name: Publish to Gitee
-        if: env.GITEE_TOKEN != ''
+        if: env.GITEE_TOKEN != '' && vars.GITEE_PUSH_FROM_GITHUB == 'true'
         continue-on-error: true
         shell: bash
         env:

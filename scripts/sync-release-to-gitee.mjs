@@ -17,7 +17,7 @@
  *   TAG              只同步指定 tag
  *   FORCE            1 = 已同步过也重传
  *   MAX_SYNC         单轮最多补几个版本，默认 1
- *   GH_PROXY         GitHub 下载加速前缀（下载失败时才用），如 https://ghfast.top/
+ *   GH_PROXY         GitHub 下载加速前缀（配上就优先走它），如 https://ghfast.top/
  *   GITEE_TARGET_BRANCH  覆盖创建发行版时用的 target_commitish（默认自动取 tag 的 commit SHA）
  *   DRY_RUN          1 = 只打印计划
  *
@@ -213,8 +213,10 @@ async function resolveCommitish(tag, release) {
 
 async function downloadAsset(asset, dir) {
   const dest = path.join(dir, asset.name);
-  const urls = [asset.browser_download_url];
-  if (GH_PROXY) urls.push(`${GH_PROXY}${asset.browser_download_url}`);
+  // 配了加速前缀就用它打头：境内直连 GitHub 经常「连上但不来数据」，
+  // 没有空闲超时的话会一直挂着，看起来像卡死。
+  const proxies = GH_PROXY ? [`${GH_PROXY}${asset.browser_download_url}`] : [];
+  const urls = [...proxies, asset.browser_download_url];
 
   let lastErr;
   for (const url of urls) {
@@ -222,7 +224,8 @@ async function downloadAsset(asset, dir) {
       try {
         const res = await openRequest(url, {
           headers: { 'User-Agent': 'zviewer-gitee-sync' },
-          timeout: 0,
+          // 90 秒没有新数据就认定链路停了，换下一条线路
+          timeout: 90000,
         });
         if (res.statusCode !== 200) throw new Error(`HTTP ${res.statusCode}`);
         await new Promise((resolve, reject) => {
@@ -243,7 +246,7 @@ async function downloadAsset(asset, dir) {
         const route = GH_PROXY && url.startsWith(GH_PROXY) ? '加速' : '直连';
         warn(`  下载 ${asset.name} 失败（${attempt}/2，${route}）：${err.message}`);
         await fsp.rm(dest, { force: true }).catch(() => {});
-        await sleep(3000 * attempt);
+        await sleep(2000 * attempt);
       }
     }
   }
@@ -326,7 +329,8 @@ function uploadAsset(releaseId, filePath, fileName) {
           'Content-Length': String(total),
           'User-Agent': 'zviewer-gitee-sync',
         },
-        timeout: 0,
+        // 180s 没有任何进展就断掉重试，否则跨境上行会像卡死一样一直挂着
+        timeout: 180000,
       },
       (res) => {
         const chunks = [];
@@ -348,6 +352,7 @@ function uploadAsset(releaseId, filePath, fileName) {
       },
     );
 
+    req.on('timeout', () => req.destroy(new Error(`上传 ${fileName} 停滞超过 180s`)));
     req.on('error', reject);
     req.write(head);
     const stream = fs.createReadStream(filePath);
@@ -355,6 +360,23 @@ function uploadAsset(releaseId, filePath, fileName) {
     stream.pipe(req, { end: false });
     stream.on('end', () => req.end(tail));
   });
+}
+
+async function uploadWithRetry(releaseId, file, name, attempts = 2) {
+  let lastErr;
+  for (let i = 1; i <= attempts; i += 1) {
+    try {
+      await uploadAsset(releaseId, file, name);
+      return;
+    } catch (err) {
+      lastErr = err;
+      // 4xx 是令牌/参数/体积问题，重试没有意义
+      if (err.status && err.status < 500) throw err;
+      warn(`  上传 ${name} 失败（${i}/${attempts}）：${err.message}`);
+      if (i < attempts) await sleep(3000 * i);
+    }
+  }
+  throw lastErr;
 }
 
 const assetsOf = (release) => (release?.assets || []).filter((a) => !String(a.name || '').startsWith('source'));
@@ -461,7 +483,7 @@ async function main() {
         const size = (await fsp.stat(file)).size;
         const started = Date.now();
         log(`  上传 ${name}（${(size / 1048576).toFixed(1)} MB）...`);
-        await uploadAsset(rel.id, file, name);
+        await uploadWithRetry(rel.id, file, name);
         log(`  ${name} 上传完成，用时 ${((Date.now() - started) / 1000).toFixed(0)}s`);
       }
 

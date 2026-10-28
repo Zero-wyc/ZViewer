@@ -1,0 +1,44 @@
+# 在 Gitee 自己的构建机上跑同步（境内机房，上传 Gitee 是内网速度）。
+#
+# 为什么放这儿：GitHub 托管 runner 跨境直传 Gitee 会被限速到十几 KB/s，
+# 130MB 传半小时都传不完；而从境内机器上传实测 9.7MB/s，十几秒就完事。
+# 跨境下载那一段走 GH_PROXY（ghfast.top）加速。
+#
+# 语法要点（Gitee Go，不是 GitHub Actions）：
+#   - 文件放仓库根目录 .workflow/ 下，需要在 Gitee 网页「DevOps → 流水线」里创建/绑定一次
+#   - step 用插件标识 build@nodejs，参数是平铺的 nodeVersion / commands（不是 inputs/goals）
+#   - cron 是 Quartz 六段式：秒 分 时 日 月 周
+#   - 仓库环境变量以 GITEE_ 开头属于系统保留字，令牌要叫 RELEASE_TOKEN，这里再映射成 GITEE_TOKEN
+
+version: '1.0'
+name: sync-release
+displayName: 同步 GitHub 发行版到 Gitee
+
+triggers:
+  # 主路径：build.yml 把 v* tag 推过来就触发，事件驱动、不用轮询
+  push:
+    tags:
+      prefix:
+        - v
+  # 兜底：每天跑一次，补「tag 到了但流水线失败/没触发」的漏
+  schedule:
+    - cron: '0 30 4 * * ?'
+
+stages:
+  - stage: sync
+    displayName: 同步发行版
+    strategy: naturally
+    trigger: auto
+    steps:
+      - step: build@nodejs
+        name: sync_release
+        displayName: 下载 GitHub 附件并上传到 Gitee
+        nodeVersion: 16.14.2
+        commands:
+          - set -e
+          - node -v
+          # 仓库「管理 → 环境变量」里配 RELEASE_TOKEN（Gitee 私人令牌，勾 projects）
+          - export GITEE_TOKEN="${RELEASE_TOKEN}"
+          # 境内直连 GitHub 常「连上不来数据」，下行统一走加速
+          - export GH_PROXY="https://ghfast.top/"
+          - node scripts/sync-release-to-gitee.mjs
