@@ -13,30 +13,35 @@ GitHub build.yml（手动触发构建）
                      gitee.com/Zero-wyc/ZViewer/releases
 ```
 
-> 为什么最后一步在 GitHub 侧做：Gitee Go 的插件体系跟公开文档对不上，`npmbuild@1` 被判
-> 「不支持的任务类型」，流水线跑不起来。而 Gitee 的附件上传是同步 multipart，不存在
-> GitCode 那种「PUT 成功但平台没登记」的坑，从 GitHub 直接推是可靠的。
-> `.workflow/sync-release.yml` 保留为**手动补漏**入口（默认无自动触发），等它调通再开 trigger。
+> 为什么不用 Gitee Go：它的插件标识跟公开文档对不上（`npmbuild@1` 被判「不支持的任务类型」），
+> 流水线起不来；而 Gitee 的附件上传是同步 multipart，不存在 GitCode 那种「PUT 成功但平台没登记」
+> 的坑，从 GitHub 直接推最省事。仓库里因此**没有** `.workflow/` 目录。
 
 ## 一次性配置
 
 | 事项 | 位置 | 说明 |
 | --- | --- | --- |
 | 生成私人令牌 | gitee.com → 头像 → 设置 → 私人令牌 | 勾选 `projects`（仓库读写）即可 |
-| 配 `GITEE_TOKEN` | 仓库 → 管理 → 环境变量 | 名称必须是 `GITEE_TOKEN`，勾选「敏感信息」 |
-| 开通 Gitee Go（可选） | 仓库 → DevOps → Gitee Go | 只有想用「手动补漏」流水线时才需要；免费额度 1000 核分/月 |
-| GitHub 侧配 `GITEE_TOKEN` | GitHub 仓库 → Settings → Secrets | 同名同值，`build.yml` 推代码/tag 时用 |
+| 配 `GITEE_TOKEN` | GitHub 仓库 → Settings → Secrets | 名称必须是 `GITEE_TOKEN`，供推代码、推 tag、建发行版用 |
+| `GITEE_TOKEN`（本机补发用） | 本机环境变量 | 想手动补历史版本时才需要；不必配到 Gitee 仓库里 |
 
-Gitee 侧可选环境变量：`GITHUB_TOKEN`（提高 GitHub API 限流额度）、`GH_PROXY`（如 `https://ghfast.top/`，GitHub 直连慢时用）、`MAX_SYNC`（单轮补几个版本，默认 1）。
+CI 里可选：`GH_PROXY`（如 `https://ghfast.top/`，GitHub 直连慢时用）、`MAX_SYNC`（单轮补几个版本，默认 1）。本机补发时还可以只给 `TAG` 指定版本、`FORCE=1` 强制重传。
 
 ## 发版流程
 
 1. GitHub → Actions → **Build** → Run workflow：
    - `release_tag` 留空 = 测试版（只更新 GitHub 的 `latest`，不同步到 Gitee）
    - `release_tag` 填 `v5.1.0` = 正式版
-2. 构建约 20 分钟，产物进 GitHub Release，随后把 tag 推到 Gitee。
-3. Gitee 收到 v* tag 自动跑同步流水线，约 5–10 分钟把发行版和三个附件放上去。
-4. 失败就在 Gitee Go 页面点「运行」重跑，已上传的附件会按体积跳过，只补缺的。
+2. 构建约 20 分钟，产物进 GitHub Release，随后同一个 job 里把 tag 推到 Gitee、
+   再建 Gitee 发行版并上传三个附件（合计约 130MB，境内上行通常 1–3 分钟）。
+3. 失败只会在 job 上打一条 warning，不影响 GitHub 发版；补发用下面两条命令之一：
+
+```bash
+# 本机补发（推荐，不占 CI 时间）
+GITEE_TOKEN=<令牌> TAG=v5.1.0 node scripts/sync-release-to-gitee.mjs
+
+# 或者重跑一遍 Build（版本号必须换成新的，已发布的版本会被拦下）
+```
 
 ## 限额（重要）
 
@@ -44,14 +49,14 @@ Gitee 侧可选环境变量：`GITHUB_TOKEN`（提高 GitHub API 限流额度）
 | --- | --- | --- |
 | 单个附件 | 100MB | GUI 包约 70MB，安全；脚本上传前会先检查，超了直接报错 |
 | 仓库附件总量 | 1GB | 每个版本约 130MB，大约 7 个版本就满，旧版本需要手动删 |
-| 构建额度 | 1000 核分/月 | 按 tag 触发时一个月几次，消耗可忽略；别改成每小时轮询 |
+| 构建额度 | 不涉及 | 不在 Gitee 上跑流水线，只用它的存储 |
 
 ## 故障排查
 
 | 现象 | 原因 / 处理 |
 | --- | --- |
-| 流水线没被触发 | 确认 `.workflow/sync-release.yml` 在默认分支上；Gitee Go 是否已开通；也可以直接在页面点「运行」 |
-| `缺少 GITEE_TOKEN` | 环境变量没配或名字不对（区分大小写） |
+| Build 里 Gitee 步骤被跳过 | 没配 `GITEE_TOKEN`；步骤条件是 `if: env.GITEE_TOKEN != ''` |
+| `缺少 GITEE_TOKEN` | 密钥没配或名字不对（区分大小写） |
 | `推送到 Gitee 失败`（GitHub 侧） | GitHub Secrets 里的 `GITEE_TOKEN` 无效或没有该仓库写权限 |
 | 上传 403 / 401 | 令牌权限不足，重新生成时勾上 `projects` |
 | 上传报超过 100MB | 包体超限，需要瘦身或分卷；脚本已在上传前拦截 |
@@ -61,5 +66,5 @@ Gitee 侧可选环境变量：`GITHUB_TOKEN`（提高 GitHub API 限流额度）
 ## 已知限制
 
 - 只同步正式版（`v*`、非 draft、非 prerelease），`latest` 测试版只留在 GitHub。
-- Gitee 上需要已有该 tag：由 `build.yml` 推送；如果 Gitee 上缺 tag 可以设 `GITEE_TARGET_BRANCH` 让接口建 tag。
+- Gitee 上需要已有该 tag：由 `build.yml` 推送；如果 Gitee 上缺 tag，可设 `GITEE_TARGET_BRANCH` 让接口建 tag（默认不建）。
 - 仓库附件总量 1GB 是硬上限，长期要定期清理旧版本。

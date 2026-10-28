@@ -6,7 +6,7 @@
  * - Gitee 的附件是普通 multipart 直传，同步返回结果，不需要等平台异步回调；
  * - Release 支持 PATCH / DELETE，正文和附件都能正常修改；
  * - 只用 node:https / node:fs 内置模块（不用 fetch / FormData），
- *   所以 Gitee Go 构建机上的 Node 14 也能跑，不受插件 Node 版本限制。
+ *   Node 14 以上的环境都能跑，不挑 CI 镜像。
  *
  * 环境变量：
  *   GITEE_TOKEN      必填，Gitee 私人令牌（需要 repos 权限）

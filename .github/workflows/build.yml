@@ -9,9 +9,9 @@
 # 为什么不再跟着 main 自动构建：每次提交都跑一遍 130MB×3 的跨平台构建太浪费，
 # 测试版改成需要时手动点一次；正式版必须显式给版本号，版本号不会被随手覆盖。
 #
-# 与 Gitee 的关系：这里只把**代码和 tag** 推到 Gitee，不在 GitHub 侧建 Gitee 发行版。
-# Gitee 的 .workflow/sync-release.yml 在收到 v* tag 时自己拉取 GitHub Release 并上传附件
-# （另有 12 小时兜底轮询）——跨境下载 + 境内上传都在 Gitee 机房完成，失败也不会连累这里的发版。
+# 与 Gitee 的关系：代码、tag、发行版全部由这里推过去（Gitee 侧不再跑流水线）——
+# Gitee 的附件上传是同步 multipart，没有 GitCode 那种异步回调，直接推最省事。
+# Gitee 相关步骤都带 `if: env.GITEE_TOKEN != ''`，没配密钥时整体跳过，不影响 GitHub 发版。
 
 name: Build (Single-File + Windows GUI)
 
@@ -532,8 +532,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 只推 tag，不在 GitHub 侧建 Gitee 发行版：Gitee 的 .workflow/sync-release.yml
-      # 收到 v* tag 后会自己拉取 GitHub Release 并上传附件。
+      # 先把 tag 推过去，下一步的发行版才有 tag 可挂。
       # commit 对象随 tag 一起送达，不动镜像仓库的分支。
       - name: Push tag to Gitee
         if: env.GITEE_TOKEN != ''
@@ -556,8 +555,7 @@ jobs:
           fi
           echo "$log"
 
-      # Gitee Go 的插件体系跟公开文档对不上（npmbuild@1 会被判「不支持的任务类型」），
-      # 与其让每次发版都挂一条红色流水线，不如在这里直接推一次，保证发版一定落到 Gitee。
+      # 发行版直接在这里建：不依赖 Gitee Go（它的插件标识跟公开文档对不上，跑不起来）。
       # 附件已经在工作目录（download-artifact），脚本用 LOCAL_ASSETS 直接复用，不再从 GitHub 下载。
       - name: Setup Node.js 22
         if: env.GITEE_TOKEN != ''

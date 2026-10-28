@@ -207,17 +207,15 @@ npm run package        # 出 ZIP + SHA256
 `node scripts/sync-release-to-gitee.mjs`，附件用 `LOCAL_ASSETS` 复用工作目录里刚构建好的三个包
 （不再从 GitHub 下载），建/更新 Gitee 发行版 → multipart 上传 → 回读校验。
 
-> 为什么不在 Gitee Go 里跑：Gitee Go 的插件标识跟公开文档有出入，`npmbuild@1` 会被判
-> 「不支持的任务类型」，`.workflow/sync-release.yml` 目前只能手动点运行。
-> 而 Gitee 的附件上传是同步 multipart，从 GitHub 直接推是可靠的，不需要再绕一层。
-> 该文件保留作为手动补漏入口，调通后再开 trigger（默认无自动触发）。
+> 为什么不在 Gitee Go 里跑：它的插件标识跟公开文档对不上（`npmbuild@1` 被判「不支持的任务类型」），
+> 流水线起不来；而 Gitee 的附件上传是同步 multipart，从 GitHub 直接推是可靠的，不需要再绕一层。
+> 仓库里因此**没有** `.workflow/` 目录。
 
 一次性配置：
 
 1. gitee.com「导入项目」从 GitHub 导入，仓库**必须公开**（私有则下载要登录，失去意义）。
 2. 仓库 → 管理 → 环境变量：新增 `GITEE_TOKEN`（私人令牌，勾 `projects`），勾「敏感信息」。
-3. 仓库 → DevOps → Gitee Go：开通流水线（每仓库单独开通）。
-4. GitHub 仓库 → Settings → Secrets → Actions：新增同名 `GITEE_TOKEN`，供 `git push` 用。
+3. GitHub 仓库 → Settings → Secrets → Actions：新增同名 `GITEE_TOKEN`，供推代码、推 tag 与建发行版用。
 
 手工补历史版本（本机跑，不占构建额度）：
 
@@ -236,8 +234,8 @@ DRY_RUN=1 GITEE_TOKEN=x node scripts/sync-release-to-gitee.mjs       # 只打印
 - 发行版主键是 **id 不是 tag**：按 tag 查询用 `GET /releases/tags/{tag}`，改/删用 `GET|PATCH|DELETE /releases/{id}`，
   附件删除是 `DELETE /releases/{id}/attach_files/{attach_file_id}`。
 - 正文里的 GitHub 直链会被改写为 `https://gitee.com/<owner>/<repo>/releases/download/<tag>/<file>`。
-- 脚本只用 `node:http(s)` / `fs` 等内置模块（**不用 fetch / FormData**），因此 Gitee Go 构建机上
-  Node 14 也能跑；流水线里给的是 `nodeVersion: 20`。
+- 脚本只用 `node:http(s)` / `fs` 等内置模块（**不用 fetch / FormData**），Node 14 以上的环境都能跑，
+  CI 里用的是 runner 自带的 Node。
 - 定时表达式是 **Quartz 六段式**（秒 分 时 日 月 周），例如 `0 30 0/12 * * ?` = 每天 00:30 / 12:30。
 
 > **待办**：桌面端下载 cloudflared / EasyTier 的端点仍写着 `api.gitcode.com`（见 6 节表格）。
