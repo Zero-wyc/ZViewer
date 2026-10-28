@@ -1,12 +1,13 @@
 # ZViewer 自动构建：单文件版（Windows + Linux）、Docker 镜像与 Windows GUI
 # Windows GUI（Go/Wails 原生壳）在 build-gui job 中构建，产物与单文件版一起进 Release。
-# 触发方式：
-#   1. push 到 main 分支 → 构建并发布到 GitHub Releases (prerelease tag: latest)
-#   2. push tag (v*) → 构建并发布到 GitHub Releases (正式版)
-#   3. 手动触发（workflow_dispatch）→ 仅构建 + 上传 artifact
-# 防双跑：发版时一次推送同时包含 main 与 tag（或先推 main 再推 tag）会触发
-# 两次 workflow。gate job 在 main 推送时检测 HEAD 是否已被 v* tag 指向，
-# 是则跳过 dev 构建（同 commit 的正式版构建会接管）。
+#
+# 触发方式（只保留手动与 tag，日常提交不再自动构建）：
+#   1. 手动触发（workflow_dispatch），不填版本号 → 构建测试版，发布为 prerelease（tag: latest）
+#   2. 手动触发（workflow_dispatch），填了版本号（如 v5.1.0）→ 构建正式版，自动建 tag 并发布 Release
+#   3. push v* tag → 同上，走正式版发版（给习惯在本地打 tag 的人留的入口）
+#
+# 为什么不再跟着 main 自动构建：每次提交都跑一遍 130MB×3 的跨平台构建太浪费，
+# 测试版改成需要时手动点一次；正式版必须显式给版本号，版本号不会被随手覆盖。
 #
 # 与 GitCode 的关系：这里只把**代码和 tag** 推到 GitCode，不再在这里建 GitCode Release。
 # GitCode 的 .gitcode/workflows/sync-release.yml 每小时自己拉取本仓库的正式版 Release
@@ -15,48 +16,113 @@
 name: Build (Single-File + Windows GUI)
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: '版本号（如 v5.1.0）。填了=构建正式版并打 tag 发 Release；留空=只构建测试版（latest 预发布）'
+        required: false
+        default: ''
+      ref:
+        description: '构建哪个分支/tag/commit，留空用触发时选择的分支（默认 main）'
+        required: false
+        default: ''
+  push:
+    tags: ['v*']
 
 jobs:
-  # 防重复构建闸门：必须在所有触发方式下都运行（不可用 if 跳过——
-  # needs 的 job 被跳过时，下游 job 会因隐式 success() 级联跳过，
-  # 导致 tag 正式版构建也被吞掉）。触发类型判断放在脚本内部：
-  # 仅 main push 且 HEAD 已被 v* tag 指向时输出 skip=true
-  gate:
+  # 统一在这里判定「这次是测试版还是正式版」，下游 job 只读 outputs，不再各自猜 GITHUB_REF。
+  # 版本号校验放在这里：格式不对或该版本已发布，就在花 20 分钟构建之前失败。
+  prepare:
     runs-on: ubuntu-latest
     outputs:
-      skip: ${{ steps.gate.outputs.skip }}
+      mode: ${{ steps.r.outputs.mode }}
+      tag: ${{ steps.r.outputs.tag }}
+      version: ${{ steps.r.outputs.version }}
+      sha: ${{ steps.r.outputs.sha }}
+      ref_name: ${{ steps.r.outputs.ref_name }}
+      docker_tags: ${{ steps.r.outputs.docker_tags }}
+      push_image: ${{ steps.r.outputs.push_image }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          ref: ${{ inputs.ref }}
           fetch-depth: 0
 
-      # 再拉一次最新 tag，缩小竞态窗口（checkout 后、检测前 tag 才到远端的情况）
-      - name: Refresh tags
-        run: git fetch --tags --force origin
-
-      - name: Check if HEAD is tagged
-        id: gate
+      - name: Resolve mode / tag / version
+        id: r
         shell: bash
+        env:
+          INPUT_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SKIP=false
-          if [ "${GITHUB_REF}" = "refs/heads/main" ] \
-            && git tag --points-at HEAD | grep -q '^v'; then
-            SKIP=true
-            echo "HEAD 已被版本 tag 指向（$(git tag --points-at HEAD | grep '^v' | tr '\n' ' ')），正式版构建将接管，跳过 dev 构建"
+          set -euo pipefail
+          SHA=$(git rev-parse HEAD)
+          if [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
+            REF_NAME="${GITHUB_REF#refs/tags/}"
+          else
+            REF_NAME="${GITHUB_REF#refs/heads/}"
           fi
-          echo "skip=$SKIP" >> "$GITHUB_OUTPUT"
+
+          # 触发方式决定模式：推 tag → 正式版；手动填了版本号 → 正式版；否则测试版
+          if [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+            MODE=release
+          elif [ -n "${INPUT_TAG}" ]; then
+            TAG="${INPUT_TAG}"
+            MODE=release
+          else
+            TAG=''
+            MODE=dev
+          fi
+
+          if [ "$MODE" = 'release' ]; then
+            if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+'; then
+              echo "::error::版本号格式不对：${TAG}（应形如 v5.1.0）"
+              exit 1
+            fi
+            # 已发布过的版本不许覆盖：Release 是可追溯的凭据，覆盖会让人分不清哪个包是哪个
+            if gh release view "$TAG" >/dev/null 2>&1; then
+              echo "::error::${TAG} 已经有 Release 了。换一个版本号；要重传附件请先手动删掉该 Release"
+              exit 1
+            fi
+            # tag 已存在但没有 Release：多半是上次构建中途失败，复用该 tag 重跑
+            if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+              echo "::warning::tag ${TAG} 已存在但没有 Release，本次复用它"
+            fi
+            VERSION="${TAG#v}"
+            MAJOR_MINOR=$(printf '%s' "$VERSION" | cut -d. -f1,2)
+            {
+              echo 'docker_tags<<EOF'
+              echo "type=raw,value=${VERSION}"
+              echo "type=raw,value=${MAJOR_MINOR}"
+              echo 'type=raw,value=latest'
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+            PUSH_IMAGE=true
+          else
+            VERSION="0.0.0-dev.${SHA:0:7}"
+            {
+              echo 'docker_tags<<EOF'
+              echo 'type=raw,value=dev'
+              echo 'EOF'
+            } >> "$GITHUB_OUTPUT"
+            # 测试版只有从 main 构建时才推 Docker dev 镜像，从别的分支构建不该覆盖 dev
+            if [ "$REF_NAME" = 'main' ]; then PUSH_IMAGE=true; else PUSH_IMAGE=false; fi
+          fi
+
+          echo "mode=${MODE} tag=${TAG:-（无）} version=${VERSION} sha=${SHA} ref=${REF_NAME}"
+          {
+            echo "mode=${MODE}"
+            echo "tag=${TAG}"
+            echo "version=${VERSION}"
+            echo "sha=${SHA}"
+            echo "ref_name=${REF_NAME}"
+            echo "push_image=${PUSH_IMAGE}"
+          } >> "$GITHUB_OUTPUT"
 
   build:
-    needs: gate
-    # gate 始终运行并输出 skip，此处条件可安全求值：
-    # - main push 且 HEAD 已打 tag → skip=true 跳过（正式版接管）
-    # - main push 未打 tag / tag push / 手动触发 → skip=false 正常构建
-    if: needs.gate.outputs.skip != 'true'
+    needs: prepare
     strategy:
       matrix:
         include:
@@ -73,9 +139,12 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
+      # 按 prepare 解析出的 commit 检出：手动触发时可以指定别的分支/commit，
+      # 构建产物必须和后面打 tag 的提交严格一致。
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
 
       - name: Setup Node.js 26
@@ -93,19 +162,11 @@ jobs:
           key: pkg-fetch-v3.6-node26-x64
 
       - name: Inject version
-        # 根据触发方式注入版本号：
-        # - tag 推送 (v*)：用 tag 名作为版本号（如 1.0.0）
-        # - main 分支推送：用 0.0.0-dev.<sha前7位> 作为版本号
-        # - 手动触发：用 0.0.0-manual 作为版本号
+        # 版本号由 prepare 统一算好：正式版取 tag（v5.1.0 → 5.1.0），测试版取 0.0.0-dev.<sha前7位>
         shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          if [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            VERSION="0.0.0-dev.${GITHUB_SHA:0:7}"
-          else
-            VERSION="0.0.0-manual"
-          fi
           echo "Injecting version: $VERSION"
           node -e "const fs=require('fs');const p=require('./package.json');p.version='$VERSION';fs.writeFileSync('./package.json',JSON.stringify(p,null,2)+'\n')"
 
@@ -153,14 +214,10 @@ jobs:
         uses: docker/metadata-action@v6
         with:
           images: ${{ secrets.DOCKER_USERNAME }}/zviewer
-          # 正式版本号：仅 tag 推送（vX.Y.Z）产出 X.Y.Z 与 X.Y
-          # latest 只跟随正式版本 tag，避免被 main 分支的开发构建覆盖
-          # main 分支开发构建推到 dev，便于尝鲜但不动 latest
-          tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
-            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/main' }}
+          # 正式版产出 X.Y.Z、X.Y 与 latest；测试版只产出 dev。
+          # 手动填版本号发版时 github.ref 还是 main，semver 规则取不到值，
+          # 所以标签统一在 prepare 里按模式算好再传进来。
+          tags: ${{ needs.prepare.outputs.docker_tags }}
 
       - name: Build and push Docker image
         if: matrix.os == 'ubuntu-latest'
@@ -168,20 +225,22 @@ jobs:
         with:
           context: .
           file: Dockerfile.linux-single
-          push: ${{ github.event_name != 'workflow_dispatch' }}
+          # 正式版必推；测试版只在 main 构建时推 dev，避免分支构建把 dev 覆盖掉
+          push: ${{ needs.prepare.outputs.push_image == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
   # Windows GUI（Go/Wails 原生壳）：复用 build 的 Windows 运行包，编译壳、组装目录并打 ZIP。
   # 只跑 windows-latest：ProcessHost 依赖 .NET Framework 的 csc.exe，壳链接 -H windowsgui。
   build-gui:
-    needs: [gate, build]
-    if: needs.gate.outputs.skip != 'true'
+    needs: [prepare, build]
     runs-on: windows-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
 
       - name: Setup Node.js 26
         uses: actions/setup-node@v7
@@ -218,14 +277,9 @@ jobs:
 
       - name: Inject version (desktop)
         shell: bash
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
         run: |
-          if [ "${GITHUB_REF#refs/tags/}" != "${GITHUB_REF}" ]; then
-            VERSION="${GITHUB_REF#refs/tags/v}"
-          elif [ "${GITHUB_REF}" = "refs/heads/main" ]; then
-            VERSION="0.0.0-dev.${GITHUB_SHA:0:7}"
-          else
-            VERSION="0.0.0-manual"
-          fi
           echo "Injecting desktop version: $VERSION"
           node -e "const fs=require('fs');const p=require('./desktop/package.json');p.version='$VERSION';fs.writeFileSync('./desktop/package.json',JSON.stringify(p,null,2)+'\n')"
 
@@ -247,10 +301,10 @@ jobs:
             desktop/dist-gui/*.zip
           retention-days: 30
 
-  # main 分支推送：创建/更新 prerelease（tag: latest），确保持久化保存单文件产物
+  # 测试版（手动触发且没填版本号）：创建/更新 prerelease（tag: latest），持久化保存产物
   release-latest:
-    if: github.ref == 'refs/heads/main'
-    needs: [build, build-gui]
+    if: needs.prepare.outputs.mode == 'dev'
+    needs: [prepare, build, build-gui]
     runs-on: ubuntu-latest
     # 附件要从 GitHub runner 跨境传到华为云 OBS，139MB 实测可能跑十几分钟；给足上限
     timeout-minutes: 90
@@ -262,10 +316,11 @@ jobs:
       GITCODE_OWNER: Zero-wyc
       GITCODE_REPO: ZViewer
     steps:
-      # 供 GitCode 同步步骤推送 tag（附件下载不依赖 checkout，单独放在最前）
+      # 供 GitCode 同步步骤推送代码（附件下载不依赖 checkout，单独放在最前）
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
 
       - name: Download all artifacts
@@ -284,8 +339,10 @@ jobs:
         shell: bash
         run: |
           REL="https://github.com/${GITHUB_REPOSITORY}/releases/download/latest"
+          # 手动触发没有 head_commit.timestamp，退化成当前时间
+          COMMIT_TS="${COMMIT_TS:-$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
           {
-            echo "自动构建产物（main 分支最新代码）。"
+            echo "手动触发的测试构建（分支 ${BUILD_REF}，commit ${BUILD_SHA:0:7}）。"
             echo ""
             echo "## 下载"
             echo ""
@@ -298,10 +355,12 @@ jobs:
             echo ""
             echo "> 页面底部的文件列表加载不出来时，直接点上面的链接下载。"
             echo ""
-            echo "构建提交: ${GITHUB_SHA}"
+            echo "构建提交: ${BUILD_SHA}"
             echo "构建时间: ${COMMIT_TS}"
           } > release_body_latest.md
         env:
+          BUILD_SHA: ${{ needs.prepare.outputs.sha }}
+          BUILD_REF: ${{ needs.prepare.outputs.ref_name }}
           COMMIT_TS: ${{ github.event.head_commit.timestamp }}
 
       # softprops/action-gh-release 只做"追加/覆盖同名"，不会清掉历史附件。
@@ -341,7 +400,7 @@ jobs:
       # 注意：GitCode 的「仓库镜像 → Pull」会让仓库只读（官方限制：禁用推送代码/Tag/建 Release），
       # 项目里必须关掉 Pull 镜像，否则这一步会被 403 拒绝。
       - name: Push main branch to GitCode
-        if: env.GITCODE_TOKEN != ''
+        if: env.GITCODE_TOKEN != '' && needs.prepare.outputs.ref_name == 'main'
         continue-on-error: true
         shell: bash
         env:
@@ -358,10 +417,18 @@ jobs:
           fi
           echo "$log"
 
-  # tag 推送：创建正式版 Release
+          # 发版通常就在 main 尖端：顺带把 GitCode 的 main 快进过去，
+          # 避免长期只发版、不跑测试构建时 GitCode 的主线一直停在旧提交。
+          # 非快进会失败，失败只警告，不倒推别人的主线。
+          REMOTE_MAIN=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "${REMOTE_MAIN}" = "${TARGET_SHA}" ]; then
+            git push gitcode "HEAD:refs/heads/main" || echo "::warning::GitCode main 未更新（非快进或被改写），下次测试构建会补上"
+          fi
+
+  # 正式版：手动给了版本号（或直接推 v* tag）→ 建 tag 并发布 Release
   release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: [build, build-gui]
+    if: needs.prepare.outputs.mode == 'release'
+    needs: [prepare, build, build-gui]
     runs-on: ubuntu-latest
     # 附件要从 GitHub runner 跨境传到华为云 OBS，139MB 实测可能跑十几分钟；给足上限
     timeout-minutes: 90
@@ -376,6 +443,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
 
       - name: Generate release body with commit summary
@@ -387,22 +455,34 @@ jobs:
         # 步骤静默失败。故这里不出现 grep / head 这类会产生非零退出码的管道：
         # - 取上一 tag 用 git describe（tag 不存在时用 `|| true` 兜住）
         # - 截断用 git log --max-count（避免 head 提前关管道触发 SIGPIPE 141）
+        env:
+          # 手动发版时 github.ref 是 main，tag 只能从 prepare 拿
+          TAG_NAME: ${{ needs.prepare.outputs.tag }}
+          TARGET_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          CURRENT_TAG="${GITHUB_REF#refs/tags/}"
+          CURRENT_TAG="${TAG_NAME}"
           VERSION="${CURRENT_TAG#v}"
           REPO_SLUG="${GITHUB_REPOSITORY}"
 
           # checkout(fetch-depth: 0) 通常已取全 tag；显式再拉一次，防止浅取场景缺 tag
           git fetch --tags --force --quiet || true
 
-          # 取「当前 tag 所在提交的最近祖先 tag」，不依赖 tag 创建时间先后
-          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_TAG}^" 2>/dev/null || true)
+          # 手动发版时 tag 要等后面创建 Release 才存在，这里用 commit 算范围；
+          # 推 tag 触发时 tag 已经在本地，直接用 tag
+          if git rev-parse -q --verify "refs/tags/${TAG_NAME}" >/dev/null 2>&1; then
+            CURRENT_REF="${CURRENT_TAG}"
+          else
+            CURRENT_REF="${TARGET_SHA}"
+          fi
+
+          # 取「当前提交的最近祖先 tag」，不依赖 tag 创建时间先后
+          PREV_TAG=$(git describe --tags --abbrev=0 "${CURRENT_REF}^" 2>/dev/null || true)
 
           if [ -n "$PREV_TAG" ]; then
-            LOG=$(git log --max-count=100 --pretty=format:"- %s" "${PREV_TAG}..${CURRENT_TAG}" || true)
+            LOG=$(git log --max-count=100 --pretty=format:"- %s" "${PREV_TAG}..${CURRENT_REF}" || true)
           else
-            # 没有上一个 tag（首次发布），列出当前 tag 指向提交的最近 100 条
-            LOG=$(git log --max-count=100 --pretty=format:"- %s" "${CURRENT_TAG}" || true)
+            # 没有上一个 tag（首次发布），列出当前提交的最近 100 条
+            LOG=$(git log --max-count=100 --pretty=format:"- %s" "${CURRENT_REF}" || true)
           fi
           {
             echo "## 更新内容"
@@ -440,12 +520,19 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
+          # 手动发版时 github.ref 还是 main，必须显式给 tag；
+          # target_commitish 指向本次实际构建的 commit，tag 不存在时由 API 建在它上面
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          target_commitish: ${{ needs.prepare.outputs.sha }}
+          name: ${{ needs.prepare.outputs.tag }}
           body_path: release_body.md
           files: |
             zviewer-linux-x64.tar.gz
             zviewer-windows-x64.zip
             zviewer-windows-x64-GUI.zip
           generate_release_notes: true
+          # 带 -rc.1 / -beta 这类后缀的版本自动标成预发布
+          prerelease: ${{ contains(needs.prepare.outputs.version, '-') }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -458,10 +545,12 @@ jobs:
         shell: bash
         env:
           GIT_TERMINAL_PROMPT: '0'
+          TAG_NAME: ${{ needs.prepare.outputs.tag }}
+          TARGET_SHA: ${{ needs.prepare.outputs.sha }}
         run: |
-          TAG_NAME="${GITHUB_REF#refs/tags/}"
-          # 本地 tag 与触发构建的提交对齐（checkout 已取全 tag，这里只做兜底）
-          git tag -f "${TAG_NAME}" "${GITHUB_SHA}"
+          # 本地 tag 与本次构建的提交对齐：手动发版时 tag 是刚刚由 Release API 建的，
+          # 本地还没有；直接把 SHA 作为 tag 目标，保证 GitCode 上的 tag 指到同一个 commit
+          git tag -f "${TAG_NAME}" "${TARGET_SHA}"
           REPO_URL="https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}.git"
           git remote add gitcode "$REPO_URL" 2>/dev/null || git remote set-url gitcode "$REPO_URL"
           if ! log=$(git push gitcode "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force 2>&1); then

@@ -12,8 +12,10 @@
 ## 现在的链路
 
 ```
-GitHub build.yml
-  ├─ 构建 → 创建 GitHub Release（latest 预发布 / v* 正式版）
+GitHub build.yml（不再随提交自动构建，全部手动触发）
+  ├─ 手动触发、不填版本号 → 构建测试版 → 发布 GitHub prerelease（tag: latest）
+  ├─ 手动触发、填了版本号 → 构建正式版 → 建 v* tag 并发布 GitHub Release
+  ├─ 或直接 push v* tag → 同上，走正式版发版
   └─ 只推代码：main 分支、v* tag  →  git push 到 GitCode
                                         │
                                         ▼
@@ -25,6 +27,16 @@ GitCode .gitcode/workflows/sync-release.yml（每小时 17 分）
 ```
 
 GitHub 侧不再调用任何 GitCode 发版接口，`build.yml` 里只剩两段 `git push`。
+
+### 发版怎么操作
+
+| 目的 | 操作 |
+| --- | --- |
+| 出一个测试版 | Actions → Build → Run workflow，`release_tag` 留空。产物进 `latest` 预发布 |
+| 发正式版 | 同上，`release_tag` 填 `v5.1.0`。构建完成后自动建 tag、发 Release，GitCode 侧一小时内跟上 |
+| 只构建不发布 | 目前没有单独入口；需要排查时看 `build` job 上传的 artifact（保留 30 天） |
+
+版本号有保护：格式必须是 `vX.Y.Z`，且该版本如果已经有 Release 会直接失败，不会覆盖历史版本。要重发只能先手动删掉那个 Release。
 
 ## 一次性配置
 
