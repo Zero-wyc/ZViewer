@@ -207,6 +207,9 @@ npm run package        # 出 ZIP + SHA256
 `node scripts/sync-release-to-gitee.mjs`，附件用 `LOCAL_ASSETS` 复用工作目录里刚构建好的三个包
 （不再从 GitHub 下载），建/更新 Gitee 发行版 → multipart 上传 → 回读校验。
 
+失败后不必重新构建：`.github/workflows/sync-gitee.yml`（Actions → **Sync Release to Gitee**）
+只跑同步脚本，指定 `tag` 即可补发。同一个版本无法重跑 Build —— `prepare` 会以「该版本已有 Release」拦下。
+
 > 为什么不在 Gitee Go 里跑：它的插件标识跟公开文档对不上（`npmbuild@1` 被判「不支持的任务类型」），
 > 流水线起不来；而 Gitee 的附件上传是同步 multipart，从 GitHub 直接推是可靠的，不需要再绕一层。
 > 仓库里因此**没有** `.workflow/` 目录。

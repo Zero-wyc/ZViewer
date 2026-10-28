@@ -34,14 +34,16 @@ CI 里可选：`GH_PROXY`（如 `https://ghfast.top/`，GitHub 直连慢时用�
    - `release_tag` 填 `v5.1.0` = 正式版
 2. 构建约 20 分钟，产物进 GitHub Release，随后同一个 job 里把 tag 推到 Gitee、
    再建 Gitee 发行版并上传三个附件（合计约 130MB，境内上行通常 1–3 分钟）。
-3. 失败只会在 job 上打一条 warning，不影响 GitHub 发版；补发用下面两条命令之一：
+3. 失败只会在 job 上打一条 warning，不影响 GitHub 发版。补发有三个入口：
 
-```bash
-# 本机补发（推荐，不占 CI 时间）
-GITEE_TOKEN=<令牌> TAG=v5.1.0 node scripts/sync-release-to-gitee.mjs
+| 方式 | 操作 | 适用 |
+| --- | --- | --- |
+| **Actions → Sync Release to Gitee**（推荐） | `tag` 填 `v5.1.0`，`force` 视情况勾 | 已有 Release 补发；不重新构建，约 3 分钟 |
+| 本机跑脚本 | `GITEE_TOKEN=<令牌> TAG=v5.1.0 node scripts/sync-release-to-gitee.mjs` | 想本地看详细日志 |
+| 重跑 Build | 版本号必须换成新的（已发布的会被 prepare 拦下） | 顺带出个新版本 |
 
-# 或者重跑一遍 Build（版本号必须换成新的，已发布的版本会被拦下）
-```
+> 注意：**同一个版本失败后不能直接重跑 Build** —— `prepare` 会以「该版本已有 Release」失败。
+> 这是刻意设计的（Release 可追溯，不许覆盖），补发请走上表前两种。
 
 ## 限额（重要）
 
@@ -60,11 +62,14 @@ GITEE_TOKEN=<令牌> TAG=v5.1.0 node scripts/sync-release-to-gitee.mjs
 | `推送到 Gitee 失败`（GitHub 侧） | GitHub Secrets 里的 `GITEE_TOKEN` 无效或没有该仓库写权限 |
 | 上传 403 / 401 | 令牌权限不足，重新生成时勾上 `projects` |
 | 上传报超过 100MB | 包体超限，需要瘦身或分卷；脚本已在上传前拦截 |
+| `HTTP 400 target_commitish is missing` | 老版本脚本的问题，已修：现在会自动带上 tag 的 commit SHA |
 | 附件页看不到文件但日志成功 | 刷新页面；脚本上传后会回读 `/releases/tags/{tag}` 校验，日志里会打印实际附件数 |
 | 正文还是旧的 | 现在支持 PATCH，重跑就会更新正文 |
 
 ## 已知限制
 
 - 只同步正式版（`v*`、非 draft、非 prerelease），`latest` 测试版只留在 GitHub。
-- Gitee 上需要已有该 tag：由 `build.yml` 推送；如果 Gitee 上缺 tag，可设 `GITEE_TARGET_BRANCH` 让接口建 tag（默认不建）。
+- Gitee 上需要已有该 tag：由 `build.yml` 推送。Gitee 创建发行版时**强制要求** `target_commitish`（缺了报
+  `400 target_commitish is missing`），脚本会自动解析该 tag 对应的 commit SHA 传进去；只有解析失败时才回退到
+  `GITEE_TARGET_BRANCH` 或 `main`。
 - 仓库附件总量 1GB 是硬上限，长期要定期清理旧版本。

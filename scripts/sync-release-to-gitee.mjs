@@ -18,7 +18,7 @@
  *   FORCE            1 = 已同步过也重传
  *   MAX_SYNC         单轮最多补几个版本，默认 1
  *   GH_PROXY         GitHub 下载加速前缀（下载失败时才用），如 https://ghfast.top/
- *   GITEE_TARGET_BRANCH  tag 在 Gitee 上不存在时，用它建 tag（默认不传）
+ *   GITEE_TARGET_BRANCH  覆盖创建发行版时用的 target_commitish（默认自动取 tag 的 commit SHA）
  *   DRY_RUN          1 = 只打印计划
  *
  * 用法：
@@ -171,6 +171,44 @@ async function listGithubReleases() {
     if (ONLY_TAG) return true;
     return !r.prerelease && /^v\d/.test(r.tag_name || '');
   });
+}
+
+/**
+ * Gitee 的「创建发行版」接口把 target_commitish 当必填项（缺了直接 400
+ * `{"messages":["target_commitish is missing"]}`），而且它必须是一个**已存在于 Gitee 仓库**的
+ * commit SHA 或分支名。
+ *
+ * 这里按可靠性从高到低取值：
+ *   1. GITEE_TARGET_BRANCH（人工指定，最高优先级）
+ *   2. tag 对应的 commit SHA —— 由 build.yml 推送 tag 时把 commit 一起送过去了，必然存在
+ *   3. GitHub Release 里的 target_commitish（通常是分支名）
+ *   4. 'main'
+ * 只有创建发行版时才需要；发行版已存在走 PATCH，不再传这个字段。
+ */
+async function resolveCommitish(tag, release) {
+  if (TARGET_BRANCH) return TARGET_BRANCH;
+
+  try {
+    const { status, json } = await requestJson(
+      `${GH_API}/repos/${GH_REPO}/commits/${encodeURIComponent(tag)}`,
+      {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'User-Agent': 'zviewer-gitee-sync',
+          ...(GH_TOKEN ? { Authorization: `Bearer ${GH_TOKEN}` } : {}),
+        },
+        attempts: 2,
+        label: `解析 ${tag} 的 commit`,
+      },
+    );
+    if (status !== 404 && json?.sha) return json.sha;
+  } catch (err) {
+    warn(`解析 ${tag} 的 commit 失败（${err.message}），改用兜底值`);
+  }
+
+  if (release?.target_commitish) return String(release.target_commitish);
+  return 'main';
 }
 
 async function downloadAsset(asset, dir) {
@@ -395,8 +433,10 @@ async function main() {
         name: release.name || tag,
         body: rewriteLinks(release.body || `由 GitHub Actions 自动同步的 ${tag} 构建。`, tag),
         prerelease: false,
+        // Gitee 强制要求：缺了会 400 target_commitish is missing
+        target_commitish: existing ? undefined : await resolveCommitish(tag, release),
       };
-      if (TARGET_BRANCH) payload.target_commitish = TARGET_BRANCH;
+      if (!payload.target_commitish) delete payload.target_commitish;
 
       const rel = await ensureRelease(tag, payload);
 

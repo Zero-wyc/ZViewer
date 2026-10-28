@@ -1,0 +1,50 @@
+# 只做「同步发行版」，不构建。
+#
+# 用途：Build 里那步 Publish to Gitee 失败后（跨境上传、令牌过期、Gitee 接口改动等），
+# 不需要重新跑 20 分钟的三平台构建，在这里点一次就能把已有的 GitHub Release 补到 Gitee。
+# 也用于补历史版本。
+#
+# 与 build.yml 的关系：build.yml 的 prepare job 会拦下「该版本已有 Release」的发版请求，
+# 所以同一个版本失败后无法靠重跑 Build 补救，只能走这个入口。
+
+name: Sync Release to Gitee
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要同步的 tag（如 v5.1.0）。留空 = 自动挑最新一个未同步的正式版'
+        required: false
+        default: ''
+      force:
+        description: '强制重传已有附件（默认只补缺的）'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - name: Sync to Gitee
+        shell: bash
+        env:
+          GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITEE_OWNER: Zero-wyc
+          GITEE_REPO: ZViewer
+          TAG: ${{ inputs.tag }}
+          FORCE: ${{ inputs.force && '1' || '' }}
+          # 没有本地产物可复用，附件从 GitHub 下载（runner 在境外，速度不是问题）
+        run: node scripts/sync-release-to-gitee.mjs
