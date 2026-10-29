@@ -8,6 +8,8 @@ name: Publish Release Repo
 # - 产物仓库被误改/清空，需要按历史版本还原。
 #
 # 需要 Secret：RELEASE_REPO_TOKEN（对 Zero-wyc/ZviewerRelease 有 contents:write）。
+# 另需 GITCODE_TOKEN：产物同时推到 GitCode 的 Zero-wyc/ZviewerRelease，客户端正是从那边取包。
+# 缺 GITCODE_TOKEN 时只更新 GitHub 侧，并打警告。
 
 on:
   workflow_dispatch:
@@ -36,6 +38,7 @@ jobs:
       TAG: ${{ inputs.tag }}
       VERSION: ${{ inputs.version }}
       RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
     steps:
       # 先 checkout（会 clean 工作区），再下载产物，顺序不能反
       - name: Checkout (仅脚本)
@@ -79,5 +82,11 @@ jobs:
           if [ -z "${RELEASE_REPO_TOKEN}" ]; then
             echo "::error::未配置 Secret RELEASE_REPO_TOKEN"
             exit 1
+          fi
+          if [ -n "${GITCODE_TOKEN}" ]; then
+            MIRROR_PUSH_URL="https://Zero-wyc:${GITCODE_TOKEN}@gitcode.com/Zero-wyc/ZviewerRelease.git"
+            export MIRROR_PUSH_URL
+          else
+            echo "::warning::未配置 Secret GITCODE_TOKEN，只更新 GitHub 侧的产物仓库"
           fi
           bash scripts/publish-release-repo.sh

@@ -17,6 +17,10 @@
 #   TARGET_BRANCH       可选，默认 main
 #   SRC_DIR             可选，产物所在目录，默认当前目录
 #   PUSH_URL            可选，覆盖推送地址（本地联调指向裸仓库用）
+#   MIRROR_PUSH_URL     可选，第二个推送地址（GitCode 产物仓库）。给了就推同一份孤儿提交，
+#                       客户端正是从那边取清单和安装包，必须跟着发版一起更新。
+#   VERIFY_MIRROR       可选，默认 1：推完 GitCode 后回读 latest.json 与一个安装包，核对是否落地
+#   MIRROR_RAW_BASE     可选，覆盖清单/下载地址前缀（默认 GitCode 的 /raw 接口，换通道时改这里）
 #
 # 为什么用绝对路径 + find 兜底：构建里曾出现过「test -f 通过、cp ../x 却报不存在」的情况
 # （见 publish-branch 的失败日志），产物被 merge 到哪一层不由我们控制，所以先按名字找，
@@ -65,7 +69,7 @@ done
 # 后者前面挂了 CloudWAF，对非浏览器的 TLS 指纹一律回 418「访问被拦截」，
 # 伪装 UA / Referer 都没用；这个接口返回 application/octet-stream、支持 Range，
 # 实测 52MB 安装包 8.8MB/s。
-MIRROR_URL_BASE="https://api.gitcode.com/api/v5/repos/${TARGET_REPO}/raw"
+MIRROR_URL_BASE="${MIRROR_RAW_BASE:-https://api.gitcode.com/api/v5/repos/${TARGET_REPO}/raw}"
 assets_json='[]'
 for f in ${FILES}; do
   size=$(stat -c%s "${OUT}/${f}")
@@ -123,3 +127,53 @@ git -C "${OUT}" add -A
 git -C "${OUT}" commit -qm "release: ${TAG} (${SHA:0:7})"
 git -C "${OUT}" push --force "${PUSH_URL}" "HEAD:refs/heads/${TARGET_BRANCH}"
 echo "== ${TARGET_REPO} 已更新 → ${TAG}"
+
+# 同一份内容推到 GitCode 产物仓库：客户端走 api.gitcode.com 的仓库文件接口取清单和包，
+# 那边不跟着更新，用户就会一直被告知「已是最新」。历史分叉也无所谓，force 覆盖成同一棵树。
+if [ -n "${MIRROR_PUSH_URL:-}" ]; then
+  echo "== 推送到 GitCode 产物仓库"
+  if ! out=$(GIT_TERMINAL_PROMPT=0 git -C "${OUT}" push --force "${MIRROR_PUSH_URL}" \
+      "HEAD:refs/heads/${TARGET_BRANCH}" 2>&1); then
+    printf '%s\n' "${out}" | sed -E 's#https://[^@[:space:]]*@#https://***@#g'
+    if printf '%s' "${out}" | grep -qiE 'image repository|mirror|protected'; then
+      echo "::error::GitCode 拒绝了写入：产物仓库被配置成只读镜像仓。请到「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑。"
+    fi
+    echo "::error::GitCode 产物仓库推送失败，客户端会继续读到旧清单"
+    exit 1
+  fi
+  printf '%s\n' "${out}" | sed -E 's#https://[^@[:space:]]*@#https://***@#g'
+  echo "== GitCode 产物仓库已更新"
+
+  # 回读校验：GitCode 的 raw 接口偶有延迟，轮询到新 tag 出现为止（最多 ~2 分钟）。
+  # 只告警不失败——推送本身成功就说明内容已经进库，读慢一点不该把发版判成失败。
+  if [ "${VERIFY_MIRROR:-1}" = "1" ]; then
+    GOT_TAG=''
+    for _ in $(seq 1 12); do
+      GOT_TAG=$(curl -fsS -m 20 "${MIRROR_URL_BASE}/latest.json?ref=${TARGET_BRANCH}" 2>/dev/null \
+        | jq -r '.tag // empty' 2>/dev/null || true)
+      if [ "${GOT_TAG}" = "${TAG}" ]; then break; fi
+      sleep 10
+    done
+    if [ "${GOT_TAG}" = "${TAG}" ]; then
+      echo "== 回读 GitCode 清单：tag=${GOT_TAG} ✅"
+      MANIFEST="$(curl -fsS -m 20 "${MIRROR_URL_BASE}/latest.json?ref=${TARGET_BRANCH}" 2>/dev/null || echo '{}')"
+      for f in ${FILES}; do
+        url=$(jq -r --arg n "${f}" '.assets[] | select(.name==$n) | .url // empty' <<<"${MANIFEST}" 2>/dev/null || true)
+        [ -n "${url}" ] || { echo "::warning::清单里 ${f} 没有 url"; continue; }
+        head_out=$(curl -fsS -m 30 -r 0-1023 -o /dev/null -D - "${url}" 2>/dev/null || true)
+        total=$(printf '%s' "${head_out}" | tr -d '\r' | awk -F'/' 'tolower($1) ~ /content-range/ {print $2}' | head -1)
+        code=$(printf '%s' "${head_out}" | head -1 | awk '{print $2}')
+        want=$(stat -c%s "${OUT}/${f}")
+        echo "   ${f}  HTTP ${code:-?}  总字节 ${total:-?}  期望 ${want}"
+        [ "${code}" = '200' ] || [ "${code}" = '206' ] || echo "::warning::${f} 取不到内容（HTTP ${code:-无响应}）"
+        if [ -n "${total}" ] && [ "${total}" != "${want}" ]; then
+          echo "::warning::${f} 的大小对不上（远端 ${total} / 本地 ${want}），可能还没同步完"
+        fi
+      done
+    else
+      echo "::warning::GitCode 上 latest.json 仍是 ${GOT_TAG:-读不到}（期望 ${TAG}），稍后可手动复查：${MIRROR_URL_BASE}/latest.json?ref=${TARGET_BRANCH}"
+    fi
+  fi
+else
+  echo "::warning::未提供 MIRROR_PUSH_URL，GitCode 产物仓库未更新（客户端会读到旧清单）"
+fi

@@ -496,14 +496,15 @@ jobs:
   # 把最新正式版的产物替换式发布到专门的产物仓库 Zero-wyc/ZviewerRelease（main 分支根目录）：
   # 每次发版重建一个孤儿提交 force push，仓库里永远只有当前版本，旧包随提交被清掉。
   #
-  # 为什么单独建仓库：该仓库镜像到 GitCode，客户端从 GitCode 的仓库文件接口
-  # （api.gitcode.com/.../raw/<文件>?ref=main）取清单和安装包，境内直连无需代理，
-  # 不再依赖各平台 Release 附件。单文件最大 52MB，远低于 git 的 100MB 硬限制。
+  # 同一份提交再推一次到 GitCode 的产物仓库：客户端从 api.gitcode.com 的仓库文件接口
+  # （/api/v5/repos/Zero-wyc/ZviewerRelease/raw/<文件>?ref=main）取清单和安装包，
+  # 那边不跟着更新，用户就会一直被判定为「已是最新」。GitCode 没有开放
+  # 「立即同步」的接口（mirror/pull 等路由实测 404），所以只能由 CI 主动推。
   #
-  # 权限：跨仓库推送 GITHUB_TOKEN 无效，需要在 ZViewer 仓库
-  # Settings → Secrets and variables → Actions 配置 RELEASE_REPO_TOKEN
-  # （一个对 Zero-wyc/ZviewerRelease 有 push 权限的 PAT）。未配置时跳过本 job，
-  # 不影响 GitHub Release 本身。
+  # 权限：跨仓库推送 GITHUB_TOKEN 无效，需要两个 PAT：
+  #   RELEASE_REPO_TOKEN  对 Zero-wyc/ZviewerRelease 有 push 权限（GitHub 侧）
+  #   GITCODE_TOKEN       对 GitCode 的 Zero-wyc/ZViewer 与 Zero-wyc/ZviewerRelease 有写权限
+  # 缺 RELEASE_REPO_TOKEN 时跳过本 job；缺 GITCODE_TOKEN 时只推 GitHub、打警告。
   #
   # 只在正式版（填了版本号/推了 tag）时更新；latest 测试包不该覆盖正式包。
   publish-branch:
@@ -515,6 +516,7 @@ jobs:
       VERSION: ${{ needs.prepare.outputs.version }}
       SHA: ${{ needs.prepare.outputs.sha }}
       RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
     steps:
       # 先 checkout（默认会 clean 工作区），再下载产物；顺序反了产物会被清掉。
       # 只要发布脚本，避免为了 4 个附件再拉一遍仓库。
@@ -538,4 +540,49 @@ jobs:
             echo "::warning::未配置 Secret RELEASE_REPO_TOKEN（需要对 Zero-wyc/ZviewerRelease 有 push 权限的 PAT），跳过产物仓库发布"
             exit 0
           fi
+          if [ -n "${GITCODE_TOKEN}" ]; then
+            MIRROR_PUSH_URL="https://Zero-wyc:${GITCODE_TOKEN}@gitcode.com/Zero-wyc/ZviewerRelease.git"
+            export MIRROR_PUSH_URL
+          else
+            echo "::warning::未配置 Secret GITCODE_TOKEN，GitCode 产物仓库不会更新（国内客户端会读到旧清单）"
+          fi
           bash scripts/publish-release-repo.sh
+
+  # 正式版发布完成后，把这次发布对应的提交与 tag 推到 GitCode 主仓库 Zero-wyc/ZViewer。
+  # GitCode 没有「立即同步一次」的接口（mirror/pull 等路由实测 404），不主动推就会停在
+  # 旧提交——gitcode.com 上的代码、tag、Releases 会一直落后于 GitHub。
+  #
+  # 排在 release 与 publish-branch 之后：先保证 GitHub 侧发布成功、产物仓库已就绪，
+  # 再更新镜像。任一步失败都不影响已经发出去的 Release。
+  sync-gitcode:
+    if: ${{ !cancelled() && needs.prepare.outputs.mode == 'release' && needs.release.result == 'success' }}
+    needs: [prepare, release, publish-branch]
+    runs-on: ubuntu-latest
+    # 首次推全量历史跨境传输较慢，之后只推增量
+    timeout-minutes: 30
+    env:
+      TAG: ${{ needs.prepare.outputs.tag }}
+      SHA: ${{ needs.prepare.outputs.sha }}
+      GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+      GITCODE_OWNER: Zero-wyc
+      GITCODE_REPO: ZViewer
+    steps:
+      # 推送需要完整历史（老 tag/分支的提交对象都在里面），浅克隆会缺对象
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          fetch-depth: 0
+
+      - name: Push main + tag to GitCode
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${GITCODE_TOKEN}" ]; then
+            echo "::warning::未配置 Secret GITCODE_TOKEN（GitCode 私人令牌，需对 Zero-wyc/ZViewer 有写权限），跳过镜像仓库代码同步"
+            exit 0
+          fi
+          # checkout 不保证带上本次要发的 tag，显式补一次；取不到就由脚本按提交建轻量 tag
+          git fetch --tags --force --quiet origin || true
+          bash scripts/sync-gitcode-code.sh
+

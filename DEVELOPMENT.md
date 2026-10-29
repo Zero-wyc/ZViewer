@@ -201,17 +201,27 @@ npm run package        # 出 ZIP + SHA256
 `.github/workflows/build.yml` **不跟随 main 自动构建**：手动触发时填了 `vX.Y.Z` 才出正式版
 （自动建 tag 并发 GitHub Release），留空则只出测试版（GitHub 的 `latest` 预发布）。
 
-正式版走完三个 job：
+正式版走完四个 job：
 
 ```
 prepare → build / build-gui → release（GitHub Release）
-                            → publish-branch（更新产物仓库）
+                            → publish-branch（更新产物仓库：GitHub + GitCode）
+                            → sync-gitcode（代码与 tag 推到 GitCode 主仓库）
 ```
 
 `publish-branch` 把三个包 + `latest.json` + `README.md` 用**孤儿提交整体替换**到独立仓库
 [`Zero-wyc/ZviewerRelease`](https://github.com/Zero-wyc/ZviewerRelease) 的 `main` 分支，
 然后 force push。仓库里永远只有当前版本，旧包随旧提交一起消失，历史不膨胀。
-该仓库再镜像到 GitCode，客户端从 GitCode 取（见 6.2）。
+同一份提交紧接着再推一次到 GitCode 的 `Zero-wyc/ZviewerRelease`——客户端读的就是那边。
+
+`sync-gitcode` 把本次发布的提交与 tag 推到 GitCode 的 `Zero-wyc/ZViewer`。
+
+> 为什么要显式推：GitCode 没有开放「立刻同步一次」的接口（`PUT /repos/{owner}/{repo}/mirror/pull`
+> 这类路由实测返回 `404 Route Not Found`），仓库侧也不会自动跟着 GitHub 走。不主动推，
+> gitcode.com 上就停在旧提交，代码、tag、Releases 全是旧的（v5.1.1 发版时实测 GitCode 的
+> `main` 落后 GitHub 多个提交，产物仓库的 `latest.json` 也停在上一版）。
+> 推送用的是 `scripts/sync-gitcode-code.sh`，推完会 `ls-remote` 回读校验；分支分叉时按镜像语义
+> `--force-with-lease` 对齐并打警告，tag 一定指向本次构建的提交。
 
 单文件最大 52MB，低于 git 的 100MB 硬限制，所以走分支是安全的。
 
@@ -219,20 +229,29 @@ prepare → build / build-gui → release（GitHub Release）
 
 > `Actions → 补发产物仓库 (publish-release-repo)` → 填原构建的 `run_id` + `tag` + `version`。
 > `prepare` 会以「该版本已有 Release」拦下重复发版，所以修产物仓库只能走这个入口。
+> 它同样会推 GitCode 产物仓库；代码与 tag 若也丢了，手动重跑一次 `sync-gitcode` 的步骤即可
+> （`scripts/sync-gitcode-code.sh` 幂等，重复执行不会产生多余提交）。
 
 一次性配置：
 
 | 位置 | 名称 | 用途 |
 | --- | --- | --- |
-| 本仓库 Settings → Secrets | `RELEASE_REPO_TOKEN` | 对 `ZviewerRelease` 有 `contents:write` 的 PAT（跨仓库推送 `GITHUB_TOKEN` 无效） |
+| 本仓库 Settings → Secrets | `RELEASE_REPO_TOKEN` | 对 GitHub 的 `ZviewerRelease` 有 `contents:write` 的 PAT（跨仓库推送 `GITHUB_TOKEN` 无效） |
+| 本仓库 Settings → Secrets | `GITCODE_TOKEN` | GitCode 私人令牌，需对 `Zero-wyc/ZViewer` 与 `Zero-wyc/ZviewerRelease` 有写权限 |
 
-> 没配这个 Secret 时 `publish-branch` 只打警告并跳过，不影响 GitHub Release 正常发布。
+> 没配 `RELEASE_REPO_TOKEN` 时 `publish-branch` 只打警告并跳过，不影响 GitHub Release 正常发布；
+> 没配 `GITCODE_TOKEN` 时 GitHub 侧照常发布，只打警告说 GitCode 没更新——国内用户会一直看到旧版本，
+> 出现这条警告要当成故障处理。
 
 排查要点：
 
 - 日志里先看 `== 产物目录` 那几行（脚本会 `ls -la` + 递归列出所有压缩包），
   产物到底落在哪一层一目了然。脚本按名字找、找不到递归 3 层兜底，不用 `cd`/`..` 相对路径。
 - `latest.json` 里每个 asset 都带 `url`；客户端优先用它，缺失才按镜像前缀自己拼。
+- `publish-branch` 推完 GitCode 会回读清单并抽查一个包的 HTTP 状态与总字节数，日志里是
+  `== 回读 GitCode 清单：tag=vX.Y.Z ✅` + 三行 `HTTP 206 总字节 …/期望 …`。不是这个形状就说明没落地。
+- `sync-gitcode` 报「GitCode 拒绝了写入」：目标仓库被配成了只读镜像仓（项目设置 → 仓库镜像），
+  关掉 Pull 镜像后重跑该 job。报「认证失败」则检查 `GITCODE_TOKEN` 是否过期、有没有该仓库的写权限。
 
 - Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
 
@@ -247,7 +266,7 @@ prepare → build / build-gui → release（GitHub Release）
 | 桌面 GUI 自动更新 | `desktop/controller/update.go` | `settings.json` 的 `updateGitCode` |
 
 镜像侧读的是独立产物仓库 **`Zero-wyc/ZviewerRelease`**（每次正式发版由 `build.yml` 的
-`publish-branch` job 用孤儿提交整体替换 `main` 分支）：
+`publish-branch` job 用孤儿提交整体替换 `main`，GitHub 与 GitCode 两边各推一次）：
 
 ```
 latest.json          # 版本清单：tag / version / commit / publishedAt / assets[name,size,sha256]
