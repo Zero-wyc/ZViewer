@@ -2,17 +2,17 @@ package updater
 
 // 更新源：GitHub（原链路）与「镜像产物仓库」（大陆镜像）。
 //
-// 镜像侧不再读 GitCode / Gitee 的 Release 接口，而是读一个专门存放正式版产物的
-// 独立仓库 Zero-wyc/ZviewerRelease：CI 每次正式发版把三个平台的包 + latest.json
-// 清单整体替换到该仓库 main 分支根目录，再镜像到 GitCode 与 Gitee。好处是：
+// 镜像侧不再读平台的 Release 接口，而是读一个专门存放正式版产物的独立仓库
+// Zero-wyc/ZviewerRelease：CI 每次正式发版把三个平台的包 + latest.json 清单
+// 整体替换到该仓库 main 分支根目录，该仓库再镜像到 GitCode。好处是：
 //
 //   - 版本信息、文件名、大小、sha256 都在清单里，一次请求搞定，不依赖各平台
 //     Release 接口的字段差异（GitCode 的 created_at 升序、无 html_url 等坑全没了）；
 //   - 文件是普通直链，境内直连即可，不需要代理也不需要附件 API。
 //
 // 下载走 GitCode 的仓库文件接口 api.gitcode.com/.../raw/<文件>?ref=main。
-// 不用 raw.gitcode.com（CloudWAF 对非浏览器指纹回 418），也不用 Gitee raw
-// （大文件 403「large file require login」），细节见 mirrorRawBase 的注释。
+// 不用同站的 raw.gitcode.com 域名（CloudWAF 对非浏览器指纹回 418），
+// 细节见 mirrorRawBase 的注释。
 //
 // 为什么偏好落在文件而不是数据库：`system_settings` 是 TypeORM 生成的整行表，
 // Go 侧「绝不自动改表结构」——加一列会让存量库的 SELECT 直接失败（启动即炸），
@@ -41,7 +41,7 @@ const (
 	SourceGitCode = "gitcode"
 
 	// mirrorOwnerRepo 是存放正式版产物的独立仓库（与主仓库分开，避免主仓库
-	// 每次发版都被 120MB 的二进制撑大）。它同时镜像到 GitCode 与 Gitee。
+	// 每次发版都被 120MB 的二进制撑大）。该仓库镜像到 GitCode，客户端从那里取。
 	mirrorOwnerRepo = "Zero-wyc/ZviewerRelease"
 	// mirrorRawBase 是 GitCode 的仓库文件直连接口前缀。
 	//
@@ -51,8 +51,7 @@ const (
 	// 端点返回 application/octet-stream、支持 Range、不经过 WAF，
 	// 实测 52MB 安装包 8.8MB/s，与浏览器访问 raw 域名拿到的内容完全一致。
 	//
-	// 也不能用 Gitee 的 raw 域名：它对大文件返回
-	// 「large file require login for access」（403），小清单能取、安装包取不到。
+	// 也不要用别的前缀式镜像站：目录结构对不上，直接用官方的这个端点即可。
 	mirrorRawBase = "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw"
 	// mirrorRef 是产物仓库的分支。GitCode 的 raw 端点强制要求显式 ?ref=。
 	mirrorRef = "main"
@@ -152,8 +151,8 @@ func (s *Service) updateSource() string {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv("ZVIEWER_UPDATE_SOURCE"))) {
 	case SourceGitHub:
 		return SourceGitHub
-	case SourceGitCode, "gitee", "mirror":
-		// gitee / mirror 是这次改造前后的别名，统一归一化到镜像源。
+	case SourceGitCode, "mirror":
+		// mirror 是镜像源的别名。
 		return SourceGitCode
 	}
 	if ReadSourcePreference(s.Root) {
@@ -164,7 +163,7 @@ func (s *Service) updateSource() string {
 
 // mirrorBase 返回镜像仓库的 raw 前缀。
 //
-// Service.MirrorBase 只在测试里被改写（httptest 假站），生产恒为 Gitee 前缀。
+// Service.MirrorBase 只在测试里被改写（httptest 假站），生产恒为 GitCode 前缀。
 func (s *Service) mirrorBase() string {
 	base := strings.TrimSpace(s.MirrorBase)
 	if base == "" {

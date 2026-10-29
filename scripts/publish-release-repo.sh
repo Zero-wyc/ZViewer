@@ -64,8 +64,7 @@ done
 # 直链走 api.gitcode.com 的仓库文件接口，而不是 raw.gitcode.com：
 # 后者前面挂了 CloudWAF，对非浏览器的 TLS 指纹一律回 418「访问被拦截」，
 # 伪装 UA / Referer 都没用；这个接口返回 application/octet-stream、支持 Range，
-# 实测 52MB 安装包 8.8MB/s。Gitee 的 raw 域名则对大文件返回 403
-# 「large file require login for access」。
+# 实测 52MB 安装包 8.8MB/s。
 MIRROR_URL_BASE="https://api.gitcode.com/api/v5/repos/${TARGET_REPO}/raw"
 assets_json='[]'
 for f in ${FILES}; do
@@ -108,9 +107,6 @@ cat "${OUT}/latest.json"
   echo ""
   echo "浏览器里手动下载更方便的是 GitHub Release："
   echo "\`https://github.com/Zero-wyc/ZViewer/releases/download/${TAG}/<文件名>\`"
-  echo ""
-  echo "注意：**Gitee 的 raw 直链不能用来下安装包**，它对大文件返回"
-  echo "\`403 large file require login for access\`（小体积的 \`latest.json\` 才可以匿名取）。"
   echo ""
   echo "构建提交：https://github.com/Zero-wyc/ZViewer/commit/${SHA}"
   echo "发布时间：$(date -u '+%Y-%m-%d %H:%M:%S UTC')"

@@ -59,10 +59,10 @@ func TestUpdateSourcePrecedence(t *testing.T) {
 		t.Fatalf("环境变量应覆盖文件，实际 %q", got)
 	}
 
-	// gitee / mirror 是改造后的别名，必须归一到同一个源标识。
-	t.Setenv("ZVIEWER_UPDATE_SOURCE", "gitee")
+	// mirror 是镜像源的别名，必须归一到同一个源标识。
+	t.Setenv("ZVIEWER_UPDATE_SOURCE", "mirror")
 	if got := svc.updateSource(); got != SourceGitCode {
-		t.Fatalf("别名 gitee 应归一到镜像源，实际 %q", got)
+		t.Fatalf("别名 mirror 应归一到镜像源，实际 %q", got)
 	}
 
 	svc.Source = SourceGitHub

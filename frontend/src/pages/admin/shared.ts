@@ -106,7 +106,7 @@ export interface AdminSettings {
   playsvideoEnabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
-  /** 更新源开关：true=镜像产物仓库（Gitee，默认），false=GitHub */
+  /** 更新源开关：true=镜像产物仓库（GitCode，默认），false=GitHub */
   updateUseGitCode: boolean
   /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
   roomMultiInstanceLogin: boolean

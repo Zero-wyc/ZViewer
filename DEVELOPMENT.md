@@ -196,57 +196,44 @@ npm run package        # 出 ZIP + SHA256
 （`Size` 只影响进度显示，可顺手改） → `cd desktop && go test ./controller -run Component`
 （只检查目录里的文件是有效二进制，**不比对摘要**）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）。
 
-### 6.1 发版与大陆镜像（GitHub → Gitee）
+### 6.1 发版与大陆镜像（GitHub → GitCode）
 
-`.github/workflows/build.yml` **不再跟随 main 自动构建**：手动触发时填了 `vX.Y.Z` 才出正式版
+`.github/workflows/build.yml` **不跟随 main 自动构建**：手动触发时填了 `vX.Y.Z` 才出正式版
 （自动建 tag 并发 GitHub Release），留空则只出测试版（GitHub 的 `latest` 预发布）。
-两种模式都只把**代码和 tag** 推到 [Gitee](https://gitee.com/Zero-wyc/ZViewer)，
-**不在 GitHub 侧建 Gitee 发行版**。
 
-发行版由 Gitee 侧的 `.workflow/sync-release.yml`（Gitee Go 流水线）来做：`build.yml` 把 `v*` tag
-推过去后，境内构建机跑 `node scripts/sync-release-to-gitee.mjs`，从 GitHub 下载附件（走 ghfast.top）
-再上传到 Gitee，建/更新发行版 → multipart 上传 → 回读校验。
+正式版走完三个 job：
 
-> 为什么不在 GitHub runner 上直接传：跨境上行被限速到十几 KB/s，130MB 半小时都传不完；
-> 境内机器到 Gitee 实测 9.7MB/s。Gitee Go 不可用时，把仓库变量 `GITEE_PUSH_FROM_GITHUB`
-> 设为 `true` 可切回 GitHub 侧上传（`Publish to Gitee` 步骤）。
+```
+prepare → build / build-gui → release（GitHub Release）
+                            → publish-branch（更新产物仓库）
+```
 
-失败后不必重新构建：Gitee 流水线页面点「运行」重跑，或 `Actions → Sync Release to Gitee` 指定 `tag`。
-同一个版本无法重跑 Build —— `prepare` 会以「该版本已有 Release」拦下。
+`publish-branch` 把三个包 + `latest.json` + `README.md` 用**孤儿提交整体替换**到独立仓库
+[`Zero-wyc/ZviewerRelease`](https://github.com/Zero-wyc/ZviewerRelease) 的 `main` 分支，
+然后 force push。仓库里永远只有当前版本，旧包随旧提交一起消失，历史不膨胀。
+该仓库再镜像到 GitCode，客户端从 GitCode 取（见 6.2）。
 
-> 为什么不在 Gitee Go 里跑：它的插件标识跟公开文档对不上（`npmbuild@1` 被判「不支持的任务类型」），
-> 流水线起不来；而 Gitee 的附件上传是同步 multipart，从 GitHub 直接推是可靠的，不需要再绕一层。
-> 仓库里因此**没有** `.workflow/` 目录。
+单文件最大 52MB，低于 git 的 100MB 硬限制，所以走分支是安全的。
+
+补发（不必重新构建）：
+
+> `Actions → 补发产物仓库 (publish-release-repo)` → 填原构建的 `run_id` + `tag` + `version`。
+> `prepare` 会以「该版本已有 Release」拦下重复发版，所以修产物仓库只能走这个入口。
 
 一次性配置：
 
-1. gitee.com「导入项目」从 GitHub 导入，仓库**必须公开**（私有则下载要登录，失去意义）。
-2. 仓库 → 管理 → 环境变量：新增 `GITEE_TOKEN`（私人令牌，勾 `projects`），勾「敏感信息」。
-3. GitHub 仓库 → Settings → Secrets → Actions：新增同名 `GITEE_TOKEN`，供推代码、推 tag 与建发行版用。
+| 位置 | 名称 | 用途 |
+| --- | --- | --- |
+| 本仓库 Settings → Secrets | `RELEASE_REPO_TOKEN` | 对 `ZviewerRelease` 有 `contents:write` 的 PAT（跨仓库推送 `GITHUB_TOKEN` 无效） |
 
-手工补历史版本（本机跑，不占构建额度）：
-
-```bash
-GITEE_TOKEN=<令牌> node scripts/sync-release-to-gitee.mjs            # 自动挑最新未同步的正式版
-GITEE_TOKEN=<令牌> TAG=v5.0.0 FORCE=1 node scripts/sync-release-to-gitee.mjs   # 强制重传
-DRY_RUN=1 GITEE_TOKEN=x node scripts/sync-release-to-gitee.mjs       # 只打印计划
-```
+> 没配这个 Secret 时 `publish-branch` 只打警告并跳过，不影响 GitHub Release 正常发布。
 
 排查要点：
 
-- **附件上限 100MB / 单仓库总量 1GB**（GVP 200MB / 5GB）。GUI 包约 70MB，脚本上传前会先校验；
-  总量 1GB 意味着大约 7 个版本就满，旧版本要定期删。
-- 上传接口是 `POST /repos/{owner}/{repo}/releases/{id}/attach_files`（multipart，字段名 `file`），
-  **同步返回结果**，不存在 GitCode「PUT 成功但平台没登记」那种情况；脚本仍会回读 `assets` 复核。
-- 发行版主键是 **id 不是 tag**：按 tag 查询用 `GET /releases/tags/{tag}`，改/删用 `GET|PATCH|DELETE /releases/{id}`，
-  附件删除是 `DELETE /releases/{id}/attach_files/{attach_file_id}`。
-- 正文里的 GitHub 直链会被改写为 `https://gitee.com/<owner>/<repo>/releases/download/<tag>/<file>`。
-- 脚本只用 `node:http(s)` / `fs` 等内置模块（**不用 fetch / FormData**），Node 14 以上的环境都能跑，
-  CI 里用的是 runner 自带的 Node。
-- 定时表达式是 **Quartz 六段式**（秒 分 时 日 月 周），例如 `0 30 0/12 * * ?` = 每天 00:30 / 12:30。
+- 日志里先看 `== 产物目录` 那几行（脚本会 `ls -la` + 递归列出所有压缩包），
+  产物到底落在哪一层一目了然。脚本按名字找、找不到递归 3 层兜底，不用 `cd`/`..` 相对路径。
+- `latest.json` 里每个 asset 都带 `url`；客户端优先用它，缺失才按镜像前缀自己拼。
 
-> **待办**：桌面端下载 cloudflared / EasyTier 的端点仍写着 `api.gitcode.com`（见 6 节表格）。
-> 如果 GitCode 仓库要停用，这两处需要一起改成 Gitee 的 raw 地址，否则 GUI 首次启动拉不到组件。
 - Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
 
 ### 6.2 应用内的「更新源」开关
@@ -284,12 +271,12 @@ zviewer-*.zip|tar.gz # 三个平台包
   这样换通道只改 CI（`scripts/publish-release-repo.sh`），不用等客户端发版。
 - 偏好**不写数据库**：`system_settings` 是整行表，加列会让存量库的 SELECT 直接失败（本项目「绝不自动改表结构」）。
   `config/` 在自动更新时会被备份还原，所以这个文件不会丢。
-- 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode|gitee|mirror` 优先于偏好文件（仅后端），
-  后三个别名都归一到镜像源。
+- 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode|mirror` 优先于偏好文件（仅后端），
+  后两个别名都归一到镜像源。
 - **不做自动回退**：选了镜像就只走镜像，拉取失败或清单还没有产物时直接把错误显示出来
   （文案里带「去设置里关掉这个开关」的指引）。静默换源会让人以为镜像可用、流量却悄悄走了境外。
 - 字段名 `useGitCode` / `updateGitCode` 是历史命名，保留是为了不让存量安装的偏好失效。
-- 桌面端下载白名单含 `api.gitcode.com` / `gitee.com` / `gitcode.com`；镜像源的地址是直链，**不套** CDN 前缀。
+- 桌面端下载白名单含 `api.gitcode.com` / `gitcode.com` / `raw.gitcode.com`；镜像源的地址是直链，**不套** CDN 前缀。
 
 > 升级断层提醒：老版本（v5.1.x 及以前）的检查更新仍读 GitCode 主仓库的 Release 列表，那条链路
 > 已经不再发布。要让老用户升到包含新逻辑的版本，需要在新版本发版时顺带往 GitCode 主仓库补一份

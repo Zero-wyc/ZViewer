@@ -31,8 +31,8 @@ const updateRepo = "Zero-wyc/ZViewer"
 const DefaultUpdateProxy = "https://gh-proxy.com"
 
 // 更新源标识：与网页端 updater.SourceGitHub / SourceGitCode 保持同名。
-// updateSourceGitCode 现在指「镜像产物仓库」：读 Gitee 上 Zero-wyc/ZviewerRelease
-// 的 latest.json 清单，下载走同一仓库的 raw 直链（境内直连，无需反代）。
+// updateSourceGitCode 现在指「镜像产物仓库」：读 GitCode 上 Zero-wyc/ZviewerRelease
+// 的 latest.json 清单，下载走同一仓库的文件直链接口（境内直连，无需反代）。
 const (
 	updateSourceGitHub  = "github"
 	updateSourceGitCode = "gitcode"
@@ -46,7 +46,6 @@ const (
 // 一律回 418「访问被拦截」，伪装 UA / Referer 都没用，Go 的 http.Client
 // 直接被挡。这个接口返回 application/octet-stream、支持 Range、不过 WAF，
 // 实测 52MB 安装包 8.8MB/s。
-// Gitee 的 raw 域名同样不行：大文件返回 403「large file require login」。
 var updateMirrorBase = "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw"
 
 // updateMirrorRef 是产物仓库分支。GitCode 的 raw 端点强制要求显式 ?ref=。
@@ -61,7 +60,7 @@ var (
 	errNoRelease = errors.New("没有可用的正式版本")
 	// 发布页里同时有命令行的 zviewer-windows-x64.zip，只认带 -GUI 后缀的运行包。
 	updateAssetExp = regexp.MustCompile(`(?i)^zviewer-windows-[^/]*-gui\.zip$`)
-	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitee\.com|gitcode\.com|api\.gitcode\.com|raw\.gitcode\.com)$`)
+	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitcode\.com|api\.gitcode\.com|raw\.gitcode\.com)$`)
 	updateTagExp   = regexp.MustCompile(`^v?\d+`)
 )
 
@@ -231,7 +230,7 @@ func (c *Controller) CheckUpdate(force bool) UpdateReport {
 		c.update.Size = asset.Size
 		candidateProxy := usedProxy
 		if source != updateSourceGitHub {
-			// 镜像源是 Gitee raw 直链，套反代前缀没有意义
+			// 镜像源是 GitCode 直链，套反代前缀没有意义
 			candidateProxy = ""
 		}
 		c.updateURL, c.updateFallbackURL = downloadCandidates(asset, candidateProxy, source)
@@ -563,7 +562,7 @@ func assetDownloadURL(asset releaseAsset) string {
 // downloadCandidates 返回首选与回退地址。
 // 走反代时首选是 github.com 直链套前缀（反代只代理 github.com 一类地址），回退是 API 端点；
 // 不走反代时首选 API 端点，没有回退。
-// 镜像源的地址是 Gitee raw 直链，套 GitHub 资产端点或反代都没有意义，只能直连。
+// 镜像源的地址是 GitCode 直链，套 GitHub 资产端点或反代都没有意义，只能直连。
 func downloadCandidates(asset releaseAsset, prefix, source string) (string, string) {
 	if source == updateSourceGitCode {
 		return asset.URL, ""

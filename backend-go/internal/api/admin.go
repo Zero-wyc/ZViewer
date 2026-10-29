@@ -571,7 +571,7 @@ type adminSettingsDTO struct {
 	CdnAccelerate            bool            `json:"cdnAccelerate"`
 	CdnProxyURL              string          `json:"cdnProxyUrl"`
 	// UpdateUseGitCode 是「更新源」开关（true=镜像产物仓库 ZviewerRelease，false=GitHub）。
-	// 字段名沿用历史命名，里面的 GitCode 现在指 Gitee 上的产物仓库镜像。
+	// 字段名沿用历史命名；GitCode 指的既是更新源标识，也是产物仓库所在平台。
 	// 它**不在数据库里**：system_settings 是整行表，加列会让存量库读不出来，
 	// 所以落在 config/update-source.json，见 updater.ReadSourcePreference。
 	UpdateUseGitCode          bool            `json:"updateUseGitCode"`

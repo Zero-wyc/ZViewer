@@ -203,21 +203,20 @@ func TestFetchLatestReleaseFromMirror(t *testing.T) {
 	}
 }
 
-// TestMirrorAssetDownloadCandidates 确认镜像源拿到的 Gitee raw 直链不会被套上反代。
+// TestMirrorAssetDownloadCandidates 确认镜像源拿到的 GitCode 直链不会被套上反代。
 func TestMirrorAssetDownloadCandidates(t *testing.T) {
 	asset := releaseAsset{
 		Name: "zviewer-windows-x64-GUI.zip",
-		URL:  "https://gitee.com/Zero-wyc/ZviewerRelease/raw/main/zviewer-windows-x64-GUI.zip",
+		URL:  "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw/zviewer-windows-x64-GUI.zip?ref=main",
 	}
 	first, fallback := downloadCandidates(asset, "https://gh-proxy.com", updateSourceGitCode)
 	if first != asset.URL || fallback != "" {
 		t.Fatalf("镜像源应直连: %q / %q", first, fallback)
 	}
-	if !allowedUpdateHost("gitee.com", nil) {
-		t.Fatal("Gitee 域名应在下载白名单内")
-	}
-	if !allowedUpdateHost("api.gitcode.com", nil) {
-		t.Fatal("GitCode 文件接口域名应在下载白名单内")
+	for _, host := range []string{"api.gitcode.com", "gitcode.com", "raw.gitcode.com"} {
+		if !allowedUpdateHost(host, nil) {
+			t.Fatalf("%s 应在下载白名单内", host)
+		}
 	}
 }
 

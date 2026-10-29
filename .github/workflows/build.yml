@@ -8,10 +8,6 @@
 #
 # 为什么不再跟着 main 自动构建：每次提交都跑一遍 130MB×3 的跨平台构建太浪费，
 # 测试版改成需要时手动点一次；正式版必须显式给版本号，版本号不会被随手覆盖。
-#
-# 与 Gitee 的关系：代码、tag、发行版全部由这里推过去（Gitee 侧不再跑流水线）——
-# Gitee 的附件上传是同步 multipart，没有 GitCode 那种异步回调，直接推最省事。
-# Gitee 相关步骤都带 `if: env.GITEE_TOKEN != ''`，没配密钥时整体跳过，不影响 GitHub 发版。
 
 name: Build (Single-File + Windows GUI)
 
@@ -310,13 +306,8 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: write
-    env:
-      # 大陆镜像（Gitee）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
-      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-      GITEE_OWNER: Zero-wyc
-      GITEE_REPO: ZViewer
     steps:
-      # 供 Gitee 同步步骤推送代码（附件下载不依赖 checkout，单独放在最前）
+      # 后续步骤要拿 scripts/ 与 git 历史
       - name: Checkout
         uses: actions/checkout@v5
         with:
@@ -334,7 +325,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # GitHub 与 Gitee 共用同一份说明，避免两边文案漂移
+      # 生成 Release 说明
       - name: Generate release body
         shell: bash
         run: |
@@ -396,31 +387,6 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 只同步代码：把 main 推过去，Gitee 上的发行版由那边的流水线自己拉取创建。
-      - name: Push main branch to Gitee
-        if: env.GITEE_TOKEN != '' && needs.prepare.outputs.ref_name == 'main'
-        continue-on-error: true
-        shell: bash
-        env:
-          GIT_TERMINAL_PROMPT: '0'
-        run: |
-          REPO_URL="https://${GITEE_OWNER}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
-          git remote add gitee "$REPO_URL" 2>/dev/null || git remote set-url gitee "$REPO_URL"
-          if ! log=$(git push gitee "HEAD:refs/heads/main" 2>&1); then
-            echo "$log"
-            echo "::error::推送到 Gitee 失败：确认 GITEE_TOKEN 有效且对 ${GITEE_OWNER}/${GITEE_REPO} 有写权限"
-            exit 1
-          fi
-          echo "$log"
-
-          # 发版通常就在 main 尖端：顺带把 Gitee 的 main 快进过去，
-          # 避免长期只发版、不跑测试构建时 Gitee 的主线一直停在旧提交。
-          # 非快进会失败，失败只警告，不倒推别人的主线。
-          REMOTE_MAIN=$(git ls-remote origin refs/heads/main | cut -f1)
-          if [ "${REMOTE_MAIN}" = "${TARGET_SHA}" ]; then
-            git push gitee "HEAD:refs/heads/main" || echo "::warning::Gitee main 未更新（非快进或被改写），下次测试构建会补上"
-          fi
-
   # 正式版：手动给了版本号（或直接推 v* tag）→ 建 tag 并发布 Release
   release:
     if: needs.prepare.outputs.mode == 'release'
@@ -430,11 +396,6 @@ jobs:
     timeout-minutes: 90
     permissions:
       contents: write
-    env:
-      # 大陆镜像（Gitee）。未配置密钥时同步步骤整体跳过，不影响 GitHub 发版
-      GITEE_TOKEN: ${{ secrets.GITEE_TOKEN }}
-      GITEE_OWNER: Zero-wyc
-      GITEE_REPO: ZViewer
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -532,62 +493,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # 先把 tag 推过去，下一步的发行版才有 tag 可挂。
-      # commit 对象随 tag 一起送达，不动镜像仓库的分支。
-      - name: Push tag to Gitee
-        if: env.GITEE_TOKEN != ''
-        continue-on-error: true
-        shell: bash
-        env:
-          GIT_TERMINAL_PROMPT: '0'
-          TAG_NAME: ${{ needs.prepare.outputs.tag }}
-          TARGET_SHA: ${{ needs.prepare.outputs.sha }}
-        run: |
-          # 本地 tag 与本次构建的提交对齐：手动发版时 tag 是刚刚由 Release API 建的，
-          # 本地还没有；直接把 SHA 作为 tag 目标，保证 Gitee 上的 tag 指到同一个 commit
-          git tag -f "${TAG_NAME}" "${TARGET_SHA}"
-          REPO_URL="https://${GITEE_OWNER}:${GITEE_TOKEN}@gitee.com/${GITEE_OWNER}/${GITEE_REPO}.git"
-          git remote add gitee "$REPO_URL" 2>/dev/null || git remote set-url gitee "$REPO_URL"
-          if ! log=$(git push gitee "refs/tags/${TAG_NAME}:refs/tags/${TAG_NAME}" --force 2>&1); then
-            echo "$log"
-            echo "::error::推送到 Gitee 失败：确认 GITEE_TOKEN 有效且对 ${GITEE_OWNER}/${GITEE_REPO} 有写权限"
-            exit 1
-          fi
-          echo "$log"
-
-      # 默认不在 GitHub 侧建 Gitee 发行版：托管 runner 跨境直传 Gitee 会被限速到十几 KB/s，
-      # 130MB 能传半小时以上，还会把整个发版拖红。发行版改由 .workflow/sync-release.yml
-      # 在 Gitee 自己的构建机上做（境内上行实测 9.7MB/s）。
-      # 万一 Gitee Go 不可用，把仓库变量 GITEE_PUSH_FROM_GITHUB 设为 true 可临时切回这条路。
-      - name: Setup Node.js 22
-        if: env.GITEE_TOKEN != ''
-        uses: actions/setup-node@v7
-        with:
-          node-version: '22'
-
-      - name: Publish to Gitee
-        if: env.GITEE_TOKEN != '' && vars.GITEE_PUSH_FROM_GITHUB == 'true'
-        continue-on-error: true
-        shell: bash
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ needs.prepare.outputs.tag }}
-          LOCAL_ASSETS: >-
-            zviewer-linux-x64.tar.gz
-            zviewer-windows-x64.zip
-            zviewer-windows-x64-GUI.zip
-        run: |
-          node scripts/sync-release-to-gitee.mjs || {
-            echo "::warning::Gitee 发版失败。修好后可在本机重跑：GITEE_TOKEN=*** TAG=${TAG} LOCAL_ASSETS=\"zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip\" node scripts/sync-release-to-gitee.mjs"
-            exit 1
-          }
-
   # 把最新正式版的产物替换式发布到专门的产物仓库 Zero-wyc/ZviewerRelease（main 分支根目录）：
   # 每次发版重建一个孤儿提交 force push，仓库里永远只有当前版本，旧包随提交被清掉。
   #
-  # 为什么单独建仓库：该仓库已同步到 Gitee / GitCode，大陆用户可直接从镜像仓库
-  # raw 链接境内高速下载，不再依赖 Release 附件的跨境链路（runner 直传 Gitee
-  # 被限速到十几 KB/s 的老问题）。单文件最大 52MB，远低于 git 的 100MB 硬限制。
+  # 为什么单独建仓库：该仓库镜像到 GitCode，客户端从 GitCode 的仓库文件接口
+  # （api.gitcode.com/.../raw/<文件>?ref=main）取清单和安装包，境内直连无需代理，
+  # 不再依赖各平台 Release 附件。单文件最大 52MB，远低于 git 的 100MB 硬限制。
   #
   # 权限：跨仓库推送 GITHUB_TOKEN 无效，需要在 ZViewer 仓库
   # Settings → Secrets and variables → Actions 配置 RELEASE_REPO_TOKEN

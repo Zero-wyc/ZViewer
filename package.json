@@ -25,8 +25,7 @@
     "test:music": "node --experimental-vm-modules --test scripts/music-regression.test.mjs scripts/bilibili-parts.test.mjs scripts/music-toolbar.test.mjs scripts/music-quality.test.mjs",
     "start": "node scripts/start.js",
     "build:exe": "node scripts/build-exe.js",
-    "build:all": "node build-all.js",
-    "release:sync": "node scripts/sync-release-to-gitee.mjs"
+    "build:all": "node build-all.js"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",

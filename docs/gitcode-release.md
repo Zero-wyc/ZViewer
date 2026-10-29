@@ -87,8 +87,13 @@ const isAttached = async (name) => attachmentsOf(await getRelease()).some((a) =>
 
 ## 怎么用
 
-本次改动只新增文件、不碰 `build.yml`（当前主线已经切到 Gitee 方案，GitCode 同步不再
-跟着发版自动跑）。历史版本和今后的 GitCode Release 一律用修复 workflow 补：
+> **现状提示**：`gitcode-repair.yml` 已随发版链路调整移除。现在的正式发版由
+> `build.yml` 的 `publish-branch` job 更新独立产物仓库 `Zero-wyc/ZviewerRelease`，
+> 客户端从 GitCode 的仓库文件接口（`api.gitcode.com/.../raw/<文件>?ref=main`）取清单和
+> 安装包，**不再依赖 GitCode Release 附件**。本页保留的是那套同步脚本的实现笔记，
+> 需要给历史版本在 GitCode 上补附件时仍可按下面的步骤手工跑。
+
+历史版本和今后的 GitCode Release 一律用修复 workflow 补：
 
 1. 在仓库 secrets 里配置 `GITCODE_TOKEN`（GitCode → 设置 → 私人令牌，需要 releases 写权限）；
 2. Actions → **GitCode Release 附件修复** → Run workflow：
