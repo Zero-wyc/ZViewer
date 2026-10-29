@@ -29,6 +29,12 @@ triggers:
   schedule:
     - cron: '0 30 4 * * ?'
 
+# 关键：全局参数必须在 yml 里声明引用，否则不会注入构建环境
+# （只在网页「全局参数」里配了 $RELEASE_TOKEN 依旧是空的）
+variables:
+  global:
+    - RELEASE_TOKEN
+
 stages:
   - stage: sync
     displayName: 同步发行版
