@@ -14,6 +14,7 @@ function check(dir) {
 for (const name of ['preview-server.cjs']) execFileSync(process.execPath, ['--check', path.join(root, name)], { stdio: 'inherit' });
 for (const dir of ['scripts', 'ui', 'patches']) if (fs.existsSync(path.join(root, dir))) check(dir);
 console.log('JavaScript syntax checks passed');
+execFileSync(process.execPath, ['--test', path.join(__dirname, 'live-actions.test.cjs')], { stdio: 'inherit' });
 
 // 桌面端的默认端口必须与主项目一致：两边各写一份常量，只改一边就会出现
 // 「面板显示 3336、后端却在别处监听」，这里在 check 阶段直接拦下来。
