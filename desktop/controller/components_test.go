@@ -1,58 +1,40 @@
 package controller
 
-// 可选组件（public/ 组件库 + GitCode 仓库直链）的固定约束：
-// 每个组件在 public/ 里必须是真实存在的二进制（exe 要有 MZ 头、zip 要有包结构）。
-// 这里**不比对摘要与大小**：组件库换文件时不必改 Go 常量，下载时也不做哈希校验。
+// 可选组件（ZviewerRelease 的 components 分支 + GitCode 仓库直链）的固定约束：
+// 组件二进制已不随源码仓库分发（2026-10-30 从 public/ 迁走），所以这里不校验本地文件，
+// 只锁住「下载地址怎么拼」「来源顺序」「域名白名单」这些改错就会 404 的规则。
+// 组件是否真的在分支上，由发布流程的组件库自检（scripts/publish-release-repo.sh）兜底。
 
 import (
 	"archive/zip"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
 
-// repoPublicDir 是仓库根的 public/；组件二进制随仓库一起同步到 GitCode。
-func repoPublicDir() string { return filepath.Join("..", "..", "public") }
-
-func TestComponentCatalogMatchesLibraryFiles(t *testing.T) {
+func TestComponentCatalogFilesArePlainNames(t *testing.T) {
+	seen := map[string]bool{}
 	for _, spec := range componentCatalog {
-		path := filepath.Join(repoPublicDir(), spec.File)
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Fatalf("%s 缺少组件文件 public/%s：%v", spec.Name, spec.File, err)
+		if spec.File == "" {
+			t.Fatalf("%s 的文件名为空", spec.Name)
 		}
-		if info.Size() == 0 {
-			t.Fatalf("%s 的组件文件 public/%s 是空的", spec.Name, spec.File)
+		// 文件名直接拼进 URL；带路径分隔符或查询符号会让地址错位。
+		if strings.ContainsAny(spec.File, "/\\?#&") {
+			t.Fatalf("%s 的文件名 %q 不能含路径或查询字符", spec.Name, spec.File)
 		}
-		head := make([]byte, 4)
-		file, err := os.Open(path)
-		if err != nil {
-			t.Fatal(err)
+		if seen[spec.File] {
+			t.Fatalf("组件库文件名重复：%s", spec.File)
 		}
-		_, readErr := io.ReadFull(file, head)
-		closeErr := file.Close()
-		if readErr != nil || closeErr != nil {
-			t.Fatalf("读取 public/%s 失败：%v %v", spec.File, readErr, closeErr)
-		}
-		if len(spec.Files) == 0 {
-			if head[0] != 'M' || head[1] != 'Z' {
-				t.Fatalf("%s 不是 Windows 可执行文件（缺少 MZ 头）", spec.Name)
-			}
-			continue
-		}
-		if head[0] != 'P' || head[1] != 'K' {
-			t.Fatalf("%s 不是有效的 ZIP 包", spec.Name)
-		}
-		if _, err := zip.OpenReader(path); err != nil {
-			t.Fatalf("%s 的组件包无法打开：%v", spec.Name, err)
+		seen[spec.File] = true
+		if spec.Name == "" || spec.Version == "" {
+			t.Fatalf("组件缺少名字或版本：%+v", spec)
 		}
 	}
 }
 
 func TestComponentMirrorURLUsesAPIRaw(t *testing.T) {
-	want := "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZViewer/raw/public/cloudflared-windows-amd64.exe?ref=main"
+	want := "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw/cloudflared-windows-amd64.exe?ref=components"
 	if got := cloudflaredSpec.mirrorURL(); got != want {
 		t.Fatalf("mirror url=%q, want=%q", got, want)
 	}
@@ -60,8 +42,14 @@ func TestComponentMirrorURLUsesAPIRaw(t *testing.T) {
 	if strings.Contains(cloudflaredSpec.mirrorURL(), "raw.gitcode.com") {
 		t.Fatal("component url must not use the preview-only raw host")
 	}
-	if !strings.Contains(meshSpec.mirrorURL(), "/public/"+meshSpec.File+"?ref=main") {
+	// 组件库在 components 分支：落回 main 会被下一次发版的孤儿提交清掉。
+	if !strings.Contains(meshSpec.mirrorURL(), "/"+meshSpec.File+"?ref=components") {
 		t.Fatalf("mesh mirror url=%q", meshSpec.mirrorURL())
+	}
+	for _, spec := range componentCatalog {
+		if strings.Contains(spec.mirrorURL(), "/Zero-wyc/ZViewer/") {
+			t.Fatalf("%s 仍指向源码仓库：%s", spec.Name, spec.mirrorURL())
+		}
 	}
 }
 

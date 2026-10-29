@@ -179,22 +179,28 @@ npm run package        # 出 ZIP + SHA256
 
 > `cd desktop && go build -tags production .` 会覆盖**已入库**的 `desktop/desktop.exe`，日常别这么编；用 `npm run shell:build`。
 
-#### 桌面可选组件（public/）
+#### 桌面可选组件（ZviewerRelease 的 components 分支）
 
-桌面 GUI **不再随包**带 cloudflared 与 EasyTier：两者放在仓库根目录的 `public/`（组件库），
-随仓库同步到 GitCode，GUI 第一次用到时下载（`desktop/controller/components.go`）。
+桌面 GUI **不再随包**带 cloudflared 与 EasyTier：两者放在产物仓库
+`Zero-wyc/ZviewerRelease` 的 **`components` 分支**（组件库），随镜像同步到 GitCode，
+GUI 第一次用到时下载（`desktop/controller/components.go`）。
 
-| 组件 | 文件 | 下载端点 |
+| 组件 | 分支内文件 | 下载端点 |
 | --- | --- | --- |
-| Cloudflare Tunnel | `public/cloudflared-windows-amd64.exe` | `https://api.gitcode.com/api/v5/repos/Zero-wyc/ZViewer/raw/public/<文件>?ref=main` |
-| EasyTier 组网 | `public/easytier-windows-x86_64-v2.6.4.zip` | 同上 |
+| Cloudflare Tunnel | `cloudflared-windows-amd64.exe` | `https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw/<文件>?ref=components` |
+| EasyTier 组网 | `easytier-windows-x86_64-v2.6.4.zip` | 同上 |
+
+> 2026-10-30 前这些文件在主仓库根目录的 `public/`（84 MB，每次 clone 都要拖）。迁到独立分支后
+> 主仓库只剩代码。**不要放回 `main`**：`main` 每次发版都用孤儿提交整体替换，会被清掉。
 
 **`raw.gitcode.com/.../raw/<branch>/<path>` 不能用**：那是预览通道，exe/zip 一律 `403 暂不支持预览`；
 `api.gitcode.com` 的 `raw` 端点才是按字节返回（支持 Range，55 MB 实测可下）。
 
-升级组件：`desktop/scripts/fetch-components.ps1` 拉文件 → 同步 `components.go` 里的 `Version`
-（`Size` 只影响进度显示，可顺手改） → `cd desktop && go test ./controller -run Component`
-（只检查目录里的文件是有效二进制，**不比对摘要**）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）。
+升级组件：`desktop/scripts/fetch-components.ps1` 把新文件拉到 `desktop/.components/`（已 gitignore）
+→ 覆盖到 `ZviewerRelease` 的 `components` 分支并同步 `components.json` → 改 `components.go` 的
+`Version`（`Size` 只影响进度显示，可顺手改）→ `cd desktop && go test ./controller -run Component`
+（只校验地址拼法，**不比对摘要**）。打包只下载 FRP（`scripts/prepare-tools.ps1` 已只剩 FRP）；
+EasyTier 的 LGPL 许可证副本留在 `desktop/assets/LICENSE-EasyTier.txt` 供打包。
 
 ### 6.1 发版与大陆镜像（GitHub → GitCode）
 

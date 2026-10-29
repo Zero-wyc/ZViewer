@@ -20,6 +20,9 @@
 #   MIRROR_PUSH_URL     可选，第二个推送地址（GitCode 产物仓库）。给了就推同一份孤儿提交，
 #                       客户端正是从那边取清单和安装包，必须跟着发版一起更新。
 #   VERIFY_MIRROR       可选，默认 1：推完 GitCode 后回读 latest.json 与一个安装包，核对是否落地
+#   VERIFY_COMPONENTS   可选，默认 1：顺带自检 components 分支的组件库（cloudflared/EasyTier）
+#                       是否可取、大小是否与 components.json 一致；只告警不失败
+#   COMPONENTS_REF      可选，组件库分支名，默认 components
 #   MIRROR_RAW_BASE     可选，覆盖清单/下载地址前缀（默认 GitCode 的 /raw 接口，换通道时改这里）
 #
 # 为什么用绝对路径 + find 兜底：构建里曾出现过「test -f 通过、cp ../x 却报不存在」的情况
@@ -180,4 +183,31 @@ if [ -n "${MIRROR_PUSH_URL:-}" ]; then
   fi
 else
   echo "::warning::未提供 MIRROR_PUSH_URL，GitCode 产物仓库未更新（客户端会读到旧清单）"
+fi
+
+# ---- 组件库自检 ----
+# 桌面端的 cloudflared 与 EasyTier 只从本仓库的 components 分支下载（2026-10-30 从主仓库
+# public/ 迁过来）。那条分支不由本脚本维护，但它一坏用户就装不上组件，所以发版时顺手确认：
+# 清单读得到、每个文件取得到、字节数与清单一致。只告警不失败——组件问题是另一条链路的事，
+# 不该把已经发好的版本判成失败。
+if [ "${VERIFY_MIRROR:-1}" = "1" ] && [ "${VERIFY_COMPONENTS:-1}" = "1" ]; then
+  COMPONENTS_REF="${COMPONENTS_REF:-components}"
+  echo "== 组件库自检（${TARGET_REPO} @ ${COMPONENTS_REF}）"
+  comp_json=$(curl -fsS -m 25 "${MIRROR_URL_BASE}/components.json?ref=${COMPONENTS_REF}" 2>/dev/null || true)
+  if [ -z "${comp_json}" ]; then
+    echo "::warning::读不到 components.json（${MIRROR_URL_BASE}/components.json?ref=${COMPONENTS_REF}）：组件库分支可能还没同步过来。新装用户会回退到 GitHub 官方源。"
+  else
+    while IFS=$'\t' read -r cname cfile csize; do
+      [ -n "${cfile}" ] || continue
+      curl_out=$(curl -fsS -m 30 -r 0-1023 -o /dev/null -D - "${MIRROR_URL_BASE}/${cfile}?ref=${COMPONENTS_REF}" 2>/dev/null || true)
+      ccode=$(printf '%s' "${curl_out}" | head -1 | awk '{print $2}')
+      ctotal=$(printf '%s' "${curl_out}" | tr -d '\r' | awk -F'/' 'tolower($1) ~ /content-range/ {print $2}' | head -1)
+      printf '   %-30s HTTP %-4s 总字节 %-10s 清单 %s\n' "${cname}" "${ccode:-?}" "${ctotal:-?}" "${csize:-?}"
+      if [ "${ccode}" != '200' ] && [ "${ccode}" != '206' ]; then
+        echo "::warning::组件 ${cfile} 取不到（HTTP ${ccode:-无响应}），新装用户会回退 GitHub 官方源"
+      elif [ -n "${ctotal}" ] && [ -n "${csize}" ] && [ "${csize}" != "null" ] && [ "${ctotal}" != "${csize}" ]; then
+        echo "::warning::组件 ${cfile} 大小与 components.json 不一致（远端 ${ctotal} / 清单 ${csize}）"
+      fi
+    done < <(jq -r '.components[]? | [.name, .file, (.size|tostring)] | @tsv' <<<"${comp_json}" 2>/dev/null)
+  fi
 fi

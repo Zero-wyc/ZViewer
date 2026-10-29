@@ -3,10 +3,15 @@ package controller
 // 可选组件：Cloudflare Tunnel 用的 cloudflared 与虚拟组网用的 EasyTier。
 //
 // 这两个二进制不再打进桌面运行包（GUI 本体只有几十 MB 的壳 + 后端 + 网页），
-// 用户第一次用到时才下载。组件放在仓库的 public/ 目录里，随仓库同步到 GitCode，
-// 下载地址就是 GitCode 的仓库文件直链：
+// 用户第一次用到时才下载。组件库放在独立的产物仓库 ZviewerRelease 的 components 分支
+// （2026-10-30 从主仓库的 public/ 迁过去），下载地址就是 GitCode 的仓库文件直链：
 //
-//	https://api.gitcode.com/api/v5/repos/{owner}/{repo}/raw/public/{file}?ref={branch}
+//	https://api.gitcode.com/api/v5/repos/{owner}/{repo}/raw/{file}?ref=components
+//
+// 为什么是 components 分支而不是 main：main 是发版产物分支，每次正式发版都会用孤儿提交
+// 整体替换（只留当前版本的安装包与 latest.json），组件放进去会被下一次发版清掉。
+// 为什么不是主仓库的 public/：二进制凑在一起 84 MB，放在代码仓库里每次 clone 都要拖，
+// 且与「源码」没有关系；迁到产物仓库后主仓库只剩代码。
 //
 // 注意：**不能**用 raw.gitcode.com/{owner}/{repo}/raw/{branch}/{file}。
 // 那个地址是站点的「预览」通道，除 README/LICENSE 一类被预览过的文档外
@@ -33,11 +38,10 @@ import (
 )
 
 const (
-	// componentRepo / componentBranch 与仓库发布流程保持一致：main 上的 public/ 就是组件库。
-	componentRepo   = "Zero-wyc/ZViewer"
-	componentBranch = "main"
+	// componentRepo / componentRef 指向产物仓库的组件库分支（与发布流程分开，见文件头）。
+	componentRepo   = "Zero-wyc/ZviewerRelease"
+	componentRef    = "components"
 	componentAPIRaw = "https://api.gitcode.com/api/v5/repos/" + componentRepo + "/raw/"
-	componentDir    = "public"
 
 	componentCloudflared = "cloudflared"
 	componentMesh        = "easytier"
@@ -47,7 +51,7 @@ const (
 
 type componentSpec struct {
 	Name string
-	// File 是 public/ 下的文件名，同时也是 GitCode 直链的最后一段。
+	// File 是组件库分支根目录下的文件名，同时也是 GitCode 直链的最后一段。
 	File string
 	// Target 是安装到运行包里的文件名；空表示与 File 相同。
 	// cloudflared 的仓库文件叫 cloudflared-windows-amd64.exe，但桌面端统一用 cloudflared.exe。
@@ -189,7 +193,7 @@ func (c *Controller) componentReport() ComponentsReport {
 
 // mirrorURL 是组件在 GitCode 上的仓库直链（按字节返回，不是预览页）。
 func (s componentSpec) mirrorURL() string {
-	return componentAPIRaw + componentDir + "/" + s.File + "?ref=" + componentBranch
+	return componentAPIRaw + url.PathEscape(s.File) + "?ref=" + componentRef
 }
 
 // InstallComponent 异步下载并安装可选组件；立即返回，进度通过快照推送。

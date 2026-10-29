@@ -170,7 +170,7 @@ const cloudflaredReleaseAPI = "https://api.github.com/repos/cloudflare/cloudflar
 const cloudflaredDownloadURL = "https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-amd64.exe"
 
 const (
-	// cloudflaredSourceGitCode 是默认源：仓库里的 public/ 目录随仓库同步到 GitCode，
+	// cloudflaredSourceGitCode 是默认源：组件库在 ZviewerRelease 的 components 分支，
 	// 直链按字节返回而且国内可达，不需要 GitHub Release API。
 	cloudflaredSourceGitCode = "gitcode"
 	cloudflaredSourceProxy   = "proxy"

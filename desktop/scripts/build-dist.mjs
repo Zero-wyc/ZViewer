@@ -3,7 +3,7 @@
 // 目录名与命令行包一致，仅追加 GUI 后缀，使同一次发布里两个包一眼可辨。
 //
 // Cloudflare（cloudflared）与 EasyTier 组网组件**不再随包分发**：它们是可选组件，
-// 由 GUI 第一次用到时从仓库的 public/（同步到 GitCode）按需下载。
+// 由 GUI 第一次用到时从 ZviewerRelease 的 components 分支（同步到 GitCode）按需下载。
 // 打包流程因此不再需要 easytier 缓存，只需要 FRP。
 //
 // 用法：
@@ -68,8 +68,8 @@ cpSync(join(runtimeSource, 'frontend', 'dist'), join(runtime, 'frontend', 'dist'
 for (const name of ['frpc.exe']) {
   if (existsSync(join(frpDir, name))) copyFileSync(join(frpDir, name), join(runtime, name));
 }
-// Cloudflare（cloudflared）与 EasyTier 组网组件不再随包分发：它们在仓库 public/ 组件库里，
-// GUI 第一次用到时按 GitCode 直链下载（controller/components.go）。
+// Cloudflare（cloudflared）与 EasyTier 组网组件不再随包分发：它们在 ZviewerRelease 的
+// components 分支（组件库），GUI 第一次用到时按 GitCode 直链下载（controller/components.go）。
 // 打包因此不再需要 easytier 缓存，也不再往 runtime/mesh 复制任何文件。
 copyFileSync(join(desktop, 'assets', 'ZViewer.ProcessHost.exe'), join(distribution, 'assets', 'ZViewer.ProcessHost.exe'));
 
@@ -85,8 +85,9 @@ for (const [source, target] of [['LICENSE', 'LICENSE-ZViewer.txt']]) {
   if (existsSync(file)) copyFileSync(file, join(distribution, target));
 }
 if (existsSync(join(frpDir, 'LICENSE'))) copyFileSync(join(frpDir, 'LICENSE'), join(distribution, 'LICENSE-FRP.txt'));
-// EasyTier 是 LGPL-3.0：包内不再含其二进制，许可证随组件库（public/）一起分发。
-const meshLicense = join(repo, 'public', 'LICENSE-EasyTier.txt');
+// EasyTier 是 LGPL-3.0：包内不含其二进制（用到时才下载），但许可证仍随包带一份。
+// 组件库搬去 ZviewerRelease 后，源码仓库里留 desktop/assets 这份做打包来源。
+const meshLicense = join(desktop, 'assets', 'LICENSE-EasyTier.txt');
 if (existsSync(meshLicense)) copyFileSync(meshLicense, join(distribution, 'LICENSE-EasyTier.txt'));
 // 首次启动由壳自己生成独立 JWT 密钥，分发包里只放样例，绝不带真实 .env。
 rmSync(join(runtime, '.env'), { force: true });
@@ -137,9 +138,11 @@ const manifest = {
   iconEmbedded: true,
   frp: '0.71.1',
   // 可选组件不在包内：这里只登记版本与组件库来源，方便核对用户实际下载到的东西。
+  // library 是 ZviewerRelease 的 components 分支上的路径（客户端的实际下载地址由
+  // controller/components.go 按同一份文件名拼出）。
   components: {
-    cloudflared: { version: '2026.10.3', delivery: 'download', library: 'public/cloudflared-windows-amd64.exe' },
-    easytier: { version: '2.6.4', delivery: 'download', library: 'public/easytier-windows-x86_64-v2.6.4.zip' }
+    cloudflared: { version: '2026.10.3', delivery: 'download', library: 'components/cloudflared-windows-amd64.exe' },
+    easytier: { version: '2.6.4', delivery: 'download', library: 'components/easytier-windows-x86_64-v2.6.4.zip' }
   },
   cli: cliMeta(cliSource),
   fileCount: walk(distribution).length,

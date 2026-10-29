@@ -7,6 +7,8 @@ dist-gui/
 dist-gui-*/
 exports/
 assets/ZViewer.ProcessHost.exe
+# 组件库已迁到 Zero-wyc/ZviewerRelease 的 components 分支；fetch-components.ps1 的下载缓存。
+.components/
 *.log
 __pycache__/
 .spike/
