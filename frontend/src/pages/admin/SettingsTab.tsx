@@ -617,17 +617,16 @@ export function SettingsTab({
                     }}
                   />
                 </div>
-                {/* 更新源：GitCode 镜像 vs GitHub */}
+                {/* 更新源：镜像产物仓库 vs GitHub */}
                 <div className="pb-3 mb-3 border-b border-[var(--md-sys-color-outline-variant)]">
                   <div className="flex items-center justify-between">
                     <div className="flex-1 min-w-0 pr-3">
                       <Text className="text-sm font-medium">
-                        使用 GitCode 更新源
+                        使用镜像更新源
                       </Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
-                        开启后从 gitcode.com（同一份 Release
-                        的大陆镜像）检查并下载更新，国内网络无需代理；关闭则改走
-                        GitHub。不会自动换源：GitCode 不可用时直接报错。
+                        开启后从 Gitee 上的产物仓库（ZviewerRelease）读取版本清单并下载安装包，
+                        国内网络无需代理；关闭则改走 GitHub Release。不会自动换源：镜像不可用时直接报错。
                       </Text>
                     </div>
                     <Switch
@@ -648,7 +647,7 @@ export function SettingsTab({
                       <Text className="text-sm font-medium">更新 CDN 加速</Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
                         {settings.updateUseGitCode !== false
-                          ? '仅 GitHub 源生效；当前使用 GitCode 源，无需代理'
+                          ? '仅 GitHub 源生效；当前使用镜像源，无需代理'
                           : '开启后，更新检测和 Release 下载将走 CDN 代理加速'}
                       </Text>
                     </div>
@@ -775,7 +774,7 @@ export function SettingsTab({
                       <Text type="secondary" className="text-xs">
                         更新来源：
                         {updateInfo.source === 'gitcode'
-                          ? 'GitCode 镜像（gitcode.com）'
+                          ? '镜像仓库（gitee.com/ZviewerRelease）'
                           : 'GitHub'}
                       </Text>
                     )}

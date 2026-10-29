@@ -48,9 +48,10 @@ type Service struct {
 	Settings *store.Settings
 	// APIBase 默认 https://api.github.com。对拍时可指向本地假站。
 	APIBase string
-	// GitCodeAPIBase 默认 https://api.gitcode.com/api/v5，测试可覆盖。
-	GitCodeAPIBase string
-	// Source 显式指定更新源（gitcode / github）；空串时按「偏好文件 > 环境变量」
+	// MirrorBase 是镜像产物仓库的 raw 前缀，默认 Gitee 的 ZviewerRelease/main；
+	// 测试用它指向 httptest 假站。
+	MirrorBase string
+	// Source 显式指定更新源（gitcode=镜像仓库 / github）；空串时按「偏好文件 > 环境变量」
 	// 决议，见 source.go 的 updateSource。测试用它绕开真实网络。
 	Source string
 	// GOOS 默认 runtime.GOOS，测试可覆盖以覆盖两个产物名。

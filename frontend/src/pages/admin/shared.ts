@@ -37,7 +37,7 @@ export interface UpdateInfo {
   isPrerelease: boolean
   assetName: string
   assetSize: number
-  /** 本次结果的来源：gitcode（大陆镜像）或 github（GitCode 不可用时会自动回退） */
+  /** 本次结果的来源：gitcode（镜像产物仓库 ZviewerRelease）或 github */
   source?: 'gitcode' | 'github'
 }
 
@@ -106,7 +106,7 @@ export interface AdminSettings {
   playsvideoEnabled: boolean
   cdnAccelerate: boolean
   cdnProxyUrl: string
-  /** 更新源开关：true=GitCode 大陆镜像（默认），false=GitHub */
+  /** 更新源开关：true=镜像产物仓库（Gitee，默认），false=GitHub */
   updateUseGitCode: boolean
   /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
   roomMultiInstanceLogin: boolean

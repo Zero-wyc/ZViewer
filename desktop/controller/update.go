@@ -31,23 +31,22 @@ const updateRepo = "Zero-wyc/ZViewer"
 const DefaultUpdateProxy = "https://gh-proxy.com"
 
 // 更新源标识：与网页端 updater.SourceGitHub / SourceGitCode 保持同名。
+// updateSourceGitCode 现在指「镜像产物仓库」：读 Gitee 上 Zero-wyc/ZviewerRelease
+// 的 latest.json 清单，下载走同一仓库的 raw 直链（境内直连，无需反代）。
 const (
 	updateSourceGitHub  = "github"
 	updateSourceGitCode = "gitcode"
 )
 
-// gitCodeAPIBase 是 GitCode OpenAPI 基址；gitCodeSite 用来拼发布页地址
-// （GitCode 的 release 列表不带 html_url）。附件直链与官方镜像同源，无需反代。
-const (
-	gitCodeAPIBase = "https://api.gitcode.com/api/v5"
-	gitCodeSite    = "https://gitcode.com"
-)
+// updateMirrorBase 是镜像产物仓库的 raw 前缀。
+// 用 var 而不是 const：测试要把它指向 httptest 假站。
+var updateMirrorBase = "https://gitee.com/Zero-wyc/ZviewerRelease/raw/main"
 
 var (
 	errNoRelease = errors.New("没有可用的正式版本")
 	// 发布页里同时有命令行的 zviewer-windows-x64.zip，只认带 -GUI 后缀的运行包。
 	updateAssetExp = regexp.MustCompile(`(?i)^zviewer-windows-[^/]*-gui\.zip$`)
-	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitcode\.com|raw\.gitcode\.com)$`)
+	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitee\.com|gitcode\.com|raw\.gitcode\.com)$`)
 	updateTagExp   = regexp.MustCompile(`^v?\d+`)
 )
 
@@ -217,7 +216,7 @@ func (c *Controller) CheckUpdate(force bool) UpdateReport {
 		c.update.Size = asset.Size
 		candidateProxy := usedProxy
 		if source != updateSourceGitHub {
-			// GitCode 直连对象存储，套反代前缀没有意义
+			// 镜像源是 Gitee raw 直链，套反代前缀没有意义
 			candidateProxy = ""
 		}
 		c.updateURL, c.updateFallbackURL = downloadCandidates(asset, candidateProxy, source)
@@ -386,17 +385,17 @@ func (c *Controller) packagePath(tag, asset string) string {
 	return filepath.Join(c.dir, "updates", tag, filepath.Base(name))
 }
 
-// fetchRelease 按设置取最新正式版：选了 GitCode 就只走 GitCode。
+// fetchRelease 按设置取最新正式版：选了镜像源就只走镜像仓库。
 //
 // **不做静默回退**：用户选大陆镜像就是为了不碰 GitHub，悄悄换源会让人以为
 // 镜像可用、实际却在境外取包。失败就把错误显式抛到界面上，换不换由用户决定。
 func (c *Controller) fetchRelease(prefix string) (releaseInfo, string, error) {
 	if c.updateUseGitCode() {
-		info, err := fetchLatestReleaseFromGitCode(c.version)
+		info, err := fetchLatestReleaseFromMirror(c.version)
 		if err != nil {
-			c.Log("GitCode 更新源不可用："+err.Error(), "update", "ERROR")
+			c.Log("镜像更新源不可用："+err.Error(), "update", "ERROR")
 			return releaseInfo{}, updateSourceGitCode,
-				fmt.Errorf("GitCode 更新源不可用：%s（可在更新设置中关闭「使用 GitCode 更新源」）", err.Error())
+				fmt.Errorf("镜像更新源不可用：%s（可在更新设置中关闭「使用镜像更新源」）", err.Error())
 		}
 		return info, updateSourceGitCode, nil
 	}
@@ -404,13 +403,30 @@ func (c *Controller) fetchRelease(prefix string) (releaseInfo, string, error) {
 	return info, updateSourceGitHub, err
 }
 
-// fetchLatestReleaseFromGitCode 从 GitCode 镜像取最新正式版。
+// mirrorManifest 是产物仓库 latest.json 的形状（由 CI 生成）。
+type mirrorManifest struct {
+	Tag         string        `json:"tag"`
+	Version     string        `json:"version"`
+	PublishedAt string        `json:"publishedAt"`
+	ReleaseURL  string        `json:"releaseUrl"`
+	Notes       string        `json:"notes"`
+	Assets      []mirrorAsset `json:"assets"`
+}
+
+// mirrorAsset 是清单里的一个产物：只有名字和大小，下载地址由 raw 前缀拼。
+type mirrorAsset struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+}
+
+// fetchLatestReleaseFromMirror 读产物仓库的 latest.json 取最新正式版。
 //
-// GitCode 没有 GitHub 那种 /releases/latest（只有列表接口），所以取列表后
-// 自己挑第一条「非预发布且 tag 像版本号」的记录；源码包资产在 normalize 里剔掉。
-func fetchLatestReleaseFromGitCode(current string) (releaseInfo, error) {
+// 清单里只描述最新一个正式版，所以不需要排序、不需要过滤源码包——那些都是
+// GitCode Release 接口的历史坑（created_at 升序、assets 混 source 包），
+// 换成固定清单后自然消失。
+func fetchLatestReleaseFromMirror(current string) (releaseInfo, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	endpoint := gitCodeAPIBase + "/repos/" + updateRepo + "/releases?per_page=10"
+	endpoint := updateMirrorBase + "/latest.json"
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return releaseInfo{}, err
@@ -419,59 +435,54 @@ func fetchLatestReleaseFromGitCode(current string) (releaseInfo, error) {
 	request.Header.Set("User-Agent", "ZViewerDesktop/"+current)
 	response, err := client.Do(request)
 	if err != nil {
-		return releaseInfo{}, errors.New("无法连接 GitCode：" + err.Error())
+		return releaseInfo{}, errors.New("无法连接镜像仓库：" + err.Error())
 	}
 	defer response.Body.Close()
 	if response.StatusCode == http.StatusNotFound {
 		return releaseInfo{}, errNoRelease
 	}
 	if response.StatusCode != http.StatusOK {
-		return releaseInfo{}, fmt.Errorf("GitCode 返回 %d", response.StatusCode)
+		return releaseInfo{}, fmt.Errorf("镜像仓库返回 %d", response.StatusCode)
 	}
-	var list []releaseInfo
-	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&list); err != nil {
-		return releaseInfo{}, errors.New("发布信息解析失败")
+	var manifest mirrorManifest
+	if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(&manifest); err != nil {
+		return releaseInfo{}, errors.New("版本清单解析失败")
 	}
-	if len(list) == 0 {
-		// 与「只有预发布」区分：一条记录都没有说明镜像还没同步过 Release，
-		// 不是「已是最新」，必须让用户看到错误。
-		return releaseInfo{}, errors.New("镜像暂无发布版本")
-	}
-	return pickGitCodeRelease(list)
-}
 
-// pickGitCodeRelease 从列表里挑最新正式版：跳过预发布与不像版本号的 tag。
-func pickGitCodeRelease(list []releaseInfo) (releaseInfo, error) {
-	for _, info := range list {
-		if info.Draft || info.Prerelease || strings.EqualFold(info.ReleaseStatus, "pre") {
-			continue
+	tag := strings.TrimSpace(manifest.Tag)
+	if tag == "" {
+		version := strings.TrimPrefix(strings.TrimSpace(manifest.Version), "v")
+		if version == "" {
+			return releaseInfo{}, errors.New("版本清单缺少版本号")
 		}
-		if !updateTagExp.MatchString(info.Tag) {
-			continue
-		}
-		return normalizeGitCodeRelease(info), nil
+		tag = "v" + version
 	}
-	return releaseInfo{}, errNoRelease
-}
+	if !updateTagExp.MatchString(tag) {
+		return releaseInfo{}, errors.New("发布版本号无法识别")
+	}
 
-// normalizeGitCodeRelease 补齐 GitCode 与 GitHub 的字段差异：
-// 没有 html_url 时按站内路由拼发布页地址；assets 里混着的源码包（type=source）剔掉。
-func normalizeGitCodeRelease(info releaseInfo) releaseInfo {
-	if info.URL == "" && info.Tag != "" {
-		info.URL = gitCodeSite + "/" + updateRepo + "/releases/tag/" + url.PathEscape(info.Tag)
-	}
-	if len(info.Assets) == 0 {
-		return info
-	}
-	assets := make([]releaseAsset, 0, len(info.Assets))
-	for _, asset := range info.Assets {
-		if asset.Type == "source" {
+	assets := make([]releaseAsset, 0, len(manifest.Assets))
+	for _, asset := range manifest.Assets {
+		name := strings.TrimSpace(asset.Name)
+		if name == "" {
 			continue
 		}
-		assets = append(assets, asset)
+		assets = append(assets, releaseAsset{
+			Name: name,
+			Size: asset.Size,
+			URL:  updateMirrorBase + "/" + name,
+		})
 	}
-	info.Assets = assets
-	return info
+	if len(assets) == 0 {
+		return releaseInfo{}, errors.New("版本清单里没有产物")
+	}
+
+	return releaseInfo{
+		Tag:    tag,
+		Name:   tag,
+		URL:    manifest.ReleaseURL,
+		Assets: assets,
+	}, nil
 }
 
 // fetchLatestReleaseFromGitHub 取 GitHub 最新正式版；仓库只有预发布时会返回 errNoRelease。
@@ -530,7 +541,7 @@ func assetDownloadURL(asset releaseAsset) string {
 // downloadCandidates 返回首选与回退地址。
 // 走反代时首选是 github.com 直链套前缀（反代只代理 github.com 一类地址），回退是 API 端点；
 // 不走反代时首选 API 端点，没有回退。
-// GitCode 源的附件 id 是 GitCode 自己的编号，不能套 GitHub 的资产端点，只能直连。
+// 镜像源的地址是 Gitee raw 直链，套 GitHub 资产端点或反代都没有意义，只能直连。
 func downloadCandidates(asset releaseAsset, prefix, source string) (string, string) {
 	if source == updateSourceGitCode {
 		return asset.URL, ""

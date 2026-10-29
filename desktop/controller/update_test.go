@@ -1,6 +1,8 @@
 package controller
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 )
@@ -144,56 +146,74 @@ func TestAllowedUpdateHost(t *testing.T) {
 	}
 }
 
-// TestPickGitCodeRelease 覆盖 GitCode 列表挑选：预发布、源码包与 tag 形状。
-func TestPickGitCodeRelease(t *testing.T) {
-	list := []releaseInfo{
-		{Tag: "latest", ReleaseStatus: "pre", Name: "Latest Build (main)"},
-		{Tag: "nightly", Prerelease: false},
-		{
-			Tag:  "v5.0.1",
-			Name: "v5.0.1",
-			Assets: []releaseAsset{
-				{Name: "v5.0.1.zip", Type: "source", URL: "https://raw.gitcode.com/o/r/archive/v5.0.1.zip"},
-				{Name: "zviewer-windows-x64-GUI.zip", Type: "attach", Size: 2048, URL: "https://gitcode.com/Zero-wyc/ZViewer/releases/download/v5.0.1/zviewer-windows-x64-GUI.zip"},
-			},
-		},
-	}
-	info, err := pickGitCodeRelease(list)
+// TestFetchLatestReleaseFromMirror 覆盖镜像清单解析：版本号优先级、raw 直链拼接、
+// 以及仓库还没有清单时按「暂无正式版」处理。
+func TestFetchLatestReleaseFromMirror(t *testing.T) {
+	old := updateMirrorBase
+	defer func() { updateMirrorBase = old }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/latest.json" {
+			t.Errorf("应请求版本清单，实际 %q", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "version": "5.1.0",
+		  "publishedAt": "2026-10-29T10:00:00Z",
+		  "releaseUrl": "https://github.com/Zero-wyc/ZViewer/releases/tag/v5.1.0",
+		  "assets": [
+		    {"name": "zviewer-windows-x64.zip", "size": 1024},
+		    {"name": "zviewer-windows-x64-GUI.zip", "size": 2048}
+		  ]
+		}`))
+	}))
+	defer server.Close()
+	updateMirrorBase = server.URL
+
+	info, err := fetchLatestReleaseFromMirror("5.0.0")
 	if err != nil {
 		t.Fatalf("不应报错: %v", err)
 	}
-	if info.Tag != "v5.0.1" {
-		t.Fatalf("应跳过预发布与非法 tag，实际 %q", info.Tag)
+	if info.Tag != "v5.1.0" {
+		t.Fatalf("tag 应由 version 拼出，实际 %q", info.Tag)
 	}
-	if info.URL != "https://gitcode.com/Zero-wyc/ZViewer/releases/tag/v5.0.1" {
-		t.Fatalf("发布页地址未补齐: %q", info.URL)
+	if info.URL != "https://github.com/Zero-wyc/ZViewer/releases/tag/v5.1.0" {
+		t.Fatalf("发布页地址异常: %q", info.URL)
 	}
-	if len(info.Assets) != 1 || info.Assets[0].Name != "zviewer-windows-x64-GUI.zip" {
-		t.Fatalf("源码包应被过滤: %+v", info.Assets)
+	if len(info.Assets) != 2 {
+		t.Fatalf("产物数量异常: %+v", info.Assets)
+	}
+	if info.Assets[1].URL != server.URL+"/zviewer-windows-x64-GUI.zip" {
+		t.Fatalf("下载地址应由 raw 前缀拼出: %q", info.Assets[1].URL)
 	}
 	asset, ok := pickUpdateAsset(info.Assets)
 	if !ok || asset.Size != 2048 {
 		t.Fatalf("应挑到 GUI 运行包: %+v ok=%v", asset, ok)
 	}
 
-	if _, err := pickGitCodeRelease(list[:2]); err != errNoRelease {
-		t.Fatalf("只有预发布时应返回 errNoRelease，实际 %v", err)
+	// 清单不存在 = 还没跑过正式发版，按「暂无正式版」处理，不该弹错误。
+	missing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer missing.Close()
+	updateMirrorBase = missing.URL
+	if _, err := fetchLatestReleaseFromMirror("5.0.0"); err != errNoRelease {
+		t.Fatalf("404 应返回 errNoRelease，实际 %v", err)
 	}
 }
 
-// TestGitCodeAssetDownloadCandidates 确认 GitCode 源不会套反代前缀。
-func TestGitCodeAssetDownloadCandidates(t *testing.T) {
+// TestMirrorAssetDownloadCandidates 确认镜像源拿到的 Gitee raw 直链不会被套上反代。
+func TestMirrorAssetDownloadCandidates(t *testing.T) {
 	asset := releaseAsset{
-		ID:   9831,
 		Name: "zviewer-windows-x64-GUI.zip",
-		URL:  "https://gitcode.com/Zero-wyc/ZViewer/releases/download/v5.0.1/zviewer-windows-x64-GUI.zip",
+		URL:  "https://gitee.com/Zero-wyc/ZviewerRelease/raw/main/zviewer-windows-x64-GUI.zip",
 	}
-	first, fallback := downloadCandidates(asset, "", updateSourceGitCode)
+	first, fallback := downloadCandidates(asset, "https://gh-proxy.com", updateSourceGitCode)
 	if first != asset.URL || fallback != "" {
-		t.Fatalf("GitCode 源应直连: %q / %q", first, fallback)
+		t.Fatalf("镜像源应直连: %q / %q", first, fallback)
 	}
-	if !allowedUpdateHost("gitcode.com", nil) || !allowedUpdateHost("raw.gitcode.com", nil) {
-		t.Fatal("GitCode 域名应在下载白名单内")
+	if !allowedUpdateHost("gitee.com", nil) {
+		t.Fatal("Gitee 域名应在下载白名单内")
 	}
 }
 

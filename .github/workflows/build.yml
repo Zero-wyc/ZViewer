@@ -631,6 +631,28 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           cp ../${FILES} .
 
+          # 版本清单：网页端与 GUI 的自动更新直接读它，不再解析各平台 Release 接口
+          # （GitCode 的 created_at 升序、字段缺失那些坑随之一并消失）。
+          # 只存文件名/大小/sha256，下载地址由客户端按镜像 raw 前缀自己拼。
+          assets_json='[]'
+          for f in ${FILES}; do
+            size=$(stat -c%s "${f}")
+            sha=$(sha256sum "${f}" | cut -d' ' -f1)
+            assets_json=$(jq -c --arg n "${f}" --argjson s "${size}" --arg h "${sha}" \
+              '. + [{name:$n, size:$s, sha256:$h}]' <<<"${assets_json}")
+          done
+          jq -n \
+            --arg tag "${TAG}" \
+            --arg version "${VERSION}" \
+            --arg commit "${SHA}" \
+            --arg publishedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
+            --arg releaseUrl "https://github.com/Zero-wyc/ZViewer/releases/tag/${TAG}" \
+            --argjson assets "${assets_json}" \
+            '{tag:$tag, version:$version, commit:$commit, publishedAt:$publishedAt, releaseUrl:$releaseUrl, assets:$assets}' \
+            > latest.json
+          echo "=== latest.json ==="
+          cat latest.json
+
           {
             echo "# ZViewer 预编译包（${TAG}）"
             echo ""

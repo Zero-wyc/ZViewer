@@ -251,25 +251,39 @@ DRY_RUN=1 GITEE_TOKEN=x node scripts/sync-release-to-gitee.mjs       # 只打印
 
 ### 6.2 应用内的「更新源」开关
 
-网页端（管理页 → 设置 → 版本更新）与桌面 GUI（检查更新弹窗）都有「使用 GitCode 更新源」，**默认开启**；
-关掉回到 GitHub。两个实现各自独立：
+网页端（管理页 → 设置 → 版本更新）与桌面 GUI（检查更新弹窗）都有「使用镜像更新源」，**默认开启**；
+关掉回到 GitHub Release。两个实现各自独立，但读的是同一份清单：
 
 | 端 | 实现 | 偏好存放 |
 | --- | --- | --- |
 | 网页端一键更新 | `internal/updater/source.go` | `config/update-source.json`（`{"useGitCode": true}`） |
 | 桌面 GUI 自动更新 | `desktop/controller/update.go` | `settings.json` 的 `updateGitCode` |
 
+镜像侧读的是独立产物仓库 **`Zero-wyc/ZviewerRelease`**（每次正式发版由 `build.yml` 的
+`publish-branch` job 用孤儿提交整体替换 `main` 分支）：
+
+```
+latest.json          # 版本清单：tag / version / commit / publishedAt / assets[name,size,sha256]
+zviewer-*.zip|tar.gz # 三个平台包
+```
+
+- 客户端只请求 `https://gitee.com/Zero-wyc/ZviewerRelease/raw/main/latest.json`，下载地址按同一
+  raw 前缀 + 文件名拼出来，境内直连、不需要代理，也不需要各平台 Release 接口。
+- **为什么不用 GitCode 做下载站**：`raw.gitcode.com` 对脚本请求返回 418（CloudWAF），只有
+  contents API 能取内容且返回 base64，52MB 的包会撑到上百 MB 内存。Gitee 的 raw 是普通静态直链。
+  GitCode / Gitee 的仓库镜像照常同步，只是客户端不从那取。
 - 偏好**不写数据库**：`system_settings` 是整行表，加列会让存量库的 SELECT 直接失败（本项目「绝不自动改表结构」）。
   `config/` 在自动更新时会被备份还原，所以这个文件不会丢。
-- 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode` 优先于偏好文件（仅后端）。
-- **不做自动回退**：选了 GitCode 就只走 GitCode，拉取失败或镜像还没有 Release 时直接把错误显示出来
+- 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode|gitee|mirror` 优先于偏好文件（仅后端），
+  后三个别名都归一到镜像源。
+- **不做自动回退**：选了镜像就只走镜像，拉取失败或清单还没有产物时直接把错误显示出来
   （文案里带「去设置里关掉这个开关」的指引）。静默换源会让人以为镜像可用、流量却悄悄走了境外。
-- GitCode 的 Release 列表没有 `html_url` / `published_at`、assets 里混着源码包，差异在
-  `normalizeGitCodeReleases`（后端）与 `normalizeGitCodeRelease`（桌面端）里抹平。
-- 桌面端下载白名单已加入 `gitcode.com` / `raw.gitcode.com`；GitCode 源的附件**不套** CDN 前缀
-  （附件 id 是 GitCode 自己的编号，套 GitHub 资产端点会 404）。
+- 字段名 `useGitCode` / `updateGitCode` 是历史命名，保留是为了不让存量安装的偏好失效。
+- 桌面端下载白名单已加入 `gitee.com`；镜像源的地址是 raw 直链，**不套** CDN 前缀。
 
----
+> 升级断层提醒：老版本（v5.1.x 及以前）的检查更新仍读 GitCode 主仓库的 Release 列表，那条链路
+> 已经不再发布。要让老用户升到包含新逻辑的版本，需要在新版本发版时顺带往 GitCode 主仓库补一份
+> Release（一次性即可），否则老客户端会一直看到旧版本。
 
 ## 7. 质量门禁
 
