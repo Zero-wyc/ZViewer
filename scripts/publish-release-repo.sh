@@ -135,8 +135,12 @@ if [ -n "${MIRROR_PUSH_URL:-}" ]; then
   if ! out=$(GIT_TERMINAL_PROMPT=0 git -C "${OUT}" push --force "${MIRROR_PUSH_URL}" \
       "HEAD:refs/heads/${TARGET_BRANCH}" 2>&1); then
     printf '%s\n' "${out}" | sed -E 's#https://[^@[:space:]]*@#https://***@#g'
-    if printf '%s' "${out}" | grep -qiE 'image repository|mirror|protected'; then
-      echo "::error::GitCode 拒绝了写入：产物仓库被配置成只读镜像仓。请到「项目设置 → 仓库镜像」关闭 Pull 镜像后重跑。"
+    # GitCode 的镜像仓（image repository）只读：镜像方向是 GitCode 从 GitHub 拉，
+    # 远端回 CH.00905403。平台会自己按节奏追上，所以只告警、不判失败；
+    # 要「发版即同步」得去 GitCode 关掉 Pull 镜像。
+    if printf '%s' "${out}" | grep -qiE 'image repository|CH\.00905403'; then
+      echo "::warning::GitCode 的 ${TARGET_REPO} 是镜像仓（只读），平台拒绝了 CI 推送。GitCode 会自己从 GitHub 拉取，本次发版稍后才生效；要做到发版即同步，请在 GitCode 项目设置 → 仓库镜像 关闭 Pull 镜像。"
+      exit 0
     fi
     echo "::error::GitCode 产物仓库推送失败，客户端会继续读到旧清单"
     exit 1

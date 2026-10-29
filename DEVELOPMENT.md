@@ -216,12 +216,18 @@ prepare → build / build-gui → release（GitHub Release）
 
 `sync-gitcode` 把本次发布的提交与 tag 推到 GitCode 的 `Zero-wyc/ZViewer`。
 
-> 为什么要显式推：GitCode 没有开放「立刻同步一次」的接口（`PUT /repos/{owner}/{repo}/mirror/pull`
-> 这类路由实测返回 `404 Route Not Found`），仓库侧也不会自动跟着 GitHub 走。不主动推，
-> gitcode.com 上就停在旧提交，代码、tag、Releases 全是旧的（v5.1.1 发版时实测 GitCode 的
-> `main` 落后 GitHub 多个提交，产物仓库的 `latest.json` 也停在上一版）。
-> 推送用的是 `scripts/sync-gitcode-code.sh`，推完会 `ls-remote` 回读校验；分支分叉时按镜像语义
+> 为什么要显式推：GitCode 没有开放「立刻同步一次」的接口（`POST /repos/{owner}/{repo}/mirror/pull`
+> 这类路由实测 `404 Route Not Found`，官方 API 文档里也没有镜像相关条目），仓库侧只按平台自己的
+> 节奏拉取，发版后往往要等上一段时间。v5.1.1 发版时实测 GitCode 的 `main` 落后 GitHub 好几个提交，
+> 产物仓库的 `latest.json` 也停在上一版。
+> 推送用 `scripts/sync-gitcode-code.sh`，推完 `ls-remote` 回读校验；分支分叉时按镜像语义
 > `--force-with-lease` 对齐并打警告，tag 一定指向本次构建的提交。
+
+> **前提：GitCode 上这两个仓库不能是「镜像仓」**。GitCode 的 Pull 镜像仓是只读的，推送会被平台
+> 拒绝（`<CH.00905403> ... repository is an image repository`）。两个仓库现在都是这种状态，所以
+> 脚本遇到这个报错只打 `::warning::` 跳过，不把已经成功的发版判成失败——GitCode 会自己慢慢追上。
+> 想让「发版即同步」真正生效，需要去 GitCode **项目设置 → 仓库镜像** 关掉 Pull 镜像（每个仓库各一次），
+> 让它们变成普通仓库，之后 CI 的推送就能直接落库。
 
 单文件最大 52MB，低于 git 的 100MB 硬限制，所以走分支是安全的。
 
@@ -250,8 +256,8 @@ prepare → build / build-gui → release（GitHub Release）
 - `latest.json` 里每个 asset 都带 `url`；客户端优先用它，缺失才按镜像前缀自己拼。
 - `publish-branch` 推完 GitCode 会回读清单并抽查一个包的 HTTP 状态与总字节数，日志里是
   `== 回读 GitCode 清单：tag=vX.Y.Z ✅` + 三行 `HTTP 206 总字节 …/期望 …`。不是这个形状就说明没落地。
-- `sync-gitcode` 报「GitCode 拒绝了写入」：目标仓库被配成了只读镜像仓（项目设置 → 仓库镜像），
-  关掉 Pull 镜像后重跑该 job。报「认证失败」则检查 `GITCODE_TOKEN` 是否过期、有没有该仓库的写权限。
+- `sync-gitcode` 报 `::warning::… 是镜像仓（只读）`：去 GitCode 关掉 Pull 镜像（见上），仓库变普通仓库后重跑该 job 即可。
+- `sync-gitcode` 报「认证失败」：检查 `GITCODE_TOKEN` 是否过期、有没有这两个仓库的写权限。
 
 - Docker 镜像不在此同步范围（Docker Hub 在大陆同样慢，需要时另配国内镜像仓库）。
 

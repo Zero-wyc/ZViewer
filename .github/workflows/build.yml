@@ -500,6 +500,8 @@ jobs:
   # （/api/v5/repos/Zero-wyc/ZviewerRelease/raw/<文件>?ref=main）取清单和安装包，
   # 那边不跟着更新，用户就会一直被判定为「已是最新」。GitCode 没有开放
   # 「立即同步」的接口（mirror/pull 等路由实测 404），所以只能由 CI 主动推。
+  # 注意：GitCode 的 Pull 镜像仓是只读的，推送会回 CH.00905403；那种情况脚本只告警跳过
+  # （平台会自己慢慢追上），要「发版即同步」得先在 GitCode 关掉这两个仓库的 Pull 镜像。
   #
   # 权限：跨仓库推送 GITHUB_TOKEN 无效，需要两个 PAT：
   #   RELEASE_REPO_TOKEN  对 Zero-wyc/ZviewerRelease 有 push 权限（GitHub 侧）
@@ -551,6 +553,7 @@ jobs:
   # 正式版发布完成后，把这次发布对应的提交与 tag 推到 GitCode 主仓库 Zero-wyc/ZViewer。
   # GitCode 没有「立即同步一次」的接口（mirror/pull 等路由实测 404），不主动推就会停在
   # 旧提交——gitcode.com 上的代码、tag、Releases 会一直落后于 GitHub。
+  # 若该仓库是只读镜像仓（回 CH.00905403），脚本只告警跳过，不把发版判成失败。
   #
   # 排在 release 与 publish-branch 之后：先保证 GitHub 侧发布成功、产物仓库已就绪，
   # 再更新镜像。任一步失败都不影响已经发出去的 Release。

@@ -44,11 +44,25 @@ if ! probe=$(GIT_TERMINAL_PROMPT=0 git ls-remote "${REPO_URL}" 2>&1 >/dev/null);
   exit 1
 fi
 
+# GitCode 的「镜像仓」（image repository）是只读的：镜像方向是 GitCode 从 GitHub 拉，
+# 不接受任何写入，远端会回 `<CH.00905403> ... repository is an image repository`。
+# 这种状态下 CI 推不上去，但平台会按自己的节奏把 GitHub 的新提交拉过来——只是晚一点，
+# 不会丢东西。所以按「跳过 + 告警」处理，不把已经成功的 GitHub 发版判成失败。
+is_image_repo() {
+  printf '%s' "$1" | grep -qiE 'image repository|CH\.00905403'
+}
+
+skip_image_repo() {
+  echo "::warning::${GITCODE_OWNER}/${GITCODE_REPO} 是 GitCode 的镜像仓（只读），平台拒绝了 CI 推送（CH.00905403）。"
+  echo "::warning::GitCode 会自己按平台节奏从 GitHub 拉取，本次发版稍后才能在那看到；要做到「发版即同步」，请到 GitCode 项目设置 → 仓库镜像 关闭 Pull 镜像，仓库变普通仓库后 CI 就能直接推。"
+  exit 0
+}
+
 # 只读镜像仓（GitCode 侧配了 Pull 镜像）会拒绝写入，只能由人解除，这里给出准确指引。
 explain_failure() {
   local log="$1"
   if printf '%s' "${log}" | grep -qiE 'image repository|mirror|read.?only|protected'; then
-    echo "::error::GitCode 拒绝了写入：该仓库很可能被配置成只读镜像仓。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像（改为由 CI 直接推送），再重跑本 job。"
+    echo "::error::GitCode 拒绝了写入：该仓库被配置成只读镜像仓。请到 GitCode「项目设置 → 仓库镜像」关闭 Pull 镜像（改为由 CI 直接推送），再重跑本 job。"
   elif printf '%s' "${log}" | grep -qiE 'authentication|403|401|denied'; then
     echo "::error::GitCode 认证失败：确认 Secret GITCODE_TOKEN 未过期，且该令牌的账号对 ${GITCODE_OWNER}/${GITCODE_REPO} 有写权限。"
   elif printf '%s' "${log}" | grep -qi 'non-fast-forward'; then
@@ -77,6 +91,7 @@ else
   echo "== 推送 ${GITCODE_BRANCH}：${CUR:-（空仓库）} → ${SHA:0:7}"
   if ! out=$(GIT_TERMINAL_PROMPT=0 git push "${REPO_URL}" "${SHA}:refs/heads/${GITCODE_BRANCH}" 2>&1); then
     printf '%s\n' "${out}" | mask
+    if is_image_repo "${out}"; then skip_image_repo; fi
     if printf '%s' "${out}" | grep -qiE 'non-fast-forward|fetch first|\[rejected\]'; then
       # 镜像语义：GitHub 是唯一真相源，GitCode 只需跟它一致。先把差异说清楚再强制对齐，
       # 用 --force-with-lease 钉住刚才读到的 sha，防止这中间有人又推了东西被无声覆盖。
@@ -89,6 +104,7 @@ else
           "--force-with-lease=refs/heads/${GITCODE_BRANCH}:${CUR}" \
           "${REPO_URL}" "${SHA}:refs/heads/${GITCODE_BRANCH}" 2>&1); then
         printf '%s\n' "${out}" | mask
+        if is_image_repo "${out}"; then skip_image_repo; fi
         explain_failure "${out}"
         exit 1
       fi
@@ -118,6 +134,7 @@ fi
 echo "== 推送 tag ${TAG}"
 if ! out=$(GIT_TERMINAL_PROMPT=0 git push --force "${REPO_URL}" "${SRC}:refs/tags/${TAG}" 2>&1); then
   printf '%s\n' "${out}" | mask
+  if is_image_repo "${out}"; then skip_image_repo; fi
   explain_failure "${out}"
   exit 1
 fi
