@@ -48,7 +48,7 @@ type Service struct {
 	Settings *store.Settings
 	// APIBase 默认 https://api.github.com。对拍时可指向本地假站。
 	APIBase string
-	// MirrorBase 是镜像产物仓库的 raw 前缀，默认 Gitee 的 ZviewerRelease/main；
+	// MirrorBase 是镜像产物仓库的文件直链前缀，默认 GitCode 的 ZviewerRelease；
 	// 测试用它指向 httptest 假站。
 	MirrorBase string
 	// Source 显式指定更新源（gitcode=镜像仓库 / github）；空串时按「偏好文件 > 环境变量」

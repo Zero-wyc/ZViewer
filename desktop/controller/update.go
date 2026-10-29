@@ -38,15 +38,30 @@ const (
 	updateSourceGitCode = "gitcode"
 )
 
-// updateMirrorBase 是镜像产物仓库的 raw 前缀。
+// updateMirrorBase 是镜像产物仓库在 GitCode 上的文件直连接口前缀。
 // 用 var 而不是 const：测试要把它指向 httptest 假站。
-var updateMirrorBase = "https://gitee.com/Zero-wyc/ZviewerRelease/raw/main"
+//
+// 为什么是 api.gitcode.com 的这个 /raw/ 端点，而不是看起来更自然的
+// raw.gitcode.com：后者的域名前面挂了 CloudWAF，对非浏览器的 TLS 指纹
+// 一律回 418「访问被拦截」，伪装 UA / Referer 都没用，Go 的 http.Client
+// 直接被挡。这个接口返回 application/octet-stream、支持 Range、不过 WAF，
+// 实测 52MB 安装包 8.8MB/s。
+// Gitee 的 raw 域名同样不行：大文件返回 403「large file require login」。
+var updateMirrorBase = "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw"
+
+// updateMirrorRef 是产物仓库分支。GitCode 的 raw 端点强制要求显式 ?ref=。
+const updateMirrorRef = "main"
+
+// updateMirrorFileURL 拼产物仓库里某个文件的直链（清单和安装包共用同一端点）。
+func updateMirrorFileURL(name string) string {
+	return updateMirrorBase + "/" + url.PathEscape(name) + "?ref=" + updateMirrorRef
+}
 
 var (
 	errNoRelease = errors.New("没有可用的正式版本")
 	// 发布页里同时有命令行的 zviewer-windows-x64.zip，只认带 -GUI 后缀的运行包。
 	updateAssetExp = regexp.MustCompile(`(?i)^zviewer-windows-[^/]*-gui\.zip$`)
-	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitee\.com|gitcode\.com|raw\.gitcode\.com)$`)
+	updateHostExp  = regexp.MustCompile(`(?i)^(github\.com|api\.github\.com|objects\.githubusercontent\.com|release-assets\.githubusercontent\.com|gitee\.com|gitcode\.com|api\.gitcode\.com|raw\.gitcode\.com)$`)
 	updateTagExp   = regexp.MustCompile(`^v?\d+`)
 )
 
@@ -417,6 +432,8 @@ type mirrorManifest struct {
 type mirrorAsset struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
+	// URL 可选：清单里写了就直接用，没写就按镜像前缀拼。
+	URL string `json:"url"`
 }
 
 // fetchLatestReleaseFromMirror 读产物仓库的 latest.json 取最新正式版。
@@ -426,7 +443,7 @@ type mirrorAsset struct {
 // 换成固定清单后自然消失。
 func fetchLatestReleaseFromMirror(current string) (releaseInfo, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
-	endpoint := updateMirrorBase + "/latest.json"
+	endpoint := updateMirrorFileURL("latest.json")
 	request, err := http.NewRequestWithContext(context.Background(), http.MethodGet, endpoint, nil)
 	if err != nil {
 		return releaseInfo{}, err
@@ -467,10 +484,15 @@ func fetchLatestReleaseFromMirror(current string) (releaseInfo, error) {
 		if name == "" {
 			continue
 		}
+		// 清单里显式给了 url 就用它：换下载通道只改 CI，不用重发客户端。
+		downloadURL := strings.TrimSpace(asset.URL)
+		if downloadURL == "" {
+			downloadURL = updateMirrorFileURL(name)
+		}
 		assets = append(assets, releaseAsset{
 			Name: name,
 			Size: asset.Size,
-			URL:  updateMirrorBase + "/" + name,
+			URL:  downloadURL,
 		})
 	}
 	if len(assets) == 0 {

@@ -267,11 +267,21 @@ latest.json          # 版本清单：tag / version / commit / publishedAt / ass
 zviewer-*.zip|tar.gz # 三个平台包
 ```
 
-- 客户端只请求 `https://gitee.com/Zero-wyc/ZviewerRelease/raw/main/latest.json`，下载地址按同一
-  raw 前缀 + 文件名拼出来，境内直连、不需要代理，也不需要各平台 Release 接口。
-- **为什么不用 GitCode 做下载站**：`raw.gitcode.com` 对脚本请求返回 418（CloudWAF），只有
-  contents API 能取内容且返回 base64，52MB 的包会撑到上百 MB 内存。Gitee 的 raw 是普通静态直链。
-  GitCode / Gitee 的仓库镜像照常同步，只是客户端不从那取。
+- 客户端请求 `https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw/latest.json?ref=main`
+  取清单，安装包走同一接口（`.../raw/<文件名>?ref=main`），境内直连、不需要代理。
+- **下载通道为什么是 api.gitcode.com 的 `/raw/` 接口**（实测过每一个候选）：
+
+  | 通道 | 结果 |
+  | --- | --- |
+  | `api.gitcode.com/.../raw/<文件>?ref=main` | ✅ 200/206，52MB 包 **8.8MB/s**，sha256 对得上 |
+  | `raw.gitcode.com/.../blobs/<sha>/<文件>` | ❌ **418**，CloudWAF「疑似攻击行为」，伪装 UA/Referer/HTTP2 都无效 |
+  | `gitcode.com/.../raw/...` | ❌ 200 但返回 SPA 页面的 HTML，不是文件内容 |
+  | `gitee.com/.../raw/main/<文件>` | ❌ 大文件 **403**「large file require login for access」（清单这种小文件才可匿名取） |
+  | `api.gitcode.com/.../contents/<文件>` | ⚠️ 可用但返回 base64，52MB 包会撑到上百 MB 内存，不采用 |
+
+  注意 418 是 WAF 按 TLS 指纹拦的，不是仓库没同步——产物同步之后照样 418。
+- 清单里每个 asset 都带 `url`，客户端**优先用清单的 url**，缺失才按镜像前缀自己拼。
+  这样换通道只改 CI（`scripts/publish-release-repo.sh`），不用等客户端发版。
 - 偏好**不写数据库**：`system_settings` 是整行表，加列会让存量库的 SELECT 直接失败（本项目「绝不自动改表结构」）。
   `config/` 在自动更新时会被备份还原，所以这个文件不会丢。
 - 运维兜底：`ZVIEWER_UPDATE_SOURCE=github|gitcode|gitee|mirror` 优先于偏好文件（仅后端），
@@ -279,7 +289,7 @@ zviewer-*.zip|tar.gz # 三个平台包
 - **不做自动回退**：选了镜像就只走镜像，拉取失败或清单还没有产物时直接把错误显示出来
   （文案里带「去设置里关掉这个开关」的指引）。静默换源会让人以为镜像可用、流量却悄悄走了境外。
 - 字段名 `useGitCode` / `updateGitCode` 是历史命名，保留是为了不让存量安装的偏好失效。
-- 桌面端下载白名单已加入 `gitee.com`；镜像源的地址是 raw 直链，**不套** CDN 前缀。
+- 桌面端下载白名单含 `api.gitcode.com` / `gitee.com` / `gitcode.com`；镜像源的地址是直链，**不套** CDN 前缀。
 
 > 升级断层提醒：老版本（v5.1.x 及以前）的检查更新仍读 GitCode 主仓库的 Release 列表，那条链路
 > 已经不再发布。要让老用户升到包含新逻辑的版本，需要在新版本发版时顺带往 GitCode 主仓库补一份

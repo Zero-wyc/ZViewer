@@ -123,7 +123,8 @@ func TestFetchMirrorManifest(t *testing.T) {
 	if len(release.Assets) != 2 {
 		t.Fatalf("产物数量异常: %+v", release.Assets)
 	}
-	if got := release.Assets[0].BrowserDownloadURL; got != server.URL+"/zviewer-windows-x64.zip" {
+	// GitCode 的 raw 端点强制要求 ?ref=，拼地址时必须带上，否则会 404。
+	if got := release.Assets[0].BrowserDownloadURL; got != server.URL+"/zviewer-windows-x64.zip?ref="+mirrorRef {
 		t.Fatalf("下载地址应由 raw 前缀拼出: %q", got)
 	}
 	if release.Assets[0].Size != 2048 {
@@ -167,11 +168,42 @@ func TestGetUpdateInfoFromMirror(t *testing.T) {
 	if info.RemoteVersion != "v5.1.0" || !info.HasUpdate || info.AssetSize != 2048 {
 		t.Fatalf("结果异常: %+v", info)
 	}
-	if info.DownloadURL != server.URL+"/zviewer-windows-x64.zip" {
+	if info.DownloadURL != server.URL+"/zviewer-windows-x64.zip?ref="+mirrorRef {
 		t.Fatalf("下载地址异常: %q", info.DownloadURL)
 	}
 	if info.ReleaseURL != "https://github.com/Zero-wyc/ZViewer/releases/tag/v5.1.0" {
 		t.Fatalf("发布页地址异常: %q", info.ReleaseURL)
+	}
+}
+
+// TestMirrorAssetURLOverride 确认清单里显式给了 url 时优先用它。
+//
+// 这个口子是给「换下载通道只改 CI」留的：以后如果 GitCode 那边不行了，
+// 脚本改一下 latest.json 里的 url 就能切走，不用等客户端发版。
+func TestMirrorAssetURLOverride(t *testing.T) {
+	root := t.TempDir()
+	writePackageJSON(t, root, "5.0.0")
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "tag": "v5.1.0",
+		  "assets": [
+		    {"name": "zviewer-windows-x64.zip", "size": 2048,
+		     "url": "https://cdn.example.com/pkgs/zviewer-windows-x64.zip"}
+		  ]
+		}`))
+	}))
+	defer server.Close()
+
+	svc := New(root, nil)
+	svc.MirrorBase = server.URL
+	releases, err := svc.fetchMirrorReleases(context.Background())
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if got := releases[0].Assets[0].BrowserDownloadURL; got != "https://cdn.example.com/pkgs/zviewer-windows-x64.zip" {
+		t.Fatalf("应优先用清单里的 url，实际 %q", got)
 	}
 }
 

@@ -183,7 +183,8 @@ func TestFetchLatestReleaseFromMirror(t *testing.T) {
 	if len(info.Assets) != 2 {
 		t.Fatalf("产物数量异常: %+v", info.Assets)
 	}
-	if info.Assets[1].URL != server.URL+"/zviewer-windows-x64-GUI.zip" {
+	// GitCode 的 raw 端点强制要求 ?ref=，拼地址时必须带上，否则会 404。
+	if info.Assets[1].URL != server.URL+"/zviewer-windows-x64-GUI.zip?ref="+updateMirrorRef {
 		t.Fatalf("下载地址应由 raw 前缀拼出: %q", info.Assets[1].URL)
 	}
 	asset, ok := pickUpdateAsset(info.Assets)
@@ -214,6 +215,39 @@ func TestMirrorAssetDownloadCandidates(t *testing.T) {
 	}
 	if !allowedUpdateHost("gitee.com", nil) {
 		t.Fatal("Gitee 域名应在下载白名单内")
+	}
+	if !allowedUpdateHost("api.gitcode.com", nil) {
+		t.Fatal("GitCode 文件接口域名应在下载白名单内")
+	}
+}
+
+// TestMirrorAssetURLOverride 确认清单里显式给了 url 时优先用它。
+//
+// 这个口子是给「换下载通道只改 CI」留的：以后 GitCode 那边不行了，
+// 改脚本里 latest.json 的 url 就能切走，不用等客户端发版。
+func TestMirrorAssetURLOverride(t *testing.T) {
+	old := updateMirrorBase
+	defer func() { updateMirrorBase = old }()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+		  "tag": "v5.1.0",
+		  "assets": [
+		    {"name": "zviewer-windows-x64-GUI.zip", "size": 2048,
+		     "url": "https://cdn.example.com/pkgs/zviewer-windows-x64-GUI.zip"}
+		  ]
+		}`))
+	}))
+	defer server.Close()
+	updateMirrorBase = server.URL
+
+	info, err := fetchLatestReleaseFromMirror("5.0.0")
+	if err != nil {
+		t.Fatalf("不应报错: %v", err)
+	}
+	if info.Assets[0].URL != "https://cdn.example.com/pkgs/zviewer-windows-x64-GUI.zip" {
+		t.Fatalf("应优先用清单里的 url，实际 %q", info.Assets[0].URL)
 	}
 }
 

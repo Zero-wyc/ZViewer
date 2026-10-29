@@ -57,13 +57,23 @@ done
 
 # 版本清单：网页端与 GUI 的自动更新直接读它，不再解析各平台 Release 接口
 # （GitCode 的 created_at 升序、字段缺失那些坑随之一并消失）。
-# 只存文件名/大小/sha256，下载地址由客户端按镜像 raw 前缀自己拼。
+#
+# 每个产物都带一个 url：客户端优先用它，缺失才按自己的镜像前缀拼。这样以后
+# 换下载通道（或者某个站不可用了）只改这里，不用等客户端发版。
+#
+# 直链走 api.gitcode.com 的仓库文件接口，而不是 raw.gitcode.com：
+# 后者前面挂了 CloudWAF，对非浏览器的 TLS 指纹一律回 418「访问被拦截」，
+# 伪装 UA / Referer 都没用；这个接口返回 application/octet-stream、支持 Range，
+# 实测 52MB 安装包 8.8MB/s。Gitee 的 raw 域名则对大文件返回 403
+# 「large file require login for access」。
+MIRROR_URL_BASE="https://api.gitcode.com/api/v5/repos/${TARGET_REPO}/raw"
 assets_json='[]'
 for f in ${FILES}; do
   size=$(stat -c%s "${OUT}/${f}")
   sha=$(sha256sum "${OUT}/${f}" | cut -d' ' -f1)
-  assets_json=$(jq -c --arg n "${f}" --argjson s "${size}" --arg h "${sha}" \
-    '. + [{name:$n, size:$s, sha256:$h}]' <<<"${assets_json}")
+  url="${MIRROR_URL_BASE}/${f}?ref=${TARGET_BRANCH}"
+  assets_json=$(jq -c --arg n "${f}" --argjson s "${size}" --arg h "${sha}" --arg u "${url}" \
+    '. + [{name:$n, size:$s, sha256:$h, url:$u}]' <<<"${assets_json}")
 done
 jq -n \
   --arg tag "${TAG}" \
@@ -90,13 +100,17 @@ cat "${OUT}/latest.json"
   echo ""
   echo "## 下载地址"
   echo ""
-  echo "本仓库里放的是同一份文件，但 **Gitee 的 raw 直链对大文件要求登录**"
-  echo "（\`403 large file require login for access\`），命令行/更新器下载请走下面两处："
+  echo "更新器用的直链（GitCode 仓库文件接口，支持 Range、不走 CloudWAF）："
   echo ""
-  echo "- GitHub Release：\`https://github.com/Zero-wyc/ZViewer/releases/download/${TAG}/<文件名>\`"
-  echo "- GitCode Release：\`https://gitcode.com/Zero-wyc/ZViewer/releases/download/${TAG}/<文件名>\`"
+  echo "\`\`\`"
+  echo "${MIRROR_URL_BASE}/<文件名>?ref=${TARGET_BRANCH}"
+  echo "\`\`\`"
   echo ""
-  echo "客户端自动更新读的是 \`latest.json\`（体积很小，Gitee raw 可以正常匿名取）。"
+  echo "浏览器里手动下载更方便的是 GitHub Release："
+  echo "\`https://github.com/Zero-wyc/ZViewer/releases/download/${TAG}/<文件名>\`"
+  echo ""
+  echo "注意：**Gitee 的 raw 直链不能用来下安装包**，它对大文件返回"
+  echo "\`403 large file require login for access\`（小体积的 \`latest.json\` 才可以匿名取）。"
   echo ""
   echo "构建提交：https://github.com/Zero-wyc/ZViewer/commit/${SHA}"
   echo "发布时间：$(date -u '+%Y-%m-%d %H:%M:%S UTC')"

@@ -625,7 +625,7 @@ export function SettingsTab({
                         使用镜像更新源
                       </Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
-                        开启后从 Gitee 上的产物仓库（ZviewerRelease）读取版本清单并下载安装包，
+                        开启后从 GitCode 上的产物仓库（ZviewerRelease）读取版本清单并下载安装包，
                         国内网络无需代理；关闭则改走 GitHub Release。不会自动换源：镜像不可用时直接报错。
                       </Text>
                     </div>
@@ -774,7 +774,7 @@ export function SettingsTab({
                       <Text type="secondary" className="text-xs">
                         更新来源：
                         {updateInfo.source === 'gitcode'
-                          ? '镜像仓库（gitee.com/ZviewerRelease）'
+                          ? '镜像仓库（GitCode / ZviewerRelease）'
                           : 'GitHub'}
                       </Text>
                     )}

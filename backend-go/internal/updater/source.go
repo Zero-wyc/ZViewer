@@ -4,15 +4,15 @@ package updater
 //
 // 镜像侧不再读 GitCode / Gitee 的 Release 接口，而是读一个专门存放正式版产物的
 // 独立仓库 Zero-wyc/ZviewerRelease：CI 每次正式发版把三个平台的包 + latest.json
-// 清单整体替换到该仓库 main 分支根目录，再同步到 Gitee。好处是：
+// 清单整体替换到该仓库 main 分支根目录，再镜像到 GitCode 与 Gitee。好处是：
 //
 //   - 版本信息、文件名、大小、sha256 都在清单里，一次请求搞定，不依赖各平台
 //     Release 接口的字段差异（GitCode 的 created_at 升序、无 html_url 等坑全没了）；
-//   - 文件是普通 raw 直链，Gitee 境内直连即可，不需要代理也不需要附件 API。
+//   - 文件是普通直链，境内直连即可，不需要代理也不需要附件 API。
 //
-// 为什么下载站选 Gitee 而不是 GitCode：raw.gitcode.com 对脚本请求直接返回 418
-// （CloudWAF 拦截），只有 contents API 能取内容且返回 base64，52MB 的包会撑到
-// 上百 MB 内存。Gitee 的 raw 是普通静态直链，实测境内直连可用。
+// 下载走 GitCode 的仓库文件接口 api.gitcode.com/.../raw/<文件>?ref=main。
+// 不用 raw.gitcode.com（CloudWAF 对非浏览器指纹回 418），也不用 Gitee raw
+// （大文件 403「large file require login」），细节见 mirrorRawBase 的注释。
 //
 // 为什么偏好落在文件而不是数据库：`system_settings` 是 TypeORM 生成的整行表，
 // Go 侧「绝不自动改表结构」——加一列会让存量库的 SELECT 直接失败（启动即炸），
@@ -24,6 +24,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -40,10 +41,21 @@ const (
 	SourceGitCode = "gitcode"
 
 	// mirrorOwnerRepo 是存放正式版产物的独立仓库（与主仓库分开，避免主仓库
-	// 每次发版都被 120MB 的二进制撑大）。
+	// 每次发版都被 120MB 的二进制撑大）。它同时镜像到 GitCode 与 Gitee。
 	mirrorOwnerRepo = "Zero-wyc/ZviewerRelease"
-	// mirrorRawBase 是 Gitee 镜像的 raw 前缀：境内直连、无需代理。
-	mirrorRawBase = "https://gitee.com/Zero-wyc/ZviewerRelease/raw/main"
+	// mirrorRawBase 是 GitCode 的仓库文件直连接口前缀。
+	//
+	// 为什么不用看起来更自然的 raw.gitcode.com：那个域名前面挂了 CloudWAF，
+	// 对非浏览器的 TLS 指纹一律回 418「您的请求疑似攻击行为」，伪装 UA/Referer
+	// 都没用，Go 的 http.Client 直接被挡在外面。而 api.gitcode.com 的 /raw/
+	// 端点返回 application/octet-stream、支持 Range、不经过 WAF，
+	// 实测 52MB 安装包 8.8MB/s，与浏览器访问 raw 域名拿到的内容完全一致。
+	//
+	// 也不能用 Gitee 的 raw 域名：它对大文件返回
+	// 「large file require login for access」（403），小清单能取、安装包取不到。
+	mirrorRawBase = "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw"
+	// mirrorRef 是产物仓库的分支。GitCode 的 raw 端点强制要求显式 ?ref=。
+	mirrorRef = "main"
 	// mirrorManifestName 是 CI 生成的版本清单文件名。
 	mirrorManifestName = "latest.json"
 
@@ -72,11 +84,23 @@ type mirrorManifest struct {
 	Assets      []mirrorAsset `json:"assets"`
 }
 
-// mirrorAsset 是清单里的一个产物：只有名字、大小和摘要，下载地址由 raw 前缀拼。
+// mirrorAsset 是清单里的一个产物：名字、大小、摘要，外加可选直链。
+//
+// URL 是给「换下载通道只改 CI、不用重发客户端」留的口子：CI 写了就直接用，
+// 没写就按镜像前缀 + 文件名拼，两种都能工作。
 type mirrorAsset struct {
 	Name   string `json:"name"`
 	Size   int64  `json:"size"`
 	SHA256 string `json:"sha256"`
+	URL    string `json:"url"`
+}
+
+// mirrorFileURL 拼产物仓库里某个文件的直链。
+//
+// 清单和安装包走同一个端点，只是文件名不同；文件名带 ?ref= 是接口硬要求，
+// 少了会被当成仓库路径的一部分返回 404。
+func mirrorFileURL(base, name string) string {
+	return base + "/" + url.PathEscape(name) + "?ref=" + mirrorRef
 }
 
 // SourcePreferencePath 返回偏好文件路径。
@@ -166,7 +190,7 @@ func (s *Service) fetchGitHubReleases(ctx context.Context) ([]githubRelease, err
 func (s *Service) fetchMirrorReleases(ctx context.Context) ([]githubRelease, error) {
 	base := s.mirrorBase()
 	var manifest mirrorManifest
-	if err := s.httpGetJSON(ctx, base+"/"+mirrorManifestName, &manifest); err != nil {
+	if err := s.httpGetJSON(ctx, mirrorFileURL(base, mirrorManifestName), &manifest); err != nil {
 		return nil, err
 	}
 
@@ -185,10 +209,14 @@ func (s *Service) fetchMirrorReleases(ctx context.Context) ([]githubRelease, err
 		if name == "" {
 			continue
 		}
+		downloadURL := strings.TrimSpace(asset.URL)
+		if downloadURL == "" {
+			downloadURL = mirrorFileURL(base, name)
+		}
 		assets = append(assets, githubAsset{
 			Name:               name,
 			Size:               asset.Size,
-			BrowserDownloadURL: base + "/" + name,
+			BrowserDownloadURL: downloadURL,
 		})
 	}
 	if len(assets) == 0 {
