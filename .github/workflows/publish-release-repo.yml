@@ -1,0 +1,83 @@
+name: Publish Release Repo
+
+# 手动补发入口：把某一次构建的产物重新发布到产物仓库 Zero-wyc/ZviewerRelease。
+#
+# 用武之地：
+# - build.yml 里 publish-branch 那一步失败（比如产物没捡到），但 GitHub Release
+#   已经发好了——不用重新构建、不用占新版本号，直接指过去补一次。
+# - 产物仓库被误改/清空，需要按历史版本还原。
+#
+# 需要 Secret：RELEASE_REPO_TOKEN（对 Zero-wyc/ZviewerRelease 有 contents:write）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: '来源 Run ID（Actions 运行详情页 URL 里的数字，例如 40894323927）'
+        required: true
+        type: string
+      tag:
+        description: '版本 tag（例如 v5.1.1）'
+        required: true
+        type: string
+      version:
+        description: '语义版本（可留空，默认取 tag 去掉 v 前缀）'
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ inputs.tag }}
+      VERSION: ${{ inputs.version }}
+      RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+    steps:
+      # 先 checkout（会 clean 工作区），再下载产物，顺序不能反
+      - name: Checkout (仅脚本)
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Download artifacts from run
+        uses: actions/download-artifact@v7
+        with:
+          pattern: 'zviewer-*'
+          merge-multiple: true
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve build commit
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          SHA="$(jq -r '.head_sha // empty' <<<"$(curl -sfL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/runs/${{ inputs.run_id }}")")"
+          if [ -z "${SHA}" ]; then
+            echo "::error::拿不到 run ${{ inputs.run_id }} 的 head_sha"
+            exit 1
+          fi
+          echo "sha=${SHA}" >> "${GITHUB_OUTPUT}"
+          echo "来源构建 commit：${SHA}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Publish to ZviewerRelease repo
+        shell: bash
+        env:
+          SHA: ${{ steps.meta.outputs.sha }}
+        run: |
+          set -euo pipefail
+          if [ -z "${RELEASE_REPO_TOKEN}" ]; then
+            echo "::error::未配置 Secret RELEASE_REPO_TOKEN"
+            exit 1
+          fi
+          bash scripts/publish-release-repo.sh

@@ -605,6 +605,14 @@ jobs:
       SHA: ${{ needs.prepare.outputs.sha }}
       RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
     steps:
+      # 先 checkout（默认会 clean 工作区），再下载产物；顺序反了产物会被清掉。
+      # 只要发布脚本，避免为了 4 个附件再拉一遍仓库。
+      - name: Checkout (仅脚本)
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
       - name: Download all artifacts
         uses: actions/download-artifact@v7
         with:
@@ -619,61 +627,4 @@ jobs:
             echo "::warning::未配置 Secret RELEASE_REPO_TOKEN（需要对 Zero-wyc/ZviewerRelease 有 push 权限的 PAT），跳过产物仓库发布"
             exit 0
           fi
-          FILES="zviewer-linux-x64.tar.gz zviewer-windows-x64.zip zviewer-windows-x64-GUI.zip"
-          for f in ${FILES}; do
-            test -f "${f}" || { echo "::error::缺少产物 ${f}"; exit 1; }
-          done
-
-          # 孤儿提交重建：产物仓库历史上永远只有「当前版本」这一个提交，
-          # 上一次的文件自然就没了，也不用处理"哪些该删哪些该留"。
-          rm -rf out && git init -q -b main out && cd out
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          cp ../${FILES} .
-
-          # 版本清单：网页端与 GUI 的自动更新直接读它，不再解析各平台 Release 接口
-          # （GitCode 的 created_at 升序、字段缺失那些坑随之一并消失）。
-          # 只存文件名/大小/sha256，下载地址由客户端按镜像 raw 前缀自己拼。
-          assets_json='[]'
-          for f in ${FILES}; do
-            size=$(stat -c%s "${f}")
-            sha=$(sha256sum "${f}" | cut -d' ' -f1)
-            assets_json=$(jq -c --arg n "${f}" --argjson s "${size}" --arg h "${sha}" \
-              '. + [{name:$n, size:$s, sha256:$h}]' <<<"${assets_json}")
-          done
-          jq -n \
-            --arg tag "${TAG}" \
-            --arg version "${VERSION}" \
-            --arg commit "${SHA}" \
-            --arg publishedAt "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
-            --arg releaseUrl "https://github.com/Zero-wyc/ZViewer/releases/tag/${TAG}" \
-            --argjson assets "${assets_json}" \
-            '{tag:$tag, version:$version, commit:$commit, publishedAt:$publishedAt, releaseUrl:$releaseUrl, assets:$assets}' \
-            > latest.json
-          echo "=== latest.json ==="
-          cat latest.json
-
-          {
-            echo "# ZViewer 预编译包（${TAG}）"
-            echo ""
-            echo "由 GitHub Actions 自动发布，内容与 [GitHub Release ${TAG}](https://github.com/Zero-wyc/ZViewer/releases/tag/${TAG}) 完全一致；每次发版会整体替换本仓库。"
-            echo ""
-            echo "## 下载"
-            echo ""
-            echo "- **Windows**: \`zviewer-windows-x64.zip\` — 解压后运行 \`start.bat\`"
-            echo "- **Windows GUI**: \`zviewer-windows-x64-GUI.zip\` — 解压后运行 \`ZViewerDesktop.exe\`"
-            echo "- **Linux**: \`zviewer-linux-x64.tar.gz\` — 解压后运行 \`./start.sh\`"
-            echo ""
-            echo "大陆直连（镜像仓库）："
-            echo ""
-            echo "- Gitee: \`https://gitee.com/Zero-wyc/ZviewerRelease/raw/main/<文件名>\`"
-            echo "- GitHub: \`https://github.com/Zero-wyc/ZviewerRelease/raw/main/<文件名>\`"
-            echo ""
-            echo "构建提交: https://github.com/Zero-wyc/ZViewer/commit/${SHA}"
-            echo "发布时间: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
-          } > README.md
-
-          git add -A
-          git commit -qm "release: ${TAG} (${SHA:0:7})"
-          git push --force "https://x-access-token:${RELEASE_REPO_TOKEN}@github.com/Zero-wyc/ZviewerRelease.git" HEAD:refs/heads/main
-          echo "ZviewerRelease 已更新 → ${TAG}"
+          bash scripts/publish-release-repo.sh
