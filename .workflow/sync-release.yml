@@ -53,4 +53,4 @@ stages:
           # 环境变量直接写在命令前面，不依赖 export 在命令之间透传
           # 仓库「管理 → 环境变量」里配 RELEASE_TOKEN（Gitee 私人令牌，勾 projects）
           # 境内直连 GitHub 常「连上不来数据」，下行统一走加速
-          - GITEE_TOKEN="$RELEASE_TOKEN" GH_PROXY="https://ghfast.top/" node scripts/sync-release-to-gitee.mjs
+          - GITEE_TOKEN="$RELEASE_TOKEN" GH_PROXY="https://gh-proxy.com/ https://ghfast.top/" node scripts/sync-release-to-gitee.mjs

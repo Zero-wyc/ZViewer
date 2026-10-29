@@ -17,7 +17,7 @@
  *   TAG              只同步指定 tag
  *   FORCE            1 = 已同步过也重传
  *   MAX_SYNC         单轮最多补几个版本，默认 1
- *   GH_PROXY         GitHub 下载加速前缀（配上就优先走它），如 https://ghfast.top/
+ *   GH_PROXY         GitHub 下载加速前缀，支持空格分隔多个，逐个回退，如 https://gh-proxy.com/ https://ghfast.top/
  *   GITEE_TARGET_BRANCH  覆盖创建发行版时用的 target_commitish（默认自动取 tag 的 commit SHA）
  *   DRY_RUN          1 = 只打印计划
  *
@@ -46,7 +46,10 @@ const ONLY_TAG = (env.TAG || '').trim();
 const FORCE = truthy(env.FORCE);
 const DRY_RUN = truthy(env.DRY_RUN);
 const MAX_SYNC = Math.max(1, Number(env.MAX_SYNC || 1) || 1);
-const GH_PROXY = (env.GH_PROXY || '').replace(/\/+$/, '');
+const GH_PROXIES = (env.GH_PROXY || '')
+  .split(/[\s,]+/)
+  .map((s) => s.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 /** 已经在本地就绪的附件（CI 里产物就在工作目录，没必要再从 GitHub 下一遍） */
 const LOCAL_ASSETS = (env.LOCAL_ASSETS || '')
   .split(/[\s,]+/)
@@ -215,7 +218,7 @@ async function downloadAsset(asset, dir) {
   const dest = path.join(dir, asset.name);
   // 配了加速前缀就用它打头：境内直连 GitHub 经常「连上但不来数据」，
   // 没有空闲超时的话会一直挂着，看起来像卡死。
-  const proxies = GH_PROXY ? [`${GH_PROXY}${asset.browser_download_url}`] : [];
+  const proxies = GH_PROXIES.map((p) => `${p}${asset.browser_download_url}`);
   const urls = [...proxies, asset.browser_download_url];
 
   let lastErr;
@@ -243,7 +246,7 @@ async function downloadAsset(asset, dir) {
         return dest;
       } catch (err) {
         lastErr = err;
-        const route = GH_PROXY && url.startsWith(GH_PROXY) ? '加速' : '直连';
+        const route = GH_PROXIES.some((p) => url.startsWith(p)) ? '加速' : '直连';
         warn(`  下载 ${asset.name} 失败（${attempt}/2，${route}）：${err.message}`);
         await fsp.rm(dest, { force: true }).catch(() => {});
         await sleep(2000 * attempt);
