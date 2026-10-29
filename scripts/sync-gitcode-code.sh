@@ -8,11 +8,12 @@
 #
 # 用法：
 #   GITCODE_TOKEN=xxx TAG=v5.1.1 SHA=<commit> bash scripts/sync-gitcode-code.sh
+#   GITCODE_TOKEN=xxx SHA=<commit> bash scripts/sync-gitcode-code.sh      # 只同步分支，不带 tag
 #
 # 环境变量：
 #   GITCODE_TOKEN   必需，GitCode 私人令牌（需对目标仓库有写权限）
-#   TAG             必需，如 v5.1.1
 #   SHA             必需，要放到 main 上的提交（取自构建时解析出的 sha）
+#   TAG             可选，如 v5.1.1；留空则只同步分支
 #   GITCODE_OWNER   可选，默认 Zero-wyc
 #   GITCODE_REPO    可选，默认 ZViewer
 #   GITCODE_BRANCH  可选，默认 main
@@ -23,7 +24,7 @@
 set -euo pipefail
 
 GITCODE_TOKEN="${GITCODE_TOKEN:?缺少 GITCODE_TOKEN}"
-TAG="${TAG:?缺少 TAG}"
+TAG="${TAG:-}"
 SHA="${SHA:?缺少 SHA}"
 GITCODE_OWNER="${GITCODE_OWNER:-Zero-wyc}"
 GITCODE_REPO="${GITCODE_REPO:-ZViewer}"
@@ -34,7 +35,7 @@ REPO_URL="${GITCODE_URL:-https://${GITCODE_OWNER}:${GITCODE_TOKEN}@gitcode.com/$
 # 任何输出都过一遍脱敏：git 的报错里会带完整 URL（含 token）。
 mask() { sed -E 's#https://[^@[:space:]]*@#https://***@#g'; }
 
-echo "== 目标：gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}（${GITCODE_BRANCH} + tag ${TAG}）"
+echo "== 目标：gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO}（${GITCODE_BRANCH}${TAG:+ + tag ${TAG}}）"
 echo "== 提交：${SHA}"
 
 # 先探一次连通性：仓库不存在 / token 无效时，这里的报错比后面 push 的报错清楚得多
@@ -116,39 +117,47 @@ else
   printf '%s\n' "${out}" | mask
 fi
 
-# ---- 2. tag ----
+# ---- 2. tag（TAG 留空时跳过，用于「只同步分支」的手动补跑）----
 # 本地有指向本次提交的 tag 对象就推它（保留 annotated 语义）；否则把提交直接推到
 # refs/tags/ 下，效果是轻量 tag，指向的提交一定是对的。宁可丢注释，也不能让镜像上的
 # tag 指到别的提交——客户端的版本判断全看 tag。
-TAG_REF_SHA="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}" 2>/dev/null || true)"
-if [ "${TAG_REF_SHA}" = "${SHA}" ]; then
-  SRC="refs/tags/${TAG}"
-else
-  SRC="${SHA}"
-  if [ -n "${TAG_REF_SHA}" ]; then
-    echo "::warning::本地 ${TAG} 指向 ${TAG_REF_SHA:0:7}，与本次构建 ${SHA:0:7} 不一致，按提交建轻量 tag"
+if [ -n "${TAG}" ]; then
+  TAG_REF_SHA="$(git rev-parse -q --verify "refs/tags/${TAG}^{commit}" 2>/dev/null || true)"
+  if [ "${TAG_REF_SHA}" = "${SHA}" ]; then
+    SRC="refs/tags/${TAG}"
   else
-    echo "::warning::本地没有 ${TAG} 的 tag 对象，按提交 ${SHA:0:7} 建轻量 tag"
+    SRC="${SHA}"
+    if [ -n "${TAG_REF_SHA}" ]; then
+      echo "::warning::本地 ${TAG} 指向 ${TAG_REF_SHA:0:7}，与本次构建 ${SHA:0:7} 不一致，按提交建轻量 tag"
+    else
+      echo "::warning::本地没有 ${TAG} 的 tag 对象，按提交 ${SHA:0:7} 建轻量 tag"
+    fi
   fi
-fi
-echo "== 推送 tag ${TAG}"
-if ! out=$(GIT_TERMINAL_PROMPT=0 git push --force "${REPO_URL}" "${SRC}:refs/tags/${TAG}" 2>&1); then
+  echo "== 推送 tag ${TAG}"
+  if ! out=$(GIT_TERMINAL_PROMPT=0 git push --force "${REPO_URL}" "${SRC}:refs/tags/${TAG}" 2>&1); then
+    printf '%s\n' "${out}" | mask
+    if is_image_repo "${out}"; then skip_image_repo; fi
+    explain_failure "${out}"
+    exit 1
+  fi
   printf '%s\n' "${out}" | mask
-  if is_image_repo "${out}"; then skip_image_repo; fi
-  explain_failure "${out}"
-  exit 1
+else
+  echo "== 未指定 TAG，只同步分支"
 fi
-printf '%s\n' "${out}" | mask
 
 # ---- 3. 回读校验 ----
 GOT_BRANCH="$(remote_sha "refs/heads/${GITCODE_BRANCH}" || true)"
-GOT_TAG="$(remote_tag_commit "${TAG}" || true)"
 if [ "${GOT_BRANCH}" != "${SHA}" ]; then
   echo "::error::回读不一致：gitcode ${GITCODE_BRANCH} = ${GOT_BRANCH:-（空）}，期望 ${SHA}"
   exit 1
 fi
-if [ "${GOT_TAG}" != "${SHA}" ]; then
-  echo "::error::回读不一致：gitcode tag ${TAG} = ${GOT_TAG:-（空）}，期望 ${SHA}"
-  exit 1
+if [ -n "${TAG}" ]; then
+  GOT_TAG="$(remote_tag_commit "${TAG}" || true)"
+  if [ "${GOT_TAG}" != "${SHA}" ]; then
+    echo "::error::回读不一致：gitcode tag ${TAG} = ${GOT_TAG:-（空）}，期望 ${SHA}"
+    exit 1
+  fi
+  echo "== 已同步：gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO} ${GITCODE_BRANCH}=${SHA:0:7} tag=${TAG}"
+else
+  echo "== 已同步：gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO} ${GITCODE_BRANCH}=${SHA:0:7}"
 fi
-echo "== 已同步：gitcode.com/${GITCODE_OWNER}/${GITCODE_REPO} ${GITCODE_BRANCH}=${SHA:0:7} tag=${TAG}"

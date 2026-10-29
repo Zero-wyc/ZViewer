@@ -1,0 +1,53 @@
+name: Sync to GitCode
+
+# 手动把 GitHub 的 main / 某个 tag 同步到 GitCode（Zero-wyc/ZViewer）。
+#
+# 用武之地：
+# - 在 GitCode 关掉 Pull 镜像之后，立刻把两边对齐一次，不用等下一次发版；
+# - 某次发版的 sync-gitcode 被跳过（比如当时仓库还是只读镜像仓），补推一次。
+#
+# 需要 Secret：GITCODE_TOKEN（对 Zero-wyc/ZViewer 有写权限）。
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: '要推到 GitCode main 的分支/tag/commit，留空=触发时选的分支'
+        required: false
+        type: string
+      tag:
+        description: '同时推送的 tag（如 v5.1.1）。留空=只同步分支'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      # 推送要完整历史，浅克隆会缺对象
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+          fetch-depth: 0
+
+      - name: Push to GitCode
+        shell: bash
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          GITCODE_OWNER: Zero-wyc
+          GITCODE_REPO: ZViewer
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITCODE_TOKEN}" ]; then
+            echo "::error::未配置 Secret GITCODE_TOKEN"
+            exit 1
+          fi
+          git fetch --tags --force --quiet origin || true
+          SHA="$(git rev-parse HEAD)"
+          export SHA
+          bash scripts/sync-gitcode-code.sh
