@@ -1,11 +1,16 @@
 package livekit
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -140,5 +145,78 @@ func TestInstallDirPrefersExecDir(t *testing.T) {
 	m := New(Config{ExecDir: filepath.Join(dir, "exec"), DevBinDir: filepath.Join(dir, "dev"), Logf: func(string, ...any) {}})
 	if got := m.installDir(); got != filepath.Join(dir, "exec") {
 		t.Errorf("installDir = %q，应优先 ExecDir", got)
+	}
+}
+
+// 下载 → 解压 → 落盘这条链路：用本地假站发一个只含 livekit-server.exe 的 zip，
+// 确认进度上报、文件落点与可执行权限都对（真实源不可达时也要能验证逻辑）。
+func TestDownloadAndExtractComponent(t *testing.T) {
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	w, err := zw.Create(binName())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := w.Write([]byte("fake-livekit")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		rw.Header().Set("Content-Length", strconv.Itoa(buf.Len()))
+		_, _ = rw.Write(buf.Bytes())
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	m := New(Config{ExecDir: dir, AllowDownload: true, Logf: func(string, ...any) {}})
+
+	archive := filepath.Join(t.TempDir(), "lk.zip")
+	if err := m.fetchArchive(context.Background(), srv.URL, archive); err != nil {
+		t.Fatalf("fetchArchive: %v", err)
+	}
+	m.sm.Lock()
+	total := m.total
+	m.sm.Unlock()
+	if total != int64(buf.Len()) {
+		t.Errorf("总字节应为 %d，得到 %d", buf.Len(), total)
+	}
+
+	dest, err := m.extractArchive(archive, "lk.zip")
+	if err != nil {
+		t.Fatalf("extractArchive: %v", err)
+	}
+	if dest != filepath.Join(dir, binName()) {
+		t.Errorf("落点应为 %s，得到 %s", filepath.Join(dir, binName()), dest)
+	}
+	data, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "fake-livekit" {
+		t.Errorf("解出的内容不对: %q", data)
+	}
+	if runtime.GOOS != "windows" {
+		info, err := os.Stat(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if info.Mode().Perm()&0o100 == 0 {
+			t.Errorf("非 Windows 平台应可执行，权限 %v", info.Mode().Perm())
+		}
+	}
+}
+
+// 404 之类的失败必须报错，而不是把错误页当成压缩包写进安装目录。
+func TestFetchArchiveRejectsErrorStatus(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		http.Error(rw, "nope", http.StatusNotFound)
+	}))
+	defer srv.Close()
+	m := New(Config{ExecDir: t.TempDir(), AllowDownload: true, Logf: func(string, ...any) {}})
+	if err := m.fetchArchive(context.Background(), srv.URL, filepath.Join(t.TempDir(), "x.zip")); err == nil {
+		t.Fatal("404 时应当报错")
 	}
 }
