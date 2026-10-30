@@ -1,6 +1,51 @@
 import { getBilibiliVideoView, type BilibiliVideoItem, type BilibiliVideoViewInfo } from '@/modules/bilibili/bilibiliApi'
 import type { MusicQueueItem } from './types'
 import { portableMusicCoverUrl } from './utils/neteaseImage'
+import { pickBiliPartMeta, type BiliPartMeta } from './utils/biliPartName'
+
+/**
+ * 视频详情短缓存（bvid → 进行中的请求）。
+ *
+ * 相关推荐一次要命名 3 条、续播时又可能重复命中同一合集，逐条打
+ * `/api/stream/bilibili/view` 会平白多出数次往返；这里按 bvid 合并并发
+ * 请求并缓存 10 分钟（分P列表几乎不会在会话内变化）。失败立即剔除，
+ * 交给下一次调用重试。
+ */
+const VIEW_CACHE_TTL_MS = 10 * 60 * 1000
+const viewCache = new Map<
+  string,
+  { at: number; promise: Promise<BilibiliVideoViewInfo> }
+>()
+
+export function loadBilibiliView(bvid: string): Promise<BilibiliVideoViewInfo> {
+  const now = Date.now()
+  const hit = viewCache.get(bvid)
+  if (hit && now - hit.at < VIEW_CACHE_TTL_MS) return hit.promise
+  const promise = getBilibiliVideoView(bvid)
+  viewCache.set(bvid, { at: now, promise })
+  void promise.catch(() => {
+    if (viewCache.get(bvid)?.promise === promise) viewCache.delete(bvid)
+  })
+  return promise
+}
+
+/**
+ * 解析一个 B站 条目应有的曲名（多分P → 分P名）。
+ *
+ * 供「相关推荐」这类**只有视频级信息**（bvid/cid/标题）的入队路径使用；
+ * 拿不到详情时静默回退标题，不能让推荐流程因为命名失败而中断。
+ */
+export async function resolveBiliPartMeta(
+  bvid: string,
+  cid: number | null | undefined,
+  fallbackTitle: string
+): Promise<BiliPartMeta> {
+  try {
+    return pickBiliPartMeta(await loadBilibiliView(bvid), cid, fallbackTitle)
+  } catch {
+    return { name: fallbackTitle, album: '', durationSec: 0, multiPart: false }
+  }
+}
 
 /** A BV's total duration is not the duration of any one CID. */
 export function expandBilibiliParts(item: BilibiliVideoItem, view: BilibiliVideoViewInfo): MusicQueueItem[] {
@@ -25,7 +70,7 @@ export function expandBilibiliParts(item: BilibiliVideoItem, view: BilibiliVideo
 }
 
 export async function loadBilibiliParts(item: BilibiliVideoItem): Promise<MusicQueueItem[]> {
-  return expandBilibiliParts(item, await getBilibiliVideoView(item.bvid))
+  return expandBilibiliParts(item, await loadBilibiliView(item.bvid))
 }
 
 /** Append in order; only start after the first acknowledged queue write. */

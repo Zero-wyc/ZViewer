@@ -32,6 +32,7 @@ import {
 } from '../store'
 import { useMusicSettingsStore, normalizeMusicLevel } from '../store-settings'
 import { resolveBilibiliAudioWithFallback, selectBilibiliAudioStream } from '../utils/bilibiliAudioStream'
+import { resolveBiliPartMeta } from '../bilibiliPlaylist'
 import { loudnessNormalizer } from '../audio/loudnessNormalizer'
 import {
   MUSIC_SOCKET_EVENT,
@@ -110,15 +111,30 @@ function biliRecKey(r: BiliRelatedItem): string {
   return `bili:${r.bvid}:${r.cid ?? 0}`
 }
 
-/** 相关推荐条目 → queue-upsert 载荷（B站 条目 songId=0，标 recommended） */
-function biliRecToUpsertItem(r: BiliRelatedItem) {
+/**
+ * 相关推荐条目 → queue-upsert 载荷（B站 条目 songId=0，标 recommended）。
+ *
+ * 相关推荐只给「视频级」信息（标题=合集名），而一次推荐经常落在多分P合集上：
+ * 直接用 r.title 会让播放列表出现 N 行同名，且时长是整个视频的总长。这里补
+ * 一次视频详情（bvid 维度有 10 分钟缓存，3 条推荐最多 3 次请求）把曲名换成
+ * 分P名、时长换成分P时长；拿不到详情时静默回退标题。
+ */
+async function biliRecToUpsertItem(r: BiliRelatedItem) {
+  const meta = await resolveBiliPartMeta(r.bvid, r.cid ?? 0, r.title)
+  // 多分P时视频总时长不能当分P时长用，缺失就置 0（未知），交给播放器按需外推
+  const durationSec =
+    meta.durationSec > 0
+      ? meta.durationSec
+      : meta.multiPart
+        ? 0
+        : r.duration || 0
   return {
     songId: 0,
-    name: r.title,
+    name: meta.name,
     artist: r.upName || '哔哩哔哩',
-    album: '',
+    album: meta.album,
     cover: portableMusicCoverUrl(r.pic),
-    durationMs: Math.round((r.duration || 0) * 1000),
+    durationMs: Math.round(durationSec * 1000),
     vip: false,
     biliBvid: r.bvid,
     biliCid: r.cid ?? 0,
@@ -894,15 +910,19 @@ export function useListenTogether({
       switchSong('next')
       return
     }
-    // 倒序逐条 afterCurrent 入队 → 最终顺序与推荐一致、紧跟当前曲目
+    // 倒序逐条 afterCurrent 入队 → 最终顺序与推荐一致、紧跟当前曲目。
+    // 首条载荷先算好并复用给下面的「直接续播」，避免同一 BV 解析两次分P名
+    const firstPayload = await biliRecToUpsertItem(fresh[0])
     let added = 0
     for (const r of [...fresh].reverse()) {
+      const payload =
+        r === fresh[0] ? firstPayload : await biliRecToUpsertItem(r)
       const ok = await new Promise<boolean>((resolve) => {
         currentSocket.emit(
           'music:queue-upsert',
           {
             roomId: currentRoomId,
-            item: biliRecToUpsertItem(r),
+            item: payload,
             afterCurrent: true,
           },
           (res: { success?: boolean }) => resolve(res?.success !== false)
@@ -922,16 +942,16 @@ export function useListenTogether({
       id: -1,
       roomId: '',
       songId: 0,
-      name: first.title,
-      artist: first.upName || '哔哩哔哩',
-      album: '',
-      cover: portableMusicCoverUrl(first.pic),
-      durationMs: Math.round((first.duration || 0) * 1000),
+      name: firstPayload.name,
+      artist: firstPayload.artist,
+      album: firstPayload.album,
+      cover: firstPayload.cover,
+      durationMs: firstPayload.durationMs,
       vip: false,
       order: 0,
       addedBy: '',
-      biliBvid: first.bvid,
-      biliCid: first.cid ?? 0,
+      biliBvid: firstPayload.biliBvid,
+      biliCid: firstPayload.biliCid,
     }
     loadAndPlaySong(item, 0, true)
     if (isHostRef.current) {
@@ -941,7 +961,7 @@ export function useListenTogether({
         positionSec: 0,
       })
     }
-    message.info(`已自动播放相关推荐：${first.title}`)
+    message.info(`已自动播放相关推荐：${firstPayload.name}`)
   }, [switchSong, loadAndPlaySong, broadcastSyncState])
 
   /**
@@ -1449,12 +1469,13 @@ export function useListenTogether({
         // 倒序逐条 afterCurrent 入队 → 最终顺序与推荐一致、紧跟当前曲目
         let added = 0
         for (const r of [...fresh].reverse()) {
+          const payload = await biliRecToUpsertItem(r)
           const ok = await new Promise<boolean>((resolve) => {
             currentSocket.emit(
               'music:queue-upsert',
               {
                 roomId: currentRoomId,
-                item: biliRecToUpsertItem(r),
+                item: payload,
                 afterCurrent: true,
               },
               (res: { success?: boolean }) => resolve(res?.success !== false)
@@ -1475,12 +1496,13 @@ export function useListenTogether({
       // 观众：倒序逐条 addQueue 申请（房主代理后顺序=推荐顺序、紧跟当前）；
       // ack 失败（如房主不在线）直接提示，申请结果另经 control-response 回执
       for (const r of [...fresh].reverse()) {
+        const payload = await biliRecToUpsertItem(r)
         currentSocket.emit(
           'music:control-request',
           {
             roomId: currentRoomId,
             action: 'addQueue' as const,
-            item: biliRecToUpsertItem(r),
+            item: payload,
             afterCurrent: true,
           },
           (res: { success?: boolean; message?: string }) => {
