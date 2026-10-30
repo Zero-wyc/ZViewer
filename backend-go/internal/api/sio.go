@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/sio"
 )
@@ -97,6 +98,9 @@ func (s *Server) socketPacketAuth(sc *sio.Socket) error {
 	}
 	claims, err := s.Tokens.VerifyAccess(token)
 	if err != nil {
+		if errors.Is(err, auth.ErrTokenExpired) {
+			sc.Emit("auth-expired", map[string]any{"code": "TOKEN_EXPIRED"})
+		}
 		return err
 	}
 	if s.Auth != nil {
@@ -121,7 +125,8 @@ func (s *Server) armTokenExpiry(sc *sio.Socket) {
 	}
 	time.AfterFunc(delay, func() {
 		if s.Socket != nil && s.Socket.Connected(sc.ID) {
-			sc.Disconnect("io server disconnect")
+			sc.Emit("auth-expired", map[string]any{"code": "TOKEN_EXPIRED"})
+			sc.Disconnect("token expired")
 		}
 	})
 }

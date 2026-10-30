@@ -358,16 +358,7 @@ func (s *Service) handleHostLeave(sc *sio.Socket, ack func(...any)) {
 	if err := s.Playback.UpdateHostSocket(ctx, roomID, nil); err != nil {
 		s.Logger.Printf("[host-leave] 清空房主 socket 失败: %v", err)
 	}
-	if s.Hub != nil {
-		s.Hub.EmitRoom(roomID, "host-disconnected", map[string]any{"roomId": roomID})
-	}
-
-	settings := s.Settings
-	s.StartReconnectTimer(roomID, func() {
-		closeCtx, closeCancel := handlerCtx()
-		defer closeCancel()
-		s.CloseAfterHostGrace(closeCtx, settings, roomID, sc.ID)
-	})
+	s.hostControlDisconnected(ctx, roomID, sc.ID)
 
 	sc.Leave(roomID)
 	ackOK(ack, nil)
@@ -487,6 +478,9 @@ func (s *Service) handleRegisterHost(sc *sio.Socket, args []json.RawMessage, ack
 	}
 
 	sc.Join(payload.RoomID)
+	if room, err := s.Rooms.FindByRoomID(ctx, payload.RoomID); err == nil {
+		s.sendStreamStatus(sc.ID, room)
+	}
 
 	// 同步 DB 影片到运行时状态并广播 movie-list：后端重启后内存是空的，
 	// 不恢复的话 play-movie 会一直报「影片不存在」。
@@ -580,6 +574,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 			s.Logger.Printf("[request-join] 恢复房主失败: %v", err)
 		} else if hostResult != nil {
 			sc.Join(payload.RoomID)
+			s.sendStreamStatus(sc.ID, room)
 			if err := s.BroadcastMovieList(ctx, payload.RoomID); err != nil {
 				s.Logger.Printf("[request-join] 广播影片列表失败: %v", err)
 			}
@@ -604,6 +599,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 
 	// 已经在这个房间里（重复 request-join）：直接成功，不新建会话。
 	if own, err := s.ActiveSession(ctx, sc.ID); err == nil && own != nil && own.RoomID == payload.RoomID {
+		s.sendStreamStatus(sc.ID, room)
 		ackOKMsg(ack, "已加入房间", map[string]any{"mode": room.Mode, "shareMethod": room.ShareMethod})
 		return
 	}
@@ -619,11 +615,15 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 		return
 	}
 
-	// 房主在线判定：需审批的房间必须有人在审批，免审批的允许房主
-	// 短暂离线（hostJoinGrace 内）。
+	// A live OBS publisher can outlast the browser session. New approval
+	// requests still require a connected host; existing grants remain valid.
+	alreadyApproved := uid != nil && *uid > 0 && approvedContains(room.ApprovedViewers, *uid)
 	var sharer *store.Session
-	if room.RequireApproval {
+	if room.RequireApproval || s.tracksStreamPresence(room) {
 		sharer, err = s.Sharer(ctx, payload.RoomID)
+		if sharer != nil && s.Hub != nil && !s.Hub.Connected(sharer.SocketID) {
+			sharer = nil
+		}
 	} else {
 		sharer, err = s.RecentSharer(ctx, payload.RoomID, hostJoinGrace)
 	}
@@ -632,7 +632,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 		ackFail(ack, "加入房间失败")
 		return
 	}
-	if sharer == nil {
+	if sharer == nil && !((!room.RequireApproval || alreadyApproved) && s.IsStreamPublishing(room)) {
 		ackFail(ack, "分享端不在线")
 		return
 	}
@@ -643,7 +643,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	}
 
 	// 需审批：已批准过的用户（持久化白名单）直接进，不必再等房主点一次。
-	if uid != nil && *uid > 0 && approvedContains(room.ApprovedViewers, *uid) {
+	if alreadyApproved {
 		s.finishJoin(ctx, sc, room, uid, true, ack)
 		return
 	}
@@ -676,6 +676,7 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 		return
 	}
 	sc.Join(roomID)
+	s.sendStreamStatus(sc.ID, room)
 
 	approved := map[string]any{
 		"roomId":      roomID,
@@ -849,16 +850,8 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 		if err := s.Playback.UpdateHostSocket(ctx, sess.RoomID, nil); err != nil {
 			s.Logger.Printf("[disconnect] 清空房主 socket 失败 %s: %v", sess.RoomID, err)
 		}
-		if s.Hub != nil {
-			s.Hub.EmitRoom(sess.RoomID, "host-disconnected", map[string]any{"roomId": sess.RoomID})
-		}
-		roomID := sess.RoomID
-		settings := s.Settings
-		s.StartReconnectTimer(roomID, func() {
-			closeCtx, closeCancel := handlerCtx()
-			defer closeCancel()
-			s.CloseAfterHostGrace(closeCtx, settings, roomID, socketID)
-		})
+		s.logf("[disconnect] host control connection closed room=%s reason=%q", sess.RoomID, reason)
+		s.hostControlDisconnected(ctx, sess.RoomID, socketID)
 		return
 	}
 
@@ -867,7 +860,6 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 		// 混用会让「在线人数」偶发不减少）。
 		s.Hub.EmitRoom(sess.RoomID, "viewer-left", map[string]any{"viewerSocketId": socketID})
 	}
-	_ = reason
 }
 
 func validRoomMode(mode string) bool {

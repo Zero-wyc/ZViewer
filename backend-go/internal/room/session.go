@@ -57,6 +57,7 @@ func (s *Service) RegisterHost(ctx context.Context, socketID, roomID string, use
 	}
 
 	s.CancelReconnectTimer(roomID)
+	s.clearStreamOffline(roomID)
 
 	// 复用已有 sharer 会话（重连场景），否则新建。
 	existing, err := s.Sessions.FindActiveByRoomRole(ctx, roomID, store.SessionRoleSharer)

@@ -19,6 +19,13 @@ import (
 // 与前端文案一致，改动要同步改提示语。
 const HostReconnectGrace = 10 * time.Minute
 
+// StreamPushService separates media availability from a specific live publisher.
+type StreamPushService interface {
+	Available() bool
+	TracksPublishing() bool
+	IsPublishing(streamKey string) bool
+}
+
 // Hub 是实时层（socket.io）暴露给房间业务的能力子集。
 //
 // 用接口而不是直接依赖 `*sio.Server`，一是让房间逻辑能用假 Hub 单测，
@@ -122,15 +129,16 @@ type Service struct {
 	MusicQueue *store.MusicQueue
 	Music      *MusicMemory
 
-	// NMS 是推流服务探测器（update-share-method / query-stream-push-availability）。
-	NMS *nms.Service
+	// NMS reports media availability and per-stream publishing activity.
+	NMS StreamPushService
 
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
 
-	mu     sync.Mutex
-	states map[string]*RuntimeState
-	timers map[string]*time.Timer
+	mu              sync.Mutex
+	states          map[string]*RuntimeState
+	timers          map[string]*time.Timer
+	streamOfflineAt map[string]time.Time
 
 	// admitMu 串行化「人数校验 + 插入会话」，避免并发进房时超员。
 	admitMu sync.Mutex
@@ -158,7 +166,7 @@ type Deps struct {
 	Music *MusicMemory
 	// NMS 是 OBS 推流服务的可用性探测器。不传时按环境变量兜底构造：
 	// 推流事件仍可用，只是没有可用媒体服务时报告不可用。
-	NMS *nms.Service
+	NMS StreamPushService
 }
 
 // NewService 构造房间服务。
@@ -187,9 +195,10 @@ func NewService(deps Deps) *Service {
 		Music:      deps.Music,
 		NMS:        deps.NMS,
 
-		states: make(map[string]*RuntimeState),
-		timers: make(map[string]*time.Timer),
-		perm:   newPermCache(),
+		states:          make(map[string]*RuntimeState),
+		timers:          make(map[string]*time.Timer),
+		streamOfflineAt: make(map[string]time.Time),
+		perm:            newPermCache(),
 	}
 }
 
@@ -319,6 +328,7 @@ func (s *Service) Subtitle(roomID string) any {
 func (s *Service) Delete(roomID string) {
 	s.mu.Lock()
 	delete(s.states, roomID)
+	delete(s.streamOfflineAt, roomID)
 	s.mu.Unlock()
 }
 
@@ -336,11 +346,27 @@ func (s *Service) HasState(roomID string) bool {
 
 // StartReconnectTimer 启动房主重连定时器（会先取消已有的，避免重复关闭）。
 func (s *Service) StartReconnectTimer(roomID string, fn func()) {
-	s.CancelReconnectTimer(roomID)
-	timer := time.AfterFunc(HostReconnectGrace, fn)
+	s.startReconnectTimer(roomID, HostReconnectGrace, fn)
+}
+
+func (s *Service) startReconnectTimer(roomID string, delay time.Duration, fn func()) {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if previous := s.timers[roomID]; previous != nil {
+		previous.Stop()
+	}
+	var timer *time.Timer
+	timer = time.AfterFunc(delay, func() {
+		s.mu.Lock()
+		if s.timers[roomID] != timer {
+			s.mu.Unlock()
+			return
+		}
+		delete(s.timers, roomID)
+		s.mu.Unlock()
+		fn()
+	})
 	s.timers[roomID] = timer
-	s.mu.Unlock()
 }
 
 // CancelReconnectTimer 取消房主重连定时器。
@@ -362,6 +388,38 @@ func (s *Service) HasReconnectTimer(roomID string) bool {
 	return ok
 }
 
+// IsStreamPublishing reports a live OBS source without granting host permissions.
+func (s *Service) IsStreamPublishing(room *store.Room) bool {
+	return room != nil && room.Status == "active" && room.Mode == "screen-share" &&
+		room.ShareMethod == "stream-push" && room.StreamKey != nil &&
+		s.NMS != nil && s.NMS.IsPublishing(*room.StreamKey)
+}
+
+func (s *Service) startHostReconnectTimer(roomID, socketID string) {
+	s.startHostReconnectTimerAfter(roomID, socketID, HostReconnectGrace)
+}
+
+func (s *Service) startHostReconnectTimerAfter(roomID, socketID string, delay time.Duration) {
+	s.startReconnectTimer(roomID, delay, func() {
+		ctx, cancel := handlerCtx()
+		defer cancel()
+		s.CloseAfterHostGrace(ctx, s.Settings, roomID, socketID)
+	})
+}
+
+func (s *Service) hostControlDisconnected(ctx context.Context, roomID, socketID string) {
+	room, err := s.Rooms.FindByRoomID(ctx, roomID)
+	if err != nil || !s.IsStreamPublishing(room) {
+		if s.tracksStreamPresence(room) {
+			s.noteStreamOffline(roomID)
+		}
+		if s.Hub != nil {
+			s.Hub.EmitRoom(roomID, "host-disconnected", map[string]any{"roomId": roomID})
+		}
+	}
+	s.startHostReconnectTimer(roomID, socketID)
+}
+
 // ---------------------------------------------------------------------------
 // 关闭房间
 // ---------------------------------------------------------------------------
@@ -372,6 +430,43 @@ func (s *Service) HasReconnectTimer(roomID string) bool {
 // close-room / admin-close-room 显式触发。
 // 读设置失败时按原行为关闭：异常态下让房间泄漏比误关更难收拾。
 func (s *Service) CloseAfterHostGrace(ctx context.Context, settings *store.Settings, roomID, sharerSocketID string) {
+	room, err := s.Rooms.FindByRoomID(ctx, roomID)
+	if errors.Is(err, store.ErrRoomNotFound) || (err == nil && (room == nil || room.Status != "active")) {
+		return
+	}
+	if err != nil {
+		s.logf("[room] 读取房间失败，延后关闭 %s: %v", roomID, err)
+		s.startHostReconnectTimer(roomID, sharerSocketID)
+		return
+	}
+	sharer, err := s.Sharer(ctx, roomID)
+	if err != nil {
+		s.logf("[room] 读取房主失败，延后关闭 %s: %v", roomID, err)
+		s.startHostReconnectTimer(roomID, sharerSocketID)
+		return
+	}
+	if sharer != nil && (s.Hub == nil || s.Hub.Connected(sharer.SocketID)) {
+		return
+	}
+	// OBS publishes independently of the browser. Keep checking so a later
+	// stopped or stale stream still returns to the normal room cleanup path.
+	if s.IsStreamPublishing(room) {
+		s.clearStreamOffline(roomID)
+		s.startHostReconnectTimer(roomID, sharerSocketID)
+		return
+	}
+	if s.tracksStreamPresence(room) {
+		// An old browser timer may fire before the next media-status heartbeat.
+		// Always give a newly offline source its own complete reconnect window.
+		offlineAt := s.noteStreamOffline(roomID)
+		if remaining := HostReconnectGrace - time.Since(offlineAt); remaining > 0 {
+			s.startHostReconnectTimerAfter(roomID, sharerSocketID, remaining)
+			return
+		}
+	}
+	if room.Mode == "screen-share" && room.ShareMethod == "stream-push" && s.Hub != nil {
+		s.Hub.EmitRoom(roomID, "host-disconnected", map[string]any{"roomId": roomID})
+	}
 	if settings != nil {
 		cfg, err := settings.Get(ctx)
 		if err != nil {

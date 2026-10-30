@@ -6,6 +6,7 @@
 - 迁移台账、验收口径、刻意保留的差异：[MIGRATION.md](./MIGRATION.md)
 - 日常开发、构建、排错：[../DEVELOPMENT.md](../DEVELOPMENT.md)
 - 并发、播放落盘、会话边界的专项检查：[AUDIT-2026-10-25.md](./AUDIT-2026-10-25.md)
+- OBS 推流与浏览器后台断线：[OBS-BACKGROUND-2026-10-30.md](./OBS-BACKGROUND-2026-10-30.md)
 
 ## 快速开始
 

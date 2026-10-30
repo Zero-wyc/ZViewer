@@ -39,7 +39,10 @@ func newEmbeddedServer(cfg Config, logf func(string, ...any)) *embeddedServer {
 	if logf == nil {
 		logf = func(string, ...any) {}
 	}
-	return &embeddedServer{cfg: cfg, hub: newStreamHub(), logf: logf, connections: make(map[net.Conn]struct{})}
+	cfg = Normalize(cfg)
+	hub := newStreamHub()
+	hub.offlineGrace = cfg.OfflineGrace
+	return &embeddedServer{cfg: cfg, hub: hub, logf: logf, connections: make(map[net.Conn]struct{})}
 }
 
 func (s *embeddedServer) start() error {
