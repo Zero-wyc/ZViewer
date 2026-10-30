@@ -333,21 +333,22 @@ jobs:
           # 手动触发没有 head_commit.timestamp，退化成当前时间
           COMMIT_TS="${COMMIT_TS:-$(date -u '+%Y-%m-%d %H:%M:%S UTC')}"
           {
-            echo "手动触发的测试构建（分支 ${BUILD_REF}，commit ${BUILD_SHA:0:7}）。"
+            echo "main 分支的最新构建（\`${BUILD_SHA:0:7}\`，${BUILD_REF}）。这是预发布通道，可能不稳定；"
+            echo "稳定版请到 [Releases](https://github.com/${GITHUB_REPOSITORY}/releases) 按版本号选择。"
             echo ""
             echo "## 下载"
             echo ""
             # 正文给直链的原因见 tag 发布那一步的注释：文件列表是异步加载的，
             # 国内网络下拉不出来时页面只剩 source code。
-            echo "- **Windows**: [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) — 解压后运行 \`start.bat\`"
-            echo "- **Windows GUI**: [zviewer-windows-x64-GUI.zip](${REL}/zviewer-windows-x64-GUI.zip) — 解压后运行 \`ZViewerDesktop.exe\`"
-            echo "- **Linux**: [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) — 解压后运行 \`./start.sh\`"
-            echo "- **Docker**: \`docker pull zerowyc0721/zviewer:dev\`（main 分支最新构建；正式版请用 \`:latest\` 或具体版本号）"
+            echo "| 平台 | 文件 | 解压后 |"
+            echo "| --- | --- | --- |"
+            echo "| Windows 桌面版（推荐） | [zviewer-windows-x64-GUI.zip](${REL}/zviewer-windows-x64-GUI.zip) | \`ZViewerDesktop.exe\` |"
+            echo "| Windows 单文件 | [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) | \`start.bat\` |"
+            echo "| Linux | [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) | \`./start.sh\` |"
             echo ""
-            echo "> 页面底部的文件列表加载不出来时，直接点上面的链接下载。"
+            echo "Docker：\`docker pull zerowyc0721/zviewer:dev\`（跟随 main）；正式版用 \`:latest\` 或具体版本号。"
             echo ""
-            echo "构建提交: ${BUILD_SHA}"
-            echo "构建时间: ${COMMIT_TS}"
+            echo "构建时间：${COMMIT_TS}"
           } > release_body_latest.md
         env:
           BUILD_SHA: ${{ needs.prepare.outputs.sha }}
@@ -441,15 +442,35 @@ jobs:
             # 没有上一个 tag（首次发布），列出当前提交的最近 100 条
             LOG=$(git log --max-count=100 --pretty=format:"- %s" "${CURRENT_REF}" || true)
           fi
+          # 按提交前缀分组：一长串「- xxx」没人看得下去，分组后新增了什么、修了什么一眼可见。
+          # 归不了类的一律进「其他」，不丢内容。用 if 而不是 `[ -n ] && {...}`——后者在
+          # 最后一组为空时返回 1，配合 `bash -e` 会把整个步骤静默判失败。
+          FEAT=''; FIX=''; PERF=''; REFACTOR=''; DOCS=''; OTHER=''
+          while IFS= read -r line; do
+            [ -n "${line}" ] || continue
+            case "${line}" in
+              "- feat"*)     FEAT="${FEAT}${line}"$'\n' ;;
+              "- fix"*)      FIX="${FIX}${line}"$'\n' ;;
+              "- perf"*)     PERF="${PERF}${line}"$'\n' ;;
+              "- refactor"*) REFACTOR="${REFACTOR}${line}"$'\n' ;;
+              "- docs"*)     DOCS="${DOCS}${line}"$'\n' ;;
+              *)             OTHER="${OTHER}${line}"$'\n' ;;
+            esac
+          done <<< "${LOG}"
+
           {
             echo "## 更新内容"
             echo ""
-            if [ -n "$LOG" ]; then
-              echo "${LOG}"
-            else
+            if [ -z "${LOG}" ]; then
               echo "- 无提交记录"
+            else
+              if [ -n "${FEAT}" ]; then echo "### 新功能"; echo ""; printf '%s' "${FEAT}"; echo ""; fi
+              if [ -n "${FIX}" ]; then echo "### 修复"; echo ""; printf '%s' "${FIX}"; echo ""; fi
+              if [ -n "${PERF}" ]; then echo "### 性能"; echo ""; printf '%s' "${PERF}"; echo ""; fi
+              if [ -n "${REFACTOR}" ]; then echo "### 重构"; echo ""; printf '%s' "${REFACTOR}"; echo ""; fi
+              if [ -n "${DOCS}" ]; then echo "### 文档"; echo ""; printf '%s' "${DOCS}"; echo ""; fi
+              if [ -n "${OTHER}" ]; then echo "### 其他"; echo ""; printf '%s' "${OTHER}"; echo ""; fi
             fi
-            echo ""
             echo "---"
             echo ""
             echo "## 下载"
@@ -458,12 +479,18 @@ jobs:
             # 国内网络下那一段经常请求失败，页面就只剩服务端直出的
             # source code，看起来像"只发了源码"。直链不依赖那段异步请求。
             REL="https://github.com/${REPO_SLUG}/releases/download/${CURRENT_TAG}"
-            echo "- **Windows**: [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) — 解压后运行 \`start.bat\`"
-            echo "- **Windows GUI**: [zviewer-windows-x64-GUI.zip](${REL}/zviewer-windows-x64-GUI.zip) — 解压后运行 \`ZViewerDesktop.exe\`"
-            echo "- **Linux**: [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) — 解压后运行 \`./start.sh\`"
-            echo "- **Docker**: \`docker pull zerowyc0721/zviewer:${VERSION}\`"
+            echo "| 平台 | 文件 | 解压后 |"
+            echo "| --- | --- | --- |"
+            echo "| Windows 桌面版（推荐） | [zviewer-windows-x64-GUI.zip](${REL}/zviewer-windows-x64-GUI.zip) | \`ZViewerDesktop.exe\` |"
+            echo "| Windows 单文件 | [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) | \`start.bat\` |"
+            echo "| Linux | [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) | \`./start.sh\` |"
             echo ""
-            echo "> 页面底部的文件列表加载不出来时，直接点上面的链接下载。"
+            echo "启动后访问 \`http://localhost:3333\`，初始账号 \`root\` / \`root\`，登录后请立即修改密码。"
+            echo ""
+            echo "Docker：\`docker pull zerowyc0721/zviewer:${VERSION}\`"
+            echo ""
+            echo "> 页面底部的文件列表有时加载不出来（只剩 source code），直接点上面的链接即可。"
+            echo "> 境内下载慢时，同一份文件在 [ZviewerRelease](https://github.com/Zero-wyc/ZviewerRelease) 有 GitCode 镜像直链。"
           } > release_body.md
           echo "=== Generated release body ==="
           cat release_body.md
