@@ -13,6 +13,20 @@ export function extractBvid(url: string): string | null {
 }
 
 /**
+ * 从 B站 链接中提取已指定的分 P 序号（`?p=3` / `&page=3`）。
+ *
+ * 链接里带 p 说明用户在搜索弹窗或外部链接里已经选过集，
+ * 解析时应直接取该 P，不再二次弹分集选择。
+ */
+export function extractBilibiliPage(url: string): number | undefined {
+  if (!url) return undefined
+  const match = url.match(/[?&](?:p|page)=(\d+)/i)
+  if (!match) return undefined
+  const page = Number(match[1])
+  return Number.isSafeInteger(page) && page > 0 ? page : undefined
+}
+
+/**
  * 从任意输入提取番剧/影视（PGC）标识：ep 集号或 ss 季号。
  *
  * 与后端 resolver.extractBangumiId 语义一致：显式 /bangumi/play/ 路径直接命中；
@@ -142,24 +156,25 @@ export class CliPrecheckError extends Error {
 }
 
 /**
- * bvid → 首个分 P cid 的缓存。
+ * `${bvid}#${page}` → 该分 P 的 cid 缓存。
  *
  * 同一 bvid 的 cid 不会变化，多 P 视频按分 P 调用时上游已带 cid，只有首次解析会用到缓存。
  */
-const firstCidCache = new Map<string, number>()
+const pageCidCache = new Map<string, number>()
 
 /**
- * 取视频首个分 P 的 cid。
+ * 取指定分 P（缺省第一 P）的 cid。
  *
  * CLI 的 `/resolve` 对 UGC（bvid）分支强制要求 cid：只有 bvid 时直接返回
  * 400 `{"error":"缺少 bvid 或 cid"}`。而刚粘贴链接做首次解析时前端还没有 cid，
  * 不补这一步就会每次先失败一次：前端抛 CliResolveError → 弹「…已回退到服务器端解析」
  * → 最终走服务器端解析，CLI 高画质在首解析上永远不生效。
  *
- * 因此这里借后端 view 接口（匿名可查）补第一 P 的 cid 再发起 CLI 解析。
+ * 因此这里借后端 view 接口（匿名可查）补目标 P 的 cid 再发起 CLI 解析。
  */
-async function resolveFirstPageCid(bvid: string): Promise<number> {
-  const cached = firstCidCache.get(bvid)
+async function resolvePageCid(bvid: string, page = 1): Promise<number> {
+  const key = `${bvid}#${page}`
+  const cached = pageCidCache.get(key)
   if (cached) return cached
   let view: Awaited<ReturnType<typeof getBilibiliVideoView>>
   try {
@@ -167,12 +182,19 @@ async function resolveFirstPageCid(bvid: string): Promise<number> {
   } catch {
     throw new CliPrecheckError('获取视频信息失败，改用服务器端解析')
   }
-  const cid = view.cid || view.pages?.[0]?.cid || 0
+  const cid =
+    view.pages?.find((p) => p.page === page)?.cid ||
+    (page === 1 ? view.cid || view.pages?.[0]?.cid : 0) ||
+    0
   if (!cid)
-    throw new CliPrecheckError('未取到视频分 P 的 cid，改用服务器端解析')
+    throw new CliPrecheckError(
+      page > 1
+        ? `未取到 P${page} 的 cid，改用服务器端解析`
+        : '未取到视频分 P 的 cid，改用服务器端解析'
+    )
   // 简单容量上限，避免长时间运行后无限增长
-  if (firstCidCache.size >= 200) firstCidCache.clear()
-  firstCidCache.set(bvid, cid)
+  if (pageCidCache.size >= 200) pageCidCache.clear()
+  pageCidCache.set(key, cid)
   return cid
 }
 
@@ -191,6 +213,7 @@ async function resolveFirstPageCid(bvid: string): Promise<number> {
  * @param qn 清晰度 qn（可选）
  * @param preferMp4 是否优先 MP4（可选，默认 false）
  * @param forceDash 是否强制使用 DASH 并禁用 MP4 降级（CLI 代理已连接时使用）
+ * @param page 目标分 P 序号（可选，仅在没有 cid 时用于补齐 cid）
  */
 export async function resolveBilibiliViaCli(
   proxyUrl: string,
@@ -198,12 +221,15 @@ export async function resolveBilibiliViaCli(
   cid?: number,
   qn?: number,
   preferMp4?: boolean,
-  forceDash?: boolean
+  forceDash?: boolean,
+  page?: number
 ): Promise<ResolvedSource> {
   const base = proxyUrl.replace(/\/$/, '')
-  // CLI 缺 cid 会直接 400，首次解析（刚粘贴链接）先补第一 P 的 cid。
+  // CLI 缺 cid 会直接 400，首次解析（刚粘贴链接）先补目标 P 的 cid。
   const effectiveCid =
-    cid != null && Number.isFinite(cid) ? cid : await resolveFirstPageCid(bvid)
+    cid != null && Number.isFinite(cid)
+      ? cid
+      : await resolvePageCid(bvid, page ?? 1)
   const params = new URLSearchParams({
     bvid,
     cid: String(effectiveCid),

@@ -11,6 +11,7 @@ import { useRef, useState } from 'react'
 import { message } from '@/components/ui/message'
 import {
   extractBvid,
+  extractBilibiliPage,
   extractBangumiId,
   resolveBilibiliViaCli,
   resolveBangumiViaCli,
@@ -82,6 +83,9 @@ export function useBilibiliResolve({
       const bvid = extractBvid(targetUrl)
       // PGC（番剧 ep/ss 链接）：CLI 分支按 epId 走番剧解析
       const bangumiId = extractBangumiId(targetUrl)
+      // 链接里已带 ?p=N（搜索弹窗选过集、或外部链接指定了分 P）：
+      // 解析直接取该 P，且不再二次弹分集选择，否则用户要选两遍
+      const pinnedPage = extractBilibiliPage(targetUrl)
 
       // CLI 已连接时优先使用本地 CLI 代理解析（使用用户自己的 B站 Cookie，可获取高画质）
       const cliProxyUrl = getActiveCliProxyUrl()
@@ -106,12 +110,16 @@ export function useBilibiliResolve({
                     undefined,
                     undefined,
                     false,
-                    true
+                    true,
+                    pinnedPage
                   )
               : undefined,
         viaServer: () =>
-          resolveBilibili(targetUrl, undefined, (_step, msg) =>
-            setResolveProgress(msg)
+          resolveBilibili(
+            targetUrl,
+            undefined,
+            (_step, msg) => setResolveProgress(msg),
+            pinnedPage != null ? { page: pinnedPage } : undefined
           ),
         cliProgress: epId
           ? '正在通过 CLI 代理解析番剧...'
@@ -121,15 +129,27 @@ export function useBilibiliResolve({
       })
       resolvedViaCliRef.current = viaCli
 
-      setResolvedMovie(resolved)
+      // 链接钉死了分 P 时以链接为准：CLI 分支按 cid 解析、可能不回填 currentPage，
+      // 这里对齐一下，避免添加后影片记成第一 P
+      const resolvedPinned =
+        pinnedPage != null && !epId && resolved.currentPage !== pinnedPage
+          ? { ...resolved, currentPage: pinnedPage }
+          : resolved
+
+      setResolvedMovie(resolvedPinned)
       // PGC 试看提示：会员专享集 + 非大会员账号时后端只返回试看片段
-      if (resolved.preview) {
+      if (resolvedPinned.preview) {
         message.info(
-          `该集为会员专享，当前为试看片段（约 ${Math.round((resolved.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+          `该集为会员专享，当前为试看片段（约 ${Math.round((resolvedPinned.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
         )
       }
-      // 自动检测多 P 视频：若有多 P，弹出分集选择界面
-      if (resolved.pages && resolved.pages.length > 1) {
+      // 自动检测多 P 视频：链接未指定分 P 时才弹分集选择
+      // （搜索弹窗选过 P 的链接已带 ?p=，再弹一次等于让用户选两遍）
+      if (
+        pinnedPage == null &&
+        resolvedPinned.pages &&
+        resolvedPinned.pages.length > 1
+      ) {
         setShowPageSelector(true)
       }
     } catch (err) {
