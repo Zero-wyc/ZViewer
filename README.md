@@ -77,7 +77,7 @@ npm start
 
 | 内容 | 位置 |
 | --- | --- |
-| 部署配置（端口、Docker、环境变量、推流、语音） | [docs/deployment.md](docs/deployment.md) |
+| 部署配置（端口、Docker、环境变量、推流、语音） | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | 完整使用文档 | [docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz) |
 | 开发指南 | [DEVELOPMENT.md](DEVELOPMENT.md) |
 | Windows 桌面控制台 | [desktop/README.md](desktop/README.md) |

@@ -77,7 +77,7 @@ Requires Go 1.26+ and Node.js.
 
 | Topic | Where |
 | --- | --- |
-| Deployment (ports, Docker, environment variables, streaming, voice) | [docs/deployment.md](docs/deployment.md) (Chinese) |
+| Deployment (ports, Docker, environment variables, streaming, voice) | [DEPLOYMENT.md](DEPLOYMENT.md) (Chinese) |
 | Full user guide | [docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz) (Chinese) |
 | Development guide | [DEVELOPMENT.md](DEVELOPMENT.md) (Chinese) |
 | Windows desktop console | [desktop/README.md](desktop/README.md) |

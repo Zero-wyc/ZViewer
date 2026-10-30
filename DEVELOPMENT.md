@@ -84,7 +84,7 @@ npm run dev
 
 ### 关于 `.env`
 
-只有这几个变量常改：`PORT`、`HOST`、`CORS_ORIGIN`、`JWT_*_SECRET`。数据库相关默认值都能用，完整清单见 [docs/deployment.md](docs/deployment.md) 的环境变量表。
+只有这几个变量常改：`PORT`、`HOST`、`CORS_ORIGIN`、`JWT_*_SECRET`。数据库相关默认值都能用，完整清单见 [DEPLOYMENT.md](DEPLOYMENT.md) 的环境变量表。
 
 `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` 不填时会用 `config/jwt-secrets.json` 里的随机值（首次启动自动生成）。**改了密钥等于让所有已签发的 token 失效**，本地随意，线上别乱动。
 
