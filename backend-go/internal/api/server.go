@@ -23,6 +23,7 @@ import (
 	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/kazumi"
+	"zviewer/backend/internal/livekit"
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
@@ -87,6 +88,9 @@ type Deps struct {
 	Updater *updater.Service
 	// Voice 是语音聊天的服务端一半（LiveKit 凭证 + Twirp 管理调用）。
 	Voice *voice.Service
+	// VoiceBin 是内嵌 LiveKit 伴生进程管理器：负责「按需下载组件 + 拉起进程」。
+	// 为 nil 时（单测）语音状态一律报告可用，避免每个用例都要装配它。
+	VoiceBin *livekit.Manager
 	// NMS 是 OBS 推流的媒体服务（默认进程内托管，可用性 + 推流地址）。
 	NMS *nms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。

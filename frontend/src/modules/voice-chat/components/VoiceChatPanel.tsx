@@ -11,10 +11,12 @@ import {
   Volume2,
   VolumeX,
   UserX,
+  Download,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 // v7：LiveKit 版语音（SFU 由独立 LiveKit 服务承载）
 import { useVoiceChat, type VoiceMember } from '../hooks/useVoiceChat'
+import { useVoiceComponent } from '../hooks/useVoiceComponent'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { SectionHeader } from '@/components/ui/SectionHeader'
@@ -66,6 +68,20 @@ export function VoiceChatPanel({
     muteVoiceMember,
     kickVoiceMember,
   } = useVoiceChat({ roomId, username })
+
+  // 内嵌 LiveKit 默认不随包分发：没装时把「加入语音」换成「下载语音组件」。
+  const { status: component, busy: componentBusy, requesting, install } =
+    useVoiceComponent(Boolean(roomId))
+  const componentMissing = !component.available
+  const downloading = componentBusy || requesting
+  const downloadLabel =
+    component.state === 'installing'
+      ? '正在解压…'
+      : component.state === 'downloading'
+        ? `正在下载 ${component.progress}%`
+        : component.state === 'error'
+          ? '重新下载语音组件'
+          : '下载语音聊天组件'
 
   if (!roomId) return null
 
@@ -340,8 +356,33 @@ export function VoiceChatPanel({
         </div>
       )}
 
+      {/* 组件未下载：说明体积与下一步，避免用户以为是网络问题 */}
+      {componentMissing && (
+        <div className="mb-3 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5">
+          <div className="text-xs font-medium text-[var(--md-sys-color-on-surface)]">
+            语音聊天组件未下载
+          </div>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
+            首次使用需下载约 18 MB，装好后保存在本机，之后不再重复下载。
+          </p>
+          {component.message && component.state === 'error' && (
+            <p className="mt-1 text-[11px] text-[var(--md-sys-color-error)]">
+              {component.message}
+            </p>
+          )}
+          {component.state === 'downloading' && (
+            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-high)]">
+              <div
+                className="h-full rounded-full bg-[var(--md-sys-color-primary)] transition-[width] duration-300"
+                style={{ width: `${Math.max(3, component.progress)}%` }}
+              />
+            </div>
+          )}
+        </div>
+      )}
+
       {/* 未加入提示 */}
-      {!joined && !joining && (
+      {!joined && !joining && !componentMissing && (
         <div className="mb-3 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
           点击加入即可与房间内其他观众语音交流
         </div>
@@ -383,6 +424,18 @@ export function VoiceChatPanel({
               断开
             </Button>
           </>
+        ) : componentMissing ? (
+          <Button
+            variant="primary"
+            size="sm"
+            block
+            loading={downloading}
+            icon={<Download className="h-3.5 w-3.5" />}
+            onClick={() => void install()}
+            disabled={downloading}
+          >
+            {downloadLabel}
+          </Button>
         ) : (
           <Button
             variant="primary"
@@ -429,7 +482,7 @@ export function VoiceChatPanel({
               ? 'var(--md-sys-color-on-primary-container)'
               : 'var(--md-sys-color-on-surface)',
           }}
-          title="语音聊天"
+          title={componentMissing ? '语音聊天（需先下载组件）' : '语音聊天'}
         >
           {joined ? (
             micEnabled ? (
@@ -439,6 +492,11 @@ export function VoiceChatPanel({
             )
           ) : (
             <Headphones className="h-5 w-5" />
+          )}
+          {componentMissing && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]">
+              <Download className="h-2.5 w-2.5" />
+            </span>
           )}
           {joined && memberCount > 1 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] px-1 text-[10px] font-medium text-[var(--md-sys-color-on-primary)]">

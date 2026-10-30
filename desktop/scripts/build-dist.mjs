@@ -37,7 +37,8 @@ function requireFile(file, hint) {
 }
 
 requireFile(join(runtimeSource, 'zviewer-backend.exe'), '先用 node build-all.js --win 生成运行包，或设置 ZVIEWER_RUNTIME_ROOT');
-requireFile(join(runtimeSource, 'livekit-server.exe'));
+// 语音（livekit-server）不再随包：房间内第一次用语音时由后端按需下载
+// （backend-go/internal/livekit/component.go）。打包只带许可证。
 
 requireFile(cliSource, '运行包的网页目录应带 CLI（node build-all.js --win 会从 frontend/public 复制过去）');
 
@@ -54,14 +55,13 @@ statSync(shell);
 const runtime = join(distribution, 'runtime');
 mkdirSync(runtime, { recursive: true });
 mkdirSync(join(distribution, 'assets'), { recursive: true });
-for (const name of ['zviewer-backend.exe', 'livekit-server.exe']) {
-  copyFileSync(join(runtimeSource, name), join(runtime, name));
-}
+copyFileSync(join(runtimeSource, 'zviewer-backend.exe'), join(runtime, 'zviewer-backend.exe'));
 cpSync(join(runtimeSource, 'frontend', 'dist'), join(runtime, 'frontend', 'dist'), { recursive: true });
 // 音乐不需要随包组件：网易云接口由 Go 后端自带（internal/ncm）。
-// Cloudflare（cloudflared）、EasyTier 与 FRP（frpc）都不随包分发：它们在 ZviewerRelease 的
-// components 分支（组件库），GUI 第一次用到时按 GitCode 直链下载（controller/components.go）。
-// 打包因此不再需要 frp / easytier 缓存，运行时目录里只有后端、语音与网页。
+// Cloudflare（cloudflared）、EasyTier、FRP（frpc）与 LiveKit（livekit-server）都不随包分发：
+// 前三者在 ZviewerRelease 的 components 分支（组件库），由 GUI 第一次用到时按 GitCode 直链
+// 下载（controller/components.go）；LiveKit 由后端在房间内按需下载（internal/livekit）。
+// 打包因此不再需要 frp / easytier / livekit 缓存，运行时目录里只有后端、CLI 与网页。
 copyFileSync(join(desktop, 'assets', 'ZViewer.ProcessHost.exe'), join(distribution, 'assets', 'ZViewer.ProcessHost.exe'));
 
 // CLI 固定放进 runtime/：壳只从运行包里找它，缺了就等于没有高画质代理。
@@ -106,7 +106,6 @@ const tracked = [
   SHELL_EXE_NAME,
   'assets/ZViewer.ProcessHost.exe',
   'runtime/zviewer-backend.exe',
-  'runtime/livekit-server.exe',
   'runtime/zviewer-cli-windows-amd64.exe'
 ];
 const CLI_ENTRY = 'runtime/zviewer-cli-windows-amd64.exe';
@@ -134,7 +133,9 @@ const manifest = {
   components: {
     cloudflared: { version: '2026.10.3', delivery: 'download', library: 'components/cloudflared-windows-amd64.exe' },
     easytier: { version: '2.6.4', delivery: 'download', library: 'components/easytier-windows-x86_64-v2.6.4.zip' },
-    frpc: { version: '0.71.1', delivery: 'download', library: 'components/frp_0.71.1_windows_amd64.zip' }
+    frpc: { version: '0.71.1', delivery: 'download', library: 'components/frp_0.71.1_windows_amd64.zip' },
+    // 语音组件由**后端**下载（不经过 GUI），落点是 runtime/livekit-server.exe。
+    livekit: { version: 'v1.13.7', delivery: 'download', library: 'components/livekit_1.13.7_windows_amd64.zip' }
   },
   cli: cliMeta(cliSource),
   fileCount: walk(distribution).length,

@@ -62,6 +62,8 @@ export default function AdminPage() {
     roomMultiInstanceLogin: false,
     livekitExternalUrl: '',
     announceAutoPopupOnUpdate: true,
+    showVoiceChatButton: true,
+    showTrafficPanel: true,
   })
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -502,6 +504,9 @@ export default function AdminPage() {
         roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
         livekitExternalUrl: settings.livekitExternalUrl,
         announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
+        // 房间悬浮入口显隐（后端落 config/ui-prefs.json，不写库）
+        showVoiceChatButton: settings.showVoiceChatButton,
+        showTrafficPanel: settings.showTrafficPanel,
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig

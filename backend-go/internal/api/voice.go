@@ -13,6 +13,7 @@ import (
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
+	"zviewer/backend/internal/livekit"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/voice"
 )
@@ -21,10 +22,46 @@ import (
 //
 // 三个端点都要登录态：游客也能用语音，但必须带 guestId 的令牌
 // （Require 已经验过），否则拿不到稳定的参与者身份。
+// 组件状态与下载另开两个端点：LiveKit 二进制默认不随包分发，第一次用语音才下载。
 func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/voice/token", s.Auth.Require(s.handleVoiceToken))
 	mux.HandleFunc("POST /api/voice/mute", s.Auth.Require(s.handleVoiceMute))
 	mux.HandleFunc("POST /api/voice/kick", s.Auth.Require(s.handleVoiceKick))
+	// 状态无需鉴权：游客也要能在房间里看到「下载语音组件」入口。
+	mux.HandleFunc("GET /api/voice/status", s.handleVoiceStatus)
+	// 下载要登录：避免匿名脚本反复触发 17 MB 下载（服务端另有单飞去重）。
+	mux.HandleFunc("POST /api/voice/install", s.Auth.Require(s.handleVoiceInstall))
+}
+
+// handleVoiceStatus 报告内嵌 LiveKit 组件的可用性与下载进度。
+func (s *Server) handleVoiceStatus(w http.ResponseWriter, r *http.Request) {
+	if s.VoiceBin == nil {
+		// 单测 / 精简装配：没有托管进程，按「外置 LiveKit」处理，前端不显示下载入口。
+		httpx.OK(w, map[string]any{"success": true, "status": livekit.Status{
+			Available: true,
+			State:     livekit.StateExternal,
+			External:  true,
+			Version:   livekit.BinaryVersion,
+		}})
+		return
+	}
+	httpx.OK(w, map[string]any{"success": true, "status": s.VoiceBin.Status()})
+}
+
+// handleVoiceInstall 触发一次后台下载，立刻返回当前状态（前端靠轮询看进度）。
+func (s *Server) handleVoiceInstall(w http.ResponseWriter, r *http.Request) {
+	if s.VoiceBin == nil {
+		httpx.Fail(w, http.StatusServiceUnavailable, "当前部署未托管内嵌 LiveKit")
+		return
+	}
+	switch err := s.VoiceBin.Install(r.Context()); {
+	case err == nil, errors.Is(err, livekit.ErrInstallInProgress),
+		errors.Is(err, livekit.ErrAlreadyInstalled), errors.Is(err, livekit.ErrExternalLiveKit):
+		// 重复点击 / 已装好都返回当前状态，前端按状态机走，不弹错误。
+		httpx.OK(w, map[string]any{"success": true, "status": s.VoiceBin.Status()})
+	default:
+		httpx.Fail(w, http.StatusInternalServerError, err.Error())
+	}
 }
 
 // handleVoiceToken 签发 LiveKit 接入凭证。
@@ -66,6 +103,15 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 	if !s.Voice.Configured() {
 		httpx.Fail(w, http.StatusServiceUnavailable, "语音服务未配置（需要 LIVEKIT_API_KEY/API_SECRET）")
 		return
+	}
+	// 二进制默认不随包分发：没装时前端会在房间里显示下载入口，
+	// 这里兜住「旧页面 / 直接调用」的情况，给出可执行的提示而不是让客户端连不上。
+	if s.VoiceBin != nil {
+		if status := s.VoiceBin.Status(); !status.Available {
+			httpx.Fail(w, http.StatusServiceUnavailable,
+				"语音聊天组件未下载，请在房间右下角「语音聊天」面板中点击下载")
+			return
+		}
 	}
 
 	// 登录用户身份稳定（重连能顶替同一条轨）；游客每次加入生成一次性身份，

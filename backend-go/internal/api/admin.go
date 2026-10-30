@@ -583,12 +583,16 @@ type adminSettingsDTO struct {
 	LivekitExternalURL        string          `json:"livekitExternalUrl"`
 	RoomPermissionMatrix      json.RawMessage `json:"roomPermissionMatrix"`
 	AnnounceAutoPopupOnUpdate bool            `json:"announceAutoPopupOnUpdate"`
+	// 房间界面上的两个悬浮入口开关。与 UpdateUseGitCode 一样**不写库**，
+	// 落在 config/ui-prefs.json（见 uiprefs.go）。
+	ShowVoiceChatButton bool `json:"showVoiceChatButton"`
+	ShowTrafficPanel    bool `json:"showTrafficPanel"`
 	// DesktopManaged 是运行时环境标识（非数据库设置）：桌面 GUI 托管时
 	// 前端要禁用网页端更新入口，否则网页更新只换 runtime/ 会和整包版本脱节。
 	DesktopManaged bool `json:"desktopManaged"`
 }
 
-func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool) adminSettingsDTO {
+func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool, prefs UIPrefs) adminSettingsDTO {
 	dataSource := cfg.DataSourceConfig
 	if len(dataSource) == 0 {
 		dataSource = json.RawMessage("null")
@@ -616,6 +620,8 @@ func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool) adminSett
 		LivekitExternalURL:        cfg.LivekitExternalURL,
 		RoomPermissionMatrix:      matrix,
 		AnnounceAutoPopupOnUpdate: cfg.AnnounceAutoPopupOnUpdate,
+		ShowVoiceChatButton:       prefs.ShowVoiceChatButton,
+		ShowTrafficPanel:          prefs.ShowTrafficPanel,
 		DesktopManaged:            isDesktopManaged(),
 	}
 }
@@ -626,7 +632,7 @@ func (s *Server) handleAdminGetSettings(w http.ResponseWriter, r *http.Request) 
 		httpx.InternalError(w, "admin-get-settings", err)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode())})
+	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode(), s.uiPrefs())})
 }
 
 // updateUseGitCode 读取当前更新源开关；Updater 未装配时按默认（GitCode）返回。
@@ -855,11 +861,39 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	// 房间悬浮入口的两个开关落在 config/ui-prefs.json（不写库）：未提交的键保持原值。
+	prefs := s.uiPrefs()
+	prefsChanged := false
+	if raw, ok := body["showVoiceChatButton"]; ok {
+		v, valid := rawBool(raw)
+		if !valid {
+			httpx.BadRequest(w, "showVoiceChatButton 必须是布尔值")
+			return
+		}
+		prefs.ShowVoiceChatButton = v
+		prefsChanged = true
+	}
+	if raw, ok := body["showTrafficPanel"]; ok {
+		v, valid := rawBool(raw)
+		if !valid {
+			httpx.BadRequest(w, "showTrafficPanel 必须是布尔值")
+			return
+		}
+		prefs.ShowTrafficPanel = v
+		prefsChanged = true
+	}
+
 	if err := s.Settings.Save(ctx, cfg); err != nil {
 		httpx.InternalError(w, "admin-update-settings", err)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode())})
+	if prefsChanged {
+		if err := writeUIPrefs(s.Cfg.ConfigDir, prefs); err != nil {
+			httpx.InternalError(w, "admin-update-settings", err)
+			return
+		}
+	}
+	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode(), prefs)})
 }
 
 // ---------------------------------------------------------------------------

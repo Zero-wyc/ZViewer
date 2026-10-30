@@ -150,6 +150,9 @@ type Controller struct {
 	operation   int32
 	livekitMu   sync.Mutex
 	livekitStop bool
+	// livekitWatchStop 是「等语音组件下载完成」的退出信号。
+	// 组件默认不随包分发，壳启动时文件可能还不存在，下载到 runtime/ 后再拉起。
+	livekitWatchStop chan struct{}
 
 	onUpdate       func()
 	onInitialAdmin func(InitialAdmin)
@@ -436,6 +439,8 @@ func (c *Controller) environment() ([]string, error) {
 	// 整包版本由 GUI 自己的更新链路维护（详见 backend services/desktop-runtime.ts）
 	env["ZVIEWER_DESKTOP"] = "1"
 	env["LIVEKIT_EXTERNAL"] = "1"
+	// 二进制由壳拉起，但下载走网页端：后端需要这个开关才会在 External 下也接受下载请求。
+	env["LIVEKIT_COMPONENT_DOWNLOAD"] = "1"
 	env["LIVEKIT_API_HOST"] = fmt.Sprintf("http://127.0.0.1:%d", config.LivekitPort)
 	env["LIVEKIT_API_KEY"] = c.voiceKey
 	env["LIVEKIT_API_SECRET"] = c.voiceSecret
@@ -466,7 +471,11 @@ func (c *Controller) startLivekit(env []string) error {
 	config := c.store.Value
 	exe := filepath.Join(c.root, "livekit-server.exe")
 	if !fileExists(exe) {
-		return errors.New("缺少 livekit-server.exe")
+		// 语音组件按需下载（网页端房间右下角触发）：先把主服务起起来，
+		// 下载完成后再由 watchLivekit 拉起，不能因为它缺失就让整个服务起不来。
+		c.setVoiceState("missing")
+		c.watchLivekit(env)
+		return nil
 	}
 	envMap := map[string]string{}
 	for _, entry := range env {
@@ -575,6 +584,61 @@ func (c *Controller) startLivekit(env []string) error {
 	return errors.New("LiveKit 未通过就绪检查，请检查端口或查看运行日志")
 }
 
+// watchLivekit 在语音组件缺失时等它出现，然后拉起 livekit-server。
+//
+// 组件默认不随包分发：用户在网页端房间右下角点「下载语音聊天组件」，
+// 后端把 livekit-server.exe 写进 runtime/。这里每 3 秒看一眼，出现就启动，
+// 不用重开 GUI，也不需要在壳里做下载入口。
+func (c *Controller) watchLivekit(env []string) {
+	c.mu.Lock()
+	if c.livekitWatchStop != nil {
+		c.mu.Unlock()
+		return
+	}
+	stop := make(chan struct{})
+	c.livekitWatchStop = stop
+	c.mu.Unlock()
+
+	go func() {
+		ticker := time.NewTicker(3 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				if !fileExists(filepath.Join(c.root, "livekit-server.exe")) {
+					continue
+				}
+				c.mu.Lock()
+				if c.livekitWatchStop != stop {
+					c.mu.Unlock()
+					return
+				}
+				c.livekitWatchStop = nil
+				c.mu.Unlock()
+				c.log("检测到语音组件已下载，正在启动 LiveKit", "voice", "INFO")
+				if err := c.startLivekit(env); err != nil {
+					c.log(err.Error(), "voice", "ERROR")
+					c.setVoiceState("error")
+				}
+				return
+			}
+		}
+	}()
+}
+
+// stopLivekitWatch 结束等待（服务停止或显式停语音时调用）。
+func (c *Controller) stopLivekitWatch() {
+	c.mu.Lock()
+	stop := c.livekitWatchStop
+	c.livekitWatchStop = nil
+	c.mu.Unlock()
+	if stop != nil {
+		close(stop)
+	}
+}
+
 func containsString(list []string, value string) bool {
 	for _, item := range list {
 		if item == value {
@@ -587,6 +651,7 @@ func containsString(list []string, value string) bool {
 func (c *Controller) stopLivekit() error {
 	c.livekitMu.Lock()
 	defer c.livekitMu.Unlock()
+	c.stopLivekitWatch()
 	c.mu.Lock()
 	proc := c.livekit
 	if proc == nil {

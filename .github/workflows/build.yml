@@ -172,7 +172,8 @@ jobs:
       - name: Build & package single-file
         # build-all.js --win/--linux 会依次执行：
         #   1. vite 构建前端 → 2. go build 交叉编译后端
-        #   3. 下载 livekit-server 伴生二进制 → 4. 复制启动脚本 → 5. 产物输出到 dist/<平台>/
+        #   3. Linux 附 livekit-server（Docker 用）／Windows 不带（房间里按需下载）
+        #   → 4. 复制启动脚本 → 5. 产物输出到 dist/<平台>/
         run: node build-all.js ${{ matrix.flag }}
 
       - name: Package artifacts (Linux)

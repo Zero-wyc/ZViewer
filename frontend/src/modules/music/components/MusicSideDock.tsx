@@ -19,6 +19,7 @@ import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { CommentPanel } from '@/components/CommentPanel'
 import { cn } from '@/lib/utils'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 
 interface MusicSideDockProps {
   socket: Socket | null
@@ -39,6 +40,10 @@ export function MusicSideDock({
   isHost,
   canManage,
 }: MusicSideDockProps) {
+  // 管理端「基础设置」的两个显示开关：关掉就不再渲染对应面板
+  // （面板卸载会断开语音连接，这是有意的——入口都隐藏了，留着连接反而占带宽）。
+  const showVoiceChat = useSystemSettingsStore((s) => s.showVoiceChatButton)
+  const showTraffic = useSystemSettingsStore((s) => s.showTrafficPanel)
   const [open, setOpen] = useState(false)
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -122,15 +127,17 @@ export function MusicSideDock({
             side-dock-body：内嵌 glass-card 面板去白底只留分隔描边（见 index.css） */}
         <div className="side-dock-body zen-scroll flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-2">
           {/* 语音聊天（成员较多时面板内部滚动，高度上限保护后面面板可见性） */}
-          <div className="flex min-h-0 shrink-0 flex-col">
-            <VoiceChatPanel
-              embedded
-              socket={socket}
-              roomId={roomId}
-              username={username}
-              canManageVoice={canManage}
-            />
-          </div>
+          {showVoiceChat && (
+            <div className="flex min-h-0 shrink-0 flex-col">
+              <VoiceChatPanel
+                embedded
+                socket={socket}
+                roomId={roomId}
+                username={username}
+                canManageVoice={canManage}
+              />
+            </div>
+          )}
           {/* 评论区（房间成员实时讨论；一起听无视频画面，隐藏弹幕开关）。
               评论监听常挂载：收起侧栏不中断 new-comment 监听 */}
           <div className="flex h-[min(42vh,360px)] min-h-0 shrink-0 flex-col">
@@ -146,9 +153,11 @@ export function MusicSideDock({
             <RoomInfoPanel roomId={roomId} isHost={isHost} />
           </div>
           {/* 流量统计（内容较少，自适应高度） */}
-          <div className="shrink-0">
-            <TrafficPanel embedded />
-          </div>
+          {showTraffic && (
+            <div className="shrink-0">
+              <TrafficPanel embedded />
+            </div>
+          )}
         </div>
       </aside>
     </>

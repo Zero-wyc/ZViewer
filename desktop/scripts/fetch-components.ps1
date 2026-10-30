@@ -1,5 +1,9 @@
 ﻿# 拉取桌面端的可选组件：cloudflared、EasyTier 与 FRP（维护者用）。
 #
+# 语音组件 livekit 也放在同一个组件库，但**不归本脚本管**：它的版本钉在
+# backend-go/internal/livekit/livekit.go 的 BinaryVersion，由后端在第一次用语音时
+# 下载（官方 zip 里只留 livekit-server.exe + LICENSE，重新打包后上传即可）。
+#
 # 这几个二进制**不进桌面运行包**，也不在源码仓库里：它们放在 Zero-wyc/ZviewerRelease
 # 的 components 分支（组件库），GUI 第一次用到时按 GitCode 直链下载
 # （desktop/controller/components.go）。2026-10-30 前 cloudflared / EasyTier 在本仓库的

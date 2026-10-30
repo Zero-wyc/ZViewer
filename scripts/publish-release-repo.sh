@@ -20,7 +20,7 @@
 #   MIRROR_PUSH_URL     可选，第二个推送地址（GitCode 产物仓库）。给了就推同一份孤儿提交，
 #                       客户端正是从那边取清单和安装包，必须跟着发版一起更新。
 #   VERIFY_MIRROR       可选，默认 1：推完 GitCode 后回读 latest.json 与一个安装包，核对是否落地
-#   VERIFY_COMPONENTS   可选，默认 1：顺带自检 components 分支的组件库（cloudflared/EasyTier/frpc）
+#   VERIFY_COMPONENTS   可选，默认 1：顺带自检 components 分支的组件库（cloudflared/EasyTier/frpc/livekit）
 #                       是否可取、大小是否与 components.json 一致；只告警不失败
 #   COMPONENTS_REF      可选，组件库分支名，默认 components
 #   MIRROR_RAW_BASE     可选，覆盖清单/下载地址前缀（默认 GitCode 的 /raw 接口，换通道时改这里）
@@ -156,7 +156,7 @@ platform_of() {
   echo "## 其他"
   echo ""
   echo "- 更新日志：[GitHub Release ${TAG}](https://github.com/Zero-wyc/ZViewer/releases/tag/${TAG})"
-  echo "- 桌面端可选组件（cloudflared、EasyTier、frpc）：本仓库的 [\`components\` 分支](https://github.com/Zero-wyc/ZviewerRelease/tree/components)，不随发版替换"
+  echo "- 桌面端可选组件（cloudflared、EasyTier、frpc、livekit）：本仓库的 [\`components\` 分支](https://github.com/Zero-wyc/ZviewerRelease/tree/components)，不随发版替换"
   echo "- 校验：每个包的 SHA-256 见 \`latest.json\`"
 } > "${OUT}/README.md"
 
@@ -227,7 +227,7 @@ else
 fi
 
 # ---- 组件库自检 ----
-# 桌面端的 cloudflared、EasyTier 与 frpc 只从本仓库的 components 分支下载（2026-10-30 从主仓库
+# 桌面端的 cloudflared、EasyTier、frpc 与 livekit 只从本仓库的 components 分支下载（2026-10-30 从主仓库
 # public/ 迁过来）。那条分支不由本脚本维护，但它一坏用户就装不上组件，所以发版时顺手确认：
 # 清单读得到、每个文件取得到、字节数与清单一致。只告警不失败——组件问题是另一条链路的事，
 # 不该把已经发好的版本判成失败。

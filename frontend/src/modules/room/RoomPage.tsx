@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useRoomStore } from '@/store/roomStore'
 import { useAuthStore } from '@/store/authStore'
+import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { setClientLoggerRoomId } from '@/lib/clientLogger'
 import { useSocket } from '@/hooks/useSocket'
@@ -57,6 +58,15 @@ function RoomPage() {
   // 身份判断：仅通过 sessionStorage 标记判断房主身份，URL 不再携带 role/mode 参数。
   // 房主创建房间时写入 sessionStorage，刷新后仍可识别；观众进入时 sessionStorage 无标记。
   const isHost = roomId ? isHostOfRoom(roomId) : false
+
+  // 房间右下角语音 / 左下角流量入口的显示开关（管理端「基础设置」可关）。
+  // 只影响悬浮按钮是否渲染，已建立的语音连接与统计口径都不受影响。
+  const showVoiceChatButton = useSystemSettingsStore(
+    (state) => state.showVoiceChatButton
+  )
+  const showTrafficPanel = useSystemSettingsStore(
+    (state) => state.showTrafficPanel
+  )
 
   const storeMode = useRoomStore((state) => state.mode)
   const setMode = useRoomStore((state) => state.setMode)
@@ -544,8 +554,8 @@ function RoomPage() {
     return (
       <>
         {roomLayout}
-        {voiceChatPanel}
-        {trafficPanel}
+        {showVoiceChatButton && voiceChatPanel}
+        {showTrafficPanel && trafficPanel}
       </>
     )
   }
@@ -567,8 +577,8 @@ function RoomPage() {
       <WatchPage />
       {!audienceInMusic && (
         <>
-          {voiceChatPanel}
-          {audienceTrafficPanel}
+          {showVoiceChatButton && voiceChatPanel}
+          {showTrafficPanel && audienceTrafficPanel}
         </>
       )}
     </>

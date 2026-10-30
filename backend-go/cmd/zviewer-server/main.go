@@ -233,6 +233,13 @@ func main() {
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
+	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
+	// 没有外部编排，必须由后端作为伴生进程拉起。二进制**默认不随包分发**，
+	// 第一次用语音时由房间里的「下载语音聊天组件」触发（见 internal/livekit/component.go），
+	// 所以这里先构造管理器，HTTP 起来之后才能响应 /api/voice/status。
+	livekitMgr := livekit.New(livekit.ConfigFromEnv())
+	livekitMgr.PrepareEnv()
+
 	server := api.New(api.Deps{
 		Cfg:      cfg,
 		DB:       conn,
@@ -263,6 +270,7 @@ func main() {
 		Danmaku:       danmaku.NewService(biliService),
 		NCM:           ncm.NewService(conn),
 		NMS:           streamPush,
+		VoiceBin:      livekitMgr,
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），
@@ -284,11 +292,10 @@ func main() {
 	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
 	// 没有外部编排，必须由后端作为伴生进程拉起——否则语音直接不可用。
 	// 环境变量注入是同步的（/api/voice/token 立刻能签），找二进制/下载/等端口
-	// 放后台，不阻塞 HTTP 监听。
-	livekitMgr := livekit.New(livekit.ConfigFromEnv())
-	livekitMgr.PrepareEnv()
+	// 放后台，不阻塞 HTTP 监听。二进制缺失时 Run 直接返回，等前端触发下载后
+	// 由 Manager.Start 记录的 ctx 补拉（startAfterInstall）。
 	livekitCtx, stopLivekit := context.WithCancel(context.Background())
-	go livekitMgr.Run(livekitCtx)
+	livekitMgr.Start(livekitCtx)
 
 	// HTTPS 模式：证书缺失时自动签一张本机自签证书。
 	// 屏幕共享与语音在非安全上下文里会被浏览器禁用，局域网用户靠这张证书

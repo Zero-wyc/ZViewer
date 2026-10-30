@@ -319,6 +319,9 @@ func (s *Server) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 		matrix = json.RawMessage("null")
 	}
 
+	// 房间悬浮入口开关（config/ui-prefs.json，不在库里）。
+	prefs := s.uiPrefs()
+
 	httpx.OK(w, map[string]any{
 		"success": true,
 		"settings": map[string]any{
@@ -332,6 +335,8 @@ func (s *Server) handlePublicSettings(w http.ResponseWriter, r *http.Request) {
 			"roomPermissionMatrix":      matrix,
 			"announceAutoPopupOnUpdate": settings.AnnounceAutoPopupOnUpdate,
 			"roomDefaultMusicVolume":    settings.RoomDefaultMusicVolume,
+			"showVoiceChatButton":       prefs.ShowVoiceChatButton,
+			"showTrafficPanel":          prefs.ShowTrafficPanel,
 			"appVersion":                localVersion(s.Cfg.ProjectRoot),
 			"desktopManaged":            isDesktopManaged(),
 		},

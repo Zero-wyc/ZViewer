@@ -4,7 +4,7 @@
   if (!ui || !window.zviewerDesktop) return;
   const { state, icon, esc, heading, button, notice, tutorial } = ui;
   const $ = selector => document.querySelector(selector);
-  const labels = { stopped: '未启动', starting: '启动中', running: '运行中', stopping: '停止中', error: '异常', degraded: '待检查', connecting: '连接中', registered: '代理已注册' };
+  const labels = { stopped: '未启动', starting: '启动中', running: '运行中', stopping: '停止中', error: '异常', degraded: '待检查', connecting: '连接中', registered: '代理已注册', missing: '待下载' };
   // LiveKit 信令端口固定为主项目的 defaultHTTPPort（backend-go/internal/livekit/livekit.go），
   // 面板只读展示：它由 /rtc 反代使用，允许改动只会让面板与实际监听错位。
   const LIVEKIT_SIGNAL_PORT = 3336;

@@ -83,7 +83,13 @@ const (
 // Config 是启动所需的全部输入（进程启动时解析一次）。
 type Config struct {
 	// External 为 true 时不拉起本地 LiveKit（LIVEKIT_EXTERNAL=1）。
+	//
+	// 桌面 GUI 就是这种形态：壳自己按界面里的端口/网卡起 livekit-server。
 	External bool
+	// AllowDownload 为 true 时即使 External，也允许网页端触发组件下载
+	// （LIVEKIT_COMPONENT_DOWNLOAD=1，桌面壳下发）。壳那边轮询文件出现后自行拉起，
+	// 所以下载完不在这里 spawn。
+	AllowDownload bool
 	// Bind 是监听地址，默认 `::`（双栈）。
 	Bind string
 	// Ports 是裁决后的端口。
@@ -112,6 +118,17 @@ type Manager struct {
 
 	mu  sync.Mutex
 	cmd *exec.Cmd
+	// runCtx 是启动时记录的上下文：组件是**按需下载**的，装完后要用它
+	// 把伴生进程补拉起来（不能借 HTTP 请求的 ctx，那个早就取消了）。
+	runCtx context.Context
+
+	// 组件下载状态（见 component.go 的 State* 常量），Status 读取。
+	sm       sync.Mutex
+	state    string
+	progress int
+	received int64
+	total    int64
+	message  string
 }
 
 // ConfigFromEnv 读取环境变量并裁决端口。
@@ -119,15 +136,16 @@ func ConfigFromEnv() Config {
 	ports := resolvePorts(os.Getenv)
 
 	cfg := Config{
-		External:  strings.TrimSpace(os.Getenv("LIVEKIT_EXTERNAL")) == "1",
-		Bind:      strings.TrimSpace(os.Getenv("LIVEKIT_BIND")),
-		Ports:     ports,
-		Turn:      readTurnConfig(os.Getenv),
-		NodeIP:    strings.TrimSpace(os.Getenv("LIVEKIT_NODE_IP")),
-		APIKey:    firstNonEmpty(os.Getenv("LIVEKIT_API_KEY"), defaultAPIKey),
-		APISecret: firstNonEmpty(os.Getenv("LIVEKIT_API_SECRET"), defaultAPISecret),
-		APIHost:   firstNonEmpty(os.Getenv("LIVEKIT_API_HOST"), fmt.Sprintf("http://127.0.0.1:%d", defaultHTTPPort)),
-		Logf:      log.Printf,
+		External:      strings.TrimSpace(os.Getenv("LIVEKIT_EXTERNAL")) == "1",
+		AllowDownload: strings.TrimSpace(os.Getenv("LIVEKIT_COMPONENT_DOWNLOAD")) == "1",
+		Bind:          strings.TrimSpace(os.Getenv("LIVEKIT_BIND")),
+		Ports:         ports,
+		Turn:          readTurnConfig(os.Getenv),
+		NodeIP:        strings.TrimSpace(os.Getenv("LIVEKIT_NODE_IP")),
+		APIKey:        firstNonEmpty(os.Getenv("LIVEKIT_API_KEY"), defaultAPIKey),
+		APISecret:     firstNonEmpty(os.Getenv("LIVEKIT_API_SECRET"), defaultAPISecret),
+		APIHost:       firstNonEmpty(os.Getenv("LIVEKIT_API_HOST"), fmt.Sprintf("http://127.0.0.1:%d", defaultHTTPPort)),
+		Logf:          log.Printf,
 	}
 	if cfg.Bind == "" {
 		cfg.Bind = defaultBind
@@ -155,7 +173,42 @@ func New(cfg Config) *Manager {
 	if cfg.Ports.UDP == 0 {
 		cfg.Ports.UDP = defaultUDPPort
 	}
-	return &Manager{cfg: cfg}
+	// 自托管（非 External）时组件一定由本进程管理，下载权限天然成立。
+	if !cfg.External {
+		cfg.AllowDownload = true
+	}
+	return &Manager{cfg: cfg, state: StateIdle}
+}
+
+// Start 记录运行上下文并在后台拉起伴生进程（进程启动时调用一次）。
+//
+// 与直接 `go Run(ctx)` 的区别：这里把 ctx 存下来，供「组件下载完成后补拉」使用。
+func (m *Manager) Start(ctx context.Context) {
+	m.mu.Lock()
+	m.runCtx = ctx
+	m.mu.Unlock()
+	go m.Run(ctx)
+}
+
+// startAfterInstall 在组件刚装好时把伴生进程拉起来。
+//
+// 启动时若二进制缺失，Run 会直接返回（什么都没做），所以装完必须主动再跑一次，
+// 否则用户得重启整个后端才有语音。
+func (m *Manager) startAfterInstall() {
+	// 桌面壳托管时进程由壳拉起（它轮询文件出现），这里不抢。
+	if m.cfg.External {
+		return
+	}
+	m.mu.Lock()
+	ctx := m.runCtx
+	m.mu.Unlock()
+	if ctx == nil || ctx.Err() != nil {
+		return
+	}
+	if m.Running() {
+		return
+	}
+	go m.Run(ctx)
 }
 
 func (m *Manager) logf(format string, args ...any) { m.cfg.Logf(format, args...) }
@@ -209,9 +262,9 @@ func (m *Manager) Run(ctx context.Context) {
 	bin := m.findBinary()
 	if bin == "" {
 		if !isDevBuild() {
-			m.logf("[voice] 未找到 livekit-server 伴生二进制且未配置外置 LiveKit——语音功能不可用。" +
-				"容器部署：请用最新镜像重建（构建前先跑 node build-all.js --linux 生成 dist/linux/livekit-server）；" +
-				"单文件部署：请使用完整 build-all 产物包（含 livekit-server）")
+			m.logf("[voice] 未找到 livekit-server（默认不再随包分发）——等待按需下载："+
+				"房间右下角「语音聊天」→「下载语音聊天组件」，或手动把 %s 放到 %s",
+				binName(), m.installDir())
 			return
 		}
 		downloaded, err := m.downloadDevBinary(ctx)

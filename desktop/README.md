@@ -132,7 +132,7 @@ npm --prefix desktop run check
 | [frp](https://github.com/fatedier/frp) 客户端 | 0.71.1 | Apache-2.0 | 可选组件，下载到 `runtime/frpc.exe` |
 | [EasyTier](https://github.com/EasyTier/EasyTier) | 2.6.4 | LGPL-3.0 | 可选组件，下载到 `runtime/mesh/`，源码见上游 `v2.6.4` |
 | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) | 0.2.1 | MIT | `runtime/zviewer-cli-windows-amd64.exe` |
-| [LiveKit](https://github.com/livekit/livekit) server | 见运行包 | Apache-2.0 | `runtime/livekit-server.exe` |
+| [LiveKit](https://github.com/livekit/livekit) server | 1.13.7 | Apache-2.0 | 可选组件，语音首次使用时下载到 `runtime/livekit-server.exe` |
 
 均为原样分发的未修改二进制，各自保留许可证文件。
 

@@ -246,6 +246,42 @@ export function SettingsTab({
           </div>
 
           <Title level={5} className="mb-4 mt-6">
+            房间悬浮入口
+          </Title>
+          <div className="mb-6 max-w-md space-y-4">
+            <div>
+              <Switch
+                label="显示语音聊天按钮"
+                checked={settings.showVoiceChatButton}
+                onChange={(e) =>
+                  onSettingsChange((prev) => ({
+                    ...prev,
+                    showVoiceChatButton: e.target.checked,
+                  }))
+                }
+              />
+              <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                关闭后房间右下角不显示语音入口。
+              </p>
+            </div>
+            <div>
+              <Switch
+                label="显示流量统计按钮"
+                checked={settings.showTrafficPanel}
+                onChange={(e) =>
+                  onSettingsChange((prev) => ({
+                    ...prev,
+                    showTrafficPanel: e.target.checked,
+                  }))
+                }
+              />
+              <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+                关闭后房间左下角不显示流量统计。
+              </p>
+            </div>
+          </div>
+
+          <Title level={5} className="mb-4 mt-6">
             公告
           </Title>
           <div className="mb-6 max-w-md">

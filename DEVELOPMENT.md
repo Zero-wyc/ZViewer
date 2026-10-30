@@ -216,7 +216,7 @@ npm run db:backup -- ../config/db-backups/zviewer-20261025.sqlite   # 内部 VAC
 | 启动报「数据库不存在」/「缺少 N 张表」 | 没跑 `db:init`，或 `CONFIG_DIR` / `DATABASE_URL` 指错 |
 | 端口被占用 | `netstat -ano \| grep :3333` 找 PID；热重载会自己杀旧进程，`go run` 起的不会 |
 | 目录多出 `dev.sqlite-wal` / `-shm` | WAL 正常现象，别手删；要退回旧模式设 `SQLITE_WAL=0` |
-| 语音进不去 | 看 `[livekit]` 日志；`backend-go/dev-bin/livekit-server.exe` 缺失会导致伴生进程起不来 |
+| 语音进不去 | 看 `[livekit]` 日志；Windows 包不带二进制，房间里点「下载语音聊天组件」；开发环境放 `backend-go/dev-bin/livekit-server.exe` |
 | 登录后立刻掉线 | 明文 HTTP 下不写 cookie，前端改走 localStorage + `Authorization`；用 HTTPS 排查 |
 | 前端 401 但 curl 正常 | 没带 token，curl 复现时加 `-H "Authorization: Bearer ..."` |
 | `gofmt -l .` 有输出 | `gofmt -w <file>`，CI 会拦 |
