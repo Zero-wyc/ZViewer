@@ -6,7 +6,7 @@
  */
 import assert from 'node:assert/strict'
 import { describe, it } from 'node:test'
-import { pickBiliPartMeta } from '../biliPartName.ts'
+import { normalizeBiliPages, pickBiliPartMeta } from '../biliPartName.ts'
 
 const view = {
   title: '【Hi-Res无损音质】盘点华语经典100首',
@@ -100,5 +100,55 @@ describe('pickBiliPartMeta', () => {
       '兜底'
     )
     assert.equal(meta.name, '第一首')
+  })
+
+  it('单P时长：分P自身时长优先，缺失时用视频总时长兜底', () => {
+    const fromPage = pickBiliPartMeta(
+      {
+        title: 't',
+        duration: 400,
+        pages: [{ page: 1, cid: 1, duration: 212 }],
+      },
+      1,
+      '标题'
+    )
+    assert.equal(fromPage.durationSec, 212)
+    const fromVideo = pickBiliPartMeta(
+      { title: 't', duration: 400, pages: [{ page: 1, cid: 1 }] },
+      1,
+      '标题'
+    )
+    assert.equal(fromVideo.durationSec, 400)
+  })
+
+  it('传入已归一化的分P列表时结果与内部归一化一致', () => {
+    const normalized = normalizeBiliPages(view)
+    assert.deepEqual(
+      pickBiliPartMeta(view, 107, '兜底', normalized),
+      pickBiliPartMeta(view, 107, '兜底')
+    )
+  })
+})
+
+describe('normalizeBiliPages', () => {
+  it('剔除非法 cid、按 cid 去重、按 page 升序', () => {
+    const pages = normalizeBiliPages({
+      pages: [
+        { page: 3, cid: 30, part: 'c' },
+        { page: 1, cid: 10, part: 'a' },
+        { page: 1, cid: 10, part: 'a 重复' },
+        { page: 2, cid: 0 },
+        { page: 4, cid: -5 },
+      ],
+    })
+    assert.deepEqual(
+      pages.map((p) => p.cid),
+      [10, 30]
+    )
+  })
+
+  it('空详情返回空数组', () => {
+    assert.deepEqual(normalizeBiliPages(null), [])
+    assert.deepEqual(normalizeBiliPages({ pages: null }), [])
   })
 })

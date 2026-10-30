@@ -1,7 +1,15 @@
-import { getBilibiliVideoView, type BilibiliVideoItem, type BilibiliVideoViewInfo } from '@/modules/bilibili/bilibiliApi'
+import {
+  getBilibiliVideoView,
+  type BilibiliVideoItem,
+  type BilibiliVideoViewInfo,
+} from '@/modules/bilibili/bilibiliApi'
 import type { MusicQueueItem } from './types'
 import { portableMusicCoverUrl } from './utils/neteaseImage'
-import { pickBiliPartMeta, type BiliPartMeta } from './utils/biliPartName'
+import {
+  normalizeBiliPages,
+  pickBiliPartMeta,
+  type BiliPartMeta,
+} from './utils/biliPartName'
 
 /**
  * 视频详情短缓存（bvid → 进行中的请求）。
@@ -47,38 +55,60 @@ export async function resolveBiliPartMeta(
   }
 }
 
-/** A BV's total duration is not the duration of any one CID. */
-export function expandBilibiliParts(item: BilibiliVideoItem, view: BilibiliVideoViewInfo): MusicQueueItem[] {
-  const seen = new Set<number>()
-  const pages = (view.pages || []).filter(page => {
-    if (!Number.isSafeInteger(page.cid) || page.cid <= 0 || seen.has(page.cid)) return false
-    seen.add(page.cid)
-    return true
-  })
-    .sort((a, b) => a.page - b.page)
-  if (!pages.length && (view.cid || item.cid)) pages.push({ page: 1, cid: view.cid || item.cid!, part: item.title, duration: view.duration })
+/**
+ * 把一支 BV 展开成「一首歌 = 一个分P」的队列条目。
+ *
+ * 命名/时长规则统一走 `pickBiliPartMeta`（与相关推荐同源），这里只负责
+ * 归一化分P列表和组装队列字段——两套规则各写一份迟早会漂移。
+ */
+export function expandBilibiliParts(
+  item: BilibiliVideoItem,
+  view: BilibiliVideoViewInfo
+): MusicQueueItem[] {
+  const pages = normalizeBiliPages(view)
+  if (!pages.length && (view.cid || item.cid))
+    pages.push({
+      page: 1,
+      cid: view.cid || item.cid!,
+      part: item.title,
+      duration: view.duration,
+    })
   if (!pages.length) throw new Error('没有找到可播放的分P')
   return pages.map((page, index) => {
-    const duration = page.duration ?? (pages.length === 1 ? view.duration : 0)
-    return { id: -1, roomId: '', songId: 0,
-    name: pages.length > 1 ? page.part?.trim() || `${view.title || item.title} · P${page.page}` : item.title,
-    artist: view.upName || item.upName || '哔哩哔哩', album: pages.length > 1 ? view.title || item.title : '',
-    cover: portableMusicCoverUrl(view.pic || item.pic),
-    durationMs: Number.isFinite(duration) ? Math.round(Math.max(0, duration) * 1000) : 0,
-    vip: false, order: index, addedBy: '', biliBvid: item.bvid, biliCid: page.cid }
+    const meta = pickBiliPartMeta(view, page.cid, item.title, pages)
+    return {
+      id: -1,
+      roomId: '',
+      songId: 0,
+      name: meta.name,
+      artist: view.upName || item.upName || '哔哩哔哩',
+      album: meta.album,
+      cover: portableMusicCoverUrl(view.pic || item.pic),
+      durationMs: Math.round(Math.max(0, meta.durationSec) * 1000),
+      vip: false,
+      order: index,
+      addedBy: '',
+      biliBvid: item.bvid,
+      biliCid: page.cid,
+    }
   })
 }
 
-export async function loadBilibiliParts(item: BilibiliVideoItem): Promise<MusicQueueItem[]> {
+export async function loadBilibiliParts(
+  item: BilibiliVideoItem
+): Promise<MusicQueueItem[]> {
   return expandBilibiliParts(item, await loadBilibiliView(item.bvid))
 }
 
 /** Append in order; only start after the first acknowledged queue write. */
-export async function enqueueBilibiliParts(tracks: readonly MusicQueueItem[], deps: {
-  enqueue: (track: MusicQueueItem) => Promise<void>
-  isCurrent: () => boolean
-  play?: (track: MusicQueueItem) => void
-}): Promise<void> {
+export async function enqueueBilibiliParts(
+  tracks: readonly MusicQueueItem[],
+  deps: {
+    enqueue: (track: MusicQueueItem) => Promise<void>
+    isCurrent: () => boolean
+    play?: (track: MusicQueueItem) => void
+  }
+): Promise<void> {
   for (let index = 0; index < tracks.length; index++) {
     if (!deps.isCurrent()) return
     await deps.enqueue(tracks[index])

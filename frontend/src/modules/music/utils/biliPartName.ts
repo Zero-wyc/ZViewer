@@ -22,6 +22,8 @@ export interface BiliViewPageLike {
 
 export interface BiliViewLike {
   title?: string | null
+  /** 视频总时长（秒）。仅单 P 时用作该 P 的时长兜底 */
+  duration?: number | null
   pages?: BiliViewPageLike[] | null
 }
 
@@ -37,25 +39,54 @@ export interface BiliPartMeta {
 }
 
 /**
+ * 归一化分P列表：剔除无效 cid、按 cid 去重、按 page 升序。
+ *
+ * 「挑一首」和「整集展开」都必须基于同一份列表，否则同一个视频在两条路径下
+ * 会得到不同的分P集合（历史上 expand 去重、pick 不去重，就是这种漂移的开始）。
+ */
+export function normalizeBiliPages(
+  view: BiliViewLike | null | undefined
+): BiliViewPageLike[] {
+  const seen = new Set<number>()
+  return (view?.pages || [])
+    .filter((p) => {
+      if (!Number.isSafeInteger(p.cid) || p.cid <= 0 || seen.has(p.cid)) {
+        return false
+      }
+      seen.add(p.cid)
+      return true
+    })
+    .slice()
+    .sort((a, b) => a.page - b.page)
+}
+
+/**
  * 按 cid 从视频详情里挑分P名。
  *
  * @param view 视频详情（`/api/stream/bilibili/view` 的返回，可为空）
  * @param cid 目标分P的 cid（相关推荐给的是首P；0/缺省时取第一个有效分P）
  * @param fallbackTitle 拿不到分P信息时的兜底标题（一般是视频标题）
+ * @param normalized 已经过 `normalizeBiliPages` 的列表（展开整集时复用，
+ *   避免对每个分P重复过滤排序）
  */
 export function pickBiliPartMeta(
   view: BiliViewLike | null | undefined,
   cid: number | null | undefined,
-  fallbackTitle: string
+  fallbackTitle: string,
+  normalized?: BiliViewPageLike[]
 ): BiliPartMeta {
   const title = (view?.title || '').trim()
-  const pages = (view?.pages || [])
-    .filter((p) => Number.isSafeInteger(p.cid) && p.cid > 0)
-    .slice()
-    .sort((a, b) => a.page - b.page)
-  // 单P视频：视频标题就是曲名，没有更细的名字可用
+  const pages = normalized ?? normalizeBiliPages(view)
+  // 单P视频：视频标题就是曲名，没有更细的名字可用；总时长此时就是这首的时长
   if (pages.length <= 1) {
-    return { name: fallbackTitle, album: '', durationSec: 0, multiPart: false }
+    const only = pages[0]
+    const durationSec =
+      only && typeof only.duration === 'number' && only.duration > 0
+        ? only.duration
+        : typeof view?.duration === 'number' && view.duration > 0
+          ? view.duration
+          : 0
+    return { name: fallbackTitle, album: '', durationSec, multiPart: false }
   }
   const wanted =
     Number.isSafeInteger(cid) && (cid as number) > 0 ? (cid as number) : 0
