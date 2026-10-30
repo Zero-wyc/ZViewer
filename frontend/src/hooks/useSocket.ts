@@ -4,7 +4,7 @@ import { useAuthStore, type User } from '@/store/authStore'
 import {
   apiFetch,
   getSocketUrl,
-  getRefreshToken,
+  refreshAccessToken,
   saveAuthTokens,
   resetSessionExpired,
 } from '@/lib/api'
@@ -30,7 +30,7 @@ function getSocket(): Socket {
   if (globalSocket) return globalSocket
 
   const socketUrl = getSocketUrl()
-  globalSocket = io(socketUrl, {
+  const socket = io(socketUrl, {
     transports: ['websocket', 'polling'],
     autoConnect: false,
     withCredentials: true,
@@ -39,6 +39,69 @@ function getSocket(): Socket {
     auth: (cb: (data: Record<string, string>) => void) => {
       cb(buildSocketAuth())
     },
+  })
+  globalSocket = socket
+
+  // Only natural JWT expiry may recover a server DISCONNECT; kicks must stay final.
+  // Install once on the shared socket so each useSocket subscriber shares recovery.
+  let authExpired = false
+  let recoveringServerDisconnect = false
+  let recoveryGeneration = 0
+  socket.on('auth-expired', (payload: { code?: string } | undefined) => {
+    authExpired = payload?.code === 'TOKEN_EXPIRED'
+  })
+  const clearExpiryNotice = () => {
+    authExpired = false
+    recoveryGeneration++
+  }
+  socket.on('connect', clearExpiryNotice)
+  socket.on('viewer-kicked', clearExpiryNotice)
+  socket.on('room-closed', clearExpiryNotice)
+  socket.on('disconnect', (reason: string) => {
+    const expired = authExpired
+    clearExpiryNotice()
+    if (
+      reason !== 'io server disconnect' ||
+      !expired ||
+      recoveringServerDisconnect
+    ) {
+      return
+    }
+    const auth = useAuthStore.getState()
+    const user = auth.user
+    if (!user || auth.hasLoggedOut || refCount <= 0) return
+
+    const generation = recoveryGeneration
+    const canRecover = () => {
+      const currentAuth = useAuthStore.getState()
+      return (
+        globalSocket === socket &&
+        refCount > 0 &&
+        currentAuth.user === user &&
+        !currentAuth.hasLoggedOut &&
+        generation === recoveryGeneration &&
+        !socket.connected
+      )
+    }
+    recoveringServerDisconnect = true
+    const recover = async () => {
+      for (let attempt = 0; attempt < 3 && canRecover(); attempt++) {
+        const refreshed = await refreshAccessToken()
+        if (!canRecover()) return
+        if (refreshed) {
+          socket.connect()
+          return
+        }
+        if (attempt < 2) {
+          await new Promise((resolve) =>
+            setTimeout(resolve, attempt === 0 ? 1000 : 3000)
+          )
+        }
+      }
+    }
+    void recover().finally(() => {
+      recoveringServerDisconnect = false
+    })
   })
 
   // 调试钩子：暴露 socket 到 window 以便检查内部状态
@@ -181,21 +244,9 @@ export function useSocket() {
       isRefreshingRef.current = true
       try {
         // Step 1: 尝试 refresh access token
-        const res = await apiFetch('/api/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refreshToken: getRefreshToken() }),
-        })
-        if (res.ok) {
-          const data = (await res.json()) as {
-            success?: boolean
-            accessToken?: string
-          }
-          if (data.success) {
-            if (data.accessToken) saveAuthTokens(data.accessToken)
-            reconnectSocket()
-            return
-          }
+        if (await refreshAccessToken()) {
+          reconnectSocket()
+          return
         }
 
         // Step 2: refresh 失败 → 获取 guest token 作为降级身份

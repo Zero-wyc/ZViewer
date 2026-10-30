@@ -47,6 +47,14 @@ func (s *Service) CleanupInactiveRooms(ctx context.Context) int {
 
 	removed := 0
 	for _, roomID := range roomIDs {
+		room, err := s.Rooms.FindByRoomID(ctx, roomID)
+		if err != nil {
+			s.logf("读取待清理房间 %s 失败: %v", roomID, err)
+			continue
+		}
+		if s.IsStreamPublishing(room) {
+			continue
+		}
 		if err := s.DeleteRoomAndRelations(ctx, roomID); err != nil {
 			s.logf("清理房间 %s 失败: %v", roomID, err)
 			continue

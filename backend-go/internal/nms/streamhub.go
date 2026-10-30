@@ -21,6 +21,8 @@ type flvTag struct {
 const (
 	maxGOPBytes = 12 << 20
 	maxGOPTags  = 1200
+	// A connected but stalled publisher must not keep its room alive forever.
+	publishingIdleTimeout = time.Minute
 )
 
 type flvSub struct {
@@ -29,13 +31,14 @@ type flvSub struct {
 }
 
 type liveStream struct {
-	key      string
-	meta     map[string]any
-	audioSeq []byte
-	videoSeq []byte
-	gop      []flvTag
-	gopBytes int
-	subs     map[*flvSub]struct{}
+	key            string
+	lastActivityAt time.Time
+	meta           map[string]any
+	audioSeq       []byte
+	videoSeq       []byte
+	gop            []flvTag
+	gopBytes       int
+	subs           map[*flvSub]struct{}
 }
 
 // streamHub 维护「正在推的流 → 订阅者」的映射，并做 GOP 缓存。
@@ -46,10 +49,11 @@ type liveStream struct {
 type streamHub struct {
 	mu      sync.Mutex
 	streams map[string]*liveStream
+	now     func() time.Time
 }
 
 func newStreamHub() *streamHub {
-	return &streamHub{streams: make(map[string]*liveStream, 4)}
+	return &streamHub{streams: make(map[string]*liveStream, 4), now: time.Now}
 }
 
 func (h *streamHub) start(key string) *liveStream {
@@ -58,8 +62,20 @@ func (h *streamHub) start(key string) *liveStream {
 	if h.streams[key] != nil {
 		return nil
 	}
-	h.streams[key] = &liveStream{key: key, subs: make(map[*flvSub]struct{}, 2)}
+	// Give a new publisher one idle window to send its first media packet.
+	h.streams[key] = &liveStream{key: key, lastActivityAt: h.now(), subs: make(map[*flvSub]struct{}, 2)}
 	return h.streams[key]
+}
+
+func (h *streamHub) isPublishing(key string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	ls := h.streams[key]
+	if ls == nil {
+		return false
+	}
+	idle := h.now().Sub(ls.lastActivityAt)
+	return idle >= 0 && idle <= publishingIdleTimeout
 }
 
 func (h *streamHub) stop(key string, owner ...*liveStream) {
@@ -97,6 +113,7 @@ func (h *streamHub) audio(key string, ts uint32, payload []byte, owner ...*liveS
 	if ls == nil || (len(owner) > 0 && owner[0] != ls) {
 		return false
 	}
+	ls.lastActivityAt = h.now()
 	if isAudioSequenceHeader(payload) {
 		ls.audioSeq = payload
 		return true
@@ -117,6 +134,7 @@ func (h *streamHub) video(key string, ts uint32, payload []byte, owner ...*liveS
 	if ls == nil || (len(owner) > 0 && owner[0] != ls) {
 		return false
 	}
+	ls.lastActivityAt = h.now()
 	if isVideoSequenceHeader(payload) {
 		ls.videoSeq = payload
 		return true

@@ -358,16 +358,7 @@ func (s *Service) handleHostLeave(sc *sio.Socket, ack func(...any)) {
 	if err := s.Playback.UpdateHostSocket(ctx, roomID, nil); err != nil {
 		s.Logger.Printf("[host-leave] 清空房主 socket 失败: %v", err)
 	}
-	if s.Hub != nil {
-		s.Hub.EmitRoom(roomID, "host-disconnected", map[string]any{"roomId": roomID})
-	}
-
-	settings := s.Settings
-	s.StartReconnectTimer(roomID, func() {
-		closeCtx, closeCancel := handlerCtx()
-		defer closeCancel()
-		s.CloseAfterHostGrace(closeCtx, settings, roomID, sc.ID)
-	})
+	s.hostControlDisconnected(ctx, roomID, sc.ID)
 
 	sc.Leave(roomID)
 	ackOK(ack, nil)
@@ -619,11 +610,15 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 		return
 	}
 
-	// 房主在线判定：需审批的房间必须有人在审批，免审批的允许房主
-	// 短暂离线（hostJoinGrace 内）。
+	// A live OBS publisher can outlast the browser session. New approval
+	// requests still require a connected host; existing grants remain valid.
+	alreadyApproved := uid != nil && *uid > 0 && approvedContains(room.ApprovedViewers, *uid)
 	var sharer *store.Session
 	if room.RequireApproval {
 		sharer, err = s.Sharer(ctx, payload.RoomID)
+		if sharer != nil && s.Hub != nil && !s.Hub.Connected(sharer.SocketID) {
+			sharer = nil
+		}
 	} else {
 		sharer, err = s.RecentSharer(ctx, payload.RoomID, hostJoinGrace)
 	}
@@ -632,7 +627,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 		ackFail(ack, "加入房间失败")
 		return
 	}
-	if sharer == nil {
+	if sharer == nil && !((!room.RequireApproval || alreadyApproved) && s.IsStreamPublishing(room)) {
 		ackFail(ack, "分享端不在线")
 		return
 	}
@@ -643,7 +638,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	}
 
 	// 需审批：已批准过的用户（持久化白名单）直接进，不必再等房主点一次。
-	if uid != nil && *uid > 0 && approvedContains(room.ApprovedViewers, *uid) {
+	if alreadyApproved {
 		s.finishJoin(ctx, sc, room, uid, true, ack)
 		return
 	}
@@ -849,16 +844,8 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 		if err := s.Playback.UpdateHostSocket(ctx, sess.RoomID, nil); err != nil {
 			s.Logger.Printf("[disconnect] 清空房主 socket 失败 %s: %v", sess.RoomID, err)
 		}
-		if s.Hub != nil {
-			s.Hub.EmitRoom(sess.RoomID, "host-disconnected", map[string]any{"roomId": sess.RoomID})
-		}
-		roomID := sess.RoomID
-		settings := s.Settings
-		s.StartReconnectTimer(roomID, func() {
-			closeCtx, closeCancel := handlerCtx()
-			defer closeCancel()
-			s.CloseAfterHostGrace(closeCtx, settings, roomID, socketID)
-		})
+		s.logf("[disconnect] host control connection closed room=%s reason=%q", sess.RoomID, reason)
+		s.hostControlDisconnected(ctx, sess.RoomID, socketID)
 		return
 	}
 
@@ -867,7 +854,6 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 		// 混用会让「在线人数」偶发不减少）。
 		s.Hub.EmitRoom(sess.RoomID, "viewer-left", map[string]any{"viewerSocketId": socketID})
 	}
-	_ = reason
 }
 
 func validRoomMode(mode string) bool {

@@ -21,6 +21,8 @@
     "lint:go": "cd backend-go && gofmt -l . && go vet ./...",
     "test:go": "cd backend-go && go test ./...",
     "test:regression": "bash backend-go/scripts/regression-sweep.sh",
+    "test:socket-auth": "node --test scripts/socket-auth-recovery.test.mjs",
+    "test:obs-background": "node scripts/obs-background-regression.mjs",
     "test:media": "node --experimental-strip-types --test scripts/media-regression.test.mjs",
     "test:music": "node --experimental-vm-modules --test scripts/music-regression.test.mjs scripts/bilibili-parts.test.mjs scripts/music-toolbar.test.mjs scripts/music-quality.test.mjs",
     "start": "node scripts/start.js",

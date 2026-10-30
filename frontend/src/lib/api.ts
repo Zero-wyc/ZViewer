@@ -233,7 +233,8 @@ type RequestOptions = Omit<RequestInit, 'headers'> & {
  * 并发安全的 refresh token。
  * 多个请求同时遇到 401 时，只发起一次 /api/auth/refresh，其他请求复用结果。
  *
- * sessionExpired 标志：refresh 失败后置位，阻止后续请求反复尝试 refresh（级联失败）。
+ * sessionExpired 标志：refresh 明确返回 401/403 后置位，阻止无效会话反复续签。
+ * 临时服务错误和限流保持可重试，由调用方控制重试次数。
  * 重新登录或页面刷新后自动重置（模块重新加载）。
  *
  * 导出供播放器使用：媒体 URL（appendAuthToken）嵌入的 access token 过期导致
@@ -278,9 +279,8 @@ export async function refreshAccessToken(): Promise<boolean> {
         }
       }
 
-      // refresh 接口明确拒绝（401/403）→ refresh token 也过期
-      // 标记 session 已过期，阻止后续请求反复尝试 refresh
-      sessionExpired = true
+      // 只有认证被明确拒绝才停止续签；502/503/429 等临时失败允许上层重试。
+      if (res.status === 401 || res.status === 403) sessionExpired = true
       return false
     } catch {
       // 网络错误（服务器重启中）→ 不登出，让上层重试

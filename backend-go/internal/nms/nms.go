@@ -300,6 +300,23 @@ func (s *Service) Available() bool {
 	return ok
 }
 
+// IsPublishing reports a currently authorized embedded publisher for this key.
+// A new publisher has one minute to send media; only nonempty audio/video packets
+// refresh that window. External media services expose no trusted per-stream state.
+func (s *Service) IsPublishing(streamKey string) bool {
+	if s == nil || streamKey == "" {
+		return false
+	}
+	s.mu.Lock()
+	srv := s.embedded
+	enabled := !s.cfg.Disabled && s.cfg.Embedded
+	s.mu.Unlock()
+	if !enabled || srv == nil || !srv.isReady() || !srv.hub.isPublishing(streamKey) {
+		return false
+	}
+	return s.publishAllowed(context.Background(), streamKey)
+}
+
 // Invalidate 强制下一次 Available 重新探测。
 //
 // 前端点「重试」、或 NMS 刚被运维拉起来时用；单测也靠它绕过缓存。
