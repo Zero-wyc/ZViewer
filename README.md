@@ -20,6 +20,8 @@
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200919255.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200942428.webp) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200643035.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200707122.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260930211758831.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201053941.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200715093.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201139524.webp) |
 
 ## 功能
 
@@ -35,6 +37,10 @@
 - **部署**：Docker / 单文件版开箱即用，一键自动更新
 
 > 浏览器建议 Chrome / Edge 130+。Safari、Firefox 对 MSE / MKV 支持不完整，可能出现卡顿或字幕异常。
+
+## ZViewerCLI
+
+[ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI)（Go）是跑在用户本地的解析代理：用你自己的 Bilibili Cookie 在本地取流，房间内所有人共享大会员画质，几乎不占服务器带宽。
 
 ## 快速开始
 

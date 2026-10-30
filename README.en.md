@@ -20,6 +20,8 @@ English | **[中文](README.md)**
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200919255.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200942428.webp) |
 | ------------------------------------------------------------ | ------------------------------------------------------------ |
 | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200643035.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200707122.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20260930211758831.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201053941.webp) |
+| ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003200715093.webp) | ![](https://raw.githubusercontent.com/Zero-wyc/Image/main/All/20261003201139524.webp) |
 
 ## Features
 
@@ -35,6 +37,10 @@ English | **[中文](README.md)**
 - **Deployment**: Docker / single-file builds work out of the box, one-click auto update
 
 > Chrome / Edge 130+ is recommended. Safari and Firefox have incomplete MSE / MKV support — you may see stuttering or subtitle glitches.
+
+## ZViewerCLI
+
+[ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) (Go) is a local resolver/proxy: it streams with your own Bilibili cookie so everyone in the room gets premium quality while barely using server bandwidth.
 
 ## Quick Start
 

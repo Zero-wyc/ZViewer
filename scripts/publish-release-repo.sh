@@ -93,30 +93,71 @@ jq -n \
 echo "== latest.json"
 cat "${OUT}/latest.json"
 
+# 仓库首页：GitHub 与 GitCode 上看到的都是这一页，所以下载列两边都给
+# （境内点 GitCode 直链更快，GitHub 那列是 Release 附件，选版本方便）。
+human_size() {
+  awk -v b="$1" 'BEGIN {
+    n = split("B KB MB GB", u, " "); i = 1
+    while (b >= 1024 && i < n) { b /= 1024; i++ }
+    printf (i == 1 ? "%.0f %s" : "%.1f %s"), b, u[i]
+  }'
+}
+
+platform_of() {
+  case "$1" in
+    *-GUI.zip) printf 'Windows 桌面版（推荐）' ;;
+    zviewer-windows-*) printf 'Windows 单文件' ;;
+    *) printf 'Linux' ;;
+  esac
+}
+
 {
-  echo "# ZViewer 预编译包（${TAG}）"
+  echo "# ZViewer 预编译包"
   echo ""
-  echo "由 GitHub Actions 自动发布，内容与 [GitHub Release ${TAG}](https://github.com/Zero-wyc/ZViewer/releases/tag/${TAG}) 完全一致；每次发版会整体替换本仓库。"
+  echo "ZViewer 正式版的打包产物，由 GitHub Actions 自动发布，**每次发版整体替换**——仓库里只有当前版本。"
+  echo "源码、文档与问题反馈在 [Zero-wyc/ZViewer](https://github.com/Zero-wyc/ZViewer)。"
+  echo ""
+  echo "## 当前版本"
+  echo ""
+  echo "| 项目 | 值 |"
+  echo "| --- | --- |"
+  echo "| 版本 | **${TAG}** |"
+  echo "| 构建提交 | [\`${SHA:0:7}\`](https://github.com/Zero-wyc/ZViewer/commit/${SHA}) |"
+  echo "| 发布时间 | $(date -u '+%Y-%m-%d %H:%M') UTC |"
   echo ""
   echo "## 下载"
   echo ""
-  echo "- **Windows**：\`zviewer-windows-x64.zip\` — 解压后运行 \`start.bat\`"
-  echo "- **Windows GUI**：\`zviewer-windows-x64-GUI.zip\` — 解压后运行 \`ZViewerDesktop.exe\`"
-  echo "- **Linux**：\`zviewer-linux-x64.tar.gz\` — 解压后运行 \`./start.sh\`"
+  echo "| 平台 | 文件 | 大小 | 下载 |"
+  echo "| --- | --- | --- | --- |"
+  # Windows 桌面版排最前（多数用户要这个），其余包按 FILES 顺序补齐，新加的包不会漏。
+  readme_order="zviewer-windows-x64-GUI.zip zviewer-windows-x64.zip"
+  for f in ${FILES}; do
+    case " ${readme_order} " in *" ${f} "*) ;; *) readme_order="${readme_order} ${f}" ;; esac
+  done
+  for f in ${readme_order}; do
+    [ -f "${OUT}/${f}" ] || continue
+    size=$(stat -c%s "${OUT}/${f}")
+    echo "| $(platform_of "${f}") | \`${f}\` | $(human_size "${size}") | [GitHub](https://github.com/Zero-wyc/ZViewer/releases/download/${TAG}/${f}) · [GitCode](${MIRROR_URL_BASE}/${f}?ref=${TARGET_BRANCH}) |"
+  done
   echo ""
-  echo "## 下载地址"
+  echo "桌面版解压后运行 \`ZViewerDesktop.exe\`，按界面提示启动服务；单文件版 Windows 运行 \`start.bat\`、Linux 运行 \`./start.sh\`。"
+  echo "启动后访问 \`http://localhost:3333\`，初始账号 \`root\` / \`root\`，登录后立即修改密码。"
   echo ""
-  echo "更新器用的直链（GitCode 仓库文件接口，支持 Range、不走 CloudWAF）："
+  echo "## latest.json"
   echo ""
-  echo "\`\`\`"
-  echo "${MIRROR_URL_BASE}/<文件名>?ref=${TARGET_BRANCH}"
-  echo "\`\`\`"
+  echo "更新器读的版本清单：\`tag\` / \`version\` / \`commit\` / \`publishedAt\`，每个包带 \`size\` / \`sha256\` / \`url\`。"
   echo ""
-  echo "浏览器里手动下载更方便的是 GitHub Release："
-  echo "\`https://github.com/Zero-wyc/ZViewer/releases/download/${TAG}/<文件名>\`"
+  echo '```text'
+  echo "${MIRROR_URL_BASE}/latest.json?ref=${TARGET_BRANCH}"
+  echo '```'
   echo ""
-  echo "构建提交：https://github.com/Zero-wyc/ZViewer/commit/${SHA}"
-  echo "发布时间：$(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  echo "客户端按它判断有没有新版本，境内直连、不需要代理。"
+  echo ""
+  echo "## 其他"
+  echo ""
+  echo "- 更新日志：[GitHub Release ${TAG}](https://github.com/Zero-wyc/ZViewer/releases/tag/${TAG})"
+  echo "- 桌面端可选组件（cloudflared、EasyTier）：本仓库的 [\`components\` 分支](https://github.com/Zero-wyc/ZviewerRelease/tree/components)，不随发版替换"
+  echo "- 校验：每个包的 SHA-256 见 \`latest.json\`"
 } > "${OUT}/README.md"
 
 # 孤儿提交重建：目标仓库历史上永远只有「当前版本」这一个提交，
