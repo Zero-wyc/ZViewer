@@ -95,7 +95,7 @@ npm run package         # 出 ZIP + SHA256
 
 ### 6.1 可选组件（ZviewerRelease 的 components 分支）
 
-桌面端**不随包**带 cloudflared 与 EasyTier，两者放在产物仓库 `Zero-wyc/ZviewerRelease` 的 **`components` 分支**，
+桌面端**不随包**带 cloudflared、EasyTier 与 frpc，三者放在产物仓库 `Zero-wyc/ZviewerRelease` 的 **`components` 分支**，
 GUI 第一次用到时下载（`desktop/controller/components.go`）。地址形如
 `https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw/<文件>?ref=components`。
 
@@ -103,7 +103,8 @@ GUI 第一次用到时下载（`desktop/controller/components.go`）。地址形
 - **不要用 `raw.gitcode.com/.../raw/<branch>/<path>`**：那是预览通道，exe / zip 一律 403。
 - 升级组件：`desktop/scripts/fetch-components.ps1` 拉到 `desktop/.components/` → 覆盖到 `components` 分支并更新
   `components.json` → 改 `components.go` 的 `Version` / `Size` → `cd desktop && go test ./controller -run Component`。
-- 打包只下载 FRP；EasyTier 的 LGPL 许可证副本在 `desktop/assets/LICENSE-EasyTier.txt`。
+- 打包不再下载任何第三方二进制；FRP（Apache-2.0）与 EasyTier（LGPL-3.0）的许可证副本在
+  `desktop/assets/LICENSE-FRP.txt` 与 `LICENSE-EasyTier.txt`。
 
 ### 6.2 发版
 

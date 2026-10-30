@@ -183,3 +183,43 @@ func TestInstallComponentRejectsUnknownName(t *testing.T) {
 		t.Fatal("unknown component must be rejected")
 	}
 }
+
+// frpc 不随包：装到运行包根目录（壳从 runtime/frpc.exe 拉起），
+// 且下载完成后当次会话就能用——不需要重启 GUI。
+func TestFrpComponentLivesInRuntimeRoot(t *testing.T) {
+	root := t.TempDir()
+	c := &Controller{root: root, dir: root, frpc: filepath.Join(root, "frpc.exe")}
+	c.mesh = NewMeshManager(root, filepath.Join(root, "state"), "", func(*Proc, string) error { return nil }, func(string, string, string) {}, func() {})
+
+	report := c.componentReport()
+	if report.Frp.Available || report.Frp.Version != FrpVersion {
+		t.Fatalf("fresh install must expose the pinned version as unavailable: %+v", report.Frp)
+	}
+	if report.Frp.State != "idle" {
+		t.Fatalf("fresh install must be idle: %+v", report.Frp)
+	}
+	if got := c.frpcPath(); got != filepath.Join(root, frpSpec.installName()) {
+		t.Fatalf("frpc path=%q", got)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "frpc.exe"), []byte("MZ"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !c.componentInstalled(frpSpec) {
+		t.Fatal("installed frpc must count as available")
+	}
+	if status := c.componentStatus(frpSpec); !status.Available || status.State != "ready" {
+		t.Fatalf("installed frpc must be ready: %+v", status)
+	}
+	// 只解 frpc.exe：服务端 frps 与两个 toml 不进运行包。
+	if len(frpSpec.Files) != 1 || frpSpec.Files[0] != "frpc.exe" {
+		t.Fatalf("unexpected install set: %v", frpSpec.Files)
+	}
+	// 落盘目录：frpc 直接放运行包根目录（壳按 runtime/frpc.exe 拉起），组网仍在自己子目录。
+	if got := c.componentDir(frpSpec); got != root {
+		t.Fatalf("frpc install dir=%q, want=%q", got, root)
+	}
+	if got := c.componentDir(meshSpec); got != filepath.Join(root, "mesh") {
+		t.Fatalf("mesh install dir=%q", got)
+	}
+}

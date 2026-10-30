@@ -1,8 +1,9 @@
 package controller
 
-// 可选组件：Cloudflare Tunnel 用的 cloudflared 与虚拟组网用的 EasyTier。
+// 可选组件：Cloudflare Tunnel 用的 cloudflared、虚拟组网用的 EasyTier，
+// 以及 FRP 穿透用的 frpc。
 //
-// 这两个二进制不再打进桌面运行包（GUI 本体只有几十 MB 的壳 + 后端 + 网页），
+// 这三个二进制都不再打进桌面运行包（GUI 本体只有几十 MB 的壳 + 后端 + 网页），
 // 用户第一次用到时才下载。组件库放在独立的产物仓库 ZviewerRelease 的 components 分支
 // （2026-10-30 从主仓库的 public/ 迁过去），下载地址就是 GitCode 的仓库文件直链：
 //
@@ -45,6 +46,7 @@ const (
 
 	componentCloudflared = "cloudflared"
 	componentMesh        = "easytier"
+	componentFrp         = "frpc"
 
 	componentMaxBytes = 200 << 20
 )
@@ -84,7 +86,20 @@ var meshSpec = componentSpec{
 	Files: []string{"easytier-core.exe", "easytier-cli.exe", "Packet.dll", "WinDivert64.sys", "wintun.dll"},
 }
 
-var componentCatalog = []componentSpec{cloudflaredSpec, meshSpec}
+// frpcSpec 是 FRP 客户端：桌面端只做客户端，服务端 frps 由用户自己在 VPS 上跑。
+// 组件库存的是官方原包（文件名与上游一致），安装时只解出 frpc.exe 到运行包根目录；
+// 版本必须与 FrpVersion 一致，连接前的 --version 校验会卡住不匹配的客户端。
+var frpSpec = componentSpec{
+	Name:    componentFrp,
+	File:    "frp_0.71.1_windows_amd64.zip",
+	Version: FrpVersion,
+	Size:    14152383,
+	GitHub:  "https://github.com/fatedier/frp/releases/download/v" + FrpVersion + "/frp_" + FrpVersion + "_windows_amd64.zip",
+	// 官方包里的 frps.exe / frpc.toml / frps.toml 一律不落地。
+	Files: []string{"frpc.exe"},
+}
+
+var componentCatalog = []componentSpec{cloudflaredSpec, meshSpec, frpSpec}
 
 func componentByName(name string) (componentSpec, bool) {
 	for _, spec := range componentCatalog {
@@ -112,6 +127,7 @@ type ComponentStatus struct {
 type ComponentsReport struct {
 	Cloudflared ComponentStatus `json:"cloudflared"`
 	Mesh        ComponentStatus `json:"easytier"`
+	Frp         ComponentStatus `json:"frpc"`
 }
 
 // componentState 保存下载中的瞬时状态；磁盘上是否存在一律现算，避免状态与文件不同步。
@@ -165,10 +181,23 @@ func (s componentSpec) installName() string {
 
 // componentInstalled 判断组件是否已在运行包里。
 func (c *Controller) componentInstalled(spec componentSpec) bool {
-	if spec.Name == componentMesh {
+	switch spec.Name {
+	case componentMesh:
 		return c.mesh.Available()
+	case componentFrp:
+		// frpc 是运行包里的常驻程序：随包带的旧位置与组件库下载的位置都算已安装。
+		return fileExists(c.frpcPath())
 	}
 	return c.root != "" && fileExists(filepath.Join(c.root, spec.installName()))
+}
+
+// componentDir 是组件解压落盘的目录：组网组件在自己的子目录，其余直接放运行包根目录
+// （壳按 runtime/<名字> 找 frpc.exe，与 cloudflared 一致）。
+func (c *Controller) componentDir(spec componentSpec) string {
+	if spec.Name == componentMesh {
+		return c.mesh.BinDir()
+	}
+	return c.root
 }
 
 // componentStatus 合并磁盘事实与下载状态：文件在就一定是 available。
@@ -188,6 +217,7 @@ func (c *Controller) componentReport() ComponentsReport {
 	return ComponentsReport{
 		Cloudflared: c.componentStatus(cloudflaredSpec),
 		Mesh:        c.componentStatus(meshSpec),
+		Frp:         c.componentStatus(frpSpec),
 	}
 }
 
@@ -300,7 +330,7 @@ func (c *Controller) installComponentFrom(ctx context.Context, spec componentSpe
 		target := filepath.Join(root, spec.installName())
 		return installCloudflared(ctx, tempPath, target)
 	}
-	return extractComponentZip(tempPath, c.mesh.BinDir(), spec.Files)
+	return extractComponentZip(tempPath, c.componentDir(spec), spec.Files)
 }
 
 // downloadComponentFile 逐字节写入临时文件：只校验来源、体积上限与非空，不比对摘要。

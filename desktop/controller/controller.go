@@ -23,6 +23,21 @@ import (
 
 const FrpVersion = "0.71.1"
 
+// frpcPath 返回实际可用的 frpc.exe。
+//
+// frpc 已改为按需下载的组件（见 components.go）：随包带的旧位置（壳启动时算出来的
+// runtime/frpc.exe）优先，其次是从组件库解到运行包根目录的那一份。下载完成后
+// 无需重启 GUI 即可直接连接，因为这里是每次用时现算的。
+func (c *Controller) frpcPath() string {
+	if c.frpc != "" && fileExists(c.frpc) {
+		return c.frpc
+	}
+	if c.root != "" {
+		return filepath.Join(c.root, frpSpec.installName())
+	}
+	return c.frpc
+}
+
 type Event struct {
 	Time    string `json:"time"`
 	At      string `json:"at"`
@@ -286,7 +301,7 @@ func (c *Controller) Snapshot() Snapshot {
 		Certificate:     c.certs.Inspect(),
 		Events:          events,
 		Root:            c.root,
-		FrpcAvailable:   fileExists(c.frpc),
+		FrpcAvailable:   fileExists(c.frpcPath()),
 		Runtime: RuntimeFiles{
 			Backend: fileExists(filepath.Join(c.root, "zviewer-backend.exe")),
 			Cert:    true,
@@ -934,8 +949,8 @@ func (c *Controller) StartFrp() (any, error) {
 		if !custom && config.Frp.Host == "" {
 			return nil, errors.New("请先保存 VPS 地址")
 		}
-		if !fileExists(c.frpc) {
-			return nil, errors.New("未找到 frpc.exe")
+		if !fileExists(c.frpcPath()) {
+			return nil, errors.New("frpc 组件尚未下载，请先点「下载 frpc 组件」")
 		}
 		file := filepath.Join(c.dir, "frp", "frpc.toml")
 		content := ""
@@ -993,7 +1008,7 @@ func (c *Controller) StartFrp() (any, error) {
 		if token != "" {
 			env = append(env, "FRP_TOKEN="+token)
 		}
-		verify := exec.Command(c.frpc, "verify", "-c", file)
+		verify := exec.Command(c.frpcPath(), "verify", "-c", file)
 		verify.Env = env
 		hideWindow(verify)
 		if out, err := verify.CombinedOutput(); err != nil {
@@ -1003,7 +1018,7 @@ func (c *Controller) StartFrp() (any, error) {
 		c.mu.Lock()
 		c.frpRegistered = map[string]bool{}
 		c.mu.Unlock()
-		proc, err := startProcess("", c.frpc, []string{"-c", file}, env, filepath.Dir(file), func(line string) {
+		proc, err := startProcess("", c.frpcPath(), []string{"-c", file}, env, filepath.Dir(file), func(line string) {
 			c.log(line, "frp", classifyLevel(line))
 			c.handleFrpLine(line, expected)
 		})
@@ -1070,7 +1085,7 @@ func (c *Controller) handleFrpLine(line string, expected int) {
 }
 
 func (c *Controller) checkFrpVersion() error {
-	cmd := exec.Command(c.frpc, "--version")
+	cmd := exec.Command(c.frpcPath(), "--version")
 	hideWindow(cmd)
 	out, err := cmd.Output()
 	if err != nil {
@@ -1093,7 +1108,7 @@ func (c *Controller) stopFrp() error {
 		return nil
 	}
 	c.setFrpState("stopping")
-	if err := c.kill(proc, c.frpc); err != nil {
+	if err := c.kill(proc, c.frpcPath()); err != nil {
 		c.setFrpState("error")
 		return err
 	}

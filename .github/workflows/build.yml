@@ -279,8 +279,9 @@ jobs:
           echo "Injecting desktop version: $VERSION"
           node -e "const fs=require('fs');const p=require('./desktop/package.json');p.version='$VERSION';fs.writeFileSync('./desktop/package.json',JSON.stringify(p,null,2)+'\n')"
 
-      # shell:dist 依次：编译 ProcessHost（csc）→ 下载并校验 FRP（prepare-tools.ps1）
-      # → go build 壳 → 复制 runtime、许可证 → 写 BUILD-MANIFEST.json
+      # shell:dist 依次：编译 ProcessHost（csc）→ go build 壳 → 复制 runtime、许可证
+      # → 写 BUILD-MANIFEST.json。可选组件（cloudflared / EasyTier / frpc）不随包，
+      # 因此这一步不再下载任何第三方二进制。
       # CLI 直接取运行包网页目录（dist/win/frontend/dist）里那份，与网页下载、
       # 单文件版共用同一二进制；缺失即失败，不会去 ZViewerCLI 源码重建。
       - name: Build portable GUI

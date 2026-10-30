@@ -1,8 +1,9 @@
-﻿# 拉取桌面端的可选组件：cloudflared 与 EasyTier（维护者用）。
+﻿# 拉取桌面端的可选组件：cloudflared、EasyTier 与 FRP（维护者用）。
 #
-# 这两个二进制**不进桌面运行包**，也不在源码仓库里：它们放在 Zero-wyc/ZviewerRelease
+# 这几个二进制**不进桌面运行包**，也不在源码仓库里：它们放在 Zero-wyc/ZviewerRelease
 # 的 components 分支（组件库），GUI 第一次用到时按 GitCode 直链下载
-# （desktop/controller/components.go）。2026-10-30 前它们在本仓库的 public/，之后迁走。
+# （desktop/controller/components.go）。2026-10-30 前 cloudflared / EasyTier 在本仓库的
+# public/，同日起 FRP 也从「随包带」改为按需下载。
 #
 # 本脚本只负责把这几个文件按钉死的版本下载到 desktop/.components/（已 gitignore），
 # 再顺手算出 SHA-256 供更新 components.json。推分支仍由维护者手动完成：
@@ -62,6 +63,12 @@ Fetch-Verified "https://raw.githubusercontent.com/EasyTier/EasyTier/v$etVersion/
     (Join-Path $outDir 'LICENSE-EasyTier.txt') `
     'e3a994d82e644b03a792a930f574002658412f62407f5fee083f2555c5f23118'
 
+# FRP 客户端：FRP 穿透组件。原样保存官方 zip（GUI 安装时只解出 frpc.exe，服务端不打进包）。
+$frpVersion = '0.71.1'
+Fetch-Verified "https://github.com/fatedier/frp/releases/download/v$frpVersion/frp_${frpVersion}_windows_amd64.zip" `
+    (Join-Path $outDir "frp_${frpVersion}_windows_amd64.zip") `
+    'b90074b2b6a1d792a7a40f085ac6d276bcab2d1bc60201f8a86ca53ce65ce821'
+
 Write-Output ''
 Write-Output "组件已就绪：$outDir"
 Get-ChildItem -LiteralPath $outDir -File | ForEach-Object {
@@ -72,4 +79,4 @@ Write-Output '下一步：'
 Write-Output '1. 把上面几个文件覆盖到 Zero-wyc/ZviewerRelease 的 components 分支根目录'
 Write-Output '2. 同步该分支的 components.json（version/size/sha256）'
 Write-Output '3. 升级了版本号时，同步 desktop/controller/components.go 的 Version 与 Size'
-Write-Output '4. 打包用的许可证副本：desktop/assets/LICENSE-EasyTier.txt 也要一起换'
+Write-Output '4. 打包用的许可证副本：desktop/assets/LICENSE-EasyTier.txt 与 LICENSE-FRP.txt 也要一起换'

@@ -61,7 +61,7 @@
     await command('save', { config: { frp: { mode } } });
     ui.render();
   }
-  function frpFormPanel(connected) {
+  function frpFormPanel(connected, missing) {
     const c = state.frp, cfg = state.config;
     function row(title, field, type, local, remote, checked, fixed = false) { return `<div class="mapping"><label><input class="checkbox" type="checkbox" data-frp-check="${field}" ${checked ? 'checked' : ''} ${fixed ? 'disabled' : ''}>${title}</label><span class="proto">${type}</span><code>${esc(local)}</code><span class="muted">→</span><input aria-label="${title}远端端口" type="number" min="1" max="65535" data-frp-field="${remote}" value="${esc(c[remote])}"></div>`; }
     return `<div class="form-layout"><section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">${icon('cloud')}</span><h2>FRP 服务器</h2></div><small>frps 节点</small></div>
@@ -75,10 +75,10 @@
       ${row('网页服务', 'web', 'TCP', cfg.port, 'webPort', true, true)}${row('UDP 语音', 'voice', 'UDP', cfg.port, 'voicePort', c.voice)}${row('RTMP 推流', 'rtmp', 'TCP', cfg.rtmpPort, 'rtmpPort', c.rtmp)}${row('TCP 语音', 'tcp', 'TCP', cfg.livekitTcpPort || 3337, 'tcpPort', c.tcp)}
       <div class="help-card"><strong>语音需单独放行</strong><p>UDP 语音跟随网页端口 ${esc(cfg.port)}，RTC TCP 使用 ${esc(cfg.livekitTcpPort || 3337)}，请在 VPS 放行对应端口。</p></div>
       <div class="validation" id="frp-error" role="alert"></div>
-      <div class="form-actions">${button('保存配置', 'save-frp', 'check')}${button(connected ? '断开 FRP' : '连接 FRP', 'toggle-frp', 'network', 'primary')}</div></section>
+      <div class="form-actions">${button('保存配置', 'save-frp', 'check')}${missing ? button('先下载 frpc 组件', 'frp-install', 'download', 'primary') : button(connected ? '断开 FRP' : '连接 FRP', 'toggle-frp', 'network', 'primary')}</div></section>
       <section><div class="panel"><div class="panel-heading"><h2>配置预览</h2><span class="tag-caption">frpc.toml · 自动生成</span></div><pre class="codebox" id="frp-code">${esc(frpCode())}</pre><div class="code-footer"><span>凭据使用环境变量占位</span><span class="code-links"><button class="text-button" data-action="export-frp">${icon('download')}导出</button><button class="text-button" data-action="copy-frp">${icon('copy')}复制</button></span></div><div class="path-flow"><div class="flow-item">${icon('globe')}外网设备</div><span>→</span><div class="flow-item">${icon('cloud')}VPS / frps</div><span>→</span><div class="flow-item">${icon('monitor')}本机 / frpc</div></div></div></section></div>`;
   }
-  function frpFilePanel(connected) {
+  function frpFilePanel(connected, missing) {
     const conf = state.frpConfig, format = (conf?.format || 'toml').toUpperCase();
     const placeholder = ['serverAddr = &quot;frp.example.com&quot;', 'serverPort = 7000', 'auth.token = &quot;你的密钥&quot;', '', '[[proxies]]', 'name = &quot;zviewer-web&quot;', 'type = &quot;tcp&quot;', 'localIP = &quot;127.0.0.1&quot;', 'localPort = 3333', 'remotePort = 13333'].join('&#10;');
     return `<div class="form-layout"><section class="panel"><div class="panel-heading"><div class="panel-heading-title"><span class="icon-box">${icon('terminal')}</span><h2>frpc 配置文件</h2></div><small>${format} · 原样运行</small></div>
@@ -87,7 +87,7 @@
       <textarea class="codebox config-editor" id="frp-config-editor" spellcheck="false" autocomplete="off" aria-label="frpc 配置文件内容" placeholder="${placeholder}">${esc(editorContent())}</textarea>
       <div class="code-footer"><span>${conf?.path ? '保存位置 ' + esc(conf.path) : '尚未保存'}</span><span>${esc(format)}</span></div>
       <div class="validation" id="frp-error" role="alert">${esc(state.frpConfigError || '')}</div>
-      <div class="form-actions">${button('导入文件', 'frp-import', 'folder')}${button('按图形配置填充', 'frp-generate', 'refresh')}${button('保存', 'frp-save', 'check')}${button(connected ? '断开 FRP' : '保存并连接', 'frp-connect', 'network', 'primary')}</div></section>
+      <div class="form-actions">${button('导入文件', 'frp-import', 'folder')}${button('按图形配置填充', 'frp-generate', 'refresh')}${button('保存', 'frp-save', 'check')}${missing ? button('先下载 frpc 组件', 'frp-install', 'download', 'primary') : button(connected ? '断开 FRP' : '保存并连接', 'frp-connect', 'network', 'primary')}</div></section>
       <aside class="panel"><div class="panel-heading"><h2>使用说明</h2></div>
         <div class="check-item">${icon('terminal')}<div><strong>直接粘贴</strong><br>整份 frpc 配置照抄即可，密钥可以写在配置里。</div></div>
         <div class="check-item">${icon('folder')}<div><strong>导入文件</strong><br>支持 TOML、YAML、JSON，按扩展名识别格式。</div></div>
@@ -96,11 +96,24 @@
         <p class="field-note">连接前会用 frpc 校验配置，校验不通过时原因显示在编辑框下方；已连接时改完要断开再连才生效。</p>
       </aside></div>`;
   }
+  // frpc 是按需下载的组件：缺了就先给下载入口，与 cloudflared / EasyTier 一致。
+  function frpComponent() {
+    return state.server?.components?.frpc || { available: state.server?.frpcAvailable !== false, state: 'idle', progress: 0, message: '' };
+  }
+  function frpComponentCard(component) {
+    if (component.available !== false) return '';
+    const busy = ['downloading', 'installing'].includes(component.state);
+    const installButton = busy
+      ? `<button class="btn primary" type="button" disabled>${icon('download')}${component.state === 'installing' ? '正在安装…' : `正在下载 ${Number(component.progress) || 0}%`}</button>`
+      : button('下载 frpc 组件', 'frp-install', 'download', 'primary');
+    return `<div class="help-card"><strong>FRP 组件未下载</strong><p>首次使用 FRP 需要下载 frpc 客户端（约 14 MB），装好后就保存在运行包里，之后不再重复下载。VPS 上的 frps 服务端仍需自己部署。</p><div class="live-toolbar">${installButton}</div>${component.message ? `<p class="field-note">${esc(component.message)}</p>` : ''}</div>`;
+  }
   function frp() {
     const mode = frpMode(), connected = ['connecting', 'registered'].includes(state.server.frp);
+    const component = frpComponent(), missing = component.available === false;
     if (mode === 'config') ensureFrpConfig();
     const tabs = `<div class="tabs frp-mode"><button data-frp-mode="form" class="${mode === 'form' ? 'active' : ''}">图形配置</button><button data-frp-mode="config" class="${mode === 'config' ? 'active' : ''}">配置文件</button></div>`;
-    return heading('FRP 穿透', '把本机端口转发到公网服务器。', `${tutorial('frp')}${pill(state.server.frp)}`) + tabs + (mode === 'config' ? frpFilePanel(connected) : frpFormPanel(connected));
+    return heading('FRP 穿透', '把本机端口转发到公网服务器。', `${tutorial('frp')}${pill(state.server.frp)}`) + tabs + frpComponentCard(component) + (mode === 'config' ? frpFilePanel(connected, missing) : frpFormPanel(connected, missing));
   }
   function cert() {
     const s = state.server.certificate, c = state.config;
@@ -139,7 +152,7 @@
           <div class="form-actions">${button('保存配置','save-service','check','primary')}${state.server.pid ? button('重启使配置生效','restart','refresh') : ''}</div>
         </div>
       </div><div class="panel section-title"><div><h2>窗口与系统托盘</h2>${toggle('closeToTray','关闭窗口时隐藏到托盘','')}${toggle('launchAtLogin','登录 Windows 后自动启动控制台','')}${toggle('autoStart','打开控制台时自动启动服务','')}</div></div></section>
-      <aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">${esc(state.info.version)} <small>LOCAL BUILD</small></div><p class="settings-description">配置保存在当前用户目录，FRP 密钥加密保存。</p><div class="panel-line"></div><div class="subheading">当前运行包</div><p class="runtime-path">${esc(state.server.root)}</p><div class="file-check"><span>后端</span><span>${state.info.runtime.backend ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>FRP 0.71.1</span><span>${state.server.frpcAvailable ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>ZViewerCLI</span><span>${state.server.cli?.available ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>Cloudflare 组件</span><span>${state.server.components?.cloudflared?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>EasyTier 组件</span><span>${state.server.components?.easytier?.available ? '已下载' : '按需下载'}</span></div><div class="live-toolbar">${button('配置文件夹','open-data','folder')}${button('托盘菜单','tray-preview','tray')}</div></aside></div>`;
+      <aside class="panel"><div class="about-mark"><img src="app-icon.png" alt="ZViewer"><div><h2>ZViewer</h2><p>WINDOWS DESKTOP</p></div></div><div class="version">${esc(state.info.version)} <small>LOCAL BUILD</small></div><p class="settings-description">配置保存在当前用户目录，FRP 密钥加密保存。</p><div class="panel-line"></div><div class="subheading">当前运行包</div><p class="runtime-path">${esc(state.server.root)}</p><div class="file-check"><span>后端</span><span>${state.info.runtime.backend ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>FRP 客户端 0.71.1</span><span>${state.server.components?.frpc?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>ZViewerCLI</span><span>${state.server.cli?.available ? '已检测到' : '缺失'}</span></div><div class="file-check"><span>Cloudflare 组件</span><span>${state.server.components?.cloudflared?.available ? '已下载' : '按需下载'}</span></div><div class="file-check"><span>EasyTier 组件</span><span>${state.server.components?.easytier?.available ? '已下载' : '按需下载'}</span></div><div class="live-toolbar">${button('配置文件夹','open-data','folder')}${button('托盘菜单','tray-preview','tray')}</div></aside></div>`;
   }
   function logs() {
     return ui.preview.logs()
@@ -278,6 +291,10 @@
         ui.render();
         ui.toast('组网配置已保存');
       }
+    } else if (action === 'frp-install') {
+      await command('component-install', { name: 'frpc' });
+      ui.render();
+      ui.toast('正在下载 frpc 组件，下载完成后按钮会变成「连接 FRP」');
     } else if (action === 'mesh-install') {
       await command('component-install', { name: 'easytier' });
       ui.render();
@@ -326,7 +343,7 @@
     else if (action === 'export-ca') await command('export',{kind:'ca'});
     else if (action === 'open-data') await command('open-data');
   }
-  const actions = new Set(['toggle-run','restart','open-manager','open-web','cli-start','cli-stop','cli-open','cli-save','local-cert','ipv6-cert','start-http','save-service','save-frp','toggle-frp','export-frp','frp-import','frp-save','frp-connect','frp-generate','mesh-install','mesh-save','mesh-toggle','mesh-generate','mesh-invite','mesh-probe','mesh-fill','mesh-config-save','mesh-config-connect','mesh-config-import','mesh-config-template','export-logs','export-ca','open-data','probe-ipv6','tunnel-install','tunnel-start','tunnel-stop','tunnel-refresh']);
+  const actions = new Set(['toggle-run','restart','open-manager','open-web','cli-start','cli-stop','cli-open','cli-save','local-cert','ipv6-cert','start-http','save-service','save-frp','toggle-frp','export-frp','frp-import','frp-save','frp-connect','frp-generate','frp-install','mesh-install','mesh-save','mesh-toggle','mesh-generate','mesh-invite','mesh-probe','mesh-fill','mesh-config-save','mesh-config-connect','mesh-config-import','mesh-config-template','export-logs','export-ca','open-data','probe-ipv6','tunnel-install','tunnel-start','tunnel-stop','tunnel-refresh']);
   function cliValues() { return { port: $('#cli-port').value, autoStart: $('#cli-auto-start').getAttribute('aria-checked') === 'true', user: $('#cli-user').value.trim() }; }
   function meshValues() {
     return {

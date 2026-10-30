@@ -74,7 +74,7 @@
 
 ## 自建 FRP
 
-包内只带客户端 `frpc` 0.71.1，不含 `frps`。填 VPS 地址、控制端口、密钥，在 VPS 上部署同版本 frps 并导入导出的 TOML。
+包内不带 `frpc`：首次进「FRP 穿透」页点「下载 frpc 组件」按需获取（约 14 MB，装好留在 `runtime/`）。也同样不含 `frps`。填 VPS 地址、控制端口、密钥，在 VPS 上部署同版本 frps 并导入导出的 TOML。
 
 - 外网语音要填 VPS 公网 IPv4 作为公布地址并重启服务；远端 UDP / TCP 端口需与本地语音端口一致。
 - 「FRP 穿透」页支持「图形配置」与「配置文件」两种，后者可粘贴任意 frpc 配置或导入 `.toml` / `.yaml` / `.json`，
@@ -112,7 +112,7 @@ npm --prefix desktop run package      # 出 ZIP
 zviewer-windows-x64-GUI/
   ZViewerDesktop.exe                # 唯一用户启动 EXE
   assets/ZViewer.ProcessHost.exe    # 进程监管宿主
-  runtime/                          # 后端、LiveKit、FRP、CLI 与网页
+  runtime/                          # 后端、LiveKit、CLI 与网页（frpc 用到时才下载进来）
   许可证、BUILD-MANIFEST.json
 ```
 
@@ -129,7 +129,7 @@ npm --prefix desktop run check
 
 | 组件 | 版本 | 许可证 | 位置 |
 | --- | --- | --- | --- |
-| [frp](https://github.com/fatedier/frp) 客户端 | 0.71.1 | Apache-2.0 | `runtime/frpc.exe` |
+| [frp](https://github.com/fatedier/frp) 客户端 | 0.71.1 | Apache-2.0 | 可选组件，下载到 `runtime/frpc.exe` |
 | [EasyTier](https://github.com/EasyTier/EasyTier) | 2.6.4 | LGPL-3.0 | 可选组件，下载到 `runtime/mesh/`，源码见上游 `v2.6.4` |
 | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) | 0.2.1 | MIT | `runtime/zviewer-cli-windows-amd64.exe` |
 | [LiveKit](https://github.com/livekit/livekit) server | 见运行包 | Apache-2.0 | `runtime/livekit-server.exe` |

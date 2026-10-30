@@ -1,14 +1,13 @@
-// 组装可分发目录：原生壳 + 进程监管宿主 + 运行包 + CLI / frpc（仅客户端）与许可证。
+// 组装可分发目录：原生壳 + 进程监管宿主 + 运行包 + CLI 与许可证。
 // 产物默认 desktop/dist-gui/zviewer-windows-x64-GUI，可用 ZVIEWER_OUT_DIR 改写。
 // 目录名与命令行包一致，仅追加 GUI 后缀，使同一次发布里两个包一眼可辨。
 //
-// Cloudflare（cloudflared）与 EasyTier 组网组件**不再随包分发**：它们是可选组件，
-// 由 GUI 第一次用到时从 ZviewerRelease 的 components 分支（同步到 GitCode）按需下载。
-// 打包流程因此不再需要 easytier 缓存，只需要 FRP。
+// Cloudflare（cloudflared）、EasyTier 组网与 FRP 客户端（frpc）**都不随包分发**：
+// 它们是可选组件，由 GUI 第一次用到时从 ZviewerRelease 的 components 分支
+// （同步到 GitCode）按需下载。打包流程因此不再下载任何第三方二进制，只做本地拷贝。
 //
 // 用法：
-//   node scripts/build-dist.mjs               完整打包
-//   node scripts/build-dist.mjs --skip-tools  跳过 FRP 下载（缓存已就绪时）
+//   node scripts/build-dist.mjs              打包
 // CLI 固定从运行包的网页目录取（dist/win/frontend/dist），缺了直接报错——运行包必然带它。
 import { execFileSync } from 'node:child_process';
 import { cpSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, readdirSync, writeFileSync } from 'node:fs';
@@ -21,9 +20,7 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const desktop = root;
 const repo = dirname(desktop);
 const pkg = JSON.parse(readFileSync(join(desktop, 'package.json'), 'utf8'));
-const flags = new Set(process.argv.slice(2));
 const tools = join(desktop, '.runtime', 'tools');
-const frpDir = join(tools, 'frp_0.71.1_windows_amd64');
 const cliDir = join(tools, 'zviewer-cli');
 const runtimeSource = process.env.ZVIEWER_RUNTIME_ROOT || join(repo, 'dist', 'win');
 // CLI 固定从运行包的网页目录取：build-all 会把 frontend/public 的
@@ -42,9 +39,6 @@ function requireFile(file, hint) {
 requireFile(join(runtimeSource, 'zviewer-backend.exe'), '先用 node build-all.js --win 生成运行包，或设置 ZVIEWER_RUNTIME_ROOT');
 requireFile(join(runtimeSource, 'livekit-server.exe'));
 
-if (!flags.has('--skip-tools')) {
-  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', join(desktop, 'scripts', 'prepare-tools.ps1')], { stdio: 'inherit', windowsHide: true });
-}
 requireFile(cliSource, '运行包的网页目录应带 CLI（node build-all.js --win 会从 frontend/public 复制过去）');
 
 if (existsSync(distribution)) throw new Error(`拒绝覆盖已存在的分发包：${distribution}`);
@@ -65,12 +59,9 @@ for (const name of ['zviewer-backend.exe', 'livekit-server.exe']) {
 }
 cpSync(join(runtimeSource, 'frontend', 'dist'), join(runtime, 'frontend', 'dist'), { recursive: true });
 // 音乐不需要随包组件：网易云接口由 Go 后端自带（internal/ncm）。
-for (const name of ['frpc.exe']) {
-  if (existsSync(join(frpDir, name))) copyFileSync(join(frpDir, name), join(runtime, name));
-}
-// Cloudflare（cloudflared）与 EasyTier 组网组件不再随包分发：它们在 ZviewerRelease 的
+// Cloudflare（cloudflared）、EasyTier 与 FRP（frpc）都不随包分发：它们在 ZviewerRelease 的
 // components 分支（组件库），GUI 第一次用到时按 GitCode 直链下载（controller/components.go）。
-// 打包因此不再需要 easytier 缓存，也不再往 runtime/mesh 复制任何文件。
+// 打包因此不再需要 frp / easytier 缓存，运行时目录里只有后端、语音与网页。
 copyFileSync(join(desktop, 'assets', 'ZViewer.ProcessHost.exe'), join(distribution, 'assets', 'ZViewer.ProcessHost.exe'));
 
 // CLI 固定放进 runtime/：壳只从运行包里找它，缺了就等于没有高画质代理。
@@ -84,8 +75,10 @@ for (const [source, target] of [['LICENSE', 'LICENSE-ZViewer.txt']]) {
   const file = join(repo, source);
   if (existsSync(file)) copyFileSync(file, join(distribution, target));
 }
-if (existsSync(join(frpDir, 'LICENSE'))) copyFileSync(join(frpDir, 'LICENSE'), join(distribution, 'LICENSE-FRP.txt'));
-// EasyTier 是 LGPL-3.0：包内不含其二进制（用到时才下载），但许可证仍随包带一份。
+// FRP 是 Apache-2.0：包内不含其二进制（用到时才下载），但许可证仍随包带一份。
+const frpLicense = join(desktop, 'assets', 'LICENSE-FRP.txt');
+if (existsSync(frpLicense)) copyFileSync(frpLicense, join(distribution, 'LICENSE-FRP.txt'));
+// EasyTier 是 LGPL-3.0：同上，许可证随包带一份。
 // 组件库搬去 ZviewerRelease 后，源码仓库里留 desktop/assets 这份做打包来源。
 const meshLicense = join(desktop, 'assets', 'LICENSE-EasyTier.txt');
 if (existsSync(meshLicense)) copyFileSync(meshLicense, join(distribution, 'LICENSE-EasyTier.txt'));
@@ -114,7 +107,6 @@ const tracked = [
   'assets/ZViewer.ProcessHost.exe',
   'runtime/zviewer-backend.exe',
   'runtime/livekit-server.exe',
-  'runtime/frpc.exe',
   'runtime/zviewer-cli-windows-amd64.exe'
 ];
 const CLI_ENTRY = 'runtime/zviewer-cli-windows-amd64.exe';
@@ -136,13 +128,13 @@ const manifest = {
   singleInstance: true,
   signed: false,
   iconEmbedded: true,
-  frp: '0.71.1',
   // 可选组件不在包内：这里只登记版本与组件库来源，方便核对用户实际下载到的东西。
   // library 是 ZviewerRelease 的 components 分支上的路径（客户端的实际下载地址由
   // controller/components.go 按同一份文件名拼出）。
   components: {
     cloudflared: { version: '2026.10.3', delivery: 'download', library: 'components/cloudflared-windows-amd64.exe' },
-    easytier: { version: '2.6.4', delivery: 'download', library: 'components/easytier-windows-x86_64-v2.6.4.zip' }
+    easytier: { version: '2.6.4', delivery: 'download', library: 'components/easytier-windows-x86_64-v2.6.4.zip' },
+    frpc: { version: '0.71.1', delivery: 'download', library: 'components/frp_0.71.1_windows_amd64.zip' }
   },
   cli: cliMeta(cliSource),
   fileCount: walk(distribution).length,
