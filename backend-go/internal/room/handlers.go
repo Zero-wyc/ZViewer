@@ -478,6 +478,9 @@ func (s *Service) handleRegisterHost(sc *sio.Socket, args []json.RawMessage, ack
 	}
 
 	sc.Join(payload.RoomID)
+	if room, err := s.Rooms.FindByRoomID(ctx, payload.RoomID); err == nil {
+		s.sendStreamStatus(sc.ID, room)
+	}
 
 	// 同步 DB 影片到运行时状态并广播 movie-list：后端重启后内存是空的，
 	// 不恢复的话 play-movie 会一直报「影片不存在」。
@@ -571,6 +574,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 			s.Logger.Printf("[request-join] 恢复房主失败: %v", err)
 		} else if hostResult != nil {
 			sc.Join(payload.RoomID)
+			s.sendStreamStatus(sc.ID, room)
 			if err := s.BroadcastMovieList(ctx, payload.RoomID); err != nil {
 				s.Logger.Printf("[request-join] 广播影片列表失败: %v", err)
 			}
@@ -595,6 +599,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 
 	// 已经在这个房间里（重复 request-join）：直接成功，不新建会话。
 	if own, err := s.ActiveSession(ctx, sc.ID); err == nil && own != nil && own.RoomID == payload.RoomID {
+		s.sendStreamStatus(sc.ID, room)
 		ackOKMsg(ack, "已加入房间", map[string]any{"mode": room.Mode, "shareMethod": room.ShareMethod})
 		return
 	}
@@ -614,7 +619,7 @@ func (s *Service) handleRequestJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	// requests still require a connected host; existing grants remain valid.
 	alreadyApproved := uid != nil && *uid > 0 && approvedContains(room.ApprovedViewers, *uid)
 	var sharer *store.Session
-	if room.RequireApproval {
+	if room.RequireApproval || s.tracksStreamPresence(room) {
 		sharer, err = s.Sharer(ctx, payload.RoomID)
 		if sharer != nil && s.Hub != nil && !s.Hub.Connected(sharer.SocketID) {
 			sharer = nil
@@ -671,6 +676,7 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 		return
 	}
 	sc.Join(roomID)
+	s.sendStreamStatus(sc.ID, room)
 
 	approved := map[string]any{
 		"roomId":      roomID,

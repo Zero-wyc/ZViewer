@@ -97,6 +97,26 @@ func (r *Rooms) ListActive(ctx context.Context) ([]*Room, error) {
 	return list, nil
 }
 
+// ListActiveStreamPush limits periodic media presence checks to OBS rooms.
+func (r *Rooms) ListActiveStreamPush(ctx context.Context) ([]*Room, error) {
+	rows, err := r.conn.QueryContext(ctx, `SELECT `+roomColumns+` FROM "room"
+		WHERE "status" = 'active' AND "mode" = 'screen-share'
+		AND "shareMethod" = 'stream-push' AND "streamKey" IS NOT NULL`)
+	if err != nil {
+		return nil, fmt.Errorf("query OBS rooms: %w", err)
+	}
+	defer rows.Close()
+	var rooms []*Room
+	for rows.Next() {
+		room, err := scanRoom(rows)
+		if err != nil {
+			return nil, fmt.Errorf("read OBS room: %w", err)
+		}
+		rooms = append(rooms, room)
+	}
+	return rooms, rows.Err()
+}
+
 // ListStaleActive 返回「状态 active 且最后访问时间早于阈值」的房间号。
 //
 // 对应房间清理定时任务的 `where: { status: 'active', lastAccessedAt: LessThan(threshold) }`。

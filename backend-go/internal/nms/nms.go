@@ -30,6 +30,8 @@ const (
 	DefaultRtmpPort = 3334
 	// DefaultHTTPFLVPort 是 Node 版 HTTP_FLV_PORT 的默认值。
 	DefaultHTTPFLVPort = 3335
+	// DefaultOfflineGrace tolerates brief OBS restarts before marking the source offline.
+	DefaultOfflineGrace = time.Minute
 
 	// availabilityTTL 是可用性结果的缓存时长。
 	//
@@ -57,6 +59,8 @@ type Config struct {
 	Embedded bool
 	// BindHost 是内嵌服务的监听地址（NMS_BIND，默认 0.0.0.0）。
 	BindHost string
+	// OfflineGrace is the online grace after publisher stop or the last media packet.
+	OfflineGrace time.Duration
 }
 
 // ConfigFromEnv 读取配置，语义与 Node 版一致：
@@ -67,6 +71,7 @@ type Config struct {
 //	NMS_EMBEDDED      0 = 即使没配 URL 也不内嵌（调试外部服务时用）
 //	NMS_BIND          内嵌服务的监听地址（默认 0.0.0.0）
 //	SERVER_HOST       推流地址里的主机名（缺省从请求 Host 推导）
+//	STREAM_PUSH_OFFLINE_GRACE_SECONDS  OBS offline grace, 1..3600 seconds (default 60)
 func ConfigFromEnv() Config {
 	httpFlvPort := DefaultHTTPFLVPort
 	if raw := strings.TrimSpace(os.Getenv("HTTP_FLV_PORT")); raw != "" {
@@ -90,14 +95,21 @@ func ConfigFromEnv() Config {
 			rtmpPort = v
 		}
 	}
+	offlineGrace := DefaultOfflineGrace
+	if raw := strings.TrimSpace(os.Getenv("STREAM_PUSH_OFFLINE_GRACE_SECONDS")); raw != "" {
+		if v, err := strconv.Atoi(raw); err == nil && v > 0 && v <= 3600 {
+			offlineGrace = time.Duration(v) * time.Second
+		}
+	}
 
 	return Normalize(Config{
-		HTTPFLVBase: base,
-		RtmpPort:    rtmpPort,
-		ServerHost:  strings.TrimSpace(os.Getenv("SERVER_HOST")),
-		Disabled:    os.Getenv("STREAM_PUSH_ENABLED") == "0",
-		Embedded:    embedded,
-		BindHost:    strings.TrimSpace(os.Getenv("NMS_BIND")),
+		HTTPFLVBase:  base,
+		RtmpPort:     rtmpPort,
+		ServerHost:   strings.TrimSpace(os.Getenv("SERVER_HOST")),
+		Disabled:     os.Getenv("STREAM_PUSH_ENABLED") == "0",
+		Embedded:     embedded,
+		BindHost:     strings.TrimSpace(os.Getenv("NMS_BIND")),
+		OfflineGrace: offlineGrace,
 	})
 }
 
@@ -109,6 +121,9 @@ func Normalize(c Config) Config {
 	}
 	if c.RtmpPort <= 0 || c.RtmpPort > 65535 {
 		c.RtmpPort = DefaultRtmpPort
+	}
+	if c.OfflineGrace <= 0 || c.OfflineGrace > time.Hour {
+		c.OfflineGrace = DefaultOfflineGrace
 	}
 	return c
 }
@@ -300,9 +315,21 @@ func (s *Service) Available() bool {
 	return ok
 }
 
-// IsPublishing reports a currently authorized embedded publisher for this key.
-// A new publisher has one minute to send media; only nonempty audio/video packets
-// refresh that window. External media services expose no trusted per-stream state.
+// TracksPublishing reports whether this service supports authoritative per-stream
+// presence. It describes capability, regardless of whether any stream is active.
+func (s *Service) TracksPublishing() bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg.Embedded && !s.cfg.Disabled
+}
+
+// IsPublishing reports embedded source presence, including the configured offline
+// grace after a recent publisher stops. Nonempty audio/video packets refresh an
+// active source; metadata does not. Authorization is still required throughout.
+// External media services expose no trusted per-stream state.
 func (s *Service) IsPublishing(streamKey string) bool {
 	if s == nil || streamKey == "" {
 		return false

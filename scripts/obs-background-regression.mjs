@@ -22,6 +22,7 @@ const sockets = new Set()
 const secrets = new Set()
 const checks = []
 const testSecret = 'obs-regression-only-access-secret'
+const offlineGraceSeconds = 2
 let fixture
 let streamReader
 
@@ -154,6 +155,7 @@ try {
     HTTPS: 'false',
     LIVEKIT_EXTERNAL: '1',
     STREAM_PUSH_ENABLED: '1',
+    STREAM_PUSH_OFFLINE_GRACE_SECONDS: String(offlineGraceSeconds),
     NMS_EMBEDDED: '1',
     NMS_HTTP_FLV_URL: '',
     NMS_BIND: '127.0.0.1',
@@ -179,6 +181,7 @@ try {
     'obs-fixture-viewer-2',
     'obs-fixture-viewer-3',
     'obs-fixture-viewer-4',
+    'obs-fixture-viewer-5',
   ]
   const userIDs = users.map((name) => Number(addUser.run(name).lastInsertRowid))
   const server = start(binary, [], { env, cwd: workspace })
@@ -230,18 +233,25 @@ try {
   const streamKey = method.data.streamKey
   assert.equal(typeof streamKey, 'string')
   secrets.add(streamKey)
-  const publisher = start(
-    process.env.FFMPEG || 'ffmpeg',
-    [
-      '-nostdin', '-hide_banner', '-loglevel', 'error', '-re',
-      '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=5',
-      '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
-      '-g', '5', '-b:v', '80k', '-f', 'flv',
-      `rtmp://127.0.0.1:${rtmpPort}/live/${streamKey}`,
-    ],
-    { cwd: workspace },
-  )
+  function startPublisher() {
+    return start(
+      process.env.FFMPEG || 'ffmpeg',
+      [
+        '-nostdin', '-hide_banner', '-loglevel', 'error', '-re',
+        '-f', 'lavfi', '-i', 'testsrc2=size=160x90:rate=5',
+        '-an', '-c:v', 'libx264', '-preset', 'ultrafast', '-tune', 'zerolatency',
+        '-g', '5', '-b:v', '80k', '-f', 'flv',
+        `rtmp://127.0.0.1:${rtmpPort}/live/${streamKey}`,
+      ],
+      { cwd: workspace },
+    )
+  }
+  let publisher = startPublisher()
   const first = await connectSocket(base, identities[0].accessToken)
+  const streamStatuses = []
+  first.on('stream-status', (state) => {
+    if (state?.roomId === roomID) streamStatuses.push(state.status)
+  })
   const joined = await ack(first, 'request-join', { roomId: roomID })
   assert.equal(joined.success, true, 'Initial viewer must join')
   let disconnectNotice = false
@@ -267,6 +277,7 @@ try {
   const initialStream = await readFLV(identities[0].accessToken)
   streamReader = initialStream.reader
   assert.equal(publisher.exitCode, null, `Publisher exited: ${redact(publisher.output)}`)
+  await waitFor(() => streamStatuses.at(-1) === 'live', 'existing viewers receive live stream status')
   checks.push('real RTMP publisher and authenticated HTTP-FLV')
   const hostSocketID = host.id
   host.disconnect()
@@ -307,14 +318,55 @@ try {
   fixture.prepare('UPDATE room SET requireApproval=0 WHERE roomId=?').run(roomID)
   await streamReader.cancel()
   streamReader = undefined
+  const interruptionStatusIndex = streamStatuses.length
+  await stop(publisher)
+  await new Promise((resolve) => setTimeout(resolve, 150))
+  const graceList = await request('/api/rooms', { token: identities[0].accessToken })
+  assert.equal(graceList.rooms.find((room) => room.roomId === roomID)?.sharerOnline, true)
+  assert.equal(
+    (await ack(unapproved, 'request-join', { roomId: roomID })).success,
+    true,
+    'Short RTMP interruption must retain viewer admission during the grace period',
+  )
+  assert.equal(disconnectNotice, false, 'Short RTMP interruption must not announce offline')
+  checks.push('RTMP stop retains online presence and admission during the configured grace')
+  publisher = startPublisher()
+  const restartedStream = await readFLV(identities[2].accessToken)
+  await restartedStream.reader.cancel()
+  await new Promise((resolve) => setTimeout(resolve, offlineGraceSeconds * 1000 + 300))
+  const restartedList = await request('/api/rooms', { token: identities[0].accessToken })
+  assert.equal(restartedList.rooms.find((room) => room.roomId === roomID)?.sharerOnline, true)
+  assert.equal(disconnectNotice, false, 'Restarted RTMP must cancel the prior offline deadline')
+  assert.ok(
+    !streamStatuses.slice(interruptionStatusIndex).includes('offline'),
+    'Short RTMP interruption must not broadcast offline stream status',
+  )
+  checks.push('RTMP restart within grace restores FLV and survives the prior offline deadline')
+  const finalStopAt = Date.now()
   await stop(publisher)
   await waitFor(async () => {
     const rooms = await request('/api/rooms', { token: identities[0].accessToken })
     return rooms.rooms.find((room) => room.roomId === roomID)?.sharerOnline === false
-  }, 'stopped RTMP reports offline')
-  const denied = await ack(unapproved, 'request-join', { roomId: roomID })
-  assert.equal(denied.success, false, 'Stopped OBS must not leave an immortal sharing room')
-  checks.push('stopping OBS removes presence and rejects new joins')
+  }, 'stopped RTMP reports offline after the configured grace')
+  assert.ok(
+    Date.now() - finalStopAt >= offlineGraceSeconds * 1000 - 100,
+    'RTMP must retain presence for the complete configured grace period',
+  )
+  await waitFor(
+    () => streamStatuses.at(-1) === 'offline',
+    'existing viewers receive offline stream status after RTMP grace',
+  )
+  await waitFor(() => disconnectNotice, 'existing viewers receive offline after RTMP grace')
+  fixture.prepare(`UPDATE session SET endedAt=datetime('now')
+    WHERE roomId=? AND role='sharer'`).run(roomID)
+  const finalViewer = await connectSocket(base, identities[4].accessToken)
+  const denied = await ack(finalViewer, 'request-join', { roomId: roomID })
+  assert.equal(
+    denied.success,
+    false,
+    'Expired RTMP grace must reject joins even when the browser disconnected recently',
+  )
+  checks.push('RTMP grace expiry broadcasts offline and rejects joins despite recent browser disconnect')
 
   const shortToken = shortenToken(owner.accessToken)
   secrets.add(shortToken)

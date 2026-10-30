@@ -319,6 +319,9 @@ func (s *Server) handleAdminListRooms(w http.ResponseWriter, r *http.Request) {
 	out := make([]adminRoomDTO, 0, len(rooms))
 	for _, room := range rooms {
 		_, sharerOnline := counts.Sharers[room.RoomID]
+		if !sharerOnline && s.RoomSvc != nil {
+			sharerOnline = s.RoomSvc.IsStreamPublishing(room)
+		}
 		out = append(out, adminRoomDTO{
 			ID:              room.ID,
 			RoomID:          room.RoomID,

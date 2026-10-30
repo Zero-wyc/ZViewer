@@ -3,15 +3,18 @@ package room
 import (
 	"context"
 	"testing"
+	"time"
 
 	"zviewer/backend/internal/store"
 )
 
 type fakeStreamPush struct {
 	publishing map[string]bool
+	external   bool
 }
 
 func (p *fakeStreamPush) Available() bool              { return true }
+func (p *fakeStreamPush) TracksPublishing() bool       { return !p.external }
 func (p *fakeStreamPush) IsPublishing(key string) bool { return p.publishing[key] }
 
 func setupPushRoom(t *testing.T, env *testEnv, roomID string) *fakeStreamPush {
@@ -67,6 +70,15 @@ func TestOBSOutlivesBrowserWithoutKeepingHostPermissions(t *testing.T) {
 	env.svc.CancelReconnectTimer("OBSLIVE1")
 	env.svc.CloseAfterHostGrace(ctx, env.svc.Settings, "OBSLIVE1", "host")
 	room, err := env.svc.Rooms.FindByRoomID(ctx, "OBSLIVE1")
+	if err != nil || room.Status != "active" || !env.svc.HasReconnectTimer("OBSLIVE1") {
+		t.Fatalf("old browser timer skipped the new media-offline grace: %v, %v", room, err)
+	}
+	env.svc.mu.Lock()
+	env.svc.streamOfflineAt["OBSLIVE1"] = time.Now().Add(-HostReconnectGrace - time.Second)
+	env.svc.mu.Unlock()
+	env.svc.CancelReconnectTimer("OBSLIVE1")
+	env.svc.CloseAfterHostGrace(ctx, env.svc.Settings, "OBSLIVE1", "host")
+	room, err = env.svc.Rooms.FindByRoomID(ctx, "OBSLIVE1")
 	if err != nil || room.Status != "closed" {
 		t.Fatalf("stopped publisher escaped normal closure: %v, %v", room, err)
 	}
@@ -152,5 +164,96 @@ func TestExplicitCloseStillClosesLiveOBSRoom(t *testing.T) {
 	}
 	if !env.hub.hasRoomEvent("OBSCLOSE", "room-closed") {
 		t.Fatal("explicit close was bypassed by active publishing")
+	}
+}
+
+func TestOBSStatusUsesMediaPresenceWithoutPlaybackMemory(t *testing.T) {
+	env := newTestEnv(t)
+	push := setupPushRoom(t, env, "OBSSTATE")
+	env.hub.members["OBSSTATE"] = []string{"viewer"}
+	b := NewBroadcaster(env.svc, nil)
+	b.broadcastAll()
+	if !b.streams["OBSSTATE"] || !env.hub.hasRoomEvent("OBSSTATE", "stream-status") {
+		t.Fatal("OBS source without playback memory did not report live")
+	}
+	if env.hub.hasRoomEvent("OBSSTATE", "host-disconnected") {
+		t.Fatal("live source was announced offline")
+	}
+
+	push.publishing["PUSHKEY8"] = false
+	b.broadcastAll()
+	if b.streams["OBSSTATE"] || !env.hub.hasRoomEvent("OBSSTATE", "host-disconnected") {
+		t.Fatal("expired source presence did not notify existing viewers")
+	}
+	if !env.svc.HasReconnectTimer("OBSSTATE") || env.hub.hasRoomEvent("OBSSTATE", "room-closed") {
+		t.Fatal("media offline must leave the separate host reconnect grace")
+	}
+	events := len(env.hub.rooms)
+	b.broadcastAll()
+	for _, event := range env.hub.rooms[events:] {
+		if event == "OBSSTATE|host-disconnected" {
+			t.Fatal("unchanged offline state repeated the disconnect notification")
+		}
+	}
+
+	push.publishing["PUSHKEY8"] = true
+	b.broadcastAll()
+	if !b.streams["OBSSTATE"] {
+		t.Fatal("restarted OBS source did not become live")
+	}
+}
+
+func TestOBSStatusDoesNotInventPresenceForExternalMedia(t *testing.T) {
+	env := newTestEnv(t)
+	push := setupPushRoom(t, env, "OBSEXTER")
+	push.external = true
+	env.hub.members["OBSEXTER"] = []string{"viewer"}
+	b := NewBroadcaster(env.svc, nil)
+	b.broadcastAll()
+	if env.hub.hasRoomEvent("OBSEXTER", "stream-status") || env.hub.hasRoomEvent("OBSEXTER", "host-disconnected") {
+		t.Fatal("external media was assigned an untrusted source state")
+	}
+}
+
+func TestOBSStatusDoesNotAnnounceConnectedHostOffline(t *testing.T) {
+	env := newTestEnv(t)
+	ctx := context.Background()
+	push := setupPushRoom(t, env, "OBSHOST1")
+	env.hub.online["host"] = true
+	env.hub.members["OBSHOST1"] = []string{"host", "viewer"}
+	if _, err := env.svc.RegisterHost(ctx, "host", "OBSHOST1", 1); err != nil {
+		t.Fatal(err)
+	}
+	b := NewBroadcaster(env.svc, nil)
+	b.broadcastAll()
+	push.publishing["PUSHKEY8"] = false
+	b.broadcastAll()
+	if env.hub.hasRoomEvent("OBSHOST1", "host-disconnected") || env.svc.HasReconnectTimer("OBSHOST1") {
+		t.Fatal("media stop removed the connected browser host")
+	}
+	room, err := env.svc.Rooms.FindByRoomID(ctx, "OBSHOST1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.svc.sendStreamStatus("viewer", room)
+	if !env.hub.hasDirect("viewer", "stream-status") {
+		t.Fatal("joining viewer did not receive the current source state")
+	}
+}
+
+func TestOBSStateCleanupPreservesLiveSourceAndGrace(t *testing.T) {
+	env := newTestEnv(t)
+	push := setupPushRoom(t, env, "OBSCACHE")
+	env.svc.SetMovies("OBSCACHE", []any{}, nil)
+	env.svc.StartReconnectTimer("OBSCACHE", func() {})
+	env.svc.CleanupStaleStates(func(string) bool { return false })
+	if !env.svc.HasState("OBSCACHE") || !env.svc.HasReconnectTimer("OBSCACHE") {
+		t.Fatal("background cache cleanup removed the live OBS room or its reconnect check")
+	}
+	push.publishing["PUSHKEY8"] = false
+	env.svc.noteStreamOffline("OBSCACHE")
+	env.svc.CleanupStaleStates(func(string) bool { return false })
+	if !env.svc.HasState("OBSCACHE") || !env.svc.HasReconnectTimer("OBSCACHE") {
+		t.Fatal("cache cleanup cancelled the offline source's reconnect grace")
 	}
 }

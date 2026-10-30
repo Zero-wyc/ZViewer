@@ -60,8 +60,9 @@ type Broadcaster struct {
 	stopCh   chan struct{}
 	wg       sync.WaitGroup
 
-	hostMu sync.Mutex
-	hosts  map[string]hostOnlineEntry
+	hostMu  sync.Mutex
+	hosts   map[string]hostOnlineEntry
+	streams map[string]bool
 }
 
 // NewBroadcaster 构造广播器。需显式 Start 才会开始计时。
@@ -70,10 +71,11 @@ func NewBroadcaster(svc *Service, logger *log.Logger) *Broadcaster {
 		logger = log.Default()
 	}
 	return &Broadcaster{
-		svc:    svc,
-		logger: logger,
-		stopCh: make(chan struct{}),
-		hosts:  make(map[string]hostOnlineEntry),
+		svc:     svc,
+		logger:  logger,
+		stopCh:  make(chan struct{}),
+		hosts:   make(map[string]hostOnlineEntry),
+		streams: make(map[string]bool),
 	}
 }
 
@@ -120,6 +122,7 @@ func (b *Broadcaster) broadcastAll() {
 	if hub == nil {
 		return
 	}
+	b.broadcastStreamPresence()
 	for _, roomID := range b.svc.Playback.ActiveRoomIDs() {
 		// 房间里没人就不用序列化：没人收，纯浪费。注意这里**不按房主在线
 		// 跳过**——服务器心跳是观众进度的唯一权威来源，房主在线时也要发，
@@ -221,6 +224,13 @@ func (s *Service) CleanupStaleStates(isHostOnline func(roomID string) bool) {
 
 	for _, roomID := range ids {
 		if isHostOnline(roomID) || s.Playback.HasCache(roomID) {
+			continue
+		}
+		ctx, cancel := handlerCtx()
+		room, err := s.Rooms.FindByRoomID(ctx, roomID)
+		cancel()
+		if err != nil || s.IsStreamPublishing(room) ||
+			(s.tracksStreamPresence(room) && s.HasReconnectTimer(roomID)) {
 			continue
 		}
 		s.Delete(roomID)

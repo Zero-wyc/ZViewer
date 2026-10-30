@@ -21,8 +21,6 @@ type flvTag struct {
 const (
 	maxGOPBytes = 12 << 20
 	maxGOPTags  = 1200
-	// A connected but stalled publisher must not keep its room alive forever.
-	publishingIdleTimeout = time.Minute
 )
 
 type flvSub struct {
@@ -47,13 +45,20 @@ type liveStream struct {
 // 丢到关键帧时直接断开该订阅者（让播放器重连重新对齐），
 // 绝不让一个卡住的 HTTP 客户端拖慢推流解析。
 type streamHub struct {
-	mu      sync.Mutex
-	streams map[string]*liveStream
-	now     func() time.Time
+	mu           sync.Mutex
+	streams      map[string]*liveStream
+	stopped      map[string]time.Time
+	offlineGrace time.Duration
+	now          func() time.Time
 }
 
 func newStreamHub() *streamHub {
-	return &streamHub{streams: make(map[string]*liveStream, 4), now: time.Now}
+	return &streamHub{
+		streams:      make(map[string]*liveStream, 4),
+		stopped:      make(map[string]time.Time),
+		offlineGrace: DefaultOfflineGrace,
+		now:          time.Now,
+	}
 }
 
 func (h *streamHub) start(key string) *liveStream {
@@ -62,8 +67,15 @@ func (h *streamHub) start(key string) *liveStream {
 	if h.streams[key] != nil {
 		return nil
 	}
+	now := h.now()
+	for stoppedKey, stoppedAt := range h.stopped {
+		if now.Sub(stoppedAt) > h.offlineGrace {
+			delete(h.stopped, stoppedKey)
+		}
+	}
+	delete(h.stopped, key)
 	// Give a new publisher one idle window to send its first media packet.
-	h.streams[key] = &liveStream{key: key, lastActivityAt: h.now(), subs: make(map[*flvSub]struct{}, 2)}
+	h.streams[key] = &liveStream{key: key, lastActivityAt: now, subs: make(map[*flvSub]struct{}, 2)}
 	return h.streams[key]
 }
 
@@ -71,11 +83,22 @@ func (h *streamHub) isPublishing(key string) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	ls := h.streams[key]
-	if ls == nil {
+	var lastActivity time.Time
+	if ls != nil {
+		lastActivity = ls.lastActivityAt
+	} else {
+		var ok bool
+		lastActivity, ok = h.stopped[key]
+		if !ok {
+			return false
+		}
+	}
+	idle := h.now().Sub(lastActivity)
+	if idle < 0 || idle > h.offlineGrace {
+		delete(h.stopped, key)
 		return false
 	}
-	idle := h.now().Sub(ls.lastActivityAt)
-	return idle >= 0 && idle <= publishingIdleTimeout
+	return true
 }
 
 func (h *streamHub) stop(key string, owner ...*liveStream) {
@@ -86,6 +109,14 @@ func (h *streamHub) stop(key string, owner ...*liveStream) {
 		return
 	}
 	delete(h.streams, key)
+	now := h.now()
+	// Already-stale connections cannot become online again by closing.
+	idle := now.Sub(ls.lastActivityAt)
+	if idle >= 0 && idle <= h.offlineGrace {
+		h.stopped[key] = now
+	} else {
+		delete(h.stopped, key)
+	}
 	for sub := range ls.subs {
 		closeSub(sub)
 	}
