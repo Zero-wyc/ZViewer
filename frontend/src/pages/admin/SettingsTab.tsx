@@ -172,8 +172,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              默认
-              50%。用户首次使用一起听时生效；已保存的本地音量优先，调节音量仅影响自己的播放。
+              默认 50%。用户首次使用一起听时生效，之后按各自本地音量。
             </p>
           </div>
 
@@ -202,7 +201,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              切换为「所有登录用户」后，普通用户也可在主页点击「开始共享」创建房间；游客始终不能创建房间。
+              设为所有登录用户后，普通用户也可创建房间；游客始终不可创建。
             </p>
           </div>
 
@@ -222,13 +221,8 @@ export function SettingsTab({
               placeholder="留空自动推导（如 wss://livekit.example.com）"
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              客户端语音连接的 LiveKit 服务器地址（ws:// 或
-              wss://）。留空时按页面域名自动推导（跟随
-              EdgeOne/反向代理），适合内嵌 LiveKit
-              的默认部署；填写后优先于自动推导与环境变量
-              LIVEKIT_URL，适用于外置/独立部署的 LiveKit
-              服务器。注意：外置服务器需与本服务使用相同的 API
-              Key/Secret，否则语音凭证验签失败；媒体端口（UDP/TCP）也需对该地址可达。
+              留空按页面域名推导；填外部地址时需与本站共用同一 Key / Secret，
+              且媒体端口对该地址可达。
             </p>
           </div>
 
@@ -247,7 +241,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              仅供测试：开启后同一账号的每个浏览器标签页将作为独立成员同时进入房间与语音（互不顶替，语音成员表会出现多个同名成员）；关闭时重复进入同一房间会被拒绝，语音重复加入会顶替旧页面。
+              开启后同一账号可在多个页面同时进入房间与语音，成员表会出现重名。
             </p>
           </div>
 
@@ -266,8 +260,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              公告内容来自 GitHub 仓库根目录的
-              announce.md。开启后客户端检测到版本号变化时自动弹出公告面板；关闭后仅首次启动强制弹出一次，之后只能通过顶栏公告按钮手动查看。
+              公告正文取仓库根目录的 announce.md。开启后版本号变化时自动弹出，关闭后仅首次启动弹出一次。
             </p>
           </div>
 
@@ -276,8 +269,7 @@ export function SettingsTab({
           </Title>
           <div className="mb-6 max-w-2xl">
             <p className="mb-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              勾选各角色（在房间中作为观众时）可执行的动作；房主始终拥有全部权限，root
-              始终放行，不参与勾选。未勾选时按默认：房管与管理员允许、普通用户禁止。
+              勾选各角色作为观众时可执行的动作。房主与 root 始终放行，不参与勾选；未勾选按默认：房管与管理员允许，普通用户禁止。
             </p>
             <div
               className="overflow-x-auto rounded-[var(--md-sys-shape-corner)] border border-[var(--md-sys-color-outline)]"
@@ -365,8 +357,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              关闭时，房间内的 Kazumi 与 AniSubs 番剧添加入口、个人中心的
-              B站视频下载按钮及其相关设置将被隐藏。
+              关闭后隐藏 Kazumi、AniSubs 番剧源与 B站视频下载入口。
             </p>
           </div>
 
@@ -400,9 +391,7 @@ export function SettingsTab({
                   }
                 />
                 <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  留空使用内置默认规则。支持单个规则 JSON、index.json， 以及
-                  Predidit/Kazumi、Predidit/KazumiRules 仓库地址；依赖完整
-                  WebView 或验证码的规则仍可能无法播放。
+                  留空用内置默认规则。支持规则 JSON、index.json 与 Kazumi 仓库地址；依赖 WebView 或验证码的规则可能无法播放。
                 </p>
               </div>
 
@@ -433,8 +422,7 @@ export function SettingsTab({
               </Title>
               <div className="mb-6">
                 <label className="mb-1.5 block text-sm font-medium text-[var(--md-sys-color-on-surface-variant)]">
-                  TVBox 配置接口地址（自动提取其中的苹果 CMS
-                  采集站，检测成功后加入下方列表）
+                  TVBox 配置接口地址（提取其中的苹果 CMS 采集站，检测后加入下方列表）
                 </label>
                 <div className="mb-2 flex gap-2">
                   <Input
@@ -489,10 +477,7 @@ export function SettingsTab({
                   onBlur={onCmsSourcesBlur}
                 />
                 <p className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  留空则不启用 CMS
-                  采集源；系统不内置任何默认源。检测添加或编辑失焦后自动保存生效；TVBox
-                  配置每日漂移，服务端按 10 分钟缓存自动刷新；仅支持苹果
-                  CMS（type 1）采集站，jar 插件源与 JS 规则源不在支持范围。
+                  留空则不启用。仅支持苹果 CMS（type 1）采集站，jar 与 JS 规则源不支持；编辑后失焦自动保存。
                 </p>
               </div>
             </>
@@ -513,8 +498,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              开启后，服务器端 B站 解析将强制使用 MP4 模式，不再返回 DASH
-              流。仅影响服务器端解析，不影响 CLI 代理的 DASH 模式。
+              开启后服务器端解析只用 MP4，不影响 CLI 代理的 DASH 模式。
             </p>
           </div>
 
@@ -537,8 +521,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              添加 B站
-              影片时未手动配置解析偏好的默认模式，同样作为已有影片未显式配置解析偏好时的运行时兜底。
+              添加 B站 影片时的默认解析模式，也是未单独配置影片的兜底。
             </p>
           </div>
           <div className="mb-6 max-w-md">
@@ -561,9 +544,7 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              识别为番剧/影视（需大会员）的内容在添加影片时套用的默认模式。选择「仅
-              CLI 模式」后，房间内所有成员都必须安装并连接本机 ZViewer CLI
-              才能观看，服务器仅做同步信令，不转发媒体流（不消耗服务器带宽）。
+              番剧/影视内容添加影片时套用的默认模式。选「仅 CLI 模式」时成员需各自运行 CLI，服务器不转发媒体流。
             </p>
           </div>
 
@@ -591,7 +572,7 @@ export function SettingsTab({
                     版本更新由桌面端管理
                   </Text>
                   <Text type="secondary" className="mt-0.5 block text-xs">
-                    请去 ZViewer Desktop 的更新功能中更新。
+                    请在 ZViewer Desktop 中更新。
                   </Text>
                 </div>
               </div>
@@ -603,7 +584,7 @@ export function SettingsTab({
                       接收最新构建版本更新
                     </Text>
                     <Text type="secondary" className="block text-xs mt-0.5">
-                      开启后始终更新到最新一次构建（含预发布版），关闭则仅在正式版之间更新
+                      开启后包含预发布构建，关闭则只更新正式版
                     </Text>
                   </div>
                   <Switch
@@ -625,8 +606,7 @@ export function SettingsTab({
                         使用镜像更新源
                       </Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
-                        开启后从 GitCode 上的产物仓库（ZviewerRelease）读取版本清单并下载安装包，
-                        国内网络无需代理；关闭则改走 GitHub Release。不会自动换源：镜像不可用时直接报错。
+                        从 GitCode 产物仓库（ZviewerRelease）读取清单与安装包，国内可直连；关闭则走 GitHub Release。镜像不可用时直接报错，不自动换源。
                       </Text>
                     </div>
                     <Switch
@@ -647,8 +627,8 @@ export function SettingsTab({
                       <Text className="text-sm font-medium">更新 CDN 加速</Text>
                       <Text type="secondary" className="block text-xs mt-0.5">
                         {settings.updateUseGitCode !== false
-                          ? '仅 GitHub 源生效；当前使用镜像源，无需代理'
-                          : '开启后，更新检测和 Release 下载将走 CDN 代理加速'}
+                          ? '镜像源下无需代理'
+                          : '开启后检测与下载走 CDN 代理'}
                       </Text>
                     </div>
                     <Switch
@@ -683,8 +663,7 @@ export function SettingsTab({
                             type="secondary"
                             className="block text-xs mt-1.5"
                           >
-                            使用 GitHub 代理前缀方式加速，默认
-                            https://gh-proxy.com，可替换为自建代理。
+                            默认 https://gh-proxy.com，可换成自建代理。
                           </Text>
                         </div>
                       </div>
