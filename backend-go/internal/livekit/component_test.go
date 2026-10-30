@@ -23,8 +23,8 @@ func TestComponentSourcesOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("componentSources: %v", err)
 	}
-	if len(sources) != 3 {
-		t.Fatalf("期望 3 个下载源，得到 %d", len(sources))
+	if len(sources) != 4 {
+		t.Fatalf("期望 4 个下载源，得到 %d", len(sources))
 	}
 	if !strings.HasPrefix(sources[0], "https://api.gitcode.com/api/v5/repos/Zero-wyc/ZviewerRelease/raw/") {
 		t.Errorf("首个源应为 GitCode 直链，得到 %q", sources[0])
@@ -32,11 +32,14 @@ func TestComponentSourcesOrder(t *testing.T) {
 	if !strings.Contains(sources[0], "ref=components") {
 		t.Errorf("GitCode 直链必须带 ?ref=components，得到 %q", sources[0])
 	}
-	if !strings.Contains(sources[1], "raw.githubusercontent.com/Zero-wyc/ZviewerRelease/components/") {
-		t.Errorf("第二个源应为产物仓库的 GitHub raw，得到 %q", sources[1])
+	if !strings.HasPrefix(sources[1], "https://gh-proxy.com/https://raw.githubusercontent.com/Zero-wyc/ZviewerRelease/components/") {
+		t.Errorf("第二个源应为 CDN 代理过的产物仓库直链，得到 %q", sources[1])
 	}
-	if !strings.Contains(sources[2], "livekit-server/releases/download/"+BinaryVersion+"/") {
-		t.Errorf("第三个源应为官方 Release，得到 %q", sources[2])
+	if !strings.Contains(sources[2], "raw.githubusercontent.com/Zero-wyc/ZviewerRelease/components/") {
+		t.Errorf("第三个源应为产物仓库的 GitHub raw，得到 %q", sources[2])
+	}
+	if !strings.Contains(sources[3], "livekit-server/releases/download/"+BinaryVersion+"/") {
+		t.Errorf("第四个源应为官方 Release，得到 %q", sources[3])
 	}
 }
 

@@ -3,7 +3,7 @@ package livekit
 // LiveKit 二进制的**按需下载**（默认不随安装包分发）。
 //
 // 为什么这么做：livekit-server.exe 单文件 53.8 MB（Go 静态链接整个 WebRTC 栈），
-// 压进 ZIP 也有 17.6 MB，占 Windows GUI 包的三分之一。绝大多数用户第一次打开
+// 压进 ZIP 也有 18.4 MB，占 Windows GUI 包的三分之一。绝大多数用户第一次打开
 // 房间并不会马上开语音，所以改成「第一次点语音时才下载」。
 //
 // 下载源与桌面端可选组件（cloudflared / EasyTier / frpc）完全一致：
@@ -39,6 +39,9 @@ const (
 	componentGitCodeBase = "https://api.gitcode.com/api/v5/repos/" + componentRepo + "/raw"
 	// componentGitHubRaw 是同一份文件的 GitHub 直链（境内多半不通，仅作兜底）。
 	componentGitHubRaw = "https://raw.githubusercontent.com/" + componentRepo + "/" + componentRef
+	// componentProxy 是社区 CDN 前缀（与「更新 CDN 加速」默认值同一个站）：
+	// GitCode 还没镜像到 components 分支时，用它先顶上。
+	componentProxy = "https://gh-proxy.com/"
 	// componentMaxBytes 是下载体积上限，防止拿到一段 HTML 错误页也当成压缩包。
 	componentMaxBytes = 120 << 20
 )
@@ -111,9 +114,11 @@ func componentSources() ([]string, error) {
 		return nil, err
 	}
 	escaped := url.PathEscape(name)
+	raw := componentGitHubRaw + "/" + escaped
 	return []string{
 		componentGitCodeBase + "/" + escaped + "?ref=" + componentRef,
-		componentGitHubRaw + "/" + escaped,
+		componentProxy + raw,
+		raw,
 		downloadURL(),
 	}, nil
 }
@@ -167,7 +172,7 @@ func (m *Manager) Status() Status {
 
 // Install 启动一次后台下载（幂等：已在下载中直接返回 ErrInstallInProgress）。
 //
-// 返回即代表「已开始」，调用方（HTTP handler）不应等待完成——17.6 MB 在慢网络上
+// 返回即代表「已开始」，调用方（HTTP handler）不应等待完成——18 MB 在慢网络上
 // 要几分钟，前端靠轮询 Status 显示进度。
 func (m *Manager) Install(ctx context.Context) error {
 	if m.cfg.External && !m.cfg.AllowDownload {
