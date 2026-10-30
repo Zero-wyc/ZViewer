@@ -1,7 +1,7 @@
 package controller
 
 // 集成测试：真的拉起 easytier-core，跑通「生成 TOML → 启动 → RPC 读回状态 → 双节点互连 → 停止」。
-// 组件由 scripts/prepare-tools.ps1 缓存到 desktop/.runtime/tools/easytier，缺失时跳过，
+// 组件由 scripts/fetch-components.ps1 下载后解到 desktop/.runtime/tools/easytier，缺失时跳过，
 // 不让普通 `go test ./...` 依赖网络或第三方二进制。
 
 import (
@@ -22,7 +22,7 @@ func meshTestBinaries(t *testing.T) (core, host string) {
 	host = filepath.Join("..", "assets", "ZViewer.ProcessHost.exe")
 	for _, file := range []string{core, cli, host} {
 		if _, err := os.Stat(file); err != nil {
-			t.Skipf("缺少 %s，先跑 desktop/scripts/prepare-tools.ps1", file)
+			t.Skipf("缺少 %s，先跑 desktop/scripts/fetch-components.ps1，再把 easytier 解到 desktop/.runtime/tools/easytier", file)
 		}
 	}
 	// startProcess 会把工作目录切到组件目录，宿主的相对路径会失效，先转绝对路径。
