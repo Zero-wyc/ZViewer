@@ -169,6 +169,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check i18n dictionary
+        # 中文词条表由源码生成，与源码不一致说明有人改了文案没跑
+        # `npm run i18n:extract`，或手改了 zh-CN.ts
+        run: npm run i18n:check
+
       - name: Build & package single-file
         # build-all.js --win/--linux 会依次执行：
         #   1. vite 构建前端 → 2. go build 交叉编译后端

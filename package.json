@@ -18,6 +18,8 @@
     "build:backend": "node scripts/build-backend.js",
     "lint": "npm run lint:frontend",
     "lint:frontend": "npm run lint -w frontend",
+    "i18n:extract": "npm run i18n:extract -w frontend --",
+    "i18n:check": "npm run i18n:check -w frontend",
     "lint:go": "cd backend-go && gofmt -l . && go vet ./...",
     "test:go": "cd backend-go && go test ./...",
     "test:regression": "bash backend-go/scripts/regression-sweep.sh",
