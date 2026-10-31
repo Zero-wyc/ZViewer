@@ -332,11 +332,11 @@ export function PlayerSongControl({
           className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
           style={{ color: 'var(--md-sys-color-on-surface)' }}
           title={t('{{label}}（点击{{next}}）', {
-            label: PLAY_MODE_META[playMode].label,
-            next: PLAY_MODE_META[playMode].next,
+            label: t(PLAY_MODE_META[playMode].label),
+            next: t(PLAY_MODE_META[playMode].next),
           })}
           aria-label={t('播放模式：{{label}}', {
-            label: PLAY_MODE_META[playMode].label,
+            label: t(PLAY_MODE_META[playMode].label),
           })}
         >
           <PlayModeIcon

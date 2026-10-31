@@ -801,7 +801,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                           }}
                           aria-hidden="true"
                         />
-                        <span className="flex-1 truncate">{item.label}</span>
+                        <span className="flex-1 truncate">{t(item.label)}</span>
                       </button>
                     )
                   })}
@@ -876,7 +876,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   }}
                   aria-current={active ? 'page' : undefined}
                 >
-                  {item.label}
+                  {t(item.label)}
                 </button>
               )
             })}

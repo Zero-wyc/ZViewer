@@ -59,7 +59,7 @@ export function SourceActionButton({
         onClick={onOpen}
         disabled={disabled}
       >
-        {search.label}
+        {t(search.label)}
       </Button>
     )
   }

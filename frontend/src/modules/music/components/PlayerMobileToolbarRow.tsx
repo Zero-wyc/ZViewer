@@ -229,11 +229,11 @@ export function PlayerMobileToolbarRow({
           onClick={onTogglePlayMode}
           className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
           title={t('{{label}}（点击{{next}}）', {
-            label: PLAY_MODE_META[playMode].label,
-            next: PLAY_MODE_META[playMode].next,
+            label: t(PLAY_MODE_META[playMode].label),
+            next: t(PLAY_MODE_META[playMode].next),
           })}
           aria-label={t('播放模式：{{label}}', {
-            label: PLAY_MODE_META[playMode].label,
+            label: t(PLAY_MODE_META[playMode].label),
           })}
         >
           <PlayModeIcon mode={playMode} className="h-5 w-5" />

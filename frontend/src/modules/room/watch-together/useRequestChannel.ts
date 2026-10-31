@@ -311,7 +311,7 @@ export function useRequestChannel({
           )
         }
       } else {
-        addPlayerNoticeRef.current(spec.rejectedText, 'info')
+        addPlayerNoticeRef.current(t(spec.rejectedText), 'info')
       }
     }
 
@@ -340,7 +340,7 @@ export function useRequestChannel({
       pendingTimeoutRef.current = setTimeout(() => {
         setPending(false)
         pendingTimeoutRef.current = null
-        addPlayerNotice(spec.timeoutText, 'info')
+        addPlayerNotice(t(spec.timeoutText), 'info')
       }, PENDING_TIMEOUT_MS)
       socket.emit(
         requestEvent,
@@ -354,11 +354,16 @@ export function useRequestChannel({
             // 服务器拒绝（如房间非直播模式）：清除 pending 和 timeout
             clearPendingTimeout()
             setPending(false)
-            addPlayerNotice(response.message || spec.requestFailedText, 'error')
+            addPlayerNotice(
+              response.message || t(spec.requestFailedText),
+              'error'
+            )
           } else {
             // 服务器已转发给房主，timeout 保留（由 response 事件或超时回退清除）
             addPlayerNotice(
-              autoApproveRef.current ? spec.autoDoneText : spec.waitingText,
+              autoApproveRef.current
+                ? t(spec.autoDoneText)
+                : t(spec.waitingText),
               'info'
             )
           }

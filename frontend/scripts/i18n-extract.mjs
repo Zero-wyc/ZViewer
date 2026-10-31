@@ -204,6 +204,26 @@ function isInsideT(node, name) {
 }
 
 /**
+ * 是否正处在 `t()` 的**词条参数**位置（第一个实参）。
+ *
+ * 只有这个位置是 key、不该再包一层；第二个实参（插值对象）里的中文
+ * 是「值」，仍然需要 t()——`t('{{label}}（点击{{next}}）', { label: TABLE[m].label })`
+ * 里那个 label 不包就是永远的中文。
+ */
+function isInsideTKey(node) {
+  const start = node.getStart()
+  const end = node.getEnd()
+  for (let cur = node.parent; cur; cur = cur.parent) {
+    if (!ts.isCallExpression(cur)) continue
+    const callee = cur.expression.getText()
+    if (callee !== 't' && callee !== 'translate' && callee !== 'i18next.t') continue
+    const first = cur.arguments[0]
+    if (first && start >= first.getStart() && end <= first.getEnd()) return true
+  }
+  return false
+}
+
+/**
  * 是否处在模块/类作用域（没被任何函数包住）。
  *
  * 这类字面量（常量表里的 label、枚举中文名）如果直接换成 t()，会在模块加载时
@@ -331,7 +351,90 @@ function templateToKey(node) {
   return { key, vars }
 }
 
-function transformFile(file, options) {
+/**
+ * 从一个初始化表达式里挖出「属性名 → 中文原文」。
+ *
+ * 用于识别「中文标签表」：`const THEMES = [{ label: '白', value: 'light' }]`。
+ */
+function collectChineseProps(value, props = new Map()) {
+  const walk = (node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      for (const property of node.properties) {
+        if (!ts.isPropertyAssignment(property)) continue
+        const key = property.name
+          .getText()
+          .replace(/^['"]/, '')
+          .replace(/['"]$/, '')
+        if (ts.isStringLiteral(property.initializer) && hasHan(property.initializer.text)) {
+          if (!props.has(key)) props.set(key, property.initializer.text)
+        } else {
+          walk(property.initializer)
+        }
+      }
+    } else if (ts.isArrayLiteralExpression(node)) {
+      for (const element of node.elements) walk(element)
+    }
+  }
+  walk(value)
+  return props
+}
+
+/** 模块作用域的「中文标签表」：const 名 → { 属性名: 中文原文 } */
+function moduleScopeTables(sourceFile) {
+  const tables = new Map()
+  for (const statement of sourceFile.statements) {
+    if (!ts.isVariableStatement(statement)) continue
+    for (const declaration of statement.declarationList.declarations) {
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      const props = collectChineseProps(declaration.initializer)
+      if (props.size > 0) tables.set(declaration.name.text, props)
+    }
+  }
+  return tables
+}
+
+function scriptKindOf(file) {
+  return file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS
+}
+
+/** `@/modules/music/x`、`../x` 这类说明符能不能对上某个真实文件 */
+function specifierMatches(fromFile, specifier, targetFile) {
+  const normalize = (p) => p.replace(/[\\/]/g, '/').replace(/\.tsx?$/, '')
+  let expected = null
+  if (specifier.startsWith('@/')) expected = path.join(SRC, specifier.slice(2))
+  else if (specifier.startsWith('.')) expected = path.resolve(path.dirname(fromFile), specifier)
+  else return false
+  return normalize(targetFile) === normalize(expected)
+}
+
+/**
+ * 本文件用到的中文标签表：本地定义的 + 从别处 import 进来的。
+ *
+ * 跨文件这一步是必需的——`MUSIC_LEVEL_OPTIONS` 定义在 store-settings.ts、
+ * 渲染在 MusicSettingsPage.tsx，只看单文件会漏掉全部跨模块的表。
+ */
+function resolveTables(sourceFile, file, tableIndex) {
+  const tables = moduleScopeTables(sourceFile)
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    const clause = statement.importClause
+    const bindings = clause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    const specifier = statement.moduleSpecifier.text
+    for (const element of bindings.elements) {
+      const importedName = (element.propertyName ?? element.name).text
+      const localName = element.name.text
+      if (tables.has(localName)) continue
+      const candidates = tableIndex.get(importedName)
+      if (!candidates) continue
+      const hit = candidates.find((candidate) => specifierMatches(file, specifier, candidate.file))
+      if (hit) tables.set(localName, hit.props)
+    }
+  }
+  return tables
+}
+
+function transformFile(file, tableIndex = new Map()) {
   const source = fs.readFileSync(file, 'utf8')
   const sourceFile = ts.createSourceFile(
     file,
@@ -430,7 +533,7 @@ function transformFile(file, options) {
       if (n !== expr) {
         if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
           const text = n.text
-          if (hasHan(text) && !isInsideT(n, 't') && !isInsideT(n, 'translate')) {
+          if (hasHan(text) && !isInsideTKey(n)) {
             if (!literalSkipReason(n)) {
               addKey(text)
               inner.push({
@@ -524,15 +627,112 @@ function transformFile(file, options) {
     return true
   }
 
+  /**
+   * 本文件模块作用域里的「中文标签表」（含 import 进来的）：表名 → { 属性名: 中文原文 }。
+   *
+   * 这些表**不能**在定义处调 t()（会在模块加载时把语言定格），正确做法是
+   * 存中文原文当 key、在渲染处 t()。所以这里先把表结构摸清楚，
+   * 再在下面把读取点包成 t(X.label)。
+   */
+  const tableProps = resolveTables(sourceFile, file, tableIndex)
+  if (process.env.I18N_DEBUG) {
+    const local = moduleScopeTables(sourceFile)
+    console.log(
+      `[debug] ${path.relative(FRONTEND, file)} 表: ${[...tableProps.keys()].join(',') || '(无)'}` +
+        ` 本地: ${[...local.keys()].join(',') || '(无)'}`
+    )
+  }
+
+  /** 局部别名：`const spec = CHANNEL_SPECS[kind]` → spec 指向 CHANNEL_SPECS */
+  const aliasToTable = new Map()
+  const resolveTableName = (expr) => {
+    if (!expr) return null
+    if (ts.isIdentifier(expr)) {
+      if (tableProps.has(expr.text)) return expr.text
+      return aliasToTable.get(expr.text) ?? null
+    }
+    if (
+      ts.isElementAccessExpression(expr) ||
+      ts.isPropertyAccessExpression(expr) ||
+      ts.isCallExpression(expr)
+    ) {
+      return resolveTableName(expr.expression)
+    }
+    if (
+      ts.isParenthesizedExpression(expr) ||
+      ts.isAsExpression(expr) ||
+      ts.isNonNullExpression(expr)
+    ) {
+      return resolveTableName(expr.expression)
+    }
+    return null
+  }
+
+  const MAP_LIKE = new Set(['map', 'forEach', 'filter', 'find', 'findLast', 'some', 'every'])
+  const bindAliases = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+      const table = resolveTableName(node.initializer)
+      if (table) aliasToTable.set(node.name.text, table)
+    }
+    // TABLE.map((f) => …)：回调参数 f 指向 TABLE
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      MAP_LIKE.has(node.expression.name.getText())
+    ) {
+      const table = resolveTableName(node.expression.expression)
+      if (table) {
+        const callback = node.arguments[0]
+        if (callback && ts.isArrowFunction(callback)) {
+          for (const param of callback.parameters) {
+            if (ts.isIdentifier(param.name)) aliasToTable.set(param.name.text, table)
+          }
+        }
+      }
+    }
+    ts.forEachChild(node, bindAliases)
+  }
+  bindAliases(sourceFile)
+
+  /** 把「读标签表」的地方包成 t(X.label)；返回 true 表示已经生成编辑 */
+  const wrapMemberRead = (node) => {
+    const prop = node.name.getText()
+    const table = resolveTableName(node.expression)
+    if (!table) return false
+    const text = tableProps.get(table)?.get(prop)
+    if (!text) return false
+    if (inModuleScope(node)) return false
+    if (isInsideTKey(node)) return false
+    // `X?.label ?? t('全部')`：只包前半段会把兜底链切断，要连兜底一起包
+    let target = node
+    let cursor = node
+    while (
+      cursor.parent &&
+      ts.isBinaryExpression(cursor.parent) &&
+      ['??', '||'].includes(cursor.parent.operatorToken.getText()) &&
+      cursor.parent.left === cursor
+    ) {
+      cursor = cursor.parent
+      target = cursor
+    }
+    if (isInsideTKey(target)) return false
+    addKey(text)
+    addEdit(target.getStart(sourceFile), target.getEnd(), `${callName}(${target.getText()})`)
+    return true
+  }
+
   const visit = (node) => {
-    // 0) JSX 元素：先试「文本 + 表达式」整体合并
+    // 0) 读中文标签表的地方：spec.timeoutText → t(spec.timeoutText)
+    if (ts.isPropertyAccessExpression(node) && wrapMemberRead(node)) return
+
+    // 1) JSX 元素：先试「文本 + 表达式」整体合并成一个 t()
     if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
       if (flattenJsxChildren(node)) return
       ts.forEachChild(node, visit)
       return
     }
 
-    // 1) JSX 文本节点：<div>中文</div>
+    // 2) JSX 文本节点：<div>中文</div>
     if (ts.isJsxText(node)) {
       const text = normalizeText(node.text)
       if (!text || !hasHan(text)) return
@@ -569,7 +769,7 @@ function transformFile(file, options) {
       return
     }
 
-    // 2) JSX 属性：title="中文"（白名单内才动）
+    // 3) JSX 属性：title="中文"（白名单内才动）
     if (ts.isJsxAttribute(node)) {
       const name = node.name.getText()
       const init = node.initializer
@@ -590,7 +790,7 @@ function transformFile(file, options) {
       return
     }
 
-    // 3) 普通字符串字面量（含无插值的模板串）
+    // 4) 普通字符串字面量（含无插值的模板串）
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const text = node.text
       if (!hasHan(text)) return
@@ -598,7 +798,7 @@ function transformFile(file, options) {
         skip(node, 'stylesheet', text.slice(0, 60))
         return
       }
-      if (isInsideT(node, 't') || isInsideT(node, 'translate')) {
+      if (isInsideTKey(node)) {
         addKey(text)
         return
       }
@@ -620,7 +820,7 @@ function transformFile(file, options) {
       return
     }
 
-    // 4) 带插值的模板串：`已复制 ${n} 项` → t('已复制 {{n}} 项', { n })
+    // 5) 带插值的模板串：`已复制 ${n} 项` → t('已复制 {{n}} 项', { n })
     if (ts.isTemplateExpression(node)) {
       const replacement = buildTemplate(node)
       if (replacement === null) return
@@ -732,12 +932,29 @@ function main() {
   const files = []
   walkFiles(path.resolve(FRONTEND, 'src'), files)
 
+  // 先建一份全局「中文标签表」索引：`表名 → [{ 所属文件, 属性 }]`。
+  // 有了它，引用别的模块里的表（MUSIC_LEVEL_OPTIONS 之类）也能认出读取点。
+  const tableIndex = new Map()
+  for (const file of files) {
+    const sf = ts.createSourceFile(
+      file,
+      fs.readFileSync(file, 'utf8'),
+      ts.ScriptTarget.Latest,
+      true,
+      scriptKindOf(file)
+    )
+    for (const [name, props] of moduleScopeTables(sf)) {
+      if (!tableIndex.has(name)) tableIndex.set(name, [])
+      tableIndex.get(name).push({ file, props })
+    }
+  }
+
   const allKeys = []
   const skipped = []
   let changedFiles = 0
 
   for (const file of files.sort()) {
-    const result = transformFile(file)
+    const result = transformFile(file, tableIndex)
     for (const key of result.keys) allKeys.push({ bucket: bucketOf(file), key })
     // 统计/报告只反映本次 scope（默认就是整个 src）
     if (inScope.has(file)) skipped.push(...result.skipped)

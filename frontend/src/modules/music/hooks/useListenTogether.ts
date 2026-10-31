@@ -1953,7 +1953,7 @@ export function useListenTogether({
         useMusicStore.getState().setSyncNotice(
           t('{{who}} 申请{{playItem}}', {
             who,
-            playItem: CONTROL_ACTION_TEXT.playItem,
+            playItem: t(CONTROL_ACTION_TEXT.playItem),
           }),
           'approval'
         )

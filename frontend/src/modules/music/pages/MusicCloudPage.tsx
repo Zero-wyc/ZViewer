@@ -510,7 +510,8 @@ export function MusicCloudPage({
   )
 
   const selectedCategoryName = useMemo(
-    () => CLOUD_CATEGORIES.find((c) => c.key === typeSelect)?.name ?? t('全部'),
+    () =>
+      t(CLOUD_CATEGORIES.find((c) => c.key === typeSelect)?.name ?? t('全部')),
     [typeSelect]
   )
 
@@ -742,7 +743,7 @@ export function MusicCloudPage({
                     className="text-xs font-bold"
                     style={{ color: 'var(--md-sys-color-on-surface)' }}
                   >
-                    {category.name}
+                    {t(category.name)}
                   </span>
                 </button>
               )

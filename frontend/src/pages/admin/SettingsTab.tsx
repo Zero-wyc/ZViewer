@@ -339,7 +339,7 @@ export function SettingsTab({
                         key={r.key}
                         className="border-collapse px-3 py-2 text-center font-medium text-[var(--md-sys-color-on-surface-variant)]"
                       >
-                        {r.label}
+                        {t(r.label)}
                       </th>
                     ))}
                   </tr>
@@ -503,7 +503,7 @@ export function SettingsTab({
                       disabled={cmsInspecting}
                       className="rounded-full border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-2.5 py-1 text-xs text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:border-[var(--md-sys-color-primary)] hover:text-[var(--md-sys-color-on-surface)] disabled:opacity-40"
                     >
-                      {preset.label}
+                      {t(preset.label)}
                     </button>
                   ))}
                 </div>
