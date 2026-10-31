@@ -1,5 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface LoadingLineProps {
   /** 加载文案，默认「加载中…」 */
@@ -15,7 +16,7 @@ export interface LoadingLineProps {
  * 视觉更重的场景请使用 ui/Spinner。
  */
 export function LoadingLine({
-  text = '加载中…',
+  text = t('加载中…'),
   className,
   spinnerClassName,
 }: LoadingLineProps) {

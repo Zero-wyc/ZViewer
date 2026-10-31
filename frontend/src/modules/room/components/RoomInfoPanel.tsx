@@ -36,6 +36,7 @@ import { cn } from '@/lib/utils'
 import { getAddressScope } from '@/lib/netAddress'
 import {
   USER_ROLE_LABELS,
+  userRoleLabel,
   USER_ROLE_CSS_COLORS,
   type UserRole,
 } from '@/lib/roles'
@@ -49,7 +50,7 @@ type SettingsTab = 'info' | 'viewers' | 'permissions'
 
 function RoleBadge({ role }: { role?: string }) {
   if (!role || !(role in USER_ROLE_LABELS)) return null
-  const label = USER_ROLE_LABELS[role as UserRole]
+  const label = userRoleLabel(role as UserRole)
   const color = USER_ROLE_CSS_COLORS[role as UserRole]
   return (
     <span

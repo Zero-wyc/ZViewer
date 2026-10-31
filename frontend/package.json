@@ -10,7 +10,10 @@
     "test": "tsc -p tsconfig.test.json && node --experimental-strip-types --test \"src/modules/music/utils/__tests__/*.test.ts\"",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
-    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\""
+    "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
+    "i18n:extract": "node scripts/i18n-extract.mjs",
+    "i18n:dict": "node scripts/i18n-extract.mjs --dict-only",
+    "i18n:check": "node scripts/i18n-extract.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -41,12 +44,14 @@
     "danmaku": "^2.0.9",
     "flv.js": "^1.6.2",
     "hls.js": "^1.6.16",
+    "i18next": "^26.5.12",
     "livekit-client": "^2.22.3",
     "lucide-react": "^1.23.0",
     "mediabunny": "file:vendor/mediabunny",
     "playsvideo": "file:vendor/playsvideo",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "react-i18next": "^17.1.9",
     "react-router-dom": "^6.30.4",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.6.0",

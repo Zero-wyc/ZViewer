@@ -10,6 +10,7 @@ import type { WatchTogetherState } from '@/modules/sync-playback/types'
 import type { AniSubsEpisode } from '@/modules/anisubs/types'
 import type { CmsSourceMeta } from '@/modules/cms/types'
 import { useMusicStore } from '@/modules/music/store'
+import { t } from '@/i18n'
 
 /**
  * ani-subs 番剧源元数据。
@@ -691,7 +692,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       movies?: MovieDto[]
     }>(res)
     if (!res.ok || !data.success || !Array.isArray(data.movies)) {
-      throw new Error(data.message || '获取影片列表失败')
+      throw new Error(data.message || t('获取影片列表失败'))
     }
     set({ movies: data.movies.map(mapDtoToMovie) })
   },
@@ -711,7 +712,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       movie?: MovieDto
     }>(res)
     if (!res.ok || !data.success) {
-      throw new Error(data.message || '新增影片失败')
+      throw new Error(data.message || t('新增影片失败'))
     }
     // 不直接更新本地 state，等待后端广播 movie-list 刷新。
     // 返回后端创建的影片（含 id）：添加流程需要即时拿到 id 持久化
@@ -732,7 +733,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       res
     )
     if (!res.ok || !data.success) {
-      throw new Error(data.message || '更新影片失败')
+      throw new Error(data.message || t('更新影片失败'))
     }
     // 不直接更新本地 state，等待后端广播 movie-list 刷新
   },
@@ -748,7 +749,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       res
     )
     if (!res.ok || !data.success) {
-      throw new Error(data.message || '删除影片失败')
+      throw new Error(data.message || t('删除影片失败'))
     }
     // 后端 REST 删除不会广播 current-movie 事件，需要本地清理
     if (get().currentMovieId === movieId) {
@@ -770,7 +771,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       removed?: number
     }>(res)
     if (!res.ok || !data.success) {
-      throw new Error(data.message || '清空影片失败')
+      throw new Error(data.message || t('清空影片失败'))
     }
     // 后端 REST 删除不会广播 current-movie 事件，需要本地清理
     set({ currentMovieId: null })
@@ -790,7 +791,7 @@ export const useRoomStore = create<RoomState>((set, get) => ({
       res
     )
     if (!res.ok || !data.success) {
-      throw new Error(data.message || '重排序失败')
+      throw new Error(data.message || t('重排序失败'))
     }
     // 不直接更新本地 state，等待后端广播 movie-list 刷新
   },

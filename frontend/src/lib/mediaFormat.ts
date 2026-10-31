@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * 前端媒体格式识别工具（对应后端 services/mediaFormat.ts）。
  *
@@ -108,7 +109,12 @@ export function getUnsupportedFormatMessage(
   format?: MediaFormat | string | null
 ): string {
   if (!format || format === 'unknown') {
-    return '该文件格式未知，浏览器无法播放'
+    return t('该文件格式未知，浏览器无法播放')
   }
-  return `该文件格式（${format.toUpperCase()}）不被浏览器原生支持，请选择 MP4/WebM/MOV/MKV 文件`
+  return t(
+    '该文件格式（{{format}}）不被浏览器原生支持，请选择 MP4/WebM/MOV/MKV 文件',
+    {
+      format: format.toUpperCase(),
+    }
+  )
 }

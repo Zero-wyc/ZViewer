@@ -21,6 +21,7 @@ import { useRoomStore } from '@/store/roomStore'
 import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { LogOut } from 'lucide-react'
+import { t } from '@/i18n'
 
 export function useRoomExitGuard() {
   const navigate = useNavigate()
@@ -81,14 +82,14 @@ export function useRoomExitGuard() {
     <Modal
       open={confirmOpen}
       onClose={cancelExit}
-      title="离开房间"
+      title={t('离开房间')}
       footer={
         <>
           <Button variant="secondary" onClick={cancelExit}>
-            取消
+            {t('取消')}
           </Button>
           <Button variant="primary" onClick={confirmExit}>
-            确认离开
+            {t('确认离开')}
           </Button>
         </>
       }
@@ -107,10 +108,12 @@ export function useRoomExitGuard() {
         </div>
         <div className="flex-1">
           <p className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-            确定要离开当前房间吗？
+            {t('确定要离开当前房间吗？')}
           </p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
-            房间会继续保持运行，你随时可以通过右上角的「回到房间」按钮返回。进入或创建新房间时，当前房间才会真正退出。
+            {t(
+              '房间会继续保持运行，你随时可以通过右上角的「回到房间」按钮返回。进入或创建新房间时，当前房间才会真正退出。'
+            )}
           </p>
         </div>
       </div>

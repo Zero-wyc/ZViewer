@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import { X, Check, ChevronRight } from 'lucide-react'
 import { Button } from './Button'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface RequestNotificationItem {
   /** 唯一标识，用于 React key 与状态管理 */
@@ -159,7 +160,7 @@ function NotificationCard({ item, onClose }: NotificationCardProps) {
           <button
             type="button"
             onClick={() => handleAction(false)}
-            aria-label="关闭"
+            aria-label={t('关闭')}
             className="rounded-[var(--md-sys-radius-small)] p-0.5 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
           >
             <X className="h-4 w-4" />
@@ -180,7 +181,7 @@ function NotificationCard({ item, onClose }: NotificationCardProps) {
             className="h-8 px-3 text-xs"
             onClick={() => handleAction(false)}
           >
-            {item.cancelText ?? '拒绝'}
+            {item.cancelText ?? t('拒绝')}
           </Button>
           <Button
             variant="primary"
@@ -189,7 +190,7 @@ function NotificationCard({ item, onClose }: NotificationCardProps) {
             icon={<Check className="h-3.5 w-3.5" />}
             onClick={() => handleAction(true)}
           >
-            {item.okText ?? '同意'}
+            {item.okText ?? t('同意')}
           </Button>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 退出动画时长(与 Modal 一致,超时后卸载) */
 const OVERLAY_ANIMATION_DURATION = 220
@@ -70,12 +71,7 @@ export function FullscreenOverlay({
   if (!visible || typeof document === 'undefined') return null
 
   return createPortal(
-    <div
-      className={cn(
-        'fixed inset-0 z-[999]',
-        webFullscreen ? 'p-0' : 'p-4'
-      )}
-    >
+    <div className={cn('fixed inset-0 z-[999]', webFullscreen ? 'p-0' : 'p-4')}>
       <div
         className={cn(
           'absolute inset-0 bg-black/40',
@@ -117,8 +113,8 @@ export function FullscreenOverlay({
             <div className="flex shrink-0 items-center gap-1">
               <button
                 onClick={() => setWebFullscreen((v) => !v)}
-                title={webFullscreen ? '退出网页全屏' : '网页全屏'}
-                aria-label={webFullscreen ? '退出网页全屏' : '网页全屏'}
+                title={webFullscreen ? t('退出网页全屏') : t('网页全屏')}
+                aria-label={webFullscreen ? t('退出网页全屏') : t('网页全屏')}
                 className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)]"
               >
                 {webFullscreen ? (

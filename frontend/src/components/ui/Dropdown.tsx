@@ -9,6 +9,7 @@ import {
 import { createPortal } from 'react-dom'
 import { ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface DropdownOption {
   label: string
@@ -33,7 +34,7 @@ export function Dropdown({
   error,
   options,
   value,
-  placeholder = '请选择',
+  placeholder = t('请选择'),
   disabled = false,
   className,
   onChange,

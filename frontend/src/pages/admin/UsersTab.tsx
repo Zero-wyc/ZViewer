@@ -6,7 +6,7 @@ import { Title, Text } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { cn } from '@/lib/utils'
-import { USER_ROLE_LABELS, USER_ROLE_TAG_COLORS } from '@/lib/roles'
+import { USER_ROLE_TAG_COLORS, userRoleLabel } from '@/lib/roles'
 import type { AdminSettings, AdminUser, RegistrationMode } from './shared'
 import { formatDate } from './shared'
 
@@ -97,7 +97,7 @@ export function UsersTab({
                     {u.role === 'root' || u.role === 'admin' ? (
                       <Shield className="mr-1 inline h-3 w-3" />
                     ) : null}
-                    {USER_ROLE_LABELS[u.role]}
+                    {userRoleLabel(u.role)}
                   </Tag>
                   {u.status === 'pending' ? (
                     <Tag color="warning">待审核</Tag>

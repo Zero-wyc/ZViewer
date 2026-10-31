@@ -1,3 +1,4 @@
+import { i18next, t } from '@/i18n'
 /**
  * 时间格式化工具。
  */
@@ -12,12 +13,14 @@
 export function formatRecentTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime()
   if (diffMs >= 24 * 60 * 60 * 1000) {
-    return new Date(iso).toLocaleString('zh-CN')
+    return new Date(iso).toLocaleString(i18next.language)
   }
   const totalMinutes = Math.floor(diffMs / 60000)
-  if (totalMinutes < 1) return '刚刚'
+  if (totalMinutes < 1) return t('刚刚')
   const hours = Math.floor(totalMinutes / 60)
   const minutes = totalMinutes % 60
-  if (hours === 0) return `${minutes}分钟前`
-  return minutes > 0 ? `${hours}小时${minutes}分钟前` : `${hours}小时前`
+  if (hours === 0) return t('{{minutes}} 分钟前', { minutes })
+  return minutes > 0
+    ? t('{{hours}} 小时 {{minutes}} 分钟前', { hours, minutes })
+    : t('{{hours}} 小时前', { hours })
 }

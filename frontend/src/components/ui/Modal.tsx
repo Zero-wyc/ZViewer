@@ -3,6 +3,7 @@ import { Maximize2, Minimize2, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from './Button'
 import { ModalShell } from './ModalShell'
+import { t } from '@/i18n'
 
 export interface ModalProps {
   open: boolean
@@ -59,8 +60,8 @@ export function Modal({
           {fullscreenable && (
             <button
               onClick={() => setWebFullscreen((v) => !v)}
-              title={webFullscreen ? '退出网页全屏' : '网页全屏'}
-              aria-label={webFullscreen ? '退出网页全屏' : '网页全屏'}
+              title={webFullscreen ? t('退出网页全屏') : t('网页全屏')}
+              aria-label={webFullscreen ? t('退出网页全屏') : t('网页全屏')}
               className="rounded-[var(--md-sys-shape-corner)] p-1 text-[var(--md-sys-color-on-surface-variant)] transition-all hover:bg-[var(--md-sys-color-surface-container)] hover:text-[var(--md-sys-color-on-surface)] hover:scale-110 active:scale-95"
             >
               {webFullscreen ? (
@@ -100,8 +101,8 @@ export interface ConfirmModalProps extends Omit<ModalProps, 'footer'> {
 }
 
 export function ConfirmModal({
-  okText = '确认',
-  cancelText = '取消',
+  okText = t('确认'),
+  cancelText = t('取消'),
   onOk,
   onCancel,
   confirmLoading,

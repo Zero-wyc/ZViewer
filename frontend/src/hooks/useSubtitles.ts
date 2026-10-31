@@ -14,6 +14,7 @@ import {
   streamMkvSubtitleTrack,
 } from '@/modules/subtitles/mkv-embedded'
 import { appendAuthToken } from '@/modules/player/services/url-proxy'
+import { t as translate } from '@/i18n'
 
 export interface SubtitleTrack {
   cues: ParsedCue[]
@@ -71,7 +72,11 @@ function embeddedTrackLabel(track: {
   language?: string | null
   index: number
 }): string {
-  return track.title || track.language || `轨道 ${track.index}`
+  return (
+    track.title ||
+    track.language ||
+    translate('轨道 {{index}}', { index: track.index })
+  )
 }
 
 export interface SubtitleState {
@@ -239,7 +244,11 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
       setState((prev) => {
         const track: SubtitleTrack = {
           cues,
-          label: label || `字幕 ${prev.subtitleTracks.length + 1}`,
+          label:
+            label ||
+            translate('字幕 {{index}}', {
+              index: prev.subtitleTracks.length + 1,
+            }),
           lang: lang?.trim() || undefined,
         }
         const next: SubtitleState = {
@@ -275,7 +284,11 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
         setState((prev) => {
           const track: SubtitleTrack = {
             cues: [],
-            label: label?.trim() || `字幕 ${prev.subtitleTracks.length + 1}`,
+            label:
+              label?.trim() ||
+              translate('字幕 {{index}}', {
+                index: prev.subtitleTracks.length + 1,
+              }),
             lang: lang?.trim() || undefined,
           }
           const next: SubtitleState = {
@@ -512,12 +525,12 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
         }).then(
           () => {
             if (embeddedEpochRef.current !== epoch) {
-              if (!settled) reject(new Error('字幕提取已取消'))
+              if (!settled) reject(new Error(translate('字幕提取已取消')))
               return
             }
             if (!settled) {
               settled = true
-              reject(new Error('字幕轨为空'))
+              reject(new Error(translate('字幕轨为空')))
               return
             }
             // 提取完成：广播全量同步观众（updater 返回原引用不触发渲染）
@@ -699,7 +712,7 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
           message?: string
         }
         if (!res.ok || !data.success || !data.tracks) {
-          throw new Error(data.message || '获取内嵌字幕轨道失败')
+          throw new Error(data.message || translate('获取内嵌字幕轨道失败'))
         }
         return data.tracks
       } catch (err) {
@@ -775,7 +788,7 @@ export function useSubtitles({ roomId, isHost }: UseSubtitlesOptions) {
           message?: string
         }
         if (!res.ok || !data.success || !data.content) {
-          throw new Error(data.message || '提取内嵌字幕失败')
+          throw new Error(data.message || translate('提取内嵌字幕失败'))
         }
         const cues = parseSubtitle(
           data.content,

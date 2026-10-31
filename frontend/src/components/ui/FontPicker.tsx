@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react'
 import { Check, Loader2, Monitor } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 字体选项：value 为 CSS font-family 值（'' 表示默认） */
 interface FontOption {
@@ -141,8 +142,8 @@ export function FontPickerPanel({
           type="button"
           title={
             systemFonts.length > 0
-              ? '重新枚举系统字体'
-              : '枚举本机已安装的全部字体（需浏览器授权）'
+              ? t('重新枚举系统字体')
+              : t('枚举本机已安装的全部字体（需浏览器授权）')
           }
           onClick={() => void loadSystemFonts()}
           disabled={loadingSystem}
@@ -154,20 +155,27 @@ export function FontPickerPanel({
             <Monitor className="h-3.5 w-3.5" />
           )}
           {systemFonts.length > 0
-            ? `重新枚举（已缓存 ${systemFonts.length} 个）`
-            : '枚举本机系统字体'}
+            ? t('重新枚举（已缓存 {{count}} 个）', {
+                count: systemFonts.length,
+              })
+            : t('枚举本机系统字体')}
         </button>
       )}
 
       {/* 字体列表（面板整体滚动） */}
       <div>
         {BUILTIN_FONTS.map((f) =>
-          renderItem(f.value || 'default', f.label, f.value, f.value === value)
+          renderItem(
+            f.value || 'default',
+            t(f.label),
+            f.value,
+            f.value === value
+          )
         )}
         {systemFonts.length > 0 && (
           <>
             <div className="px-2.5 pb-0.5 pt-2 text-[10px] font-medium uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-              系统字体
+              {t('系统字体')}
             </div>
             {systemFonts.map((family) =>
               renderItem(family, family, `"${family}"`, `"${family}"` === value)

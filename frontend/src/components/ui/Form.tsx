@@ -6,6 +6,7 @@ import React, {
   useState,
 } from 'react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface Rule {
   required?: boolean
@@ -80,24 +81,26 @@ export function Form<
       const value = values[name]
       for (const rule of rules) {
         if (rule.required && (value === undefined || value === '')) {
-          nextErrors[name] = rule.message ?? '该字段为必填项'
+          nextErrors[name] = rule.message ?? t('该字段为必填项')
           valid = false
           break
         }
         if (rule.type === 'number' && value !== undefined && value !== '') {
           const num = Number(value)
           if (Number.isNaN(num)) {
-            nextErrors[name] = rule.message ?? '请输入数字'
+            nextErrors[name] = rule.message ?? t('请输入数字')
             valid = false
             break
           }
           if (rule.min !== undefined && num < rule.min) {
-            nextErrors[name] = rule.message ?? `最小值为 ${rule.min}`
+            nextErrors[name] =
+              rule.message ?? t('最小值为 {{min}}', { min: rule.min })
             valid = false
             break
           }
           if (rule.max !== undefined && num > rule.max) {
-            nextErrors[name] = rule.message ?? `最大值为 ${rule.max}`
+            nextErrors[name] =
+              rule.message ?? t('最大值为 {{max}}', { max: rule.max })
             valid = false
             break
           }

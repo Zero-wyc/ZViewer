@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { apiGet } from '@/lib/api'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
+import { t } from '@/i18n'
 
 interface HealthResponse {
   status: string
@@ -41,7 +42,9 @@ export function useBackendHealth(): void {
           lastStartedAtRef.current !== data.startedAt
         ) {
           message.info(
-            `后端已自动重启（第 ${data.restartCount} 次），服务已恢复`
+            t('后端已自动重启（第 {{count}} 次），服务已恢复', {
+              count: data.restartCount,
+            })
           )
         }
         lastStartedAtRef.current = data.startedAt

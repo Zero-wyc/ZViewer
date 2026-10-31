@@ -3,6 +3,7 @@ import { useSocket } from './useSocket'
 import { useAuthStore } from '@/store/authStore'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getApiUrl } from '@/lib/api'
+import { t } from '@/i18n'
 
 /** 本地 CLI 默认端口 */
 export const CLI_DEFAULT_PORT = 9333
@@ -114,15 +115,15 @@ export function useCliAgent() {
       if (data.ok) {
         setLocalOnline(true, null)
       } else {
-        setLocalOnline(false, '本地 CLI 响应异常')
+        setLocalOnline(false, t('本地 CLI 响应异常'))
       }
     } catch (err) {
       const message =
         err instanceof Error
           ? err.name === 'AbortError'
-            ? '健康检查已取消'
+            ? t('健康检查已取消')
             : err.message
-          : '本地 CLI 连接失败'
+          : t('本地 CLI 连接失败')
       setLocalOnline(false, message)
     }
   }, [setLocalOnline])

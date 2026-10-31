@@ -1,3 +1,6 @@
 dist
 node_modules
 package-lock.json
+
+# 生成物：由 scripts/i18n-extract.mjs 维护，格式以脚本输出为准
+src/i18n/locales/

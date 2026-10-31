@@ -16,7 +16,8 @@ import { Card } from '@/components/ui/Card'
 import { Title, Text } from '@/components/ui/Typography'
 import { Spinner } from '@/components/ui/Spinner'
 import { ConfirmModal } from '@/components/ui/Modal'
-import { USER_ROLE_LABELS } from '@/lib/roles'
+import { userRoleLabel } from '@/lib/roles'
+import { t } from '@/i18n'
 import { message } from '@/components/ui/message'
 import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
 import { useAuthStore } from '@/store/authStore'
@@ -215,11 +216,14 @@ export default function AdminPage() {
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
         message.success(
-          `已将 ${targetUser.username} 设为 ${USER_ROLE_LABELS[nextRole]}`
+          t('已将 {{username}} 设为 {{role}}', {
+            username: targetUser.username,
+            role: userRoleLabel(nextRole),
+          })
         )
         await fetchUsers()
       } else {
-        message.error(data.message ?? '操作失败')
+        message.error(data.message ?? t('操作失败'))
       }
     } catch (err) {
       console.error('[AdminPage] change role error:', err)

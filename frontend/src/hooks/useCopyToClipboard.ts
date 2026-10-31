@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef } from 'react'
 import { message } from '@/components/ui/message'
+import { t } from '@/i18n'
 
 export interface CopyOptions {
   /** 成功提示文案；传 false 静默不提示 */
@@ -57,13 +58,13 @@ export function useCopyToClipboard(defaultOptions?: CopyOptions) {
     const successMessage =
       merged.successMessage !== undefined
         ? merged.successMessage
-        : '已复制到剪贴板'
+        : t('已复制到剪贴板')
     if (ok) {
       if (successMessage !== false) {
         message.success(successMessage)
       }
     } else {
-      message.error(merged.errorMessage ?? '复制失败，请手动复制')
+      message.error(merged.errorMessage ?? t('复制失败，请手动复制'))
     }
     return ok
   }, [])

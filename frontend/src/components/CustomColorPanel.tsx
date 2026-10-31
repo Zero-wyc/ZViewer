@@ -71,6 +71,7 @@ import {
 } from '@/lib/themes'
 import { hexToRgb, relativeLuminance } from '@/lib/bgContrast'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 取色页 HSV 兜底值 */
 const FALLBACK_HSV: HsvColor = { h: 214, s: 90, v: 80 }
@@ -405,7 +406,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 <SwatchDot
                   key={preset.color}
                   color={preset.color}
-                  name={preset.name}
+                  name={t(preset.name)}
                   active={currentHex === preset.color.toLowerCase()}
                   delay={180 + i * 35}
                   onPick={() => applyColor(preset.color)}

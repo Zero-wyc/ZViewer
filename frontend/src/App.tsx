@@ -5,6 +5,8 @@ import { ThemeProvider } from '@/components/ThemeProvider'
 import { RequireAuth } from '@/components/RequireAuth'
 import { useAuthStore, type User } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { useLanguageStore } from '@/store/languageStore'
+import { i18next } from '@/i18n'
 import { apiFetch, resetSessionExpired, saveAuthTokens } from '@/lib/api'
 import { reconnectSocket } from '@/hooks/useSocket'
 import { useBackendHealth } from '@/hooks/useBackendHealth'
@@ -218,6 +220,15 @@ function WatchRedirect() {
 function App() {
   // 监听后端自动重启：socket 重连后对比 /health.startedAt，变化时在网页内提示
   useBackendHealth()
+
+  // 语言：这里订阅一次就够了——`t()` 是普通函数，不做 hook 订阅，
+  // 由 App 重渲染带动整棵树，组件里不用写 useTranslation()。
+  // 同时把 <html lang> 与实际语言对齐（读屏与浏览器翻译提示依赖它）。
+  const language = useLanguageStore((s) => s.language)
+  useEffect(() => {
+    if (i18next.language !== language) void i18next.changeLanguage(language)
+    document.documentElement.lang = language
+  }, [language])
 
   // 启动时拉取公开系统设置（registrationMode / roomCreationMode / betaFeaturesEnabled）。
   // 此接口无需鉴权，guest 也可访问；用于 HomePage 决定是否显示「开始共享」按钮。

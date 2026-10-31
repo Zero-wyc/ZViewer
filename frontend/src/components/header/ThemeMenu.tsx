@@ -14,6 +14,7 @@ import {
   RADIUS_PRESETS,
   type RadiusPreset,
 } from '@/store/themeStore'
+import { t } from '@/i18n'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { BackgroundSettingsPanel } from '@/components/BackgroundSettingsPanel'
@@ -221,7 +222,7 @@ export function ThemeMenu({
                           className="h-5 w-8 border-2 border-[var(--md-sys-color-outline)] bg-[var(--glass-bg)]"
                           style={{ borderRadius: `${preset.px}px` }}
                         />
-                        <span>{preset.label}</span>
+                        <span>{t(preset.label)}</span>
                       </button>
                     )
                   })}

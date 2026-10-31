@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { apiFetch, safeJson } from '@/lib/api'
 import type { DanmakuItem, DanmakuSource } from '@/modules/danmaku/types'
+import { t as translate } from '@/i18n'
 
 export interface DanmakuTrack {
   trackId: string
@@ -435,7 +436,13 @@ export const useDanmakuStore = create<DanmakuState>()(
           await get().removeTrack('default')
           return
         }
-        await get().addTrack('default', '当前视频', 'bilibili-video', items, 0)
+        await get().addTrack(
+          'default',
+          translate('当前视频'),
+          'bilibili-video',
+          items,
+          0
+        )
       },
 
       setStyle: (updates) => {

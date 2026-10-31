@@ -3,6 +3,7 @@ import { forwardRef } from 'react'
 import { createPortal } from 'react-dom'
 import { ChevronDown, Check } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface SelectOption {
   label: string
@@ -48,7 +49,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
       options,
       onChange,
       value,
-      placeholder = '请选择',
+      placeholder = t('请选择'),
       disabled = false,
       size = 'md',
       className,

@@ -3,6 +3,8 @@
  * 统一此前散落在 AdminPage / RoomInfoPanel 等处的角色文案与配色映射
  * （此前三处各自定义且语义漂移）。
  */
+import { t } from '@/i18n'
+
 export type UserRole = 'root' | 'admin' | 'user' | 'guest'
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
@@ -10,6 +12,11 @@ export const USER_ROLE_LABELS: Record<UserRole, string> = {
   admin: '管理员',
   user: '普通用户',
   guest: '游客',
+}
+
+/** 角色的界面文案：渲染期取词，切语言后跟着变（别直接用 USER_ROLE_LABELS） */
+export function userRoleLabel(role: UserRole): string {
+  return t(USER_ROLE_LABELS[role])
 }
 
 /** 角色 → ui/Tag color 枚举（管理后台用户卡片等） */
