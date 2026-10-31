@@ -22,7 +22,7 @@ import (
 //
 // 三个端点都要登录态：游客也能用语音，但必须带 guestId 的令牌
 // （Require 已经验过），否则拿不到稳定的参与者身份。
-// 组件状态与下载另开两个端点：LiveKit 二进制默认不随包分发，第一次用语音才下载。
+// 组件状态与下载另开两个端点：LiveKit 二进制随产物分发，只有被删掉时才需要下载补回。
 func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/voice/token", s.Auth.Require(s.handleVoiceToken))
 	mux.HandleFunc("POST /api/voice/mute", s.Auth.Require(s.handleVoiceMute))
@@ -104,7 +104,7 @@ func (s *Server) handleVoiceToken(w http.ResponseWriter, r *http.Request) {
 		httpx.Fail(w, http.StatusServiceUnavailable, "语音服务未配置（需要 LIVEKIT_API_KEY/API_SECRET）")
 		return
 	}
-	// 二进制默认不随包分发：没装时前端会在房间里显示下载入口，
+	// 二进制随产物分发，只有被手动删掉时才会没有：那前端会在房间里显示下载入口，
 	// 这里兜住「旧页面 / 直接调用」的情况，给出可执行的提示而不是让客户端连不上。
 	if s.VoiceBin != nil {
 		if status := s.VoiceBin.Status(); !status.Available {

@@ -1,9 +1,9 @@
 /**
  * 语音组件（内嵌 LiveKit）的可用性与下载状态。
  *
- * LiveKit 二进制默认不随安装包分发（单文件 53.8 MB，压进 ZIP 也有 17.6 MB），
- * 第一次要用语音时才从产物仓库下载。这里只负责两件事：
- * 1. 读 /api/voice/status 判断能不能加入语音；
+ * LiveKit 二进制随安装包分发，正常安装里一直是 ready；只有被手动删掉时才会缺。
+ * 这里负责两件事：
+ * 1. 读 /api/voice/status 判断能不能加入语音（缺失时显示下载入口）；
  * 2. 触发 /api/voice/install 并在下载期间轮询进度。
  *
  * 状态机与后端 livekit.State* 一致；`external=true` 表示部署方自带了 LiveKit，

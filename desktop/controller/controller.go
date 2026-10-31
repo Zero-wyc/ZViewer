@@ -151,7 +151,7 @@ type Controller struct {
 	livekitMu   sync.Mutex
 	livekitStop bool
 	// livekitWatchStop 是「等语音组件下载完成」的退出信号。
-	// 组件默认不随包分发，壳启动时文件可能还不存在，下载到 runtime/ 后再拉起。
+	// 组件随包分发，正常安装里文件一定在；这个等待只兜「用户删了它、又从网页端补回」。
 	livekitWatchStop chan struct{}
 
 	onUpdate       func()
@@ -471,8 +471,9 @@ func (c *Controller) startLivekit(env []string) error {
 	config := c.store.Value
 	exe := filepath.Join(c.root, "livekit-server.exe")
 	if !fileExists(exe) {
-		// 语音组件按需下载（网页端房间右下角触发）：先把主服务起起来，
-		// 下载完成后再由 watchLivekit 拉起，不能因为它缺失就让整个服务起不来。
+		// 组件随包分发，正常安装走不到这里。只有用户删了 livekit-server.exe 才缺文件：
+		// 先把主服务起起来，等网页端把组件补下载下来后再由 watchLivekit 拉起，
+		// 不能因为它缺失就让整个服务起不来。
 		c.setVoiceState("missing")
 		c.watchLivekit(env)
 		return nil
@@ -586,9 +587,9 @@ func (c *Controller) startLivekit(env []string) error {
 
 // watchLivekit 在语音组件缺失时等它出现，然后拉起 livekit-server。
 //
-// 组件默认不随包分发：用户在网页端房间右下角点「下载语音聊天组件」，
-// 后端把 livekit-server.exe 写进 runtime/。这里每 3 秒看一眼，出现就启动，
-// 不用重开 GUI，也不需要在壳里做下载入口。
+// 组件随包分发（runtime/livekit-server.exe），这里只兜「文件被删掉」的情况：
+// 用户在网页端房间右下角点「下载语音聊天组件」，后端把 livekit-server.exe 写回
+// runtime/。每 3 秒看一眼，出现就启动，不用重开 GUI，也不需要壳里做下载入口。
 func (c *Controller) watchLivekit(env []string) {
 	c.mu.Lock()
 	if c.livekitWatchStop != nil {

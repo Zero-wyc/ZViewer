@@ -338,14 +338,14 @@ function packageBackend(targetPlatforms, frontendDist) {
         continue;
       }
 
-      // 语音聊天（LiveKit）：伴生二进制由后端拉起（见 backend-go/internal/livekit）。
+      // 语音聊天（LiveKit）：伴生二进制**随产物分发**，后端启动时自动拉起
+      // （见 backend-go/internal/livekit）。
       //
-      // **Windows 产物不再带这个二进制**（53.8 MB，压进 ZIP 也有 17.6 MB）：
-      // 改成房间内第一次用语音时按需下载（internal/livekit/component.go，
-      // 组件库在 ZviewerRelease 的 components 分支）。只随包带一份 LICENSE。
-      // Linux 保持随包分发：单镜像/离线部署没有可靠的下载时机，Docker 也照旧。
+      // Windows 与 Linux 都带（开了语音就开箱可用，不依赖联网下载）；
+      // internal/livekit/component.go 的按需下载只是兜底——用户手动删了
+      // livekit-server.exe 时，房间里的「下载语音聊天组件」还能把它补回来。
       //
-      // Linux 优先用仓库内的那份（backend-go/dev-bin/），不联网：它和 dev 环境
+      // 优先用仓库内的那份（backend-go/dev-bin/），不联网：它和 dev 环境
       // 跑的是同一个文件，构建结果可复现，也不受 GitHub Releases 可达性影响。
       const LIVEKIT_VERSION = 'v1.13.7';
       const isWin = target.includes('win');
@@ -355,14 +355,7 @@ function packageBackend(targetPlatforms, frontendDist) {
       const lkUrl = `https://github.com/livekit/livekit-server/releases/download/${LIVEKIT_VERSION}/${lkAsset}`;
       const lkDest = path.join(outputFolder, isWin ? 'livekit-server.exe' : 'livekit-server');
       const lkDevBin = path.join(ROOT, 'backend-go', 'dev-bin', isWin ? 'livekit-server.exe' : 'livekit-server');
-      if (isWin) {
-        // 只带许可证：二进制由用户按需下载，Apache-2.0 仍要求随分发物提供许可全文。
-        const lkLicense = path.join(path.dirname(lkDevBin), 'LICENSE');
-        if (fs.existsSync(lkLicense)) {
-          fs.copyFileSync(lkLicense, path.join(outputFolder, 'LICENSE'));
-        }
-        success('livekit-server: Windows 产物不含二进制（房间内按需下载），仅带 LICENSE');
-      } else if (fs.existsSync(lkDest)) {
+      if (fs.existsSync(lkDest)) {
         success(`livekit-server 已存在: ${platform.folder}/`);
       } else if (fs.existsSync(lkDevBin)) {
         fs.copyFileSync(lkDevBin, lkDest);

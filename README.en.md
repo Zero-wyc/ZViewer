@@ -94,7 +94,7 @@ Requires Go 1.26+ and Node.js 22+; see [Development](#development).
 | Ports & HTTPS | Port is configurable and persisted; can issue a certificate for localhost |
 | Remote access | IPv6 direct, provider FRP, self-hosted FRP (exports `frpc.toml`), EasyTier mesh, one-click Cloudflare Tunnel |
 | Premium proxy | Bundled ZViewerCLI on `9333`, bound to `127.0.0.1`, QR login, can start with the service |
-| On-demand components | cloudflared / frpc / EasyTier / LiveKit download on first use — not shipped in the installer |
+| On-demand components | cloudflared / frpc / EasyTier download on first use — not shipped in the installer. LiveKit for voice is bundled |
 | Auto update | Checks once 6 s after start, then every 6 hours; streaming download + structure check + restart |
 | Logs | Filtered by voice / tunnel / cli / update, level and keyword; last 500 entries kept |
 
@@ -143,7 +143,7 @@ Do not run `cd desktop && go build -tags production .` — it overwrites the com
 | [frp](https://github.com/fatedier/frp) client | 0.71.1 | Apache-2.0 | downloaded to `runtime/frpc.exe` |
 | [EasyTier](https://github.com/EasyTier/EasyTier) | 2.6.4 | LGPL-3.0 | downloaded to `runtime/mesh/` |
 | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) | 0.2.1 | MIT | shipped as `runtime/zviewer-cli-windows-amd64.exe` |
-| [LiveKit](https://github.com/livekit/livekit) server | 1.13.7 | Apache-2.0 | downloaded to `runtime/livekit-server.exe` |
+| [LiveKit](https://github.com/livekit/livekit) server | 1.13.7 | Apache-2.0 | shipped as `runtime/livekit-server.exe` |
 
 All are unmodified binaries redistributed as-is, each keeping its license: frp / EasyTier under `assets/LICENSE-*.txt`, LiveKit and the CLI inside `runtime/`.
 
@@ -212,7 +212,7 @@ Regression scripts each cover one area (`route-parity`, `events-parity`, `bilibi
 | `RELEASE_REPO_TOKEN` | PAT with `contents:write` on `ZviewerRelease` |
 | `GITCODE_TOKEN` | Write access to `ZViewer` and `ZviewerRelease` |
 
-Optional components (cloudflared, frpc, EasyTier, LiveKit) live on the **`components` branch** of `ZviewerRelease`: `main` there is replaced wholesale by an orphan commit on every release, which would wipe them.
+Optional components (cloudflared, frpc, EasyTier) live on the **`components` branch** of `ZviewerRelease`: `main` there is replaced wholesale by an orphan commit on every release, which would wipe them.
 
 Update source: both the web UI and the desktop app have a "use mirror update source" switch (on by default). Manifests and installers come from GitCode raw, the preference is stored in `config/update-source.json` / the GUI `settings.json`, and operators can override with `ZVIEWER_UPDATE_SOURCE=github|gitcode|mirror`. There is **no automatic fallback** — pick the mirror and only the mirror is used; failures are reported so the switch can be turned off.
 

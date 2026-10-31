@@ -1,10 +1,10 @@
 package livekit
 
-// LiveKit 二进制的**按需下载**（默认不随安装包分发）。
+// LiveKit 二进制的**按需下载兜底**。
 //
-// 为什么这么做：livekit-server.exe 单文件 53.8 MB（Go 静态链接整个 WebRTC 栈），
-// 压进 ZIP 也有 18.4 MB，占 Windows GUI 包的三分之一。绝大多数用户第一次打开
-// 房间并不会马上开语音，所以改成「第一次点语音时才下载」。
+// 语音组件本身随产物分发（build-all 从 backend-go/dev-bin 复制），正常安装里
+// livekit-server 一定存在，本文件对它们来说是死代码。留着是给「二进制被手动删掉 /
+// 复制产物时漏拷」的场景兜底：房间里的「下载语音聊天组件」能把它补回来，不用重装。
 //
 // 下载源与桌面端可选组件（cloudflared / EasyTier / frpc）完全一致：
 // 产物仓库 ZviewerRelease 的 components 分支，境内走 GitCode 的 raw 端点，

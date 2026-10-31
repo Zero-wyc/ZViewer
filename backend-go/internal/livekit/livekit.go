@@ -118,8 +118,8 @@ type Manager struct {
 
 	mu  sync.Mutex
 	cmd *exec.Cmd
-	// runCtx 是启动时记录的上下文：组件是**按需下载**的，装完后要用它
-	// 把伴生进程补拉起来（不能借 HTTP 请求的 ctx，那个早就取消了）。
+	// runCtx 是启动时记录的上下文：二进制缺失（被删）时靠网页端补下载，
+	// 装完后要用它把伴生进程补拉起来（不能借 HTTP 请求的 ctx，那个早就取消了）。
 	runCtx context.Context
 
 	// 组件下载状态（见 component.go 的 State* 常量），Status 读取。
@@ -262,8 +262,8 @@ func (m *Manager) Run(ctx context.Context) {
 	bin := m.findBinary()
 	if bin == "" {
 		if !isDevBuild() {
-			m.logf("[voice] 未找到 livekit-server（默认不再随包分发）——等待按需下载："+
-				"房间右下角「语音聊天」→「下载语音聊天组件」，或手动把 %s 放到 %s",
+			m.logf("[voice] 未找到 livekit-server（产物本应自带，多半被手动删除或复制时漏拷）——"+
+				"可在房间内「语音聊天」→「下载语音聊天组件」补回，或手动把 %s 放到 %s",
 				binName(), m.installDir())
 			return
 		}

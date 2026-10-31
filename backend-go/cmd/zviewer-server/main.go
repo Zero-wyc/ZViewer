@@ -234,9 +234,10 @@ func main() {
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
 	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
-	// 没有外部编排，必须由后端作为伴生进程拉起。二进制**默认不随包分发**，
-	// 第一次用语音时由房间里的「下载语音聊天组件」触发（见 internal/livekit/component.go），
-	// 所以这里先构造管理器，HTTP 起来之后才能响应 /api/voice/status。
+	// 没有外部编排，必须由后端作为伴生进程拉起。二进制随产物分发（build-all
+	// 从 backend-go/dev-bin 复制），缺失时才由房间里的「下载语音聊天组件」补回
+	// （见 internal/livekit/component.go），所以这里先构造管理器，
+	// HTTP 起来之后才能响应 /api/voice/status。
 	livekitMgr := livekit.New(livekit.ConfigFromEnv())
 	livekitMgr.PrepareEnv()
 

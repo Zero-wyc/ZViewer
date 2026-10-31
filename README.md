@@ -115,7 +115,7 @@ docker run -d --name zviewer --restart unless-stopped \
 
 - 一键启停后端 / LiveKit / ZViewerCLI，关窗驻留托盘，单实例运行
 - 外网接入：IPv6 直连、服务商 FRP、自建 FRP、EasyTier 组网、Cloudflare Tunnel
-- cloudflared / frpc / EasyTier / LiveKit 按需下载，安装包不内置
+- 语音的 LiveKit 随包内置；cloudflared / frpc / EasyTier 按需下载，安装包不内置
 - 自动更新：每 6 小时检查，流式下载 + 结构校验 + 覆盖重启
 
 整个目录可直接迁移，无需安装。
