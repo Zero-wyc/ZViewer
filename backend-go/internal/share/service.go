@@ -36,6 +36,8 @@ type Deps struct {
 	Logger *log.Logger
 	// DisplayName 返回连接的展示名（可选）。为 nil 时快照里的名字是空串。
 	DisplayName func(socketID string) string
+	// Relay 是 SFU 中继面（可选）。为 nil 时观众直连房主。
+	Relay *Relay
 }
 
 // Service 管理所有房间的共享会话。
@@ -47,6 +49,7 @@ type Service struct {
 	isHost      HostChecker
 	logger      *log.Logger
 	displayName func(socketID string) string
+	relay       *Relay
 
 	mu sync.Mutex
 	// sessions 以 roomId 为键。
@@ -71,6 +74,7 @@ func NewService(deps Deps) *Service {
 		isHost:        deps.IsHost,
 		logger:        logger,
 		displayName:   displayName,
+		relay:         deps.Relay,
 		sessions:      make(map[string]*Session),
 		roomsBySocket: make(map[string]map[string]struct{}),
 	}
@@ -119,6 +123,8 @@ func (s *Service) EnsureSession(roomID string) *Session {
 	session, ok := s.sessions[roomID]
 	if !ok {
 		session = newSession(roomID)
+		// 中继模式是进程级配置，会话一建立就定死，运行期不再改。
+		session.SetRelay(s.relay != nil)
 		s.sessions[roomID] = session
 	}
 	return session
@@ -139,6 +145,7 @@ func (s *Service) Detach(socketID string) {
 		if session == nil {
 			continue
 		}
+		s.releaseRelayFor(socketID, roomID)
 		snapshot, remaining := session.Leave(socketID)
 		if !remaining {
 			s.dropSession(roomID, session)
@@ -152,6 +159,7 @@ func (s *Service) Detach(socketID string) {
 
 // DropRoom 丢弃整个房间的会话（房间关闭时调用）。
 func (s *Service) DropRoom(roomID string) {
+	s.releaseRelay(roomID)
 	s.mu.Lock()
 	session, ok := s.sessions[roomID]
 	delete(s.sessions, roomID)
@@ -221,9 +229,9 @@ func (s *Service) Handle(conn Conn, args []json.RawMessage) {
 		s.handleRestart(conn, typed)
 	case SignalMessage:
 		s.handleSignal(conn, typed)
+	case SFUSignalMessage:
+		s.handleSFUSignal(conn, typed)
 	default:
-		// SFU 信令在 P3 接上；协议先冻结，实现留空但必须明确回报，
-		// 不能让客户端等到超时还不知道服务端不支持。
 		s.fail(conn, roomIDOf(message), CodeNotImplemented, "该消息在当前版本尚未实现")
 	}
 }
@@ -265,6 +273,9 @@ func (s *Service) handleStart(conn Conn, message StartMessage) {
 		return
 	}
 	s.trackRoom(conn.ID, message.RoomID)
+	// 发布身份必须在 reconcile 之前就位：候选要带上 publicationGeneration，
+	// 观众拿到 route 才写得对 sfu-signal。
+	s.bindRelayPublication(conn, session, message.RoomID, session.Generation())
 	s.broadcast(message.RoomID, snapshot)
 	s.reconcile(message.RoomID)
 }
@@ -279,6 +290,7 @@ func (s *Service) handleStop(conn Conn, message StopMessage) {
 		s.failGeneration(conn, message.RoomID, err)
 		return
 	}
+	s.releaseRelay(message.RoomID)
 	s.broadcast(message.RoomID, snapshot)
 }
 
@@ -354,6 +366,12 @@ func (s *Service) handleRestart(conn Conn, message RestartMessage) {
 	}
 	session := s.Session(message.RoomID)
 	if session == nil {
+		return
+	}
+	if s.relay != nil && session.IsRelayRoute(conn.ID, message.ConnectionID) && !message.Rebuild {
+		// 不换身份的重启交给中继做 ICE restart；换身份（rebuild）走下面的
+		// 常规链路：新 connectionId 会触发一次全新的订阅。
+		s.relay.Restart(message.RoomID, conn.ID, message.ConnectionID)
 		return
 	}
 	s.emitPlans(session.RestartRoute(conn.ID, message.ConnectionID, message.Rebuild))

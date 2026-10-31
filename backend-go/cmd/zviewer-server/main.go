@@ -38,6 +38,8 @@ import (
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
+	"zviewer/backend/internal/share"
+	"zviewer/backend/internal/share/sfu"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/ssl"
 	"zviewer/backend/internal/store"
@@ -210,6 +212,31 @@ func main() {
 	musicMemory := room.NewMusicMemory(conn)
 	musicMemory.SetLogger(log.Default())
 	musicMemory.SetHub(hub)
+	// 屏幕共享中继（SFU）：默认关，SHARE_RELAY=1 时观众不再直连房主，
+	// 房主只上行一份。媒体端口 UDP/TCP 同号，绑不上就整块关掉——宁可回退
+	// 直连，也不要让一个半死的媒体面把共享卡住。
+	var shareRelay *share.Relay
+	if cfg.ShareRelay {
+		engine, engineErr := sfu.NewEngine(sfu.EngineOptions{
+			Port:            cfg.ShareMediaPort,
+			PublicIP:        cfg.ShareMediaPublicIP,
+			IncludeLoopback: cfg.ShareMediaPublicIP == "",
+		})
+		if engineErr != nil {
+			log.Printf("[share] 中继媒体端口不可用，回退直连: %v", engineErr)
+		} else {
+			shareRelay = share.NewRelay(share.RelayDeps{
+				Settings:  engine.Settings(),
+				Admission: sfu.NewAdmission(sfu.AdmissionOptions{IngressCapacity: 1, EgressCapacity: 64}),
+				Emit: func(socketID string, message share.ServerMessage) {
+					hub.EmitTo(socketID, share.Event, message)
+				},
+				Logger: log.Default(),
+			})
+			log.Printf("[share] 屏幕共享中继已启用，媒体端口 %s", engine.Describe())
+		}
+	}
+
 	roomSvc := room.NewService(room.Deps{
 		DB:       conn,
 		Rooms:    rooms,
@@ -224,6 +251,8 @@ func main() {
 		Logger:   log.Default(),
 		Music:    musicMemory,
 		NMS:      streamPush,
+
+		ShareRelay: shareRelay,
 	})
 
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。

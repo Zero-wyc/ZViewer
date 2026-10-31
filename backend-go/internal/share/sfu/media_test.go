@@ -69,7 +69,7 @@ func testFence() PublicationFence {
 	return PublicationFence{
 		RoomID:                "ROOM1234",
 		ShareGeneration:       "share_0123456789abcdef",
-		PublicationGeneration: newPublicationGeneration(),
+		PublicationGeneration: NewPublicationGeneration(),
 	}
 }
 
@@ -306,7 +306,7 @@ func TestRelayRejectsUnknownPublication(t *testing.T) {
 	}
 	// 换一个发布代际 → 不是同一路发布。
 	other := testFence()
-	other.PublicationGeneration = newPublicationGeneration()
+	other.PublicationGeneration = NewPublicationGeneration()
 	if media.HasPublication(other, other.PublicationGeneration) {
 		t.Fatal("不同代际不应命中同一发布")
 	}

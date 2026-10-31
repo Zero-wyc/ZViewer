@@ -55,12 +55,12 @@ type Usage struct {
 	Egress  int
 }
 
-// newPublicationGeneration 铸造一路发布身份。
+// NewPublicationGeneration 铸造一路发布身份。
 //
 // 房主的 publicationGeneration 与 connectionId 是**同一个值**：协议里
 // 首次发布要求两者相等（Piik router_sfu_signal.go），拆成两个值只会
 // 多一条「对不上就静默丢弃」的分支。
-func newPublicationGeneration() string {
+func NewPublicationGeneration() string {
 	var buffer [16]byte
 	if _, err := rand.Read(buffer[:]); err != nil {
 		return publicationGenerationPrefix + itoaBase36(time.Now().UnixNano())

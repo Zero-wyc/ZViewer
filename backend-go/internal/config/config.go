@@ -54,6 +54,15 @@ type Config struct {
 	// 备份不能直接复制主文件（见 `db.Backup`）。
 	// 需要退回旧模式时显式设 `SQLITE_WAL=0`。
 	SQLiteWAL bool
+
+	// ShareRelay 为 true 时屏幕共享的观众不再直连房主，全部走服务端 SFU。
+	// 收益是房主只上行一份；代价是服务端带宽。默认关（与 P0-P2 的直连行为一致）。
+	ShareRelay bool
+	// ShareMediaPort 是中继媒体端口，UDP 与 TCP **同号**（默认 3339）。
+	ShareMediaPort int
+	// ShareMediaPublicIP 是 NAT 1:1 的公网地址（FRP/云主机场景必填，
+	// 否则客户端拿到的是内网候选）。
+	ShareMediaPublicIP string
 }
 
 // Load 解析配置。调用前应先调用 LoadDotEnv。
@@ -74,6 +83,17 @@ func Load() (*Config, error) {
 		UseTLS:       os.Getenv("HTTPS") == "true",
 		StartedAt:    time.Now(),
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
+
+		ShareRelay:         envBool("SHARE_RELAY"),
+		ShareMediaPort:     3339,
+		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
+	}
+	if raw := os.Getenv("SHARE_MEDIA_PORT"); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil || port <= 0 || port > 65535 {
+			return nil, fmt.Errorf("SHARE_MEDIA_PORT 非法: %q", raw)
+		}
+		cfg.ShareMediaPort = port
 	}
 	cfg.AvatarsDir = envOr("AVATARS_DIR", filepath.Join(cfg.UploadsDir, "avatars"))
 
@@ -256,3 +276,13 @@ func Platform() string { return describePlatform() }
 // DetectProjectRoot 在加载 .env 之前先探测项目根：
 // 引导阶段 argv/env 里可能还没有 PROJECT_ROOT，需要靠目录特征定位。
 func DetectProjectRoot() string { return resolveProjectRoot() }
+
+// envBool 把 `1/true/on/yes` 当作真，其余（含未设置）当作假。
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
+}

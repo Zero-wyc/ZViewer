@@ -265,6 +265,20 @@ func (s *Session) RouteCount() int {
 	return len(s.routes)
 }
 
+// IsRelayRoute 报告这条连接是不是某位观众的、且走中继的那条边。
+//
+// 中继侧信令只认这个判定：观众拿别人的 connectionId 或直连边的 id 来订流，
+// 一律拒。
+func (s *Session) IsRelayRoute(childPeerID, connectionID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.relay || connectionID == "" {
+		return false
+	}
+	route, ok := s.routes[childPeerID]
+	return ok && route.ConnectionID == connectionID
+}
+
 // RoutePhase 返回某条边的阶段（测试用；不存在返回空串）。
 func (s *Session) RoutePhase(childPeerID string) string {
 	s.mu.Lock()
@@ -296,7 +310,11 @@ func (s *Session) plansLocked(host string, routes []*Route) []RoutePlan {
 		candidate := Candidate{
 			ChildPeerID:  route.ChildPeerID,
 			ConnectionID: route.ConnectionID,
-			Transport:    TransportDirect,
+			Transport:    s.transportLocked(),
+		}
+		if candidate.Transport == TransportRelay {
+			// 观众要知道订的是哪一路发布；直连时这个字段为空。
+			candidate.PublicationGeneration = s.publication
 		}
 		message := RouteMessage{
 			T:          TypeRoute,
@@ -342,6 +360,17 @@ func (s *Session) dropRoutesForLocked(socketID string, isHost bool) {
 	}
 }
 
+// transportLocked 返回本房间当前使用的传输类型。
+//
+// 中继模式下房主的上行只走 SFU，观众不再直连房主——这正是 SFU 省上行的
+// 那个收益，也是「房主上行 1 份」的前提。
+func (s *Session) transportLocked() string {
+	if s.relay {
+		return TransportRelay
+	}
+	return TransportDirect
+}
+
 // hostPeerIDLocked 返回房主的 peerId（没有则空串）。
 func (s *Session) hostPeerIDLocked() string {
 	for peerID, participant := range s.participants {
@@ -359,11 +388,15 @@ func (s *Session) assignmentLocked() Assignment {
 		if route.Phase != PhaseActive {
 			continue
 		}
-		candidates = append(candidates, Candidate{
+		candidate := Candidate{
 			ChildPeerID:  route.ChildPeerID,
 			ConnectionID: route.ConnectionID,
-			Transport:    TransportDirect,
-		})
+			Transport:    s.transportLocked(),
+		}
+		if candidate.Transport == TransportRelay {
+			candidate.PublicationGeneration = s.publication
+		}
+		candidates = append(candidates, candidate)
 	}
 	return Assignment{Revision: s.revision, Phase: PhaseActive, Candidates: candidates}
 }

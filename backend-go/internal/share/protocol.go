@@ -123,6 +123,9 @@ type Candidate struct {
 	ChildPeerID  string `json:"childPeerId"`
 	ConnectionID string `json:"connectionId"`
 	Transport    string `json:"transport"` // direct | relay
+	// PublicationGeneration 只有 transport=relay 时才有值：观众据此知道
+	// 自己订的是哪一路发布（sfu-signal 的栅栏字段）。
+	PublicationGeneration string `json:"publicationGeneration,omitempty"`
 }
 
 // Assignment 是已提交的路由分配。

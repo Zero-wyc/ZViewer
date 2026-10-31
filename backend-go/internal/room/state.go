@@ -174,6 +174,8 @@ type Deps struct {
 	// NMS 是 OBS 推流服务的可用性探测器。不传时按环境变量兜底构造：
 	// 推流事件仍可用，只是没有可用媒体服务时报告不可用。
 	NMS StreamPushService
+	// ShareRelay 是屏幕共享的 SFU 中继面。不传时观众直连房主。
+	ShareRelay *share.Relay
 }
 
 // NewService 构造房间服务。
@@ -213,7 +215,13 @@ func NewService(deps Deps) *Service {
 		Hub:    deps.Hub,
 		IsHost: svc.IsRoomHost,
 		Logger: logger,
+		Relay:  deps.ShareRelay,
 	})
+	if deps.ShareRelay != nil {
+		// 媒体层失败要回到控制面换候选；Service 是后于 Relay 构造的，
+		// 所以在这里补注入。
+		deps.ShareRelay.SetRouteFailed(svc.shareSvc.OnRelayRouteFailed)
+	}
 	return svc
 }
 

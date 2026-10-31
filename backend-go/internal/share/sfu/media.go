@@ -15,6 +15,9 @@ import (
 	"github.com/pion/webrtc/v4"
 )
 
+// LayerFormat 是一层的尺寸与码率。别名转出，免得调用方还要 import forwarding。
+type LayerFormat = forwarding.LayerFormat
+
 // PublicationMedia is metadata from the authorized publisher, not a quality ladder.
 type PublicationMedia struct {
 	Codec        string

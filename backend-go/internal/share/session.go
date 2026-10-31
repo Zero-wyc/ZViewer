@@ -45,6 +45,12 @@ type Session struct {
 	participants map[string]Participant
 	// routes 以 childPeerID 为键：每个观众最多一条上游边（Piik 的拓扑不变量）。
 	routes map[string]*Route
+	// relay 表示本房间的观众走 SFU 中继（candidate.transport = relay）。
+	// 由装配层按配置设置，进程内不变。
+	relay bool
+	// publication 是本代际里房主那条上行的身份（relay 模式才有）。
+	// 它必须随代际作废：上一代的发布代际在新一代里是伪身份。
+	publication string
 }
 
 // newSession 构造一个空会话。
@@ -68,6 +74,29 @@ func (s *Session) Generation() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.generation
+}
+
+// SetRelay 设置本房间是否走 SFU 中继。
+//
+// 只在装配时调用一次；运行期改它会让在跑的边和新的候选语义不一致。
+func (s *Session) SetRelay(enabled bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.relay = enabled
+}
+
+// SetPublication 记录本代际的发布身份（由 relay 铸造）。
+func (s *Session) SetPublication(publicationGeneration string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.publication = publicationGeneration
+}
+
+// Relay 报告本房间是否走中继。
+func (s *Session) Relay() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.relay
 }
 
 // Revision 返回当前路由版本。
@@ -197,6 +226,7 @@ func (s *Session) Start(hint *string, paused bool, quality *QualitySettings) (Sn
 	}
 	s.sharing = true
 	s.generation = newGeneration()
+	s.publication = ""
 	s.paused = paused
 	if quality != nil {
 		s.quality = *quality
@@ -221,6 +251,7 @@ func (s *Session) Stop(generation string) (SnapshotMessage, error) {
 	}
 	s.sharing = false
 	s.generation = ""
+	s.publication = ""
 	s.paused = false
 	s.routes = make(map[string]*Route)
 	s.bumpLocked()
