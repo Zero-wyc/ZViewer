@@ -1,18 +1,8 @@
 import type { RoomMode } from '@/store/roomStore'
 
-/** WebRTC 信令 payload 结构（来自后端 signal-* 事件） */
-export interface SignalPayload<T> {
-  from: string
-  data: T
-}
-
 /** 观众加入房间状态机 */
 export type JoinStatus =
   'idle' | 'joining' | 'approved' | 'rejected' | 'closed' | 'password-required'
-
-/** WebRTC 连接状态 */
-export type ConnectionState =
-  'new' | 'connecting' | 'connected' | 'disconnected' | 'failed' | 'closed'
 
 /** request-join 回调响应（AckResponse 标准格式：业务数据在 data 字段内） */
 export interface RequestJoinResponse {
@@ -66,16 +56,6 @@ export interface RoomClosedPayload {
 /** room-mode-changed 事件 payload */
 export interface RoomModeChangedPayload {
   mode: RoomMode
-}
-
-/** viewer-joined / viewer-left 事件 payload */
-export interface ViewerEventPayload {
-  viewerSocketId: string
-}
-
-/** viewer-ready 事件 payload（来自后端） */
-export interface ViewerReadyPayload {
-  from: string
 }
 
 /** JoinRoomForm 表单值 */

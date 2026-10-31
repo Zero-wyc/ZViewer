@@ -21,7 +21,6 @@ import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useShareHost } from '../hooks/useShareHost'
-import { useSignalingChannel } from '../hooks/useSignalingChannel'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
 import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
 import {
@@ -173,11 +172,17 @@ function WebrtcSharePage({
     [setMode, stopSharing]
   )
 
-  useSignalingChannel({
-    socket,
-    onRoomClosed: handleRoomClosed,
-    onRoomModeChanged: handleRoomModeChanged,
-  })
+  // 房间生命周期只订这两个事件：信令已经全部走 `share` 单一通道，
+  // 旧 signal-* / viewer-* 事件前端不再收发。
+  useEffect(() => {
+    if (!socket) return
+    socket.on('room-closed', handleRoomClosed)
+    socket.on('room-mode-changed', handleRoomModeChanged)
+    return () => {
+      socket.off('room-closed', handleRoomClosed)
+      socket.off('room-mode-changed', handleRoomModeChanged)
+    }
+  }, [socket, handleRoomClosed, handleRoomModeChanged])
 
   const handleStopSharing = useCallback(() => {
     stopSharing()

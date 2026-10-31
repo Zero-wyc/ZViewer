@@ -59,11 +59,6 @@ type Hub interface {
 	EmitGlobal(event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
 	SocketIDs(roomID string) []string
-	// SocketRooms 返回某条连接所在的房间列表（对应 `socket.rooms`）。
-	//
-	// WebRTC 信令要判断「两个连接是否同处一个房间」：那条判定必须看
-	// **目标连接**的房间，而不是当前连接的。
-	SocketRooms(socketID string) []string
 	// MemberCount 返回房间内连接数（对应 Node 的
 	// `io.sockets.adapter.rooms.get(roomId).size`）。
 	//

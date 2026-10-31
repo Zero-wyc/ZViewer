@@ -5,31 +5,21 @@ import (
 	"unicode/utf16"
 
 	"zviewer/backend/internal/sio"
-	"zviewer/backend/internal/store"
 )
 
-// WebRTC 信令与观众就绪（迁移自 modules/webrtc-signaling/）。
+// 房主就绪与共享失败广播。
 //
-// 6 个事件：
-//   - signal-offer / signal-answer / signal-ice-candidate  同房间中继
-//   - viewer-ready   观众就绪 → 通知房主 + 补发影片列表与当前影片
-//   - sharer-ready   房主就绪 → 通知房间内观众重发 viewer-ready
-//   - sharer-error   房主共享启动失败 → 广播明确失败原因（避免观众无限挂起）
+// 屏幕共享的信令已经全部迁到 `share` 单一事件（严格信封 + 代际 + 路由版本），
+// 旧的 signal-offer / signal-answer / signal-ice-candidate / viewer-ready 四条
+// 中继事件在前端切栈后已无收发方，这里一并删除——它们按 socketId 裸转发，
+// 没有代际也没有首帧判据，留着只会让人以为还有第二条路可走。
 //
-// 媒体面（LiveKit / 屏幕捕获）不在这一层：这里只是「替两个浏览器转发
-// SDP 与 ICE」。
+// 保留的两条属于「房间级通知」而不是信令：
+//   - sharer-ready   房主重连后广播，音乐一起听与观看一起看据此恢复跟随
+//   - sharer-error   房主共享启动失败 → 广播明确原因（避免观众无限挂起）
 
-// bindWebRTC 注册信令与观众就绪事件。
+// bindWebRTC 注册房主就绪与共享失败事件。
 func (s *Service) bindWebRTC(sc *sio.Socket) {
-	for _, event := range []string{"signal-offer", "signal-answer", "signal-ice-candidate"} {
-		name := event
-		sc.On(name, func(args []json.RawMessage, ack func(...any)) {
-			s.handleSignalRelay(sc, name, args, ack)
-		})
-	}
-	sc.On("viewer-ready", func(args []json.RawMessage, ack func(...any)) {
-		s.handleViewerReady(sc, args, ack)
-	})
 	sc.On("sharer-ready", func(args []json.RawMessage, ack func(...any)) {
 		s.handleSharerReady(sc, args, ack)
 	})
@@ -38,108 +28,7 @@ func (s *Service) bindWebRTC(sc *sio.Socket) {
 	})
 }
 
-// handleSignalRelay 是三条信令事件共用的中继实现。
-//
-// 三条事件的校验与转发完全一致，只用事件名区分——分别抄三遍只会让
-// 「同一房间」的判定规则慢慢分叉。
-func (s *Service) handleSignalRelay(sc *sio.Socket, event string, args []json.RawMessage, ack func(...any)) {
-	raw := firstObject(args)
-	if raw == nil {
-		// Node 侧 payload 为 undefined/null 时 `payload.to` 抛 TypeError，
-		// 落到 catch 分支回「信令转发失败」——不是「不在同一房间」。
-		ackFail(ack, "信令转发失败")
-		return
-	}
-	to, ok := jsonStringField(raw, "to")
-	if !ok || to == "" {
-		ackFail(ack, "不在同一房间")
-		return
-	}
-	if !s.signalPairSharesRoom(sc, to) {
-		ackFail(ack, "不在同一房间")
-		return
-	}
-
-	var data any
-	if v, ok := raw["data"]; ok && !isJSONNull(v) {
-		// 原样透传（SDP 是对象、ICE 是对象），不做结构校验：
-		// 信令内容属于 WebRTC 协商，服务器不该理解也不需要改写。
-		_ = json.Unmarshal(v, &data)
-	}
-	if data == nil {
-		// Node 的 `data: payload.data` 在缺失时是 undefined → 键消失。
-		s.Hub.EmitTo(to, event, map[string]any{"from": sc.ID})
-	} else {
-		s.Hub.EmitTo(to, event, map[string]any{"from": sc.ID, "data": data})
-	}
-	ackOK(ack, nil)
-}
-
-// signalPairSharesRoom 判断目标连接是否与当前连接同处一个房间。
-//
-// 与 Node 的 validateSignalPair 一致：遍历目标连接的房间，跳过它自己的
-// socketId（socket.io 把「自己」也当成一个房间），只要与发起方有交集即通过。
-func (s *Service) signalPairSharesRoom(from *sio.Socket, toSocketID string) bool {
-	if s.Hub == nil || toSocketID == "" {
-		return false
-	}
-	if !s.Hub.Connected(toSocketID) {
-		return false
-	}
-	fromRooms := from.Rooms()
-	set := make(map[string]struct{}, len(fromRooms))
-	for _, r := range fromRooms {
-		set[r] = struct{}{}
-	}
-	for _, r := range s.Hub.SocketRooms(toSocketID) {
-		if r == toSocketID {
-			continue
-		}
-		if _, ok := set[r]; ok {
-			return true
-		}
-	}
-	return false
-}
-
-// handleViewerReady 处理观众就绪：通知房主 + 给观众补发列表。
-func (s *Service) handleViewerReady(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
-	ctx, cancel := handlerCtx()
-	defer cancel()
-
-	raw := firstObject(args)
-	if raw == nil {
-		ackFail(ack, "处理失败")
-		return
-	}
-	roomID, ok := jsonStringField(raw, "roomId")
-	if !ok || !sc.InRoom(roomID) {
-		ackFail(ack, "不在该房间中")
-		return
-	}
-
-	sharer, err := s.Sessions.FindActiveByRoomRole(ctx, roomID, store.SessionRoleSharer)
-	if err != nil {
-		s.Logger.Printf("[viewer-ready] 查询分享端失败: %v", err)
-		ackFail(ack, "处理失败")
-		return
-	}
-	if sharer == nil {
-		ackFail(ack, "分享端不在线")
-		return
-	}
-
-	s.Hub.EmitTo(sharer.SocketID, "viewer-ready", map[string]any{"from": sc.ID})
-
-	// 补发影片列表与当前影片：观众就绪时房间状态可能已经推进过，
-	// 只靠 join 时的推送不够（重发 viewer-ready 的场景尤其明显）。
-	s.Hub.EmitTo(sc.ID, "movie-list", map[string]any{"movies": s.Movies(roomID)})
-	s.Hub.EmitTo(sc.ID, "current-movie", map[string]any{"movieId": s.CurrentMovieID(roomID)})
-
-	ackOK(ack, nil)
-}
-
-// handleSharerReady 处理房主就绪：通知房间内观众重发 viewer-ready。
+// handleSharerReady 处理房主就绪：通知房间内观众恢复跟随。
 func (s *Service) handleSharerReady(sc *sio.Socket, args []json.RawMessage, ack func(...any)) {
 	ctx, cancel := handlerCtx()
 	defer cancel()
@@ -216,9 +105,8 @@ func (s *Service) handleSharerError(sc *sio.Socket, args []json.RawMessage, ack 
 
 // bindShare 挂上屏幕共享控制面的单一 `share` 事件。
 //
-// 它与上面三个 signal-* 事件是两套并行的线路：旧事件按 socketId 裸转发、
-// 没有代际也没有首帧判据；新事件走严格信封 + shareGeneration + 路由版本。
-// P0–P4 双跑，P5 才删旧链路。
+// 屏幕共享只有这一条上行线路：严格信封 + shareGeneration + 路由版本。
+// 旧的三条按 socketId 裸转发的事件已在 P5 删除。
 func (s *Service) bindShare(sc *sio.Socket) {
 	if s.shareSvc != nil {
 		s.shareSvc.Bind(sc)

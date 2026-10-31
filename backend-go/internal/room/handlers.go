@@ -175,10 +175,9 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	// 一起听音乐：队列 CRUD / 播放状态与心跳 / 观众申请制控制。
 	// 事件名与前面的模块无重叠，位置不影响行为。
 	s.bindMusic(sc)
-	// WebRTC 信令与观众就绪。
+	// 房主就绪 / 共享失败广播（房间级通知，不是信令）。
 	s.bindWebRTC(sc)
-	// 屏幕共享控制面（严格信封）：与上面的旧 signal-* 事件并行存在，
-	// P5 才摘掉旧链路。
+	// 屏幕共享控制面：单一 `share` 事件，严格信封 + 代际 + 路由版本。
 	s.bindShare(sc)
 	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
 	s.bindMisc(sc)
