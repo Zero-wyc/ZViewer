@@ -81,6 +81,11 @@ export class ShareViewerSession {
     return this.remoteStream
   }
 
+  /** 底层连接，给统计面板用。 */
+  get peerConnection(): RTCPeerConnection | null {
+    return this.peer?.getConnection() ?? null
+  }
+
   get currentState(): ViewerSessionState {
     return { ...this.state }
   }

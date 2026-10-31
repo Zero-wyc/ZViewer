@@ -1,0 +1,124 @@
+/**
+ * 观众侧共享会话的 React 包装。
+ *
+ * 与旧实现的关键差别：连接不再由页面主动建立（`createPc`），而是由服务端
+ * 下发的候选驱动。页面只负责把远端流绑到 video 元素，以及暴露一个「重试」
+ * 动作给恢复预算耗尽时使用。
+ */
+import { useCallback, useEffect, useRef, useState } from 'react'
+import type { Socket } from 'socket.io-client'
+import {
+  ShareViewerSession,
+  type ViewerSessionState,
+} from '../core/viewer-session'
+
+export interface UseShareViewerOptions {
+  socket: Socket | null
+  roomId: string
+  iceServers: RTCIceServer[]
+  /** 本地 video 元素（用可变 ref 包一层，便于直接绑定 srcObject）。 */
+  videoRef?: { current: HTMLVideoElement | null }
+  /** 自动播放被浏览器拦截时回调（由页面决定是否展示「点击开启声音」）。 */
+  onAutoplayBlocked?: () => void
+}
+
+export interface UseShareViewerResult {
+  /** 底层连接，仅供统计面板使用。 */
+  pc: RTCPeerConnection | null
+  hasRemoteStream: boolean
+  hasRemoteAudio: boolean
+  connectionState: RTCPeerConnectionState
+  state: ViewerSessionState
+  /** 恢复预算耗尽后的手动重试。 */
+  retry: () => void
+}
+
+const INITIAL_STATE: ViewerSessionState = {
+  joined: false,
+  sharing: false,
+  paused: false,
+  active: false,
+  recovering: false,
+  exhausted: false,
+  hasVideo: false,
+  error: null,
+}
+
+export function useShareViewer(
+  options: UseShareViewerOptions
+): UseShareViewerResult {
+  const { socket, roomId, iceServers, videoRef, onAutoplayBlocked } = options
+  const sessionRef = useRef<ShareViewerSession | null>(null)
+  const [state, setState] = useState<ViewerSessionState>(INITIAL_STATE)
+  const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
+  const [connectionState, setConnectionState] =
+    useState<RTCPeerConnectionState>('new')
+  const [pc, setPc] = useState<RTCPeerConnection | null>(null)
+  const onAutoplayBlockedRef = useRef(onAutoplayBlocked)
+  useEffect(() => {
+    onAutoplayBlockedRef.current = onAutoplayBlocked
+  }, [onAutoplayBlocked])
+
+  useEffect(() => {
+    if (!socket || !roomId) return
+    const session = new ShareViewerSession({
+      socket,
+      roomId,
+      iceServers,
+      onStateChange: setState,
+      onStream: (stream) => setRemoteStream(stream),
+      onPeerUpdate: (snapshot) => {
+        setConnectionState(snapshot.connectionState)
+        setPc(session.peerConnection)
+      },
+    })
+    sessionRef.current = session
+    session.hello()
+    return () => {
+      session.dispose()
+      sessionRef.current = null
+      setRemoteStream(null)
+      setPc(null)
+      setConnectionState('new')
+    }
+  }, [socket, roomId, iceServers])
+
+  // 远端流绑定。共享结束时**不清 srcObject**：观众要能看到最后一帧，
+  // 彻底清零会让画面瞬间变黑，比「暂停中」更难理解。
+  useEffect(() => {
+    if (!videoRef) return
+    const video = videoRef.current
+    if (!video) return
+    if (remoteStream && video.srcObject !== remoteStream) {
+      video.srcObject = remoteStream
+    }
+    if (!remoteStream) return
+    void video.play().catch((error: unknown) => {
+      const name =
+        typeof error === 'object' && error !== null && 'name' in error
+          ? (error as { name?: string }).name
+          : undefined
+      // AbortError 是 pause()/load() 打断 play()，不是播放失败。
+      if (name === 'AbortError') return
+      if (name === 'NotAllowedError') {
+        // 自动播放被拦：先静音播放保证有画面，再提示用户点击开声音。
+        video.muted = true
+        void video.play().catch(() => undefined)
+        onAutoplayBlockedRef.current?.()
+      }
+    })
+  }, [remoteStream, videoRef])
+
+  const retry = useCallback(() => {
+    sessionRef.current?.retry()
+  }, [])
+
+  return {
+    pc,
+    hasRemoteStream: remoteStream !== null,
+    hasRemoteAudio: (remoteStream?.getAudioTracks().length ?? 0) > 0,
+    connectionState,
+    state,
+    retry,
+  }
+}

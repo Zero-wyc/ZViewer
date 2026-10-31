@@ -87,6 +87,11 @@ export class ViewerPeer {
     return this.connection?.connectionState === 'connected'
   }
 
+  /** 底层连接，仅供统计面板读取（不要拿它直接操作媒体）。 */
+  getConnection(): RTCPeerConnection | null {
+    return this.connection
+  }
+
   isRecovering(): boolean {
     return this.recoveryTimer !== null
   }
