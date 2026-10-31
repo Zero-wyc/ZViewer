@@ -63,6 +63,7 @@ type roomVoice struct {
 
 type member struct {
 	connectionID string
+	name         string
 	muted        bool
 }
 
@@ -160,9 +161,12 @@ func (s *Service) handleJoin(conn Conn, message JoinMessage) {
 		room = &roomVoice{members: make(map[string]*member)}
 		s.rooms[message.RoomID] = room
 	}
-	_, existed := room.members[conn.ID]
+	existing, existed := room.members[conn.ID]
 	if !existed {
-		room.members[conn.ID] = &member{connectionID: newConnectionID()}
+		room.members[conn.ID] = &member{connectionID: newConnectionID(), name: message.Name}
+	} else if message.Name != "" && existing.name != message.Name {
+		// 重连后昵称可能变了（改了用户名再进来）。
+		existing.name = message.Name
 	}
 	s.mu.Unlock()
 
@@ -449,7 +453,7 @@ func (s *Service) snapshotLocked(room *roomVoice, roomID, peerID string) StateMe
 	members := make([]Member, 0, len(peers))
 	for _, peer := range peers {
 		m := room.members[peer]
-		entry := Member{PeerID: peer, Publishing: true, Muted: m.muted}
+		entry := Member{PeerID: peer, Name: m.name, Publishing: true, Muted: m.muted}
 		if peer == peerID {
 			entry.ConnectionID = m.connectionID
 		}

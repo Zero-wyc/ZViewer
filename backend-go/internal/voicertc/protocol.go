@@ -53,6 +53,7 @@ const (
 const (
 	maxIDLength    = 128
 	maxPayloadSize = 64 * 1024
+	maxNameLength  = 64
 )
 
 // ErrUnknownType 表示 `t` 不在已知集合里。
@@ -66,9 +67,14 @@ type ClientMessage interface {
 }
 
 // JoinMessage 加入房间语音。
+//
+// Name 是展示用的昵称。刻意由客户端自报而不是服务端反查 socket 数据：
+// 房间里本来就用客户端自报的 username 展示（viewer-joined 同源），
+// 这里保持一致，不额外引入一条只有语音才走的身份解析路径。
 type JoinMessage struct {
 	T      string `json:"t"`
 	RoomID string `json:"roomId"`
+	Name   string `json:"name"`
 }
 
 func (m JoinMessage) MessageType() string { return m.T }
@@ -121,6 +127,8 @@ type ServerMessage interface {
 // Member 是成员表的一行。
 type Member struct {
 	PeerID string `json:"peerId"`
+	// Name 是展示昵称（客户端自报，可能为空）。
+	Name string `json:"name,omitempty"`
 	// ConnectionID 是这条成员在 SFU 上的连接身份（下发给本人，用于给信令打标）。
 	ConnectionID string `json:"connectionId,omitempty"`
 	// Publishing 表示这位成员正在发布麦克风。
@@ -231,6 +239,9 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		}
 		if message.RoomID == "" || len(message.RoomID) > maxIDLength {
 			return nil, errors.New("roomId is invalid")
+		}
+		if len(message.Name) > maxNameLength {
+			return nil, errors.New("name is too long")
 		}
 		return message, nil
 	case TypeLeave:

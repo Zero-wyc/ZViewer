@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2590 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2594 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2619,7 +2619,7 @@ const enUS: Record<string, string> = {
   '正在启动转码 worker': 'Starting the transcoding worker',
   '正在生成首个分段': 'Generating the first segment',
 
-  // ===== modules/voice-chat（34 条） =====
+  // ===== modules/voice-chat（38 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} online',
   '成员': 'Members',
   '单独音量': 'Per-user volume',
@@ -2635,14 +2635,18 @@ const enUS: Record<string, string> = {
   '媒体连接中…': 'Connecting media…',
   '媒体通道未建立，请检查网络（可尝试关闭代理/VPN）': 'The media channel is not established; check your network (try disabling a proxy or VPN)',
   '您已被管理员语音禁言': 'An admin muted you in voice',
+  '您已被移出语音聊天': 'You were removed from the voice chat',
   '全局音量': 'Master volume',
+  '实时连接未就绪，请稍后重试': 'The realtime connection is not ready; try again shortly',
   '首次使用需下载约 18 MB，装好后保存在本机，之后不再重复下载。': 'The first use downloads about 18 MB; it is stored on this device and not downloaded again.',
+  '未在房间中': 'Not in a room',
   '下载请求失败，请检查网络后重试': 'Download request failed, check your network and retry',
   '下载语音聊天组件': 'Download the voice chat component',
   '移出语音': 'Remove from voice',
   '已被语音禁言': 'Muted in voice',
   '已将 {{value}} 移出语音': 'Removed {{value}} from voice',
   '游客 {{value}}': 'Guest {{value}}',
+  '与服务器的连接已断开，正在重连...': 'Lost connection to the server, reconnecting...',
   '语音禁言': 'Mute in voice',
   '语音禁言已解除': 'Voice mute lifted',
   '语音聊天': 'Voice chat',

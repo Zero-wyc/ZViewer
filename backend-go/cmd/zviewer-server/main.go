@@ -349,6 +349,7 @@ func main() {
 		NCM:           ncm.NewService(conn),
 		NMS:           streamPush,
 		VoiceBin:      livekitMgr,
+		VoiceRTC:      voiceRTC,
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），

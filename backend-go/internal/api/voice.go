@@ -35,9 +35,17 @@ func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
 
 // handleVoiceStatus 报告内嵌 LiveKit 组件的可用性与下载进度。
 func (s *Server) handleVoiceStatus(w http.ResponseWriter, r *http.Request) {
-	if s.VoiceBin == nil {
-		// 单测 / 精简装配：没有托管进程，按「外置 LiveKit」处理，前端不显示下载入口。
-		httpx.OK(w, map[string]any{"success": true, "status": livekit.Status{
+	// mode 决定前端走哪条实现：sfu = 自建（voice 事件 + 自己的 PC），
+	// process = 伴生 livekit-server。前端在 join 之前就据此分支，
+	// 不能靠「先试一个失败再退另一个」——那会在用户脸上留一次失败。
+	mode := "process"
+	if s.VoiceRTC != nil && s.VoiceRTC.Available() {
+		mode = "sfu"
+	}
+	if mode == "sfu" {
+		// 自建语音不需要任何外部组件：报「外部托管」而不是「可下载」，
+		// 否则面板会在一个压根不需要 LiveKit 的部署里弹出下载入口。
+		httpx.OK(w, map[string]any{"success": true, "mode": mode, "status": livekit.Status{
 			Available: true,
 			State:     livekit.StateExternal,
 			External:  true,
@@ -45,7 +53,17 @@ func (s *Server) handleVoiceStatus(w http.ResponseWriter, r *http.Request) {
 		}})
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "status": s.VoiceBin.Status()})
+	if s.VoiceBin == nil {
+		// 单测 / 精简装配：没有托管进程，按「外置 LiveKit」处理，前端不显示下载入口。
+		httpx.OK(w, map[string]any{"success": true, "mode": mode, "status": livekit.Status{
+			Available: true,
+			State:     livekit.StateExternal,
+			External:  true,
+			Version:   livekit.BinaryVersion,
+		}})
+		return
+	}
+	httpx.OK(w, map[string]any{"success": true, "mode": mode, "status": s.VoiceBin.Status()})
 }
 
 // handleVoiceInstall 触发一次后台下载，立刻返回当前状态（前端靠轮询看进度）。

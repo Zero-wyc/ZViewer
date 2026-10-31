@@ -38,6 +38,7 @@ import (
 	"zviewer/backend/internal/ttlcache"
 	"zviewer/backend/internal/updater"
 	"zviewer/backend/internal/voice"
+	"zviewer/backend/internal/voicertc"
 	"zviewer/backend/internal/webdav"
 )
 
@@ -91,6 +92,9 @@ type Deps struct {
 	// VoiceBin 是内嵌 LiveKit 伴生进程管理器：负责「拉起进程（缺文件时兜底下载）」。
 	// 为 nil 时（单测）语音状态一律报告可用，避免每个用例都要装配它。
 	VoiceBin *livekit.Manager
+	// VoiceRTC 是自建语音控制面（VOICE_MODE=sfu）。非 nil 时 /api/voice/status
+	// 报 mode=sfu，前端据此走 voice 事件而不是 LiveKit。
+	VoiceRTC *voicertc.Service
 	// NMS 是 OBS 推流的媒体服务（默认进程内托管，可用性 + 推流地址）。
 	NMS *nms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。

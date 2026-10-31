@@ -28,6 +28,7 @@
   },
   "include": [
     "src/modules/music/utils/__tests__",
-    "src/modules/screen-sharing/__tests__"
+    "src/modules/screen-sharing/__tests__",
+    "src/modules/voice-chat/__tests__"
   ]
 }
