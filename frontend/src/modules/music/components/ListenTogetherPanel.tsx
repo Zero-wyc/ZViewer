@@ -93,6 +93,7 @@ import { useLandscapeToolbarFlash } from '../hooks/useLandscapeToolbarFlash'
 import { useToolbarScrollable } from '../hooks/useToolbarScrollable'
 import { useVolumeSliderDrag } from '../hooks/useVolumeSliderDrag'
 import { useFullscreenToggle } from '../hooks/useFullscreenToggle'
+import { t as translate } from '@/i18n'
 
 export interface ListenTogetherPanelProps {
   socket: Socket | null
@@ -563,7 +564,7 @@ function ListenTogetherInner({
     Number.isFinite(uiOpacity) && uiOpacity > 0
       ? Math.min(1, Math.max(0.3, uiOpacity / 100))
       : 1
-  const songName = currentSong?.name ?? '一起听'
+  const songName = currentSong?.name ?? translate('一起听')
   const artist = currentSong?.artist ?? ''
 
   // ===== 歌词面板是否真正可见（派生值，非 state）=====
@@ -680,10 +681,10 @@ function ListenTogetherInner({
             />
           </div>
           <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-            还没有歌曲
+            {translate('还没有歌曲')}
           </span>
           <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            在主框架搜索添加
+            {translate('在主框架搜索添加')}
           </span>
         </div>
       ) : (

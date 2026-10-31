@@ -34,6 +34,7 @@ import {
 import { TOOLBAR_TONE_VARS, type PlayerUiTone } from '../utils/playerTone'
 import { PLAY_MODE_META } from '../constants'
 import type { PlayMode } from '../types'
+import { t } from '@/i18n'
 
 export interface PlayerMobileToolbarRowProps {
   /** 工具行色调（跟随主题深浅，不跟播放页 UI 开关） */
@@ -152,8 +153,8 @@ export function PlayerMobileToolbarRow({
             ? 'var(--md-sys-color-on-surface)'
             : 'var(--md-sys-color-on-surface-variant)',
         }}
-        title={mobileLyricViewActive ? '隐藏歌词' : '显示歌词'}
-        aria-label="切换歌词显示"
+        title={mobileLyricViewActive ? t('隐藏歌词') : t('显示歌词')}
+        aria-label={t('切换歌词显示')}
         aria-pressed={mobileLyricViewActive}
       >
         <AlignLeft className="h-5 w-5" />
@@ -168,8 +169,8 @@ export function PlayerMobileToolbarRow({
               ? 'var(--md-sys-color-on-surface)'
               : 'var(--md-sys-color-on-surface-variant)',
           }}
-          title={lyricRoma ? '隐藏罗马音' : '显示罗马音'}
-          aria-label="切换罗马音显示"
+          title={lyricRoma ? t('隐藏罗马音') : t('显示罗马音')}
+          aria-label={t('切换罗马音显示')}
         >
           <RomanLyricIcon className="h-5 w-5" />
         </button>
@@ -184,8 +185,8 @@ export function PlayerMobileToolbarRow({
               ? 'var(--md-sys-color-on-surface)'
               : 'var(--md-sys-color-on-surface-variant)',
           }}
-          title={lyricTrans ? '隐藏翻译' : '显示翻译'}
-          aria-label="切换翻译显示"
+          title={lyricTrans ? t('隐藏翻译') : t('显示翻译')}
+          aria-label={t('切换翻译显示')}
         >
           <TransLyricIcon className="h-5 w-5" />
         </button>
@@ -196,8 +197,8 @@ export function PlayerMobileToolbarRow({
           type="button"
           onClick={onEnterImmersive}
           className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-          title="纯净模式：隐藏全部界面，仅显示背景视频"
-          aria-label="进入纯净模式"
+          title={t('纯净模式：隐藏全部界面，仅显示背景视频')}
+          aria-label={t('进入纯净模式')}
         >
           <MonitorPlay className="h-5 w-5" />
         </button>
@@ -212,8 +213,8 @@ export function PlayerMobileToolbarRow({
               ? 'var(--md-sys-color-error)'
               : 'var(--md-sys-color-on-surface)',
           }}
-          title={liked ? '取消喜欢' : '喜欢这首歌'}
-          aria-label={liked ? '取消喜欢' : '喜欢'}
+          title={liked ? t('取消喜欢') : t('喜欢这首歌')}
+          aria-label={liked ? t('取消喜欢') : t('喜欢')}
         >
           {liked ? (
             <LikeFilledIcon className="h-5 w-5" />
@@ -243,8 +244,8 @@ export function PlayerMobileToolbarRow({
           onClick={onToggleCommentPanel}
           className="relative flex h-8 w-8 items-center justify-center transition-opacity active:scale-90"
           style={{ color: 'var(--md-sys-color-on-surface)' }}
-          title={rightPanelMode === 1 ? '查看歌词' : '查看评论'}
-          aria-label="切换歌词/评论区"
+          title={rightPanelMode === 1 ? t('查看歌词') : t('查看评论')}
+          aria-label={t('切换歌词/评论区')}
         >
           <MessageCircle className="h-5 w-5" />
           {commentBadge !== '0' && (
@@ -266,8 +267,8 @@ export function PlayerMobileToolbarRow({
           type="button"
           onClick={onAddMusicVideo}
           className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-          title="添加视频"
-          aria-label="添加视频"
+          title={t('添加视频')}
+          aria-label={t('添加视频')}
         >
           <Film className="h-5 w-5" />
         </button>
@@ -280,8 +281,8 @@ export function PlayerMobileToolbarRow({
             window.open(getBiliSourceUrl(), '_blank', 'noopener,noreferrer')
           }
           className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-          title="在哔哩哔哩打开原视频"
-          aria-label="在哔哩哔哩打开原视频"
+          title={t('在哔哩哔哩打开原视频')}
+          aria-label={t('在哔哩哔哩打开原视频')}
         >
           <ExternalLink className="h-5 w-5" />
         </button>
@@ -297,8 +298,8 @@ export function PlayerMobileToolbarRow({
             ? 'text-[var(--md-sys-color-primary)]'
             : 'text-[var(--md-sys-color-on-surface)]'
         )}
-        title={queuePopupOpen ? '收起播放队列' : '播放队列'}
-        aria-label="切换播放队列"
+        title={queuePopupOpen ? t('收起播放队列') : t('播放队列')}
+        aria-label={t('切换播放队列')}
         aria-expanded={queuePopupOpen}
       >
         <ListMusic className="h-5 w-5" />
@@ -317,8 +318,8 @@ export function PlayerMobileToolbarRow({
         type="button"
         onClick={onOpenSettings}
         className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-        title="设置"
-        aria-label="打开设置"
+        title={t('设置')}
+        aria-label={t('打开设置')}
       >
         <Settings className="h-5 w-5" />
       </button>
@@ -330,10 +331,10 @@ export function PlayerMobileToolbarRow({
         className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
         title={
           uiTone === 'light'
-            ? '播放卡/歌词面板：浅色（点击切换为深色）'
-            : '播放卡/歌词面板：深色（点击切换为浅色）'
+            ? t('播放卡/歌词面板：浅色（点击切换为深色）')
+            : t('播放卡/歌词面板：深色（点击切换为浅色）')
         }
-        aria-label="切换播放页 UI 深浅色"
+        aria-label={t('切换播放页 UI 深浅色')}
       >
         <Contrast className="h-5 w-5" />
       </button>
@@ -342,8 +343,8 @@ export function PlayerMobileToolbarRow({
         type="button"
         onClick={onToggleFullscreen}
         className="flex h-8 w-8 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity active:scale-90"
-        title={isFullscreen ? '退出全屏' : '全屏'}
-        aria-label={isFullscreen ? '退出全屏' : '进入全屏'}
+        title={isFullscreen ? t('退出全屏') : t('全屏')}
+        aria-label={isFullscreen ? t('退出全屏') : t('进入全屏')}
       >
         {isFullscreen ? (
           <Minimize className="h-5 w-5" />

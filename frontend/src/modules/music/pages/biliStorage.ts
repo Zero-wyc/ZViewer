@@ -16,6 +16,7 @@ import type {
   RegionTagRule,
   RegionTagSource,
 } from '../utils/biliRegionFilter'
+import { t as translate } from '@/i18n'
 
 /** 音乐分区默认种类名（创建时分类名默认作为一个「搜索」tag；搜索词不再自动补「音乐」，用户在名称里自行写全） */
 export const DEFAULT_REGION_TAGS = [
@@ -235,8 +236,10 @@ export function loadRegionTags(): RegionTagEntry[] {
     })
     if (!migrated.some((e) => e.name === '中术')) {
       migrated.unshift({
-        name: '中术',
-        tags: [{ word: '中术', source: 'search', role: 'aggregate' }],
+        name: translate('中术'),
+        tags: [
+          { word: translate('中术'), source: 'search', role: 'aggregate' },
+        ],
       })
     }
     return migrated

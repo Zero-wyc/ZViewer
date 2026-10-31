@@ -34,6 +34,7 @@ import {
   setCommentTotal,
 } from './comments/comment-total-cache'
 import { formatCommentTime } from './comments/format'
+import { t } from '@/i18n'
 
 /** 评论条目（/comment/new 与 /comment/floor 通用的字段子集） */
 interface NcmComment {
@@ -114,7 +115,7 @@ const toPositiveInt = (v: unknown) => {
 }
 
 const getUserName = (user: NcmComment['user']) =>
-  (user && user.nickname) || '未知用户'
+  (user && user.nickname) || t('未知用户')
 
 const getUserAvatar = (user: NcmComment['user'], size = 40) => {
   if (user && user.avatarUrl) {
@@ -327,7 +328,7 @@ export function SongCommentsPanel() {
         }
       } catch (err) {
         console.error('[SongCommentsPanel] 获取评论失败:', err)
-        message.error('获取评论失败')
+        message.error(t('获取评论失败'))
       } finally {
         loadingRef.current = false
         setLoading(false)
@@ -366,7 +367,7 @@ export function SongCommentsPanel() {
     const content = newComment.trim()
     if (!content || submitting) return
     if (!loginStatus.loggedIn) {
-      message.info('请先登录')
+      message.info(t('请先登录'))
       return
     }
     setSubmitting(true)
@@ -376,16 +377,16 @@ export function SongCommentsPanel() {
         `/api/music/ncm/comment?id=${songId}&content=${encodeURIComponent(content)}&t=1&type=0${replyingTo ? `&commentId=${replyingTo.comment.commentId}` : ''}&timestamp=${Date.now()}`
       )
       if (data && data.code === 200) {
-        message.success('评论发送成功')
+        message.success(t('评论发送成功'))
         setNewComment('')
         setReplyingTo(null)
         await fetchComments(true)
       } else {
-        message.error('评论发送失败')
+        message.error(t('评论发送失败'))
       }
     } catch (err) {
       console.error('[SongCommentsPanel] 发送评论失败:', err)
-      message.error('评论发送失败')
+      message.error(t('评论发送失败'))
     } finally {
       setSubmitting(false)
     }
@@ -395,7 +396,7 @@ export function SongCommentsPanel() {
   const toggleLikeComment = useCallback(
     async (comment: NcmComment) => {
       if (!loginStatus.loggedIn) {
-        message.info('请先登录')
+        message.info(t('请先登录'))
         return
       }
       const liked = comment.liked
@@ -423,7 +424,7 @@ export function SongCommentsPanel() {
         }
       } catch (err) {
         console.error('[SongCommentsPanel] 点赞失败:', err)
-        message.error('操作失败')
+        message.error(t('操作失败'))
       }
     },
     [loginStatus.loggedIn, songId]
@@ -498,7 +499,7 @@ export function SongCommentsPanel() {
           bumpFloorState(key, {
             ...base,
             loading: false,
-            error: '回复加载失败，点击重试',
+            error: t('回复加载失败，点击重试'),
           })
         }
       } catch (err) {
@@ -506,7 +507,7 @@ export function SongCommentsPanel() {
         bumpFloorState(key, {
           ...base,
           loading: false,
-          error: '回复加载失败，点击重试',
+          error: t('回复加载失败，点击重试'),
         })
       }
     },
@@ -796,8 +797,8 @@ function CommentCard({
         text={comment.content}
         onCopy={(ok) =>
           ok
-            ? message.success('评论已复制到剪贴板')
-            : message.error('复制失败，请手动选择文字复制')
+            ? message.success(t('评论已复制到剪贴板'))
+            : message.error(t('复制失败，请手动选择文字复制'))
         }
       />
       {/* LIKE / REPLY 控制组 */}
@@ -832,7 +833,7 @@ function CommentCard({
           >
             {!(floorState && floorState.expanded)
               ? `展开${replyCount}条回复`
-              : '收起回复'}
+              : t('收起回复')}
           </button>
           {floorState && floorState.expanded && (
             <div className="ac-floor-panel">
@@ -865,8 +866,8 @@ function CommentCard({
                         text={reply.content || ''}
                         onCopy={(ok) =>
                           ok
-                            ? message.success('评论已复制到剪贴板')
-                            : message.error('复制失败，请手动选择文字复制')
+                            ? message.success(t('评论已复制到剪贴板'))
+                            : message.error(t('复制失败，请手动选择文字复制'))
                         }
                       />
                       <div className="ac-floor-controls">
@@ -910,7 +911,7 @@ function CommentCard({
               {!floorState.error &&
                 !floorState.loading &&
                 floorState.items.length === 0 && (
-                  <div className="ac-floor-status">暂无回复</div>
+                  <div className="ac-floor-status">{t('暂无回复')}</div>
                 )}
               {floorState.hasMore && (
                 <button
@@ -919,11 +920,11 @@ function CommentCard({
                   disabled={floorState.loading}
                   onClick={() => onLoadMoreFloor(comment, floorState)}
                 >
-                  {floorState.loading ? '加载中...' : '展开更多回复'}
+                  {floorState.loading ? t('加载中...') : t('展开更多回复')}
                 </button>
               )}
               {!floorState.hasMore && floorState.items.length > 0 && (
-                <div className="ac-floor-status">已展示全部回复</div>
+                <div className="ac-floor-status">{t('已展示全部回复')}</div>
               )}
             </div>
           )}

@@ -48,6 +48,7 @@ import type { FmSongItem } from '../personal-fm'
 import type { NcmSong } from '../types'
 import { cn } from '@/lib/utils'
 import { MusicLoginGate, PageBlockHeader } from './MusicLoginGate'
+import { t } from '@/i18n'
 
 export interface MusicFmPageProps {
   roomId?: string
@@ -439,7 +440,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
     async (song: NcmSong) => {
       if (!roomId) return false
       return startFmSong(song).catch((err: unknown) => {
-        message.error(err instanceof Error ? err.message : '漫游播放失败')
+        message.error(err instanceof Error ? err.message : t('漫游播放失败'))
         return false
       })
     },
@@ -477,7 +478,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
         .pool.find((s) => s.songId !== current?.songId)
     }
     if (!next) {
-      message.info('暂时没有新的漫游歌曲')
+      message.info(t('暂时没有新的漫游歌曲'))
       return
     }
     shiftCover('next', () => {
@@ -495,7 +496,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
   const handlePrev = useCallback(() => {
     if (!canControl) return
     if (history.length === 0) {
-      message.info('没有上一首了')
+      message.info(t('没有上一首了'))
       return
     }
     const prev = history[history.length - 1]
@@ -539,7 +540,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
     if (!canControl || !current) return
     try {
       await apiPost(`/api/music/ncm/fm_trash?songId=${current.songId}`)
-      message.success('已减少类似歌曲推荐')
+      message.success(t('已减少类似歌曲推荐'))
     } catch (err) {
       console.error('[MusicFmPage] fm_trash 失败:', err)
     }
@@ -548,9 +549,10 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
 
   // ===== 模式切换（Hydrogen changeFmMode / changeFmSubmode） =====
   const activeModeLabel =
-    FM_MODE_OPTIONS.find((m) => m.value === fmMode)?.label ?? '默认推荐'
+    FM_MODE_OPTIONS.find((m) => m.value === fmMode)?.label ?? t('默认推荐')
   const activeSubmodeLabel =
-    FM_SCENE_SUBMODE_OPTIONS.find((s) => s.value === fmSubmode)?.label ?? '专注'
+    FM_SCENE_SUBMODE_OPTIONS.find((s) => s.value === fmSubmode)?.label ??
+    t('专注')
   const modeSummary =
     fmMode === 'SCENE_RCMD'
       ? `${activeModeLabel} · ${activeSubmodeLabel}`
@@ -591,7 +593,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
     return (
       <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
         <PageBlockHeader titleEN="PERSONAL FM" titleCN="私人漫游" />
-        <MusicLoginGate hint="登录后开启专属音乐漫游" />
+        <MusicLoginGate hint={t('登录后开启专属音乐漫游')} />
       </div>
     )
   }
@@ -777,7 +779,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
               color: 'var(--md-sys-color-on-surface)',
             }}
-            title="切换漫游模式"
+            title={t('切换漫游模式')}
           >
             <span className="shrink-0 text-[10px] tracking-[0.8px] opacity-80">
               MODE
@@ -811,7 +813,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                 boxShadow: '0 8px 28px rgba(0, 0, 0, 0.2)',
               }}
               role="group"
-              aria-label="私人漫游模式"
+              aria-label={t('私人漫游模式')}
               onPointerDown={(e) => e.stopPropagation()}
             >
               <div className="mb-2 flex items-center justify-between gap-1.5">
@@ -921,10 +923,10 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
               PERSONAL FM
             </span>
             <h1 className="m-0 mt-3 text-[30px] font-bold leading-tight tracking-[1px] text-[var(--md-sys-color-on-surface)]">
-              私人漫游
+              {t('私人漫游')}
             </h1>
             <span className="mt-1.5 block text-sm font-bold text-[var(--md-sys-color-on-surface-variant)]">
-              根据你的音乐喜好为你推荐
+              {t('根据你的音乐喜好为你推荐')}
             </span>
           </div>
 
@@ -940,7 +942,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                 }}
                 aria-hidden="true"
               />
-              <p>正在为你准备音乐...</p>
+              <p>{t('正在为你准备音乐...')}</p>
             </div>
           )}
 
@@ -957,9 +959,9 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
               >
                 <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z" />
               </svg>
-              <p>无法加载漫游歌曲</p>
+              <p>{t('无法加载漫游歌曲')}</p>
               <p className="mt-1 text-xs text-[var(--md-sys-color-error)]">
-                请检查网络连接或稍后重试
+                {t('请检查网络连接或稍后重试')}
               </p>
               <button
                 type="button"
@@ -976,7 +978,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                   color: 'var(--md-sys-color-on-surface)',
                 }}
               >
-                重试
+                {t('重试')}
               </button>
             </div>
           )}
@@ -1030,11 +1032,11 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                               ? undefined
                               : isCenter
                                 ? playingThis
-                                  ? '暂停'
-                                  : '播放'
+                                  ? t('暂停')
+                                  : t('播放')
                                 : slot.role === 'left'
-                                  ? '上一首'
-                                  : '下一首'
+                                  ? t('上一首')
+                                  : t('下一首')
                           }
                         >
                           {slot.song ? (
@@ -1129,7 +1131,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                     color: 'var(--md-sys-color-tertiary)',
                   }}
                 >
-                  由房主控制漫游
+                  {t('由房主控制漫游')}
                 </div>
               )}
 
@@ -1146,8 +1148,8 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                     backgroundColor: 'var(--md-sys-color-on-surface)',
                     color: 'var(--md-sys-color-surface)',
                   }}
-                  title="上一首"
-                  aria-label="上一首"
+                  title={t('上一首')}
+                  aria-label={t('上一首')}
                 >
                   <PrevIcon />
                 </button>
@@ -1163,8 +1165,8 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                       'color-mix(in srgb, var(--md-sys-color-on-surface) 6%, transparent)',
                     color: 'var(--md-sys-color-on-surface)',
                   }}
-                  title="不喜欢"
-                  aria-label="不喜欢"
+                  title={t('不喜欢')}
+                  aria-label={t('不喜欢')}
                 >
                   <TrashIcon />
                 </button>
@@ -1184,8 +1186,8 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                       ? 'var(--md-sys-color-error)'
                       : 'var(--md-sys-color-on-surface)',
                   }}
-                  title={liked ? '取消喜欢' : '喜欢'}
-                  aria-label={liked ? '取消喜欢' : '喜欢'}
+                  title={liked ? t('取消喜欢') : t('喜欢')}
+                  aria-label={liked ? t('取消喜欢') : t('喜欢')}
                 >
                   <LikeIcon />
                 </button>
@@ -1200,8 +1202,8 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                     backgroundColor: 'var(--md-sys-color-on-surface)',
                     color: 'var(--md-sys-color-surface)',
                   }}
-                  title="下一首"
-                  aria-label="下一首"
+                  title={t('下一首')}
+                  aria-label={t('下一首')}
                 >
                   <NextIcon />
                 </button>

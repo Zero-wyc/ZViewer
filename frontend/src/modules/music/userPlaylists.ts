@@ -5,6 +5,7 @@
  * 缓存零等待，列表挂载不与展开动画抢帧；TTL 5 分钟，新建歌单后失效。
  */
 import { apiGet } from './musicApi'
+import { t } from '@/i18n'
 
 /** 用户歌单条目（/user/playlist.playlist[] 子集） */
 export interface UserPlaylistItem {
@@ -38,7 +39,7 @@ export function prefetchUserPlaylists(): Promise<UserPlaylistItem[]> {
       profile?: { userId?: number }
     }>(`/api/music/ncm/user/account?timestamp=${Date.now()}`)
     const uid = acc?.data?.account?.id ?? acc?.data?.profile?.userId
-    if (!uid) throw new Error('未获取到用户 ID')
+    if (!uid) throw new Error(t('未获取到用户 ID'))
     const sub = await apiGet<{ createdPlaylistCount?: number }>(
       `/api/music/ncm/user/subcount?timestamp=${Date.now()}`
     )

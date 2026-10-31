@@ -18,6 +18,7 @@ import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
 import { PageBlockHeader } from './MusicLoginGate'
+import { t } from '@/i18n'
 
 export interface MusicSearchPageProps {
   socket: Socket | null
@@ -92,11 +93,11 @@ export function MusicSearchPage({
    *  （与我的音乐页同范式；VIP 未登录/未连房间时提示并忽略） */
   const handlePlayNow = (song: NcmSong) => {
     if (song.vip && !loginStatus.loggedIn) {
-      message.info('VIP 歌曲需登录后播放')
+      message.info(t('VIP 歌曲需登录后播放'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     add(songToUpsertItem(song))
@@ -141,7 +142,7 @@ export function MusicSearchPage({
         }
         if (cancelled) return
         if (!Array.isArray(songs)) {
-          throw new Error('搜索失败，请稍后重试')
+          throw new Error(t('搜索失败，请稍后重试'))
         }
         setResults(songs.map(mapSong))
         setSearched(true)
@@ -149,7 +150,7 @@ export function MusicSearchPage({
         console.error('[MusicSearchPage] 搜索失败:', err)
         if (!cancelled) {
           message.error(
-            err instanceof Error ? err.message : '搜索失败，请稍后重试'
+            err instanceof Error ? err.message : t('搜索失败，请稍后重试')
           )
           setResults([])
           setSearched(true)
@@ -202,8 +203,8 @@ export function MusicSearchPage({
             </div>
             <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
               {searched
-                ? '未找到相关歌曲，换个关键词试试'
-                : '在顶部搜索框输入关键词搜索网易云歌曲'}
+                ? t('未找到相关歌曲，换个关键词试试')
+                : t('在顶部搜索框输入关键词搜索网易云歌曲')}
             </span>
           </div>
         )}

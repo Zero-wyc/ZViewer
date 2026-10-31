@@ -2,6 +2,7 @@ import { Ban, X } from 'lucide-react'
 import { CloudModal } from '../../components/CloudModal'
 import type { RegionTagRule } from '../../utils/biliRegionFilter'
 import { REGION_ROLE_LABEL, REGION_SOURCE_LABEL } from '../biliStorage'
+import { t } from '@/i18n'
 
 /** 分类标签规则弹窗（多 tag 筛选；黑底 SETTING 风格，复用屏蔽词弹窗骨架）。
  *  每条规则两个独立徽标：属性（聚合/限定）+ 来源方式（搜索/标签/全部，
@@ -58,19 +59,21 @@ export function TagRulesModal({
             <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {/* 说明（属性 × 方式两维；屏蔽词指引到分类条目右上角入口） */}
               <div className="mb-3 space-y-1.5 text-[13px] font-medium leading-relaxed text-white/50">
-                <p>每个标签词由两个独立徽标控制，点击词右侧对应徽标切换：</p>
+                <p>
+                  {t('每个标签词由两个独立徽标控制，点击词右侧对应徽标切换：')}
+                </p>
                 <p>
                   <span
                     className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                   >
-                    聚合
+                    {t('聚合')}
                   </span>
                   <span
                     className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
                   >
-                    限定
+                    {t('限定')}
                   </span>
                   属性：聚合词的结果并入列表（多个聚合词合并显示）；限定词要求视频标签包含该词才显示
                 </p>
@@ -79,19 +82,19 @@ export function TagRulesModal({
                     className="mr-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                   >
-                    搜索
+                    {t('搜索')}
                   </span>
                   <span
                     className="mx-1 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
                   >
-                    标签
+                    {t('标签')}
                   </span>
                   <span
                     className="mr-1.5 inline-block rounded-full px-1.5 py-0.5 text-[12px] font-bold text-white"
                     style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
                   >
-                    全部
+                    {t('全部')}
                   </span>
                   方式（仅聚合词生效）：搜索 = 关键词搜索；标签 = B站 tag
                   检索；全部 = 两源都取
@@ -111,7 +114,7 @@ export function TagRulesModal({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') onAdd()
                   }}
-                  placeholder="输入标签词（逗号/空格分隔可批量）"
+                  placeholder={t('输入标签词（逗号/空格分隔可批量）')}
                   className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -125,12 +128,14 @@ export function TagRulesModal({
                   className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
                 >
-                  添加
+                  {t('添加')}
                 </button>
               </div>
               {/* 已添加规则 chips（属性徽标 + 方式徽标两个独立按钮，点击各自切换） */}
               {rules.length === 0 ? (
-                <p className="text-sm font-medium text-white/40">暂无标签词</p>
+                <p className="text-sm font-medium text-white/40">
+                  {t('暂无标签词')}
+                </p>
               ) : (
                 <div className="zen-scroll flex max-h-[220px] flex-wrap gap-2 overflow-y-auto">
                   {rules.map((r) => (

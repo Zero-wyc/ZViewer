@@ -10,6 +10,7 @@ import {
   unmountMediaElement,
 } from './audioElement'
 import { loudnessNormalizer } from '../audio/loudnessNormalizer'
+import { t } from '@/i18n'
 
 interface UseAudioEngineOptions {
   /** 本地音量镜像（创建音频元素时应用；音量本身由调用方持有状态） */
@@ -150,7 +151,7 @@ export function useAudioEngine({
       )
       // 调用方优先处理（私人漫游换源失败时自动跳过该曲续播）
       if (onErrorRef?.current?.() === true) return
-      message.error('音频加载失败，请稍后重试或切换其他曲目')
+      message.error(t('音频加载失败，请稍后重试或切换其他曲目'))
     },
   }))
 

@@ -34,6 +34,7 @@ import {
   setCommentTotal,
 } from './comments/comment-total-cache'
 import { formatCommentTimeFromSeconds } from './comments/format'
+import { t } from '@/i18n'
 
 /**
  * 预取 B站 评论总数（播放器评论徽章预加载）：复用评论接口按时间首页
@@ -114,8 +115,8 @@ function BiliCommentText({
 
 const onCommentCopy = (ok: boolean) =>
   ok
-    ? message.success('评论已复制到剪贴板')
-    : message.error('复制失败，请手动选择文字复制')
+    ? message.success(t('评论已复制到剪贴板'))
+    : message.error(t('复制失败，请手动选择文字复制'))
 
 // ==================== 主组件 ====================
 
@@ -193,7 +194,7 @@ export function BiliCommentsPanel({ bvid }: { bvid: string }) {
         }
       } catch (err) {
         console.error('[BiliCommentsPanel] 获取评论失败:', err)
-        message.error('获取评论失败')
+        message.error(t('获取评论失败'))
       } finally {
         loadingRef.current = false
         setLoading(false)
@@ -291,7 +292,7 @@ export function BiliCommentsPanel({ bvid }: { bvid: string }) {
           [key]: {
             expanded: true,
             loading: false,
-            error: '回复加载失败，点击重试',
+            error: t('回复加载失败，点击重试'),
             items: snapshot?.items ?? [],
             total: snapshot?.total ?? comment.replyCount,
             pn: snapshot?.pn ?? pn,
@@ -383,7 +384,7 @@ export function BiliCommentsPanel({ bvid }: { bvid: string }) {
             <div className="ac-prompt-frame">
               <FrameCorners />
               <span className="ac-prompt-text">
-                LOGIN FOR FULL COMMENTS（游客仅前 3 条）
+                {t('LOGIN FOR FULL COMMENTS（游客仅前 3 条）')}
               </span>
             </div>
           </div>
@@ -450,14 +451,14 @@ function BiliCard({
         <div className="ac-user-avatar">
           <img
             src={proxyBiliImage(comment.avatar)}
-            alt={comment.name || '匿名用户'}
+            alt={comment.name || t('匿名用户')}
             loading="lazy"
             decoding="async"
           />
           <div className="ac-avatar-frame" />
         </div>
         <div className="ac-user-info">
-          <span className="ac-username">{comment.name || '匿名用户'}</span>
+          <span className="ac-username">{comment.name || t('匿名用户')}</span>
           <span className="ac-timestamp">
             {formatCommentTimeFromSeconds(comment.time)}
             {comment.location ? ` · ${comment.location}` : ''}
@@ -493,7 +494,7 @@ function BiliCard({
           >
             {!(floorState && floorState.expanded)
               ? `展开${replyCount}条回复`
-              : '收起回复'}
+              : t('收起回复')}
           </button>
           {floorState && floorState.expanded && (
             <div className="ac-floor-panel">
@@ -504,14 +505,14 @@ function BiliCard({
                       <div className="ac-floor-avatar">
                         <img
                           src={proxyBiliImage(reply.avatar)}
-                          alt={reply.name || '匿名用户'}
+                          alt={reply.name || t('匿名用户')}
                           loading="lazy"
                           decoding="async"
                         />
                       </div>
                       <div className="ac-floor-meta">
                         <span className="ac-floor-username">
-                          {reply.name || '匿名用户'}
+                          {reply.name || t('匿名用户')}
                         </span>
                         <span className="ac-floor-time">
                           {formatCommentTimeFromSeconds(reply.time)}
@@ -553,7 +554,7 @@ function BiliCard({
               {!floorState.error &&
                 !floorState.loading &&
                 floorState.items.length === 0 && (
-                  <div className="ac-floor-status">暂无回复</div>
+                  <div className="ac-floor-status">{t('暂无回复')}</div>
                 )}
               {floorState.items.length < floorState.total && (
                 <button
@@ -562,12 +563,12 @@ function BiliCard({
                   disabled={floorState.loading}
                   onClick={() => onLoadMoreFloor(comment)}
                 >
-                  {floorState.loading ? '加载中...' : '展开更多回复'}
+                  {floorState.loading ? t('加载中...') : t('展开更多回复')}
                 </button>
               )}
               {floorState.items.length >= floorState.total &&
                 floorState.items.length > 0 && (
-                  <div className="ac-floor-status">已展示全部回复</div>
+                  <div className="ac-floor-status">{t('已展示全部回复')}</div>
                 )}
             </div>
           )}

@@ -17,6 +17,7 @@ import {
 import { cn } from '@/lib/utils'
 import { CloudModal } from './CloudModal'
 import { TinySlider } from './TinySlider'
+import { t } from '@/i18n'
 
 /** 黑底弹窗内嵌 MD3 弹幕设置面板的变量作用域覆盖：DanmakuStylePanel /
  *  DanmakuAdvancedSettings / Slider / Switch / FontPickerPanel 均消费
@@ -148,7 +149,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               SETTING
             </span>
             <p className="relative text-center text-[15px] font-bold text-white">
-              设置
+              {t('设置')}
             </p>
           </div>
           {/* 背景设置项（与「一起听设置」同一 store，即时持久化）；
@@ -158,13 +159,13 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               {/* 毛玻璃封面背景（歌词页背景封面模糊开关） */}
               <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-[13px] font-bold text-white">
-                  毛玻璃封面背景
+                  {t('毛玻璃封面背景')}
                 </span>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={coverBlur}
-                  aria-label="毛玻璃封面背景"
+                  aria-label={t('毛玻璃封面背景')}
                   onClick={() => setSettings({ coverBlur: !coverBlur })}
                   className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
                   style={{
@@ -187,10 +188,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="px-5 py-3.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[13px] font-bold text-white">
-                    封面模糊度
+                    {t('封面模糊度')}
                   </span>
                   <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {coverBlur ? `${coverBlurLevel}px` : '关闭'}
+                    {coverBlur ? `${coverBlurLevel}px` : t('关闭')}
                   </span>
                 </div>
                 <TinySlider
@@ -208,10 +209,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="px-5 py-3.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[13px] font-bold text-white">
-                    视频背景模糊
+                    {t('视频背景模糊')}
                   </span>
                   <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {videoBlurLevel > 0 ? `${videoBlurLevel}px` : '关闭'}
+                    {videoBlurLevel > 0 ? `${videoBlurLevel}px` : t('关闭')}
                   </span>
                 </div>
                 <TinySlider
@@ -226,10 +227,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="px-5 py-3.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[13px] font-bold text-white">
-                    背景压暗
+                    {t('背景压暗')}
                   </span>
                   <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {bgDim > 0 ? `${bgDim}%` : '关闭'}
+                    {bgDim > 0 ? `${bgDim}%` : t('关闭')}
                   </span>
                 </div>
                 <TinySlider
@@ -246,10 +247,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="px-5 py-3.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[13px] font-bold text-white">
-                    UI 透明度
+                    {t('UI 透明度')}
                   </span>
                   <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {uiOpacity < 100 ? `${uiOpacity}%` : '默认'}
+                    {uiOpacity < 100 ? `${uiOpacity}%` : t('默认')}
                   </span>
                 </div>
                 <TinySlider
@@ -265,10 +266,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="px-5 py-3.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[13px] font-bold text-white">
-                    UI 模糊浓度
+                    {t('UI 模糊浓度')}
                   </span>
                   <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {uiBlurLevel > 0 ? `${uiBlurLevel}px` : '关闭'}
+                    {uiBlurLevel > 0 ? `${uiBlurLevel}px` : t('关闭')}
                   </span>
                 </div>
                 <TinySlider
@@ -304,7 +305,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="text-[10px] font-bold leading-tight text-white">
-                      CLI 高画质代理
+                      {t('CLI 高画质代理')}
                     </span>
                     <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
                       LOCAL PROXY
@@ -327,10 +328,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     />
                     <span className="text-[9px] font-medium text-white/50">
                       {cliAvailable
-                        ? '已连接'
+                        ? t('已连接')
                         : musicVideoCli
-                          ? '未连接'
-                          : '未启用'}
+                          ? t('未连接')
+                          : t('未启用')}
                     </span>
                   </div>
                 </div>
@@ -346,7 +347,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                         : 'bg-white/10 text-white/60 hover:bg-white/15'
                     )}
                   >
-                    关闭
+                    {t('关闭')}
                   </button>
                   <button
                     type="button"
@@ -358,15 +359,17 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                         : 'bg-white/10 text-white/60 hover:bg-white/15'
                     )}
                   >
-                    启用
+                    {t('启用')}
                   </button>
                 </div>
                 <div className="mt-1 text-[9px] leading-snug text-white/50">
                   {musicVideoCli
                     ? cliAvailable
                       ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
-                      : '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
-                    : '使用本地 ZViewer CLI 获取大会员等高画质视频背景'}
+                      : t(
+                          '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
+                        )
+                    : t('使用本地 ZViewer CLI 获取大会员等高画质视频背景')}
                 </div>
                 {/* 分辨率选择（CLI DASH 与服务器 DASH 双轨共用 musicVideoQn，
                   MP4 路径固定 720P 不显示）：变更即重解析视频背景；
@@ -374,7 +377,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                 {qnSelectorVisible && (
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-[10px] font-semibold text-white/70">
-                      分辨率
+                      {t('分辨率')}
                     </span>
                     <select
                       value={musicVideoQn}
@@ -386,23 +389,23 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                         border: '0.5px solid rgba(255, 255, 255, 0.2)',
                         colorScheme: 'dark',
                       }}
-                      title="视频背景清晰度（实际档位受账号权限限制）"
+                      title={t('视频背景清晰度（实际档位受账号权限限制）')}
                     >
-                      <option value={0}>自动（跟随账号）</option>
+                      <option value={0}>{t('自动（跟随账号）')}</option>
                       {(biliVip
                         ? [
-                            [125, 'HDR 真彩'],
-                            [120, '4K 超清'],
-                            [116, '1080P 60帧'],
-                            [112, '1080P 高码率'],
+                            [125, t('HDR 真彩')],
+                            [120, t('4K 超清')],
+                            [116, t('1080P 60帧')],
+                            [112, t('1080P 高码率')],
                           ]
                         : []
                       )
                         .concat([
-                          [80, '1080P 高清'],
-                          [64, '720P 高清'],
-                          [32, '480P 清晰'],
-                          [16, '360P 流畅'],
+                          [80, t('1080P 高清')],
+                          [64, t('720P 高清')],
+                          [32, t('480P 清晰')],
+                          [16, t('360P 流畅')],
                         ] as Array<[number, string]>)
                         .map(([qn, label]) => (
                           <option key={qn} value={qn}>
@@ -427,7 +430,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                 变更即触发视频背景重解析（useMusicVideoBackground 依赖 serverDash） */}
                 <div className="mt-2">
                   <div className="mb-1 text-[10px] font-bold uppercase tracking-wide text-white/40">
-                    播放模式
+                    {t('播放模式')}
                   </div>
                   <div
                     className={cn(
@@ -448,7 +451,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                           : 'text-white/60 hover:bg-white/10'
                       )}
                     >
-                      DASH 高画质
+                      {t('DASH 高画质')}
                     </button>
                     <button
                       type="button"
@@ -463,17 +466,21 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                           : 'text-white/60 hover:bg-white/10'
                       )}
                     >
-                      MP4 直链
+                      {t('MP4 直链')}
                     </button>
                   </div>
                   <div className="mt-1 text-[10px] leading-snug text-white/50">
                     {cliVideoLocked
                       ? cliAvailable
-                        ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
-                        : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
+                        ? t('CLI 代理已启用，当前使用本地 DASH 高画质解析')
+                        : t(
+                            '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
+                          )
                       : musicVideoServerDash
-                        ? 'DASH 分离流，清晰度由上方「分辨率」选择决定（自动=跟随账号）'
-                        : 'MP4 直链，seek 流畅，清晰度通常 480P/720P'}
+                        ? t(
+                            'DASH 分离流，清晰度由上方「分辨率」选择决定（自动=跟随账号）'
+                          )
+                        : t('MP4 直链，seek 流畅，清晰度通常 480P/720P')}
                   </div>
                 </div>
               </div>
@@ -481,10 +488,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="min-w-0">
                   <span className="block text-[13px] font-bold text-white">
-                    背景显示方式
+                    {t('背景显示方式')}
                   </span>
                   <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    视频背景铺满屏幕的方式
+                    {t('视频背景铺满屏幕的方式')}
                   </span>
                 </span>
                 <button
@@ -501,24 +508,24 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   }
                   className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                  title="点击切换：完整显示 → 裁切铺满 → 拉伸填充"
-                  aria-label="切换背景显示方式"
+                  title={t('点击切换：完整显示 → 裁切铺满 → 拉伸填充')}
+                  aria-label={t('切换背景显示方式')}
                 >
                   {bgVideoFit === 'contain'
-                    ? '完整显示'
+                    ? t('完整显示')
                     : bgVideoFit === 'cover'
-                      ? '裁切铺满'
-                      : '拉伸填充'}
+                      ? t('裁切铺满')
+                      : t('拉伸填充')}
                 </button>
               </div>
               {/* B站封面形状（仅哔哩哔哩歌曲的歌词页封面生效，点击循环切换） */}
               <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="min-w-0">
                   <span className="block text-[13px] font-bold text-white">
-                    B站封面形状
+                    {t('B站封面形状')}
                   </span>
                   <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    哔哩哔哩歌曲封面的显示裁剪方式
+                    {t('哔哩哔哩歌曲封面的显示裁剪方式')}
                   </span>
                 </span>
                 <button
@@ -531,10 +538,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   }
                   className="w-[76px] shrink-0 rounded-full px-2 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                  title="点击切换：原版（长方形）↔ 正方形（居中裁剪）"
-                  aria-label="切换 B站封面形状"
+                  title={t('点击切换：原版（长方形）↔ 正方形（居中裁剪）')}
+                  aria-label={t('切换 B站封面形状')}
                 >
-                  {biliCoverShape === 'original' ? '原版' : '正方形'}
+                  {biliCoverShape === 'original' ? t('原版') : t('正方形')}
                 </button>
               </div>
               {/* 红心收藏夹（播放栏 B站 条目红心一键收藏的目标收藏夹；
@@ -542,10 +549,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="min-w-0">
                   <span className="block text-[13px] font-bold text-white">
-                    红心收藏夹
+                    {t('红心收藏夹')}
                   </span>
                   <span className="mt-0.5 block text-[11px] font-medium text-white/50">
-                    点击红心收藏 B站 视频的目标收藏夹，不存在时自动创建
+                    {t('点击红心收藏 B站 视频的目标收藏夹，不存在时自动创建')}
                   </span>
                 </span>
                 {favTitleEditing ? (
@@ -560,7 +567,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     }}
                     className="h-[30px] w-[130px] shrink-0 rounded-full px-3 text-xs font-bold outline-none"
                     style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                    aria-label="红心收藏夹名称"
+                    aria-label={t('红心收藏夹名称')}
                   />
                 ) : (
                   <button
@@ -571,8 +578,8 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     }}
                     className="min-w-[76px] max-w-[130px] shrink-0 truncate rounded-full px-3 py-1.5 text-xs font-bold transition-opacity hover:opacity-70"
                     style={{ backgroundColor: '#ffffff', color: '#000000' }}
-                    title="点击编辑收藏夹名称（留空恢复默认 Music）"
-                    aria-label="编辑红心收藏夹名称"
+                    title={t('点击编辑收藏夹名称（留空恢复默认 Music）')}
+                    aria-label={t('编辑红心收藏夹名称')}
                   >
                     {biliLikeFavTitle}
                   </button>
@@ -581,13 +588,13 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               {/* 歌词模糊（非当前行 blur，当前行保持清晰） */}
               <div className="flex items-center justify-between gap-3 px-5 py-3.5">
                 <span className="text-[13px] font-bold text-white">
-                  歌词模糊
+                  {t('歌词模糊')}
                 </span>
                 <button
                   type="button"
                   role="switch"
                   aria-checked={lyricBlur}
-                  aria-label="歌词模糊"
+                  aria-label={t('歌词模糊')}
                   onClick={() => setSettings({ lyricBlur: !lyricBlur })}
                   className="relative h-5 w-9 shrink-0 rounded-full transition-colors"
                   style={{
@@ -609,10 +616,10 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
               <div className="px-5 py-3.5">
                 <div className="mb-1 flex items-center justify-between">
                   <span className="text-[13px] font-bold text-white">
-                    歌词模糊浓度
+                    {t('歌词模糊浓度')}
                   </span>
                   <span className="text-[12px] font-bold tabular-nums text-white/70">
-                    {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : '关闭'}
+                    {lyricBlurLevel > 0 ? `${lyricBlurLevel}px` : t('关闭')}
                   </span>
                 </div>
                 <TinySlider
@@ -649,7 +656,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   </div>
                   <div className="flex min-w-0 flex-1 flex-col">
                     <span className="text-[10px] font-bold leading-tight text-white">
-                      B站弹幕
+                      {t('B站弹幕')}
                     </span>
                     <span className="text-[8px] font-medium uppercase tracking-wide text-white/40">
                       DANMAKU
@@ -659,7 +666,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                     type="button"
                     role="switch"
                     aria-checked={biliDanmakuEnabled}
-                    aria-label="B站弹幕"
+                    aria-label={t('B站弹幕')}
                     onClick={() =>
                       setSettings({ biliDanmakuEnabled: !biliDanmakuEnabled })
                     }
@@ -687,7 +694,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                 {biliDanmakuEnabled && (
                   <div className="mt-2 flex items-center justify-between gap-2">
                     <span className="text-[10px] font-bold text-white">
-                      弹幕层级
+                      {t('弹幕层级')}
                     </span>
                     <div className="grid shrink-0 grid-cols-2 gap-1">
                       <button
@@ -702,7 +709,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                             : 'bg-white/10 text-white/60 hover:bg-white/15'
                         )}
                       >
-                        UI 上方
+                        {t('UI 上方')}
                       </button>
                       <button
                         type="button"
@@ -716,7 +723,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                             : 'bg-white/10 text-white/60 hover:bg-white/15'
                         )}
                       >
-                        UI 底部
+                        {t('UI 底部')}
                       </button>
                     </div>
                   </div>

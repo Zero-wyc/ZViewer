@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { usePlaybackPosition } from '../hooks/usePlaybackPosition'
 import { cn, formatDuration } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /**
  * 播放进度条（Hydrogen 样式：1.3vh 黑条 + 0.5px 描边；canControl 可拖动）。
@@ -101,10 +102,10 @@ export function PlayerProgressBar({
         role="slider"
         aria-label={
           canControl
-            ? '播放进度'
+            ? t('播放进度')
             : onRequestSeek
-              ? '播放进度（拖动将向房主申请调节）'
-              : '播放进度（仅房主可拖动）'
+              ? t('播放进度（拖动将向房主申请调节）')
+              : t('播放进度（仅房主可拖动）')
         }
         aria-valuemin={0}
         aria-valuemax={Math.round(durationSec)}

@@ -8,6 +8,7 @@
  * 版本差异：Hydrogen 存在 playerStore.pick 持久化，本项目改用 localStorage。
  */
 import type { LyricLine } from './lrc'
+import { t } from '@/i18n'
 
 /** 右键菜单单次步长（秒） */
 export const LYRIC_LINE_OFFSET_STEP_SEC = 0.5
@@ -73,7 +74,7 @@ export function getDisplayedLyricLineOffset(row: LyricLine): number {
 /** 菜单当前偏移文案 */
 export function formatLyricLineOffset(offsetSec: number): string {
   const offset = normalizeLyricLineOffset(offsetSec)
-  if (offset === 0) return '无偏移'
+  if (offset === 0) return t('无偏移')
   const absValue = Math.abs(offset).toFixed(1)
   return offset > 0 ? `提前 ${absValue} 秒` : `延后 ${absValue} 秒`
 }

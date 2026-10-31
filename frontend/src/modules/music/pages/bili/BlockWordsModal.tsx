@@ -2,12 +2,13 @@ import { X } from 'lucide-react'
 import { CloudModal } from '../../components/CloudModal'
 import type { BlockWord } from '../../utils/biliRegionFilter'
 import { SCOPE_LABEL } from '../biliStorage'
+import { t } from '@/i18n'
 
 /** 屏蔽词设置弹窗（黑底 SETTING 风格：高斯模糊 + 四角白方块 + 大字水印）。
  * 添加/删除即时持久化；关闭时由调用方重载列表使过滤生效。
  * 全局弹窗与分区弹窗共用（分区弹窗传 title + description 说明仅本分区生效） */
 export function BlockWordsModal({
-  title = '屏蔽词设置',
+  title = t('屏蔽词设置'),
   description,
   words,
   input,
@@ -59,7 +60,9 @@ export function BlockWordsModal({
             <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
               <p className="mb-3 text-[13px] font-medium text-white/50">
                 {description ??
-                  '全局生效：命中屏蔽词的搜索结果将被隐藏；点击词上的范围徽标可单独设置匹配标题还是标签'}
+                  t(
+                    '全局生效：命中屏蔽词的搜索结果将被隐藏；点击词上的范围徽标可单独设置匹配标题还是标签'
+                  )}
               </p>
               {/* 添加输入行 */}
               <div className="mb-3 flex items-center gap-2">
@@ -70,7 +73,7 @@ export function BlockWordsModal({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') onAdd()
                   }}
-                  placeholder="输入屏蔽词（逗号/空格分隔可批量）"
+                  placeholder={t('输入屏蔽词（逗号/空格分隔可批量）')}
                   className="h-8 min-w-0 flex-1 rounded-full px-3 text-sm font-bold outline-none"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -84,12 +87,14 @@ export function BlockWordsModal({
                   className="shrink-0 rounded-full px-3 py-1.5 text-sm font-bold transition-opacity hover:opacity-70"
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
                 >
-                  添加
+                  {t('添加')}
                 </button>
               </div>
               {/* 已添加屏蔽词 chips */}
               {words.length === 0 ? (
-                <p className="text-sm font-medium text-white/40">暂无屏蔽词</p>
+                <p className="text-sm font-medium text-white/40">
+                  {t('暂无屏蔽词')}
+                </p>
               ) : (
                 <div className="flex max-h-[220px] flex-wrap gap-2 overflow-y-auto zen-scroll">
                   {words.map((b) => (

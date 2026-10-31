@@ -36,6 +36,7 @@ import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import type { NcmSong } from '../types'
 import { SongRow } from '../components/SongRow'
 import { MusicLoginGate } from './MusicLoginGate'
+import { t } from '@/i18n'
 
 export interface MusicDailyPanelProps {
   socket: Socket | null
@@ -323,9 +324,9 @@ export function MusicDailyPanel({
     date === todayDate ? `今天 (${date})` : date
 
   const selectedDateLabel = !dateOptions.length
-    ? '暂无可选日期'
+    ? t('暂无可选日期')
     : !selectedDate
-      ? '请选择日期'
+      ? t('请选择日期')
       : formatDateLabel(selectedDate)
 
   const getDateOptionId = (date: string) =>
@@ -448,7 +449,7 @@ export function MusicDailyPanel({
     } catch (err) {
       console.error('[MusicDailyPage] 获取推荐歌曲失败:', err)
       setSongs([])
-      message.error('获取推荐歌曲失败')
+      message.error(t('获取推荐歌曲失败'))
     } finally {
       setLoadingSongs(false)
     }
@@ -477,7 +478,7 @@ export function MusicDailyPanel({
         if (list.length > 0) setSelectedDate((prev) => prev || list[0])
       } catch (err) {
         console.error('[MusicDailyPage] 获取历史日推日期失败:', err)
-        if (!cancelled) message.error('获取历史日推日期失败')
+        if (!cancelled) message.error(t('获取历史日推日期失败'))
       } finally {
         if (!cancelled) setLoadingDates(false)
       }
@@ -506,16 +507,16 @@ export function MusicDailyPanel({
       （shouldBlockRestrictedPlayback VIP 拦截语义） */
   const handlePlayRow = (song: NcmSong) => {
     if (song.vip && !loginStatus.loggedIn) {
-      message.info('VIP 歌曲需登录后播放')
+      message.info(t('VIP 歌曲需登录后播放'))
       return
     }
     if (`ncm:${song.songId}` === currentKey) {
       if (canControl) togglePlay()
-      else message.info('由房主控制播放')
+      else message.info(t('由房主控制播放'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     add(songToUpsertItem(song))
@@ -537,11 +538,11 @@ export function MusicDailyPanel({
   /** 播放全部（Hydrogen playAll('rec') 的 ZViewer 语义：全量入队 → 首首播放） */
   const handlePlayAll = () => {
     if (!canManage) {
-      message.info('仅房主 / 房管可添加队列')
+      message.info(t('仅房主 / 房管可添加队列'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     if (songs.length === 0) return
@@ -552,11 +553,11 @@ export function MusicDailyPanel({
   if (!loginStatus.loggedIn) {
     return (
       <div className="zrec-container flex min-w-0 flex-1 flex-col">
-        <h1>每日推荐歌曲</h1>
+        <h1>{t('每日推荐歌曲')}</h1>
         <span className="zrec-subtitle">
-          根据你的音乐口味生成，每天6:00更新
+          {t('根据你的音乐口味生成，每天6:00更新')}
         </span>
-        <MusicLoginGate hint="登录后查看专属每日推荐歌曲" />
+        <MusicLoginGate hint={t('登录后查看专属每日推荐歌曲')} />
       </div>
     )
   }
@@ -565,8 +566,10 @@ export function MusicDailyPanel({
     <div className="zrec-container flex min-w-0 flex-1 flex-col">
       <style>{REC_STYLE}</style>
       {/* ===== 头部（Hydrogen .rec-header 结构） ===== */}
-      <h1>每日推荐歌曲</h1>
-      <span className="zrec-subtitle">根据你的音乐口味生成，每天6:00更新</span>
+      <h1>{t('每日推荐歌曲')}</h1>
+      <span className="zrec-subtitle">
+        {t('根据你的音乐口味生成，每天6:00更新')}
+      </span>
 
       {/* 日期下拉（Hydrogen .rec-date-picker） */}
       <div className="zrec-option-date">
@@ -625,14 +628,16 @@ export function MusicDailyPanel({
       {/* 播放全部（Hydrogen .play-all，中心扩展填充 hover） */}
       <div className="zrec-option-action">
         <button type="button" className="zrec-play-all" onClick={handlePlayAll}>
-          播放全部
+          {t('播放全部')}
         </button>
       </div>
 
       {/* 状态行（Hydrogen .rec-status） */}
-      {loadingSongs && <span className="zrec-status">正在加载推荐歌曲...</span>}
+      {loadingSongs && (
+        <span className="zrec-status">{t('正在加载推荐歌曲...')}</span>
+      )}
       {!loadingSongs && !dateOptions.length && (
-        <span className="zrec-status">暂无可用日推日期</span>
+        <span className="zrec-status">{t('暂无可用日推日期')}</span>
       )}
 
       {/* ===== 歌曲列表（LibrarySongList 范式：hover 播放 / 双击播放 / 当前行 EQ） ===== */}
@@ -655,7 +660,7 @@ export function MusicDailyPanel({
         ))}
         {!loadingSongs && songs.length === 0 && dateOptions.length > 0 && (
           <div className="flex flex-1 items-center justify-center py-12 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            该日期没有推荐歌曲
+            {t('该日期没有推荐歌曲')}
           </div>
         )}
       </div>

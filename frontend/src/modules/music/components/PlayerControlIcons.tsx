@@ -8,6 +8,7 @@
  * active/inactive 由父级文字色控制（Hydrogen 原版为 #000 / #8a8a8a）。
  */
 import type { PlayMode } from '../types'
+import { t } from '@/i18n'
 
 /** 上一首（< 形线条箭头，viewBox 200） */
 export function ControlPrevIcon({ className }: { className?: string }) {
@@ -260,7 +261,7 @@ export function DanmakuTvIcon({
         fontWeight="600"
         fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
       >
-        弹
+        {t('弹')}
       </text>
       {/* 关闭态：叠加斜线（与一起看同款状态语言） */}
       {!checked && <line x1="5" y1="5" x2="19" y2="19" />}

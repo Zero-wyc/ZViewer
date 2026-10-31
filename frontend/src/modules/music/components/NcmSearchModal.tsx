@@ -35,6 +35,7 @@ import { CloudModal } from './CloudModal'
 import { prefetchUserPlaylists } from '../userPlaylists'
 import { extractSongTitle } from '../utils/songTitle'
 import { cn, formatDurationMs } from '@/lib/utils'
+import { t } from '@/i18n'
 
 interface NcmSearchModalProps {
   open: boolean
@@ -143,7 +144,7 @@ export function NcmSearchModal({
     } catch (err) {
       console.error('[NcmSearchModal] 搜索失败:', err)
       if (seq !== searchSeqRef.current) return
-      message.error('搜索失败，请稍后重试')
+      message.error(t('搜索失败，请稍后重试'))
       setResults([])
       setSearched(true)
     } finally {
@@ -222,7 +223,7 @@ export function NcmSearchModal({
       )
       audio.volume = 0.8
       audio.onerror = () => {
-        message.error(song.vip ? 'VIP 歌曲需登录后试听' : '试听失败')
+        message.error(song.vip ? t('VIP 歌曲需登录后试听') : t('试听失败'))
         if (auditionRef.current === audio) {
           auditionRef.current = null
           setAuditionId(null)
@@ -252,7 +253,7 @@ export function NcmSearchModal({
           (p) => p.specialType === 5 || p.name.includes('喜欢的音乐')
         )
         if (!liked) {
-          message.error('未找到「我喜欢的音乐」歌单，请确认已登录网易云账号')
+          message.error(t('未找到「我喜欢的音乐」歌单，请确认已登录网易云账号'))
           return
         }
         const { data } = await apiPost<{
@@ -266,7 +267,7 @@ export function NcmSearchModal({
         const code = data?.code ?? data?.body?.code
         if (code === 200 || code === 502) {
           message.success(
-            code === 502 ? '已在我喜欢的音乐中' : '已添加到我喜欢的音乐'
+            code === 502 ? t('已在我喜欢的音乐中') : t('已添加到我喜欢的音乐')
           )
           // 回显红心（502 = 本就已在喜欢列表，同样点亮）
           setLikedIds((prev) => {
@@ -275,11 +276,11 @@ export function NcmSearchModal({
             return next
           })
         } else {
-          message.error('收藏失败')
+          message.error(t('收藏失败'))
         }
       } catch (err) {
         console.error('[NcmSearchModal] 收藏到我喜欢的音乐失败:', err)
-        message.error('收藏失败，请确认已登录网易云账号')
+        message.error(t('收藏失败，请确认已登录网易云账号'))
       } finally {
         setFavBusyId(null)
       }
@@ -320,7 +321,7 @@ export function NcmSearchModal({
             className="relative z-[1] mt-7 shrink-0 text-center text-[15px] font-bold text-white"
             style={{ animation: 'cloud-add-title-in 0.2s 0.25s both' }}
           >
-            在网易云搜索
+            {t('在网易云搜索')}
           </div>
 
           {/* 关键词输入（自动提取结果可手动修正；Enter 或放大镜重新搜索） */}
@@ -331,7 +332,7 @@ export function NcmSearchModal({
                 value={keyword}
                 autoFocus
                 autoComplete="off"
-                placeholder="歌曲名"
+                placeholder={t('歌曲名')}
                 onChange={(e) => setKeyword(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') void runSearch(keyword)
@@ -354,8 +355,8 @@ export function NcmSearchModal({
                 disabled={searching}
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border text-white transition-colors hover:bg-white/10 disabled:opacity-40"
                 style={{ borderColor: 'rgba(255, 255, 255, 0.4)' }}
-                title="搜索"
-                aria-label="搜索"
+                title={t('搜索')}
+                aria-label={t('搜索')}
               >
                 {searching ? (
                   <Loader2 className="h-4 w-4 animate-spin" />
@@ -394,7 +395,8 @@ export function NcmSearchModal({
                     <span className="relative h-10 w-10 shrink-0 overflow-hidden rounded-sm bg-white/8">
                       {song.cover ? (
                         <img
-                          src={neteaseImageUrl(song.cover, 80)} onError={fallbackNcmAvatar}
+                          src={neteaseImageUrl(song.cover, 80)}
+                          onError={fallbackNcmAvatar}
                           alt=""
                           loading="lazy"
                           className="h-full w-full object-cover"
@@ -434,8 +436,8 @@ export function NcmSearchModal({
                           'flex h-6 w-6 items-center justify-center rounded text-white transition-colors hover:bg-white/15',
                           auditioning && 'bg-white/15'
                         )}
-                        title={auditioning ? '停止试听' : '试听'}
-                        aria-label={auditioning ? '停止试听' : '试听'}
+                        title={auditioning ? t('停止试听') : t('试听')}
+                        aria-label={auditioning ? t('停止试听') : t('试听')}
                       >
                         {auditioning ? (
                           <Pause className="h-3.5 w-3.5" />
@@ -452,10 +454,14 @@ export function NcmSearchModal({
                           liked ? 'text-[#ff4757]' : 'text-white'
                         )}
                         title={
-                          liked ? '已在我喜欢的音乐中' : '收藏到我喜欢的音乐'
+                          liked
+                            ? t('已在我喜欢的音乐中')
+                            : t('收藏到我喜欢的音乐')
                         }
                         aria-label={
-                          liked ? '已在我喜欢的音乐中' : '收藏到我喜欢的音乐'
+                          liked
+                            ? t('已在我喜欢的音乐中')
+                            : t('收藏到我喜欢的音乐')
                         }
                       >
                         {favBusyId === song.songId ? (

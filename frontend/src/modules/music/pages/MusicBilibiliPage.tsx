@@ -104,6 +104,7 @@ import {
   RegionTagItem,
   TagRulesModal,
 } from './bili'
+import { t as translate } from '@/i18n'
 
 /** 子页标识（custom = 用户通过链接添加的自定义栏目） */
 type BiliTab = 'region' | 'fav' | 'custom'
@@ -192,7 +193,7 @@ export function MusicBilibiliPage({
   const { playBiliSong, playSong, currentSong, canControl } = useMusicPlayer()
   const currentKey = useMusicStore((s) => s.currentKey)
   /** 队列添加（封面右下角按钮）：canManage（房主/房管）可用 */
-  const queuedItems = useMusicStore(s => s.queue)
+  const queuedItems = useMusicStore((s) => s.queue)
   const addedKeys = new Set(queuedItems.map(musicItemKey))
   /** 顶栏搜索框关键词（哔哩哔哩页时搜索 B站 视频；null = 常规 tab 内容） */
   const biliSearchKeyword = useMusicStore((s) => s.biliSearchKeyword)
@@ -493,7 +494,9 @@ export function MusicBilibiliPage({
         // 已展示缓存内容时后台刷新失败：保留旧内容不打断
         if (!showedCache) {
           setItems([])
-          setError(err instanceof Error ? err.message : '获取视频列表失败')
+          setError(
+            err instanceof Error ? err.message : translate('获取视频列表失败')
+          )
         }
       } finally {
         if (seq === loadSeqRef.current) {
@@ -685,9 +688,13 @@ export function MusicBilibiliPage({
       const meta = await fetchBiliLinkMeta(link)
       const id = `${meta.kind}:${meta.listId}`
       if (customTabs.some((t) => t.id === id)) {
-        return '该栏目已存在'
+        return translate('该栏目已存在')
       }
-      const finalName = (name.trim() || meta.title || '新栏目').trim()
+      const finalName = (
+        name.trim() ||
+        meta.title ||
+        translate('新栏目')
+      ).trim()
       const next = [
         ...customTabs,
         {
@@ -942,47 +949,96 @@ export function MusicBilibiliPage({
   /** 分P按顺序逐首写入房间队列，离房或断线时停止当前批次。 */
   const queueImportSequence = useRef(0)
   const queueImportBusy = useRef(false)
-  useEffect(() => () => { queueImportSequence.current++; queueImportBusy.current = false }, [roomId, socket])
-  const importBilibiliVideo = useCallback(async (item: BilibiliVideoItem, startPlayback: boolean) => {
-    if (queueImportBusy.current) return
-    queueImportBusy.current = true
-    const request = ++queueImportSequence.current
-    const current = () => request === queueImportSequence.current && (!roomId || useRoomStore.getState().roomId === roomId) && (!socket || socket.connected)
-    setPlayingBvid(item.bvid)
-    try {
-      const tracks = (await loadBilibiliParts(item)).map(track => ({ ...track, roomId: roomId || '' }))
-      if (!current()) return
-      if (!socket || !roomId) {
-        if (tracks.length > 1) throw new Error('请先进入一起听房间，再导入分P歌单')
-        if (startPlayback) await playBiliSong(tracks[0])
-        else throw new Error('未连接房间')
-        return
+  useEffect(
+    () => () => {
+      queueImportSequence.current++
+      queueImportBusy.current = false
+    },
+    [roomId, socket]
+  )
+  const importBilibiliVideo = useCallback(
+    async (item: BilibiliVideoItem, startPlayback: boolean) => {
+      if (queueImportBusy.current) return
+      queueImportBusy.current = true
+      const request = ++queueImportSequence.current
+      const current = () =>
+        request === queueImportSequence.current &&
+        (!roomId || useRoomStore.getState().roomId === roomId) &&
+        (!socket || socket.connected)
+      setPlayingBvid(item.bvid)
+      try {
+        const tracks = (await loadBilibiliParts(item)).map((track) => ({
+          ...track,
+          roomId: roomId || '',
+        }))
+        if (!current()) return
+        if (!socket || !roomId) {
+          if (tracks.length > 1)
+            throw new Error(translate('请先进入一起听房间，再导入分P歌单'))
+          if (startPlayback) await playBiliSong(tracks[0])
+          else throw new Error(translate('未连接房间'))
+          return
+        }
+        const manage = canControl || canManage
+        if (!manage && tracks.length > 1)
+          throw new Error(translate('请房主或房管导入多分P歌单'))
+        if (tracks.length > 1)
+          message.info(
+            translate('正在导入 ') + tracks.length + translate(' 首分P歌曲…')
+          )
+        await enqueueBilibiliParts(tracks, {
+          isCurrent: current,
+          play: startPlayback && canControl ? playSong : undefined,
+          enqueue: (track) =>
+            new Promise<void>((resolve, reject) => {
+              socket.timeout(10000).emit(
+                manage ? 'music:queue-upsert' : 'music:control-request',
+                {
+                  roomId,
+                  item: track,
+                  afterCurrent: startPlayback && tracks.length === 1,
+                  ...(!manage ? { action: 'addQueue' } : {}),
+                },
+                (
+                  error: Error | null,
+                  response: { success?: boolean; message?: string }
+                ) => {
+                  if (error || response?.success !== true)
+                    reject(
+                      new Error(
+                        response?.message || translate('分P导入失败，请重试')
+                      )
+                    )
+                  else resolve()
+                }
+              )
+            }),
+        })
+        if (current())
+          message.success(
+            manage
+              ? translate('已加入 ') + tracks.length + translate(' 首歌曲')
+              : translate('已申请添加，等待房主确认')
+          )
+      } catch (error) {
+        if (current())
+          message.error(
+            error instanceof Error ? error.message : translate('分P导入失败')
+          )
+      } finally {
+        if (request === queueImportSequence.current) {
+          queueImportBusy.current = false
+          setPlayingBvid(null)
+        }
       }
-      const manage = canControl || canManage
-      if (!manage && tracks.length > 1) throw new Error('请房主或房管导入多分P歌单')
-      if (tracks.length > 1) message.info('正在导入 ' + tracks.length + ' 首分P歌曲…')
-      await enqueueBilibiliParts(tracks, {
-        isCurrent: current,
-        play: startPlayback && canControl ? playSong : undefined,
-        enqueue: track => new Promise<void>((resolve, reject) => {
-          socket.timeout(10000).emit(manage ? 'music:queue-upsert' : 'music:control-request', {
-            roomId, item: track, afterCurrent: startPlayback && tracks.length === 1,
-            ...(!manage ? { action: 'addQueue' } : {}),
-          }, (error: Error | null, response: { success?: boolean; message?: string }) => {
-            if (error || response?.success !== true) reject(new Error(response?.message || '分P导入失败，请重试'))
-            else resolve()
-          })
-        }),
-      })
-      if (current()) message.success(manage ? '已加入 ' + tracks.length + ' 首歌曲' : '已申请添加，等待房主确认')
-    } catch (error) {
-      if (current()) message.error(error instanceof Error ? error.message : '分P导入失败')
-    } finally {
-      if (request === queueImportSequence.current) { queueImportBusy.current = false; setPlayingBvid(null) }
-    }
-  }, [roomId, socket, canControl, canManage, playBiliSong, playSong])
+    },
+    [roomId, socket, canControl, canManage, playBiliSong, playSong]
+  )
 
-  const handleAddToQueue = useCallback((item: BilibiliVideoItem) => importBilibiliVideo(item, false), [importBilibiliVideo])
+  const handleAddToQueue = useCallback(
+    (item: BilibiliVideoItem) => importBilibiliVideo(item, false),
+    [importBilibiliVideo]
+  )
 
   /** 添加屏蔽词：一次可输入多个（逗号/空格分隔），去重持久化，默认作用于全部 */
   const handleAddBlockWord = useCallback(() => {
@@ -1035,7 +1091,10 @@ export function MusicBilibiliPage({
   /**
    * 点击视频：解析分P目录，入队后从第一首开始播放。
    */
-  const handlePlay = useCallback((item: BilibiliVideoItem) => importBilibiliVideo(item, true), [importBilibiliVideo])
+  const handlePlay = useCallback(
+    (item: BilibiliVideoItem) => importBilibiliVideo(item, true),
+    [importBilibiliVideo]
+  )
 
   /** 分页派生：total 已知时精确算总页数；未知时按「本页拉满」估算下一页 */
   const rawTotalPages =
@@ -1089,10 +1148,12 @@ export function MusicBilibiliPage({
     setRandomMode((prev) => {
       const next = !prev
       if (next) {
-        message.info('已开启随机排序：翻页将随机抽取一批视频并打乱顺序')
+        message.info(
+          translate('已开启随机排序：翻页将随机抽取一批视频并打乱顺序')
+        )
         setPageNo(searchLikeMode ? randomVirtualPage() : 1)
       } else {
-        message.info('已恢复顺序排列')
+        message.info(translate('已恢复顺序排列'))
         setPageNo(1)
       }
       return next
@@ -1127,13 +1188,13 @@ export function MusicBilibiliPage({
           超出部分，隐藏滚动条；桌面同排自适应） */}
       <div className="mt-2 flex items-center gap-5 max-md:mt-1.5 max-md:gap-x-3">
         <h3 className="shrink-0 text-2xl font-bold leading-relaxed text-[var(--md-sys-color-on-surface)] max-md:text-xl">
-          哔哩哔哩
+          {translate('哔哩哔哩')}
         </h3>
         <div className="flex min-w-0 flex-1 items-center gap-5 overflow-x-auto max-md:gap-2.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {(
             [
-              ['region', '音乐分区'],
-              ['fav', '我的收藏'],
+              ['region', translate('音乐分区')],
+              ['fav', translate('我的收藏')],
             ] as Array<[BiliTab, string]>
           ).map(([key, label]) => (
             <button
@@ -1170,10 +1231,10 @@ export function MusicBilibiliPage({
           {customTabs.map((ct, ctIndex) => {
             const kindLabel =
               ct.kind === 'favlist'
-                ? '收藏夹'
+                ? translate('收藏夹')
                 : ct.kind === 'season'
-                  ? '视频合集'
-                  : '系列'
+                  ? translate('视频合集')
+                  : translate('系列')
             const active = tab === 'custom' && activeCustomTabId === ct.id
             return (
               <span
@@ -1249,7 +1310,7 @@ export function MusicBilibiliPage({
                       onClick={() => handleMoveCustomTab(ctIndex, ctIndex - 1)}
                       disabled={ctIndex === 0}
                       className="flex h-5 w-4 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
-                      title="向前移动"
+                      title={translate('向前移动')}
                       aria-label={`向前移动栏目 ${ct.name}`}
                     >
                       <ChevronLeft className="h-3 w-3" />
@@ -1259,7 +1320,7 @@ export function MusicBilibiliPage({
                       onClick={() => handleMoveCustomTab(ctIndex, ctIndex + 1)}
                       disabled={ctIndex === customTabs.length - 1}
                       className="flex h-5 w-4 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
-                      title="向后移动"
+                      title={translate('向后移动')}
                       aria-label={`向后移动栏目 ${ct.name}`}
                     >
                       <ChevronRight className="h-3 w-3" />
@@ -1281,8 +1342,8 @@ export function MusicBilibiliPage({
                   ? 'text-[var(--md-sys-color-primary)]'
                   : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
               )}
-              title="编辑栏目顺序：拖动栏目调整位置（触屏用箭头）"
-              aria-label="编辑栏目顺序"
+              title={translate('编辑栏目顺序：拖动栏目调整位置（触屏用箭头）')}
+              aria-label={translate('编辑栏目顺序')}
               aria-pressed={tabEditMode}
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -1293,8 +1354,8 @@ export function MusicBilibiliPage({
             type="button"
             onClick={() => setShowAddCustomTab(true)}
             className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
-            title="通过链接添加栏目（视频合集 / 系列 / 收藏夹）"
-            aria-label="添加栏目"
+            title={translate('通过链接添加栏目（视频合集 / 系列 / 收藏夹）')}
+            aria-label={translate('添加栏目')}
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -1315,14 +1376,14 @@ export function MusicBilibiliPage({
                         : `${b.word}(${SCOPE_LABEL[b.scope]})`
                     )
                     .join('、')}`
-                : '未设置屏蔽词'
+                : translate('未设置屏蔽词')
             }
           >
             {blockPreviewEntries.length > 0
               ? `屏蔽：${blockPreviewEntries
                   .map((b) => (b.region ? `${b.word}·分区` : b.word))
                   .join('、')}`
-              : '未设置屏蔽词'}
+              : translate('未设置屏蔽词')}
           </span>
           <button
             type="button"
@@ -1332,8 +1393,8 @@ export function MusicBilibiliPage({
               backgroundColor:
                 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
             }}
-            title="全局屏蔽词设置"
-            aria-label="全局屏蔽词设置"
+            title={translate('全局屏蔽词设置')}
+            aria-label={translate('全局屏蔽词设置')}
           >
             <Ban
               className="h-4 w-4"
@@ -1367,8 +1428,8 @@ export function MusicBilibiliPage({
                   backgroundColor:
                     'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
                 }}
-                title="清除搜索"
-                aria-label="清除搜索"
+                title={translate('清除搜索')}
+                aria-label={translate('清除搜索')}
               >
                 <X className="h-2.5 w-2.5" />
               </button>
@@ -1456,7 +1517,7 @@ export function MusicBilibiliPage({
                               }
                               disabled={tagIdx <= 0}
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
-                              title="向前移动"
+                              title={translate('向前移动')}
                               aria-label={`向前移动种类 ${entry.name}`}
                             >
                               <ChevronUp className="h-3 w-3" />
@@ -1472,7 +1533,7 @@ export function MusicBilibiliPage({
                                 tagIdx < 0 || tagIdx >= regionTags.length - 1
                               }
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
-                              title="向后移动"
+                              title={translate('向后移动')}
                               aria-label={`向后移动种类 ${entry.name}`}
                             >
                               <ChevronDown className="h-3 w-3" />
@@ -1488,7 +1549,7 @@ export function MusicBilibiliPage({
                                 backgroundColor:
                                   'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
                               }}
-                              title="分类标签规则设置"
+                              title={translate('分类标签规则设置')}
                               aria-label={`设置分类 ${entry.name} 的标签规则`}
                             >
                               <Settings2 className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
@@ -1503,7 +1564,7 @@ export function MusicBilibiliPage({
                                 backgroundColor:
                                   'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
                               }}
-                              title="分区屏蔽词设置"
+                              title={translate('分区屏蔽词设置')}
                               aria-label={`设置分区 ${entry.name} 的屏蔽词`}
                             >
                               <Ban className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
@@ -1530,8 +1591,10 @@ export function MusicBilibiliPage({
                         ? 'color-mix(in srgb, var(--md-sys-color-primary) 15%, transparent)'
                         : 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
                     }}
-                    title="编辑种类顺序（编辑模式下用箭头调整位置）"
-                    aria-label="编辑音乐种类顺序"
+                    title={translate(
+                      '编辑种类顺序（编辑模式下用箭头调整位置）'
+                    )}
+                    aria-label={translate('编辑音乐种类顺序')}
                     aria-pressed={tagEditMode}
                   >
                     <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -1547,9 +1610,9 @@ export function MusicBilibiliPage({
                       backgroundColor:
                         'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
                     }}
-                    title="添加自定义音乐种类"
+                    title={translate('添加自定义音乐种类')}
                   >
-                    + 添加
+                    {translate('+ 添加')}
                   </button>
                 )}
               </div>
@@ -1567,7 +1630,7 @@ export function MusicBilibiliPage({
                         setNewTagInput('')
                       }
                     }}
-                    placeholder="输入音乐种类关键词"
+                    placeholder={translate('输入音乐种类关键词')}
                     className="h-8 min-w-0 flex-1 rounded-full px-3 text-[15px] font-bold outline-none"
                     style={{
                       backgroundColor:
@@ -1586,7 +1649,7 @@ export function MusicBilibiliPage({
                       color: 'var(--md-sys-color-surface)',
                     }}
                   >
-                    添加
+                    {translate('添加')}
                   </button>
                   <button
                     type="button"
@@ -1599,8 +1662,8 @@ export function MusicBilibiliPage({
                       backgroundColor:
                         'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
                     }}
-                    title="取消"
-                    aria-label="取消添加"
+                    title={translate('取消')}
+                    aria-label={translate('取消添加')}
                   >
                     <X className="h-3.5 w-3.5" />
                   </button>
@@ -1613,7 +1676,7 @@ export function MusicBilibiliPage({
           {tab === 'fav' && (
             <aside className="hidden w-[220px] shrink-0 flex-col lg:flex">
               <div className="pb-1 text-[14px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
-                收藏夹
+                {translate('收藏夹')}
               </div>
               <div
                 className="h-px w-full"
@@ -1625,7 +1688,7 @@ export function MusicBilibiliPage({
               <div className="zen-scroll mt-1 max-h-[calc(100vh-220px)] overflow-y-auto pb-2">
                 {folders.length === 0 ? (
                   <div className="px-2 py-3 text-[15px] text-[var(--md-sys-color-on-surface-variant)]">
-                    暂无收藏夹
+                    {translate('暂无收藏夹')}
                   </div>
                 ) : (
                   folders.map((f) => (
@@ -1649,7 +1712,7 @@ export function MusicBilibiliPage({
             <aside className="hidden w-[220px] shrink-0 flex-col lg:flex">
               <div className="flex items-center justify-between pb-1">
                 <div className="text-[14px] font-bold uppercase tracking-widest text-[var(--md-sys-color-on-surface-variant)]">
-                  音乐分区
+                  {translate('音乐分区')}
                 </div>
                 {/* 排序编辑模式开关：≥2 个种类可用；进入后拖动条目
                     （触屏用上下箭头）调整上下位置，即时持久化 */}
@@ -1663,8 +1726,10 @@ export function MusicBilibiliPage({
                         ? 'text-[var(--md-sys-color-primary)]'
                         : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
                     )}
-                    title="编辑种类顺序：拖动条目调整上下位置（触屏用箭头）"
-                    aria-label="编辑音乐种类顺序"
+                    title={translate(
+                      '编辑种类顺序：拖动条目调整上下位置（触屏用箭头）'
+                    )}
+                    aria-label={translate('编辑音乐种类顺序')}
                     aria-pressed={tagEditMode}
                   >
                     <SlidersHorizontal className="h-3.5 w-3.5" />
@@ -1750,7 +1815,7 @@ export function MusicBilibiliPage({
                         setNewTagInput('')
                       }
                     }}
-                    placeholder="输入音乐种类关键词"
+                    placeholder={translate('输入音乐种类关键词')}
                     className="h-8 min-w-0 flex-1 rounded-md px-2 text-[15px] font-bold outline-none"
                     style={{
                       backgroundColor:
@@ -1769,7 +1834,7 @@ export function MusicBilibiliPage({
                       color: 'var(--md-sys-color-surface)',
                     }}
                   >
-                    添加
+                    {translate('添加')}
                   </button>
                   <button
                     type="button"
@@ -1782,8 +1847,8 @@ export function MusicBilibiliPage({
                       backgroundColor:
                         'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
                     }}
-                    title="取消"
-                    aria-label="取消添加"
+                    title={translate('取消')}
+                    aria-label={translate('取消添加')}
                   >
                     <X className="h-3 w-3" />
                   </button>
@@ -1793,7 +1858,7 @@ export function MusicBilibiliPage({
                   type="button"
                   onClick={() => setAddingTag(true)}
                   className="mt-1 flex items-center gap-1.5 px-3 py-2 text-[15px] font-bold text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-on-surface)]"
-                  title="添加自定义音乐种类"
+                  title={translate('添加自定义音乐种类')}
                 >
                   <Plus className="h-3.5 w-3.5" />
                   添加种类
@@ -1815,7 +1880,9 @@ export function MusicBilibiliPage({
               </span>
               {tab === 'fav' && (
                 <span className="text-sm text-[var(--md-sys-color-on-surface-variant)] opacity-70">
-                  需登录 B站 账号：可在完整播放器「添加视频」弹窗中扫码登录
+                  {translate(
+                    '需登录 B站 账号：可在完整播放器「添加视频」弹窗中扫码登录'
+                  )}
                 </span>
               )}
               <button
@@ -1824,20 +1891,22 @@ export function MusicBilibiliPage({
                 className="mt-1 border px-4 py-1 text-sm font-bold text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70"
                 style={{ borderColor: 'var(--md-sys-color-outline)' }}
               >
-                重试
+                {translate('重试')}
               </button>
             </div>
           ) : items.length === 0 ? (
             <div className="flex min-w-0 flex-1 items-center justify-center py-12 text-base text-[var(--md-sys-color-on-surface-variant)]">
               {biliSearchKeyword
-                ? '没有找到相关视频'
+                ? translate('没有找到相关视频')
                 : tab === 'fav'
-                  ? '收藏夹暂无视频'
+                  ? translate('收藏夹暂无视频')
                   : tab === 'custom'
-                    ? '该栏目暂无视频'
+                    ? translate('该栏目暂无视频')
                     : tab === 'region' && blockWords.length > 0
-                      ? '该区间的视频均被屏蔽词过滤，可调整屏蔽词或稍后再看'
-                      : '分区暂无视频'}
+                      ? translate(
+                          '该区间的视频均被屏蔽词过滤，可调整屏蔽词或稍后再看'
+                        )
+                      : translate('分区暂无视频')}
             </div>
           ) : (
             <div
@@ -1871,7 +1940,7 @@ export function MusicBilibiliPage({
                       }
                     }}
                     className="group cursor-pointer text-left"
-                    title="以视频音频作为歌曲播放"
+                    title={translate('以视频音频作为歌曲播放')}
                   >
                     {/* 封面（16:9，左上播放量 / 左下弹幕 / 右下时长，B站 客户端同款） */}
                     <div
@@ -1929,8 +1998,8 @@ export function MusicBilibiliPage({
                             setNcmSearchTitle(item.title)
                           }}
                           className="lt-touch-visible flex h-[20px] items-center justify-center rounded bg-black/70 px-1 text-white opacity-0 transition-opacity group-hover:opacity-100"
-                          title="在网易云搜索这首歌"
-                          aria-label="在网易云搜索这首歌"
+                          title={translate('在网易云搜索这首歌')}
+                          aria-label={translate('在网易云搜索这首歌')}
                         >
                           <Search className="h-3 w-3" />
                         </button>
@@ -1953,10 +2022,10 @@ export function MusicBilibiliPage({
                               addedKeys.has(
                                 `bili:${item.bvid}:${item.cid ?? 0}`
                               )
-                                ? '已在播放队列'
-                                : '添加到播放队列'
+                                ? translate('已在播放队列')
+                                : translate('添加到播放队列')
                             }
-                            aria-label="添加到播放队列"
+                            aria-label={translate('添加到播放队列')}
                           >
                             <ListPlus className="h-3 w-3" />
                           </button>
@@ -2034,9 +2103,15 @@ export function MusicBilibiliPage({
                     '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
                   color: 'var(--md-sys-color-on-surface)',
                 }}
-                title={randomMode && searchLikeMode ? '随机一批' : '上一页'}
+                title={
+                  randomMode && searchLikeMode
+                    ? translate('随机一批')
+                    : translate('上一页')
+                }
               >
-                {randomMode && searchLikeMode ? '随机一批' : '上一页'}
+                {randomMode && searchLikeMode
+                  ? translate('随机一批')
+                  : translate('上一页')}
               </button>
               <span className="text-sm font-bold tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
                 {randomMode && searchLikeMode
@@ -2059,9 +2134,15 @@ export function MusicBilibiliPage({
                     '0.5px solid color-mix(in srgb, var(--md-sys-color-on-surface) 25%, transparent)',
                   color: 'var(--md-sys-color-on-surface)',
                 }}
-                title={randomMode && searchLikeMode ? '随机一批' : '下一页'}
+                title={
+                  randomMode && searchLikeMode
+                    ? translate('随机一批')
+                    : translate('下一页')
+                }
               >
-                {randomMode && searchLikeMode ? '随机一批' : '下一页'}
+                {randomMode && searchLikeMode
+                  ? translate('随机一批')
+                  : translate('下一页')}
               </button>
             </div>
           )}
@@ -2077,8 +2158,16 @@ export function MusicBilibiliPage({
         {items.length > 0 && (pageNo > 1 || hasNextPage) && (
           <>
             <LiquidGlassButton
-              title={randomMode && searchLikeMode ? '随机一批' : '上一页'}
-              ariaLabel={randomMode && searchLikeMode ? '随机一批' : '上一页'}
+              title={
+                randomMode && searchLikeMode
+                  ? translate('随机一批')
+                  : translate('上一页')
+              }
+              ariaLabel={
+                randomMode && searchLikeMode
+                  ? translate('随机一批')
+                  : translate('上一页')
+              }
               disabled={
                 (!(randomMode && searchLikeMode) && pageNo <= 1) || loading
               }
@@ -2105,8 +2194,8 @@ export function MusicBilibiliPage({
                 inputMode="numeric"
                 className="bili-liquid-btn lt-blur-surface h-11 w-11 rounded-full text-center text-[13px] font-bold tabular-nums outline-none"
                 style={{ border: '1px solid var(--md-sys-color-primary)' }}
-                title="输入页码后回车跳转（Esc 取消）"
-                aria-label="输入页码跳转"
+                title={translate('输入页码后回车跳转（Esc 取消）')}
+                aria-label={translate('输入页码跳转')}
               />
             ) : (
               <LiquidGlassButton
@@ -2130,8 +2219,16 @@ export function MusicBilibiliPage({
               </LiquidGlassButton>
             )}
             <LiquidGlassButton
-              title={randomMode && searchLikeMode ? '随机一批' : '下一页'}
-              ariaLabel={randomMode && searchLikeMode ? '随机一批' : '下一页'}
+              title={
+                randomMode && searchLikeMode
+                  ? translate('随机一批')
+                  : translate('下一页')
+              }
+              ariaLabel={
+                randomMode && searchLikeMode
+                  ? translate('随机一批')
+                  : translate('下一页')
+              }
               disabled={
                 (!(randomMode && searchLikeMode) && !hasNextPage) || loading
               }
@@ -2150,8 +2247,10 @@ export function MusicBilibiliPage({
         <LiquidGlassButton
           title={
             randomMode
-              ? '随机排序：开（点击恢复顺序排列）'
-              : '随机排序：关（开启后翻页随机抽取一批视频并打乱顺序）'
+              ? translate('随机排序：开（点击恢复顺序排列）')
+              : translate(
+                  '随机排序：关（开启后翻页随机抽取一批视频并打乱顺序）'
+                )
           }
           ariaLabel="切换随机排序"
           active={randomMode}
@@ -2162,7 +2261,7 @@ export function MusicBilibiliPage({
           />
         </LiquidGlassButton>
         <LiquidGlassButton
-          title="刷新"
+          title={translate('刷新')}
           ariaLabel="刷新列表"
           onClick={() => void load(tab, activeFolderId)}
         >
@@ -2184,7 +2283,7 @@ export function MusicBilibiliPage({
           即时持久化，作用于搜索/榜单/各分区列表的最终过滤） */}
       {showBlockWords && (
         <BlockWordsModal
-          title="全局屏蔽词设置"
+          title={translate('全局屏蔽词设置')}
           words={blockWords}
           input={blockWordInput}
           onInputChange={setBlockWordInput}

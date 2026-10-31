@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { CloudModal, type CloudModalHandle } from '../../components/CloudModal'
+import { t } from '@/i18n'
 
 /** 添加栏目弹窗（黑底 SETTING 风格）：粘贴 B站 链接解析视频合集/系列/收藏夹，
  *  名称留空自动使用 B站 侧标题；提交经后端 link-meta 校验
@@ -26,7 +27,7 @@ export function AddCustomTabModal({
   const submit = useCallback(async () => {
     if (submitting) return
     if (!link.trim()) {
-      setError('请粘贴 B站 链接')
+      setError(t('请粘贴 B站 链接'))
       return
     }
     setSubmitting(true)
@@ -40,7 +41,7 @@ export function AddCustomTabModal({
       }
       modalRef.current?.requestClose()
     } catch (err) {
-      setError(err instanceof Error ? err.message : '解析链接失败')
+      setError(err instanceof Error ? err.message : t('解析链接失败'))
       setSubmitting(false)
     }
   }, [submitting, link, name, onSubmit])
@@ -67,7 +68,7 @@ export function AddCustomTabModal({
               ADD
             </span>
             <p className="relative text-center text-[17px] font-bold text-white">
-              添加栏目
+              {t('添加栏目')}
             </p>
           </div>
           {unfoldDone && (
@@ -87,7 +88,7 @@ export function AddCustomTabModal({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void submit()
                   }}
-                  placeholder="粘贴 B站 链接"
+                  placeholder={t('粘贴 B站 链接')}
                   className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -104,7 +105,7 @@ export function AddCustomTabModal({
                   onKeyDown={(e) => {
                     if (e.key === 'Enter') void submit()
                   }}
-                  placeholder="栏目名称（留空自动使用 B站 标题）"
+                  placeholder={t('栏目名称（留空自动使用 B站 标题）')}
                   className="h-8 w-full rounded-full px-3 text-sm font-bold outline-none"
                   style={{
                     backgroundColor: 'rgba(255, 255, 255, 0.08)',
@@ -127,7 +128,7 @@ export function AddCustomTabModal({
                   onClick={() => modalRef.current?.requestClose()}
                   className="rounded-full px-3 py-1.5 text-sm font-bold text-white/70 transition-colors hover:text-white"
                 >
-                  取消
+                  {t('取消')}
                 </button>
                 <button
                   type="button"
@@ -137,7 +138,7 @@ export function AddCustomTabModal({
                   style={{ backgroundColor: '#ffffff', color: '#000000' }}
                 >
                   {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-                  {submitting ? '解析中…' : '添加'}
+                  {submitting ? t('解析中…') : t('添加')}
                 </button>
               </div>
             </div>

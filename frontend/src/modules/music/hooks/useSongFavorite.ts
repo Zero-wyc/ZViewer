@@ -25,6 +25,7 @@ import {
   normalizeBiliLikeFavTitle,
 } from '../store-settings'
 import type { NcmAccountResponse, NcmLikelistResponse } from '../types'
+import { t } from '@/i18n'
 
 export interface UseSongFavoriteOptions {
   /** 网易云曲目 ID（B站 曲目为 null/undefined） */
@@ -140,7 +141,7 @@ export function useSongFavorite({
       })
       if (!ok || data?.success === false) {
         throw new Error(
-          data?.message || (collected ? '取消收藏失败' : '收藏失败')
+          data?.message || (collected ? t('取消收藏失败') : t('收藏失败'))
         )
       }
       if (collected) {
@@ -159,7 +160,7 @@ export function useSongFavorite({
         message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败')
+      message.error(err instanceof Error ? err.message : t('操作失败'))
     } finally {
       setBiliCollecting(false)
     }

@@ -33,6 +33,7 @@ import {
   removeMusicVideo,
   setMusicVideo,
 } from '../musicVideoStore'
+import { t } from '@/i18n'
 
 /** 二维码轮询间隔（ms，Hydrogen 3s，ZViewer MoviePushPanel 为 2s） */
 const QR_POLL_INTERVAL_MS = 2000
@@ -111,24 +112,26 @@ export function MusicVideoModal({
         if (result.status === 2) {
           setQrLogin(null)
           setQrStatusText('')
-          message.success('B站 登录成功')
+          message.success(t('B站 登录成功'))
           const info = await getBilibiliUserInfo()
           if (!cancelled) setBiliUser(info)
           return
         }
         if (result.status === 3) {
-          setQrStatusText('二维码已过期，正在重新生成...')
+          setQrStatusText(t('二维码已过期，正在重新生成...'))
           const fresh = await getBilibiliQrCode()
           if (!cancelled) setQrLogin(fresh)
           return
         }
         setQrStatusText(
-          result.status === 1 ? '已扫码，请在手机上确认' : '请使用 B站 App 扫码'
+          result.status === 1
+            ? t('已扫码，请在手机上确认')
+            : t('请使用 B站 App 扫码')
         )
       } catch (err) {
         if (!cancelled)
           setQrStatusText(
-            err instanceof Error ? err.message : '二维码状态获取失败'
+            err instanceof Error ? err.message : t('二维码状态获取失败')
           )
       }
     }
@@ -165,9 +168,9 @@ export function MusicVideoModal({
       try {
         await logoutBilibili()
         setBiliUser(null)
-        message.success('已退出登录')
+        message.success(t('已退出登录'))
       } catch (err) {
-        message.error(err instanceof Error ? err.message : '退出失败')
+        message.error(err instanceof Error ? err.message : t('退出失败'))
       }
       return
     }
@@ -175,9 +178,9 @@ export function MusicVideoModal({
     try {
       const qr = await getBilibiliQrCode()
       setQrLogin(qr)
-      setQrStatusText('请使用 B站 App 扫码')
+      setQrStatusText(t('请使用 B站 App 扫码'))
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取二维码失败')
+      message.error(err instanceof Error ? err.message : t('获取二维码失败'))
     }
   }, [biliUser, qrLogin])
 
@@ -186,7 +189,7 @@ export function MusicVideoModal({
   const handleSearch = useCallback(async () => {
     const bvid = extractBvid(videoUrl)
     if (!bvid) {
-      message.info('请输入视频链接或BV号')
+      message.info(t('请输入视频链接或BV号'))
       return
     }
     setSearching(true)
@@ -203,9 +206,9 @@ export function MusicVideoModal({
         cover: info.pic,
         upName: info.upName,
       })
-      message.success('已设置为该歌曲的视频背景')
+      message.success(t('已设置为该歌曲的视频背景'))
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取视频信息失败')
+      message.error(err instanceof Error ? err.message : t('获取视频信息失败'))
     } finally {
       setSearching(false)
     }
@@ -234,7 +237,7 @@ export function MusicVideoModal({
     setSelectedCid(null)
     setVideoUrl('')
     setLoadedBvid('')
-    message.info('已解除该歌曲的视频关联')
+    message.info(t('已解除该歌曲的视频关联'))
   }, [songId])
 
   return (
@@ -245,7 +248,7 @@ export function MusicVideoModal({
       {/* 关闭 X（Hydrogen .close 内联 SVG） */}
       <button
         type="button"
-        aria-label="关闭"
+        aria-label={t('关闭')}
         className="absolute right-[15px] top-[16px] h-[25px] w-[25px] transition-opacity hover:opacity-80 active:opacity-60"
         onClick={onClose}
       >
@@ -283,7 +286,7 @@ export function MusicVideoModal({
             lineHeight: '18px',
           }}
         >
-          添加视频
+          {t('添加视频')}
         </span>
         <span
           className="overflow-hidden text-ellipsis whitespace-nowrap"
@@ -330,7 +333,7 @@ export function MusicVideoModal({
               <div className="flex h-full w-full items-center gap-3 px-3 pt-2">
                 <img
                   src={qrLogin.qrDataUrl}
-                  alt="登录二维码"
+                  alt={t('登录二维码')}
                   className="h-[64px] w-[64px]"
                 />
                 <span
@@ -365,7 +368,7 @@ export function MusicVideoModal({
                 >
                   <span className="truncate">{biliUser.name}</span>
                   <span>
-                    大会员：{biliUser.vipStatus ? '已激活' : '未激活'}
+                    大会员：{biliUser.vipStatus ? t('已激活') : t('未激活')}
                   </span>
                 </div>
                 <div
@@ -417,7 +420,7 @@ export function MusicVideoModal({
             }}
             onClick={() => void handleLoginOrLogout()}
           >
-            {biliUser ? '退出' : '登录'}
+            {biliUser ? t('退出') : t('登录')}
           </button>
         </div>
 
@@ -427,7 +430,7 @@ export function MusicVideoModal({
             type="text"
             spellCheck={false}
             value={videoUrl}
-            placeholder="请输入视频链接或BV号"
+            placeholder={t('请输入视频链接或BV号')}
             onChange={(e) => setVideoUrl(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') void handleSearch()
@@ -467,7 +470,7 @@ export function MusicVideoModal({
                 textAlign: 'left',
               }}
             >
-              视频信息
+              {t('视频信息')}
             </div>
             <div
               style={{
@@ -567,7 +570,7 @@ export function MusicVideoModal({
                   lineHeight: '200px',
                 }}
               >
-                {searching ? '搜索中...' : 'NONE'}
+                {searching ? t('搜索中...') : 'NONE'}
               </span>
             )}
           </div>
@@ -593,7 +596,7 @@ export function MusicVideoModal({
               }}
               onClick={() => void handleSearch()}
             >
-              搜索
+              {t('搜索')}
             </button>
             <button
               type="button"
@@ -612,7 +615,7 @@ export function MusicVideoModal({
               }}
               onClick={handleDelete}
             >
-              删除
+              {t('删除')}
             </button>
           </div>
         </div>

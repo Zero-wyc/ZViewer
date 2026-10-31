@@ -9,6 +9,7 @@ import { Music, ArrowLeft } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Text } from '@/components/ui/Typography'
 import { Button } from '@/components/ui/Button'
+import { t } from '@/i18n'
 
 export function MusicBetaNotice() {
   const navigate = useNavigate()
@@ -23,9 +24,11 @@ export function MusicBetaNotice() {
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         />
       </div>
-      <Text className="text-sm font-medium">该功能处于 Beta 阶段未开放</Text>
+      <Text className="text-sm font-medium">
+        {t('该功能处于 Beta 阶段未开放')}
+      </Text>
       <Text type="secondary" className="text-xs">
-        请等待管理员开启 Beta 功能
+        {t('请等待管理员开启 Beta 功能')}
       </Text>
       <Button
         variant="ghost"
@@ -37,7 +40,7 @@ export function MusicBetaNotice() {
           color: 'var(--md-sys-color-on-surface)',
         }}
       >
-        返回首页
+        {t('返回首页')}
       </Button>
     </div>
   )

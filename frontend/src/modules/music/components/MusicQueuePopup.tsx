@@ -25,6 +25,7 @@ import { useMusicStore, musicItemKey } from '../store'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { EqBars } from './SongRow'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 歌词页队列面板（side / sheet placement）的黑底高斯模糊皮肤：
  *  对齐黑底 SETTING 弹窗视觉语言（纯黑半透 + backdrop blur + 白描边），
@@ -117,11 +118,11 @@ export function MusicQueuePopup({
   /** 删除：走房间 queue-remove（canManage，B站/网易云条目一致） */
   const handleRemove = (itemId: number) => {
     if (!canManage) {
-      message.info('只有房主或房管可以删除歌曲')
+      message.info(t('只有房主或房管可以删除歌曲'))
       return
     }
     if (!socket || !roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     socket.emit(
@@ -129,7 +130,7 @@ export function MusicQueuePopup({
       { roomId, id: itemId },
       (response: { success?: boolean; message?: string }) => {
         if (response && response.success === false) {
-          message.error(response.message || '删除歌曲失败')
+          message.error(response.message || t('删除歌曲失败'))
         }
       }
     )
@@ -138,7 +139,7 @@ export function MusicQueuePopup({
   /** 清空：走房间 queue-clear（canManage，B站/网易云条目一致） */
   const handleClear = () => {
     if (!socket || !roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     socket.emit(
@@ -146,7 +147,7 @@ export function MusicQueuePopup({
       { roomId },
       (response: { success?: boolean; message?: string }) => {
         if (response && response.success === false) {
-          message.error(response.message || '清空队列失败')
+          message.error(response.message || t('清空队列失败'))
         }
       }
     )
@@ -187,7 +188,7 @@ export function MusicQueuePopup({
       <div className="flex shrink-0 items-center justify-between pl-4 pr-3 pt-3">
         <div className="flex items-baseline gap-1.5">
           <span className="text-base font-semibold text-[var(--md-sys-color-on-surface)]">
-            当前播放
+            {t('当前播放')}
           </span>
           <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
             ({list.length})
@@ -201,7 +202,7 @@ export function MusicQueuePopup({
               color: 'var(--md-sys-color-on-surface-variant)',
             }}
           >
-            {isBiliView ? '哔哩哔哩' : '网易云'}
+            {isBiliView ? t('哔哩哔哩') : t('网易云')}
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -218,8 +219,8 @@ export function MusicQueuePopup({
                   setRecLoading(false)
                 )
               }}
-              title="自动推荐：根据当前视频加入 B站 相关推荐前 3 首"
-              aria-label="自动推荐"
+              title={t('自动推荐：根据当前视频加入 B站 相关推荐前 3 首')}
+              aria-label={t('自动推荐')}
             >
               {recLoading ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -233,8 +234,8 @@ export function MusicQueuePopup({
             className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-40"
             disabled={list.length === 0}
             onClick={handleClear}
-            title={isBiliView ? '清空B站播放列表' : '清空队列'}
-            aria-label={isBiliView ? '清空B站播放列表' : '清空队列'}
+            title={isBiliView ? t('清空B站播放列表') : t('清空队列')}
+            aria-label={isBiliView ? t('清空B站播放列表') : t('清空队列')}
           >
             <Trash2 className="h-4 w-4" />
           </button>
@@ -252,8 +253,8 @@ export function MusicQueuePopup({
                 })
               }
             }}
-            title="定位到当前播放"
-            aria-label="定位到当前播放"
+            title={t('定位到当前播放')}
+            aria-label={t('定位到当前播放')}
           >
             <Crosshair className="h-4 w-4" />
           </button>
@@ -261,8 +262,8 @@ export function MusicQueuePopup({
             type="button"
             className="flex h-7 w-7 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] transition-opacity hover:opacity-70 active:scale-90"
             onClick={() => setQueuePopupOpen(false)}
-            title="关闭"
-            aria-label="关闭队列弹窗"
+            title={t('关闭')}
+            aria-label={t('关闭队列弹窗')}
           >
             <X className="h-4 w-4" />
           </button>
@@ -287,8 +288,8 @@ export function MusicQueuePopup({
             icon={<ListMusicIcon />}
             text={
               isBiliView
-                ? 'B站播放列表为空，去哔哩哔哩页点播视频'
-                : '队列为空，去搜索添加歌曲'
+                ? t('B站播放列表为空，去哔哩哔哩页点播视频')
+                : t('队列为空，去搜索添加歌曲')
             }
             variant="centered"
           />
@@ -308,9 +309,9 @@ export function MusicQueuePopup({
                 onClick={() => handlePlay(item)}
                 title={
                   active
-                    ? '正在播放'
+                    ? t('正在播放')
                     : isBiliView || canControl
-                      ? '点击播放'
+                      ? t('点击播放')
                       : undefined
                 }
               >
@@ -342,9 +343,9 @@ export function MusicQueuePopup({
                         backgroundColor:
                           'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
                       }}
-                      title="由 B站 相关推荐自动加入"
+                      title={t('由 B站 相关推荐自动加入')}
                     >
-                      推荐
+                      {t('推荐')}
                     </span>
                   )}
                   <span className="shrink-0 text-xs text-[var(--md-sys-color-on-surface-variant)]">
@@ -363,8 +364,8 @@ export function MusicQueuePopup({
                       e.stopPropagation()
                       handleRemove(item.id)
                     }}
-                    title="从队列删除"
-                    aria-label="从队列删除"
+                    title={t('从队列删除')}
+                    aria-label={t('从队列删除')}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

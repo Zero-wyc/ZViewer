@@ -15,6 +15,7 @@
 import { Check, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import type { NoticeView } from '../hooks/useNoticeToast'
+import { t } from '@/i18n'
 
 export interface PlayerNoticeOverlayProps {
   /** 房主是否离线（且当前用户非房主） */
@@ -82,7 +83,7 @@ export function PlayerNoticeOverlay({
                 onClick={approveControl}
                 className="flex h-6 items-center gap-1 rounded-full px-2.5 text-[11px] font-bold text-[#111114] transition-all hover:opacity-85 active:scale-95"
                 style={{ backgroundColor: 'rgba(255, 255, 255, 0.92)' }}
-                title="通过申请"
+                title={t('通过申请')}
               >
                 <Check className="h-3 w-3" strokeWidth={2.5} />
                 通过
@@ -91,7 +92,7 @@ export function PlayerNoticeOverlay({
                 type="button"
                 onClick={rejectControl}
                 className="flex h-6 items-center gap-1 rounded-full border border-white/20 px-2.5 text-[11px] font-medium text-[#ff6b6b] transition-colors hover:border-white/35 hover:bg-white/10 active:scale-95"
-                title="拒绝申请"
+                title={t('拒绝申请')}
               >
                 <X className="h-3 w-3" />
                 拒绝

@@ -8,6 +8,7 @@
 import { createContext, useContext } from 'react'
 import type { UseListenTogetherResult } from './useListenTogether'
 import type { PlayMode } from '../types'
+import { t } from '@/i18n'
 
 export interface MusicPlayerContextValue extends UseListenTogetherResult {
   /**
@@ -30,7 +31,7 @@ export const MusicPlayerContext = createContext<MusicPlayerContextValue | null>(
 export function useMusicPlayer(): MusicPlayerContextValue {
   const ctx = useContext(MusicPlayerContext)
   if (!ctx) {
-    throw new Error('useMusicPlayer 必须在 MusicPlayerProvider 内使用')
+    throw new Error(t('useMusicPlayer 必须在 MusicPlayerProvider 内使用'))
   }
   return ctx
 }

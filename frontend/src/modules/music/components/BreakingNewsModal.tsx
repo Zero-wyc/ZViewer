@@ -27,6 +27,7 @@ import { songToUpsertItem, useQueueAdd } from '../hooks/useQueueAdd'
 import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { useMusicStore } from '../store'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 可解析详情的目标类型（Hydrogen RESOLVABLE_TARGET_TYPES 同名同值） */
 const RESOLVABLE_TARGET_TYPES = new Set([1, 10, 1000, 1004])
@@ -163,7 +164,7 @@ const formatCount = (value: number | undefined): string => {
 async function fetchBreakingNewsDetail(
   banner: NcmBannerItem | null
 ): Promise<BreakingNewsDetailData> {
-  if (!banner) throw new Error('缺少 banner 信息')
+  if (!banner) throw new Error(t('缺少 banner 信息'))
   const { type, id } = resolveBreakingNewsTarget(banner)
   const fallbackCover = banner.pic || banner.imageUrl || ''
 
@@ -179,14 +180,14 @@ async function fetchBreakingNewsDetail(
       }>
     }>(`/api/music/ncm/song/detail?ids=${id}`)
     const raw = res.data?.songs ?? []
-    if (raw.length === 0) throw new Error('未获取到歌曲信息')
+    if (raw.length === 0) throw new Error(t('未获取到歌曲信息'))
     const song = mapBannerSong(raw[0])
     return {
       kind: 'song',
-      title: song.name || '未命名歌曲',
-      subtitle: song.artist || '未知歌手',
+      title: song.name || t('未命名歌曲'),
+      subtitle: song.artist || t('未知歌手'),
       desc: `收录于专辑《${song.album || '未知专辑'}》`,
-      stats: song.songId ? `歌曲 ID: ${song.songId}` : '不可播放',
+      stats: song.songId ? `歌曲 ID: ${song.songId}` : t('不可播放'),
       cover: song.cover || fallbackCover,
       shareUrl: buildShareUrl(type, song.songId),
       song,
@@ -206,17 +207,17 @@ async function fetchBreakingNewsDetail(
       }
     }>(`/api/music/ncm/album?id=${id}`)
     const album = res.data?.album
-    if (!album) throw new Error('未获取到专辑信息')
+    if (!album) throw new Error(t('未获取到专辑信息'))
     const artistText =
       (album.artists ?? [])
         .map((a) => a.name)
         .filter(Boolean)
-        .join(' / ') || '未知艺术家'
+        .join(' / ') || t('未知艺术家')
     return {
       kind: 'album',
-      title: album.name || '未命名专辑',
+      title: album.name || t('未命名专辑'),
       subtitle: artistText,
-      desc: album.description || album.company || '暂无专辑简介',
+      desc: album.description || album.company || t('暂无专辑简介'),
       stats: `${album.size ?? 0} 首歌曲 · ${formatCount(album.subCount || undefined)} 收藏`,
       cover: album.picUrl || fallbackCover,
       shareUrl: buildShareUrl(type, id),
@@ -235,14 +236,14 @@ async function fetchBreakingNewsDetail(
       }
     }>(`/api/music/ncm/playlist/detail?id=${id}`)
     const playlist = res.data?.playlist
-    if (!playlist) throw new Error('未获取到歌单信息')
+    if (!playlist) throw new Error(t('未获取到歌单信息'))
     return {
       kind: 'playlist',
-      title: playlist.name || '未命名歌单',
+      title: playlist.name || t('未命名歌单'),
       subtitle: playlist.creator?.nickname
         ? `by ${playlist.creator.nickname}`
-        : '官方推荐',
-      desc: playlist.description || '暂无歌单简介',
+        : t('官方推荐'),
+      desc: playlist.description || t('暂无歌单简介'),
       stats: `${playlist.trackCount ?? 0} 首歌曲 · ${formatCount(playlist.playCount)} 播放`,
       cover: playlist.coverImgUrl || fallbackCover,
       shareUrl: buildShareUrl(type, id),
@@ -265,21 +266,21 @@ async function fetchBreakingNewsDetail(
       }
     }>(`/api/music/ncm/mv/detail?mvid=${id}`)
     const mv = res.data?.data
-    if (!mv) throw new Error('未获取到 MV 信息')
+    if (!mv) throw new Error(t('未获取到 MV 信息'))
     const artistText =
       (mv.artists ?? [])
         .map((a) => a.name)
         .filter(Boolean)
         .join(' / ') ||
       mv.artistName ||
-      '未知艺人'
+      t('未知艺人')
     const publishTime =
       typeof mv.publishTime === 'string' ? mv.publishTime.trim() : ''
     return {
       kind: 'mv',
-      title: mv.name || '未命名 MV',
+      title: mv.name || t('未命名 MV'),
       subtitle: publishTime ? `${artistText} · ${publishTime}` : artistText,
-      desc: mv.desc || mv.briefDesc || '暂无 MV 简介',
+      desc: mv.desc || mv.briefDesc || t('暂无 MV 简介'),
       stats: `${formatCount(mv.playCount)} 播放 · ${formatCount(mv.subCount)} 收藏`,
       cover: mv.cover || fallbackCover,
       shareUrl: buildShareUrl(type, mv.id ?? id),
@@ -289,10 +290,10 @@ async function fetchBreakingNewsDetail(
   const external = normalizeUrl(banner.url)
   return {
     kind: 'external',
-    title: banner.typeTitle || '外部内容',
-    subtitle: external ? '将通过系统浏览器打开' : '暂无外部链接',
-    desc: '该内容暂不支持站内解析，点击主按钮可尝试打开原始链接。',
-    stats: external ? '已检测到可用外链' : '无可用链接',
+    title: banner.typeTitle || t('外部内容'),
+    subtitle: external ? t('将通过系统浏览器打开') : t('暂无外部链接'),
+    desc: t('该内容暂不支持站内解析，点击主按钮可尝试打开原始链接。'),
+    stats: external ? t('已检测到可用外链') : t('无可用链接'),
     cover: fallbackCover,
     shareUrl: external,
   }
@@ -368,11 +369,11 @@ export function prefetchBreakingNewsDetails(banners: NcmBannerItem[] = []) {
 
 /** 弹窗主按钮文案（Hydrogen primaryActionLabel 1:1） */
 function primaryActionLabel(type: number | null): string {
-  if (type === 1) return '立即播放'
-  if (type === 10) return '打开专辑'
-  if (type === 1000) return '打开歌单'
-  if (type === 1004) return '打开链接'
-  return '打开链接'
+  if (type === 1) return t('立即播放')
+  if (type === 10) return t('打开专辑')
+  if (type === 1000) return t('打开歌单')
+  if (type === 1004) return t('打开链接')
+  return t('打开链接')
 }
 
 export interface BreakingNewsModalProps {
@@ -426,8 +427,8 @@ export function BreakingNewsModal({
   const shareUrl = detail?.shareUrl || buildShareUrl(resolved.type, resolved.id)
   const coverUrl = detail?.cover || banner?.pic || banner?.imageUrl || ''
   const displayTitle = detail?.title || 'BREAKING NEWS'
-  const displaySubtitle = detail?.subtitle || '暂无副标题'
-  const displayDesc = detail?.desc || '暂无详细内容'
+  const displaySubtitle = detail?.subtitle || t('暂无副标题')
+  const displayDesc = detail?.desc || t('暂无详细内容')
   const displayStats = detail?.stats || ''
   const primaryLabel = primaryActionLabel(resolved.type)
 
@@ -449,7 +450,7 @@ export function BreakingNewsModal({
       })
       .catch((err: unknown) => {
         if (serial !== requestSerialRef.current) return
-        const msg = err instanceof Error ? err.message : '获取详情失败'
+        const msg = err instanceof Error ? err.message : t('获取详情失败')
         setErrorText(msg)
       })
       .finally(() => {
@@ -475,15 +476,15 @@ export function BreakingNewsModal({
     if (type === 1) {
       const song = detail?.song
       if (!song) {
-        message.error('歌曲信息加载失败')
+        message.error(t('歌曲信息加载失败'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
       if (!canManage) {
-        message.info('仅房主 / 房管可添加队列')
+        message.info(t('仅房主 / 房管可添加队列'))
         return
       }
       add(songToUpsertItem(song))
@@ -507,7 +508,7 @@ export function BreakingNewsModal({
     // 专辑 / 歌单：跳「我的音乐」详情（Hydrogen openLibraryPage 等价）
     if (type === 10 || type === 1000) {
       if (!id) {
-        message.error(type === 10 ? '专辑信息缺失' : '歌单信息缺失')
+        message.error(type === 10 ? t('专辑信息缺失') : t('歌单信息缺失'))
         return
       }
       useMusicStore.getState().setPendingMyDetail({
@@ -523,7 +524,7 @@ export function BreakingNewsModal({
     // MV / 外链：新标签页打开
     const url = shareUrl || undefined
     if (!url) {
-      message.info('暂不支持该类型')
+      message.info(t('暂不支持该类型'))
       return
     }
     window.open(url, '_blank')
@@ -533,12 +534,12 @@ export function BreakingNewsModal({
   /** 复制链接（Hydrogen copyLink：优先 detail.shareUrl，提示结果） */
   const handleCopy = async () => {
     if (!shareUrl) {
-      message.info('暂无可复制链接')
+      message.info(t('暂无可复制链接'))
       return
     }
     await copy(shareUrl, {
-      successMessage: '链接已复制',
-      errorMessage: '复制失败',
+      successMessage: t('链接已复制'),
+      errorMessage: t('复制失败'),
     })
   }
 
@@ -719,7 +720,7 @@ export function BreakingNewsModal({
                   void handleCopy()
                 }}
               >
-                复制链接
+                {t('复制链接')}
               </button>
             </div>
           </div>

@@ -38,6 +38,7 @@ import {
   ControlPrevIcon,
 } from './PlayerControlIcons'
 import { CARD_TINT, type PlayerUiTone } from '../utils/playerTone'
+import { t } from '@/i18n'
 
 export interface PlayerCardFaceProps {
   /** 播放页 UI 深浅色（卡底 tint 与文字同组切换） */
@@ -202,7 +203,7 @@ export function PlayerCardFace({
           <div
             className="relative min-w-0 overflow-hidden pb-[max(1.2vh,7px)]"
             onDoubleClick={onSongNameDoubleClick}
-            title="双击添加到播放队列"
+            title={t('双击添加到播放队列')}
           >
             <div className={cn('min-w-0', songSwitching && 'opacity-0')}>
               <OverflowMarquee
@@ -247,8 +248,8 @@ export function PlayerCardFace({
                   type="button"
                   className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   onClick={onPrev}
-                  title={canControl ? '上一首' : '向房主申请切换上一首'}
-                  aria-label="上一首"
+                  title={canControl ? t('上一首') : t('向房主申请切换上一首')}
+                  aria-label={t('上一首')}
                 >
                   <ControlPrevIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
                 </button>
@@ -259,13 +260,13 @@ export function PlayerCardFace({
                   title={
                     canControl
                       ? isPlaying
-                        ? '暂停'
-                        : '播放'
+                        ? t('暂停')
+                        : t('播放')
                       : isPlaying
-                        ? '申请暂停'
-                        : '申请继续播放'
+                        ? t('申请暂停')
+                        : t('申请继续播放')
                   }
-                  aria-label="播放或暂停"
+                  aria-label={t('播放或暂停')}
                 >
                   {isPlaying ? (
                     <ControlPauseIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
@@ -277,8 +278,8 @@ export function PlayerCardFace({
                   type="button"
                   className="flex h-[max(3.6vh,28px)] w-[max(3.6vh,28px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                   onClick={onNext}
-                  title={canControl ? '下一首' : '向房主申请切换下一首'}
-                  aria-label="下一首"
+                  title={canControl ? t('下一首') : t('向房主申请切换下一首')}
+                  aria-label={t('下一首')}
                 >
                   <ControlNextIcon className="h-[max(3.6vh,28px)] w-[max(3.6vh,28px)]" />
                 </button>
@@ -324,8 +325,8 @@ export function PlayerCardFace({
                 type="button"
                 className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                 onClick={onPrev}
-                title={canControl ? '上一首' : '向房主申请切换上一首'}
-                aria-label="上一首"
+                title={canControl ? t('上一首') : t('向房主申请切换上一首')}
+                aria-label={t('上一首')}
               >
                 <ControlPrevIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
               </button>
@@ -336,13 +337,13 @@ export function PlayerCardFace({
                 title={
                   canControl
                     ? isPlaying
-                      ? '暂停'
-                      : '播放'
+                      ? t('暂停')
+                      : t('播放')
                     : isPlaying
-                      ? '申请暂停'
-                      : '申请继续播放'
+                      ? t('申请暂停')
+                      : t('申请继续播放')
                 }
-                aria-label="播放或暂停"
+                aria-label={t('播放或暂停')}
               >
                 {isPlaying ? (
                   <ControlPauseIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
@@ -354,8 +355,8 @@ export function PlayerCardFace({
                 type="button"
                 className="flex h-[max(5vh,36px)] w-[max(5vh,36px)] items-center justify-center text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
                 onClick={onNext}
-                title={canControl ? '下一首' : '向房主申请切换下一首'}
-                aria-label="下一首"
+                title={canControl ? t('下一首') : t('向房主申请切换下一首')}
+                aria-label={t('下一首')}
               >
                 <ControlNextIcon className="h-[max(5vh,36px)] w-[max(5vh,36px)]" />
               </button>
@@ -371,7 +372,7 @@ export function PlayerCardFace({
               <div
                 ref={volumeTrackRef}
                 role="slider"
-                aria-label="音量"
+                aria-label={t('音量')}
                 aria-valuemin={0}
                 aria-valuemax={100}
                 aria-valuenow={Math.round(volume * 100)}

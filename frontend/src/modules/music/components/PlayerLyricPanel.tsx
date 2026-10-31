@@ -36,6 +36,7 @@ import type { LyricLine } from '../utils/lrc'
 import { formatLyricLineOffset } from '../utils/lyricLineOffset'
 import { usePlaybackPosition } from '../hooks/usePlaybackPosition'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 滚动同步容差（px）：目标差值小于该值不做动画 */
 const SCROLL_SYNC_TOLERANCE_PX = 2
@@ -620,7 +621,7 @@ export function PlayerLyricPanel({
             {/* 纯音乐：单行占位（time 0 即高亮，不可点） */}
             {emptyMode === 'pure' && (
               <LyricRow
-                line={{ time: 0, text: '纯音乐，请欣赏' }}
+                line={{ time: 0, text: t('纯音乐，请欣赏') }}
                 active
                 untimed
                 showTranslation={showTranslation}
@@ -750,7 +751,7 @@ export function PlayerLyricPanel({
             OFFSET
           </span>
           <div className="flex items-baseline justify-between px-3 pt-3">
-            <span className="text-[12px] font-bold">歌词偏移</span>
+            <span className="text-[12px] font-bold">{t('歌词偏移')}</span>
             <span className="text-[10px] font-bold tracking-widest opacity-40">
               OFFSET
             </span>
@@ -764,7 +765,7 @@ export function PlayerLyricPanel({
               className="flex items-baseline justify-between px-3 py-1.5 text-[12px] font-bold transition-colors hover:bg-[rgba(255,255,255,0.08)]"
               onClick={() => handleUpdateLineOffset(LINE_OFFSET_STEP_SEC)}
             >
-              <span>提前 0.5 秒</span>
+              <span>{t('提前 0.5 秒')}</span>
               <span className="text-[10px] opacity-40">EARLIER</span>
             </button>
             <button
@@ -772,7 +773,7 @@ export function PlayerLyricPanel({
               className="flex items-baseline justify-between px-3 py-1.5 text-[12px] font-bold transition-colors hover:bg-[rgba(255,255,255,0.08)]"
               onClick={() => handleUpdateLineOffset(-LINE_OFFSET_STEP_SEC)}
             >
-              <span>延后 0.5 秒</span>
+              <span>{t('延后 0.5 秒')}</span>
               <span className="text-[10px] opacity-40">LATER</span>
             </button>
             <button
@@ -780,7 +781,7 @@ export function PlayerLyricPanel({
               className="flex items-baseline justify-between px-3 py-1.5 text-[12px] font-bold transition-colors hover:bg-[rgba(255,255,255,0.08)]"
               onClick={() => handleUpdateLineOffset(0)}
             >
-              <span>重置本行偏移</span>
+              <span>{t('重置本行偏移')}</span>
               <span className="text-[10px] opacity-40">RESET</span>
             </button>
           </div>

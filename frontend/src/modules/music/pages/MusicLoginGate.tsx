@@ -6,6 +6,7 @@
  */
 import { UserRound } from 'lucide-react'
 import { useMusicStore } from '../store'
+import { t } from '@/i18n'
 
 export function MusicLoginGate({ hint }: { hint?: string }) {
   const setLoginModalOpen = useMusicStore((s) => s.setLoginModalOpen)
@@ -24,7 +25,7 @@ export function MusicLoginGate({ hint }: { hint?: string }) {
         />
       </div>
       <span className="text-base font-medium text-[var(--md-sys-color-on-surface)]">
-        请先登录网易云音乐
+        {t('请先登录网易云音乐')}
       </span>
       {hint && (
         <span className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
@@ -37,7 +38,7 @@ export function MusicLoginGate({ hint }: { hint?: string }) {
         style={{ backgroundColor: 'var(--md-sys-color-on-surface)' }}
         onClick={() => setLoginModalOpen(true)}
       >
-        扫码登录
+        {t('扫码登录')}
       </button>
     </div>
   )

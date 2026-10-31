@@ -52,6 +52,7 @@ import { SongRow } from '../components/SongRow'
 import { cn, formatDurationMs } from '@/lib/utils'
 import { MusicLoginGate, PageBlockHeader } from './MusicLoginGate'
 import { MusicDailyPanel } from './MusicDailyPage'
+import { t } from '@/i18n'
 
 export interface MusicMyPageProps {
   socket: Socket | null
@@ -306,7 +307,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   const handlePlayNow = (song: NcmSong) => {
     if (song.vip && !loginStatus.loggedIn) return
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     add(songToUpsertItem(song))
@@ -339,7 +340,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           profile?: { userId?: number; nickname?: string }
         }>('/api/music/ncm/user/account')
         const uid = acc.data?.profile?.userId
-        if (!uid) throw new Error('获取网易云账号失败')
+        if (!uid) throw new Error(t('获取网易云账号失败'))
         if (!cancelled) userUidRef.current = uid
         const [pl, sub, like] = await Promise.all([
           apiGet<{ playlist?: UserPlaylistItem[] }>(
@@ -387,7 +388,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       } catch (err) {
         console.error('[MusicMyPage] 我的音乐获取失败:', err)
         if (!cancelled) {
-          message.error('我的音乐获取失败，请稍后重试')
+          message.error(t('我的音乐获取失败，请稍后重试'))
         }
       } finally {
         if (!cancelled) setPlaylistsLoading(false)
@@ -482,7 +483,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               })),
             ])
             if (!Array.isArray(trackRes.data?.songs))
-              throw new Error('歌单详情获取失败')
+              throw new Error(t('歌单详情获取失败'))
             if (token !== detailTokenRef.current) return
             const songs = trackRes.data.songs
               .map(mapTrack)
@@ -588,7 +589,8 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               }
               songs?: PlaylistTrackItem[]
             }>(`/api/music/album/full?id=${d.id}`)
-            if (!Array.isArray(data?.songs)) throw new Error('专辑详情获取失败')
+            if (!Array.isArray(data?.songs))
+              throw new Error(t('专辑详情获取失败'))
             setDetailSongs(data.songs.map(mapTrack).filter((s) => s.songId > 0))
             const alb = data?.album
             setDetailMeta({
@@ -615,7 +617,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               hotSongs?: PlaylistTrackItem[]
             }>(`/api/music/ncm/artists?id=${d.id}`)
             if (!Array.isArray(data?.hotSongs))
-              throw new Error('歌手热门单曲获取失败')
+              throw new Error(t('歌手热门单曲获取失败'))
             setDetailSongs(
               data.hotSongs.map(mapTrack).filter((s) => s.songId > 0)
             )
@@ -631,7 +633,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           }
         } catch (err) {
           console.error('[MusicMyPage] 详情获取失败:', err)
-          message.error('详情获取失败，请稍后重试')
+          message.error(t('详情获取失败，请稍后重试'))
         } finally {
           setDetailLoading(false)
         }
@@ -760,7 +762,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             songs?: PlaylistTrackItem[]
           }>(`/api/music/ncm/song/detail?ids=${batchIds.join(',')}`)
           if (!Array.isArray(data?.songs))
-            throw new Error('歌单详情追加加载失败')
+            throw new Error(t('歌单详情追加加载失败'))
           next = orderByIds(batchIds, data.songs).map(mapTrack)
           setDetailHasMore(remaining.length > PLAYLIST_PAGE_SIZE)
           setDetailHydration((prev) => ({
@@ -776,7 +778,8 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
         }>(
           `/api/music/ncm/playlist/track/all?id=${d.id}&limit=${PLAYLIST_PAGE_SIZE}&offset=${offset}`
         )
-        if (!Array.isArray(data?.songs)) throw new Error('歌单详情追加加载失败')
+        if (!Array.isArray(data?.songs))
+          throw new Error(t('歌单详情追加加载失败'))
         next = data.songs.map(mapTrack).filter((s) => s.songId > 0)
         const total = detailHydration.total
         // 已加载达到 total（trackCount）或本页为空时停止
@@ -790,7 +793,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       setDetailSongs((prev) => [...prev, ...next])
     } catch (err) {
       console.error('[MusicMyPage] 歌单追加加载失败:', err)
-      message.error('加载更多歌曲失败，请稍后重试')
+      message.error(t('加载更多歌曲失败，请稍后重试'))
     } finally {
       loadingMoreRef.current = false
       setDetailLoadingMore(false)
@@ -820,7 +823,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   /** 全部加入队列（Hydrogen 播放全部的 ZViewer 语义） */
   const handlePlayAll = useCallback(() => {
     if (!canManage) {
-      message.info('仅房主 / 房管可添加队列')
+      message.info(t('仅房主 / 房管可添加队列'))
       return
     }
     if (detailSongs.length === 0) return
@@ -832,7 +835,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     return (
       <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
         <PageBlockHeader titleEN="MY MUSIC" titleCN="我的音乐" />
-        <MusicLoginGate hint="登录后查看我的歌单" />
+        <MusicLoginGate hint={t('登录后查看我的歌单')} />
       </div>
     )
   }
@@ -869,8 +872,8 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             onClick={goBack}
             disabled={history.index <= 0}
             className="mr-5 flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-45 disabled:hover:opacity-45 disabled:active:scale-100"
-            title="后退"
-            aria-label="后退"
+            title={t('后退')}
+            aria-label={t('后退')}
           >
             <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
               <path
@@ -884,8 +887,8 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             onClick={goForward}
             disabled={history.index >= history.list.length - 1}
             className="flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90 disabled:opacity-45 disabled:hover:opacity-45 disabled:active:scale-100"
-            title="前进"
-            aria-label="前进"
+            title={t('前进')}
+            aria-label={t('前进')}
           >
             <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
               <path
@@ -899,7 +902,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               type="button"
               onClick={() => setDetail(null)}
               className="ml-3 flex items-center gap-1 text-xs font-bold text-[var(--md-sys-color-on-surface)] transition-opacity active:opacity-60"
-              title="返回歌单列表"
+              title={t('返回歌单列表')}
             >
               <svg
                 viewBox="0 0 1024 1024"
@@ -971,9 +974,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 style={{
                   borderColor: 'var(--md-sys-color-on-surface)',
                 }}
-                title={detail.kind === 'album' ? '发行时间' : '创建时间'}
+                title={detail.kind === 'album' ? t('发行时间') : t('创建时间')}
               >
-                {detail.kind === 'album' ? '发行时间' : '创建时间'}{' '}
+                {detail.kind === 'album' ? t('发行时间') : t('创建时间')}{' '}
                 {detailMeta?.timeLabel ?? '—'}
               </div>
             )}
@@ -981,9 +984,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               type="button"
               className="mt-1.5 h-6 bg-[var(--md-sys-color-on-surface)] text-[10px] font-bold text-[var(--md-sys-color-surface)] transition-colors hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_80%,transparent)]"
               onClick={() => setIntroOpen(true)}
-              title="查看详情"
+              title={t('查看详情')}
             >
-              查看详情
+              {t('查看详情')}
             </button>
             {/* 歌曲过滤（Hydrogen SongFilterInput compact 1:1：
                 右上/左下 6px 缺角 + 1px 细边框 + 纯 CSS 放大镜，
@@ -1001,7 +1004,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 value={filterKeyword}
                 onChange={(e) => setFilterKeyword(e.target.value)}
                 placeholder="SEARCH"
-                aria-label="过滤歌曲"
+                aria-label={t('过滤歌曲')}
                 className="min-w-0 flex-1 bg-transparent pl-[10px] text-xs tracking-[0.3px] outline-none focus:placeholder:text-transparent"
                 style={{
                   color: 'var(--md-sys-color-on-surface)',
@@ -1019,7 +1022,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               type="button"
               className="flex shrink-0 items-center transition-opacity hover:opacity-60"
               onClick={handlePlayAll}
-              title="播放全部（加入队列）"
+              title={t('播放全部（加入队列）')}
             >
               {/* 描边三角播放图标（17px，Hydrogen playall 同款） */}
               <svg
@@ -1037,7 +1040,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 />
               </svg>
               <span className="mx-[5px] whitespace-nowrap text-xs font-bold text-[var(--md-sys-color-on-surface)]">
-                播放全部
+                {t('播放全部')}
               </span>
             </button>
             <div
@@ -1068,7 +1071,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           )}
           {!detailLoading && filteredSongs.length === 0 && (
             <div className="flex flex-1 items-center justify-center py-10 text-sm text-[var(--md-sys-color-on-surface-variant)]">
-              {kw !== '' ? '未找到相关歌曲' : '暂无歌曲'}
+              {kw !== '' ? t('未找到相关歌曲') : t('暂无歌曲')}
             </div>
           )}
           {filteredSongs.map((song, idx) => {
@@ -1096,7 +1099,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {/* 追加批次失败提示（缓加载改为滚动驱动，加载中状态由哨兵行承担） */}
           {detailHydration.status === 'failed' && detailHydration.total > 0 && (
             <div className="flex h-12 items-center justify-center gap-2 text-sm text-[var(--md-sys-color-error)]">
-              部分歌曲加载失败，请稍后重试
+              {t('部分歌曲加载失败，请稍后重试')}
             </div>
           )}
           {/* 分页缓加载哨兵：滚动到底部（接近 400px 内）自动追加下一页 */}
@@ -1112,7 +1115,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                   className="h-auto text-sm"
                 />
               ) : (
-                <span>继续下滑加载更多</span>
+                <span>{t('继续下滑加载更多')}</span>
               )}
             </div>
           )}
@@ -1137,11 +1140,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 'zen-introduce-in 0.6s 0.3s cubic-bezier(0.3, 0.79, 0.55, 0.99) forwards',
             }}
             role="dialog"
-            aria-label="详情描述"
+            aria-label={t('详情描述')}
           >
             <div className="h-full w-full overflow-y-auto">
               <p className="text-sm font-semibold leading-relaxed text-white/90 [text-indent:2em]">
-                {detailMeta?.description || '暂无描述'}
+                {detailMeta?.description || t('暂无描述')}
               </p>
             </div>
             {/* 四角白点（9px，闪烁后常显） */}
@@ -1170,8 +1173,8 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               className="absolute right-[15px] top-[15px] h-6 w-6 opacity-0 transition-opacity hover:opacity-80"
               style={{ animation: 'zen-introduce-close 0.1s 0.6s forwards' }}
               onClick={() => setIntroOpen(false)}
-              title="关闭"
-              aria-label="关闭详情"
+              title={t('关闭')}
+              aria-label={t('关闭详情')}
             >
               <svg
                 viewBox="0 0 1024 1024"
@@ -1278,7 +1281,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             ) : (listType2 === 0 ? createdPlaylists : subscribedPlaylists)
                 .length === 0 ? (
               <LibraryEmptyHint
-                text={listType2 === 0 ? '暂无创建的歌单' : '暂无收藏的歌单'}
+                text={
+                  listType2 === 0 ? t('暂无创建的歌单') : t('暂无收藏的歌单')
+                }
               />
             ) : (
               (listType2 === 0 ? createdPlaylists : subscribedPlaylists).map(
@@ -1386,7 +1391,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                     }
                     onClick={() => {
                       // Web 环境暂不支持 MV 播放
-                      message.info('ZViewer 暂不支持播放 MV')
+                      message.info(t('ZViewer 暂不支持播放 MV'))
                     }}
                   />
                 ))
@@ -1406,11 +1411,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                       r.programCount != null ? `${r.programCount} 期` : '',
                     ]
                       .filter(Boolean)
-                      .join(' · ') || '电台'
+                      .join(' · ') || t('电台')
                   }
                   onClick={() => {
                     // 电台详情暂未接入
-                    message.info('电台详情暂未接入')
+                    message.info(t('电台详情暂未接入'))
                   }}
                 />
               ))
@@ -1573,7 +1578,7 @@ function MyMusicEmpty() {
         </span>
       </div>
       <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-        从左侧选择歌单 / 专辑 / 歌手查看详情
+        {t('从左侧选择歌单 / 专辑 / 歌手查看详情')}
       </p>
     </div>
   )

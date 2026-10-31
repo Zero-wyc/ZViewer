@@ -13,6 +13,7 @@ import { message } from '@/components/ui/message'
 import { LoadingLine } from '@/components/ui/LoadingLine'
 import { useNcmLogin } from '../hooks/useNcmLogin'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface MusicQrLoginModalProps {
   /** 关闭弹窗（登录成功 / 用户点关闭时回调） */
@@ -29,8 +30,15 @@ const QR_STATUS_TEXT: Record<string, string> = {
 }
 
 export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
-  const { qrImg, status, errorMessage, startLogin, stopPolling, logout, loginStatus } =
-    useNcmLogin()
+  const {
+    qrImg,
+    status,
+    errorMessage,
+    startLogin,
+    stopPolling,
+    logout,
+    loginStatus,
+  } = useNcmLogin()
 
   // 挂载即启动扫码登录
   useEffect(() => {
@@ -40,7 +48,7 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
   // 登录成功：提示并关闭弹窗
   useEffect(() => {
     if (status === 'success') {
-      message.success('网易云登录成功')
+      message.success(t('网易云登录成功'))
       onClose()
     }
   }, [status, onClose])
@@ -70,11 +78,13 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
               '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
           }}
         >
-          <Text className="text-sm font-semibold">扫码登录网易云音乐</Text>
+          <Text className="text-sm font-semibold">
+            {t('扫码登录网易云音乐')}
+          </Text>
           {qrImg ? (
             <img
               src={qrImg}
-              alt="网易云登录二维码"
+              alt={t('网易云登录二维码')}
               className="rounded-lg border"
               style={{
                 width: 200,
@@ -93,8 +103,12 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
                   spinnerClassName="h-6 w-6 text-[var(--md-sys-color-primary)]"
                   className="h-auto"
                 />
+              ) : status === 'error' ? (
+                <span className="p-4 text-center text-sm">
+                  {t('二维码暂不可用')}
+                </span>
               ) : (
-                status === 'error' ? <span className="p-4 text-center text-sm">二维码暂不可用</span> : <Spinner size={28} tip="正在生成二维码" />
+                <Spinner size={28} tip="正在生成二维码" />
               )}
             </div>
           )}
@@ -108,10 +122,21 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
             }
             className="m-0 text-center text-xs"
           >
-            {errorMessage ?? QR_STATUS_TEXT[status] ?? '请使用网易云音乐 App 扫码登录'}
-            {status === 'waiting' && '（二维码过期将自动刷新）'}
+            {errorMessage ??
+              QR_STATUS_TEXT[status] ??
+              t('请使用网易云音乐 App 扫码登录')}
+            {status === 'waiting' && t('（二维码过期将自动刷新）')}
           </Paragraph>
-          {status === 'error' && <Button variant="secondary" size="sm" className="w-full" onClick={() => void startLogin()}>重新获取二维码</Button>}
+          {status === 'error' && (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="w-full"
+              onClick={() => void startLogin()}
+            >
+              {t('重新获取二维码')}
+            </Button>
+          )}
           {/* 已登录账号：提供退出入口（与 Hydrogen app-option 账号登录/退出一致） */}
           {loginStatus.loggedIn && (
             <Button
@@ -120,7 +145,7 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
               className="w-full"
               onClick={() => void logout()}
             >
-              退出当前账号（{loginStatus.nickname ?? '已登录'}）
+              退出当前账号（{loginStatus.nickname ?? t('已登录')}）
             </Button>
           )}
           <Button
@@ -129,7 +154,7 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
             className="w-full"
             onClick={handleClose}
           >
-            关闭
+            {t('关闭')}
           </Button>
         </div>
       </div>

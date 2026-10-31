@@ -46,6 +46,7 @@ import {
 import { createPortal } from 'react-dom'
 import { cn } from '@/lib/utils'
 import { useModalDismissAnimation } from '../hooks/useModalDismissAnimation'
+import { t } from '@/i18n'
 
 /** 命令式句柄：顶层逻辑（提交/收藏成功等）触发带退出动画的关闭 */
 export interface CloudModalHandle {
@@ -183,7 +184,7 @@ export const CloudModal = forwardRef<CloudModalHandle, CloudModalProps>(
             独立兄弟层级、无 backdrop-filter 后代，opacity 动画安全 */}
         <button
           type="button"
-          aria-label="关闭"
+          aria-label={t('关闭')}
           className={cn(
             'fixed inset-0 cursor-default bg-black/40',
             closing ? 'lt-modal-dim-out' : 'lt-modal-dim-in'

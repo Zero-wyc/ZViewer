@@ -3,6 +3,7 @@ import { apiGet, apiPost } from '../musicApi'
 import { message } from '@/components/ui/message'
 import { useMusicStore } from '../store'
 import type { NcmLoginStatus } from '../types'
+import { t } from '@/i18n'
 
 /** 二维码扫码状态轮询间隔（毫秒） */
 const QR_POLL_INTERVAL_MS = 1500
@@ -28,7 +29,7 @@ export function ncmVipLabel(
   ) {
     return 'VIP'
   }
-  if (vipType != null || vipStatus != null) return '普通'
+  if (vipType != null || vipStatus != null) return t('普通')
   return ''
 }
 
@@ -137,7 +138,7 @@ export function useNcmLogin(): UseNcmLoginResult {
       if (data.code === 301) {
         const wasLoggedIn = useMusicStore.getState().loginStatus.loggedIn
         if (wasLoggedIn) {
-          message.info('网易云登录已过期，请重新扫码登录')
+          message.info(t('网易云登录已过期，请重新扫码登录'))
         }
         useMusicStore.getState().setLoginStatus({ loggedIn: false })
         return
@@ -223,12 +224,21 @@ export function useNcmLogin(): UseNcmLoginResult {
             }
           } catch (err) {
             if (qrKeyRef.current !== key) return
-            if (++failures >= 3 || (err instanceof Error && err.name === 'MusicServiceError')) {
+            if (
+              ++failures >= 3 ||
+              (err instanceof Error && err.name === 'MusicServiceError')
+            ) {
               stopPolling()
-              setErrorMessage(err instanceof Error ? err.message : '二维码状态查询失败，请重试')
+              setErrorMessage(
+                err instanceof Error
+                  ? err.message
+                  : t('二维码状态查询失败，请重试')
+              )
               setStatus('error')
             }
-          } finally { pending = false }
+          } finally {
+            pending = false
+          }
         })()
       }, QR_POLL_INTERVAL_MS)
     },
@@ -249,14 +259,14 @@ export function useNcmLogin(): UseNcmLoginResult {
       if (generation !== generationRef.current) return
       if (!key) {
         setStatus('error')
-        message.error('生成登录二维码失败，请重试')
+        message.error(t('生成登录二维码失败，请重试'))
         return
       }
       const img = await createQr(key)
       if (generation !== generationRef.current) return
       if (!img) {
         setStatus('error')
-        message.error('生成登录二维码失败，请重试')
+        message.error(t('生成登录二维码失败，请重试'))
         return
       }
       setQrImg(img)
@@ -264,7 +274,8 @@ export function useNcmLogin(): UseNcmLoginResult {
       startPolling(key)
     } catch (err) {
       if (generation !== generationRef.current) return
-      const text = err instanceof Error ? err.message : '启动扫码登录失败，请重试'
+      const text =
+        err instanceof Error ? err.message : t('启动扫码登录失败，请重试')
       setErrorMessage(text)
       setStatus('error')
       message.error(text)

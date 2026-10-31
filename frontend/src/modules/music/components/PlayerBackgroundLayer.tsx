@@ -17,6 +17,7 @@
 import { useState } from 'react'
 import type { CSSProperties, MouseEvent, RefObject } from 'react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface PlayerBackgroundLayerProps {
   /** 当前曲目封面（无封面时不渲染封面层） */
@@ -218,7 +219,7 @@ export function PlayerBackgroundLayer({
         <>
           <button
             type="button"
-            aria-label="单击切换播放/暂停，双击退出纯净模式"
+            aria-label={t('单击切换播放/暂停，双击退出纯净模式')}
             onClick={onImmersiveTap}
             className="fixed inset-0 z-[65] cursor-pointer"
           />

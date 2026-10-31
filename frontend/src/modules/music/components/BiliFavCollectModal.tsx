@@ -31,6 +31,7 @@ import {
   buildBilibiliImageProxyUrl,
   isBilibiliImageUrl,
 } from '@/modules/movie-source/resolveSource'
+import { t } from '@/i18n'
 
 interface BiliFavCollectModalProps {
   open: boolean
@@ -74,7 +75,7 @@ export function BiliFavCollectModal({
           if (!cancelled) setFolders(list)
         } catch (err) {
           if (!cancelled) {
-            setError(err instanceof Error ? err.message : '获取收藏夹失败')
+            setError(err instanceof Error ? err.message : t('获取收藏夹失败'))
           }
         } finally {
           if (!cancelled) setLoading(false)
@@ -97,13 +98,13 @@ export function BiliFavCollectModal({
         folderTitle?: string
       }>('/api/stream/bilibili/fav/collect', { bvid, mediaId: folder.id })
       if (!ok || data?.success === false) {
-        throw new Error(data?.message || '收藏失败')
+        throw new Error(data?.message || t('收藏失败'))
       }
       message.success(`已收藏到「${data?.folderTitle || folder.title}」`)
       onCollected?.(bvid, data?.folderTitle || folder.title)
       modalRef.current?.requestClose()
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '收藏失败')
+      message.error(err instanceof Error ? err.message : t('收藏失败'))
     } finally {
       setCollectingId(null)
     }
@@ -140,7 +141,7 @@ export function BiliFavCollectModal({
                   FAV
                 </span>
                 <p className="relative text-center text-[15px] font-bold text-white">
-                  添加到哔哩哔哩收藏夹
+                  {t('添加到哔哩哔哩收藏夹')}
                 </p>
               </div>
               <div className="zen-scroll relative min-h-0 flex-1 overflow-y-auto px-3 py-3">
@@ -157,7 +158,7 @@ export function BiliFavCollectModal({
                 )}
                 {!loading && !error && folders.length === 0 && (
                   <p className="py-4 text-center text-xs font-bold text-white/60">
-                    暂无收藏夹
+                    {t('暂无收藏夹')}
                   </p>
                 )}
                 {!loading &&
@@ -216,8 +217,8 @@ export function BiliFavCollectModal({
             onClick={() => modalRef.current?.requestClose()}
             className="absolute right-3 top-3 z-[3] flex h-6 w-6 items-center justify-center rounded-full transition-opacity hover:opacity-70"
             style={{ backgroundColor: 'rgba(255, 255, 255, 0.12)' }}
-            title="关闭"
-            aria-label="关闭"
+            title={t('关闭')}
+            aria-label={t('关闭')}
           >
             <X className={cn('h-3.5 w-3.5 text-white')} />
           </button>

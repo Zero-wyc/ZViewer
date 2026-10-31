@@ -37,6 +37,7 @@ import {
   useMusicSettingsStore,
 } from '../store-settings'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 开启确认提示（Hydrogen PERFORMANCE / GAPLESS_CONFIRM_MESSAGE 原文） */
 const PERFORMANCE_CONFIRM_MESSAGE =
@@ -76,7 +77,7 @@ function SettingToggle({
       onClick={onToggle}
       className="relative block h-[34px] w-[200px] overflow-hidden transition-opacity hover:opacity-90"
       aria-pressed={on}
-      title={on ? '点击关闭' : '点击开启'}
+      title={on ? t('点击关闭') : t('点击开启')}
     >
       {/* 黑色层：开启时从左滑入盖满（translateX(-100%)→0，0.1s） */}
       <span
@@ -101,7 +102,7 @@ function SettingToggle({
             : 'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
         }}
       >
-        {on ? '已开启' : '已关闭'}
+        {on ? t('已开启') : t('已关闭')}
       </span>
     </button>
   )
@@ -135,7 +136,7 @@ function SettingNumberInput({
         setDraft(String(next))
       }}
       inputMode="numeric"
-      aria-label="数值设置"
+      aria-label={t('数值设置')}
       className="h-[34px] w-[200px] bg-transparent text-center text-[13px] font-bold outline-none transition-opacity hover:opacity-80"
       style={{ color: 'var(--md-sys-color-on-surface)' }}
     />
@@ -220,7 +221,7 @@ function SettingSlider({
         onChange={(e) => onCommit(Number(e.target.value))}
         onMouseDown={() => setDragging(true)}
         onMouseUp={() => setDragging(false)}
-        aria-label="滑块设置"
+        aria-label={t('滑块设置')}
         className="absolute inset-0 h-full w-full cursor-pointer appearance-none bg-transparent opacity-0"
       />
     </div>
@@ -326,9 +327,9 @@ function ConfirmDialog({
         }}
         onClick={(e) => e.stopPropagation()}
         role="alertdialog"
-        aria-label="确认开启"
+        aria-label={t('确认开启')}
       >
-        <div className="text-sm font-bold text-white">确定开启</div>
+        <div className="text-sm font-bold text-white">{t('确定开启')}</div>
         <p className="mt-2 text-xs leading-relaxed text-white/80">{text}</p>
         <div className="mt-4 flex justify-end gap-2">
           <button
@@ -336,14 +337,14 @@ function ConfirmDialog({
             onClick={onCancel}
             className="px-4 py-1.5 text-xs font-bold text-white/80 transition-opacity hover:opacity-70"
           >
-            取消
+            {t('取消')}
           </button>
           <button
             type="button"
             onClick={onConfirm}
             className="bg-white px-4 py-1.5 text-xs font-bold text-black transition-opacity hover:opacity-85"
           >
-            确定
+            {t('确定')}
           </button>
         </div>
       </div>
@@ -382,7 +383,7 @@ export function MusicSettingsPage() {
       // 网络失败也清空本地态（与 useNcmLogin.logout 行为一致）
     })
     useMusicStore.getState().setLoginStatus({ loggedIn: false })
-    message.success('已退出网易云账号')
+    message.success(t('已退出网易云账号'))
   }
 
   const avatarUrl = loginStatus.avatarUrl
@@ -397,8 +398,8 @@ export function MusicSettingsPage() {
           type="button"
           onClick={() => setPage('home')}
           className="flex h-8 w-8 items-center justify-center p-2 text-[var(--md-sys-color-on-surface)] transition-opacity hover:opacity-70 active:scale-90"
-          title="返回"
-          aria-label="返回"
+          title={t('返回')}
+          aria-label={t('返回')}
         >
           <svg viewBox="0 0 1024 1024" className="h-4 w-4" aria-hidden="true">
             <path
@@ -416,9 +417,9 @@ export function MusicSettingsPage() {
               backgroundColor:
                 'color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)',
             }}
-            onClick={() => message.success('设置已保存')}
+            onClick={() => message.success(t('设置已保存'))}
           >
-            点击
+            {t('点击')}
           </button>{' '}
           保存)
         </span>
@@ -427,7 +428,7 @@ export function MusicSettingsPage() {
       {/* ===== settings-container（80% 居中，内滚） ===== */}
       <div className="zen-scroll mx-auto min-h-0 w-[80%] min-w-[560px] flex-1 overflow-y-auto pb-14">
         <h1 className="m-0 text-[32px] font-bold leading-tight text-[var(--md-sys-color-on-surface)]">
-          设置
+          {t('设置')}
         </h1>
 
         {/* ===== 用户信息行（settings-user-info 复刻） ===== */}
@@ -444,7 +445,7 @@ export function MusicSettingsPage() {
                 {avatarUrl ? (
                   <img
                     src={avatarUrl}
-                    alt={loginStatus.nickname ?? '网易云账号'}
+                    alt={loginStatus.nickname ?? t('网易云账号')}
                     className="mr-[15px] h-[70px] w-[70px] rounded-full object-cover"
                     draggable={false}
                   />
@@ -463,16 +464,16 @@ export function MusicSettingsPage() {
                   </div>
                 )}
                 <div className="text-xl font-bold text-[var(--md-sys-color-on-surface)]">
-                  {loginStatus.nickname ?? '网易云用户'}
+                  {loginStatus.nickname ?? t('网易云用户')}
                 </div>
               </div>
               <button
                 type="button"
                 onClick={handleLogout}
                 className="text-sm font-bold text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-80 active:scale-95"
-                title="退出网易云账号"
+                title={t('退出网易云账号')}
               >
-                退出
+                {t('退出')}
               </button>
             </>
           ) : (
@@ -491,7 +492,7 @@ export function MusicSettingsPage() {
                   />
                 </div>
                 <div className="text-xl font-bold text-[var(--md-sys-color-on-surface)]">
-                  未登录网易云账号
+                  {t('未登录网易云账号')}
                 </div>
               </div>
               <button
@@ -499,7 +500,7 @@ export function MusicSettingsPage() {
                 onClick={() => setLoginModalOpen(true)}
                 className="text-sm font-bold text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-80 active:scale-95"
               >
-                登录
+                {t('登录')}
               </button>
             </>
           )}
@@ -508,7 +509,7 @@ export function MusicSettingsPage() {
         {/* ===== 音乐分组（settings-item） ===== */}
         <div className="mt-[45px] w-full">
           <h2 className="m-0 text-xl font-bold text-[var(--md-sys-color-on-surface)]">
-            音乐
+            {t('音乐')}
           </h2>
           <div
             className="mb-[25px] mt-2 h-[0.5px] w-full"
@@ -637,8 +638,8 @@ export function MusicSettingsPage() {
             <SettingSelector
               value={normalizeDefaultSourcePage(settings.defaultSourcePage)}
               options={[
-                { label: '网易云音乐', value: 'netease' },
-                { label: '哔哩哔哩', value: 'bilibili' },
+                { label: t('网易云音乐'), value: 'netease' },
+                { label: t('哔哩哔哩'), value: 'bilibili' },
               ]}
               onChange={(v) =>
                 setSettings({
@@ -718,7 +719,7 @@ export function MusicSettingsPage() {
         {/* ===== 其他分组（Web 适配：恢复默认设置） ===== */}
         <div className="mt-[45px] w-full">
           <h2 className="m-0 text-xl font-bold text-[var(--md-sys-color-on-surface)]">
-            其他
+            {t('其他')}
           </h2>
           <div
             className="mb-[25px] mt-2 h-[0.5px] w-full"
@@ -732,7 +733,7 @@ export function MusicSettingsPage() {
               type="button"
               onClick={() => {
                 settings.reset()
-                message.success('已恢复默认设置')
+                message.success(t('已恢复默认设置'))
               }}
               className="h-[34px] w-[200px] text-[13px] font-bold transition-opacity hover:opacity-80"
               style={{
@@ -741,7 +742,7 @@ export function MusicSettingsPage() {
                 color: 'var(--md-sys-color-on-surface)',
               }}
             >
-              恢复默认
+              {t('恢复默认')}
             </button>
           </SettingOption>
         </div>
@@ -752,7 +753,7 @@ export function MusicSettingsPage() {
             ZVIEWER MUSIC
           </div>
           <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-            设置改动即时生效并保存至本地 · Hydrogen Music 风格复刻
+            {t('设置改动即时生效并保存至本地 · Hydrogen Music 风格复刻')}
           </p>
         </div>
       </div>

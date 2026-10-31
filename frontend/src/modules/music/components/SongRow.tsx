@@ -21,6 +21,7 @@ import { useState, type ReactNode } from 'react'
 import { Play } from 'lucide-react'
 import { useIsTouch } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** EQ 频谱动画（4 根 3px 竖条交错跳动，primary 色由父级 currentColor 决定） */
 export function EqBars({ paused }: { paused?: boolean }) {
@@ -154,8 +155,8 @@ export function SongRow({
               }}
               // 双击按钮时不要冒泡触发行的双击加队列
               onDoubleClick={(e) => e.stopPropagation()}
-              aria-label="立即播放"
-              title="立即播放"
+              aria-label={t('立即播放')}
+              title={t('立即播放')}
             >
               <Play className="h-[18px] w-[18px]" />
             </button>

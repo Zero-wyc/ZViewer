@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { NcmSong } from './types'
+import { t } from '@/i18n'
 
 type Update<T> = T | ((prev: T) => T)
 const resolve = <T>(value: Update<T>, prev: T): T =>
@@ -194,7 +195,7 @@ export async function advancePersonalFm(
     if (!valid()) return
     next = pick()
   }
-  if (!next) throw new Error('暂时没有新的漫游歌曲，请稍后重试')
+  if (!next) throw new Error(t('暂时没有新的漫游歌曲，请稍后重试'))
   if (!valid()) return
   await deps.enqueue(next)
   if (!valid()) return

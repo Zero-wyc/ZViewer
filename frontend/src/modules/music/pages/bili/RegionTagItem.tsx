@@ -7,6 +7,7 @@ import {
   X,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 音乐分区种类行（左列；选中滑入背景同 FavFolderItem 语言；
  *  设置按钮打开多 tag 规则弹窗、右上角屏蔽词按钮打开分类屏蔽词弹窗，hover 显示删除；
@@ -88,7 +89,7 @@ export function RegionTagItem({
             onOpenRules()
           }}
           className="relative mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
-          title="分类标签规则设置"
+          title={t('分类标签规则设置')}
           aria-label={`设置分类 ${name} 的标签规则`}
         >
           <Settings2
@@ -106,7 +107,7 @@ export function RegionTagItem({
             onOpenBlockWords()
           }}
           className="relative mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
-          title="分区屏蔽词设置"
+          title={t('分区屏蔽词设置')}
           aria-label={`设置分区 ${name} 的屏蔽词`}
         >
           <Ban
@@ -123,7 +124,7 @@ export function RegionTagItem({
             onRemove()
           }}
           className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
-          title="删除该种类"
+          title={t('删除该种类')}
           aria-label={`删除种类 ${name}`}
         >
           <X
@@ -143,7 +144,7 @@ export function RegionTagItem({
             }}
             disabled={!onMoveUp}
             className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
-            title="上移"
+            title={t('上移')}
             aria-label={`上移种类 ${name}`}
           >
             <ChevronUp className="h-3 w-3" />
@@ -156,7 +157,7 @@ export function RegionTagItem({
             }}
             disabled={!onMoveDown}
             className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
-            title="下移"
+            title={t('下移')}
             aria-label={`下移种类 ${name}`}
           >
             <ChevronDown className="h-3 w-3" />

@@ -32,6 +32,7 @@ import {
   invalidateUserPlaylistCache,
   type UserPlaylistItem,
 } from '../userPlaylists'
+import { t } from '@/i18n'
 
 interface AddToPlaylistModalProps {
   open: boolean
@@ -100,7 +101,7 @@ export function AddToPlaylistModal({
   const getPlaylistDisplayName = useCallback(
     (item: UserPlaylistItem): string =>
       item.specialType === 5 || item.name.includes('喜欢的音乐')
-        ? '我喜欢的音乐'
+        ? t('我喜欢的音乐')
         : item.name,
     []
   )
@@ -127,11 +128,11 @@ export function AddToPlaylistModal({
           )
           modalRef.current?.requestClose()
         } else {
-          message.error('添加至歌单错误')
+          message.error(t('添加至歌单错误'))
         }
       } catch (err) {
         console.error('[AddToPlaylistModal] 添加到歌单失败:', err)
-        message.error('添加至歌单错误')
+        message.error(t('添加至歌单错误'))
       } finally {
         setAddingId(null)
       }
@@ -151,7 +152,7 @@ export function AddToPlaylistModal({
       )
       const newId = data?.id
       if (!newId) {
-        message.error('创建歌单失败')
+        message.error(t('创建歌单失败'))
         return
       }
       message.success(`已创建歌单「${title}」`)
@@ -163,7 +164,7 @@ export function AddToPlaylistModal({
       await addToPlaylist(newId, title)
     } catch (err) {
       console.error('[AddToPlaylistModal] 创建歌单失败:', err)
-      message.error('创建歌单失败')
+      message.error(t('创建歌单失败'))
     } finally {
       setCreating(false)
     }
@@ -214,7 +215,7 @@ export function AddToPlaylistModal({
               animation: 'cloud-add-title-in 0.3s 0.5s both',
             }}
           >
-            添加到我的歌单
+            {t('添加到我的歌单')}
           </div>
 
           {/* 歌单列表（滚动，隐藏滚动条） */}
@@ -236,7 +237,7 @@ export function AddToPlaylistModal({
                 className="py-10 text-center text-xs"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                歌单获取失败，请重试
+                {t('歌单获取失败，请重试')}
               </div>
             )}
             {unfoldDone && loadState === 'ready' && (
@@ -262,7 +263,7 @@ export function AddToPlaylistModal({
                       className="truncate text-sm font-bold"
                       style={{ color: 'var(--md-sys-color-on-surface)' }}
                     >
-                      创建新歌单并添加
+                      {t('创建新歌单并添加')}
                     </span>
                   </button>
                 ) : (
@@ -272,7 +273,7 @@ export function AddToPlaylistModal({
                       type="text"
                       value={newTitle}
                       autoFocus
-                      placeholder="请输入新歌单标题"
+                      placeholder={t('请输入新歌单标题')}
                       onChange={(e) => setNewTitle(e.target.value)}
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') void createAndAdd()
@@ -346,7 +347,7 @@ export function AddToPlaylistModal({
                           color: 'var(--md-sys-color-on-surface-variant)',
                         }}
                       >
-                        取消
+                        {t('取消')}
                       </button>
                     </div>
                   </div>
@@ -379,7 +380,8 @@ export function AddToPlaylistModal({
                       >
                         {item.coverImgUrl ? (
                           <img
-                            src={neteaseImageUrl(item.coverImgUrl, 90)} onError={fallbackNcmAvatar}
+                            src={neteaseImageUrl(item.coverImgUrl, 90)}
+                            onError={fallbackNcmAvatar}
                             alt=""
                             loading="lazy"
                             className="h-full w-full object-cover"
@@ -408,7 +410,7 @@ export function AddToPlaylistModal({
                     className="py-8 text-center text-xs"
                     style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                   >
-                    暂无自建歌单
+                    {t('暂无自建歌单')}
                   </div>
                 )}
               </>

@@ -56,6 +56,7 @@ import {
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import { cn } from '@/lib/utils'
 import { ncmVipLabel } from '../hooks/useNcmLogin'
+import { t } from '@/i18n'
 
 /** 菜单内「房间模式」分组的注入状态（由 MusicAppShell 透传） */
 export interface RoomModeMenuState {
@@ -578,7 +579,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               onCompositionStart={() => setIsComposing(true)}
               onCompositionEnd={() => setIsComposing(false)}
               placeholder={page === 'bilibili' ? 'SEARCH BILIBILI' : 'SEARCH'}
-              aria-label="搜索音乐"
+              aria-label={t('搜索音乐')}
               spellCheck={false}
               className="h-full w-full bg-transparent px-[10px] text-center text-[13px] font-bold outline-none placeholder:text-[11px] placeholder:font-normal placeholder:tracking-[2px]"
               style={{
@@ -604,8 +605,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               '1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
           }}
           onClick={() => setMobileSearchOpen(true)}
-          aria-label="搜索音乐"
-          title="搜索音乐"
+          aria-label={t('搜索音乐')}
+          title={t('搜索音乐')}
         >
           <Search
             className="h-5 w-5"
@@ -653,9 +654,9 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               onCompositionEnd={() => setIsComposing(false)}
               enterKeyHint="search"
               placeholder={
-                page === 'bilibili' ? '搜索B站视频' : '搜索歌曲、歌手'
+                page === 'bilibili' ? t('搜索B站视频') : t('搜索歌曲、歌手')
               }
-              aria-label="搜索音乐"
+              aria-label={t('搜索音乐')}
               spellCheck={false}
               className="h-full w-full bg-transparent px-3 text-left text-[14px] outline-none placeholder:font-normal"
               style={{
@@ -676,7 +677,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               setFocused(false)
               setActiveIndex(-1)
             }}
-            aria-label="关闭搜索"
+            aria-label={t('关闭搜索')}
           >
             <X
               className="h-5 w-5"
@@ -694,7 +695,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
       <nav
         ref={navRef}
         className="relative flex min-w-0 flex-1 items-center justify-center gap-[clamp(18px,3vw,40px)] max-md:gap-3"
-        aria-label="音乐页面导航"
+        aria-label={t('音乐页面导航')}
       >
         {/* 下划线（Hydrogen .router-tracker）：14×2px 短条，跟随当前页
             按钮居中滑动；无对应按钮（搜索/设置页）时淡出隐藏 */}
@@ -731,7 +732,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 }}
                 aria-haspopup="menu"
                 aria-expanded={ncmMenuOpen}
-                aria-label="网易云音乐分区导航"
+                aria-label={t('网易云音乐分区导航')}
               >
                 网易云音乐
                 <ChevronDown
@@ -849,7 +850,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               }}
               aria-current={page === 'bilibili' ? 'page' : undefined}
             >
-              哔哩哔哩
+              {t('哔哩哔哩')}
             </button>
           </>
         ) : (
@@ -885,8 +886,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               onClick={() => setMusicSettings({ musicNavCollapsed: true })}
               className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full opacity-50 transition-opacity hover:opacity-100 active:scale-90"
               style={{ color: 'var(--md-sys-color-on-surface)' }}
-              title="折叠导航：网易云分区合并为「网易云音乐」按钮"
-              aria-label="折叠导航"
+              title={t('折叠导航：网易云分区合并为「网易云音乐」按钮')}
+              aria-label={t('折叠导航')}
             >
               <FoldVertical className="h-4 w-4" />
             </button>
@@ -906,13 +907,14 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               '1px solid color-mix(in srgb, var(--md-sys-color-on-surface) 40%, transparent)',
           }}
           onClick={() => setMenuOpen((prev) => !prev)}
-          aria-label={loginStatus.loggedIn ? '账号菜单' : '账号登录'}
-          title={loginStatus.loggedIn ? '账号菜单' : '账号登录'}
+          aria-label={loginStatus.loggedIn ? t('账号菜单') : t('账号登录')}
+          title={loginStatus.loggedIn ? t('账号菜单') : t('账号登录')}
         >
           {loginStatus.loggedIn && loginStatus.avatarUrl ? (
             <img
-              src={neteaseImageUrl(loginStatus.avatarUrl, 80)} onError={fallbackNcmAvatar}
-              alt={loginStatus.nickname ?? '网易云账号'}
+              src={neteaseImageUrl(loginStatus.avatarUrl, 80)}
+              onError={fallbackNcmAvatar}
+              alt={loginStatus.nickname ?? t('网易云账号')}
               className="h-full w-full object-cover"
             />
           ) : (
@@ -944,12 +946,13 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   '--item-delay': '0ms',
                 } as React.CSSProperties
               }
-              title={loginStatus.nickname ?? '未登录'}
+              title={loginStatus.nickname ?? t('未登录')}
             >
               {loginStatus.loggedIn && loginStatus.avatarUrl ? (
                 <img
-                  src={neteaseImageUrl(loginStatus.avatarUrl, 80)} onError={fallbackNcmAvatar}
-                  alt={loginStatus.nickname ?? '网易云账号'}
+                  src={neteaseImageUrl(loginStatus.avatarUrl, 80)}
+                  onError={fallbackNcmAvatar}
+                  alt={loginStatus.nickname ?? t('网易云账号')}
                   className="h-8 w-8 shrink-0 rounded-full object-cover"
                 />
               ) : (
@@ -972,8 +975,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   style={{ color: 'var(--md-sys-color-on-surface)' }}
                 >
                   {loginStatus.loggedIn
-                    ? (loginStatus.nickname ?? '已登录')
-                    : '未登录'}
+                    ? (loginStatus.nickname ?? t('已登录'))
+                    : t('未登录')}
                 </p>
                 <p
                   className="text-xs"
@@ -985,8 +988,8 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                           loginStatus.vipType,
                           loginStatus.vipStatus
                         )}`
-                      : '网易云账号'
-                    : '尚未登录网易云'}
+                      : t('网易云账号')
+                    : t('尚未登录网易云')}
                 </p>
               </div>
             </div>
@@ -1012,7 +1015,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                     } as React.CSSProperties
                   }
                 >
-                  房间模式
+                  {t('房间模式')}
                 </div>
                 {(roomModeMenu.isHost ? MODE_ORDER : [roomMode]).map(
                   (m, idx) => {
@@ -1065,7 +1068,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                               'color-mix(in srgb, var(--md-sys-color-on-surface) 80%, transparent)',
                           } as React.CSSProperties
                         }
-                        title="由房主控制模式切换"
+                        title={t('由房主控制模式切换')}
                       >
                         <span
                           className={cn(MODE_MARKER, 'shrink-0')}
@@ -1160,7 +1163,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   } as React.CSSProperties
                 }
               >
-                登录网易云后全房间可播 VIP
+                {t('登录网易云后全房间可播 VIP')}
               </div>
             )}
           </div>

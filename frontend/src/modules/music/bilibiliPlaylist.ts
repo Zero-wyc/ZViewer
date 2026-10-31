@@ -10,6 +10,7 @@ import {
   pickBiliPartMeta,
   type BiliPartMeta,
 } from './utils/biliPartName'
+import { t } from '@/i18n'
 
 /**
  * 视频详情短缓存（bvid → 进行中的请求）。
@@ -73,7 +74,7 @@ export function expandBilibiliParts(
       part: item.title,
       duration: view.duration,
     })
-  if (!pages.length) throw new Error('没有找到可播放的分P')
+  if (!pages.length) throw new Error(t('没有找到可播放的分P'))
   return pages.map((page, index) => {
     const meta = pickBiliPartMeta(view, page.cid, item.title, pages)
     return {
@@ -81,7 +82,7 @@ export function expandBilibiliParts(
       roomId: '',
       songId: 0,
       name: meta.name,
-      artist: view.upName || item.upName || '哔哩哔哩',
+      artist: view.upName || item.upName || t('哔哩哔哩'),
       album: meta.album,
       cover: portableMusicCoverUrl(view.pic || item.pic),
       durationMs: Math.round(Math.max(0, meta.durationSec) * 1000),

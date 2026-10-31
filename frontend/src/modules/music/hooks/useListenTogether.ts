@@ -31,7 +31,10 @@ import {
   activeQueueOf,
 } from '../store'
 import { useMusicSettingsStore, normalizeMusicLevel } from '../store-settings'
-import { resolveBilibiliAudioWithFallback, selectBilibiliAudioStream } from '../utils/bilibiliAudioStream'
+import {
+  resolveBilibiliAudioWithFallback,
+  selectBilibiliAudioStream,
+} from '../utils/bilibiliAudioStream'
 import { resolveBiliPartMeta } from '../bilibiliPlaylist'
 import { loudnessNormalizer } from '../audio/loudnessNormalizer'
 import {
@@ -59,6 +62,7 @@ import {
 import { playAudioWithRetry } from './audioElement'
 import { useAudioEngine } from './useAudioEngine'
 import { useQueueAdvance } from './useQueueAdvance'
+import { t } from '@/i18n'
 
 /**
  * Socket 事件名（与后端 MusicSyncHandler / MusicBroadcasterService 约定）。
@@ -131,7 +135,7 @@ async function biliRecToUpsertItem(r: BiliRelatedItem) {
   return {
     songId: 0,
     name: meta.name,
-    artist: r.upName || '哔哩哔哩',
+    artist: r.upName || t('哔哩哔哩'),
     album: meta.album,
     cover: portableMusicCoverUrl(r.pic),
     durationMs: Math.round(durationSec * 1000),
@@ -240,7 +244,7 @@ function isBiliItem(item: MusicQueueItem): boolean {
 async function resolveBiliAudio(
   item: MusicQueueItem
 ): Promise<{ playUrl: string; durationMs: number }> {
-  if (!item.biliBvid) throw new Error('缺少 B站 视频信息')
+  if (!item.biliBvid) throw new Error(t('缺少 B站 视频信息'))
   const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
   const cached = getCachedBiliAudioUrl(mapKey)
   if (cached) return { playUrl: cached, durationMs: item.durationMs }
@@ -261,19 +265,19 @@ async function resolveBiliAudio(
       true
     )
     if (!r.audioUrl && !r.videoUrl) {
-      throw new Error('未获取到音频地址')
+      throw new Error(t('未获取到音频地址'))
     }
     playUrl = (r.audioUrl ?? r.videoUrl) as string
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   } else {
     // Prefer the independent audio track and preserve the selected part's CID.
     // The media proxy supplies the Referer required by Bilibili's CDN.
-    const r = await resolveBilibiliAudioWithFallback(options => resolveBilibiliWithOptions(
-      pageUrl,
-      BILI_DEFAULT_QN,
-      undefined,
-      { ...options, cid: item.biliCid }
-    ))
+    const r = await resolveBilibiliAudioWithFallback((options) =>
+      resolveBilibiliWithOptions(pageUrl, BILI_DEFAULT_QN, undefined, {
+        ...options,
+        cid: item.biliCid,
+      })
+    )
     playUrl = buildProxyUrl(selectBilibiliAudioStream(r))
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   }
@@ -603,7 +607,7 @@ export function useListenTogether({
             return
           }
           const notice = useMusicStore.getState().setSyncNotice
-          notice('正在解析 B站 视频音频…')
+          notice(t('正在解析 B站 视频音频…'))
           const resolving = resolveBiliAudio(item)
             .then(() => {
               notice(null)
@@ -612,7 +616,7 @@ export function useListenTogether({
             .catch((err) => {
               notice(null)
               message.error(
-                err instanceof Error ? err.message : 'B站 音频解析失败'
+                err instanceof Error ? err.message : t('B站 音频解析失败')
               )
             })
             .finally(() => {
@@ -698,7 +702,7 @@ export function useListenTogether({
       new Promise<void>((resolve, reject) => {
         const activeSocket = socketRef.current
         if (!activeSocket?.connected) {
-          reject(new Error('未连接房间'))
+          reject(new Error(t('未连接房间')))
           return
         }
         activeSocket.timeout(8000).emit(
@@ -713,7 +717,7 @@ export function useListenTogether({
             response: { success?: boolean; message?: string }
           ) => {
             if (err || !response?.success)
-              reject(new Error(response?.message || '漫游歌曲入队失败'))
+              reject(new Error(response?.message || t('漫游歌曲入队失败')))
             else resolve()
           }
         )
@@ -785,7 +789,7 @@ export function useListenTogether({
         const attempt = fmAdvanceFailuresRef.current
         if (attempt >= FM_ADVANCE_RETRY_DELAYS.length) {
           fmAdvanceFailuresRef.current = 0
-          message.error(err instanceof Error ? err.message : '漫游续播失败')
+          message.error(err instanceof Error ? err.message : t('漫游续播失败'))
           return
         }
         // 候选补拉偶尔返回空批次、入队 ack 偶尔超时：退避后重试同一首的
@@ -829,7 +833,7 @@ export function useListenTogether({
       // 短时间内连续多首无法播放：停止自动跳过，避免在坏源之间空转
       cancelFmRetry()
       usePersonalFmStore.getState().deactivate()
-      message.error('连续多首漫游歌曲无法播放，已停止自动续播')
+      message.error(t('连续多首漫游歌曲无法播放，已停止自动续播'))
       return true
     }
     const skipped = usePersonalFmStore.getState().current
@@ -852,7 +856,7 @@ export function useListenTogether({
     async (song: NcmSong) => {
       const targetRoom = roomIdRef.current
       if (!isHostRef.current || !targetRoom)
-        throw new Error('私人漫游由房主控制')
+        throw new Error(t('私人漫游由房主控制'))
       const request = ++fmPlayRequestRef.current
       usePersonalFmStore.getState().invalidate()
       const generation = usePersonalFmStore.getState().generation
@@ -1010,7 +1014,7 @@ export function useListenTogether({
     if (wantPlay) {
       // 通知栏 play 按钮在后台触发时同样可能被自动播放策略拒绝，走重试
       playAudioWithRetry(audio, () => {
-        message.error('播放失败，请重试')
+        message.error(t('播放失败，请重试'))
       })
     } else {
       audio.pause()
@@ -1043,7 +1047,7 @@ export function useListenTogether({
     if (singleSelf) {
       if (state.playMode === 'order') {
         if (!tryBiliContinueOnNext()) {
-          message.info('队列中无下一首')
+          message.info(t('队列中无下一首'))
         }
       } else {
         switchSong('next')
@@ -1056,7 +1060,7 @@ export function useListenTogether({
       if (!tryBiliContinueOnNext()) {
         const { playMode } = useMusicStore.getState()
         if (playMode === 'order') {
-          message.info('队列中无下一首')
+          message.info(t('队列中无下一首'))
         }
       }
     }
@@ -1152,7 +1156,7 @@ export function useListenTogether({
       usePersonalFmStore.getState().deactivate()
       if (!isBiliItem(item) || !item.biliBvid) return
       const notice = useMusicStore.getState().setSyncNotice
-      notice('正在解析 B站 视频音频…')
+      notice(t('正在解析 B站 视频音频…'))
       try {
         const { durationMs } = await resolveBiliAudio(item)
         const enriched: MusicQueueItem = { ...item, durationMs }
@@ -1162,7 +1166,9 @@ export function useListenTogether({
         notice(null)
       } catch (err) {
         notice(null)
-        message.error(err instanceof Error ? err.message : 'B站 音频解析失败')
+        message.error(
+          err instanceof Error ? err.message : t('B站 音频解析失败')
+        )
       }
     },
     [loadAndPlaySong]
@@ -1441,7 +1447,7 @@ export function useListenTogether({
       const currentSocket = socketRef.current
       const currentRoomId = roomIdRef.current
       if (!currentSocket || !currentRoomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return 0
       }
       const store = useMusicStore.getState()
@@ -1451,18 +1457,18 @@ export function useListenTogether({
           store.biliItem)
         : store.biliItem
       if (!current?.biliBvid) {
-        message.info('当前播放的不是 B站 视频，无法获取推荐')
+        message.info(t('当前播放的不是 B站 视频，无法获取推荐'))
         return 0
       }
       let fresh: BiliRelatedItem[]
       try {
         fresh = await fetchBiliRecs(current.biliBvid)
       } catch {
-        message.error('获取 B站 推荐失败')
+        message.error(t('获取 B站 推荐失败'))
         return 0
       }
       if (fresh.length === 0) {
-        message.info('B站 未返回可加入的相关推荐（推荐均已在使用中）')
+        message.info(t('B站 未返回可加入的相关推荐（推荐均已在使用中）'))
         return 0
       }
       if (canManage || isHostRef.current) {
@@ -1488,7 +1494,7 @@ export function useListenTogether({
           message.success(`已将 ${added} 首推荐歌曲加入当前播放之后`)
         } else {
           message.error(
-            'B站 推荐加入播放列表失败（需重启后端以启用新队列字段）'
+            t('B站 推荐加入播放列表失败（需重启后端以启用新队列字段）')
           )
         }
         return added
@@ -1507,7 +1513,7 @@ export function useListenTogether({
           },
           (res: { success?: boolean; message?: string }) => {
             if (res && res.success === false) {
-              message.error(res.message || '推荐歌曲申请失败')
+              message.error(res.message || t('推荐歌曲申请失败'))
             }
           }
         )
@@ -1623,7 +1629,7 @@ export function useListenTogether({
       const store = useMusicStore.getState()
       if (payload.hostOnline === false && !store.hostOffline) {
         store.setHostOffline(true)
-        store.setSyncNotice('房主已断开连接，可自主控制播放')
+        store.setSyncNotice(t('房主已断开连接，可自主控制播放'))
       } else if (payload.hostOnline === true && store.hostOffline) {
         useMusicStore.getState().setHostOffline(false)
       }
@@ -1702,14 +1708,14 @@ export function useListenTogether({
       const store = useMusicStore.getState()
       if (!store.hostOffline) {
         store.setHostOffline(true)
-        store.setSyncNotice('房主已断开连接，可自主控制播放')
+        store.setSyncNotice(t('房主已断开连接，可自主控制播放'))
       }
     }
     const handleSharerReady = () => {
       const store = useMusicStore.getState()
       if (store.hostOffline) {
         store.setHostOffline(false)
-        store.setSyncNotice('房主已恢复，继续跟随播放')
+        store.setSyncNotice(t('房主已恢复，继续跟随播放'))
       }
     }
     socket.on(MUSIC_EVENT.HOST_DISCONNECTED, handleHostDisconnected)
@@ -1766,7 +1772,7 @@ export function useListenTogether({
             const store = useMusicStore.getState()
             if (!store.hostOffline) {
               store.setHostOffline(true)
-              store.setSyncNotice('房主不在线，可自主控制播放')
+              store.setSyncNotice(t('房主不在线，可自主控制播放'))
             }
           } else if (!isHostRef.current && res.hostOnline === true) {
             if (useMusicStore.getState().hostOffline) {
@@ -1931,7 +1937,7 @@ export function useListenTogether({
           username: payload.username,
           item: payload.item,
         }
-        const who = payload.username || '观众'
+        const who = payload.username || t('观众')
         useMusicStore
           .getState()
           .setSyncNotice(
@@ -1969,7 +1975,7 @@ export function useListenTogether({
         username: payload.username,
         ...(action === 'seek' ? { positionSec: payload.positionSec } : {}),
       }
-      const who = payload.username || '观众'
+      const who = payload.username || t('观众')
       useMusicStore
         .getState()
         .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT[action]}`, 'approval')
@@ -2009,14 +2015,16 @@ export function useListenTogether({
       if (action === 'addQueue') {
         // 申请结果用 message 明确提示（哔哩哔哩页等无播放器场景也可见）
         if (payload.approved) {
-          message.success('歌曲已加入播放列表')
+          message.success(t('歌曲已加入播放列表'))
         } else {
-          message.error('无权限：房主未开启「自动通过」，无法添加到播放列表')
+          message.error(t('无权限：房主未开启「自动通过」，无法添加到播放列表'))
         }
         useMusicStore
           .getState()
           .setSyncNotice(
-            payload.approved ? '歌曲已加入播放列表' : '添加到播放列表被拒绝'
+            payload.approved
+              ? t('歌曲已加入播放列表')
+              : t('添加到播放列表被拒绝')
           )
         return
       }
@@ -2028,8 +2036,8 @@ export function useListenTogether({
           .getState()
           .setSyncNotice(
             payload.approved
-              ? '房主已同意调节播放进度'
-              : '房主已拒绝调节播放进度'
+              ? t('房主已同意调节播放进度')
+              : t('房主已拒绝调节播放进度')
           )
         return
       }
@@ -2049,7 +2057,7 @@ export function useListenTogether({
     const handleSyncAck = (payload: { roomId?: string; username?: string }) => {
       if (!payload || !isHostRef.current) return
       if (payload.roomId && payload.roomId !== roomIdRef.current) return
-      useMusicStore.getState().pushSyncAck(payload.username || '观众')
+      useMusicStore.getState().pushSyncAck(payload.username || t('观众'))
     }
 
     socket.on(MUSIC_EVENT.SYNC_STATE, handleSyncState)

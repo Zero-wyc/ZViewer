@@ -37,6 +37,7 @@ import {
   BreakingNewsModal,
   prefetchBreakingNewsDetails,
 } from '../components/BreakingNewsModal'
+import { t as translate } from '@/i18n'
 
 export interface MusicHomePageProps {
   socket: Socket | null
@@ -448,7 +449,7 @@ function HomeBanner({
           className="absolute -bottom-2 -right-2 h-8 w-8 border-b border-r transition-all duration-300 hover:-bottom-3 hover:-right-3"
           style={{ borderColor: 'var(--md-sys-color-on-surface)' }}
           onClick={() => setOffsetIndex((prev) => prev + 1)}
-          aria-label="下一张"
+          aria-label={translate('下一张')}
         />
       </div>
 
@@ -535,7 +536,7 @@ function DailyRecommendation() {
 
   /** 点击跳转「我的音乐」并打开每日推荐详情（Hydrogen /mymusic/playlist/rec） */
   const openDaily = () => {
-    setPendingMyDetail({ kind: 'rec', id: 0, name: '每日推荐歌曲' })
+    setPendingMyDetail({ kind: 'rec', id: 0, name: translate('每日推荐歌曲') })
     setPage('mymusic')
   }
 
@@ -549,7 +550,7 @@ function DailyRecommendation() {
       onMouseEnter={() => setShowMore(true)}
       onMouseLeave={() => setShowMore(false)}
       onClick={openDaily}
-      title="查看每日推荐"
+      title={translate('查看每日推荐')}
     >
       {/*
         左区几何（复刻 Hydrogen Recommendation.vue，不重叠版）：
@@ -656,11 +657,11 @@ function NewestSongList({
   const handlePlay = (song: NcmSong) => {
     if (`ncm:${song.songId}` === currentKey) {
       if (canControl) togglePlay()
-      else message.info('由房主控制播放')
+      else message.info(translate('由房主控制播放'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(translate('未连接房间'))
       return
     }
     if (!addedKeys.has(`ncm:${song.songId}`)) {
@@ -685,12 +686,12 @@ function NewestSongList({
     <div className="relative w-[24.4vw] min-w-[260px] shrink-0 max-md:w-full max-md:min-w-0">
       {/* 标题（与 Banner 头部同高对齐；手机端堆叠后上移让出标题空间） */}
       <span className="absolute -top-[2.2vw] left-0 text-2xl font-bold text-[var(--md-sys-color-on-surface)] max-md:-top-7">
-        最新音乐
+        {translate('最新音乐')}
       </span>
       <div className="flex max-h-[13.7vw] min-h-[220px] flex-col overflow-y-auto [scrollbar-width:none] max-md:max-h-[248px] max-md:min-h-0">
         {songs.length === 0 && (
           <div className="flex h-full min-h-[160px] items-center justify-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            暂无最新音乐
+            {translate('暂无最新音乐')}
           </div>
         )}
         {songs.map((song, i) => {
@@ -735,8 +736,10 @@ function NewestSongList({
                 type="button"
                 className="ml-2 flex h-[2vw] min-h-6 w-[2vw] min-w-6 shrink-0 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform duration-200 hover:opacity-70 active:scale-75 max-md:h-9 max-md:w-9"
                 onClick={() => handlePlay(song)}
-                title={isCurrent ? '播放/暂停' : '播放'}
-                aria-label={isCurrent ? '播放或暂停' : '播放'}
+                title={isCurrent ? translate('播放/暂停') : translate('播放')}
+                aria-label={
+                  isCurrent ? translate('播放或暂停') : translate('播放')
+                }
               >
                 <Play className="h-[1.3vw] min-h-4 w-[1.3vw] min-w-4 fill-current max-md:h-5 max-md:w-5" />
               </button>

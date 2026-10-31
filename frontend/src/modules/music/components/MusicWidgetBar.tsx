@@ -61,6 +61,7 @@ import { prefetchUserPlaylists } from '../userPlaylists'
 import { prefetchBiliFavFolders } from '@/modules/bilibili/bilibiliApi'
 import { cn, formatDuration } from '@/lib/utils'
 import { PLAY_MODE_ORDER } from '../constants'
+import { t } from '@/i18n'
 
 export function MusicWidgetBar() {
   const {
@@ -272,7 +273,7 @@ export function MusicWidgetBar() {
       })
       if (!ok || data?.success === false) {
         throw new Error(
-          data?.message || (collected ? '取消收藏失败' : '收藏失败')
+          data?.message || (collected ? t('取消收藏失败') : t('收藏失败'))
         )
       }
       if (collected) {
@@ -285,7 +286,7 @@ export function MusicWidgetBar() {
         message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '操作失败')
+      message.error(err instanceof Error ? err.message : t('操作失败'))
     } finally {
       setBiliCollecting(false)
     }
@@ -302,24 +303,24 @@ export function MusicWidgetBar() {
       )
       const album = data?.songs?.[0]?.al
       if (!album?.id) {
-        message.info('该歌曲暂无专辑信息')
+        message.info(t('该歌曲暂无专辑信息'))
         return
       }
       // 写入待打开详情并切到我的音乐页（详情页由 MusicMyPage 消费打开）
       setPendingAlbumDetail({
         id: album.id,
-        name: album.name || '专辑',
+        name: album.name || t('专辑'),
         cover: album.picUrl,
       })
       setPage('mymusic')
     } catch (err) {
       console.error('[MusicWidgetBar] 专辑解析失败:', err)
-      message.info('该歌曲暂无专辑信息')
+      message.info(t('该歌曲暂无专辑信息'))
     }
   }, [currentSong, setPendingAlbumDetail, setPage])
 
   const cover = musicCoverUrl(currentSong?.cover, 120, getApiUrl())
-  const songName = currentSong?.name ?? '一起听'
+  const songName = currentSong?.name ?? t('一起听')
   const artist = currentSong?.artist ?? ''
 
   /** 播放模式图标（4 态） */
@@ -369,7 +370,9 @@ export function MusicWidgetBar() {
         <div
           ref={progressRef}
           role="slider"
-          aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
+          aria-label={
+            canControl ? t('播放进度') : t('播放进度（仅房主可拖动）')
+          }
           aria-valuemin={0}
           aria-valuemax={Math.round(durationSec)}
           aria-valuenow={Math.round(positionSec)}
@@ -432,8 +435,8 @@ export function MusicWidgetBar() {
             backgroundColor: 'var(--md-sys-color-surface-container-high)',
           }}
           onClick={cover ? () => setPlayerOverlayOpen(true) : undefined}
-          title={cover ? '打开完整播放器' : undefined}
-          aria-label={cover ? '打开完整播放器' : undefined}
+          title={cover ? t('打开完整播放器') : undefined}
+          aria-label={cover ? t('打开完整播放器') : undefined}
         >
           {cover ? (
             <img src={cover} alt="" className="h-full w-full object-cover" />
@@ -487,8 +490,8 @@ export function MusicWidgetBar() {
             type="button"
             className="flex h-6 w-6 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
             onClick={handlePrev}
-            title={canControl ? '上一首' : '向房主申请切换上一首'}
-            aria-label="上一首"
+            title={canControl ? t('上一首') : t('向房主申请切换上一首')}
+            aria-label={t('上一首')}
           >
             <ControlPrevIcon className="h-5 w-5" />
           </button>
@@ -499,13 +502,13 @@ export function MusicWidgetBar() {
             title={
               canControl
                 ? isPlaying
-                  ? '暂停'
-                  : '播放'
+                  ? t('暂停')
+                  : t('播放')
                 : isPlaying
-                  ? '申请暂停'
-                  : '申请继续播放'
+                  ? t('申请暂停')
+                  : t('申请继续播放')
             }
-            aria-label="播放或暂停"
+            aria-label={t('播放或暂停')}
           >
             {isPlaying ? (
               <ControlPauseIcon className="h-5 w-5" />
@@ -517,8 +520,8 @@ export function MusicWidgetBar() {
             type="button"
             className="flex h-6 w-6 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
             onClick={handleNext}
-            title={canControl ? '下一首' : '向房主申请切换下一首'}
-            aria-label="下一首"
+            title={canControl ? t('下一首') : t('向房主申请切换下一首')}
+            aria-label={t('下一首')}
           >
             <ControlNextIcon className="h-5 w-5" />
           </button>
@@ -531,7 +534,7 @@ export function MusicWidgetBar() {
             <div
               ref={volumeTrackRef}
               role="slider"
-              aria-label="音量"
+              aria-label={t('音量')}
               aria-valuemin={0}
               aria-valuemax={100}
               aria-valuenow={Math.round(volume * 100)}
@@ -573,8 +576,8 @@ export function MusicWidgetBar() {
               type="button"
               className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
               onClick={() => void handleLike()}
-              title={liked ? '取消喜欢' : '喜欢'}
-              aria-label={liked ? '取消喜欢' : '喜欢'}
+              title={liked ? t('取消喜欢') : t('喜欢')}
+              aria-label={liked ? t('取消喜欢') : t('喜欢')}
             >
               {liked ? (
                 <Heart className="h-5 w-5" fill="#E5404F" stroke="none" />
@@ -606,9 +609,11 @@ export function MusicWidgetBar() {
                   setAddPlaylistOpen(true)
                 }
               }}
-              title={isBiliSong ? '添加到哔哩哔哩收藏夹' : '添加到我的歌单'}
+              title={
+                isBiliSong ? t('添加到哔哩哔哩收藏夹') : t('添加到我的歌单')
+              }
               aria-label={
-                isBiliSong ? '添加到哔哩哔哩收藏夹' : '添加到我的歌单'
+                isBiliSong ? t('添加到哔哩哔哩收藏夹') : t('添加到我的歌单')
               }
             >
               <CirclePlus className="h-5 w-5" />
@@ -646,8 +651,8 @@ export function MusicWidgetBar() {
                 type="button"
                 className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90 max-md:hidden"
                 onClick={() => void handleToAlbum()}
-                title="查看专辑"
-                aria-label="查看专辑"
+                title={t('查看专辑')}
+                aria-label={t('查看专辑')}
               >
                 <Disc3 className="h-5 w-5" />
               </button>
@@ -664,15 +669,15 @@ export function MusicWidgetBar() {
             title={
               canControl
                 ? playMode === 'sequence'
-                  ? '顺序循环'
+                  ? t('顺序循环')
                   : playMode === 'order'
-                    ? '按顺序播放'
+                    ? t('按顺序播放')
                     : playMode === 'repeat-one'
-                      ? '单曲循环'
-                      : '随机播放'
-                : '仅房主可切换播放模式'
+                      ? t('单曲循环')
+                      : t('随机播放')
+                : t('仅房主可切换播放模式')
             }
-            aria-label="切换播放模式"
+            aria-label={t('切换播放模式')}
           >
             <PlayModeIcon className="h-5 w-5" />
           </button>
@@ -681,8 +686,8 @@ export function MusicWidgetBar() {
             type="button"
             className="flex h-5 w-5 items-center justify-center text-[var(--md-sys-color-on-surface)] transition-transform hover:opacity-70 active:scale-90"
             onClick={() => setQueuePopupOpen(true)}
-            title="播放队列"
-            aria-label="播放队列"
+            title={t('播放队列')}
+            aria-label={t('播放队列')}
           >
             <ListMusic className="h-5 w-5" />
           </button>

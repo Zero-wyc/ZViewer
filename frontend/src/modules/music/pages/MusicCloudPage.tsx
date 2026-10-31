@@ -44,6 +44,7 @@ import { useMusicPlayer } from '../hooks/useMusicPlayer'
 import { useIsTouch } from '@/hooks/useMediaQuery'
 import type { NcmSong } from '../types'
 import { MusicLoginGate } from './MusicLoginGate'
+import { t } from '@/i18n'
 
 export interface MusicCloudPageProps {
   socket: Socket | null
@@ -212,7 +213,9 @@ function matchesCategory(item: CloudItem, categoryKey: number): boolean {
 
 /** 云盘文件展示标题（Hydrogen getItemTitle：songName > simpleSong.name > fileName） */
 function getItemTitle(item: CloudItem): string {
-  return item.songName || item.simpleSong?.name || item.fileName || '未知文件'
+  return (
+    item.songName || item.simpleSong?.name || item.fileName || t('未知文件')
+  )
 }
 
 /** 副标题：原始文件名与标题不同时展示（Hydrogen getItemSecondaryName） */
@@ -253,7 +256,7 @@ function itemToSong(item: CloudItem): NcmSong | null {
       (s.ar ?? [])
         .map((a) => a.name)
         .filter(Boolean)
-        .join(' / ') || '未知歌手',
+        .join(' / ') || t('未知歌手'),
     album: s.al?.name ?? '',
     cover: s.al?.picUrl ?? '',
     durationMs: s.dt ?? 0,
@@ -379,7 +382,7 @@ export function MusicCloudPage({
         await fetchCloud()
       } catch (err) {
         console.error('[MusicCloudPage] 云盘获取失败:', err)
-        if (!cancelled) message.error('云盘获取失败，请稍后重试')
+        if (!cancelled) message.error(t('云盘获取失败，请稍后重试'))
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -454,7 +457,7 @@ export function MusicCloudPage({
           }
         }
         if (successCount > 0) {
-          message.success('上传完毕，上传完成后可能需要转码，请稍后刷新查看')
+          message.success(t('上传完毕，上传完成后可能需要转码，请稍后刷新查看'))
         }
       } finally {
         setIsUploading(false)
@@ -507,7 +510,7 @@ export function MusicCloudPage({
   )
 
   const selectedCategoryName = useMemo(
-    () => CLOUD_CATEGORIES.find((c) => c.key === typeSelect)?.name ?? '全部',
+    () => CLOUD_CATEGORIES.find((c) => c.key === typeSelect)?.name ?? t('全部'),
     [typeSelect]
   )
 
@@ -547,15 +550,15 @@ export function MusicCloudPage({
         `/api/music/ncm/user/cloud/del?id=${effectiveSelectedIds.join(',')}`
       )
       if (data?.code === 200) {
-        message.success('删除成功')
+        message.success(t('删除成功'))
         setSelectedIds([])
         await fetchCloud()
       } else {
-        message.error('删除失败')
+        message.error(t('删除失败'))
       }
     } catch (err) {
       console.error('[MusicCloudPage] 云盘删除失败:', err)
-      message.error('删除失败')
+      message.error(t('删除失败'))
     }
   }, [effectiveSelectedIds, confirmingDelete, fetchCloud])
 
@@ -574,12 +577,12 @@ export function MusicCloudPage({
     (item: CloudItem) => {
       const song = itemToSong(item)
       if (!song) {
-        message.error('该文件暂无法播放')
+        message.error(t('该文件暂无法播放'))
         return
       }
       if (song.vip && !loginStatus.loggedIn) return
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
       add(songToUpsertItem(song))
@@ -623,7 +626,7 @@ export function MusicCloudPage({
   if (!loginStatus.loggedIn) {
     return (
       <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
-        <MusicLoginGate hint="登录后查看网易云云盘歌曲" />
+        <MusicLoginGate hint={t('登录后查看网易云云盘歌曲')} />
       </div>
     )
   }
@@ -644,7 +647,7 @@ export function MusicCloudPage({
             className="text-base font-bold"
             style={{ color: 'var(--md-sys-color-on-surface)' }}
           >
-            我的云盘
+            {t('我的云盘')}
           </span>
         </div>
 
@@ -762,17 +765,17 @@ export function MusicCloudPage({
                 color: 'var(--md-sys-color-surface)',
               }}
             >
-              云盘信息
+              {t('云盘信息')}
             </span>
             <div className="flex flex-col gap-1.5">
               <div className="flex items-center text-xs font-bold">
-                <span className="w-16 shrink-0">当前用户</span>
+                <span className="w-16 shrink-0">{t('当前用户')}</span>
                 <span className="truncate font-normal opacity-80">
-                  {loginStatus.nickname || '未知用户'}
+                  {loginStatus.nickname || t('未知用户')}
                 </span>
               </div>
               <div className="flex items-center text-xs font-bold">
-                <span className="w-16 shrink-0">云盘容量</span>
+                <span className="w-16 shrink-0">{t('云盘容量')}</span>
                 {/* 容量进度条（on-surface 进度 + 描边轨道） */}
                 <div
                   className="mx-2 h-[7px] flex-1"
@@ -794,13 +797,13 @@ export function MusicCloudPage({
                 </span>
               </div>
               <div className="flex items-center text-xs font-bold">
-                <span className="w-16 shrink-0">文件数量</span>
+                <span className="w-16 shrink-0">{t('文件数量')}</span>
                 <span className="font-normal opacity-80">
                   {cloudData?.count ?? 0} 个
                 </span>
               </div>
               <div className="flex items-center text-xs font-bold">
-                <span className="w-16 shrink-0">上次添加</span>
+                <span className="w-16 shrink-0">{t('上次添加')}</span>
                 <span className="truncate font-normal opacity-80">
                   {lastAddedTime}
                 </span>
@@ -848,7 +851,7 @@ export function MusicCloudPage({
               UPLOAD_ACCEPT_EXTS.includes(getFileExt(file.name))
             )
             if (files.length === 0) {
-              message.error('不支持的文件类型')
+              message.error(t('不支持的文件类型'))
               return
             }
             void uploadFiles(files)
@@ -868,13 +871,13 @@ export function MusicCloudPage({
                 className="text-sm font-bold"
                 style={{ color: 'var(--md-sys-color-on-surface)' }}
               >
-                上传中...
+                {t('上传中...')}
               </span>
               <span
                 className="text-center text-xs opacity-70"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                上传完成后可能需要转码，请稍后刷新查看
+                {t('上传完成后可能需要转码，请稍后刷新查看')}
               </span>
             </div>
           ) : (
@@ -907,7 +910,7 @@ export function MusicCloudPage({
                 className="text-xl font-light"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                上传
+                {t('上传')}
               </span>
             </div>
           )}
@@ -991,7 +994,7 @@ export function MusicCloudPage({
           >
             <Trash2 className="h-3.5 w-3.5" />
             {confirmingDelete
-              ? '确认删除？'
+              ? t('确认删除？')
               : `删除（${effectiveSelectedIds.length}）`}
           </button>
         </div>
@@ -1028,7 +1031,7 @@ export function MusicCloudPage({
                       'color-mix(in srgb, var(--md-sys-color-outline-variant) 60%, transparent)',
                   }}
                   onDoubleClick={() => handleRowDoubleClick(item)}
-                  title="双击播放，点击封面或右侧勾选框选中"
+                  title={t('双击播放，点击封面或右侧勾选框选中')}
                 >
                   {/* 封面缩略图（点击选中；无封面 NO COVER 占位） */}
                   <div
@@ -1097,7 +1100,7 @@ export function MusicCloudPage({
                   {/* 复选框（选中 on-surface 底 + 反色对勾） */}
                   <button
                     type="button"
-                    aria-label={selected ? '取消选中' : '选中'}
+                    aria-label={selected ? t('取消选中') : t('选中')}
                     onClick={(e) => {
                       e.stopPropagation()
                       toggleSelect(item)

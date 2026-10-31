@@ -20,6 +20,7 @@ import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { CommentPanel } from '@/components/CommentPanel'
 import { cn } from '@/lib/utils'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { t } from '@/i18n'
 
 interface MusicSideDockProps {
   socket: Socket | null
@@ -76,8 +77,8 @@ export function MusicSideDock({
       <div
         role="button"
         tabIndex={0}
-        aria-label={open ? '收起侧边工具栏' : '展开侧边工具栏'}
-        title={open ? '收起侧边工具栏' : '展开侧边工具栏'}
+        aria-label={open ? t('收起侧边工具栏') : t('展开侧边工具栏')}
+        title={open ? t('收起侧边工具栏') : t('展开侧边工具栏')}
         onMouseEnter={handleEnter}
         onMouseLeave={handleLeave}
         onClick={() => {

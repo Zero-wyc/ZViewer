@@ -14,6 +14,7 @@ import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
 import { musicItemKey, useMusicStore } from '../store'
 import type { NcmSong } from '../types'
+import { t as translate } from '@/i18n'
 
 /** `music:queue-upsert` 的 item 载荷（与后端 MusicSyncHandler 契约对应） */
 export interface QueueUpsertItem {
@@ -94,7 +95,7 @@ export function useQueueAdd(
         { roomId, item, afterCurrent },
         (response: { success?: boolean; message?: string }) => {
           if (response && response.success === false) {
-            message.error(response.message || '添加歌曲失败')
+            message.error(response.message || translate('添加歌曲失败'))
           }
         }
       )
@@ -123,7 +124,7 @@ export function useQueueAdd(
       opts?: { afterCurrent?: boolean; notify?: boolean }
     ) => {
       if (!socket || !roomId) {
-        message.error('未连接房间')
+        message.error(translate('未连接房间'))
         return
       }
       item = { ...item, cover: portableMusicCoverUrl(item.cover) }
@@ -138,7 +139,7 @@ export function useQueueAdd(
           item,
           afterCurrent,
         })
-        message.info('已申请添加到播放列表，等待房主确认')
+        message.info(translate('已申请添加到播放列表，等待房主确认'))
         return
       }
       // notify 模式：已在队列中时先经非模态确认（重复 upsert 会再追加一条）
@@ -149,8 +150,11 @@ export function useQueueAdd(
           .queue.some((q) => musicItemKey(q) === upsertItemKey(item))
       ) {
         message.confirm(`《${item.name}》已在播放队列中，仍要添加吗？`, [
-          { label: '添加', onClick: () => doAdd(item, afterCurrent, notify) },
-          { label: '取消', onClick: () => {} },
+          {
+            label: translate('添加'),
+            onClick: () => doAdd(item, afterCurrent, notify),
+          },
+          { label: translate('取消'), onClick: () => {} },
         ])
         return
       }

@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 interface BilibiliAudioSource {
   audioUrl?: string
   videoUrl?: string
@@ -17,7 +18,13 @@ export async function resolveBilibiliAudioWithFallback<T>(
   try {
     return await resolve({ forceDash: true, audioOnly: true })
   } catch (error) {
-    if (typeof error !== 'object' || error === null || !('code' in error) || error.code !== 'DASH_NOT_AVAILABLE') throw error
+    if (
+      typeof error !== 'object' ||
+      error === null ||
+      !('code' in error) ||
+      error.code !== 'DASH_NOT_AVAILABLE'
+    )
+      throw error
     return resolve({ preferMp4: true, audioOnly: true })
   }
 }
@@ -26,5 +33,5 @@ export async function resolveBilibiliAudioWithFallback<T>(
 export function selectBilibiliAudioStream(source: BilibiliAudioSource): string {
   if (source.audioUrl) return source.audioUrl
   if (source.format !== 'dash' && source.videoUrl) return source.videoUrl
-  throw new Error('未获取到 B站音轨，请重试或切换解析来源')
+  throw new Error(t('未获取到 B站音轨，请重试或切换解析来源'))
 }
