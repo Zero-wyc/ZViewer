@@ -135,6 +135,5 @@ npm run lint:go && npm run test:go && npm test -w frontend   # 检查
 | 内容 | 位置 |
 | --- | --- |
 | 完整使用文档（部署、配置、环境变量） | [docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz) |
-| 云隧道实现 | [desktop/IMPLEMENTATION-CLOUDFLARE-TUNNEL.md](desktop/IMPLEMENTATION-CLOUDFLARE-TUNNEL.md) |
 | 高画质代理 CLI | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) |
 | 手机端 | [ZViewerAPP](https://github.com/Zero-wyc/ZViewerAPP) |
