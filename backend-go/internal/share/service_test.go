@@ -248,28 +248,41 @@ func TestHandleUnknownFieldDoesNotDisconnect(t *testing.T) {
 	}
 }
 
-// P0 只实现到会话级；路由与信令必须明确回报「未实现」，
+// P1 只实现了 P2P 路由与信令；SFU 信令必须明确回报「未实现」，
 // 不能让客户端等到超时还不知道服务端不支持。
-func TestHandleUnimplementedMessagesReport(t *testing.T) {
+func TestHandleSFUSignalNotImplemented(t *testing.T) {
 	service, hub := newTestService("host-1")
 	conn := newConn("host-1", "r1")
+	frame := `{"t":"share.sfu-signal","roomId":"r1","revision":1,"publicationGeneration":"pub_1","connectionId":"route_1","kind":"description"}`
+	send(t, service, conn, frame)
+	message := lastServerMessage(t, hub.to)
+	if message["code"] != CodeNotImplemented {
+		t.Fatalf("应回报 NOT_IMPLEMENTED，实际 %v", message["code"])
+	}
+	if message["roomId"] != "r1" {
+		t.Fatalf("错误帧缺少 roomId: %v", message)
+	}
+}
+
+// 没有对应路由边时，路由类消息一律静默丢弃——不回报错、不断连。
+// 这与 Piik 的版本栅栏一致（router.go:705-708,810-815）：过期消息不是错误。
+func TestRouteMessagesWithoutEdgeAreIgnored(t *testing.T) {
+	service, hub := newTestService("host-1")
+	conn := newConn("host-1", "r1")
+	send(t, service, conn, `{"t":"share.hello","roomId":"r1"}`)
+	before := len(hub.to) + len(hub.room)
 	frames := []string{
-		`{"t":"share.route-ready","roomId":"r1","revision":1,"phase":"prepare"}`,
-		`{"t":"share.transport-connected","roomId":"r1","revision":1,"connectionId":"route_1"}`,
-		`{"t":"share.route-failed","roomId":"r1","revision":1,"phase":"prepare","connectionId":"route_1"}`,
+		`{"t":"share.route-ready","roomId":"r1","revision":99,"phase":"prepare"}`,
+		`{"t":"share.transport-connected","roomId":"r1","revision":99,"connectionId":"route_1"}`,
+		`{"t":"share.route-failed","roomId":"r1","revision":99,"phase":"prepare","connectionId":"route_1"}`,
 		`{"t":"share.restart","roomId":"r1","connectionId":"route_1","rebuild":false}`,
 		`{"t":"share.signal","roomId":"r1","connectionId":"route_1","kind":"offer","payload":{}}`,
-		`{"t":"share.sfu-signal","roomId":"r1","revision":1,"publicationGeneration":"pub_1","connectionId":"route_1","kind":"description"}`,
 	}
 	for _, frame := range frames {
 		send(t, service, conn, frame)
-		message := lastServerMessage(t, hub.to)
-		if message["code"] != CodeNotImplemented {
-			t.Fatalf("%s 应回报 NOT_IMPLEMENTED，实际 %v", frame, message["code"])
-		}
-		if message["roomId"] != "r1" {
-			t.Fatalf("%s 的错误帧缺少 roomId: %v", frame, message)
-		}
+	}
+	if after := len(hub.to) + len(hub.room); after != before {
+		t.Fatalf("无路由边时不应产生任何出站消息，多出 %d 条", after-before)
 	}
 }
 

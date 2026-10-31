@@ -43,7 +43,8 @@ type Session struct {
 	quality  QualitySettings
 	// participants 以 socketId 为键：P0 里 peerId 就等于 socketId。
 	participants map[string]Participant
-	assignment   *Assignment
+	// routes 以 childPeerID 为键：每个观众最多一条上游边（Piik 的拓扑不变量）。
+	routes map[string]*Route
 }
 
 // newSession 构造一个空会话。
@@ -51,6 +52,7 @@ func newSession(roomID string) *Session {
 	return &Session{
 		roomID:       roomID,
 		participants: make(map[string]Participant),
+		routes:       make(map[string]*Route),
 	}
 }
 
@@ -100,9 +102,9 @@ func (s *Session) snapshotLocked() SnapshotMessage {
 		return participants[i].PeerID < participants[j].PeerID
 	})
 	var assignment *Assignment
-	if s.assignment != nil {
-		copied := *s.assignment
-		copied.Candidates = append([]Candidate(nil), s.assignment.Candidates...)
+	if computed := s.assignmentLocked(); len(computed.Candidates) > 0 {
+		copied := computed
+		copied.Candidates = append([]Candidate(nil), computed.Candidates...)
 		assignment = &copied
 	}
 	return SnapshotMessage{
@@ -148,10 +150,18 @@ func (s *Session) Join(socketID, displayName string, host bool) SnapshotMessage 
 func (s *Session) Leave(socketID string) (SnapshotMessage, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, ok := s.participants[socketID]; !ok {
+	participant, ok := s.participants[socketID]
+	if !ok {
 		return s.snapshotLocked(), len(s.participants) > 0
 	}
 	delete(s.participants, socketID)
+	// 房主走了所有边都失效；观众走了只拆它自己那条。
+	// 不清理的话后会话里留着一堆指向已消失连接的边，重新 hello 时
+	// PlanRoutes 会认为「已有边」而不补发。
+	// 房主走了所有边都失效；观众走了只拆它自己那条。
+	// 不清理的话会话里会留着一堆指向已消失连接的边，重新 hello 时
+	// PlanRoutes 会认为「已有边」而不补发。
+	s.dropRoutesForLocked(socketID, participant.Role == RoleHost)
 	s.bumpLocked()
 	return s.snapshotLocked(), len(s.participants) > 0
 }
@@ -191,7 +201,10 @@ func (s *Session) Start(hint *string, paused bool, quality *QualitySettings) (Sn
 	if quality != nil {
 		s.quality = *quality
 	}
-	s.assignment = nil
+	// 新代际作废所有旧边（旧 connectionId 属于上一代，不能复用）。
+	// 重连分支（hint 命中）刻意不清：房主刷新后观众还能沿着原 connectionId
+	// 走恢复链，不必等全量重建。
+	s.routes = make(map[string]*Route)
 	s.bumpLocked()
 	return s.snapshotLocked(), nil
 }
@@ -209,7 +222,7 @@ func (s *Session) Stop(generation string) (SnapshotMessage, error) {
 	s.sharing = false
 	s.generation = ""
 	s.paused = false
-	s.assignment = nil
+	s.routes = make(map[string]*Route)
 	s.bumpLocked()
 	return s.snapshotLocked(), nil
 }

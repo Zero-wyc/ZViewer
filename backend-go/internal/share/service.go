@@ -211,8 +211,18 @@ func (s *Service) Handle(conn Conn, args []json.RawMessage) {
 		s.handleStop(conn, typed)
 	case PauseMessage:
 		s.handlePause(conn, typed)
+	case RouteReadyMessage:
+		s.handleRouteReady(conn, typed)
+	case TransportConnectedMessage:
+		s.handleTransportConnected(conn, typed)
+	case RouteFailedMessage:
+		s.handleRouteFailed(conn, typed)
+	case RestartMessage:
+		s.handleRestart(conn, typed)
+	case SignalMessage:
+		s.handleSignal(conn, typed)
 	default:
-		// 路由与信令在 P1/P2 接上；协议先冻结，实现留空但必须明确回报，
+		// SFU 信令在 P3 接上；协议先冻结，实现留空但必须明确回报，
 		// 不能让客户端等到超时还不知道服务端不支持。
 		s.fail(conn, roomIDOf(message), CodeNotImplemented, "该消息在当前版本尚未实现")
 	}
@@ -233,6 +243,8 @@ func (s *Service) handleHello(conn Conn, message HelloMessage) {
 	session := s.EnsureSession(message.RoomID)
 	snapshot := session.Join(conn.ID, s.displayName(conn.ID), host)
 	s.emitTo(conn, snapshot)
+	// 共享进行中新加入的观众要立刻拿到候选，不能等房主再点一次开始。
+	s.reconcile(message.RoomID)
 }
 
 func (s *Service) handleStart(conn Conn, message StartMessage) {
@@ -254,6 +266,7 @@ func (s *Service) handleStart(conn Conn, message StartMessage) {
 	}
 	s.trackRoom(conn.ID, message.RoomID)
 	s.broadcast(message.RoomID, snapshot)
+	s.reconcile(message.RoomID)
 }
 
 func (s *Service) handleStop(conn Conn, message StopMessage) {
@@ -284,6 +297,116 @@ func (s *Service) handlePause(conn Conn, message PauseMessage) {
 		return
 	}
 	s.broadcast(message.RoomID, snapshot)
+}
+
+// handleRouteReady 提交一条候选（只接受 phase=prepare）。
+//
+// transport-connected 只是进度，route-ready 才是「观众已解出首帧」的证明
+// （router.go:796-846）。两者不能合并。
+func (s *Service) handleRouteReady(conn Conn, message RouteReadyMessage) {
+	if !s.inRoom(conn, message.RoomID) {
+		return
+	}
+	if message.Phase != PhasePrepare {
+		// active 表示客户端重复上报，已经提交过，静默忽略。
+		return
+	}
+	session := s.Session(message.RoomID)
+	if session == nil {
+		return
+	}
+	s.emitPlans(session.CommitRoute(conn.ID, message.Revision, message.ConnectionID))
+}
+
+// handleTransportConnected 只记进度，不提交、不推进版本。
+func (s *Service) handleTransportConnected(
+	conn Conn,
+	message TransportConnectedMessage,
+) {
+	if !s.inRoom(conn, message.RoomID) {
+		return
+	}
+	if session := s.Session(message.RoomID); session != nil {
+		session.MarkRouteConnected(conn.ID, message.Revision, message.ConnectionID)
+	}
+}
+
+// handleRouteFailed 换下一个候选；次数用完就彻底放弃并回报失败。
+func (s *Service) handleRouteFailed(conn Conn, message RouteFailedMessage) {
+	if !s.inRoom(conn, message.RoomID) {
+		return
+	}
+	session := s.Session(message.RoomID)
+	if session == nil {
+		return
+	}
+	plans, status := session.FailRoute(conn.ID, message.Revision, message.ConnectionID)
+	s.emitPlans(plans)
+	if status != nil {
+		s.emitTo(conn, *status)
+	}
+}
+
+// handleRestart 处理观众的恢复请求：重建则换新连接身份，否则原地 ICE 重启。
+func (s *Service) handleRestart(conn Conn, message RestartMessage) {
+	if !s.inRoom(conn, message.RoomID) {
+		return
+	}
+	session := s.Session(message.RoomID)
+	if session == nil {
+		return
+	}
+	s.emitPlans(session.RestartRoute(conn.ID, message.ConnectionID, message.Rebuild))
+}
+
+// handleSignal 中继一条 SDP 或 ICE。
+//
+// 角色由会话判定（offer 只能房主发、answer 只能观众发），不是靠客户端自觉。
+func (s *Service) handleSignal(conn Conn, message SignalMessage) {
+	if !s.inRoom(conn, message.RoomID) {
+		return
+	}
+	session := s.Session(message.RoomID)
+	if session == nil {
+		return
+	}
+	target, ok := session.SignalTarget(conn.ID, message.RoomID, message.ConnectionID, message.Kind)
+	if !ok {
+		// 未授权 / 角色串了 / 身份不存在一律静默丢弃（router.go:705-708）。
+		return
+	}
+	if s.hub == nil {
+		return
+	}
+	s.hub.EmitTo(target, Event, SignalRelayMessage{
+		T:            TypeSignalRelay,
+		RoomID:       message.RoomID,
+		FromPeerID:   conn.ID,
+		ConnectionID: message.ConnectionID,
+		Kind:         message.Kind,
+		Payload:      message.Payload,
+	})
+}
+
+// reconcile 补齐缺的路由边并下发。
+//
+// 触发：房主开始共享、观众刚进会话。PlanRoutes 幂等，重复调用只补差额。
+func (s *Service) reconcile(roomID string) {
+	session := s.Session(roomID)
+	if session == nil {
+		return
+	}
+	s.emitPlans(session.PlanRoutes())
+}
+
+// emitPlans 下发一批 route 消息。
+func (s *Service) emitPlans(plans []RoutePlan) {
+	if s.hub == nil || len(plans) == 0 {
+		return
+	}
+	for _, plan := range plans {
+		s.hub.EmitTo(plan.ToPeerID, Event, plan.Message)
+	}
 }
 
 // requireHost 校验房主身份，失败时已经回报错误。
