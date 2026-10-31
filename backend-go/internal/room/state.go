@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"zviewer/backend/internal/nms"
+	"zviewer/backend/internal/share"
 	"zviewer/backend/internal/store"
 )
 
@@ -132,6 +133,12 @@ type Service struct {
 	// NMS reports media availability and per-stream publishing activity.
 	NMS StreamPushService
 
+	// shareSvc 是屏幕共享控制面（严格信封 + 共享代际 + 快照）。
+	//
+	// 挂在房间服务上而不是独立模块：共享的权限判定必须复用房间域的
+	// session 表与缓存，另起一份会与「谁在房间里」慢慢分叉。
+	shareSvc *share.Service
+
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
 
@@ -178,7 +185,7 @@ func NewService(deps Deps) *Service {
 	if deps.NMS == nil {
 		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
-	return &Service{
+	svc := &Service{
 		DB:        deps.DB,
 		Rooms:     deps.Rooms,
 		Sessions:  deps.Sessions,
@@ -200,7 +207,18 @@ func NewService(deps Deps) *Service {
 		streamOfflineAt: make(map[string]time.Time),
 		perm:            newPermCache(),
 	}
+	// 共享控制面要复用房间域的房主判定（带 5s 缓存），所以只能在这里注入，
+	// 且必须传 svc 自己的方法而不是闭包复制一份逻辑。
+	svc.shareSvc = share.NewService(share.Deps{
+		Hub:    deps.Hub,
+		IsHost: svc.IsRoomHost,
+		Logger: logger,
+	})
+	return svc
 }
+
+// Share 返回屏幕共享控制面（供 api 层与测试使用）。
+func (s *Service) Share() *share.Service { return s.shareSvc }
 
 // ---------------------------------------------------------------------------
 // 运行时状态
@@ -498,6 +516,12 @@ func (s *Service) CloseAndNotify(ctx context.Context, roomID, sharerSocketID str
 
 	if s.Hub != nil {
 		s.Hub.EmitRoom(roomID, "room-closed", map[string]any{"roomId": roomID})
+	}
+
+	// 共享会话随房间一起作废：先广播空快照让观众清画面，再删掉会话。
+	// 顺序不能反——DropRoom 自己会广播，这里只调用一次即可。
+	if s.shareSvc != nil {
+		s.shareSvc.DropRoom(roomID)
 	}
 
 	s.Delete(roomID)

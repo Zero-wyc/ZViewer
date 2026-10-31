@@ -213,3 +213,14 @@ func (s *Service) handleSharerError(sc *sio.Socket, args []json.RawMessage, ack 
 	})
 	ackOK(ack, nil)
 }
+
+// bindShare 挂上屏幕共享控制面的单一 `share` 事件。
+//
+// 它与上面三个 signal-* 事件是两套并行的线路：旧事件按 socketId 裸转发、
+// 没有代际也没有首帧判据；新事件走严格信封 + shareGeneration + 路由版本。
+// P0–P4 双跑，P5 才删旧链路。
+func (s *Service) bindShare(sc *sio.Socket) {
+	if s.shareSvc != nil {
+		s.shareSvc.Bind(sc)
+	}
+}

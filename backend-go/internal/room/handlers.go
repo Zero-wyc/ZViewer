@@ -177,6 +177,9 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindMusic(sc)
 	// WebRTC 信令与观众就绪。
 	s.bindWebRTC(sc)
+	// 屏幕共享控制面（严格信封）：与上面的旧 signal-* 事件并行存在，
+	// P5 才摘掉旧链路。
+	s.bindShare(sc)
 	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
 	s.bindMisc(sc)
 }
@@ -833,6 +836,12 @@ func (s *Service) bindDisconnect(sc *sio.Socket) {
 func (s *Service) handleDisconnect(socketID, reason string) {
 	ctx, cancel := handlerCtx()
 	defer cancel()
+
+	// 共享状态的清理必须在 EndSession 之前：EndSession 查不到会话时会提前
+	// return，而「只发过 share.hello 就断」的连接本来就没有 session。
+	if s.shareSvc != nil {
+		s.shareSvc.Detach(socketID)
+	}
 
 	sess, err := s.EndSession(ctx, socketID)
 	if err != nil {
