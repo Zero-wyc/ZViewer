@@ -149,7 +149,7 @@ All are unmodified binaries redistributed as-is, each keeping its license: frp /
 
 ## Development
 
-For people changing this repository. Deployment options are in [DEPLOYMENT.md](DEPLOYMENT.md) (Chinese).
+For people changing this repository. Deployment options are in the Chinese [README](README.md#部署与配置).
 
 - **Two independent Go modules, no module at the root**: `backend-go/` (`zviewer/backend`) and `desktop/` (`zviewer/desktop`) build separately and share no internal packages.
 - In production the Go server serves the SPA; during development Vite runs on 5174 and proxies `/api`, `/socket.io` and `/live` to 3333.
@@ -220,7 +220,7 @@ Update source: both the web UI and the desktop app have a "use mirror update sou
 
 | Topic | Where |
 | --- | --- |
-| Deployment (ports, Docker, environment variables, streaming, voice) | [DEPLOYMENT.md](DEPLOYMENT.md) (Chinese) |
+| Deployment (ports, Docker, environment variables, streaming, voice) | [README.md](README.md#部署与配置) (Chinese) |
 | Full user guide | [docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz) (Chinese) |
 | Cloud tunnel internals | [desktop/IMPLEMENTATION-CLOUDFLARE-TUNNEL.md](desktop/IMPLEMENTATION-CLOUDFLARE-TUNNEL.md) (Chinese) |
 | High-quality proxy CLI | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) |
