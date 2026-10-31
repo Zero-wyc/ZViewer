@@ -320,10 +320,18 @@ export function BiliSearchModal({
                         }}
                       >
                         {v.view != null && (
-                          <span>{formatCountShort(v.view)}播放</span>
+                          <span>
+                            {t('{{value}}播放', {
+                              value: formatCountShort(v.view),
+                            })}
+                          </span>
                         )}
                         {v.danmaku != null && (
-                          <span>{formatCountShort(v.danmaku)}弹幕</span>
+                          <span>
+                            {t('{{value}}弹幕', {
+                              value: formatCountShort(v.danmaku),
+                            })}
+                          </span>
                         )}
                       </div>
                     </div>

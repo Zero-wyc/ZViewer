@@ -778,7 +778,7 @@ export function RoomInfoPanel({
                 icon={<Users className="h-3.5 w-3.5" />}
                 onClick={() => setShowUsers(true)}
               >
-                在线 ({viewers.length})
+                {t('在线 ({{length}})', { length: viewers.length })}
               </Button>
               {isHost && (
                 <Button
@@ -845,7 +845,7 @@ export function RoomInfoPanel({
                   type="secondary"
                   className="text-[10px] uppercase tracking-wide"
                 >
-                  在线观众（{viewers.length}）
+                  {t('在线观众（{{length}}）', { length: viewers.length })}
                 </Text>
               </div>
               {viewers.length === 0 ? (
@@ -1026,7 +1026,7 @@ export function RoomInfoPanel({
                   type="secondary"
                   className="text-[10px] uppercase tracking-wide"
                 >
-                  在线观众（{viewers.length}）
+                  {t('在线观众（{{length}}）', { length: viewers.length })}
                 </Text>
                 <Text type="secondary" className="text-[10px]">
                   {isHost ? t('可踢出 / 禁言 / 转交房主') : t('仅查看')}
@@ -1267,8 +1267,10 @@ export function RoomInfoPanel({
       >
         <div className="flex flex-col gap-2">
           <Paragraph className="m-0 text-sm">
-            当前访问地址为内网地址（{window.location.hostname}
-            ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。
+            {t(
+              '当前访问地址为内网地址（{{hostname}} ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。',
+              { hostname: window.location.hostname }
+            )}
           </Paragraph>
           <Paragraph type="secondary" className="m-0 text-xs leading-relaxed">
             {t(

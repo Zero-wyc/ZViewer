@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2511 条。
+ * 当前共 2556 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -39,7 +39,8 @@ const zhCN: Record<string, string> = {
   '最大值为 {{max}}': '最大值为 {{max}}',
   '最小值为 {{min}}': '最小值为 {{min}}',
 
-  // ===== components（221 条） =====
+  // ===== components（222 条） =====
+  '· 强度 {{colorIntensity}}%': '· 强度 {{colorIntensity}}%',
   '(相对路径 /live)': '(相对路径 /live)',
   '{{value}} 说点什么…': '{{value}} 说点什么…',
   '阿里云': '阿里云',
@@ -318,7 +319,7 @@ const zhCN: Record<string, string> = {
   '中': '中',
   '重排序失败': '重排序失败',
 
-  // ===== pages（335 条） =====
+  // ===== pages（344 条） =====
   ' 等': ' 等',
   '{{length}} 个进行中': '{{length}} 个进行中',
   '1. 在浏览器中登录 bilibili.com': '1. 在浏览器中登录 bilibili.com',
@@ -340,6 +341,7 @@ const zhCN: Record<string, string> = {
   '超过小时数未访问则自动删除': '超过小时数未访问则自动删除',
   '超级管理员：{{username}}': '超级管理员：{{username}}',
   '处理直连码失败': '处理直连码失败',
+  '创建于 {{value}}': '创建于 {{value}}',
   '从 GitCode 产物仓库（ZviewerRelease）读取清单与安装包，国内可直连；关闭则走 GitHub Release。镜像不可用时直接报错，不自动换源。': '从 GitCode 产物仓库（ZviewerRelease）读取清单与安装包，国内可直连；关闭则走 GitHub Release。镜像不可用时直接报错，不自动换源。',
   '从 KazumiRules 仓库选择规则': '从 KazumiRules 仓库选择规则',
   '待审核': '待审核',
@@ -362,12 +364,14 @@ const zhCN: Record<string, string> = {
   '动作': '动作',
   '多人同步追番、观影与远程共享平台': '多人同步追番、观影与远程共享平台',
   '多页面登录（仅供测试）': '多页面登录（仅供测试）',
+  '发布时间： {{value}}': '发布时间： {{value}}',
   '发现新版本': '发现新版本',
   '发现新预发布版本': '发现新预发布版本',
   '番剧/影视（大会员内容）默认模式': '番剧/影视（大会员内容）默认模式',
   '番剧/影视内容添加影片时套用的默认模式。选「仅 CLI 模式」时成员需各自运行 CLI，服务器不转发媒体流。': '番剧/影视内容添加影片时套用的默认模式。选「仅 CLI 模式」时成员需各自运行 CLI，服务器不转发媒体流。',
   '返回登录': '返回登录',
   '房管': '房管',
+  '房间 ID: {{roomId}} · 观众 {{viewerCount}} /{{value}} {{maxViewers}} · 分享端 {{value2}}': '房间 ID: {{roomId}} · 观众 {{viewerCount}} /{{value}} {{maxViewers}} · 分享端 {{value2}}',
   '房间创建权限': '房间创建权限',
   '房间管理': '房间管理',
   '房间默认音量': '房间默认音量',
@@ -387,6 +391,7 @@ const zhCN: Record<string, string> = {
   '更改登录账户名称': '更改登录账户名称',
   '更换头像': '更换头像',
   '更新 CDN 加速': '更新 CDN 加速',
+  '更新来源： {{value}}': '更新来源： {{value}}',
   '更新已触发': '更新已触发',
   '更新账户登录密码': '更新账户登录密码',
   '更新中断，请重试': '更新中断，请重试',
@@ -395,6 +400,7 @@ const zhCN: Record<string, string> = {
   '共 {{length}} 个房间': '共 {{length}} 个房间',
   '共 {{length}} 位用户': '共 {{length}} 位用户',
   '勾选各角色作为观众时可执行的动作。房主与 root 始终放行，不参与勾选；未勾选按默认：房管与管理员允许，普通用户禁止。': '勾选各角色作为观众时可执行的动作。房主与 root 始终放行，不参与勾选；未勾选按默认：房管与管理员允许，普通用户禁止。',
+  '构建产物：{{assetName}} ( {{value}} MB)': '构建产物：{{assetName}} ( {{value}} MB)',
   '关闭房间': '关闭房间',
   '关闭后房间右下角不显示语音入口。': '关闭后房间右下角不显示语音入口。',
   '关闭后房间左下角不显示流量统计。': '关闭后房间左下角不显示流量统计。',
@@ -478,6 +484,7 @@ const zhCN: Record<string, string> = {
   '请先启动直连共享': '请先启动直连共享',
   '请在 ZViewer Desktop 中更新。': '请在 ZViewer Desktop 中更新。',
   '全部删除': '全部删除',
+  '全选 ({{size}} / {{length}})': '全选 ({{size}} / {{length}})',
   '确定要删除当前头像并恢复默认头像吗？': '确定要删除当前头像并恢复默认头像吗？',
   '确定要删除所有房间吗？此操作不可撤销，所有房间数据将被清除。': '确定要删除所有房间吗？此操作不可撤销，所有房间数据将被清除。',
   '确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。': '确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。',
@@ -488,6 +495,7 @@ const zhCN: Record<string, string> = {
   '删除所有房间失败': '删除所有房间失败',
   '删除头像': '删除头像',
   '删除头像失败': '删除头像失败',
+  '删除已选 ({{size}})': '删除已选 ({{size}})',
   '删除已选 {{size}} 个房间': '删除已选 {{size}} 个房间',
   '删除用户': '删除用户',
   '删除用户失败': '删除用户失败',
@@ -571,11 +579,13 @@ const zhCN: Record<string, string> = {
   '已审核通过该用户': '已审核通过该用户',
   '已是最新': '已是最新',
   '已退出网易云音乐登录': '已退出网易云音乐登录',
+  '已选 {{size}}': '已选 {{size}}',
   '已应用观看端应答，等待连接建立': '已应用观看端应答，等待连接建立',
   '音乐队列管理（加歌 / 删歌 / 清空 / 排序）': '音乐队列管理（加歌 / 删歌 / 清空 / 排序）',
   '应答码（回传给分享端）': '应答码（回传给分享端）',
   '应答码已复制': '应答码已复制',
   '应用应答失败': '应用应答失败',
+  '用户 ID: {{id}}': '用户 ID: {{id}}',
   '用户管理': '用户管理',
   '用户名修改成功': '用户名修改成功',
   '用户注册设置': '用户注册设置',
@@ -675,7 +685,7 @@ const zhCN: Record<string, string> = {
   '已添加 {{length}} 个订阅地址': '已添加 {{length}} 个订阅地址',
   '已添加订阅地址': '已添加订阅地址',
 
-  // ===== modules/anime-browser（15 条） =====
+  // ===== modules/anime-browser（16 条） =====
   '第{{title}}集': '第{{title}}集',
   '多选': '多选',
   '获取集数失败': '获取集数失败',
@@ -690,6 +700,7 @@ const zhCN: Record<string, string> = {
   '退出多选': '退出多选',
   '未找到可用数据源，请在管理面板检查订阅配置': '未找到可用数据源，请在管理面板检查订阅配置',
   '选择数据源': '选择数据源',
+  '已选 {{size}} 集': '已选 {{size}} 集',
   '暂无集数信息': '暂无集数信息',
 
   // ===== modules/anisubs（3 条） =====
@@ -754,9 +765,10 @@ const zhCN: Record<string, string> = {
   '未找到可用采集源，请管理员在后台「TVBox 采集源」添加配置接口': '未找到可用采集源，请管理员在后台「TVBox 采集源」添加配置接口',
   'TVBox 采集源': 'TVBox 采集源',
 
-  // ===== modules/danmaku（77 条） =====
+  // ===== modules/danmaku（83 条） =====
   '，超出上限截断 {{truncated}} 条': '，超出上限截断 {{truncated}} 条',
   '{{length}} 条': '{{length}} 条',
+  '{{length}} 条轨道': '{{length}} 条轨道',
   '「{{fileName}}」不是有效的弹幕文件（XML/JSON 解析均失败）': '「{{fileName}}」不是有效的弹幕文件（XML/JSON 解析均失败）',
   '「{{fileName}}」内容为空': '「{{fileName}}」内容为空',
   '「{{fileName}}」中未解析到有效弹幕（支持 B站 XML/JSON 与 dandanplay JSON 格式）': '「{{fileName}}」中未解析到有效弹幕（支持 B站 XML/JSON 与 dandanplay JSON 格式）',
@@ -782,6 +794,7 @@ const zhCN: Record<string, string> = {
   '该作品暂无可用集数': '该作品暂无可用集数',
   '高级': '高级',
   '高亮 ±{{wINDOW_SIZE}}s': '高亮 ±{{wINDOW_SIZE}}s',
+  '共 {{length}} 条弹幕': '共 {{length}} 条弹幕',
   '固定': '固定',
   '关键词': '关键词',
   '管理': '管理',
@@ -818,9 +831,12 @@ const zhCN: Record<string, string> = {
   '选择集数': '选择集数',
   '已导入「{{name}}」弹幕轨道（共 {{length}} 条{{value}}）': '已导入「{{name}}」弹幕轨道（共 {{length}} 条{{value}}）',
   '已恢复该弹幕': '已恢复该弹幕',
+  '已屏蔽 ({{length}})': '已屏蔽 ({{length}})',
   '已屏蔽该内容关键词': '已屏蔽该内容关键词',
+  '已屏蔽关键词 ({{length}})': '已屏蔽关键词 ({{length}})',
   '已清空删除记录': '已清空删除记录',
   '已取消屏蔽该内容': '已取消屏蔽该内容',
+  '已删除 ({{length}})': '已删除 ({{length}})',
   '已删除该弹幕（本地生效）': '已删除该弹幕（本地生效）',
   '已添加 {{label}} 弹幕轨道（共 {{length}} 条）': '已添加 {{label}} 弹幕轨道（共 {{length}} 条）',
   '已添加 {{title}} 弹幕轨道（共 {{length}} 条）': '已添加 {{title}} 弹幕轨道（共 {{length}} 条）',
@@ -830,14 +846,17 @@ const zhCN: Record<string, string> = {
   '暂无可用集数': '暂无可用集数',
   '暂无屏蔽关键词': '暂无屏蔽关键词',
   '暂无已删除弹幕': '暂无已删除弹幕',
+  '找到 {{length}} 条匹配弹幕': '找到 {{length}} 条匹配弹幕',
   'B站番剧': 'B站番剧',
   'B站视频': 'B站视频',
 
   // ===== modules/direct-link（1 条） =====
   '实时解析直链失败': '实时解析直链失败',
 
-  // ===== modules/emby（34 条） =====
+  // ===== modules/emby（37 条） =====
+  '{{childCount}} 项': '{{childCount}} 项',
   '{{count}} 集': '{{count}} 集',
+  '{{value}} 项': '{{value}} 项',
   '测试 {{label}} 连接失败': '测试 {{label}} 连接失败',
   '创建 {{label}} 挂载失败': '创建 {{label}} 挂载失败',
   '当前目录': '当前目录',
@@ -848,6 +867,7 @@ const zhCN: Record<string, string> = {
   '海报墙视图（拉取刮削封面）': '海报墙视图（拉取刮削封面）',
   '获取 {{label}} 挂载列表失败': '获取 {{label}} 挂载列表失败',
   '获取影片版本信息失败': '获取影片版本信息失败',
+  '集数（{{length}}）': '集数（{{length}}）',
   '加载失败': '加载失败',
   '加载中...': '加载中...',
   '解析 {{label}} 条目失败': '解析 {{label}} 条目失败',
@@ -888,15 +908,17 @@ const zhCN: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi 番剧源',
 
-  // ===== modules/mounts（57 条） =====
+  // ===== modules/mounts（61 条） =====
   '，用户：{{userName}}': '，用户：{{userName}}',
   '{{label}} 挂载更新成功': '{{label}} 挂载更新成功',
   '{{label}} 挂载添加成功': '{{label}} 挂载添加成功',
   '保存挂载失败': '保存挂载失败',
   '编辑': '编辑',
   '编辑挂载': '编辑挂载',
+  '播放模式：{{value}}': '播放模式：{{value}}',
   '测试连接': '测试连接',
   '端口': '端口',
+  '端口：{{port}}': '端口：{{port}}',
   '端口不能为空': '端口不能为空',
   '服务器地址': '服务器地址',
   '服务器地址不能为空': '服务器地址不能为空',
@@ -924,6 +946,7 @@ const zhCN: Record<string, string> = {
   '密码': '密码',
   '请输入 1-65535 之间的端口': '请输入 1-65535 之间的端口',
   '请填写 API Key，或用户名与密码': '请填写 API Key，或用户名与密码',
+  '确定要删除挂载「{{name}}」吗？删除后不可恢复。': '确定要删除挂载「{{name}}」吗？删除后不可恢复。',
   '确认删除': '确认删除',
   '删除': '删除',
   '删除挂载失败': '删除挂载失败',
@@ -934,6 +957,7 @@ const zhCN: Record<string, string> = {
   '我的挂载': '我的挂载',
   '已选择 {{length}} 个文件': '已选择 {{length}} 个文件',
   '已在根目录': '已在根目录',
+  '用户：{{username}}': '用户：{{username}}',
   '用户名': '用户名',
   '用户名（与 API Key 二选一）': '用户名（与 API Key 二选一）',
   '暂无保存的挂载配置': '暂无保存的挂载配置',
@@ -963,7 +987,7 @@ const zhCN: Record<string, string> = {
   '搜索番剧失败': '搜索番剧失败',
   '未取得影片播放地址': '未取得影片播放地址',
 
-  // ===== modules/music（737 条） =====
+  // ===== modules/music（742 条） =====
   '\n@keyframes zen-music-banner-timer {\n  86% { opacity: 1; transform: scale(0.2); }\n  88% { opacity: 0; transform: scale(0.8); }\n  90% { opacity: 1; transform: scale(0.2); }\n  92% { opacity: 0; transform: scale(0.8); }\n  94% { opacity: 1; transform: scale(0.2); }\n  96% { opacity: 0; transform: scale(0.8); }\n  98% { opacity: 1; transform: scale(0.2); }\n  100% { opacity: 0; transform: scale(1); }\n}\n@keyframes zen-music-rec-checker {\n  0% { background-position: 0%; }\n  100% { background-position: 100%; }\n}\n/* 标题「每日推荐 ↔ 查看详情」hover 切换的闪烁动画\n   （Hydrogen Recommendation .show-more @keyframes 1:1 平移） */\n@keyframes zen-music-rec-titleswap {\n  10% { opacity: 0; }\n  20% { opacity: 1; }\n  30% { opacity: 1; }\n  40% { opacity: 0; }\n  50% { opacity: 0; }\n  60% { opacity: 1; }\n  70% { opacity: 1; }\n  80% { opacity: 0; }\n  90% { opacity: 0; }\n  100% { opacity: 1; }\n}\n': '\n@keyframes zen-music-banner-timer {\n  86% { opacity: 1; transform: scale(0.2); }\n  88% { opacity: 0; transform: scale(0.8); }\n  90% { opacity: 1; transform: scale(0.2); }\n  92% { opacity: 0; transform: scale(0.8); }\n  94% { opacity: 1; transform: scale(0.2); }\n  96% { opacity: 0; transform: scale(0.8); }\n  98% { opacity: 1; transform: scale(0.2); }\n  100% { opacity: 0; transform: scale(1); }\n}\n@keyframes zen-music-rec-checker {\n  0% { background-position: 0%; }\n  100% { background-position: 100%; }\n}\n/* 标题「每日推荐 ↔ 查看详情」hover 切换的闪烁动画\n   （Hydrogen Recommendation .show-more @keyframes 1:1 平移） */\n@keyframes zen-music-rec-titleswap {\n  10% { opacity: 0; }\n  20% { opacity: 1; }\n  30% { opacity: 1; }\n  40% { opacity: 0; }\n  50% { opacity: 0; }\n  60% { opacity: 1; }\n  70% { opacity: 1; }\n  80% { opacity: 0; }\n  90% { opacity: 0; }\n  100% { opacity: 1; }\n}\n',
   ' · 共 {{totalPages}} 页': ' · 共 {{totalPages}} 页',
   ' / 共 {{totalPages}} 页': ' / 共 {{totalPages}} 页',
@@ -1011,7 +1035,9 @@ const zhCN: Record<string, string> = {
   '{{name}} 上传成功': '{{name}} 上传成功',
   '{{name}} 上传失败': '{{name}} 上传失败',
   '{{programCount}} 期': '{{programCount}} 期',
+  '{{selectedCategoryName}}暂无文件': '{{selectedCategoryName}}暂无文件',
   '{{value}} 播放 · {{value2}} 收藏': '{{value}} 播放 · {{value2}} 收藏',
+  '{{value}} 个': '{{value}} 个',
   '{{value}} 首': '{{value}} 首',
   '{{value}} 首歌曲 · {{value2}} 播放': '{{value}} 首歌曲 · {{value2}} 播放',
   '{{value}} 首歌曲 · {{value2}} 收藏': '{{value}} 首歌曲 · {{value2}} 收藏',
@@ -1097,6 +1123,7 @@ const zhCN: Record<string, string> = {
   '打开设置': '打开设置',
   '打开完整播放器': '打开完整播放器',
   '打开专辑': '打开专辑',
+  '大会员：{{value}}': '大会员：{{value}}',
   '大哭': '大哭',
   '大笑': '大笑',
   '呆': '呆',
@@ -1232,6 +1259,7 @@ const zhCN: Record<string, string> = {
   '仅对「{{name}}」分区的列表生效；点击词上的范围徽标可单独设置匹配标题还是标签': '仅对「{{name}}」分区的列表生效；点击词上的范围徽标可单独设置匹配标题还是标签',
   '仅房主 / 房管可添加队列': '仅房主 / 房管可添加队列',
   '仅房主可切换播放模式': '仅房主可切换播放模式',
+  '仅支持 {{value}}': '仅支持 {{value}}',
   '进入纯净模式': '进入纯净模式',
   '进入全屏': '进入全屏',
   '进入一起听默认页': '进入一起听默认页',
@@ -1635,6 +1663,7 @@ const zhCN: Record<string, string> = {
   '暂无自建歌单': '暂无自建歌单',
   '暂无最新音乐': '暂无最新音乐',
   '粘贴 B站 链接': '粘贴 B站 链接',
+  '粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （ {{value}} 或旧版 channel 链接）、收藏夹（{{value2}}）；b23.tv 短链自动展开。': '粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （ {{value}} 或旧版 channel 链接）、收藏夹（{{value2}}）；b23.tv 短链自动展开。',
   '展开{{replyCount}}条回复': '展开{{replyCount}}条回复',
   '展开侧边工具栏': '展开侧边工具栏',
   '展开更多回复': '展开更多回复',
@@ -1820,7 +1849,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（393 条） =====
+  // ===== modules/room（401 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析',
@@ -1834,7 +1863,10 @@ const zhCN: Record<string, string> = {
   '[useWatchTogether] 重新解析 B站 视频失败:': '[useWatchTogether] 重新解析 B站 视频失败:',
   '[useWatchTogether] applySourceToVideo 失败:': '[useWatchTogether] applySourceToVideo 失败:',
   '[useWatchTogether] previewPlay 加载失败:': '[useWatchTogether] previewPlay 加载失败:',
+  '{{length}} 部影片': '{{length}} 部影片',
   '{{message}}，已按单 P 添加': '{{message}}，已按单 P 添加',
+  '{{value}}播放': '{{value}}播放',
+  '{{value}}弹幕': '{{value}}弹幕',
   '《{{name}}》下没有可播放的分集': '《{{name}}》下没有可播放的分集',
   '保存设置': '保存设置',
   '保存失败': '保存失败',
@@ -1857,6 +1889,7 @@ const zhCN: Record<string, string> = {
   '从 Kazumi XPath 规则源搜索番剧并选择集数播放。': '从 Kazumi XPath 规则源搜索番剧并选择集数播放。',
   '大会员账号，可解析 4K / 1080P 高码率等专属画质': '大会员账号，可解析 4K / 1080P 高码率等专属画质',
   '当前处于内网地址': '当前处于内网地址',
+  '当前访问地址为内网地址（{{hostname}} ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。': '当前访问地址为内网地址（{{hostname}} ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。',
   '当前平台不支持服务端流量统计': '当前平台不支持服务端流量统计',
   '当前为远程共享模式，影片播放已暂停': '当前为远程共享模式，影片播放已暂停',
   '等待播放': '等待播放',
@@ -1891,6 +1924,7 @@ const zhCN: Record<string, string> = {
   '房主拒绝了您的跳转申请': '房主拒绝了您的跳转申请',
   '房主拒绝了您的暂停申请': '房主拒绝了您的暂停申请',
   '房主已变更': '房主已变更',
+  '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后使用自己的 CLI 解析播放。': '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后使用自己的 CLI 解析播放。',
   '房主已开启：本影片需自行安装并连接 ZViewer CLI 后才能观看': '房主已开启：本影片需自行安装并连接 ZViewer CLI 后才能观看',
   '房主已同意继续播放': '房主已同意继续播放',
   '房主已同意跳转到 {{value}}': '房主已同意跳转到 {{value}}',
@@ -1898,6 +1932,7 @@ const zhCN: Record<string, string> = {
   '房主已转交，您已成为观众': '房主已转交，您已成为观众',
   '分享': '分享',
   '分享链接已复制': '分享链接已复制',
+  '服务端{{label}}': '服务端{{label}}',
   '服务器文件': '服务器文件',
   '服务器已禁用 DASH 模式，当前强制 MP4 播放': '服务器已禁用 DASH 模式，当前强制 MP4 播放',
   '服务器转发': '服务器转发',
@@ -2135,6 +2170,8 @@ const zhCN: Record<string, string> = {
   '远程共享模式下不可播放': '远程共享模式下不可播放',
   '远程共享模式下不可删除': '远程共享模式下不可删除',
   '允许': '允许',
+  '在线 ({{length}})': '在线 ({{length}})',
+  '在线观众（{{length}}）': '在线观众（{{length}}）',
   '在线用户': '在线用户',
   '暂停申请': '暂停申请',
   '暂停申请已超时，房主未回应': '暂停申请已超时，房主未回应',
@@ -2215,7 +2252,7 @@ const zhCN: Record<string, string> = {
   'Socket 尚未连接': 'Socket 尚未连接',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）',
 
-  // ===== modules/screen-sharing（170 条） =====
+  // ===== modules/screen-sharing（174 条） =====
   '，码率不足将导致降帧': '，码率不足将导致降帧',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} 帧',
   '1. 【推荐】点击「在新窗口打开」按钮，或在浏览器中直接访问 {{origin}}\n': '1. 【推荐】点击「在新窗口打开」按钮，或在浏览器中直接访问 {{origin}}\n',
@@ -2252,6 +2289,7 @@ const zhCN: Record<string, string> = {
   '房主屏幕共享启动失败，等待房主重试': '房主屏幕共享启动失败，等待房主重试',
   '房主已拒绝您的加入申请，可重新申请或更换房间': '房主已拒绝您的加入申请，可重新申请或更换房间',
   '房主正在推流，HTTP-FLV 拉流播放中': '房主正在推流，HTTP-FLV 拉流播放中',
+  '分辨率：{{width}} x {{height}}': '分辨率：{{width}} x {{height}}',
   '分辨率已切换': '分辨率已切换',
   '服务器返回了无效的观看地址': '服务器返回了无效的观看地址',
   '服务器模式': '服务器模式',
@@ -2355,11 +2393,14 @@ const zhCN: Record<string, string> = {
   '有新的观看者加入房间': '有新的观看者加入房间',
   '允许加入失败': '允许加入失败',
   '在输入框添加 {{origin}} 并点击启用，然后完全重启浏览器。\n': '在输入框添加 {{origin}} 并点击启用，然后完全重启浏览器。\n',
+  '在线观众：{{viewerCount}} / {{connectionCount}} 连接': '在线观众：{{viewerCount}} / {{connectionCount}} 连接',
   '在新窗口打开': '在新窗口打开',
   '暂停共享': '暂停共享',
   '正在获取发布配置，请稍候': '正在获取发布配置，请稍候',
   '正在获取观看权限': '正在获取观看权限',
   '正在获取推流状态...': '正在获取推流状态...',
+  '正在加入：{{listRoomName}}': '正在加入：{{listRoomName}}',
+  '正在加入：{{roomName}}': '正在加入：{{roomName}}',
   '正在加入房间...': '正在加入房间...',
   '正在接收画面...': '正在接收画面...',
   '正在连接直播流...': '正在连接直播流...',
@@ -2387,7 +2428,7 @@ const zhCN: Record<string, string> = {
   'WebRTC 共享': 'WebRTC 共享',
   'WebRTC 连接尚未创建': 'WebRTC 连接尚未创建',
 
-  // ===== modules/server-files（84 条） =====
+  // ===== modules/server-files（88 条） =====
   ' 该文件夹内所有内容将被一并删除，且不可恢复。': ' 该文件夹内所有内容将被一并删除，且不可恢复。',
   '[downloadBilibiliVideo] 解析进度行失败:': '[downloadBilibiliVideo] 解析进度行失败:',
   '保存到': '保存到',
@@ -2403,11 +2444,13 @@ const zhCN: Record<string, string> = {
   '点击右侧按钮浏览选取目录': '点击右侧按钮浏览选取目录',
   '读取下载响应失败': '读取下载响应失败',
   '非会员': '非会员',
+  '分集（共 {{length}} P）': '分集（共 {{length}} P）',
   '服务器端 FFmpeg 已移除，高画质请使用 CLI 模式下载': '服务器端 FFmpeg 已移除，高画质请使用 CLI 模式下载',
   '服务器根目录': '服务器根目录',
   '服务器目录': '服务器目录',
   '该根目录为只读，请选择其他目录': '该根目录为只读，请选择其他目录',
   '该目录在服务器上不存在': '该目录在服务器上不存在',
+  '共 {{length}} P': '共 {{length}} P',
   '共 {{value}}': '共 {{value}}',
   '加载根目录失败': '加载根目录失败',
   '解析服务器文件失败': '解析服务器文件失败',
@@ -2419,10 +2462,12 @@ const zhCN: Record<string, string> = {
   '名称': '名称',
   '默认空间不可删除': '默认空间不可删除',
   '目标目录为只读，请选择其他目录': '目标目录为只读，请选择其他目录',
+  '清晰度（共 {{length}} 个可用）': '清晰度（共 {{length}} 个可用）',
   '请输入 B站视频链接或 BV 号': '请输入 B站视频链接或 BV 号',
   '请输入名称': '请输入名称',
   '请输入文件夹名称': '请输入文件夹名称',
   '请选择服务器目录': '请选择服务器目录',
+  '确定要移除「{{name}}」的挂载吗？ 服务器上的真实文件不会被删除，仅取消在本面板的访问入口。': '确定要移除「{{name}}」的挂载吗？ 服务器上的真实文件不会被删除，仅取消在本面板的访问入口。',
   '如：我的视频': '如：我的视频',
   '如：影视库、下载目录': '如：影视库、下载目录',
   '删除根目录失败': '删除根目录失败',

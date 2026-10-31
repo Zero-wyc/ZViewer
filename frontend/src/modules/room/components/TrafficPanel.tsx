@@ -248,7 +248,7 @@ export function TrafficPanel({
                   </div>
                   <div className="flex flex-1 flex-col">
                     <span className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      服务端{row.label}
+                      {t('服务端{{label}}', { label: row.label })}
                     </span>
                     <span className="text-sm font-medium tabular-nums text-[var(--md-sys-color-on-surface)]">
                       {formatBytes(row.bytes)}

@@ -799,7 +799,7 @@ export function MusicCloudPage({
               <div className="flex items-center text-xs font-bold">
                 <span className="w-16 shrink-0">{t('文件数量')}</span>
                 <span className="font-normal opacity-80">
-                  {cloudData?.count ?? 0} 个
+                  {t('{{value}} 个', { value: cloudData?.count ?? 0 })}
                 </span>
               </div>
               <div className="flex items-center text-xs font-bold">
@@ -936,7 +936,9 @@ export function MusicCloudPage({
                   className="text-xs opacity-70"
                   style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                 >
-                  仅支持 {UPLOAD_ACCEPT_EXTS.join(' / ')}
+                  {t('仅支持 {{value}}', {
+                    value: UPLOAD_ACCEPT_EXTS.join(' / '),
+                  })}
                 </span>
               )}
             </div>
@@ -1016,7 +1018,7 @@ export function MusicCloudPage({
               className="flex h-full items-center justify-center text-sm opacity-60"
               style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
             >
-              {selectedCategoryName}暂无文件
+              {t('{{selectedCategoryName}}暂无文件', { selectedCategoryName })}
             </div>
           )}
           {!loading &&

@@ -181,7 +181,7 @@ export default function MountManager() {
                   )}
                   {'port' in mount && mount.port && (
                     <div className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      端口：{mount.port}
+                      {t('端口：{{port}}', { port: mount.port })}
                     </div>
                   )}
                   {(mount.type === 'openlist' ||
@@ -189,12 +189,14 @@ export default function MountManager() {
                     mount.type === 'emby' ||
                     mount.type === 'jellyfin') && (
                     <div className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      播放模式：{mount.directLink ? t('直链') : t('转发')}
+                      {t('播放模式：{{value}}', {
+                        value: mount.directLink ? t('直链') : t('转发'),
+                      })}
                     </div>
                   )}
                   {mount.username && (
                     <div className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      用户：{mount.username}
+                      {t('用户：{{username}}', { username: mount.username })}
                     </div>
                   )}
                 </div>
@@ -246,7 +248,9 @@ export default function MountManager() {
         okText={deleting ? t('删除中...') : t('删除')}
         cancelText={t('取消')}
       >
-        确定要删除挂载「{deleteTarget?.name}」吗？删除后不可恢复。
+        {t('确定要删除挂载「{{name}}」吗？删除后不可恢复。', {
+          name: deleteTarget?.name,
+        })}
       </ConfirmModal>
 
       <MountBrowser

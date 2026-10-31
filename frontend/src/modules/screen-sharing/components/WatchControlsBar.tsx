@@ -193,7 +193,10 @@ export function WatchControlsBar({
         {videoResolution && (
           <Paragraph className="m-0 mt-2">
             <Text type="secondary">
-              分辨率：{videoResolution.width} x {videoResolution.height}
+              {t('分辨率：{{width}} x {{height}}', {
+                width: videoResolution.width,
+                height: videoResolution.height,
+              })}
             </Text>
           </Paragraph>
         )}

@@ -108,7 +108,7 @@ export function UsersTab({
                   )}
                 </div>
                 <Text type="secondary" className="text-xs">
-                  创建于 {formatDate(u.createdAt)}
+                  {t('创建于 {{value}}', { value: formatDate(u.createdAt) })}
                 </Text>
               </div>
               <Space className="shrink-0">

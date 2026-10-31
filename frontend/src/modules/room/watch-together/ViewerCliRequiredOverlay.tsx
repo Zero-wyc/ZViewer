@@ -44,10 +44,10 @@ export function ViewerCliRequiredOverlay() {
         {t('该影片仅允许 CLI 模式观看')}
       </div>
       <div className="max-w-md text-xs leading-relaxed text-white/70">
-        房主已对本影片
-        {movie?.title ? `「${movie.title}」` : ''}
-        开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接
-        ZViewer CLI 后使用自己的 CLI 解析播放。
+        {t(
+          '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后使用自己的 CLI 解析播放。',
+          { value: movie?.title ? `「${movie.title}」` : '' }
+        )}
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">
         <button

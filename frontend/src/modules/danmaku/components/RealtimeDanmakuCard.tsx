@@ -508,7 +508,9 @@ export function RealtimeDanmakuCard() {
       {blockKeywords.length > 0 && (
         <div className="flex min-h-0 max-h-[80px] shrink-0 flex-col border-t border-white/10 px-1 pt-2">
           <div className="mb-1 text-[10px] text-white/40">
-            已屏蔽关键词 ({blockKeywords.length})
+            {translate('已屏蔽关键词 ({{length}})', {
+              length: blockKeywords.length,
+            })}
           </div>
           <div className="flex flex-wrap gap-1 overflow-y-auto">
             {blockKeywords.slice(0, 10).map((kw) => (
@@ -601,7 +603,9 @@ export function RealtimeDanmakuCard() {
 
           {searchQuery && (
             <Text type="secondary" className="text-[10px]">
-              找到 {filteredDanmaku.length} 条匹配弹幕
+              {translate('找到 {{length}} 条匹配弹幕', {
+                length: filteredDanmaku.length,
+              })}
             </Text>
           )}
         </div>
@@ -628,7 +632,9 @@ export function RealtimeDanmakuCard() {
               )}
               onClick={() => setManageTab('blocked')}
             >
-              已屏蔽 ({blockKeywords.length})
+              {translate('已屏蔽 ({{length}})', {
+                length: blockKeywords.length,
+              })}
             </button>
             <button
               type="button"
@@ -640,7 +646,7 @@ export function RealtimeDanmakuCard() {
               )}
               onClick={() => setManageTab('deleted')}
             >
-              已删除 ({deletedLog.length})
+              {translate('已删除 ({{length}})', { length: deletedLog.length })}
             </button>
           </div>
 

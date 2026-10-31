@@ -62,7 +62,9 @@ export function JoinRoomForm(props: JoinRoomFormProps): JSX.Element {
           {hideRoomId ? t('输入房间密码') : t('加入房间')}
         </Title>
         {hideRoomId && roomName && (
-          <Text type="secondary">正在加入：{roomName}</Text>
+          <Text type="secondary">
+            {t('正在加入：{{roomName}}', { roomName })}
+          </Text>
         )}
         {(joinStatus === 'rejected' || joinStatus === 'closed') && (
           <div

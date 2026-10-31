@@ -528,7 +528,7 @@ export default function EmbyBrowser({
 
         {entry.childCount !== undefined && entry.childCount > 0 && (
           <span className="shrink-0 text-[13px] text-[var(--md-sys-color-on-surface-variant)]">
-            {entry.childCount} 项
+            {t('{{childCount}} 项', { childCount: entry.childCount })}
           </span>
         )}
 
@@ -616,7 +616,7 @@ export default function EmbyBrowser({
           )}
           {isDirectory && entry.childCount != null && (
             <div className="absolute right-1.5 top-1.5 rounded-md bg-black/60 px-1.5 py-0.5 text-[10px] leading-none text-white">
-              {entry.childCount ?? 0} 项
+              {t('{{value}} 项', { value: entry.childCount ?? 0 })}
             </div>
           )}
           {badge && (
@@ -915,7 +915,7 @@ export default function EmbyBrowser({
             {compactEpisodes ? (
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface)]/80">
                 <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-2 text-sm font-semibold">
-                  集数（{entries.length}）
+                  {t('集数（{{length}}）', { length: entries.length })}
                 </div>
                 <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-2">
                   <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">

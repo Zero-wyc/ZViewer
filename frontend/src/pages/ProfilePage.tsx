@@ -457,7 +457,7 @@ export default function ProfilePage() {
                       {user.username}
                     </p>
                     <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      用户 ID: {user.id}
+                      {t('用户 ID: {{id}}', { id: user.id })}
                     </p>
                   </div>
                 </div>

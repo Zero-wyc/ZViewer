@@ -373,7 +373,9 @@ export function BilibiliDownloadModal({
               {resolved.pages && resolved.pages.length > 1 && (
                 <div className="flex flex-col gap-1.5">
                   <Text className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                    分集（共 {resolved.pages.length} P）
+                    {translate('分集（共 {{length}} P）', {
+                      length: resolved.pages.length,
+                    })}
                   </Text>
                   <div className="zen-scroll max-h-32 overflow-y-auto rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)] p-1.5">
                     <div className="grid grid-cols-1 gap-1">
@@ -689,7 +691,11 @@ function VideoInfoCard({ resolved, duration }: VideoInfoCardProps) {
           {resolved.pages && resolved.pages.length > 1 && (
             <div className="flex items-center gap-1">
               <ListVideo className="h-3 w-3" />
-              <span>共 {resolved.pages.length} P</span>
+              <span>
+                {translate('共 {{length}} P', {
+                  length: resolved.pages.length,
+                })}
+              </span>
             </div>
           )}
           <div
@@ -746,7 +752,7 @@ function QualitySelector({
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center justify-between">
         <Text className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-          清晰度（共 {list.length} 个可用）
+          {translate('清晰度（共 {{length}} 个可用）', { length: list.length })}
         </Text>
         <div className="flex items-center gap-1">
           <div

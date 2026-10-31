@@ -188,7 +188,7 @@ export function DanmakuTrackCard() {
       <div className="flex items-center justify-between">
         <Text className="text-sm font-medium">{translate('弹幕轨道')}</Text>
         <Text type="secondary" className="text-[10px]">
-          {tracks.length} 条轨道
+          {translate('{{length}} 条轨道', { length: tracks.length })}
         </Text>
       </div>
 
@@ -450,7 +450,9 @@ export function DanmakuTrackCard() {
                 onChange={(v) => void updateTrackOffset(track.trackId, v)}
               />
               <Text type="secondary" className="text-[10px]">
-                共 {track.items.length} 条弹幕
+                {translate('共 {{length}} 条弹幕', {
+                  length: track.items.length,
+                })}
               </Text>
             </div>
           ))}

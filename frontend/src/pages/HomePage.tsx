@@ -461,9 +461,16 @@ function HomePage() {
                           </Tag>
                         </div>
                         <Text type="secondary" className="text-xs">
-                          房间 ID: {room.roomId} · 观众 {room.viewerCount} /{' '}
-                          {room.maxViewers} · 分享端
-                          {room.sharerOnline ? t('在线') : t('离线')}
+                          {t(
+                            '房间 ID: {{roomId}} · 观众 {{viewerCount}} /{{value}} {{maxViewers}} · 分享端 {{value2}}',
+                            {
+                              roomId: room.roomId,
+                              viewerCount: room.viewerCount,
+                              value: ' ',
+                              maxViewers: room.maxViewers,
+                              value2: room.sharerOnline ? t('在线') : t('离线'),
+                            }
+                          )}
                         </Text>
                       </div>
                       <Button

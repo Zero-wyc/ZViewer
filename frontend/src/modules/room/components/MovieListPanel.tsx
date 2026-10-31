@@ -870,7 +870,7 @@ export function MovieListPanel({
             type="secondary"
             className="text-[10px] uppercase tracking-wide"
           >
-            {filteredMovies.length} 部影片
+            {t('{{length}} 部影片', { length: filteredMovies.length })}
           </Text>
         </div>
         {isHost && !isScreenShare && (

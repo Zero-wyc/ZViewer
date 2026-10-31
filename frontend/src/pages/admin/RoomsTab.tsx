@@ -77,7 +77,10 @@ export function RoomsTab({
               }}
             />
             <Text type="secondary" className="text-sm">
-              全选 ({selectedRoomIds.size} / {rooms.length})
+              {t('全选 ({{size}} / {{length}})', {
+                size: selectedRoomIds.size,
+                length: rooms.length,
+              })}
             </Text>
           </div>
           {rooms.map((room) => (

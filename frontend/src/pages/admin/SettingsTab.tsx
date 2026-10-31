@@ -811,10 +811,12 @@ export function SettingsTab({
                     </div>
                     {updateInfo.source && (
                       <Text type="secondary" className="text-xs">
-                        更新来源：
-                        {updateInfo.source === 'gitcode'
-                          ? t('镜像仓库（GitCode / ZviewerRelease）')
-                          : 'GitHub'}
+                        {t('更新来源： {{value}}', {
+                          value:
+                            updateInfo.source === 'gitcode'
+                              ? t('镜像仓库（GitCode / ZviewerRelease）')
+                              : 'GitHub',
+                        })}
                       </Text>
                     )}
                     {updateInfo.isPrerelease && (
@@ -826,17 +828,21 @@ export function SettingsTab({
                     )}
                     {updateInfo.publishedAt && (
                       <Text type="secondary" className="text-xs">
-                        发布时间：
-                        {new Date(updateInfo.publishedAt).toLocaleString(
-                          'zh-CN'
-                        )}
+                        {t('发布时间： {{value}}', {
+                          value: new Date(
+                            updateInfo.publishedAt
+                          ).toLocaleString('zh-CN'),
+                        })}
                       </Text>
                     )}
                     {updateInfo.assetSize > 0 && (
                       <Text type="secondary" className="text-xs">
-                        构建产物：{updateInfo.assetName} (
-                        {(updateInfo.assetSize / (1024 * 1024)).toFixed(1)}
-                        MB)
+                        {t('构建产物：{{assetName}} ( {{value}} MB)', {
+                          assetName: updateInfo.assetName,
+                          value: (updateInfo.assetSize / (1024 * 1024)).toFixed(
+                            1
+                          ),
+                        })}
                       </Text>
                     )}
                     {updateInfo.releaseNotes && (

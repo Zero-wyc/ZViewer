@@ -507,7 +507,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 {currentHex}
                 {colorIntensity < 100 && (
                   <span className="ml-1 opacity-70">
-                    · 强度 {colorIntensity}%
+                    {t('· 强度 {{colorIntensity}}%', { colorIntensity })}
                   </span>
                 )}
               </span>

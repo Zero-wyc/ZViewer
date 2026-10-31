@@ -202,7 +202,9 @@ export function BiliFavCollectModal({
                           {f.title}
                         </span>
                         <span className="block text-[11px] font-medium text-white/50">
-                          {f.mediaCount} 个视频
+                          {t('{{mediaCount}} 个视频', {
+                            mediaCount: f.mediaCount,
+                          })}
                         </span>
                       </span>
                       {collectingId === f.id && (

@@ -903,8 +903,10 @@ export default function ServerFileManager() {
         okText={deletingRoot ? t('移除中...') : t('移除')}
         cancelText={t('取消')}
       >
-        确定要移除「{deleteRootTarget?.name}」的挂载吗？
-        服务器上的真实文件不会被删除，仅取消在本面板的访问入口。
+        {t(
+          '确定要移除「{{name}}」的挂载吗？ 服务器上的真实文件不会被删除，仅取消在本面板的访问入口。',
+          { name: deleteRootTarget?.name }
+        )}
       </ConfirmModal>
     </div>
   )

@@ -93,7 +93,10 @@ export function ShareControlsBar({
           {isPaused && <Tag color="warning">{t('已暂停')}</Tag>}
           {!isPaused && <Tag color="cyan">{t('传输中')}</Tag>}
           <Tag color="purple">
-            在线观众：{viewerCount} / {connectionCount} 连接
+            {t('在线观众：{{viewerCount}} / {{connectionCount}} 连接', {
+              viewerCount,
+              connectionCount,
+            })}
           </Tag>
         </div>
       </div>

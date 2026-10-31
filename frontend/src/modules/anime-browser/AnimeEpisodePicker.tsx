@@ -131,7 +131,9 @@ export function AnimeEpisodePicker({
       </div>
       {multiSelect && (
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs">已选 {selected.size} 集</span>
+          <span className="text-xs">
+            {t('已选 {{size}} 集', { size: selected.size })}
+          </span>
           <Button
             size="sm"
             variant="primary"

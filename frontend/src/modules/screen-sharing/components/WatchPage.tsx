@@ -197,7 +197,11 @@ function WatchPage() {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 p-6">
         <Spinner tip={t('正在加入房间...')} size={48} />
-        {listRoomName && <Text type="secondary">正在加入：{listRoomName}</Text>}
+        {listRoomName && (
+          <Text type="secondary">
+            {t('正在加入：{{listRoomName}}', { listRoomName })}
+          </Text>
+        )}
       </div>
     )
   }

@@ -75,9 +75,13 @@ export function AddCustomTabModal({
             <div className="relative min-h-0 flex-1 overflow-y-auto px-5 py-4">
               {/* 说明 */}
               <p className="mb-3 text-[13px] font-medium leading-relaxed text-white/50">
-                粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （
-                {'space.bilibili.com/{mid}/lists/{sid}'} 或旧版 channel
-                链接）、收藏夹（{'…/favlist?fid=…'}）；b23.tv 短链自动展开。
+                {t(
+                  '粘贴 B站 链接添加顶栏栏目：视频合集 / 系列 （ {{value}} 或旧版 channel 链接）、收藏夹（{{value2}}）；b23.tv 短链自动展开。',
+                  {
+                    value: 'space.bilibili.com/{mid}/lists/{sid}',
+                    value2: '…/favlist?fid=…',
+                  }
+                )}
               </p>
               {/* 链接输入 */}
               <div className="mb-2">

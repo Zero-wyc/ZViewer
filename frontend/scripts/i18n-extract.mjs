@@ -225,6 +225,62 @@ function normalizeText(text) {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/** 表达式里（任意深度）是否含 JSX —— 含了就不能当插值合并 */
+function containsJsx(node) {
+  let found = false
+  const walk = (n) => {
+    if (found) return
+    if (ts.isJsxElement(n) || ts.isJsxFragment(n) || ts.isJsxSelfClosingElement(n)) {
+      found = true
+      return
+    }
+    ts.forEachChild(n, walk)
+  }
+  walk(node)
+  return found
+}
+
+/**
+ * JSX 插值能否安全地并进 t() 的插值参数。
+ *
+ * `{creating && <Spinner/>}`、`{cond && 'x'}` 这类在 JSX 里「条件不成立就什么都不渲染」，
+ * 硬并进句子会变成 "false 完成" 或 " 完成"，所以一律拒绝；
+ * 只放行「一定是值」的表达式（标识符、属性链、调用、拼接、带字面量兜底的 ??/||）。
+ */
+function isSafeInterpolation(expr) {
+  if (!expr || containsJsx(expr)) return false
+  if (ts.isIdentifier(expr)) return true
+  if (ts.isStringLiteral(expr) || ts.isNumericLiteral(expr)) return true
+  if (ts.isNoSubstitutionTemplateLiteral(expr) || ts.isTemplateExpression(expr)) return true
+  if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) return true
+  if (ts.isCallExpression(expr)) return true
+  if (ts.isNonNullExpression(expr) || ts.isAsExpression(expr) || ts.isParenthesizedExpression(expr)) {
+    return isSafeInterpolation(expr.expression)
+  }
+  if (ts.isPrefixUnaryExpression(expr)) return true
+  if (ts.isConditionalExpression(expr)) {
+    return isSafeInterpolation(expr.whenTrue) && isSafeInterpolation(expr.whenFalse)
+  }
+  if (ts.isBinaryExpression(expr)) {
+    const kind = expr.operatorToken.kind
+    if (kind === ts.SyntaxKind.PlusToken) {
+      return isSafeInterpolation(expr.left) && isSafeInterpolation(expr.right)
+    }
+    // 兜底只认字面量：`a ?? 0`、`name || '未知'` 是值；`a || b` 可能给布尔
+    if (kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.QuestionQuestionToken) {
+      const right = expr.right
+      const literalFallback =
+        ts.isStringLiteral(right) ||
+        ts.isNumericLiteral(right) ||
+        ts.isNoSubstitutionTemplateLiteral(right) ||
+        ts.isTemplateExpression(right)
+      return literalFallback && isSafeInterpolation(expr.left)
+    }
+    return false
+  }
+  return false
+}
+
 /**
  * 给模板串里的一个插值表达式起一个 i18next 占位符名。
  *
@@ -398,7 +454,75 @@ function transformFile(file, options) {
     return out
   }
 
+  /**
+   * JSX 多子节点能否整体合并成一个 t()。
+   *
+   * 只有「文本 + 表达式」混排、且没有嵌套元素时才成立：
+   *   <span>已复制 {n} 项</span>  →  <span>{t('已复制 {{n}} 项', { n })}</span>
+   * 带 `<strong>`/`<code>` 的句子要拆句或上 `<Trans>`，这里不动，交给人工。
+   *
+   * 返回 true 表示「这个元素已处理/已记录」，外面不要再往下递归，
+   * 否则同一个元素的多个文本子节点会各提一次编辑、互相踩位置。
+   */
+  const flattenJsxChildren = (element) => {
+    const children = element.children
+    const meaningful = children.filter((child) => !(ts.isJsxText(child) && !child.text.trim()))
+    if (meaningful.length < 2) return false
+    let hasText = false
+    for (const child of meaningful) {
+      if (ts.isJsxText(child)) {
+        if (hasHan(normalizeText(child.text))) hasText = true
+        continue
+      }
+      if (!ts.isJsxExpression(child)) return false // 嵌套元素/自闭合：交给人工
+      const expr = child.expression
+      if (!expr) return false // {/* 注释 */}
+      if (!isSafeInterpolation(expr)) return false
+    }
+    if (!hasText) return false
+
+    // 拼 key：文本按 JSX 语义折叠空白，表达式变成 {{name}}
+    const used = new Set()
+    const vars = []
+    let key = ''
+    for (const child of children) {
+      if (ts.isJsxText(child)) key += child.text.replace(/\s+/g, ' ')
+      else if (ts.isJsxExpression(child) && child.expression) {
+        const name = placeholderName(child.expression, used)
+        vars.push({ name, expr: child.expression })
+        key += `{{${name}}}`
+      }
+    }
+    key = key.replace(/\s+/g, ' ').trim()
+    if (!hasHan(key)) return false
+
+    if (inModuleScope(element)) {
+      addKey(key)
+      skip(element, 'module-scope', key)
+      return true
+    }
+    addKey(key)
+    const args = vars.map((v) => {
+      const rendered = renderExpr(v.expr, 0)
+      return rendered === v.name ? v.name : `${v.name}: ${rendered}`
+    })
+    const objectLiteral = args.length ? `, { ${args.join(', ')} }` : ''
+    addEdit(
+      children[0].getStart(sourceFile),
+      children[children.length - 1].getEnd(),
+      `{${callName}(${quote(key)}${objectLiteral})}`
+    )
+    return true
+  }
+
   const visit = (node) => {
+    // 0) JSX 元素：先试「文本 + 表达式」整体合并
+    if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
+      if (flattenJsxChildren(node)) return
+      ts.forEachChild(node, visit)
+      return
+    }
+
     // 1) JSX 文本节点：<div>中文</div>
     if (ts.isJsxText(node)) {
       const text = normalizeText(node.text)

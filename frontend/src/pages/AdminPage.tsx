@@ -766,10 +766,12 @@ export default function AdminPage() {
                       })}
                     >
                       <span className="sm:hidden">
-                        已选 {selectedRoomIds.size}
+                        {t('已选 {{size}}', { size: selectedRoomIds.size })}
                       </span>
                       <span className="hidden sm:inline">
-                        删除已选 ({selectedRoomIds.size})
+                        {t('删除已选 ({{size}})', {
+                          size: selectedRoomIds.size,
+                        })}
                       </span>
                     </Button>
                   )}

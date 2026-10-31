@@ -368,7 +368,9 @@ export function MusicVideoModal({
                 >
                   <span className="truncate">{biliUser.name}</span>
                   <span>
-                    大会员：{biliUser.vipStatus ? t('已激活') : t('未激活')}
+                    {t('大会员：{{value}}', {
+                      value: biliUser.vipStatus ? t('已激活') : t('未激活'),
+                    })}
                   </span>
                 </div>
                 <div
