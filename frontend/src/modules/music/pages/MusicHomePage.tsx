@@ -463,7 +463,9 @@ function HomeBanner({
               type="button"
               className="px-1 pb-[0.8vw] pt-[0.8vw]"
               onClick={() => setOffsetIndex(index)}
-              aria-label={`切换到第 ${index + 1} 张`}
+              aria-label={translate('切换到第 {{value}} 张', {
+                value: index + 1,
+              })}
             >
               <span
                 className={cn(
@@ -826,7 +828,10 @@ function RecBlock({
             key={item.id}
             className="min-w-0 cursor-pointer"
             onClick={() => openDetail(item)}
-            title={`查看${titleCN}：${item.name}`}
+            title={translate('查看{{titleCN}}：{{name}}', {
+              titleCN,
+              name: item.name,
+            })}
           >
             {/* 封面（歌手圆形；hover 上浮阴影；MVP 静态展示） */}
             <div

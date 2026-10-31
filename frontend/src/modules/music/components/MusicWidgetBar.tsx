@@ -279,11 +279,17 @@ export function MusicWidgetBar() {
       if (collected) {
         setBiliCollectedMark(null)
         message.success(
-          `已取消收藏「${data?.folderTitle || biliLikeFavTitle}」`
+          t('已取消收藏「{{value}}」', {
+            value: data?.folderTitle || biliLikeFavTitle,
+          })
         )
       } else {
         setBiliCollectedMark({ bvid, folder: biliLikeFavTitle })
-        message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
+        message.success(
+          t('已收藏到「{{value}}」', {
+            value: data?.folderTitle || biliLikeFavTitle,
+          })
+        )
       }
     } catch (err) {
       message.error(err instanceof Error ? err.message : t('操作失败'))
@@ -631,13 +637,23 @@ export function MusicWidgetBar() {
                 disabled={biliCollecting}
                 title={
                   biliCollected
-                    ? `已收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹；点击取消收藏`
-                    : `收藏到哔哩哔哩「${biliLikeFavTitle}」收藏夹`
+                    ? t(
+                        '已收藏到哔哩哔哩「{{biliLikeFavTitle}}」收藏夹；点击取消收藏',
+                        { biliLikeFavTitle }
+                      )
+                    : t('收藏到哔哩哔哩「{{biliLikeFavTitle}}」收藏夹', {
+                        biliLikeFavTitle,
+                      })
                 }
                 aria-label={
                   biliCollected
-                    ? `已收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹，点击取消收藏`
-                    : `收藏到哔哩哔哩 ${biliLikeFavTitle} 收藏夹`
+                    ? t(
+                        '已收藏到哔哩哔哩 {{biliLikeFavTitle}} 收藏夹，点击取消收藏',
+                        { biliLikeFavTitle }
+                      )
+                    : t('收藏到哔哩哔哩 {{biliLikeFavTitle}} 收藏夹', {
+                        biliLikeFavTitle,
+                      })
                 }
               >
                 <Heart

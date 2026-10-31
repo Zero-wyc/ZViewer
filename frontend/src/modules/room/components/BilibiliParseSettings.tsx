@@ -391,7 +391,9 @@ export function BilibiliParseSettings({
             >
               {displayCliEnabled
                 ? cliAgent.available
-                  ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
+                  ? t('已连接本地代理 {{value}}', {
+                      value: cliAgent.agentInfo?.version ?? '',
+                    })
                   : t(
                       '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质'
                     )

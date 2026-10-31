@@ -306,7 +306,7 @@ export default function ServerFilesBrowser({
             )}
           >
             {multiSelectMode
-              ? `已选择 ${selectedFiles.length} 个文件`
+              ? t('已选择 {{length}} 个文件', { length: selectedFiles.length })
               : t('多选模式可批量添加')}
           </Text>
           <div className="flex items-center gap-3">
@@ -325,7 +325,7 @@ export default function ServerFilesBrowser({
               disabled={selectedFiles.length === 0}
             >
               {multiSelectMode
-                ? `添加 (${selectedFiles.length})`
+                ? t('添加 ({{length}})', { length: selectedFiles.length })
                 : t('添加当前文件')}
             </Button>
           </div>

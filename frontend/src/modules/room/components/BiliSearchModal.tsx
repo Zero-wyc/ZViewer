@@ -96,7 +96,7 @@ export function BiliSearchModal({
         console.error('[BiliSearchModal] load video pages error:', err)
         message.warning(
           err instanceof Error
-            ? `${err.message}，已按单 P 添加`
+            ? t('{{message}}，已按单 P 添加', { message: err.message })
             : t('获取分 P 失败，已按单 P 添加')
         )
         onSelect(`https://www.bilibili.com/video/${v.bvid}`)
@@ -255,7 +255,7 @@ export function BiliSearchModal({
             <div className="mb-3 flex items-center justify-between">
               <Text type="secondary" className="text-xs">
                 {items.length > 0
-                  ? `共 ${total ?? items.length} 条结果`
+                  ? t('共 {{value}} 条结果', { value: total ?? items.length })
                   : loading
                     ? t('搜索中...')
                     : t('输入关键词开始搜索')}

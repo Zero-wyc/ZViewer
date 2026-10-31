@@ -433,7 +433,7 @@ export default function EmbyBrowser({
     if (entry.embyType === 'Series') {
       const count = entry.recursiveItemCount ?? entry.childCount
       return {
-        text: count == null ? t('剧集') : `${count} 集`,
+        text: count == null ? t('剧集') : t('{{count}} 集', { count }),
         className: 'bg-emerald-600/85',
       }
     }
@@ -726,7 +726,7 @@ export default function EmbyBrowser({
             )}
           >
             {multiSelectMode
-              ? `已选择 ${selectedFiles.length} 个条目`
+              ? t('已选择 {{length}} 个条目', { length: selectedFiles.length })
               : t('多选模式可批量添加')}
           </Text>
           <div className="flex items-center gap-3">
@@ -747,7 +747,7 @@ export default function EmbyBrowser({
               disabled={busy || selectedFiles.length === 0}
             >
               {multiSelectMode
-                ? `添加 (${selectedFiles.length})`
+                ? t('添加 ({{length}})', { length: selectedFiles.length })
                 : t('添加当前条目')}
             </Button>
           </div>

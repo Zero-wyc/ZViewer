@@ -523,30 +523,46 @@ export function VideoStatsMenu({
     if (!stats) return
     const lines: string[] = [
       t('视频统计信息'),
-      `来源: ${stats.sourceLabel}`,
+      t('来源: {{sourceLabel}}', { sourceLabel: stats.sourceLabel }),
       `URL: ${stats.url || '-'}`,
     ]
     const playMode = detectPlayMode(sourceType, format, sourceUrl)
     if (playMode) {
-      lines.push(`播放模式: ${playMode}`)
+      lines.push(t('播放模式: {{playMode}}', { playMode }))
     }
     if (sourceType === 'custom') {
-      lines.push(`访问模式: ${directLink ? '直链' : '服务器中转'}`)
+      lines.push(
+        t('访问模式: {{value}}', {
+          value: directLink ? t('直链') : t('服务器中转'),
+        })
+      )
     }
     if (!isWebRtc) {
-      lines.push(`播放引擎: ${stats.engine}`)
+      lines.push(t('播放引擎: {{engine}}', { engine: stats.engine }))
     }
-    lines.push(`编码: ${stats.codec}`, `分辨率: ${stats.resolution}`)
+    lines.push(
+      t('编码: {{codec}}', { codec: stats.codec }),
+      t('分辨率: {{resolution}}', { resolution: stats.resolution })
+    )
     if (sourceType === 'bilibili' && format !== 'mp4') {
-      lines.push(`清晰度: ${stats.quality}`)
+      lines.push(t('清晰度: {{quality}}', { quality: stats.quality }))
     }
-    lines.push(`帧率: ${stats.frameRate}`, `码率: ${stats.bitrate}`)
+    lines.push(
+      t('帧率: {{frameRate}}', { frameRate: stats.frameRate }),
+      t('码率: {{bitrate}}', { bitrate: stats.bitrate })
+    )
     if (isWebRtc) {
-      lines.push(`丢包率: ${stats.packetLossRate}`)
+      lines.push(
+        t('丢包率: {{packetLossRate}}', {
+          packetLossRate: stats.packetLossRate,
+        })
+      )
       lines.push(`RTT: ${stats.rtt}`)
-      lines.push(`抖动: ${stats.jitter}`)
+      lines.push(t('抖动: {{jitter}}', { jitter: stats.jitter }))
     }
-    lines.push(`缓冲健康度: ${stats.bufferHealth}`)
+    lines.push(
+      t('缓冲健康度: {{bufferHealth}}', { bufferHealth: stats.bufferHealth })
+    )
     await copy(lines.join('\n'), {
       successMessage: t('统计信息已复制到剪贴板'),
       errorMessage: t('复制失败，请检查浏览器剪贴板权限'),

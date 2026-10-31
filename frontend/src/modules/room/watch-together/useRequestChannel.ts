@@ -100,7 +100,9 @@ const CHANNEL_SPECS: Record<RequestChannelKind, ChannelSpec> = {
     waitingText: '已发送跳转申请，等待房主确认',
     autoDoneText: '已跳转',
     approvedText: (detail) =>
-      `房主已同意跳转到 ${formatDuration(detail.time ?? 0)}`,
+      t('房主已同意跳转到 {{value}}', {
+        value: formatDuration(detail.time ?? 0),
+      }),
     rejectedText: '房主拒绝了您的跳转申请',
   },
   pause: {

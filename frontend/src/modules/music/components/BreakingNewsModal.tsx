@@ -155,8 +155,9 @@ const getCacheKey = (banner: NcmBannerItem | null): string => {
 const formatCount = (value: number | undefined): string => {
   const num = Number(value)
   if (!Number.isFinite(num) || num < 0) return '0'
-  if (num >= 100000000) return `${(num / 100000000).toFixed(1)}亿`
-  if (num >= 10000) return `${(num / 10000).toFixed(1)}万`
+  if (num >= 100000000)
+    return t('{{value}}亿', { value: (num / 100000000).toFixed(1) })
+  if (num >= 10000) return t('{{value}}万', { value: (num / 10000).toFixed(1) })
   return `${Math.round(num)}`
 }
 
@@ -186,8 +187,12 @@ async function fetchBreakingNewsDetail(
       kind: 'song',
       title: song.name || t('未命名歌曲'),
       subtitle: song.artist || t('未知歌手'),
-      desc: `收录于专辑《${song.album || '未知专辑'}》`,
-      stats: song.songId ? `歌曲 ID: ${song.songId}` : t('不可播放'),
+      desc: t('收录于专辑《{{value}}》', {
+        value: song.album || t('未知专辑'),
+      }),
+      stats: song.songId
+        ? t('歌曲 ID: {{songId}}', { songId: song.songId })
+        : t('不可播放'),
       cover: song.cover || fallbackCover,
       shareUrl: buildShareUrl(type, song.songId),
       song,
@@ -218,7 +223,10 @@ async function fetchBreakingNewsDetail(
       title: album.name || t('未命名专辑'),
       subtitle: artistText,
       desc: album.description || album.company || t('暂无专辑简介'),
-      stats: `${album.size ?? 0} 首歌曲 · ${formatCount(album.subCount || undefined)} 收藏`,
+      stats: t('{{value}} 首歌曲 · {{value2}} 收藏', {
+        value: album.size ?? 0,
+        value2: formatCount(album.subCount || undefined),
+      }),
       cover: album.picUrl || fallbackCover,
       shareUrl: buildShareUrl(type, id),
     }
@@ -244,7 +252,10 @@ async function fetchBreakingNewsDetail(
         ? `by ${playlist.creator.nickname}`
         : t('官方推荐'),
       desc: playlist.description || t('暂无歌单简介'),
-      stats: `${playlist.trackCount ?? 0} 首歌曲 · ${formatCount(playlist.playCount)} 播放`,
+      stats: t('{{value}} 首歌曲 · {{value2}} 播放', {
+        value: playlist.trackCount ?? 0,
+        value2: formatCount(playlist.playCount),
+      }),
       cover: playlist.coverImgUrl || fallbackCover,
       shareUrl: buildShareUrl(type, id),
     }
@@ -281,7 +292,10 @@ async function fetchBreakingNewsDetail(
       title: mv.name || t('未命名 MV'),
       subtitle: publishTime ? `${artistText} · ${publishTime}` : artistText,
       desc: mv.desc || mv.briefDesc || t('暂无 MV 简介'),
-      stats: `${formatCount(mv.playCount)} 播放 · ${formatCount(mv.subCount)} 收藏`,
+      stats: t('{{value}} 播放 · {{value2}} 收藏', {
+        value: formatCount(mv.playCount),
+        value2: formatCount(mv.subCount),
+      }),
       cover: mv.cover || fallbackCover,
       shareUrl: buildShareUrl(type, mv.id ?? id),
     }

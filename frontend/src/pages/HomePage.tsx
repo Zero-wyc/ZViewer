@@ -327,10 +327,12 @@ function HomePage() {
                   }
                 >
                   {isRoot
-                    ? `超级管理员：${user.username}`
+                    ? t('超级管理员：{{username}}', { username: user.username })
                     : isAdmin
-                      ? `管理员：${user.username}`
-                      : `当前用户：${user.username}`}
+                      ? t('管理员：{{username}}', { username: user.username })
+                      : t('当前用户：{{username}}', {
+                          username: user.username,
+                        })}
                 </Tag>
               ) : (
                 <Tag
@@ -408,7 +410,9 @@ function HomePage() {
                   color: 'var(--md-sys-color-primary)',
                 }}
               >
-                {roomsLoading ? '…' : `${quickRooms.length} 个进行中`}
+                {roomsLoading
+                  ? '…'
+                  : t('{{length}} 个进行中', { length: quickRooms.length })}
               </span>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto p-3.5">

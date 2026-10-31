@@ -321,7 +321,7 @@ export function MusicDailyPanel({
 
   /** 日期显示文案（今天 (YYYY-MM-DD) / 原始日期） */
   const formatDateLabel = (date: string) =>
-    date === todayDate ? `今天 (${date})` : date
+    date === todayDate ? t('今天 ({{date}})', { date }) : date
 
   const selectedDateLabel = !dateOptions.length
     ? t('暂无可选日期')

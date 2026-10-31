@@ -147,9 +147,12 @@ export function useSongFavorite({
       if (collected) {
         setBiliCollectedMark(null)
         message.success(
-          `已取消收藏「${
-            data?.folderTitle || biliCollectedMark?.folder || biliLikeFavTitle
-          }」`
+          t('已取消收藏「{{value}}」', {
+            value:
+              data?.folderTitle ||
+              biliCollectedMark?.folder ||
+              biliLikeFavTitle,
+          })
         )
       } else {
         setBiliCollectedMark({
@@ -157,7 +160,11 @@ export function useSongFavorite({
           folder: data?.folderTitle || biliLikeFavTitle,
           folderId: data?.folderId,
         })
-        message.success(`已收藏到「${data?.folderTitle || biliLikeFavTitle}」`)
+        message.success(
+          t('已收藏到「{{value}}」', {
+            value: data?.folderTitle || biliLikeFavTitle,
+          })
+        )
       }
     } catch (err) {
       message.error(err instanceof Error ? err.message : t('操作失败'))

@@ -100,7 +100,9 @@ export function BiliFavCollectModal({
       if (!ok || data?.success === false) {
         throw new Error(data?.message || t('收藏失败'))
       }
-      message.success(`已收藏到「${data?.folderTitle || folder.title}」`)
+      message.success(
+        t('已收藏到「{{value}}」', { value: data?.folderTitle || folder.title })
+      )
       onCollected?.(bvid, data?.folderTitle || folder.title)
       modalRef.current?.requestClose()
     } catch (err) {

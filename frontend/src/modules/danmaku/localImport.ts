@@ -160,7 +160,7 @@ export function parseLocalDanmaku(
 ): LocalDanmakuParseResult {
   const trimmed = text.trim()
   if (!trimmed) {
-    throw new Error(`「${fileName}」内容为空`)
+    throw new Error(t('「{{fileName}}」内容为空', { fileName }))
   }
 
   let items: DanmakuItem[] = []
@@ -173,7 +173,9 @@ export function parseLocalDanmaku(
       data = JSON.parse(trimmed)
     } catch {
       throw new Error(
-        `「${fileName}」不是有效的弹幕文件（XML/JSON 解析均失败）`
+        t('「{{fileName}}」不是有效的弹幕文件（XML/JSON 解析均失败）', {
+          fileName,
+        })
       )
     }
     if (Array.isArray(data)) {
@@ -197,7 +199,10 @@ export function parseLocalDanmaku(
 
   if (items.length === 0) {
     throw new Error(
-      `「${fileName}」中未解析到有效弹幕（支持 B站 XML/JSON 与 dandanplay JSON 格式）`
+      t(
+        '「{{fileName}}」中未解析到有效弹幕（支持 B站 XML/JSON 与 dandanplay JSON 格式）',
+        { fileName }
+      )
     )
   }
 

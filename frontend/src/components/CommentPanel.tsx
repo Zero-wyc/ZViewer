@@ -290,7 +290,9 @@ export function CommentPanel({
                     handleSendComment()
                   }
                 }}
-                placeholder={`${currentUser?.username ?? ''} 说点什么…`}
+                placeholder={t('{{value}} 说点什么…', {
+                  value: currentUser?.username ?? '',
+                })}
                 className="flex-1"
               />
               <Button

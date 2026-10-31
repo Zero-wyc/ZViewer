@@ -201,7 +201,13 @@ class EngineDashController implements PlayerController {
       const timeout = setTimeout(() => {
         video.removeEventListener('seeked', onSeeked)
         video.removeEventListener('error', onError)
-        reject(new Error(`dash.js seek 到 ${targetTime.toFixed(1)}s 超时`))
+        reject(
+          new Error(
+            t('dash.js seek 到 {{value}}s 超时', {
+              value: targetTime.toFixed(1),
+            })
+          )
+        )
       }, SEEK_TIMEOUT_MS)
 
       const onSeeked = () => {
@@ -218,7 +224,9 @@ class EngineDashController implements PlayerController {
         const err = video.error
         reject(
           new Error(
-            `dash.js seek 期间发生错误: ${err ? `code=${err.code} ${err.message}` : '未知错误'}`
+            t('dash.js seek 期间发生错误: {{value}}', {
+              value: err ? `code=${err.code} ${err.message}` : t('未知错误'),
+            })
           )
         )
       }
@@ -248,7 +256,10 @@ export const videojs10DashEngine: PlayerEngine = {
     // 不支持，若放任 dash.js 起播只会得到黑屏 + 难以理解的 MSE 错误。
     if (!canDecodeCodecs(source.videoCodec)) {
       throw new Error(
-        `当前设备无法解码该视频编码（${source.videoCodec}），请切换更低清晰度或更换支持硬解的设备`
+        t(
+          '当前设备无法解码该视频编码（{{videoCodec}}），请切换更低清晰度或更换支持硬解的设备',
+          { videoCodec: source.videoCodec }
+        )
       )
     }
 

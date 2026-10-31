@@ -92,7 +92,11 @@ function isTextSubtitleCodec(codecId: string): boolean {
 }
 
 function trackLabel(t: DemuxedTrack): string {
-  return t.name || t.language || `轨道 ${t.trackNumber}`
+  return (
+    t.name ||
+    t.language ||
+    translate('轨道 {{trackNumber}}', { trackNumber: t.trackNumber })
+  )
 }
 
 /** Range 拉取文件头部并解析 Tracks，返回字幕轨列表。 */
@@ -175,7 +179,9 @@ async function probeHead(
     signal,
   })
   if (!res.ok && res.status !== 206) {
-    throw new Error(`探测失败：HTTP ${res.status}`)
+    throw new Error(
+      translate('探测失败：HTTP {{status}}', { status: res.status })
+    )
   }
   // 文件总大小（Content-Range: bytes 0-N-1/total）
   let size: number | null = null
@@ -315,7 +321,8 @@ export async function extractMkvSubtitleTrack(
 ): Promise<ExtractedSubtitle> {
   const result = await extractMkvSubtitleTracks(url, [trackNumber], opts)
   const sub = result.get(trackNumber)
-  if (!sub) throw new Error(`未找到字幕轨 #${trackNumber}`)
+  if (!sub)
+    throw new Error(translate('未找到字幕轨 #{{trackNumber}}', { trackNumber }))
   return sub
 }
 
@@ -406,7 +413,10 @@ async function extractFullStream(
   opts: ExtractOptions
 ): Promise<Map<number, RawSubtitleFrame[]>> {
   const res = await fetch(url, { headers: opts.headers, signal: opts.signal })
-  if (!res.ok) throw new Error(`提取失败：HTTP ${res.status}`)
+  if (!res.ok)
+    throw new Error(
+      translate('提取失败：HTTP {{status}}', { status: res.status })
+    )
   const reader = res.body?.getReader()
   if (!reader) throw new Error(translate('响应无数据流'))
 
@@ -464,7 +474,11 @@ async function restoreSubtitleData(
     restored.set(data, prefix.length)
     return restored
   }
-  throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
+  throw new Error(
+    translate('不支持的帧压缩算法 {{contentCompAlgo}}', {
+      contentCompAlgo: track.contentCompAlgo,
+    })
+  )
 }
 
 // ==================== 稀疏 Range 提取 ====================
@@ -492,7 +506,11 @@ class RangeFetcher {
           signal: this.opts.signal,
         })
         if (res.status !== 206) {
-          throw new Error(`服务器不支持 Range 请求（HTTP ${res.status}）`)
+          throw new Error(
+            translate('服务器不支持 Range 请求（HTTP {{status}}）', {
+              status: res.status,
+            })
+          )
         }
         return new Uint8Array(await res.arrayBuffer())
       } catch (err) {
@@ -542,13 +560,17 @@ async function sparseReadVint(
   pos: number
 ): Promise<{ value: number; length: number }> {
   const first = (await w.read(pos, 1))[0]!
-  if (first === 0) throw new Error(`块链解析错误 @${pos}：VINT 首字节为 0`)
+  if (first === 0)
+    throw new Error(
+      translate('块链解析错误 @{{pos}}：VINT 首字节为 0', { pos })
+    )
   let len = 1
   let mask = 0x80
   while (!(first & mask)) {
     len++
     mask >>= 1
-    if (len > 8) throw new Error(`块链解析错误 @${pos}：VINT 超长`)
+    if (len > 8)
+      throw new Error(translate('块链解析错误 @{{pos}}：VINT 超长', { pos }))
   }
   const bytes = await w.read(pos, len)
   let value = first & (mask - 1)
@@ -561,13 +583,17 @@ async function sparseReadElemId(
   pos: number
 ): Promise<{ id: number; length: number }> {
   const first = (await w.read(pos, 1))[0]!
-  if (first === 0) throw new Error(`块链解析错误 @${pos}：元素 ID 首字节为 0`)
+  if (first === 0)
+    throw new Error(
+      translate('块链解析错误 @{{pos}}：元素 ID 首字节为 0', { pos })
+    )
   let len = 1
   let mask = 0x80
   while (!(first & mask)) {
     len++
     mask >>= 1
-    if (len > 4) throw new Error(`块链解析错误 @${pos}：元素 ID 超长`)
+    if (len > 4)
+      throw new Error(translate('块链解析错误 @{{pos}}：元素 ID 超长', { pos }))
   }
   const bytes = await w.read(pos, len)
   let id = first
@@ -689,7 +715,10 @@ async function walkAnchorSegment(
     const dataStart = cur + id.length + sz.length
     // unknown size（流式写入尾段）兜底为区间终点
     const elSize = sz.value >= 0xffffffffffffff ? segEnd - dataStart : sz.value
-    if (elSize <= 0) throw new Error(`@${cur} 元素尺寸异常（size=${elSize}）`)
+    if (elSize <= 0)
+      throw new Error(
+        translate('@{{cur}} 元素尺寸异常（size={{elSize}}）', { cur, elSize })
+      )
     if (id.id === 0x1f43b675) {
       // Cluster：块链收集（nextBoundary 传 Cluster 自身结束位置）
       await walkClusterIntoAsync(
@@ -723,7 +752,10 @@ async function walkClusterIntoAsync(
   const id = await sparseReadElemId(w, clusterStart)
   if (id.id !== 0x1f43b675) {
     throw new Error(
-      `@${clusterStart} 不是 Cluster 元素（0x${id.id.toString(16)}）`
+      translate('@{{clusterStart}} 不是 Cluster 元素（0x{{value}}）', {
+        clusterStart,
+        value: id.id.toString(16),
+      })
     )
   }
   const sz = await sparseReadVint(w, clusterStart + id.length)
@@ -829,14 +861,16 @@ async function parseSparseBlock(
   tsScaleMs: number
 ): Promise<void> {
   const trackVint = await sparseReadVint(w, dataStart)
-  if (trackVint.value === 0) throw new Error(`@${dataStart} 块轨道号为 0`)
+  if (trackVint.value === 0)
+    throw new Error(translate('@{{dataStart}} 块轨道号为 0', { dataStart }))
   // 相对时间戳为有符号 int16（跨 Cluster 预读可为负）
   const relRaw = await sparseReadUint(w, dataStart + trackVint.length, 2)
   const rel = relRaw >= 0x8000 ? relRaw - 0x10000 : relRaw
   const flags = await sparseReadUint(w, dataStart + trackVint.length + 2, 1)
   const frameHeaderLen = trackVint.length + 3
   const payloadLen = payloadTotal - frameHeaderLen
-  if (payloadLen < 0) throw new Error(`@${dataStart} 块长度异常`)
+  if (payloadLen < 0)
+    throw new Error(translate('@{{dataStart}} 块长度异常', { dataStart }))
 
   if (!trackMap.has(trackVint.value)) return // 非目标轨：算术跳过
   const lacing = (flags & 0x06) >> 1
@@ -1055,7 +1089,11 @@ export async function streamMkvSubtitleTrack(
     throw new Error(translate('指定的轨道不是支持的字幕轨'))
   }
   if (![-1, 0, 3].includes(track.contentCompAlgo)) {
-    throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
+    throw new Error(
+      translate('不支持的帧压缩算法 {{contentCompAlgo}}', {
+        contentCompAlgo: track.contentCompAlgo,
+      })
+    )
   }
   const isAss = track.codecId === 'S_TEXT/ASS' || track.codecId === 'S_TEXT/SSA'
   const pgs = track.codecId === 'S_HDMV/PGS' ? new PgsDecoder() : null
@@ -1140,7 +1178,10 @@ export async function streamMkvSubtitleTrack(
   /** 全量流式路径（小文件 / 无 Cues / 大小未知）：顺序读 + 增量交付 */
   const streamFullScan = async (): Promise<void> => {
     const res = await fetch(url, { headers: opts.headers, signal: opts.signal })
-    if (!res.ok) throw new Error(`提取失败：HTTP ${res.status}`)
+    if (!res.ok)
+      throw new Error(
+        translate('提取失败：HTTP {{status}}', { status: res.status })
+      )
     const reader = res.body?.getReader()
     if (!reader) throw new Error(translate('响应无数据流'))
     const demuxer = new MatroskaDemuxer({

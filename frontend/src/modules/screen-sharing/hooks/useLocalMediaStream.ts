@@ -151,7 +151,10 @@ export function useLocalMediaStream(
           translate(
             '2. 【临时方案】在 Chrome/Edge 地址栏访问 chrome://flags/#unsafely-treat-insecure-origin-as-secure，'
           ) +
-          `在输入框添加 ${window.location.origin} 并点击启用，然后完全重启浏览器。\n` +
+          translate(
+            '在输入框添加 {{origin}} 并点击启用，然后完全重启浏览器。\n',
+            { origin: window.location.origin }
+          ) +
           translate(
             '3. 【本地代理】在本地通过 SSH 隧道将远程服务映射到 localhost，再通过 https://localhost 访问。'
           )
@@ -189,7 +192,10 @@ export function useLocalMediaStream(
           ) +
           translate('常见场景：IDE 内置预览、嵌入式开发服务器预览页等。\n\n') +
           translate('解决方案：\n') +
-          `1. 【推荐】点击「在新窗口打开」按钮，或在浏览器中直接访问 ${window.location.origin}\n` +
+          translate(
+            '1. 【推荐】点击「在新窗口打开」按钮，或在浏览器中直接访问 {{origin}}\n',
+            { origin: window.location.origin }
+          ) +
           translate(
             '2. 复制下方链接到外部浏览器（Chrome / Edge）地址栏打开：\n'
           ) +
@@ -399,7 +405,10 @@ export function useLocalMediaStream(
           }
         })()
         reason = inIframe
-          ? `当前 iframe 环境未授权屏幕共享，请在独立浏览器窗口中打开本页面：\n${window.location.href}`
+          ? translate(
+              '当前 iframe 环境未授权屏幕共享，请在独立浏览器窗口中打开本页面：\n{{href}}',
+              { href: window.location.href }
+            )
           : translate(
               '当前浏览器或系统不支持屏幕共享，请使用最新版 Chrome / Edge 并确认系统已启用屏幕捕获权限'
             )

@@ -91,7 +91,12 @@ export async function downloadObsConfig(roomId: string): Promise<void> {
   const response = await apiFetch(url)
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    throw new Error(`下载 OBS 配置失败: ${response.status} ${text}`)
+    throw new Error(
+      t('下载 OBS 配置失败: {{status}} {{text}}', {
+        status: response.status,
+        text,
+      })
+    )
   }
   const blob = await response.blob()
   const objectUrl = URL.createObjectURL(blob)

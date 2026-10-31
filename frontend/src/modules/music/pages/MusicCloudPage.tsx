@@ -437,7 +437,7 @@ export function MusicCloudPage({
               if (res.ok && data?.code === 200) {
                 uploaded = true
                 successCount += 1
-                message.success(`${file.name} 上传成功`)
+                message.success(t('{{name}} 上传成功', { name: file.name }))
               } else {
                 throw new Error(
                   data?.message || data?.msg || `HTTP ${res.status}`
@@ -449,7 +449,7 @@ export function MusicCloudPage({
                 err
               )
               if (attempt === 3) {
-                message.error(`${file.name} 上传失败`)
+                message.error(t('{{name}} 上传失败', { name: file.name }))
               } else {
                 await sleep(800 * attempt)
               }
@@ -995,7 +995,9 @@ export function MusicCloudPage({
             <Trash2 className="h-3.5 w-3.5" />
             {confirmingDelete
               ? t('确认删除？')
-              : `删除（${effectiveSelectedIds.length}）`}
+              : t('删除（{{length}}）', {
+                  length: effectiveSelectedIds.length,
+                })}
           </button>
         </div>
 

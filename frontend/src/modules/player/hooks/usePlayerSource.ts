@@ -46,6 +46,7 @@ import {
   isBrowserPlayableFormat,
   getUnsupportedFormatMessage,
 } from '@/lib/mediaFormat'
+import { t } from '@/i18n'
 
 function mediaPolicyKey(source: PlayerSource): string {
   return `${source.playsvideoEnabled !== false}:${source.noProxyFallback === true}`
@@ -397,11 +398,15 @@ export function usePlayerSource(
         // 无恢复路径：直接提示（直链模式给出更具体的修复指引）
         if (watchedSource.noProxyFallback) {
           onPlaybackErrorRef.current?.(
-            new Error(`直链播放中断：${reason}。可尝试重载或重新添加影片`)
+            new Error(
+              t('直链播放中断：{{reason}}。可尝试重载或重新添加影片', {
+                reason,
+              })
+            )
           )
         } else {
           onPlaybackErrorRef.current?.(
-            new Error(`播放中断：${reason}。可尝试重载影片`)
+            new Error(t('播放中断：{{reason}}。可尝试重载影片', { reason }))
           )
         }
       }
@@ -502,9 +507,10 @@ export function usePlayerSource(
             // 用户可通过重载影片，或在影片设置中调整「浏览器转码引擎」
             // 开关后重试。
             throw new Error(
-              `浏览器转码引擎（playsvideo）播放失败：${
-                err instanceof Error ? err.message : String(err)
-              }，可尝试重载影片`,
+              t(
+                '浏览器转码引擎（playsvideo）播放失败：{{value}}，可尝试重载影片',
+                { value: err instanceof Error ? err.message : String(err) }
+              ),
               { cause: err }
             )
           }

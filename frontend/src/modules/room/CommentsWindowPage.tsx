@@ -97,7 +97,7 @@ export default function CommentsWindowPage() {
     const handleRoomClosed = (data: { roomId: string }) => {
       if (data.roomId === roomId) {
         setJoinState('closed')
-        message.warning(`房间 ${roomId} 已关闭`)
+        message.warning(t('房间 {{roomId}} 已关闭', { roomId }))
       }
     }
     socket.on('room-closed', handleRoomClosed)

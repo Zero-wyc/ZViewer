@@ -311,7 +311,9 @@ export function useWatchTogether({
         } else if (err instanceof UrlExpiredError) {
           message.error(translate('B站 URL 已过期，请重新解析视频'))
         } else if (err instanceof DownloadError) {
-          message.error(`缓冲下载失败: ${err.message}`)
+          message.error(
+            translate('缓冲下载失败: {{message}}', { message: err.message })
+          )
         } else {
           console.error('[useWatchTogether] 缓冲下载失败:', err)
           message.error(translate('缓冲下载失败，请重试'))
@@ -1136,7 +1138,11 @@ export function useWatchTogether({
             broadcastState(state)
             sendControl('pause')
           }
-          message.info(`已恢复到 ${formatDuration(recoveryTime)}（已暂停）`)
+          message.info(
+            translate('已恢复到 {{value}}（已暂停）', {
+              value: formatDuration(recoveryTime),
+            })
+          )
         } else {
           video.currentTime = 0
           // 用户在管线运行期间（MKV 的 playsvideo attach 可达 5-10s）按了
@@ -1434,7 +1440,7 @@ export function useWatchTogether({
       const next = state.movies[idx + 1]
       socket?.emit('play-movie', { roomId, movieId: next.id })
       state.setCurrentMovieId(next.id)
-      message.info(`自动连播:《${next.title}》`)
+      message.info(translate('自动连播:《{{title}}》', { title: next.title }))
     }
 
     video.addEventListener('ended', handleEnded)

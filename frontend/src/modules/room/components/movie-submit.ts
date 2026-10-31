@@ -197,7 +197,7 @@ export async function addPathMountMovie(ctx: SubmitMovieContext) {
   }
   const mountId = Number(ctx.selectedMountId)
   if (!mountId) {
-    message.warning(`请选择已保存的 ${label} 挂载`)
+    message.warning(t('请选择已保存的 {{label}} 挂载', { label }))
     return
   }
   let title: string
@@ -207,12 +207,12 @@ export async function addPathMountMovie(ctx: SubmitMovieContext) {
 
   if (isDirect) {
     // 直链模式：后端通过挂载凭证获取直链 URL（OpenList 为 AList 签名直链，WebDAV 为拼接）
-    ctx.setResolveProgress(`正在获取 ${label} 直链...`)
+    ctx.setResolveProgress(t('正在获取 {{label}} 直链...', { label }))
     movieUrl = await fetchDirect(mountId, mountPath)
     title = extractTitleFromUrl(mountPath)
   } else {
     // 代理模式：resolve 返回相对 proxy URL，后端随后用 movieId 重写为 stream URL
-    ctx.setResolveProgress(`正在解析 ${label} 文件...`)
+    ctx.setResolveProgress(t('正在解析 {{label}} 文件...', { label }))
     const resolved = await resolveMount(mountId, mountPath)
     title = resolved.title || extractTitleFromUrl(mountPath)
     movieUrl = resolved.videoUrl
@@ -287,17 +287,19 @@ export async function addMediaServerMovie(
   const source = label === 'Emby' ? 'emby' : 'jellyfin'
   const mountId = Number(ctx.selectedMountId)
   if (!mountId) {
-    message.warning(`请选择已保存的 ${label} 挂载`)
+    message.warning(t('请选择已保存的 {{label}} 挂载', { label }))
     return
   }
   // Emby/Jellyfin 是媒体库型，需通过浏览选择条目（itemId）
   // 手动输入场景仅支持已复制的 itemId 直加
   const itemId = ctx.url.trim()
   if (!itemId) {
-    message.warning(`请通过「浏览 ${label} 媒体库」选择条目，或粘贴 itemId`)
+    message.warning(
+      t('请通过「浏览 {{label}} 媒体库」选择条目，或粘贴 itemId', { label })
+    )
     return
   }
-  ctx.setResolveProgress(`正在解析 ${label} 条目...`)
+  ctx.setResolveProgress(t('正在解析 {{label}} 条目...', { label }))
   const resolved = await resolveMount(mountId, itemId)
   const mount = ctx.mounts.find((m) => m.id === mountId)
   await ctx.addMovie(ctx.roomId, {

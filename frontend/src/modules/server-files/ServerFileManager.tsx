@@ -261,7 +261,7 @@ export default function ServerFileManager() {
     setAddingRoot(true)
     try {
       const added = await addServerRoot(name, absPath, newRootReadonly)
-      message.success(`已添加根目录「${added.name}」`)
+      message.success(t('已添加根目录「{{name}}」', { name: added.name }))
       setAddRootModalOpen(false)
       await loadRoots()
       // 自动切换到新添加的根
@@ -307,7 +307,7 @@ export default function ServerFileManager() {
       await uploadServerFiles(files, currentPath, (loaded, total) => {
         setUploadProgress(total > 0 ? Math.round((loaded / total) * 100) : 0)
       })
-      message.success(`已上传 ${files.length} 个文件`)
+      message.success(t('已上传 {{length}} 个文件', { length: files.length }))
       void load(currentPath)
     } catch (err) {
       message.error(err instanceof Error ? err.message : t('上传失败'))
@@ -433,7 +433,9 @@ export default function ServerFileManager() {
             onClick={handleUploadClick}
             disabled={uploading || readonly}
           >
-            {uploading ? `上传中 ${uploadProgress}%` : t('上传文件')}
+            {uploading
+              ? t('上传中 {{uploadProgress}}%', { uploadProgress })
+              : t('上传文件')}
           </Button>
         </div>
       </div>

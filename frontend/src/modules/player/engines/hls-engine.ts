@@ -156,7 +156,11 @@ function waitForHlsReady(hls: Hls, timeoutMs = 15000): Promise<void> {
       cleanup()
       reject(
         new Error(
-          `HLS加载失败: type=${data.type} details=${data.details} url=${data.url?.slice(0, 80)}`
+          t('HLS加载失败: type={{type}} details={{details}} url={{value}}', {
+            type: data.type,
+            details: data.details,
+            value: data.url?.slice(0, 80),
+          })
         )
       )
     }
@@ -165,7 +169,7 @@ function waitForHlsReady(hls: Hls, timeoutMs = 15000): Promise<void> {
       if (settled) return
       settled = true
       cleanup()
-      reject(new Error(`HLS加载超时(${timeoutMs}ms)`))
+      reject(new Error(t('HLS加载超时({{timeoutMs}}ms)', { timeoutMs })))
     }
 
     function cleanup() {
@@ -265,8 +269,10 @@ export const hlsEngine: PlayerEngine = {
           // 直链模式：不回退服务器中转，错误直接透出并补充可操作指引
           const reason = err instanceof Error ? err.message : String(err)
           throw new Error(
-            `直链播放失败：${reason}。m3u8 直链源需允许浏览器跨域直连（CORS），` +
-              t('不经服务器中转；请检查源站可达性与跨域配置'),
+            t(
+              '直链播放失败：{{reason}}。m3u8 直链源需允许浏览器跨域直连（CORS），',
+              { reason }
+            ) + t('不经服务器中转；请检查源站可达性与跨域配置'),
             { cause: err }
           )
         }

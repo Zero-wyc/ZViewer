@@ -365,7 +365,9 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                 <div className="mt-1 text-[9px] leading-snug text-white/50">
                   {musicVideoCli
                     ? cliAvailable
-                      ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
+                      ? t('已连接本地代理 {{value}}', {
+                          value: cliAgent.agentInfo?.version ?? '',
+                        })
                       : t(
                           '已启用但未检测到本地 CLI，请先启动本地代理以获取高画质视频背景'
                         )

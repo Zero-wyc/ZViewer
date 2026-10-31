@@ -124,7 +124,9 @@ export function AddToPlaylistModal({
         if (code === 200 || code === 502) {
           // 502 = 已存在于歌单，视为成功
           message.success(
-            code === 502 ? `已在${displayName}中` : `已添加到${displayName}`
+            code === 502
+              ? t('已在{{displayName}}中', { displayName })
+              : t('已添加到{{displayName}}', { displayName })
           )
           modalRef.current?.requestClose()
         } else {
@@ -155,7 +157,7 @@ export function AddToPlaylistModal({
         message.error(t('创建歌单失败'))
         return
       }
-      message.success(`已创建歌单「${title}」`)
+      message.success(t('已创建歌单「{{title}}」', { title }))
       // 新歌单已入列：失效模块缓存，下次打开重新拉取
       invalidateUserPlaylistCache()
       setCreateActive(false)

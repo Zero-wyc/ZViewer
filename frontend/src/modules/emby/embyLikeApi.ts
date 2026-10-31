@@ -7,6 +7,7 @@
  */
 import { apiFetch } from '@/lib/api'
 import { buildProxyUrl } from '@/modules/direct-link/directLinkApi'
+import { t } from '@/i18n'
 
 export interface EmbyLikeApi<
   TMount extends { id: number },
@@ -57,7 +58,9 @@ export function createEmbyLikeApi<
         message?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `获取 ${label} 挂载列表失败`)
+        throw new Error(
+          data.message || t('获取 {{label}} 挂载列表失败', { label })
+        )
       }
       return data.mounts || []
     },
@@ -75,7 +78,7 @@ export function createEmbyLikeApi<
         warning?: string
       }
       if (!res.ok || !data.success || !data.mount) {
-        throw new Error(data.message || `创建 ${label} 挂载失败`)
+        throw new Error(data.message || t('创建 {{label}} 挂载失败', { label }))
       }
       return { ...data.mount, warning: data.warning }
     },
@@ -96,7 +99,7 @@ export function createEmbyLikeApi<
         warning?: string
       }
       if (!res.ok || !data.success || !data.mount) {
-        throw new Error(data.message || `更新 ${label} 挂载失败`)
+        throw new Error(data.message || t('更新 {{label}} 挂载失败', { label }))
       }
       return { ...data.mount, warning: data.warning }
     },
@@ -107,7 +110,7 @@ export function createEmbyLikeApi<
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `删除 ${label} 挂载失败`)
+        throw new Error(data.message || t('删除 {{label}} 挂载失败', { label }))
       }
     },
 
@@ -126,7 +129,7 @@ export function createEmbyLikeApi<
         code?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `测试 ${label} 连接失败`)
+        throw new Error(data.message || t('测试 {{label}} 连接失败', { label }))
       }
       return {
         success: true,
@@ -145,7 +148,7 @@ export function createEmbyLikeApi<
         message?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `浏览 ${label} 挂载失败`)
+        throw new Error(data.message || t('浏览 {{label}} 挂载失败', { label }))
       }
       return data.entries || []
     },
@@ -161,7 +164,7 @@ export function createEmbyLikeApi<
         message?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `搜索 ${label} 失败`)
+        throw new Error(data.message || t('搜索 {{label}} 失败', { label }))
       }
       return data.entries || []
     },
@@ -186,7 +189,7 @@ export function createEmbyLikeApi<
         multiVersion?: boolean
       }
       if (!res.ok || !data.success || !data.videoUrl) {
-        throw new Error(data.message || `解析 ${label} 条目失败`)
+        throw new Error(data.message || t('解析 {{label}} 条目失败', { label }))
       }
       return {
         title: data.title || '',

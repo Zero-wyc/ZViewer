@@ -141,7 +141,10 @@ export function useBilibiliResolve({
       // PGC 试看提示：会员专享集 + 非大会员账号时后端只返回试看片段
       if (resolvedPinned.preview) {
         message.info(
-          `该集为会员专享，当前为试看片段（约 ${Math.round((resolvedPinned.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+          t(
+            '该集为会员专享，当前为试看片段（约 {{value}} 分钟），使用大会员账号后可看完整内容',
+            { value: Math.round((resolvedPinned.duration || 0) / 60) }
+          )
         )
       }
       // 自动检测多 P 视频：链接未指定分 P 时才弹分集选择
@@ -237,7 +240,9 @@ export function useBilibiliResolve({
     // PGC（番剧分集，page 带 epId）：按目标集 ep 链接/epId 重解析
     if (targetPage.epId) {
       const epUrl = `https://www.bilibili.com/bangumi/play/ep${targetPage.epId}`
-      setResolveProgress(`正在解析第 ${page} 集 ${targetPage.part}...`)
+      setResolveProgress(
+        t('正在解析第 {{page}} 集 {{part}}...', { page, part: targetPage.part })
+      )
       try {
         const cliProxyUrl = getActiveCliProxyUrl()
         const { resolved, viaCli } = await resolveBilibiliWithCliFallback({
@@ -258,8 +263,8 @@ export function useBilibiliResolve({
               resolvedMovie.currentQn,
               (_step, msg) => setResolveProgress(msg)
             ),
-          cliProgress: `正在通过 CLI 代理解析第 ${page} 集...`,
-          serverProgress: `正在通过服务器解析第 ${page} 集...`,
+          cliProgress: t('正在通过 CLI 代理解析第 {{page}} 集...', { page }),
+          serverProgress: t('正在通过服务器解析第 {{page}} 集...', { page }),
           setProgress: setResolveProgress,
         })
         resolvedViaCliRef.current = viaCli
@@ -267,7 +272,10 @@ export function useBilibiliResolve({
         setResolvedMovie(resolved)
         if (resolved.preview) {
           message.info(
-            `该集为会员专享，当前为试看片段（约 ${Math.round((resolved.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+            t(
+              '该集为会员专享，当前为试看片段（约 {{value}} 分钟），使用大会员账号后可看完整内容',
+              { value: Math.round((resolved.duration || 0) / 60) }
+            )
           )
         }
       } catch (err) {
@@ -280,7 +288,9 @@ export function useBilibiliResolve({
       return
     }
 
-    setResolveProgress(`正在解析 P${page} ${targetPage.part}...`)
+    setResolveProgress(
+      t('正在解析 P{{page}} {{part}}...', { page, part: targetPage.part })
+    )
     try {
       const bvid = extractBvid(url.trim())
 
@@ -306,8 +316,8 @@ export function useBilibiliResolve({
             (_step, msg) => setResolveProgress(msg),
             { page }
           ),
-        cliProgress: `正在通过 CLI 代理解析 P${page}...`,
-        serverProgress: `正在通过服务器解析 P${page}...`,
+        cliProgress: t('正在通过 CLI 代理解析 P{{page}}...', { page }),
+        serverProgress: t('正在通过服务器解析 P{{page}}...', { page }),
         setProgress: setResolveProgress,
       })
       resolvedViaCliRef.current = viaCli

@@ -327,7 +327,9 @@ export async function loginBilibiliWithCookie(
   const contentType = res.headers.get('content-type') || ''
   if (!contentType.includes('application/json')) {
     throw new Error(
-      `服务器返回了非 JSON 响应 (${res.status})，请确认后端服务已正常运行`
+      t('服务器返回了非 JSON 响应 ({{status}})，请确认后端服务已正常运行', {
+        status: res.status,
+      })
     )
   }
   const data = (await res.json()) as {

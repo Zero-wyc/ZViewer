@@ -305,7 +305,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setLoading(true)
       try {
         for (const [index, item] of items.entries()) {
-          setResolveProgress(`正在添加 ${index + 1}/${items.length} 集...`)
+          setResolveProgress(
+            t('正在添加 {{value}}/{{length}} 集...', {
+              value: index + 1,
+              length: items.length,
+            })
+          )
           try {
             if (kind === 'anime') {
               await addMovie(roomId, {
@@ -354,10 +359,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           }
         }
         if (added.length === items.length) {
-          message.success(`已添加 ${added.length} 集`)
+          message.success(t('已添加 {{length}} 集', { length: added.length }))
         } else {
           message.warning(
-            `已添加 ${added.length} 集，${items.length - added.length} 集失败，可重试`
+            t('已添加 {{length}} 集，{{value}} 集失败，可重试', {
+              length: added.length,
+              value: items.length - added.length,
+            })
           )
         }
         await fetchMovies(roomId)
@@ -587,7 +595,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setLoading(true)
       try {
         for (const [index, item] of items.entries()) {
-          setResolveProgress(`正在添加 ${index + 1}/${items.length} 集...`)
+          setResolveProgress(
+            t('正在添加 {{value}}/{{length}} 集...', {
+              value: index + 1,
+              length: items.length,
+            })
+          )
           try {
             const params = parseCmsParams(item.episode)
             if (!params) throw new Error(t('剧集定位参数无效'))
@@ -611,10 +624,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           }
         }
         if (added.length === items.length) {
-          message.success(`已添加 ${added.length} 集`)
+          message.success(t('已添加 {{length}} 集', { length: added.length }))
         } else {
           message.warning(
-            `已添加 ${added.length} 集，${items.length - added.length} 集失败，可重试`
+            t('已添加 {{length}} 集，{{value}} 集失败，可重试', {
+              length: added.length,
+              value: items.length - added.length,
+            })
           )
         }
         await fetchMovies(roomId)
@@ -805,7 +821,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       const resolveFn = api === 'emby' ? resolveEmby : resolveJellyfin
       const directLink = api === 'emby' ? embyDirectLink : jellyfinDirectLink
 
-      setResolveProgress(`正在枚举《${series.name}》的分集...`)
+      setResolveProgress(
+        t('正在枚举《{{name}}》的分集...', { name: series.name })
+      )
       // 逐季枚举分集：Series 下为 Season（目录），Season 下为 Episode（file）
       const seasons = await browse(seriesMountId, series.path)
       const seasonDirs = seasons.filter(
@@ -856,12 +874,17 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           })
       }
       if (episodes.length === 0) {
-        throw new Error(`《${series.name}》下没有可播放的分集`)
+        throw new Error(
+          t('《{{name}}》下没有可播放的分集', { name: series.name })
+        )
       }
 
       // 解析第一集作为初始播放源（代理模式 url 会被后端重写为 stream URL）
       setResolveProgress(
-        `正在解析《${series.name}》第 1 集（共 ${episodes.length} 集）...`
+        t('正在解析《{{name}}》第 1 集（共 {{length}} 集）...', {
+          name: series.name,
+          length: episodes.length,
+        })
       )
       const first = await resolveFn(seriesMountId, episodes[0].path)
       const mount = mounts.find((m) => m.id === seriesMountId)
@@ -909,7 +932,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       setLoading(true)
       try {
         await addEmbySeriesCard(sourceType, mountId, entry)
-        message.success(`已添加《${entry.name}》`)
+        message.success(t('已添加《{{name}}》', { name: entry.name }))
       } catch (err) {
         console.error('[MoviePushPanel] quick add series error:', err)
         message.error(
@@ -941,7 +964,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       }
 
       setLoading(true)
-      setResolveProgress(`正在批量解析 ${paths.length} 个文件...`)
+      setResolveProgress(
+        t('正在批量解析 {{length}} 个文件...', { length: paths.length })
+      )
       try {
         let added = 0
         for (const path of paths) {
@@ -1066,7 +1091,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             added++
           }
         }
-        message.success(`已添加 ${added} 部影片`)
+        message.success(t('已添加 {{added}} 部影片', { added }))
       } catch (err) {
         console.error('[MoviePushPanel] batch add error:', err)
         message.error(err instanceof Error ? err.message : t('批量添加失败'))
@@ -1111,7 +1136,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       }
 
       setLoading(true)
-      setResolveProgress(`正在批量解析 ${paths.length} 个文件...`)
+      setResolveProgress(
+        t('正在批量解析 {{length}} 个文件...', { length: paths.length })
+      )
       try {
         let added = 0
         for (const path of paths) {
@@ -1129,7 +1156,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           })
           added++
         }
-        message.success(`已添加 ${added} 部影片`)
+        message.success(t('已添加 {{added}} 部影片', { added }))
       } catch (err) {
         console.error('[MoviePushPanel] batch add server files error:', err)
         message.error(err instanceof Error ? err.message : t('批量添加失败'))
@@ -1557,8 +1584,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 disabled={pageSelectLoading || !isHost}
               >
                 {resolvedMovie.currentPage
-                  ? `P${resolvedMovie.currentPage} ${resolvedMovie.pages.find((p) => p.page === resolvedMovie.currentPage)?.part ?? ''} · 点击切换`
-                  : `共 ${resolvedMovie.pages.length} P · 点击选择`}
+                  ? t('P{{currentPage}} {{value}} · 点击切换', {
+                      currentPage: resolvedMovie.currentPage,
+                      value:
+                        resolvedMovie.pages.find(
+                          (p) => p.page === resolvedMovie.currentPage
+                        )?.part ?? '',
+                    })
+                  : t('共 {{length}} P · 点击选择', {
+                      length: resolvedMovie.pages.length,
+                    })}
               </Button>
             )}
 

@@ -190,7 +190,7 @@ async function resolvePageCid(bvid: string, page = 1): Promise<number> {
   if (!cid)
     throw new CliPrecheckError(
       page > 1
-        ? `未取到 P${page} 的 cid，改用服务器端解析`
+        ? t('未取到 P{{page}} 的 cid，改用服务器端解析', { page })
         : t('未取到视频分 P 的 cid，改用服务器端解析')
     )
   // 简单容量上限，避免长时间运行后无限增长
@@ -261,14 +261,16 @@ export async function resolveBilibiliViaCli(
   try {
     data = (await res.json()) as CliResolveResponse
   } catch {
-    throw new CliResolveError(`CLI 代理返回了无效响应（HTTP ${res.status}）`)
+    throw new CliResolveError(
+      t('CLI 代理返回了无效响应（HTTP {{status}}）', { status: res.status })
+    )
   }
 
   if (!res.ok || data.success === false || !data.videoUrl) {
     throw new CliResolveError(
       data.message ||
         data.error ||
-        `CLI 解析 B站 视频失败（HTTP ${res.status}）`
+        t('CLI 解析 B站 视频失败（HTTP {{status}}）', { status: res.status })
     )
   }
 
@@ -343,14 +345,16 @@ export async function resolveBangumiViaCli(
   try {
     data = (await res.json()) as CliResolveResponse
   } catch {
-    throw new CliResolveError(`CLI 代理返回了无效响应（HTTP ${res.status}）`)
+    throw new CliResolveError(
+      t('CLI 代理返回了无效响应（HTTP {{status}}）', { status: res.status })
+    )
   }
 
   if (!res.ok || data.success === false || !data.videoUrl) {
     throw new CliResolveError(
       data.message ||
         data.error ||
-        `CLI 解析 B站 番剧失败（HTTP ${res.status}）`
+        t('CLI 解析 B站 番剧失败（HTTP {{status}}）', { status: res.status })
     )
   }
 

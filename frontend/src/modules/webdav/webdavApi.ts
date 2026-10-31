@@ -15,6 +15,7 @@ import type {
   WebDAVDirectoryEntry,
   WebDAVResolvedSource,
 } from './types'
+import { t } from '@/i18n'
 
 export interface WebDAVTestResult {
   success: boolean
@@ -81,7 +82,9 @@ export function createMountApi<
         message?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `获取 ${label} 挂载列表失败`)
+        throw new Error(
+          data.message || t('获取 {{label}} 挂载列表失败', { label })
+        )
       }
       return data.mounts || []
     },
@@ -99,7 +102,7 @@ export function createMountApi<
         warning?: string
       }
       if (!res.ok || !data.success || !data.mount) {
-        throw new Error(data.message || `创建 ${label} 挂载失败`)
+        throw new Error(data.message || t('创建 {{label}} 挂载失败', { label }))
       }
       return { ...data.mount, warning: data.warning }
     },
@@ -120,7 +123,7 @@ export function createMountApi<
         warning?: string
       }
       if (!res.ok || !data.success || !data.mount) {
-        throw new Error(data.message || `更新 ${label} 挂载失败`)
+        throw new Error(data.message || t('更新 {{label}} 挂载失败', { label }))
       }
       return { ...data.mount, warning: data.warning }
     },
@@ -131,7 +134,7 @@ export function createMountApi<
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `删除 ${label} 挂载失败`)
+        throw new Error(data.message || t('删除 {{label}} 挂载失败', { label }))
       }
     },
 
@@ -150,7 +153,7 @@ export function createMountApi<
         code?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `测试 ${label} 连接失败`)
+        throw new Error(data.message || t('测试 {{label}} 连接失败', { label }))
       }
       return {
         success: true,
@@ -167,7 +170,7 @@ export function createMountApi<
         message?: string
       }
       if (!res.ok || !data.success) {
-        throw new Error(data.message || `浏览 ${label} 挂载失败`)
+        throw new Error(data.message || t('浏览 {{label}} 挂载失败', { label }))
       }
       return data.entries || []
     },
@@ -188,7 +191,7 @@ export function createMountApi<
         size?: number
       }
       if (!res.ok || !data.success || !data.videoUrl) {
-        throw new Error(data.message || `解析 ${label} 文件失败`)
+        throw new Error(data.message || t('解析 {{label}} 文件失败', { label }))
       }
       return {
         title: data.title || '',
@@ -218,7 +221,7 @@ export function createMountApi<
         directUrl?: string
       }
       if (!res.ok || !data.success || !data.directUrl) {
-        throw new Error(data.message || `获取 ${label} 直链失败`)
+        throw new Error(data.message || t('获取 {{label}} 直链失败', { label }))
       }
       return data.directUrl
     },

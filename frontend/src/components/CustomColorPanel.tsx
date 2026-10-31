@@ -353,14 +353,18 @@ export function CustomColorPanel({ open }: { open: boolean }) {
               style={{ '--stagger-delay': '90ms' } as React.CSSProperties}
             >
               <ActionIconButton
-                title={`减弱颜色强度（当前 ${colorIntensity}%）`}
+                title={t('减弱颜色强度（当前 {{colorIntensity}}%）', {
+                  colorIntensity,
+                })}
                 onClick={() => adjustIntensity(-INTENSITY_STEP)}
                 disabled={colorIntensity <= 0}
               >
                 <Minus className="h-4 w-4" />
               </ActionIconButton>
               <ActionIconButton
-                title={`增强颜色强度（当前 ${colorIntensity}%）`}
+                title={t('增强颜色强度（当前 {{colorIntensity}}%）', {
+                  colorIntensity,
+                })}
                 onClick={() => adjustIntensity(INTENSITY_STEP)}
                 disabled={colorIntensity >= 100}
               >
@@ -649,7 +653,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                       ? draftHex === editingHex
                         ? t('颜色未修改')
                         : t('该颜色已是其他收藏条目')
-                      : `更新收藏中的 ${editingHex}`
+                      : t('更新收藏中的 {{editingHex}}', { editingHex })
                   }
                   className={cn(
                     'h-9 flex-1 rounded-full text-sm font-medium shadow-sm transition-transform',

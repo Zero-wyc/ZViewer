@@ -153,8 +153,13 @@ export function TagRulesModal({
                         onClick={() => onToggleRole(r.word)}
                         className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                         style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                        title={`属性：${REGION_ROLE_LABEL[r.role]}（点击切换 聚合/限定）`}
-                        aria-label={`切换标签词 ${r.word} 的属性，当前 ${REGION_ROLE_LABEL[r.role]}`}
+                        title={t('属性：{{value}}（点击切换 聚合/限定）', {
+                          value: REGION_ROLE_LABEL[r.role],
+                        })}
+                        aria-label={t(
+                          '切换标签词 {{word}} 的属性，当前 {{value}}',
+                          { word: r.word, value: REGION_ROLE_LABEL[r.role] }
+                        )}
                       >
                         {REGION_ROLE_LABEL[r.role]}
                       </button>
@@ -167,8 +172,17 @@ export function TagRulesModal({
                           style={{
                             backgroundColor: 'rgba(255, 255, 255, 0.22)',
                           }}
-                          title={`来源方式：${REGION_SOURCE_LABEL[r.source]}（点击切换 搜索/标签/全部）`}
-                          aria-label={`切换标签词 ${r.word} 的来源方式，当前 ${REGION_SOURCE_LABEL[r.source]}`}
+                          title={t(
+                            '来源方式：{{value}}（点击切换 搜索/标签/全部）',
+                            { value: REGION_SOURCE_LABEL[r.source] }
+                          )}
+                          aria-label={t(
+                            '切换标签词 {{word}} 的来源方式，当前 {{value}}',
+                            {
+                              word: r.word,
+                              value: REGION_SOURCE_LABEL[r.source],
+                            }
+                          )}
                         >
                           {REGION_SOURCE_LABEL[r.source]}
                         </button>
@@ -178,8 +192,8 @@ export function TagRulesModal({
                         onClick={() => onRemove(r.word)}
                         className="flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-70"
                         style={{ backgroundColor: 'rgba(255, 255, 255, 0.18)' }}
-                        title={`删除标签词 ${r.word}`}
-                        aria-label={`删除标签词 ${r.word}`}
+                        title={t('删除标签词 {{word}}', { word: r.word })}
+                        aria-label={t('删除标签词 {{word}}', { word: r.word })}
                       >
                         <X className="h-2.5 w-2.5" />
                       </button>

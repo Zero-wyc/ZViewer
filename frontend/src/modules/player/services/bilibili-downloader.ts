@@ -88,11 +88,16 @@ export async function downloadM4sStream(
   if (!response.ok) {
     if (response.status === 403 || response.status === 410) {
       throw new UrlExpiredError(
-        `B站 URL 已过期或被拒绝（HTTP ${response.status}），请重新解析`
+        t('B站 URL 已过期或被拒绝（HTTP {{status}}），请重新解析', {
+          status: response.status,
+        })
       )
     }
     throw new DownloadError(
-      `下载失败: HTTP ${response.status} ${response.statusText}`,
+      t('下载失败: HTTP {{status}} {{statusText}}', {
+        status: response.status,
+        statusText: response.statusText,
+      }),
       response.status
     )
   }
@@ -137,7 +142,9 @@ export async function downloadM4sStream(
       throw new DownloadAbortedError()
     }
     throw new DownloadError(
-      `流式下载失败: ${err instanceof Error ? err.message : String(err)}`
+      t('流式下载失败: {{value}}', {
+        value: err instanceof Error ? err.message : String(err),
+      })
     )
   }
 

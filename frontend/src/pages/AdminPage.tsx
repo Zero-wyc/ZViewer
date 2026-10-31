@@ -332,7 +332,11 @@ export default function AdminPage() {
         message?: string
       }
       if (data.success) {
-        message.success(`已删除 ${data.count ?? selectedRoomIds.size} 个房间`)
+        message.success(
+          t('已删除 {{value}} 个房间', {
+            value: data.count ?? selectedRoomIds.size,
+          })
+        )
         setSelectedRoomIds(new Set())
         setBatchDeleteConfirm(false)
         await fetchRooms()
@@ -360,7 +364,9 @@ export default function AdminPage() {
         message?: string
       }
       if (data.success) {
-        message.success(`已删除 ${data.count ?? 0} 个房间`)
+        message.success(
+          t('已删除 {{value}} 个房间', { value: data.count ?? 0 })
+        )
         setSelectedRoomIds(new Set())
         setDeleteAllConfirm(false)
         await fetchRooms()
@@ -473,7 +479,14 @@ export default function AdminPage() {
             .map((s) => s.name)
             .join('、')
           message.success(
-            `识别到 ${data.sites.length} 个 CMS 采集源：${preview}${data.sites.length > 5 ? ' 等' : ''}（已保存，即刻生效）`
+            t(
+              '识别到 {{length}} 个 CMS 采集源：{{preview}}{{value}}（已保存，即刻生效）',
+              {
+                length: data.sites.length,
+                preview,
+                value: data.sites.length > 5 ? t(' 等') : '',
+              }
+            )
           )
           setCmsInspectUrl('')
         }
@@ -566,7 +579,9 @@ export default function AdminPage() {
       }
       if (data.success) {
         if (data.count && data.count > 0) {
-          message.success(`已清理 ${data.count} 个无人使用的房间`)
+          message.success(
+            t('已清理 {{count}} 个无人使用的房间', { count: data.count })
+          )
         } else {
           message.info(t('暂无可清理的房间'))
         }
@@ -679,9 +694,9 @@ export default function AdminPage() {
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Text type="secondary" className="shrink-0">
             {activeTab === 'users'
-              ? `共 ${users.length} 位用户`
+              ? t('共 {{length}} 位用户', { length: users.length })
               : activeTab === 'rooms'
-                ? `共 ${rooms.length} 个房间`
+                ? t('共 {{length}} 个房间', { length: rooms.length })
                 : ''}
           </Text>
           {activeTab !== 'settings' && (
@@ -746,7 +761,9 @@ export default function AdminPage() {
                       icon={<Trash2 className="h-4 w-4" />}
                       onClick={() => setBatchDeleteConfirm(true)}
                       disabled={batchDeleteLoading}
-                      title={`删除已选 ${selectedRoomIds.size} 个房间`}
+                      title={t('删除已选 {{size}} 个房间', {
+                        size: selectedRoomIds.size,
+                      })}
                     >
                       <span className="sm:hidden">
                         已选 {selectedRoomIds.size}

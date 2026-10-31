@@ -11,9 +11,11 @@
  *   node scripts/i18n-extract.mjs --check               # CI：词典是否与源码一致
  *   node scripts/i18n-extract.mjs --report out.json     # 未自动处理的清单落盘
  *
+ * 带 `${}` 的模板串会自动改成插值形式：`已复制 ${n} 项` → `t('已复制 {{n}} 项', { n })`。
+ *
  * 刻意**不**自动处理的情况（会在报告里列出来，人工改）：
  * - 一个 JSX 元素里有多个子节点（`<span>已复制 {n} 项</span>`，要拆句或上 Trans）
- * - 带 `${}` 的模板字符串（要改成插值 `t('...{{x}}', { x })`）
+ * - 模块/类作用域里的常量（`const LABELS = { a: '中文' }`，渲染期才 t() 才不会定格语言）
  * - `=== '中文'` 这类与非界面值做比较的字面量
  * - 已被 `t()` 包住的（重复跑不会二次包裹）
  */
@@ -38,13 +40,33 @@ const TEXT_ATTRS = new Set([
   'alt',
   'aria-label',
   'aria-description',
+  'ariaLabel',
   'hint',
   'description',
   'emptyText',
   'confirmText',
   'cancelText',
+  'okText',
   'tooltip',
   'subtitle',
+  // 业务组件里带文案的自定义属性（按本仓库既有写法归纳）
+  'text',
+  'tip',
+  'sub',
+  'name',
+  'heading',
+  'desc',
+  'rowTitle',
+  'mountLabel',
+  'rootLabel',
+  'serverPlaceholder',
+  'searchPlaceholder',
+  'noSourcesHint',
+  'successMessage',
+  'errorMessage',
+  'titleCN',
+  'info',
+  'browseLabel',
 ])
 
 /** 不参与扫描的路径 */
@@ -203,6 +225,43 @@ function normalizeText(text) {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+/**
+ * 给模板串里的一个插值表达式起一个 i18next 占位符名。
+ *
+ * 优先用标识符名字（`${count}` → `count`、`${stat.label}` → `label`），
+ * 复杂表达式（`${-v}`、`${a.b()}`）统一叫 `value`，重名再补序号。
+ */
+function placeholderName(expr, used) {
+  let base = 'value'
+  if (ts.isIdentifier(expr)) base = expr.text
+  else if (ts.isPropertyAccessExpression(expr)) base = expr.name.text
+  base = base.replace(/[^A-Za-z0-9_]/g, '')
+  if (!base) base = 'value'
+  base = base.charAt(0).toLowerCase() + base.slice(1)
+  let name = base
+  let i = 2
+  while (used.has(name)) {
+    name = `${base}${i}`
+    i += 1
+  }
+  used.add(name)
+  return name
+}
+
+/** 模板串 → { key: '已复制 {{n}} 项', vars: [{name,expr,text}] } */
+function templateToKey(node) {
+  const used = new Set()
+  let key = node.head.text
+  const vars = []
+  for (const span of node.templateSpans) {
+    const expr = span.expression
+    const name = placeholderName(expr, used)
+    vars.push({ name, expr, text: expr.getText() })
+    key += `{{${name}}}` + span.literal.text
+  }
+  return { key, vars }
+}
+
 function transformFile(file, options) {
   const source = fs.readFileSync(file, 'utf8')
   const sourceFile = ts.createSourceFile(
@@ -231,6 +290,112 @@ function transformFile(file, options) {
       (child) => !(ts.isJsxText(child) && !child.text.trim())
     )
     return meaningful.length === 1
+  }
+
+  /**
+   * 字符串/模板串通用的「不该动」判定，返回跳过原因（null 表示可以替换）。
+   *
+   * 这些规则对模板串同样成立，所以抽出来共用，避免两处漂移。
+   */
+  const literalSkipReason = (node) => {
+    // 模块加载时求值会定格语言，必须人工改成「存 key、渲染期 t()」
+    if (inModuleScope(node)) return 'module-scope'
+    const parent = node.parent
+    if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) return 'non-ui'
+    if (parent.name === node) return 'non-ui' // 对象 key / 属性名
+    if (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) return 'non-ui'
+    // JSX 属性里只有白名单属性算文案（className/href 之类不碰）
+    let attr = parent
+    if (ts.isJsxExpression(attr)) attr = attr.parent
+    if (ts.isJsxAttribute(attr) && !TEXT_ATTRS.has(attr.name.getText())) {
+      return `jsx-attr:${attr.name.getText()}`
+    }
+    if (ts.isCaseClause(parent)) return 'switch-case'
+    if (
+      ts.isBinaryExpression(parent) &&
+      ['===', '!==', '==', '!='].includes(parent.operatorToken.getText())
+    ) {
+      return 'comparison'
+    }
+    if (isInsideConsole(node)) return 'console'
+    // 与后端返回的字符串做匹配（msg.includes('中文')）：这类是逻辑常量，翻译会直接坏掉
+    if (
+      ts.isCallExpression(parent) &&
+      ts.isPropertyAccessExpression(parent.expression) &&
+      ['includes', 'startsWith', 'endsWith', 'indexOf', 'lastIndexOf', 'match', 'split'].includes(
+        parent.expression.name.getText()
+      )
+    ) {
+      return 'string-match'
+    }
+    return null
+  }
+
+  /** 模板串 → t(...) 调用串；不该动时返回 null（顶层会记一条 skip）。 */
+  const buildTemplate = (node, depth = 0) => {
+    const { key, vars } = templateToKey(node)
+    if (!hasHan(key)) return null
+    const reason = literalSkipReason(node)
+    if (reason) {
+      if (depth === 0) {
+        addKey(key)
+        skip(node, reason, key)
+      }
+      return null
+    }
+    addKey(key)
+    const args = vars.map((v) => {
+      const rendered = renderExpr(v.expr, depth)
+      return rendered === v.name ? v.name : `${v.name}: ${rendered}`
+    })
+    const objectLiteral = args.length ? `, { ${args.join(', ')} }` : ''
+    return `${callName}(${quote(key)}${objectLiteral})`
+  }
+
+  /**
+   * 渲染一个插值表达式，顺带把里面嵌着的中文字面量也包成 t()。
+   *
+   * 没有这一步，`${directLink ? '直链' : '服务器中转'}` 这种「叶子文案」
+   * 会跟着整个模板串一起被替换、但自己永远翻不到。
+   */
+  const renderExpr = (expr, depth) => {
+    const base = expr.getStart(sourceFile)
+    const inner = []
+    const walk = (n) => {
+      if (n !== expr) {
+        if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+          const text = n.text
+          if (hasHan(text) && !isInsideT(n, 't') && !isInsideT(n, 'translate')) {
+            if (!literalSkipReason(n)) {
+              addKey(text)
+              inner.push({
+                start: n.getStart(sourceFile) - base,
+                end: n.getEnd() - base,
+                text: `${callName}(${quote(text)})`,
+              })
+            }
+            return
+          }
+        } else if (ts.isTemplateExpression(n) && depth < 3) {
+          const nested = buildTemplate(n, depth + 1)
+          if (nested) {
+            inner.push({
+              start: n.getStart(sourceFile) - base,
+              end: n.getEnd() - base,
+              text: nested,
+            })
+            return
+          }
+        }
+      }
+      ts.forEachChild(n, walk)
+    }
+    walk(expr)
+    if (inner.length === 0) return expr.getText()
+    let out = expr.getText()
+    inner.sort((a, b) => b.start - a.start)
+    for (const edit of inner) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end)
+    return out
   }
 
   const visit = (node) => {
@@ -285,41 +450,17 @@ function transformFile(file, options) {
         addKey(text)
         return
       }
-      if (inModuleScope(node)) {
-        // 不自动替换（会在模块加载时定格语言），但文案本身要进词典
-        addKey(text)
-        skip(node, 'module-scope', text)
-        return
-      }
       const parent = node.parent
-      if (ts.isJsxAttribute(parent)) return // 上面处理过（或明确跳过）
-      if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) return
-      if (parent.name === node) return // 对象/属性名
-      if (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) return
-      if (ts.isCaseClause(parent)) {
-        skip(node, 'switch-case', text)
+      if (ts.isJsxAttribute(parent)) {
+        // 整个属性由上面分支处理（或已明确跳过）
+        if (inModuleScope(node)) addKey(text)
         return
       }
-      if (
-        ts.isBinaryExpression(parent) &&
-        ['===', '!==', '==', '!='].includes(parent.operatorToken.getText())
-      ) {
-        skip(node, 'comparison', text)
-        return
-      }
-      if (isInsideConsole(node)) {
-        skip(node, 'console', text)
-        return
-      }
-      // 与后端返回的字符串做匹配（msg.includes('中文')）：这类是逻辑常量，翻译会直接坏掉
-      if (
-        ts.isCallExpression(parent) &&
-        ts.isPropertyAccessExpression(parent.expression) &&
-        ['includes', 'startsWith', 'endsWith', 'indexOf', 'lastIndexOf', 'match', 'split'].includes(
-          parent.expression.name.getText()
-        )
-      ) {
-        skip(node, 'string-match', text)
+      const reason = literalSkipReason(node)
+      if (reason) {
+        // 这些字面量本身是界面文案，只是不能自动替换：登记进词典保证清单完整
+        addKey(text)
+        skip(node, reason, text)
         return
       }
       addKey(text)
@@ -327,9 +468,11 @@ function transformFile(file, options) {
       return
     }
 
-    // 4) 带插值的模板串：需要改写成 t('...{{x}}', { x })，人工来
-    if (ts.isTemplateExpression(node) && hasHan(node.getText())) {
-      skip(node, 'template-interpolation', normalizeText(node.getText()))
+    // 4) 带插值的模板串：`已复制 ${n} 项` → t('已复制 {{n}} 项', { n })
+    if (ts.isTemplateExpression(node)) {
+      const replacement = buildTemplate(node)
+      if (replacement === null) return
+      addEdit(node.getStart(sourceFile), node.getEnd(), replacement)
       return
     }
 
@@ -430,11 +573,12 @@ export default zhCN
 function main() {
   const { scopes, write, check, report, dictOnly } = parseArgs(process.argv.slice(2))
   const targets = scopes.length > 0 ? scopes : ['src']
-  // 词典是「全部文案的清单」：--dict-only / --check 一律全量扫描 src，
-  // 不受本次改造范围（--scope）限制。
-  const scanTargets = dictOnly || check ? ['src'] : targets
+  // 词典是「全部文案的清单」：不论 --scope 限定到哪，key 一律全量扫描 src 收集；
+  // 只有**落盘改代码**受 --scope 限制。否则按目录分批 --write 会把词典截成只剩该目录。
+  const inScope = new Set()
+  for (const target of targets) walkFiles(path.resolve(FRONTEND, target), []).forEach((f) => inScope.add(f))
   const files = []
-  for (const target of scanTargets) walkFiles(path.resolve(FRONTEND, target), files)
+  walkFiles(path.resolve(FRONTEND, 'src'), files)
 
   const allKeys = []
   const skipped = []
@@ -443,8 +587,10 @@ function main() {
   for (const file of files.sort()) {
     const result = transformFile(file)
     for (const key of result.keys) allKeys.push({ bucket: bucketOf(file), key })
-    skipped.push(...result.skipped)
+    // 统计/报告只反映本次 scope（默认就是整个 src）
+    if (inScope.has(file)) skipped.push(...result.skipped)
     if (!result.changed) continue
+    if (!inScope.has(file)) continue
     changedFiles += 1
     // 统一写成 LF：Windows 上自动检出常把工作区文件变成 CRLF，
     // 原样写回会让 git 认为整文件都改了。

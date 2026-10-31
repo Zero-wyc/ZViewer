@@ -127,7 +127,9 @@ export function AniSubsGithubBrowser({
         })
         if (!res.ok) {
           const data = (await res.json()) as { message?: string }
-          throw new Error(data.message || `请求失败 (${res.status})`)
+          throw new Error(
+            data.message || t('请求失败 ({{status}})', { status: res.status })
+          )
         }
         const data = (await res.json()) as GithubContentItem[]
         setItems(
@@ -188,7 +190,9 @@ export function AniSubsGithubBrowser({
       return
     }
     onAddUrls(newUrls)
-    message.success(`已添加 ${newUrls.length} 个订阅地址`)
+    message.success(
+      t('已添加 {{length}} 个订阅地址', { length: newUrls.length })
+    )
   }
 
   const isJsonFile = (item: GithubContentItem) =>

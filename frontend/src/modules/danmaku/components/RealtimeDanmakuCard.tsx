@@ -431,11 +431,15 @@ export function RealtimeDanmakuCard() {
           <Text
             type="secondary"
             className="shrink-0 truncate text-[10px]"
-            title={`全部弹幕（高亮当前 ±${WINDOW_SIZE}s）`}
+            title={translate('全部弹幕（高亮当前 ±{{wINDOW_SIZE}}s）', {
+              wINDOW_SIZE: WINDOW_SIZE,
+            })}
           >
             {allDanmaku.length > 0
-              ? `${allDanmaku.length} 条`
-              : `高亮 ±${WINDOW_SIZE}s`}
+              ? translate('{{length}} 条', { length: allDanmaku.length })
+              : translate('高亮 ±{{wINDOW_SIZE}}s', {
+                  wINDOW_SIZE: WINDOW_SIZE,
+                })}
           </Text>
           {allDanmaku.length > 0 && (
             <Button
@@ -512,7 +516,7 @@ export function RealtimeDanmakuCard() {
                 key={kw}
                 type="button"
                 className="max-w-full truncate rounded-full border border-white/15 bg-white/5 px-2 py-0.5 text-[10px] text-white/70 transition-colors hover:bg-white/10"
-                title={`点击取消屏蔽：${kw}`}
+                title={translate('点击取消屏蔽：{{kw}}', { kw })}
                 onClick={() => {
                   void removeBlockKeyword(kw)
                   triggerDanmakuRefresh()
@@ -536,7 +540,9 @@ export function RealtimeDanmakuCard() {
           setModalOpen(false)
           setSearchQuery('')
         }}
-        title={`实时弹幕 (${allDanmaku.length} 条)`}
+        title={translate('实时弹幕 ({{length}} 条)', {
+          length: allDanmaku.length,
+        })}
         className="max-w-2xl"
       >
         <div className="flex flex-col gap-2">

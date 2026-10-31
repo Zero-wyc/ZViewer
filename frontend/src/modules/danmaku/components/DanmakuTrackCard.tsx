@@ -84,9 +84,14 @@ export function DanmakuTrackCard() {
       const trackId = `local:${Date.now()}`
       await addTrack(trackId, file.name, 'local', items, 0)
       message.success(
-        `已导入「${file.name}」弹幕轨道（共 ${items.length} 条${
-          truncated > 0 ? `，超出上限截断 ${truncated} 条` : ''
-        }）`
+        translate('已导入「{{name}}」弹幕轨道（共 {{length}} 条{{value}}）', {
+          name: file.name,
+          length: items.length,
+          value:
+            truncated > 0
+              ? translate('，超出上限截断 {{truncated}} 条', { truncated })
+              : '',
+        })
       )
     } catch (err) {
       console.error('[DanmakuTrackCard] local import error:', err)
@@ -123,7 +128,10 @@ export function DanmakuTrackCard() {
         const items = await fetchDanmaku('bilibili-video', episode)
         await addTrack(trackId, episode.title, 'bilibili-video', items, 0)
         message.success(
-          `已添加 ${episode.title} 弹幕轨道（共 ${items.length} 条）`
+          translate('已添加 {{title}} 弹幕轨道（共 {{length}} 条）', {
+            title: episode.title,
+            length: items.length,
+          })
         )
         setBvInput('')
       } else {

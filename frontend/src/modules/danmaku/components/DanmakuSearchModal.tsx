@@ -170,7 +170,12 @@ export function DanmakuSearchModal({
         next.add(episode.id)
         return next
       })
-      message.success(`已添加 ${label} 弹幕轨道（共 ${items.length} 条）`)
+      message.success(
+        t('已添加 {{label}} 弹幕轨道（共 {{length}} 条）', {
+          label,
+          length: items.length,
+        })
+      )
     } catch (err) {
       console.error('[DanmakuSearchModal] fetch error:', err)
       message.error(err instanceof Error ? err.message : t('添加弹幕轨道失败'))

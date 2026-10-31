@@ -282,7 +282,7 @@ export function RoomLayout({
   // 移动端控制卡片的标签：调用方未提供时按索引生成默认文本
   const mobileCardLabels = controlLabels?.length
     ? controlLabels.slice(0, controlChildren.length)
-    : controlChildren.map((_, i) => `卡片 ${i + 1}`)
+    : controlChildren.map((_, i) => t('卡片 {{value}}', { value: i + 1 }))
 
   // 移动端控制卡片横向滚动的当前索引与滚动处理
   const mobileCardsScrollRef = useRef<HTMLDivElement>(null)
@@ -480,7 +480,7 @@ export function RoomLayout({
                             <button
                               key={index}
                               type="button"
-                              aria-label={`切换到${label}`}
+                              aria-label={t('切换到{{label}}', { label })}
                               onClick={() => scrollToMobileCard(index)}
                               className={cn(
                                 'min-w-[4rem] rounded-full px-3 py-1.5 text-xs font-medium transition-all duration-200',

@@ -252,7 +252,7 @@ export function BilibiliDownloadModal({
           },
         }
       )
-      message.success(`已下载「${result.name}」`)
+      message.success(translate('已下载「{{name}}」', { name: result.name }))
       handleClose()
     } catch (err) {
       message.error(err instanceof Error ? err.message : translate('下载失败'))
@@ -580,7 +580,9 @@ export function BilibiliDownloadModal({
                         <span>{formatFileSize(received)}</span>
                         <span>
                           {total > 0
-                            ? `共 ${formatFileSize(total)}`
+                            ? translate('共 {{value}}', {
+                                value: formatFileSize(total),
+                              })
                             : translate('大小未知')}
                         </span>
                       </div>

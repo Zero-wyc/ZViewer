@@ -298,7 +298,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
         }
         hasJoinedRef.current = true
         setJoinStatus('approved')
-        message.success(`已获准加入房间 ${data.roomId}`)
+        message.success(t('已获准加入房间 {{roomId}}', { roomId: data.roomId }))
         callbacksRef.current.onApprovedWatchTogether?.()
         return
       }
@@ -308,13 +308,13 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
       }
       hasJoinedRef.current = true
       setJoinStatus('approved')
-      message.success(`已获准加入房间 ${data.roomId}`)
+      message.success(t('已获准加入房间 {{roomId}}', { roomId: data.roomId }))
       callbacksRef.current.onApprovedScreenShare?.()
     }
 
     const handleJoinRejected = (data: JoinRejectedPayload) => {
       setJoinStatus('rejected')
-      message.warning(`加入房间 ${data.roomId} 被拒绝`)
+      message.warning(t('加入房间 {{roomId}} 被拒绝', { roomId: data.roomId }))
     }
 
     const handleRoomClosed = (data: RoomClosedPayload) => {

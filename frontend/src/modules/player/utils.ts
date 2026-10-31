@@ -77,9 +77,10 @@ export function waitForMetadata(video: HTMLVideoElement): Promise<void> {
       cleanup()
       reject(
         new Error(
-          `媒体加载失败（code=${video.error?.code ?? 'unknown'}${
-            video.error?.message ? `: ${video.error.message}` : ''
-          }）`
+          t('媒体加载失败（code={{value}}{{value2}}）', {
+            value: video.error?.code ?? 'unknown',
+            value2: video.error?.message ? `: ${video.error.message}` : '',
+          })
         )
       )
     }

@@ -169,7 +169,7 @@ export function MusicSearchPage({
       {/* 顶部：view-control 范式标题 */}
       <PageBlockHeader
         titleEN="SEARCH RESULT"
-        titleCN={`搜索内容：${keywords || '—'}`}
+        titleCN={t('搜索内容：{{value}}', { value: keywords || '—' })}
       />
 
       {/* 结果区：SongRow 裸列表（无卡片行包裹，靠行 hover 背景区分） */}

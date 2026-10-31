@@ -191,7 +191,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
     try {
       const count = await onAutoSearchSubtitles()
       setAutoSearchMsg(
-        count > 0 ? `找到 ${count} 条字幕` : translate('未找到字幕')
+        count > 0
+          ? translate('找到 {{count}} 条字幕', { count })
+          : translate('未找到字幕')
       )
     } catch {
       setAutoSearchMsg(translate('搜索失败'))
@@ -224,7 +226,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
     try {
       const count = await onExtractEmbeddedTrack(track)
       setEmbeddedMsg(
-        count > 0 ? `已提取「${track.label}」` : translate('提取失败')
+        count > 0
+          ? translate('已提取「{{label}}」', { label: track.label })
+          : translate('提取失败')
       )
     } catch {
       setEmbeddedMsg(translate('提取失败'))
@@ -347,7 +351,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
               max={50}
               step={1}
               valueFormatter={(v) =>
-                v > 0 ? `右移${v}%` : v < 0 ? `左移${-v}%` : translate('居中')
+                v > 0
+                  ? translate('右移{{v}}%', { v })
+                  : v < 0
+                    ? translate('左移{{value}}%', { value: -v })
+                    : translate('居中')
               }
               onChange={(v) => onChangeSubtitleShiftX?.(v)}
             />
@@ -359,7 +367,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
               max={50}
               step={1}
               valueFormatter={(v) =>
-                v > 0 ? `下移${v}%` : v < 0 ? `上移${-v}%` : translate('原始')
+                v > 0
+                  ? translate('下移{{v}}%', { v })
+                  : v < 0
+                    ? translate('上移{{value}}%', { value: -v })
+                    : translate('原始')
               }
               onChange={(v) => onChangeSubtitleShiftY?.(v)}
             />
@@ -864,7 +876,9 @@ function CommentDockHotkeySetting({
               title={
                 key === 'off'
                   ? translate('关闭双击快捷键')
-                  : `全屏播放时双击 ${label} 开/关右侧评论区`
+                  : translate('全屏播放时双击 {{label}} 开/关右侧评论区', {
+                      label,
+                    })
               }
               className={cn(
                 'rounded-md border py-1 text-xs font-medium transition-all',

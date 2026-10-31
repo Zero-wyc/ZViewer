@@ -331,8 +331,13 @@ export function PlayerSongControl({
           onClick={onTogglePlayMode}
           className="flex h-[max(2.5vh,20px)] w-[max(2.5vh,20px)] items-center justify-center transition-opacity hover:opacity-70 active:scale-90"
           style={{ color: 'var(--md-sys-color-on-surface)' }}
-          title={`${PLAY_MODE_META[playMode].label}（点击${PLAY_MODE_META[playMode].next}）`}
-          aria-label={`播放模式：${PLAY_MODE_META[playMode].label}`}
+          title={t('{{label}}（点击{{next}}）', {
+            label: PLAY_MODE_META[playMode].label,
+            next: PLAY_MODE_META[playMode].next,
+          })}
+          aria-label={t('播放模式：{{label}}', {
+            label: PLAY_MODE_META[playMode].label,
+          })}
         >
           <PlayModeIcon
             mode={playMode}
@@ -493,8 +498,12 @@ export function PlayerSongControl({
           }}
           title={
             biliCollected
-              ? `已收藏到「${biliCollectedMark?.folder ?? biliLikeFavTitle}」收藏夹；点击取消收藏`
-              : `一键收藏到「${biliLikeFavTitle}」收藏夹`
+              ? t('已收藏到「{{value}}」收藏夹；点击取消收藏', {
+                  value: biliCollectedMark?.folder ?? biliLikeFavTitle,
+                })
+              : t('一键收藏到「{{biliLikeFavTitle}}」收藏夹', {
+                  biliLikeFavTitle,
+                })
           }
           aria-label={t('收藏到收藏夹')}
         >

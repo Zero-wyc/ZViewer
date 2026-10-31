@@ -54,7 +54,9 @@ export function waitForMetadataOrError(
       cleanup()
       reject(
         new Error(
-          `加载超时：源站 ${Math.round(METADATA_TIMEOUT_MS / 1000)}s 无响应`
+          t('加载超时：源站 {{value}}s 无响应', {
+            value: Math.round(METADATA_TIMEOUT_MS / 1000),
+          })
         )
       )
     }, METADATA_TIMEOUT_MS)
@@ -135,8 +137,10 @@ export function assertDirectLinkReachable(
   }
   if (u.protocol !== 'http:') return
   throw new Error(
-    `直链播放失败：源站为 HTTP（${u.host}），HTTPS 页面下浏览器会强制升级协议导致无法直连。` +
-      t('解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片')
+    t(
+      '直链播放失败：源站为 HTTP（{{host}}），HTTPS 页面下浏览器会强制升级协议导致无法直连。',
+      { host: u.host }
+    ) + t('解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片')
   )
 }
 

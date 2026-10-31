@@ -141,7 +141,7 @@ export function AnimeSourceBrowser({
         posters.current.set(key, { cover: show.cover, referer: show.id })
         return {
           name: /^\d+(?:\.\d+)?$/.test(episode.title)
-            ? `第${episode.title}集`
+            ? t('第{{title}}集', { title: episode.title })
             : episode.title,
           path: key,
           type: 'file',

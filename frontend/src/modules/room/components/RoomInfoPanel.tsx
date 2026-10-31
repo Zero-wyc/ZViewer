@@ -343,7 +343,11 @@ export function RoomInfoPanel({
       (response: { success: boolean; message?: string }) => {
         setTransferring(false)
         if (response.success) {
-          message.success(`已将房主转交给 ${transferTarget.username || '观众'}`)
+          message.success(
+            t('已将房主转交给 {{value}}', {
+              value: transferTarget.username || t('观众'),
+            })
+          )
           setTransferTarget(null)
         } else {
           message.error(response.message || t('转交失败'))
@@ -364,8 +368,10 @@ export function RoomInfoPanel({
         if (response.success) {
           message.success(
             isModerator
-              ? `已撤销 ${username || '该用户'} 的房管权限`
-              : `已任命 ${username || '该用户'} 为房管`
+              ? t('已撤销 {{value}} 的房管权限', {
+                  value: username || t('该用户'),
+                })
+              : t('已任命 {{value}} 为房管', { value: username || t('该用户') })
           )
         } else {
           message.error(response.message || t('操作失败'))

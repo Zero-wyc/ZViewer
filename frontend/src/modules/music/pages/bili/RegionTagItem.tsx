@@ -90,7 +90,7 @@ export function RegionTagItem({
           }}
           className="relative mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
           title={t('分类标签规则设置')}
-          aria-label={`设置分类 ${name} 的标签规则`}
+          aria-label={t('设置分类 {{name}} 的标签规则', { name })}
         >
           <Settings2
             className="h-3 w-3"
@@ -108,7 +108,7 @@ export function RegionTagItem({
           }}
           className="relative mr-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
           title={t('分区屏蔽词设置')}
-          aria-label={`设置分区 ${name} 的屏蔽词`}
+          aria-label={t('设置分区 {{name}} 的屏蔽词', { name })}
         >
           <Ban
             className="h-3 w-3"
@@ -125,7 +125,7 @@ export function RegionTagItem({
           }}
           className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full opacity-0 transition-opacity group-hover:opacity-100 hover:bg-[color-mix(in_srgb,var(--md-sys-color-on-surface)_10%,transparent)]"
           title={t('删除该种类')}
-          aria-label={`删除种类 ${name}`}
+          aria-label={t('删除种类 {{name}}', { name })}
         >
           <X
             className="h-3 w-3"
@@ -145,7 +145,7 @@ export function RegionTagItem({
             disabled={!onMoveUp}
             className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
             title={t('上移')}
-            aria-label={`上移种类 ${name}`}
+            aria-label={t('上移种类 {{name}}', { name })}
           >
             <ChevronUp className="h-3 w-3" />
           </button>
@@ -158,7 +158,7 @@ export function RegionTagItem({
             disabled={!onMoveDown}
             className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
             title={t('下移')}
-            aria-label={`下移种类 ${name}`}
+            aria-label={t('下移种类 {{name}}', { name })}
           >
             <ChevronDown className="h-3 w-3" />
           </button>

@@ -153,7 +153,9 @@ export function useViewerStateSync({
             } else if (err instanceof UrlExpiredError) {
               message.error(t('B站 URL 已过期，请等待房主重新解析'))
             } else if (err instanceof DownloadError) {
-              message.error(`缓冲下载失败: ${err.message}`)
+              message.error(
+                t('缓冲下载失败: {{message}}', { message: err.message })
+              )
             } else {
               console.error('[useViewerStateSync] 缓冲下载失败:', err)
               message.error(t('缓冲下载失败，请等待房主重新广播'))

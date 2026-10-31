@@ -112,8 +112,13 @@ export function BlockWordsModal({
                         onClick={() => onToggleScope(b.word)}
                         className="rounded-full px-1.5 py-0.5 text-[12px] font-bold transition-opacity hover:opacity-70"
                         style={{ backgroundColor: 'rgba(255, 255, 255, 0.22)' }}
-                        title={`作用范围：${SCOPE_LABEL[b.scope]}（点击切换）`}
-                        aria-label={`切换屏蔽词 ${b.word} 的作用范围，当前 ${SCOPE_LABEL[b.scope]}`}
+                        title={t('作用范围：{{value}}（点击切换）', {
+                          value: SCOPE_LABEL[b.scope],
+                        })}
+                        aria-label={t(
+                          '切换屏蔽词 {{word}} 的作用范围，当前 {{value}}',
+                          { word: b.word, value: SCOPE_LABEL[b.scope] }
+                        )}
                       >
                         {SCOPE_LABEL[b.scope]}
                       </button>
@@ -122,8 +127,8 @@ export function BlockWordsModal({
                         onClick={() => onRemove(b.word)}
                         className="flex h-4 w-4 items-center justify-center rounded-full transition-opacity hover:opacity-70"
                         style={{ backgroundColor: 'rgba(255, 255, 255, 0.18)' }}
-                        title={`删除屏蔽词 ${b.word}`}
-                        aria-label={`删除屏蔽词 ${b.word}`}
+                        title={t('删除屏蔽词 {{word}}', { word: b.word })}
+                        aria-label={t('删除屏蔽词 {{word}}', { word: b.word })}
                       >
                         <X className="h-2.5 w-2.5" />
                       </button>

@@ -225,7 +225,7 @@ function RoomPage() {
     const handleRoomClosed = (data: { roomId: string }) => {
       if (data.roomId !== roomId) return
       dispatchRoomMediaTeardown(true)
-      message.warning(`房间 ${data.roomId} 已关闭`)
+      message.warning(t('房间 {{roomId}} 已关闭', { roomId: data.roomId }))
       setTimeout(() => navigate('/room', { replace: true }), 600)
     }
 

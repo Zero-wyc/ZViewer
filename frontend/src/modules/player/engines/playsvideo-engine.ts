@@ -322,7 +322,10 @@ class PlaysVideoController implements PlayerController {
       ) {
         const reason = err instanceof Error ? err.message : String(err)
         throw new Error(
-          `直链播放失败：${reason}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），` +
+          t(
+            '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），',
+            { reason }
+          ) +
             t(
               '不经服务器中转；请检查源站可达性与跨域配置，或关闭影片的挂载直链模式'
             ),
@@ -411,7 +414,10 @@ class PlaysVideoController implements PlayerController {
         activityTimer = setTimeout(() => {
           fail(
             new Error(
-              `浏览器转码引擎 ${Math.round(ACTIVITY_TIMEOUT_MS / 1000)}s 无进展（源站无响应或处理停滞），可尝试重载影片`
+              t(
+                '浏览器转码引擎 {{value}}s 无进展（源站无响应或处理停滞），可尝试重载影片',
+                { value: Math.round(ACTIVITY_TIMEOUT_MS / 1000) }
+              )
             )
           )
         }, ACTIVITY_TIMEOUT_MS)
@@ -469,7 +475,9 @@ class PlaysVideoController implements PlayerController {
       const absoluteTimer = setTimeout(() => {
         fail(
           new Error(
-            `浏览器转码引擎准备超时（${Math.round(ABSOLUTE_TIMEOUT_MS / 60_000)} 分钟），可尝试重载影片`
+            t('浏览器转码引擎准备超时（{{value}} 分钟），可尝试重载影片', {
+              value: Math.round(ABSOLUTE_TIMEOUT_MS / 60_000),
+            })
           )
         )
       }, ABSOLUTE_TIMEOUT_MS)
@@ -575,7 +583,7 @@ class PlaysVideoController implements PlayerController {
 
     publishPlaysVideoSubtitle(gen, {
       index: ordinal,
-      label: element.label || `轨道 ${ordinal + 1}`,
+      label: element.label || t('轨道 {{value}}', { value: ordinal + 1 }),
       language: element.srclang || info?.language || null,
       codec: info?.codec ?? 'unknown',
       cues,
@@ -626,7 +634,10 @@ export const playsVideoEngine: PlayerEngine = {
     // HDR（HEVC Main10）在无硬解的设备上会 append 失败，这里提前给出人话。
     if (!canDecodeCodecs(source.videoCodec)) {
       throw new Error(
-        `当前设备无法解码该视频编码（${source.videoCodec}），请更换播放设备或转码后再试`
+        t(
+          '当前设备无法解码该视频编码（{{videoCodec}}），请更换播放设备或转码后再试',
+          { videoCodec: source.videoCodec }
+        )
       )
     }
     const controller = new PlaysVideoController(video, source)

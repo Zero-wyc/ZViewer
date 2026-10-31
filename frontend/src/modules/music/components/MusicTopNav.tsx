@@ -984,10 +984,12 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 >
                   {loginStatus.loggedIn
                     ? ncmVipLabel(loginStatus.vipType, loginStatus.vipStatus)
-                      ? `网易云账号 · ${ncmVipLabel(
-                          loginStatus.vipType,
-                          loginStatus.vipStatus
-                        )}`
+                      ? t('网易云账号 · {{value}}', {
+                          value: ncmVipLabel(
+                            loginStatus.vipType,
+                            loginStatus.vipStatus
+                          ),
+                        })
                       : t('网易云账号')
                     : t('尚未登录网易云')}
                 </p>

@@ -167,7 +167,10 @@ export async function fetchBlobsForBufferMode(
     // 超大小上限被中止 → 转为明确提示（调用方按 DownloadError 展示）
     if (overLimit && err instanceof DownloadAbortedError) {
       throw new DownloadError(
-        `视频过大（超过 ${Math.round(MAX_BUFFER_TOTAL_BYTES / 1024 / 1024)}MB），已取消缓冲下载；请关闭缓冲模式或切换更低清晰度`
+        t(
+          '视频过大（超过 {{value}}MB），已取消缓冲下载；请关闭缓冲模式或切换更低清晰度',
+          { value: Math.round(MAX_BUFFER_TOTAL_BYTES / 1024 / 1024) }
+        )
       )
     }
     // 仅当写入缓存的尝试失败时才清理（IndexedDB 单条 put 失败通常原子回滚，

@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * 通用格式化工具（计数缩写）。
  * 时间/时长格式化见 lib/utils.ts 的 formatDuration / formatDurationMs。
@@ -33,7 +34,7 @@ export function formatCountShort(
     }
     return String(n)
   }
-  if (n >= 1e8) return `${(n / 1e8).toFixed(1)}亿`
-  if (n >= 1e4) return `${(n / 1e4).toFixed(1)}万`
+  if (n >= 1e8) return t('{{value}}亿', { value: (n / 1e8).toFixed(1) })
+  if (n >= 1e4) return t('{{value}}万', { value: (n / 1e4).toFixed(1) })
   return String(n)
 }

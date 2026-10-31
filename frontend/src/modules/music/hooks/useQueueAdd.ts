@@ -112,7 +112,9 @@ export function useQueueAdd(
       }, ADDED_STATE_MS)
       timersRef.current.add(timer)
       if (notify) {
-        message.success(`已添加《${item.name}》到播放队列`)
+        message.success(
+          translate('已添加《{{name}}》到播放队列', { name: item.name })
+        )
       }
     },
     [socket, roomId]
@@ -149,13 +151,18 @@ export function useQueueAdd(
           .getState()
           .queue.some((q) => musicItemKey(q) === upsertItemKey(item))
       ) {
-        message.confirm(`《${item.name}》已在播放队列中，仍要添加吗？`, [
-          {
-            label: translate('添加'),
-            onClick: () => doAdd(item, afterCurrent, notify),
-          },
-          { label: translate('取消'), onClick: () => {} },
-        ])
+        message.confirm(
+          translate('《{{name}}》已在播放队列中，仍要添加吗？', {
+            name: item.name,
+          }),
+          [
+            {
+              label: translate('添加'),
+              onClick: () => doAdd(item, afterCurrent, notify),
+            },
+            { label: translate('取消'), onClick: () => {} },
+          ]
+        )
         return
       }
       doAdd(item, afterCurrent, notify)

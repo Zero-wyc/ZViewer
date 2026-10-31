@@ -201,7 +201,10 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
           value={hasStats ? calcDropRate(statistics) : '--'}
           sub={
             hasStats
-              ? `${statistics!.droppedFrames} / ${statistics!.decodedFrames + statistics!.droppedFrames} 帧`
+              ? t('{{droppedFrames}} / {{value}} 帧', {
+                  droppedFrames: statistics!.droppedFrames,
+                  value: statistics!.decodedFrames + statistics!.droppedFrames,
+                })
               : t('丢帧 / 总帧')
           }
         />

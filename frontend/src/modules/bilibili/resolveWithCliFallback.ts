@@ -1,6 +1,7 @@
 import { message } from '@/components/ui/message'
 import type { ResolvedSource } from '@/modules/movie-source/resolveSource'
 import { CliConnectionError, CliPrecheckError, CliResolveError } from './cliApi'
+import { t } from '@/i18n'
 
 export interface BilibiliCliFallbackParams {
   /**
@@ -58,7 +59,9 @@ export async function resolveBilibiliWithCliFallback({
         // 前置查询失败（如拿不到分 P cid）与 CLI 是否可用无关，静默回退即可
         console.warn(`${logTag} ${cliErr.message}`)
       } else if (cliErr instanceof CliResolveError) {
-        message.warning(`${cliErr.message}，已回退到服务器端解析`)
+        message.warning(
+          t('{{message}}，已回退到服务器端解析', { message: cliErr.message })
+        )
       }
     }
   }

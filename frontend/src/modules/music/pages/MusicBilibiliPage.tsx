@@ -117,9 +117,14 @@ function formatDate(sec: number): string {
   const min = 60_000
   const hour = 60 * min
   const day = 24 * hour
-  if (diff < hour) return `${Math.max(1, Math.floor(diff / min))}分钟前`
-  if (diff < day) return `${Math.floor(diff / hour)}小时前`
-  if (diff < 7 * day) return `${Math.floor(diff / day)}天前`
+  if (diff < hour)
+    return translate('{{value}}分钟前', {
+      value: Math.max(1, Math.floor(diff / min)),
+    })
+  if (diff < day)
+    return translate('{{value}}小时前', { value: Math.floor(diff / hour) })
+  if (diff < 7 * day)
+    return translate('{{value}}天前', { value: Math.floor(diff / day) })
   const d = new Date(ms)
   return `${d.getMonth() + 1}-${d.getDate()}`
 }
@@ -448,7 +453,10 @@ export function MusicBilibiliPage({
           } else if (!showedCache) {
             // 重试后仍为空：给出明确反馈而不是静默渲染空白页
             message.info(
-              `第 ${pageNo} 页暂无匹配内容（可能被屏蔽词过滤或接口限流），请稍后刷新重试`
+              translate(
+                '第 {{pageNo}} 页暂无匹配内容（可能被屏蔽词过滤或接口限流），请稍后刷新重试',
+                { pageNo }
+              )
             )
           }
           setPageFull(maxSourceLen >= PAGE_SIZE_SEARCH)
@@ -1280,7 +1288,10 @@ export function MusicBilibiliPage({
                       ? 'text-[var(--md-sys-color-on-surface)]'
                       : 'text-[color-mix(in_srgb,var(--md-sys-color-on-surface)_72%,transparent)] hover:text-[var(--md-sys-color-on-surface)]'
                   )}
-                  title={`${kindLabel}：${ct.name}（点击右侧 × 删除）`}
+                  title={translate(
+                    '{{kindLabel}}：{{name}}（点击右侧 × 删除）',
+                    { kindLabel, name: ct.name }
+                  )}
                 >
                   {ct.name}
                   {/* 激活下划线（与内置 tab 同语言） */}
@@ -1296,8 +1307,8 @@ export function MusicBilibiliPage({
                   type="button"
                   onClick={() => handleDeleteCustomTab(ct.id)}
                   className="flex h-4 w-4 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface)] opacity-45 transition-opacity hover:opacity-100"
-                  title={`删除栏目「${ct.name}」`}
-                  aria-label={`删除栏目 ${ct.name}`}
+                  title={translate('删除栏目「{{name}}」', { name: ct.name })}
+                  aria-label={translate('删除栏目 {{name}}', { name: ct.name })}
                 >
                   <X className="h-2.5 w-2.5" />
                 </button>
@@ -1311,7 +1322,9 @@ export function MusicBilibiliPage({
                       disabled={ctIndex === 0}
                       className="flex h-5 w-4 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
                       title={translate('向前移动')}
-                      aria-label={`向前移动栏目 ${ct.name}`}
+                      aria-label={translate('向前移动栏目 {{name}}', {
+                        name: ct.name,
+                      })}
                     >
                       <ChevronLeft className="h-3 w-3" />
                     </button>
@@ -1321,7 +1334,9 @@ export function MusicBilibiliPage({
                       disabled={ctIndex === customTabs.length - 1}
                       className="flex h-5 w-4 items-center justify-center text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
                       title={translate('向后移动')}
-                      aria-label={`向后移动栏目 ${ct.name}`}
+                      aria-label={translate('向后移动栏目 {{name}}', {
+                        name: ct.name,
+                      })}
                     >
                       <ChevronRight className="h-3 w-3" />
                     </button>
@@ -1369,20 +1384,31 @@ export function MusicBilibiliPage({
             className="max-w-[260px] truncate text-[13px] font-bold text-[var(--md-sys-color-on-surface-variant)] max-md:max-w-[140px] max-md:hidden"
             title={
               blockPreviewEntries.length > 0
-                ? `屏蔽词：${blockPreviewEntries
-                    .map((b) =>
-                      b.region
-                        ? `${b.word}·分区(${SCOPE_LABEL[b.scope]})`
-                        : `${b.word}(${SCOPE_LABEL[b.scope]})`
-                    )
-                    .join('、')}`
+                ? translate('屏蔽词：{{value}}', {
+                    value: blockPreviewEntries
+                      .map((b) =>
+                        b.region
+                          ? translate('{{word}}·分区({{value}})', {
+                              word: b.word,
+                              value: SCOPE_LABEL[b.scope],
+                            })
+                          : `${b.word}(${SCOPE_LABEL[b.scope]})`
+                      )
+                      .join('、'),
+                  })
                 : translate('未设置屏蔽词')
             }
           >
             {blockPreviewEntries.length > 0
-              ? `屏蔽：${blockPreviewEntries
-                  .map((b) => (b.region ? `${b.word}·分区` : b.word))
-                  .join('、')}`
+              ? translate('屏蔽：{{value}}', {
+                  value: blockPreviewEntries
+                    .map((b) =>
+                      b.region
+                        ? translate('{{word}}·分区', { word: b.word })
+                        : b.word
+                    )
+                    .join('、'),
+                })
               : translate('未设置屏蔽词')}
           </span>
           <button
@@ -1518,7 +1544,9 @@ export function MusicBilibiliPage({
                               disabled={tagIdx <= 0}
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
                               title={translate('向前移动')}
-                              aria-label={`向前移动种类 ${entry.name}`}
+                              aria-label={translate('向前移动种类 {{name}}', {
+                                name: entry.name,
+                              })}
                             >
                               <ChevronUp className="h-3 w-3" />
                             </button>
@@ -1534,7 +1562,9 @@ export function MusicBilibiliPage({
                               }
                               className="flex h-5 w-5 items-center justify-center rounded-full text-[var(--md-sys-color-on-surface-variant)] disabled:opacity-25"
                               title={translate('向后移动')}
-                              aria-label={`向后移动种类 ${entry.name}`}
+                              aria-label={translate('向后移动种类 {{name}}', {
+                                name: entry.name,
+                              })}
                             >
                               <ChevronDown className="h-3 w-3" />
                             </button>
@@ -1550,7 +1580,10 @@ export function MusicBilibiliPage({
                                   'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
                               }}
                               title={translate('分类标签规则设置')}
-                              aria-label={`设置分类 ${entry.name} 的标签规则`}
+                              aria-label={translate(
+                                '设置分类 {{name}} 的标签规则',
+                                { name: entry.name }
+                              )}
                             >
                               <Settings2 className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
                             </button>
@@ -1565,7 +1598,10 @@ export function MusicBilibiliPage({
                                   'color-mix(in srgb, var(--md-sys-color-on-surface) 15%, transparent)',
                               }}
                               title={translate('分区屏蔽词设置')}
-                              aria-label={`设置分区 ${entry.name} 的屏蔽词`}
+                              aria-label={translate(
+                                '设置分区 {{name}} 的屏蔽词',
+                                { name: entry.name }
+                              )}
                             >
                               <Ban className="h-2.5 w-2.5 max-md:h-3 max-md:w-3" />
                             </button>
@@ -1695,7 +1731,9 @@ export function MusicBilibiliPage({
                     <FavFolderItem
                       key={f.id}
                       name={f.title}
-                      info={`${f.mediaCount} 个视频`}
+                      info={translate('{{mediaCount}} 个视频', {
+                        mediaCount: f.mediaCount,
+                      })}
                       cover={f.cover}
                       selected={f.id === activeFolderId}
                       onClick={() => handleSelectFolder(f)}
@@ -2115,8 +2153,14 @@ export function MusicBilibiliPage({
               </button>
               <span className="text-sm font-bold tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
                 {randomMode && searchLikeMode
-                  ? `随机第 ${pageNo} 页`
-                  : `第 ${pageNo} 页${totalPages != null ? ` · 共 ${totalPages} 页` : ''}`}
+                  ? translate('随机第 {{pageNo}} 页', { pageNo })
+                  : translate('第 {{pageNo}} 页{{value}}', {
+                      pageNo,
+                      value:
+                        totalPages != null
+                          ? translate(' · 共 {{totalPages}} 页', { totalPages })
+                          : '',
+                    })}
               </span>
               <button
                 type="button"
@@ -2199,7 +2243,16 @@ export function MusicBilibiliPage({
               />
             ) : (
               <LiquidGlassButton
-                title={`当前第 ${pageNo} 页${totalPages != null ? ` / 共 ${totalPages} 页` : ''}；点击输入页码跳转`}
+                title={translate(
+                  '当前第 {{pageNo}} 页{{value}}；点击输入页码跳转',
+                  {
+                    pageNo,
+                    value:
+                      totalPages != null
+                        ? translate(' / 共 {{totalPages}} 页', { totalPages })
+                        : '',
+                  }
+                )}
                 ariaLabel={translate('跳转到指定页')}
                 disabled={loading}
                 onClick={() => {
@@ -2302,7 +2355,9 @@ export function MusicBilibiliPage({
       {/* 分类标签规则弹窗（多 tag 筛选；规则变化经 render 期调整自动重载） */}
       {tagRulesEntry && (
         <TagRulesModal
-          title={`「${tagRulesEntry.name}」标签规则`}
+          title={translate('「{{name}}」标签规则', {
+            name: tagRulesEntry.name,
+          })}
           rules={tagRulesEntry.tags ?? []}
           input={blockWordInput}
           onInputChange={setBlockWordInput}
@@ -2326,8 +2381,13 @@ export function MusicBilibiliPage({
           改动即时持久化，关闭时重载当前列表） */}
       {categoryBlockEntry && (
         <BlockWordsModal
-          title={`「${categoryBlockEntry.name}」屏蔽词`}
-          description={`仅对「${categoryBlockEntry.name}」分区的列表生效；点击词上的范围徽标可单独设置匹配标题还是标签`}
+          title={translate('「{{name}}」屏蔽词', {
+            name: categoryBlockEntry.name,
+          })}
+          description={translate(
+            '仅对「{{name}}」分区的列表生效；点击词上的范围徽标可单独设置匹配标题还是标签',
+            { name: categoryBlockEntry.name }
+          )}
           words={categoryBlockEntry.blockWords ?? []}
           input={blockWordInput}
           onInputChange={setBlockWordInput}

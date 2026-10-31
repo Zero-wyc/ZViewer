@@ -841,7 +841,11 @@ export function useListenTogether({
     // 没有候选则不消耗跳过额度，交回引擎的通用错误提示
     if (!tryFmContinueRef.current()) return false
     fmSkipTimesRef.current.push(now)
-    message.info(`「${skipped?.name ?? '当前歌曲'}」无法播放，已自动跳过`)
+    message.info(
+      t('「{{value}}」无法播放，已自动跳过', {
+        value: skipped?.name ?? t('当前歌曲'),
+      })
+    )
     return true
   }, [cancelFmRetry])
 
@@ -965,7 +969,7 @@ export function useListenTogether({
         positionSec: 0,
       })
     }
-    message.info(`已自动播放相关推荐：${firstPayload.name}`)
+    message.info(t('已自动播放相关推荐：{{name}}', { name: firstPayload.name }))
   }, [switchSong, loadAndPlaySong, broadcastSyncState])
 
   /**
@@ -1197,7 +1201,9 @@ export function useListenTogether({
       // 观众端即时反馈（应答到达后会被同意/拒绝文案覆盖）
       useMusicStore
         .getState()
-        .setSyncNotice(`已向房主申请${CONTROL_ACTION_TEXT[action]}`)
+        .setSyncNotice(
+          t('已向房主申请{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+        )
     },
     [hasControl]
   )
@@ -1491,7 +1497,9 @@ export function useListenTogether({
         }
         if (added > 0) {
           useMusicStore.getState().markBiliRecommended(fresh.map(biliRecKey))
-          message.success(`已将 ${added} 首推荐歌曲加入当前播放之后`)
+          message.success(
+            t('已将 {{added}} 首推荐歌曲加入当前播放之后', { added })
+          )
         } else {
           message.error(
             t('B站 推荐加入播放列表失败（需重启后端以启用新队列字段）')
@@ -1518,7 +1526,11 @@ export function useListenTogether({
           }
         )
       }
-      message.info(`已申请加入 ${fresh.length} 首推荐歌曲，等待房主确认`)
+      message.info(
+        t('已申请加入 {{length}} 首推荐歌曲，等待房主确认', {
+          length: fresh.length,
+        })
+      )
       return fresh.length
     },
     []
@@ -1938,12 +1950,13 @@ export function useListenTogether({
           item: payload.item,
         }
         const who = payload.username || t('观众')
-        useMusicStore
-          .getState()
-          .setSyncNotice(
-            `${who} 申请${CONTROL_ACTION_TEXT.playItem}`,
-            'approval'
-          )
+        useMusicStore.getState().setSyncNotice(
+          t('{{who}} 申请{{playItem}}', {
+            who,
+            playItem: CONTROL_ACTION_TEXT.playItem,
+          }),
+          'approval'
+        )
         return
       }
       // pause/play/next/prev/seek：房主开启「自动通过」时直接执行并定向
@@ -1976,9 +1989,13 @@ export function useListenTogether({
         ...(action === 'seek' ? { positionSec: payload.positionSec } : {}),
       }
       const who = payload.username || t('观众')
-      useMusicStore
-        .getState()
-        .setSyncNotice(`${who} 申请${CONTROL_ACTION_TEXT[action]}`, 'approval')
+      useMusicStore.getState().setSyncNotice(
+        t('{{who}} 申请{{value}}', {
+          who,
+          value: CONTROL_ACTION_TEXT[action],
+        }),
+        'approval'
+      )
     }
 
     // 观众：控制申请应答（approved 时执行对应本地操作，并提示结果）
@@ -2007,8 +2024,8 @@ export function useListenTogether({
           .getState()
           .setSyncNotice(
             payload.approved
-              ? `房主已同意${CONTROL_ACTION_TEXT[action]}`
-              : `房主已拒绝${CONTROL_ACTION_TEXT[action]}`
+              ? t('房主已同意{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+              : t('房主已拒绝{{value}}', { value: CONTROL_ACTION_TEXT[action] })
           )
         return
       }
@@ -2044,12 +2061,16 @@ export function useListenTogether({
       if (payload.approved) {
         useMusicStore
           .getState()
-          .setSyncNotice(`房主已同意${CONTROL_ACTION_TEXT[action]}`)
+          .setSyncNotice(
+            t('房主已同意{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+          )
         executeLocalAction(action)
       } else {
         useMusicStore
           .getState()
-          .setSyncNotice(`房主已拒绝${CONTROL_ACTION_TEXT[action]}`)
+          .setSyncNotice(
+            t('房主已拒绝{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+          )
       }
     }
 

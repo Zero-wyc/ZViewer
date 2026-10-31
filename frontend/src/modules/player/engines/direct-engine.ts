@@ -33,6 +33,7 @@ import {
   waitForMetadataOrError,
   normalizeMkvTimeoutError,
 } from './direct-route'
+import { t } from '@/i18n'
 
 export const directEngine: PlayerEngine = {
   type: 'direct',
@@ -77,11 +78,15 @@ export const directEngine: PlayerEngine = {
           }
         } catch (downgradeErr) {
           throw new Error(
-            `直链播放失败：${
-              downgradeErr instanceof Error
-                ? downgradeErr.message
-                : String(downgradeErr)
-            }。https/http 直链均加载失败，请检查源站可达性，或重新保存挂载后重新添加影片`,
+            t(
+              '直链播放失败：{{value}}。https/http 直链均加载失败，请检查源站可达性，或重新保存挂载后重新添加影片',
+              {
+                value:
+                  downgradeErr instanceof Error
+                    ? downgradeErr.message
+                    : String(downgradeErr),
+              }
+            ),
             { cause: downgradeErr }
           )
         }
@@ -103,9 +108,10 @@ export const directEngine: PlayerEngine = {
         // 包装两次失败上下文：cause 挂回退代理的错误（symptom 因果），
         // 首次直连错误已由上方 console.warn 记录
         throw new Error(
-          `直连失败且回退代理仍失败：${
-            proxyErr instanceof Error ? proxyErr.message : String(proxyErr)
-          }`,
+          t('直连失败且回退代理仍失败：{{value}}', {
+            value:
+              proxyErr instanceof Error ? proxyErr.message : String(proxyErr),
+          }),
           { cause: proxyErr }
         )
       }

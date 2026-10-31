@@ -76,7 +76,9 @@ export function formatLyricLineOffset(offsetSec: number): string {
   const offset = normalizeLyricLineOffset(offsetSec)
   if (offset === 0) return t('无偏移')
   const absValue = Math.abs(offset).toFixed(1)
-  return offset > 0 ? `提前 ${absValue} 秒` : `延后 ${absValue} 秒`
+  return offset > 0
+    ? t('提前 {{absValue}} 秒', { absValue })
+    : t('延后 {{absValue}} 秒', { absValue })
 }
 
 /** 偏移仓库更新：offset 归零则删除该行，songs 空则整体删除 */

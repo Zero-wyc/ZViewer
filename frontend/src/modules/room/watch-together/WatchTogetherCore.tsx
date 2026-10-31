@@ -417,20 +417,28 @@ export function WatchTogetherCore({
       currentMovieSourceType === 'jellyfin'
     ) {
       addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，已由媒体服务器转码为 AAC`,
+        t('音轨编码 {{value}} 不受浏览器支持，已由媒体服务器转码为 AAC', {
+          value: codec.toUpperCase(),
+        }),
         'info'
       )
     } else if (currentMoviePlaysvideoEnabled && isPlaysVideoSupported()) {
       // playsvideo 将接管本源（影片级开关未关 + 浏览器具备 MSE/Worker
       // 运行条件）：引擎起播时探测编码并自动转码为 AAC，无需干预。
       addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持，浏览器转码引擎正在实时转码为 AAC`,
+        t(
+          '音轨编码 {{value}} 不受浏览器支持，浏览器转码引擎正在实时转码为 AAC',
+          { value: codec.toUpperCase() }
+        ),
         'info'
       )
     } else {
       // 引擎不会接管：直推原始流必然无声，给出可操作的修复指引
       addPlayerNotice(
-        `音轨编码 ${codec.toUpperCase()} 不受浏览器支持且浏览器转码引擎未启用，播放将无声；可在影片解析设置中开启「浏览器转码引擎」后重试`,
+        t(
+          '音轨编码 {{value}} 不受浏览器支持且浏览器转码引擎未启用，播放将无声；可在影片解析设置中开启「浏览器转码引擎」后重试',
+          { value: codec.toUpperCase() }
+        ),
         'error'
       )
     }
@@ -947,7 +955,9 @@ export function WatchTogetherCore({
             <span style={{ color: 'var(--md-sys-color-primary)' }}>
               {req.viewerUsernames[0] || req.viewerSocketIds[0].slice(0, 8)}
               {req.viewerSocketIds.length > 1
-                ? ` 等 ${req.viewerSocketIds.length} 位观众`
+                ? t(' 等 {{length}} 位观众', {
+                    length: req.viewerSocketIds.length,
+                  })
                 : ''}
             </span>{' '}
             {opts.action(req)}

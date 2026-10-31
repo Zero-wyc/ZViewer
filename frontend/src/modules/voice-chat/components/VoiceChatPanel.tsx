@@ -83,7 +83,7 @@ export function VoiceChatPanel({
     component.state === 'installing'
       ? t('正在解压…')
       : component.state === 'downloading'
-        ? `正在下载 ${component.progress}%`
+        ? t('正在下载 {{progress}}%', { progress: component.progress })
         : component.state === 'error'
           ? t('重新下载语音组件')
           : t('下载语音聊天组件')
@@ -97,7 +97,7 @@ export function VoiceChatPanel({
     if (me) return t('我')
     const name = member.username?.trim()
     if (name && name !== '游客' && name !== 'guest') return name
-    return `游客 ${member.id.slice(-4).toUpperCase()}`
+    return t('游客 {{value}}', { value: member.id.slice(-4).toUpperCase() })
   }
 
   /** 展开态面板内容（悬浮模式与嵌入模式共用；嵌入模式在工具坞内纵向堆叠，
@@ -126,7 +126,7 @@ export function VoiceChatPanel({
             <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
               {joined
                 ? mediaConnected
-                  ? `${memberCount} 人在线`
+                  ? t('{{memberCount}} 人在线', { memberCount })
                   : t('媒体连接中…')
                 : t('未连接')}
             </span>
@@ -326,7 +326,9 @@ export function VoiceChatPanel({
                           void kickVoiceMember(member.id).then((res) => {
                             if (res.success) {
                               message.success(
-                                `已将 ${displayName(member, false)} 移出语音`
+                                t('已将 {{value}} 移出语音', {
+                                  value: displayName(member, false),
+                                })
                               )
                             } else if (res.message) {
                               message.error(res.message)

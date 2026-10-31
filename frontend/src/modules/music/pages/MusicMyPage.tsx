@@ -626,7 +626,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               creator: (art?.alias ?? []).filter(Boolean).join(' · '),
               numText:
                 art != null
-                  ? `${art.musicSize ?? 0}首歌 · ${art.albumSize ?? 0}张专辑 · ${art.mvSize ?? 0}个MV`
+                  ? t('{{value}}首歌 · {{value2}}张专辑 · {{value3}}个MV', {
+                      value: art.musicSize ?? 0,
+                      value2: art.albumSize ?? 0,
+                      value3: art.mvSize ?? 0,
+                    })
                   : undefined,
               description: art?.briefDesc,
             })
@@ -695,7 +699,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
       id: target.id,
       name: target.name,
       cover: cdnImg(target.coverImgUrl, 300),
-      info: `${target.trackCount ?? 0} 首`,
+      info: t('{{value}} 首', { value: target.trackCount ?? 0 }),
     })
   }, [favoritePlaylist, openDetail])
 
@@ -828,7 +832,9 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
     }
     if (detailSongs.length === 0) return
     detailSongs.forEach((s) => add(songToUpsertItem(s)))
-    message.success(`已加入 ${detailSongs.length} 首到队列`)
+    message.success(
+      t('已加入 {{length}} 首到队列', { length: detailSongs.length })
+    )
   }, [canManage, detailSongs, add])
 
   if (!loginStatus.loggedIn) {
@@ -854,7 +860,10 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   const numText =
     detail?.kind === 'artist'
       ? (detailMeta?.numText ?? detail.info ?? '')
-      : `共${detail?.info ?? `${detailSongs.length} 首`}`
+      : t('共{{value}}', {
+          value:
+            detail?.info ?? t('{{length}} 首', { length: detailSongs.length }),
+        })
 
   // ===== 详情视图（右侧内容区，Hydrogen LibraryDetail 1:1） =====
   // 每日推荐：整区替换为日推面板（Hydrogen /mymusic/playlist/rec 同款展示）
@@ -1295,14 +1304,14 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                     }
                     img={cdnImg(pl.coverImgUrl)}
                     name={pl.name}
-                    info={`${pl.trackCount ?? 0} 首`}
+                    info={t('{{value}} 首', { value: pl.trackCount ?? 0 })}
                     onClick={() =>
                       openDetail({
                         kind: 'playlist',
                         id: pl.id,
                         name: pl.name,
                         cover: cdnImg(pl.coverImgUrl, 300),
-                        info: `${pl.trackCount ?? 0} 首`,
+                        info: t('{{value}} 首', { value: pl.trackCount ?? 0 }),
                       })
                     }
                   />
@@ -1355,7 +1364,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                     name={a.name}
                     info={
                       a.alias?.filter(Boolean).join(' / ') ||
-                      `${a.size ?? 0} 首`
+                      t('{{value}} 首', { value: a.size ?? 0 })
                     }
                     onClick={() =>
                       openDetail({
@@ -1408,7 +1417,11 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                   info={
                     [
                       r.dj?.nickname,
-                      r.programCount != null ? `${r.programCount} 期` : '',
+                      r.programCount != null
+                        ? t('{{programCount}} 期', {
+                            programCount: r.programCount,
+                          })
+                        : '',
                     ]
                       .filter(Boolean)
                       .join(' · ') || t('电台')

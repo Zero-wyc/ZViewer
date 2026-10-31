@@ -195,7 +195,9 @@ export default function MountFormModal({
           type === 'webdav'
             ? await testWebDAVMount(params)
             : await testOpenListMount(params)
-        message.success(`连接成功，共 ${result.itemCount} 条目`)
+        message.success(
+          t('连接成功，共 {{itemCount}} 条目', { itemCount: result.itemCount })
+        )
       } else if (type === 'emby') {
         const result = await testEmbyMount({
           name: formValues.name.trim(),
@@ -206,7 +208,11 @@ export default function MountFormModal({
           directLink: formValues.directLink,
         })
         message.success(
-          `连接成功${result.userName ? `，用户：${result.userName}` : ''}`
+          t('连接成功{{value}}', {
+            value: result.userName
+              ? t('，用户：{{userName}}', { userName: result.userName })
+              : '',
+          })
         )
       } else if (type === 'jellyfin') {
         const result = await testJellyfinMount({
@@ -218,7 +224,11 @@ export default function MountFormModal({
           directLink: formValues.directLink,
         })
         message.success(
-          `连接成功${result.userName ? `，用户：${result.userName}` : ''}`
+          t('连接成功{{value}}', {
+            value: result.userName
+              ? t('，用户：{{userName}}', { userName: result.userName })
+              : '',
+          })
         )
       } else {
         const portNum = port.trim() ? Number(port.trim()) : undefined
@@ -229,7 +239,9 @@ export default function MountFormModal({
           username: trimmedUser,
           password: trimmedPwd,
         })
-        message.success(`连接成功，共 ${result.itemCount} 条目`)
+        message.success(
+          t('连接成功，共 {{itemCount}} 条目', { itemCount: result.itemCount })
+        )
       }
     } catch (err) {
       message.error(err instanceof Error ? err.message : t('连接测试失败'))
@@ -285,7 +297,7 @@ export default function MountFormModal({
                       : null,
                 })
               : await updateOpenListMount(editingMount.id, payload)
-          message.success(`${label} 挂载更新成功`)
+          message.success(t('{{label}} 挂载更新成功', { label }))
           if (saved.warning) message.warning(saved.warning)
         } else {
           const saved =
@@ -299,7 +311,7 @@ export default function MountFormModal({
                       : null,
                 })
               : await createOpenListMount(payload)
-          message.success(`${label} 挂载添加成功`)
+          message.success(t('{{label}} 挂载添加成功', { label }))
           if (saved.warning) message.warning(saved.warning)
         }
       } else if (type === 'emby') {

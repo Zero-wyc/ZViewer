@@ -6,6 +6,7 @@ import { getFTPMounts } from '@/modules/ftp/ftpApi'
 import { getEmbyMounts } from '@/modules/emby/embyApi'
 import { getJellyfinMounts } from '@/modules/jellyfin/jellyfinApi'
 import type { UnionMount } from './types'
+import { t } from '@/i18n'
 
 /**
  * 获取当前用户的所有挂载（聚合 webdav/openlist/ftp/emby）
@@ -38,7 +39,9 @@ export async function fetchAllMounts(): Promise<UnionMount[]> {
   })
 
   if (errors.length > 0 && mounts.length === 0) {
-    throw new Error(`获取挂载列表失败：${errors.join('; ')}`)
+    throw new Error(
+      t('获取挂载列表失败：{{value}}', { value: errors.join('; ') })
+    )
   }
 
   // 按创建时间倒序

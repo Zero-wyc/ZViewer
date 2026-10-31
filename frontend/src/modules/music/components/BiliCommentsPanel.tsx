@@ -493,7 +493,7 @@ function BiliCard({
             onClick={() => onToggleFloor(comment)}
           >
             {!(floorState && floorState.expanded)
-              ? `展开${replyCount}条回复`
+              ? t('展开{{replyCount}}条回复', { replyCount })
               : t('收起回复')}
           </button>
           {floorState && floorState.expanded && (

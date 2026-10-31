@@ -509,7 +509,10 @@ export function MovieListPanel({
         })
         if (resolved.preview) {
           message.info(
-            `该集为会员专享，当前为试看片段（约 ${Math.round((resolved.duration || 0) / 60)} 分钟），使用大会员账号后可看完整内容`
+            t(
+              '该集为会员专享，当前为试看片段（约 {{value}} 分钟），使用大会员账号后可看完整内容',
+              { value: Math.round((resolved.duration || 0) / 60) }
+            )
           )
         }
         if (movie.id === currentMovieId) {
@@ -920,7 +923,7 @@ export function MovieListPanel({
       <Modal
         open={showListModal}
         onClose={() => setShowListModal(false)}
-        title={`影片列表 (${movies.length} 部)`}
+        title={t('影片列表 ({{length}} 部)', { length: movies.length })}
         className="max-w-4xl"
         fullscreenable
       >

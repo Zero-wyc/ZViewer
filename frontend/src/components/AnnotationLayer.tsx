@@ -531,7 +531,7 @@ export function AnnotationToolbar({
                     ? '0 0 0 2px var(--md-sys-color-primary)'
                     : 'none',
               }}
-              aria-label={`选择颜色 ${c}`}
+              aria-label={t('选择颜色 {{c}}', { c })}
             />
           ))}
         </Space>
