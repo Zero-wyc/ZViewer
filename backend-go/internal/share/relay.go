@@ -531,11 +531,18 @@ func (r *Relay) forwardCandidate(event sfu.MediaEvent) {
 	}
 	fence := publication.fence
 	r.mu.Unlock()
+	// 发布端（房主）的媒体事件不带 ConnectionID：协议里房主的 connectionId
+	// 与 publicationGeneration 是同一个值，这里补齐，否则客户端会按「不是
+	// 我的连接」把候选丢光，ICE 永远凑不齐配对。
+	connectionID := event.ConnectionID
+	if connectionID == "" {
+		connectionID = fence.PublicationGeneration
+	}
 	r.send(target, SFUSignalMessage{
 		T:                     TypeSFUSignal,
 		RoomID:                fence.RoomID,
 		PublicationGeneration: fence.PublicationGeneration,
-		ConnectionID:          event.ConnectionID,
+		ConnectionID:          connectionID,
 		Kind:                  "candidate",
 		Payload:               mustJSON(*event.Candidate),
 	})

@@ -189,5 +189,48 @@ func TestRelayPublicationIdentityIsSingleUse(t *testing.T) {
 	}
 }
 
+// 发布端（房主）的媒体事件不带 ConnectionID，转发时必须补成发布代际。
+//
+// 漏了这一步的后果不是「少个字段」：客户端按 connectionId 判定「这是不是我的
+// 连接」，补不上就一条候选都收不到，ICE 永远凑不齐配对——画面永远不出，而
+// 两侧状态都显示 connected。
+func TestRelayPublisherCandidatesCarryPublication(t *testing.T) {
+	service, hub, relay := newRelayTestService(t, "host-1")
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.hello","roomId":"r1"}`)
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.start","roomId":"r1"}`)
+	fence, ok := relay.Publication("r1")
+	if !ok {
+		t.Fatal("房主开始共享后应存在发布")
+	}
+
+	candidate := webrtc.ICECandidateInit{Candidate: "candidate:1 1 udp 2130706431 10.0.0.1 50000 typ host"}
+	// 模拟媒体层：发布端事件不带 ConnectionID。
+	relay.OnMediaEvent(sfu.MediaEvent{Fence: fence, Candidate: &candidate})
+
+	message := lastSignalTo(t, hub, "host-1")
+	if message["kind"] != "candidate" {
+		t.Fatalf("应转发候选，实际 %v", message["kind"])
+	}
+	if message["connectionId"] != fence.PublicationGeneration {
+		t.Fatalf("发布端候选必须带发布代际作为 connectionId，实际 %v", message["connectionId"])
+	}
+}
+
+// lastSignalTo 取出最后一条发给某条连接的中继信令。
+func lastSignalTo(t *testing.T, hub *fakeHub, socketID string) map[string]any {
+	t.Helper()
+	for index := len(hub.to) - 1; index >= 0; index-- {
+		if hub.to[index].Target != socketID {
+			continue
+		}
+		message := decodeFrame(t, hub.to[index].Frame)
+		if message["t"] == TypeSFUSignal {
+			return message
+		}
+	}
+	t.Fatalf("没有发给 %s 的中继信令", socketID)
+	return nil
+}
+
 // 确保 webrtc 类型被引用（测试里用到 SettingEngine 的语义）。
 var _ = webrtc.Configuration{}
