@@ -305,4 +305,3 @@ func signalFrame(kind, connectionID, payload string) string {
 	return `{"t":"share.signal","roomId":"r1","connectionId":"` + connectionID +
 		`","kind":"` + kind + `","payload":` + payload + `}`
 }
-
