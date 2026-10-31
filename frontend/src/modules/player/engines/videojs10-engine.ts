@@ -45,6 +45,7 @@ import {
 import { HTMLVideoAdapter } from '@videojs/media/dom'
 import { videoFeatures } from '@videojs/core/dom'
 import { combine, createStore } from '@videojs/store'
+import { t } from '@/i18n'
 
 /**
  * v10 引擎级跳转控制器:seek 执行走 v10 media 的 currentTime 能力。
@@ -61,7 +62,7 @@ function createV10PlayerController(
     attach: async () => media.currentSrc || '',
     seekTo: async (targetTime: number): Promise<SeekResult> => {
       if (isDisposed()) {
-        return { success: false, message: '引擎已清理' }
+        return { success: false, message: t('引擎已清理') }
       }
       try {
         media.currentTime = targetTime

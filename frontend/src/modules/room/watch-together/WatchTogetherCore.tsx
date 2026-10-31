@@ -47,7 +47,10 @@ import { useVideoPlayingState } from '@/modules/art-player/useVideoPlayingState'
 import { SettingsPanel } from '@/components/VideoPlayer/SettingsPanel'
 import { SubtitleOverlay } from '@/components/VideoPlayer/SubtitleOverlay'
 import { isCliProxyUrl } from '@/modules/player/services/url-proxy'
-import { isDirectPlayback, usesDirectMedia } from '@/modules/movie-source/media-policy'
+import {
+  isDirectPlayback,
+  usesDirectMedia,
+} from '@/modules/movie-source/media-policy'
 import { normalizeAudioCodec, needsBrowserTranscode } from '@/lib/audioCodecs'
 import { isPlaysVideoSupported } from '@/modules/player'
 import type { ArtSlots } from './types'
@@ -59,6 +62,7 @@ import {
   requestFullscreen,
   onFullscreenChange,
 } from '@/lib/fullscreen-utils'
+import { t } from '@/i18n'
 
 interface WatchTogetherCoreProps {
   roomId: string
@@ -124,7 +128,9 @@ export function WatchTogetherCore({
   const currentMovie = useRoomStore((state) =>
     state.movies.find((mv) => mv.id === state.currentMovieId)
   )
-  const currentMovieDirectLink = currentMovie ? usesDirectMedia(currentMovie) : false
+  const currentMovieDirectLink = currentMovie
+    ? usesDirectMedia(currentMovie)
+    : false
   // 当前影片的源类型，用于判断是否支持自动搜索字幕
   const currentMovieSourceType = useRoomStore(
     (state) =>
@@ -654,9 +660,9 @@ export function WatchTogetherCore({
       { viewerSocketId },
       (response: { success: boolean; message?: string }) => {
         if (response.success) {
-          message.success('已允许加入')
+          message.success(t('已允许加入'))
         } else {
-          message.error(response.message || '操作失败')
+          message.error(response.message || t('操作失败'))
         }
       }
     )
@@ -672,9 +678,9 @@ export function WatchTogetherCore({
       { viewerSocketId },
       (response: { success: boolean; message?: string }) => {
         if (response.success) {
-          message.info('已拒绝加入')
+          message.info(t('已拒绝加入'))
         } else {
-          message.error(response.message || '操作失败')
+          message.error(response.message || t('操作失败'))
         }
       }
     )
@@ -898,19 +904,19 @@ export function WatchTogetherCore({
     if (confirmJoin) {
       list.push({
         id: 'join',
-        title: '观看请求',
-        okText: '允许',
-        cancelText: '拒绝',
+        title: t('观看请求'),
+        okText: t('允许'),
+        cancelText: t('拒绝'),
         onOk: handleApproveJoin,
         onCancel: handleRejectJoin,
         autoCloseMs: 12000,
         content: (
           <>
-            有观看者请求加入房间（
+            {t('有观看者请求加入房间（')}
             <span style={{ color: 'var(--md-sys-color-primary)' }}>
               {confirmJoin.viewerSocketId.slice(0, 8)}
             </span>
-            ），是否允许？
+            {t('），是否允许？')}
           </>
         ),
       })
@@ -930,14 +936,14 @@ export function WatchTogetherCore({
       list.push({
         id: opts.id,
         title: opts.title,
-        okText: '同意',
-        cancelText: '拒绝',
+        okText: t('同意'),
+        cancelText: t('拒绝'),
         onOk: opts.onOk,
         onCancel: opts.onCancel,
         autoCloseMs: 12000,
         content: (
           <>
-            观众{' '}
+            {t('观众')}{' '}
             <span style={{ color: 'var(--md-sys-color-primary)' }}>
               {req.viewerUsernames[0] || req.viewerSocketIds[0].slice(0, 8)}
               {req.viewerSocketIds.length > 1
@@ -952,12 +958,12 @@ export function WatchTogetherCore({
 
     pushViewerRequest(seekRequest, {
       id: 'seek',
-      title: '跳转申请',
+      title: t('跳转申请'),
       onOk: handleAcceptSeek,
       onCancel: handleRejectSeek,
       action: (req) => (
         <>
-          申请跳转到{' '}
+          {t('申请跳转到')}{' '}
           <span style={{ color: 'var(--md-sys-color-primary)' }}>
             {formatDuration(req.detail.time ?? 0)}
           </span>
@@ -966,17 +972,17 @@ export function WatchTogetherCore({
     })
     pushViewerRequest(pauseRequest, {
       id: 'pause',
-      title: '暂停申请',
+      title: t('暂停申请'),
       onOk: handleAcceptPause,
       onCancel: handleRejectPause,
-      action: () => '申请暂停播放',
+      action: () => t('申请暂停播放'),
     })
     pushViewerRequest(playRequest, {
       id: 'play',
-      title: '播放申请',
+      title: t('播放申请'),
       onOk: handleAcceptPlay,
       onCancel: handleRejectPlay,
-      action: () => '申请继续播放',
+      action: () => t('申请继续播放'),
     })
     return list
   }, [
@@ -1067,14 +1073,14 @@ export function WatchTogetherCore({
           <div className="absolute inset-0 z-[60] flex flex-col items-center justify-center gap-4 bg-black/70">
             <div className="text-center">
               <div className="mb-1 text-base font-medium text-white">
-                视频加载失败
+                {t('视频加载失败')}
               </div>
               <div className="max-w-md px-6 text-xs text-white/60">
                 {loadMovieError}
               </div>
             </div>
             <Button variant="primary" onClick={retryLoadMovie}>
-              重试
+              {t('重试')}
             </Button>
           </div>,
           slots.overlayRoot
@@ -1134,7 +1140,7 @@ export function WatchTogetherCore({
             <div className="flex flex-col items-center gap-2">
               <Spinner size={28} />
               <Text className="text-sm font-medium text-white">
-                正在缓冲视频
+                {t('正在缓冲视频')}
               </Text>
               <Text className="text-xs text-white/60">
                 {bufferProgress.title}
@@ -1164,7 +1170,7 @@ export function WatchTogetherCore({
                 <span>
                   {bufferProgress.total > 0
                     ? `${(bufferProgress.total / 1024 / 1024).toFixed(1)} MB`
-                    : '未知大小'}
+                    : t('未知大小')}
                 </span>
               </div>
             </div>
@@ -1178,11 +1184,11 @@ export function WatchTogetherCore({
           <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black">
             <img
               src="/player-empty.jpg"
-              alt="等待播放"
+              alt={t('等待播放')}
               className="h-32 w-32 rounded-[var(--md-sys-shape-corner)] object-cover"
             />
             <Text className="text-sm text-white">
-              {isHost ? '请在下方添加并播放影片' : '等待房主播放影片'}
+              {isHost ? t('请在下方添加并播放影片') : t('等待房主播放影片')}
             </Text>
           </div>,
           slots.panelRoot

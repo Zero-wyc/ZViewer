@@ -31,6 +31,7 @@ import {
   getEmbyMediaSourceId,
 } from '@/modules/emby/playbackMode'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 interface SwitchCardProps {
   icon: LucideIcon
@@ -154,8 +155,8 @@ export function MovieRuntimeSettings({
   const playsvideoEnabled = movie.playsvideoEnabled !== false
 
   const summary = [
-    showServerProxy ? (serverProxy ? '中转' : '直连') : null,
-    playsvideoEnabled ? '转码' : '原生',
+    showServerProxy ? (serverProxy ? t('中转') : t('直连')) : null,
+    playsvideoEnabled ? t('转码') : t('原生'),
   ]
     .filter(Boolean)
     .join(' · ')
@@ -176,7 +177,7 @@ export function MovieRuntimeSettings({
         )
         const directLink = !patch.serverProxy
         const url = directLink ? source.directUrl : source.streamUrl
-        if (!url) throw new Error('未取得影片播放地址')
+        if (!url) throw new Error(t('未取得影片播放地址'))
         await updateMovie(roomId, movieId, {
           directLink,
           url,
@@ -192,7 +193,7 @@ export function MovieRuntimeSettings({
       }
     } catch (err) {
       console.error('[MovieRuntimeSettings] update setting error:', err)
-      message.error(err instanceof Error ? err.message : '切换播放设置失败')
+      message.error(err instanceof Error ? err.message : t('切换播放设置失败'))
     } finally {
       setSaving(false)
     }
@@ -232,23 +233,23 @@ export function MovieRuntimeSettings({
           {showServerProxy && (
             <SwitchCard
               icon={Network}
-              title="服务器中转"
+              title={t('服务器中转')}
               subtitle="SERVER RELAY"
               checked={serverProxy}
               disabled={!isHost || saving}
               onToggle={() => void applySetting({ serverProxy: !serverProxy })}
               hint={
                 !isHost
-                  ? '由房主统一管理'
+                  ? t('由房主统一管理')
                   : serverProxy
-                    ? '媒体流经服务器转发，可绕过防盗链限制'
-                    : '直连源站，不占用服务器带宽'
+                    ? t('媒体流经服务器转发，可绕过防盗链限制')
+                    : t('直连源站，不占用服务器带宽')
               }
             />
           )}
           <SwitchCard
             icon={Cpu}
-            title="浏览器转码"
+            title={t('浏览器转码')}
             subtitle="BROWSER TRANSCODE"
             checked={playsvideoEnabled}
             disabled={!isHost || saving}
@@ -257,10 +258,10 @@ export function MovieRuntimeSettings({
             }
             hint={
               !isHost
-                ? '由房主统一管理'
+                ? t('由房主统一管理')
                 : playsvideoEnabled
-                  ? 'MKV / DTS 等非常规格式由浏览器重封装后播放'
-                  : '强制原生播放，浏览器不支持的编码会没有画面或声音'
+                  ? t('MKV / DTS 等非常规格式由浏览器重封装后播放')
+                  : t('强制原生播放，浏览器不支持的编码会没有画面或声音')
             }
           />
         </div>

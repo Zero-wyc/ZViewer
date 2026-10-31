@@ -46,6 +46,7 @@ import {
   UrlExpiredError,
   DownloadAbortedError,
 } from '@/modules/player/services/buffer-mode'
+import { t as translate } from '@/i18n'
 
 export type SourceType =
   'url' | 'webdav' | 'ftp' | 'openlist' | 'smb' | 'bilibili' | string
@@ -292,7 +293,7 @@ export function useWatchTogether({
         setBufferProgress({
           downloaded: 0,
           total: 1,
-          title: movie.title || '当前视频',
+          title: movie.title || translate('当前视频'),
         })
 
         const result = await fetchBlobsForBufferMode({
@@ -308,12 +309,12 @@ export function useWatchTogether({
         if (err instanceof DownloadAbortedError) {
           console.log('[useWatchTogether] 缓冲下载已取消')
         } else if (err instanceof UrlExpiredError) {
-          message.error('B站 URL 已过期，请重新解析视频')
+          message.error(translate('B站 URL 已过期，请重新解析视频'))
         } else if (err instanceof DownloadError) {
           message.error(`缓冲下载失败: ${err.message}`)
         } else {
           console.error('[useWatchTogether] 缓冲下载失败:', err)
-          message.error('缓冲下载失败，请重试')
+          message.error(translate('缓冲下载失败，请重试'))
         }
         throw err
       } finally {
@@ -423,7 +424,9 @@ export function useWatchTogether({
         .catch((err: unknown) => {
           console.error('[useWatchTogether] 观众端预览源加载失败:', err)
           suppressEventsRef.current = false
-          message.error(err instanceof Error ? err.message : '预览源加载失败')
+          message.error(
+            err instanceof Error ? err.message : translate('预览源加载失败')
+          )
         })
     }
 
@@ -643,7 +646,9 @@ export function useWatchTogether({
         // 已过期的失败（被新加载取代）无需提示或回退，避免覆盖新状态
         if (loadSeqRef.current !== seq) return
         console.error('[useWatchTogether] 重新解析 B站 视频失败:', err)
-        message.error(err instanceof Error ? err.message : '重新解析失败')
+        message.error(
+          err instanceof Error ? err.message : translate('重新解析失败')
+        )
         try {
           await applySourceToVideo(video, state, preserveTime)
           if (preserveTime > 0) {
@@ -768,7 +773,9 @@ export function useWatchTogether({
         await applySourceToVideo(video, state, video.currentTime)
       } catch (err) {
         console.error('[useWatchTogether] 观众重新 attach 源失败:', err)
-        message.error(err instanceof Error ? err.message : '本地代理加载失败')
+        message.error(
+          err instanceof Error ? err.message : translate('本地代理加载失败')
+        )
         // 出错时回退到房主广播源
         try {
           storeState.setViewerCliResolvedSource(null)
@@ -856,7 +863,9 @@ export function useWatchTogether({
       } catch (err) {
         if (loadSeqRef.current !== seq) return
         console.error('[useWatchTogether] 应用影片播放设置失败:', err)
-        message.error(err instanceof Error ? err.message : '切换播放设置失败')
+        message.error(
+          err instanceof Error ? err.message : translate('切换播放设置失败')
+        )
         // 回退到设置变更前的源，避免播放器停在半挂载状态
         try {
           await applySourceToVideo(video, state, preserveTime)
@@ -1049,8 +1058,12 @@ export function useWatchTogether({
         // 已被更新的加载取代（切影片等）：静默放弃，不提示也不重置（新流程自管理状态）
         if (loadSeqRef.current !== seq) return
         console.error('[useWatchTogether] 解析视频源失败:', err)
-        message.error(err instanceof Error ? err.message : '视频源解析失败')
-        resetForRetry(err instanceof Error ? err.message : '视频源解析失败')
+        message.error(
+          err instanceof Error ? err.message : translate('视频源解析失败')
+        )
+        resetForRetry(
+          err instanceof Error ? err.message : translate('视频源解析失败')
+        )
         return
       }
       // 解析成功但已被更新的加载取代：放弃（不写 store、不 attach）
@@ -1166,7 +1179,7 @@ export function useWatchTogether({
         } catch {
           if (loadSeqRef.current === seq) {
             // 缓冲失败已通过 message.error 提示，重置状态允许用户重试
-            resetForRetry('缓冲下载失败')
+            resetForRetry(translate('缓冲下载失败'))
           }
           return
         }
@@ -1209,7 +1222,7 @@ export function useWatchTogether({
                 )
               } catch {
                 if (loadSeqRef.current === seq) {
-                  resetForRetry('缓冲下载失败')
+                  resetForRetry(translate('缓冲下载失败'))
                 }
                 return
               }
@@ -1221,7 +1234,9 @@ export function useWatchTogether({
             if (loadSeqRef.current !== seq) return
             console.error('[useWatchTogether] 回退重新解析失败:', retryErr)
             const retryMsg =
-              retryErr instanceof Error ? retryErr.message : 'B站视频解析失败'
+              retryErr instanceof Error
+                ? retryErr.message
+                : translate('B站视频解析失败')
             message.error(retryMsg)
             resetForRetry(retryMsg)
             return
@@ -1229,7 +1244,8 @@ export function useWatchTogether({
         }
 
         // 非回退路径：报错并允许重试
-        const errMsg = err instanceof Error ? err.message : '视频源加载失败'
+        const errMsg =
+          err instanceof Error ? err.message : translate('视频源加载失败')
         message.error(errMsg)
         resetForRetry(errMsg)
       })
@@ -1281,7 +1297,13 @@ export function useWatchTogether({
         duration: 0,
       })
     }
-  }, [currentMovieId, cleanupMedia, videoRef, suppressEventsRef, setWatchTogether])
+  }, [
+    currentMovieId,
+    cleanupMedia,
+    videoRef,
+    suppressEventsRef,
+    setWatchTogether,
+  ])
 
   // 组件卸载或切换房间时释放 MSE blob URL 与音频同步资源
   useEffect(() => {
@@ -1341,7 +1363,9 @@ export function useWatchTogether({
         if (!autoReloadNotifiedRef.current) {
           autoReloadNotifiedRef.current = true
           message.warning(
-            '自动重载已达上限，视频仍无法播放，请手动重载、切换清晰度或更换影片'
+            translate(
+              '自动重载已达上限，视频仍无法播放，请手动重载、切换清晰度或更换影片'
+            )
           )
         }
         return
@@ -1404,7 +1428,7 @@ export function useWatchTogether({
       const idx = state.movies.findIndex((m) => m.id === state.currentMovieId)
       if (idx === -1) return
       if (idx >= state.movies.length - 1) {
-        message.info('已连播到影片列表末尾')
+        message.info(translate('已连播到影片列表末尾'))
         return
       }
       const next = state.movies[idx + 1]
@@ -1486,7 +1510,9 @@ export function useWatchTogether({
         .catch((err: unknown) => {
           console.error('[useWatchTogether] previewPlay 加载失败:', err)
           suppressEventsRef.current = false
-          message.error(err instanceof Error ? err.message : '预览源加载失败')
+          message.error(
+            err instanceof Error ? err.message : translate('预览源加载失败')
+          )
         })
     },
     [

@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/Input'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
 import { useSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
+import { t } from '@/i18n'
 
 interface RoomPanelProps {
   onModeSelected?: (mode: RoomMode) => void
@@ -35,7 +36,7 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
 
   const handleCreateRoom = () => {
     if (!socket || !connected) {
-      message.warning('Socket 尚未连接')
+      message.warning(t('Socket 尚未连接'))
       return
     }
     setCreating(true)
@@ -79,7 +80,7 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
           // 同步 requireApproval 到 store：创建房间时房主选择的值必须与后端一致，
           // 否则 RoomInfoPanel 显示的开关状态与后端实际审批逻辑不符。
           setRoomSettings({ requireApproval })
-          message.success('房间创建成功')
+          message.success(t('房间创建成功'))
           // 在 sessionStorage 中标记当前用户为该房间的房主，
           // 刷新页面后 RoomPage 据此判断身份并走 register-host 流程。
           // URL 保持干净：/room/:roomId，不带任何查询参数。
@@ -93,7 +94,7 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
           })
           onModeSelected?.(response.data?.mode || selectedMode)
         } else {
-          message.error(response.message || '创建房间失败')
+          message.error(response.message || t('创建房间失败'))
         }
       }
     )
@@ -104,10 +105,10 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
       <Card className="w-full max-w-4xl">
         <div className="text-center mb-6">
           <Title level={3} className="m-0">
-            创建房间
+            {t('创建房间')}
           </Title>
           <Paragraph type="secondary" className="m-0 mt-2">
-            选择一种共享方案，邀请其他人加入
+            {t('选择一种共享方案，邀请其他人加入')}
           </Paragraph>
         </div>
 
@@ -137,10 +138,10 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
                 <Monitor className="h-6 w-6" />
               </div>
               <Title level={5} className="m-0">
-                远程共享
+                {t('远程共享')}
               </Title>
               <Paragraph type="secondary" className="m-0 mt-1 text-xs">
-                共享你的屏幕、摄像头或系统音频，观众实时观看
+                {t('共享你的屏幕、摄像头或系统音频，观众实时观看')}
               </Paragraph>
             </button>
 
@@ -168,10 +169,10 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
                 <Users className="h-6 w-6" />
               </div>
               <Title level={5} className="m-0">
-                一起看
+                {t('一起看')}
               </Title>
               <Paragraph type="secondary" className="m-0 mt-1 text-xs">
-                同步播放视频，支持直链、WebDAV、SMB 与 B站
+                {t('同步播放视频，支持直链、WebDAV、SMB 与 B站')}
               </Paragraph>
             </button>
 
@@ -200,10 +201,10 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
                 <Music className="h-6 w-6" />
               </div>
               <Title level={5} className="m-0">
-                一起听
+                {t('一起听')}
               </Title>
               <Paragraph type="secondary" className="m-0 mt-1 text-xs">
-                同步播放网易云音乐，全房间共享歌单与歌词
+                {t('同步播放网易云音乐，全房间共享歌单与歌词')}
               </Paragraph>
             </button>
           </div>
@@ -219,14 +220,14 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
 
           <Space direction="vertical" className="w-full">
             <Switch
-              label="需要确认加入"
+              label={t('需要确认加入')}
               checked={requireApproval}
               onChange={(e) => setRequireApproval(e.target.checked)}
             />
             <Input
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="房间密码（可选）"
+              placeholder={t('房间密码（可选）')}
             />
           </Space>
 
@@ -238,7 +239,7 @@ export function RoomPanel({ onModeSelected }: RoomPanelProps) {
             loading={creating}
             onClick={handleCreateRoom}
           >
-            创建房间
+            {t('创建房间')}
           </Button>
         </Space>
       </Card>

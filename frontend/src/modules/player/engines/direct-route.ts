@@ -12,6 +12,7 @@
 import type { PlayerSource } from '../types'
 import { resolveMediaRoute } from '../services/url-proxy'
 import { formatVideoLoadError } from '../utils'
+import { t } from '@/i18n'
 
 /** metadata 等待超时(毫秒):网络挂起时兜底,避免 attach 永久 pending */
 export const METADATA_TIMEOUT_MS = 30_000
@@ -135,7 +136,7 @@ export function assertDirectLinkReachable(
   if (u.protocol !== 'http:') return
   throw new Error(
     `直链播放失败：源站为 HTTP（${u.host}），HTTPS 页面下浏览器会强制升级协议导致无法直连。` +
-      '解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片'
+      t('解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片')
   )
 }
 
@@ -217,8 +218,9 @@ export function normalizeMkvTimeoutError(
     source.playsvideoEnabled === false
   ) {
     return new Error(
-      '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，' +
-        '可在该影片的解析设置中开启「浏览器转码引擎」后重试',
+      t(
+        '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，'
+      ) + t('可在该影片的解析设置中开启「浏览器转码引擎」后重试'),
       { cause: err }
     )
   }

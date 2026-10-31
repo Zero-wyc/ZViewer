@@ -6,6 +6,7 @@ import type { DanmakuItem } from '@/modules/danmaku/types'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { message } from '@/components/ui/message'
 import type { Socket } from 'socket.io-client'
+import { t } from '@/i18n'
 
 /**
  * 弹幕桥接：B站 官方弹幕加载、轨道同步、实时弹幕收发与控制栏/设置面板回调。
@@ -171,8 +172,8 @@ export function useDanmakuBridge({
       if (!textToCopy) return
 
       void copy(textToCopy, {
-        successMessage: '已复制弹幕内容',
-        errorMessage: '复制失败',
+        successMessage: t('已复制弹幕内容'),
+        errorMessage: t('复制失败'),
       })
     },
     [copy]
@@ -193,8 +194,8 @@ export function useDanmakuBridge({
       }
 
       // 本地立即上屏（发送者自己看到）
-      danmakuLayerRef.current?.sendDanmaku(trimmed, { sender: '我' })
-      addRealtime({ ...item, self: true, sender: '我' })
+      danmakuLayerRef.current?.sendDanmaku(trimmed, { sender: t('我') })
+      addRealtime({ ...item, self: true, sender: t('我') })
 
       if (!socket) return
       // 发送评论（持久化 + 广播 new-comment）
@@ -203,7 +204,7 @@ export function useDanmakuBridge({
         { roomId, content: trimmed, isDanmaku: true },
         (response: { success: boolean; message?: string }) => {
           if (!response.success) {
-            message.error(response.message ?? '弹幕发送失败')
+            message.error(response.message ?? t('弹幕发送失败'))
           }
         }
       )

@@ -19,6 +19,7 @@ import {
   type LocalTraffic,
 } from '@/lib/traffic-counter'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 interface ServerTraffic {
   rxBytes: number
@@ -128,13 +129,13 @@ export function TrafficPanel({
   const rows: { label: string; total: number; speed: number; down: boolean }[] =
     [
       {
-        label: '下载',
+        label: t('下载'),
         total: local.downTotal,
         speed: speeds.downSpeed,
         down: true,
       },
       {
-        label: '上传',
+        label: t('上传'),
         total: local.upTotal,
         speed: speeds.upSpeed,
         down: false,
@@ -153,8 +154,8 @@ export function TrafficPanel({
       {/* 标题栏 */}
       <SectionHeader
         icon={<Activity className="h-4 w-4" />}
-        title="流量统计"
-        subtitle="本次会话 · HTTP"
+        title={t('流量统计')}
+        subtitle={t('本次会话 · HTTP')}
         className="mb-2"
         extra={
           !embedded && (
@@ -214,13 +215,13 @@ export function TrafficPanel({
               {(
                 [
                   {
-                    label: '下载',
+                    label: t('下载'),
                     bytes: server.rxBytes,
                     speed: server.rxSpeed,
                     down: true,
                   },
                   {
-                    label: '上传',
+                    label: t('上传'),
                     bytes: server.txBytes,
                     speed: server.txSpeed,
                     down: false,
@@ -259,19 +260,19 @@ export function TrafficPanel({
                 </div>
               ))}
               <div className="text-center text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-                系统开机以来的全部网卡流量
+                {t('系统开机以来的全部网卡流量')}
               </div>
             </>
           ) : (
             <div className="rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              当前平台不支持服务端流量统计
+              {t('当前平台不支持服务端流量统计')}
             </div>
           )}
         </>
       )}
 
       <div className="mt-1 text-center text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-        统计本次会话的 HTTP 流量（不含 WebSocket）
+        {t('统计本次会话的 HTTP 流量（不含 WebSocket）')}
       </div>
     </div>
   )
@@ -304,7 +305,7 @@ export function TrafficPanel({
             backgroundColor: 'var(--glass-bg)',
             color: 'var(--md-sys-color-on-surface)',
           }}
-          title="流量统计"
+          title={t('流量统计')}
         >
           <Activity className="h-5 w-5" />
         </button>

@@ -31,6 +31,7 @@ import {
 } from '@/modules/server-files/serverFilesApi'
 import type { UnionMount } from '@/modules/mounts'
 import type { SourceType } from './source-forms'
+import { t } from '@/i18n'
 
 type RoomState = ReturnType<typeof useRoomStore.getState>
 
@@ -139,12 +140,12 @@ export async function addBilibiliMovie(
     }
   }
   ctx.resetForm()
-  message.success('影片已添加')
+  message.success(t('影片已添加'))
 }
 
 export async function addMp4Movie(ctx: SubmitMovieContext) {
   if (!ctx.url.trim()) {
-    message.warning('请输入视频地址')
+    message.warning(t('请输入视频地址'))
     return
   }
   const movieUrl = ctx.url.trim()
@@ -162,7 +163,7 @@ export async function addMp4Movie(ctx: SubmitMovieContext) {
     directLink: true,
   })
   ctx.resetForm()
-  message.success('影片已添加')
+  message.success(t('影片已添加'))
 }
 
 export async function addPathMountMovie(ctx: SubmitMovieContext) {
@@ -191,7 +192,7 @@ export async function addPathMountMovie(ctx: SubmitMovieContext) {
     ctx.sourceType === 'webdav' ? fetchWebDAVDirectUrl : fetchOpenListDirectUrl
 
   if (!mountPath) {
-    message.warning('请填写文件路径')
+    message.warning(t('请填写文件路径'))
     return
   }
   const mountId = Number(ctx.selectedMountId)
@@ -229,15 +230,15 @@ export async function addPathMountMovie(ctx: SubmitMovieContext) {
     directLink: isDirect,
   })
   ctx.resetForm()
-  message.success('影片已添加')
+  message.success(t('影片已添加'))
 }
 
 export async function addFtpMovie(ctx: SubmitMovieContext) {
   if (!ctx.ftp.serverUrl.trim() || !ctx.ftp.path.trim()) {
-    message.warning('请填写服务器地址与路径')
+    message.warning(t('请填写服务器地址与路径'))
     return
   }
-  ctx.setResolveProgress('正在解析 FTP 文件...')
+  ctx.setResolveProgress(t('正在解析 FTP 文件...'))
   // 优先使用已保存挂载的新 API；手动填写时回退到旧 API
   const mountId = Number(ctx.selectedMountId)
   let title: string
@@ -272,7 +273,7 @@ export async function addFtpMovie(ctx: SubmitMovieContext) {
     password: ctx.ftp.password || undefined,
   })
   ctx.resetForm()
-  message.success('影片已添加')
+  message.success(t('影片已添加'))
 }
 
 // Emby 与 Jellyfin 同构：仅服务名标签、resolve API 与直链开关不同
@@ -311,15 +312,15 @@ export async function addMediaServerMovie(
     directLink,
   })
   ctx.resetForm()
-  message.success('影片已添加')
+  message.success(t('影片已添加'))
 }
 
 export async function addServerFilesMovie(ctx: SubmitMovieContext) {
   if (!ctx.serverFilePath.trim()) {
-    message.warning('请选择服务器文件')
+    message.warning(t('请选择服务器文件'))
     return
   }
-  ctx.setResolveProgress('正在解析服务器文件...')
+  ctx.setResolveProgress(t('正在解析服务器文件...'))
   const resolved = await resolveServerFile(ctx.serverFilePath.trim())
   const movieUrl = buildServerFileProxyUrl(ctx.serverFilePath.trim())
   // 音轨编码来自后端 resolve（ffprobe），仅作元数据存储：playsvideo
@@ -335,5 +336,5 @@ export async function addServerFilesMovie(ctx: SubmitMovieContext) {
     audioCodec: resolved.audioCodec ?? undefined,
   })
   ctx.resetForm()
-  message.success('影片已添加')
+  message.success(t('影片已添加'))
 }

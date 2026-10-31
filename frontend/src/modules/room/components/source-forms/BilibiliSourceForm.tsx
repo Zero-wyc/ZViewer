@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { SingleLineInput } from './shared'
+import { t } from '@/i18n'
 
 interface BilibiliSourceFormProps {
   url: string
@@ -24,13 +25,13 @@ export function BilibiliSourceForm({
       <SingleLineInput
         value={url}
         onChange={onChangeUrl}
-        placeholder="视频 Url 或 bv 号"
+        placeholder={t('视频 Url 或 bv 号')}
         onEnter={onResolve}
       />
       <Button
         variant="secondary"
         size="sm"
-        title="搜索 B站 视频"
+        title={t('搜索 B站 视频')}
         disabled={disabled}
         onClick={onOpenSearch}
       >

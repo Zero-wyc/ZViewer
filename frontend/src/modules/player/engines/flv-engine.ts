@@ -20,6 +20,7 @@ import type {
 } from '../types'
 import { resetVideoElement, waitForMetadata } from '../utils'
 import { resolveProxyUrl } from '../services/url-proxy'
+import { t } from '@/i18n'
 
 /** 快速恢复之后保持低频重试，直到房间离线使播放器卸载。 */
 const LIVE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000]
@@ -50,7 +51,7 @@ export const flvEngine: PlayerEngine = {
     source: PlayerSource
   ): Promise<EngineAttachResult> {
     if (!flvjs.isSupported()) {
-      throw new Error('当前浏览器不支持 FLV 播放且 flv.js 不可用')
+      throw new Error(t('当前浏览器不支持 FLV 播放且 flv.js 不可用'))
     }
 
     resetVideoElement(video)

@@ -28,6 +28,7 @@
  */
 
 import { resolveProxyUrl } from './url-proxy'
+import { t } from '@/i18n'
 
 /** 下载进度回调签名 */
 export type ProgressCallback = (
@@ -54,7 +55,7 @@ export class UrlExpiredError extends DownloadError {
 
 export class DownloadAbortedError extends DownloadError {
   constructor() {
-    super('下载已取消')
+    super(t('下载已取消'))
     this.name = 'DownloadAbortedError'
   }
 }

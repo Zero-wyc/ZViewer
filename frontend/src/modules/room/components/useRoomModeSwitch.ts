@@ -10,6 +10,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
 import { useRoomStore, type RoomMode } from '@/store/roomStore'
+import { t } from '@/i18n'
 
 export const MODE_LABELS: Record<RoomMode, string> = {
   'watch-together': '一起看',
@@ -57,7 +58,7 @@ export function useRoomModeSwitch(
         }
         switchingRef.current = null
         setIsModeSwitching(false)
-        message.error('连接已断开，请刷新页面后重试')
+        message.error(t('连接已断开，请刷新页面后重试'))
       }
     }
 
@@ -91,7 +92,7 @@ export function useRoomModeSwitch(
       if (switchingRef.current?.id === nextId) {
         switchingRef.current = null
         setIsModeSwitching(false)
-        message.error('切换超时，请重试')
+        message.error(t('切换超时，请重试'))
       }
     }, 5000)
 
@@ -118,7 +119,7 @@ export function useRoomModeSwitch(
         if (response.success && mode) {
           setMode(mode)
         } else {
-          message.error(response.message ?? '切换模式失败')
+          message.error(response.message ?? t('切换模式失败'))
         }
         setIsModeSwitching(false)
       }

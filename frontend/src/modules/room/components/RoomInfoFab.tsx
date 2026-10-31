@@ -10,6 +10,7 @@ import { ChevronDown, Settings } from 'lucide-react'
 import { RoomInfoPanel } from './RoomInfoPanel'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 interface RoomInfoFabProps {
   roomId?: string
@@ -32,7 +33,7 @@ export function RoomInfoFab({ roomId, isHost }: RoomInfoFabProps) {
           {/* 标题栏 */}
           <SectionHeader
             icon={<Settings className="h-4 w-4" />}
-            title="房间状态"
+            title={t('房间状态')}
             subtitle="ROOM INFO"
             className="mb-2"
             extra={
@@ -64,7 +65,7 @@ export function RoomInfoFab({ roomId, isHost }: RoomInfoFabProps) {
             backgroundColor: 'var(--glass-bg)',
             color: 'var(--md-sys-color-on-surface)',
           }}
-          title="房间状态"
+          title={t('房间状态')}
         >
           <Settings className="h-5 w-5" />
         </button>

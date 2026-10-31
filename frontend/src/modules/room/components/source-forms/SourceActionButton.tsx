@@ -1,6 +1,7 @@
 import { Link2, Plus, Search } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import type { SourceType } from './types'
+import { t } from '@/i18n'
 
 interface SourceActionButtonProps {
   sourceType: SourceType
@@ -74,7 +75,7 @@ export function SourceActionButton({
         onClick={onResolve}
         disabled={disabled}
       >
-        解析
+        {t('解析')}
       </Button>
     )
   }
@@ -89,7 +90,7 @@ export function SourceActionButton({
       onClick={onAdd}
       disabled={disabled}
     >
-      添加
+      {t('添加')}
     </Button>
   )
 }

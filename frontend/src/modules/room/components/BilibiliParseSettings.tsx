@@ -33,6 +33,7 @@ import {
 import { openCliSetupPage, useCliAgent } from '@/hooks/useCliAgent'
 import { cn } from '@/lib/utils'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
+import { t } from '@/i18n'
 
 export interface BilibiliParseSettingsProps {
   /** 影片 ID，配置按此 key 独立存储 */
@@ -189,15 +190,17 @@ export function BilibiliParseSettings({
         }
         message.success(
           next
-            ? '已开启「仅允许CLI模式」：全房间成员需各自连接 CLI 观看，服务器不再转发媒体流'
-            : '已关闭「仅允许CLI模式」'
+            ? t(
+                '已开启「仅允许CLI模式」：全房间成员需各自连接 CLI 观看，服务器不再转发媒体流'
+              )
+            : t('已关闭「仅允许CLI模式」')
         )
         if (isCurrentMovie && isHost) {
           triggerReloadBilibili()
         }
       } catch (err) {
         message.error(
-          err instanceof Error ? err.message : '设置「仅允许CLI模式」失败'
+          err instanceof Error ? err.message : t('设置「仅允许CLI模式」失败')
         )
       } finally {
         setCliOnlySaving(false)
@@ -312,7 +315,7 @@ export function BilibiliParseSettings({
                   className="text-[10px] font-bold leading-tight"
                   style={{ color: 'var(--md-sys-color-on-surface)' }}
                 >
-                  CLI 高画质代理
+                  {t('CLI 高画质代理')}
                 </span>
                 <span
                   className="text-[8px] font-medium uppercase tracking-wide"
@@ -340,10 +343,10 @@ export function BilibiliParseSettings({
                   style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                 >
                   {cliAgent.available
-                    ? '已连接'
+                    ? t('已连接')
                     : displayCliEnabled
-                      ? '未连接'
-                      : '未启用'}
+                      ? t('未连接')
+                      : t('未启用')}
                 </span>
               </div>
             </div>
@@ -359,7 +362,7 @@ export function BilibiliParseSettings({
                     : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
                 )}
               >
-                关闭
+                {t('关闭')}
               </button>
               <button
                 type="button"
@@ -371,7 +374,7 @@ export function BilibiliParseSettings({
                     : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
                 )}
               >
-                启用
+                {t('启用')}
               </button>
             </div>
 
@@ -389,8 +392,10 @@ export function BilibiliParseSettings({
               {displayCliEnabled
                 ? cliAgent.available
                   ? `已连接本地代理 ${cliAgent.agentInfo?.version ?? ''}`
-                  : '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质'
-                : '使用本地 ZViewer CLI 获取大会员等高画质'}
+                  : t(
+                      '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质'
+                    )
+                : t('使用本地 ZViewer CLI 获取大会员等高画质')}
             </div>
 
             <button
@@ -435,7 +440,7 @@ export function BilibiliParseSettings({
                     className="text-[10px] font-bold leading-tight"
                     style={{ color: 'var(--md-sys-color-on-surface)' }}
                   >
-                    仅允许CLI模式
+                    {t('仅允许CLI模式')}
                   </span>
                   <span
                     className="text-[8px] font-medium uppercase tracking-wide"
@@ -452,7 +457,7 @@ export function BilibiliParseSettings({
                       : 'var(--md-sys-color-on-surface-variant)',
                   }}
                 >
-                  {cliOnly ? '已开启' : '未开启'}
+                  {cliOnly ? t('已开启') : t('未开启')}
                 </span>
               </div>
 
@@ -469,7 +474,7 @@ export function BilibiliParseSettings({
                         : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
                     )}
                   >
-                    关闭
+                    {t('关闭')}
                   </button>
                   <button
                     type="button"
@@ -482,7 +487,7 @@ export function BilibiliParseSettings({
                         : 'bg-[var(--md-sys-color-surface-container)] text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)]'
                     )}
                   >
-                    开启
+                    {t('开启')}
                   </button>
                 </div>
               ) : null}
@@ -493,10 +498,16 @@ export function BilibiliParseSettings({
               >
                 {isHost
                   ? cliOnly
-                    ? '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导'
-                    : '开启后全房间成员必须各自连接 ZViewer CLI 观看，服务器仅同步信令、零媒体流量（适合番剧/影视等高码率内容）'
+                    ? t(
+                        '全房间成员（含房主）必须各自连接 ZViewer CLI 才能观看，媒体流不经服务器转发；未连接 CLI 的观众将看到安装引导'
+                      )
+                    : t(
+                        '开启后全房间成员必须各自连接 ZViewer CLI 观看，服务器仅同步信令、零媒体流量（适合番剧/影视等高码率内容）'
+                      )
                   : cliOnly
-                    ? '房主已开启：本影片需自行安装并连接 ZViewer CLI 后才能观看'
+                    ? t(
+                        '房主已开启：本影片需自行安装并连接 ZViewer CLI 后才能观看'
+                      )
                     : null}
               </div>
             </div>
@@ -508,13 +519,13 @@ export function BilibiliParseSettings({
               className="mb-1 text-[10px] font-bold uppercase tracking-wide"
               style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
             >
-              播放模式
+              {t('播放模式')}
             </div>
             {renderSegmented(
               displayPreferMp4,
               handlePreferMp4Change,
-              'DASH 高清',
-              'MP4 流畅',
+              t('DASH 高清'),
+              t('MP4 流畅'),
               !isHost || cliEnabled || dashLocked
             )}
             <div
@@ -523,14 +534,18 @@ export function BilibiliParseSettings({
             >
               {' '}
               {dashLocked
-                ? '服务器已禁用 DASH 模式，当前强制 MP4 播放'
+                ? t('服务器已禁用 DASH 模式，当前强制 MP4 播放')
                 : cliEnabled
                   ? cliAgent.available
-                    ? 'CLI 代理已启用，当前使用本地 DASH 高画质解析'
-                    : '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
+                    ? t('CLI 代理已启用，当前使用本地 DASH 高画质解析')
+                    : t(
+                        '已启用 CLI 但未连接本地代理，回退服务器 MP4 直链；请启动本地 ZViewer CLI 获取高画质'
+                      )
                   : displayPreferMp4
-                    ? 'MP4 直链，seek 流畅，清晰度最高 720P（未登录也是 720P）'
-                    : 'DASH 分离流，支持 1080P/4K，seek 需缓冲'}
+                    ? t(
+                        'MP4 直链，seek 流畅，清晰度最高 720P（未登录也是 720P）'
+                      )
+                    : t('DASH 分离流，支持 1080P/4K，seek 需缓冲')}
             </div>
           </div>
 
@@ -546,13 +561,13 @@ export function BilibiliParseSettings({
                 className="mb-1 text-[10px] font-bold uppercase tracking-wide"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                缓冲模式
+                {t('缓冲模式')}
               </div>
               {renderSegmented(
                 displayBufferMode,
                 handleBufferModeChange,
-                '关闭',
-                '开启',
+                t('关闭'),
+                t('开启'),
                 !isHost || effectivePreferMp4
               )}
               <div
@@ -560,12 +575,12 @@ export function BilibiliParseSettings({
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
                 {!isHost
-                  ? '缓冲模式由房主统一管理'
+                  ? t('缓冲模式由房主统一管理')
                   : effectivePreferMp4
-                    ? 'MP4 模式不支持缓冲，请切换到 DASH'
+                    ? t('MP4 模式不支持缓冲，请切换到 DASH')
                     : displayBufferMode
-                      ? '进入房间先缓存完整视频到本地，避免 URL 过期与卡顿'
-                      : '直接流式播放，无需等待缓存'}
+                      ? t('进入房间先缓存完整视频到本地，避免 URL 过期与卡顿')
+                      : t('直接流式播放，无需等待缓存')}
               </div>
             </div>
           )}

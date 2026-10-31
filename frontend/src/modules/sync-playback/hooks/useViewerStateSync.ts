@@ -14,6 +14,7 @@ import {
   UrlExpiredError,
   DownloadAbortedError,
 } from '@/modules/player/services/buffer-mode'
+import { t } from '@/i18n'
 
 export interface UseViewerStateSyncOptions {
   roomId: string
@@ -135,7 +136,7 @@ export function useViewerStateSync({
           setBufferProgress({
             downloaded: 0,
             total: 1,
-            title: state.previewTitle || '当前视频',
+            title: state.previewTitle || t('当前视频'),
           })
 
           try {
@@ -150,12 +151,12 @@ export function useViewerStateSync({
             if (err instanceof DownloadAbortedError) {
               console.log('[useViewerStateSync] 缓冲下载已取消')
             } else if (err instanceof UrlExpiredError) {
-              message.error('B站 URL 已过期，请等待房主重新解析')
+              message.error(t('B站 URL 已过期，请等待房主重新解析'))
             } else if (err instanceof DownloadError) {
               message.error(`缓冲下载失败: ${err.message}`)
             } else {
               console.error('[useViewerStateSync] 缓冲下载失败:', err)
-              message.error('缓冲下载失败，请等待房主重新广播')
+              message.error(t('缓冲下载失败，请等待房主重新广播'))
             }
             // 缓冲失败：不应用源（避免半成品导致黑屏），等待房主重新广播
             // 但需要释放 suppressEventsRef 与 isApplyingRef，否则后续事件被吞
@@ -313,7 +314,9 @@ export function useViewerStateSync({
           await applyStateChanges(s, isSourceChange, force)
         } catch (err: unknown) {
           console.error('[useViewerStateSync] applyStateChanges failed:', err)
-          message.error(err instanceof Error ? err.message : '视频源加载失败')
+          message.error(
+            err instanceof Error ? err.message : t('视频源加载失败')
+          )
         } finally {
           isApplyingRef.current = false
         }

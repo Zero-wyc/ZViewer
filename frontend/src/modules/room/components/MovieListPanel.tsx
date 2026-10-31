@@ -46,6 +46,7 @@ import { getEmbyApiMovieSource, resolveEmby } from '@/modules/emby/embyApi'
 import { resolveJellyfin } from '@/modules/jellyfin/jellyfinApi'
 import type { EmbyVersionInfo } from '@/modules/emby/types'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 interface MovieListPanelProps {
   isHost: boolean
@@ -137,11 +138,11 @@ export function MovieListPanel({
 
   const handlePlay = (movieId: number) => {
     if (!isHost && !canManage) {
-      message.info('没有影片管理权限')
+      message.info(t('没有影片管理权限'))
       return
     }
     if (!socket) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     socket.emit('play-movie', { roomId, movieId })
@@ -150,20 +151,20 @@ export function MovieListPanel({
 
   const handleRemove = async (movieId: number) => {
     if (!isHost && !canManage) {
-      message.info('只有房主或房管可以删除影片')
+      message.info(t('只有房主或房管可以删除影片'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     setRemovingId(movieId)
     try {
       await removeMovie(roomId, movieId)
-      message.success('影片已删除')
+      message.success(t('影片已删除'))
     } catch (err) {
       console.error('[MovieListPanel] remove movie error:', err)
-      message.error(err instanceof Error ? err.message : '删除影片失败')
+      message.error(err instanceof Error ? err.message : t('删除影片失败'))
     } finally {
       setRemovingId(null)
     }
@@ -182,11 +183,11 @@ export function MovieListPanel({
     )
       return
     if (!isHost && !canManage) {
-      message.info('只有房主或房管可以移除影片')
+      message.info(t('只有房主或房管可以移除影片'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     if (!clearConfirming) {
@@ -199,10 +200,10 @@ export function MovieListPanel({
     try {
       await clearMovies(roomId)
       setSearch('')
-      message.success('已清空影片列表')
+      message.success(t('已清空影片列表'))
     } catch (err) {
       console.error('[MovieListPanel] clear movies error:', err)
-      message.error(err instanceof Error ? err.message : '移除全部影片失败')
+      message.error(err instanceof Error ? err.message : t('移除全部影片失败'))
     } finally {
       setClearingAll(false)
     }
@@ -220,8 +221,8 @@ export function MovieListPanel({
       const disabled =
         clearingAll || movies.length === 0 || removingId !== null || !roomId
       const label = clearConfirming
-        ? '确认清空？再次点击执行'
-        : '清空房间影片列表，包括搜索隐藏的影片'
+        ? t('确认清空？再次点击执行')
+        : t('清空房间影片列表，包括搜索隐藏的影片')
       return (
         <button
           type="button"
@@ -256,9 +257,13 @@ export function MovieListPanel({
         onClick={handleClearAll}
         loading={clearingAll}
         disabled={movies.length === 0 || removingId !== null || !roomId}
-        title="清空房间影片列表，包括搜索隐藏的影片"
+        title={t('清空房间影片列表，包括搜索隐藏的影片')}
       >
-        {clearingAll ? '清空中…' : clearConfirming ? '确认清空？' : '一键清除'}
+        {clearingAll
+          ? t('清空中…')
+          : clearConfirming
+            ? t('确认清空？')
+            : t('一键清除')}
       </Button>
     )
   }
@@ -272,7 +277,7 @@ export function MovieListPanel({
     // （解析/挂载链路均强制 CLI），提前给出可操作提示
     if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
       message.error(
-        '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作'
+        t('该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作')
       )
       return
     }
@@ -315,7 +320,7 @@ export function MovieListPanel({
               true
             )
           } else {
-            throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+            throw new Error(t('无法提取 BV 号或 cid，无法使用 CLI 代理'))
           }
         }
       } else {
@@ -342,7 +347,7 @@ export function MovieListPanel({
       }
     } catch (err) {
       console.error('[MovieListPanel] change quality error:', err)
-      message.error(err instanceof Error ? err.message : '切换清晰度失败')
+      message.error(err instanceof Error ? err.message : t('切换清晰度失败'))
     } finally {
       setQualityLoadingId(null)
     }
@@ -361,7 +366,7 @@ export function MovieListPanel({
 
     const proxyUrl = getActiveCliProxyUrl()
     if (!proxyUrl) {
-      message.error('CLI 代理未连接')
+      message.error(t('CLI 代理未连接'))
       return
     }
 
@@ -370,7 +375,7 @@ export function MovieListPanel({
     if (!bangumiId?.epId) {
       const bvid = extractBvid(movie.url)
       if (!bvid || !movie.cid) {
-        message.error('无法解析该 B站 影片')
+        message.error(t('无法解析该 B站 影片'))
         return
       }
     }
@@ -400,7 +405,9 @@ export function MovieListPanel({
       }
     } catch (err) {
       console.error('[MovieListPanel] viewer change quality error:', err)
-      message.error(err instanceof Error ? err.message : 'CLI 切换清晰度失败')
+      message.error(
+        err instanceof Error ? err.message : t('CLI 切换清晰度失败')
+      )
     } finally {
       setQualityLoadingId(null)
     }
@@ -421,7 +428,7 @@ export function MovieListPanel({
     // （解析/挂载链路均强制 CLI），提前给出可操作提示
     if (movie.cliOnly === true && !getActiveCliProxyUrl()) {
       message.error(
-        '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作'
+        t('该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后操作')
       )
       return
     }
@@ -449,7 +456,7 @@ export function MovieListPanel({
         })
       } catch (err) {
         console.error('[MovieListPanel] change emby episode error:', err)
-        message.error(err instanceof Error ? err.message : '切换分集失败')
+        message.error(err instanceof Error ? err.message : t('切换分集失败'))
       } finally {
         setPageLoadingId(null)
       }
@@ -524,7 +531,7 @@ export function MovieListPanel({
             true
           )
         } else {
-          throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+          throw new Error(t('无法提取 BV 号或 cid，无法使用 CLI 代理'))
         }
       } else {
         // CLI 未启用按影片偏好；CLI 启用未连接由 getEffectivePreferMp4
@@ -557,7 +564,7 @@ export function MovieListPanel({
       }
     } catch (err) {
       console.error('[MovieListPanel] change page error:', err)
-      message.error(err instanceof Error ? err.message : '切换分P失败')
+      message.error(err instanceof Error ? err.message : t('切换分P失败'))
     } finally {
       setPageLoadingId(null)
     }
@@ -615,7 +622,7 @@ export function MovieListPanel({
             style={{ color: 'var(--md-sys-color-secondary)' }}
           />
           <Paragraph type="secondary" className="m-0 text-xs">
-            当前为远程共享模式，影片播放已暂停
+            {t('当前为远程共享模式，影片播放已暂停')}
           </Paragraph>
         </div>
       )}
@@ -640,7 +647,7 @@ export function MovieListPanel({
               />
             </div>
             <Paragraph type="secondary" className="m-0 text-xs">
-              {search ? '未找到匹配的影片' : '暂无影片，请在右侧添加'}
+              {search ? t('未找到匹配的影片') : t('暂无影片，请在右侧添加')}
             </Paragraph>
           </div>
         )}
@@ -795,10 +802,10 @@ export function MovieListPanel({
                       disabled={(!isHost && !canManage) || isScreenShare}
                       title={
                         isScreenShare
-                          ? '远程共享模式下不可播放'
+                          ? t('远程共享模式下不可播放')
                           : isHost || canManage
-                            ? '播放'
-                            : '没有影片切换权限'
+                            ? t('播放')
+                            : t('没有影片切换权限')
                       }
                     />
                   )}
@@ -813,10 +820,10 @@ export function MovieListPanel({
                       disabled={(!isHost && !canManage) || isScreenShare}
                       title={
                         isScreenShare
-                          ? '远程共享模式下不可删除'
+                          ? t('远程共享模式下不可删除')
                           : isHost || canManage
-                            ? '删除'
-                            : '没有影片删除权限'
+                            ? t('删除')
+                            : t('没有影片删除权限')
                       }
                     />
                   )}
@@ -853,7 +860,9 @@ export function MovieListPanel({
           />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
-          <Text className="text-sm font-semibold leading-tight">影片列表</Text>
+          <Text className="text-sm font-semibold leading-tight">
+            {t('影片列表')}
+          </Text>
           <Text
             type="secondary"
             className="text-[10px] uppercase tracking-wide"
@@ -877,10 +886,12 @@ export function MovieListPanel({
             }}
             title={
               autoContinueEnabled
-                ? '自动连播已开启：播完当前影片后自动播放列表下一部，到末尾停止'
-                : '自动连播已关闭：开启后播完当前影片自动播放列表下一部'
+                ? t(
+                    '自动连播已开启：播完当前影片后自动播放列表下一部，到末尾停止'
+                  )
+                : t('自动连播已关闭：开启后播完当前影片自动播放列表下一部')
             }
-            aria-label="自动连播"
+            aria-label={t('自动连播')}
             aria-pressed={autoContinueEnabled}
           >
             <Repeat className="h-3.5 w-3.5" />
@@ -892,8 +903,8 @@ export function MovieListPanel({
           onClick={() => setShowListModal(true)}
           className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-          title="展开查看完整影片列表"
-          aria-label="展开查看完整影片列表"
+          title={t('展开查看完整影片列表')}
+          aria-label={t('展开查看完整影片列表')}
         >
           <Maximize className="h-3.5 w-3.5" />
         </button>
@@ -919,13 +930,13 @@ export function MovieListPanel({
               size="sm"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索影片…"
+              placeholder={t('搜索影片…')}
               className="min-w-0 flex-1 px-2.5"
             />
             {renderClearButton('text')}
             {isHost && !isScreenShare && (
               <Switch
-                label="自动连播"
+                label={t('自动连播')}
                 checked={autoContinueEnabled}
                 onChange={(e) => setAutoContinueEnabled(e.target.checked)}
               />
@@ -933,7 +944,7 @@ export function MovieListPanel({
           </div>
           {canReorder && (
             <Text type="secondary" className="text-[10px]">
-              拖拽影片卡片可调整播放顺序
+              {t('拖拽影片卡片可调整播放顺序')}
             </Text>
           )}
           {renderMovieList(true)}
@@ -1015,7 +1026,7 @@ function BilibiliQualitySelect({
       />
       {effectivePreferMp4 && (
         <Paragraph className="m-0 mt-1 text-[10px] leading-tight opacity-60">
-          MP4 最高 720P，DASH 与 CLI 模式才能获取高画质
+          {t('MP4 最高 720P，DASH 与 CLI 模式才能获取高画质')}
         </Paragraph>
       )}
     </>
@@ -1081,10 +1092,10 @@ function EmbyVersionSelect({ movie, api }: EmbyVersionSelectProps) {
         ...(data.duration ? { duration: data.duration } : {}),
       })
       setSelectedId(value)
-      message.success('已切换清晰度')
+      message.success(t('已切换清晰度'))
     } catch (err) {
       console.error('[MovieListPanel] change emby version error:', err)
-      message.error(err instanceof Error ? err.message : '切换清晰度失败')
+      message.error(err instanceof Error ? err.message : t('切换清晰度失败'))
     } finally {
       setSwitching(false)
     }
@@ -1101,20 +1112,20 @@ function EmbyVersionSelect({ movie, api }: EmbyVersionSelectProps) {
         className="mt-1.5"
         size="sm"
         value={currentId}
-        placeholder={loading ? '加载清晰度...' : '选择清晰度'}
+        placeholder={loading ? t('加载清晰度...') : t('选择清晰度')}
         options={
           versions && versions.length > 0
             ? versions.map((v) => ({ label: v.label, value: v.id }))
             : [
                 {
-                  label: loading ? '加载中...' : '点击加载清晰度',
+                  label: loading ? t('加载中...') : t('点击加载清晰度'),
                   value: '__loading__',
                 },
               ]
         }
         disabled={switching}
         onChange={handleChange}
-        aria-label="切换影片清晰度版本"
+        aria-label={t('切换影片清晰度版本')}
       />
     </div>
   )

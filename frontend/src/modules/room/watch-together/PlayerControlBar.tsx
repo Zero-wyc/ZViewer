@@ -33,6 +33,7 @@ import {
 import { DanmakuInput } from '@/components/VideoPlayer/parts/DanmakuInput'
 import { IconButton } from '@/components/VideoControls/IconButton'
 import type { WatchTogetherState } from '@/modules/sync-playback/types'
+import { t as translate } from '@/i18n'
 
 const RATES = [0.5, 0.75, 1, 1.25, 1.5, 2]
 const VOLUME_STORAGE_KEY = 'zc-player-volume'
@@ -61,7 +62,7 @@ function DanmakuIcon({ off }: { off?: boolean }) {
         fontWeight="600"
         fontFamily="system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
       >
-        弹
+        {translate('弹')}
       </text>
       {off && <line x1="5" y1="5" x2="19" y2="19" />}
     </svg>
@@ -553,7 +554,11 @@ export function PlayerControlBar({
         <div
           ref={progressRef}
           role="slider"
-          aria-label={canControl ? '播放进度' : '播放进度（仅房主可拖动）'}
+          aria-label={
+            canControl
+              ? translate('播放进度')
+              : translate('播放进度（仅房主可拖动）')
+          }
           aria-valuemin={0}
           aria-valuemax={duration}
           aria-valuenow={currentTime}
@@ -626,7 +631,10 @@ export function PlayerControlBar({
 
         {/* 移动端弹幕输入行：放在进度条与按钮行之间，避免与按钮竞争空间 */}
         <div className="flex items-center gap-1 md:hidden">
-          <DanmakuInput onSend={onSendDanmaku} placeholder="发弹幕" />
+          <DanmakuInput
+            onSend={onSendDanmaku}
+            placeholder={translate('发弹幕')}
+          />
         </div>
 
         {/* 控制按钮行 */}
@@ -638,11 +646,11 @@ export function PlayerControlBar({
             label={
               canControl
                 ? isPlaying
-                  ? '暂停'
-                  : '播放'
+                  ? translate('暂停')
+                  : translate('播放')
                 : isPlaying
-                  ? '申请暂停'
-                  : '申请继续播放'
+                  ? translate('申请暂停')
+                  : translate('申请继续播放')
             }
             disabled={!canControl && (isPlaying ? pausePending : playPending)}
             onClick={handlePlayPauseClick}
@@ -660,14 +668,19 @@ export function PlayerControlBar({
           <IconButton
             size="bar"
             stopPropagation
-            label={danmakuEnabled ? '关闭弹幕' : '开启弹幕'}
+            label={
+              danmakuEnabled ? translate('关闭弹幕') : translate('开启弹幕')
+            }
             onClick={onToggleDanmaku}
             icon={<DanmakuIcon off={!danmakuEnabled} />}
           />
 
           {/* 弹幕输入框（桌面端显示） */}
           <div className="hidden min-w-0 flex-1 items-center gap-1 md:flex">
-            <DanmakuInput onSend={onSendDanmaku} placeholder="发个友善的弹幕" />
+            <DanmakuInput
+              onSend={onSendDanmaku}
+              placeholder={translate('发个友善的弹幕')}
+            />
           </div>
 
           {/* 倍速 */}
@@ -675,7 +688,7 @@ export function PlayerControlBar({
             <IconButton
               size="bar"
               stopPropagation
-              label="播放倍速"
+              label={translate('播放倍速')}
               disabled={!canControl}
               active={rateOpen}
               onClick={() => canControl && setRateOpen((v) => !v)}
@@ -721,7 +734,11 @@ export function PlayerControlBar({
             <IconButton
               size="bar"
               stopPropagation
-              label={muted || volume === 0 ? '取消静音' : '静音'}
+              label={
+                muted || volume === 0
+                  ? translate('取消静音')
+                  : translate('静音')
+              }
               onClick={toggleMute}
               icon={<VolumeIcon size={18} />}
             />
@@ -754,7 +771,7 @@ export function PlayerControlBar({
               <IconButton
                 size="bar"
                 stopPropagation
-                label="同步进度"
+                label={translate('同步进度')}
                 onClick={onSync}
                 icon={<RotateCcw size={18} />}
               />
@@ -766,7 +783,7 @@ export function PlayerControlBar({
             <IconButton
               size="bar"
               stopPropagation
-              label="重载视频"
+              label={translate('重载视频')}
               onClick={onReload}
               icon={<RotateCw size={18} />}
             />
@@ -776,7 +793,11 @@ export function PlayerControlBar({
           <IconButton
             size="bar"
             stopPropagation
-            label={controlBarHideMode ? '显示控制栏' : '隐藏控制栏'}
+            label={
+              controlBarHideMode
+                ? translate('显示控制栏')
+                : translate('隐藏控制栏')
+            }
             active={controlBarHideMode}
             onClick={onToggleHideMode}
             icon={controlBarHideMode ? <Eye size={18} /> : <EyeOff size={18} />}
@@ -787,7 +808,7 @@ export function PlayerControlBar({
             ref={settingsButtonRef}
             size="bar"
             stopPropagation
-            label="设置"
+            label={translate('设置')}
             active={settingsOpen}
             onClick={onToggleSettings}
             icon={<Settings size={18} />}
@@ -798,7 +819,11 @@ export function PlayerControlBar({
             <IconButton
               size="bar"
               stopPropagation
-              label={isWebFullscreen ? '退出网页全屏' : '网页全屏'}
+              label={
+                isWebFullscreen
+                  ? translate('退出网页全屏')
+                  : translate('网页全屏')
+              }
               onClick={onToggleWebFullscreen}
               icon={
                 isWebFullscreen ? (
@@ -815,7 +840,7 @@ export function PlayerControlBar({
             <IconButton
               size="bar"
               stopPropagation
-              label="更多"
+              label={translate('更多')}
               active={moreOpen}
               onClick={() => setMoreOpen((v) => !v)}
               icon={<MoreHorizontal size={18} />}
@@ -859,7 +884,9 @@ export function PlayerControlBar({
                   ) : (
                     <Maximize size={14} />
                   )}
-                  {isWebFullscreen ? '退出网页全屏' : '网页全屏'}
+                  {isWebFullscreen
+                    ? translate('退出网页全屏')
+                    : translate('网页全屏')}
                 </button>
               </div>
             )}
@@ -869,7 +896,7 @@ export function PlayerControlBar({
           <IconButton
             size="bar"
             stopPropagation
-            label={isFullscreen ? '退出全屏' : '全屏'}
+            label={isFullscreen ? translate('退出全屏') : translate('全屏')}
             onClick={onToggleFullscreen}
             icon={
               isFullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />

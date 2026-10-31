@@ -28,6 +28,7 @@ import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
 import { dispatchRoomMediaTeardown } from '@/lib/mediaTeardown'
 
 import type { RoomMode } from '@/store/roomStore'
+import { t } from '@/i18n'
 
 // sessionStorage key：标记当前用户是哪个房间的房主。
 // 房主创建房间时写入，RoomPage 据此判断身份并走 register-host 流程。
@@ -333,7 +334,7 @@ function RoomPage() {
                 return
               }
               hostAlreadyInRoomRetriesRef.current = 0
-              message.error(response.message ?? '该账户已在此房间内')
+              message.error(response.message ?? t('该账户已在此房间内'))
               setTimeout(() => {
                 window.location.href = '/'
               }, 2000)
@@ -518,11 +519,11 @@ function RoomPage() {
 
     const controlLabels =
       mode === 'screen-share'
-        ? ['房间状态']
+        ? [t('房间状态')]
         : isListenTogether
           ? // 一起听：下方无控制卡片行
             undefined
-          : ['房间状态', '影片列表', '添加影片']
+          : [t('房间状态'), t('影片列表'), t('添加影片')]
 
     const roomLayout = (
       <RoomLayout

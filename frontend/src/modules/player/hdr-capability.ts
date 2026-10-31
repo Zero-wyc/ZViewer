@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * 视频解码 / HDR 能力探测。
  *
@@ -137,14 +138,14 @@ export function getHdrUnsupportedReason(): HdrUnsupportedReason | null {
 export function hdrUnsupportedLabel(): string {
   const reason = getHdrUnsupportedReason()
   if (!reason) return ''
-  return reason === 'browser' ? '需换用 Edge/Chrome' : '本机不支持'
+  return reason === 'browser' ? t('需换用 Edge/Chrome') : t('本机不支持')
 }
 
 /** 选中不可用 HDR 档位时的提示文案 */
 export function hdrUnsupportedMessage(): string {
   return getHdrUnsupportedReason() === 'browser'
-    ? '当前浏览器无法解码 HDR，请用 Edge 或 Chrome 打开'
-    : '本机无法解码 HDR，已保持当前清晰度'
+    ? t('当前浏览器无法解码 HDR，请用 Edge 或 Chrome 打开')
+    : t('本机无法解码 HDR，已保持当前清晰度')
 }
 
 /** 测试/热更新用：清空探测缓存 */

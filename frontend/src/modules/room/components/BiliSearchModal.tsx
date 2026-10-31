@@ -28,6 +28,7 @@ import {
 import { buildBilibiliImageProxyUrl } from '@/modules/movie-source/resolveSource'
 import { formatDuration } from '@/lib/utils'
 import { formatCountShort } from '@/lib/format'
+import { t } from '@/i18n'
 
 interface BiliSearchModalProps {
   open: boolean
@@ -96,7 +97,7 @@ export function BiliSearchModal({
         message.warning(
           err instanceof Error
             ? `${err.message}，已按单 P 添加`
-            : '获取分 P 失败，已按单 P 添加'
+            : t('获取分 P 失败，已按单 P 添加')
         )
         onSelect(`https://www.bilibili.com/video/${v.bvid}`)
         onClose()
@@ -112,7 +113,7 @@ export function BiliSearchModal({
     async (kw: string, targetPage: number, append: boolean) => {
       const trimmed = kw.trim()
       if (!trimmed) {
-        message.warning('请输入搜索关键词')
+        message.warning(t('请输入搜索关键词'))
         return
       }
       const seq = ++requestSeqRef.current
@@ -133,7 +134,7 @@ export function BiliSearchModal({
         setSearched(true)
       } catch (err) {
         if (seq !== requestSeqRef.current) return
-        message.error(err instanceof Error ? err.message : '搜索失败')
+        message.error(err instanceof Error ? err.message : t('搜索失败'))
       } finally {
         if (seq === requestSeqRef.current) {
           setLoading(false)
@@ -155,7 +156,7 @@ export function BiliSearchModal({
       open={open}
       onClose={onClose}
       className="max-w-4xl h-[624px]"
-      title="搜索 B站 视频"
+      title={t('搜索 B站 视频')}
     >
       <div className="flex h-full flex-col">
         {/* 搜索区：回车触发 */}
@@ -170,7 +171,7 @@ export function BiliSearchModal({
                 void doSearch(keyword, 1, false)
               }
             }}
-            placeholder="输入关键词搜索 B站 视频"
+            placeholder={t('输入关键词搜索 B站 视频')}
             className="flex-1"
           />
           <Button
@@ -181,7 +182,7 @@ export function BiliSearchModal({
             onClick={() => void doSearch(keyword, 1, false)}
             className="h-[42px] shrink-0"
           >
-            搜索
+            {t('搜索')}
           </Button>
         </div>
 
@@ -195,7 +196,7 @@ export function BiliSearchModal({
                 icon={<ArrowLeft className="h-4 w-4" />}
                 onClick={() => setDetailItem(null)}
               >
-                返回
+                {t('返回')}
               </Button>
               <Text
                 className="truncate text-sm font-semibold"
@@ -256,8 +257,8 @@ export function BiliSearchModal({
                 {items.length > 0
                   ? `共 ${total ?? items.length} 条结果`
                   : loading
-                    ? '搜索中...'
-                    : '输入关键词开始搜索'}
+                    ? t('搜索中...')
+                    : t('输入关键词开始搜索')}
               </Text>
             </div>
 
@@ -342,7 +343,7 @@ export function BiliSearchModal({
                       />
                     </div>
                     <Paragraph type="secondary" className="m-0 text-xs">
-                      正在搜索…
+                      {t('正在搜索…')}
                     </Paragraph>
                   </div>
                 )}
@@ -361,7 +362,7 @@ export function BiliSearchModal({
                       />
                     </div>
                     <Paragraph type="secondary" className="m-0 text-xs">
-                      没有找到相关视频
+                      {t('没有找到相关视频')}
                     </Paragraph>
                   </div>
                 )}
@@ -381,7 +382,7 @@ export function BiliSearchModal({
                       />
                     </div>
                     <Paragraph type="secondary" className="m-0 text-xs">
-                      输入关键词开始搜索
+                      {t('输入关键词开始搜索')}
                     </Paragraph>
                   </div>
                 )}
@@ -395,7 +396,7 @@ export function BiliSearchModal({
                     onClick={() => void doSearch(keyword, page + 1, true)}
                     className="mb-3 [column-span:all]"
                   >
-                    加载更多
+                    {t('加载更多')}
                   </Button>
                 )}
               </div>

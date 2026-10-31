@@ -25,6 +25,7 @@ import {
 import type { SharingMode } from '@/modules/screen-sharing/hooks/useConnectionStats'
 import type { P2PStatus } from '@/modules/p2p/types'
 import { MODE_LABELS, MODE_ORDER } from './useRoomModeSwitch'
+import { t } from '@/i18n'
 
 interface RoomLayoutProps {
   /** 是否房主：房主可切换模式，观众只显示当前模式标签 */
@@ -333,7 +334,7 @@ export function RoomLayout({
             color: 'var(--md-sys-color-on-surface)',
           }}
         >
-          返回
+          {t('返回')}
         </Button>
 
         {/* 顶部模式切换栏（玻璃拟态 + Monet 主题变量，当前模式高亮）：
@@ -346,9 +347,9 @@ export function RoomLayout({
           {!hideRightPanel && (
             <button
               onClick={toggleRightPanel}
-              aria-label={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+              aria-label={isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')}
               aria-expanded={isRightPanelOpen}
-              title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+              title={isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')}
               className="glass hidden h-9 w-9 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95 md:flex"
               style={{
                 borderColor: 'var(--md-sys-color-outline-variant)',
@@ -496,10 +497,12 @@ export function RoomLayout({
                           <button
                             onClick={toggleRightPanel}
                             aria-label={
-                              isRightPanelOpen ? '收起侧栏' : '展开侧栏'
+                              isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
                             }
                             aria-expanded={isRightPanelOpen}
-                            title={isRightPanelOpen ? '收起侧栏' : '展开侧栏'}
+                            title={
+                              isRightPanelOpen ? t('收起侧栏') : t('展开侧栏')
+                            }
                             className="glass flex h-8 w-8 items-center justify-center rounded-lg border transition-all duration-200 hover:scale-105 active:scale-95"
                             style={{
                               borderColor:

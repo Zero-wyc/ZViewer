@@ -2,6 +2,7 @@ import { FolderOpen } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
 import { SingleLineInput } from './shared'
+import { t } from '@/i18n'
 
 interface ServerFilesSourceFormProps {
   path: string
@@ -25,12 +26,14 @@ export function ServerFilesSourceForm({
         icon={<FolderOpen className="h-4 w-4" />}
         onClick={onOpenBrowser}
       >
-        浏览服务器文件
+        {t('浏览服务器文件')}
       </Button>
       <SingleLineInput
         value={path}
         onChange={onChangePath}
-        placeholder="手动输入路径，或点击上方按钮浏览选择（支持多选批量添加）"
+        placeholder={t(
+          '手动输入路径，或点击上方按钮浏览选择（支持多选批量添加）'
+        )}
         onEnter={onAdd}
       />
     </Space>

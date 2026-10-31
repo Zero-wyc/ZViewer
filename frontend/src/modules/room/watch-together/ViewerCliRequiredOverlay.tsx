@@ -15,6 +15,7 @@ import { ExternalLink, Lock, RefreshCw } from 'lucide-react'
 import { useEffect, useRef } from 'react'
 import { useRoomStore } from '@/store/roomStore'
 import { openCliSetupPage, useCliAgent } from '@/hooks/useCliAgent'
+import { t } from '@/i18n'
 
 export function ViewerCliRequiredOverlay() {
   const movieId = useRoomStore((s) => s.viewerCliRequiredMovieId)
@@ -40,7 +41,7 @@ export function ViewerCliRequiredOverlay() {
     <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/80 px-6 text-center backdrop-blur-sm">
       <Lock className="h-10 w-10 shrink-0 text-[var(--md-sys-color-tertiary)]" />
       <div className="text-sm font-bold text-white">
-        该影片仅允许 CLI 模式观看
+        {t('该影片仅允许 CLI 模式观看')}
       </div>
       <div className="max-w-md text-xs leading-relaxed text-white/70">
         房主已对本影片

@@ -26,6 +26,7 @@ import {
   isHdrQn,
 } from '@/modules/player/hdr-capability'
 import type { ResolvedSource } from '@/modules/movie-source/resolveSource'
+import { t } from '@/i18n'
 
 interface UseBilibiliResolveParams {
   isHost: boolean
@@ -62,23 +63,23 @@ export function useBilibiliResolve({
   // webdav/ftp/openlist/mp4 的 resolve+add 已合并到 handleAddMovie
   const handleResolve = async (urlOverride?: string) => {
     if (!isHost) {
-      message.info('只有房主可以添加影片')
+      message.info(t('只有房主可以添加影片'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
     if (sourceType !== 'bilibili') return
     // urlOverride：搜索弹窗选中后直接传入目标链接（state 更新时序先于解析）
     const targetUrl = (urlOverride ?? url).trim()
     if (!targetUrl) {
-      message.warning('请输入视频地址')
+      message.warning(t('请输入视频地址'))
       return
     }
 
     setLoading(true)
-    setResolveProgress('正在初始化解析...')
+    setResolveProgress(t('正在初始化解析...'))
     try {
       const bvid = extractBvid(targetUrl)
       // PGC（番剧 ep/ss 链接）：CLI 分支按 epId 走番剧解析
@@ -122,9 +123,9 @@ export function useBilibiliResolve({
             pinnedPage != null ? { page: pinnedPage } : undefined
           ),
         cliProgress: epId
-          ? '正在通过 CLI 代理解析番剧...'
-          : '正在通过 CLI 代理解析...',
-        serverProgress: '正在通过服务器解析...',
+          ? t('正在通过 CLI 代理解析番剧...')
+          : t('正在通过 CLI 代理解析...'),
+        serverProgress: t('正在通过服务器解析...'),
         setProgress: setResolveProgress,
       })
       resolvedViaCliRef.current = viaCli
@@ -154,7 +155,7 @@ export function useBilibiliResolve({
       }
     } catch (err) {
       console.error('[MoviePushPanel] resolve error:', err)
-      message.error(err instanceof Error ? err.message : '解析失败')
+      message.error(err instanceof Error ? err.message : t('解析失败'))
     } finally {
       setLoading(false)
       setResolveProgress('')
@@ -173,7 +174,7 @@ export function useBilibiliResolve({
     }
 
     setQualityLoading(true)
-    setResolveProgress('正在切换清晰度...')
+    setResolveProgress(t('正在切换清晰度...'))
     try {
       const bvid = extractBvid(url.trim())
       const bangumiId = extractBangumiId(url.trim())
@@ -208,8 +209,8 @@ export function useBilibiliResolve({
           resolveBilibiliWithOptions(url.trim(), qn, (_step, msg) =>
             setResolveProgress(msg)
           ),
-        cliProgress: '正在通过 CLI 代理切换清晰度...',
-        serverProgress: '正在通过服务器切换清晰度...',
+        cliProgress: t('正在通过 CLI 代理切换清晰度...'),
+        serverProgress: t('正在通过服务器切换清晰度...'),
         setProgress: setResolveProgress,
       })
       resolvedViaCliRef.current = viaCli
@@ -217,7 +218,7 @@ export function useBilibiliResolve({
       setResolvedMovie(resolved)
     } catch (err) {
       console.error('[MoviePushPanel] switch quality error:', err)
-      message.error(err instanceof Error ? err.message : '切换清晰度失败')
+      message.error(err instanceof Error ? err.message : t('切换清晰度失败'))
     } finally {
       setQualityLoading(false)
       setResolveProgress('')
@@ -271,7 +272,7 @@ export function useBilibiliResolve({
         }
       } catch (err) {
         console.error('[MoviePushPanel] page select error:', err)
-        message.error(err instanceof Error ? err.message : '切换分集失败')
+        message.error(err instanceof Error ? err.message : t('切换分集失败'))
       } finally {
         setPageSelectLoading(false)
         setResolveProgress('')
@@ -313,7 +314,7 @@ export function useBilibiliResolve({
       setResolvedMovie(resolved)
     } catch (err) {
       console.error('[MoviePushPanel] page select error:', err)
-      message.error(err instanceof Error ? err.message : '切换分P失败')
+      message.error(err instanceof Error ? err.message : t('切换分P失败'))
     } finally {
       setPageSelectLoading(false)
       setResolveProgress('')

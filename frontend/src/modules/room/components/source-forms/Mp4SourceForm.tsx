@@ -1,4 +1,5 @@
 import { SingleLineInput } from './shared'
+import { t } from '@/i18n'
 
 interface Mp4SourceFormProps {
   url: string
@@ -13,7 +14,7 @@ export function Mp4SourceForm({ url, onChangeUrl, onAdd }: Mp4SourceFormProps) {
     <SingleLineInput
       value={url}
       onChange={onChangeUrl}
-      placeholder="MP4/WebM 等视频直链"
+      placeholder={t('MP4/WebM 等视频直链')}
       onEnter={onAdd}
     />
   )

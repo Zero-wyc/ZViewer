@@ -1,3 +1,4 @@
+import { t } from '@/i18n'
 /**
  * 播放器工具函数
  *
@@ -16,15 +17,17 @@
 export function formatVideoLoadError(code?: number): string {
   switch (code) {
     case 1:
-      return '视频加载被中止'
+      return t('视频加载被中止')
     case 2:
-      return '网络错误：无法连接到源站，请检查网络或源站可达性'
+      return t('网络错误：无法连接到源站，请检查网络或源站可达性')
     case 3:
-      return '解码失败：视频编码不受当前浏览器支持'
+      return t('解码失败：视频编码不受当前浏览器支持')
     case 4:
-      return '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）'
+      return t(
+        '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）'
+      )
     default:
-      return '未知媒体错误'
+      return t('未知媒体错误')
   }
 }
 
@@ -82,7 +85,7 @@ export function waitForMetadata(video: HTMLVideoElement): Promise<void> {
     }
     const timer = setTimeout(() => {
       cleanup()
-      reject(new Error('等待媒体 metadata 超时（30s）'))
+      reject(new Error(t('等待媒体 metadata 超时（30s）')))
     }, METADATA_TIMEOUT_MS)
 
     video.addEventListener('loadedmetadata', onLoaded)

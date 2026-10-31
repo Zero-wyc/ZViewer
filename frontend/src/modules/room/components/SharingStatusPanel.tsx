@@ -16,6 +16,7 @@ import {
   type SharingMode,
 } from '@/modules/screen-sharing/hooks/useConnectionStats'
 import type { P2PStatus } from '@/modules/p2p/types'
+import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
   /** 服务器中转 PC（P2P 未启用时使用） */
@@ -99,7 +100,7 @@ function StatRow({ icon, label, value, hint }: StatRowProps) {
 }
 
 function getSharingModeLabel(mode: SharingMode): string {
-  return mode === 'p2p' ? 'P2P 直连' : '服务器中转'
+  return mode === 'p2p' ? t('P2P 直连') : t('服务器中转')
 }
 
 function getSharingModeColor(): 'success' | 'primary' {
@@ -107,7 +108,7 @@ function getSharingModeColor(): 'success' | 'primary' {
 }
 
 function getRoleLabel(role: 'sender' | 'receiver'): string {
-  return role === 'sender' ? '发送端' : '接收端'
+  return role === 'sender' ? t('发送端') : t('接收端')
 }
 
 function getConnectionStateColor(
@@ -130,17 +131,17 @@ function getConnectionStateColor(
 function getConnectionStateText(state: RTCPeerConnectionState): string {
   switch (state) {
     case 'new':
-      return '等待连接'
+      return t('等待连接')
     case 'connecting':
-      return '连接中'
+      return t('连接中')
     case 'connected':
-      return '已连接'
+      return t('已连接')
     case 'disconnected':
-      return '已断开'
+      return t('已断开')
     case 'failed':
-      return '连接失败'
+      return t('连接失败')
     case 'closed':
-      return '连接已关闭'
+      return t('连接已关闭')
     default:
       return state
   }
@@ -149,13 +150,13 @@ function getConnectionStateText(state: RTCPeerConnectionState): string {
 function getP2PStatusLabel(status: P2PStatus): string {
   switch (status) {
     case 'idle':
-      return '未启用'
+      return t('未启用')
     case 'connecting':
-      return 'P2P 协商中'
+      return t('P2P 协商中')
     case 'connected':
-      return 'P2P 直连'
+      return t('P2P 直连')
     case 'failed':
-      return '已回退到服务器中转'
+      return t('已回退到服务器中转')
   }
 }
 
@@ -206,7 +207,7 @@ export function SharingStatusPanel({
   const codecText = stats.codec ?? '-'
   const rttText = stats.rtt === null ? '-' : `${stats.rtt} ms`
   const jitterText = stats.jitter === null ? '-' : `${stats.jitter} ms`
-  const bitrateHint = mode === 'sender' ? '上行码率' : '下行码率'
+  const bitrateHint = mode === 'sender' ? t('上行码率') : t('下行码率')
 
   return (
     <div className="glass-card flex h-full w-full flex-col gap-3 rounded-2xl p-4">
@@ -221,7 +222,9 @@ export function SharingStatusPanel({
         >
           <Activity className="h-4 w-4" />
         </span>
-        <Paragraph className="m-0 text-sm font-semibold">共享情况</Paragraph>
+        <Paragraph className="m-0 text-sm font-semibold">
+          {t('共享情况')}
+        </Paragraph>
       </div>
 
       {/* 状态标签 */}
@@ -239,7 +242,7 @@ export function SharingStatusPanel({
           </Tag>
         )}
         {fallbackNotice && !p2pEnabled && (
-          <Tag color="warning">已回退到服务器中转</Tag>
+          <Tag color="warning">{t('已回退到服务器中转')}</Tag>
         )}
       </div>
 
@@ -258,13 +261,15 @@ export function SharingStatusPanel({
             style={{ color: 'var(--md-sys-color-secondary)' }}
           />
           <div className="leading-tight">
-            <Paragraph className="m-0 text-xs font-medium">P2P 直连</Paragraph>
+            <Paragraph className="m-0 text-xs font-medium">
+              {t('P2P 直连')}
+            </Paragraph>
             <Text type="secondary" className="text-[10px] opacity-70">
               {p2pEnabled
                 ? getP2PStatusLabel(p2pStatus)
                 : fallbackNotice
-                  ? '已回退到服务器中转'
-                  : '点击切换至 P2P'}
+                  ? t('已回退到服务器中转')
+                  : t('点击切换至 P2P')}
             </Text>
           </div>
         </div>
@@ -279,8 +284,8 @@ export function SharingStatusPanel({
         {mode === 'sender' && (
           <StatRow
             icon={<Gauge className="h-3.5 w-3.5" />}
-            label="采集帧率"
-            hint="捕获源实测，近零开销"
+            label={t('采集帧率')}
+            hint={t('捕获源实测，近零开销')}
             value={
               captureFps === null || captureFps === undefined
                 ? '-'
@@ -290,39 +295,39 @@ export function SharingStatusPanel({
         )}
         <StatRow
           icon={<Gauge className="h-3.5 w-3.5" />}
-          label="帧率"
-          hint={mode === 'sender' ? '编码后发送帧率' : undefined}
+          label={t('帧率')}
+          hint={mode === 'sender' ? t('编码后发送帧率') : undefined}
           value={fpsText}
         />
         <StatRow
           icon={<Signal className="h-3.5 w-3.5" />}
-          label="丢包率"
+          label={t('丢包率')}
           value={lossText}
         />
         <StatRow
           icon={<Radio className="h-3.5 w-3.5" />}
-          label="实时码率"
+          label={t('实时码率')}
           hint={bitrateHint}
           value={bitrateText}
         />
         <StatRow
           icon={<Layers className="h-3.5 w-3.5" />}
-          label="分辨率"
+          label={t('分辨率')}
           value={resolutionText}
         />
         <StatRow
           icon={<Cpu className="h-3.5 w-3.5" />}
-          label="编码格式"
+          label={t('编码格式')}
           value={codecText}
         />
         <StatRow
           icon={<Activity className="h-3.5 w-3.5" />}
-          label="RTT 往返时延"
+          label={t('RTT 往返时延')}
           value={rttText}
         />
         <StatRow
           icon={<Signal className="h-3.5 w-3.5" />}
-          label="抖动"
+          label={t('抖动')}
           value={jitterText}
         />
       </div>
@@ -332,7 +337,7 @@ export function SharingStatusPanel({
         type="secondary"
         className="mt-auto text-[10px] leading-tight opacity-70"
       >
-        每 1 秒采样一次 WebRTC 统计；码率为上一秒平均速率。
+        {t('每 1 秒采样一次 WebRTC 统计；码率为上一秒平均速率。')}
       </Text>
     </div>
   )

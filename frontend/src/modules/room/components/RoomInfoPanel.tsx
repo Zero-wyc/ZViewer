@@ -40,6 +40,7 @@ import {
   USER_ROLE_CSS_COLORS,
   type UserRole,
 } from '@/lib/roles'
+import { t } from '@/i18n'
 
 interface RoomInfoPanelProps {
   roomId: string
@@ -155,9 +156,9 @@ export function RoomInfoPanel({
         String(payload.userId) === String(currentUserId)
       if (isSelf) {
         if (payload.muted) {
-          message.warning('您已被房主禁言')
+          message.warning(t('您已被房主禁言'))
         } else {
-          message.success('您已被解除禁言')
+          message.success(t('您已被解除禁言'))
         }
       }
     }
@@ -173,12 +174,12 @@ export function RoomInfoPanel({
       const mySocketId = socket?.id
       if (payload.newHostSocketId === mySocketId) {
         setIsHost(true)
-        message.success('您已成为新房主')
+        message.success(t('您已成为新房主'))
       } else if (payload.oldHostSocketId === mySocketId) {
         setIsHost(false)
-        message.info('房主已转交，您已成为观众')
+        message.info(t('房主已转交，您已成为观众'))
       } else {
-        message.info('房主已变更')
+        message.info(t('房主已变更'))
       }
     }
 
@@ -196,7 +197,7 @@ export function RoomInfoPanel({
     }
 
     const handleViewerKicked = (payload: { reason?: string }) => {
-      message.error(payload?.reason || '您已被房主移出房间')
+      message.error(payload?.reason || t('您已被房主移出房间'))
       // 退出房间由全局导航处理
     }
 
@@ -214,9 +215,9 @@ export function RoomInfoPanel({
           Number(currentUserId)
         )
         if (!wasModerator && isNowModerator) {
-          message.success('您已被任命为房管')
+          message.success(t('您已被任命为房管'))
         } else if (wasModerator && !isNowModerator) {
-          message.info('您的房管权限已被撤销')
+          message.info(t('您的房管权限已被撤销'))
         }
       }
     }
@@ -245,15 +246,15 @@ export function RoomInfoPanel({
 
   const handleCopyRoomId = async () => {
     await copy(roomId, {
-      successMessage: '房间 ID 已复制',
-      errorMessage: '复制失败',
+      successMessage: t('房间 ID 已复制'),
+      errorMessage: t('复制失败'),
     })
   }
 
   const copyShareUrl = async () => {
     await copy(shareUrl, {
-      successMessage: '分享链接已复制',
-      errorMessage: '复制失败',
+      successMessage: t('分享链接已复制'),
+      errorMessage: t('复制失败'),
     })
   }
 
@@ -269,7 +270,7 @@ export function RoomInfoPanel({
   const handleSaveName = async () => {
     const trimmed = editingNameValue.trim()
     if (!trimmed) {
-      message.warning('房间名称不能为空')
+      message.warning(t('房间名称不能为空'))
       return
     }
     if (trimmed === roomName) {
@@ -277,7 +278,7 @@ export function RoomInfoPanel({
       return
     }
     if (!socket) {
-      message.error('未连接到房间')
+      message.error(t('未连接到房间'))
       return
     }
     setSavingName(true)
@@ -287,10 +288,10 @@ export function RoomInfoPanel({
       (response: { success: boolean; message?: string }) => {
         setSavingName(false)
         if (response.success) {
-          message.success('房间名称已更新')
+          message.success(t('房间名称已更新'))
           setIsEditingName(false)
         } else {
-          message.error(response.message || '更新失败')
+          message.error(response.message || t('更新失败'))
         }
       }
     )
@@ -309,9 +310,9 @@ export function RoomInfoPanel({
       { roomId, viewerSocketId },
       (response: { success: boolean; message?: string }) => {
         if (response.success) {
-          message.success('已将该观众移出房间')
+          message.success(t('已将该观众移出房间'))
         } else {
-          message.error(response.message || '踢人失败')
+          message.error(response.message || t('踢人失败'))
         }
       }
     )
@@ -325,9 +326,9 @@ export function RoomInfoPanel({
       { roomId, userId },
       (response: { success: boolean; message?: string }) => {
         if (response.success) {
-          message.success(muted ? '已解除禁言' : '已禁言该观众')
+          message.success(muted ? t('已解除禁言') : t('已禁言该观众'))
         } else {
-          message.error(response.message || '操作失败')
+          message.error(response.message || t('操作失败'))
         }
       }
     )
@@ -345,7 +346,7 @@ export function RoomInfoPanel({
           message.success(`已将房主转交给 ${transferTarget.username || '观众'}`)
           setTransferTarget(null)
         } else {
-          message.error(response.message || '转交失败')
+          message.error(response.message || t('转交失败'))
         }
       }
     )
@@ -367,7 +368,7 @@ export function RoomInfoPanel({
               : `已任命 ${username || '该用户'} 为房管`
           )
         } else {
-          message.error(response.message || '操作失败')
+          message.error(response.message || t('操作失败'))
         }
       }
     )
@@ -377,7 +378,7 @@ export function RoomInfoPanel({
     if (!socket) return
     const trimmedPwd = passwordValue.trim()
     if (maxViewersValue < 1 || maxViewersValue > 100) {
-      message.warning('观众上限必须在 1-100 之间')
+      message.warning(t('观众上限必须在 1-100 之间'))
       return
     }
     setSavingSettings(true)
@@ -391,9 +392,9 @@ export function RoomInfoPanel({
       (response: { success: boolean; message?: string }) => {
         setSavingSettings(false)
         if (response.success) {
-          message.success('房间设置已保存')
+          message.success(t('房间设置已保存'))
         } else {
-          message.error(response.message || '保存失败')
+          message.error(response.message || t('保存失败'))
         }
       }
     )
@@ -407,9 +408,9 @@ export function RoomInfoPanel({
       { roomId, requireApproval: next },
       (response: { success: boolean; message?: string }) => {
         if (response.success) {
-          message.success(next ? '已开启房主审批' : '已关闭房主审批')
+          message.success(next ? t('已开启房主审批') : t('已关闭房主审批'))
         } else {
-          message.error(response.message || '操作失败')
+          message.error(response.message || t('操作失败'))
         }
       }
     )
@@ -500,7 +501,7 @@ export function RoomInfoPanel({
                   color: 'var(--md-sys-color-error)',
                 }}
               >
-                已禁言
+                {t('已禁言')}
               </span>
             )}
           </div>
@@ -520,7 +521,7 @@ export function RoomInfoPanel({
                 disabled={!canActOnTarget}
                 className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
-                title={isMuted ? '解除禁言' : '禁言'}
+                title={isMuted ? t('解除禁言') : t('禁言')}
               >
                 {isMuted ? (
                   <Volume2 className="h-3.5 w-3.5" />
@@ -537,7 +538,7 @@ export function RoomInfoPanel({
                 }
                 className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
                 style={{ color: 'var(--md-sys-color-tertiary)' }}
-                title={viewerIsModerator ? '撤销房管' : '任命房管'}
+                title={viewerIsModerator ? t('撤销房管') : t('任命房管')}
               >
                 <Shield
                   className="h-3.5 w-3.5"
@@ -560,7 +561,7 @@ export function RoomInfoPanel({
                 }
                 className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)]"
                 style={{ color: 'var(--md-sys-color-tertiary)' }}
-                title="转交房主"
+                title={t('转交房主')}
               >
                 <Crown className="h-3.5 w-3.5" />
               </button>
@@ -571,7 +572,7 @@ export function RoomInfoPanel({
                 disabled={!canActOnTarget}
                 className="flex h-7 w-7 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container)] disabled:opacity-40 disabled:hover:bg-transparent"
                 style={{ color: 'var(--md-sys-color-error)' }}
-                title="移出房间"
+                title={t('移出房间')}
               >
                 <UserX className="h-3.5 w-3.5" />
               </button>
@@ -600,7 +601,7 @@ export function RoomInfoPanel({
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <Text className="text-sm font-semibold leading-tight">
-              房间状态
+              {t('房间状态')}
             </Text>
             <div className="flex items-center gap-1.5">
               <span
@@ -618,7 +619,7 @@ export function RoomInfoPanel({
                 type="secondary"
                 className="text-[10px] uppercase tracking-wide"
               >
-                {connected ? '已连接' : '未连接'}
+                {connected ? t('已连接') : t('未连接')}
               </Text>
             </div>
           </div>
@@ -672,7 +673,7 @@ export function RoomInfoPanel({
                 type="secondary"
                 className="text-[10px] uppercase tracking-wide"
               >
-                房间名称
+                {t('房间名称')}
               </Text>
               {isEditingName ? (
                 <div className="flex flex-1 items-center gap-1">
@@ -716,14 +717,14 @@ export function RoomInfoPanel({
                     style={{ color: 'var(--md-sys-color-on-surface)' }}
                     title={roomName || roomId}
                   >
-                    {roomName || '未命名房间'}
+                    {roomName || t('未命名房间')}
                   </span>
                   {isHost && (
                     <button
                       onClick={() => setIsEditingName(true)}
                       className="flex h-5 w-5 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]"
                       style={{ color: 'var(--md-sys-color-primary)' }}
-                      title="修改房间名称"
+                      title={t('修改房间名称')}
                     >
                       <Pencil className="h-3 w-3" />
                     </button>
@@ -738,7 +739,7 @@ export function RoomInfoPanel({
                 type="secondary"
                 className="text-[10px] uppercase tracking-wide"
               >
-                房间 ID
+                {t('房间 ID')}
               </Text>
               <button
                 onClick={handleCopyRoomId}
@@ -748,7 +749,7 @@ export function RoomInfoPanel({
                   backgroundColor:
                     'color-mix(in srgb, var(--md-sys-color-primary) 10%, transparent)',
                 }}
-                title="点击复制"
+                title={t('点击复制')}
               >
                 {roomId}
                 <Copy className="h-3 w-3" />
@@ -763,7 +764,7 @@ export function RoomInfoPanel({
                 icon={<Share2 className="h-3.5 w-3.5" />}
                 onClick={handleCopyLink}
               >
-                分享
+                {t('分享')}
               </Button>
               <Button
                 variant="secondary"
@@ -780,7 +781,7 @@ export function RoomInfoPanel({
                   icon={<Settings className="h-3.5 w-3.5" />}
                   onClick={() => setShowSettings(true)}
                 >
-                  设置
+                  {t('设置')}
                 </Button>
               )}
               {isHost && (
@@ -792,13 +793,13 @@ export function RoomInfoPanel({
                     toggleAutoApproveRequests()
                     message.info(
                       autoApproveRequests
-                        ? '已关闭自动通过申请'
-                        : '已开启自动通过申请'
+                        ? t('已关闭自动通过申请')
+                        : t('已开启自动通过申请')
                     )
                   }}
-                  title="开启后，seek / 暂停 / 继续播放 申请将自动通过"
+                  title={t('开启后，seek / 暂停 / 继续播放 申请将自动通过')}
                 >
-                  {autoApproveRequests ? '自动通过：开' : '自动通过：关'}
+                  {autoApproveRequests ? t('自动通过：开') : t('自动通过：关')}
                 </Button>
               )}
               {isHost && (
@@ -809,11 +810,11 @@ export function RoomInfoPanel({
                   size="sm"
                   icon={<Shield className="h-3.5 w-3.5" />}
                   onClick={handleToggleRequireApproval}
-                  title="开启后，观众加入需房主审批"
+                  title={t('开启后，观众加入需房主审批')}
                 >
                   {roomSettings.requireApproval
-                    ? '需要审批：开'
-                    : '需要审批：关'}
+                    ? t('需要审批：开')
+                    : t('需要审批：关')}
                 </Button>
               )}
             </div>
@@ -849,7 +850,7 @@ export function RoomInfoPanel({
                   }}
                 >
                   <Text type="secondary" className="text-xs">
-                    暂无在线观众
+                    {t('暂无在线观众')}
                   </Text>
                 </div>
               ) : (
@@ -889,12 +890,12 @@ export function RoomInfoPanel({
       <Modal
         open={showUsers}
         onClose={() => setShowUsers(false)}
-        title="在线用户"
+        title={t('在线用户')}
       >
         <Space direction="vertical" className="w-full" size="sm">
           {viewers.length === 0 ? (
             <Paragraph type="secondary" className="text-sm">
-              暂无其他在线用户
+              {t('暂无其他在线用户')}
             </Paragraph>
           ) : (
             viewers.map((viewer) => renderViewerItem(viewer, true))
@@ -905,16 +906,16 @@ export function RoomInfoPanel({
       <Modal
         open={showSettings}
         onClose={() => setShowSettings(false)}
-        title="房间设置"
+        title={t('房间设置')}
         className="max-w-2xl"
       >
         <div className="flex flex-col gap-4">
           {/* Tab 切换 */}
           <SegmentedToggle
             options={[
-              { value: 'info', label: '房间信息' },
-              { value: 'viewers', label: '观众管理' },
-              { value: 'permissions', label: '权限说明' },
+              { value: 'info', label: t('房间信息') },
+              { value: 'viewers', label: t('观众管理') },
+              { value: 'permissions', label: t('权限说明') },
             ]}
             value={settingsTab}
             onChange={(v) => setSettingsTab(v as SettingsTab)}
@@ -936,7 +937,7 @@ export function RoomInfoPanel({
                     <Lock className="h-4 w-4" />
                   </div>
                   <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">房间密码</Text>
+                    <Text className="text-sm font-medium">{t('房间密码')}</Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
@@ -950,11 +951,11 @@ export function RoomInfoPanel({
                     size="sm"
                     value={passwordValue}
                     onChange={(e) => setPasswordValue(e.target.value)}
-                    placeholder="留空表示无密码"
+                    placeholder={t('留空表示无密码')}
                     disabled={!isHost || savingSettings}
                   />
                   <Text type="secondary" className="text-[10px]">
-                    设置后，观众加入需输入密码。root 账户无需密码。
+                    {t('设置后，观众加入需输入密码。root 账户无需密码。')}
                   </Text>
                 </div>
               </div>
@@ -972,7 +973,7 @@ export function RoomInfoPanel({
                     <Users className="h-4 w-4" />
                   </div>
                   <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">观众上限</Text>
+                    <Text className="text-sm font-medium">{t('观众上限')}</Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
@@ -1005,7 +1006,7 @@ export function RoomInfoPanel({
                   disabled={savingSettings}
                   onClick={handleSaveSettings}
                 >
-                  保存设置
+                  {t('保存设置')}
                 </Button>
               )}
             </div>
@@ -1022,7 +1023,7 @@ export function RoomInfoPanel({
                   在线观众（{viewers.length}）
                 </Text>
                 <Text type="secondary" className="text-[10px]">
-                  {isHost ? '可踢出 / 禁言 / 转交房主' : '仅查看'}
+                  {isHost ? t('可踢出 / 禁言 / 转交房主') : t('仅查看')}
                 </Text>
               </div>
               {viewers.length === 0 ? (
@@ -1034,7 +1035,7 @@ export function RoomInfoPanel({
                   }}
                 >
                   <Text type="secondary" className="text-xs">
-                    暂无在线观众
+                    {t('暂无在线观众')}
                   </Text>
                 </div>
               ) : (
@@ -1061,7 +1062,9 @@ export function RoomInfoPanel({
                     <Crown className="h-4 w-4" />
                   </div>
                   <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">房主（分享端）</Text>
+                    <Text className="text-sm font-medium">
+                      {t('房主（分享端）')}
+                    </Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
@@ -1074,8 +1077,9 @@ export function RoomInfoPanel({
                   type="secondary"
                   className="mt-2 text-[11px] leading-relaxed"
                 >
-                  创建房间或被转交房主身份的用户。可踢出 /
-                  禁言观众、任命房管、转交房主、修改房间设置与名称、控制播放。
+                  {t(
+                    '创建房间或被转交房主身份的用户。可踢出 / 禁言观众、任命房管、转交房主、修改房间设置与名称、控制播放。'
+                  )}
                 </Text>
               </div>
 
@@ -1092,7 +1096,9 @@ export function RoomInfoPanel({
                     <Shield className="h-4 w-4" />
                   </div>
                   <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">房管（协管员）</Text>
+                    <Text className="text-sm font-medium">
+                      {t('房管（协管员）')}
+                    </Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
@@ -1105,9 +1111,9 @@ export function RoomInfoPanel({
                   type="secondary"
                   className="mt-2 text-[11px] leading-relaxed"
                 >
-                  由房主任命的登录用户（上限 10 名）。可协助管理影片（切换 /
-                  删除）、踢出与禁言观众、管理语音（语音禁言 /
-                  移出语音）；不可操作房主、其他房管与管理员，不可转交房主或修改房间设置。
+                  {t(
+                    '由房主任命的登录用户（上限 10 名）。可协助管理影片（切换 / 删除）、踢出与禁言观众、管理语音（语音禁言 / 移出语音）；不可操作房主、其他房管与管理员，不可转交房主或修改房间设置。'
+                  )}
                 </Text>
               </div>
 
@@ -1124,7 +1130,7 @@ export function RoomInfoPanel({
                     <UserCheck className="h-4 w-4" />
                   </div>
                   <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">观众</Text>
+                    <Text className="text-sm font-medium">{t('观众')}</Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
@@ -1137,7 +1143,9 @@ export function RoomInfoPanel({
                   type="secondary"
                   className="mt-2 text-[11px] leading-relaxed"
                 >
-                  加入房间的用户。可观看影片、发送评论与弹幕（未被禁言时）。无法管理房间或其他观众。
+                  {t(
+                    '加入房间的用户。可观看影片、发送评论与弹幕（未被禁言时）。无法管理房间或其他观众。'
+                  )}
                 </Text>
               </div>
 
@@ -1154,7 +1162,9 @@ export function RoomInfoPanel({
                     <Shield className="h-4 w-4" />
                   </div>
                   <div className="flex min-w-0 flex-col">
-                    <Text className="text-sm font-medium">角色权限层级</Text>
+                    <Text className="text-sm font-medium">
+                      {t('角色权限层级')}
+                    </Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
@@ -1167,21 +1177,25 @@ export function RoomInfoPanel({
                   <div className="flex items-center gap-2 text-[11px]">
                     <RoleBadge role="root" />
                     <Text type="secondary">
-                      拥有最高权限，可创建房间、接管任意房间
+                      {t('拥有最高权限，可创建房间、接管任意房间')}
                     </Text>
                   </div>
                   <div className="flex items-center gap-2 text-[11px]">
                     <RoleBadge role="admin" />
-                    <Text type="secondary">可创建房间、管理自己创建的房间</Text>
+                    <Text type="secondary">
+                      {t('可创建房间、管理自己创建的房间')}
+                    </Text>
                   </div>
                   <div className="flex items-center gap-2 text-[11px]">
                     <RoleBadge role="user" />
-                    <Text type="secondary">普通注册用户，可加入房间观看</Text>
+                    <Text type="secondary">
+                      {t('普通注册用户，可加入房间观看')}
+                    </Text>
                   </div>
                   <div className="flex items-center gap-2 text-[11px]">
                     <RoleBadge role="guest" />
                     <Text type="secondary">
-                      游客，仅可观看，不能被转交为房主
+                      {t('游客，仅可观看，不能被转交为房主')}
                     </Text>
                   </div>
                 </div>
@@ -1197,7 +1211,7 @@ export function RoomInfoPanel({
         onClose={() => {
           if (!transferring) setTransferTarget(null)
         }}
-        title="转交房主确认"
+        title={t('转交房主确认')}
         footer={
           <>
             <Button
@@ -1206,7 +1220,7 @@ export function RoomInfoPanel({
               disabled={transferring}
               onClick={() => setTransferTarget(null)}
             >
-              取消
+              {t('取消')}
             </Button>
             <Button
               variant="primary"
@@ -1215,7 +1229,7 @@ export function RoomInfoPanel({
               disabled={transferring}
               onClick={handleTransferHost}
             >
-              确认转交
+              {t('确认转交')}
             </Button>
           </>
         }
@@ -1226,7 +1240,7 @@ export function RoomInfoPanel({
             className="font-medium"
             style={{ color: 'var(--md-sys-color-primary)' }}
           >
-            {transferTarget?.username || '该观众'}
+            {transferTarget?.username || t('该观众')}
           </span>{' '}
           吗？转交后您将变为观众身份，无法再管理房间。
         </Paragraph>
@@ -1241,9 +1255,9 @@ export function RoomInfoPanel({
           setShowLinkWarning(false)
           void copyShareUrl()
         }}
-        title="当前处于内网地址"
+        title={t('当前处于内网地址')}
         okText="仍然复制"
-        cancelText="取消"
+        cancelText={t('取消')}
       >
         <div className="flex flex-col gap-2">
           <Paragraph className="m-0 text-sm">
@@ -1251,8 +1265,9 @@ export function RoomInfoPanel({
             ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。
           </Paragraph>
           <Paragraph type="secondary" className="m-0 text-xs leading-relaxed">
-            请改用公网 IPv4 或 IPv6 地址访问本服务后再复制，或通过内网穿透（如
-            FRP）把服务映射到公网。
+            {t(
+              '请改用公网 IPv4 或 IPv6 地址访问本服务后再复制，或通过内网穿透（如 FRP）把服务映射到公网。'
+            )}
           </Paragraph>
         </div>
       </ConfirmModal>

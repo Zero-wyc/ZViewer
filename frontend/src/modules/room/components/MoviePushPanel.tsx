@@ -101,6 +101,7 @@ import {
   extractTitleFromUrl,
   type SubmitMovieContext,
 } from './movie-submit'
+import { t } from '@/i18n'
 
 const ALL_SOURCE_OPTIONS: {
   value: string
@@ -297,7 +298,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       items: { sourceId: string; episode: AniSubsEpisode; title: string }[]
     ): Promise<string[]> => {
       if (!isHost || !roomId) {
-        message.error(!isHost ? '只有房主可以添加影片' : '未连接房间')
+        message.error(!isHost ? t('只有房主可以添加影片') : t('未连接房间'))
         return []
       }
       const added: string[] = []
@@ -361,7 +362,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         }
         await fetchMovies(roomId)
       } catch (err) {
-        message.error(err instanceof Error ? err.message : '刷新影片列表失败')
+        message.error(
+          err instanceof Error ? err.message : t('刷新影片列表失败')
+        )
       } finally {
         setLoading(false)
         setResolveProgress('')
@@ -374,11 +377,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const handleSelectAnimeEpisode = useCallback(
     async (sourceId: string, episode: AniSubsEpisode, title: string) => {
       if (!isHost) {
-        message.info('只有房主可以播放影片')
+        message.info(t('只有房主可以播放影片'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
 
@@ -430,10 +433,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             )
           })
 
-        message.success('已开始播放并加入列表')
+        message.success(t('已开始播放并加入列表'))
       } catch (err) {
         console.error('[MoviePushPanel] select anime episode error:', err)
-        message.error(err instanceof Error ? err.message : '加载番剧集数失败')
+        message.error(
+          err instanceof Error ? err.message : t('加载番剧集数失败')
+        )
       } finally {
         setLoading(false)
       }
@@ -452,11 +457,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const handleSelectKazumiEpisode = useCallback(
     async (sourceId: string, episode: KazumiEpisode, title: string) => {
       if (!isHost) {
-        message.info('只有房主可以播放影片')
+        message.info(t('只有房主可以播放影片'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
 
@@ -500,10 +505,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             )
           })
 
-        message.success('已开始播放并加入列表')
+        message.success(t('已开始播放并加入列表'))
       } catch (err) {
         console.error('[MoviePushPanel] select kazumi episode error:', err)
-        message.error(err instanceof Error ? err.message : '加载番剧集数失败')
+        message.error(
+          err instanceof Error ? err.message : t('加载番剧集数失败')
+        )
       } finally {
         setLoading(false)
       }
@@ -573,7 +580,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       // 批量添加：不做逐集解析（CMS resolve 每次都是一次源站请求），
       // 仅落 sourceMeta，播放时实时解析
       if (!isHost || !roomId) {
-        message.error(!isHost ? '只有房主可以添加影片' : '未连接房间')
+        message.error(!isHost ? t('只有房主可以添加影片') : t('未连接房间'))
         return []
       }
       const added: string[] = []
@@ -583,7 +590,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           setResolveProgress(`正在添加 ${index + 1}/${items.length} 集...`)
           try {
             const params = parseCmsParams(item.episode)
-            if (!params) throw new Error('剧集定位参数无效')
+            if (!params) throw new Error(t('剧集定位参数无效'))
             await addMovie(
               roomId,
               buildCmsMoviePayload(
@@ -612,7 +619,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         }
         await fetchMovies(roomId)
       } catch (err) {
-        message.error(err instanceof Error ? err.message : '刷新影片列表失败')
+        message.error(
+          err instanceof Error ? err.message : t('刷新影片列表失败')
+        )
       } finally {
         setLoading(false)
         setResolveProgress('')
@@ -625,17 +634,17 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const handleSelectCmsEpisode = useCallback(
     async (sourceId: string, episode: AniSubsEpisode, title: string) => {
       if (!isHost) {
-        message.info('只有房主可以播放影片')
+        message.info(t('只有房主可以播放影片'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
 
       const params = parseCmsParams(episode)
       if (!params) {
-        message.error('剧集定位参数无效，请重新搜索')
+        message.error(t('剧集定位参数无效，请重新搜索'))
         return
       }
 
@@ -677,10 +686,12 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             )
           })
 
-        message.success('已开始播放并加入列表')
+        message.success(t('已开始播放并加入列表'))
       } catch (err) {
         console.error('[MoviePushPanel] select cms episode error:', err)
-        message.error(err instanceof Error ? err.message : '加载影片集数失败')
+        message.error(
+          err instanceof Error ? err.message : t('加载影片集数失败')
+        )
       } finally {
         setLoading(false)
       }
@@ -882,16 +893,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const handleQuickAddSeries = useCallback(
     async (entry: EmbyDirectoryEntry) => {
       if (!isHost) {
-        message.info('只有房主可以添加影片')
+        message.info(t('只有房主可以添加影片'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
       const mountId = Number(selectedMountId)
       if (!mountId) {
-        message.warning('请选择已保存的挂载')
+        message.warning(t('请选择已保存的挂载'))
         return
       }
       if (sourceType !== 'emby' && sourceType !== 'jellyfin') return
@@ -901,7 +912,9 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         message.success(`已添加《${entry.name}》`)
       } catch (err) {
         console.error('[MoviePushPanel] quick add series error:', err)
-        message.error(err instanceof Error ? err.message : '添加整部影片失败')
+        message.error(
+          err instanceof Error ? err.message : t('添加整部影片失败')
+        )
       } finally {
         setLoading(false)
         setResolveProgress('')
@@ -913,17 +926,17 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const handleSelectFilesFromMount = useCallback(
     async (paths: string[], entries?: EmbyDirectoryEntry[]) => {
       if (!isHost) {
-        message.info('只有房主可以添加影片')
+        message.info(t('只有房主可以添加影片'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
 
       const mountId = Number(selectedMountId)
       if (!mountId) {
-        message.warning('请选择已保存的挂载')
+        message.warning(t('请选择已保存的挂载'))
         return
       }
 
@@ -1056,7 +1069,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         message.success(`已添加 ${added} 部影片`)
       } catch (err) {
         console.error('[MoviePushPanel] batch add error:', err)
-        message.error(err instanceof Error ? err.message : '批量添加失败')
+        message.error(err instanceof Error ? err.message : t('批量添加失败'))
       } finally {
         setLoading(false)
         setResolveProgress('')
@@ -1089,11 +1102,11 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   const handleSelectFilesFromServer = useCallback(
     async (paths: string[]) => {
       if (!isHost) {
-        message.info('只有房主可以添加影片')
+        message.info(t('只有房主可以添加影片'))
         return
       }
       if (!roomId) {
-        message.error('未连接房间')
+        message.error(t('未连接房间'))
         return
       }
 
@@ -1119,7 +1132,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         message.success(`已添加 ${added} 部影片`)
       } catch (err) {
         console.error('[MoviePushPanel] batch add server files error:', err)
-        message.error(err instanceof Error ? err.message : '批量添加失败')
+        message.error(err instanceof Error ? err.message : t('批量添加失败'))
       } finally {
         setLoading(false)
         setResolveProgress('')
@@ -1147,16 +1160,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
   // 各来源的添加流程拆为独立提交器（见 ./movie-submit），此处只做分发。
   const handleAddMovie = async () => {
     if (!isHost) {
-      message.info('只有房主可以添加影片')
+      message.info(t('只有房主可以添加影片'))
       return
     }
     if (!roomId) {
-      message.error('未连接房间')
+      message.error(t('未连接房间'))
       return
     }
 
     setLoading(true)
-    setResolveProgress('正在添加影片...')
+    setResolveProgress(t('正在添加影片...'))
     try {
       const ctx: SubmitMovieContext = {
         roomId,
@@ -1197,7 +1210,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       }
     } catch (err) {
       console.error('[MoviePushPanel] add movie error:', err)
-      message.error(err instanceof Error ? err.message : '添加影片失败')
+      message.error(err instanceof Error ? err.message : t('添加影片失败'))
     } finally {
       setLoading(false)
       setResolveProgress('')
@@ -1321,12 +1334,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         )
       case 'anime':
         return (
-          <SourceHint>从 ani-subs 订阅源搜索番剧并选择集数播放。</SourceHint>
+          <SourceHint>
+            {t('从 ani-subs 订阅源搜索番剧并选择集数播放。')}
+          </SourceHint>
         )
       case 'kazumi':
         return (
           <SourceHint>
-            从 Kazumi XPath 规则源搜索番剧并选择集数播放。
+            {t('从 Kazumi XPath 规则源搜索番剧并选择集数播放。')}
           </SourceHint>
         )
       case 'server-files':
@@ -1361,13 +1376,13 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           </div>
           <div className="flex min-w-0 flex-1 flex-col">
             <Text className="text-sm font-semibold leading-tight">
-              添加影片
+              {t('添加影片')}
             </Text>
             <Text
               type="secondary"
               className="text-[10px] uppercase tracking-wide"
             >
-              选择来源并添加
+              {t('选择来源并添加')}
             </Text>
           </div>
         </div>
@@ -1406,12 +1421,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             sourceType === 'cms') && (
             <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
               <div className="min-w-0">
-                <Text className="block text-xs font-medium">服务器中转</Text>
+                <Text className="block text-xs font-medium">
+                  {t('服务器中转')}
+                </Text>
                 <Text
                   type="secondary"
                   className="block text-[11px] leading-snug mt-0.5"
                 >
-                  关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。
+                  {t(
+                    '关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。'
+                  )}
                 </Text>
               </div>
               <button
@@ -1445,14 +1464,15 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
             <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-[var(--md-sys-shape-corner)] bg-[var(--md-sys-color-surface-container-high)]">
               <div className="min-w-0">
                 <Text className="block text-xs font-medium">
-                  浏览器转码引擎
+                  {t('浏览器转码引擎')}
                 </Text>
                 <Text
                   type="secondary"
                   className="block text-[11px] leading-snug mt-0.5"
                 >
-                  开启：MKV/DTS
-                  等非常规格式由浏览器端重封装/转码播放。关闭：强制原生直连，不兼容编码将无声。
+                  {t(
+                    '开启：MKV/DTS 等非常规格式由浏览器端重封装/转码播放。关闭：强制原生直连，不兼容编码将无声。'
+                  )}
                 </Text>
               </div>
               <button
@@ -1554,7 +1574,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                   type="secondary"
                   className="text-[10px] uppercase tracking-wide"
                 >
-                  B站 登录状态
+                  {t('B站 登录状态')}
                 </Text>
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-2 rounded-[var(--md-sys-shape-corner)] p-1">
@@ -1593,7 +1613,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                         color="default"
                         className="shrink-0 px-1.5 py-0 text-[10px]"
                       >
-                        普通账号
+                        {t('普通账号')}
                       </Tag>
                     )}
                     <Button
@@ -1606,7 +1626,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                         handleLogoutBilibili()
                       }}
                     >
-                      退出
+                      {t('退出')}
                     </Button>
                   </>
                 ) : (
@@ -1620,16 +1640,16 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                       handleOpenQrModal()
                     }}
                   >
-                    扫码登录 B站
+                    {t('扫码登录 B站')}
                   </Button>
                 )}
               </div>
               <Paragraph type="secondary" className="m-0 mt-1.5 text-[11px]">
                 {bilibiliLoggedIn
                   ? bilibiliUser?.vipStatus === 1
-                    ? '大会员账号，可解析 4K / 1080P 高码率等专属画质'
-                    : '已登录，可解析高画质视频'
-                  : '未登录时只能解析低画质或试看片段'}
+                    ? t('大会员账号，可解析 4K / 1080P 高码率等专属画质')
+                    : t('已登录，可解析高画质视频')
+                  : t('未登录时只能解析低画质或试看片段')}
               </Paragraph>
             </div>
           )}
@@ -1673,10 +1693,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
       <Modal
         open={qrModalOpen}
         onClose={handleCloseQrModal}
-        title="扫码登录哔哩哔哩"
+        title={t('扫码登录哔哩哔哩')}
         footer={
           <Button variant="secondary" size="sm" onClick={handleCloseQrModal}>
-            关闭
+            {t('关闭')}
           </Button>
         }
       >
@@ -1684,7 +1704,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           {qrDataUrl ? (
             <img
               src={qrDataUrl}
-              alt="哔哩哔哩登录二维码"
+              alt={t('哔哩哔哩登录二维码')}
               className="rounded-lg border"
               style={{
                 width: 200,
@@ -1700,7 +1720,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                 height: 200,
               }}
             >
-              <Text>正在生成二维码…</Text>
+              <Text>{t('正在生成二维码…')}</Text>
             </div>
           )}
           <Paragraph
@@ -1717,7 +1737,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           </Paragraph>
           {qrStatus === 3 && (
             <Button variant="primary" size="sm" onClick={handleOpenQrModal}>
-              重新获取二维码
+              {t('重新获取二维码')}
             </Button>
           )}
         </div>
@@ -1772,14 +1792,14 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
         <Modal
           open={showPageSelector}
           onClose={() => setShowPageSelector(false)}
-          title="选择分集"
+          title={t('选择分集')}
           footer={
             <Button
               variant="secondary"
               size="sm"
               onClick={() => setShowPageSelector(false)}
             >
-              取消（使用当前分集）
+              {t('取消（使用当前分集）')}
             </Button>
           }
         >

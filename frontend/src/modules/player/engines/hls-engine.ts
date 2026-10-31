@@ -30,6 +30,7 @@ import {
   appendAuthToken,
 } from '../services/url-proxy'
 import { isCmsProxyEndpoint, filterM3u8AdSegments } from './hls-ad-filter'
+import { t } from '@/i18n'
 
 /** Safari 等原生 HLS 支持检测 */
 function canPlayNativeHls(video: HTMLVideoElement): boolean {
@@ -265,7 +266,7 @@ export const hlsEngine: PlayerEngine = {
           const reason = err instanceof Error ? err.message : String(err)
           throw new Error(
             `直链播放失败：${reason}。m3u8 直链源需允许浏览器跨域直连（CORS），` +
-              '不经服务器中转；请检查源站可达性与跨域配置',
+              t('不经服务器中转；请检查源站可达性与跨域配置'),
             { cause: err }
           )
         }
@@ -302,6 +303,6 @@ export const hlsEngine: PlayerEngine = {
       }
     }
 
-    throw new Error('当前浏览器不支持 HLS 播放且 hls.js 不可用')
+    throw new Error(t('当前浏览器不支持 HLS 播放且 hls.js 不可用'))
   },
 }

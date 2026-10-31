@@ -3,6 +3,7 @@ import { Space } from '@/components/ui/Space'
 import type { UnionMount } from '@/modules/mounts'
 import type { FTPParams } from '@/modules/movie-source/resolveSource'
 import { MountPicker, PathInput, SingleLineInput } from './shared'
+import { t } from '@/i18n'
 
 interface FtpSourceFormProps {
   mounts: UnionMount[]
@@ -25,7 +26,7 @@ export function FtpSourceForm({
   return (
     <Space direction="vertical" className="w-full" size="sm">
       <MountPicker
-        label="使用已保存的 FTP 挂载"
+        label={t('使用已保存的 FTP 挂载')}
         mounts={mounts}
         type="ftp"
         selectedMountId={selectedMountId}
@@ -37,26 +38,26 @@ export function FtpSourceForm({
           <SingleLineInput
             value={value.serverUrl}
             onChange={(serverUrl) => onPatch({ serverUrl })}
-            placeholder="FTP 服务器地址，如 ftp.example.com"
+            placeholder={t('FTP 服务器地址，如 ftp.example.com')}
           />
           <Input
             size="sm"
             type="number"
             value={String(value.port)}
             onChange={(e) => onPatch({ port: Number(e.target.value) || 21 })}
-            placeholder="端口，默认 21"
+            placeholder={t('端口，默认 21')}
           />
           <SingleLineInput
             value={value.username}
             onChange={(username) => onPatch({ username })}
-            placeholder="用户名（可选）"
+            placeholder={t('用户名（可选）')}
           />
           <Input
             size="sm"
             type="password"
             value={value.password}
             onChange={(e) => onPatch({ password: e.target.value })}
-            placeholder="密码（可选）"
+            placeholder={t('密码（可选）')}
           />
         </>
       )}

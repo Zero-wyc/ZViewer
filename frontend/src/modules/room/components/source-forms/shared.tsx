@@ -12,6 +12,7 @@ import { Dropdown, type DropdownOption } from '@/components/ui/Dropdown'
 import { Text } from '@/components/ui/Typography'
 import type { MountType, UnionMount } from '@/modules/mounts'
 import { normalizeMountPath } from './utils'
+import { t } from '@/i18n'
 
 /** 挂载下拉选项：首项固定为「手动填写」（value=''） */
 function buildMountOptions(
@@ -19,7 +20,7 @@ function buildMountOptions(
   type: MountType
 ): DropdownOption[] {
   return [
-    { value: '', label: '手动填写' },
+    { value: '', label: t('手动填写') },
     ...mounts
       .filter((m) => m.type === type)
       .map((m) => ({ value: String(m.id), label: m.name })),
@@ -47,7 +48,7 @@ export function MountPicker({
   selectedMountId,
   onSelect,
   onBrowse,
-  browseLabel = '浏览文件',
+  browseLabel = t('浏览文件'),
   browseIcon,
 }: MountPickerProps) {
   return (
@@ -140,8 +141,8 @@ export function PathInput({
       onEnter={onEnter}
       placeholder={
         selectedMountId
-          ? '文件路径（已选挂载，留空可从挂载根目录浏览）'
-          : '文件路径，如 /movies/video.mp4'
+          ? t('文件路径（已选挂载，留空可从挂载根目录浏览）')
+          : t('文件路径，如 /movies/video.mp4')
       }
     />
   )
@@ -163,11 +164,11 @@ export function PlaybackModeField({
 }: PlaybackModeFieldProps) {
   return (
     <Dropdown
-      label="播放方式"
+      label={t('播放方式')}
       value={directLink && !directDisabled ? 'direct' : 'proxy'}
       options={[
-        { value: 'proxy', label: '服务器转发' },
-        { value: 'direct', label: '直链直连', disabled: directDisabled },
+        { value: 'proxy', label: t('服务器转发') },
+        { value: 'direct', label: t('直链直连'), disabled: directDisabled },
       ]}
       onChange={(value) => onChange(value === 'direct')}
     />
@@ -196,15 +197,15 @@ export function PathPlaybackModeField({
   return (
     <>
       <Dropdown
-        label="播放方式"
+        label={t('播放方式')}
         value={value}
         options={[
           {
             value: 'direct',
-            label: '直链直连（浏览器直接访问挂载服务器）',
+            label: t('直链直连（浏览器直接访问挂载服务器）'),
             disabled: directDisabled,
           },
-          { value: 'proxy', label: '服务器转发（服务器读取挂载流）' },
+          { value: 'proxy', label: t('服务器转发（服务器读取挂载流）') },
         ]}
         onChange={(next) => onChangeDirectLink(next === 'direct')}
       />
@@ -217,7 +218,7 @@ export function PathPlaybackModeField({
 export function InternalNotice() {
   return (
     <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-      检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
+      {t('检测到内网地址，浏览器无法直连，已强制使用服务器转发模式')}
     </div>
   )
 }

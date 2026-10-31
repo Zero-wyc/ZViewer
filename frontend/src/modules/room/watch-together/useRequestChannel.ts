@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RefObject } from 'react'
 import type { Socket } from 'socket.io-client'
 import { formatDuration } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export type RequestChannelKind = 'seek' | 'pause' | 'play'
 export type PlayerNoticeType = 'info' | 'success' | 'error'
@@ -107,7 +108,7 @@ const CHANNEL_SPECS: Record<RequestChannelKind, ChannelSpec> = {
     requestFailedText: '申请暂停失败',
     waitingText: '已发送暂停申请，等待房主确认',
     autoDoneText: '已暂停',
-    approvedText: () => '房主已同意暂停',
+    approvedText: () => t('房主已同意暂停'),
     rejectedText: '房主拒绝了您的暂停申请',
   },
   play: {
@@ -115,7 +116,7 @@ const CHANNEL_SPECS: Record<RequestChannelKind, ChannelSpec> = {
     requestFailedText: '申请继续播放失败',
     waitingText: '已发送继续播放申请，等待房主确认',
     autoDoneText: '继续播放',
-    approvedText: () => '房主已同意继续播放',
+    approvedText: () => t('房主已同意继续播放'),
     rejectedText: '房主拒绝了您的继续播放申请',
   },
 }

@@ -24,6 +24,7 @@ import {
   UrlExpiredError,
   DownloadAbortedError,
 } from './bilibili-downloader'
+import { t } from '@/i18n'
 
 export interface BufferProgress {
   /** 已下载字节数 */
@@ -83,11 +84,11 @@ export async function fetchBlobsForBufferMode(
   const { state, bvid = '', title, onProgress, signal } = options
 
   if (!state.audioUrl || !state.cid) {
-    throw new Error('缓冲模式需要 DASH 源的 audioUrl 和 cid')
+    throw new Error(t('缓冲模式需要 DASH 源的 audioUrl 和 cid'))
   }
 
   const cacheKey = buildCacheKey(bvid, state.cid, state.currentQn)
-  const displayTitle = title || '当前视频'
+  const displayTitle = title || t('当前视频')
 
   // 命中缓存：直接返回 Blob
   const cached = await getCacheEntry(cacheKey)

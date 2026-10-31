@@ -44,6 +44,7 @@ import {
   parseInitFromBlob,
   preloadInitSegment,
 } from './dash/mpd-builder'
+import { t } from '@/i18n'
 
 /** dash.js MediaPlayerClass（dash.js 5.2.0，经 DashAdapter.engine 类型推导） */
 type DashEngineInstance = DashAdapter['engine']
@@ -110,14 +111,14 @@ class EngineDashController implements PlayerController {
   async seekTo(targetTime: number): Promise<SeekResult> {
     const { video } = this.ctx
     if (!this.ctx.attached) {
-      return { success: false, message: 'DASH 引擎未 attach' }
+      return { success: false, message: t('DASH 引擎未 attach') }
     }
     // 重入保护：上一次 seek 尚未完成（waitForSeeked 中）时拒绝新请求。
     // 否则两个并发 seekTo 的 waitForSeeked 会被同一个 seeked 事件提前 resolve，
     // 且第二个的 currentTime 赋值会打断第一个的下载。
     // 调用方（seek-service）对 busy 结果会记录为 pending 目标，锁释放后接续处理。
     if (this.ctx.seeking) {
-      return { success: false, busy: true, message: 'DASH 引擎正在 seek' }
+      return { success: false, busy: true, message: t('DASH 引擎正在 seek') }
     }
 
     this.ctx.seeking = true
@@ -144,13 +145,13 @@ class EngineDashController implements PlayerController {
 
       return { success: true }
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'seek 失败'
+      const message = err instanceof Error ? err.message : t('seek 失败')
       // 输出详细诊断信息：video.error + dash.js 错误事件 + 缓冲状态
       const videoErr = video.error
       const buffered =
         video.buffered.length > 0
           ? `${video.buffered.start(0).toFixed(1)}-${video.buffered.end(video.buffered.length - 1).toFixed(1)}`
-          : '空'
+          : t('空')
       const dashErr = this.ctx.lastDashError
       console.error(
         `[videojs10-dash-engine] seek 到 ${targetTime.toFixed(1)}s 失败: ${message}\n` +
@@ -240,7 +241,7 @@ export const videojs10DashEngine: PlayerEngine = {
     // DASH 源的 sourceUrl 是 m4s 片段,不能直接作为 video.src 播放,
     // 双轨合并必须有 audioUrl
     if (!audioUrl) {
-      throw new Error('DASH 源缺少 audioUrl，无法播放')
+      throw new Error(t('DASH 源缺少 audioUrl，无法播放'))
     }
 
     // 起播前做解码能力校验：HDR（HEVC Main10）/ AV1 在部分设备上 MSE 直接
@@ -403,7 +404,7 @@ export const videojs10DashEngine: PlayerEngine = {
       await waitForMetadata(video)
     } catch (err) {
       controller.cleanup()
-      throw new Error('dash.js 加载 DASH 源失败', { cause: err })
+      throw new Error(t('dash.js 加载 DASH 源失败'), { cause: err })
     }
     ctx.attached = true
     // 头部队据已读完，释放取消器

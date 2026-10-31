@@ -39,6 +39,7 @@ import type { ResolvedSource } from '@/modules/bilibili/types'
 import { safePlay } from '../safePlay'
 import { executeSeek } from '../services'
 import type { SeekToResult } from '../services'
+import { t } from '@/i18n'
 
 interface ViewerLocalOverride {
   movieId: number
@@ -516,7 +517,7 @@ export function useVideoSource({
         suppressEventsRef.current = false
         setAttachProgress(null)
         // 向用户展示错误（如不支持的视频格式），避免黑屏无反馈
-        message.error(err instanceof Error ? err.message : '视频源加载失败')
+        message.error(err instanceof Error ? err.message : t('视频源加载失败'))
       })
   }, [
     watchTogether.sourceUrl,
@@ -555,7 +556,7 @@ export function useVideoSource({
         await restoreSnapshot(video, snapshot)
       } catch (err) {
         console.error('[useVideoSource] 重载视频源失败:', err)
-        message.error(err instanceof Error ? err.message : '视频重载失败')
+        message.error(err instanceof Error ? err.message : t('视频重载失败'))
       } finally {
         suppressEventsRef.current = false
         setAttachProgress(null)

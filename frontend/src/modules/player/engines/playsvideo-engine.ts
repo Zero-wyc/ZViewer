@@ -62,6 +62,7 @@ import {
 } from '../services/url-proxy'
 import { assertDirectLinkReachable } from './direct-route'
 import { canDecodeCodecs } from '../hdr-capability'
+import { t } from '@/i18n'
 
 /**
  * 引擎准备超时模型（活动超时制，替代旧 60s 绝对超时）。
@@ -266,7 +267,7 @@ class PlaysVideoController implements PlayerController {
 
   async attach(startTime?: number): Promise<string> {
     if (!isPlaysVideoSupported()) {
-      throw new Error('浏览器不支持 MSE/WebWorker，无法启用浏览器端转码')
+      throw new Error(t('浏览器不支持 MSE/WebWorker，无法启用浏览器端转码'))
     }
     installMediaSourceDiagnostics()
 
@@ -322,7 +323,9 @@ class PlaysVideoController implements PlayerController {
         const reason = err instanceof Error ? err.message : String(err)
         throw new Error(
           `直链播放失败：${reason}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），` +
-            '不经服务器中转；请检查源站可达性与跨域配置，或关闭影片的挂载直链模式',
+            t(
+              '不经服务器中转；请检查源站可达性与跨域配置，或关闭影片的挂载直链模式'
+            ),
           { cause: err }
         )
       }
@@ -419,7 +422,7 @@ class PlaysVideoController implements PlayerController {
       }
       const onError = (e: CustomEvent<{ message?: string }>) => {
         cleanup()
-        reject(new Error(e.detail?.message || 'playsvideo 引擎启动失败'))
+        reject(new Error(e.detail?.message || t('playsvideo 引擎启动失败')))
       }
       // destroyEngine 触发的外部唤醒（cleanup / 新世代接管 / 卸载）
       const onRejectExternal = (err: Error) => {
@@ -492,7 +495,7 @@ class PlaysVideoController implements PlayerController {
    */
   async seekTo(targetTime: number): Promise<SeekResult> {
     if (!this.engine || this.engine.phase !== 'ready') {
-      return { success: false, needReload: true, message: '未挂载' }
+      return { success: false, needReload: true, message: t('未挂载') }
     }
     try {
       this.video.currentTime = targetTime
@@ -557,7 +560,7 @@ class PlaysVideoController implements PlayerController {
     const abort = this.subtitleAbort ?? new AbortController()
     this.subtitleAbort = abort
 
-    const label = element.label || '未命名轨道'
+    const label = element.label || t('未命名轨道')
     const cues = await fetchPlaysVideoTrackCues(element, abort.signal)
     console.info(
       `[playsvideo-subtitles] 轨道「${label}」取回 ${cues.length} 条 cue`
@@ -592,7 +595,7 @@ class PlaysVideoController implements PlayerController {
     const rejectPending = this.pendingReadyReject
     this.pendingReadyReject = null
     rejectPending?.(
-      new Error('PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁')
+      new Error(t('PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁'))
     )
   }
 

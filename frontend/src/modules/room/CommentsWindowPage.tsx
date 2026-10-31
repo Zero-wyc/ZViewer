@@ -23,6 +23,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useDanmakuStore } from '@/store/danmakuStore'
+import { t } from '@/i18n'
 
 type JoinState = 'connecting' | 'ready' | 'need-password' | 'closed' | 'error'
 
@@ -56,7 +57,7 @@ export default function CommentsWindowPage() {
             return
           }
           setJoinState('error')
-          setErrorMsg(response.message ?? '加入失败')
+          setErrorMsg(response.message ?? t('加入失败'))
         }
       )
     },
@@ -77,7 +78,7 @@ export default function CommentsWindowPage() {
         retryTimer = setTimeout(tryJoin, 500)
       } else {
         setJoinState('error')
-        setErrorMsg('连接服务器超时,请刷新重试')
+        setErrorMsg(t('连接服务器超时,请刷新重试'))
       }
     }
     tryJoin()
@@ -146,13 +147,13 @@ export default function CommentsWindowPage() {
         />
       ) : joinState === 'need-password' ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6">
-          <Text className="text-sm font-medium">该房间已设密码</Text>
+          <Text className="text-sm font-medium">{t('该房间已设密码')}</Text>
           <div className="flex w-full max-w-xs flex-col gap-2">
             <Input
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="房间密码"
+              placeholder={t('房间密码')}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && password) attemptJoin(password)
               }}
@@ -163,19 +164,19 @@ export default function CommentsWindowPage() {
               disabled={!password}
               onClick={() => attemptJoin(password)}
             >
-              加入
+              {t('加入')}
             </Button>
           </div>
         </div>
       ) : joinState === 'closed' ? (
         <div className="flex flex-1 items-center justify-center">
           <Text type="secondary" className="text-sm">
-            房间已关闭,可关闭此窗口
+            {t('房间已关闭,可关闭此窗口')}
           </Text>
         </div>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-2">
-          <Text className="text-sm">{errorMsg || '加入失败'}</Text>
+          <Text className="text-sm">{errorMsg || t('加入失败')}</Text>
           <Button
             variant="secondary"
             size="sm"
@@ -184,7 +185,7 @@ export default function CommentsWindowPage() {
               attemptJoin()
             }}
           >
-            重试
+            {t('重试')}
           </Button>
         </div>
       )}
