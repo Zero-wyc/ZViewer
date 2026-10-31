@@ -71,13 +71,46 @@ docker run -d --name zviewer --restart unless-stopped \
 ### 源码
 
 ```bash
-npm install
-npm run db:init
-npm run build
-npm start
+npm install && npm run db:init && npm run build && npm start
 ```
 
-需要 Go 1.26+ 与 Node.js。
+需要 Go 1.26+ 与 Node.js 22+，开发流程见[开发](#开发)。
+
+## 桌面端（Windows）
+
+`ZViewerDesktop.exe` 是 Go + WebView2 原生壳（无 Electron、无需装运行时），业务仍在网页端，负责托管后端与网络入口。
+
+| 能力 | 说明 |
+| --- | --- |
+| 进程托管 | 一键启停后端 / LiveKit / CLI，关窗驻留托盘，同用户单实例 |
+| 端口与 HTTPS | 端口可改并持久化，可为 localhost 签发证书 |
+| 外网访问 | IPv6 直连、服务商 FRP、自建 FRP（导出 `frpc.toml`）、EasyTier 组网、Cloudflare Tunnel 一键隧道 |
+| 高画质代理 | 内置 ZViewerCLI，仅监听 `127.0.0.1:9333`，扫码登录 |
+| 按需组件 | cloudflared / frpc / EasyTier / LiveKit 首次使用时下载，安装包不带 |
+| 自动更新 | 每 6 小时检查正式版，流式下载 + 结构校验 + 覆盖重启 |
+| 日志 | 按 voice / tunnel / cli / update 分类过滤 |
+
+`runtime/`（后端、网页、CLI）与 `%APPDATA%/ZViewerDesktop`（设置、证书、凭据、日志）分开存放，整个文件夹可直接搬走。
+
+## 开发
+
+需要 Go 1.26+、Node.js 22+，Windows 下另需 Git Bash（`backend-go/scripts/*.sh`）。
+
+| 路径 | 内容 |
+| --- | --- |
+| `frontend/` | React 18 + Vite SPA，别名 `@/` → `src/` |
+| `backend-go/` | 独立 Go module：`internal/api` HTTP 层、`internal/<域>` 业务、`internal/store` SQL |
+| `desktop/` | 独立 Go module：Wails 壳，`controller/` 管进程与证书 |
+| `scripts/`、`backend-go/scripts/` | 启动器、构建脚本、13 个冒烟 / 回归 |
+
+```bash
+npm install && npm run db:init   # 首次：建库，管理员 root / root
+npm run dev                      # Vite 5174 反代到后端 3333
+npm run build                    # 产物到 dist/
+npm run lint:go && npm run test:go && npm test -w frontend && npm run lint
+```
+
+数据库：启动绝不建表或加列，`internal/db/schema.sql` 是唯一事实源，加字段要同步 store 与老库迁移；备份用 `npm run db:backup`（WAL 下 `cp` 会丢数据）。约定与发布流程见 [DEVELOPMENT.md](DEVELOPMENT.md)。
 
 ## 文档
 
@@ -85,8 +118,8 @@ npm start
 | --- | --- |
 | 部署配置（端口、Docker、环境变量、推流、语音） | [DEPLOYMENT.md](DEPLOYMENT.md) |
 | 完整使用文档 | [docx.zviewer.zero251.xyz](https://docx.zviewer.zero251.xyz) |
-| 开发指南 | [DEVELOPMENT.md](DEVELOPMENT.md) |
-| Windows 桌面控制台 | [desktop/README.md](desktop/README.md) |
+| 开发细节（结构、命令、数据库、发布） | [DEVELOPMENT.md](DEVELOPMENT.md) |
+| 桌面控制台细节（组件、目录、构建） | [desktop/README.md](desktop/README.md) |
 | 高画质代理 CLI | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) |
 | 手机端（开发中） | [ZViewerAPP](https://github.com/Zero-wyc/ZViewerAPP) |
 
