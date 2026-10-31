@@ -13,12 +13,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch, safeJson } from '@/lib/api'
 
 export type VoiceComponentState =
-  | 'idle'
-  | 'downloading'
-  | 'installing'
-  | 'ready'
-  | 'error'
-  | 'external'
+  'idle' | 'downloading' | 'installing' | 'ready' | 'error' | 'external'
 
 export interface VoiceComponentStatus {
   available: boolean
@@ -72,6 +67,7 @@ export function useVoiceComponent(enabled = true) {
 
   useEffect(() => {
     aliveRef.current = true
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- 进房间时取一次组件状态，属一次性外部数据拉取，非派生状态
     if (enabled) void refresh()
     return () => {
       aliveRef.current = false

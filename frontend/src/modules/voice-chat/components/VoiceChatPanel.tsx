@@ -70,8 +70,12 @@ export function VoiceChatPanel({
   } = useVoiceChat({ roomId, username })
 
   // 内嵌 LiveKit 随包分发，缺失（被删）时把「加入语音」换成「下载语音组件」。
-  const { status: component, busy: componentBusy, requesting, install } =
-    useVoiceComponent(Boolean(roomId))
+  const {
+    status: component,
+    busy: componentBusy,
+    requesting,
+    install,
+  } = useVoiceComponent(Boolean(roomId))
   const componentMissing = !component.available
   const downloading = componentBusy || requesting
   const downloadLabel =
