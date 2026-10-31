@@ -492,7 +492,7 @@ jobs:
             echo "Docker：\`docker pull zerowyc0721/zviewer:${VERSION}\`"
             echo ""
             echo "> 页面底部的文件列表有时加载不出来（只剩 source code），直接点上面的链接即可。"
-            echo "> 境内下载慢时，同一份文件在 [ZviewerRelease](https://github.com/Zero-wyc/ZviewerRelease) 有 GitCode 镜像直链。"
+            echo "> 境内下载慢时，发版仓库与中国镜像链接都在 [ZviewerRelease](https://github.com/Zero-wyc/ZviewerRelease)。"
           } > release_body.md
           echo "=== Generated release body ==="
           cat release_body.md

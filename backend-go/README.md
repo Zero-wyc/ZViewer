@@ -4,7 +4,7 @@
 数据库与 `config/` 由本进程独占。
 
 - 迁移台账、验收口径、刻意保留的差异：[MIGRATION.md](./MIGRATION.md)
-- 日常开发、构建、发布：[../DEVELOPMENT.md](../DEVELOPMENT.md)
+- 日常开发、构建、发布：[根目录 README 的「开发」一节](../README.md#开发)
 - 并发、播放落盘、会话边界的专项检查：[AUDIT-2026-10-25.md](./AUDIT-2026-10-25.md)
 - OBS 推流与浏览器后台断线：[OBS-BACKGROUND-2026-10-30.md](./OBS-BACKGROUND-2026-10-30.md)
 
@@ -67,7 +67,7 @@ backend-go/
 │   ├── serverfiles/        服务器文件域
 │   ├── ssl/ updater/ traffic/ clientlog/         运维
 │   ├── config/ httpx/ netutil/ ratelimit/ ttlcache/ webfetch/   基础设施
-└── scripts/                13 个冒烟 / 回归脚本 + 审计工具（见 DEVELOPMENT.md 命令与回归）
+└── scripts/                13 个冒烟 / 回归脚本 + 审计工具（见根目录 README 的命令表）
 ```
 
 分层：`api` 只做 HTTP 解析与响应，`store` 只管数据，`auth` 不感知业务。**`api` 之外的层不得 import `api`**。
