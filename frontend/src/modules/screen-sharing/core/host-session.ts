@@ -19,7 +19,9 @@ import type {
 import { HostAudio, type CommentaryInput } from './audio-mix'
 import { captureDisplay } from './capture'
 import { HostPeer, type HostPeerSnapshot } from './host-peer'
+import { VP8_ONLY_VIDEO_CODEC } from './video-codec'
 import type { QualityProfile } from './quality'
+import { relayMediaDeclaration } from './relay-media'
 import { ShareClient } from './share-client'
 
 export interface HostSessionState {
@@ -29,6 +31,8 @@ export interface HostSessionState {
   peers: number
   /** 快照里的观众数（不含房主自己）。 */
   viewers: number
+  /** 本代际是否走服务端中继（媒体经 SFU 转发，不再直连观众）。 */
+  relay: boolean
   audioAvailable: boolean
   microphoneEnabled: boolean
   /** 语义错误码，不是展示文案。 */
@@ -63,6 +67,12 @@ export class ShareHostSession {
   private outputStream: MediaStream | null = null
   private profile: QualityProfile | null = null
   private shareGeneration = ''
+  /** 中继发布身份：非空时房主只建这一条发布端 PC（观众不直连）。 */
+  private publicationGeneration = ''
+  /** 首个 description 要带上媒体声明；带上之后不再重复。 */
+  private relayDeclared = false
+  /** 最近一次已知的路由版本，中继信令要带上它。 */
+  private revision = 0
   private paused = false
   private unsubscribe: (() => void) | null = null
   private state: HostSessionState = {
@@ -70,6 +80,7 @@ export class ShareHostSession {
     paused: false,
     peers: 0,
     viewers: 0,
+    relay: false,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -170,6 +181,8 @@ export class ShareHostSession {
       this.releaseMedia()
       return false
     }
+    // 中继模式下 sfu-config 可能比采集先到，这里补一次。
+    this.ensurePublicationPeer(this.revision)
     return true
   }
 
@@ -257,6 +270,9 @@ export class ShareHostSession {
     this.patch({ sharing: false, paused: false, peers: 0, viewers: 0 })
     this.paused = false
     this.shareGeneration = ''
+    this.publicationGeneration = ''
+    this.relayDeclared = false
+    this.patch({ relay: false })
     this.releaseMedia()
   }
 
@@ -273,6 +289,7 @@ export class ShareHostSession {
     switch (message.t) {
       case 'share.snapshot':
         this.shareGeneration = message.shareGeneration
+        this.revision = message.revision
         this.paused = message.paused
         this.options.onSnapshot?.(message)
         this.patch({
@@ -283,18 +300,33 @@ export class ShareHostSession {
         this.syncPeers(message)
         return
       case 'share.route':
+        this.revision = message.revision
         this.handleRoute(message.revision, message.phase, message.candidate)
+        return
+      case 'share.sfu-config':
+        // 服务端说「这一代走中继」：房主只建这一条发布端，不再等观众候选。
+        this.publicationGeneration = message.publicationGeneration
+        this.relayDeclared = false
+        this.revision = message.revision
+        this.patch({ relay: true })
+        void this.ensurePublicationPeer(message.revision)
+        return
+      case 'share.sfu-signal':
+        this.handlePublicationSignal(message)
         return
       case 'share.signal-relay':
         this.handleRelay(message.connectionId, message.kind, message.payload)
         return
       case 'share.status':
-        if (message.state === 'failed') {
-          this.options.onError?.(
-            'share.host.error.routeExhausted',
-            message.reason
-          )
+        if (message.state !== 'failed') return
+        if (message.reason === 'relay-unreachable') {
+          this.abortRelaySharing()
+          return
         }
+        this.options.onError?.(
+          'share.host.error.routeExhausted',
+          message.reason
+        )
         return
       case 'share.error':
         this.options.onError?.(message.code, message.message)
@@ -335,33 +367,42 @@ export class ShareHostSession {
   ): Promise<void> {
     if (!this.outputStream || !this.profile) return
     if (this.peers.has(connectionId)) return
+    // 中继模式下这条 PC 连的是 SFU 而不是观众：信令通道与失败处理都不同。
+    const relay = connectionId === this.publicationGeneration
     const peer = new HostPeer({
       connectionId,
       iceServers: this.options.iceServers,
       stream: this.outputStream,
       profile: this.profile,
+      // 中继强制 VP8：与媒体声明一致，也是 SFU 转发最稳的一路。
+      ...(relay ? { videoCodec: VP8_ONLY_VIDEO_CODEC } : {}),
       events: {
-        sendSignal: (signal) => {
-          if (signal.kind === 'offer') {
-            return this.client.send({
-              t: 'share.signal',
-              roomId: this.options.roomId,
-              connectionId,
-              kind: 'offer',
-              payload: signal.description,
-            })
-          }
-          return this.client.send({
-            t: 'share.signal',
-            roomId: this.options.roomId,
-            connectionId,
-            kind: 'candidate',
-            payload: signal.candidate,
-          })
-        },
+        sendSignal: (signal) =>
+          relay
+            ? this.sendRelaySignal(connectionId, signal)
+            : signal.kind === 'offer'
+              ? this.client.send({
+                  t: 'share.signal',
+                  roomId: this.options.roomId,
+                  connectionId,
+                  kind: 'offer',
+                  payload: signal.description,
+                })
+              : this.client.send({
+                  t: 'share.signal',
+                  roomId: this.options.roomId,
+                  connectionId,
+                  kind: 'candidate',
+                  payload: signal.candidate,
+                }),
         onUpdate: (snapshot) => this.options.onPeerUpdate?.(snapshot),
         onFailed: () => {
-          // 终态失败：告诉服务端换候选，再销毁这条 PC。
+          this.dropPeer(connectionId)
+          if (relay) {
+            this.abortRelaySharing()
+            return
+          }
+          // 终态失败：告诉服务端换候选。
           this.client.send({
             t: 'share.route-failed',
             roomId: this.options.roomId,
@@ -369,7 +410,6 @@ export class ShareHostSession {
             phase: 'prepare',
             connectionId,
           })
-          this.dropPeer(connectionId)
         },
       },
     })
@@ -378,6 +418,93 @@ export class ShareHostSession {
     peer.setPaused(this.paused)
     if (!(await peer.start())) {
       this.dropPeer(connectionId)
+    }
+  }
+
+  /**
+   * 中继模式下唯一一条发布端的信令出口。
+   *
+   * 首个 description 必须带媒体声明：SFU 要先按声明建发布资源才肯收 offer；
+   * 之后的协商（换源导致的方向变化）不再重复声明。
+   */
+  private sendRelaySignal(
+    connectionId: string,
+    signal:
+      | { kind: 'offer'; description: RTCSessionDescriptionInit }
+      | { kind: 'candidate'; candidate: RTCIceCandidateInit }
+  ): boolean {
+    if (signal.kind === 'offer') {
+      const payload: {
+        description: RTCSessionDescriptionInit
+        media?: ReturnType<typeof relayMediaDeclaration>
+      } = { description: signal.description }
+      if (!this.relayDeclared && this.profile) {
+        payload.media = relayMediaDeclaration(this.profile, {
+          codec: VP8_ONLY_VIDEO_CODEC.primary,
+          audio: (this.outputStream?.getAudioTracks().length ?? 0) > 0,
+        })
+        this.relayDeclared = true
+      }
+      return this.client.send({
+        t: 'share.sfu-signal',
+        roomId: this.options.roomId,
+        revision: this.revision,
+        publicationGeneration: connectionId,
+        connectionId,
+        kind: 'description',
+        payload,
+      })
+    }
+    return this.client.send({
+      t: 'share.sfu-signal',
+      roomId: this.options.roomId,
+      revision: this.revision,
+      publicationGeneration: connectionId,
+      connectionId,
+      kind: 'candidate',
+      payload: signal.candidate,
+    })
+  }
+
+  /** 采集就绪后才建发布端：config 可能比采集先到。 */
+  private ensurePublicationPeer(revision: number): void {
+    if (!this.publicationGeneration) return
+    if (!this.outputStream || !this.profile) return
+    if (this.peers.has(this.publicationGeneration)) return
+    void this.createPeer(this.publicationGeneration, revision)
+  }
+
+  /**
+   * 发布端（房主 ↔ SFU）终态失败：这一代共享已经没人能收到画面。
+   *
+   * 不做自动重建——SFU 侧的发布在它自己发现连接失败时就退役了，拿同一个
+   * 发布代际重发 offer 只会被静默丢弃。正确做法是收掉这一代，让用户重新
+   * 开始共享（重新 start 会铸全新的代际与发布身份）。
+   */
+  private abortRelaySharing(): void {
+    if (!this.state.sharing) return
+    this.stop()
+    this.patch({ error: 'share.host.error.relay' })
+  }
+
+  /** 服务器/中继侧回来的 answer 与候选。 */
+  private handlePublicationSignal(
+    message: Extract<ShareServerMessage, { t: 'share.sfu-signal' }>
+  ): void {
+    if (!this.publicationGeneration) return
+    if (message.connectionId !== this.publicationGeneration) return
+    const peer = this.peers.get(this.publicationGeneration)
+    if (!peer) return
+    if (message.kind === 'description') {
+      const payload = message.payload as
+        { description?: RTCSessionDescriptionInit } | undefined
+      if (payload?.description?.type === 'answer') {
+        void peer.acceptAnswer(payload.description)
+      }
+      return
+    }
+    if (message.kind === 'candidate' && message.payload) {
+      void peer.acceptCandidate(message.payload as RTCIceCandidateInit)
     }
   }
 
@@ -416,6 +543,8 @@ export class ShareHostSession {
       ) ?? []
     )
     for (const connectionId of [...this.peers.keys()]) {
+      // 发布端不属于「观众的边」，它的存活由 sfu-config 与失败事件决定。
+      if (connectionId === this.publicationGeneration) continue
       // 快照里没有对应候选的边一律销毁：观众已经离开，PC 留着只是空转编码。
       if (!assigned.has(connectionId)) {
         const peer = this.peers.get(connectionId)

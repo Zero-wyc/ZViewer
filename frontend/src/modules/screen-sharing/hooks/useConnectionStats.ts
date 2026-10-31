@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 
 export type ConnectionMode = 'direct' | 'server' | 'unknown'
-export type SharingMode = 'server-relay' | 'p2p'
+/** 媒体走向：direct = 浏览器直连（服务端只转发信令），relay = 经服务端 SFU 转发。 */
+export type SharingMode = 'direct' | 'relay'
 
 export interface ConnectionStats {
   mode: ConnectionMode
@@ -70,7 +71,7 @@ type BaseStats = Omit<
 export function useConnectionStats(
   pc: RTCPeerConnection | null,
   mode: ConnectionMode = 'unknown',
-  sharingMode: SharingMode = 'server-relay'
+  sharingMode: SharingMode = 'direct'
 ) {
   const [baseStats, setBaseStats] = useState<BaseStats>({
     resolution: null,

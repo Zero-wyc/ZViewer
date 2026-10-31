@@ -33,6 +33,8 @@ export interface UseShareHostResult {
   viewerCount: number
   /** 供统计面板读数的连接（第一条发布端）。 */
   statsPeerConnection: RTCPeerConnection | null
+  /** 媒体走向：经服务端 SFU 转发，还是浏览器直连。 */
+  sharingMode: 'direct' | 'relay'
   audioAvailable: boolean
   microphoneEnabled: boolean
   error: string | null
@@ -72,6 +74,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     paused: false,
     peers: 0,
     viewers: 0,
+    relay: false,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -190,6 +193,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     peerCount: state.peers,
     viewerCount: state.viewers,
     statsPeerConnection,
+    sharingMode: state.relay ? 'relay' : 'direct',
     audioAvailable: state.audioAvailable,
     microphoneEnabled: state.microphoneEnabled,
     error: state.error,

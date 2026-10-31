@@ -56,11 +56,10 @@ type Config struct {
 	SQLiteWAL bool
 
 	// ShareRelay 为 true 时屏幕共享的观众不再直连房主，全部走服务端 SFU。
-	// 收益是房主只上行一份；代价是服务端带宽。默认关（与 P0-P2 的直连行为一致）。
+	// 收益是房主只上行一份；代价是服务端带宽。默认关（与直连行为一致）。
 	//
-	// **打开前必须确认前端已支持 relay 候选**（P3c）：否则观众会拿到
-	// transport=relay 的候选却等不到房主的 offer，画面永远不出。
-	// 服务端侧能力（发布/订阅/信令）已完整，缺的只是客户端那半边。
+	// 打开前必须确认 ShareMediaPort 对观众可达（UDP 优先，只转 TCP 的隧道
+	// 走同号 TCP）。端口绑不上时服务会自动回退直连并打日志，不会让共享起不来。
 	ShareRelay bool
 	// ShareMediaPort 是中继媒体端口，UDP 与 TCP **同号**（默认 3339）。
 	ShareMediaPort int

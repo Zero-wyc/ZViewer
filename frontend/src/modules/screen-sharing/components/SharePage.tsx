@@ -31,6 +31,8 @@ interface SharePageProps {
   onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
   /** 采集实测帧率变化回调，透传到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
+  /** 媒体走向变化回调（直连 / 服务端转发）。 */
+  onSharingModeChange?: (mode: 'direct' | 'relay') => void
 }
 
 function SharePage({
@@ -38,6 +40,7 @@ function SharePage({
   style,
   onStatsPeerConnectionChange,
   onCaptureFpsChange,
+  onSharingModeChange,
 }: SharePageProps) {
   const { socket } = useSocket()
   const setIsSharing = useRoomStore((state) => state.setIsSharing)
@@ -169,6 +172,7 @@ function SharePage({
           style={style}
           onStatsPeerConnectionChange={onStatsPeerConnectionChange}
           onCaptureFpsChange={onCaptureFpsChange}
+          onSharingModeChange={onSharingModeChange}
         />
       )}
 

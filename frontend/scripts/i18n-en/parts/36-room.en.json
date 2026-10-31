@@ -1,5 +1,6 @@
 {
   "items": [
+    "Sync progress",
     "HTTP traffic for this session (excluding WebSocket)",
     "Screen share",
     "Drag movie cards to reorder playback",
@@ -118,7 +119,6 @@
     "Resolving episode {{page}} through the CLI proxy...",
     "Resolving the anime through the CLI proxy...",
     "Switching quality through the CLI proxy...",
-    "Resolving P{{page}} through the server...",
-    "Resolving through the server..."
+    "Resolving P{{page}} through the server..."
   ]
 }

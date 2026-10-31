@@ -60,6 +60,17 @@ const SERVER_MESSAGE_FIELDS: Record<
     required: ['t', 'roomId', 'revision', 'state', 'reason'],
     optional: [],
   },
+  'share.sfu-signal': {
+    required: [
+      't',
+      'roomId',
+      'revision',
+      'publicationGeneration',
+      'connectionId',
+      'kind',
+    ],
+    optional: ['payload', 'activeCount'],
+  },
   'share.sfu-config': {
     required: [
       't',
@@ -82,6 +93,15 @@ const SERVER_MESSAGE_FIELDS: Record<
 
 const PHASES = new Set(['prepare', 'active'])
 const STATUS_STATES = new Set(['waiting', 'failed'])
+/** 中继信令的合法种类。 */
+const SFU_SIGNAL_KINDS = new Set([
+  'description',
+  'candidate',
+  'media',
+  'layers',
+  'subscribe',
+])
+
 const SIGNAL_KINDS = new Set(['offer', 'answer', 'candidate'])
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -164,6 +184,17 @@ function validateTypedFields(
         )
       }
       requireString(raw, 'reason')
+      return
+    }
+    case 'share.sfu-signal': {
+      requireNumber(raw, 'revision')
+      requireString(raw, 'publicationGeneration')
+      requireString(raw, 'connectionId')
+      if (typeof raw.kind !== 'string' || !SFU_SIGNAL_KINDS.has(raw.kind)) {
+        throw new ShareProtocolError(
+          `invalid sfu signal kind: ${String(raw.kind)}`
+        )
+      }
       return
     }
     case 'share.sfu-config': {

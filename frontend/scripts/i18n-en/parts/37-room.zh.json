@@ -1,6 +1,7 @@
 {
   "bucket": "modules/room",
   "items": [
+    "正在通过服务器解析...",
     "正在通过服务器解析第 {{page}} 集...",
     "正在通过服务器切换清晰度...",
     "直接流式播放，无需等待缓存",
@@ -43,7 +44,6 @@
     "MP4/WebM 等视频直链",
     "OpenList 服务器地址（直链模式必填，已选挂载自动填充）",
     "P{{currentPage}} {{value}} · 点击切换",
-    "P2P 直连",
     "RTT 往返时延",
     "Socket 尚未连接",
     "WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"

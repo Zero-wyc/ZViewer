@@ -29,6 +29,7 @@
     "Connecting",
     "Browse the {{name}} library",
     "Browse server files",
+    "Direct (browser-to-browser)",
     "Browser transcoding",
     "Browser transcoding engine",
     "Browse files",
@@ -118,7 +119,6 @@
     "Seek request",
     "The seek request timed out; the host did not respond",
     "Watch video in sync, with direct links, WebDAV, SMB and Bilibili",
-    "Play NetEase Cloud Music in sync, sharing the playlist and lyrics with the room",
-    "Sync progress"
+    "Play NetEase Cloud Music in sync, sharing the playlist and lyrics with the room"
   ]
 }

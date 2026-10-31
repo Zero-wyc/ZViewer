@@ -15,6 +15,7 @@
  */
 import type { Socket } from 'socket.io-client'
 import type {
+  ShareCandidate,
   ShareSnapshotMessage,
   ShareServerMessage,
 } from '../protocol/types'
@@ -58,6 +59,12 @@ export class ShareViewerSession {
   private revision = 0
   private connectionId = ''
   private shareGeneration = ''
+  /** 本次候选是否走服务端中继（transport=relay）。 */
+  private relay = false
+  /** 中继发布身份：观众写 sfu-signal 时的栅栏字段。 */
+  private publicationGeneration = ''
+  /** 已发出订阅请求的连接，避免同一条边重复 subscribe。 */
+  private subscribedFor = ''
   private remoteStream: MediaStream | null = null
   private state: ViewerSessionState = {
     joined: false,
@@ -121,22 +128,23 @@ export class ShareViewerSession {
         this.handleSnapshot(message)
         return
       case 'share.route':
-        this.handleRoute(
-          message.revision,
-          message.phase,
-          message.candidate?.connectionId
-        )
+        this.handleRoute(message.revision, message.phase, message.candidate)
+        return
+      case 'share.sfu-signal':
+        this.handleSfuSignal(message)
         return
       case 'share.signal-relay':
         this.handleRelay(message.connectionId, message.kind, message.payload)
         return
       case 'share.status':
-        if (message.state === 'failed') {
-          this.patch({
-            exhausted: true,
-            error: 'share.viewer.error.routeExhausted',
-          })
-        }
+        if (message.state !== 'failed') return
+        this.patch({
+          exhausted: true,
+          error:
+            message.reason === 'relay-unreachable'
+              ? 'share.viewer.error.relay'
+              : 'share.viewer.error.routeExhausted',
+        })
         return
       case 'share.error':
         this.options.onError?.(message.code, message.message)
@@ -171,8 +179,9 @@ export class ShareViewerSession {
   private handleRoute(
     revision: number,
     phase: string,
-    connectionId: string | undefined
+    candidate: ShareCandidate | undefined
   ): void {
+    const connectionId = candidate?.connectionId
     if (!connectionId) return
     // 版本栅栏：只有当前版本的 route 才有意义。
     this.revision = revision
@@ -184,8 +193,71 @@ export class ShareViewerSession {
       }
       this.connectionId = connectionId
     }
+    const relayCandidate = this.relayOf(candidate)
+    if (relayCandidate) {
+      this.relay = true
+      this.publicationGeneration = relayCandidate
+      // 中继模式下观众不向房主要 offer：先订阅，等服务器把 offer 推下来。
+      if (phase === 'prepare') this.subscribe(connectionId)
+    } else {
+      this.relay = false
+      this.publicationGeneration = ''
+    }
     if (phase === 'active') {
       this.patch({ active: true, exhausted: false, error: null })
+    }
+  }
+
+  /**
+   * 这条候选的发布身份（relay 时非空，direct 时为空串）。
+   *
+   * 服务端只在 relay 候选上带 publicationGeneration，缺了就是协议错，
+   * 按直连处理会让观众静静等一个永远不来的房主 offer——所以宁可显式报错。
+   */
+  private relayOf(candidate: ShareCandidate | undefined): string {
+    if (!candidate || candidate.transport !== 'relay') return ''
+    if (!candidate.publicationGeneration) {
+      this.patch({ error: 'share.viewer.error.protocol' })
+      return ''
+    }
+    return candidate.publicationGeneration
+  }
+
+  /** 向服务器请求订阅（中继模式下唯一的一次主动请求）。 */
+  private subscribe(connectionId: string): void {
+    if (this.subscribedFor === connectionId) return
+    this.subscribedFor = connectionId
+    this.client.send({
+      t: 'share.sfu-signal',
+      roomId: this.options.roomId,
+      revision: this.revision,
+      publicationGeneration: this.publicationGeneration,
+      connectionId,
+      kind: 'subscribe',
+    })
+  }
+
+  /** 中继侧的 description（offer）与候选。 */
+  private handleSfuSignal(
+    message: Extract<ShareServerMessage, { t: 'share.sfu-signal' }>
+  ): void {
+    if (!this.connectionId || message.connectionId !== this.connectionId) return
+    if (message.kind === 'description') {
+      const payload = message.payload as
+        { description?: RTCSessionDescriptionInit } | undefined
+      const description = payload?.description
+      if (!description || description.type !== 'offer') return
+      const peer = this.ensurePeer(this.connectionId)
+      void peer.acceptOffer(this.connectionId, description)
+      return
+    }
+    if (message.kind === 'candidate' && message.payload) {
+      const peer = this.peer
+      if (!peer) return
+      void peer.acceptCandidate(
+        this.connectionId,
+        message.payload as RTCIceCandidateInit
+      )
     }
   }
 
@@ -220,6 +292,21 @@ export class ShareViewerSession {
       iceServers: this.options.iceServers,
       events: {
         sendSignal: (signal) => {
+          if (this.relay) {
+            // 中继：answer 与候选都走 sfu-signal，并带上发布代际。
+            return this.client.send({
+              t: 'share.sfu-signal',
+              roomId: this.options.roomId,
+              revision: this.revision,
+              publicationGeneration: this.publicationGeneration,
+              connectionId,
+              kind: signal.kind === 'answer' ? 'description' : 'candidate',
+              payload:
+                signal.kind === 'answer'
+                  ? { description: signal.description }
+                  : signal.candidate,
+            })
+          }
           if (signal.kind === 'answer') {
             return this.client.send({
               t: 'share.signal',
@@ -288,6 +375,7 @@ export class ShareViewerSession {
   }
 
   private teardownPeer(): void {
+    this.subscribedFor = ''
     this.peer?.dispose()
     this.peer = null
     if (this.remoteStream) {

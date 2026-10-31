@@ -1,7 +1,9 @@
 {
   "items": [
+    "Negotiation with the host failed; retrying",
     "The connection to the host dropped; retrying",
     "The server connection dropped; refresh the page and start sharing again",
+    "Could not establish the relay connection; start sharing again",
     "Negotiation with a viewer failed; retrying",
     "The connection to a viewer dropped; retrying",
     "Failed to allow the join",
@@ -26,6 +28,7 @@
     "Reconnect",
     "Request again",
     "The streamer is not streaming",
+    "The relay connection dropped; wait for the host to start sharing again",
     "Total bitrate",
     "Max bitrate (Mbps)",
     "OBS settings downloaded",

@@ -122,7 +122,7 @@ export function RoomLayout({
   peerConnection = null,
   captureFps = null,
   sharingRole = 'sender',
-  sharingMode = 'server-relay',
+  sharingMode = 'direct',
   sharingActive,
   webFullscreen = false,
   onSwitchMode,

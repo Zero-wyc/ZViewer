@@ -160,6 +160,10 @@ function RoomPage() {
     useState<RTCPeerConnection | null>(null)
   // 房主采集实测帧率（由 WebrtcSharePage 的帧率计提升，供 SharingStatusPanel 显示）
   const [hostCaptureFps, setHostCaptureFps] = useState<number | null>(null)
+  // 媒体走向由共享页上报：中继开启时观众不直连房主，标签要如实标注。
+  const [hostSharingMode, setHostSharingMode] = useState<'direct' | 'relay'>(
+    'direct'
+  )
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
 
   // 将 URL 中的房间号同步到 store，确保刷新或直接访问房间链接时
@@ -493,6 +497,7 @@ function RoomPage() {
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
           onCaptureFpsChange={setHostCaptureFps}
+          onSharingModeChange={setHostSharingMode}
         />
       )
 
@@ -528,6 +533,7 @@ function RoomPage() {
         }
         peerConnection={hostPeerConnection}
         captureFps={hostCaptureFps}
+        sharingMode={hostSharingMode}
         controls={controls}
         controlLabels={controlLabels}
         webFullscreen={isWebFullscreen}

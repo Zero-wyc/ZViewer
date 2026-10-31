@@ -38,6 +38,8 @@ export interface ShareCandidate {
   connectionId: string
   /** direct = 浏览器直连；relay = 服务器中继。 */
   transport: 'direct' | 'relay'
+  /** 只有 transport=relay 时才有值：观众据此写 sfu-signal 的栅栏字段。 */
+  publicationGeneration?: string
 }
 
 /** 已提交的路由分配。 */
@@ -142,7 +144,16 @@ export interface ShareSignalMessage {
   payload: unknown
 }
 
-/** 中继侧的 publication/subscription 信令。 */
+/**
+ * 中继侧的 publication/subscription 信令（双向：同一形状上下行都用）。
+ *
+ * - `description`：房主发 offer（首个必须带 `media` 声明）；观众收到服务器的
+ *   offer 后回 answer。载荷是 `{ description, media? }`。
+ * - `candidate`：ICE 候选，载荷就是 `RTCIceCandidateInit`。
+ * - `media`：房主单独声明/更新媒体参数。
+ * - `layers`：服务器下发 `activeCount`（房主据此启用几层编码）。
+ * - `subscribe`：观众请求订阅，服务器回 `description`（offer）。
+ */
 export interface ShareSfuSignalMessage {
   t: 'share.sfu-signal'
   roomId: string
@@ -154,6 +165,9 @@ export interface ShareSfuSignalMessage {
   /** 房主需要的分层数量（activeCount 闭环）。 */
   activeCount?: number
 }
+
+/** 服务器也发同一种中继信令，别名让两个联合都读得顺。 */
+export type ShareSfuMessage = ShareSfuSignalMessage
 
 /** 客户端消息联合。 */
 export type ShareClientMessage =
@@ -242,6 +256,7 @@ export type ShareServerMessage =
   | ShareSnapshotMessage
   | ShareRouteMessage
   | ShareStatusMessage
+  | ShareSfuMessage
   | ShareSfuConfigMessage
   | ShareSignalRelayMessage
   | ShareErrorMessage

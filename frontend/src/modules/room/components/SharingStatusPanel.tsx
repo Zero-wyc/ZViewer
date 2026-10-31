@@ -80,7 +80,8 @@ function StatRow({ icon, label, value, hint }: StatRowProps) {
 }
 
 function getSharingModeLabel(mode: SharingMode): string {
-  return mode === 'p2p' ? t('P2P 直连') : t('服务器中转')
+  // 「直连」指媒体不过服务端（只借它换 SDP/ICE）；中继才真的占服务端带宽。
+  return mode === 'relay' ? t('服务器转发') : t('浏览器直连')
 }
 
 function getSharingModeColor(): 'success' | 'primary' {
@@ -133,7 +134,7 @@ export function SharingStatusPanel({
   mode,
   sharingMode,
 }: SharingStatusPanelProps) {
-  const legacyMode = sharingMode === 'p2p' ? 'direct' : 'server'
+  const legacyMode = sharingMode === 'relay' ? 'server' : 'direct'
 
   const { stats, formatBitrate, formatPacketLoss } = useConnectionStats(
     pc,

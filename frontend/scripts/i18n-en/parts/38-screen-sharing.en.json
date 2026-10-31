@@ -30,6 +30,7 @@
     "Resolution: {{width}} x {{height}}",
     "Failed to switch the resolution; the previous one is kept",
     "Resolution switched",
+    "The server returned incomplete connection info; refresh the page and try again",
     "The server returned an invalid watch URL",
     "Server mode",
     "Copy error details",
@@ -118,7 +119,6 @@
     "Stopped",
     "Audio on",
     "Hide the preview",
-    "Failed to connect to the host repeatedly; click Refresh to retry",
-    "Negotiation with the host failed; retrying"
+    "Failed to connect to the host repeatedly; click Refresh to retry"
   ]
 }

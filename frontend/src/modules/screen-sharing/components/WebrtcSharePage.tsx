@@ -43,6 +43,8 @@ interface WebrtcSharePageProps {
   onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
   /** 采集实测帧率变化回调，提升到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
+  /** 媒体走向变化回调（直连 / 服务端转发），供统计面板标注。 */
+  onSharingModeChange?: (mode: 'direct' | 'relay') => void
 }
 
 function WebrtcSharePage({
@@ -50,6 +52,7 @@ function WebrtcSharePage({
   style,
   onStatsPeerConnectionChange,
   onCaptureFpsChange,
+  onSharingModeChange,
 }: WebrtcSharePageProps) {
   const navigate = useNavigate()
   const { socket, connected } = useSocket()
@@ -115,6 +118,7 @@ function WebrtcSharePage({
     peerCount,
     viewerCount,
     statsPeerConnection,
+    sharingMode,
     previewStream,
     error,
     start,
@@ -337,6 +341,10 @@ function WebrtcSharePage({
   useEffect(() => {
     onCaptureFpsChange?.(captureFps)
   }, [captureFps, onCaptureFpsChange])
+
+  useEffect(() => {
+    onSharingModeChange?.(sharingMode)
+  }, [sharingMode, onSharingModeChange])
 
   useEffect(() => {
     setIsSharing(isSharing)

@@ -33,6 +33,8 @@ export function hostErrorText(code: string | null): string | null {
       return t('网络候选地址处理失败，正在重试')
     case 'share.host.error.replaceSource':
       return t('切换画面来源失败，已保留原画面')
+    case 'share.host.error.relay':
+      return t('与服务器的转发连接建立失败，请重新开始共享')
     default:
       return null
   }
@@ -52,6 +54,10 @@ export function viewerErrorText(code: string | null): string | null {
       return t('与房主的连接已中断，正在重试')
     case 'share.viewer.error.candidate':
       return t('网络候选地址处理失败，正在重试')
+    case 'share.viewer.error.relay':
+      return t('转发服务连接已断开，请等房主重新开始共享')
+    case 'share.viewer.error.protocol':
+      return t('服务端返回的连接信息不完整，请刷新页面重试')
     default:
       return null
   }

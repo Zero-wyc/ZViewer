@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2570 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2573 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2021,6 +2021,7 @@ const enUS: Record<string, string> = {
   '连接中': 'Connecting',
   '浏览 {{name}} 媒体库': 'Browse the {{name}} library',
   '浏览服务器文件': 'Browse server files',
+  '浏览器直连': 'Direct (browser-to-browser)',
   '浏览器转码': 'Browser transcoding',
   '浏览器转码引擎': 'Browser transcoding engine',
   '浏览文件': 'Browse files',
@@ -2274,12 +2275,11 @@ const enUS: Record<string, string> = {
   'MP4/WebM 等视频直链': 'Direct video links such as MP4/WebM',
   'OpenList 服务器地址（直链模式必填，已选挂载自动填充）': 'OpenList server address (required for direct-link mode; filled in from the selected mount)',
   'P{{currentPage}} {{value}} · 点击切换': 'P{{currentPage}} {{value}} · click to switch',
-  'P2P 直连': 'P2P direct',
   'RTT 往返时延': 'RTT',
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（156 条） =====
+  // ===== modules/screen-sharing（159 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
@@ -2310,6 +2310,7 @@ const enUS: Record<string, string> = {
   '分辨率：{{width}} x {{height}}': 'Resolution: {{width}} x {{height}}',
   '分辨率切换失败，已保留原分辨率': 'Failed to switch the resolution; the previous one is kept',
   '分辨率已切换': 'Resolution switched',
+  '服务端返回的连接信息不完整，请刷新页面重试': 'The server returned incomplete connection info; refresh the page and try again',
   '服务器返回了无效的观看地址': 'The server returned an invalid watch URL',
   '服务器模式': 'Server mode',
   '复制错误详情': 'Copy error details',
@@ -2402,6 +2403,7 @@ const enUS: Record<string, string> = {
   '与房主的连接协商失败，正在重试': 'Negotiation with the host failed; retrying',
   '与房主的连接已中断，正在重试': 'The connection to the host dropped; retrying',
   '与服务器的连接已断开，请刷新页面后重新开始共享': 'The server connection dropped; refresh the page and start sharing again',
+  '与服务器的转发连接建立失败，请重新开始共享': 'Could not establish the relay connection; start sharing again',
   '与观众的连接协商失败，正在重试': 'Negotiation with a viewer failed; retrying',
   '与观众的连接已中断，正在重试': 'The connection to a viewer dropped; retrying',
   '允许加入失败': 'Failed to allow the join',
@@ -2426,6 +2428,7 @@ const enUS: Record<string, string> = {
   '重新连接': 'Reconnect',
   '重新申请加入': 'Request again',
   '主播未推流': 'The streamer is not streaming',
+  '转发服务连接已断开，请等房主重新开始共享': 'The relay connection dropped; wait for the host to start sharing again',
   '总码率': 'Total bitrate',
   '最大码率（Mbps）': 'Max bitrate (Mbps)',
   'OBS 配置文件已下载': 'OBS settings downloaded',
