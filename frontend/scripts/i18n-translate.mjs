@@ -68,9 +68,21 @@ function quote(text) {
     .replace(/\t/g, '\\t')}'`
 }
 
+/**
+ * 按行读文本，统一成 LF 再切。
+ *
+ * 仓库是 `* text=auto` + Windows 上 `core.autocrlf=true`，CI 的 windows runner
+ * 检出来的是 CRLF。直接 `split('\n')` 每行尾巴都带 `\r`，下面几条以 `,$`、`=====$`
+ * 收尾的正则会一条都匹配不上——表现为「解析出 0 条」，报错还会显示成
+ * 「第 1 条应为「—」」（`entries[0]` 是 undefined），极难联想到换行。
+ */
+function readLines(file) {
+  return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n')
+}
+
 /** 读 zh-CN.ts → [{ bucket, key }]（保持文件顺序） */
 function readZh() {
-  const lines = fs.readFileSync(ZH_PATH, 'utf8').split('\n')
+  const lines = readLines(ZH_PATH)
   const entries = []
   let bucket = 'other'
   for (const line of lines) {
@@ -81,6 +93,13 @@ function readZh() {
     }
     const entry = ENTRY_RE.exec(line)
     if (entry) entries.push({ bucket, key: unescape(entry[1]) })
+  }
+  // 一条都解析不出来时直接说清楚：否则调用方只会报「第 1 条应为 undefined」，
+  // 看不出问题出在文件格式（换行、缩进）而不是译文。
+  if (entries.length === 0) {
+    throw new Error(
+      `未能从 ${path.relative(FRONTEND, ZH_PATH)} 解析出词条：文件为空或每行格式不符（应为两个空格缩进的 '键': '值',）`
+    )
   }
   return entries
 }
@@ -267,7 +286,7 @@ function commandCheck() {
   const extraKeys = new Set(Object.keys(overrides))
 
   const pairs = []
-  for (const line of fs.readFileSync(EN_PATH, 'utf8').split('\n')) {
+  for (const line of readLines(EN_PATH)) {
     const m = ENTRY_RE.exec(line)
     if (m) pairs.push([unescape(m[1]), unescape(m[2])])
   }

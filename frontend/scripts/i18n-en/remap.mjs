@@ -36,7 +36,8 @@ function unescape(text) {
 }
 
 const known = new Map()
-for (const line of fs.readFileSync(EN_PATH, 'utf8').split('\n')) {
+// 归一化 CRLF：Windows 检出时行尾多一个 \r，下面以 ,$ 收尾的正则会全部匹配失败
+for (const line of fs.readFileSync(EN_PATH, 'utf8').replace(/\r\n/g, '\n').split('\n')) {
   const m = RE.exec(line)
   if (m) known.set(unescape(m[1]), unescape(m[2]))
 }
