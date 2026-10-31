@@ -9,6 +9,15 @@ import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
 
 /**
+ * 本端发送的弹幕，等多久之内收到的同文 `danmaku` 广播算作自己的回显。
+ *
+ * 服务端 `send-danmaku` 用 `io.to(roomId)` 广播（发送者自己也收），本端发送时
+ * 又已经本地预上屏过一次。两者相差只有一个来回（跨公网也就几百毫秒），
+ * 超出这个窗口还收到同文，就当成别人发的，不再吞掉。
+ */
+const SELF_ECHO_TTL_MS = 10_000
+
+/**
  * 弹幕桥接：B站 官方弹幕加载、轨道同步、实时弹幕收发与控制栏/设置面板回调。
  *
  * 从 WatchTogetherCore 抽出（纯搬迁）：
@@ -17,7 +26,8 @@ import { t } from '@/i18n'
  * - store 轨道变化 → 引擎同步（新增/隐藏/删除）
  * - 侧栏屏蔽/删除后的 refreshSignal 强刷（清屏 + 按当前时间补发）
  * - 房间 'danmaku' 实时事件接收上屏；本端发送（本地立即上屏 + send-comment
- *   持久化 + send-danmaku 广播）
+ *   持久化 + send-danmaku 广播）。服务端广播含发送者本人，自己那条的回显
+ *   会被 consumeSelfEcho 拦掉，只保留发送时的本地预上屏。
  */
 export function useDanmakuBridge({
   socket,
@@ -36,6 +46,8 @@ export function useDanmakuBridge({
 }) {
   const danmakuLayerRef = useRef<DanmakuLayerHandle | null>(null)
   const danmakuItemsRef = useRef<DanmakuItem[]>([])
+  /** 已本地预上屏、还在等服务端回显的弹幕（按发送先后排列，见 consumeSelfEcho） */
+  const pendingSelfEchoRef = useRef<{ text: string; at: number }[]>([])
   const loadedTracksRef = useRef<Set<string>>(new Set())
   const [danmakuEnabled, setDanmakuEnabled] = useState(true)
 
@@ -128,6 +140,28 @@ export function useDanmakuBridge({
     layer.syncTime(current)
   }, [refreshSignal, videoRef, tracksRef])
 
+  /**
+   * 判定一条 `danmaku` 广播是不是本端刚发出的那条的回显。
+   *
+   * 命中则消费掉待回显记录并返回 true——这条弹幕在发送时已经本地预上屏过，
+   * 再按回显渲染一次就会出现「自己发一条、屏幕上飘两条」（一条前缀「我」、
+   * 一条前缀自己的昵称），而观众端只收到广播所以只有一条。
+   * 服务端生成本端无从预知的弹幕 id，因此按内容 + 时间窗匹配：同一个人
+   * 连发两条同文时按先后各消费一次，窗口外的同文则当别人的弹幕正常上屏。
+   */
+  const consumeSelfEcho = useCallback((text: string): boolean => {
+    const now = Date.now()
+    const pending = pendingSelfEchoRef.current
+    // 被拒 / 断线导致始终没等到回显时，过期项不能一直压着别人的同文弹幕
+    while (pending.length > 0 && now - pending[0].at > SELF_ECHO_TTL_MS) {
+      pending.shift()
+    }
+    const index = pending.findIndex((entry) => entry.text === text)
+    if (index < 0) return false
+    pending.splice(index, 1)
+    return true
+  }, [])
+
   // 实时弹幕接收（'danmaku' 事件）：上屏 + 记录到实时弹幕列表
   useEffect(() => {
     if (!socket) return
@@ -137,6 +171,8 @@ export function useDanmakuBridge({
       sender?: string
     }) => {
       if (!payload?.text) return
+      // 自己刚发的那条已经本地预上屏，回显只用于观众端，不再重复上屏
+      if (consumeSelfEcho(payload.text)) return
       danmakuLayerRef.current?.sendDanmaku(payload.text, {
         sender: payload.sender,
       })
@@ -153,7 +189,7 @@ export function useDanmakuBridge({
     return () => {
       socket.off('danmaku', handleDanmaku)
     }
-  }, [socket, addRealtime, videoRef])
+  }, [socket, addRealtime, videoRef, consumeSelfEcho])
 
   const handleToggleDanmaku = useCallback(() => {
     setDanmakuEnabled((prev) => !prev)
@@ -198,6 +234,9 @@ export function useDanmakuBridge({
       addRealtime({ ...item, self: true, sender: t('我') })
 
       if (!socket) return
+      // 登记待回显：服务端的 'danmaku' 广播会回到自己这条连接上，
+      // 由 consumeSelfEcho 拦下，避免同一条弹幕在屏幕上飘两次
+      pendingSelfEchoRef.current.push({ text: trimmed, at: Date.now() })
       // 发送评论（持久化 + 广播 new-comment）
       socket.emit(
         'send-comment',
@@ -208,7 +247,7 @@ export function useDanmakuBridge({
           }
         }
       )
-      // 广播弹幕事件（其他客户端通过 'danmaku' 事件上屏）
+      // 广播弹幕事件（房内所有人按 'danmaku' 事件上屏，发送者自己也会收到→被拦下）
       socket.emit('send-danmaku', {
         roomId,
         content: trimmed,
