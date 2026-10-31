@@ -495,7 +495,7 @@ export function RoomInfoPanel({
                 }}
               >
                 <Shield className="h-2.5 w-2.5" />
-                房管
+                {t('房管')}
               </span>
             )}
             {isMuted && (
@@ -639,7 +639,7 @@ export function RoomInfoPanel({
               }}
             >
               <Crown className="h-2.5 w-2.5" />
-              房主
+              {t('房主')}
             </span>
           )}
           {!isHost && isModerator && (
@@ -652,7 +652,7 @@ export function RoomInfoPanel({
               }}
             >
               <Shield className="h-2.5 w-2.5" />
-              房管
+              {t('房管')}
             </span>
           )}
         </div>

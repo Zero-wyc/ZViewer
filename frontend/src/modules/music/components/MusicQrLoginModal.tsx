@@ -145,7 +145,8 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
               className="w-full"
               onClick={() => void logout()}
             >
-              退出当前账号（{loginStatus.nickname ?? t('已登录')}）
+              {t('退出当前账号（')}
+              {loginStatus.nickname ?? t('已登录')}）
             </Button>
           )}
           <Button

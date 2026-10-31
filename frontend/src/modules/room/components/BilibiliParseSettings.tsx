@@ -273,7 +273,7 @@ export function BilibiliParseSettings({
       >
         <span className="flex items-center gap-1 font-medium">
           <Settings2 className="h-3 w-3" />
-          B站解析设置
+          {t('B站解析设置')}
         </span>
         <ChevronDown
           className={cn(
@@ -409,7 +409,7 @@ export function BilibiliParseSettings({
               }}
             >
               <ExternalLink className="h-3 w-3" />
-              打开 CLI 配置页
+              {t('打开 CLI 配置页')}
             </button>
           </div>
 

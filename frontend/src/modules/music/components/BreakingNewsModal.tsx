@@ -694,7 +694,7 @@ export function BreakingNewsModal({
             {loading && (
               <div className="mt-2.5 flex items-center gap-2 text-[12px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
                 <Loader2 className="h-3 w-3 animate-spin" />
-                正在加载详情…
+                {t('正在加载详情…')}
               </div>
             )}
             {errorText && (

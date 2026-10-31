@@ -110,19 +110,19 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
                   <code className="rounded bg-[var(--md-sys-color-surface-container)] px-1 py-0.5">
                     /api/*
                   </code>{' '}
-                  → REST API（端口 3333）
+                  {t('→ REST API（端口 3333）')}
                 </li>
                 <li>
                   <code className="rounded bg-[var(--md-sys-color-surface-container)] px-1 py-0.5">
                     /socket.io/*
                   </code>{' '}
-                  → WebSocket 信令（端口 3333）
+                  {t('→ WebSocket 信令（端口 3333）')}
                 </li>
                 <li>
                   <code className="rounded bg-[var(--md-sys-color-surface-container)] px-1 py-0.5">
                     /live/*
                   </code>{' '}
-                  → HTTP-FLV 拉流（端口 3335）
+                  {t('→ HTTP-FLV 拉流（端口 3335）')}
                 </li>
               </ul>
               <p>
@@ -171,25 +171,25 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
         </details>
         <div className="space-y-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
           <p>
-            当前 API 地址:{' '}
+            {t('当前 API 地址:')}{' '}
             <code className="bg-[var(--md-sys-color-surface-container)] px-1 py-0.5 rounded">
               {getApiUrl()}
             </code>
           </p>
           <p>
-            当前 WebSocket 地址:{' '}
+            {t('当前 WebSocket 地址:')}{' '}
             <code className="bg-[var(--md-sys-color-surface-container)] px-1 py-0.5 rounded">
               {getSocketUrl()}
             </code>
           </p>
           <p>
-            当前 FLV 基础地址:{' '}
+            {t('当前 FLV 基础地址:')}{' '}
             <code className="bg-[var(--md-sys-color-surface-container)] px-1 py-0.5 rounded">
               {getFlvBaseUrl() || t('(相对路径 /live)')}
             </code>
           </p>
           <p>
-            当前 RTMP 端口:{' '}
+            {t('当前 RTMP 端口:')}{' '}
             <code className="bg-[var(--md-sys-color-surface-container)] px-1 py-0.5 rounded">
               {getRtmpPort()}
             </code>

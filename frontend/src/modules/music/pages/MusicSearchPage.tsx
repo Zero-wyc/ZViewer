@@ -177,7 +177,7 @@ export function MusicSearchPage({
         {searching && (
           <div className="flex items-center gap-2 px-2 py-3 text-xs text-[var(--md-sys-color-on-surface-variant)]">
             <Loader2 className="h-3.5 w-3.5 animate-spin" />
-            正在搜索…
+            {t('正在搜索…')}
           </div>
         )}
         {!searching && results.length === 0 && (

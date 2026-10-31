@@ -203,7 +203,7 @@ export function ThemeMenu({
               >
                 <span className="text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] flex items-center gap-1.5">
                   <SlidersHorizontal className="w-3.5 h-3.5" />
-                  圆角
+                  {t('圆角')}
                 </span>
                 <div className="grid grid-cols-4 gap-2">
                   {RADIUS_PRESETS.map((preset) => {

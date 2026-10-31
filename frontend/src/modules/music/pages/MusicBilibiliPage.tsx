@@ -1442,7 +1442,8 @@ export function MusicBilibiliPage({
                   'color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent)',
               }}
             >
-              搜索「{biliSearchKeyword}」
+              {translate('搜索「')}
+              {biliSearchKeyword}」
               <button
                 type="button"
                 onClick={() => {
@@ -1634,7 +1635,7 @@ export function MusicBilibiliPage({
                     aria-pressed={tagEditMode}
                   >
                     <SlidersHorizontal className="h-3.5 w-3.5" />
-                    排序
+                    {translate('排序')}
                   </button>
                 )}
                 {!addingTag && (
@@ -1899,7 +1900,7 @@ export function MusicBilibiliPage({
                   title={translate('添加自定义音乐种类')}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  添加种类
+                  {translate('添加种类')}
                 </button>
               )}
             </aside>

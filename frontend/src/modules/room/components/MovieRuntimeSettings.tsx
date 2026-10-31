@@ -210,7 +210,7 @@ export function MovieRuntimeSettings({
       >
         <span className="flex items-center gap-1 font-medium">
           <Settings2 className="h-3 w-3" />
-          播放设置
+          {t('播放设置')}
         </span>
         <span className="flex items-center gap-1">
           <span className="text-[9px]">{summary}</span>

@@ -734,7 +734,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 aria-expanded={ncmMenuOpen}
                 aria-label={t('网易云音乐分区导航')}
               >
-                网易云音乐
+                {t('网易云音乐')}
                 <ChevronDown
                   className={cn(
                     'h-4 w-4 transition-transform duration-200',
@@ -827,7 +827,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                     }
                   >
                     <UnfoldVertical className="h-4 w-4 text-[var(--md-sys-color-on-surface-variant)]" />
-                    展开完整导航
+                    {t('展开完整导航')}
                   </button>
                 </div>
               )}
@@ -1111,7 +1111,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
               }}
             >
               <Settings className="h-4 w-4 text-[var(--md-sys-color-on-surface-variant)]" />
-              设置
+              {t('设置')}
             </button>
             {/* 退出登录 / 账号登录 */}
             {loginStatus.loggedIn ? (
@@ -1133,7 +1133,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 }}
               >
                 <LogOut className="h-4 w-4" />
-                退出登录
+                {t('退出登录')}
               </button>
             ) : (
               <button
@@ -1150,7 +1150,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                 }}
               >
                 <LogIn className="h-4 w-4" />
-                账号登录
+                {t('账号登录')}
               </button>
             )}
             {/* 仅房主可见辅助提示 */}

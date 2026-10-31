@@ -923,7 +923,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                   fill="currentColor"
                 />
               </svg>
-              返回列表
+              {t('返回列表')}
             </button>
           )}
         </div>

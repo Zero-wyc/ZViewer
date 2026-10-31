@@ -311,7 +311,7 @@ function DirectWatchPage() {
             {step === 'connected' && (
               <Tag color="success">
                 <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                已连接
+                {t('已连接')}
               </Tag>
             )}
             {showVideo && !hasRemoteStream && (
@@ -323,7 +323,7 @@ function DirectWatchPage() {
             <div className="text-left">
               <Paragraph className="m-0 mb-1 text-sm font-medium">
                 <Link2 className="h-4 w-4 inline mr-1" />
-                分享端直连码
+                {t('分享端直连码')}
               </Paragraph>
               <textarea
                 value={offerCode}

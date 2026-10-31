@@ -78,8 +78,8 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
               type="secondary"
               className="m-0 mt-1 text-[10px] leading-tight"
             >
-              推荐 {frameRate}fps ≥ {Math.max(2, Math.round(frameRate * 0.267))}{' '}
-              Mbps
+              {t('推荐')} {frameRate}fps ≥{' '}
+              {Math.max(2, Math.round(frameRate * 0.267))} Mbps
               {frameRate >= 45 && t('，码率不足将导致降帧')}
             </Paragraph>
           </div>

@@ -1645,7 +1645,7 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
                         className="shrink-0 px-1.5 py-0 text-[10px]"
                       >
                         <Crown className="mr-0.5 h-3 w-3" />
-                        大会员
+                        {t('大会员')}
                       </Tag>
                     ) : (
                       <Tag

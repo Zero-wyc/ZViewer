@@ -797,13 +797,13 @@ export function SettingsTab({
                   <div className="space-y-3">
                     <div className="flex items-center justify-between">
                       <Text className="text-sm">
-                        当前版本：
+                        {t('当前版本：')}
                         <span className="font-mono text-[var(--md-sys-color-on-surface-variant)]">
                           {updateInfo.currentVersion}
                         </span>
                       </Text>
                       <Text className="text-sm">
-                        远程版本：
+                        {t('远程版本：')}
                         <span className="font-mono text-[var(--md-sys-color-on-surface-variant)]">
                           {updateInfo.remoteVersion}
                         </span>

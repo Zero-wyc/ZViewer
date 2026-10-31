@@ -122,7 +122,7 @@ export function DanmakuStylePanel({
           }}
         >
           <RotateCcw className="h-3 w-3" />
-          重置
+          {t('重置')}
         </button>
       </div>
     </div>

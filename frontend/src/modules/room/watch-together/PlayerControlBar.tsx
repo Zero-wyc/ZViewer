@@ -857,7 +857,7 @@ export function PlayerControlBar({
                     className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[var(--md-sys-color-on-surface)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
                   >
                     <RotateCcw size={14} />
-                    同步进度
+                    {translate('同步进度')}
                   </button>
                 )}
                 <button
@@ -869,7 +869,7 @@ export function PlayerControlBar({
                   className="flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-[var(--md-sys-color-on-surface)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
                 >
                   <RotateCw size={14} />
-                  重载视频
+                  {translate('重载视频')}
                 </button>
                 <button
                   type="button"

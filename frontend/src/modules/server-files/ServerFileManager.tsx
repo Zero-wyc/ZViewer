@@ -560,7 +560,7 @@ export default function ServerFileManager() {
                   style={{ color: 'var(--md-sys-color-primary)' }}
                 >
                   <Plus className="h-3.5 w-3.5" />
-                  添加服务器目录
+                  {t('添加服务器目录')}
                 </button>
               </div>
             </div>
@@ -596,7 +596,7 @@ export default function ServerFileManager() {
             }}
           >
             <Lock className="h-3 w-3" />
-            只读
+            {t('只读')}
           </span>
         )}
       </div>

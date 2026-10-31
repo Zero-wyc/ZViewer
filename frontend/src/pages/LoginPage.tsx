@@ -245,7 +245,7 @@ export default function LoginPage() {
                 </Paragraph>
               ) : (
                 <Paragraph type="secondary" className="text-xs m-0">
-                  还没有账号？{' '}
+                  {t('还没有账号？')}{' '}
                   <button
                     type="button"
                     onClick={() => setMode('register')}
@@ -258,7 +258,7 @@ export default function LoginPage() {
               )
             ) : (
               <Paragraph type="secondary" className="text-xs m-0">
-                已有账号？{' '}
+                {t('已有账号？')}{' '}
                 <button
                   type="button"
                   onClick={() => setMode('login')}

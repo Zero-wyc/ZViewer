@@ -379,7 +379,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
           style={{ backgroundColor: 'rgba(0, 0, 0, 0.72)' }}
         >
           <Volume2 className="h-4 w-4" />
-          浏览器已自动静音，点击开启声音
+          {t('浏览器已自动静音，点击开启声音')}
         </button>
       )}
       <AnnotationLayer

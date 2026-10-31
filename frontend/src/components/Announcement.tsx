@@ -301,7 +301,8 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-primary)]"
             >
-              <ExternalLink className="h-3.5 w-3.5" />在 GitHub 查看原始公告
+              <ExternalLink className="h-3.5 w-3.5" />
+              {translate('在 GitHub 查看原始公告')}
             </a>
           </div>
         }
@@ -317,7 +318,7 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
           {loading ? (
             <div className="flex h-24 items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               <Loader2 className="h-4 w-4 animate-spin" />
-              正在拉取公告…
+              {translate('正在拉取公告…')}
             </div>
           ) : failed || content == null ? (
             <div className="flex h-24 flex-col items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">

@@ -319,7 +319,7 @@ export function AddToPlaylistModal({
                           <Check className="h-2.5 w-2.5" strokeWidth={3} />
                         )}
                       </span>
-                      设置为隐私歌单
+                      {t('设置为隐私歌单')}
                     </button>
                     <div className="flex gap-2">
                       <button
@@ -335,7 +335,7 @@ export function AddToPlaylistModal({
                         {creating && (
                           <Loader2 className="h-3 w-3 animate-spin" />
                         )}
-                        完成
+                        {t('完成')}
                       </button>
                       <button
                         type="button"

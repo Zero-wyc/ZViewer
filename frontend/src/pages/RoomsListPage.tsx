@@ -302,12 +302,12 @@ export default function RoomsListPage() {
                       {room.hasPassword ? (
                         <Tag color="purple">
                           <Lock className="mr-1 inline h-3 w-3" />
-                          有密码
+                          {t('有密码')}
                         </Tag>
                       ) : (
                         <Tag color="default">
                           <Unlock className="mr-1 inline h-3 w-3" />
-                          无密码
+                          {t('无密码')}
                         </Tag>
                       )}
                       <Tag color="default">{getModeLabel(room.mode)}</Tag>

@@ -877,7 +877,7 @@ export default function EmbyBrowser({
                     title={t('列表视图')}
                   >
                     <List className="h-3.5 w-3.5" />
-                    列表
+                    {t('列表')}
                   </button>
                   <button
                     type="button"
@@ -891,7 +891,7 @@ export default function EmbyBrowser({
                     title={t('海报墙视图（拉取刮削封面）')}
                   >
                     <LayoutGrid className="h-3.5 w-3.5" />
-                    海报墙
+                    {t('海报墙')}
                   </button>
                 </div>
               )}

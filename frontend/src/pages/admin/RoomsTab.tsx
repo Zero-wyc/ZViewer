@@ -145,7 +145,7 @@ export function RoomsTab({
                     {room.hasPassword && (
                       <Tag color="purple">
                         <Lock className="mr-1 inline h-3 w-3" />
-                        有密码
+                        {t('有密码')}
                       </Tag>
                     )}
                   </div>

@@ -259,7 +259,7 @@ export function CommentPanel({
                                   }}
                                 >
                                   <MessageSquareQuote className="h-2.5 w-2.5" />
-                                  弹幕
+                                  {t('弹幕')}
                                 </span>
                               )}
                             </div>

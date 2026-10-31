@@ -268,7 +268,7 @@ export function UserMenu({
                 }
               >
                 <LogIn className="w-4 h-4" />
-                登录
+                {t('登录')}
               </button>
             ) : (
               <button
@@ -281,7 +281,7 @@ export function UserMenu({
                 }
               >
                 <LogOut className="w-4 h-4" />
-                退出登录
+                {t('退出登录')}
               </button>
             )}
           </div>,

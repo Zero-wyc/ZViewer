@@ -424,7 +424,7 @@ export function PlayerSettingsModal({ onDismiss }: { onDismiss: () => void }) {
                   style={{ border: '0.5px solid rgba(255, 255, 255, 0.2)' }}
                 >
                   <ExternalLink className="h-3 w-3" />
-                  打开 CLI 配置页
+                  {t('打开 CLI 配置页')}
                 </button>
                 {/* 播放模式（BilibiliParseSettings 同构分段按钮，黑底配色适配）：
                 DASH 高画质 / MP4 直链同卡片切换；CLI 开关启用即锁定（已连接

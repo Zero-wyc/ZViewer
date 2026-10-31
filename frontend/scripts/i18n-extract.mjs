@@ -340,14 +340,6 @@ function transformFile(file, options) {
   const skip = (node, reason, text) =>
     skipped.push({ file: path.relative(FRONTEND, file), line: lineOf(sourceFile, node), reason, text })
 
-  /** JSX 元素是否只有一个「有内容」的子节点（多子节点不自动拆句） */
-  const isSingleChildElement = (element) => {
-    const meaningful = element.children.filter(
-      (child) => !(ts.isJsxText(child) && !child.text.trim())
-    )
-    return meaningful.length === 1
-  }
-
   /**
    * 字符串/模板串通用的「不该动」判定，返回跳过原因（null 表示可以替换）。
    *
@@ -534,14 +526,29 @@ function transformFile(file, options) {
         return
       }
       const parent = node.parent
-      if (ts.isJsxElement(parent) || ts.isJsxFragment(parent)) {
-        if (ts.isJsxElement(parent) && !isSingleChildElement(parent)) {
-          skip(node, 'jsx-multi-child', text)
-          return
-        }
-        addKey(text)
-        addEdit(node.getStart(sourceFile), node.getEnd(), `{${callName}(${quote(text)})}`)
+      if (!ts.isJsxElement(parent) && !ts.isJsxFragment(parent)) return
+      // 同一元素里有 **两个以上** 中文文本节点，说明一句话被子元素切开了
+      // （`共 <strong>3</strong> 条`）：必须拆句或上 <Trans>，不自动动。
+      const hanTexts = parent.children.filter(
+        (child) => ts.isJsxText(child) && hasHan(normalizeText(child.text))
+      )
+      if (hanTexts.length > 1) {
+        skip(node, 'jsx-multi-child', text)
+        return
       }
+      // 只包文本本身。兄弟节点是图标/表达式时句子依然完整，可以安全地只换这一段；
+      // 同一行上的前后空格属于版面（`<b>x</b> 文字`），替换掉会把词粘在一起，要留在外面。
+      const raw = node.text
+      const leadRaw = raw.match(/^\s*/)[0]
+      const trailRaw = raw.match(/\s*$/)[0]
+      const lead = leadRaw && !leadRaw.includes('\n') ? ' ' : ''
+      const trail = trailRaw && !trailRaw.includes('\n') ? ' ' : ''
+      addKey(text)
+      addEdit(
+        node.getStart(sourceFile),
+        node.getEnd(),
+        `${lead}{${callName}(${quote(text)})}${trail}`
+      )
       return
     }
 

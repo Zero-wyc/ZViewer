@@ -379,7 +379,7 @@ export function NcmSearchModal({
             {unfoldDone && !searching && searched && results.length === 0 && (
               <div className="flex flex-col items-center justify-center gap-2 py-10 text-center text-xs text-white/55">
                 <SearchX className="h-5 w-5 opacity-40" />
-                未找到相关歌曲，换个关键词试试
+                {t('未找到相关歌曲，换个关键词试试')}
               </div>
             )}
             {unfoldDone &&

@@ -313,7 +313,7 @@ function ShellInner({
                     style={{ color: 'var(--md-sys-color-primary)' }}
                     strokeWidth={2.5}
                   />
-                  {ack.username} 已同步
+                  {ack.username} {t('已同步')}
                 </div>
               ))}
             </div>
@@ -328,7 +328,7 @@ function ShellInner({
               <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-[var(--md-sys-color-tertiary)] opacity-60" />
               <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--md-sys-color-tertiary)]" />
             </span>
-            房主已离开，您可以自主控制播放
+            {t('房主已离开，您可以自主控制播放')}
           </div>
         )}
         {(syncNotice || noticeLeaving) && noticeView && (
@@ -353,7 +353,7 @@ function ShellInner({
                   title={t('通过申请')}
                 >
                   <Check className="h-3 w-3" strokeWidth={2.5} />
-                  通过
+                  {t('通过')}
                 </button>
                 <button
                   type="button"
@@ -362,7 +362,7 @@ function ShellInner({
                   title={t('拒绝申请')}
                 >
                   <X className="h-3 w-3" />
-                  拒绝
+                  {t('拒绝')}
                 </button>
               </span>
             )}

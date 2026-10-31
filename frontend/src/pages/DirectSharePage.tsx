@@ -281,7 +281,7 @@ function DirectSharePage() {
             {step === 'connected' && (
               <Tag color="success">
                 <CheckCircle2 className="h-3 w-3 inline mr-1" />
-                已连接
+                {t('已连接')}
               </Tag>
             )}
           </div>
@@ -327,7 +327,7 @@ function DirectSharePage() {
             <div className="text-left">
               <Paragraph className="m-0 mb-1 text-sm font-medium">
                 <Link2 className="h-4 w-4 inline mr-1" />
-                直连码（发送给观看端）
+                {t('直连码（发送给观看端）')}
               </Paragraph>
               <textarea
                 readOnly

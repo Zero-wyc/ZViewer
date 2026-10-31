@@ -56,7 +56,7 @@ export function ViewerCliRequiredOverlay() {
           className="flex items-center gap-1 rounded-md bg-[var(--md-sys-color-primary)] px-3 py-1.5 text-xs font-semibold text-[var(--md-sys-color-on-primary)] transition-opacity hover:opacity-90"
         >
           <ExternalLink className="h-3 w-3" />
-          打开 CLI 配置页
+          {t('打开 CLI 配置页')}
         </button>
         <button
           type="button"
@@ -64,7 +64,7 @@ export function ViewerCliRequiredOverlay() {
           className="flex items-center gap-1 rounded-md border border-white/30 px-3 py-1.5 text-xs font-semibold text-white/90 transition-colors hover:bg-white/10"
         >
           <RefreshCw className="h-3 w-3" />
-          我已连接，重试
+          {t('我已连接，重试')}
         </button>
       </div>
     </div>

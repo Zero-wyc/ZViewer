@@ -170,7 +170,7 @@ export function StreamPushPage({
         <Text className="font-semibold">{t('OBS 推流步骤')}</Text>
         <ol className="flex flex-col gap-1.5 pl-5 text-[var(--md-sys-color-on-surface-variant)]">
           <li>
-            点击「下载 OBS 配置文件」获取{' '}
+            {t('点击「下载 OBS 配置文件」获取')}{' '}
             <code className="font-mono">zviewer-obs-config.json</code>
           </li>
           <li>

@@ -208,7 +208,7 @@ export function TrafficPanel({
         <>
           <div className="my-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
             <Server className="h-3 w-3" />
-            服务端网卡
+            {t('服务端网卡')}
           </div>
           {serverAvailable && server ? (
             <>

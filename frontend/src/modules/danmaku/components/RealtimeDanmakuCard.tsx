@@ -736,7 +736,7 @@ export function RealtimeDanmakuCard() {
                         onClick={() => handleRestore(entry.trackId, entry.item)}
                       >
                         <RotateCcw size={12} />
-                        恢复
+                        {translate('恢复')}
                       </button>
                     </div>
                   ))}

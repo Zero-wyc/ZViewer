@@ -976,7 +976,7 @@ export function MusicCloudPage({
             style={{ color: 'var(--md-sys-color-on-surface)' }}
           >
             <X className="h-3.5 w-3.5" />
-            全部取消
+            {t('全部取消')}
           </button>
           <button
             type="button"
