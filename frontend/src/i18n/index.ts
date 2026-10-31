@@ -81,6 +81,8 @@ function withPlurals(dict: Record<string, string>): Record<string, string> {
   const filled = { ...dict }
   for (const [key, value] of Object.entries(dict)) {
     if (!key.includes('{{count}}')) continue
+    // overrides.json 里已经写好的单复数形式本身也含 {{count}}，别再套一层
+    if (key.endsWith('_one') || key.endsWith('_other')) continue
     if (!(`${key}_one` in filled)) filled[`${key}_one`] = value
     if (!(`${key}_other` in filled)) filled[`${key}_other`] = value
   }

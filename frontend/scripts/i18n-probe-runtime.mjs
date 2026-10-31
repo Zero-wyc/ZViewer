@@ -15,6 +15,19 @@ const samples = [
   ['设置(离开页面以保存设置或', {}],
   ['保存)', {}],
   ['」', {}],
+  // overrides.json 里手写了 _one 的条目：count=1 必须走单数，不能被 withPlurals 再套一层
+  ['找到 {{count}} 条字幕', { count: 1 }],
+  ['找到 {{count}} 条字幕', { count: 5 }],
+  ['已清理 {{count}} 个无人使用的房间', { count: 1 }],
+  ['已清理 {{count}} 个无人使用的房间', { count: 2 }],
+  [
+    '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。',
+    { count: 1 },
+  ],
+  [
+    '确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。',
+    { count: 3 },
+  ],
 ]
 
 for (const [key, vars] of samples) {
