@@ -21,7 +21,7 @@ t('已复制 {{n}} 项', { n: 3 }) // 带插值
 npm run i18n:extract --scope src/modules/room --write   # 只处理某个目录
 npm run i18n:extract --write                            # 全量
 npm run i18n:dict                                       # 只重建词条表
-npm run i18n:check                                      # 校验词条表是否最新（CI 会跑）
+npm run i18n:check                                      # 校验词条表是否最新（手动跑，CI 不跑）
 ```
 
 脚本（`scripts/i18n-extract.mjs`）会把源码里的中文换成 `t('…')`，支持：
