@@ -27,6 +27,8 @@ export interface HostSessionState {
   paused: boolean
   /** 已建立发布端 PC 的数量（不是连上的数量）。 */
   peers: number
+  /** 快照里的观众数（不含房主自己）。 */
+  viewers: number
   audioAvailable: boolean
   microphoneEnabled: boolean
   /** 语义错误码，不是展示文案。 */
@@ -67,6 +69,7 @@ export class ShareHostSession {
     sharing: false,
     paused: false,
     peers: 0,
+    viewers: 0,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -93,6 +96,17 @@ export class ShareHostSession {
     return this.shareGeneration
   }
 
+  /**
+   * 用于统计面板的连接：取第一条发布端。
+   *
+   * 单层拓扑下每条边的内容完全一致，取哪一条对读数没有影响；面板一次只能
+   * 展示一条，所以固定取第一条（Map 保持插入顺序）。
+   */
+  statsConnection(): RTCPeerConnection | null {
+    for (const peer of this.peers.values()) return peer.getConnection()
+    return null
+  }
+
   /** 进会话：注册参与者，取回快照。 */
   hello(): void {
     this.client.hello(this.shareGeneration || undefined)
@@ -108,7 +122,19 @@ export class ShareHostSession {
     if (this.state.sharing) return true
     this.profile = options.profile
     try {
-      const source = options.stream ?? (await captureDisplay(options.profile))
+      const source =
+        options.stream ??
+        (await captureDisplay(options.profile, {
+          systemAudio: options.shareSystemAudio ?? true,
+        }))
+      if (options.shareSystemAudio === false) {
+        // 外部传入的流可能自带系统声：选择不共享声音时先摘掉音轨，再交给
+        // 混音器——`HostAudio` 只在音轨存在时才建图，不会留下空节点。
+        for (const track of source.getAudioTracks()) {
+          track.stop()
+          source.removeTrack(track)
+        }
+      }
       this.sourceStream = source
       const audio = new HostAudio(
         source,
@@ -189,16 +215,25 @@ export class ShareHostSession {
     return ok
   }
 
-  /** 改档位：`updateCapture` 为 true 时同时重下发采集约束（切分辨率）。 */
+  /**
+   * 改档位：`updateCapture` 为 true 时同时重下发采集约束（切分辨率）。
+   *
+   * 返回是否全部发布端都接受：切分辨率失败（浏览器给不出该尺寸）时调用方要
+   * 把界面上的档位回滚，否则显示的档位和实际画面不一致。
+   */
   async updateProfile(
     profile: QualityProfile,
     updateCapture: boolean
-  ): Promise<void> {
+  ): Promise<boolean> {
     this.profile = profile
+    let ok = true
     for (const peer of this.peers.values()) {
-      if (updateCapture) await peer.updateCaptureProfile(profile)
-      else await peer.updateProfile(profile)
+      const applied = updateCapture
+        ? await peer.updateCaptureProfile(profile)
+        : await peer.updateProfile(profile)
+      if (!applied) ok = false
     }
+    return ok
   }
 
   /** 开/关麦克风。混进同一条输出音轨，不新增轨道、不重协商。 */
@@ -219,7 +254,7 @@ export class ShareHostSession {
         shareGeneration: this.shareGeneration,
       })
     }
-    this.patch({ sharing: false, paused: false, peers: 0 })
+    this.patch({ sharing: false, paused: false, peers: 0, viewers: 0 })
     this.paused = false
     this.shareGeneration = ''
     this.releaseMedia()
@@ -240,6 +275,11 @@ export class ShareHostSession {
         this.shareGeneration = message.shareGeneration
         this.paused = message.paused
         this.options.onSnapshot?.(message)
+        this.patch({
+          viewers: message.participants.filter(
+            (participant) => participant.role === 'viewer'
+          ).length,
+        })
         this.syncPeers(message)
         return
       case 'share.route':
@@ -365,7 +405,7 @@ export class ShareHostSession {
       }
       if (this.state.sharing) {
         // 服务端说共享已结束（房主在别的标签页点了停止），本地跟着收尾。
-        this.patch({ sharing: false, peers: 0 })
+        this.patch({ sharing: false, peers: 0, viewers: 0 })
         this.releaseMedia()
       }
       return

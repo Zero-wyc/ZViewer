@@ -21,7 +21,7 @@ import { RequestNotification } from '@/components/ui/RequestNotification'
 import type { RequestNotificationItem } from '@/components/ui/RequestNotification'
 import { useShareMethod } from '../hooks/useShareMethod'
 import { useStreamStatus } from '../hooks/useStreamStatus'
-import WebrtcSharePage, { type P2PStateSnapshot } from './WebrtcSharePage'
+import WebrtcSharePage from './WebrtcSharePage'
 import { StreamPushPage } from './StreamPushPage'
 import { t } from '@/i18n'
 
@@ -31,8 +31,6 @@ interface SharePageProps {
   onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
   /** 采集实测帧率变化回调，透传到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
-  /** P2P 状态变化回调，透传到 RoomPage 供 RoomLayout 使用 */
-  onP2PStateChange?: (state: P2PStateSnapshot) => void
 }
 
 function SharePage({
@@ -40,7 +38,6 @@ function SharePage({
   style,
   onStatsPeerConnectionChange,
   onCaptureFpsChange,
-  onP2PStateChange,
 }: SharePageProps) {
   const { socket } = useSocket()
   const setIsSharing = useRoomStore((state) => state.setIsSharing)
@@ -172,7 +169,6 @@ function SharePage({
           style={style}
           onStatsPeerConnectionChange={onStatsPeerConnectionChange}
           onCaptureFpsChange={onCaptureFpsChange}
-          onP2PStateChange={onP2PStateChange}
         />
       )}
 

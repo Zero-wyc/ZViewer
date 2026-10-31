@@ -119,14 +119,13 @@ export function MediaSettingsCard(props: MediaSettingsCardProps): JSX.Element {
             label={t('共享麦克风')}
             checked={shareMicrophone}
             onChange={(e) => onShareMicrophoneChange(e.target.checked)}
-            disabled={isSharing}
           />
         </div>
 
         {isSharing && (
           <Paragraph type="secondary" className="m-0 text-xs">
             {t(
-              '共享期间修改帧率/码率/分辨率即时生效，无需重启共享；系统音频与麦克风仍需先结束共享。'
+              '共享期间可随时调整帧率、码率、分辨率与麦克风；系统音频需要先结束共享。'
             )}
           </Paragraph>
         )}

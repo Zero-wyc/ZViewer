@@ -12,50 +12,17 @@ import {
   applySenderCaptureConstraints,
   senderCaptureTrack,
 } from './sender-track'
+import { displayMediaOptions } from './capture-options'
 import {
   captureConstraints,
   supportsCaptureProfile,
   type QualityProfile,
 } from './quality'
 
-type DisplayMediaAudioHints = DisplayMediaStreamOptions & {
-  systemAudio?: 'include' | 'exclude'
-  windowAudio?: 'exclude' | 'window' | 'system'
-}
-
-type BrowserAudioConstraints = MediaTrackConstraints & {
-  voiceIsolation?: ConstrainBoolean
-}
-
-/** 音频输入约束。`voiceProcessing=false` 用于系统声与音乐输入。 */
-export function audioInputConstraints(
-  voiceProcessing: boolean
-): BrowserAudioConstraints {
-  return {
-    echoCancellation: voiceProcessing,
-    noiseSuppression: voiceProcessing,
-    autoGainControl: voiceProcessing,
-    // 音乐/虚拟输入要的是未处理的立体声，与屏幕声保持一致口径。
-    ...(voiceProcessing
-      ? {}
-      : { voiceIsolation: false, channelCount: { ideal: 2 } }),
-  }
-}
-
-export function displayMediaOptions(
-  video: MediaTrackConstraints
-): DisplayMediaStreamOptions {
-  return {
-    video,
-    audio: audioInputConstraints(false),
-    systemAudio: 'include',
-    windowAudio: 'window',
-  } as DisplayMediaAudioHints
-}
-
 /** 屏幕 / 窗口 / 标签页采集。无视频轨时抛错，不留半条流。 */
 export async function captureDisplay(
-  profile: QualityProfile
+  profile: QualityProfile,
+  options: { systemAudio?: boolean } = {}
 ): Promise<MediaStream> {
   if (!navigator.mediaDevices?.getDisplayMedia) {
     throw new Error('getDisplayMedia unavailable')
@@ -64,7 +31,10 @@ export async function captureDisplay(
     throw new Error('unsupported capture profile')
   }
   const stream = await navigator.mediaDevices.getDisplayMedia(
-    displayMediaOptions(captureConstraints(profile))
+    displayMediaOptions(
+      captureConstraints(profile),
+      options.systemAudio ?? true
+    )
   )
   const videoTrack = stream.getVideoTracks()[0]
   if (!videoTrack) {

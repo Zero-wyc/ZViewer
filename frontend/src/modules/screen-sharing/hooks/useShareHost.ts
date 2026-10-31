@@ -21,12 +21,18 @@ export interface UseShareHostOptions {
   videoRef?: { current: HTMLVideoElement | null }
   /** 采集轨被用户从浏览器 UI 停止时回调。 */
   onStreamEnded?: () => void
+  /** 预览 video 元素的挂载版本号（预览流可能先于元素到达）。 */
+  videoVersion?: number
 }
 
 export interface UseShareHostResult {
   sharing: boolean
   paused: boolean
   peerCount: number
+  /** 快照里的观众数（不一定已经有连接）。 */
+  viewerCount: number
+  /** 供统计面板读数的连接（第一条发布端）。 */
+  statsPeerConnection: RTCPeerConnection | null
   audioAvailable: boolean
   microphoneEnabled: boolean
   error: string | null
@@ -37,9 +43,9 @@ export interface UseShareHostResult {
   setPaused: (paused: boolean) => void
   setMicrophone: (enabled: boolean) => Promise<void>
   /** 帧率/码率热更新（不重采集）。 */
-  applyProfile: (settings: WebrtcShareMediaSettings) => Promise<void>
+  applyProfile: (settings: WebrtcShareMediaSettings) => Promise<boolean>
   /** 切换分辨率档位：传入带新档位的设置，重下发采集约束但不重协商。 */
-  switchResolution: (settings: WebrtcShareMediaSettings) => Promise<void>
+  switchResolution: (settings: WebrtcShareMediaSettings) => Promise<boolean>
 }
 
 /** UI 设置 → 编码档位。 */
@@ -52,17 +58,27 @@ export function profileOf(settings: WebrtcShareMediaSettings): QualityProfile {
 }
 
 export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
-  const { socket, roomId, iceServers, videoRef, onStreamEnded } = options
+  const {
+    socket,
+    roomId,
+    iceServers,
+    videoRef,
+    onStreamEnded,
+    videoVersion = 0,
+  } = options
   const sessionRef = useRef<ShareHostSession | null>(null)
   const [state, setState] = useState<HostSessionState>({
     sharing: false,
     paused: false,
     peers: 0,
+    viewers: 0,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
   })
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null)
+  const [statsPeerConnection, setStatsPeerConnection] =
+    useState<RTCPeerConnection | null>(null)
   const onStreamEndedRef = useRef(onStreamEnded)
   useEffect(() => {
     onStreamEndedRef.current = onStreamEnded
@@ -79,6 +95,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
       onStateChange: (next) => {
         setState(next)
         setPreviewStream(session.previewStream)
+        setStatsPeerConnection(session.statsConnection())
       },
       onError: (code) => {
         setState((prev) => ({ ...prev, error: code }))
@@ -90,6 +107,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
       session.dispose()
       sessionRef.current = null
       setPreviewStream(null)
+      setStatsPeerConnection(null)
     }
   }, [socket, roomId, iceServers])
 
@@ -110,12 +128,23 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
       track.removeEventListener('ended', handleEnded)
       video.srcObject = null
     }
-  }, [previewStream, videoRef])
+  }, [previewStream, videoRef, videoVersion])
 
   const start = useCallback(async (settings: WebrtcShareMediaSettings) => {
     const session = sessionRef.current
     if (!session) return false
-    const started = await session.start({ profile: profileOf(settings) })
+    const started = await session.start({
+      profile: profileOf(settings),
+      shareSystemAudio: settings.shareSystemAudio,
+    })
+    // 麦克风要等混音图建好才能挂上去，所以放在 start 之后。
+    if (started && settings.shareMicrophone) {
+      await session.setMicrophone(true, {
+        deviceId: '',
+        volume: 1,
+        voiceProcessing: true,
+      })
+    }
     setPreviewStream(session.previewStream)
     return started
   }, [])
@@ -139,14 +168,18 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
 
   const applyProfile = useCallback(
     async (settings: WebrtcShareMediaSettings) => {
-      await sessionRef.current?.updateProfile(profileOf(settings), false)
+      const session = sessionRef.current
+      if (!session) return false
+      return session.updateProfile(profileOf(settings), false)
     },
     []
   )
 
   const switchResolution = useCallback(
     async (settings: WebrtcShareMediaSettings) => {
-      await sessionRef.current?.updateProfile(profileOf(settings), true)
+      const session = sessionRef.current
+      if (!session) return false
+      return session.updateProfile(profileOf(settings), true)
     },
     []
   )
@@ -155,6 +188,8 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     sharing: state.sharing,
     paused: state.paused,
     peerCount: state.peers,
+    viewerCount: state.viewers,
+    statsPeerConnection,
     audioAvailable: state.audioAvailable,
     microphoneEnabled: state.microphoneEnabled,
     error: state.error,

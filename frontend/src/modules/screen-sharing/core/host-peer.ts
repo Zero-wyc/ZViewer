@@ -283,6 +283,11 @@ export class HostPeer {
     return this.connection.connectionState === 'connected'
   }
 
+  /** 底层连接，仅供统计面板读取（不要拿它直接操作媒体）。 */
+  getConnection(): RTCPeerConnection {
+    return this.connection
+  }
+
   getSnapshot(): HostPeerSnapshot {
     return { ...this.snapshot }
   }

@@ -24,6 +24,8 @@ interface RemoteVideoPlayerProps {
   hasRemoteStream: boolean
   /** PeerConnection（用于 VideoStatsMenu） */
   peerConnection: RTCPeerConnection | null
+  /** 没有画面时占位区显示的状态文案 */
+  statusTip?: string
 }
 
 export function RemoteVideoPlayer({
@@ -31,6 +33,7 @@ export function RemoteVideoPlayer({
   isMuted,
   hasRemoteStream,
   peerConnection,
+  statusTip,
 }: RemoteVideoPlayerProps): JSX.Element {
   // 用 state 跟踪 video 元素，避免在 render 中读取 ref.current
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
@@ -52,7 +55,7 @@ export function RemoteVideoPlayer({
       />
       {!hasRemoteStream && (
         <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-black/80">
-          <Spinner tip={t('正在接收画面...')} size={32} />
+          <Spinner tip={statusTip ?? t('正在接收画面...')} size={32} />
         </div>
       )}
     </div>

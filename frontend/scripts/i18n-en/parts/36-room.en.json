@@ -1,6 +1,5 @@
 {
   "items": [
-    "Sync progress",
     "HTTP traffic for this session (excluding WebSocket)",
     "Screen share",
     "Drag movie cards to reorder playback",
@@ -43,7 +42,6 @@
     "Host approval turned off",
     "Auto-approve turned off",
     "Restored to {{value}} (paused)",
-    "Fell back to server relay",
     "Transferred the host role to {{value}}",
     "Removed that viewer from the room",
     "Unmuted",
@@ -119,6 +117,8 @@
     "Resolving through the CLI proxy...",
     "Resolving episode {{page}} through the CLI proxy...",
     "Resolving the anime through the CLI proxy...",
-    "Switching quality through the CLI proxy..."
+    "Switching quality through the CLI proxy...",
+    "Resolving P{{page}} through the server...",
+    "Resolving through the server..."
   ]
 }

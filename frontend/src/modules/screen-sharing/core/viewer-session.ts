@@ -43,7 +43,8 @@ export interface ViewerSessionOptions {
   iceServers: RTCIceServer[]
   onStateChange?: (state: ViewerSessionState) => void
   onSnapshot?: (snapshot: ShareSnapshotMessage) => void
-  onStream?: (stream: MediaStream) => void
+  /** 远端流；`null` 表示流已拆（页面可以保留最后一帧，但不能再当成有画面）。 */
+  onStream?: (stream: MediaStream | null) => void
   onPeerUpdate?: (snapshot: ViewerPeerSnapshot) => void
   onError?: (code: string, message: string) => void
 }
@@ -289,7 +290,12 @@ export class ShareViewerSession {
   private teardownPeer(): void {
     this.peer?.dispose()
     this.peer = null
-    this.remoteStream = null
+    if (this.remoteStream) {
+      // 故意不要求页面清 srcObject：观众该看到最后一帧，但要立刻知道「已经没有
+      // 活的画面」——状态提示与统计都靠这个回调。
+      this.remoteStream = null
+      this.options.onStream?.(null)
+    }
     this.connectionId = ''
     this.patch({ active: false, hasVideo: false, recovering: false })
   }

@@ -1,7 +1,5 @@
 {
   "items": [
-    "Resolving P{{page}} through the server...",
-    "Resolving through the server...",
     "Resolving episode {{page}} through the server...",
     "Switching quality through the server...",
     "Stream directly, no need to wait for caching",
@@ -44,7 +42,6 @@
     "Direct video links such as MP4/WebM",
     "OpenList server address (required for direct-link mode; filled in from the selected mount)",
     "P{{currentPage}} {{value}} · click to switch",
-    "Negotiating P2P",
     "P2P direct",
     "RTT",
     "Socket not connected",

@@ -18,7 +18,7 @@ import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
 import { ConnectionStatsPanel } from '@/modules/screen-sharing/components/ConnectionStatsPanel'
 import { LiveArtPlayer } from '@/modules/art-player'
-import { ICE_SERVERS } from '@/modules/p2p/constants'
+import { ICE_SERVERS } from '@/lib/iceServers'
 import { t } from '@/i18n'
 
 interface DirectSignalData {

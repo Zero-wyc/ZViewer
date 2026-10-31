@@ -300,7 +300,7 @@ export class ViewerPeer {
       this.emit()
     } catch {
       if (!this.isCurrent(connectionId)) return
-      this.setError('share.viewer.error.negotation')
+      this.setError('share.viewer.error.negotiation')
       this.failOffer(connectionId)
     }
   }

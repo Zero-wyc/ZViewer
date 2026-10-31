@@ -1,6 +1,6 @@
 {
   "items": [
-    "Requested {{value}} from the host",
+    "Requested: {{value}}",
     "Already in {{displayName}}",
     "Already in the queue",
     "Already in Liked Music",

@@ -1,6 +1,5 @@
 {
   "items": [
-    "Load more",
     "Loading qualities...",
     "Failed to load the movie's episodes",
     "Role hierarchy",
@@ -119,6 +118,7 @@
     "Seek request",
     "The seek request timed out; the host did not respond",
     "Watch video in sync, with direct links, WebDAV, SMB and Bilibili",
-    "Play NetEase Cloud Music in sync, sharing the playlist and lyrics with the room"
+    "Play NetEase Cloud Music in sync, sharing the playlist and lyrics with the room",
+    "Sync progress"
   ]
 }

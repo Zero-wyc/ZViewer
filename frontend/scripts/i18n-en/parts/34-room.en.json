@@ -49,7 +49,6 @@
     "Waiting for the connection",
     "Click to copy",
     "Click to load qualities",
-    "Click to switch to P2P",
     "Port, default 21",
     "Send danmaku",
     "Send a friendly danmaku",
@@ -119,6 +118,7 @@
     "Join",
     "A user who joined the room. Can watch the video and post comments and danmaku (unless muted). Cannot manage the room or other viewers.",
     "Failed to join",
-    "Failed to load the anime episodes"
+    "Failed to load the anime episodes",
+    "Load more"
   ]
 }

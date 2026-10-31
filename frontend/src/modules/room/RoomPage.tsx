@@ -22,7 +22,6 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
 import { SharePage, WatchPage } from '@/modules/screen-sharing'
-import type { P2PStateSnapshot } from '@/modules/screen-sharing/components/WebrtcSharePage'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
 import { dispatchRoomMediaTeardown } from '@/lib/mediaTeardown'
@@ -162,14 +161,6 @@ function RoomPage() {
   // 房主采集实测帧率（由 WebrtcSharePage 的帧率计提升，供 SharingStatusPanel 显示）
   const [hostCaptureFps, setHostCaptureFps] = useState<number | null>(null)
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
-  // 房主 P2P 状态（由 WebrtcSharePage 提升）
-  const [p2pState, setP2pState] = useState<P2PStateSnapshot>({
-    enabled: false,
-    pc: null,
-    status: 'idle',
-    fallbackNotice: false,
-    toggle: () => {},
-  })
 
   // 将 URL 中的房间号同步到 store，确保刷新或直接访问房间链接时
   // MoviePushPanel 等依赖 store.roomId 的组件能正常工作。
@@ -502,7 +493,6 @@ function RoomPage() {
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
           onCaptureFpsChange={setHostCaptureFps}
-          onP2PStateChange={setP2pState}
         />
       )
 
@@ -538,11 +528,6 @@ function RoomPage() {
         }
         peerConnection={hostPeerConnection}
         captureFps={hostCaptureFps}
-        p2pEnabled={p2pState.enabled}
-        p2pPC={p2pState.pc}
-        p2pStatus={p2pState.status}
-        p2pFallbackNotice={p2pState.fallbackNotice}
-        onToggleP2P={p2pState.toggle}
         controls={controls}
         controlLabels={controlLabels}
         webFullscreen={isWebFullscreen}

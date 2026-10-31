@@ -11,24 +11,13 @@
  *  - 音频图起不来是可接受的降级：退回原始流的音轨，画面照常共享。
  */
 
+import { audioInputConstraints } from './capture-options'
+
 /** 讲话（麦克风）输入设置。 */
 export interface CommentaryInput {
   deviceId: string
   volume: number
   voiceProcessing: boolean
-}
-
-function audioInputConstraints(
-  voiceProcessing: boolean
-): MediaTrackConstraints & { voiceIsolation?: ConstrainBoolean } {
-  return {
-    echoCancellation: voiceProcessing,
-    noiseSuppression: voiceProcessing,
-    autoGainControl: voiceProcessing,
-    ...(voiceProcessing
-      ? {}
-      : { voiceIsolation: false, channelCount: { ideal: 2 } }),
-  }
 }
 
 /**

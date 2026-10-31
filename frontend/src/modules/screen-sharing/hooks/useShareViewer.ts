@@ -20,6 +20,11 @@ export interface UseShareViewerOptions {
   videoRef?: { current: HTMLVideoElement | null }
   /** 自动播放被浏览器拦截时回调（由页面决定是否展示「点击开启声音」）。 */
   onAutoplayBlocked?: () => void
+  /**
+   * video 元素挂载版本号。远端流可能先于 video 元素到达（回调 ref 挂载晚于
+   * effect），带上它才能在元素就位后补一次绑定。
+   */
+  videoVersion?: number
 }
 
 export interface UseShareViewerResult {
@@ -47,7 +52,14 @@ const INITIAL_STATE: ViewerSessionState = {
 export function useShareViewer(
   options: UseShareViewerOptions
 ): UseShareViewerResult {
-  const { socket, roomId, iceServers, videoRef, onAutoplayBlocked } = options
+  const {
+    socket,
+    roomId,
+    iceServers,
+    videoRef,
+    onAutoplayBlocked,
+    videoVersion = 0,
+  } = options
   const sessionRef = useRef<ShareViewerSession | null>(null)
   const [state, setState] = useState<ViewerSessionState>(INITIAL_STATE)
   const [remoteStream, setRemoteStream] = useState<MediaStream | null>(null)
@@ -107,10 +119,13 @@ export function useShareViewer(
         onAutoplayBlockedRef.current?.()
       }
     })
-  }, [remoteStream, videoRef])
+  }, [remoteStream, videoRef, videoVersion])
 
+  /** 恢复预算耗尽后的手动重试：没有连接时退化成重新取快照。 */
   const retry = useCallback(() => {
-    sessionRef.current?.retry()
+    const session = sessionRef.current
+    if (!session) return
+    if (!session.retry()) session.hello()
   }, [])
 
   return {

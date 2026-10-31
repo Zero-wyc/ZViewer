@@ -1,13 +1,9 @@
 /**
  * WebRTC 屏幕共享房主端。
  *
- * 从 SharePage.tsx 中拆分，仅处理 WebRTC 子模式的房主逻辑：
- * - 本地媒体流采集（getDisplayMedia + 麦克风）
- * - 多 viewer PeerConnection 管理
- * - 信令通道订阅
- * - 本地预览播放器 + 批注层 + 控制栏
- *
- * SharePage 分发器根据 shareMethod 决定渲染本组件或 StreamPushPage。
+ * 三件事：采集与混音（`ShareHostSession`）、本地预览、控制栏。
+ * 多观众不再由本页管理——服务端为每个观众下发一条候选，会话按候选建发布端，
+ * 页面只读会话暴露的计数。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
@@ -24,32 +20,22 @@ import { useRoomStore } from '@/store/roomStore'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { useLocalMediaStream } from '../hooks/useLocalMediaStream'
-import { useHostPeerConnections } from '../hooks/useHostPeerConnections'
+import { useShareHost } from '../hooks/useShareHost'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
+import { hostErrorText } from '../utils/shareMessages'
 import {
   loadMediaSettings,
   saveMediaSettings,
+  type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
+import { ICE_SERVERS } from '../constants'
 import type { ResolutionPreset } from '../constants'
-import { useP2PTunnel } from '@/modules/p2p'
-import type { P2PStatus } from '@/modules/p2p/types'
 import { MediaSettingsCard } from './MediaSettingsCard'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
 import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
 import { t } from '@/i18n'
-
-/** P2P 状态快照，由 WebrtcSharePage 提升到 RoomPage 供 RoomLayout 使用 */
-export interface P2PStateSnapshot {
-  enabled: boolean
-  pc: RTCPeerConnection | null
-  status: P2PStatus
-  fallbackNotice: boolean
-  /** 切换 P2P 开关（enabled=true 启用，false 禁用） */
-  toggle: (enabled: boolean) => void
-}
 
 interface WebrtcSharePageProps {
   className?: string
@@ -57,8 +43,6 @@ interface WebrtcSharePageProps {
   onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
   /** 采集实测帧率变化回调，提升到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
-  /** P2P 状态变化回调，提升到 RoomPage 供 RoomLayout 的 SharingStatusPanel 使用 */
-  onP2PStateChange?: (state: P2PStateSnapshot) => void
 }
 
 function WebrtcSharePage({
@@ -66,7 +50,6 @@ function WebrtcSharePage({
   style,
   onStatsPeerConnectionChange,
   onCaptureFpsChange,
-  onP2PStateChange,
 }: WebrtcSharePageProps) {
   const navigate = useNavigate()
   const { socket, connected } = useSocket()
@@ -94,15 +77,21 @@ function WebrtcSharePage({
   )
   const [closing, setClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
+  const [starting, setStarting] = useState(false)
+  const [switchingResolution, setSwitchingResolution] = useState(false)
 
+  /** 当前界面设置：事件回调同步读它，避免闭包里拿到旧值。 */
+  const settingsRef = useRef<WebrtcShareMediaSettings>(savedSettings)
   useEffect(() => {
-    saveMediaSettings({
+    const next: WebrtcShareMediaSettings = {
       frameRate,
       maxBitrateMbps,
       shareSystemAudio,
       shareMicrophone,
       resolutionPreset,
-    })
+    }
+    settingsRef.current = next
+    saveMediaSettings(next)
   }, [
     frameRate,
     maxBitrateMbps,
@@ -111,74 +100,44 @@ function WebrtcSharePage({
     resolutionPreset,
   ])
 
-  // 帧率切换时自动调整推荐码率（仅在未共享时）
-  // 码率不足是 60fps 降帧的首要原因，自动提升到推荐值避免用户手动调整
-  const handleFrameRateChange = useCallback((next: number) => {
-    setFrameRate(next)
-    // 推荐码率：15fps→4, 30fps→8, 45fps→12, 60fps→16
-    const recommended = Math.max(2, Math.round(next * 0.267))
-    setMaxBitrateMbps((prev) => {
-      // 仅当当前码率低于推荐值时自动提升，不覆盖用户主动设置的高码率
-      if (prev < recommended) return recommended
-      return prev
-    })
-  }, [])
-
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
-  const [localVideoEl, setLocalVideoEl] = useState<HTMLVideoElement | null>(
-    null
-  )
+  const [localVideoVersion, setLocalVideoVersion] = useState(0)
   const handleLocalVideoReady = useCallback((node: HTMLVideoElement | null) => {
+    const prev = localVideoRef.current
     localVideoRef.current = node
-    setLocalVideoEl(node)
+    if (node && !prev) setLocalVideoVersion((v) => v + 1)
   }, [])
   const handleStreamEndedRef = useRef<() => void>(() => {})
 
   const {
-    stream,
-    micStream,
-    isSharing,
-    starting,
-    isPaused,
-    switchingResolution,
-    error: mediaError,
+    sharing: isSharing,
+    paused: isPaused,
+    peerCount,
+    viewerCount,
+    statsPeerConnection,
+    previewStream,
+    error,
     start,
     stop,
-    pause,
-    resume,
+    setPaused,
+    setMicrophone,
+    applyProfile,
     switchResolution,
-  } = useLocalMediaStream({
-    frameRate,
-    maxBitrateMbps,
-    shareSystemAudio,
-    shareMicrophone,
-    resolutionPreset,
+  } = useShareHost({
+    socket,
+    roomId: currentRoomId,
+    iceServers: ICE_SERVERS,
+    videoRef: localVideoRef,
+    videoVersion: localVideoVersion,
     onStreamEnded: () => handleStreamEndedRef.current(),
-    localVideoRef,
   })
 
-  const {
-    connectionCount,
-    statsPeerConnection,
-    viewerIds,
-    handleSignalAnswer,
-    handleSignalIceCandidate,
-    handleViewerReady,
-    handleViewerJoined,
-    handleViewerLeft,
-    replaceVideoTrack,
-    cleanup: cleanupPeerConnections,
-  } = useHostPeerConnections({
-    socket,
-    localStream: stream,
-    micStream,
-    frameRate,
-    maxBitrateMbps,
-  })
+  const stopSharing = useCallback(() => {
+    stop()
+  }, [stop])
 
   const handleStreamEnded = useCallback(() => {
-    stop()
-    cleanupPeerConnections()
+    stopSharing()
     if (!socket) return
     socket.emit('close-room', (response: CloseRoomResponse) => {
       if (response.success) {
@@ -188,44 +147,36 @@ function WebrtcSharePage({
         message.error(response.message ?? t('关闭房间失败'))
       }
     })
-  }, [stop, cleanupPeerConnections, socket, navigate])
+  }, [stopSharing, socket, navigate])
 
   useEffect(() => {
     handleStreamEndedRef.current = handleStreamEnded
   }, [handleStreamEnded])
 
-  useEffect(() => {
-    if (localVideoEl && stream && localVideoEl.srcObject !== stream) {
-      // eslint-disable-next-line react-hooks/immutability -- 修改 DOM 元素属性，非 React 状态
-      localVideoEl.srcObject = stream
-      void localVideoEl.play().catch(() => {})
-    }
-  }, [localVideoEl, stream])
-
   const handleRoomClosed = useCallback(() => {
     // 提示与退房导航由 RoomPage 统一处理（避免与页面级 room-closed
-    // 响应重复弹 toast / 导航冲突）；这里只做本组件的即时清理：
-    // 停掉本地共享流（摄像头/屏幕 track）与所有观众 PC。
+    // 响应重复弹 toast / 导航冲突）；这里只做本组件的即时清理。
     setClosing(true)
-    stop()
-    cleanupPeerConnections()
-  }, [stop, cleanupPeerConnections])
+    stopSharing()
+  }, [stopSharing])
 
   const handleRoomModeChanged = useCallback(
     (data: RoomModeChangedPayload) => {
       setMode(data.mode)
-      if (data.mode === 'watch-together') {
-        stop()
-        cleanupPeerConnections()
-      }
+      if (data.mode === 'watch-together') stopSharing()
     },
-    [setMode, stop, cleanupPeerConnections]
+    [setMode, stopSharing]
   )
 
+  useSignalingChannel({
+    socket,
+    onRoomClosed: handleRoomClosed,
+    onRoomModeChanged: handleRoomModeChanged,
+  })
+
   const handleStopSharing = useCallback(() => {
-    stop()
-    cleanupPeerConnections()
-  }, [stop, cleanupPeerConnections])
+    stopSharing()
+  }, [stopSharing])
 
   const handleClearAnnotations = useCallback(() => {
     if (!socket || !currentRoomId) return
@@ -246,12 +197,13 @@ function WebrtcSharePage({
   }, [copy, currentRoomId])
 
   const handleCopyError = useCallback(() => {
-    if (!mediaError) return
-    void copy(mediaError, {
+    const text = hostErrorText(error)
+    if (!text) return
+    void copy(text, {
       successMessage: t('错误详情已复制，可粘贴给管理员'),
       errorMessage: t('复制失败，请手动选择文本复制'),
     })
-  }, [copy, mediaError])
+  }, [copy, error])
 
   const inIframe = (() => {
     try {
@@ -266,29 +218,27 @@ function WebrtcSharePage({
   }, [])
 
   const handleTogglePause = useCallback(() => {
-    if (isPaused) resume()
-    else pause()
-  }, [isPaused, pause, resume])
+    setPaused(!isPaused)
+  }, [isPaused, setPaused])
 
-  // 开始共享：失败时向房间广播 sharer-error（借鉴 mirotalk
-  // handleToggleScreenException 的一致性广播）——观众可能已进入等待页，
-  // 明确提示「启动失败，等待房主重试」而不是无限黑屏等待
   const handleStart = useCallback(async () => {
-    const ok = await start()
-    if (ok || !socket || !currentRoomId) return
-    socket.emit('sharer-error', { roomId: currentRoomId })
-  }, [start, socket, currentRoomId])
+    if (starting) return
+    setStarting(true)
+    try {
+      await start(settingsRef.current)
+    } finally {
+      setStarting(false)
+    }
+  }, [start, starting])
 
   const handleRefresh = useCallback(async () => {
-    stop()
-    cleanupPeerConnections()
+    stopSharing()
     await handleStart()
-  }, [stop, cleanupPeerConnections, handleStart])
+  }, [stopSharing, handleStart])
 
-  // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中走
-  // replaceTrack 热切换——重新采集 → 替换观众 sender track → 本地换流，
-  // PC 全程存活、观众无感（借鉴 mirotalk refreshMyStreamToPeers）。
-  // 重新采集失败（用户取消授权等）时回滚档位显示。
+  // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中重新下发采集
+  // 约束并热替换 sender track——PC 全程存活、观众无感。采集失败时回滚档位，
+  // 否则界面显示的档位和实际画面不一致。
   const handleResolutionChange = useCallback(
     async (next: ResolutionPreset) => {
       if (next === resolutionPreset) return
@@ -298,102 +248,65 @@ function WebrtcSharePage({
       }
       const prev = resolutionPreset
       setResolutionPreset(next)
-      const newTrack = await switchResolution(next)
-      if (!newTrack) {
-        setResolutionPreset(prev)
-        return
+      setSwitchingResolution(true)
+      try {
+        const ok = await switchResolution({
+          ...settingsRef.current,
+          resolutionPreset: next,
+        })
+        if (!ok) {
+          setResolutionPreset(prev)
+          await switchResolution({
+            ...settingsRef.current,
+            resolutionPreset: prev,
+          })
+          message.error(t('分辨率切换失败，已保留原分辨率'))
+          return
+        }
+        message.success(t('分辨率已切换'))
+      } finally {
+        setSwitchingResolution(false)
       }
-      await replaceVideoTrack(newTrack)
-      message.success(t('分辨率已切换'))
     },
-    [resolutionPreset, isSharing, switchResolution, replaceVideoTrack]
+    [resolutionPreset, isSharing, switchResolution]
   )
 
-  useSignalingChannel({
-    socket,
-    onSignalAnswer: handleSignalAnswer,
-    onSignalIceCandidate: handleSignalIceCandidate,
-    onViewerReady: handleViewerReady,
-    onViewerJoined: handleViewerJoined,
-    onViewerLeft: handleViewerLeft,
-    onRoomClosed: handleRoomClosed,
-    onRoomModeChanged: handleRoomModeChanged,
-  })
-
-  // P2P 直连隧道（房主为 sender，使用第一个观众作为对端）
-  const [p2pFallbackNotice, setP2pFallbackNotice] = useState(false)
-  const firstViewerId = viewerIds[0] ?? null
-  const { enableP2P, disableP2P, p2pEnabled, p2pPC, p2pStatus } = useP2PTunnel({
-    socket,
-    roomId: currentRoomId,
-    localStream: stream,
-    role: 'sender',
-    remotePeerId: firstViewerId,
-    onStatusChange: (status, didFallback) => {
-      if (didFallback) {
-        setP2pFallbackNotice(true)
-        message.warning(t('P2P 连接失败，已回退到服务器中转'))
-      } else if (status === 'connected') {
-        setP2pFallbackNotice(false)
-        message.success(t('P2P 直连已建立'))
-      } else if (status === 'connecting') {
-        setP2pFallbackNotice(false)
-      }
+  // 帧率热更新：改的是编码参数，不重采集、不重协商。
+  // 码率不足是 60fps 降帧的首要原因，低于推荐值时顺带抬到推荐值，
+  // 但不覆盖用户主动设置的高码率。
+  const handleFrameRateSettingChange = useCallback(
+    (next: number) => {
+      const recommended = Math.max(2, Math.round(next * 0.267))
+      const nextBitrate = Math.max(maxBitrateMbps, recommended)
+      setFrameRate(next)
+      setMaxBitrateMbps(nextBitrate)
+      if (!isSharing) return
+      void applyProfile({
+        ...settingsRef.current,
+        frameRate: next,
+        maxBitrateMbps: nextBitrate,
+      })
     },
-  })
+    [maxBitrateMbps, isSharing, applyProfile]
+  )
 
-  // 房主切换 P2P 开关：触发 hook enable/disable，并广播给房间内其他成员
-  const handleToggleP2P = useCallback(
+  const handleBitrateChange = useCallback(
+    (next: number) => {
+      setMaxBitrateMbps(next)
+      if (!isSharing) return
+      void applyProfile({ ...settingsRef.current, maxBitrateMbps: next })
+    },
+    [isSharing, applyProfile]
+  )
+
+  // 麦克风是混进同一条音轨的，共享中可以直接开关；系统声必须重新采集。
+  const handleMicrophoneChange = useCallback(
     (enabled: boolean) => {
-      if (enabled) {
-        void enableP2P()
-      } else {
-        disableP2P()
-      }
-      if (socket && currentRoomId) {
-        socket.emit('p2p-mode-change', { roomId: currentRoomId, enabled })
-      }
+      setShareMicrophone(enabled)
+      if (isSharing) void setMicrophone(enabled)
     },
-    [enableP2P, disableP2P, socket, currentRoomId]
+    [isSharing, setMicrophone]
   )
-
-  // 接收房间内 P2P 模式广播（观众端同步开关状态）
-  useEffect(() => {
-    if (!socket) return
-    const handleP2PModeChange = (data: {
-      roomId: string
-      enabled: boolean
-    }) => {
-      if (!currentRoomId || data.roomId !== currentRoomId) return
-      if (data.enabled) {
-        void enableP2P()
-      } else {
-        disableP2P()
-      }
-    }
-    socket.on('p2p-mode-change', handleP2PModeChange)
-    return () => {
-      socket.off('p2p-mode-change', handleP2PModeChange)
-    }
-  }, [socket, currentRoomId, enableP2P, disableP2P])
-
-  // 上报 P2P 状态到父组件（含 toggle 方法，供 SharingStatusPanel 开关调用）
-  useEffect(() => {
-    onP2PStateChange?.({
-      enabled: p2pEnabled,
-      pc: p2pPC,
-      status: p2pStatus,
-      fallbackNotice: p2pFallbackNotice,
-      toggle: handleToggleP2P,
-    })
-  }, [
-    p2pEnabled,
-    p2pPC,
-    p2pStatus,
-    p2pFallbackNotice,
-    handleToggleP2P,
-    onP2PStateChange,
-  ])
 
   useEffect(() => {
     onStatsPeerConnectionChange?.(statsPeerConnection)
@@ -404,8 +317,8 @@ function WebrtcSharePage({
   // （采集低=捕获问题；采集高发送低=编码丢帧；码率上不去=网络）。
   const [captureFps, setCaptureFps] = useState<number | null>(null)
   useEffect(() => {
-    if (!stream) return
-    const videoTrack = stream.getVideoTracks()[0]
+    if (!previewStream) return
+    const videoTrack = previewStream.getVideoTracks()[0]
     if (!videoTrack) return
     const meter = createCaptureFrameMeter(videoTrack)
     if (!meter) return
@@ -419,7 +332,7 @@ function WebrtcSharePage({
       // 共享流停止时同步清零，避免面板残留最后一次采样值
       setCaptureFps(null)
     }
-  }, [stream])
+  }, [previewStream])
 
   useEffect(() => {
     onCaptureFpsChange?.(captureFps)
@@ -429,22 +342,7 @@ function WebrtcSharePage({
     setIsSharing(isSharing)
   }, [isSharing, setIsSharing])
 
-  // 房主开始共享时广播 sharer-ready
-  useEffect(() => {
-    if (!isSharing || !socket || !currentRoomId) return
-    socket.emit(
-      'sharer-ready',
-      { roomId: currentRoomId },
-      (response: { success: boolean; message?: string }) => {
-        if (!response.success) {
-          console.warn(
-            '[WebrtcSharePage] sharer-ready failed:',
-            response.message
-          )
-        }
-      }
-    )
-  }, [isSharing, socket, currentRoomId])
+  const errorText = hostErrorText(error)
 
   if (!currentRoomId) {
     return (
@@ -478,8 +376,8 @@ function WebrtcSharePage({
           <ShareControlsBar
             isPaused={isPaused}
             connected={connected}
-            viewerCount={viewerIds.length}
-            connectionCount={connectionCount}
+            viewerCount={viewerCount}
+            connectionCount={peerCount}
             closing={closing}
             onTogglePause={handleTogglePause}
             onCopyLink={handleCopy}
@@ -520,10 +418,10 @@ function WebrtcSharePage({
               resolutionPreset={resolutionPreset}
               isSharing={isSharing}
               switchingResolution={switchingResolution}
-              onFrameRateChange={handleFrameRateChange}
-              onMaxBitrateChange={setMaxBitrateMbps}
+              onFrameRateChange={handleFrameRateSettingChange}
+              onMaxBitrateChange={handleBitrateChange}
               onShareSystemAudioChange={setShareSystemAudio}
-              onShareMicrophoneChange={setShareMicrophone}
+              onShareMicrophoneChange={handleMicrophoneChange}
               onResolutionChange={(value) => {
                 void handleResolutionChange(value)
               }}
@@ -566,7 +464,7 @@ function WebrtcSharePage({
             </div>
           )}
 
-          {mediaError && (
+          {errorText && (
             <div
               className="relative w-full max-w-sm rounded-xl border px-4 py-3 text-xs"
               style={{
@@ -578,7 +476,7 @@ function WebrtcSharePage({
                 type="danger"
                 className="m-0 whitespace-pre-line pr-8 text-xs"
               >
-                {mediaError}
+                {errorText}
               </Paragraph>
               <button
                 type="button"

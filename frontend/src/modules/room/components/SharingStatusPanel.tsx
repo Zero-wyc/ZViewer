@@ -1,21 +1,11 @@
-import {
-  Activity,
-  Cpu,
-  Gauge,
-  Layers,
-  Radio,
-  Signal,
-  Waypoints,
-} from 'lucide-react'
+import { Activity, Cpu, Gauge, Layers, Radio, Signal } from 'lucide-react'
 import { Tag } from '@/components/ui/Tag'
 import { Text, Paragraph } from '@/components/ui/Typography'
-import { Switch } from '@/components/ui/Switch'
 import { cn } from '@/lib/utils'
 import {
   useConnectionStats,
   type SharingMode,
 } from '@/modules/screen-sharing/hooks/useConnectionStats'
-import type { P2PStatus } from '@/modules/p2p/types'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
@@ -29,18 +19,8 @@ export interface SharingStatusPanelProps {
   captureFps?: number | null
   /** 当前角色：发送端 / 接收端 */
   mode: 'sender' | 'receiver'
-  /** 基础共享模式标签：服务器中转 / P2P 直连 */
+  /** 共享模式标签：服务器中转 / P2P 直连 */
   sharingMode: SharingMode
-  /** P2P 直连是否已启用（来自外部 useP2PTunnel） */
-  p2pEnabled: boolean
-  /** P2P 隧道 PC（P2P 启用时切换展示） */
-  p2pPC: RTCPeerConnection | null
-  /** P2P 协商状态 */
-  p2pStatus: P2PStatus
-  /** 是否已触发回退到服务器中转 */
-  fallbackNotice: boolean
-  /** P2P 直连开关回调 */
-  onToggleP2P: (enabled: boolean) => void
 }
 
 interface StatRowProps {
@@ -147,54 +127,18 @@ function getConnectionStateText(state: RTCPeerConnectionState): string {
   }
 }
 
-function getP2PStatusLabel(status: P2PStatus): string {
-  switch (status) {
-    case 'idle':
-      return t('未启用')
-    case 'connecting':
-      return t('P2P 协商中')
-    case 'connected':
-      return t('P2P 直连')
-    case 'failed':
-      return t('已回退到服务器中转')
-  }
-}
-
-function getP2PStatusColor(
-  status: P2PStatus
-): 'default' | 'primary' | 'success' | 'danger' {
-  switch (status) {
-    case 'idle':
-      return 'default'
-    case 'connecting':
-      return 'primary'
-    case 'connected':
-      return 'success'
-    case 'failed':
-      return 'danger'
-  }
-}
-
 export function SharingStatusPanel({
   pc,
   captureFps,
   mode,
   sharingMode,
-  p2pEnabled,
-  p2pPC,
-  p2pStatus,
-  fallbackNotice,
-  onToggleP2P,
 }: SharingStatusPanelProps) {
-  // P2P 启用时切换为 p2pPC，否则使用服务器中转 PC
-  const displayPC = p2pEnabled ? p2pPC : pc
-  const displaySharingMode: SharingMode = p2pEnabled ? 'p2p' : sharingMode
-  const legacyMode = displaySharingMode === 'p2p' ? 'direct' : 'server'
+  const legacyMode = sharingMode === 'p2p' ? 'direct' : 'server'
 
   const { stats, formatBitrate, formatPacketLoss } = useConnectionStats(
-    displayPC,
+    pc,
     legacyMode,
-    displaySharingMode
+    sharingMode
   )
 
   const fpsText =
@@ -231,52 +175,11 @@ export function SharingStatusPanel({
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag color="primary">{getRoleLabel(mode)}</Tag>
         <Tag color={getSharingModeColor()}>
-          {getSharingModeLabel(displaySharingMode)}
+          {getSharingModeLabel(sharingMode)}
         </Tag>
         <Tag color={getConnectionStateColor(stats.connectionState)}>
           {getConnectionStateText(stats.connectionState)}
         </Tag>
-        {p2pEnabled && (
-          <Tag color={getP2PStatusColor(p2pStatus)}>
-            {getP2PStatusLabel(p2pStatus)}
-          </Tag>
-        )}
-        {fallbackNotice && !p2pEnabled && (
-          <Tag color="warning">{t('已回退到服务器中转')}</Tag>
-        )}
-      </div>
-
-      {/* P2P 直连开关 */}
-      <div
-        className="glass flex items-center justify-between rounded-xl px-3 py-2"
-        style={{
-          backgroundColor:
-            'color-mix(in srgb, var(--md-sys-color-secondary-container) calc(var(--glass-strength) * 100%), transparent)',
-          borderColor: 'var(--md-sys-color-outline-variant)',
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <Waypoints
-            className="h-4 w-4"
-            style={{ color: 'var(--md-sys-color-secondary)' }}
-          />
-          <div className="leading-tight">
-            <Paragraph className="m-0 text-xs font-medium">
-              {t('P2P 直连')}
-            </Paragraph>
-            <Text type="secondary" className="text-[10px] opacity-70">
-              {p2pEnabled
-                ? getP2PStatusLabel(p2pStatus)
-                : fallbackNotice
-                  ? t('已回退到服务器中转')
-                  : t('点击切换至 P2P')}
-            </Text>
-          </div>
-        </div>
-        <Switch
-          checked={p2pEnabled}
-          onChange={(e) => onToggleP2P(e.target.checked)}
-        />
       </div>
 
       {/* 实时统计字段列表 */}

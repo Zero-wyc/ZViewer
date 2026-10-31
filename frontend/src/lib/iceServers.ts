@@ -1,8 +1,8 @@
 /**
- * P2P 直连模块常量
+ * 浏览器侧 ICE 配置。
  *
- * ICE 服务器配置：STUN 用于公网候选地址发现，TURN 用于对称型 NAT 环境下的中继回退。
- * 当前仅配置公共 STUN，对称 NAT 下会触发超时回退到服务器中转。
+ * 只配公共 STUN（用于发现公网候选地址），不配 TURN：ZViewer 的中继由服务端
+ * SFU 承担，客户端不需要 TURN 凭据。对称 NAT 下直连失败时由服务端路由接管。
  *
  * STUN 顺序（2026-10-15 UDP Binding Request 实测，本机网络）：
  * 1. stun.miwifi.com:3478 —— 小米，两轮实测 46-56ms 稳定可达，国内首选；
@@ -18,9 +18,3 @@ export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ]
-
-/** ICE 协商超时（毫秒），超时后判定 P2P 失败并回退服务器中转 */
-export const ICE_TIMEOUT_MS = 10000
-
-/** P2P 信令标记，用于区分 P2P 隧道信令与服务器中转 WebRTC 信令 */
-export const P2P_SIGNAL_MARK = '__p2pTunnel' as const
