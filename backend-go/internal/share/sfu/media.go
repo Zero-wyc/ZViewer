@@ -42,6 +42,11 @@ type MediaOptions struct {
 	// Events run without media locks and hand exact handles back to room authority.
 	// Physical close must be scheduled asynchronously from these callbacks.
 	Events func(MediaEvent)
+	// VoiceCapacity 是语音面允许的最大发布数；0 表示用 DefaultVoiceCapacity。
+	//
+	// 做成选项而不是写死常量，是因为它是**产品策略**（房间允许多人）而不是
+	// 媒体实现细节：容量测试要能把它压到 5 而不是真去建 100 条 PeerConnection。
+	VoiceCapacity int
 }
 
 // Runtime is the physical boundary injected into the room router and its tests.
@@ -66,9 +71,13 @@ type Media struct {
 	options      MediaOptions
 	mu           sync.Mutex
 	publications map[PublicationFence]*mediaPublication
-	closed       bool
-	closeOnce    sync.Once
-	closeErr     error
+	// voice 是语音聊天面。它与屏幕共享共用同一个 SettingEngine（同一对
+	// UDP/TCP 媒体端口），但连接、编码与转发完全独立：共享是「一份编码
+	// 广播给 N 人」，语音是「N 个人互为发布者，每人各有 N-1 条下行」。
+	voice     *voiceMedia
+	closed    bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
 type mediaPublication struct {
@@ -115,8 +124,20 @@ type mediaSubscription struct {
 	closeErr             error
 }
 
+// voiceCapacityOf 取语音发布上界，未指定时用默认值。
+func voiceCapacityOf(options MediaOptions) int {
+	if options.VoiceCapacity > 0 {
+		return options.VoiceCapacity
+	}
+	return DefaultVoiceCapacity
+}
+
 func NewMedia(options MediaOptions) *Media {
-	return &Media{options: options, publications: make(map[PublicationFence]*mediaPublication)}
+	return &Media{
+		options:      options,
+		publications: make(map[PublicationFence]*mediaPublication),
+		voice:        newVoiceMedia(options.Settings, voiceCapacityOf(options)),
+	}
 }
 
 func (media *Media) HasPublication(fence PublicationFence, connectionID string) bool {
@@ -807,6 +828,7 @@ func (media *Media) Close() error {
 		for _, publication := range publications {
 			media.closeErr = errors.Join(media.closeErr, publication.close())
 		}
+		media.closeErr = errors.Join(media.closeErr, media.voice.close())
 	})
 	return media.closeErr
 }
