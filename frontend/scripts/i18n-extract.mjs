@@ -32,6 +32,17 @@ const DICT_FILE = path.join(SRC, 'i18n', 'locales', 'zh-CN.ts')
 const HAN = /[\u4e00-\u9fa5]/
 const hasHan = (text) => HAN.test(text)
 
+/**
+ * 是不是「不像界面文案」的大段内容：内联样式表、SQL、正则之类的模板串。
+ *
+ * 典型误伤是组件里 `const CSS = \`@keyframes ...\`` 这种上千字符的字符串——
+ * 里面有中文注释，但不是给人读的界面文字，进词典只会污染清单。
+ */
+function looksLikeStylesheet(text) {
+  if (text.length > 240) return true
+  return /@keyframes|@media|@font-face|@supports/.test(text)
+}
+
 /** 这些 JSX 属性是给人看的文案，其余（className/style/href…）一律不碰 */
 const TEXT_ATTRS = new Set([
   'title',
@@ -79,6 +90,8 @@ const SKIP_PATH = [
   /[\\/]lib[\\/]clientLogger\.ts$/,
   /[\\/]lib[\\/]media-debug\.ts$/,
   /[\\/]lib[\\/]mkv[\\/]/,
+  // 网易云表情别名表：key 是评论里出现的 `[大笑]` 协议 token，不是界面文字
+  /[\\/]utils[\\/]neteaseEmoji\.ts$/,
 ]
 
 /** 词典里的分组顺序（按文件路径判定，稳定的分组便于 review） */
@@ -383,6 +396,10 @@ function transformFile(file, options) {
   const buildTemplate = (node, depth = 0) => {
     const { key, vars } = templateToKey(node)
     if (!hasHan(key)) return null
+    if (looksLikeStylesheet(key)) {
+      if (depth === 0) skip(node, 'stylesheet', key.slice(0, 60))
+      return null
+    }
     const reason = literalSkipReason(node)
     if (reason) {
       if (depth === 0) {
@@ -577,6 +594,10 @@ function transformFile(file, options) {
     if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
       const text = node.text
       if (!hasHan(text)) return
+      if (looksLikeStylesheet(text)) {
+        skip(node, 'stylesheet', text.slice(0, 60))
+        return
+      }
       if (isInsideT(node, 't') || isInsideT(node, 'translate')) {
         addKey(text)
         return
