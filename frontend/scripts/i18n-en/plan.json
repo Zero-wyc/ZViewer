@@ -1,0 +1,226 @@
+{
+  "total": 2588,
+  "chunk": 120,
+  "parts": [
+    {
+      "id": "01-components-ui",
+      "bucket": "components/ui",
+      "count": 27
+    },
+    {
+      "id": "02-components",
+      "bucket": "components",
+      "count": 120
+    },
+    {
+      "id": "03-components",
+      "bucket": "components",
+      "count": 116
+    },
+    {
+      "id": "04-hooks",
+      "bucket": "hooks",
+      "count": 23
+    },
+    {
+      "id": "05-lib",
+      "bucket": "lib",
+      "count": 19
+    },
+    {
+      "id": "06-store",
+      "bucket": "store",
+      "count": 8
+    },
+    {
+      "id": "07-pages",
+      "bucket": "pages",
+      "count": 120
+    },
+    {
+      "id": "08-pages",
+      "bucket": "pages",
+      "count": 120
+    },
+    {
+      "id": "09-pages",
+      "bucket": "pages",
+      "count": 118
+    },
+    {
+      "id": "10-common",
+      "bucket": "common",
+      "count": 1
+    },
+    {
+      "id": "11-admin",
+      "bucket": "modules/admin",
+      "count": 15
+    },
+    {
+      "id": "12-anime-browser",
+      "bucket": "modules/anime-browser",
+      "count": 16
+    },
+    {
+      "id": "13-anisubs",
+      "bucket": "modules/anisubs",
+      "count": 3
+    },
+    {
+      "id": "14-bilibili",
+      "bucket": "modules/bilibili",
+      "count": 45
+    },
+    {
+      "id": "15-cms",
+      "bucket": "modules/cms",
+      "count": 8
+    },
+    {
+      "id": "16-danmaku",
+      "bucket": "modules/danmaku",
+      "count": 85
+    },
+    {
+      "id": "17-direct-link",
+      "bucket": "modules/direct-link",
+      "count": 1
+    },
+    {
+      "id": "18-emby",
+      "bucket": "modules/emby",
+      "count": 41
+    },
+    {
+      "id": "19-ftp",
+      "bucket": "modules/ftp",
+      "count": 8
+    },
+    {
+      "id": "20-jellyfin",
+      "bucket": "modules/jellyfin",
+      "count": 1
+    },
+    {
+      "id": "21-kazumi",
+      "bucket": "modules/kazumi",
+      "count": 1
+    },
+    {
+      "id": "22-mounts",
+      "bucket": "modules/mounts",
+      "count": 61
+    },
+    {
+      "id": "23-movie-source",
+      "bucket": "modules/movie-source",
+      "count": 14
+    },
+    {
+      "id": "24-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "25-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "26-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "27-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "28-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "29-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "30-music",
+      "bucket": "modules/music",
+      "count": 8
+    },
+    {
+      "id": "31-openlist",
+      "bucket": "modules/openlist",
+      "count": 1
+    },
+    {
+      "id": "32-playback-memory",
+      "bucket": "modules/playback-memory",
+      "count": 12
+    },
+    {
+      "id": "33-player",
+      "bucket": "modules/player",
+      "count": 98
+    },
+    {
+      "id": "34-room",
+      "bucket": "modules/room",
+      "count": 120
+    },
+    {
+      "id": "35-room",
+      "bucket": "modules/room",
+      "count": 120
+    },
+    {
+      "id": "36-room",
+      "bucket": "modules/room",
+      "count": 120
+    },
+    {
+      "id": "37-room",
+      "bucket": "modules/room",
+      "count": 49
+    },
+    {
+      "id": "38-screen-sharing",
+      "bucket": "modules/screen-sharing",
+      "count": 120
+    },
+    {
+      "id": "39-screen-sharing",
+      "bucket": "modules/screen-sharing",
+      "count": 56
+    },
+    {
+      "id": "40-server-files",
+      "bucket": "modules/server-files",
+      "count": 91
+    },
+    {
+      "id": "41-subtitles",
+      "bucket": "modules/subtitles",
+      "count": 46
+    },
+    {
+      "id": "42-sync-playback",
+      "bucket": "modules/sync-playback",
+      "count": 19
+    },
+    {
+      "id": "43-voice-chat",
+      "bucket": "modules/voice-chat",
+      "count": 34
+    },
+    {
+      "id": "44-webdav",
+      "bucket": "modules/webdav",
+      "count": 3
+    }
+  ]
+}

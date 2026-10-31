@@ -1,0 +1,24 @@
+{
+  "bucket": "modules/sync-playback",
+  "items": [
+    "[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:",
+    "[seek-service] forceReload 也失败:",
+    "[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:",
+    "[seek-service] MSE seek 异常:",
+    "[suppression] 检测到超时未释放的抑制（可能存在 acquire/release 不配对），已自动过期",
+    "[useVideoSource] 播放期媒体请求疑似 access token 过期，自动刷新并重载当前进度",
+    "[useVideoSource] 观众本地解析失败:",
+    "[useVideoSource] 恢复视频源失败:",
+    "[useVideoSource] 重载视频源失败:",
+    "[useViewerStateSync] 缓冲下载失败:",
+    "[useViewerStateSync] 缓冲下载已取消",
+    "视频重载失败",
+    "已选定播放路径",
+    "正在产出分段",
+    "正在加载音频转码组件",
+    "正在建立关键帧索引",
+    "正在解析容器与轨道",
+    "正在启动转码 worker",
+    "正在生成首个分段"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "」": "”",
+  "点击": "click",
+  "{{label}}（点击{{next}}）": "{{label}} (click to {{next}})",
+  "切换为按顺序播放": "switch to play in order",
+  "切换为单曲循环": "switch to repeat one",
+  "切换为随机播放": "switch to shuffle",
+  "切换为顺序循环": "switch to repeat all",
+  "{{who}} 申请{{playItem}}": "{{who}} requests: {{playItem}}",
+  "{{who}} 申请{{value}}": "{{who}} requests: {{value}}",
+  "已向房主申请{{value}}": "Requested: {{value}}",
+  "房主已同意{{value}}": "The host allowed: {{value}}",
+  "房主已拒绝{{value}}": "The host declined: {{value}}",
+  "{{count}} 集_one": "{{count}} episode",
+  "找到 {{count}} 条字幕_one": "Found {{count}} subtitle track",
+  "已清理 {{count}} 个无人使用的房间_one": "Removed {{count}} unused room",
+  "确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。_one": "Delete the <strong>{{count}}</strong> selected room? This cannot be undone."
+}

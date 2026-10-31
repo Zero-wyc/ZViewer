@@ -68,10 +68,29 @@ export function detectLanguage(): Language {
     : DEFAULT_LANGUAGE
 }
 
+/**
+ * 给含 `{{count}}` 的词条补上复数形式。
+ *
+ * i18next 一看到插值参数里有 `count` 就走复数查找（`<key>_one` / `<key>_other`），
+ * 找不到就整条回退成 key（中文原文），英文界面会突然冒出中文。我们的词条是
+ * 「中文原文 → 译文」的扁平表，没有分复数，这里按语言规则把三种形式都指到同一条。
+ * 英文单复数默认不完美（"1 items"）：需要区分的条目可以在 `en-US.ts` 里
+ * 单独写一条 `<key>_one`，这里不会覆盖已有的形式。
+ */
+function withPlurals(dict: Record<string, string>): Record<string, string> {
+  const filled = { ...dict }
+  for (const [key, value] of Object.entries(dict)) {
+    if (!key.includes('{{count}}')) continue
+    if (!(`${key}_one` in filled)) filled[`${key}_one`] = value
+    if (!(`${key}_other` in filled)) filled[`${key}_other`] = value
+  }
+  return filled
+}
+
 void i18next.use(initReactI18next).init({
   resources: {
-    'zh-CN': { translation: zhCN },
-    'en-US': { translation: enUS },
+    'zh-CN': { translation: withPlurals(zhCN) },
+    'en-US': { translation: withPlurals(enUS) },
   },
   lng: detectLanguage(),
   fallbackLng: DEFAULT_LANGUAGE,

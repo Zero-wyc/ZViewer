@@ -1,0 +1,19 @@
+{
+  "bucket": "modules/movie-source",
+  "items": [
+    "[movie-source-resolver] 实时直链解析失败，回退影片记录 URL:",
+    "[movie-source-resolver] B站 解析命中缓存:",
+    "[movie-source-resolver] B站 recovery 路径中清除非 B站 headers:",
+    "[movie-source-resolver] CLI 已启用但本地代理未连接，回退服务器 MP4 解析",
+    "[movie-source-resolver] Kazumi 源重解析失败，回退添加时物化的 URL:",
+    "采集源影片元数据缺失，请重新添加该影片",
+    "番剧源元数据缺失，请重新添加该番剧",
+    "该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后观看（此影片不经服务器转发媒体流）",
+    "获取番剧集数失败",
+    "获取番剧数据源失败",
+    "获取关注番剧列表失败",
+    "解析番剧播放地址失败",
+    "搜索番剧失败",
+    "未取得影片播放地址"
+  ]
+}

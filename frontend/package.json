@@ -13,7 +13,9 @@
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
     "i18n:extract": "node scripts/i18n-extract.mjs",
     "i18n:dict": "node scripts/i18n-extract.mjs --dict-only",
-    "i18n:check": "node scripts/i18n-extract.mjs --check"
+    "i18n:plan": "node scripts/i18n-translate.mjs --plan --force",
+    "i18n:build": "node scripts/i18n-translate.mjs --build",
+    "i18n:check": "node scripts/i18n-extract.mjs --check && node scripts/i18n-translate.mjs --check"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

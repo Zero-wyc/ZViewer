@@ -1,0 +1,31 @@
+{
+  "items": [
+    "[FontPicker] Failed to enumerate system fonts:",
+    "Serif",
+    "Monospace",
+    "FangSong",
+    "This field is required",
+    "Heiti",
+    "Decline",
+    "Kaiti",
+    "Scan local system fonts",
+    "List every font installed on this device (requires browser permission)",
+    "PingFang",
+    "Enter a number",
+    "Select an option",
+    "Confirm",
+    "Source Han Sans",
+    "Source Han Serif",
+    "SimSun",
+    "Approve",
+    "Exit web fullscreen",
+    "Web fullscreen",
+    "Microsoft YaHei",
+    "Sans-serif",
+    "System fonts",
+    "Rescan ({{count}} cached)",
+    "Rescan system fonts",
+    "Maximum is {{max}}",
+    "Minimum is {{min}}"
+  ]
+}

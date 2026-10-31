@@ -1,0 +1,27 @@
+{
+  "items": [
+    "[useSubtitles] Streaming extraction interrupted (keeping what was extracted):",
+    "[useSubtitles] Frontend probe of embedded subtitles failed, skipping (no backend fallback):",
+    "[useSubtitles] Frontend probe of subtitle tracks failed (no backend fallback):",
+    "[useSubtitles] Frontend embedded-subtitle extraction unavailable (not MKV / unsupported codec / CORS denied), skipping auto-load",
+    "Failed to connect to the local CLI",
+    "Unexpected response from the local CLI",
+    "The room keeps running, so you can return any time with “Back to room” in the top-right corner. The current room only closes when you enter or create another one.",
+    "Copy failed, please copy manually",
+    "Track {{index}}",
+    "Backend restarted automatically (attempt {{count}}), service restored",
+    "Failed to get embedded subtitle tracks",
+    "Health check cancelled",
+    "Leave room",
+    "Leave the current room?",
+    "Confirm and leave",
+    "Invalid auth token",
+    "Auth token expired",
+    "Failed to extract embedded subtitles",
+    "No auth token provided",
+    "Copied to clipboard",
+    "Subtitle {{index}}",
+    "Subtitle track is empty",
+    "Subtitle extraction cancelled"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "items": [
+    "[usePlaybackStateRequest] Buffered download failed:",
+    "[usePlaybackStateRequest] Buffered download cancelled",
+    "[usePlaybackStateRequest] Failed to restore state:",
+    "[useServerHeartbeat] The host is playing but local progress stalled for 15s; reloading the video to recover",
+    "[useServerHeartbeat] {{current}} heartbeats in a row were skipped by event suppression (~{{value}}s). If this did not happen during a source switch or buffered download, check the suppression pairing",
+    "Current video",
+    "The host reconnected; progress will sync in 2 seconds",
+    "Buffered download failed, wait for the host to broadcast again",
+    "Buffered download failed: {{message}}",
+    "The video source expired, waiting for the host to reconnect",
+    "Failed to restore the state",
+    "The Bilibili URL expired, wait for the host to resolve it again"
+  ]
+}

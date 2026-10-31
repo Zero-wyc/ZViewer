@@ -1202,7 +1202,7 @@ export function useListenTogether({
       useMusicStore
         .getState()
         .setSyncNotice(
-          t('已向房主申请{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+          t('已向房主申请{{value}}', { value: t(CONTROL_ACTION_TEXT[action]) })
         )
     },
     [hasControl]
@@ -1992,7 +1992,7 @@ export function useListenTogether({
       useMusicStore.getState().setSyncNotice(
         t('{{who}} 申请{{value}}', {
           who,
-          value: CONTROL_ACTION_TEXT[action],
+          value: t(CONTROL_ACTION_TEXT[action]),
         }),
         'approval'
       )
@@ -2020,13 +2020,15 @@ export function useListenTogether({
       if (action === 'playItem') {
         // 切歌的实际换源由房主端执行后的 SYNC_STATE 广播驱动（房主是
         // 同步源），应答仅更新提示
-        useMusicStore
-          .getState()
-          .setSyncNotice(
-            payload.approved
-              ? t('房主已同意{{value}}', { value: CONTROL_ACTION_TEXT[action] })
-              : t('房主已拒绝{{value}}', { value: CONTROL_ACTION_TEXT[action] })
-          )
+        useMusicStore.getState().setSyncNotice(
+          payload.approved
+            ? t('房主已同意{{value}}', {
+                value: t(CONTROL_ACTION_TEXT[action]),
+              })
+            : t('房主已拒绝{{value}}', {
+                value: t(CONTROL_ACTION_TEXT[action]),
+              })
+        )
         return
       }
       if (action === 'addQueue') {
@@ -2062,14 +2064,14 @@ export function useListenTogether({
         useMusicStore
           .getState()
           .setSyncNotice(
-            t('房主已同意{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+            t('房主已同意{{value}}', { value: t(CONTROL_ACTION_TEXT[action]) })
           )
         executeLocalAction(action)
       } else {
         useMusicStore
           .getState()
           .setSyncNotice(
-            t('房主已拒绝{{value}}', { value: CONTROL_ACTION_TEXT[action] })
+            t('房主已拒绝{{value}}', { value: t(CONTROL_ACTION_TEXT[action]) })
           )
       }
     }

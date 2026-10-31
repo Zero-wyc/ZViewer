@@ -1,0 +1,20 @@
+{
+  "items": [
+    "Episode {{title}}",
+    "Multi-select",
+    "Failed to load episodes",
+    "Failed to load the data source",
+    "Clear",
+    "Select all",
+    "Search by anime title",
+    "Type a keyword to search anime",
+    "Search results",
+    "Failed to add, try again",
+    "Add selected",
+    "Exit multi-select",
+    "No data source available, check the subscription settings in the admin panel",
+    "Select a data source",
+    "{{size}} episodes selected",
+    "No episode info"
+  ]
+}

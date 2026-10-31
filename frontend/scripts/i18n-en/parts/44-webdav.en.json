@@ -1,0 +1,7 @@
+{
+  "items": [
+    "Failed to get the {{label}} direct link",
+    "Failed to resolve {{label}} files",
+    "Browse the WebDAV directory"
+  ]
+}

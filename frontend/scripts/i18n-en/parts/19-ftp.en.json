@@ -1,0 +1,12 @@
+{
+  "items": [
+    "Failed to test the FTP connection",
+    "Failed to create the FTP mount",
+    "Failed to update the FTP mount",
+    "Failed to load FTP mounts",
+    "Failed to parse the FTP file",
+    "Failed to browse the FTP mount",
+    "Browse the FTP directory",
+    "Failed to delete the FTP mount"
+  ]
+}

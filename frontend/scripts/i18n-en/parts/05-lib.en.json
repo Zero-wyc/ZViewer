@@ -1,0 +1,23 @@
+{
+  "items": [
+    "{{hours}} hr {{minutes}} min ago",
+    "{{hours}} hr ago",
+    "{{minutes}} min ago",
+    "{{value}}×10K",
+    "{{value}}×100M",
+    "White",
+    "Orange",
+    "Pink",
+    "The browser cannot play {{format}} natively, choose an MP4/WebM/MOV/MKV file",
+    "Unknown file format, the browser cannot play it",
+    "Just now",
+    "Black",
+    "Red",
+    "Gold",
+    "Blue",
+    "Light pink",
+    "Green",
+    "Guest",
+    "Purple"
+  ]
+}

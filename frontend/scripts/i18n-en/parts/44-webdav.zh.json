@@ -1,0 +1,8 @@
+{
+  "bucket": "modules/webdav",
+  "items": [
+    "获取 {{label}} 直链失败",
+    "解析 {{label}} 文件失败",
+    "浏览 WebDAV 目录"
+  ]
+}

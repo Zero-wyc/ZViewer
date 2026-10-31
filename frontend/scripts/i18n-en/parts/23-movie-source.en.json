@@ -1,0 +1,18 @@
+{
+  "items": [
+    "[movie-source-resolver] Live direct-link resolution failed, falling back to the movie's recorded URL:",
+    "[movie-source-resolver] Bilibili resolution hit the cache:",
+    "[movie-source-resolver] Removing non-Bilibili headers on the Bilibili recovery path:",
+    "[movie-source-resolver] CLI enabled but the local proxy is not connected, falling back to server-side MP4 resolution",
+    "[movie-source-resolver] Re-resolving the Kazumi source failed, falling back to the URL captured when adding:",
+    "The source movie is missing metadata, add the movie again",
+    "The anime source is missing metadata, add the anime again",
+    "This movie uses “CLI only”: install and connect ZViewer CLI to watch it (its media stream is not relayed by the server)",
+    "Failed to load the episode list",
+    "Failed to load the anime sources",
+    "Failed to load your followed anime",
+    "Failed to resolve the anime playback URL",
+    "Anime search failed",
+    "No playback URL for the movie"
+  ]
+}

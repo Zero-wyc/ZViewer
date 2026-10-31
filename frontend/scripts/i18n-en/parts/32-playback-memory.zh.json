@@ -1,0 +1,17 @@
+{
+  "bucket": "modules/playback-memory",
+  "items": [
+    "[usePlaybackStateRequest] 缓冲下载失败:",
+    "[usePlaybackStateRequest] 缓冲下载已取消",
+    "[usePlaybackStateRequest] 恢复状态失败:",
+    "[useServerHeartbeat] 房主播放中但本地进度 15s 无推进，自动重载视频自愈",
+    "[useServerHeartbeat] 已连续 {{current}} 次心跳因事件抑制被跳过（约 {{value}}s）——若非源切换/缓冲下载期间出现，请检查抑制配对",
+    "当前视频",
+    "房主已重连，即将同步进度，2 秒后自动同步",
+    "缓冲下载失败，请等待房主重新广播",
+    "缓冲下载失败: {{message}}",
+    "视频源已过期，等待房主重连",
+    "状态恢复失败",
+    "B站 URL 已过期，请等待房主重新解析"
+  ]
+}

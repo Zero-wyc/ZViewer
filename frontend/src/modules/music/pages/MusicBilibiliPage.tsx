@@ -1443,7 +1443,8 @@ export function MusicBilibiliPage({
               }}
             >
               {translate('搜索「')}
-              {biliSearchKeyword}」
+              {biliSearchKeyword}
+              {translate('」')}
               <button
                 type="button"
                 onClick={() => {

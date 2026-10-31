@@ -1,0 +1,8 @@
+{
+  "bucket": "modules/anisubs",
+  "items": [
+    "获取数据源失败",
+    "解析播放地址失败",
+    "ani-subs 番剧源"
+  ]
+}
