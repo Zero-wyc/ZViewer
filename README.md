@@ -51,6 +51,7 @@
 - **屏幕共享与推流** : WebRTC 屏幕共享与OBSRTMP推流
 - **高画质代理**：使用 [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) 使用独立本地CLI本地获取哔站视频链接并支持高画质，极大减少服务器媒体流量
 - **Windows桌面端**：采用Windows GO启动台，托管后端与网络入口，支持 IPv6 / FRP / EasyTier / Cloudflare Tunnel 外网接入
+- **手机端**：Android / HarmonyOS / iOS 与平板客户端，支持一起看、一起听、投屏接收与房间语音
 - **界面**：Material You风格，自定义背景与玻璃拟态
 
 > 浏览器建议使用 Chrome / Edge 130+；Safari 与 Firefox 对 MSE / MKV 支持不完整。
@@ -75,6 +76,7 @@ docker run -d --name zviewer --restart unless-stopped \
 - HTTPS证书配置建议使用 ACME / Cloudflare / ESA / EdgeOne / 宝塔 / 1Panel 配置
 - 数据位于 `/app/config`（数据库、证书、上传文件）
 - 从4版本升到5版本建议重新安装
+- 手机与平板不在上表内，见[手机端](#手机端)
 
 ## 端口
 
@@ -116,6 +118,23 @@ docker run -d --name zviewer --restart unless-stopped \
 - 外网接入：IPv6 直连、服务商 FRP、自建 FRP、EasyTier 组网、Cloudflare Tunnel 一键安装
 - Cloudflared / frpc / EasyTier 按需下载，安装包不内置
 - 自动更新：每 6 小时检查，流式下载 + 结构校验 + 覆盖重启
+
+## 手机端
+
+手机与平板客户端在 [ZViewerAPP](https://github.com/Zero-wyc/ZViewerAPP)，界面与播放器都打进安装包，只需填写本项目服务端的地址。
+
+| 平台 | 当前版本 | 安装包与要求 |
+| --- | --- | --- |
+| Android | 2.3.5 | `ZViewer-Client-2.3.5-android.apk`；Android 7.0 / API 24 起，仅 64 位设备 |
+| HarmonyOS | 2.3.5 | `ZViewer-Client-2.3.5-harmonyos.hap`；HarmonyOS 6.1 / API 23 起，经 DevEco Studio / HDC 安装，不是应用商店包 |
+| iOS / iPadOS | 2.1.10（build 31） | 未签名 IPA；iOS 16.4 起，需用自己的证书签名后侧载 |
+
+下载：[Android / HarmonyOS 2.3.5](https://github.com/Zero-wyc/ZViewerAPP/releases/tag/client-v2.3.5) · [iOS 2.1.10](https://github.com/Zero-wyc/ZViewerAPP/releases/tag/client-v2.1.10) · 版本以 [Releases](https://github.com/Zero-wyc/ZViewerAPP/releases) 为准
+
+- 首次启动填服务器地址：Android / HarmonyOS 可以只填 `IP:端口`，iOS 要填完整的 HTTP / HTTPS 地址
+- 自签 HTTPS 可在连接页对这台服务器单独放行证书（Android / HarmonyOS）；iOS 暂无此通道
+- 房间能力：一起看、一起听、投屏接收、房间语音、弹幕与字幕；Android / HarmonyOS 在系统授权后还能共享本机屏幕，iOS 只接收投屏
+- 反向代理要让 API 与 Socket.IO 都通；卸载会清掉本机保存的地址与设置
 
 ## 开发
 

@@ -38,6 +38,7 @@ English | **[中文](README.md)**
 - **Listen together**: NetEase Cloud Music × Bilibili; playlists auto-filled, one-click favorites into both folders
 - **High quality, low bandwidth**: pair with [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) for a local proxy
 - **Interface**: Material You themes, custom backgrounds, glassmorphism
+- **Mobile apps**: Android / HarmonyOS / iOS and tablet clients for watching, listening, receiving casts and room voice
 - **Deployment**: Docker / single-file builds work out of the box, one-click auto update
 
 > Chrome / Edge 130+ is recommended. Safari and Firefox have incomplete MSE / MKV support — you may see stuttering or subtitle glitches.
@@ -146,6 +147,23 @@ Do not run `cd desktop && go build -tags production .` — it overwrites the com
 | [LiveKit](https://github.com/livekit/livekit) server | 1.13.7 | Apache-2.0 | shipped as `runtime/livekit-server.exe` |
 
 All are unmodified binaries redistributed as-is, each keeping its license: frp / EasyTier under `assets/LICENSE-*.txt`, LiveKit and the CLI inside `runtime/`.
+
+## Mobile Apps
+
+Phone and tablet clients live in [ZViewerAPP](https://github.com/Zero-wyc/ZViewerAPP). The UI and player ship inside the app; you only enter the address of a ZViewer server.
+
+| Platform | Current version | Package and requirements |
+| --- | --- | --- |
+| Android | 2.3.5 | `ZViewer-Client-2.3.5-android.apk`; Android 7.0 / API 24+, 64-bit devices only |
+| HarmonyOS | 2.3.5 | `ZViewer-Client-2.3.5-harmonyos.hap`; HarmonyOS 6.1 / API 23+, installed through DevEco Studio / HDC (not an app-store package) |
+| iOS / iPadOS | 2.1.10 (build 31) | unsigned IPA; iOS 16.4+, re-sign with your own certificate before sideloading |
+
+Downloads: [Android / HarmonyOS 2.3.5](https://github.com/Zero-wyc/ZViewerAPP/releases/tag/client-v2.3.5) · [iOS 2.1.10](https://github.com/Zero-wyc/ZViewerAPP/releases/tag/client-v2.1.10) · versions follow [Releases](https://github.com/Zero-wyc/ZViewerAPP/releases)
+
+- First launch asks for the server address: Android / HarmonyOS accept `host:port`, iOS needs the full HTTP / HTTPS URL
+- For self-signed HTTPS you can allow the certificate for that one server on the connection screen (Android / HarmonyOS only)
+- Room features: watch together, listen together, receiving casts, room voice, danmaku and subtitles; Android / HarmonyOS can also share their own screen once the system grants it, iOS receives only
+- Your reverse proxy must pass both API and Socket.IO traffic; uninstalling clears the saved address and settings
 
 ## Development
 
