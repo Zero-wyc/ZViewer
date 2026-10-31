@@ -1,5 +1,10 @@
 {
   "items": [
+    "Directory is empty",
+    "Embedded subtitle tracks",
+    "Annotation tools",
+    "Comments",
+    "Screen sharing, voice chat and other features that need a secure context are blocked by your browser. Everything else (room management, video playback, danmaku, OBS streaming) still works. Configure HTTPS to unlock them all.",
     "Regular user",
     "Enable subtitles",
     "Light",
@@ -114,7 +119,6 @@
     "https://.../sub.vtt or .srt/.ass",
     "RTMP ingest port (leave blank to use the default 3334)",
     "Video.js 10 (experimental)",
-    "WebRTC screen sharing",
-    "WebSocket / signalling address (leave blank to follow the domain above)"
+    "WebRTC screen sharing"
   ]
 }

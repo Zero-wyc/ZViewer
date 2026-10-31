@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2573 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2590 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -42,7 +42,7 @@ const enUS: Record<string, string> = {
   '最大值为 {{max}}': 'Maximum is {{max}}',
   '最小值为 {{min}}': 'Minimum is {{min}}',
 
-  // ===== components（236 条） =====
+  // ===== components（241 条） =====
   '· 强度 {{colorIntensity}}%': '· Intensity {{colorIntensity}}%',
   '(相对路径 /live)': '(relative path /live)',
   '），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx / Caddy），将以下路径统一转发到后端服务：': '), leave the other three blank to follow automatically. Make sure your server has a reverse proxy (Nginx / Caddy) forwarding the paths below to the backend:',
@@ -68,6 +68,7 @@ const enUS: Record<string, string> = {
   '超级管理员': 'Super admin',
   '垂直位移': 'Vertical offset',
   '垂直位置': 'Vertical position',
+  '次': 'times',
   '从收藏色板移除当前颜色': 'Remove current color from palette',
   '粗细': 'Weight',
   '存为新色': 'Save as new color',
@@ -89,6 +90,8 @@ const enUS: Record<string, string> = {
   '丢包率: {{packetLossRate}}': 'Packet loss: {{packetLossRate}}',
   '抖动': 'Jitter',
   '抖动: {{jitter}}': 'Jitter: {{jitter}}',
+  '抖动缓冲': 'Jitter buffer',
+  '抖动缓冲: {{value}}': 'Jitter buffer: {{value}}',
   '发个友善的弹幕见证当下': 'Drop a friendly danmaku to mark this moment',
   '发送': 'Send',
   '发送弹幕': 'Send danmaku',
@@ -127,6 +130,8 @@ const enUS: Record<string, string> = {
   '后端地址已保存，即将刷新页面生效': 'Backend address saved, reloading the page to apply',
   '华为云': 'Huawei Cloud',
   '画笔': 'Brush',
+  '画面冻结': 'Freezes',
+  '画面冻结: {{value}}': 'Freezes: {{value}}',
   '缓冲健康度': 'Buffer health',
   '缓冲健康度: {{bufferHealth}}': 'Buffer health: {{bufferHealth}}',
   '回到房间': 'Back to room',
@@ -1871,7 +1876,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（406 条） =====
+  // ===== modules/room（414 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1897,6 +1902,8 @@ const enUS: Record<string, string> = {
   '哔哩哔哩登录二维码': 'Bilibili login QR code',
   '编码格式': 'Codec',
   '编码后发送帧率': 'Encoded frame rate',
+  '编码器': 'Encoder',
+  '编码受限原因': 'Limitation',
   '播放倍速': 'Playback speed',
   '播放方式': 'Playback mode',
   '播放设置': 'Playback settings',
@@ -1912,6 +1919,7 @@ const enUS: Record<string, string> = {
   '从 Kazumi XPath 规则源搜索番剧并选择集数播放。': 'Search anime from Kazumi XPath rule sources and pick an episode to play.',
   '大会员': 'Premium member',
   '大会员账号，可解析 4K / 1080P 高码率等专属画质': 'A premium account can resolve 4K and high-bitrate 1080P',
+  '带宽不足': 'Bandwidth limited',
   '当前处于内网地址': 'You are on a private network address',
   '当前访问地址为内网地址（{{hostname}} ），复制出的链接只有本机或同一内网的用户能打开，其他用户无法访问。': 'You are on a private address ({{hostname}}), so copied links only open on this machine or within the same network.',
   '当前平台不支持服务端流量统计': 'Server-side traffic stats are unavailable on this platform',
@@ -2006,6 +2014,7 @@ const enUS: Record<string, string> = {
   '静音': 'Mute',
   '剧集定位参数无效': 'Invalid episode locator',
   '剧集定位参数无效，请重新搜索': 'Invalid episode locator, search again',
+  '决定该降档位还是降分辨率': 'Tells you whether to lower the preset or the resolution',
   '卡片 {{value}}': 'Card {{value}}',
   '开启': 'On',
   '开启：MKV/DTS 等非常规格式由浏览器端重封装/转码播放。关闭：强制原生直连，不兼容编码将无声。': 'On: unusual formats like MKV/DTS are remuxed or transcoded in the browser. Off: force a native direct connection; unsupported codecs will have no sound.',
@@ -2014,6 +2023,7 @@ const enUS: Record<string, string> = {
   '开启后全房间成员必须各自连接 ZViewer CLI 观看，服务器仅同步信令、零媒体流量（适合番剧/影视等高码率内容）': 'When on, every member must connect ZViewer CLI to watch; the server only relays signalling with zero media traffic (suited to high-bitrate anime and movies)',
   '可创建房间、管理自己创建的房间': 'Can create rooms and manage the ones they created',
   '可踢出 / 禁言 / 转交房主': 'Can kick, mute and transfer the host role',
+  '累计次数 / 累计时长': 'Total count / total duration',
   '连接服务器超时,请刷新重试': 'Timed out connecting to the server, refresh and retry',
   '连接失败': 'Connection failed',
   '连接已断开，请刷新页面后重试': 'The connection dropped, refresh the page and retry',
@@ -2021,6 +2031,7 @@ const enUS: Record<string, string> = {
   '连接中': 'Connecting',
   '浏览 {{name}} 媒体库': 'Browse the {{name}} library',
   '浏览服务器文件': 'Browse server files',
+  '浏览器实际启用的实现': 'Implementation actually in use',
   '浏览器直连': 'Direct (browser-to-browser)',
   '浏览器转码': 'Browser transcoding',
   '浏览器转码引擎': 'Browser transcoding engine',
@@ -2031,7 +2042,7 @@ const enUS: Record<string, string> = {
   '没有影片切换权限': 'No permission to switch movies',
   '没有影片删除权限': 'No permission to delete movies',
   '媒体流经服务器转发，可绕过防盗链限制': 'Media is relayed by the server, which bypasses hotlink protection',
-  '每 1 秒采样一次 WebRTC 统计；码率为上一秒平均速率。': 'WebRTC stats are sampled every second; the bitrate is the previous second\'s average.',
+  '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': 'WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.',
   '密码（可选）': 'Password (optional)',
   '您的房管权限已被撤销': 'Your moderator role was removed',
   '您已被房主禁言': 'The host muted you',
@@ -2209,6 +2220,7 @@ const enUS: Record<string, string> = {
   '粘贴 {{name}} itemId（可选，一般通过浏览选择）': 'Paste a {{name}} itemId (optional; usually picked by browsing)',
   '展开侧栏': 'Expand the sidebar',
   '展开查看完整影片列表': 'Expand to see the full movie list',
+  '帧在缓冲里的平均停留': 'Average time a frame sits in the buffer',
   '正在初始化解析...': 'Initializing resolution...',
   '正在缓冲视频': 'Buffering the video',
   '正在恢复房间...': 'Restoring the room...',
@@ -2264,6 +2276,7 @@ const enUS: Record<string, string> = {
   'B站视频解析失败': 'Failed to resolve the Bilibili video',
   'CLI 代理未连接': 'CLI proxy not connected',
   'CLI 切换清晰度失败': 'The CLI failed to switch the quality',
+  'CPU 不足': 'CPU limited',
   'DASH 分离流，支持 1080P/4K，seek 需缓冲': 'Separate DASH streams, up to 1080P/4K, seeking needs buffering',
   'DASH 高清': 'DASH HD',
   'FTP 服务器地址，如 ftp.example.com': 'FTP server address, e.g. ftp.example.com',
@@ -2279,7 +2292,7 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（159 条） =====
+  // ===== modules/screen-sharing（163 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
@@ -2309,7 +2322,9 @@ const enUS: Record<string, string> = {
   '房主正在推流，HTTP-FLV 拉流播放中': 'The host is streaming; playing via HTTP-FLV',
   '分辨率：{{width}} x {{height}}': 'Resolution: {{width}} x {{height}}',
   '分辨率切换失败，已保留原分辨率': 'Failed to switch the resolution; the previous one is kept',
+  '分辨率缩放': 'Resolution scaling',
   '分辨率已切换': 'Resolution switched',
+  '分层模式': 'Scalability mode',
   '服务端返回的连接信息不完整，请刷新页面重试': 'The server returned incomplete connection info; refresh the page and try again',
   '服务器返回了无效的观看地址': 'The server returned an invalid watch URL',
   '服务器模式': 'Server mode',
@@ -2341,6 +2356,7 @@ const enUS: Record<string, string> = {
   '检测到当前页面运行在嵌入式预览（iframe）环境中，屏幕共享功能可能被浏览器限制。建议在新窗口中打开本页面：': 'This page is running in an embedded preview (iframe) where browsers may restrict screen sharing. Open it in a new window:',
   '检测到账户已在房间内，正在重新加入…': 'The account is already in the room; rejoining…',
   '将链接发送给观看方，对方打开后即可自动加入房间观看。': 'Send the link to viewers; opening it joins the room and starts playing.',
+  '降级偏好': 'Degradation preference',
   '结束共享': 'End sharing',
   '结束共享将停止屏幕共享并断开观众连接，房间仍会保留，您可以重新开始共享或切换到一起看模式。': 'Ending the share stops screen sharing and disconnects viewers. The room stays, so you can start again or switch to Watch Together.',
   '仅房主可切换子模式': 'Only the host can switch sub-modes',
@@ -2349,6 +2365,7 @@ const enUS: Record<string, string> = {
   '开始共享': 'Start sharing',
   '连接统计': 'Connection stats',
   '连接已断开，请点击刷新重试': 'Connection lost, click Refresh to retry',
+  '浏览器调整了{{names}}，实际发送可能低于设定': 'The browser adjusted {{names}}; the actual output may be below your settings',
   '浏览器已自动静音，点击开启声音': 'Your browser muted the audio; click to unmute',
   '流密钥（Stream Key）': 'Stream key',
   '流密钥已复制': 'Stream key copied',

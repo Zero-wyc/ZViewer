@@ -25,6 +25,7 @@
     "Super admin",
     "Vertical offset",
     "Vertical position",
+    "times",
     "Remove current color from palette",
     "Weight",
     "Save as new color",
@@ -46,6 +47,8 @@
     "Packet loss: {{packetLossRate}}",
     "Jitter",
     "Jitter: {{jitter}}",
+    "Jitter buffer",
+    "Jitter buffer: {{value}}",
     "Drop a friendly danmaku to mark this moment",
     "Send",
     "Send danmaku",
@@ -84,6 +87,8 @@
     "Backend address saved, reloading the page to apply",
     "Huawei Cloud",
     "Brush",
+    "Freezes",
+    "Freezes: {{value}}",
     "Buffer health",
     "Buffer health: {{bufferHealth}}",
     "Back to room",
@@ -114,11 +119,6 @@
     "Bitrate",
     "Bitrate: {{bitrate}}",
     "Stroke",
-    "Default",
-    "Directory is empty",
-    "Embedded subtitle tracks",
-    "Annotation tools",
-    "Comments",
-    "Screen sharing, voice chat and other features that need a secure context are blocked by your browser. Everything else (room management, video playback, danmaku, OBS streaming) still works. Configure HTTPS to unlock them all."
+    "Default"
   ]
 }

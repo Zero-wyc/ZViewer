@@ -1,0 +1,12 @@
+{
+  "items": [
+    "Failed to load sources",
+    "Failed to load the movie details",
+    "Aggregated search failed",
+    "All sites (aggregated search)",
+    "Type a keyword to search movies",
+    "Search by movie title",
+    "No source available, ask an admin to add a configuration endpoint under “TVBox sources” in the admin console",
+    "TVBox sources"
+  ]
+}

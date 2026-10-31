@@ -51,6 +51,10 @@ interface VideoStats {
   packetLossRate: string
   rtt: string
   jitter: string
+  /** 抖动缓冲平均驻留（WebRTC 接收侧）。 */
+  jitterBuffer: string
+  /** 累计冻结次数 / 时长（WebRTC 接收侧）。 */
+  freeze: string
   bufferHealth: string
   url: string
   sourceLabel: string
@@ -90,6 +94,8 @@ const LOADING_STATS: VideoStats = {
   packetLossRate: '-',
   rtt: '-',
   jitter: '-',
+  jitterBuffer: '-',
+  freeze: '-',
   bufferHealth: '-',
   url: '',
   sourceLabel: '',
@@ -151,6 +157,18 @@ function formatMs(value: number | null): string {
   return `${value.toFixed(1)} ms`
 }
 
+/**
+ * 冻结次数与累计时长。
+ *
+ * 冻结是「画面卡住但连接正常」的唯一硬证据：帧率、码率都可能看不出异常，
+ * 而 freezeCount 会实实在在往上走。
+ */
+function formatFreeze(count: number | null, totalMs: number | null): string {
+  if (count === null) return '-'
+  if (totalMs === null) return `${count} ${t('次')}`
+  return `${count} ${t('次')} / ${(totalMs / 1000).toFixed(1)} s`
+}
+
 function formatSeconds(value: number | null): string {
   if (value === null || !Number.isFinite(value)) return '-'
   return `${value.toFixed(2)} s`
@@ -175,76 +193,6 @@ function getVideoCodec(video: HTMLVideoElement): string {
     // ignore
   }
   return 'unknown'
-}
-
-interface WebRtcExtras {
-  codec: string
-  jitter: number | null // ms
-  rtt: number | null // ms
-}
-
-// 统一描述需要访问的 RTC stats 字段（兼容不同 TS lib 版本）
-type RtcStatsLike = RTCStats & {
-  kind?: string
-  codecId?: string
-  jitter?: number
-  roundTripTime?: number
-  mimeType?: string
-}
-
-// 单独读取 useConnectionStats 未暴露的 codec / jitter / rtt
-async function readWebRtcExtras(
-  pc: RTCPeerConnection | null
-): Promise<WebRtcExtras | null> {
-  if (!pc) return null
-  let report: RTCStatsReport
-  try {
-    report = await pc.getStats()
-  } catch {
-    return null
-  }
-
-  let inboundCodecId: string | undefined
-  let inboundJitter: number | undefined
-  let remoteRtt: number | undefined
-  let remoteJitter: number | undefined
-  let hasInbound = false
-  const codecMimes = new Map<string, string>()
-
-  report.forEach((value) => {
-    const v = value as RtcStatsLike
-    if (v.type === 'inbound-rtp' && v.kind === 'video') {
-      hasInbound = true
-      inboundCodecId = v.codecId
-      inboundJitter = v.jitter
-    } else if (v.type === 'remote-inbound-rtp' && v.kind === 'video') {
-      remoteRtt = v.roundTripTime
-      remoteJitter = v.jitter
-    } else if (v.type === 'codec') {
-      if (v.mimeType) {
-        codecMimes.set(v.id, v.mimeType)
-      }
-    }
-  })
-
-  if (!hasInbound) return null
-
-  let codec = 'unknown'
-  if (inboundCodecId && codecMimes.has(inboundCodecId)) {
-    const mime = codecMimes.get(inboundCodecId)
-    if (mime) {
-      codec = mime.replace(/^video\//, '')
-    }
-  }
-
-  const jitterSec = inboundJitter ?? remoteJitter ?? null
-  const rttSec = remoteRtt ?? null
-
-  return {
-    codec,
-    jitter: jitterSec != null ? jitterSec * 1000 : null,
-    rtt: rttSec != null ? rttSec * 1000 : null,
-  }
 }
 
 export function VideoStatsMenu({
@@ -334,14 +282,12 @@ export function VideoStatsMenu({
     const url = sourceUrl || video.currentSrc || video.src || ''
 
     if (isWebRtc) {
-      const extras = await readWebRtcExtras(pc ?? null)
-
       const bufferedEnd = getBufferedEnd(video)
       const bufferHealth =
         bufferedEnd > 0 ? bufferedEnd - video.currentTime : null
 
       return {
-        codec: extras?.codec ?? 'unknown',
+        codec: connStats.codec ?? 'unknown',
         resolution: resolveResolution(),
         frameRate:
           connStats.frameRate != null
@@ -349,8 +295,10 @@ export function VideoStatsMenu({
             : '-',
         bitrate: formatBitrate(connStats.bitrate),
         packetLossRate: formatPacketLoss(connStats.packetLossRate),
-        rtt: formatMs(extras?.rtt ?? null),
-        jitter: formatMs(extras?.jitter ?? null),
+        rtt: formatMs(connStats.rttMs),
+        jitter: formatMs(connStats.jitterMs),
+        jitterBuffer: formatMs(connStats.jitterBufferMs),
+        freeze: formatFreeze(connStats.freezeCount, connStats.totalFreezeMs),
         bufferHealth:
           bufferHealth != null
             ? formatSeconds(bufferHealth)
@@ -426,6 +374,8 @@ export function VideoStatsMenu({
       packetLossRate: '-',
       rtt: '-',
       jitter: '-',
+      jitterBuffer: '-',
+      freeze: '-',
       bufferHealth: bufferHealth > 0 ? formatSeconds(bufferHealth) : '0 s',
       url,
       sourceLabel: SOURCE_LABELS[sourceType],
@@ -436,7 +386,6 @@ export function VideoStatsMenu({
     }
   }, [
     videoElement,
-    pc,
     isWebRtc,
     sourceType,
     connStats,
@@ -559,6 +508,8 @@ export function VideoStatsMenu({
       )
       lines.push(`RTT: ${stats.rtt}`)
       lines.push(t('抖动: {{jitter}}', { jitter: stats.jitter }))
+      lines.push(t('抖动缓冲: {{value}}', { value: stats.jitterBuffer }))
+      lines.push(t('画面冻结: {{value}}', { value: stats.freeze }))
     }
     lines.push(
       t('缓冲健康度: {{bufferHealth}}', { bufferHealth: stats.bufferHealth })
@@ -703,6 +654,8 @@ export function VideoStatsMenu({
             <StatsRow label={t('丢包率')} value={displayStats.packetLossRate} />
             <StatsRow label="RTT" value={displayStats.rtt} />
             <StatsRow label={t('抖动')} value={displayStats.jitter} />
+            <StatsRow label={t('抖动缓冲')} value={displayStats.jitterBuffer} />
+            <StatsRow label={t('画面冻结')} value={displayStats.freeze} />
           </>
         )}
         <StatsRow label={t('缓冲健康度')} value={displayStats.bufferHealth} />

@@ -1,0 +1,13 @@
+{
+  "bucket": "modules/music",
+  "items": [
+    "UI 底部",
+    "UI 模糊浓度",
+    "UI 上方",
+    "UI 透明度",
+    "useMusicPlayer 必须在 MusicPlayerProvider 内使用",
+    "VIP 歌曲需登录后播放",
+    "VIP 歌曲需登录后试听",
+    "ZViewer 暂不支持播放 MV"
+  ]
+}

@@ -33,6 +33,14 @@ export interface HostSessionState {
   viewers: number
   /** 本代际是否走服务端中继（媒体经 SFU 转发，不再直连观众）。 */
   relay: boolean
+  /**
+   * 浏览器没有照办的编码参数（`maxBitrate` / `maxFramerate` /
+   * `scaleResolutionDownBy` …）。`null` 表示全部按请求生效。
+   *
+   * 只上报「最新的那一条观众连接」的回读结果：同一份档位下发给所有发布端，
+   * 浏览器对同一个 sender 的处理是一致的，逐条汇总只会让提示闪来闪去。
+   */
+  parameterOverride: string[] | null
   audioAvailable: boolean
   microphoneEnabled: boolean
   /** 语义错误码，不是展示文案。 */
@@ -81,6 +89,7 @@ export class ShareHostSession {
     peers: 0,
     viewers: 0,
     relay: false,
+    parameterOverride: null,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -132,6 +141,11 @@ export class ShareHostSession {
   async start(options: HostStartOptions): Promise<boolean> {
     if (this.state.sharing) return true
     this.profile = options.profile
+    // 新的一代从「直连、无改写」起步：中继可用时服务端会再发 sfu-config
+    // 把它抬上去；参数改写提示只对当前这一代有意义。
+    this.publicationGeneration = ''
+    this.relayDeclared = false
+    this.patch({ relay: false, parameterOverride: null })
     try {
       const source =
         options.stream ??
@@ -272,7 +286,7 @@ export class ShareHostSession {
     this.shareGeneration = ''
     this.publicationGeneration = ''
     this.relayDeclared = false
-    this.patch({ relay: false })
+    this.patch({ relay: false, parameterOverride: null })
     this.releaseMedia()
   }
 
@@ -395,7 +409,10 @@ export class ShareHostSession {
                   kind: 'candidate',
                   payload: signal.candidate,
                 }),
-        onUpdate: (snapshot) => this.options.onPeerUpdate?.(snapshot),
+        onUpdate: (snapshot) => {
+          this.recordParameterOverride(snapshot)
+          this.options.onPeerUpdate?.(snapshot)
+        },
         onFailed: () => {
           this.dropPeer(connectionId)
           if (relay) {
@@ -506,6 +523,28 @@ export class ShareHostSession {
     if (message.kind === 'candidate' && message.payload) {
       void peer.acceptCandidate(message.payload as RTCIceCandidateInit)
     }
+  }
+
+  /**
+   * 记录浏览器对编码参数的实际处理结果。
+   *
+   * `setParameters` 只是「请求」，浏览器可以按自己的策略改小码率、钉住帧率、
+   * 甚至忽略降采样。不回读就等于默认一切照办——用户看到的档位和实际发出去
+   * 的画面会不一致，而界面上没有任何提示。
+   */
+  private recordParameterOverride(snapshot: HostPeerSnapshot): void {
+    const mismatches = snapshot.senderParameters?.mismatches
+    if (!mismatches) return
+    const next = mismatches.length > 0 ? [...mismatches] : null
+    const current = this.state.parameterOverride
+    const same =
+      current === null
+        ? next === null
+        : next !== null &&
+          current.length === next.length &&
+          current.every((key, index) => key === next[index])
+    if (same) return
+    this.patch({ parameterOverride: next })
   }
 
   private handleRelay(

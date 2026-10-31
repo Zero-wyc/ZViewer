@@ -1,0 +1,23 @@
+{
+  "items": [
+    "[safePlay] Refusing to play a media element detached from the document (prevents orphan audio or doubled sound):",
+    "[seek-service] forceReload failed too:",
+    "[seek-service] MSE seek failed unrecoverably, calling forceReload:",
+    "[seek-service] MSE seek threw:",
+    "[suppression] Found a suppression that was never released (acquire/release may be unbalanced); expired automatically",
+    "[useVideoSource] A media request during playback seems to have an expired access token; refreshing and reloading at the current position",
+    "[useVideoSource] Viewer-side resolution failed:",
+    "[useVideoSource] Failed to restore the video source:",
+    "[useVideoSource] Failed to reload the video source:",
+    "[useViewerStateSync] Buffered download failed:",
+    "[useViewerStateSync] Buffered download cancelled",
+    "Failed to reload the video",
+    "Playback path selected",
+    "Producing segments",
+    "Loading the audio transcoding component",
+    "Building the keyframe index",
+    "Parsing the container and tracks",
+    "Starting the transcoding worker",
+    "Generating the first segment"
+  ]
+}

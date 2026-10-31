@@ -1,4 +1,14 @@
-import { Activity, Cpu, Gauge, Layers, Radio, Signal } from 'lucide-react'
+import {
+  Activity,
+  Boxes,
+  Cpu,
+  Gauge,
+  Layers,
+  Radio,
+  Signal,
+  Timer,
+  Video,
+} from 'lucide-react'
 import { Tag } from '@/components/ui/Tag'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { cn } from '@/lib/utils'
@@ -6,6 +16,7 @@ import {
   useConnectionStats,
   type SharingMode,
 } from '@/modules/screen-sharing/hooks/useConnectionStats'
+import type { QualityLimitationReason } from '@/modules/screen-sharing/core/stats'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
@@ -88,6 +99,34 @@ function getSharingModeColor(): 'success' | 'primary' {
   return 'primary'
 }
 
+/**
+ * 编码受限原因。
+ *
+ * 这是定位「画面糊/掉帧」最关键的一列：带宽不足要降档位或换网络，CPU 不足
+ * 要降分辨率或换硬件编码，两者处置完全不同，靠猜只会白折腾。
+ */
+function getLimitationText(reason: QualityLimitationReason | null): string {
+  switch (reason) {
+    case null:
+      return '-'
+    case 'none':
+      return t('无')
+    case 'cpu':
+      return t('CPU 不足')
+    case 'bandwidth':
+      return t('带宽不足')
+    case 'other':
+      return t('其他')
+  }
+}
+
+function getLimitationColor(
+  reason: QualityLimitationReason | null
+): 'default' | 'success' | 'warning' {
+  if (reason === null) return 'default'
+  return reason === 'none' ? 'success' : 'warning'
+}
+
 function getRoleLabel(role: 'sender' | 'receiver'): string {
   return role === 'sender' ? t('发送端') : t('接收端')
 }
@@ -150,8 +189,16 @@ export function SharingStatusPanel({
     ? `${stats.resolution.width} × ${stats.resolution.height}`
     : '-'
   const codecText = stats.codec ?? '-'
-  const rttText = stats.rtt === null ? '-' : `${stats.rtt} ms`
-  const jitterText = stats.jitter === null ? '-' : `${stats.jitter} ms`
+  const rttText = stats.rttMs === null ? '-' : `${stats.rttMs} ms`
+  const jitterText = stats.jitterMs === null ? '-' : `${stats.jitterMs} ms`
+  const jitterBufferText =
+    stats.jitterBufferMs === null ? '-' : `${stats.jitterBufferMs} ms`
+  const freezeText =
+    stats.freezeCount === null
+      ? '-'
+      : stats.totalFreezeMs === null
+        ? `${stats.freezeCount} ${t('次')}`
+        : `${stats.freezeCount} ${t('次')} / ${(stats.totalFreezeMs / 1000).toFixed(1)} s`
   const bitrateHint = mode === 'sender' ? t('上行码率') : t('下行码率')
 
   return (
@@ -181,6 +228,11 @@ export function SharingStatusPanel({
         <Tag color={getConnectionStateColor(stats.connectionState)}>
           {getConnectionStateText(stats.connectionState)}
         </Tag>
+        {mode === 'sender' && stats.qualityLimitationReason !== null && (
+          <Tag color={getLimitationColor(stats.qualityLimitationReason)}>
+            {getLimitationText(stats.qualityLimitationReason)}
+          </Tag>
+        )}
       </div>
 
       {/* 实时统计字段列表 */}
@@ -224,6 +276,22 @@ export function SharingStatusPanel({
           label={t('编码格式')}
           value={codecText}
         />
+        {mode === 'sender' && (
+          <StatRow
+            icon={<Boxes className="h-3.5 w-3.5" />}
+            label={t('编码器')}
+            hint={t('浏览器实际启用的实现')}
+            value={stats.encoderImplementation ?? '-'}
+          />
+        )}
+        {mode === 'sender' && (
+          <StatRow
+            icon={<Gauge className="h-3.5 w-3.5" />}
+            label={t('编码受限原因')}
+            hint={t('决定该降档位还是降分辨率')}
+            value={getLimitationText(stats.qualityLimitationReason)}
+          />
+        )}
         <StatRow
           icon={<Activity className="h-3.5 w-3.5" />}
           label={t('RTT 往返时延')}
@@ -234,6 +302,22 @@ export function SharingStatusPanel({
           label={t('抖动')}
           value={jitterText}
         />
+        {mode === 'receiver' && (
+          <StatRow
+            icon={<Timer className="h-3.5 w-3.5" />}
+            label={t('抖动缓冲')}
+            hint={t('帧在缓冲里的平均停留')}
+            value={jitterBufferText}
+          />
+        )}
+        {mode === 'receiver' && (
+          <StatRow
+            icon={<Video className="h-3.5 w-3.5" />}
+            label={t('画面冻结')}
+            hint={t('累计次数 / 累计时长')}
+            value={freezeText}
+          />
+        )}
       </div>
 
       {/* 底部说明 */}
@@ -241,7 +325,7 @@ export function SharingStatusPanel({
         type="secondary"
         className="mt-auto text-[10px] leading-tight opacity-70"
       >
-        {t('每 1 秒采样一次 WebRTC 统计；码率为上一秒平均速率。')}
+        {t('每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。')}
       </Text>
     </div>
   )

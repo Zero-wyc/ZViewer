@@ -23,7 +23,7 @@ import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useShareHost } from '../hooks/useShareHost'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
-import { hostErrorText } from '../utils/shareMessages'
+import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -119,6 +119,7 @@ function WebrtcSharePage({
     viewerCount,
     statsPeerConnection,
     sharingMode,
+    parameterOverride,
     previewStream,
     error,
     start,
@@ -351,6 +352,7 @@ function WebrtcSharePage({
   }, [isSharing, setIsSharing])
 
   const errorText = hostErrorText(error)
+  const overrideText = parameterOverrideText(parameterOverride)
 
   if (!currentRoomId) {
     return (
@@ -381,6 +383,20 @@ function WebrtcSharePage({
           </div>
           <AnnotationLayer socket={socket} roomId={currentRoomId} readOnly />
           <SharingPausedOverlay visible={isPaused} />
+          {overrideText && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full px-3 py-1.5 text-xs shadow-sm"
+              style={{
+                border: '1px solid var(--md-sys-color-outline-variant)',
+                backgroundColor: 'var(--glass-bg)',
+                color: 'var(--md-sys-color-on-surface-variant)',
+                backdropFilter: 'blur(var(--glass-blur-strong))',
+                WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
+              }}
+            >
+              {overrideText}
+            </div>
+          )}
           <ShareControlsBar
             isPaused={isPaused}
             connected={connected}

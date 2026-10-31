@@ -40,6 +40,38 @@ export function hostErrorText(code: string | null): string | null {
   }
 }
 
+/**
+ * 浏览器没有照办的编码参数 → 提示文案。
+ *
+ * `setParameters` 是请求不是命令：浏览器会按自己的策略改小码率、钉死帧率，
+ * 甚至忽略降采样。不回读就等于默认一切照办，用户会以为画质参数生效了。
+ */
+export function parameterOverrideText(keys: string[] | null): string | null {
+  if (!keys || keys.length === 0) return null
+  const names = keys.map(parameterLabel)
+  return t('浏览器调整了{{names}}，实际发送可能低于设定', {
+    names: names.join('、'),
+  })
+}
+
+/** 单个参数的中文名。未知键原样展示，便于排查新出现的字段。 */
+function parameterLabel(key: string): string {
+  switch (key) {
+    case 'maxBitrate':
+      return t('码率')
+    case 'maxFramerate':
+      return t('帧率')
+    case 'scaleResolutionDownBy':
+      return t('分辨率缩放')
+    case 'degradationPreference':
+      return t('降级偏好')
+    case 'scalabilityMode':
+      return t('分层模式')
+    default:
+      return key
+  }
+}
+
 /** 观众侧失败原因。 */
 export function viewerErrorText(code: string | null): string | null {
   if (!code) return null

@@ -1,0 +1,6 @@
+{
+  "bucket": "components",
+  "items": [
+    "WebSocket / 信令地址（留空则跟随上方域名）"
+  ]
+}

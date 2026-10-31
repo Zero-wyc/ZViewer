@@ -35,6 +35,8 @@ export interface UseShareHostResult {
   statsPeerConnection: RTCPeerConnection | null
   /** 媒体走向：经服务端 SFU 转发，还是浏览器直连。 */
   sharingMode: 'direct' | 'relay'
+  /** 浏览器没有照办的编码参数；`null` 表示全部按请求生效。 */
+  parameterOverride: string[] | null
   audioAvailable: boolean
   microphoneEnabled: boolean
   error: string | null
@@ -75,6 +77,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     peers: 0,
     viewers: 0,
     relay: false,
+    parameterOverride: null,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -194,6 +197,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     viewerCount: state.viewers,
     statsPeerConnection,
     sharingMode: state.relay ? 'relay' : 'direct',
+    parameterOverride: state.parameterOverride,
     audioAvailable: state.audioAvailable,
     microphoneEnabled: state.microphoneEnabled,
     error: state.error,
