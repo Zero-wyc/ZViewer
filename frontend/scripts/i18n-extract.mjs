@@ -721,9 +721,24 @@ function transformFile(file, tableIndex = new Map()) {
     return true
   }
 
+  /** `<Trans i18nKey="...">` 的 key 不是字面量节点，单独登记；其 children 不再递归 */
+  const isTransKey = (node) => {
+    if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false
+    const opening = ts.isJsxElement(node) ? node.openingElement : node
+    if (opening.tagName.getText() !== 'Trans') return false
+    for (const attr of opening.attributes.properties) {
+      if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'i18nKey') continue
+      const init = attr.initializer
+      if (init && ts.isStringLiteral(init) && hasHan(init.text)) addKey(init.text)
+    }
+    return true
+  }
+
   const visit = (node) => {
     // 0) 读中文标签表的地方：spec.timeoutText → t(spec.timeoutText)
     if (ts.isPropertyAccessExpression(node) && wrapMemberRead(node)) return
+
+    if (isTransKey(node)) return
 
     // 1) JSX 元素：先试「文本 + 表达式」整体合并成一个 t()
     if (ts.isJsxElement(node) || ts.isJsxFragment(node)) {
@@ -922,6 +937,22 @@ export default zhCN
 `
 }
 
+/** 不需要、也不该自动替换的跳过原因（报告里单独列出，不算待办） */
+const EXPECTED_SKIPS = new Set([
+  // 标签表定义处：值就是 key，渲染期由 t() 包装，定义处包了反而会定格语言
+  'module-scope',
+  // 日志/控制台
+  'console',
+  // 内联样式表、超长字符串
+  'stylesheet',
+  // 与后端返回串、接口字段做比较的字面量：翻译了逻辑就坏
+  'comparison',
+  'string-match',
+  'switch-case',
+  // 不是界面文字（import 路径、对象 key 等）
+  'non-ui',
+])
+
 function main() {
   const { scopes, write, check, report, dictOnly } = parseArgs(process.argv.slice(2))
   const targets = scopes.length > 0 ? scopes : ['src']
@@ -977,9 +1008,16 @@ function main() {
   if (skipped.length > 0) {
     const byReason = {}
     for (const item of skipped) byReason[item.reason] = (byReason[item.reason] ?? 0) + 1
-    console.log('需要人工处理的：')
-    for (const [reason, count] of Object.entries(byReason).sort((a, b) => b[1] - a[1])) {
-      console.log(`  ${reason}: ${count}`)
+    const sorted = Object.entries(byReason).sort((a, b) => b[1] - a[1])
+    const pending = sorted.filter(([reason]) => !EXPECTED_SKIPS.has(reason))
+    const expected = sorted.filter(([reason]) => EXPECTED_SKIPS.has(reason))
+    if (pending.length > 0) {
+      console.log('需要人工处理的：')
+      for (const [reason, count] of pending) console.log(`  ${reason}: ${count}`)
+    }
+    if (expected.length > 0) {
+      console.log('按设计保留（不算待办）：')
+      for (const [reason, count] of expected) console.log(`  ${reason}: ${count}`)
     }
   }
 

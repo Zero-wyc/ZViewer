@@ -103,9 +103,9 @@ export function TagRulesModal({
                   )}
                 </p>
                 <p>
-                  屏蔽词不在这里设置：点音乐分区列表中分类条目右上角的
+                  {t('屏蔽词不在这里设置：点音乐分区列表中分类条目右上角的')}
                   <Ban className="mx-1 inline h-3 w-3 align-[-2px]" />
-                  按钮单独管理
+                  {t('按钮单独管理')}
                 </p>
               </div>
               {/* 添加输入行 */}

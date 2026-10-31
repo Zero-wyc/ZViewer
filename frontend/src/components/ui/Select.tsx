@@ -71,7 +71,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
 
     const selectedLabel = useMemo(() => {
       const found = options.find((opt) => String(opt.value) === String(value))
-      return found?.label ?? placeholder
+      return found ? t(found.label) : placeholder
     }, [options, value, placeholder])
 
     /**
@@ -333,7 +333,7 @@ export const Select = forwardRef<HTMLButtonElement, SelectProps>(
                     )}
                     style={{ '--item-delay': '0ms' } as React.CSSProperties}
                   >
-                    <span className="truncate">{opt.label}</span>
+                    <span className="truncate">{t(opt.label)}</span>
                     {active && <Check className="h-3.5 w-3.5 shrink-0" />}
                   </button>
                 )

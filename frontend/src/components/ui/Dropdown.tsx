@@ -55,7 +55,7 @@ export function Dropdown({
 
   const selectedLabel = useMemo(() => {
     const found = options.find((opt) => String(opt.value) === String(value))
-    return found?.label ?? placeholder
+    return found ? t(found.label) : placeholder
   }, [options, value, placeholder])
 
   // 计算菜单位置：根据触发按钮位置和上下方可用空间，自动选择展开方向并限制最大高度
@@ -255,7 +255,7 @@ export function Dropdown({
                   )}
                   style={{ '--item-delay': '0ms' } as React.CSSProperties}
                 >
-                  <span className="truncate">{opt.label}</span>
+                  <span className="truncate">{t(opt.label)}</span>
                   {active && <Check className="h-3.5 w-3.5 shrink-0" />}
                 </button>
               )

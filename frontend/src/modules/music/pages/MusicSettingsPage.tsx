@@ -409,7 +409,7 @@ export function MusicSettingsPage() {
           </svg>
         </button>
         <span className="ml-1 text-[17px] font-bold text-[var(--md-sys-color-on-surface)]">
-          设置(离开页面以保存设置或{' '}
+          {t('设置(离开页面以保存设置或')}{' '}
           <button
             type="button"
             className="px-1.5 py-1 text-[15px] transition-opacity hover:opacity-80 active:opacity-60"
@@ -421,7 +421,7 @@ export function MusicSettingsPage() {
           >
             {t('点击')}
           </button>{' '}
-          保存)
+          {t('保存)')}
         </span>
       </div>
 

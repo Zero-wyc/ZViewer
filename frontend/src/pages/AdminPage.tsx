@@ -25,6 +25,7 @@ import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { apiFetch } from '@/lib/api'
 import type { AdminSettings, AdminRoom, AdminUser } from './admin/shared'
 import { useSystemUpdate } from './admin/useSystemUpdate'
+import { Trans } from 'react-i18next'
 import { UsersTab } from './admin/UsersTab'
 import { RoomsTab } from './admin/RoomsTab'
 import { SettingsTab } from './admin/SettingsTab'
@@ -879,8 +880,11 @@ export default function AdminPage() {
         okText={t('删除')}
         cancelText={t('取消')}
       >
-        确定要删除用户 <strong>{userDelete?.username}</strong>{' '}
-        吗？此操作不可撤销。
+        <Trans
+          i18nKey="确定要删除用户 <strong>{{name}}</strong> 吗？此操作不可撤销。"
+          values={{ name: userDelete?.username }}
+          components={{ strong: <strong /> }}
+        />
       </ConfirmModal>
 
       <ConfirmModal
@@ -892,8 +896,11 @@ export default function AdminPage() {
         okText={t('通过审核')}
         cancelText={t('取消')}
       >
-        确定通过 <strong>{userApprove?.username}</strong>{' '}
-        的注册申请吗？审核后该用户将变为普通用户并可正常使用。
+        <Trans
+          i18nKey="确定通过 <strong>{{name}}</strong> 的注册申请吗？审核后该用户将变为普通用户并可正常使用。"
+          values={{ name: userApprove?.username }}
+          components={{ strong: <strong /> }}
+        />
       </ConfirmModal>
 
       <ConfirmModal
@@ -905,8 +912,11 @@ export default function AdminPage() {
         okText={t('关闭')}
         cancelText={t('取消')}
       >
-        确定要强制关闭房间 <strong>{roomClose?.roomId}</strong>{' '}
-        吗？所有连接将断开。
+        <Trans
+          i18nKey="确定要强制关闭房间 <strong>{{room}}</strong> 吗？所有连接将断开。"
+          values={{ room: roomClose?.roomId }}
+          components={{ strong: <strong /> }}
+        />
       </ConfirmModal>
 
       <ConfirmModal
@@ -934,8 +944,11 @@ export default function AdminPage() {
         cancelText={t('取消')}
         confirmLoading={batchDeleteLoading}
       >
-        确定要删除选中的 <strong>{selectedRoomIds.size}</strong>{' '}
-        个房间吗？此操作不可撤销。
+        <Trans
+          i18nKey="确定要删除选中的 <strong>{{count}}</strong> 个房间吗？此操作不可撤销。"
+          values={{ count: selectedRoomIds.size }}
+          components={{ strong: <strong /> }}
+        />
       </ConfirmModal>
 
       <ConfirmModal

@@ -98,12 +98,13 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
                 {t('只需填写一个域名即可')}
               </p>
               <p>
-                填写你的服务器域名（例如{' '}
+                {t('填写你的服务器域名（例如')}{' '}
                 <code className="rounded bg-[var(--md-sys-color-surface-container)] px-1 py-0.5">
                   example.com
                 </code>
-                ），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx
-                / Caddy），将以下路径统一转发到后端服务：
+                {t(
+                  '），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx / Caddy），将以下路径统一转发到后端服务：'
+                )}
               </p>
               <ul className="ml-1 list-inside list-disc space-y-0.5">
                 <li>

@@ -153,13 +153,14 @@ export function RoomsTab({
                     type="secondary"
                     className="mt-1 text-xs leading-relaxed sm:mt-0"
                   >
-                    观众 {room.viewerCount} / {room.maxViewers}
+                    {t('观众')} {room.viewerCount} / {room.maxViewers}
                     {roomViewMode === 'tile' ? <br /> : ' · '}
-                    分享端{room.sharerOnline ? t('在线') : t('离线')}
+                    {t('分享端')}
+                    {room.sharerOnline ? t('在线') : t('离线')}
                     {roomViewMode === 'tile' ? <br /> : ' · '}
-                    创建于 {formatRoomCreatedAt(room.createdAt)}
+                    {t('创建于')} {formatRoomCreatedAt(room.createdAt)}
                     {roomViewMode === 'tile' ? <br /> : ' · '}
-                    最后访问 {formatDate(room.lastAccessedAt)}
+                    {t('最后访问')} {formatDate(room.lastAccessedAt)}
                   </Text>
                 </div>
               </div>

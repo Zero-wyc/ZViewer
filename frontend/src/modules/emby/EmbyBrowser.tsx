@@ -974,9 +974,9 @@ export default function EmbyBrowser({
                             <div className="flex flex-col items-center gap-3 py-10 text-center">
                               <Folder className="h-8 w-8 text-[var(--md-sys-color-outline)]" />
                               <Text className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                                当前位于媒体库根目录
+                                {t('当前位于媒体库根目录')}
                                 <br />
-                                在右侧进入媒体库后即可查看上级
+                                {t('在右侧进入媒体库后即可查看上级')}
                               </Text>
                             </div>
                           )}

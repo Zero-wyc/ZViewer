@@ -1,5 +1,6 @@
 import { useRef, useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 export interface SegmentedToggleOption {
   value: string
@@ -87,7 +88,7 @@ export function SegmentedToggle({
                 : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-high)]/50 hover:scale-105'
             )}
           >
-            {option.label}
+            {t(option.label)}
           </button>
         )
       })}

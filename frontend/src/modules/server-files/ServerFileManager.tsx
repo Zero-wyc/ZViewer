@@ -889,7 +889,7 @@ export default function ServerFileManager() {
         okText={deleting ? t('删除中...') : t('删除')}
         cancelText={t('取消')}
       >
-        确定要删除「{deleteTarget?.name}」吗？
+        {t('确定要删除「{{name}}」吗？', { name: deleteTarget?.name })}
         {deleteTarget?.type === 'directory' &&
           t(' 该文件夹内所有内容将被一并删除，且不可恢复。')}
       </ConfirmModal>

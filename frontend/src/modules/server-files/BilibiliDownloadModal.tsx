@@ -31,6 +31,7 @@ import {
   ListVideo,
   Crown,
 } from 'lucide-react'
+import { t } from '@/i18n'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { ModalShell } from '@/components/ui/ModalShell'
@@ -833,12 +834,12 @@ function QualitySelector({
       </div>
       {!isVip && (
         <Text className="text-[10px] text-[var(--md-sys-color-on-surface-variant)]">
-          带
+          {t('带')}
           <span
             className="mx-1 inline-block h-1.5 w-1.5 rounded-full align-middle"
             style={{ backgroundColor: 'var(--md-sys-color-error)' }}
           />
-          标识的清晰度需要大会员账号
+          {t('标识的清晰度需要大会员账号')}
         </Text>
       )}
     </div>

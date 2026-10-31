@@ -320,15 +320,16 @@ export default function RoomsListPage() {
                           : 'text-xs'
                       }
                     >
-                      房间 ID: {room.roomId}
-                      {viewMode === 'tile' ? <br /> : ' · '}观众{' '}
-                      {room.viewerCount} / {room.maxViewers}
-                      {viewMode === 'tile' ? <br /> : ' · '}分享端
+                      {t('房间 ID:')} {room.roomId}
+                      {viewMode === 'tile' ? <br /> : ' · '}
+                      {t('观众')} {room.viewerCount} / {room.maxViewers}
+                      {viewMode === 'tile' ? <br /> : ' · '}
+                      {t('分享端')}
                       {room.sharerOnline ? t('在线') : t('离线')}
-                      {viewMode === 'tile' ? <br /> : ' · '}创建于{' '}
-                      {formatDate(room.createdAt)}
-                      {viewMode === 'tile' ? <br /> : ' · '}最后访问{' '}
-                      {formatDate(room.lastAccessedAt)}
+                      {viewMode === 'tile' ? <br /> : ' · '}
+                      {t('创建于')} {formatDate(room.createdAt)}
+                      {viewMode === 'tile' ? <br /> : ' · '}
+                      {t('最后访问')} {formatDate(room.lastAccessedAt)}
                     </Text>
                   </div>
                   <Button

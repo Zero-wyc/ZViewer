@@ -40,6 +40,7 @@ import {
   USER_ROLE_CSS_COLORS,
   type UserRole,
 } from '@/lib/roles'
+import { Trans } from 'react-i18next'
 import { t } from '@/i18n'
 
 interface RoomInfoPanelProps {
@@ -1241,14 +1242,18 @@ export function RoomInfoPanel({
         }
       >
         <Paragraph className="text-sm">
-          确定要将房主转交给{' '}
-          <span
-            className="font-medium"
-            style={{ color: 'var(--md-sys-color-primary)' }}
-          >
-            {transferTarget?.username || t('该观众')}
-          </span>{' '}
-          吗？转交后您将变为观众身份，无法再管理房间。
+          <Trans
+            i18nKey="确定要将房主转交给 <highlight>{{name}}</highlight> 吗？转交后您将变为观众身份，无法再管理房间。"
+            values={{ name: transferTarget?.username || t('该观众') }}
+            components={{
+              highlight: (
+                <span
+                  className="font-medium"
+                  style={{ color: 'var(--md-sys-color-primary)' }}
+                />
+              ),
+            }}
+          />
         </Paragraph>
       </Modal>
 
