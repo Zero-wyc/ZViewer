@@ -233,7 +233,7 @@ export function MusicHomePage({
       <div className="mt-10 flex flex-col gap-10 px-6 pb-32 md:px-8 max-md:mt-8 max-md:gap-8 max-md:px-4 max-md:pb-28">
         <RecBlock
           titleEN="RECOMMENDED SONG LIST"
-          titleCN="推荐歌单"
+          titleCN={translate('推荐歌单')}
           kind="playlist"
           items={playlists.map((p) => ({
             id: p.id,
@@ -245,7 +245,7 @@ export function MusicHomePage({
         />
         <RecBlock
           titleEN="RECOMMENDED ARTISTS"
-          titleCN="推荐歌手"
+          titleCN={translate('推荐歌手')}
           kind="artist"
           items={artists.map((a) => ({
             id: a.id,
@@ -257,7 +257,7 @@ export function MusicHomePage({
         />
         <RecBlock
           titleEN="NEWEST ALBUM"
-          titleCN="最新专辑"
+          titleCN={translate('最新专辑')}
           kind="album"
           items={albums.map((a) => ({
             id: a.id,
@@ -269,7 +269,7 @@ export function MusicHomePage({
         />
         <RecBlock
           titleEN="TOP LIST"
-          titleCN="排行榜"
+          titleCN={translate('排行榜')}
           kind="album"
           items={toplists.map((t) => ({
             id: t.id,

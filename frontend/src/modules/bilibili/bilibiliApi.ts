@@ -5,6 +5,7 @@ import type {
   ResolveProgressLine,
   ResolvedSource,
 } from './types'
+import { t } from '@/i18n'
 
 /**
  * VIP 专属清晰度 qn 列表：前端唯一拷贝（UI 标记用），定义见 ./quality。
@@ -50,7 +51,7 @@ export async function getBilibiliRegionNew(
     total?: number
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取分区视频失败')
+    throw new Error(data.message || t('获取分区视频失败'))
   }
   return { items: data.items ?? [], total: data.total ?? null }
 }
@@ -81,7 +82,7 @@ export async function getBilibiliFavVideos(
     total?: number
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取收藏视频失败')
+    throw new Error(data.message || t('获取收藏视频失败'))
   }
   return {
     folderTitle: data.folderTitle ?? '',
@@ -110,7 +111,7 @@ export async function getBilibiliFavFolders(): Promise<BilibiliFavFolder[]> {
     folders?: BilibiliFavFolder[]
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取收藏夹列表失败')
+    throw new Error(data.message || t('获取收藏夹列表失败'))
   }
   return data.folders ?? []
 }
@@ -171,7 +172,7 @@ export async function searchBilibiliVideos(
     total?: number
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '搜索失败')
+    throw new Error(data.message || t('搜索失败'))
   }
   return { items: data.items ?? [], total: data.total ?? null }
 }
@@ -192,7 +193,7 @@ export async function getBilibiliRelated(
     items?: BilibiliVideoItem[]
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取相关推荐失败')
+    throw new Error(data.message || t('获取相关推荐失败'))
   }
   return data.items ?? []
 }
@@ -221,7 +222,7 @@ export async function getBilibiliAiSubtitle(
     lines?: BilibiliAiSubtitleLine[]
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取 AI 字幕失败')
+    throw new Error(data.message || t('获取 AI 字幕失败'))
   }
   return data.lines ?? []
 }
@@ -247,7 +248,7 @@ export async function getBilibiliQrCode(): Promise<BilibiliQrData> {
     qrDataUrl?: string
   }
   if (!res.ok || !data.success || !data.qrcodeKey || !data.qrDataUrl) {
-    throw new Error(data.message || '获取二维码失败')
+    throw new Error(data.message || t('获取二维码失败'))
   }
   return {
     qrcodeKey: data.qrcodeKey,
@@ -269,7 +270,7 @@ export async function pollBilibiliQrCode(
     loggedIn?: boolean
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '轮询二维码状态失败')
+    throw new Error(data.message || t('轮询二维码状态失败'))
   }
   return {
     status: data.status ?? -1,
@@ -336,7 +337,7 @@ export async function loginBilibiliWithCookie(
     avatar?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || 'Cookie 登录失败')
+    throw new Error(data.message || t('Cookie 登录失败'))
   }
   return {
     name: data.name || '',
@@ -394,7 +395,7 @@ export async function getBilibiliVideoView(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取视频信息失败')
+    throw new Error(data.message || t('获取视频信息失败'))
   }
   return {
     bvid: data.bvid,
@@ -442,7 +443,7 @@ async function parseNdjsonStream(
     text = await res.text()
   } catch (err) {
     console.warn('[resolveBilibili] 读取响应体失败:', err)
-    throw new Error('解析响应失败', { cause: err })
+    throw new Error(t('解析响应失败'), { cause: err })
   }
 
   let resolved: ResolvedSource | null = null
@@ -459,9 +460,11 @@ async function parseNdjsonStream(
         resolved = mapResolvedBilibili(data)
       } else if (data.status === 'error') {
         if (data.code === 'NO_PERMISSION') {
-          streamError = new Error(data.message || '无权限播放，可能需要大会员')
+          streamError = new Error(
+            data.message || t('无权限播放，可能需要大会员')
+          )
         } else {
-          streamError = new Error(data.message || '解析 B站 视频失败')
+          streamError = new Error(data.message || t('解析 B站 视频失败'))
         }
       }
     } catch (err) {
@@ -477,7 +480,7 @@ async function parseNdjsonStream(
     return resolved
   }
 
-  throw new Error('解析 B站 视频未完成')
+  throw new Error(t('解析 B站 视频未完成'))
 }
 
 /**
@@ -518,7 +521,12 @@ export async function resolveBilibili(
   if (options?.forceDash) {
     fetchUrl += `&forceDash=true`
   }
-  if (options?.cid != null && Number.isSafeInteger(options.cid) && options.cid > 0) fetchUrl += `&cid=${options.cid}`
+  if (
+    options?.cid != null &&
+    Number.isSafeInteger(options.cid) &&
+    options.cid > 0
+  )
+    fetchUrl += `&cid=${options.cid}`
   if (
     options?.page != null &&
     Number.isFinite(options.page) &&
@@ -546,14 +554,14 @@ export async function resolveBilibili(
     const data = (await res.json()) as ResolveProgressLine
     if (!res.ok || !data.success || !data.videoUrl) {
       if (data.code === 'NO_PERMISSION') {
-        throw new Error(data.message || '无权限播放，可能需要登录或大会员')
+        throw new Error(data.message || t('无权限播放，可能需要登录或大会员'))
       }
-      throw new Error(data.message || '解析 B站 视频失败')
+      throw new Error(data.message || t('解析 B站 视频失败'))
     }
     return mapResolvedBilibili(data)
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('解析 B站 视频超时，请稍后重试', { cause: err })
+      throw new Error(t('解析 B站 视频超时，请稍后重试'), { cause: err })
     }
     throw err
   } finally {
@@ -619,7 +627,7 @@ export async function fetchBiliLinkMeta(url: string): Promise<BiliLinkMeta> {
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '解析链接失败')
+    throw new Error(data.message || t('解析链接失败'))
   }
   return {
     kind: data.kind,
@@ -648,7 +656,7 @@ export async function fetchBiliCollectionVideos(
     total?: number | null
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取合集视频失败')
+    throw new Error(data.message || t('获取合集视频失败'))
   }
   return { items: data.items ?? [], total: data.total ?? null }
 }
@@ -669,7 +677,7 @@ export async function fetchBiliFavListVideos(
     total?: number | null
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取收藏夹视频失败')
+    throw new Error(data.message || t('获取收藏夹视频失败'))
   }
   return { items: data.items ?? [], total: data.total ?? null }
 }
@@ -722,7 +730,7 @@ export async function fetchBiliComments(
     loginLimited?: boolean
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取评论失败')
+    throw new Error(data.message || t('获取评论失败'))
   }
   return {
     total: data.total ?? 0,
@@ -749,7 +757,7 @@ export async function fetchBiliCommentReplies(
     replies?: BiliCommentItem[]
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取回复失败')
+    throw new Error(data.message || t('获取回复失败'))
   }
   return { total: data.total ?? 0, replies: data.replies ?? [] }
 }

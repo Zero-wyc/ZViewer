@@ -16,6 +16,7 @@ import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useAuthStore } from '@/store/authStore'
 import { Modal } from '@/components/ui/Modal'
 import { cn } from '@/lib/utils'
+import { t as translate } from '@/i18n'
 
 /** 已读记录 localStorage key（值为上次已读的 appVersion） */
 const SEEN_VERSION_KEY = 'zviewer-announce-seen-version'
@@ -275,7 +276,7 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
         style={{
           border: '1px solid var(--md-sys-color-outline)',
         }}
-        title="公告"
+        title={translate('公告')}
       >
         <Megaphone className="w-4 h-4" />
         {unseen && !open && (
@@ -289,7 +290,7 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
       <Modal
         open={open}
         onClose={closeWindow}
-        title="公告"
+        title={translate('公告')}
         className="max-w-lg"
         footer={
           // 关闭走 Modal 右上角 X 与遮罩点击（footer 里不再放重复的关闭按钮）
@@ -320,13 +321,13 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
             </div>
           ) : failed || content == null ? (
             <div className="flex h-24 flex-col items-center justify-center gap-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              <span>公告拉取失败</span>
+              <span>{translate('公告拉取失败')}</span>
               <button
                 type="button"
                 className="text-[var(--md-sys-color-primary)] underline underline-offset-2"
                 onClick={() => void loadAnnouncement()}
               >
-                重试
+                {translate('重试')}
               </button>
             </div>
           ) : (

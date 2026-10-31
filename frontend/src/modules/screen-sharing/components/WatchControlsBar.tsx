@@ -15,6 +15,7 @@ import {
   X,
   RefreshCw,
 } from 'lucide-react'
+import { t } from '@/i18n'
 
 interface WatchControlsBarProps {
   /** 是否静音 */
@@ -63,17 +64,17 @@ function getConnectionStateText(
 ): string {
   switch (state) {
     case 'connecting':
-      return '连接中'
+      return t('连接中')
     case 'connected':
-      return '已连接'
+      return t('已连接')
     case 'disconnected':
-      return '已断开'
+      return t('已断开')
     case 'failed':
-      return '连接失败'
+      return t('连接失败')
     case 'closed':
-      return '连接已关闭'
+      return t('连接已关闭')
     default:
-      return '等待连接'
+      return t('等待连接')
   }
 }
 
@@ -132,22 +133,26 @@ export function WatchControlsBar({
           {/* 播放 / 暂停 */}
           <IconButton
             icon={isPlaying ? <Pause /> : <Play />}
-            label={isPlaying ? '暂停' : '播放'}
+            label={isPlaying ? t('暂停') : t('播放')}
             onClick={onTogglePlayPause}
           />
           {hasRemoteAudio && (
             <IconButton
               icon={isMuted ? <VolumeX /> : <Volume2 />}
-              label={isMuted ? '取消静音' : '静音'}
+              label={isMuted ? t('取消静音') : t('静音')}
               onClick={onToggleMute}
             />
           )}
           <IconButton
             icon={isWebFullscreen ? <Minimize /> : <Maximize />}
-            label={isWebFullscreen ? '退出网页全屏' : '网页全屏'}
+            label={isWebFullscreen ? t('退出网页全屏') : t('网页全屏')}
             onClick={onToggleWebFullscreen}
           />
-          <IconButton icon={<Maximize />} label="全屏" onClick={onFullscreen} />
+          <IconButton
+            icon={<Maximize />}
+            label={t('全屏')}
+            onClick={onFullscreen}
+          />
           {isPiPSupported && (
             <IconButton
               icon={
@@ -157,32 +162,32 @@ export function WatchControlsBar({
                   <PictureInPicture />
                 )
               }
-              label={isPictureInPicture ? '退出画中画' : '画中画'}
+              label={isPictureInPicture ? t('退出画中画') : t('画中画')}
               onClick={onTogglePiP}
             />
           )}
           <IconButton
             icon={showAnnotationToolbar ? <X /> : <Pencil />}
-            label={showAnnotationToolbar ? '关闭批注' : '批注'}
+            label={showAnnotationToolbar ? t('关闭批注') : t('批注')}
             active={showAnnotationToolbar}
             onClick={onToggleAnnotation}
           />
           <IconButton
             icon={<RefreshCw />}
-            label="刷新连接"
+            label={t('刷新连接')}
             onClick={onRefresh}
           />
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Tag color={connected ? 'success' : 'default'}>
-            {connected ? '已连接' : '未连接'}
+            {connected ? t('已连接') : t('未连接')}
           </Tag>
-          <Tag color="primary">已加入</Tag>
+          <Tag color="primary">{t('已加入')}</Tag>
           <Tag color={getConnectionStateColor(connectionState)}>
             {getConnectionStateText(connectionState)}
           </Tag>
           {hasRemoteStream && hasRemoteAudio && (
-            <Tag color="cyan">{isMuted ? '静音中' : '音频开启'}</Tag>
+            <Tag color="cyan">{isMuted ? t('静音中') : t('音频开启')}</Tag>
           )}
         </div>
         {videoResolution && (

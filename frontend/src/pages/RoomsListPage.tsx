@@ -23,6 +23,7 @@ import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { formatRecentTime } from '@/lib/formatTime'
 import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
+import { t } from '@/i18n'
 
 const Fade = ({
   children,
@@ -84,7 +85,7 @@ export default function RoomsListPage() {
     if (data.success && data.rooms) {
       setRooms(data.rooms)
     } else {
-      message.error(data.message ?? '获取房间列表失败')
+      message.error(data.message ?? t('获取房间列表失败'))
     }
   }
 
@@ -94,7 +95,7 @@ export default function RoomsListPage() {
       await fetchRooms()
     } catch (err) {
       console.error('[RoomsListPage] load data error:', err)
-      message.error('加载数据失败')
+      message.error(t('加载数据失败'))
     } finally {
       setLoading(false)
     }
@@ -110,7 +111,7 @@ export default function RoomsListPage() {
       } catch (err) {
         if (!cancelled) {
           console.error('[RoomsListPage] load data error:', err)
-          message.error('加载数据失败')
+          message.error(t('加载数据失败'))
         }
       } finally {
         if (!cancelled) {
@@ -129,9 +130,9 @@ export default function RoomsListPage() {
   const formatDate = formatRecentTime
 
   const getModeLabel = (mode: RoomItem['mode']) => {
-    if (mode === 'watch-together') return '一起看'
-    if (mode === 'listen-together') return '一起听'
-    return '屏幕共享'
+    if (mode === 'watch-together') return t('一起看')
+    if (mode === 'listen-together') return t('一起听')
+    return t('屏幕共享')
   }
 
   return (
@@ -153,9 +154,9 @@ export default function RoomsListPage() {
           </Fade>
           <Fade delay={120}>
             <Title level={3} className="m-0">
-              房间列表
+              {t('房间列表')}
             </Title>
-            <Text type="secondary">浏览并加入当前可用的房间</Text>
+            <Text type="secondary">{t('浏览并加入当前可用的房间')}</Text>
           </Fade>
         </div>
 
@@ -167,14 +168,14 @@ export default function RoomsListPage() {
                 color: 'var(--md-sys-color-on-surface-variant)',
               }}
             >
-              <span>共</span>
+              <span>{t('共')}</span>
               <span
                 className="min-w-[1.25rem] text-center font-semibold"
                 style={{ color: 'var(--md-sys-color-on-surface)' }}
               >
                 {rooms.length}
               </span>
-              <span>个房间</span>
+              <span>{t('个房间')}</span>
             </div>
             <div className="flex flex-wrap items-center gap-2">
               <div
@@ -198,11 +199,11 @@ export default function RoomsListPage() {
                         ? 'var(--md-sys-color-on-primary-container)'
                         : 'var(--md-sys-color-on-surface)',
                   }}
-                  aria-label="列表视图"
-                  title="列表视图"
+                  aria-label={t('列表视图')}
+                  title={t('列表视图')}
                 >
                   <List className="h-4 w-4" />
-                  <span className="hidden sm:inline">列表</span>
+                  <span className="hidden sm:inline">{t('列表')}</span>
                 </button>
                 <button
                   type="button"
@@ -221,11 +222,11 @@ export default function RoomsListPage() {
                         ? 'var(--md-sys-color-on-primary-container)'
                         : 'var(--md-sys-color-on-surface)',
                   }}
-                  aria-label="平铺视图"
-                  title="平铺视图"
+                  aria-label={t('平铺视图')}
+                  title={t('平铺视图')}
                 >
                   <LayoutGrid className="h-4 w-4" />
-                  <span className="hidden sm:inline">平铺</span>
+                  <span className="hidden sm:inline">{t('平铺')}</span>
                 </button>
               </div>
               {isAdmin && (
@@ -235,7 +236,7 @@ export default function RoomsListPage() {
                   icon={<Shield className="h-4 w-4" />}
                   onClick={() => navigate('/admin')}
                 >
-                  管理后台
+                  {t('管理后台')}
                 </Button>
               )}
               <Button
@@ -245,7 +246,7 @@ export default function RoomsListPage() {
                 onClick={loadData}
                 disabled={loading}
               >
-                刷新
+                {t('刷新')}
               </Button>
             </div>
           </div>
@@ -254,7 +255,7 @@ export default function RoomsListPage() {
         {loading ? (
           <Fade delay={200}>
             <div className="py-12">
-              <Spinner tip="加载中..." size={32} />
+              <Spinner tip={t('加载中...')} size={32} />
             </div>
           </Fade>
         ) : (
@@ -268,7 +269,7 @@ export default function RoomsListPage() {
             {rooms.length === 0 ? (
               <Fade delay={200} className="col-span-full">
                 <EmptyState
-                  text="暂无可用房间"
+                  text={t('暂无可用房间')}
                   className="col-span-full py-12"
                 />
               </Fade>
@@ -292,11 +293,11 @@ export default function RoomsListPage() {
                       <span className="truncate font-medium text-[var(--md-sys-color-on-surface)]">
                         {room.name || room.roomId}
                       </span>
-                      <Tag color="success">进行中</Tag>
+                      <Tag color="success">{t('进行中')}</Tag>
                       {room.requireApproval ? (
-                        <Tag color="warning">需确认</Tag>
+                        <Tag color="warning">{t('需确认')}</Tag>
                       ) : (
-                        <Tag color="cyan">直接加入</Tag>
+                        <Tag color="cyan">{t('直接加入')}</Tag>
                       )}
                       {room.hasPassword ? (
                         <Tag color="purple">
@@ -323,7 +324,7 @@ export default function RoomsListPage() {
                       {viewMode === 'tile' ? <br /> : ' · '}观众{' '}
                       {room.viewerCount} / {room.maxViewers}
                       {viewMode === 'tile' ? <br /> : ' · '}分享端
-                      {room.sharerOnline ? '在线' : '离线'}
+                      {room.sharerOnline ? t('在线') : t('离线')}
                       {viewMode === 'tile' ? <br /> : ' · '}创建于{' '}
                       {formatDate(room.createdAt)}
                       {viewMode === 'tile' ? <br /> : ' · '}最后访问{' '}
@@ -346,7 +347,7 @@ export default function RoomsListPage() {
                     }
                     disabled={room.status !== 'active'}
                   >
-                    加入房间
+                    {t('加入房间')}
                   </Button>
                 </div>
               ))

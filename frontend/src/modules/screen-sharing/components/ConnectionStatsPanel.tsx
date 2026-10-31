@@ -7,6 +7,7 @@ import {
   useConnectionStats,
   type ConnectionMode,
 } from '../hooks/useConnectionStats'
+import { t } from '@/i18n'
 
 interface ConnectionStatsPanelProps {
   pc: RTCPeerConnection | null
@@ -33,17 +34,17 @@ function getConnectionStateColor(
 function getConnectionStateText(state: RTCPeerConnectionState): string {
   switch (state) {
     case 'new':
-      return '等待连接'
+      return t('等待连接')
     case 'connecting':
-      return '连接中'
+      return t('连接中')
     case 'connected':
-      return '已连接'
+      return t('已连接')
     case 'disconnected':
-      return '已断开'
+      return t('已断开')
     case 'failed':
-      return '连接失败'
+      return t('连接失败')
     case 'closed':
-      return '连接已关闭'
+      return t('连接已关闭')
     default:
       return state
   }
@@ -52,11 +53,11 @@ function getConnectionStateText(state: RTCPeerConnectionState): string {
 function getModeText(mode: ConnectionMode): string {
   switch (mode) {
     case 'direct':
-      return '直连模式'
+      return t('直连模式')
     case 'server':
-      return '服务器模式'
+      return t('服务器模式')
     default:
-      return '未知模式'
+      return t('未知模式')
   }
 }
 
@@ -84,7 +85,9 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
           className="h-5 w-5"
           style={{ color: 'var(--md-sys-color-primary)' }}
         />
-        <Paragraph className="m-0 text-base font-medium">连接统计</Paragraph>
+        <Paragraph className="m-0 text-base font-medium">
+          {t('连接统计')}
+        </Paragraph>
       </div>
       <Space wrap className="gap-2 mb-4 text-base">
         <Tag color={getModeColor(stats.mode)}>{getModeText(stats.mode)}</Tag>
@@ -95,7 +98,7 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
       <div className="grid grid-cols-2 gap-4 text-sm md:grid-cols-3 lg:grid-cols-6">
         <div className="glass rounded-lg p-4">
           <Text type="secondary" className="text-sm">
-            视频分辨率
+            {t('视频分辨率')}
           </Text>
           <Paragraph className="m-0 font-mono text-base font-semibold">
             {stats.resolution
@@ -105,7 +108,7 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
         </div>
         <div className="glass rounded-lg p-4">
           <Text type="secondary" className="text-sm">
-            帧率
+            {t('帧率')}
           </Text>
           <Paragraph className="m-0 font-mono text-base font-semibold">
             {stats.frameRate === null ? '-' : `${stats.frameRate} fps`}
@@ -113,7 +116,7 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
         </div>
         <div className="glass rounded-lg p-4">
           <Text type="secondary" className="text-sm">
-            码率
+            {t('码率')}
           </Text>
           <Paragraph className="m-0 font-mono text-base font-semibold">
             {formatBitrate(stats.bitrate)}
@@ -121,7 +124,7 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
         </div>
         <div className="glass rounded-lg p-4">
           <Text type="secondary" className="text-sm">
-            已收/已发数据包
+            {t('已收/已发数据包')}
           </Text>
           <Paragraph className="m-0 font-mono text-base font-semibold">
             {stats.packetsReceived !== null
@@ -133,7 +136,7 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
         </div>
         <div className="glass rounded-lg p-4">
           <Text type="secondary" className="text-sm">
-            丢包数
+            {t('丢包数')}
           </Text>
           <Paragraph className="m-0 font-mono text-base font-semibold">
             {formatNumber(stats.packetsLost)}
@@ -141,7 +144,7 @@ export function ConnectionStatsPanel({ pc, mode }: ConnectionStatsPanelProps) {
         </div>
         <div className="glass rounded-lg p-4">
           <Text type="secondary" className="text-sm">
-            丢包率
+            {t('丢包率')}
           </Text>
           <Paragraph className="m-0 font-mono text-base font-semibold">
             {formatPacketLoss(stats.packetLossRate)}

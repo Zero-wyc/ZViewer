@@ -9,6 +9,7 @@ import { cn } from '@/lib/utils'
 import { USER_ROLE_TAG_COLORS, userRoleLabel } from '@/lib/roles'
 import type { AdminSettings, AdminUser, RegistrationMode } from './shared'
 import { formatDate } from './shared'
+import { t } from '@/i18n'
 
 interface UsersTabProps {
   users: AdminUser[]
@@ -44,25 +45,26 @@ export function UsersTab({
     <div className="grid gap-3">
       <div className="glass-card p-4">
         <Title level={5} className="mb-3">
-          用户注册设置
+          {t('用户注册设置')}
         </Title>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end">
           <div className="max-w-xs flex-1">
             <Select
-              label="注册方式"
+              label={t('注册方式')}
               value={registrationMode}
               options={[
-                { label: '直接注册', value: 'open' },
-                { label: '审批注册', value: 'approval' },
-                { label: '禁止注册', value: 'closed' },
+                { label: t('直接注册'), value: 'open' },
+                { label: t('审批注册'), value: 'approval' },
+                { label: t('禁止注册'), value: 'closed' },
               ]}
               onChange={(value) =>
                 onRegistrationModeChange(value as RegistrationMode)
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              直接注册：新用户注册后立即可用；审批注册：新用户需 root
-              审核通过后方可登录；禁止注册：关闭注册入口。
+              {t(
+                '直接注册：新用户注册后立即可用；审批注册：新用户需 root 审核通过后方可登录；禁止注册：关闭注册入口。'
+              )}
             </p>
           </div>
           <Button
@@ -72,12 +74,12 @@ export function UsersTab({
             loading={savingSettings}
             disabled={savingSettings || editingMusicVolume}
           >
-            保存
+            {t('保存')}
           </Button>
         </div>
       </div>
       {users.length === 0 ? (
-        <EmptyState text="暂无用户" className="py-12" />
+        <EmptyState text={t('暂无用户')} className="py-12" />
       ) : (
         users.map((u) => {
           const isRootUser = u.role === 'root' || u.username === 'root'
@@ -100,9 +102,9 @@ export function UsersTab({
                     {userRoleLabel(u.role)}
                   </Tag>
                   {u.status === 'pending' ? (
-                    <Tag color="warning">待审核</Tag>
+                    <Tag color="warning">{t('待审核')}</Tag>
                   ) : (
-                    <Tag color="success">正常</Tag>
+                    <Tag color="success">{t('正常')}</Tag>
                   )}
                 </div>
                 <Text type="secondary" className="text-xs">
@@ -118,7 +120,7 @@ export function UsersTab({
                     onClick={() => onRequestApprove(u)}
                     disabled={isRootUser}
                   >
-                    审核
+                    {t('审核')}
                   </Button>
                 )}
                 {isRootUser ? (
@@ -130,7 +132,7 @@ export function UsersTab({
                       color: 'var(--md-sys-color-on-surface-variant)',
                     }}
                   >
-                    超级管理员
+                    {t('超级管理员')}
                   </div>
                 ) : (
                   <Select
@@ -138,8 +140,8 @@ export function UsersTab({
                     value={u.role}
                     disabled={isSelf(u)}
                     options={[
-                      { label: '管理员', value: 'admin' },
-                      { label: '普通用户', value: 'user' },
+                      { label: t('管理员'), value: 'admin' },
+                      { label: t('普通用户'), value: 'user' },
                     ]}
                     onChange={(value) =>
                       onChangeRole(u, value as AdminUser['role'])
@@ -153,7 +155,7 @@ export function UsersTab({
                   onClick={() => onRequestDelete(u)}
                   disabled={isRootUser || isSelf(u)}
                 >
-                  删除
+                  {t('删除')}
                 </Button>
               </Space>
             </div>

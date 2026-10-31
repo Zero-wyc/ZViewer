@@ -38,6 +38,7 @@ import {
   type DanmakuSearchResult,
   type DanmakuEpisode,
 } from '@/modules/danmaku/types'
+import { t } from '@/i18n'
 
 interface DanmakuSearchModalProps {
   open: boolean
@@ -95,11 +96,11 @@ export function DanmakuSearchModal({
         const list = await searchDanmaku(searchSource, searchKeyword)
         setResults(list)
         if (list.length === 0) {
-          message.info('未找到相关结果')
+          message.info(t('未找到相关结果'))
         }
       } catch (err) {
         console.error('[DanmakuSearchModal] search error:', err)
-        message.error(err instanceof Error ? err.message : '搜索失败')
+        message.error(err instanceof Error ? err.message : t('搜索失败'))
       } finally {
         setLoading(false)
       }
@@ -110,7 +111,7 @@ export function DanmakuSearchModal({
   const handleSearch = () => {
     const trimmed = keyword.trim()
     if (!trimmed) {
-      message.warning('请输入搜索关键词')
+      message.warning(t('请输入搜索关键词'))
       return
     }
     void performSearch(source, trimmed)
@@ -143,11 +144,11 @@ export function DanmakuSearchModal({
       setEpisodes(list)
       setStep('episodes')
       if (list.length === 0) {
-        message.info('该作品暂无可用集数')
+        message.info(t('该作品暂无可用集数'))
       }
     } catch (err) {
       console.error('[DanmakuSearchModal] episodes error:', err)
-      message.error(err instanceof Error ? err.message : '获取集数失败')
+      message.error(err instanceof Error ? err.message : t('获取集数失败'))
     } finally {
       setLoading(false)
     }
@@ -172,7 +173,7 @@ export function DanmakuSearchModal({
       message.success(`已添加 ${label} 弹幕轨道（共 ${items.length} 条）`)
     } catch (err) {
       console.error('[DanmakuSearchModal] fetch error:', err)
-      message.error(err instanceof Error ? err.message : '添加弹幕轨道失败')
+      message.error(err instanceof Error ? err.message : t('添加弹幕轨道失败'))
     } finally {
       setAddingEpisodeId(null)
     }
@@ -189,7 +190,7 @@ export function DanmakuSearchModal({
     onClose()
   }
 
-  const modalTitle = '搜索弹幕'
+  const modalTitle = t('搜索弹幕')
 
   // 右侧集数面板是否展开（step === 'episodes'）
   const episodesOpen = step === 'episodes' && !!selectedResult
@@ -218,7 +219,7 @@ export function DanmakuSearchModal({
         <div className="flex min-h-0 min-w-0 flex-col gap-3 overflow-hidden">
           <Space className="w-full" size="sm" align="end">
             <Select
-              label="数据源"
+              label={t('数据源')}
               value={source}
               options={DANMAKU_SOURCE_OPTIONS}
               onChange={(value) => {
@@ -229,7 +230,7 @@ export function DanmakuSearchModal({
               className="w-36 shrink-0"
             />
             <Input
-              label="关键词"
+              label={t('关键词')}
               value={keyword}
               onChange={(e) => setKeyword(e.target.value)}
               onKeyDown={(e) => {
@@ -238,7 +239,7 @@ export function DanmakuSearchModal({
                   handleSearch()
                 }
               }}
-              placeholder="输入番剧/视频名称或 BV 号"
+              placeholder={t('输入番剧/视频名称或 BV 号')}
               className="flex-1"
             />
             <Button
@@ -263,7 +264,7 @@ export function DanmakuSearchModal({
               <div className="glass flex flex-1 flex-col items-center justify-center gap-2 rounded-[var(--md-sys-shape-corner)] p-6 text-center">
                 <Search className="h-8 w-8 opacity-40" />
                 <Text type="secondary" className="text-xs">
-                  输入关键词并搜索以查找弹幕源
+                  {t('输入关键词并搜索以查找弹幕源')}
                 </Text>
               </div>
             )}
@@ -382,7 +383,7 @@ export function DanmakuSearchModal({
                     type="secondary"
                     className="text-[10px] uppercase tracking-wide"
                   >
-                    选择集数
+                    {t('选择集数')}
                   </Text>
                   <Text className="truncate text-sm font-medium">
                     {selectedResult?.title}
@@ -401,7 +402,7 @@ export function DanmakuSearchModal({
                 {episodes.length === 0 && !loading && (
                   <div className="flex flex-1 items-center justify-center">
                     <Text type="secondary" className="text-xs">
-                      暂无可用集数
+                      {t('暂无可用集数')}
                     </Text>
                   </div>
                 )}
@@ -428,7 +429,9 @@ export function DanmakuSearchModal({
                       }
                       onClick={() => handleAddEpisode(episode)}
                     >
-                      {addedEpisodeIds.has(episode.id) ? '已添加' : '添加'}
+                      {addedEpisodeIds.has(episode.id)
+                        ? t('已添加')
+                        : t('添加')}
                     </Button>
                   </div>
                 ))}

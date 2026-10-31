@@ -84,7 +84,7 @@ export default function AdminPage() {
         return
       }
     }
-    message.error('请输入 0～100 的整数')
+    message.error(t('请输入 0～100 的整数'))
   }
   const [cleanupLoading, setCleanupLoading] = useState(false)
   const [userDelete, setUserDelete] = useState<AdminUser | null>(null)
@@ -119,7 +119,7 @@ export default function AdminPage() {
     if (data.success && data.users) {
       setUsers(data.users)
     } else {
-      message.error(data.message ?? '获取用户列表失败')
+      message.error(data.message ?? t('获取用户列表失败'))
     }
   }
 
@@ -136,7 +136,7 @@ export default function AdminPage() {
       setRooms(data.rooms)
       setSelectedRoomIds(new Set())
     } else {
-      message.error(data.message ?? '获取房间列表失败')
+      message.error(data.message ?? t('获取房间列表失败'))
     }
   }
 
@@ -154,7 +154,7 @@ export default function AdminPage() {
       // 同步更新 systemSettingsStore，避免 HomePage 等公开页面拿到过期值
       invalidateSystemSettings()
     } else {
-      message.error(data.message ?? '获取设置失败')
+      message.error(data.message ?? t('获取设置失败'))
     }
   }
 
@@ -168,7 +168,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error('[AdminPage] load data error:', err)
-      message.error('加载数据失败')
+      message.error(t('加载数据失败'))
     } finally {
       setLoading(false)
     }
@@ -180,7 +180,7 @@ export default function AdminPage() {
       await fetchSettings()
     } catch (err) {
       console.error('[AdminPage] load settings error:', err)
-      message.error('加载设置失败')
+      message.error(t('加载设置失败'))
     } finally {
       setSettingsLoading(false)
     }
@@ -227,7 +227,7 @@ export default function AdminPage() {
       }
     } catch (err) {
       console.error('[AdminPage] change role error:', err)
-      message.error('修改角色失败')
+      message.error(t('修改角色失败'))
     }
   }
 
@@ -240,15 +240,15 @@ export default function AdminPage() {
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
-        message.success('已审核通过该用户')
+        message.success(t('已审核通过该用户'))
         setUserApprove(null)
         await fetchUsers()
       } else {
-        message.error(data.message ?? '审核失败')
+        message.error(data.message ?? t('审核失败'))
       }
     } catch (err) {
       console.error('[AdminPage] approve user error:', err)
-      message.error('审核用户失败')
+      message.error(t('审核用户失败'))
     }
   }
 
@@ -261,15 +261,15 @@ export default function AdminPage() {
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
-        message.success('已删除用户')
+        message.success(t('已删除用户'))
         setUserDelete(null)
         await fetchUsers()
       } else {
-        message.error(data.message ?? '删除失败')
+        message.error(data.message ?? t('删除失败'))
       }
     } catch (err) {
       console.error('[AdminPage] delete user error:', err)
-      message.error('删除用户失败')
+      message.error(t('删除用户失败'))
     }
   }
 
@@ -282,15 +282,15 @@ export default function AdminPage() {
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
-        message.success('已关闭房间')
+        message.success(t('已关闭房间'))
         setRoomClose(null)
         await fetchRooms()
       } else {
-        message.error(data.message ?? '关闭失败')
+        message.error(data.message ?? t('关闭失败'))
       }
     } catch (err) {
       console.error('[AdminPage] close room error:', err)
-      message.error('关闭房间失败')
+      message.error(t('关闭房间失败'))
     }
   }
 
@@ -304,14 +304,14 @@ export default function AdminPage() {
       })
       const data = (await res.json()) as { success: boolean; message?: string }
       if (data.success) {
-        message.success('房间已重新开启')
+        message.success(t('房间已重新开启'))
         await fetchRooms()
       } else {
-        message.error(data.message ?? '重新开启失败')
+        message.error(data.message ?? t('重新开启失败'))
       }
     } catch (err) {
       console.error('[AdminPage] reopen room error:', err)
-      message.error('重新开启房间失败')
+      message.error(t('重新开启房间失败'))
     } finally {
       setRoomReopeningId(null)
     }
@@ -337,11 +337,11 @@ export default function AdminPage() {
         setBatchDeleteConfirm(false)
         await fetchRooms()
       } else {
-        message.error(data.message ?? '批量删除失败')
+        message.error(data.message ?? t('批量删除失败'))
       }
     } catch (err) {
       console.error('[AdminPage] batch delete rooms error:', err)
-      message.error('批量删除房间失败')
+      message.error(t('批量删除房间失败'))
     } finally {
       setBatchDeleteLoading(false)
     }
@@ -365,11 +365,11 @@ export default function AdminPage() {
         setDeleteAllConfirm(false)
         await fetchRooms()
       } else {
-        message.error(data.message ?? '删除所有房间失败')
+        message.error(data.message ?? t('删除所有房间失败'))
       }
     } catch (err) {
       console.error('[AdminPage] delete all rooms error:', err)
-      message.error('删除所有房间失败')
+      message.error(t('删除所有房间失败'))
     } finally {
       setDeleteAllLoading(false)
     }
@@ -397,7 +397,7 @@ export default function AdminPage() {
         message?: string
       }
       if (!data.success) {
-        throw new Error(data.message ?? '保存失败')
+        throw new Error(data.message ?? t('保存失败'))
       }
       if (data.settings) {
         setSettings(data.settings)
@@ -424,21 +424,23 @@ export default function AdminPage() {
     if (json === cmsSavedJsonRef.current) return
     try {
       await persistDataSourceConfig(cfg)
-      message.success('采集源配置已保存并生效')
+      message.success(t('采集源配置已保存并生效'))
     } catch (err) {
       console.error('[AdminPage] save cms sources error:', err)
-      message.error(err instanceof Error ? err.message : '采集源配置保存失败')
+      message.error(
+        err instanceof Error ? err.message : t('采集源配置保存失败')
+      )
     }
   }
 
   const handleInspectCmsSource = async () => {
     const url = cmsInspectUrl.trim()
     if (!url) {
-      message.error('请输入 TVBox 配置接口地址')
+      message.error(t('请输入 TVBox 配置接口地址'))
       return
     }
     if (!/^https?:\/\//i.test(url)) {
-      message.error('配置地址必须是 http(s) URL')
+      message.error(t('配置地址必须是 http(s) URL'))
       return
     }
     setCmsInspecting(true)
@@ -455,7 +457,7 @@ export default function AdminPage() {
       if (data.success && data.sites) {
         if (data.sites.length === 0) {
           message.warning(
-            '配置拉取成功，但没有识别到 CMS 采集源（type 1），未保存'
+            t('配置拉取成功，但没有识别到 CMS 采集源（type 1），未保存')
           )
         } else {
           // 检测成功后立即合并并持久化（去重）——不依赖「保存设置」按钮，
@@ -476,11 +478,11 @@ export default function AdminPage() {
           setCmsInspectUrl('')
         }
       } else {
-        message.error(data.message ?? '拉取配置失败')
+        message.error(data.message ?? t('拉取配置失败'))
       }
     } catch (err) {
       console.error('[AdminPage] inspect cms source error:', err)
-      message.error(err instanceof Error ? err.message : '拉取配置失败')
+      message.error(err instanceof Error ? err.message : t('拉取配置失败'))
     } finally {
       setCmsInspecting(false)
     }
@@ -530,7 +532,7 @@ export default function AdminPage() {
         message?: string
       }
       if (data.success) {
-        message.success('设置已保存')
+        message.success(t('设置已保存'))
         if (data.settings) {
           setSettings(data.settings)
         }
@@ -540,11 +542,11 @@ export default function AdminPage() {
         invalidateSystemSettings()
         void fetchPublicSettings()
       } else {
-        message.error(data.message ?? '保存失败')
+        message.error(data.message ?? t('保存失败'))
       }
     } catch (err) {
       console.error('[AdminPage] save settings error:', err)
-      message.error('保存设置失败')
+      message.error(t('保存设置失败'))
     } finally {
       setSavingSettings(false)
     }
@@ -566,16 +568,16 @@ export default function AdminPage() {
         if (data.count && data.count > 0) {
           message.success(`已清理 ${data.count} 个无人使用的房间`)
         } else {
-          message.info('暂无可清理的房间')
+          message.info(t('暂无可清理的房间'))
         }
         setCleanupConfirm(false)
         await fetchRooms()
       } else {
-        message.error(data.message ?? '清理失败')
+        message.error(data.message ?? t('清理失败'))
       }
     } catch (err) {
       console.error('[AdminPage] cleanup unused rooms error:', err)
-      message.error('清理房间失败')
+      message.error(t('清理房间失败'))
     } finally {
       setCleanupLoading(false)
     }
@@ -588,7 +590,7 @@ export default function AdminPage() {
     if (room.status === 'active') {
       navigate(`/room/${room.roomId}?role=host`)
     } else {
-      message.warning('房间已关闭，无法进入', {
+      message.warning(t('房间已关闭，无法进入'), {
         duration: 5000,
       })
     }
@@ -610,9 +612,11 @@ export default function AdminPage() {
             <Shield className="h-6 w-6" />
           </div>
           <Title level={3} className="m-0">
-            管理页面
+            {t('管理页面')}
           </Title>
-          <Text type="secondary">管理用户账号、房间运行与服务器基础设置</Text>
+          <Text type="secondary">
+            {t('管理用户账号、房间运行与服务器基础设置')}
+          </Text>
         </div>
 
         <div className="mb-6 flex flex-wrap items-center justify-center gap-2">
@@ -632,7 +636,7 @@ export default function AdminPage() {
             }}
           >
             <Users className="h-4 w-4" />
-            <span className="hidden sm:inline">用户管理</span>
+            <span className="hidden sm:inline">{t('用户管理')}</span>
           </button>
           <button
             onClick={() => setActiveTab('rooms')}
@@ -650,7 +654,7 @@ export default function AdminPage() {
             }}
           >
             <LayoutDashboard className="h-4 w-4" />
-            <span className="hidden sm:inline">房间管理</span>
+            <span className="hidden sm:inline">{t('房间管理')}</span>
           </button>
           <button
             onClick={() => setActiveTab('settings')}
@@ -668,7 +672,7 @@ export default function AdminPage() {
             }}
           >
             <Settings className="h-4 w-4" />
-            <span className="hidden sm:inline">基础设置</span>
+            <span className="hidden sm:inline">{t('基础设置')}</span>
           </button>
         </div>
 
@@ -705,11 +709,11 @@ export default function AdminPage() {
                             ? 'var(--md-sys-color-on-primary-container)'
                             : 'var(--md-sys-color-on-surface)',
                       }}
-                      aria-label="列表视图"
-                      title="列表视图"
+                      aria-label={t('列表视图')}
+                      title={t('列表视图')}
                     >
                       <List className="h-4 w-4" />
-                      <span className="hidden sm:inline">列表</span>
+                      <span className="hidden sm:inline">{t('列表')}</span>
                     </button>
                     <button
                       type="button"
@@ -728,11 +732,11 @@ export default function AdminPage() {
                             ? 'var(--md-sys-color-on-primary-container)'
                             : 'var(--md-sys-color-on-surface)',
                       }}
-                      aria-label="平铺视图"
-                      title="平铺视图"
+                      aria-label={t('平铺视图')}
+                      title={t('平铺视图')}
                     >
                       <LayoutGrid className="h-4 w-4" />
-                      <span className="hidden sm:inline">平铺</span>
+                      <span className="hidden sm:inline">{t('平铺')}</span>
                     </button>
                   </div>
                   {selectedRoomIds.size > 0 && (
@@ -758,10 +762,12 @@ export default function AdminPage() {
                     icon={<Trash2 className="h-4 w-4" />}
                     onClick={() => setDeleteAllConfirm(true)}
                     disabled={deleteAllLoading}
-                    title="删除所有房间"
+                    title={t('删除所有房间')}
                   >
-                    <span className="sm:hidden">全部</span>
-                    <span className="hidden sm:inline">删除所有房间</span>
+                    <span className="sm:hidden">{t('全部')}</span>
+                    <span className="hidden sm:inline">
+                      {t('删除所有房间')}
+                    </span>
                   </Button>
                   <Button
                     variant="danger"
@@ -769,10 +775,12 @@ export default function AdminPage() {
                     icon={<Trash2 className="h-4 w-4" />}
                     onClick={() => setCleanupConfirm(true)}
                     disabled={cleanupLoading}
-                    title="移除无人的房间"
+                    title={t('移除无人的房间')}
                   >
-                    <span className="sm:hidden">清理</span>
-                    <span className="hidden sm:inline">移除无人的房间</span>
+                    <span className="sm:hidden">{t('清理')}</span>
+                    <span className="hidden sm:inline">
+                      {t('移除无人的房间')}
+                    </span>
                   </Button>
                 </>
               )}
@@ -782,10 +790,10 @@ export default function AdminPage() {
                 icon={<RefreshCw className="h-4 w-4" />}
                 onClick={loadData}
                 disabled={loading}
-                title="刷新"
+                title={t('刷新')}
               >
-                <span className="sm:hidden">刷新</span>
-                <span className="hidden sm:inline">刷新</span>
+                <span className="sm:hidden">{t('刷新')}</span>
+                <span className="hidden sm:inline">{t('刷新')}</span>
               </Button>
             </div>
           )}
@@ -793,7 +801,7 @@ export default function AdminPage() {
 
         {loading ? (
           <div className="py-12">
-            <Spinner tip="加载中..." size={32} />
+            <Spinner tip={t('加载中...')} size={32} />
           </div>
         ) : activeTab === 'users' ? (
           <UsersTab
@@ -846,11 +854,11 @@ export default function AdminPage() {
       <ConfirmModal
         open={!!userDelete}
         onClose={() => setUserDelete(null)}
-        title="删除用户"
+        title={t('删除用户')}
         onOk={handleDeleteUser}
         onCancel={() => setUserDelete(null)}
-        okText="删除"
-        cancelText="取消"
+        okText={t('删除')}
+        cancelText={t('取消')}
       >
         确定要删除用户 <strong>{userDelete?.username}</strong>{' '}
         吗？此操作不可撤销。
@@ -859,11 +867,11 @@ export default function AdminPage() {
       <ConfirmModal
         open={!!userApprove}
         onClose={() => setUserApprove(null)}
-        title="审核用户"
+        title={t('审核用户')}
         onOk={handleApproveUser}
         onCancel={() => setUserApprove(null)}
-        okText="通过审核"
-        cancelText="取消"
+        okText={t('通过审核')}
+        cancelText={t('取消')}
       >
         确定通过 <strong>{userApprove?.username}</strong>{' '}
         的注册申请吗？审核后该用户将变为普通用户并可正常使用。
@@ -872,11 +880,11 @@ export default function AdminPage() {
       <ConfirmModal
         open={!!roomClose}
         onClose={() => setRoomClose(null)}
-        title="强制关闭房间"
+        title={t('强制关闭房间')}
         onOk={handleCloseRoom}
         onCancel={() => setRoomClose(null)}
-        okText="关闭"
-        cancelText="取消"
+        okText={t('关闭')}
+        cancelText={t('取消')}
       >
         确定要强制关闭房间 <strong>{roomClose?.roomId}</strong>{' '}
         吗？所有连接将断开。
@@ -887,24 +895,24 @@ export default function AdminPage() {
         onClose={() => {
           if (!cleanupLoading) setCleanupConfirm(false)
         }}
-        title="移除无人的房间"
+        title={t('移除无人的房间')}
         onOk={handleCleanupUnusedRooms}
         onCancel={() => setCleanupConfirm(false)}
-        okText="确认"
-        cancelText="取消"
+        okText={t('确认')}
+        cancelText={t('取消')}
         confirmLoading={cleanupLoading}
       >
-        确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。
+        {t('确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。')}
       </ConfirmModal>
 
       <ConfirmModal
         open={batchDeleteConfirm}
         onClose={() => setBatchDeleteConfirm(false)}
-        title="批量删除房间"
+        title={t('批量删除房间')}
         onOk={handleBatchDeleteRooms}
         onCancel={() => setBatchDeleteConfirm(false)}
-        okText="删除"
-        cancelText="取消"
+        okText={t('删除')}
+        cancelText={t('取消')}
         confirmLoading={batchDeleteLoading}
       >
         确定要删除选中的 <strong>{selectedRoomIds.size}</strong>{' '}
@@ -914,14 +922,14 @@ export default function AdminPage() {
       <ConfirmModal
         open={deleteAllConfirm}
         onClose={() => setDeleteAllConfirm(false)}
-        title="删除所有房间"
+        title={t('删除所有房间')}
         onOk={handleDeleteAllRooms}
         onCancel={() => setDeleteAllConfirm(false)}
-        okText="全部删除"
-        cancelText="取消"
+        okText={t('全部删除')}
+        cancelText={t('取消')}
         confirmLoading={deleteAllLoading}
       >
-        确定要删除所有房间吗？此操作不可撤销，所有房间数据将被清除。
+        {t('确定要删除所有房间吗？此操作不可撤销，所有房间数据将被清除。')}
       </ConfirmModal>
     </div>
   )

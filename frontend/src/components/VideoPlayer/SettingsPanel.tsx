@@ -30,6 +30,7 @@ import type {
   DanmakuAdvancedStyle,
 } from '@/store/danmakuStore'
 import type { CommentDockHotkey } from '@/store/playerPrefsStore'
+import { t as translate } from '@/i18n'
 
 /** 弹幕默认字体栈（FontPickerPanel 的「默认」项映射值） */
 const DANMAKU_DEFAULT_FONT = DEFAULT_DANMAKU_STYLE.advanced.fontFamily
@@ -189,9 +190,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setAutoSearchMsg('')
     try {
       const count = await onAutoSearchSubtitles()
-      setAutoSearchMsg(count > 0 ? `找到 ${count} 条字幕` : '未找到字幕')
+      setAutoSearchMsg(
+        count > 0 ? `找到 ${count} 条字幕` : translate('未找到字幕')
+      )
     } catch {
-      setAutoSearchMsg('搜索失败')
+      setAutoSearchMsg(translate('搜索失败'))
     } finally {
       setAutoSearching(false)
       setTimeout(() => setAutoSearchMsg(''), 3000)
@@ -205,9 +208,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
     try {
       const tracks = await onListEmbeddedTracks()
       setEmbeddedTracks(tracks)
-      if (tracks.length === 0) setEmbeddedMsg('未检测到内嵌字幕')
+      if (tracks.length === 0) setEmbeddedMsg(translate('未检测到内嵌字幕'))
     } catch {
-      setEmbeddedMsg('检测失败')
+      setEmbeddedMsg(translate('检测失败'))
     } finally {
       setEmbeddedListLoading(false)
     }
@@ -220,9 +223,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
     setExtractingIndex(track.index)
     try {
       const count = await onExtractEmbeddedTrack(track)
-      setEmbeddedMsg(count > 0 ? `已提取「${track.label}」` : '提取失败')
+      setEmbeddedMsg(
+        count > 0 ? `已提取「${track.label}」` : translate('提取失败')
+      )
     } catch {
-      setEmbeddedMsg('提取失败')
+      setEmbeddedMsg(translate('提取失败'))
     } finally {
       setEmbeddedLoading(false)
       setExtractingIndex(null)
@@ -265,7 +270,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                         color: 'var(--md-sys-color-on-surface-variant)',
                       }}
                     >
-                      开启全屏时鼠标移动至最右侧显示评论区
+                      {translate('开启全屏时鼠标移动至最右侧显示评论区')}
                     </span>
                     <Switch
                       checked={commentDockEdgeHover ?? true}
@@ -290,10 +295,10 @@ export function SettingsPanel(props: SettingsPanelProps) {
               className="text-xs font-semibold uppercase tracking-wide"
               style={{ color: 'var(--md-sys-color-on-surface)' }}
             >
-              高级设置
+              {translate('高级设置')}
             </div>
             <Slider
-              label="字号"
+              label={translate('字号')}
               size="sm"
               value={subtitleFontSize ?? 20}
               min={12}
@@ -303,27 +308,27 @@ export function SettingsPanel(props: SettingsPanelProps) {
               onChange={(v) => onChangeSubtitleFontSize?.(v)}
             />
             <Slider
-              label="描边"
+              label={translate('描边')}
               size="sm"
               value={subtitleStrokeWidth ?? 0}
               min={0}
               max={4}
               step={0.5}
-              valueFormatter={(v) => (v > 0 ? `${v}px` : '无')}
+              valueFormatter={(v) => (v > 0 ? `${v}px` : translate('无'))}
               onChange={(v) => onChangeSubtitleStrokeWidth?.(v)}
             />
             <Slider
-              label="阴影"
+              label={translate('阴影')}
               size="sm"
               value={subtitleShadowBlur ?? 4}
               min={0}
               max={12}
               step={1}
-              valueFormatter={(v) => (v > 0 ? `${v}px` : '无')}
+              valueFormatter={(v) => (v > 0 ? `${v}px` : translate('无'))}
               onChange={(v) => onChangeSubtitleShadowBlur?.(v)}
             />
             <Slider
-              label="时间偏移"
+              label={translate('时间偏移')}
               size="sm"
               value={subtitleOffset ?? 0}
               min={-5}
@@ -335,26 +340,26 @@ export function SettingsPanel(props: SettingsPanelProps) {
               onChange={(v) => onChangeSubtitleOffset?.(v)}
             />
             <Slider
-              label="水平位移"
+              label={translate('水平位移')}
               size="sm"
               value={subtitleShiftX ?? 0}
               min={-50}
               max={50}
               step={1}
               valueFormatter={(v) =>
-                v > 0 ? `右移${v}%` : v < 0 ? `左移${-v}%` : '居中'
+                v > 0 ? `右移${v}%` : v < 0 ? `左移${-v}%` : translate('居中')
               }
               onChange={(v) => onChangeSubtitleShiftX?.(v)}
             />
             <Slider
-              label="垂直位移"
+              label={translate('垂直位移')}
               size="sm"
               value={subtitleShiftY ?? 0}
               min={-50}
               max={50}
               step={1}
               valueFormatter={(v) =>
-                v > 0 ? `下移${v}%` : v < 0 ? `上移${-v}%` : '原始'
+                v > 0 ? `下移${v}%` : v < 0 ? `上移${-v}%` : translate('原始')
               }
               onChange={(v) => onChangeSubtitleShiftY?.(v)}
             />
@@ -363,7 +368,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 className="mb-1 text-[11px] font-medium uppercase tracking-wide"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                字体
+                {translate('字体')}
               </div>
               <button
                 type="button"
@@ -381,8 +386,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     ? subtitleFontFamily
                         .replace(/["']/g, '')
                         .split(',')[0]
-                        ?.trim() || '自定义'
-                    : '默认'}
+                        ?.trim() || translate('自定义')
+                    : translate('默认')}
                 </span>
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
               </button>
@@ -476,7 +481,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                       : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-highest)] hover:text-[var(--md-sys-color-on-surface)]'
                   )}
                 >
-                  {tab === 'subtitle' ? '字幕' : '弹幕'}
+                  {tab === 'subtitle' ? translate('字幕') : translate('弹幕')}
                 </button>
               )
             })}
@@ -486,7 +491,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             className="mb-1.5 text-xs font-semibold"
             style={{ color: 'var(--md-sys-color-on-surface)' }}
           >
-            字幕
+            {translate('字幕')}
           </div>
         )}
 
@@ -498,7 +503,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                 className="text-xs"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                启用字幕
+                {translate('启用字幕')}
               </span>
               <Switch
                 checked={!!subtitleEnabled}
@@ -511,7 +516,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                   className="mb-1 text-[11px] font-medium uppercase tracking-wide"
                   style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                 >
-                  字幕轨道
+                  {translate('字幕轨道')}
                 </div>
                 <div className="flex flex-col gap-0.5">
                   {subtitleTracks.map((track, i) => {
@@ -560,7 +565,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                         color: 'var(--md-sys-color-on-surface-variant)',
                       }}
                     >
-                      <span>加载字幕</span>
+                      <span>{translate('加载字幕')}</span>
                       <ChevronDown
                         className={cn(
                           'h-3 w-3 transition-transform',
@@ -583,7 +588,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
                                 handleAddSubtitleUrl()
                               }
                             }}
-                            placeholder="https://.../sub.vtt 或 .srt/.ass"
+                            placeholder={translate(
+                              'https://.../sub.vtt 或 .srt/.ass'
+                            )}
                             className="flex-1"
                           />
                           <Button
@@ -609,7 +616,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                           icon={<Upload className="h-3 w-3" />}
                           onClick={() => subtitleFileInputRef.current?.click()}
                         >
-                          上传文件
+                          {translate('上传文件')}
                         </Button>
                         {canAutoSearchSubtitles && onAutoSearchSubtitles && (
                           <>
@@ -634,7 +641,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
                               }
                               onClick={handleAutoSearch}
                             >
-                              {autoSearching ? '搜索中...' : '自动识别字幕'}
+                              {autoSearching
+                                ? translate('搜索中...')
+                                : translate('自动识别字幕')}
                             </Button>
                             {autoSearchMsg && (
                               <div
@@ -679,8 +688,8 @@ export function SettingsPanel(props: SettingsPanelProps) {
                                 onClick={handleListEmbedded}
                               >
                                 {embeddedListLoading
-                                  ? '检测中...'
-                                  : '内嵌字幕轨道'}
+                                  ? translate('检测中...')
+                                  : translate('内嵌字幕轨道')}
                               </Button>
                               {embeddedTracks.length > 0 && (
                                 <div className="mt-1 flex flex-col gap-0.5">
@@ -691,7 +700,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
                                         'var(--md-sys-color-on-surface-variant)',
                                     }}
                                   >
-                                    可提取轨道
+                                    {translate('可提取轨道')}
                                   </div>
                                   {embeddedTracks.map((t) => {
                                     const extracting =
@@ -753,7 +762,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
                                 setFontPanelOpen(false)
                               }}
                             >
-                              {browserOpen ? '关闭浏览' : '浏览目录'}
+                              {browserOpen
+                                ? translate('关闭浏览')
+                                : translate('浏览目录')}
                             </Button>
                           )}
                       </div>
@@ -780,7 +791,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     )}
                     style={{ borderColor: 'var(--md-sys-color-outline)' }}
                   >
-                    {advancedOpen ? '收起高级设置' : '高级设置'}
+                    {advancedOpen
+                      ? translate('收起高级设置')
+                      : translate('高级设置')}
                     <ChevronRight
                       className={cn(
                         'h-3.5 w-3.5 transition-transform',
@@ -838,7 +851,7 @@ function CommentDockHotkeySetting({
         className="mb-1 text-[11px] font-medium uppercase tracking-wide"
         style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
       >
-        双击打开评论区
+        {translate('双击打开评论区')}
       </div>
       <div className="grid grid-cols-4 gap-1">
         {COMMENT_DOCK_HOTKEY_OPTIONS.map(({ key, label }) => {
@@ -850,7 +863,7 @@ function CommentDockHotkeySetting({
               onClick={() => onChange(key)}
               title={
                 key === 'off'
-                  ? '关闭双击快捷键'
+                  ? translate('关闭双击快捷键')
                   : `全屏播放时双击 ${label} 开/关右侧评论区`
               }
               className={cn(

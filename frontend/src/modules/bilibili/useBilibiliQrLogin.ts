@@ -5,6 +5,7 @@ import {
   logoutBilibili,
   pollBilibiliQrCode,
 } from './bilibiliApi'
+import { t } from '@/i18n'
 
 export const BILI_QR_DEFAULT_MESSAGE = '请使用哔哩哔哩 App 扫码登录'
 
@@ -27,7 +28,7 @@ export function useBilibiliQrLogin(options: UseBilibiliQrLoginOptions = {}) {
   const {
     onLoginSuccess,
     onLogoutSuccess,
-    logoutErrorMessage = '退出登录失败',
+    logoutErrorMessage = t('退出登录失败'),
     logTag = 'useBilibiliQrLogin',
   } = options
 
@@ -62,16 +63,16 @@ export function useBilibiliQrLogin(options: UseBilibiliQrLoginOptions = {}) {
           if (result.status === 0) {
             setQrMessage(BILI_QR_DEFAULT_MESSAGE)
           } else if (result.status === 1) {
-            setQrMessage('已扫码，请在 App 中确认登录')
+            setQrMessage(t('已扫码，请在 App 中确认登录'))
           } else if (result.status === 2) {
-            setQrMessage('登录成功')
+            setQrMessage(t('登录成功'))
             await onLoginSuccess?.()
             setQrModalOpen(false)
-            message.success('B站 登录成功')
+            message.success(t('B站 登录成功'))
             stopQrPolling()
             return
           } else if (result.status === 3) {
-            setQrMessage('二维码已过期，请重新获取')
+            setQrMessage(t('二维码已过期，请重新获取'))
             stopQrPolling()
             return
           }
@@ -80,10 +81,10 @@ export function useBilibiliQrLogin(options: UseBilibiliQrLoginOptions = {}) {
           console.error(`[${logTag}] QR poll error:`, err)
           qrRetryCountRef.current += 1
           if (qrRetryCountRef.current <= 2) {
-            setQrMessage('轮询状态失败，正在重试…')
+            setQrMessage(t('轮询状态失败，正在重试…'))
             pollTimerRef.current = setTimeout(poll, 2000)
           } else {
-            setQrMessage('轮询状态失败，请重新获取')
+            setQrMessage(t('轮询状态失败，请重新获取'))
             stopQrPolling()
           }
         }
@@ -105,7 +106,7 @@ export function useBilibiliQrLogin(options: UseBilibiliQrLoginOptions = {}) {
       setQrDataUrl(data.qrDataUrl)
       void startQrPolling(data.qrcodeKey)
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取二维码失败')
+      message.error(err instanceof Error ? err.message : t('获取二维码失败'))
       setQrModalOpen(false)
     }
   }, [stopQrPolling, startQrPolling])
@@ -119,7 +120,7 @@ export function useBilibiliQrLogin(options: UseBilibiliQrLoginOptions = {}) {
     try {
       await logoutBilibili()
       onLogoutSuccess?.()
-      message.success('已退出 B站 登录')
+      message.success(t('已退出 B站 登录'))
     } catch {
       message.error(logoutErrorMessage)
     }

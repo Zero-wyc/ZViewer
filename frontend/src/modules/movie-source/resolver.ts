@@ -28,6 +28,7 @@ import type { CmsSourceMeta } from '@/modules/cms/types'
 import { usesDirectMedia } from './media-policy'
 import { getEmbyApiMovieSource } from '@/modules/emby/embyApi'
 import { getEmbyMediaSourceId } from '@/modules/emby/playbackMode'
+import { t } from '@/i18n'
 
 /** 房主刷新恢复时由后端返回的最近一次播放状态（源相关子集） */
 export interface RecoverySourceInfo {
@@ -210,7 +211,7 @@ function mapResolvedSourceToMovieSource(
   movie: Movie
 ): ResolvedMovieSource {
   if (!resolved.videoUrl) {
-    throw new Error('未获取到对应清晰度的播放地址')
+    throw new Error(t('未获取到对应清晰度的播放地址'))
   }
   return {
     sourceUrl: resolved.videoUrl,
@@ -304,7 +305,9 @@ export async function resolveBilibiliOnline(
     resolveBilibiliCliProxyDecision(movie)
   if (cliOnly && !proxyUrl) {
     throw new Error(
-      '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后观看（此影片不经服务器转发媒体流）'
+      t(
+        '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后观看（此影片不经服务器转发媒体流）'
+      )
     )
   }
   // CLI 已启用：已连接走 CLI DASH；未连接由 getEffectivePreferMp4
@@ -398,7 +401,7 @@ export async function resolveAnimeOnline(
   movie: Movie
 ): Promise<ResolvedMovieSource> {
   if (!movie.sourceMeta || !('episode' in movie.sourceMeta)) {
-    throw new Error('番剧源元数据缺失，请重新添加该番剧')
+    throw new Error(t('番剧源元数据缺失，请重新添加该番剧'))
   }
 
   const { sourceId, episode } = movie.sourceMeta
@@ -563,7 +566,7 @@ export async function resolveCmsOnline(
 ): Promise<ResolvedMovieSource> {
   const meta = movie.sourceMeta as CmsSourceMeta | null
   if (!meta || !('vodId' in meta) || !meta.vodId) {
-    throw new Error('采集源影片元数据缺失，请重新添加该影片')
+    throw new Error(t('采集源影片元数据缺失，请重新添加该影片'))
   }
 
   const resolved = await resolveCmsEpisode(meta.sourceId, {
@@ -698,7 +701,7 @@ export async function resolveMovieSource({
     const sourceUrl = movie.directLink
       ? source.resolvedDirectUrl || source.directUrl
       : source.streamUrl
-    if (!sourceUrl) throw new Error('未取得影片播放地址')
+    if (!sourceUrl) throw new Error(t('未取得影片播放地址'))
     return {
       sourceUrl,
       format: source.format,

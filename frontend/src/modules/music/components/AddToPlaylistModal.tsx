@@ -227,7 +227,7 @@ export function AddToPlaylistModal({
               hover 预取通常已就绪，此门只是保证动画期间的确定性流畅） */}
             {unfoldDone && loadState === 'loading' && (
               <LoadingLine
-                text="正在获取歌单…"
+                text={t('正在获取歌单…')}
                 spinnerClassName="h-3.5 w-3.5"
                 className="h-auto py-10"
               />

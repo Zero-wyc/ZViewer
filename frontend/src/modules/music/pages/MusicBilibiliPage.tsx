@@ -1869,7 +1869,7 @@ export function MusicBilibiliPage({
           {/* 右侧视频区：加载动画 / 错误 / 空态 / 网格四态切换（左栏常驻） */}
           {loading ? (
             <LoadingLine
-              text="正在获取视频…"
+              text={translate('正在获取视频…')}
               spinnerClassName="h-6 w-6"
               className="h-auto min-w-0 flex-1 py-12 text-base"
             />
@@ -2200,7 +2200,7 @@ export function MusicBilibiliPage({
             ) : (
               <LiquidGlassButton
                 title={`当前第 ${pageNo} 页${totalPages != null ? ` / 共 ${totalPages} 页` : ''}；点击输入页码跳转`}
-                ariaLabel="跳转到指定页"
+                ariaLabel={translate('跳转到指定页')}
                 disabled={loading}
                 onClick={() => {
                   setPageJumpValue(String(pageNo))
@@ -2252,7 +2252,7 @@ export function MusicBilibiliPage({
                   '随机排序：关（开启后翻页随机抽取一批视频并打乱顺序）'
                 )
           }
-          ariaLabel="切换随机排序"
+          ariaLabel={translate('切换随机排序')}
           active={randomMode}
           onClick={handleToggleRandomMode}
         >
@@ -2262,7 +2262,7 @@ export function MusicBilibiliPage({
         </LiquidGlassButton>
         <LiquidGlassButton
           title={translate('刷新')}
-          ariaLabel="刷新列表"
+          ariaLabel={translate('刷新列表')}
           onClick={() => void load(tab, activeFolderId)}
         >
           <RefreshCw

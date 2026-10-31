@@ -592,7 +592,7 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
   if (!loginStatus.loggedIn) {
     return (
       <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8">
-        <PageBlockHeader titleEN="PERSONAL FM" titleCN="私人漫游" />
+        <PageBlockHeader titleEN="PERSONAL FM" titleCN={t('私人漫游')} />
         <MusicLoginGate hint={t('登录后开启专属音乐漫游')} />
       </div>
     )

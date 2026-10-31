@@ -41,6 +41,7 @@ import {
 } from '@/lib/fullscreen-utils'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import '@/modules/art-player/art-overrides.css'
+import { t } from '@/i18n'
 
 /** flv.js 统计信息
  *
@@ -309,7 +310,7 @@ export function FlvPlayer({
       })
       .catch((err: unknown) => {
         // attach 失败（waitForMetadata 30s 超时 / flv.js 不可用等）
-        const message = err instanceof Error ? err.message : '直播流连接失败'
+        const message = err instanceof Error ? err.message : t('直播流连接失败')
         console.error('[FlvPlayer] attach failed:', err)
         setErrorMsg(message)
         onErrorRef.current?.(err instanceof Error ? err : new Error(message))
@@ -433,7 +434,7 @@ export function FlvPlayer({
 
       {loading && !errorMsg && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-          <Spinner tip="正在连接直播流..." size={32} />
+          <Spinner tip={t('正在连接直播流...')} size={32} />
         </div>
       )}
       {errorMsg && (
@@ -442,14 +443,14 @@ export function FlvPlayer({
             {errorMsg}
           </div>
           <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            请检查网络连接或房主推流状态
+            {t('请检查网络连接或房主推流状态')}
           </div>
           <button
             type="button"
             className="mt-1 rounded-lg border border-white/20 px-4 py-1.5 text-sm text-white transition-colors hover:bg-white/10"
             onClick={handleRefresh}
           >
-            重新连接
+            {t('重新连接')}
           </button>
         </div>
       )}
@@ -473,27 +474,27 @@ export function FlvPlayer({
             <div className="flex flex-wrap items-center vc-gap">
               <IconButton
                 icon={isPlaying ? <Pause /> : <Play />}
-                label={isPlaying ? '暂停' : '播放'}
+                label={isPlaying ? t('暂停') : t('播放')}
                 onClick={handleTogglePlayPause}
               />
               <IconButton
                 icon={isMuted ? <VolumeX /> : <Volume2 />}
-                label={isMuted ? '取消静音' : '静音'}
+                label={isMuted ? t('取消静音') : t('静音')}
                 onClick={handleToggleMute}
               />
               <IconButton
                 icon={isWebFullscreen ? <Minimize /> : <Maximize />}
-                label={isWebFullscreen ? '退出网页全屏' : '网页全屏'}
+                label={isWebFullscreen ? t('退出网页全屏') : t('网页全屏')}
                 onClick={onToggleWebFullscreen}
               />
               <IconButton
                 icon={isFullscreen ? <Minimize2 /> : <Maximize2 />}
-                label={isFullscreen ? '退出全屏' : '全屏'}
+                label={isFullscreen ? t('退出全屏') : t('全屏')}
                 onClick={handleFullscreen}
               />
               <IconButton
                 icon={<RefreshCw />}
-                label="刷新连接"
+                label={t('刷新连接')}
                 onClick={handleRefresh}
               />
             </div>
@@ -508,18 +509,18 @@ export function FlvPlayer({
                 }
               >
                 {streamStatus === 'playing'
-                  ? '直播中'
+                  ? t('直播中')
                   : streamStatus === 'error'
-                    ? '连接失败'
+                    ? t('连接失败')
                     : streamStatus === 'stopped'
-                      ? '已停止'
-                      : '连接中'}
+                      ? t('已停止')
+                      : t('连接中')}
               </Tag>
-              <Tag color="primary">OBS 推流</Tag>
+              <Tag color="primary">{t('OBS 推流')}</Tag>
               {isMuted ? (
-                <Tag color="default">静音中</Tag>
+                <Tag color="default">{t('静音中')}</Tag>
               ) : (
-                <Tag color="cyan">音频开启</Tag>
+                <Tag color="cyan">{t('音频开启')}</Tag>
               )}
             </div>
           </div>

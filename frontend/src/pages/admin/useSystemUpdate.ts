@@ -8,6 +8,7 @@ import type {
   UpdateProgress,
   UpdateStageEventPayload,
 } from './shared'
+import { t } from '@/i18n'
 
 /** 桌面 GUI 托管时的统一提示（与后端 DESKTOP_UPDATE_HINT 同文案） */
 const DESKTOP_UPDATE_HINT =
@@ -68,17 +69,17 @@ function processUpdateSseChunk(
           stage: 'extracting',
           received: 0,
           total: 0,
-          message: '正在解压更新包…',
+          message: t('正在解压更新包…'),
         })
       } else if (data.stage === 'starting') {
         setUpdateProgress({
           stage: 'starting',
           received: 0,
           total: 0,
-          message: '正在启动更新脚本…',
+          message: t('正在启动更新脚本…'),
         })
       } else if (data.stage === 'done') {
-        state.doneMessage = data.message ?? '更新已触发'
+        state.doneMessage = data.message ?? t('更新已触发')
         setUpdateProgress({
           stage: 'done',
           received: 0,
@@ -86,7 +87,7 @@ function processUpdateSseChunk(
           message: state.doneMessage,
         })
       } else if (data.stage === 'error') {
-        state.errorMessage = data.message ?? '更新失败'
+        state.errorMessage = data.message ?? t('更新失败')
         setUpdateProgress({
           stage: 'error',
           received: 0,
@@ -147,17 +148,17 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
         setUpdateInfo(data.info)
         if (data.info.hasUpdate) {
           message.info(
-            data.info.isPrerelease ? '发现新预发布版本' : '发现新版本'
+            data.info.isPrerelease ? t('发现新预发布版本') : t('发现新版本')
           )
         } else {
-          message.success('当前已是最新版本')
+          message.success(t('当前已是最新版本'))
         }
       } else {
-        message.error(data.message ?? '检查更新失败')
+        message.error(data.message ?? t('检查更新失败'))
       }
     } catch (err) {
       console.error('[AdminPage] check update error:', err)
-      message.error('检查更新失败')
+      message.error(t('检查更新失败'))
     } finally {
       setUpdateLoading(false)
     }
@@ -190,7 +191,7 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
         const errData = (await res.json().catch(() => ({}))) as {
           message?: string
         }
-        message.error(errData.message ?? '更新失败')
+        message.error(errData.message ?? t('更新失败'))
         setUpdateProgress(null)
         return
       }
@@ -217,16 +218,16 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
       }
 
       if (sse.lastStage === 'done') {
-        message.success(sse.doneMessage || '更新已触发')
+        message.success(sse.doneMessage || t('更新已触发'))
       } else if (sse.lastStage === 'error') {
-        message.error(sse.errorMessage || '更新失败')
+        message.error(sse.errorMessage || t('更新失败'))
       } else {
         // 流意外中断，未收到 done/error
-        message.error('更新中断，请重试')
+        message.error(t('更新中断，请重试'))
       }
     } catch (err) {
       console.error('[AdminPage] apply update error:', err)
-      message.error('更新失败')
+      message.error(t('更新失败'))
     } finally {
       setApplyLoading(false)
       // 保留进度状态显示最终结果，3 秒后清除
@@ -246,7 +247,7 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
     // 验证文件类型
     const lowerName = file.name.toLowerCase()
     if (!lowerName.endsWith('.zip') && !lowerName.endsWith('.tar.gz')) {
-      message.error('仅支持 .zip 或 .tar.gz 格式的压缩包')
+      message.error(t('仅支持 .zip 或 .tar.gz 格式的压缩包'))
       event.target.value = ''
       return
     }
@@ -256,7 +257,7 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
       stage: 'downloading',
       received: 0,
       total: file.size,
-      message: '正在上传更新包…',
+      message: t('正在上传更新包…'),
     })
 
     try {
@@ -281,7 +282,7 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
               stage: 'downloading',
               received: e.loaded,
               total: e.total,
-              message: '正在上传更新包…',
+              message: t('正在上传更新包…'),
             })
           }
         }
@@ -311,9 +312,9 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
           processSSEChunk()
           if (xhr.status >= 200 && xhr.status < 300) {
             if (sse.lastStage === 'done') {
-              message.success(sse.doneMessage || '更新已触发')
+              message.success(sse.doneMessage || t('更新已触发'))
             } else if (sse.lastStage === 'error') {
-              message.error(sse.errorMessage || '上传更新失败')
+              message.error(sse.errorMessage || t('上传更新失败'))
             } else if (sse.lastStage === null) {
               // 未收到 SSE 事件，可能是普通 JSON 响应（错误场景）
               try {
@@ -322,17 +323,17 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
                   message?: string
                 }
                 if (data.success) {
-                  message.success(data.message ?? '更新已触发')
+                  message.success(data.message ?? t('更新已触发'))
                 } else {
-                  message.error(data.message ?? '上传更新失败')
+                  message.error(data.message ?? t('上传更新失败'))
                 }
               } catch {
-                message.error('上传更新失败')
+                message.error(t('上传更新失败'))
               }
             }
             resolve()
           } else if (xhr.status === 401 || xhr.status === 403) {
-            message.error('登录已过期，请重新登录后再试')
+            message.error(t('登录已过期，请重新登录后再试'))
             reject(new Error('auth expired'))
           } else {
             // 非 SSE 错误响应
@@ -340,16 +341,16 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
               const data = JSON.parse(xhr.responseText) as {
                 message?: string
               }
-              message.error(data.message ?? '上传更新失败')
+              message.error(data.message ?? t('上传更新失败'))
             } catch {
-              message.error('上传更新失败')
+              message.error(t('上传更新失败'))
             }
             reject(new Error(`HTTP ${xhr.status}`))
           }
         }
 
         xhr.onerror = () => {
-          message.error('网络错误，上传更新失败')
+          message.error(t('网络错误，上传更新失败'))
           reject(new Error('network error'))
         }
 
@@ -363,7 +364,7 @@ export function useSystemUpdate({ authHeaders }: UseSystemUpdateOptions) {
         err.message !== 'auth expired' &&
         !err.message.startsWith('HTTP')
       ) {
-        message.error('上传更新失败')
+        message.error(t('上传更新失败'))
       }
     } finally {
       setUploadLoading(false)

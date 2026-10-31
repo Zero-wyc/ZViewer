@@ -2,6 +2,7 @@ import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
 import { Tag } from '@/components/ui/Tag'
 import { Copy, PauseCircle, PlayCircle, Power, RefreshCw } from 'lucide-react'
+import { t } from '@/i18n'
 
 interface ShareControlsBarProps {
   /** 是否暂停中（决定显示暂停/恢复按钮） */
@@ -48,14 +49,14 @@ export function ShareControlsBar({
               icon={<PlayCircle className="h-5 w-5" />}
               onClick={onTogglePause}
             >
-              恢复共享
+              {t('恢复共享')}
             </Button>
           ) : (
             <Button
               icon={<PauseCircle className="h-5 w-5" />}
               onClick={onTogglePause}
             >
-              暂停共享
+              {t('暂停共享')}
             </Button>
           )}
           <Button
@@ -63,17 +64,17 @@ export function ShareControlsBar({
             icon={<Copy className="h-5 w-5" />}
             onClick={onCopyLink}
           >
-            复制观看链接
+            {t('复制观看链接')}
           </Button>
           <Button variant="ghost" onClick={onClearAnnotations}>
-            清空批注
+            {t('清空批注')}
           </Button>
           <Button
             variant="secondary"
             icon={<RefreshCw className="h-5 w-5" />}
             onClick={onRefresh}
           >
-            刷新
+            {t('刷新')}
           </Button>
           <Button
             variant="danger"
@@ -81,16 +82,16 @@ export function ShareControlsBar({
             loading={closing}
             onClick={onClose}
           >
-            结束共享
+            {t('结束共享')}
           </Button>
         </Space>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <Tag color={connected ? 'success' : 'default'}>
-            {connected ? '已连接' : '未连接'}
+            {connected ? t('已连接') : t('未连接')}
           </Tag>
-          <Tag color="primary">共享中</Tag>
-          {isPaused && <Tag color="warning">已暂停</Tag>}
-          {!isPaused && <Tag color="cyan">传输中</Tag>}
+          <Tag color="primary">{t('共享中')}</Tag>
+          {isPaused && <Tag color="warning">{t('已暂停')}</Tag>}
+          {!isPaused && <Tag color="cyan">{t('传输中')}</Tag>}
           <Tag color="purple">
             在线观众：{viewerCount} / {connectionCount} 连接
           </Tag>

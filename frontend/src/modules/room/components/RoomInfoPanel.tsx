@@ -1256,7 +1256,7 @@ export function RoomInfoPanel({
           void copyShareUrl()
         }}
         title={t('当前处于内网地址')}
-        okText="仍然复制"
+        okText={t('仍然复制')}
         cancelText={t('取消')}
       >
         <div className="flex flex-col gap-2">

@@ -519,7 +519,7 @@ export function MusicSettingsPage() {
             }}
           />
           {/* 音质选择（Selector 9 档） */}
-          <SettingOption name="音质选择">
+          <SettingOption name={t('音质选择')}>
             <SettingSelector
               value={normalizeMusicLevel(settings.level)}
               options={MUSIC_LEVEL_OPTIONS}
@@ -527,7 +527,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 音源直连（直链模式，默认关闭） */}
-          <SettingOption name="音源直连">
+          <SettingOption name={t('音源直连')}>
             <SettingToggle
               on={settings.directSource}
               onToggle={() =>
@@ -536,7 +536,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 背景封面模糊（性能类：开启需确认） */}
-          <SettingOption name="开启背景封面模糊">
+          <SettingOption name={t('开启背景封面模糊')}>
             <SettingToggle
               on={settings.coverBlur}
               onToggle={() =>
@@ -545,7 +545,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 歌词模糊（性能类） */}
-          <SettingOption name="开启歌词模糊">
+          <SettingOption name={t('开启歌词模糊')}>
             <SettingToggle
               on={settings.lyricBlur}
               onToggle={() =>
@@ -554,7 +554,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 当前歌词行遮罩透明度 / 模糊度（滑块） */}
-          <SettingOption name="歌词遮罩透明度">
+          <SettingOption name={t('歌词遮罩透明度')}>
             <SettingSlider
               value={settings.lyricMaskOpacity}
               min={0}
@@ -563,7 +563,7 @@ export function MusicSettingsPage() {
               onCommit={(v) => setSettings({ lyricMaskOpacity: v })}
             />
           </SettingOption>
-          <SettingOption name="歌词遮罩模糊度">
+          <SettingOption name={t('歌词遮罩模糊度')}>
             <SettingSlider
               value={settings.lyricMaskBlur}
               min={0}
@@ -573,7 +573,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 显示歌曲翻译（直接切换） */}
-          <SettingOption name="显示歌曲翻译">
+          <SettingOption name={t('显示歌曲翻译')}>
             <SettingToggle
               on={settings.showSongTranslation}
               onToggle={() =>
@@ -584,7 +584,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 歌曲无缝衔接（流量类：开启需确认） */}
-          <SettingOption name="歌曲无缝衔接">
+          <SettingOption name={t('歌曲无缝衔接')}>
             <SettingToggle
               on={settings.gaplessPlayback}
               onToggle={() =>
@@ -593,7 +593,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 音量均衡（纯本地播放行为：只压低偏响的曲目，不参与同步） */}
-          <SettingOption name="音量均衡">
+          <SettingOption name={t('音量均衡')}>
             <SettingToggle
               on={settings.volumeNormalize}
               onToggle={() =>
@@ -602,7 +602,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 音频可视化（性能类） */}
-          <SettingOption name="音频可视化">
+          <SettingOption name={t('音频可视化')}>
             <SettingToggle
               on={settings.audioVisualizer}
               onToggle={() =>
@@ -614,7 +614,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 视频背景 CLI 高画质（默认关闭 = 720P 直链） */}
-          <SettingOption name="视频背景 CLI 高画质">
+          <SettingOption name={t('视频背景 CLI 高画质')}>
             <SettingToggle
               on={settings.musicVideoCli}
               onToggle={() =>
@@ -624,7 +624,7 @@ export function MusicSettingsPage() {
           </SettingOption>
           {/* B站 视频自动连播（默认开启：顺序播放模式下 B站 队列播完
               到末尾自动拉相关推荐续播） */}
-          <SettingOption name="B站视频自动连播">
+          <SettingOption name={t('B站视频自动连播')}>
             <SettingToggle
               on={settings.biliAutoContinue}
               onToggle={() =>
@@ -634,7 +634,7 @@ export function MusicSettingsPage() {
           </SettingOption>
           {/* 进入一起听默认页（创建/切换/离开房间重置后落到哪一页；
               应用刷新后的页面恢复优先于本设置） */}
-          <SettingOption name="进入一起听默认页">
+          <SettingOption name={t('进入一起听默认页')}>
             <SettingSelector
               value={normalizeDefaultSourcePage(settings.defaultSourcePage)}
               options={[
@@ -649,7 +649,7 @@ export function MusicSettingsPage() {
             />
           </SettingOption>
           {/* 数字输入组 */}
-          <SettingOption name="搜索下拉条目数量">
+          <SettingOption name={t('搜索下拉条目数量')}>
             <SettingNumberInput
               value={settings.searchAssistLimit}
               onCommit={(v) =>
@@ -662,7 +662,7 @@ export function MusicSettingsPage() {
               }
             />
           </SettingOption>
-          <SettingOption name="歌词字体大小">
+          <SettingOption name={t('歌词字体大小')}>
             <SettingNumberInput
               value={settings.lyricSize}
               onCommit={(v) =>
@@ -675,7 +675,7 @@ export function MusicSettingsPage() {
               }
             />
           </SettingOption>
-          <SettingOption name="歌词翻译字体大小">
+          <SettingOption name={t('歌词翻译字体大小')}>
             <SettingNumberInput
               value={settings.tlyricSize}
               onCommit={(v) =>
@@ -688,7 +688,7 @@ export function MusicSettingsPage() {
               }
             />
           </SettingOption>
-          <SettingOption name="罗马歌词字体大小">
+          <SettingOption name={t('罗马歌词字体大小')}>
             <SettingNumberInput
               value={settings.rlyricSize}
               onCommit={(v) =>
@@ -701,7 +701,7 @@ export function MusicSettingsPage() {
               }
             />
           </SettingOption>
-          <SettingOption name="歌词间奏等待时间(单位：秒)">
+          <SettingOption name={t('歌词间奏等待时间(单位：秒)')}>
             <SettingNumberInput
               value={settings.lyricInterlude}
               onCommit={(v) =>
@@ -728,7 +728,7 @@ export function MusicSettingsPage() {
                 'color-mix(in srgb, var(--md-sys-color-on-surface) 20%, transparent)',
             }}
           />
-          <SettingOption name="恢复默认设置">
+          <SettingOption name={t('恢复默认设置')}>
             <button
               type="button"
               onClick={() => {

@@ -39,6 +39,7 @@ import { MediaSettingsCard } from './MediaSettingsCard'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
 import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
+import { t } from '@/i18n'
 
 /** P2P 状态快照，由 WebrtcSharePage 提升到 RoomPage 供 RoomLayout 使用 */
 export interface P2PStateSnapshot {
@@ -181,10 +182,10 @@ function WebrtcSharePage({
     if (!socket) return
     socket.emit('close-room', (response: CloseRoomResponse) => {
       if (response.success) {
-        message.success('房间已关闭')
+        message.success(t('房间已关闭'))
         navigate('/', { replace: true })
       } else {
-        message.error(response.message ?? '关闭房间失败')
+        message.error(response.message ?? t('关闭房间失败'))
       }
     })
   }, [stop, cleanupPeerConnections, socket, navigate])
@@ -232,22 +233,23 @@ function WebrtcSharePage({
       'clear-annotations',
       { roomId: currentRoomId },
       (response: { success: boolean; message?: string }) => {
-        if (!response.success) message.error(response.message ?? '清空批注失败')
+        if (!response.success)
+          message.error(response.message ?? t('清空批注失败'))
       }
     )
   }, [socket, currentRoomId])
 
   const handleCopy = useCallback(() => {
     void copy(`${window.location.origin}/room/${currentRoomId}`, {
-      successMessage: '观看链接已复制',
+      successMessage: t('观看链接已复制'),
     })
   }, [copy, currentRoomId])
 
   const handleCopyError = useCallback(() => {
     if (!mediaError) return
     void copy(mediaError, {
-      successMessage: '错误详情已复制，可粘贴给管理员',
-      errorMessage: '复制失败，请手动选择文本复制',
+      successMessage: t('错误详情已复制，可粘贴给管理员'),
+      errorMessage: t('复制失败，请手动选择文本复制'),
     })
   }, [copy, mediaError])
 
@@ -302,7 +304,7 @@ function WebrtcSharePage({
         return
       }
       await replaceVideoTrack(newTrack)
-      message.success('分辨率已切换')
+      message.success(t('分辨率已切换'))
     },
     [resolutionPreset, isSharing, switchResolution, replaceVideoTrack]
   )
@@ -330,10 +332,10 @@ function WebrtcSharePage({
     onStatusChange: (status, didFallback) => {
       if (didFallback) {
         setP2pFallbackNotice(true)
-        message.warning('P2P 连接失败，已回退到服务器中转')
+        message.warning(t('P2P 连接失败，已回退到服务器中转'))
       } else if (status === 'connected') {
         setP2pFallbackNotice(false)
-        message.success('P2P 直连已建立')
+        message.success(t('P2P 直连已建立'))
       } else if (status === 'connecting') {
         setP2pFallbackNotice(false)
       }
@@ -450,7 +452,9 @@ function WebrtcSharePage({
         className={cn('flex h-full items-center justify-center p-6', className)}
         style={style}
       >
-        <Paragraph type="secondary">房间号不存在，请重新创建房间</Paragraph>
+        <Paragraph type="secondary">
+          {t('房间号不存在，请重新创建房间')}
+        </Paragraph>
       </div>
     )
   }
@@ -499,10 +503,12 @@ function WebrtcSharePage({
             <div className="mb-5 flex items-center justify-between">
               <Space align="center" size="sm">
                 <Monitor className="h-5 w-5 text-[var(--md-sys-color-primary)]" />
-                <Text className="text-base font-semibold">WebRTC 屏幕共享</Text>
+                <Text className="text-base font-semibold">
+                  {t('WebRTC 屏幕共享')}
+                </Text>
               </Space>
               <Tag color={connected ? 'success' : 'default'}>
-                {connected ? '已连接' : '未连接'}
+                {connected ? t('已连接') : t('未连接')}
               </Tag>
             </div>
 
@@ -531,7 +537,7 @@ function WebrtcSharePage({
               loading={starting}
               disabled={starting || closing}
             >
-              {starting ? '正在请求权限...' : '开始共享'}
+              {starting ? t('正在请求权限...') : t('开始共享')}
             </Button>
           </div>
 
@@ -544,7 +550,9 @@ function WebrtcSharePage({
               }}
             >
               <Paragraph type="secondary" className="m-0 mb-2 text-xs">
-                检测到当前页面运行在嵌入式预览（iframe）环境中，屏幕共享功能可能被浏览器限制。建议在新窗口中打开本页面：
+                {t(
+                  '检测到当前页面运行在嵌入式预览（iframe）环境中，屏幕共享功能可能被浏览器限制。建议在新窗口中打开本页面：'
+                )}
               </Paragraph>
               <Button
                 variant="secondary"
@@ -553,7 +561,7 @@ function WebrtcSharePage({
                 icon={<ExternalLink className="h-3.5 w-3.5" />}
                 onClick={handleOpenInNewWindow}
               >
-                在新窗口打开
+                {t('在新窗口打开')}
               </Button>
             </div>
           )}
@@ -580,7 +588,7 @@ function WebrtcSharePage({
                   color: 'var(--md-sys-color-on-error-container)',
                   backgroundColor: 'transparent',
                 }}
-                title="复制错误详情"
+                title={t('复制错误详情')}
               >
                 <Copy className="h-3.5 w-3.5" />
               </button>
@@ -591,7 +599,7 @@ function WebrtcSharePage({
             type="secondary"
             className="!text-white m-0 max-w-sm text-center text-xs"
           >
-            将链接发送给观看方，对方打开后即可自动加入房间观看。
+            {t('将链接发送给观看方，对方打开后即可自动加入房间观看。')}
           </Paragraph>
         </div>
       )}
@@ -604,11 +612,13 @@ function WebrtcSharePage({
           handleStopSharing()
         }}
         onCancel={() => setConfirmClose(false)}
-        title="结束共享"
-        okText="确认结束"
-        cancelText="取消"
+        title={t('结束共享')}
+        okText={t('确认结束')}
+        cancelText={t('取消')}
       >
-        结束共享将停止屏幕共享并断开观众连接，房间仍会保留，您可以重新开始共享或切换到一起看模式。
+        {t(
+          '结束共享将停止屏幕共享并断开观众连接，房间仍会保留，您可以重新开始共享或切换到一起看模式。'
+        )}
       </ConfirmModal>
     </div>
   )

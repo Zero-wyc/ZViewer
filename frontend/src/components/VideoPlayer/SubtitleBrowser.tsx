@@ -20,6 +20,7 @@ import {
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { EmptyState } from '@/components/ui/EmptyState'
+import { t } from '@/i18n'
 
 interface BrowseEntry {
   name: string
@@ -36,7 +37,6 @@ interface BrowseResponse {
   parentPath?: string | null
   message?: string
 }
-
 
 interface SubtitleBrowserProps {
   movieId: number
@@ -61,7 +61,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
         const res = await apiFetch(`/api/subtitles/browse?${params}`)
         const data = (await res.json()) as BrowseResponse
         if (!res.ok || !data.success) {
-          setError(data.message || '浏览目录失败')
+          setError(data.message || t('浏览目录失败'))
           setEntries([])
           return
         }
@@ -69,7 +69,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
         setCurrentPath(data.currentPath || '')
         setParentPath(data.parentPath ?? null)
       } catch (err) {
-        setError(err instanceof Error ? err.message : '网络错误')
+        setError(err instanceof Error ? err.message : t('网络错误'))
         setEntries([])
       } finally {
         setLoading(false)
@@ -105,7 +105,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
           data.format || 'srt'
         )
       } catch (err) {
-        setError(err instanceof Error ? err.message : '网络错误')
+        setError(err instanceof Error ? err.message : t('网络错误'))
       } finally {
         setLoadingFile(null)
       }
@@ -147,7 +147,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
           style={{ color: 'var(--md-sys-color-on-surface)' }}
           title={currentPath}
         >
-          {shortPath || '根目录'}
+          {shortPath || t('根目录')}
         </span>
       </div>
 
@@ -165,7 +165,7 @@ export function SubtitleBrowser({ movieId, onSelect }: SubtitleBrowserProps) {
             {error}
           </div>
         ) : entries.length === 0 ? (
-          <EmptyState text="目录为空" className="py-4" />
+          <EmptyState text={t('目录为空')} className="py-4" />
         ) : (
           <div className="flex flex-col gap-0.5">
             {entries.map((entry) => {

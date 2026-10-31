@@ -5,6 +5,7 @@ import type {
   DanmakuSearchResult,
   DanmakuEpisode,
 } from './types'
+import { t } from '@/i18n'
 
 /**
  * 弹幕 API 客户端。
@@ -22,7 +23,7 @@ export async function listDanmakuSources(): Promise<
     message?: string
   }
   if (!res.ok || !data.success || !Array.isArray(data.sources)) {
-    throw new Error(data.message || '获取弹幕源列表失败')
+    throw new Error(data.message || t('获取弹幕源列表失败'))
   }
   return data.sources
 }
@@ -58,7 +59,7 @@ export async function searchDanmaku(
     message?: string
   }
   if (!res.ok || !data.success || !Array.isArray(data.results)) {
-    throw new Error(data.message || '搜索弹幕失败')
+    throw new Error(data.message || t('搜索弹幕失败'))
   }
   // 转换为前端统一格式：identifier 用 result.id
   return data.results.map((r) => ({
@@ -92,7 +93,7 @@ export async function getDanmakuEpisodes(
     message?: string
   }
   if (!res.ok || !data.success || !Array.isArray(data.episodes)) {
-    throw new Error(data.message || '获取集数失败')
+    throw new Error(data.message || t('获取集数失败'))
   }
   // 保留 playbackParams：fetchDanmaku 时需原样回传给后端 provider，
   // 否则后端拿不到 episodeId 等关键参数，导致 "缺少有效的弹弹play episodeId" 错误。
@@ -127,7 +128,7 @@ export async function fetchDanmaku(
     message?: string
   }
   if (!res.ok || !data.success || !Array.isArray(data.danmaku)) {
-    throw new Error(data.message || '获取弹幕失败')
+    throw new Error(data.message || t('获取弹幕失败'))
   }
   return data.danmaku.map((item, index) => ({
     id: item.id || `${source}:${episode.id}:${index}`,
@@ -163,7 +164,7 @@ export async function fetchBilibiliDanmakuByCid(
     message?: string
   }
   if (!res.ok || !data.success || !Array.isArray(data.danmaku)) {
-    throw new Error(data.message || '获取 B站 弹幕失败')
+    throw new Error(data.message || t('获取 B站 弹幕失败'))
   }
   return data.danmaku.map((item, index) => ({
     id: item.id || `bilibili:${cid}:${index}`,

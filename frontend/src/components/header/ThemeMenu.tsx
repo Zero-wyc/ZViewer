@@ -86,7 +86,7 @@ export function ThemeMenu({
         style={{
           border: '1px solid var(--md-sys-color-outline)',
         }}
-        title="主题设置"
+        title={t('主题设置')}
       >
         <Palette className="w-4 h-4" />
       </button>
@@ -163,10 +163,10 @@ export function ThemeMenu({
                   </span>
                   <div>
                     <span className="font-medium text-sm text-[var(--md-sys-color-on-surface)]">
-                      {isDark ? '深色模式' : '浅色模式'}
+                      {isDark ? t('深色模式') : t('浅色模式')}
                     </span>
                     <p className="text-xs mt-0.5 text-[var(--md-sys-color-on-surface-variant)]">
-                      点击切换明暗主题
+                      {t('点击切换明暗主题')}
                     </p>
                   </div>
                 </div>
@@ -235,7 +235,7 @@ export function ThemeMenu({
                 style={{ '--item-delay': '180ms' } as CSSProperties}
               >
                 <Slider
-                  label="玻璃透明度"
+                  label={t('玻璃透明度')}
                   value={Math.round(glassStrength * 100)}
                   min={0}
                   max={100}
@@ -245,7 +245,7 @@ export function ThemeMenu({
                   disabled={reducedMotion}
                 />
                 <Slider
-                  label="卡片模糊度"
+                  label={t('卡片模糊度')}
                   value={glassBlur}
                   min={0}
                   max={40}
@@ -270,10 +270,10 @@ export function ThemeMenu({
                   <Sparkles className="w-4 h-4 text-[var(--md-sys-color-primary)] shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm text-[var(--md-sys-color-on-surface)] truncate">
-                      精简动画
+                      {t('精简动画')}
                     </p>
                     <p className="text-[10px] text-[var(--md-sys-color-on-surface-variant)] truncate">
-                      关闭后启用华丽效果
+                      {t('关闭后启用华丽效果')}
                     </p>
                   </div>
                 </div>
@@ -297,10 +297,10 @@ export function ThemeMenu({
                   <MousePointerClick className="w-4 h-4 text-[var(--md-sys-color-primary)] shrink-0" />
                   <div className="min-w-0">
                     <p className="text-sm text-[var(--md-sys-color-on-surface)] truncate">
-                      禁用 hover 位移
+                      {t('禁用 hover 位移')}
                     </p>
                     <p className="text-[10px] text-[var(--md-sys-color-on-surface-variant)] truncate">
-                      关闭悬浮上浮/缩放效果
+                      {t('关闭悬浮上浮/缩放效果')}
                     </p>
                   </div>
                 </div>
@@ -332,7 +332,7 @@ export function ThemeMenu({
                 }
               >
                 <Palette className="w-4 h-4 text-[var(--md-sys-color-primary)]" />
-                <span className="flex-1 text-left">自定义主题</span>
+                <span className="flex-1 text-left">{t('自定义主题')}</span>
               </button>
 
               {/* 自定义背景入口 */}
@@ -357,7 +357,7 @@ export function ThemeMenu({
                 }
               >
                 <Image className="w-4 h-4 text-[var(--md-sys-color-primary)]" />
-                <span className="flex-1 text-left">自定义背景</span>
+                <span className="flex-1 text-left">{t('自定义背景')}</span>
               </button>
             </div>
           </div>,

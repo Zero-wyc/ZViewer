@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/Button'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Spinner } from '@/components/ui/Spinner'
 import { Text } from '@/components/ui/Typography'
+import { t } from '@/i18n'
 
 /** 副面板宽度（px） */
 export const SIDE_PANEL_WIDTH = 300
@@ -53,7 +54,7 @@ export function DirPickerSidePanel({
   error,
   entries,
   currentPath,
-  currentPathPlaceholder = '服务器根目录',
+  currentPathPlaceholder = t('服务器根目录'),
   isRoot,
   onEnter,
   onBack,
@@ -77,7 +78,7 @@ export function DirPickerSidePanel({
         {/* 标题栏 */}
         <SectionHeader
           icon={<HardDrive className="h-4 w-4" />}
-          title="选择目录"
+          title={t('选择目录')}
           className="mb-2 shrink-0"
           extra={
             <button
@@ -98,7 +99,7 @@ export function DirPickerSidePanel({
             onClick={onBack}
             disabled={isRoot}
           >
-            返回
+            {t('返回')}
           </Button>
           <Text
             className="min-w-0 flex-1 truncate text-xs text-[var(--md-sys-color-on-surface-variant)]"
@@ -120,7 +121,7 @@ export function DirPickerSidePanel({
             </Text>
           ) : entries.length === 0 ? (
             <Text className="py-4 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              无子目录
+              {t('无子目录')}
             </Text>
           ) : (
             entries.map((entry) => (
@@ -157,7 +158,7 @@ export function DirPickerSidePanel({
             className="mt-2 shrink-0"
             onClick={onSelect}
           >
-            选择此目录
+            {t('选择此目录')}
           </Button>
         )}
       </div>

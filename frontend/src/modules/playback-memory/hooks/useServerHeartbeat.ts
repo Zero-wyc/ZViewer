@@ -43,6 +43,7 @@ import {
   isBilibiliUrlExpired,
   isVideoSourceExpired,
 } from '../services/url-expiry'
+import { t } from '@/i18n'
 
 export interface UseServerHeartbeatOptions {
   /** 房间 ID（自检上报需要，服务端据此校验在房） */
@@ -165,7 +166,7 @@ export function useServerHeartbeat({
           const diff = Math.abs(video.currentTime - state.currentTime)
           if (diff > 10) {
             // 大幅差异：显示提示并延迟 2s 后 seek，避免突兀跳转
-            message.info('房主已重连，即将同步进度，2 秒后自动同步')
+            message.info(t('房主已重连，即将同步进度，2 秒后自动同步'))
             if (reconnectSyncTimerRef.current) {
               clearTimeout(reconnectSyncTimerRef.current)
             }
@@ -215,7 +216,7 @@ export function useServerHeartbeat({
       if (!isBufferMode && isBilibiliUrlExpired(state.sourceUrl)) {
         urlExpiredRef.current = true
         if (!video.paused) video.pause()
-        message.warning('视频源已过期，等待房主重连')
+        message.warning(t('视频源已过期，等待房主重连'))
         return
       }
 
@@ -345,7 +346,7 @@ export function useServerHeartbeat({
           hostOfflineRef.current = true
           hostLeftNotifiedRef.current = false
           useRoomStore.getState().setHostOffline(true)
-          message.info('房主已离开，您可以自主控制播放')
+          message.info(t('房主已离开，您可以自主控制播放'))
         } else if (payload.hostOnline === true && hostOfflineRef.current) {
           hostOfflineRef.current = false
           hostLeftNotifiedRef.current = false
@@ -428,7 +429,7 @@ export function useServerHeartbeat({
       if (hostLeftNotifiedRef.current) return
       hostLeftNotifiedRef.current = true
       // 仅提示，不暂停播放（观众进入自主控制模式）
-      message.info('房主已离开，您可以自主控制播放')
+      message.info(t('房主已离开，您可以自主控制播放'))
     }
 
     // 房主重连时重置标记（通过 sharer-ready 事件判断）
@@ -485,7 +486,7 @@ export function useServerHeartbeat({
       if (isVideoSourceExpired(currentState.sourceUrl, error, video)) {
         urlExpiredRef.current = true
         if (!video.paused) video.pause()
-        message.warning('视频源已过期，等待房主重连')
+        message.warning(t('视频源已过期，等待房主重连'))
       }
     }
 

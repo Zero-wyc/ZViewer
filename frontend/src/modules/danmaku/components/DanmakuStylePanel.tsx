@@ -7,6 +7,7 @@ import type {
   DanmakuTypeFilters,
   DanmakuAdvancedStyle,
 } from '@/store/danmakuStore'
+import { t } from '@/i18n'
 
 const FILTER_BUTTONS: {
   key: keyof DanmakuTypeFilters
@@ -43,7 +44,7 @@ export function DanmakuStylePanel({
       {/* 显示设置 */}
       <div className="flex flex-col gap-2">
         <Slider
-          label="显示区域"
+          label={t('显示区域')}
           size="sm"
           value={style.displayArea}
           min={0.25}
@@ -53,7 +54,7 @@ export function DanmakuStylePanel({
           onChange={(v) => setStyle({ displayArea: v })}
         />
         <Slider
-          label="不透明度"
+          label={t('不透明度')}
           size="sm"
           value={style.opacity}
           min={0.1}
@@ -66,7 +67,7 @@ export function DanmakuStylePanel({
 
       {/* 外观：字号 */}
       <Slider
-        label="字号"
+        label={t('字号')}
         size="sm"
         value={style.fontSize}
         min={12}
@@ -82,7 +83,7 @@ export function DanmakuStylePanel({
           className="text-xs font-medium"
           style={{ color: 'var(--md-sys-color-on-surface)' }}
         >
-          随屏幕缩放
+          {t('随屏幕缩放')}
         </span>
         <Switch
           checked={style.scaleWithScreen}
@@ -103,7 +104,7 @@ export function DanmakuStylePanel({
           )}
           style={{ borderColor: 'var(--md-sys-color-outline)' }}
         >
-          {advancedOpen ? '收起高级设置' : '高级设置'}
+          {advancedOpen ? t('收起高级设置') : t('高级设置')}
           <ChevronRight
             className={cn(
               'h-3.5 w-3.5 transition-transform',
@@ -155,7 +156,7 @@ export function DanmakuAdvancedSettings({
         className="text-xs font-semibold uppercase tracking-wide"
         style={{ color: 'var(--md-sys-color-on-surface)' }}
       >
-        高级设置
+        {t('高级设置')}
       </div>
 
       {/* 显示类型 */}
@@ -164,7 +165,7 @@ export function DanmakuAdvancedSettings({
           className="mb-1 text-[11px] font-medium uppercase tracking-wide"
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         >
-          显示类型
+          {t('显示类型')}
         </div>
         <div className="grid grid-cols-4 gap-1">
           {FILTER_BUTTONS.map(({ key, label }) => {
@@ -191,7 +192,7 @@ export function DanmakuAdvancedSettings({
 
       {/* 速度 */}
       <Slider
-        label="速度"
+        label={t('速度')}
         size="sm"
         value={style.speed}
         min={0.5}
@@ -207,7 +208,7 @@ export function DanmakuAdvancedSettings({
           className="mb-1 block text-[11px] font-medium uppercase tracking-wide"
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         >
-          字体
+          {t('字体')}
         </label>
         <button
           type="button"
@@ -222,15 +223,15 @@ export function DanmakuAdvancedSettings({
               ? style.advanced.fontFamily
                   .replace(/["']/g, '')
                   .split(',')[0]
-                  ?.trim() || '自定义'
-              : '默认'}
+                  ?.trim() || t('自定义')
+              : t('默认')}
           </span>
           <ChevronRight className="h-3.5 w-3.5 shrink-0 text-[var(--md-sys-color-on-surface-variant)]" />
         </button>
       </div>
 
       <Slider
-        label="描边"
+        label={t('描边')}
         size="sm"
         value={style.advanced.strokeWidth}
         min={0}
@@ -240,7 +241,7 @@ export function DanmakuAdvancedSettings({
         onChange={(v) => setAdvancedStyle({ strokeWidth: v })}
       />
       <Slider
-        label="阴影"
+        label={t('阴影')}
         size="sm"
         value={style.advanced.shadowBlur}
         min={0}
@@ -250,7 +251,7 @@ export function DanmakuAdvancedSettings({
         onChange={(v) => setAdvancedStyle({ shadowBlur: v })}
       />
       <Slider
-        label="显示区域"
+        label={t('显示区域')}
         size="sm"
         value={style.displayArea}
         min={0.25}

@@ -22,6 +22,7 @@ import { Button } from '@/components/ui/Button'
 import { SectionHeader } from '@/components/ui/SectionHeader'
 import { Slider } from '@/components/ui/Slider'
 import { message } from '@/components/ui/message'
+import { t } from '@/i18n'
 
 interface VoiceChatPanelProps {
   socket: Socket | null
@@ -80,12 +81,12 @@ export function VoiceChatPanel({
   const downloading = componentBusy || requesting
   const downloadLabel =
     component.state === 'installing'
-      ? '正在解压…'
+      ? t('正在解压…')
       : component.state === 'downloading'
         ? `正在下载 ${component.progress}%`
         : component.state === 'error'
-          ? '重新下载语音组件'
-          : '下载语音聊天组件'
+          ? t('重新下载语音组件')
+          : t('下载语音聊天组件')
 
   if (!roomId) return null
 
@@ -93,7 +94,7 @@ export function VoiceChatPanel({
   const isMe = (id: string) => id === selfId
   /** 成员显示名：LiveKit name 缺失时以 id 尾号消歧义 */
   const displayName = (member: VoiceMember, me: boolean) => {
-    if (me) return '我'
+    if (me) return t('我')
     const name = member.username?.trim()
     if (name && name !== '游客' && name !== 'guest') return name
     return `游客 ${member.id.slice(-4).toUpperCase()}`
@@ -116,7 +117,7 @@ export function VoiceChatPanel({
       {/* 标题栏 */}
       <SectionHeader
         icon={<Headphones className="h-4 w-4" />}
-        title="语音聊天"
+        title={t('语音聊天')}
         className="mb-2"
         subtitle={
           <div className="flex items-center gap-1.5">
@@ -126,8 +127,8 @@ export function VoiceChatPanel({
               {joined
                 ? mediaConnected
                   ? `${memberCount} 人在线`
-                  : '媒体连接中…'
-                : '未连接'}
+                  : t('媒体连接中…')
+                : t('未连接')}
             </span>
             {/* 媒体传输协议徽标：ICE 选中线路（UDP 直连 / TCP 兜底），周期实测非配置值；
                 媒体未连通时无有效线路可测，一并隐藏 */}
@@ -146,8 +147,8 @@ export function VoiceChatPanel({
                 }}
                 title={
                   transport === 'udp'
-                    ? '语音媒体传输：UDP 直连（低延迟）'
-                    : '语音媒体传输：TCP 直连（UDP 被拦截时的兜底线路）'
+                    ? t('语音媒体传输：UDP 直连（低延迟）')
+                    : t('语音媒体传输：TCP 直连（UDP 被拦截时的兜底线路）')
                 }
               >
                 {transport.toUpperCase()}
@@ -171,7 +172,7 @@ export function VoiceChatPanel({
       {joined && (
         <div className="mb-1.5 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5">
           <div className="mb-0.5 text-xs font-medium text-[var(--md-sys-color-on-surface)]">
-            全局音量
+            {t('全局音量')}
           </div>
           <div className="flex items-center gap-2">
             <Slider
@@ -195,7 +196,7 @@ export function VoiceChatPanel({
       {joined && (
         <div className="mb-1.5 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5">
           <div className="mb-0.5 text-xs font-medium text-[var(--md-sys-color-on-surface)]">
-            麦克风音量
+            {t('麦克风音量')}
           </div>
           <div className="flex items-center gap-2">
             <Slider
@@ -258,7 +259,7 @@ export function VoiceChatPanel({
                         ? 'text-[var(--md-sys-color-error)]'
                         : 'text-[var(--md-sys-color-on-surface)]'
                     )}
-                    title={memberMuted ? '已被语音禁言' : undefined}
+                    title={memberMuted ? t('已被语音禁言') : undefined}
                   >
                     {displayName(member, me)}
                   </span>
@@ -312,7 +313,7 @@ export function VoiceChatPanel({
                           )
                         }}
                         className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                        title={memberMuted ? '解除语音禁言' : '语音禁言'}
+                        title={memberMuted ? t('解除语音禁言') : t('语音禁言')}
                       >
                         {memberMuted ? (
                           <Volume2 className="h-3.5 w-3.5" />
@@ -333,7 +334,7 @@ export function VoiceChatPanel({
                           })
                         }}
                         className="rounded-full p-1 text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-                        title="移出语音"
+                        title={t('移出语音')}
                       >
                         <UserX className="h-3.5 w-3.5" />
                       </button>
@@ -344,7 +345,7 @@ export function VoiceChatPanel({
                   <div className="mt-2">
                     <Slider
                       size="sm"
-                      label="单独音量"
+                      label={t('单独音量')}
                       value={Math.round(peerVolume * 100)}
                       min={0}
                       max={100}
@@ -364,10 +365,10 @@ export function VoiceChatPanel({
       {componentMissing && (
         <div className="mb-3 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5">
           <div className="text-xs font-medium text-[var(--md-sys-color-on-surface)]">
-            语音聊天组件未下载
+            {t('语音聊天组件未下载')}
           </div>
           <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
-            首次使用需下载约 18 MB，装好后保存在本机，之后不再重复下载。
+            {t('首次使用需下载约 18 MB，装好后保存在本机，之后不再重复下载。')}
           </p>
           {component.message && component.state === 'error' && (
             <p className="mt-1 text-[11px] text-[var(--md-sys-color-error)]">
@@ -388,7 +389,7 @@ export function VoiceChatPanel({
       {/* 未加入提示 */}
       {!joined && !joining && !componentMissing && (
         <div className="mb-3 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-          点击加入即可与房间内其他观众语音交流
+          {t('点击加入即可与房间内其他观众语音交流')}
         </div>
       )}
 
@@ -409,14 +410,14 @@ export function VoiceChatPanel({
               }
               onClick={toggleMic}
             >
-              {micEnabled ? '静音' : '取消静音'}
+              {micEnabled ? t('静音') : t('取消静音')}
             </Button>
             <Button
               variant={monitorEnabled ? 'primary' : 'secondary'}
               size="sm"
               icon={<Headphones className="h-3.5 w-3.5" />}
               onClick={toggleMonitor}
-              title={monitorEnabled ? '关闭反送' : '开启反送'}
+              title={monitorEnabled ? t('关闭反送') : t('开启反送')}
             />
             <Button
               variant="danger"
@@ -425,7 +426,7 @@ export function VoiceChatPanel({
               icon={<PhoneOff className="h-3.5 w-3.5" />}
               onClick={leave}
             >
-              断开
+              {t('断开')}
             </Button>
           </>
         ) : componentMissing ? (
@@ -449,7 +450,7 @@ export function VoiceChatPanel({
             icon={<Phone className="h-3.5 w-3.5" />}
             onClick={join}
           >
-            加入语音
+            {t('加入语音')}
           </Button>
         )}
       </div>
@@ -486,7 +487,9 @@ export function VoiceChatPanel({
               ? 'var(--md-sys-color-on-primary-container)'
               : 'var(--md-sys-color-on-surface)',
           }}
-          title={componentMissing ? '语音聊天（需先下载组件）' : '语音聊天'}
+          title={
+            componentMissing ? t('语音聊天（需先下载组件）') : t('语音聊天')
+          }
         >
           {joined ? (
             micEnabled ? (

@@ -1,5 +1,6 @@
 import type { ProxyModule } from './types'
 import { apiFetch } from '@/lib/api'
+import { t } from '@/i18n'
 
 /**
  * 直链 / 服务器中转 统一决策层
@@ -109,7 +110,7 @@ export async function resolveMovieDirectUrl(movieId: number): Promise<string> {
     directUrl?: string
   }
   if (!res.ok || !data.success || !data.directUrl) {
-    throw new Error(data.message || '实时解析直链失败')
+    throw new Error(data.message || t('实时解析直链失败'))
   }
   return data.directUrl
 }

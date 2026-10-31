@@ -47,6 +47,7 @@ import { useNcmLogin, ncmVipLabel, type NcmQrStatus } from '@/modules/music'
 import { apiFetch } from '@/lib/api'
 import { CookieLoginModal } from './profile/CookieLoginModal'
 import { useCookieBinding } from './profile/useCookieBinding'
+import { t } from '@/i18n'
 
 /** 构建头像完整 URL（后端返回相对路径，前端拼接 API_URL） */
 function buildAvatarUrl(
@@ -115,12 +116,12 @@ export default function ProfilePage() {
 
   /** 网易云扫码状态文案 */
   const NCM_QR_STATUS_TEXT: Record<NcmQrStatus, string> = {
-    idle: '准备中…',
-    generating: '正在生成二维码…',
-    waiting: '请使用网易云音乐 App 扫码登录',
-    scanned: '已扫码，请在手机上确认',
-    success: '登录成功',
-    error: '生成二维码失败，请重试',
+    idle: t('准备中…'),
+    generating: t('正在生成二维码…'),
+    waiting: t('请使用网易云音乐 App 扫码登录'),
+    scanned: t('已扫码，请在手机上确认'),
+    success: t('登录成功'),
+    error: t('生成二维码失败，请重试'),
   }
 
   // 进入页面时主动查询网易云登录状态（useMusicStore 是内存态，刷新即丢）
@@ -138,7 +139,7 @@ export default function ProfilePage() {
   // 扫码成功：提示并延迟关闭登录弹窗（留出成功反馈的阅读时间）
   useEffect(() => {
     if (ncmQrStatus !== 'success') return
-    message.success('网易云音乐登录成功')
+    message.success(t('网易云音乐登录成功'))
     const timer = setTimeout(() => {
       setNcmQrModalOpen(false)
       ncmStopPolling()
@@ -158,7 +159,7 @@ export default function ProfilePage() {
 
   const handleNcmLogout = useCallback(async () => {
     await ncmLogout()
-    message.success('已退出网易云音乐登录')
+    message.success(t('已退出网易云音乐登录'))
   }, [ncmLogout])
 
   // 网易云 Cookie 复制/登录（平台差异经回调注入，交互骨架见 useCookieBinding）
@@ -168,7 +169,7 @@ export default function ProfilePage() {
       const data = (await res.json()) as { success: boolean; cookie?: string }
       return data.success ? (data.cookie ?? null) : null
     },
-    cookieUnavailableMessage: '未获取到 Cookie，请重新登录网易云音乐',
+    cookieUnavailableMessage: t('未获取到 Cookie，请重新登录网易云音乐'),
     loginWithCookie: async (cookie) => {
       const res = await apiFetch('/api/music/ncm-cookie-login', {
         method: 'POST',
@@ -180,11 +181,11 @@ export default function ProfilePage() {
         message?: string
       }
       if (!data.success) {
-        throw new Error(data.message ?? 'Cookie 登录失败')
+        throw new Error(data.message ?? t('Cookie 登录失败'))
       }
     },
-    loginSuccessMessage: '网易云音乐 Cookie 登录成功',
-    loginFailedMessage: 'Cookie 登录失败',
+    loginSuccessMessage: t('网易云音乐 Cookie 登录成功'),
+    loginFailedMessage: t('Cookie 登录失败'),
     refreshStatus: ncmFetchLoginStatus,
   })
 
@@ -215,7 +216,7 @@ export default function ProfilePage() {
   } = useBilibiliQrLogin({
     onLoginSuccess: loadBilibiliUser,
     onLogoutSuccess: () => setBilibiliUser(null),
-    logoutErrorMessage: '退出 B站 登录失败',
+    logoutErrorMessage: t('退出 B站 登录失败'),
     logTag: 'ProfilePage',
   })
 
@@ -236,12 +237,12 @@ export default function ProfilePage() {
   // B站 Cookie 复制/登录（与网易云共用 useCookieBinding 交互骨架）
   const biliCookieBinding = useCookieBinding({
     fetchCookie: () => getBilibiliCookie(),
-    cookieUnavailableMessage: '未获取到 Cookie，请重新登录 B站',
+    cookieUnavailableMessage: t('未获取到 Cookie，请重新登录 B站'),
     loginWithCookie: async (cookie) => {
       await loginBilibiliWithCookie(cookie)
     },
-    loginSuccessMessage: 'B站 Cookie 登录成功',
-    loginFailedMessage: 'Cookie 登录失败',
+    loginSuccessMessage: t('B站 Cookie 登录成功'),
+    loginFailedMessage: t('Cookie 登录失败'),
     refreshStatus: async () => {
       await loadBilibiliUser()
     },
@@ -249,15 +250,15 @@ export default function ProfilePage() {
 
   const handleChangePassword = useCallback(async () => {
     if (!oldPassword || !newPassword) {
-      message.warning('请填写原密码和新密码')
+      message.warning(t('请填写原密码和新密码'))
       return
     }
     if (newPassword !== confirmPassword) {
-      message.error('两次输入的新密码不一致')
+      message.error(t('两次输入的新密码不一致'))
       return
     }
     if (newPassword.length < 4) {
-      message.error('新密码至少 4 位')
+      message.error(t('新密码至少 4 位'))
       return
     }
     setPasswordLoading(true)
@@ -274,15 +275,15 @@ export default function ProfilePage() {
         message?: string
       }
       if (data.success) {
-        message.success('密码修改成功')
+        message.success(t('密码修改成功'))
         setOldPassword('')
         setNewPassword('')
         setConfirmPassword('')
       } else {
-        message.error(data.message ?? '修改失败')
+        message.error(data.message ?? t('修改失败'))
       }
     } catch {
-      message.error('修改密码失败')
+      message.error(t('修改密码失败'))
     } finally {
       setPasswordLoading(false)
     }
@@ -299,7 +300,7 @@ export default function ProfilePage() {
   const handleChangeUsername = useCallback(async () => {
     const trimmed = newUsername.trim()
     if (!trimmed) {
-      message.warning('请输入新用户名')
+      message.warning(t('请输入新用户名'))
       return
     }
     setUsernameLoading(true)
@@ -317,14 +318,14 @@ export default function ProfilePage() {
         user?: AuthUser
       }
       if (data.success && data.user) {
-        message.success('用户名修改成功')
+        message.success(t('用户名修改成功'))
         setUser(data.user)
         setNewUsername('')
       } else {
-        message.error(data.message ?? '修改失败')
+        message.error(data.message ?? t('修改失败'))
       }
     } catch {
-      message.error('修改用户名失败')
+      message.error(t('修改用户名失败'))
     } finally {
       setUsernameLoading(false)
     }
@@ -334,7 +335,7 @@ export default function ProfilePage() {
   const handleAvatarUpload = useCallback(
     async (file: File) => {
       if (user?.role === 'guest') {
-        message.warning('游客无法设置头像')
+        message.warning(t('游客无法设置头像'))
         return
       }
       const allowedTypes = [
@@ -344,11 +345,11 @@ export default function ProfilePage() {
         'image/webp',
       ]
       if (!allowedTypes.includes(file.type)) {
-        message.error('仅支持 JPG / PNG / GIF / WEBP 格式')
+        message.error(t('仅支持 JPG / PNG / GIF / WEBP 格式'))
         return
       }
       if (file.size > 5 * 1024 * 1024) {
-        message.error('头像文件不能超过 5MB')
+        message.error(t('头像文件不能超过 5MB'))
         return
       }
       setAvatarLoading(true)
@@ -365,13 +366,13 @@ export default function ProfilePage() {
           user?: AuthUser
         }
         if (data.success && data.user) {
-          message.success('头像更新成功')
+          message.success(t('头像更新成功'))
           setUser(data.user)
         } else {
-          message.error(data.message ?? '头像上传失败')
+          message.error(data.message ?? t('头像上传失败'))
         }
       } catch {
-        message.error('头像上传失败')
+        message.error(t('头像上传失败'))
       } finally {
         setAvatarLoading(false)
       }
@@ -393,13 +394,13 @@ export default function ProfilePage() {
         user?: AuthUser
       }
       if (data.success && data.user) {
-        message.success('头像已删除')
+        message.success(t('头像已删除'))
         setUser(data.user)
       } else {
-        message.error(data.message ?? '删除头像失败')
+        message.error(data.message ?? t('删除头像失败'))
       }
     } catch {
-      message.error('删除头像失败')
+      message.error(t('删除头像失败'))
     } finally {
       setAvatarLoading(false)
     }
@@ -408,7 +409,7 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
-        <Spinner tip="加载用户信息..." />
+        <Spinner tip={t('加载用户信息...')} />
       </div>
     )
   }
@@ -428,10 +429,10 @@ export default function ProfilePage() {
             className="mx-auto mb-3 h-14 w-14"
           />
           <Title level={3} className="m-0">
-            个人中心
+            {t('个人中心')}
           </Title>
           <Text type="secondary">
-            管理您的 ZViewer 账号、挂载配置与网易云 / B站 账号绑定
+            {t('管理您的 ZViewer 账号、挂载配置与网易云 / B站 账号绑定')}
           </Text>
         </div>
 
@@ -440,7 +441,7 @@ export default function ProfilePage() {
           <div className="glass-card p-4">
             <SectionHeader
               icon={<Shield className="h-4 w-4" />}
-              title="ZViewer 账号"
+              title={t('ZViewer 账号')}
               className="mb-3"
             />
             <div className="space-y-2">
@@ -467,7 +468,7 @@ export default function ProfilePage() {
                   onClick={openEditInfoModal}
                   className="shrink-0"
                 >
-                  编辑信息
+                  {t('编辑信息')}
                 </Button>
               </div>
               <Tag
@@ -481,7 +482,7 @@ export default function ProfilePage() {
                   )
                 }
               >
-                {isAdmin ? '管理员' : '普通用户'}
+                {isAdmin ? t('管理员') : t('普通用户')}
               </Tag>
             </div>
           </div>
@@ -490,7 +491,7 @@ export default function ProfilePage() {
           <div className="glass-card p-4">
             <SectionHeader
               icon={<Languages className="h-4 w-4" />}
-              title="界面语言"
+              title={t('界面语言')}
               tone="tertiary"
               className="mb-3"
             />
@@ -513,7 +514,7 @@ export default function ProfilePage() {
             <div className="mb-3 flex items-center gap-4">
               <SectionHeader
                 icon={<Link2 className="h-4 w-4" />}
-                title="账号绑定"
+                title={t('账号绑定')}
                 tone="tertiary"
               />
 
@@ -540,7 +541,7 @@ export default function ProfilePage() {
                         }
                   }
                 >
-                  哔哩哔哩
+                  {t('哔哩哔哩')}
                 </button>
                 <button
                   type="button"
@@ -558,7 +559,7 @@ export default function ProfilePage() {
                         }
                   }
                 >
-                  网易云
+                  {t('网易云')}
                 </button>
               </div>
             </div>
@@ -567,7 +568,7 @@ export default function ProfilePage() {
               /* ===== 网易云面板 ===== */
               ncmChecking ? (
                 <div className="py-4">
-                  <Spinner tip="加载中..." size={28} />
+                  <Spinner tip={t('加载中...')} size={28} />
                 </div>
               ) : ncmLoginInfo.loggedIn ? (
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -578,12 +579,12 @@ export default function ProfilePage() {
                         'http://',
                         'https://'
                       )}
-                      alt={ncmLoginInfo.nickname ?? '网易云音乐'}
+                      alt={ncmLoginInfo.nickname ?? t('网易云音乐')}
                     />
                     <div className="min-w-0 flex-1">
                       <div className="flex min-w-0 items-center gap-2">
                         <p className="min-w-0 truncate text-base font-medium text-[var(--md-sys-color-on-surface)]">
-                          {ncmLoginInfo.nickname ?? '网易云音乐用户'}
+                          {ncmLoginInfo.nickname ?? t('网易云音乐用户')}
                         </p>
                         {/* 会员类型标签（两档：VIP / 普通账号） */}
                         {ncmVipText === 'VIP' ? (
@@ -599,12 +600,12 @@ export default function ProfilePage() {
                             color="default"
                             className="shrink-0 px-1.5 py-0 text-[10px]"
                           >
-                            普通账号
+                            {t('普通账号')}
                           </Tag>
                         ) : null}
                       </div>
                       <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                        已绑定网易云音乐账号
+                        {t('已绑定网易云音乐账号')}
                       </p>
                     </div>
                   </div>
@@ -616,8 +617,10 @@ export default function ProfilePage() {
                       icon={<Cookie className="h-4 w-4" />}
                       onClick={ncmCookieBinding.copyCookie}
                       loading={ncmCookieBinding.copyLoading}
-                      title="复制当前绑定的网易云 Cookie（可用于其他设备登录或备份）"
-                      aria-label="复制 Cookie"
+                      title={t(
+                        '复制当前绑定的网易云 Cookie（可用于其他设备登录或备份）'
+                      )}
+                      aria-label={t('复制 Cookie')}
                     />
                     <Button
                       variant="danger"
@@ -625,15 +628,15 @@ export default function ProfilePage() {
                       className="w-8 justify-center px-0"
                       icon={<LogOut className="h-4 w-4" />}
                       onClick={() => void handleNcmLogout()}
-                      title="退出网易云音乐登录"
-                      aria-label="退登"
+                      title={t('退出网易云音乐登录')}
+                      aria-label={t('退登')}
                     />
                   </div>
                 </div>
               ) : (
                 <div className="space-y-3">
                   <Paragraph type="secondary" className="m-0 text-sm">
-                    未绑定网易云音乐账号
+                    {t('未绑定网易云音乐账号')}
                   </Paragraph>
                   <div className="flex flex-wrap gap-2">
                     <Button
@@ -642,21 +645,21 @@ export default function ProfilePage() {
                       icon={<QrCode className="h-4 w-4" />}
                       onClick={handleOpenNcmQr}
                     >
-                      扫码登录网易云
+                      {t('扫码登录网易云')}
                     </Button>
                     <Button
                       size="sm"
                       icon={<Cookie className="h-4 w-4" />}
                       onClick={ncmCookieBinding.openModal}
                     >
-                      Cookie 登录
+                      {t('Cookie 登录')}
                     </Button>
                   </div>
                 </div>
               )
             ) : bilibiliLoading ? (
               <div className="py-4">
-                <Spinner tip="加载中..." size={28} />
+                <Spinner tip={t('加载中...')} size={28} />
               </div>
             ) : bilibiliUser ? (
               <div className="space-y-3">
@@ -685,12 +688,12 @@ export default function ProfilePage() {
                             color="default"
                             className="shrink-0 px-1.5 py-0 text-[10px]"
                           >
-                            普通账号
+                            {t('普通账号')}
                           </Tag>
                         )}
                       </div>
                       <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                        已绑定 B站 账号
+                        {t('已绑定 B站 账号')}
                       </p>
                     </div>
                   </div>
@@ -703,8 +706,10 @@ export default function ProfilePage() {
                       icon={<Cookie className="h-4 w-4" />}
                       onClick={biliCookieBinding.copyCookie}
                       loading={biliCookieBinding.copyLoading}
-                      title="复制当前绑定的 B站 Cookie（可用于其他设备登录或备份）"
-                      aria-label="复制 Cookie"
+                      title={t(
+                        '复制当前绑定的 B站 Cookie（可用于其他设备登录或备份）'
+                      )}
+                      aria-label={t('复制 Cookie')}
                     />
                     <Button
                       variant="danger"
@@ -712,8 +717,8 @@ export default function ProfilePage() {
                       className="w-8 justify-center px-0"
                       icon={<LogOut className="h-4 w-4" />}
                       onClick={handleLogoutBilibili}
-                      title="退出 B站 登录"
-                      aria-label="退登"
+                      title={t('退出 B站 登录')}
+                      aria-label={t('退登')}
                     />
                   </div>
                 </div>
@@ -721,7 +726,7 @@ export default function ProfilePage() {
             ) : (
               <div className="space-y-3">
                 <Paragraph type="secondary" className="m-0 text-sm">
-                  未绑定 B站 账号
+                  {t('未绑定 B站 账号')}
                 </Paragraph>
                 <div className="flex flex-wrap gap-2">
                   <Button
@@ -730,7 +735,7 @@ export default function ProfilePage() {
                     icon={<QrCode className="h-4 w-4" />}
                     onClick={handleOpenQrModal}
                   >
-                    扫码登录 B站
+                    {t('扫码登录 B站')}
                   </Button>
                   <Button
                     variant="secondary"
@@ -738,7 +743,7 @@ export default function ProfilePage() {
                     icon={<Cookie className="h-4 w-4" />}
                     onClick={biliCookieBinding.openModal}
                   >
-                    Cookie 登录
+                    {t('Cookie 登录')}
                   </Button>
                 </div>
               </div>
@@ -767,7 +772,7 @@ export default function ProfilePage() {
                 icon={<Download className="h-4 w-4" />}
                 onClick={() => setBiliDownloadOpen(true)}
               >
-                下载 B站视频
+                {t('下载 B站视频')}
               </Button>
             )}
             <Button
@@ -780,7 +785,7 @@ export default function ProfilePage() {
                   : loadBilibiliUser())
               }
             >
-              刷新绑定状态
+              {t('刷新绑定状态')}
             </Button>
           </div>
         )}
@@ -797,10 +802,10 @@ export default function ProfilePage() {
       <Modal
         open={qrModalOpen}
         onClose={handleCloseQrModal}
-        title="扫码登录哔哩哔哩"
+        title={t('扫码登录哔哩哔哩')}
         footer={
           <Button variant="secondary" size="sm" onClick={handleCloseQrModal}>
-            关闭
+            {t('关闭')}
           </Button>
         }
       >
@@ -808,7 +813,7 @@ export default function ProfilePage() {
           {qrDataUrl ? (
             <img
               src={qrDataUrl}
-              alt="哔哩哔哩登录二维码"
+              alt={t('哔哩哔哩登录二维码')}
               className="rounded-lg border"
               style={{
                 width: 200,
@@ -824,7 +829,7 @@ export default function ProfilePage() {
                 height: 200,
               }}
             >
-              <Spinner tip="正在生成二维码…" size={28} />
+              <Spinner tip={t('正在生成二维码…')} size={28} />
             </div>
           )}
           <Paragraph
@@ -840,7 +845,7 @@ export default function ProfilePage() {
           </Paragraph>
           {qrStatus === 3 && (
             <Button variant="primary" size="sm" onClick={handleOpenQrModal}>
-              重新获取二维码
+              {t('重新获取二维码')}
             </Button>
           )}
         </div>
@@ -850,13 +855,15 @@ export default function ProfilePage() {
       <CookieLoginModal
         open={biliCookieBinding.modalOpen}
         onClose={biliCookieBinding.closeModal}
-        title="Cookie 登录哔哩哔哩"
+        title={t('Cookie 登录哔哩哔哩')}
         instructions={[
-          '1. 在浏览器中登录 bilibili.com',
-          '2. 按 F12 打开开发者工具 → Application → Cookies',
-          '3. 复制全部 Cookie（至少需包含 SESSDATA）',
+          t('1. 在浏览器中登录 bilibili.com'),
+          t('2. 按 F12 打开开发者工具 → Application → Cookies'),
+          t('3. 复制全部 Cookie（至少需包含 SESSDATA）'),
         ]}
-        placeholder="粘贴 B站 Cookie，如：SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx"
+        placeholder={t(
+          '粘贴 B站 Cookie，如：SESSDATA=xxx; bili_jct=xxx; DedeUserID=xxx'
+        )}
         input={biliCookieBinding.cookieInput}
         onInputChange={biliCookieBinding.setCookieInput}
         loading={biliCookieBinding.loginLoading}
@@ -867,10 +874,10 @@ export default function ProfilePage() {
       <Modal
         open={ncmQrModalOpen}
         onClose={handleCloseNcmQr}
-        title="扫码登录网易云音乐"
+        title={t('扫码登录网易云音乐')}
         footer={
           <Button variant="secondary" size="sm" onClick={handleCloseNcmQr}>
-            关闭
+            {t('关闭')}
           </Button>
         }
       >
@@ -878,7 +885,7 @@ export default function ProfilePage() {
           {ncmQrImg ? (
             <img
               src={ncmQrImg}
-              alt="网易云音乐登录二维码"
+              alt={t('网易云音乐登录二维码')}
               className="rounded-lg border"
               style={{
                 width: 200,
@@ -894,7 +901,7 @@ export default function ProfilePage() {
                 height: 200,
               }}
             >
-              <Spinner tip="正在生成二维码…" size={28} />
+              <Spinner tip={t('正在生成二维码…')} size={28} />
             </div>
           )}
           <Paragraph
@@ -914,7 +921,7 @@ export default function ProfilePage() {
               size="sm"
               onClick={() => void ncmStartLogin()}
             >
-              重新获取二维码
+              {t('重新获取二维码')}
             </Button>
           )}
         </div>
@@ -924,13 +931,13 @@ export default function ProfilePage() {
       <CookieLoginModal
         open={ncmCookieBinding.modalOpen}
         onClose={ncmCookieBinding.closeModal}
-        title="Cookie 登录网易云音乐"
+        title={t('Cookie 登录网易云音乐')}
         instructions={[
-          '1. 在浏览器中登录 music.163.com',
-          '2. 按 F12 打开开发者工具 → Application → Cookies',
-          '3. 复制 Cookie（至少需包含 MUSIC_U），登录态有效性会在提交时校验',
+          t('1. 在浏览器中登录 music.163.com'),
+          t('2. 按 F12 打开开发者工具 → Application → Cookies'),
+          t('3. 复制 Cookie（至少需包含 MUSIC_U），登录态有效性会在提交时校验'),
         ]}
-        placeholder="粘贴网易云 Cookie，如：MUSIC_U=xxx; __csrf=xxx"
+        placeholder={t('粘贴网易云 Cookie，如：MUSIC_U=xxx; __csrf=xxx')}
         input={ncmCookieBinding.cookieInput}
         onInputChange={ncmCookieBinding.setCookieInput}
         loading={ncmCookieBinding.loginLoading}
@@ -940,7 +947,7 @@ export default function ProfilePage() {
       <Modal
         open={editInfoModalOpen}
         onClose={() => setEditInfoModalOpen(false)}
-        title="编辑账号信息"
+        title={t('编辑账号信息')}
         className="max-w-2xl"
         footer={
           <Button
@@ -948,7 +955,7 @@ export default function ProfilePage() {
             size="sm"
             onClick={() => setEditInfoModalOpen(false)}
           >
-            关闭
+            {t('关闭')}
           </Button>
         }
       >
@@ -972,13 +979,13 @@ export default function ProfilePage() {
                 </span>
                 <div className="flex min-w-0 flex-col">
                   <Text className="text-sm font-semibold leading-tight">
-                    修改头像
+                    {t('修改头像')}
                   </Text>
                   <Text
                     type="secondary"
                     className="text-[10px] uppercase tracking-wide"
                   >
-                    上传自定义头像图片
+                    {t('上传自定义头像图片')}
                   </Text>
                 </div>
               </div>
@@ -1024,7 +1031,7 @@ export default function ProfilePage() {
                       loading={avatarLoading}
                       onClick={() => avatarInputRef.current?.click()}
                     >
-                      {user.avatar ? '更换头像' : '上传头像'}
+                      {user.avatar ? t('更换头像') : t('上传头像')}
                     </Button>
                     {user.avatar && (
                       <Button
@@ -1034,13 +1041,13 @@ export default function ProfilePage() {
                         disabled={avatarLoading}
                         onClick={() => setAvatarDeleteTarget(true)}
                       >
-                        删除头像
+                        {t('删除头像')}
                       </Button>
                     )}
                   </div>
                 </div>
                 <Text type="secondary" className="text-[10px] leading-relaxed">
-                  支持 JPG / PNG / GIF / WEBP，最大 5MB
+                  {t('支持 JPG / PNG / GIF / WEBP，最大 5MB')}
                 </Text>
               </div>
             </div>
@@ -1063,24 +1070,24 @@ export default function ProfilePage() {
                   </span>
                   <div className="flex min-w-0 flex-col">
                     <Text className="text-sm font-semibold leading-tight">
-                      修改用户名
+                      {t('修改用户名')}
                     </Text>
                     <Text
                       type="secondary"
                       className="text-[10px] uppercase tracking-wide"
                     >
-                      更改登录账户名称
+                      {t('更改登录账户名称')}
                     </Text>
                   </div>
                 </div>
                 <div className="flex flex-col gap-2.5 px-4 py-3">
                   <div className="flex flex-col gap-1">
                     <label className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                      新用户名
+                      {t('新用户名')}
                     </label>
                     <Input
                       size="sm"
-                      placeholder="请输入新用户名"
+                      placeholder={t('请输入新用户名')}
                       value={newUsername}
                       onChange={(e) => setNewUsername(e.target.value)}
                       onKeyDown={(e) => {
@@ -1099,7 +1106,7 @@ export default function ProfilePage() {
                     onClick={() => void handleChangeUsername()}
                     className="mt-1"
                   >
-                    确认修改
+                    {t('确认修改')}
                   </Button>
                 </div>
               </div>
@@ -1123,49 +1130,49 @@ export default function ProfilePage() {
               </span>
               <div className="flex min-w-0 flex-col">
                 <Text className="text-sm font-semibold leading-tight">
-                  修改密码
+                  {t('修改密码')}
                 </Text>
                 <Text
                   type="secondary"
                   className="text-[10px] uppercase tracking-wide"
                 >
-                  更新账户登录密码
+                  {t('更新账户登录密码')}
                 </Text>
               </div>
             </div>
             <div className="flex flex-col gap-2.5 px-4 py-3">
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                  原密码
+                  {t('原密码')}
                 </label>
                 <Input
                   type="password"
                   size="sm"
-                  placeholder="请输入原密码"
+                  placeholder={t('请输入原密码')}
                   value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value)}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                  新密码
+                  {t('新密码')}
                 </label>
                 <Input
                   type="password"
                   size="sm"
-                  placeholder="至少 4 位"
+                  placeholder={t('至少 4 位')}
                   value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value)}
                 />
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                  确认新密码
+                  {t('确认新密码')}
                 </label>
                 <Input
                   type="password"
                   size="sm"
-                  placeholder="再次输入新密码"
+                  placeholder={t('再次输入新密码')}
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}
                   onKeyDown={(e) => {
@@ -1184,7 +1191,7 @@ export default function ProfilePage() {
                 onClick={() => void handleChangePassword()}
                 className="mt-1"
               >
-                确认修改
+                {t('确认修改')}
               </Button>
             </div>
           </div>
@@ -1194,12 +1201,14 @@ export default function ProfilePage() {
       <ConfirmModal
         open={avatarDeleteTarget}
         onClose={() => setAvatarDeleteTarget(false)}
-        title="删除头像"
-        okText="删除"
+        title={t('删除头像')}
+        okText={t('删除')}
         onOk={() => void handleAvatarDelete()}
         onCancel={() => setAvatarDeleteTarget(false)}
       >
-        <Text className="text-sm">确定要删除当前头像并恢复默认头像吗？</Text>
+        <Text className="text-sm">
+          {t('确定要删除当前头像并恢复默认头像吗？')}
+        </Text>
       </ConfirmModal>
     </div>
   )

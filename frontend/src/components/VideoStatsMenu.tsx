@@ -9,6 +9,7 @@ import { useConnectionStats } from '@/modules/screen-sharing/hooks/useConnection
 import { useVideoIntrinsicSize } from '@/hooks/useVideoIntrinsicSize'
 import { getActiveEngineType } from '@/modules/player'
 import type { EngineType } from '@/modules/player'
+import { t } from '@/i18n'
 
 export interface VideoStatsMenuProps {
   videoElement: HTMLVideoElement | null
@@ -112,16 +113,16 @@ function detectBilibiliCdnProvider(url: string): string {
   const lower = url.toLowerCase()
   if (lower.includes('.mcdn.bilivideo.cn')) return 'P2P CDN'
   if (lower.includes('mirrorali') || lower.includes('alibilibili'))
-    return '阿里云'
+    return t('阿里云')
   if (lower.includes('mirrorcos') || lower.includes('cosbilibili'))
-    return '腾讯云'
+    return t('腾讯云')
   if (lower.includes('mirrorhw') || lower.includes('hwbilibili'))
-    return '华为云'
+    return t('华为云')
   if (lower.includes('upos-sz-mirror') || lower.includes('upos-sz'))
-    return '主站 CDN'
+    return t('主站 CDN')
   if (lower.includes('bilivideo.com') || lower.includes('bilivideo.cn'))
-    return 'B站 CDN'
-  return '未知'
+    return t('B站 CDN')
+  return t('未知')
 }
 
 /**
@@ -351,7 +352,9 @@ export function VideoStatsMenu({
         rtt: formatMs(extras?.rtt ?? null),
         jitter: formatMs(extras?.jitter ?? null),
         bufferHealth:
-          bufferHealth != null ? formatSeconds(bufferHealth) : '直播流无缓冲',
+          bufferHealth != null
+            ? formatSeconds(bufferHealth)
+            : t('直播流无缓冲'),
         url,
         sourceLabel: SOURCE_LABELS[sourceType],
         quality: '-',
@@ -519,7 +522,7 @@ export function VideoStatsMenu({
   const handleCopy = useCallback(async () => {
     if (!stats) return
     const lines: string[] = [
-      '视频统计信息',
+      t('视频统计信息'),
       `来源: ${stats.sourceLabel}`,
       `URL: ${stats.url || '-'}`,
     ]
@@ -545,8 +548,8 @@ export function VideoStatsMenu({
     }
     lines.push(`缓冲健康度: ${stats.bufferHealth}`)
     await copy(lines.join('\n'), {
-      successMessage: '统计信息已复制到剪贴板',
-      errorMessage: '复制失败，请检查浏览器剪贴板权限',
+      successMessage: t('统计信息已复制到剪贴板'),
+      errorMessage: t('复制失败，请检查浏览器剪贴板权限'),
     })
   }, [copy, stats, isWebRtc, sourceType, format, directLink, sourceUrl])
 
@@ -591,10 +594,12 @@ export function VideoStatsMenu({
     console.log('[VideoStatsMenu] Developer stats:', detail)
     if (isWebRtc) {
       message.info(
-        '已输出详细统计到控制台；如需更深入分析可访问 chrome://webrtc-internals/'
+        t(
+          '已输出详细统计到控制台；如需更深入分析可访问 chrome://webrtc-internals/'
+        )
       )
     } else {
-      message.info('已输出详细统计到浏览器开发者控制台')
+      message.info(t('已输出详细统计到浏览器开发者控制台'))
     }
   }, [videoElement, pc, sourceType, isWebRtc, stats])
 
@@ -637,7 +642,7 @@ export function VideoStatsMenu({
             className="text-xs font-semibold"
             style={{ color: 'var(--md-sys-color-on-surface)' }}
           >
-            视频统计信息
+            {t('视频统计信息')}
           </span>
         </div>
         <button
@@ -656,33 +661,35 @@ export function VideoStatsMenu({
       <div className="flex flex-col gap-1.5 text-xs">
         {(() => {
           const mode = detectPlayMode(sourceType, format, sourceUrl)
-          return mode ? <StatsRow label="播放模式" value={mode} /> : null
+          return mode ? <StatsRow label={t('播放模式')} value={mode} /> : null
         })()}
         {sourceType === 'custom' && (
           <StatsRow
-            label="访问模式"
-            value={directLink ? '直链' : '服务器中转'}
+            label={t('访问模式')}
+            value={directLink ? t('直链') : t('服务器中转')}
           />
         )}
-        {!isWebRtc && <StatsRow label="播放引擎" value={displayStats.engine} />}
-        <StatsRow label="编码" value={displayStats.codec} />
-        <StatsRow label="分辨率" value={displayStats.resolution} />
+        {!isWebRtc && (
+          <StatsRow label={t('播放引擎')} value={displayStats.engine} />
+        )}
+        <StatsRow label={t('编码')} value={displayStats.codec} />
+        <StatsRow label={t('分辨率')} value={displayStats.resolution} />
         {sourceType === 'bilibili' && format !== 'mp4' && (
-          <StatsRow label="清晰度" value={displayStats.quality} />
+          <StatsRow label={t('清晰度')} value={displayStats.quality} />
         )}
         {sourceType === 'bilibili' && (
-          <StatsRow label="CDN 源" value={displayStats.cdnProvider} />
+          <StatsRow label={t('CDN 源')} value={displayStats.cdnProvider} />
         )}
-        <StatsRow label="帧率" value={displayStats.frameRate} />
-        <StatsRow label="码率" value={displayStats.bitrate} />
+        <StatsRow label={t('帧率')} value={displayStats.frameRate} />
+        <StatsRow label={t('码率')} value={displayStats.bitrate} />
         {isWebRtc && (
           <>
-            <StatsRow label="丢包率" value={displayStats.packetLossRate} />
+            <StatsRow label={t('丢包率')} value={displayStats.packetLossRate} />
             <StatsRow label="RTT" value={displayStats.rtt} />
-            <StatsRow label="抖动" value={displayStats.jitter} />
+            <StatsRow label={t('抖动')} value={displayStats.jitter} />
           </>
         )}
-        <StatsRow label="缓冲健康度" value={displayStats.bufferHealth} />
+        <StatsRow label={t('缓冲健康度')} value={displayStats.bufferHealth} />
         <div
           className="mt-1 border-t pt-1.5"
           style={{ borderColor: 'var(--md-sys-color-outline)' }}
@@ -691,7 +698,7 @@ export function VideoStatsMenu({
             className="mb-1 text-[10px] uppercase tracking-wide"
             style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
           >
-            播放地址
+            {t('播放地址')}
           </div>
           <div
             className="break-all font-mono text-[10px] leading-relaxed"
@@ -714,7 +721,7 @@ export function VideoStatsMenu({
           icon={<Copy className="h-3 w-3" />}
           onClick={handleCopy}
         >
-          复制统计信息
+          {t('复制统计信息')}
         </Button>
         <Button
           variant="ghost"
@@ -723,7 +730,7 @@ export function VideoStatsMenu({
           icon={<Terminal className="h-3 w-3" />}
           onClick={handleOpenDevPanel}
         >
-          开发者统计
+          {t('开发者统计')}
         </Button>
       </div>
     </div>,

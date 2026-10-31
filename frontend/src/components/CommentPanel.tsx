@@ -20,6 +20,7 @@ import { cn, formatIsoTime } from '@/lib/utils'
 import type { Socket } from 'socket.io-client'
 import { DanmakuTrackCard } from '@/modules/danmaku/components/DanmakuTrackCard'
 import { RealtimeDanmakuCard } from '@/modules/danmaku/components/RealtimeDanmakuCard'
+import { t } from '@/i18n'
 
 export interface CommentItem {
   id: number
@@ -143,7 +144,7 @@ export function CommentPanel({
     if (!socket || !roomId) return
     const content = input.trim()
     if (!content) {
-      message.warning('请输入评论内容')
+      message.warning(t('请输入评论内容'))
       return
     }
 
@@ -154,7 +155,7 @@ export function CommentPanel({
       (response: SendCommentResponse) => {
         if (!response.success) {
           setSending(false)
-          message.error(response.message ?? '发送失败')
+          message.error(response.message ?? t('发送失败'))
           return
         }
 
@@ -167,7 +168,7 @@ export function CommentPanel({
               if (danmakuResponse.success) {
                 setInput('')
               } else {
-                message.error(danmakuResponse.message ?? '弹幕发送失败')
+                message.error(danmakuResponse.message ?? t('弹幕发送失败'))
               }
             }
           )
@@ -186,9 +187,9 @@ export function CommentPanel({
       {!commentsOnly && (
         <SegmentedToggle
           options={[
-            { value: 'comments', label: '评论区' },
-            { value: 'tracks', label: '弹幕轨道' },
-            { value: 'realtime', label: '实时弹幕' },
+            { value: 'comments', label: t('评论区') },
+            { value: 'tracks', label: t('弹幕轨道') },
+            { value: 'realtime', label: t('实时弹幕') },
           ]}
           value={rightPanelTab}
           onChange={(v) => setRightPanelTab(v as typeof rightPanelTab)}
@@ -205,7 +206,7 @@ export function CommentPanel({
                 // 空状态独立于评论列表流：占满评论区空白处并水平垂直居中
                 <EmptyState
                   icon={<MessagesSquare className="h-8 w-8" />}
-                  text="暂无评论，快来第一条吧"
+                  text={t('暂无评论，快来第一条吧')}
                   variant="centered"
                 />
               ) : (
@@ -299,13 +300,13 @@ export function CommentPanel({
                 icon={<Send className="h-4 w-4" />}
                 onClick={handleSendComment}
               >
-                发送
+                {t('发送')}
               </Button>
             </Space>
             <div className="flex items-center justify-between">
               {allowDanmaku && (
                 <Switch
-                  label="以弹幕形式发送"
+                  label={t('以弹幕形式发送')}
                   checked={sendAsDanmaku}
                   onChange={(e) => setSendAsDanmaku(e.target.checked)}
                 />
@@ -313,7 +314,7 @@ export function CommentPanel({
               {roomId && (
                 <button
                   type="button"
-                  title="在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）"
+                  title={t('在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）')}
                   className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:bg-[var(--md-sys-color-surface-container-high)] hover:text-[var(--md-sys-color-primary)]"
                   onClick={() => {
                     window.open(

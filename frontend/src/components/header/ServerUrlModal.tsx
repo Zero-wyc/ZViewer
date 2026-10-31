@@ -19,6 +19,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
 import { message } from '@/components/ui/message'
+import { t } from '@/i18n'
 
 interface ServerUrlModalProps {
   onClose: () => void
@@ -55,10 +56,12 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
     resetSocket()
     if (hasMixedContent) {
       message.warning(
-        '已保存，但 HTTPS 页面无法访问 HTTP 后端。请配置反向代理或后端 HTTPS。'
+        t(
+          '已保存，但 HTTPS 页面无法访问 HTTP 后端。请配置反向代理或后端 HTTPS。'
+        )
       )
     } else {
-      message.success('后端地址已保存，即将刷新页面生效')
+      message.success(t('后端地址已保存，即将刷新页面生效'))
     }
     onClose()
     // 刷新页面确保所有模块级 API_URL 缓存重新计算
@@ -69,14 +72,14 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
     <Modal
       open={true}
       onClose={onClose}
-      title="自定义后端地址"
+      title={t('自定义后端地址')}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>
-            取消
+            {t('取消')}
           </Button>
           <Button variant="primary" onClick={handleSave}>
-            保存
+            {t('保存')}
           </Button>
         </>
       }
@@ -92,7 +95,7 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
             <Info className="mt-0.5 h-4 w-4 shrink-0 text-[var(--md-sys-color-primary)]" />
             <div className="space-y-1.5 text-xs leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
               <p className="font-medium text-[var(--md-sys-color-on-surface)]">
-                只需填写一个域名即可
+                {t('只需填写一个域名即可')}
               </p>
               <p>
                 填写你的服务器域名（例如{' '}
@@ -123,44 +126,45 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
                 </li>
               </ul>
               <p>
-                反向代理需启用 HTTPS（SSL 证书），否则 HTTPS
-                页面下的连接会被浏览器阻止。
+                {t(
+                  '反向代理需启用 HTTPS（SSL 证书），否则 HTTPS 页面下的连接会被浏览器阻止。'
+                )}
               </p>
             </div>
           </div>
         </div>
 
         <Input
-          label="服务器域名"
+          label={t('服务器域名')}
           value={customApiUrl}
           onChange={(e) => setCustomApiUrlState(e.target.value)}
-          placeholder="例如: example.com"
+          placeholder={t('例如: example.com')}
           size="md"
         />
         <details className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
           <summary className="cursor-pointer select-none font-medium">
-            高级设置（通常无需修改）
+            {t('高级设置（通常无需修改）')}
           </summary>
           <div className="mt-3 space-y-3">
             <Input
-              label="WebSocket / 信令地址（留空则跟随上方域名）"
+              label={t('WebSocket / 信令地址（留空则跟随上方域名）')}
               value={customSocketUrl}
               onChange={(e) => setCustomSocketUrlState(e.target.value)}
-              placeholder="留空即可"
+              placeholder={t('留空即可')}
               size="md"
             />
             <Input
-              label="HTTP-FLV 拉流基础地址（留空则自动推断）"
+              label={t('HTTP-FLV 拉流基础地址（留空则自动推断）')}
               value={customFlvBaseUrl}
               onChange={(e) => setCustomFlvBaseUrlState(e.target.value)}
-              placeholder="留空即可"
+              placeholder={t('留空即可')}
               size="md"
             />
             <Input
-              label="RTMP 推流端口（留空则使用默认 3334）"
+              label={t('RTMP 推流端口（留空则使用默认 3334）')}
               value={customRtmpPort}
               onChange={(e) => setCustomRtmpPortState(e.target.value)}
-              placeholder="留空即可"
+              placeholder={t('留空即可')}
               size="md"
             />
           </div>
@@ -181,7 +185,7 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
           <p>
             当前 FLV 基础地址:{' '}
             <code className="bg-[var(--md-sys-color-surface-container)] px-1 py-0.5 rounded">
-              {getFlvBaseUrl() || '(相对路径 /live)'}
+              {getFlvBaseUrl() || t('(相对路径 /live)')}
             </code>
           </p>
           <p>
@@ -204,29 +208,34 @@ export function ServerUrlModal({ onClose }: ServerUrlModalProps) {
           >
             <div className="flex items-center gap-2 text-sm font-medium">
               <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span>检测到混合内容（HTTPS → HTTP）</span>
+              <span>{t('检测到混合内容（HTTPS → HTTP）')}</span>
             </div>
             <p className="mt-1.5 text-xs leading-relaxed">
-              当前页面为 HTTPS，但后端地址为 HTTP。浏览器会阻止 HTTPS 页面发起的
-              HTTP 请求，API 和 WebSocket 连接均无法正常工作。
+              {t(
+                '当前页面为 HTTPS，但后端地址为 HTTP。浏览器会阻止 HTTPS 页面发起的 HTTP 请求，API 和 WebSocket 连接均无法正常工作。'
+              )}
             </p>
-            <p className="mt-2 text-xs font-medium">推荐方案：</p>
+            <p className="mt-2 text-xs font-medium">{t('推荐方案：')}</p>
             <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs">
               <li>
-                使用反向代理（Nginx / Caddy）统一提供
-                HTTPS，后端通过反向代理访问
+                {t(
+                  '使用反向代理（Nginx / Caddy）统一提供 HTTPS，后端通过反向代理访问'
+                )}
               </li>
-              <li>或为后端 Express 服务直接配置 HTTPS 证书</li>
+              <li>{t('或为后端 Express 服务直接配置 HTTPS 证书')}</li>
               <li>
-                或使用 Docker 部署，前端 Nginx 自动代理 /api 和 /socket.io
-                到后端
+                {t(
+                  '或使用 Docker 部署，前端 Nginx 自动代理 /api 和 /socket.io 到后端'
+                )}
               </li>
             </ul>
           </div>
         )}
 
         <div className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
-          提示：留空将使用环境变量或页面默认值，保存后会自动刷新页面使配置生效。
+          {t(
+            '提示：留空将使用环境变量或页面默认值，保存后会自动刷新页面使配置生效。'
+          )}
         </div>
       </div>
     </Modal>

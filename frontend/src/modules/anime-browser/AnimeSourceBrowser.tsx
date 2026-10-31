@@ -10,6 +10,7 @@ import { Select } from '@/components/ui/Select'
 import { message } from '@/components/ui/message'
 import { AnimePoster } from './AnimePoster'
 import type { AnimeEpisodeSelection } from './AnimeEpisodePicker'
+import { t } from '@/i18n'
 
 export interface AnimeSourceBrowserProps {
   open: boolean
@@ -48,9 +49,9 @@ export function AnimeSourceBrowser({
   getSources,
   search,
   getEpisodes,
-  searchPlaceholder = '输入番剧名称搜索',
-  emptyText = '输入关键词开始搜索番剧',
-  noSourcesHint = '未找到可用数据源，请在管理面板检查订阅配置',
+  searchPlaceholder = t('输入番剧名称搜索'),
+  emptyText = t('输入关键词开始搜索番剧'),
+  noSourcesHint = t('未找到可用数据源，请在管理面板检查订阅配置'),
 }: Props) {
   const [sources, setSources] = useState<AniSubsSource[]>([])
   const [sourceId, setSourceId] = useState('')
@@ -79,7 +80,9 @@ export function AnimeSourceBrowser({
       })
       .catch((err: unknown) => {
         if (!cancelled)
-          setSourceError(err instanceof Error ? err.message : '加载数据源失败')
+          setSourceError(
+            err instanceof Error ? err.message : t('加载数据源失败')
+          )
       })
     return () => {
       cancelled = true
@@ -163,7 +166,9 @@ export function AnimeSourceBrowser({
           return item && added.includes(item.episode.id)
         })
       } catch (err) {
-        message.error(err instanceof Error ? err.message : '添加失败，请重试')
+        message.error(
+          err instanceof Error ? err.message : t('添加失败，请重试')
+        )
         return []
       }
     },
@@ -177,7 +182,7 @@ export function AnimeSourceBrowser({
       try {
         const entries = await browse(1, entry.path)
         if (!entries.length) {
-          message.info('暂无集数信息')
+          message.info(t('暂无集数信息'))
           return
         }
         const paths =
@@ -188,7 +193,7 @@ export function AnimeSourceBrowser({
         if (failed.length) failedSeries.current.set(entry.path, failed)
         else failedSeries.current.delete(entry.path)
       } catch (err) {
-        message.error(err instanceof Error ? err.message : '获取集数失败')
+        message.error(err instanceof Error ? err.message : t('获取集数失败'))
       } finally {
         setAddingSeries(false)
       }
@@ -206,7 +211,7 @@ export function AnimeSourceBrowser({
       open={open}
       onClose={() => onOpenChange(false)}
       title={title}
-      rootLabel="搜索结果"
+      rootLabel={t('搜索结果')}
       searchPlaceholder={searchPlaceholder}
       emptyText={emptyText}
       showParentDirectory={false}
@@ -229,7 +234,7 @@ export function AnimeSourceBrowser({
               value: item.id,
               label: item.name,
             }))}
-            placeholder="选择数据源"
+            placeholder={t('选择数据源')}
             disabled={!sources.length || disabled || addingSeries}
             onChange={(value) => {
               if (value === sourceId) return

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { Card } from '@/components/ui/Card'
 import { Title, Paragraph } from '@/components/ui/Typography'
 import { Input } from '@/components/ui/Input'
+import { t } from '@/i18n'
 
 export default function JoinByRoomIdPage() {
   const navigate = useNavigate()
@@ -38,16 +39,16 @@ export default function JoinByRoomIdPage() {
             <LogIn className="h-6 w-6" />
           </div>
           <Title level={3} className="m-0">
-            加入房间
+            {t('加入房间')}
           </Title>
           <Paragraph type="secondary" className="mt-2">
-            输入房主分享的房间号
+            {t('输入房主分享的房间号')}
           </Paragraph>
 
           <div className="mt-6 flex w-full gap-2">
             <Input
               size="lg"
-              placeholder="输入房间号"
+              placeholder={t('输入房间号')}
               value={roomIdInput}
               onChange={(e) => setRoomIdInput(e.target.value)}
               onKeyDown={(e) => {
@@ -64,7 +65,7 @@ export default function JoinByRoomIdPage() {
               disabled={!roomIdInput.trim()}
               className="shrink-0 whitespace-nowrap"
             >
-              加入
+              {t('加入')}
             </Button>
           </div>
         </div>

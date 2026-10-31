@@ -11,6 +11,7 @@ import type {
   RoomModeChangedPayload,
   RequestJoinResponse,
 } from '../types'
+import { t } from '@/i18n'
 
 interface UseJoinRoomOptions {
   socket: Socket | null
@@ -123,7 +124,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
   const requestJoin = useCallback(
     (targetRoomId: string, password: string) => {
       if (!socket || !connected) {
-        message.warning('Socket 尚未连接，请稍后重试')
+        message.warning(t('Socket 尚未连接，请稍后重试'))
         setJoinStatus('idle')
         return
       }
@@ -145,7 +146,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
               } catch {
                 // ignore
               }
-              message.success('已恢复房主身份')
+              message.success(t('已恢复房主身份'))
               // 刷新页面，触发 RoomPage 以房主身份重新渲染
               window.location.reload()
               return
@@ -169,7 +170,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
                 message.success(response.message)
                 callbacksRef.current.onApprovedWatchTogether?.()
               } else {
-                message.info(response.message ?? '等待房主确认')
+                message.info(response.message ?? t('等待房主确认'))
               }
               return
             }
@@ -179,14 +180,14 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
               message.success(response.message)
               callbacksRef.current.onApprovedScreenShare?.()
             } else {
-              message.info(response.message ?? '等待分享端确认')
+              message.info(response.message ?? t('等待分享端确认'))
             }
           } else {
             const isPasswordError = response.message === '密码错误'
             if (isPasswordError) {
               setJoinStatus('password-required')
               requestedRoomIdRef.current = null
-              message.error('密码错误，请重新输入')
+              message.error(t('密码错误，请重新输入'))
             } else if (response.code === 'ALREADY_IN_ROOM') {
               // 同一账户旧 session 的 socket 尚未被服务端判定断开
               // （刷新/快速重进时轮询传输的断开检测有延迟）——延迟重试
@@ -194,7 +195,7 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
               // 被清理，重试即成功。重试耗尽才回主页（真实的多标签页场景）
               alreadyInRoomRetriesRef.current += 1
               if (alreadyInRoomRetriesRef.current <= 3) {
-                message.info('检测到账户已在房间内，正在重新加入…')
+                message.info(t('检测到账户已在房间内，正在重新加入…'))
                 const retryRoomId = targetRoomId
                 const retryPassword = password
                 setTimeout(() => {
@@ -205,14 +206,14 @@ export function useJoinRoom(options: UseJoinRoomOptions): UseJoinRoomResult {
               }
               alreadyInRoomRetriesRef.current = 0
               setJoinStatus('rejected')
-              message.error(response.message ?? '该账户已在此房间内')
+              message.error(response.message ?? t('该账户已在此房间内'))
               // 延迟导航，让用户看到提示
               setTimeout(() => {
                 window.location.href = '/'
               }, 2000)
             } else {
               setJoinStatus('idle')
-              message.error(response.message ?? '加入房间失败')
+              message.error(response.message ?? t('加入房间失败'))
             }
           }
         }

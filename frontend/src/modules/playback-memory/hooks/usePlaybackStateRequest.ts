@@ -26,6 +26,7 @@ import {
   UrlExpiredError,
   DownloadAbortedError,
 } from '@/modules/player/services/buffer-mode'
+import { t } from '@/i18n'
 
 export interface UsePlaybackStateRequestOptions {
   roomId: string
@@ -111,7 +112,8 @@ export function usePlaybackStateRequest({
           // 此时不再重复 attach，避免重复解析 / 覆盖已就绪的播放器
           if (
             lastAppliedSourceUrlRef.current === state.sourceUrl &&
-            useRoomStore.getState().watchTogether.noProxyFallback === state.noProxyFallback
+            useRoomStore.getState().watchTogether.noProxyFallback ===
+              state.noProxyFallback
           ) {
             return
           }
@@ -140,7 +142,7 @@ export function usePlaybackStateRequest({
             setBufferProgress({
               downloaded: 0,
               total: 1,
-              title: state.previewTitle || '当前视频',
+              title: state.previewTitle || t('当前视频'),
             })
             try {
               const result = await fetchBlobsForBufferMode({
@@ -157,12 +159,12 @@ export function usePlaybackStateRequest({
               if (err instanceof DownloadAbortedError) {
                 console.log('[usePlaybackStateRequest] 缓冲下载已取消')
               } else if (err instanceof UrlExpiredError) {
-                message.error('B站 URL 已过期，请等待房主重新解析')
+                message.error(t('B站 URL 已过期，请等待房主重新解析'))
               } else if (err instanceof DownloadError) {
                 message.error(`缓冲下载失败: ${err.message}`)
               } else {
                 console.error('[usePlaybackStateRequest] 缓冲下载失败:', err)
-                message.error('缓冲下载失败，请等待房主重新广播')
+                message.error(t('缓冲下载失败，请等待房主重新广播'))
               }
               return null // 区分 undefined（不需要缓冲）和 null（缓冲失败）
             } finally {
@@ -220,7 +222,9 @@ export function usePlaybackStateRequest({
             // attach 失败：回滚 sourceUrl 标记，允许下一次重试
             lastAppliedSourceUrlRef.current = previousAppliedUrl
             suppressEventsRef.current = false
-            message.error(err instanceof Error ? err.message : '状态恢复失败')
+            message.error(
+              err instanceof Error ? err.message : t('状态恢复失败')
+            )
           })
         }
       )

@@ -5,6 +5,7 @@
 import { Button } from '@/components/ui/Button'
 import { Modal } from '@/components/ui/Modal'
 import { Paragraph } from '@/components/ui/Typography'
+import { t } from '@/i18n'
 
 interface CookieLoginModalProps {
   open: boolean
@@ -43,7 +44,7 @@ export function CookieLoginModal({
             onClick={onClose}
             disabled={loading}
           >
-            取消
+            {t('取消')}
           </Button>
           <Button
             variant="primary"
@@ -51,7 +52,7 @@ export function CookieLoginModal({
             onClick={onSubmit}
             disabled={loading || !input.trim()}
           >
-            {loading ? '验证中...' : '登录'}
+            {loading ? t('验证中...') : t('登录')}
           </Button>
         </div>
       }

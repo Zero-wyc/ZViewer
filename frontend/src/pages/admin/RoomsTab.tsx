@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 import { formatRecentTime } from '@/lib/formatTime'
 import type { AdminRoom } from './shared'
 import { formatDate } from './shared'
+import { t } from '@/i18n'
 
 interface RoomsTabProps {
   rooms: AdminRoom[]
@@ -46,7 +47,7 @@ export function RoomsTab({
       }
     >
       {rooms.length === 0 ? (
-        <EmptyState text="暂无房间" className="col-span-full py-12" />
+        <EmptyState text={t('暂无房间')} className="col-span-full py-12" />
       ) : (
         <>
           <div
@@ -129,14 +130,14 @@ export function RoomsTab({
                       {room.roomId}
                     </Text>
                     {room.status === 'active' ? (
-                      <Tag color="success">进行中</Tag>
+                      <Tag color="success">{t('进行中')}</Tag>
                     ) : (
-                      <Tag color="default">已关闭</Tag>
+                      <Tag color="default">{t('已关闭')}</Tag>
                     )}
                     {room.requireApproval ? (
-                      <Tag color="warning">需确认</Tag>
+                      <Tag color="warning">{t('需确认')}</Tag>
                     ) : (
-                      <Tag color="cyan">直接加入</Tag>
+                      <Tag color="cyan">{t('直接加入')}</Tag>
                     )}
                     {room.hasPassword && (
                       <Tag color="purple">
@@ -151,7 +152,7 @@ export function RoomsTab({
                   >
                     观众 {room.viewerCount} / {room.maxViewers}
                     {roomViewMode === 'tile' ? <br /> : ' · '}
-                    分享端{room.sharerOnline ? '在线' : '离线'}
+                    分享端{room.sharerOnline ? t('在线') : t('离线')}
                     {roomViewMode === 'tile' ? <br /> : ' · '}
                     创建于 {formatRoomCreatedAt(room.createdAt)}
                     {roomViewMode === 'tile' ? <br /> : ' · '}
@@ -180,9 +181,9 @@ export function RoomsTab({
                       e.stopPropagation()
                       onReopenRoom(room.roomId)
                     }}
-                    title="重新开启已关闭的房间"
+                    title={t('重新开启已关闭的房间')}
                   >
-                    重新开启
+                    {t('重新开启')}
                   </Button>
                 )}
                 <Button
@@ -198,7 +199,7 @@ export function RoomsTab({
                   }}
                   disabled={room.status !== 'active'}
                 >
-                  关闭房间
+                  {t('关闭房间')}
                 </Button>
               </div>
             </div>

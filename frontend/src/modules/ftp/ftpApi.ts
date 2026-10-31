@@ -7,6 +7,7 @@ import type {
   FTPResolvedSource,
 } from './types'
 import type { MediaFormat } from '@/lib/mediaFormat'
+import { t } from '@/i18n'
 
 export interface FTPTestResult {
   success: boolean
@@ -25,7 +26,7 @@ export async function getFTPMounts(): Promise<FTPMount[]> {
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '获取 FTP 挂载列表失败')
+    throw new Error(data.message || t('获取 FTP 挂载列表失败'))
   }
   return data.mounts || []
 }
@@ -44,7 +45,7 @@ export async function createFTPMount(
     message?: string
   }
   if (!res.ok || !data.success || !data.mount) {
-    throw new Error(data.message || '创建 FTP 挂载失败')
+    throw new Error(data.message || t('创建 FTP 挂载失败'))
   }
   return data.mount
 }
@@ -64,7 +65,7 @@ export async function updateFTPMount(
     message?: string
   }
   if (!res.ok || !data.success || !data.mount) {
-    throw new Error(data.message || '更新 FTP 挂载失败')
+    throw new Error(data.message || t('更新 FTP 挂载失败'))
   }
   return data.mount
 }
@@ -75,7 +76,7 @@ export async function deleteFTPMount(id: number): Promise<void> {
   })
   const data = (await res.json()) as { success: boolean; message?: string }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '删除 FTP 挂载失败')
+    throw new Error(data.message || t('删除 FTP 挂载失败'))
   }
 }
 
@@ -93,7 +94,7 @@ export async function testFTPMount(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '测试 FTP 连接失败')
+    throw new Error(data.message || t('测试 FTP 连接失败'))
   }
   return {
     success: true,
@@ -113,7 +114,7 @@ export async function browseFTPMount(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '浏览 FTP 挂载失败')
+    throw new Error(data.message || t('浏览 FTP 挂载失败'))
   }
   return data.entries || []
 }
@@ -137,7 +138,7 @@ export async function resolveFTP(
     size?: number
   }
   if (!res.ok || !data.success || !data.videoUrl) {
-    throw new Error(data.message || '解析 FTP 文件失败')
+    throw new Error(data.message || t('解析 FTP 文件失败'))
   }
   return {
     title: data.title || '',

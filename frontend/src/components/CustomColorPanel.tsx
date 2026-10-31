@@ -346,7 +346,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 } as React.CSSProperties
               }
             >
-              点击添加颜色
+              {t('点击添加颜色')}
             </button>
             <div
               className="zen-stagger-fade-up mt-2 flex shrink-0 items-center justify-center gap-1.5"
@@ -366,17 +366,17 @@ export function CustomColorPanel({ open }: { open: boolean }) {
               >
                 <Plus className="h-4 w-4" />
               </ActionIconButton>
-              <ActionIconButton title="打开取色器" onClick={openPicker}>
+              <ActionIconButton title={t('打开取色器')} onClick={openPicker}>
                 <Pipette className="h-4 w-4" />
               </ActionIconButton>
-              <ActionIconButton title="随机主题色" onClick={randomColor}>
+              <ActionIconButton title={t('随机主题色')} onClick={randomColor}>
                 <Dices className="h-4 w-4" />
               </ActionIconButton>
               <ActionIconButton
                 title={
                   currentIsCustom
-                    ? '从收藏色板移除当前颜色'
-                    : '当前颜色未被收藏'
+                    ? t('从收藏色板移除当前颜色')
+                    : t('当前颜色未被收藏')
                 }
                 onClick={removeCurrent}
                 disabled={!currentIsCustom}
@@ -390,7 +390,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
             >
               <Slider
                 size="sm"
-                label="颜色强度"
+                label={t('颜色强度')}
                 value={colorIntensity}
                 min={0}
                 max={100}
@@ -427,7 +427,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                       color: 'var(--md-sys-color-on-surface-variant)',
                     }}
                   >
-                    我的颜色
+                    {t('我的颜色')}
                   </span>
                   <span
                     className="rounded-full px-1.5 py-px text-[10px] tabular-nums"
@@ -453,7 +453,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                     <SwatchDot
                       key={c}
                       color={c}
-                      name="收藏的颜色"
+                      name={t('收藏的颜色')}
                       active={currentHex === c}
                       delay={300 + i * 35}
                       onPick={() => applyColor(c)}
@@ -522,7 +522,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 touchAction: 'none',
               }}
               role="slider"
-              aria-label="饱和度与明度"
+              aria-label={t('饱和度与明度')}
               onPointerDown={(e) => {
                 e.currentTarget.setPointerCapture(e.pointerId)
                 applySvPointer(e.clientX, e.clientY)
@@ -557,7 +557,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 touchAction: 'none',
               }}
               role="slider"
-              aria-label="色相"
+              aria-label={t('色相')}
               aria-valuemin={0}
               aria-valuemax={360}
               aria-valuenow={Math.round(draft.h)}
@@ -600,7 +600,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 value={hexText}
                 onChange={(e) => handleHexText(e.target.value)}
                 spellCheck={false}
-                aria-label="Hex 颜色值"
+                aria-label={t('Hex 颜色值')}
                 className="h-8 w-full min-w-0 flex-1 rounded-md px-2 text-xs tabular-nums outline-none"
                 style={{
                   backgroundColor: 'var(--md-sys-color-surface-container-high)',
@@ -618,14 +618,16 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 className="h-9 flex-1 rounded-full text-sm font-medium transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                取消
+                {t('取消')}
               </button>
               <button
                 type="button"
                 onClick={saveAsNew}
                 disabled={draftAlreadySaved}
                 title={
-                  draftAlreadySaved ? '该颜色已在收藏板中' : '加入收藏色板'
+                  draftAlreadySaved
+                    ? t('该颜色已在收藏板中')
+                    : t('加入收藏色板')
                 }
                 className={cn(
                   'h-9 flex-1 rounded-full text-sm font-medium transition-colors',
@@ -635,7 +637,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                 )}
                 style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
               >
-                {editingHex ? '存为新色' : '收藏'}
+                {editingHex ? t('存为新色') : t('收藏')}
               </button>
               {editingHex && (
                 <button
@@ -645,8 +647,8 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                   title={
                     draftAlreadySaved
                       ? draftHex === editingHex
-                        ? '颜色未修改'
-                        : '该颜色已是其他收藏条目'
+                        ? t('颜色未修改')
+                        : t('该颜色已是其他收藏条目')
                       : `更新收藏中的 ${editingHex}`
                   }
                   className={cn(
@@ -660,7 +662,7 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                     color: onColorFor(draftHex),
                   }}
                 >
-                  更新收藏
+                  {t('更新收藏')}
                 </button>
               )}
             </div>

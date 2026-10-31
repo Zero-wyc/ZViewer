@@ -217,7 +217,7 @@ export function RoomLayout({
     if (isModeSwitching) {
       return (
         <div className="flex h-full w-full items-center justify-center">
-          <Spinner tip="正在切换模式..." size={32} />
+          <Spinner tip={t('正在切换模式...')} size={32} />
         </div>
       )
     }

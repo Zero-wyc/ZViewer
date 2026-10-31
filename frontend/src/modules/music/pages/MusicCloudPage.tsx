@@ -1004,7 +1004,7 @@ export function MusicCloudPage({
         <div className="zen-scroll min-h-0 flex-1 overflow-y-auto pt-1 max-md:min-h-[240px]">
           {loading && (
             <LoadingLine
-              text="正在获取云盘文件…"
+              text={t('正在获取云盘文件…')}
               spinnerClassName="h-3.5 w-3.5"
               className="h-auto justify-start px-2 py-3 text-sm"
             />

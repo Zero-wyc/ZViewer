@@ -22,6 +22,7 @@ import { Room, RoomEvent, Track, AudioPresets } from 'livekit-client'
 import type { RemoteParticipant, RemoteTrack } from 'livekit-client'
 import { apiFetch } from '@/lib/api'
 import { message } from '@/components/ui/message'
+import { t } from '@/i18n'
 
 export interface VoiceMember {
   /** LiveKit participant identity（后端签发：user:{userId} / guest:{random}） */
@@ -186,9 +187,12 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
         if (Date.now() - startedAt > MEDIA_WATCHDOG_TIMEOUT_MS) {
           clearMediaWatchdog()
           setMediaConnected(false)
-          message.warning('媒体通道未建立，请检查网络（可尝试关闭代理/VPN）', {
-            duration: 8000,
-          })
+          message.warning(
+            t('媒体通道未建立，请检查网络（可尝试关闭代理/VPN）'),
+            {
+              duration: 8000,
+            }
+          )
         }
       }, 500)
     },
@@ -259,11 +263,11 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
     const list: VoiceMember[] = [
       {
         id: room.localParticipant.identity,
-        username: room.localParticipant.name || '我',
+        username: room.localParticipant.name || t('我'),
       },
     ]
     room.remoteParticipants.forEach((p) =>
-      list.push({ id: p.identity, username: p.name || '成员' })
+      list.push({ id: p.identity, username: p.name || t('成员') })
     )
     setMembers(list)
     const muted = new Set<string>()
@@ -339,7 +343,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
         message?: string
       }
       if (!data.success || !data.url || !data.token) {
-        throw new Error(data.message ?? '获取语音凭证失败')
+        throw new Error(data.message ?? t('获取语音凭证失败'))
       }
 
       // 2. 采集链：单声道 + AEC/NS/AGC，micGain 控制输入音量。
@@ -417,8 +421,8 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
               const isAdminMuted = muted.has(room.localParticipant.identity)
               track.enabled = !isAdminMuted && micEnabled
               setMicEnabled(!isAdminMuted && micEnabled)
-              if (isAdminMuted) message.warning('您已被管理员语音禁言')
-              else message.success('语音禁言已解除')
+              if (isAdminMuted) message.warning(t('您已被管理员语音禁言'))
+              else message.success(t('语音禁言已解除'))
             }
           }
         )
@@ -465,10 +469,10 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
       const raw = err instanceof Error ? err.message : ''
       message.error(
         /timeout/i.test(raw)
-          ? '语音媒体连接超时，请检查网络后重试'
+          ? t('语音媒体连接超时，请检查网络后重试')
           : err instanceof Error
             ? err.message
-            : '加入语音聊天失败'
+            : t('加入语音聊天失败')
       )
       teardown()
     } finally {
@@ -504,7 +508,7 @@ export function useVoiceChat({ roomId, username }: UseVoiceChatOptions) {
       /* ignore */
     }
     if (adminMuted) {
-      message.warning('您已被管理员语音禁言')
+      message.warning(t('您已被管理员语音禁言'))
       return
     }
     track.enabled = !track.enabled

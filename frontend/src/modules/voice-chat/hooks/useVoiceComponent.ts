@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { apiFetch, safeJson } from '@/lib/api'
+import { t } from '@/i18n'
 
 export type VoiceComponentState =
   'idle' | 'downloading' | 'installing' | 'ready' | 'error' | 'external'
@@ -109,7 +110,7 @@ export function useVoiceComponent(enabled = true) {
           ...prev,
           available: false,
           state: 'error',
-          message: '下载请求失败，请检查网络后重试',
+          message: t('下载请求失败，请检查网络后重试'),
         }))
       }
     } finally {

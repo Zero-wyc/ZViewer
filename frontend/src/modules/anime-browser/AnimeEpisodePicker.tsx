@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { CheckSquare, Plus, Play } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import type { AniSubsEpisode } from '@/modules/anisubs'
+import { t } from '@/i18n'
 
 export interface AnimeEpisodeSelection {
   sourceId: string
@@ -75,7 +76,7 @@ export function AnimeEpisodePicker({
             setSelected(new Set())
           }}
         >
-          {multiSelect ? '退出多选' : '多选'}
+          {multiSelect ? t('退出多选') : t('多选')}
         </Button>
         {multiSelect && (
           <>
@@ -87,7 +88,7 @@ export function AnimeEpisodePicker({
                 setSelected(new Set(episodes.map((episode) => episode.id)))
               }
             >
-              全选
+              {t('全选')}
             </Button>
             <Button
               size="sm"
@@ -95,7 +96,7 @@ export function AnimeEpisodePicker({
               disabled={busy || selected.size === 0}
               onClick={() => setSelected(new Set())}
             >
-              清空
+              {t('清空')}
             </Button>
           </>
         )}
@@ -139,7 +140,7 @@ export function AnimeEpisodePicker({
             disabled={busy || selected.size === 0}
             onClick={() => void addSelected()}
           >
-            添加所选
+            {t('添加所选')}
           </Button>
         </div>
       )}

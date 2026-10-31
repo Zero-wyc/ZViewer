@@ -7,6 +7,7 @@ import type {
   ViewerEventPayload,
   ViewerReadyPayload,
 } from '../types'
+import { t } from '@/i18n'
 
 /**
  * 对单个视频 sender 应用编码参数（码率 / 帧率上限 / 降级策略）。
@@ -154,7 +155,7 @@ export function useHostPeerConnections(
   const createPeerConnection = useCallback(
     async (viewerSocketId: string) => {
       if (!localStream) {
-        message.warning('尚未开始屏幕共享')
+        message.warning(t('尚未开始屏幕共享'))
         return null
       }
 
@@ -292,7 +293,7 @@ export function useHostPeerConnections(
         })
       } catch (err) {
         console.error('[useHostPeerConnections] create offer error:', err)
-        message.error('创建 WebRTC 连接失败')
+        message.error(t('创建 WebRTC 连接失败'))
       }
     },
     [socket, createPeerConnection]
@@ -328,7 +329,7 @@ export function useHostPeerConnections(
 
   const handleViewerJoined = useCallback(
     (data: ViewerEventPayload) => {
-      message.success('有新的观看者加入房间')
+      message.success(t('有新的观看者加入房间'))
       setViewerIds((prev) =>
         prev.includes(data.viewerSocketId)
           ? prev
@@ -388,7 +389,7 @@ export function useHostPeerConnections(
           '[useHostPeerConnections] set remote description error:',
           err
         )
-        message.error('处理远端应答失败')
+        message.error(t('处理远端应答失败'))
       }
     },
     []
@@ -413,7 +414,7 @@ export function useHostPeerConnections(
         await pc.addIceCandidate(new RTCIceCandidate(data.data))
       } catch (err) {
         console.error('[useHostPeerConnections] add ice candidate error:', err)
-        message.error('处理网络候选失败')
+        message.error(t('处理网络候选失败'))
       }
     },
     []

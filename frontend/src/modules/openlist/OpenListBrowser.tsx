@@ -1,6 +1,7 @@
 import MountBrowserBase from '@/modules/mounts/MountBrowserBase'
 import { browseOpenListMount } from './openlistApi'
 import type { OpenListDirectoryEntry } from './types'
+import { t } from '@/i18n'
 
 interface OpenListBrowserProps {
   mountId: number | null
@@ -18,7 +19,7 @@ export default function OpenListBrowser({
 }: OpenListBrowserProps) {
   return (
     <MountBrowserBase<OpenListDirectoryEntry>
-      title="浏览 OpenList 目录"
+      title={t('浏览 OpenList 目录')}
       mountId={mountId}
       open={open}
       onClose={onClose}

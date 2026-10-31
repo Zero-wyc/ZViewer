@@ -36,6 +36,7 @@ import {
 } from '@/modules/jellyfin/jellyfinApi'
 import { isInternalOpenListServer } from '@/modules/openlist/isInternal'
 import type { UnionMount, MountType } from './types'
+import { t } from '@/i18n'
 
 interface MountFormModalProps {
   open: boolean
@@ -88,18 +89,18 @@ function mountToFormValues(mount: UnionMount): FormValues {
 function validateForm(values: FormValues): Record<string, string> {
   const errors: Record<string, string> = {}
   if (!values.name.trim()) {
-    errors.name = '挂载名称不能为空'
+    errors.name = t('挂载名称不能为空')
   }
   if (!values.serverUrl.trim()) {
-    errors.serverUrl = '服务器地址不能为空'
+    errors.serverUrl = t('服务器地址不能为空')
   }
   if (values.type === 'ftp') {
     if (!values.port.trim()) {
-      errors.port = '端口不能为空'
+      errors.port = t('端口不能为空')
     } else {
       const portNum = Number(values.port.trim())
       if (Number.isNaN(portNum) || portNum < 1 || portNum > 65535) {
-        errors.port = '请输入 1-65535 之间的端口'
+        errors.port = t('请输入 1-65535 之间的端口')
       }
     }
   }
@@ -108,7 +109,7 @@ function validateForm(values: FormValues): Record<string, string> {
       !values.apiKey.trim() &&
       (!values.username.trim() || !values.password)
     ) {
-      errors.apiKey = '请填写 API Key，或用户名与密码'
+      errors.apiKey = t('请填写 API Key，或用户名与密码')
     }
   }
   return errors
@@ -231,7 +232,7 @@ export default function MountFormModal({
         message.success(`连接成功，共 ${result.itemCount} 条目`)
       }
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '连接测试失败')
+      message.error(err instanceof Error ? err.message : t('连接测试失败'))
     } finally {
       setTesting(false)
     }
@@ -312,11 +313,11 @@ export default function MountFormModal({
         }
         if (editingMount) {
           const saved = await updateEmbyMount(editingMount.id, payload)
-          message.success('Emby 挂载更新成功')
+          message.success(t('Emby 挂载更新成功'))
           if (saved.warning) message.warning(saved.warning)
         } else {
           const saved = await createEmbyMount(payload)
-          message.success('Emby 挂载添加成功')
+          message.success(t('Emby 挂载添加成功'))
           if (saved.warning) message.warning(saved.warning)
         }
       } else if (type === 'jellyfin') {
@@ -330,11 +331,11 @@ export default function MountFormModal({
         }
         if (editingMount) {
           const saved = await updateJellyfinMount(editingMount.id, payload)
-          message.success('Jellyfin 挂载更新成功')
+          message.success(t('Jellyfin 挂载更新成功'))
           if (saved.warning) message.warning(saved.warning)
         } else {
           const saved = await createJellyfinMount(payload)
-          message.success('Jellyfin 挂载添加成功')
+          message.success(t('Jellyfin 挂载添加成功'))
           if (saved.warning) message.warning(saved.warning)
         }
       } else {
@@ -350,17 +351,17 @@ export default function MountFormModal({
         }
         if (editingMount) {
           await updateFTPMount(editingMount.id, payload)
-          message.success('FTP 挂载更新成功')
+          message.success(t('FTP 挂载更新成功'))
         } else {
           await createFTPMount(payload)
-          message.success('FTP 挂载添加成功')
+          message.success(t('FTP 挂载添加成功'))
         }
       }
 
       onSuccess()
       onClose()
     } catch (err) {
-      const msg = err instanceof Error ? err.message : '保存挂载失败'
+      const msg = err instanceof Error ? err.message : t('保存挂载失败')
       setSubmitError(msg)
       message.error(msg)
     } finally {
@@ -368,7 +369,7 @@ export default function MountFormModal({
     }
   }
 
-  const modalTitle = editingMount ? '编辑挂载' : '添加挂载'
+  const modalTitle = editingMount ? t('编辑挂载') : t('添加挂载')
   const isFtp = formValues.type === 'ftp'
   const isWebdav = formValues.type === 'webdav'
   const isOpenlist = formValues.type === 'openlist'
@@ -385,7 +386,7 @@ export default function MountFormModal({
       footer={
         <>
           <Button variant="secondary" size="sm" onClick={onClose}>
-            取消
+            {t('取消')}
           </Button>
           <Button
             variant="secondary"
@@ -393,7 +394,7 @@ export default function MountFormModal({
             loading={testing}
             onClick={handleTest}
           >
-            测试连接
+            {t('测试连接')}
           </Button>
           <Button
             variant="primary"
@@ -401,36 +402,36 @@ export default function MountFormModal({
             loading={submitting}
             onClick={handleSubmit}
           >
-            保存
+            {t('保存')}
           </Button>
         </>
       }
     >
       <div className="space-y-4">
         <Select
-          label="挂载类型"
+          label={t('挂载类型')}
           options={TYPE_OPTIONS}
           value={formValues.type}
           disabled={!!editingMount}
           onChange={(value) => updateField('type', value as MountType)}
         />
         <Input
-          label="挂载名称"
-          placeholder="例如：家庭 NAS"
+          label={t('挂载名称')}
+          placeholder={t('例如：家庭 NAS')}
           value={formValues.name}
           onChange={(e) => updateField('name', e.target.value)}
           error={errors.name}
         />
         <Input
-          label="服务器地址"
+          label={t('服务器地址')}
           placeholder={
             isEmby
-              ? '例如：http://192.168.1.100:8096'
+              ? t('例如：http://192.168.1.100:8096')
               : isOpenlist
-                ? '例如：openlist.example.com（无需填 /dav，自动补全）'
+                ? t('例如：openlist.example.com（无需填 /dav，自动补全）')
                 : isWebdav
-                  ? '例如：https://dav.example.com'
-                  : '例如：ftp.example.com'
+                  ? t('例如：https://dav.example.com')
+                  : t('例如：ftp.example.com')
           }
           value={formValues.serverUrl}
           onChange={(e) => updateField('serverUrl', e.target.value)}
@@ -438,8 +439,8 @@ export default function MountFormModal({
         />
         {isEmby && (
           <Input
-            label="API Key（推荐）"
-            placeholder="Emby 控制台 → 高级 → API 密钥"
+            label={t('API Key（推荐）')}
+            placeholder={t('Emby 控制台 → 高级 → API 密钥')}
             value={formValues.apiKey}
             onChange={(e) => updateField('apiKey', e.target.value)}
             error={errors.apiKey}
@@ -447,8 +448,8 @@ export default function MountFormModal({
         )}
         {isFtp && (
           <InputNumber
-            label="端口"
-            placeholder="例如：21"
+            label={t('端口')}
+            placeholder={t('例如：21')}
             min={1}
             max={65535}
             value={formValues.port ? Number(formValues.port) : undefined}
@@ -460,28 +461,28 @@ export default function MountFormModal({
         )}
         {!isEmby && (
           <Input
-            label="路径"
-            placeholder="例如：/videos"
+            label={t('路径')}
+            placeholder={t('例如：/videos')}
             value={formValues.path}
             onChange={(e) => updateField('path', e.target.value)}
           />
         )}
         <Input
-          label={isEmby ? '用户名（与 API Key 二选一）' : '用户名'}
-          placeholder="可选"
+          label={isEmby ? t('用户名（与 API Key 二选一）') : t('用户名')}
+          placeholder={t('可选')}
           value={formValues.username}
           onChange={(e) => updateField('username', e.target.value)}
         />
         <InputPassword
-          label="密码"
-          placeholder={editingMount ? '留空将清空原密码' : '可选'}
+          label={t('密码')}
+          placeholder={editingMount ? t('留空将清空原密码') : t('可选')}
           value={formValues.password}
           onChange={(e) => updateField('password', e.target.value)}
         />
         {showDirectLink && (
           <>
             <Switch
-              label="使用直链播放（不经过服务端转发）"
+              label={t('使用直链播放（不经过服务端转发）')}
               checked={
                 isWebdavOrOpenlistInternal ? false : formValues.directLink
               }
@@ -490,7 +491,7 @@ export default function MountFormModal({
             />
             {isWebdavOrOpenlistInternal && (
               <div className="rounded border border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-high)] px-3 py-2 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                检测到内网地址，浏览器无法直连，已强制使用服务器转发模式
+                {t('检测到内网地址，浏览器无法直连，已强制使用服务器转发模式')}
               </div>
             )}
           </>

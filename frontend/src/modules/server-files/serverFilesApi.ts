@@ -10,6 +10,7 @@ import type {
   SystemDirBrowseResult,
   UploadedFile,
 } from './types'
+import { t } from '@/i18n'
 
 /** 浏览服务器文件目录。path 为前缀式路径（如 'uploads:/' 或 'custom:3:/videos'）。 */
 export async function browseServerFiles(
@@ -25,7 +26,7 @@ export async function browseServerFiles(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '浏览服务器文件失败')
+    throw new Error(data.message || t('浏览服务器文件失败'))
   }
   return {
     entries: data.entries || [],
@@ -67,14 +68,14 @@ export async function uploadServerFiles(
         if (xhr.status >= 200 && xhr.status < 300 && data.success) {
           resolve(data.files || [])
         } else {
-          reject(new Error(data.message || '上传失败'))
+          reject(new Error(data.message || t('上传失败')))
         }
       } catch {
-        reject(new Error('上传响应解析失败'))
+        reject(new Error(t('上传响应解析失败')))
       }
     }
 
-    xhr.onerror = () => reject(new Error('网络错误，上传失败'))
+    xhr.onerror = () => reject(new Error(t('网络错误，上传失败')))
     xhr.send(formData)
   })
 }
@@ -95,7 +96,7 @@ export async function createFolder(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '新建文件夹失败')
+    throw new Error(data.message || t('新建文件夹失败'))
   }
   return data.path || ''
 }
@@ -116,7 +117,7 @@ export async function renameServerFile(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '重命名失败')
+    throw new Error(data.message || t('重命名失败'))
   }
   return data.path || ''
 }
@@ -129,7 +130,7 @@ export async function deleteServerFile(path: string): Promise<void> {
   )
   const data = (await res.json()) as { success: boolean; message?: string }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '删除失败')
+    throw new Error(data.message || t('删除失败'))
   }
 }
 
@@ -151,7 +152,7 @@ export async function resolveServerFile(
     duration?: number | null
   }
   if (!res.ok || !data.success || !data.videoUrl) {
-    throw new Error(data.message || '解析服务器文件失败')
+    throw new Error(data.message || t('解析服务器文件失败'))
   }
   return {
     title: data.title || '',
@@ -171,8 +172,12 @@ export async function resolveServerFile(
  * 相对路径在任何客户端都解析到「该客户端自己可达」的同源后端
  * （dev 由 vite proxy 转发，生产由后端同源托管）。
  */
-export function buildServerFileProxyUrl(path: string, movieId?: number): string {
-  if (movieId != null && movieId > 0) return `/api/server-files/proxy?movieId=${movieId}`
+export function buildServerFileProxyUrl(
+  path: string,
+  movieId?: number
+): string {
+  if (movieId != null && movieId > 0)
+    return `/api/server-files/proxy?movieId=${movieId}`
   return `/api/server-files/proxy?path=${encodeURIComponent(path)}`
 }
 
@@ -197,7 +202,7 @@ export async function browseSystemDirs(
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '浏览系统目录失败')
+    throw new Error(data.message || t('浏览系统目录失败'))
   }
   return {
     entries: data.entries || [],
@@ -216,7 +221,7 @@ export async function listServerRoots(): Promise<ServerFileRoot[]> {
     message?: string
   }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '加载根目录失败')
+    throw new Error(data.message || t('加载根目录失败'))
   }
   return data.roots || []
 }
@@ -238,7 +243,7 @@ export async function addServerRoot(
     message?: string
   }
   if (!res.ok || !data.success || !data.root) {
-    throw new Error(data.message || '添加根目录失败')
+    throw new Error(data.message || t('添加根目录失败'))
   }
   return data.root
 }
@@ -248,7 +253,7 @@ export async function deleteServerRoot(key: string): Promise<void> {
   // key 形如 'custom:3'，提取数字 id
   const match = key.match(/^custom:(\d+)$/)
   if (!match) {
-    throw new Error('默认空间不可删除')
+    throw new Error(t('默认空间不可删除'))
   }
   const id = match[1]
   const res = await apiFetch(`/api/server-files/roots/${id}`, {
@@ -256,7 +261,7 @@ export async function deleteServerRoot(key: string): Promise<void> {
   })
   const data = (await res.json()) as { success: boolean; message?: string }
   if (!res.ok || !data.success) {
-    throw new Error(data.message || '删除根目录失败')
+    throw new Error(data.message || t('删除根目录失败'))
   }
 }
 
@@ -328,14 +333,14 @@ export async function downloadBilibiliVideo(
         success?: boolean
         message?: string
       } | null
-      throw new Error(data?.message || '下载 B站 视频失败')
+      throw new Error(data?.message || t('下载 B站 视频失败'))
     }
 
     let text: string
     try {
       text = await res.text()
     } catch (err) {
-      throw new Error('读取下载响应失败', { cause: err })
+      throw new Error(t('读取下载响应失败'), { cause: err })
     }
 
     let result: BilibiliDownloadedFile | null = null
@@ -357,7 +362,7 @@ export async function downloadBilibiliVideo(
         } else if (data.status === 'done' && data.file) {
           result = data.file
         } else if (data.status === 'error') {
-          streamError = new Error(data.message || '下载 B站 视频失败')
+          streamError = new Error(data.message || t('下载 B站 视频失败'))
         }
       } catch (err) {
         console.warn('[downloadBilibiliVideo] 解析进度行失败:', line, err)
@@ -366,10 +371,10 @@ export async function downloadBilibiliVideo(
 
     if (streamError) throw streamError
     if (result) return result
-    throw new Error('下载未完成')
+    throw new Error(t('下载未完成'))
   } catch (err) {
     if (err instanceof DOMException && err.name === 'AbortError') {
-      throw new Error('下载 B站 视频超时，请稍后重试', { cause: err })
+      throw new Error(t('下载 B站 视频超时，请稍后重试'), { cause: err })
     }
     throw err
   } finally {

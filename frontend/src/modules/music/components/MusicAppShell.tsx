@@ -485,7 +485,7 @@ function ShellInner({
               'color-mix(in srgb, var(--md-sys-color-surface) 80%, transparent)',
           }}
         >
-          <Spinner tip="正在切换模式..." size={32} />
+          <Spinner tip={t('正在切换模式...')} size={32} />
         </div>
       )}
     </div>

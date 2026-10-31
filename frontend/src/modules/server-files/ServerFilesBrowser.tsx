@@ -22,6 +22,7 @@ import {
 } from './serverFilesApi'
 import type { ServerFileEntry, ServerFileRoot } from './types'
 import { cn, formatFileSize } from '@/lib/utils'
+import { t } from '@/i18n'
 
 interface ServerFilesBrowserProps {
   open: boolean
@@ -106,7 +107,7 @@ export default function ServerFilesBrowser({
         setParentEntries([])
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : '加载失败')
+      setError(err instanceof Error ? err.message : t('加载失败'))
     } finally {
       setLoading(false)
     }
@@ -253,8 +254,8 @@ export default function ServerFilesBrowser({
 
   const breadcrumb = useMemo(() => {
     const parts = splitPrefixedPath(currentPath)
-    if (!parts) return [{ name: '根目录', path: 'uploads:/' }]
-    const items = [{ name: '根目录', path: `${parts.rootKey}:/` }]
+    if (!parts) return [{ name: t('根目录'), path: 'uploads:/' }]
+    const items = [{ name: t('根目录'), path: `${parts.rootKey}:/` }]
     let acc = ''
     for (const seg of parts.rel.split('/').filter(Boolean)) {
       acc = acc ? `${acc}/${seg}` : seg
@@ -291,7 +292,7 @@ export default function ServerFilesBrowser({
     <Modal
       open={open}
       onClose={onClose}
-      title="浏览服务器文件"
+      title={t('浏览服务器文件')}
       className="max-w-4xl"
       fullscreenable
       footer={
@@ -306,11 +307,11 @@ export default function ServerFilesBrowser({
           >
             {multiSelectMode
               ? `已选择 ${selectedFiles.length} 个文件`
-              : '多选模式可批量添加'}
+              : t('多选模式可批量添加')}
           </Text>
           <div className="flex items-center gap-3">
             <Button variant="secondary" size="md" onClick={onClose}>
-              取消
+              {t('取消')}
             </Button>
             <Button
               variant="primary"
@@ -325,7 +326,7 @@ export default function ServerFilesBrowser({
             >
               {multiSelectMode
                 ? `添加 (${selectedFiles.length})`
-                : '添加当前文件'}
+                : t('添加当前文件')}
             </Button>
           </div>
         </div>
@@ -342,7 +343,7 @@ export default function ServerFilesBrowser({
               size="md"
               onClick={() => void load(currentPath)}
             >
-              重试
+              {t('重试')}
             </Button>
           </div>
         ) : loading && entries.length === 0 ? (
@@ -362,7 +363,7 @@ export default function ServerFilesBrowser({
                       setRootsMenuOpen((v) => !v)
                     }}
                   >
-                    {currentRoot?.name ?? '根目录'}
+                    {currentRoot?.name ?? t('根目录')}
                   </Button>
                   {rootsMenuOpen && (
                     <div
@@ -430,7 +431,7 @@ export default function ServerFilesBrowser({
                   })
                 }}
               >
-                {multiSelectMode ? '退出多选' : '多选'}
+                {multiSelectMode ? t('退出多选') : t('多选')}
               </Button>
             </div>
 
@@ -438,7 +439,7 @@ export default function ServerFilesBrowser({
               {/* 左侧：上级目录（小屏单栏时隐藏，导航由面包屑承担） */}
               <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
                 <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                  上级目录
+                  {t('上级目录')}
                 </div>
                 <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-3">
                   {getParentPath(currentPath) ? (
@@ -449,11 +450,11 @@ export default function ServerFilesBrowser({
                           : null
                       )
                     ) : (
-                      <EmptyState text="上级目录为空" className="py-8" />
+                      <EmptyState text={t('上级目录为空')} className="py-8" />
                     )
                   ) : (
                     <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                      已在根目录
+                      {t('已在根目录')}
                     </Text>
                   )}
                 </div>
@@ -468,7 +469,7 @@ export default function ServerFilesBrowser({
                   {entries.length > 0 ? (
                     entries.map((entry) => renderEntry(entry, 'right'))
                   ) : (
-                    <EmptyState text="当前目录为空" className="py-8" />
+                    <EmptyState text={t('当前目录为空')} className="py-8" />
                   )}
                 </div>
               </div>
@@ -476,7 +477,7 @@ export default function ServerFilesBrowser({
 
             {loading && entries.length > 0 && (
               <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[var(--md-sys-color-surface)]/40 backdrop-blur-md">
-                <Spinner tip="加载中..." size={28} />
+                <Spinner tip={t('加载中...')} size={28} />
               </div>
             )}
           </>

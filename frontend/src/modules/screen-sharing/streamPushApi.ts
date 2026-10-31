@@ -4,28 +4,55 @@
 
 import { useEffect, useState } from 'react'
 import { apiFetch, getApiUrl, getRtmpHost, getRtmpPort } from '@/lib/api'
+import { t } from '@/i18n'
 
 /** A room admission grants viewing only. Publishing secrets never build FLV URLs. */
-export async function getWatchPlaybackUrl(roomId: string, signal?: AbortSignal): Promise<string> {
- const res = await apiFetch(`/api/stream-push/watch/${encodeURIComponent(roomId)}`, { signal })
- const data = await res.json() as { success?: boolean; url?: string; message?: string }
- if (!res.ok || !data.success || !data.url) throw new Error(data.message || '无法获取观看权限')
- if (!data.url.startsWith('/live/') || !data.url.includes('ticket=')) throw new Error('服务器返回了无效的观看地址')
- return `${getApiUrl().replace(/\/$/, '')}${data.url}`
+export async function getWatchPlaybackUrl(
+  roomId: string,
+  signal?: AbortSignal
+): Promise<string> {
+  const res = await apiFetch(
+    `/api/stream-push/watch/${encodeURIComponent(roomId)}`,
+    { signal }
+  )
+  const data = (await res.json()) as {
+    success?: boolean
+    url?: string
+    message?: string
+  }
+  if (!res.ok || !data.success || !data.url)
+    throw new Error(data.message || t('无法获取观看权限'))
+  if (!data.url.startsWith('/live/') || !data.url.includes('ticket='))
+    throw new Error(t('服务器返回了无效的观看地址'))
+  return `${getApiUrl().replace(/\/$/, '')}${data.url}`
 }
 
-export function useWatchPlayback(roomId: string, enabled = true): { url: string; error: string } {
- const [state, setState] = useState({ room: roomId, url: '', error: '' })
- useEffect(() => {
-  const controller = new AbortController()
-  setState({ room: roomId, url: '', error: '' })
-  if (!enabled || !roomId) return () => controller.abort()
-  void getWatchPlaybackUrl(roomId, controller.signal).then(url => {
-   if (!controller.signal.aborted) setState({ room: roomId, url, error: '' })
-  }).catch(error => { if (!controller.signal.aborted) setState({ room: roomId, url: '', error: error instanceof Error ? error.message : '获取观看权限失败' }) })
-  return () => controller.abort()
- }, [roomId, enabled])
- return state.room === roomId && enabled ? state : { url: '', error: '' }
+export function useWatchPlayback(
+  roomId: string,
+  enabled = true
+): { url: string; error: string } {
+  const [state, setState] = useState({ room: roomId, url: '', error: '' })
+  useEffect(() => {
+    const controller = new AbortController()
+    setState({ room: roomId, url: '', error: '' })
+    if (!enabled || !roomId) return () => controller.abort()
+    void getWatchPlaybackUrl(roomId, controller.signal)
+      .then((url) => {
+        if (!controller.signal.aborted)
+          setState({ room: roomId, url, error: '' })
+      })
+      .catch((error) => {
+        if (!controller.signal.aborted)
+          setState({
+            room: roomId,
+            url: '',
+            error:
+              error instanceof Error ? error.message : t('获取观看权限失败'),
+          })
+      })
+    return () => controller.abort()
+  }, [roomId, enabled])
+  return state.room === roomId && enabled ? state : { url: '', error: '' }
 }
 
 /**
@@ -37,11 +64,21 @@ export function getRtmpPushUrl(): string {
   return `rtmp://${getRtmpHost()}:${getRtmpPort()}/live`
 }
 
-export async function getPublishConfiguration(roomId: string, signal?: AbortSignal): Promise<{ server: string; key: string }> {
-  const response = await apiFetch(`/api/stream-push/obs-config/${encodeURIComponent(roomId)}`, { signal })
-  const data = await response.json() as { message?: string; service?: { settings?: { server?: string; key?: string } } }
+export async function getPublishConfiguration(
+  roomId: string,
+  signal?: AbortSignal
+): Promise<{ server: string; key: string }> {
+  const response = await apiFetch(
+    `/api/stream-push/obs-config/${encodeURIComponent(roomId)}`,
+    { signal }
+  )
+  const data = (await response.json()) as {
+    message?: string
+    service?: { settings?: { server?: string; key?: string } }
+  }
   const settings = data.service?.settings
-  if (!response.ok || !settings?.server || !settings.key) throw new Error(data.message || '获取发布配置失败')
+  if (!response.ok || !settings?.server || !settings.key)
+    throw new Error(data.message || t('获取发布配置失败'))
   return { server: settings.server, key: settings.key }
 }
 

@@ -16,6 +16,7 @@ import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useSocket } from '@/hooks/useSocket'
 import { useWatchPlayback } from '../streamPushApi'
 import { FlvPlayer } from './FlvPlayer'
+import { t } from '@/i18n'
 
 interface StreamPushViewerProps {
   roomId: string
@@ -23,10 +24,7 @@ interface StreamPushViewerProps {
   streamStatus: StreamStatus
 }
 
-function StreamPushViewer({
-  roomId,
-  streamStatus,
-}: StreamPushViewerProps) {
+function StreamPushViewer({ roomId, streamStatus }: StreamPushViewerProps) {
   const { socket } = useSocket()
   const [isWebFullscreen, setIsWebFullscreen] = useState(false)
   const { url: flvUrl, error: watchError } = useWatchPlayback(roomId)
@@ -57,19 +55,19 @@ function StreamPushViewer({
       {!flvUrl ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
           <div className="text-base font-medium text-[var(--md-sys-color-error)]">
-            {watchError || '正在获取观看权限'}
+            {watchError || t('正在获取观看权限')}
           </div>
           <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            请等待房主切换为 OBS 推流模式后重试
+            {t('请等待房主切换为 OBS 推流模式后重试')}
           </div>
         </div>
       ) : streamStatus === 'offline' ? (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/90 p-6 text-center">
           <div className="text-base font-medium text-[var(--md-sys-color-on-surface-variant)]">
-            主播未推流
+            {t('主播未推流')}
           </div>
           <div className="text-sm text-[var(--md-sys-color-on-surface-variant)]">
-            请等待房主开始 OBS 推流
+            {t('请等待房主开始 OBS 推流')}
           </div>
         </div>
       ) : (

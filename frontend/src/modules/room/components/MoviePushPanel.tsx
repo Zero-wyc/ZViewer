@@ -1257,8 +1257,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           <PathMountSourceForm
             key="webdav"
             mountType="webdav"
-            mountLabel="使用已保存的 WebDAV 挂载"
-            serverPlaceholder="WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）"
+            mountLabel={t('使用已保存的 WebDAV 挂载')}
+            serverPlaceholder={t(
+              'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）'
+            )}
             mounts={mounts}
             selectedMountId={selectedMountId}
             onMountSelect={handleMountSelect}
@@ -1275,8 +1277,10 @@ export function MoviePushPanel({ isHost }: MoviePushPanelProps) {
           <PathMountSourceForm
             key="openlist"
             mountType="openlist"
-            mountLabel="使用已保存的 OpenList 挂载"
-            serverPlaceholder="OpenList 服务器地址（直链模式必填，已选挂载自动填充）"
+            mountLabel={t('使用已保存的 OpenList 挂载')}
+            serverPlaceholder={t(
+              'OpenList 服务器地址（直链模式必填，已选挂载自动填充）'
+            )}
             mounts={mounts}
             selectedMountId={selectedMountId}
             onMountSelect={handleMountSelect}

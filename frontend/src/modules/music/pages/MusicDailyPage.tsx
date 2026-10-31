@@ -655,7 +655,7 @@ export function MusicDailyPanel({
             active={`ncm:${song.songId}` === currentKey}
             onPlayNow={() => handlePlayRow(song)}
             onRowDoubleClick={() => handlePlayRow(song)}
-            rowTitle="单击序号按钮播放，双击行播放"
+            rowTitle={t('单击序号按钮播放，双击行播放')}
           />
         ))}
         {!loadingSongs && songs.length === 0 && dateOptions.length > 0 && (

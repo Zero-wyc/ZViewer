@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { Send } from 'lucide-react'
 import { IconButton } from '@/components/VideoControls'
+import { t } from '@/i18n'
 
 export interface DanmakuInputProps {
   onSend?: (text: string) => void
@@ -16,7 +17,7 @@ export interface DanmakuInputProps {
 
 export function DanmakuInput({
   onSend,
-  placeholder = '发个友善的弹幕见证当下',
+  placeholder = t('发个友善的弹幕见证当下'),
 }: DanmakuInputProps) {
   const [text, setText] = useState('')
   const [focused, setFocused] = useState(false)
@@ -59,7 +60,7 @@ export function DanmakuInput({
         variant={text.trim() ? 'primary' : 'ghost'}
         size="sm"
         icon={<Send />}
-        label="发送弹幕"
+        label={t('发送弹幕')}
         disabled={!text.trim()}
         onClick={send}
       />

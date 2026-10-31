@@ -141,7 +141,7 @@ export default function CommentsWindowPage() {
         </div>
       ) : joinState === 'connecting' ? (
         <LoadingLine
-          text="正在加入房间…"
+          text={t('正在加入房间…')}
           spinnerClassName="h-6 w-6 text-[var(--md-sys-color-primary)]"
           className="h-auto flex-1"
         />

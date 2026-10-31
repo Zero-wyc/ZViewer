@@ -14,6 +14,7 @@ import type {
   CmsVodDetail,
   CmsResolvedSource,
 } from './types'
+import { t } from '@/i18n'
 
 const getBaseUrl = () => `${getApiUrl()}/api/stream/cms`
 
@@ -26,7 +27,7 @@ export async function getCmsSources(): Promise<CmsSource[]> {
     sources?: CmsSource[]
   }
   if (!res.ok || !data.success || !Array.isArray(data.sources)) {
-    throw new Error(data.message || '获取采集源失败')
+    throw new Error(data.message || t('获取采集源失败'))
   }
   return data.sources
 }
@@ -45,7 +46,7 @@ export async function searchCms(
     results?: CmsSearchResult[]
   }
   if (!res.ok || !data.success || !Array.isArray(data.results)) {
-    throw new Error(data.message || '搜索失败')
+    throw new Error(data.message || t('搜索失败'))
   }
   return data.results
 }
@@ -66,7 +67,7 @@ export async function searchAllCms(
     results?: CmsAggregateSearchResult[]
   }
   if (!res.ok || !data.success || !Array.isArray(data.results)) {
-    throw new Error(data.message || '聚合搜索失败')
+    throw new Error(data.message || t('聚合搜索失败'))
   }
   return data.results
 }
@@ -85,7 +86,7 @@ export async function getCmsDetail(
     detail?: CmsVodDetail
   }
   if (!res.ok || !data.success || !data.detail) {
-    throw new Error(data.message || '获取影片详情失败')
+    throw new Error(data.message || t('获取影片详情失败'))
   }
   return data.detail
 }
@@ -108,7 +109,7 @@ export async function resolveCmsEpisode(
     format?: CmsResolvedSource['format']
   }
   if (!res.ok || !data.success || !data.url) {
-    throw new Error(data.message || '解析播放地址失败')
+    throw new Error(data.message || t('解析播放地址失败'))
   }
   return {
     url: data.url,

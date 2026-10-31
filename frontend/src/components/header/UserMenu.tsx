@@ -16,6 +16,7 @@ import { message } from '@/components/ui/message'
 import { Avatar } from '@/components/ui/Avatar'
 import { cn } from '@/lib/utils'
 import type { DropdownPosition } from './usePortalDropdown'
+import { t } from '@/i18n'
 
 interface UserMenuProps {
   user: User
@@ -63,7 +64,7 @@ export function UserMenu({
     } catch (err) {
       // 后端调用失败也继续登出前端状态，避免用户卡在已登录状态
       console.warn('[Header] logout API failed:', err)
-      message.error('退出登录请求失败，已强制清除本地状态')
+      message.error(t('退出登录请求失败，已强制清除本地状态'))
     } finally {
       // 清除本地 Bearer token（跨站 HTTP fallback）
       clearAuthTokens()
@@ -87,21 +88,21 @@ export function UserMenu({
       ? [
           {
             icon: <UserCircle className="w-4 h-4" />,
-            label: '个人中心',
+            label: t('个人中心'),
             to: '/profile',
           },
         ]
       : []),
     {
       icon: <LayoutDashboard className="w-4 h-4" />,
-      label: '房间列表',
+      label: t('房间列表'),
       to: '/rooms',
     },
     ...(user.role === 'admin' || user.role === 'root'
       ? [
           {
             icon: <Shield className="w-4 h-4" />,
-            label: '管理页面',
+            label: t('管理页面'),
             to: '/admin',
           },
         ]
@@ -122,7 +123,7 @@ export function UserMenu({
         style={{
           border: '1px solid var(--md-sys-color-outline)',
         }}
-        title="账户菜单"
+        title={t('账户菜单')}
       >
         <Avatar
           size="sm"
@@ -189,10 +190,10 @@ export function UserMenu({
                 </p>
                 <p className="text-xs text-[var(--md-sys-color-on-surface-variant)]">
                   {user.role === 'root'
-                    ? '超级管理员'
+                    ? t('超级管理员')
                     : user.role === 'admin'
-                      ? '管理员'
-                      : '普通用户'}
+                      ? t('管理员')
+                      : t('普通用户')}
                 </p>
               </div>
             </div>

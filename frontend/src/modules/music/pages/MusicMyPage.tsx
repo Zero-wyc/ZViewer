@@ -834,7 +834,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
   if (!loginStatus.loggedIn) {
     return (
       <div className="flex min-h-full flex-col px-6 pb-32 pt-6 md:px-8 max-md:px-4 max-md:pb-28 max-md:pt-4">
-        <PageBlockHeader titleEN="MY MUSIC" titleCN="我的音乐" />
+        <PageBlockHeader titleEN="MY MUSIC" titleCN={t('我的音乐')} />
         <MusicLoginGate hint={t('登录后查看我的歌单')} />
       </div>
     )
@@ -1064,7 +1064,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
         >
           {detailLoading && (
             <LoadingLine
-              text="正在获取歌曲…"
+              text={t('正在获取歌曲…')}
               spinnerClassName="h-3.5 w-3.5"
               className="h-auto justify-start px-2 py-3 text-sm"
             />
@@ -1092,7 +1092,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                     notify: true,
                   })
                 }
-                rowTitle="双击添加到队列，hover 序号点击立即播放"
+                rowTitle={t('双击添加到队列，hover 序号点击立即播放')}
               />
             )
           })}
@@ -1110,7 +1110,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
             >
               {detailLoadingMore ? (
                 <LoadingLine
-                  text="正在加载更多歌曲…"
+                  text={t('正在加载更多歌曲…')}
                   spinnerClassName="h-3.5 w-3.5"
                   className="h-auto text-sm"
                 />
@@ -1274,7 +1274,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {listType1 === 0 &&
             (playlistsLoading ? (
               <LoadingLine
-                text="正在获取…"
+                text={t('正在获取…')}
                 spinnerClassName="h-3.5 w-3.5"
                 className="h-auto justify-start px-2 py-3 text-sm"
               />
@@ -1314,13 +1314,13 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
           {listType1 === 1 &&
             (subLoading ? (
               <LoadingLine
-                text="正在获取…"
+                text={t('正在获取…')}
                 spinnerClassName="h-3.5 w-3.5"
                 className="h-auto justify-start px-2 py-3 text-sm"
               />
             ) : listType2 === 0 ? (
               subAlbums.length === 0 ? (
-                <LibraryEmptyHint text="暂无收藏的专辑" />
+                <LibraryEmptyHint text={t('暂无收藏的专辑')} />
               ) : (
                 subAlbums.map((a) => (
                   <LibraryItem
@@ -1345,7 +1345,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               )
             ) : listType2 === 1 ? (
               subArtists.length === 0 ? (
-                <LibraryEmptyHint text="暂无收藏的歌手" />
+                <LibraryEmptyHint text={t('暂无收藏的歌手')} />
               ) : (
                 subArtists.map((a) => (
                   <LibraryItem
@@ -1370,7 +1370,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
               )
             ) : listType2 === 2 ? (
               subMvs.length === 0 ? (
-                <LibraryEmptyHint text="暂无收藏的 MV" />
+                <LibraryEmptyHint text={t('暂无收藏的 MV')} />
               ) : (
                 subMvs.map((m) => (
                   <LibraryItem
@@ -1397,7 +1397,7 @@ export function MusicMyPage({ socket, roomId, canManage }: MusicMyPageProps) {
                 ))
               )
             ) : subRadios.length === 0 ? (
-              <LibraryEmptyHint text="暂无收藏的电台" />
+              <LibraryEmptyHint text={t('暂无收藏的电台')} />
             ) : (
               subRadios.map((r) => (
                 <LibraryItem

@@ -30,6 +30,7 @@ import type {
   AniSubsSource,
 } from '@/modules/anisubs'
 import { getCmsSources, searchCms, searchAllCms, getCmsDetail } from './api'
+import { t } from '@/i18n'
 
 export type { AnimeSourceBrowserProps }
 
@@ -41,13 +42,15 @@ export function CmsSelector(props: AnimeSourceBrowserProps) {
     <AnimeSourceBrowser
       {...props}
       kind="cms"
-      title="TVBox 采集源"
-      searchPlaceholder="输入影片名称搜索"
-      emptyText="输入关键词开始搜索影片"
+      title={t('TVBox 采集源')}
+      searchPlaceholder={t('输入影片名称搜索')}
+      emptyText={t('输入关键词开始搜索影片')}
       getSources={getCmsSourcesCompat}
       search={searchCmsCompat}
       getEpisodes={getCmsEpisodesCompat}
-      noSourcesHint="未找到可用采集源，请管理员在后台「TVBox 采集源」添加配置接口"
+      noSourcesHint={t(
+        '未找到可用采集源，请管理员在后台「TVBox 采集源」添加配置接口'
+      )}
     />
   )
 }
@@ -56,7 +59,7 @@ async function getCmsSourcesCompat(): Promise<AniSubsSource[]> {
   const sources = await getCmsSources()
   // 首项为聚合搜索虚拟站点；真实站点紧随其后
   return [
-    { id: AGGREGATE_SOURCE_ID, name: '全部站点（聚合搜索）' },
+    { id: AGGREGATE_SOURCE_ID, name: t('全部站点（聚合搜索）') },
     ...sources.map((s) => ({ id: s.id, name: s.name })),
   ]
 }

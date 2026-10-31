@@ -26,6 +26,7 @@ import { useSocket } from '@/hooks/useSocket'
 import { useHideBodyScrollbar } from '@/hooks/useHideBodyScrollbar'
 import { apiFetch } from '@/lib/api'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /** 主页快捷房间面板的房间条目（/api/rooms 返回结构子集） */
 interface QuickRoomItem {
@@ -186,8 +187,8 @@ function HomePage() {
                 ? 'text-[var(--md-sys-color-primary)]'
                 : 'text-[var(--md-sys-color-outline)]'
             )}
-            title="当前房间"
-            aria-label="查看当前房间列表"
+            title={t('当前房间')}
+            aria-label={t('查看当前房间列表')}
           >
             <PanelRightOpen className="h-5 w-5" />
           </button>
@@ -208,7 +209,7 @@ function HomePage() {
                 ZViewer
               </Title>
               <Paragraph type="secondary" className="m-0 mt-2">
-                多人同步追番、观影与远程共享平台
+                {t('多人同步追番、观影与远程共享平台')}
               </Paragraph>
             </Fade>
           </div>
@@ -218,7 +219,7 @@ function HomePage() {
               <>
                 <Fade delay={180}>
                   <Paragraph className="m-0 text-sm">
-                    当前以游客身份访问，可加入房间观看、发送评论与弹幕
+                    {t('当前以游客身份访问，可加入房间观看、发送评论与弹幕')}
                   </Paragraph>
                 </Fade>
                 <Fade delay={220} className="w-full">
@@ -228,7 +229,7 @@ function HomePage() {
                     block
                     onClick={() => navigate('/rooms')}
                   >
-                    房间列表
+                    {t('房间列表')}
                   </Button>
                 </Fade>
                 <Fade delay={260} className="w-full">
@@ -239,12 +240,12 @@ function HomePage() {
                     block
                     onClick={() => navigate('/join')}
                   >
-                    加入房间
+                    {t('加入房间')}
                   </Button>
                 </Fade>
                 <Fade delay={300}>
                   <Paragraph type="secondary" className="text-xs m-0">
-                    登录后可保留历史与身份，注册后需管理员审核
+                    {t('登录后可保留历史与身份，注册后需管理员审核')}
                   </Paragraph>
                 </Fade>
               </>
@@ -259,15 +260,15 @@ function HomePage() {
                     disabled={!canCreateRoom}
                     onClick={() => canCreateRoom && navigate('/room')}
                   >
-                    开始共享
+                    {t('开始共享')}
                   </Button>
                 </Fade>
                 {!canCreateRoom && (
                   <Fade delay={220}>
                     <Paragraph type="secondary" className="text-xs m-0">
                       {isGuest
-                        ? '登录后可创建房间'
-                        : '当前仅管理员可创建房间，请联系管理员开启权限'}
+                        ? t('登录后可创建房间')
+                        : t('当前仅管理员可创建房间，请联系管理员开启权限')}
                     </Paragraph>
                   </Fade>
                 )}
@@ -278,7 +279,7 @@ function HomePage() {
                     block
                     onClick={() => navigate('/rooms')}
                   >
-                    房间列表
+                    {t('房间列表')}
                   </Button>
                 </Fade>
                 <Fade delay={300} className="w-full">
@@ -288,7 +289,7 @@ function HomePage() {
                     block
                     onClick={() => navigate('/join')}
                   >
-                    加入房间
+                    {t('加入房间')}
                   </Button>
                 </Fade>
 
@@ -301,7 +302,7 @@ function HomePage() {
                       block
                       onClick={() => navigate('/admin')}
                     >
-                      管理页面
+                      {t('管理页面')}
                     </Button>
                   </Fade>
                 )}
@@ -337,7 +338,7 @@ function HomePage() {
                   icon={<WifiOff className="w-3.5 h-3.5" />}
                   style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
                 >
-                  正在校验登录状态…
+                  {t('正在校验登录状态…')}
                 </Tag>
               )}
               {connected ? (
@@ -347,7 +348,7 @@ function HomePage() {
                   icon={<Wifi className="w-3.5 h-3.5" />}
                   className="px-3 py-1.5"
                 >
-                  已连接
+                  {t('已连接')}
                 </Tag>
               ) : isConnecting ? (
                 <Tag
@@ -356,7 +357,7 @@ function HomePage() {
                   icon={<Loader2 className="w-3.5 h-3.5 animate-spin" />}
                   className="px-3 py-1.5"
                 >
-                  连接中…
+                  {t('连接中…')}
                 </Tag>
               ) : (
                 <Tag
@@ -365,7 +366,7 @@ function HomePage() {
                   icon={<WifiOff className="w-3.5 h-3.5" />}
                   className="px-3 py-1.5"
                 >
-                  连接断开
+                  {t('连接断开')}
                 </Tag>
               )}
             </div>
@@ -374,7 +375,7 @@ function HomePage() {
           <Fade delay={460}>
             <div className="mt-5 flex items-center justify-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
               <Settings className="h-3 w-3" />
-              <span>主题设置可在右上角菜单中调整</span>
+              <span>{t('主题设置可在右上角菜单中调整')}</span>
             </div>
           </Fade>
         </div>
@@ -397,7 +398,7 @@ function HomePage() {
             <div className="flex flex-none items-center gap-2 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3">
               <LayoutDashboard className="h-4 w-4 text-[var(--md-sys-color-primary)]" />
               <span className="flex-1 text-sm font-semibold text-[var(--md-sys-color-on-surface)]">
-                当前房间
+                {t('当前房间')}
               </span>
               <span
                 className="rounded-full px-2 py-0.5 text-[10px] font-medium tabular-nums"
@@ -415,7 +416,7 @@ function HomePage() {
                 <LoadingLine />
               ) : quickRooms.length === 0 ? (
                 <div className="flex h-20 items-center justify-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                  暂无进行中的房间
+                  {t('暂无进行中的房间')}
                 </div>
               ) : (
                 <div className="flex flex-col gap-3">
@@ -430,11 +431,11 @@ function HomePage() {
                           <span className="truncate text-sm font-medium text-[var(--md-sys-color-on-surface)]">
                             {room.name || room.roomId}
                           </span>
-                          <Tag color="success">进行中</Tag>
+                          <Tag color="success">{t('进行中')}</Tag>
                           {room.requireApproval ? (
-                            <Tag color="warning">需确认</Tag>
+                            <Tag color="warning">{t('需确认')}</Tag>
                           ) : (
-                            <Tag color="cyan">直接加入</Tag>
+                            <Tag color="cyan">{t('直接加入')}</Tag>
                           )}
                           {room.hasPassword ? (
                             <Tag color="purple">
@@ -449,16 +450,16 @@ function HomePage() {
                           )}
                           <Tag color="default">
                             {room.mode === 'screen-share'
-                              ? '屏幕共享'
+                              ? t('屏幕共享')
                               : room.mode === 'listen-together'
-                                ? '一起听'
-                                : '一起看'}
+                                ? t('一起听')
+                                : t('一起看')}
                           </Tag>
                         </div>
                         <Text type="secondary" className="text-xs">
                           房间 ID: {room.roomId} · 观众 {room.viewerCount} /{' '}
                           {room.maxViewers} · 分享端
-                          {room.sharerOnline ? '在线' : '离线'}
+                          {room.sharerOnline ? t('在线') : t('离线')}
                         </Text>
                       </div>
                       <Button
@@ -471,7 +472,7 @@ function HomePage() {
                         }}
                         disabled={room.status !== 'active'}
                       >
-                        加入房间
+                        {t('加入房间')}
                       </Button>
                     </div>
                   ))}

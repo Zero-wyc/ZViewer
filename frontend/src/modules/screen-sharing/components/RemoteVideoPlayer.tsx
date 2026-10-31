@@ -11,6 +11,7 @@ import type { RefObject } from 'react'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
 import { Spinner } from '@/components/ui/Spinner'
 import { LiveArtPlayer } from '@/modules/art-player'
+import { t } from '@/i18n'
 
 interface RemoteVideoPlayerProps {
   /** video 元素 ref（由调用方通过 useRef 创建并传入） */
@@ -51,7 +52,7 @@ export function RemoteVideoPlayer({
       />
       {!hasRemoteStream && (
         <div className="absolute inset-0 z-10 flex items-center justify-center rounded-lg bg-black/80">
-          <Spinner tip="正在接收画面..." size={32} />
+          <Spinner tip={t('正在接收画面...')} size={32} />
         </div>
       )}
     </div>

@@ -26,6 +26,7 @@ import {
 import { TRACK_TYPE } from '@/lib/mkv/ebml'
 import type { ParsedCue } from '@/lib/subtitleParser'
 import { PgsDecoder } from './pgs-decoder'
+import { t as translate } from '@/i18n'
 
 /** 探测时最多预取的头部字节数（Tracks 元素必须在其中收齐） */
 const PROBE_HEAD_BYTES = 4 * 1024 * 1024
@@ -188,7 +189,7 @@ async function probeHead(
   }
 
   const reader = res.body?.getReader()
-  if (!reader) throw new Error('响应无数据流')
+  if (!reader) throw new Error(translate('响应无数据流'))
 
   let tracks: DemuxedTrack[] | null = null
   let tsScaleMs = 1 // 默认 timestampScale=1e6ns → 1ms
@@ -221,9 +222,11 @@ async function probeHead(
   }
 
   if (!tracks) {
-    throw new Error('文件头部未解析到 Tracks（可能不是 MKV 或头部损坏）')
+    throw new Error(
+      translate('文件头部未解析到 Tracks（可能不是 MKV 或头部损坏）')
+    )
   }
-  if (!firstChunk) throw new Error('响应无数据')
+  if (!firstChunk) throw new Error(translate('响应无数据'))
 
   // Segment 数据区起点：EBML 头 + Segment ID + Segment Size
   const segmentDataStart = parseSegmentDataStart(firstChunk)
@@ -234,7 +237,7 @@ async function probeHead(
 function parseSegmentDataStart(head: Uint8Array): number {
   // EBML Header: ID(1-4B) + Size VINT
   const e = parseElementHeader(head, 0)
-  if (!e) throw new Error('EBML 头解析失败')
+  if (!e) throw new Error(translate('EBML 头解析失败'))
   let pos = e.end
   // 顶层逐元素直到 Segment
   for (let guard = 0; guard < 16; guard++) {
@@ -246,7 +249,7 @@ function parseSegmentDataStart(head: Uint8Array): number {
     if (el.end < 0) break
     pos = el.end
   }
-  throw new Error('未找到 Segment 元素')
+  throw new Error(translate('未找到 Segment 元素'))
 }
 
 interface ParsedElement {
@@ -350,7 +353,7 @@ export async function extractMkvSubtitleTracks(
     }
   }
   if (trackMap.size === 0) {
-    throw new Error('指定的轨道不含可提取的文本字幕轨')
+    throw new Error(translate('指定的轨道不含可提取的文本字幕轨'))
   }
 
   let framesByTrack: Map<number, RawSubtitleFrame[]>
@@ -391,7 +394,7 @@ export async function extractMkvSubtitleTracks(
       out.set(n, { content: assembleSrt(frames), format: 'srt' })
     }
   }
-  if (out.size === 0) throw new Error('字幕轨为空')
+  if (out.size === 0) throw new Error(translate('字幕轨为空'))
   return out
 }
 
@@ -405,7 +408,7 @@ async function extractFullStream(
   const res = await fetch(url, { headers: opts.headers, signal: opts.signal })
   if (!res.ok) throw new Error(`提取失败：HTTP ${res.status}`)
   const reader = res.body?.getReader()
-  if (!reader) throw new Error('响应无数据流')
+  if (!reader) throw new Error(translate('响应无数据流'))
 
   const framesByTrack = new Map<number, RawSubtitleFrame[]>()
   for (const n of trackMap.keys()) framesByTrack.set(n, [])
@@ -598,7 +601,7 @@ async function extractSparse(
   const tail = await rf.fetchRange(size - tailLen, tailLen)
   const anchors = parseCuesAnchors(tail, segmentDataStart, tsScaleMs)
   if (anchors.length === 0) {
-    throw new Error('MKV 无 Cues 索引，无法稀疏提取')
+    throw new Error(translate('MKV 无 Cues 索引，无法稀疏提取'))
   }
 
   // 2. 并行遍历（每个 worker 独立窗口）
@@ -614,7 +617,7 @@ async function extractSparse(
     for (;;) {
       // abort 后立即退出：fetchRange 对已中止信号会即刻抛错，
       // 不检查会导致 294 个锚点逐个失败（数百次无效请求级联）
-      if (opts.signal?.aborted) throw new Error('提取已中止')
+      if (opts.signal?.aborted) throw new Error(translate('提取已中止'))
       const pt = opts.getPriorityTime?.() ?? null
       const i = scheduler.pick(
         pt != null && Number.isFinite(pt) ? pt * 1000 : null
@@ -1049,7 +1052,7 @@ export async function streamMkvSubtitleTrack(
     track.trackType !== TRACK_TYPE.SUBTITLE ||
     !(isTextSubtitleCodec(track.codecId) || track.codecId === 'S_HDMV/PGS')
   ) {
-    throw new Error('指定的轨道不是支持的字幕轨')
+    throw new Error(translate('指定的轨道不是支持的字幕轨'))
   }
   if (![-1, 0, 3].includes(track.contentCompAlgo)) {
     throw new Error(`不支持的帧压缩算法 ${track.contentCompAlgo}`)
@@ -1139,7 +1142,7 @@ export async function streamMkvSubtitleTrack(
     const res = await fetch(url, { headers: opts.headers, signal: opts.signal })
     if (!res.ok) throw new Error(`提取失败：HTTP ${res.status}`)
     const reader = res.body?.getReader()
-    if (!reader) throw new Error('响应无数据流')
+    if (!reader) throw new Error(translate('响应无数据流'))
     const demuxer = new MatroskaDemuxer({
       onFrame: (f: DemuxedFrame) => {
         if (f.trackNumber === trackNumber) {
@@ -1168,7 +1171,7 @@ export async function streamMkvSubtitleTrack(
   // 小文件 / 大小未知：全量流式扫描（顺序天然有序）
   if (size == null || size <= FULL_STREAM_LIMIT) {
     await streamFullScan()
-    if (emittedChunks === 0) throw new Error('字幕轨为空')
+    if (emittedChunks === 0) throw new Error(translate('字幕轨为空'))
     return
   }
 
@@ -1180,7 +1183,7 @@ export async function streamMkvSubtitleTrack(
   if (anchors.length === 0) {
     // 无 Cues：回退全量流式（GB 级耗时较长，但仍可边读边交付）
     await streamFullScan()
-    if (emittedChunks === 0) throw new Error('字幕轨为空')
+    if (emittedChunks === 0) throw new Error(translate('字幕轨为空'))
     return
   }
 
@@ -1195,7 +1198,7 @@ export async function streamMkvSubtitleTrack(
     for (;;) {
       // abort 后立即退出：fetchRange 对已中止信号会即刻抛错，
       // 不检查会导致全部锚点逐个失败（数百次无效请求级联）
-      if (opts.signal?.aborted) throw new Error('提取已中止')
+      if (opts.signal?.aborted) throw new Error(translate('提取已中止'))
       // PGS palettes/objects and clear sets depend on preceding packets.
       const pt = pgs ? null : (opts.getPriorityTime?.() ?? null)
       const priorityMs = pt != null && Number.isFinite(pt) ? pt * 1000 : null
@@ -1251,7 +1254,7 @@ export async function streamMkvSubtitleTrack(
   await flush()
   finishPgs()
   opts.onProgress?.(100)
-  if (emittedChunks === 0) throw new Error('字幕轨为空')
+  if (emittedChunks === 0) throw new Error(translate('字幕轨为空'))
 }
 
 /** 帧显示区间：显式 BlockDuration 优先，否则延续到下一帧出现 */

@@ -5,6 +5,7 @@ import { Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { proxyGitHubUrl } from '@/utils/githubCdn'
+import { t } from '@/i18n'
 
 interface GithubContentItem {
   name: string
@@ -86,7 +87,7 @@ export function AniSubsGithubBrowser({
   onAddUrls,
   repoUrl = 'https://github.com/creamycake-anime/ani-subs',
   defaultPath = '',
-  title = '从 GitHub 仓库导入订阅',
+  title = t('从 GitHub 仓库导入订阅'),
   allowAddAll = true,
 }: AniSubsGithubBrowserProps) {
   const [repoInput, setRepoInput] = useState(repoUrl)
@@ -105,7 +106,9 @@ export function AniSubsGithubBrowser({
       const info = parseGithubRepoUrl(repoInput)
       if (!info) {
         setError(
-          '无法解析 GitHub 仓库地址，请使用 https://github.com/owner/repo 格式'
+          t(
+            '无法解析 GitHub 仓库地址，请使用 https://github.com/owner/repo 格式'
+          )
         )
         return
       }
@@ -139,7 +142,7 @@ export function AniSubsGithubBrowser({
         setCurrentPath(path)
       } catch (err) {
         console.error('[AniSubsGithubBrowser] fetch error:', err)
-        setError(err instanceof Error ? err.message : '加载仓库内容失败')
+        setError(err instanceof Error ? err.message : t('加载仓库内容失败'))
         setItems([])
       } finally {
         setLoading(false)
@@ -155,11 +158,11 @@ export function AniSubsGithubBrowser({
         buildRawUrl(parsed.owner, parsed.repo, parsed.branch, item.path)
     )
     if (existingUrls.includes(rawUrl)) {
-      message.info('该订阅地址已存在')
+      message.info(t('该订阅地址已存在'))
       return
     }
     onAddUrls([rawUrl])
-    message.success('已添加订阅地址')
+    message.success(t('已添加订阅地址'))
   }
 
   const handleAddAllJson = () => {
@@ -168,7 +171,7 @@ export function AniSubsGithubBrowser({
       (item) => item.type === 'file' && item.name.endsWith('.json')
     )
     if (jsonFiles.length === 0) {
-      message.info('当前目录没有 JSON 文件')
+      message.info(t('当前目录没有 JSON 文件'))
       return
     }
     const newUrls = jsonFiles
@@ -181,7 +184,7 @@ export function AniSubsGithubBrowser({
       )
       .filter((url) => !existingUrls.includes(url))
     if (newUrls.length === 0) {
-      message.info('所有 JSON 订阅地址已存在')
+      message.info(t('所有 JSON 订阅地址已存在'))
       return
     }
     onAddUrls(newUrls)
@@ -222,7 +225,7 @@ export function AniSubsGithubBrowser({
           loading={loading}
           disabled={loading}
         >
-          浏览
+          {t('浏览')}
         </Button>
       </div>
 
@@ -253,7 +256,7 @@ export function AniSubsGithubBrowser({
                 }}
                 className="text-[var(--md-sys-color-primary)] hover:underline"
               >
-                返回根目录
+                {t('返回根目录')}
               </button>
             )}
             {allowAddAll && (
@@ -262,7 +265,7 @@ export function AniSubsGithubBrowser({
                 onClick={handleAddAllJson}
                 className="text-[var(--md-sys-color-primary)] hover:underline"
               >
-                添加全部 JSON
+                {t('添加全部 JSON')}
               </button>
             )}
           </div>
@@ -310,7 +313,7 @@ export function AniSubsGithubBrowser({
                         void fetchContents(item.path)
                       }}
                     >
-                      打开
+                      {t('打开')}
                     </Button>
                   ) : isJson ? (
                     <Button
@@ -321,7 +324,7 @@ export function AniSubsGithubBrowser({
                       onClick={() => handleAddFile(item)}
                       disabled={alreadyAdded}
                     >
-                      {alreadyAdded ? '已添加' : '添加'}
+                      {alreadyAdded ? t('已添加') : t('添加')}
                     </Button>
                   ) : null}
                 </div>

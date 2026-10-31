@@ -36,6 +36,7 @@ import {
   searchEmbyMount,
 } from './embyApi'
 import type { EmbyDirectoryEntry } from './types'
+import { t } from '@/i18n'
 
 export interface MediaLibraryBrowserProps {
   mountId: number | null
@@ -114,7 +115,7 @@ export default function EmbyBrowser({
   onQuickAddSeries,
   browse = browseEmbyMount,
   search = searchEmbyMount,
-  title = '浏览 Emby 媒体库',
+  title = t('浏览 Emby 媒体库'),
   imageApi = 'emby',
   toolbar,
   searchPrefix,
@@ -122,9 +123,9 @@ export default function EmbyBrowser({
   episodeGrid = false,
   preserveSearchTerm = false,
   searchOnSourceChange = false,
-  rootLabel = '媒体库',
-  searchPlaceholder = '搜索媒体库（电影 / 剧集 / 单集）',
-  emptyText = '当前目录为空',
+  rootLabel = t('媒体库'),
+  searchPlaceholder = t('搜索媒体库（电影 / 剧集 / 单集）'),
+  emptyText = t('当前目录为空'),
   renderPoster,
   disabled = false,
 }: MediaLibraryBrowserProps) {
@@ -202,7 +203,7 @@ export default function EmbyBrowser({
         }
       } catch (err) {
         if (request !== loadRequest.current) return
-        const msg = err instanceof Error ? err.message : '加载失败'
+        const msg = err instanceof Error ? err.message : t('加载失败')
         setError(msg)
       } finally {
         if (request === loadRequest.current) setLoading(false)
@@ -232,7 +233,7 @@ export default function EmbyBrowser({
       } catch (err) {
         if (request !== searchRequest.current) return
         setSearchResults([])
-        setError(err instanceof Error ? err.message : '搜索失败')
+        setError(err instanceof Error ? err.message : t('搜索失败'))
       } finally {
         if (request === searchRequest.current) setSearching(false)
       }
@@ -368,7 +369,7 @@ export default function EmbyBrowser({
       (entry.type === 'directory' && entry.embyType !== 'CollectionFolder'))
 
   const quickAddLabel = (entry: EmbyDirectoryEntry) =>
-    entry.embyType === 'Season' ? '添加整季' : '添加整部影片'
+    entry.embyType === 'Season' ? t('添加整季') : t('添加整部影片')
 
   /** 快捷整卡添加按钮（list 行尾 / wall 卡片右下角浮层），阻断条目点击 */
   const renderQuickAddButton = (
@@ -393,7 +394,7 @@ export default function EmbyBrowser({
         }}
       >
         <ListPlus className="h-3.5 w-3.5" />
-        {variant === 'row' ? quickAddLabel(entry) : '整部'}
+        {variant === 'row' ? quickAddLabel(entry) : t('整部')}
       </button>
     )
   }
@@ -432,7 +433,7 @@ export default function EmbyBrowser({
     if (entry.embyType === 'Series') {
       const count = entry.recursiveItemCount ?? entry.childCount
       return {
-        text: count == null ? '剧集' : `${count} 集`,
+        text: count == null ? t('剧集') : `${count} 集`,
         className: 'bg-emerald-600/85',
       }
     }
@@ -446,7 +447,7 @@ export default function EmbyBrowser({
           }
         }
       }
-      return { text: '电影', className: 'bg-violet-600/85' }
+      return { text: t('电影'), className: 'bg-violet-600/85' }
     }
     if (entry.embyType === 'Episode' && entry.indexNumber != null) {
       return {
@@ -455,7 +456,7 @@ export default function EmbyBrowser({
       }
     }
     if (entry.type === 'file') {
-      return { text: '文件', className: 'bg-black/60' }
+      return { text: t('文件'), className: 'bg-black/60' }
     }
     return null
   }
@@ -726,7 +727,7 @@ export default function EmbyBrowser({
           >
             {multiSelectMode
               ? `已选择 ${selectedFiles.length} 个条目`
-              : '多选模式可批量添加'}
+              : t('多选模式可批量添加')}
           </Text>
           <div className="flex items-center gap-3">
             <Button
@@ -735,7 +736,7 @@ export default function EmbyBrowser({
               onClick={onClose}
               disabled={busy}
             >
-              取消
+              {t('取消')}
             </Button>
             <Button
               variant="primary"
@@ -747,7 +748,7 @@ export default function EmbyBrowser({
             >
               {multiSelectMode
                 ? `添加 (${selectedFiles.length})`
-                : '添加当前条目'}
+                : t('添加当前条目')}
             </Button>
           </div>
         </div>
@@ -769,7 +770,7 @@ export default function EmbyBrowser({
               size="md"
               onClick={() => void load(crumbs)}
             >
-              重试
+              {t('重试')}
             </Button>
           </div>
         ) : loading && entries.length === 0 ? (
@@ -813,7 +814,7 @@ export default function EmbyBrowser({
                         setSearchView(false)
                         setSearchResults([])
                       }}
-                      aria-label="清除搜索"
+                      aria-label={t('清除搜索')}
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -828,14 +829,14 @@ export default function EmbyBrowser({
                   onClick={() => void doSearch(searchTerm)}
                   className="h-[42px] shrink-0"
                 >
-                  搜索
+                  {t('搜索')}
                 </Button>
               </div>
             )}
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <div className="flex flex-wrap items-center gap-1.5 text-sm text-[var(--md-sys-color-on-surface-variant)]">
                 {(searchActive
-                  ? [{ name: '搜索结果', path: undefined }]
+                  ? [{ name: t('搜索结果'), path: undefined }]
                   : breadcrumb
                 ).map((item, index) => (
                   <span key={item.path ?? 'root'} className="flex items-center">
@@ -873,7 +874,7 @@ export default function EmbyBrowser({
                         ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
                         : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
                     )}
-                    title="列表视图"
+                    title={t('列表视图')}
                   >
                     <List className="h-3.5 w-3.5" />
                     列表
@@ -887,7 +888,7 @@ export default function EmbyBrowser({
                         ? 'bg-[var(--md-sys-color-primary-container)] text-[var(--md-sys-color-on-primary-container)]'
                         : 'text-[var(--md-sys-color-on-surface-variant)] hover:bg-[var(--md-sys-color-surface-container-high)]'
                     )}
-                    title="海报墙视图（拉取刮削封面）"
+                    title={t('海报墙视图（拉取刮削封面）')}
                   >
                     <LayoutGrid className="h-3.5 w-3.5" />
                     海报墙
@@ -907,7 +908,7 @@ export default function EmbyBrowser({
                   })
                 }}
               >
-                {multiSelectMode ? '退出多选' : '多选'}
+                {multiSelectMode ? t('退出多选') : t('多选')}
               </Button>
             </div>
 
@@ -921,7 +922,7 @@ export default function EmbyBrowser({
                     {entries.map((entry) => renderEntry(entry, 'right'))}
                   </div>
                   {entries.length === 0 && (
-                    <EmptyState text="暂无集数信息" className="py-8" />
+                    <EmptyState text={t('暂无集数信息')} className="py-8" />
                   )}
                 </div>
               </div>
@@ -953,7 +954,7 @@ export default function EmbyBrowser({
                     {showParentDirectory && (
                       <div className="hidden min-h-0 flex-col border-r border-[var(--md-sys-color-outline-variant)] bg-[var(--md-sys-color-surface-container-low)]/60 md:flex">
                         <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                          上级目录
+                          {t('上级目录')}
                         </div>
                         <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-3">
                           {currentPath ? (
@@ -965,7 +966,7 @@ export default function EmbyBrowser({
                               )
                             ) : (
                               <EmptyState
-                                text="上级目录为空"
+                                text={t('上级目录为空')}
                                 className="py-8"
                               />
                             )
@@ -986,7 +987,7 @@ export default function EmbyBrowser({
                     {/* 右侧：当前目录 */}
                     <div className="flex min-h-0 flex-col bg-[var(--md-sys-color-surface)]/80">
                       <div className="shrink-0 border-b border-[var(--md-sys-color-outline-variant)] px-4 py-3 text-sm font-semibold uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-                        当前目录
+                        {t('当前目录')}
                       </div>
                       <div className="zen-scroll min-h-0 flex-1 overflow-y-auto p-3">
                         {entries.length > 0 ? (
@@ -1010,7 +1011,7 @@ export default function EmbyBrowser({
                   </div>
                 ) : (
                   <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                    {searching ? '搜索中...' : '未找到匹配结果'}
+                    {searching ? t('搜索中...') : t('未找到匹配结果')}
                   </Text>
                 )}
               </div>
@@ -1020,7 +1021,7 @@ export default function EmbyBrowser({
                   searchResults.map((entry) => renderEntry(entry, 'right'))
                 ) : (
                   <Text className="py-8 text-center text-sm text-[var(--md-sys-color-on-surface-variant)]">
-                    {searching ? '搜索中...' : '未找到匹配结果'}
+                    {searching ? t('搜索中...') : t('未找到匹配结果')}
                   </Text>
                 )}
               </div>
@@ -1028,7 +1029,7 @@ export default function EmbyBrowser({
 
             {loading && entries.length > 0 && (
               <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[var(--md-sys-color-surface)]/40 backdrop-blur-md">
-                <Spinner tip="加载中..." size={28} />
+                <Spinner tip={t('加载中...')} size={28} />
               </div>
             )}
           </>

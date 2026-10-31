@@ -12,6 +12,7 @@ import { useAuthStore } from '@/store/authStore'
 import { apiFetch, resetSessionExpired, saveAuthTokens } from '@/lib/api'
 import { reconnectSocket } from '@/hooks/useSocket'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 const Fade = ({
   children,
@@ -85,12 +86,12 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.username.trim() || !form.password) {
-      message.warning('请输入用户名和密码')
+      message.warning(t('请输入用户名和密码'))
       return
     }
 
     if (!isLogin && form.password.length < 4) {
-      message.warning('密码至少 4 位')
+      message.warning(t('密码至少 4 位'))
       return
     }
 
@@ -117,7 +118,7 @@ export default function LoginPage() {
 
       if (data.success && data.user) {
         if (!isLogin && data.user.status === 'pending') {
-          message.success(data.message || '注册成功，请等待管理员审核')
+          message.success(data.message || t('注册成功，请等待管理员审核'))
           setMode('login')
           return
         }
@@ -134,14 +135,14 @@ export default function LoginPage() {
         // 登录后 Socket 需要断开重连，以新的认证凭据重新握手，
         // 否则后端 socket.data.role 仍为旧角色（如 guest），导致创建房间等操作被拒绝。
         reconnectSocket()
-        message.success(isLogin ? '登录成功' : '注册成功')
+        message.success(isLogin ? t('登录成功') : t('注册成功'))
         navigate(from || '/', { replace: true })
       } else {
-        message.error(data.message || (isLogin ? '登录失败' : '注册失败'))
+        message.error(data.message || (isLogin ? t('登录失败') : t('注册失败')))
       }
     } catch (err) {
       console.error('[LoginPage] auth error:', err)
-      message.error(isLogin ? '登录请求失败' : '注册请求失败')
+      message.error(isLogin ? t('登录请求失败') : t('注册请求失败'))
     } finally {
       setLoading(false)
     }
@@ -173,16 +174,16 @@ export default function LoginPage() {
           </Fade>
           <Fade delay={120} key={`login-title-${mode}`}>
             <Title level={3} className="m-0 mt-4">
-              {isLogin ? '登录 ZViewer' : '注册账号'}
+              {isLogin ? t('登录 ZViewer') : t('注册账号')}
             </Title>
             <Paragraph type="secondary" className="m-0 mt-2">
               {isLogin
-                ? '管理员账号可创建共享房间'
+                ? t('管理员账号可创建共享房间')
                 : registrationMode === 'closed'
-                  ? '当前已关闭注册'
+                  ? t('当前已关闭注册')
                   : registrationMode === 'open'
-                    ? '注册后即可使用'
-                    : '注册后需管理员审核通过，方可成为普通用户'}
+                    ? t('注册后即可使用')
+                    : t('注册后需管理员审核通过，方可成为普通用户')}
             </Paragraph>
           </Fade>
         </div>
@@ -191,25 +192,25 @@ export default function LoginPage() {
           <Space direction="vertical" className="w-full">
             <Fade delay={180} className="w-full">
               <Input
-                label="用户名"
+                label={t('用户名')}
                 type="text"
                 value={form.username}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, username: e.target.value }))
                 }
-                placeholder="请输入用户名"
+                placeholder={t('请输入用户名')}
                 size="lg"
               />
             </Fade>
 
             <Fade delay={220} className="w-full">
               <InputPassword
-                label="密码"
+                label={t('密码')}
                 value={form.password}
                 onChange={(e) =>
                   setForm((prev) => ({ ...prev, password: e.target.value }))
                 }
-                placeholder={isLogin ? '请输入密码' : '至少 4 位密码'}
+                placeholder={isLogin ? t('请输入密码') : t('至少 4 位密码')}
                 size="lg"
               />
             </Fade>
@@ -229,7 +230,7 @@ export default function LoginPage() {
                 }
                 className="mt-2"
               >
-                {isLogin ? '登录' : '注册'}
+                {isLogin ? t('登录') : t('注册')}
               </Button>
             </Fade>
           </Space>
@@ -240,7 +241,7 @@ export default function LoginPage() {
             {isLogin ? (
               registrationMode === 'closed' ? (
                 <Paragraph type="secondary" className="text-xs m-0">
-                  当前站点已关闭新用户注册
+                  {t('当前站点已关闭新用户注册')}
                 </Paragraph>
               ) : (
                 <Paragraph type="secondary" className="text-xs m-0">
@@ -251,7 +252,7 @@ export default function LoginPage() {
                     className="underline hover:opacity-80"
                     style={{ color: 'var(--md-sys-color-primary)' }}
                   >
-                    注册账号
+                    {t('注册账号')}
                   </button>
                 </Paragraph>
               )
@@ -264,7 +265,7 @@ export default function LoginPage() {
                   className="underline hover:opacity-80"
                   style={{ color: 'var(--md-sys-color-primary)' }}
                 >
-                  返回登录
+                  {t('返回登录')}
                 </button>
               </Paragraph>
             )}

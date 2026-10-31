@@ -34,6 +34,7 @@ import { useViewerPeerConnection } from '../hooks/useViewerPeerConnection'
 import { useSignalingChannel } from '../hooks/useSignalingChannel'
 import { RemoteVideoPlayer } from './RemoteVideoPlayer'
 import { WatchControlsBar } from './WatchControlsBar'
+import { t } from '@/i18n'
 
 /** 观众端 P2P 状态快照 */
 export interface ViewerP2PStateSnapshot {
@@ -136,10 +137,10 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     onStatusChange: (status, didFallback) => {
       if (didFallback) {
         setP2pFallbackNotice(true)
-        message.warning('P2P 连接失败，已回退到服务器中转')
+        message.warning(t('P2P 连接失败，已回退到服务器中转'))
       } else if (status === 'connected') {
         setP2pFallbackNotice(false)
-        message.success('P2P 直连已建立')
+        message.success(t('P2P 直连已建立'))
       } else if (status === 'connecting') {
         setP2pFallbackNotice(false)
       }
@@ -215,7 +216,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     if (!socket) return
     const handleSharerError = (data: { roomId: string; message?: string }) => {
       if (data.roomId !== roomId) return
-      message.warning(data.message ?? '房主屏幕共享启动失败，等待房主重试')
+      message.warning(data.message ?? t('房主屏幕共享启动失败，等待房主重试'))
     }
     socket.on('sharer-error', handleSharerError)
     return () => {
@@ -331,7 +332,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       else await video.requestPictureInPicture()
     } catch (err) {
       console.error('[WebrtcWatchPage] picture-in-picture error:', err)
-      message.error('画中画模式不可用')
+      message.error(t('画中画模式不可用'))
     }
   }
 
@@ -443,7 +444,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       webFullscreen={isWebFullscreen}
       rightPanel={<CommentPanel socket={socket} roomId={roomId} commentsOnly />}
       controls={<RoomInfoPanel roomId={roomId} isHost={false} />}
-      controlLabels={['房间状态']}
+      controlLabels={[t('房间状态')]}
     />
   )
 }

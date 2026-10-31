@@ -14,6 +14,7 @@ import { Card } from '@/components/ui/Card'
 import { Tag } from '@/components/ui/Tag'
 import type { StreamStatus } from '@/store/roomStore'
 import type { FlvStatistics } from './FlvPlayer'
+import { t } from '@/i18n'
 
 interface StreamStatusPanelProps {
   /** 推流状态 */
@@ -25,12 +26,12 @@ interface StreamStatusPanelProps {
 function getStatusText(status: StreamStatus): string {
   switch (status) {
     case 'live':
-      return '直播中'
+      return t('直播中')
     case 'offline':
-      return '未推流'
+      return t('未推流')
     case 'unknown':
     default:
-      return '等待状态'
+      return t('等待状态')
   }
 }
 
@@ -136,7 +137,7 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
           <MonitorPlay className="h-4.5 w-4.5 text-white" />
         </div>
         <div>
-          <div className="text-sm font-semibold">推流状态</div>
+          <div className="text-sm font-semibold">{t('推流状态')}</div>
           <div className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
             Stream Push Monitor
           </div>
@@ -158,9 +159,9 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
               style={{ color: 'var(--md-sys-color-primary)' }}
             />
           }
-          label="总码率"
+          label={t('总码率')}
           value={hasStats ? `${statistics!.totalDataRate} Kbps` : '--'}
-          sub={hasStats ? `≈ ${statistics!.speed} KB/s` : '等待推流'}
+          sub={hasStats ? `≈ ${statistics!.speed} KB/s` : t('等待推流')}
         />
         <StatCard
           icon={
@@ -169,9 +170,9 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
               style={{ color: 'var(--md-sys-color-tertiary)' }}
             />
           }
-          label="帧率"
+          label={t('帧率')}
           value={hasStats ? `${statistics!.fps} fps` : '--'}
-          sub="实时解码帧率"
+          sub={t('实时解码帧率')}
         />
         <StatCard
           icon={
@@ -180,9 +181,9 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
               style={{ color: 'var(--md-sys-color-secondary)' }}
             />
           }
-          label="下载速度"
+          label={t('下载速度')}
           value={hasStats ? `${statistics!.speed} KB/s` : '--'}
-          sub="网络拉流速度"
+          sub={t('网络拉流速度')}
         />
         <StatCard
           icon={
@@ -196,12 +197,12 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
               }}
             />
           }
-          label="丢帧率"
+          label={t('丢帧率')}
           value={hasStats ? calcDropRate(statistics) : '--'}
           sub={
             hasStats
               ? `${statistics!.droppedFrames} / ${statistics!.decodedFrames + statistics!.droppedFrames} 帧`
-              : '丢帧 / 总帧'
+              : t('丢帧 / 总帧')
           }
         />
       </div>
@@ -212,10 +213,10 @@ export const StreamStatusPanel = memo(function StreamStatusPanel({
           <Gauge className="h-3.5 w-3.5 flex-shrink-0" />
           <span>
             {isLive
-              ? '房主正在推流，HTTP-FLV 拉流播放中'
+              ? t('房主正在推流，HTTP-FLV 拉流播放中')
               : streamStatus === 'offline'
-                ? '等待房主开始 OBS 推流'
-                : '正在获取推流状态...'}
+                ? t('等待房主开始 OBS 推流')
+                : t('正在获取推流状态...')}
           </span>
         </div>
       </div>

@@ -19,6 +19,7 @@ import { message } from '@/components/ui/message'
 import { ConnectionStatsPanel } from '@/modules/screen-sharing/components/ConnectionStatsPanel'
 import { LiveArtPlayer } from '@/modules/art-player'
 import { ICE_SERVERS } from '@/modules/p2p/constants'
+import { t } from '@/i18n'
 
 interface DirectSignalData {
   sdp: RTCSessionDescriptionInit
@@ -166,7 +167,7 @@ function DirectWatchPage() {
   const handleCreateAnswer = async () => {
     const signal = parseSignal(offerCode.trim())
     if (!signal) {
-      message.error('无效的直连码')
+      message.error(t('无效的直连码'))
       return
     }
 
@@ -196,7 +197,7 @@ function DirectWatchPage() {
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') {
           setStep('connected')
-          message.success('直连已建立')
+          message.success(t('直连已建立'))
         } else if (
           pc.connectionState === 'failed' ||
           pc.connectionState === 'closed' ||
@@ -230,7 +231,7 @@ function DirectWatchPage() {
       setStep('answer-ready')
     } catch (err) {
       console.error('[DirectWatchPage] create answer error:', err)
-      message.error('处理直连码失败')
+      message.error(t('处理直连码失败'))
       cleanup()
       setStep('idle')
     }
@@ -263,7 +264,7 @@ function DirectWatchPage() {
       })
       .catch((err) => {
         console.error('[DirectWatchPage] fullscreen error:', err)
-        message.error('无法进入全屏模式')
+        message.error(t('无法进入全屏模式'))
       })
   }
 
@@ -279,7 +280,7 @@ function DirectWatchPage() {
       }
     } catch (err) {
       console.error('[DirectWatchPage] picture-in-picture error:', err)
-      message.error('画中画模式不可用')
+      message.error(t('画中画模式不可用'))
     }
   }
 
@@ -298,15 +299,15 @@ function DirectWatchPage() {
         <PageBackButton to="/" />
 
         <Title level={3} className="pt-8">
-          直连观看
+          {t('直连观看')}
         </Title>
         <Paragraph type="secondary">
-          粘贴分享端提供的直连码，生成应答码并回传即可建立 P2P 连接。
+          {t('粘贴分享端提供的直连码，生成应答码并回传即可建立 P2P 连接。')}
         </Paragraph>
 
         <Space direction="vertical" className="mt-4 w-full">
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Tag color="success">直连模式</Tag>
+            <Tag color="success">{t('直连模式')}</Tag>
             {step === 'connected' && (
               <Tag color="success">
                 <CheckCircle2 className="h-3 w-3 inline mr-1" />
@@ -314,7 +315,7 @@ function DirectWatchPage() {
               </Tag>
             )}
             {showVideo && !hasRemoteStream && (
-              <Tag color="primary">等待画面</Tag>
+              <Tag color="primary">{t('等待画面')}</Tag>
             )}
           </div>
 
@@ -328,7 +329,7 @@ function DirectWatchPage() {
                 value={offerCode}
                 onChange={(e) => setOfferCode(e.target.value)}
                 rows={8}
-                placeholder="请将分享端提供的直连码粘贴到此处"
+                placeholder={t('请将分享端提供的直连码粘贴到此处')}
                 className="w-full rounded-lg border border-slate-300 bg-white p-3 font-mono text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
               />
               <Button
@@ -344,13 +345,13 @@ function DirectWatchPage() {
                 }
                 onClick={handleCreateAnswer}
               >
-                解析并生成应答码
+                {t('解析并生成应答码')}
               </Button>
               {(step === 'parsing' || step === 'gathering') && (
                 <Paragraph type="secondary" className="mt-2">
                   {step === 'parsing'
-                    ? '正在解析直连码…'
-                    : '正在收集网络候选地址…'}
+                    ? t('正在解析直连码…')
+                    : t('正在收集网络候选地址…')}
                 </Paragraph>
               )}
             </div>
@@ -370,14 +371,16 @@ function DirectWatchPage() {
                   className="max-h-[320px]"
                 />
               </div>
-              {!hasRemoteStream && <Spinner tip="正在接收画面…" size={32} />}
+              {!hasRemoteStream && (
+                <Spinner tip={t('正在接收画面…')} size={32} />
+              )}
               {hasRemoteStream && (
                 <Space wrap className="justify-center">
                   <Button
                     icon={<Maximize className="h-4 w-4" />}
                     onClick={handleFullscreen}
                   >
-                    全屏
+                    {t('全屏')}
                   </Button>
                   {isPiPSupported && (
                     <Button
@@ -390,7 +393,7 @@ function DirectWatchPage() {
                       }
                       onClick={handleTogglePictureInPicture}
                     >
-                      {isPictureInPicture ? '退出画中画' : '画中画'}
+                      {isPictureInPicture ? t('退出画中画') : t('画中画')}
                     </Button>
                   )}
                 </Space>
@@ -401,7 +404,7 @@ function DirectWatchPage() {
           {answerCode && (
             <div className="text-left">
               <Paragraph className="m-0 mb-1 text-sm font-medium">
-                应答码（回传给分享端）
+                {t('应答码（回传给分享端）')}
               </Paragraph>
               <textarea
                 readOnly
@@ -411,8 +414,8 @@ function DirectWatchPage() {
               />
               <CopyButton
                 value={answerCode}
-                label="复制应答码"
-                successMessage="应答码已复制"
+                label={t('复制应答码')}
+                successMessage={t('应答码已复制')}
                 variant="primary"
                 block
                 className="mt-2"
@@ -426,12 +429,12 @@ function DirectWatchPage() {
               block
               onClick={handleReset}
             >
-              重新连接
+              {t('重新连接')}
             </Button>
           )}
 
           <Paragraph type="secondary" className="text-xs">
-            提示：将应答码复制后发送给分享端，分享端粘贴完成连接。
+            {t('提示：将应答码复制后发送给分享端，分享端粘贴完成连接。')}
           </Paragraph>
         </Space>
 

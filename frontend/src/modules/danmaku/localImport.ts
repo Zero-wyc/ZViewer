@@ -13,6 +13,7 @@
  * 不支持，导入时直接丢弃。
  */
 import type { DanmakuItem } from './types'
+import { t } from '@/i18n'
 
 /** 单文件条目上限：超出截断，防超大文件撑爆 store 与弹幕渲染层 */
 export const MAX_LOCAL_DANMAKU_ITEMS = 20000
@@ -155,7 +156,7 @@ export interface LocalDanmakuParseResult {
  */
 export function parseLocalDanmaku(
   text: string,
-  fileName = '弹幕文件'
+  fileName = t('弹幕文件')
 ): LocalDanmakuParseResult {
   const trimmed = text.trim()
   if (!trimmed) {

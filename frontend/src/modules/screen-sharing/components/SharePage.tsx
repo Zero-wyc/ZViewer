@@ -23,6 +23,7 @@ import { useShareMethod } from '../hooks/useShareMethod'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import WebrtcSharePage, { type P2PStateSnapshot } from './WebrtcSharePage'
 import { StreamPushPage } from './StreamPushPage'
+import { t } from '@/i18n'
 
 interface SharePageProps {
   className?: string
@@ -59,12 +60,12 @@ function SharePage({
       if (value === shareMethod) return
       // 切换到 webrtc 前提示先停止 OBS 推流
       if (value === 'webrtc' && streamStatus === 'live') {
-        message.warning('请先在 OBS 中停止推流再切换到 WebRTC 共享')
+        message.warning(t('请先在 OBS 中停止推流再切换到 WebRTC 共享'))
         return
       }
       void updateShareMethod(value as 'webrtc' | 'stream-push').then((res) => {
         if (!res.success) {
-          message.error(res.message ?? '切换子模式失败')
+          message.error(res.message ?? t('切换子模式失败'))
         }
       })
     },
@@ -92,8 +93,8 @@ function SharePage({
       'approve-join',
       { viewerSocketId },
       (response: { success: boolean; message?: string }) => {
-        if (response.success) message.success('已允许加入')
-        else message.error(response.message ?? '允许加入失败')
+        if (response.success) message.success(t('已允许加入'))
+        else message.error(response.message ?? t('允许加入失败'))
       }
     )
     setConfirmJoin(null)
@@ -106,8 +107,8 @@ function SharePage({
       'reject-join',
       { viewerSocketId },
       (response: { success: boolean; message?: string }) => {
-        if (response.success) message.info('已拒绝加入')
-        else message.error(response.message ?? '拒绝失败')
+        if (response.success) message.info(t('已拒绝加入'))
+        else message.error(response.message ?? t('拒绝失败'))
       }
     )
     setConfirmJoin(null)
@@ -117,19 +118,19 @@ function SharePage({
   if (confirmJoin) {
     joinRequestNotifications.push({
       id: 'join',
-      title: '观看请求',
-      okText: '允许',
-      cancelText: '拒绝',
+      title: t('观看请求'),
+      okText: t('允许'),
+      cancelText: t('拒绝'),
       onOk: handleApproveJoin,
       onCancel: handleRejectJoin,
       autoCloseMs: 12000,
       content: (
         <>
-          有观看者请求加入房间（
+          {t('有观看者请求加入房间（')}
           <span style={{ color: 'var(--md-sys-color-primary)' }}>
             {confirmJoin.viewerSocketId.slice(0, 8)}
           </span>
-          ），是否允许？
+          {t('），是否允许？')}
         </>
       ),
     })
@@ -153,8 +154,8 @@ function SharePage({
       <div className="absolute left-1/2 top-3 z-20 -translate-x-1/2">
         <SegmentedToggle
           options={[
-            { value: 'webrtc', label: 'WebRTC 共享' },
-            { value: 'stream-push', label: 'OBS 推流' },
+            { value: 'webrtc', label: t('WebRTC 共享') },
+            { value: 'stream-push', label: t('OBS 推流') },
           ]}
           value={shareMethod}
           onChange={handleShareMethodChange}

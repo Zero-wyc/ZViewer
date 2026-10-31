@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/Input'
 import { InputPassword } from '@/components/ui/InputPassword'
 import { ArrowLeft, Eye, Lock } from 'lucide-react'
 import type { JoinStatus, JoinFormValues } from '../types'
+import { t } from '@/i18n'
 
 interface JoinRoomFormProps {
   /** 初始房间号（来自 URL） */
@@ -46,7 +47,7 @@ export function JoinRoomForm(props: JoinRoomFormProps): JSX.Element {
           onClick={onBack}
           className="absolute left-4 top-4"
         >
-          返回
+          {t('返回')}
         </Button>
         <div
           className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
@@ -57,7 +58,9 @@ export function JoinRoomForm(props: JoinRoomFormProps): JSX.Element {
         >
           <Lock className="h-6 w-6" />
         </div>
-        <Title level={3}>{hideRoomId ? '输入房间密码' : '加入房间'}</Title>
+        <Title level={3}>
+          {hideRoomId ? t('输入房间密码') : t('加入房间')}
+        </Title>
         {hideRoomId && roomName && (
           <Text type="secondary">正在加入：{roomName}</Text>
         )}
@@ -71,8 +74,8 @@ export function JoinRoomForm(props: JoinRoomFormProps): JSX.Element {
             }}
           >
             {joinStatus === 'rejected'
-              ? '房主已拒绝您的加入申请，可重新申请或更换房间'
-              : '房间已关闭，可尝试重新加入或更换房间'}
+              ? t('房主已拒绝您的加入申请，可重新申请或更换房间')
+              : t('房间已关闭，可尝试重新加入或更换房间')}
           </div>
         )}
         <Form<JoinFormValues>
@@ -82,26 +85,28 @@ export function JoinRoomForm(props: JoinRoomFormProps): JSX.Element {
         >
           {!hideRoomId && (
             <Form.Item
-              label="房间号"
+              label={t('房间号')}
               name="roomId"
-              rules={[{ required: true, message: '请输入房间号' }]}
+              rules={[{ required: true, message: t('请输入房间号') }]}
             >
-              <Input size="lg" placeholder="请输入要加入的房间号" />
+              <Input size="lg" placeholder={t('请输入要加入的房间号')} />
             </Form.Item>
           )}
           <Form.Item
-            label={passwordRequired ? '房间密码' : '房间密码（可选）'}
+            label={passwordRequired ? t('房间密码') : t('房间密码（可选）')}
             name="password"
             rules={
               passwordRequired
-                ? [{ required: true, message: '请输入房间密码' }]
+                ? [{ required: true, message: t('请输入房间密码') }]
                 : undefined
             }
           >
             <InputPassword
               size="lg"
               placeholder={
-                passwordRequired ? '请输入房间密码' : '如房间未设置密码可留空'
+                passwordRequired
+                  ? t('请输入房间密码')
+                  : t('如房间未设置密码可留空')
               }
               maxLength={32}
             />
@@ -115,14 +120,14 @@ export function JoinRoomForm(props: JoinRoomFormProps): JSX.Element {
               icon={<Eye className="h-5 w-5" />}
             >
               {joinStatus === 'password-required'
-                ? '重新加入'
+                ? t('重新加入')
                 : joinStatus === 'rejected'
-                  ? '重新申请加入'
+                  ? t('重新申请加入')
                   : joinStatus === 'closed'
-                    ? '重新加入'
+                    ? t('重新加入')
                     : hideRoomId
-                      ? '确认加入'
-                      : '加入观看'}
+                      ? t('确认加入')
+                      : t('加入观看')}
             </Button>
           </Form.Item>
         </Form>

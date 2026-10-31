@@ -1,4 +1,5 @@
 import type { ParsedCue } from '../../lib/subtitleParser'
+import { t } from '@/i18n'
 
 interface Picture {
   width: number
@@ -23,14 +24,14 @@ export function decodePgsRle(
   height: number
 ): Uint8Array {
   if (width <= 0 || height <= 0 || width * height > 4096 * 2160) {
-    throw new Error('PGS 图像尺寸无效')
+    throw new Error(t('PGS 图像尺寸无效'))
   }
   const pixels = new Uint8Array(width * height)
   let p = 0,
     x = 0,
     y = 0
   const byte = () => {
-    if (p >= data.length) throw new Error('PGS RLE 数据截断')
+    if (p >= data.length) throw new Error(t('PGS RLE 数据截断'))
     return data[p++]!
   }
   while (p < data.length && y < height) {
@@ -47,12 +48,12 @@ export function decodePgsRle(
       if (flags & 0x40) run = run * 256 + byte()
       color = flags & 0x80 ? byte() : 0
     }
-    if (run === 0 || x + run > width) throw new Error('PGS RLE 行长度无效')
+    if (run === 0 || x + run > width) throw new Error(t('PGS RLE 行长度无效'))
     pixels.fill(color, y * width + x, y * width + x + run)
     x += run
   }
   if (y < height && !(y === height - 1 && x === width)) {
-    throw new Error('PGS RLE 图像不完整')
+    throw new Error(t('PGS RLE 图像不完整'))
   }
   return pixels
 }
@@ -73,15 +74,15 @@ export class PgsDecoder {
   push(data: Uint8Array, timestampMs: number): ParsedCue[] {
     const completed: ParsedCue[] = []
     for (let p = 0; p < data.length;) {
-      if (p + 3 > data.length) throw new Error('PGS 段头截断')
+      if (p + 3 > data.length) throw new Error(t('PGS 段头截断'))
       const type = data[p]!
       const size = u16(data, p + 1)
       p += 3
-      if (p + size > data.length) throw new Error('PGS 段数据截断')
+      if (p + size > data.length) throw new Error(t('PGS 段数据截断'))
       const b = data.subarray(p, p + size)
       p += size
       if (type === 0x16) {
-        if (b.length < 11) throw new Error('PGS PCS 数据截断')
+        if (b.length < 11) throw new Error(t('PGS PCS 数据截断'))
         for (const cue of this.pending) {
           cue.end = timestampMs / 1000
           if (cue.end > cue.start) completed.push(cue)
@@ -96,7 +97,7 @@ export class PgsDecoder {
           this.width > 4096 ||
           this.height > 2160
         ) {
-          throw new Error('PGS 画布尺寸无效')
+          throw new Error(t('PGS 画布尺寸无效'))
         }
         if (b[7]! & 0xc0) {
           this.palettes.clear()
@@ -106,7 +107,7 @@ export class PgsDecoder {
         this.refs = []
         let r = 11
         for (let i = 0; i < b[10]!; i++) {
-          if (r + 8 > b.length) throw new Error('PGS 对象引用截断')
+          if (r + 8 > b.length) throw new Error(t('PGS 对象引用截断'))
           const ref: ObjectRef = {
             id: u16(b, r),
             x: u16(b, r + 4),
@@ -115,7 +116,7 @@ export class PgsDecoder {
           const cropped = b[r + 3]! & 0x80
           r += 8
           if (cropped) {
-            if (r + 8 > b.length) throw new Error('PGS 裁剪数据截断')
+            if (r + 8 > b.length) throw new Error(t('PGS 裁剪数据截断'))
             ref.crop = {
               x: u16(b, r),
               y: u16(b, r + 2),
@@ -128,7 +129,7 @@ export class PgsDecoder {
         }
       } else if (type === 0x14) {
         if (b.length < 2 || (b.length - 2) % 5)
-          throw new Error('PGS 调色板无效')
+          throw new Error(t('PGS 调色板无效'))
         const palette = this.palettes.get(b[0]!) ?? new Uint8ClampedArray(1024)
         for (let i = 2; i < b.length; i += 5) {
           const index = b[i]! * 4
@@ -142,11 +143,11 @@ export class PgsDecoder {
         }
         this.palettes.set(b[0]!, palette)
       } else if (type === 0x15) {
-        if (b.length < 4) throw new Error('PGS ODS 数据截断')
+        if (b.length < 4) throw new Error(t('PGS ODS 数据截断'))
         const id = u16(b, 0)
         let offset = 4
         if (b[3]! & 0x80) {
-          if (b.length < 11) throw new Error('PGS ODS 首段截断')
+          if (b.length < 11) throw new Error(t('PGS ODS 首段截断'))
           const length = b[4]! * 65536 + u16(b, 5) - 4
           const width = u16(b, 7),
             height = u16(b, 9)
@@ -157,10 +158,10 @@ export class PgsDecoder {
             !height ||
             width * height > 4096 * 2160
           ) {
-            throw new Error('PGS ODS 长度或尺寸无效')
+            throw new Error(t('PGS ODS 长度或尺寸无效'))
           }
           if (!this.objects.has(id) && this.objects.size >= 64)
-            throw new Error('PGS 对象过多')
+            throw new Error(t('PGS 对象过多'))
           this.objects.set(id, {
             width,
             height,
@@ -171,7 +172,7 @@ export class PgsDecoder {
         }
         const object = this.objects.get(id)
         if (!object || object.filled + b.length - offset > object.data.length) {
-          throw new Error('PGS ODS 分片无效')
+          throw new Error(t('PGS ODS 分片无效'))
         }
         object.data.set(b.subarray(offset), object.filled)
         object.filled += b.length - offset
@@ -192,11 +193,11 @@ export class PgsDecoder {
   private render(): ParsedCue[] {
     const palette = this.palettes.get(this.paletteId)
     if (!this.refs.length) return [] // Explicit clear display set.
-    if (!palette) throw new Error('PGS 缺少调色板')
+    if (!palette) throw new Error(t('PGS 缺少调色板'))
     return this.refs.map((ref) => {
       const object = this.objects.get(ref.id)
       if (!object || object.filled !== object.data.length)
-        throw new Error('PGS 对象不完整')
+        throw new Error(t('PGS 对象不完整'))
       const pixels = decodePgsRle(object.data, object.width, object.height)
       const crop = ref.crop ?? {
         x: 0,
@@ -214,12 +215,12 @@ export class PgsDecoder {
         object.height - crop.y,
         this.height - ref.y
       )
-      if (width <= 0 || height <= 0) throw new Error('PGS 字幕位置无效')
+      if (width <= 0 || height <= 0) throw new Error(t('PGS 字幕位置无效'))
       const canvas = document.createElement('canvas')
       canvas.width = width
       canvas.height = height
       const ctx = canvas.getContext('2d')
-      if (!ctx) throw new Error('浏览器无法创建 PGS 画布')
+      if (!ctx) throw new Error(t('浏览器无法创建 PGS 画布'))
       const image = ctx.createImageData(width, height)
       for (let y = 0; y < height; y++) {
         for (let x = 0; x < width; x++) {

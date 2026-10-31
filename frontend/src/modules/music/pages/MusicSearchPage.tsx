@@ -226,7 +226,7 @@ export function MusicSearchPage({
                   notify: true,
                 })
               }
-              rowTitle="双击添加到队列，hover 序号点击立即播放"
+              rowTitle={t('双击添加到队列，hover 序号点击立即播放')}
             />
           )
         })}

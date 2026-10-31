@@ -29,6 +29,7 @@ import { ServerUrlModal } from '@/components/header/ServerUrlModal'
 import { ThemeMenu } from '@/components/header/ThemeMenu'
 import { UserMenu } from '@/components/header/UserMenu'
 import { usePortalDropdown } from '@/components/header/usePortalDropdown'
+import { t } from '@/i18n'
 
 export function Header() {
   const {
@@ -119,7 +120,7 @@ export function Header() {
       )
     } else {
       message.info(
-        '请前往 https://github.com/Zero-wyc/ZViewerCLI 下载对应版本 CLI'
+        t('请前往 https://github.com/Zero-wyc/ZViewerCLI 下载对应版本 CLI')
       )
     }
   }, [])
@@ -148,7 +149,7 @@ export function Header() {
       {immersive && !headerShown && (
         <button
           type="button"
-          aria-label="显示顶栏"
+          aria-label={t('显示顶栏')}
           className="fixed left-1/2 top-0 z-[39] h-1.5 w-36 -translate-x-1/2 rounded-b-[4px] transition-all duration-300 hover:h-2"
           style={{
             backgroundColor:
@@ -206,7 +207,7 @@ export function Header() {
             style={{
               border: '1px solid var(--md-sys-color-outline)',
             }}
-            title="GitHub 仓库"
+            title={t('GitHub 仓库')}
           >
             <GithubIcon className="w-4 h-4" />
           </a>
@@ -219,7 +220,7 @@ export function Header() {
               style={{
                 border: '1px solid var(--md-sys-color-outline)',
               }}
-              title="下载 CLI 高画质代理"
+              title={t('下载 CLI 高画质代理')}
             >
               <Download className="w-4 h-4" />
             </button>
@@ -232,7 +233,7 @@ export function Header() {
             style={{
               border: '1px solid var(--md-sys-color-outline)',
             }}
-            title="自定义后端地址"
+            title={t('自定义后端地址')}
           >
             <Server className="w-4 h-4" />
           </button>

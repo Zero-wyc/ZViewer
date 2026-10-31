@@ -4,6 +4,7 @@ import { DoorOpen, X } from 'lucide-react'
 import { useRoomStore } from '@/store/roomStore'
 import { useSocket } from '@/hooks/useSocket'
 import { cn } from '@/lib/utils'
+import { t } from '@/i18n'
 
 /**
  * "回到房间"浮动入口。
@@ -103,7 +104,7 @@ export function ReturnToRoomButton() {
           boxShadow:
             '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
         }}
-        title="回到房间"
+        title={t('回到房间')}
       >
         {/* 图标容器：Material 3 container 纯色背景 */}
         <span
@@ -118,7 +119,7 @@ export function ReturnToRoomButton() {
 
         <div className="flex flex-col items-start">
           <span className="text-sm font-medium text-[var(--md-sys-color-on-surface)]">
-            回到房间
+            {t('回到房间')}
           </span>
           {roomName ? (
             <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
@@ -137,7 +138,7 @@ export function ReturnToRoomButton() {
           role="button"
           tabIndex={0}
           className="ml-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full opacity-50 transition-all hover:scale-110 hover:opacity-100"
-          title="退出房间"
+          title={t('退出房间')}
           style={{
             backgroundColor:
               'color-mix(in srgb, var(--md-sys-color-on-surface) 10%, transparent)',

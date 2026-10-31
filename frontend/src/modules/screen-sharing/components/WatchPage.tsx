@@ -40,6 +40,7 @@ import { JoinRoomForm } from './JoinRoomForm'
 import StreamPushViewer from './StreamPushViewer'
 import WebrtcWatchPage from './WebrtcWatchPage'
 import type { JoinFormValues } from '../types'
+import { t } from '@/i18n'
 
 function WatchPage() {
   const { roomId } = useParams<{ roomId?: string }>()
@@ -127,8 +128,8 @@ function WatchPage() {
         }
         controlLabels={
           canManageMovie
-            ? ['房间状态', '影片列表', '添加影片']
-            : ['房间状态', '影片列表']
+            ? [t('房间状态'), t('影片列表'), t('添加影片')]
+            : [t('房间状态'), t('影片列表')]
         }
         webFullscreen={isWebFullscreen}
       />
@@ -195,7 +196,7 @@ function WatchPage() {
   ) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 p-6">
-        <Spinner tip="正在加入房间..." size={48} />
+        <Spinner tip={t('正在加入房间...')} size={48} />
         {listRoomName && <Text type="secondary">正在加入：{listRoomName}</Text>}
       </div>
     )
@@ -203,7 +204,7 @@ function WatchPage() {
 
   const handleJoin = (values: JoinFormValues) => {
     if (!values.roomId.trim()) {
-      message.warning('请输入房间号')
+      message.warning(t('请输入房间号'))
       return
     }
     const targetRoomId = values.roomId.trim()

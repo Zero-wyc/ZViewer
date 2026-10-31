@@ -17,6 +17,7 @@ import type {
   EmbyVersionInfo,
 } from './types'
 import { createEmbyLikeApi } from './embyLikeApi'
+import { t } from '@/i18n'
 
 const embyApi = createEmbyLikeApi<
   EmbyMount,
@@ -87,7 +88,7 @@ export async function getEmbyApiMovieSource(
     multiVersion?: boolean
   }
   if (!res.ok || !data.success || !data.videoUrl) {
-    throw new Error(data.message || '获取影片版本信息失败')
+    throw new Error(data.message || t('获取影片版本信息失败'))
   }
   return {
     title: data.title || '',

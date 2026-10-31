@@ -371,7 +371,7 @@ export function NcmSearchModal({
           <div className="relative z-[1] mt-3 min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             {unfoldDone && searching && results.length === 0 && (
               <LoadingLine
-                text="正在搜索…"
+                text={t('正在搜索…')}
                 spinnerClassName="h-3.5 w-3.5"
                 className="h-auto py-10 text-white/55"
               />

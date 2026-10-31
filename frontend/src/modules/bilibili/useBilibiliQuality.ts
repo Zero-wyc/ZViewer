@@ -17,6 +17,7 @@ import {
   getEffectivePreferMp4,
   resolveBilibiliCliProxyDecision,
 } from '@/modules/movie-source/resolver'
+import { t } from '@/i18n'
 
 function qualitiesEqual(a: QualityOption[], b: QualityOption[]): boolean {
   if (a.length !== b.length) return false
@@ -125,7 +126,9 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
           const { cliOnly, proxyUrl } = resolveBilibiliCliProxyDecision(movie)
           if (cliOnly && !proxyUrl) {
             throw new Error(
-              '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后观看'
+              t(
+                '该影片已开启「仅允许CLI模式」：请安装并连接 ZViewer CLI 后观看'
+              )
             )
           }
           if (proxyUrl) {
@@ -152,7 +155,7 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
                   true
                 )
               } else {
-                throw new Error('无法提取 BV 号或 cid，无法使用 CLI 代理')
+                throw new Error(t('无法提取 BV 号或 cid，无法使用 CLI 代理'))
               }
             }
           } else {
@@ -175,7 +178,7 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
         }
 
         if (!resolved.videoUrl) {
-          throw new Error('未获取到对应清晰度的播放地址')
+          throw new Error(t('未获取到对应清晰度的播放地址'))
         }
 
         const newState: WatchTogetherState = {

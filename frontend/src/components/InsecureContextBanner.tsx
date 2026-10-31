@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { ShieldAlert, X } from 'lucide-react'
+import { t } from '@/i18n'
 
 /**
  * 非安全上下文（HTTP 且非 localhost）提示横幅。
@@ -46,20 +47,23 @@ export function InsecureContextBanner() {
         style={{ color: 'var(--md-sys-color-error)' }}
       />
       <div className="flex-1 text-sm leading-relaxed">
-        <div className="font-semibold">当前为 HTTP 连接，部分功能不可用</div>
+        <div className="font-semibold">
+          {t('当前为 HTTP 连接，部分功能不可用')}
+        </div>
         <div
           className="mt-1 text-xs"
           style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
         >
-          屏幕共享、语音聊天等需要安全上下文的功能已被浏览器禁用。其他功能（房间管理、视频播放、弹幕、OBS
-          推流）可正常使用。配置 HTTPS 后可解锁全部功能。
+          {t(
+            '屏幕共享、语音聊天等需要安全上下文的功能已被浏览器禁用。其他功能（房间管理、视频播放、弹幕、OBS 推流）可正常使用。配置 HTTPS 后可解锁全部功能。'
+          )}
         </div>
       </div>
       <button
         type="button"
         onClick={() => setDismissed(true)}
         className="rounded p-1 transition-colors hover:bg-[var(--md-sys-color-surface-container-highest)]"
-        aria-label="关闭提示"
+        aria-label={t('关闭提示')}
       >
         <X className="h-4 w-4" />
       </button>

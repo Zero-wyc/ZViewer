@@ -29,6 +29,7 @@ import { fetchAllMounts } from './mountsApi'
 import MountFormModal from './MountFormModal'
 import MountBrowser from './MountBrowser'
 import type { UnionMount, MountType } from './types'
+import { t } from '@/i18n'
 
 const TYPE_LABELS: Record<MountType, string> = {
   webdav: 'WebDAV',
@@ -70,7 +71,7 @@ export default function MountManager() {
       const data = await fetchAllMounts()
       setMounts(data)
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '获取挂载列表失败')
+      message.error(err instanceof Error ? err.message : t('获取挂载列表失败'))
     } finally {
       setLoading(false)
     }
@@ -107,10 +108,10 @@ export default function MountManager() {
       } else {
         await deleteFTPMount(deleteTarget.id)
       }
-      message.success('挂载已删除')
+      message.success(t('挂载已删除'))
       await loadMounts()
     } catch (err) {
-      message.error(err instanceof Error ? err.message : '删除挂载失败')
+      message.error(err instanceof Error ? err.message : t('删除挂载失败'))
     } finally {
       setDeleting(false)
       setDeleteTarget(null)
@@ -121,7 +122,7 @@ export default function MountManager() {
     <div className="glass-card p-4">
       <SectionHeader
         icon={<Server className="h-4 w-4" />}
-        title="我的挂载"
+        title={t('我的挂载')}
         tone="secondary"
         className="mb-4"
         extra={
@@ -131,17 +132,17 @@ export default function MountManager() {
             icon={<Plus className="h-4 w-4" />}
             onClick={() => openAddModal('webdav')}
           >
-            添加挂载
+            {t('添加挂载')}
           </Button>
         }
       />
 
       {loading && mounts.length === 0 ? (
         <div className="py-6">
-          <Spinner tip="加载挂载列表..." size={28} />
+          <Spinner tip={t('加载挂载列表...')} size={28} />
         </div>
       ) : mounts.length === 0 ? (
-        <EmptyState text="暂无保存的挂载配置" />
+        <EmptyState text={t('暂无保存的挂载配置')} />
       ) : (
         <div className="space-y-3">
           {mounts.map((mount) => {
@@ -188,7 +189,7 @@ export default function MountManager() {
                     mount.type === 'emby' ||
                     mount.type === 'jellyfin') && (
                     <div className="mt-1 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-                      播放模式：{mount.directLink ? '直链' : '转发'}
+                      播放模式：{mount.directLink ? t('直链') : t('转发')}
                     </div>
                   )}
                   {mount.username && (
@@ -204,7 +205,7 @@ export default function MountManager() {
                     icon={<FolderOpen className="h-4 w-4" />}
                     onClick={() => setBrowsingMount(mount)}
                   >
-                    浏览
+                    {t('浏览')}
                   </Button>
                   <Button
                     variant="ghost"
@@ -212,7 +213,7 @@ export default function MountManager() {
                     icon={<Pencil className="h-4 w-4" />}
                     onClick={() => openEditModal(mount)}
                   >
-                    编辑
+                    {t('编辑')}
                   </Button>
                   <Button
                     variant="danger"
@@ -220,7 +221,7 @@ export default function MountManager() {
                     icon={<Trash2 className="h-4 w-4" />}
                     onClick={() => setDeleteTarget(mount)}
                   >
-                    删除
+                    {t('删除')}
                   </Button>
                 </div>
               </div>
@@ -240,10 +241,10 @@ export default function MountManager() {
       <ConfirmModal
         open={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
-        title="确认删除"
+        title={t('确认删除')}
         onOk={handleDelete}
-        okText={deleting ? '删除中...' : '删除'}
-        cancelText="取消"
+        okText={deleting ? t('删除中...') : t('删除')}
+        cancelText={t('取消')}
       >
         确定要删除挂载「{deleteTarget?.name}」吗？删除后不可恢复。
       </ConfirmModal>

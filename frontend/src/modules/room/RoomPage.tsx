@@ -495,7 +495,7 @@ function RoomPage() {
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <Spinner tip="正在恢复房间..." size={32} />
+            <Spinner tip={t('正在恢复房间...')} size={32} />
           </div>
         )
       ) : (

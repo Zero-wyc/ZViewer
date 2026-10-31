@@ -99,7 +99,7 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
             >
               {status === 'generating' ? (
                 <LoadingLine
-                  text="正在生成二维码…"
+                  text={t('正在生成二维码…')}
                   spinnerClassName="h-6 w-6 text-[var(--md-sys-color-primary)]"
                   className="h-auto"
                 />
@@ -108,7 +108,7 @@ export function MusicQrLoginModal({ onClose }: MusicQrLoginModalProps) {
                   {t('二维码暂不可用')}
                 </span>
               ) : (
-                <Spinner size={28} tip="正在生成二维码" />
+                <Spinner size={28} tip={t('正在生成二维码')} />
               )}
             </div>
           )}

@@ -1,6 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeft } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
+import { t } from '@/i18n'
 
 interface PageBackButtonProps {
   /** 返回目标，默认 '/'；可传数字表示 navigate(-n) */
@@ -19,7 +20,7 @@ interface PageBackButtonProps {
  */
 export function PageBackButton({
   to = '/',
-  label = '返回',
+  label = t('返回'),
   className = '',
 }: PageBackButtonProps) {
   const navigate = useNavigate()

@@ -9,6 +9,7 @@
 import { useCallback, useState } from 'react'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
+import { t } from '@/i18n'
 
 interface UseCookieBindingParams {
   /** 读取当前 Cookie；无 Cookie 时返回 null/undefined */
@@ -64,11 +65,11 @@ export function useCookieBinding({
         return
       }
       await copy(cookie, {
-        successMessage: 'Cookie 已复制到剪贴板',
-        errorMessage: '复制 Cookie 失败',
+        successMessage: t('Cookie 已复制到剪贴板'),
+        errorMessage: t('复制 Cookie 失败'),
       })
     } catch {
-      message.error('复制 Cookie 失败')
+      message.error(t('复制 Cookie 失败'))
     } finally {
       setCopyLoading(false)
     }
@@ -78,7 +79,7 @@ export function useCookieBinding({
   const loginWithCookieInput = useCallback(async () => {
     const trimmed = cookieInput.trim()
     if (!trimmed) {
-      message.warning('请输入 Cookie')
+      message.warning(t('请输入 Cookie'))
       return
     }
     setLoginLoading(true)

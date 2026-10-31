@@ -13,6 +13,7 @@ import type {
   KazumiEpisode,
   KazumiResolvedSource,
 } from './types'
+import { t } from '@/i18n'
 
 const getBaseUrl = () => `${getApiUrl()}/api/stream/kazumi`
 
@@ -25,7 +26,7 @@ export async function getKazumiSources(): Promise<KazumiSource[]> {
     sources?: KazumiSource[]
   }
   if (!res.ok || !data.success || !Array.isArray(data.sources)) {
-    throw new Error(data.message || '获取数据源失败')
+    throw new Error(data.message || t('获取数据源失败'))
   }
   return data.sources
 }
@@ -44,7 +45,7 @@ export async function searchKazumi(
     results?: KazumiSearchResult[]
   }
   if (!res.ok || !data.success || !Array.isArray(data.results)) {
-    throw new Error(data.message || '搜索失败')
+    throw new Error(data.message || t('搜索失败'))
   }
   return data.results
 }
@@ -63,7 +64,7 @@ export async function getKazumiEpisodes(
     episodes?: KazumiEpisode[]
   }
   if (!res.ok || !data.success || !Array.isArray(data.episodes)) {
-    throw new Error(data.message || '获取集数失败')
+    throw new Error(data.message || t('获取集数失败'))
   }
   return data.episodes
 }
@@ -86,7 +87,7 @@ export async function resolveKazumiEpisode(
     format?: KazumiResolvedSource['format']
   }
   if (!res.ok || !data.success || !data.url) {
-    throw new Error(data.message || '解析播放地址失败')
+    throw new Error(data.message || t('解析播放地址失败'))
   }
   return {
     url: data.url,

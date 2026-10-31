@@ -147,7 +147,7 @@ export function BiliFavCollectModal({
               <div className="zen-scroll relative min-h-0 flex-1 overflow-y-auto px-3 py-3">
                 {loading && (
                   <LoadingLine
-                    text="正在获取收藏夹…"
+                    text={t('正在获取收藏夹…')}
                     className="h-auto py-6 font-bold text-white/60"
                   />
                 )}

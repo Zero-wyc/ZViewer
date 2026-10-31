@@ -2,6 +2,7 @@ import type { ResolvedSource } from '@/modules/bilibili/types'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import { buildAntileechProxyUrl } from '@/lib/antileech-proxy-url'
 import { apiFetch, getApiUrl, safeJson } from '@/lib/api'
+import { t } from '@/i18n'
 
 // Bilibili 模块化后的 re-export：保持向后兼容
 // 类型与解析偏好
@@ -56,7 +57,7 @@ export async function resolveFTP(params: FTPParams): Promise<ResolvedSource> {
     duration?: number
   }>(res, { success: false })
   if (!res.ok || !data.success || !data.videoUrl) {
-    throw new Error(data.message || '解析 FTP 文件失败')
+    throw new Error(data.message || t('解析 FTP 文件失败'))
   }
   return {
     title: data.title,
@@ -94,7 +95,7 @@ export async function getAnimeSources(): Promise<AnimeSource[]> {
     sources?: AnimeSource[]
   }>(res, { success: false })
   if (!res.ok || !data.success || !Array.isArray(data.sources)) {
-    throw new Error(data.message || '获取番剧数据源失败')
+    throw new Error(data.message || t('获取番剧数据源失败'))
   }
   return data.sources
 }
@@ -112,7 +113,7 @@ export async function searchAnime(
     results?: AnimeSearchResult[]
   }>(res, { success: false })
   if (!res.ok || !data.success || !Array.isArray(data.results)) {
-    throw new Error(data.message || '搜索番剧失败')
+    throw new Error(data.message || t('搜索番剧失败'))
   }
   return data.results
 }
@@ -130,7 +131,7 @@ export async function getAnimeEpisodes(
     episodes?: AnimeEpisode[]
   }>(res, { success: false })
   if (!res.ok || !data.success || !Array.isArray(data.episodes)) {
-    throw new Error(data.message || '获取番剧集数失败')
+    throw new Error(data.message || t('获取番剧集数失败'))
   }
   return data.episodes
 }
@@ -168,7 +169,7 @@ export async function resolveAnimeEpisode(
     duration?: number
   }>(res, { success: false })
   if (!res.ok || !data.success || !data.url) {
-    throw new Error(data.message || '解析番剧播放地址失败')
+    throw new Error(data.message || t('解析番剧播放地址失败'))
   }
   return {
     url: data.url,
@@ -208,7 +209,7 @@ export async function getFollowingBangumi(): Promise<FollowingBangumi[]> {
     list?: FollowingBangumi[]
   }>(res, { success: false })
   if (!res.ok || !data.success || !Array.isArray(data.list)) {
-    throw new Error(data.message || '获取关注番剧列表失败')
+    throw new Error(data.message || t('获取关注番剧列表失败'))
   }
   return data.list
 }
@@ -232,7 +233,7 @@ export async function getBangumiEpisodes(
     episodes?: BangumiEpisode[]
   }>(res, { success: false })
   if (!res.ok || !data.success || !Array.isArray(data.episodes)) {
-    throw new Error(data.message || '获取番剧集数失败')
+    throw new Error(data.message || t('获取番剧集数失败'))
   }
   return data.episodes
 }

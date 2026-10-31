@@ -1,5 +1,6 @@
 import type { ResolvedSource } from './types'
 import { getBilibiliVideoView } from './bilibiliApi'
+import { t } from '@/i18n'
 
 const BV_REGEX = /BV[0-9A-Za-z]{10}/
 
@@ -180,7 +181,7 @@ async function resolvePageCid(bvid: string, page = 1): Promise<number> {
   try {
     view = await getBilibiliVideoView(bvid)
   } catch {
-    throw new CliPrecheckError('获取视频信息失败，改用服务器端解析')
+    throw new CliPrecheckError(t('获取视频信息失败，改用服务器端解析'))
   }
   const cid =
     view.pages?.find((p) => p.page === page)?.cid ||
@@ -190,7 +191,7 @@ async function resolvePageCid(bvid: string, page = 1): Promise<number> {
     throw new CliPrecheckError(
       page > 1
         ? `未取到 P${page} 的 cid，改用服务器端解析`
-        : '未取到视频分 P 的 cid，改用服务器端解析'
+        : t('未取到视频分 P 的 cid，改用服务器端解析')
     )
   // 简单容量上限，避免长时间运行后无限增长
   if (pageCidCache.size >= 200) pageCidCache.clear()
@@ -252,7 +253,7 @@ export async function resolveBilibiliViaCli(
   } catch {
     // fetch 抛出 TypeError：网络不可达、CORS 被拦截、进程未启动等
     throw new CliConnectionError(
-      'CLI 代理连接失败，请确认本地 ZViewer CLI 已启动'
+      t('CLI 代理连接失败，请确认本地 ZViewer CLI 已启动')
     )
   }
 
@@ -334,7 +335,7 @@ export async function resolveBangumiViaCli(
     })
   } catch {
     throw new CliConnectionError(
-      'CLI 代理连接失败，请确认本地 ZViewer CLI 已启动'
+      t('CLI 代理连接失败，请确认本地 ZViewer CLI 已启动')
     )
   }
 

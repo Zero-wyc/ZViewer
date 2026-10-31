@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client'
 import { message } from '@/components/ui/message'
 import { ICE_SERVERS } from '../constants'
 import type { SignalPayload } from '../types'
+import { t } from '@/i18n'
 
 interface UseViewerPeerConnectionOptions {
   socket: Socket | null
@@ -242,7 +243,7 @@ export function useViewerPeerConnection(
       sharerSocketIdRef.current = data.from
       const currentPc = pcRef.current
       if (!currentPc) {
-        message.error('WebRTC 连接尚未创建')
+        message.error(t('WebRTC 连接尚未创建'))
         return
       }
 
@@ -312,7 +313,7 @@ export function useViewerPeerConnection(
         })
       } catch (err) {
         console.error('[useViewerPeerConnection] handle offer error:', err)
-        message.error('处理共享端连接请求失败')
+        message.error(t('处理共享端连接请求失败'))
       } finally {
         processingOfferRef.current = false
       }
@@ -335,7 +336,7 @@ export function useViewerPeerConnection(
         await currentPc.addIceCandidate(new RTCIceCandidate(data.data))
       } catch (err) {
         console.error('[useViewerPeerConnection] add ice candidate error:', err)
-        message.error('处理网络候选失败')
+        message.error(t('处理网络候选失败'))
       }
     },
     []
