@@ -306,8 +306,8 @@ export function CustomColorPanel({ open }: { open: boolean }) {
                     key={btn.value}
                     type="button"
                     aria-pressed={active}
-                    aria-label={btn.label}
-                    title={btn.label}
+                    aria-label={t(btn.label)}
+                    title={t(btn.label)}
                     onClick={() => setMode(btn.value)}
                     className={cn(
                       'flex h-10 w-10 items-center justify-center rounded-full transition-all duration-200',

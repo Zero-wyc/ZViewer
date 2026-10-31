@@ -354,7 +354,7 @@ export function SettingsTab({
                       }}
                     >
                       <td className="px-3 py-2 text-[var(--md-sys-color-on-surface)]">
-                        {action.label}
+                        {t(action.label)}
                       </td>
                       {MATRIX_ROLES.map((role) => (
                         <td key={role.key} className="px-3 py-2 text-center">

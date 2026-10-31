@@ -1,3 +1,5 @@
+import { t } from '@/i18n'
+
 type MessageType = 'success' | 'info' | 'warning' | 'error'
 
 /** 确认类提示的操作按钮（点击后提示窗关闭并执行回调） */
@@ -122,7 +124,7 @@ function show(
     for (const action of options.actions) {
       const btn = document.createElement('button')
       btn.type = 'button'
-      btn.textContent = action.label
+      btn.textContent = t(action.label)
       btn.className =
         'rounded-full px-2.5 py-0.5 text-xs font-bold leading-4 transition-opacity hover:opacity-70'
       btn.style.border = '1px solid currentColor'

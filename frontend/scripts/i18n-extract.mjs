@@ -358,6 +358,17 @@ function templateToKey(node) {
  */
 function collectChineseProps(value, props = new Map()) {
   const walk = (node) => {
+    // `[...] as const` / `({...} satisfies X)`：先剥掉类型断言再往下走，
+    // 否则 idiomatic 的 `as const` 表全都识别不到。
+    if (
+      ts.isAsExpression(node) ||
+      ts.isParenthesizedExpression(node) ||
+      ts.isNonNullExpression(node) ||
+      ts.isSatisfiesExpression(node)
+    ) {
+      walk(node.expression)
+      return
+    }
     if (ts.isObjectLiteralExpression(node)) {
       for (const property of node.properties) {
         if (!ts.isPropertyAssignment(property)) continue

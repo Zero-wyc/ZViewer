@@ -548,11 +548,13 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
   }, [canControl, current, handleNext])
 
   // ===== 模式切换（Hydrogen changeFmMode / changeFmSubmode） =====
-  const activeModeLabel =
+  const activeModeLabel = t(
     FM_MODE_OPTIONS.find((m) => m.value === fmMode)?.label ?? t('默认推荐')
-  const activeSubmodeLabel =
+  )
+  const activeSubmodeLabel = t(
     FM_SCENE_SUBMODE_OPTIONS.find((s) => s.value === fmSubmode)?.label ??
-    t('专注')
+      t('专注')
+  )
   const modeSummary =
     fmMode === 'SCENE_RCMD'
       ? `${activeModeLabel} · ${activeSubmodeLabel}`
@@ -847,13 +849,13 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                           ? 'var(--md-sys-color-surface)'
                           : 'var(--md-sys-color-on-surface)',
                     }}
-                    title={mode.label}
+                    title={t(mode.label)}
                   >
                     <span className="text-[9px] leading-[1.1] tracking-[0.6px] opacity-80">
                       {mode.value}
                     </span>
                     <span className="whitespace-nowrap text-[11px] font-bold leading-[1.15]">
-                      {mode.label}
+                      {t(mode.label)}
                     </span>
                   </button>
                 ))}
@@ -886,13 +888,13 @@ export function MusicFmPage({ roomId, isHost }: MusicFmPageProps) {
                             ? 'var(--md-sys-color-surface)'
                             : 'var(--md-sys-color-on-surface)',
                       }}
-                      title={scene.label}
+                      title={t(scene.label)}
                     >
                       <span className="text-[9px] leading-[1.1] tracking-[0.6px] opacity-80">
                         {scene.value}
                       </span>
                       <span className="whitespace-nowrap text-[11px] font-bold leading-[1.15]">
-                        {scene.label}
+                        {t(scene.label)}
                       </span>
                     </button>
                   ))}

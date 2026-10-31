@@ -260,10 +260,10 @@ function SettingSelector({
         onClick={() => setOpen((v) => !v)}
         className="flex h-[34px] w-[200px] items-center justify-center gap-1 text-[13px] font-bold transition-opacity hover:opacity-80"
         style={{ color: 'var(--md-sys-color-on-surface)' }}
-        title={current?.label ?? value}
+        title={current ? t(current.label) : value}
         aria-expanded={open}
       >
-        {current?.label ?? value}
+        {current ? t(current.label) : value}
         <ChevronDown className="h-3.5 w-3.5 opacity-70" />
       </button>
       {open && (
@@ -292,7 +292,7 @@ function SettingSelector({
                   : 'text-[var(--md-sys-color-on-surface)]'
               )}
             >
-              {o.label}
+              {t(o.label)}
             </button>
           ))}
         </div>
