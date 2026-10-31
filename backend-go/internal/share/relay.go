@@ -195,6 +195,12 @@ func (r *Relay) BindPublication(roomID, generation, hostSocketID string) (SFUCon
 	}, nil
 }
 
+// Media 返回中继持有的媒体面。
+//
+// 语音要跟屏幕共享共用同一对 UDP/TCP 端口，所以必须拿同一个 Media：
+// 各建一个 Media 就是两套端口，P6 收口端口的前提正是这里共享。
+func (r *Relay) Media() *sfu.Media { return r.media }
+
 // HostSocketID 返回该房间发布者的连接 id（没有发布时为空）。
 func (r *Relay) HostSocketID(roomID string) string {
 	r.mu.Lock()

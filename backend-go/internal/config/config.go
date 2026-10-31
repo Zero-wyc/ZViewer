@@ -66,6 +66,14 @@ type Config struct {
 	// ShareMediaPublicIP 是 NAT 1:1 的公网地址（FRP/云主机场景必填，
 	// 否则客户端拿到的是内网候选）。
 	ShareMediaPublicIP string
+
+	// VoiceMode 选语音的实现路线：
+	//   - "process"（默认）：伴生 livekit-server 子进程，行为与历史一致；
+	//   - "sfu"：自建（internal/voicertc + 共享媒体面），不再拉起 LiveKit。
+	//
+	// 默认留在 process 是因为语音是常开功能：切过去要先把前端也换掉，
+	// 半切换会得到「后端不认识 token 端点、前端还在拉 LiveKit」的僵局。
+	VoiceMode string
 }
 
 // Load 解析配置。调用前应先调用 LoadDotEnv。
@@ -88,6 +96,7 @@ func Load() (*Config, error) {
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 
 		ShareRelay:         envBool("SHARE_RELAY"),
+		VoiceMode:          voiceMode(),
 		ShareMediaPort:     3339,
 		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
 	}
@@ -288,4 +297,16 @@ func envBool(name string) bool {
 	default:
 		return false
 	}
+}
+
+// VoiceModeSFU 是「语音走自建 SFU」的模式名。
+const VoiceModeSFU = "sfu"
+
+// voiceMode 归一化 VOICE_MODE。除 "sfu" 之外的一切写法都留在 process，
+// 拼错不该悄悄换掉一条常开功能的实现。
+func voiceMode() string {
+	if strings.ToLower(strings.TrimSpace(os.Getenv("VOICE_MODE"))) == VoiceModeSFU {
+		return VoiceModeSFU
+	}
+	return "process"
 }

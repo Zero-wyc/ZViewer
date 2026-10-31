@@ -11,6 +11,7 @@ import (
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/share"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/voicertc"
 )
 
 // HostReconnectGrace 是房主断线后的重连宽限期。
@@ -133,6 +134,7 @@ type Service struct {
 	// 挂在房间服务上而不是独立模块：共享的权限判定必须复用房间域的
 	// session 表与缓存，另起一份会与「谁在房间里」慢慢分叉。
 	shareSvc *share.Service
+	voiceRTC *voicertc.Service
 
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
@@ -171,6 +173,8 @@ type Deps struct {
 	NMS StreamPushService
 	// ShareRelay 是屏幕共享的 SFU 中继面。不传时观众直连房主。
 	ShareRelay *share.Relay
+	// VoiceRTC 是自建语音的控制面（VOICE_MODE=sfu）。不传时语音走 LiveKit。
+	VoiceRTC *voicertc.Service
 }
 
 // NewService 构造房间服务。
@@ -206,6 +210,7 @@ func NewService(deps Deps) *Service {
 	}
 	// 共享控制面要复用房间域的房主判定（带 5s 缓存），所以只能在这里注入，
 	// 且必须传 svc 自己的方法而不是闭包复制一份逻辑。
+	svc.voiceRTC = deps.VoiceRTC
 	svc.shareSvc = share.NewService(share.Deps{
 		Hub:    deps.Hub,
 		IsHost: svc.IsRoomHost,
@@ -526,6 +531,7 @@ func (s *Service) CloseAndNotify(ctx context.Context, roomID, sharerSocketID str
 	if s.shareSvc != nil {
 		s.shareSvc.DropRoom(roomID)
 	}
+	s.dropVoiceRTCRoom(roomID)
 
 	s.Delete(roomID)
 	s.CancelReconnectTimer(roomID)

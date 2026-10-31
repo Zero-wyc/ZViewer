@@ -13,12 +13,11 @@
 package share
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"reflect"
-	"strings"
+
+	"zviewer/backend/internal/strictjson"
 )
 
 // Event 是屏幕共享在 socket.io 上的唯一事件名（上下行共用）。
@@ -357,80 +356,17 @@ func (m ErrorMessage) MessageType() string { return m.T }
 // ErrUnknownType 表示 `t` 不在已知集合里。
 var ErrUnknownType = errors.New("unknown share message type")
 
-// fields 保存一个 JSON 对象的原始成员，用于区分「缺省」与「null」。
-//
-// encoding/json 单独做不到这件事：`*T` 的 nil 既可能是缺省也可能是 null。
-// 重复键折叠成最后一个，与 JSON.parse 行为一致。
-type fields map[string]json.RawMessage
+// fields 是一个 JSON 对象的原始成员表（别名转出，实现在 internal/strictjson）。
+type fields = strictjson.Fields
 
 // decodeObject 严格解码一个对象：拒绝未知键，并返回原始成员表。
-//
-// 与 Piik protocol/codec.go:29-55 一致，包括「先按 json tag 收集已知键，
-// 再 DisallowUnknownFields 二次解码」这一步——Go 的 struct 解码还接受
-// 大小写折叠的名字，必须提前挡掉，否则 `RoomId` 能绕过 `roomId`。
 func decodeObject(data []byte, target any) (fields, error) {
-	var raw fields
-	if err := json.Unmarshal(data, &raw); err != nil {
-		return nil, err
-	}
-	targetType := reflect.TypeOf(target).Elem()
-	known := make(map[string]struct{}, targetType.NumField())
-	for index := range targetType.NumField() {
-		name, _, _ := strings.Cut(targetType.Field(index).Tag.Get("json"), ",")
-		if name != "" && name != "-" {
-			known[name] = struct{}{}
-		}
-	}
-	for name := range raw {
-		if _, ok := known[name]; !ok {
-			return nil, fmt.Errorf("unknown field %q", name)
-		}
-	}
-	// 重复键只保留最后一个，与 JSON.parse 一致，也避免前面的值进到严格解码。
-	canonical, err := json.Marshal(raw)
-	if err != nil {
-		return nil, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(canonical))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return nil, err
-	}
-	return raw, nil
+	return strictjson.Decode(data, target)
 }
 
-// marshalJSON 编码时不转义 HTML 字符（与 JSON.stringify 一致，昵称可能带 < > &）。
+// marshalJSON 编码时不转义 HTML 字符（昵称可能带 < > &）。
 func marshalJSON(value any) ([]byte, error) {
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-	encoder.SetEscapeHTML(false)
-	if err := encoder.Encode(value); err != nil {
-		return nil, err
-	}
-	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), nil
-}
-
-func (f fields) has(key string) bool {
-	_, ok := f[key]
-	return ok
-}
-
-func (f fields) isNull(key string) bool {
-	raw, ok := f[key]
-	return ok && string(bytes.TrimSpace(raw)) == "null"
-}
-
-// require 要求键存在且不为 null（对应 zod 的必填字段）。
-func (f fields) require(keys ...string) error {
-	for _, key := range keys {
-		if !f.has(key) {
-			return fmt.Errorf("%s is required", key)
-		}
-		if f.isNull(key) {
-			return fmt.Errorf("%s must not be null", key)
-		}
-	}
-	return nil
+	return strictjson.Marshal(value)
 }
 
 // typeOf 只读判别式，不做严格校验（对应 zod 尝试每个 union 成员）。
@@ -468,7 +404,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId"); err != nil {
+		if err := raw.Require("t", "roomId"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -478,7 +414,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId"); err != nil {
+		if err := raw.Require("t", "roomId"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -488,7 +424,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "shareGeneration"); err != nil {
+		if err := raw.Require("t", "roomId", "shareGeneration"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -498,7 +434,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "shareGeneration", "paused"); err != nil {
+		if err := raw.Require("t", "roomId", "shareGeneration", "paused"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -508,7 +444,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "revision", "phase"); err != nil {
+		if err := raw.Require("t", "roomId", "revision", "phase"); err != nil {
 			return nil, err
 		}
 		if message.Phase != PhasePrepare && message.Phase != PhaseActive {
@@ -521,7 +457,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "revision", "connectionId"); err != nil {
+		if err := raw.Require("t", "roomId", "revision", "connectionId"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -531,7 +467,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "revision", "phase", "connectionId"); err != nil {
+		if err := raw.Require("t", "roomId", "revision", "phase", "connectionId"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -541,7 +477,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "connectionId", "rebuild"); err != nil {
+		if err := raw.Require("t", "roomId", "connectionId", "rebuild"); err != nil {
 			return nil, err
 		}
 		return message, nil
@@ -551,7 +487,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "connectionId", "kind", "payload"); err != nil {
+		if err := raw.Require("t", "roomId", "connectionId", "kind", "payload"); err != nil {
 			return nil, err
 		}
 		switch message.Kind {
@@ -566,7 +502,7 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := raw.require("t", "roomId", "revision", "publicationGeneration", "connectionId", "kind"); err != nil {
+		if err := raw.Require("t", "roomId", "revision", "publicationGeneration", "connectionId", "kind"); err != nil {
 			return nil, err
 		}
 		return message, nil

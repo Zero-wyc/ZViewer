@@ -179,6 +179,8 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindWebRTC(sc)
 	// 屏幕共享控制面：单一 `share` 事件，严格信封 + 代际 + 路由版本。
 	s.bindShare(sc)
+	// 自建语音（VOICE_MODE=sfu）。process 模式下这里是空操作。
+	s.bindVoiceRTC(sc)
 	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
 	s.bindMisc(sc)
 }
@@ -841,6 +843,9 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 	if s.shareSvc != nil {
 		s.shareSvc.Detach(socketID)
 	}
+	// 语音成员身份也要在 EndSession 之前清：媒体层的连接身份挂在 socket 上，
+	// 会话没了就再也找不到它了。
+	s.detachVoiceRTC(socketID)
 
 	sess, err := s.EndSession(ctx, socketID)
 	if err != nil {
