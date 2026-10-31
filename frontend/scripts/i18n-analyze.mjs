@@ -1,4 +1,12 @@
-/** 临时分析：读 i18n-report.json，按原因/文件统计未自动处理的文案。 */
+/**
+ * 看「哪些中文没被自动替换、为什么」。
+ *
+ *   node scripts/i18n-extract.mjs --scope src --report ./i18n-report.json
+ *   node scripts/i18n-analyze.mjs <原因> [text]
+ *
+ * 原因取自报告里的 reason：module-scope / jsx-multi-child / comparison / string-match…
+ * 带 text 参数时逐条打印文件、行号与原文。
+ */
 import fs from 'node:fs'
 
 const report = JSON.parse(fs.readFileSync(new URL('../i18n-report.json', import.meta.url), 'utf8'))
