@@ -30,7 +30,6 @@ import (
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
-	"zviewer/backend/internal/livekit"
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
@@ -213,13 +212,10 @@ func main() {
 	musicMemory := room.NewMusicMemory(conn)
 	musicMemory.SetLogger(log.Default())
 	musicMemory.SetHub(hub)
-	// 屏幕共享中继（SFU）：默认关，SHARE_RELAY=1 时观众不再直连房主，
-	// 房主只上行一份。媒体端口 UDP/TCP 同号，绑不上就整块关掉——宁可回退
-	// 直连，也不要让一个半死的媒体面把共享卡住。
 	// 自建媒体面：屏幕共享中继与语音共用**同一个** Media。
 	//
 	// 共用的意义不是省内存，而是省端口：一个 Media 只有一对 UDP/TCP listener，
-	// 语音与共享各建一个就是两对端口，P6 收口端口的前提正是这里共享。
+	// 语音与共享各建一个就是两对端口。
 	var (
 		shareRelay *share.Relay
 		mediaPlane *sfu.Media
@@ -228,59 +224,47 @@ func main() {
 		// 语音真正用到 IsHost 时房间服务早就装配好了。
 		roomSvc *room.Service
 	)
-	if cfg.ShareRelay || cfg.VoiceMode == config.VoiceModeSFU {
-		engine, engineErr := sfu.NewEngine(sfu.EngineOptions{
-			Port:            cfg.ShareMediaPort,
-			PublicIP:        cfg.ShareMediaPublicIP,
-			IncludeLoopback: cfg.ShareMediaPublicIP == "",
-		})
-		if engineErr != nil {
-			// 媒体端口不可用：共享退回直连，语音退回 LiveKit 伴生进程。
-			// 宁可降级，也不要留一个半死的媒体面把两个功能一起卡住。
-			log.Printf("[media] 媒体端口不可用，共享回退直连 / 语音回退 LiveKit: %v", engineErr)
-		} else if cfg.ShareRelay {
-			shareRelay = share.NewRelay(share.RelayDeps{
-				Settings:  engine.Settings(),
-				Admission: sfu.NewAdmission(sfu.AdmissionOptions{IngressCapacity: 1, EgressCapacity: 64}),
-				Emit: func(socketID string, message share.ServerMessage) {
-					hub.EmitTo(socketID, share.Event, message)
-				},
-				Logger: log.Default(),
-			})
-			mediaPlane = shareRelay.Media()
-			log.Printf("[share] 屏幕共享中继已启用，媒体端口 %s", engine.Describe())
-		} else {
-			// 只开自建语音、共享仍走直连：媒体面由这里持有，
-			// 事件回调不接（语音的 ConfigureVoice 自带 emit）。
-			mediaPlane = sfu.NewMedia(sfu.MediaOptions{Settings: engine.Settings()})
-			log.Printf("[voice] 自建语音已启用，媒体端口 %s", engine.Describe())
-		}
-	}
-
-	// 自建语音控制面。媒体面没起来（上面降级了）就当没启用，
-	// 语音继续走 LiveKit 伴生进程。
-	var voiceRTC *voicertc.Service
-	if cfg.VoiceMode == config.VoiceModeSFU {
-		voiceRTC = voicertc.New(voicertc.Deps{
-			Media: mediaPlane,
-			Emit: func(socketID string, message voicertc.ServerMessage) {
-				hub.EmitTo(socketID, voicertc.Event, message)
-			},
-			IsHost: func(ctx context.Context, socketID, roomID string) (bool, error) {
-				if roomSvc == nil {
-					// 语音消息不可能早于房间服务构造（事件注册就在它里面）。
-					return false, nil
-				}
-				return roomSvc.IsRoomHost(ctx, socketID, roomID)
+	if engine, engineErr := sfu.NewEngine(sfu.EngineOptions{
+		Port:            cfg.ShareMediaPort,
+		TCPPort:         cfg.ShareMediaTCPPort,
+		PublicIP:        cfg.ShareMediaPublicIP,
+		IncludeLoopback: cfg.ShareMediaPublicIP == "",
+	}); engineErr != nil {
+		// 媒体端口不可用：共享退回直连，语音报「暂不可用」。
+		// 宁可降级，也不要留一个半死的媒体面把两个功能一起卡住。
+		log.Printf("[media] 媒体端口不可用，屏幕共享回退直连、语音不可用: %v", engineErr)
+	} else if cfg.ShareRelay {
+		shareRelay = share.NewRelay(share.RelayDeps{
+			Settings:  engine.Settings(),
+			Admission: sfu.NewAdmission(sfu.AdmissionOptions{IngressCapacity: 1, EgressCapacity: 64}),
+			Emit: func(socketID string, message share.ServerMessage) {
+				hub.EmitTo(socketID, share.Event, message)
 			},
 			Logger: log.Default(),
 		})
-		if voiceRTC == nil {
-			log.Printf("[voice] VOICE_MODE=sfu 但媒体面未就绪，语音回退 LiveKit 伴生进程")
-		} else {
-			log.Printf("[voice] 语音走自建 SFU（不再拉起 livekit-server）")
-		}
+		mediaPlane = shareRelay.Media()
+		log.Printf("[share] 屏幕共享中继已启用，媒体端口 %s", engine.Describe())
+	} else {
+		// 共享仍走直连，但语音需要媒体面：事件回调不接（语音的 ConfigureVoice 自带 emit）。
+		mediaPlane = sfu.NewMedia(sfu.MediaOptions{Settings: engine.Settings()})
+		log.Printf("[voice] 语音已启用，媒体端口 %s", engine.Describe())
 	}
+
+	// 语音控制面。媒体面没起来时为 nil，/api/voice/status 会报不可用。
+	voiceRTC := voicertc.New(voicertc.Deps{
+		Media: mediaPlane,
+		Emit: func(socketID string, message voicertc.ServerMessage) {
+			hub.EmitTo(socketID, voicertc.Event, message)
+		},
+		IsHost: func(ctx context.Context, socketID, roomID string) (bool, error) {
+			if roomSvc == nil {
+				// 语音消息不可能早于房间服务构造（事件注册就在它里面）。
+				return false, nil
+			}
+			return roomSvc.IsRoomHost(ctx, socketID, roomID)
+		},
+		Logger: log.Default(),
+	})
 
 	roomSvc = room.NewService(room.Deps{
 		DB:       conn,
@@ -307,16 +291,6 @@ func main() {
 	// 凭证缓存、WBI 密钥、buvid 都在实例内，分成两份会重复握手。
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
-
-	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
-	// 没有外部编排，必须由后端作为伴生进程拉起。二进制随产物分发（build-all
-	// 从 backend-go/dev-bin 复制），缺失时才由房间里的「下载语音聊天组件」补回
-	// （见 internal/livekit/component.go），所以这里先构造管理器，
-	// HTTP 起来之后才能响应 /api/voice/status。
-	livekitMgr := livekit.New(livekit.ConfigFromEnv())
-	if voiceRTC == nil {
-		livekitMgr.PrepareEnv()
-	}
 
 	server := api.New(api.Deps{
 		Cfg:      cfg,
@@ -348,7 +322,6 @@ func main() {
 		Danmaku:       danmaku.NewService(biliService),
 		NCM:           ncm.NewService(conn),
 		NMS:           streamPush,
-		VoiceBin:      livekitMgr,
 		VoiceRTC:      voiceRTC,
 	})
 
@@ -367,16 +340,6 @@ func main() {
 	// 用可取消的 ctx 而不是空 context：优雅退出时要能停掉。
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
 	stopCleanupScheduler := roomSvc.StartCleanupScheduler(cleanupCtx)
-
-	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
-	// 没有外部编排，必须由后端作为伴生进程拉起——否则语音直接不可用。
-	// 环境变量注入是同步的（/api/voice/token 立刻能签），找二进制/下载/等端口
-	// 放后台，不阻塞 HTTP 监听。二进制缺失时 Run 直接返回，等前端触发下载后
-	// 由 Manager.Start 记录的 ctx 补拉（startAfterInstall）。
-	livekitCtx, stopLivekit := context.WithCancel(context.Background())
-	if voiceRTC == nil {
-		livekitMgr.Start(livekitCtx)
-	}
 
 	// HTTPS 模式：证书缺失时自动签一张本机自签证书。
 	// 屏幕共享与语音在非安全上下文里会被浏览器禁用，局域网用户靠这张证书
@@ -442,9 +405,6 @@ func main() {
 	stopCleanup()
 	// 媒体服务随进程退出：先断推流/拉流连接，再关 HTTP。
 	_ = streamPush.Close(ctx)
-	// 伴生进程先停：它是外部依赖，留着只会让客户端在退出过程中继续重连
-	stopLivekit()
-	livekitMgr.Stop()
 	broadcaster.Stop()
 	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)

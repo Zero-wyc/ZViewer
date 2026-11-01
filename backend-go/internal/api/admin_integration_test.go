@@ -326,12 +326,6 @@ func TestAdminSettings(t *testing.T) {
 		t.Fatalf("非法枚举应 400，得到 %d/%q", resp.status, resp.message())
 	}
 
-	// livekit 地址前缀不合法 → 400。
-	bad = map[string]any{"autoDeleteInactiveRooms": true, "autoDeleteAfterHours": 12, "livekitExternalUrl": "https://x"}
-	if resp := env.do(t, http.MethodPut, "/api/admin/settings", rootToken, bad); resp.status != http.StatusBadRequest || resp.message() != "livekitExternalUrl 必须以 ws:// 或 wss:// 开头" {
-		t.Fatalf("非法 livekit 地址应 400，得到 %d/%q", resp.status, resp.message())
-	}
-
 	// 权限矩阵格式非法 → 400。
 	bad = map[string]any{"autoDeleteInactiveRooms": true, "autoDeleteAfterHours": 12,
 		"roomPermissionMatrix": map[string]any{"unknownAction": map[string]any{"user": true}}}
@@ -360,7 +354,6 @@ func TestAdminSettings(t *testing.T) {
 		"cdnProxyUrl":               "https://gh-proxy.example.com",
 		"playsvideoEnabled":         false,
 		"roomMultiInstanceLogin":    true,
-		"livekitExternalUrl":        "wss://livekit.example.com",
 		"announceAutoPopupOnUpdate": false,
 		"dataSourceConfig":          map[string]any{"anime": true},
 		"roomPermissionMatrix":      map[string]any{"kickViewer": map[string]any{"user": false}},
@@ -376,7 +369,7 @@ func TestAdminSettings(t *testing.T) {
 	if saved["registrationMode"] != "open" || saved["roomCreationMode"] != "all-users" {
 		t.Fatalf("枚举未生效: %v", saved)
 	}
-	if saved["cdnProxyUrl"] != "https://gh-proxy.example.com" || saved["livekitExternalUrl"] != "wss://livekit.example.com" {
+	if saved["cdnProxyUrl"] != "https://gh-proxy.example.com" {
 		t.Fatalf("字符串列未生效: %v", saved)
 	}
 

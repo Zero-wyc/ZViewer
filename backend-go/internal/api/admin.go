@@ -580,7 +580,6 @@ type adminSettingsDTO struct {
 	UpdateUseGitCode          bool            `json:"updateUseGitCode"`
 	PlaysvideoEnabled         bool            `json:"playsvideoEnabled"`
 	RoomMultiInstanceLogin    bool            `json:"roomMultiInstanceLogin"`
-	LivekitExternalURL        string          `json:"livekitExternalUrl"`
 	RoomPermissionMatrix      json.RawMessage `json:"roomPermissionMatrix"`
 	AnnounceAutoPopupOnUpdate bool            `json:"announceAutoPopupOnUpdate"`
 	// 房间界面上的两个悬浮入口开关。与 UpdateUseGitCode 一样**不写库**，
@@ -617,7 +616,6 @@ func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool, prefs UIP
 		UpdateUseGitCode:          updateUseGitCode,
 		PlaysvideoEnabled:         cfg.PlaysvideoEnabled,
 		RoomMultiInstanceLogin:    cfg.RoomMultiInstanceLogin,
-		LivekitExternalURL:        cfg.LivekitExternalURL,
 		RoomPermissionMatrix:      matrix,
 		AnnounceAutoPopupOnUpdate: cfg.AnnounceAutoPopupOnUpdate,
 		ShowVoiceChatButton:       prefs.ShowVoiceChatButton,
@@ -748,22 +746,6 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	if raw, ok := body["livekitExternalUrl"]; ok {
-		if _, ok := rawString(raw); !ok {
-			httpx.BadRequest(w, "livekitExternalUrl 必须是字符串")
-			return
-		}
-	}
-	livekitURL := ""
-	if raw, ok := body["livekitExternalUrl"]; ok {
-		livekitURL, _ = rawString(raw)
-		livekitURL = strings.TrimSpace(livekitURL)
-		if livekitURL != "" && !hasWSOrWSSPrefix(livekitURL) {
-			httpx.BadRequest(w, "livekitExternalUrl 必须以 ws:// 或 wss:// 开头")
-			return
-		}
-	}
-
 	// 到这里校验大部分已过；Node 也是在此处才 getSystemSettings()（表为空则
 	// 立刻建一条默认行），随后的两条内联校验失败时该默认行已经存在。
 	ctx := r.Context()
@@ -828,10 +810,6 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 	if raw, ok := body["cdnProxyUrl"]; ok {
 		v, _ := rawString(raw)
 		cfg.CdnProxyURL = strings.TrimSpace(v)
-	}
-	if raw, ok := body["livekitExternalUrl"]; ok {
-		_ = raw
-		cfg.LivekitExternalURL = livekitURL
 	}
 	if raw, ok := body["announceAutoPopupOnUpdate"]; ok {
 		v, ok := rawBool(raw)

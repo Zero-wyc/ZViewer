@@ -1,9 +1,9 @@
 package room
 
-// 自建语音（VOICE_MODE=sfu）的控制面接线。
+// 语音控制面的接线。
 //
-// 与 LiveKit 路线并存但互斥：process 模式下 voiceRTC 为 nil，这一层完全不注册，
-// 语音仍走 /api/voice/token + livekit-client。
+// 媒体端口没起来时 voiceRTC 为 nil，这一层完全不注册：前端从
+// /api/voice/status 读到不可用，面板显示「语音暂不可用」。
 
 import (
 	"encoding/json"

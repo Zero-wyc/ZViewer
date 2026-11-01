@@ -12,12 +12,14 @@ import (
 
 // EngineOptions 是媒体面的网络配置。
 type EngineOptions struct {
-	// Port 是媒体端口：UDP 与 TCP **同号**。
-	//
-	// 同号不是审美选择：部署在只转 TCP 的隧道后面时，运维只需要记住一对
-	// 端口；Piik 只开 UDP4，照搬到 ZViewer 的 FRP 场景会直接不可用。
-	// 0 表示由内核分配（测试用），实际端口从 Port() 读。
+	// Port 是媒体 UDP 端口。0 表示由内核分配（测试用），实际端口从 Port() 读。
 	Port int
+	// TCPPort 是媒体 TCP 端口；0 表示与 Port 同号。
+	//
+	// 默认同号是给「一台机器只跑这一个服务」的部署用的：只转 TCP 的隧道后面
+	// 运维只需记住一对端口。但**桌面壳里 3333/tcp 已经是网页**，媒体再抢
+	// 同号就会绑不上、静默退化成只有 UDP——所以那里必须显式给 3337。
+	TCPPort int
 	// ListenHost 是监听地址，空 = 所有接口。
 	ListenHost string
 	// PublicIP 是 NAT 1:1 的公网地址（穿透/云主机场景）。空 = 用本地候选。
@@ -39,6 +41,7 @@ type Engine struct {
 	tcpMux     ice.TCPMux
 	udpMux     ice.UDPMux
 	port       int
+	tcpPort    int
 	tcpEnabled bool
 }
 
@@ -67,8 +70,17 @@ func NewEngine(options EngineOptions) (*Engine, error) {
 
 	engine.settings.SetICEUDPMux(engine.udpMux)
 	networkTypes := []webrtc.NetworkType{webrtc.NetworkTypeUDP4}
+	tcpPort := options.TCPPort
+	if tcpPort == 0 {
+		tcpPort = engine.port
+	}
+	if tcpPort < 0 || tcpPort > 65535 {
+		_ = udpConn.Close()
+		return nil, fmt.Errorf("sfu: media tcp port %d is out of range", tcpPort)
+	}
+	engine.tcpPort = tcpPort
 	if !options.DisableTCP {
-		tcpAddr, resolveErr := net.ResolveTCPAddr("tcp4", net.JoinHostPort(host, strconv.Itoa(engine.port)))
+		tcpAddr, resolveErr := net.ResolveTCPAddr("tcp4", net.JoinHostPort(host, strconv.Itoa(tcpPort)))
 		if resolveErr == nil {
 			listener, listenErr := net.ListenTCP("tcp4", tcpAddr)
 			if listenErr == nil {
@@ -93,8 +105,11 @@ func (engine *Engine) Settings() webrtc.SettingEngine {
 	return engine.settings
 }
 
-// Port 是实际绑定的媒体端口（UDP 与 TCP 同号）。
+// Port 是实际绑定的媒体 UDP 端口。
 func (engine *Engine) Port() int { return engine.port }
+
+// TCPPort 是实际绑定的媒体 TCP 端口（未启用 TCP 时也返回计划值）。
+func (engine *Engine) TCPPort() int { return engine.tcpPort }
 
 // TCPEnabled 报告 ICE/TCP 是否可用。
 func (engine *Engine) TCPEnabled() bool { return engine.tcpEnabled }
@@ -119,8 +134,11 @@ func (engine *Engine) Close() error {
 
 // Describe 返回一行人类可读的端口状态（启动日志用）。
 func (engine *Engine) Describe() string {
-	if engine.tcpEnabled {
+	if !engine.tcpEnabled {
+		return fmt.Sprintf("%d/udp（TCP 未启用）", engine.port)
+	}
+	if engine.tcpPort == engine.port {
 		return fmt.Sprintf("%d/udp + %d/tcp", engine.port, engine.port)
 	}
-	return fmt.Sprintf("%d/udp（TCP 未启用）", engine.port)
+	return fmt.Sprintf("%d/udp + %d/tcp", engine.port, engine.tcpPort)
 }

@@ -61,19 +61,19 @@ type Config struct {
 	// 打开前必须确认 ShareMediaPort 对观众可达（UDP 优先，只转 TCP 的隧道
 	// 走同号 TCP）。端口绑不上时服务会自动回退直连并打日志，不会让共享起不来。
 	ShareRelay bool
-	// ShareMediaPort 是中继媒体端口，UDP 与 TCP **同号**（默认 3339）。
+	// ShareMediaPort 是媒体 UDP 端口。
+	//
+	// 默认 3333：这个端口以前是 livekit-server 的语音端口，防火墙早就开着。
+	// 语音改自建 SFU 之后由我们接管，升级时不用再改一遍端口映射。
 	ShareMediaPort int
+	// ShareMediaTCPPort 是媒体 TCP 端口；0 表示与 ShareMediaPort 同号。
+	//
+	// 桌面壳里 3333/tcp 是网页，必须显式给 3337（原 livekit 的 RTC TCP 口），
+	// 否则媒体 TCP 绑不上、静默退化成只有 UDP。
+	ShareMediaTCPPort int
 	// ShareMediaPublicIP 是 NAT 1:1 的公网地址（FRP/云主机场景必填，
 	// 否则客户端拿到的是内网候选）。
 	ShareMediaPublicIP string
-
-	// VoiceMode 选语音的实现路线：
-	//   - "process"（默认）：伴生 livekit-server 子进程，行为与历史一致；
-	//   - "sfu"：自建（internal/voicertc + 共享媒体面），不再拉起 LiveKit。
-	//
-	// 默认留在 process 是因为语音是常开功能：切过去要先把前端也换掉，
-	// 半切换会得到「后端不认识 token 端点、前端还在拉 LiveKit」的僵局。
-	VoiceMode string
 }
 
 // Load 解析配置。调用前应先调用 LoadDotEnv。
@@ -96,9 +96,16 @@ func Load() (*Config, error) {
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 
 		ShareRelay:         envBool("SHARE_RELAY"),
-		VoiceMode:          voiceMode(),
-		ShareMediaPort:     3339,
+		ShareMediaPort:     3333,
+		ShareMediaTCPPort:  0,
 		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
+	}
+	if raw := os.Getenv("SHARE_MEDIA_TCP_PORT"); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil || port < 0 || port > 65535 {
+			return nil, fmt.Errorf("SHARE_MEDIA_TCP_PORT 非法: %q", raw)
+		}
+		cfg.ShareMediaTCPPort = port
 	}
 	if raw := os.Getenv("SHARE_MEDIA_PORT"); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -297,16 +304,4 @@ func envBool(name string) bool {
 	default:
 		return false
 	}
-}
-
-// VoiceModeSFU 是「语音走自建 SFU」的模式名。
-const VoiceModeSFU = "sfu"
-
-// voiceMode 归一化 VOICE_MODE。除 "sfu" 之外的一切写法都留在 process，
-// 拼错不该悄悄换掉一条常开功能的实现。
-func voiceMode() string {
-	if strings.ToLower(strings.TrimSpace(os.Getenv("VOICE_MODE"))) == VoiceModeSFU {
-		return VoiceModeSFU
-	}
-	return "process"
 }

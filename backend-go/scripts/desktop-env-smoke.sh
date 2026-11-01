@@ -114,11 +114,10 @@ UPDATE_CODE=$(curl -sk --max-time 8 -o "$WORK/update.json" -w "%{http_code}" \
 [ "$UPDATE_CODE" = "409" ]; check "/api/system/update/check 返回 409（桌面托管守卫）" $?
 grep -q '"desktopManaged": *true' "$WORK/update.json"; check "409 带 desktopManaged=true（前端据此渲染提示卡）" $?
 
-# 语音凭证端点存在（即便是 503 也不能 404：桌面壳会预置 LiveKit 密钥）
-VOICE_CODE=$(curl -sk --max-time 8 -o /dev/null -w "%{http_code}" -X POST \
-  -H 'Content-Type: application/json' -d '{"roomId":"x"}' \
-  "https://127.0.0.1:$PORT/api/voice/token")
-[ "$VOICE_CODE" != "404" ]; check "/api/voice/token 已注册（$VOICE_CODE）" $?
+# 语音状态端点必须可用，且报「可用」：桌面壳里媒体端口由它自己分配，
+# 后端绑不上就会在这里露出来（而不是等用户点加入语音时一直转圈）。
+VOICE_BODY=$(curl -sk --max-time 8 "https://127.0.0.1:$PORT/api/voice/status")
+echo "$VOICE_BODY" | grep -q '"available": *true'; check "/api/voice/status 报语音可用" $?
 
 PANICS=$(grep -c "\[panic\]" "$WORK/backend.log" 2>/dev/null || true)
 [ "${PANICS:-0}" = "0" ]; check "全程无 panic" $?
