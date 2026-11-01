@@ -24,8 +24,11 @@ type Config struct {
 	Port            int    `json:"port"`
 	RtmpPort        int    `json:"rtmpPort"`
 	FlvPort         int    `json:"flvPort"`
-	LivekitPort     int    `json:"livekitPort"`
-	LivekitTcpPort  int    `json:"livekitTcpPort"`
+	// MediaTCPPort 是语音/共享的媒体 TCP 端口。
+	//
+	// JSON 键沿用 livekitTcpPort：老用户 settings.json 里存的 3337 语义没变
+	// （还是那个媒体 TCP 口），改键只会让他们的自定义值白丢一次。
+	MediaTCPPort int `json:"livekitTcpPort"`
 	BindHost        string `json:"bindHost"`
 	Https           bool   `json:"https"`
 	CloseToTray     bool   `json:"closeToTray"`
@@ -71,7 +74,8 @@ type FrpConfig struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Port: 3333, RtmpPort: 3334, FlvPort: 3335, LivekitPort: 3336, LivekitTcpPort: 3337,
+		// Port 同时是网页 TCP 与媒体 UDP（同号不同协议，沿用历史布局）。
+		Port: 3333, RtmpPort: 3334, FlvPort: 3335, MediaTCPPort: 3337,
 		// 默认监听所有地址：双栈 `::` 同时覆盖回环（localhost/127.0.0.1/::1）、
 		// 局域网 IPv4 与 IPv6。仅本机使用可在“应用设置”改回 127.0.0.1。
 		BindHost: "::", Https: false,
@@ -193,8 +197,7 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 		{"port", &target.Port},
 		{"rtmpPort", &target.RtmpPort},
 		{"flvPort", &target.FlvPort},
-		{"livekitPort", &target.LivekitPort},
-		{"livekitTcpPort", &target.LivekitTcpPort},
+		{"livekitTcpPort", &target.MediaTCPPort},
 	}
 	for _, spec := range ports {
 		value, ok := portOf(base[spec.key])
@@ -203,17 +206,14 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 		}
 		*spec.dst = value
 	}
-	// LiveKit 信令端口固定为主项目的 HTTP_PORT（3336），面板只读展示、不再接受修改；
-	// 旧配置里存过其他值的，加载或保存时一并收回这个值。
-	target.LivekitPort = 3336
 	seen := map[int]bool{}
 	for _, spec := range ports {
 		if seen[*spec.dst] {
-			return target, errors.New("网页、RTMP、FLV、LiveKit 信令和语音 TCP 端口不能重复")
+			return target, errors.New("网页、RTMP、FLV、媒体 TCP 端口不能重复")
 		}
 		seen[*spec.dst] = true
 	}
-	reserved := []int{target.Port, target.RtmpPort, target.FlvPort, target.LivekitPort, target.LivekitTcpPort}
+	reserved := []int{target.Port, target.RtmpPort, target.FlvPort, target.MediaTCPPort}
 
 	// 图形控制台之前保存的配置里可能没有 cli 段：端口若与主服务冲突就顺延。
 	cliInput := frpMapOf(base["cli"])
@@ -257,7 +257,7 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 		frp.WebPort = target.Port
 	}
 	if _, exists := patch["tcpPort"]; !exists {
-		frp.TcpPort = target.LivekitTcpPort
+		frp.TcpPort = target.MediaTCPPort
 	}
 
 	bind, ok := asString(base["bindHost"])
@@ -369,8 +369,8 @@ func validateConfig(input map[string]any, meshSecretPresent bool) (Config, error
 	if frp.AdvertiseIP != "" && frp.Voice && frp.VoicePort != target.Port {
 		return target, fmt.Errorf("使用 VPS 公布语音地址时，远端 UDP 端口需与本地语音端口 %d 一致", target.Port)
 	}
-	if frp.AdvertiseIP != "" && frp.Tcp && frp.TcpPort != target.LivekitTcpPort {
-		return target, fmt.Errorf("使用 VPS 公布语音地址时，远端 TCP 语音端口需与本地语音端口 %d 一致", target.LivekitTcpPort)
+	if frp.AdvertiseIP != "" && frp.Tcp && frp.TcpPort != target.MediaTCPPort {
+		return target, fmt.Errorf("使用 VPS 公布语音地址时，远端 TCP 语音端口需与本地语音端口 %d 一致", target.MediaTCPPort)
 	}
 	tcpPorts := []int{frp.WebPort}
 	if frp.Rtmp {

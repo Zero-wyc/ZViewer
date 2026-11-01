@@ -5,14 +5,11 @@
   const { state, icon, esc, heading, button, notice, tutorial } = ui;
   const $ = selector => document.querySelector(selector);
   const labels = { stopped: '未启动', starting: '启动中', running: '运行中', stopping: '停止中', error: '异常', degraded: '待检查', connecting: '连接中', registered: '代理已注册', missing: '待下载' };
-  // LiveKit 信令端口固定为主项目的 defaultHTTPPort（backend-go/internal/livekit/livekit.go），
-  // 面板只读展示：它由 /rtc 反代使用，允许改动只会让面板与实际监听错位。
-  const LIVEKIT_SIGNAL_PORT = 3336;
   let initialized = false, busy = false, serviceDraft = null, cliEmbedPending = false, ipv6Pending = false, ipv6Tried = false;
   function current() { return state.server.active || state.config; }
   function pill(status) { return `<span class="pill ${['running','registered'].includes(status) ? 'green' : ''}"><i></i>${labels[status] || status}</span>`; }
   function activity() {
-    return state.events.slice(0, 3).map(e => `<div class="activity"><span class="activity-dot"></span><div><strong>${esc({ console: '控制台', backend: '主服务', voice: 'LiveKit 语音', cert: 'HTTPS 证书', frp: 'FRP 穿透', tunnel: 'Cloudflare 隧道', cli: '高画质代理', update: '软件更新' }[e.source] || e.source)}</strong><p>${esc(e.message)}</p></div><time>${esc(e.time)}</time></div>`).join('');
+    return state.events.slice(0, 3).map(e => `<div class="activity"><span class="activity-dot"></span><div><strong>${esc({ console: '控制台', backend: '主服务', voice: '语音', cert: 'HTTPS 证书', frp: 'FRP 穿透', tunnel: 'Cloudflare 隧道', cli: '高画质代理', update: '软件更新' }[e.source] || e.source)}</strong><p>${esc(e.message)}</p></div><time>${esc(e.time)}</time></div>`).join('');
   }
   function overview() {
     const s = state.server, c = current();
@@ -24,7 +21,7 @@
     const cliInfo = cli.available === false ? '未检测到 CLI' : `127.0.0.1:${cliPort}`;
     return heading('服务总览', '本机服务的运行状态。') +
       `<section class="hero"><div class="hero-copy"><h2>${s.backend === 'running' ? '服务运行中' : s.backend === 'starting' ? '服务启动中' : '服务未启动'}</h2><p>${c.https ? 'https' : 'http'}://localhost:${esc(c.port)}<br>${c.bindHost === '127.0.0.1' ? '仅本机访问' : c.bindHost === '0.0.0.0' ? '局域网 IPv4' : '所有地址 · IPv4 + IPv6'} · ${s.backend === 'running' ? '健康检查通过' : '等待启动'}</p><div class="hero-actions">${button(s.pid ? '停止服务' : '启动服务', 'toggle-run', s.pid ? 'stop' : 'play', 'primary')}${button('打开网页端','open-web','globe','primary')}<button class="text-button" data-action="open-manager">打开管理页面 ${icon('external')}</button></div></div></section>` +
-      `<div class="section-title"><h2>服务状态</h2><button class="text-button" data-nav="settings">监听端口 ${esc(c.port)} · 修改设置 ${icon('arrow')}</button></div><div class="service-grid">${card('ZViewer 主服务','网页与 API','server',s.backend,`${c.port} / TCP`)}${card('语音与推流','LiveKit 进程','mic',s.voice,`语音 UDP ${c.port} / RTMP ${c.rtmpPort}`,s.voicePid)}${card('高画质代理','ZViewerCLI 代理','terminal',cli.state,cliInfo,cli.pid)}</div>` +
+      `<div class="section-title"><h2>服务状态</h2><button class="text-button" data-nav="settings">监听端口 ${esc(c.port)} · 修改设置 ${icon('arrow')}</button></div><div class="service-grid">${card('ZViewer 主服务','网页与 API','server',s.backend,`${c.port} / TCP`)}${card('语音与推流','媒体服务','mic',s.voice,`媒体 UDP ${c.port} / RTMP ${c.rtmpPort}`)}${card('高画质代理','ZViewerCLI 代理','terminal',cli.state,cliInfo,cli.pid)}</div>` +
       `<div class="bottom-grid"><section><div class="section-title"><h2>常用操作</h2><small>快捷入口</small></div><div class="setup-list"><button class="setup-row" data-nav="cert"><span class="step">${icon('lock')}</span><div><strong>签发本机 HTTPS 证书</strong><p>localhost</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="connect"><span class="step">${icon('cloud')}</span><div><strong>新手推荐：Cloudflare Tunnel</strong><p>一键启动，无需额外配置</p></div>${icon('arrow')}</button><button class="setup-row" data-nav="settings"><span class="step">${icon('settings')}</span><div><strong>修改监听端口</strong><p>下次启动生效</p></div>${icon('arrow')}</button></div></section><section><div class="section-title"><h2>最近活动</h2><button class="text-button" data-nav="logs">全部日志 ${icon('arrow')}</button></div><div class="activity-list">${activity()}</div></section></div><div class="footnote">${icon('info')}显示本地进程状态。</div>`;
   }
   function frpCode() {
@@ -73,7 +70,7 @@
       <div class="panel-heading no-margin"><h2>端口映射</h2><small>本地 → 公网 VPS</small></div>
       <div class="mapping mapping-head"><span>服务</span><span>协议</span><span>本地</span><span></span><span>远端</span></div>
       ${row('网页服务', 'web', 'TCP', cfg.port, 'webPort', true, true)}${row('UDP 语音', 'voice', 'UDP', cfg.port, 'voicePort', c.voice)}${row('RTMP 推流', 'rtmp', 'TCP', cfg.rtmpPort, 'rtmpPort', c.rtmp)}${row('TCP 语音', 'tcp', 'TCP', cfg.livekitTcpPort || 3337, 'tcpPort', c.tcp)}
-      <div class="help-card"><strong>语音需单独放行</strong><p>UDP 语音跟随网页端口 ${esc(cfg.port)}，RTC TCP 使用 ${esc(cfg.livekitTcpPort || 3337)}，请在 VPS 放行对应端口。</p></div>
+      <div class="help-card"><strong>语音需单独放行</strong><p>媒体 UDP 跟随网页端口 ${esc(cfg.port)}，媒体 TCP 使用 ${esc(cfg.livekitTcpPort || 3337)}，请在 VPS 放行对应端口。</p></div>
       <div class="validation" id="frp-error" role="alert"></div>
       <div class="form-actions">${button('保存配置', 'save-frp', 'check')}${missing ? button('先下载 frpc 组件', 'frp-install', 'download', 'primary') : button(connected ? '断开 FRP' : '连接 FRP', 'toggle-frp', 'network', 'primary')}</div></section>
       <section><div class="panel"><div class="panel-heading"><h2>配置预览</h2><span class="tag-caption">frpc.toml · 自动生成</span></div><pre class="codebox" id="frp-code">${esc(frpCode())}</pre><div class="code-footer"><span>凭据使用环境变量占位</span><span class="code-links"><button class="text-button" data-action="export-frp">${icon('download')}导出</button><button class="text-button" data-action="copy-frp">${icon('copy')}复制</button></span></div><div class="path-flow"><div class="flow-item">${icon('globe')}外网设备</div><span>→</span><div class="flow-item">${icon('cloud')}VPS / frps</div><span>→</span><div class="flow-item">${icon('monitor')}本机 / frpc</div></div></div></section></div>`;
@@ -131,7 +128,6 @@
       flvPort: $('#flv-port').value,
       bindHost: $('#bind-host').value,
       https: $('#service-https').getAttribute('aria-checked') === 'true',
-      livekitPort: LIVEKIT_SIGNAL_PORT,
       livekitTcpPort: $('#livekit-tcp-port').value
     };
   }
@@ -145,9 +141,9 @@
           <div class="form-row triple">${field('service-port','网页 / 管理页面',c.port)}${field('rtmp-port','RTMP 推流',c.rtmpPort)}${field('flv-port','HTTP-FLV',c.flvPort)}</div>
           <label class="field"><span>网页与信令监听范围</span><select id="bind-host"><option value="127.0.0.1" ${c.bindHost === '127.0.0.1' ? 'selected' : ''}>仅本机 · 127.0.0.1</option><option value="0.0.0.0" ${c.bindHost === '0.0.0.0' ? 'selected' : ''}>局域网 IPv4 · 0.0.0.0</option><option value="::" ${c.bindHost === '::' ? 'selected' : ''}>所有地址 · IPv4 + IPv6</option></select></label>
           <div class="switch-row service-https-row"><div><strong id="service-https-title">使用 HTTPS</strong><p id="service-https-help">首次启用时自动签发本机证书。</p></div><button type="button" class="switch" id="service-https" role="switch" aria-labelledby="service-https-title" aria-describedby="service-https-help" aria-checked="${Boolean(c.https)}"></button></div>
-          <div class="livekit-settings"><div class="settings-subheading"><h3>LiveKit 高级端口</h3></div>
-            <div class="form-row triple"><div class="field udp-follow-field"><span>语音 UDP</span><output id="livekit-udp-port" for="service-port">${esc(c.port)}</output></div><div class="field udp-follow-field"><span>信令 / WebSocket</span><output id="livekit-signal-port">${LIVEKIT_SIGNAL_PORT}</output><small>固定端口，与主项目一致</small></div>${field('livekit-tcp-port','语音 RTC TCP',c.livekitTcpPort ?? 3337)}</div>
-            <p class="field-note livekit-settings-note">UDP 跟随网页端口，信令固定 ${LIVEKIT_SIGNAL_PORT}；改完保存后重启生效。</p>
+          <div class="livekit-settings"><div class="settings-subheading"><h3>语音与共享媒体端口</h3></div>
+            <div class="form-row triple"><div class="field udp-follow-field"><span>媒体 UDP</span><output id="livekit-udp-port" for="service-port">${esc(c.port)}</output></div>${field('livekit-tcp-port','媒体 TCP',c.livekitTcpPort ?? 3337)}</div>
+            <p class="field-note livekit-settings-note">媒体 UDP 跟随网页端口（同号不同协议），媒体 TCP 单开一个；改完保存后重启生效。</p>
           </div>
           <div class="form-actions">${button('保存配置','save-service','check','primary')}${state.server.pid ? button('重启使配置生效','restart','refresh') : ''}</div>
         </div>

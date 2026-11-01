@@ -49,7 +49,6 @@ type Event struct {
 type RuntimeFiles struct {
 	Backend bool `json:"backend"`
 	Cert    bool `json:"cert"`
-	Livekit bool `json:"livekit"`
 	Web     bool `json:"web"`
 }
 
@@ -113,7 +112,7 @@ type Controller struct {
 	redactions         []string
 	backend            *Proc
 	frp                *Proc
-	livekit            *Proc
+	// 语音不再有独立进程：媒体面跑在后端里，语音状态跟随后端状态。
 	tunnel             *Proc
 	backendState       string
 	voiceState         string
@@ -148,11 +147,7 @@ type Controller struct {
 	updateFallbackURL string
 
 	operation   int32
-	livekitMu   sync.Mutex
-	livekitStop bool
-	// livekitWatchStop 是「等语音组件下载完成」的退出信号。
 	// 组件随包分发，正常安装里文件一定在；这个等待只兜「用户删了它、又从网页端补回」。
-	livekitWatchStop chan struct{}
 
 	onUpdate       func()
 	onInitialAdmin func(InitialAdmin)
@@ -281,7 +276,6 @@ func (c *Controller) Snapshot() Snapshot {
 		clone := c.active.Clone()
 		active = &clone
 	}
-	livekid := processPid(c.livekit)
 	backendPid := processPid(c.backend)
 	frpPid := processPid(c.frp)
 	c.mu.RUnlock()
@@ -295,7 +289,7 @@ func (c *Controller) Snapshot() Snapshot {
 		WebURL: c.WebURL(), Backend: backend, Voice: voice, Frp: frp,
 		Cli:  c.cli.Snapshot(),
 		Mesh: mesh,
-		Pid:  backendPid, VoicePid: livekid, FrpPid: frpPid,
+		Pid:  backendPid, FrpPid: frpPid,
 		Tunnel:          c.tunnelReport(),
 		Update:          c.UpdateReport(),
 		Components:      c.componentReport(),
@@ -308,7 +302,6 @@ func (c *Controller) Snapshot() Snapshot {
 		Runtime: RuntimeFiles{
 			Backend: fileExists(filepath.Join(c.root, "zviewer-backend.exe")),
 			Cert:    true,
-			Livekit: fileExists(filepath.Join(c.root, "livekit-server.exe")),
 			Web:     fileExists(filepath.Join(c.root, "frontend", "dist", "index.html")),
 		},
 	}
@@ -438,206 +431,22 @@ func (c *Controller) environment() ([]string, error) {
 	// 标记后端运行在桌面 GUI 壳内：网页管理端的「版本更新」会因此禁用，
 	// 整包版本由 GUI 自己的更新链路维护（详见 backend services/desktop-runtime.ts）
 	env["ZVIEWER_DESKTOP"] = "1"
-	env["LIVEKIT_EXTERNAL"] = "1"
-	// 二进制由壳拉起，但下载走网页端：后端需要这个开关才会在 External 下也接受下载请求。
-	env["LIVEKIT_COMPONENT_DOWNLOAD"] = "1"
-	env["LIVEKIT_API_HOST"] = fmt.Sprintf("http://127.0.0.1:%d", config.LivekitPort)
-	env["LIVEKIT_API_KEY"] = c.voiceKey
-	env["LIVEKIT_API_SECRET"] = c.voiceSecret
-	env["LIVEKIT_URL"] = ""
+	// 语音与屏幕共享共用的媒体面：UDP 跟在网页端口上（沿用既有防火墙规则），
+	// TCP 必须单开一个——3333/tcp 已经是网页本身。
+	env["SHARE_MEDIA_PORT"] = strconv.Itoa(config.Port)
+	env["SHARE_MEDIA_TCP_PORT"] = strconv.Itoa(config.MediaTCPPort)
+	if config.Frp.AdvertiseIP != "" {
+		env["SHARE_MEDIA_PUBLIC_IP"] = config.Frp.AdvertiseIP
+	}
 	if config.Https {
 		env["SSL_CERT_PATH"] = paths.Cert
 		env["SSL_KEY_PATH"] = paths.Key
-	}
-	if config.BindHost == "127.0.0.1" && values["LIVEKIT_BIND"] == "" {
-		env["LIVEKIT_BIND"] = "127.0.0.1"
-		if _, exists := env["LIVEKIT_NODE_IP"]; !exists || values["LIVEKIT_NODE_IP"] == "" {
-			env["LIVEKIT_NODE_IP"] = "127.0.0.1"
-		}
-		env["LIVEKIT_RTC_USE_EXTERNAL_IP"] = "false"
-	}
-	if config.Frp.AdvertiseIP != "" {
-		env["LIVEKIT_NODE_IP"] = config.Frp.AdvertiseIP
-		env["LIVEKIT_RTC_USE_EXTERNAL_IP"] = "false"
 	}
 	out := make([]string, 0, len(env))
 	for key, value := range env {
 		out = append(out, key+"="+value)
 	}
 	return out, nil
-}
-
-func (c *Controller) startLivekit(env []string) error {
-	config := c.store.Value
-	exe := filepath.Join(c.root, "livekit-server.exe")
-	if !fileExists(exe) {
-		// 组件随包分发，正常安装走不到这里。只有用户删了 livekit-server.exe 才缺文件：
-		// 先把主服务起起来，等网页端把组件补下载下来后再由 watchLivekit 拉起，
-		// 不能因为它缺失就让整个服务起不来。
-		c.setVoiceState("missing")
-		c.watchLivekit(env)
-		return nil
-	}
-	envMap := map[string]string{}
-	for _, entry := range env {
-		if index := strings.Index(entry, "="); index > 0 {
-			envMap[entry[:index]] = entry[index+1:]
-		}
-	}
-	nodeIP := config.Frp.AdvertiseIP
-	if nodeIP == "" {
-		nodeIP = envMap["LIVEKIT_NODE_IP"]
-	}
-	rtc := map[string]any{
-		"udp_port":                  config.Port,
-		"tcp_port":                  config.LivekitTcpPort,
-		"enable_loopback_candidate": true,
-		"use_external_ip":           nodeIP == "" && envMap["LIVEKIT_RTC_USE_EXTERNAL_IP"] == "true",
-	}
-	if config.BindHost == "127.0.0.1" && config.Frp.AdvertiseIP == "" {
-		rtc["ips"] = map[string]any{"includes": []string{"127.0.0.0/8", "::1/128"}}
-	}
-	livekitConfig := map[string]any{
-		"port":           config.LivekitPort,
-		"bind_addresses": []string{config.BindHost},
-		"rtc":            rtc,
-		"keys":           map[string]string{c.voiceKey: c.voiceSecret},
-		"logging":        map[string]any{"level": "info"},
-	}
-	payload, err := json.Marshal(livekitConfig)
-	if err != nil {
-		return err
-	}
-	childEnv := append([]string(nil), env...)
-	childEnv = append(childEnv, "LIVEKIT_CONFIG="+string(payload), "NODE_IP="+nodeIP)
-	proc, err := startProcess(c.hostExe, exe, nil, childEnv, c.root, func(line string) {
-		c.log(line, "voice", classifyLevel(line))
-	})
-	if err != nil {
-		return err
-	}
-	c.mu.Lock()
-	c.livekit = proc
-	c.livekitStop = false
-	c.mu.Unlock()
-	go func() {
-		code := proc.Wait()
-		c.mu.Lock()
-		if c.livekit != proc {
-			c.mu.Unlock()
-			return
-		}
-		intentional := c.livekitStop
-		c.livekit = nil
-		failed := !intentional
-		if failed {
-			c.voiceState = "error"
-		} else {
-			c.voiceState = "stopped"
-		}
-		c.mu.Unlock()
-		level := "INFO"
-		if failed {
-			level = "ERROR"
-		}
-		c.log(fmt.Sprintf("LiveKit 进程已退出（%d）", code), "voice", level)
-	}()
-
-	deadline := time.Now().Add(20 * time.Second)
-	verification := ""
-	for time.Now().Before(deadline) {
-		c.mu.RLock()
-		current := c.livekit
-		c.mu.RUnlock()
-		if current != proc || proc.Exited() {
-			break
-		}
-		if livekitReady(config.LivekitPort) {
-			if isWindows() {
-				// WMI 索引有延迟：进程树与套接字都要可见，失败就重试到截止时间。
-				inspected, err := c.inspect(proc.Pid(), config.LivekitPort, c.hostExe, config.Port, config.LivekitTcpPort)
-				if err == nil {
-					switch {
-					case !inspected.owns(inspected.Owner):
-						err = errors.New("LiveKit 信令端口不属于 GUI 启动的进程树")
-					case !inspected.owns(inspected.UDPOwner) || !inspected.owns(inspected.RTCOwner):
-						err = errors.New("LiveKit 语音 UDP / TCP 端口未由受管进程监听")
-					case !containsString(inspected.UDPAddresses, "127.0.0.1") && !containsString(inspected.UDPAddresses, "0.0.0.0"):
-						err = errors.New("LiveKit 未监听 UDP 回环地址，本机访问与 FRP 转发不可用")
-					}
-				}
-				if err != nil {
-					verification = err.Error()
-					time.Sleep(400 * time.Millisecond)
-					continue
-				}
-			}
-			c.setVoiceState("running")
-			c.log(fmt.Sprintf("LiveKit 已就绪：信令 TCP %d，媒体 UDP %d，RTC TCP %d",
-				config.LivekitPort, config.Port, config.LivekitTcpPort), "voice", "INFO")
-			return nil
-		}
-		time.Sleep(250 * time.Millisecond)
-	}
-	if verification != "" {
-		return fmt.Errorf("LiveKit 未通过就绪检查（%s），请检查端口或查看运行日志", verification)
-	}
-	return errors.New("LiveKit 未通过就绪检查，请检查端口或查看运行日志")
-}
-
-// watchLivekit 在语音组件缺失时等它出现，然后拉起 livekit-server。
-//
-// 组件随包分发（runtime/livekit-server.exe），这里只兜「文件被删掉」的情况：
-// 用户在网页端房间右下角点「下载语音聊天组件」，后端把 livekit-server.exe 写回
-// runtime/。每 3 秒看一眼，出现就启动，不用重开 GUI，也不需要壳里做下载入口。
-func (c *Controller) watchLivekit(env []string) {
-	c.mu.Lock()
-	if c.livekitWatchStop != nil {
-		c.mu.Unlock()
-		return
-	}
-	stop := make(chan struct{})
-	c.livekitWatchStop = stop
-	c.mu.Unlock()
-
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-stop:
-				return
-			case <-ticker.C:
-				if !fileExists(filepath.Join(c.root, "livekit-server.exe")) {
-					continue
-				}
-				c.mu.Lock()
-				if c.livekitWatchStop != stop {
-					c.mu.Unlock()
-					return
-				}
-				c.livekitWatchStop = nil
-				c.mu.Unlock()
-				c.log("检测到语音组件已下载，正在启动 LiveKit", "voice", "INFO")
-				if err := c.startLivekit(env); err != nil {
-					c.log(err.Error(), "voice", "ERROR")
-					c.setVoiceState("error")
-				}
-				return
-			}
-		}
-	}()
-}
-
-// stopLivekitWatch 结束等待（服务停止或显式停语音时调用）。
-func (c *Controller) stopLivekitWatch() {
-	c.mu.Lock()
-	stop := c.livekitWatchStop
-	c.livekitWatchStop = nil
-	c.mu.Unlock()
-	if stop != nil {
-		close(stop)
-	}
 }
 
 func containsString(list []string, value string) bool {
@@ -649,48 +458,19 @@ func containsString(list []string, value string) bool {
 	return false
 }
 
-func (c *Controller) stopLivekit() error {
-	c.livekitMu.Lock()
-	defer c.livekitMu.Unlock()
-	c.stopLivekitWatch()
-	c.mu.Lock()
-	proc := c.livekit
-	if proc == nil {
-		c.voiceState = "stopped"
-		c.mu.Unlock()
-		return nil
-	}
-	c.voiceState = "stopping"
-	c.livekitStop = true
-	c.mu.Unlock()
-	target := c.hostExe
-	if !isWindows() {
-		target = filepath.Join(c.root, "livekit-server.exe")
-	}
-	err := c.kill(proc, target)
-	c.setVoiceState("stopped")
-	return err
-}
-
 func (c *Controller) startBackend() (any, error) {
 	c.mu.RLock()
 	running := c.backend != nil
-	hasLivekit := c.livekit != nil
 	c.mu.RUnlock()
 	if running {
 		return c.Snapshot(), nil
-	}
-	if hasLivekit {
-		if err := c.stopLivekit(); err != nil {
-			return nil, err
-		}
 	}
 	config := c.store.Value
 	exe := filepath.Join(c.root, "zviewer-backend.exe")
 	if !fileExists(exe) || !fileExists(filepath.Join(c.root, "frontend", "dist", "index.html")) {
 		return nil, errors.New("缺少后端或网页运行文件")
 	}
-	for _, port := range []int{config.Port, config.RtmpPort, config.FlvPort, config.LivekitPort, config.LivekitTcpPort} {
+	for _, port := range []int{config.Port, config.RtmpPort, config.FlvPort, config.MediaTCPPort} {
 		if err := portAvailable(port, config.BindHost); err != nil {
 			return nil, err
 		}
@@ -714,9 +494,6 @@ func (c *Controller) startBackend() (any, error) {
 		return nil, err
 	}
 	if err := c.ensureDatabase(exe, env); err != nil {
-		return nil, err
-	}
-	if err := c.startLivekit(env); err != nil {
 		return nil, err
 	}
 	proc, err := startProcess(c.hostExe, exe, nil, env, c.root, func(line string) {
@@ -755,14 +532,6 @@ func (c *Controller) startBackend() (any, error) {
 		c.stopFrpSafely()
 		if !intentional {
 			c.stopTunnelForOriginFailure()
-			c.mu.RLock()
-			livekitRunning := c.livekit != nil
-			c.mu.RUnlock()
-			if livekitRunning {
-				if err := c.stopLivekit(); err != nil {
-					c.log(err.Error(), "voice", "ERROR")
-				}
-			}
 			if _, err := c.cli.Stop(); err != nil {
 				c.log(err.Error(), "cli", "ERROR")
 			}
@@ -797,6 +566,8 @@ func (c *Controller) startBackend() (any, error) {
 				}
 			}
 			c.setBackendState("running")
+			// 语音媒体面跑在后端进程内：后端就绪即语音就绪。
+			c.setVoiceState("running")
 			scheme := "http"
 			if config.Https {
 				scheme = "https"
@@ -838,10 +609,8 @@ func (c *Controller) stopBackend() error {
 	proc := c.backend
 	c.mu.RUnlock()
 	if proc == nil {
-		if err := c.stopLivekit(); err != nil {
-			c.log(err.Error(), "voice", "ERROR")
-		}
 		c.setBackendState("stopped")
+		c.setVoiceState("stopped")
 		return nil
 	}
 	c.setBackendState("stopping")
@@ -852,9 +621,6 @@ func (c *Controller) stopBackend() error {
 	}
 	if err := c.kill(proc, target); err != nil {
 		return err
-	}
-	if err := c.stopLivekit(); err != nil {
-		c.log(err.Error(), "voice", "ERROR")
 	}
 	c.setBackendState("stopped")
 	c.setVoiceState("stopped")
@@ -972,7 +738,7 @@ func (c *Controller) FrpConfig() string {
 		text += proxy("rtmp", "tcp", config.RtmpPort, f.RtmpPort)
 	}
 	if f.Tcp {
-		text += proxy("voice-tcp", "tcp", config.LivekitTcpPort, f.TcpPort)
+		text += proxy("voice-tcp", "tcp", config.MediaTCPPort, f.TcpPort)
 	}
 	return text
 }
@@ -1008,7 +774,7 @@ func (c *Controller) StartFrp() (any, error) {
 		// 自定义配置里可能映射任意本机端口，无法与运行中的服务端口比对，跳过这项检查。
 		custom := config.Frp.Mode == "config"
 		if !custom && (active.Port != config.Port || active.RtmpPort != config.RtmpPort ||
-			active.LivekitPort != config.LivekitPort || active.LivekitTcpPort != config.LivekitTcpPort ||
+			active.MediaTCPPort != config.MediaTCPPort ||
 			active.Frp.AdvertiseIP != config.Frp.AdvertiseIP) {
 			return nil, errors.New("服务端口或语音公布地址已修改，请先重启本地服务再连接 FRP")
 		}

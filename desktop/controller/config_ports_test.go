@@ -2,13 +2,13 @@ package controller
 
 import "testing"
 
-// 面板不再提供信令端口入口：无论传入什么值，保存/加载都要落回主项目的 3336。
-func TestValidateFixesLivekitSignalPort(t *testing.T) {
+// 媒体 TCP 端口独立于网页端口：语音的媒体面跑在后端进程里，
+// UDP 跟着网页端口（同号不同协议），TCP 必须另开一个——3333/tcp 已经是网页。
+func TestValidateMediaTCPPort(t *testing.T) {
 	base := map[string]any{
 		"port":           "3333",
 		"rtmpPort":       "3334",
 		"flvPort":        "3335",
-		"livekitPort":    "9999",
 		"livekitTcpPort": "3337",
 		"bindHost":       "::",
 		"https":          false,
@@ -18,16 +18,14 @@ func TestValidateFixesLivekitSignalPort(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Validate 失败: %v", err)
 	}
-	if cfg.LivekitPort != 3336 {
-		t.Fatalf("信令端口应收回 3336，实际 %d", cfg.LivekitPort)
-	}
-	if cfg.Port != 3333 || cfg.LivekitTcpPort != 3337 {
-		t.Fatalf("其他端口被误改: port=%d rtcTcp=%d", cfg.Port, cfg.LivekitTcpPort)
+	if cfg.Port != 3333 || cfg.MediaTCPPort != 3337 {
+		t.Fatalf("端口被误改: port=%d mediaTcp=%d", cfg.Port, cfg.MediaTCPPort)
 	}
 
-	// 固定 3336 之后，网页端口再选 3336 必须按端口冲突拒绝。
-	base["port"] = "3336"
+	// 媒体 TCP 撞上网页端口必须拒绝：同号会让媒体 TCP 绑不上，
+	// 静默退化成只有 UDP，用户只会在弱网时才察觉。
+	base["livekitTcpPort"] = "3333"
 	if _, err := Validate(base); err == nil {
-		t.Fatal("网页端口占用 3336 时应报端口重复")
+		t.Fatal("媒体 TCP 与网页端口重复时应报端口冲突")
 	}
 }
