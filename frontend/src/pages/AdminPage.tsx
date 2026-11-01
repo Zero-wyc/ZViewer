@@ -62,7 +62,6 @@ export default function AdminPage() {
     cdnProxyUrl: 'https://gh-proxy.com',
     updateUseGitCode: true,
     roomMultiInstanceLogin: false,
-    livekitExternalUrl: '',
     announceAutoPopupOnUpdate: true,
     showVoiceChatButton: true,
     showTrafficPanel: true,
@@ -522,7 +521,6 @@ export default function AdminPage() {
         cdnProxyUrl: settings.cdnProxyUrl,
         updateUseGitCode: settings.updateUseGitCode,
         roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
-        livekitExternalUrl: settings.livekitExternalUrl,
         announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
         // 房间悬浮入口显隐（后端落 config/ui-prefs.json，不写库）
         showVoiceChatButton: settings.showVoiceChatButton,

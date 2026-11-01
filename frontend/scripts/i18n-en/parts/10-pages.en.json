@@ -1,7 +1,5 @@
 {
   "items": [
-    "The new password must be at least 4 characters",
-    "New username",
     "Failed to change the role",
     "Change password",
     "Failed to change the password",
@@ -94,7 +92,6 @@
     "Sign-up failed",
     "Create account",
     "Preparing…",
-    "Custom LiveKit server address",
     "Auto-delete rooms nobody visits",
     "Last visited",
     "Bilibili default resolution settings",
@@ -108,7 +105,6 @@
     "DASH (server relay, high quality)",
     "Kazumi rule, index or official repository URLs (one per line)",
     "Kazumi rule sources",
-    "LiveKit server address (optional)",
     "MP4 (default, server relay)",
     "MP4 (default, server relay direct link)",
     "qist/tvbox · TV collection",

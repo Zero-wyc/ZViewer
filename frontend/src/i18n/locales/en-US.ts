@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2594 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2581 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -341,7 +341,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（358 条） =====
+  // ===== pages（354 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -473,10 +473,8 @@ const enUS: Record<string, string> = {
   '连接中…': 'Connecting…',
   '两次输入的新密码不一致': 'The new passwords do not match',
   '浏览并加入当前可用的房间': 'Browse and join the rooms available now',
-  '留空按页面域名推导；填外部地址时需与本站共用同一 Key / Secret， 且媒体端口对该地址可达。': 'Leave blank to derive it from the page domain. An external address must share the same key/secret as this site, and the media port must be reachable from that address.',
   '留空用内置默认规则。支持规则 JSON、index.json 与 Kazumi 仓库地址；依赖 WebView 或验证码的规则可能无法播放。': 'Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.',
   '留空则不启用。仅支持苹果 CMS（type 1）采集站，jar 与 JS 规则源不支持；编辑后失焦自动保存。': 'Leave blank to disable. Only Apple CMS (type 1) sites are supported; jar and JS rule sources are not. Edits save when the field loses focus.',
-  '留空自动推导（如 wss://livekit.example.com）': 'Leave blank to auto-detect (e.g. wss://livekit.example.com)',
   '密码修改成功': 'Password changed',
   '密码至少 4 位': 'Password must be at least 4 characters',
   '默认 50%。用户首次使用一起听时生效，之后按各自本地音量。': 'Defaults to 50%. Applied when someone first uses Listen Together, after which each user\'s local volume wins.',
@@ -676,7 +674,6 @@ const enUS: Record<string, string> = {
   '注册失败': 'Sign-up failed',
   '注册账号': 'Create account',
   '准备中…': 'Preparing…',
-  '自定义 LiveKit 服务器地址': 'Custom LiveKit server address',
   '自动删除无人访问的房间': 'Auto-delete rooms nobody visits',
   '最后访问': 'Last visited',
   'B站 默认解析参数': 'Bilibili default resolution settings',
@@ -690,7 +687,6 @@ const enUS: Record<string, string> = {
   'DASH（服务器中转，高画质）': 'DASH (server relay, high quality)',
   'Kazumi 规则、索引或官方仓库地址（每行一个）': 'Kazumi rule, index or official repository URLs (one per line)',
   'Kazumi 规则源': 'Kazumi rule sources',
-  'LiveKit 服务器地址（可选）': 'LiveKit server address (optional)',
   'MP4（默认，服务器中转）': 'MP4 (default, server relay)',
   'MP4（默认，服务器中转直链）': 'MP4 (default, server relay direct link)',
   'qist/tvbox · 电视合集': 'qist/tvbox · TV collection',
@@ -2619,14 +2615,13 @@ const enUS: Record<string, string> = {
   '正在启动转码 worker': 'Starting the transcoding worker',
   '正在生成首个分段': 'Generating the first segment',
 
-  // ===== modules/voice-chat（38 条） =====
+  // ===== modules/voice-chat（29 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} online',
   '成员': 'Members',
   '单独音量': 'Per-user volume',
   '点击加入即可与房间内其他观众语音交流': 'Join to talk with other viewers in the room',
   '断开': 'Disconnect',
   '关闭反送': 'Turn off monitoring',
-  '获取语音凭证失败': 'Failed to get the voice credentials',
   '加入语音': 'Join voice',
   '加入语音聊天失败': 'Failed to join voice chat',
   '解除语音禁言': 'Unmute in voice',
@@ -2638,26 +2633,18 @@ const enUS: Record<string, string> = {
   '您已被移出语音聊天': 'You were removed from the voice chat',
   '全局音量': 'Master volume',
   '实时连接未就绪，请稍后重试': 'The realtime connection is not ready; try again shortly',
-  '首次使用需下载约 18 MB，装好后保存在本机，之后不再重复下载。': 'The first use downloads about 18 MB; it is stored on this device and not downloaded again.',
   '未在房间中': 'Not in a room',
-  '下载请求失败，请检查网络后重试': 'Download request failed, check your network and retry',
-  '下载语音聊天组件': 'Download the voice chat component',
   '移出语音': 'Remove from voice',
   '已被语音禁言': 'Muted in voice',
   '已将 {{value}} 移出语音': 'Removed {{value}} from voice',
   '游客 {{value}}': 'Guest {{value}}',
   '与服务器的连接已断开，正在重连...': 'Lost connection to the server, reconnecting...',
+  '语音服务当前不可用（媒体端口未就绪），请稍后再试': 'Voice is unavailable right now (media port not ready); try again later',
   '语音禁言': 'Mute in voice',
   '语音禁言已解除': 'Voice mute lifted',
   '语音聊天': 'Voice chat',
-  '语音聊天（需先下载组件）': 'Voice chat (download the component first)',
-  '语音聊天组件未下载': 'The voice chat component is not downloaded',
   '语音媒体传输：TCP 直连（UDP 被拦截时的兜底线路）': 'Voice media: TCP direct (fallback when UDP is blocked)',
   '语音媒体传输：UDP 直连（低延迟）': 'Voice media: UDP direct (low latency)',
-  '语音媒体连接超时，请检查网络后重试': 'Voice media connection timed out, check your network and retry',
-  '正在解压…': 'Extracting…',
-  '正在下载 {{progress}}%': 'Downloading {{progress}}%',
-  '重新下载语音组件': 'Download the voice component again',
 
   // ===== modules/webdav（3 条） =====
   '获取 {{label}} 直链失败': 'Failed to get the {{label}} direct link',

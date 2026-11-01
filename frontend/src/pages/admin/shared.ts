@@ -110,8 +110,6 @@ export interface AdminSettings {
   updateUseGitCode: boolean
   /** 允许单用户在多个页面同时登录同一房间（仅供测试，服务端门控） */
   roomMultiInstanceLogin: boolean
-  /** 自定义 LiveKit 服务器地址（客户端连接；空=按页面域名自动推导） */
-  livekitExternalUrl: string
   /** 版本更新后是否自动弹出公告（首次启动强制弹出不受此开关限制） */
   announceAutoPopupOnUpdate: boolean
   /** 房间右下角是否显示语音聊天入口（config/ui-prefs.json） */

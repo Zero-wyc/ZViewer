@@ -11,10 +11,8 @@
     "Connecting…",
     "The new passwords do not match",
     "Browse and join the rooms available now",
-    "Leave blank to derive it from the page domain. An external address must share the same key/secret as this site, and the media port must be reachable from that address.",
     "Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.",
     "Leave blank to disable. Only Apple CMS (type 1) sites are supported; jar and JS rule sources are not. Edits save when the field loses focus.",
-    "Leave blank to auto-detect (e.g. wss://livekit.example.com)",
     "Password changed",
     "Password must be at least 4 characters",
     "Defaults to 50%. Applied when someone first uses Listen Together, after which each user's local volume wins.",
@@ -119,6 +117,8 @@
     "No server needed: a one-to-one P2P share via manual SDP/ICE exchange.",
     "Show the traffic stats button",
     "Show the voice chat button",
-    "New password"
+    "New password",
+    "The new password must be at least 4 characters",
+    "New username"
   ]
 }

@@ -13,7 +13,7 @@ export type VoiceTransport = 'udp' | 'tcp'
  * 面板消费的控制器。
  *
  * 刻意定义成接口而不是让面板直接依赖某个 hook：语音有两条实现
- * （伴生 livekit-server / 自建 SFU），面板不该知道当前跑的是哪条。
+ * 与「谁在实现它」解耦：面板不该知道媒体是走哪条线路。
  */
 export interface VoiceChatController {
   joined: boolean

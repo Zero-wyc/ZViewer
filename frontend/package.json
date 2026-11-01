@@ -47,7 +47,6 @@
     "flv.js": "^1.6.2",
     "hls.js": "^1.6.16",
     "i18next": "^26.5.12",
-    "livekit-client": "^2.22.3",
     "lucide-react": "^1.23.0",
     "mediabunny": "file:vendor/mediabunny",
     "playsvideo": "file:vendor/playsvideo",
