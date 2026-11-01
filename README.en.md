@@ -91,11 +91,11 @@ Requires Go 1.26+ and Node.js 22+; see [Development](#development).
 | Capability | Notes |
 | --- | --- |
 | Tray & single instance | Closing the window keeps it in the tray; launching again only restores the open window |
-| Process hosting | Starts / stops the backend, LiveKit and ZViewerCLI; first launch with no database runs `--init-db` (`root` / `root`, change it after login) |
+| Process hosting | Starts / stops the backend and ZViewerCLI; first launch with no database runs `--init-db` (`root` / `root`, change it after login) |
 | Ports & HTTPS | Port is configurable and persisted; can issue a certificate for localhost |
 | Remote access | IPv6 direct, provider FRP, self-hosted FRP (exports `frpc.toml`), EasyTier mesh, one-click Cloudflare Tunnel |
 | Premium proxy | Bundled ZViewerCLI on `9333`, bound to `127.0.0.1`, QR login, can start with the service |
-| On-demand components | cloudflared / frpc / EasyTier download on first use — not shipped in the installer. LiveKit for voice is bundled |
+| On-demand components | cloudflared / frpc / EasyTier download on first use — not shipped in the installer |
 | Auto update | Checks once 6 s after start, then every 6 hours; streaming download + structure check + restart |
 | Logs | Filtered by voice / tunnel / cli / update, level and keyword; last 500 entries kept |
 
@@ -107,7 +107,7 @@ Tunnel and IPv6 conventions: [IMPLEMENTATION-CLOUDFLARE-TUNNEL.md](desktop/IMPLE
 | --- | --- |
 | `ZViewerDesktop.exe` | GUI entry point |
 | `assets/ZViewer.ProcessHost.exe` | Process supervisor host |
-| `runtime/` | Backend, LiveKit, CLI, web UI; components land here too |
+| `runtime/` | Backend, CLI, web UI; components land here too |
 | `runtime/.env`, `runtime/config` | Backend environment and business data |
 | `%APPDATA%/ZViewerDesktop` | GUI settings, certificates, FRP credentials, logs |
 | `%USERPROFILE%/.zviewer/config.json` | ZViewerCLI login config |
@@ -131,7 +131,7 @@ UI files are embedded into the EXE via `go:embed`, so editing `desktop/ui/` need
 zviewer-windows-x64-GUI/
   ZViewerDesktop.exe                # single entry point
   assets/ZViewer.ProcessHost.exe    # process supervisor host
-  runtime/                          # backend, LiveKit, CLI, web UI
+  runtime/                          # backend, CLI, web UI
   licenses, BUILD-MANIFEST.json
 ```
 
@@ -144,9 +144,8 @@ Do not run `cd desktop && go build -tags production .` — it overwrites the com
 | [frp](https://github.com/fatedier/frp) client | 0.71.1 | Apache-2.0 | downloaded to `runtime/frpc.exe` |
 | [EasyTier](https://github.com/EasyTier/EasyTier) | 2.6.4 | LGPL-3.0 | downloaded to `runtime/mesh/` |
 | [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) | 0.2.1 | MIT | shipped as `runtime/zviewer-cli-windows-amd64.exe` |
-| [LiveKit](https://github.com/livekit/livekit) server | 1.13.7 | Apache-2.0 | shipped as `runtime/livekit-server.exe` |
 
-All are unmodified binaries redistributed as-is, each keeping its license: frp / EasyTier under `assets/LICENSE-*.txt`, LiveKit and the CLI inside `runtime/`.
+All are unmodified binaries redistributed as-is, each keeping its license: frp / EasyTier under `assets/LICENSE-*.txt`, the CLI inside `runtime/`.
 
 ## Mobile Apps
 
@@ -171,7 +170,7 @@ For people changing this repository. Deployment options are in the Chinese [READ
 
 - **Two independent Go modules, no module at the root**: `backend-go/` (`zviewer/backend`) and `desktop/` (`zviewer/desktop`) build separately and share no internal packages.
 - In production the Go server serves the SPA; during development Vite runs on 5174 and proxies `/api`, `/socket.io` and `/live` to 3333.
-- Voice is an embedded LiveKit companion process; OBS streaming and listen-together run inside the backend process, no external service.
+- Voice, screen sharing, OBS streaming and listen-together all run inside the backend process — no external service.
 - `config/` is not committed (database, certificates, uploads, HLS segments) — a fresh clone must run `npm run db:init`.
 
 | Dependency | Version |
@@ -204,7 +203,7 @@ Optional: OBS (streaming), `sqlite3`, WebView2 (desktop shell development).
 | `npm run lint` / `npm test -w frontend` | eslint (0 error 0 warning) / frontend unit tests |
 | `npm run test:regression` | Full regression, about 1 min 45 s |
 
-Change the backend port with `PORT`, point the frontend at it with `VITE_API_TARGET`. Port map: 3333 backend + web, 5174 Vite, 3334/3335 RTMP and HTTP-FLV, 3336/3337/3338 LiveKit.
+Change the backend port with `PORT`, point the frontend at it with `VITE_API_TARGET`. Port map: 3333 backend + web + media UDP, 3337 media TCP, 5174 Vite, 3334/3335 RTMP and HTTP-FLV.
 
 Regression scripts each cover one area (`route-parity`, `events-parity`, `bilibili-smoke`, `frontend-smoke`, `soak`, …) and always work on a database copy, never `config/dev.sqlite`. Run one alone: `bash backend-go/scripts/profile-smoke.sh`.
 

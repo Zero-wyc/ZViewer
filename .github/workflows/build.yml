@@ -172,8 +172,8 @@ jobs:
       - name: Build & package single-file
         # build-all.js --win/--linux 会依次执行：
         #   1. vite 构建前端 → 2. go build 交叉编译后端
-        #   3. Windows / Linux 产物都附 livekit-server（语音开箱可用，不靠联网下载）
-        #   → 4. 复制启动脚本 → 5. 产物输出到 dist/<平台>/
+        #   3. 复制启动脚本 → 4. 产物输出到 dist/<平台>/
+        #（语音与屏幕共享的媒体面已内置在后端进程里，不再附伴生二进制）
         run: node build-all.js ${{ matrix.flag }}
 
       - name: Package artifacts (Linux)
