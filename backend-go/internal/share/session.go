@@ -45,6 +45,8 @@ type Session struct {
 	participants map[string]Participant
 	// routes 以 childPeerID 为键：每个观众最多一条上游边（Piik 的拓扑不变量）。
 	routes map[string]*Route
+	// tree 是树形拓扑的上限。零值 = 单层星形（只有房主当上游）。
+	tree TreePolicy
 	// relay 表示本房间的观众走 SFU 中继（candidate.transport = relay）。
 	// 由装配层按配置设置，进程内不变。
 	relay bool
@@ -59,6 +61,7 @@ func newSession(roomID string) *Session {
 		roomID:       roomID,
 		participants: make(map[string]Participant),
 		routes:       make(map[string]*Route),
+		tree:         TreePolicy{MaxDepth: 1},
 	}
 }
 

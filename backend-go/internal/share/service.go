@@ -38,6 +38,8 @@ type Deps struct {
 	DisplayName func(socketID string) string
 	// Relay 是 SFU 中继面（可选）。为 nil 时观众直连房主。
 	Relay *Relay
+	// Tree 是树形拓扑上限（可选）。零值 = 只有房主当上游。
+	Tree TreePolicy
 }
 
 // Service 管理所有房间的共享会话。
@@ -50,6 +52,7 @@ type Service struct {
 	logger      *log.Logger
 	displayName func(socketID string) string
 	relay       *Relay
+	tree        TreePolicy
 
 	mu sync.Mutex
 	// sessions 以 roomId 为键。
@@ -75,6 +78,7 @@ func NewService(deps Deps) *Service {
 		logger:        logger,
 		displayName:   displayName,
 		relay:         deps.Relay,
+		tree:          deps.Tree,
 		sessions:      make(map[string]*Session),
 		roomsBySocket: make(map[string]map[string]struct{}),
 	}
@@ -123,8 +127,9 @@ func (s *Service) EnsureSession(roomID string) *Session {
 	session, ok := s.sessions[roomID]
 	if !ok {
 		session = newSession(roomID)
-		// 中继模式是进程级配置，会话一建立就定死，运行期不再改。
+		// 中继模式与树形上限都是进程级配置，会话一建立就定死，运行期不再改。
 		session.SetRelay(s.relay != nil)
+		session.SetTree(s.tree)
 		s.sessions[roomID] = session
 	}
 	return session
@@ -154,6 +159,9 @@ func (s *Service) Detach(socketID string) {
 		if s.hub != nil {
 			s.hub.EmitRoom(roomID, Event, snapshot)
 		}
+		// 离开的如果是一位父节点，它下游的边已经随子树一起拆掉：这里补一次
+		// 分配，把那批观众重挂到别的上游（Piik `route/departure_test.go` 的语义）。
+		s.emitPlans(session.PlanRoutes())
 	}
 }
 

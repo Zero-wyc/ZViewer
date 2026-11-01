@@ -119,7 +119,10 @@ const (
 //
 // P0 不产生候选（路由在 P1 才接上），类型先冻结，避免 P1 再改线上格式。
 type Candidate struct {
-	ChildPeerID  string `json:"childPeerId"`
+	ChildPeerID string `json:"childPeerId"`
+	// ParentPeerID 是这条边的上游：房主或另一位观众（树形）。
+	// 中继边为空——上游是 SFU，不是某个 peer。
+	ParentPeerID string `json:"parentPeerId,omitempty"`
 	ConnectionID string `json:"connectionId"`
 	Transport    string `json:"transport"` // direct | relay
 	// PublicationGeneration 只有 transport=relay 时才有值：观众据此知道

@@ -86,6 +86,8 @@ export function useShareViewer(
       roomId,
       iceServers,
       natPredictionStunUrls,
+      // 树形拓扑要用它区分「这条边我收」和「这条边我转发」。
+      selfPeerId: socket.id,
       onStateChange: setState,
       onStream: (stream) => setRemoteStream(stream),
       onPeerUpdate: (snapshot) => {

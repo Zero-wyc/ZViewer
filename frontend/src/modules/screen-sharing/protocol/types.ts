@@ -35,6 +35,13 @@ export interface ShareParticipant {
 /** 一条待建立的路由候选。 */
 export interface ShareCandidate {
   childPeerId: string
+  /**
+   * 这条边的上游：房主或另一位观众（树形拓扑）。
+   *
+   * 中继边没有 P2P 上游，字段缺省。客户端据此判断自己在这条边上是「收」还是
+   * 「转发」——`parentPeerId === 自己` 就说明这条边要由我发 offer。
+   */
+  parentPeerId?: string
   connectionId: string
   /** direct = 浏览器直连；relay = 服务器中继。 */
   transport: 'direct' | 'relay'

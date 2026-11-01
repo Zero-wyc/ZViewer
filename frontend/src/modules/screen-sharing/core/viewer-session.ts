@@ -20,6 +20,7 @@ import type {
   ShareServerMessage,
 } from '../protocol/types'
 import { ShareClient } from './share-client'
+import { ViewerRelay } from './viewer-relay'
 import { ViewerPeer, type ViewerPeerSnapshot } from './viewer-peer'
 
 export interface ViewerSessionState {
@@ -43,6 +44,13 @@ export interface ViewerSessionState {
 export interface ViewerSessionOptions {
   socket: Socket
   roomId: string
+  /**
+   * 自己在房间里的 peerId（服务端用 socket.id 当 peerId）。
+   *
+   * 树形拓扑下，观众会收到「别人那条边」的候选（我是上游）；靠它区分
+   * 「这条边归我收」还是「这条边归我转发」。缺省时退化成单层行为。
+   */
+  selfPeerId?: string
   iceServers: RTCIceServer[]
   /** NAT 端口预测的 survey 目的地（恰好两个才启用；不传即关闭）。 */
   natPredictionStunUrls?: readonly string[]
@@ -70,6 +78,8 @@ export class ShareViewerSession {
   /** 已发出订阅请求的连接，避免同一条边重复 subscribe。 */
   private subscribedFor = ''
   private remoteStream: MediaStream | null = null
+  /** 我作为上游的转发端（树形拓扑）。null 表示我没有下游。 */
+  private relayPeers: ViewerRelay | null = null
   private state: ViewerSessionState = {
     joined: false,
     sharing: false,
@@ -117,6 +127,8 @@ export class ShareViewerSession {
   }
 
   dispose(): void {
+    this.relayPeers?.dispose()
+    this.relayPeers = null
     this.peer?.dispose()
     this.peer = null
     this.remoteStream = null
@@ -164,7 +176,10 @@ export class ShareViewerSession {
     this.shareGeneration = snapshot.shareGeneration
     this.options.onSnapshot?.(snapshot)
     if (!snapshot.sharing) {
-      // 共享结束：拆掉连接、清画面，但不关闭会话（房主随时可能再开）。
+      // 共享结束：拆掉连接、清画面（含我作为上游的转发边），但不关闭会话
+      // （房主随时可能再开）。
+      this.relayPeers?.dispose()
+      this.relayPeers = null
       this.teardownPeer()
       this.patch({
         joined: true,
@@ -190,6 +205,12 @@ export class ShareViewerSession {
     if (!connectionId) return
     // 版本栅栏：只有当前版本的 route 才有意义。
     this.revision = revision
+    // 树形：这条边的上游是我 → 我负责转发给下游，不建立自己的接收端。
+    // 判据只用服务端给的 parentPeerId，不靠「谁先到」猜。
+    if (this.isDownstreamEdge(candidate)) {
+      this.ensureRelay().publish(candidate!.childPeerId, connectionId)
+      return
+    }
     const mine = this.isMine(connectionId)
     if (!mine) {
       // 新候选（或重建后的新身份）：旧连接立刻作废。
@@ -269,6 +290,52 @@ export class ShareViewerSession {
     }
   }
 
+  /**
+   * 这条边是不是「我当上游、要转发给下游」的那条。
+   *
+   * 只有树形候选才带 `parentPeerId`；中继候选没有 P2P 上游，恒为 false。
+   * `selfPeerId` 缺省（老调用方）时也恒为 false，退化成单层行为。
+   */
+  private isDownstreamEdge(candidate: ShareCandidate | undefined): boolean {
+    const self = this.options.selfPeerId
+    return (
+      Boolean(self) &&
+      Boolean(candidate?.parentPeerId) &&
+      candidate?.parentPeerId === self
+    )
+  }
+
+  /** 懒建转发端：没有下游的时候一个 PC 都不多开。 */
+  private ensureRelay(): ViewerRelay {
+    if (this.relayPeers) return this.relayPeers
+    const relay = new ViewerRelay({
+      iceServers: this.options.iceServers,
+      natPredictionStunUrls: this.options.natPredictionStunUrls,
+      sendSignal: (connectionId, signal) =>
+        this.client.send({
+          t: 'share.signal',
+          roomId: this.options.roomId,
+          connectionId,
+          kind: signal.kind,
+          payload:
+            signal.kind === 'offer' ? signal.description : signal.candidate,
+        }),
+      onFailed: (connectionId) => {
+        // 转发端失败必须上报：服务端据此给这位下游换上游。
+        this.client.send({
+          t: 'share.route-failed',
+          roomId: this.options.roomId,
+          revision: this.revision,
+          phase: 'prepare',
+          connectionId,
+        })
+      },
+    })
+    this.relayPeers = relay
+    if (this.remoteStream) relay.setSource(this.remoteStream)
+    return relay
+  }
+
   /** 这条候选是不是发给自己的（单层拓扑下观众只有自己一条边）。 */
   private isMine(connectionId: string): boolean {
     if (this.connectionId === connectionId) return true
@@ -281,6 +348,11 @@ export class ShareViewerSession {
     kind: string,
     payload: unknown
   ): void {
+    // 转发边：下游的 answer / 候选先给我自己的 publisher。
+    if (this.relayPeers?.owns(connectionId)) {
+      this.relayPeers.acceptSignal(connectionId, kind, payload)
+      return
+    }
     if (!this.connectionId || connectionId !== this.connectionId) return
     const peer = this.ensurePeer(connectionId)
     if (kind === 'offer') {
@@ -345,6 +417,8 @@ export class ShareViewerSession {
         },
         onStream: (stream) => {
           this.remoteStream = stream
+          // 转发边只有一个源：我自己收到的那条流。源到了才能给下游发 offer。
+          this.relayPeers?.setSource(stream)
           this.options.onStream?.(stream)
         },
         onUpdate: (snapshot) => {

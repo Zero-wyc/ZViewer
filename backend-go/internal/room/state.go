@@ -173,6 +173,8 @@ type Deps struct {
 	NMS StreamPushService
 	// ShareRelay 是屏幕共享的 SFU 中继面。不传时观众直连房主。
 	ShareRelay *share.Relay
+	// ShareTree 是屏幕共享的树形上限。零值 = 只有房主当上游。
+	ShareTree share.TreePolicy
 	// VoiceRTC 是语音控制面（自建 SFU）。不传时语音不可用（媒体端口没起来）。
 	VoiceRTC *voicertc.Service
 }
@@ -216,6 +218,7 @@ func NewService(deps Deps) *Service {
 		IsHost: svc.IsRoomHost,
 		Logger: logger,
 		Relay:  deps.ShareRelay,
+		Tree:   deps.ShareTree,
 	})
 	if deps.ShareRelay != nil {
 		// 媒体层失败要回到控制面换候选；Service 是后于 Relay 构造的，

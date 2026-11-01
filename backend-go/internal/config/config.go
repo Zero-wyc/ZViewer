@@ -62,6 +62,15 @@ type Config struct {
 	// 观众可达：只转 TCP 的隧道走后者。端口绑不上时服务会自动回退直连并
 	// 打日志，不会让共享起不来。
 	ShareRelay bool
+	// ShareTree* 是屏幕共享的树形拓扑上限（Piik 的「观众互助」）。
+	//
+	// 三个都是 0/1 的默认值 = 单层星形：所有观众都直连房主。只有显式把
+	// `SHARE_TREE_VIEWER_CHILDREN` 调到 >0，观众才会被当成可用的上游。
+	// 房主出网 = 它的子节点数，所以瓶颈房间里把 HostChildren 调到 2~3、
+	// ViewerChildren 调到 2，能把房主上行摊到观众身上。
+	ShareTreeHostChildren   int
+	ShareTreeViewerChildren int
+	ShareTreeMaxDepth       int
 	// ShareMediaPort 是媒体 UDP 端口。
 	//
 	// 默认 3333：这个端口以前是 livekit-server 的语音端口，防火墙早就开着。
@@ -119,10 +128,13 @@ func Load() (*Config, error) {
 		StartedAt:    time.Now(),
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 
-		ShareRelay:         envBool("SHARE_RELAY"),
-		ShareMediaPort:     3333,
-		ShareMediaTCPPort:  mediaTCPFallbackPort,
-		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
+		ShareRelay:              envBool("SHARE_RELAY"),
+		ShareTreeHostChildren:   envInt("SHARE_TREE_HOST_CHILDREN", 0),
+		ShareTreeViewerChildren: envInt("SHARE_TREE_VIEWER_CHILDREN", 0),
+		ShareTreeMaxDepth:       envInt("SHARE_TREE_MAX_DEPTH", 1),
+		ShareMediaPort:          3333,
+		ShareMediaTCPPort:       mediaTCPFallbackPort,
+		ShareMediaPublicIP:      strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
 	}
 	if raw := os.Getenv("SHARE_MEDIA_TCP_PORT"); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -322,6 +334,19 @@ func Platform() string { return describePlatform() }
 // DetectProjectRoot 在加载 .env 之前先探测项目根：
 // 引导阶段 argv/env 里可能还没有 PROJECT_ROOT，需要靠目录特征定位。
 func DetectProjectRoot() string { return resolveProjectRoot() }
+
+// envInt 读一个非负整数；未设置、解析失败或为负都退回默认值。
+func envInt(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return fallback
+	}
+	return value
+}
 
 // envBool 把 `1/true/on/yes` 当作真，其余（含未设置）当作假。
 func envBool(name string) bool {

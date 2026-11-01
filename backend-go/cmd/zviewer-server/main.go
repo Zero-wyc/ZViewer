@@ -288,7 +288,12 @@ func main() {
 		NMS:      streamPush,
 
 		ShareRelay: shareRelay,
-		VoiceRTC:   voiceRTC,
+		ShareTree: share.TreePolicy{
+			HostChildren:   cfg.ShareTreeHostChildren,
+			ViewerChildren: cfg.ShareTreeViewerChildren,
+			MaxDepth:       cfg.ShareTreeMaxDepth,
+		},
+		VoiceRTC: voiceRTC,
 	})
 
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
