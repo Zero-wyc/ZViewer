@@ -1,6 +1,7 @@
 {
   "bucket": "modules/screen-sharing",
   "items": [
+    "摄像头",
     "摄像头 {{index}}",
     "摄像头没有系统声；观众听到的声音来自麦克风",
     "摄像头已断开，共享已停止",

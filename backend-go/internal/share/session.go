@@ -51,6 +51,8 @@ type Session struct {
 	qualityReports map[string]*routeQuality
 	// parentPenalty 记录「最近被投诉过的上游」，只影响选父排序，不排除。
 	parentPenalty map[string]time.Time
+	// lastPressureAt 是上一次「提醒房主降档」的时刻（节流用，见 quality.go）。
+	lastPressureAt time.Time
 	// relay 表示本房间的观众走 SFU 中继（candidate.transport = relay）。
 	// 由装配层按配置设置，进程内不变。
 	relay bool
@@ -249,6 +251,7 @@ func (s *Session) Start(hint *string, paused bool, quality *QualitySettings) (Sn
 	s.routes = make(map[string]*Route)
 	s.qualityReports = make(map[string]*routeQuality)
 	s.parentPenalty = make(map[string]time.Time)
+	s.lastPressureAt = time.Time{}
 	s.bumpLocked()
 	return s.snapshotLocked(), nil
 }
@@ -270,6 +273,7 @@ func (s *Session) Stop(generation string) (SnapshotMessage, error) {
 	s.routes = make(map[string]*Route)
 	s.qualityReports = make(map[string]*routeQuality)
 	s.parentPenalty = make(map[string]time.Time)
+	s.lastPressureAt = time.Time{}
 	s.bumpLocked()
 	return s.snapshotLocked(), nil
 }

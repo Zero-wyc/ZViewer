@@ -34,6 +34,21 @@ const (
 	// 留下的旧计数不能算到下一次上。
 	qualityEvidenceTTL = 8 * time.Second
 
+	// qualityPressureViewers / qualityPressureWindow 决定「同时报坏」的门槛：
+	// 窗口内至少两位观众在坏，且占到房主身上观众的一半以上。
+	//
+	// 为什么必须是多数：一条路坏是**那条路**的问题（换父能救，服务端自己做），
+	// 多位观众同时坏才可能是**源**不够（房主上行或编码）。让房主为一条烂路
+	// 降档，是拿所有人的清晰度去补一个人的网络。
+	qualityPressureViewers = 2
+	qualityPressureWindow  = 10 * time.Second
+	// qualityPressureCooldown 是两次下发之间的间隔：降档要重配采集与所有发布端，
+	// 不能因为窗口每 2 秒来一次就催个不停。
+	qualityPressureCooldown = 20 * time.Second
+	// qualityPressureStuckWindows：只有一位观众时，他已经连续坏了这么多窗口
+	// 还没被换走（换不动 / 换过也没好转），这时降档是唯一剩下的杠杆。
+	qualityPressureStuckWindows = 3
+
 	// 判据阈值。改之前先说清依据：
 	//  - 冻结占比 >12% 或一个窗口冻两次：肉眼已经能看出「卡住了」；
 	//  - 丢包 >8%：视频开始花屏/跳帧（Opus 靠 FEC 能撑，视频撑不住）；
@@ -209,30 +224,33 @@ func (s *Session) qualityForLocked(peerID, connectionID string) *routeQuality {
 	return report
 }
 
-// ObserveQuality 收下一个观众侧质量窗口，必要时给这位观众换一个上游。
+// ObserveQuality 收下一个观众侧质量窗口：必要时给这位观众换一个上游，或者
+// （多位观众同时报坏时）告诉房主「这份出流不够」。
 //
-// 返回需要下发的 plans（换了父才有内容）。**不返回错误也不回报错**：证据是
-// 尽力而为的输入，写错字段、版本过期、边已不存在的唯一处理就是忽略。
+// 两个返回值都可为空。**不返回错误也不回报错**：证据是尽力而为的输入，
+// 写错字段、版本过期、边已不存在的唯一处理就是忽略。
 //
-// 决策链（每一步都必须成立才会换父）：
+// 换父的决策链（每一步都必须成立）：
 //  1. 这是本代际、本连接、已提交的边（prepare 阶段还没有画面，谈不上质量）；
 //  2. 连续 qualityDegradedWindows 个窗口判「边坏了」；
 //  3. 距上次换父超过 qualitySwitchCooldown，且换过的次数没用完；
 //  4. 存在另一个**可用的**上游（`selectParentExceptLocked`）。
-func (s *Session) ObserveQuality(peerID string, revision int64, connectionID string, window QualityWindow) []RoutePlan {
+//
+// 压力提示是另一条链：**多**位观众同时坏才通知房主降档（见 hostPressureLocked）。
+func (s *Session) ObserveQuality(peerID string, revision int64, connectionID string, window QualityWindow) ([]RoutePlan, *HostPressureMessage) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if !s.sharing || revision != s.revision || connectionID == "" {
-		return nil
+		return nil, nil
 	}
 	// 中继模式下观众订的是 SFU 的发布，不是某个 peer：换 P2P 上游没有任何
 	// 意义，只会白白铸一个新 connectionId、让观众重订一次流。
 	if s.relay {
-		return nil
+		return nil, nil
 	}
 	route, ok := s.routes[peerID]
 	if !ok || route.ConnectionID != connectionID || route.Phase != PhaseActive {
-		return nil
+		return nil, nil
 	}
 	window = sanitizeQualityWindow(window)
 	state, reason := classifyQualityWindow(window, s.quality.FrameRate)
@@ -260,19 +278,22 @@ func (s *Session) ObserveQuality(peerID string, revision int64, connectionID str
 		// 自己解不动：换上游不会有任何改善，也不清降级计数（边可能同时是坏的）。
 		report.viewerLimitedWindows++
 	}
+	// 不管换不换父，都先看一眼「是不是该提醒房主降档」：这位观众换不了父时，
+	// 降档就是唯一剩下的杠杆。
+	pressure := s.hostPressureLocked(now)
 	if report.degradedWindows < qualityDegradedWindows {
-		return nil
+		return nil, pressure
 	}
 	if !report.lastSwitchAt.IsZero() && now.Sub(report.lastSwitchAt) < qualitySwitchCooldown {
-		return nil
+		return nil, pressure
 	}
 	if report.switches >= qualityMaxSwitches {
-		return nil
+		return nil, pressure
 	}
 	next := s.selectParentExceptLocked(peerID, route.ParentPeerID)
 	if next == "" || next == route.ParentPeerID {
 		// 没有别的上游可选：留在原地。质量差也好过断流。
-		return nil
+		return nil, pressure
 	}
 	// 换父 = 换一条 PC：connectionId 必须重铸，旧的一端立刻作废。
 	route.ParentPeerID = next
@@ -288,7 +309,76 @@ func (s *Session) ObserveQuality(peerID string, revision int64, connectionID str
 	s.bumpLocked()
 	route.Revision = s.revision
 	plans := s.plansLocked([]*Route{route})
-	return append(plans, s.refreshPrepareLocked(route)...)
+	return append(plans, s.refreshPrepareLocked(route)...), pressure
+}
+
+// hostPressureLocked 判断「要不要告诉房主降一档」。调用方必须持有 mu。
+//
+// 判据只有一条硬线加一条兜底：
+//   - 硬线：窗口内至少 qualityPressureViewers 位观众在坏，且占到房主身上
+//     观众的一半以上（多数同时坏 → 源不够）；
+//   - 兜底：房主身上只有一位观众，他已经连续 qualityPressureStuckWindows 个
+//     窗口在坏（换父换不动或换了也没救），这时只降一档是唯一能试的。
+//
+// 单个观众坏而房主身上还有别人好着 → 什么都不做：那是那条路的问题。
+func (s *Session) hostPressureLocked(now time.Time) *HostPressureMessage {
+	host := s.hostPeerIDLocked()
+	if host == "" {
+		return nil
+	}
+	viewers, degraded, reason := 0, 0, ""
+	stuck := false
+	for childPeerID, route := range s.routes {
+		if route.ParentPeerID != host {
+			continue
+		}
+		// 分母是「挂在房主身上的全部观众」，不是「上报过的观众」：没上报的人
+		// 只是没证据，不能因为他缺席就把 1/1 算成多数。
+		viewers++
+		report, ok := s.qualityReports[childPeerID]
+		if !ok {
+			continue
+		}
+		if report.lastState != QualityDegraded {
+			continue
+		}
+		if now.Sub(report.lastWindowAt) > qualityPressureWindow {
+			continue
+		}
+		degraded++
+		if report.lastReason != "" {
+			reason = report.lastReason
+		}
+		if report.degradedWindows >= qualityPressureStuckWindows {
+			stuck = true
+		}
+	}
+	if degraded == 0 {
+		return nil
+	}
+	majority := degraded >= qualityPressureViewers && degraded*2 >= viewers
+	if !majority && !(viewers == 1 && stuck) {
+		return nil
+	}
+	if !s.lastPressureAt.IsZero() && now.Sub(s.lastPressureAt) < qualityPressureCooldown {
+		return nil
+	}
+	s.lastPressureAt = now
+	return &HostPressureMessage{
+		T:        TypeHostPressure,
+		RoomID:   s.roomID,
+		Revision: s.revision,
+		Degraded: degraded,
+		Viewers:  viewers,
+		Reason:   reason,
+	}
+}
+
+// HostPeerID 返回房主的 peerId（没有则空串）。
+func (s *Session) HostPeerID() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.hostPeerIDLocked()
 }
 
 // QualityReport 返回某位观众最近一次的判定（诊断/测试用）。

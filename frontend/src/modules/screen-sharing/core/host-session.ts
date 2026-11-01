@@ -13,6 +13,7 @@
  */
 import type { Socket } from 'socket.io-client'
 import type {
+  ShareHostPressureMessage,
   ShareServerMessage,
   ShareSnapshotMessage,
 } from '../protocol/types'
@@ -35,6 +36,9 @@ import { peerQualityEqual, type PeerQualityView } from './peer-quality'
 import {
   ENCODER_STARVED_WINDOWS,
   MAX_AUTO_DOWNGRADES,
+  MAX_TOTAL_AUTO_DOWNGRADES,
+  MAX_VIEWER_DOWNGRADES,
+  VIEWER_DOWNGRADE_COOLDOWN_MS,
   nextLowerProfile,
 } from './encoder-health'
 import { relayMediaDeclaration } from './relay-media'
@@ -45,6 +49,14 @@ export interface AutoDowngradeNotice {
   width: number
   height: number
   frameRate: number
+  /**
+   * 降档依据。两条证据链的动作一样、说法不一样：
+   *  - `encoder`：本机编码跟不上；
+   *  - `viewers`：多位观众同时收不好（多半是上行带宽）。
+   */
+  reason: 'encoder' | 'viewers'
+  /** `viewers` 时是报坏的观众数；`encoder` 时为 null。 */
+  viewers: number | null
 }
 
 export interface HostSessionState {
@@ -118,8 +130,12 @@ export class ShareHostSession {
   private readonly peers = new Map<string, HostPeer>()
   /** 每条观众连接连续多少个窗口「编码跟不上」。 */
   private readonly starvedBy = new Map<string, number>()
-  /** 本代际已经自动降过几次档。 */
+  /** 本代际因编码器证据自动降过几次档。 */
   private autoDowngrades = 0
+  /** 本代际因观众证据自动降过几次档。 */
+  private viewerDowngrades = 0
+  /** 上一次因观众证据降档的时刻（与编码器链独立节流）。 */
+  private lastViewerDowngradeAt = 0
 
   private audio: HostAudio | null = null
   private sourceStream: MediaStream | null = null
@@ -218,6 +234,8 @@ export class ShareHostSession {
     // 新的一代重新观察编码健康：上一代的降档结论不该带到这一代。
     this.starvedBy.clear()
     this.autoDowngrades = 0
+    this.viewerDowngrades = 0
+    this.lastViewerDowngradeAt = 0
     this.patch({ relay: false, parameterOverride: null, autoDowngrade: null })
     try {
       const source =
@@ -472,6 +490,9 @@ export class ShareHostSession {
         return
       case 'share.signal-relay':
         this.handleRelay(message.connectionId, message.kind, message.payload)
+        return
+      case 'share.host-pressure':
+        this.handleHostPressure(message)
         return
       case 'share.status':
         if (message.state !== 'failed') return
@@ -768,6 +789,49 @@ export class ShareHostSession {
 
     this.starvedBy.clear()
     this.autoDowngrades += 1
+    this.applyAutoDowngrade(lower, 'encoder', null)
+  }
+
+  /**
+   * 服务端说「多位观众同时收不好」。
+   *
+   * 分工：编码器证据看的是**本机编得动吗**（CPU），这条看的是**发出去的够不
+   * 够**（多半是上行带宽，编码器一点都不累）。所以两条链各有一份预算，合计
+   * 封顶（见 `MAX_TOTAL_AUTO_DOWNGRADES`）。
+   *
+   * 单个观众坏不会走到这里——服务端会先给他换上游；走到这里说明要么多数观众
+   * 同时坏，要么唯一那位观众换不动父、一直坏。
+   */
+  private handleHostPressure(message: ShareHostPressureMessage): void {
+    const profile = this.profile
+    if (!profile) return
+    if (
+      this.autoDowngrades + this.viewerDowngrades >=
+      MAX_TOTAL_AUTO_DOWNGRADES
+    ) {
+      return
+    }
+    if (this.viewerDowngrades >= MAX_VIEWER_DOWNGRADES) return
+    // 第二道节流：服务端已按 20 秒下发一次，本地再挡一次（降档=全员重协商）。
+    if (
+      this.lastViewerDowngradeAt > 0 &&
+      Date.now() - this.lastViewerDowngradeAt < VIEWER_DOWNGRADE_COOLDOWN_MS
+    ) {
+      return
+    }
+    const lower = nextLowerProfile(profile)
+    if (!lower) return
+    this.viewerDowngrades += 1
+    this.lastViewerDowngradeAt = Date.now()
+    this.applyAutoDowngrade(lower, 'viewers', message.degraded)
+  }
+
+  /** 执行一次自动降档：记通知、重配采集与所有发布端。 */
+  private applyAutoDowngrade(
+    lower: QualityProfile,
+    reason: 'encoder' | 'viewers',
+    viewers: number | null
+  ): void {
     const resolution = lower.resolution
     if (resolution) {
       this.patch({
@@ -775,6 +839,8 @@ export class ShareHostSession {
           width: resolution.width,
           height: resolution.height,
           frameRate: lower.maxFramerate,
+          reason,
+          viewers,
         },
       })
     }

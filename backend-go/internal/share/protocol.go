@@ -54,6 +54,9 @@ const (
 	// TypeError 是本实现新增的唯一消息（Piik 用 error/INVALID_MESSAGE）。
 	// 加它是因为 ZViewer 的 `share` 事件是即发即忘，没有 ack 通道回报失败。
 	TypeError = "share.error"
+	// TypeHostPressure 是本实现新增的：多位观众同时报坏时，告诉房主「你这一
+	// 份出流不够」（Piik 对应的是 `hostFanoutNeedsSfuRelief` 之后的那次决策）。
+	TypeHostPressure = "share.host-pressure"
 )
 
 // 错误码。语义对齐 Piik server.go / session.go 的对应分支。
@@ -322,6 +325,28 @@ type RouteMessage struct {
 
 // MessageType 实现 ServerMessage。
 func (m RouteMessage) MessageType() string { return m.T }
+
+// HostPressureMessage 告诉房主「你这一份出流对多位观众都不够」。
+//
+// 只在**多位观众同时报坏**（或唯一那位观众换不了父、一直坏）时下发：单个
+// 观众坏是那条路的问题，先换父——那是服务端自己的事，不该让房主降档。
+//
+// 客户端据此降一档。它与编码器证据（本机 CPU 编不动）是两条独立证据链，
+// 服务端不建议档位，因为降档阶梯在客户端（`core/encoder-health.ts`）。
+type HostPressureMessage struct {
+	T      string `json:"t"`
+	RoomID string `json:"roomId"`
+	// Revision 是下发时的路由版本（诊断用）。
+	Revision int64 `json:"revision"`
+	// Degraded 是最近仍在报坏的观众数，Viewers 是挂在房主身上的观众总数。
+	Degraded int `json:"degraded"`
+	Viewers  int `json:"viewers"`
+	// Reason 是最近一次降级的主要成因（freeze / loss / stall），仅供诊断。
+	Reason string `json:"reason,omitempty"`
+}
+
+// MessageType 实现 ServerMessage。
+func (m HostPressureMessage) MessageType() string { return m.T }
 
 // StatusMessage 下发「还在等」或「彻底失败」。只有两种组合。
 type StatusMessage struct {

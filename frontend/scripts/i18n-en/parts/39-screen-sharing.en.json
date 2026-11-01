@@ -3,6 +3,7 @@
     ", low bitrate will drop frames",
     "[share] dropped an undecodable downstream message",
     "{{droppedFrames}} / {{value}} frames",
+    "{{viewers}} viewers reported stuttering — dropped to {{value}} automatically",
     "1080P · 30fps · 8Mbps — the default",
     "1080P · 60fps · 16Mbps — pick this when the picture moves fast",
     "720P · 30fps · 4Mbps — pick this on an average network",
@@ -118,7 +119,6 @@
     "Confirm join",
     "Confirm ending",
     "Mostly speech, saves bandwidth",
-    "Leave blank if the room has no password",
-    "Camera"
+    "Leave blank if the room has no password"
   ]
 }

@@ -1,5 +1,6 @@
 {
   "items": [
+    "Camera",
     "Camera {{index}}",
     "Cameras carry no system audio — viewers only hear the microphone",
     "The camera disconnected — sharing stopped",

@@ -60,6 +60,11 @@ const SERVER_MESSAGE_FIELDS: Record<
     required: ['t', 'roomId', 'revision', 'state', 'reason'],
     optional: [],
   },
+  'share.host-pressure': {
+    // reason 是诊断信息，服务端可能不带（例如成因判不出来时）。
+    required: ['t', 'roomId', 'revision', 'degraded', 'viewers'],
+    optional: ['reason'],
+  },
   'share.sfu-signal': {
     required: [
       't',

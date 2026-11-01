@@ -371,3 +371,125 @@ func TestQualityIgnoresRelaySessions(t *testing.T) {
 		t.Fatalf("中继模式不该记录换父，实际 %d", switches)
 	}
 }
+
+// pressureFrames 取出所有发给房主的「压力」提示。
+func pressureFrames(t *testing.T, hub *fakeHub) []map[string]any {
+	t.Helper()
+	var out []map[string]any
+	for _, item := range hub.to {
+		if item.Target != "host-1" {
+			continue
+		}
+		frame := decodeFrame(t, item.Frame)
+		if frame["t"] == TypeHostPressure {
+			out = append(out, frame)
+		}
+	}
+	return out
+}
+
+// 只有一位观众报坏、房里还有别人好着 → 那是那条路的问题，不该让房主降档。
+func TestPressureNeedsMajorityOfViewers(t *testing.T) {
+	service, hub := newTreeService(TreePolicy{MaxDepth: 1})
+	joinRoom(t, service, "host-1")
+	for _, viewer := range []string{"viewer-1", "viewer-2", "viewer-3"} {
+		joinRoom(t, service, viewer)
+	}
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.start","roomId":"r1"}`)
+	session := service.Session("r1")
+	for _, viewer := range []string{"viewer-1", "viewer-2", "viewer-3"} {
+		commitRoute(t, service, session, viewer)
+	}
+	hub.to = nil
+
+	// 一位坏：三个人里只有一个，服务端只会记账（这里没有可换的父）。
+	for attempt := 0; attempt < 3; attempt++ {
+		reportQuality(t, service, session, "viewer-1", degradedWindow)
+	}
+	if frames := pressureFrames(t, hub); len(frames) != 0 {
+		t.Fatalf("单个观众坏不该催房主降档，实际 %d 条", len(frames))
+	}
+
+	// 两位坏（2/3，过半）：源不够，催降档。
+	for attempt := 0; attempt < 2; attempt++ {
+		reportQuality(t, service, session, "viewer-2", degradedWindow)
+	}
+	frames := pressureFrames(t, hub)
+	if len(frames) != 1 {
+		t.Fatalf("多数观众坏应催一次降档，实际 %d 条", len(frames))
+	}
+	if frames[0]["degraded"] != float64(2) || frames[0]["viewers"] != float64(3) {
+		t.Fatalf("压力消息的计数不对：%v", frames[0])
+	}
+	if frames[0]["reason"] != "freeze" {
+		t.Fatalf("应带上主要成因，实际 %v", frames[0]["reason"])
+	}
+}
+
+// 节流：连续窗口不会一直催，20 秒内只下发一次。
+func TestPressureCooldown(t *testing.T) {
+	service, hub := newTreeService(TreePolicy{MaxDepth: 1})
+	joinRoom(t, service, "host-1")
+	for _, viewer := range []string{"viewer-1", "viewer-2"} {
+		joinRoom(t, service, viewer)
+	}
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.start","roomId":"r1"}`)
+	session := service.Session("r1")
+	for _, viewer := range []string{"viewer-1", "viewer-2"} {
+		commitRoute(t, service, session, viewer)
+	}
+	hub.to = nil
+
+	for attempt := 0; attempt < 6; attempt++ {
+		reportQuality(t, service, session, "viewer-1", degradedWindow)
+		reportQuality(t, service, session, "viewer-2", degradedWindow)
+	}
+	if frames := pressureFrames(t, hub); len(frames) != 1 {
+		t.Fatalf("冷却期内只该催一次，实际 %d 条", len(frames))
+	}
+}
+
+// 房主身上只有一位观众、换父也换不动：一直坏下去时才催降档（唯一剩下的杠杆）。
+func TestPressureSingleStuckViewer(t *testing.T) {
+	service, hub := newTreeService(TreePolicy{MaxDepth: 1})
+	joinRoom(t, service, "host-1")
+	joinRoom(t, service, "viewer-1")
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.start","roomId":"r1"}`)
+	session := service.Session("r1")
+	commitRoute(t, service, session, "viewer-1")
+	hub.to = nil
+
+	// 前两个窗口只累计（还谈不上「换不动」）。
+	reportQuality(t, service, session, "viewer-1", degradedWindow)
+	reportQuality(t, service, session, "viewer-1", degradedWindow)
+	if frames := pressureFrames(t, hub); len(frames) != 0 {
+		t.Fatalf("刚坏两个窗口不该催降档，实际 %d 条", len(frames))
+	}
+	// 第三个窗口：换父换不动（没有别的上游），降档成为唯一杠杆。
+	reportQuality(t, service, session, "viewer-1", degradedWindow)
+	if frames := pressureFrames(t, hub); len(frames) != 1 {
+		t.Fatalf("单一观众持续坏应催一次降档，实际 %d 条", len(frames))
+	}
+}
+
+// 健康窗口不该催：压力只来自降级证据。
+func TestPressureIgnoresHealthyViewers(t *testing.T) {
+	service, hub := newTreeService(TreePolicy{MaxDepth: 1})
+	joinRoom(t, service, "host-1")
+	for _, viewer := range []string{"viewer-1", "viewer-2"} {
+		joinRoom(t, service, viewer)
+	}
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.start","roomId":"r1"}`)
+	session := service.Session("r1")
+	for _, viewer := range []string{"viewer-1", "viewer-2"} {
+		commitRoute(t, service, session, viewer)
+	}
+	hub.to = nil
+	for attempt := 0; attempt < 4; attempt++ {
+		reportQuality(t, service, session, "viewer-1", healthyWindow)
+		reportQuality(t, service, session, "viewer-2", healthyWindow)
+	}
+	if frames := pressureFrames(t, hub); len(frames) != 0 {
+		t.Fatalf("健康窗口不该催降档，实际 %d 条", len(frames))
+	}
+}

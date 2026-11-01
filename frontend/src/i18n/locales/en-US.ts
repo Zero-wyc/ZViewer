@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2631 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2303,10 +2303,11 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（198 条） =====
+  // ===== modules/screen-sharing（199 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
+  '{{viewers}} 位观众反馈卡顿，已自动降到 {{value}}': '{{viewers}} viewers reported stuttering — dropped to {{value}} automatically',
   '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps — the default',
   '1080P · 60fps · 16Mbps，画面有快速运动时选它': '1080P · 60fps · 16Mbps — pick this when the picture moves fast',
   '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps — pick this on an average network',

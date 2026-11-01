@@ -484,18 +484,25 @@ function WebrtcSharePage({
     onCaptureFpsChange?.(captureFps)
   }, [captureFps, onCaptureFpsChange])
 
-  // 编码跟不上自动降档：同一次降档只提示一遍（state 里是纯数据，
-  // 每 2 秒采样都会带上同一个值，没有去重会刷屏）。
+  // 自动降档提示：同一次降档只提示一遍（state 里是纯数据，每 2 秒采样都会
+  // 带上同一个值，没有去重会刷屏）。
+  //
+  // 两种降档依据的说法必须分开：编码器证据是「本机编不动」，观众证据是
+  // 「发出去的不够」——后者说成「编码跟不上」是在骗人。
   const notifiedDowngradeRef = useRef('')
   useEffect(() => {
     if (!autoDowngrade) return
-    const key = `${autoDowngrade.width}x${autoDowngrade.height}@${autoDowngrade.frameRate}`
+    const key = `${autoDowngrade.reason}:${autoDowngrade.width}x${autoDowngrade.height}@${autoDowngrade.frameRate}`
     if (notifiedDowngradeRef.current === key) return
     notifiedDowngradeRef.current = key
+    const value = `${autoDowngrade.width} × ${autoDowngrade.height} · ${autoDowngrade.frameRate} fps`
     message.warning(
-      t('编码跟不上，已自动降到 {{value}}', {
-        value: `${autoDowngrade.width} × ${autoDowngrade.height} · ${autoDowngrade.frameRate} fps`,
-      }),
+      autoDowngrade.reason === 'viewers'
+        ? t('{{viewers}} 位观众反馈卡顿，已自动降到 {{value}}', {
+            viewers: autoDowngrade.viewers ?? '',
+            value,
+          })
+        : t('编码跟不上，已自动降到 {{value}}', { value }),
       { duration: 8000 }
     )
   }, [autoDowngrade])

@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2626 条。
+ * 当前共 2627 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -2300,10 +2300,11 @@ const zhCN: Record<string, string> = {
   'Socket 尚未连接': 'Socket 尚未连接',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）',
 
-  // ===== modules/screen-sharing（198 条） =====
+  // ===== modules/screen-sharing（199 条） =====
   '，码率不足将导致降帧': '，码率不足将导致降帧',
   '[share] 丢弃无法解码的下行消息': '[share] 丢弃无法解码的下行消息',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} 帧',
+  '{{viewers}} 位观众反馈卡顿，已自动降到 {{value}}': '{{viewers}} 位观众反馈卡顿，已自动降到 {{value}}',
   '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps，默认档位',
   '1080P · 60fps · 16Mbps，画面有快速运动时选它': '1080P · 60fps · 16Mbps，画面有快速运动时选它',
   '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps，网络一般时选它',

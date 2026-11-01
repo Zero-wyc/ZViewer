@@ -382,7 +382,12 @@ func (s *Service) handleQuality(conn Conn, message QualityMessage) {
 	if session == nil {
 		return
 	}
-	plans := session.ObserveQuality(conn.ID, message.Revision, message.ConnectionID, message.Window)
+	plans, pressure := session.ObserveQuality(conn.ID, message.Revision, message.ConnectionID, message.Window)
+	if pressure != nil {
+		// 多位观众同时报坏：问题多半在源（房主上行/编码），让房主降一档。
+		// 它和换父是两条独立的动作，同一次窗口可以既换父又降档。
+		s.emitToPeer(session.HostPeerID(), pressure)
+	}
 	if len(plans) == 0 {
 		// 绝大多数窗口只是记账：不换父就没有任何下发。
 		return
@@ -450,6 +455,14 @@ func (s *Service) reconcile(roomID string) {
 		return
 	}
 	s.emitPlans(session.PlanRoutes())
+}
+
+// emitToPeer 按 peerId 下发一条消息（P0 里 peerId 就是 socketId）。
+func (s *Service) emitToPeer(peerID string, message ServerMessage) {
+	if s.hub == nil || peerID == "" {
+		return
+	}
+	s.hub.EmitTo(peerID, Event, message)
 }
 
 // emitPlans 下发一批 route 消息。

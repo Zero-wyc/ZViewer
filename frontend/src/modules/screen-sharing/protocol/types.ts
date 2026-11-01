@@ -62,6 +62,24 @@ export type SharePhase = 'prepare' | 'active'
 /** 路由此刻的状态。只有两种组合（Piik server.go:117）。 */
 export type ShareStatusState = 'waiting' | 'failed'
 
+/**
+ * 服务端告诉房主「你这一份出流对多位观众都不够」。
+ *
+ * 只在**多位观众同时报坏**（或唯一那位观众换不动父、一直坏）时下发。房主
+ * 据此降一档：单条路的问题由服务端换父解决，不该拿所有人的清晰度去补。
+ */
+export interface ShareHostPressureMessage {
+  t: 'share.host-pressure'
+  roomId: string
+  revision: number
+  /** 最近仍在报坏的观众数。 */
+  degraded: number
+  /** 挂在房主身上的观众总数。 */
+  viewers: number
+  /** 主要成因（freeze / loss / stall），仅供诊断。 */
+  reason?: string
+}
+
 /** 状态原因。 */
 export type ShareStatusReason =
   'sfu-admission' | 'route-exhausted' | 'relay-unreachable' | 'relay-disabled'
@@ -301,6 +319,7 @@ export type ShareServerMessage =
   | ShareSnapshotMessage
   | ShareRouteMessage
   | ShareStatusMessage
+  | ShareHostPressureMessage
   | ShareSfuMessage
   | ShareSfuConfigMessage
   | ShareSignalRelayMessage
