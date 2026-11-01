@@ -30,6 +30,8 @@ export interface UseShareViewerOptions {
 export interface UseShareViewerResult {
   /** 底层连接，仅供统计面板使用。 */
   pc: RTCPeerConnection | null
+  /** 远端流（观众端音量控制要拿它的音轨）。 */
+  remoteStream: MediaStream | null
   hasRemoteStream: boolean
   hasRemoteAudio: boolean
   connectionState: RTCPeerConnectionState
@@ -133,6 +135,7 @@ export function useShareViewer(
 
   return {
     pc,
+    remoteStream,
     hasRemoteStream: remoteStream !== null,
     hasRemoteAudio: (remoteStream?.getAudioTracks().length ?? 0) > 0,
     connectionState,

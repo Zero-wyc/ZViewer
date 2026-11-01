@@ -18,8 +18,10 @@ interface RemoteVideoPlayerProps {
   videoRef: RefObject<HTMLVideoElement | null>
   /** 设置 video 元素 ref 的回调（来自调用方的 setVideoRef） */
   setVideoRef: (node: HTMLVideoElement | null) => void
-  /** 是否静音 */
+  /** 初始静音（托管模式下只在元素挂载时应用一次） */
   isMuted: boolean
+  /** 静音与音量由 ViewerAudio 托管，播放器不再改写 video.muted。 */
+  managedMuted?: boolean
   /** 是否已收到远端视频流 */
   hasRemoteStream: boolean
   /** PeerConnection（用于 VideoStatsMenu） */
@@ -31,6 +33,7 @@ interface RemoteVideoPlayerProps {
 export function RemoteVideoPlayer({
   setVideoRef,
   isMuted,
+  managedMuted = false,
   hasRemoteStream,
   peerConnection,
   statusTip,
@@ -47,7 +50,11 @@ export function RemoteVideoPlayer({
 
   return (
     <div className="relative h-full w-full">
-      <LiveArtPlayer muted={isMuted} onVideoReady={handleVideoReady} />
+      <LiveArtPlayer
+        muted={isMuted}
+        managedMuted={managedMuted}
+        onVideoReady={handleVideoReady}
+      />
       <VideoStatsMenu
         videoElement={videoEl}
         pc={peerConnection}

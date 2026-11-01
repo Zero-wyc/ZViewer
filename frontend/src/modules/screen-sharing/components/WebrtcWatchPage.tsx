@@ -29,6 +29,12 @@ import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { ICE_SERVERS } from '@/lib/iceServers'
 import { useShareViewer } from '../hooks/useShareViewer'
+import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
+import {
+  loadViewerVolume,
+  saveViewerVolume,
+  VIEWER_VOLUME_MAX,
+} from '../utils/mediaSettingsStorage'
 import { viewerStatusText } from '../utils/shareMessages'
 import { RemoteVideoPlayer } from './RemoteVideoPlayer'
 import { WatchControlsBar } from './WatchControlsBar'
@@ -53,7 +59,17 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   const { socket, connected } = useSocket()
 
   // UI state
-  const [isMuted, setIsMuted] = useState(false)
+  //
+  // 静音与音量的真相都在 `ViewerAudio` 里（它同时管原生播放与增益），
+  // 页面只持有它回传的快照。**不要**再从 `video.muted` 反推：增益模式下
+  // 那个属性是被强置成 true 的（出声走 GainNode），拿它判断会永远显示「静音中」。
+  const [audioSnapshot, setAudioSnapshot] = useState<ViewerAudioSnapshot>({
+    level: 1,
+    muted: false,
+    boostAvailable: typeof AudioContext !== 'undefined',
+  })
+  const viewerAudioRef = useRef<ViewerAudio | null>(null)
+  const isMuted = audioSnapshot.muted || audioSnapshot.level === 0
   const [isPlaying, setIsPlaying] = useState(true)
   const [videoResolution, setVideoResolution] = useState<{
     width: number
@@ -85,6 +101,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
 
   const {
     pc,
+    remoteStream,
     hasRemoteStream,
     hasRemoteAudio,
     connectionState,
@@ -168,34 +185,36 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     }
   }, [hasRemoteStream, videoVersion])
 
-  // isMuted 同步到 video 元素
+  // 音量/静音托管：元素就位时建一个 ViewerAudio（videoVersion 变化 = 元素换了）
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    video.muted = isMuted
-  }, [isMuted])
+    const audio = new ViewerAudio(video, setAudioSnapshot)
+    viewerAudioRef.current = audio
+    audio.setLevel(loadViewerVolume())
+    // 默认尝试有声播放：被浏览器拦下时 useShareViewer 会把元素静音重试，
+    // 那次 volumechange 会回到 ViewerAudio，再由快照驱动「点击开启声音」提示。
+    audio.setMuted(false)
+    return () => {
+      audio.dispose()
+      if (viewerAudioRef.current === audio) viewerAudioRef.current = null
+    }
+  }, [videoVersion])
 
-  // muted 状态双向同步（issue #26）：浏览器自动播放策略拦截有声播放时，
-  // 播放回退逻辑会直接改 video.muted（React 状态不知情），若不同步会出现
-  // 「界面显示已开声音、实际无声」。volumechange 把任何来源的 muted 变化
-  // 回写 isMuted；挂载/流到达时先主动同步一次，兜住监听器挂上前发生的静音。
+  // 远端音轨到达/更换时换源：换流只重建源节点，不动增益图与用户设置。
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    const handleVolumeChange = () => setIsMuted(video.muted)
-    handleVolumeChange()
-    video.addEventListener('volumechange', handleVolumeChange)
-    return () => video.removeEventListener('volumechange', handleVolumeChange)
-  }, [hasRemoteStream, videoVersion])
+    viewerAudioRef.current?.bind(remoteStream)
+  }, [remoteStream, videoVersion])
 
   // 一键开启声音：自动播放被浏览器强制静音时，画面上方悬浮提示，
   // 点击后取消静音并恢复播放（用户手势内执行，浏览器放行有声播放）
   const handleUnmute = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = false
-    setIsMuted(false)
-    void video.play().catch(() => {})
+    const audio = viewerAudioRef.current
+    if (!audio) return
+    // 音量被拖到 0 时「取消静音」仍然是没声音，先恢复到原始音量。
+    if (audio.snapshot.level === 0) audio.setLevel(1)
+    audio.setMuted(false)
+    void videoRef.current?.play().catch(() => {})
   }, [])
 
   // 监听 video play/pause 事件同步 isPlaying 状态
@@ -242,7 +261,25 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     }
   }
 
-  const handleToggleMute = () => setIsMuted((prev) => !prev)
+  const handleToggleMute = useCallback(() => {
+    const audio = viewerAudioRef.current
+    if (!audio) return
+    const { muted, level } = audio.snapshot
+    if (muted || level === 0) {
+      // 拖到 0 等同于静音：直接「取消静音」还是没声音，先恢复到原始音量。
+      if (level === 0) audio.setLevel(1)
+      audio.setMuted(false)
+      return
+    }
+    audio.setMuted(true)
+  }, [])
+
+  /** 音量滑杆：0–200%，写入即持久化。 */
+  const handleVolumeChange = useCallback((level: number) => {
+    const clamped = Math.max(0, Math.min(VIEWER_VOLUME_MAX, level))
+    viewerAudioRef.current?.setLevel(clamped)
+    saveViewerVolume(clamped)
+  }, [])
 
   const handleTogglePlayPause = useCallback(() => {
     const video = videoRef.current
@@ -282,6 +319,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         videoRef={videoRef}
         setVideoRef={setVideoRef}
         isMuted={isMuted}
+        managedMuted
         hasRemoteStream={hasRemoteStream}
         peerConnection={pc}
         statusTip={viewerStatusText(state)}
@@ -322,6 +360,8 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       )}
       <WatchControlsBar
         isMuted={isMuted}
+        volumeLevel={audioSnapshot.level}
+        boostAvailable={audioSnapshot.boostAvailable}
         isPlaying={isPlaying}
         hasRemoteAudio={hasRemoteAudio}
         hasRemoteStream={hasRemoteStream}
@@ -332,6 +372,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         connectionState={displayConnectionState}
         videoResolution={videoResolution}
         onToggleMute={handleToggleMute}
+        onVolumeChange={handleVolumeChange}
         onTogglePlayPause={handleTogglePlayPause}
         onFullscreen={handleFullscreen}
         onTogglePiP={handleTogglePictureInPicture}

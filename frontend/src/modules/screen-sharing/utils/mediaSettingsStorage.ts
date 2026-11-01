@@ -94,3 +94,36 @@ export function saveMediaSettings(settings: WebrtcShareMediaSettings): void {
     // ignore
   }
 }
+
+/**
+ * 观众端音量的独立存储。
+ *
+ * 与房主设置分开：同一个浏览器可能既当房主又当观众，两边的音量语义不同
+ * （房主调的是自己麦克风的增益，观众调的是别人画面里的系统声）。
+ */
+const VIEWER_VOLUME_KEY = 'zviewer.webrtc-share.viewerVolume.v1'
+
+export const VIEWER_VOLUME_MAX = 2
+
+/** 读取上次的观众音量；越界/损坏一律回 1（原始音量）。 */
+export function loadViewerVolume(): number {
+  try {
+    const raw = localStorage.getItem(VIEWER_VOLUME_KEY)
+    if (raw === null) return 1
+    const value = Number(raw)
+    if (!Number.isFinite(value) || value < 0 || value > VIEWER_VOLUME_MAX) {
+      return 1
+    }
+    return value
+  } catch {
+    return 1
+  }
+}
+
+export function saveViewerVolume(level: number): void {
+  try {
+    localStorage.setItem(VIEWER_VOLUME_KEY, String(level))
+  } catch {
+    // ignore
+  }
+}
