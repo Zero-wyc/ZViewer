@@ -58,22 +58,46 @@ type Config struct {
 	// ShareRelay 为 true 时屏幕共享的观众不再直连房主，全部走服务端 SFU。
 	// 收益是房主只上行一份；代价是服务端带宽。默认关（与直连行为一致）。
 	//
-	// 打开前必须确认 ShareMediaPort 对观众可达（UDP 优先，只转 TCP 的隧道
-	// 走同号 TCP）。端口绑不上时服务会自动回退直连并打日志，不会让共享起不来。
+	// 打开前必须确认 ShareMediaPort（UDP）与 ShareMediaTCPPort（TCP）都对
+	// 观众可达：只转 TCP 的隧道走后者。端口绑不上时服务会自动回退直连并
+	// 打日志，不会让共享起不来。
 	ShareRelay bool
 	// ShareMediaPort 是媒体 UDP 端口。
 	//
 	// 默认 3333：这个端口以前是 livekit-server 的语音端口，防火墙早就开着。
 	// 语音改自建 SFU 之后由我们接管，升级时不用再改一遍端口映射。
 	ShareMediaPort int
-	// ShareMediaTCPPort 是媒体 TCP 端口；0 表示与 ShareMediaPort 同号。
+	// ShareMediaTCPPort 是媒体 TCP 端口，**不能**与网页端口同号。
 	//
-	// 桌面壳里 3333/tcp 是网页，必须显式给 3337（原 livekit 的 RTC TCP 口），
-	// 否则媒体 TCP 绑不上、静默退化成只有 UDP。
+	// ZViewer 的媒体 UDP 与网页 HTTP 同号（3333），于是「UDP/TCP 同号」这条
+	// 直觉在这里直接是错的：媒体 TCP 一旦也取 3333，就会先把网页端口绑走，
+	// 后端随后监听 0.0.0.0:3333 失败、整个进程起不来（实测过）。
+	// 所以未配置时用 3337（原 livekit 的 RTC TCP 口，防火墙早就开着）。
+	// 解析后仍为 0 表示「不启用媒体 TCP」，只发生在网页端口恰好是 3337 时。
 	ShareMediaTCPPort int
 	// ShareMediaPublicIP 是 NAT 1:1 的公网地址（FRP/云主机场景必填，
 	// 否则客户端拿到的是内网候选）。
 	ShareMediaPublicIP string
+}
+
+// mediaTCPFallbackPort 是媒体 TCP 的默认端口。
+//
+// 取 3337 是为了延续原 livekit 的端口布局：升级时防火墙规则一条都不用改。
+const mediaTCPFallbackPort = 3337
+
+// resolveMediaTCPPort 结算媒体 TCP 端口。
+//
+// 未配置（0）与「与网页同号」都退回 3337；网页本身占着 3337 时返回 0
+// （= 不启用媒体 TCP）——再没有第二个惯用端口可借，宁可只走 UDP，也不能
+// 去抢网页端口。
+func resolveMediaTCPPort(tcpPort, httpPort int) int {
+	if tcpPort != 0 && tcpPort != httpPort {
+		return tcpPort
+	}
+	if httpPort == mediaTCPFallbackPort {
+		return 0
+	}
+	return mediaTCPFallbackPort
 }
 
 // Load 解析配置。调用前应先调用 LoadDotEnv。
@@ -97,7 +121,7 @@ func Load() (*Config, error) {
 
 		ShareRelay:         envBool("SHARE_RELAY"),
 		ShareMediaPort:     3333,
-		ShareMediaTCPPort:  0,
+		ShareMediaTCPPort:  mediaTCPFallbackPort,
 		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
 	}
 	if raw := os.Getenv("SHARE_MEDIA_TCP_PORT"); raw != "" {
@@ -123,6 +147,9 @@ func Load() (*Config, error) {
 		}
 		cfg.Port = port
 	}
+
+	// 媒体 TCP 端口的最终结算放在 PORT 之后：它要跟网页端口比。
+	cfg.ShareMediaTCPPort = resolveMediaTCPPort(cfg.ShareMediaTCPPort, cfg.Port)
 	if raw := os.Getenv("RESTART_COUNT"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
 			cfg.RestartCount = n

@@ -48,3 +48,28 @@ func TestFindProjectRootStopsAtFilesystemRoot(t *testing.T) {
 		t.Fatalf("空目录不应命中，得到 %q", got)
 	}
 }
+
+// 媒体 TCP 端口不能与网页端口同号。
+//
+// 这条规则是踩出来的：默认值曾经写成「与 UDP 同号」=3333，媒体面先把
+// 3333/tcp 绑走，后端随后监听 0.0.0.0:3333 失败，整个进程起不来。
+func TestResolveMediaTCPPort(t *testing.T) {
+	cases := []struct {
+		name     string
+		tcpPort  int
+		httpPort int
+		want     int
+	}{
+		{"未配置退回 3337", 0, 3333, 3337},
+		{"与网页同号换成 3337", 3333, 3333, 3337},
+		{"显式 3337 保持不变", 3337, 3333, 3337},
+		{"自定义端口不干预", 40000, 3333, 40000},
+		{"网页占了 3337 就只开 UDP", 0, 3337, 0},
+		{"同号且网页是 3337 也退成只开 UDP", 3337, 3337, 0},
+	}
+	for _, tc := range cases {
+		if got := resolveMediaTCPPort(tc.tcpPort, tc.httpPort); got != tc.want {
+			t.Fatalf("%s: 期望 %d，得到 %d", tc.name, tc.want, got)
+		}
+	}
+}

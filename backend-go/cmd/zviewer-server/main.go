@@ -224,12 +224,18 @@ func main() {
 		// 语音真正用到 IsHost 时房间服务早就装配好了。
 		roomSvc *room.Service
 	)
-	if engine, engineErr := sfu.NewEngine(sfu.EngineOptions{
+	// 媒体 TCP 端口为 0 = 不启用（只发生在网页端口恰好是 3337 时，见 config）。
+	// 绝不能把它当成「与 UDP 同号」传下去：那会把网页端口绑走，后端自己起不来。
+	engineOptions := sfu.EngineOptions{
 		Port:            cfg.ShareMediaPort,
-		TCPPort:         cfg.ShareMediaTCPPort,
 		PublicIP:        cfg.ShareMediaPublicIP,
 		IncludeLoopback: cfg.ShareMediaPublicIP == "",
-	}); engineErr != nil {
+		DisableTCP:      cfg.ShareMediaTCPPort == 0,
+	}
+	if !engineOptions.DisableTCP {
+		engineOptions.TCPPort = cfg.ShareMediaTCPPort
+	}
+	if engine, engineErr := sfu.NewEngine(engineOptions); engineErr != nil {
 		// 媒体端口不可用：共享退回直连，语音报「暂不可用」。
 		// 宁可降级，也不要留一个半死的媒体面把两个功能一起卡住。
 		log.Printf("[media] 媒体端口不可用，屏幕共享回退直连、语音不可用: %v", engineErr)
