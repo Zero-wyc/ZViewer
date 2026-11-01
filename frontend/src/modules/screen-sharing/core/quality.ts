@@ -204,6 +204,25 @@ export function qualityResolutionEqual(
   return left.width === right.width && left.height === right.height
 }
 
+/**
+ * 这次档位变更要不要重下发采集约束。
+ *
+ * **帧率和分辨率一样算采集变更**（Piik `HostPage.tsx:1830-1832` 的
+ * `captureChanged`）：采集阶段的 `frameRate: { max }` 是硬上限，开局按 30fps
+ * 采集之后，只改编码器 `maxFramerate` 永远调不到 45/60——源本身就只有 30 帧。
+ * 反过来只改码率/画面偏好则完全不用碰采集，重下发只会白丢几帧。
+ */
+export function qualityNeedsCaptureUpdate(
+  previous: QualityProfile | null,
+  next: QualityProfile
+): boolean {
+  if (previous === null) return true
+  return (
+    previous.maxFramerate !== next.maxFramerate ||
+    !qualityResolutionEqual(previous.resolution, next.resolution)
+  )
+}
+
 export function videoQualitySettingsEqual(
   left: QualityProfile,
   right: QualityProfile

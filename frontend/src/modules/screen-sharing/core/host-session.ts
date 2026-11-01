@@ -17,10 +17,10 @@ import type {
   ShareSnapshotMessage,
 } from '../protocol/types'
 import { HostAudio, type CommentaryInput } from './audio-mix'
-import { captureDisplay } from './capture'
+import { applyVideoCaptureProfile, captureDisplay } from './capture'
 import { HostPeer, type HostPeerSnapshot } from './host-peer'
 import { VP8_ONLY_VIDEO_CODEC } from './video-codec'
-import type { QualityProfile } from './quality'
+import { qualityNeedsCaptureUpdate, type QualityProfile } from './quality'
 import { relayMediaDeclaration } from './relay-media'
 import { ShareClient } from './share-client'
 
@@ -251,19 +251,40 @@ export class ShareHostSession {
   }
 
   /**
-   * 改档位：`updateCapture` 为 true 时同时重下发采集约束（切分辨率）。
+   * 改档位：分辨率或帧率变了要重下发采集约束。
    *
-   * 返回是否全部发布端都接受：切分辨率失败（浏览器给不出该尺寸）时调用方要
-   * 把界面上的档位回滚，否则显示的档位和实际画面不一致。
+   * **帧率必须算作采集变更**（Piik `HostPage.tsx:1830-1832` 的 `captureChanged`）：
+   * 采集阶段下发的 `frameRate: { max }` 是硬上限，开局按 30fps 采集之后，
+   * 只改编码器的 `maxFramerate` 永远调不到 45/60——源本身就只有 30 帧。
+   *
+   * 约束先下发给**源采集轨**（设备只重配一次，本地预览也跟着变），再逐条
+   * 通知发布端按新档位重算编码参数。
+   *
+   * 返回是否全部接受：源采集轨给不出该尺寸/帧率时调用方要把界面档位回滚。
    */
   async updateProfile(
     profile: QualityProfile,
     updateCapture: boolean
   ): Promise<boolean> {
+    const previous = this.profile
+    const captureChanged =
+      updateCapture || qualityNeedsCaptureUpdate(previous, profile)
     this.profile = profile
     let ok = true
+    if (captureChanged) {
+      const source = this.sourceStream?.getVideoTracks()[0]
+      if (source) {
+        try {
+          await applyVideoCaptureProfile(source, profile)
+        } catch {
+          // 约束被拒（浏览器给不出该档位）不是致命错误：编码参数仍是真正的
+          // 上限，继续下发；ok=false 让调用方决定是否回滚界面档位。
+          ok = false
+        }
+      }
+    }
     for (const peer of this.peers.values()) {
-      const applied = updateCapture
+      const applied = captureChanged
         ? await peer.updateCaptureProfile(profile)
         : await peer.updateProfile(profile)
       if (!applied) ok = false

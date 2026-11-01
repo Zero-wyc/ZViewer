@@ -522,9 +522,15 @@ export class HostPeer {
         return false
       }
       if (updateCaptureConstraints) {
-        await this.waitForOperation(() =>
-          applyVideoCaptureProfile(videoTrack, profile)
-        )
+        try {
+          await this.waitForOperation(() =>
+            applyVideoCaptureProfile(videoTrack, profile)
+          )
+        } catch {
+          // 采集约束被浏览器拒（Overconstrained 等）不能连带把编码参数一起
+          // 丢掉：帧率/码率的真正上限在 sender 上，继续下发。
+          if (this.disposed) return false
+        }
         if (
           this.disposed ||
           this.senderVideoTrack !== videoTrack ||

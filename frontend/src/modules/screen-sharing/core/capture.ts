@@ -51,8 +51,10 @@ export async function captureDisplay(
 /**
  * 只在采集轨上应用档位约束。
  *
- * 帧隔离轨没有底层采集设备，`getCapabilities()` 里不含宽高/帧率，对它
- * 下发约束是空操作——所以先剥回采集输入轨再判断。
+ * 判断「这条轨有没有采集设备」要剥回输入轨（帧隔离轨的 `getCapabilities()`
+ * 里不含宽高/帧率），但**下发约束必须用发送端这条轨**：`applySenderCaptureConstraints`
+ * 内部会把它透传到输入轨，并且顺带补上 `min: 1`（Piik `quality.ts:313-338`）。
+ * 直接对输入轨下发会绕过那层合并，静态画面可能彻底停帧。
  */
 export async function applyVideoCaptureProfile(
   track: MediaStreamTrack,
@@ -66,7 +68,7 @@ export async function applyVideoCaptureProfile(
     'height' in capabilities ||
     'frameRate' in capabilities
   if (!ownsConstraints) return
-  await applySenderCaptureConstraints(capture, captureConstraints(profile))
+  await applySenderCaptureConstraints(track, captureConstraints(profile))
 }
 
 /** 暂停/恢复一条流的全部轨道（不改分辨率，只关开关）。 */

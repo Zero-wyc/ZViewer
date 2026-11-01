@@ -18,6 +18,7 @@ import {
   configureVideoSender,
   needsStartupVideoProfile,
   profileFromSettings,
+  qualityNeedsCaptureUpdate,
   qualitySettingsEqual,
   screenAudioBitrate,
   senderParameterReadback,
@@ -249,6 +250,58 @@ describe('configureVideoSender', () => {
     assert.equal(readback.requested.maxFramerate, null)
     assert.equal(readback.requested.scaleResolutionDownBy, 2)
     assert.equal(readback.requested.degradationPreference, 'maintain-framerate')
+  })
+})
+
+describe('qualityNeedsCaptureUpdate', () => {
+  const base: QualityProfile = { ...DEFAULT_QUALITY_PROFILE }
+
+  it('首次下发（没有旧档位）必须下发采集约束', () => {
+    assert.equal(qualityNeedsCaptureUpdate(null, base), true)
+  })
+
+  it('只改帧率也要重下发采集约束', () => {
+    // 采集阶段的 frameRate.max 是硬上限：不算进来就永远调不到更高帧率。
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, { ...base, maxFramerate: 60 }),
+      true
+    )
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, { ...base, maxFramerate: 15 }),
+      true
+    )
+  })
+
+  it('改分辨率要重下发采集约束', () => {
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, {
+        ...base,
+        resolution: { width: 1280, height: 720 },
+      }),
+      true
+    )
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, { ...base, resolution: null }),
+      true
+    )
+  })
+
+  it('只改码率/画面偏好/音频码率不碰采集', () => {
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, { ...base, maxBitrate: 20_000_000 }),
+      false
+    )
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, {
+        ...base,
+        degradationPreference: 'maintain-framerate',
+      }),
+      false
+    )
+    assert.equal(
+      qualityNeedsCaptureUpdate(base, { ...base, maxAudioBitrate: 64_000 }),
+      false
+    )
   })
 })
 
