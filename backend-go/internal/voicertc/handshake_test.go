@@ -267,3 +267,40 @@ func TestVoiceHandshakeRejectsForeignConnectionID(t *testing.T) {
 		t.Fatal("伪造 connectionId 应在路由层被静默丢弃，不该走到媒体层")
 	}
 }
+
+// TestStatePrecedesFirstOffer 钉住下发顺序：`voice.state` 必须先于任何信令。
+//
+// 客户端收到 `voice.signal` 时先比对 connectionId，凭空拿到一条还没见过的
+// connectionId 只会当成「不是我的连接」丢掉。state 晚到 = 第一个 offer 被
+// 丢掉 = 语音里坐着但媒体永远连不上（浏览器侧实测就是这个症状）。
+func TestStatePrecedesFirstOffer(t *testing.T) {
+	service, sink, _ := newHandshakeService(t)
+	send(t, service, memberConn("host", "r1"), `{"t":"voice.join","roomId":"r1","name":"房主"}`)
+
+	sink.waitOffer(t, "host")
+
+	records := sink.all()
+	stateIndex, signalIndex := -1, -1
+	for index, record := range records {
+		if record.target != "host" {
+			continue
+		}
+		if _, ok := record.message.(StateMessage); ok && stateIndex < 0 {
+			stateIndex = index
+		}
+		// 候选和 offer 都算信令：两者都带着 connectionId。
+		if _, ok := record.message.(SignalOutMessage); ok && signalIndex < 0 {
+			signalIndex = index
+		}
+	}
+	if stateIndex < 0 {
+		t.Fatal("没有给成员下发 state")
+	}
+	if signalIndex < 0 {
+		t.Fatal("没有给成员下发任何信令")
+	}
+	if stateIndex > signalIndex {
+		t.Fatalf("state（#%d）晚于信令（#%d）：客户端会把第一个 offer 当成别人的连接丢掉",
+			stateIndex, signalIndex)
+	}
+}

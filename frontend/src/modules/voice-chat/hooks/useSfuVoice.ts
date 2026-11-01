@@ -39,6 +39,10 @@ const VOICE_EVENT = 'voice'
 /** 媒体通道（ICE）建立失败判定窗口：超过仍未连通即提示，不再傻等。 */
 const MEDIA_WATCHDOG_TIMEOUT_MS = 10_000
 
+/** 暂存上限：state 到达前 / 远端描述就位前的信令，防止对端灌爆内存。 */
+const MAX_PENDING_SIGNALS = 64
+const MAX_PENDING_CANDIDATES = 64
+
 /** 服务端下发的中继信令。 */
 interface VoiceSignalMessage {
   t: 'voice.signal'
@@ -131,6 +135,16 @@ export function useSfuVoice({
   >(new Map())
   /** mid → publicationId，来自最近一次 offer 的 tracks。 */
   const midMapRef = useRef<Map<string, string>>(new Map())
+  /**
+   * `voice.state` 到达之前收到的信令。
+   *
+   * 服务端要先算完计划才推状态，`voice.signal` 与 `voice.state` 的先后并不
+   * 由客户端控制：state 还没到就没有 connectionId 可比对，直接按「不认识」
+   * 丢掉的动作会把第一个 offer 一起丢掉——表现是「在语音里但永远连不上」。
+   */
+  const pendingSignalsRef = useRef<VoiceSignalMessage[]>([])
+  /** 早于 offer 到达的 ICE 候选（服务端 trickle，客户端可能先收到候选）。 */
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([])
   /** 应答必须原样带回 offer 的 revision。 */
   const offerRevisionRef = useRef(0)
   const lastRevisionRef = useRef(0)
@@ -149,7 +163,12 @@ export function useSfuVoice({
   const sendVoice = useCallback((payload: Record<string, unknown>): void => {
     const active = socketRef.current
     if (!active?.connected) return
-    active.emit(VOICE_EVENT, JSON.stringify(payload))
+    // 直接发对象，**不要** JSON.stringify：Socket.IO 本身就是 JSON 传输，
+    // 再 stringify 一次会变成「字符串里裹着 JSON」，服务端 `DecodeClient`
+    // 收到的是 string 而不是 map，整条 voice 协议会被判 INVALID_MESSAGE 丢弃
+    //（实测报错：json: cannot unmarshal string into Go value of type
+    // map[string]json.RawMessage）。共享信令踩过同一个坑。
+    active.emit(VOICE_EVENT, payload)
   }, [])
 
   // ==================== 播放与音量 ====================
@@ -259,6 +278,18 @@ export function useSfuVoice({
       })
   }, [])
 
+  /** 把排队的候选补进已就位的远端描述。过期候选直接忽略。 */
+  const flushCandidates = useCallback(async (pc: RTCPeerConnection) => {
+    const candidates = pendingCandidatesRef.current.splice(0)
+    for (const candidate of candidates) {
+      try {
+        await pc.addIceCandidate(candidate)
+      } catch {
+        /* 过期/重复候选不影响后续连通 */
+      }
+    }
+  }, [])
+
   const answerOffer = useCallback(
     async (description: VoiceDescription) => {
       const pc = pcRef.current
@@ -278,6 +309,7 @@ export function useSfuVoice({
       offerRevisionRef.current = description.revision
 
       await pc.setRemoteDescription(description.sdp)
+      await flushCandidates(pc)
 
       // 自己那条 m-line：把麦克风挂上去。必须在 createAnswer 之前，
       // 否则 answer 会把它标成不发送，服务端就永远收不到我的声音。
@@ -321,12 +353,12 @@ export function useSfuVoice({
         }),
       })
     },
-    [roomId, sendVoice]
+    [flushCandidates, roomId, sendVoice]
   )
 
-  const handleSignal = useCallback(
+  /** 真正把一条信令喂给 PC（connectionId 已确认过）。 */
+  const dispatchSignal = useCallback(
     (incoming: VoiceSignalMessage) => {
-      if (incoming.connectionId !== connectionIdRef.current) return
       if (incoming.kind === 'description') {
         const description = incoming.payload as VoiceDescription
         if (!description?.sdp || description.sdp.type !== 'offer') return
@@ -334,13 +366,40 @@ export function useSfuVoice({
         return
       }
       const candidate = incoming.payload as RTCIceCandidateInit
+      if (!candidate?.candidate) return
       const pc = pcRef.current
-      if (!pc || !candidate?.candidate) return
+      if (!pc) return
+      // 候选可能早于 offer 到达（服务端是 trickle）：此时 addIceCandidate 会
+      // 因为没有远端描述直接抛错，而候选本身完全有效。先排队，等
+      // setRemoteDescription 之后统一补——否则会整批丢掉连通性最关键的候选。
+      if (!pc.remoteDescription) {
+        if (pendingCandidatesRef.current.length < MAX_PENDING_CANDIDATES) {
+          pendingCandidatesRef.current.push(candidate)
+        }
+        return
+      }
       void pc.addIceCandidate(candidate).catch(() => {
         // 候选晚到/已过期很常见，不需要打扰用户。
       })
     },
     [answerOffer, enqueue]
+  )
+
+  const handleSignal = useCallback(
+    (incoming: VoiceSignalMessage) => {
+      // state 未到：还不知道自己的 connectionId，先存着，别把第一个 offer 丢掉。
+      if (!connectionIdRef.current) {
+        if (pendingSignalsRef.current.length < MAX_PENDING_SIGNALS) {
+          pendingSignalsRef.current.push(incoming)
+        }
+        return
+      }
+      // 信令只认自己那条连接：拿别人的 connectionId 一律丢弃（回错误等于
+      // 确认这个 id 存在）。
+      if (incoming.connectionId !== connectionIdRef.current) return
+      dispatchSignal(incoming)
+    },
+    [dispatchSignal]
   )
 
   // ==================== 状态与成员 ====================
@@ -350,6 +409,14 @@ export function useSfuVoice({
       connectionIdRef.current = state.self.connectionId
       setSelfId(state.self.peerId)
       selfIdRef.current = state.self.peerId
+
+      // 身份坐实后，把 state 之前收到的信令补进协商队列。顺序很重要：
+      // `answerOffer` 要先知道自己是谁才能认出「我发」的那条 m-line。
+      const buffered = pendingSignalsRef.current.splice(0)
+      for (const signal of buffered) {
+        if (signal.connectionId !== state.self.connectionId) continue
+        dispatchSignal(signal)
+      }
 
       const nextMembers: VoiceMember[] = state.members.map((member) => ({
         id: member.peerId,
@@ -381,7 +448,7 @@ export function useSfuVoice({
         if (!alive.has(id)) cleanupRemote(id)
       }
     },
-    [cleanupRemote]
+    [cleanupRemote, dispatchSignal]
   )
 
   // ==================== 加入 / 离开 ====================
@@ -393,6 +460,8 @@ export function useSfuVoice({
     connectionIdRef.current = ''
     midMapRef.current = new Map()
     lastRevisionRef.current = 0
+    pendingSignalsRef.current = []
+    pendingCandidatesRef.current = []
     for (const id of Array.from(remoteRef.current.keys())) cleanupRemote(id)
   }, [clearWatchdog, cleanupRemote])
 
@@ -548,14 +617,20 @@ export function useSfuVoice({
     if (!socket) return
 
     const onMessage = (raw: unknown) => {
-      if (typeof raw !== 'string') return
-      let parsed: VoiceServerMessage
-      try {
-        parsed = JSON.parse(raw) as VoiceServerMessage
-      } catch {
-        return
+      // 服务端发的是 JSON **对象**（`hub.EmitTo` 直接传 Go struct）。只认字符串
+      // 会把整条下行丢弃——「加入了但永远收不到 state / offer」就是这么来的。
+      // 字符串分支留着兼容旧服务端/代理二次编码的形态。
+      let parsed: VoiceServerMessage | null = null
+      if (typeof raw === 'string') {
+        try {
+          parsed = JSON.parse(raw) as VoiceServerMessage
+        } catch {
+          return
+        }
+      } else if (raw !== null && typeof raw === 'object') {
+        parsed = raw as VoiceServerMessage
       }
-      if (!parsed || typeof parsed !== 'object') return
+      if (!parsed || typeof parsed.t !== 'string') return
       switch (parsed.t) {
         case 'voice.state':
           applyState(parsed)

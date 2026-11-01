@@ -328,21 +328,33 @@ func (s *Service) recompute(roomID string) {
 
 	// ConfigureVoice 在锁内完成授权记账，返回的 work 必须在锁外跑：
 	// 它要做 SDP 协商，可能阻塞几十毫秒。
+	//
+	// **顺序不能反**：先把 work 收齐、把 `voice.state` 推到各成员，再跑协商。
+	// 反过来（边配置边 `go work()`）offer 会抢在 state 之前到达客户端——那时
+	// 客户端还没有 connectionId，按「不是我的连接」把 offer 丢掉，表现就是
+	// 「已经在语音里，但媒体永远连不上」。
+	type pendingWork struct {
+		peerID string
+		run    func() error
+	}
+	works := make([]pendingWork, 0, len(plans))
 	for _, plan := range plans {
-		peerID := plan.PeerID
 		work, err := s.media.ConfigureVoice(plan, s.onMediaEvent)
 		if err != nil {
-			s.logger.Printf("[voice] 连接配置失败 room=%s peer=%s: %v", roomID, peerID, err)
+			s.logger.Printf("[voice] 连接配置失败 room=%s peer=%s: %v", roomID, plan.PeerID, err)
 			continue
 		}
-		go func() {
-			if err := work(); err != nil {
-				s.logger.Printf("[voice] 协商失败 room=%s peer=%s: %v", roomID, peerID, err)
-			}
-		}()
+		works = append(works, pendingWork{peerID: plan.PeerID, run: work})
 	}
 	for peerID, snapshot := range snapshots {
 		s.emitTo(peerID, snapshot)
+	}
+	for _, item := range works {
+		go func() {
+			if err := item.run(); err != nil {
+				s.logger.Printf("[voice] 协商失败 room=%s peer=%s: %v", roomID, item.peerID, err)
+			}
+		}()
 	}
 }
 
