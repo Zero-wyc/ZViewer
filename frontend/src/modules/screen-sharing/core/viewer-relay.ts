@@ -41,6 +41,13 @@ export const RELAY_QUALITY_PROFILE: QualityProfile = {
 
 export interface ViewerRelayOptions {
   iceServers: RTCIceServer[]
+  /**
+   * 我自己的 peerId。
+   *
+   * 只用于「这条边还是不是我的」这一个判断：快照的分配表里写着
+   * `parentPeerId`，它等于我才是我的下游。
+   */
+  selfPeerId?: string
   natPredictionStunUrls?: readonly string[]
   videoCodec?: BrowserVideoCodecPreference
   /** 把一条信号发回服务端（由会话按 share.signal 发出）。 */
@@ -128,6 +135,36 @@ export class ViewerRelay {
     }
     if (kind === 'candidate' && payload) {
       void edge.peer.acceptCandidate(payload as RTCIceCandidateInit)
+    }
+  }
+
+  /**
+   * 按一次快照的分配表，拆掉**已经不属于我**的下游边。
+   *
+   * 为什么需要它：换父之后旧上游（我）不会收到任何 route 消息——服务端只把
+   * 新候选发给新上游和下游，我这边一片安静。不主动清理，我就会继续为一条
+   * 下游已经拆掉的 PC 编码，白烧一份上行直到 ICE 自己超时。
+   *
+   * 两条判据都必须**有明确证据**才动手：
+   *  - 下游已经不在房间里；
+   *  - 分配表里明确写着它的上游是别人。
+   * 分配表里查不到它的边**保持不动**——prepare 阶段的下游边本来就不在分配
+   * 表里（只有 active 才进 assignment），误杀会断掉一次正在进行的协商。
+   */
+  reconcileAssignment(
+    present: ReadonlySet<string>,
+    parentOf: ReadonlyMap<string, string | undefined>
+  ): void {
+    if (this.disposed || !this.options.selfPeerId) return
+    for (const [childPeerId, connectionId] of [...this.byChild]) {
+      if (!present.has(childPeerId)) {
+        this.retire(connectionId)
+        continue
+      }
+      const parent = parentOf.get(childPeerId)
+      if (parent !== undefined && parent !== this.options.selfPeerId) {
+        this.retire(connectionId)
+      }
     }
   }
 

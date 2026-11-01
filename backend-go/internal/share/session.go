@@ -47,6 +47,10 @@ type Session struct {
 	routes map[string]*Route
 	// tree 是树形拓扑的上限。零值 = 单层星形（只有房主当上游）。
 	tree TreePolicy
+	// qualityReports 以 childPeerID 为键：观众侧质量窗口的累计（见 quality.go）。
+	qualityReports map[string]*routeQuality
+	// parentPenalty 记录「最近被投诉过的上游」，只影响选父排序，不排除。
+	parentPenalty map[string]time.Time
 	// relay 表示本房间的观众走 SFU 中继（candidate.transport = relay）。
 	// 由装配层按配置设置，进程内不变。
 	relay bool
@@ -58,10 +62,12 @@ type Session struct {
 // newSession 构造一个空会话。
 func newSession(roomID string) *Session {
 	return &Session{
-		roomID:       roomID,
-		participants: make(map[string]Participant),
-		routes:       make(map[string]*Route),
-		tree:         TreePolicy{MaxDepth: 1},
+		roomID:         roomID,
+		participants:   make(map[string]Participant),
+		routes:         make(map[string]*Route),
+		qualityReports: make(map[string]*routeQuality),
+		parentPenalty:  make(map[string]time.Time),
+		tree:           TreePolicy{MaxDepth: 1},
 	}
 }
 
@@ -187,6 +193,9 @@ func (s *Session) Leave(socketID string) (SnapshotMessage, bool) {
 		return s.snapshotLocked(), len(s.participants) > 0
 	}
 	delete(s.participants, socketID)
+	// 质量累计跟着人走：同一位观众回来时是一条新边，旧窗口不能续上。
+	delete(s.qualityReports, socketID)
+	delete(s.parentPenalty, socketID)
 	// 房主走了所有边都失效；观众走了只拆它自己那条。
 	// 不清理的话后会话里留着一堆指向已消失连接的边，重新 hello 时
 	// PlanRoutes 会认为「已有边」而不补发。
@@ -238,6 +247,8 @@ func (s *Session) Start(hint *string, paused bool, quality *QualitySettings) (Sn
 	// 重连分支（hint 命中）刻意不清：房主刷新后观众还能沿着原 connectionId
 	// 走恢复链，不必等全量重建。
 	s.routes = make(map[string]*Route)
+	s.qualityReports = make(map[string]*routeQuality)
+	s.parentPenalty = make(map[string]time.Time)
 	s.bumpLocked()
 	return s.snapshotLocked(), nil
 }
@@ -257,6 +268,8 @@ func (s *Session) Stop(generation string) (SnapshotMessage, error) {
 	s.publication = ""
 	s.paused = false
 	s.routes = make(map[string]*Route)
+	s.qualityReports = make(map[string]*routeQuality)
+	s.parentPenalty = make(map[string]time.Time)
 	s.bumpLocked()
 	return s.snapshotLocked(), nil
 }

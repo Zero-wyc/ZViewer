@@ -194,6 +194,18 @@ export class ShareViewerSession {
       return
     }
     this.patch({ joined: true, sharing: true, paused: snapshot.paused })
+    // 我作为上游时也要跟一次分配表：换父之后旧上游收不到任何消息，
+    // 只能从这里知道「那位下游已经不归我转了」。
+    if (this.relayPeers) {
+      const present = new Set(
+        snapshot.participants.map((participant) => participant.peerId)
+      )
+      const parentOf = new Map<string, string | undefined>()
+      for (const candidate of snapshot.assignment?.candidates ?? []) {
+        parentOf.set(candidate.childPeerId, candidate.parentPeerId)
+      }
+      this.relayPeers.reconcileAssignment(present, parentOf)
+    }
   }
 
   private handleRoute(
@@ -310,6 +322,7 @@ export class ShareViewerSession {
     if (this.relayPeers) return this.relayPeers
     const relay = new ViewerRelay({
       iceServers: this.options.iceServers,
+      selfPeerId: this.options.selfPeerId,
       natPredictionStunUrls: this.options.natPredictionStunUrls,
       sendSignal: (connectionId, signal) =>
         this.client.send({
@@ -442,6 +455,18 @@ export class ShareViewerSession {
             revision: this.revision,
             phase: 'prepare',
             connectionId: target,
+          })
+        },
+        onQuality: (target, window) => {
+          // 中继时上游是 SFU，没有「换父」这回事——`quality` 的唯一用途就是换父，
+          // 所以中继路径不发，省一条每 2 秒的无用上行。
+          if (this.relay) return
+          this.client.send({
+            t: 'share.quality',
+            roomId: this.options.roomId,
+            revision: this.revision,
+            connectionId: target,
+            window,
           })
         },
         onRecoveryExhausted: () => {

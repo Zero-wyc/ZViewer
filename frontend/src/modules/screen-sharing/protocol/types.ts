@@ -133,6 +133,43 @@ export interface ShareRouteFailedMessage {
   connectionId: string
 }
 
+/**
+ * 一个采样窗口的媒体质量证据（观众 → 服务器）。
+ *
+ * 全部指标都可选：浏览器版本不同给的字段不一样，缺了就缺了。服务端据此判
+ * 「这条边是不是持续变差」，并在有别的上游时换父（backend share/quality.go）。
+ */
+export interface ShareQualityWindow {
+  windowMs: number
+  framesPerSecond?: number
+  framesDropped?: number
+  freezeCount?: number
+  freezeDurationMs?: number
+  /** 本窗口丢包比例，0–1。 */
+  packetLossRate?: number
+  rttMs?: number
+  jitterMs?: number
+  decodeMsPerFrame?: number
+  bitrateKbps?: number
+  width?: number
+  height?: number
+  codec?: string
+}
+
+/**
+ * 观众上报一个质量窗口。
+ *
+ * 每 2 秒一条，是**唯一**由观众主动上报的媒体面数据。它不换任何回报：
+ * 服务端不需要 ack，写错就丢（证据是尽力而为的输入）。
+ */
+export interface ShareQualityMessage {
+  t: 'share.quality'
+  roomId: string
+  revision: number
+  connectionId: string
+  window: ShareQualityWindow
+}
+
 /** 观众发起的恢复请求。 */
 export interface ShareRestartMessage {
   t: 'share.restart'
@@ -185,6 +222,7 @@ export type ShareClientMessage =
   | ShareRouteReadyMessage
   | ShareTransportConnectedMessage
   | ShareRouteFailedMessage
+  | ShareQualityMessage
   | ShareRestartMessage
   | ShareSignalMessage
   | ShareSfuSignalMessage

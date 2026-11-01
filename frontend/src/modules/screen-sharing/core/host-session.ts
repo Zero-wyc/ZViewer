@@ -502,6 +502,15 @@ export class ShareHostSession {
     // PC，就会多出一份编码和一条绕开 SFU 的上行（服务端已经不再下发，这条
     // 是兜底——旧服务端还会发）。
     if (this.publicationGeneration) return
+    // 同一位观众换了连接身份（失败换父 / 质量换父 / 子树重挂）：旧 PC 必须
+    // 立刻销毁。留着它会继续为一条观众已经拆掉的边编码——白烧一份上行，
+    // 而且要等它自己 ICE 失败才回收（可能几十秒）。
+    for (const connectionId of [...this.peerOwners.keys()]) {
+      if (connectionId === candidate.connectionId) continue
+      if (this.peerOwners.get(connectionId) === candidate.childPeerId) {
+        this.dropPeer(connectionId)
+      }
+    }
     this.peerOwners.set(candidate.connectionId, candidate.childPeerId)
     const existing = this.peers.get(candidate.connectionId)
     if (phase !== 'prepare') {

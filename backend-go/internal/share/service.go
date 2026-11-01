@@ -233,6 +233,8 @@ func (s *Service) Handle(conn Conn, args []json.RawMessage) {
 		s.handleTransportConnected(conn, typed)
 	case RouteFailedMessage:
 		s.handleRouteFailed(conn, typed)
+	case QualityMessage:
+		s.handleQuality(conn, typed)
 	case RestartMessage:
 		s.handleRestart(conn, typed)
 	case SignalMessage:
@@ -365,6 +367,31 @@ func (s *Service) handleRouteFailed(conn Conn, message RouteFailedMessage) {
 	if status != nil {
 		s.emitTo(conn, *status)
 	}
+}
+
+// handleQuality 收下一个观众侧质量窗口。
+//
+// 没有回报也没有错误：证据是尽力而为的输入，字段写错、版本过期、边已经不
+// 存在的唯一处理就是忽略（观众不该因为「多报了一条统计」被踢掉会话）。
+// 换父时返回的 plans 会把新候选发给上下游两端，与失败换父走同一条链路。
+func (s *Service) handleQuality(conn Conn, message QualityMessage) {
+	if !s.inRoom(conn, message.RoomID) {
+		return
+	}
+	session := s.Session(message.RoomID)
+	if session == nil {
+		return
+	}
+	plans := session.ObserveQuality(conn.ID, message.Revision, message.ConnectionID, message.Window)
+	if len(plans) == 0 {
+		// 绝大多数窗口只是记账：不换父就没有任何下发。
+		return
+	}
+	s.emitPlans(plans)
+	// 换父改变了已提交的分配，必须广播一次快照：旧上游不会收到任何 route
+	// 消息（它的边已经不属于它了），只能靠快照发现「这条边不在了」并销毁
+	// 对应的 PC。否则它会继续为一条已作废的边编码，直到 ICE 自己超时。
+	s.broadcast(message.RoomID, session.Snapshot())
 }
 
 // handleRestart 处理观众的恢复请求：重建则换新连接身份，否则原地 ICE 重启。

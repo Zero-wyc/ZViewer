@@ -489,26 +489,38 @@ func (s *Session) selectParentLocked(childPeerID string) string {
 // 排序照 Piik `candidates.go:62-79`：**深度小的优先**（尽量贴着房主，跳数少）、
 // 其次是剩余容量大的（把压力摊平），最后按 peerId 保证确定性。
 // 房主永远是可选项：全都满了也要让房主超额接，总比观众没画面好。
+//
+// 多一条软信号：最近被观众投诉过的上游排到最后（`parentPenalty`，见
+// quality.go）。它只在**别的选项同样可行**时起作用——不排除任何人，因为
+// 排除会让「唯一可用的上游恰好刚被投诉」变成「这个观众没有画面」。
 func (s *Session) selectParentExceptLocked(childPeerID, avoid string) string {
 	host := s.hostPeerIDLocked()
 	if host == "" {
 		return ""
 	}
+	now := time.Now()
 	type option struct {
-		peerID   string
-		depth    int
-		children int
+		peerID    string
+		depth     int
+		children  int
+		penalized bool
 	}
 	options := make([]option, 0, len(s.participants))
 	for peerID, participant := range s.participants {
 		if peerID == childPeerID || peerID == avoid {
 			continue
 		}
+		penalized := s.parentPenalizedLocked(peerID, now)
 		if peerID == host {
 			if s.tree.HostChildren > 0 && s.childCountLocked(host) >= s.tree.HostChildren {
 				continue
 			}
-			options = append(options, option{peerID: host, depth: 0, children: s.childCountLocked(host)})
+			options = append(options, option{
+				peerID:    host,
+				depth:     0,
+				children:  s.childCountLocked(host),
+				penalized: penalized,
+			})
 			continue
 		}
 		if participant.Role != RoleViewer {
@@ -532,7 +544,12 @@ func (s *Session) selectParentExceptLocked(childPeerID, avoid string) string {
 		if s.childCountLocked(peerID) >= s.tree.ViewerChildren {
 			continue
 		}
-		options = append(options, option{peerID: peerID, depth: depth, children: s.childCountLocked(peerID)})
+		options = append(options, option{
+			peerID:    peerID,
+			depth:     depth,
+			children:  s.childCountLocked(peerID),
+			penalized: penalized,
+		})
 	}
 	if len(options) == 0 {
 		// 谁都不能当上游（房主满员、还没有观众拿到画面）时，宁可让房主超额，
@@ -544,6 +561,10 @@ func (s *Session) selectParentExceptLocked(childPeerID, avoid string) string {
 		return ""
 	}
 	sort.SliceStable(options, func(i, j int) bool {
+		if options[i].penalized != options[j].penalized {
+			// 没被投诉的排前面。
+			return !options[i].penalized
+		}
 		if options[i].depth != options[j].depth {
 			return options[i].depth < options[j].depth
 		}

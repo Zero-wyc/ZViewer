@@ -11,9 +11,15 @@
  *  - `disconnected` 不是立刻恢复，等 3s——网络抖动自己会回来；
  *  - 自动恢复总预算 2 次，第 2 次带 `rebuild` 走销毁重建而不是 ICE restart。
  */
+import type { ShareQualityWindow } from '../protocol/types'
 import { waitForConnectionOperation } from './connection-op'
 import { preferOpusReceiveLimit } from './opus-receive-sdp'
 import { observeDecodedFrameProof } from './frame-proof'
+import { sampleShareStats, type StatsBaseline } from './stats'
+import {
+  QUALITY_EVIDENCE_INTERVAL_MS,
+  viewerQualityWindowFromStats,
+} from './viewer-quality'
 import {
   NatPredictionCandidateEmitter,
   addRemoteIceCandidate,
@@ -53,6 +59,12 @@ export interface ViewerPeerEvents {
   onConnected: (connectionId: string) => void
   /** 自动恢复预算耗尽，UI 该给重试按钮了。 */
   onRecoveryExhausted: (connectionId: string) => void
+  /**
+   * 一个 2 秒的接收质量窗口（可直接发 `share.quality`）。
+   *
+   * 只有拿到「上一次采样」的第二个窗口起才会有值——第一次没有可比对象。
+   */
+  onQuality?: (connectionId: string, window: ShareQualityWindow) => void
 }
 
 export interface ViewerPeerOptions {
@@ -82,6 +94,10 @@ export class ViewerPeer {
 
   private disposed = false
   private snapshot: ViewerPeerSnapshot | null = null
+  /** 质量采样：2 秒一次，基线是上一次采样，窗口指标全靠它差分。 */
+  private qualityTimer: ReturnType<typeof setInterval> | null = null
+  private qualityBaseline: StatsBaseline | null = null
+  private qualitySampledAt = 0
   /**
    * NAT 端口预测的候选出口，每条连接一份（重建连接时随之作废）。
    *
@@ -307,7 +323,62 @@ export class ViewerPeer {
         return true
       },
     })
+    this.startQualitySampler(connectionId, connection)
     this.emit()
+  }
+
+  /** 起质量采样。每条连接一份，旧连接的时间轴不能混进新连接。 */
+  private startQualitySampler(
+    connectionId: string,
+    connection: RTCPeerConnection
+  ): void {
+    this.stopQualitySampler()
+    if (!this.events.onQuality) return
+    this.qualityBaseline = null
+    this.qualitySampledAt = 0
+    this.qualityTimer = setInterval(() => {
+      void this.sampleQuality(connectionId, connection)
+    }, QUALITY_EVIDENCE_INTERVAL_MS)
+  }
+
+  /**
+   * 采一个窗口并上报。
+   *
+   * 只在 `connected` 时采：`connecting` 阶段的计数器全是 0，报上去就是一个
+   * 「零帧零包」的窗口，服务端会把它当成降级证据。
+   */
+  private async sampleQuality(
+    connectionId: string,
+    connection: RTCPeerConnection
+  ): Promise<void> {
+    if (!this.events.onQuality || this.connection !== connection) return
+    if (connection.connectionState !== 'connected') return
+    try {
+      const report = await this.waitForOperation(() => connection.getStats())
+      if (this.connection !== connection) return
+      const previous = this.qualityBaseline
+      const sample = sampleShareStats(previous, report)
+      this.qualityBaseline = sample.baseline
+      const now = performance.now()
+      const windowMs = this.qualitySampledAt
+        ? now - this.qualitySampledAt
+        : QUALITY_EVIDENCE_INTERVAL_MS
+      this.qualitySampledAt = now
+      // 第一个窗口算不出任何窗口指标（没有可比对象），不必上报。
+      if (!previous) return
+      const window = viewerQualityWindowFromStats(sample.stats, windowMs)
+      if (window) this.events.onQuality(connectionId, window)
+    } catch {
+      // 采样失败只丢这一窗：连接本身的健康由 ICE 状态与首帧证明判定，
+      // 不能因为 getStats 抛错就把观众判成断流。
+    }
+  }
+
+  private stopQualitySampler(): void {
+    if (this.qualityTimer !== null) clearInterval(this.qualityTimer)
+    this.qualityTimer = null
+    this.qualityBaseline = null
+    this.qualitySampledAt = 0
   }
 
   private async acceptOfferOwned(
@@ -512,6 +583,7 @@ export class ViewerPeer {
   }
 
   private disposeConnection(): void {
+    this.stopQualitySampler()
     this.candidateEmitter?.discard()
     this.candidateEmitter = null
     this.stopFrameProof?.()

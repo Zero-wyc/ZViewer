@@ -40,6 +40,8 @@ const (
 	TypeRestart            = "share.restart"
 	TypeSignal             = "share.signal"
 	TypeSFUSignal          = "share.sfu-signal"
+	// TypeQuality 是**唯一**由观众上报的媒体质量证据（见 quality.go）。
+	TypeQuality = "share.quality"
 )
 
 // 服务器 → 客户端的消息类型。
@@ -228,6 +230,21 @@ type RouteFailedMessage struct {
 
 // MessageType 实现 ClientMessage。
 func (m RouteFailedMessage) MessageType() string { return m.T }
+
+// QualityMessage 是观众上报的一个采样窗口。
+//
+// 只有观众发：房主侧没有「接收」这件事（它自己就是源）。服务端用它做
+// 「这条边是否持续变差」的判断，并在有别的上游时换父（quality.go）。
+type QualityMessage struct {
+	T            string        `json:"t"`
+	RoomID       string        `json:"roomId"`
+	Revision     int64         `json:"revision"`
+	ConnectionID string        `json:"connectionId"`
+	Window       QualityWindow `json:"window"`
+}
+
+// MessageType 实现 ClientMessage。
+func (m QualityMessage) MessageType() string { return m.T }
 
 // RestartMessage 是观众发起的恢复请求（只有观众能发）。
 type RestartMessage struct {
@@ -472,6 +489,20 @@ func DecodeClient(data []byte) (ClientMessage, error) {
 		}
 		if err := raw.Require("t", "roomId", "revision", "phase", "connectionId"); err != nil {
 			return nil, err
+		}
+		return message, nil
+	case TypeQuality:
+		var message QualityMessage
+		raw, err := decodeObject(data, &message)
+		if err != nil {
+			return nil, err
+		}
+		if err := raw.Require("t", "roomId", "revision", "connectionId", "window"); err != nil {
+			return nil, err
+		}
+		if message.Window.WindowMs < QualityMinWindowMs ||
+			message.Window.WindowMs > QualityMaxWindowMs {
+			return nil, fmt.Errorf("invalid quality window %dms", message.Window.WindowMs)
 		}
 		return message, nil
 	case TypeRestart:
