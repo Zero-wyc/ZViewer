@@ -43,6 +43,10 @@ type Engine struct {
 	port       int
 	tcpPort    int
 	tcpEnabled bool
+	// tcpErr 记录媒体 TCP 为什么没起来。降级是设计好的，但**不能静默**：
+	// 只转 TCP 的隧道（FRP / 只放行 TCP 的云防火墙）上，语音与共享会直接
+	// 不通，而日志里只有一句「TCP 未启用」根本查不出来。
+	tcpErr error
 }
 
 // NewEngine 绑定媒体端口。
@@ -81,8 +85,14 @@ func NewEngine(options EngineOptions) (*Engine, error) {
 	engine.tcpPort = tcpPort
 	if !options.DisableTCP {
 		tcpAddr, resolveErr := net.ResolveTCPAddr("tcp4", net.JoinHostPort(host, strconv.Itoa(tcpPort)))
+		if resolveErr != nil {
+			engine.tcpErr = resolveErr
+		}
 		if resolveErr == nil {
 			listener, listenErr := net.ListenTCP("tcp4", tcpAddr)
+			if listenErr != nil {
+				engine.tcpErr = listenErr
+			}
 			if listenErr == nil {
 				engine.tcpLister = listener
 				engine.tcpMux = webrtc.NewICETCPMux(nil, listener, 8)
@@ -135,7 +145,10 @@ func (engine *Engine) Close() error {
 // Describe 返回一行人类可读的端口状态（启动日志用）。
 func (engine *Engine) Describe() string {
 	if !engine.tcpEnabled {
-		return fmt.Sprintf("%d/udp（TCP 未启用）", engine.port)
+		if engine.tcpErr != nil {
+			return fmt.Sprintf("%d/udp（媒体 TCP %d 未启用：%v）", engine.port, engine.tcpPort, engine.tcpErr)
+		}
+		return fmt.Sprintf("%d/udp（媒体 TCP 已关闭）", engine.port)
 	}
 	if engine.tcpPort == engine.port {
 		return fmt.Sprintf("%d/udp + %d/tcp", engine.port, engine.port)
