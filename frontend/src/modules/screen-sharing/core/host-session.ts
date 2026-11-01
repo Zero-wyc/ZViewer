@@ -17,7 +17,11 @@ import type {
   ShareSnapshotMessage,
 } from '../protocol/types'
 import { HostAudio, type CommentaryInput } from './audio-mix'
-import { applyVideoCaptureProfile, captureDisplay } from './capture'
+import {
+  applyVideoCaptureProfile,
+  captureCamera,
+  captureDisplay,
+} from './capture'
 import { HostPeer, type HostPeerSnapshot } from './host-peer'
 import { VP8_ONLY_VIDEO_CODEC } from './video-codec'
 import { qualityNeedsCaptureUpdate, type QualityProfile } from './quality'
@@ -61,8 +65,12 @@ export interface HostStartOptions {
   profile: QualityProfile
   /** 采集到的原始流（不含麦克风混音）。 */
   stream?: MediaStream
-  /** 复用已有的采集流；不传则内部调 getDisplayMedia。 */
+  /** 复用已有的采集流；不传则按 `source` 内部采集。 */
   shareSystemAudio?: boolean
+  /** 采集源：屏幕（默认）或摄像头。 */
+  source?: 'screen' | 'camera'
+  /** 摄像头设备 id；空串表示让浏览器选默认。 */
+  cameraDeviceId?: string
 }
 
 export class ShareHostSession {
@@ -157,9 +165,13 @@ export class ShareHostSession {
     try {
       const source =
         options.stream ??
-        (await captureDisplay(options.profile, {
-          systemAudio: options.shareSystemAudio ?? true,
-        }))
+        (options.source === 'camera'
+          ? await captureCamera(options.profile, {
+              deviceId: options.cameraDeviceId,
+            })
+          : await captureDisplay(options.profile, {
+              systemAudio: options.shareSystemAudio ?? true,
+            }))
       if (options.shareSystemAudio === false) {
         // 外部传入的流可能自带系统声：选择不共享声音时先摘掉音轨，再交给
         // 混音器——`HostAudio` 只在音轨存在时才建图，不会留下空节点。

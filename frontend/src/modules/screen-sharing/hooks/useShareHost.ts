@@ -9,6 +9,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { RESOLUTION_DIMENSIONS } from '../constants'
 import { ShareHostSession, type HostSessionState } from '../core/host-session'
+import { captureCamera, captureDisplay } from '../core/capture'
 import { profileFromSettings, type QualityProfile } from '../core/quality'
 import type { WebrtcShareMediaSettings } from '../utils/mediaSettingsStorage'
 
@@ -50,6 +51,8 @@ export interface UseShareHostResult {
   applyProfile: (settings: WebrtcShareMediaSettings) => Promise<boolean>
   /** 切换分辨率档位：传入带新档位的设置，重下发采集约束但不重协商。 */
   switchResolution: (settings: WebrtcShareMediaSettings) => Promise<boolean>
+  /** 共享中换采集源（屏幕 ↔ 摄像头 / 换摄像头）：换轨不重协商。 */
+  switchCaptureSource: (settings: WebrtcShareMediaSettings) => Promise<boolean>
 }
 
 /** UI 设置 → 编码档位。 */
@@ -144,6 +147,8 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     const started = await session.start({
       profile: profileOf(settings),
       shareSystemAudio: settings.shareSystemAudio,
+      source: settings.captureSource,
+      cameraDeviceId: settings.cameraDeviceId,
     })
     // 麦克风要等混音图建好才能挂上去，所以放在 start 之后。
     if (started && settings.shareMicrophone) {
@@ -192,6 +197,36 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     []
   )
 
+  /**
+   * 共享中换采集源。
+   *
+   * 采集新流 → `switchSource` 换轨：PC 不重协商，观众端无感。摄像头被别的
+   * 程序占用等失败会返回 false，界面负责回滚到原采集源并把原因说清楚。
+   */
+  const switchCaptureSource = useCallback(
+    async (settings: WebrtcShareMediaSettings) => {
+      const session = sessionRef.current
+      if (!session) return false
+      const profile = profileOf(settings)
+      try {
+        const stream =
+          settings.captureSource === 'camera'
+            ? await captureCamera(profile, {
+                deviceId: settings.cameraDeviceId,
+              })
+            : await captureDisplay(profile, {
+                systemAudio: settings.shareSystemAudio,
+              })
+        return await session.switchSource(stream)
+      } catch (error) {
+        // 日志不进词条表：这里是给开发者看的，界面文案才走 t()。
+        console.warn('[share] switch capture source failed:', error)
+        return false
+      }
+    },
+    []
+  )
+
   return {
     sharing: state.sharing,
     paused: state.paused,
@@ -210,5 +245,6 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     setMicrophone,
     applyProfile,
     switchResolution,
+    switchCaptureSource,
   }
 }

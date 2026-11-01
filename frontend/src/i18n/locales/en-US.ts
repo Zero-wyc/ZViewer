@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2614 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2624 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2297,7 +2297,7 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（187 条） =====
+  // ===== modules/screen-sharing（197 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
@@ -2348,6 +2348,7 @@ const enUS: Record<string, string> = {
   '高清': 'HD',
   '高帧': 'High FPS',
   '共享出错，请重新开始共享': 'Sharing hit an error; start sharing again',
+  '共享画面': 'Shared view',
   '共享麦克风': 'Share microphone',
   '共享设置': 'Sharing settings',
   '共享系统音频': 'Share system audio',
@@ -2393,9 +2394,13 @@ const enUS: Record<string, string> = {
   '密码错误': 'Wrong password',
   '密码错误，请重新输入': 'Wrong password, try again',
   '默认，音乐与视频兼顾': 'Default — a balance of music and video',
+  '默认摄像头': 'Default camera',
   '批注': 'Annotations',
+  '屏幕': 'Screen',
+  '切换采集源失败，已保留原画面': 'Could not switch the capture source — keeping the previous view',
   '切换到导入的「ZViewer 推流」场景集合，确认推流服务地址与流密钥正确': 'Switch to the imported “ZViewer streaming” scene collection and check the server address and stream key',
   '切换画面来源失败，已保留原画面': 'Failed to switch the video source; the previous one is kept',
+  '切换摄像头失败，已保留原画面': 'Could not switch the camera — keeping the previous view',
   '切换子模式失败': 'Failed to switch the sub-mode',
   '清空批注': 'Clear annotations',
   '清空批注失败': 'Failed to clear annotations',
@@ -2411,6 +2416,10 @@ const enUS: Record<string, string> = {
   '确认结束': 'Confirm ending',
   '人声为主，省带宽': 'Mostly speech, saves bandwidth',
   '如房间未设置密码可留空': 'Leave blank if the room has no password',
+  '摄像头': 'Camera',
+  '摄像头 {{index}}': 'Camera {{index}}',
+  '摄像头没有系统声；观众听到的声音来自麦克风': 'Cameras carry no system audio — viewers only hear the microphone',
+  '摄像头已断开，共享已停止': 'The camera disconnected — sharing stopped',
   '声音': 'Sound',
   '实时解码帧率': 'Live decode frame rate',
   '视频分辨率': 'Video resolution',
@@ -2463,6 +2472,7 @@ const enUS: Record<string, string> = {
   '正在加入房间...': 'Joining the room...',
   '正在接收画面...': 'Receiving video...',
   '正在连接直播流...': 'Connecting to the live stream...',
+  '正在切换采集源...': 'Switching capture source…',
   '正在请求权限...': 'Requesting permission...',
   '正在重新采集...': 'Recapturing...',
   '正在重新连接...': 'Reconnecting...',

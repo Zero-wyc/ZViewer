@@ -1,5 +1,14 @@
 {
   "items": [
+    "Cameras carry no system audio — viewers only hear the microphone",
+    "The camera disconnected — sharing stopped",
+    "Sound",
+    "Live decode frame rate",
+    "Video resolution",
+    "Collapse sharing settings",
+    "Enter the room password",
+    "Refresh the connection",
+    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.",
     "Stream URL copied (without the stream key)",
     "Stream status",
     "Exit picture-in-picture",
@@ -45,6 +54,7 @@
     "Joining the room...",
     "Receiving video...",
     "Connecting to the live stream...",
+    "Switching capture source…",
     "Requesting permission...",
     "Recapturing...",
     "Reconnecting...",

@@ -25,7 +25,13 @@ export interface WebrtcShareMediaSettings {
   degradationPreference: RTCDegradationPreference
   /** 系统声音码率（bps）。 */
   maxAudioBitrate: number
+  /** 采集源：共享屏幕，还是共享摄像头。 */
+  captureSource: CaptureSource
+  /** 摄像头设备 id；空串表示让浏览器选默认。 */
+  cameraDeviceId: string
 }
+
+export type CaptureSource = 'screen' | 'camera'
 
 const DEFAULTS: WebrtcShareMediaSettings = {
   frameRate: 30,
@@ -35,6 +41,8 @@ const DEFAULTS: WebrtcShareMediaSettings = {
   resolutionPreset: '1080p',
   degradationPreference: 'balanced',
   maxAudioBitrate: 128_000,
+  captureSource: 'screen',
+  cameraDeviceId: '',
 }
 
 /** 读取持久化设置；缺失/损坏/字段非法时逐字段回退默认值 */
@@ -80,6 +88,13 @@ export function loadMediaSettings(): WebrtcShareMediaSettings {
       )
         ? (parsed.maxAudioBitrate as number)
         : DEFAULTS.maxAudioBitrate,
+      // 老版本没有采集源字段：默认共享屏幕，别让升级后莫名其妙开摄像头。
+      captureSource:
+        parsed.captureSource === 'camera' ? 'camera' : DEFAULTS.captureSource,
+      cameraDeviceId:
+        typeof parsed.cameraDeviceId === 'string'
+          ? parsed.cameraDeviceId
+          : DEFAULTS.cameraDeviceId,
     }
   } catch {
     return { ...DEFAULTS }

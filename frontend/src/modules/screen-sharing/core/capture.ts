@@ -14,6 +14,11 @@ import {
 } from './sender-track'
 import { displayMediaOptions } from './capture-options'
 import {
+  cameraCaptureConstraints,
+  cameraFallbackConstraints,
+  cameraTrackConstraints,
+} from './capture-devices'
+import {
   captureConstraints,
   supportsCaptureProfile,
   type QualityProfile,
@@ -49,12 +54,69 @@ export async function captureDisplay(
 }
 
 /**
+ * 摄像头采集。
+ *
+ * 与屏幕采集的差别不只是「换一个 getUserMedia」：
+ *  - 没有系统声，`shareSystemAudio` 对摄像头无意义（声音只能来自麦克风）；
+ *  - `displaySurface` 不存在，发送端不会做帧隔离；
+ *  - 设备可能被别的程序占着，`OverconstrainedError`/`NotReadableError` 要
+ *    原样抛给调用方，界面才能提示「摄像头被占用」。
+ */
+export async function captureCamera(
+  profile: QualityProfile,
+  options: { deviceId?: string } = {}
+): Promise<MediaStream> {
+  if (!navigator.mediaDevices?.getUserMedia) {
+    throw new Error('getUserMedia unavailable')
+  }
+  if (!supportsCaptureProfile(profile)) {
+    throw new Error('unsupported capture profile')
+  }
+  const primary = cameraCaptureConstraints(
+    profile.resolution,
+    profile.maxFramerate,
+    options.deviceId ?? ''
+  )
+  let stream: MediaStream
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: primary,
+    })
+  } catch (error) {
+    // `resizeMode: exact 'none'` 在非 Chromium 上可能直接判过约束：
+    // 去掉它再试一次，宁可让浏览器自己裁剪，也不要整个共享起不来。
+    if (
+      error instanceof Error &&
+      (error.name === 'OverconstrainedError' || error.name === 'TypeError')
+    ) {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: cameraFallbackConstraints(primary),
+      })
+    } else {
+      throw error
+    }
+  }
+  const videoTrack = stream.getVideoTracks()[0]
+  if (!videoTrack || videoTrack.readyState === 'ended') {
+    stream.getTracks().forEach((track) => track.stop())
+    throw new Error('camera produced no live video track')
+  }
+  videoTrack.contentHint = 'motion'
+  return stream
+}
+
+/**
  * 只在采集轨上应用档位约束。
  *
  * 判断「这条轨有没有采集设备」要剥回输入轨（帧隔离轨的 `getCapabilities()`
  * 里不含宽高/帧率），但**下发约束必须用发送端这条轨**：`applySenderCaptureConstraints`
  * 内部会把它透传到输入轨，并且顺带补上 `min: 1`（Piik `quality.ts:313-338`）。
  * 直接对输入轨下发会绕过那层合并，静态画面可能彻底停帧。
+ *
+ * 屏幕与摄像头的约束口径不同（上限 vs 理想尺寸），按 `displaySurface` 分流；
+ * 摄像头这条**不能带 deviceId/facingMode**，否则等于换了一颗摄像头。
  */
 export async function applyVideoCaptureProfile(
   track: MediaStreamTrack,
@@ -68,7 +130,10 @@ export async function applyVideoCaptureProfile(
     'height' in capabilities ||
     'frameRate' in capabilities
   if (!ownsConstraints) return
-  await applySenderCaptureConstraints(track, captureConstraints(profile))
+  const constraints = capture.getSettings?.().displaySurface
+    ? captureConstraints(profile)
+    : cameraTrackConstraints(profile.resolution, profile.maxFramerate)
+  await applySenderCaptureConstraints(track, constraints)
 }
 
 /** 暂停/恢复一条流的全部轨道（不改分辨率，只关开关）。 */

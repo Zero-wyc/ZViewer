@@ -9,7 +9,7 @@
  * 真相（那正是「界面显示 1080P、实际发 720P」的来源）。
  */
 import { useState } from 'react'
-import { ChevronDown, Gauge, MonitorPlay, Volume2 } from 'lucide-react'
+import { ChevronDown, Gauge, MonitorPlay, Video, Volume2 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { InputNumber } from '@/components/ui/InputNumber'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
@@ -17,6 +17,7 @@ import { Select } from '@/components/ui/Select'
 import { Space } from '@/components/ui/Space'
 import { Switch } from '@/components/ui/Switch'
 import { Paragraph, Text } from '@/components/ui/Typography'
+import type { CaptureDevice } from '../core/capture-devices'
 import {
   AUDIO_BITRATE_OPTIONS,
   DEGRADATION_OPTIONS,
@@ -27,7 +28,10 @@ import {
   type QualityPresetId,
   type ResolutionPreset,
 } from '../constants'
-import type { WebrtcShareMediaSettings } from '../utils/mediaSettingsStorage'
+import type {
+  CaptureSource,
+  WebrtcShareMediaSettings,
+} from '../utils/mediaSettingsStorage'
 import { t } from '@/i18n'
 
 export interface ShareSettingsCardProps {
@@ -36,6 +40,10 @@ export interface ShareSettingsCardProps {
   isSharing: boolean
   /** 正在热切换分辨率（重新采集中，禁用档位选择防重入）。 */
   switchingResolution?: boolean
+  /** 正在热切换采集源（屏幕 ↔ 摄像头）。 */
+  switchingSource?: boolean
+  /** 可选摄像头（`enumerateDevices` 的结果，未授权时 label 为空）。 */
+  cameras?: CaptureDevice[]
   /** 紧凑模式：共享中的浮层，默认收起详细参数。 */
   compact?: boolean
   onPresetChange: (id: QualityPresetId) => void
@@ -46,6 +54,10 @@ export interface ShareSettingsCardProps {
   onAudioBitrateChange: (bitrate: number) => void
   onSystemAudioChange: (enabled: boolean) => void
   onMicrophoneChange: (enabled: boolean) => void
+  /** 切换采集源（屏幕 / 摄像头）。 */
+  onCaptureSourceChange: (source: CaptureSource) => void
+  /** 换摄像头设备。 */
+  onCameraDeviceChange: (deviceId: string) => void
 }
 
 /** 一行小标题：图标 + 文案 + 右侧可选说明。 */
@@ -68,6 +80,8 @@ export function ShareSettingsCard({
   settings,
   isSharing,
   switchingResolution = false,
+  switchingSource = false,
+  cameras = [],
   compact = false,
   onPresetChange,
   onResolutionChange,
@@ -77,12 +91,23 @@ export function ShareSettingsCard({
   onAudioBitrateChange,
   onSystemAudioChange,
   onMicrophoneChange,
+  onCaptureSourceChange,
+  onCameraDeviceChange,
 }: ShareSettingsCardProps): JSX.Element {
   // 细项默认收起：房间里的共享区高度有限，一上来摊开五组控件会把「开始共享」
   // 挤出可视区。收起时仍显示一行当前参数摘要，信息不丢（Piik 同样是这个做法）。
   const [advanced, setAdvanced] = useState(false)
   const activePreset = matchQualityPreset(settings)
   const recommendedBitrate = Math.max(2, Math.round(settings.frameRate * 0.267))
+  const isCamera = settings.captureSource === 'camera'
+  // 未授权时 enumerateDevices 的 label 是空串：用序号占位，别显示成空白项。
+  const cameraOptions = [
+    { label: t('默认摄像头'), value: '' },
+    ...cameras.map((device, index) => ({
+      label: device.label || t('摄像头 {{index}}', { index: index + 1 }),
+      value: device.id,
+    })),
+  ]
 
   return (
     <Space
@@ -91,6 +116,41 @@ export function ShareSettingsCard({
       // 浮层里空间更紧，组间距收一档。
       size={compact ? 'sm' : 'md'}
     >
+      {/* 采集源：屏幕 / 摄像头。摄像头不带系统声，声音只能靠麦克风。 */}
+      <div>
+        <SectionTitle
+          icon={<Video className="h-3.5 w-3.5" />}
+          label={t('共享画面')}
+        />
+        <SegmentedToggle
+          options={[
+            { value: 'screen', label: t('屏幕') },
+            { value: 'camera', label: t('摄像头') },
+          ]}
+          value={settings.captureSource}
+          onChange={(value) => onCaptureSourceChange(value as CaptureSource)}
+        />
+        {isCamera && (
+          <div className="mt-2">
+            <Select
+              options={cameraOptions}
+              value={settings.cameraDeviceId}
+              onChange={(value) => onCameraDeviceChange(value)}
+              size="sm"
+              disabled={switchingSource}
+            />
+          </div>
+        )}
+        {switchingSource && (
+          <Paragraph
+            type="secondary"
+            className="m-0 mt-1.5 text-[10px] leading-tight"
+          >
+            {t('正在切换采集源...')}
+          </Paragraph>
+        )}
+      </div>
+
       {/* 一键档位 */}
       <div>
         <SectionTitle
@@ -264,15 +324,24 @@ export function ShareSettingsCard({
             label={t('共享系统音频')}
             checked={settings.shareSystemAudio}
             onChange={(e) => onSystemAudioChange(e.target.checked)}
-            disabled={isSharing}
+            disabled={isSharing || isCamera}
           />
-          {isSharing && (
+          {isCamera ? (
             <Paragraph
               type="secondary"
               className="m-0 text-[10px] leading-tight"
             >
-              {t('系统音频需要先结束共享才能改；麦克风与音频码率可以随时调')}
+              {t('摄像头没有系统声；观众听到的声音来自麦克风')}
             </Paragraph>
+          ) : (
+            isSharing && (
+              <Paragraph
+                type="secondary"
+                className="m-0 text-[10px] leading-tight"
+              >
+                {t('系统音频需要先结束共享才能改；麦克风与音频码率可以随时调')}
+              </Paragraph>
+            )
           )}
           <div>
             <label className="mb-1 block text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]">

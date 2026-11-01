@@ -26,8 +26,10 @@ import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
 import {
   loadMediaSettings,
   saveMediaSettings,
+  type CaptureSource,
   type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
+import { browserCameras, type CaptureDevice } from '../core/capture-devices'
 import { ICE_SERVERS } from '@/lib/iceServers'
 import {
   QUALITY_PRESETS,
@@ -99,6 +101,9 @@ function WebrtcSharePage({
   const [confirmClose, setConfirmClose] = useState(false)
   const [starting, setStarting] = useState(false)
   const [switchingResolution, setSwitchingResolution] = useState(false)
+  const [switchingSource, setSwitchingSource] = useState(false)
+  /** 可选摄像头（`enumerateDevices` 的结果，未授权时 label 为空）。 */
+  const [cameras, setCameras] = useState<CaptureDevice[]>([])
   /** 共享中拉起的「共享设置」浮层。 */
   const [settingsOpen, setSettingsOpen] = useState(false)
 
@@ -127,6 +132,7 @@ function WebrtcSharePage({
     setMicrophone,
     applyProfile,
     switchResolution,
+    switchCaptureSource,
   } = useShareHost({
     socket,
     roomId: currentRoomId,
@@ -141,7 +147,17 @@ function WebrtcSharePage({
   }, [stop])
 
   const handleStreamEnded = useCallback(() => {
+    const source = settingsRef.current.captureSource
+    // 采集被系统级停掉（用户点了浏览器的「停止共享」、摄像头被拔掉/被抢占）。
+    // 这条日志是现场唯一能解释「为什么共享突然停了」的线索。
+    console.warn('[share] capture ended', { source })
     stopSharing()
+    if (source === 'camera') {
+      // 摄像头掉线只停共享，**不关房间**：房主可能正在一起看/一起听，
+      // 不该因为一颗摄像头把整场会话关掉，他换回屏幕共享就能继续。
+      message.warning(t('摄像头已断开，共享已停止'))
+      return
+    }
     if (!socket) return
     socket.emit('close-room', (response: CloseRoomResponse) => {
       if (response.success) {
@@ -366,6 +382,71 @@ function WebrtcSharePage({
     [commitSettings]
   )
 
+  // 摄像头列表：只在选「摄像头」时枚举。enumerateDevices 不触发权限，
+  // 但未授权时 label 是空串，面板会用序号占位。
+  useEffect(() => {
+    if (settings.captureSource !== 'camera') return
+    let cancelled = false
+    void browserCameras()
+      .then((list) => {
+        if (!cancelled) setCameras(list)
+      })
+      .catch(() => {
+        if (!cancelled) setCameras([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [settings.captureSource])
+
+  /**
+   * 换采集源 / 换摄像头。
+   *
+   * 共享中走 `switchSource`：采集新流 → `replaceTrack`，PC 不重协商、观众端
+   * 无感。失败（摄像头被别的程序占着等）要回滚设置，否则界面显示「摄像头」
+   * 而画面还是屏幕，比直接报错更让人困惑。
+   */
+  const applyCaptureSource = useCallback(
+    async (patch: Partial<WebrtcShareMediaSettings>, failureText: string) => {
+      const previous = settingsRef.current
+      const pending = commitSettings(patch)
+      if (!isSharing) return
+      setSwitchingSource(true)
+      try {
+        const ok = await switchCaptureSource(pending)
+        if (!ok) {
+          commitSettings(previous)
+          message.error(t(failureText))
+        }
+      } finally {
+        setSwitchingSource(false)
+      }
+    },
+    [commitSettings, isSharing, switchCaptureSource]
+  )
+
+  const handleCaptureSourceChange = useCallback(
+    (source: CaptureSource) => {
+      if (source === settingsRef.current.captureSource) return
+      void applyCaptureSource(
+        { captureSource: source },
+        t('切换采集源失败，已保留原画面')
+      )
+    },
+    [applyCaptureSource]
+  )
+
+  const handleCameraDeviceChange = useCallback(
+    (deviceId: string) => {
+      if (deviceId === settingsRef.current.cameraDeviceId) return
+      void applyCaptureSource(
+        { cameraDeviceId: deviceId },
+        t('切换摄像头失败，已保留原画面')
+      )
+    },
+    [applyCaptureSource]
+  )
+
   useEffect(() => {
     onStatsPeerConnectionChange?.(statsPeerConnection)
   }, [statsPeerConnection, onStatsPeerConnectionChange])
@@ -489,6 +570,8 @@ function WebrtcSharePage({
                   settings={settings}
                   isSharing={isSharing}
                   switchingResolution={switchingResolution}
+                  switchingSource={switchingSource}
+                  cameras={cameras}
                   onPresetChange={(id) => void handlePresetChange(id)}
                   onResolutionChange={(value) => {
                     void handleResolutionChange(value)
@@ -499,6 +582,8 @@ function WebrtcSharePage({
                   onAudioBitrateChange={handleAudioBitrateChange}
                   onSystemAudioChange={handleSystemAudioChange}
                   onMicrophoneChange={handleMicrophoneChange}
+                  onCaptureSourceChange={handleCaptureSourceChange}
+                  onCameraDeviceChange={handleCameraDeviceChange}
                 />
               </div>
             </div>
@@ -603,6 +688,8 @@ function WebrtcSharePage({
                 settings={settings}
                 isSharing={isSharing}
                 switchingResolution={switchingResolution}
+                switchingSource={switchingSource}
+                cameras={cameras}
                 onPresetChange={(id) => void handlePresetChange(id)}
                 onResolutionChange={(value) => {
                   void handleResolutionChange(value)
@@ -613,6 +700,8 @@ function WebrtcSharePage({
                 onAudioBitrateChange={handleAudioBitrateChange}
                 onSystemAudioChange={handleSystemAudioChange}
                 onMicrophoneChange={handleMicrophoneChange}
+                onCaptureSourceChange={handleCaptureSourceChange}
+                onCameraDeviceChange={handleCameraDeviceChange}
               />
             </div>
 
