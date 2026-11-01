@@ -14,6 +14,12 @@
 import { waitForConnectionOperation } from './connection-op'
 import { preferOpusReceiveLimit } from './opus-receive-sdp'
 import { observeDecodedFrameProof } from './frame-proof'
+import {
+  NatPredictionCandidateEmitter,
+  addRemoteIceCandidate,
+  iceServersWithNatPrediction,
+  natPredictionSurveyUrls,
+} from './nat-prediction'
 
 export const VIEWER_MAX_PENDING_CANDIDATES = 64
 export const VIEWER_MAX_AUTOMATIC_RECOVERY_REQUESTS = 2
@@ -51,6 +57,8 @@ export interface ViewerPeerEvents {
 
 export interface ViewerPeerOptions {
   iceServers: RTCIceServer[]
+  /** NAT 预测的 survey 目的地（恰好两个才启用；不传即关闭）。 */
+  natPredictionStunUrls?: readonly string[]
   events: ViewerPeerEvents
 }
 
@@ -74,10 +82,19 @@ export class ViewerPeer {
 
   private disposed = false
   private snapshot: ViewerPeerSnapshot | null = null
+  /**
+   * NAT 端口预测的候选出口，每条连接一份（重建连接时随之作废）。
+   *
+   * 观众侧的 ICE 代际跟着 `connectionId` 走：`replaceConnection` 直接换新
+   * 实例，所以不需要像房主那样靠 ufrag 认代际。
+   */
+  private candidateEmitter: NatPredictionCandidateEmitter | null = null
+  private readonly natPredictionStunUrls: readonly string[]
 
   constructor(options: ViewerPeerOptions) {
     this.events = options.events
     this.iceServers = options.iceServers
+    this.natPredictionStunUrls = options.natPredictionStunUrls ?? []
   }
 
   get currentConnectionId(): string | null {
@@ -151,7 +168,8 @@ export class ViewerPeer {
     }
     const connection = this.connection
     return this.waitForOperation(() =>
-      connection.addIceCandidate(candidate)
+      // 预测候选被拒是正常事件（端口猜错而已）；普通候选被拒才报错。
+      addRemoteIceCandidate(connection, candidate)
     ).catch(() => {
       if (this.isCurrent(connectionId))
         this.setError('share.viewer.error.candidate')
@@ -192,7 +210,28 @@ export class ViewerPeer {
     this.recoveryExhausted = false
     const lifetime = new AbortController()
     this.lifetime = lifetime
-    const connection = new RTCPeerConnection({ iceServers: this.iceServers })
+    const surveyUrls = natPredictionSurveyUrls(
+      this.iceServers,
+      this.natPredictionStunUrls
+    )
+    const emitter = new NatPredictionCandidateEmitter(
+      surveyUrls.size > 0,
+      (candidate) => {
+        // 空候选是 Piik 的「收集结束」标记，ZViewer 线上格式没有它，丢掉。
+        if (!candidate?.candidate || this.connection !== connection) return
+        this.events.sendSignal({ kind: 'candidate', candidate })
+      },
+      surveyUrls
+    )
+    this.candidateEmitter = emitter
+    const connection = new RTCPeerConnection({
+      // 只追加缺失的 survey 目的地，普通 STUN 列表保持原样。
+      iceServers: iceServersWithNatPrediction(
+        this.iceServers,
+        surveyUrls.size > 0,
+        this.natPredictionStunUrls
+      ),
+    })
     this.connection = connection
     this.snapshot = {
       connectionId,
@@ -206,10 +245,13 @@ export class ViewerPeer {
       if (this.connection !== connection) return
       // 线上格式不接受 payload=null，收集结束不需要单独通知。
       if (!event.candidate) return
-      this.events.sendSignal({
-        kind: 'candidate',
-        candidate: event.candidate.toJSON(),
-      })
+      // 传原对象：预测要靠 `candidate.url` 判断来源，`toJSON()` 会丢掉它。
+      emitter.add(event.candidate)
+    })
+    connection.addEventListener('icegatheringstatechange', () => {
+      if (this.connection !== connection) return
+      if (connection.iceGatheringState === 'complete')
+        emitter.gatheringComplete()
     })
     connection.addEventListener('track', (event) => {
       if (this.connection !== connection) return
@@ -470,6 +512,8 @@ export class ViewerPeer {
   }
 
   private disposeConnection(): void {
+    this.candidateEmitter?.discard()
+    this.candidateEmitter = null
     this.stopFrameProof?.()
     this.stopFrameProof = null
     this.clearDisconnectTimer()

@@ -22,6 +22,8 @@ export interface UseShareHostOptions {
   socket: Socket | null
   roomId: string
   iceServers: RTCIceServer[]
+  /** NAT 端口预测的 survey 目的地（恰好两个才启用）。 */
+  natPredictionStunUrls?: readonly string[]
   /** 本地预览 video 元素（可选）：自动绑定预览流。 */
   /** 本地预览 video 元素（可变 ref，便于直接绑定 srcObject）。 */
   videoRef?: { current: HTMLVideoElement | null }
@@ -80,6 +82,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     socket,
     roomId,
     iceServers,
+    natPredictionStunUrls,
     videoRef,
     onStreamEnded,
     videoVersion = 0,
@@ -114,6 +117,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
       socket,
       roomId,
       iceServers,
+      natPredictionStunUrls,
       // 预览流不等探针：采集一就绪就绑上（会话内部会在开播前跑编码探针，
       // 那 1–2 秒不该让用户对着空预览框干等）。
       onPreviewStream: (stream) => setPreviewStream(stream),
@@ -134,7 +138,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
       setPreviewStream(null)
       setStatsPeerConnection(null)
     }
-  }, [socket, roomId, iceServers])
+  }, [socket, roomId, iceServers, natPredictionStunUrls])
 
   // 预览绑定 + 用户从浏览器 UI 停止共享的兜底。
   useEffect(() => {

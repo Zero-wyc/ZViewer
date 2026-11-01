@@ -43,6 +43,12 @@ import {
 } from './quality'
 import { cloneSenderVideoTrack, stopSenderVideoTrack } from './sender-track'
 import {
+  NatPredictionCandidateEmitter,
+  addRemoteIceCandidate,
+  iceServersWithNatPrediction,
+  natPredictionSurveyUrls,
+} from './nat-prediction'
+import {
   H264_PREFERRED_VIDEO_CODEC,
   applyVideoCodecPreference,
   normalizeVideoOfferSdp,
@@ -97,6 +103,11 @@ export interface HostPeerEvents {
 export interface HostPeerOptions {
   connectionId: string
   iceServers: RTCIceServer[]
+  /**
+   * NAT 预测的 survey 目的地（恰好两个才启用）。不传就完全不做预测，
+   * ICE 行为与移植前一致。
+   */
+  natPredictionStunUrls?: readonly string[]
   stream: MediaStream
   profile: QualityProfile
   events: HostPeerEvents
@@ -146,6 +157,14 @@ export class HostPeer {
   private awaitingReconnect = false
   private paused = false
   private snapshot: HostPeerSnapshot
+  /**
+   * NAT 端口预测的候选出口。
+   *
+   * 包住 `sendSignal`：普通候选照原时序转发，只把「同一 socket 朝 survey
+   * 目的地打出来的 srflx」当证据，凑出等差端口序列后追加几个预测候选。
+   * survey 为空集时它等价于直通（`enabled=false`）。
+   */
+  private readonly candidateEmitter: NatPredictionCandidateEmitter
 
   constructor(options: HostPeerOptions) {
     this.connectionId = options.connectionId
@@ -161,7 +180,27 @@ export class HostPeer {
       : null
     this.startupVideoProfilePending = needsStartupVideoProfile(options.profile)
 
-    this.connection = new RTCPeerConnection({ iceServers: options.iceServers })
+    const auxStunUrls = options.natPredictionStunUrls ?? []
+    const surveyUrls = natPredictionSurveyUrls(options.iceServers, auxStunUrls)
+    this.candidateEmitter = new NatPredictionCandidateEmitter(
+      surveyUrls.size > 0,
+      (candidate) => {
+        // ZViewer 的线上格式没有「收集结束」标记（Piik 发的是 candidate:""），
+        // 这里把空候选丢掉：发出去只会被对端 addIceCandidate 拒成错误。
+        if (!candidate?.candidate) return
+        this.events.sendSignal({ kind: 'candidate', candidate })
+      },
+      surveyUrls
+    )
+
+    this.connection = new RTCPeerConnection({
+      // 只追加缺失的 survey 目的地，普通 STUN 列表保持原样。
+      iceServers: iceServersWithNatPrediction(
+        options.iceServers,
+        surveyUrls.size > 0,
+        auxStunUrls
+      ),
+    })
     this.snapshot = {
       connectionId: this.connectionId,
       connectionState: this.connection.connectionState,
@@ -254,8 +293,10 @@ export class HostPeer {
           }
           return
         }
+        // 预测候选被拒是正常事件（端口猜错而已），不该让整条连接报错；
+        // 普通候选被拒才是真问题，照旧抛出。
         await this.waitForOperation(() =>
-          this.connection.addIceCandidate(candidate)
+          addRemoteIceCandidate(this.connection, candidate)
         )
       })
     } catch {
@@ -427,6 +468,7 @@ export class HostPeer {
   dispose(): void {
     if (this.disposed) return
     this.lifetime.abort()
+    this.candidateEmitter.discard()
     this.nextNegotiationEpoch()
     this.pendingNegotiation = false
     if (this.statsTimer !== null) {
@@ -445,10 +487,14 @@ export class HostPeer {
     this.connection.addEventListener('icecandidate', (event) => {
       // null 表示候选收集结束，我们的线上格式不接受 payload=null。
       if (!event.candidate) return
-      this.events.sendSignal({
-        kind: 'candidate',
-        candidate: event.candidate.toJSON(),
-      })
+      // 传原对象：预测要靠 `candidate.url` 判断来源，`toJSON()` 会丢掉它。
+      this.candidateEmitter.add(event.candidate)
+    })
+    this.connection.addEventListener('icegatheringstatechange', () => {
+      // 线上没有 end 标记，用收集状态代替：这一代观测到此为止。
+      if (this.connection.iceGatheringState === 'complete') {
+        this.candidateEmitter.gatheringComplete()
+      }
     })
     this.connection.addEventListener('connectionstatechange', () => {
       const state = this.connection.connectionState

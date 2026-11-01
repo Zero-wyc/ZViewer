@@ -84,6 +84,8 @@ export interface HostSessionOptions {
   socket: Socket
   roomId: string
   iceServers: RTCIceServer[]
+  /** NAT 端口预测的 survey 目的地（恰好两个才启用；不传即关闭）。 */
+  natPredictionStunUrls?: readonly string[]
   /**
    * 采集/混音一就绪就交出预览流。
    *
@@ -531,6 +533,7 @@ export class ShareHostSession {
     const peer = new HostPeer({
       connectionId,
       iceServers: this.options.iceServers,
+      natPredictionStunUrls: this.options.natPredictionStunUrls,
       stream: this.outputStream,
       profile: this.profile,
       // 中继强制 VP8（与媒体声明一致，也是 SFU 转发最稳的一路）；

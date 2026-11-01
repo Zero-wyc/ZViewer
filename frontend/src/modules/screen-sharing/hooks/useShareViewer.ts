@@ -16,6 +16,8 @@ export interface UseShareViewerOptions {
   socket: Socket | null
   roomId: string
   iceServers: RTCIceServer[]
+  /** NAT 端口预测的 survey 目的地（恰好两个才启用）。 */
+  natPredictionStunUrls?: readonly string[]
   /** 本地 video 元素（用可变 ref 包一层，便于直接绑定 srcObject）。 */
   videoRef?: { current: HTMLVideoElement | null }
   /** 自动播放被浏览器拦截时回调（由页面决定是否展示「点击开启声音」）。 */
@@ -61,6 +63,7 @@ export function useShareViewer(
     socket,
     roomId,
     iceServers,
+    natPredictionStunUrls,
     videoRef,
     onAutoplayBlocked,
     videoVersion = 0,
@@ -82,6 +85,7 @@ export function useShareViewer(
       socket,
       roomId,
       iceServers,
+      natPredictionStunUrls,
       onStateChange: setState,
       onStream: (stream) => setRemoteStream(stream),
       onPeerUpdate: (snapshot) => {
@@ -98,7 +102,7 @@ export function useShareViewer(
       setPc(null)
       setConnectionState('new')
     }
-  }, [socket, roomId, iceServers])
+  }, [socket, roomId, iceServers, natPredictionStunUrls])
 
   // 远端流绑定。共享结束时**不清 srcObject**：观众要能看到最后一帧，
   // 彻底清零会让画面瞬间变黑，比「暂停中」更难理解。

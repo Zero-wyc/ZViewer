@@ -27,7 +27,7 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useWakeLock } from '@/hooks/useWakeLock'
-import { ICE_SERVERS } from '@/lib/iceServers'
+import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
 import { useShareViewer } from '../hooks/useShareViewer'
 import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
 import {
@@ -112,6 +112,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     socket,
     roomId,
     iceServers: ICE_SERVERS,
+    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
     videoRef,
     videoVersion,
   })

@@ -31,7 +31,7 @@ import {
 } from '../utils/mediaSettingsStorage'
 import { browserCameras, type CaptureDevice } from '../core/capture-devices'
 import type { PeerQualityView } from '../core/peer-quality'
-import { ICE_SERVERS } from '@/lib/iceServers'
+import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
 import {
   QUALITY_PRESETS,
   type QualityPresetId,
@@ -143,6 +143,7 @@ function WebrtcSharePage({
     socket,
     roomId: currentRoomId,
     iceServers: ICE_SERVERS,
+    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
     videoRef: localVideoRef,
     videoVersion: localVideoVersion,
     onStreamEnded: () => handleStreamEndedRef.current(),

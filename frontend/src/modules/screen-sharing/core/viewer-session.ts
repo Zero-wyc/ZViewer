@@ -44,6 +44,8 @@ export interface ViewerSessionOptions {
   socket: Socket
   roomId: string
   iceServers: RTCIceServer[]
+  /** NAT 端口预测的 survey 目的地（恰好两个才启用；不传即关闭）。 */
+  natPredictionStunUrls?: readonly string[]
   onStateChange?: (state: ViewerSessionState) => void
   onSnapshot?: (snapshot: ShareSnapshotMessage) => void
   /** 远端流；`null` 表示流已拆（页面可以保留最后一帧，但不能再当成有画面）。 */
@@ -296,6 +298,7 @@ export class ShareViewerSession {
     this.peer?.dispose()
     const peer = new ViewerPeer({
       iceServers: this.options.iceServers,
+      natPredictionStunUrls: this.options.natPredictionStunUrls,
       events: {
         sendSignal: (signal) => {
           if (this.relay) {

@@ -18,3 +18,20 @@ export const ICE_SERVERS: RTCIceServer[] = [
   { urls: 'stun:stun.l.google.com:19302' },
   { urls: 'stun:stun1.l.google.com:19302' },
 ]
+
+/**
+ * NAT 端口预测的「survey 目的地」。
+ *
+ * 照 Piik `internal/app/config/public_stun.go` 的 `stunURLs[1:3]` 口径：普通
+ * 列表里的**第二、第三**个。必须**恰好两个**，预测才会启用
+ * （`natPredictionSurveyUrls` 的硬要求），基准取第一个 :3478 的（miwifi）。
+ *
+ * 这三个目的地会被同一个本地 socket 各打一次 Binding Request，用同一公网 IP
+ * 上出现的端口序列推断对称 NAT 的分配步长。**任一不可达只是少一个观测点**，
+ * 凑不满等差数列就不预测，正常 ICE 完全不受影响——所以这里可以放心挑国内
+ * 实测能通的那几个，不必为预测单独加服务器。
+ */
+export const NAT_PREDICTION_AUX_STUN_URLS: readonly string[] = [
+  'stun:stun.cdnbye.com:3478',
+  'stun:stun.l.google.com:19302',
+]
