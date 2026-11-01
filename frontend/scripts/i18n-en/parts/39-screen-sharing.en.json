@@ -8,6 +8,7 @@
     "720P · 30fps · 4Mbps — pick this on an average network",
     "Lossless",
     "Local resolution",
+    "The encoder cannot keep up — dropped to {{value}} automatically",
     "Streaming",
     "Error details copied, paste them to an admin",
     "In OBS open Scene Collection → Import → pick the downloaded JSON file",
@@ -118,7 +119,6 @@
     "Confirm ending",
     "Mostly speech, saves bandwidth",
     "Leave blank if the room has no password",
-    "Camera",
-    "Camera {{index}}"
+    "Camera"
   ]
 }

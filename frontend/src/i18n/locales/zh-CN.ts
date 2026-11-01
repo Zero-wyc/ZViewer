@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2625 条。
+ * 当前共 2626 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -2300,7 +2300,7 @@ const zhCN: Record<string, string> = {
   'Socket 尚未连接': 'Socket 尚未连接',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）',
 
-  // ===== modules/screen-sharing（197 条） =====
+  // ===== modules/screen-sharing（198 条） =====
   '，码率不足将导致降帧': '，码率不足将导致降帧',
   '[share] 丢弃无法解码的下行消息': '[share] 丢弃无法解码的下行消息',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} 帧',
@@ -2309,6 +2309,7 @@ const zhCN: Record<string, string> = {
   '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps，网络一般时选它',
   '保真': '保真',
   '本机分辨率': '本机分辨率',
+  '编码跟不上，已自动降到 {{value}}': '编码跟不上，已自动降到 {{value}}',
   '传输中': '传输中',
   '错误详情已复制，可粘贴给管理员': '错误详情已复制，可粘贴给管理员',
   '打开 OBS → 顶部菜单「场景集合」→「导入」→ 选择下载的 JSON 文件': '打开 OBS → 顶部菜单「场景集合」→「导入」→ 选择下载的 JSON 文件',

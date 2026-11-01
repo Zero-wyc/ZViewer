@@ -138,6 +138,7 @@ function WebrtcSharePage({
     switchResolution,
     switchCaptureSource,
     peerQualities,
+    autoDowngrade,
   } = useShareHost({
     socket,
     roomId: currentRoomId,
@@ -481,6 +482,22 @@ function WebrtcSharePage({
   useEffect(() => {
     onCaptureFpsChange?.(captureFps)
   }, [captureFps, onCaptureFpsChange])
+
+  // 编码跟不上自动降档：同一次降档只提示一遍（state 里是纯数据，
+  // 每 2 秒采样都会带上同一个值，没有去重会刷屏）。
+  const notifiedDowngradeRef = useRef('')
+  useEffect(() => {
+    if (!autoDowngrade) return
+    const key = `${autoDowngrade.width}x${autoDowngrade.height}@${autoDowngrade.frameRate}`
+    if (notifiedDowngradeRef.current === key) return
+    notifiedDowngradeRef.current = key
+    message.warning(
+      t('编码跟不上，已自动降到 {{value}}', {
+        value: `${autoDowngrade.width} × ${autoDowngrade.height} · ${autoDowngrade.frameRate} fps`,
+      }),
+      { duration: 8000 }
+    )
+  }, [autoDowngrade])
 
   // 观众质量由会话层本地采样（remote-inbound-rtp），这里只往上层抛一份最新值。
   useEffect(() => {

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2630 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2631 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2303,7 +2303,7 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（197 条） =====
+  // ===== modules/screen-sharing（198 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
@@ -2312,6 +2312,7 @@ const enUS: Record<string, string> = {
   '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps — pick this on an average network',
   '保真': 'Lossless',
   '本机分辨率': 'Local resolution',
+  '编码跟不上，已自动降到 {{value}}': 'The encoder cannot keep up — dropped to {{value}} automatically',
   '传输中': 'Streaming',
   '错误详情已复制，可粘贴给管理员': 'Error details copied, paste them to an admin',
   '打开 OBS → 顶部菜单「场景集合」→「导入」→ 选择下载的 JSON 文件': 'In OBS open Scene Collection → Import → pick the downloaded JSON file',

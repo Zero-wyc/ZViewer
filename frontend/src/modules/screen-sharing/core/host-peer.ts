@@ -25,6 +25,10 @@ import {
   type PeerQualityBaseline,
 } from './peer-quality'
 import {
+  encoderSustainsTarget,
+  type EncoderHealthSample,
+} from './encoder-health'
+import {
   STARTUP_VIDEO_ENCODED_FRAMES,
   audioQualitySettingsEqual,
   configureAudioSender,
@@ -71,6 +75,11 @@ export interface HostPeerSnapshot {
   framesEncoded: number | null
   /** 这条观众连接的质量（房主侧用 remote-inbound-rtp 直接算，无需观众上报）。 */
   quality: PeerQuality
+  /**
+   * 本窗口编码器是否跟得上目标帧率：`null` = 还判不了。
+   * 会话层据此决定要不要自动降一档。
+   */
+  encoderSustains: boolean | null
   /** 语义错误码（不是展示文案）。 */
   error: string | null
   senderParameters: VideoSenderParameterReadback | null
@@ -130,6 +139,8 @@ export class HostPeer {
   private statsInFlight = false
   /** 上一条统计基线：质量字段全是累计值，只能靠两次差分算窗口。 */
   private qualityBaseline: PeerQualityBaseline | null = null
+  /** 上一条编码健康采样（判定「编码跟不跟得上」用）。 */
+  private encoderBaseline: EncoderHealthSample | null = null
 
   private connectedOnce = false
   private awaitingReconnect = false
@@ -158,6 +169,7 @@ export class HostPeer {
       paused: this.paused,
       framesEncoded: null,
       quality: emptyPeerQuality(),
+      encoderSustains: null,
       error: null,
       senderParameters: null,
       audioSenderParameters: null,
@@ -804,16 +816,23 @@ export class HostPeer {
         this.connection.getStats()
       )
       let framesEncoded: number | null = null
+      let outboundId: string | null = null
+      let mediaSourceId: string | null = null
+      let limitation: string | undefined
       report.forEach((entry) => {
         const stat = entry as RTCStats & {
           type: string
           kind?: string
           framesEncoded?: number
           mediaSourceId?: string
+          qualityLimitationReason?: string
         }
         if (stat.type !== 'outbound-rtp' || stat.kind !== 'video') return
         if (typeof stat.framesEncoded === 'number') {
           framesEncoded = Math.max(framesEncoded ?? 0, stat.framesEncoded)
+          outboundId = stat.id
+          mediaSourceId = stat.mediaSourceId ?? null
+          limitation = stat.qualityLimitationReason
         }
       })
       if (this.disposed) return
@@ -821,10 +840,37 @@ export class HostPeer {
       // 每个 2s 采样周期跑一次，纯本地计算，不需要观众上报任何东西。
       const sampled = samplePeerQuality(this.qualityBaseline, report)
       this.qualityBaseline = sampled.baseline
+
+      // 编码健康：编码增量追不追得上采集增量/目标帧率。判据与 Piik 的 codec
+      // preflight 一致，但用的是真实内容的采样，不需要启动前的合成探针。
+      const source = mediaSourceId
+        ? (report.get(mediaSourceId) as
+            (RTCStats & { frames?: number }) | undefined)
+        : undefined
+      const currentHealth: EncoderHealthSample = {
+        outboundId,
+        sourceId: mediaSourceId,
+        // 统计报告的 timestamp 是毫秒（DOMHighRes），可直接用于窗口长度。
+        timestamp: Date.now(),
+        framesEncoded,
+        sourceFrames: typeof source?.frames === 'number' ? source.frames : null,
+        limitation: (limitation as EncoderHealthSample['limitation']) ?? null,
+      }
+      const sustains = this.encoderBaseline
+        ? encoderSustainsTarget(
+            this.encoderBaseline,
+            currentHealth,
+            this.desiredProfile.maxFramerate
+          )
+        : null
+      this.encoderBaseline = currentHealth
+
       this.snapshot = {
         ...this.snapshot,
         framesEncoded,
         quality: sampled.quality,
+        // 判不了（null）时保留上一次的结论，别把「不知道」当成「正常」抹平。
+        encoderSustains: sustains ?? this.snapshot.encoderSustains,
       }
       if (this.startupVideoProfilePending && framesEncoded !== null) {
         if (this.startupFramesBaseline === null) {

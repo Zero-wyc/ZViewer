@@ -8,7 +8,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Socket } from 'socket.io-client'
 import { RESOLUTION_DIMENSIONS } from '../constants'
-import { ShareHostSession, type HostSessionState } from '../core/host-session'
+import {
+  ShareHostSession,
+  type AutoDowngradeNotice,
+  type HostSessionState,
+} from '../core/host-session'
 import { captureCamera, captureDisplay } from '../core/capture'
 import { profileFromSettings, type QualityProfile } from '../core/quality'
 import type { WebrtcShareMediaSettings } from '../utils/mediaSettingsStorage'
@@ -35,6 +39,8 @@ export interface UseShareHostResult {
   viewerCount: number
   /** 每条观众连接的质量（房主侧本地采样）。 */
   peerQualities: PeerQualityView[]
+  /** 自动降档通知；页面弹一次提示后由会话清空。 */
+  autoDowngrade: AutoDowngradeNotice | null
   /** 供统计面板读数的连接（第一条发布端）。 */
   statsPeerConnection: RTCPeerConnection | null
   /** 媒体走向：经服务端 SFU 转发，还是浏览器直连。 */
@@ -87,6 +93,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     relay: false,
     parameterOverride: null,
     peerQualities: [],
+    autoDowngrade: null,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -237,6 +244,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     peerCount: state.peers,
     viewerCount: state.viewers,
     peerQualities: state.peerQualities,
+    autoDowngrade: state.autoDowngrade,
     statsPeerConnection,
     sharingMode: state.relay ? 'relay' : 'direct',
     parameterOverride: state.parameterOverride,

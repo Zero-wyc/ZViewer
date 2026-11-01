@@ -26,8 +26,20 @@ import { HostPeer, type HostPeerSnapshot } from './host-peer'
 import { VP8_ONLY_VIDEO_CODEC } from './video-codec'
 import { qualityNeedsCaptureUpdate, type QualityProfile } from './quality'
 import { peerQualityEqual, type PeerQualityView } from './peer-quality'
+import {
+  ENCODER_STARVED_WINDOWS,
+  MAX_AUTO_DOWNGRADES,
+  nextLowerProfile,
+} from './encoder-health'
 import { relayMediaDeclaration } from './relay-media'
 import { ShareClient } from './share-client'
+
+/** 自动降档后要告诉用户的新档位。 */
+export interface AutoDowngradeNotice {
+  width: number
+  height: number
+  frameRate: number
+}
 
 export interface HostSessionState {
   sharing: boolean
@@ -53,6 +65,11 @@ export interface HostSessionState {
    * 只保留最近一次采样，供面板展示「谁在卡」。
    */
   peerQualities: PeerQualityView[]
+  /**
+   * 自动降档通知（编码器跟不上时降了一档）。页面弹一次提示后自己清空。
+   * `null` 表示这一代际没有降过档。
+   */
+  autoDowngrade: AutoDowngradeNotice | null
   /** 语义错误码，不是展示文案。 */
   error: string | null
 }
@@ -83,6 +100,10 @@ export class ShareHostSession {
   private readonly options: HostSessionOptions
   private readonly client: ShareClient
   private readonly peers = new Map<string, HostPeer>()
+  /** 每条观众连接连续多少个窗口「编码跟不上」。 */
+  private readonly starvedBy = new Map<string, number>()
+  /** 本代际已经自动降过几次档。 */
+  private autoDowngrades = 0
 
   private audio: HostAudio | null = null
   private sourceStream: MediaStream | null = null
@@ -113,6 +134,7 @@ export class ShareHostSession {
     relay: false,
     parameterOverride: null,
     peerQualities: [],
+    autoDowngrade: null,
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -168,7 +190,10 @@ export class ShareHostSession {
     // 把它抬上去；参数改写提示只对当前这一代有意义。
     this.publicationGeneration = ''
     this.relayDeclared = false
-    this.patch({ relay: false, parameterOverride: null })
+    // 新的一代重新观察编码健康：上一代的降档结论不该带到这一代。
+    this.starvedBy.clear()
+    this.autoDowngrades = 0
+    this.patch({ relay: false, parameterOverride: null, autoDowngrade: null })
     try {
       const source =
         options.stream ??
@@ -465,6 +490,7 @@ export class ShareHostSession {
         onUpdate: (snapshot) => {
           this.recordParameterOverride(snapshot)
           this.recordPeerQuality(snapshot)
+          this.maybeAutoDowngrade(snapshot)
           this.options.onPeerUpdate?.(snapshot)
         },
         onFailed: () => {
@@ -631,6 +657,48 @@ export class ShareHostSession {
       return
     }
     this.patch({ peerQualities: [...existing, next] })
+  }
+
+  /**
+   * 编码器跟不上就自动降一档。
+   *
+   * 判据在 `core/encoder-health`（移植 Piik codec preflight 的稳态判定），
+   * 这里只负责「连续 N 个窗口」的计数与降档节流：
+   *  - `null`（判不了）不计入，也不清零，避免开局抖动误判；
+   *  - 每个代际最多降一次，降完继续观察，到底了（`nextLowerProfile` 返回
+   *    null）就不再尝试；
+   *  - 降档本身走 `updateProfile`，与用户手动改档位同一条路径（会重下发
+   *    采集约束并逐个通知发布端）。
+   */
+  private maybeAutoDowngrade(snapshot: HostPeerSnapshot): void {
+    const sustains = snapshot.encoderSustains
+    if (sustains === null) return
+    if (sustains) {
+      this.starvedBy.delete(snapshot.connectionId)
+      return
+    }
+    const windows = (this.starvedBy.get(snapshot.connectionId) ?? 0) + 1
+    this.starvedBy.set(snapshot.connectionId, windows)
+    if (windows < ENCODER_STARVED_WINDOWS) return
+    if (this.autoDowngrades >= MAX_AUTO_DOWNGRADES) return
+    const profile = this.profile
+    if (!profile) return
+    const lower = nextLowerProfile(profile)
+    if (!lower) return
+
+    this.starvedBy.clear()
+    this.autoDowngrades += 1
+    const resolution = lower.resolution
+    if (resolution) {
+      this.patch({
+        autoDowngrade: {
+          width: resolution.width,
+          height: resolution.height,
+          frameRate: lower.maxFramerate,
+        },
+      })
+    }
+    void this.updateProfile(lower, true)
   }
 
   private handleRelay(
