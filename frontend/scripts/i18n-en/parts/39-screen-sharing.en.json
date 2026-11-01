@@ -49,6 +49,7 @@
     "Copy failed, select the text and copy manually",
     "HD",
     "High FPS",
+    "Sharing hit an error; start sharing again",
     "Share microphone",
     "Sharing settings",
     "Share system audio",
@@ -118,7 +119,6 @@
     "Collapse sharing settings",
     "Enter the room password",
     "Refresh the connection",
-    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.",
-    "Stream URL copied (without the stream key)"
+    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing."
   ]
 }

@@ -90,6 +90,42 @@ func send(t *testing.T, service *Service, conn Conn, frame string) {
 	service.Handle(conn, []json.RawMessage{json.RawMessage(frame)})
 }
 
+// 客户端曾经把消息 JSON.stringify 成字符串再 socket.emit，服务端按对象解包
+// 只能看到 string，于是整条 share 协议在浏览器里静默失效（客户端一切正常、
+// 服务端一条都不认）。现在两种帧都接受：对象优先，字符串里裹着对象也能解。
+func TestHandleAcceptsStringifiedFrame(t *testing.T) {
+	service, hub := newTestService("host-1")
+	frame := `{"t":"share.hello","roomId":"r1"}`
+	quoted, err := json.Marshal(frame)
+	if err != nil {
+		t.Fatalf("构造双重编码帧失败: %v", err)
+	}
+	send(t, service, newConn("host-1", "r1"), string(quoted))
+
+	message := lastServerMessage(t, hub.to)
+	if message["t"] != TypeSnapshot {
+		t.Fatalf("双重编码帧应被接受并回快照，实际 %v", message)
+	}
+	if message["roomId"] != "r1" {
+		t.Fatalf("快照房间不对: %v", message["roomId"])
+	}
+}
+
+// 字符串里不是对象（比如一个数字或普通文本）仍然要拒。
+func TestHandleRejectsNonObjectStringFrame(t *testing.T) {
+	service, hub := newTestService("host-1")
+	quoted, err := json.Marshal("hello")
+	if err != nil {
+		t.Fatalf("构造帧失败: %v", err)
+	}
+	send(t, service, newConn("host-1", "r1"), string(quoted))
+
+	message := lastServerMessage(t, hub.to)
+	if message["code"] != CodeInvalidMessage {
+		t.Fatalf("非对象字符串帧应回报 INVALID_MESSAGE，实际 %v", message)
+	}
+}
+
 func TestHandleHelloReturnsSnapshot(t *testing.T) {
 	service, hub := newTestService("host-1")
 	send(t, service, newConn("host-1", "r1"), `{"t":"share.hello","roomId":"r1"}`)

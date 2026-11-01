@@ -35,6 +35,8 @@ export interface ViewerSessionState {
   /** 恢复预算耗尽，需要用户点重试。 */
   exhausted: boolean
   hasVideo: boolean
+  /** 媒体是否经服务端中继（false = 与房主直连）。 */
+  relay: boolean
   error: string | null
 }
 
@@ -74,6 +76,7 @@ export class ShareViewerSession {
     recovering: false,
     exhausted: false,
     hasVideo: false,
+    relay: false,
     error: null,
   }
 
@@ -194,6 +197,9 @@ export class ShareViewerSession {
       this.connectionId = connectionId
     }
     const relayCandidate = this.relayOf(candidate)
+    if (Boolean(relayCandidate) !== this.state.relay) {
+      this.patch({ relay: Boolean(relayCandidate) })
+    }
     if (relayCandidate) {
       this.relay = true
       this.publicationGeneration = relayCandidate

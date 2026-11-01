@@ -400,6 +400,14 @@ function WebrtcSharePage({
     onSharingModeChange?.(sharingMode)
   }, [sharingMode, onSharingModeChange])
 
+  // 共享中的错误必须浮出来：未共享时错误渲染在开始卡片上方，一旦开始共享，
+  // 那块 UI 就不在了——服务端拒绝 share.start（或路由耗尽）会变成「界面显示
+  // 共享中、观众什么都没有」，而且没有任何提示。
+  useEffect(() => {
+    if (!isSharing || !error) return
+    message.error(hostErrorText(error) ?? t('共享出错，请重新开始共享'))
+  }, [error, isSharing])
+
   useEffect(() => {
     setIsSharing(isSharing)
   }, [isSharing, setIsSharing])

@@ -256,14 +256,13 @@ function requireBoolean(raw: Record<string, unknown>, key: string): void {
  *
  * @throws {ShareProtocolError} 超过 64KiB 单帧上限
  */
-export function encodeClientMessage(message: ShareClientMessage): string {
+export function assertClientFrameSize(message: ShareClientMessage): void {
   const text = JSON.stringify(message)
   if (frameBytes(text) > SHARE_MAX_FRAME_BYTES) {
     throw new ShareProtocolError(
       `share frame exceeds ${SHARE_MAX_FRAME_BYTES} bytes`
     )
   }
-  return text
 }
 
 /** 计算一帧的 UTF-8 字节数（服务端按字节判上限）。 */

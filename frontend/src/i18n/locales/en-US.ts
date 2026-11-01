@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2604 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2605 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2288,7 +2288,7 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（186 条） =====
+  // ===== modules/screen-sharing（187 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
@@ -2338,6 +2338,7 @@ const enUS: Record<string, string> = {
   '复制失败，请手动选择文本复制': 'Copy failed, select the text and copy manually',
   '高清': 'HD',
   '高帧': 'High FPS',
+  '共享出错，请重新开始共享': 'Sharing hit an error; start sharing again',
   '共享麦克风': 'Share microphone',
   '共享设置': 'Sharing settings',
   '共享系统音频': 'Share system audio',

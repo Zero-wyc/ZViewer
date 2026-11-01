@@ -12,6 +12,7 @@
  *  - 自动恢复总预算 2 次，第 2 次带 `rebuild` 走销毁重建而不是 ICE restart。
  */
 import { waitForConnectionOperation } from './connection-op'
+import { preferOpusReceiveLimit } from './opus-receive-sdp'
 import { observeDecodedFrameProof } from './frame-proof'
 
 export const VIEWER_MAX_PENDING_CANDIDATES = 64
@@ -284,6 +285,9 @@ export class ViewerPeer {
         connection.createAnswer()
       )
       if (!this.isCurrent(connectionId)) return
+      // 中继/直连都补一次 Opus 接收上限：浏览器默认不声明 maxaveragebitrate，
+      // 服务端会按 32kbps 判「带不动共享音频」并拒掉整条订阅。
+      if (answer.sdp) answer.sdp = preferOpusReceiveLimit(answer.sdp)
       await this.waitForOperation(() => connection.setLocalDescription(answer))
       if (!this.isCurrent(connectionId) || !connection.localDescription) return
       if (

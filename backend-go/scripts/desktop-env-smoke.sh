@@ -7,7 +7,7 @@
 #
 #   1. 二进制名/摆放：`<root>/zviewer-backend.exe` + `<root>/frontend/dist/index.html`
 #   2. 环境变量：PORT / HOST / HTTPS / SSL_CERT_PATH / SSL_KEY_PATH /
-#      RTMP_PORT / HTTP_FLV_PORT / LIVEKIT_* / ZVIEWER_DESKTOP=1
+#      RTMP_PORT / HTTP_FLV_PORT / SHARE_MEDIA_* / ZVIEWER_DESKTOP=1
 #   3. 断言：TLS 起来 + /health 200 + 静态首页 200 +
 #      `/api/system/update/*` 一律 409（桌面托管的「版本更新」守卫）+ 无 panic
 #
@@ -65,6 +65,13 @@ c.commit()
 SEED
 
 PORT=$(pick_port)
+# 媒体与推流端口也必须各自挑一个空闲的：这套冒烟以前用默认的 3333/udp 与
+# 3334/3335，只要本机还开着一个开发实例，媒体面就绑不上——语音断言会红，
+# 而失败原因跟被测代码毫无关系（2026-11-01 就撞到过）。
+MEDIA_PORT=$(pick_port)
+MEDIA_TCP_PORT=$(pick_port)
+RTMP_PORT_FREE=$(pick_port)
+FLV_PORT_FREE=$(pick_port)
 ROOT=$(cygpath -w "$WORK/root")
 echo "=== 按桌面壳的方式启动（HTTPS，端口 $PORT）==="
 (
@@ -74,13 +81,11 @@ echo "=== 按桌面壳的方式启动（HTTPS，端口 $PORT）==="
   HTTPS=true \
   SSL_CERT_PATH="$ROOT\\config\\cert.pem" \
   SSL_KEY_PATH="$ROOT\\config\\key.pem" \
-  RTMP_PORT=3334 \
-  HTTP_FLV_PORT=3335 \
+  RTMP_PORT=$RTMP_PORT_FREE \
+  HTTP_FLV_PORT=$FLV_PORT_FREE \
+  SHARE_MEDIA_PORT=$MEDIA_PORT \
+  SHARE_MEDIA_TCP_PORT=$MEDIA_TCP_PORT \
   ZVIEWER_DESKTOP=1 \
-  LIVEKIT_EXTERNAL=1 \
-  LIVEKIT_API_HOST="http://127.0.0.1:7880" \
-  LIVEKIT_API_KEY=devkey \
-  LIVEKIT_API_SECRET=devsecret \
   DATABASE_URL="$ROOT\\config\\dev.sqlite" \
   CONFIG_DIR="$ROOT\\config" \
   UPLOADS_DIR="$ROOT\\uploads" \

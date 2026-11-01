@@ -101,12 +101,18 @@ export function viewerErrorText(code: string | null): string | null {
  * 只在**没有画面**时展示：有画面就说明一切正常，不该再盖文字。
  */
 export function viewerStatusText(state: ViewerSessionState): string {
-  if (!state.sharing) return t('等待房主开始共享')
+  // 顺序有讲究：**错误优先于「等待房主」**。
+  //
+  // 原先第一行是 `if (!state.sharing) return 等待房主开始共享`，于是任何在
+  // 「还没进入共享状态」阶段发生的错误（最典型的是 share.hello 被服务端拒绝）
+  // 都会被这句盖住——现场表现就是「观众一直等房主」，而真正的原因一个字都
+  // 看不到，排查只能靠抓包。共享没开始是常态，错误不是，所以先把错误说出来。
   if (state.exhausted)
     return viewerErrorText(state.error) ?? t('连接已断开，请点击刷新重试')
   if (state.recovering) return t('正在重新连接...')
-  if (state.paused) return t('房主已暂停共享')
   const failure = viewerErrorText(state.error)
   if (failure) return failure
+  if (!state.sharing) return t('等待房主开始共享')
+  if (state.paused) return t('房主已暂停共享')
   return t('正在接收画面...')
 }

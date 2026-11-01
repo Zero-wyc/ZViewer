@@ -34,6 +34,8 @@ export interface UseShareViewerResult {
   hasRemoteAudio: boolean
   connectionState: RTCPeerConnectionState
   state: ViewerSessionState
+  /** 媒体走向：经服务端中继，还是与房主直连（供统计面板标注）。 */
+  sharingMode: 'direct' | 'relay'
   /** 恢复预算耗尽后的手动重试。 */
   retry: () => void
 }
@@ -46,6 +48,7 @@ const INITIAL_STATE: ViewerSessionState = {
   recovering: false,
   exhausted: false,
   hasVideo: false,
+  relay: false,
   error: null,
 }
 
@@ -134,6 +137,7 @@ export function useShareViewer(
     hasRemoteAudio: (remoteStream?.getAudioTracks().length ?? 0) > 0,
     connectionState,
     state,
+    sharingMode: state.relay ? 'relay' : 'direct',
     retry,
   }
 }

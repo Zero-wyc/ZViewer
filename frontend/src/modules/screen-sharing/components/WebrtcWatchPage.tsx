@@ -83,14 +83,21 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     if (node && !prev) setVideoVersion((v) => v + 1)
   }, [])
 
-  const { pc, hasRemoteStream, hasRemoteAudio, connectionState, state, retry } =
-    useShareViewer({
-      socket,
-      roomId,
-      iceServers: ICE_SERVERS,
-      videoRef,
-      videoVersion,
-    })
+  const {
+    pc,
+    hasRemoteStream,
+    hasRemoteAudio,
+    connectionState,
+    state,
+    sharingMode,
+    retry,
+  } = useShareViewer({
+    socket,
+    roomId,
+    iceServers: ICE_SERVERS,
+    videoRef,
+    videoVersion,
+  })
 
   // 恢复预算耗尽：明确告诉用户「停下来等你点刷新」，而不是无限重连。
   useEffect(() => {
@@ -343,6 +350,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       mainContent={playerContent}
       peerConnection={pc}
       sharingRole="receiver"
+      sharingMode={sharingMode}
       sharingActive
       webFullscreen={isWebFullscreen}
       rightPanel={<CommentPanel socket={socket} roomId={roomId} commentsOnly />}

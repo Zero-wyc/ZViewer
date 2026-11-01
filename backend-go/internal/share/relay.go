@@ -111,6 +111,13 @@ type relaySubscription struct {
 	viewerPeerID string
 	connectionID string
 	cancel       context.CancelFunc
+	// opened 表示已经向媒体层要过 offer。
+	//
+	// 观众的 subscribe 可能**早于**房主的上行准备好：房主点开始共享后要先
+	// 采集（真实浏览器 1~3 秒），这期间中继只有一个空壳发布。早到的订阅必须
+	// 排队等发布就绪，而不是当场判「媒体不可用」——那会让观众连烧三次恢复
+	// 预算，最后停在「与房主的连接多次建立失败」。
+	opened bool
 }
 
 // NewRelay 构造中继面。
@@ -319,6 +326,8 @@ func (r *Relay) prepare(publication *relayPublication, metadata sfu.PublicationM
 		publication.prepared = true
 	}
 	r.mu.Unlock()
+	// 发布就绪：把早到的订阅放行（观众的 subscribe 常常先于房主采集完成）。
+	r.wakeSubscriptions(publication)
 	return true
 }
 
@@ -350,14 +359,44 @@ func (r *Relay) OpenSubscription(roomID, viewerPeerID, connectionID string) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), sfuSubscribeTimeout)
-	publication.subs[viewerPeerID] = &relaySubscription{
+	_ = ctx
+	sub := &relaySubscription{
 		viewerPeerID: viewerPeerID, connectionID: connectionID, cancel: cancel,
 	}
+	publication.subs[viewerPeerID] = sub
 	r.mu.Unlock()
 
-	fence := sfu.SubscriptionFence{
-		PublicationFence: publication.fence, ViewerPeerID: viewerPeerID, ConnectionID: connectionID,
+	// 发布已经就绪就立刻出价；没就绪就等 prepare 成功时统一唤醒。
+	r.issueOffer(publication, sub)
+}
+
+// issueOffer 给一条已登记的订阅要 offer。
+//
+// 只有一个前置条件：发布已经在媒体层建好（prepare 过）。调用点有两处——
+// 订阅进来时、发布就绪时——两处都走这里，避免「先到先失败、后到才成功」。
+func (r *Relay) issueOffer(publication *relayPublication, sub *relaySubscription) {
+	r.mu.Lock()
+	if sub.opened || !publication.prepared || publication.closed {
+		r.mu.Unlock()
+		return
 	}
+	if publication.subs[sub.viewerPeerID] != sub {
+		// 期间被关掉/换过身份，这条订阅已经失效。
+		r.mu.Unlock()
+		return
+	}
+	sub.opened = true
+	fence := sfu.SubscriptionFence{
+		PublicationFence: publication.fence,
+		ViewerPeerID:     sub.viewerPeerID,
+		ConnectionID:     sub.connectionID,
+	}
+	roomID := publication.fence.RoomID
+	viewerPeerID := sub.viewerPeerID
+	connectionID := sub.connectionID
+	r.mu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), sfuSubscribeTimeout)
 	go func() {
 		defer cancel()
 		offer, err := r.media.PrepareSubscriber(ctx, fence, connectionID)
@@ -376,6 +415,21 @@ func (r *Relay) OpenSubscription(roomID, viewerPeerID, connectionID string) {
 			Payload:               mustJSON(sfuPayloadDescription{Description: offer}),
 		})
 	}()
+}
+
+// wakeSubscriptions 在发布就绪后唤醒所有排队中的订阅。
+func (r *Relay) wakeSubscriptions(publication *relayPublication) {
+	r.mu.Lock()
+	pending := make([]*relaySubscription, 0, len(publication.subs))
+	for _, sub := range publication.subs {
+		if !sub.opened {
+			pending = append(pending, sub)
+		}
+	}
+	r.mu.Unlock()
+	for _, sub := range pending {
+		r.issueOffer(publication, sub)
+	}
 }
 
 // ViewerSignal 处理观众的 answer / candidate。

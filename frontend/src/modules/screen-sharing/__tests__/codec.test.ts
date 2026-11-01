@@ -12,7 +12,7 @@ import {
   ShareProtocolError,
   decodeServerMessage,
   decodeServerMessageOrNull,
-  encodeClientMessage,
+  assertClientFrameSize,
   frameBytes,
 } from '../protocol/codec.ts'
 
@@ -149,24 +149,10 @@ describe('decodeServerMessage', () => {
   })
 })
 
-describe('encodeClientMessage', () => {
-  it('编码 hello 且省略未设置的字段', () => {
-    const text = encodeClientMessage({ t: 'share.hello', roomId: 'r1' })
-    const parsed = JSON.parse(text) as Record<string, unknown>
-    assert.equal(parsed.t, 'share.hello')
-    assert.equal(parsed.roomId, 'r1')
-    assert.equal('shareGeneration' in parsed, false)
-  })
-
-  it('带上 shareGeneration', () => {
-    const text = encodeClientMessage({
-      t: 'share.hello',
-      roomId: 'r1',
-      shareGeneration: 'share_abc',
-    })
-    assert.equal(
-      (JSON.parse(text) as Record<string, unknown>).shareGeneration,
-      'share_abc'
+describe('assertClientFrameSize', () => {
+  it('正常消息放行', () => {
+    assert.doesNotThrow(() =>
+      assertClientFrameSize({ t: 'share.hello', roomId: 'r1' })
     )
   })
 
@@ -176,7 +162,14 @@ describe('encodeClientMessage', () => {
       roomId: 'r',
       shareGeneration: 'x'.repeat(SHARE_MAX_FRAME_BYTES),
     } as const
-    assert.throws(() => encodeClientMessage(message), ShareProtocolError)
+    assert.throws(() => assertClientFrameSize(message), ShareProtocolError)
+  })
+
+  // 这里刻意**不再**提供「编码成字符串」的函数：Socket.IO 自己就是 JSON
+  // 传输，客户端再 stringify 一次会变成「字符串里裹着 JSON」，服务端按对象
+  // 解包时只看到 string，整条 share 协议会静默失效（P2–P6 的真实故障）。
+  it('客户端不该把消息序列化成字符串再发', () => {
+    assert.equal(typeof assertClientFrameSize, 'function')
   })
 
   it('frameBytes 按 UTF-8 字节算（中文 3 字节）', () => {

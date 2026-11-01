@@ -511,10 +511,26 @@ func firstObject(args []json.RawMessage) json.RawMessage {
 		return nil
 	}
 	trimmed := bytes.TrimSpace(args[0])
-	if len(trimmed) == 0 || trimmed[0] != '{' {
+	if len(trimmed) == 0 {
 		return nil
 	}
-	return args[0]
+	if trimmed[0] == '{' {
+		return args[0]
+	}
+	// 兼容「被 stringify 两次」的帧。Socket.IO 自己就是 JSON 传输，客户端如果
+	// 再 JSON.stringify 一次，这里收到的就是一个字符串字面量；不剥这一层的话
+	// 整条 share 协议会静默失效（客户端一切正常，服务端一条都不认）。
+	// 只认「字符串里裹着一个对象」，别的一律当非法帧。
+	if trimmed[0] == '"' {
+		var text string
+		if err := json.Unmarshal(trimmed, &text); err == nil {
+			inner := bytes.TrimSpace([]byte(text))
+			if len(inner) > 0 && inner[0] == '{' {
+				return json.RawMessage(inner)
+			}
+		}
+	}
+	return nil
 }
 
 // roomIDOf 取出消息的 roomId（用于失败回报时回填）。

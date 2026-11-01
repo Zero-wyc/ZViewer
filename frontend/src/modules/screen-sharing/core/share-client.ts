@@ -11,8 +11,8 @@
 import type { Socket } from 'socket.io-client'
 import {
   SHARE_EVENT,
+  assertClientFrameSize,
   decodeServerMessageOrNull,
-  encodeClientMessage,
 } from '../protocol/codec'
 import type { ShareClientMessage, ShareServerMessage } from '../protocol/types'
 
@@ -51,7 +51,11 @@ export class ShareClient {
 
   send(message: ShareClientMessage): boolean {
     if (!this.socket.connected) return false
-    this.socket.emit(SHARE_EVENT, encodeClientMessage(message))
+    // 直接发对象，**不要** JSON.stringify：Socket.IO 本身就是 JSON 传输，
+    // 再 stringify 一次会变成「字符串里裹着 JSON」，服务端按对象解包时只能
+    // 看到 string，整条协议静默失效（P2 到 P6 的浏览器侧就是这个症状）。
+    assertClientFrameSize(message)
+    this.socket.emit(SHARE_EVENT, message)
     return true
   }
 
