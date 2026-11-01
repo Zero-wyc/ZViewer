@@ -114,6 +114,9 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
       socket,
       roomId,
       iceServers,
+      // 预览流不等探针：采集一就绪就绑上（会话内部会在开播前跑编码探针，
+      // 那 1–2 秒不该让用户对着空预览框干等）。
+      onPreviewStream: (stream) => setPreviewStream(stream),
       onStateChange: (next) => {
         setState(next)
         setPreviewStream(session.previewStream)

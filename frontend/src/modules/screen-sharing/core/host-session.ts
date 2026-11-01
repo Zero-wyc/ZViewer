@@ -23,7 +23,13 @@ import {
   captureDisplay,
 } from './capture'
 import { HostPeer, type HostPeerSnapshot } from './host-peer'
-import { VP8_ONLY_VIDEO_CODEC } from './video-codec'
+import {
+  H264_PREFERRED_VIDEO_CODEC,
+  VP8_ONLY_VIDEO_CODEC,
+  automaticVideoCodecPreference,
+  type BrowserVideoCodecPreference,
+} from './video-codec'
+import { preferredVideoCodecForTrack } from './video-codec-preflight'
 import { qualityNeedsCaptureUpdate, type QualityProfile } from './quality'
 import { peerQualityEqual, type PeerQualityView } from './peer-quality'
 import {
@@ -78,6 +84,14 @@ export interface HostSessionOptions {
   socket: Socket
   roomId: string
   iceServers: RTCIceServer[]
+  /**
+   * 采集/混音一就绪就交出预览流。
+   *
+   * 与 `start()` 的返回分开，是因为开播前的编码探针要跑 1–2 秒（Piik 同样
+   * 是先 `setStream` 再探针）：本地预览不该陪着一起等，用户点完「开始共享」
+   * 应该立刻看到自己的画面。
+   */
+  onPreviewStream?: (stream: MediaStream | null) => void
   onStateChange?: (state: HostSessionState) => void
   onSnapshot?: (snapshot: ShareSnapshotMessage) => void
   onError?: (code: string, message: string) => void
@@ -109,6 +123,15 @@ export class ShareHostSession {
   private sourceStream: MediaStream | null = null
   private outputStream: MediaStream | null = null
   private profile: QualityProfile | null = null
+  /**
+   * 本代际直连发布端用的编码偏好。
+   *
+   * 开播时由合成探针定下（`resolveVideoCodec`），整代不再变——换编码要重协商
+   * 每一条观众连接，而探针结论在一代之内不会变。
+   */
+  private videoCodec: BrowserVideoCodecPreference = H264_PREFERRED_VIDEO_CODEC
+  /** 正在跑的编码探针；结束共享或开新一代时必须中止，否则旧结论会漏进来。 */
+  private codecProbe: AbortController | null = null
   private shareGeneration = ''
   /** 中继发布身份：非空时房主只建这一条发布端 PC（观众不直连）。 */
   private publicationGeneration = ''
@@ -220,6 +243,8 @@ export class ShareHostSession {
       )
       this.audio = audio
       this.outputStream = await audio.start()
+      // 预览先于探针交出：探针只是定编码，不该拖住本地画面。
+      this.options.onPreviewStream?.(this.outputStream)
     } catch (error) {
       this.patch({
         error:
@@ -231,6 +256,14 @@ export class ShareHostSession {
       this.releaseMedia()
       return false
     }
+
+    // 定编码：用合成探针把 H.264 满帧编一遍（Piik 的「必然满帧」预检）。
+    // 必须在通知服务端之前跑完——发布端是 `share.route` 之后才建的，编码偏好
+    // 一旦晚到，每条观众连接都已经按旧编码发过 offer 了。
+    this.videoCodec = await this.resolveVideoCodec()
+    // 探针这一两秒里用户可能已经点了取消（`stop` → `releaseMedia` 收掉了
+    // 输出流）：此时不能再往服务端广播「开始共享」。
+    if (!this.outputStream) return false
 
     this.patch({ sharing: true, paused: false, error: null })
     const started = this.client.send({
@@ -250,6 +283,39 @@ export class ShareHostSession {
     // 中继模式下 sfu-config 可能比采集先到，这里补一次。
     this.ensurePublicationPeer(this.revision)
     return true
+  }
+
+  /**
+   * 定这一代直连发布端用什么编码。
+   *
+   * 照 Piik `HostPage.tsx:811-839` 的 `resolveStreamVideoCodec`：探针结论
+   * 只有两种，`h264`（能满帧编）或 `vp8`（证明不了就别用）。异常、超时、
+   * 被取消一律落 `vp8`——软编 H.264 跑不动的表现是持续卡顿，比画面软一点
+   * 更难排查。
+   *
+   * 两种情形跳过探针，直接沿用默认：
+   *  - 拿不到视频轨（理论上走不到，`start` 已经在采集中）；
+   *  - 已经确定走中继——中继侧强制 VP8，探针只能白等 4 秒。
+   */
+  private async resolveVideoCodec(): Promise<BrowserVideoCodecPreference> {
+    const track = this.outputStream?.getVideoTracks()[0]
+    const profile = this.profile
+    if (!track || !profile || this.publicationGeneration) {
+      return H264_PREFERRED_VIDEO_CODEC
+    }
+    const controller = new AbortController()
+    this.codecProbe?.abort()
+    this.codecProbe = controller
+    try {
+      const codec = await preferredVideoCodecForTrack(
+        track,
+        profile,
+        controller.signal
+      )
+      return automaticVideoCodecPreference(codec)
+    } finally {
+      if (this.codecProbe === controller) this.codecProbe = null
+    }
   }
 
   /** 暂停/恢复。只关轨道开关，不重协商，也不清观众画面。 */
@@ -284,6 +350,7 @@ export class ShareHostSession {
     const previous = this.sourceStream
     this.sourceStream = stream
     this.outputStream = this.audio.attach(stream)
+    this.options.onPreviewStream?.(this.outputStream)
     if (previous && previous !== stream) {
       previous.getTracks().forEach((track) => track.stop())
     }
@@ -466,8 +533,9 @@ export class ShareHostSession {
       iceServers: this.options.iceServers,
       stream: this.outputStream,
       profile: this.profile,
-      // 中继强制 VP8：与媒体声明一致，也是 SFU 转发最稳的一路。
-      ...(relay ? { videoCodec: VP8_ONLY_VIDEO_CODEC } : {}),
+      // 中继强制 VP8（与媒体声明一致，也是 SFU 转发最稳的一路）；
+      // 直连用开播时探针定下的结果。
+      videoCodec: relay ? VP8_ONLY_VIDEO_CODEC : this.videoCodec,
       events: {
         sendSignal: (signal) =>
           relay
@@ -772,6 +840,11 @@ export class ShareHostSession {
   }
 
   private releaseMedia(): void {
+    // 探针是这一代的开播前动作：结束共享时它要么已经收尾，要么正在跑——
+    // 后者必须停掉，否则 4 秒后会把「上一代能不能编 H.264」写进下一代。
+    this.codecProbe?.abort()
+    this.codecProbe = null
+    this.videoCodec = H264_PREFERRED_VIDEO_CODEC
     for (const connectionId of [...this.peers.keys()])
       this.dropPeer(connectionId)
     this.audio?.dispose()
@@ -779,6 +852,7 @@ export class ShareHostSession {
     this.sourceStream?.getTracks().forEach((track) => track.stop())
     this.sourceStream = null
     this.outputStream = null
+    this.options.onPreviewStream?.(null)
     this.patch({ audioAvailable: false, microphoneEnabled: false })
   }
 

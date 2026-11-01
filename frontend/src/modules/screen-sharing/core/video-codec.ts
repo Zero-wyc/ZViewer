@@ -1,8 +1,8 @@
 /**
  * 视频编码偏好与 SDP 归一化。
  *
- * 直接搬 Piik `src/client/webrtc/video-codec.ts` 的两个纯函数（MIT），
- * 去掉需要 `sdp-transform` 的接收侧校验（那是观众侧 P2 的事）。
+ * 直接搬 Piik `src/client/webrtc/video-codec.ts` 的纯函数（MIT），去掉需要
+ * `sdp-transform` 的接收侧校验（那是观众侧 P2 的事）。
  *
  * 为什么必须显式偏好：Chrome 的默认顺序里 VP8 常排在前面，而屏幕共享在
  * 60fps 下 VP8 是纯软件编码，CPU 开销直接吃掉可用的帧率。H.264 有硬件
@@ -26,6 +26,19 @@ export const VP8_ONLY_VIDEO_CODEC: BrowserVideoCodecPreference = {
 export const H264_PREFERRED_VIDEO_CODEC: BrowserVideoCodecPreference = {
   primary: 'h264',
   vp8Fallback: true,
+}
+
+/**
+ * 自动模式的偏好：探针测出什么就发什么。
+ *
+ * 与 `H264_PREFERRED_VIDEO_CODEC` 的差别只在「测出 VP8」时：那说明这台机器
+ * 满帧编不动 H.264，此时 offer 里再挂一条 H.264 只会让浏览器有机会选回去
+ * （Piik `video-codec.ts:16-20`）。
+ */
+export function automaticVideoCodecPreference(
+  codec: BrowserVideoCodec
+): BrowserVideoCodecPreference {
+  return { primary: codec, vp8Fallback: codec === 'h264' }
 }
 
 const REPAIR_CODEC_MIME_TYPES = new Set([
@@ -98,6 +111,22 @@ export function applyVideoCodecPreference(
     ...(preference.primary === 'vp8' || preference.vp8Fallback ? vp8 : []),
     ...repairCodecs(codecs),
   ])
+}
+
+/**
+ * 探针专用：只留 H.264 + 修复编码。
+ *
+ * 探针要证明的是「H.264 能满帧」，offer 里挂着 VP8 时浏览器完全可能自己
+ * 换成 VP8，量出来的满帧就不是 H.264 的了（Piik `video-codec.ts:105-115`）。
+ */
+export function applyH264ProbeCodec(transceiver: RTCRtpTransceiver): boolean {
+  if (typeof RTCRtpSender === 'undefined') return false
+  const codecs = videoCapabilities()
+  const h264 = h264ModeOneCodecs(codecs)
+  return (
+    h264.length > 0 &&
+    applyCodecs(transceiver, [...h264, ...repairCodecs(codecs)])
+  )
 }
 
 /**
