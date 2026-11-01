@@ -68,7 +68,7 @@
 
 ```bash
 docker run -d --name zviewer --restart unless-stopped \
-  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 -p 3338:3338 \
+  -p 3333:3333 -p 3333:3333/udp -p 3334:3334 -p 3337:3337 \
   -v zviewer-data:/app/config \
   zerowyc0721/zviewer:latest
 ```
@@ -97,7 +97,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | `CORS_ORIGIN` | 允许来源，逗号分隔 | `*` |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 登录密钥 | 自动生成 |
 | `SHARE_MEDIA_PORT` | 媒体 UDP 端口 | `3333` |
-| `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口，`0` 表示与 UDP 同号 | `0` |
+| `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口。**不能与 `PORT` 相同**（会抢走网页端口）；留空用 3337 | `3337` |
 | `SHARE_MEDIA_PUBLIC_IP` | NAT 1:1 下的公网地址（云主机 / FRP 场景必填） | 自动 |
 | `SHARE_RELAY` | `1` 时屏幕共享也走服务端转发（房主只上行一份） | `0` |
 
@@ -106,7 +106,7 @@ docker run -d --name zviewer --restart unless-stopped \
 ## 语音
 
 语音由后端进程内的 SFU 提供：每位成员一条连接，上行自己的麦克风、下行其他人的。
-浏览器自动在 UDP 与同号 TCP 之间择优。
+浏览器自动在 UDP 与 TCP 之间择优（媒体 TCP 刻意与网页端口分开：同一个号会把网页端口抢走）。
 
 如果语音聊天连接不上，先确认 3333/udp 与 3337/tcp 都已放行。
 
