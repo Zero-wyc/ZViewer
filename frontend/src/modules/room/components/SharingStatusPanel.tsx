@@ -8,6 +8,7 @@ import {
   Signal,
   Timer,
   Video,
+  Volume2,
 } from 'lucide-react'
 import { Tag } from '@/components/ui/Tag'
 import { Text, Paragraph } from '@/components/ui/Typography'
@@ -16,7 +17,10 @@ import {
   useConnectionStats,
   type SharingMode,
 } from '@/modules/screen-sharing/hooks/useConnectionStats'
-import type { QualityLimitationReason } from '@/modules/screen-sharing/core/stats'
+import type {
+  QualityLimitationDurations,
+  QualityLimitationReason,
+} from '@/modules/screen-sharing/core/stats'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
@@ -127,6 +131,29 @@ function getLimitationColor(
   return reason === 'none' ? 'success' : 'warning'
 }
 
+/**
+ * 本窗口内占比最高的受限原因。
+ *
+ * 只看瞬时 `qualityLimitationReason` 会闪（浏览器每帧都可能换原因），
+ * 窗口占比能回答「这一分钟到底卡在哪」，比瞬时值可靠得多。
+ */
+function dominantLimitation(
+  share: QualityLimitationDurations | null
+): [QualityLimitationReason, number] | null {
+  if (!share) return null
+  const reasons: QualityLimitationReason[] = [
+    'none',
+    'bandwidth',
+    'cpu',
+    'other',
+  ]
+  let best: QualityLimitationReason = 'none'
+  for (const reason of reasons) {
+    if (share[reason] > share[best]) best = reason
+  }
+  return [best, share[best]]
+}
+
 function getRoleLabel(role: 'sender' | 'receiver'): string {
   return role === 'sender' ? t('发送端') : t('接收端')
 }
@@ -175,15 +202,23 @@ export function SharingStatusPanel({
 }: SharingStatusPanelProps) {
   const legacyMode = sharingMode === 'relay' ? 'server' : 'direct'
 
-  const { stats, formatBitrate, formatPacketLoss } = useConnectionStats(
-    pc,
-    legacyMode,
-    sharingMode
-  )
+  const { stats, formatBitrate, formatPacketLoss, formatMsPerFrame } =
+    useConnectionStats(pc, legacyMode, sharingMode)
 
   const fpsText =
     stats.frameRate === null ? '-' : `${stats.frameRate.toFixed(1)} fps`
-  const lossText = formatPacketLoss(stats.packetLossRate)
+  // 主值看本窗口：累计丢包率会把几分钟前的丢包摊薄，看不出「现在卡不卡」。
+  // 累计值降级成副标题，需要判断「一直不好还是刚好不好」时仍然可查。
+  const lossText = formatPacketLoss(
+    stats.windowPacketLossRate ?? stats.packetLossRate
+  )
+  // 发送端没有入向流，丢包率一直是 `-`：这时别再挂一条「累计 -」的副标题。
+  const lossHint =
+    stats.windowPacketLossRate === null && stats.packetLossRate === null
+      ? undefined
+      : t('本窗口 · 累计 {{value}}', {
+          value: formatPacketLoss(stats.packetLossRate),
+        })
   const bitrateText = formatBitrate(stats.bitrate)
   const resolutionText = stats.resolution
     ? `${stats.resolution.width} × ${stats.resolution.height}`
@@ -193,6 +228,38 @@ export function SharingStatusPanel({
   const jitterText = stats.jitterMs === null ? '-' : `${stats.jitterMs} ms`
   const jitterBufferText =
     stats.jitterBufferMs === null ? '-' : `${stats.jitterBufferMs} ms`
+  const processText = formatMsPerFrame(
+    mode === 'sender' ? stats.encodeMsPerFrame : stats.decodeMsPerFrame
+  )
+  const limitation = dominantLimitation(stats.limitationShare)
+  const limitationText = limitation
+    ? limitation[0] === 'none'
+      ? t('无')
+      : `${getLimitationText(limitation[0])} ${Math.round(limitation[1])}%`
+    : getLimitationText(stats.qualityLimitationReason)
+  const audio = stats.audio
+  const audioText =
+    audio && audio.level !== null
+      ? `${Math.round(audio.level * 100)}%`
+      : formatBitrate(audio?.bitrate ?? null)
+  const audioHint =
+    audio === null
+      ? undefined
+      : [
+          formatBitrate(audio.bitrate),
+          audio.packetLossRate === null
+            ? null
+            : t('丢包 {{value}}', {
+                value: formatPacketLoss(audio.packetLossRate),
+              }),
+          audio.concealmentRate === null
+            ? null
+            : t('隐藏 {{value}}', {
+                value: `${(audio.concealmentRate * 100).toFixed(1)}%`,
+              }),
+        ]
+          .filter(Boolean)
+          .join(' · ')
   const freezeText =
     stats.freezeCount === null
       ? '-'
@@ -258,6 +325,7 @@ export function SharingStatusPanel({
         <StatRow
           icon={<Signal className="h-3.5 w-3.5" />}
           label={t('丢包率')}
+          hint={lossHint}
           value={lossText}
         />
         <StatRow
@@ -266,6 +334,20 @@ export function SharingStatusPanel({
           hint={bitrateHint}
           value={bitrateText}
         />
+        <StatRow
+          icon={<Timer className="h-3.5 w-3.5" />}
+          label={mode === 'sender' ? t('编码耗时') : t('解码耗时')}
+          hint={t('每帧平均，越高越吃 CPU')}
+          value={processText}
+        />
+        {audio && (
+          <StatRow
+            icon={<Volume2 className="h-3.5 w-3.5" />}
+            label={t('音频')}
+            hint={audioHint || t('无音频数据')}
+            value={audioText}
+          />
+        )}
         <StatRow
           icon={<Layers className="h-3.5 w-3.5" />}
           label={t('分辨率')}
@@ -288,8 +370,8 @@ export function SharingStatusPanel({
           <StatRow
             icon={<Gauge className="h-3.5 w-3.5" />}
             label={t('编码受限原因')}
-            hint={t('决定该降档位还是降分辨率')}
-            value={getLimitationText(stats.qualityLimitationReason)}
+            hint={limitation ? t('本窗口占比') : t('决定该降档位还是降分辨率')}
+            value={limitationText}
           />
         )}
         <StatRow

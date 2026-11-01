@@ -1,5 +1,9 @@
 {
   "items": [
+    "Failed to load the parts; added as a single part",
+    "The resume request timed out; the host did not respond",
+    "Join",
+    "A user who joined the room. Can watch the video and post comments and danmaku (unless muted). Cannot manage the room or other viewers.",
     "Failed to join",
     "Failed to load the anime episodes",
     "Load more",
@@ -8,6 +12,7 @@
     "Role hierarchy",
     "Receiver",
     "Unmute",
+    "Decode time",
     "Resolve",
     "Resolution failed",
     "View only",
@@ -46,6 +51,7 @@
     "No permission to delete movies",
     "Media is relayed by the server, which bypasses hotlink protection",
     "WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.",
+    "Average per frame — higher means more CPU",
     "Password (optional)",
     "Your moderator role was removed",
     "The host muted you",
@@ -113,12 +119,6 @@
     "Enter manually",
     "Type a keyword to search",
     "Type a keyword to search Bilibili videos",
-    "Failed to refresh the movie list",
-    "Search Bilibili videos",
-    "Search anime",
-    "Search movies",
-    "Search movies…",
-    "Failed to kick",
-    "Add movie"
+    "Failed to refresh the movie list"
   ]
 }

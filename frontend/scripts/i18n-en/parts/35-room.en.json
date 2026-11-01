@@ -20,10 +20,13 @@
     "“{{name}}” has no playable episodes",
     "Save settings",
     "Failed to save",
+    "This window · overall {{value}}",
+    "Share of this window",
     "This session · HTTP",
     "Failed to load the local proxy",
     "Bilibili login QR code",
     "Codec",
+    "Encode time",
     "Encoded frame rate",
     "Encoder",
     "Limitation",
@@ -52,6 +55,7 @@
     "Waiting for the connection",
     "Click to copy",
     "Click to load qualities",
+    "Loss {{value}}",
     "Port, default 21",
     "Send danmaku",
     "Send a friendly danmaku",
@@ -115,10 +119,6 @@
     "Buffered mode",
     "Buffered mode is managed by the host",
     "Buffered download failed",
-    "Buffered download failed, try again",
-    "Failed to load the parts; added as a single part",
-    "The resume request timed out; the host did not respond",
-    "Join",
-    "A user who joined the room. Can watch the video and post comments and danmaku (unless muted). Cannot manage the room or other viewers."
+    "Buffered download failed, try again"
   ]
 }

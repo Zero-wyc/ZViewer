@@ -1,5 +1,14 @@
 {
   "items": [
+    "Resolving FTP files...",
+    "Resolving P{{page}} {{part}}...",
+    "Resolving episode 1 of “{{name}}” ({{length}} in total)...",
+    "Resolving episode {{page}} {{part}}...",
+    "Resolving server files...",
+    "Listing episodes of “{{name}}”...",
+    "Resolving {{length}} files...",
+    "Switching quality...",
+    "Adding {{value}}/{{length}} episodes...",
     "Adding the movie...",
     "Resolving P{{page}} through the CLI proxy...",
     "Resolving through the CLI proxy...",

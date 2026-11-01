@@ -35,6 +35,12 @@ export function formatPacketLoss(rate: number | null): string {
   return rate === null ? '-' : `${(rate * 100).toFixed(2)}%`
 }
 
+/** 每帧处理耗时。小于 10ms 保留一位小数，否则取整——读数要比位数重要。 */
+export function formatMsPerFrame(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '-'
+  return value < 10 ? `${value.toFixed(1)} ms` : `${Math.round(value)} ms`
+}
+
 /**
  * 按固定周期采样 WebRTC 统计。
  *
@@ -86,5 +92,6 @@ export function useConnectionStats(
     formatBitrate,
     formatNumber,
     formatPacketLoss,
+    formatMsPerFrame,
   }
 }

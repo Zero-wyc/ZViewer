@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2605 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2614 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1872,7 +1872,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（414 条） =====
+  // ===== modules/room（423 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1893,10 +1893,13 @@ const enUS: Record<string, string> = {
   '《{{name}}》下没有可播放的分集': '“{{name}}” has no playable episodes',
   '保存设置': 'Save settings',
   '保存失败': 'Failed to save',
+  '本窗口 · 累计 {{value}}': 'This window · overall {{value}}',
+  '本窗口占比': 'Share of this window',
   '本次会话 · HTTP': 'This session · HTTP',
   '本地代理加载失败': 'Failed to load the local proxy',
   '哔哩哔哩登录二维码': 'Bilibili login QR code',
   '编码格式': 'Codec',
+  '编码耗时': 'Encode time',
   '编码后发送帧率': 'Encoded frame rate',
   '编码器': 'Encoder',
   '编码受限原因': 'Limitation',
@@ -1925,6 +1928,7 @@ const enUS: Record<string, string> = {
   '等待连接': 'Waiting for the connection',
   '点击复制': 'Click to copy',
   '点击加载清晰度': 'Click to load qualities',
+  '丢包 {{value}}': 'Loss {{value}}',
   '端口，默认 21': 'Port, default 21',
   '发弹幕': 'Send danmaku',
   '发个友善的弹幕': 'Send a friendly danmaku',
@@ -2001,6 +2005,7 @@ const enUS: Record<string, string> = {
   '角色权限层级': 'Role hierarchy',
   '接收端': 'Receiver',
   '解除禁言': 'Unmute',
+  '解码耗时': 'Decode time',
   '解析': 'Resolve',
   '解析失败': 'Resolution failed',
   '仅查看': 'View only',
@@ -2039,6 +2044,7 @@ const enUS: Record<string, string> = {
   '没有影片删除权限': 'No permission to delete movies',
   '媒体流经服务器转发，可绕过防盗链限制': 'Media is relayed by the server, which bypasses hotlink protection',
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': 'WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.',
+  '每帧平均，越高越吃 CPU': 'Average per frame — higher means more CPU',
   '密码（可选）': 'Password (optional)',
   '您的房管权限已被撤销': 'Your moderator role was removed',
   '您已被房主禁言': 'The host muted you',
@@ -2134,6 +2140,7 @@ const enUS: Record<string, string> = {
   '我': 'Me',
   '我已连接，重试': 'I\'m connected, retry',
   '无法解析该 B站 影片': 'Cannot resolve this Bilibili video',
+  '无音频数据': 'No audio data',
   '系统开机以来的全部网卡流量': 'Total NIC traffic since boot',
   '下行码率': 'Download bitrate',
   '下载': 'Download',
@@ -2188,6 +2195,8 @@ const enUS: Record<string, string> = {
   '音轨编码 {{value}} 不受浏览器支持，浏览器转码引擎正在实时转码为 AAC': 'The browser does not support {{value}} audio; the browser transcoding engine is converting it to AAC live',
   '音轨编码 {{value}} 不受浏览器支持，已由媒体服务器转码为 AAC': 'The browser does not support {{value}} audio; the media server transcoded it to AAC',
   '音轨编码 {{value}} 不受浏览器支持且浏览器转码引擎未启用，播放将无声；可在影片解析设置中开启「浏览器转码引擎」后重试': 'The browser does not support {{value}} audio and the browser transcoding engine is off, so playback will have no sound; enable it in the movie\'s resolution settings and retry',
+  '音频': 'Audio',
+  '隐藏 {{value}}': 'Concealed {{value}}',
   '隐藏控制栏': 'Hide the control bar',
   '影片列表': 'Movie list',
   '影片列表 ({{length}} 部)': 'Movie list ({{length}})',

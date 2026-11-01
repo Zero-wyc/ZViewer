@@ -1,5 +1,11 @@
 {
   "items": [
+    "Search Bilibili videos",
+    "Search anime",
+    "Search movies",
+    "Search movies…",
+    "Failed to kick",
+    "Add movie",
     "Failed to add the movie",
     "Failed to add the whole movie",
     "Seek request",
@@ -21,6 +27,7 @@
     "Me",
     "I'm connected, retry",
     "Cannot resolve this Bilibili video",
+    "No audio data",
     "Total NIC traffic since boot",
     "Download bitrate",
     "Download",
@@ -75,6 +82,8 @@
     "The browser does not support {{value}} audio; the browser transcoding engine is converting it to AAC live",
     "The browser does not support {{value}} audio; the media server transcoded it to AAC",
     "The browser does not support {{value}} audio and the browser transcoding engine is off, so playback will have no sound; enable it in the movie's resolution settings and retry",
+    "Audio",
+    "Concealed {{value}}",
     "Hide the control bar",
     "Movie list",
     "Movie list ({{length}})",
@@ -110,15 +119,6 @@
     "Getting the {{label}} direct link...",
     "Joining the room…",
     "Resolving {{label}} items...",
-    "Resolving {{label}} files...",
-    "Resolving FTP files...",
-    "Resolving P{{page}} {{part}}...",
-    "Resolving episode 1 of “{{name}}” ({{length}} in total)...",
-    "Resolving episode {{page}} {{part}}...",
-    "Resolving server files...",
-    "Listing episodes of “{{name}}”...",
-    "Resolving {{length}} files...",
-    "Switching quality...",
-    "Adding {{value}}/{{length}} episodes..."
+    "Resolving {{label}} files..."
   ]
 }
