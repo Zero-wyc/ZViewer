@@ -83,18 +83,24 @@ export const DEFAULT_QUALITY_PROFILE: QualityProfile = {
   maxAudioBitrate: DEFAULT_AUDIO_BITRATE,
 }
 
-/** 从 UI 的媒体设置拼出一个档位。 */
+/**
+ * 从 UI 的媒体设置拼出一个档位。
+ *
+ * `degradationPreference` 缺省用 `balanced`：这是浏览器默认值，也是「不表态」
+ * 最不容易出错的一档。用户显式选「清晰/流畅」时才覆盖。
+ */
 export function profileFromSettings(settings: {
   frameRate: number
   maxBitrateMbps: number
   resolution: QualityResolution | null
   maxAudioBitrate?: number
+  degradationPreference?: RTCDegradationPreference
 }): QualityProfile {
   return {
     resolution: settings.resolution,
     maxFramerate: settings.frameRate,
     maxBitrate: Math.round(settings.maxBitrateMbps * 1_000_000),
-    degradationPreference: 'balanced',
+    degradationPreference: settings.degradationPreference ?? 'balanced',
     maxAudioBitrate: screenAudioBitrate(settings.maxAudioBitrate),
   }
 }

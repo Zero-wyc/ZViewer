@@ -1,5 +1,10 @@
 import type { ResolutionPreset } from '../constants'
-import { FRAME_RATE_OPTIONS, RESOLUTION_PRESETS } from '../constants'
+import {
+  AUDIO_BITRATE_OPTIONS,
+  DEGRADATION_OPTIONS,
+  FRAME_RATE_OPTIONS,
+  RESOLUTION_PRESETS,
+} from '../constants'
 
 /**
  * WebRTC 屏幕共享媒体设置的 localStorage 持久化。
@@ -16,6 +21,10 @@ export interface WebrtcShareMediaSettings {
   shareSystemAudio: boolean
   shareMicrophone: boolean
   resolutionPreset: ResolutionPreset
+  /** 画面偏好：带宽不足时保清晰度还是保流畅。 */
+  degradationPreference: RTCDegradationPreference
+  /** 系统声音码率（bps）。 */
+  maxAudioBitrate: number
 }
 
 const DEFAULTS: WebrtcShareMediaSettings = {
@@ -24,6 +33,8 @@ const DEFAULTS: WebrtcShareMediaSettings = {
   shareSystemAudio: false,
   shareMicrophone: false,
   resolutionPreset: '1080p',
+  degradationPreference: 'balanced',
+  maxAudioBitrate: 128_000,
 }
 
 /** 读取持久化设置；缺失/损坏/字段非法时逐字段回退默认值 */
@@ -58,6 +69,17 @@ export function loadMediaSettings(): WebrtcShareMediaSettings {
         RESOLUTION_PRESETS.includes(parsed.resolutionPreset)
           ? parsed.resolutionPreset
           : DEFAULTS.resolutionPreset,
+      // 老版本存下的设置没有这两个字段：逐字段回退，不要整份丢掉。
+      degradationPreference: DEGRADATION_OPTIONS.some(
+        (option) => option.value === parsed.degradationPreference
+      )
+        ? (parsed.degradationPreference as RTCDegradationPreference)
+        : DEFAULTS.degradationPreference,
+      maxAudioBitrate: AUDIO_BITRATE_OPTIONS.some(
+        (option) => option.value === parsed.maxAudioBitrate
+      )
+        ? (parsed.maxAudioBitrate as number)
+        : DEFAULTS.maxAudioBitrate,
     }
   } catch {
     return { ...DEFAULTS }

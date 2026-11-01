@@ -1,7 +1,14 @@
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
 import { Tag } from '@/components/ui/Tag'
-import { Copy, PauseCircle, PlayCircle, Power, RefreshCw } from 'lucide-react'
+import {
+  Copy,
+  PauseCircle,
+  PlayCircle,
+  Power,
+  RefreshCw,
+  SlidersHorizontal,
+} from 'lucide-react'
 import { t } from '@/i18n'
 
 interface ShareControlsBarProps {
@@ -25,6 +32,10 @@ interface ShareControlsBarProps {
   onClose: () => void
   /** 刷新共享（重启采集并重建连接） */
   onRefresh: () => void
+  /** 共享设置浮层是否已展开 */
+  settingsOpen: boolean
+  /** 展开/收起共享设置浮层 */
+  onToggleSettings: () => void
 }
 
 export function ShareControlsBar({
@@ -38,6 +49,8 @@ export function ShareControlsBar({
   onClearAnnotations,
   onClose,
   onRefresh,
+  settingsOpen,
+  onToggleSettings,
 }: ShareControlsBarProps): JSX.Element {
   return (
     <div className="vc-container absolute bottom-0 left-0 right-0 z-20 p-2">
@@ -59,6 +72,14 @@ export function ShareControlsBar({
               {t('暂停共享')}
             </Button>
           )}
+          <Button
+            variant={settingsOpen ? 'primary' : 'secondary'}
+            icon={<SlidersHorizontal className="h-5 w-5" />}
+            onClick={onToggleSettings}
+            aria-expanded={settingsOpen}
+          >
+            {t('共享设置')}
+          </Button>
           <Button
             variant="secondary"
             icon={<Copy className="h-5 w-5" />}

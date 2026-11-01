@@ -58,6 +58,8 @@ export function profileOf(settings: WebrtcShareMediaSettings): QualityProfile {
     frameRate: settings.frameRate,
     maxBitrateMbps: settings.maxBitrateMbps,
     resolution: RESOLUTION_DIMENSIONS[settings.resolutionPreset],
+    maxAudioBitrate: settings.maxAudioBitrate,
+    degradationPreference: settings.degradationPreference,
   })
 }
 

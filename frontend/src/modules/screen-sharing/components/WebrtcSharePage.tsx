@@ -7,7 +7,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Monitor, Copy, ExternalLink } from 'lucide-react'
+import { Monitor, Copy, ExternalLink, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
@@ -28,9 +28,13 @@ import {
   saveMediaSettings,
   type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
-import { ICE_SERVERS } from '../constants'
-import type { ResolutionPreset } from '../constants'
-import { MediaSettingsCard } from './MediaSettingsCard'
+import { ICE_SERVERS } from '@/lib/iceServers'
+import {
+  QUALITY_PRESETS,
+  type QualityPresetId,
+  type ResolutionPreset,
+} from '../constants'
+import { ShareSettingsCard } from './ShareSettingsCard'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
 import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
@@ -61,46 +65,42 @@ function WebrtcSharePage({
   const currentRoomId = roomId ?? ''
 
   // 媒体设置持久化（借鉴 mirotalk lsSettings）：进房时恢复上次选择，
-  // 变化时写回 localStorage
+  // 变化时写回 localStorage。
+  //
+  // 所有参数放在**一个** state 对象里：拆成七个 useState 时，任何一次
+  // 「档位一次性改三项」都会读到彼此的旧值（settingsRef 要等下一次渲染才
+  // 更新），于是界面显示 1080P/60fps 而实际下发的还是旧组合。
   const [savedSettings] = useState(loadMediaSettings)
   const copy = useCopyToClipboard()
-  const [frameRate, setFrameRate] = useState(savedSettings.frameRate)
-  const [maxBitrateMbps, setMaxBitrateMbps] = useState(
-    savedSettings.maxBitrateMbps
+  const [settings, setSettings] =
+    useState<WebrtcShareMediaSettings>(savedSettings)
+  const settingsRef = useRef<WebrtcShareMediaSettings>(savedSettings)
+  useEffect(() => {
+    settingsRef.current = settings
+    saveMediaSettings(settings)
+  }, [settings])
+
+  /**
+   * 改设置并**同步**返回合并后的结果。
+   *
+   * ref 立刻更新（事件处理里紧接着要把新值交给会话），state 只负责渲染。
+   */
+  const commitSettings = useCallback(
+    (patch: Partial<WebrtcShareMediaSettings>): WebrtcShareMediaSettings => {
+      const next = { ...settingsRef.current, ...patch }
+      settingsRef.current = next
+      setSettings(next)
+      return next
+    },
+    []
   )
-  const [shareSystemAudio, setShareSystemAudio] = useState(
-    savedSettings.shareSystemAudio
-  )
-  const [shareMicrophone, setShareMicrophone] = useState(
-    savedSettings.shareMicrophone
-  )
-  const [resolutionPreset, setResolutionPreset] = useState(
-    savedSettings.resolutionPreset
-  )
+
   const [closing, setClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
   const [starting, setStarting] = useState(false)
   const [switchingResolution, setSwitchingResolution] = useState(false)
-
-  /** 当前界面设置：事件回调同步读它，避免闭包里拿到旧值。 */
-  const settingsRef = useRef<WebrtcShareMediaSettings>(savedSettings)
-  useEffect(() => {
-    const next: WebrtcShareMediaSettings = {
-      frameRate,
-      maxBitrateMbps,
-      shareSystemAudio,
-      shareMicrophone,
-      resolutionPreset,
-    }
-    settingsRef.current = next
-    saveMediaSettings(next)
-  }, [
-    frameRate,
-    maxBitrateMbps,
-    shareSystemAudio,
-    shareMicrophone,
-    resolutionPreset,
-  ])
+  /** 共享中拉起的「共享设置」浮层。 */
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const [localVideoVersion, setLocalVideoVersion] = useState(0)
@@ -186,6 +186,8 @@ function WebrtcSharePage({
 
   const handleStopSharing = useCallback(() => {
     stopSharing()
+    // 浮层跟着共享一起收：停止后再挂着一个「共享设置」只会让人以为还在共享。
+    setSettingsOpen(false)
   }, [stopSharing])
 
   const handleClearAnnotations = useCallback(() => {
@@ -251,25 +253,18 @@ function WebrtcSharePage({
   // 否则界面显示的档位和实际画面不一致。
   const handleResolutionChange = useCallback(
     async (next: ResolutionPreset) => {
-      if (next === resolutionPreset) return
+      if (next === settingsRef.current.resolutionPreset) return
+      const previous = settingsRef.current
       if (!isSharing) {
-        setResolutionPreset(next)
+        commitSettings({ resolutionPreset: next })
         return
       }
-      const prev = resolutionPreset
-      setResolutionPreset(next)
+      const pending = commitSettings({ resolutionPreset: next })
       setSwitchingResolution(true)
       try {
-        const ok = await switchResolution({
-          ...settingsRef.current,
-          resolutionPreset: next,
-        })
+        const ok = await switchResolution(pending)
         if (!ok) {
-          setResolutionPreset(prev)
-          await switchResolution({
-            ...settingsRef.current,
-            resolutionPreset: prev,
-          })
+          await switchResolution(commitSettings(previous))
           message.error(t('分辨率切换失败，已保留原分辨率'))
           return
         }
@@ -278,7 +273,7 @@ function WebrtcSharePage({
         setSwitchingResolution(false)
       }
     },
-    [resolutionPreset, isSharing, switchResolution]
+    [isSharing, switchResolution, commitSettings]
   )
 
   // 帧率热更新：改的是编码参数，不重采集、不重协商。
@@ -287,35 +282,88 @@ function WebrtcSharePage({
   const handleFrameRateSettingChange = useCallback(
     (next: number) => {
       const recommended = Math.max(2, Math.round(next * 0.267))
-      const nextBitrate = Math.max(maxBitrateMbps, recommended)
-      setFrameRate(next)
-      setMaxBitrateMbps(nextBitrate)
-      if (!isSharing) return
-      void applyProfile({
-        ...settingsRef.current,
+      const nextBitrate = Math.max(
+        settingsRef.current.maxBitrateMbps,
+        recommended
+      )
+      const pending = commitSettings({
         frameRate: next,
         maxBitrateMbps: nextBitrate,
       })
+      if (isSharing) void applyProfile(pending)
     },
-    [maxBitrateMbps, isSharing, applyProfile]
+    [isSharing, applyProfile, commitSettings]
   )
 
   const handleBitrateChange = useCallback(
     (next: number) => {
-      setMaxBitrateMbps(next)
-      if (!isSharing) return
-      void applyProfile({ ...settingsRef.current, maxBitrateMbps: next })
+      const pending = commitSettings({ maxBitrateMbps: next })
+      if (isSharing) void applyProfile(pending)
     },
-    [isSharing, applyProfile]
+    [isSharing, applyProfile, commitSettings]
+  )
+
+  // 画面偏好与音频码率都只改编码参数：不重采集、不重协商，共享中即时生效。
+  const handleDegradationChange = useCallback(
+    (preference: RTCDegradationPreference) => {
+      const pending = commitSettings({ degradationPreference: preference })
+      if (isSharing) void applyProfile(pending)
+    },
+    [isSharing, applyProfile, commitSettings]
+  )
+
+  const handleAudioBitrateChange = useCallback(
+    (bitrate: number) => {
+      const pending = commitSettings({ maxAudioBitrate: bitrate })
+      if (isSharing) void applyProfile(pending)
+    },
+    [isSharing, applyProfile, commitSettings]
+  )
+
+  // 一键档位：分辨率变了要重采集，只变帧率/码率则改编码参数。
+  const handlePresetChange = useCallback(
+    async (id: QualityPresetId) => {
+      const preset = QUALITY_PRESETS.find((item) => item.id === id)
+      if (!preset || switchingResolution) return
+      if (preset.resolutionPreset !== settingsRef.current.resolutionPreset) {
+        // 先把帧率/码率写进去，切分辨率时一并下发。
+        commitSettings({
+          frameRate: preset.frameRate,
+          maxBitrateMbps: preset.maxBitrateMbps,
+        })
+        await handleResolutionChange(preset.resolutionPreset)
+        return
+      }
+      const pending = commitSettings({
+        frameRate: preset.frameRate,
+        maxBitrateMbps: preset.maxBitrateMbps,
+        resolutionPreset: preset.resolutionPreset,
+      })
+      if (isSharing) void applyProfile(pending)
+    },
+    [
+      isSharing,
+      applyProfile,
+      commitSettings,
+      handleResolutionChange,
+      switchingResolution,
+    ]
   )
 
   // 麦克风是混进同一条音轨的，共享中可以直接开关；系统声必须重新采集。
   const handleMicrophoneChange = useCallback(
     (enabled: boolean) => {
-      setShareMicrophone(enabled)
+      commitSettings({ shareMicrophone: enabled })
       if (isSharing) void setMicrophone(enabled)
     },
-    [isSharing, setMicrophone]
+    [isSharing, setMicrophone, commitSettings]
+  )
+
+  const handleSystemAudioChange = useCallback(
+    (enabled: boolean) => {
+      commitSettings({ shareSystemAudio: enabled })
+    },
+    [commitSettings]
   )
 
   useEffect(() => {
@@ -402,7 +450,54 @@ function WebrtcSharePage({
               {overrideText}
             </div>
           )}
+          {settingsOpen && (
+            <div
+              className="absolute right-2 top-2 z-30 flex max-h-[calc(100%-7rem)] w-[min(22rem,calc(100%-1rem))] flex-col overflow-hidden rounded-2xl border shadow-xl"
+              style={{
+                borderColor:
+                  'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
+                backgroundColor: 'var(--glass-bg)',
+                backdropFilter: 'blur(var(--glass-blur-strong))',
+                WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
+              }}
+            >
+              <div
+                className="flex items-center justify-between border-b px-3 py-2"
+                style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+              >
+                <Text className="text-xs font-semibold">{t('共享设置')}</Text>
+                <button
+                  type="button"
+                  onClick={() => setSettingsOpen(false)}
+                  className="rounded p-1 opacity-70 hover:opacity-100"
+                  aria-label={t('收起共享设置')}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="overflow-y-auto p-3">
+                <ShareSettingsCard
+                  compact
+                  settings={settings}
+                  isSharing={isSharing}
+                  switchingResolution={switchingResolution}
+                  onPresetChange={(id) => void handlePresetChange(id)}
+                  onResolutionChange={(value) => {
+                    void handleResolutionChange(value)
+                  }}
+                  onFrameRateChange={handleFrameRateSettingChange}
+                  onBitrateChange={handleBitrateChange}
+                  onDegradationChange={handleDegradationChange}
+                  onAudioBitrateChange={handleAudioBitrateChange}
+                  onSystemAudioChange={handleSystemAudioChange}
+                  onMicrophoneChange={handleMicrophoneChange}
+                />
+              </div>
+            </div>
+          )}
           <ShareControlsBar
+            settingsOpen={settingsOpen}
+            onToggleSettings={() => setSettingsOpen((open) => !open)}
             isPaused={isPaused}
             connected={connected}
             viewerCount={viewerCount}
@@ -416,86 +511,10 @@ function WebrtcSharePage({
           />
         </>
       ) : (
-        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-5 overflow-y-auto p-6 pt-20">
-          <div
-            className="glass-card w-full max-w-sm rounded-2xl border p-6 shadow-sm"
-            style={{
-              borderColor:
-                'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
-              backgroundColor: 'var(--glass-bg)',
-              backdropFilter: 'blur(var(--glass-blur-strong))',
-              WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
-            }}
-          >
-            <div className="mb-5 flex items-center justify-between">
-              <Space align="center" size="sm">
-                <Monitor className="h-5 w-5 text-[var(--md-sys-color-primary)]" />
-                <Text className="text-base font-semibold">
-                  {t('WebRTC 屏幕共享')}
-                </Text>
-              </Space>
-              <Tag color={connected ? 'success' : 'default'}>
-                {connected ? t('已连接') : t('未连接')}
-              </Tag>
-            </div>
-
-            <MediaSettingsCard
-              frameRate={frameRate}
-              maxBitrateMbps={maxBitrateMbps}
-              shareSystemAudio={shareSystemAudio}
-              shareMicrophone={shareMicrophone}
-              resolutionPreset={resolutionPreset}
-              isSharing={isSharing}
-              switchingResolution={switchingResolution}
-              onFrameRateChange={handleFrameRateSettingChange}
-              onMaxBitrateChange={handleBitrateChange}
-              onShareSystemAudioChange={setShareSystemAudio}
-              onShareMicrophoneChange={handleMicrophoneChange}
-              onResolutionChange={(value) => {
-                void handleResolutionChange(value)
-              }}
-            />
-
-            <Button
-              variant="primary"
-              className="mt-5 w-full"
-              icon={<Monitor className="h-5 w-5" />}
-              onClick={handleStart}
-              loading={starting}
-              disabled={starting || closing}
-            >
-              {starting ? t('正在请求权限...') : t('开始共享')}
-            </Button>
-          </div>
-
-          {inIframe && (
-            <div
-              className="w-full max-w-sm rounded-xl border px-4 py-3 text-xs"
-              style={{
-                borderColor: 'var(--md-sys-color-outline-variant)',
-                backgroundColor: 'var(--md-sys-color-tertiary-container)',
-              }}
-            >
-              <Paragraph type="secondary" className="m-0 mb-2 text-xs">
-                {t(
-                  '检测到当前页面运行在嵌入式预览（iframe）环境中，屏幕共享功能可能被浏览器限制。建议在新窗口中打开本页面：'
-                )}
-              </Paragraph>
-              <Button
-                variant="secondary"
-                size="sm"
-                className="w-full"
-                icon={<ExternalLink className="h-3.5 w-3.5" />}
-                onClick={handleOpenInNewWindow}
-              >
-                {t('在新窗口打开')}
-              </Button>
-            </div>
-          )}
-
+        <div className="flex h-full min-h-0 flex-col items-center justify-start gap-5 overflow-y-auto p-6 pt-20">
           {errorText && (
             <div
-              className="relative w-full max-w-sm rounded-xl border px-4 py-3 text-xs"
+              className="relative w-full max-w-sm shrink-0 rounded-xl border px-4 py-3 text-xs"
               style={{
                 borderColor: 'var(--md-sys-color-error-container)',
                 backgroundColor: 'var(--md-sys-color-error-container)',
@@ -522,12 +541,90 @@ function WebrtcSharePage({
             </div>
           )}
 
-          <Paragraph
-            type="secondary"
-            className="!text-white m-0 max-w-sm text-center text-xs"
+          {inIframe && (
+            <div
+              className="w-full max-w-sm shrink-0 rounded-xl border px-4 py-3 text-xs"
+              style={{
+                borderColor: 'var(--md-sys-color-outline-variant)',
+                backgroundColor: 'var(--md-sys-color-tertiary-container)',
+              }}
+            >
+              <Paragraph type="secondary" className="m-0 mb-2 text-xs">
+                {t(
+                  '检测到当前页面运行在嵌入式预览（iframe）环境中，屏幕共享功能可能被浏览器限制。建议在新窗口中打开本页面：'
+                )}
+              </Paragraph>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="w-full"
+                icon={<ExternalLink className="h-3.5 w-3.5" />}
+                onClick={handleOpenInNewWindow}
+              >
+                {t('在新窗口打开')}
+              </Button>
+            </div>
+          )}
+
+          {/* 卡片自己限高：设置区滚动，「开始共享」永远贴在卡片底部。
+              房间里的共享区高度有限，把主操作挤到折叠线以下等于藏起它。 */}
+          <div
+            className="glass-card flex max-h-full w-full max-w-sm flex-col rounded-2xl border p-6 shadow-sm"
+            style={{
+              borderColor:
+                'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
+              backgroundColor: 'var(--glass-bg)',
+              backdropFilter: 'blur(var(--glass-blur-strong))',
+              WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
+            }}
           >
-            {t('将链接发送给观看方，对方打开后即可自动加入房间观看。')}
-          </Paragraph>
+            <div className="mb-4 flex shrink-0 items-center justify-between">
+              <Space align="center" size="sm">
+                <Monitor className="h-5 w-5 text-[var(--md-sys-color-primary)]" />
+                <Text className="text-base font-semibold">
+                  {t('WebRTC 屏幕共享')}
+                </Text>
+              </Space>
+              <Tag color={connected ? 'success' : 'default'}>
+                {connected ? t('已连接') : t('未连接')}
+              </Tag>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <ShareSettingsCard
+                settings={settings}
+                isSharing={isSharing}
+                switchingResolution={switchingResolution}
+                onPresetChange={(id) => void handlePresetChange(id)}
+                onResolutionChange={(value) => {
+                  void handleResolutionChange(value)
+                }}
+                onFrameRateChange={handleFrameRateSettingChange}
+                onBitrateChange={handleBitrateChange}
+                onDegradationChange={handleDegradationChange}
+                onAudioBitrateChange={handleAudioBitrateChange}
+                onSystemAudioChange={handleSystemAudioChange}
+                onMicrophoneChange={handleMicrophoneChange}
+              />
+            </div>
+
+            <Button
+              variant="primary"
+              className="mt-4 w-full shrink-0"
+              icon={<Monitor className="h-5 w-5" />}
+              onClick={handleStart}
+              loading={starting}
+              disabled={starting || closing}
+            >
+              {starting ? t('正在请求权限...') : t('开始共享')}
+            </Button>
+            <Paragraph
+              type="secondary"
+              className="mt-2 m-0 shrink-0 text-center text-[10px] leading-tight"
+            >
+              {t('将链接发送给观看方，对方打开后即可自动加入房间观看。')}
+            </Paragraph>
+          </div>
         </div>
       )}
 
