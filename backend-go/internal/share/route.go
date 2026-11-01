@@ -324,10 +324,13 @@ func (s *Session) plansLocked(host string, routes []*Route) []RoutePlan {
 			Assignment: assignment,
 			Candidate:  &candidate,
 		}
-		plans = append(plans,
-			RoutePlan{ToPeerID: host, Message: message},
-			RoutePlan{ToPeerID: route.ChildPeerID, Message: message},
-		)
+		// 中继模式下这条边在房主侧根本不存在：房主只有一条到 SFU 的上行。
+		// 把候选发给它会让它照着建一条直连 PC——白多一份编码，而且它真的会
+		// 给观众发 offer，形成一条绕开 SFU 的旁路（观众可能同时收到两份媒体）。
+		plans = append(plans, RoutePlan{ToPeerID: route.ChildPeerID, Message: message})
+		if candidate.Transport != TransportRelay {
+			plans = append(plans, RoutePlan{ToPeerID: host, Message: message})
+		}
 	}
 	return plans
 }

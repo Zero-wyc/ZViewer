@@ -81,6 +81,14 @@ export class ShareHostSession {
   private relayDeclared = false
   /** 最近一次已知的路由版本，中继信令要带上它。 */
   private revision = 0
+  /**
+   * 每条发布端 PC 属于哪位观众。
+   *
+   * connectionId 是服务端铸造的、每次重建都会变；只有 peerId 能回答
+   * 「这个人还在不在会话里」。没有这张表就只能靠 assignment 判断，而
+   * assignment 只收已提交的边——一条始终没连上的 PC 会永久留着空转编码。
+   */
+  private peerOwners = new Map<string, string>()
   private paused = false
   private unsubscribe: (() => void) | null = null
   private state: HostSessionState = {
@@ -356,6 +364,11 @@ export class ShareHostSession {
     candidate: { childPeerId: string; connectionId: string } | undefined
   ): void {
     if (!candidate) return
+    // 中继模式下房主与观众之间没有边：画面只经 SFU 转发。这里若照着候选建
+    // PC，就会多出一份编码和一条绕开 SFU 的上行（服务端已经不再下发，这条
+    // 是兜底——旧服务端还会发）。
+    if (this.publicationGeneration) return
+    this.peerOwners.set(candidate.connectionId, candidate.childPeerId)
     const existing = this.peers.get(candidate.connectionId)
     if (phase !== 'prepare') {
       // active 只说明观众已解出首帧，房主这边没有额外动作。
@@ -581,9 +594,18 @@ export class ShareHostSession {
         (candidate) => candidate.connectionId
       ) ?? []
     )
+    const present = new Set(
+      snapshot.participants.map((participant) => participant.peerId)
+    )
     for (const connectionId of [...this.peers.keys()]) {
       // 发布端不属于「观众的边」，它的存活由 sfu-config 与失败事件决定。
       if (connectionId === this.publicationGeneration) continue
+      // 观众已经不在会话里：不管这条边提交没提交，PC 都必须销毁。
+      const owner = this.peerOwners.get(connectionId)
+      if (owner !== undefined && !present.has(owner)) {
+        this.dropPeer(connectionId)
+        continue
+      }
       // 快照里没有对应候选的边一律销毁：观众已经离开，PC 留着只是空转编码。
       if (!assigned.has(connectionId)) {
         const peer = this.peers.get(connectionId)
@@ -595,6 +617,7 @@ export class ShareHostSession {
   }
 
   private dropPeer(connectionId: string): void {
+    this.peerOwners.delete(connectionId)
     const peer = this.peers.get(connectionId)
     if (!peer) return
     peer.dispose()

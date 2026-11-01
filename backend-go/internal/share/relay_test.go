@@ -189,6 +189,28 @@ func TestRelayPublicationIdentityIsSingleUse(t *testing.T) {
 	}
 }
 
+// 中继模式下房主不该收到任何观众候选。
+//
+// 收到会怎样：房主照着建一条发布端 PC，真的给观众发 offer，于是同一条画面
+// 既走 SFU 又走 P2P——多一份编码、多一份上行，观众还可能收到重复媒体。
+// 而这一切在状态面板上都看不出来（两边都 connected）。
+func TestRelayDoesNotPlanRoutesOnHost(t *testing.T) {
+	service, hub, _ := newRelayTestService(t, "host-1")
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.hello","roomId":"r1"}`)
+	send(t, service, newConn("host-1", "r1"), `{"t":"share.start","roomId":"r1"}`)
+
+	// 房主开始共享之后才有人进来，才会规划边。
+	hub.to = nil
+	send(t, service, newConn("viewer-1", "r1"), `{"t":"share.hello","roomId":"r1"}`)
+
+	if frames := routeFramesTo(hub, "viewer-1"); len(frames) == 0 {
+		t.Fatal("观众应当收到候选")
+	}
+	if frames := routeFramesTo(hub, "host-1"); len(frames) != 0 {
+		t.Fatalf("房主不该收到观众候选，实际收到 %v", frames)
+	}
+}
+
 // 发布端（房主）的媒体事件不带 ConnectionID，转发时必须补成发布代际。
 //
 // 漏了这一步的后果不是「少个字段」：客户端按 connectionId 判定「这是不是我的
