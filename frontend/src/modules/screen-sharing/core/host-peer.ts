@@ -19,6 +19,12 @@
 import { applyVideoCaptureProfile } from './capture'
 import { waitForConnectionOperation } from './connection-op'
 import {
+  emptyPeerQuality,
+  samplePeerQuality,
+  type PeerQuality,
+  type PeerQualityBaseline,
+} from './peer-quality'
+import {
   STARTUP_VIDEO_ENCODED_FRAMES,
   audioQualitySettingsEqual,
   configureAudioSender,
@@ -63,6 +69,8 @@ export interface HostPeerSnapshot {
   paused: boolean
   /** 已编码帧数，启动保护据此判断「尺寸坐实了」。 */
   framesEncoded: number | null
+  /** 这条观众连接的质量（房主侧用 remote-inbound-rtp 直接算，无需观众上报）。 */
+  quality: PeerQuality
   /** 语义错误码（不是展示文案）。 */
   error: string | null
   senderParameters: VideoSenderParameterReadback | null
@@ -120,6 +128,8 @@ export class HostPeer {
 
   private statsTimer: ReturnType<typeof setInterval> | null = null
   private statsInFlight = false
+  /** 上一条统计基线：质量字段全是累计值，只能靠两次差分算窗口。 */
+  private qualityBaseline: PeerQualityBaseline | null = null
 
   private connectedOnce = false
   private awaitingReconnect = false
@@ -147,6 +157,7 @@ export class HostPeer {
       iceConnectionState: this.connection.iceConnectionState,
       paused: this.paused,
       framesEncoded: null,
+      quality: emptyPeerQuality(),
       error: null,
       senderParameters: null,
       audioSenderParameters: null,
@@ -806,7 +817,15 @@ export class HostPeer {
         }
       })
       if (this.disposed) return
-      this.snapshot = { ...this.snapshot, framesEncoded }
+      // 观众侧质量：outbound-rtp + remote-inbound-rtp 差分成窗口值。
+      // 每个 2s 采样周期跑一次，纯本地计算，不需要观众上报任何东西。
+      const sampled = samplePeerQuality(this.qualityBaseline, report)
+      this.qualityBaseline = sampled.baseline
+      this.snapshot = {
+        ...this.snapshot,
+        framesEncoded,
+        quality: sampled.quality,
+      }
       if (this.startupVideoProfilePending && framesEncoded !== null) {
         if (this.startupFramesBaseline === null) {
           this.startupFramesBaseline = framesEncoded

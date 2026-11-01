@@ -7,6 +7,7 @@ import {
   Radio,
   Signal,
   Timer,
+  Users,
   Video,
   Volume2,
 } from 'lucide-react'
@@ -21,6 +22,10 @@ import type {
   QualityLimitationDurations,
   QualityLimitationReason,
 } from '@/modules/screen-sharing/core/stats'
+import {
+  peerQualitySeverity,
+  type PeerQualityView,
+} from '@/modules/screen-sharing/core/peer-quality'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
@@ -36,6 +41,8 @@ export interface SharingStatusPanelProps {
   mode: 'sender' | 'receiver'
   /** 共享模式标签：服务器中转 / P2P 直连 */
   sharingMode: SharingMode
+  /** 房主侧每条观众连接的质量（只有房主有值）。 */
+  peerQualities?: PeerQualityView[]
 }
 
 interface StatRowProps {
@@ -194,11 +201,40 @@ function getConnectionStateText(state: RTCPeerConnectionState): string {
   }
 }
 
+/** 质量等级 → 展示文案。等级判定本身在 core/peer-quality（有单测）。 */
+function peerQualityText(peer: PeerQualityView): string {
+  switch (peerQualitySeverity(peer.quality, peer.connectionState)) {
+    case 'offline':
+      return t('未连接')
+    case 'loss':
+      return t('丢包 {{value}}', {
+        value: `${((peer.quality.packetLossRate ?? 0) * 100).toFixed(1)}%`,
+      })
+    case 'latency':
+      return t('延迟 {{value}}', { value: `${peer.quality.rttMs ?? 0} ms` })
+    case 'bandwidth':
+      return t('上行带宽受限')
+    case 'cpu':
+      return t('编码 CPU 受限')
+    default:
+      return t('良好')
+  }
+}
+
+function peerQualityColor(
+  peer: PeerQualityView
+): 'default' | 'success' | 'warning' {
+  const severity = peerQualitySeverity(peer.quality, peer.connectionState)
+  if (severity === 'offline') return 'default'
+  return severity === 'good' ? 'success' : 'warning'
+}
+
 export function SharingStatusPanel({
   pc,
   captureFps,
   mode,
   sharingMode,
+  peerQualities = [],
 }: SharingStatusPanelProps) {
   const legacyMode = sharingMode === 'relay' ? 'server' : 'direct'
 
@@ -401,6 +437,37 @@ export function SharingStatusPanel({
           />
         )}
       </div>
+
+      {/* 每位观众的真实接收质量。数据来自房主侧的 remote-inbound-rtp
+          （观众用自己的 RTCP 回传），不需要观众上报任何东西。 */}
+      {peerQualities.length > 0 && (
+        <div
+          className="flex flex-col gap-2 border-t pt-3"
+          style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+        >
+          <div className="flex items-center gap-2">
+            <Users className="h-3.5 w-3.5" />
+            <Text type="secondary" className="text-xs">
+              {t('观众质量')}
+            </Text>
+          </div>
+          {peerQualities.map((peer, index) => (
+            <div
+              key={peer.connectionId}
+              className="glass flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5"
+            >
+              <Text type="secondary" className="min-w-0 truncate text-xs">
+                {t('观众 {{index}}', { index: index + 1 })}
+              </Text>
+              <div className="flex flex-shrink-0 items-center gap-1.5">
+                <Tag color={peerQualityColor(peer)}>
+                  {peerQualityText(peer)}
+                </Tag>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 底部说明 */}
       <Text

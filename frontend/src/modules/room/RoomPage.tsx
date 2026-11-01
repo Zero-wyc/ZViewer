@@ -22,6 +22,7 @@ import { CommentPanel } from '@/components/CommentPanel'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
 import { SharePage, WatchPage } from '@/modules/screen-sharing'
+import type { PeerQualityView } from '@/modules/screen-sharing/core/peer-quality'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
 import { dispatchRoomMediaTeardown } from '@/lib/mediaTeardown'
@@ -160,6 +161,10 @@ function RoomPage() {
     useState<RTCPeerConnection | null>(null)
   // 房主采集实测帧率（由 WebrtcSharePage 的帧率计提升，供 SharingStatusPanel 显示）
   const [hostCaptureFps, setHostCaptureFps] = useState<number | null>(null)
+  // 每位观众的真实接收质量（房主侧 remote-inbound-rtp 采样）
+  const [hostPeerQualities, setHostPeerQualities] = useState<PeerQualityView[]>(
+    []
+  )
   // 媒体走向由共享页上报：中继开启时观众不直连房主，标签要如实标注。
   const [hostSharingMode, setHostSharingMode] = useState<'direct' | 'relay'>(
     'direct'
@@ -497,6 +502,7 @@ function RoomPage() {
         <SharePage
           onStatsPeerConnectionChange={setHostPeerConnection}
           onCaptureFpsChange={setHostCaptureFps}
+          onPeerQualitiesChange={setHostPeerQualities}
           onSharingModeChange={setHostSharingMode}
         />
       )
@@ -533,6 +539,7 @@ function RoomPage() {
         }
         peerConnection={hostPeerConnection}
         captureFps={hostCaptureFps}
+        peerQualities={hostPeerQualities}
         sharingMode={hostSharingMode}
         controls={controls}
         controlLabels={controlLabels}

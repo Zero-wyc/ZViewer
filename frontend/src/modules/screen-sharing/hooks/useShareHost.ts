@@ -12,6 +12,7 @@ import { ShareHostSession, type HostSessionState } from '../core/host-session'
 import { captureCamera, captureDisplay } from '../core/capture'
 import { profileFromSettings, type QualityProfile } from '../core/quality'
 import type { WebrtcShareMediaSettings } from '../utils/mediaSettingsStorage'
+import type { PeerQualityView } from '../core/peer-quality'
 
 export interface UseShareHostOptions {
   socket: Socket | null
@@ -32,6 +33,8 @@ export interface UseShareHostResult {
   peerCount: number
   /** 快照里的观众数（不一定已经有连接）。 */
   viewerCount: number
+  /** 每条观众连接的质量（房主侧本地采样）。 */
+  peerQualities: PeerQualityView[]
   /** 供统计面板读数的连接（第一条发布端）。 */
   statsPeerConnection: RTCPeerConnection | null
   /** 媒体走向：经服务端 SFU 转发，还是浏览器直连。 */
@@ -83,6 +86,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     viewers: 0,
     relay: false,
     parameterOverride: null,
+    peerQualities: [],
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -232,6 +236,7 @@ export function useShareHost(options: UseShareHostOptions): UseShareHostResult {
     paused: state.paused,
     peerCount: state.peers,
     viewerCount: state.viewers,
+    peerQualities: state.peerQualities,
     statsPeerConnection,
     sharingMode: state.relay ? 'relay' : 'direct',
     parameterOverride: state.parameterOverride,

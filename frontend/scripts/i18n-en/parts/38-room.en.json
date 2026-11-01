@@ -1,5 +1,11 @@
 {
   "items": [
+    "Buffering the video",
+    "Restoring the room...",
+    "Getting the {{label}} direct link...",
+    "Joining the room…",
+    "Resolving {{label}} items...",
+    "Resolving {{label}} files...",
     "Resolving FTP files...",
     "Resolving P{{page}} {{part}}...",
     "Resolving episode 1 of “{{name}}” ({{length}} in total)...",

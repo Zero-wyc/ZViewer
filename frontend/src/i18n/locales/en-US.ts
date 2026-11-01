@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2624 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2630 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1872,7 +1872,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（423 条） =====
+  // ===== modules/room（429 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1898,6 +1898,7 @@ const enUS: Record<string, string> = {
   '本次会话 · HTTP': 'This session · HTTP',
   '本地代理加载失败': 'Failed to load the local proxy',
   '哔哩哔哩登录二维码': 'Bilibili login QR code',
+  '编码 CPU 受限': 'Encoder CPU limited',
   '编码格式': 'Codec',
   '编码耗时': 'Encode time',
   '编码后发送帧率': 'Encoded frame rate',
@@ -1986,9 +1987,11 @@ const enUS: Record<string, string> = {
   '共享情况': 'Sharing status',
   '关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。': 'Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.',
   '观看请求': 'Watch request',
+  '观众 {{index}}': 'Viewer {{index}}',
   '观众管理': 'Viewers',
   '观众上限': 'Viewer limit',
   '观众上限必须在 1-100 之间': 'The viewer limit must be between 1 and 100',
+  '观众质量': 'Viewer quality',
   '缓冲模式': 'Buffered mode',
   '缓冲模式由房主统一管理': 'Buffered mode is managed by the host',
   '缓冲下载失败': 'Buffered download failed',
@@ -2030,6 +2033,7 @@ const enUS: Record<string, string> = {
   '连接已断开，请刷新页面后重试': 'The connection dropped, refresh the page and retry',
   '连接已关闭': 'Connection closed',
   '连接中': 'Connecting',
+  '良好': 'Good',
   '浏览 {{name}} 媒体库': 'Browse the {{name}} library',
   '浏览服务器文件': 'Browse server files',
   '浏览器实际启用的实现': 'Implementation actually in use',
@@ -2088,6 +2092,7 @@ const enUS: Record<string, string> = {
   '扫码登录 B站': 'Scan to sign in to Bilibili',
   '扫码登录哔哩哔哩': 'Scan to sign in to Bilibili',
   '删除影片失败': 'Failed to delete the movie',
+  '上行带宽受限': 'Uplink bandwidth limited',
   '上行码率': 'Upload bitrate',
   '设置「仅允许CLI模式」失败': 'Failed to set “CLI only”',
   '设置后，观众加入需输入密码。root 账户无需密码。': 'Once set, viewers need the password to join. The root account does not.',
@@ -2154,6 +2159,7 @@ const enUS: Record<string, string> = {
   '选择来源并添加': 'Choose a source and add',
   '选择清晰度': 'Select a quality',
   '选择一种共享方案，邀请其他人加入': 'Choose a sharing option and invite others',
+  '延迟 {{value}}': 'Latency {{value}}',
   '一键清除': 'Clear all',
   '一起看': 'Watch together',
   '移出房间': 'Remove from room',

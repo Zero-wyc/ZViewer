@@ -25,6 +25,7 @@
     "This session · HTTP",
     "Failed to load the local proxy",
     "Bilibili login QR code",
+    "Encoder CPU limited",
     "Codec",
     "Encode time",
     "Encoded frame rate",
@@ -113,12 +114,11 @@
     "Sharing status",
     "Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.",
     "Watch request",
+    "Viewer {{index}}",
     "Viewers",
     "Viewer limit",
     "The viewer limit must be between 1 and 100",
-    "Buffered mode",
-    "Buffered mode is managed by the host",
-    "Buffered download failed",
-    "Buffered download failed, try again"
+    "Viewer quality",
+    "Buffered mode"
   ]
 }

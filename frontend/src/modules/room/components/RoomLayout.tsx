@@ -23,6 +23,7 @@ import {
   onFullscreenChange,
 } from '@/lib/fullscreen-utils'
 import type { SharingMode } from '@/modules/screen-sharing/hooks/useConnectionStats'
+import type { PeerQualityView } from '@/modules/screen-sharing/core/peer-quality'
 import { MODE_LABELS, MODE_ORDER } from './useRoomModeSwitch'
 import { t } from '@/i18n'
 
@@ -46,6 +47,8 @@ interface RoomLayoutProps {
   peerConnection?: RTCPeerConnection | null
   /** 采集实测帧率（发送端，来自 WebrtcSharePage 帧率计；无观众时也有值） */
   captureFps?: number | null
+  /** 房主侧每条观众连接的质量（观众不需要上报，见 core/peer-quality）。 */
+  peerQualities?: PeerQualityView[]
   /** 共享角色：发送端 / 接收端 */
   sharingRole?: 'sender' | 'receiver'
   /** 共享模式标签，默认服务器中转 */
@@ -121,6 +124,7 @@ export function RoomLayout({
   controlLabels,
   peerConnection = null,
   captureFps = null,
+  peerQualities,
   sharingRole = 'sender',
   sharingMode = 'direct',
   sharingActive,
@@ -172,6 +176,7 @@ export function RoomLayout({
       captureFps={captureFps}
       mode={sharingRole}
       sharingMode={sharingMode}
+      peerQualities={peerQualities}
     />
   ) : (
     rightPanel

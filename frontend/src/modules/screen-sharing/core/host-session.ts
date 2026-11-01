@@ -25,6 +25,7 @@ import {
 import { HostPeer, type HostPeerSnapshot } from './host-peer'
 import { VP8_ONLY_VIDEO_CODEC } from './video-codec'
 import { qualityNeedsCaptureUpdate, type QualityProfile } from './quality'
+import { peerQualityEqual, type PeerQualityView } from './peer-quality'
 import { relayMediaDeclaration } from './relay-media'
 import { ShareClient } from './share-client'
 
@@ -47,6 +48,11 @@ export interface HostSessionState {
   parameterOverride: string[] | null
   audioAvailable: boolean
   microphoneEnabled: boolean
+  /**
+   * 每条观众连接的质量（房主侧本地算出，观众不需要上报）。
+   * 只保留最近一次采样，供面板展示「谁在卡」。
+   */
+  peerQualities: PeerQualityView[]
   /** 语义错误码，不是展示文案。 */
   error: string | null
 }
@@ -106,6 +112,7 @@ export class ShareHostSession {
     viewers: 0,
     relay: false,
     parameterOverride: null,
+    peerQualities: [],
     audioAvailable: false,
     microphoneEnabled: false,
     error: null,
@@ -457,6 +464,7 @@ export class ShareHostSession {
                 }),
         onUpdate: (snapshot) => {
           this.recordParameterOverride(snapshot)
+          this.recordPeerQuality(snapshot)
           this.options.onPeerUpdate?.(snapshot)
         },
         onFailed: () => {
@@ -593,6 +601,38 @@ export class ShareHostSession {
     this.patch({ parameterOverride: next })
   }
 
+  /**
+   * 把某条连接的最新质量写进 state。
+   *
+   * 只在「数值真的变了」时 patch，否则每 2s 每个观众都会触发一次全量渲染；
+   * 观众数量多时这会把房主页面的帧率拖下来。
+   */
+  private recordPeerQuality(snapshot: HostPeerSnapshot): void {
+    const next: PeerQualityView = {
+      connectionId: snapshot.connectionId,
+      connectionState: snapshot.connectionState,
+      quality: snapshot.quality,
+    }
+    const existing = this.state.peerQualities
+    const index = existing.findIndex(
+      (item) => item.connectionId === next.connectionId
+    )
+    if (index >= 0) {
+      const previous = existing[index]
+      if (
+        previous.connectionState === next.connectionState &&
+        peerQualityEqual(previous.quality, next.quality)
+      ) {
+        return
+      }
+      const updated = [...existing]
+      updated[index] = next
+      this.patch({ peerQualities: updated })
+      return
+    }
+    this.patch({ peerQualities: [...existing, next] })
+  }
+
   private handleRelay(
     connectionId: string,
     kind: string,
@@ -655,7 +695,12 @@ export class ShareHostSession {
     if (!peer) return
     peer.dispose()
     this.peers.delete(connectionId)
-    this.patch({ peers: this.peers.size })
+    this.patch({
+      peers: this.peers.size,
+      peerQualities: this.state.peerQualities.filter(
+        (item) => item.connectionId !== connectionId
+      ),
+    })
   }
 
   private releaseMedia(): void {
