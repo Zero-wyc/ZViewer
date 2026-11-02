@@ -106,7 +106,7 @@ internal/thirdparty/livekit/sendsidebwe
 |---|---|---|
 | S0 ✅ | vendor 13 个服务端包到 `internal/piik/`，import 重写 | 已完成：`go build ./...` 通过，`internal/piik` 全部测试通过 |
 | S1 ✅ | 用 Piik 的 `signal` 起 `/signal` WebSocket，ZViewer 侧只做房间/身份适配 | 已完成：握手 + `authenticate` → `authenticated`，房主/观众/越权三条路径都有用例 |
-| S2 | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | 引擎已建（`internal/share/piikroute`），**未接线**：等端点拷贝语义确认 |
+| S2 ✅ | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | 已完成：`share.Session` 的直连选路全部走控制器，串行铺路 / 观众互助 / 候选超时都有用例 |
 | S3 | 用 Piik 的 `room` / `signal` 会话替换 `service.go` / `session.go` | 双端联调：房主开播、观众进房、换父、断线重连 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
@@ -140,33 +140,43 @@ S1 实际落地的东西（`backend-go/internal/share/piikbridge`）：
 
 S1 到 S3 之间任何一步都能停，旧实现继续可用（双跑开关）。
 
-### S2 现状：引擎已验证，接线卡在一个产品语义上
+### S2 落地的东西（`backend-go/internal/share/piikroute`）
 
-`internal/share/piikroute` 已经用 `route.Controller` 跑通 ZViewer 的选路场景
-（4 项用例），但还没有接进 `share.Session`。原因是实测出一个绕不开的差别：
+`share.Session` 不再自己算树：直连模式下每一步「谁挂谁」都由
+`route.Controller` 决定，`Session.routes` 退化成控制器状态的投影——只记
+「我们告诉过客户端什么」（connectionId、阶段、信令往哪转）。中继模式没有
+P2P 拓扑，仍走原来的整场扇出。
 
-**Piik 每个端点的直连拷贝数上限是 3**（`protocol.MaxEndpointMediaCopyCapacity`，
-控制器 `effectiveCapacity` 直接 clamp）。实测：
+默认参数 `HostChildren=3 / ViewerChildren=2 / MaxDepth=3`：20 人的满房刚好
+铺满（房主 3 + 第二层 6 + 第三层 12）。`SHARE_TREE_*` 可覆盖。
 
-| 场景 | 结果 |
-|---|---|
-| 单层星形（`MaxDepth=1`，20 位观众） | 只有 2 位挂上，其余没有上游 |
-| 树形（`HostChildren=3, ViewerChildren=3, MaxDepth=4`，20 位观众） | 20 位全部挂上，房主直连 2 条 |
+接线时定下的三件事：
 
-也就是说 ZViewer 现在的默认策略（`HostChildren=0` 不限、观众不当父节点）在
-Piik 的模型里**不存在**：房主直连超过 3 人就必须靠观众互助或 SFU。
+1. **接受串行铺路**。控制器一次只开一条候选，后面的人等前面那位结算。
+   好处是每个端点的直连拷贝数天然不超预算（协议上限 3），坏处是房间刚开
+   时观众是排队上屏的。为此给会话加了候选超时：一条候选 8 秒不回报就作废
+   并推下一位，否则一个人卡住会冻住整屋。
+2. **不超额**。没有可用上游时不再让房主硬扛，控制器的候选列表空了就报
+   `route-exhausted`。树上腾出位置后（有人离开、或某位观众出首帧），下一轮
+   调度会重新给这个观众发候选，客户端从失败态自动恢复。
+3. **深度用容量表达**。Piik 的控制器只有深度排序，没有 `MaxDepth` 闸门。
+   实现在调用方：深度到顶的观众，其 `EffectiveDownstreamCapacity` 置 0。
 
-连带的三处行为差别：
+其余接线细节：
 
-1. **串行铺路**：控制器一次只允许一个在途操作，第 3 位观众要等前两位之一提交。
-   ZViewer 现在是「缺几条就同时发几条」。
-2. **不超额**：没有可用上游时控制器让观众等着（Piik 会转 SFU），
-   ZViewer 现在是「宁可让房主超额，也不让观众没画面」。
-3. **深度不是硬上限**：Piik 只有深度排序，没有 `MaxDepth` 这种闸门；
-   现在的做法是「超过 MaxDepth 就把该节点的下游容量设为 0」来模拟。
+- 端点拷贝预算传协议上限 3（`MaxEndpointMediaCopyCapacity`），否则
+  `effectiveCapacity` 会把 `HostChildren=3` clamp 成 2。
+- 参与者按入座顺序登记进控制器（`joinOrder`）。控制器按 join order 决定
+  先服务谁，遍历 map 的随机顺序会让同一房间每次分配的树都不一样。
+- 候选的结算栅栏只看 `connectionId`，不看 revision：revision 是会话级的，
+  串行调度下每开一条边就要刷新一次在途候选的版本，反而容易把合法的
+  route-ready 挡在栅栏外。connectionId 是每轮新铸的，粒度更细。
+- `share.restart{rebuild=true}` 映射成一次候选失败（换上游）；`rebuild=false`
+  保留连接身份，交给客户端做 ICE restart。
 
-所以接线前要定的是策略而不是代码：默认树形参数取多少、超额时是等还是降级到
-中继。这两条定下来，`Session` / `Service` 的改造才有唯一答案。
+**天花板**：树容量是 21 人。超过的房间在第 22 位观众加入时必然报
+`route-exhausted`——要覆盖更多人就调 `SHARE_TREE_VIEWER_CHILDREN`，或者
+整场切到中继。
 
 ## 5. 如果走 B：最小可用链路
 
@@ -180,7 +190,7 @@ Piik 的模型里**不存在**：房主直连超过 3 人就必须靠观众互�
 
 - 走 A（已定：S0/S1 按 A 推进）。
 - 信令通道（已定：新增 `/signal` 端点，不往 socket.io 里塞 Piik 帧）。
-- S2 起要回答的：
+- S3 起要回答的：
   - Piik 的 `room.Store` 当前是纯内存，ZViewer 重启后所有映射失效。是否接
     `room.NewDatabase`（另开一个 SQLite 文件），还是接受「重启即重新开播」。
   - ZViewer 房间容量上限（`maxViewers` 可配）与 Piik 的 20 人协议常量冲突，

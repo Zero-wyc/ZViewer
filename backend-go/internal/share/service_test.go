@@ -3,7 +3,9 @@ package share
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"testing"
+	"time"
 )
 
 // emitted 是一条被记录的出站消息。
@@ -54,6 +56,45 @@ func decodeFrame(t *testing.T, frame []byte) map[string]any {
 	return message
 }
 
+// fakeTimers 收集会话排的候选超时，由测试显式触发。
+//
+// 真实定时器会让用例依赖墙钟；这里只留回调，何时「到点」由用例决定。
+type fakeTimers struct {
+	mu      sync.Mutex
+	pending []func()
+	now     int64
+}
+
+func newFakeTimers() *fakeTimers {
+	return &fakeTimers{now: time.Now().UnixMilli()}
+}
+
+func (f *fakeTimers) AfterFunc(_ time.Duration, callback func()) func() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pending = append(f.pending, callback)
+	return func() {}
+}
+
+// Now 是注入给选路引擎的时钟。
+func (f *fakeTimers) Now() int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.now
+}
+
+// Fire 把时钟推过候选超时，再触发所有还在排队的回调。
+func (f *fakeTimers) Fire() {
+	f.mu.Lock()
+	f.now += 30_000
+	pending := f.pending
+	f.pending = nil
+	f.mu.Unlock()
+	for _, callback := range pending {
+		callback()
+	}
+}
+
 // newTestService 构造一个带假 Hub 的服务。hosts 决定哪些 socket 是房主。
 func newTestService(hosts ...string) (*Service, *fakeHub) {
 	hub := &fakeHub{}
@@ -61,6 +102,7 @@ func newTestService(hosts ...string) (*Service, *fakeHub) {
 	for _, id := range hosts {
 		hostSet[id] = struct{}{}
 	}
+	timers := newFakeTimers()
 	service := NewService(Deps{
 		Hub: hub,
 		IsHost: func(_ context.Context, socketID, _ string) (bool, error) {
@@ -68,6 +110,9 @@ func newTestService(hosts ...string) (*Service, *fakeHub) {
 			return ok, nil
 		},
 		DisplayName: func(socketID string) string { return "名字:" + socketID },
+		AfterFunc:   timers.AfterFunc,
+		Clock:       timers.Now,
+		Tree:        DefaultTreePolicy(),
 	})
 	return service, hub
 }

@@ -40,6 +40,10 @@ type Deps struct {
 	Relay *Relay
 	// Tree 是树形拓扑上限（可选）。零值 = 只有房主当上游。
 	Tree TreePolicy
+	// AfterFunc 排候选超时（可选）。nil 时用真实定时器；测试注入假实现。
+	AfterFunc func(time.Duration, func()) func()
+	// Clock 返回当前毫秒时间（可选）。测试注入可控时钟，让「到点」可复现。
+	Clock func() int64
 }
 
 // Service 管理所有房间的共享会话。
@@ -53,6 +57,8 @@ type Service struct {
 	displayName func(socketID string) string
 	relay       *Relay
 	tree        TreePolicy
+	afterFunc   func(time.Duration, func()) func()
+	clock       func() int64
 
 	mu sync.Mutex
 	// sessions 以 roomId 为键。
@@ -79,6 +85,8 @@ func NewService(deps Deps) *Service {
 		displayName:   displayName,
 		relay:         deps.Relay,
 		tree:          deps.Tree,
+		afterFunc:     deps.AfterFunc,
+		clock:         deps.Clock,
 		sessions:      make(map[string]*Session),
 		roomsBySocket: make(map[string]map[string]struct{}),
 	}
@@ -130,6 +138,10 @@ func (s *Service) EnsureSession(roomID string) *Session {
 		// 中继模式与树形上限都是进程级配置，会话一建立就定死，运行期不再改。
 		session.SetRelay(s.relay != nil)
 		session.SetTree(s.tree)
+		// 超时定时器要把推进结果直接发出去：定时器在会话锁外跑，
+		// 没法和 PlanRoutes 的返回值合流。
+		session.SetHooks(s.afterFunc, s.emitPlans)
+		session.clock = s.clock
 		s.sessions[roomID] = session
 	}
 	return session
@@ -153,6 +165,7 @@ func (s *Service) Detach(socketID string) {
 		s.releaseRelayFor(socketID, roomID)
 		snapshot, remaining := session.Leave(socketID)
 		if !remaining {
+			session.Close()
 			s.dropSession(roomID, session)
 			continue
 		}
@@ -172,6 +185,9 @@ func (s *Service) DropRoom(roomID string) {
 	session, ok := s.sessions[roomID]
 	delete(s.sessions, roomID)
 	s.mu.Unlock()
+	if ok && session != nil {
+		session.Close()
+	}
 	if ok && session != nil && s.hub != nil {
 		// 广播一份空快照，让还在房间里的客户端清掉画面。
 		empty := newSession(roomID).Snapshot()
@@ -382,7 +398,11 @@ func (s *Service) handleRestart(conn Conn, message RestartMessage) {
 		s.relay.Restart(message.RoomID, conn.ID, message.ConnectionID)
 		return
 	}
-	s.emitPlans(session.RestartRoute(conn.ID, message.ConnectionID, message.Rebuild))
+	plans, status := session.RestartRoute(conn.ID, message.ConnectionID, message.Rebuild)
+	s.emitPlans(plans)
+	if status != nil {
+		s.emitTo(conn, *status)
+	}
 }
 
 // handleSignal 中继一条 SDP 或 ICE。

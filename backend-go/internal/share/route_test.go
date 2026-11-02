@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strconv"
 	"testing"
+
+	"zviewer/backend/internal/share/piikroute"
 )
 
 // routeFramesTo 取出推给某条连接的全部出站帧。
@@ -49,7 +51,7 @@ func routePayload(t *testing.T, message map[string]any) (float64, string, string
 	return revision, phase, connectionID, childPeerID
 }
 
-// startSharing 让房主开共享，并在返回前把两个观众都 hello 进来。
+// startSharing 让房主开共享，并在返回前把观众都 hello 进来。
 func startSharing(t *testing.T, viewers ...string) (*Service, *fakeHub, Conn) {
 	t.Helper()
 	service, hub := newTestService("host-1")
@@ -62,20 +64,27 @@ func startSharing(t *testing.T, viewers ...string) (*Service, *fakeHub, Conn) {
 	return service, hub, host
 }
 
-// 房主开共享后，每条观众连接各得一条 prepare，房主自己也能收到对应候选。
-func TestStartSharingPreparesOneRoutePerViewer(t *testing.T) {
+// readyViewer 让某位观众提交它当前的候选（等价于「已解出首帧」）。
+func readyViewer(t *testing.T, service *Service, session *Session, viewer string) {
+	t.Helper()
+	route := treeRoute(t, session, viewer)
+	send(t, service, newConn(viewer, "r1"),
+		routeReadyFrame(int(session.Revision()), "prepare", route.ConnectionID))
+}
+
+// 控制器一次只发一条候选：第二个人要等第一个人结算完。
+func TestStartSharingPreparesOneRouteAtATime(t *testing.T) {
 	service, hub, _ := startSharing(t, "viewer-1", "viewer-2")
 
 	session := service.Session("r1")
-	if session.RouteCount() != 2 {
-		t.Fatalf("应有 2 条边，实际 %d", session.RouteCount())
+	if session.RouteCount() != 1 {
+		t.Fatalf("同一时刻只应有一条候选，实际 %d", session.RouteCount())
 	}
 	firstID := session.RouteConnectionID("viewer-1")
-	secondID := session.RouteConnectionID("viewer-2")
-	if firstID == "" || secondID == "" || firstID == secondID {
-		t.Fatalf("connectionId 必须是服务端铸造且互不相同: %q %q", firstID, secondID)
+	if firstID == "" {
+		t.Fatal("viewer-1 应该有候选")
 	}
-	if firstID[:len(connectionIDPrefix)] != connectionIDPrefix {
+	if firstID[:len(piikroute.ConnectionIDPrefix)] != piikroute.ConnectionIDPrefix {
 		t.Fatalf("connectionId 缺少 route_ 前缀: %q", firstID)
 	}
 
@@ -86,30 +95,25 @@ func TestStartSharingPreparesOneRoutePerViewer(t *testing.T) {
 	if connectionID != firstID || childPeerID != "viewer-1" {
 		t.Fatalf("候选身份不对: %q %q", connectionID, childPeerID)
 	}
-	// revision 是单调计数器，具体值不重要，只要求它是正数。
 	if revision <= 0 {
 		t.Fatalf("revision 应为正数: %v", revision)
 	}
+	// 房主也要收到同一条候选（它是上游）。
+	_, _, _, hostChild := routePayload(t, lastRouteTo(t, hub, "host-1"))
+	if hostChild != "viewer-1" {
+		t.Fatalf("房主收到的候选应指向 viewer-1，实际 %q", hostChild)
+	}
 
-	// 房主也必须收到同样两条候选，且 childPeerId 指向观众。
-	hostFrames := routeFramesTo(hub, "host-1")
-	children := make(map[string]struct{}, 2)
-	for _, message := range hostFrames {
-		if message["t"] != TypeRoute {
-			continue
-		}
-		_, _, _, child := routePayload(t, message)
-		children[child] = struct{}{}
+	readyViewer(t, service, session, "viewer-1")
+	if session.RouteConnectionID("viewer-2") == "" {
+		t.Fatal("viewer-1 结算后应轮到 viewer-2")
 	}
-	if _, ok := children["viewer-1"]; !ok {
-		t.Fatal("房主没有收到 viewer-1 的候选")
-	}
-	if _, ok := children["viewer-2"]; !ok {
-		t.Fatal("房主没有收到 viewer-2 的候选")
+	if session.RoutePhase("viewer-2") != PhasePrepare {
+		t.Fatalf("viewer-2 应处于 prepare，实际 %q", session.RoutePhase("viewer-2"))
 	}
 }
 
-// route-ready 必须携带当前 revision，提交后两端收到 active。
+// route-ready 提交后两端收到 active，快照里出现已提交候选。
 func TestRouteReadyCommitsAndNotifiesBothSides(t *testing.T) {
 	service, hub, _ := startSharing(t, "viewer-1")
 	session := service.Session("r1")
@@ -127,54 +131,29 @@ func TestRouteReadyCommitsAndNotifiesBothSides(t *testing.T) {
 	if _, phase, _, _ := routePayload(t, lastRouteTo(t, hub, "viewer-1")); phase != PhaseActive {
 		t.Fatalf("观众应收到 active，实际 %q", phase)
 	}
-	// 快照里出现已提交的 assignment。
 	snapshot := session.Snapshot()
 	if snapshot.Assignment == nil || len(snapshot.Assignment.Candidates) != 1 {
 		t.Fatalf("快照应包含 1 条已提交候选: %+v", snapshot.Assignment)
 	}
 }
 
-// 过期 revision 的 route-ready 必须静默丢弃（不推进状态、不回报错）。
-func TestRouteReadyWithStaleRevisionIsDropped(t *testing.T) {
+// 拿别人的 connectionId 提交必须被丢弃（身份栅栏）。
+func TestRouteReadyWithForeignConnectionIsDropped(t *testing.T) {
 	service, hub, _ := startSharing(t, "viewer-1")
 	session := service.Session("r1")
-	connectionID := session.RouteConnectionID("viewer-1")
 	before := len(hub.to)
 
-	send(t, service, newConn("viewer-1", "r1"), routeReadyFrame(999, "prepare", connectionID))
+	send(t, service, newConn("viewer-1", "r1"), routeReadyFrame(1, "prepare", "route_not-mine"))
 
 	if session.RoutePhase("viewer-1") != PhasePrepare {
-		t.Fatal("过期 revision 不应提交")
+		t.Fatal("不存在的连接身份不应提交")
 	}
 	if len(hub.to) != before {
-		t.Fatalf("过期 revision 不应产生出站消息，多出 %d 条", len(hub.to)-before)
+		t.Fatalf("无效提交不应产生出站消息，多出 %d 条", len(hub.to)-before)
 	}
 }
 
-// 第一个观众提交会推进 revision，第二个观众的 prepare 必须被刷新到新版本，
-// 否则它的 route-ready 永远被挡在栅栏外。
-func TestCommitRefreshesOtherPendingRoutes(t *testing.T) {
-	service, hub, _ := startSharing(t, "viewer-1", "viewer-2")
-	session := service.Session("r1")
-	firstID := session.RouteConnectionID("viewer-1")
-	firstRevision, _, _, _ := routePayload(t, lastRouteTo(t, hub, "viewer-1"))
-
-	send(t, service, newConn("viewer-1", "r1"), routeReadyFrame(int(firstRevision), "prepare", firstID))
-
-	secondRevision, phase, secondID, _ := routePayload(t, lastRouteTo(t, hub, "viewer-2"))
-	if phase != PhasePrepare {
-		t.Fatalf("第二条边仍应是 prepare，实际 %q", phase)
-	}
-	if secondRevision <= firstRevision {
-		t.Fatalf("刷新后 revision 应更大: %v <= %v", secondRevision, firstRevision)
-	}
-	send(t, service, newConn("viewer-2", "r1"), routeReadyFrame(int(secondRevision), "prepare", secondID))
-	if session.RoutePhase("viewer-2") != PhaseActive {
-		t.Fatal("刷新后的第二条边应能提交")
-	}
-}
-
-// offer 只能房主发，answer 只能观众发；串了角色一律丢弃。
+// offer 只能上游发，answer 只能下游发；串了角色一律丢弃。
 func TestSignalForwardingHonoursRoles(t *testing.T) {
 	service, hub, host := startSharing(t, "viewer-1")
 	connectionID := service.Session("r1").RouteConnectionID("viewer-1")
@@ -196,7 +175,6 @@ func TestSignalForwardingHonoursRoles(t *testing.T) {
 	}
 
 	before := len(hub.to)
-	// 观众发 offer → 丢弃；房主发 answer → 丢弃。
 	send(t, service, viewer, signalFrame("offer", connectionID, `{"sdp":"viewer-offer"}`))
 	send(t, service, host, signalFrame("answer", connectionID, `{"sdp":"host-answer"}`))
 	if len(hub.to) != before {
@@ -216,37 +194,56 @@ func TestSignalWithForeignConnectionIsDropped(t *testing.T) {
 	}
 }
 
-// 失败一次换新 connectionId；用完次数回报 route-exhausted。
-func TestRouteFailureReplacesConnectionThenExhausts(t *testing.T) {
+// 一条候选失败就换下一个上游；换完没有可选才放弃。
+func TestRouteFailureMovesToAnotherParent(t *testing.T) {
+	service, hub, _ := startSharing(t, "viewer-1", "viewer-2")
+	session := service.Session("r1")
+	readyViewer(t, service, session, "viewer-1")
+
+	if parent := treeRoute(t, session, "viewer-1").ParentPeerID; parent != "host-1" {
+		t.Fatalf("前置条件不成立：viewer-1 应挂在房主上，实际 %q", parent)
+	}
+	second := treeRoute(t, session, "viewer-2")
+	if second.ParentPeerID != "host-1" {
+		t.Fatalf("前置条件不成立：viewer-2 应先在房主上，实际 %q", second.ParentPeerID)
+	}
+
+	send(t, service, newConn("viewer-2", "r1"),
+		routeFailedFrame(int(session.Revision()), second.ConnectionID))
+
+	replaced := treeRoute(t, session, "viewer-2")
+	if replaced.ConnectionID == second.ConnectionID {
+		t.Fatal("失败后必须换一个新的 connectionId")
+	}
+	if replaced.ParentPeerID != "viewer-1" {
+		t.Fatalf("应换到另一位已出首帧的观众，实际 %q", replaced.ParentPeerID)
+	}
+	if last := lastServerMessage(t, hub.to); last["t"] == TypeStatus {
+		t.Fatalf("还有可选上游时不应报失败: %v", last)
+	}
+}
+
+// 没有任何可选上游时回报 route-exhausted，并把这条边撤掉。
+func TestRouteFailureExhaustsWithoutAlternative(t *testing.T) {
 	service, hub, _ := startSharing(t, "viewer-1")
 	session := service.Session("r1")
 	connectionID := session.RouteConnectionID("viewer-1")
-	revision, _, _, _ := routePayload(t, lastRouteTo(t, hub, "viewer-1"))
 
-	send(t, service, newConn("viewer-1", "r1"), routeFailedFrame(int(revision), connectionID))
-	if replaced := session.RouteConnectionID("viewer-1"); replaced == connectionID || replaced == "" {
-		t.Fatalf("失败后应换新 connectionId: %q", replaced)
-	}
-	_, phase, _, _ := routePayload(t, lastRouteTo(t, hub, "viewer-1"))
-	if phase != PhasePrepare {
-		t.Fatalf("重试应回到 prepare，实际 %q", phase)
-	}
+	send(t, service, newConn("viewer-1", "r1"),
+		routeFailedFrame(int(session.Revision()), connectionID))
 
-	for attempt := 1; attempt < MaxRouteAttempts; attempt++ {
-		currentRevision, _, currentID, _ := routePayload(t, lastRouteTo(t, hub, "viewer-1"))
-		send(t, service, newConn("viewer-1", "r1"), routeFailedFrame(int(currentRevision), currentID))
-	}
 	if session.RouteCount() != 0 {
-		t.Fatalf("失败次数用完后应放弃这条边，实际仍有 %d 条", session.RouteCount())
+		t.Fatalf("没有别的上游时应撤掉这条边，实际仍有 %d 条", session.RouteCount())
 	}
-	if last := lastServerMessage(t, hub.to); last["t"] != TypeStatus || last["reason"] != ReasonRouteExhausted {
+	last := lastServerMessage(t, hub.to)
+	if last["t"] != TypeStatus || last["reason"] != ReasonRouteExhausted {
 		t.Fatalf("应回报 route-exhausted，实际 %v", last)
 	}
 }
 
-// restart:rebuild=false 保留身份，rebuild=true 换身份。
+// restart:rebuild=false 保留身份，rebuild=true 重新选路。
 func TestRestartKeepsOrReplacesConnection(t *testing.T) {
-	service, hub, _ := startSharing(t, "viewer-1")
+	service, hub, _ := startSharing(t, "viewer-1", "viewer-2")
 	session := service.Session("r1")
 	connectionID := session.RouteConnectionID("viewer-1")
 	viewer := newConn("viewer-1", "r1")
@@ -259,20 +256,29 @@ func TestRestartKeepsOrReplacesConnection(t *testing.T) {
 		t.Fatal("恢复应回到 prepare")
 	}
 
-	send(t, service, viewer, `{"t":"share.restart","roomId":"r1","connectionId":"`+connectionID+`","rebuild":true}`)
-	if session.RouteConnectionID("viewer-1") == connectionID {
+	readyViewer(t, service, session, "viewer-1")
+	// 让 viewer-2 拿到候选，再让它重建：换上游必然换身份。
+	second := treeRoute(t, session, "viewer-2")
+	send(t, service, newConn("viewer-2", "r1"),
+		`{"t":"share.restart","roomId":"r1","connectionId":"`+second.ConnectionID+`","rebuild":true}`)
+
+	replaced := treeRoute(t, session, "viewer-2")
+	if replaced.ConnectionID == second.ConnectionID {
 		t.Fatal("rebuild=true 应换新 connectionId")
 	}
 }
 
-// 观众断线要拆掉它自己的边，房主断线要拆掉全部。
+// 观众断线拆掉自己的边，房主断线拆掉全部。
 func TestLeaveDropsRoutes(t *testing.T) {
 	service, _, _ := startSharing(t, "viewer-1", "viewer-2")
 	session := service.Session("r1")
 
 	service.Detach("viewer-1")
-	if session.RouteCount() != 1 {
-		t.Fatalf("观众断线应只拆自己那条，剩余 %d", session.RouteCount())
+	if hasRoute(session, "viewer-1") {
+		t.Fatal("断线的观众不该还留着上游边")
+	}
+	if !hasRoute(session, "viewer-2") {
+		t.Fatal("腾出位置后，排队的观众应立刻拿到候选")
 	}
 	service.Detach("host-1")
 	if session.RouteCount() != 0 {
@@ -280,14 +286,17 @@ func TestLeaveDropsRoutes(t *testing.T) {
 	}
 }
 
-// 观众在共享中途 hello 进来，必须立刻收到候选，不用等房主重开。
+// 观众在共享中途 hello 进来，只要队列空着就立刻收到候选。
 func TestLateViewerGetsCandidateImmediately(t *testing.T) {
 	service, hub, _ := startSharing(t, "viewer-1")
+	session := service.Session("r1")
+	readyViewer(t, service, session, "viewer-1")
+
 	send(t, service, newConn("viewer-2", "r1"), `{"t":"share.hello","roomId":"r1"}`)
 
-	_, phase, connectionID, childPeerID := routePayload(t, lastRouteTo(t, hub, "viewer-2"))
-	if phase != PhasePrepare || connectionID == "" || childPeerID != "viewer-2" {
-		t.Fatalf("迟到观众应立刻拿到候选: %q %q %q", phase, connectionID, childPeerID)
+	_, phase, connectionID, _ := routePayload(t, lastRouteTo(t, hub, "viewer-2"))
+	if phase != PhasePrepare || connectionID == "" {
+		t.Fatalf("迟到观众应拿到候选: %q %q", phase, connectionID)
 	}
 }
 

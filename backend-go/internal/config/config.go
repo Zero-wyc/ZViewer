@@ -64,10 +64,10 @@ type Config struct {
 	ShareRelay bool
 	// ShareTree* 是屏幕共享的树形拓扑上限（Piik 的「观众互助」）。
 	//
-	// 三个都是 0/1 的默认值 = 单层星形：所有观众都直连房主。只有显式把
-	// `SHARE_TREE_VIEWER_CHILDREN` 调到 >0，观众才会被当成可用的上游。
-	// 房主出网 = 它的子节点数，所以瓶颈房间里把 HostChildren 调到 2~3、
-	// ViewerChildren 调到 2，能把房主上行摊到观众身上。
+	// 默认 3/2/3：房主直连 3 人，出首帧的观众各自再带 2 人，最多 3 层。
+	// 20 人的满房刚好铺满（3 + 6 + 12）。房主出网 = 它的子节点数，所以
+	// 上行吃紧的房间里把 HostChildren 调小、ViewerChildren 调大更划算。
+	// ViewerChildren 为 0 时退化成单层星形：所有观众直连房主。
 	ShareTreeHostChildren   int
 	ShareTreeViewerChildren int
 	ShareTreeMaxDepth       int
@@ -129,9 +129,9 @@ func Load() (*Config, error) {
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 
 		ShareRelay:              envBool("SHARE_RELAY"),
-		ShareTreeHostChildren:   envInt("SHARE_TREE_HOST_CHILDREN", 0),
-		ShareTreeViewerChildren: envInt("SHARE_TREE_VIEWER_CHILDREN", 0),
-		ShareTreeMaxDepth:       envInt("SHARE_TREE_MAX_DEPTH", 1),
+		ShareTreeHostChildren:   envInt("SHARE_TREE_HOST_CHILDREN", 3),
+		ShareTreeViewerChildren: envInt("SHARE_TREE_VIEWER_CHILDREN", 2),
+		ShareTreeMaxDepth:       envInt("SHARE_TREE_MAX_DEPTH", 3),
 		ShareMediaPort:          3333,
 		ShareMediaTCPPort:       mediaTCPFallbackPort,
 		ShareMediaPublicIP:      strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
