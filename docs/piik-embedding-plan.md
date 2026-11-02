@@ -106,7 +106,7 @@ internal/thirdparty/livekit/sendsidebwe
 |---|---|---|
 | S0 ✅ | vendor 13 个服务端包到 `internal/piik/`，import 重写 | 已完成：`go build ./...` 通过，`internal/piik` 全部测试通过 |
 | S1 ✅ | 用 Piik 的 `signal` 起 `/signal` WebSocket，ZViewer 侧只做房间/身份适配 | 已完成：握手 + `authenticate` → `authenticated`，房主/观众/越权三条路径都有用例 |
-| S2 | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | `route` 包测试 + ZViewer 现有 `tree_test.go` 等价用例通过 |
+| S2 | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | 引擎已建（`internal/share/piikroute`），**未接线**：等端点拷贝语义确认 |
 | S3 | 用 Piik 的 `room` / `signal` 会话替换 `service.go` / `session.go` | 双端联调：房主开播、观众进房、换父、断线重连 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
@@ -139,6 +139,34 @@ S1 实际落地的东西（`backend-go/internal/share/piikbridge`）：
   ZViewer 侧不再额外收紧；超过 20 的房间在 S3 需要分层或换成 SFU 模式。
 
 S1 到 S3 之间任何一步都能停，旧实现继续可用（双跑开关）。
+
+### S2 现状：引擎已验证，接线卡在一个产品语义上
+
+`internal/share/piikroute` 已经用 `route.Controller` 跑通 ZViewer 的选路场景
+（4 项用例），但还没有接进 `share.Session`。原因是实测出一个绕不开的差别：
+
+**Piik 每个端点的直连拷贝数上限是 3**（`protocol.MaxEndpointMediaCopyCapacity`，
+控制器 `effectiveCapacity` 直接 clamp）。实测：
+
+| 场景 | 结果 |
+|---|---|
+| 单层星形（`MaxDepth=1`，20 位观众） | 只有 2 位挂上，其余没有上游 |
+| 树形（`HostChildren=3, ViewerChildren=3, MaxDepth=4`，20 位观众） | 20 位全部挂上，房主直连 2 条 |
+
+也就是说 ZViewer 现在的默认策略（`HostChildren=0` 不限、观众不当父节点）在
+Piik 的模型里**不存在**：房主直连超过 3 人就必须靠观众互助或 SFU。
+
+连带的三处行为差别：
+
+1. **串行铺路**：控制器一次只允许一个在途操作，第 3 位观众要等前两位之一提交。
+   ZViewer 现在是「缺几条就同时发几条」。
+2. **不超额**：没有可用上游时控制器让观众等着（Piik 会转 SFU），
+   ZViewer 现在是「宁可让房主超额，也不让观众没画面」。
+3. **深度不是硬上限**：Piik 只有深度排序，没有 `MaxDepth` 这种闸门；
+   现在的做法是「超过 MaxDepth 就把该节点的下游容量设为 0」来模拟。
+
+所以接线前要定的是策略而不是代码：默认树形参数取多少、超额时是等还是降级到
+中继。这两条定下来，`Session` / `Service` 的改造才有唯一答案。
 
 ## 5. 如果走 B：最小可用链路
 
