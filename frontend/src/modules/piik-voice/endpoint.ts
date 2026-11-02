@@ -62,6 +62,9 @@ export class VoiceEndpoint {
   private state: PiikVoiceState | null = null
   private peerId = ''
   private generation = 0
+  /** 最近一次 reconcile 传入的音轨解析器，应答方协商时也要用。 */
+  private sourceTrack: (publicationId: string) => MediaStreamTrack | undefined =
+    () => undefined
 
   constructor(iceConfig: PiikIceConfig, handlers: EndpointHandlers) {
     this.iceConfig = iceConfig
@@ -493,6 +496,10 @@ export class VoiceEndpoint {
     if (offer) {
       connection.requested = false
       connection.dirty = false
+      // 应答方也要把自己要发的轨挂上：观众的麦克风正是通过这条 answer
+      // 的 m-line 上行给父节点的。少了这一步，answer 里只会有接收方向，
+      // 表现就是「能听见别人，别人听不见我」。
+      await this.syncSenders(connection, this.sourceTrack)
       const answer = await connection.pc.createAnswer()
       this.sendDescription(
         connection,
