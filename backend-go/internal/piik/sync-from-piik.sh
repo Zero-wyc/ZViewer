@@ -80,6 +80,9 @@ if os.path.exists(recovery):
     os.remove(recovery)
 PY
 
+# ZViewer 侧新增的公开面（上游没有），同步后重新落位。
+cp "$HERE/patch/zbridge_api.go.tmpl" "$HERE/server/signal/zbridge_api.go"
+
 # 上游按自己的模块路径排 import 分组，改写后 gofmt 会要求重排。
 gofmt -w "$HERE"
 

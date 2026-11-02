@@ -146,6 +146,39 @@ func (s *Sessions) CountActiveByRoomRole(ctx context.Context, roomID, role strin
 	return n, nil
 }
 
+// FindActiveRole 返回某身份在该房间的活跃角色，房主优先于观众，
+// 都不在场时返回空串。
+//
+// 登录用户按 userId、游客按 guestId 区分：游客共享 userId=0，只能靠
+// guestId 定位，否则同一房间的两个游客会互相顶替。多端同时在场时取权限
+// 更高的那个角色——共享信令要按房主发凭证，不能因为另开了一个观众页就降级。
+func (s *Sessions) FindActiveRole(ctx context.Context, roomID string, userID int64, guestID string) (string, error) {
+	var column string
+	var value any
+	switch {
+	case userID > 0:
+		column, value = `"userId"`, userID
+	case guestID != "":
+		column, value = `"guestId"`, guestID
+	default:
+		return "", nil
+	}
+	var role string
+	err := s.conn.QueryRowContext(ctx, `
+		SELECT "role" FROM "session"
+		WHERE "roomId" = ? AND `+column+` = ? AND "endedAt" IS NULL
+		ORDER BY CASE "role" WHEN 'sharer' THEN 0 ELSE 1 END
+		LIMIT 1
+	`, roomID, value).Scan(&role)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("查询房间角色失败: %w", err)
+	}
+	return role, nil
+}
+
 // EndBySocket 结束该 socket 的所有活跃会话，返回受影响行数。
 //
 // Node 侧是 `update({socketId, endedAt: IsNull()}, {endedAt: new Date()})`，

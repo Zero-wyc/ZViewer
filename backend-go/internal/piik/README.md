@@ -24,7 +24,7 @@
 `internal/diagnostics` 与 `internal/thirdparty/livekit/sendsidebwe` 两项 ZViewer
 本来就有且与上游逐字节一致，没有重复收录；import 已指到既有路径。
 
-## 与上游的差异（只有三处，全部是编译或路径原因）
+## 与上游的差异（三处修改 + 一处新增，全部是编译或路径原因）
 
 1. import 路径：`github.com/TNTcraftHIM/Piik/internal/...` →
    `zviewer/backend/internal/piik/...`。
@@ -34,6 +34,10 @@
 3. 删除 `media/forwarding/recovery_test.go`（依赖 `thesyncim/gopus`，
    会把 `go` 指令抬到 1.27）；测试夹具路径从 `../../../tests` 改为
    `../../../../tests`，因为子树多了一层 `piik/`。
+4. 新增 `server/signal/zbridge_api.go`（母本在 `patch/zbridge_api.go.tmpl`）：
+   把「房主凭证校验 / 观众 grant 校验 / 结束房间」三个动作开成方法。
+   上游的 `*room.Store` 只在 `signal.Server.mu` 内安全，桥接层无法自己去碰，
+   所以只能由这一侧开口；不改任何上游函数。
 
 ## 更新上游
 
@@ -41,8 +45,8 @@
 ./internal/piik/sync-from-piik.sh /path/to/Piik <commit>
 ```
 
-脚本会重新拷贝、重写 import、修正夹具路径，然后你可以直接
-`go test ./internal/piik/...` 看是否还对得上。
+脚本会重新拷贝、重写 import、修正夹具路径、落位上面第 4 条的新增文件，
+然后你可以直接 `go test ./internal/piik/...` 看是否还对得上。
 
 ## 注意
 

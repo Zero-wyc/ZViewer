@@ -105,7 +105,7 @@ internal/thirdparty/livekit/sendsidebwe
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | S0 ✅ | vendor 13 个服务端包到 `internal/piik/`，import 重写 | 已完成：`go build ./...` 通过，`internal/piik` 全部测试通过 |
-| S1 | 用 Piik 的 `signal` 起 `/signal` WebSocket，ZViewer 侧只做房间/身份适配 | `/signal` 能握手，hello 换到 snapshot |
+| S1 ✅ | 用 Piik 的 `signal` 起 `/signal` WebSocket，ZViewer 侧只做房间/身份适配 | 已完成：握手 + `authenticate` → `authenticated`，房主/观众/越权三条路径都有用例 |
 | S2 | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | `route` 包测试 + ZViewer 现有 `tree_test.go` 等价用例通过 |
 | S3 | 用 Piik 的 `room` / `signal` 会话替换 `service.go` / `session.go` | 双端联调：房主开播、观众进房、换父、断线重连 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
@@ -116,8 +116,27 @@ S0 实际落地的东西：
 - `backend-go/internal/piik/`：155 个文件、50,543 行（含上游测试），2.1 MB
 - `backend-go/tests/fixtures/wire-samples.json`：Piik 协议样例，`protocol` / `route` 的夹具测试用它
 - `internal/piik/{README.md,LICENSE,sync-from-piik.sh}`：来源、许可、同步脚本（幂等，可重跑）
-- 与上游只有三处差异：import 路径、`AdditionalProbeDemand` 字段、删 `recovery_test.go`
-  （依赖 gopus 会把 `go` 指令抬到 1.27）
+- 与上游三处改动（import 路径、`AdditionalProbeDemand` 字段、删 `recovery_test.go`），
+  另加一处新增：`server/signal/zbridge_api.go` 把「校验房主/观众凭证、结束房间」
+  开成方法，母本在 `internal/piik/patch/`，同步脚本会重新落位
+
+S1 实际落地的东西（`backend-go/internal/share/piikbridge`）：
+
+- `/signal` 端点，挂在 SPA 回退之前。信令本身是 Piik 的 `signal.Server`，
+  内存房间（`room.New`，不另开 SQLite）。
+- 房间映射：`POST /api/share/piik/session` 按当前身份签发凭证。身份取自
+  `session` 表的活跃角色（房主优先于观众），房主拿 `token`，观众拿
+  `viewerGrant`，没进房直接 403。`DELETE` 同路径为房主关房。
+- 站点通行证：Piik 的 site access 换成 10 分钟 HttpOnly cookie
+  （`zv_piik_site`，`Path=/signal`，HMAC 签名）。WebSocket 升级带不了
+  Authorization 头，cookie 是唯一能复述「已通过 ZViewer 鉴权」的通道。
+- Origin：Piik 的允许来源是构造期固定集合，ZViewer 会在 127.0.0.1、内网 IP、
+  反代域名下被访问，没有启动期白名单。判定改在桥接层做（同源 / CORS 白名单 /
+  `*`），命中后把 Origin 规范化再交给 Piik，语义等价。
+- 空房回收靠 Piik 的 10 分钟超时；缓存的 token/grant 每次都先校验，
+  房间被回收后房主拿新房间码、观众收到 409，不会撞到 `INVALID_TOKEN`。
+- 天花板：Piik 单房间观众上限是协议常量 20（`MaxViewersPerRoomLimit`），
+  ZViewer 侧不再额外收紧；超过 20 的房间在 S3 需要分层或换成 SFU 模式。
 
 S1 到 S3 之间任何一步都能停，旧实现继续可用（双跑开关）。
 
@@ -131,7 +150,12 @@ S1 到 S3 之间任何一步都能停，旧实现继续可用（双跑开关）�
 
 ## 6. 待定
 
-- 走 A 还是 B。
-- 若走 A：Piik 的 `/signal` 是独立 WebSocket，ZViewer 现在统一走 socket.io。
-  是新增一个 `/signal` 端点（改动小、隔离好），还是把 Piik 的信令压进
-  socket.io 的 `share` 事件（保持单连接，但要写一层帧转接）。
+- 走 A（已定：S0/S1 按 A 推进）。
+- 信令通道（已定：新增 `/signal` 端点，不往 socket.io 里塞 Piik 帧）。
+- S2 起要回答的：
+  - Piik 的 `room.Store` 当前是纯内存，ZViewer 重启后所有映射失效。是否接
+    `room.NewDatabase`（另开一个 SQLite 文件），还是接受「重启即重新开播」。
+  - ZViewer 房间容量上限（`maxViewers` 可配）与 Piik 的 20 人协议常量冲突，
+    超过 20 人的房间要么分片、要么强制走 SFU 模式。
+  - 房间删除/关闭目前只靠空房超时回收，`room.Service` 里没有可订阅的关闭事件；
+    S3 接房间生命周期时补一个显式 `Release`。

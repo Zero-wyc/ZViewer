@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -38,6 +39,7 @@ import (
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/share"
+	"zviewer/backend/internal/share/piikbridge"
 	"zviewer/backend/internal/share/sfu"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/ssl"
@@ -296,6 +298,20 @@ func main() {
 		VoiceRTC: voiceRTC,
 	})
 
+	// Piik 信令桥接层：屏幕共享最终要由 Piik 的 /signal 承载，这里先只起信令。
+	// 起不来不致命——旧的 socket.io 共享链路完全不受影响，只是 /signal 报 503。
+	var piikShare *piikbridge.Bridge
+	if bridge, bridgeErr := piikbridge.New(piikbridge.Options{
+		PublicBaseURL:   &url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", strconv.Itoa(cfg.Port))},
+		AllowedOrigins:  cfg.CORS.Origins,
+		AllowAllOrigins: cfg.CORS.AllowAll,
+	}); bridgeErr != nil {
+		log.Printf("[piik] 信令桥接未启用: %v", bridgeErr)
+	} else {
+		piikShare = bridge
+		log.Printf("[piik] 信令已挂载 %s（房间映射：一个 ZViewer 房间一个 Piik 房间码）", piikbridge.SignalPath)
+	}
+
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
 	streamResolver := proxy.NewStreamResolver(movies, rooms, mounts)
 	// 同一个 B站 服务实例同时给 API 与动漫源（B站番剧源）用：
@@ -304,24 +320,26 @@ func main() {
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
 	server := api.New(api.Deps{
-		Cfg:      cfg,
-		DB:       conn,
-		Users:    users,
-		Settings: settings,
-		Audit:    audit,
-		Movies:   movies,
-		Rooms:    rooms,
-		Mounts:   mounts,
-		Tracks:   tracks,
-		Metas:    metas,
-		Stream:   streamResolver,
-		OpenList: openlist.NewClient(),
-		Tokens:   tokens,
-		Auth:     auth.NewAuthenticator(tokens, users),
-		Bilibili: biliService,
-		Bus:      hub,
-		RoomSvc:  roomSvc,
-		Socket:   socketSrv,
+		Cfg:       cfg,
+		DB:        conn,
+		Users:     users,
+		Settings:  settings,
+		Audit:     audit,
+		Movies:    movies,
+		Rooms:     rooms,
+		Mounts:    mounts,
+		Tracks:    tracks,
+		Metas:     metas,
+		Stream:    streamResolver,
+		OpenList:  openlist.NewClient(),
+		Tokens:    tokens,
+		Auth:      auth.NewAuthenticator(tokens, users),
+		Bilibili:  biliService,
+		Bus:       hub,
+		RoomSvc:   roomSvc,
+		Socket:    socketSrv,
+		Sessions:  sessions,
+		PiikShare: piikShare,
 
 		ServerFolders: serverFolders,
 		Files:         filesRegistry,
@@ -420,6 +438,11 @@ func main() {
 	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)
 	musicMemory.FlushAllDirty(ctx)
+
+	if piikShare != nil {
+		// 先让 /signal 上的会话收到 1012，再关 HTTP：反过来的话客户端只会看到连接被重置。
+		_ = piikShare.Close(ctx)
+	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[shutdown] 强制关闭: %v", err)
