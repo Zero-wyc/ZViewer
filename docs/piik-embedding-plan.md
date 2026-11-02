@@ -107,7 +107,8 @@ internal/thirdparty/livekit/sendsidebwe
 | S0 ✅ | vendor 13 个服务端包到 `internal/piik/`，import 重写 | 已完成：`go build ./...` 通过，`internal/piik` 全部测试通过 |
 | S1 ✅ | 用 Piik 的 `signal` 起 `/signal` WebSocket，ZViewer 侧只做房间/身份适配 | 已完成：握手 + `authenticate` → `authenticated`，房主/观众/越权三条路径都有用例 |
 | S2 ✅ | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | 已完成：`share.Session` 的直连选路全部走控制器，串行铺路 / 观众互助 / 候选超时都有用例 |
-| S3 | 用 Piik 的 `room` / `signal` 会话替换 `service.go` / `session.go` | 双端联调：房主开播、观众进房、换父、断线重连 |
+| S3a ✅ | 语音链路改由 Piik 的 `room-voice-*` 承载（服务端本就内建，本次补客户端） | 已完成：房主进语音/发布、观众等待、边下发三条路径都有服务端用例；前端按同一份授权建多连接 P2P |
+| S3b | 用 Piik 的 `room` / `signal` 会话替换共享的 `service.go` / `session.go` | 双端联调：房主开播、观众进房、换父、断线重连 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
 
@@ -178,6 +179,43 @@ P2P 拓扑，仍走原来的整场扇出。
 `route-exhausted`——要覆盖更多人就调 `SHARE_TREE_VIEWER_CHILDREN`，或者
 整场切到中继。
 
+### S3a 落地的东西（语音）
+
+Piik 的语音实现（`server/signal/voice*.go`，1060 行）随 S0 一起进了子树，
+本阶段只是把它接出来：
+
+- **凭证**：`POST /api/voice/piik/session`，与共享用同一间 Piik 房间。分开
+  成两个端点只因失败语义不同（共享是「房主还没开播」，语音是「房主还没进
+  语音」）。
+- **拓扑**：语音复用共享的那棵 route 树——`room-voice-state.connections`
+  就是控制器快照里的边。中间节点收到上游音频后原样转给下游，服务端不复制
+  媒体。
+- **房主是树根**：`roomVoice.enabled()` 要求房主已 join，房主不进语音时
+  其他人会收到 `not-enabled`。这是 Piik 的产品语义，没有绕过。
+- **端点拷贝预算**调成协议上限 3（原来是默认的 2）：语音的中间节点要多占
+  一条上游边，2 条下游撑不满 20 人的房间。
+
+前端新增 `modules/piik-voice`（约 900 行）：
+
+| 文件 | 职责 |
+|---|---|
+| `protocol.ts` | 线上形状与判定（谁是 offerer、边是否属于我、publication 归属） |
+| `signal.ts` | `/signal` 的最小客户端：换凭证、握手、重连、分发 |
+| `endpoint.ts` | 一连接一 PC，按 `send`/`receive` 挂轨，中间节点做转发 |
+| `usePiikVoice.ts` | 实现 `VoiceChatController`，与 SFU 版共用面板 |
+
+选择哪条链路由 `/api/voice/status` 的 `backend` 决定，两条实现都挂着，
+未被选中的那条靠 `enabled=false` 空转（React 要求 hook 序列稳定）。
+
+**能力缺口**（Piik 的语音命令只能作用于本人）：
+
+- 房主不能禁言他人，也不能把成员移出语音。面板上「禁言」退化成「我本地
+  不听他」，「移出」直接返回失败提示。要补这两个能力得改 Piik 的协议，
+  属于 S5 之后的事。
+- 语音与共享必须共用同一条 `/signal` 连接，否则房主的 `authenticate`（带
+  `roomOnly`）会把共享停掉。当前共享还在 socket.io 上，两者互不影响；
+  S3b 切共享时要先把两条链路合成一条连接。
+
 ## 5. 如果走 B：最小可用链路
 
 1. 组件库加 `piik_<ver>_windows_amd64.zip`（约 30 MB，含 web assets）。
@@ -190,10 +228,12 @@ P2P 拓扑，仍走原来的整场扇出。
 
 - 走 A（已定：S0/S1 按 A 推进）。
 - 信令通道（已定：新增 `/signal` 端点，不往 socket.io 里塞 Piik 帧）。
-- S3 起要回答的：
+- S3b 起要回答的：
   - Piik 的 `room.Store` 当前是纯内存，ZViewer 重启后所有映射失效。是否接
     `room.NewDatabase`（另开一个 SQLite 文件），还是接受「重启即重新开播」。
   - ZViewer 房间容量上限（`maxViewers` 可配）与 Piik 的 20 人协议常量冲突，
     超过 20 人的房间要么分片、要么强制走 SFU 模式。
   - 房间删除/关闭目前只靠空房超时回收，`room.Service` 里没有可订阅的关闭事件；
-    S3 接房间生命周期时补一个显式 `Release`。
+    S3b 接房间生命周期时补一个显式 `Release`。
+  - 语音的「房主禁言/移出」需要扩展 Piik 的 `RoomVoiceCommand`（现在是
+    只对本人生效的五个动作），改上游还是走桥接层的旁路要定一下。

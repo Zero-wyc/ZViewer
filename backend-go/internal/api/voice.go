@@ -17,11 +17,21 @@ func (s *Server) registerVoiceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/voice/status", s.handleVoiceStatus)
 }
 
-// handleVoiceStatus 报告语音是否可用。
+// handleVoiceStatus 报告语音是否可用，以及走哪条链路。
 //
-// 只有一条实现，所以不再有 mode。媒体面（端口）起不来就是不可用，
-// 让面板显示「语音暂不可用」，而不是悄悄换一条没人维护的线路。
+// backend 只有两个取值：`piik` 表示信令与媒体都由 Piik 的 /signal 承载；
+// `sfu` 是旧的 socket.io + 服务端 SFU。前端按这个值选实现，不需要自己
+// 探测——探测失败的表现是「点加入语音一直转圈」，最难自查。
 func (s *Server) handleVoiceStatus(w http.ResponseWriter, _ *http.Request) {
-	available := s.VoiceRTC != nil && s.VoiceRTC.Available()
-	httpx.OK(w, map[string]any{"success": true, "available": available})
+	backend := "sfu"
+	// Piik 的语音不需要服务端媒体面：树是客户端之间的 P2P。
+	if s.PiikShare != nil {
+		backend = "piik"
+	}
+	available := s.PiikShare != nil || (s.VoiceRTC != nil && s.VoiceRTC.Available())
+	httpx.OK(w, map[string]any{
+		"success":   true,
+		"available": available,
+		"backend":   backend,
+	})
 }

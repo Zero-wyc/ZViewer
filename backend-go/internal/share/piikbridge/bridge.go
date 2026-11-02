@@ -156,8 +156,12 @@ func New(options Options) (*Bridge, error) {
 	// Piik 的 Origin 允许表只认启动期的固定集合，见 origins.go 的说明：
 	// 真正的判定在本层，交给它的是规范化后的同一个来源。
 	signaling, err := signal.New(signal.Options{
-		Store:                     store,
-		EndpointMediaCopyCapacity: protocol.DefaultEndpointMediaCopyCapacity,
+		Store: store,
+		// 端点拷贝预算取协议上限 3：`route.effectiveCapacity` 会把它 clamp
+		// 到 MaxEndpointMediaCopyCapacity，传更小的值只会让树变矮（默认 2
+		// 时 20 人的房间铺不满）。语音的每个中间节点还要额外占一条上游边，
+		// 3 条下游 + 1 条上游仍在浏览器能稳定维持的范围内。
+		EndpointMediaCopyCapacity: protocol.MaxEndpointMediaCopyCapacity,
 		Ice:                       ice,
 		AllowedOrigins:            map[string]struct{}{canonicalOrigin: {}},
 		SiteAccessAtUpgrade: func(request *http.Request) bool {

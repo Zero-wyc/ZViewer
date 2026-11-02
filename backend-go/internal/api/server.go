@@ -200,6 +200,7 @@ func (s *Server) Handler() http.Handler {
 	s.registerUpdaterRoutes(mux)
 	s.registerVoiceRoutes(mux)
 	s.registerPiikShareRoutes(mux)
+	s.registerPiikVoiceRoutes(mux)
 	// 推流（OBS）：REST 下发配置，/live 反代到媒体服务（默认是进程内那个）。
 	// /live 必须在 mux.Handle("/", SPA 回退) 之前注册，否则会被回成 index.html。
 	s.registerStreamPushRoutes(mux)
