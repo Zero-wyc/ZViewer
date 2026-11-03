@@ -107,8 +107,11 @@ internal/thirdparty/livekit/sendsidebwe
 | S0 ✅ | vendor 13 个服务端包到 `internal/piik/`，import 重写 | 已完成：`go build ./...` 通过，`internal/piik` 全部测试通过 |
 | S1 ✅ | 用 Piik 的 `signal` 起 `/signal` WebSocket，ZViewer 侧只做房间/身份适配 | 已完成：握手 + `authenticate` → `authenticated`，房主/观众/越权三条路径都有用例 |
 | S2 ✅ | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | 已完成：`share.Session` 的直连选路全部走控制器，串行铺路 / 观众互助 / 候选超时都有用例 |
-| S3a ✅ | 语音链路改由 Piik 的 `room-voice-*` 承载（服务端本就内建，本次补客户端） | 已完成：房主进语音/发布、观众等待、边下发三条路径都有服务端用例；前端按同一份授权建多连接 P2P |
-| S3b | 用 Piik 的 `room` / `signal` 会话替换共享的 `service.go` / `session.go` | 双端联调：房主开播、观众进房、换父、断线重连 |
+| S3a ✅ | 语音链路改由 Piik 的 `room-voice-*` 承载（服务端本就内建，本次补客户端） | 已完成：房主进语音/发布、观众等待、边下发三条路径都有服务端用例；前端按同一份授权建多连接 P2P；浏览器实测双向音频 |
+| S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
+| S3b-1 | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 房主开播 + 单观众直连，SDP 全程走 `signal` 帧 |
+| S3b-2 | 观众互助与换父接上 `route-update` 的候选边 | 4 观众时第 4 人挂到第 3 人；父节点离开后重挂 |
+| S3b-3 | 删掉 `service.go` / `session.go` / `piikroute`，共享只留一条链路 | 全量回归，关掉双跑开关 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
 
@@ -215,6 +218,79 @@ Piik 的语音实现（`server/signal/voice*.go`，1060 行）随 S0 一起进�
 - 语音与共享必须共用同一条 `/signal` 连接，否则房主的 `authenticate`（带
   `roomOnly`）会把共享停掉。当前共享还在 socket.io 上，两者互不影响；
   S3b 切共享时要先把两条链路合成一条连接。
+
+### 端到端实测（2026-11-03）
+
+S1/S2/S3a 之前只有单测，没有一次真实浏览器联调。这次补齐，顺带发现两个真问题。
+
+| 场景 | 结果 |
+|---|---|
+| 房主开播 + 1 观众 | 1920×1080 / 20fps / 948 Kbps，直连，观众端播放中 |
+| 房主 + 4 观众 | 房主 3 条直连边；第 4 位观众的远端端口等于第 3 位观众的本地端口——观众互助成立 |
+| 语音 2 人 | 双向音频，两端 `audioSentBytes`/`audioRecvBytes` 对称增长 |
+
+**修掉的问题**：
+
+1. **观众上行轨被自己摘掉**。`endpoint.reconcile` 把音轨解析器当参数往下传，
+   却从没存进成员字段 `this.sourceTrack`；`receiveSignal` 回 answer 前用成员
+   字段挂发送轨，拿到的是默认空解析器，于是把它刚挂上的轨 `replaceTrack(null)`
+   + `removeTrack` 掉了。表现是「观众能听见房主，房主听不见观众」。
+   上一轮那句修复只加了调用、没加赋值，等于把轨摘得更干净。
+2. **开发环境的 `/signal` 没有代理**。vite 只代理了 `/api`、`/socket.io`、
+   `/live`，升级请求落到 vite 自己身上，浏览器直接连不上 Piik 信令。
+
+### S3b-0：服务端可行性已验证
+
+用 Node 脚本冒充 Piik 客户端直连 `/signal`（不走前端），把共享会话跑通了：
+
+```
+房主  authenticate { roomOnly: true, roomSession: true, routePolicy }
+      → authenticated { peerId, hostOnline: true }
+      → start-sharing { shareGeneration, routePolicy }
+      → sharing-started { routeRevision, routeAssignment, qualitySettings }
+观众  authenticate { role: "viewer", viewerGrant }
+      → route-update { revision: 1, phase: "prepare",
+                       assignment: { upstream: { kind: "peer", peerId: 房主 } },
+                       candidate: { connectionId: "route_…" } }
+房主  → route-update { revision: 1, assignment: { childPeerIds: [观众] },
+                       candidate: { connectionId: "route_…" } }
+```
+
+**这就够了**：S2 里 `piikroute.Engine` 手算的那套树，Piik 的 router 原生就会算，
+而且把候选边连同 `connectionId` 一起下发给两端。共享不再需要 socket.io 的
+`share` 事件。
+
+三条协议细节（都踩过）：
+
+- **`roomOnly` + `roomSession` 是「先进房、后开播」的唯一组合**。只传
+  `roomSession` 时，认证会自动把 `shareGeneration` 填成 sessionID，随后的
+  `start-sharing` 撞上「已有一个 generation」，回 `sharing-start-failed`；
+  只传 `roomOnly` 会被 `start-sharing` 拒绝（`Persistent room session is not
+  enabled`）。`roomOnly` 还要求同时带 `roomSession`，且认证时会清掉已有共享
+  ——这正是「共享和语音必须同一条连接」的根因。
+- **`start-sharing` 的 `routePolicy` 是必填字段**，缺了整帧被判 `INVALID_MESSAGE`
+  并断连（1008）。
+- **服务端会把 `peerOnly` 强制成 `true`**（`sharing-started` 回包里的
+  `routePolicy.peerOnly` 与请求值不同）。走这条链路的共享只能是直连模式；
+  中继（SFU）要么另开 SFU 会话，要么在桥接层调 `router.sfuOnly`。
+
+**顺带发现的结构性问题**：现在有**两棵互不相干的 route 树**——
+`piikroute.Engine` 自己在 S2 里 `route.New()` 了一棵（给共享用），
+`signal.Server` 的 `router` 里还有一棵（给语音用）。两边都叫「Piik 的控制器」，
+但彼此不知道对方。S3b 之前，同一个观众的共享边和语音边是分别算的，
+「语音复用共享那棵树」这句话只是概念上同构，不是同一份状态。
+
+S3b 的真实工作量因此拆成三段（见第 4 节的表格）：
+
+1. `modules/piik-share`：把 `host-session`/`viewer-session` 的信令换成
+   `/signal` 上的 `signal` / `route-*` 帧，与 `piik-voice` 共用一条连接；
+2. 观众互助与换父按 `route-update` 的 `candidate` 落地（这块 Piik 已经算好，
+   客户端只需照做）；
+3. 删掉 `service.go`、`session.go`、`route.go`、`piikroute`，共享只留一条链路。
+
+风险点：前端的 `host-peer`/`viewer-peer`（约 1500 行）是自己管 offer/answer
+的，接上 Piik 之后「谁该 offer」改由 `route-update` 的父子关系决定，
+这一层要重写而不是适配。
 
 ## 5. 如果走 B：最小可用链路
 
