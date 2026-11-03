@@ -29,6 +29,8 @@ import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useWakeLock } from '@/hooks/useWakeLock'
 import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
 import { useShareViewer } from '../hooks/useShareViewer'
+import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
+import { shareBackend } from '@/modules/piik-share/backend'
 import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
 import {
   loadViewerVolume,
@@ -99,6 +101,22 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     if (node && !prev) setVideoVersion((v) => v + 1)
   }, [])
 
+  // 两条链路并存：给不用的那条传空 roomId，hook 内部会空转。
+  // 不能按 backend 条件调用 hook，否则切换时 hook 顺序会变。
+  const backend = shareBackend()
+  const legacy = useShareViewer({
+    socket: backend === 'piik' ? null : socket,
+    roomId: backend === 'piik' ? '' : roomId,
+    iceServers: ICE_SERVERS,
+    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
+    videoRef,
+    videoVersion,
+  })
+  const piik = usePiikShareViewer({
+    roomId: backend === 'piik' ? roomId : '',
+    videoRef,
+    videoVersion,
+  })
   const {
     pc,
     remoteStream,
@@ -108,14 +126,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     state,
     sharingMode,
     retry,
-  } = useShareViewer({
-    socket,
-    roomId,
-    iceServers: ICE_SERVERS,
-    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
-    videoRef,
-    videoVersion,
-  })
+  } = backend === 'piik' ? piik : legacy
 
   // 恢复预算耗尽：明确告诉用户「停下来等你点刷新」，而不是无限重连。
   useEffect(() => {

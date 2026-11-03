@@ -35,6 +35,14 @@ export interface ShareSessionHandlers {
   onError: (message: string) => void
   /** 房主：服务端确认开播。 */
   onSharingStarted?: (message: PiikSharingStarted) => void
+  /** 房主上下线 / 暂停状态。观众靠它决定遮罩与「等待房主」文案。 */
+  onHostStatus?: (status: { online: boolean; paused: boolean }) => void
+  /** 房主停止了共享（连接还在，房间还在）。 */
+  onSharingStopped?: () => void
+  /** 房间被关掉，重连没有意义。 */
+  onRoomClosed?: (reason: string) => void
+  /** 认证成功，拿到 peerId。 */
+  onAuthenticated?: (peerId: string) => void
 }
 
 /** 从 `/api/share/piik/session` 换一份共享凭证（顺带刷新站点通行证）。 */
@@ -150,6 +158,14 @@ export class PiikShareSession {
     })
   }
 
+  /** 热更新码率/帧率（不重采集）。 */
+  async applyEncoding(profile: {
+    maxBitrate: number
+    frameRate: number
+  }): Promise<void> {
+    await this.endpoint?.applyEncoding(profile)
+  }
+
   /** 每条边的用量，给统计面板。 */
   async stats(): Promise<ShareEdgeStats[]> {
     return (await this.endpoint?.stats()) ?? []
@@ -210,6 +226,7 @@ export class PiikShareSession {
           this.iceConfig = authenticated.iceConfig
           this.endpoint?.setIceConfig(authenticated.iceConfig)
         }
+        this.handlers.onAuthenticated?.(String(authenticated.peerId ?? ''))
         if (this.role === 'host') {
           this.startSharing()
         } else {
@@ -222,6 +239,22 @@ export class PiikShareSession {
       case 'sharing-started':
         this.handlers.onSharingStarted?.(
           message as unknown as PiikSharingStarted
+        )
+        return
+      case 'host-status': {
+        const status = message as { online?: boolean; paused?: boolean }
+        this.handlers.onHostStatus?.({
+          online: Boolean(status.online),
+          paused: Boolean(status.paused),
+        })
+        return
+      }
+      case 'sharing-stopped':
+        this.handlers.onSharingStopped?.()
+        return
+      case 'room-closed':
+        this.handlers.onRoomClosed?.(
+          String((message as { reason?: string }).reason ?? '')
         )
         return
       case 'sharing-start-failed':

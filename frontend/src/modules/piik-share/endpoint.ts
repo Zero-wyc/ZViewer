@@ -121,6 +121,37 @@ export class ShareEndpoint {
   }
 
   /**
+   * 把码率/帧率写到所有出边的发送参数上。
+   *
+   * 不重采集也不重协商，只是让编码器改目标。浏览器可能不照办
+   * （尤其降码率时），所以这里吞掉失败——调用方不该把它当错误。
+   */
+  async applyEncoding(profile: {
+    maxBitrate: number
+    frameRate: number
+  }): Promise<void> {
+    for (const edge of this.edges.values()) {
+      if (!edge.offerer) continue
+      for (const sender of edge.pc.getSenders()) {
+        if (sender.track?.kind !== 'video') continue
+        const parameters = sender.getParameters()
+        parameters.encodings = parameters.encodings?.length
+          ? parameters.encodings
+          : [{}]
+        for (const encoding of parameters.encodings) {
+          encoding.maxBitrate = profile.maxBitrate
+          encoding.maxFramerate = profile.frameRate
+        }
+        try {
+          await sender.setParameters(parameters)
+        } catch {
+          /* 浏览器不接受这组参数 */
+        }
+      }
+    }
+  }
+
+  /**
    * 每条边的用量。
    *
    * 共享是单向的：房主的边只有出、观众的边只有入，所以一条边只取一个方向，

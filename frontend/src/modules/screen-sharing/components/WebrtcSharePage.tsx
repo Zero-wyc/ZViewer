@@ -21,6 +21,8 @@ import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useShareHost } from '../hooks/useShareHost'
+import { usePiikShareHost } from '@/modules/piik-share/usePiikShareHost'
+import { shareBackend } from '@/modules/piik-share/backend'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
 import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
 import {
@@ -120,6 +122,24 @@ function WebrtcSharePage({
   }, [])
   const handleStreamEndedRef = useRef<() => void>(() => {})
 
+  // 两条链路并存：不用的那条拿空 roomId 空转（不能条件调用 hook）。
+  const backend = shareBackend()
+  const legacyHost = useShareHost({
+    socket: backend === 'piik' ? null : socket,
+    roomId: backend === 'piik' ? '' : currentRoomId,
+    iceServers: ICE_SERVERS,
+    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
+    videoRef: localVideoRef,
+    videoVersion: localVideoVersion,
+    onStreamEnded: () => handleStreamEndedRef.current(),
+  })
+  const piikHost = usePiikShareHost({
+    roomId: backend === 'piik' ? currentRoomId : '',
+    videoRef: localVideoRef,
+    videoVersion: localVideoVersion,
+    onStreamEnded: () => handleStreamEndedRef.current(),
+  })
+
   const {
     sharing: isSharing,
     paused: isPaused,
@@ -139,15 +159,7 @@ function WebrtcSharePage({
     switchCaptureSource,
     peerQualities,
     autoDowngrade,
-  } = useShareHost({
-    socket,
-    roomId: currentRoomId,
-    iceServers: ICE_SERVERS,
-    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
-    videoRef: localVideoRef,
-    videoVersion: localVideoVersion,
-    onStreamEnded: () => handleStreamEndedRef.current(),
-  })
+  } = backend === 'piik' ? piikHost : legacyHost
 
   const stopSharing = useCallback(() => {
     stop()
