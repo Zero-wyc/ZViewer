@@ -179,7 +179,13 @@ export class PiikShareSession {
           this.iceConfig = authenticated.iceConfig
           this.endpoint?.setIceConfig(authenticated.iceConfig)
         }
-        if (this.role === 'host') this.startSharing()
+        if (this.role === 'host') {
+          this.startSharing()
+        } else {
+          // 观众也要报一次「我能带几个下游」，否则服务端把它的容量当 0，
+          // 树永远只有房主一层，第 4 位观众会一直排队。
+          this.client?.send({ type: 'relay-capacity', downstreamEdges: 3 })
+        }
         return
       }
       case 'sharing-started':

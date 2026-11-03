@@ -190,6 +190,11 @@ export type PiikClientMessage =
       revision: number
       connectionId: string
     }
+  /**
+   * 观众声明自己还能带几个下游。不发的话服务端把这位观众的下游容量当 0，
+   * 树永远只有房主一层——第 4 位观众会一直排队。
+   */
+  | { type: 'relay-capacity'; downstreamEdges: number }
   | {
       type: 'route-media-unavailable'
       revision: number

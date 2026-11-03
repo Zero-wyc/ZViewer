@@ -110,7 +110,7 @@ internal/thirdparty/livekit/sendsidebwe
 | S3a ✅ | 语音链路改由 Piik 的 `room-voice-*` 承载（服务端本就内建，本次补客户端） | 已完成：房主进语音/发布、观众等待、边下发三条路径都有服务端用例；前端按同一份授权建多连接 P2P；浏览器实测双向音频 |
 | S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
 | S3b-1 ✅ | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 已完成：探针页里房主开播、观众收到 1200×676 音视频，SDP 全程走 `signal` 帧 |
-| S3b-2 | 观众互助与换父接上 `route-update` 的候选边 | 4 观众时第 4 人挂到第 3 人；父节点离开后重挂 |
+| S3b-2 🟡 | 观众互助与换父接上 `route-update` 的候选边 | 互助已通（第 4 人挂到第 3 人，中间节点转发）；换父未测 |
 | S3b-3 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 全量回归，关掉双跑开关 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
@@ -325,8 +325,23 @@ S3b 的真实工作量因此拆成三段（见第 4 节的表格）：
 - **`roomOnly` 会清掉已有共享**，所以房主必须在**同一条连接**上先 `roomOnly`
   进房、再 `start-sharing`。分两条连接会互相踢。
 
-还剩的两段（S3b-2/3）是纯增量：候选边已经按 Piik 的分配在跑，互助与换父只是
-把「父节点收到的 candidate 给下游」这条路走通；产品界面切过去之后才能删旧实现。
+### S3b-2：观众互助也通了
+
+第 4 位观众在探针里挂到了第 3 位观众下面，画面正常（首帧分辨率从 336 爬到 450，
+是 H.264 的自适应起播，不是卡住）。
+
+要凑齐这条链路还差两件事，都是「不发就静默不动」的类型：
+
+- **`route-ready` 才是结算**。`route-transport-connected` 只把候选推进到「传输就绪」，
+  真正让 controller 认下这条边的是 `route-ready { revision, phase: "prepare" }`。
+  只发前者时房主的 `childPeerIds` 一直是空的，后续观众要等 15 秒操作超时才轮到。
+- **观众必须发 `relay-capacity`**。不发的话服务端把它的下游容量当 0，树永远只有
+  房主一层，第 4 位观众一直排队等不到候选。
+- 中间节点要自己转发：观众当父节点时，offer 里挂的是**上游推过来的轨**（`incoming`），
+  不是本地流。首帧晚于 offer 的情况下还要等 `ontrack` 再补 `addTrack`。
+
+换父（父节点离开后重挂）还没测：需要在观众掉线时观察 `route-update` 是否把
+子节点重新分配。这是 S3b-2 的剩余部分。
 
 ## 5. 如果走 B：最小可用链路
 

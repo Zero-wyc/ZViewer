@@ -49,6 +49,8 @@ export class ShareEndpoint {
   private readonly localStream: MediaStream | null
   private readonly handlers: ShareEndpointHandlers
   private readonly edges = new Map<string, Edge>()
+  /** 上游推过来的流；观众当中转节点时，把它原样转给下游。 */
+  private incoming: MediaStream | null = null
   private revision = 0
   private closed = false
 
@@ -195,9 +197,11 @@ export class ShareEndpoint {
     }
     this.edges.set(connectionId, edge)
 
-    if (this.localStream) {
-      for (const track of this.localStream.getTracks())
-        pc.addTrack(track, this.localStream)
+    // 房主发自己的屏幕；观众当中间节点时发的是上游推过来的流。
+    // 服务端不复制媒体，中间节点必须自己把收到的轨挂到下游连接上。
+    const source = this.localStream ?? this.incoming
+    if (source) {
+      for (const track of source.getTracks()) pc.addTrack(track, source)
     }
 
     pc.onicecandidate = (event) => {
@@ -213,7 +217,9 @@ export class ShareEndpoint {
     pc.ontrack = (event) => {
       const track = event.track
       if (!edge.stream.getTracks().includes(track)) edge.stream.addTrack(track)
+      if (!this.incoming) this.incoming = edge.stream
       this.handlers.onStream(connectionId, edge.stream)
+      this.relayToChildren(track)
     }
     pc.onconnectionstatechange = () => {
       this.handlers.onStateChange(connectionId, pc.connectionState)
@@ -273,19 +279,47 @@ export class ShareEndpoint {
   // ==================== 结算 ====================
 
   /**
-   * 子节点在 PC 连上后回报，服务端据此把候选记成成功。
+   * 子节点把候选结算成成功。
    *
-   * 父节点也发一次是安全的（服务端只认子端点），但会白占一次操作位，
-   * 所以这里只让子节点发。
+   * 两条消息缺一不可：`route-transport-connected` 只推进「传输就绪」，
+   * 真正让 controller 认下这条边的是 `route-ready`（phase 必须是 `prepare`）。
+   * 只发前者的话房主的 `childPeerIds` 会一直是空的，后续观众排不上队——
+   * 表现是「第一个人有画面，第二个等到 15 秒超时才轮到」。
+   *
+   * 父节点不该发：服务端只认 candidate 的子端点。
    */
+  /**
+   * 把上游刚到的轨补挂到已经建好的下游连接上。
+   *
+   * 中间节点的 offer 可能在首帧之前就发出去了，那时 `incoming` 还是空的；
+   * 等轨到了再 addTrack，浏览器会自动触发一次重协商（offerer 侧）。
+   */
+  private relayToChildren(track: MediaStreamTrack | null): void {
+    if (!track) return
+    for (const edge of this.edges.values()) {
+      if (!edge.offerer) continue
+      const already = edge.pc
+        .getSenders()
+        .some((sender) => sender.track === track)
+      if (already) continue
+      try {
+        edge.pc.addTrack(track, new MediaStream([track]))
+      } catch {
+        /* 连接已经关了 */
+      }
+    }
+  }
+
   private settle(edge: Edge, connectionId: string): void {
     if (edge.reported || edge.offerer) return
     edge.reported = true
+    const revision = edge.revision || this.revision
     this.handlers.send({
       type: 'route-transport-connected',
-      revision: edge.revision || this.revision,
+      revision,
       connectionId,
     })
+    this.handlers.send({ type: 'route-ready', revision, phase: 'prepare' })
   }
 
   private fail(edge: Edge, connectionId: string): void {
