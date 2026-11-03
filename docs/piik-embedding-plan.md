@@ -111,7 +111,7 @@ internal/thirdparty/livekit/sendsidebwe
 | S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
 | S3b-1 ✅ | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 已完成：探针页里房主开播、观众收到 1200×676 音视频，SDP 全程走 `signal` 帧 |
 | S3b-2 ✅ | 观众互助与换父接上 `route-update` 的候选边 | 互助已通（第 4 人挂到第 3 人，中间节点转发）；换父实测通过（关掉中间节点，子节点 12–15 秒内重挂到别的观众） |
-| S3b-3 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 全量回归，关掉双跑开关 |
+| S3b-3 🟡 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 产品页已能跑 Piik 链路（`?shareBackend=piik`）：房主开播、观众观看、混音、换源、暂停都通；还差自动降档与参数覆盖，未切默认 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
 
@@ -361,6 +361,29 @@ S3b 的真实工作量因此拆成三段（见第 4 节的表格）：
 3. 后端：`POST /api/share/piik/room` 调 Piik `/api/rooms` 建房，返回房间码与邀请链接。
 4. 前端：共享页新增「Piik 共享」子模式，iframe 载入 `http://127.0.0.1:<port>/r/<code>`。
 5. 房间关闭时回收 Piik 房间。
+
+### S3b-3：产品页已经能跑，但还没切默认
+
+`WebrtcSharePage` / `WebrtcWatchPage` 各加了一个同形的 hook
+（`usePiikShareHost` / `usePiikShareViewer`），两条链路并存，默认仍走旧的
+socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
+`/share/<id>` 会被重定向到 `/room/<id>`，query 活不过重定向——开关必须在
+`main.tsx` 里、路由之前落到 localStorage。
+
+产品页实测（真实 `/room/<id>` 与 `/watch/<id>`）：
+
+- 房主本地预览 1920×1080 播放中，观众 480×270 → 640×360 自适应上升
+- 开麦克风后两端都出现 `audio:live`（`HostAudio` 的输出轨）
+- 换源走 `replaceTrack`，观众端无感；暂停发 `set-sharing-paused`
+
+切默认之前还缺两块，都在旧实现里：
+
+- **自动降档**：旧实现按观众反馈逐级降分辨率；Piik 侧有
+  `sender-quality-evidence` 通道，但没接。
+- **编码参数覆盖检测**：`parameterOverride` 恒为 null，用户看不到「浏览器
+  没照办」的提示。
+
+删旧实现要等这两块补完，否则切过去就是功能回退。
 
 ## 6. 待定
 
