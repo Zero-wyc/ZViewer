@@ -7,10 +7,10 @@
  * 已知差距（切默认之前要补）：
  * - 没有自动降档（旧实现按观众反馈逐级降分辨率）
  * - 没有编码参数覆盖检测（`parameterOverride` 恒为 null）
- * - 麦克风混音走的是采集时的音轨，不是 `HostAudio` 的混音图
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RESOLUTION_DIMENSIONS } from '../screen-sharing/constants'
+import { HostAudio } from '../screen-sharing/core/audio-mix'
 import { captureCamera, captureDisplay } from '../screen-sharing/core/capture'
 import { profileFromSettings } from '../screen-sharing/core/quality'
 import type { PeerQualityView } from '../screen-sharing/core/peer-quality'
@@ -62,11 +62,15 @@ export function usePiikShareHost(
 ): UsePiikShareHostResult {
   const { roomId, videoRef, videoVersion = 0, onStreamEnded } = options
   const sessionRef = useRef<PiikShareSession | null>(null)
+  /** 系统声 + 麦克风的混音图。输出轨在整个共享期间不变，换源只改输入。 */
+  const audioRef = useRef<HostAudio | null>(null)
   const [sharing, setSharing] = useState(false)
   const [paused, setPaused] = useState(false)
   const [peerCount, setPeerCount] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [previewStream, setPreviewStream] = useState<MediaStream | null>(null)
+  const [audioAvailable, setAudioAvailable] = useState(false)
+  const [microphoneEnabled, setMicrophoneEnabled] = useState(false)
   const onStreamEndedRef = useRef(onStreamEnded)
   useEffect(() => {
     onStreamEndedRef.current = onStreamEnded
@@ -109,7 +113,17 @@ export function usePiikShareHost(
         setError('CAPTURE_FAILED')
         return false
       }
-      setPreviewStream(stream)
+      // 采集流先过混音图：观众端只该看到一条音轨，系统声与麦克风在房主
+      // 这边合成，否则音量、静音、换设备三处都要在观众端重复处理。
+      audioRef.current?.dispose()
+      const audio = new HostAudio(
+        stream,
+        setAudioAvailable,
+        setMicrophoneEnabled
+      )
+      const mixed = await audio.start()
+      audioRef.current = audio
+      setPreviewStream(mixed)
 
       if (sessionRef.current) sessionRef.current.stop()
       const session = new PiikShareSession(roomId, {
@@ -127,7 +141,7 @@ export function usePiikShareHost(
       })
       sessionRef.current = session
       try {
-        await session.start(stream)
+        await session.start(mixed)
       } catch (startError) {
         console.warn('[share] piik start failed:', startError)
         setError(
@@ -136,6 +150,13 @@ export function usePiikShareHost(
         return false
       }
       setSharing(true)
+      if (settings.shareMicrophone) {
+        await audio.setMicrophone(true, {
+          deviceId: '',
+          volume: 1,
+          voiceProcessing: true,
+        })
+      }
       return true
     },
     [roomId]
@@ -144,6 +165,10 @@ export function usePiikShareHost(
   const stop = useCallback(() => {
     sessionRef.current?.stop()
     sessionRef.current = null
+    audioRef.current?.dispose()
+    audioRef.current = null
+    setMicrophoneEnabled(false)
+    setAudioAvailable(false)
     setSharing(false)
     setPaused(false)
     setPreviewStream(null)
@@ -210,9 +235,19 @@ export function usePiikShareHost(
   )
 
   const setMicrophone = useCallback(async (enabled: boolean) => {
-    // 当前 Piik 链路没有混音图：麦克风要么在采集里（系统音频），要么没有。
-    // 这里明确不假装成功，界面会据此提示。
-    console.info('[share] piik 链路暂不支持单独开关麦克风', enabled)
+    const audio = audioRef.current
+    if (!audio) return
+    try {
+      await audio.setMicrophone(enabled, {
+        deviceId: '',
+        volume: 1,
+        voiceProcessing: true,
+      })
+      setMicrophoneEnabled(enabled)
+    } catch (micError) {
+      console.warn('[share] microphone unavailable:', micError)
+      setMicrophoneEnabled(false)
+    }
   }, [])
 
   return {
@@ -225,8 +260,8 @@ export function usePiikShareHost(
     statsPeerConnection: null,
     sharingMode: 'direct',
     parameterOverride: null,
-    audioAvailable: (previewStream?.getAudioTracks().length ?? 0) > 0,
-    microphoneEnabled: false,
+    audioAvailable,
+    microphoneEnabled,
     error,
     previewStream,
     start,
