@@ -18,7 +18,7 @@ import {
   type PiikVoiceDescription,
   type PiikVoiceSignal,
   type PiikVoiceState,
-} from './protocol'
+} from './protocol.ts'
 
 export interface EndpointHandlers {
   /** 发一帧信令；返回 false 表示连接已不可用。 */
@@ -137,6 +137,10 @@ export class VoiceEndpoint {
   async reconcile(
     sourceTrack: (publicationId: string) => MediaStreamTrack | undefined
   ): Promise<void> {
+    // 记住解析器：应答方在 receiveSignal 里回 answer 之前也要挂发送轨，
+    // 而那条路径拿不到 reconcile 的参数。漏了这一步，观众的上行会被
+    // 一次 offer 用空解析器摘掉，表现为「能听见房主，房主听不见我」。
+    this.sourceTrack = sourceTrack
     const generation = this.generation
     for (const planned of this.state?.connections ?? []) {
       if (generation !== this.generation) return
