@@ -109,9 +109,9 @@ internal/thirdparty/livekit/sendsidebwe
 | S2 ✅ | 用 Piik 的 `route` 控制器替换 `route.go` + 手写树形逻辑 | 已完成：`share.Session` 的直连选路全部走控制器，串行铺路 / 观众互助 / 候选超时都有用例 |
 | S3a ✅ | 语音链路改由 Piik 的 `room-voice-*` 承载（服务端本就内建，本次补客户端） | 已完成：房主进语音/发布、观众等待、边下发三条路径都有服务端用例；前端按同一份授权建多连接 P2P；浏览器实测双向音频 |
 | S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
-| S3b-1 | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 房主开播 + 单观众直连，SDP 全程走 `signal` 帧 |
+| S3b-1 ✅ | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 已完成：探针页里房主开播、观众收到 1200×676 音视频，SDP 全程走 `signal` 帧 |
 | S3b-2 | 观众互助与换父接上 `route-update` 的候选边 | 4 观众时第 4 人挂到第 3 人；父节点离开后重挂 |
-| S3b-3 | 删掉 `service.go` / `session.go` / `piikroute`，共享只留一条链路 | 全量回归，关掉双跑开关 |
+| S3b-3 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 全量回归，关掉双跑开关 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
 
@@ -291,6 +291,42 @@ S3b 的真实工作量因此拆成三段（见第 4 节的表格）：
 风险点：前端的 `host-peer`/`viewer-peer`（约 1500 行）是自己管 offer/answer
 的，接上 Piik 之后「谁该 offer」改由 `route-update` 的父子关系决定，
 这一层要重写而不是适配。
+
+### S3b-1：共享跑在 `/signal` 上了
+
+新增两个前端模块：
+
+| 模块 | 职责 |
+|---|---|
+| `modules/piik-signal/` | `/signal` 的连接层（握手、重连、帧分发）+ 共享与语音共用的线上类型 |
+| `modules/piik-share/` | 共享会话：换凭证、`start-sharing`、按 `route-update` 建边 |
+
+`piik-voice/signal.ts` 改成复用 `piik-signal` 的连接层，行为不变（318 项测试全绿）。
+
+验证入口是 `frontend/piik-share-probe.html`（dev 专用，不进构建产物）：
+
+```
+房主 /piik-share-probe.html?room=<roomId>&role=host
+观众 /piik-share-probe.html?room=<roomId>
+```
+
+实测结果：房主采集 1200×676 屏幕流后 `start-sharing` 成功，观众收到
+`route-update` 的候选边、收到 offer/answer/candidate、`route-transport-connected`
+结算，画面正常播放。整条链路**没有用到 socket.io 的 `share` 事件**。
+
+三个新踩的坑：
+
+- **候选的 `transport` 是 `direct`，不是 `peer`**。语音的 `room-voice-state.connections`
+  用 `peer`，共享的 `route-update.candidate` 用 `direct`，两条消息族各有一套枚举。
+  照抄语音的类型判断会让所有候选被静默跳过，表现是「两端都收到 route-update，
+  但一条 offer 也不发」。
+- **观众比房主先到是常态**。房主没 `start-sharing` 之前 Piik 房间还没建，
+  REST 对观众一直回 409。客户端不能当成致命错误，要退避重试（上限 30 次）。
+- **`roomOnly` 会清掉已有共享**，所以房主必须在**同一条连接**上先 `roomOnly`
+  进房、再 `start-sharing`。分两条连接会互相踢。
+
+还剩的两段（S3b-2/3）是纯增量：候选边已经按 Piik 的分配在跑，互助与换父只是
+把「父节点收到的 candidate 给下游」这条路走通；产品界面切过去之后才能删旧实现。
 
 ## 5. 如果走 B：最小可用链路
 

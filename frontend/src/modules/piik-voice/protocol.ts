@@ -8,34 +8,22 @@
  * 与 Piik 上游 `src/shared/protocol.ts` 的语音子集一一对应；上游用 zod
  * 校验，这里用显式字段检查，因为只需要拒绝明显不合法的东西——真正的约束
  * 在服务端，客户端多校验一次只是为了让错误尽早暴露在本地。
+ *
+ * 握手、ICE、路由这些共享的部分不在这里：它们在 `modules/piik-signal`，
+ * 共享与语音共用同一份。
  */
+export {
+  DEFAULT_ROUTE_POLICY,
+  FATAL_AUTH_CODES,
+  SIGNALING_PROTOCOL,
+  decodeServerMessage,
+  type PiikAuthenticated,
+  type PiikIceConfig,
+  type PiikIceServer,
+  type PiikRoutePolicy,
+} from '../piik-signal/protocol.ts'
 
-/** Piik 的信令协议版本，必须与服务端 `protocol.SignalingProtocol` 一致。 */
-export const SIGNALING_PROTOCOL = 'piik-v24'
-
-export interface PiikIceServer {
-  urls: string | string[]
-  username?: string
-  credential?: string
-}
-
-export interface PiikIceConfig {
-  iceServers: PiikIceServer[]
-  natPredictionStunUrls?: string[]
-}
-
-export interface PiikRoutePolicy {
-  peerOnly: boolean
-  topologyOptimization: boolean
-  natPrediction: boolean
-}
-
-/** 服务端默认策略：允许拓扑优化，关闭 NAT 预测。 */
-export const DEFAULT_ROUTE_POLICY: PiikRoutePolicy = {
-  peerOnly: false,
-  topologyOptimization: true,
-  natPrediction: false,
-}
+import type { PiikAuthenticated } from '../piik-signal/protocol.ts'
 
 export interface PiikVoiceMember {
   peerId: string
@@ -104,7 +92,7 @@ export type PiikClientMessage =
       role: 'host'
       token: string
       clientId: string
-      routePolicy: PiikRoutePolicy
+      routePolicy: import('../piik-signal/protocol.ts').PiikRoutePolicy
       roomOnly?: true
       roomSession?: true
     }
@@ -135,15 +123,6 @@ export type PiikClientMessage =
     }
   | { type: 'signaling-challenge'; sequence: number }
 
-export interface PiikAuthenticated {
-  type: 'authenticated'
-  protocol: string
-  peerId: string
-  role: 'host' | 'viewer'
-  iceConfig: PiikIceConfig
-  maxViewers: number
-}
-
 export type PiikServerMessage =
   | PiikAuthenticated
   | PiikVoiceState
@@ -153,28 +132,6 @@ export type PiikServerMessage =
   | { type: 'room-closed' }
   | { type: 'signaling-challenge-response'; sequence: number }
   | { type: string; [key: string]: unknown }
-
-/** 不可重试的关闭/错误码：重连只会重复失败。 */
-export const FATAL_AUTH_CODES = new Set([
-  'INVALID_TOKEN',
-  'ROOM_NOT_FOUND',
-  'ROOM_ACCESS_DENIED',
-  'ROOM_FULL',
-  'HOST_ALREADY_CONNECTED',
-  'AUTH_REQUIRED',
-])
-
-export function decodeServerMessage(raw: string): PiikServerMessage | null {
-  try {
-    const value: unknown = JSON.parse(raw)
-    if (!value || typeof value !== 'object') return null
-    const type = (value as { type?: unknown }).type
-    if (typeof type !== 'string' || !type) return null
-    return value as PiikServerMessage
-  } catch {
-    return null
-  }
-}
 
 /** 判断我是不是这条连接的发起方（offerer）。 */
 export function isOfferer(
