@@ -25,6 +25,7 @@ class TracedWebSocket extends RawWebSocket {
           phase?: string
           revision?: number
           candidate?: { childPeerId?: string; connectionId?: string }
+          peerId?: string
           assignment?: {
             upstream?: { kind?: string; peerId?: string }
             childPeerIds?: string[]
@@ -32,6 +33,7 @@ class TracedWebSocket extends RawWebSocket {
         }
         signalFrames.push({ dir: 'in', data })
         let detail = ''
+        if (data.peerId) detail += ` peer=${data.peerId}`
         if (data.phase) detail += ` ${data.phase} r${data.revision}`
         if (data.candidate) detail += ` cand=${data.candidate.connectionId}`
         if (data.assignment) {
