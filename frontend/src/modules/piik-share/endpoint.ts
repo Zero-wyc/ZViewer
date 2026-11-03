@@ -40,6 +40,9 @@ interface Edge {
   /** 远端描述还没到之前先攒着候选。 */
   pendingCandidates: RTCIceCandidateInit[]
   remoteReady: boolean
+  /** 已发过 `route-ready`；一条边只结算一次。 */
+  settled: boolean
+  /** 已报过 `route-failed`。 */
   reported: boolean
   stream: MediaStream
 }
@@ -51,6 +54,8 @@ export class ShareEndpoint {
   private readonly edges = new Map<string, Edge>()
   /** 上游推过来的流；观众当中转节点时，把它原样转给下游。 */
   private incoming: MediaStream | null = null
+  /** 当前上游（父）的 peerId；换父时用来判断哪条入边该关。 */
+  private upstreamPeerId = ''
   private revision = 0
   private closed = false
 
@@ -110,6 +115,10 @@ export class ShareEndpoint {
 
   private applyRoute(update: PiikRouteUpdate): void {
     this.revision = Math.max(this.revision, update.revision)
+    // 服务端只把 route-update 发给当事人，所以拿到手的 assignment 就是自己那份。
+    // 换父完全靠这里发现：父节点掉线后 controller 重新分配，我会收到一条
+    // upstream 指向新父的 prepare（以及随后的 active 广播）。
+    if (update.assignment) this.applyAssignment(update.assignment)
     if (update.phase !== 'prepare') return
     const candidate = update.candidate
     // Piik 的候选有两种传输：`direct`（浏览器直连）与 `sfu`（服务端中转）。
@@ -127,6 +136,32 @@ export class ShareEndpoint {
     )
     if (!edge) return
     void this.offer(edge, candidate.connectionId)
+  }
+
+  /**
+   * 对齐自己的上游。
+   *
+   * 父节点离开时，controller 会把它的子树重新挂到别处；新父会收到
+   * prepare 并主动 offer，我这边只要把旧父的边关掉、等新 offer 即可。
+   * 关边必须**不发** `route-failed`——报失败会让 controller 把这次的
+   * 重新分配也判死，子节点会一直重连不上。
+   */
+  private applyAssignment(assignment: PiikRouteAssignment): void {
+    const upstream = assignment.upstream
+    const nextPeerId =
+      upstream && upstream.kind === 'peer' ? String(upstream.peerId ?? '') : ''
+    const changed = nextPeerId !== this.upstreamPeerId
+    this.upstreamPeerId = nextPeerId
+    // 上游换成 sfu（空 peerId）时同样要把直连的入边关掉。
+    for (const [connectionId, edge] of [...this.edges]) {
+      if (edge.offerer) continue
+      if (nextPeerId && edge.remotePeerId === nextPeerId) continue
+      this.dropEdge(connectionId, edge)
+    }
+    if (changed) {
+      // 旧的上游流已经作废，等新父的 track 到达再接管转发。
+      this.incoming = null
+    }
   }
 
   private applySignal(message: PiikServerSignalMessage): void {
@@ -192,6 +227,7 @@ export class ShareEndpoint {
       revision,
       pendingCandidates: [],
       remoteReady: false,
+      settled: false,
       reported: false,
       stream: new MediaStream(),
     }
@@ -217,7 +253,9 @@ export class ShareEndpoint {
     pc.ontrack = (event) => {
       const track = event.track
       if (!edge.stream.getTracks().includes(track)) edge.stream.addTrack(track)
-      if (!this.incoming) this.incoming = edge.stream
+      // 只有入边的流算「上游」。换父后 incoming 被清空，新父的 track
+      // 到达时会重新接管；旧边的 track 已随连接关闭而 ended。
+      if (!edge.offerer && !this.incoming) this.incoming = edge.stream
       this.handlers.onStream(connectionId, edge.stream)
       this.relayToChildren(track)
     }
@@ -279,16 +317,6 @@ export class ShareEndpoint {
   // ==================== 结算 ====================
 
   /**
-   * 子节点把候选结算成成功。
-   *
-   * 两条消息缺一不可：`route-transport-connected` 只推进「传输就绪」，
-   * 真正让 controller 认下这条边的是 `route-ready`（phase 必须是 `prepare`）。
-   * 只发前者的话房主的 `childPeerIds` 会一直是空的，后续观众排不上队——
-   * 表现是「第一个人有画面，第二个等到 15 秒超时才轮到」。
-   *
-   * 父节点不该发：服务端只认 candidate 的子端点。
-   */
-  /**
    * 把上游刚到的轨补挂到已经建好的下游连接上。
    *
    * 中间节点的 offer 可能在首帧之前就发出去了，那时 `incoming` 还是空的；
@@ -311,8 +339,8 @@ export class ShareEndpoint {
   }
 
   private settle(edge: Edge, connectionId: string): void {
-    if (edge.reported || edge.offerer) return
-    edge.reported = true
+    if (edge.settled || edge.offerer) return
+    edge.settled = true
     const revision = edge.revision || this.revision
     this.handlers.send({
       type: 'route-transport-connected',
@@ -322,21 +350,39 @@ export class ShareEndpoint {
     this.handlers.send({ type: 'route-ready', revision, phase: 'prepare' })
   }
 
+  /**
+   * 边失败。
+   *
+   * 只在「当前上游还是这条边的对端」时上报，对齐 Piik 的
+   * `reportActivePeerRouteFailure`：换父之后旧边会自然断开，这时候再报
+   * `route-failed` 会把 controller 刚做完的重新分配判死，子节点反复重连不上。
+   * 父侧的出边也不报——服务端只认候选的子端点。
+   */
   private fail(edge: Edge, connectionId: string): void {
     if (edge.reported) return
     edge.reported = true
-    this.handlers.send({
-      type: 'route-failed',
-      revision: edge.revision || this.revision,
-      phase: 'active',
-      connectionId,
-    })
+    if (!edge.offerer && this.upstreamPeerId === edge.remotePeerId) {
+      this.handlers.send({
+        type: 'route-failed',
+        revision: edge.revision || this.revision,
+        phase: 'active',
+        connectionId,
+      })
+    }
+    this.dropEdge(connectionId, edge)
+  }
+
+  /** 本地关掉一条边；不向服务端上报。 */
+  private dropEdge(connectionId: string, edge: Edge): void {
+    if (this.edges.get(connectionId) !== edge) return
+    this.edges.delete(connectionId)
+    if (this.incoming === edge.stream) this.incoming = null
     try {
       edge.pc.close()
     } catch {
       /* 已经关了 */
     }
-    this.edges.delete(connectionId)
+    this.handlers.onStateChange(connectionId, 'closed')
   }
 
   private sendSignal(targetPeerId: string, payload: PiikSignalPayload): void {
