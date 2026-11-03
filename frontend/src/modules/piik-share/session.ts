@@ -18,7 +18,7 @@ import {
   clientId,
   type SignalStatus,
 } from '../piik-signal/client.ts'
-import { ShareEndpoint } from './endpoint.ts'
+import { ShareEndpoint, type ShareEdgeStats } from './endpoint.ts'
 
 export interface ShareCredentials {
   roomId: string
@@ -100,6 +100,11 @@ export class PiikShareSession {
     return this.client?.connected ?? false
   }
 
+  /** 当前建立了几条边（房主是观众数，观众是 1 或 2）。 */
+  get edgeCount(): number {
+    return this.endpoint?.connectionIds().length ?? 0
+  }
+
   /**
    * 连上并发起共享（房主）或等待接入（观众）。
    *
@@ -122,6 +127,32 @@ export class PiikShareSession {
       onFatal: (code, message) => this.handlers.onError(`${code}: ${message}`),
     })
     await this.client.start()
+  }
+
+  /**
+   * 换本地推出去的流（换源 / 换分辨率）。
+   *
+   * 只在房主侧有意义：观众当中间节点时推的是上游来的流，换不了。
+   */
+  async replaceStream(stream: MediaStream): Promise<void> {
+    if (this.role !== 'host') return
+    this.stream = stream
+    await this.endpoint?.replaceLocalStream(stream)
+  }
+
+  /** 房主暂停/恢复共享。服务端会把路由树挂起，不再分配新的候选。 */
+  setPaused(paused: boolean): void {
+    if (this.role !== 'host' || !this.shareGeneration) return
+    this.client?.send({
+      type: 'set-sharing-paused',
+      shareGeneration: this.shareGeneration,
+      paused,
+    })
+  }
+
+  /** 每条边的用量，给统计面板。 */
+  async stats(): Promise<ShareEdgeStats[]> {
+    return (await this.endpoint?.stats()) ?? []
   }
 
   stop(): void {

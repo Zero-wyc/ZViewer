@@ -178,6 +178,8 @@ export type PiikClientMessage =
       routePolicy: PiikRoutePolicy
     }
   | { type: 'stop-sharing'; shareGeneration?: string }
+  /** 房主暂停/恢复：服务端会把整条路由树挂起，不再分配新的候选。 */
+  | { type: 'set-sharing-paused'; shareGeneration: string; paused: boolean }
   | PiikClientSignalMessage
   | {
       type: 'route-ready'

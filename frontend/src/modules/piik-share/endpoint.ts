@@ -47,9 +47,21 @@ interface Edge {
   stream: MediaStream
 }
 
+/** 一条边的用量，统计面板只读这几个数。 */
+export interface ShareEdgeStats {
+  connectionId: string
+  direction: 'inbound' | 'outbound'
+  state: RTCPeerConnectionState
+  bytes: number
+  frames: number
+  width: number
+  height: number
+  fps: number
+}
+
 export class ShareEndpoint {
   private iceConfig: PiikIceConfig
-  private readonly localStream: MediaStream | null
+  private localStream: MediaStream | null
   private readonly handlers: ShareEndpointHandlers
   private readonly edges = new Map<string, Edge>()
   /** 上游推过来的流；观众当中转节点时，把它原样转给下游。 */
@@ -71,6 +83,84 @@ export class ShareEndpoint {
 
   setIceConfig(config: PiikIceConfig): void {
     this.iceConfig = config
+  }
+
+  /**
+   * 换本地推出去的流（换采集源 / 换分辨率）。
+   *
+   * 走 `replaceTrack` 而不是 `addTrack`：前者不重协商，观众端无感；
+   * 后者会触发出价方重新 offer，四五个观众就是四五次重协商。
+   * 首帧之前建的边可能还没有对应 sender（`addTrack` 时机早于视频轨），
+   * 这种情况退化成 `addTrack`，由浏览器自己补一次协商。
+   */
+  async replaceLocalStream(stream: MediaStream | null): Promise<void> {
+    this.localStream = stream
+    if (!stream) return
+    const tracks = stream.getTracks()
+    for (const edge of this.edges.values()) {
+      if (!edge.offerer) continue
+      for (const track of tracks) {
+        const sender = edge.pc
+          .getSenders()
+          .find((item) => item.track?.kind === track.kind)
+        if (sender) {
+          try {
+            await sender.replaceTrack(track)
+          } catch {
+            /* 连接已经关了 */
+          }
+          continue
+        }
+        try {
+          edge.pc.addTrack(track, stream)
+        } catch {
+          /* 连接已经关了 */
+        }
+      }
+    }
+  }
+
+  /**
+   * 每条边的用量。
+   *
+   * 共享是单向的：房主的边只有出、观众的边只有入，所以一条边只取一个方向，
+   * 面板上不会出现「同一条边两个方向都为零」的困惑。
+   */
+  async stats(): Promise<ShareEdgeStats[]> {
+    const out: ShareEdgeStats[] = []
+    for (const [connectionId, edge] of this.edges) {
+      const report = await edge.pc.getStats().catch(() => null)
+      if (!report) continue
+      const item: ShareEdgeStats = {
+        connectionId,
+        direction: edge.offerer ? 'outbound' : 'inbound',
+        state: edge.pc.connectionState,
+        bytes: 0,
+        frames: 0,
+        width: 0,
+        height: 0,
+        fps: 0,
+      }
+      report.forEach((entry) => {
+        const stat = entry as Record<string, unknown> & { type?: string }
+        if (stat.type === 'inbound-rtp') {
+          item.bytes += Number(stat.bytesReceived ?? 0)
+          item.frames += Number(stat.framesDecoded ?? 0)
+          item.width = Math.max(item.width, Number(stat.frameWidth ?? 0))
+          item.height = Math.max(item.height, Number(stat.frameHeight ?? 0))
+          item.fps = Math.max(item.fps, Number(stat.framesPerSecond ?? 0))
+        }
+        if (stat.type === 'outbound-rtp') {
+          item.bytes += Number(stat.bytesSent ?? 0)
+          item.frames += Number(stat.framesEncoded ?? 0)
+          item.width = Math.max(item.width, Number(stat.frameWidth ?? 0))
+          item.height = Math.max(item.height, Number(stat.frameHeight ?? 0))
+          item.fps = Math.max(item.fps, Number(stat.framesPerSecond ?? 0))
+        }
+      })
+      out.push(item)
+    }
+    return out
   }
 
   /** 一条边的连接状态，用于面板展示。 */

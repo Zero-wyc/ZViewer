@@ -76,6 +76,9 @@ const logEl = document.getElementById('log') as HTMLDivElement
 const stateEl = document.getElementById('state') as HTMLSpanElement
 const videoEl = document.getElementById('video') as HTMLVideoElement
 const startButton = document.getElementById('start') as HTMLButtonElement
+const pauseButton = document.getElementById('pause') as HTMLButtonElement
+const swapButton = document.getElementById('swap') as HTMLButtonElement
+const statsEl = document.getElementById('stats') as HTMLDivElement
 
 function log(line: string): void {
   const time = new Date().toTimeString().slice(0, 8)
@@ -153,10 +156,50 @@ async function main(): Promise<void> {
   if (isHost) {
     startButton.hidden = false
     startButton.addEventListener('click', () => void start())
+    // 暂停与换档：验证服务端 `set-sharing-paused` 与 `replaceTrack` 两条路。
+    let paused = false
+    pauseButton.hidden = false
+    pauseButton.addEventListener('click', () => {
+      paused = !paused
+      pauseButton.textContent = paused ? '恢复' : '暂停'
+      session.setPaused(paused)
+      log(`暂停=${paused}`)
+    })
+    let swapped = false
+    swapButton.hidden = false
+    swapButton.addEventListener('click', () => {
+      void (async () => {
+        swapped = !swapped
+        const stream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            // 换一个小尺寸，观众端的 videoWidth 会跟着变，能确认真的换了轨。
+            width: { ideal: swapped ? 960 : 640 },
+            height: { ideal: swapped ? 540 : 360 },
+            frameRate: { ideal: 15 },
+          },
+          audio: true,
+        })
+        await session.replaceStream(stream)
+        log(`换档 ${swapped ? '960x540' : '640x360'}`)
+      })()
+    })
   } else {
     startButton.hidden = true
     await start()
   }
+
+  // 统计：每秒拉一次，观众看入边、房主看出边。
+  setInterval(() => {
+    void (async () => {
+      const list = await session.stats()
+      statsEl.textContent = list
+        .map(
+          (item) =>
+            `${item.direction} ${Math.round(item.bytes / 1024)}KB ${item.width}x${item.height}@${item.fps}`
+        )
+        .join(' | ')
+    })()
+  }, 1000)
 
   window.addEventListener('beforeunload', () => {
     session.stop()
