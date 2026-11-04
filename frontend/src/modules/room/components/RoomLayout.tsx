@@ -23,7 +23,7 @@ import {
   onFullscreenChange,
 } from '@/lib/fullscreen-utils'
 import type { SharingMode } from '@/modules/screen-sharing/hooks/useConnectionStats'
-import type { PeerQualityView } from '@/modules/screen-sharing/core/peer-quality'
+import type { ShareEdgeStats } from '@/modules/screen-sharing/core/edge-stats'
 import { MODE_LABELS, MODE_ORDER } from './useRoomModeSwitch'
 import { t } from '@/i18n'
 
@@ -41,14 +41,12 @@ interface RoomLayoutProps {
   /** 控制卡片在移动端横向滚动时的标签，按 controls 子节点顺序提供 */
   controlLabels?: string[]
   /**
-   * 共享状态下的 RTCPeerConnection 实例。
-   * 当前由调用方按需传入（未来通过 ref/context 从 SharePage/WatchPage 提升后接入）。
+   * 每条共享连接（边）的统计。
+   * 共享状态下侧栏的「共享情况」面板直接消费；多观众时逐条列出。
    */
-  peerConnection?: RTCPeerConnection | null
+  edges?: ShareEdgeStats[]
   /** 采集实测帧率（发送端，来自 WebrtcSharePage 帧率计；无观众时也有值） */
   captureFps?: number | null
-  /** 房主侧每条观众连接的质量（观众不需要上报，见 core/peer-quality）。 */
-  peerQualities?: PeerQualityView[]
   /** 共享角色：发送端 / 接收端 */
   sharingRole?: 'sender' | 'receiver'
   /** 共享模式标签，默认服务器中转 */
@@ -122,9 +120,8 @@ export function RoomLayout({
   controls,
   rightPanel,
   controlLabels,
-  peerConnection = null,
+  edges = [],
   captureFps = null,
-  peerQualities,
   sharingRole = 'sender',
   sharingMode = 'direct',
   sharingActive,
@@ -172,11 +169,10 @@ export function RoomLayout({
   // 共享状态下：侧栏显示「共享情况」面板，评论区（rightPanel）移动到下方 controls 区域
   const effectiveRightPanel = isSharing ? (
     <SharingStatusPanel
-      pc={peerConnection}
+      edges={edges}
       captureFps={captureFps}
       mode={sharingRole}
       sharingMode={sharingMode}
-      peerQualities={peerQualities}
     />
   ) : (
     rightPanel

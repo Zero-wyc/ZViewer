@@ -14,15 +14,16 @@ import { HostAudio } from '../screen-sharing/core/audio-mix'
 import { captureCamera, captureDisplay } from '../screen-sharing/core/capture'
 import { nextLowerProfile } from '../screen-sharing/core/encoder-health'
 import type { AutoDowngradeNotice } from '../screen-sharing/core/view-state'
+import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats'
 import {
   profileFromSettings,
   type QualityProfile,
   type VideoSenderParameterReadback,
 } from '../screen-sharing/core/quality'
-import type { PeerQualityView } from '../screen-sharing/core/peer-quality'
 import type { WebrtcShareMediaSettings } from '../screen-sharing/utils/mediaSettingsStorage'
 import { ShareHealthMonitor } from './health.ts'
 import { PiikShareSession } from './session.ts'
+import { usePiikShareStats } from './usePiikShareStats.ts'
 import { t } from '@/i18n'
 
 /** 采样周期。与旧链路的 HostPeer 一致：2s 一次，两个窗口≈4s 得出降档结论。 */
@@ -40,9 +41,9 @@ export interface UsePiikShareHostResult {
   paused: boolean
   peerCount: number
   viewerCount: number
-  peerQualities: PeerQualityView[]
+  /** 每条观众连接的用量，统计面板直接消费。 */
+  edges: ShareEdgeStats[]
   autoDowngrade: AutoDowngradeNotice | null
-  statsPeerConnection: RTCPeerConnection | null
   sharingMode: 'direct' | 'relay'
   parameterOverride: string[] | null
   audioAvailable: boolean
@@ -361,14 +362,16 @@ export function usePiikShareHost(
     }
   }, [])
 
+  // 共享中才轮询：没开播时会话要么不存在，要么已经停了，取到的只会是空表。
+  const edges = usePiikShareStats(sessionRef, sharing)
+
   return {
     sharing,
     paused,
     peerCount,
     viewerCount: peerCount,
-    peerQualities: [],
+    edges,
     autoDowngrade,
-    statsPeerConnection: null,
     sharingMode: 'direct',
     parameterOverride,
     audioAvailable,

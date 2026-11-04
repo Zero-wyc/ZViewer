@@ -9,6 +9,7 @@
 import { useCallback, useState } from 'react'
 import type { RefObject } from 'react'
 import { VideoStatsMenu } from '@/components/VideoStatsMenu'
+import type { ShareEdgeStats } from '../core/edge-stats'
 import { Spinner } from '@/components/ui/Spinner'
 import { LiveArtPlayer } from '@/modules/art-player'
 import { t } from '@/i18n'
@@ -24,8 +25,8 @@ interface RemoteVideoPlayerProps {
   managedMuted?: boolean
   /** 是否已收到远端视频流 */
   hasRemoteStream: boolean
-  /** PeerConnection（用于 VideoStatsMenu） */
-  peerConnection: RTCPeerConnection | null
+  /** 每条共享连接的用量（Piik 链路没有唯一一条 PC） */
+  edges: ShareEdgeStats[]
   /** 没有画面时占位区显示的状态文案 */
   statusTip?: string
 }
@@ -35,7 +36,7 @@ export function RemoteVideoPlayer({
   isMuted,
   managedMuted = false,
   hasRemoteStream,
-  peerConnection,
+  edges,
   statusTip,
 }: RemoteVideoPlayerProps): JSX.Element {
   // 用 state 跟踪 video 元素，避免在 render 中读取 ref.current
@@ -57,7 +58,7 @@ export function RemoteVideoPlayer({
       />
       <VideoStatsMenu
         videoElement={videoEl}
-        pc={peerConnection}
+        edges={edges}
         sourceType="webrtc"
       />
       {!hasRemoteStream && (

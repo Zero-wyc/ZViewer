@@ -21,6 +21,15 @@ import {
   type PiikSignalPayload,
 } from '../piik-signal/protocol.ts'
 import type { EncoderHealthSample } from '../screen-sharing/core/encoder-health.ts'
+import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats.ts'
+import {
+  samplePeerQuality,
+  type PeerQualityBaseline,
+} from '../screen-sharing/core/peer-quality.ts'
+import {
+  sampleShareStats,
+  type StatsBaseline,
+} from '../screen-sharing/core/stats.ts'
 import {
   configureVideoSender,
   type QualityProfile,
@@ -53,18 +62,6 @@ interface Edge {
   stream: MediaStream
 }
 
-/** 一条边的用量，统计面板只读这几个数。 */
-export interface ShareEdgeStats {
-  connectionId: string
-  direction: 'inbound' | 'outbound'
-  state: RTCPeerConnectionState
-  bytes: number
-  frames: number
-  width: number
-  height: number
-  fps: number
-}
-
 /**
  * 一条出边的编码健康采样。
  *
@@ -83,6 +80,10 @@ export class ShareEndpoint {
   private readonly edges = new Map<string, Edge>()
   /** 上游推过来的流；观众当中转节点时，把它原样转给下游。 */
   private incoming: MediaStream | null = null
+  /** 每条边的统计基线；边关掉就跟着丢，避免连接码复用后拿旧基线做差。 */
+  private readonly statBaselines = new Map<string, StatsBaseline>()
+  /** 出边的观众侧反馈基线（`remote-inbound-rtp`，房主才能拿到）。 */
+  private readonly qualityBaselines = new Map<string, PeerQualityBaseline>()
   /** 当前上游（父）的 peerId；换父时用来判断哪条入边该关。 */
   private upstreamPeerId = ''
   private revision = 0
@@ -228,42 +229,41 @@ export class ShareEndpoint {
   /**
    * 每条边的用量。
    *
-   * 共享是单向的：房主的边只有出、观众的边只有入，所以一条边只取一个方向，
-   * 面板上不会出现「同一条边两个方向都为零」的困惑。
+   * 每条边自带一份采样基线：窗口速率（帧率、码率、丢包率、编码耗时）只能靠
+   * 两次采样做差得出，共用基线会让两条边互相减出负数。复用单 PC 那套
+   * `sampleShareStats`，口径与 `chrome://webrtc-internals` 一致。
+   *
+   * 一条边只取一个方向：房主的边只有出、观众的边只有入，面板上不会出现
+   * 「同一条边两个方向都为零」的困惑。
    */
   async stats(): Promise<ShareEdgeStats[]> {
     const out: ShareEdgeStats[] = []
     for (const [connectionId, edge] of this.edges) {
       const report = await edge.pc.getStats().catch(() => null)
       if (!report) continue
-      const item: ShareEdgeStats = {
+      const sample = sampleShareStats(
+        this.statBaselines.get(connectionId) ?? null,
+        report
+      )
+      this.statBaselines.set(connectionId, sample.baseline)
+      // 出边额外读一份 `remote-inbound-rtp`：观众丢了几个包、报的 RTT 是多少，
+      // 只有这侧的回传报告里有；入边没有这行，跳过。
+      let quality: ShareEdgeStats['quality']
+      if (edge.offerer) {
+        const peer = samplePeerQuality(
+          this.qualityBaselines.get(connectionId) ?? null,
+          report
+        )
+        this.qualityBaselines.set(connectionId, peer.baseline)
+        quality = peer.quality
+      }
+      out.push({
         connectionId,
         direction: edge.offerer ? 'outbound' : 'inbound',
         state: edge.pc.connectionState,
-        bytes: 0,
-        frames: 0,
-        width: 0,
-        height: 0,
-        fps: 0,
-      }
-      report.forEach((entry) => {
-        const stat = entry as Record<string, unknown> & { type?: string }
-        if (stat.type === 'inbound-rtp') {
-          item.bytes += Number(stat.bytesReceived ?? 0)
-          item.frames += Number(stat.framesDecoded ?? 0)
-          item.width = Math.max(item.width, Number(stat.frameWidth ?? 0))
-          item.height = Math.max(item.height, Number(stat.frameHeight ?? 0))
-          item.fps = Math.max(item.fps, Number(stat.framesPerSecond ?? 0))
-        }
-        if (stat.type === 'outbound-rtp') {
-          item.bytes += Number(stat.bytesSent ?? 0)
-          item.frames += Number(stat.framesEncoded ?? 0)
-          item.width = Math.max(item.width, Number(stat.frameWidth ?? 0))
-          item.height = Math.max(item.height, Number(stat.frameHeight ?? 0))
-          item.fps = Math.max(item.fps, Number(stat.framesPerSecond ?? 0))
-        }
+        stats: sample.stats,
+        quality,
       })
-      out.push(item)
     }
     return out
   }
@@ -287,6 +287,8 @@ export class ShareEndpoint {
       }
     }
     this.edges.clear()
+    this.statBaselines.clear()
+    this.qualityBaselines.clear()
   }
 
   /** 处理一条下行消息；不认识的直接忽略。 */
@@ -571,6 +573,8 @@ export class ShareEndpoint {
   private dropEdge(connectionId: string, edge: Edge): void {
     if (this.edges.get(connectionId) !== edge) return
     this.edges.delete(connectionId)
+    this.statBaselines.delete(connectionId)
+    this.qualityBaselines.delete(connectionId)
     if (this.incoming === edge.stream) this.incoming = null
     try {
       edge.pc.close()

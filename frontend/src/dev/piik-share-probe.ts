@@ -193,10 +193,21 @@ async function main(): Promise<void> {
     void (async () => {
       const list = await session.stats()
       statsEl.textContent = list
-        .map(
-          (item) =>
-            `${item.direction} ${Math.round(item.bytes / 1024)}KB ${item.width}x${item.height}@${item.fps}`
-        )
+        .map((item) => {
+          const resolution = item.stats.resolution
+          const size = resolution
+            ? `${resolution.width}x${resolution.height}`
+            : '-'
+          const fps =
+            item.stats.frameRate === null
+              ? '-'
+              : item.stats.frameRate.toFixed(0)
+          const bitrate =
+            item.stats.bitrate === null
+              ? '-'
+              : `${Math.round(item.stats.bitrate / 1000)}kbps`
+          return `${item.direction} ${size}@${fps} ${bitrate}`
+        })
         .join(' | ')
     })()
   }, 1000)

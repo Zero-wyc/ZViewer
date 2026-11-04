@@ -99,13 +99,13 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   }, [])
 
   const {
-    pc,
     remoteStream,
     hasRemoteStream,
     hasRemoteAudio,
     connectionState,
     state,
     sharingMode,
+    edges,
     retry,
   } = usePiikShareViewer({ roomId, videoRef, videoVersion })
 
@@ -314,7 +314,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         isMuted={isMuted}
         managedMuted
         hasRemoteStream={hasRemoteStream}
-        peerConnection={pc}
+        edges={edges}
         statusTip={viewerStatusText(state)}
       />
       {hasRemoteStream && hasRemoteAudio && isMuted && (
@@ -382,7 +382,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     <RoomLayout
       isHost={false}
       mainContent={playerContent}
-      peerConnection={pc}
+      edges={edges}
       sharingRole="receiver"
       sharingMode={sharingMode}
       sharingActive

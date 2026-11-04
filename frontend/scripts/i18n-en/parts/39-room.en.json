@@ -1,5 +1,7 @@
 {
   "items": [
+    "Buffered mode",
+    "Buffered mode is managed by the host",
     "Buffered download failed",
     "Buffered download failed, try again",
     "Failed to load the parts; added as a single part",
@@ -99,6 +101,7 @@
     "Failed to delete the movie",
     "Uplink bandwidth limited",
     "Upload bitrate",
+    "Upstream link",
     "Failed to set “CLI only”",
     "Once set, viewers need the password to join. The root account does not.",
     "Failed to request resuming",
@@ -116,9 +119,6 @@
     "Failed to load the video",
     "Failed to load the video source",
     "Failed to resolve the video source",
-    "Video direct link",
-    "Collapse the sidebar",
-    "Type a path, or use the button above to browse (multi-select for bulk adding)",
-    "Enter manually"
+    "Video direct link"
   ]
 }

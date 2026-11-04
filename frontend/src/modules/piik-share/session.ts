@@ -19,11 +19,8 @@ import {
   clientId,
   type SignalStatus,
 } from '../piik-signal/client.ts'
-import {
-  ShareEndpoint,
-  type ShareEdgeStats,
-  type ShareHealthSample,
-} from './endpoint.ts'
+import { ShareEndpoint, type ShareHealthSample } from './endpoint.ts'
+import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats.ts'
 import type {
   QualityProfile,
   VideoSenderParameterReadback,

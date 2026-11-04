@@ -30,7 +30,7 @@ import {
   type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
 import { browserCameras, type CaptureDevice } from '../core/capture-devices'
-import type { PeerQualityView } from '../core/peer-quality'
+import type { ShareEdgeStats } from '../core/edge-stats'
 import {
   QUALITY_PRESETS,
   type QualityPresetId,
@@ -45,11 +45,9 @@ import { t } from '@/i18n'
 interface WebrtcSharePageProps {
   className?: string
   style?: React.CSSProperties
-  onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
+  onStatsEdgesChange?: (edges: ShareEdgeStats[]) => void
   /** 采集实测帧率变化回调，提升到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
-  /** 上报每条观众连接的质量（房主侧本地采样，供状态面板展示）。 */
-  onPeerQualitiesChange?: (list: PeerQualityView[]) => void
   /** 媒体走向变化回调（直连 / 服务端转发），供统计面板标注。 */
   onSharingModeChange?: (mode: 'direct' | 'relay') => void
 }
@@ -57,9 +55,8 @@ interface WebrtcSharePageProps {
 function WebrtcSharePage({
   className,
   style,
-  onStatsPeerConnectionChange,
+  onStatsEdgesChange,
   onCaptureFpsChange,
-  onPeerQualitiesChange,
   onSharingModeChange,
 }: WebrtcSharePageProps) {
   const navigate = useNavigate()
@@ -124,7 +121,7 @@ function WebrtcSharePage({
     paused: isPaused,
     peerCount,
     viewerCount,
-    statsPeerConnection,
+    edges: statsEdges,
     sharingMode,
     parameterOverride,
     previewStream,
@@ -136,7 +133,6 @@ function WebrtcSharePage({
     applyProfile,
     switchResolution,
     switchCaptureSource,
-    peerQualities,
     autoDowngrade,
   } = usePiikShareHost({
     roomId: currentRoomId,
@@ -451,8 +447,8 @@ function WebrtcSharePage({
   )
 
   useEffect(() => {
-    onStatsPeerConnectionChange?.(statsPeerConnection)
-  }, [statsPeerConnection, onStatsPeerConnectionChange])
+    onStatsEdgesChange?.(statsEdges)
+  }, [statsEdges, onStatsEdgesChange])
 
   // 采集实测帧率计：MediaStreamTrackProcessor 纯数帧，近零开销。
   // 与观众 PC 的 outbound-rtp 发送帧率分离展示，用于定位瓶颈
@@ -495,11 +491,6 @@ function WebrtcSharePage({
       { duration: 8000 }
     )
   }, [autoDowngrade])
-
-  // 观众质量由会话层本地采样（remote-inbound-rtp），这里只往上层抛一份最新值。
-  useEffect(() => {
-    onPeerQualitiesChange?.(peerQualities)
-  }, [peerQualities, onPeerQualitiesChange])
 
   useEffect(() => {
     onSharingModeChange?.(sharingMode)

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2628 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1897,7 +1897,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（426 条） =====
+  // ===== modules/room（430 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -2013,9 +2013,11 @@ const enUS: Record<string, string> = {
   '观看请求': 'Watch request',
   '观众 {{index}}': 'Viewer {{index}}',
   '观众管理': 'Viewers',
+  '观众接入后这里会显示每条连接的数据': 'Once viewers join, each connection shows up here',
   '观众上限': 'Viewer limit',
   '观众上限必须在 1-100 之间': 'The viewer limit must be between 1 and 100',
   '观众质量': 'Viewer quality',
+  '还没有连接': 'No connection yet',
   '缓冲模式': 'Buffered mode',
   '缓冲模式由房主统一管理': 'Buffered mode is managed by the host',
   '缓冲下载失败': 'Buffered download failed',
@@ -2117,6 +2119,7 @@ const enUS: Record<string, string> = {
   '删除影片失败': 'Failed to delete the movie',
   '上行带宽受限': 'Uplink bandwidth limited',
   '上行码率': 'Upload bitrate',
+  '上游连接': 'Upstream link',
   '设置「仅允许CLI模式」失败': 'Failed to set “CLI only”',
   '设置后，观众加入需输入密码。root 账户无需密码。': 'Once set, viewers need the password to join. The root account does not.',
   '申请继续播放失败': 'Failed to request resuming',
@@ -2255,6 +2258,7 @@ const enUS: Record<string, string> = {
   '展开查看完整影片列表': 'Expand to see the full movie list',
   '帧在缓冲里的平均停留': 'Average time a frame sits in the buffer',
   '正在初始化解析...': 'Initializing resolution...',
+  '正在等待房主的画面': 'Waiting for the host to start sharing',
   '正在缓冲视频': 'Buffering the video',
   '正在恢复房间...': 'Restoring the room...',
   '正在获取 {{label}} 直链...': 'Getting the {{label}} direct link...',

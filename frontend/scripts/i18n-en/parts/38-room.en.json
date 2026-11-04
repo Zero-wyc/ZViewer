@@ -115,10 +115,10 @@
     "Watch request",
     "Viewer {{index}}",
     "Viewers",
+    "Once viewers join, each connection shows up here",
     "Viewer limit",
     "The viewer limit must be between 1 and 100",
     "Viewer quality",
-    "Buffered mode",
-    "Buffered mode is managed by the host"
+    "No connection yet"
   ]
 }

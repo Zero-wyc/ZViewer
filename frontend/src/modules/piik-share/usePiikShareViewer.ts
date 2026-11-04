@@ -6,7 +6,9 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ViewerSessionState } from '../screen-sharing/core/view-state'
+import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats'
 import { PiikShareSession } from './session.ts'
+import { usePiikShareStats } from './usePiikShareStats.ts'
 import { t } from '@/i18n'
 
 export interface UsePiikShareViewerOptions {
@@ -20,14 +22,14 @@ export interface UsePiikShareViewerOptions {
 }
 
 export interface UsePiikShareViewerResult {
-  /** 多连接拓扑下没有「唯一 PC」；统计请用 session.stats()。 */
-  pc: RTCPeerConnection | null
   remoteStream: MediaStream | null
   hasRemoteStream: boolean
   hasRemoteAudio: boolean
   connectionState: RTCPeerConnectionState
   state: ViewerSessionState
   sharingMode: 'direct' | 'relay'
+  /** 当前入边的用量（多连接拓扑下没有「唯一一条 PC」）。 */
+  edges: ShareEdgeStats[]
   retry: () => void
 }
 
@@ -142,14 +144,16 @@ export function usePiikShareViewer(
   }, [])
 
   const tracks = remoteStream?.getTracks() ?? []
+  // 进房就轮询：会话在 effect 里建，可能还没建好，取到空表即返回。
+  const edges = usePiikShareStats(sessionRef, Boolean(roomId))
   return {
-    pc: null,
     remoteStream,
     hasRemoteStream: tracks.length > 0,
     hasRemoteAudio: tracks.some((track) => track.kind === 'audio'),
     connectionState,
     state,
     sharingMode: 'direct',
+    edges,
     retry,
   }
 }
