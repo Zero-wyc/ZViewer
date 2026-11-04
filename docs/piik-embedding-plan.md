@@ -113,7 +113,7 @@ internal/thirdparty/livekit/sendsidebwe
 | S3b-2 ✅ | 观众互助与换父接上 `route-update` 的候选边 | 互助已通（第 4 人挂到第 3 人，中间节点转发）；换父实测通过（关掉中间节点，子节点 12–15 秒内重挂到别的观众） |
 | S3b-3 ✅ | 把产品界面切到新链路 | 默认走 Piik：开播、观看、混音、换源、暂停、自动降档、参数覆盖提示都通 |
 | S4 🟡 | 统计面板改用 Piik 的边统计（`session.stats()`），不再依赖单一 PC | 统计菜单目前对 Piik 会话显示「无数据」，其余界面已不依赖 `core/*` |
-| S5 ✅ | 删掉旧实现，去掉双跑开关 | 已删：后端约 5.5k 行、前端约 5.4k 行；两条链路并存的分支与开关一并移除 |
+| S5 ✅ | 删掉旧实现，去掉双跑开关 | 已删：后端约 5.6k 行、前端约 8.4k 行（含只测旧实现的用例）；两条链路并存的分支与开关一并移除 |
 
 S0 实际落地的东西：
 
@@ -364,11 +364,11 @@ S3b 的真实工作量因此拆成三段（见第 4 节的表格）：
 
 ### S3b-3：产品页切到新链路（默认已换）
 
-`WebrtcSharePage` / `WebrtcWatchPage` 各加了一个同形的 hook
-（`usePiikShareHost` / `usePiikShareViewer`），两条链路并存，默认仍走旧的
-socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
-`/share/<id>` 会被重定向到 `/room/<id>`，query 活不过重定向——开关必须在
-`main.tsx` 里、路由之前落到 localStorage。
+`WebrtcSharePage` / `WebrtcWatchPage` 各接了一个同形的 hook
+（`usePiikShareHost` / `usePiikShareViewer`）。过渡期两条链路并存、默认仍走
+socket.io，用 `?shareBackend=piik` 切过去；坑在于 `/share/<id>` 会被重定向到
+`/room/<id>`，query 活不过重定向，开关必须在 `main.tsx` 里、路由之前落到
+localStorage。这套开关在 S5 已随旧链路一起删除，本节保留的是当时的验证记录。
 
 产品页实测（真实 `/room/<id>` 与 `/watch/<id>`）：
 
