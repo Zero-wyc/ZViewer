@@ -18,22 +18,10 @@ import (
 // 房主 token / 观众 grant。中间不经过 socket.io——WebSocket 升级没法带
 // Authorization 头，Piik 的客户端也只会自己连 /signal。
 func (s *Server) registerPiikShareRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/share/capabilities", s.handleShareCapabilities)
 	mux.HandleFunc("POST /api/share/piik/session", s.Auth.Require(s.handlePiikSession))
 	mux.HandleFunc("DELETE /api/share/piik/session", s.Auth.Require(s.handlePiikRelease))
 	// 必须在 mux.Handle("/", SPA 回退) 之前，否则升级请求会被回成 index.html。
 	mux.Handle(piikbridge.SignalPath, s.handlePiikSignal())
-}
-
-// handleShareCapabilities 回答「这台服务端能跑哪条共享链路」。
-//
-// 前端默认走 Piik，但桥接层起不来（端口被占、组件缺失）时 `/signal` 只会 503，
-// 那时候整页共享都是死的。给一个不需要鉴权的探头，页面在开播前就知道该不该
-// 退回去——这里只吐一个布尔，不含任何凭证。
-func (s *Server) handleShareCapabilities(w http.ResponseWriter, _ *http.Request) {
-	httpx.OK(w, map[string]any{
-		"piik": s.PiikShare != nil,
-	})
 }
 
 // handlePiikSignal 返回 /signal 的处理器；桥接层没起来时显式 503。

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2646 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2628 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1758,9 +1758,8 @@ const enUS: Record<string, string> = {
   // ===== modules/openlist（1 条） =====
   '浏览 OpenList 目录': 'Browse the OpenList directory',
 
-  // ===== modules/piik-share（6 条） =====
+  // ===== modules/piik-share（5 条） =====
   '房间已关闭': 'The room is closed',
-  '服务端未启用新版共享链路，已切换到兼容模式': 'The new sharing pipeline is not available on this server; switched to compatibility mode',
   '开播失败：服务端拒绝了这个代际': 'Failed to start sharing: the server rejected this share generation',
   '连接失败': 'Connection failed',
   '无法获取共享凭证': 'Could not obtain sharing credentials',
@@ -2326,9 +2325,8 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（198 条） =====
+  // ===== modules/screen-sharing（181 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
-  '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
   '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps — the default',
   '1080P · 60fps · 16Mbps，画面有快速运动时选它': '1080P · 60fps · 16Mbps — pick this when the picture moves fast',
@@ -2342,8 +2340,6 @@ const enUS: Record<string, string> = {
   '带宽不足时保分辨率、降帧率': 'Keep the resolution, drop frames when bandwidth is short',
   '带宽不足时保帧率、降分辨率': 'Keep the frame rate, drop resolution when bandwidth is short',
   '带宽不足时牺牲什么': 'What is sacrificed when bandwidth runs short',
-  '当前分辨率或帧率超出采集能力，请降低档位后重试': 'The resolution or frame rate is beyond what this machine can capture; lower it and try again',
-  '当前浏览器不支持所需的编码格式，请改用 Chrome 或 Edge': 'This browser does not support the required codec; use Chrome or Edge',
   '等待房主开始 OBS 推流': 'Waiting for the host to start the OBS stream',
   '等待房主开始共享': 'Waiting for the host to start sharing',
   '等待房主确认': 'Waiting for the host\'s approval',
@@ -2355,7 +2351,6 @@ const enUS: Record<string, string> = {
   '丢包数': 'Packet loss',
   '丢帧 / 总帧': 'Dropped / total frames',
   '丢帧率': 'Frame drop rate',
-  '多次建立观众连接失败，请刷新页面后重试': 'Failed to connect to viewers repeatedly; refresh the page and try again',
   '房间号': 'Room ID',
   '房间号不存在，请重新创建房间': 'That room ID does not exist, create a room again',
   '房间已关闭，可尝试重新加入或更换房间': 'The room is closed; try joining again or pick another room',
@@ -2367,7 +2362,6 @@ const enUS: Record<string, string> = {
   '分辨率缩放': 'Resolution scaling',
   '分辨率已切换': 'Resolution switched',
   '分层模式': 'Scalability mode',
-  '服务端返回的连接信息不完整，请刷新页面重试': 'The server returned incomplete connection info; refresh the page and try again',
   '服务器返回了无效的观看地址': 'The server returned an invalid watch URL',
   '服务器模式': 'Server mode',
   '复制错误详情': 'Copy error details',
@@ -2420,7 +2414,6 @@ const enUS: Record<string, string> = {
   '流畅': 'Smooth',
   '流密钥（Stream Key）': 'Stream key',
   '流密钥已复制': 'Stream key copied',
-  '没有可用的画面来源，请重新选择要共享的画面': 'No usable video source; pick the screen to share again',
   '密码错误': 'Wrong password',
   '密码错误，请重新输入': 'Wrong password, try again',
   '默认，音乐与视频兼顾': 'Default — a balance of music and video',
@@ -2429,7 +2422,6 @@ const enUS: Record<string, string> = {
   '屏幕': 'Screen',
   '切换采集源失败，已保留原画面': 'Could not switch the capture source — keeping the previous view',
   '切换到导入的「ZViewer 推流」场景集合，确认推流服务地址与流密钥正确': 'Switch to the imported “ZViewer streaming” scene collection and check the server address and stream key',
-  '切换画面来源失败，已保留原画面': 'Failed to switch the video source; the previous one is kept',
   '切换摄像头失败，已保留原画面': 'Could not switch the camera — keeping the previous view',
   '切换子模式失败': 'Failed to switch the sub-mode',
   '清空批注': 'Clear annotations',
@@ -2460,12 +2452,10 @@ const enUS: Record<string, string> = {
   '推流地址已复制（不含流密钥）': 'Stream URL copied (without the stream key)',
   '推流状态': 'Stream status',
   '退出画中画': 'Exit picture-in-picture',
-  '网络候选地址处理失败，正在重试': 'Failed to process network candidates; retrying',
   '网络拉流速度': 'Network pull speed',
   '未推流': 'Not streaming',
   '未知模式': 'Unknown mode',
   '无法获取观看权限': 'Cannot get watch permission',
-  '无法开始屏幕采集，请重新选择要共享的画面': 'Could not start screen capture; pick the screen to share again',
   '系统音频需要先结束共享才能改；麦克风与音频码率可以随时调': 'System audio needs sharing to restart before it can change; the microphone and audio bitrate can be adjusted at any time',
   '下载 OBS 配置失败: {{status}} {{text}}': 'Failed to download the OBS settings: {{status}} {{text}}',
   '下载 OBS 配置文件': 'Download OBS settings',
@@ -2483,13 +2473,6 @@ const enUS: Record<string, string> = {
   '音频开启': 'Audio on',
   '音频码率': 'Audio bitrate',
   '隐藏预览': 'Hide the preview',
-  '与房主的连接多次建立失败，请点击刷新重试': 'Failed to connect to the host repeatedly; click Refresh to retry',
-  '与房主的连接协商失败，正在重试': 'Negotiation with the host failed; retrying',
-  '与房主的连接已中断，正在重试': 'The connection to the host dropped; retrying',
-  '与服务器的连接已断开，请刷新页面后重新开始共享': 'The server connection dropped; refresh the page and start sharing again',
-  '与服务器的转发连接建立失败，请重新开始共享': 'Could not establish the relay connection; start sharing again',
-  '与观众的连接协商失败，正在重试': 'Negotiation with a viewer failed; retrying',
-  '与观众的连接已中断，正在重试': 'The connection to a viewer dropped; retrying',
   '允许加入失败': 'Failed to allow the join',
   '在线观众：{{viewerCount}} / {{connectionCount}} 连接': 'Online viewers: {{viewerCount}} / {{connectionCount}} connections',
   '在新窗口打开': 'Open in a new window',
@@ -2513,7 +2496,6 @@ const enUS: Record<string, string> = {
   '重新连接': 'Reconnect',
   '重新申请加入': 'Request again',
   '主播未推流': 'The streamer is not streaming',
-  '转发服务连接已断开，请等房主重新开始共享': 'The relay connection dropped; wait for the host to start sharing again',
   '自定义参数：下面的细项不再对应任何一个档位': 'Custom settings: the parameters below no longer match any preset',
   '总码率': 'Total bitrate',
   '最大码率（Mbps）': 'Max bitrate (Mbps)',

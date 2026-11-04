@@ -18,9 +18,6 @@ services:
       # NAT 1:1（云主机 / 只做端口转发的 FRP）：填宿主公网 IP。留空时候选里只有
       # 容器内网地址（172.x），信令能通但媒体连不上；STUN 发现对容器不可靠。
       - SHARE_MEDIA_PUBLIC_IP=${SHARE_MEDIA_PUBLIC_IP:-}
-      # 屏幕共享走服务端 SFU（房主只上行一份，代价是服务端带宽）。
-      # 默认 0 = 观众与房主直连（服务端只转发信令）。
-      - SHARE_RELAY=${SHARE_RELAY:-0}
       # 一起听（网易云）由后端自带（internal/ncm），不需要任何外部服务
     volumes:
       - zviewer-data:/app/config

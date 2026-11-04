@@ -47,8 +47,8 @@
 - **同步观影**：多人同步播放，房主控制播放，观众可申请暂停 / 快进；支持多轨弹幕与字幕
 - **片源**：Bilibili（支持大会员画质）、MP4 直链、WebDAV / FTP / OpenList、Emby / Jellyfin、ANI、Kazumi、TVBOX、服务器本地目录；支持 MKV / AVI / TS / WMV 与 DTS / AC3 / EAC3 音轨等
 - **一起听**：网易云音乐 × 哔哩哔哩，支持哔哩哔哩PV背景和屏蔽词设置等等众多功能
-- **语音**：内置 SFU 语音，与屏幕共享共用同一套媒体端口
-- **屏幕共享与推流** : WebRTC 屏幕共享与OBSRTMP推流
+- **语音**：内置 SFU 语音
+- **屏幕共享与推流**：WebRTC 屏幕共享（Piik 选路，观众互助）与 OBS RTMP 推流
 - **高画质代理**：使用 [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) 使用独立本地CLI本地获取哔站视频链接并支持高画质，极大减少服务器媒体流量
 - **Windows桌面端**：采用Windows GO启动台，托管后端与网络入口，支持 IPv6 / FRP / EasyTier / Cloudflare Tunnel 外网接入
 - **手机端**：Android / HarmonyOS / iOS 与平板客户端，支持一起看、一起听、投屏接收与房间语音并内嵌CLI解决手机浏览器哔哩哔哩无法高画质的问题
@@ -83,8 +83,8 @@ docker run -d --name zviewer --restart unless-stopped \
 | 端口 | 用途 |
 | --- | --- |
 | 3333/tcp | HTTP/HTTPS、WebSocket、页面 |
-| 3333/udp | 语音与屏幕共享的媒体（UDP） |
-| 3337/tcp | 语音与屏幕共享的媒体（TCP，UDP 受限时自动切换） |
+| 3333/udp | 语音媒体（UDP） |
+| 3337/tcp | 语音媒体（TCP，UDP 受限时自动切换） |
 | 3334/tcp | OBS RTMP 推流 |
 
 主要的环境变量：
@@ -99,7 +99,6 @@ docker run -d --name zviewer --restart unless-stopped \
 | `SHARE_MEDIA_PORT` | 媒体 UDP 端口 | `3333` |
 | `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口。**不能与 `PORT` 相同**（会抢走网页端口）；留空用 3337 | `3337` |
 | `SHARE_MEDIA_PUBLIC_IP` | NAT 1:1 下的公网地址（云主机 / FRP 场景必填） | 自动 |
-| `SHARE_RELAY` | `1` 时屏幕共享也走服务端转发（房主只上行一份） | `0` |
 
 其余变量（推流、Emby 等）见 `backend-go/internal/config`。
 

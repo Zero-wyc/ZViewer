@@ -55,22 +55,6 @@ type Config struct {
 	// 需要退回旧模式时显式设 `SQLITE_WAL=0`。
 	SQLiteWAL bool
 
-	// ShareRelay 为 true 时屏幕共享的观众不再直连房主，全部走服务端 SFU。
-	// 收益是房主只上行一份；代价是服务端带宽。默认关（与直连行为一致）。
-	//
-	// 打开前必须确认 ShareMediaPort（UDP）与 ShareMediaTCPPort（TCP）都对
-	// 观众可达：只转 TCP 的隧道走后者。端口绑不上时服务会自动回退直连并
-	// 打日志，不会让共享起不来。
-	ShareRelay bool
-	// ShareTree* 是屏幕共享的树形拓扑上限（Piik 的「观众互助」）。
-	//
-	// 默认 3/2/3：房主直连 3 人，出首帧的观众各自再带 2 人，最多 3 层。
-	// 20 人的满房刚好铺满（3 + 6 + 12）。房主出网 = 它的子节点数，所以
-	// 上行吃紧的房间里把 HostChildren 调小、ViewerChildren 调大更划算。
-	// ViewerChildren 为 0 时退化成单层星形：所有观众直连房主。
-	ShareTreeHostChildren   int
-	ShareTreeViewerChildren int
-	ShareTreeMaxDepth       int
 	// ShareMediaPort 是媒体 UDP 端口。
 	//
 	// 默认 3333：这个端口以前是 livekit-server 的语音端口，防火墙早就开着。
@@ -128,13 +112,9 @@ func Load() (*Config, error) {
 		StartedAt:    time.Now(),
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
 
-		ShareRelay:              envBool("SHARE_RELAY"),
-		ShareTreeHostChildren:   envInt("SHARE_TREE_HOST_CHILDREN", 3),
-		ShareTreeViewerChildren: envInt("SHARE_TREE_VIEWER_CHILDREN", 2),
-		ShareTreeMaxDepth:       envInt("SHARE_TREE_MAX_DEPTH", 3),
-		ShareMediaPort:          3333,
-		ShareMediaTCPPort:       mediaTCPFallbackPort,
-		ShareMediaPublicIP:      strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
+		ShareMediaPort:     3333,
+		ShareMediaTCPPort:  mediaTCPFallbackPort,
+		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
 	}
 	if raw := os.Getenv("SHARE_MEDIA_TCP_PORT"); raw != "" {
 		port, err := strconv.Atoi(raw)

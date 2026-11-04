@@ -1,7 +1,6 @@
 {
   "items": [
     "The room is closed",
-    "The new sharing pipeline is not available on this server; switched to compatibility mode",
     "Failed to start sharing: the server rejected this share generation",
     "Connection failed",
     "Could not obtain sharing credentials",

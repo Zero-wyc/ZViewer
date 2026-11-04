@@ -20,11 +20,9 @@ import { useRoomStore } from '@/store/roomStore'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { useShareHost } from '../hooks/useShareHost'
 import { usePiikShareHost } from '@/modules/piik-share/usePiikShareHost'
-import { useShareBackend } from '@/modules/piik-share/useShareBackend'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
-import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
+import { parameterOverrideText } from '../utils/shareMessages'
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -33,7 +31,6 @@ import {
 } from '../utils/mediaSettingsStorage'
 import { browserCameras, type CaptureDevice } from '../core/capture-devices'
 import type { PeerQualityView } from '../core/peer-quality'
-import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
 import {
   QUALITY_PRESETS,
   type QualityPresetId,
@@ -122,24 +119,6 @@ function WebrtcSharePage({
   }, [])
   const handleStreamEndedRef = useRef<() => void>(() => {})
 
-  // 两条链路并存：不用的那条拿空 roomId 空转（不能条件调用 hook）。
-  const backend = useShareBackend()
-  const legacyHost = useShareHost({
-    socket: backend === 'piik' ? null : socket,
-    roomId: backend === 'piik' ? '' : currentRoomId,
-    iceServers: ICE_SERVERS,
-    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
-    videoRef: localVideoRef,
-    videoVersion: localVideoVersion,
-    onStreamEnded: () => handleStreamEndedRef.current(),
-  })
-  const piikHost = usePiikShareHost({
-    roomId: backend === 'piik' ? currentRoomId : '',
-    videoRef: localVideoRef,
-    videoVersion: localVideoVersion,
-    onStreamEnded: () => handleStreamEndedRef.current(),
-  })
-
   const {
     sharing: isSharing,
     paused: isPaused,
@@ -159,7 +138,12 @@ function WebrtcSharePage({
     switchCaptureSource,
     peerQualities,
     autoDowngrade,
-  } = backend === 'piik' ? piikHost : legacyHost
+  } = usePiikShareHost({
+    roomId: currentRoomId,
+    videoRef: localVideoRef,
+    videoVersion: localVideoVersion,
+    onStreamEnded: () => handleStreamEndedRef.current(),
+  })
 
   const stopSharing = useCallback(() => {
     stop()
@@ -244,7 +228,7 @@ function WebrtcSharePage({
   }, [copy, currentRoomId])
 
   const handleCopyError = useCallback(() => {
-    const text = hostErrorText(error)
+    const text = error
     if (!text) return
     void copy(text, {
       successMessage: t('错误详情已复制，可粘贴给管理员'),
@@ -526,14 +510,14 @@ function WebrtcSharePage({
   // 共享中、观众什么都没有」，而且没有任何提示。
   useEffect(() => {
     if (!isSharing || !error) return
-    message.error(hostErrorText(error) ?? t('共享出错，请重新开始共享'))
+    message.error(error ?? t('共享出错，请重新开始共享'))
   }, [error, isSharing])
 
   useEffect(() => {
     setIsSharing(isSharing)
   }, [isSharing, setIsSharing])
 
-  const errorText = hostErrorText(error)
+  const errorText = error
   const overrideText = parameterOverrideText(parameterOverride)
 
   if (!currentRoomId) {

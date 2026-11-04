@@ -1,12 +1,11 @@
 /**
  * 观众侧共享的 React 包装（Piik 链路）。
  *
- * 与 `useShareViewer` 同形，页面只换 hook 不换 JSX。差别在连接由
- * `/signal` 上的 route-update 驱动：这里没有「重试建 PC」这种动作，
+ * 连接由 `/signal` 上的 route-update 驱动：这里没有「重试建 PC」这种动作，
  * 断线后由 controller 重新分配候选，所以 `retry` 只是重连信令。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { ViewerSessionState } from '../screen-sharing/core/viewer-session'
+import type { ViewerSessionState } from '../screen-sharing/core/view-state'
 import { PiikShareSession } from './session.ts'
 import { t } from '@/i18n'
 

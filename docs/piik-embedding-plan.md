@@ -111,9 +111,9 @@ internal/thirdparty/livekit/sendsidebwe
 | S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
 | S3b-1 ✅ | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 已完成：探针页里房主开播、观众收到 1200×676 音视频，SDP 全程走 `signal` 帧 |
 | S3b-2 ✅ | 观众互助与换父接上 `route-update` 的候选边 | 互助已通（第 4 人挂到第 3 人，中间节点转发）；换父实测通过（关掉中间节点，子节点 12–15 秒内重挂到别的观众） |
-| S3b-3 ✅ | 把产品界面切到新链路 | 默认已切到 Piik：开播、观看、混音、换源、暂停、自动降档、参数覆盖提示都通；`?shareBackend=sfu` 留作逃生舱，删旧实现并入 S5 |
-| S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
-| S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
+| S3b-3 ✅ | 把产品界面切到新链路 | 默认走 Piik：开播、观看、混音、换源、暂停、自动降档、参数覆盖提示都通 |
+| S4 🟡 | 统计面板改用 Piik 的边统计（`session.stats()`），不再依赖单一 PC | 统计菜单目前对 Piik 会话显示「无数据」，其余界面已不依赖 `core/*` |
+| S5 ✅ | 删掉旧实现，去掉双跑开关 | 已删：后端约 5.5k 行、前端约 5.4k 行；两条链路并存的分支与开关一并移除 |
 
 S0 实际落地的东西：
 
@@ -395,9 +395,9 @@ socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
 
 ### 切默认做了什么
 
-`shareBackend()` 的默认值从 `sfu` 改成 `piik`，`?shareBackend=sfu` 仍然有效
-（落 localStorage，逃生舱留一个版本）。单纯改默认值是不够的：Piik 桥接层是
-进程内起的，起不来（端口被占、组件缺失）时 `/signal` 只回 503，默认切过去就
+先把默认值从 `sfu` 改成 `piik`，并留了 `?shareBackend=sfu` 的逃生舱跑完一次
+验证；确认没问题后在 S5 里连逃生舱一起删掉。单纯改默认值是不够的：Piik 桥接层
+是进程内起的，起不来（端口被占、组件缺失）时 `/signal` 只回 503，默认切过去就
 等于「所有人都不能共享」。所以补了两层：
 
 - 后端 `GET /api/share/capabilities` 回 `{ piik: bool }`，只看桥接层是否挂上，
@@ -408,51 +408,50 @@ socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
 - 用户显式指定过（query / localStorage）就不覆盖：他要排查哪条链路，就该跑
   哪条，哪怕跑不通。
 
+（这三样都是为「两条链路并存」服务的。旧链路删掉之后它们没有存在意义了，
+探头与开关一并移除——桥接层起不来时凭证端点原本就回 503 并带「共享信令未启用」
+的说明，页面照常把这句话显示出来。）
+
 切换后暴露的一个老问题也顺手修了：**观众比房主先到不该算错误**。Piik 的凭证
 端点在没有房间时回 409，原先连接层一律当致命错误上报，观众一进房就是红字
 （旧链路里这是「等待房主开始共享」）。现在 409 带 `HOST_NOT_SHARING`，
 凭证错误类据此标 `retriable`，连接层只退避重试、不报错，页面停在「等待房主
 开始共享」；重试到上限（30 次，约两分钟）才把话说明白。
 
-已知限制：逃生舱是**每台浏览器**的开关。房主切回 `sfu` 而观众仍是默认 `piik`
-时，观众会一直等（拿不到 Piik 房间）。回滚要房主和观众一起切，或者直接把
-代码回退——这也是删旧实现之前要先跑一个观察期的原因。
+切默认与删旧实现是两次提交：先让默认跑通（留 `?shareBackend=sfu` 逃生舱），
+再按下面这份清单拆掉旧链路。
 
-删旧实现没有跟着做：`service.go` / `session.go` / `piikroute` / 前端
-`core/host-*.ts`、`core/viewer-*.ts` 是一整块（约 3.4 万行），旧链路的
-socket.io 服务端与 `piikroute` 互相引用，拆一半会让两边都编译不过。它跟着
-S5 一起走，前置条件是默认切换后跑过一个版本的观察期。
+### S5：旧实现已删除
 
-### S5 删除清单（留给观察期之后）
+删之前先点清了咬合点，实际下手比预想的干净——旧链路是**自带一套信令与拓扑**的
+完整实现，Piik 接管之后它只剩「房间层还挂着它」这一层关系：
 
-拆不动的原因是这几块互相咬住，删一半两边都编译不过。逐项点清之后规模如下：
-
-**后端**（约 6.5k 行含测试）
-
-| 删 | 保留 |
+| 删掉 | 说明 |
 |---|---|
-| `internal/share/{service,session,route,relay,protocol,sfu_handlers}.go` 及同名测试 | `internal/share/piikbridge`（新链路） |
-| `internal/share/{forwarding,encoded,ordered}/` | `internal/share/sfu`——**不能跟着删**：`internal/voicertc` 的语音中继也在用它 |
-| `internal/share/piikroute`（只被 `share/route.go` 引用） | `internal/piik/`（vendor 的上游） |
+| `internal/share/{service,session,route,relay,protocol,sfu_handlers}.go` 与同名测试 | 旧控制面：信封、代际、快照、树形选路 |
+| `internal/share/piikroute` | 只被 `share/route.go` 引用；Piik 的 `route` 包直接顶替 |
+| 前端 `core/{host-peer,host-session,viewer-peer,viewer-session,viewer-relay,share-client,relay-media,nat-prediction,connection-op,presentation,codec-preflight-judge,video-codec-preflight,video-codec,opus-receive-sdp,frame-proof}.ts` | 旧的两个端点与它们的辅助模块 |
+| 前端 `hooks/{useShareHost,useShareViewer}.ts`、`protocol/`（socket.io 信封与编解码器）、`piik-share/backend.ts`、`useShareBackend.ts` | 双跑开关与它依赖的一切 |
+| 配置 `SHARE_RELAY` / `SHARE_TREE_*` | 只服务旧中继与树形上限 |
 
-咬住的点只有四处，都在装配层：
+留下的是**两个功能共用的**东西，不是「舍不得删」：
 
-- `internal/room/state.go`：`shareSvc` 字段、`share.NewService`、`Share()` 访问器、
-  关房时的 `DropRoom`、`deps.ShareRelay.SetRouteFailed`
-- `internal/room/handlers.go`：断线时 `s.shareSvc.Detach(socketID)`
-- `internal/room/webrtc_handlers.go`：旧信令入口
-- `cmd/zviewer-server/main.go`：`share.NewRelay`、`share.TreePolicy`、socket 事件 `share.Event`
+- `internal/share/sfu`：自建语音的媒体面（`internal/voicertc` 在用）。
+- `internal/share/{forwarding,encoded,ordered}`：`sfu` 的转发与排序实现，删了语音先挂。
+- `core/{capture,audio-mix,quality,encoder-health,stats,peer-quality,viewer-audio}`：
+  采集、混音、档位、编码健康、统计口径都与信令无关，新链路照用。
 
-**前端**（约 5.2k 行）
+装配侧的改动只有四处：`room` 不再持有 `shareSvc`（顺带加了一个 `OnRoomClosed`
+钩子），`main` 不再构造 `share.Relay`，`config` 少了三个变量，socket.io 少绑一个
+`share` 事件。
 
-`modules/screen-sharing/core/{host-peer,host-session,viewer-peer,viewer-session,stats,nat-prediction,presentation,connection-op}.ts`
-与 `hooks/{useShareHost,useShareViewer}.ts`。组件层（`WebrtcSharePage` /
-`WebrtcWatchPage` / 控制栏 / 统计面板）、`core/{capture,audio-mix,quality,encoder-health}`、
-`hooks/useJoinRoom`（房间层）都留——新链路也在用。
+**顺手补上一个真实的回收缺口**：房间关掉时不再有人通知 Piik，桥接层的房间映射
+是纯内存的，只能等空房超时——同 ID 房间重开还会撞上旧房间码。现在
+`room.Service.OnRoomClosed` → `piikbridge.Release`，关房即回收。
 
-顺序建议：后端先删（前端已经有 `?shareBackend=sfu` 的降级路径，后端删掉后
-旧链路自然不可达），再删前端的那 10 个文件与 `useShareBackend` 里的 sfu 分支，
-最后去掉 `backend.ts` 与开关本身。
+**顺手修掉的显示 bug**：`hostErrorText` / `viewerErrorText` 是旧链路的「语义码 →
+文案」映射，Piik 直接给文案，查表查不到就返回 null——结果是**共享失败时页面
+一个字都不显示**。两个映射连同一批死词条一起删了，错误文案直接展示。
 
 ## 6. 待定
 
@@ -463,7 +462,7 @@ S5 一起走，前置条件是默认切换后跑过一个版本的观察期。
     `room.NewDatabase`（另开一个 SQLite 文件），还是接受「重启即重新开播」。
   - ZViewer 房间容量上限（`maxViewers` 可配）与 Piik 的 20 人协议常量冲突，
     超过 20 人的房间要么分片、要么强制走 SFU 模式。
-  - 房间删除/关闭目前只靠空房超时回收，`room.Service` 里没有可订阅的关闭事件；
-    S3b 接房间生命周期时补一个显式 `Release`。
+  - ~~房间关闭只有空房超时回收~~ 已补：`room.Service.OnRoomClosed` → `piikbridge.Release`。
+    Piik 的 `room.Store` 仍是内存态，ZViewer 重启后映射全丢，见上一条。
   - 语音的「房主禁言/移出」需要扩展 Piik 的 `RoomVoiceCommand`（现在是
     只对本人生效的五个动作），改上游还是走桥接层的旁路要定一下。

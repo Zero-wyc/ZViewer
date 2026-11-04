@@ -1,7 +1,7 @@
 /**
  * 房主侧出边的编码健康判定：连续几个窗口编不动就降一档。
  *
- * 判据本身在 `screen-sharing/core/encoder-health`（与旧链路同一份，移植自
+ * 判据本身在 `screen-sharing/core/encoder-health`（移植自
  * Piik 的稳态判定）。这里只补 Piik 链路特有的三件事：
  *
  *  1. **逐边计数**。Piik 的路由是树：房主同时往 3～4 个观众推流，每条边

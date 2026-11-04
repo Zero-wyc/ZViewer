@@ -1,8 +1,8 @@
 /**
  * 房主侧共享的 React 包装（Piik 链路）。
  *
- * 与 `useShareHost` 同形：采集、预览、控制栏、统计都还留在页面，这里只把
- * 「采集出来的流交给谁」换成了 `PiikShareSession`。
+ * 采集、预览、控制栏都留在页面，这里只负责「采集出来的流怎么发出去」：
+ * 交给 `PiikShareSession`，由它连 `/signal` 并按 Piik 的候选建边。
  *
  * 编码自适应也在这一层：每 2 秒采一次每条出边的编码健康，连续两个窗口
  * 编不动就降一档（`ShareHealthMonitor`），降档只改发送参数、不重采集。
@@ -13,7 +13,7 @@ import { RESOLUTION_DIMENSIONS } from '../screen-sharing/constants'
 import { HostAudio } from '../screen-sharing/core/audio-mix'
 import { captureCamera, captureDisplay } from '../screen-sharing/core/capture'
 import { nextLowerProfile } from '../screen-sharing/core/encoder-health'
-import type { AutoDowngradeNotice } from '../screen-sharing/core/host-session'
+import type { AutoDowngradeNotice } from '../screen-sharing/core/view-state'
 import {
   profileFromSettings,
   type QualityProfile,
