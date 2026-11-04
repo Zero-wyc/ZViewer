@@ -140,7 +140,7 @@ export class PiikSignalClient {
           this.options.onFatal?.('CREDENTIALS', message)
           return
         }
-        this.scheduleReconnect()
+        this.scheduleReconnect('wait')
         return
       }
       this.options.onFatal?.('CREDENTIALS', message)
@@ -212,13 +212,19 @@ export class PiikSignalClient {
     this.scheduleReconnect()
   }
 
-  private scheduleReconnect(): void {
+  /**
+   * 排一次重连。
+   *
+   * `wait` 用于「房主还没开播」这种预期内的等待：不上报 `reconnecting`，
+   * 否则页面会把「等待房主」写成「正在重新连接」，看起来像出了问题。
+   */
+  private scheduleReconnect(mode: 'reconnect' | 'wait' = 'reconnect'): void {
     this.attempt += 1
     const delay = Math.min(
       RECONNECT_BASE_MS * 2 ** (this.attempt - 1),
       RECONNECT_MAX_MS
     )
-    this.status('reconnecting')
+    if (mode === 'reconnect') this.status('reconnecting')
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null
       void this.connect()
