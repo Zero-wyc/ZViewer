@@ -22,7 +22,7 @@ import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
 import { useShareHost } from '../hooks/useShareHost'
 import { usePiikShareHost } from '@/modules/piik-share/usePiikShareHost'
-import { shareBackend } from '@/modules/piik-share/backend'
+import { useShareBackend } from '@/modules/piik-share/useShareBackend'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
 import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
 import {
@@ -123,7 +123,7 @@ function WebrtcSharePage({
   const handleStreamEndedRef = useRef<() => void>(() => {})
 
   // 两条链路并存：不用的那条拿空 roomId 空转（不能条件调用 hook）。
-  const backend = shareBackend()
+  const backend = useShareBackend()
   const legacyHost = useShareHost({
     socket: backend === 'piik' ? null : socket,
     roomId: backend === 'piik' ? '' : currentRoomId,

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2645 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2646 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1758,8 +1758,9 @@ const enUS: Record<string, string> = {
   // ===== modules/openlist（1 条） =====
   '浏览 OpenList 目录': 'Browse the OpenList directory',
 
-  // ===== modules/piik-share（5 条） =====
+  // ===== modules/piik-share（6 条） =====
   '房间已关闭': 'The room is closed',
+  '服务端未启用新版共享链路，已切换到兼容模式': 'The new sharing pipeline is not available on this server; switched to compatibility mode',
   '开播失败：服务端拒绝了这个代际': 'Failed to start sharing: the server rejected this share generation',
   '连接失败': 'Connection failed',
   '无法获取共享凭证': 'Could not obtain sharing credentials',

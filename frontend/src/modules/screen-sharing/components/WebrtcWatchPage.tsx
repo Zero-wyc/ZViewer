@@ -30,7 +30,7 @@ import { useWakeLock } from '@/hooks/useWakeLock'
 import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
 import { useShareViewer } from '../hooks/useShareViewer'
 import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
-import { shareBackend } from '@/modules/piik-share/backend'
+import { useShareBackend } from '@/modules/piik-share/useShareBackend'
 import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
 import {
   loadViewerVolume,
@@ -103,7 +103,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
 
   // 两条链路并存：给不用的那条传空 roomId，hook 内部会空转。
   // 不能按 backend 条件调用 hook，否则切换时 hook 顺序会变。
-  const backend = shareBackend()
+  const backend = useShareBackend()
   const legacy = useShareViewer({
     socket: backend === 'piik' ? null : socket,
     roomId: backend === 'piik' ? '' : roomId,

@@ -22,8 +22,7 @@ const RECONNECT_MAX_MS = 8_000
 /** 换凭证失败的退避上限：按 1/2/4/8 秒退避，约两分钟。 */
 const MAX_CREDENTIAL_RETRIES = 30
 
-/** WS 关闭码：会话被同一身份的另一次连接顶替，重连没有意义。 */
-const CLOSE_SESSION_REPLACED = 4001
+/** WS 关闭码：会话被同一身份的另一次连接顶替，重连没有意义。 */ const CLOSE_SESSION_REPLACED = 4001
 /** 协议错误（服务端判定消息不合法）。 */
 const CLOSE_INVALID_MESSAGE = 1008
 
@@ -45,6 +44,20 @@ export interface PiikSignalClientOptions extends PiikSignalHandlers {
    * 缓存凭证反而会在空房回收后撞上 INVALID_TOKEN。
    */
   authenticate: () => Promise<unknown>
+}
+
+/**
+ * 凭证错误里「还在等」的那一类。
+ *
+ * 约定：调用方抛错时挂 `retriable: true`——只有它知道这个 409 是「房主还没开播」
+ * （等一会儿就好）还是别的冲突。连接层不认识业务错误类型，只看这个标记。
+ */
+function isWaiting(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { retriable?: unknown }).retriable === true
+  )
 }
 
 export function signalUrl(): string {
@@ -118,13 +131,20 @@ export class PiikSignalClient {
     try {
       frame = await this.options.authenticate()
     } catch (error) {
-      this.options.onFatal?.(
-        'CREDENTIALS',
+      const message =
         error instanceof Error ? error.message : t('无法获取信令凭证')
-      )
-      // 「房主还没开播」在观众侧是**暂时**的：REST 会在房主建房间之前一直
-      // 回 409。当成致命错误会让观众永远停在失败态，所以退避重试，但设上限，
-      // 免得未登录这种永久错误无限重连。
+      // 「还在等」的错误（观众先到、房主没开播）只重试，不上报：
+      // 把它当失败会让观众一进房就看到红字，而它下一秒就可能自愈。
+      if (isWaiting(error)) {
+        if (this.attempt >= MAX_CREDENTIAL_RETRIES) {
+          this.options.onFatal?.('CREDENTIALS', message)
+          return
+        }
+        this.scheduleReconnect()
+        return
+      }
+      this.options.onFatal?.('CREDENTIALS', message)
+      // 退避重试但设上限，免得未登录这种永久错误无限重连。
       if (this.attempt < MAX_CREDENTIAL_RETRIES) this.scheduleReconnect()
       return
     }

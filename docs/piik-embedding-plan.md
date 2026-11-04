@@ -111,7 +111,7 @@ internal/thirdparty/livekit/sendsidebwe
 | S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
 | S3b-1 ✅ | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 已完成：探针页里房主开播、观众收到 1200×676 音视频，SDP 全程走 `signal` 帧 |
 | S3b-2 ✅ | 观众互助与换父接上 `route-update` 的候选边 | 互助已通（第 4 人挂到第 3 人，中间节点转发）；换父实测通过（关掉中间节点，子节点 12–15 秒内重挂到别的观众） |
-| S3b-3 🟡 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 产品页已能跑 Piik 链路（`?shareBackend=piik`）：开播、观看、混音、换源、暂停、自动降档、参数覆盖提示都通；只剩「切默认 + 删旧实现」 |
+| S3b-3 ✅ | 把产品界面切到新链路 | 默认已切到 Piik：开播、观看、混音、换源、暂停、自动降档、参数覆盖提示都通；`?shareBackend=sfu` 留作逃生舱，删旧实现并入 S5 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
 
@@ -362,7 +362,7 @@ S3b 的真实工作量因此拆成三段（见第 4 节的表格）：
 4. 前端：共享页新增「Piik 共享」子模式，iframe 载入 `http://127.0.0.1:<port>/r/<code>`。
 5. 房间关闭时回收 Piik 房间。
 
-### S3b-3：产品页已经能跑，但还没切默认
+### S3b-3：产品页切到新链路（默认已换）
 
 `WebrtcSharePage` / `WebrtcWatchPage` 各加了一个同形的 hook
 （`usePiikShareHost` / `usePiikShareViewer`），两条链路并存，默认仍走旧的
@@ -393,8 +393,35 @@ socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
 本机的编码统计能回答（CPU 受限也是本地 `qualityLimitationReason` 的硬证据），
 先落地本地采样不影响以后接证据通道。
 
-剩下的是删旧实现：`service.go` / `session.go` / `piikroute` 还在，双跑开关
-仍在，默认链路还是 socket.io。
+### 切默认做了什么
+
+`shareBackend()` 的默认值从 `sfu` 改成 `piik`，`?shareBackend=sfu` 仍然有效
+（落 localStorage，逃生舱留一个版本）。单纯改默认值是不够的：Piik 桥接层是
+进程内起的，起不来（端口被占、组件缺失）时 `/signal` 只回 503，默认切过去就
+等于「所有人都不能共享」。所以补了两层：
+
+- 后端 `GET /api/share/capabilities` 回 `{ piik: bool }`，只看桥接层是否挂上，
+  不需要鉴权、不含凭证。
+- 前端 `useShareBackend` 在挂载后探一次：**只有回报 `piik: false` 才退回旧链路**
+  并提示一句；返回 null（断网、老服务端没这个端点）按「不知道」处理，继续用
+  默认链路——探不到就降级等于把偶发网络抖动变成链路漂移。
+- 用户显式指定过（query / localStorage）就不覆盖：他要排查哪条链路，就该跑
+  哪条，哪怕跑不通。
+
+切换后暴露的一个老问题也顺手修了：**观众比房主先到不该算错误**。Piik 的凭证
+端点在没有房间时回 409，原先连接层一律当致命错误上报，观众一进房就是红字
+（旧链路里这是「等待房主开始共享」）。现在 409 带 `HOST_NOT_SHARING`，
+凭证错误类据此标 `retriable`，连接层只退避重试、不报错，页面停在「等待房主
+开始共享」；重试到上限（30 次，约两分钟）才把话说明白。
+
+已知限制：逃生舱是**每台浏览器**的开关。房主切回 `sfu` 而观众仍是默认 `piik`
+时，观众会一直等（拿不到 Piik 房间）。回滚要房主和观众一起切，或者直接把
+代码回退——这也是删旧实现之前要先跑一个观察期的原因。
+
+删旧实现没有跟着做：`service.go` / `session.go` / `piikroute` / 前端
+`core/host-*.ts`、`core/viewer-*.ts` 是一整块（约 3.4 万行），旧链路的
+socket.io 服务端与 `piikroute` 互相引用，拆一半会让两边都编译不过。它跟着
+S5 一起走，前置条件是默认切换后跑过一个版本的观察期。
 
 ## 6. 待定
 

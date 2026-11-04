@@ -53,6 +53,24 @@ export interface ShareSessionHandlers {
   onAuthenticated?: (peerId: string) => void
 }
 
+/**
+ * 凭证签发失败。
+ *
+ * `code` 来自服务端的机器可读类型，`retriable` 表示「现在签不出来，但过会儿
+ * 可能就行了」——观众比房主先到就属于这一类，连接层据此只重试、不报错。
+ */
+export class ShareCredentialsError extends Error {
+  readonly code: string
+  readonly retriable: boolean
+
+  constructor(message: string, code: string) {
+    super(message)
+    this.name = 'ShareCredentialsError'
+    this.code = code
+    this.retriable = code === 'HOST_NOT_SHARING'
+  }
+}
+
 /** 从 `/api/share/piik/session` 换一份共享凭证（顺带刷新站点通行证）。 */
 export async function requestShareCredentials(
   roomID: string
@@ -71,9 +89,13 @@ export async function requestShareCredentials(
     iceConfig?: PiikIceConfig
     error?: string
     message?: string
+    code?: string
   }>(response, {})
   if (!response.ok || !payload.success) {
-    throw new Error(payload.message || payload.error || t('无法获取共享凭证'))
+    throw new ShareCredentialsError(
+      payload.message || payload.error || t('无法获取共享凭证'),
+      String(payload.code ?? '')
+    )
   }
   return {
     roomId: String(payload.roomId ?? ''),
@@ -140,7 +162,11 @@ export class PiikShareSession {
       authenticate: () => this.buildAuthenticate(),
       onStatus: this.handlers.onStatus,
       onMessage: (message) => this.receive(message),
-      onFatal: (code, message) => this.handlers.onError(`${code}: ${message}`),
+      onFatal: (code, message) =>
+        // 凭证类失败本身就是一句给人看的话，别把内部码拼到前面。
+        this.handlers.onError(
+          code === 'CREDENTIALS' ? message : `${code}: ${message}`
+        ),
     })
     await this.client.start()
   }
