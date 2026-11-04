@@ -18,7 +18,15 @@ import {
   clientId,
   type SignalStatus,
 } from '../piik-signal/client.ts'
-import { ShareEndpoint, type ShareEdgeStats } from './endpoint.ts'
+import {
+  ShareEndpoint,
+  type ShareEdgeStats,
+  type ShareHealthSample,
+} from './endpoint.ts'
+import type {
+  QualityProfile,
+  VideoSenderParameterReadback,
+} from '../screen-sharing/core/quality.ts'
 
 export interface ShareCredentials {
   roomId: string
@@ -158,12 +166,21 @@ export class PiikShareSession {
     })
   }
 
-  /** 热更新码率/帧率（不重采集）。 */
-  async applyEncoding(profile: {
-    maxBitrate: number
-    frameRate: number
-  }): Promise<void> {
-    await this.endpoint?.applyEncoding(profile)
+  /**
+   * 热更新码率/帧率/降采样（不重采集），返回浏览器回读的结果。
+   *
+   * 回读非空即「浏览器没照办」，调用方据此提示用户；空数组表示全部生效
+   * 或当前没有出边（还没观众）。
+   */
+  async applyEncoding(
+    profile: QualityProfile
+  ): Promise<VideoSenderParameterReadback[]> {
+    return (await this.endpoint?.applyEncoding(profile)) ?? []
+  }
+
+  /** 每条出边的一次编码健康采样。 */
+  async healthSamples(): Promise<ShareHealthSample[]> {
+    return (await this.endpoint?.healthSamples()) ?? []
   }
 
   /** 每条边的用量，给统计面板。 */

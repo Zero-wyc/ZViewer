@@ -111,7 +111,7 @@ internal/thirdparty/livekit/sendsidebwe
 | S3b-0 ✅ | 用 Piik 原生协议在 `/signal` 上跑通共享会话（服务端可行性） | 已完成：房主 `roomOnly+roomSession` → `start-sharing` → `sharing-started`，观众拿到 `route-update` 的候选边 |
 | S3b-1 ✅ | 前端共享的信令通道从 socket.io 换到 `/signal`（`modules/piik-share`） | 已完成：探针页里房主开播、观众收到 1200×676 音视频，SDP 全程走 `signal` 帧 |
 | S3b-2 ✅ | 观众互助与换父接上 `route-update` 的候选边 | 互助已通（第 4 人挂到第 3 人，中间节点转发）；换父实测通过（关掉中间节点，子节点 12–15 秒内重挂到别的观众） |
-| S3b-3 🟡 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 产品页已能跑 Piik 链路（`?shareBackend=piik`）：房主开播、观众观看、混音、换源、暂停都通；还差自动降档与参数覆盖，未切默认 |
+| S3b-3 🟡 | 把产品界面切到新链路，删掉 `service.go` / `session.go` / `piikroute` | 产品页已能跑 Piik 链路（`?shareBackend=piik`）：开播、观看、混音、换源、暂停、自动降档、参数覆盖提示都通；只剩「切默认 + 删旧实现」 |
 | S4 | 客户端 `webrtc` + `media` + `sfu` 替换 `core/*`，保留 ZViewer 组件层 | 共享、观看、中继、统计面板逐项回归 |
 | S5 | 删掉旧实现，去掉双跑开关 | 全量回归 + 打包 |
 
@@ -376,14 +376,25 @@ socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
 - 开麦克风后两端都出现 `audio:live`（`HostAudio` 的输出轨）
 - 换源走 `replaceTrack`，观众端无感；暂停发 `set-sharing-paused`
 
-切默认之前还缺两块，都在旧实现里：
+原先切默认缺的两块已经补上（都不走 Piik 的 `sender-quality-evidence`，
+改用本机采样，理由见下）：
 
-- **自动降档**：旧实现按观众反馈逐级降分辨率；Piik 侧有
-  `sender-quality-evidence` 通道，但没接。
-- **编码参数覆盖检测**：`parameterOverride` 恒为 null，用户看不到「浏览器
-  没照办」的提示。
+- **自动降档**：`ShareHealthMonitor` 每 2 秒采一次**每条出边**的
+  `outbound-rtp.framesEncoded` 与 `media-source.frames`，复用旧链路那份
+  稳态判据（`core/encoder-health`）；连续两个窗口编不动就降一档，每个
+  代际最多降一档。降档只改发送参数里的 `scaleResolutionDownBy`，**不重新
+  采集**——共享屏幕重开会再弹一次画面选择器，观众端还要黑一帧。
+- **编码参数覆盖检测**：`applyEncoding` 改走 `configureVideoSender`
+  （自带 setParameters 回读），把 `mismatches` 汇总进 `parameterOverride`，
+  页面沿用 `parameterOverrideText` 的提示。
 
-删旧实现要等这两块补完，否则切过去就是功能回退。
+为什么不用 Piik 的 `sender-quality-evidence`：那是一条要经过服务端转发、
+由观众上报的通道，链路还没在共享面上打通；而编码器跟不跟得上只有房主
+本机的编码统计能回答（CPU 受限也是本地 `qualityLimitationReason` 的硬证据），
+先落地本地采样不影响以后接证据通道。
+
+剩下的是删旧实现：`service.go` / `session.go` / `piikroute` 还在，双跑开关
+仍在，默认链路还是 socket.io。
 
 ## 6. 待定
 

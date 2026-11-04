@@ -20,6 +20,12 @@ import {
   type PiikServerSignalMessage,
   type PiikSignalPayload,
 } from '../piik-signal/protocol.ts'
+import type { EncoderHealthSample } from '../screen-sharing/core/encoder-health.ts'
+import {
+  configureVideoSender,
+  type QualityProfile,
+  type VideoSenderParameterReadback,
+} from '../screen-sharing/core/quality.ts'
 
 export interface ShareEndpointHandlers {
   send: (message: PiikClientMessage) => boolean
@@ -57,6 +63,17 @@ export interface ShareEdgeStats {
   width: number
   height: number
   fps: number
+}
+
+/**
+ * 一条出边的编码健康采样。
+ *
+ * `EncoderHealthSample` 是按连接判定的（基线、窗口），共享是多条边同时出，
+ * 所以采样必须带上 `connectionId`——否则两条边的计数器会互相污染，
+ * 心跳式的一高一低会让判据永远得不出结论。
+ */
+export interface ShareHealthSample extends EncoderHealthSample {
+  connectionId: string
 }
 
 export class ShareEndpoint {
@@ -121,34 +138,91 @@ export class ShareEndpoint {
   }
 
   /**
-   * 把码率/帧率写到所有出边的发送参数上。
+   * 把档位写到所有出边的发送参数上，并**回读**浏览器实际接受了什么。
    *
-   * 不重采集也不重协商，只是让编码器改目标。浏览器可能不照办
-   * （尤其降码率时），所以这里吞掉失败——调用方不该把它当错误。
+   * 不重采集也不重协商，只是让编码器改目标：`maxBitrate` / `maxFramerate`，
+   * 以及 `scaleResolutionDownBy`（自动降档靠它把画面缩小，不重新采集——
+   * 重开会弹一次画面选择器，观众端也会黑一帧）。
+   *
+   * 返回每条出边的回读结果：`setParameters` 只是请求，浏览器可以按自己的
+   * 策略改小码率、钉住帧率甚至忽略降采样。不回读就等于默认一切照办，
+   * 用户看到的档位和真正发出去的画面会不一致，界面上还毫无提示。
    */
-  async applyEncoding(profile: {
-    maxBitrate: number
-    frameRate: number
-  }): Promise<void> {
+  async applyEncoding(
+    profile: QualityProfile
+  ): Promise<VideoSenderParameterReadback[]> {
+    const readbacks: VideoSenderParameterReadback[] = []
     for (const edge of this.edges.values()) {
       if (!edge.offerer) continue
       for (const sender of edge.pc.getSenders()) {
         if (sender.track?.kind !== 'video') continue
-        const parameters = sender.getParameters()
-        parameters.encodings = parameters.encodings?.length
-          ? parameters.encodings
-          : [{}]
-        for (const encoding of parameters.encodings) {
-          encoding.maxBitrate = profile.maxBitrate
-          encoding.maxFramerate = profile.frameRate
-        }
         try {
-          await sender.setParameters(parameters)
+          readbacks.push(await configureVideoSender(sender, profile))
         } catch {
-          /* 浏览器不接受这组参数 */
+          /* 浏览器不接受这组参数，或连接已经关了：不该让调用方当成失败 */
         }
       }
     }
+    return readbacks
+  }
+
+  /**
+   * 每条出边采一次编码健康。
+   *
+   * 取 `outbound-rtp`(video) 的 `framesEncoded` 与它挂的 `media-source.frames`，
+   * 加上 `qualityLimitationReason`——CPU 受限时浏览器已经明说编不动了，
+   * 不必等帧数。采样是观测性的：任何一步失败都只跳过这条边，不影响媒体。
+   */
+  async healthSamples(): Promise<ShareHealthSample[]> {
+    const samples: ShareHealthSample[] = []
+    for (const [connectionId, edge] of this.edges) {
+      if (!edge.offerer) continue
+      const report = await edge.pc.getStats().catch(() => null)
+      if (!report) continue
+
+      let framesEncoded: number | null = null
+      let outboundId: string | null = null
+      let sourceId: string | null = null
+      let limitation: EncoderHealthSample['limitation'] = null
+      report.forEach((entry) => {
+        const stat = entry as {
+          type?: string
+          kind?: string
+          id?: string
+          framesEncoded?: number
+          mediaSourceId?: string
+          qualityLimitationReason?: string
+        }
+        if (stat.type !== 'outbound-rtp' || stat.kind !== 'video') return
+        if (typeof stat.framesEncoded !== 'number') return
+        // simulcast 时同一路会有多条 outbound-rtp，取编码量最大的一条
+        // （全尺寸那层），与旧实现 HostPeer 的口径一致。
+        if (framesEncoded !== null && stat.framesEncoded <= framesEncoded)
+          return
+        framesEncoded = stat.framesEncoded
+        outboundId = stat.id ?? null
+        sourceId = stat.mediaSourceId ?? null
+        limitation =
+          (stat.qualityLimitationReason as EncoderHealthSample['limitation']) ??
+          null
+      })
+      if (framesEncoded === null) continue
+
+      const source = sourceId
+        ? (report.get(sourceId) as { frames?: number } | undefined)
+        : undefined
+      samples.push({
+        connectionId,
+        outboundId,
+        sourceId,
+        // 统计报告的 timestamp 精度因浏览器而异，统一用本地时钟算窗口长度。
+        timestamp: Date.now(),
+        framesEncoded,
+        sourceFrames: typeof source?.frames === 'number' ? source.frames : null,
+        limitation,
+      })
+    }
+    return samples
   }
 
   /**
