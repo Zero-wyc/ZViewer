@@ -19,6 +19,12 @@ backend-go/internal/danmaku/chinese/data/*.tsv text eol=lf
 # 表现为「更新脚本一闪而过、文件没替换」）。bat 不受影响——写盘前统一转 CRLF。
 backend-go/internal/updater/templates/*.tmpl text eol=lf
 
+# i18n 词典与分块必须是 LF：脚本按行用正则解析（`...',$`），
+# 检出成 CRLF 时一条都匹配不到，Windows CI 上就会报
+# 「分块与 zh-CN.ts 不一致（第 1 条应为「—」）」——其实是行尾，不是词条错位。
+frontend/src/i18n/locales/*.ts text eol=lf
+frontend/scripts/i18n-en/** text eol=lf
+
 # 组件库里的二进制必须原样保存：GUI 按固定 SHA-256 校验下载结果，行尾转换会直接毁掉文件。
 public/*.exe -text
 public/*.zip -text
