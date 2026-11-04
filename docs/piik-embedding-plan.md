@@ -423,6 +423,37 @@ socket.io。开关是 `?shareBackend=piik` 或 localStorage，坑在于
 socket.io 服务端与 `piikroute` 互相引用，拆一半会让两边都编译不过。它跟着
 S5 一起走，前置条件是默认切换后跑过一个版本的观察期。
 
+### S5 删除清单（留给观察期之后）
+
+拆不动的原因是这几块互相咬住，删一半两边都编译不过。逐项点清之后规模如下：
+
+**后端**（约 6.5k 行含测试）
+
+| 删 | 保留 |
+|---|---|
+| `internal/share/{service,session,route,relay,protocol,sfu_handlers}.go` 及同名测试 | `internal/share/piikbridge`（新链路） |
+| `internal/share/{forwarding,encoded,ordered}/` | `internal/share/sfu`——**不能跟着删**：`internal/voicertc` 的语音中继也在用它 |
+| `internal/share/piikroute`（只被 `share/route.go` 引用） | `internal/piik/`（vendor 的上游） |
+
+咬住的点只有四处，都在装配层：
+
+- `internal/room/state.go`：`shareSvc` 字段、`share.NewService`、`Share()` 访问器、
+  关房时的 `DropRoom`、`deps.ShareRelay.SetRouteFailed`
+- `internal/room/handlers.go`：断线时 `s.shareSvc.Detach(socketID)`
+- `internal/room/webrtc_handlers.go`：旧信令入口
+- `cmd/zviewer-server/main.go`：`share.NewRelay`、`share.TreePolicy`、socket 事件 `share.Event`
+
+**前端**（约 5.2k 行）
+
+`modules/screen-sharing/core/{host-peer,host-session,viewer-peer,viewer-session,stats,nat-prediction,presentation,connection-op}.ts`
+与 `hooks/{useShareHost,useShareViewer}.ts`。组件层（`WebrtcSharePage` /
+`WebrtcWatchPage` / 控制栏 / 统计面板）、`core/{capture,audio-mix,quality,encoder-health}`、
+`hooks/useJoinRoom`（房间层）都留——新链路也在用。
+
+顺序建议：后端先删（前端已经有 `?shareBackend=sfu` 的降级路径，后端删掉后
+旧链路自然不可达），再删前端的那 10 个文件与 `useShareBackend` 里的 sfu 分支，
+最后去掉 `backend.ts` 与开关本身。
+
 ## 6. 待定
 
 - 走 A（已定：S0/S1 按 A 推进）。
