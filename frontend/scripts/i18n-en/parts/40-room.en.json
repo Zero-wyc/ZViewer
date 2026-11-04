@@ -1,7 +1,5 @@
 {
   "items": [
-    "Type a path, or use the button above to browse (multi-select for bulk adding)",
-    "Enter manually",
     "Type a keyword to search",
     "Type a keyword to search Bilibili videos",
     "Failed to refresh the movie list",
@@ -29,7 +27,6 @@
     "Unknown size",
     "File path, e.g. /movies/video.mp4",
     "File path (a mount is selected; leave blank to browse from its root)",
-    "Me",
     "I'm connected, retry",
     "Cannot resolve this Bilibili video",
     "No audio data",
@@ -119,6 +116,9 @@
     "Expand the sidebar",
     "Expand to see the full movie list",
     "Average time a frame sits in the buffer",
-    "Initializing resolution..."
+    "Initializing resolution...",
+    "Buffering the video",
+    "Restoring the room...",
+    "Getting the {{label}} direct link..."
   ]
 }

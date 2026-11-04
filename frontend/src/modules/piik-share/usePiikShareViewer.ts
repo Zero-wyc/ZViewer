@@ -8,6 +8,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ViewerSessionState } from '../screen-sharing/core/viewer-session'
 import { PiikShareSession } from './session.ts'
+import { t } from '@/i18n'
 
 export interface UsePiikShareViewerOptions {
   roomId: string
@@ -93,7 +94,11 @@ export function usePiikShareViewer(
       onSharingStopped: () =>
         setState((prev) => ({ ...prev, sharing: false, paused: false })),
       onRoomClosed: () =>
-        setState((prev) => ({ ...prev, error: '房间已关闭', exhausted: true })),
+        setState((prev) => ({
+          ...prev,
+          error: t('房间已关闭'),
+          exhausted: true,
+        })),
       onAuthenticated: () =>
         setState((prev) => ({ ...prev, joined: true, sharing: true })),
       onError: (message) => setState((prev) => ({ ...prev, error: message })),
@@ -103,7 +108,7 @@ export function usePiikShareViewer(
       if (disposed) return
       setState((prev) => ({
         ...prev,
-        error: error instanceof Error ? error.message : '连接失败',
+        error: error instanceof Error ? error.message : t('连接失败'),
         exhausted: true,
       }))
     })

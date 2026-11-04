@@ -23,6 +23,7 @@ import type { PeerQualityView } from '../screen-sharing/core/peer-quality'
 import type { WebrtcShareMediaSettings } from '../screen-sharing/utils/mediaSettingsStorage'
 import { ShareHealthMonitor } from './health.ts'
 import { PiikShareSession } from './session.ts'
+import { t } from '@/i18n'
 
 /** 采样周期。与旧链路的 HostPeer 一致：2s 一次，两个窗口≈4s 得出降档结论。 */
 const HEALTH_SAMPLE_INTERVAL_MS = 2_000
@@ -237,7 +238,7 @@ export function usePiikShareHost(
         onSharingStopped: () => setSharing(false),
         onRoomClosed: () => {
           setSharing(false)
-          setError('房间已关闭')
+          setError(t('房间已关闭'))
         },
       })
       sessionRef.current = session

@@ -8,13 +8,13 @@
  * 这一层不构造认证帧——房主与观众的字段差异、共享与语音的 `roomOnly` 差异
  * 都由调用方决定，它只负责「连上、把帧发出去、把帧收回来」。
  */
+import { t } from '@/i18n'
 import {
   FATAL_AUTH_CODES,
   decodeServerMessage,
   type PiikAuthenticated,
   type PiikServerMessage,
 } from './protocol.ts'
-
 /** 服务端在 8 秒内没有回 `authenticated` 就认为这条连接废了。 */
 const AUTHENTICATION_TIMEOUT_MS = 8_000
 const RECONNECT_BASE_MS = 1_000
@@ -120,7 +120,7 @@ export class PiikSignalClient {
     } catch (error) {
       this.options.onFatal?.(
         'CREDENTIALS',
-        error instanceof Error ? error.message : '无法获取信令凭证'
+        error instanceof Error ? error.message : t('无法获取信令凭证')
       )
       // 「房主还没开播」在观众侧是**暂时**的：REST 会在房主建房间之前一直
       // 回 409。当成致命错误会让观众永远停在失败态，所以退避重试，但设上限，
@@ -176,13 +176,16 @@ export class PiikSignalClient {
       return
     }
     if (code === CLOSE_SESSION_REPLACED) {
-      this.options.onFatal?.('SESSION_REPLACED', '同账号在别处打开了同一个房间')
+      this.options.onFatal?.(
+        'SESSION_REPLACED',
+        t('同账号在别处打开了同一个房间')
+      )
       return
     }
     if (code === CLOSE_INVALID_MESSAGE) {
       this.options.onFatal?.(
         'INVALID_MESSAGE',
-        reason || '客户端发了一条服务端不认识的消息'
+        reason || t('客户端发了一条服务端不认识的消息')
       )
       return
     }

@@ -4,6 +4,7 @@
  * 连接本身在 `modules/piik-signal`（共享也要用同一条），这里只负责语音特有的
  * 两件事：换语音凭证、按角色拼认证帧。
  */
+import { t } from '@/i18n'
 import { apiFetch, safeJson } from '@/lib/api'
 import {
   DEFAULT_ROUTE_POLICY,
@@ -19,7 +20,6 @@ import {
   signalUrl,
   type SignalStatus,
 } from '../piik-signal/client.ts'
-
 export { signalUrl }
 export type { SignalStatus }
 
@@ -58,7 +58,7 @@ export async function requestVoiceCredentials(
     message?: string
   }>(response, {})
   if (!response.ok || !payload.success) {
-    throw new Error(payload.message || payload.error || '无法获取语音凭证')
+    throw new Error(payload.message || payload.error || t('无法获取语音凭证'))
   }
   return {
     roomId: String(payload.roomId ?? ''),

@@ -1,6 +1,5 @@
 {
   "items": [
-    "Buffered mode is managed by the host",
     "Buffered download failed",
     "Buffered download failed, try again",
     "Failed to load the parts; added as a single part",
@@ -36,7 +35,6 @@
     "Can kick, mute and transfer the host role",
     "Total count / total duration",
     "Timed out connecting to the server, refresh and retry",
-    "Connection failed",
     "The connection dropped, refresh the page and retry",
     "Connection closed",
     "Connecting",
@@ -119,6 +117,8 @@
     "Failed to load the video source",
     "Failed to resolve the video source",
     "Video direct link",
-    "Collapse the sidebar"
+    "Collapse the sidebar",
+    "Type a path, or use the button above to browse (multi-select for bulk adding)",
+    "Enter manually"
   ]
 }

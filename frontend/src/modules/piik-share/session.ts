@@ -4,6 +4,7 @@
  * 与 `piik-voice` 共用 `modules/piik-signal` 的连接层，区别只在这里要
  * `start-sharing` 起一个代际，并接管 `route-update` 的候选边。
  */
+import { t } from '@/i18n'
 import { apiFetch, safeJson } from '@/lib/api'
 import {
   SIGNALING_PROTOCOL,
@@ -27,7 +28,6 @@ import type {
   QualityProfile,
   VideoSenderParameterReadback,
 } from '../screen-sharing/core/quality.ts'
-
 export interface ShareCredentials {
   roomId: string
   role: 'host' | 'viewer'
@@ -73,7 +73,7 @@ export async function requestShareCredentials(
     message?: string
   }>(response, {})
   if (!response.ok || !payload.success) {
-    throw new Error(payload.message || payload.error || '无法获取共享凭证')
+    throw new Error(payload.message || payload.error || t('无法获取共享凭证'))
   }
   return {
     roomId: String(payload.roomId ?? ''),
@@ -275,12 +275,16 @@ export class PiikShareSession {
         )
         return
       case 'sharing-start-failed':
-        this.handlers.onError('开播失败：服务端拒绝了这个代际')
+        this.handlers.onError(t('开播失败：服务端拒绝了这个代际'))
         return
       case 'route-status': {
         const status = message as { state?: string; reason?: string }
         if (status.state === 'failed')
-          this.handlers.onError(`选路失败：${status.reason ?? '未知'}`)
+          this.handlers.onError(
+            t('选路失败：{{reason}}', {
+              reason: status.reason ?? t('未知'),
+            })
+          )
         return
       }
       case 'error': {

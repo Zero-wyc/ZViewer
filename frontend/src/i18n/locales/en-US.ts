@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2631 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2645 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1758,6 +1758,31 @@ const enUS: Record<string, string> = {
   // ===== modules/openlist（1 条） =====
   '浏览 OpenList 目录': 'Browse the OpenList directory',
 
+  // ===== modules/piik-share（5 条） =====
+  '房间已关闭': 'The room is closed',
+  '开播失败：服务端拒绝了这个代际': 'Failed to start sharing: the server rejected this share generation',
+  '连接失败': 'Connection failed',
+  '无法获取共享凭证': 'Could not obtain sharing credentials',
+  '选路失败：{{reason}}': 'Route selection failed: {{reason}}',
+
+  // ===== modules/piik-signal（3 条） =====
+  '客户端发了一条服务端不认识的消息': 'The client sent a message the server does not recognize',
+  '同账号在别处打开了同一个房间': 'The same account opened this room elsewhere',
+  '无法获取信令凭证': 'Could not obtain signaling credentials',
+
+  // ===== modules/piik-voice（11 条） =====
+  '房主还没有进入语音': 'The host has not joined voice yet',
+  '加入语音聊天失败': 'Failed to join voice chat',
+  '媒体通道未建立，请检查网络（可尝试关闭代理/VPN）': 'The media channel is not established; check your network (try disabling a proxy or VPN)',
+  '我': 'Me',
+  '无法获取语音凭证': 'Could not obtain voice credentials',
+  '已在本地静音该成员': 'Muted this member locally',
+  '语音操作未被允许': 'Voice action not permitted',
+  '语音连接失败': 'Voice connection failed',
+  '语音连接未能建立，正在重试': 'Could not establish the voice connection, retrying',
+  '语音连接已断开，正在重连...': 'Voice connection lost, reconnecting...',
+  'Piik 语音不支持由房主移出成员': 'Piik voice does not support removing members as the host',
+
   // ===== modules/playback-memory（12 条） =====
   '[usePlaybackStateRequest] 缓冲下载失败:': '[usePlaybackStateRequest] Buffered download failed:',
   '[usePlaybackStateRequest] 缓冲下载已取消': '[usePlaybackStateRequest] Buffered download cancelled',
@@ -1872,7 +1897,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（429 条） =====
+  // ===== modules/room（426 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1949,7 +1974,6 @@ const enUS: Record<string, string> = {
   '房间设置': 'Room settings',
   '房间设置已保存': 'Room settings saved',
   '房间信息': 'Room info',
-  '房间已关闭': 'The room is closed',
   '房间已关闭,可关闭此窗口': 'The room is closed, you can close this window',
   '房间状态': 'Room status',
   '房主': 'Host',
@@ -2029,7 +2053,6 @@ const enUS: Record<string, string> = {
   '可踢出 / 禁言 / 转交房主': 'Can kick, mute and transfer the host role',
   '累计次数 / 累计时长': 'Total count / total duration',
   '连接服务器超时,请刷新重试': 'Timed out connecting to the server, refresh and retry',
-  '连接失败': 'Connection failed',
   '连接已断开，请刷新页面后重试': 'The connection dropped, refresh the page and retry',
   '连接已关闭': 'Connection closed',
   '连接中': 'Connecting',
@@ -2142,7 +2165,6 @@ const enUS: Record<string, string> = {
   '未知大小': 'Unknown size',
   '文件路径，如 /movies/video.mp4': 'File path, e.g. /movies/video.mp4',
   '文件路径（已选挂载，留空可从挂载根目录浏览）': 'File path (a mount is selected; leave blank to browse from its root)',
-  '我': 'Me',
   '我已连接，重试': 'I\'m connected, retry',
   '无法解析该 B站 影片': 'Cannot resolve this Bilibili video',
   '无音频数据': 'No audio data',
@@ -2665,7 +2687,7 @@ const enUS: Record<string, string> = {
   '正在启动转码 worker': 'Starting the transcoding worker',
   '正在生成首个分段': 'Generating the first segment',
 
-  // ===== modules/voice-chat（29 条） =====
+  // ===== modules/voice-chat（27 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} online',
   '成员': 'Members',
   '单独音量': 'Per-user volume',
@@ -2673,12 +2695,10 @@ const enUS: Record<string, string> = {
   '断开': 'Disconnect',
   '关闭反送': 'Turn off monitoring',
   '加入语音': 'Join voice',
-  '加入语音聊天失败': 'Failed to join voice chat',
   '解除语音禁言': 'Unmute in voice',
   '开启反送': 'Turn on monitoring',
   '麦克风音量': 'Microphone volume',
   '媒体连接中…': 'Connecting media…',
-  '媒体通道未建立，请检查网络（可尝试关闭代理/VPN）': 'The media channel is not established; check your network (try disabling a proxy or VPN)',
   '您已被管理员语音禁言': 'An admin muted you in voice',
   '您已被移出语音聊天': 'You were removed from the voice chat',
   '全局音量': 'Master volume',
