@@ -415,7 +415,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
   const assistPanel = (
     <div
       className={cn(
-        'zen-dropdown-enter absolute z-[2001] px-3 pb-2 pt-[10px]',
+        'music-glass-text zen-dropdown-enter absolute z-[2001] px-3 pb-2 pt-[10px]',
         isMobile
           ? 'left-3 right-3 top-[54px] w-auto'
           : 'left-0 top-[34px] w-[260px]'
@@ -551,7 +551,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
         >
           <div
             className={cn(
-              'glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color,opacity] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
+              'music-glass-text glass absolute left-0 top-1/2 flex h-9 -translate-y-1/2 items-center overflow-hidden transition-[width,border-color,opacity] duration-300 ease-[cubic-bezier(0.24,0.97,0.59,1)]',
               focused ? 'w-[260px]' : 'w-[220px]',
               !searchVisible && 'pointer-events-none opacity-0'
             )}
@@ -619,7 +619,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
           联想面板；聚焦空输入拉热榜、输入拉建议，搜索完成自动收起 ===== */}
       {isMobile && mobileSearchOpen && (
         <div
-          className="absolute inset-0 z-[2002] flex items-center gap-2 px-3 pb-2 pt-3"
+          className="music-glass-text absolute inset-0 z-[2002] flex items-center gap-2 px-3 pb-2 pt-3"
           style={{
             backgroundColor:
               'color-mix(in srgb, var(--md-sys-color-surface) 92%, transparent)',
@@ -748,7 +748,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                   zen-dropdown-item 交错入场） */}
               {ncmMenuOpen && (
                 <div
-                  className="zen-dropdown-enter glass-strong absolute left-1/2 top-[calc(100%+10px)] z-[2001] ml-[-5.5rem] w-44 rounded-[var(--md-sys-shape-corner)] p-1.5 [transform-origin:top_center]"
+                  className="music-glass-text zen-dropdown-enter glass-strong absolute left-1/2 top-[calc(100%+10px)] z-[2001] ml-[-5.5rem] w-44 rounded-[var(--md-sys-shape-corner)] p-1.5 [transform-origin:top_center]"
                   style={{
                     boxShadow:
                       '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
@@ -929,7 +929,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
             房间模式分组 → 设置 → 退出登录/账号登录 */}
         {menuOpen && (
           <div
-            className="zen-dropdown-enter glass-strong absolute right-0 top-11 z-[2001] w-52 rounded-[var(--md-sys-shape-corner)] p-1.5"
+            className="music-glass-text zen-dropdown-enter glass-strong absolute right-0 top-11 z-[2001] w-52 rounded-[var(--md-sys-shape-corner)] p-1.5"
             style={{
               boxShadow:
                 '0 8px 24px -8px color-mix(in srgb, var(--md-sys-color-primary) 25%, transparent)',
