@@ -25,6 +25,9 @@ const pendingRoomIDKey = "pendingRoomId"
 //
 // 对应 Node 的 ViewerManagementHandler，注册位置在 ViewerJoinHandler 之后。
 func (s *Service) bindViewerManagement(sc *sio.Socket) {
+	sc.On("get-room-members", func(args []json.RawMessage, ack func(...any)) {
+		s.handleGetRoomMembers(sc, args, ack)
+	})
 	sc.On("approve-join", func(args []json.RawMessage, ack func(...any)) {
 		s.handleApproveJoin(sc, args, ack)
 	})
@@ -140,6 +143,7 @@ func (s *Service) handleApproveJoin(sc *sio.Socket, args []json.RawMessage, ack 
 	}
 
 	s.sendExistingViewersByID(ctx, payload.ViewerSocketID, sharer.RoomID)
+	s.sendMemberSnapshot(ctx, payload.ViewerSocketID, sharer.RoomID)
 	ackOK(ack, nil)
 }
 

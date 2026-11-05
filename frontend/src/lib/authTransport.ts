@@ -52,7 +52,7 @@ export function getAccessToken(): string {
 /**
  * 判断当前存储的 access token（HTTP 通道）是否已过期。
  *
- * token 为后端签发的 JWT（默认 1h），payload.exp 仅用于过期判断（不做
+ * token 为后端签发的 JWT（正式用户默认 24h），payload.exp 仅用于过期判断（不做
  * 签名验证——前端无需验证真伪，只需知道「后端会不会拒绝它」）。供播放器
  * 做「播放期 token 过期自愈」判定：媒体请求不走 apiFetch（无内置刷新），
  * token 过期后 hls.js / mediabunny 拉段 401 → video error，播放器据此
@@ -112,10 +112,11 @@ export function buildAuthHeaders(): Record<string, string> {
 /**
  * 构建 socket.io 握手鉴权载荷。
  * - HTTPS：返回空（cookie 自动携带，后端从 handshake.headers.cookie 读取）
- * - HTTP ：附加 `{ token }`（后端 socket.io 中间件兼容 auth.token 字段）
+ * - HTTP ：附加 token / refreshToken，供后端在原连接内续期
  */
 export function buildSocketAuth(): Record<string, string> {
   if (isHttpsContext()) return {}
   const token = getAccessToken()
-  return token ? { token } : {}
+  const refreshToken = getRefreshToken()
+  return token ? { token, ...(refreshToken ? { refreshToken } : {}) } : {}
 }

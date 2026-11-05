@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -62,11 +63,66 @@ type MediaTrackCandidate struct {
 // cdnProbeClient 供 HEAD 探测复用，避免每次新建连接池。
 var cdnProbeClient = &http.Client{Timeout: healthCheckTimeout}
 
+// 探测结果缓存：同一签名地址在短时间内的重复解析不再重复 HEAD。
+//
+// 为什么需要：一次 playurl 要对视频/音频两条轨的主 + 备地址各探一次，而
+// 同一首歌在一个会话里会被解析多次（首次播放、歌词页背景、直链失效自愈）。
+// 这些解析拿到的往往是**完全相同的签名 URL**，重复 HEAD 既慢又白耗 CDN
+// 侧的签名额度（B站 的签名地址是有使用次数/流量约束的消耗品）。
+const (
+	probeCacheTTL = 60 * time.Second
+	probeCacheMax = 512
+)
+
+type probeCacheEntry struct {
+	ok bool
+	at time.Time
+}
+
+var probeCache = struct {
+	mu    sync.Mutex
+	items map[string]probeCacheEntry
+}{items: make(map[string]probeCacheEntry)}
+
+func readProbeCache(raw string) (bool, bool) {
+	probeCache.mu.Lock()
+	defer probeCache.mu.Unlock()
+	entry, ok := probeCache.items[raw]
+	if !ok {
+		return false, false
+	}
+	if time.Since(entry.at) > probeCacheTTL {
+		delete(probeCache.items, raw)
+		return false, false
+	}
+	return entry.ok, true
+}
+
+func writeProbeCache(raw string, ok bool) {
+	probeCache.mu.Lock()
+	defer probeCache.mu.Unlock()
+	if len(probeCache.items) >= probeCacheMax {
+		for key, entry := range probeCache.items {
+			if time.Since(entry.at) > probeCacheTTL {
+				delete(probeCache.items, key)
+			}
+		}
+		// 仍超量就直接重建：探测结果只是加速用，丢了最多多探一次
+		if len(probeCache.items) >= probeCacheMax {
+			probeCache.items = make(map[string]probeCacheEntry)
+		}
+	}
+	probeCache.items[raw] = probeCacheEntry{ok: ok, at: time.Now()}
+}
+
 // checkURLReachable 用 HEAD + Range 探测单条 URL。
 //
 // 接受 2xx 与 405：部分 CDN 不允许 HEAD（返回 405）但 GET 正常，
 // 把 405 当不可达会让这些 CDN 上的资源被误判为全部失效。
 func checkURLReachable(ctx context.Context, raw string) bool {
+	if ok, hit := readProbeCache(raw); hit {
+		return ok
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, healthCheckTimeout)
 	defer cancel()
 
@@ -84,7 +140,9 @@ func checkURLReachable(ctx context.Context, raw string) bool {
 		return false
 	}
 	defer resp.Body.Close()
-	return (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == http.StatusMethodNotAllowed
+	ok := (resp.StatusCode >= 200 && resp.StatusCode < 400) || resp.StatusCode == http.StatusMethodNotAllowed
+	writeProbeCache(raw, ok)
+	return ok
 }
 
 // FindReachableMediaURL 并行探测主地址与备用地址，返回第一个可达的 URL。

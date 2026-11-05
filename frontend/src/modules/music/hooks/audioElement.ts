@@ -37,16 +37,27 @@ export function unmountMediaElement(el: HTMLAudioElement): void {
  * 安全护栏：重试前校验元素仍在 DOM 且 src 未变——预载升格/退役路径会
  * 接替或移除元素（isConnected=false / src 变化），此时放弃重试，防止
  * 僵尸元素出声。
+ *
+ * 加载失败（el.error 置位）不再静默放弃：同一个坏地址永远播不起来，但
+ * 「换新地址重载」是可行的——交给 onBroken 处理（调用方重新解析直链 /
+ * 重新请求代理流），它返回 true 表示已在自愈，本次不再提示失败。
  */
 export function playAudioWithRetry(
   el: HTMLAudioElement,
-  onGiveUp?: () => void
+  onGiveUp?: () => void,
+  onBroken?: () => boolean
 ): void {
   const startSrc = el.src
   const attempt = (attemptsLeft: number): void => {
     void el.play().catch(() => {
-      // 已在播放（前一次调用实际生效）或流加载失败（error 置位，重试无意义）
-      if (!el.paused || el.error) return
+      // 已在播放（前一次调用实际生效）→ 无事可做
+      if (!el.paused) return
+      // 元素处于加载失败态：重试同一地址必然再失败，转交换源自愈
+      if (el.error) {
+        if (onBroken?.() === true) return
+        onGiveUp?.()
+        return
+      }
       if (attemptsLeft <= 0) {
         onGiveUp?.()
         return

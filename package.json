@@ -24,6 +24,7 @@
     "test:go": "cd backend-go && go test ./...",
     "test:regression": "bash backend-go/scripts/regression-sweep.sh",
     "test:socket-auth": "node --test scripts/socket-auth-recovery.test.mjs",
+    "test:long-session": "node --test scripts/long-session-regression.test.mjs",
   "test:flv-live": "node --test scripts/flv-live-recovery.test.mjs",
     "test:obs-background": "node scripts/obs-background-regression.mjs",
     "test:media": "node --experimental-strip-types --test scripts/media-regression.test.mjs",

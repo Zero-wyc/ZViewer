@@ -22,25 +22,35 @@
  * @param url 视频 URL
  * @returns true 表示已过期
  */
-export function isBilibiliUrlExpired(url: string): boolean {
-  if (!url) return false
-
+export function getBilibiliUrlDeadline(url: string): number | null {
+  // Both the server proxy and the local CLI wrap CDN URLs in a `url` query.
   try {
-    const urlObj = new URL(url)
-    const deadline = urlObj.searchParams.get('deadline')
-    if (!deadline) return false
-
-    // deadline 是 Unix 秒时间戳
-    const deadlineSec = parseInt(deadline, 10)
-    if (Number.isNaN(deadlineSec)) return false
-
-    // 当前时间（秒），预留 60s 缓冲，避免临界时间戳或设备时间偏差导致误报
-    const nowSec = Math.floor(Date.now() / 1000)
-    return nowSec >= deadlineSec + 60
+    for (let depth = 0; url && depth < 4; depth++) {
+      const parsed = new URL(url, 'http://zviewer.invalid')
+      const deadline = parsed.searchParams.get('deadline')
+      if (deadline && /^\d+$/.test(deadline)) {
+        const milliseconds = Number(deadline) * 1000
+        if (Number.isSafeInteger(milliseconds) && milliseconds > 0) {
+          return milliseconds
+        }
+      }
+      url = parsed.searchParams.get('url') ?? ''
+    }
   } catch {
-    // URL 解析失败，无法判断
-    return false
+    // Invalid URLs have no usable expiry information.
   }
+  return null
+}
+
+/** Refresh before expiry; unlike the viewer warning this has no grace delay. */
+export function isBilibiliUrlExpiring(url: string): boolean {
+  const deadline = getBilibiliUrlDeadline(url)
+  return deadline != null && Date.now() >= deadline - 60_000
+}
+
+export function isBilibiliUrlExpired(url: string): boolean {
+  const deadline = getBilibiliUrlDeadline(url)
+  return deadline != null && Date.now() >= deadline + 60_000
 }
 
 /**

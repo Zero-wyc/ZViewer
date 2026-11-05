@@ -10,6 +10,8 @@ services:
       - "3337:3337"     # 语音 ICE/TCP 直连（默认开启；UDP 被防火墙/代理拦截时自动回退到此端口）
       - "3338:3338"     # 语音 TURN/TLS 中继（配齐 LIVEKIT_TURN_* 三项才启用；穿透代理/多层 NAT 最强）
     environment:
+      - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-24h}
+      - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-30d}
       # 语音聊天（LiveKit）：LiveKit 已内嵌进本镜像（启动时由后端自动拉起，
       # HTTP/信令经 3333 的 /rtc 反代，媒体走 3333/udp），无需独立容器。
       # 客户端信令地址按请求头自动推导（跟随页面域名与协议，HTTPS 页面自动
