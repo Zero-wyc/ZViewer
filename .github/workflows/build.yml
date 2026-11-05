@@ -38,6 +38,7 @@ jobs:
       ref_name: ${{ steps.r.outputs.ref_name }}
       docker_tags: ${{ steps.r.outputs.docker_tags }}
       push_image: ${{ steps.r.outputs.push_image }}
+      latest_tag: ${{ steps.r.outputs.latest_tag }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -88,16 +89,31 @@ jobs:
             fi
             VERSION="${TAG#v}"
             MAJOR_MINOR=$(printf '%s' "$VERSION" | cut -d. -f1,2)
+            # latest 只跟随「版本号最高的正式版」。
+            # 维护 4.x 时发的补丁版不能把 latest 拽回旧主版本——否则
+            # docker pull :latest 会拿到 4.x，而 GitHub Release 那边还是 5.x。
+            # 浅克隆不一定带全 tag，统一查远端。
+            HIGHEST_VERSION=$(git ls-remote --tags origin 'refs/tags/v*' 2>/dev/null \
+              | sed 's#.*refs/tags/v##' \
+              | grep -E '^[0-9]+(\.[0-9]+)+$' \
+              | sort -V | tail -1)
+            LATEST_OK=true
+            if [ -n "$HIGHEST_VERSION" ] && \
+              [ "$(printf '%s\n%s\n' "$VERSION" "$HIGHEST_VERSION" | sort -V | tail -1)" != "$VERSION" ]; then
+              LATEST_OK=false
+              echo "::warning::${TAG} 低于已发布的最高版本 v${HIGHEST_VERSION}，本次不更新 :latest（仅推 ${VERSION} 与 ${MAJOR_MINOR}）"
+            fi
             {
               echo 'docker_tags<<EOF'
               echo "type=raw,value=${VERSION}"
               echo "type=raw,value=${MAJOR_MINOR}"
-              echo 'type=raw,value=latest'
+              if [ "$LATEST_OK" = 'true' ]; then echo 'type=raw,value=latest'; fi
               echo 'EOF'
             } >> "$GITHUB_OUTPUT"
             PUSH_IMAGE=true
           else
             VERSION="0.0.0-dev.${SHA:0:7}"
+            LATEST_OK=false
             {
               echo 'docker_tags<<EOF'
               echo 'type=raw,value=dev'
@@ -115,6 +131,7 @@ jobs:
             echo "sha=${SHA}"
             echo "ref_name=${REF_NAME}"
             echo "push_image=${PUSH_IMAGE}"
+            echo "latest_tag=${LATEST_OK}"
           } >> "$GITHUB_OUTPUT"
 
   build:
@@ -220,9 +237,14 @@ jobs:
           # 手动填版本号发版时 github.ref 还是 main，semver 规则取不到值，
           # 所以标签统一在 prepare 里按模式算好再传进来。
           tags: ${{ needs.prepare.outputs.docker_tags }}
+          # 关掉 metadata-action 的 latest=auto：latest 是否更新只由
+          # prepare 的版本比较决定，避免将来改成 semver 规则后被自动加上
+          flavor: |
+            latest=false
 
       - name: Build and push Docker image
         if: matrix.os == 'ubuntu-latest'
+        id: dockerbuild
         uses: docker/build-push-action@v7
         with:
           context: .
@@ -231,6 +253,27 @@ jobs:
           push: ${{ needs.prepare.outputs.push_image == 'true' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      # 回查 :latest 是否真的指向本次构建：Release 发出去但镜像没跟上时，
+      # 用户 `docker pull :latest` 会拿到旧版本，且没有任何报错。
+      # 只告警不失败——Docker Hub 索引有延迟，失败会误伤整个构建。
+      - name: Verify :latest points at this build
+        if: matrix.os == 'ubuntu-latest' && needs.prepare.outputs.latest_tag == 'true'
+        shell: bash
+        env:
+          EXPECTED: ${{ steps.dockerbuild.outputs.digest }}
+          IMAGE: ${{ secrets.DOCKER_USERNAME }}/zviewer
+        run: |
+          for i in 1 2 3; do
+            GOT=$(docker buildx imagetools inspect "${IMAGE}:latest" 2>/dev/null \
+              | awk '/^Digest:/{print $2; exit}')
+            if [ -n "${GOT}" ] && [ "${GOT}" = "${EXPECTED}" ]; then
+              echo ":latest -> ${GOT}（与本次构建一致）"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::warning::Docker 的 :latest 指向 ${GOT:-未知}，与本次构建 ${EXPECTED:-未知} 不一致（索引延迟，或已被另一构建覆盖）"
 
   # Windows GUI（Go/Wails 原生壳）：复用 build 的 Windows 运行包，编译壳、组装目录并打 ZIP。
   # 只跑 windows-latest：ProcessHost 依赖 .NET Framework 的 csc.exe，壳链接 -H windowsgui。
@@ -353,7 +396,7 @@ jobs:
             echo "| Windows 单文件 | [zviewer-windows-x64.zip](${REL}/zviewer-windows-x64.zip) | \`start.bat\` |"
             echo "| Linux | [zviewer-linux-x64.tar.gz](${REL}/zviewer-linux-x64.tar.gz) | \`./start.sh\` |"
             echo ""
-            echo "Docker：\`docker pull zerowyc0721/zviewer:dev\`（跟随 main）；正式版用 \`:latest\` 或具体版本号。"
+            echo "Docker：\`docker pull zerowyc0721/zviewer:dev\`（跟随 main）；正式版用 \`:latest\`（始终指向最高版本）或具体版本号。"
             echo ""
             echo "构建时间：${COMMIT_TS}"
           } > release_body_latest.md
@@ -495,6 +538,13 @@ jobs:
             echo "启动后访问 \`http://localhost:3333\`，初始账号 \`root\` / \`root\`，登录后请立即修改密码。"
             echo ""
             echo "Docker：\`docker pull zerowyc0721/zviewer:${VERSION}\`"
+            if [ "${{ needs.prepare.outputs.latest_tag }}" = 'true' ]; then
+              echo ""
+              echo "\`:latest\` 已同步指向 ${VERSION}。"
+            else
+              echo ""
+              echo "本次是旧版本的补丁，\`:latest\` 仍指向更高的版本。"
+            fi
             echo ""
             echo "> 页面底部的文件列表有时加载不出来（只剩 source code），直接点上面的链接即可。"
             echo "> 境内下载慢时，发版仓库与中国镜像链接都在 [ZviewerRelease](https://github.com/Zero-wyc/ZviewerRelease)。"

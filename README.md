@@ -75,6 +75,7 @@ docker run -d --name zviewer --restart unless-stopped \
 
 - HTTPS证书配置建议使用 ACME / Cloudflare / ESA / EdgeOne / 宝塔 / 1Panel 配置
 - 数据位于 `/app/config`（数据库、证书、上传文件）
+- 镜像标签：`latest` 始终指向**版本号最高的正式版**，旧分支（如 4.x）补丁发版不会覆盖它；跟随 `main` 的开发版用 `dev`，固定版本用 `X.Y.Z` 或 `X.Y`
 - 从4版本升到5版本建议重新安装
 - 手机与平板不在上表内，见[手机端](#手机端)
 
