@@ -1,5 +1,6 @@
 {
   "items": [
+    "Signed out of NetEase Cloud Music",
     "Requested: {{value}}",
     "Already in {{displayName}}",
     "Already in the queue",
@@ -118,7 +119,6 @@
     "DJ",
     "HDR",
     "LOG IN FOR ALL COMMENTS (guests see the first 3)",
-    "MP4 direct link",
-    "MP4 direct link, smooth seeking, usually 480P/720P"
+    "MP4 direct link"
   ]
 }

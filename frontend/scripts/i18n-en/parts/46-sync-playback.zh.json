@@ -12,6 +12,8 @@
     "[useVideoSource] 重载视频源失败:",
     "[useViewerStateSync] 缓冲下载失败:",
     "[useViewerStateSync] 缓冲下载已取消",
+    "您的房管权限已被撤销",
+    "您已被任命为房管",
     "视频重载失败",
     "已选定播放路径",
     "正在产出分段",

@@ -57,11 +57,9 @@
     "WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.",
     "Average per frame — higher means more CPU",
     "Password (optional)",
-    "Your moderator role was removed",
     "The host muted you",
     "The host removed you from the room",
     "You are no longer muted",
-    "You are now a moderator",
     "You are the new host",
     "Bulk add failed",
     "Regular account",
@@ -119,6 +117,8 @@
     "Failed to load the video",
     "Failed to load the video source",
     "Failed to resolve the video source",
-    "Video direct link"
+    "Video direct link",
+    "Collapse the sidebar",
+    "Type a path, or use the button above to browse (multi-select for bulk adding)"
   ]
 }

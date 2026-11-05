@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2633 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1025,7 +1025,7 @@ const enUS: Record<string, string> = {
   '搜索番剧失败': 'Anime search failed',
   '未取得影片播放地址': 'No playback URL for the movie',
 
-  // ===== modules/music（728 条） =====
+  // ===== modules/music（729 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
   ' / 共 {{totalPages}} 页': ' / {{totalPages}} pages',
   ' 首分P歌曲…': ' first-part tracks…',
@@ -1059,6 +1059,7 @@ const enUS: Record<string, string> = {
   '[SongCommentsPanel] 获取评论失败:': '[SongCommentsPanel] Failed to load comments:',
   '[useListenTogether] 推荐续播拉取 B站 推荐失败:': '[useListenTogether] Failed to load Bilibili recommendations for autoplay:',
   '[useListenTogether] 音频流加载失败:': '[useListenTogether] Failed to load the audio stream:',
+  '[useListenTogether] 直链重解析失败:': '[useListenTogether] Direct link re-resolution failed:',
   '[useLyricTrack] 获取歌词失败:': '[useLyricTrack] Failed to load lyrics:',
   '[useMusicVideoBackground] 视频背景解析失败:': '[useMusicVideoBackground] Failed to resolve the video background:',
   '[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析': '[useMusicVideoBackground] CLI not connected, falling back to server-side MP4 resolution',
@@ -1897,7 +1898,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（430 条） =====
+  // ===== modules/room（428 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -2075,11 +2076,9 @@ const enUS: Record<string, string> = {
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': 'WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.',
   '每帧平均，越高越吃 CPU': 'Average per frame — higher means more CPU',
   '密码（可选）': 'Password (optional)',
-  '您的房管权限已被撤销': 'Your moderator role was removed',
   '您已被房主禁言': 'The host muted you',
   '您已被房主移出房间': 'The host removed you from the room',
   '您已被解除禁言': 'You are no longer muted',
-  '您已被任命为房管': 'You are now a moderator',
   '您已成为新房主': 'You are the new host',
   '批量添加失败': 'Bulk add failed',
   '普通账号': 'Regular account',
@@ -2653,7 +2652,7 @@ const enUS: Record<string, string> = {
   'PGS RLE 图像不完整': 'Incomplete PGS RLE image',
   'PGS RLE 行长度无效': 'Invalid PGS RLE row length',
 
-  // ===== modules/sync-playback（19 条） =====
+  // ===== modules/sync-playback（21 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] Refusing to play a media element detached from the document (prevents orphan audio or doubled sound):',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload failed too:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek failed unrecoverably, calling forceReload:',
@@ -2665,6 +2664,8 @@ const enUS: Record<string, string> = {
   '[useVideoSource] 重载视频源失败:': '[useVideoSource] Failed to reload the video source:',
   '[useViewerStateSync] 缓冲下载失败:': '[useViewerStateSync] Buffered download failed:',
   '[useViewerStateSync] 缓冲下载已取消': '[useViewerStateSync] Buffered download cancelled',
+  '您的房管权限已被撤销': 'Your moderator role was removed',
+  '您已被任命为房管': 'You are now a moderator',
   '视频重载失败': 'Failed to reload the video',
   '已选定播放路径': 'Playback path selected',
   '正在产出分段': 'Producing segments',

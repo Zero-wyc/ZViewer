@@ -34,6 +34,7 @@
     "[SongCommentsPanel] 获取评论失败:",
     "[useListenTogether] 推荐续播拉取 B站 推荐失败:",
     "[useListenTogether] 音频流加载失败:",
+    "[useListenTogether] 直链重解析失败:",
     "[useLyricTrack] 获取歌词失败:",
     "[useMusicVideoBackground] 视频背景解析失败:",
     "[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析",
@@ -119,7 +120,6 @@
     "查看专辑",
     "场景推荐",
     "超清母带",
-    "沉浸环绕声",
-    "创建歌单失败"
+    "沉浸环绕声"
   ]
 }

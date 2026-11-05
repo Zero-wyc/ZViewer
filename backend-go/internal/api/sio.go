@@ -7,12 +7,21 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/sio"
 )
+
+type socketAuthSession struct {
+	mu           sync.Mutex
+	refreshToken string
+	principal    *auth.Claims
+	renewed      bool
+	timer        *time.Timer
+}
 
 // registerSocketRoutes 把 Socket.IO 挂到 `/socket.io/` 上。
 //
@@ -79,6 +88,10 @@ func (s *Server) socketAuth(h *sio.Handshake) error {
 	}
 	// 原始令牌留在连接上供逐包复核（Node 也是闭包里捕获 token）。
 	h.Data["__token"] = token
+	h.Data["__authSession"] = &socketAuthSession{
+		refreshToken: refreshTokenFromHandshake(h),
+		principal:    claims,
+	}
 	return nil
 }
 
@@ -91,17 +104,61 @@ func (s *Server) socketPacketAuth(sc *sio.Socket) error {
 	if v, ok := value.(bool); ok && v {
 		return nil
 	}
-	value, _ = sc.GetData("__token")
+	var err error
+	if value, _ := sc.GetData("__authSession"); value != nil {
+		session := value.(*socketAuthSession)
+		session.mu.Lock()
+		err = s.checkSocketSession(sc, session)
+		session.mu.Unlock()
+	} else {
+		err = s.checkSocketSession(sc, nil)
+	}
+	if errors.Is(err, auth.ErrTokenExpired) {
+		sc.Emit("auth-expired", map[string]any{"code": "TOKEN_EXPIRED"})
+	}
+	return err
+}
+
+// Renew in the server so a throttled background page keeps its socket and room.
+// The original refresh credential remains the revocation and expiry boundary.
+func (s *Server) checkSocketSession(sc *sio.Socket, session *socketAuthSession) error {
+	value, _ := sc.GetData("__token")
 	token, _ := value.(string)
 	if token == "" {
 		return errors.New("认证令牌已撤销或已过期")
 	}
 	claims, err := s.Tokens.VerifyAccess(token)
-	if err != nil {
-		if errors.Is(err, auth.ErrTokenExpired) {
-			sc.Emit("auth-expired", map[string]any{"code": "TOKEN_EXPIRED"})
+	if errors.Is(err, auth.ErrTokenExpired) && session != nil && session.refreshToken != "" {
+		refresh, refreshErr := s.verifySocketRefresh(session)
+		if refreshErr != nil {
+			return refreshErr
 		}
+		if refresh.IsGuest() {
+			token, err = s.Tokens.GenerateGuestAccess(refresh.GuestID)
+		} else {
+			token, err = s.Tokens.GenerateAccess(refresh.UserID, refresh.Role, refresh.Username)
+		}
+		if err != nil {
+			return err
+		}
+		claims, err = s.Tokens.VerifyAccess(token)
+		if err != nil {
+			return err
+		}
+		exp := claims.ExpiresAt.Unix()
+		if refresh.ExpiresAt.Unix() < exp {
+			exp = refresh.ExpiresAt.Unix()
+		}
+		sc.SetData("__token", token)
+		sc.SetData("exp", exp)
+		session.renewed = true
+	} else if err != nil {
 		return err
+	}
+	if session != nil && session.renewed {
+		if _, err := s.verifySocketRefresh(session); err != nil {
+			return err
+		}
 	}
 	if s.Auth != nil {
 		return s.Auth.AssertActive(context.Background(), claims)
@@ -109,26 +166,89 @@ func (s *Server) socketPacketAuth(sc *sio.Socket) error {
 	return nil
 }
 
-// armTokenExpiry 在令牌到期时主动断开连接。
-//
-// 与 Node 的 `setTimeout(revoke, exp*1000 - Date.now())` 一致：光靠逐包校验
-// 只能拦住「还在发包的连接」，静默挂着的长连接会一直活着。
+func (s *Server) verifySocketRefresh(session *socketAuthSession) (*auth.Claims, error) {
+	refresh, err := s.Tokens.VerifyRefresh(session.refreshToken)
+	if err != nil {
+		return nil, err
+	}
+	original := session.principal
+	if refresh.ExpiresAt == nil || refresh.UserID != original.UserID ||
+		refresh.Role != original.Role || refresh.GuestID != original.GuestID {
+		return nil, auth.ErrTokenInactive
+	}
+	if s.Auth != nil {
+		if err := s.Auth.AssertActive(context.Background(), refresh); err != nil {
+			return nil, err
+		}
+	}
+	return refresh, nil
+}
+
+// armTokenExpiry renews a live session without relying on browser timers.
+// Access-only clients retain the expiry notice and disconnect recovery protocol.
 func (s *Server) armTokenExpiry(sc *sio.Socket) {
-	value, _ := sc.GetData("exp")
-	exp, ok := value.(int64)
-	if !ok || exp <= 0 {
-		return
+	value, _ := sc.GetData("__authSession")
+	session, _ := value.(*socketAuthSession)
+	if session == nil {
+		session = &socketAuthSession{}
 	}
-	delay := time.Until(time.Unix(exp, 0))
-	if delay < 0 {
-		delay = 0
+	var schedule func()
+	schedule = func() {
+		value, _ := sc.GetData("exp")
+		exp, ok := value.(int64)
+		if !ok || exp <= 0 {
+			return
+		}
+		delay := time.Until(time.Unix(exp, 0))
+		if delay < 0 {
+			delay = 0
+		}
+		session.timer = time.AfterFunc(delay, func() {
+			session.mu.Lock()
+			if s.Socket == nil || !s.Socket.Connected(sc.ID) {
+				session.mu.Unlock()
+				return
+			}
+			err := s.checkSocketSession(sc, session)
+			// A renewed access token must not outlive its original refresh session.
+			if err == nil {
+				if deadline, _ := sc.GetData("exp"); deadline.(int64) <= time.Now().Unix() {
+					err = auth.ErrTokenExpired
+				}
+			}
+			if err == nil {
+				schedule()
+			}
+			session.mu.Unlock()
+			if err != nil {
+				if errors.Is(err, auth.ErrTokenExpired) {
+					sc.Emit("auth-expired", map[string]any{"code": "TOKEN_EXPIRED"})
+				}
+				sc.Disconnect("token expired or revoked")
+			}
+		})
 	}
-	time.AfterFunc(delay, func() {
-		if s.Socket != nil && s.Socket.Connected(sc.ID) {
-			sc.Emit("auth-expired", map[string]any{"code": "TOKEN_EXPIRED"})
-			sc.Disconnect("token expired")
+	sc.OnDisconnect(func(string) {
+		session.mu.Lock()
+		defer session.mu.Unlock()
+		if session.timer != nil {
+			session.timer.Stop()
 		}
 	})
+	session.mu.Lock()
+	schedule()
+	session.mu.Unlock()
+}
+
+func refreshTokenFromHandshake(h *sio.Handshake) string {
+	for _, cookie := range (&http.Request{Header: h.Headers}).Cookies() {
+		if cookie.Name == auth.RefreshCookieName {
+			return cookie.Value
+		}
+	}
+	var token string
+	_ = json.Unmarshal(h.Auth["refreshToken"], &token)
+	return token
 }
 
 // accessTokenFromHandshake 按 Node 的优先级取访问令牌。

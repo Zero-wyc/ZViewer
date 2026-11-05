@@ -1,5 +1,5 @@
 {
-  "total": 2627,
+  "total": 2628,
   "chunk": 120,
   "parts": [
     {
@@ -155,7 +155,7 @@
     {
       "id": "31-music",
       "bucket": "modules/music",
-      "count": 8
+      "count": 9
     },
     {
       "id": "32-openlist",
@@ -205,7 +205,7 @@
     {
       "id": "41-room",
       "bucket": "modules/room",
-      "count": 70
+      "count": 68
     },
     {
       "id": "42-screen-sharing",
@@ -230,7 +230,7 @@
     {
       "id": "46-sync-playback",
       "bucket": "modules/sync-playback",
-      "count": 19
+      "count": 21
     },
     {
       "id": "47-voice-chat",

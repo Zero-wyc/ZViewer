@@ -21,13 +21,13 @@ import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import {
   useHostSync,
   useViewerSync,
-  useViewerList,
   useTrackSync,
   useVideoSource,
   SOCKET_EVENT,
   safePlay,
 } from '@/modules/sync-playback'
 import { wasUserPaused } from '@/modules/player/services/pause-intent'
+import { isBilibiliUrlExpiring } from '@/modules/playback-memory/services/url-expiry'
 import {
   createSuppressRef,
   resetSuppression,
@@ -191,6 +191,8 @@ export function useWatchTogether({
   const lastAutoReloadAtRef = useRef(0)
   const autoReloadCountRef = useRef(0)
   const autoReloadNotifiedRef = useRef(false)
+  const autoReloadSourceRef = useRef('')
+  const autoReloadProgressRef = useRef<number | null>(null)
 
   // loadMovie 失败信息与重试令牌：失败时在播放器上显示"重试"入口，
   // retryLoadMovie 清除 lastLoadedMovieRef 并递增令牌重新触发加载 effect。
@@ -249,9 +251,6 @@ export function useWatchTogether({
     seekTo,
     reloadVideo,
   })
-
-  // 4. 房主与观众：同步在线观众列表（viewer-joined / viewer-left）
-  useViewerList()
 
   // 弹幕/字幕轨道同步（合并事件 track-change，后端新增转发 handler 修复功能失效 bug）
   const {
@@ -567,7 +566,10 @@ export function useWatchTogether({
       suppressEventsRef.current = true
 
       const preserveTime = video.currentTime
-      const shouldPlay = !video.paused
+      const shouldPlay =
+        !wasUserPaused(video) &&
+        (!video.paused || (!!video.error && state.isPlaying))
+      const playbackRate = video.playbackRate
 
       try {
         // 未显式传入 options 时，从 localStorage 读取该影片的播放模式偏好
@@ -588,6 +590,9 @@ export function useWatchTogether({
 
         const newState: WatchTogetherState = {
           ...state,
+          currentTime: preserveTime,
+          isPlaying: shouldPlay,
+          playbackRate,
           sourceUrl: resolved.sourceUrl,
           audioUrl: resolved.audioUrl,
           videoCodec: resolved.videoCodec,
@@ -622,8 +627,10 @@ export function useWatchTogether({
         // 开始 Range 下载，而非从文件头 0 字节顺序下载。否则大跨度跳转后重载会
         // 从头加载到目标位置才播放（用户看到的"加载跳转之前的部分"现象）。
         await applySourceToVideo(video, newState, preserveTime, blobs)
+        if (loadSeqRef.current !== seq) return
         video.currentTime = preserveTime
-        if (shouldPlay) {
+        video.playbackRate = playbackRate
+        if (shouldPlay && !wasUserPaused(video)) {
           void safePlay(video)
         }
 
@@ -643,7 +650,7 @@ export function useWatchTogether({
           // 持久化失败不阻塞播放，watchTogether state 已更新
         }
 
-        broadcastState(newState)
+        if (loadSeqRef.current === seq) broadcastState(newState)
       } catch (err) {
         // 已过期的失败（被新加载取代）无需提示或回退，避免覆盖新状态
         if (loadSeqRef.current !== seq) return
@@ -1357,6 +1364,11 @@ export function useWatchTogether({
 
     const state = useRoomStore.getState().watchTogether
     if (state.sourceType !== 'bilibili') return
+    const sourceSignature = `${state.sourceUrl}\n${state.audioUrl ?? ''}`
+    if (autoReloadSourceRef.current !== sourceSignature) {
+      autoReloadSourceRef.current = sourceSignature
+      autoReloadProgressRef.current = video.currentTime
+    }
 
     const MAX_AUTO_RELOADS = 3
     const BASE_COOLDOWN_MS = 10000
@@ -1365,6 +1377,14 @@ export function useWatchTogether({
     let debounceTimer: ReturnType<typeof setTimeout> | null = null
 
     const triggerReload = () => {
+      const current = useRoomStore.getState().watchTogether
+      if (
+        suppressEventsRef.current ||
+        isReloadingBilibiliRef.current ||
+        current.sourceType !== 'bilibili' ||
+        current.bufferMode
+      )
+        return
       if (autoReloadCountRef.current >= MAX_AUTO_RELOADS) {
         if (!autoReloadNotifiedRef.current) {
           autoReloadNotifiedRef.current = true
@@ -1400,14 +1420,44 @@ export function useWatchTogether({
       if (debounceTimer) clearTimeout(debounceTimer)
       debounceTimer = setTimeout(triggerReload, 2000)
     }
+    const checkDeadline = () => {
+      const current = useRoomStore.getState().watchTogether
+      if (
+        autoReloadProgressRef.current != null &&
+        !suppressEventsRef.current &&
+        !isReloadingBilibiliRef.current &&
+        !video.error &&
+        !video.paused &&
+        video.currentTime > autoReloadProgressRef.current + 2
+      ) {
+        autoReloadCountRef.current = 0
+        autoReloadNotifiedRef.current = false
+        autoReloadProgressRef.current = null
+      }
+      if (
+        isBilibiliUrlExpiring(current.sourceUrl) ||
+        isBilibiliUrlExpiring(current.audioUrl ?? '')
+      )
+        triggerReload()
+    }
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') checkDeadline()
+    }
 
     video.addEventListener('stalled', handleStalled)
     video.addEventListener('error', handleError)
+    video.addEventListener('timeupdate', checkDeadline)
+    document.addEventListener('visibilitychange', onVisibility)
+    const deadlineTimer = setInterval(checkDeadline, 10_000)
+    checkDeadline()
 
     return () => {
       if (debounceTimer) clearTimeout(debounceTimer)
+      clearInterval(deadlineTimer)
       video.removeEventListener('stalled', handleStalled)
       video.removeEventListener('error', handleError)
+      video.removeEventListener('timeupdate', checkDeadline)
+      document.removeEventListener('visibilitychange', onVisibility)
     }
   }, [
     videoRef,
@@ -1415,6 +1465,7 @@ export function useWatchTogether({
     suppressEventsRef,
     watchTogether.sourceType,
     watchTogether.sourceUrl,
+    watchTogether.audioUrl,
   ])
 
   // ── 自动连播(房主端):当前影片播放结束后自动播放影片列表中的下一部 ──

@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2627 条。
+ * 当前共 2628 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -1022,7 +1022,7 @@ const zhCN: Record<string, string> = {
   '搜索番剧失败': '搜索番剧失败',
   '未取得影片播放地址': '未取得影片播放地址',
 
-  // ===== modules/music（728 条） =====
+  // ===== modules/music（729 条） =====
   ' · 共 {{totalPages}} 页': ' · 共 {{totalPages}} 页',
   ' / 共 {{totalPages}} 页': ' / 共 {{totalPages}} 页',
   ' 首分P歌曲…': ' 首分P歌曲…',
@@ -1056,6 +1056,7 @@ const zhCN: Record<string, string> = {
   '[SongCommentsPanel] 获取评论失败:': '[SongCommentsPanel] 获取评论失败:',
   '[useListenTogether] 推荐续播拉取 B站 推荐失败:': '[useListenTogether] 推荐续播拉取 B站 推荐失败:',
   '[useListenTogether] 音频流加载失败:': '[useListenTogether] 音频流加载失败:',
+  '[useListenTogether] 直链重解析失败:': '[useListenTogether] 直链重解析失败:',
   '[useLyricTrack] 获取歌词失败:': '[useLyricTrack] 获取歌词失败:',
   '[useMusicVideoBackground] 视频背景解析失败:': '[useMusicVideoBackground] 视频背景解析失败:',
   '[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析': '[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析',
@@ -1894,7 +1895,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（430 条） =====
+  // ===== modules/room（428 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析',
@@ -2072,11 +2073,9 @@ const zhCN: Record<string, string> = {
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。',
   '每帧平均，越高越吃 CPU': '每帧平均，越高越吃 CPU',
   '密码（可选）': '密码（可选）',
-  '您的房管权限已被撤销': '您的房管权限已被撤销',
   '您已被房主禁言': '您已被房主禁言',
   '您已被房主移出房间': '您已被房主移出房间',
   '您已被解除禁言': '您已被解除禁言',
-  '您已被任命为房管': '您已被任命为房管',
   '您已成为新房主': '您已成为新房主',
   '批量添加失败': '批量添加失败',
   '普通账号': '普通账号',
@@ -2650,7 +2649,7 @@ const zhCN: Record<string, string> = {
   'PGS RLE 图像不完整': 'PGS RLE 图像不完整',
   'PGS RLE 行长度无效': 'PGS RLE 行长度无效',
 
-  // ===== modules/sync-playback（19 条） =====
+  // ===== modules/sync-playback（21 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload 也失败:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:',
@@ -2662,6 +2661,8 @@ const zhCN: Record<string, string> = {
   '[useVideoSource] 重载视频源失败:': '[useVideoSource] 重载视频源失败:',
   '[useViewerStateSync] 缓冲下载失败:': '[useViewerStateSync] 缓冲下载失败:',
   '[useViewerStateSync] 缓冲下载已取消': '[useViewerStateSync] 缓冲下载已取消',
+  '您的房管权限已被撤销': '您的房管权限已被撤销',
+  '您已被任命为房管': '您已被任命为房管',
   '视频重载失败': '视频重载失败',
   '已选定播放路径': '已选定播放路径',
   '正在产出分段': '正在产出分段',

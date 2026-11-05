@@ -6,6 +6,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
 
 // cookie 常量，与 middleware/auth.ts 完全一致。
@@ -13,8 +15,8 @@ const (
 	AccessCookieName  = "access_token"
 	RefreshCookieName = "refresh_token"
 
-	// access cookie 比 JWT 短 5 秒，避免边界过期
-	accessCookieMaxAge  = 3600 - 5
+	// Fallbacks are only used for legacy tokens without an exp claim.
+	accessCookieMaxAge  = 24*60*60 - 5
 	refreshCookieMaxAge = 30 * 24 * 60 * 60
 )
 
@@ -103,8 +105,8 @@ func SetAuthCookies(w http.ResponseWriter, r *http.Request, tokens Tokens) {
 		return
 	}
 	sameSite, secure := cookiePolicy(r)
-	writeCookie(w, r, AccessCookieName, tokens.AccessToken, accessCookieMaxAge, sameSite, secure)
-	writeCookie(w, r, RefreshCookieName, tokens.RefreshToken, refreshCookieMaxAge, sameSite, secure)
+	writeCookie(w, r, AccessCookieName, tokens.AccessToken, tokenCookieMaxAge(tokens.AccessToken, accessCookieMaxAge, 5), sameSite, secure)
+	writeCookie(w, r, RefreshCookieName, tokens.RefreshToken, tokenCookieMaxAge(tokens.RefreshToken, refreshCookieMaxAge, 0), sameSite, secure)
 }
 
 // SetAccessTokenCookie 仅续签 access cookie（refresh 不轮换）。
@@ -113,7 +115,27 @@ func SetAccessTokenCookie(w http.ResponseWriter, r *http.Request, accessToken st
 		return
 	}
 	sameSite, secure := cookiePolicy(r)
-	writeCookie(w, r, AccessCookieName, accessToken, accessCookieMaxAge, sameSite, secure)
+	writeCookie(w, r, AccessCookieName, accessToken, tokenCookieMaxAge(accessToken, accessCookieMaxAge, 5), sameSite, secure)
+}
+
+// Only server-issued tokens reach this writer; verification stays in the auth layer.
+func tokenCookieMaxAge(token string, fallback, margin int) int {
+	claims := &Claims{}
+	if _, _, err := jwt.NewParser().ParseUnverified(token, claims); err != nil || claims.ExpiresAt == nil {
+		return fallback
+	}
+	remaining := time.Until(claims.ExpiresAt.Time)
+	if remaining <= 0 {
+		return -1
+	}
+	seconds := int(remaining / time.Second)
+	if seconds > margin {
+		seconds -= margin
+	}
+	if seconds < 1 {
+		return 1
+	}
+	return seconds
 }
 
 // ClearAuthCookies 清除两个鉴权 cookie。

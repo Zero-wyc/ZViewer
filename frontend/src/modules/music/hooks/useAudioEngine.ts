@@ -12,6 +12,15 @@ import {
 import { loudnessNormalizer } from '../audio/loudnessNormalizer'
 import { t } from '@/i18n'
 
+/**
+ * 距结尾多少秒开始真正缓冲下一首。
+ *
+ * 预载元素平时只 `preload='metadata'`（只取头部元数据）。提前把整段音频
+ * 拉下来并不会让切歌更快——真正的等待发生在解码首帧——却实打实消耗一份
+ * B站 签名直链的流量额度。临近切歌再升到 auto，兼顾无缝与省额度。
+ */
+const PRELOAD_EAGER_WINDOW_SEC = 45
+
 interface UseAudioEngineOptions {
   /** 本地音量镜像（创建音频元素时应用；音量本身由调用方持有状态） */
   volumeRef: MutableRefObject<number>
@@ -22,6 +31,17 @@ interface UseAudioEngineOptions {
    * 自动跳过无法播放的曲目），引擎不再弹通用错误提示。
    */
   onErrorRef?: MutableRefObject<(() => boolean) | null>
+  /**
+   * 音频流中途失效的自愈处理器（可选）：返回 true 表示调用方已接管
+   * （重新解析直链 / 换新签名地址后续播），引擎不再弹错误提示。
+   *
+   * 参数为 MediaError.code，供调用方区分「瞬时网络中断」与「地址失效」：
+   * 前者重连同一地址即可，后者才需要重新解析（少一次无谓的签名消耗）。
+   *
+   * 与 onErrorRef 的区别：onErrorRef 处理「这首就是播不了」（换下一首），
+   * 本回调处理「地址失效但歌曲本身可播」（原地修复并续播）。
+   */
+  onStreamErrorRef?: MutableRefObject<((code?: number) => boolean) | null>
   /** 预载目标（下一首；null 表示无需预载）——顺序/随机规则由调用方决定 */
   peekNextSong: () => MusicQueueItem | null
   /** 队列条目 → 音频流地址（B站 条目取已解析缓存） */
@@ -51,6 +71,13 @@ export interface AudioEngine {
     shouldPlay: boolean,
     trackKey?: string | null
   ) => void
+  /**
+   * 用**同一地址**重新加载并从断点续播（清掉 error 态）。
+   *
+   * 给「瞬时网络中断」用：这类失败重解析毫无意义，反而白耗一次签名与几秒
+   * 等待。真正需要新签名的场景由调用方解析后走 playSource。
+   */
+  reloadAt: (positionSec: number) => void
   /** 房间媒体拆除：暂停主/预载元素；full 时连 src 一并丢弃（断线仅暂停） */
   stopAll: (full: boolean) => void
   /** 卸载释放：主/预载元素资源全清并清空内部引用 */
@@ -74,6 +101,7 @@ export function useAudioEngine({
   volumeRef,
   endedHandlerRef,
   onErrorRef,
+  onStreamErrorRef,
   peekNextSong,
   buildUrl,
   currentKey,
@@ -110,7 +138,7 @@ export function useAudioEngine({
   const [audioHandlers] = useState<{
     timeupdate: (e: Event) => void
     play: () => void
-    pause: () => void
+    pause: (e: Event) => void
     ended: () => void
     loadedmetadata: (e: Event) => void
     error: (e: Event) => void
@@ -118,11 +146,24 @@ export function useAudioEngine({
     timeupdate: (e) => {
       const el = e.currentTarget as HTMLAudioElement
       useMusicStore.getState().setPositionSec(el.currentTime)
+      // 临近切歌才把预载元素提到 auto 真正缓冲：平时只取元数据，
+      // 避免为下一首提前拉完整段音频（签名额度按流量/次数消耗）
+      const preload = preloadRef.current
+      if (preload != null && preload.preload !== 'auto') {
+        const remain = el.duration - el.currentTime
+        if (Number.isFinite(remain) && remain <= PRELOAD_EAGER_WINDOW_SEC) {
+          preload.preload = 'auto'
+        }
+      }
     },
     play: () => {
       useMusicStore.getState().setPlaying(true)
     },
-    pause: () => {
+    pause: (e) => {
+      // 媒体报错会让元素自动进入 paused，但这不是「用户想暂停」：
+      // 此时若置 isPlaying=false，2s 心跳会把暂停态广播给全房间，
+      // 房主端就表现为「自己停了、点播放也没反应」。
+      if ((e.currentTarget as HTMLAudioElement).error) return
       useMusicStore.getState().setPlaying(false)
     },
     ended: () => {
@@ -151,6 +192,8 @@ export function useAudioEngine({
       )
       // 调用方优先处理（私人漫游换源失败时自动跳过该曲续播）
       if (onErrorRef?.current?.() === true) return
+      // 地址失效自愈（直链过期/签名次数耗尽/代理流中断）：重新解析后从断点续播
+      if (onStreamErrorRef?.current?.(el.error?.code) === true) return
       message.error(t('音频加载失败，请稍后重试或切换其他曲目'))
     },
   }))
@@ -232,9 +275,14 @@ export function useAudioEngine({
       resetAudioElement(existing)
     }
     preloadRef.current = null
-    if (!gaplessPlayback || !target || targetUrl == null) return
+    // 空地址（B站 条目尚未解析出直链）不建预载元素：把 '' 赋给 src 会被
+    // 浏览器解析成当前页面 URL，等于把 HTML 当音频下载，随后必然 error。
+    if (!gaplessPlayback || !target || !targetUrl) return
     const el = new Audio()
-    el.preload = 'auto'
+    // 只取元数据（时长/尺寸），不预拉整段音频：B站 签名直链的可用次数与
+    // 流量挂钩，提前几十秒把下一首整段下完等于白烧一份额度。临近切歌时
+    // timeupdate 会把 preload 提到 auto，真正开始缓冲（见 audioHandlers）。
+    el.preload = 'metadata'
     // 预载元素同步主元素的音量/静音（升格接管时仍会再校准一次）
     const currentAudio = audioRef.current
     if (currentAudio) {
@@ -271,19 +319,24 @@ export function useAudioEngine({
       shouldPlay: boolean,
       trackKey?: string | null
     ) => {
+      // 空地址（B站 直链未解析）不写 src：'' 会被解析成当前页面地址，
+      // 浏览器随后把 HTML 当媒体加载，直接进入 error 态
+      if (!url) return
       const audio = getAudio()
       // 响度均衡：换曲时先按缓存/上一首增益就位，随后的测量在数秒内收敛
       loudnessNormalizer.beginTrack(trackKey ?? null)
 
       // ===== 预载升格路径 =====
       // 条件：同一 URL（流地址稳定：同 songId/level/roomId/token）、
-      // readyState ≥ HAVE_FUTURE_DATA（可连续播放）、无加载错误
+      // 元数据就绪（≥ HAVE_METADATA）、无加载错误。
+      // 预载平时只取元数据（省流量=省签名额度），升格后由同一元素继续缓冲：
+      // 连接与已缓存区间都复用，比主元素冷启动快，又不必提前下完整段。
       const preloaded = preloadRef.current
       if (
         preloaded != null &&
         preloaded !== audio &&
         preloaded.src === url &&
-        preloaded.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA &&
+        preloaded.readyState >= HTMLMediaElement.HAVE_METADATA &&
         preloaded.error == null
       ) {
         // 1) 事件迁移：先从旧主元素摘除（避免 pause 触发暂停状态镜像）
@@ -318,7 +371,10 @@ export function useAudioEngine({
       }
 
       // ===== 原路径（未命中预载） =====
-      if (audio.src === url && audio.readyState >= 1) {
+      // 元素处于加载失败态（src 未变但 error 置位）时必须重新 load：
+      // 只改 currentTime 不会清 error，play() 会一直被拒绝——表现为「暂停后
+      // 点播放毫无反应，只能刷新页面」（刷新重建元素才恢复）。
+      if (audio.src === url && audio.readyState >= 1 && audio.error == null) {
         // 同一曲目且元数据已就绪（重播/循环）：直接 seek
         try {
           audio.currentTime = positionSec
@@ -326,9 +382,9 @@ export function useAudioEngine({
           // ignore
         }
       } else {
-        // 新曲目或仍在加载：记录起始进度，待 loadedmetadata 后应用
+        // 新曲目 / 仍在加载 / 上一轮加载失败：记录起始进度，待 loadedmetadata 后应用
         pendingSeekRef.current = positionSec
-        if (audio.src !== url) {
+        if (audio.src !== url || audio.error != null) {
           audio.src = url
           audio.load()
         }
@@ -340,6 +396,28 @@ export function useAudioEngine({
       }
     },
     [getAudio, attachAudioHandlers, detachAudioHandlers]
+  )
+
+  /**
+   * 同一地址重连：清 error 态并从断点续播。
+   *
+   * `load()` 是唯一能清除 MediaError 的操作；只改 currentTime 无效，这也是
+   * 「暂停后点播放没反应」的另一半原因。地址没变，所以不会产生新的签名请求。
+   */
+  const reloadAt = useCallback(
+    (positionSec: number) => {
+      const audio = getAudio()
+      if (!audio.src) return
+      const target = Math.max(0, Number.isFinite(positionSec) ? positionSec : 0)
+      pendingSeekRef.current = target
+      try {
+        audio.load()
+      } catch {
+        // ignore
+      }
+      playAudioWithRetry(audio)
+    },
+    [getAudio]
   )
 
   /** 停止指定元素；full 时丢弃 src（预载元素同时从 DOM 移除，防隐藏元素残留） */
@@ -390,5 +468,5 @@ export function useAudioEngine({
     pendingSeekRef.current = 0
   }, [])
 
-  return { audioRef, getAudio, playSource, stopAll, dispose }
+  return { audioRef, getAudio, playSource, reloadAt, stopAll, dispose }
 }

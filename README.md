@@ -96,6 +96,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | `CONFIG_DIR` | 数据根目录 | `<项目根>/config` |
 | `CORS_ORIGIN` | 允许来源，逗号分隔 | `*` |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 登录密钥 | 自动生成 |
+| `JWT_ACCESS_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN` | 正式用户访问 / 刷新令牌有效期，Cookie 同步跟随 | `24h` / `30d` |
 | `SHARE_MEDIA_PORT` | 媒体 UDP 端口 | `3333` |
 | `SHARE_MEDIA_TCP_PORT` | 媒体 TCP 端口。**不能与 `PORT` 相同**（会抢走网页端口）；留空用 3337 | `3337` |
 | `SHARE_MEDIA_PUBLIC_IP` | NAT 1:1 下的公网地址（云主机 / FRP 场景必填） | 自动 |

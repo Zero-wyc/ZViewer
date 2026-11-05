@@ -11,6 +11,8 @@
     "[useVideoSource] Failed to reload the video source:",
     "[useViewerStateSync] Buffered download failed:",
     "[useViewerStateSync] Buffered download cancelled",
+    "Your moderator role was removed",
+    "You are now a moderator",
     "Failed to reload the video",
     "Playback path selected",
     "Producing segments",

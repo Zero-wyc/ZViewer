@@ -1,5 +1,6 @@
 {
   "items": [
+    "Failed to create the playlist",
     "Created",
     "Create a playlist and add",
     "Clean mode: hide the whole UI and show only the background video",
@@ -118,7 +119,6 @@
     "Filter tracks",
     "No tracks yet",
     "Liked folder",
-    "Liked folder name",
-    "Back"
+    "Liked folder name"
   ]
 }

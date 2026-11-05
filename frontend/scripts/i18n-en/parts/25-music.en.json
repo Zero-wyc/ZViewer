@@ -33,6 +33,7 @@
     "[SongCommentsPanel] Failed to load comments:",
     "[useListenTogether] Failed to load Bilibili recommendations for autoplay:",
     "[useListenTogether] Failed to load the audio stream:",
+    "[useListenTogether] Direct link re-resolution failed:",
     "[useLyricTrack] Failed to load lyrics:",
     "[useMusicVideoBackground] Failed to resolve the video background:",
     "[useMusicVideoBackground] CLI not connected, falling back to server-side MP4 resolution",
@@ -118,7 +119,6 @@
     "View album",
     "Scene recommendations",
     "Hi-Res master",
-    "Immersive surround",
-    "Failed to create the playlist"
+    "Immersive surround"
   ]
 }

@@ -1,7 +1,5 @@
 {
   "items": [
-    "Collapse the sidebar",
-    "Type a path, or use the button above to browse (multi-select for bulk adding)",
     "Enter manually",
     "Type a keyword to search",
     "Type a keyword to search Bilibili videos",
@@ -119,6 +117,8 @@
     "Expand the sidebar",
     "Expand to see the full movie list",
     "Average time a frame sits in the buffer",
-    "Initializing resolution..."
+    "Initializing resolution...",
+    "Waiting for the host to start sharing",
+    "Buffering the video"
   ]
 }

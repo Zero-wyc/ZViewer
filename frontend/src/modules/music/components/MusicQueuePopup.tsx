@@ -160,9 +160,9 @@ export function MusicQueuePopup({
         // 黑底皮肤：深投影替代浅色 glass-card 的柔和阴影
         darkGlass
           ? 'shadow-[0_24px_80px_rgba(0,0,0,0.6)]'
-          : 'glass-card shadow-lg',
+          : 'music-glass-text glass-card shadow-lg',
         placement === 'top'
-          ? 'bottom-[calc(100%+8px)] right-2'
+          ? 'bottom-[calc(100%+8px)] right-2 max-h-[calc(100dvh-8rem-env(safe-area-inset-bottom))]'
           : placement === 'side'
             ? // 侧挂（歌词页工具栏）：垂直居中对齐按钮、水平向右展开（左侧会出屏被裁切）；居中用 top+负 margin，不能用 -translate-y-1/2——zen-stagger-fade-up 动画全程接管 transform
               'top-1/2 left-[calc(100%+14px)] mt-[-12rem]'

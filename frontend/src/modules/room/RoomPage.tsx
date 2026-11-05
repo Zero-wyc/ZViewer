@@ -7,6 +7,7 @@ import { useSystemSettingsStore } from '@/store/systemSettingsStore'
 import { useDanmakuStore } from '@/store/danmakuStore'
 import { setClientLoggerRoomId } from '@/lib/clientLogger'
 import { useSocket } from '@/hooks/useSocket'
+import { useViewerList } from '@/modules/sync-playback/hooks/useViewerList'
 import { VoiceChatPanel } from '@/modules/voice-chat'
 import { TrafficPanel } from '@/modules/room/components/TrafficPanel'
 import { RoomPanel } from '@/modules/room/components/RoomPanel'
@@ -141,6 +142,7 @@ function RoomPage() {
     setDanmakuMeta,
   ])
   const { socket } = useSocket()
+  useViewerList(roomId)
   // 房间模式切换（房主 emit + ack/超时/断线兜底）：状态上移到页面级，
   // 滑块既渲染在 RoomLayout 顶栏（一起看/投屏），一起听时也注入音乐顶导航
   // （MusicAppShell → MusicTopNav 的 modeSwitchSlot），两处共用同一份状态
