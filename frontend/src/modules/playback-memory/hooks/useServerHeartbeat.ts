@@ -16,7 +16,7 @@
  *   避免 2s 心跳反复硬 seek 造成的无限转圈
  * - 房主离线（host-disconnected）后观众进入自主控制模式，不再应用服务器心跳
  * - 监听 host-disconnected 仅显示提示，不暂停
- * - 检测 URL 过期后暂停并提示
+ * - 房主离线且媒体报错时检查 URL 过期；在线时等待房主推送续期源
  */
 import { useEffect, useRef, useCallback } from 'react'
 import { restoreStateSnapshot } from '@/modules/sync-playback/services/state-merge'
@@ -39,10 +39,7 @@ import {
 } from '@/modules/sync-playback/services'
 import type { SeekToResult } from '@/modules/sync-playback/services'
 import type { ServerHeartbeatPayload, CheckStatusAckData } from '../types'
-import {
-  isBilibiliUrlExpired,
-  isVideoSourceExpired,
-} from '../services/url-expiry'
+import { isVideoSourceExpired } from '../services/url-expiry'
 import { t } from '@/i18n'
 
 export interface UseServerHeartbeatOptions {
@@ -208,17 +205,8 @@ export function useServerHeartbeat({
         return
       }
 
-      // 缓冲模式下视频从 blob URL 播放，state.sourceUrl（B站 CDN URL）的 deadline
-      // 过期不影响实际播放，忽略 deadline 检测。
-      // 此处仅通过 URL deadline 做严格过期判断；video.error 的兜底检测在 error
-      // 事件监听中处理，避免 MSE/DASH 切换或 transient error 导致误报。
-      const isBufferMode = state.bufferMode === true
-      if (!isBufferMode && isBilibiliUrlExpired(state.sourceUrl)) {
-        urlExpiredRef.current = true
-        if (!video.paused) video.pause()
-        message.warning(t('视频源已过期，等待房主重连'))
-        return
-      }
+      // The online host renews Bilibili sources. Keep buffered playback going
+      // until its replacement arrives instead of latching the viewer as expired.
 
       // ① 同步播放/暂停状态
       if (state.isPlaying && video.paused) {
@@ -483,7 +471,10 @@ export function useServerHeartbeat({
       lastErrorSignatureRef.current = signature
 
       const currentState = watchTogetherRef.current
-      if (isVideoSourceExpired(currentState.sourceUrl, error, video)) {
+      if (
+        hostOfflineRef.current &&
+        isVideoSourceExpired(currentState.sourceUrl, error, video)
+      ) {
         urlExpiredRef.current = true
         if (!video.paused) video.pause()
         message.warning(t('视频源已过期，等待房主重连'))

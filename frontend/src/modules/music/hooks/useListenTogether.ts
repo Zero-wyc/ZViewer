@@ -55,12 +55,24 @@ import type {
 } from '../types'
 import {
   BILI_DEFAULT_QN,
+  beginBiliResolve,
   biliResolvingPromises,
+  biliVideoSourceKey,
+  commitBiliResolve,
   getCachedBiliAudioUrl,
+  invalidateBiliAudioUrl,
+  isBiliAudioStale,
+  noteBiliRefreshed,
   setCachedBiliAudioUrl,
+  setCachedBiliVideoSource,
+  setBiliStandbyUrl,
+  takeBiliStandbyUrl,
 } from './biliAudioCache'
 import { playAudioWithRetry } from './audioElement'
 import { useAudioEngine } from './useAudioEngine'
+import { refreshAccessToken } from '@/lib/api'
+import { isAccessTokenExpired } from '@/lib/authTransport'
+import { createBilibiliAudioRenewal } from './bilibiliAudioRenewal'
 import { useQueueAdvance } from './useQueueAdvance'
 import { t } from '@/i18n'
 
@@ -99,6 +111,27 @@ const BILI_RECOMMEND_LIMIT = 3
  * 按 2s / 5s / 10s 退避重试三次后再提示。
  */
 const FM_ADVANCE_RETRY_DELAYS = [2000, 5000, 10000]
+
+/**
+ * 音频流中途失效后的自愈退避间隔（毫秒）。
+ *
+ * 失效来源不止「直链过期」：B站 长视频的签名地址会被多次 Range 请求耗尽
+ * 可用次数，代理流也可能被上游断开。这类失败的共同特征是**元素进入 error
+ * 态**——此时 play() 永远被拒绝，用户的观感就是「自己暂停了，点播放没反应，
+ * 只能刷新页面」。自愈流程换新地址重载即可恢复，不需要用户干预。
+ */
+const STREAM_RECOVER_BACKOFF_MS = [0, 1500, 4000]
+
+/**
+ * 属于「瞬时中断」的 MediaError.code：
+ * - 1 MEDIA_ERR_ABORTED：加载被中止（切歌/seek 打断）；
+ * - 2 MEDIA_ERR_NETWORK：网络抖动/连接被重置。
+ *
+ * 这两类地址本身没问题，重连同一 URL 即可恢复。若也按「换新直链」处理，
+ * 每次抖动都要多一次 playurl 解析（还连带后端对主备地址的 HEAD 探测），
+ * 既慢又白烧签名额度。
+ */
+const TRANSIENT_MEDIA_ERRORS = new Set([1, 2])
 
 /** /api/stream/bilibili/related 返回的相关推荐条目 */
 interface BiliRelatedItem {
@@ -237,22 +270,39 @@ function isBiliItem(item: MusicQueueItem): boolean {
 }
 
 /**
- * 解析 B站 视频音频直链（结果写入 biliAudioUrlMap 并返回）。
+ * 解析 B站 视频音频直链（结果写入缓存并返回）。
+ *
  * 已有缓存直接返回；供 playBiliSong 与 loadAndPlaySong 的懒解析兜底共用
  *（队列/同步场景下 B站 条目可能尚未解析过）。
+ *
+ * 两个可选参数服务于「直链失效自愈」：
+ * - force：跳过缓存强制重解析（拿新签名）；
+ * - variant='mp4'：DASH 音轨那条签名反复失效时改走 MP4 整片直链。B站 对同一
+ *   视频短时间内会返回**完全相同的签名 URL**，此时重解析没有意义，换格式
+ *   才能拿到一份全新的签名。
+ *
+ * 写入缓存走代际提交：失效前发起、失效后才返回的旧解析不会覆盖新地址。
  */
 async function resolveBiliAudio(
-  item: MusicQueueItem
+  item: MusicQueueItem,
+  opts?: { force?: boolean; variant?: 'default' | 'mp4'; noCache?: boolean }
 ): Promise<{ playUrl: string; durationMs: number }> {
   if (!item.biliBvid) throw new Error(t('缺少 B站 视频信息'))
   const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
-  const cached = getCachedBiliAudioUrl(mapKey)
-  if (cached) return { playUrl: cached, durationMs: item.durationMs }
+  if (!opts?.force) {
+    const cached = getCachedBiliAudioUrl(mapKey)
+    if (cached) return { playUrl: cached, durationMs: item.durationMs }
+  }
   const pageUrl = `https://www.bilibili.com/video/${item.biliBvid}`
   const proxyUrl = useMusicSettingsStore.getState().musicVideoCli
     ? getActiveCliProxyUrl()
     : null
+  const gen = opts?.noCache ? 0 : beginBiliResolve(mapKey)
   let playUrl: string
+  let videoUrl: string | undefined
+  let videoCodec: string | undefined
+  let audioCodec: string | undefined
+  let format: string
   let durationMs = item.durationMs
   if (proxyUrl) {
     // CLI 高画质：DASH 音轨 m4s（已是本地代理 URL，audio 直连）
@@ -268,6 +318,24 @@ async function resolveBiliAudio(
       throw new Error(t('未获取到音频地址'))
     }
     playUrl = (r.audioUrl ?? r.videoUrl) as string
+    videoUrl = r.videoUrl
+    videoCodec = r.videoCodec
+    audioCodec = r.audioCodec
+    format = r.format ?? (r.audioUrl ? 'dash' : 'mp4')
+    if (r.duration) durationMs = Math.round(r.duration * 1000)
+  } else if (opts?.variant === 'mp4') {
+    // 降级重解析：只要 MP4 整片（含音轨），不走 DASH 音轨
+    const r = await resolveBilibiliWithOptions(
+      pageUrl,
+      BILI_DEFAULT_QN,
+      undefined,
+      { preferMp4: true, cid: item.biliCid }
+    )
+    playUrl = buildProxyUrl(selectBilibiliAudioStream(r))
+    videoUrl = r.videoUrl
+    videoCodec = r.videoCodec
+    audioCodec = r.audioCodec
+    format = 'mp4'
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   } else {
     // Prefer the independent audio track and preserve the selected part's CID.
@@ -279,9 +347,37 @@ async function resolveBiliAudio(
       })
     )
     playUrl = buildProxyUrl(selectBilibiliAudioStream(r))
+    videoUrl = r.videoUrl
+    videoCodec = r.videoCodec
+    audioCodec = r.audioCodec
+    format = r.format ?? (r.audioUrl ? 'dash' : 'mp4')
     if (r.duration) durationMs = Math.round(r.duration * 1000)
   }
-  setCachedBiliAudioUrl(mapKey, playUrl)
+  // noCache：后台续签只把结果放进 standby，不改动正在播放的缓存地址
+  //（否则预载/自愈的「失效前地址」比对会指向一个还没用上的新地址）
+  if (opts?.noCache) return { playUrl, durationMs }
+  commitBiliResolve(mapKey, gen, {
+    url: playUrl,
+    videoUrl,
+    qn: BILI_DEFAULT_QN,
+    durationMs,
+  })
+  // 同一次解析的产物顺带给歌词页背景用：进出歌词页不会再解析一次视频，
+  // 也就不会另外生成一份签名地址、单开一条视频流。
+  // codec/duration 必须一起带上——DASH 轨要建 MPD，缺字段那边就播不出来。
+  if (videoUrl) {
+    setCachedBiliVideoSource(
+      biliVideoSourceKey(item.biliBvid, item.biliCid ?? 0, BILI_DEFAULT_QN),
+      {
+        url: videoUrl,
+        audioUrl: format === 'dash' ? playUrl : undefined,
+        format,
+        videoCodec,
+        audioCodec,
+        duration: durationMs / 1000,
+      }
+    )
+  }
   return { playUrl, durationMs }
 }
 
@@ -414,6 +510,12 @@ export function useListenTogether({
    * 引擎在固定的事件处理器里经 ref 调用，避免事件绑定期依赖调用方闭包。
    */
   const audioErrorHandlerRef = useRef<(() => boolean) | null>(null)
+  /**
+   * 音频流中途失效的自愈处理器（直链过期 / 签名次数耗尽 / 代理流中断）。
+   * 与 audioErrorHandlerRef 同为「引擎经 ref 调用」模式：引擎的事件处理器
+   * 只创建一次，不能直接捕获随渲染变化的回调身份。
+   */
+  const audioStreamErrorRef = useRef<(() => boolean) | null>(null)
 
   // ===== Refs =====
   /**
@@ -448,16 +550,18 @@ export function useListenTogether({
   )
 
   // ===== 音频引擎：主播放元素 + 无缝预载元素的生命周期 =====
-  const { audioRef, getAudio, playSource, stopAll, dispose } = useAudioEngine({
-    volumeRef,
-    endedHandlerRef,
-    onErrorRef: audioErrorHandlerRef,
-    peekNextSong,
-    buildUrl,
-    currentKey,
-    queue,
-    playMode,
-  })
+  const { audioRef, getAudio, playSource, reloadAt, stopAll, dispose } =
+    useAudioEngine({
+      volumeRef,
+      endedHandlerRef,
+      onErrorRef: audioErrorHandlerRef,
+      onStreamErrorRef: audioStreamErrorRef,
+      peekNextSong,
+      buildUrl,
+      currentKey,
+      queue,
+      playMode,
+    })
 
   /**
    * 把「用户音量 × 响度均衡增益」写进当前主元素。
@@ -647,6 +751,242 @@ export function useListenTogether({
   useEffect(() => {
     loadAndPlaySongRef.current = loadAndPlaySong
   }, [loadAndPlaySong])
+
+  /** 本次失效自愈的已尝试次数（换曲 / 恢复播放 / 用户手动点播放时清零） */
+  const streamRecoverAttemptsRef = useRef(0)
+  /** 退避重试定时器 */
+  const streamRecoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  /** 正在进行一次自愈（解析/重载中），避免 error 连发触发并发重建 */
+  const streamRecoverInFlightRef = useRef(false)
+  /** 恢复后的计数归还定时器（稳定播放一段时间才认为真的好了） */
+  const streamRecoverResetRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null
+  )
+  /**
+   * 已做过静默续签的曲目 key（每首最多一次）。
+   *
+   * 续签本身也要一次 playurl（后端还会 HEAD 探测主备地址），不能频繁做；
+   * 而一首歌播到 40 分钟以上仍未换曲时，提前换一份新签名能把「播到一半
+   * 突然 403」的概率压到很低。
+   */
+  const standbyRefreshedKeyRef = useRef<string | null>(null)
+
+  /** 取消排队中的自愈（换曲、离开房间、组件卸载） */
+  const cancelStreamRecover = useCallback(() => {
+    if (streamRecoverTimerRef.current) {
+      clearTimeout(streamRecoverTimerRef.current)
+      streamRecoverTimerRef.current = null
+    }
+    if (streamRecoverResetRef.current) {
+      clearTimeout(streamRecoverResetRef.current)
+      streamRecoverResetRef.current = null
+    }
+    streamRecoverInFlightRef.current = false
+  }, [])
+
+  /**
+   * 音频流中途失效的自愈：换新地址，从断点续播。
+   *
+   * 为什么必须有这条路径：`<audio>` 一旦进入 error 态，`play()` 会被持续
+   * 拒绝，而 `playSource` 在 src 未变时只做 seek 不重新 load——用户看到
+   * 的就是「自己暂停了、点播放毫无反应、刷新页面才恢复」。
+   *
+   * 分级策略（越靠前代价越小，尽量少消耗签名额度）：
+   * 1. 瞬时中断（aborted/network）：同一地址重连，不重新解析；
+   * 2. 有后台续签的备用直链：直接切过去，零等待、零解析；
+   * 3. 作废缓存后重解析；若拿回来的还是同一份签名（B站 在有效期内会
+   *    原样返回），改走 MP4 整片再要一份新签名；
+   * 4. 以上都失败才提示用户。
+   *
+   * 返回 true 表示已接管（引擎不再弹错误提示）；false 表示无可自愈对象
+   * 或重试次数用尽，交由调用方提示。
+   */
+  const recoverPlayback = useCallback(
+    (code?: number): boolean => {
+      const store = useMusicStore.getState()
+      const key = store.currentKey
+      if (key == null) return false
+      if (streamRecoverInFlightRef.current) return true
+      const item =
+        store.queue.find((q) => musicItemKey(q) === key) ??
+        (store.biliItem != null && musicItemKey(store.biliItem) === key
+          ? store.biliItem
+          : null)
+      // 当前曲目已不在队列/插播（房间被清空等）：交给上层提示，不无谓重试
+      if (!item) return false
+      const attempt = streamRecoverAttemptsRef.current
+      if (attempt >= STREAM_RECOVER_BACKOFF_MS.length) return false
+      streamRecoverAttemptsRef.current = attempt + 1
+      streamRecoverInFlightRef.current = true
+
+      // 断点：元素已失效但 currentTime 仍停在失败位置，据此续播
+      const audio = audioRef.current
+      const positionSec =
+        audio != null && Number.isFinite(audio.currentTime)
+          ? audio.currentTime
+          : store.positionSec
+
+      const notifyPlaying = () => {
+        // 房主换源瞬间元素是暂停态，2s 心跳会把「暂停」推给全房间——
+        // 立即补一次「仍在播放」广播，覆盖这段静默窗口
+        if (isHostRef.current) {
+          broadcastSyncState({ keyOverride: key, isPlaying: true, positionSec })
+        }
+      }
+
+      /** 已换好地址并起播：归还重试额度须等「稳定播放一小段」之后 */
+      const settled = () => {
+        streamRecoverInFlightRef.current = false
+        if (streamRecoverResetRef.current) {
+          clearTimeout(streamRecoverResetRef.current)
+        }
+        streamRecoverResetRef.current = setTimeout(() => {
+          streamRecoverResetRef.current = null
+          streamRecoverAttemptsRef.current = 0
+        }, 15000)
+      }
+
+      // ===== 1. 瞬时中断：同一地址重连 =====
+      if (attempt === 0 && code != null && TRANSIENT_MEDIA_ERRORS.has(code)) {
+        streamRecoverInFlightRef.current = false
+        reloadAt(positionSec)
+        notifyPlaying()
+        return true
+      }
+
+      const bili = isBiliItem(item) && item.biliBvid ? item : null
+      const mapKey = bili ? `${bili.biliBvid}:${bili.biliCid ?? 0}` : null
+      /** 失效前的地址：用于判断重解析是否真的换了签名 */
+      const staleUrl = mapKey ? getCachedBiliAudioUrl(mapKey) : null
+      // ===== 2. 后台续签的备用地址：取出即用 =====
+      const standbyUrl = mapKey ? takeBiliStandbyUrl(mapKey) : null
+      if (mapKey) {
+        if (standbyUrl) setCachedBiliAudioUrl(mapKey, standbyUrl)
+        else invalidateBiliAudioUrl(mapKey)
+      }
+
+      const run = () => {
+        streamRecoverTimerRef.current = null
+        // 等待期间用户切歌 / 停止播放 / 离开房间：放弃本次自愈
+        if (useMusicStore.getState().currentKey !== key) {
+          streamRecoverInFlightRef.current = false
+          return
+        }
+        if (!bili || !mapKey) {
+          // 网易云 / 其他：重新 load 同一代理地址，后端会重新解析上游
+          loadAndPlaySong(item, positionSec, true)
+          notifyPlaying()
+          settled()
+          return
+        }
+        if (standbyUrl) {
+          playSource(standbyUrl, positionSec, true, key)
+          notifyPlaying()
+          settled()
+          return
+        }
+        void (async () => {
+          try {
+            // 代理地址内嵌 token：access token 过期时重解析出来的新地址仍会
+            // 401，白烧一次自愈额度，所以先续一次登录态（失败不阻断）。
+            if (isAccessTokenExpired()) {
+              try {
+                await refreshAccessToken()
+              } catch {
+                // 续登录失败仍尝试重解析，保留最后一次机会
+              }
+            }
+            const next = await resolveBiliAudio(bili, { force: true })
+            let playUrl = next.playUrl
+            if (staleUrl && playUrl === staleUrl) {
+              // 同一份签名（B站 在有效期内原样返回）：换 MP4 整片再要一份
+              try {
+                const alt = await resolveBiliAudio(bili, {
+                  force: true,
+                  variant: 'mp4',
+                })
+                if (alt.playUrl !== staleUrl) playUrl = alt.playUrl
+              } catch {
+                // MP4 降级失败：保留 DASH 结果继续尝试
+              }
+            }
+            if (useMusicStore.getState().currentKey !== key) {
+              streamRecoverInFlightRef.current = false
+              return
+            }
+            playSource(playUrl, positionSec, true, key)
+            notifyPlaying()
+            settled()
+          } catch (err) {
+            streamRecoverInFlightRef.current = false
+            console.warn('[useListenTogether] 直链重解析失败:', err)
+            // 还有机会就让下一次 error 继续（退避已由 attempt 控制）
+            if (
+              streamRecoverAttemptsRef.current >=
+              STREAM_RECOVER_BACKOFF_MS.length
+            ) {
+              message.error(t('音频加载失败，请稍后重试或切换其他曲目'))
+            }
+          }
+        })()
+      }
+      const delay = STREAM_RECOVER_BACKOFF_MS[attempt]
+      if (delay <= 0) run()
+      else streamRecoverTimerRef.current = setTimeout(run, delay)
+      return true
+    },
+    [audioRef, loadAndPlaySong, broadcastSyncState, reloadAt, playSource]
+  )
+
+  // 引擎错误回调经 ref 取最新实现（事件处理器只绑定一次）
+  useEffect(() => {
+    audioStreamErrorRef.current = recoverPlayback
+  }, [recoverPlayback])
+
+  /**
+   * 后台静默续签：B站 直链过了软 TTL（40 分钟）还在播时，预先解析一份新
+   * 地址放进 standby（每首一次）。
+   *
+   * 目的不是「更早换地址」，而是把「播到一半突然 403、还要等几秒解析」
+   * 变成「下一次自愈直接切到现成的新地址」。续签结果不写回缓存：正在播的
+   * 元素还指着旧地址，缓存一旦被替换，自愈时的「失效前地址」比对就失真。
+   */
+  useEffect(() => {
+    if (currentKey == null) return
+    const maybeRefresh = () => {
+      const store = useMusicStore.getState()
+      if (!store.isPlaying || store.currentKey !== currentKey) return
+      if (standbyRefreshedKeyRef.current === currentKey) return
+      const item =
+        store.queue.find((q) => musicItemKey(q) === currentKey) ??
+        (store.biliItem != null && musicItemKey(store.biliItem) === currentKey
+          ? store.biliItem
+          : null)
+      if (!item || !isBiliItem(item) || !item.biliBvid) return
+      const mapKey = `${item.biliBvid}:${item.biliCid ?? 0}`
+      if (!isBiliAudioStale(mapKey)) return
+      standbyRefreshedKeyRef.current = currentKey
+      void resolveBiliAudio(item, { force: true, noCache: true })
+        .then((r) => {
+          setBiliStandbyUrl(mapKey, r.playUrl)
+          noteBiliRefreshed(mapKey)
+        })
+        .catch(() => {
+          // 续签失败不影响当前播放：真失效了还有常规自愈兜底
+        })
+    }
+    maybeRefresh()
+    const timer = setInterval(maybeRefresh, 60_000)
+    return () => clearInterval(timer)
+  }, [currentKey])
+
+  // 换曲即重置自愈计数并取消排队中的重试（新曲目重新获得完整重试额度）
+  useEffect(() => {
+    streamRecoverAttemptsRef.current = 0
+    cancelStreamRecover()
+  }, [currentKey, cancelStreamRecover])
 
   /**
    * 切歌核心：按播放模式计算目标并加载播放；房主额外广播同步状态。
@@ -850,11 +1190,56 @@ export function useListenTogether({
   }, [cancelFmRetry])
 
   useEffect(() => {
-    audioErrorHandlerRef.current = handleFmPlayError
-    return () => {
-      audioErrorHandlerRef.current = null
+    // 主动续期（deadline 驱动）：走到期前把地址换掉，尽量不让元素进 error。
+    // 失败或已放弃时交回 `handleFmPlayError`，再由引擎的 onStreamErrorRef
+    // （recoverPlayback）接手做分级自愈——两者是上下层，不是平行重复。
+    const renewal = createBilibiliAudioRenewal({
+      audioRef,
+      roomIdRef,
+      socketRef,
+      isHostRef,
+      playSource,
+      resolve: resolveBiliAudio,
+      broadcast: broadcastSyncState,
+      onFailure: (error, exhausted) => {
+        console.warn(
+          '[useListenTogether] Bilibili source renewal failed:',
+          error
+        )
+        if (exhausted)
+          message.error(t('音频加载失败，请稍后重试或切换其他曲目'))
+      },
+    })
+    audioErrorHandlerRef.current = () =>
+      renewal.recover(true) || handleFmPlayError()
+    const audio = audioRef.current
+    const checkDeadline = () => renewal.checkDeadline()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') checkDeadline()
     }
-  }, [handleFmPlayError])
+    const onTeardown = () => {
+      renewal.cancel()
+    }
+    const timer = setInterval(checkDeadline, 10_000)
+    audio?.addEventListener('timeupdate', checkDeadline)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener(ROOM_MEDIA_TEARDOWN_EVENT, onTeardown)
+    return () => {
+      renewal.dispose()
+      audioErrorHandlerRef.current = null
+      clearInterval(timer)
+      audio?.removeEventListener('timeupdate', checkDeadline)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener(ROOM_MEDIA_TEARDOWN_EVENT, onTeardown)
+    }
+  }, [
+    handleFmPlayError,
+    audioRef,
+    playSource,
+    broadcastSyncState,
+    currentKey,
+    roomId,
+  ])
 
   const playFmSong = useCallback(
     async (song: NcmSong) => {
@@ -1016,10 +1401,22 @@ export function useListenTogether({
     const audio = getAudio()
     const wantPlay = audio.paused
     if (wantPlay) {
+      // 手动点击是明确的重试意图：重置上次自愈的计数
+      streamRecoverAttemptsRef.current = 0
+      // 元素没有可用源（卸载/teardown 后重建）或已处于加载失败态：
+      // play() 只会被拒绝，必须换源重载——这也是「暂停后再也播不了、
+      // 只能刷新页面」的直接成因。
+      if (!audio.currentSrc || audio.error != null) {
+        if (recoverPlayback(audio.error?.code)) return
+      }
       // 通知栏 play 按钮在后台触发时同样可能被自动播放策略拒绝，走重试
-      playAudioWithRetry(audio, () => {
-        message.error(t('播放失败，请重试'))
-      })
+      playAudioWithRetry(
+        audio,
+        () => {
+          message.error(t('播放失败，请重试'))
+        },
+        () => recoverPlayback(audio.error?.code)
+      )
     } else {
       audio.pause()
     }
@@ -1029,7 +1426,7 @@ export function useListenTogether({
         positionSec: audio.currentTime,
       })
     }
-  }, [getAudio, broadcastSyncState, hasControl, cancelFmRetry])
+  }, [getAudio, broadcastSyncState, hasControl, cancelFmRetry, recoverPlayback])
 
   /**
    * 下一首（按播放模式计算目标）。按顺序播放已到末尾时不再回绕到列表
@@ -2115,12 +2512,13 @@ export function useListenTogether({
   useEffect(() => {
     return () => {
       cancelFmRetry()
+      cancelStreamRecover()
       usePersonalFmStore.getState().reset()
       dispose()
       resetShuffle()
       pendingControlRef.current = null
     }
-  }, [dispose, resetShuffle, cancelFmRetry])
+  }, [dispose, resetShuffle, cancelFmRetry, cancelStreamRecover])
 
   // 房间关闭 / 断连媒体停止（RoomPage 收到 room-closed / disconnect 后
   // dispatch，见 lib/mediaTeardown）：音频与预加载元素都走后端代理，
@@ -2132,13 +2530,14 @@ export function useListenTogether({
       const full = detail?.full ?? true
       fmPlayRequestRef.current++
       cancelFmRetry()
+      cancelStreamRecover()
       usePersonalFmStore.getState().deactivate()
       stopAll(full)
     }
     window.addEventListener(ROOM_MEDIA_TEARDOWN_EVENT, handleTeardown)
     return () =>
       window.removeEventListener(ROOM_MEDIA_TEARDOWN_EVENT, handleTeardown)
-  }, [stopAll, cancelFmRetry])
+  }, [stopAll, cancelFmRetry, cancelStreamRecover])
 
   // 当前播放的队列条目（queue + currentKey 匹配；B站 本地插播条目
   // 不在房间队列中，从 store.biliItem 合并）

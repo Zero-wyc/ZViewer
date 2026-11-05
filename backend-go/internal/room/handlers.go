@@ -502,6 +502,7 @@ func (s *Service) handleRegisterHost(sc *sio.Socket, args []json.RawMessage, ack
 	if result.Playback != nil {
 		data["playback"] = result.Playback
 	}
+	s.sendMemberSnapshot(ctx, sc.ID, payload.RoomID)
 	ackOK(ack, data)
 }
 
@@ -708,6 +709,7 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 		if withModerators {
 			s.sendModerators(ctx, sc, roomID)
 		}
+		s.sendMemberSnapshot(ctx, sc.ID, roomID)
 	}
 
 	ackOKMsg(ack, "已加入房间", map[string]any{
