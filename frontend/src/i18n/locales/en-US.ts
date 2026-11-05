@@ -1058,6 +1058,7 @@ const enUS: Record<string, string> = {
   '[SongCommentsPanel] 获取评论失败:': '[SongCommentsPanel] Failed to load comments:',
   '[useListenTogether] 推荐续播拉取 B站 推荐失败:': '[useListenTogether] Failed to load Bilibili recommendations for autoplay:',
   '[useListenTogether] 音频流加载失败:': '[useListenTogether] Failed to load the audio stream:',
+  '[useListenTogether] 直链重解析失败:': '[useListenTogether] Direct link re-resolve failed:',
   '[useLyricTrack] 获取歌词失败:': '[useLyricTrack] Failed to load lyrics:',
   '[useMusicVideoBackground] 视频背景解析失败:': '[useMusicVideoBackground] Failed to resolve the video background:',
   '[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析': '[useMusicVideoBackground] CLI not connected, falling back to server-side MP4 resolution',
