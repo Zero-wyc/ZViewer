@@ -18,6 +18,15 @@ import type { PiikShareSession } from './session.ts'
 /** 与 `chrome://webrtc-internals` 的默认窗口接近，便于对照。 */
 export const EDGE_STATS_INTERVAL_MS = 2_000
 
+/**
+ * 未共享时的空结果。
+ *
+ * 必须是**同一个引用**：调用方一般会 `useEffect(() => onEdgesChange(edges),
+ * [edges])` 往父级上报，每次渲染都新建 `[]` 会让 effect 每次触发、父级
+ * setState、子级再渲染，一路滚成 "Maximum update depth exceeded"。
+ */
+const EMPTY_EDGES: ShareEdgeStats[] = []
+
 export function usePiikShareStats(
   sessionRef: RefObject<PiikShareSession | null>,
   active: boolean
@@ -49,5 +58,5 @@ export function usePiikShareStats(
     }
   }, [active, sessionRef])
 
-  return active ? edges : []
+  return active ? edges : EMPTY_EDGES
 }

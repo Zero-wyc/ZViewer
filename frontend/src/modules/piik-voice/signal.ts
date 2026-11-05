@@ -18,8 +18,10 @@ import {
   PiikSignalClient,
   clientId,
   signalUrl,
+  type PiikSignalHandlers,
   type SignalStatus,
 } from '../piik-signal/client.ts'
+import { acquireLink, linkKey } from '../piik-signal/link.ts'
 export { signalUrl }
 export type { SignalStatus }
 
@@ -96,44 +98,60 @@ export function voiceAuthFrame(
 }
 
 export class PiikSignal {
-  private readonly client: PiikSignalClient
+  /**
+   * 语音不自己开连接，挂到房间那条上。
+   *
+   * 房主开播后 Piik 只认一个 host 连接，语音再单开一条会被
+   * `HOST_ALREADY_CONNECTED` 顶回来，房主加不进语音，房间语音就永远
+   * `not-enabled`。共用同一条连接还顺带省掉一次握手。
+   */
+  private readonly link
+  private readonly handlers: SignalHandlers
   /** 同一次页面会话内固定，重连时服务端据此认「还是这个人」。 */
   private readonly id = clientId()
 
   constructor(roomID: string, handlers: SignalHandlers) {
-    this.client = new PiikSignalClient({
-      authenticate: async () =>
-        voiceAuthFrame(await requestVoiceCredentials(roomID), this.id),
-      onStatus: handlers.onStatus,
-      // 连接层只认 `type`，语音的判别联合在这里收窄一次；
-      // 两边各留一份联合类型，避免「语音加了一个消息族」牵连共享。
-      onMessage: (message: RawServerMessage) =>
-        handlers.onMessage(message as PiikServerMessage),
-      onFatal: handlers.onFatal,
-    })
+    this.handlers = handlers
+    this.link = acquireLink(
+      linkKey(roomID),
+      handlers as unknown as PiikSignalHandlers,
+      (sink) =>
+        new PiikSignalClient({
+          authenticate: async () =>
+            voiceAuthFrame(await requestVoiceCredentials(roomID), this.id),
+          onStatus: sink.onStatus,
+          // 连接层只认 `type`，语音的判别联合在这里收窄一次；
+          // 两边各留一份联合类型，避免「语音加了一个消息族」牵连共享。
+          onMessage: (message: RawServerMessage) =>
+            handlers.onMessage(message as PiikServerMessage),
+          onFatal: sink.onFatal,
+        })
+    )
   }
 
   get peerId(): string {
-    return this.client.peerId
+    return this.link.client.peerId
   }
 
   get authenticated(): PiikAuthenticated | null {
-    return this.client.authenticated
+    return this.link.client.authenticated
   }
 
   get connected(): boolean {
-    return this.client.connected
+    return this.link.client.connected
   }
 
-  start(): Promise<void> {
-    return this.client.start()
+  async start(): Promise<void> {
+    await this.link.client.start()
+    // 复用共享那条已经握手的连接：不会再收到 open，订阅与 join 得自己补。
+    if (this.link.client.connected) this.handlers.onStatus('open')
   }
 
   stop(): void {
-    this.client.stop()
+    this.link.release()
   }
 
   send(message: PiikClientMessage): boolean {
-    return this.client.send(message)
+    return this.link.client.send(message)
   }
 }

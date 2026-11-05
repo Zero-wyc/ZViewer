@@ -88,6 +88,8 @@ export class ShareEndpoint {
   private upstreamPeerId = ''
   private revision = 0
   private closed = false
+  /** 房主是否暂停了共享：暂停期间新建的边也要立刻停发。 */
+  private sendingPaused = false
 
   constructor(
     iceConfig: PiikIceConfig,
@@ -114,6 +116,8 @@ export class ShareEndpoint {
   async replaceLocalStream(stream: MediaStream | null): Promise<void> {
     this.localStream = stream
     if (!stream) return
+    // 暂停中换源：只记住新流，别把轨挂回去——恢复时按当前流统一换上。
+    if (this.sendingPaused) return
     const tracks = stream.getTracks()
     for (const edge of this.edges.values()) {
       if (!edge.offerer) continue
@@ -266,6 +270,42 @@ export class ShareEndpoint {
       })
     }
     return out
+  }
+
+  /**
+   * 暂停/恢复所有出边的发送。
+   *
+   * 服务端的 `set-sharing-paused` 只管路由拓扑（不再分配新候选、中止正在
+   * 进行的分配），已经连上的直连边它碰不到——媒体是浏览器之间直接走的，
+   * 服务端不发包也就停不了包。所以「暂停」要真的冻结画面，必须由发送端
+   * 把轨摘掉：`replaceTrack(null)` 停发但保留 PC 与 transceiver，恢复时
+   * 换回当前流即可，不用重新协商，观众也不会掉线。
+   *
+   * 用 transceiver 找 sender 而不是 `getSenders().find(s => s.track.kind)`：
+   * 摘掉轨之后 `sender.track` 就是 null，找不回它是音频还是视频。
+   */
+  async setSending(paused: boolean): Promise<void> {
+    this.sendingPaused = paused
+    for (const edge of this.edges.values()) {
+      if (!edge.offerer) continue
+      await this.applySending(edge, paused)
+    }
+  }
+
+  private async applySending(edge: Edge, paused: boolean): Promise<void> {
+    const tracks = this.localStream?.getTracks() ?? []
+    for (const transceiver of edge.pc.getTransceivers()) {
+      if (transceiver.direction === 'stopped') continue
+      const kind = transceiver.receiver.track.kind
+      const desired = paused
+        ? null
+        : (tracks.find((track) => track.kind === kind) ?? null)
+      try {
+        await transceiver.sender.replaceTrack(desired)
+      } catch {
+        /* 连接已经关了 */
+      }
+    }
   }
 
   /** 一条边的连接状态，用于面板展示。 */
@@ -435,6 +475,8 @@ export class ShareEndpoint {
     const source = this.localStream ?? this.incoming
     if (source) {
       for (const track of source.getTracks()) pc.addTrack(track, source)
+      // 暂停期间新进来的观众不该看到画面：挂上轨后立刻摘掉。
+      if (this.sendingPaused) void this.applySending(edge, true)
     }
 
     pc.onicecandidate = (event) => {

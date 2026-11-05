@@ -19,6 +19,7 @@ import {
   clientId,
   type SignalStatus,
 } from '../piik-signal/client.ts'
+import { acquireLink, linkKey, type PiikLink } from '../piik-signal/link.ts'
 import { ShareEndpoint, type ShareHealthSample } from './endpoint.ts'
 import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats.ts'
 import type {
@@ -115,6 +116,8 @@ export class PiikShareSession {
   private readonly handlers: ShareSessionHandlers
   private readonly clientId = clientId()
   private client: PiikSignalClient | null = null
+  /** 连接按房间共享：语音可能也挂在同一条上，释放只能减自己那份引用。 */
+  private link: PiikLink | null = null
   private endpoint: ShareEndpoint | null = null
   private role: 'host' | 'viewer' = 'viewer'
   private stream: MediaStream | null = null
@@ -155,17 +158,40 @@ export class PiikShareSession {
       onStream: this.handlers.onStream,
       onStateChange: this.handlers.onStateChange,
     })
-    this.client = new PiikSignalClient({
-      authenticate: () => this.buildAuthenticate(),
-      onStatus: this.handlers.onStatus,
-      onMessage: (message) => this.receive(message),
-      onFatal: (code, message) =>
-        // 凭证类失败本身就是一句给人看的话，别把内部码拼到前面。
-        this.handlers.onError(
-          code === 'CREDENTIALS' ? message : `${code}: ${message}`
-        ),
-    })
+    // 同房间只维持一条连接：语音、共享共用，各自只订阅自己认得的消息。
+    this.link = acquireLink(
+      linkKey(this.roomID),
+      {
+        onStatus: this.handlers.onStatus,
+        onMessage: (message) => this.receive(message),
+        onFatal: (code, message) =>
+          // 凭证类失败本身就是一句给人看的话，别把内部码拼到前面。
+          this.handlers.onError(
+            code === 'CREDENTIALS' ? message : `${code}: ${message}`
+          ),
+      },
+      (handlers) =>
+        new PiikSignalClient({
+          authenticate: () => this.buildAuthenticate(),
+          onStatus: handlers.onStatus,
+          onMessage: handlers.onMessage,
+          onFatal: handlers.onFatal,
+        })
+    )
+    this.client = this.link.client
     await this.client.start()
+    // 复用一条已经握手的连接（语音先加入、或停播后重新开播）时，
+    // `authenticated` 不会再来一次：房主要自己补开播，否则界面显示已连接
+    // 但服务端根本没收到 start-sharing。
+    if (this.client.connected) {
+      this.role = this.client.authenticated?.role ?? this.role
+      this.handlers.onStatus('open')
+      if (this.role === 'host' && !this.shareGeneration) {
+        this.startSharing()
+      } else if (this.role === 'viewer') {
+        this.client.send({ type: 'relay-capacity', downstreamEdges: 3 })
+      }
+    }
   }
 
   /**
@@ -179,7 +205,13 @@ export class PiikShareSession {
     await this.endpoint?.replaceLocalStream(stream)
   }
 
-  /** 房主暂停/恢复共享。服务端会把路由树挂起，不再分配新的候选。 */
+  /**
+   * 房主暂停/恢复共享。
+   *
+   * 两件事必须都做：告诉服务端（挂起路由树，不再给新观众分配候选），
+   * 以及本地把出边的轨摘掉。只发消息的话，已经连上的观众照旧收流——
+   * 直连边的媒体不经过服务端，它没法替你停。
+   */
   setPaused(paused: boolean): void {
     if (this.role !== 'host' || !this.shareGeneration) return
     this.client?.send({
@@ -187,6 +219,7 @@ export class PiikShareSession {
       shareGeneration: this.shareGeneration,
       paused,
     })
+    void this.endpoint?.setSending(paused)
   }
 
   /**
@@ -219,9 +252,14 @@ export class PiikShareSession {
         shareGeneration: this.shareGeneration,
       })
     }
+    // 代际已经用完；不清空的话「停播后用同一条连接重新开播」会被
+    // 上一条 guard 挡掉，表现为按钮点了没反应。
+    this.shareGeneration = ''
     this.endpoint?.close()
     this.endpoint = null
-    this.client?.stop()
+    // 只释放自己那份：语音还开着的时候这条连接必须留着。
+    this.link?.release()
+    this.link = null
     this.client = null
   }
 
@@ -268,7 +306,8 @@ export class PiikShareSession {
         }
         this.handlers.onAuthenticated?.(String(authenticated.peerId ?? ''))
         if (this.role === 'host') {
-          this.startSharing()
+          // 复用连接时可能已经补过一次开播，别开第二个代际。
+          if (!this.shareGeneration) this.startSharing()
         } else {
           // 观众也要报一次「我能带几个下游」，否则服务端把它的容量当 0，
           // 树永远只有房主一层，第 4 位观众会一直排队。
@@ -324,7 +363,11 @@ export class PiikShareSession {
   }
 
   private startSharing(): void {
-    this.shareGeneration = 'zg' + this.clientId.slice(0, 14)
+    if (this.shareGeneration) return
+    // 带时间戳：同一个连接停播后再开播要换一个代际，服务端拿它区分
+    // 「新的这次开播」与「已经停掉的那次」，重复的 generation 会被拒。
+    this.shareGeneration =
+      'zg' + this.clientId.slice(0, 8) + Date.now().toString(36)
     this.client?.send({
       type: 'start-sharing',
       shareGeneration: this.shareGeneration,

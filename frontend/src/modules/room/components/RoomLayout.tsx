@@ -81,6 +81,12 @@ interface RoomModeSwitchBarProps {
  * 一起看/投屏时渲染于 RoomLayout 顶栏；一起听时注入音乐顶导航
  * （MusicTopNav 的 modeSwitchSlot，位于账户按钮左侧）。
  */
+/** 模式滑块的选项：模块级常量，避免每次渲染都造一个新数组。 */
+const MODE_OPTIONS = MODE_ORDER.map((mode) => ({
+  value: mode,
+  label: MODE_LABELS[mode],
+}))
+
 export function RoomModeSwitchBar({
   isHost,
   onSwitch,
@@ -90,7 +96,7 @@ export function RoomModeSwitchBar({
   if (isHost) {
     return (
       <SegmentedToggle
-        options={MODE_ORDER.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+        options={MODE_OPTIONS}
         value={roomMode}
         onChange={(value) => onSwitch?.(value as RoomMode)}
         disabled={isSwitching}

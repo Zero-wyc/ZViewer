@@ -82,21 +82,62 @@ export class PiikSignalClient {
   private attempt = 0
   private authTimer: number | null = null
   private reconnectTimer: number | null = null
+  /**
+   * 多个订阅者共用一条连接。
+   *
+   * 共享与语音在同一次页面会话里必须走同一条 `/signal`——Piik 每个房间只认
+   * 一个 host 连接，各开一条会撞 HOST_ALREADY_CONNECTED，后连的那个（语音）
+   * 直接不可用。消息按 `type` 各自收窄，认不出的忽略。
+   */
+  private readonly messageListeners = new Set<
+    (message: PiikServerMessage) => void
+  >()
+  private readonly statusListeners = new Set<(status: SignalStatus) => void>()
+  private readonly fatalListeners = new Set<
+    (code: string, message: string) => void
+  >()
+  private lastStatus: SignalStatus = 'idle'
 
   peerId = ''
   authenticated: PiikAuthenticated | null = null
 
   constructor(options: PiikSignalClientOptions) {
     this.options = options
+    this.messageListeners.add(options.onMessage)
+    if (options.onStatus) this.statusListeners.add(options.onStatus)
+    if (options.onFatal) this.fatalListeners.add(options.onFatal)
+  }
+
+  /**
+   * 挂到这条连接上收消息。
+   *
+   * 状态不做自动回放：回放发生在构造函数返回之前，调用方那边的
+   * `const signal = new PiikSignal(...)` 还没赋值，回调里用 `signal` 会撞
+   * TDZ。复用方在 `start()` 之后自己看一眼 `status` 即可。
+   */
+  subscribe(handlers: PiikSignalHandlers): () => void {
+    this.messageListeners.add(handlers.onMessage)
+    if (handlers.onStatus) this.statusListeners.add(handlers.onStatus)
+    if (handlers.onFatal) this.fatalListeners.add(handlers.onFatal)
+    return () => {
+      this.messageListeners.delete(handlers.onMessage)
+      if (handlers.onStatus) this.statusListeners.delete(handlers.onStatus)
+      if (handlers.onFatal) this.fatalListeners.delete(handlers.onFatal)
+    }
   }
 
   get connected(): boolean {
     return this.socket?.readyState === WebSocket.OPEN && this.peerId !== ''
   }
 
+  /** 当前状态；复用已有连接的调用方据此补一次「已连接」。 */
+  get status(): SignalStatus {
+    return this.lastStatus
+  }
+
   async start(): Promise<void> {
     if (this.stopped || this.socket) return
-    this.status(this.attempt === 0 ? 'connecting' : 'reconnecting')
+    this.setStatus(this.attempt === 0 ? 'connecting' : 'reconnecting')
     await this.connect()
   }
 
@@ -109,7 +150,7 @@ export class PiikSignalClient {
     this.authenticated = null
     if (socket && socket.readyState <= WebSocket.OPEN)
       socket.close(1000, 'client-stop')
-    this.status('closed')
+    this.setStatus('closed')
   }
 
   /**
@@ -137,13 +178,13 @@ export class PiikSignalClient {
       // 把它当失败会让观众一进房就看到红字，而它下一秒就可能自愈。
       if (isWaiting(error)) {
         if (this.attempt >= MAX_CREDENTIAL_RETRIES) {
-          this.options.onFatal?.('CREDENTIALS', message)
+          this.fatal('CREDENTIALS', message)
           return
         }
         this.scheduleReconnect('wait')
         return
       }
-      this.options.onFatal?.('CREDENTIALS', message)
+      this.fatal('CREDENTIALS', message)
       // 退避重试但设上限，免得未登录这种永久错误无限重连。
       if (this.attempt < MAX_CREDENTIAL_RETRIES) this.scheduleReconnect()
       return
@@ -181,9 +222,9 @@ export class PiikSignalClient {
       this.peerId = String(authenticated.peerId ?? '')
       this.authenticated = authenticated
       this.attempt = 0
-      this.status('open')
+      this.setStatus('open')
     }
-    this.options.onMessage(message)
+    for (const listener of this.messageListeners) listener(message)
   }
 
   private closed(code: number, reason: string): void {
@@ -192,18 +233,15 @@ export class PiikSignalClient {
     this.authenticated = null
     this.clearAuthTimer()
     if (this.stopped) {
-      this.status('closed')
+      this.setStatus('closed')
       return
     }
     if (code === CLOSE_SESSION_REPLACED) {
-      this.options.onFatal?.(
-        'SESSION_REPLACED',
-        t('同账号在别处打开了同一个房间')
-      )
+      this.fatal('SESSION_REPLACED', t('同账号在别处打开了同一个房间'))
       return
     }
     if (code === CLOSE_INVALID_MESSAGE) {
-      this.options.onFatal?.(
+      this.fatal(
         'INVALID_MESSAGE',
         reason || t('客户端发了一条服务端不认识的消息')
       )
@@ -224,15 +262,20 @@ export class PiikSignalClient {
       RECONNECT_BASE_MS * 2 ** (this.attempt - 1),
       RECONNECT_MAX_MS
     )
-    if (mode === 'reconnect') this.status('reconnecting')
+    if (mode === 'reconnect') this.setStatus('reconnecting')
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null
       void this.connect()
     }, delay)
   }
 
-  private status(value: SignalStatus): void {
-    this.options.onStatus?.(value)
+  private setStatus(value: SignalStatus): void {
+    this.lastStatus = value
+    for (const listener of this.statusListeners) listener(value)
+  }
+
+  private fatal(code: string, message: string): void {
+    for (const listener of this.fatalListeners) listener(code, message)
   }
 
   private clearAuthTimer(): void {

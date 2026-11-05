@@ -9,7 +9,7 @@
  * 全屏、画中画）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Volume2 } from 'lucide-react'
+import { PauseCircle, Volume2 } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { cn } from '@/lib/utils'
@@ -317,6 +317,16 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         edges={edges}
         statusTip={viewerStatusText(state)}
       />
+      {/* 画面还在（最后一帧会一直停着），所以 statusTip 不显示；不给提示的话
+          观众只会看到一张卡住的图，分不清是暂停还是自己网络断了。 */}
+      {state.paused && hasRemoteStream && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-black/55">
+          <div className="flex flex-col items-center gap-2 text-white">
+            <PauseCircle className="h-8 w-8" />
+            <span className="text-sm font-medium">{t('房主已暂停共享')}</span>
+          </div>
+        </div>
+      )}
       {hasRemoteStream && hasRemoteAudio && isMuted && (
         <button
           type="button"
