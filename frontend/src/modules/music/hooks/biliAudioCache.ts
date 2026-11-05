@@ -7,6 +7,8 @@
  * 过期，长会话中切回旧歌若命中过期地址会 403 黑屏——超过 2 小时的条目
  * 视为失效并重新解析。
  */
+import { isBilibiliUrlExpiring } from '@/modules/playback-memory/services/url-expiry'
+
 const BILI_AUDIO_URL_TTL_MS = 2 * 60 * 60 * 1000
 const biliAudioUrlMap = new Map<string, { url: string; at: number }>()
 
@@ -14,7 +16,10 @@ const biliAudioUrlMap = new Map<string, { url: string; at: number }>()
 export function getCachedBiliAudioUrl(mapKey: string): string | null {
   const cached = biliAudioUrlMap.get(mapKey)
   if (!cached) return null
-  if (Date.now() - cached.at > BILI_AUDIO_URL_TTL_MS) {
+  if (
+    Date.now() - cached.at > BILI_AUDIO_URL_TTL_MS ||
+    isBilibiliUrlExpiring(cached.url)
+  ) {
     biliAudioUrlMap.delete(mapKey)
     return null
   }
@@ -24,6 +29,10 @@ export function getCachedBiliAudioUrl(mapKey: string): string | null {
 /** 写入缓存（解析成功后调用） */
 export function setCachedBiliAudioUrl(mapKey: string, url: string): void {
   biliAudioUrlMap.set(mapKey, { url, at: Date.now() })
+}
+
+export function invalidateBiliAudioUrl(mapKey: string): void {
+  biliAudioUrlMap.delete(mapKey)
 }
 
 /** 正在懒解析中的 B站 条目（key → 解析 Promise；同 key 并发请求挂起等待） */

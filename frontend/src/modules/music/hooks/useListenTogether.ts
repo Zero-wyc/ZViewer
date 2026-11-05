@@ -61,6 +61,7 @@ import {
 } from './biliAudioCache'
 import { playAudioWithRetry } from './audioElement'
 import { useAudioEngine } from './useAudioEngine'
+import { createBilibiliAudioRenewal } from './bilibiliAudioRenewal'
 import { useQueueAdvance } from './useQueueAdvance'
 import { t } from '@/i18n'
 
@@ -850,11 +851,53 @@ export function useListenTogether({
   }, [cancelFmRetry])
 
   useEffect(() => {
-    audioErrorHandlerRef.current = handleFmPlayError
-    return () => {
-      audioErrorHandlerRef.current = null
+    const renewal = createBilibiliAudioRenewal({
+      audioRef,
+      roomIdRef,
+      socketRef,
+      isHostRef,
+      playSource,
+      resolve: resolveBiliAudio,
+      broadcast: broadcastSyncState,
+      onFailure: (error, exhausted) => {
+        console.warn(
+          '[useListenTogether] Bilibili source renewal failed:',
+          error
+        )
+        if (exhausted)
+          message.error(t('音频加载失败，请稍后重试或切换其他曲目'))
+      },
+    })
+    audioErrorHandlerRef.current = () =>
+      renewal.recover(true) || handleFmPlayError()
+    const audio = audioRef.current
+    const checkDeadline = () => renewal.checkDeadline()
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') checkDeadline()
     }
-  }, [handleFmPlayError])
+    const onTeardown = () => {
+      renewal.cancel()
+    }
+    const timer = setInterval(checkDeadline, 10_000)
+    audio?.addEventListener('timeupdate', checkDeadline)
+    document.addEventListener('visibilitychange', onVisibility)
+    window.addEventListener(ROOM_MEDIA_TEARDOWN_EVENT, onTeardown)
+    return () => {
+      renewal.dispose()
+      audioErrorHandlerRef.current = null
+      clearInterval(timer)
+      audio?.removeEventListener('timeupdate', checkDeadline)
+      document.removeEventListener('visibilitychange', onVisibility)
+      window.removeEventListener(ROOM_MEDIA_TEARDOWN_EVENT, onTeardown)
+    }
+  }, [
+    handleFmPlayError,
+    audioRef,
+    playSource,
+    broadcastSyncState,
+    currentKey,
+    roomId,
+  ])
 
   const playFmSong = useCallback(
     async (song: NcmSong) => {

@@ -110,7 +110,7 @@ export function useAudioEngine({
   const [audioHandlers] = useState<{
     timeupdate: (e: Event) => void
     play: () => void
-    pause: () => void
+    pause: (e: Event) => void
     ended: () => void
     loadedmetadata: (e: Event) => void
     error: (e: Event) => void
@@ -122,8 +122,11 @@ export function useAudioEngine({
     play: () => {
       useMusicStore.getState().setPlaying(true)
     },
-    pause: () => {
-      useMusicStore.getState().setPlaying(false)
+    pause: (e) => {
+      // A network failure pauses the element without changing playback intent.
+      if (!(e.currentTarget as HTMLAudioElement).error) {
+        useMusicStore.getState().setPlaying(false)
+      }
     },
     ended: () => {
       endedHandlerRef.current()
@@ -318,7 +321,7 @@ export function useAudioEngine({
       }
 
       // ===== 原路径（未命中预载） =====
-      if (audio.src === url && audio.readyState >= 1) {
+      if (audio.src === url && audio.readyState >= 1 && !audio.error) {
         // 同一曲目且元数据已就绪（重播/循环）：直接 seek
         try {
           audio.currentTime = positionSec
@@ -328,7 +331,7 @@ export function useAudioEngine({
       } else {
         // 新曲目或仍在加载：记录起始进度，待 loadedmetadata 后应用
         pendingSeekRef.current = positionSec
-        if (audio.src !== url) {
+        if (audio.src !== url || audio.error) {
           audio.src = url
           audio.load()
         }

@@ -97,6 +97,7 @@ docker run -d --name zviewer --restart unless-stopped \
 | `CONFIG_DIR` | 数据根目录 | `<项目根>/config` |
 | `CORS_ORIGIN` | 允许来源，逗号分隔 | `*` |
 | `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | 登录密钥 | 自动生成 |
+| `JWT_ACCESS_EXPIRES_IN` / `JWT_REFRESH_EXPIRES_IN` | 正式用户访问 / 刷新令牌有效期，Cookie 同步跟随 | `24h` / `30d` |
 | `LIVEKIT_EXTERNAL` | `1` 使用外置 LiveKit | `0` |
 | `LIVEKIT_NODE_IP` | 语音 ICE 广播的公网 IP | 自动 |
 | `LIVEKIT_RTC_TCP_PORT` | 语音 ICE/TCP 端口，`0` 关闭 | `3337` |
