@@ -22,6 +22,10 @@ go build -o bin/zviewer-server.exe ./cmd/zviewer-server
 默认监听 `:3333`，读 `<项目根>/config/dev.sqlite`。日常开发用 `npm run dev`（前端 Vite + 本目录热重载），
 端口被占用时 `PORT=3401`。**不要手动 `go run`**：它 fork 出真正的服务进程，父进程被 kill 后子进程会占住端口。
 
+屏幕共享的房间状态跟主库同目录：`piik-rooms.sqlite`（Piik 房间权威，房主 token 只存摘要）与
+`piik-bindings.json`（ZViewer 房间 → Piik 房间码，**含明文 token，权限 0600**）。
+删掉这两个文件不会损坏主库，代价是重启后所有共享房间失效、房主需要重新开播。
+
 ```bash
 go test ./...
 ```

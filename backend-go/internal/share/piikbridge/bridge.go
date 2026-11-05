@@ -18,9 +18,12 @@ import (
 	"context"
 	"crypto/rand"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -39,6 +42,9 @@ const (
 	defaultMaxViewersPerRoom = protocol.MaxViewersPerRoomLimit
 	// 房间码只有 9000 个。取一半，留出旧实现并行运行的空间。
 	defaultMaxRooms = room.Capacity / 2
+
+	// roomDatabaseName 是 Piik 房间库（SQLite）在状态目录里的文件名。
+	roomDatabaseName = "piik-rooms.sqlite"
 )
 
 // ErrNoRoom 表示该 ZViewer 房间还没有 Piik 房间（房主没开播，或空房已回收）。
@@ -71,7 +77,15 @@ type Options struct {
 	MaxViewersPerRoom int
 	// TicketSecret 是站点通行证的签名密钥；为空时随机生成，重启即作废。
 	TicketSecret []byte
-	Logger       *slog.Logger
+	// StateDir 非空时把房间状态落到这个目录：
+	//
+	//   - `piik-rooms.sqlite`：Piik 自己的房间库（房主 token 摘要、观众 grant
+	//     摘要、准入策略）。重启后房主与观众手里的凭证继续有效。
+	//   - `piik-bindings.json`：ZViewer 房间 → Piik 房间码的映射。
+	//
+	// 为空则整层退回纯内存（测试用）。目录会被创建。
+	StateDir string
+	Logger   *slog.Logger
 }
 
 // Bridge 持有 Piik 信令服务器与 ZViewer 房间的映射。
@@ -84,6 +98,9 @@ type Bridge struct {
 
 	secret []byte
 	logger *slog.Logger
+
+	// persist 为空表示不落盘；非空时每次映射变化都整份重写。
+	persist *bindingFile
 
 	mu     sync.Mutex
 	rooms  map[string]binding
@@ -123,13 +140,42 @@ func New(options Options) (*Bridge, error) {
 		publicBase = &url.URL{Scheme: "http", Host: "localhost"}
 	}
 
-	// 内存房间：Piik 自己的房间库是 SQLite，ZViewer 已经有库，不在这里再开一份。
+	// Piik 自己的房间库：配了 StateDir 就开一份 SQLite，否则纯内存。
+	//
+	// 不放进 ZViewer 主库：Piik 的库有自己的 application_id 与「恰好一张表」
+	// 的严格校验，塞进主库会跟 TypeORM 的表契约打架；主库那套 DDL 由另一条
+	// 链路维护，不该为一个派生房间码再动一次。
+	var database *room.Database
+	var stateDir string
+	if options.StateDir != "" {
+		stateDir = filepath.Clean(options.StateDir)
+		if err := os.MkdirAll(stateDir, 0o700); err != nil {
+			return nil, fmt.Errorf("Piik 房间库目录不可用（%s）: %w", stateDir, err)
+		}
+		opened, err := room.NewDatabase(filepath.Join(stateDir, roomDatabaseName))
+		if err != nil {
+			return nil, err
+		}
+		database = opened
+	}
 	store, err := room.New(room.Options{
 		MaxRooms:          maxRooms,
 		MaxViewersPerRoom: maxViewers,
+		Database:          database,
 	})
 	if err != nil {
+		if database != nil {
+			_ = database.Close()
+		}
 		return nil, err
+	}
+	// Initialize 必须在任何一次 Store 调用之前：它负责建表、抢到文件独占锁、
+	// 把上次的房间权威读回内存。失败就整体不可用——带着一个空库起来会让所有
+	// 已发出的凭证静默失效，比明确报错更难查。
+	if err := store.Initialize(); err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("Piik 房间库打开失败（%s）: %w",
+			filepath.Join(stateDir, roomDatabaseName), err)
 	}
 
 	b := &Bridge{
@@ -148,6 +194,7 @@ func New(options Options) (*Bridge, error) {
 	if len(b.secret) == 0 {
 		secret := make([]byte, 32)
 		if _, err := rand.Read(secret); err != nil {
+			_ = store.Close()
 			return nil, err
 		}
 		b.secret = secret
@@ -172,10 +219,63 @@ func New(options Options) (*Bridge, error) {
 		Logger:             logger,
 	})
 	if err != nil {
+		_ = store.Close()
 		return nil, err
 	}
 	b.signal = signaling
+
+	// 映射最后加载：校验「这个 Piik 房间还在不在」要用信令层的 store。
+	if stateDir != "" {
+		b.restoreBindings(stateDir)
+	}
 	return b, nil
+}
+
+// restoreBindings 读回房间映射，并把 Piik 侧已经不存在的条目丢掉。
+//
+// 后者不是洁癖：空房回收会删掉房间行，但映射文件不会自己变小；留着这些
+// 死条目，房间码就一直被占着（每个死条目对应一个恢复后要等十分钟才回收的
+// 房间），9000 个码经不起几次重启。
+func (b *Bridge) restoreBindings(stateDir string) {
+	path := filepath.Join(stateDir, bindingFileName)
+	file, rooms, err := openBindingFile(path)
+	if err != nil {
+		// 内容坏了可以接着写（file 非 nil）；读不动就退回纯内存：这次运行照常
+		// 可用，只是重启后要重新开播。让共享因为一个附属文件整体不可用是更糟
+		// 的取舍。
+		b.logger.Warn("[piik] 房间映射读取失败", "path", path, "error", err)
+		if file == nil {
+			return
+		}
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.persist = file
+	for roomID, current := range rooms {
+		if !b.signal.RoomAuthorityValid(current.roomID, current.token) {
+			continue
+		}
+		b.rooms[roomID] = current
+	}
+	if len(b.rooms) != len(rooms) {
+		b.logger.Info("[piik] 已丢弃房间已不存在的映射",
+			"kept", len(b.rooms), "dropped", len(rooms)-len(b.rooms))
+		b.saveBindings()
+	}
+}
+
+// saveBindings 把当前映射整份落盘，调用方必须持有 b.mu。
+//
+// 落盘失败只记日志：内存里的映射仍然是对的，这一轮共享不受影响，最坏情况
+// 是重启后这个房间要重新开一次。
+func (b *Bridge) saveBindings() {
+	if b.persist == nil {
+		return
+	}
+	if err := b.persist.save(b.rooms); err != nil {
+		b.logger.Warn("[piik] 房间映射落盘失败",
+			"path", b.persist.path, "error", err)
+	}
 }
 
 // ICE 返回下发给浏览器的 ICE 配置。
@@ -196,12 +296,14 @@ func (b *Bridge) Host(zviewerRoomID string) (Credentials, error) {
 			return Credentials{RoomID: current.roomID, Role: protocol.RoleHost, Token: current.token}, nil
 		}
 		delete(b.rooms, zviewerRoomID)
+		b.saveBindings()
 	}
 	created, err := b.signal.CreateRoom(protocol.CodeEntryPrivate, nil, "")
 	if err != nil {
 		return Credentials{}, err
 	}
 	b.rooms[zviewerRoomID] = binding{roomID: created.RoomID, token: created.HostToken, grant: created.ViewerGrant}
+	b.saveBindings()
 	return Credentials{RoomID: created.RoomID, Role: protocol.RoleHost, Token: created.HostToken}, nil
 }
 
@@ -219,6 +321,7 @@ func (b *Bridge) Viewer(zviewerRoomID string) (Credentials, error) {
 	if !b.signal.ViewerGrantValid(current.roomID, current.grant) {
 		// 空房回收后 grant 一起失效；房间本身可能还在，只是没人开播。
 		delete(b.rooms, zviewerRoomID)
+		b.saveBindings()
 		return Credentials{}, ErrNoRoom
 	}
 	return Credentials{RoomID: current.roomID, Role: protocol.RoleViewer, Grant: current.grant}, nil
@@ -236,6 +339,7 @@ func (b *Bridge) Release(zviewerRoomID string) error {
 		return nil
 	}
 	delete(b.rooms, zviewerRoomID)
+	b.saveBindings()
 	if err := b.signal.EndRoom(current.roomID, current.token); err != nil &&
 		!errors.Is(err, signal.ErrHostToken) {
 		return err
@@ -244,6 +348,10 @@ func (b *Bridge) Release(zviewerRoomID string) error {
 }
 
 // Close 停止信令：先给每个会话发 1012，再结束全部房间。
+//
+// 结束房间之后才关房间库：`signal.Close` 不删房间行（这是刻意的，重启后的
+// 房主靠它接回原来的房间码），只是把在途的写入收尾。不显式关库的话，Windows
+// 上文件句柄会一直占到进程退出。
 func (b *Bridge) Close(ctx context.Context) error {
 	b.mu.Lock()
 	if b.closed {
@@ -251,9 +359,14 @@ func (b *Bridge) Close(ctx context.Context) error {
 		return nil
 	}
 	b.closed = true
+	// 只清内存，**不落盘**：磁盘上那份正是下次启动要用的。
 	b.rooms = map[string]binding{}
 	b.mu.Unlock()
-	return b.signal.Close(ctx)
+	err := b.signal.Close(ctx)
+	if storageErr := b.signal.CloseStorage(); storageErr != nil && err == nil {
+		err = storageErr
+	}
+	return err
 }
 
 // DefaultICE 与前端 lib/iceServers.ts 保持同一组 STUN：两边各写一份是刻意的，

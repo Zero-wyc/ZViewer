@@ -31,6 +31,10 @@ log/
 *.db
 *.db-journal
 
+# ---- Piik 房间映射（房主 token 是明文，等价于房间密码，禁止提交） ----
+piik-bindings.json
+piik-bindings.json.corrupt
+
 # ---- 运行时数据根目录 ----
 # 所有持久化数据（数据库、用户上传文件、头像、媒体切片、SSL 自签名证书等）
 # 统一存放在 config/ 目录下；升级时仅需保留 config/ 即可保留全部数据，

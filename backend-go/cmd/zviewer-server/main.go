@@ -286,13 +286,17 @@ func main() {
 		PublicBaseURL:   &url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", strconv.Itoa(cfg.Port))},
 		AllowedOrigins:  cfg.CORS.Origins,
 		AllowAllOrigins: cfg.CORS.AllowAll,
+		// 房间状态跟着主库走，而不是跟着 config/：DATABASE_URL 指到挂载盘时
+		// 房间码也该落在那块盘上，否则换台机器起来就是一屋子新房间码。
+		StateDir: filepath.Dir(cfg.DatabasePath),
 	}); bridgeErr != nil {
 		log.Printf("[piik] 信令桥接未启用: %v", bridgeErr)
 	} else {
 		piikShare = bridge
-		log.Printf("[piik] 信令已挂载 %s（房间映射：一个 ZViewer 房间一个 Piik 房间码）", piikbridge.SignalPath)
-		// 房间关掉就回收对应的 Piik 房间：桥接层的映射是纯内存的，
-		// 不主动回收只能等空房超时，同 ID 房间重开时还会撞上旧房间码。
+		log.Printf("[piik] 信令已挂载 %s（房间映射：一个 ZViewer 房间一个 Piik 房间码，房间库 %s）",
+			piikbridge.SignalPath, filepath.Join(filepath.Dir(cfg.DatabasePath), "piik-rooms.sqlite"))
+		// 房间关掉就回收对应的 Piik 房间；映射会同时从磁盘上删掉，
+		// 同 ID 房间重开时不会撞上旧房间码。
 		roomSvc.OnRoomClosed(func(roomID string) {
 			if err := bridge.Release(roomID); err != nil && !errors.Is(err, piikbridge.ErrNoRoom) {
 				log.Printf("[piik] 回收房间 %s 失败: %v", roomID, err)
