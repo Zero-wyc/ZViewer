@@ -341,7 +341,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（370 条） =====
+  // ===== pages（369 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -480,7 +480,6 @@ const enUS: Record<string, string> = {
   '拉取配置失败': 'Failed to fetch the configuration',
   '离线': 'Offline',
   '连接断开': 'Disconnected',
-  '连接中…': 'Connecting…',
   '两次输入的新密码不一致': 'The new passwords do not match',
   '浏览并加入当前可用的房间': 'Browse and join the rooms available now',
   '留空用内置默认规则。支持规则 JSON、index.json 与 Kazumi 仓库地址；依赖 WebView 或验证码的规则可能无法播放。': 'Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.',
@@ -2690,7 +2689,7 @@ const enUS: Record<string, string> = {
   '正在启动转码 worker': 'Starting the transcoding worker',
   '正在生成首个分段': 'Generating the first segment',
 
-  // ===== modules/voice-chat（27 条） =====
+  // ===== modules/voice-chat（28 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} online',
   '成员': 'Members',
   '单独音量': 'Per-user volume',
@@ -2700,6 +2699,7 @@ const enUS: Record<string, string> = {
   '加入语音': 'Join voice',
   '解除语音禁言': 'Unmute in voice',
   '开启反送': 'Turn on monitoring',
+  '连接中…': 'Connecting…',
   '麦克风音量': 'Microphone volume',
   '媒体连接中…': 'Connecting media…',
   '您已被管理员语音禁言': 'An admin muted you in voice',

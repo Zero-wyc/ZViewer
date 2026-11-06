@@ -221,3 +221,68 @@ test('服务端没给 send 授权时不挂轨', async () => {
     restore()
   }
 })
+
+/**
+ * 「媒体是否连通」的判定口径。
+ *
+ * 曾经的事故：一个人在语音房间里时，Piik 下发的 `connections` 是空数组，
+ * 旧实现 `active.length === 0 → false` 把它判成「没连通」，于是面板永远停在
+ * 「媒体连接中…」，10 秒后还会弹「媒体通道未建立」——直到第二个人进来。
+ */
+test('独处房间（没有任何连接）算已连通', () => {
+  const restore = installFake()
+  try {
+    const endpoint = new VoiceEndpoint(
+      { iceServers: [] },
+      {
+        signal: () => true,
+        report: () => {},
+        onTrack: () => {},
+        onTrackRemoved: () => {},
+        onChange: () => {},
+      }
+    )
+    assert.equal(endpoint.connected, false, '还没收到授权状态时不能算连通')
+    endpoint.setState(
+      {
+        type: 'room-voice-state',
+        revision: 1,
+        enabled: true,
+        hostPeerId: null,
+        members: [],
+        publications: [],
+        unavailable: [],
+        connections: [],
+      },
+      'me'
+    )
+    assert.equal(endpoint.connected, true)
+  } finally {
+    restore()
+  }
+})
+
+test('有连接但 ICE 未连通时仍然是假', async () => {
+  const restore = installFake()
+  try {
+    const endpoint = new VoiceEndpoint(
+      { iceServers: [] },
+      {
+        signal: () => true,
+        report: () => {},
+        onTrack: () => {},
+        onTrackRemoved: () => {},
+        onChange: () => {},
+      }
+    )
+    endpoint.setState(state([], ['host-mic']), 'me')
+    await endpoint.reconcile(() => undefined)
+    assert.equal(endpoint.connected, false, 'pc 还是 new，不能算连通')
+
+    const pc = FakePeerConnection.instances[0] as unknown as FakePeerConnection
+    pc.connectionState = 'connected'
+    assert.equal(endpoint.connected, true)
+  } finally {
+    restore()
+  }
+})

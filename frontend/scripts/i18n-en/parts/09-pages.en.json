@@ -18,7 +18,6 @@
     "Failed to fetch the configuration",
     "Offline",
     "Disconnected",
-    "Connecting…",
     "The new passwords do not match",
     "Browse and join the rooms available now",
     "Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.",

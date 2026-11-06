@@ -108,13 +108,17 @@ export function VoiceChatPanel({
         subtitle={
           <div className="flex items-center gap-1.5">
             {/* 媒体未连通时明确显示「连接中」而不是人数——connect 成功不等于
-                ICE 连通（代理/UDP 被拦时成员列表照常，但无声），避免误导 */}
+                ICE 连通（代理/UDP 被拦时成员列表照常，但无声），避免误导。
+                独处房间没有可建的边（Piik 不下发 connections），此时
+                mediaConnected 直接是 true，正常显示「1 人在线」。 */}
             <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-              {joined
-                ? mediaConnected
-                  ? t('{{memberCount}} 人在线', { memberCount })
-                  : t('媒体连接中…')
-                : t('未连接')}
+              {!joined
+                ? t('未连接')
+                : memberCount === 0
+                  ? t('连接中…')
+                  : mediaConnected
+                    ? t('{{memberCount}} 人在线', { memberCount })
+                    : t('媒体连接中…')}
             </span>
             {/* 媒体传输协议徽标：ICE 选中线路（UDP 直连 / TCP 兜底），周期实测非配置值；
                 媒体未连通时无有效线路可测，一并隐藏 */}

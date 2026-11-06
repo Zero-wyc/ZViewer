@@ -80,9 +80,14 @@ export class VoiceEndpoint {
   }
 
   get connected(): boolean {
+    // 还没有授权状态时不能算连通：面板据此显示「连接中…」，10s 看门狗也靠它。
+    if (!this.state) return false
     const active =
-      this.state?.connections.filter((connection) => !connection.pending) ?? []
-    if (active.length === 0) return false
+      this.state.connections.filter((connection) => !connection.pending) ?? []
+    // **空集合算连通**：Piik 的授权状态里「一个人独处房间」就是 connections=[]，
+    // 此时不存在要建的边，判成 false 会让面板一直停在「媒体连接中…」，
+    // 并触发 10 秒后的「媒体通道未建立」告警——实测：独自加入语音永远在连接中，
+    // 直到第二个人进来才恢复正常。真正连不上（有边但没 established）仍是 false。
     return active.every(
       (config) =>
         this.connections.get(config.connectionId)?.pc.connectionState ===
