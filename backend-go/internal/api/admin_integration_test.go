@@ -326,12 +326,6 @@ func TestAdminSettings(t *testing.T) {
 		t.Fatalf("非法枚举应 400，得到 %d/%q", resp.status, resp.message())
 	}
 
-	// livekit 地址前缀不合法 → 400。
-	bad = map[string]any{"autoDeleteInactiveRooms": true, "autoDeleteAfterHours": 12, "livekitExternalUrl": "https://x"}
-	if resp := env.do(t, http.MethodPut, "/api/admin/settings", rootToken, bad); resp.status != http.StatusBadRequest || resp.message() != "livekitExternalUrl 必须以 ws:// 或 wss:// 开头" {
-		t.Fatalf("非法 livekit 地址应 400，得到 %d/%q", resp.status, resp.message())
-	}
-
 	// 权限矩阵格式非法 → 400。
 	bad = map[string]any{"autoDeleteInactiveRooms": true, "autoDeleteAfterHours": 12,
 		"roomPermissionMatrix": map[string]any{"unknownAction": map[string]any{"user": true}}}
@@ -360,7 +354,6 @@ func TestAdminSettings(t *testing.T) {
 		"cdnProxyUrl":               "https://gh-proxy.example.com",
 		"playsvideoEnabled":         false,
 		"roomMultiInstanceLogin":    true,
-		"livekitExternalUrl":        "wss://livekit.example.com",
 		"announceAutoPopupOnUpdate": false,
 		"dataSourceConfig":          map[string]any{"anime": true},
 		"roomPermissionMatrix":      map[string]any{"kickViewer": map[string]any{"user": false}},
@@ -376,7 +369,7 @@ func TestAdminSettings(t *testing.T) {
 	if saved["registrationMode"] != "open" || saved["roomCreationMode"] != "all-users" {
 		t.Fatalf("枚举未生效: %v", saved)
 	}
-	if saved["cdnProxyUrl"] != "https://gh-proxy.example.com" || saved["livekitExternalUrl"] != "wss://livekit.example.com" {
+	if saved["cdnProxyUrl"] != "https://gh-proxy.example.com" {
 		t.Fatalf("字符串列未生效: %v", saved)
 	}
 
@@ -446,4 +439,169 @@ func TestAdminSettingsSingleRow(t *testing.T) {
 func itoa(v int64) string {
 	raw, _ := json.Marshal(v)
 	return string(raw)
+}
+
+// roomModerators 读房间表的原始 moderators 列（JSON 数组文本）。
+func (e *testEnv) roomModerators(t *testing.T, roomID string) string {
+	t.Helper()
+	var raw string
+	if err := e.conn.QueryRow(
+		`SELECT "moderators" FROM "room" WHERE "roomId" = ?`, roomID,
+	).Scan(&raw); err != nil {
+		t.Fatalf("读取房管名单失败: %v", err)
+	}
+	return raw
+}
+
+// TestAdminRoomModerators 覆盖管理端房管名单的读写、幂等、上限与权限边界。
+//
+// 与管理端「关闭/重开房间」保持同一套权限：root 任意房间，admin 仅自己创建的。
+// 这里刻意验证 admin 在别人房间上吃 403——否则任何管理员都能往别人的房间塞房管。
+func TestAdminRoomModerators(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+
+	rootID := env.seedUser(t, "root", "pass1234", "root", "active")
+	ownerID := env.seedUser(t, "owner", "pass1234", "user", "active")
+	adminID := env.seedUser(t, "bob", "pass1234", "admin", "active")
+	targetID := env.seedUser(t, "carol", "pass1234", "user", "active")
+	pendingID := env.seedUser(t, "dave", "pass1234", "guest", "pending")
+
+	rootToken := env.token(t, rootID, "root", "root")
+	adminToken := env.token(t, adminID, "admin", "bob")
+
+	env.seedRoom(t, "ROOMS100", "active", &ownerID)
+	base := "/api/admin/rooms/ROOMS100/moderators"
+
+	// admin 对别人创建的房间：读也拒（避免列表泄漏 + 写入口不一致）。
+	resp := env.do(t, http.MethodGet, base, adminToken, nil)
+	if resp.status != http.StatusForbidden ||
+		resp.message() != "无权限：仅 root 或房间创建者可管理该房间的房管" {
+		t.Fatalf("admin 读他人房间房管应 403，得到 %d/%q", resp.status, resp.message())
+	}
+
+	// root 读：空名单 + 上限字段。
+	resp = env.do(t, http.MethodGet, base, rootToken, nil)
+	if resp.status != http.StatusOK {
+		t.Fatalf("root 读房管列表应 200，得到 %d/%s", resp.status, resp.raw)
+	}
+	if mods, ok := resp.body["moderators"].([]any); !ok || len(mods) != 0 {
+		t.Fatalf("初始房管应为空数组，得到 %v", resp.body["moderators"])
+	}
+	if got := resp.body["maxModerators"]; got != float64(10) {
+		t.Fatalf("maxModerators 应为 10，得到 %v", got)
+	}
+
+	// admin 写别人房间：同样 403。
+	resp = env.do(t, http.MethodPost, base, adminToken, map[string]any{"userId": targetID})
+	if resp.status != http.StatusForbidden {
+		t.Fatalf("admin 改他人房间房管应 403，得到 %d/%s", resp.status, resp.raw)
+	}
+
+	// 参数非法：userId 缺失 / 账号不存在 / 未审核 / 房主本人。
+	if resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{}); resp.status != http.StatusBadRequest || resp.message() != "请选择要任命的账号" {
+		t.Fatalf("缺 userId 应 400/请选择要任命的账号，得到 %d/%q", resp.status, resp.message())
+	}
+	if resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": 9999}); resp.status != http.StatusBadRequest || resp.message() != "账号不存在" {
+		t.Fatalf("不存在的账号应 400/账号不存在，得到 %d/%q", resp.status, resp.message())
+	}
+	if resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": pendingID}); resp.status != http.StatusBadRequest || resp.message() != "该账号未通过审核，无法任命为房管" {
+		t.Fatalf("待审核账号应 400，得到 %d/%q", resp.status, resp.message())
+	}
+	if resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": ownerID}); resp.status != http.StatusBadRequest || resp.message() != "房主无需任命" {
+		t.Fatalf("房主本人应 400/房主无需任命，得到 %d/%q", resp.status, resp.message())
+	}
+	if got := env.roomModerators(t, "ROOMS100"); got != "[]" {
+		t.Fatalf("失败路径不应写库，实际 %s", got)
+	}
+
+	// 正常任命：落库 + 回包带用户名（离线账号也能任命，这是管理端的核心场景）。
+	resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": targetID})
+	if resp.status != http.StatusOK {
+		t.Fatalf("任命应 200，得到 %d/%s", resp.status, resp.raw)
+	}
+	if got := env.roomModerators(t, "ROOMS100"); got != "["+itoa(targetID)+"]" {
+		t.Fatalf("房管名单应写入目标账号，实际 %s", got)
+	}
+	mods, _ := resp.body["moderators"].([]any)
+	if len(mods) != 1 {
+		t.Fatalf("回包应带 1 个房管，得到 %v", resp.body["moderators"])
+	}
+	first, _ := mods[0].(map[string]any)
+	if first["username"] != "carol" {
+		t.Fatalf("回包应补上用户名 carol，得到 %v", first)
+	}
+
+	// 重复任命：幂等，不重复写、不报错。
+	if resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": targetID}); resp.status != http.StatusOK {
+		t.Fatalf("重复任命应幂等 200，得到 %d/%s", resp.status, resp.raw)
+	}
+	if got := env.roomModerators(t, "ROOMS100"); got != "["+itoa(targetID)+"]" {
+		t.Fatalf("重复任命不应产生两条记录，实际 %s", got)
+	}
+
+	// 达到上限后拒绝：直接把列写成 10 个 id。
+	ids := make([]int64, 0, 10)
+	for i := int64(0); i < 10; i++ {
+		ids = append(ids, 1000+i)
+	}
+	rawIDs, _ := json.Marshal(ids)
+	if _, err := env.conn.Exec(`UPDATE "room" SET "moderators" = ? WHERE "roomId" = ?`, string(rawIDs), "ROOMS100"); err != nil {
+		t.Fatalf("写入满员名单失败: %v", err)
+	}
+	resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": targetID})
+	if resp.status != http.StatusBadRequest || resp.message() != "房管人数已达上限（10）" {
+		t.Fatalf("满员应 400/上限，得到 %d/%q", resp.status, resp.message())
+	}
+
+	// 还原成只含 target，再验撤销与幂等。
+	if _, err := env.conn.Exec(`UPDATE "room" SET "moderators" = ? WHERE "roomId" = ?`, "["+itoa(targetID)+"]", "ROOMS100"); err != nil {
+		t.Fatalf("还原名单失败: %v", err)
+	}
+	// 明确指定路径参数写错时的 400。
+	if resp = env.do(t, http.MethodDelete, base+"/abc", rootToken, nil); resp.status != http.StatusBadRequest || resp.message() != "用户 ID 不正确" {
+		t.Fatalf("非法 userId 应 400，得到 %d/%q", resp.status, resp.message())
+	}
+	resp = env.do(t, http.MethodDelete, base+"/"+itoa(targetID), rootToken, nil)
+	if resp.status != http.StatusOK {
+		t.Fatalf("撤销应 200，得到 %d/%s", resp.status, resp.raw)
+	}
+	if got := env.roomModerators(t, "ROOMS100"); got != "[]" {
+		t.Fatalf("撤销后名单应为空，实际 %s", got)
+	}
+	if resp = env.do(t, http.MethodDelete, base+"/"+itoa(targetID), rootToken, nil); resp.status != http.StatusOK {
+		t.Fatalf("重复撤销应幂等 200，得到 %d/%s", resp.status, resp.raw)
+	}
+
+	// 房间列表带上房管数与可管理标记（前端据此禁用按钮）。
+	if resp = env.do(t, http.MethodPost, base, rootToken, map[string]any{"userId": targetID}); resp.status != http.StatusOK {
+		t.Fatalf("重新任命失败: %d/%s", resp.status, resp.raw)
+	}
+	resp = env.do(t, http.MethodGet, "/api/admin/rooms", rootToken, nil)
+	if resp.status != http.StatusOK {
+		t.Fatalf("房间列表应 200，得到 %d/%s", resp.status, resp.raw)
+	}
+	rooms, _ := resp.body["rooms"].([]any)
+	var found map[string]any
+	for _, item := range rooms {
+		room, _ := item.(map[string]any)
+		if room["roomId"] == "ROOMS100" {
+			found = room
+			break
+		}
+	}
+	if found == nil {
+		t.Fatalf("房间列表里没有 ROOMS100：%s", resp.raw)
+	}
+	if found["moderatorCount"] != float64(1) {
+		t.Fatalf("moderatorCount 应为 1，得到 %v", found["moderatorCount"])
+	}
+	if found["canManage"] != true {
+		t.Fatalf("root 的 canManage 应为 true，得到 %v", found["canManage"])
+	}
+
+	// 房间不存在：404，而不是把它当成空名单。
+	if resp = env.do(t, http.MethodGet, "/api/admin/rooms/NOPE/moderators", rootToken, nil); resp.status != http.StatusNotFound {
+		t.Fatalf("不存在的房间应 404，得到 %d/%s", resp.status, resp.raw)
+	}
 }

@@ -105,6 +105,14 @@ export default defineConfig({
         ws: true,
         secure: false,
       },
+      // Piik 的裸 WebSocket 信令端点。生产环境由后端直接托管，
+      // 开发环境必须显式代理，否则升级请求会落到 vite 自己身上。
+      '/signal': {
+        target: process.env.VITE_API_TARGET || 'http://localhost:3333',
+        changeOrigin: true,
+        ws: true,
+        secure: false,
+      },
       // 开发环境代理 NMS HTTP-FLV 拉流，匹配 /live/<streamKey>.flv
       '/live': {
         target: process.env.VITE_LIVE_TARGET || 'http://localhost:3335',

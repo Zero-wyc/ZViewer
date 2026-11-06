@@ -10,6 +10,7 @@ import (
 
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/store"
+	"zviewer/backend/internal/voicertc"
 )
 
 // HostReconnectGrace 是房主断线后的重连宽限期。
@@ -58,11 +59,6 @@ type Hub interface {
 	EmitGlobal(event string, payload any)
 	// SocketIDs 返回房间内所有在线连接 ID。
 	SocketIDs(roomID string) []string
-	// SocketRooms 返回某条连接所在的房间列表（对应 `socket.rooms`）。
-	//
-	// WebRTC 信令要判断「两个连接是否同处一个房间」：那条判定必须看
-	// **目标连接**的房间，而不是当前连接的。
-	SocketRooms(socketID string) []string
 	// MemberCount 返回房间内连接数（对应 Node 的
 	// `io.sockets.adapter.rooms.get(roomId).size`）。
 	//
@@ -132,8 +128,14 @@ type Service struct {
 	// NMS reports media availability and per-stream publishing activity.
 	NMS StreamPushService
 
+	voiceRTC *voicertc.Service
+
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
+
+	// onRoomClosed 是房间关闭时的外部回调（Piik 房间回收等）。room 包
+	// 不该知道有哪几个外部房间，所以只留一个钩子，装配期由 main 挂上。
+	onRoomClosed []func(roomID string)
 
 	mu              sync.Mutex
 	states          map[string]*RuntimeState
@@ -167,6 +169,8 @@ type Deps struct {
 	// NMS 是 OBS 推流服务的可用性探测器。不传时按环境变量兜底构造：
 	// 推流事件仍可用，只是没有可用媒体服务时报告不可用。
 	NMS StreamPushService
+	// VoiceRTC 是语音控制面（自建 SFU）。不传时语音不可用（媒体端口没起来）。
+	VoiceRTC *voicertc.Service
 }
 
 // NewService 构造房间服务。
@@ -178,7 +182,7 @@ func NewService(deps Deps) *Service {
 	if deps.NMS == nil {
 		deps.NMS = nms.New(nms.ConfigFromEnv())
 	}
-	return &Service{
+	svc := &Service{
 		DB:        deps.DB,
 		Rooms:     deps.Rooms,
 		Sessions:  deps.Sessions,
@@ -199,6 +203,23 @@ func NewService(deps Deps) *Service {
 		timers:          make(map[string]*time.Timer),
 		streamOfflineAt: make(map[string]time.Time),
 		perm:            newPermCache(),
+	}
+	svc.voiceRTC = deps.VoiceRTC
+	return svc
+}
+
+// OnRoomClosed 注册房间关闭回调（Piik 房间回收等）。
+//
+// 只在装配期调用（此时还没有并发访问），所以不加锁。
+func (s *Service) OnRoomClosed(fn func(roomID string)) {
+	if fn != nil {
+		s.onRoomClosed = append(s.onRoomClosed, fn)
+	}
+}
+
+func (s *Service) notifyRoomClosed(roomID string) {
+	for _, fn := range s.onRoomClosed {
+		fn(roomID)
 	}
 }
 
@@ -499,6 +520,11 @@ func (s *Service) CloseAndNotify(ctx context.Context, roomID, sharerSocketID str
 	if s.Hub != nil {
 		s.Hub.EmitRoom(roomID, "room-closed", map[string]any{"roomId": roomID})
 	}
+
+	// 屏幕共享与语音的外部资源随房间一起收掉。Piik 房间挂在桥接层的内存里，
+	// 不主动 Release 就只能等空房超时——同 ID 房间重开时还会撞上旧房间码。
+	s.notifyRoomClosed(roomID)
+	s.dropVoiceRTCRoom(roomID)
 
 	s.Delete(roomID)
 	s.CancelReconnectTimer(roomID)

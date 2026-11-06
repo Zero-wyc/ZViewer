@@ -1,26 +1,48 @@
 import {
   Activity,
+  Boxes,
   Cpu,
   Gauge,
   Layers,
   Radio,
   Signal,
-  Waypoints,
+  Timer,
+  Users,
+  Video,
+  Volume2,
 } from 'lucide-react'
 import { Tag } from '@/components/ui/Tag'
 import { Text, Paragraph } from '@/components/ui/Typography'
-import { Switch } from '@/components/ui/Switch'
 import { cn } from '@/lib/utils'
 import {
-  useConnectionStats,
+  formatBitrate,
+  formatMsPerFrame,
+  formatPacketLoss,
   type SharingMode,
 } from '@/modules/screen-sharing/hooks/useConnectionStats'
-import type { P2PStatus } from '@/modules/p2p/types'
+import {
+  aggregateEdgeStats,
+  type ShareEdgeStats,
+} from '@/modules/screen-sharing/core/edge-stats'
+import type {
+  QualityLimitationDurations,
+  QualityLimitationReason,
+} from '@/modules/screen-sharing/core/stats'
+import {
+  peerQualitySeverity,
+  type PeerQuality,
+} from '@/modules/screen-sharing/core/peer-quality'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
-  /** 服务器中转 PC（P2P 未启用时使用） */
-  pc: RTCPeerConnection | null
+  /**
+   * 每条连接（边）的统计。
+   *
+   * Piik 链路没有「唯一一条 PC」：房主一位观众一条出边，观众一条入边。
+   * 面板先汇总成一份整体数字，再多连接时逐条列出——单条 PC 的旧口径在这里
+   * 已经不成立了。
+   */
+  edges: ShareEdgeStats[]
   /**
    * 采集实测帧率（发送端专属，来自 MediaStreamTrackProcessor 帧率计）。
    * 与下方「帧率」（发送/接收帧率，来自 outbound/inbound-rtp）分离展示：
@@ -29,18 +51,8 @@ export interface SharingStatusPanelProps {
   captureFps?: number | null
   /** 当前角色：发送端 / 接收端 */
   mode: 'sender' | 'receiver'
-  /** 基础共享模式标签：服务器中转 / P2P 直连 */
+  /** 共享模式标签：服务器中转 / P2P 直连 */
   sharingMode: SharingMode
-  /** P2P 直连是否已启用（来自外部 useP2PTunnel） */
-  p2pEnabled: boolean
-  /** P2P 隧道 PC（P2P 启用时切换展示） */
-  p2pPC: RTCPeerConnection | null
-  /** P2P 协商状态 */
-  p2pStatus: P2PStatus
-  /** 是否已触发回退到服务器中转 */
-  fallbackNotice: boolean
-  /** P2P 直连开关回调 */
-  onToggleP2P: (enabled: boolean) => void
 }
 
 interface StatRowProps {
@@ -100,11 +112,59 @@ function StatRow({ icon, label, value, hint }: StatRowProps) {
 }
 
 function getSharingModeLabel(mode: SharingMode): string {
-  return mode === 'p2p' ? t('P2P 直连') : t('服务器中转')
+  // 「直连」指媒体不过服务端（只借它换 SDP/ICE）；中继才真的占服务端带宽。
+  return mode === 'relay' ? t('服务器转发') : t('浏览器直连')
 }
 
-function getSharingModeColor(): 'success' | 'primary' {
-  return 'primary'
+/**
+ * 编码受限原因。
+ *
+ * 这是定位「画面糊/掉帧」最关键的一列：带宽不足要降档位或换网络，CPU 不足
+ * 要降分辨率或换硬件编码，两者处置完全不同，靠猜只会白折腾。
+ */
+function getLimitationText(reason: QualityLimitationReason | null): string {
+  switch (reason) {
+    case null:
+      return '-'
+    case 'none':
+      return t('无')
+    case 'cpu':
+      return t('CPU 不足')
+    case 'bandwidth':
+      return t('带宽不足')
+    case 'other':
+      return t('其他')
+  }
+}
+
+function getLimitationColor(
+  reason: QualityLimitationReason | null
+): 'default' | 'success' | 'warning' {
+  if (reason === null) return 'default'
+  return reason === 'none' ? 'success' : 'warning'
+}
+
+/**
+ * 本窗口内占比最高的受限原因。
+ *
+ * 只看瞬时 `qualityLimitationReason` 会闪（浏览器每帧都可能换原因），
+ * 窗口占比能回答「这一分钟到底卡在哪」，比瞬时值可靠得多。
+ */
+function dominantLimitation(
+  share: QualityLimitationDurations | null
+): [QualityLimitationReason, number] | null {
+  if (!share) return null
+  const reasons: QualityLimitationReason[] = [
+    'none',
+    'bandwidth',
+    'cpu',
+    'other',
+  ]
+  let best: QualityLimitationReason = 'none'
+  for (const reason of reasons) {
+    if (share[reason] > share[best]) best = reason
+  }
+  return [best, share[best]]
 }
 
 function getRoleLabel(role: 'sender' | 'receiver'): string {
@@ -147,66 +207,124 @@ function getConnectionStateText(state: RTCPeerConnectionState): string {
   }
 }
 
-function getP2PStatusLabel(status: P2PStatus): string {
-  switch (status) {
-    case 'idle':
-      return t('未启用')
-    case 'connecting':
-      return t('P2P 协商中')
-    case 'connected':
-      return t('P2P 直连')
-    case 'failed':
-      return t('已回退到服务器中转')
+/**
+ * 质量等级 → 展示文案。等级判定本身在 core/peer-quality（有单测）。
+ * 房主的出边才有观众回传的丢包与 RTT，入边退回连接状态。
+ */
+function peerQualityText(
+  quality: PeerQuality,
+  state: RTCPeerConnectionState
+): string {
+  switch (peerQualitySeverity(quality, state)) {
+    case 'offline':
+      return t('未连接')
+    case 'loss':
+      return t('丢包 {{value}}', {
+        value: `${((quality.packetLossRate ?? 0) * 100).toFixed(1)}%`,
+      })
+    case 'latency':
+      return t('延迟 {{value}}', { value: `${quality.rttMs ?? 0} ms` })
+    case 'bandwidth':
+      return t('上行带宽受限')
+    case 'cpu':
+      return t('编码 CPU 受限')
+    default:
+      return t('良好')
   }
 }
 
-function getP2PStatusColor(
-  status: P2PStatus
-): 'default' | 'primary' | 'success' | 'danger' {
-  switch (status) {
-    case 'idle':
-      return 'default'
-    case 'connecting':
-      return 'primary'
-    case 'connected':
-      return 'success'
-    case 'failed':
-      return 'danger'
-  }
+function peerQualityColor(
+  quality: PeerQuality,
+  state: RTCPeerConnectionState
+): 'default' | 'success' | 'warning' {
+  const severity = peerQualitySeverity(quality, state)
+  if (severity === 'offline') return 'default'
+  return severity === 'good' ? 'success' : 'warning'
+}
+
+/** 一条边的摘要：分辨率 · 帧率 · 码率，多观众时一眼看出谁慢。 */
+function edgeSummary(edge: ShareEdgeStats): string {
+  const parts: string[] = []
+  const resolution = edge.stats.resolution
+  if (resolution) parts.push(`${resolution.width} × ${resolution.height}`)
+  if (edge.stats.frameRate !== null)
+    parts.push(`${edge.stats.frameRate.toFixed(1)} fps`)
+  const bitrate = formatBitrate(edge.stats.bitrate)
+  if (bitrate !== '-') parts.push(bitrate)
+  return parts.length > 0 ? parts.join(' · ') : '-'
 }
 
 export function SharingStatusPanel({
-  pc,
+  edges,
   captureFps,
   mode,
   sharingMode,
-  p2pEnabled,
-  p2pPC,
-  p2pStatus,
-  fallbackNotice,
-  onToggleP2P,
 }: SharingStatusPanelProps) {
-  // P2P 启用时切换为 p2pPC，否则使用服务器中转 PC
-  const displayPC = p2pEnabled ? p2pPC : pc
-  const displaySharingMode: SharingMode = p2pEnabled ? 'p2p' : sharingMode
-  const legacyMode = displaySharingMode === 'p2p' ? 'direct' : 'server'
-
-  const { stats, formatBitrate, formatPacketLoss } = useConnectionStats(
-    displayPC,
-    legacyMode,
-    displaySharingMode
-  )
+  // 汇总口径写在 core/edge-stats：帧率/丢包取最差一条，码率求和。
+  const stats = aggregateEdgeStats(edges)
+  const hasEdges = edges.length > 0
 
   const fpsText =
     stats.frameRate === null ? '-' : `${stats.frameRate.toFixed(1)} fps`
-  const lossText = formatPacketLoss(stats.packetLossRate)
+  // 主值看本窗口：累计丢包率会把几分钟前的丢包摊薄，看不出「现在卡不卡」。
+  // 累计值降级成副标题，需要判断「一直不好还是刚好不好」时仍然可查。
+  const lossText = formatPacketLoss(
+    stats.windowPacketLossRate ?? stats.packetLossRate
+  )
+  // 发送端没有入向流，丢包率一直是 `-`：这时别再挂一条「累计 -」的副标题。
+  const lossHint =
+    stats.windowPacketLossRate === null && stats.packetLossRate === null
+      ? undefined
+      : t('本窗口 · 累计 {{value}}', {
+          value: formatPacketLoss(stats.packetLossRate),
+        })
   const bitrateText = formatBitrate(stats.bitrate)
   const resolutionText = stats.resolution
     ? `${stats.resolution.width} × ${stats.resolution.height}`
     : '-'
   const codecText = stats.codec ?? '-'
-  const rttText = stats.rtt === null ? '-' : `${stats.rtt} ms`
-  const jitterText = stats.jitter === null ? '-' : `${stats.jitter} ms`
+  const rttText = stats.rttMs === null ? '-' : `${stats.rttMs} ms`
+  const jitterText = stats.jitterMs === null ? '-' : `${stats.jitterMs} ms`
+  const jitterBufferText =
+    stats.jitterBufferMs === null ? '-' : `${stats.jitterBufferMs} ms`
+  const processText = formatMsPerFrame(
+    mode === 'sender' ? stats.encodeMsPerFrame : stats.decodeMsPerFrame
+  )
+  const limitation = dominantLimitation(stats.limitationShare)
+  const limitationText = limitation
+    ? limitation[0] === 'none'
+      ? t('无')
+      : `${getLimitationText(limitation[0])} ${Math.round(limitation[1])}%`
+    : getLimitationText(stats.qualityLimitationReason)
+  const audio = stats.audio
+  const audioText =
+    audio && audio.level !== null
+      ? `${Math.round(audio.level * 100)}%`
+      : formatBitrate(audio?.bitrate ?? null)
+  const audioHint =
+    audio === null
+      ? undefined
+      : [
+          formatBitrate(audio.bitrate),
+          audio.packetLossRate === null
+            ? null
+            : t('丢包 {{value}}', {
+                value: formatPacketLoss(audio.packetLossRate),
+              }),
+          audio.concealmentRate === null
+            ? null
+            : t('隐藏 {{value}}', {
+                value: `${(audio.concealmentRate * 100).toFixed(1)}%`,
+              }),
+        ]
+          .filter(Boolean)
+          .join(' · ')
+  const freezeText =
+    stats.freezeCount === null
+      ? '-'
+      : stats.totalFreezeMs === null
+        ? `${stats.freezeCount} ${t('次')}`
+        : `${stats.freezeCount} ${t('次')} / ${(stats.totalFreezeMs / 1000).toFixed(1)} s`
   const bitrateHint = mode === 'sender' ? t('上行码率') : t('下行码率')
 
   return (
@@ -230,54 +348,32 @@ export function SharingStatusPanel({
       {/* 状态标签 */}
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag color="primary">{getRoleLabel(mode)}</Tag>
-        <Tag color={getSharingModeColor()}>
-          {getSharingModeLabel(displaySharingMode)}
-        </Tag>
+        <Tag color="primary">{getSharingModeLabel(sharingMode)}</Tag>
         <Tag color={getConnectionStateColor(stats.connectionState)}>
           {getConnectionStateText(stats.connectionState)}
         </Tag>
-        {p2pEnabled && (
-          <Tag color={getP2PStatusColor(p2pStatus)}>
-            {getP2PStatusLabel(p2pStatus)}
+        {mode === 'sender' && stats.qualityLimitationReason !== null && (
+          <Tag color={getLimitationColor(stats.qualityLimitationReason)}>
+            {getLimitationText(stats.qualityLimitationReason)}
           </Tag>
-        )}
-        {fallbackNotice && !p2pEnabled && (
-          <Tag color="warning">{t('已回退到服务器中转')}</Tag>
         )}
       </div>
 
-      {/* P2P 直连开关 */}
-      <div
-        className="glass flex items-center justify-between rounded-xl px-3 py-2"
-        style={{
-          backgroundColor:
-            'color-mix(in srgb, var(--md-sys-color-secondary-container) calc(var(--glass-strength) * 100%), transparent)',
-          borderColor: 'var(--md-sys-color-outline-variant)',
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <Waypoints
-            className="h-4 w-4"
-            style={{ color: 'var(--md-sys-color-secondary)' }}
-          />
-          <div className="leading-tight">
-            <Paragraph className="m-0 text-xs font-medium">
-              {t('P2P 直连')}
-            </Paragraph>
-            <Text type="secondary" className="text-[10px] opacity-70">
-              {p2pEnabled
-                ? getP2PStatusLabel(p2pStatus)
-                : fallbackNotice
-                  ? t('已回退到服务器中转')
-                  : t('点击切换至 P2P')}
-            </Text>
-          </div>
+      {!hasEdges && (
+        <div className="glass rounded-xl px-3 py-3">
+          <Text type="secondary" className="block text-xs">
+            {t('还没有连接')}
+          </Text>
+          <Text
+            type="secondary"
+            className="mt-1 block text-[10px] leading-tight opacity-70"
+          >
+            {mode === 'sender'
+              ? t('观众接入后这里会显示每条连接的数据')
+              : t('正在等待房主的画面')}
+          </Text>
         </div>
-        <Switch
-          checked={p2pEnabled}
-          onChange={(e) => onToggleP2P(e.target.checked)}
-        />
-      </div>
+      )}
 
       {/* 实时统计字段列表 */}
       <div className="flex flex-col gap-2 overflow-y-auto pr-1">
@@ -302,6 +398,7 @@ export function SharingStatusPanel({
         <StatRow
           icon={<Signal className="h-3.5 w-3.5" />}
           label={t('丢包率')}
+          hint={lossHint}
           value={lossText}
         />
         <StatRow
@@ -310,6 +407,20 @@ export function SharingStatusPanel({
           hint={bitrateHint}
           value={bitrateText}
         />
+        <StatRow
+          icon={<Timer className="h-3.5 w-3.5" />}
+          label={mode === 'sender' ? t('编码耗时') : t('解码耗时')}
+          hint={t('每帧平均，越高越吃 CPU')}
+          value={processText}
+        />
+        {audio && (
+          <StatRow
+            icon={<Volume2 className="h-3.5 w-3.5" />}
+            label={t('音频')}
+            hint={audioHint || t('无音频数据')}
+            value={audioText}
+          />
+        )}
         <StatRow
           icon={<Layers className="h-3.5 w-3.5" />}
           label={t('分辨率')}
@@ -320,6 +431,22 @@ export function SharingStatusPanel({
           label={t('编码格式')}
           value={codecText}
         />
+        {mode === 'sender' && (
+          <StatRow
+            icon={<Boxes className="h-3.5 w-3.5" />}
+            label={t('编码器')}
+            hint={t('浏览器实际启用的实现')}
+            value={stats.encoderImplementation ?? '-'}
+          />
+        )}
+        {mode === 'sender' && (
+          <StatRow
+            icon={<Gauge className="h-3.5 w-3.5" />}
+            label={t('编码受限原因')}
+            hint={limitation ? t('本窗口占比') : t('决定该降档位还是降分辨率')}
+            value={limitationText}
+          />
+        )}
         <StatRow
           icon={<Activity className="h-3.5 w-3.5" />}
           label={t('RTT 往返时延')}
@@ -330,14 +457,84 @@ export function SharingStatusPanel({
           label={t('抖动')}
           value={jitterText}
         />
+        {mode === 'receiver' && (
+          <StatRow
+            icon={<Timer className="h-3.5 w-3.5" />}
+            label={t('抖动缓冲')}
+            hint={t('帧在缓冲里的平均停留')}
+            value={jitterBufferText}
+          />
+        )}
+        {mode === 'receiver' && (
+          <StatRow
+            icon={<Video className="h-3.5 w-3.5" />}
+            label={t('画面冻结')}
+            hint={t('累计次数 / 累计时长')}
+            value={freezeText}
+          />
+        )}
       </div>
+
+      {/* 逐条连接的用量。只有一条边时上面的汇总就是它本身，列出来只是重复；
+          房主有多位观众时，这里能直接指出「谁的画面差」。 */}
+      {edges.length > 1 && (
+        <div
+          className="flex flex-col gap-2 border-t pt-3"
+          style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
+        >
+          <div className="flex items-center gap-2">
+            <Users className="h-3.5 w-3.5" />
+            <Text type="secondary" className="text-xs">
+              {t('观众质量')}
+            </Text>
+          </div>
+          {edges.map((edge, index) => (
+            <div
+              key={edge.connectionId}
+              className="glass flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5"
+            >
+              <div className="min-w-0">
+                <Text type="secondary" className="block truncate text-xs">
+                  {edge.direction === 'inbound'
+                    ? t('上游连接')
+                    : t('观众 {{index}}', {
+                        // 观众序号只数出边：中继节点自己也有一条入边。
+                        index:
+                          edges
+                            .slice(0, index)
+                            .filter((item) => item.direction === 'outbound')
+                            .length + 1,
+                      })}
+                </Text>
+                <Text
+                  type="secondary"
+                  className="block truncate font-mono text-[10px] leading-tight opacity-70"
+                >
+                  {edgeSummary(edge)}
+                </Text>
+              </div>
+              <div className="flex flex-shrink-0 items-center gap-1.5">
+                {edge.quality ? (
+                  <Tag color={peerQualityColor(edge.quality, edge.state)}>
+                    {peerQualityText(edge.quality, edge.state)}
+                  </Tag>
+                ) : (
+                  <Tag color={getConnectionStateColor(edge.state)}>
+                    {getConnectionStateText(edge.state)}
+                  </Tag>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* 底部说明 */}
       <Text
         type="secondary"
         className="mt-auto text-[10px] leading-tight opacity-70"
       >
-        {t('每 1 秒采样一次 WebRTC 统计；码率为上一秒平均速率。')}
+        {t('每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。')}
       </Text>
     </div>
   )

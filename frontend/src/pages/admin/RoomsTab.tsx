@@ -1,4 +1,4 @@
-import { Lock, Power, RotateCcw } from 'lucide-react'
+import { Lock, Power, RotateCcw, UserCog } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Text } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
@@ -21,6 +21,8 @@ interface RoomsTabProps {
   roomReopeningId: string | null
   /** 请求强制关闭房间（打开确认弹窗） */
   onRequestCloseRoom: (room: AdminRoom) => void
+  /** 打开该房间的房管管理弹窗 */
+  onManageModerators: (room: AdminRoom) => void
   /** 点击卡片：active 房间进入 host 视角，closed 房间弹警告 */
   onEnterRoom: (room: AdminRoom) => void
 }
@@ -34,6 +36,7 @@ export function RoomsTab({
   onReopenRoom,
   roomReopeningId,
   onRequestCloseRoom,
+  onManageModerators,
   onEnterRoom,
 }: RoomsTabProps) {
   /** 房间创建时间：<24h 相对时间，≥24h 精确时间 */
@@ -172,6 +175,36 @@ export function RoomsTab({
                     : 'sm:w-auto sm:flex-row sm:items-center sm:justify-end'
                 )}
               >
+                {/* 房管入口：root 可管任意房间，admin 仅自己创建的房间。
+                    不可管理时禁用按钮；title 挂在外层 span 上——disabled 的按钮
+                    收不到 hover 事件，tooltip 不会出现。 */}
+                <span
+                  className={
+                    roomViewMode === 'tile' ? 'w-full' : 'w-full sm:w-auto'
+                  }
+                  title={
+                    room.canManage === false
+                      ? t('仅 root 或房间创建者可管理该房间的房管')
+                      : t('管理该房间的房管')
+                  }
+                >
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className={
+                      roomViewMode === 'tile' ? 'w-full' : 'w-full sm:w-auto'
+                    }
+                    icon={<UserCog className="h-4 w-4" />}
+                    disabled={room.canManage === false}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onManageModerators(room)
+                    }}
+                  >
+                    {t('房管')}
+                    {room.moderatorCount ? ` (${room.moderatorCount})` : ''}
+                  </Button>
+                </span>
                 {room.status === 'closed' && (
                   <Button
                     variant="secondary"

@@ -23,7 +23,6 @@ import (
 	"zviewer/backend/internal/ftp"
 	"zviewer/backend/internal/httpx"
 	"zviewer/backend/internal/kazumi"
-	"zviewer/backend/internal/livekit"
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
@@ -32,12 +31,13 @@ import (
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
+	"zviewer/backend/internal/share/piikbridge"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
 	"zviewer/backend/internal/ttlcache"
 	"zviewer/backend/internal/updater"
-	"zviewer/backend/internal/voice"
+	"zviewer/backend/internal/voicertc"
 	"zviewer/backend/internal/webdav"
 )
 
@@ -50,6 +50,7 @@ type Deps struct {
 	Audit    *store.Audit
 	Movies   *store.Movies
 	Rooms    *store.Rooms
+	Sessions *store.Sessions
 	Mounts   *store.Mounts
 	Tracks   *store.Tracks
 	Metas    *store.Metas
@@ -86,15 +87,14 @@ type Deps struct {
 	NCM *ncm.Service
 	// Updater 是网页端一键更新（GitHub Releases + 平台更新脚本）。
 	Updater *updater.Service
-	// Voice 是语音聊天的服务端一半（LiveKit 凭证 + Twirp 管理调用）。
-	Voice *voice.Service
-	// VoiceBin 是内嵌 LiveKit 伴生进程管理器：负责「拉起进程（缺文件时兜底下载）」。
-	// 为 nil 时（单测）语音状态一律报告可用，避免每个用例都要装配它。
-	VoiceBin *livekit.Manager
+	// VoiceRTC 是语音控制面（自建 SFU）。为 nil 时 /api/voice/status 报不可用。
+	VoiceRTC *voicertc.Service
 	// NMS 是 OBS 推流的媒体服务（默认进程内托管，可用性 + 推流地址）。
 	NMS *nms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
+	// PiikShare 是 Piik 信令桥接层；为 nil 时 /signal 与凭证端点报不可用。
+	PiikShare *piikbridge.Bridge
 }
 
 // Server 持有路由所需的全部依赖。
@@ -132,9 +132,6 @@ func New(deps Deps) *Server {
 	// 单测构造 Server 就不用关心这个字段（必须在拷贝进 Server 之前完成）。
 	if deps.Updater == nil {
 		deps.Updater = updater.New(deps.Cfg.ProjectRoot, deps.Settings)
-	}
-	if deps.Voice == nil {
-		deps.Voice = voice.New(deps.Settings)
 	}
 	if deps.NMS == nil {
 		// 单测构造 Server 时不必关心推流配置：默认按环境变量解析，
@@ -202,7 +199,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerMusicRoutes(mux)
 	s.registerUpdaterRoutes(mux)
 	s.registerVoiceRoutes(mux)
-	s.registerRTCRoutes(mux)
+	s.registerPiikShareRoutes(mux)
+	s.registerPiikVoiceRoutes(mux)
 	// 推流（OBS）：REST 下发配置，/live 反代到媒体服务（默认是进程内那个）。
 	// /live 必须在 mux.Handle("/", SPA 回退) 之前注册，否则会被回成 index.html。
 	s.registerStreamPushRoutes(mux)

@@ -1,231 +1,97 @@
 import { useEffect, useRef, useState } from 'react'
+import {
+  emptyBaseline,
+  emptyShareStats,
+  sampleShareStats,
+  type ShareStats,
+  type StatsBaseline,
+} from '../core/stats'
 
 export type ConnectionMode = 'direct' | 'server' | 'unknown'
-export type SharingMode = 'server-relay' | 'p2p'
+/** 媒体走向：direct = 浏览器直连（服务端只转发信令），relay = 经服务端 SFU 转发。 */
+export type SharingMode = 'direct' | 'relay'
 
-export interface ConnectionStats {
+/** 采样周期。2 秒和 `chrome://webrtc-internals` 的默认窗口接近，便于对照。 */
+export const STATS_SAMPLE_INTERVAL_MS = 2000
+
+export type ConnectionStats = ShareStats & {
   mode: ConnectionMode
   sharingMode: SharingMode
   connectionState: RTCPeerConnectionState
-  resolution: { width: number; height: number } | null
-  frameRate: number | null
-  bitrate: number | null
-  packetsReceived: number | null
-  packetsSent: number | null
-  packetsLost: number | null
-  packetLossRate: number | null
-  codec: string | null
-  rtt: number | null
-  jitter: number | null
 }
 
-interface PrevSample {
-  bytes: number
-  timestamp: number
-}
-
-function formatBitrate(bps: number | null): string {
+export function formatBitrate(bps: number | null): string {
   if (bps === null || bps === 0) return '-'
   if (bps < 1000) return `${bps.toFixed(0)} bps`
   if (bps < 1_000_000) return `${(bps / 1000).toFixed(1)} Kbps`
   return `${(bps / 1_000_000).toFixed(2)} Mbps`
 }
 
-function formatNumber(value: number | null): string {
+export function formatNumber(value: number | null): string {
   return value === null ? '-' : value.toLocaleString()
 }
 
-function formatPacketLoss(rate: number | null): string {
+export function formatPacketLoss(rate: number | null): string {
   return rate === null ? '-' : `${(rate * 100).toFixed(2)}%`
 }
 
-/**
- * 将 WebRTC codec.mimeType（如 video/H264、video/VP8）解析为人类可读名称。
- */
-function formatCodecName(mimeType: string | undefined | null): string | null {
-  if (!mimeType) return null
-  const lower = mimeType.toLowerCase()
-  const videoPrefix = 'video/'
-  if (!lower.startsWith(videoPrefix)) return mimeType
-  const name = mimeType.slice(videoPrefix.length).toUpperCase()
-  switch (name) {
-    case 'H264':
-      return 'H.264'
-    case 'H265':
-      return 'H.265'
-    case 'VP8':
-    case 'VP9':
-    case 'AV1':
-      return name
-    default:
-      return name
-  }
+/** 每帧处理耗时。小于 10ms 保留一位小数，否则取整——读数要比位数重要。 */
+export function formatMsPerFrame(value: number | null): string {
+  if (value === null || !Number.isFinite(value)) return '-'
+  return value < 10 ? `${value.toFixed(1)} ms` : `${Math.round(value)} ms`
 }
 
-type BaseStats = Omit<
-  ConnectionStats,
-  'connectionState' | 'mode' | 'sharingMode'
->
-
+/**
+ * 按固定周期采样 WebRTC 统计。
+ *
+ * 采样与计算都在 `core/stats` 里（纯函数，可单测）；这个 hook 只负责定时器
+ * 与基线存取。基线必须跟着 PC 一起重置：换 PC 后计数器从 0 开始，拿旧基线
+ * 做差会得出负数速率。
+ */
 export function useConnectionStats(
   pc: RTCPeerConnection | null,
   mode: ConnectionMode = 'unknown',
-  sharingMode: SharingMode = 'server-relay'
+  sharingMode: SharingMode = 'direct'
 ) {
-  const [baseStats, setBaseStats] = useState<BaseStats>({
-    resolution: null,
-    frameRate: null,
-    bitrate: null,
-    packetsReceived: null,
-    packetsSent: null,
-    packetsLost: null,
-    packetLossRate: null,
-    codec: null,
-    rtt: null,
-    jitter: null,
-  })
-
-  const prevInboundRef = useRef<PrevSample | null>(null)
-  const prevOutboundRef = useRef<PrevSample | null>(null)
+  const [stats, setStats] = useState<ShareStats>(emptyShareStats)
+  const baselineRef = useRef<StatsBaseline>(emptyBaseline())
 
   useEffect(() => {
     if (!pc) return
+    baselineRef.current = emptyBaseline()
 
-    const timer = setInterval(() => {
-      pc.getStats().then((report) => {
-        let inbound: RTCInboundRtpStreamStats | null = null
-        let outbound: RTCOutboundRtpStreamStats | null = null
-        let activeCandidatePair: RTCIceCandidatePairStats | null = null
-
-        // 当前 TS DOM 库未声明 RTCCodecStats，这里用最小结构替代
-        type CodecStat = { id: string; mimeType?: string }
-        const codecMap = new Map<string, CodecStat>()
-        report.forEach((value) => {
-          if (value.type === 'codec') {
-            codecMap.set(value.id, value as unknown as CodecStat)
-          }
+    let cancelled = false
+    const timer = window.setInterval(() => {
+      pc.getStats()
+        .then((report) => {
+          if (cancelled) return
+          const sample = sampleShareStats(baselineRef.current, report)
+          // 第一次采样只建立基线：速率必然是 null，但状态字段已经可用。
+          baselineRef.current = sample.baseline
+          setStats(sample.stats)
         })
-
-        report.forEach((value) => {
-          if (value.type === 'inbound-rtp' && value.kind === 'video') {
-            inbound = value as RTCInboundRtpStreamStats
-          } else if (value.type === 'outbound-rtp' && value.kind === 'video') {
-            outbound = value as RTCOutboundRtpStreamStats
-          } else if (value.type === 'candidate-pair') {
-            const pair = value as RTCIceCandidatePairStats
-            // 优先选择已提名或处于成功状态的候选对，其 RTT 才是当前活跃路径的真实值
-            if (pair.nominated || pair.state === 'succeeded') {
-              if (
-                !activeCandidatePair ||
-                (pair.nominated && !activeCandidatePair.nominated)
-              ) {
-                activeCandidatePair = pair
-              }
-            }
-          }
+        .catch(() => {
+          // 连接正在关闭时 getStats 会抛；保留上一次的值，别把面板清成一片横线。
         })
-
-        const next: BaseStats = {
-          resolution: null,
-          frameRate: null,
-          bitrate: null,
-          packetsReceived: null,
-          packetsSent: null,
-          packetsLost: null,
-          packetLossRate: null,
-          codec: null,
-          rtt: null,
-          jitter: null,
-        }
-
-        if (inbound) {
-          next.resolution =
-            inbound.frameWidth && inbound.frameHeight
-              ? { width: inbound.frameWidth, height: inbound.frameHeight }
-              : null
-          next.frameRate = inbound.framesPerSecond ?? null
-          next.packetsReceived = inbound.packetsReceived ?? null
-          next.packetsLost = inbound.packetsLost ?? null
-
-          if (
-            inbound.packetsReceived !== undefined &&
-            inbound.packetsLost !== undefined &&
-            inbound.packetsReceived + inbound.packetsLost > 0
-          ) {
-            next.packetLossRate =
-              inbound.packetsLost /
-              (inbound.packetsReceived + inbound.packetsLost)
-          }
-
-          // jitter 在 WebRTC 统计中以秒为单位，转换为毫秒展示
-          if (typeof inbound.jitter === 'number') {
-            next.jitter = Math.round(inbound.jitter * 1000)
-          }
-
-          // 通过 codecId 查找对应的 codec 报告
-          if (inbound.codecId) {
-            const codecStats = codecMap.get(inbound.codecId)
-            next.codec = formatCodecName(codecStats?.mimeType)
-          }
-
-          const bytes = inbound.bytesReceived ?? 0
-          const timestamp = inbound.timestamp ?? performance.now()
-          const prev = prevInboundRef.current
-          if (prev && timestamp > prev.timestamp) {
-            const deltaBytes = Math.max(0, bytes - prev.bytes)
-            const deltaMs = timestamp - prev.timestamp
-            next.bitrate = (deltaBytes * 8 * 1000) / deltaMs
-          }
-          prevInboundRef.current = { bytes, timestamp }
-        } else if (outbound) {
-          next.resolution =
-            outbound.frameWidth && outbound.frameHeight
-              ? { width: outbound.frameWidth, height: outbound.frameHeight }
-              : null
-          next.frameRate = outbound.framesPerSecond ?? null
-          next.packetsSent = outbound.packetsSent ?? null
-
-          if (outbound.codecId) {
-            const codecStats = codecMap.get(outbound.codecId)
-            next.codec = formatCodecName(codecStats?.mimeType)
-          }
-
-          const bytes = outbound.bytesSent ?? 0
-          const timestamp = outbound.timestamp ?? performance.now()
-          const prev = prevOutboundRef.current
-          if (prev && timestamp > prev.timestamp) {
-            const deltaBytes = Math.max(0, bytes - prev.bytes)
-            const deltaMs = timestamp - prev.timestamp
-            next.bitrate = (deltaBytes * 8 * 1000) / deltaMs
-          }
-          prevOutboundRef.current = { bytes, timestamp }
-        }
-
-        if (activeCandidatePair) {
-          // currentRoundTripTime 以秒为单位，转换为毫秒
-          const rtt = activeCandidatePair.currentRoundTripTime
-          if (typeof rtt === 'number' && rtt >= 0) {
-            next.rtt = Math.round(rtt * 1000)
-          }
-        }
-
-        setBaseStats(next)
-      })
-    }, 1000)
+    }, STATS_SAMPLE_INTERVAL_MS)
 
     return () => {
-      clearInterval(timer)
-      prevInboundRef.current = null
-      prevOutboundRef.current = null
+      cancelled = true
+      window.clearInterval(timer)
+      baselineRef.current = emptyBaseline()
     }
   }, [pc])
 
-  const stats: ConnectionStats = {
-    ...baseStats,
-    mode,
-    sharingMode,
-    connectionState: pc?.connectionState ?? 'new',
+  return {
+    stats: {
+      ...stats,
+      mode,
+      sharingMode,
+      connectionState: pc?.connectionState ?? ('new' as const),
+    } satisfies ConnectionStats,
+    formatBitrate,
+    formatNumber,
+    formatPacketLoss,
+    formatMsPerFrame,
   }
-
-  return { stats, formatBitrate, formatNumber, formatPacketLoss }
 }

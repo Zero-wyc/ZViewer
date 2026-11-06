@@ -28,6 +28,7 @@ import { useSystemUpdate } from './admin/useSystemUpdate'
 import { Trans } from 'react-i18next'
 import { UsersTab } from './admin/UsersTab'
 import { RoomsTab } from './admin/RoomsTab'
+import { RoomModeratorsModal } from './admin/RoomModeratorsModal'
 import { SettingsTab } from './admin/SettingsTab'
 
 export default function AdminPage() {
@@ -62,7 +63,6 @@ export default function AdminPage() {
     cdnProxyUrl: 'https://gh-proxy.com',
     updateUseGitCode: true,
     roomMultiInstanceLogin: false,
-    livekitExternalUrl: '',
     announceAutoPopupOnUpdate: true,
     showVoiceChatButton: true,
     showTrafficPanel: true,
@@ -91,6 +91,8 @@ export default function AdminPage() {
   const [userDelete, setUserDelete] = useState<AdminUser | null>(null)
   const [userApprove, setUserApprove] = useState<AdminUser | null>(null)
   const [roomClose, setRoomClose] = useState<AdminRoom | null>(null)
+  /** 房管管理弹窗的目标房间（null = 关闭） */
+  const [moderatorRoom, setModeratorRoom] = useState<AdminRoom | null>(null)
   const [cleanupConfirm, setCleanupConfirm] = useState(false)
   const [selectedRoomIds, setSelectedRoomIds] = useState<Set<string>>(new Set())
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
@@ -522,7 +524,6 @@ export default function AdminPage() {
         cdnProxyUrl: settings.cdnProxyUrl,
         updateUseGitCode: settings.updateUseGitCode,
         roomMultiInstanceLogin: settings.roomMultiInstanceLogin,
-        livekitExternalUrl: settings.livekitExternalUrl,
         announceAutoPopupOnUpdate: settings.announceAutoPopupOnUpdate,
         // 房间悬浮入口显隐（后端落 config/ui-prefs.json，不写库）
         showVoiceChatButton: settings.showVoiceChatButton,
@@ -847,6 +848,7 @@ export default function AdminPage() {
             onReopenRoom={handleReopenRoom}
             roomReopeningId={roomReopeningId}
             onRequestCloseRoom={setRoomClose}
+            onManageModerators={setModeratorRoom}
             onEnterRoom={handleEnterRoom}
           />
         ) : (
@@ -870,6 +872,25 @@ export default function AdminPage() {
           />
         )}
       </Card>
+
+      {/* 房管管理：名单变化后只改本地那一行的计数，不重拉整个房间列表——
+          重拉会把「已选房间」清空，管理员调整完房管还得重新勾一遍。 */}
+      {moderatorRoom && (
+        <RoomModeratorsModal
+          key={moderatorRoom.roomId}
+          room={moderatorRoom}
+          onClose={() => setModeratorRoom(null)}
+          onChanged={(count) =>
+            setRooms((prev) =>
+              prev.map((item) =>
+                item.roomId === moderatorRoom.roomId
+                  ? { ...item, moderatorCount: count }
+                  : item
+              )
+            )
+          }
+        />
+      )}
 
       <ConfirmModal
         open={!!userDelete}

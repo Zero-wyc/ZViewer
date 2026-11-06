@@ -11,12 +11,11 @@ import {
   Volume2,
   VolumeX,
   UserX,
-  Download,
 } from 'lucide-react'
 import type { Socket } from 'socket.io-client'
 // v7：LiveKit 版语音（SFU 由独立 LiveKit 服务承载）
 import { useVoiceChat, type VoiceMember } from '../hooks/useVoiceChat'
-import { useVoiceComponent } from '../hooks/useVoiceComponent'
+import { useVoiceStatus } from '../hooks/useVoiceStatus'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { SectionHeader } from '@/components/ui/SectionHeader'
@@ -70,23 +69,10 @@ export function VoiceChatPanel({
     kickVoiceMember,
   } = useVoiceChat({ roomId, username })
 
-  // 内嵌 LiveKit 随包分发，缺失（被删）时把「加入语音」换成「下载语音组件」。
-  const {
-    status: component,
-    busy: componentBusy,
-    requesting,
-    install,
-  } = useVoiceComponent(Boolean(roomId))
-  const componentMissing = !component.available
-  const downloading = componentBusy || requesting
-  const downloadLabel =
-    component.state === 'installing'
-      ? t('正在解压…')
-      : component.state === 'downloading'
-        ? t('正在下载 {{progress}}%', { progress: component.progress })
-        : component.state === 'error'
-          ? t('重新下载语音组件')
-          : t('下载语音聊天组件')
+  // 媒体面没起来时对端永远不会发 offer，点「加入」只会一直转圈——
+  // 那是用户最难自查的一种失败，所以在入口就拦住并说明。
+  const { available } = useVoiceStatus()
+  const unavailable = available === false
 
   if (!roomId) return null
 
@@ -122,13 +108,17 @@ export function VoiceChatPanel({
         subtitle={
           <div className="flex items-center gap-1.5">
             {/* 媒体未连通时明确显示「连接中」而不是人数——connect 成功不等于
-                ICE 连通（代理/UDP 被拦时成员列表照常，但无声），避免误导 */}
+                ICE 连通（代理/UDP 被拦时成员列表照常，但无声），避免误导。
+                独处房间没有可建的边（Piik 不下发 connections），此时
+                mediaConnected 直接是 true，正常显示「1 人在线」。 */}
             <span className="text-[10px] uppercase tracking-wide text-[var(--md-sys-color-on-surface-variant)]">
-              {joined
-                ? mediaConnected
-                  ? t('{{memberCount}} 人在线', { memberCount })
-                  : t('媒体连接中…')
-                : t('未连接')}
+              {!joined
+                ? t('未连接')
+                : memberCount === 0
+                  ? t('连接中…')
+                  : mediaConnected
+                    ? t('{{memberCount}} 人在线', { memberCount })
+                    : t('媒体连接中…')}
             </span>
             {/* 媒体传输协议徽标：ICE 选中线路（UDP 直连 / TCP 兜底），周期实测非配置值；
                 媒体未连通时无有效线路可测，一并隐藏 */}
@@ -363,35 +353,12 @@ export function VoiceChatPanel({
         </div>
       )}
 
-      {/* 组件未下载：说明体积与下一步，避免用户以为是网络问题 */}
-      {componentMissing && (
-        <div className="mb-3 rounded-[var(--md-sys-radius-small)] bg-[var(--glass-bg)] px-2 py-1.5">
-          <div className="text-xs font-medium text-[var(--md-sys-color-on-surface)]">
-            {t('语音聊天组件未下载')}
-          </div>
-          <p className="mt-0.5 text-[11px] leading-relaxed text-[var(--md-sys-color-on-surface-variant)]">
-            {t('首次使用需下载约 18 MB，装好后保存在本机，之后不再重复下载。')}
-          </p>
-          {component.message && component.state === 'error' && (
-            <p className="mt-1 text-[11px] text-[var(--md-sys-color-error)]">
-              {component.message}
-            </p>
-          )}
-          {component.state === 'downloading' && (
-            <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-[var(--md-sys-color-surface-container-high)]">
-              <div
-                className="h-full rounded-full bg-[var(--md-sys-color-primary)] transition-[width] duration-300"
-                style={{ width: `${Math.max(3, component.progress)}%` }}
-              />
-            </div>
-          )}
-        </div>
-      )}
-
       {/* 未加入提示 */}
-      {!joined && !joining && !componentMissing && (
+      {!joined && !joining && (
         <div className="mb-3 text-center text-xs text-[var(--md-sys-color-on-surface-variant)]">
-          {t('点击加入即可与房间内其他观众语音交流')}
+          {unavailable
+            ? t('语音服务当前不可用（媒体端口未就绪），请稍后再试')
+            : t('点击加入即可与房间内其他观众语音交流')}
         </div>
       )}
 
@@ -431,24 +398,13 @@ export function VoiceChatPanel({
               {t('断开')}
             </Button>
           </>
-        ) : componentMissing ? (
-          <Button
-            variant="primary"
-            size="sm"
-            block
-            loading={downloading}
-            icon={<Download className="h-3.5 w-3.5" />}
-            onClick={() => void install()}
-            disabled={downloading}
-          >
-            {downloadLabel}
-          </Button>
         ) : (
           <Button
             variant="primary"
             size="sm"
             block
             loading={joining}
+            disabled={unavailable}
             icon={<Phone className="h-3.5 w-3.5" />}
             onClick={join}
           >
@@ -489,9 +445,7 @@ export function VoiceChatPanel({
               ? 'var(--md-sys-color-on-primary-container)'
               : 'var(--md-sys-color-on-surface)',
           }}
-          title={
-            componentMissing ? t('语音聊天（需先下载组件）') : t('语音聊天')
-          }
+          title={t('语音聊天')}
         >
           {joined ? (
             micEnabled ? (
@@ -501,11 +455,6 @@ export function VoiceChatPanel({
             )
           ) : (
             <Headphones className="h-5 w-5" />
-          )}
-          {componentMissing && (
-            <span className="absolute -right-0.5 -top-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] text-[var(--md-sys-color-on-primary)]">
-              <Download className="h-2.5 w-2.5" />
-            </span>
           )}
           {joined && memberCount > 1 && (
             <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-[var(--md-sys-color-primary)] px-1 text-[10px] font-medium text-[var(--md-sys-color-on-primary)]">

@@ -54,6 +54,43 @@ type Config struct {
 	// 备份不能直接复制主文件（见 `db.Backup`）。
 	// 需要退回旧模式时显式设 `SQLITE_WAL=0`。
 	SQLiteWAL bool
+
+	// ShareMediaPort 是媒体 UDP 端口。
+	//
+	// 默认 3333：这个端口以前是 livekit-server 的语音端口，防火墙早就开着。
+	// 语音改自建 SFU 之后由我们接管，升级时不用再改一遍端口映射。
+	ShareMediaPort int
+	// ShareMediaTCPPort 是媒体 TCP 端口，**不能**与网页端口同号。
+	//
+	// ZViewer 的媒体 UDP 与网页 HTTP 同号（3333），于是「UDP/TCP 同号」这条
+	// 直觉在这里直接是错的：媒体 TCP 一旦也取 3333，就会先把网页端口绑走，
+	// 后端随后监听 0.0.0.0:3333 失败、整个进程起不来（实测过）。
+	// 所以未配置时用 3337（原 livekit 的 RTC TCP 口，防火墙早就开着）。
+	// 解析后仍为 0 表示「不启用媒体 TCP」，只发生在网页端口恰好是 3337 时。
+	ShareMediaTCPPort int
+	// ShareMediaPublicIP 是 NAT 1:1 的公网地址（FRP/云主机场景必填，
+	// 否则客户端拿到的是内网候选）。
+	ShareMediaPublicIP string
+}
+
+// mediaTCPFallbackPort 是媒体 TCP 的默认端口。
+//
+// 取 3337 是为了延续原 livekit 的端口布局：升级时防火墙规则一条都不用改。
+const mediaTCPFallbackPort = 3337
+
+// resolveMediaTCPPort 结算媒体 TCP 端口。
+//
+// 未配置（0）与「与网页同号」都退回 3337；网页本身占着 3337 时返回 0
+// （= 不启用媒体 TCP）——再没有第二个惯用端口可借，宁可只走 UDP，也不能
+// 去抢网页端口。
+func resolveMediaTCPPort(tcpPort, httpPort int) int {
+	if tcpPort != 0 && tcpPort != httpPort {
+		return tcpPort
+	}
+	if httpPort == mediaTCPFallbackPort {
+		return 0
+	}
+	return mediaTCPFallbackPort
 }
 
 // Load 解析配置。调用前应先调用 LoadDotEnv。
@@ -74,6 +111,24 @@ func Load() (*Config, error) {
 		UseTLS:       os.Getenv("HTTPS") == "true",
 		StartedAt:    time.Now(),
 		SQLiteWAL:    os.Getenv("SQLITE_WAL") != "0",
+
+		ShareMediaPort:     3333,
+		ShareMediaTCPPort:  mediaTCPFallbackPort,
+		ShareMediaPublicIP: strings.TrimSpace(os.Getenv("SHARE_MEDIA_PUBLIC_IP")),
+	}
+	if raw := os.Getenv("SHARE_MEDIA_TCP_PORT"); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil || port < 0 || port > 65535 {
+			return nil, fmt.Errorf("SHARE_MEDIA_TCP_PORT 非法: %q", raw)
+		}
+		cfg.ShareMediaTCPPort = port
+	}
+	if raw := os.Getenv("SHARE_MEDIA_PORT"); raw != "" {
+		port, err := strconv.Atoi(raw)
+		if err != nil || port <= 0 || port > 65535 {
+			return nil, fmt.Errorf("SHARE_MEDIA_PORT 非法: %q", raw)
+		}
+		cfg.ShareMediaPort = port
 	}
 	cfg.AvatarsDir = envOr("AVATARS_DIR", filepath.Join(cfg.UploadsDir, "avatars"))
 
@@ -84,6 +139,9 @@ func Load() (*Config, error) {
 		}
 		cfg.Port = port
 	}
+
+	// 媒体 TCP 端口的最终结算放在 PORT 之后：它要跟网页端口比。
+	cfg.ShareMediaTCPPort = resolveMediaTCPPort(cfg.ShareMediaTCPPort, cfg.Port)
 	if raw := os.Getenv("RESTART_COUNT"); raw != "" {
 		if n, err := strconv.Atoi(raw); err == nil {
 			cfg.RestartCount = n
@@ -256,3 +314,26 @@ func Platform() string { return describePlatform() }
 // DetectProjectRoot 在加载 .env 之前先探测项目根：
 // 引导阶段 argv/env 里可能还没有 PROJECT_ROOT，需要靠目录特征定位。
 func DetectProjectRoot() string { return resolveProjectRoot() }
+
+// envInt 读一个非负整数；未设置、解析失败或为负都退回默认值。
+func envInt(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 0 {
+		return fallback
+	}
+	return value
+}
+
+// envBool 把 `1/true/on/yes` 当作真，其余（含未设置）当作假。
+func envBool(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
+	case "1", "true", "on", "yes":
+		return true
+	default:
+		return false
+	}
+}

@@ -7,7 +7,17 @@ import (
 
 // EnsurePlaybackMetadata upgrades only an already verified playback table.
 // A nullable JSON column preserves optional booleans without rewriting old rows.
+//
+// 表不存在时直接返回：空库/极老的库由 VerifySchema 统一报错，这里不抢先报
+// 一条信息更少的错。
 func EnsurePlaybackMetadata(conn *sql.DB) error {
+	existing, err := ExistingTables(conn)
+	if err != nil {
+		return err
+	}
+	if _, ok := existing["playback_states"]; !ok {
+		return nil
+	}
 	columns, err := Columns(conn, "playback_states")
 	if err != nil {
 		return err

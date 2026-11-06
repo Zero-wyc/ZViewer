@@ -1,0 +1,15 @@
+{
+  "items": [
+    "The host has not joined voice yet",
+    "Failed to join voice chat",
+    "The media channel is not established; check your network (try disabling a proxy or VPN)",
+    "Me",
+    "Could not obtain voice credentials",
+    "Muted this member locally",
+    "Voice action not permitted",
+    "Voice connection failed",
+    "Could not establish the voice connection, retrying",
+    "Voice connection lost, reconnecting...",
+    "Piik voice does not support removing members as the host"
+  ]
+}

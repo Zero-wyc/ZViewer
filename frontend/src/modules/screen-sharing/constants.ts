@@ -1,8 +1,3 @@
-import { ICE_SERVERS } from '@/modules/p2p/constants'
-
-// 重新导出以保持 screen-sharing 模块内向后兼容
-export { ICE_SERVERS }
-
 export const FRAME_RATE_OPTIONS = [
   { label: '15 fps', value: 15 },
   { label: '30 fps', value: 30 },
@@ -46,3 +41,104 @@ export const RESOLUTION_OPTIONS: { label: string; value: ResolutionPreset }[] =
     { label: '2K', value: '2k' },
     { label: '4K', value: '4k' },
   ]
+
+/**
+ * 画面偏好（浏览器在带宽/CPU 不足时牺牲什么）。
+ *
+ * `maintain-resolution` 保清晰度降帧，`maintain-framerate` 保流畅降分辨率，
+ * `balanced` 交给浏览器权衡。它只影响编码器在压力下的选择，不改变上限。
+ */
+export type DegradationPreferenceOption = {
+  value: RTCDegradationPreference
+  /** 词条 key（中文原文），渲染期走 t() */
+  labelKey: string
+  hintKey: string
+}
+
+export const DEGRADATION_OPTIONS: DegradationPreferenceOption[] = [
+  {
+    value: 'maintain-resolution',
+    labelKey: '清晰',
+    hintKey: '带宽不足时保分辨率、降帧率',
+  },
+  {
+    value: 'balanced',
+    labelKey: '均衡',
+    hintKey: '交给浏览器权衡',
+  },
+  {
+    value: 'maintain-framerate',
+    labelKey: '流畅',
+    hintKey: '带宽不足时保帧率、降分辨率',
+  },
+]
+
+/** 系统声音的码率档位（与 core/quality 的 SCREEN_AUDIO_BITRATES 同源）。 */
+export const AUDIO_BITRATE_OPTIONS: {
+  labelKey: string
+  value: number
+  hintKey: string
+}[] = [
+  { labelKey: '普通', value: 64_000, hintKey: '人声为主，省带宽' },
+  { labelKey: '音乐', value: 128_000, hintKey: '默认，音乐与视频兼顾' },
+  { labelKey: '保真', value: 192_000, hintKey: '音乐为主，占用更高' },
+]
+
+/**
+ * 一键画质档位。
+ *
+ * 只描述分辨率与帧率：屏幕共享不设码率上限，带宽由浏览器拥塞控制决定，
+ * 档位再带一个 Mbps 数字只会让网络变好之后画质仍被旧上限压着。
+ * `labelKey` / `hintKey` 都是词条 key，渲染期走 t()。
+ */
+export type QualityPresetId = 'smooth' | 'hd' | 'high-fps'
+
+export interface QualityPresetOption {
+  id: QualityPresetId
+  labelKey: string
+  hintKey: string
+  resolutionPreset: ResolutionPreset
+  frameRate: number
+}
+
+export const QUALITY_PRESETS: QualityPresetOption[] = [
+  {
+    id: 'smooth',
+    labelKey: '流畅',
+    hintKey: '720P · 30fps，网络一般时选它',
+    resolutionPreset: '720p',
+    frameRate: 30,
+  },
+  {
+    id: 'hd',
+    labelKey: '高清',
+    hintKey: '1080P · 30fps，默认档位',
+    resolutionPreset: '1080p',
+    frameRate: 30,
+  },
+  {
+    id: 'high-fps',
+    labelKey: '高帧',
+    hintKey: '1080P · 60fps，画面有快速运动时选它',
+    resolutionPreset: '1080p',
+    frameRate: 60,
+  },
+]
+
+/**
+ * 当前设置命中的档位；分辨率与帧率都对不上就是自定义（返回 null）。
+ *
+ * 只比对档位名与帧率，不比分辨率尺寸：用户把档位从 1080p 改成 2K 时
+ * 就是自定义，界面不该继续高亮「高清」。
+ */
+export function matchQualityPreset(settings: {
+  resolutionPreset: ResolutionPreset
+  frameRate: number
+}): QualityPresetId | null {
+  const hit = QUALITY_PRESETS.find(
+    (preset) =>
+      preset.resolutionPreset === settings.resolutionPreset &&
+      preset.frameRate === settings.frameRate
+  )
+  return hit ? hit.id : null
+}

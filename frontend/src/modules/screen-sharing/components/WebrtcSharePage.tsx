@@ -1,15 +1,15 @@
 /**
  * WebRTC 屏幕共享房主端。
  *
- * 从 SharePage.tsx 中拆分，仅处理 WebRTC 子模式的房主逻辑：
- * - 本地媒体流采集（getDisplayMedia + 麦克风）
- * - 多 viewer PeerConnection 管理
- * - 信令通道订阅
- * - 本地预览播放器 + 批注层 + 控制栏
+ * 三件事：采集与混音（`ShareHostSession`）、本地预览、控制栏。
+ * 多观众不再由本页管理——服务端为每个观众下发一条候选，会话按候选建发布端，
+ * 页面只读会话暴露的计数。
  *
- * SharePage 分发器根据 shareMethod 决定渲染本组件或 StreamPushPage。
+ * 共享中的「共享设置」不在这里渲染：它常驻在下方控制卡片区
+ * （RoomPage → RoomLayout），本页把「当前设置 + 状态 + 动作」发布到
+ * `useShareSettingsBridge` 供那张卡片消费。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Monitor, Copy, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -24,49 +24,63 @@ import { useRoomStore } from '@/store/roomStore'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { useLocalMediaStream } from '../hooks/useLocalMediaStream'
-import { useHostPeerConnections } from '../hooks/useHostPeerConnections'
-import { useSignalingChannel } from '../hooks/useSignalingChannel'
+import { usePiikShareHost } from '@/modules/piik-share/usePiikShareHost'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
+import { parameterOverrideText } from '../utils/shareMessages'
 import {
   loadMediaSettings,
   saveMediaSettings,
+  type CaptureSource,
+  type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
-import type { ResolutionPreset } from '../constants'
-import { useP2PTunnel } from '@/modules/p2p'
-import type { P2PStatus } from '@/modules/p2p/types'
-import { MediaSettingsCard } from './MediaSettingsCard'
+import { browserCameras, type CaptureDevice } from '../core/capture-devices'
+import { maxFramerateForResolution } from '../utils/frame-rate'
+import type { ShareEdgeStats } from '../core/edge-stats'
+import {
+  QUALITY_PRESETS,
+  type QualityPresetId,
+  type ResolutionPreset,
+} from '../constants'
+import { ShareSettingsCard } from './ShareSettingsCard'
+import {
+  useShareSettingsBridge,
+  type ShareSettingsActions,
+} from '../store/shareSettingsBridge'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
 import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
 import { t } from '@/i18n'
 
-/** P2P 状态快照，由 WebrtcSharePage 提升到 RoomPage 供 RoomLayout 使用 */
-export interface P2PStateSnapshot {
-  enabled: boolean
-  pc: RTCPeerConnection | null
-  status: P2PStatus
-  fallbackNotice: boolean
-  /** 切换 P2P 开关（enabled=true 启用，false 禁用） */
-  toggle: (enabled: boolean) => void
-}
+/**
+ * 「开始共享」那张卡的白色底衬。
+ *
+ * 卡片站在房间中区的黑色舞台上。只靠 `--glass-bg` 的话，玻璃透明度被调到
+ * 30% 以下时卡片会塌成一块黑——里面的白底档位按钮、浅色描边全被吞掉，
+ * 卡片边缘也糊进舞台。这里再垫一层固定浓度的 surface-container：两层叠加后
+ * 不透明度恒 ≥ 85%，玻璃调高仍照常更白，调低也不会变黑。
+ *
+ * 用 `background-image` 而不是把浓度算进背景色，是因为 `rgba()` 的 legacy
+ * 语法里塞不进 `max()`；`linear-gradient` 在这里只是纯色填充的载体，
+ * 两层同色、不产生任何渐变。
+ */
+const STAGE_CARD_BASE_WASH = `linear-gradient(rgba(var(--md-sys-color-surface-container-rgb), 0.85), rgba(var(--md-sys-color-surface-container-rgb), 0.85))`
 
 interface WebrtcSharePageProps {
   className?: string
   style?: React.CSSProperties
-  onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
+  onStatsEdgesChange?: (edges: ShareEdgeStats[]) => void
   /** 采集实测帧率变化回调，提升到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
-  /** P2P 状态变化回调，提升到 RoomPage 供 RoomLayout 的 SharingStatusPanel 使用 */
-  onP2PStateChange?: (state: P2PStateSnapshot) => void
+  /** 媒体走向变化回调（直连 / 服务端转发），供统计面板标注。 */
+  onSharingModeChange?: (mode: 'direct' | 'relay') => void
 }
 
 function WebrtcSharePage({
   className,
   style,
-  onStatsPeerConnectionChange,
+  onStatsEdgesChange,
   onCaptureFpsChange,
-  onP2PStateChange,
+  onSharingModeChange,
 }: WebrtcSharePageProps) {
   const navigate = useNavigate()
   const { socket, connected } = useSocket()
@@ -76,109 +90,94 @@ function WebrtcSharePage({
   const currentRoomId = roomId ?? ''
 
   // 媒体设置持久化（借鉴 mirotalk lsSettings）：进房时恢复上次选择，
-  // 变化时写回 localStorage
+  // 变化时写回 localStorage。
+  //
+  // 所有参数放在**一个** state 对象里：拆成七个 useState 时，任何一次
+  // 「档位一次性改三项」都会读到彼此的旧值（settingsRef 要等下一次渲染才
+  // 更新），于是界面显示 1080P/60fps 而实际下发的还是旧组合。
   const [savedSettings] = useState(loadMediaSettings)
   const copy = useCopyToClipboard()
-  const [frameRate, setFrameRate] = useState(savedSettings.frameRate)
-  const [maxBitrateMbps, setMaxBitrateMbps] = useState(
-    savedSettings.maxBitrateMbps
+  const [settings, setSettings] =
+    useState<WebrtcShareMediaSettings>(savedSettings)
+  const settingsRef = useRef<WebrtcShareMediaSettings>(savedSettings)
+  useEffect(() => {
+    settingsRef.current = settings
+    saveMediaSettings(settings)
+  }, [settings])
+
+  /**
+   * 改设置并**同步**返回合并后的结果。
+   *
+   * ref 立刻更新（事件处理里紧接着要把新值交给会话），state 只负责渲染。
+   */
+  const commitSettings = useCallback(
+    (patch: Partial<WebrtcShareMediaSettings>): WebrtcShareMediaSettings => {
+      const next = { ...settingsRef.current, ...patch }
+      settingsRef.current = next
+      setSettings(next)
+      return next
+    },
+    []
   )
-  const [shareSystemAudio, setShareSystemAudio] = useState(
-    savedSettings.shareSystemAudio
-  )
-  const [shareMicrophone, setShareMicrophone] = useState(
-    savedSettings.shareMicrophone
-  )
-  const [resolutionPreset, setResolutionPreset] = useState(
-    savedSettings.resolutionPreset
-  )
+
   const [closing, setClosing] = useState(false)
   const [confirmClose, setConfirmClose] = useState(false)
-
-  useEffect(() => {
-    saveMediaSettings({
-      frameRate,
-      maxBitrateMbps,
-      shareSystemAudio,
-      shareMicrophone,
-      resolutionPreset,
-    })
-  }, [
-    frameRate,
-    maxBitrateMbps,
-    shareSystemAudio,
-    shareMicrophone,
-    resolutionPreset,
-  ])
-
-  // 帧率切换时自动调整推荐码率（仅在未共享时）
-  // 码率不足是 60fps 降帧的首要原因，自动提升到推荐值避免用户手动调整
-  const handleFrameRateChange = useCallback((next: number) => {
-    setFrameRate(next)
-    // 推荐码率：15fps→4, 30fps→8, 45fps→12, 60fps→16
-    const recommended = Math.max(2, Math.round(next * 0.267))
-    setMaxBitrateMbps((prev) => {
-      // 仅当当前码率低于推荐值时自动提升，不覆盖用户主动设置的高码率
-      if (prev < recommended) return recommended
-      return prev
-    })
-  }, [])
+  const [starting, setStarting] = useState(false)
+  const [switchingResolution, setSwitchingResolution] = useState(false)
+  const [switchingSource, setSwitchingSource] = useState(false)
+  /** 可选摄像头（`enumerateDevices` 的结果，未授权时 label 为空）。 */
+  const [cameras, setCameras] = useState<CaptureDevice[]>([])
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
-  const [localVideoEl, setLocalVideoEl] = useState<HTMLVideoElement | null>(
-    null
-  )
+  const [localVideoVersion, setLocalVideoVersion] = useState(0)
   const handleLocalVideoReady = useCallback((node: HTMLVideoElement | null) => {
+    const prev = localVideoRef.current
     localVideoRef.current = node
-    setLocalVideoEl(node)
+    if (node && !prev) setLocalVideoVersion((v) => v + 1)
   }, [])
   const handleStreamEndedRef = useRef<() => void>(() => {})
 
   const {
-    stream,
-    micStream,
-    isSharing,
-    starting,
-    isPaused,
-    switchingResolution,
-    error: mediaError,
+    sharing: isSharing,
+    paused: isPaused,
+    peerCount,
+    viewerCount,
+    edges: statsEdges,
+    sharingMode,
+    parameterOverride,
+    previewStream,
+    error,
     start,
     stop,
-    pause,
-    resume,
+    setPaused,
+    setMicrophone,
+    applyProfile,
     switchResolution,
-  } = useLocalMediaStream({
-    frameRate,
-    maxBitrateMbps,
-    shareSystemAudio,
-    shareMicrophone,
-    resolutionPreset,
+    switchCaptureSource,
+    autoDowngrade,
+  } = usePiikShareHost({
+    roomId: currentRoomId,
+    videoRef: localVideoRef,
+    videoVersion: localVideoVersion,
     onStreamEnded: () => handleStreamEndedRef.current(),
-    localVideoRef,
   })
 
-  const {
-    connectionCount,
-    statsPeerConnection,
-    viewerIds,
-    handleSignalAnswer,
-    handleSignalIceCandidate,
-    handleViewerReady,
-    handleViewerJoined,
-    handleViewerLeft,
-    replaceVideoTrack,
-    cleanup: cleanupPeerConnections,
-  } = useHostPeerConnections({
-    socket,
-    localStream: stream,
-    micStream,
-    frameRate,
-    maxBitrateMbps,
-  })
+  const stopSharing = useCallback(() => {
+    stop()
+  }, [stop])
 
   const handleStreamEnded = useCallback(() => {
-    stop()
-    cleanupPeerConnections()
+    const source = settingsRef.current.captureSource
+    // 采集被系统级停掉（用户点了浏览器的「停止共享」、摄像头被拔掉/被抢占）。
+    // 这条日志是现场唯一能解释「为什么共享突然停了」的线索。
+    console.warn('[share] capture ended', { source })
+    stopSharing()
+    if (source === 'camera') {
+      // 摄像头掉线只停共享，**不关房间**：房主可能正在一起看/一起听，
+      // 不该因为一颗摄像头把整场会话关掉，他换回屏幕共享就能继续。
+      message.warning(t('摄像头已断开，共享已停止'))
+      return
+    }
     if (!socket) return
     socket.emit('close-room', (response: CloseRoomResponse) => {
       if (response.success) {
@@ -188,44 +187,42 @@ function WebrtcSharePage({
         message.error(response.message ?? t('关闭房间失败'))
       }
     })
-  }, [stop, cleanupPeerConnections, socket, navigate])
+  }, [stopSharing, socket, navigate])
 
   useEffect(() => {
     handleStreamEndedRef.current = handleStreamEnded
   }, [handleStreamEnded])
 
-  useEffect(() => {
-    if (localVideoEl && stream && localVideoEl.srcObject !== stream) {
-      // eslint-disable-next-line react-hooks/immutability -- 修改 DOM 元素属性，非 React 状态
-      localVideoEl.srcObject = stream
-      void localVideoEl.play().catch(() => {})
-    }
-  }, [localVideoEl, stream])
-
   const handleRoomClosed = useCallback(() => {
     // 提示与退房导航由 RoomPage 统一处理（避免与页面级 room-closed
-    // 响应重复弹 toast / 导航冲突）；这里只做本组件的即时清理：
-    // 停掉本地共享流（摄像头/屏幕 track）与所有观众 PC。
+    // 响应重复弹 toast / 导航冲突）；这里只做本组件的即时清理。
     setClosing(true)
-    stop()
-    cleanupPeerConnections()
-  }, [stop, cleanupPeerConnections])
+    stopSharing()
+  }, [stopSharing])
 
   const handleRoomModeChanged = useCallback(
     (data: RoomModeChangedPayload) => {
       setMode(data.mode)
-      if (data.mode === 'watch-together') {
-        stop()
-        cleanupPeerConnections()
-      }
+      if (data.mode === 'watch-together') stopSharing()
     },
-    [setMode, stop, cleanupPeerConnections]
+    [setMode, stopSharing]
   )
 
+  // 房间生命周期只订这两个事件：信令已经全部走 `share` 单一通道，
+  // 旧 signal-* / viewer-* 事件前端不再收发。
+  useEffect(() => {
+    if (!socket) return
+    socket.on('room-closed', handleRoomClosed)
+    socket.on('room-mode-changed', handleRoomModeChanged)
+    return () => {
+      socket.off('room-closed', handleRoomClosed)
+      socket.off('room-mode-changed', handleRoomModeChanged)
+    }
+  }, [socket, handleRoomClosed, handleRoomModeChanged])
+
   const handleStopSharing = useCallback(() => {
-    stop()
-    cleanupPeerConnections()
-  }, [stop, cleanupPeerConnections])
+    stopSharing()
+  }, [stopSharing])
 
   const handleClearAnnotations = useCallback(() => {
     if (!socket || !currentRoomId) return
@@ -246,12 +243,13 @@ function WebrtcSharePage({
   }, [copy, currentRoomId])
 
   const handleCopyError = useCallback(() => {
-    if (!mediaError) return
-    void copy(mediaError, {
+    const text = error
+    if (!text) return
+    void copy(text, {
       successMessage: t('错误详情已复制，可粘贴给管理员'),
       errorMessage: t('复制失败，请手动选择文本复制'),
     })
-  }, [copy, mediaError])
+  }, [copy, error])
 
   const inIframe = (() => {
     try {
@@ -266,146 +264,203 @@ function WebrtcSharePage({
   }, [])
 
   const handleTogglePause = useCallback(() => {
-    if (isPaused) resume()
-    else pause()
-  }, [isPaused, pause, resume])
+    setPaused(!isPaused)
+  }, [isPaused, setPaused])
 
-  // 开始共享：失败时向房间广播 sharer-error（借鉴 mirotalk
-  // handleToggleScreenException 的一致性广播）——观众可能已进入等待页，
-  // 明确提示「启动失败，等待房主重试」而不是无限黑屏等待
   const handleStart = useCallback(async () => {
-    const ok = await start()
-    if (ok || !socket || !currentRoomId) return
-    socket.emit('sharer-error', { roomId: currentRoomId })
-  }, [start, socket, currentRoomId])
+    if (starting) return
+    setStarting(true)
+    try {
+      await start(settingsRef.current)
+    } finally {
+      setStarting(false)
+    }
+  }, [start, starting])
 
   const handleRefresh = useCallback(async () => {
-    stop()
-    cleanupPeerConnections()
+    stopSharing()
     await handleStart()
-  }, [stop, cleanupPeerConnections, handleStart])
+  }, [stopSharing, handleStart])
 
-  // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中走
-  // replaceTrack 热切换——重新采集 → 替换观众 sender track → 本地换流，
-  // PC 全程存活、观众无感（借鉴 mirotalk refreshMyStreamToPeers）。
-  // 重新采集失败（用户取消授权等）时回滚档位显示。
+  // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中重新下发采集
+  // 约束并热替换 sender track——PC 全程存活、观众无感。采集失败时回滚档位，
+  // 否则界面显示的档位和实际画面不一致。
+  //
+  // 分辨率会锁死可用帧率上限（2K=144 / 4K=64，宏块率预算），切换时先夹帧率：
+  // 否则「4K + 144fps」这种组合会被采集直接拒绝，用户只看到共享起不来。
   const handleResolutionChange = useCallback(
     async (next: ResolutionPreset) => {
-      if (next === resolutionPreset) return
+      if (next === settingsRef.current.resolutionPreset) return
+      const previous = settingsRef.current
+      const frameRate = Math.min(
+        previous.frameRate,
+        maxFramerateForResolution(next)
+      )
       if (!isSharing) {
-        setResolutionPreset(next)
+        commitSettings({ resolutionPreset: next, frameRate })
         return
       }
-      const prev = resolutionPreset
-      setResolutionPreset(next)
-      const newTrack = await switchResolution(next)
-      if (!newTrack) {
-        setResolutionPreset(prev)
-        return
+      const pending = commitSettings({ resolutionPreset: next, frameRate })
+      setSwitchingResolution(true)
+      try {
+        const ok = await switchResolution(pending)
+        if (!ok) {
+          await switchResolution(commitSettings(previous))
+          message.error(t('分辨率切换失败，已保留原分辨率'))
+          return
+        }
+        message.success(t('分辨率已切换'))
+      } finally {
+        setSwitchingResolution(false)
       }
-      await replaceVideoTrack(newTrack)
-      message.success(t('分辨率已切换'))
     },
-    [resolutionPreset, isSharing, switchResolution, replaceVideoTrack]
+    [isSharing, switchResolution, commitSettings]
   )
 
-  useSignalingChannel({
-    socket,
-    onSignalAnswer: handleSignalAnswer,
-    onSignalIceCandidate: handleSignalIceCandidate,
-    onViewerReady: handleViewerReady,
-    onViewerJoined: handleViewerJoined,
-    onViewerLeft: handleViewerLeft,
-    onRoomClosed: handleRoomClosed,
-    onRoomModeChanged: handleRoomModeChanged,
-  })
-
-  // P2P 直连隧道（房主为 sender，使用第一个观众作为对端）
-  const [p2pFallbackNotice, setP2pFallbackNotice] = useState(false)
-  const firstViewerId = viewerIds[0] ?? null
-  const { enableP2P, disableP2P, p2pEnabled, p2pPC, p2pStatus } = useP2PTunnel({
-    socket,
-    roomId: currentRoomId,
-    localStream: stream,
-    role: 'sender',
-    remotePeerId: firstViewerId,
-    onStatusChange: (status, didFallback) => {
-      if (didFallback) {
-        setP2pFallbackNotice(true)
-        message.warning(t('P2P 连接失败，已回退到服务器中转'))
-      } else if (status === 'connected') {
-        setP2pFallbackNotice(false)
-        message.success(t('P2P 直连已建立'))
-      } else if (status === 'connecting') {
-        setP2pFallbackNotice(false)
-      }
+  // 帧率热更新：改的是编码参数，不重采集、不重协商。
+  const handleFrameRateSettingChange = useCallback(
+    (next: number) => {
+      const pending = commitSettings({ frameRate: next })
+      if (isSharing) void applyProfile(pending)
     },
-  })
+    [isSharing, applyProfile, commitSettings]
+  )
 
-  // 房主切换 P2P 开关：触发 hook enable/disable，并广播给房间内其他成员
-  const handleToggleP2P = useCallback(
+  // 画面偏好与音频码率都只改编码参数：不重采集、不重协商，共享中即时生效。
+  const handleDegradationChange = useCallback(
+    (preference: RTCDegradationPreference) => {
+      const pending = commitSettings({ degradationPreference: preference })
+      if (isSharing) void applyProfile(pending)
+    },
+    [isSharing, applyProfile, commitSettings]
+  )
+
+  const handleAudioBitrateChange = useCallback(
+    (bitrate: number) => {
+      const pending = commitSettings({ maxAudioBitrate: bitrate })
+      if (isSharing) void applyProfile(pending)
+    },
+    [isSharing, applyProfile, commitSettings]
+  )
+
+  // 一键档位：分辨率变了要重采集，只变帧率则改编码参数。
+  const handlePresetChange = useCallback(
+    async (id: QualityPresetId) => {
+      const preset = QUALITY_PRESETS.find((item) => item.id === id)
+      if (!preset || switchingResolution) return
+      if (preset.resolutionPreset !== settingsRef.current.resolutionPreset) {
+        // 先把帧率写进去，切分辨率时一并下发。
+        commitSettings({ frameRate: preset.frameRate })
+        await handleResolutionChange(preset.resolutionPreset)
+        return
+      }
+      const pending = commitSettings({
+        frameRate: preset.frameRate,
+        resolutionPreset: preset.resolutionPreset,
+      })
+      if (isSharing) void applyProfile(pending)
+    },
+    [
+      isSharing,
+      applyProfile,
+      commitSettings,
+      handleResolutionChange,
+      switchingResolution,
+    ]
+  )
+
+  // 麦克风是混进同一条音轨的，共享中可以直接开关；系统声必须重新采集。
+  const handleMicrophoneChange = useCallback(
     (enabled: boolean) => {
-      if (enabled) {
-        void enableP2P()
-      } else {
-        disableP2P()
-      }
-      if (socket && currentRoomId) {
-        socket.emit('p2p-mode-change', { roomId: currentRoomId, enabled })
-      }
+      commitSettings({ shareMicrophone: enabled })
+      if (isSharing) void setMicrophone(enabled)
     },
-    [enableP2P, disableP2P, socket, currentRoomId]
+    [isSharing, setMicrophone, commitSettings]
   )
 
-  // 接收房间内 P2P 模式广播（观众端同步开关状态）
+  const handleSystemAudioChange = useCallback(
+    (enabled: boolean) => {
+      commitSettings({ shareSystemAudio: enabled })
+    },
+    [commitSettings]
+  )
+
+  // 摄像头列表：只在选「摄像头」时枚举。enumerateDevices 不触发权限，
+  // 但未授权时 label 是空串，面板会用序号占位。
   useEffect(() => {
-    if (!socket) return
-    const handleP2PModeChange = (data: {
-      roomId: string
-      enabled: boolean
-    }) => {
-      if (!currentRoomId || data.roomId !== currentRoomId) return
-      if (data.enabled) {
-        void enableP2P()
-      } else {
-        disableP2P()
-      }
-    }
-    socket.on('p2p-mode-change', handleP2PModeChange)
+    if (settings.captureSource !== 'camera') return
+    let cancelled = false
+    void browserCameras()
+      .then((list) => {
+        if (!cancelled) setCameras(list)
+      })
+      .catch(() => {
+        if (!cancelled) setCameras([])
+      })
     return () => {
-      socket.off('p2p-mode-change', handleP2PModeChange)
+      cancelled = true
     }
-  }, [socket, currentRoomId, enableP2P, disableP2P])
+  }, [settings.captureSource])
 
-  // 上报 P2P 状态到父组件（含 toggle 方法，供 SharingStatusPanel 开关调用）
-  useEffect(() => {
-    onP2PStateChange?.({
-      enabled: p2pEnabled,
-      pc: p2pPC,
-      status: p2pStatus,
-      fallbackNotice: p2pFallbackNotice,
-      toggle: handleToggleP2P,
-    })
-  }, [
-    p2pEnabled,
-    p2pPC,
-    p2pStatus,
-    p2pFallbackNotice,
-    handleToggleP2P,
-    onP2PStateChange,
-  ])
+  /**
+   * 换采集源 / 换摄像头。
+   *
+   * 共享中走 `switchSource`：采集新流 → `replaceTrack`，PC 不重协商、观众端
+   * 无感。失败（摄像头被别的程序占着等）要回滚设置，否则界面显示「摄像头」
+   * 而画面还是屏幕，比直接报错更让人困惑。
+   */
+  const applyCaptureSource = useCallback(
+    async (patch: Partial<WebrtcShareMediaSettings>, failureText: string) => {
+      const previous = settingsRef.current
+      const pending = commitSettings(patch)
+      if (!isSharing) return
+      setSwitchingSource(true)
+      try {
+        const ok = await switchCaptureSource(pending)
+        if (!ok) {
+          commitSettings(previous)
+          message.error(t(failureText))
+        }
+      } finally {
+        setSwitchingSource(false)
+      }
+    },
+    [commitSettings, isSharing, switchCaptureSource]
+  )
+
+  const handleCaptureSourceChange = useCallback(
+    (source: CaptureSource) => {
+      if (source === settingsRef.current.captureSource) return
+      void applyCaptureSource(
+        { captureSource: source },
+        t('切换采集源失败，已保留原画面')
+      )
+    },
+    [applyCaptureSource]
+  )
+
+  const handleCameraDeviceChange = useCallback(
+    (deviceId: string) => {
+      if (deviceId === settingsRef.current.cameraDeviceId) return
+      void applyCaptureSource(
+        { cameraDeviceId: deviceId },
+        t('切换摄像头失败，已保留原画面')
+      )
+    },
+    [applyCaptureSource]
+  )
 
   useEffect(() => {
-    onStatsPeerConnectionChange?.(statsPeerConnection)
-  }, [statsPeerConnection, onStatsPeerConnectionChange])
+    onStatsEdgesChange?.(statsEdges)
+  }, [statsEdges, onStatsEdgesChange])
 
   // 采集实测帧率计：MediaStreamTrackProcessor 纯数帧，近零开销。
   // 与观众 PC 的 outbound-rtp 发送帧率分离展示，用于定位瓶颈
   // （采集低=捕获问题；采集高发送低=编码丢帧；码率上不去=网络）。
   const [captureFps, setCaptureFps] = useState<number | null>(null)
   useEffect(() => {
-    if (!stream) return
-    const videoTrack = stream.getVideoTracks()[0]
+    if (!previewStream) return
+    const videoTrack = previewStream.getVideoTracks()[0]
     if (!videoTrack) return
     const meter = createCaptureFrameMeter(videoTrack)
     if (!meter) return
@@ -419,32 +474,123 @@ function WebrtcSharePage({
       // 共享流停止时同步清零，避免面板残留最后一次采样值
       setCaptureFps(null)
     }
-  }, [stream])
+  }, [previewStream])
 
   useEffect(() => {
     onCaptureFpsChange?.(captureFps)
   }, [captureFps, onCaptureFpsChange])
 
+  // 编码跟不上自动降档：同一次降档只提示一遍（state 里是纯数据，
+  // 每 2 秒采样都会带上同一个值，没有去重会刷屏）。
+  const notifiedDowngradeRef = useRef('')
+  useEffect(() => {
+    if (!autoDowngrade) return
+    const key = `${autoDowngrade.width}x${autoDowngrade.height}@${autoDowngrade.frameRate}`
+    if (notifiedDowngradeRef.current === key) return
+    notifiedDowngradeRef.current = key
+    message.warning(
+      t('编码跟不上，已自动降到 {{value}}', {
+        value: `${autoDowngrade.width} × ${autoDowngrade.height} · ${autoDowngrade.frameRate} fps`,
+      }),
+      { duration: 8000 }
+    )
+  }, [autoDowngrade])
+
+  useEffect(() => {
+    onSharingModeChange?.(sharingMode)
+  }, [sharingMode, onSharingModeChange])
+
+  // 共享中的错误必须浮出来：未共享时错误渲染在开始卡片上方，一旦开始共享，
+  // 那块 UI 就不在了——服务端拒绝 share.start（或路由耗尽）会变成「界面显示
+  // 共享中、观众什么都没有」，而且没有任何提示。
+  useEffect(() => {
+    if (!isSharing || !error) return
+    message.error(error ?? t('共享出错，请重新开始共享'))
+  }, [error, isSharing])
+
   useEffect(() => {
     setIsSharing(isSharing)
   }, [isSharing, setIsSharing])
 
-  // 房主开始共享时广播 sharer-ready
+  // ── 把设置发布给下方的「共享设置」卡片 ─────────────────────
+  // 卡片渲染在 RoomPage 的控制卡片区，不是本组件的子节点，只能经桥共享。
+  // 动作集合的引用保持恒定（内部转发到最新一次渲染的处理器），否则每次渲染
+  // 都会向 store 发布一份新 binding，卡片跟着白重渲染——包括每秒的统计刷新。
+  const actionsRef = useRef({
+    handlePresetChange,
+    handleResolutionChange,
+    handleFrameRateSettingChange,
+    handleDegradationChange,
+    handleAudioBitrateChange,
+    handleSystemAudioChange,
+    handleMicrophoneChange,
+    handleCaptureSourceChange,
+    handleCameraDeviceChange,
+  })
   useEffect(() => {
-    if (!isSharing || !socket || !currentRoomId) return
-    socket.emit(
-      'sharer-ready',
-      { roomId: currentRoomId },
-      (response: { success: boolean; message?: string }) => {
-        if (!response.success) {
-          console.warn(
-            '[WebrtcSharePage] sharer-ready failed:',
-            response.message
-          )
-        }
-      }
-    )
-  }, [isSharing, socket, currentRoomId])
+    actionsRef.current = {
+      handlePresetChange,
+      handleResolutionChange,
+      handleFrameRateSettingChange,
+      handleDegradationChange,
+      handleAudioBitrateChange,
+      handleSystemAudioChange,
+      handleMicrophoneChange,
+      handleCaptureSourceChange,
+      handleCameraDeviceChange,
+    }
+  })
+
+  const shareSettingsActions = useMemo<ShareSettingsActions>(
+    () => ({
+      onPresetChange: (id) => void actionsRef.current.handlePresetChange(id),
+      onResolutionChange: (preset) =>
+        void actionsRef.current.handleResolutionChange(preset),
+      onFrameRateChange: (fps) =>
+        actionsRef.current.handleFrameRateSettingChange(fps),
+      onDegradationChange: (preference) =>
+        actionsRef.current.handleDegradationChange(preference),
+      onAudioBitrateChange: (bitrate) =>
+        actionsRef.current.handleAudioBitrateChange(bitrate),
+      onSystemAudioChange: (enabled) =>
+        actionsRef.current.handleSystemAudioChange(enabled),
+      onMicrophoneChange: (enabled) =>
+        actionsRef.current.handleMicrophoneChange(enabled),
+      onCaptureSourceChange: (source) =>
+        actionsRef.current.handleCaptureSourceChange(source),
+      onCameraDeviceChange: (deviceId) =>
+        actionsRef.current.handleCameraDeviceChange(deviceId),
+    }),
+    []
+  )
+
+  const publishShareSettings = useShareSettingsBridge((state) => state.publish)
+  const clearShareSettings = useShareSettingsBridge((state) => state.clear)
+
+  useEffect(() => {
+    publishShareSettings({
+      settings,
+      isSharing,
+      switchingResolution,
+      switchingSource,
+      cameras,
+      actions: shareSettingsActions,
+    })
+  }, [
+    publishShareSettings,
+    settings,
+    isSharing,
+    switchingResolution,
+    switchingSource,
+    cameras,
+    shareSettingsActions,
+  ])
+
+  // 卸载即撤下绑定：切到观众端/一起看后，卡片不能还拿着上一场共享的会话动作。
+  useEffect(() => () => clearShareSettings(), [clearShareSettings])
+
+  const errorText = error
+  const overrideText = parameterOverrideText(parameterOverride)
 
   if (!currentRoomId) {
     return (
@@ -475,11 +621,25 @@ function WebrtcSharePage({
           </div>
           <AnnotationLayer socket={socket} roomId={currentRoomId} readOnly />
           <SharingPausedOverlay visible={isPaused} />
+          {overrideText && (
+            <div
+              className="pointer-events-none absolute left-1/2 top-4 z-10 -translate-x-1/2 rounded-full px-3 py-1.5 text-xs shadow-sm"
+              style={{
+                border: '1px solid var(--md-sys-color-outline-variant)',
+                backgroundColor: 'var(--glass-bg)',
+                color: 'var(--md-sys-color-on-surface-variant)',
+                backdropFilter: 'blur(var(--glass-blur-strong))',
+                WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
+              }}
+            >
+              {overrideText}
+            </div>
+          )}
           <ShareControlsBar
             isPaused={isPaused}
             connected={connected}
-            viewerCount={viewerIds.length}
-            connectionCount={connectionCount}
+            viewerCount={viewerCount}
+            connectionCount={peerCount}
             closing={closing}
             onTogglePause={handleTogglePause}
             onCopyLink={handleCopy}
@@ -489,61 +649,39 @@ function WebrtcSharePage({
           />
         </>
       ) : (
-        <div className="flex h-full min-h-0 flex-col items-center justify-center gap-5 overflow-y-auto p-6 pt-20">
-          <div
-            className="glass-card w-full max-w-sm rounded-2xl border p-6 shadow-sm"
-            style={{
-              borderColor:
-                'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
-              backgroundColor: 'var(--glass-bg)',
-              backdropFilter: 'blur(var(--glass-blur-strong))',
-              WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
-            }}
-          >
-            <div className="mb-5 flex items-center justify-between">
-              <Space align="center" size="sm">
-                <Monitor className="h-5 w-5 text-[var(--md-sys-color-primary)]" />
-                <Text className="text-base font-semibold">
-                  {t('WebRTC 屏幕共享')}
-                </Text>
-              </Space>
-              <Tag color={connected ? 'success' : 'default'}>
-                {connected ? t('已连接') : t('未连接')}
-              </Tag>
-            </div>
-
-            <MediaSettingsCard
-              frameRate={frameRate}
-              maxBitrateMbps={maxBitrateMbps}
-              shareSystemAudio={shareSystemAudio}
-              shareMicrophone={shareMicrophone}
-              resolutionPreset={resolutionPreset}
-              isSharing={isSharing}
-              switchingResolution={switchingResolution}
-              onFrameRateChange={handleFrameRateChange}
-              onMaxBitrateChange={setMaxBitrateMbps}
-              onShareSystemAudioChange={setShareSystemAudio}
-              onShareMicrophoneChange={setShareMicrophone}
-              onResolutionChange={(value) => {
-                void handleResolutionChange(value)
+        <div className="flex h-full min-h-0 flex-col items-center justify-start gap-5 overflow-y-auto p-6 pt-20">
+          {errorText && (
+            <div
+              className="relative w-full max-w-2xl shrink-0 rounded-xl border px-4 py-3 text-xs"
+              style={{
+                borderColor: 'var(--md-sys-color-error-container)',
+                backgroundColor: 'var(--md-sys-color-error-container)',
               }}
-            />
-
-            <Button
-              variant="primary"
-              className="mt-5 w-full"
-              icon={<Monitor className="h-5 w-5" />}
-              onClick={handleStart}
-              loading={starting}
-              disabled={starting || closing}
             >
-              {starting ? t('正在请求权限...') : t('开始共享')}
-            </Button>
-          </div>
+              <Paragraph
+                type="danger"
+                className="m-0 whitespace-pre-line pr-8 text-xs"
+              >
+                {errorText}
+              </Paragraph>
+              <button
+                type="button"
+                onClick={handleCopyError}
+                className="absolute right-2 top-2 rounded p-1 opacity-70 hover:opacity-100"
+                style={{
+                  color: 'var(--md-sys-color-on-error-container)',
+                  backgroundColor: 'transparent',
+                }}
+                title={t('复制错误详情')}
+              >
+                <Copy className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          )}
 
           {inIframe && (
             <div
-              className="w-full max-w-sm rounded-xl border px-4 py-3 text-xs"
+              className="w-full max-w-2xl shrink-0 rounded-xl border px-4 py-3 text-xs"
               style={{
                 borderColor: 'var(--md-sys-color-outline-variant)',
                 backgroundColor: 'var(--md-sys-color-tertiary-container)',
@@ -566,41 +704,76 @@ function WebrtcSharePage({
             </div>
           )}
 
-          {mediaError && (
-            <div
-              className="relative w-full max-w-sm rounded-xl border px-4 py-3 text-xs"
-              style={{
-                borderColor: 'var(--md-sys-color-error-container)',
-                backgroundColor: 'var(--md-sys-color-error-container)',
-              }}
-            >
-              <Paragraph
-                type="danger"
-                className="m-0 whitespace-pre-line pr-8 text-xs"
-              >
-                {mediaError}
-              </Paragraph>
-              <button
-                type="button"
-                onClick={handleCopyError}
-                className="absolute right-2 top-2 rounded p-1 opacity-70 hover:opacity-100"
-                style={{
-                  color: 'var(--md-sys-color-on-error-container)',
-                  backgroundColor: 'transparent',
-                }}
-                title={t('复制错误详情')}
-              >
-                <Copy className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          )}
+          {/* 卡片自己限高：设置区滚动，「开始共享」永远贴在卡片底部。
+              房间里的共享区高度有限，把主操作挤到折叠线以下等于藏起它。
+              设置区分两栏（左画面 / 右声音），所以卡片放开到 2xl——竖排的
+              单列在宽屏上会拉成一条又长又窄的条，声音那组永远在折叠线外。
 
-          <Paragraph
-            type="secondary"
-            className="!text-white m-0 max-w-sm text-center text-xs"
+              展开「详细参数」时这块一定会溢出，但滚动条**不显示**：玻璃卡里
+              一条灰色滚动槽会把左右两栏的中缝推歪，也给不出多少信息量。
+              `hide-scrollbar` 保留滚轮/触控板滚动，只是不画那条槽。 */}
+          <div
+            className="glass-card flex max-h-full w-full max-w-2xl flex-col rounded-2xl border p-6 shadow-sm"
+            style={{
+              borderColor:
+                'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
+              backgroundColor: 'var(--glass-bg)',
+              backgroundImage: STAGE_CARD_BASE_WASH,
+              backdropFilter: 'blur(var(--glass-blur-strong))',
+              WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
+            }}
           >
-            {t('将链接发送给观看方，对方打开后即可自动加入房间观看。')}
-          </Paragraph>
+            <div className="mb-4 flex shrink-0 items-center justify-between">
+              <Space align="center" size="sm">
+                <Monitor className="h-5 w-5 text-[var(--md-sys-color-primary)]" />
+                <Text className="text-base font-semibold">
+                  {t('WebRTC 屏幕共享')}
+                </Text>
+              </Space>
+              <Tag color={connected ? 'success' : 'default'}>
+                {connected ? t('已连接') : t('未连接')}
+              </Tag>
+            </div>
+
+            <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto">
+              <ShareSettingsCard
+                split
+                settings={settings}
+                isSharing={isSharing}
+                switchingResolution={switchingResolution}
+                switchingSource={switchingSource}
+                cameras={cameras}
+                onPresetChange={(id) => void handlePresetChange(id)}
+                onResolutionChange={(value) => {
+                  void handleResolutionChange(value)
+                }}
+                onFrameRateChange={handleFrameRateSettingChange}
+                onDegradationChange={handleDegradationChange}
+                onAudioBitrateChange={handleAudioBitrateChange}
+                onSystemAudioChange={handleSystemAudioChange}
+                onMicrophoneChange={handleMicrophoneChange}
+                onCaptureSourceChange={handleCaptureSourceChange}
+                onCameraDeviceChange={handleCameraDeviceChange}
+              />
+            </div>
+
+            <Button
+              variant="primary"
+              className="mt-4 w-full shrink-0"
+              icon={<Monitor className="h-5 w-5" />}
+              onClick={handleStart}
+              loading={starting}
+              disabled={starting || closing}
+            >
+              {starting ? t('正在请求权限...') : t('开始共享')}
+            </Button>
+            <Paragraph
+              type="secondary"
+              className="mt-2 m-0 shrink-0 text-center text-[10px] leading-tight"
+            >
+              {t('将链接发送给观看方，对方打开后即可自动加入房间观看。')}
+            </Paragraph>
+          </div>
         </div>
       )}
 

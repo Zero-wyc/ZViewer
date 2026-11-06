@@ -27,14 +27,18 @@ type SystemSettings struct {
 	RoomPermissionMatrix json.RawMessage
 	// RoomMultiInstanceLogin 为 true 时允许同一账号多端同时进入同一房间
 	// （仅供测试）。默认 false：重复进入会被 ALREADY_IN_ROOM 挡下。
-	RoomMultiInstanceLogin    bool
-	BetaFeaturesEnabled       bool
-	DashDisabled              bool
-	BilibiliDefaultParseMode  string
-	BilibiliPgcDefaultMode    string
-	PlaysvideoEnabled         bool
-	CdnAccelerate             bool
-	CdnProxyURL               string
+	RoomMultiInstanceLogin   bool
+	BetaFeaturesEnabled      bool
+	DashDisabled             bool
+	BilibiliDefaultParseMode string
+	BilibiliPgcDefaultMode   string
+	PlaysvideoEnabled        bool
+	CdnAccelerate            bool
+	CdnProxyURL              string
+	// LivekitExternalURL 已废弃：语音改自建 SFU 后不再有外部 LiveKit 地址。
+	//
+	// 保留字段是为了不动机器码表：这个结构是**位置化** Scan 的，删一个字段
+	// 要同步改所有列顺序，一次错位就是静默读错值。列本身留着也无害。
 	LivekitExternalURL        string
 	AnnounceAutoPopupOnUpdate bool
 }

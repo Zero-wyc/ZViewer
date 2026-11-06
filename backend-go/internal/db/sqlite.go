@@ -3,10 +3,14 @@
 // 关键约束：**换库不在计划内**，结构以 TypeORM 生成物为准。
 // 表结构与列名全部沿用 TypeORM 生成物，唯一事实源是 `schema.sql`。
 //
-// 启动路径（Open）只做三件事：连通性检查、VerifySchema、由调用方补索引；
-// 校验旧契约后，仅执行显式、幂等的 Go 播放元数据增量迁移；缺基础表仍拒绝启动。
+// 启动路径（Open）只做四件事：连通性检查、核对表齐、补历史上唯一的自动列迁移
+// （playback_states.metadata）、按 schema.sql 逐列校验，最后由调用方补索引。
+// 缺表与缺列都直接拒绝启动，绝不静默补结构——4.x 正是靠 TypeORM synchronize
+// 自动改表，才让「表齐但缺列」的老库在 5.x 上读出字符串垃圾值。
 //
-// 唯一的建表入口是显式的 `--init-db`（InitSchema），只用于空库。
+// 两个显式入口：
+//   - `--init-db`（InitSchema）只用于空库；
+//   - `--upgrade-db`（UpgradeSchema）把 4.x 的老结构补到当前版本，先备份再改。
 package db
 
 import (
@@ -46,11 +50,15 @@ func Open(path string, wal bool) (*sql.DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("数据库连通性检查失败: %w", err)
 	}
-	if err := VerifySchema(conn); err != nil {
+	// 顺序不能换：先补历史上唯一的自动列迁移（4.8.0 的库只差
+	// playback_states.metadata，让它无感升级），再按 schema.sql 做全列校验——
+	// 4.6/4.7 的库会在这里被拦下并提示 --upgrade-db。表不存在时
+	// EnsurePlaybackMetadata 自己会跳过，把问题留给 VerifySchema 统一报全。
+	if err := EnsurePlaybackMetadata(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}
-	if err := EnsurePlaybackMetadata(conn); err != nil {
+	if err := VerifySchema(conn); err != nil {
 		conn.Close()
 		return nil, err
 	}

@@ -1,0 +1,15 @@
+{
+  "bucket": "pages",
+  "items": [
+    "Kazumi 规则源",
+    "MP4（默认，服务器中转）",
+    "MP4（默认，服务器中转直链）",
+    "qist/tvbox · 电视合集",
+    "qist/tvbox · 饭太硬",
+    "qist/tvbox · CF 镜像",
+    "qist/tvbox · drpy 混合",
+    "TVBox 采集源（CMS）",
+    "TVBox 配置接口地址（提取其中的苹果 CMS 采集站，检测后加入下方列表）",
+    "ZViewer 账号"
+  ]
+}

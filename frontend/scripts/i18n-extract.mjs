@@ -90,6 +90,9 @@ const SKIP_PATH = [
   /[\\/]lib[\\/]clientLogger\.ts$/,
   /[\\/]lib[\\/]media-debug\.ts$/,
   /[\\/]lib[\\/]mkv[\\/]/,
+  // 本地调试页：`piik-share-probe.html` 只在 dev server 里手点，不进构建产物，
+  // 上面的中文是给调试的人看的日志，翻成英文反而更难核对协议往返。
+  /[\\/]src[\\/]dev[\\/]/,
   // 网易云表情别名表：key 是评论里出现的 `[大笑]` 协议 token，不是界面文字
   /[\\/]utils[\\/]neteaseEmoji\.ts$/,
 ]
@@ -133,7 +136,9 @@ function parseArgs(argv) {
     else if (arg === '--scope') scopes.push(argv[++i])
     else if (arg === '--report') report = argv[++i]
     else if (arg === '--help' || arg === '-h') {
-      console.log(fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0])
+      console.log(
+        fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('*/')[0]
+      )
       process.exit(0)
     } else {
       console.error(`未知参数: ${arg}`)
@@ -146,7 +151,8 @@ function parseArgs(argv) {
 function walkFiles(target, out = []) {
   const stat = fs.statSync(target)
   if (stat.isFile()) {
-    if (/\.tsx?$/.test(target) && !SKIP_PATH.some((re) => re.test(target))) out.push(target)
+    if (/\.tsx?$/.test(target) && !SKIP_PATH.some((re) => re.test(target)))
+      out.push(target)
     return out
   }
   for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
@@ -164,7 +170,10 @@ function bindsIdentifier(sourceFile, name) {
   const checkBindingName = (node) => {
     if (!node) return
     if (ts.isIdentifier(node) && node.text === name) found = true
-    else if (ts.isObjectBindingPattern(node) || ts.isArrayBindingPattern(node)) {
+    else if (
+      ts.isObjectBindingPattern(node) ||
+      ts.isArrayBindingPattern(node)
+    ) {
       for (const element of node.elements) {
         if (ts.isBindingElement(element)) checkBindingName(element.name)
       }
@@ -198,7 +207,8 @@ function isInsideConsole(node) {
 
 function isInsideT(node, name) {
   for (let cur = node.parent; cur; cur = cur.parent) {
-    if (ts.isCallExpression(cur) && cur.expression.getText() === name) return true
+    if (ts.isCallExpression(cur) && cur.expression.getText() === name)
+      return true
   }
   return false
 }
@@ -216,7 +226,8 @@ function isInsideTKey(node) {
   for (let cur = node.parent; cur; cur = cur.parent) {
     if (!ts.isCallExpression(cur)) continue
     const callee = cur.expression.getText()
-    if (callee !== 't' && callee !== 'translate' && callee !== 'i18next.t') continue
+    if (callee !== 't' && callee !== 'translate' && callee !== 'i18next.t')
+      continue
     const first = cur.arguments[0]
     if (first && start >= first.getStart() && end <= first.getEnd()) return true
   }
@@ -239,7 +250,9 @@ function inModuleScope(node) {
 }
 
 function lineOf(sourceFile, node) {
-  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+  return (
+    sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1
+  )
 }
 
 /** 单引号字面量转义（词典与代码里共用同一套写法） */
@@ -263,7 +276,11 @@ function containsJsx(node) {
   let found = false
   const walk = (n) => {
     if (found) return
-    if (ts.isJsxElement(n) || ts.isJsxFragment(n) || ts.isJsxSelfClosingElement(n)) {
+    if (
+      ts.isJsxElement(n) ||
+      ts.isJsxFragment(n) ||
+      ts.isJsxSelfClosingElement(n)
+    ) {
       found = true
       return
     }
@@ -284,15 +301,23 @@ function isSafeInterpolation(expr) {
   if (!expr || containsJsx(expr)) return false
   if (ts.isIdentifier(expr)) return true
   if (ts.isStringLiteral(expr) || ts.isNumericLiteral(expr)) return true
-  if (ts.isNoSubstitutionTemplateLiteral(expr) || ts.isTemplateExpression(expr)) return true
-  if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr)) return true
+  if (ts.isNoSubstitutionTemplateLiteral(expr) || ts.isTemplateExpression(expr))
+    return true
+  if (ts.isPropertyAccessExpression(expr) || ts.isElementAccessExpression(expr))
+    return true
   if (ts.isCallExpression(expr)) return true
-  if (ts.isNonNullExpression(expr) || ts.isAsExpression(expr) || ts.isParenthesizedExpression(expr)) {
+  if (
+    ts.isNonNullExpression(expr) ||
+    ts.isAsExpression(expr) ||
+    ts.isParenthesizedExpression(expr)
+  ) {
     return isSafeInterpolation(expr.expression)
   }
   if (ts.isPrefixUnaryExpression(expr)) return true
   if (ts.isConditionalExpression(expr)) {
-    return isSafeInterpolation(expr.whenTrue) && isSafeInterpolation(expr.whenFalse)
+    return (
+      isSafeInterpolation(expr.whenTrue) && isSafeInterpolation(expr.whenFalse)
+    )
   }
   if (ts.isBinaryExpression(expr)) {
     const kind = expr.operatorToken.kind
@@ -300,7 +325,10 @@ function isSafeInterpolation(expr) {
       return isSafeInterpolation(expr.left) && isSafeInterpolation(expr.right)
     }
     // 兜底只认字面量：`a ?? 0`、`name || '未知'` 是值；`a || b` 可能给布尔
-    if (kind === ts.SyntaxKind.BarBarToken || kind === ts.SyntaxKind.QuestionQuestionToken) {
+    if (
+      kind === ts.SyntaxKind.BarBarToken ||
+      kind === ts.SyntaxKind.QuestionQuestionToken
+    ) {
       const right = expr.right
       const literalFallback =
         ts.isStringLiteral(right) ||
@@ -376,7 +404,10 @@ function collectChineseProps(value, props = new Map()) {
           .getText()
           .replace(/^['"]/, '')
           .replace(/['"]$/, '')
-        if (ts.isStringLiteral(property.initializer) && hasHan(property.initializer.text)) {
+        if (
+          ts.isStringLiteral(property.initializer) &&
+          hasHan(property.initializer.text)
+        ) {
           if (!props.has(key)) props.set(key, property.initializer.text)
         } else {
           walk(property.initializer)
@@ -396,7 +427,8 @@ function moduleScopeTables(sourceFile) {
   for (const statement of sourceFile.statements) {
     if (!ts.isVariableStatement(statement)) continue
     for (const declaration of statement.declarationList.declarations) {
-      if (!ts.isIdentifier(declaration.name) || !declaration.initializer) continue
+      if (!ts.isIdentifier(declaration.name) || !declaration.initializer)
+        continue
       const props = collectChineseProps(declaration.initializer)
       if (props.size > 0) tables.set(declaration.name.text, props)
     }
@@ -413,7 +445,8 @@ function specifierMatches(fromFile, specifier, targetFile) {
   const normalize = (p) => p.replace(/[\\/]/g, '/').replace(/\.tsx?$/, '')
   let expected = null
   if (specifier.startsWith('@/')) expected = path.join(SRC, specifier.slice(2))
-  else if (specifier.startsWith('.')) expected = path.resolve(path.dirname(fromFile), specifier)
+  else if (specifier.startsWith('.'))
+    expected = path.resolve(path.dirname(fromFile), specifier)
   else return false
   return normalize(targetFile) === normalize(expected)
 }
@@ -438,7 +471,9 @@ function resolveTables(sourceFile, file, tableIndex) {
       if (tables.has(localName)) continue
       const candidates = tableIndex.get(importedName)
       if (!candidates) continue
-      const hit = candidates.find((candidate) => specifierMatches(file, specifier, candidate.file))
+      const hit = candidates.find((candidate) =>
+        specifierMatches(file, specifier, candidate.file)
+      )
       if (hit) tables.set(localName, hit.props)
     }
   }
@@ -465,7 +500,12 @@ function transformFile(file, tableIndex = new Map()) {
     if (!keys.includes(text)) keys.push(text)
   }
   const skip = (node, reason, text) =>
-    skipped.push({ file: path.relative(FRONTEND, file), line: lineOf(sourceFile, node), reason, text })
+    skipped.push({
+      file: path.relative(FRONTEND, file),
+      line: lineOf(sourceFile, node),
+      reason,
+      text,
+    })
 
   /**
    * 字符串/模板串通用的「不该动」判定，返回跳过原因（null 表示可以替换）。
@@ -476,9 +516,14 @@ function transformFile(file, tableIndex = new Map()) {
     // 模块加载时求值会定格语言，必须人工改成「存 key、渲染期 t()」
     if (inModuleScope(node)) return 'module-scope'
     const parent = node.parent
-    if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent)) return 'non-ui'
+    if (ts.isImportDeclaration(parent) || ts.isExportDeclaration(parent))
+      return 'non-ui'
     if (parent.name === node) return 'non-ui' // 对象 key / 属性名
-    if (ts.isPropertyAccessExpression(parent) || ts.isElementAccessExpression(parent)) return 'non-ui'
+    if (
+      ts.isPropertyAccessExpression(parent) ||
+      ts.isElementAccessExpression(parent)
+    )
+      return 'non-ui'
     // JSX 属性里只有白名单属性算文案（className/href 之类不碰）
     let attr = parent
     if (ts.isJsxExpression(attr)) attr = attr.parent
@@ -497,9 +542,15 @@ function transformFile(file, tableIndex = new Map()) {
     if (
       ts.isCallExpression(parent) &&
       ts.isPropertyAccessExpression(parent.expression) &&
-      ['includes', 'startsWith', 'endsWith', 'indexOf', 'lastIndexOf', 'match', 'split'].includes(
-        parent.expression.name.getText()
-      )
+      [
+        'includes',
+        'startsWith',
+        'endsWith',
+        'indexOf',
+        'lastIndexOf',
+        'match',
+        'split',
+      ].includes(parent.expression.name.getText())
     ) {
       return 'string-match'
     }
@@ -573,7 +624,8 @@ function transformFile(file, tableIndex = new Map()) {
     if (inner.length === 0) return expr.getText()
     let out = expr.getText()
     inner.sort((a, b) => b.start - a.start)
-    for (const edit of inner) out = out.slice(0, edit.start) + edit.text + out.slice(edit.end)
+    for (const edit of inner)
+      out = out.slice(0, edit.start) + edit.text + out.slice(edit.end)
     return out
   }
 
@@ -589,7 +641,9 @@ function transformFile(file, tableIndex = new Map()) {
    */
   const flattenJsxChildren = (element) => {
     const children = element.children
-    const meaningful = children.filter((child) => !(ts.isJsxText(child) && !child.text.trim()))
+    const meaningful = children.filter(
+      (child) => !(ts.isJsxText(child) && !child.text.trim())
+    )
     if (meaningful.length < 2) return false
     let hasText = false
     for (const child of meaningful) {
@@ -679,9 +733,21 @@ function transformFile(file, tableIndex = new Map()) {
     return null
   }
 
-  const MAP_LIKE = new Set(['map', 'forEach', 'filter', 'find', 'findLast', 'some', 'every'])
+  const MAP_LIKE = new Set([
+    'map',
+    'forEach',
+    'filter',
+    'find',
+    'findLast',
+    'some',
+    'every',
+  ])
   const bindAliases = (node) => {
-    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer) {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer
+    ) {
       const table = resolveTableName(node.initializer)
       if (table) aliasToTable.set(node.name.text, table)
     }
@@ -696,7 +762,8 @@ function transformFile(file, tableIndex = new Map()) {
         const callback = node.arguments[0]
         if (callback && ts.isArrowFunction(callback)) {
           for (const param of callback.parameters) {
-            if (ts.isIdentifier(param.name)) aliasToTable.set(param.name.text, table)
+            if (ts.isIdentifier(param.name))
+              aliasToTable.set(param.name.text, table)
           }
         }
       }
@@ -728,19 +795,26 @@ function transformFile(file, tableIndex = new Map()) {
     }
     if (isInsideTKey(target)) return false
     addKey(text)
-    addEdit(target.getStart(sourceFile), target.getEnd(), `${callName}(${target.getText()})`)
+    addEdit(
+      target.getStart(sourceFile),
+      target.getEnd(),
+      `${callName}(${target.getText()})`
+    )
     return true
   }
 
   /** `<Trans i18nKey="...">` 的 key 不是字面量节点，单独登记；其 children 不再递归 */
   const isTransKey = (node) => {
-    if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node)) return false
+    if (!ts.isJsxElement(node) && !ts.isJsxSelfClosingElement(node))
+      return false
     const opening = ts.isJsxElement(node) ? node.openingElement : node
     if (opening.tagName.getText() !== 'Trans') return false
     for (const attr of opening.attributes.properties) {
-      if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'i18nKey') continue
+      if (!ts.isJsxAttribute(attr) || attr.name.getText() !== 'i18nKey')
+        continue
       const init = attr.initializer
-      if (init && ts.isStringLiteral(init) && hasHan(init.text)) addKey(init.text)
+      if (init && ts.isStringLiteral(init) && hasHan(init.text))
+        addKey(init.text)
     }
     return true
   }
@@ -807,7 +881,11 @@ function transformFile(file, tableIndex = new Map()) {
           skip(node, `jsx-attr:${name}`, text)
         } else {
           addKey(text)
-          addEdit(init.getStart(sourceFile), init.getEnd(), `{${callName}(${quote(text)})}`)
+          addEdit(
+            init.getStart(sourceFile),
+            init.getEnd(),
+            `{${callName}(${quote(text)})}`
+          )
         }
         return
       }
@@ -842,7 +920,11 @@ function transformFile(file, tableIndex = new Map()) {
         return
       }
       addKey(text)
-      addEdit(node.getStart(sourceFile), node.getEnd(), `${callName}(${quote(text)})`)
+      addEdit(
+        node.getStart(sourceFile),
+        node.getEnd(),
+        `${callName}(${quote(text)})`
+      )
       return
     }
 
@@ -863,7 +945,10 @@ function transformFile(file, tableIndex = new Map()) {
   const collectExisting = (node) => {
     if (ts.isCallExpression(node) && node.expression.getText() === callName) {
       const arg = node.arguments[0]
-      if (arg && (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))) {
+      if (
+        arg &&
+        (ts.isStringLiteral(arg) || ts.isNoSubstitutionTemplateLiteral(arg))
+      ) {
         if (hasHan(arg.text)) addKey(arg.text)
       }
     }
@@ -889,7 +974,12 @@ function transformFile(file, tableIndex = new Map()) {
         ? "import { t } from '@/i18n'\n"
         : "import { t as translate } from '@/i18n'\n"
     let insertAt = 0
-    const reparsed = ts.createSourceFile(file, output, ts.ScriptTarget.Latest, true)
+    const reparsed = ts.createSourceFile(
+      file,
+      output,
+      ts.ScriptTarget.Latest,
+      true
+    )
     for (const stmt of reparsed.statements) {
       if (ts.isImportDeclaration(stmt)) insertAt = stmt.getEnd()
     }
@@ -923,7 +1013,9 @@ function renderDict(allKeys) {
   })
   const lines = []
   for (const bucket of ordered) {
-    const keys = [...groups.get(bucket)].sort((a, b) => a.localeCompare(b, 'zh-CN'))
+    const keys = [...groups.get(bucket)].sort((a, b) =>
+      a.localeCompare(b, 'zh-CN')
+    )
     lines.push(`  // ===== ${bucket}（${keys.length} 条） =====`)
     for (const key of keys) lines.push(`  ${quote(key)}: ${quote(key)},`)
     lines.push('')
@@ -965,12 +1057,15 @@ const EXPECTED_SKIPS = new Set([
 ])
 
 function main() {
-  const { scopes, write, check, report, dictOnly } = parseArgs(process.argv.slice(2))
+  const { scopes, write, check, report, dictOnly } = parseArgs(
+    process.argv.slice(2)
+  )
   const targets = scopes.length > 0 ? scopes : ['src']
   // 词典是「全部文案的清单」：不论 --scope 限定到哪，key 一律全量扫描 src 收集；
   // 只有**落盘改代码**受 --scope 限制。否则按目录分批 --write 会把词典截成只剩该目录。
   const inScope = new Set()
-  for (const target of targets) walkFiles(path.resolve(FRONTEND, target), []).forEach((f) => inScope.add(f))
+  for (const target of targets)
+    walkFiles(path.resolve(FRONTEND, target), []).forEach((f) => inScope.add(f))
   const files = []
   walkFiles(path.resolve(FRONTEND, 'src'), files)
 
@@ -1014,43 +1109,62 @@ function main() {
   }
 
   const uniqueKeys = [...new Set(allKeys.map((item) => item.key))]
-  console.log(`\n扫描文件 ${files.length} 个，${write ? '已改' : '待改'} ${changedFiles} 个`)
-  console.log(`文案 ${uniqueKeys.length} 条（去重后），出现 ${allKeys.length} 次`)
+  console.log(
+    `\n扫描文件 ${files.length} 个，${write ? '已改' : '待改'} ${changedFiles} 个`
+  )
+  console.log(
+    `文案 ${uniqueKeys.length} 条（去重后），出现 ${allKeys.length} 次`
+  )
   if (skipped.length > 0) {
     const byReason = {}
-    for (const item of skipped) byReason[item.reason] = (byReason[item.reason] ?? 0) + 1
+    for (const item of skipped)
+      byReason[item.reason] = (byReason[item.reason] ?? 0) + 1
     const sorted = Object.entries(byReason).sort((a, b) => b[1] - a[1])
     const pending = sorted.filter(([reason]) => !EXPECTED_SKIPS.has(reason))
     const expected = sorted.filter(([reason]) => EXPECTED_SKIPS.has(reason))
     if (pending.length > 0) {
       console.log('需要人工处理的：')
-      for (const [reason, count] of pending) console.log(`  ${reason}: ${count}`)
+      for (const [reason, count] of pending)
+        console.log(`  ${reason}: ${count}`)
     }
     if (expected.length > 0) {
       console.log('按设计保留（不算待办）：')
-      for (const [reason, count] of expected) console.log(`  ${reason}: ${count}`)
+      for (const [reason, count] of expected)
+        console.log(`  ${reason}: ${count}`)
     }
   }
 
   if (write || dictOnly) {
-    const dict = renderDict(allKeys.filter((item) => uniqueKeys.includes(item.key)))
+    const dict = renderDict(
+      allKeys.filter((item) => uniqueKeys.includes(item.key))
+    )
     fs.writeFileSync(DICT_FILE, dict, 'utf8')
     console.log(`词典已更新: ${path.relative(FRONTEND, DICT_FILE)}`)
   }
 
   if (check) {
-    const expected = renderDict(allKeys.filter((item) => uniqueKeys.includes(item.key)))
-    const current = fs.existsSync(DICT_FILE) ? fs.readFileSync(DICT_FILE, 'utf8') : ''
+    const expected = renderDict(
+      allKeys.filter((item) => uniqueKeys.includes(item.key))
+    )
+    const current = fs.existsSync(DICT_FILE)
+      ? fs.readFileSync(DICT_FILE, 'utf8')
+      : ''
     const same = current.replace(/\r\n/g, '\n').trim() === expected.trim()
     if (!same) {
-      console.error('\n词典与源码不一致：请运行 node scripts/i18n-extract.mjs --write')
+      console.error(
+        '\n词典与源码不一致：请运行 node scripts/i18n-extract.mjs --write'
+      )
       process.exit(1)
     }
     console.log('词典与源码一致')
   }
 
   if (report) {
-    fs.writeFileSync(report, JSON.stringify({ skipped, keys: uniqueKeys }, null, 2), 'utf8')
+    fs.writeFileSync(
+      report,
+      JSON.stringify({ skipped, keys: uniqueKeys }, null, 2),
+      'utf8'
+    )
     console.log(`报告已写入: ${report}`)
   }
 }

@@ -31,6 +31,7 @@ import (
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/serverfiles"
+	"zviewer/backend/internal/share/piikbridge"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
 )
@@ -159,6 +160,12 @@ type testEnv struct {
 
 func newTestEnv(t *testing.T) *testEnv {
 	t.Helper()
+	return newTestEnvWith(t, nil)
+}
+
+// newTestEnvWith 允许少数用例注入额外依赖（目前只有共享信令桥接层）。
+func newTestEnvWith(t *testing.T, piik *piikbridge.Bridge) *testEnv {
+	t.Helper()
 
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.sqlite")
@@ -235,7 +242,9 @@ func newTestEnv(t *testing.T) *testEnv {
 
 		// 管理端房间端点要读写 room / session；RoomSvc 保持 nil，
 		// 于是删除走 store 的级联（房间层的内存清理由 internal/room 的测试覆盖）。
-		Rooms: rooms,
+		Rooms:     rooms,
+		Sessions:  store.NewSessions(conn),
+		PiikShare: piik,
 	})
 
 	return &testEnv{
@@ -290,9 +299,10 @@ func (e *testEnv) guestToken(t *testing.T) string {
 }
 
 type apiResponse struct {
-	status int
-	body   map[string]any
-	raw    string
+	status  int
+	body    map[string]any
+	raw     string
+	cookies []*http.Cookie
 }
 
 func (r apiResponse) message() string {
@@ -332,7 +342,7 @@ func (e *testEnv) do(t *testing.T, method, path, token string, body any) apiResp
 	rec := httptest.NewRecorder()
 	e.handler.ServeHTTP(rec, req)
 
-	resp := apiResponse{status: rec.Code, raw: rec.Body.String()}
+	resp := apiResponse{status: rec.Code, raw: rec.Body.String(), cookies: rec.Result().Cookies()}
 	_ = json.Unmarshal(rec.Body.Bytes(), &resp.body)
 	return resp
 }

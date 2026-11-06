@@ -93,7 +93,6 @@ func httpClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// livekitReady 只要信令端口回 200 即可认为进程已经开始服务。
 func livekitReady(port int) bool {
 	client := httpClient(1 * time.Second)
 	response, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/", port))

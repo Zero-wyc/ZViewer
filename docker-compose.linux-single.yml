@@ -5,63 +5,22 @@ services:
       dockerfile: Dockerfile.linux-single
     ports:
       - "3333:3333"     # 统一端口：后端 API + WebSocket + 前端静态文件 + /live HTTP-FLV 代理
-      - "3333:3333/udp" # LiveKit WebRTC 媒体传输（与页面 HTTP 同号，协议不同）
+      - "3333:3333/udp" # 语音与屏幕共享的媒体面（与页面 HTTP 同号，协议不同）
       - "3334:3334"     # RTMP 推流 (OBS)
-      - "3337:3337"     # 语音 ICE/TCP 直连（默认开启；UDP 被防火墙/代理拦截时自动回退到此端口）
-      - "3338:3338"     # 语音 TURN/TLS 中继（配齐 LIVEKIT_TURN_* 三项才启用；穿透代理/多层 NAT 最强）
+      - "3337:3337"     # 媒体 TCP（UDP 被防火墙/代理拦截时客户端自动回退到此端口）
     environment:
+      # 访问/刷新令牌有效期；Cookie 的 Max-Age 跟着它走（改小会让已登录用户被登出）
       - JWT_ACCESS_EXPIRES_IN=${JWT_ACCESS_EXPIRES_IN:-24h}
       - JWT_REFRESH_EXPIRES_IN=${JWT_REFRESH_EXPIRES_IN:-30d}
-      # 语音聊天（LiveKit）：LiveKit 已内嵌进本镜像（启动时由后端自动拉起，
-      # HTTP/信令经 3333 的 /rtc 反代，媒体走 3333/udp），无需独立容器。
-      # 客户端信令地址按请求头自动推导（跟随页面域名与协议，HTTPS 页面自动
-      # wss），无需在此配置。
-      #
-      # 容器 bridge 下枚举网卡只得内网地址（172.x），LIVEKIT_NODE_IP 留空时
-      # 自动启用 LiveKit 原生 STUN 外部 IP 发现（需容器可出网，v4/v6 均支持）；
-      # NAT/复杂网络或 STUN 不通时手动指定为宿主公网 IP，否则信令能通但媒体连不上。
-      - LIVEKIT_NODE_IP=${LIVEKIT_NODE_IP:-}
-      # LiveKit 自身 HTTP/信令监听地址（3336，默认双栈全地址）。bridge 下该端口
-      # 只在容器内可达，留空即可；host 网络下建议设 127.0.0.1，把 3336 收回本机，
-      # 外部统一经 3333 的 /rtc 反代进入。**只影响信令**：媒体端口（3333/udp、
-      # 3337/tcp、3338/tcp）仍监听全部网卡，不影响内外网直连。
-      - LIVEKIT_BIND=${LIVEKIT_BIND:-}
-      # 任意 LiveKit 配置项都可经 LIVEKIT_CONFIG（YAML）下发，环境变量形式不
-      # 支持的数组项只能走这里，例如限定使用哪张网卡的 ICE 候选：
-      #   - LIVEKIT_CONFIG: |-
-      #       rtc:
-      #         interfaces:
-      #           includes: [eth0]
-      # 网卡名要与宿主机一致（ip -br addr，云主机常见 eth0 / ens18 / enp3s0）；
-      # 写错会枚举不到任何 ICE 候选导致语音连不上，拿不准就别设这段。
-      # NAT 不允许自 ping（部分云主机 / 家用路由）导致外部 IP 校验失败时打开：
-      #   - LIVEKIT_RTC_SKIP_EXTERNAL_IP_VALIDATION: "true"
-      # 内外网双 IP 候选（默认开启）：同时广播映射后的外网 IP 与本地网卡 IP，
-      # 内网与外网用户各自选中可达的那条，避免只服务一侧。
-      # 注意 bridge 网络下「本地 IP」是容器 172.x，对局域网客户端不可达，多出来
-      # 的只是并发探测；真正生效需要 host 网络（去掉 ports 段、改用
-      # network_mode: host），并用 LIVEKIT_CONFIG 限定网卡，避免 docker0 /
-      # tailscale 等接口混入候选（LIVEKIT_CONFIG 写法见上）：
-      #   - LIVEKIT_RTC_ADVERTISE_INTERNAL_IP=false   # 关闭双 IP 候选
-      # 可选：TURN/TLS 媒体中继（TCP 3338）——UDP 直连不通时的兜底通道。
-      # 地址用域名（DNS 解析），无需公网 IP；三个变量齐全即自动启用。
-      # 端口 3338 与 ICE/TCP 直连 3337 分开，二者可同时开启（客户端择优：
-      # UDP 直连 > TCP 直连 > TURN 中继），防火墙需分别放行这两条 TCP。
-      # 注意必须用正式证书（Let's Encrypt 等，自签不被浏览器 WebRTC 信任），
-      # 域名需与证书一致。挂载证书目录示例：
-      #   volumes 追加: - /etc/letsencrypt:/app/cert:ro
-      #   - LIVEKIT_TURN_DOMAIN=zviewer.example.com
-      #   - LIVEKIT_TURN_CERT=/app/cert/live/zviewer.example.com/fullchain.pem
-      #   - LIVEKIT_TURN_KEY=/app/cert/live/zviewer.example.com/privkey.pem
-      - LIVEKIT_TURN_DOMAIN=${LIVEKIT_TURN_DOMAIN:-}
-      - LIVEKIT_TURN_CERT=${LIVEKIT_TURN_CERT:-}
-      - LIVEKIT_TURN_KEY=${LIVEKIT_TURN_KEY:-}
-      - LIVEKIT_API_HOST=${LIVEKIT_API_HOST:-http://127.0.0.1:3336}
-      - LIVEKIT_API_KEY=${LIVEKIT_API_KEY:-devkey}
-      - LIVEKIT_API_SECRET=${LIVEKIT_API_SECRET:-zviewer-dev-secret}
-      # 如需外置 LiveKit（多机部署），设 LIVEKIT_EXTERNAL=1 跳过内嵌拉起，
-      # 并将 LIVEKIT_API_HOST 指向外部地址
-      - LIVEKIT_EXTERNAL=${LIVEKIT_EXTERNAL:-0}
+      # 语音与屏幕共享的媒体面由后端进程自己提供（不再有 livekit-server 子进程，
+      # 也就没有 /rtc 反代与独立的信令端口）。
+      # 媒体 UDP 跟随网页端口（同号不同协议）；媒体 TCP 必须单独一个号，
+      # 客户端在 UDP 被拦截时会自动回退到它。
+      - SHARE_MEDIA_PORT=${SHARE_MEDIA_PORT:-3333}
+      - SHARE_MEDIA_TCP_PORT=${SHARE_MEDIA_TCP_PORT:-3337}
+      # NAT 1:1（云主机 / 只做端口转发的 FRP）：填宿主公网 IP。留空时候选里只有
+      # 容器内网地址（172.x），信令能通但媒体连不上；STUN 发现对容器不可靠。
+      - SHARE_MEDIA_PUBLIC_IP=${SHARE_MEDIA_PUBLIC_IP:-}
       # 一起听（网易云）由后端自带（internal/ncm），不需要任何外部服务
     volumes:
       - zviewer-data:/app/config

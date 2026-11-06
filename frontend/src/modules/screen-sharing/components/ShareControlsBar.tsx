@@ -1,7 +1,13 @@
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
 import { Tag } from '@/components/ui/Tag'
-import { Copy, PauseCircle, PlayCircle, Power, RefreshCw } from 'lucide-react'
+import {
+  Copy,
+  PauseCircle,
+  PlayCircle,
+  Power,
+  RefreshCw,
+} from 'lucide-react'
 import { t } from '@/i18n'
 
 interface ShareControlsBarProps {

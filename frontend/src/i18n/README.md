@@ -21,7 +21,7 @@ t('已复制 {{n}} 项', { n: 3 }) // 带插值
 npm run i18n:extract --scope src/modules/room --write   # 只处理某个目录
 npm run i18n:extract --write                            # 全量
 npm run i18n:dict                                       # 只重建词条表
-npm run i18n:check                                      # 校验词条表是否最新（CI 会跑）
+npm run i18n:check                                      # 校验词条表是否最新（手动跑，CI 不跑）
 ```
 
 脚本（`scripts/i18n-extract.mjs`）会把源码里的中文换成 `t('…')`，支持：
@@ -82,3 +82,8 @@ node scripts/i18n-translate.mjs --status   # 看覆盖率与哪些块还没翻
   找不到会整条回退成中文。`i18n/index.ts` 的 `withPlurals()` 已自动补齐，
   需要区分单复数时在 `overrides.json` 里写 `<key>_one`。
 - `keySeparator: false`、`nsSeparator: false`：key 可以包含 `.` 和 `:`，不会被当成层级或命名空间。
+- **按行解析词条必须先归一化 CRLF**：仓库是 `* text=auto`，Windows 上 `core.autocrlf=true`，
+  CI 的 windows runner 检出的是 CRLF。若直接 `readFileSync(...).split('\n')`，每行尾巴带 `\r`，
+  以 `,$` 收尾的正则一条都匹配不到，结果是「解析出 0 条」——报错还会显示成
+  `分块与 zh-CN.ts 不一致（第 1 条应为「—」）`，完全看不出是换行问题。脚本里统一走
+  `i18n-translate.mjs` 的 `readLines()`（先 `replace(/\r\n/g, '\n')` 再切）。

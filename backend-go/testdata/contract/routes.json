@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。",
+  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。",
   "generatedAt": "2026-10-25T05:47:58.398Z",
   "total": 189,
   "routes": [
@@ -15,6 +15,18 @@
     {
       "method": "POST",
       "path": "/api/admin/rooms/:roomId/reopen"
+    },
+    {
+      "method": "GET",
+      "path": "/api/admin/rooms/:roomId/moderators"
+    },
+    {
+      "method": "POST",
+      "path": "/api/admin/rooms/:roomId/moderators"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/admin/rooms/:roomId/moderators/:userId"
     },
     {
       "method": "POST",
@@ -703,18 +715,6 @@
     {
       "method": "POST",
       "path": "/api/system/update/upload-stream"
-    },
-    {
-      "method": "POST",
-      "path": "/api/voice/kick"
-    },
-    {
-      "method": "POST",
-      "path": "/api/voice/mute"
-    },
-    {
-      "method": "POST",
-      "path": "/api/voice/token"
     },
     {
       "method": "GET",

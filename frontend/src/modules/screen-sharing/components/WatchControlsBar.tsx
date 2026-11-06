@@ -1,5 +1,6 @@
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { Tag } from '@/components/ui/Tag'
+import { Slider } from '@/components/ui/Slider'
 import { IconButton } from '@/components/VideoControls'
 import { cn } from '@/lib/utils'
 import {
@@ -20,6 +21,10 @@ import { t } from '@/i18n'
 interface WatchControlsBarProps {
   /** 是否静音 */
   isMuted: boolean
+  /** 当前音量倍率（1 = 原始音量，上限 2 = 200%） */
+  volumeLevel: number
+  /** 是否支持超过 100%（AudioContext 可用） */
+  boostAvailable: boolean
   /** 是否正在播放 */
   isPlaying: boolean
   /** 是否有远端音频 */
@@ -41,6 +46,8 @@ interface WatchControlsBarProps {
   videoResolution: { width: number; height: number } | null
   /** 切换静音 */
   onToggleMute: () => void
+  /** 调整音量（0–2，含 >100% 增益） */
+  onVolumeChange: (level: number) => void
   /** 播放 / 暂停 */
   onTogglePlayPause: () => void
   /** 全屏 */
@@ -97,6 +104,8 @@ function getConnectionStateColor(
 
 export function WatchControlsBar({
   isMuted,
+  volumeLevel,
+  boostAvailable,
   isPlaying,
   hasRemoteAudio,
   hasRemoteStream,
@@ -107,6 +116,7 @@ export function WatchControlsBar({
   connectionState,
   videoResolution,
   onToggleMute,
+  onVolumeChange,
   onTogglePlayPause,
   onFullscreen,
   onTogglePiP,
@@ -137,11 +147,38 @@ export function WatchControlsBar({
             onClick={onTogglePlayPause}
           />
           {hasRemoteAudio && (
-            <IconButton
-              icon={isMuted ? <VolumeX /> : <Volume2 />}
-              label={isMuted ? t('取消静音') : t('静音')}
-              onClick={onToggleMute}
-            />
+            <>
+              <IconButton
+                icon={isMuted ? <VolumeX /> : <Volume2 />}
+                label={isMuted ? t('取消静音') : t('静音')}
+                onClick={onToggleMute}
+              />
+              {/* 音量：0–200%。系统声往往偏小，超过 100% 的部分靠增益实现，
+                  浏览器不支持 Web Audio 时上限退回 100%。 */}
+              <div className="flex items-center gap-1.5">
+                <Slider
+                  size="sm"
+                  showValue={false}
+                  min={0}
+                  max={boostAvailable ? 200 : 100}
+                  step={1}
+                  value={Math.round(volumeLevel * 100)}
+                  onChange={(value) => onVolumeChange(value / 100)}
+                  className="w-20"
+                  aria-label={t('音量')}
+                />
+                <span
+                  className={cn(
+                    'w-8 shrink-0 text-[10px] tabular-nums',
+                    volumeLevel > 1
+                      ? 'font-semibold text-[var(--md-sys-color-primary)]'
+                      : 'text-[var(--md-sys-color-on-surface-variant)]'
+                  )}
+                >
+                  {Math.round(volumeLevel * 100)}%
+                </span>
+              </div>
+            </>
           )}
           <IconButton
             icon={isWebFullscreen ? <Minimize /> : <Maximize />}

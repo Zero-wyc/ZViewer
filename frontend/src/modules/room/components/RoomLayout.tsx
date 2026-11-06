@@ -23,7 +23,7 @@ import {
   onFullscreenChange,
 } from '@/lib/fullscreen-utils'
 import type { SharingMode } from '@/modules/screen-sharing/hooks/useConnectionStats'
-import type { P2PStatus } from '@/modules/p2p/types'
+import type { ShareEdgeStats } from '@/modules/screen-sharing/core/edge-stats'
 import { MODE_LABELS, MODE_ORDER } from './useRoomModeSwitch'
 import { t } from '@/i18n'
 
@@ -41,26 +41,16 @@ interface RoomLayoutProps {
   /** 控制卡片在移动端横向滚动时的标签，按 controls 子节点顺序提供 */
   controlLabels?: string[]
   /**
-   * 共享状态下的 RTCPeerConnection 实例。
-   * 当前由调用方按需传入（未来通过 ref/context 从 SharePage/WatchPage 提升后接入）。
+   * 每条共享连接（边）的统计。
+   * 共享状态下侧栏的「共享情况」面板直接消费；多观众时逐条列出。
    */
-  peerConnection?: RTCPeerConnection | null
+  edges?: ShareEdgeStats[]
   /** 采集实测帧率（发送端，来自 WebrtcSharePage 帧率计；无观众时也有值） */
   captureFps?: number | null
   /** 共享角色：发送端 / 接收端 */
   sharingRole?: 'sender' | 'receiver'
   /** 共享模式标签，默认服务器中转 */
   sharingMode?: SharingMode
-  /** P2P 直连是否已启用（来自页面层 useP2PTunnel） */
-  p2pEnabled?: boolean
-  /** P2P 隧道 PC（P2P 启用时用于统计展示） */
-  p2pPC?: RTCPeerConnection | null
-  /** P2P 协商状态 */
-  p2pStatus?: P2PStatus
-  /** 是否已触发回退到服务器中转 */
-  p2pFallbackNotice?: boolean
-  /** P2P 直连开关回调 */
-  onToggleP2P?: (enabled: boolean) => void
   /**
    * 显式覆盖共享状态判断。
    * 未提供时，自动判断为 `mode === 'screen-share' && store.isSharing`。
@@ -91,6 +81,12 @@ interface RoomModeSwitchBarProps {
  * 一起看/投屏时渲染于 RoomLayout 顶栏；一起听时注入音乐顶导航
  * （MusicTopNav 的 modeSwitchSlot，位于账户按钮左侧）。
  */
+/** 模式滑块的选项：模块级常量，避免每次渲染都造一个新数组。 */
+const MODE_OPTIONS = MODE_ORDER.map((mode) => ({
+  value: mode,
+  label: MODE_LABELS[mode],
+}))
+
 export function RoomModeSwitchBar({
   isHost,
   onSwitch,
@@ -100,7 +96,7 @@ export function RoomModeSwitchBar({
   if (isHost) {
     return (
       <SegmentedToggle
-        options={MODE_ORDER.map((m) => ({ value: m, label: MODE_LABELS[m] }))}
+        options={MODE_OPTIONS}
         value={roomMode}
         onChange={(value) => onSwitch?.(value as RoomMode)}
         disabled={isSwitching}
@@ -130,15 +126,10 @@ export function RoomLayout({
   controls,
   rightPanel,
   controlLabels,
-  peerConnection = null,
+  edges = [],
   captureFps = null,
   sharingRole = 'sender',
-  sharingMode = 'server-relay',
-  p2pEnabled = false,
-  p2pPC = null,
-  p2pStatus = 'idle',
-  p2pFallbackNotice = false,
-  onToggleP2P,
+  sharingMode = 'direct',
   sharingActive,
   webFullscreen = false,
   onSwitchMode,
@@ -184,15 +175,10 @@ export function RoomLayout({
   // 共享状态下：侧栏显示「共享情况」面板，评论区（rightPanel）移动到下方 controls 区域
   const effectiveRightPanel = isSharing ? (
     <SharingStatusPanel
-      pc={peerConnection}
+      edges={edges}
       captureFps={captureFps}
       mode={sharingRole}
       sharingMode={sharingMode}
-      p2pEnabled={p2pEnabled}
-      p2pPC={p2pPC}
-      p2pStatus={p2pStatus}
-      fallbackNotice={p2pFallbackNotice}
-      onToggleP2P={onToggleP2P ?? (() => {})}
     />
   ) : (
     rightPanel
@@ -433,7 +419,7 @@ export function RoomLayout({
     <>
       <div
         className={cn(
-          'hide-scrollbar flex flex-col items-center overflow-y-auto px-2 py-3 md:px-4 md:py-6',
+          'room-glass-lift hide-scrollbar flex flex-col items-center overflow-y-auto px-2 py-3 md:px-4 md:py-6',
           webFullscreen
             ? 'fixed inset-0 z-[100] h-screen min-h-0 items-stretch p-0 overflow-hidden'
             : 'h-[calc(100vh-64px)]'

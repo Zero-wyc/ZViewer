@@ -20,6 +20,15 @@ export interface LiveArtPlayerProps {
   onVideoReady?: (video: HTMLVideoElement | null) => void
   /** 初始静音（默认 true，规避浏览器自动播放限制） */
   muted?: boolean
+  /**
+   * 静音交由外部托管。
+   *
+   * 观众端用 `ViewerAudio` 统一管理「静音 + 增益」：增益模式下它会把
+   * `video.muted` 强置为 true（出声改走 GainNode），此时播放器再按 React
+   * 的 `muted` 回写元素，同一路声音就会播两次。为 true 时本组件只在挂载时
+   * 应用一次初始值，之后不再改写。
+   */
+  managedMuted?: boolean
   /** 是否显示控制栏（本地预览场景可传 false 完全隐藏） */
   showControls?: boolean
 }
@@ -28,6 +37,7 @@ export function LiveArtPlayer({
   className,
   onVideoReady,
   muted = true,
+  managedMuted = false,
   showControls = true,
 }: LiveArtPlayerProps): JSX.Element {
   const onVideoReadyRef = useRef(onVideoReady)
@@ -116,12 +126,13 @@ export function LiveArtPlayer({
     }
   }, [video])
 
-  // muted 变更同步
+  // muted 变更同步（托管模式下由 ViewerAudio 独占，见 managedMuted 注释）
   useEffect(() => {
+    if (managedMuted) return
     if (video) {
       video.muted = muted
     }
-  }, [video, muted])
+  }, [video, muted, managedMuted])
   /* eslint-enable react-hooks/immutability */
 
   return (

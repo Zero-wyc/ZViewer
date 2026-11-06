@@ -1,8 +1,10 @@
 import fs from 'node:fs'
 
 // 按分组抽样打印中英对照，人工过一遍语感与错位
-const zh = fs.readFileSync('src/i18n/locales/zh-CN.ts', 'utf8').split('\n')
-const en = fs.readFileSync('src/i18n/locales/en-US.ts', 'utf8')
+// 统一归一化 CRLF：Windows 检出时每行尾巴带 \r，下面的正则（以 ,$ 收尾）会一条都匹配不到
+const readLines = (file) => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n')
+const zh = readLines('src/i18n/locales/zh-CN.ts')
+const en = readLines('src/i18n/locales/en-US.ts')
 const RE = /^ {2}'((?:[^\\']|\\.)*)': '((?:[^\\']|\\.)*)',$/
 
 function unescape(text) {
@@ -21,7 +23,7 @@ function unescape(text) {
 }
 
 const enMap = new Map()
-for (const line of en.split('\n')) {
+for (const line of en) {
   const m = RE.exec(line)
   if (m) enMap.set(unescape(m[1]), unescape(m[2]))
 }

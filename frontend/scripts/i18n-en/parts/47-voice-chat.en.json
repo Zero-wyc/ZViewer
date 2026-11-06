@@ -1,0 +1,31 @@
+{
+  "items": [
+    "{{memberCount}} online",
+    "Members",
+    "Per-user volume",
+    "Join to talk with other viewers in the room",
+    "Disconnect",
+    "Turn off monitoring",
+    "Join voice",
+    "Unmute in voice",
+    "Turn on monitoring",
+    "Microphone volume",
+    "Connecting media…",
+    "An admin muted you in voice",
+    "You were removed from the voice chat",
+    "Master volume",
+    "The realtime connection is not ready; try again shortly",
+    "Not in a room",
+    "Remove from voice",
+    "Muted in voice",
+    "Removed {{value}} from voice",
+    "Guest {{value}}",
+    "Lost connection to the server, reconnecting...",
+    "Voice is unavailable right now (media port not ready); try again later",
+    "Mute in voice",
+    "Voice mute lifted",
+    "Voice chat",
+    "Voice media: TCP direct (fallback when UDP is blocked)",
+    "Voice media: UDP direct (low latency)"
+  ]
+}

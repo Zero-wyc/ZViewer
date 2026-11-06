@@ -73,21 +73,10 @@ func (h *fakeHub) EmitGlobal(event string, _ any) {
 	h.global = append(h.global, event)
 }
 func (h *fakeHub) SocketIDs(roomID string) []string { return h.members[roomID] }
-func (h *fakeHub) SocketRooms(socketID string) []string {
-	out := []string{socketID}
-	for roomID, ids := range h.members {
-		for _, id := range ids {
-			if id == socketID {
-				out = append(out, roomID)
-			}
-		}
-	}
-	return out
-}
-func (h *fakeHub) MemberCount(roomID string) int { return len(h.members[roomID]) }
-func (h *fakeHub) Connected(id string) bool      { return h.online[id] }
-func (h *fakeHub) Leave(id, roomID string)       { h.left = append(h.left, id+"|"+roomID) }
-func (h *fakeHub) Join(id, roomID string)        { h.joined = append(h.joined, id+"|"+roomID) }
+func (h *fakeHub) MemberCount(roomID string) int    { return len(h.members[roomID]) }
+func (h *fakeHub) Connected(id string) bool         { return h.online[id] }
+func (h *fakeHub) Leave(id, roomID string)          { h.left = append(h.left, id+"|"+roomID) }
+func (h *fakeHub) Join(id, roomID string)           { h.joined = append(h.joined, id+"|"+roomID) }
 func (h *fakeHub) DeleteSocketData(id, key string) {
 	if data, ok := h.socketData[id]; ok {
 		delete(data, key)

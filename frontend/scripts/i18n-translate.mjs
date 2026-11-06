@@ -97,6 +97,13 @@ function readZh() {
     const entry = ENTRY_RE.exec(line)
     if (entry) entries.push({ bucket, key: unescape(entry[1]) })
   }
+  // 一条都解析不出来时直接说清楚：否则调用方只会报「第 1 条应为 undefined」，
+  // 看不出问题出在文件格式（换行、缩进）而不是译文。
+  if (entries.length === 0) {
+    throw new Error(
+      `未能从 ${path.relative(FRONTEND, ZH_PATH)} 解析出词条：文件为空或每行格式不符（应为两个空格缩进的 '键': '值',）`
+    )
+  }
   return entries
 }
 

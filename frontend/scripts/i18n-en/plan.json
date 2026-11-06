@@ -1,5 +1,5 @@
 {
-  "total": 2589,
+  "total": 2643,
   "chunk": 120,
   "parts": [
     {
@@ -15,27 +15,27 @@
     {
       "id": "03-components",
       "bucket": "components",
-      "count": 116
+      "count": 120
     },
     {
-      "id": "04-hooks",
+      "id": "04-components",
+      "bucket": "components",
+      "count": 1
+    },
+    {
+      "id": "05-hooks",
       "bucket": "hooks",
       "count": 23
     },
     {
-      "id": "05-lib",
+      "id": "06-lib",
       "bucket": "lib",
       "count": 19
     },
     {
-      "id": "06-store",
+      "id": "07-store",
       "bucket": "store",
       "count": 8
-    },
-    {
-      "id": "07-pages",
-      "bucket": "pages",
-      "count": 120
     },
     {
       "id": "08-pages",
@@ -45,87 +45,87 @@
     {
       "id": "09-pages",
       "bucket": "pages",
-      "count": 118
+      "count": 120
     },
     {
-      "id": "10-common",
+      "id": "10-pages",
+      "bucket": "pages",
+      "count": 120
+    },
+    {
+      "id": "11-pages",
+      "bucket": "pages",
+      "count": 10
+    },
+    {
+      "id": "12-common",
       "bucket": "common",
       "count": 1
     },
     {
-      "id": "11-admin",
+      "id": "13-admin",
       "bucket": "modules/admin",
       "count": 15
     },
     {
-      "id": "12-anime-browser",
+      "id": "14-anime-browser",
       "bucket": "modules/anime-browser",
       "count": 16
     },
     {
-      "id": "13-anisubs",
+      "id": "15-anisubs",
       "bucket": "modules/anisubs",
       "count": 3
     },
     {
-      "id": "14-bilibili",
+      "id": "16-bilibili",
       "bucket": "modules/bilibili",
       "count": 45
     },
     {
-      "id": "15-cms",
+      "id": "17-cms",
       "bucket": "modules/cms",
       "count": 8
     },
     {
-      "id": "16-danmaku",
+      "id": "18-danmaku",
       "bucket": "modules/danmaku",
       "count": 85
     },
     {
-      "id": "17-direct-link",
+      "id": "19-direct-link",
       "bucket": "modules/direct-link",
       "count": 1
     },
     {
-      "id": "18-emby",
+      "id": "20-emby",
       "bucket": "modules/emby",
       "count": 41
     },
     {
-      "id": "19-ftp",
+      "id": "21-ftp",
       "bucket": "modules/ftp",
       "count": 8
     },
     {
-      "id": "20-jellyfin",
+      "id": "22-jellyfin",
       "bucket": "modules/jellyfin",
       "count": 1
     },
     {
-      "id": "21-kazumi",
+      "id": "23-kazumi",
       "bucket": "modules/kazumi",
       "count": 1
     },
     {
-      "id": "22-mounts",
+      "id": "24-mounts",
       "bucket": "modules/mounts",
       "count": 61
     },
     {
-      "id": "23-movie-source",
+      "id": "25-movie-source",
       "bucket": "modules/movie-source",
       "count": 14
-    },
-    {
-      "id": "24-music",
-      "bucket": "modules/music",
-      "count": 120
-    },
-    {
-      "id": "25-music",
-      "bucket": "modules/music",
-      "count": 120
     },
     {
       "id": "26-music",
@@ -150,75 +150,100 @@
     {
       "id": "30-music",
       "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "31-music",
+      "bucket": "modules/music",
+      "count": 120
+    },
+    {
+      "id": "32-music",
+      "bucket": "modules/music",
       "count": 9
     },
     {
-      "id": "31-openlist",
+      "id": "33-openlist",
       "bucket": "modules/openlist",
       "count": 1
     },
     {
-      "id": "32-playback-memory",
+      "id": "34-piik-share",
+      "bucket": "modules/piik-share",
+      "count": 5
+    },
+    {
+      "id": "35-piik-signal",
+      "bucket": "modules/piik-signal",
+      "count": 3
+    },
+    {
+      "id": "36-piik-voice",
+      "bucket": "modules/piik-voice",
+      "count": 11
+    },
+    {
+      "id": "37-playback-memory",
       "bucket": "modules/playback-memory",
       "count": 12
     },
     {
-      "id": "33-player",
+      "id": "38-player",
       "bucket": "modules/player",
       "count": 98
     },
     {
-      "id": "34-room",
+      "id": "39-room",
       "bucket": "modules/room",
       "count": 120
     },
     {
-      "id": "35-room",
+      "id": "40-room",
       "bucket": "modules/room",
       "count": 120
     },
     {
-      "id": "36-room",
+      "id": "41-room",
       "bucket": "modules/room",
       "count": 120
     },
     {
-      "id": "37-room",
+      "id": "42-room",
       "bucket": "modules/room",
-      "count": 47
+      "count": 69
     },
     {
-      "id": "38-screen-sharing",
+      "id": "43-screen-sharing",
       "bucket": "modules/screen-sharing",
       "count": 120
     },
     {
-      "id": "39-screen-sharing",
+      "id": "44-screen-sharing",
       "bucket": "modules/screen-sharing",
-      "count": 56
+      "count": 59
     },
     {
-      "id": "40-server-files",
+      "id": "45-server-files",
       "bucket": "modules/server-files",
       "count": 91
     },
     {
-      "id": "41-subtitles",
+      "id": "46-subtitles",
       "bucket": "modules/subtitles",
       "count": 46
     },
     {
-      "id": "42-sync-playback",
+      "id": "47-sync-playback",
       "bucket": "modules/sync-playback",
       "count": 21
     },
     {
-      "id": "43-voice-chat",
+      "id": "48-voice-chat",
       "bucket": "modules/voice-chat",
-      "count": 34
+      "count": 27
     },
     {
-      "id": "44-webdav",
+      "id": "49-webdav",
       "bucket": "modules/webdav",
       "count": 3
     }

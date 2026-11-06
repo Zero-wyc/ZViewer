@@ -1,0 +1,1567 @@
+{
+  "constants": {
+    "signalingProtocol": "piik-v24",
+    "maxViewersPerRoomLimit": 20,
+    "maxParticipantsPerRoomLimit": 21,
+    "maxSignalBytes": 65536,
+    "roomCodeLength": 4,
+    "maxMediaRouteRevision": 9007199254740991,
+    "maxIceServerUrls": 8,
+    "maxNatPredictionAuxiliaryStunUrls": 2,
+    "maxViewerQualityEvidenceBytes": 2048,
+    "viewerQualityEvidenceIntervalMs": 2000,
+    "viewerQualityEvidenceExpiryMs": 5000,
+    "persistentNativeEdgeDegradedWindows": 3,
+    "maxDisplayNameCodePoints": 24,
+    "defaultViewerDisplayName": "观众",
+    "defaultHostDisplayNamePrefix": "房主",
+    "minViewerPasswordLength": 1,
+    "maxViewerPasswordLength": 64,
+    "defaultEndpointMediaCopyCapacity": 2,
+    "maxEndpointMediaCopyCapacity": 3,
+    "signalCloseCodeServiceRestart": 1012,
+    "signalCloseCodeSessionReplaced": 4001,
+    "signalCloseCodeClientReconnect": 4002,
+    "signalCloseCodeAuthenticationFailed": 4003,
+    "signalCloseCodeViewerAccessRevoked": 4004,
+    "defaultQualitySettings": {
+      "resolution": {
+        "width": 1920,
+        "height": 1080
+      },
+      "maxFramerate": 30,
+      "maxBitrate": 5000000,
+      "degradationPreference": "balanced",
+      "maxAudioBitrate": 128000
+    },
+    "defaultRoutePolicy": {
+      "peerOnly": false,
+      "topologyOptimization": true,
+      "natPrediction": false
+    },
+    "maxChatCodePoints": 280,
+    "interactionIntervalMs": 800
+  },
+  "clientMessages": [
+    {
+      "name": "voice listening subscription opt in",
+      "schema": "client",
+      "json": "{\"type\":\"subscribe-room-voice\",\"deafened\":false}",
+      "valid": true
+    },
+    {
+      "name": "voice listening subscription rejects null",
+      "schema": "client",
+      "json": "{\"type\":\"subscribe-room-voice\",\"deafened\":null}",
+      "valid": false
+    },
+    {
+      "name": "voice deafen command",
+      "schema": "client",
+      "json": "{\"type\":\"room-voice-command\",\"command\":{\"action\":\"deafen\",\"deafened\":true}}",
+      "valid": true
+    },
+    {
+      "name": "voice deafen requires boolean",
+      "schema": "client",
+      "json": "{\"type\":\"room-voice-command\",\"command\":{\"action\":\"deafen\",\"deafened\":null}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-route-selection",
+      "schema": "client",
+      "json": "{\"type\":\"set-viewer-route-preference\",\"preference\":\"sfu\"}",
+      "valid": true
+    },
+    {
+      "name": "viewer-route-unknown-choice",
+      "schema": "client",
+      "json": "{\"type\":\"set-viewer-route-preference\",\"preference\":\"tcp\"}",
+      "valid": false
+    },
+    {
+      "name": "viewer-route-no-choice",
+      "schema": "client",
+      "json": "{\"type\":\"set-viewer-route-preference\"}",
+      "valid": false
+    },
+    {
+      "name": "signal-punch-stable-mapping",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"targetPeerId\":\"viewer_12345678\",\"payload\":{\"kind\":\"punch\",\"connectionId\":\"connection_12345678\",\"punch\":{\"phase\":\"ready\",\"prediction\":{\"address\":\"198.51.100.1\",\"port\":65535,\"step\":0}}}}",
+      "valid": true
+    },
+    {
+      "name": "signal-punch-negative-step",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"targetPeerId\":\"viewer_12345678\",\"payload\":{\"kind\":\"punch\",\"connectionId\":\"connection_12345678\",\"punch\":{\"phase\":\"start\",\"prediction\":{\"address\":\"198.51.100.1\",\"port\":40000,\"step\":-1}}}}",
+      "valid": false
+    },
+    {
+      "name": "send-unregistered-reaction",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"future-effect\"}}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-host-minimal",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\"}",
+      "valid": true
+    },
+    {
+      "name": "authenticate-host-full",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\",\"shareGeneration\":\"share_generation_12345678\",\"sharingPaused\":false,\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000},\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false},\"viewerPresence\":true,\"displayName\":\"小明\"}",
+      "valid": true
+    },
+    {
+      "name": "authenticate-host-carries-viewer-grant",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\",\"viewerGrant\":\"bbbbbbbbbbbbbbbbbbbbbg\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-host-carries-viewer-password",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\",\"viewerPassword\":\"easy-password\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-host-short-token",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"short\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-host-unknown-key",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\",\"admin\":true}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-minimal",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\"}",
+      "valid": true
+    },
+    {
+      "name": "authenticate-viewer-full",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"viewerGrant\":\"bbbbbbbbbbbbbbbbbbbbbg\",\"viewerPassword\":\"easy-password\",\"displayName\":\"Café 朋友\",\"viewerPresence\":true}",
+      "valid": true
+    },
+    {
+      "name": "authenticate-viewer-carries-host-token",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-carries-route-policy",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false}}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-malformed-grant",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"viewerGrant\":\"bbbbbbbbbbbbbbbbbbbbb\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-grant-bad-final-character",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"viewerGrant\":\"bbbbbbbbbbbbbbbbbbbbbb\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-unknown-capabilities",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"capabilities\":{\"peerIceTurn\":true}}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-wrong-protocol",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"invalid-protocol\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-missing-protocol",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-leading-zero-room",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"0123\",\"role\":\"viewer\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-long-room",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"11111\",\"role\":\"viewer\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-noncanonical-display-name",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"displayName\":\" Café \"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-display-name-too-long",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"displayName\":\"名名名名名名名名名名名名名名名名名名名名名名名名名\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-display-name-at-limit",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"displayName\":\"名名名名名名名名名名名名名名名名名名名名名名名名\"}",
+      "valid": true
+    },
+    {
+      "name": "authenticate-viewer-display-name-bidi-override",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"displayName\":\"a‮b\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-display-name-newline",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"displayName\":\"a\\nb\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-null-display-name",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"displayName\":null}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-unknown-role",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"relay\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "signaling-challenge-max",
+      "schema": "client",
+      "json": "{\"type\":\"signaling-challenge\",\"sequence\":9007199254740991}",
+      "valid": true
+    },
+    {
+      "name": "signaling-challenge-negative",
+      "schema": "client",
+      "json": "{\"type\":\"signaling-challenge\",\"sequence\":-1}",
+      "valid": false
+    },
+    {
+      "name": "signaling-challenge-fractional",
+      "schema": "client",
+      "json": "{\"type\":\"signaling-challenge\",\"sequence\":1.5}",
+      "valid": false
+    },
+    {
+      "name": "signaling-challenge-above-safe-integer",
+      "schema": "client",
+      "json": "{\"type\":\"signaling-challenge\",\"sequence\":9007199254740992}",
+      "valid": false
+    },
+    {
+      "name": "signaling-challenge-extra-key",
+      "schema": "client",
+      "json": "{\"type\":\"signaling-challenge\",\"sequence\":1,\"roomId\":\"1234\"}",
+      "valid": false
+    },
+    {
+      "name": "signal-description",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"targetPeerId\":\"viewer_12345678\",\"payload\":{\"kind\":\"description\",\"connectionId\":\"connection_12345678\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\n\"}}}",
+      "valid": true
+    },
+    {
+      "name": "signal-candidate-end",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"payload\":{\"kind\":\"candidate\",\"connectionId\":\"connection_12345678\",\"candidate\":null}}",
+      "valid": true
+    },
+    {
+      "name": "signal-candidate-full",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"payload\":{\"kind\":\"candidate\",\"connectionId\":\"connection_12345678\",\"candidate\":{\"candidate\":\"candidate:1 1 udp 1 203.0.113.1 50000 typ host\",\"sdpMid\":\"0\",\"sdpMLineIndex\":0,\"usernameFragment\":null}}}",
+      "valid": true
+    },
+    {
+      "name": "signal-empty-sdp",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"payload\":{\"kind\":\"description\",\"connectionId\":\"connection_12345678\",\"description\":{\"type\":\"offer\",\"sdp\":\"\"}}}",
+      "valid": false
+    },
+    {
+      "name": "signal-unknown-payload-kind",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"payload\":{\"kind\":\"renegotiate\",\"connectionId\":\"connection_12345678\"}}",
+      "valid": false
+    },
+    {
+      "name": "signal-missing-candidate-key",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"payload\":{\"kind\":\"candidate\",\"connectionId\":\"connection_12345678\"}}",
+      "valid": false
+    },
+    {
+      "name": "restart-request",
+      "schema": "client",
+      "json": "{\"type\":\"restart-request\",\"connectionId\":\"connection_12345678\",\"rebuild\":true}",
+      "valid": true
+    },
+    {
+      "name": "restart-request-targeted",
+      "schema": "client",
+      "json": "{\"type\":\"restart-request\",\"targetPeerId\":\"parent_12345678\",\"connectionId\":\"connection_12345678\",\"rebuild\":false}",
+      "valid": true
+    },
+    {
+      "name": "restart-request-missing-rebuild",
+      "schema": "client",
+      "json": "{\"type\":\"restart-request\",\"connectionId\":\"connection_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-with-audio",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-legacy-codec",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"videoCodec\":\"vp8\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-framerate-below-floor",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":14,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-fractional-bitrate",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":5000000.5,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-missing-framerate",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-unknown-resolution",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":\"2160p\",\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "relay-capacity-max",
+      "schema": "client",
+      "json": "{\"type\":\"relay-capacity\",\"downstreamEdges\":3}",
+      "valid": true
+    },
+    {
+      "name": "relay-capacity-zero",
+      "schema": "client",
+      "json": "{\"type\":\"relay-capacity\",\"downstreamEdges\":0}",
+      "valid": true
+    },
+    {
+      "name": "relay-capacity-over-limit",
+      "schema": "client",
+      "json": "{\"type\":\"relay-capacity\",\"downstreamEdges\":4}",
+      "valid": false
+    },
+    {
+      "name": "relay-capacity-extra-key",
+      "schema": "client",
+      "json": "{\"type\":\"relay-capacity\",\"downstreamEdges\":1,\"score\":100}",
+      "valid": false
+    },
+    {
+      "name": "route-ready",
+      "schema": "client",
+      "json": "{\"type\":\"route-ready\",\"revision\":7,\"phase\":\"prepare\"}",
+      "valid": true
+    },
+    {
+      "name": "route-ready-quality-approved",
+      "schema": "client",
+      "json": "{\"type\":\"route-ready\",\"revision\":7,\"phase\":\"prepare\",\"qualityApproved\":true}",
+      "valid": true
+    },
+    {
+      "name": "route-ready-quality-approved-false",
+      "schema": "client",
+      "json": "{\"type\":\"route-ready\",\"revision\":7,\"phase\":\"prepare\",\"qualityApproved\":false}",
+      "valid": false
+    },
+    {
+      "name": "route-ready-negative-revision",
+      "schema": "client",
+      "json": "{\"type\":\"route-ready\",\"revision\":-1,\"phase\":\"prepare\"}",
+      "valid": false
+    },
+    {
+      "name": "route-transport-connected",
+      "schema": "client",
+      "json": "{\"type\":\"route-transport-connected\",\"revision\":7,\"connectionId\":\"connection_12345678\"}",
+      "valid": true
+    },
+    {
+      "name": "route-transport-connected-missing-connection",
+      "schema": "client",
+      "json": "{\"type\":\"route-transport-connected\",\"revision\":7}",
+      "valid": false
+    },
+    {
+      "name": "route-media-unavailable",
+      "schema": "client",
+      "json": "{\"type\":\"route-media-unavailable\",\"revision\":7}",
+      "valid": true
+    },
+    {
+      "name": "route-media-unavailable-negative",
+      "schema": "client",
+      "json": "{\"type\":\"route-media-unavailable\",\"revision\":-1}",
+      "valid": false
+    },
+    {
+      "name": "route-failed",
+      "schema": "client",
+      "json": "{\"type\":\"route-failed\",\"revision\":7,\"phase\":\"active\",\"connectionId\":null}",
+      "valid": true
+    },
+    {
+      "name": "route-failed-missing-connection",
+      "schema": "client",
+      "json": "{\"type\":\"route-failed\",\"revision\":7,\"phase\":\"active\"}",
+      "valid": false
+    },
+    {
+      "name": "refresh-sfu-max-revision",
+      "schema": "client",
+      "json": "{\"type\":\"refresh-sfu\",\"revision\":9007199254740991}",
+      "valid": true
+    },
+    {
+      "name": "refresh-sfu-fractional",
+      "schema": "client",
+      "json": "{\"type\":\"refresh-sfu\",\"revision\":1.5}",
+      "valid": false
+    },
+    {
+      "name": "request-route-diagnostic",
+      "schema": "client",
+      "json": "{\"type\":\"request-route-diagnostic\"}",
+      "valid": true
+    },
+    {
+      "name": "request-route-diagnostic-extra-key",
+      "schema": "client",
+      "json": "{\"type\":\"request-route-diagnostic\",\"roomId\":\"1234\"}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": true
+    },
+    {
+      "name": "viewer-quality-evidence-null-freeze",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":null,\"freezeDurationMsDelta\":null,\"pauseCountDelta\":null,\"pauseDurationMsDelta\":null,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": true
+    },
+    {
+      "name": "viewer-quality-evidence-vp8",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/VP8\",\"codecProfile\":null,\"codecParameters\":\"max-fr=60; max-fs=8160\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": true
+    },
+    {
+      "name": "viewer-quality-evidence-unknown-codec",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/unknown\",\"codecProfile\":null,\"codecParameters\":null,\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": true
+    },
+    {
+      "name": "viewer-quality-evidence-missing-path",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-lonely-height",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":null,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-lonely-width",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":null,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-noncanonical-parameters",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"sprop-parameter-sets=deadbeef\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-window-too-short",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":999,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-extra-guard-key",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0,\"peerId\":\"viewer_12345678\"},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-device-fingerprint",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\",\"decoderImplementation\":\"device-specific-decoder\"}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-freeze-above-safe-integer",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":9007199254740992,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "sender-quality-evidence",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":\"rtp-stats-1\",\"trackIdentifier\":\"track-1\",\"sampleTimestampMs\":2000,\"routeRevision\":3,\"state\":\"degraded\",\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"bandwidth\",\"framesPerSecond\":24,\"bitrateKbps\":1500}}",
+      "valid": true
+    },
+    {
+      "name": "sender-quality-evidence-unknown-state",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":null,\"trackIdentifier\":null,\"sampleTimestampMs\":null,\"routeRevision\":3,\"state\":\"unknown\",\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":null,\"framesPerSecond\":24,\"bitrateKbps\":1500}}",
+      "valid": true
+    },
+    {
+      "name": "sender-quality-evidence-healthy-without-identity",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":null,\"trackIdentifier\":\"track-1\",\"sampleTimestampMs\":2000,\"routeRevision\":3,\"state\":\"healthy\",\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"none\",\"framesPerSecond\":24,\"bitrateKbps\":1500}}",
+      "valid": false
+    },
+    {
+      "name": "sender-quality-evidence-reason-mismatch",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":\"rtp-stats-1\",\"trackIdentifier\":\"track-1\",\"sampleTimestampMs\":2000,\"routeRevision\":3,\"state\":\"healthy\",\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"bandwidth\",\"framesPerSecond\":24,\"bitrateKbps\":1500}}",
+      "valid": false
+    },
+    {
+      "name": "sender-quality-evidence-missing-path",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":\"rtp-stats-1\",\"trackIdentifier\":\"track-1\",\"sampleTimestampMs\":2000,\"routeRevision\":3,\"state\":\"degraded\",\"diagnostics\":{\"reason\":\"bandwidth\",\"framesPerSecond\":24,\"bitrateKbps\":1500}}",
+      "valid": false
+    },
+    {
+      "name": "sfu-publisher-quality-evidence",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-publisher-quality-evidence\",\"publicationGeneration\":\"publication_generation_12345678\",\"routeRevision\":4,\"state\":\"healthy\",\"sampleTimestampMs\":2000,\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"none\",\"framesPerSecond\":30,\"bitrateKbps\":2000,\"captureFramesPerSecond\":30,\"mediaSourceFramesPerSecond\":null,\"width\":1920,\"height\":1080,\"videoEncodingCount\":1,\"activeVideoEncodingCount\":1,\"availableOutgoingKbps\":9000,\"rttMs\":12,\"packetLossPercent\":0.1}}",
+      "valid": true
+    },
+    {
+      "name": "sfu-publisher-quality-evidence-missing-sample",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-publisher-quality-evidence\",\"publicationGeneration\":\"publication_generation_12345678\",\"routeRevision\":4,\"state\":\"healthy\",\"sampleTimestampMs\":null,\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"none\",\"framesPerSecond\":30,\"bitrateKbps\":2000,\"captureFramesPerSecond\":30,\"mediaSourceFramesPerSecond\":null,\"width\":1920,\"height\":1080,\"videoEncodingCount\":1,\"activeVideoEncodingCount\":1,\"availableOutgoingKbps\":9000,\"rttMs\":12,\"packetLossPercent\":0.1}}",
+      "valid": false
+    },
+    {
+      "name": "reset-sender-quality",
+      "schema": "client",
+      "json": "{\"type\":\"reset-sender-quality\"}",
+      "valid": true
+    },
+    {
+      "name": "reset-sender-quality-extra-key",
+      "schema": "client",
+      "json": "{\"type\":\"reset-sender-quality\",\"roomId\":\"1234\"}",
+      "valid": false
+    },
+    {
+      "name": "set-display-name",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"小明\"}",
+      "valid": true
+    },
+    {
+      "name": "set-display-name-noncanonical",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\" Café \"}",
+      "valid": false
+    },
+    {
+      "name": "set-sharing-paused",
+      "schema": "client",
+      "json": "{\"type\":\"set-sharing-paused\",\"shareGeneration\":\"share_generation_12345678\",\"paused\":true}",
+      "valid": true
+    },
+    {
+      "name": "set-sharing-paused-resume",
+      "schema": "client",
+      "json": "{\"type\":\"set-sharing-paused\",\"shareGeneration\":\"share_generation_12345678\",\"paused\":false}",
+      "valid": true
+    },
+    {
+      "name": "set-sharing-paused-string-flag",
+      "schema": "client",
+      "json": "{\"type\":\"set-sharing-paused\",\"shareGeneration\":\"share_generation_12345678\",\"paused\":\"true\"}",
+      "valid": false
+    },
+    {
+      "name": "set-sharing-paused-extra-key",
+      "schema": "client",
+      "json": "{\"type\":\"set-sharing-paused\",\"shareGeneration\":\"share_generation_12345678\",\"paused\":true,\"unexpected\":1}",
+      "valid": false
+    },
+    {
+      "name": "set-sharing-paused-missing-generation",
+      "schema": "client",
+      "json": "{\"type\":\"set-sharing-paused\",\"paused\":true}",
+      "valid": false
+    },
+    {
+      "name": "stop-sharing",
+      "schema": "client",
+      "json": "{\"type\":\"stop-sharing\"}",
+      "valid": true
+    },
+    {
+      "name": "stop-sharing-generation",
+      "schema": "client",
+      "json": "{\"type\":\"stop-sharing\",\"shareGeneration\":\"share_generation_12345678\"}",
+      "valid": true
+    },
+    {
+      "name": "stop-sharing-short-generation",
+      "schema": "client",
+      "json": "{\"type\":\"stop-sharing\",\"shareGeneration\":\"short\"}",
+      "valid": false
+    },
+    {
+      "name": "abandon-room",
+      "schema": "client",
+      "json": "{\"type\":\"abandon-room\"}",
+      "valid": true
+    },
+    {
+      "name": "abandon-room-extra-key",
+      "schema": "client",
+      "json": "{\"type\":\"abandon-room\",\"unexpected\":true}",
+      "valid": false
+    },
+    {
+      "name": "removed-refresh-ice",
+      "schema": "client",
+      "json": "{\"type\":\"refresh-ice\"}",
+      "valid": false
+    },
+    {
+      "name": "removed-set-code-entry-policy",
+      "schema": "client",
+      "json": "{\"type\":\"set-code-entry-policy\",\"policy\":\"open\"}",
+      "valid": false
+    },
+    {
+      "name": "removed-rotate-viewer-grant",
+      "schema": "client",
+      "json": "{\"type\":\"rotate-viewer-grant\"}",
+      "valid": false
+    },
+    {
+      "name": "create-room-open",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\"}",
+      "valid": true
+    },
+    {
+      "name": "create-room-private-password",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"private\",\"roomPassword\":\"room-password\"}",
+      "valid": true
+    },
+    {
+      "name": "create-room-null-password",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"private\",\"roomPassword\":null}",
+      "valid": true
+    },
+    {
+      "name": "create-room-preferred-code",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\",\"preferredRoomId\":\"4321\"}",
+      "valid": true
+    },
+    {
+      "name": "create-room-leading-zero-code",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\",\"preferredRoomId\":\"0432\"}",
+      "valid": false
+    },
+    {
+      "name": "create-room-unknown-policy",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"password\"}",
+      "valid": false
+    },
+    {
+      "name": "create-room-numeric-policy",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":1}",
+      "valid": false
+    },
+    {
+      "name": "create-room-space-in-password",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"private\",\"roomPassword\":\"contains space\"}",
+      "valid": false
+    },
+    {
+      "name": "create-room-unknown-key",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\",\"hostToken\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}",
+      "valid": false
+    },
+    {
+      "name": "replace-room-private-password",
+      "schema": "replaceRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"private\",\"roomPassword\":\"room-password\"}",
+      "valid": true
+    },
+    {
+      "name": "replace-room-open",
+      "schema": "replaceRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\"}",
+      "valid": true
+    },
+    {
+      "name": "replace-room-preferred-code",
+      "schema": "replaceRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\",\"preferredRoomId\":\"4321\"}",
+      "valid": false
+    },
+    {
+      "name": "replace-room-missing-policy",
+      "schema": "replaceRoomRequest",
+      "json": "{}",
+      "valid": false
+    },
+    {
+      "name": "room-access-set-code-entry-policy-open",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-code-entry-policy\",\"policy\":\"open\"}",
+      "valid": true
+    },
+    {
+      "name": "room-access-set-code-entry-policy-private",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-code-entry-policy\",\"policy\":\"private\"}",
+      "valid": true
+    },
+    {
+      "name": "room-access-set-code-entry-policy-disabled",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-code-entry-policy\",\"policy\":\"disabled\"}",
+      "valid": false
+    },
+    {
+      "name": "room-access-rotate-viewer-grant",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"rotate-viewer-grant\"}",
+      "valid": true
+    },
+    {
+      "name": "room-access-rotate-viewer-grant-extra-key",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"rotate-viewer-grant\",\"policy\":\"open\"}",
+      "valid": false
+    },
+    {
+      "name": "room-access-revoke-viewer-grant",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"revoke-viewer-grant\"}",
+      "valid": true
+    },
+    {
+      "name": "room-access-set-viewer-password",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-viewer-password\",\"password\":\"simple-password\"}",
+      "valid": true
+    },
+    {
+      "name": "room-access-clear-viewer-password",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-viewer-password\",\"password\":null}",
+      "valid": true
+    },
+    {
+      "name": "room-access-missing-password-key",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-viewer-password\"}",
+      "valid": false
+    },
+    {
+      "name": "room-access-long-password",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"set-viewer-password\",\"password\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "valid": false
+    },
+    {
+      "name": "room-access-unknown-action",
+      "schema": "roomAccessUpdateRequest",
+      "json": "{\"action\":\"disable-room\"}",
+      "valid": false
+    },
+    {
+      "name": "sfu-publisher-offer",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"description\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\\\r\\\\n\"},\"media\":{\"codec\":\"vp8\",\"layers\":[{\"rid\":\"q\",\"width\":640,\"height\":360,\"bitrate\":500000},{\"rid\":\"h\",\"width\":1280,\"height\":720,\"bitrate\":2000000}],\"audio\":false,\"audioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "sfu-ice-end",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"candidate\"}",
+      "valid": true
+    },
+    {
+      "name": "sfu-invalid-layers",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"description\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\\\r\\\\n\"},\"media\":{\"codec\":\"vp8\",\"layers\":[],\"audio\":false,\"audioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "sfu-invalid-media-role",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"description\",\"description\":{\"type\":\"answer\",\"sdp\":\"v=0\"},\"media\":{\"codec\":\"vp8\",\"layers\":[{\"rid\":\"q\",\"width\":640,\"height\":360,\"bitrate\":500000},{\"rid\":\"h\",\"width\":1280,\"height\":720,\"bitrate\":2000000}],\"audio\":false,\"audioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "sfu-null-description",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"candidate\",\"description\":null}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-folded-audio-invalid",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxaudiobitrate\":\"invalid\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-folded-audio-null",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxaudiobitrate\":null}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-folded-key-collision",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000,\"maxaudiobitrate\":\"invalid\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-exact-duplicate-last-valid",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":null,\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-exact-duplicate-last-null",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxFramerate\":null,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-host-folded-generation",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\",\"sharegeneration\":\"bad\"}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-host-folded-default-policy",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"host\",\"token\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"clientId\":\"client_12345678\",\"routepolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false}}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-folded-presence-false",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"viewerpresence\":false}",
+      "valid": false
+    },
+    {
+      "name": "authenticate-viewer-folded-password-null",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v24\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\",\"viewerpassword\":null}",
+      "valid": false
+    },
+    {
+      "name": "route-ready-folded-approval-false",
+      "schema": "client",
+      "json": "{\"type\":\"route-ready\",\"revision\":7,\"phase\":\"prepare\",\"qualityapproved\":false}",
+      "valid": false
+    },
+    {
+      "name": "signal-folded-target-empty",
+      "schema": "client",
+      "json": "{\"type\":\"signal\",\"payload\":{\"kind\":\"candidate\",\"connectionId\":\"connection_12345678\",\"candidate\":null},\"targetpeerid\":\"\"}",
+      "valid": false
+    },
+    {
+      "name": "stop-sharing-folded-generation-empty",
+      "schema": "client",
+      "json": "{\"type\":\"stop-sharing\",\"sharegeneration\":\"\"}",
+      "valid": false
+    },
+    {
+      "name": "create-room-folded-preferred-null",
+      "schema": "createRoomRequest",
+      "json": "{\"codeEntryPolicy\":\"open\",\"preferredroomid\":null}",
+      "valid": false
+    },
+    {
+      "name": "set-display-name-literal-high-surrogate-text",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\\\ud800\"}",
+      "valid": true
+    },
+    {
+      "name": "set-display-name-literal-low-surrogate-text",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\\\udc00\"}",
+      "valid": true
+    },
+    {
+      "name": "set-display-name-escaped-surrogate-pair",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\ud83d\\ude00\"}",
+      "valid": true
+    },
+    {
+      "name": "set-display-name-unpaired-high-surrogate",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\ud800\"}",
+      "valid": false
+    },
+    {
+      "name": "set-display-name-unpaired-low-surrogate",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\udc00\"}",
+      "valid": false
+    },
+    {
+      "name": "set-display-name-literal-high-followed-by-unpaired-low",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\\\ud800\\udc00\"}",
+      "valid": false
+    },
+    {
+      "name": "set-display-name-escaped-slash-followed-by-surrogate-pair",
+      "schema": "client",
+      "json": "{\"type\":\"set-display-name\",\"displayName\":\"\\\\\\ud83d\\ude00\"}",
+      "valid": true
+    },
+    {
+      "name": "room-interaction-subscribe",
+      "schema": "client",
+      "json": "{\"type\":\"subscribe-room-interactions\"}",
+      "valid": true
+    },
+    {
+      "name": "room-chat",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"来，看点好康的。 <b>Hello</b> 👋\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-reaction",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"tomato\",\"targetPeerId\":\"viewer_12345678\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-interaction-invalid-blank",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\" \"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-invalid-long",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你你\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-invalid-control",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"hello\\nworld\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-invalid-unknown",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"unknown\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-invalid-chat-target",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"hello\",\"targetPeerId\":\"viewer_12345678\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-invalid-reaction-text",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"poop\",\"text\":\"hello\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-invalid-null-target",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"poop\",\"targetPeerId\":null}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-spoofed-sender",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"来，看点好康的。 <b>Hello</b> 👋\"},\"sender\":{\"peerId\":\"host_12345678\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-interaction-extra-room",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"来，看点好康的。 <b>Hello</b> 👋\"},\"roomId\":\"1234\"}",
+      "valid": false
+    },
+    {
+      "name": "room-chat-surrogate",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"\\ud800\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-chat-emoji-limit",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-chat-emoji-over-limit",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋👋\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-chat-non-canonical",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"chat\",\"text\":\"Café\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-reaction-tomato-untargeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"tomato\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-reaction-poop-untargeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"poop\"}}",
+      "valid": false
+    },
+    {
+      "name": "room-reaction-poop-targeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"poop\",\"targetPeerId\":\"viewer_12345678\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-reaction-wave-untargeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"wave\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-reaction-clown-targeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"clown\",\"targetPeerId\":\"viewer_12345678\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-reaction-eyeroll-untargeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"eyeroll\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-reaction-thumbsup-targeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"thumbsup\",\"targetPeerId\":\"viewer_12345678\"}}",
+      "valid": true
+    },
+    {
+      "name": "room-reaction-thumbsdown-untargeted",
+      "schema": "client",
+      "json": "{\"type\":\"send-room-interaction\",\"requestId\":\"request_12345678\",\"payload\":{\"kind\":\"reaction\",\"reaction\":\"thumbsdown\"}}",
+      "valid": true
+    },
+    {
+      "name": "numeric-audio-6000",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":6000}}",
+      "valid": true
+    },
+    {
+      "name": "numeric-audio-96000",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":96000}}",
+      "valid": true
+    },
+    {
+      "name": "numeric-audio-256000",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":256000}}",
+      "valid": true
+    },
+    {
+      "name": "numeric-audio-320000",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":320000}}",
+      "valid": true
+    },
+    {
+      "name": "numeric-audio-510000",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":510000}}",
+      "valid": true
+    },
+    {
+      "name": "numeric-audio-5999",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":5999}}",
+      "valid": false
+    },
+    {
+      "name": "numeric-audio-510001",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":510001}}",
+      "valid": false
+    },
+    {
+      "name": "numeric-audio-128000.5",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000.5}}",
+      "valid": false
+    },
+    {
+      "name": "numeric-audio-null",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":null}}",
+      "valid": false
+    },
+    {
+      "name": "numeric-audio-music",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":\"music\"}}",
+      "valid": false
+    },
+    {
+      "name": "published-1.x-authentication",
+      "schema": "client",
+      "json": "{\"type\":\"authenticate\",\"protocol\":\"piik-v23\",\"roomId\":\"1234\",\"role\":\"viewer\",\"clientId\":\"client_12345678\"}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-numeric-16-10",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1200},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-portrait",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":720,\"height\":1280},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-square",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1080,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-future-4k-description",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":3840,\"height\":2160},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-maximum-description",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":8192,\"height\":8192},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-too-wide",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":8194,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-too-tall",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":8194},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-too-small",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":2,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-odd-size",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1919,\"height\":1080},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-fractional-size",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080.5},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-missing-height",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-null-size",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":null},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-ui-label-on-wire",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080,\"label\":\"1080p\"},\"maxFramerate\":30,\"maxBitrate\":5000000,\"degradationPreference\":\"balanced\",\"maxAudioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-higher-rate",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":120,\"maxBitrate\":40000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-fractional-framerate",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":29.97,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": true
+    },
+    {
+      "name": "set-quality-settings-zero-framerate",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":0,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-unrepresentable-bitrate",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":4294967296,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "set-quality-settings-unrepresentable-size",
+      "schema": "client",
+      "json": "{\"type\":\"set-quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":4294967296,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}",
+      "valid": false
+    },
+    {
+      "name": "sender-quality-evidence-high-observations",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":\"rtp-stats-1\",\"trackIdentifier\":\"track-1\",\"sampleTimestampMs\":2000,\"routeRevision\":3,\"state\":\"degraded\",\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"bandwidth\",\"framesPerSecond\":480,\"bitrateKbps\":200000,\"rttMs\":70000,\"width\":32768,\"height\":32768,\"availableOutgoingKbps\":1000000}}",
+      "valid": true
+    },
+    {
+      "name": "sender-quality-evidence-unrepresentable-observation",
+      "schema": "client",
+      "json": "{\"type\":\"sender-quality-evidence\",\"childPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rtpStatsId\":\"rtp-stats-1\",\"trackIdentifier\":\"track-1\",\"sampleTimestampMs\":2000,\"routeRevision\":3,\"state\":\"degraded\",\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"bandwidth\",\"framesPerSecond\":480,\"bitrateKbps\":9007199254740992,\"rttMs\":70000,\"width\":32768,\"height\":32768,\"availableOutgoingKbps\":1000000}}",
+      "valid": false
+    },
+    {
+      "name": "sfu-publisher-quality-evidence-high-observations",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-publisher-quality-evidence\",\"publicationGeneration\":\"publication_generation_12345678\",\"routeRevision\":4,\"state\":\"healthy\",\"sampleTimestampMs\":2000,\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"none\",\"framesPerSecond\":480,\"bitrateKbps\":200000,\"captureFramesPerSecond\":30,\"mediaSourceFramesPerSecond\":null,\"width\":32768,\"height\":32768,\"videoEncodingCount\":1,\"activeVideoEncodingCount\":1,\"availableOutgoingKbps\":1000000,\"rttMs\":70000,\"packetLossPercent\":0.1}}",
+      "valid": true
+    },
+    {
+      "name": "sfu-publisher-quality-evidence-unrepresentable-observation",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-publisher-quality-evidence\",\"publicationGeneration\":\"publication_generation_12345678\",\"routeRevision\":4,\"state\":\"healthy\",\"sampleTimestampMs\":2000,\"diagnostics\":{\"natTraversalPath\":\"ordinary\",\"reason\":\"none\",\"framesPerSecond\":480,\"bitrateKbps\":9007199254740992,\"captureFramesPerSecond\":30,\"mediaSourceFramesPerSecond\":null,\"width\":32768,\"height\":32768,\"videoEncodingCount\":1,\"activeVideoEncodingCount\":1,\"availableOutgoingKbps\":1000000,\"rttMs\":70000,\"packetLossPercent\":0.1}}",
+      "valid": false
+    },
+    {
+      "name": "viewer-quality-evidence-high-observations",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":32768,\"height\":32768,\"framesPerSecond\":480,\"bitrateKbps\":200000,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":70000,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":20000,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-70000,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": true
+    },
+    {
+      "name": "viewer-quality-evidence-unrepresentable-observation",
+      "schema": "client",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":32768,\"height\":32768,\"framesPerSecond\":480,\"bitrateKbps\":9007199254740992,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":70000,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":20000,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-70000,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}",
+      "valid": false
+    },
+    {
+      "name": "sfu-numeric-description-above-implementation",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"description\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\\\r\\\\n\"},\"media\":{\"codec\":\"vp8\",\"layers\":[{\"rid\":\"\",\"width\":32768,\"height\":32768,\"bitrate\":200000000}],\"audio\":false,\"audioBitrate\":128000}}",
+      "valid": true
+    },
+    {
+      "name": "sfu-unrepresentable-description",
+      "schema": "client",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"description\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\\\r\\\\n\"},\"media\":{\"codec\":\"vp8\",\"layers\":[{\"rid\":\"\",\"width\":4294967296,\"height\":32768,\"bitrate\":200000000}],\"audio\":false,\"audioBitrate\":128000}}",
+      "valid": false
+    },
+    {
+      "name": "co-play-subscription",
+      "schema": "client",
+      "json": "{\"type\":\"subscribe-co-play-presence\"}",
+      "valid": true
+    },
+    {
+      "name": "co-play-grants",
+      "schema": "client",
+      "json": "{\"type\":\"set-co-play-presence\",\"shareGeneration\":\"share_coplay_generation\",\"grants\":[{\"endpointId\":\"11111111111111111111111111111111\"}]}",
+      "valid": true
+    },
+    {
+      "name": "co-play-cleared",
+      "schema": "client",
+      "json": "{\"type\":\"set-co-play-presence\",\"shareGeneration\":\"share_coplay_generation\",\"grants\":[]}",
+      "valid": true
+    },
+    {
+      "name": "co-play-duplicate-grant",
+      "schema": "client",
+      "json": "{\"type\":\"set-co-play-presence\",\"shareGeneration\":\"share_coplay_generation\",\"grants\":[{\"endpointId\":\"11111111111111111111111111111111\"},{\"endpointId\":\"11111111111111111111111111111111\"}]}",
+      "valid": false
+    },
+    {
+      "name": "co-play-grant-field-case",
+      "schema": "client",
+      "json": "{\"type\":\"set-co-play-presence\",\"shareGeneration\":\"share_coplay_generation\",\"grants\":[{\"EndpointId\":\"11111111111111111111111111111111\"}]}",
+      "valid": false
+    },
+    {
+      "name": "co-play-unexpected-grant-field",
+      "schema": "client",
+      "json": "{\"type\":\"set-co-play-presence\",\"shareGeneration\":\"share_coplay_generation\",\"grants\":[{\"endpointId\":\"11111111111111111111111111111111\",\"extra\":true}]}",
+      "valid": false
+    }
+  ],
+  "serverMessages": [
+    {
+      "name": "viewer-route-selection-accepted",
+      "json": "{\"type\":\"viewer-route-preference\",\"preference\":\"sfu\",\"accepted\":true}"
+    },
+    {
+      "name": "viewer-route-selection-rejected",
+      "json": "{\"type\":\"viewer-route-preference\",\"preference\":\"auto\",\"accepted\":false}"
+    },
+    {
+      "name": "room-interaction-future-reaction",
+      "json": "{\"type\":\"room-interaction\",\"id\":\"event_12345678\",\"requestId\":\"request_12345678\",\"occurredAt\":1700000000010,\"sender\":{\"peerId\":\"peer_12345678\",\"role\":\"host\",\"displayName\":\"Piik friend\"},\"payload\":{\"kind\":\"reaction\",\"reaction\":\"future-effect\",\"targetPeerId\":\"target_12345678\"}}"
+    },
+    {
+      "name": "authenticated-host-minimal",
+      "json": "{\"type\":\"authenticated\",\"protocol\":\"piik-v24\",\"peerId\":\"host_12345678\",\"maxViewers\":8,\"endpointMediaCopyCapacity\":2,\"hostOnline\":true,\"connectionId\":null,\"iceConfig\":{\"iceServers\":[],\"natPredictionStunUrls\":[]},\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false},\"codeEntryPolicy\":\"open\",\"viewerAuthorizationGeneration\":\"viewer_generation_12345678\",\"mediaMode\":\"peer-assisted\",\"shareGeneration\":\"share_generation_12345678\",\"routeRevision\":0,\"routeAssignment\":{\"upstream\":{\"kind\":\"none\"},\"childPeerIds\":[],\"sfuPublicationGeneration\":null},\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000},\"role\":\"host\",\"viewerPasswordEnabled\":false}"
+    },
+    {
+      "name": "authenticated-host-full",
+      "json": "{\"type\":\"authenticated\",\"protocol\":\"piik-v24\",\"peerId\":\"host_12345678\",\"maxViewers\":8,\"endpointMediaCopyCapacity\":2,\"hostOnline\":true,\"connectionId\":\"connection_12345678\",\"iceConfig\":{\"iceServers\":[{\"urls\":\"stun:stun.example.test:3478\"},{\"urls\":[\"stun:stun-1.example.test:3478\",\"stun:[2001:db8::1]:3478\"]}],\"natPredictionStunUrls\":[\"stun:nat.example.test:3478\"]},\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false},\"codeEntryPolicy\":\"open\",\"viewerAuthorizationGeneration\":\"viewer_generation_12345678\",\"mediaMode\":\"peer-assisted\",\"shareGeneration\":\"share_generation_12345678\",\"routeRevision\":0,\"routeAssignment\":{\"upstream\":{\"kind\":\"sfu\"},\"childPeerIds\":[],\"sfuPublicationGeneration\":\"generation_12345678\"},\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000},\"role\":\"host\",\"viewerPasswordEnabled\":false}"
+    },
+    {
+      "name": "authenticated-viewer-minimal",
+      "json": "{\"type\":\"authenticated\",\"protocol\":\"piik-v24\",\"peerId\":\"viewer_12345678\",\"maxViewers\":8,\"endpointMediaCopyCapacity\":2,\"hostOnline\":true,\"hostPaused\":false,\"connectionId\":null,\"iceConfig\":{\"iceServers\":[],\"natPredictionStunUrls\":[]},\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false},\"codeEntryPolicy\":\"open\",\"viewerAuthorizationGeneration\":\"viewer_generation_12345678\",\"mediaMode\":\"peer-assisted\",\"shareGeneration\":\"share_generation_12345678\",\"routeRevision\":0,\"routeAssignment\":{\"upstream\":{\"kind\":\"none\"},\"childPeerIds\":[],\"sfuPublicationGeneration\":null},\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000},\"role\":\"viewer\"}"
+    },
+    {
+      "name": "authenticated-viewer-full",
+      "json": "{\"type\":\"authenticated\",\"protocol\":\"piik-v24\",\"peerId\":\"viewer_12345678\",\"maxViewers\":8,\"endpointMediaCopyCapacity\":2,\"hostOnline\":true,\"hostPaused\":true,\"connectionId\":\"connection_12345678\",\"iceConfig\":{\"iceServers\":[],\"natPredictionStunUrls\":[]},\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false},\"codeEntryPolicy\":\"open\",\"viewerAuthorizationGeneration\":\"viewer_generation_12345678\",\"mediaMode\":\"peer-assisted\",\"shareGeneration\":\"share_generation_12345678\",\"routeRevision\":0,\"routeAssignment\":{\"upstream\":{\"kind\":\"peer\",\"peerId\":\"parent_12345678\"},\"childPeerIds\":[\"child_12345678\",\"child_87654321\"],\"sfuPublicationGeneration\":null},\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000},\"role\":\"viewer\"}"
+    },
+    {
+      "name": "signaling-challenge-response",
+      "json": "{\"type\":\"signaling-challenge-response\",\"sequence\":0}"
+    },
+    {
+      "name": "signal-description",
+      "json": "{\"type\":\"signal\",\"fromPeerId\":\"host_12345678\",\"payload\":{\"kind\":\"description\",\"connectionId\":\"connection_12345678\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\r\\n\"}}}"
+    },
+    {
+      "name": "signal-candidate-full",
+      "json": "{\"type\":\"signal\",\"fromPeerId\":\"host_12345678\",\"payload\":{\"kind\":\"candidate\",\"connectionId\":\"connection_12345678\",\"candidate\":{\"candidate\":\"candidate:1 1 udp 1 203.0.113.1 50000 typ host\",\"sdpMid\":\"0\",\"sdpMLineIndex\":0,\"usernameFragment\":null}}}"
+    },
+    {
+      "name": "signal-candidate-end",
+      "json": "{\"type\":\"signal\",\"fromPeerId\":\"host_12345678\",\"payload\":{\"kind\":\"candidate\",\"connectionId\":\"connection_12345678\",\"candidate\":null}}"
+    },
+    {
+      "name": "restart-request",
+      "json": "{\"type\":\"restart-request\",\"fromPeerId\":\"viewer_12345678\",\"connectionId\":\"connection_12345678\",\"rebuild\":true}"
+    },
+    {
+      "name": "route-update-prepare",
+      "json": "{\"type\":\"route-update\",\"revision\":9,\"phase\":\"prepare\",\"assignment\":{\"upstream\":{\"kind\":\"peer\",\"peerId\":\"parent_12345678\"},\"childPeerIds\":[\"child_12345678\",\"child_87654321\"],\"sfuPublicationGeneration\":null},\"candidate\":{\"childPeerId\":\"child_12345678\",\"connectionId\":\"connection_12345678\",\"transport\":\"direct\",\"qualityProbe\":false}}"
+    },
+    {
+      "name": "route-update-prepare-with-attempt",
+      "json": "{\"type\":\"route-update\",\"revision\":10,\"phase\":\"prepare\",\"assignment\":{\"upstream\":{\"kind\":\"sfu\"},\"childPeerIds\":[],\"sfuPublicationGeneration\":\"generation_12345678\"},\"candidate\":{\"childPeerId\":\"child_12345678\",\"connectionId\":\"connection_12345678\",\"transport\":\"sfu\",\"qualityProbe\":true,\"connectionAttempt\":{\"current\":2,\"total\":3}}}"
+    },
+    {
+      "name": "route-update-active",
+      "json": "{\"type\":\"route-update\",\"revision\":11,\"phase\":\"active\",\"assignment\":{\"upstream\":{\"kind\":\"none\"},\"childPeerIds\":[],\"sfuPublicationGeneration\":null}}"
+    },
+    {
+      "name": "route-status-waiting",
+      "json": "{\"type\":\"route-status\",\"revision\":3,\"state\":\"waiting\",\"reason\":\"sfu-admission\"}"
+    },
+    {
+      "name": "route-status-failed",
+      "json": "{\"type\":\"route-status\",\"revision\":4,\"state\":\"failed\",\"reason\":\"route-exhausted\"}"
+    },
+    {
+      "name": "route-diagnostic-snapshot-empty",
+      "json": "{\"type\":\"route-diagnostic-snapshot\",\"snapshot\":{\"children\":[],\"operation\":null}}"
+    },
+    {
+      "name": "route-diagnostic-snapshot",
+      "json": "{\"type\":\"route-diagnostic-snapshot\",\"snapshot\":{\"children\":[{\"ordinal\":1,\"parent\":{\"kind\":\"host\"},\"effectiveCapacity\":2,\"childCount\":1,\"demandAgeMs\":100,\"queueWaitMs\":10,\"candidateStartMs\":20,\"firstDecodedFrameMs\":80,\"finalMs\":80,\"finalRoute\":\"direct\",\"rejectionBucket\":\"none\",\"quality\":{\"eligibleWindows\":3,\"eligibleDurationMs\":6000,\"freezeWindows\":1,\"freezeCount\":1,\"freezeDurationMs\":250,\"pauseCount\":0,\"pauseDurationMs\":0}},{\"ordinal\":2,\"parent\":{\"kind\":\"viewer\",\"ordinal\":1},\"effectiveCapacity\":0,\"childCount\":0,\"demandAgeMs\":90,\"queueWaitMs\":null,\"candidateStartMs\":null,\"firstDecodedFrameMs\":null,\"finalMs\":null,\"finalRoute\":\"waiting\",\"rejectionBucket\":\"sfu-admission\",\"quality\":null}],\"operation\":{\"childOrdinal\":2,\"reason\":\"join\",\"stage\":\"admission\",\"cursor\":1,\"candidateCount\":2}}}"
+    },
+    {
+      "name": "sfu-config",
+      "json": "{\"type\":\"sfu-config\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\"}"
+    },
+    {
+      "name": "quality-settings",
+      "json": "{\"type\":\"quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\",\"maxAudioBitrate\":128000}}"
+    },
+    {
+      "name": "quality-settings-without-audio",
+      "json": "{\"type\":\"quality-settings\",\"qualitySettings\":{\"resolution\":{\"width\":1920,\"height\":1080},\"maxFramerate\":60,\"maxBitrate\":8000000,\"degradationPreference\":\"maintain-resolution\"}}"
+    },
+    {
+      "name": "route-policy",
+      "json": "{\"type\":\"route-policy\",\"shareGeneration\":\"share_generation_12345678\",\"routePolicy\":{\"peerOnly\":false,\"topologyOptimization\":true,\"natPrediction\":false}}"
+    },
+    {
+      "name": "route-policy-peer-only",
+      "json": "{\"type\":\"route-policy\",\"shareGeneration\":\"share_generation_12345678\",\"routePolicy\":{\"peerOnly\":true,\"topologyOptimization\":true,\"natPrediction\":false}}"
+    },
+    {
+      "name": "pause-sharing-source",
+      "json": "{\"type\":\"pause-sharing-source\",\"shareGeneration\":\"share_generation_12345678\"}"
+    },
+    {
+      "name": "viewer-quality-evidence-peer",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"viewerPeerId\":\"viewer_12345678\",\"upstream\":{\"kind\":\"peer\",\"peerId\":\"host_12345678\"},\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":0,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":1920,\"height\":1080,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":\"video/H264\",\"codecProfile\":\"profile-level-id=42e01f\",\"codecParameters\":\"packetization-mode=1; level-asymmetry-allowed=1\",\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}"
+    },
+    {
+      "name": "viewer-quality-evidence-sfu",
+      "json": "{\"type\":\"viewer-quality-evidence\",\"viewerPeerId\":\"viewer_12345678\",\"upstream\":{\"kind\":\"sfu\"},\"guard\":{\"connectionId\":\"connection_12345678\",\"routeRevision\":0,\"presentationEpoch\":0},\"sequence\":1,\"windowMs\":2000,\"metrics\":{\"natTraversalPath\":\"ordinary\",\"width\":null,\"height\":null,\"framesPerSecond\":59.8,\"bitrateKbps\":7500,\"packetsReceivedDelta\":1500,\"packetsLostDelta\":2,\"rttMs\":18,\"jitterMs\":3.5,\"framesDecodedDelta\":120,\"framesDroppedDelta\":1,\"decodeMsPerFrame\":2.4,\"freezeCountDelta\":0,\"freezeDurationMsDelta\":0,\"pauseCountDelta\":0,\"pauseDurationMsDelta\":0,\"codec\":null,\"codecProfile\":null,\"codecParameters\":null,\"audioBitrateKbps\":192,\"audioPacketLossPercent\":0.2,\"audioJitterMs\":2.5,\"audioVideoPlayoutDeltaMs\":-12.5,\"videoJitterBufferDelayMs\":24,\"audioJitterBufferDelayMs\":18,\"audioConcealedSamplesPercent\":1,\"audioConcealmentEventsDelta\":3,\"audioCodec\":\"audio/opus\"}}"
+    },
+    {
+      "name": "host-status-online",
+      "json": "{\"type\":\"host-status\",\"online\":true,\"paused\":false}"
+    },
+    {
+      "name": "viewer-presence-empty",
+      "json": "{\"type\":\"viewer-presence\",\"viewers\":[]}"
+    },
+    {
+      "name": "viewer-presence",
+      "json": "{\"type\":\"viewer-presence\",\"viewers\":[{\"role\":\"host\",\"peerId\":\"host_12345678\",\"displayName\":\"分享者\",\"upstream\":{\"kind\":\"none\"}},{\"role\":\"viewer\",\"peerId\":\"viewer_12345678\",\"displayName\":\"小明\",\"upstream\":{\"kind\":\"peer\",\"peerId\":\"host_12345678\"},\"mediaReady\":true},{\"role\":\"viewer\",\"peerId\":\"viewer_87654321\",\"displayName\":\"观众\",\"upstream\":{\"kind\":\"none\"}}]}"
+    },
+    {
+      "name": "viewer-grant-revoked",
+      "json": "{\"type\":\"viewer-grant-revoked\",\"viewerAuthorizationGeneration\":\"viewer_generation_12345678\"}"
+    },
+    {
+      "name": "sharing-stopped",
+      "json": "{\"type\":\"sharing-stopped\"}"
+    },
+    {
+      "name": "room-closed-host-ended",
+      "json": "{\"type\":\"room-closed\",\"reason\":\"host-ended\"}"
+    },
+    {
+      "name": "error",
+      "json": "{\"type\":\"error\",\"code\":\"ROOM_FULL\",\"message\":\"Room is full\"}"
+    },
+    {
+      "name": "sfu-subscriber-offer",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"description\",\"description\":{\"type\":\"offer\",\"sdp\":\"v=0\\\\r\\\\n\"}}"
+    },
+    {
+      "name": "sfu-layer-demand",
+      "json": "{\"type\":\"sfu-signal\",\"revision\":9,\"publicationGeneration\":\"publication_12345678\",\"connectionId\":\"connection_12345678\",\"kind\":\"layers\",\"activeCount\":0}"
+    },
+    {
+      "name": "room-interactions-ready",
+      "json": "{\"type\":\"room-interactions-ready\",\"serverTime\":1700000000000}"
+    },
+    {
+      "name": "room-interaction-rejected",
+      "json": "{\"type\":\"room-interaction-rejected\",\"requestId\":\"request_12345678\",\"reason\":\"rate-limited\"}"
+    },
+    {
+      "name": "room-interaction",
+      "json": "{\"type\":\"room-interaction\",\"id\":\"event_12345678\",\"requestId\":\"request_12345678\",\"occurredAt\":1700000000010,\"sender\":{\"peerId\":\"peer_12345678\",\"role\":\"host\",\"displayName\":\"Piik friend\"},\"payload\":{\"kind\":\"chat\",\"text\":\"来，看点好康的。 <b>Hello</b> 👋\"}}"
+    },
+    {
+      "name": "co-play-participants",
+      "json": "{\"type\":\"co-play-presence\",\"participants\":[{\"peerId\":\"viewer_coplay_peer\"},{\"peerId\":\"other_coplay_peer\"}]}"
+    },
+    {
+      "name": "co-play-participants-cleared",
+      "json": "{\"type\":\"co-play-presence\",\"participants\":[]}"
+    },
+    {
+      "name": "room-relay-video-attachment-diagnostic",
+      "json": "{\"type\":\"route-diagnostic-snapshot\",\"snapshot\":{\"children\":[{\"ordinal\":1,\"parent\":{\"kind\":\"host\"},\"effectiveCapacity\":20,\"childCount\":4,\"demandAgeMs\":null,\"queueWaitMs\":null,\"candidateStartMs\":null,\"firstDecodedFrameMs\":null,\"finalMs\":null,\"finalRoute\":\"direct\",\"rejectionBucket\":\"none\",\"quality\":null},{\"ordinal\":2,\"parent\":{\"kind\":\"viewer\",\"ordinal\":1},\"effectiveCapacity\":0,\"childCount\":0,\"demandAgeMs\":null,\"queueWaitMs\":null,\"candidateStartMs\":null,\"firstDecodedFrameMs\":null,\"finalMs\":null,\"finalRoute\":\"direct\",\"rejectionBucket\":\"none\",\"quality\":null},{\"ordinal\":3,\"parent\":{\"kind\":\"viewer\",\"ordinal\":1},\"effectiveCapacity\":0,\"childCount\":0,\"demandAgeMs\":null,\"queueWaitMs\":null,\"candidateStartMs\":null,\"firstDecodedFrameMs\":null,\"finalMs\":null,\"finalRoute\":\"direct\",\"rejectionBucket\":\"none\",\"quality\":null},{\"ordinal\":4,\"parent\":{\"kind\":\"viewer\",\"ordinal\":1},\"effectiveCapacity\":0,\"childCount\":0,\"demandAgeMs\":null,\"queueWaitMs\":null,\"candidateStartMs\":null,\"firstDecodedFrameMs\":null,\"finalMs\":null,\"finalRoute\":\"direct\",\"rejectionBucket\":\"none\",\"quality\":null},{\"ordinal\":5,\"parent\":{\"kind\":\"viewer\",\"ordinal\":1},\"effectiveCapacity\":0,\"childCount\":0,\"demandAgeMs\":null,\"queueWaitMs\":null,\"candidateStartMs\":null,\"firstDecodedFrameMs\":null,\"finalMs\":null,\"finalRoute\":\"direct\",\"rejectionBucket\":\"none\",\"quality\":null}],\"operation\":{\"childOrdinal\":1,\"reason\":\"publication-attach\",\"stage\":\"admission\",\"cursor\":0,\"candidateCount\":1}}}"
+    }
+  ]
+}

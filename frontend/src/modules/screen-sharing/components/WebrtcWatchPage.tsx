@@ -1,16 +1,15 @@
 /**
  * WebRTC 屏幕共享观众端。
  *
- * 从 WatchPage.tsx 中拆分，仅处理 WebRTC 子模式的观众端：
- * - RTCPeerConnection 管理（挂载时自动创建，卸载时自动清理）
- * - 信令通道订阅（signal-offer / signal-ice-candidate / sharer-ready）
- * - video 元素绑定与分辨率/PiP 监听
- * - 控制栏、批注层、网页全屏等 UI
+ * 与旧实现的区别：连接不由页面建立。观众进房只发 `share.hello`，之后由服务端
+ * 下发的候选驱动建连（`ShareViewerSession`）；解出第一帧才算「接上了」，页面
+ * 拿到 active 才挂画面。恢复由会话自己做（预算 2 次），耗尽后把刷新按钮交给用户。
  *
- * WatchPage 分发器根据 roomMode + shareMethod 决定渲染本组件或 StreamPushViewer。
+ * 页面只负责：绑定 video 元素、把会话状态映到控制栏、以及所有 UI（批注、网页
+ * 全屏、画中画）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Volume2 } from 'lucide-react'
+import { PauseCircle, Volume2 } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { cn } from '@/lib/utils'
@@ -28,22 +27,17 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useWakeLock } from '@/hooks/useWakeLock'
-import { useP2PTunnel } from '@/modules/p2p'
-import type { P2PStatus } from '@/modules/p2p/types'
-import { useViewerPeerConnection } from '../hooks/useViewerPeerConnection'
-import { useSignalingChannel } from '../hooks/useSignalingChannel'
+import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
+import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
+import {
+  loadViewerVolume,
+  saveViewerVolume,
+  VIEWER_VOLUME_MAX,
+} from '../utils/mediaSettingsStorage'
+import { viewerStatusText } from '../utils/shareMessages'
 import { RemoteVideoPlayer } from './RemoteVideoPlayer'
 import { WatchControlsBar } from './WatchControlsBar'
 import { t } from '@/i18n'
-
-/** 观众端 P2P 状态快照 */
-export interface ViewerP2PStateSnapshot {
-  enabled: boolean
-  pc: RTCPeerConnection | null
-  status: P2PStatus
-  fallbackNotice: boolean
-  toggle: (enabled: boolean) => void
-}
 
 declare global {
   interface HTMLVideoElement {
@@ -64,7 +58,17 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   const { socket, connected } = useSocket()
 
   // UI state
-  const [isMuted, setIsMuted] = useState(false)
+  //
+  // 静音与音量的真相都在 `ViewerAudio` 里（它同时管原生播放与增益），
+  // 页面只持有它回传的快照。**不要**再从 `video.muted` 反推：增益模式下
+  // 那个属性是被强置成 true 的（出声走 GainNode），拿它判断会永远显示「静音中」。
+  const [audioSnapshot, setAudioSnapshot] = useState<ViewerAudioSnapshot>({
+    level: 1,
+    muted: false,
+    boostAvailable: typeof AudioContext !== 'undefined',
+  })
+  const viewerAudioRef = useRef<ViewerAudio | null>(null)
+  const isMuted = audioSnapshot.muted || audioSnapshot.level === 0
   const [isPlaying, setIsPlaying] = useState(true)
   const [videoResolution, setVideoResolution] = useState<{
     width: number
@@ -84,7 +88,8 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   // WebRTC 播放器舞台 ref（用于控制栏自动隐藏）
   const webrtcStageRef = useRef<HTMLDivElement | null>(null)
 
-  // video ref（使用回调 ref 触发 videoVersion 变化，驱动 resolution 监听 effect 重新订阅）
+  // video ref（使用回调 ref 触发 videoVersion 变化：远端流可能先于元素到达，
+  // 会话需要这个版本号才能在元素就位后补一次 srcObject 绑定）
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const [videoVersion, setVideoVersion] = useState(0)
   const setVideoRef = useCallback((node: HTMLVideoElement | null) => {
@@ -93,90 +98,28 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     if (node && !prev) setVideoVersion((v) => v + 1)
   }, [])
 
-  // 观众 PC hook
   const {
-    pc,
+    remoteStream,
     hasRemoteStream,
     hasRemoteAudio,
     connectionState,
-    create: createPc,
-    cleanup: cleanupPc,
-    handleSignalOffer,
-    handleSignalIceCandidate,
-    handleSharerReady,
-  } = useViewerPeerConnection({
-    socket,
-    roomId,
-    videoRef,
-    videoMountedVersion: videoVersion,
-  })
+    state,
+    sharingMode,
+    edges,
+    retry,
+  } = usePiikShareViewer({ roomId, videoRef, videoVersion })
 
-  // 挂载时自动创建 PC，卸载时自动清理
-  // 替代原 WatchPage 中 useJoinRoom.onApprovedScreenShare / onRoomModeChanged 的 PC 创建逻辑
+  // 恢复预算耗尽：明确告诉用户「停下来等你点刷新」，而不是无限重连。
   useEffect(() => {
-    createPc()
+    if (state.exhausted) message.warning(t('连接已断开，请点击刷新重试'))
+  }, [state.exhausted])
+
+  // 卸载时清掉画面，避免下一次进房短暂显示上一场的最后一帧。
+  useEffect(() => {
     return () => {
-      cleanupPc()
       if (videoRef.current) videoRef.current.srcObject = null
     }
-  }, [createPc, cleanupPc])
-
-  // 信令 channel hook（订阅 signal-offer / signal-ice-candidate）
-  useSignalingChannel({
-    socket,
-    onSignalOffer: handleSignalOffer,
-    onSignalIceCandidate: handleSignalIceCandidate,
-  })
-
-  // P2P 直连隧道（观众为 receiver，remotePeerId 由 offer 自动填充）
-  const [p2pFallbackNotice, setP2pFallbackNotice] = useState(false)
-  const { enableP2P, disableP2P, p2pEnabled, p2pPC, p2pStatus } = useP2PTunnel({
-    socket,
-    roomId,
-    role: 'receiver',
-    onStatusChange: (status, didFallback) => {
-      if (didFallback) {
-        setP2pFallbackNotice(true)
-        message.warning(t('P2P 连接失败，已回退到服务器中转'))
-      } else if (status === 'connected') {
-        setP2pFallbackNotice(false)
-        message.success(t('P2P 直连已建立'))
-      } else if (status === 'connecting') {
-        setP2pFallbackNotice(false)
-      }
-    },
-  })
-
-  // 观众接收房主 P2P 模式广播：同步开关状态
-  useEffect(() => {
-    if (!socket) return
-    const handleP2PModeChange = (data: {
-      roomId: string
-      enabled: boolean
-    }) => {
-      if (data.roomId !== roomId) return
-      if (data.enabled) {
-        void enableP2P()
-      } else {
-        disableP2P()
-      }
-    }
-    socket.on('p2p-mode-change', handleP2PModeChange)
-    return () => {
-      socket.off('p2p-mode-change', handleP2PModeChange)
-    }
-  }, [socket, roomId, enableP2P, disableP2P])
-
-  const handleToggleP2P = useCallback(
-    (enabled: boolean) => {
-      if (enabled) {
-        void enableP2P()
-      } else {
-        disableP2P()
-      }
-    },
-    [enableP2P, disableP2P]
-  )
+  }, [])
 
   // WebRTC 控制栏自动隐藏（逻辑仿照 WatchTogetherCore）
   const webrtcControlBarVisible = useControlBarAutoHide(webrtcStageRef)
@@ -196,33 +139,6 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       document.removeEventListener('keydown', handleKeyDown)
     }
   }, [isWebFullscreen])
-
-  // 订阅 sharer-ready 事件：房主开始共享时触发，观众重建 PC 并重发 viewer-ready
-  useEffect(() => {
-    if (!socket) return
-    const handleSharerReadyEvent = (data: { roomId: string }) => {
-      if (data.roomId !== roomId) return
-      handleSharerReady()
-    }
-    socket.on('sharer-ready', handleSharerReadyEvent)
-    return () => {
-      socket.off('sharer-ready', handleSharerReadyEvent)
-    }
-  }, [socket, roomId, handleSharerReady])
-
-  // 订阅 sharer-error 事件：房主共享启动失败时明确提示，
-  // 避免观众在等待页无限挂起（借鉴 mirotalk 的一致性广播）
-  useEffect(() => {
-    if (!socket) return
-    const handleSharerError = (data: { roomId: string; message?: string }) => {
-      if (data.roomId !== roomId) return
-      message.warning(data.message ?? t('房主屏幕共享启动失败，等待房主重试'))
-    }
-    socket.on('sharer-error', handleSharerError)
-    return () => {
-      socket.off('sharer-error', handleSharerError)
-    }
-  }, [socket, roomId])
 
   // video 元素 resolution / PiP 监听
   useEffect(() => {
@@ -262,34 +178,36 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     }
   }, [hasRemoteStream, videoVersion])
 
-  // isMuted 同步到 video 元素
+  // 音量/静音托管：元素就位时建一个 ViewerAudio（videoVersion 变化 = 元素换了）
   useEffect(() => {
     const video = videoRef.current
     if (!video) return
-    video.muted = isMuted
-  }, [isMuted])
+    const audio = new ViewerAudio(video, setAudioSnapshot)
+    viewerAudioRef.current = audio
+    audio.setLevel(loadViewerVolume())
+    // 默认尝试有声播放：被浏览器拦下时 hook 会把元素静音重试，
+    // 那次 volumechange 会回到 ViewerAudio，再由快照驱动「点击开启声音」提示。
+    audio.setMuted(false)
+    return () => {
+      audio.dispose()
+      if (viewerAudioRef.current === audio) viewerAudioRef.current = null
+    }
+  }, [videoVersion])
 
-  // muted 状态双向同步（issue #26）：浏览器自动播放策略拦截有声播放时，
-  // 播放回退逻辑会直接改 video.muted（React 状态不知情），若不同步会出现
-  // 「界面显示已开声音、实际无声」。volumechange 把任何来源的 muted 变化
-  // 回写 isMuted；挂载/流到达时先主动同步一次，兜住监听器挂上前发生的静音。
+  // 远端音轨到达/更换时换源：换流只重建源节点，不动增益图与用户设置。
   useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    const handleVolumeChange = () => setIsMuted(video.muted)
-    handleVolumeChange()
-    video.addEventListener('volumechange', handleVolumeChange)
-    return () => video.removeEventListener('volumechange', handleVolumeChange)
-  }, [hasRemoteStream, videoVersion])
+    viewerAudioRef.current?.bind(remoteStream)
+  }, [remoteStream, videoVersion])
 
   // 一键开启声音：自动播放被浏览器强制静音时，画面上方悬浮提示，
   // 点击后取消静音并恢复播放（用户手势内执行，浏览器放行有声播放）
   const handleUnmute = useCallback(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.muted = false
-    setIsMuted(false)
-    void video.play().catch(() => {})
+    const audio = viewerAudioRef.current
+    if (!audio) return
+    // 音量被拖到 0 时「取消静音」仍然是没声音，先恢复到原始音量。
+    if (audio.snapshot.level === 0) audio.setLevel(1)
+    audio.setMuted(false)
+    void videoRef.current?.play().catch(() => {})
   }, [])
 
   // 监听 video play/pause 事件同步 isPlaying 状态
@@ -336,7 +254,25 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     }
   }
 
-  const handleToggleMute = () => setIsMuted((prev) => !prev)
+  const handleToggleMute = useCallback(() => {
+    const audio = viewerAudioRef.current
+    if (!audio) return
+    const { muted, level } = audio.snapshot
+    if (muted || level === 0) {
+      // 拖到 0 等同于静音：直接「取消静音」还是没声音，先恢复到原始音量。
+      if (level === 0) audio.setLevel(1)
+      audio.setMuted(false)
+      return
+    }
+    audio.setMuted(true)
+  }, [])
+
+  /** 音量滑杆：0–200%，写入即持久化。 */
+  const handleVolumeChange = useCallback((level: number) => {
+    const clamped = Math.max(0, Math.min(VIEWER_VOLUME_MAX, level))
+    viewerAudioRef.current?.setLevel(clamped)
+    saveViewerVolume(clamped)
+  }, [])
 
   const handleTogglePlayPause = useCallback(() => {
     const video = videoRef.current
@@ -349,9 +285,17 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   }, [])
 
   const handleRefresh = useCallback(() => {
-    cleanupPc()
-    setTimeout(() => createPc(), 0)
-  }, [cleanupPc, createPc])
+    retry()
+  }, [retry])
+
+  // 控制栏上的连接状态：还没接到画面时要区分「房主没共享」和「正在建连」。
+  const displayConnectionState: RTCPeerConnectionState = hasRemoteStream
+    ? connectionState
+    : state.recovering
+      ? 'disconnected'
+      : state.sharing
+        ? 'connecting'
+        : 'new'
 
   const playerContent = (
     <div
@@ -368,9 +312,21 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         videoRef={videoRef}
         setVideoRef={setVideoRef}
         isMuted={isMuted}
+        managedMuted
         hasRemoteStream={hasRemoteStream}
-        peerConnection={pc}
+        edges={edges}
+        statusTip={viewerStatusText(state)}
       />
+      {/* 画面还在（最后一帧会一直停着），所以 statusTip 不显示；不给提示的话
+          观众只会看到一张卡住的图，分不清是暂停还是自己网络断了。 */}
+      {state.paused && hasRemoteStream && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-black/55">
+          <div className="flex flex-col items-center gap-2 text-white">
+            <PauseCircle className="h-8 w-8" />
+            <span className="text-sm font-medium">{t('房主已暂停共享')}</span>
+          </div>
+        </div>
+      )}
       {hasRemoteStream && hasRemoteAudio && isMuted && (
         <button
           type="button"
@@ -407,6 +363,8 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
       )}
       <WatchControlsBar
         isMuted={isMuted}
+        volumeLevel={audioSnapshot.level}
+        boostAvailable={audioSnapshot.boostAvailable}
         isPlaying={isPlaying}
         hasRemoteAudio={hasRemoteAudio}
         hasRemoteStream={hasRemoteStream}
@@ -414,9 +372,10 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         isPiPSupported={isPiPSupported}
         showAnnotationToolbar={showAnnotationToolbar}
         connected={connected}
-        connectionState={connectionState}
+        connectionState={displayConnectionState}
         videoResolution={videoResolution}
         onToggleMute={handleToggleMute}
+        onVolumeChange={handleVolumeChange}
         onTogglePlayPause={handleTogglePlayPause}
         onFullscreen={handleFullscreen}
         onTogglePiP={handleTogglePictureInPicture}
@@ -433,14 +392,10 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     <RoomLayout
       isHost={false}
       mainContent={playerContent}
-      peerConnection={pc}
+      edges={edges}
       sharingRole="receiver"
+      sharingMode={sharingMode}
       sharingActive
-      p2pEnabled={p2pEnabled}
-      p2pPC={p2pPC}
-      p2pStatus={p2pStatus}
-      p2pFallbackNotice={p2pFallbackNotice}
-      onToggleP2P={handleToggleP2P}
       webFullscreen={isWebFullscreen}
       rightPanel={<CommentPanel socket={socket} roomId={roomId} commentsOnly />}
       controls={<RoomInfoPanel roomId={roomId} isHost={false} />}

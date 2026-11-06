@@ -175,8 +175,10 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	// 一起听音乐：队列 CRUD / 播放状态与心跳 / 观众申请制控制。
 	// 事件名与前面的模块无重叠，位置不影响行为。
 	s.bindMusic(sc)
-	// WebRTC 信令与观众就绪。
+	// 房主就绪 / 共享失败广播（房间级通知，不是信令）。
 	s.bindWebRTC(sc)
+	// 自建语音（VOICE_MODE=sfu）。process 模式下这里是空操作。
+	s.bindVoiceRTC(sc)
 	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
 	s.bindMisc(sc)
 }
@@ -835,6 +837,10 @@ func (s *Service) bindDisconnect(sc *sio.Socket) {
 func (s *Service) handleDisconnect(socketID, reason string) {
 	ctx, cancel := handlerCtx()
 	defer cancel()
+
+	// 语音成员身份要在 EndSession 之前清：媒体层的连接身份挂在 socket 上，
+	// 会话没了就再也找不到它了。
+	s.detachVoiceRTC(socketID)
 
 	sess, err := s.EndSession(ctx, socketID)
 	if err != nil {

@@ -342,6 +342,23 @@ video {
   box-shadow: none;
 }
 
+/* 房间页（RoomLayout）玻璃面提白。
+   房间里的卡片站在「模糊后的壁纸」或纯黑舞台上，`--glass-bg` 只有一层
+   `rgba(surface-container, 玻璃透明度)`：透明度调到 30% 以下时卡片会把底层
+   颜色整个透出来——浅色壁纸下发灰、黑舞台上发黑，卡片边界和内部白底控件
+   全糊在一起。这里给作用域内的 .glass-card 再垫一层固定浓度的
+   surface-container，两层叠加后不透明度恒 ≥ 62%，玻璃调高仍照常更白。
+   只覆盖 .glass-card（卡片）：.glass / .glass-strong 是按钮与胶囊，
+   其中「WebRTC 共享 / OBS 推流」切换器就压在纯黑舞台上，提白会把它涂成
+   白块。子元素自己的 background-image 仍可覆盖这层衬底（见 WebrtcSharePage
+   的 STAGE_CARD_BASE_WASH）。 */
+.room-glass-lift .glass-card {
+  background-image: linear-gradient(
+    rgba(var(--md-sys-color-surface-container-rgb), 0.62),
+    rgba(var(--md-sys-color-surface-container-rgb), 0.62)
+  );
+}
+
 /* 哔哩哔哩页右下角悬浮工具组的液态玻璃按钮（Apple Liquid Glass 风格）：
    半透明玻璃底 + 顶部受光渐变 + 边缘高光/底部厚度内阴影 + backdrop
    saturate 折射感；颜色走主题玻璃变量，深浅色自适应。

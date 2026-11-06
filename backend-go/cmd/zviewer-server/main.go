@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -30,7 +31,6 @@ import (
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
-	"zviewer/backend/internal/livekit"
 	"zviewer/backend/internal/ncm"
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
@@ -38,11 +38,14 @@ import (
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
+	"zviewer/backend/internal/share/piikbridge"
+	"zviewer/backend/internal/share/sfu"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/ssl"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
 	"zviewer/backend/internal/updater"
+	"zviewer/backend/internal/voicertc"
 )
 
 func main() {
@@ -129,6 +132,56 @@ func main() {
 		return
 	}
 
+	// `--upgrade-db` 把 4.x 的老库补到当前结构。这是**显式**动作：启动路径绝不
+	// 自动改表，只在这里由用户主动触发一次。必须先于 db.Open 分流——结构不全时
+	// Open 会直接拒绝，走不到后面的服务启动。
+	if args := os.Args[1:]; hasFlag(args, "--upgrade-db") {
+		if _, statErr := os.Stat(cfg.DatabasePath); statErr != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] 数据库文件不存在: %s\n", cfg.DatabasePath)
+			fmt.Fprintln(os.Stderr, "  新库请改用 --init-db 初始化")
+			os.Exit(1)
+		}
+		upConn, err := db.OpenForInit(cfg.DatabasePath, cfg.SQLiteWAL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		defer upConn.Close()
+
+		ctx := context.Background()
+		plan, err := db.PlanUpgrade(upConn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		if plan.Empty() {
+			fmt.Printf("  [跳过] 数据库结构已是当前版本: %s\n", cfg.DatabasePath)
+			return
+		}
+
+		fmt.Printf("  [检查] %s\n", cfg.DatabasePath)
+		for _, line := range plan.Describe() {
+			fmt.Printf("         %s\n", line)
+		}
+		// 备份名与手工备份保持同一口径：<库文件>.bak-<时间戳>
+		backup := cfg.DatabasePath + ".bak-" + time.Now().Format("20060102-150405")
+		if _, err := db.UpgradeSchema(ctx, upConn, backup); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			// 失败可能发生在备份之前（拒绝补某些列），所以只在备份真的存在时提示。
+			if _, statErr := os.Stat(backup); statErr == nil {
+				fmt.Fprintf(os.Stderr, "  改动前备份: %s（需要回滚时用它覆盖当前库）\n", backup)
+			}
+			os.Exit(1)
+		}
+		if err := db.EnsureIndexes(ctx, upConn); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  [完成] 已补建 %d 张表、%d 个列\n", len(plan.MissingTables), plan.ColumnCount())
+		fmt.Printf("         备份: %s\n", backup)
+		return
+	}
+
 	conn, err := db.Open(cfg.DatabasePath, cfg.SQLiteWAL)
 	if err != nil {
 		// 首次启动（库文件不存在）自动初始化：分发版解压即用，不需要用户
@@ -210,7 +263,54 @@ func main() {
 	musicMemory := room.NewMusicMemory(conn)
 	musicMemory.SetLogger(log.Default())
 	musicMemory.SetHub(hub)
-	roomSvc := room.NewService(room.Deps{
+	// 自建媒体面：屏幕共享中继与语音共用**同一个** Media。
+	//
+	// 共用的意义不是省内存，而是省端口：一个 Media 只有一对 UDP/TCP listener，
+	// 语音与共享各建一个就是两对端口。
+	var (
+		mediaPlane *sfu.Media
+		// roomSvc 在这里先声明、稍后赋值：语音控制面要拿它判房主，而它
+		// 又要接收语音控制面，构造顺序天然成环。用闭包延迟解引用，
+		// 语音真正用到 IsHost 时房间服务早就装配好了。
+		roomSvc *room.Service
+	)
+	// 媒体 TCP 端口为 0 = 不启用（只发生在网页端口恰好是 3337 时，见 config）。
+	// 绝不能把它当成「与 UDP 同号」传下去：那会把网页端口绑走，后端自己起不来。
+	engineOptions := sfu.EngineOptions{
+		Port:            cfg.ShareMediaPort,
+		PublicIP:        cfg.ShareMediaPublicIP,
+		IncludeLoopback: cfg.ShareMediaPublicIP == "",
+		DisableTCP:      cfg.ShareMediaTCPPort == 0,
+	}
+	if !engineOptions.DisableTCP {
+		engineOptions.TCPPort = cfg.ShareMediaTCPPort
+	}
+	if engine, engineErr := sfu.NewEngine(engineOptions); engineErr != nil {
+		// 媒体端口不可用：语音报「暂不可用」。屏幕共享不走这里——它由
+		// Piik 的 `/signal` 负责，与自建媒体面无关。
+		log.Printf("[media] 媒体端口不可用，语音不可用: %v", engineErr)
+	} else {
+		mediaPlane = sfu.NewMedia(sfu.MediaOptions{Settings: engine.Settings()})
+		log.Printf("[voice] 语音已启用，媒体端口 %s", engine.Describe())
+	}
+
+	// 语音控制面。媒体面没起来时为 nil，/api/voice/status 会报不可用。
+	voiceRTC := voicertc.New(voicertc.Deps{
+		Media: mediaPlane,
+		Emit: func(socketID string, message voicertc.ServerMessage) {
+			hub.EmitTo(socketID, voicertc.Event, message)
+		},
+		IsHost: func(ctx context.Context, socketID, roomID string) (bool, error) {
+			if roomSvc == nil {
+				// 语音消息不可能早于房间服务构造（事件注册就在它里面）。
+				return false, nil
+			}
+			return roomSvc.IsRoomHost(ctx, socketID, roomID)
+		},
+		Logger: log.Default(),
+	})
+
+	roomSvc = room.NewService(room.Deps{
 		DB:       conn,
 		Rooms:    rooms,
 		Sessions: sessions,
@@ -224,7 +324,35 @@ func main() {
 		Logger:   log.Default(),
 		Music:    musicMemory,
 		NMS:      streamPush,
+
+		VoiceRTC: voiceRTC,
 	})
+
+	// Piik 信令桥接层：屏幕共享由 Piik 的 /signal 承载。
+	// 起不来不致命但共享不可用——前端会在开播前探能力（GET /api/share/capabilities），
+	// 探到 false 就明确报不可用，而不是让人对着一个 503 猜。
+	var piikShare *piikbridge.Bridge
+	if bridge, bridgeErr := piikbridge.New(piikbridge.Options{
+		PublicBaseURL:   &url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", strconv.Itoa(cfg.Port))},
+		AllowedOrigins:  cfg.CORS.Origins,
+		AllowAllOrigins: cfg.CORS.AllowAll,
+		// 房间状态跟着主库走，而不是跟着 config/：DATABASE_URL 指到挂载盘时
+		// 房间码也该落在那块盘上，否则换台机器起来就是一屋子新房间码。
+		StateDir: filepath.Dir(cfg.DatabasePath),
+	}); bridgeErr != nil {
+		log.Printf("[piik] 信令桥接未启用: %v", bridgeErr)
+	} else {
+		piikShare = bridge
+		log.Printf("[piik] 信令已挂载 %s（房间映射：一个 ZViewer 房间一个 Piik 房间码，房间库 %s）",
+			piikbridge.SignalPath, filepath.Join(filepath.Dir(cfg.DatabasePath), "piik-rooms.sqlite"))
+		// 房间关掉就回收对应的 Piik 房间；映射会同时从磁盘上删掉，
+		// 同 ID 房间重开时不会撞上旧房间码。
+		roomSvc.OnRoomClosed(func(roomID string) {
+			if err := bridge.Release(roomID); err != nil && !errors.Is(err, piikbridge.ErrNoRoom) {
+				log.Printf("[piik] 回收房间 %s 失败: %v", roomID, err)
+			}
+		})
+	}
 
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
 	streamResolver := proxy.NewStreamResolver(movies, rooms, mounts)
@@ -233,33 +361,27 @@ func main() {
 	biliService := bilibili.NewService(conn)
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
-	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
-	// 没有外部编排，必须由后端作为伴生进程拉起。二进制随产物分发（build-all
-	// 从 backend-go/dev-bin 复制），缺失时才由房间里的「下载语音聊天组件」补回
-	// （见 internal/livekit/component.go），所以这里先构造管理器，
-	// HTTP 起来之后才能响应 /api/voice/status。
-	livekitMgr := livekit.New(livekit.ConfigFromEnv())
-	livekitMgr.PrepareEnv()
-
 	server := api.New(api.Deps{
-		Cfg:      cfg,
-		DB:       conn,
-		Users:    users,
-		Settings: settings,
-		Audit:    audit,
-		Movies:   movies,
-		Rooms:    rooms,
-		Mounts:   mounts,
-		Tracks:   tracks,
-		Metas:    metas,
-		Stream:   streamResolver,
-		OpenList: openlist.NewClient(),
-		Tokens:   tokens,
-		Auth:     auth.NewAuthenticator(tokens, users),
-		Bilibili: biliService,
-		Bus:      hub,
-		RoomSvc:  roomSvc,
-		Socket:   socketSrv,
+		Cfg:       cfg,
+		DB:        conn,
+		Users:     users,
+		Settings:  settings,
+		Audit:     audit,
+		Movies:    movies,
+		Rooms:     rooms,
+		Mounts:    mounts,
+		Tracks:    tracks,
+		Metas:     metas,
+		Stream:    streamResolver,
+		OpenList:  openlist.NewClient(),
+		Tokens:    tokens,
+		Auth:      auth.NewAuthenticator(tokens, users),
+		Bilibili:  biliService,
+		Bus:       hub,
+		RoomSvc:   roomSvc,
+		Socket:    socketSrv,
+		Sessions:  sessions,
+		PiikShare: piikShare,
 
 		ServerFolders: serverFolders,
 		Files:         filesRegistry,
@@ -271,7 +393,7 @@ func main() {
 		Danmaku:       danmaku.NewService(biliService),
 		NCM:           ncm.NewService(conn),
 		NMS:           streamPush,
-		VoiceBin:      livekitMgr,
+		VoiceRTC:      voiceRTC,
 	})
 
 	// 服务器周期心跳：房主掉线后观众端靠它继续推进进度（每 2s 一轮），
@@ -289,14 +411,6 @@ func main() {
 	// 用可取消的 ctx 而不是空 context：优雅退出时要能停掉。
 	cleanupCtx, stopCleanup := context.WithCancel(context.Background())
 	stopCleanupScheduler := roomSvc.StartCleanupScheduler(cleanupCtx)
-
-	// 语音：LiveKit 是独立 SFU 二进制，单文件部署（源码运行 / 单容器 / 桌面壳）
-	// 没有外部编排，必须由后端作为伴生进程拉起——否则语音直接不可用。
-	// 环境变量注入是同步的（/api/voice/token 立刻能签），找二进制/下载/等端口
-	// 放后台，不阻塞 HTTP 监听。二进制缺失时 Run 直接返回，等前端触发下载后
-	// 由 Manager.Start 记录的 ctx 补拉（startAfterInstall）。
-	livekitCtx, stopLivekit := context.WithCancel(context.Background())
-	livekitMgr.Start(livekitCtx)
 
 	// HTTPS 模式：证书缺失时自动签一张本机自签证书。
 	// 屏幕共享与语音在非安全上下文里会被浏览器禁用，局域网用户靠这张证书
@@ -362,13 +476,15 @@ func main() {
 	stopCleanup()
 	// 媒体服务随进程退出：先断推流/拉流连接，再关 HTTP。
 	_ = streamPush.Close(ctx)
-	// 伴生进程先停：它是外部依赖，留着只会让客户端在退出过程中继续重连
-	stopLivekit()
-	livekitMgr.Stop()
 	broadcaster.Stop()
 	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)
 	musicMemory.FlushAllDirty(ctx)
+
+	if piikShare != nil {
+		// 先让 /signal 上的会话收到 1012，再关 HTTP：反过来的话客户端只会看到连接被重置。
+		_ = piikShare.Close(ctx)
+	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[shutdown] 强制关闭: %v", err)

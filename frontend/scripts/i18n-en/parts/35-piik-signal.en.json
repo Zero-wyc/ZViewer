@@ -1,0 +1,7 @@
+{
+  "items": [
+    "The client sent a message the server does not recognize",
+    "The same account opened this room elsewhere",
+    "Could not obtain signaling credentials"
+  ]
+}

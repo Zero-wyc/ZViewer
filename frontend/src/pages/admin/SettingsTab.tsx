@@ -209,28 +209,6 @@ export function SettingsTab({
           </div>
 
           <Title level={5} className="mb-4 mt-6">
-            {t('自定义 LiveKit 服务器地址')}
-          </Title>
-          <div className="mb-6 max-w-md">
-            <Input
-              label={t('LiveKit 服务器地址（可选）')}
-              value={settings.livekitExternalUrl}
-              onChange={(e) =>
-                onSettingsChange((prev) => ({
-                  ...prev,
-                  livekitExternalUrl: e.target.value,
-                }))
-              }
-              placeholder={t('留空自动推导（如 wss://livekit.example.com）')}
-            />
-            <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              {t(
-                '留空按页面域名推导；填外部地址时需与本站共用同一 Key / Secret， 且媒体端口对该地址可达。'
-              )}
-            </p>
-          </div>
-
-          <Title level={5} className="mb-4 mt-6">
             {t('多页面登录（仅供测试）')}
           </Title>
           <div className="mb-6 max-w-md">
