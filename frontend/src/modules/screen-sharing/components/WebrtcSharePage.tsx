@@ -51,6 +51,20 @@ import { SharingPausedOverlay } from './SharingPausedOverlay'
 import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
 import { t } from '@/i18n'
 
+/**
+ * 「开始共享」那张卡的白色底衬。
+ *
+ * 卡片站在房间中区的黑色舞台上。只靠 `--glass-bg` 的话，玻璃透明度被调到
+ * 30% 以下时卡片会塌成一块黑——里面的白底档位按钮、浅色描边全被吞掉，
+ * 卡片边缘也糊进舞台。这里再垫一层固定浓度的 surface-container：两层叠加后
+ * 不透明度恒 ≥ 85%，玻璃调高仍照常更白，调低也不会变黑。
+ *
+ * 用 `background-image` 而不是把浓度算进背景色，是因为 `rgba()` 的 legacy
+ * 语法里塞不进 `max()`；`linear-gradient` 在这里只是纯色填充的载体，
+ * 两层同色、不产生任何渐变。
+ */
+const STAGE_CARD_BASE_WASH = `linear-gradient(rgba(var(--md-sys-color-surface-container-rgb), 0.85), rgba(var(--md-sys-color-surface-container-rgb), 0.85))`
+
 interface WebrtcSharePageProps {
   className?: string
   style?: React.CSSProperties
@@ -704,6 +718,7 @@ function WebrtcSharePage({
               borderColor:
                 'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
               backgroundColor: 'var(--glass-bg)',
+              backgroundImage: STAGE_CARD_BASE_WASH,
               backdropFilter: 'blur(var(--glass-blur-strong))',
               WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
             }}
