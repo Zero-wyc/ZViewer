@@ -514,6 +514,9 @@ HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应�
 
 `routes/admin.ts` 的 12 个端点，一次接完。这个模块几乎全在读写既有表，
 没有第三方依赖，所以是 HTTP 面里最容易做成「完全一致」的一块。
+2026-11-06 另补 3 条**房管端点**（Node 时代没有，管理端要能在不打扰房主的情况下
+撤销/任命房管）：它们刻意**不要求目标账号在房间内**——房间里的 `appoint-moderator`
+有这条限制，而管理端存在的意义正是处理「人不在，但权限要先给上」。
 
 | 端点 | 方法 | 权限 | 要点 |
 |---|---|---|---|
@@ -524,6 +527,9 @@ HTTP 对拍与 socket 对拍的方法论差异：比的是「状态码 + 响应�
 | `/api/admin/rooms` | GET | admin+ | 含 closed；批量查在线人数与 sharer 状态（消 N+1） |
 | `/api/admin/rooms/{roomId}` | DELETE | root 或房主 admin | **物理删除**（级联），且**不写审计** |
 | `/api/admin/rooms/{roomId}/reopen` | POST | root 或房主 admin | 仅 closed 可重开；清权限缓存 |
+| `/api/admin/rooms/{roomId}/moderators` | GET | root 或房主 admin | 房管名单 + `maxModerators`；用户名用 `Users.UsernamesByIDs` 补查，账号已删按「已注销用户」占位 |
+| `/api/admin/rooms/{roomId}/moderators` | POST | root 或房主 admin | `{userId}`，**不要求目标在线**；上限复用 `room.MaxModerators`；已在名单里幂等成功 |
+| `/api/admin/rooms/{roomId}/moderators/{userId}` | DELETE | root 或房主 admin | 幂等；写库后广播 `moderators-changed`（房间里的徽标即时刷新） |
 | `/api/admin/rooms/batch-delete` | POST | root | 逐个删，单个失败不中断，写审计 |
 | `/api/admin/rooms/delete-all` | POST | root | 全删，**不写审计** |
 | `/api/admin/rooms/cleanup-unused` | POST | admin+ | closed 直接清；active 需无未结束会话；admin 只清自己的 |

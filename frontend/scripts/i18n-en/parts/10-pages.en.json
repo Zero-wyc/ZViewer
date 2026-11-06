@@ -1,5 +1,21 @@
 {
   "items": [
+    "No Bilibili account linked",
+    "No NetEase Cloud Music account linked",
+    "Not sharing",
+    "Could not get version info",
+    "No cookies found, sign in to Bilibili again",
+    "No cookies found, sign in to NetEase Cloud Music again",
+    "Cannot enter fullscreen",
+    "No password",
+    "Invalid response code",
+    "Invalid direct-link code",
+    "No server needed: a one-to-one P2P share via manual SDP/ICE exchange.",
+    "Show the traffic stats button",
+    "Show the voice chat button",
+    "New password",
+    "The new password must be at least 4 characters",
+    "New username",
     "Failed to change the role",
     "Change password",
     "Failed to change the password",
@@ -103,16 +119,6 @@
     "Sign in to NetEase Cloud Music with cookies",
     "Cookies copied to clipboard",
     "DASH (server relay, high quality)",
-    "Kazumi rule, index or official repository URLs (one per line)",
-    "Kazumi rule sources",
-    "MP4 (default, server relay)",
-    "MP4 (default, server relay direct link)",
-    "qist/tvbox · TV collection",
-    "qist/tvbox · 饭太硬",
-    "qist/tvbox · CF mirror",
-    "qist/tvbox · drpy mixed",
-    "TVBox sources (CMS)",
-    "TVBox configuration endpoint (extract the Apple CMS sites it lists, then check and add them below)",
-    "ZViewer account"
+    "Kazumi rule, index or official repository URLs (one per line)"
   ]
 }

@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"zviewer/backend/internal/httpx"
+	roompkg "zviewer/backend/internal/room"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/updater"
 )
@@ -30,6 +32,12 @@ func (s *Server) registerAdminRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/admin/rooms", s.Auth.RequireAdmin(s.handleAdminListRooms))
 	mux.HandleFunc("DELETE /api/admin/rooms/{roomId}", s.Auth.RequireAdmin(s.handleAdminDeleteRoom))
 	mux.HandleFunc("POST /api/admin/rooms/{roomId}/reopen", s.Auth.RequireAdmin(s.handleAdminReopenRoom))
+	// 房管名单：管理端直接读写 room.moderators，不要求目标账号此刻在房间里
+	// （房间里的 appoint-moderator 有这条限制，管理端的存在意义正是处理
+	// 「人不在，但要先把权限给上」的场景）。
+	mux.HandleFunc("GET /api/admin/rooms/{roomId}/moderators", s.Auth.RequireAdmin(s.handleAdminListRoomModerators))
+	mux.HandleFunc("POST /api/admin/rooms/{roomId}/moderators", s.Auth.RequireAdmin(s.handleAdminGrantRoomModerator))
+	mux.HandleFunc("DELETE /api/admin/rooms/{roomId}/moderators/{userId}", s.Auth.RequireAdmin(s.handleAdminRevokeRoomModerator))
 	mux.HandleFunc("POST /api/admin/rooms/batch-delete", s.Auth.RequireAdmin(s.Auth.RequireRootExact(s.handleAdminBatchDeleteRooms)))
 
 	// delete-all / cleanup-unused 在 Node 里只挂 rootOnly（没有组内 admin 档），
@@ -292,9 +300,14 @@ type adminRoomDTO struct {
 	ViewerCount     int64   `json:"viewerCount"`
 	SharerOnline    bool    `json:"sharerOnline"`
 	OwnerUserID     *int64  `json:"ownerUserId"`
-	LastAccessedAt  string  `json:"lastAccessedAt"`
-	CreatedAt       string  `json:"createdAt"`
-	UpdatedAt       string  `json:"updatedAt"`
+	// ModeratorCount 让列表卡片直接显示「房管 (n)」，不必为每个房间单开一次请求。
+	ModeratorCount int `json:"moderatorCount"`
+	// CanManage 复刻 adminCanManageRoom 的结果：前端据此禁用按钮，
+	// 避免 admin 点开别家的房间再吃 403。
+	CanManage      bool   `json:"canManage"`
+	LastAccessedAt string `json:"lastAccessedAt"`
+	CreatedAt      string `json:"createdAt"`
+	UpdatedAt      string `json:"updatedAt"`
 }
 
 func (s *Server) handleAdminListRooms(w http.ResponseWriter, r *http.Request) {
@@ -333,6 +346,8 @@ func (s *Server) handleAdminListRooms(w http.ResponseWriter, r *http.Request) {
 			ViewerCount:     counts.Viewers[room.RoomID],
 			SharerOnline:    sharerOnline,
 			OwnerUserID:     room.OwnerUserID,
+			ModeratorCount:  len(parseModeratorIDs(room.Moderators)),
+			CanManage:       adminCanManageRoom(r, room),
 			LastAccessedAt:  isoMillis(room.LastAccessedAt),
 			CreatedAt:       isoMillis(room.CreatedAt),
 			UpdatedAt:       isoMillis(room.UpdatedAt),
@@ -430,6 +445,258 @@ func (s *Server) handleAdminReopenRoom(w http.ResponseWriter, r *http.Request) {
 	})
 
 	httpx.OK(w, map[string]any{"success": true})
+}
+
+// ---------------------------------------------------------------------------
+// 房间房管
+// ---------------------------------------------------------------------------
+
+// adminRoomModeratorDTO 是房管名单里的一条。
+//
+// 房间表只存 userId，用户名由管理端补查：账号被删除后查不到名字，
+// 用「已注销用户」占位而不是把这条记录藏掉——否则界面上的条数会和
+// room.moderators 里的实际人数对不上。
+type adminRoomModeratorDTO struct {
+	UserID   int64  `json:"userId"`
+	Username string `json:"username"`
+}
+
+// parseModeratorIDs 解析 room.moderators（JSON 数组）。
+//
+// 解析失败按空名单处理，与 room.Service.Moderators 的口径一致：
+// 一列脏数据不该让整个管理端房间列表 500。
+func parseModeratorIDs(raw string) []int64 {
+	if raw == "" {
+		return []int64{}
+	}
+	var ids []int64
+	if err := json.Unmarshal([]byte(raw), &ids); err != nil {
+		return []int64{}
+	}
+	if ids == nil {
+		return []int64{}
+	}
+	return ids
+}
+
+// adminRoomModerators 把 userId 列表补成带用户名的 DTO（保持原顺序）。
+func (s *Server) adminRoomModerators(ctx context.Context, raw string) []adminRoomModeratorDTO {
+	ids := parseModeratorIDs(raw)
+	out := make([]adminRoomModeratorDTO, 0, len(ids))
+	if len(ids) == 0 {
+		return out
+	}
+	names, err := s.Users.UsernamesByIDs(ctx, ids)
+	if err != nil {
+		// 补名字失败不该让名单读不出来：退化成「用户#id」。
+		names = map[int64]string{}
+	}
+	for _, id := range ids {
+		username := names[id]
+		if username == "" {
+			username = "已注销用户"
+		}
+		out = append(out, adminRoomModeratorDTO{UserID: id, Username: username})
+	}
+	return out
+}
+
+// adminManageableRoom 取房间并做「root 任意 / admin 仅自己创建」的判定。
+//
+// 第二个返回值为 false 表示已经写好错误响应，调用方直接 return。
+func (s *Server) adminManageableRoom(w http.ResponseWriter, r *http.Request) (*store.Room, bool) {
+	roomID := r.PathValue("roomId")
+	if roomID == "" {
+		httpx.BadRequest(w, "房间号不正确")
+		return nil, false
+	}
+	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
+	if errors.Is(err, store.ErrRoomNotFound) {
+		httpx.NotFound(w, "房间不存在")
+		return nil, false
+	}
+	if err != nil {
+		httpx.InternalError(w, "admin-room-moderators", err)
+		return nil, false
+	}
+	if !adminCanManageRoom(r, room) {
+		httpx.Forbidden(w, "无权限：仅 root 或房间创建者可管理该房间的房管")
+		return nil, false
+	}
+	return room, true
+}
+
+func (s *Server) handleAdminListRoomModerators(w http.ResponseWriter, r *http.Request) {
+	room, ok := s.adminManageableRoom(w, r)
+	if !ok {
+		return
+	}
+	httpx.OK(w, map[string]any{
+		"success":       true,
+		"roomId":        room.RoomID,
+		"name":          room.Name,
+		"ownerUserId":   room.OwnerUserID,
+		"maxModerators": roompkg.MaxModerators,
+		"moderators":    s.adminRoomModerators(r.Context(), room.Moderators),
+	})
+}
+
+func (s *Server) handleAdminGrantRoomModerator(w http.ResponseWriter, r *http.Request) {
+	room, ok := s.adminManageableRoom(w, r)
+	if !ok {
+		return
+	}
+	var body struct {
+		UserID int64 `json:"userId"`
+	}
+	if err := httpx.DecodeJSON(r, &body); err != nil {
+		httpx.BadRequest(w, "请求参数格式不正确")
+		return
+	}
+	if body.UserID <= 0 {
+		httpx.BadRequest(w, "请选择要任命的账号")
+		return
+	}
+	ctx := r.Context()
+
+	target, err := s.Users.FindByID(ctx, body.UserID)
+	if errors.Is(err, store.ErrUserNotFound) || (err == nil && target == nil) {
+		httpx.BadRequest(w, "账号不存在")
+		return
+	}
+	if err != nil {
+		httpx.InternalError(w, "admin-grant-moderator", err)
+		return
+	}
+	if target.Status != "active" {
+		httpx.BadRequest(w, "该账号未通过审核，无法任命为房管")
+		return
+	}
+	if room.OwnerUserID != nil && *room.OwnerUserID == target.ID {
+		httpx.BadRequest(w, "房主无需任命")
+		return
+	}
+
+	moderators := parseModeratorIDs(room.Moderators)
+	for _, id := range moderators {
+		if id == target.ID {
+			// 已在名单里：幂等成功，不重复写库也不重复广播。
+			httpx.OK(w, map[string]any{
+				"success":    true,
+				"moderators": s.adminRoomModerators(ctx, room.Moderators),
+			})
+			return
+		}
+	}
+	if len(moderators) >= roompkg.MaxModerators {
+		httpx.BadRequest(w, fmt.Sprintf("房管人数已达上限（%d）", roompkg.MaxModerators))
+		return
+	}
+
+	next := append(append([]int64{}, moderators...), target.ID)
+	if err := s.setRoomModerators(ctx, room.RoomID, next); err != nil {
+		httpx.InternalError(w, "admin-grant-moderator", err)
+		return
+	}
+	s.emitModeratorsChanged(room.RoomID, next)
+	s.writeAudit(ctx, store.AuditEntry{
+		ActorUserID:   claimsUserID(r),
+		ActorUsername: claimsUsername(r),
+		ActorRole:     claimsRole(r),
+		Action:        "room_moderator_granted",
+		Target:        "room:" + room.RoomID + ":user:" + strconv.FormatInt(target.ID, 10),
+		IP:            clientIP(r),
+		Success:       true,
+	})
+
+	httpx.OK(w, map[string]any{
+		"success":    true,
+		"moderators": s.adminRoomModerators(ctx, marshalIDs(next)),
+	})
+}
+
+func (s *Server) handleAdminRevokeRoomModerator(w http.ResponseWriter, r *http.Request) {
+	room, ok := s.adminManageableRoom(w, r)
+	if !ok {
+		return
+	}
+	userID, err := strconv.ParseInt(r.PathValue("userId"), 10, 64)
+	if err != nil || userID <= 0 {
+		httpx.BadRequest(w, "用户 ID 不正确")
+		return
+	}
+	ctx := r.Context()
+
+	moderators := parseModeratorIDs(room.Moderators)
+	next := make([]int64, 0, len(moderators))
+	for _, id := range moderators {
+		if id != userID {
+			next = append(next, id)
+		}
+	}
+	if len(next) == len(moderators) {
+		// 本来就不在名单里：幂等成功。
+		httpx.OK(w, map[string]any{
+			"success":    true,
+			"moderators": s.adminRoomModerators(ctx, room.Moderators),
+		})
+		return
+	}
+
+	if err := s.setRoomModerators(ctx, room.RoomID, next); err != nil {
+		httpx.InternalError(w, "admin-revoke-moderator", err)
+		return
+	}
+	s.emitModeratorsChanged(room.RoomID, next)
+	s.writeAudit(ctx, store.AuditEntry{
+		ActorUserID:   claimsUserID(r),
+		ActorUsername: claimsUsername(r),
+		ActorRole:     claimsRole(r),
+		Action:        "room_moderator_revoked",
+		Target:        "room:" + room.RoomID + ":user:" + strconv.FormatInt(userID, 10),
+		IP:            clientIP(r),
+		Success:       true,
+	})
+
+	httpx.OK(w, map[string]any{
+		"success":    true,
+		"moderators": s.adminRoomModerators(ctx, marshalIDs(next)),
+	})
+}
+
+// setRoomModerators 写名单并失效权限缓存。
+//
+// 必须走 room.Service：它顺手清掉 5s 权限缓存，否则新晋房管点不动按钮、
+// 被撤的人还能继续操作。RoomSvc 缺失（最小装配/测试）时退回裸仓储。
+func (s *Server) setRoomModerators(ctx context.Context, roomID string, ids []int64) error {
+	if s.RoomSvc != nil {
+		return s.RoomSvc.SetModerators(ctx, roomID, ids)
+	}
+	return s.Rooms.SetModerators(ctx, roomID, ids)
+}
+
+// emitModeratorsChanged 让房间里的房主与观众立刻看到名单变化。
+//
+// 与 socket 侧 appoint/dismiss-moderator 发的是同一个事件、同一种载荷，
+// 前端的 useViewerList 会据此刷新徽标，并给当事人弹「您已被任命为房管」。
+func (s *Server) emitModeratorsChanged(roomID string, ids []int64) {
+	if s.RoomSvc == nil || s.RoomSvc.Hub == nil {
+		return
+	}
+	s.RoomSvc.Hub.EmitRoom(roomID, "moderators-changed", map[string]any{
+		"roomId":     roomID,
+		"moderators": ids,
+	})
+}
+
+// marshalIDs 把 id 列表转回 JSON 列格式，供 adminRoomModerators 复用解析。
+// 写入路径已经把同一条数据存进库，这里只是避免为「刚写入的 next」再查一次库。
+func marshalIDs(ids []int64) string {
+	raw, err := json.Marshal(ids)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
 }
 
 func (s *Server) handleAdminBatchDeleteRooms(w http.ResponseWriter, r *http.Request) {

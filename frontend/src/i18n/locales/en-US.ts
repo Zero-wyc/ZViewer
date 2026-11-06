@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2648 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -341,7 +341,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（354 条） =====
+  // ===== pages（370 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -349,6 +349,7 @@ const enUS: Record<string, string> = {
   '2. 按 F12 打开开发者工具 → Application → Cookies': '2. Press F12 to open DevTools → Application → Cookies',
   '3. 复制 Cookie（至少需包含 MUSIC_U），登录态有效性会在提交时校验': '3. Copy the cookies (MUSIC_U at minimum); the session is validated on submit',
   '3. 复制全部 Cookie（至少需包含 SESSDATA）': '3. Copy all cookies (SESSDATA at minimum)',
+  '按用户名搜索账号': 'Search accounts by username',
   '版本更新': 'Version update',
   '版本更新后自动弹出公告': 'Show the announcement automatically after an update',
   '版本更新由桌面端管理': 'Updates are managed by the desktop app',
@@ -362,6 +363,8 @@ const enUS: Record<string, string> = {
   '常用接口一键填入：': 'Fill in a common endpoint:',
   '超过小时数未访问则自动删除': 'Auto-delete after this many hours without access',
   '超级管理员：{{username}}': 'Super admin: {{username}}',
+  '撤销': 'Remove',
+  '撤销房管失败': 'Failed to remove the moderator',
   '处理直连码失败': 'Failed to process the direct-link code',
   '创建于': 'Created',
   '创建于 {{value}}': 'Created {{value}}',
@@ -369,6 +372,7 @@ const enUS: Record<string, string> = {
   '从 KazumiRules 仓库选择规则': 'Pick a rule set from the KazumiRules repository',
   '待审核': 'Pending review',
   '当前版本：': 'Current version:',
+  '当前房管': 'Current moderators',
   '当前房间': 'Current room',
   '当前仅管理员可创建房间，请联系管理员开启权限': 'Only admins can create rooms right now, ask an admin to grant access',
   '当前已关闭注册': 'Registration is currently closed',
@@ -394,6 +398,8 @@ const enUS: Record<string, string> = {
   '番剧/影视（大会员内容）默认模式': 'Default mode for anime/movies (premium content)',
   '番剧/影视内容添加影片时套用的默认模式。选「仅 CLI 模式」时成员需各自运行 CLI，服务器不转发媒体流。': 'Default mode applied when adding anime or movie titles. With “CLI only”, each member runs the CLI and the server does not relay the media stream.',
   '返回登录': 'Back to sign-in',
+  '房管管理': 'Moderator management',
+  '房管人数已达上限（{{max}}），请先撤销后再添加。': 'Moderator limit reached ({{max}}). Remove one before adding another.',
   '房间 ID:': 'Room ID:',
   '房间 ID: {{roomId}} · 观众 {{viewerCount}} /{{value}} {{maxViewers}} · 分享端 {{value2}}': 'Room ID: {{roomId}} · Viewers {{viewerCount}} /{{value}} {{maxViewers}} · Sharer {{value2}}',
   '房间创建权限': 'Room creation permission',
@@ -413,6 +419,7 @@ const enUS: Record<string, string> = {
   '复制当前绑定的网易云 Cookie（可用于其他设备登录或备份）': 'Copy the current NetEase Cloud Music cookies (to sign in on another device or as a backup)',
   '复制应答码': 'Copy response code',
   '复制直连码': 'Copy direct-link code',
+  '该房间还没有房管': 'This room has no moderators yet',
   '个房间': 'rooms',
   '更改登录账户名称': 'Change account name',
   '更换头像': 'Change avatar',
@@ -433,12 +440,14 @@ const enUS: Record<string, string> = {
   '关闭后隐藏 Kazumi、AniSubs 番剧源与 B站视频下载入口。': 'Hides the Kazumi and AniSubs anime sources and the Bilibili download entry.',
   '关闭失败': 'Failed to close',
   '观看端应答码（粘贴回传）': 'Viewer response code (paste it back)',
+  '管理该房间的房管': 'Manage this room\'s moderators',
   '管理后台': 'Admin console',
   '管理您的 ZViewer 账号、挂载配置与网易云 / B站 账号绑定': 'Manage your ZViewer account, mount settings and NetEase Cloud Music / Bilibili links',
   '管理用户账号、房间运行与服务器基础设置': 'Manage user accounts, running rooms and basic server settings',
   '管理员：{{username}}': 'Admin: {{username}}',
   '管理员账号可创建共享房间': 'Admin accounts can create shared rooms',
   '还没有账号？': 'No account yet?',
+  '获取房管列表失败': 'Failed to load the moderator list',
   '获取房间列表失败': 'Failed to load the room list',
   '获取设置失败': 'Failed to load settings',
   '获取用户列表失败': 'Failed to load users',
@@ -454,6 +463,7 @@ const enUS: Record<string, string> = {
   '解析并生成应答码': 'Parse and generate a response code',
   '界面语言': 'Language',
   '仅 CLI 模式（媒体流不经服务器转发）': 'CLI only (media is not relayed by the server)',
+  '仅 root 或房间创建者可管理该房间的房管': 'Only root or the room creator can manage this room\'s moderators',
   '仅管理员（root / admin）': 'Admins only (root / admin)',
   '仅支持 .zip 或 .tar.gz 格式的压缩包': 'Only .zip and .tar.gz archives are supported',
   '仅支持 JPG / PNG / GIF / WEBP 格式': 'Only JPG / PNG / GIF / WEBP',
@@ -475,6 +485,8 @@ const enUS: Record<string, string> = {
   '浏览并加入当前可用的房间': 'Browse and join the rooms available now',
   '留空用内置默认规则。支持规则 JSON、index.json 与 Kazumi 仓库地址；依赖 WebView 或验证码的规则可能无法播放。': 'Leave blank to use the built-in default rules. Accepts a rule JSON, an index.json or a Kazumi repository URL; rules that need a WebView or a captcha may not play.',
   '留空则不启用。仅支持苹果 CMS（type 1）采集站，jar 与 JS 规则源不支持；编辑后失焦自动保存。': 'Leave blank to disable. Only Apple CMS (type 1) sites are supported; jar and JS rule sources are not. Edits save when the field loses focus.',
+  '没有可任命的账号': 'No accounts available to appoint',
+  '没有匹配的账号': 'No matching accounts',
   '密码修改成功': 'Password changed',
   '密码至少 4 位': 'Password must be at least 4 characters',
   '默认 50%。用户首次使用一起听时生效，之后按各自本地音量。': 'Defaults to 50%. Applied when someone first uses Listen Together, after which each user\'s local volume wins.',
@@ -518,6 +530,9 @@ const enUS: Record<string, string> = {
   '确定要移除所有无人的房间（含已关闭的房间）吗？此操作不可撤销。': 'Remove every empty room (including closed ones)? This cannot be undone.',
   '确认新密码': 'Confirm new password',
   '确认修改': 'Confirm changes',
+  '任命': 'Appoint',
+  '任命房管失败': 'Failed to appoint the moderator',
+  '任命后立即生效，无需对方在线；房管可管理影片、踢人与禁言。': 'Takes effect immediately and works even if the user is offline. Moderators can manage movies, kick members and mute viewers.',
   '扫码登录网易云': 'Scan the QR code to sign in to NetEase Cloud Music',
   '删除所有房间': 'Delete all rooms',
   '删除所有房间失败': 'Failed to delete all rooms',
@@ -550,6 +565,7 @@ const enUS: Record<string, string> = {
   '提示：将应答码复制后发送给分享端，分享端粘贴完成连接。': 'Tip: copy the response code and send it to the sharer; pasting it there completes the connection.',
   '提示：将直连码通过即时通讯工具发送给对方，对方生成应答码后粘贴回此处即可建立连接。': 'Tip: send the direct-link code to the other side over any chat app; they generate a response code, paste it back here and the connection is made.',
   '添加 B站 影片时的默认解析模式，也是未单独配置影片的兜底。': 'Default resolution mode when adding Bilibili videos, and the fallback for titles without their own setting.',
+  '添加房管': 'Add moderator',
   '添加影片时的默认解析模式（普通视频）': 'Default resolution mode when adding titles (regular videos)',
   '通过审核': 'Approved',
   '头像更新成功': 'Avatar updated',

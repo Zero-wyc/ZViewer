@@ -22,6 +22,12 @@ export interface AdminRoom {
   hasPassword: boolean
   viewerCount: number
   sharerOnline: boolean
+  /** 房主账号 id（null = 未绑定账号的房间），房管弹窗据此把房主排除在候选人之外 */
+  ownerUserId?: number | null
+  /** 当前房管人数（管理端列表直接显示，不必为每张卡再开一次请求） */
+  moderatorCount?: number
+  /** 当前登录者能否管理该房间（root 任意 / admin 仅自己创建），false 时禁用房管按钮 */
+  canManage?: boolean
   createdAt: string
   lastAccessedAt: string
 }

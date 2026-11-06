@@ -13,8 +13,15 @@ import (
 	"zviewer/backend/internal/store"
 )
 
-// maxModerators 是单房间房管人数上限（对应 Node 的 MAX_MODERATORS）。
-const maxModerators = 10
+// MaxModerators 是单房间房管人数上限（对应 Node 的 MAX_MODERATORS）。
+//
+// 导出是给管理端复用的：`/api/admin/rooms/{roomId}/moderators` 任命房管时
+// 必须与 socket 侧（appoint-moderator）用同一个上限，否则管理端能任命第 11 个，
+// 房主在房间里却任命不了，两边口径对不上。
+const MaxModerators = 10
+
+// maxModerators 是包内旧名，保持既有调用点不变。
+const maxModerators = MaxModerators
 
 // pendingRoomIDKey 是「等待房主审批」时写进连接 data 的键名。
 const pendingRoomIDKey = "pendingRoomId"

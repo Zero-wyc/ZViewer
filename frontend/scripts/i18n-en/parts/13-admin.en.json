@@ -1,0 +1,19 @@
+{
+  "items": [
+    "Import subscriptions from a GitHub repository",
+    "Open",
+    "No JSON files in this directory",
+    "Back to root",
+    "This subscription URL already exists",
+    "Failed to load the repository contents",
+    "Browse",
+    "Request failed ({{status}})",
+    "All JSON subscription URLs already exist",
+    "Add",
+    "Add all JSON",
+    "Cannot parse the GitHub repository URL, use the https://github.com/owner/repo format",
+    "Added",
+    "Added {{length}} subscription URLs",
+    "Subscription URL added"
+  ]
+}
