@@ -37,7 +37,7 @@ English | **[中文](README.md)**
 - **OBS streaming**: RTMP push and low-latency delivery inside the room
 - **Listen together**: NetEase Cloud Music × Bilibili; playlists auto-filled, one-click favorites into both folders
 - **High quality, low bandwidth**: pair with [ZViewerCLI](https://github.com/Zero-wyc/ZViewerCLI) for a local proxy
-- **Interface**: Material You themes, custom backgrounds, glassmorphism
+- **Interface**: Material You themes, custom backgrounds, glassmorphism, Chinese / English UI
 - **Mobile apps**: Android / HarmonyOS / iOS and tablet clients for watching, listening, receiving casts and room voice
 - **Deployment**: Docker / single-file builds work out of the box, one-click auto update
 
@@ -170,7 +170,8 @@ For people changing this repository. Deployment options are in the Chinese [READ
 
 - **Two independent Go modules, no module at the root**: `backend-go/` (`zviewer/backend`) and `desktop/` (`zviewer/desktop`) build separately and share no internal packages.
 - In production the Go server serves the SPA; during development Vite runs on 5174 and proxies `/api`, `/socket.io` and `/live` to 3333.
-- Voice, screen sharing, OBS streaming and listen-together all run inside the backend process — no external service.
+- Voice and screen sharing are peer-to-peer (the host is the root of the tree); the backend carries signaling, permissions and the optional relay only.
+- OBS streaming and listen-together run inside the backend process — no external service to deploy.
 - `config/` is not committed (database, certificates, uploads, HLS segments) — a fresh clone must run `npm run db:init`.
 
 | Dependency | Version |
