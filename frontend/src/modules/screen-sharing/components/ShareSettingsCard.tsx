@@ -55,6 +55,13 @@ export interface ShareSettingsCardProps {
   cameras?: CaptureDevice[]
   /** 紧凑间距：放进行高受限的控制卡片区时用，组间留白收一档。 */
   compact?: boolean
+  /**
+   * 分两栏：左「画面」右「声音」。
+   *
+   * 只给开始共享前的中区卡片用——那里的宽度够摊开，竖排会把整块拉得很长，
+   * 一眼看不到「声音」那组。下方控制卡片区的「共享设置」宽度有限，仍走竖排。
+   */
+  split?: boolean
   onPresetChange: (id: QualityPresetId) => void
   onResolutionChange: (preset: ResolutionPreset) => void
   onFrameRateChange: (fps: number) => void
@@ -68,14 +75,21 @@ export interface ShareSettingsCardProps {
   onCameraDeviceChange: (deviceId: string) => void
 }
 
+/**
+ * 分组用的低对比描边色。
+ *
+ * 分隔线（横/竖）共用一条：卡片里全是 10–12px 的小字，线条一抢戏就散。
+ */
+const HAIRLINE =
+  'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)'
+
 /** 组间分隔线：细分、低对比，只做分区不做强调。 */
 function Divider(): JSX.Element {
   return (
     <div
       className="my-3 h-px shrink-0"
       style={{
-        backgroundColor:
-          'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
+        backgroundColor: HAIRLINE,
       }}
     />
   )
@@ -184,6 +198,7 @@ export function ShareSettingsCard({
   switchingSource = false,
   cameras = [],
   compact = false,
+  split = false,
   onPresetChange,
   onResolutionChange,
   onFrameRateChange,
@@ -213,269 +228,296 @@ export function ShareSettingsCard({
   ]
   const gap = compact ? 'gap-2' : 'gap-2.5'
 
-  return (
-    <div className="flex w-full min-w-0 flex-col">
-      {/* ── 共享画面 ─────────────────────────────────────────────── */}
-      <div className={cn('flex flex-col', gap)}>
-        <SectionTitle
-          icon={<Video className="h-3.5 w-3.5" />}
-          label={t('共享画面')}
-        />
-        <MiniSegmented
-          options={[
-            {
-              value: 'screen',
-              label: (
-                <>
-                  <Monitor className="h-3.5 w-3.5" />
-                  {t('屏幕')}
-                </>
-              ),
-            },
-            {
-              value: 'camera',
-              label: (
-                <>
-                  <Camera className="h-3.5 w-3.5" />
-                  {t('摄像头')}
-                </>
-              ),
-            },
-          ]}
-          value={settings.captureSource}
-          onChange={(value) => onCaptureSourceChange(value as CaptureSource)}
+  // 四个区块拆成变量：竖排（控制卡片区）与两栏（中区开始前）共用同一份结构，
+  // 复制一份 JSX 早晚会漂移。
+  const screenGroup = (
+    <div className={cn('flex flex-col', gap)}>
+      <SectionTitle
+        icon={<Video className="h-3.5 w-3.5" />}
+        label={t('共享画面')}
+      />
+      <MiniSegmented
+        options={[
+          {
+            value: 'screen',
+            label: (
+              <>
+                <Monitor className="h-3.5 w-3.5" />
+                {t('屏幕')}
+              </>
+            ),
+          },
+          {
+            value: 'camera',
+            label: (
+              <>
+                <Camera className="h-3.5 w-3.5" />
+                {t('摄像头')}
+              </>
+            ),
+          },
+        ]}
+        value={settings.captureSource}
+        onChange={(value) => onCaptureSourceChange(value as CaptureSource)}
+        disabled={switchingSource}
+      />
+      {isCamera && (
+        <Select
+          options={cameraOptions}
+          value={settings.cameraDeviceId}
+          onChange={(value) => onCameraDeviceChange(value)}
+          size="sm"
           disabled={switchingSource}
         />
-        {isCamera && (
-          <Select
-            options={cameraOptions}
-            value={settings.cameraDeviceId}
-            onChange={(value) => onCameraDeviceChange(value)}
-            size="sm"
-            disabled={switchingSource}
-          />
-        )}
-        {switchingSource && (
-          <Paragraph type="secondary" className="m-0 text-[10px] leading-tight">
-            {t('正在切换采集源...')}
-          </Paragraph>
-        )}
-      </div>
-
-      <Divider />
-
-      {/* ── 画质档位 ─────────────────────────────────────────────── */}
-      <div className={cn('flex flex-col', gap)}>
-        <SectionTitle
-          icon={<MonitorPlay className="h-3.5 w-3.5" />}
-          label={t('画质档位')}
-        />
-        <div className="grid grid-cols-3 gap-2">
-          {QUALITY_PRESETS.map((preset) => {
-            const selected = activePreset === preset.id
-            return (
-              <button
-                key={preset.id}
-                type="button"
-                onClick={() => onPresetChange(preset.id)}
-                disabled={switchingResolution}
-                aria-pressed={selected}
-                title={t(preset.hintKey)}
-                className={cn(
-                  'relative flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5',
-                  'transition-colors disabled:opacity-60',
-                  selected
-                    ? 'border-[var(--md-sys-color-primary)] bg-[color-mix(in_srgb,var(--md-sys-color-primary)_10%,transparent)]'
-                    : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-high)]/60'
-                )}
-              >
-                {selected && (
-                  <Check className="absolute right-1.5 top-1.5 h-3 w-3 text-[var(--md-sys-color-primary)]" />
-                )}
-                <span className="text-xs font-medium leading-none">
-                  {t(preset.labelKey)}
-                </span>
-                <span className="whitespace-nowrap text-[10px] leading-none tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                  {preset.resolutionPreset.toUpperCase()} · {preset.frameRate}
-                  fps
-                </span>
-              </button>
-            )
-          })}
-        </div>
+      )}
+      {switchingSource && (
         <Paragraph type="secondary" className="m-0 text-[10px] leading-tight">
-          {activePreset
-            ? t(
-                QUALITY_PRESETS.find((item) => item.id === activePreset)!
-                  .hintKey
-              )
-            : t('自定义参数：下面的细项不再对应任何一个档位')}
+          {t('正在切换采集源...')}
         </Paragraph>
-      </div>
+      )}
+    </div>
+  )
 
-      <Divider />
-
-      {/* ── 详细参数（折叠） ─────────────────────────────────────── */}
-      <div className="flex flex-col">
-        <button
-          type="button"
-          onClick={() => setAdvanced((value) => !value)}
-          aria-expanded={advanced}
-          className="-mx-1 flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60"
-        >
-          <span className="flex items-center gap-1.5 text-[var(--md-sys-color-primary)]">
-            <Gauge className="h-3.5 w-3.5" />
-            <Text className="text-xs font-medium">{t('详细参数')}</Text>
-          </span>
-          <span className="flex items-center gap-1.5">
-            {!advanced && (
-              <span className="text-[10px] tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
-                {summary}
-              </span>
-            )}
-            <ChevronDown
+  const qualityGroup = (
+    <div className={cn('flex flex-col', gap)}>
+      <SectionTitle
+        icon={<MonitorPlay className="h-3.5 w-3.5" />}
+        label={t('画质档位')}
+      />
+      <div className="grid grid-cols-3 gap-2">
+        {QUALITY_PRESETS.map((preset) => {
+          const selected = activePreset === preset.id
+          return (
+            <button
+              key={preset.id}
+              type="button"
+              onClick={() => onPresetChange(preset.id)}
+              disabled={switchingResolution}
+              aria-pressed={selected}
+              title={t(preset.hintKey)}
               className={cn(
-                'h-3.5 w-3.5 text-[var(--md-sys-color-on-surface-variant)] transition-transform',
-                advanced && 'rotate-180'
+                'relative flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5',
+                'transition-colors disabled:opacity-60',
+                selected
+                  ? 'border-[var(--md-sys-color-primary)] bg-[color-mix(in_srgb,var(--md-sys-color-primary)_10%,transparent)]'
+                  : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-high)]/60'
               )}
-            />
-          </span>
-        </button>
+            >
+              {selected && (
+                <Check className="absolute right-1.5 top-1.5 h-3 w-3 text-[var(--md-sys-color-primary)]" />
+              )}
+              <span className="text-xs font-medium leading-none">
+                {t(preset.labelKey)}
+              </span>
+              <span className="whitespace-nowrap text-[10px] leading-none tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+                {preset.resolutionPreset.toUpperCase()} · {preset.frameRate}
+                fps
+              </span>
+            </button>
+          )
+        })}
+      </div>
+      <Paragraph type="secondary" className="m-0 text-[10px] leading-tight">
+        {activePreset
+          ? t(QUALITY_PRESETS.find((item) => item.id === activePreset)!.hintKey)
+          : t('自定义参数：下面的细项不再对应任何一个档位')}
+      </Paragraph>
+    </div>
+  )
 
-        {advanced && (
-          <div
-            className="glass mt-2 flex flex-col gap-3 rounded-xl border p-3"
-            style={{
-              borderColor:
-                'color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent)',
-            }}
-          >
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex min-w-0 flex-col gap-1">
-                <Text type="secondary" className="text-[10px] leading-none">
-                  {t('分辨率')}
-                </Text>
-                <Select
-                  options={RESOLUTION_OPTIONS}
-                  value={settings.resolutionPreset}
-                  onChange={(value) =>
-                    onResolutionChange(value as ResolutionPreset)
-                  }
-                  disabled={switchingResolution}
-                  size="sm"
-                />
-              </label>
-              <label className="flex min-w-0 flex-col gap-1">
-                <Text type="secondary" className="text-[10px] leading-none">
-                  {t('帧率')}
-                </Text>
-                <Select
-                  options={FRAME_RATE_OPTIONS.map((option) => ({
-                    label: option.label,
-                    value: String(option.value),
-                  }))}
-                  value={String(settings.frameRate)}
-                  onChange={(value) => onFrameRateChange(Number(value))}
-                  size="sm"
-                />
-              </label>
-            </div>
+  const advancedGroup = (
+    <div className="flex flex-col">
+      <button
+        type="button"
+        onClick={() => setAdvanced((value) => !value)}
+        aria-expanded={advanced}
+        className="-mx-1 flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60"
+      >
+        <span className="flex items-center gap-1.5 text-[var(--md-sys-color-primary)]">
+          <Gauge className="h-3.5 w-3.5" />
+          <Text className="text-xs font-medium">{t('详细参数')}</Text>
+        </span>
+        <span className="flex items-center gap-1.5">
+          {!advanced && (
+            <span className="text-[10px] tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+              {summary}
+            </span>
+          )}
+          <ChevronDown
+            className={cn(
+              'h-3.5 w-3.5 text-[var(--md-sys-color-on-surface-variant)] transition-transform',
+              advanced && 'rotate-180'
+            )}
+          />
+        </span>
+      </button>
 
-            <div className="flex flex-col gap-1.5">
+      {advanced && (
+        <div
+          className="glass mt-2 flex flex-col gap-3 rounded-xl border p-3"
+          style={{
+            borderColor:
+              'color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent)',
+          }}
+        >
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex min-w-0 flex-col gap-1">
               <Text type="secondary" className="text-[10px] leading-none">
-                {t('画面偏好')}
+                {t('分辨率')}
               </Text>
-              <MiniSegmented
-                options={DEGRADATION_OPTIONS.map((option) => ({
-                  value: option.value,
-                  label: t(option.labelKey),
-                }))}
-                value={settings.degradationPreference}
+              <Select
+                options={RESOLUTION_OPTIONS}
+                value={settings.resolutionPreset}
                 onChange={(value) =>
-                  onDegradationChange(value as RTCDegradationPreference)
+                  onResolutionChange(value as ResolutionPreset)
                 }
+                disabled={switchingResolution}
+                size="sm"
               />
-              <Paragraph
-                type="secondary"
-                className="m-0 text-[10px] leading-tight"
-              >
-                {t(
-                  DEGRADATION_OPTIONS.find(
-                    (option) => option.value === settings.degradationPreference
-                  )?.hintKey ?? '带宽不足时牺牲什么'
-                )}
-              </Paragraph>
-            </div>
+            </label>
+            <label className="flex min-w-0 flex-col gap-1">
+              <Text type="secondary" className="text-[10px] leading-none">
+                {t('帧率')}
+              </Text>
+              <Select
+                options={FRAME_RATE_OPTIONS.map((option) => ({
+                  label: option.label,
+                  value: String(option.value),
+                }))}
+                value={String(settings.frameRate)}
+                onChange={(value) => onFrameRateChange(Number(value))}
+                size="sm"
+              />
+            </label>
+          </div>
 
+          <div className="flex flex-col gap-1.5">
+            <Text type="secondary" className="text-[10px] leading-none">
+              {t('画面偏好')}
+            </Text>
+            <MiniSegmented
+              options={DEGRADATION_OPTIONS.map((option) => ({
+                value: option.value,
+                label: t(option.labelKey),
+              }))}
+              value={settings.degradationPreference}
+              onChange={(value) =>
+                onDegradationChange(value as RTCDegradationPreference)
+              }
+            />
             <Paragraph
               type="secondary"
-              className="m-0 border-t pt-2 text-[10px] leading-tight"
-              style={{
-                borderColor:
-                  'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
-              }}
+              className="m-0 text-[10px] leading-tight"
             >
-              {switchingResolution
-                ? t('正在重新采集...')
-                : isSharing
-                  ? t('共享中改这些项即时生效，观众无感')
-                  : t('共享中也可随时调整')}
+              {t(
+                DEGRADATION_OPTIONS.find(
+                  (option) => option.value === settings.degradationPreference
+                )?.hintKey ?? '带宽不足时牺牲什么'
+              )}
             </Paragraph>
           </div>
-        )}
-      </div>
 
-      <Divider />
-
-      {/* ── 声音 ─────────────────────────────────────────────────── */}
-      <div className={cn('flex flex-col', gap)}>
-        <SectionTitle
-          icon={<Volume2 className="h-3.5 w-3.5" />}
-          label={t('声音')}
-        />
-        <SettingRow
-          label={t('共享系统音频')}
-          hint={
-            isCamera
-              ? t('摄像头没有系统声；观众听到的声音来自麦克风')
+          <Paragraph
+            type="secondary"
+            className="m-0 border-t pt-2 text-[10px] leading-tight"
+            style={{
+              borderColor:
+                'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
+            }}
+          >
+            {switchingResolution
+              ? t('正在重新采集...')
               : isSharing
-                ? t('系统音频需要先结束共享才能改；麦克风与音频码率可以随时调')
-                : undefined
-          }
-        >
-          <Switch
-            checked={settings.shareSystemAudio}
-            onChange={(e) => onSystemAudioChange(e.target.checked)}
-            disabled={isSharing || isCamera}
-            aria-label={t('共享系统音频')}
-          />
-        </SettingRow>
-        <div className="flex flex-col gap-1.5">
-          <SettingRow
-            label={t('音频码率')}
-            hint={
-              audioOption
-                ? `${audioOption.value / 1000} kbps · ${t(audioOption.hintKey)}`
-                : undefined
-            }
-          />
-          <MiniSegmented
-            options={AUDIO_BITRATE_OPTIONS.map((option) => ({
-              value: String(option.value),
-              label: t(option.labelKey),
-            }))}
-            value={String(settings.maxAudioBitrate)}
-            onChange={(value) => onAudioBitrateChange(Number(value))}
-          />
+                ? t('共享中改这些项即时生效，观众无感')
+                : t('共享中也可随时调整')}
+          </Paragraph>
         </div>
-        <SettingRow label={t('共享麦克风')}>
-          <Switch
-            checked={settings.shareMicrophone}
-            onChange={(e) => onMicrophoneChange(e.target.checked)}
-            aria-label={t('共享麦克风')}
-          />
-        </SettingRow>
+      )}
+    </div>
+  )
+
+  const audioGroup = (
+    <div className={cn('flex flex-col', gap)}>
+      <SectionTitle
+        icon={<Volume2 className="h-3.5 w-3.5" />}
+        label={t('声音')}
+      />
+      <SettingRow
+        label={t('共享系统音频')}
+        hint={
+          isCamera
+            ? t('摄像头没有系统声；观众听到的声音来自麦克风')
+            : isSharing
+              ? t('系统音频需要先结束共享才能改；麦克风与音频码率可以随时调')
+              : undefined
+        }
+      >
+        <Switch
+          checked={settings.shareSystemAudio}
+          onChange={(e) => onSystemAudioChange(e.target.checked)}
+          disabled={isSharing || isCamera}
+          aria-label={t('共享系统音频')}
+        />
+      </SettingRow>
+      <div className="flex flex-col gap-1.5">
+        <SettingRow
+          label={t('音频码率')}
+          hint={
+            audioOption
+              ? `${audioOption.value / 1000} kbps · ${t(audioOption.hintKey)}`
+              : undefined
+          }
+        />
+        <MiniSegmented
+          options={AUDIO_BITRATE_OPTIONS.map((option) => ({
+            value: String(option.value),
+            label: t(option.labelKey),
+          }))}
+          value={String(settings.maxAudioBitrate)}
+          onChange={(value) => onAudioBitrateChange(Number(value))}
+        />
       </div>
+      <SettingRow label={t('共享麦克风')}>
+        <Switch
+          checked={settings.shareMicrophone}
+          onChange={(e) => onMicrophoneChange(e.target.checked)}
+          aria-label={t('共享麦克风')}
+        />
+      </SettingRow>
+    </div>
+  )
+
+  // 两栏：左「画面」右「声音」，中间一条竖细线分区。窄屏（sm 以下）退回单栏，
+  // 竖线换成一条横线，避免两列被压成谁也看不清的宽度。
+  if (split) {
+    return (
+      <div className="grid w-full min-w-0 grid-cols-1 gap-x-6 sm:grid-cols-2">
+        <div className="flex min-w-0 flex-col">
+          {screenGroup}
+          <Divider />
+          {qualityGroup}
+          <Divider />
+          {advancedGroup}
+        </div>
+        <div
+          className="mt-3 flex min-w-0 flex-col border-t pt-3 sm:mt-0 sm:border-l sm:border-t-0 sm:pl-6 sm:pt-0"
+          style={{ borderColor: HAIRLINE }}
+        >
+          {audioGroup}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="flex w-full min-w-0 flex-col">
+      {screenGroup}
+      <Divider />
+      {qualityGroup}
+      <Divider />
+      {advancedGroup}
+      <Divider />
+      {audioGroup}
     </div>
   )
 }

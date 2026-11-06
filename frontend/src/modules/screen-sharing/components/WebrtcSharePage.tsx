@@ -630,7 +630,7 @@ function WebrtcSharePage({
         <div className="flex h-full min-h-0 flex-col items-center justify-start gap-5 overflow-y-auto p-6 pt-20">
           {errorText && (
             <div
-              className="relative w-full max-w-sm shrink-0 rounded-xl border px-4 py-3 text-xs"
+              className="relative w-full max-w-2xl shrink-0 rounded-xl border px-4 py-3 text-xs"
               style={{
                 borderColor: 'var(--md-sys-color-error-container)',
                 backgroundColor: 'var(--md-sys-color-error-container)',
@@ -659,7 +659,7 @@ function WebrtcSharePage({
 
           {inIframe && (
             <div
-              className="w-full max-w-sm shrink-0 rounded-xl border px-4 py-3 text-xs"
+              className="w-full max-w-2xl shrink-0 rounded-xl border px-4 py-3 text-xs"
               style={{
                 borderColor: 'var(--md-sys-color-outline-variant)',
                 backgroundColor: 'var(--md-sys-color-tertiary-container)',
@@ -683,9 +683,11 @@ function WebrtcSharePage({
           )}
 
           {/* 卡片自己限高：设置区滚动，「开始共享」永远贴在卡片底部。
-              房间里的共享区高度有限，把主操作挤到折叠线以下等于藏起它。 */}
+              房间里的共享区高度有限，把主操作挤到折叠线以下等于藏起它。
+              设置区分两栏（左画面 / 右声音），所以卡片放开到 2xl——竖排的
+              单列在宽屏上会拉成一条又长又窄的条，声音那组永远在折叠线外。 */}
           <div
-            className="glass-card flex max-h-full w-full max-w-sm flex-col rounded-2xl border p-6 shadow-sm"
+            className="glass-card flex max-h-full w-full max-w-2xl flex-col rounded-2xl border p-6 shadow-sm"
             style={{
               borderColor:
                 'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
@@ -708,6 +710,7 @@ function WebrtcSharePage({
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <ShareSettingsCard
+                split
                 settings={settings}
                 isSharing={isSharing}
                 switchingResolution={switchingResolution}
