@@ -259,16 +259,26 @@ jobs:
           EXPECTED: ${{ steps.dockerbuild.outputs.digest }}
           IMAGE: ${{ secrets.DOCKER_USERNAME }}/zviewer
         run: |
-          for i in 1 2 3; do
+          # 这步只做健康回查，任何异常都不能让构建失败：Docker Hub 的 tag
+          # 索引有延迟，刚推上去的 :latest 常在几十秒内查不到。
+          # 注意 step 的 bash 带 -e -o pipefail：命令替换里的失败会直接终止
+          # 脚本（旧写法就是这么把「只告警」变成构建失败的），这里显式关掉。
+          set +e +o pipefail
+          if [ -z "${EXPECTED}" ]; then
+            echo "::warning::本次构建没有产出 digest（未推送镜像），跳过 :latest 回查"
+            exit 0
+          fi
+          GOT=""
+          for i in 1 2 3 4 5; do
             GOT=$(docker buildx imagetools inspect "${IMAGE}:latest" 2>/dev/null \
               | awk '/^Digest:/{print $2; exit}')
-            if [ -n "${GOT}" ] && [ "${GOT}" = "${EXPECTED}" ]; then
+            if [ "${GOT}" = "${EXPECTED}" ]; then
               echo ":latest -> ${GOT}（与本次构建一致）"
               exit 0
             fi
-            sleep 5
+            sleep 10
           done
-          echo "::warning::Docker 的 :latest 指向 ${GOT:-未知}，与本次构建 ${EXPECTED:-未知} 不一致（索引延迟，或已被另一构建覆盖）"
+          echo "::warning::Docker 的 :latest 指向 ${GOT:-未知}，与本次构建 ${EXPECTED} 不一致（索引延迟，或已被另一构建覆盖）"
 
   # Windows GUI（Go/Wails 原生壳）：复用 build 的 Windows 运行包，编译壳、组装目录并打 ZIP。
   # 只跑 windows-latest：ProcessHost 依赖 .NET Framework 的 csc.exe，壳链接 -H windowsgui。
