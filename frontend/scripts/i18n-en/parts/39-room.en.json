@@ -1,5 +1,6 @@
 {
   "items": [
+    "No connection yet",
     "Buffered mode",
     "Buffered mode is managed by the host",
     "Buffered download failed",
@@ -118,7 +119,6 @@
     "Failed to load the video source",
     "Failed to resolve the video source",
     "Video direct link",
-    "Collapse the sidebar",
-    "Type a path, or use the button above to browse (multi-select for bulk adding)"
+    "Collapse the sidebar"
   ]
 }

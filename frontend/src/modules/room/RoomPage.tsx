@@ -22,7 +22,7 @@ import { MoviePushPanel } from '@/modules/room/components/MoviePushPanel'
 import { CommentPanel } from '@/components/CommentPanel'
 import { Spinner } from '@/components/ui/Spinner'
 import { message } from '@/components/ui/message'
-import { SharePage, WatchPage } from '@/modules/screen-sharing'
+import { SharePage, ShareSettingsPanel, WatchPage } from '@/modules/screen-sharing'
 import type { ShareEdgeStats } from '@/modules/screen-sharing/core/edge-stats'
 import type { MediaFormat } from '@/lib/mediaFormat'
 import { MusicAppShell, MusicPlayerProvider } from '@/modules/music'
@@ -71,6 +71,8 @@ function RoomPage() {
   )
 
   const storeMode = useRoomStore((state) => state.mode)
+  // 共享中才把「共享设置」摆到下方卡片区（由 WebrtcSharePage 上报）
+  const storeIsSharing = useRoomStore((state) => state.isSharing)
   const setMode = useRoomStore((state) => state.setMode)
   const setShareMethod = useRoomStore((state) => state.setShareMethod)
   const setStreamKey = useRoomStore((state) => state.setStreamKey)
@@ -506,7 +508,12 @@ function RoomPage() {
 
     const controls =
       mode === 'screen-share' ? (
-        <RoomInfoPanel roomId={roomId} isHost />
+        <>
+          <RoomInfoPanel roomId={roomId} isHost />
+          {/* 共享中才出：未共享时「开始共享」卡片里已有同一份设置。
+              观众端不渲染 WebrtcSharePage，桥里没有绑定，卡片自然不出现。 */}
+          {storeIsSharing && <ShareSettingsPanel />}
+        </>
       ) : isListenTogether ? undefined : ( // 房间状态改为左下角悬浮按钮（见 trafficPanel 的 topSlot） // 一起听：搜索/队列面板已并入主区域框架（顶部导航 + widget 队列弹窗），
         <>
           <RoomInfoPanel roomId={roomId} isHost />
@@ -517,7 +524,8 @@ function RoomPage() {
 
     const controlLabels =
       mode === 'screen-share'
-        ? [t('房间状态')]
+        ? // 共享中的第三张卡片是 RoomLayout 追加的评论区（rightPanel）
+          [t('房间状态'), t('共享设置'), t('评论区')]
         : isListenTogether
           ? // 一起听：下方无控制卡片行
             undefined

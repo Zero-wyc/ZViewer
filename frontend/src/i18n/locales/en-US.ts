@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2633 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1898,7 +1898,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（428 条） =====
+  // ===== modules/room（429 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -2010,6 +2010,7 @@ const enUS: Record<string, string> = {
   '共 {{value}} 条结果': '{{value}} results',
   '共享你的屏幕、摄像头或系统音频，观众实时观看': 'Share your screen, camera or system audio; viewers watch live',
   '共享情况': 'Sharing status',
+  '共享设置': 'Sharing settings',
   '关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。': 'Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.',
   '观看请求': 'Watch request',
   '观众 {{index}}': 'Viewer {{index}}',
@@ -2328,7 +2329,7 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（181 条） =====
+  // ===== modules/screen-sharing（179 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
   '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps — the default',
@@ -2377,7 +2378,6 @@ const enUS: Record<string, string> = {
   '共享出错，请重新开始共享': 'Sharing hit an error; start sharing again',
   '共享画面': 'Shared view',
   '共享麦克风': 'Share microphone',
-  '共享设置': 'Sharing settings',
   '共享系统音频': 'Share system audio',
   '共享已暂停，观众画面将冻结': 'Sharing is paused; viewers\' video will freeze',
   '共享中': 'Sharing',
@@ -2448,7 +2448,6 @@ const enUS: Record<string, string> = {
   '声音': 'Sound',
   '实时解码帧率': 'Live decode frame rate',
   '视频分辨率': 'Video resolution',
-  '收起共享设置': 'Collapse sharing settings',
   '输入房间密码': 'Enter the room password',
   '刷新连接': 'Refresh the connection',
   '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。': 'Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.',

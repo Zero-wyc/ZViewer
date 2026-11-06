@@ -48,7 +48,6 @@
     "Sharing hit an error; start sharing again",
     "Shared view",
     "Share microphone",
-    "Sharing settings",
     "Share system audio",
     "Sharing is paused; viewers' video will freeze",
     "Sharing",
@@ -119,6 +118,7 @@
     "Sound",
     "Live decode frame rate",
     "Video resolution",
-    "Collapse sharing settings"
+    "Enter the room password",
+    "Refresh the connection"
   ]
 }

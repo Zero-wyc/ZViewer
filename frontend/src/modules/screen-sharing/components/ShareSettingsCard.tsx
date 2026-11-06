@@ -2,8 +2,8 @@
  * 共享参数卡片（房主侧）。
  *
  * 结构借鉴 Piik 的「分享设置」面板：一键画质档位在最上层，细项收进可折叠的
- * 「详细参数」，声音单独一组。两块 UI 共用同一个组件——开始共享前的卡片，
- * 以及共享中从控制栏拉起的浮层，参数完全一致（共享中改的是同一份设置）。
+ * 「详细参数」，声音单独一组。两处 UI 共用同一个组件——开始共享前的卡片，
+ * 以及共享中常驻在下方卡片区的「共享设置」，参数完全一致（改的是同一份设置）。
  *
  * 一切都是受控的：组件不持有时长/档位状态，也不碰会话，避免两处 UI 各存一份
  * 真相（那正是「界面显示 1080P、实际发 720P」的来源）。
@@ -44,7 +44,7 @@ export interface ShareSettingsCardProps {
   switchingSource?: boolean
   /** 可选摄像头（`enumerateDevices` 的结果，未授权时 label 为空）。 */
   cameras?: CaptureDevice[]
-  /** 紧凑模式：共享中的浮层，默认收起详细参数。 */
+  /** 紧凑间距：放进行高受限的控制卡片区时用，组间留白收一档。 */
   compact?: boolean
   onPresetChange: (id: QualityPresetId) => void
   onResolutionChange: (preset: ResolutionPreset) => void
@@ -113,7 +113,10 @@ export function ShareSettingsCard({
     <Space
       direction="vertical"
       className="w-full"
-      // 浮层里空间更紧，组间距收一档。
+      // 各组必须撑满卡片宽度：Space 默认 items-center 会把每组缩成内容宽度并
+      // 居中，宽卡片里就成了「标题浮在中间、开关缩一半」的错位样式。
+      align="stretch"
+      // 卡片里空间更紧，组间距收一档。
       size={compact ? 'sm' : 'md'}
     >
       {/* 采集源：屏幕 / 摄像头。摄像头不带系统声，声音只能靠麦克风。 */}
@@ -319,7 +322,7 @@ export function ShareSettingsCard({
           icon={<Volume2 className="h-3.5 w-3.5" />}
           label={t('声音')}
         />
-        <Space direction="vertical" className="w-full" size="sm">
+        <Space direction="vertical" className="w-full" align="stretch" size="sm">
           <Switch
             label={t('共享系统音频')}
             checked={settings.shareSystemAudio}

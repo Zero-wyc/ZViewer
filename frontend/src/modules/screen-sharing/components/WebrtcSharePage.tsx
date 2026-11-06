@@ -4,10 +4,14 @@
  * 三件事：采集与混音（`ShareHostSession`）、本地预览、控制栏。
  * 多观众不再由本页管理——服务端为每个观众下发一条候选，会话按候选建发布端，
  * 页面只读会话暴露的计数。
+ *
+ * 共享中的「共享设置」不在这里渲染：它常驻在下方控制卡片区
+ * （RoomPage → RoomLayout），本页把「当前设置 + 状态 + 动作」发布到
+ * `useShareSettingsBridge` 供那张卡片消费。
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Monitor, Copy, ExternalLink, X } from 'lucide-react'
+import { Monitor, Copy, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Space } from '@/components/ui/Space'
@@ -37,6 +41,10 @@ import {
   type ResolutionPreset,
 } from '../constants'
 import { ShareSettingsCard } from './ShareSettingsCard'
+import {
+  useShareSettingsBridge,
+  type ShareSettingsActions,
+} from '../store/shareSettingsBridge'
 import { ShareControlsBar } from './ShareControlsBar'
 import { SharingPausedOverlay } from './SharingPausedOverlay'
 import type { CloseRoomResponse, RoomModeChangedPayload } from '../types'
@@ -104,8 +112,6 @@ function WebrtcSharePage({
   const [switchingSource, setSwitchingSource] = useState(false)
   /** 可选摄像头（`enumerateDevices` 的结果，未授权时 label 为空）。 */
   const [cameras, setCameras] = useState<CaptureDevice[]>([])
-  /** 共享中拉起的「共享设置」浮层。 */
-  const [settingsOpen, setSettingsOpen] = useState(false)
 
   const localVideoRef = useRef<HTMLVideoElement | null>(null)
   const [localVideoVersion, setLocalVideoVersion] = useState(0)
@@ -201,8 +207,6 @@ function WebrtcSharePage({
 
   const handleStopSharing = useCallback(() => {
     stopSharing()
-    // 浮层跟着共享一起收：停止后再挂着一个「共享设置」只会让人以为还在共享。
-    setSettingsOpen(false)
   }, [stopSharing])
 
   const handleClearAnnotations = useCallback(() => {
@@ -508,6 +512,86 @@ function WebrtcSharePage({
     setIsSharing(isSharing)
   }, [isSharing, setIsSharing])
 
+  // ── 把设置发布给下方的「共享设置」卡片 ─────────────────────
+  // 卡片渲染在 RoomPage 的控制卡片区，不是本组件的子节点，只能经桥共享。
+  // 动作集合的引用保持恒定（内部转发到最新一次渲染的处理器），否则每次渲染
+  // 都会向 store 发布一份新 binding，卡片跟着白重渲染——包括每秒的统计刷新。
+  const actionsRef = useRef({
+    handlePresetChange,
+    handleResolutionChange,
+    handleFrameRateSettingChange,
+    handleBitrateChange,
+    handleDegradationChange,
+    handleAudioBitrateChange,
+    handleSystemAudioChange,
+    handleMicrophoneChange,
+    handleCaptureSourceChange,
+    handleCameraDeviceChange,
+  })
+  useEffect(() => {
+    actionsRef.current = {
+      handlePresetChange,
+      handleResolutionChange,
+      handleFrameRateSettingChange,
+      handleBitrateChange,
+      handleDegradationChange,
+      handleAudioBitrateChange,
+      handleSystemAudioChange,
+      handleMicrophoneChange,
+      handleCaptureSourceChange,
+      handleCameraDeviceChange,
+    }
+  })
+
+  const shareSettingsActions = useMemo<ShareSettingsActions>(
+    () => ({
+      onPresetChange: (id) => void actionsRef.current.handlePresetChange(id),
+      onResolutionChange: (preset) =>
+        void actionsRef.current.handleResolutionChange(preset),
+      onFrameRateChange: (fps) =>
+        actionsRef.current.handleFrameRateSettingChange(fps),
+      onBitrateChange: (mbps) => actionsRef.current.handleBitrateChange(mbps),
+      onDegradationChange: (preference) =>
+        actionsRef.current.handleDegradationChange(preference),
+      onAudioBitrateChange: (bitrate) =>
+        actionsRef.current.handleAudioBitrateChange(bitrate),
+      onSystemAudioChange: (enabled) =>
+        actionsRef.current.handleSystemAudioChange(enabled),
+      onMicrophoneChange: (enabled) =>
+        actionsRef.current.handleMicrophoneChange(enabled),
+      onCaptureSourceChange: (source) =>
+        actionsRef.current.handleCaptureSourceChange(source),
+      onCameraDeviceChange: (deviceId) =>
+        actionsRef.current.handleCameraDeviceChange(deviceId),
+    }),
+    []
+  )
+
+  const publishShareSettings = useShareSettingsBridge((state) => state.publish)
+  const clearShareSettings = useShareSettingsBridge((state) => state.clear)
+
+  useEffect(() => {
+    publishShareSettings({
+      settings,
+      isSharing,
+      switchingResolution,
+      switchingSource,
+      cameras,
+      actions: shareSettingsActions,
+    })
+  }, [
+    publishShareSettings,
+    settings,
+    isSharing,
+    switchingResolution,
+    switchingSource,
+    cameras,
+    shareSettingsActions,
+  ])
+
+  // 卸载即撤下绑定：切到观众端/一起看后，卡片不能还拿着上一场共享的会话动作。
+  useEffect(() => () => clearShareSettings(), [clearShareSettings])
+
   const errorText = error
   const overrideText = parameterOverrideText(parameterOverride)
 
@@ -554,58 +638,7 @@ function WebrtcSharePage({
               {overrideText}
             </div>
           )}
-          {settingsOpen && (
-            <div
-              className="absolute right-2 top-2 z-30 flex max-h-[calc(100%-7rem)] w-[min(22rem,calc(100%-1rem))] flex-col overflow-hidden rounded-2xl border shadow-xl"
-              style={{
-                borderColor:
-                  'color-mix(in srgb, var(--md-sys-color-outline) 30%, transparent)',
-                backgroundColor: 'var(--glass-bg)',
-                backdropFilter: 'blur(var(--glass-blur-strong))',
-                WebkitBackdropFilter: 'blur(var(--glass-blur-strong))',
-              }}
-            >
-              <div
-                className="flex items-center justify-between border-b px-3 py-2"
-                style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
-              >
-                <Text className="text-xs font-semibold">{t('共享设置')}</Text>
-                <button
-                  type="button"
-                  onClick={() => setSettingsOpen(false)}
-                  className="rounded p-1 opacity-70 hover:opacity-100"
-                  aria-label={t('收起共享设置')}
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="overflow-y-auto p-3">
-                <ShareSettingsCard
-                  compact
-                  settings={settings}
-                  isSharing={isSharing}
-                  switchingResolution={switchingResolution}
-                  switchingSource={switchingSource}
-                  cameras={cameras}
-                  onPresetChange={(id) => void handlePresetChange(id)}
-                  onResolutionChange={(value) => {
-                    void handleResolutionChange(value)
-                  }}
-                  onFrameRateChange={handleFrameRateSettingChange}
-                  onBitrateChange={handleBitrateChange}
-                  onDegradationChange={handleDegradationChange}
-                  onAudioBitrateChange={handleAudioBitrateChange}
-                  onSystemAudioChange={handleSystemAudioChange}
-                  onMicrophoneChange={handleMicrophoneChange}
-                  onCaptureSourceChange={handleCaptureSourceChange}
-                  onCameraDeviceChange={handleCameraDeviceChange}
-                />
-              </div>
-            </div>
-          )}
           <ShareControlsBar
-            settingsOpen={settingsOpen}
-            onToggleSettings={() => setSettingsOpen((open) => !open)}
             isPaused={isPaused}
             connected={connected}
             viewerCount={viewerCount}

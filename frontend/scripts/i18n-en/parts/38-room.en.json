@@ -111,6 +111,7 @@
     "{{value}} results",
     "Share your screen, camera or system audio; viewers watch live",
     "Sharing status",
+    "Sharing settings",
     "Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.",
     "Watch request",
     "Viewer {{index}}",
@@ -118,7 +119,6 @@
     "Once viewers join, each connection shows up here",
     "Viewer limit",
     "The viewer limit must be between 1 and 100",
-    "Viewer quality",
-    "No connection yet"
+    "Viewer quality"
   ]
 }

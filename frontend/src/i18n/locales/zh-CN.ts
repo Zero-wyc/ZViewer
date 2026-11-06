@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2628 条。
+ * 当前共 2627 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -1895,7 +1895,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（428 条） =====
+  // ===== modules/room（429 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析',
@@ -2007,6 +2007,7 @@ const zhCN: Record<string, string> = {
   '共 {{value}} 条结果': '共 {{value}} 条结果',
   '共享你的屏幕、摄像头或系统音频，观众实时观看': '共享你的屏幕、摄像头或系统音频，观众实时观看',
   '共享情况': '共享情况',
+  '共享设置': '共享设置',
   '关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。': '关闭（默认）：一律直连源站，服务器零媒体流量，带防盗链的源需开启才能播放。开启：媒体流一律经服务器中转，兼容性最好但占用服务器流量。',
   '观看请求': '观看请求',
   '观众 {{index}}': '观众 {{index}}',
@@ -2325,7 +2326,7 @@ const zhCN: Record<string, string> = {
   'Socket 尚未连接': 'Socket 尚未连接',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）',
 
-  // ===== modules/screen-sharing（181 条） =====
+  // ===== modules/screen-sharing（179 条） =====
   '，码率不足将导致降帧': '，码率不足将导致降帧',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} 帧',
   '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps，默认档位',
@@ -2374,7 +2375,6 @@ const zhCN: Record<string, string> = {
   '共享出错，请重新开始共享': '共享出错，请重新开始共享',
   '共享画面': '共享画面',
   '共享麦克风': '共享麦克风',
-  '共享设置': '共享设置',
   '共享系统音频': '共享系统音频',
   '共享已暂停，观众画面将冻结': '共享已暂停，观众画面将冻结',
   '共享中': '共享中',
@@ -2445,7 +2445,6 @@ const zhCN: Record<string, string> = {
   '声音': '声音',
   '实时解码帧率': '实时解码帧率',
   '视频分辨率': '视频分辨率',
-  '收起共享设置': '收起共享设置',
   '输入房间密码': '输入房间密码',
   '刷新连接': '刷新连接',
   '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。': '提示：结束推流请在 OBS 中点击「停止推流」。切换回 WebRTC 共享前请先停止 OBS 推流。',

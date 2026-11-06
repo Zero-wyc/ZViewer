@@ -1,7 +1,5 @@
 {
   "items": [
-    "Enter the room password",
-    "Refresh the connection",
     "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.",
     "Stream URL copied (without the stream key)",
     "Stream status",
