@@ -113,10 +113,14 @@ describe('supportsCaptureProfile', () => {
     assert.equal(supportsCaptureProfile(profile), true)
   })
 
-  it('码率低于下限被拒', () => {
+  it('码率不再参与校验（屏幕共享不设上限）', () => {
     assert.equal(
-      supportsCaptureProfile({ ...profile, maxBitrate: 10_000 }),
-      false
+      supportsCaptureProfile({
+        ...profile,
+        // 老调用方可能还带着这个字段：不该因此被拒。
+        ...({ maxBitrate: 10_000 } as Record<string, number>),
+      }),
+      true
     )
   })
 
@@ -150,7 +154,6 @@ describe('启动保护', () => {
   it('启动档位强制 maintain-resolution，且不改其它字段', () => {
     const startup = startupVideoProfile(profile)
     assert.equal(startup.degradationPreference, 'maintain-resolution')
-    assert.equal(startup.maxBitrate, profile.maxBitrate)
     assert.equal(startup.maxFramerate, profile.maxFramerate)
   })
 
@@ -210,18 +213,28 @@ describe('audioSenderCeiling', () => {
 })
 
 describe('configureVideoSender', () => {
-  it('写入码率/帧率/降级策略并读回一致', async () => {
+  it('写入帧率/降级策略并读回一致', async () => {
     const sender = fakeSender()
     const readback = await configureVideoSender(sender, {
       ...profile,
       resolution: null,
       maxFramerate: 30,
-      maxBitrate: 3_000_000,
     })
     assert.deepEqual(readback.mismatches, [])
-    assert.equal(readback.applied.maxBitrate, 3_000_000)
     assert.equal(readback.applied.maxFramerate, 30)
     assert.equal(readback.applied.degradationPreference, 'balanced')
+  })
+
+  it('不下发码率上限：sender 上残留的 maxBitrate 也被清掉', async () => {
+    const sender = fakeSender()
+    // 模拟 sender 复用：上一次设置留下的上限必须被删掉。
+    // 固定返回同一个对象——configure 直接改它，再交给 setParameters。
+    const stale = sendParameters([{ maxBitrate: 4_000_000 }])
+    ;(
+      sender as unknown as { getParameters: () => RTCRtpSendParameters }
+    ).getParameters = () => stale
+    await configureVideoSender(sender, profile)
+    assert.equal(stale.encodings[0]!.maxBitrate, undefined)
   })
 
   it('浏览器改写参数时能被读回发现', async () => {
@@ -239,7 +252,7 @@ describe('configureVideoSender', () => {
       sender as unknown as { getParameters: () => RTCRtpSendParameters }
     ).getParameters = () => sendParameters([{ maxBitrate: 100_000 }, {}])
     const readback = await configureVideoSender(sender, profile)
-    assert.equal(readback.requested.maxBitrate, profile.maxBitrate)
+    assert.equal(readback.requested.maxFramerate, profile.maxFramerate)
     // 单层才设 scaleResolutionDownBy；两层时不该出现在请求里。
     assert.equal(readback.requested.scaleResolutionDownBy, null)
   })
@@ -286,11 +299,7 @@ describe('qualityNeedsCaptureUpdate', () => {
     )
   })
 
-  it('只改码率/画面偏好/音频码率不碰采集', () => {
-    assert.equal(
-      qualityNeedsCaptureUpdate(base, { ...base, maxBitrate: 20_000_000 }),
-      false
-    )
+  it('只改画面偏好/音频码率不碰采集', () => {
     assert.equal(
       qualityNeedsCaptureUpdate(base, {
         ...base,
@@ -322,7 +331,6 @@ describe('configureAudioSender', () => {
 describe('senderParameterReadback', () => {
   it('scaleResolutionDownBy 用容差比较', () => {
     const requested = {
-      maxBitrate: 1,
       maxFramerate: 30,
       scaleResolutionDownBy: 2,
       degradationPreference: 'balanced' as RTCDegradationPreference,
@@ -334,7 +342,6 @@ describe('senderParameterReadback', () => {
 
   it('请求里没有 scalabilityMode 时忽略实际值', () => {
     const requested = {
-      maxBitrate: 1,
       maxFramerate: 30,
       scaleResolutionDownBy: 1,
       degradationPreference: 'balanced' as RTCDegradationPreference,
@@ -360,13 +367,17 @@ describe('档位比较与拼装', () => {
     )
   })
 
-  it('Mbps 转 bps 时四舍五入到整数', () => {
+  it('只拼分辨率/帧率/偏好，不带码率', () => {
     const built = profileFromSettings({
-      frameRate: 30,
-      maxBitrateMbps: 8.5,
+      frameRate: 60,
       resolution: { width: 1920, height: 1080 },
     })
-    assert.equal(built.maxBitrate, 8_500_000)
+    assert.equal(built.maxFramerate, 60)
     assert.equal(built.degradationPreference, 'balanced')
+    assert.equal(
+      (built as unknown as Record<string, unknown>).maxBitrate,
+      undefined,
+      '档位不该再带码率上限'
+    )
   })
 })

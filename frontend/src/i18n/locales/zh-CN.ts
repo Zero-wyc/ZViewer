@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2627 条。
+ * 当前共 2625 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -2326,12 +2326,11 @@ const zhCN: Record<string, string> = {
   'Socket 尚未连接': 'Socket 尚未连接',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）',
 
-  // ===== modules/screen-sharing（179 条） =====
-  '，码率不足将导致降帧': '，码率不足将导致降帧',
+  // ===== modules/screen-sharing（177 条） =====
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} 帧',
-  '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps，默认档位',
-  '1080P · 60fps · 16Mbps，画面有快速运动时选它': '1080P · 60fps · 16Mbps，画面有快速运动时选它',
-  '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps，网络一般时选它',
+  '1080P · 30fps，默认档位': '1080P · 30fps，默认档位',
+  '1080P · 60fps，画面有快速运动时选它': '1080P · 60fps，画面有快速运动时选它',
+  '720P · 30fps，网络一般时选它': '720P · 30fps，网络一般时选它',
   '保真': '保真',
   '本机分辨率': '本机分辨率',
   '编码跟不上，已自动降到 {{value}}': '编码跟不上，已自动降到 {{value}}',
@@ -2497,7 +2496,6 @@ const zhCN: Record<string, string> = {
   '主播未推流': '主播未推流',
   '自定义参数：下面的细项不再对应任何一个档位': '自定义参数：下面的细项不再对应任何一个档位',
   '总码率': '总码率',
-  '最大码率（Mbps）': '最大码率（Mbps）',
   'OBS 配置文件已下载': 'OBS 配置文件已下载',
   'OBS 推流': 'OBS 推流',
   'OBS 推流步骤': 'OBS 推流步骤',

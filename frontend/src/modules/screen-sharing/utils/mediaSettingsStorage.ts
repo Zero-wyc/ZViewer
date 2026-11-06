@@ -10,14 +10,16 @@ import {
  * WebRTC 屏幕共享媒体设置的 localStorage 持久化。
  *
  * 借鉴 mirotalk 的 lsSettings（screen_fps / screen_quality）：用户上次的
- * 帧率/分辨率/码率/音频选择在下次进房时自动恢复，而不是每次重置默认值。
+ * 帧率/分辨率/音频选择在下次进房时自动恢复，而不是每次重置默认值。
+ *
+ * 不含码率：屏幕共享不设 `maxBitrate`（交给浏览器拥塞控制），老版本存下的
+ * `maxBitrateMbps` 字段读取时直接忽略。
  */
 
 const STORAGE_KEY = 'zviewer.webrtc-share.settings.v1'
 
 export interface WebrtcShareMediaSettings {
   frameRate: number
-  maxBitrateMbps: number
   shareSystemAudio: boolean
   shareMicrophone: boolean
   resolutionPreset: ResolutionPreset
@@ -35,7 +37,6 @@ export type CaptureSource = 'screen' | 'camera'
 
 const DEFAULTS: WebrtcShareMediaSettings = {
   frameRate: 30,
-  maxBitrateMbps: 8,
   shareSystemAudio: false,
   shareMicrophone: false,
   resolutionPreset: '1080p',
@@ -58,12 +59,6 @@ export function loadMediaSettings(): WebrtcShareMediaSettings {
         validFrameRates.includes(parsed.frameRate)
           ? parsed.frameRate
           : DEFAULTS.frameRate,
-      maxBitrateMbps:
-        typeof parsed.maxBitrateMbps === 'number' &&
-        parsed.maxBitrateMbps >= 0.5 &&
-        parsed.maxBitrateMbps <= 50
-          ? parsed.maxBitrateMbps
-          : DEFAULTS.maxBitrateMbps,
       shareSystemAudio:
         typeof parsed.shareSystemAudio === 'boolean'
           ? parsed.shareSystemAudio

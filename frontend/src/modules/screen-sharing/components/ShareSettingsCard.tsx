@@ -23,7 +23,6 @@ import {
   Volume2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { InputNumber } from '@/components/ui/InputNumber'
 import { Select } from '@/components/ui/Select'
 import { Switch } from '@/components/ui/Switch'
 import { Paragraph, Text } from '@/components/ui/Typography'
@@ -59,7 +58,6 @@ export interface ShareSettingsCardProps {
   onPresetChange: (id: QualityPresetId) => void
   onResolutionChange: (preset: ResolutionPreset) => void
   onFrameRateChange: (fps: number) => void
-  onBitrateChange: (mbps: number) => void
   onDegradationChange: (preference: RTCDegradationPreference) => void
   onAudioBitrateChange: (bitrate: number) => void
   onSystemAudioChange: (enabled: boolean) => void
@@ -189,7 +187,6 @@ export function ShareSettingsCard({
   onPresetChange,
   onResolutionChange,
   onFrameRateChange,
-  onBitrateChange,
   onDegradationChange,
   onAudioBitrateChange,
   onSystemAudioChange,
@@ -201,9 +198,8 @@ export function ShareSettingsCard({
   // 挤出可视区。收起时仍显示一行当前参数摘要，信息不丢。
   const [advanced, setAdvanced] = useState(false)
   const activePreset = matchQualityPreset(settings)
-  const recommendedBitrate = Math.max(2, Math.round(settings.frameRate * 0.267))
   const isCamera = settings.captureSource === 'camera'
-  const summary = `${settings.resolutionPreset.toUpperCase()} · ${settings.frameRate}fps · ${settings.maxBitrateMbps}Mbps`
+  const summary = `${settings.resolutionPreset.toUpperCase()} · ${settings.frameRate}fps`
   const audioOption = AUDIO_BITRATE_OPTIONS.find(
     (option) => option.value === settings.maxAudioBitrate
   )
@@ -301,7 +297,7 @@ export function ShareSettingsCard({
                 </span>
                 <span className="whitespace-nowrap text-[10px] leading-none tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
                   {preset.resolutionPreset.toUpperCase()} · {preset.frameRate}
-                  fps · {preset.maxBitrateMbps}M
+                  fps
                 </span>
               </button>
             )
@@ -384,26 +380,6 @@ export function ShareSettingsCard({
                 />
               </label>
             </div>
-
-            <label className="flex flex-col gap-1">
-              <Text type="secondary" className="text-[10px] leading-none">
-                {t('最大码率（Mbps）')}
-              </Text>
-              <InputNumber
-                min={0.5}
-                max={50}
-                step={0.5}
-                value={settings.maxBitrateMbps}
-                onChange={(value) => onBitrateChange(value ?? 8)}
-              />
-              <Paragraph
-                type="secondary"
-                className="m-0 text-[10px] leading-tight"
-              >
-                {t('推荐')} {settings.frameRate}fps ≥ {recommendedBitrate} Mbps
-                {settings.frameRate >= 45 && t('，码率不足将导致降帧')}
-              </Paragraph>
-            </label>
 
             <div className="flex flex-col gap-1.5">
               <Text type="secondary" className="text-[10px] leading-none">

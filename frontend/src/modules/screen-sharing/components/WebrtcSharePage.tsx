@@ -296,27 +296,9 @@ function WebrtcSharePage({
   )
 
   // 帧率热更新：改的是编码参数，不重采集、不重协商。
-  // 码率不足是 60fps 降帧的首要原因，低于推荐值时顺带抬到推荐值，
-  // 但不覆盖用户主动设置的高码率。
   const handleFrameRateSettingChange = useCallback(
     (next: number) => {
-      const recommended = Math.max(2, Math.round(next * 0.267))
-      const nextBitrate = Math.max(
-        settingsRef.current.maxBitrateMbps,
-        recommended
-      )
-      const pending = commitSettings({
-        frameRate: next,
-        maxBitrateMbps: nextBitrate,
-      })
-      if (isSharing) void applyProfile(pending)
-    },
-    [isSharing, applyProfile, commitSettings]
-  )
-
-  const handleBitrateChange = useCallback(
-    (next: number) => {
-      const pending = commitSettings({ maxBitrateMbps: next })
+      const pending = commitSettings({ frameRate: next })
       if (isSharing) void applyProfile(pending)
     },
     [isSharing, applyProfile, commitSettings]
@@ -339,23 +321,19 @@ function WebrtcSharePage({
     [isSharing, applyProfile, commitSettings]
   )
 
-  // 一键档位：分辨率变了要重采集，只变帧率/码率则改编码参数。
+  // 一键档位：分辨率变了要重采集，只变帧率则改编码参数。
   const handlePresetChange = useCallback(
     async (id: QualityPresetId) => {
       const preset = QUALITY_PRESETS.find((item) => item.id === id)
       if (!preset || switchingResolution) return
       if (preset.resolutionPreset !== settingsRef.current.resolutionPreset) {
-        // 先把帧率/码率写进去，切分辨率时一并下发。
-        commitSettings({
-          frameRate: preset.frameRate,
-          maxBitrateMbps: preset.maxBitrateMbps,
-        })
+        // 先把帧率写进去，切分辨率时一并下发。
+        commitSettings({ frameRate: preset.frameRate })
         await handleResolutionChange(preset.resolutionPreset)
         return
       }
       const pending = commitSettings({
         frameRate: preset.frameRate,
-        maxBitrateMbps: preset.maxBitrateMbps,
         resolutionPreset: preset.resolutionPreset,
       })
       if (isSharing) void applyProfile(pending)
@@ -520,7 +498,6 @@ function WebrtcSharePage({
     handlePresetChange,
     handleResolutionChange,
     handleFrameRateSettingChange,
-    handleBitrateChange,
     handleDegradationChange,
     handleAudioBitrateChange,
     handleSystemAudioChange,
@@ -533,7 +510,6 @@ function WebrtcSharePage({
       handlePresetChange,
       handleResolutionChange,
       handleFrameRateSettingChange,
-      handleBitrateChange,
       handleDegradationChange,
       handleAudioBitrateChange,
       handleSystemAudioChange,
@@ -550,7 +526,6 @@ function WebrtcSharePage({
         void actionsRef.current.handleResolutionChange(preset),
       onFrameRateChange: (fps) =>
         actionsRef.current.handleFrameRateSettingChange(fps),
-      onBitrateChange: (mbps) => actionsRef.current.handleBitrateChange(mbps),
       onDegradationChange: (preference) =>
         actionsRef.current.handleDegradationChange(preference),
       onAudioBitrateChange: (bitrate) =>
@@ -743,7 +718,6 @@ function WebrtcSharePage({
                   void handleResolutionChange(value)
                 }}
                 onFrameRateChange={handleFrameRateSettingChange}
-                onBitrateChange={handleBitrateChange}
                 onDegradationChange={handleDegradationChange}
                 onAudioBitrateChange={handleAudioBitrateChange}
                 onSystemAudioChange={handleSystemAudioChange}

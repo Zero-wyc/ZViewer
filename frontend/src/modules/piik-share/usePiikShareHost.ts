@@ -62,7 +62,6 @@ export interface UsePiikShareHostResult {
 function profileOf(settings: WebrtcShareMediaSettings) {
   return profileFromSettings({
     frameRate: settings.frameRate,
-    maxBitrateMbps: settings.maxBitrateMbps,
     resolution: RESOLUTION_DIMENSIONS[settings.resolutionPreset],
     maxAudioBitrate: settings.maxAudioBitrate,
     degradationPreference: settings.degradationPreference,

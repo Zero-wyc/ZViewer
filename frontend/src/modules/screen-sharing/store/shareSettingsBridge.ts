@@ -25,7 +25,6 @@ export interface ShareSettingsActions {
   onPresetChange: (id: QualityPresetId) => void
   onResolutionChange: (preset: ResolutionPreset) => void
   onFrameRateChange: (fps: number) => void
-  onBitrateChange: (mbps: number) => void
   onDegradationChange: (preference: RTCDegradationPreference) => void
   onAudioBitrateChange: (bitrate: number) => void
   onSystemAudioChange: (enabled: boolean) => void

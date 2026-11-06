@@ -11,8 +11,11 @@ import type { ViewerSessionState } from '../core/view-state'
 /**
  * 浏览器没有照办的编码参数 → 提示文案。
  *
- * `setParameters` 是请求不是命令：浏览器会按自己的策略改小码率、钉死帧率，
- * 甚至忽略降采样。不回读就等于默认一切照办，用户会以为画质参数生效了。
+ * `setParameters` 是请求不是命令：浏览器会按自己的策略钉死帧率，甚至忽略
+ * 降采样。不回读就等于默认一切照办，用户会以为画质参数生效了。
+ *
+ * 码率不在其中：屏幕共享不下发 `maxBitrate`，带宽由拥塞控制决定，浏览器
+ * 调低码率是正常工作方式，不是「没照办」。
  */
 export function parameterOverrideText(keys: string[] | null): string | null {
   if (!keys || keys.length === 0) return null
@@ -25,8 +28,6 @@ export function parameterOverrideText(keys: string[] | null): string | null {
 /** 单个参数的中文名。未知键原样展示，便于排查新出现的字段。 */
 function parameterLabel(key: string): string {
   switch (key) {
-    case 'maxBitrate':
-      return t('码率')
     case 'maxFramerate':
       return t('帧率')
     case 'scaleResolutionDownBy':

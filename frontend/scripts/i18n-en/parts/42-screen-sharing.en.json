@@ -1,10 +1,9 @@
 {
   "items": [
-    ", low bitrate will drop frames",
     "{{droppedFrames}} / {{value}} frames",
-    "1080P · 30fps · 8Mbps — the default",
-    "1080P · 60fps · 16Mbps — pick this when the picture moves fast",
-    "720P · 30fps · 4Mbps — pick this on an average network",
+    "1080P · 30fps — the default",
+    "1080P · 60fps — pick this when the picture moves fast",
+    "720P · 30fps — pick this on an average network",
     "Lossless",
     "Local resolution",
     "The encoder cannot keep up — dropped to {{value}} automatically",
@@ -119,6 +118,7 @@
     "Live decode frame rate",
     "Video resolution",
     "Enter the room password",
-    "Refresh the connection"
+    "Refresh the connection",
+    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing."
   ]
 }

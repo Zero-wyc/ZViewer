@@ -18,7 +18,6 @@ function settingsOf(preset: QualityPresetOption) {
   return {
     resolutionPreset: preset.resolutionPreset,
     frameRate: preset.frameRate,
-    maxBitrateMbps: preset.maxBitrateMbps,
   }
 }
 
@@ -29,13 +28,10 @@ describe('matchQualityPreset', () => {
     }
   })
 
-  it('改任意一项都不再命中', () => {
+  it('改到没有档位的组合就不再命中', () => {
     const hd = QUALITY_PRESETS.find((item) => item.id === 'hd')!
-    assert.equal(matchQualityPreset({ ...settingsOf(hd), frameRate: 60 }), null)
-    assert.equal(
-      matchQualityPreset({ ...settingsOf(hd), maxBitrateMbps: 6 }),
-      null
-    )
+    // 1080p@60 正好是「高帧」档，不算自定义——这里要一个表里没有的组合。
+    assert.equal(matchQualityPreset({ ...settingsOf(hd), frameRate: 15 }), null)
     assert.equal(
       matchQualityPreset({ ...settingsOf(hd), resolutionPreset: '2k' }),
       null
@@ -55,32 +51,30 @@ describe('matchQualityPreset', () => {
 })
 
 describe('QUALITY_PRESETS', () => {
-  // 档位是「分辨率 + 帧率 + 码率」一整套：只改其中一项会得到自相矛盾的组合。
-  // 这里只保证它们内部自洽（码率递增、在输入框范围内），不套用 1080p 的推荐
-  // 码率公式——720p 用 1080p 的推荐值当门槛只会把「流畅」档逼成高清。
-  it('码率随档位递增，且落在输入框允许的范围内', () => {
-    const bitrates = QUALITY_PRESETS.map((preset) => preset.maxBitrateMbps)
-    assert.deepEqual(
-      bitrates,
-      [...bitrates].sort((a, b) => a - b)
-    )
-    for (const bitrate of bitrates) {
-      assert.ok(bitrate >= 0.5 && bitrate <= 50, `${bitrate}Mbps 超出输入范围`)
+  // 档位是「分辨率 + 帧率」一整套：屏幕共享不设码率上限（带宽交给浏览器
+  // 拥塞控制），所以档位表里也不该再出现 Mbps 字段。
+  it('档位不含码率，避免重新引入上限', () => {
+    for (const preset of QUALITY_PRESETS) {
+      assert.equal(
+        (preset as unknown as Record<string, unknown>).maxBitrateMbps,
+        undefined,
+        `${preset.id} 不该带码率`
+      )
     }
   })
 
-  it('高帧档给足高帧率所需的码率', () => {
-    const highFps = QUALITY_PRESETS.find((preset) => preset.id === 'high-fps')!
-    const recommended = Math.max(2, Math.round(highFps.frameRate * 0.267))
-    assert.ok(highFps.maxBitrateMbps >= recommended)
+  it('每个档位的分辨率+帧率组合唯一', () => {
+    const keys = QUALITY_PRESETS.map(
+      (preset) => `${preset.resolutionPreset}@${preset.frameRate}`
+    )
+    assert.equal(new Set(keys).size, keys.length)
   })
 
-  it('id 唯一且档位名合法', () => {
+  it('id 唯一且帧率合法', () => {
     const ids = new Set(QUALITY_PRESETS.map((preset) => preset.id))
     assert.equal(ids.size, QUALITY_PRESETS.length)
     for (const preset of QUALITY_PRESETS) {
       assert.ok(preset.frameRate >= 1 && preset.frameRate <= 240)
-      assert.ok(preset.maxBitrateMbps > 0)
     }
   })
 })

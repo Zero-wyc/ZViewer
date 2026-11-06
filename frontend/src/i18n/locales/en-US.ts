@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2630 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -2329,12 +2329,11 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（179 条） =====
-  '，码率不足将导致降帧': ', low bitrate will drop frames',
+  // ===== modules/screen-sharing（177 条） =====
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
-  '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps — the default',
-  '1080P · 60fps · 16Mbps，画面有快速运动时选它': '1080P · 60fps · 16Mbps — pick this when the picture moves fast',
-  '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps — pick this on an average network',
+  '1080P · 30fps，默认档位': '1080P · 30fps — the default',
+  '1080P · 60fps，画面有快速运动时选它': '1080P · 60fps — pick this when the picture moves fast',
+  '720P · 30fps，网络一般时选它': '720P · 30fps — pick this on an average network',
   '保真': 'Lossless',
   '本机分辨率': 'Local resolution',
   '编码跟不上，已自动降到 {{value}}': 'The encoder cannot keep up — dropped to {{value}} automatically',
@@ -2500,7 +2499,6 @@ const enUS: Record<string, string> = {
   '主播未推流': 'The streamer is not streaming',
   '自定义参数：下面的细项不再对应任何一个档位': 'Custom settings: the parameters below no longer match any preset',
   '总码率': 'Total bitrate',
-  '最大码率（Mbps）': 'Max bitrate (Mbps)',
   'OBS 配置文件已下载': 'OBS settings downloaded',
   'OBS 推流': 'OBS streaming',
   'OBS 推流步骤': 'OBS streaming steps',

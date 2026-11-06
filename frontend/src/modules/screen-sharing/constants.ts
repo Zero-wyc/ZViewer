@@ -87,7 +87,8 @@ export const AUDIO_BITRATE_OPTIONS: {
 /**
  * 一键画质档位。
  *
- * 三个参数一起改，避免用户自己调出「4K + 60fps + 2Mbps」这种必然糊的组合。
+ * 只描述分辨率与帧率：屏幕共享不设码率上限，带宽由浏览器拥塞控制决定，
+ * 档位再带一个 Mbps 数字只会让网络变好之后画质仍被旧上限压着。
  * `labelKey` / `hintKey` 都是词条 key，渲染期走 t()。
  */
 export type QualityPresetId = 'smooth' | 'hd' | 'high-fps'
@@ -98,52 +99,46 @@ export interface QualityPresetOption {
   hintKey: string
   resolutionPreset: ResolutionPreset
   frameRate: number
-  maxBitrateMbps: number
 }
 
 export const QUALITY_PRESETS: QualityPresetOption[] = [
   {
     id: 'smooth',
     labelKey: '流畅',
-    hintKey: '720P · 30fps · 4Mbps，网络一般时选它',
+    hintKey: '720P · 30fps，网络一般时选它',
     resolutionPreset: '720p',
     frameRate: 30,
-    maxBitrateMbps: 4,
   },
   {
     id: 'hd',
     labelKey: '高清',
-    hintKey: '1080P · 30fps · 8Mbps，默认档位',
+    hintKey: '1080P · 30fps，默认档位',
     resolutionPreset: '1080p',
     frameRate: 30,
-    maxBitrateMbps: 8,
   },
   {
     id: 'high-fps',
     labelKey: '高帧',
-    hintKey: '1080P · 60fps · 16Mbps，画面有快速运动时选它',
+    hintKey: '1080P · 60fps，画面有快速运动时选它',
     resolutionPreset: '1080p',
     frameRate: 60,
-    maxBitrateMbps: 16,
   },
 ]
 
 /**
- * 当前设置命中的档位；三个参数都对不上就是自定义（返回 null）。
+ * 当前设置命中的档位；分辨率与帧率都对不上就是自定义（返回 null）。
  *
- * 只比对档位名与帧率/码率，不比分辨率尺寸：用户把档位从 1080p 改成 2K 时
+ * 只比对档位名与帧率，不比分辨率尺寸：用户把档位从 1080p 改成 2K 时
  * 就是自定义，界面不该继续高亮「高清」。
  */
 export function matchQualityPreset(settings: {
   resolutionPreset: ResolutionPreset
   frameRate: number
-  maxBitrateMbps: number
 }): QualityPresetId | null {
   const hit = QUALITY_PRESETS.find(
     (preset) =>
       preset.resolutionPreset === settings.resolutionPreset &&
-      preset.frameRate === settings.frameRate &&
-      preset.maxBitrateMbps === settings.maxBitrateMbps
+      preset.frameRate === settings.frameRate
   )
   return hit ? hit.id : null
 }

@@ -17,12 +17,11 @@ import type { QualityProfile } from '../../screen-sharing/core/quality'
 const profile: QualityProfile = {
   resolution: { width: 1280, height: 720 },
   maxFramerate: 30,
-  maxBitrate: 4_000_000,
   degradationPreference: 'balanced',
   maxAudioBitrate: 128_000,
 }
 
-/** 假视频 sender：按 `clampBitrate` 模拟「浏览器自行改小码率」。 */
+/** 假视频 sender：按 `clampFramerate` 模拟「浏览器自行钉住帧率」。 */
 class FakeVideoSender {
   private parameters = {
     transactionId: 'tx',
@@ -31,14 +30,14 @@ class FakeVideoSender {
     headerExtensions: [],
   } as unknown as RTCRtpSendParameters
 
-  private readonly clampBitrate: number | null
+  private readonly clampFramerate: number | null
   readonly track: {
     kind: string
     getSettings: () => { width: number; height: number }
   }
 
-  constructor(clampBitrate: number | null) {
-    this.clampBitrate = clampBitrate
+  constructor(clampFramerate: number | null) {
+    this.clampFramerate = clampFramerate
     this.track = {
       kind: 'video',
       getSettings: () => ({ width: 1920, height: 1080 }),
@@ -50,11 +49,11 @@ class FakeVideoSender {
   }
 
   async setParameters(next: RTCRtpSendParameters): Promise<void> {
-    if (this.clampBitrate !== null) {
+    if (this.clampFramerate !== null) {
       for (const encoding of next.encodings) {
-        encoding.maxBitrate = Math.min(
-          encoding.maxBitrate ?? this.clampBitrate,
-          this.clampBitrate
+        encoding.maxFramerate = Math.min(
+          encoding.maxFramerate ?? this.clampFramerate,
+          this.clampFramerate
         )
       }
     }
@@ -154,17 +153,17 @@ async function outboundEdge(): Promise<{
   return { endpoint, pc }
 }
 
-test('浏览器改小码率时，回读要如实报告', async () => {
+test('浏览器钉住帧率时，回读要如实报告', async () => {
   const restore = installFake()
   try {
     const { endpoint, pc } = await outboundEdge()
-    pc.senders = [new FakeVideoSender(1_000_000)]
+    pc.senders = [new FakeVideoSender(15)]
 
     const [readback] = await endpoint.applyEncoding(profile)
     assert.ok(readback, '每条出边都要有一份回读')
-    assert.equal(readback.requested.maxBitrate, 4_000_000)
-    assert.equal(readback.applied.maxBitrate, 1_000_000)
-    assert.deepEqual(readback.mismatches, ['maxBitrate'])
+    assert.equal(readback.requested.maxFramerate, 30)
+    assert.equal(readback.applied.maxFramerate, 15)
+    assert.deepEqual(readback.mismatches, ['maxFramerate'])
     // 降采样是算出来的：1920/1280 = 1.5，用来在不重采集的前提下缩画面。
     assert.equal(readback.applied.scaleResolutionDownBy, 1.5)
   } finally {
@@ -181,7 +180,8 @@ test('浏览器照办时没有不一致', async () => {
     const [readback] = await endpoint.applyEncoding(profile)
     assert.deepEqual(readback.mismatches, [])
     assert.equal(readback.applied.maxFramerate, 30)
-    assert.equal(readback.applied.maxBitrate, 4_000_000)
+    // 屏幕共享不设码率上限：sender 上不该出现 maxBitrate。
+    assert.equal(pc.senders[0]!.getParameters().encodings[0]!.maxBitrate, undefined)
   } finally {
     restore()
   }

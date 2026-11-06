@@ -131,7 +131,6 @@ describe('encoderSustainsTarget', () => {
 const baseProfile: QualityProfile = {
   resolution: { width: 1920, height: 1080 },
   maxFramerate: 60,
-  maxBitrate: 16_000_000,
   degradationPreference: 'balanced',
   maxAudioBitrate: 128_000,
 }
@@ -142,7 +141,6 @@ describe('nextLowerProfile', () => {
     assert.ok(next)
     assert.equal(next.maxFramerate, 30)
     assert.deepEqual(next.resolution, { width: 1920, height: 1080 })
-    assert.ok((next.maxBitrate ?? 0) <= 8_000_000, '帧率砍半后码率也要收')
   })
 
   it('45fps 也一步降到 30（45 省不了多少还多一次重配）', () => {
@@ -196,12 +194,13 @@ describe('nextLowerProfile', () => {
     )
   })
 
-  it('降档时码率不低于 2Mbps', () => {
-    const next = nextLowerProfile({
-      ...baseProfile,
-      maxFramerate: 30,
-      maxBitrate: 1_000_000,
-    })
-    assert.equal(next?.maxBitrate, 2_000_000)
+  it('降档不动码率（码率交给拥塞控制）', () => {
+    const next = nextLowerProfile({ ...baseProfile, maxFramerate: 30 })
+    assert.ok(next)
+    assert.equal(
+      (next as unknown as Record<string, unknown>).maxBitrate,
+      undefined,
+      '降档只改帧率/分辨率'
+    )
   })
 })

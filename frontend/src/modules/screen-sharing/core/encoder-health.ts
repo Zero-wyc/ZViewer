@@ -116,18 +116,17 @@ const RESOLUTION_LADDER: Array<{ width: number; height: number }> = [
  * 下一档更省 CPU 的档位；已经到底返回 `null`。
  *
  * 决策顺序：**先降帧率、再降分辨率**。同样的省电幅度下，帧率对观感的伤害
- * 小于糊掉的字（办公投屏最看重的是文字清晰），而且降帧率对码率也更省。
+ * 小于糊掉的字（办公投屏最看重的是文字清晰）。
+ *
+ * 不碰码率：屏幕共享不设 `maxBitrate`，带宽由浏览器拥塞控制决定；而
+ * 「编不动」是 CPU 问题，压低码率既救不了编码耗时，还会让画面更糊。
  */
 export function nextLowerProfile(
   profile: QualityProfile
 ): QualityProfile | null {
   // 60/45 → 30：一步到位，45 这个中间档省不了多少还多一次重配。
   if (profile.maxFramerate > 30) {
-    return {
-      ...profile,
-      maxFramerate: 30,
-      maxBitrate: Math.min(profile.maxBitrate, 8_000_000),
-    }
+    return { ...profile, maxFramerate: 30 }
   }
 
   const current = profile.resolution
@@ -135,10 +134,5 @@ export function nextLowerProfile(
     ? (RESOLUTION_LADDER.find((item) => item.width < current.width) ?? null)
     : (RESOLUTION_LADDER[RESOLUTION_LADDER.length - 1] ?? null)
   if (!lower) return null
-  return {
-    ...profile,
-    resolution: lower,
-    // 分辨率砍一半，码率同步降下来；给 2Mbps 的下限，别把 720p 压成马赛克。
-    maxBitrate: Math.max(2_000_000, Math.round(profile.maxBitrate * 0.6)),
-  }
+  return { ...profile, resolution: lower }
 }

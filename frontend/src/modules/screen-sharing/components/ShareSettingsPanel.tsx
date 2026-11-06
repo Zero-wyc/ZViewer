@@ -24,7 +24,7 @@ export function ShareSettingsPanel(): JSX.Element | null {
     binding
   const summary = `${settings.resolutionPreset.toUpperCase()} · ${
     settings.frameRate
-  }fps · ${settings.maxBitrateMbps}Mbps`
+  }fps`
 
   return (
     <div className="glass-card zen-card flex h-full w-full min-w-0 flex-col overflow-hidden rounded-[var(--md-sys-shape-corner)]">

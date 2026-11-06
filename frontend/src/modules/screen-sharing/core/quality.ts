@@ -8,11 +8,16 @@
  *  1. **启动保护**：开局先按 `maintain-resolution` 编码 5 帧，等编码器把
  *     尺寸坐实再切回用户档位（`quality.ts:25,143-149`）。不这样做，首帧
  *     会在分辨率还没稳定时被 `balanced` 降一档，观众看到的是糊的开场。
- *  2. **setParameters 回读比对**：浏览器可以静默改写码率/帧率/降采样，
- *     写完必须读回来看差在哪（`quality.ts:156-160,400-424`）。
+ *  2. **setParameters 回读比对**：浏览器可以静默改写帧率/降采样，写完
+ *     必须读回来看差在哪（`quality.ts:156-160,400-424`）。
  *  3. **音频上限取协商值**：`maxaveragebitrate` 与 Opus 默认码率都可能比
  *     用户请求的低，超过协商值的 `setParameters` 会被浏览器丢掉
  *     （`quality.ts:461-489`）。
+ *
+ * **这里刻意不设视频码率上限**：屏幕共享的可用带宽由浏览器自己的拥塞控制
+ * 决定（REMB/TWCC + 中继的逐边 pacing），写死一个 `maxBitrate` 只会在网络
+ * 变好时把画质压在旧上限上，却挡不住网络变差——那是拥塞控制本来就在做的
+ * 事。档位只控制**分辨率与帧率**这两个真正由内容与 CPU 决定的量。
  *
  * 本文件刻意不 import 任何运行时依赖：node --experimental-strip-types 跑
  * 单测时无法解析 `@/` 别名与其它模块的副作用。
@@ -22,13 +27,11 @@
 export const STARTUP_VIDEO_ENCODED_FRAMES = 5
 
 export const MIN_VIDEO_FRAMERATE = 1
-export const MIN_VIDEO_BITRATE = 100_000
-export const MAX_VIDEO_BITRATE = 240_000_000
 
 /**
  * 输出边界，与 UI 档位无关。
  *
- * H.264 Level 5.2 同时约束帧面积、宏块率与码率，这里按同一口径设上限，
+ * H.264 Level 5.2 同时约束帧面积与宏块率，这里按同一口径设上限，
  * 保证「超宽屏 + 高刷」这类组合不会被静默截断成某个命名档位。
  */
 export const VIDEO_CAPTURE_LIMITS = {
@@ -37,7 +40,6 @@ export const VIDEO_CAPTURE_LIMITS = {
   maxPixels: 36_864 * 16 * 16,
   maxMacroblocksPerSecond: 2_073_600,
   maxFramerate: 240,
-  maxBitrate: MAX_VIDEO_BITRATE,
 }
 
 /** 屏幕声（系统音频）三档码率。 */
@@ -64,13 +66,12 @@ export interface QualityResolution {
 /**
  * 一路共享的采集/编码档位。
  *
- * 与 Piik 的 `QualitySettings` 等价，只是字段名换成 ZViewer 的口径：
- * `maxBitrate` 是 bps（不是 Mbps），`resolution` 为 null 表示不约束宽高。
+ * 与 Piik 的 `QualitySettings` 相比少了 `maxBitrate`：码率交给浏览器的带宽
+ * 估计自己定，这里只描述「多大、多快」。`resolution` 为 null 表示不约束宽高。
  */
 export interface QualityProfile {
   resolution: QualityResolution | null
   maxFramerate: number
-  maxBitrate: number
   degradationPreference: RTCDegradationPreference
   maxAudioBitrate: number
 }
@@ -78,7 +79,6 @@ export interface QualityProfile {
 export const DEFAULT_QUALITY_PROFILE: QualityProfile = {
   resolution: { width: 1920, height: 1080 },
   maxFramerate: 30,
-  maxBitrate: 8_000_000,
   degradationPreference: 'balanced',
   maxAudioBitrate: DEFAULT_AUDIO_BITRATE,
 }
@@ -91,7 +91,6 @@ export const DEFAULT_QUALITY_PROFILE: QualityProfile = {
  */
 export function profileFromSettings(settings: {
   frameRate: number
-  maxBitrateMbps: number
   resolution: QualityResolution | null
   maxAudioBitrate?: number
   degradationPreference?: RTCDegradationPreference
@@ -99,7 +98,6 @@ export function profileFromSettings(settings: {
   return {
     resolution: settings.resolution,
     maxFramerate: settings.frameRate,
-    maxBitrate: Math.round(settings.maxBitrateMbps * 1_000_000),
     degradationPreference: settings.degradationPreference ?? 'balanced',
     maxAudioBitrate: screenAudioBitrate(settings.maxAudioBitrate),
   }
@@ -148,8 +146,6 @@ export function supportsCaptureProfile(
     : false
   return (
     framerate &&
-    profile.maxBitrate >= MIN_VIDEO_BITRATE &&
-    profile.maxBitrate <= limits.maxBitrate &&
     screenAudioBitrate(profile.maxAudioBitrate) <= MAX_AUDIO_SEND_BITRATE
   )
 }
@@ -230,7 +226,6 @@ export function videoQualitySettingsEqual(
   return (
     qualityResolutionEqual(left.resolution, right.resolution) &&
     left.maxFramerate === right.maxFramerate &&
-    left.maxBitrate === right.maxBitrate &&
     left.degradationPreference === right.degradationPreference
   )
 }
@@ -257,7 +252,6 @@ export function qualitySettingsEqual(
 
 /** `setParameters` 的回读结果。`mismatches` 非空即浏览器改写了参数。 */
 export interface VideoSenderParameterValues {
-  maxBitrate: number | null
   maxFramerate: number | null
   scaleResolutionDownBy: number | null
   degradationPreference: RTCDegradationPreference | null
@@ -307,7 +301,6 @@ function readVideoSenderParameters(
       (RTCRtpEncodingParameters & { scalabilityMode?: unknown }) | undefined
   )?.scalabilityMode
   return {
-    maxBitrate: encoding?.maxBitrate ?? null,
     maxFramerate: encoding?.maxFramerate ?? null,
     scaleResolutionDownBy: encoding?.scaleResolutionDownBy ?? null,
     degradationPreference: parameters.degradationPreference ?? null,
@@ -347,7 +340,12 @@ export function senderParameterReadback(
 }
 
 /**
- * 给视频 sender 下发码率/帧率/降采样，并回读校验。
+ * 给视频 sender 下发帧率/降采样，并回读校验。
+ *
+ * **不下发 `maxBitrate`**，并显式删掉它：这条 sender 可能被复用，浏览器也
+ * 可能自己补一个默认值；留着就等于悄悄把码率钉在某个旧上限上。码率交给
+ * 拥塞控制（REMB/TWCC + 中继的逐边 pacing），它比任何写死的数字都更清楚
+ * 当前链路能吃多少。
  *
  * Piik 用 `encodings.length - 1` 定位编码层：钉住 simulcast 时编码层按空间
  * 分辨率递增排列，最后一层才是全尺寸（`quality.ts:435-436`）。
@@ -363,7 +361,7 @@ export async function configureVideoSender(
   }
   const encodingIndex = parameters.encodings.length - 1
   const encoding = parameters.encodings[encodingIndex]!
-  encoding.maxBitrate = profile.maxBitrate
+  delete encoding.maxBitrate
   if (carrierScale === undefined) {
     encoding.maxFramerate = profile.maxFramerate
   } else {
