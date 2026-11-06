@@ -597,6 +597,11 @@ jobs:
   #   GITCODE_TOKEN       对 GitCode 的 Zero-wyc/ZViewer 与 Zero-wyc/ZviewerRelease 有写权限
   # 缺 RELEASE_REPO_TOKEN 时跳过本 job；缺 GITCODE_TOKEN 时只推 GitHub、打警告。
   #
+  # 推送失败或超时**不要重跑本工作流**：prepare 有「该版本已有 Release 就报错」的硬闸，
+  # 重跑会直接卡在 prepare。改用「Sync Release Mirror (GitCode)」——它把 GitHub 产物
+  # 仓库整棵树重推一次 GitCode，不重建产物（2026-11-06 v5.2.1 就是推 GitCode 卡了 26 分钟，
+  # 而 GitHub 侧同样 91MB 只用了 10 秒）。
+  #
   # 只在正式版（填了版本号/推了 tag）时更新；latest 测试包不该覆盖正式包。
   publish-branch:
     if: needs.prepare.outputs.mode == 'release'

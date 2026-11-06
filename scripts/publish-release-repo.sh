@@ -31,6 +31,10 @@
 
 set -euo pipefail
 
+# 推送统一走 lib/mirror-push.sh：加进度、超时与重试，避免一次链路抖动卡满整个 job。
+# shellcheck source=lib/mirror-push.sh
+source "$(dirname "${BASH_SOURCE[0]}")/lib/mirror-push.sh"
+
 TAG="${TAG:?缺少 TAG}"
 SHA="${SHA:?缺少 SHA}"
 RELEASE_REPO_TOKEN="${RELEASE_REPO_TOKEN:?缺少 RELEASE_REPO_TOKEN}"
@@ -169,27 +173,28 @@ git -C "${OUT}" config user.name "github-actions[bot]"
 git -C "${OUT}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 git -C "${OUT}" add -A
 git -C "${OUT}" commit -qm "release: ${TAG} (${SHA:0:7})"
-git -C "${OUT}" push --force "${PUSH_URL}" "HEAD:refs/heads/${TARGET_BRANCH}"
+if ! push_mirror_force "${OUT}" "${PUSH_URL}" "${TARGET_BRANCH}" "推送 ${TARGET_REPO}"; then
+  echo "::error::${TARGET_REPO} 推送失败（已尝试 ${MIRROR_PUSH_ATTEMPTS} 次），产物仓库未更新"
+  exit 1
+fi
 echo "== ${TARGET_REPO} 已更新 → ${TAG}"
 
 # 同一份内容推到 GitCode 产物仓库：客户端走 api.gitcode.com 的仓库文件接口取清单和包，
 # 那边不跟着更新，用户就会一直被告知「已是最新」。历史分叉也无所谓，force 覆盖成同一棵树。
 if [ -n "${MIRROR_PUSH_URL:-}" ]; then
   echo "== 推送到 GitCode 产物仓库"
-  if ! out=$(GIT_TERMINAL_PROMPT=0 git -C "${OUT}" push --force "${MIRROR_PUSH_URL}" \
-      "HEAD:refs/heads/${TARGET_BRANCH}" 2>&1); then
-    printf '%s\n' "${out}" | sed -E 's#https://[^@[:space:]]*@#https://***@#g'
+  if ! push_mirror_force "${OUT}" "${MIRROR_PUSH_URL}" "${TARGET_BRANCH}" "推送 GitCode 产物仓库"; then
     # GitCode 的镜像仓（image repository）只读：镜像方向是 GitCode 从 GitHub 拉，
     # 远端回 CH.00905403。平台会自己按节奏追上，所以只告警、不判失败；
     # 要「发版即同步」得去 GitCode 关掉 Pull 镜像。
-    if printf '%s' "${out}" | grep -qiE 'image repository|CH\.00905403'; then
+    if printf '%s' "${PUSH_LOG}" | grep -qiE 'image repository|CH\.00905403'; then
       echo "::warning::GitCode 的 ${TARGET_REPO} 是镜像仓（只读），平台拒绝了 CI 推送。GitCode 会自己从 GitHub 拉取，本次发版稍后才生效；要做到发版即同步，请在 GitCode 项目设置 → 仓库镜像 关闭 Pull 镜像。"
       exit 0
     fi
-    echo "::error::GitCode 产物仓库推送失败，客户端会继续读到旧清单"
+    echo "::error::GitCode 产物仓库推送失败（已尝试 ${MIRROR_PUSH_ATTEMPTS} 次），客户端会继续读到旧清单"
+    echo "::error::可在 Actions 手动运行「Sync Release Mirror (GitCode)」补同步，不必重建产物"
     exit 1
   fi
-  printf '%s\n' "${out}" | sed -E 's#https://[^@[:space:]]*@#https://***@#g'
   echo "== GitCode 产物仓库已更新"
 
   # 回读校验：GitCode 的 raw 接口偶有延迟，轮询到新 tag 出现为止（最多 ~2 分钟）。

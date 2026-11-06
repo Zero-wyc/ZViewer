@@ -1,0 +1,51 @@
+# 手动补同步：把 GitHub 上已经发布好的产物仓库（Zero-wyc/ZviewerRelease）整棵树
+# 强制推到 GitCode 同名仓库。
+#
+# 为什么单独做一个工作流：发版流程里 `prepare` 有一条硬闸——「该版本已有 Release
+# 就报错」，所以 `publish-branch` 里的 GitCode 推送一旦超时或失败，重跑整个
+# Build 工作流是不通的（会先卡在 prepare）。而这次失败的原因与产物本身无关，
+# 重建一遍 130MB×3 纯属浪费；GitHub 那份产物已经是唯一真相源，按镜像语义
+# force push 一次就够了。
+#
+# 用法：Actions → Sync Release Mirror (GitCode) → Run workflow
+#   - 版本号留空：同步 GitHub 产物仓库当前的 main
+#   - 填 v5.2.1：先校验 GitHub 侧 latest.json 就是这个版本，再同步
+#
+# 只读镜像仓（GitCode 侧开了 Pull 镜像）会回 CH.00905403，脚本按「告警跳过」处理，
+# 那种情况需要先在 GitCode 项目设置 → 仓库镜像 关掉 Pull 镜像。
+
+name: Sync Release Mirror (GitCode)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要补同步的版本号（如 v5.2.1）。留空=同步 GitHub 产物仓库当前的 main'
+        required: false
+        default: ''
+
+jobs:
+  mirror:
+    runs-on: ubuntu-latest
+    # 正常几十秒到两分钟；跨境卡住时由脚本内部的硬超时+重试兜住，这里只是最后一道闸。
+    timeout-minutes: 25
+    steps:
+      - name: Checkout (仅脚本)
+        uses: actions/checkout@v5
+        with:
+          sparse-checkout: scripts
+          sparse-checkout-cone-mode: false
+
+      - name: Mirror ZviewerRelease to GitCode
+        shell: bash
+        env:
+          GITCODE_TOKEN: ${{ secrets.GITCODE_TOKEN }}
+          RELEASE_REPO_TOKEN: ${{ secrets.RELEASE_REPO_TOKEN }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          set -euo pipefail
+          if [ -z "${GITCODE_TOKEN}" ]; then
+            echo "::error::未配置 Secret GITCODE_TOKEN（需对 GitCode 的 Zero-wyc/ZviewerRelease 有写权限），无法补同步"
+            exit 1
+          fi
+          bash scripts/mirror-release-repo.sh
