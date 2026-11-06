@@ -419,7 +419,7 @@ export function RoomLayout({
     <>
       <div
         className={cn(
-          'hide-scrollbar flex flex-col items-center overflow-y-auto px-2 py-3 md:px-4 md:py-6',
+          'room-glass-lift hide-scrollbar flex flex-col items-center overflow-y-auto px-2 py-3 md:px-4 md:py-6',
           webFullscreen
             ? 'fixed inset-0 z-[100] h-screen min-h-0 items-stretch p-0 overflow-hidden'
             : 'h-[calc(100vh-64px)]'
