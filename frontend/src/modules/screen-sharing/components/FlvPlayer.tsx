@@ -64,7 +64,7 @@ export interface FlvStatistics {
 }
 
 interface FlvPlayerProps {
-  /** 拉流地址（HTTP-FLV），例如 http://host:3335/live/xxx.flv */
+  /** 拉流地址（HTTP-FLV），例如 /live/xxxx.flv?ticket=…（与页面同源同端口） */
   src: string
   /** 是否自动播放 */
   autoPlay?: boolean

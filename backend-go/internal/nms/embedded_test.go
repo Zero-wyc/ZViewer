@@ -9,6 +9,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -27,15 +28,13 @@ func freePort(t *testing.T) int {
 	return port
 }
 
-func startTestServer(t *testing.T) (*embeddedServer, int, int) {
+func startTestServer(t *testing.T) (*embeddedServer, int) {
 	t.Helper()
 	rtmpPort := freePort(t)
-	httpPort := freePort(t)
 	srv := newEmbeddedServer(Config{
-		RtmpPort:    rtmpPort,
-		HTTPFLVBase: fmt.Sprintf("http://127.0.0.1:%d", httpPort),
-		Embedded:    true,
-		BindHost:    "127.0.0.1",
+		RtmpPort: rtmpPort,
+		Embedded: true,
+		BindHost: "127.0.0.1",
 	}, t.Logf)
 	srv.publishAllowed = func(context.Context, string) bool { return true }
 	srv.watchAllowed = func(context.Context, string, string) bool { return true }
@@ -43,7 +42,17 @@ func startTestServer(t *testing.T) (*embeddedServer, int, int) {
 		t.Fatalf("启动内置媒体服务失败: %v", err)
 	}
 	t.Cleanup(func() { _ = srv.close(context.Background()) })
-	return srv, rtmpPort, httpPort
+	return srv, rtmpPort
+}
+
+// newFLVServer 把内嵌媒体服务的拉流侧挂到随机端口的 httptest 上。
+// 产品里 /live 由 api 层直接调用 ServeFLV（不监听端口），这里只是为了能用
+// http.Client 读一条真实的长连接流。
+func newFLVServer(t *testing.T, srv *embeddedServer) *httptest.Server {
+	t.Helper()
+	ts := httptest.NewServer(http.HandlerFunc(srv.ServeFLV))
+	t.Cleanup(ts.Close)
+	return ts
 }
 
 type fakePublisher struct {
@@ -267,7 +276,8 @@ func TestChunkWriterReaderReassembly(t *testing.T) {
 }
 
 func TestEmbeddedRTMPToFLV(t *testing.T) {
-	_, rtmpPort, httpPort := startTestServer(t)
+	srv, rtmpPort := startTestServer(t)
+	flv := newFLVServer(t, srv)
 
 	pub := dialPublisher(t, rtmpPort)
 	pub.connect("live")
@@ -290,7 +300,7 @@ func TestEmbeddedRTMPToFLV(t *testing.T) {
 	// 这里只是避免与 HTTP 订阅建立竞争）。
 	time.Sleep(100 * time.Millisecond)
 
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/live/ABCD2345.flv", httpPort))
+	resp, err := http.Get(flv.URL + "/live/ABCD2345.flv")
 	if err != nil {
 		t.Fatalf("拉流失败: %v", err)
 	}
@@ -341,8 +351,9 @@ func TestEmbeddedRTMPToFLV(t *testing.T) {
 }
 
 func TestEmbeddedFLVMissingStream(t *testing.T) {
-	_, _, httpPort := startTestServer(t)
-	resp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/live/NOPE.flv", httpPort))
+	srv, _ := startTestServer(t)
+	flv := newFLVServer(t, srv)
+	resp, err := http.Get(flv.URL + "/live/NOPE.flv")
 	if err != nil {
 		t.Fatalf("请求失败: %v", err)
 	}
@@ -353,13 +364,10 @@ func TestEmbeddedFLVMissingStream(t *testing.T) {
 }
 
 func TestServiceEmbeddedAvailability(t *testing.T) {
-	rtmpPort := freePort(t)
-	httpPort := freePort(t)
 	svc := New(Config{
-		RtmpPort:    rtmpPort,
-		HTTPFLVBase: fmt.Sprintf("http://127.0.0.1:%d", httpPort),
-		Embedded:    true,
-		BindHost:    "127.0.0.1",
+		RtmpPort: freePort(t),
+		Embedded: true,
+		BindHost: "127.0.0.1",
 	})
 	svc.SetLogger(t.Logf)
 	if svc.Available() {
@@ -377,6 +385,66 @@ func TestServiceEmbeddedAvailability(t *testing.T) {
 	if svc.Available() {
 		t.Error("Close 后不应报告可用")
 	}
+}
+
+// TestServiceServeFLV 验证拉流侧的分工：内嵌模式进程内接管，
+// 外部模式 / 未启动时一律交回调用方的反代路径。
+func TestServiceServeFLV(t *testing.T) {
+	svc := New(Config{
+		RtmpPort: freePort(t),
+		Embedded: true,
+		BindHost: "127.0.0.1",
+	})
+	svc.SetLogger(t.Logf)
+	svc.SetAuthorizers(
+		func(context.Context, string) bool { return true },
+		func(context.Context, string, string) bool { return true },
+	)
+	t.Cleanup(func() { _ = svc.Close(context.Background()) })
+
+	if svc.ServeFLV(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/live/ABCD2345.flv", nil)) {
+		t.Fatal("未 Start 前不应接管 /live")
+	}
+	if err := svc.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	rec := httptest.NewRecorder()
+	if !svc.ServeFLV(rec, httptest.NewRequest(http.MethodGet, "/live/ABCD2345.flv", nil)) {
+		t.Fatal("内嵌模式应接管 /live")
+	}
+	// 没有 OBS 在推 → 媒体服务自己的 404（而不是反代层的 502）
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("状态码 = %d, want 404（%s）", rec.Code, rec.Body.String())
+	}
+
+	ext := New(Config{Embedded: false, HTTPFLVBase: "http://127.0.0.1:1"})
+	if ext.ServeFLV(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/live/ABCD2345.flv", nil)) {
+		t.Fatal("外部模式不应接管 /live")
+	}
+}
+
+// TestEmbeddedDoesNotBindFLVPort 守住「拉流侧不监听」：内嵌服务只占 RTMP 端口，
+// HTTPFLVBase 指向的端口必须还能被别的进程（这里是测试自己）绑上。
+// 旧实现会在这里启一个 127.0.0.1:3335 的 HTTP listener，从而让本用例失败。
+func TestEmbeddedDoesNotBindFLVPort(t *testing.T) {
+	flvPort := freePort(t)
+	srv := newEmbeddedServer(Config{
+		RtmpPort:    freePort(t),
+		HTTPFLVBase: fmt.Sprintf("http://127.0.0.1:%d", flvPort),
+		Embedded:    true,
+		BindHost:    "127.0.0.1",
+	}, t.Logf)
+	if err := srv.start(); err != nil {
+		t.Fatalf("启动内置媒体服务失败: %v", err)
+	}
+	t.Cleanup(func() { _ = srv.close(context.Background()) })
+
+	ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", flvPort))
+	if err != nil {
+		t.Fatalf("HTTP-FLV 端口 %d 不应被监听: %v", flvPort, err)
+	}
+	_ = ln.Close()
 }
 
 func TestServiceFallsBackWhenPortBusy(t *testing.T) {

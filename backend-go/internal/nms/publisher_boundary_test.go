@@ -32,7 +32,7 @@ func TestPublisherLeaseRejectsDuplicatesAndStaleWrites(t *testing.T) {
 }
 
 func TestRTMPRejectsUnapprovedAndDuplicatePublishers(t *testing.T) {
-	srv, port, _ := startTestServer(t)
+	srv, port := startTestServer(t)
 	srv.publishAllowed = func(_ context.Context, key string) bool { return key == "AUTHORIZED" }
 	a := dialPublisher(t, port)
 	a.connect("live")

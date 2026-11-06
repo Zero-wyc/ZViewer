@@ -22,7 +22,8 @@ WORKDIR /app
 # 语音聊天与屏幕共享的媒体面（SFU）由后端进程内提供，不需要伴生二进制：
 # 单容器即含完整语音能力，媒体走 3333/udp + 3337/tcp。
 # OBS 推流：RTMP 收流 + HTTP-FLV 分发由 Go 后端**进程内**提供
-# （internal/nms，3334 / 3335），不需要额外容器，也不需要外部媒体服务。
+# （internal/nms：只监听 3334，拉流由 /live 在同一进程内直接写出），
+# 不需要额外容器，也不需要外部媒体服务。
 # 注意：二进制来自 build-all.js 产物（CI 下缺失会硬失败），直接 docker
 # build 前需先跑 node build-all.js --linux
 COPY dist/linux/zviewer-backend .
@@ -40,7 +41,7 @@ RUN mkdir -p config/ssl config/uploads config/media log \
 # 3333/udp: 语音与屏幕共享的媒体面（后端进程内，与页面同号不同协议）
 # 3334/tcp: RTMP 推流端口 (OBS 连接，由后端进程内监听)
 # 3337/tcp: 媒体 TCP（UDP 被防火墙/代理拦截时客户端自动回退到这里）
-# 3335/tcp 是后端进程内的 HTTP-FLV 上游，只经 3333 的 /live 反代访问，不对外暴露。
+# 拉流不需要额外端口：/live 由后端进程内直接写出 FLV，不占监听。
 # 注意：媒体 TCP 必须与网页端口分开（SHARE_MEDIA_TCP_PORT，默认 3337），
 # 与网页同号会让媒体面先把网页端口绑走，后端自己起不来。
 EXPOSE 3333/tcp 3333/udp 3334/tcp 3337/tcp

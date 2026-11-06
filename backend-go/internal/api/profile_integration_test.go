@@ -29,6 +29,7 @@ import (
 	"zviewer/backend/internal/danmaku"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/ncm"
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/serverfiles"
 	"zviewer/backend/internal/share/piikbridge"
@@ -166,6 +167,12 @@ func newTestEnv(t *testing.T) *testEnv {
 // newTestEnvWith 允许少数用例注入额外依赖（目前只有共享信令桥接层）。
 func newTestEnvWith(t *testing.T, piik *piikbridge.Bridge) *testEnv {
 	t.Helper()
+	return newTestEnvFull(t, piik, nil)
+}
+
+// newTestEnvFull 再允许注入进程内媒体服务（验证 /live 的进程内直出）。
+func newTestEnvFull(t *testing.T, piik *piikbridge.Bridge, media *nms.Service) *testEnv {
+	t.Helper()
 
 	dir := t.TempDir()
 	dbPath := filepath.Join(dir, "test.sqlite")
@@ -245,6 +252,8 @@ func newTestEnvWith(t *testing.T, piik *piikbridge.Bridge) *testEnv {
 		Rooms:     rooms,
 		Sessions:  store.NewSessions(conn),
 		PiikShare: piik,
+		// 为 nil 时 api.New 按环境变量自建（默认内嵌但未 Start，等价于不可用）。
+		NMS: media,
 	})
 
 	return &testEnv{

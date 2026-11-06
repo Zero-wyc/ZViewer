@@ -203,7 +203,7 @@ Optional: OBS (streaming), `sqlite3`, WebView2 (desktop shell development).
 | `npm run lint` / `npm test -w frontend` | eslint (0 error 0 warning) / frontend unit tests |
 | `npm run test:regression` | Full regression, about 1 min 45 s |
 
-Change the backend port with `PORT`, point the frontend at it with `VITE_API_TARGET`. Port map: 3333 backend + web + media UDP, 3337 media TCP, 5174 Vite, 3334/3335 RTMP and HTTP-FLV.
+Change the backend port with `PORT`, point the frontend at it with `VITE_API_TARGET`. Port map: 3333 backend + web + media UDP, 3337 media TCP, 5174 Vite, 3334 RTMP (HTTP-FLV streaming is served in-process under `/live`, no extra port).
 
 Regression scripts each cover one area (`route-parity`, `events-parity`, `bilibili-smoke`, `frontend-smoke`, `soak`, …) and always work on a database copy, never `config/dev.sqlite`. Run one alone: `bash backend-go/scripts/profile-smoke.sh`.
 

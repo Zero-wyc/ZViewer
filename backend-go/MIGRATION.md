@@ -1246,9 +1246,13 @@ HTTP-FLV 反代与两个 socket 事件（`update-share-method` / `query-stream-p
 
 `node-media-server` 是纯 Node 库（RTMP 3334 + HTTP-FLV 3335），Go 侧不内嵌，改成：
 
+> 2026-11-06 补：内嵌实现的**拉流侧已经不监听任何端口**——`/live` 校验票据后
+> 直接调 `nms.ServeFLV` 在进程内写出 FLV，`3335` 只剩「外部模式未配 URL 时的
+> 探测默认端口」这一层含义。下表是外部化路径的原始说明。
+
 | 变量 | 作用 |
 |---|---|
-| `NMS_HTTP_FLV_URL` | `/live` 反代上游 + 可用性探测目标（默认 `http://127.0.0.1:3335`） |
+| `NMS_HTTP_FLV_URL` | `/live` 反代上游 + 可用性探测目标（外部模式；默认 `http://127.0.0.1:3335`） |
 | `RTMP_PORT` | OBS 配置里的推流端口（默认 3334） |
 | `SERVER_HOST` | 推流地址里的主机名（缺省从请求 Host 推导） |
 | `STREAM_PUSH_ENABLED=0` | 与 Node **同名开关**：显式关闭，不探测、恒不可用 |
@@ -1889,11 +1893,11 @@ DeviceId 仍是进程级常量，见 `internal/emby/clientname_test.go`。
 | 更新包解压失败（Windows） | `powershell Expand-Archive` 对非压缩包**退出码仍为 0**（错误只写 stderr），于是 Node 认为解压成功，继续生成更新脚本并 detached 拉起它 | `archive/zip` 直接报错 → 500「解压失败: …」，不会产生任何脚本 | 这是 Node 的缺陷而非特性：实测对着垃圾字节走一遍，脚本真的被拉起来了，它会 `taskkill /IM node.exe` 并把仓库根 `config/` 挪走（随后恢复）。解压失败必须硬失败 |
 | 更新包解压实现 | Windows 用 PowerShell、Linux 的 zip 用 adm-zip、tar.gz 用系统 `tar` | 一律标准库 `archive/zip` + `archive/tar` | 容器里没有 `tar`/`unzip` 也要能更新；三套实现还会带来三套失败语义。代价是「解压失败」的具体文案与 Node 不同，对拍只比状态码 |
 | 更新脚本的自删除 | bat 结尾 `del "%~f0"` 的注释与实际不符（脚本并未删除自己） | 不尝试自删 | 自删依赖「脚本已读入内存」这个未定义行为，两种结果都能接受，不做无意义的对齐 |
-| OBS 推流的媒体服务 | 进程内 `require('node-media-server')` 起 RTMP 3334 + HTTP-FLV 3335 | **已改为进程内实现**（`internal/nms`，阶段 33，见 3.26）；`NMS_HTTP_FLV_URL` 仅作为「用外部媒体服务」的可选路径，可用性 = TCP 探得通（5s 缓存） | 当初外部化是为了不重写 RTMP 服务器；结果是三种交付形态都不带媒体服务，开箱推流直接不可用，等于丢了一条产品能力，所以补了进程内实现 |
+| OBS 推流的媒体服务 | 进程内 `require('node-media-server')` 起 RTMP 3334 + HTTP-FLV 3335 | **已改为进程内实现**（`internal/nms`，阶段 33，见 3.26）；只监听 RTMP 3334，`/live` 由 `ServeFLV` 在进程内直出；`NMS_HTTP_FLV_URL` 仅作为「用外部媒体服务」的可选路径，可用性 = TCP 探得通（5s 缓存） | 当初外部化是为了不重写 RTMP 服务器；结果是三种交付形态都不带媒体服务，开箱推流直接不可用，等于丢了一条产品能力，所以补了进程内实现 |
 | 推流可用性判定的时延 | 进程内布尔量，零延迟 | 5s TTL + 300ms TCP 探测 | socket 事件会反复问；每次握手不划算。最坏情况是「NMS 刚起来 5s 内仍报不可用」 |
 | `obs-config` 补推流码的写库粒度 | `roomRepo.save(room)` 整行写（含 shareMethod 等） | 只 `UPDATE "streamKey"` 一列 | 整行写会把并发修改的其他列覆盖回读到的旧值；「先下配置、再切子模式」是正常流程，不该被顺带改掉 |
 | `SERVER_HOST` 推导时的 IPv6 | `host.split(':')[0]` 把 `[::1]:3333` 切成 `[`，生成 `rtmp://[:3334/live` | `SplitHostPort` 后补回方括号，生成 `rtmp://[::1]:3334/live` | Node 那行对 IPv6 是明显的坏地址；Go 修好它不影响任何 IPv4/域名场景 |
-| `/live` 的反代实现 | 复用通用 `proxyHttpUpstream`（含 Range 收敛、https→http 降级、HLS 改写） | 专用极简反代：透传 Range/条件头、wildcard CORS、32KB 分块 + 立即 flush | FLV 是长连接推送，套用「Range 收敛 + 30s 连接超时」那套反而会掐断直播流；这里只需要「字节搬运 + 及时 flush」 |
+| `/live` 的反代实现 | 复用通用 `proxyHttpUpstream`（含 Range 收敛、https→http 降级、HLS 改写） | 专用极简反代：透传 Range/条件头、wildcard CORS、32KB 分块 + 立即 flush；**内嵌模式再加一层进程内直出**（`nms.ServeFLV`，不经回环端口） | FLV 是长连接推送，套用「Range 收敛 + 30s 连接超时」那套反而会掐断直播流；这里只需要「字节搬运 + 及时 flush」。进程内直出是为了去掉 3335 这个纯回环监听：同一个进程没必要跟自己对一次 HTTP |
 | OpenList 列表的错误文案 | `listOpenListDirectory` 原样抛上游文案（`[AList 服务器] object not found`） | 与 Node 完全一致：`ListDirPaged` 不翻译，只有 `FetchFileInfo` 才改写成人话 | 一开始 Go 在 `ListDir` 里做了「认证失败/目录不存在」的改写，对拍立刻报差异。翻译只该发生在**用户直接看见播放失败原因**的那一层 |
 | OpenList 挂载删除的一致性 | 在「刚 PUT 过该挂载」的对拍序列里，`DELETE` 回了 200 但行仍在列表里（sql.js 持久化的写后读不一致），第二次 DELETE 也可能回 200 | 每次写都直接落盘：删除后列表立即为空，再删一次 404 | 「删了没删掉」对用户是数据安全问题，不能对齐。因此对拍不断言「删除后列表」，该语义由 `openlist_mounts_test.go` 断言 |
 

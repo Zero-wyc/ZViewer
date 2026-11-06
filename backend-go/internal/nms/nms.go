@@ -1,12 +1,12 @@
 // Package nms 提供 OBS 推流模式依赖的媒体服务（RTMP 接收 + HTTP-FLV 分发）。
 //
 // 默认**进程内自带**（`embedded.go`）：RTMP 收在 `RTMP_PORT`（3334），
-// HTTP-FLV 出在 `HTTP_FLV_PORT`（3335），`/live` 由后端反代到本地这个端口。
+// HTTP-FLV 不单独监听，`/live` 校验票据后直接调用 `ServeFLV` 在同一进程内写出。
 // 这样源码运行、单容器部署、桌面壳三种交付形态都能开箱推流，
-// 与 Node 版进程内 `node-media-server` 的产品行为一致。
+// 与 Node 版进程内 `node-media-server` 的产品行为一致，且不占额外端口。
 //
 // 想用外部媒体服务（SRS / node-media-server / 自建集群）时，设
-// `NMS_HTTP_FLV_URL` 指过去即可——此时不再监听本地端口，可用性改用
+// `NMS_HTTP_FLV_URL` 指过去即可——此时 `/live` 恢复成反向代理，可用性改用
 // TCP 探测（5s 缓存），语义与 Node 的 `nmsService.isAvailable()` 对齐
 // （「能推流吗」）。
 package nms
@@ -17,6 +17,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"strconv"
@@ -28,7 +29,8 @@ import (
 const (
 	// DefaultRtmpPort 是 Node 版 RTMP_PORT 的默认值（OBS 推流地址用）。
 	DefaultRtmpPort = 3334
-	// DefaultHTTPFLVPort 是 Node 版 HTTP_FLV_PORT 的默认值。
+	// DefaultHTTPFLVPort 只在「外部模式但没配 NMS_HTTP_FLV_URL」时作为探测目标的默认端口
+	// （对应旧的 HTTP_FLV_PORT 语义）。内嵌模式**不监听任何拉流端口**。
 	DefaultHTTPFLVPort = 3335
 	// DefaultOfflineGrace tolerates brief OBS restarts before marking the source offline.
 	DefaultOfflineGrace = time.Minute
@@ -45,7 +47,8 @@ const (
 
 // Config 是推流相关的静态配置（进程启动时解析一次）。
 type Config struct {
-	// HTTPFLVBase 是 /live 反代与可用性探测的上游，不带尾斜杠。
+	// HTTPFLVBase 是外部模式的 /live 反代与可用性探测上游，不带尾斜杠。
+	// 内嵌模式下它不参与任何监听，只作为「启动失败时降级探测」的地址。
 	HTTPFLVBase string
 	// RtmpPort 是 OBS 配置里推流地址的端口。
 	RtmpPort int
@@ -66,10 +69,10 @@ type Config struct {
 // ConfigFromEnv 读取配置，语义与 Node 版一致：
 //
 //	RTMP_PORT         推流端口（默认 3334）
-//	HTTP_FLV_PORT     拉流端口（默认 3335，仅在 NMS_HTTP_FLV_URL 缺省时生效）
-//	NMS_HTTP_FLV_URL  显式上游（优先，指向外部媒体服务，此时不内嵌）
+//	HTTP_FLV_PORT     外部模式的探测端口（默认 3335，仅在 NMS_HTTP_FLV_URL 缺省时生效）
+//	NMS_HTTP_FLV_URL  显式上游（优先，指向外部媒体服务，此时不内嵌、/live 走反代）
 //	NMS_EMBEDDED      0 = 即使没配 URL 也不内嵌（调试外部服务时用）
-//	NMS_BIND          内嵌服务的监听地址（默认 0.0.0.0）
+//	NMS_BIND          内嵌 RTMP 的监听地址（默认 0.0.0.0）
 //	SERVER_HOST       推流地址里的主机名（缺省从请求 Host 推导）
 //	STREAM_PUSH_OFFLINE_GRACE_SECONDS  OBS offline grace, 1..3600 seconds (default 60)
 func ConfigFromEnv() Config {
@@ -257,6 +260,27 @@ func (s *Service) Start() error {
 	s.embedded = srv
 	s.mu.Unlock()
 	return nil
+}
+
+// ServeFLV 在内嵌模式下把 HTTP-FLV 直接写进 w，返回 true 表示本次请求已由
+// 进程内媒体服务处理（含权限不符 / 无推流等错误响应）。
+//
+// 返回 false 表示「不由进程内托管」——外部模式、显式禁用、或内嵌启动失败——
+// 调用方应回退到「反代到 HTTPFLVBase」的老路径。之所以先用它再判 Available()，
+// 是因为内嵌模式不需要「先探活再连自己」：hub 在内存里，写成什么样就是什么样。
+func (s *Service) ServeFLV(w http.ResponseWriter, r *http.Request) bool {
+	if s == nil {
+		return false
+	}
+	s.mu.Lock()
+	srv := s.embedded
+	ok := !s.cfg.Disabled && s.cfg.Embedded
+	s.mu.Unlock()
+	if !ok || srv == nil || !srv.isReady() {
+		return false
+	}
+	srv.ServeFLV(w, r)
+	return true
 }
 
 // Close 停止内嵌媒体服务（优雅退出时调用）。

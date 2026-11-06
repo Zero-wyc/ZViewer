@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 	"zviewer/backend/internal/auth"
+	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/store"
 )
 
@@ -353,6 +354,44 @@ func TestLiveProxyForwardsFLV(t *testing.T) {
 	if capture.ua != "OBS-Test/1.0" {
 		t.Errorf("客户端 UA 未透传: %q", capture.ua)
 	}
+}
+
+// TestLiveProxyServesEmbeddedFLVInProcess 验证内嵌模式下 /live 不再绕 127.0.0.1:3335：
+// 请求由进程内媒体服务直接处理（没有 OBS 在推 → 404「该推流未开始」），
+// 同时「房间号 → 推流码」的路径改写必须仍然通过权限复核（否则会是 403）。
+func TestLiveProxyServesEmbeddedFLVInProcess(t *testing.T) {
+	media := nms.New(nms.Config{RtmpPort: freeTCPPort(t), Embedded: true, BindHost: "127.0.0.1"})
+	media.SetLogger(t.Logf)
+	if err := media.Start(); err != nil {
+		t.Fatalf("启动内嵌媒体服务失败: %v", err)
+	}
+	t.Cleanup(func() { _ = media.Close(context.Background()) })
+
+	env := newTestEnvFull(t, nil, media)
+	defer env.teardown()
+
+	req := httptest.NewRequest(http.MethodGet, env.watchURL(t), nil)
+	rec := httptest.NewRecorder()
+	env.handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("应 404（媒体服务：该推流未开始），得到 %d：%s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "该推流未开始") {
+		t.Fatalf("未走进程内直出: %s", rec.Body.String())
+	}
+}
+
+// freeTCPPort 取一个空闲的本机端口（内嵌 RTMP 监听用）。
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("取空闲端口失败: %v", err)
+	}
+	port := ln.Addr().(*net.TCPAddr).Port
+	_ = ln.Close()
+	return port
 }
 
 func TestLiveProxyFallsBackWhenNMSUnavailable(t *testing.T) {

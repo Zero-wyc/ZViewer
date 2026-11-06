@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -19,6 +18,9 @@ import (
 // HTTP-FLV 输出），要么只有 Cygwin 版（SRS Windows），单文件分发与桌面壳都装不进去。
 // 这里只做「转封装」——不做转码，音视频包原样从 RTMP 搬到 FLV——
 // 因此实现量可控，且与 OBS 的默认输出（H.264/AAC）完全对齐。
+//
+// 拉流侧**不监听任何端口**：`/live` 由 api 层校验票据后直接调用 `ServeFLV`，
+// 数据在同一进程内写回 HTTP 响应。RTMP 是唯一需要的监听（OBS 要从外面连进来）。
 type embeddedServer struct {
 	cfg            Config
 	hub            *streamHub
@@ -26,9 +28,7 @@ type embeddedServer struct {
 	publishAllowed func(context.Context, string) bool
 	watchAllowed   func(context.Context, string, string) bool
 
-	rtmpLn  net.Listener
-	httpLn  net.Listener
-	httpSrv *http.Server
+	rtmpLn net.Listener
 
 	mu          sync.RWMutex
 	ready       bool
@@ -49,7 +49,7 @@ func (s *embeddedServer) start() error {
 	bind := s.cfg.BindHost
 	if bind == "" {
 		// 与 Node 的 node-media-server 一致：默认全网卡。
-		// HTTP-FLV 侧只给本进程反代用，不对外暴露（Dockerfile 也不 EXPOSE 3335）。
+		// 拉流侧不监听，只有 RTMP 需要对外（OBS 主动连过来）。
 		bind = "0.0.0.0"
 	}
 
@@ -59,44 +59,15 @@ func (s *embeddedServer) start() error {
 		return fmt.Errorf("RTMP 端口 %d 监听失败: %w", s.cfg.RtmpPort, err)
 	}
 
-	httpPort, err := flvPortFromBase(s.cfg.HTTPFLVBase)
-	if err != nil {
-		_ = rtmpLn.Close()
-		return err
-	}
-	httpAddr := net.JoinHostPort("127.0.0.1", strconv.Itoa(httpPort))
-	httpLn, err := net.Listen("tcp", httpAddr)
-	if err != nil {
-		_ = rtmpLn.Close()
-		return fmt.Errorf("HTTP-FLV 端口 %d 监听失败: %w", httpPort, err)
-	}
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/live", s.handleFLV)
-	mux.HandleFunc("/live/", s.handleFLV)
-
 	s.mu.Lock()
 	s.rtmpLn = rtmpLn
-	s.httpLn = httpLn
-	s.httpSrv = &http.Server{
-		Handler:           mux,
-		ReadHeaderTimeout: 15 * time.Second,
-	}
 	s.ready = true
 	s.mu.Unlock()
 
 	go s.acceptRTMP(rtmpLn)
-	go func() {
-		if err := s.httpSrv.Serve(httpLn); err != nil && err != http.ErrServerClosed {
-			s.logf("[nms] HTTP-FLV 服务退出: %v", err)
-			s.mu.Lock()
-			s.ready = false
-			s.mu.Unlock()
-		}
-	}()
 
-	s.logf("[nms] 内置媒体服务已启动：RTMP :%d（OBS 推流）、HTTP-FLV :%d（/live 反代）",
-		s.cfg.RtmpPort, httpPort)
+	s.logf("[nms] 内置媒体服务已启动：RTMP :%d（OBS 推流），HTTP-FLV 由 /live 进程内直出",
+		s.cfg.RtmpPort)
 	return nil
 }
 
@@ -130,7 +101,6 @@ func (s *embeddedServer) isReady() bool {
 func (s *embeddedServer) close(ctx context.Context) error {
 	s.mu.Lock()
 	s.ready = false
-	httpSrv := s.httpSrv
 	rtmpLn := s.rtmpLn
 	for conn := range s.connections {
 		_ = conn.Close()
@@ -140,17 +110,15 @@ func (s *embeddedServer) close(ctx context.Context) error {
 		s.hub.stop(key)
 	}
 
-	if httpSrv != nil {
-		_ = httpSrv.Shutdown(ctx)
-	}
 	if rtmpLn != nil {
 		_ = rtmpLn.Close()
 	}
 	return nil
 }
 
-// handleFLV 处理 HTTP-FLV 拉流。路径与 Node 版一致：/live/{streamKey}.flv。
-func (s *embeddedServer) handleFLV(w http.ResponseWriter, r *http.Request) {
+// ServeFLV 把 HTTP-FLV 流直接写进 w（不经过本地回环端口）。
+// 路径与 Node 版一致：/live/{streamKey}.flv。
+func (s *embeddedServer) ServeFLV(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodOptions:
 		h := w.Header()
@@ -230,19 +198,4 @@ func (s *embeddedServer) handleFLV(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-}
-
-// flvPortFromBase 从 NMS_HTTP_FLV_URL 里取端口（内嵌模式下它一定是回环地址）。
-func flvPortFromBase(base string) (int, error) {
-	u, err := url.Parse(strings.TrimSpace(base))
-	if err != nil {
-		return 0, fmt.Errorf("NMS_HTTP_FLV_URL 无法解析: %w", err)
-	}
-	if p := u.Port(); p != "" {
-		n, err := strconv.Atoi(p)
-		if err == nil && n > 0 && n <= 65535 {
-			return n, nil
-		}
-	}
-	return DefaultHTTPFLVPort, nil
 }

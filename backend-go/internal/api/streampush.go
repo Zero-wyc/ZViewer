@@ -23,9 +23,9 @@ import (
 // OBS 推流模式（复刻 modules/stream-push + routes/stream-push 的 REST 部分）。
 //
 // 媒体服务默认由 Go 进程内托管（见 internal/nms），也可以指向外部服务：
-// `/live` 把 HTTP-FLV 请求反代到媒体服务（默认进程内，`internal/nms`；
-// 设了 NMS_HTTP_FLV_URL 时是外部服务），`/api/stream-push/*` 只负责
-// 下发 OBS 配置。两者都依赖同一个可用性探测。
+// `/live` 在内嵌模式下直接由 `nms.ServeFLV` 在进程内写出 FLV（不占额外端口），
+// 外部模式（设了 NMS_HTTP_FLV_URL）才反代过去；`/api/stream-push/*` 只负责
+// 下发 OBS 配置。两者都依赖同一个可用性判定。
 
 func (s *Server) registerStreamPushRoutes(mux *http.ServeMux) {
 	// 下载 OBS 场景集合配置（含推流地址与推流码），必须登录。
@@ -245,7 +245,7 @@ func buildOBSConfig(serverURL, streamKey string) obsConfig {
 	}
 }
 
-// registerLiveRoutes 挂载 /live 的 HTTP-FLV 反代。
+// registerLiveRoutes 挂载 /live（内嵌模式进程内直出，外部模式反代）。
 //
 // 顺序即行为：必须注册在 "/"（SPA 回退）之前，否则 /live 会被回成 index.html。
 // 同时注册精确路径与子树：Node 的 app.use('/live', ...) 两者都吃。
@@ -263,7 +263,7 @@ var livePassthroughHeaders = []string{
 	"Last-Modified",
 }
 
-// handleLiveProxy 把 HTTP-FLV 拉流请求反代到 NMS。
+// handleLiveProxy 提供 HTTP-FLV 拉流：内嵌模式下进程内直出，外部模式下反代。
 //
 // NMS 不可用时**不报错**，而是交回 SPA 回退（Node 的 `return next()` 之后
 // 落到静态中间件）：路径不以 /api/ 开头，最终返回 index.html。
@@ -271,6 +271,15 @@ func (s *Server) handleLiveProxy(w http.ResponseWriter, r *http.Request) {
 	key, valid := s.watchKey(r.Context(), r.URL.Query().Get("ticket"), strings.TrimSuffix(strings.TrimPrefix(r.URL.Path, "/live/"), ".flv"))
 	if !valid {
 		httpx.Forbidden(w, "请重新获取房间观看权限")
+		return
+	}
+
+	// 内嵌模式：同一进程直接写出 FLV，不再绕 127.0.0.1:3335 的回环代理。
+	// 路径要从「房间号」换成「推流码」——旧链路由反代改写，内嵌后在这里改，
+	// 媒体服务的二次复核（key 必须等于该房间的 streamKey）才能通过。
+	direct := r.Clone(r.Context())
+	direct.URL.Path = "/live/" + url.PathEscape(key) + ".flv"
+	if s.NMS.ServeFLV(w, direct) {
 		return
 	}
 	if !s.NMS.Available() {
