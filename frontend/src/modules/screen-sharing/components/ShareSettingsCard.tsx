@@ -354,8 +354,12 @@ export function ShareSettingsCard({
               className={cn(
                 'relative flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5',
                 'transition-colors disabled:opacity-60',
+                // 选中 = 白底填充 + 主色描边：卡片本身是半透明玻璃，10% 主色
+                // 叠上去几乎看不出边界（尤其深色桌面壁纸下），换成实心底色
+                // 才和「未选中」拉开层次。底色仍取 surface，跟同一张卡里
+                // MiniSegmented 的选中块保持一致。
                 selected
-                  ? 'border-[var(--md-sys-color-primary)] bg-[color-mix(in_srgb,var(--md-sys-color-primary)_10%,transparent)]'
+                  ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-surface)] shadow-sm'
                   : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-high)]/60'
               )}
             >

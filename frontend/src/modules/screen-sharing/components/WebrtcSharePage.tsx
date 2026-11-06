@@ -693,7 +693,11 @@ function WebrtcSharePage({
           {/* 卡片自己限高：设置区滚动，「开始共享」永远贴在卡片底部。
               房间里的共享区高度有限，把主操作挤到折叠线以下等于藏起它。
               设置区分两栏（左画面 / 右声音），所以卡片放开到 2xl——竖排的
-              单列在宽屏上会拉成一条又长又窄的条，声音那组永远在折叠线外。 */}
+              单列在宽屏上会拉成一条又长又窄的条，声音那组永远在折叠线外。
+
+              展开「详细参数」时这块一定会溢出，但滚动条**不显示**：玻璃卡里
+              一条灰色滚动槽会把左右两栏的中缝推歪，也给不出多少信息量。
+              `hide-scrollbar` 保留滚轮/触控板滚动，只是不画那条槽。 */}
           <div
             className="glass-card flex max-h-full w-full max-w-2xl flex-col rounded-2xl border p-6 shadow-sm"
             style={{
@@ -716,7 +720,7 @@ function WebrtcSharePage({
               </Tag>
             </div>
 
-            <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            <div className="hide-scrollbar min-h-0 flex-1 overflow-y-auto">
               <ShareSettingsCard
                 split
                 settings={settings}
