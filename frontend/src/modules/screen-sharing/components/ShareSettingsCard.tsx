@@ -354,13 +354,15 @@ export function ShareSettingsCard({
               className={cn(
                 'relative flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5',
                 'transition-colors disabled:opacity-60',
-                // 选中 = 白底填充 + 主色描边：卡片本身是半透明玻璃，10% 主色
-                // 叠上去几乎看不出边界（尤其深色桌面壁纸下），换成实心底色
-                // 才和「未选中」拉开层次。底色仍取 surface，跟同一张卡里
-                // MiniSegmented 的选中块保持一致。
+                // 三档统一白底：卡片本身是半透明玻璃，只有选中项填色时另外两档
+                // 像「画在玻璃上的字」，一排按钮不成形。底色取 surface（与同卡
+                // MiniSegmented 的选中块一致），选中再叠主色描边 + 阴影 + 勾号。
+                'bg-[var(--md-sys-color-surface)]',
+                // 未选中时的 hover 只动描边：底色本来就是最浅的 surface，再加一层
+                // 容器色反而比选中项还重，鼠标一划过就像被选上了。
                 selected
-                  ? 'border-[var(--md-sys-color-primary)] bg-[var(--md-sys-color-surface)] shadow-sm'
-                  : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-high)]/60'
+                  ? 'border-[var(--md-sys-color-primary)] shadow-sm'
+                  : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-outline)]'
               )}
             >
               {selected && (
