@@ -1,20 +1,30 @@
 /**
  * 共享参数卡片（房主侧）。
  *
- * 结构借鉴 Piik 的「分享设置」面板：一键画质档位在最上层，细项收进可折叠的
- * 「详细参数」，声音单独一组。两处 UI 共用同一个组件——开始共享前的卡片，
- * 以及共享中常驻在下方卡片区的「共享设置」，参数完全一致（改的是同一份设置）。
+ * 两处 UI 共用：开始共享前的卡片，以及共享中常驻在下方卡片区的「共享设置」，
+ * 参数完全一致（改的是同一份设置）。一切都是受控的：组件不持有设置状态，
+ * 也不碰会话，避免两处 UI 各存一份真相（那正是「界面显示 1080P、实际发 720P」
+ * 的来源）。
  *
- * 一切都是受控的：组件不持有时长/档位状态，也不碰会话，避免两处 UI 各存一份
- * 真相（那正是「界面显示 1080P、实际发 720P」的来源）。
+ * 视觉规范与「房间状态」卡一致：小组件用 `glass` 内嵌块，组与组之间用一条
+ * 细分隔线（不是各自为政的间距），行式设置项统一「左标签、右控件」。
+ * 刻意不用 `SegmentedToggle`：它自带阴影 + 描边 + 光晕，是给工具条用的强调
+ * 控件，塞进卡片里会跟其他行打架（之前那版错乱的根因之一）。
  */
 import { useState } from 'react'
-import { ChevronDown, Gauge, MonitorPlay, Video, Volume2 } from 'lucide-react'
+import {
+  Camera,
+  Check,
+  ChevronDown,
+  Gauge,
+  Monitor,
+  MonitorPlay,
+  Video,
+  Volume2,
+} from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { InputNumber } from '@/components/ui/InputNumber'
-import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
 import { Select } from '@/components/ui/Select'
-import { Space } from '@/components/ui/Space'
 import { Switch } from '@/components/ui/Switch'
 import { Paragraph, Text } from '@/components/ui/Typography'
 import type { CaptureDevice } from '../core/capture-devices'
@@ -60,7 +70,20 @@ export interface ShareSettingsCardProps {
   onCameraDeviceChange: (deviceId: string) => void
 }
 
-/** 一行小标题：图标 + 文案 + 右侧可选说明。 */
+/** 组间分隔线：细分、低对比，只做分区不做强调。 */
+function Divider(): JSX.Element {
+  return (
+    <div
+      className="my-3 h-px shrink-0"
+      style={{
+        backgroundColor:
+          'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
+      }}
+    />
+  )
+}
+
+/** 一行小标题：primary 色图标 + 文案。 */
 function SectionTitle({
   icon,
   label,
@@ -69,10 +92,90 @@ function SectionTitle({
   label: string
 }): JSX.Element {
   return (
-    <Space align="center" size="sm" className="mb-2">
+    <div className="flex items-center gap-1.5">
       <span className="text-[var(--md-sys-color-primary)]">{icon}</span>
       <Text className="text-xs font-medium">{label}</Text>
-    </Space>
+    </div>
+  )
+}
+
+/**
+ * 轻量分段控件（M3 segmented 风格）。
+ *
+ * 与 `SegmentedToggle` 的区别：无阴影/光晕/粗描边，选中项只是「浮起一档」的
+ * 表面色，适合卡片内部的密集行。选项 label 允许带图标。
+ */
+function MiniSegmented({
+  options,
+  value,
+  onChange,
+  disabled = false,
+}: {
+  options: { value: string; label: React.ReactNode }[]
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}): JSX.Element {
+  return (
+    <div
+      role="group"
+      aria-disabled={disabled}
+      className={cn(
+        'flex w-full items-center gap-0.5 rounded-lg p-0.5',
+        'bg-[var(--md-sys-color-surface-container-high)]',
+        disabled && 'pointer-events-none opacity-50'
+      )}
+    >
+      {options.map((option) => {
+        const active = option.value === value
+        return (
+          <button
+            key={option.value}
+            type="button"
+            onClick={() => onChange(option.value)}
+            disabled={disabled || active}
+            aria-pressed={active}
+            className={cn(
+              'flex min-w-0 flex-1 items-center justify-center gap-1 rounded-[7px] px-1.5 py-1',
+              'text-xs font-medium transition-colors',
+              active
+                ? 'bg-[var(--md-sys-color-surface)] text-[var(--md-sys-color-on-surface)] shadow-sm ring-1 ring-[var(--md-sys-color-outline-variant)]'
+                : 'text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]'
+            )}
+          >
+            {option.label}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+/** 行式设置项：左标签（可带辅助说明）、右控件；children 省略时是纯文本行。 */
+function SettingRow({
+  label,
+  hint,
+  children,
+}: {
+  label: string
+  hint?: React.ReactNode
+  children?: React.ReactNode
+}): JSX.Element {
+  return (
+    <div className="flex items-center justify-between gap-3">
+      <div className="min-w-0">
+        <Text className="text-xs leading-tight">{label}</Text>
+        {hint && (
+          <Paragraph
+            type="secondary"
+            className="m-0 mt-0.5 text-[10px] leading-tight"
+          >
+            {hint}
+          </Paragraph>
+        )}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
   )
 }
 
@@ -95,11 +198,15 @@ export function ShareSettingsCard({
   onCameraDeviceChange,
 }: ShareSettingsCardProps): JSX.Element {
   // 细项默认收起：房间里的共享区高度有限，一上来摊开五组控件会把「开始共享」
-  // 挤出可视区。收起时仍显示一行当前参数摘要，信息不丢（Piik 同样是这个做法）。
+  // 挤出可视区。收起时仍显示一行当前参数摘要，信息不丢。
   const [advanced, setAdvanced] = useState(false)
   const activePreset = matchQualityPreset(settings)
   const recommendedBitrate = Math.max(2, Math.round(settings.frameRate * 0.267))
   const isCamera = settings.captureSource === 'camera'
+  const summary = `${settings.resolutionPreset.toUpperCase()} · ${settings.frameRate}fps · ${settings.maxBitrateMbps}Mbps`
+  const audioOption = AUDIO_BITRATE_OPTIONS.find(
+    (option) => option.value === settings.maxAudioBitrate
+  )
   // 未授权时 enumerateDevices 的 label 是空串：用序号占位，别显示成空白项。
   const cameraOptions = [
     { label: t('默认摄像头'), value: '' },
@@ -108,54 +215,61 @@ export function ShareSettingsCard({
       value: device.id,
     })),
   ]
+  const gap = compact ? 'gap-2' : 'gap-2.5'
 
   return (
-    <Space
-      direction="vertical"
-      className="w-full"
-      // 各组必须撑满卡片宽度：Space 默认 items-center 会把每组缩成内容宽度并
-      // 居中，宽卡片里就成了「标题浮在中间、开关缩一半」的错位样式。
-      align="stretch"
-      // 卡片里空间更紧，组间距收一档。
-      size={compact ? 'sm' : 'md'}
-    >
-      {/* 采集源：屏幕 / 摄像头。摄像头不带系统声，声音只能靠麦克风。 */}
-      <div>
+    <div className="flex w-full min-w-0 flex-col">
+      {/* ── 共享画面 ─────────────────────────────────────────────── */}
+      <div className={cn('flex flex-col', gap)}>
         <SectionTitle
           icon={<Video className="h-3.5 w-3.5" />}
           label={t('共享画面')}
         />
-        <SegmentedToggle
+        <MiniSegmented
           options={[
-            { value: 'screen', label: t('屏幕') },
-            { value: 'camera', label: t('摄像头') },
+            {
+              value: 'screen',
+              label: (
+                <>
+                  <Monitor className="h-3.5 w-3.5" />
+                  {t('屏幕')}
+                </>
+              ),
+            },
+            {
+              value: 'camera',
+              label: (
+                <>
+                  <Camera className="h-3.5 w-3.5" />
+                  {t('摄像头')}
+                </>
+              ),
+            },
           ]}
           value={settings.captureSource}
           onChange={(value) => onCaptureSourceChange(value as CaptureSource)}
+          disabled={switchingSource}
         />
         {isCamera && (
-          <div className="mt-2">
-            <Select
-              options={cameraOptions}
-              value={settings.cameraDeviceId}
-              onChange={(value) => onCameraDeviceChange(value)}
-              size="sm"
-              disabled={switchingSource}
-            />
-          </div>
+          <Select
+            options={cameraOptions}
+            value={settings.cameraDeviceId}
+            onChange={(value) => onCameraDeviceChange(value)}
+            size="sm"
+            disabled={switchingSource}
+          />
         )}
         {switchingSource && (
-          <Paragraph
-            type="secondary"
-            className="m-0 mt-1.5 text-[10px] leading-tight"
-          >
+          <Paragraph type="secondary" className="m-0 text-[10px] leading-tight">
             {t('正在切换采集源...')}
           </Paragraph>
         )}
       </div>
 
-      {/* 一键档位 */}
-      <div>
+      <Divider />
+
+      {/* ── 画质档位 ─────────────────────────────────────────────── */}
+      <div className={cn('flex flex-col', gap)}>
         <SectionTitle
           icon={<MonitorPlay className="h-3.5 w-3.5" />}
           label={t('画质档位')}
@@ -172,25 +286,28 @@ export function ShareSettingsCard({
                 aria-pressed={selected}
                 title={t(preset.hintKey)}
                 className={cn(
-                  'rounded-xl border px-2 py-2 text-left transition disabled:opacity-60',
+                  'relative flex flex-col items-center gap-1 rounded-xl border px-2 py-2.5',
+                  'transition-colors disabled:opacity-60',
                   selected
-                    ? 'border-[var(--md-sys-color-primary)] bg-[color-mix(in_srgb,var(--md-sys-color-primary)_12%,transparent)]'
-                    : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-primary)]'
+                    ? 'border-[var(--md-sys-color-primary)] bg-[color-mix(in_srgb,var(--md-sys-color-primary)_10%,transparent)]'
+                    : 'border-[var(--md-sys-color-outline-variant)] hover:border-[var(--md-sys-color-outline)] hover:bg-[var(--md-sys-color-surface-container-high)]/60'
                 )}
               >
-                <div className="text-xs font-medium">{t(preset.labelKey)}</div>
-                <div className="mt-0.5 text-[10px] leading-tight text-[var(--md-sys-color-on-surface-variant)]">
+                {selected && (
+                  <Check className="absolute right-1.5 top-1.5 h-3 w-3 text-[var(--md-sys-color-primary)]" />
+                )}
+                <span className="text-xs font-medium leading-none">
+                  {t(preset.labelKey)}
+                </span>
+                <span className="whitespace-nowrap text-[10px] leading-none tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
                   {preset.resolutionPreset.toUpperCase()} · {preset.frameRate}
-                  fps · {preset.maxBitrateMbps}Mbps
-                </div>
+                  fps · {preset.maxBitrateMbps}M
+                </span>
               </button>
             )
           })}
         </div>
-        <Paragraph
-          type="secondary"
-          className="m-0 mt-1.5 text-[10px] leading-tight"
-        >
+        <Paragraph type="secondary" className="m-0 text-[10px] leading-tight">
           {activePreset
             ? t(
                 QUALITY_PRESETS.find((item) => item.id === activePreset)!
@@ -200,36 +317,48 @@ export function ShareSettingsCard({
         </Paragraph>
       </div>
 
-      {/* 细项：默认展开（开始前），紧凑模式默认收起 */}
-      <div>
+      <Divider />
+
+      {/* ── 详细参数（折叠） ─────────────────────────────────────── */}
+      <div className="flex flex-col">
         <button
           type="button"
           onClick={() => setAdvanced((value) => !value)}
           aria-expanded={advanced}
-          className="flex w-full items-center justify-between rounded-lg px-1 py-1 text-xs font-medium text-[var(--md-sys-color-on-surface-variant)] hover:text-[var(--md-sys-color-on-surface)]"
+          className="-mx-1 flex w-full items-center justify-between gap-2 rounded-lg px-1 py-1 text-left transition-colors hover:bg-[var(--md-sys-color-surface-container-high)]/60"
         >
-          <Space align="center" size="sm">
+          <span className="flex items-center gap-1.5 text-[var(--md-sys-color-primary)]">
             <Gauge className="h-3.5 w-3.5" />
-            {t('详细参数')}
-          </Space>
-          <Space align="center" size="sm">
-            <span className="text-[10px] font-normal text-[var(--md-sys-color-on-surface-variant)]">
-              {settings.resolutionPreset.toUpperCase()} · {settings.frameRate}
-              fps · {settings.maxBitrateMbps}Mbps
-            </span>
+            <Text className="text-xs font-medium">{t('详细参数')}</Text>
+          </span>
+          <span className="flex items-center gap-1.5">
+            {!advanced && (
+              <span className="text-[10px] tabular-nums text-[var(--md-sys-color-on-surface-variant)]">
+                {summary}
+              </span>
+            )}
             <ChevronDown
-              className={cn('h-3.5 w-3.5 transition', advanced && 'rotate-180')}
+              className={cn(
+                'h-3.5 w-3.5 text-[var(--md-sys-color-on-surface-variant)] transition-transform',
+                advanced && 'rotate-180'
+              )}
             />
-          </Space>
+          </span>
         </button>
 
         {advanced && (
-          <Space direction="vertical" className="mt-2 w-full" size="md">
+          <div
+            className="glass mt-2 flex flex-col gap-3 rounded-xl border p-3"
+            style={{
+              borderColor:
+                'color-mix(in srgb, var(--md-sys-color-outline-variant) 45%, transparent)',
+            }}
+          >
             <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="mb-1 block text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+              <label className="flex min-w-0 flex-col gap-1">
+                <Text type="secondary" className="text-[10px] leading-none">
                   {t('分辨率')}
-                </label>
+                </Text>
                 <Select
                   options={RESOLUTION_OPTIONS}
                   value={settings.resolutionPreset}
@@ -239,11 +368,11 @@ export function ShareSettingsCard({
                   disabled={switchingResolution}
                   size="sm"
                 />
-              </div>
-              <div>
-                <label className="mb-1 block text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+              </label>
+              <label className="flex min-w-0 flex-col gap-1">
+                <Text type="secondary" className="text-[10px] leading-none">
                   {t('帧率')}
-                </label>
+                </Text>
                 <Select
                   options={FRAME_RATE_OPTIONS.map((option) => ({
                     label: option.label,
@@ -253,13 +382,13 @@ export function ShareSettingsCard({
                   onChange={(value) => onFrameRateChange(Number(value))}
                   size="sm"
                 />
-              </div>
+              </label>
             </div>
 
-            <div>
-              <label className="mb-1 block text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+            <label className="flex flex-col gap-1">
+              <Text type="secondary" className="text-[10px] leading-none">
                 {t('最大码率（Mbps）')}
-              </label>
+              </Text>
               <InputNumber
                 min={0.5}
                 max={50}
@@ -269,18 +398,18 @@ export function ShareSettingsCard({
               />
               <Paragraph
                 type="secondary"
-                className="m-0 mt-1 text-[10px] leading-tight"
+                className="m-0 text-[10px] leading-tight"
               >
                 {t('推荐')} {settings.frameRate}fps ≥ {recommendedBitrate} Mbps
                 {settings.frameRate >= 45 && t('，码率不足将导致降帧')}
               </Paragraph>
-            </div>
+            </label>
 
-            <div>
-              <label className="mb-1 block text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
+            <div className="flex flex-col gap-1.5">
+              <Text type="secondary" className="text-[10px] leading-none">
                 {t('画面偏好')}
-              </label>
-              <SegmentedToggle
+              </Text>
+              <MiniSegmented
                 options={DEGRADATION_OPTIONS.map((option) => ({
                   value: option.value,
                   label: t(option.labelKey),
@@ -292,7 +421,7 @@ export function ShareSettingsCard({
               />
               <Paragraph
                 type="secondary"
-                className="m-0 mt-1 text-[10px] leading-tight"
+                className="m-0 text-[10px] leading-tight"
               >
                 {t(
                   DEGRADATION_OPTIONS.find(
@@ -304,7 +433,11 @@ export function ShareSettingsCard({
 
             <Paragraph
               type="secondary"
-              className="m-0 text-[10px] leading-tight"
+              className="m-0 border-t pt-2 text-[10px] leading-tight"
+              style={{
+                borderColor:
+                  'color-mix(in srgb, var(--md-sys-color-outline-variant) 55%, transparent)',
+              }}
             >
               {switchingResolution
                 ? t('正在重新采集...')
@@ -312,60 +445,61 @@ export function ShareSettingsCard({
                   ? t('共享中改这些项即时生效，观众无感')
                   : t('共享中也可随时调整')}
             </Paragraph>
-          </Space>
+          </div>
         )}
       </div>
 
-      {/* 声音 */}
-      <div>
+      <Divider />
+
+      {/* ── 声音 ─────────────────────────────────────────────────── */}
+      <div className={cn('flex flex-col', gap)}>
         <SectionTitle
           icon={<Volume2 className="h-3.5 w-3.5" />}
           label={t('声音')}
         />
-        <Space direction="vertical" className="w-full" align="stretch" size="sm">
+        <SettingRow
+          label={t('共享系统音频')}
+          hint={
+            isCamera
+              ? t('摄像头没有系统声；观众听到的声音来自麦克风')
+              : isSharing
+                ? t('系统音频需要先结束共享才能改；麦克风与音频码率可以随时调')
+                : undefined
+          }
+        >
           <Switch
-            label={t('共享系统音频')}
             checked={settings.shareSystemAudio}
             onChange={(e) => onSystemAudioChange(e.target.checked)}
             disabled={isSharing || isCamera}
+            aria-label={t('共享系统音频')}
           />
-          {isCamera ? (
-            <Paragraph
-              type="secondary"
-              className="m-0 text-[10px] leading-tight"
-            >
-              {t('摄像头没有系统声；观众听到的声音来自麦克风')}
-            </Paragraph>
-          ) : (
-            isSharing && (
-              <Paragraph
-                type="secondary"
-                className="m-0 text-[10px] leading-tight"
-              >
-                {t('系统音频需要先结束共享才能改；麦克风与音频码率可以随时调')}
-              </Paragraph>
-            )
-          )}
-          <div>
-            <label className="mb-1 block text-[10px] font-medium text-[var(--md-sys-color-on-surface-variant)]">
-              {t('音频码率')}
-            </label>
-            <SegmentedToggle
-              options={AUDIO_BITRATE_OPTIONS.map((option) => ({
-                value: String(option.value),
-                label: `${t(option.labelKey)} ${option.value / 1000}k`,
-              }))}
-              value={String(settings.maxAudioBitrate)}
-              onChange={(value) => onAudioBitrateChange(Number(value))}
-            />
-          </div>
+        </SettingRow>
+        <div className="flex flex-col gap-1.5">
+          <SettingRow
+            label={t('音频码率')}
+            hint={
+              audioOption
+                ? `${audioOption.value / 1000} kbps · ${t(audioOption.hintKey)}`
+                : undefined
+            }
+          />
+          <MiniSegmented
+            options={AUDIO_BITRATE_OPTIONS.map((option) => ({
+              value: String(option.value),
+              label: t(option.labelKey),
+            }))}
+            value={String(settings.maxAudioBitrate)}
+            onChange={(value) => onAudioBitrateChange(Number(value))}
+          />
+        </div>
+        <SettingRow label={t('共享麦克风')}>
           <Switch
-            label={t('共享麦克风')}
             checked={settings.shareMicrophone}
             onChange={(e) => onMicrophoneChange(e.target.checked)}
+            aria-label={t('共享麦克风')}
           />
-        </Space>
+        </SettingRow>
       </div>
-    </Space>
+    </div>
   )
 }

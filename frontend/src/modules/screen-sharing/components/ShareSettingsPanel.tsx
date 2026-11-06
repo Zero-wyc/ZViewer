@@ -45,7 +45,7 @@ export function ShareSettingsPanel(): JSX.Element | null {
           </Text>
           <Text
             type="secondary"
-            className="truncate text-[10px] uppercase tracking-wide"
+            className="truncate text-[10px] tabular-nums tracking-wide"
             title={summary}
           >
             {summary}
