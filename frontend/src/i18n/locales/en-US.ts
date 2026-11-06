@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2632 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2633 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1025,7 +1025,7 @@ const enUS: Record<string, string> = {
   '搜索番剧失败': 'Anime search failed',
   '未取得影片播放地址': 'No playback URL for the movie',
 
-  // ===== modules/music（728 条） =====
+  // ===== modules/music（729 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
   ' / 共 {{totalPages}} 页': ' / {{totalPages}} pages',
   ' 首分P歌曲…': ' first-part tracks…',
@@ -1059,6 +1059,7 @@ const enUS: Record<string, string> = {
   '[SongCommentsPanel] 获取评论失败:': '[SongCommentsPanel] Failed to load comments:',
   '[useListenTogether] 推荐续播拉取 B站 推荐失败:': '[useListenTogether] Failed to load Bilibili recommendations for autoplay:',
   '[useListenTogether] 音频流加载失败:': '[useListenTogether] Failed to load the audio stream:',
+  '[useListenTogether] 直链重解析失败:': '[useListenTogether] Direct link re-resolution failed:',
   '[useLyricTrack] 获取歌词失败:': '[useLyricTrack] Failed to load lyrics:',
   '[useMusicVideoBackground] 视频背景解析失败:': '[useMusicVideoBackground] Failed to resolve the video background:',
   '[useMusicVideoBackground] CLI 未连接，回退服务器 MP4 解析': '[useMusicVideoBackground] CLI not connected, falling back to server-side MP4 resolution',
@@ -1758,6 +1759,31 @@ const enUS: Record<string, string> = {
   // ===== modules/openlist（1 条） =====
   '浏览 OpenList 目录': 'Browse the OpenList directory',
 
+  // ===== modules/piik-share（5 条） =====
+  '房间已关闭': 'The room is closed',
+  '开播失败：服务端拒绝了这个代际': 'Failed to start sharing: the server rejected this share generation',
+  '连接失败': 'Connection failed',
+  '无法获取共享凭证': 'Could not obtain sharing credentials',
+  '选路失败：{{reason}}': 'Route selection failed: {{reason}}',
+
+  // ===== modules/piik-signal（3 条） =====
+  '客户端发了一条服务端不认识的消息': 'The client sent a message the server does not recognize',
+  '同账号在别处打开了同一个房间': 'The same account opened this room elsewhere',
+  '无法获取信令凭证': 'Could not obtain signaling credentials',
+
+  // ===== modules/piik-voice（11 条） =====
+  '房主还没有进入语音': 'The host has not joined voice yet',
+  '加入语音聊天失败': 'Failed to join voice chat',
+  '媒体通道未建立，请检查网络（可尝试关闭代理/VPN）': 'The media channel is not established; check your network (try disabling a proxy or VPN)',
+  '我': 'Me',
+  '无法获取语音凭证': 'Could not obtain voice credentials',
+  '已在本地静音该成员': 'Muted this member locally',
+  '语音操作未被允许': 'Voice action not permitted',
+  '语音连接失败': 'Voice connection failed',
+  '语音连接未能建立，正在重试': 'Could not establish the voice connection, retrying',
+  '语音连接已断开，正在重连...': 'Voice connection lost, reconnecting...',
+  'Piik 语音不支持由房主移出成员': 'Piik voice does not support removing members as the host',
+
   // ===== modules/playback-memory（12 条） =====
   '[usePlaybackStateRequest] 缓冲下载失败:': '[usePlaybackStateRequest] Buffered download failed:',
   '[usePlaybackStateRequest] 缓冲下载已取消': '[usePlaybackStateRequest] Buffered download cancelled',
@@ -1872,7 +1898,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（429 条） =====
+  // ===== modules/room（428 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1949,7 +1975,6 @@ const enUS: Record<string, string> = {
   '房间设置': 'Room settings',
   '房间设置已保存': 'Room settings saved',
   '房间信息': 'Room info',
-  '房间已关闭': 'The room is closed',
   '房间已关闭,可关闭此窗口': 'The room is closed, you can close this window',
   '房间状态': 'Room status',
   '房主': 'Host',
@@ -1989,9 +2014,11 @@ const enUS: Record<string, string> = {
   '观看请求': 'Watch request',
   '观众 {{index}}': 'Viewer {{index}}',
   '观众管理': 'Viewers',
+  '观众接入后这里会显示每条连接的数据': 'Once viewers join, each connection shows up here',
   '观众上限': 'Viewer limit',
   '观众上限必须在 1-100 之间': 'The viewer limit must be between 1 and 100',
   '观众质量': 'Viewer quality',
+  '还没有连接': 'No connection yet',
   '缓冲模式': 'Buffered mode',
   '缓冲模式由房主统一管理': 'Buffered mode is managed by the host',
   '缓冲下载失败': 'Buffered download failed',
@@ -2029,7 +2056,6 @@ const enUS: Record<string, string> = {
   '可踢出 / 禁言 / 转交房主': 'Can kick, mute and transfer the host role',
   '累计次数 / 累计时长': 'Total count / total duration',
   '连接服务器超时,请刷新重试': 'Timed out connecting to the server, refresh and retry',
-  '连接失败': 'Connection failed',
   '连接已断开，请刷新页面后重试': 'The connection dropped, refresh the page and retry',
   '连接已关闭': 'Connection closed',
   '连接中': 'Connecting',
@@ -2050,11 +2076,9 @@ const enUS: Record<string, string> = {
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': 'WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.',
   '每帧平均，越高越吃 CPU': 'Average per frame — higher means more CPU',
   '密码（可选）': 'Password (optional)',
-  '您的房管权限已被撤销': 'Your moderator role was removed',
   '您已被房主禁言': 'The host muted you',
   '您已被房主移出房间': 'The host removed you from the room',
   '您已被解除禁言': 'You are no longer muted',
-  '您已被任命为房管': 'You are now a moderator',
   '您已成为新房主': 'You are the new host',
   '批量添加失败': 'Bulk add failed',
   '普通账号': 'Regular account',
@@ -2094,6 +2118,7 @@ const enUS: Record<string, string> = {
   '删除影片失败': 'Failed to delete the movie',
   '上行带宽受限': 'Uplink bandwidth limited',
   '上行码率': 'Upload bitrate',
+  '上游连接': 'Upstream link',
   '设置「仅允许CLI模式」失败': 'Failed to set “CLI only”',
   '设置后，观众加入需输入密码。root 账户无需密码。': 'Once set, viewers need the password to join. The root account does not.',
   '申请继续播放失败': 'Failed to request resuming',
@@ -2142,7 +2167,6 @@ const enUS: Record<string, string> = {
   '未知大小': 'Unknown size',
   '文件路径，如 /movies/video.mp4': 'File path, e.g. /movies/video.mp4',
   '文件路径（已选挂载，留空可从挂载根目录浏览）': 'File path (a mount is selected; leave blank to browse from its root)',
-  '我': 'Me',
   '我已连接，重试': 'I\'m connected, retry',
   '无法解析该 B站 影片': 'Cannot resolve this Bilibili video',
   '无音频数据': 'No audio data',
@@ -2233,6 +2257,7 @@ const enUS: Record<string, string> = {
   '展开查看完整影片列表': 'Expand to see the full movie list',
   '帧在缓冲里的平均停留': 'Average time a frame sits in the buffer',
   '正在初始化解析...': 'Initializing resolution...',
+  '正在等待房主的画面': 'Waiting for the host to start sharing',
   '正在缓冲视频': 'Buffering the video',
   '正在恢复房间...': 'Restoring the room...',
   '正在获取 {{label}} 直链...': 'Getting the {{label}} direct link...',
@@ -2303,11 +2328,9 @@ const enUS: Record<string, string> = {
   'Socket 尚未连接': 'Socket not connected',
   'WebDAV 服务器地址，如 https://example.com/dav（直链模式必填）': 'WebDAV server address, e.g. https://example.com/dav (required for direct-link mode)',
 
-  // ===== modules/screen-sharing（199 条） =====
+  // ===== modules/screen-sharing（181 条） =====
   '，码率不足将导致降帧': ', low bitrate will drop frames',
-  '[share] 丢弃无法解码的下行消息': '[share] dropped an undecodable downstream message',
   '{{droppedFrames}} / {{value}} 帧': '{{droppedFrames}} / {{value}} frames',
-  '{{viewers}} 位观众反馈卡顿，已自动降到 {{value}}': '{{viewers}} viewers reported stuttering — dropped to {{value}} automatically',
   '1080P · 30fps · 8Mbps，默认档位': '1080P · 30fps · 8Mbps — the default',
   '1080P · 60fps · 16Mbps，画面有快速运动时选它': '1080P · 60fps · 16Mbps — pick this when the picture moves fast',
   '720P · 30fps · 4Mbps，网络一般时选它': '720P · 30fps · 4Mbps — pick this on an average network',
@@ -2320,8 +2343,6 @@ const enUS: Record<string, string> = {
   '带宽不足时保分辨率、降帧率': 'Keep the resolution, drop frames when bandwidth is short',
   '带宽不足时保帧率、降分辨率': 'Keep the frame rate, drop resolution when bandwidth is short',
   '带宽不足时牺牲什么': 'What is sacrificed when bandwidth runs short',
-  '当前分辨率或帧率超出采集能力，请降低档位后重试': 'The resolution or frame rate is beyond what this machine can capture; lower it and try again',
-  '当前浏览器不支持所需的编码格式，请改用 Chrome 或 Edge': 'This browser does not support the required codec; use Chrome or Edge',
   '等待房主开始 OBS 推流': 'Waiting for the host to start the OBS stream',
   '等待房主开始共享': 'Waiting for the host to start sharing',
   '等待房主确认': 'Waiting for the host\'s approval',
@@ -2333,7 +2354,6 @@ const enUS: Record<string, string> = {
   '丢包数': 'Packet loss',
   '丢帧 / 总帧': 'Dropped / total frames',
   '丢帧率': 'Frame drop rate',
-  '多次建立观众连接失败，请刷新页面后重试': 'Failed to connect to viewers repeatedly; refresh the page and try again',
   '房间号': 'Room ID',
   '房间号不存在，请重新创建房间': 'That room ID does not exist, create a room again',
   '房间已关闭，可尝试重新加入或更换房间': 'The room is closed; try joining again or pick another room',
@@ -2345,7 +2365,6 @@ const enUS: Record<string, string> = {
   '分辨率缩放': 'Resolution scaling',
   '分辨率已切换': 'Resolution switched',
   '分层模式': 'Scalability mode',
-  '服务端返回的连接信息不完整，请刷新页面重试': 'The server returned incomplete connection info; refresh the page and try again',
   '服务器返回了无效的观看地址': 'The server returned an invalid watch URL',
   '服务器模式': 'Server mode',
   '复制错误详情': 'Copy error details',
@@ -2398,7 +2417,6 @@ const enUS: Record<string, string> = {
   '流畅': 'Smooth',
   '流密钥（Stream Key）': 'Stream key',
   '流密钥已复制': 'Stream key copied',
-  '没有可用的画面来源，请重新选择要共享的画面': 'No usable video source; pick the screen to share again',
   '密码错误': 'Wrong password',
   '密码错误，请重新输入': 'Wrong password, try again',
   '默认，音乐与视频兼顾': 'Default — a balance of music and video',
@@ -2407,7 +2425,6 @@ const enUS: Record<string, string> = {
   '屏幕': 'Screen',
   '切换采集源失败，已保留原画面': 'Could not switch the capture source — keeping the previous view',
   '切换到导入的「ZViewer 推流」场景集合，确认推流服务地址与流密钥正确': 'Switch to the imported “ZViewer streaming” scene collection and check the server address and stream key',
-  '切换画面来源失败，已保留原画面': 'Failed to switch the video source; the previous one is kept',
   '切换摄像头失败，已保留原画面': 'Could not switch the camera — keeping the previous view',
   '切换子模式失败': 'Failed to switch the sub-mode',
   '清空批注': 'Clear annotations',
@@ -2438,12 +2455,10 @@ const enUS: Record<string, string> = {
   '推流地址已复制（不含流密钥）': 'Stream URL copied (without the stream key)',
   '推流状态': 'Stream status',
   '退出画中画': 'Exit picture-in-picture',
-  '网络候选地址处理失败，正在重试': 'Failed to process network candidates; retrying',
   '网络拉流速度': 'Network pull speed',
   '未推流': 'Not streaming',
   '未知模式': 'Unknown mode',
   '无法获取观看权限': 'Cannot get watch permission',
-  '无法开始屏幕采集，请重新选择要共享的画面': 'Could not start screen capture; pick the screen to share again',
   '系统音频需要先结束共享才能改；麦克风与音频码率可以随时调': 'System audio needs sharing to restart before it can change; the microphone and audio bitrate can be adjusted at any time',
   '下载 OBS 配置失败: {{status}} {{text}}': 'Failed to download the OBS settings: {{status}} {{text}}',
   '下载 OBS 配置文件': 'Download OBS settings',
@@ -2461,13 +2476,6 @@ const enUS: Record<string, string> = {
   '音频开启': 'Audio on',
   '音频码率': 'Audio bitrate',
   '隐藏预览': 'Hide the preview',
-  '与房主的连接多次建立失败，请点击刷新重试': 'Failed to connect to the host repeatedly; click Refresh to retry',
-  '与房主的连接协商失败，正在重试': 'Negotiation with the host failed; retrying',
-  '与房主的连接已中断，正在重试': 'The connection to the host dropped; retrying',
-  '与服务器的连接已断开，请刷新页面后重新开始共享': 'The server connection dropped; refresh the page and start sharing again',
-  '与服务器的转发连接建立失败，请重新开始共享': 'Could not establish the relay connection; start sharing again',
-  '与观众的连接协商失败，正在重试': 'Negotiation with a viewer failed; retrying',
-  '与观众的连接已中断，正在重试': 'The connection to a viewer dropped; retrying',
   '允许加入失败': 'Failed to allow the join',
   '在线观众：{{viewerCount}} / {{connectionCount}} 连接': 'Online viewers: {{viewerCount}} / {{connectionCount}} connections',
   '在新窗口打开': 'Open in a new window',
@@ -2491,7 +2499,6 @@ const enUS: Record<string, string> = {
   '重新连接': 'Reconnect',
   '重新申请加入': 'Request again',
   '主播未推流': 'The streamer is not streaming',
-  '转发服务连接已断开，请等房主重新开始共享': 'The relay connection dropped; wait for the host to start sharing again',
   '自定义参数：下面的细项不再对应任何一个档位': 'Custom settings: the parameters below no longer match any preset',
   '总码率': 'Total bitrate',
   '最大码率（Mbps）': 'Max bitrate (Mbps)',
@@ -2645,7 +2652,7 @@ const enUS: Record<string, string> = {
   'PGS RLE 图像不完整': 'Incomplete PGS RLE image',
   'PGS RLE 行长度无效': 'Invalid PGS RLE row length',
 
-  // ===== modules/sync-playback（19 条） =====
+  // ===== modules/sync-playback（21 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] Refusing to play a media element detached from the document (prevents orphan audio or doubled sound):',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload failed too:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek failed unrecoverably, calling forceReload:',
@@ -2657,6 +2664,8 @@ const enUS: Record<string, string> = {
   '[useVideoSource] 重载视频源失败:': '[useVideoSource] Failed to reload the video source:',
   '[useViewerStateSync] 缓冲下载失败:': '[useViewerStateSync] Buffered download failed:',
   '[useViewerStateSync] 缓冲下载已取消': '[useViewerStateSync] Buffered download cancelled',
+  '您的房管权限已被撤销': 'Your moderator role was removed',
+  '您已被任命为房管': 'You are now a moderator',
   '视频重载失败': 'Failed to reload the video',
   '已选定播放路径': 'Playback path selected',
   '正在产出分段': 'Producing segments',
@@ -2666,7 +2675,7 @@ const enUS: Record<string, string> = {
   '正在启动转码 worker': 'Starting the transcoding worker',
   '正在生成首个分段': 'Generating the first segment',
 
-  // ===== modules/voice-chat（29 条） =====
+  // ===== modules/voice-chat（27 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} online',
   '成员': 'Members',
   '单独音量': 'Per-user volume',
@@ -2674,12 +2683,10 @@ const enUS: Record<string, string> = {
   '断开': 'Disconnect',
   '关闭反送': 'Turn off monitoring',
   '加入语音': 'Join voice',
-  '加入语音聊天失败': 'Failed to join voice chat',
   '解除语音禁言': 'Unmute in voice',
   '开启反送': 'Turn on monitoring',
   '麦克风音量': 'Microphone volume',
   '媒体连接中…': 'Connecting media…',
-  '媒体通道未建立，请检查网络（可尝试关闭代理/VPN）': 'The media channel is not established; check your network (try disabling a proxy or VPN)',
   '您已被管理员语音禁言': 'An admin muted you in voice',
   '您已被移出语音聊天': 'You were removed from the voice chat',
   '全局音量': 'Master volume',

@@ -177,8 +177,6 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindMusic(sc)
 	// 房主就绪 / 共享失败广播（房间级通知，不是信令）。
 	s.bindWebRTC(sc)
-	// 屏幕共享控制面：单一 `share` 事件，严格信封 + 代际 + 路由版本。
-	s.bindShare(sc)
 	// 自建语音（VOICE_MODE=sfu）。process 模式下这里是空操作。
 	s.bindVoiceRTC(sc)
 	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
@@ -506,6 +504,7 @@ func (s *Service) handleRegisterHost(sc *sio.Socket, args []json.RawMessage, ack
 	if result.Playback != nil {
 		data["playback"] = result.Playback
 	}
+	s.sendMemberSnapshot(ctx, sc.ID, payload.RoomID)
 	ackOK(ack, data)
 }
 
@@ -712,6 +711,7 @@ func (s *Service) finishJoin(ctx context.Context, sc *sio.Socket, room *store.Ro
 		if withModerators {
 			s.sendModerators(ctx, sc, roomID)
 		}
+		s.sendMemberSnapshot(ctx, sc.ID, roomID)
 	}
 
 	ackOKMsg(ack, "已加入房间", map[string]any{
@@ -838,12 +838,7 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 	ctx, cancel := handlerCtx()
 	defer cancel()
 
-	// 共享状态的清理必须在 EndSession 之前：EndSession 查不到会话时会提前
-	// return，而「只发过 share.hello 就断」的连接本来就没有 session。
-	if s.shareSvc != nil {
-		s.shareSvc.Detach(socketID)
-	}
-	// 语音成员身份也要在 EndSession 之前清：媒体层的连接身份挂在 socket 上，
+	// 语音成员身份要在 EndSession 之前清：媒体层的连接身份挂在 socket 上，
 	// 会话没了就再也找不到它了。
 	s.detachVoiceRTC(socketID)
 

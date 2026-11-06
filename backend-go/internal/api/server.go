@@ -31,6 +31,7 @@ import (
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
+	"zviewer/backend/internal/share/piikbridge"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/subtitle"
@@ -49,6 +50,7 @@ type Deps struct {
 	Audit    *store.Audit
 	Movies   *store.Movies
 	Rooms    *store.Rooms
+	Sessions *store.Sessions
 	Mounts   *store.Mounts
 	Tracks   *store.Tracks
 	Metas    *store.Metas
@@ -91,6 +93,8 @@ type Deps struct {
 	NMS *nms.Service
 	// Socket 是 Socket.IO 服务端；为 nil 时不挂载实时层（REST 仍可用）。
 	Socket *sio.Server
+	// PiikShare 是 Piik 信令桥接层；为 nil 时 /signal 与凭证端点报不可用。
+	PiikShare *piikbridge.Bridge
 }
 
 // Server 持有路由所需的全部依赖。
@@ -195,6 +199,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerMusicRoutes(mux)
 	s.registerUpdaterRoutes(mux)
 	s.registerVoiceRoutes(mux)
+	s.registerPiikShareRoutes(mux)
+	s.registerPiikVoiceRoutes(mux)
 	// 推流（OBS）：REST 下发配置，/live 反代到媒体服务（默认是进程内那个）。
 	// /live 必须在 mux.Handle("/", SPA 回退) 之前注册，否则会被回成 index.html。
 	s.registerStreamPushRoutes(mux)

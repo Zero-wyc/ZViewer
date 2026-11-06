@@ -31,6 +31,10 @@ log/
 *.db
 *.db-journal
 
+# ---- Piik 房间映射（房主 token 是明文，等价于房间密码，禁止提交） ----
+piik-bindings.json
+piik-bindings.json.corrupt
+
 # ---- 运行时数据根目录 ----
 # 所有持久化数据（数据库、用户上传文件、头像、媒体切片、SSL 自签名证书等）
 # 统一存放在 config/ 目录下；升级时仅需保留 config/ 即可保留全部数据，
@@ -41,6 +45,11 @@ config/
 # 不是运行时数据目录。`config/` 规则会把同名的任何目录一并吞掉，
 # 不加这行从干净仓库 clone 出来 `go build ./...` 直接失败。
 !backend-go/internal/config/
+
+# 同理，Piik 子树的 server/config 也是源码目录。少了这条，同步脚本虽然把
+# 文件拷进来了，`git add` 却一声不响地跳过，云端分支因此缺包、`go build`
+# 直接报 "package ... is not in std"。
+!backend-go/internal/piik/server/config/
 
 # ---- SSL 证书与私钥（禁止提交） ----
 *.pem

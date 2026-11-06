@@ -1,0 +1,25 @@
+[
+  {
+    "tag_name": "v1.9.0",
+    "target_commitish": "cccccccccccccccccccccccccccccccccccccccc",
+    "prerelease": false,
+    "body": "Release notes.\n\n<!-- piik-source: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->\n"
+  },
+  {
+    "tag_name": "v1.10.0",
+    "target_commitish": "cccccccccccccccccccccccccccccccccccccccc",
+    "prerelease": false,
+    "body": "Release notes.\n\n<!-- piik-source: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->\n"
+  },
+  {
+    "tag_name": "v2.0.0",
+    "prerelease": true,
+    "body": "Incomplete upload.\n\n<!-- piik-source: bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb -->\n"
+  },
+  {
+    "tag_name": "v3.0.0",
+    "target_commitish": "cccccccccccccccccccccccccccccccccccccccc",
+    "prerelease": false,
+    "body": "Missing original source identity."
+  }
+]

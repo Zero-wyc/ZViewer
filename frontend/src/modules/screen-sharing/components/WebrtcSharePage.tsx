@@ -20,9 +20,9 @@ import { useRoomStore } from '@/store/roomStore'
 import { AnnotationLayer } from '@/components/AnnotationLayer'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { useShareHost } from '../hooks/useShareHost'
+import { usePiikShareHost } from '@/modules/piik-share/usePiikShareHost'
 import { createCaptureFrameMeter } from '../utils/frameMeter'
-import { hostErrorText, parameterOverrideText } from '../utils/shareMessages'
+import { parameterOverrideText } from '../utils/shareMessages'
 import {
   loadMediaSettings,
   saveMediaSettings,
@@ -30,8 +30,7 @@ import {
   type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
 import { browserCameras, type CaptureDevice } from '../core/capture-devices'
-import type { PeerQualityView } from '../core/peer-quality'
-import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
+import type { ShareEdgeStats } from '../core/edge-stats'
 import {
   QUALITY_PRESETS,
   type QualityPresetId,
@@ -46,11 +45,9 @@ import { t } from '@/i18n'
 interface WebrtcSharePageProps {
   className?: string
   style?: React.CSSProperties
-  onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
+  onStatsEdgesChange?: (edges: ShareEdgeStats[]) => void
   /** 采集实测帧率变化回调，提升到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
-  /** 上报每条观众连接的质量（房主侧本地采样，供状态面板展示）。 */
-  onPeerQualitiesChange?: (list: PeerQualityView[]) => void
   /** 媒体走向变化回调（直连 / 服务端转发），供统计面板标注。 */
   onSharingModeChange?: (mode: 'direct' | 'relay') => void
 }
@@ -58,9 +55,8 @@ interface WebrtcSharePageProps {
 function WebrtcSharePage({
   className,
   style,
-  onStatsPeerConnectionChange,
+  onStatsEdgesChange,
   onCaptureFpsChange,
-  onPeerQualitiesChange,
   onSharingModeChange,
 }: WebrtcSharePageProps) {
   const navigate = useNavigate()
@@ -125,7 +121,7 @@ function WebrtcSharePage({
     paused: isPaused,
     peerCount,
     viewerCount,
-    statsPeerConnection,
+    edges: statsEdges,
     sharingMode,
     parameterOverride,
     previewStream,
@@ -137,13 +133,9 @@ function WebrtcSharePage({
     applyProfile,
     switchResolution,
     switchCaptureSource,
-    peerQualities,
     autoDowngrade,
-  } = useShareHost({
-    socket,
+  } = usePiikShareHost({
     roomId: currentRoomId,
-    iceServers: ICE_SERVERS,
-    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
     videoRef: localVideoRef,
     videoVersion: localVideoVersion,
     onStreamEnded: () => handleStreamEndedRef.current(),
@@ -232,7 +224,7 @@ function WebrtcSharePage({
   }, [copy, currentRoomId])
 
   const handleCopyError = useCallback(() => {
-    const text = hostErrorText(error)
+    const text = error
     if (!text) return
     void copy(text, {
       successMessage: t('错误详情已复制，可粘贴给管理员'),
@@ -455,8 +447,8 @@ function WebrtcSharePage({
   )
 
   useEffect(() => {
-    onStatsPeerConnectionChange?.(statsPeerConnection)
-  }, [statsPeerConnection, onStatsPeerConnectionChange])
+    onStatsEdgesChange?.(statsEdges)
+  }, [statsEdges, onStatsEdgesChange])
 
   // 采集实测帧率计：MediaStreamTrackProcessor 纯数帧，近零开销。
   // 与观众 PC 的 outbound-rtp 发送帧率分离展示，用于定位瓶颈
@@ -484,33 +476,21 @@ function WebrtcSharePage({
     onCaptureFpsChange?.(captureFps)
   }, [captureFps, onCaptureFpsChange])
 
-  // 自动降档提示：同一次降档只提示一遍（state 里是纯数据，每 2 秒采样都会
-  // 带上同一个值，没有去重会刷屏）。
-  //
-  // 两种降档依据的说法必须分开：编码器证据是「本机编不动」，观众证据是
-  // 「发出去的不够」——后者说成「编码跟不上」是在骗人。
+  // 编码跟不上自动降档：同一次降档只提示一遍（state 里是纯数据，
+  // 每 2 秒采样都会带上同一个值，没有去重会刷屏）。
   const notifiedDowngradeRef = useRef('')
   useEffect(() => {
     if (!autoDowngrade) return
-    const key = `${autoDowngrade.reason}:${autoDowngrade.width}x${autoDowngrade.height}@${autoDowngrade.frameRate}`
+    const key = `${autoDowngrade.width}x${autoDowngrade.height}@${autoDowngrade.frameRate}`
     if (notifiedDowngradeRef.current === key) return
     notifiedDowngradeRef.current = key
-    const value = `${autoDowngrade.width} × ${autoDowngrade.height} · ${autoDowngrade.frameRate} fps`
     message.warning(
-      autoDowngrade.reason === 'viewers'
-        ? t('{{viewers}} 位观众反馈卡顿，已自动降到 {{value}}', {
-            viewers: autoDowngrade.viewers ?? '',
-            value,
-          })
-        : t('编码跟不上，已自动降到 {{value}}', { value }),
+      t('编码跟不上，已自动降到 {{value}}', {
+        value: `${autoDowngrade.width} × ${autoDowngrade.height} · ${autoDowngrade.frameRate} fps`,
+      }),
       { duration: 8000 }
     )
   }, [autoDowngrade])
-
-  // 观众质量由会话层本地采样（remote-inbound-rtp），这里只往上层抛一份最新值。
-  useEffect(() => {
-    onPeerQualitiesChange?.(peerQualities)
-  }, [peerQualities, onPeerQualitiesChange])
 
   useEffect(() => {
     onSharingModeChange?.(sharingMode)
@@ -521,14 +501,14 @@ function WebrtcSharePage({
   // 共享中、观众什么都没有」，而且没有任何提示。
   useEffect(() => {
     if (!isSharing || !error) return
-    message.error(hostErrorText(error) ?? t('共享出错，请重新开始共享'))
+    message.error(error ?? t('共享出错，请重新开始共享'))
   }, [error, isSharing])
 
   useEffect(() => {
     setIsSharing(isSharing)
   }, [isSharing, setIsSharing])
 
-  const errorText = hostErrorText(error)
+  const errorText = error
   const overrideText = parameterOverrideText(parameterOverride)
 
   if (!currentRoomId) {

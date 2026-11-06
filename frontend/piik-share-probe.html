@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>Piik 共享探针</title>
+    <style>
+      body {
+        margin: 0;
+        font: 14px/1.6 system-ui, sans-serif;
+        background: #111;
+        color: #ddd;
+        padding: 20px;
+      }
+      h1 { font-size: 16px; font-weight: 600; }
+      video { width: 640px; background: #000; border: 1px solid #333; }
+      #log { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 12px; color: #8c8; max-height: 40vh; overflow: auto; }
+      button { padding: 8px 16px; font-size: 14px; }
+      .row { display: flex; gap: 20px; align-items: flex-start; }
+    </style>
+  </head>
+  <body>
+    <h1>Piik 共享探针</h1>
+    <p>
+      房主：<code>?room=&lt;roomId&gt;&amp;role=host</code> ｜ 观众：
+      <code>?room=&lt;roomId&gt;</code>
+    </p>
+    <div class="row">
+      <div>
+        <button id="start">开始共享</button>
+        <button id="pause" hidden>暂停</button>
+        <button id="swap" hidden>换分辨率</button>
+        <span id="state">idle</span>
+        <div id="stats"></div>
+        <div><video id="video" autoplay playsinline muted></video></div>
+      </div>
+      <div id="log"></div>
+    </div>
+    <script type="module" src="/src/dev/piik-share-probe.ts"></script>
+  </body>
+</html>

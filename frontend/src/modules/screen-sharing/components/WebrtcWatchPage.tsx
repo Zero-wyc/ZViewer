@@ -9,7 +9,7 @@
  * 全屏、画中画）。
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Volume2 } from 'lucide-react'
+import { PauseCircle, Volume2 } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { cn } from '@/lib/utils'
@@ -27,8 +27,7 @@ import { RoomLayout } from '@/modules/room/components/RoomLayout'
 import { RoomInfoPanel } from '@/modules/room/components/RoomInfoPanel'
 import { useControlBarAutoHide } from '@/hooks/useControlBarAutoHide'
 import { useWakeLock } from '@/hooks/useWakeLock'
-import { ICE_SERVERS, NAT_PREDICTION_AUX_STUN_URLS } from '@/lib/iceServers'
-import { useShareViewer } from '../hooks/useShareViewer'
+import { usePiikShareViewer } from '@/modules/piik-share/usePiikShareViewer'
 import { ViewerAudio, type ViewerAudioSnapshot } from '../core/viewer-audio'
 import {
   loadViewerVolume,
@@ -100,22 +99,15 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
   }, [])
 
   const {
-    pc,
     remoteStream,
     hasRemoteStream,
     hasRemoteAudio,
     connectionState,
     state,
     sharingMode,
+    edges,
     retry,
-  } = useShareViewer({
-    socket,
-    roomId,
-    iceServers: ICE_SERVERS,
-    natPredictionStunUrls: NAT_PREDICTION_AUX_STUN_URLS,
-    videoRef,
-    videoVersion,
-  })
+  } = usePiikShareViewer({ roomId, videoRef, videoVersion })
 
   // 恢复预算耗尽：明确告诉用户「停下来等你点刷新」，而不是无限重连。
   useEffect(() => {
@@ -193,7 +185,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     const audio = new ViewerAudio(video, setAudioSnapshot)
     viewerAudioRef.current = audio
     audio.setLevel(loadViewerVolume())
-    // 默认尝试有声播放：被浏览器拦下时 useShareViewer 会把元素静音重试，
+    // 默认尝试有声播放：被浏览器拦下时 hook 会把元素静音重试，
     // 那次 volumechange 会回到 ViewerAudio，再由快照驱动「点击开启声音」提示。
     audio.setMuted(false)
     return () => {
@@ -322,9 +314,19 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
         isMuted={isMuted}
         managedMuted
         hasRemoteStream={hasRemoteStream}
-        peerConnection={pc}
+        edges={edges}
         statusTip={viewerStatusText(state)}
       />
+      {/* 画面还在（最后一帧会一直停着），所以 statusTip 不显示；不给提示的话
+          观众只会看到一张卡住的图，分不清是暂停还是自己网络断了。 */}
+      {state.paused && hasRemoteStream && (
+        <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-lg bg-black/55">
+          <div className="flex flex-col items-center gap-2 text-white">
+            <PauseCircle className="h-8 w-8" />
+            <span className="text-sm font-medium">{t('房主已暂停共享')}</span>
+          </div>
+        </div>
+      )}
       {hasRemoteStream && hasRemoteAudio && isMuted && (
         <button
           type="button"
@@ -390,7 +392,7 @@ function WebrtcWatchPage({ roomId }: WebrtcWatchPageProps) {
     <RoomLayout
       isHost={false}
       mainContent={playerContent}
-      peerConnection={pc}
+      edges={edges}
       sharingRole="receiver"
       sharingMode={sharingMode}
       sharingActive

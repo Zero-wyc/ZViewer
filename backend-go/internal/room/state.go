@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"zviewer/backend/internal/nms"
-	"zviewer/backend/internal/share"
 	"zviewer/backend/internal/store"
 	"zviewer/backend/internal/voicertc"
 )
@@ -129,15 +128,14 @@ type Service struct {
 	// NMS reports media availability and per-stream publishing activity.
 	NMS StreamPushService
 
-	// shareSvc 是屏幕共享控制面（严格信封 + 共享代际 + 快照）。
-	//
-	// 挂在房间服务上而不是独立模块：共享的权限判定必须复用房间域的
-	// session 表与缓存，另起一份会与「谁在房间里」慢慢分叉。
-	shareSvc *share.Service
 	voiceRTC *voicertc.Service
 
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
+
+	// onRoomClosed 是房间关闭时的外部回调（Piik 房间回收等）。room 包
+	// 不该知道有哪几个外部房间，所以只留一个钩子，装配期由 main 挂上。
+	onRoomClosed []func(roomID string)
 
 	mu              sync.Mutex
 	states          map[string]*RuntimeState
@@ -171,10 +169,6 @@ type Deps struct {
 	// NMS 是 OBS 推流服务的可用性探测器。不传时按环境变量兜底构造：
 	// 推流事件仍可用，只是没有可用媒体服务时报告不可用。
 	NMS StreamPushService
-	// ShareRelay 是屏幕共享的 SFU 中继面。不传时观众直连房主。
-	ShareRelay *share.Relay
-	// ShareTree 是屏幕共享的树形上限。零值 = 只有房主当上游。
-	ShareTree share.TreePolicy
 	// VoiceRTC 是语音控制面（自建 SFU）。不传时语音不可用（媒体端口没起来）。
 	VoiceRTC *voicertc.Service
 }
@@ -210,26 +204,24 @@ func NewService(deps Deps) *Service {
 		streamOfflineAt: make(map[string]time.Time),
 		perm:            newPermCache(),
 	}
-	// 共享控制面要复用房间域的房主判定（带 5s 缓存），所以只能在这里注入，
-	// 且必须传 svc 自己的方法而不是闭包复制一份逻辑。
 	svc.voiceRTC = deps.VoiceRTC
-	svc.shareSvc = share.NewService(share.Deps{
-		Hub:    deps.Hub,
-		IsHost: svc.IsRoomHost,
-		Logger: logger,
-		Relay:  deps.ShareRelay,
-		Tree:   deps.ShareTree,
-	})
-	if deps.ShareRelay != nil {
-		// 媒体层失败要回到控制面换候选；Service 是后于 Relay 构造的，
-		// 所以在这里补注入。
-		deps.ShareRelay.SetRouteFailed(svc.shareSvc.OnRelayRouteFailed)
-	}
 	return svc
 }
 
-// Share 返回屏幕共享控制面（供 api 层与测试使用）。
-func (s *Service) Share() *share.Service { return s.shareSvc }
+// OnRoomClosed 注册房间关闭回调（Piik 房间回收等）。
+//
+// 只在装配期调用（此时还没有并发访问），所以不加锁。
+func (s *Service) OnRoomClosed(fn func(roomID string)) {
+	if fn != nil {
+		s.onRoomClosed = append(s.onRoomClosed, fn)
+	}
+}
+
+func (s *Service) notifyRoomClosed(roomID string) {
+	for _, fn := range s.onRoomClosed {
+		fn(roomID)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // 运行时状态
@@ -529,11 +521,9 @@ func (s *Service) CloseAndNotify(ctx context.Context, roomID, sharerSocketID str
 		s.Hub.EmitRoom(roomID, "room-closed", map[string]any{"roomId": roomID})
 	}
 
-	// 共享会话随房间一起作废：先广播空快照让观众清画面，再删掉会话。
-	// 顺序不能反——DropRoom 自己会广播，这里只调用一次即可。
-	if s.shareSvc != nil {
-		s.shareSvc.DropRoom(roomID)
-	}
+	// 屏幕共享与语音的外部资源随房间一起收掉。Piik 房间挂在桥接层的内存里，
+	// 不主动 Release 就只能等空房超时——同 ID 房间重开时还会撞上旧房间码。
+	s.notifyRoomClosed(roomID)
 	s.dropVoiceRTCRoom(roomID)
 
 	s.Delete(roomID)

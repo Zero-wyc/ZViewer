@@ -31,29 +31,8 @@ export const ENCODER_HEALTH_WINDOW_MS = 1_000
 /** 连续多少个窗口不达标才降档（2 个 ≈ 4 秒，压住开局的编码器预热抖动）。 */
 export const ENCODER_STARVED_WINDOWS = 2
 
-/** 每个代际最多因**编码器**证据自动降几档（防止一路降到 720p15）。 */
+/** 每个代际最多自动降几档（防止一路降到 720p15）。 */
 export const MAX_AUTO_DOWNGRADES = 1
-
-/**
- * 每个代际最多因**观众证据**自动降几档。
- *
- * 观众说卡和编码器说编不动是两回事：前者多半是上行带宽不够（编码器一点不
- * 累），后者是本机 CPU。所以两者各有一份预算，但**合计封顶**在
- * `MAX_TOTAL_AUTO_DOWNGRADES`：两条证据在同一次抖动里各降一档，会把 4K60
- * 一口气掉到 1080p30，用户完全不知道发生了什么。
- */
-export const MAX_VIEWER_DOWNGRADES = 1
-
-/** 两条证据链合计最多自动降几档。 */
-export const MAX_TOTAL_AUTO_DOWNGRADES = 2
-
-/**
- * 观众压力降档的最小间隔。
- *
- * 服务端已经按 20 秒节流下发，这里是第二道闸：一次降档要重配采集约束并逐个
- * 通知发布端（每条观众一次重协商），不能连着重来。
- */
-export const VIEWER_DOWNGRADE_COOLDOWN_MS = 20_000
 
 export interface EncoderHealthSample {
   /** 换流会让计数器归零，必须先比对 id。 */

@@ -26,6 +26,11 @@ import {
   subscribeMusicVideo,
   type MusicVideoBinding,
 } from '../musicVideoStore'
+import {
+  biliVideoSourceKey,
+  getCachedBiliVideoSource,
+  setCachedBiliVideoSource,
+} from './biliAudioCache'
 
 /** 服务器端解析的默认清晰度：720P（B站 qn=64） */
 const DEFAULT_QN = 64
@@ -121,6 +126,33 @@ export function useMusicVideoBackground(
         const pageUrl = `https://www.bilibili.com/video/${binding.bvid}`
         // CLI 开启且本地代理已连接 → 高画质 DASH；否则回退 720P 直链
         const proxyUrl = cliEnabled ? getActiveCliProxyUrl() : null
+        const effectiveQn = qn > 0 ? qn : DEFAULT_QN
+        // 与音频解析共用同一份结果（同 bvid:cid:qn）：B站 每次 playurl 都会
+        // 给一份新签名，重复解析等于让同一条视频占两份额度
+        const cacheKey = biliVideoSourceKey(
+          binding.bvid,
+          binding.cid ?? 0,
+          effectiveQn
+        )
+        if (!proxyUrl) {
+          // 只复用「形态一致」的结果：DASH 轨与 MP4 整片走不同的播放路径
+          // （MSE 合流 vs 直连），串用会播不出来
+          const wantDash = !cliEnabled && serverDash
+          const cached = getCachedBiliVideoSource<MusicVideoSource>(cacheKey)
+          const matches =
+            cached?.url != null &&
+            (wantDash ? cached.format === 'dash' : cached.format !== 'dash')
+          if (matches) {
+            if (cancelled) return
+            setState({
+              status: 'ready',
+              source: cached,
+              binding,
+              via: 'server',
+            })
+            return
+          }
+        }
         let resolved: MusicVideoSource
         let via: 'cli' | 'server'
         if (proxyUrl) {
@@ -192,6 +224,13 @@ export function useMusicVideoBackground(
         if (!resolved.url) {
           setState({ status: 'error', source: null, binding, via })
           return
+        }
+        // 服务器解析的产物写入共享缓存：10 分钟内重新进歌词页直接复用，
+        // 不再重新解析（CLI 结果是本地代理地址，与服务器解析不可混用）
+        if (!proxyUrl) {
+          setCachedBiliVideoSource(cacheKey, {
+            ...resolved,
+          } as Record<string, unknown>)
         }
         setState({ status: 'ready', source: resolved, binding, via })
       } catch (err) {

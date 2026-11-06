@@ -22,17 +22,16 @@ import type { RequestNotificationItem } from '@/components/ui/RequestNotificatio
 import { useShareMethod } from '../hooks/useShareMethod'
 import { useStreamStatus } from '../hooks/useStreamStatus'
 import WebrtcSharePage from './WebrtcSharePage'
-import type { PeerQualityView } from '../core/peer-quality'
+import type { ShareEdgeStats } from '../core/edge-stats'
 import { StreamPushPage } from './StreamPushPage'
 import { t } from '@/i18n'
 
 interface SharePageProps {
   className?: string
   style?: React.CSSProperties
-  onStatsPeerConnectionChange?: (pc: RTCPeerConnection | null) => void
+  onStatsEdgesChange?: (edges: ShareEdgeStats[]) => void
   /** 采集实测帧率变化回调，透传到 RoomPage 供 SharingStatusPanel 显示 */
   onCaptureFpsChange?: (fps: number | null) => void
-  onPeerQualitiesChange?: (list: PeerQualityView[]) => void
   /** 媒体走向变化回调（直连 / 服务端转发）。 */
   onSharingModeChange?: (mode: 'direct' | 'relay') => void
 }
@@ -40,9 +39,8 @@ interface SharePageProps {
 function SharePage({
   className,
   style,
-  onStatsPeerConnectionChange,
+  onStatsEdgesChange,
   onCaptureFpsChange,
-  onPeerQualitiesChange,
   onSharingModeChange,
 }: SharePageProps) {
   const { socket } = useSocket()
@@ -173,9 +171,8 @@ function SharePage({
         <WebrtcSharePage
           className={className}
           style={style}
-          onStatsPeerConnectionChange={onStatsPeerConnectionChange}
+          onStatsEdgesChange={onStatsEdgesChange}
           onCaptureFpsChange={onCaptureFpsChange}
-          onPeerQualitiesChange={onPeerQualitiesChange}
           onSharingModeChange={onSharingModeChange}
         />
       )}

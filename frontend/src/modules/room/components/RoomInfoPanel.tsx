@@ -81,7 +81,6 @@ export function RoomInfoPanel({
   const removeMutedViewer = useRoomStore((state) => state.removeMutedViewer)
   const setRoomSettings = useRoomStore((state) => state.setRoomSettings)
   const moderators = useRoomStore((state) => state.moderators)
-  const setModerators = useRoomStore((state) => state.setModerators)
   const autoApproveRequests = useRoomStore((state) => state.autoApproveRequests)
   const toggleAutoApproveRequests = useRoomStore(
     (state) => state.toggleAutoApproveRequests
@@ -202,46 +201,22 @@ export function RoomInfoPanel({
       // 退出房间由全局导航处理
     }
 
-    const handleModeratorsChanged = (payload: {
-      roomId: string
-      moderators: number[]
-    }) => {
-      if (!payload || !Array.isArray(payload.moderators)) return
-      const prev = useRoomStore.getState().moderators
-      setModerators(payload.moderators)
-      // 自己被任命/撤销房管时给出提示
-      if (currentUserId != null) {
-        const wasModerator = prev.includes(Number(currentUserId))
-        const isNowModerator = payload.moderators.includes(
-          Number(currentUserId)
-        )
-        if (!wasModerator && isNowModerator) {
-          message.success(t('您已被任命为房管'))
-        } else if (wasModerator && !isNowModerator) {
-          message.info(t('您的房管权限已被撤销'))
-        }
-      }
-    }
-
     socket.on('viewer-muted', handleViewerMuted)
     socket.on('host-transferred', handleHostTransferred)
     socket.on('room-settings-updated', handleRoomSettingsUpdated)
     socket.on('viewer-kicked', handleViewerKicked)
-    socket.on('moderators-changed', handleModeratorsChanged)
 
     return () => {
       socket.off('viewer-muted', handleViewerMuted)
       socket.off('host-transferred', handleHostTransferred)
       socket.off('room-settings-updated', handleRoomSettingsUpdated)
       socket.off('viewer-kicked', handleViewerKicked)
-      socket.off('moderators-changed', handleModeratorsChanged)
     }
   }, [
     socket,
     addMutedViewer,
     removeMutedViewer,
     setRoomSettings,
-    setModerators,
     currentUserId,
   ])
 
@@ -359,26 +334,40 @@ export function RoomInfoPanel({
 
   // 房主任命/撤销房管（仅房主可操作）
   const handleToggleModerator = (userId: number, username?: string) => {
-    if (!socket) return
+    if (!socket?.connected) {
+      message.error(t('未连接到房间'))
+      return
+    }
     const isModerator = moderators.includes(userId)
     const event = isModerator ? 'dismiss-moderator' : 'appoint-moderator'
-    socket.emit(
-      event,
-      { roomId, userId },
-      (response: { success: boolean; message?: string }) => {
-        if (response.success) {
-          message.success(
-            isModerator
-              ? t('已撤销 {{value}} 的房管权限', {
-                  value: username || t('该用户'),
-                })
-              : t('已任命 {{value}} 为房管', { value: username || t('该用户') })
-          )
-        } else {
-          message.error(response.message || t('操作失败'))
+    socket
+      .timeout(5000)
+      .emit(
+        event,
+        { roomId, userId },
+        (
+          error: Error | null,
+          response?: { success: boolean; message?: string }
+        ) => {
+          if (error || !response) {
+            message.error(t('操作失败'))
+            return
+          }
+          if (response.success) {
+            message.success(
+              isModerator
+                ? t('已撤销 {{value}} 的房管权限', {
+                    value: username || t('该用户'),
+                  })
+                : t('已任命 {{value}} 为房管', {
+                    value: username || t('该用户'),
+                  })
+            )
+          } else {
+            message.error(response.message || t('操作失败'))
+          }
         }
-      }
-    )
+      )
   }
 
   const handleSaveSettings = () => {

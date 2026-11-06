@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Activity, Copy, Terminal, X } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { Tag } from '@/components/ui/Tag'
 import { message } from '@/components/ui/message'
 import { useCopyToClipboard } from '@/hooks/useCopyToClipboard'
-import { useConnectionStats } from '@/modules/screen-sharing/hooks/useConnectionStats'
+import {
+  formatBitrate,
+  formatPacketLoss,
+} from '@/modules/screen-sharing/hooks/useConnectionStats'
+import {
+  aggregateEdgeStats,
+  type ShareEdgeStats,
+} from '@/modules/screen-sharing/core/edge-stats'
 import { useVideoIntrinsicSize } from '@/hooks/useVideoIntrinsicSize'
 import { getActiveEngineType } from '@/modules/player'
 import type { EngineType } from '@/modules/player'
@@ -13,7 +20,11 @@ import { t } from '@/i18n'
 
 export interface VideoStatsMenuProps {
   videoElement: HTMLVideoElement | null
-  pc?: RTCPeerConnection | null
+  /**
+   * 共享链路的每条连接统计。
+   * Piik 链路一位观众一条边，没有「唯一一条 PC」，所以传边、由面板自己汇总。
+   */
+  edges?: ShareEdgeStats[]
   sourceType: 'bilibili' | 'custom' | 'webrtc'
   /** MSE 路径下由调用方提供的真实视频编码（如 avc/hevc/av1），避免依赖非标准 API */
   videoCodec?: string
@@ -197,7 +208,7 @@ function getVideoCodec(video: HTMLVideoElement): string {
 
 export function VideoStatsMenu({
   videoElement,
-  pc,
+  edges,
   sourceType,
   videoCodec,
   sourceUrl,
@@ -217,12 +228,8 @@ export function VideoStatsMenu({
   // 实时监听 video 固有分辨率（videoWidth / videoHeight）
   const intrinsicSize = useVideoIntrinsicSize(videoElement)
 
-  // 复用现有 useConnectionStats，仅在 WebRTC 时启用
-  const {
-    stats: connStats,
-    formatBitrate,
-    formatPacketLoss,
-  } = useConnectionStats(isWebRtc ? (pc ?? null) : null, 'server')
+  // 多连接先汇总成一份，再按单 PC 的口径展示。
+  const connStats = useMemo(() => aggregateEdgeStats(edges ?? []), [edges])
 
   // MSE 帧率采样
   const mseFramesRef = useRef<{ frames: number; time: number } | null>(null)
@@ -389,8 +396,6 @@ export function VideoStatsMenu({
     isWebRtc,
     sourceType,
     connStats,
-    formatBitrate,
-    formatPacketLoss,
     videoCodec,
     sourceUrl,
     resolveResolution,
@@ -549,13 +554,12 @@ export function VideoStatsMenu({
           webkitAudioDecodedByteCount?: number
         }
       ).webkitAudioDecodedByteCount,
-      pc: pc
-        ? {
-            connectionState: pc.connectionState,
-            iceConnectionState: pc.iceConnectionState,
-            signalingState: pc.signalingState,
-          }
-        : null,
+      // 多连接拓扑：没有「一条 PC 的状态」，逐条列出即可。
+      edges: (edges ?? []).map((edge) => ({
+        connectionId: edge.connectionId,
+        direction: edge.direction,
+        state: edge.state,
+      })),
       currentStats: stats,
     }
     console.log('[VideoStatsMenu] Developer stats:', detail)
@@ -568,7 +572,7 @@ export function VideoStatsMenu({
     } else {
       message.info(t('已输出详细统计到浏览器开发者控制台'))
     }
-  }, [videoElement, pc, sourceType, isWebRtc, stats])
+  }, [videoElement, edges, sourceType, isWebRtc, stats])
 
   if (!videoElement || !open) return null
 

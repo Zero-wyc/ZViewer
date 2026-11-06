@@ -1,6 +1,7 @@
 {
   "bucket": "modules/music",
   "items": [
+    "已退出网易云账号",
     "已向房主申请{{value}}",
     "已在{{displayName}}中",
     "已在播放队列",
@@ -119,7 +120,6 @@
     "DJ音乐",
     "HDR 真彩",
     "LOGIN FOR FULL COMMENTS（游客仅前 3 条）",
-    "MP4 直链",
-    "MP4 直链，seek 流畅，清晰度通常 480P/720P"
+    "MP4 直链"
   ]
 }

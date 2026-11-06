@@ -149,8 +149,14 @@ func (s *Server) handleStreamMediaProxy(w http.ResponseWriter, r *http.Request) 
 		Headers:            headers,
 		CORS:               proxy.CORSGlobal,
 		DefaultContentType: contentType,
-		LogTag:             "stream",
-		ErrorMessage:       "代理媒体失败",
+		// 浏览器侧短缓存：B站 签名直链的「可用次数」是消耗品，而同一段媒体
+		// 会被反复请求——歌词页背景与音频元素播同一个文件、seek 回拖、断线
+		// 重连从断点续传，都会落到相同字节区间。允许 5 分钟本地缓存后，
+		// 这些重复请求命中浏览器缓存，不再回源消耗签名额度。
+		// private：只给终端浏览器缓存，避免中间代理串号。
+		CacheControl: "private, max-age=300",
+		LogTag:       "stream",
+		ErrorMessage: "代理媒体失败",
 	})
 }
 

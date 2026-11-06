@@ -85,7 +85,7 @@ func NewManager(configDir string) (*Manager, error) {
 	return &Manager{
 		accessSecret:    []byte(access),
 		refreshSecret:   []byte(refresh),
-		accessTTL:       parseTTL(os.Getenv("JWT_ACCESS_EXPIRES_IN"), time.Hour),
+		accessTTL:       parseTTL(os.Getenv("JWT_ACCESS_EXPIRES_IN"), 24*time.Hour),
 		refreshTTL:      parseTTL(os.Getenv("JWT_REFRESH_EXPIRES_IN"), 30*24*time.Hour),
 		guestAccessTTL:  time.Hour,
 		guestRefreshTTL: 7 * 24 * time.Hour,

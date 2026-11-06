@@ -1,5 +1,6 @@
 {
   "items": [
+    "Delete?",
     "Japanese",
     "Scan to sign in",
     "Scan to sign in to NetEase Cloud Music",
@@ -118,7 +119,6 @@
     "Exit fullscreen",
     "Failed to sign out",
     "Sign out of NetEase Cloud Music",
-    "External content",
-    "Done"
+    "External content"
   ]
 }

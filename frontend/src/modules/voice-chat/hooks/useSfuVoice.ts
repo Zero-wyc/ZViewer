@@ -90,7 +90,11 @@ export function useSfuVoice({
   roomId,
   username,
   socket,
-}: UseVoiceChatOptions & { socket: Socket | null }): VoiceChatController {
+  enabled = true,
+}: UseVoiceChatOptions & {
+  socket: Socket | null
+  enabled?: boolean
+}): VoiceChatController {
   const [joined, setJoined] = useState(false)
   const [joining, setJoining] = useState(false)
   const [micEnabled, setMicEnabled] = useState(true)
@@ -589,7 +593,8 @@ export function useSfuVoice({
   }, [armWatchdog, attachRemote, roomId, sendVoice, teardownMedia, username])
 
   const join = useCallback(async () => {
-    if (!roomId || joining || joined) return
+    // enabled=false 表示这条链路没被选中（当前语音由 Piik 承载）。
+    if (!enabled || !roomId || joining || joined) return
     if (!socketRef.current?.connected) {
       message.error(t('实时连接未就绪，请稍后重试'))
       return
@@ -609,7 +614,15 @@ export function useSfuVoice({
     } finally {
       setJoining(false)
     }
-  }, [joined, joining, releaseCapture, roomId, startCapture, startSession])
+  }, [
+    enabled,
+    joined,
+    joining,
+    releaseCapture,
+    roomId,
+    startCapture,
+    startSession,
+  ])
 
   // ==================== socket 事件 ====================
 

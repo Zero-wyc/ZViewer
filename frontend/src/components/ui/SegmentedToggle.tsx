@@ -31,6 +31,12 @@ export function SegmentedToggle({
     width: 0,
   })
 
+  // 选项内容签名：调用方几乎都直接写数组字面量，引用每次都变；用内容做
+  // 依赖，只有真的换了选项才重新测量。
+  const signature = options
+    .map((o) => `${o.value}\u0000${o.label}`)
+    .join('\u0001')
+
   useEffect(() => {
     if (!containerRef.current) return
     const activeIndex = options.findIndex((o) => o.value === value)
@@ -39,13 +45,19 @@ export function SegmentedToggle({
       'button[data-segment]'
     )
     const activeBtn = buttons[activeIndex] as HTMLElement | undefined
-    if (activeBtn) {
-      setIndicatorStyle({
-        left: activeBtn.offsetLeft,
-        width: activeBtn.offsetWidth,
-      })
-    }
-  }, [value, options])
+    if (!activeBtn) return
+    const left = activeBtn.offsetLeft
+    const width = activeBtn.offsetWidth
+    // 只在位置真的变了才 setState。
+    //
+    // 调用方通常直接写 `options={MODE_ORDER.map(...)}`，每次渲染都是新数组，
+    // 这个 effect 就会每渲染必跑一次；不比较值的话每次 setState 又触发下一轮
+    // 渲染，直接把自己送进 "Maximum update depth exceeded"。
+    setIndicatorStyle((prev) =>
+      prev.left === left && prev.width === width ? prev : { left, width }
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- 用内容签名代替 options 引用
+  }, [value, signature])
 
   return (
     <div

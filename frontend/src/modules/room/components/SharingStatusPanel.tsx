@@ -15,22 +15,34 @@ import { Tag } from '@/components/ui/Tag'
 import { Text, Paragraph } from '@/components/ui/Typography'
 import { cn } from '@/lib/utils'
 import {
-  useConnectionStats,
+  formatBitrate,
+  formatMsPerFrame,
+  formatPacketLoss,
   type SharingMode,
 } from '@/modules/screen-sharing/hooks/useConnectionStats'
+import {
+  aggregateEdgeStats,
+  type ShareEdgeStats,
+} from '@/modules/screen-sharing/core/edge-stats'
 import type {
   QualityLimitationDurations,
   QualityLimitationReason,
 } from '@/modules/screen-sharing/core/stats'
 import {
   peerQualitySeverity,
-  type PeerQualityView,
+  type PeerQuality,
 } from '@/modules/screen-sharing/core/peer-quality'
 import { t } from '@/i18n'
 
 export interface SharingStatusPanelProps {
-  /** 服务器中转 PC（P2P 未启用时使用） */
-  pc: RTCPeerConnection | null
+  /**
+   * 每条连接（边）的统计。
+   *
+   * Piik 链路没有「唯一一条 PC」：房主一位观众一条出边，观众一条入边。
+   * 面板先汇总成一份整体数字，再多连接时逐条列出——单条 PC 的旧口径在这里
+   * 已经不成立了。
+   */
+  edges: ShareEdgeStats[]
   /**
    * 采集实测帧率（发送端专属，来自 MediaStreamTrackProcessor 帧率计）。
    * 与下方「帧率」（发送/接收帧率，来自 outbound/inbound-rtp）分离展示：
@@ -41,8 +53,6 @@ export interface SharingStatusPanelProps {
   mode: 'sender' | 'receiver'
   /** 共享模式标签：服务器中转 / P2P 直连 */
   sharingMode: SharingMode
-  /** 房主侧每条观众连接的质量（只有房主有值）。 */
-  peerQualities?: PeerQualityView[]
 }
 
 interface StatRowProps {
@@ -104,10 +114,6 @@ function StatRow({ icon, label, value, hint }: StatRowProps) {
 function getSharingModeLabel(mode: SharingMode): string {
   // 「直连」指媒体不过服务端（只借它换 SDP/ICE）；中继才真的占服务端带宽。
   return mode === 'relay' ? t('服务器转发') : t('浏览器直连')
-}
-
-function getSharingModeColor(): 'success' | 'primary' {
-  return 'primary'
 }
 
 /**
@@ -201,17 +207,23 @@ function getConnectionStateText(state: RTCPeerConnectionState): string {
   }
 }
 
-/** 质量等级 → 展示文案。等级判定本身在 core/peer-quality（有单测）。 */
-function peerQualityText(peer: PeerQualityView): string {
-  switch (peerQualitySeverity(peer.quality, peer.connectionState)) {
+/**
+ * 质量等级 → 展示文案。等级判定本身在 core/peer-quality（有单测）。
+ * 房主的出边才有观众回传的丢包与 RTT，入边退回连接状态。
+ */
+function peerQualityText(
+  quality: PeerQuality,
+  state: RTCPeerConnectionState
+): string {
+  switch (peerQualitySeverity(quality, state)) {
     case 'offline':
       return t('未连接')
     case 'loss':
       return t('丢包 {{value}}', {
-        value: `${((peer.quality.packetLossRate ?? 0) * 100).toFixed(1)}%`,
+        value: `${((quality.packetLossRate ?? 0) * 100).toFixed(1)}%`,
       })
     case 'latency':
-      return t('延迟 {{value}}', { value: `${peer.quality.rttMs ?? 0} ms` })
+      return t('延迟 {{value}}', { value: `${quality.rttMs ?? 0} ms` })
     case 'bandwidth':
       return t('上行带宽受限')
     case 'cpu':
@@ -222,24 +234,35 @@ function peerQualityText(peer: PeerQualityView): string {
 }
 
 function peerQualityColor(
-  peer: PeerQualityView
+  quality: PeerQuality,
+  state: RTCPeerConnectionState
 ): 'default' | 'success' | 'warning' {
-  const severity = peerQualitySeverity(peer.quality, peer.connectionState)
+  const severity = peerQualitySeverity(quality, state)
   if (severity === 'offline') return 'default'
   return severity === 'good' ? 'success' : 'warning'
 }
 
+/** 一条边的摘要：分辨率 · 帧率 · 码率，多观众时一眼看出谁慢。 */
+function edgeSummary(edge: ShareEdgeStats): string {
+  const parts: string[] = []
+  const resolution = edge.stats.resolution
+  if (resolution) parts.push(`${resolution.width} × ${resolution.height}`)
+  if (edge.stats.frameRate !== null)
+    parts.push(`${edge.stats.frameRate.toFixed(1)} fps`)
+  const bitrate = formatBitrate(edge.stats.bitrate)
+  if (bitrate !== '-') parts.push(bitrate)
+  return parts.length > 0 ? parts.join(' · ') : '-'
+}
+
 export function SharingStatusPanel({
-  pc,
+  edges,
   captureFps,
   mode,
   sharingMode,
-  peerQualities = [],
 }: SharingStatusPanelProps) {
-  const legacyMode = sharingMode === 'relay' ? 'server' : 'direct'
-
-  const { stats, formatBitrate, formatPacketLoss, formatMsPerFrame } =
-    useConnectionStats(pc, legacyMode, sharingMode)
+  // 汇总口径写在 core/edge-stats：帧率/丢包取最差一条，码率求和。
+  const stats = aggregateEdgeStats(edges)
+  const hasEdges = edges.length > 0
 
   const fpsText =
     stats.frameRate === null ? '-' : `${stats.frameRate.toFixed(1)} fps`
@@ -325,9 +348,7 @@ export function SharingStatusPanel({
       {/* 状态标签 */}
       <div className="flex flex-wrap items-center gap-1.5">
         <Tag color="primary">{getRoleLabel(mode)}</Tag>
-        <Tag color={getSharingModeColor()}>
-          {getSharingModeLabel(sharingMode)}
-        </Tag>
+        <Tag color="primary">{getSharingModeLabel(sharingMode)}</Tag>
         <Tag color={getConnectionStateColor(stats.connectionState)}>
           {getConnectionStateText(stats.connectionState)}
         </Tag>
@@ -337,6 +358,22 @@ export function SharingStatusPanel({
           </Tag>
         )}
       </div>
+
+      {!hasEdges && (
+        <div className="glass rounded-xl px-3 py-3">
+          <Text type="secondary" className="block text-xs">
+            {t('还没有连接')}
+          </Text>
+          <Text
+            type="secondary"
+            className="mt-1 block text-[10px] leading-tight opacity-70"
+          >
+            {mode === 'sender'
+              ? t('观众接入后这里会显示每条连接的数据')
+              : t('正在等待房主的画面')}
+          </Text>
+        </div>
+      )}
 
       {/* 实时统计字段列表 */}
       <div className="flex flex-col gap-2 overflow-y-auto pr-1">
@@ -438,9 +475,9 @@ export function SharingStatusPanel({
         )}
       </div>
 
-      {/* 每位观众的真实接收质量。数据来自房主侧的 remote-inbound-rtp
-          （观众用自己的 RTCP 回传），不需要观众上报任何东西。 */}
-      {peerQualities.length > 0 && (
+      {/* 逐条连接的用量。只有一条边时上面的汇总就是它本身，列出来只是重复；
+          房主有多位观众时，这里能直接指出「谁的画面差」。 */}
+      {edges.length > 1 && (
         <div
           className="flex flex-col gap-2 border-t pt-3"
           style={{ borderColor: 'var(--md-sys-color-outline-variant)' }}
@@ -451,18 +488,41 @@ export function SharingStatusPanel({
               {t('观众质量')}
             </Text>
           </div>
-          {peerQualities.map((peer, index) => (
+          {edges.map((edge, index) => (
             <div
-              key={peer.connectionId}
+              key={edge.connectionId}
               className="glass flex items-center justify-between gap-2 rounded-lg px-2.5 py-1.5"
             >
-              <Text type="secondary" className="min-w-0 truncate text-xs">
-                {t('观众 {{index}}', { index: index + 1 })}
-              </Text>
+              <div className="min-w-0">
+                <Text type="secondary" className="block truncate text-xs">
+                  {edge.direction === 'inbound'
+                    ? t('上游连接')
+                    : t('观众 {{index}}', {
+                        // 观众序号只数出边：中继节点自己也有一条入边。
+                        index:
+                          edges
+                            .slice(0, index)
+                            .filter((item) => item.direction === 'outbound')
+                            .length + 1,
+                      })}
+                </Text>
+                <Text
+                  type="secondary"
+                  className="block truncate font-mono text-[10px] leading-tight opacity-70"
+                >
+                  {edgeSummary(edge)}
+                </Text>
+              </div>
               <div className="flex flex-shrink-0 items-center gap-1.5">
-                <Tag color={peerQualityColor(peer)}>
-                  {peerQualityText(peer)}
-                </Tag>
+                {edge.quality ? (
+                  <Tag color={peerQualityColor(edge.quality, edge.state)}>
+                    {peerQualityText(edge.quality, edge.state)}
+                  </Tag>
+                ) : (
+                  <Tag color={getConnectionStateColor(edge.state)}>
+                    {getConnectionStateText(edge.state)}
+                  </Tag>
+                )}
               </div>
             </div>
           ))}

@@ -39,6 +39,21 @@ const DEFAULT_CHUNK = 120
 const ENTRY_RE = /^ {2}'((?:[^\\']|\\.)*)': '((?:[^\\']|\\.)*)',$/
 const GROUP_RE = /^ {2}\/\/ ===== (.+?)（\d+ 条） =====$/
 
+/**
+ * 读文本并统一行尾。
+ *
+ * Windows 上检出（GitHub Actions 的 windows-latest 默认 core.autocrlf=true）
+ * 会给每个文件补上 \r。本脚本按行用 `,$` 锚定解析词条，行尾多了 \r 就一条都匹配不到，
+ * 表现成「分块与 zh-CN.ts 不一致（第 1 条应为「—」）」——看起来像清单错位，其实是行尾。
+ */
+function readText(file) {
+  return fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n')
+}
+
+function readJson(file) {
+  return JSON.parse(readText(file))
+}
+
 function unescape(text) {
   let out = ''
   for (let i = 0; i < text.length; i += 1) {
@@ -68,21 +83,9 @@ function quote(text) {
     .replace(/\t/g, '\\t')}'`
 }
 
-/**
- * 按行读文本，统一成 LF 再切。
- *
- * 仓库是 `* text=auto` + Windows 上 `core.autocrlf=true`，CI 的 windows runner
- * 检出来的是 CRLF。直接 `split('\n')` 每行尾巴都带 `\r`，下面几条以 `,$`、`=====$`
- * 收尾的正则会一条都匹配不上——表现为「解析出 0 条」，报错还会显示成
- * 「第 1 条应为「—」」（`entries[0]` 是 undefined），极难联想到换行。
- */
-function readLines(file) {
-  return fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n').split('\n')
-}
-
 /** 读 zh-CN.ts → [{ bucket, key }]（保持文件顺序） */
 function readZh() {
-  const lines = readLines(ZH_PATH)
+  const lines = readText(ZH_PATH).split('\n')
   const entries = []
   let bucket = 'other'
   for (const line of lines) {
@@ -119,7 +122,7 @@ function writeJson(file, data) {
 function commandPlan({ chunk, force }) {
   const entries = readZh()
   if (fs.existsSync(PLAN_PATH) && !force) {
-    const plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8'))
+    const plan = readJson(PLAN_PATH)
     console.log(`清单已存在：${plan.parts.length} 块 / ${plan.total} 条（用 --force 重新切块）`)
     return
   }
@@ -150,7 +153,7 @@ function commandPlan({ chunk, force }) {
 }
 
 function commandStatus() {
-  const plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8'))
+  const plan = readJson(PLAN_PATH)
   let done = 0
   const pending = []
   for (const part of plan.parts) {
@@ -159,7 +162,7 @@ function commandStatus() {
       pending.push(part)
       continue
     }
-    const data = JSON.parse(fs.readFileSync(file, 'utf8'))
+    const data = readJson(file)
     const count = Array.isArray(data) ? data.length : (data.items?.length ?? 0)
     if (count !== part.count) {
       pending.push({ ...part, mismatch: count })
@@ -179,10 +182,10 @@ function commandStatus() {
 }
 
 function commandBuild() {
-  const plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8'))
+  const plan = readJson(PLAN_PATH)
   const entries = readZh()
   const overrides = fs.existsSync(OVERRIDES_PATH)
-    ? JSON.parse(fs.readFileSync(OVERRIDES_PATH, 'utf8'))
+    ? readJson(OVERRIDES_PATH)
     : {}
   const byBucket = new Map()
   let missing = 0
@@ -190,11 +193,11 @@ function commandBuild() {
   let cursor = 0
 
   for (const part of plan.parts) {
-    const zh = JSON.parse(fs.readFileSync(path.join(PARTS_DIR, `${part.id}.zh.json`), 'utf8')).items
+    const zh = readJson(path.join(PARTS_DIR, `${part.id}.zh.json`)).items
     const enFile = path.join(PARTS_DIR, `${part.id}.en.json`)
     let en = null
     if (fs.existsSync(enFile)) {
-      const data = JSON.parse(fs.readFileSync(enFile, 'utf8'))
+      const data = readJson(enFile)
       en = Array.isArray(data) ? data : data.items
       if (en.length !== zh.length) {
         console.warn(`跳过 ${part.id}：译文 ${en.length} 条与原文 ${zh.length} 条不一致`)
@@ -278,15 +281,15 @@ function commandCheck() {
     console.error('en-US.ts 不存在，先跑 --build')
     process.exit(1)
   }
-  const plan = JSON.parse(fs.readFileSync(PLAN_PATH, 'utf8'))
+  const plan = readJson(PLAN_PATH)
   const zhKeys = new Set(readZh().map((entry) => entry.key))
   const overrides = fs.existsSync(OVERRIDES_PATH)
-    ? JSON.parse(fs.readFileSync(OVERRIDES_PATH, 'utf8'))
+    ? readJson(OVERRIDES_PATH)
     : {}
   const extraKeys = new Set(Object.keys(overrides))
 
   const pairs = []
-  for (const line of readLines(EN_PATH)) {
+  for (const line of readText(EN_PATH).split('\n')) {
     const m = ENTRY_RE.exec(line)
     if (m) pairs.push([unescape(m[1]), unescape(m[2])])
   }
@@ -302,7 +305,7 @@ function commandCheck() {
   let cursor = 0
   let mismatched = false
   for (const part of plan.parts) {
-    const zh = JSON.parse(fs.readFileSync(path.join(PARTS_DIR, `${part.id}.zh.json`), 'utf8')).items
+    const zh = readJson(path.join(PARTS_DIR, `${part.id}.zh.json`)).items
     for (const key of zh) {
       if (entries[cursor]?.key !== key) {
         problems.push(

@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -37,7 +38,7 @@ import (
 	"zviewer/backend/internal/realtime"
 	"zviewer/backend/internal/room"
 	"zviewer/backend/internal/serverfiles"
-	"zviewer/backend/internal/share"
+	"zviewer/backend/internal/share/piikbridge"
 	"zviewer/backend/internal/share/sfu"
 	"zviewer/backend/internal/sio"
 	"zviewer/backend/internal/ssl"
@@ -217,7 +218,6 @@ func main() {
 	// 共用的意义不是省内存，而是省端口：一个 Media 只有一对 UDP/TCP listener，
 	// 语音与共享各建一个就是两对端口。
 	var (
-		shareRelay *share.Relay
 		mediaPlane *sfu.Media
 		// roomSvc 在这里先声明、稍后赋值：语音控制面要拿它判房主，而它
 		// 又要接收语音控制面，构造顺序天然成环。用闭包延迟解引用，
@@ -236,22 +236,10 @@ func main() {
 		engineOptions.TCPPort = cfg.ShareMediaTCPPort
 	}
 	if engine, engineErr := sfu.NewEngine(engineOptions); engineErr != nil {
-		// 媒体端口不可用：共享退回直连，语音报「暂不可用」。
-		// 宁可降级，也不要留一个半死的媒体面把两个功能一起卡住。
-		log.Printf("[media] 媒体端口不可用，屏幕共享回退直连、语音不可用: %v", engineErr)
-	} else if cfg.ShareRelay {
-		shareRelay = share.NewRelay(share.RelayDeps{
-			Settings:  engine.Settings(),
-			Admission: sfu.NewAdmission(sfu.AdmissionOptions{IngressCapacity: 1, EgressCapacity: 64}),
-			Emit: func(socketID string, message share.ServerMessage) {
-				hub.EmitTo(socketID, share.Event, message)
-			},
-			Logger: log.Default(),
-		})
-		mediaPlane = shareRelay.Media()
-		log.Printf("[share] 屏幕共享中继已启用，媒体端口 %s", engine.Describe())
+		// 媒体端口不可用：语音报「暂不可用」。屏幕共享不走这里——它由
+		// Piik 的 `/signal` 负责，与自建媒体面无关。
+		log.Printf("[media] 媒体端口不可用，语音不可用: %v", engineErr)
 	} else {
-		// 共享仍走直连，但语音需要媒体面：事件回调不接（语音的 ConfigureVoice 自带 emit）。
 		mediaPlane = sfu.NewMedia(sfu.MediaOptions{Settings: engine.Settings()})
 		log.Printf("[voice] 语音已启用，媒体端口 %s", engine.Describe())
 	}
@@ -287,14 +275,34 @@ func main() {
 		Music:    musicMemory,
 		NMS:      streamPush,
 
-		ShareRelay: shareRelay,
-		ShareTree: share.TreePolicy{
-			HostChildren:   cfg.ShareTreeHostChildren,
-			ViewerChildren: cfg.ShareTreeViewerChildren,
-			MaxDepth:       cfg.ShareTreeMaxDepth,
-		},
 		VoiceRTC: voiceRTC,
 	})
+
+	// Piik 信令桥接层：屏幕共享由 Piik 的 /signal 承载。
+	// 起不来不致命但共享不可用——前端会在开播前探能力（GET /api/share/capabilities），
+	// 探到 false 就明确报不可用，而不是让人对着一个 503 猜。
+	var piikShare *piikbridge.Bridge
+	if bridge, bridgeErr := piikbridge.New(piikbridge.Options{
+		PublicBaseURL:   &url.URL{Scheme: "http", Host: net.JoinHostPort("localhost", strconv.Itoa(cfg.Port))},
+		AllowedOrigins:  cfg.CORS.Origins,
+		AllowAllOrigins: cfg.CORS.AllowAll,
+		// 房间状态跟着主库走，而不是跟着 config/：DATABASE_URL 指到挂载盘时
+		// 房间码也该落在那块盘上，否则换台机器起来就是一屋子新房间码。
+		StateDir: filepath.Dir(cfg.DatabasePath),
+	}); bridgeErr != nil {
+		log.Printf("[piik] 信令桥接未启用: %v", bridgeErr)
+	} else {
+		piikShare = bridge
+		log.Printf("[piik] 信令已挂载 %s（房间映射：一个 ZViewer 房间一个 Piik 房间码，房间库 %s）",
+			piikbridge.SignalPath, filepath.Join(filepath.Dir(cfg.DatabasePath), "piik-rooms.sqlite"))
+		// 房间关掉就回收对应的 Piik 房间；映射会同时从磁盘上删掉，
+		// 同 ID 房间重开时不会撞上旧房间码。
+		roomSvc.OnRoomClosed(func(roomID string) {
+			if err := bridge.Release(roomID); err != nil && !errors.Is(err, piikbridge.ErrNoRoom) {
+				log.Printf("[piik] 回收房间 %s 失败: %v", roomID, err)
+			}
+		})
+	}
 
 	// 流凭证解析器与服务器文件注册表都是多处复用（播放 + 字幕），先构造一次。
 	streamResolver := proxy.NewStreamResolver(movies, rooms, mounts)
@@ -304,24 +312,26 @@ func main() {
 	filesRegistry := serverfiles.NewRegistry(serverFolders, cfg.UploadsDir)
 
 	server := api.New(api.Deps{
-		Cfg:      cfg,
-		DB:       conn,
-		Users:    users,
-		Settings: settings,
-		Audit:    audit,
-		Movies:   movies,
-		Rooms:    rooms,
-		Mounts:   mounts,
-		Tracks:   tracks,
-		Metas:    metas,
-		Stream:   streamResolver,
-		OpenList: openlist.NewClient(),
-		Tokens:   tokens,
-		Auth:     auth.NewAuthenticator(tokens, users),
-		Bilibili: biliService,
-		Bus:      hub,
-		RoomSvc:  roomSvc,
-		Socket:   socketSrv,
+		Cfg:       cfg,
+		DB:        conn,
+		Users:     users,
+		Settings:  settings,
+		Audit:     audit,
+		Movies:    movies,
+		Rooms:     rooms,
+		Mounts:    mounts,
+		Tracks:    tracks,
+		Metas:     metas,
+		Stream:    streamResolver,
+		OpenList:  openlist.NewClient(),
+		Tokens:    tokens,
+		Auth:      auth.NewAuthenticator(tokens, users),
+		Bilibili:  biliService,
+		Bus:       hub,
+		RoomSvc:   roomSvc,
+		Socket:    socketSrv,
+		Sessions:  sessions,
+		PiikShare: piikShare,
 
 		ServerFolders: serverFolders,
 		Files:         filesRegistry,
@@ -420,6 +430,11 @@ func main() {
 	musicBroadcaster.Stop()
 	roomSvc.Playback.FlushAllDirty(ctx)
 	musicMemory.FlushAllDirty(ctx)
+
+	if piikShare != nil {
+		// 先让 /signal 上的会话收到 1012，再关 HTTP：反过来的话客户端只会看到连接被重置。
+		_ = piikShare.Close(ctx)
+	}
 
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("[shutdown] 强制关闭: %v", err)

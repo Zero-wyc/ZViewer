@@ -285,6 +285,15 @@ video {
   .glass-bg {
     background-color: var(--glass-bg);
   }
+
+  /* Music page text follows the wallpaper; floating panels follow their glass. */
+  .music-glass-text {
+    --md-sys-color-on-surface: var(--lt-glass-on-surface);
+    --md-sys-color-on-surface-variant: var(--lt-glass-on-surface-variant);
+    --md-sys-color-outline: var(--lt-glass-outline);
+    --md-sys-color-outline-variant: var(--lt-glass-outline-variant);
+    color: var(--md-sys-color-on-surface);
+  }
 }
 
 /* 音乐侧边工具坞（MusicSideDock）内嵌面板：坞体本身已是毛玻璃
@@ -1555,13 +1564,18 @@ button.bili-liquid-btn:active:not(:disabled) {
    - 不影响其他动画、玻璃效果、透明度等设置
    - 与精简动画模式独立，可单独使用
    ===================================================== */
-body[data-no-hover-transform='true'] *:hover {
-  /* Tailwind v3 的 hover:translate-* / hover:scale-* 通过 CSS 变量
-     控制 transform，覆盖这些变量即可精准禁用位移/缩放，
-     不影响 transform 的其他用途（如居中定位 translate(-50%,-50%)） */
+/* Only reset axes with an explicit hover utility, preserving layout transforms. */
+body[data-no-hover-transform='true']
+  :is([class*='hover:translate-x-'], [class*='hover:-translate-x-']):hover {
   --tw-translate-x: 0 !important;
+}
+
+body[data-no-hover-transform='true']
+  :is([class*='hover:translate-y-'], [class*='hover:-translate-y-']):hover {
   --tw-translate-y: 0 !important;
-  --tw-translate-z: 0 !important;
+}
+
+body[data-no-hover-transform='true'] [class*='hover:scale-']:hover {
   --tw-scale-x: 1 !important;
   --tw-scale-y: 1 !important;
 }

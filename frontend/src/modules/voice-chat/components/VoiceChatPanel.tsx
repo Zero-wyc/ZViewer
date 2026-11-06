@@ -71,8 +71,8 @@ export function VoiceChatPanel({
 
   // 媒体面没起来时对端永远不会发 offer，点「加入」只会一直转圈——
   // 那是用户最难自查的一种失败，所以在入口就拦住并说明。
-  const voiceAvailable = useVoiceStatus()
-  const unavailable = voiceAvailable === false
+  const { available } = useVoiceStatus()
+  const unavailable = available === false
 
   if (!roomId) return null
 
