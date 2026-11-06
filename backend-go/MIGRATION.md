@@ -2412,7 +2412,7 @@ npm run db:init        # 等价于 zviewer-server --init-db
 | 用户来源 | 库里缺什么 | 5.x 的表现 |
 | --- | --- | --- |
 | ≤ 4.5.4 | `music_playback_states` 整表 | 拒绝启动，且提示是死路（`--init-db` 对非空库拒绝，`DATABASE_URL` 又没错） |
-| 4.5.5 – 4.7.x | 表齐，缺列（实测最多 7 张表 18 列） | **启动正常、零告警**，运行时才炸 |
+| 4.5.5 – 4.7.x | 表齐，缺列（实测最多 6 张表 18 列） | **启动正常、零告警**，运行时才炸 |
 | 4.8.0 | 仅 `playback_states.metadata` | 正常，`EnsurePlaybackMetadata` 自动补 ✅ |
 
 第二种最要命：SQLite 对**双引号包裹但不存在的标识符会退化成字符串字面量**，
