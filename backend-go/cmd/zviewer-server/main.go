@@ -132,6 +132,56 @@ func main() {
 		return
 	}
 
+	// `--upgrade-db` 把 4.x 的老库补到当前结构。这是**显式**动作：启动路径绝不
+	// 自动改表，只在这里由用户主动触发一次。必须先于 db.Open 分流——结构不全时
+	// Open 会直接拒绝，走不到后面的服务启动。
+	if args := os.Args[1:]; hasFlag(args, "--upgrade-db") {
+		if _, statErr := os.Stat(cfg.DatabasePath); statErr != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] 数据库文件不存在: %s\n", cfg.DatabasePath)
+			fmt.Fprintln(os.Stderr, "  新库请改用 --init-db 初始化")
+			os.Exit(1)
+		}
+		upConn, err := db.OpenForInit(cfg.DatabasePath, cfg.SQLiteWAL)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		defer upConn.Close()
+
+		ctx := context.Background()
+		plan, err := db.PlanUpgrade(upConn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		if plan.Empty() {
+			fmt.Printf("  [跳过] 数据库结构已是当前版本: %s\n", cfg.DatabasePath)
+			return
+		}
+
+		fmt.Printf("  [检查] %s\n", cfg.DatabasePath)
+		for _, line := range plan.Describe() {
+			fmt.Printf("         %s\n", line)
+		}
+		// 备份名与手工备份保持同一口径：<库文件>.bak-<时间戳>
+		backup := cfg.DatabasePath + ".bak-" + time.Now().Format("20060102-150405")
+		if _, err := db.UpgradeSchema(ctx, upConn, backup); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			// 失败可能发生在备份之前（拒绝补某些列），所以只在备份真的存在时提示。
+			if _, statErr := os.Stat(backup); statErr == nil {
+				fmt.Fprintf(os.Stderr, "  改动前备份: %s（需要回滚时用它覆盖当前库）\n", backup)
+			}
+			os.Exit(1)
+		}
+		if err := db.EnsureIndexes(ctx, upConn); err != nil {
+			fmt.Fprintf(os.Stderr, "  [错误] %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Printf("  [完成] 已补建 %d 张表、%d 个列\n", len(plan.MissingTables), plan.ColumnCount())
+		fmt.Printf("         备份: %s\n", backup)
+		return
+	}
+
 	conn, err := db.Open(cfg.DatabasePath, cfg.SQLiteWAL)
 	if err != nil {
 		// 首次启动（库文件不存在）自动初始化：分发版解压即用，不需要用户

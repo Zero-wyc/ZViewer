@@ -142,6 +142,7 @@ docker run -d --name zviewer --restart unless-stopped \
 
 ```bash
 npm install && npm run db:init   # 初始化
+npm run db:upgrade               # 从 4.x 升级上来的旧库：先备份再补表补列
 npm run dev                      # 开发
 npm run build && npm start       # 构建 + 运行
 npm run lint:go && npm run test:go && npm test -w frontend   # 检查

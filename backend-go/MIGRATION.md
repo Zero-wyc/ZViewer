@@ -2400,3 +2400,69 @@ npm run db:init        # 等价于 zviewer-server --init-db
   `success = songCode==200 && url != ""`。上游对下架/不存在的歌回 `code:404, url=null`，
   所以 `api/music.go` 的 `NO_COPYRIGHT` 分支现在真的可达（修复前该路由不存在，
   这里只会拿到 `unknownPathError` 并统一回 502）。`br` 必须传数字，字符串会被上游当成 0 降质。
+
+## 十四、4.x → 5.x 结构升级：`--upgrade-db`（2026-11-06）
+
+### 问题：两段性质完全不同的断层
+
+4.x 是 TypeORM + sql.js，`data-source.ts` 里 `synchronize: true`——每次启动按实体自动补表补列。
+5.x 的设计是「绝不自动改表」，而当时的 `VerifySchema` 只核对 16 张表是否存在（外加 user 表
+7 个关键列），**其余表的列一概不查**。于是老库在 5.x 上有两种坏法：
+
+| 用户来源 | 库里缺什么 | 5.x 的表现 |
+| --- | --- | --- |
+| ≤ 4.5.4 | `music_playback_states` 整表 | 拒绝启动，且提示是死路（`--init-db` 对非空库拒绝，`DATABASE_URL` 又没错） |
+| 4.5.5 – 4.7.x | 表齐，缺列（实测最多 7 张表 18 列） | **启动正常、零告警**，运行时才炸 |
+| 4.8.0 | 仅 `playback_states.metadata` | 正常，`EnsurePlaybackMetadata` 自动补 ✅ |
+
+第二种最要命：SQLite 对**双引号包裹但不存在的标识符会退化成字符串字面量**，
+所以缺列不报 "no such column"，而是读出 `"noProxyFallback"` 这个字符串——扫进 `*bool`
+就报转换错误；`session.guestId` 则是写死的硬错，观众进房间写会话就挂。
+
+4.x 的更新器也没有大版本闸门，4.4 的用户点「更新」是一步跳到 5.x，不会先经过 4.8.0。
+
+### 改法
+
+1. `internal/db/schema_spec.go`：把 `schema.sql` 解析成 表 → 列 的结构（列名、类型、可空性、默认值）。
+   `schema.sql` 仍是唯一事实源，**不再另外维护一份列清单**；
+   `TestParsedColumnsMatchCreatedSchema` 拿 `--init-db` 建出来的真实表逐列比对解析结果。
+2. `VerifySchema` 改为逐表逐列校验，缺表与缺列**一次性报全**并直接给出下一步命令。
+   没有拆「只查表」的中间态——那会让缺表的老库先报一条信息更少的错，用户跑完升级才发现还有缺列。
+3. 新增 `internal/db/upgrade.go` + `--upgrade-db`：显式把老结构补到当前版本。
+
+```bash
+npm run db:upgrade      # 等价于 zviewer-server --upgrade-db
+```
+
+顺序是硬约束：
+
+1. 先算差异（`PlanUpgrade`），无差异直接返回，**不碰库**；
+2. 再一次性算出所有 `ALTER TABLE ADD COLUMN`——有补不了的列就整批拒绝，此时库还没被碰过；
+3. 才 `VACUUM INTO` 备份到 `<库文件>.bak-<时间戳>`（WAL 下直接拷 .sqlite 会静默丢掉
+   只存在于 `-wal` 里的已提交事务）；
+4. 备份成功后，所有 DDL 在**一个事务**里执行：先整份跑 `CREATE TABLE IF NOT EXISTS`
+   （补表，顺序天然符合外键依赖），再逐条 `ADD COLUMN`；中途失败整批回滚；
+5. 结束后立刻 `VerifySchema` 自检。
+
+补列的可行性由 SQLite 的规则决定（`ColumnSpec.AlterDDL`）：主键/唯一列不能补；
+`NOT NULL` 必须带**常量**默认值（`DEFAULT (datetime('now'))` 这类不行）。真遇到补不了的列就
+如实报错、让人先升到 4.8.0——重建表不在这个工具的职责里。
+
+### 实测
+
+拿仓库里 2026-09-05 的真实旧库（13 张表，缺 3 表 18 列）：
+
+```
+[db] 数据库结构不完整：缺少 3 张表、18 个列
+  缺表: music_playback_states, music_queue_item, ncm_credential
+  ...
+已有数据的库请执行 `zviewer-server --upgrade-db`：先做一致性备份，再补上缺失的表和列
+```
+
+升级后 16 张表齐全、`VerifySchema` 通过、服务正常监听；逐表比对**行数完全不变**，
+新列对已有行取到了 DDL 里的默认值（`playsvideoEnabled=1`、`roomDefaultMusicVolume=50`、
+`livekitExternalUrl=''`）；备份仍是升级前的旧结构，可回滚。二次执行只打印
+「数据库结构已是当前版本」且不产生新备份。
+
+`--upgrade-db` 是显式动作，**启动路径仍然绝不自动改表**：唯一保留的自动迁移是
+`EnsurePlaybackMetadata`（4.8.0 只差这一列，去掉等于断掉那条无感升级路）。
