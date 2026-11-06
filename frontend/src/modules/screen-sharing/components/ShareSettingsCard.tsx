@@ -23,6 +23,7 @@ import {
   Volume2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { Input } from '@/components/ui/Input'
 import { Select } from '@/components/ui/Select'
 import { Switch } from '@/components/ui/Switch'
 import { Paragraph, Text } from '@/components/ui/Typography'
@@ -37,11 +38,20 @@ import {
   type QualityPresetId,
   type ResolutionPreset,
 } from '../constants'
+import {
+  MIN_CUSTOM_FRAMERATE,
+  isPresetFramerate,
+  maxFramerateForResolution,
+  normalizeFramerateInput,
+} from '../utils/frame-rate'
 import type {
   CaptureSource,
   WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
 import { t } from '@/i18n'
+
+/** 帧率下拉里「自定义」这一项的哨兵值（真实帧率永远是数字）。 */
+const FRAME_RATE_CUSTOM = 'custom'
 
 export interface ShareSettingsCardProps {
   settings: WebrtcShareMediaSettings
@@ -228,6 +238,47 @@ export function ShareSettingsCard({
   ]
   const gap = compact ? 'gap-2' : 'gap-2.5'
 
+  // 自定义帧率：下拉里选了「自定义」、或当前值本来就不在预设档里（上次填的
+  // 144 之类）都算。
+  //
+  // 输入框刻意**非受控**：受控就得靠 effect 把 props 同步进草稿，那是级联渲染
+  // （react-hooks 的 set-state-in-effect 也会拦）。改用 key 重挂表达「已提交的
+  // 帧率或提交次数变了 → 草稿作废」，失焦/回车一次性提交，边打字边下发会把
+  // 采集约束按 1→14→144 连改三次。
+  const [customFrameRateOpen, setCustomFrameRateOpen] = useState(false)
+  const [frameRateInputNonce, setFrameRateInputNonce] = useState(0)
+  const maxFrameRate = maxFramerateForResolution(settings.resolutionPreset)
+  const showCustomFrameRate =
+    customFrameRateOpen || !isPresetFramerate(settings.frameRate)
+
+  const handleFrameRateSelect = (value: string) => {
+    if (value === FRAME_RATE_CUSTOM) {
+      setCustomFrameRateOpen(true)
+      return
+    }
+    setCustomFrameRateOpen(false)
+    onFrameRateChange(Number(value))
+  }
+
+  const commitFrameRate = (raw: string) => {
+    const next = normalizeFramerateInput(raw, maxFrameRate)
+    // 每次提交都重挂输入框：非受控输入只有重挂才能把「夹到边界的值」和
+    // 「非法草稿」干净地写回显示。
+    setFrameRateInputNonce((nonce) => nonce + 1)
+    if (next === null) return
+    // 填了个刚好是预设的值（30/60…）就退回预设，下拉不该继续显示「自定义」。
+    setCustomFrameRateOpen(!isPresetFramerate(next))
+    if (next !== settings.frameRate) onFrameRateChange(next)
+  }
+
+  const frameRateOptions = [
+    ...FRAME_RATE_OPTIONS.map((option) => ({
+      label: option.label,
+      value: String(option.value),
+    })),
+    { label: t('自定义'), value: FRAME_RATE_CUSTOM },
+  ]
+
   // 四个区块拆成变量：竖排（控制卡片区）与两栏（中区开始前）共用同一份结构，
   // 复制一份 JSX 早晚会漂移。
   const screenGroup = (
@@ -291,7 +342,12 @@ export function ShareSettingsCard({
             <button
               key={preset.id}
               type="button"
-              onClick={() => onPresetChange(preset.id)}
+              onClick={() => {
+                // 点档位等于回到预设帧率：自定义输入框跟着收起，
+                // 否则下拉会一直显示「自定义」而实际已经是 30fps。
+                setCustomFrameRateOpen(false)
+                onPresetChange(preset.id)
+              }}
               disabled={switchingResolution}
               aria-pressed={selected}
               title={t(preset.hintKey)}
@@ -380,16 +436,57 @@ export function ShareSettingsCard({
                 {t('帧率')}
               </Text>
               <Select
-                options={FRAME_RATE_OPTIONS.map((option) => ({
-                  label: option.label,
-                  value: String(option.value),
-                }))}
-                value={String(settings.frameRate)}
-                onChange={(value) => onFrameRateChange(Number(value))}
+                options={frameRateOptions}
+                value={
+                  showCustomFrameRate
+                    ? FRAME_RATE_CUSTOM
+                    : String(settings.frameRate)
+                }
+                onChange={handleFrameRateSelect}
                 size="sm"
               />
             </label>
           </div>
+
+          {showCustomFrameRate && (
+            <div className="flex flex-col gap-1">
+              <div className="flex items-center gap-2">
+                <Input
+                  key={`${settings.frameRate}-${frameRateInputNonce}`}
+                  className="w-[4.5rem]"
+                  size="sm"
+                  type="number"
+                  inputMode="numeric"
+                  min={MIN_CUSTOM_FRAMERATE}
+                  max={maxFrameRate}
+                  step={1}
+                  defaultValue={String(settings.frameRate)}
+                  onBlur={(event) => commitFrameRate(event.target.value)}
+                  onKeyDown={(event) => {
+                    // 回车即提交：number 输入框失焦才会触发 onBlur，
+                    // 这里主动收焦点，避免用户以为「回车没反应」。
+                    if (event.key === 'Enter') event.currentTarget.blur()
+                  }}
+                  aria-label={t('自定义帧率')}
+                />
+                <Text type="secondary" className="text-[10px] leading-none">
+                  fps
+                </Text>
+                <Text
+                  type="secondary"
+                  className="ml-auto text-[10px] leading-none tabular-nums"
+                >
+                  {`${MIN_CUSTOM_FRAMERATE}–${maxFrameRate}`}
+                </Text>
+              </div>
+              <Paragraph
+                type="secondary"
+                className="m-0 text-[10px] leading-tight"
+              >
+                {t('按此帧率采集与发送，实测值见「房间状态」的采集帧率')}
+              </Paragraph>
+            </div>
+          )}
 
           <div className="flex flex-col gap-1.5">
             <Text type="secondary" className="text-[10px] leading-none">

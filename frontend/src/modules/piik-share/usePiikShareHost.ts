@@ -11,12 +11,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { RESOLUTION_DIMENSIONS } from '../screen-sharing/constants'
 import { HostAudio } from '../screen-sharing/core/audio-mix'
-import { captureCamera, captureDisplay } from '../screen-sharing/core/capture'
+import {
+  applyVideoCaptureProfile,
+  captureCamera,
+  captureDisplay,
+} from '../screen-sharing/core/capture'
 import { nextLowerProfile } from '../screen-sharing/core/encoder-health'
 import type { AutoDowngradeNotice } from '../screen-sharing/core/view-state'
 import type { ShareEdgeStats } from '../screen-sharing/core/edge-stats'
 import {
   profileFromSettings,
+  qualityNeedsCaptureUpdate,
   type QualityProfile,
   type VideoSenderParameterReadback,
 } from '../screen-sharing/core/quality'
@@ -104,6 +109,18 @@ export function usePiikShareHost(
   useEffect(() => {
     onStreamEndedRef.current = onStreamEnded
   }, [onStreamEnded])
+
+  /**
+   * 当前采集流（含视频轨）。
+   *
+   * 用它给「帧率热更新」下发采集约束：sent 出去的轨与预览轨是同一条
+   * （`HostAudio.output()` 直接复用采集流的 video track），所以改这里的
+   * 约束等于同时改采集与发送。
+   */
+  const previewStreamRef = useRef<MediaStream | null>(null)
+  useEffect(() => {
+    previewStreamRef.current = previewStream
+  }, [previewStream])
 
   // 预览绑定 + 用户从浏览器 UI 停止共享的兜底。
   useEffect(() => {
@@ -327,7 +344,13 @@ export function usePiikShareHost(
   )
 
   /**
-   * 帧率/码率热更新。
+   * 帧率/画面偏好/音频码率热更新。
+   *
+   * 帧率必须**同时**下发到采集轨：采集阶段的 `frameRate` 是硬上限，开局按
+   * 30fps 采集之后只改编码器 `maxFramerate`，源本身还是 30 帧——界面写着
+   * 144fps、发出去的还是 30。这里按 `qualityNeedsCaptureUpdate` 判定，只在
+   * 帧率/分辨率真变了时重下发采集约束（`applyConstraints`，不重开采集器、
+   * 不弹画面选择器）。分辨率走 `switchResolution` 的重采集路径，不在这里做。
    *
    * 用户改档后，自动降档的基线跟着走（否则下一次判定还在拿旧目标帧率比）。
    * 浏览器不保证照办，但那是 `parameterOverride` 的事——界面不该因此弹失败，
@@ -338,8 +361,21 @@ export function usePiikShareHost(
       const session = sessionRef.current
       if (!session) return false
       const profile = profileOf(settings)
+      const previous = profileRef.current
       profileRef.current = profile
       await applyEncoding(profile)
+      if (!previous || qualityNeedsCaptureUpdate(previous, profile)) {
+        const track = previewStreamRef.current?.getVideoTracks()[0]
+        if (track) {
+          try {
+            await applyVideoCaptureProfile(track, profile)
+          } catch (captureError) {
+            // 采集器不接受新帧率（源只有 30fps、或超了设备能力）：画面继续，
+            // 只是发不出目标帧率。`房间状态` 的实测采集帧率会露出真实值。
+            console.warn('[share] capture profile update failed:', captureError)
+          }
+        }
+      }
       return true
     },
     [applyEncoding]

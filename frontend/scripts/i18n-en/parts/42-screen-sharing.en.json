@@ -4,6 +4,7 @@
     "1080P · 30fps — the default",
     "1080P · 60fps — pick this when the picture moves fast",
     "720P · 30fps — pick this on an average network",
+    "Capture and sending both use this frame rate; see Capture frame rate in Room status for the measured value.",
     "Lossless",
     "Local resolution",
     "The encoder cannot keep up — dropped to {{value}} automatically",
@@ -118,7 +119,6 @@
     "Live decode frame rate",
     "Video resolution",
     "Enter the room password",
-    "Refresh the connection",
-    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing."
+    "Refresh the connection"
   ]
 }

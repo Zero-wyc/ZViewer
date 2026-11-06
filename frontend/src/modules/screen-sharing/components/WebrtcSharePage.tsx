@@ -34,6 +34,7 @@ import {
   type WebrtcShareMediaSettings,
 } from '../utils/mediaSettingsStorage'
 import { browserCameras, type CaptureDevice } from '../core/capture-devices'
+import { maxFramerateForResolution } from '../utils/frame-rate'
 import type { ShareEdgeStats } from '../core/edge-stats'
 import {
   QUALITY_PRESETS,
@@ -270,15 +271,22 @@ function WebrtcSharePage({
   // 分辨率切换：未共享时只记录档位（下次 start 生效）；共享中重新下发采集
   // 约束并热替换 sender track——PC 全程存活、观众无感。采集失败时回滚档位，
   // 否则界面显示的档位和实际画面不一致。
+  //
+  // 分辨率会锁死可用帧率上限（2K=144 / 4K=64，宏块率预算），切换时先夹帧率：
+  // 否则「4K + 144fps」这种组合会被采集直接拒绝，用户只看到共享起不来。
   const handleResolutionChange = useCallback(
     async (next: ResolutionPreset) => {
       if (next === settingsRef.current.resolutionPreset) return
       const previous = settingsRef.current
+      const frameRate = Math.min(
+        previous.frameRate,
+        maxFramerateForResolution(next)
+      )
       if (!isSharing) {
-        commitSettings({ resolutionPreset: next })
+        commitSettings({ resolutionPreset: next, frameRate })
         return
       }
-      const pending = commitSettings({ resolutionPreset: next })
+      const pending = commitSettings({ resolutionPreset: next, frameRate })
       setSwitchingResolution(true)
       try {
         const ok = await switchResolution(pending)

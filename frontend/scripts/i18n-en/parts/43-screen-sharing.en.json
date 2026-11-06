@@ -1,5 +1,6 @@
 {
   "items": [
+    "Tip: stop the stream in OBS with “Stop Streaming”, and stop it before switching back to WebRTC sharing.",
     "Stream URL copied (without the stream key)",
     "Stream status",
     "Exit picture-in-picture",
@@ -48,6 +49,7 @@
     "Request again",
     "The streamer is not streaming",
     "Custom settings: the parameters below no longer match any preset",
+    "Custom frame rate",
     "Total bitrate",
     "OBS settings downloaded",
     "OBS streaming",

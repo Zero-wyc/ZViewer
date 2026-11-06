@@ -2,9 +2,13 @@ import type { ResolutionPreset } from '../constants'
 import {
   AUDIO_BITRATE_OPTIONS,
   DEGRADATION_OPTIONS,
-  FRAME_RATE_OPTIONS,
   RESOLUTION_PRESETS,
 } from '../constants'
+import {
+  MAX_CUSTOM_FRAMERATE,
+  MIN_CUSTOM_FRAMERATE,
+  maxFramerateForResolution,
+} from './frame-rate'
 
 /**
  * WebRTC 屏幕共享媒体设置的 localStorage 持久化。
@@ -46,19 +50,39 @@ const DEFAULTS: WebrtcShareMediaSettings = {
   cameraDeviceId: '',
 }
 
+/** 帧率合法性：1~240 的整数（自定义档位可以填任意值，不止预设那四档）。 */
+function isValidFrameRate(value: unknown): value is number {
+  return (
+    typeof value === 'number' &&
+    Number.isInteger(value) &&
+    value >= MIN_CUSTOM_FRAMERATE &&
+    value <= MAX_CUSTOM_FRAMERATE
+  )
+}
+
 /** 读取持久化设置；缺失/损坏/字段非法时逐字段回退默认值 */
 export function loadMediaSettings(): WebrtcShareMediaSettings {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return { ...DEFAULTS }
     const parsed = JSON.parse(raw) as Partial<WebrtcShareMediaSettings>
-    const validFrameRates = FRAME_RATE_OPTIONS.map((o) => o.value)
+    const resolutionPreset =
+      parsed.resolutionPreset &&
+      RESOLUTION_PRESETS.includes(parsed.resolutionPreset)
+        ? parsed.resolutionPreset
+        : DEFAULTS.resolutionPreset
+    const storedFrameRate = isValidFrameRate(parsed.frameRate)
+      ? parsed.frameRate
+      : DEFAULTS.frameRate
     return {
-      frameRate:
-        typeof parsed.frameRate === 'number' &&
-        validFrameRates.includes(parsed.frameRate)
-          ? parsed.frameRate
-          : DEFAULTS.frameRate,
+      // 帧率可以是任意整数（自定义档位），不再只认预设那几档；范围与
+      // core/quality 的采集上限一致，越界的旧值直接回默认。还要按分辨率再
+      // 夹一次：4K 只到 64fps，存着「4K + 144」这种组合的话开局采集会被直接
+      // 拒绝，而用户只看到「开始共享失败」。
+      frameRate: Math.min(
+        storedFrameRate,
+        maxFramerateForResolution(resolutionPreset)
+      ),
       shareSystemAudio:
         typeof parsed.shareSystemAudio === 'boolean'
           ? parsed.shareSystemAudio
@@ -67,11 +91,7 @@ export function loadMediaSettings(): WebrtcShareMediaSettings {
         typeof parsed.shareMicrophone === 'boolean'
           ? parsed.shareMicrophone
           : DEFAULTS.shareMicrophone,
-      resolutionPreset:
-        parsed.resolutionPreset &&
-        RESOLUTION_PRESETS.includes(parsed.resolutionPreset)
-          ? parsed.resolutionPreset
-          : DEFAULTS.resolutionPreset,
+      resolutionPreset,
       // 老版本存下的设置没有这两个字段：逐字段回退，不要整份丢掉。
       degradationPreference: DEGRADATION_OPTIONS.some(
         (option) => option.value === parsed.degradationPreference
