@@ -185,20 +185,6 @@ export function Header() {
         </button>
 
         <div className="flex items-center gap-1.5">
-          {/* 界面语言：点一下在中 / 英之间切换（按钮本身不带文字，避免挤占顶栏宽度） */}
-          <button
-            type="button"
-            onClick={toggleLanguage}
-            className="p-2 rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] bg-[var(--glass-bg)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
-            style={{
-              border: '1px solid var(--md-sys-color-outline)',
-            }}
-            title={t('界面语言')}
-            aria-label={t('界面语言')}
-          >
-            <Languages className="w-4 h-4" />
-          </button>
-
           {/* 公告按钮（含首次启动/版本更新自动弹出逻辑） */}
           <AnnouncementButton onOpenChange={setAnnounceOpen} />
           {/* 手机端隐藏 CLI 下载入口（移动端不支持 CLI 代理，无下载意义） */}
@@ -240,6 +226,21 @@ export function Header() {
             backgroundOpen={backgroundModalOpen}
             setBackgroundOpen={setBackgroundModalOpen}
           />
+
+          {/* 界面语言：点一下在中 / 英之间切换（放在主题与账户之间，右起第二个图标位） */}
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="p-2 rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] bg-[var(--glass-bg)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
+            style={{
+              border: '1px solid var(--md-sys-color-outline)',
+            }}
+            title={t('界面语言')}
+            aria-label={t('界面语言')}
+          >
+            <Languages className="w-4 h-4" />
+          </button>
+
           {isAuthenticated && user && (
             <UserMenu
               user={user}
