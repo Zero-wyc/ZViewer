@@ -42,7 +42,7 @@ const enUS: Record<string, string> = {
   '最大值为 {{max}}': 'Maximum is {{max}}',
   '最小值为 {{min}}': 'Minimum is {{min}}',
 
-  // ===== components（241 条） =====
+  // ===== components（242 条） =====
   '· 强度 {{colorIntensity}}%': '· Intensity {{colorIntensity}}%',
   '(相对路径 /live)': '(relative path /live)',
   '），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx / Caddy），将以下路径统一转发到后端服务：': '), leave the other three blank to follow automatically. Make sure your server has a reverse proxy (Nginx / Caddy) forwarding the paths below to the backend:',
@@ -145,6 +145,7 @@ const enUS: Record<string, string> = {
   '检测到混合内容（HTTPS → HTTP）': 'Mixed content detected (HTTPS → HTTP)',
   '检测失败': 'Check failed',
   '检测中...': 'Checking...',
+  '界面语言': 'Language',
   '禁用 hover 位移': 'Disable hover shift',
   '精简动画': 'Reduced motion',
   '精简动画已关闭背景模糊': 'Reduced motion turned off background blur',
@@ -245,7 +246,8 @@ const enUS: Record<string, string> = {
   '原生直链 (Direct)': 'Native direct link',
   '原始': 'Original',
   '圆角': 'Corner radius',
-  '在 GitHub 查看原始公告': 'View the original announcement on GitHub',
+  '在 GitCode 查看项目仓库': 'GitCode project repository',
+  '在 GitHub 查看项目仓库': 'GitHub project repository',
   '在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）': 'Open in a separate window (danmaku track / comments / live danmaku)',
   '暂无评论，快来第一条吧': 'No comments yet, be the first',
   '增强颜色强度（当前 {{colorIntensity}}%）': 'Increase color intensity (currently {{colorIntensity}}%)',
@@ -276,7 +278,6 @@ const enUS: Record<string, string> = {
   'B 站': 'Bilibili',
   'B站 CDN': 'Bilibili CDN',
   'CDN 源': 'CDN source',
-  'GitHub 仓库': 'GitHub repository',
   'Hex 颜色值': 'Hex color value',
   'HTTP-FLV 拉流基础地址（留空则自动推断）': 'HTTP-FLV base address (leave blank to auto-detect)',
   'https://.../sub.vtt 或 .srt/.ass': 'https://.../sub.vtt or .srt/.ass',
@@ -341,7 +342,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（369 条） =====
+  // ===== pages（368 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -461,7 +462,6 @@ const enUS: Record<string, string> = {
   '检查更新中...': 'Checking for updates...',
   '接收最新构建版本更新': 'Get updates for the latest builds',
   '解析并生成应答码': 'Parse and generate a response code',
-  '界面语言': 'Language',
   '仅 CLI 模式（媒体流不经服务器转发）': 'CLI only (media is not relayed by the server)',
   '仅 root 或房间创建者可管理该房间的房管': 'Only root or the room creator can manage this room\'s moderators',
   '仅管理员（root / admin）': 'Admins only (root / admin)',

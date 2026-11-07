@@ -1,5 +1,6 @@
 {
   "items": [
+    "Default",
     "Directory is empty",
     "Embedded subtitle tracks",
     "Annotation tools",
@@ -82,7 +83,8 @@
     "Native direct link",
     "Original",
     "Corner radius",
-    "View the original announcement on GitHub",
+    "GitCode project repository",
+    "GitHub project repository",
     "Open in a separate window (danmaku track / comments / live danmaku)",
     "No comments yet, be the first",
     "Increase color intensity (currently {{colorIntensity}}%)",
@@ -113,12 +115,10 @@
     "Bilibili",
     "Bilibili CDN",
     "CDN source",
-    "GitHub repository",
     "Hex color value",
     "HTTP-FLV base address (leave blank to auto-detect)",
     "https://.../sub.vtt or .srt/.ass",
     "RTMP ingest port (leave blank to use the default 3334)",
-    "Video.js 10 (experimental)",
-    "WebRTC screen sharing"
+    "Video.js 10 (experimental)"
   ]
 }

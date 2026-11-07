@@ -39,7 +39,7 @@ const zhCN: Record<string, string> = {
   '最大值为 {{max}}': '最大值为 {{max}}',
   '最小值为 {{min}}': '最小值为 {{min}}',
 
-  // ===== components（241 条） =====
+  // ===== components（242 条） =====
   '· 强度 {{colorIntensity}}%': '· 强度 {{colorIntensity}}%',
   '(相对路径 /live)': '(相对路径 /live)',
   '），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx / Caddy），将以下路径统一转发到后端服务：': '），其余三项留空将自动跟随。请确保已在服务器上配置反向代理（Nginx / Caddy），将以下路径统一转发到后端服务：',
@@ -142,6 +142,7 @@ const zhCN: Record<string, string> = {
   '检测到混合内容（HTTPS → HTTP）': '检测到混合内容（HTTPS → HTTP）',
   '检测失败': '检测失败',
   '检测中...': '检测中...',
+  '界面语言': '界面语言',
   '禁用 hover 位移': '禁用 hover 位移',
   '精简动画': '精简动画',
   '精简动画已关闭背景模糊': '精简动画已关闭背景模糊',
@@ -242,7 +243,8 @@ const zhCN: Record<string, string> = {
   '原生直链 (Direct)': '原生直链 (Direct)',
   '原始': '原始',
   '圆角': '圆角',
-  '在 GitHub 查看原始公告': '在 GitHub 查看原始公告',
+  '在 GitCode 查看项目仓库': '在 GitCode 查看项目仓库',
+  '在 GitHub 查看项目仓库': '在 GitHub 查看项目仓库',
   '在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）': '在独立窗口打开（弹幕轨道 / 评论区 / 实时弹幕）',
   '暂无评论，快来第一条吧': '暂无评论，快来第一条吧',
   '增强颜色强度（当前 {{colorIntensity}}%）': '增强颜色强度（当前 {{colorIntensity}}%）',
@@ -273,7 +275,6 @@ const zhCN: Record<string, string> = {
   'B 站': 'B 站',
   'B站 CDN': 'B站 CDN',
   'CDN 源': 'CDN 源',
-  'GitHub 仓库': 'GitHub 仓库',
   'Hex 颜色值': 'Hex 颜色值',
   'HTTP-FLV 拉流基础地址（留空则自动推断）': 'HTTP-FLV 拉流基础地址（留空则自动推断）',
   'https://.../sub.vtt 或 .srt/.ass': 'https://.../sub.vtt 或 .srt/.ass',
@@ -338,7 +339,7 @@ const zhCN: Record<string, string> = {
   '中': '中',
   '重排序失败': '重排序失败',
 
-  // ===== pages（369 条） =====
+  // ===== pages（368 条） =====
   ' 等': ' 等',
   '{{length}} 个进行中': '{{length}} 个进行中',
   '1. 在浏览器中登录 bilibili.com': '1. 在浏览器中登录 bilibili.com',
@@ -458,7 +459,6 @@ const zhCN: Record<string, string> = {
   '检查更新中...': '检查更新中...',
   '接收最新构建版本更新': '接收最新构建版本更新',
   '解析并生成应答码': '解析并生成应答码',
-  '界面语言': '界面语言',
   '仅 CLI 模式（媒体流不经服务器转发）': '仅 CLI 模式（媒体流不经服务器转发）',
   '仅 root 或房间创建者可管理该房间的房管': '仅 root 或房间创建者可管理该房间的房管',
   '仅管理员（root / admin）': '仅管理员（root / admin）',

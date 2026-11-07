@@ -1,6 +1,5 @@
 {
   "items": [
-    "CLI only (media is not relayed by the server)",
     "Only root or the room creator can manage this room's moderators",
     "Admins only (root / admin)",
     "Only .zip and .tar.gz archives are supported",
@@ -118,6 +117,8 @@
     "Signed in to NetEase Cloud Music with cookies",
     "Signed in to NetEase Cloud Music",
     "NetEase Cloud Music login QR code",
-    "NetEase Cloud Music user"
+    "NetEase Cloud Music user",
+    "No Bilibili account linked",
+    "No NetEase Cloud Music account linked"
   ]
 }

@@ -20,7 +20,7 @@
     {
       "id": "04-components",
       "bucket": "components",
-      "count": 1
+      "count": 2
     },
     {
       "id": "05-hooks",
@@ -55,7 +55,7 @@
     {
       "id": "11-pages",
       "bucket": "pages",
-      "count": 10
+      "count": 8
     },
     {
       "id": "12-common",
@@ -240,7 +240,7 @@
     {
       "id": "48-voice-chat",
       "bucket": "modules/voice-chat",
-      "count": 27
+      "count": 28
     },
     {
       "id": "49-webdav",

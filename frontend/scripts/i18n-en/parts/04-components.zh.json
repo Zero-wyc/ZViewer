@@ -1,6 +1,7 @@
 {
   "bucket": "components",
   "items": [
+    "WebRTC 屏幕共享",
     "WebSocket / 信令地址（留空则跟随上方域名）"
   ]
 }

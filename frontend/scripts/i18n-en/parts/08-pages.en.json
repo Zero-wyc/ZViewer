@@ -119,6 +119,6 @@
     "Checking for updates...",
     "Get updates for the latest builds",
     "Parse and generate a response code",
-    "Language"
+    "CLI only (media is not relayed by the server)"
   ]
 }

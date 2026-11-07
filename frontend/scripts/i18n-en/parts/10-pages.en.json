@@ -1,7 +1,5 @@
 {
   "items": [
-    "No Bilibili account linked",
-    "No NetEase Cloud Music account linked",
     "Not sharing",
     "Could not get version info",
     "No cookies found, sign in to Bilibili again",
@@ -119,6 +117,8 @@
     "Sign in to NetEase Cloud Music with cookies",
     "Cookies copied to clipboard",
     "DASH (server relay, high quality)",
-    "Kazumi rule, index or official repository URLs (one per line)"
+    "Kazumi rule, index or official repository URLs (one per line)",
+    "Kazumi rule sources",
+    "MP4 (default, server relay)"
   ]
 }

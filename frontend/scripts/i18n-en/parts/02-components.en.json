@@ -102,6 +102,7 @@
     "Mixed content detected (HTTPS → HTTP)",
     "Check failed",
     "Checking...",
+    "Language",
     "Disable hover shift",
     "Reduced motion",
     "Reduced motion turned off background blur",
@@ -118,7 +119,6 @@
     "Leave blank",
     "Bitrate",
     "Bitrate: {{bitrate}}",
-    "Stroke",
-    "Default"
+    "Stroke"
   ]
 }

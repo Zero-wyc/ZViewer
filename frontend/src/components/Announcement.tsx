@@ -294,15 +294,24 @@ export function AnnouncementButton({ onOpenChange }: AnnouncementButtonProps) {
         className="max-w-lg"
         footer={
           // 关闭走 Modal 右上角 X 与遮罩点击（footer 里不再放重复的关闭按钮）
-          <div className="flex w-full items-center">
+          <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1">
             <a
-              href="https://github.com/Zero-wyc/ZViewer/blob/main/announce.md"
+              href="https://github.com/Zero-wyc/ZViewer"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-primary)]"
             >
               <ExternalLink className="h-3.5 w-3.5" />
-              {translate('在 GitHub 查看原始公告')}
+              {translate('在 GitHub 查看项目仓库')}
+            </a>
+            <a
+              href="https://gitcode.com/Zero-wyc/ZViewer"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-[var(--md-sys-color-on-surface-variant)] transition-colors hover:text-[var(--md-sys-color-primary)]"
+            >
+              <ExternalLink className="h-3.5 w-3.5" />
+              {translate('在 GitCode 查看项目仓库')}
             </a>
           </div>
         }
