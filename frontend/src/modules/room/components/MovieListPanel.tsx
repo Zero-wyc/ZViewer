@@ -690,19 +690,12 @@ export function MovieListPanel({
                   <div
                     className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
                     style={{
-                      background: isActive
-                        ? 'var(--md-sys-color-primary)'
-                        : 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+                      backgroundColor:
+                        'var(--md-sys-color-secondary-container)',
+                      color: 'var(--md-sys-color-on-secondary-container)',
                     }}
                   >
-                    <Film
-                      className="h-3 w-3"
-                      style={{
-                        color: isActive
-                          ? 'var(--md-sys-color-on-primary)'
-                          : 'var(--md-sys-color-primary)',
-                      }}
-                    />
+                    <Film className="h-3 w-3" />
                   </div>
                   <div className="min-w-0 overflow-hidden">
                     <Paragraph
