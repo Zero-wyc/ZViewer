@@ -543,16 +543,6 @@ jobs:
             echo "启动后访问 \`http://localhost:3333\`，初始账号 \`root\` / \`root\`，登录后请立即修改密码。"
             echo ""
             echo "Docker：\`docker pull zerowyc0721/zviewer:${VERSION}\`"
-            if [ "${{ needs.prepare.outputs.latest_tag }}" = 'true' ]; then
-              echo ""
-              echo "\`:latest\` 已同步指向 ${VERSION}。"
-            else
-              echo ""
-              echo "本次是旧版本的补丁，\`:latest\` 仍指向更高的版本。"
-            fi
-            echo ""
-            echo "> 页面底部的文件列表有时加载不出来（只剩 source code），直接点上面的链接即可。"
-            echo "> 境内下载慢时，发版仓库与中国镜像链接都在 [ZviewerRelease](https://github.com/Zero-wyc/ZviewerRelease)。"
           } > release_body.md
           echo "=== Generated release body ==="
           cat release_body.md
