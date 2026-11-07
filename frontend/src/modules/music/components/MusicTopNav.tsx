@@ -1056,7 +1056,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                           aria-hidden="true"
                         />
                         <span className="flex-1 truncate">
-                          {MODE_LABELS[m]}
+                          {t(MODE_LABELS[m])}
                         </span>
                       </button>
                     ) : (
@@ -1080,7 +1080,7 @@ export function MusicTopNav({ isHost, roomModeMenu }: MusicTopNavProps) {
                           aria-hidden="true"
                         />
                         <span className="flex-1 truncate">
-                          {MODE_LABELS[m]}
+                          {t(MODE_LABELS[m])}
                         </span>
                       </div>
                     )

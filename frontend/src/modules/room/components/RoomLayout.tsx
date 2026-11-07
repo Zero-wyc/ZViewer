@@ -112,7 +112,7 @@ export function RoomModeSwitchBar({
         color: 'var(--md-sys-color-on-primary)',
       }}
     >
-      {MODE_LABELS[roomMode]}
+      {t(MODE_LABELS[roomMode])}
     </div>
   )
 }

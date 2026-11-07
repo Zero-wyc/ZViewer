@@ -38,24 +38,37 @@ export function SegmentedToggle({
     .join('\u0001')
 
   useEffect(() => {
-    if (!containerRef.current) return
+    const container = containerRef.current
+    if (!container) return
     const activeIndex = options.findIndex((o) => o.value === value)
     if (activeIndex < 0) return
-    const buttons = containerRef.current.querySelectorAll(
-      'button[data-segment]'
-    )
+    const buttons = container.querySelectorAll('button[data-segment]')
     const activeBtn = buttons[activeIndex] as HTMLElement | undefined
     if (!activeBtn) return
-    const left = activeBtn.offsetLeft
-    const width = activeBtn.offsetWidth
-    // 只在位置真的变了才 setState。
-    //
-    // 调用方通常直接写 `options={MODE_ORDER.map(...)}`，每次渲染都是新数组，
-    // 这个 effect 就会每渲染必跑一次；不比较值的话每次 setState 又触发下一轮
-    // 渲染，直接把自己送进 "Maximum update depth exceeded"。
-    setIndicatorStyle((prev) =>
-      prev.left === left && prev.width === width ? prev : { left, width }
-    )
+
+    const measure = () => {
+      const left = activeBtn.offsetLeft
+      const width = activeBtn.offsetWidth
+      // 只在位置真的变了才 setState。
+      //
+      // 调用方通常直接写 `options={MODE_ORDER.map(...)}`，每次渲染都是新数组，
+      // 这个 effect 就会每渲染必跑一次；不比较值的话每次 setState 又触发下一轮
+      // 渲染，直接把自己送进 "Maximum update depth exceeded"。
+      setIndicatorStyle((prev) =>
+        prev.left === left && prev.width === width ? prev : { left, width }
+      )
+    }
+
+    measure()
+
+    // 按钮宽度会因为「与依赖无关」的原因变化：切界面语言后 label 从中文 key
+    // 换成译文（`value` 与 `signature` 都没变，effect 不会重跑）、字体异步加载、
+    // 容器被压缩。不重新量的话滑块会停在旧宽度上，首次切语言就能看到错位。
+    // 所以直接盯住每个分段的实际尺寸，任何一个变了就重量一次。
+    if (typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver(measure)
+    buttons.forEach((btn) => observer.observe(btn))
+    return () => observer.disconnect()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- 用内容签名代替 options 引用
   }, [value, signature])
 
