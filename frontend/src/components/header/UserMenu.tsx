@@ -7,11 +7,9 @@ import {
   UserCircle,
   LayoutDashboard,
   ChevronDown,
-  Languages,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useAuthStore, type User } from '@/store/authStore'
-import { useLanguageStore } from '@/store/languageStore'
 import { apiFetch, clearAuthTokens, resetSessionExpired } from '@/lib/api'
 import { reconnectSocket } from '@/hooks/useSocket'
 import { message } from '@/components/ui/message'
@@ -55,12 +53,6 @@ export function UserMenu({
   guardNavigate,
 }: UserMenuProps) {
   const logout = useAuthStore((s) => s.logout)
-  // 语言切换按钮直接放在账号菜单头像右侧（个人中心里那一项仍然保留）
-  const language = useLanguageStore((s) => s.language)
-  const setLanguage = useLanguageStore((s) => s.setLanguage)
-  const isEnglish = language === 'en-US'
-  // 按钮显示当前语言：点一下换成另一种，标题写明用途
-  const toggleLanguage = () => setLanguage(isEnglish ? 'zh-CN' : 'en-US')
 
   const handleLogout = async () => {
     onCloseNow()
@@ -204,22 +196,6 @@ export function UserMenu({
                       : t('普通用户')}
                 </p>
               </div>
-
-              {/* 语言切换：点一下在中 / 英之间切换，菜单保持展开以便直接看到效果 */}
-              <button
-                type="button"
-                onClick={toggleLanguage}
-                title={t('界面语言')}
-                aria-label={t('界面语言')}
-                className="flex shrink-0 items-center gap-1 rounded-full px-2 py-1 text-[11px] font-medium leading-none transition-all hover:bg-[var(--md-sys-color-surface-container-highest)] active:scale-95"
-                style={{
-                  border: '1px solid var(--md-sys-color-outline)',
-                  color: 'var(--md-sys-color-on-surface-variant)',
-                }}
-              >
-                <Languages className="h-3 w-3" />
-                <span>{isEnglish ? 'EN' : '中'}</span>
-              </button>
             </div>
 
             <div

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useCallback } from 'react'
-import { Download, Server } from 'lucide-react'
+import { Download, Server, Languages } from 'lucide-react'
 // lucide-react 没有导出 Github，使用自定义 SVG
 const GithubIcon = ({ className }: { className?: string }) => (
   <svg
@@ -19,6 +19,7 @@ const GithubIcon = ({ className }: { className?: string }) => (
   </svg>
 )
 import { useAuthStore } from '@/store/authStore'
+import { useLanguageStore } from '@/store/languageStore'
 import { useRoomStore } from '@/store/roomStore'
 import { useIsMobile } from '@/hooks/useMediaQuery'
 import { message } from '@/components/ui/message'
@@ -43,6 +44,11 @@ export function Header() {
   /** 鼠标悬停触发的显示状态 */
   const [hoverVisible, setHoverVisible] = useState(false)
   const { user, isAuthenticated } = useAuthStore()
+  // 界面语言切换（本机设置，存 localStorage）：顶栏一个按钮在中 / 英之间来回切
+  const language = useLanguageStore((s) => s.language)
+  const setLanguage = useLanguageStore((s) => s.setLanguage)
+  const englishUI = language === 'en-US'
+  const toggleLanguage = () => setLanguage(englishUI ? 'zh-CN' : 'en-US')
   const isMobile = useIsMobile()
   // 两个下拉菜单共用同一套 portal 行为（定位 / 开合动画 / 外部点击收起）
   const {
@@ -197,6 +203,20 @@ export function Header() {
         </button>
 
         <div className="flex items-center gap-1.5">
+          {/* 界面语言：点一下在中 / 英之间切换（按钮本身不带文字，避免挤占顶栏宽度） */}
+          <button
+            type="button"
+            onClick={toggleLanguage}
+            className="p-2 rounded-[var(--md-sys-shape-corner)] transition-all duration-200 hover:scale-[1.02] active:scale-[0.98] bg-[var(--glass-bg)] text-[var(--md-sys-color-on-surface)] hover:bg-[var(--md-sys-color-surface-container-highest)]"
+            style={{
+              border: '1px solid var(--md-sys-color-outline)',
+            }}
+            title={t('界面语言')}
+            aria-label={t('界面语言')}
+          >
+            <Languages className="w-4 h-4" />
+          </button>
+
           {/* 公告按钮（含首次启动/版本更新自动弹出逻辑） */}
           <AnnouncementButton onOpenChange={setAnnounceOpen} />
           <a

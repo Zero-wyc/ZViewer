@@ -15,7 +15,6 @@ import {
   Download,
   Cookie,
   Link2,
-  Languages,
 } from 'lucide-react'
 import { PageBackButton } from '@/components/PageBackButton'
 import { Button } from '@/components/ui/Button'
@@ -30,8 +29,6 @@ import { Title, Text, Paragraph } from '@/components/ui/Typography'
 import { message } from '@/components/ui/message'
 import { useAuthStore, type User as AuthUser } from '@/store/authStore'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
-import { useLanguageStore } from '@/store/languageStore'
-import { LANGUAGES } from '@/i18n'
 import {
   getBilibiliUserInfo,
   loginBilibiliWithCookie,
@@ -72,8 +69,6 @@ export default function ProfilePage() {
   const navigate = useNavigate()
   const { user, setUser } = useAuthStore()
   const { betaFeaturesEnabled } = useSystemSettingsStore()
-  const language = useLanguageStore((s) => s.language)
-  const setLanguage = useLanguageStore((s) => s.setLanguage)
 
   useEffect(() => {
     if (user?.role === 'guest') {
@@ -484,28 +479,6 @@ export default function ProfilePage() {
               >
                 {isAdmin ? t('管理员') : t('普通用户')}
               </Tag>
-            </div>
-          </div>
-
-          {/* 界面语言（只存本机，不影响其他用户） */}
-          <div className="glass-card p-4">
-            <SectionHeader
-              icon={<Languages className="h-4 w-4" />}
-              title={t('界面语言')}
-              tone="tertiary"
-              className="mb-3"
-            />
-            <div className="flex flex-wrap gap-2">
-              {LANGUAGES.map((item) => (
-                <Button
-                  key={item.value}
-                  size="sm"
-                  variant={language === item.value ? 'primary' : 'secondary'}
-                  onClick={() => setLanguage(item.value)}
-                >
-                  {item.label}
-                </Button>
-              ))}
             </div>
           </div>
 
