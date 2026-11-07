@@ -941,13 +941,14 @@ export default function ProfilePage() {
                 <span
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
                   style={{
-                    background:
-                      'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-secondary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-primary) 18%, transparent))',
+                    backgroundColor: 'var(--md-sys-color-secondary-container)',
                   }}
                 >
                   <ImagePlus
                     className="h-4 w-4"
-                    style={{ color: 'var(--md-sys-color-primary)' }}
+                    style={{
+                      color: 'var(--md-sys-color-on-secondary-container)',
+                    }}
                   />
                 </span>
                 <div className="flex min-w-0 flex-col">
@@ -1032,13 +1033,15 @@ export default function ProfilePage() {
                   <span
                     className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
                     style={{
-                      background:
-                        'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-tertiary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-secondary) 18%, transparent))',
+                      backgroundColor:
+                        'var(--md-sys-color-secondary-container)',
                     }}
                   >
                     <UserPen
                       className="h-4 w-4"
-                      style={{ color: 'var(--md-sys-color-primary)' }}
+                      style={{
+                        color: 'var(--md-sys-color-on-secondary-container)',
+                      }}
                     />
                   </span>
                   <div className="flex min-w-0 flex-col">
@@ -1092,13 +1095,14 @@ export default function ProfilePage() {
               <span
                 className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
                 style={{
-                  background:
-                    'linear-gradient(135deg, color-mix(in srgb, var(--md-sys-color-primary) 22%, transparent), color-mix(in srgb, var(--md-sys-color-tertiary) 18%, transparent))',
+                  backgroundColor: 'var(--md-sys-color-secondary-container)',
                 }}
               >
                 <KeyRound
                   className="h-4 w-4"
-                  style={{ color: 'var(--md-sys-color-primary)' }}
+                  style={{
+                    color: 'var(--md-sys-color-on-secondary-container)',
+                  }}
                 />
               </span>
               <div className="flex min-w-0 flex-col">

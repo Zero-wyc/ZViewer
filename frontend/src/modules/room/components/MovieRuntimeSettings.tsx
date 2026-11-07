@@ -45,9 +45,8 @@ interface SwitchCardProps {
 
 /**
  * 单个开关子卡：图标 + 标题/英文小标 + 右侧开关 + 一行状态说明。
- * 图标沿用影片卡片的处理方式（primary 色系图标块）：
- * 开启 = primary 实底 + on-primary 图标，关闭 = primary 12% 淡底 + primary 图标，
- * 与影片列表卡片的 Film 图标同款视觉语言，明暗主题下都与面板头一致。
+ * 图标块用中性衬底（secondary-container），与「添加影片」等卡片头部的图标一致；
+ * 开关状态由右侧开关与卡片描边体现，图标本身不再随状态变色。
  */
 function SwitchCard({
   icon: Icon,
@@ -72,19 +71,11 @@ function SwitchCard({
         <div
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--md-sys-shape-corner)]"
           style={{
-            backgroundColor: checked
-              ? 'var(--md-sys-color-primary)'
-              : 'color-mix(in srgb, var(--md-sys-color-primary) 12%, transparent)',
+            backgroundColor: 'var(--md-sys-color-secondary-container)',
+            color: 'var(--md-sys-color-on-secondary-container)',
           }}
         >
-          <Icon
-            className="h-3 w-3"
-            style={{
-              color: checked
-                ? 'var(--md-sys-color-on-primary)'
-                : 'var(--md-sys-color-primary)',
-            }}
-          />
+          <Icon className="h-3 w-3" />
         </div>
         <div className="flex min-w-0 flex-1 flex-col">
           <span
