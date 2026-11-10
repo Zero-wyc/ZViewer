@@ -142,7 +142,11 @@ export function Dropdown({
   // 仅当实测高度与上次差异较大时重新计算，防止无限循环
   useLayoutEffect(() => {
     if (!open || !menuRef.current || !position) return
-    const actualHeight = menuRef.current.scrollHeight
+    // 必须取 offsetHeight（布局高度，受 max-height 约束），不能用 scrollHeight：
+    // 菜单被 max-height 截断时 scrollHeight 仍是完整内容高度，向上展开会把菜单
+    // 多抬「内容高 - 可见高」的距离，表现为弹层悬在按钮上方几十像素处。
+    // 也不能用 getBoundingClientRect().height：入场动画带 scale，量到的是缩放后的高度。
+    const actualHeight = menuRef.current.offsetHeight
     if (
       lastMeasuredHeightRef.current === null ||
       Math.abs(actualHeight - lastMeasuredHeightRef.current) > 4
