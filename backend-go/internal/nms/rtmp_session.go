@@ -53,10 +53,10 @@ func (c *rtmpConn) serve() {
 	c.cr = newChunkReader(c.conn)
 	c.cw = newChunkWriter(c.conn)
 
+	// 鉴权复核放在每 5 秒的定时器里（见 onPublish），不要放进这个循环：
+	// 循环体每处理一条音视频消息就要跑一次，等于每秒几十次 DB 查询（还是
+	// 全表扫描），一旦库被别的写事务占住，读循环会跟着卡住，表现为推流卡顿。
 	for {
-		if c.publishing && !c.srv.publishAllowed(context.Background(), c.key) {
-			return
-		}
 		msg, err := c.cr.readMessage()
 		if err != nil {
 			if !errors.Is(err, io.EOF) && !errors.Is(err, net.ErrClosed) {

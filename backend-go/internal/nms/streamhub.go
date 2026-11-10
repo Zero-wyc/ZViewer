@@ -126,8 +126,14 @@ func (h *streamHub) stop(key string, owner ...*liveStream) {
 func (h *streamHub) setMetadata(key string, meta map[string]any, owner ...*liveStream) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if ls := h.streams[key]; ls != nil && (len(owner) == 0 || owner[0] == ls) {
-		ls.meta = meta
+	ls := h.streams[key]
+	if ls == nil || (len(owner) > 0 && owner[0] != ls) {
+		return
+	}
+	ls.meta = meta
+	// 已在线的订阅者也要收到：他们是在元数据到达之前订阅的，backlog 里没有。
+	if tag, err := metadataTag(meta); err == nil {
+		h.broadcastLocked(ls, tag, false)
 	}
 }
 
@@ -147,6 +153,8 @@ func (h *streamHub) audio(key string, ts uint32, payload []byte, owner ...*liveS
 	ls.lastActivityAt = h.now()
 	if isAudioSequenceHeader(payload) {
 		ls.audioSeq = payload
+		// 序列头同时要广播出去，不能只留给 backlog（见 video 里的说明）。
+		h.broadcastLocked(ls, tag, false)
 		return true
 	}
 	h.broadcastLocked(ls, tag, false)
@@ -168,6 +176,14 @@ func (h *streamHub) video(key string, ts uint32, payload []byte, owner ...*liveS
 	ls.lastActivityAt = h.now()
 	if isVideoSequenceHeader(payload) {
 		ls.videoSeq = payload
+		// 序列头必须**同时**广播给已在线的订阅者。
+		//
+		// 只存 backlog 会在最常见的时序上丢初始化数据：观众/预览页先订阅，
+		// 订阅时流已经 start 但还没收到任何媒体，backlog 是空的；随后推流端
+		// 才发 onMetaData 与 AVC/AAC 序列头，如果这里只缓存不广播，这些人
+		// 永远拿不到 avcC，MSE 建不出 init segment，video 的 loadedmetadata
+		// 不会触发，播放器 30s 后报「等待媒体 metadata 超时」并一直是黑屏。
+		h.broadcastLocked(ls, tag, false)
 		return true
 	}
 	keyframe := isKeyFrame(payload)
