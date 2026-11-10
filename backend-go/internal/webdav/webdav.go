@@ -580,13 +580,10 @@ func lastSegment(p string) string {
 	return trimmed[idx+1:]
 }
 
-// OpenRangeStream 打开一段字节流。
+// OpenRangeStream 打开一段字节流（已知 fileSize 的精确分片）。
 //
-// 与 Node 版 createWebDAVReadStreamWithRange 对齐：
-//   - 先 stat 拿 fileSize（缓存 30s，seek 期间不重复 PROPFIND）；
-//   - 无 Range / fileSize 未知 / Range 非法 → 退化全量 GET（200）；
-//   - 合法 Range → 带上 Range 头，开放式请求由 proxy.ParseRangeHeader
-//     收敛到 8MiB 分片。
+// 播放路径已改为 OpenStream（不先 PROPFIND，首播少一次往返），本函数
+// 保留给「已经拿到 fileSize、需要严格按解析结果截断」的调用方。
 func OpenRangeStream(ctx context.Context, params Params, rangeHeader string, cache *StatCache) (*Stream, error) {
 	info, err := statCached(ctx, params, cache)
 	if err != nil {
@@ -638,7 +635,7 @@ func OpenRangeStream(ctx context.Context, params Params, rangeHeader string, cac
 //
 // 对齐 Node 的 createWebDAVReadStream：字幕这类「整份读进内存」的调用方
 // 不需要 fileSize，多一次 PROPFIND 纯属浪费一次上游往返。
-// 播放路径请用 OpenRangeStream（它需要 fileSize 才能算分片）。
+// 播放路径请用 OpenStream（它同样不 stat，并且按 Range 只取需要的分段）。
 func OpenReadStream(ctx context.Context, params Params) (io.ReadCloser, string, error) {
 	return openGET(ctx, params, params.Path, "")
 }
@@ -697,6 +694,15 @@ func NewStatCache() *StatCache {
 
 func statKey(p Params) string {
 	return p.ServerURL + "|" + p.Username + "|" + p.Path
+}
+
+// StatCached 是 statCached 的对外入口。
+//
+// 播放路径已改为 OpenStream（不查属性、直接透传 Range），这里的缓存服务
+// 的是「需要 fileSize 的调用方」：/resolve 预热后，同目录字幕、直链兜底
+// 与 OpenRangeStream 都不必再次 PROPFIND。
+func StatCached(ctx context.Context, params Params, cache *StatCache) (*FileInfo, error) {
+	return statCached(ctx, params, cache)
 }
 
 func statCached(ctx context.Context, params Params, cache *StatCache) (*FileInfo, error) {

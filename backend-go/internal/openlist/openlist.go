@@ -70,8 +70,14 @@ const (
 	requestTimeout = 30 * time.Second
 	tokenTTL       = 12 * time.Hour
 	tokenMaxSize   = 200
-	rawURLTTL      = 5 * time.Minute
-	rawURLMaxSize  = 500
+	// rawURLTTL 是签名直链的缓存时长。
+	//
+	// 播放期间每个 Range 请求都要用同一条 raw_url，重取一次就是一次
+	// fs/get 往返。15min 覆盖「投片 → 开播 → 看一段」的常见间隔；
+	// 签名提前失效也不会卡住播放：代理层收到 401/403/410 会立刻
+	// InvalidateRawURL 并重取（见 api/proxyOpenListFile）。
+	rawURLTTL     = 15 * time.Minute
+	rawURLMaxSize = 500
 	// passwordSalt 与 alist 官方前端一致，服务端按 sha256(password+salt) 校验。
 	passwordSalt = "-https://github.com/alist-org/alist"
 )

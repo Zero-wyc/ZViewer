@@ -120,7 +120,13 @@ func (s *Server) handleOpenListStream(w http.ResponseWriter, r *http.Request) {
 
 	serverURL := openlist.NormalizeServerURL(*resolved.Movie.ServerURL)
 	moviePath := *resolved.Movie.Path
+	// 缓存键与 /resolve、/proxy 统一成「挂载+路径」：投片时解析出的
+	// raw_url 直接被首播命中，少一次 fs/get 往返。挂载已删除的旧影片
+	// 退回按 movieId 记，避免不同挂载的同名路径互相串用签名直链。
 	cacheKey := "movie:" + strconv.FormatInt(movieID, 10)
+	if resolved.Mount != nil {
+		cacheKey = openListCacheKey(resolved.Mount.ID, moviePath)
+	}
 
 	// 与 /api/openlist/proxy 共用同一套转发与「签名过期自愈」逻辑，
 	// 差异只有缓存 key 与日志前缀。

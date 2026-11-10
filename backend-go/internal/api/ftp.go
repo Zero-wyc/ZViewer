@@ -439,7 +439,9 @@ func (s *Server) handleResolveFTPFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := ftpParamsOf(mount, targetPath)
-	info, err := ftp.Stat(r.Context(), params)
+	// 用缓存版本：投片时的这次 SIZE 直接进 30s 缓存，紧接着的首次播放
+	// （ftp.Open 需要 fileSize 才能算分片）就命中，少一次上游往返。
+	info, err := ftp.StatCached(r.Context(), params, s.ftpStats)
 	if err != nil {
 		failMount(w, http.StatusBadRequest, errText(err, "解析 "+ftpDisplayName+" 文件失败"), "")
 		return
@@ -471,13 +473,7 @@ func (s *Server) handleFTPProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	params := ftpParamsOf(mount, targetPath)
-
-	info, err := ftp.StatCached(r.Context(), params, s.ftpStats)
-	if err != nil {
-		failMount(w, http.StatusBadRequest, errText(err, "代理 "+ftpDisplayName+" 流失败"), "")
-		return
-	}
-	s.serveFTPStream(w, r, params, info.Size, targetPath, "ftp", "流传输失败")
+	s.serveFTPStream(w, r, params, targetPath, "ftp", "流传输失败")
 }
 
 func (s *Server) handleFTPStream(w http.ResponseWriter, r *http.Request) {
@@ -509,12 +505,7 @@ func (s *Server) handleFTPStream(w http.ResponseWriter, r *http.Request) {
 		params.Port = int(*resolved.Mount.Port)
 	}
 
-	info, err := ftp.StatCached(r.Context(), params, s.ftpStats)
-	if err != nil {
-		failMount(w, http.StatusBadRequest, errText(err, "代理 "+ftpDisplayName+" 影片流失败"), "")
-		return
-	}
-	s.serveFTPStream(w, r, params, info.Size, params.Path, "ftp-stream", ftpDisplayName+" 影片流错误")
+	s.serveFTPStream(w, r, params, params.Path, "ftp-stream", ftpDisplayName+" 影片流错误")
 }
 
 // parseFTPStreamParams 解析 /proxy 的 mountId + path（文案与 Node 一致）。
@@ -537,44 +528,36 @@ func parseFTPStreamParams(w http.ResponseWriter, r *http.Request) (int64, string
 	return mountID, targetPath, true
 }
 
-// serveFTPStream 落地一次「stat 成功之后」的字节输出。
+// serveFTPStream 打开并输出一次 FTP 字节流。
+//
+// stat 与 RETR 合并在 ftp.Open 内部的一条控制连接上完成：老实现先
+// StatCached（dial + SIZE + QUIT）再 OpenStream（dial + 登录 + RETR），
+// 首播要付两遍 TCP 与登录握手。缓存命中时 Open 也会复用池里的控制连接，
+// 后续每个 8MiB 分片不再重新登录。
 func (s *Server) serveFTPStream(
 	w http.ResponseWriter, r *http.Request, params ftp.Params,
-	fileSize int64, name, logTag, errorMessage string,
+	name, logTag, errorMessage string,
 ) {
-	start, end, ranged := ftpRangeOf(r.Header.Get("Range"), fileSize)
-	body, err := ftp.OpenStream(r.Context(), params, start)
+	stream, err := ftp.Open(
+		r.Context(), params, r.Header.Get("Range"), s.ftpStats, proxy.MaxRangeChunkBytes,
+	)
 	if err != nil {
 		failMount(w, http.StatusBadRequest, errText(err, errorMessage), "")
 		return
 	}
-	proxy.PipeRangeStream(w, r, proxy.PipeRangeStreamOptions{
-		Stream:       limitFTPRange(body, ranged, start, end),
+	opts := proxy.PipeRangeStreamOptions{
+		Stream:       limitFTPRange(stream.Body, stream.Ranged, stream.Start, stream.End),
 		ContentType:  proxy.ContentTypeForFormat(proxy.DetectMediaFormat(name)),
-		FileSize:     &fileSize,
-		Start:        &start,
-		End:          &end,
-		Ranged:       ranged,
+		Start:        &stream.Start,
+		End:          &stream.End,
+		Ranged:       stream.Ranged,
 		LogTag:       logTag,
 		ErrorMessage: errorMessage,
-	})
-}
-
-// ftpRangeOf 解析 Range。
-//
-// 与 Node 的一处刻意差异：Node 在 Range 非法时仍然按 206 输出**整个文件**
-// （start=0，end=fileSize-1，但 ranged 取「有没有 Range 头」），于是
-// Content-Range 与实际字节数对不上。这里保持同样的状态码与区间，
-// 但由 limitFTPRange 保证写出的字节数不超过 Content-Range 声明。
-func ftpRangeOf(rangeHeader string, fileSize int64) (int64, int64, bool) {
-	if strings.TrimSpace(rangeHeader) == "" {
-		return 0, fileSize - 1, false
 	}
-	parsed, err := proxy.ParseRangeHeader(rangeHeader, fileSize, proxy.MaxRangeChunkBytes)
-	if err == nil && parsed != nil {
-		return parsed.Start, parsed.End, true
+	if stream.Size > 0 {
+		opts.FileSize = &stream.Size
 	}
-	return 0, fileSize - 1, true
+	proxy.PipeRangeStream(w, r, opts)
 }
 
 // limitFTPRange 把流截断到 Content-Range 声明的长度。

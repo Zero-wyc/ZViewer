@@ -399,7 +399,10 @@ func (s *Server) handleResolveOpenListFile(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	serverURL, username, password := openListParams(mount)
-	info, err := s.OpenList.FetchFileInfo(r.Context(), serverURL, username, password, targetPath)
+	// 与 /proxy、/stream 共用同一个缓存键：投片时的这次 fs/get 会把
+	// raw_url 写进缓存，紧接着的首播直接命中。
+	cacheKey := openListCacheKey(mountID, targetPath)
+	info, err := s.OpenList.CachedFileInfo(r.Context(), cacheKey, serverURL, username, password, targetPath)
 	if err != nil {
 		failMount(w, mountErrorStatus(errCode(err), http.StatusBadRequest, true),
 			errText(err, "解析 "+openListDisplayName+" 文件失败"), errCode(err))
@@ -551,9 +554,18 @@ func (s *Server) handleOpenListProxyByMount(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	serverURL, username, password := openListParams(mount)
-	cacheKey := "mount:" + strconv.FormatInt(mountID, 10) + "|" + targetPath
+	cacheKey := openListCacheKey(mountID, targetPath)
 	s.proxyOpenListFile(w, r, "openlist-proxy", "OpenList 代理流错误", cacheKey,
 		serverURL, username, password, targetPath)
+}
+
+// openListCacheKey 是 OpenList 签名直链的缓存键。
+//
+// 统一成「挂载 + 路径」而不是 movieId：投片（/resolve、/direct-url）、
+// 播放（/stream）与手动代理（/proxy）共用同一份缓存，任一路径预热后
+// 其余路径都能命中（线上表现为「投片后立刻点播放」少一次 fs/get 往返）。
+func openListCacheKey(mountID int64, targetPath string) string {
+	return "mount:" + strconv.FormatInt(mountID, 10) + "|" + targetPath
 }
 
 // proxyOpenListFile 是 /proxy 与 /stream 共用的转发实现。

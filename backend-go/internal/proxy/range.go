@@ -140,6 +140,9 @@ type PipeRangeStreamOptions struct {
 	MaxBytesPerSecond int64
 	// InitialBurstBytes 限速前允许立即发送的字节数
 	InitialBurstBytes int64
+	// ExtraHeaders 是额外透传给客户端的头（ETag / Last-Modified 等）。
+	// 只在代理层没有自己写入同名头时生效。
+	ExtraHeaders http.Header
 }
 
 // PipeRangeStream 以统一的响应头与错误处理输出一个字节流。
@@ -158,15 +161,29 @@ func PipeRangeStream(w http.ResponseWriter, r *http.Request, opts PipeRangeStrea
 	h := w.Header()
 	h.Set("Content-Type", opts.ContentType)
 	h.Set("Accept-Ranges", "bytes")
+	for key, values := range opts.ExtraHeaders {
+		if h.Get(key) != "" {
+			continue
+		}
+		for _, v := range values {
+			h.Add(key, v)
+		}
+	}
 
-	if opts.Ranged && opts.FileSize != nil && opts.Start != nil && opts.End != nil {
+	if opts.Ranged && opts.Start != nil && opts.End != nil {
 		length := *opts.End - *opts.Start + 1
+		// FileSize 未知（上游 206 用 `*` 通配，或直通流尚未拿到总长）时
+		// 输出 RFC 9110 允许的「未知总长」形式：bytes s-e/*。
+		total := "*"
+		if opts.FileSize != nil && *opts.FileSize > 0 {
+			total = strconv.FormatInt(*opts.FileSize, 10)
+		}
 		h.Set("Content-Range", "bytes "+strconv.FormatInt(*opts.Start, 10)+"-"+
-			strconv.FormatInt(*opts.End, 10)+"/"+strconv.FormatInt(*opts.FileSize, 10))
+			strconv.FormatInt(*opts.End, 10)+"/"+total)
 		h.Set("Content-Length", strconv.FormatInt(length, 10))
 		w.WriteHeader(http.StatusPartialContent)
 	} else {
-		if opts.FileSize != nil {
+		if opts.FileSize != nil && *opts.FileSize > 0 {
 			h.Set("Content-Length", strconv.FormatInt(*opts.FileSize, 10))
 		}
 		w.WriteHeader(http.StatusOK)

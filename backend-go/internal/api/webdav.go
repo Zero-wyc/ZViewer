@@ -473,7 +473,9 @@ func (s *Server) handleResolveWebDAVFile(w http.ResponseWriter, r *http.Request)
 	}
 	statParams := params
 	statParams.Path = targetPath
-	info, err := webdav.Stat(r.Context(), statParams)
+	// 用缓存版本：投片时这次 PROPFIND 的结果进 30s 缓存，同目录字幕、
+	// 直链兜底等需要 fileSize 的后续调用直接命中，不再重复往返。
+	info, err := webdav.StatCached(r.Context(), statParams, s.webdavStats)
 	if err != nil {
 		failMount(w, http.StatusBadRequest, errText(err, "解析 "+webdavDisplayName+" 文件失败"), errCode(err))
 		return
@@ -559,24 +561,28 @@ func (s *Server) handleWebDAVProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	params.Path = targetPath
 
-	stream, err := webdav.OpenRangeStream(r.Context(), params, r.Header.Get("Range"), s.webdavStats)
+	stream, err := webdav.OpenStream(r.Context(), params, r.Header.Get("Range"), proxy.MaxRangeChunkBytes)
 	if err != nil {
 		failMount(w, proxyErrorStatus(err, http.StatusBadRequest), errText(err, "打开 WebDAV 流失败"), errCode(err))
 		return
 	}
-	proxy.PipeRangeStream(w, r, proxy.PipeRangeStreamOptions{
+	opts := proxy.PipeRangeStreamOptions{
 		Stream:      stream.Body,
 		ContentType: preferUpstreamContentType(stream.ContentType, targetPath),
-		FileSize:    &stream.FileSize,
 		Start:       &stream.Start,
 		End:         &stream.End,
 		// 用实际语义而非客户端请求头：退化全量 GET 时必须回 200，
 		// 否则 206 + 错误的 Content-Range 会直接挂掉播放
 		Ranged:       stream.Ranged,
+		ExtraHeaders: stream.Header,
 		LogTag:       "webdav",
 		ErrorMessage: webdavDisplayName + " 代理流错误",
 		ErrorCode:    webdav.CodeUnreachable,
-	})
+	}
+	if stream.Total > 0 {
+		opts.FileSize = &stream.Total
+	}
+	proxy.PipeRangeStream(w, r, opts)
 }
 
 func (s *Server) handleWebDAVDirectURL(w http.ResponseWriter, r *http.Request) {
@@ -654,24 +660,28 @@ func (s *Server) handleWebDAVStream(w http.ResponseWriter, r *http.Request) {
 		Username:  resolved.Username,
 		Password:  resolved.Password,
 	}
-	stream, err := webdav.OpenRangeStream(r.Context(), params, r.Header.Get("Range"), s.webdavStats)
+	stream, err := webdav.OpenStream(r.Context(), params, r.Header.Get("Range"), proxy.MaxRangeChunkBytes)
 	if err != nil {
 		status := proxyErrorStatus(err, http.StatusBadRequest)
 		httpx.FailWithCode(w, status, errText(err, "打开 WebDAV 流失败"), errCode(err))
 		return
 	}
 	name := params.Path
-	proxy.PipeRangeStream(w, r, proxy.PipeRangeStreamOptions{
+	opts := proxy.PipeRangeStreamOptions{
 		Stream:       stream.Body,
 		ContentType:  preferUpstreamContentType(stream.ContentType, name),
-		FileSize:     &stream.FileSize,
 		Start:        &stream.Start,
 		End:          &stream.End,
 		Ranged:       stream.Ranged,
+		ExtraHeaders: stream.Header,
 		LogTag:       "webdav-stream",
 		ErrorMessage: webdavDisplayName + " 影片流错误",
 		ErrorCode:    webdav.CodeUnreachable,
-	})
+	}
+	if stream.Total > 0 {
+		opts.FileSize = &stream.Total
+	}
+	proxy.PipeRangeStream(w, r, opts)
 }
 
 // preferUpstreamContentType 优先用源站的 Content-Type。

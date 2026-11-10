@@ -2,6 +2,10 @@ package proxy
 
 import (
 	"errors"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -93,5 +97,61 @@ func TestClampRangeHeaderDisabled(t *testing.T) {
 	// maxChunk<=0 表示不限制（AVPlayer 专用流要完整范围）
 	if got := ClampRangeHeader("bytes=0-", 0); got != "bytes=0-" {
 		t.Fatalf("不限速时应原样返回，实际 %q", got)
+	}
+}
+
+// 直通流（WebDAV OpenStream）在上游 206 用 `*` 表示总长未知时，
+// 仍要给出合法的 206 与 Content-Range，而不是退化成 200。
+func TestPipeRangeStreamUnknownTotal(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/webdav/stream", nil)
+	rec := httptest.NewRecorder()
+	start, end := int64(0), int64(1023)
+
+	PipeRangeStream(rec, req, PipeRangeStreamOptions{
+		Stream:      io.NopCloser(strings.NewReader("0123456789")),
+		ContentType: "video/mp4",
+		Start:       &start,
+		End:         &end,
+		Ranged:      true,
+		LogTag:      "test",
+	})
+
+	if rec.Code != http.StatusPartialContent {
+		t.Fatalf("状态码应为 206，实际 %d", rec.Code)
+	}
+	if got := rec.Header().Get("Content-Range"); got != "bytes 0-1023/*" {
+		t.Errorf("Content-Range 应为 bytes 0-1023/*，实际 %q", got)
+	}
+	if got := rec.Header().Get("Content-Length"); got != "1024" {
+		t.Errorf("Content-Length 应为 1024，实际 %q", got)
+	}
+}
+
+// ETag / Last-Modified 要能随字节流透传，同时不能覆盖代理层自己写的头。
+func TestPipeRangeStreamExtraHeaders(t *testing.T) {
+	req := httptest.NewRequest(http.MethodGet, "/api/webdav/stream", nil)
+	rec := httptest.NewRecorder()
+	size := int64(10)
+
+	PipeRangeStream(rec, req, PipeRangeStreamOptions{
+		Stream:      io.NopCloser(strings.NewReader("0123456789")),
+		ContentType: "video/mp4",
+		FileSize:    &size,
+		ExtraHeaders: http.Header{
+			"Etag":           {"\"abc\""},
+			"Content-Length": {"999"}, // 必须被代理层覆盖
+			"Content-Type":   {"text/plain"},
+		},
+		LogTag: "test",
+	})
+
+	if got := rec.Header().Get("Etag"); got != "\"abc\"" {
+		t.Errorf("ETag 应透传，实际 %q", got)
+	}
+	if got := rec.Header().Get("Content-Length"); got != "10" {
+		t.Errorf("Content-Length 必须由代理层决定，实际 %q", got)
+	}
+	if got := rec.Header().Get("Content-Type"); got != "video/mp4" {
+		t.Errorf("Content-Type 必须由代理层决定，实际 %q", got)
 	}
 }

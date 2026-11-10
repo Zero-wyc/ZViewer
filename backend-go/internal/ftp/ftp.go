@@ -26,6 +26,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"zviewer/backend/internal/proxy"
 )
 
 // DefaultPort 是 FTP 默认端口（ftps 隐式 TLS 同理，显式 TLS 也走 21）。
@@ -41,6 +43,12 @@ const opTimeout = 10 * time.Second
 // 期间控制 socket 不设限。这里取 60s：比 30s 宽松，避免慢速 FTP
 // （尤其是跨境线路）因为一个 chunk 晚到就被判死。
 const streamIdleTimeout = 60 * time.Second
+
+// closeGrace 是「关闭流时读 226 收尾响应」的等待上限。
+//
+// 正常读完文件时 226 早已在缓冲区里，毫秒级返回；客户端中途断开时
+// 服务端可能不发收尾响应，必须有个短超时，不能沿用 opTimeout(10s)。
+const closeGrace = 2 * time.Second
 
 // maxListingBytes 是目录列举的读取上限（防恶意/异常服务器把内存打满）。
 const maxListingBytes = 4 << 20
@@ -130,12 +138,55 @@ type client struct {
 	host string
 	// supportsMLSD 由 FEAT 是否声明 MLST 决定（RFC 3659：有 MLST 就有 MLSD）。
 	supportsMLSD bool
+	// poolKey 非空表示这条连接来自（且可归还给）控制连接池。
+	poolKey string
+	// dirty 表示本次会话改过工作目录（SIZE 失败回退目录扫描）。这类
+	// 连接不能再复用：后续用相对路径 RETR 会被带偏到错误目录。
+	dirty bool
 }
 
 func (c *client) close() {
 	if c.ctrl != nil {
 		_ = c.ctrl.Close()
+		c.ctrl = nil
 	}
+}
+
+// release 把「状态干净」的控制连接放回池里，供下一次 Range 请求复用。
+//
+// 只有取流路径会调用：一次 RETR 结束后控制连接上只剩 226 已读走，
+// 没有未读响应，可以安全地交给下一个请求。stat/列目录路径仍走 close，
+// 因为目录扫描会改 CWD，留着反而容易让相对路径错位。
+func (c *client) release() {
+	if c.ctrl == nil {
+		return
+	}
+	if c.poolKey == "" || c.dirty {
+		c.close()
+		return
+	}
+	idleConns.put(c.poolKey, c)
+}
+
+// alive 用 NOOP 探活。
+//
+// 空闲连接可能已被服务端 RST（NAT 超时、连接数限制），盲目复用会让下一个
+// 播放请求立刻失败。探活失败就丢弃重连，代价只是一次多出来的 dial。
+func (c *client) alive() bool {
+	if c.ctrl == nil {
+		return false
+	}
+	_ = c.ctrl.SetDeadline(time.Now().Add(noopTimeout))
+	if err := c.send("NOOP"); err != nil {
+		return false
+	}
+	res, err := c.readReply()
+	if err != nil || res.code >= 400 {
+		return false
+	}
+	// 探活改过 deadline，清掉以免影响后续长传输
+	_ = c.ctrl.SetDeadline(time.Time{})
+	return true
 }
 
 // readLine 读一行（去 CRLF）。
@@ -260,8 +311,86 @@ func parseServerURL(serverURL string) (host string, secure bool) {
 	return trimmed, false
 }
 
+// 控制连接池参数。
+const (
+	// ctrlPoolMaxIdle 是单挂载（server+user+port）保留的空闲连接上限。
+	// 播放器通常只并发 1~2 条 Range 请求，4 条足够覆盖 seek 抖动，
+	// 又不至于把「FTP 每用户最大连接数」这种常见限制撞满。
+	ctrlPoolMaxIdle = 4
+	// ctrlPoolTTL 是空闲连接的可复用时长。浏览器连续取分片的间隔通常
+	// 远小于此值；停顿更久说明用户已暂停，让服务端回收更稳妥。
+	ctrlPoolTTL = 20 * time.Second
+	// noopTimeout 是复用前的探活超时：够快失败，避免把播放卡在探活上。
+	noopTimeout = 1500 * time.Millisecond
+)
+
+// ctrlPool 按「服务器+账号+端口」缓存空闲控制连接。
+type ctrlPool struct {
+	mu   sync.Mutex
+	idle map[string][]pooledConn
+}
+
+type pooledConn struct {
+	c  *client
+	at time.Time
+}
+
+var idleConns = &ctrlPool{idle: make(map[string][]pooledConn)}
+
+// poolKey 以「账号」为维度而不是「挂载」：同一台 FTP 的多个挂载共用账号时
+// 可以互相复用，账号不同则必须隔离（服务端按登录会话计连接数）。
+func poolKey(p Params) string {
+	return p.ServerURL + "\x00" + p.Username + "\x00" + strconv.Itoa(p.port())
+}
+
+func (p *ctrlPool) take(key string) *client {
+	for {
+		p.mu.Lock()
+		list := p.idle[key]
+		if len(list) == 0 {
+			p.mu.Unlock()
+			return nil
+		}
+		last := list[len(list)-1]
+		p.idle[key] = list[:len(list)-1]
+		p.mu.Unlock()
+
+		if time.Since(last.at) > ctrlPoolTTL {
+			last.c.close()
+			continue
+		}
+		// 探活在锁外做：一次 NOOP 最长 1.5s，持锁会把同账号的其他
+		// 播放请求一起堵住。
+		if last.c.alive() {
+			return last.c
+		}
+		last.c.close()
+	}
+}
+
+func (p *ctrlPool) put(key string, c *client) {
+	p.mu.Lock()
+	if len(p.idle[key]) >= ctrlPoolMaxIdle {
+		p.mu.Unlock()
+		c.close()
+		return
+	}
+	p.idle[key] = append(p.idle[key], pooledConn{c: c, at: time.Now()})
+	p.mu.Unlock()
+}
+
 // dial 建立控制连接并完成登录与默认设置。
+//
+// 优先复用池里的空闲连接：浏览器播放一个文件会连续发几十个 8MiB 分片
+// Range，每片都重新 TCP+登录在公网 FTP 上是秒级浪费（跨境线路单次握手
+// 常 100~400ms）。复用失败（探活不过）就退回新建。
 func dial(ctx context.Context, params Params) (*client, error) {
+	key := poolKey(params)
+	if c := idleConns.take(key); c != nil {
+		c.poolKey = key
+		return c, nil
+	}
+
 	host, secure := parseServerURL(params.ServerURL)
 	if host == "" {
 		return nil, newError("FTP 服务器地址不能为空", CodeUnreachable)
@@ -281,7 +410,7 @@ func dial(ctx context.Context, params Params) (*client, error) {
 	if tcpAddr, ok := conn.RemoteAddr().(*net.TCPAddr); ok {
 		remoteIP = tcpAddr.IP.String()
 	}
-	c := &client{ctrl: conn, r: bufio.NewReader(conn), host: remoteIP}
+	c := &client{ctrl: conn, r: bufio.NewReader(conn), host: remoteIP, poolKey: key}
 	if err := c.handshake(ctx, params, secure); err != nil {
 		c.close()
 		return nil, err
@@ -717,48 +846,167 @@ func OpenStream(ctx context.Context, params Params, offset int64) (io.ReadCloser
 	if err != nil {
 		return nil, err
 	}
-	dataConn, err := c.enterPassive()
+	body, err := c.openData(params.Path, offset)
 	if err != nil {
 		c.close()
+		return nil, err
+	}
+	return body, nil
+}
+
+// OpenedStream 是一次「stat 与取流合并」的结果。
+//
+// 与 OpenStream 的区别：Size 是这条连接上现取的（或缓存命中的），
+// 上层据此写 Content-Length/Content-Range；Start/End 是最终生效的区间。
+type OpenedStream struct {
+	Body   io.ReadCloser
+	Size   int64
+	Start  int64
+	End    int64
+	Ranged bool
+}
+
+// Open 用一条控制连接完成「stat + RETR」，供播放路径使用。
+//
+// 首播的两次上游往返就省在这里：旧实现是 Stat（dial+SIZE+QUIT）一次、
+// OpenStream（dial+登录+RETR）再一次，公网 FTP 上等于两遍 TCP 与登录握手。
+// 缓存命中时仍要建连（数据连接必须新建），但同样只有一次登录。
+func Open(
+	ctx context.Context,
+	params Params,
+	rangeHeader string,
+	cache *StatCache,
+	maxChunk int64,
+) (*OpenedStream, error) {
+	opCtx, cancel := context.WithTimeout(ctx, opTimeout)
+	defer cancel()
+
+	c, err := dial(opCtx, params)
+	if err != nil {
+		return nil, err
+	}
+
+	info, retrTarget, err := c.resolveForStream(params, cache)
+	if err != nil {
+		c.close()
+		return nil, err
+	}
+	// 建连与 stat 阶段结束：后续传输由 streamIdleTimeout 兜底，
+	// 不再受 opTimeout（10s）限制。
+	cancel()
+
+	start, end := int64(0), info.Size-1
+	ranged := false
+	if strings.TrimSpace(rangeHeader) != "" && info.Size > 0 {
+		// 与 WebDAV 一致：非法/越界 Range 退化成全量，不报 416。
+		if r, rerr := proxy.ParseRangeHeader(rangeHeader, info.Size, maxChunk); rerr == nil && r != nil {
+			start, end, ranged = r.Start, r.End, true
+		}
+	}
+
+	body, err := c.openData(retrTarget, start)
+	if err != nil {
+		c.close()
+		return nil, err
+	}
+	return &OpenedStream{Body: body, Size: info.Size, Start: start, End: end, Ranged: ranged}, nil
+}
+
+// resolveForStream 取文件属性（优先缓存）。retrTarget 是 RETR 应该使用的路径。
+//
+// 回退到目录扫描时 RETR 只能用文件名：那条分支已经把 CWD 切到父目录，
+// 再发相对路径会变成「父目录/父目录/文件」。
+func (c *client) resolveForStream(params Params, cache *StatCache) (FileInfo, string, error) {
+	key := cacheKey(params)
+	// 只有绝对路径能直接拿来 RETR：相对路径在复用的连接上依赖 CWD，
+	// 各次会话未必一致，宁可不走缓存多查一次。
+	absolute := strings.HasPrefix(params.Path, "/")
+	if cache != nil && absolute {
+		if info, ok := cache.get(key); ok {
+			return info, params.Path, nil
+		}
+	}
+	info, retrTarget, err := c.statForStream(params)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	if cache != nil {
+		cache.set(key, info)
+	}
+	return info, retrTarget, nil
+}
+
+// statForStream 只做首播必需的事：SIZE。不查 MDTM（播放用不到时间戳，
+// 多一次往返纯属浪费），SIZE 不支持时才回退目录扫描。
+func (c *client) statForStream(params Params) (FileInfo, string, error) {
+	filename := lastSegment(params.Path)
+	if size, err := c.fileSize(params.Path); err == nil {
+		return FileInfo{Name: filename, Path: params.Path, Size: size}, params.Path, nil
+	}
+
+	dir := parentDir(params.Path)
+	command, err := c.absolute(dir)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	if _, err := c.request("CWD " + command); err != nil {
+		return FileInfo{}, "", err
+	}
+	c.dirty = true
+	text, err := c.list()
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	items, err := parseListing(text)
+	if err != nil {
+		return FileInfo{}, "", err
+	}
+	for _, item := range items {
+		if item.name == filename && item.kind == kindFile {
+			return FileInfo{Name: item.name, Path: params.Path, Size: item.size, LastModified: item.modified},
+				filename, nil
+		}
+	}
+	return FileInfo{}, "", newError("FTP 文件不存在", CodeNotFound)
+}
+
+// openData 在已登录的控制连接上开一条数据连接并开始 RETR。
+//
+// 失败时只清数据连接，控制连接由调用方决定关闭或归还。
+func (c *client) openData(target string, offset int64) (io.ReadCloser, error) {
+	dataConn, err := c.enterPassive()
+	if err != nil {
 		return nil, err
 	}
 
 	if offset > 0 {
-		res, err := c.request("REST " + strconv.FormatInt(offset, 10))
-		if err != nil {
+		if _, err := c.request("REST " + strconv.FormatInt(offset, 10)); err != nil {
 			dataConn.Close()
-			c.close()
 			return nil, err
 		}
-		_ = res
 	}
 
-	command, err := c.absolute(params.Path)
+	command, err := c.absolute(target)
 	if err != nil {
 		dataConn.Close()
-		c.close()
 		return nil, err
 	}
 	if err := c.send("RETR " + command); err != nil {
 		dataConn.Close()
-		c.close()
 		return nil, err
 	}
 	_ = c.ctrl.SetReadDeadline(time.Now().Add(opTimeout))
 	res, err := c.readReply()
 	if err != nil {
 		dataConn.Close()
-		c.close()
 		return nil, err
 	}
 	if res.code >= 400 {
 		dataConn.Close()
-		c.close()
 		return nil, newError(res.message, codeFromReply(res.code))
 	}
 	if res.code != 125 && res.code != 150 {
 		dataConn.Close()
-		c.close()
 		return nil, newError("FTP 服务器未开始传输: "+res.message, CodeUnreachable)
 	}
 	return &stream{data: dataConn, ctrl: c}, nil
@@ -787,20 +1035,25 @@ func (s *stream) Read(p []byte) (int, error) {
 }
 
 // finish 读掉 226 收尾响应并释放控制连接。
+// finish 读掉 226 收尾响应并归还控制连接。
 func (s *stream) finish() {
 	if s.finished {
 		return
 	}
 	s.finished = true
-	_ = s.ctrl.ctrl.SetReadDeadline(time.Now().Add(opTimeout))
-	_, _ = s.ctrl.readReply()
-	s.ctrl.close()
+	// 收尾响应可能因为客户端提前断开数据连接而永远不来（服务端回 426
+	// 或干脆不发）：短超时兜底，避免 handler 退出时被拖住 10s。
+	_ = s.ctrl.ctrl.SetReadDeadline(time.Now().Add(closeGrace))
+	if _, err := s.ctrl.readReply(); err != nil {
+		s.ctrl.close()
+		return
+	}
+	s.ctrl.release()
 }
 
 func (s *stream) Close() error {
 	_ = s.data.Close()
 	s.finish()
-	s.ctrl.close()
 	return nil
 }
 
