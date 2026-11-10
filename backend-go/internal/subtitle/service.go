@@ -23,6 +23,7 @@ import (
 
 	"zviewer/backend/internal/emby"
 	"zviewer/backend/internal/ftp"
+	"zviewer/backend/internal/jellyfin"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/serverfiles"
@@ -683,7 +684,7 @@ func (s *Service) resolveEmbyContext(ctx context.Context, movie *store.Movie) (*
 	mount := resolved.Mount
 
 	// 合成一份挂载：serverUrl 用影片的，凭证「影片优先、挂载兜底」。
-	synthetic := &store.Mount{ServerURL: movie.ServerURL}
+	synthetic := &store.Mount{ServerURL: movie.ServerURL, Type: source}
 	if mount != nil {
 		synthetic.APIKey = mount.APIKey
 		synthetic.EmbyUserID = mount.EmbyUserID
@@ -694,31 +695,20 @@ func (s *Service) resolveEmbyContext(ctx context.Context, movie *store.Movie) (*
 		synthetic.Password = firstNonEmptyPtr(movie.Password, nil)
 	}
 
-	client, err := emby.NewFromMount(synthetic)
+	// userId 的取法与浏览链路完全一致（库里已存 → 登录结果 → /Users/Me），
+	// 交给协议层统一决定。这里不再自己写一份判定：曾经为了对齐 Node 而抄过
+	// 一遍，两处一旦分叉就会出现「字幕能取、浏览 403」这类诡异现象。
+	resolve := emby.ResolveSession
+	if source == "jellyfin" {
+		resolve = jellyfin.ResolveSession
+	}
+	session, err := resolve(ctx, synthetic)
 	if err != nil {
 		return nil, err
 	}
-	// 注意这里刻意不用 emby.ResolveSession：那个版本的 userId 判定要求
-	// 「有 apiKey 且 embyUserId 非空」才用缓存值，而字幕这条路径在 Node 里
-	// 是无条件优先用 mount.embyUserId。两者在「账号密码登录 + 已存 userId」
-	// 的挂载上会分叉（多一次 /Users/Me 请求），必须逐字对齐。
-	userID := deref(derefPtr(mount))
-	if userID == "" {
-		me, err := client.Me(ctx)
-		if err != nil {
-			return nil, err
-		}
-		userID = me.ID
-	}
-	return &embedContext{Client: client, ItemID: deref(movie.Path), UserID: userID}, nil
-}
-
-// derefPtr 取 mount.EmbyUserID（mount 可能为 nil）。
-func derefPtr(mount *store.Mount) *string {
-	if mount == nil {
-		return nil
-	}
-	return mount.EmbyUserID
+	return &embedContext{
+		Client: session.Client, ItemID: deref(movie.Path), UserID: session.UserID,
+	}, nil
 }
 
 // firstNonEmptyPtr 返回第一个非空指针（Node 的 `a || b || undefined`）。

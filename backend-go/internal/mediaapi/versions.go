@@ -1,4 +1,4 @@
-package emby
+package mediaapi
 
 import (
 	"context"
@@ -47,7 +47,7 @@ func FormatSize(size int64) string {
 //
 // 标签拼接顺序固定为「版本名 · 分辨率 · 容器 · 体积」，缺一项跳过该段；
 // 四段全缺时退化成「版本 N」（N 从 1 开始）。
-func BuildVersions(sources []EmbyMediaSrc) []VersionInfo {
+func BuildVersions(sources []MediaSource) []VersionInfo {
 	versions := make([]VersionInfo, 0, len(sources))
 	for i, source := range sources {
 		var height *int
@@ -97,7 +97,7 @@ func BuildVersions(sources []EmbyMediaSrc) []VersionInfo {
 }
 
 // SelectSource 按 mediaSourceId 选版本；未匹配时回退第一个（服务器默认）。
-func SelectSource(sources []EmbyMediaSrc, mediaSourceID string) EmbyMediaSrc {
+func SelectSource(sources []MediaSource, mediaSourceID string) MediaSource {
 	if mediaSourceID != "" {
 		for _, source := range sources {
 			if source.ID == mediaSourceID {
@@ -150,7 +150,7 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 
 	// 音轨兼容性：Node 是 `!!audioStream && !!audioStream.Codec && !supported`，
 	// Codec 缺失与空串在 !! 下等价，都算「不需要转码」。
-	var audioStream *EmbyMediaStream
+	var audioStream *MediaStream
 	for i := range source.MediaStreams {
 		if source.MediaStreams[i].Type == "Audio" {
 			audioStream = &source.MediaStreams[i]
@@ -225,16 +225,8 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 	// 编码与否字节相同，这里保持一致。
 	token := params.Session.Token()
 	baseURL := params.Session.Client.BaseURL
-	var directURLRaw string
-	if useAudioTranscode {
-		directURLRaw = baseURL + "/emby/Videos/" + itemEncoded +
-			"/main.m3u8?api_key=" + token +
-			"&AudioCodec=aac&TranscodingMaxAudioChannels=2" +
-			"&VideoBitrate=8000000&AudioBitrate=192000" + upstreamMsQuery
-	} else {
-		directURLRaw = baseURL + "/emby/Videos/" + itemEncoded +
-			"/stream?static=true&api_key=" + token + upstreamMsQuery
-	}
+	proto := params.Session.Client.Protocol()
+	directURLRaw := proto.DirectURL(baseURL, token, params.ItemID, useAudioTranscode, upstreamMsQuery)
 	directURL := mountutil.UpgradeDirectURLValidated(ctx, params.Mounts, params.Mount, directURLRaw)
 
 	// format 是 'hls' 时前端才会挂 HLS 引擎，写成别的值等于播放不了。
@@ -259,11 +251,11 @@ func BuildResolvePayload(ctx context.Context, params ResolveParams) (map[string]
 		payload["streamUrl"] = streamURL
 	}
 	if params.ResolveDirectRedirects && !useAudioTranscode {
+		headers := proto.UpstreamHeaders(token)
+		headers["Referer"] = baseURL
 		resolvedDirectURL, err := proxy.ResolveUpstreamURL(ctx, proxy.HTTPOptions{
-			URL: directURL,
-			Headers: proxy.UpstreamHeaders{Extra: map[string]string{
-				"X-Emby-Token": token, "Referer": baseURL,
-			}},
+			URL:     directURL,
+			Headers: proxy.UpstreamHeaders{Extra: headers},
 		})
 		if err != nil {
 			return nil, &Error{Message: "解析直连媒体地址失败", Code: CodeUnreachable}

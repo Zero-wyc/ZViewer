@@ -15,28 +15,38 @@ import (
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/emby"
 	"zviewer/backend/internal/httpx"
+	"zviewer/backend/internal/jellyfin"
+	"zviewer/backend/internal/mediaapi"
 	"zviewer/backend/internal/mountutil"
 	"zviewer/backend/internal/netutil"
 	"zviewer/backend/internal/proxy"
 	"zviewer/backend/internal/store"
 )
 
-// embyLikeKind 参数化 Emby / Jellyfin 的差异。
+// embyLikeKind 参数化 Emby / Jellyfin 的对外差异。
 //
-// Jellyfin 是 Emby 的开源分支，API 完全兼容。Node 侧为了消掉两份逐行平行的
-// 拷贝做了 emby-like-factory；Go 侧同样只写一套 handler，靠这个结构体区分
-// 挂载类型、错误文案与路由前缀。
+// 两个挂载类型共用一套 HTTP handler，但上游协议已经是两套独立实现
+// （见 internal/emby 与 internal/jellyfin 的 Protocol）：Jellyfin 12 不再
+// 接受 /emby 前缀与 X-Emby-Token，路径也从 /Users/{id}/Items 搬到 /Items。
 type embyLikeKind struct {
 	MountType string // UserMount.type
 	Label     string // 错误文案里的显示名
 	Prefix    string // /api/{prefix}
 	// FallbackCode 是「非客户端错误」的错误码兜底（EMBY_ERROR / JELLYFIN_ERROR）
 	FallbackCode string
+	// Protocol 是上游协议（路径前缀、鉴权方式、令牌参数名）。
+	Protocol mediaapi.Protocol
 }
 
 var (
-	embyKind     = embyLikeKind{MountType: "emby", Label: "Emby", Prefix: "emby", FallbackCode: "EMBY_ERROR"}
-	jellyfinKind = embyLikeKind{MountType: "jellyfin", Label: "Jellyfin", Prefix: "jellyfin", FallbackCode: "JELLYFIN_ERROR"}
+	embyKind = embyLikeKind{
+		MountType: "emby", Label: "Emby", Prefix: "emby", FallbackCode: "EMBY_ERROR",
+		Protocol: emby.Protocol,
+	}
+	jellyfinKind = embyLikeKind{
+		MountType: "jellyfin", Label: "Jellyfin", Prefix: "jellyfin", FallbackCode: "JELLYFIN_ERROR",
+		Protocol: jellyfin.Protocol,
+	}
 )
 
 // registerEmbyRoutes 注册 Emby 与 Jellyfin 两套端点（一套 handler 注册两次）。
@@ -354,7 +364,13 @@ func (s *Server) findOwnedEmbyMount(
 }
 
 // mountSession 取挂载会话（登录缓存保证不会每次请求都打 authenticatebyname）。
-func (s *Server) mountSession(r *http.Request, mount *store.Mount) (*emby.Session, error) {
+//
+// 按挂载类型挑协议：Jellyfin 12 的登录端点与鉴权头都和 Emby 不同，
+// 不能共用同一个客户端。
+func (s *Server) mountSession(r *http.Request, mount *store.Mount) (*mediaapi.Session, error) {
+	if mount.Type == jellyfinKind.MountType {
+		return jellyfin.ResolveSession(r.Context(), mount)
+	}
 	return emby.ResolveSession(r.Context(), mount)
 }
 
@@ -364,6 +380,33 @@ func derefEmbyID(id *string) string {
 		return ""
 	}
 	return *id
+}
+
+// sameOptional 判断两个可空凭证字段是否等价。
+//
+// nil 与 "" 都表示「没配」，在认证路径上是同一个意思，所以按值比较时
+// 一并视为相等——否则一次「没改密码」的保存也会触发重新登录。
+func sameOptional(a, b *string) bool {
+	return derefEmbyID(a) == derefEmbyID(b)
+}
+
+// mountWithPatch 把「整行覆盖」形式的 patch 合成为一条临时挂载记录。
+//
+// 用于「凭证刚改过、要拿新凭证去解析 userId」的探针场景：库里那条还是旧
+// 值，直接拿它解析只会得到旧账号的用户。
+func mountWithPatch(mount *store.Mount, patch store.MountPatch) *store.Mount {
+	probe := *mount
+	probe.Name = patch.Name
+	probe.ServerURL = patch.ServerURL
+	probe.Port = patch.Port
+	probe.Path = patch.Path
+	probe.Username = patch.Username
+	probe.Password = patch.Password
+	probe.APIKey = patch.APIKey
+	probe.EmbyUserID = patch.EmbyUserID
+	probe.DirectLink = patch.DirectLink
+	probe.HttpsDirect = patch.HttpsDirect
+	return &probe
 }
 
 // ==================== 挂载 CRUD ====================
@@ -404,8 +447,8 @@ func (s *Server) handleEmbyTestMount(kind embyLikeKind) http.HandlerFunc {
 		}
 		userID, userName, serverID := "", "", ""
 		if token == "" {
-			result, err := emby.Login(r.Context(), strings.TrimSpace(serverURL),
-				jsString(body.Username), jsString(body.Password))
+			result, err := mediaapi.LoginWithProtocol(r.Context(), kind.Protocol,
+				strings.TrimSpace(serverURL), jsString(body.Username), jsString(body.Password))
 			if err != nil {
 				code := embyErrorCode(kind, err)
 				failEmby(w, http.StatusBadRequest, embyErrorMessage(err, "连接 "+kind.Label+" 失败"), code)
@@ -416,7 +459,7 @@ func (s *Server) handleEmbyTestMount(kind embyLikeKind) http.HandlerFunc {
 		// API Key 模式拿不到用户信息，必须问 /Users/Me；账号密码模式
 		// 登录结果已含 userId，跳过这次往返（与 Node 一致）。
 		if userID == "" {
-			client := emby.NewClient(strings.TrimSpace(serverURL), token)
+			client := mediaapi.NewClientWithProtocol(strings.TrimSpace(serverURL), token, kind.Protocol)
 			me, err := client.Me(r.Context())
 			if err != nil {
 				code := embyErrorCode(kind, err)
@@ -459,8 +502,8 @@ func (s *Server) handleEmbyCreateMount(kind embyLikeKind) http.HandlerFunc {
 			token = strings.TrimSpace(apiKey)
 		}
 		if token == "" {
-			result, err := emby.Login(r.Context(), strings.TrimSpace(serverURL),
-				jsString(body.Username), jsString(body.Password))
+			result, err := mediaapi.LoginWithProtocol(r.Context(), kind.Protocol,
+				strings.TrimSpace(serverURL), jsString(body.Username), jsString(body.Password))
 			if err != nil {
 				code := embyErrorCode(kind, err)
 				failEmby(w, http.StatusBadRequest, embyErrorMessage(err, "连接 "+kind.Label+" 失败"), code)
@@ -470,7 +513,7 @@ func (s *Server) handleEmbyCreateMount(kind embyLikeKind) http.HandlerFunc {
 			token = result.Token
 		}
 		if embyUserID == "" {
-			client := emby.NewClient(strings.TrimSpace(serverURL), token)
+			client := mediaapi.NewClientWithProtocol(strings.TrimSpace(serverURL), token, kind.Protocol)
 			me, err := client.Me(r.Context())
 			if err != nil {
 				code := embyErrorCode(kind, err)
@@ -549,12 +592,19 @@ func (s *Server) handleEmbyUpdateMount(kind embyLikeKind) http.HandlerFunc {
 		if name, ok := stringValue(body.Name); ok && strings.TrimSpace(name) != "" {
 			patch.Name = strings.TrimSpace(name)
 		}
+		serverChanged := false
 		if serverURL, ok := stringValue(body.ServerURL); ok && strings.TrimSpace(serverURL) != "" {
 			normalized := netutil.NormalizeServerURLWithScheme(serverURL)
 			patch.ServerURL = &normalized
-			// 服务器变了：userId 与 HTTPS 能力都必须重新获取/探测。
-			patch.EmbyUserID = nil
+			// HTTPS 能力每次保存都重探：用户的既有流程是「配好反向代理再保存
+			// 一次」，不能因为地址没变就沿用旧结论。
 			patch.HttpsDirect = nil
+			// userId 只在地址真的变了时才作废：表单每次保存都会带上
+			// serverUrl，按「有没有这个字段」判断会让一次改名也重新登录。
+			serverChanged = !sameOptional(&normalized, mount.ServerURL)
+			if serverChanged {
+				patch.EmbyUserID = nil
+			}
 		}
 		if body.has("apiKey") {
 			patch.APIKey = optionalTrimmed(body.APIKey)
@@ -569,11 +619,21 @@ func (s *Server) handleEmbyUpdateMount(kind embyLikeKind) http.HandlerFunc {
 			patch.DirectLink = body.DirectLink == true
 		}
 
-		// 更新后重取 userId：换账号 / 换服务器都会让它变，而它决定了
-		// 之后能否跳过 /Users/Me。取不到就保持原样，运行时再兜底。
-		if session, err := s.mountSession(r, mount); err == nil && session.UserID != "" {
-			userID := session.UserID
-			patch.EmbyUserID = &userID
+		// 凭证变了就必须重新解析 userId：它属于旧账号，留着会让浏览去查
+		// 别人的媒体库（甚至干脆没权限）。
+		credentialsChanged := serverChanged ||
+			(body.has("apiKey") && !sameOptional(patch.APIKey, mount.APIKey)) ||
+			(body.has("username") && !sameOptional(patch.Username, mount.Username)) ||
+			(body.has("password") && !sameOptional(patch.Password, mount.Password))
+		if credentialsChanged {
+			// 用**新**凭证解析：库里那条还是旧值，拿它解析只会得到旧账号的
+			// userId，等于把刚改的账号又改了回去。解析不出来就清空，交给
+			// 运行时的登录结果兜底（零往返），绝不让旧 userId 跟着新账号走。
+			patch.EmbyUserID = nil
+			if session, err := s.mountSession(r, mountWithPatch(mount, patch)); err == nil && session.UserID != "" {
+				userID := session.UserID
+				patch.EmbyUserID = &userID
+			}
 		}
 
 		if err := s.Mounts.Update(r.Context(), mountID, claims.UserID, kind.MountType, patch); err != nil {
@@ -966,7 +1026,11 @@ func (errInvalidHLSResource) Error() string { return hlsInvalidResource }
 // 这个参数是给 m3u8 里的分片/密钥用的：前端把改写后的 /proxy 地址换回
 // 上游真实地址时，必须限定在同一 origin、同一 videos/{itemId}/ 前缀下，
 // 否则 /proxy 就是一个任何人可用的开放代理（可读内网、可带 token 打任意地址）。
-func resolveEmbyHLSResource(r *http.Request, upstreamURL, itemID string) (string, error) {
+func resolveEmbyHLSResource(
+	r *http.Request,
+	proto mediaapi.Protocol,
+	upstreamURL, itemID string,
+) (string, error) {
 	values, has := r.URL.Query()["resource"]
 	if !has || len(values) != 1 {
 		return upstreamURL, nil
@@ -980,17 +1044,17 @@ func resolveEmbyHLSResource(r *http.Request, upstreamURL, itemID string) (string
 		return "", errInvalidHLSResource{}
 	}
 	target = base.ResolveReference(target)
-	if err := validateEmbyHLSResource(target, base, itemID); err != nil {
+	if err := validateEmbyHLSResource(proto, target, base, itemID); err != nil {
 		return "", err
 	}
 	query := target.Query()
-	query.Set("api_key", base.Query().Get("api_key"))
+	query.Set(proto.TokenQuery, base.Query().Get(proto.TokenQuery))
 	target.RawQuery = query.Encode()
 	return target.String(), nil
 }
 
 // validateEmbyHLSResource 校验子资源与主播放地址同源同前缀。
-func validateEmbyHLSResource(target, upstream *url.URL, itemID string) error {
+func validateEmbyHLSResource(proto mediaapi.Protocol, target, upstream *url.URL, itemID string) error {
 	if target.Scheme != upstream.Scheme || target.Host != upstream.Host {
 		return errInvalidHLSResource{}
 	}
@@ -1006,10 +1070,10 @@ func validateEmbyHLSResource(target, upstream *url.URL, itemID string) error {
 		// JS 的 slice(0, -1) 会砍掉最后一个字符，这里保持一致
 		prefix = prefix[:len(prefix)-1]
 	}
-	// Jellyfin 的绝对路径子项会省略可选的 /emby 前缀，两种都放行。
+	// 上游播放列表里的绝对路径可能省略协议前缀，两种都放行。
 	prefixes := []string{prefix}
-	if strings.HasSuffix(strings.ToLower(prefix), "/emby") {
-		prefixes = append(prefixes, prefix[:len(prefix)-len("/emby")])
+	if p := proto.PathPrefix; p != "" && strings.HasSuffix(strings.ToLower(prefix), strings.ToLower(p)) {
+		prefixes = append(prefixes, prefix[:len(prefix)-len(p)])
 	}
 	expected := strings.ToLower("/videos/" + netutil.EncodeURIComponent(itemID) + "/")
 	targetPath := strings.ToLower(target.EscapedPath())
@@ -1037,14 +1101,14 @@ func rewriteEmbyHLSURI(r *http.Request, kind embyLikeKind, itemID, upstreamURL s
 			return ""
 		}
 		target = base.ResolveReference(target)
-		if err := validateEmbyHLSResource(target, base, itemID); err != nil {
+		if err := validateEmbyHLSResource(kind.Protocol, target, base, itemID); err != nil {
 			return ""
 		}
 		// 删掉上游令牌：客户端拿到的代理地址里绝不能再带 api_key，
 		// 否则一个 playlist 就把服务器令牌发给每个观众（这也是 SSRF 白名单
 		// 之外的第二道锁）。
 		query := target.Query()
-		for _, key := range []string{"api_key", "x-emby-token", "token"} {
+		for _, key := range []string{"api_key", "apikey", "x-emby-token", "token"} {
 			for existing := range query {
 				if strings.EqualFold(existing, key) {
 					query.Del(existing)
@@ -1073,20 +1137,18 @@ func rewriteEmbyHLSURI(r *http.Request, kind embyLikeKind, itemID, upstreamURL s
 // ==================== 代理 / 流 ====================
 
 // embyUpstreamURL 拼上游播放地址（at=1 → 服务端转码播放列表）。
+//
+// 路径前缀、播放列表文件名与令牌参数名都由协议给出：Jellyfin 12 没有
+// /emby 前缀，转码播放列表是 master.m3u8，令牌参数是 ApiKey。
 func embyUpstreamURL(
+	proto mediaapi.Protocol,
 	baseURL, token, itemID string, audioTranscode bool, mediaSourceID string,
 ) string {
 	msSuffix := ""
 	if mediaSourceID != "" {
 		msSuffix = "&MediaSourceId=" + netutil.EncodeURIComponent(mediaSourceID)
 	}
-	encoded := netutil.EncodeURIComponent(itemID)
-	if audioTranscode {
-		return baseURL + "/emby/Videos/" + encoded + "/main.m3u8?api_key=" + token +
-			"&AudioCodec=aac&TranscodingMaxAudioChannels=2" +
-			"&VideoBitrate=8000000&AudioBitrate=192000" + msSuffix
-	}
-	return baseURL + "/emby/Videos/" + encoded + "/stream?static=true&api_key=" + token + msSuffix
+	return proto.DirectURL(baseURL, token, itemID, audioTranscode, msSuffix)
 }
 
 func (s *Server) handleEmbyProxy(kind embyLikeKind) http.HandlerFunc {
@@ -1102,10 +1164,10 @@ func (s *Server) handleEmbyProxy(kind embyLikeKind) http.HandlerFunc {
 		}
 		audioTranscode := r.URL.Query().Get("at") == "1"
 		upstreamURL := embyUpstreamURL(
-			session.Client.BaseURL, session.Token(), targetPath,
+			kind.Protocol, session.Client.BaseURL, session.Token(), targetPath,
 			audioTranscode, r.URL.Query().Get("ms"),
 		)
-		resolvedURL, err := resolveEmbyHLSResource(r, upstreamURL, targetPath)
+		resolvedURL, err := resolveEmbyHLSResource(r, kind.Protocol, upstreamURL, targetPath)
 		if err != nil {
 			// Node 对非 EmbyError 一律取 UNREACHABLE，状态码走 502 兜底。
 			failEmby(w, http.StatusBadGateway, embyErrorMessage(err, hlsInvalidResource), "UNREACHABLE")
@@ -1153,10 +1215,10 @@ func (s *Server) handleEmbyStream(kind embyLikeKind) http.HandlerFunc {
 		audioTranscode := transcodeMode == "1" ||
 			(transcodeMode == "" && strings.EqualFold(derefEmbyID(resolved.Movie.Format), "hls"))
 		upstreamURL := embyUpstreamURL(
-			session.Client.BaseURL, session.Token(), itemID,
+			kind.Protocol, session.Client.BaseURL, session.Token(), itemID,
 			audioTranscode, r.URL.Query().Get("ms"),
 		)
-		resolvedURL, err := resolveEmbyHLSResource(r, upstreamURL, itemID)
+		resolvedURL, err := resolveEmbyHLSResource(r, kind.Protocol, upstreamURL, itemID)
 		if err != nil {
 			// /stream 对 StreamMovieError 特判：直接按错误自带的状态码回。
 			embyStreamError(w, kind.Prefix, &proxy.StreamError{
@@ -1179,13 +1241,12 @@ func (s *Server) proxyEmbyUpstream(
 	resolvedURL, upstreamURL, itemID string,
 	audioTranscode bool,
 ) {
+	upstreamHeaders := session.Client.Protocol().UpstreamHeaders(session.Token())
+	upstreamHeaders["Referer"] = session.Client.BaseURL
 	opts := proxy.HTTPOptions{
 		URL: resolvedURL,
 		Headers: proxy.UpstreamHeaders{
-			Extra: map[string]string{
-				"X-Emby-Token": session.Token(),
-				"Referer":      session.Client.BaseURL,
-			},
+			Extra: upstreamHeaders,
 		},
 		CORS: proxy.CORSWildcard,
 		DefaultContentType: func() string {

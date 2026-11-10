@@ -1,4 +1,4 @@
-package emby
+package mediaapi
 
 import (
 	"context"
@@ -23,7 +23,7 @@ func TestBuildVersionsGolden(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		source  EmbyMediaSrc
+		source  MediaSource
 		label   string
 		height  *int
 		size    *int64
@@ -32,9 +32,9 @@ func TestBuildVersionsGolden(t *testing.T) {
 	}{
 		{
 			name: "1080P MKV 1.25GiB",
-			source: EmbyMediaSrc{
+			source: MediaSource{
 				ID: "a", Size: int64p(1342177280), Container: strp("mkv"),
-				MediaStreams: []EmbyMediaStream{{Type: "Video", Height: intp(1080)}},
+				MediaStreams: []MediaStream{{Type: "Video", Height: intp(1080)}},
 			},
 			label: "1080P · MKV · 1.3GB", height: intp(1080), size: int64p(1342177280),
 			hasCont: true, cont: "mkv",
@@ -42,9 +42,9 @@ func TestBuildVersionsGolden(t *testing.T) {
 		{
 			// Name 参与拼接；容器要 trim 后大写；恰好 1GiB 要输出 1.0GB（不是 1GB）
 			name: "Remux 2160P 1GiB",
-			source: EmbyMediaSrc{
+			source: MediaSource{
 				ID: "b", Size: int64p(1073741824), Container: strp(" MKV "), Name: strp("Remux"),
-				MediaStreams: []EmbyMediaStream{{Type: "Video", Height: intp(2160)}},
+				MediaStreams: []MediaStream{{Type: "Video", Height: intp(2160)}},
 			},
 			label: "Remux · 2160P · MKV · 1.0GB", height: intp(2160), size: int64p(1073741824),
 			hasCont: true, cont: "MKV",
@@ -52,9 +52,9 @@ func TestBuildVersionsGolden(t *testing.T) {
 		{
 			// Height 为 0 时不拼 "0P"，但字段本身照样下发
 			name: "MP4 1MB height0",
-			source: EmbyMediaSrc{
+			source: MediaSource{
 				ID: "c", Size: int64p(1234567), Container: strp("mp4"),
-				MediaStreams: []EmbyMediaStream{{Type: "Video", Height: intp(0)}, {Type: "Audio", Codec: strp("aac")}},
+				MediaStreams: []MediaStream{{Type: "Video", Height: intp(0)}, {Type: "Audio", Codec: strp("aac")}},
 			},
 			label: "MP4 · 1MB", height: intp(0), size: int64p(1234567),
 			hasCont: true, cont: "mp4",
@@ -62,7 +62,7 @@ func TestBuildVersionsGolden(t *testing.T) {
 		{
 			// Size 为 0：不拼体积，但 size 字段要出现（Node 用 !== undefined 判断）
 			name: "size0",
-			source: EmbyMediaSrc{
+			source: MediaSource{
 				ID: "d", Size: int64p(0), Container: strp(""),
 			},
 			label: "版本 1", size: int64p(0),
@@ -70,12 +70,12 @@ func TestBuildVersionsGolden(t *testing.T) {
 		{
 			// 什么都没有 → 版本 N（N 从 1 开始）
 			name:   "empty",
-			source: EmbyMediaSrc{ID: "e"},
+			source: MediaSource{ID: "e"},
 			label:  "版本 1",
 		},
 		{
 			name: "2.2GB",
-			source: EmbyMediaSrc{
+			source: MediaSource{
 				ID: "f", Size: int64p(2362232012),
 			},
 			label: "2.2GB", size: int64p(2362232012),
@@ -84,7 +84,7 @@ func TestBuildVersionsGolden(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := BuildVersions([]EmbyMediaSrc{tc.source})
+			got := BuildVersions([]MediaSource{tc.source})
 			if len(got) != 1 {
 				t.Fatalf("期望 1 个版本，实际 %d", len(got))
 			}
@@ -110,7 +110,7 @@ func TestBuildVersionsGolden(t *testing.T) {
 
 // 版本序号在整份列表里递增（"版本 N" 的 N 用的是原始下标，不是过滤后的）。
 func TestBuildVersionsIndexForFallbackLabel(t *testing.T) {
-	got := BuildVersions([]EmbyMediaSrc{{ID: "a", Size: ptrInt64(0)}, {ID: "b", Size: ptrInt64(0)}})
+	got := BuildVersions([]MediaSource{{ID: "a", Size: ptrInt64(0)}, {ID: "b", Size: ptrInt64(0)}})
 	if got[0].Label != "版本 1" || got[1].Label != "版本 2" {
 		t.Fatalf("兜底标签错误: %q / %q", got[0].Label, got[1].Label)
 	}
@@ -137,7 +137,7 @@ func TestJSFormatSize(t *testing.T) {
 }
 
 func TestSelectSource(t *testing.T) {
-	sources := []EmbyMediaSrc{{ID: "a"}, {ID: "b"}}
+	sources := []MediaSource{{ID: "a"}, {ID: "b"}}
 	if got := SelectSource(sources, "b"); got.ID != "b" {
 		t.Fatalf("指定版本未命中: %q", got.ID)
 	}
@@ -169,7 +169,7 @@ func newFakeSession(t *testing.T, sourcesJSON string) (*Session, string) {
 		_, _ = w.Write([]byte(`{"MediaSources":` + sourcesJSON + `}`))
 	}))
 	t.Cleanup(srv.Close)
-	client := NewClient(srv.URL, "tok-test")
+	client := NewClientWithProtocol(srv.URL, "tok-test", testProtocol)
 	return &Session{Client: client, UserID: "user-1"}, srv.URL
 }
 

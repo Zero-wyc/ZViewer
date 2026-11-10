@@ -1,4 +1,4 @@
-package emby
+package mediaapi
 
 import (
 	"regexp"

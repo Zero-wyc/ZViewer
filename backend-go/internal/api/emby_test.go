@@ -81,7 +81,7 @@ func TestValidateEmbyHLSResource(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			upstream := mustURL(tc.upstream)
 			target := mustURL(tc.target)
-			err := validateEmbyHLSResource(target, upstream, "m1")
+			err := validateEmbyHLSResource(emby.Protocol, target, upstream, "m1")
 			if tc.wantOK && err != nil {
 				t.Fatalf("应放行，却拒绝了: %v", err)
 			}
@@ -97,7 +97,7 @@ func TestResolveEmbyHLSResource(t *testing.T) {
 
 	// 没有 resource：原样返回（不碰 query）
 	r := httptest.NewRequest(http.MethodGet, "/api/emby/proxy?mountId=1&path=m1", nil)
-	got, err := resolveEmbyHLSResource(r, upstream, "m1")
+	got, err := resolveEmbyHLSResource(r, emby.Protocol, upstream, "m1")
 	if err != nil || got != upstream {
 		t.Fatalf("无 resource 时应原样返回，实际 %q / %v", got, err)
 	}
@@ -106,7 +106,7 @@ func TestResolveEmbyHLSResource(t *testing.T) {
 	r = httptest.NewRequest(http.MethodGet,
 		"/api/emby/proxy?mountId=1&path=m1&resource="+
 			url.QueryEscape("/emby/Videos/m1/hls1/main/0.ts"), nil)
-	got, err = resolveEmbyHLSResource(r, upstream, "m1")
+	got, err = resolveEmbyHLSResource(r, emby.Protocol, upstream, "m1")
 	if err != nil {
 		t.Fatalf("合法子资源被拒: %v", err)
 	}
@@ -118,14 +118,14 @@ func TestResolveEmbyHLSResource(t *testing.T) {
 	r = httptest.NewRequest(http.MethodGet,
 		"/api/emby/proxy?mountId=1&path=m1&resource="+
 			url.QueryEscape("http://evil.example/x.ts"), nil)
-	if _, err = resolveEmbyHLSResource(r, upstream, "m1"); err == nil {
+	if _, err = resolveEmbyHLSResource(r, emby.Protocol, upstream, "m1"); err == nil {
 		t.Fatalf("跨站子资源必须拒绝")
 	}
 
 	// 重复参数（Express 下是数组，typeof !== 'string'）→ 忽略，返回原地址
 	r = httptest.NewRequest(http.MethodGet,
 		"/api/emby/proxy?mountId=1&path=m1&resource=a&resource=b", nil)
-	got, err = resolveEmbyHLSResource(r, upstream, "m1")
+	got, err = resolveEmbyHLSResource(r, emby.Protocol, upstream, "m1")
 	if err != nil || got != upstream {
 		t.Fatalf("重复 resource 应忽略，实际 %q / %v", got, err)
 	}
