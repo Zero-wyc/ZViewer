@@ -305,9 +305,12 @@ export function useViewerStateSync({
       // 依据 state.playsvideoEnabled，不重挂载就会继续用旧引擎（房主在影片
       // 卡片里切换「浏览器转码」后观众应立即跟随）。旧房主上报可能缺该字段，
       // 按「缺省视为开启」归一化后再比，避免无意义重挂载。
+      // 直播线路（liveDirect）同理：直链 ↔ 中转只是取流路径不同、CDN URL 不变，
+      // 不重挂载观众就会继续走旧线路（房主关掉中转后服务器带宽降不下来）。
       const isSourceChange =
         lastAppliedSourceUrlRef.current !== state.sourceUrl ||
         previous.noProxyFallback !== state.noProxyFallback ||
+        (previous.liveDirect === true) !== (state.liveDirect === true) ||
         (previous.playsvideoEnabled !== false) !==
           (state.playsvideoEnabled !== false)
       setWatchTogether(state)

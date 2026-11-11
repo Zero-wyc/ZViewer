@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2659 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2667 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1816,7 +1816,7 @@ const enUS: Record<string, string> = {
   '状态恢复失败': 'Failed to restore the state',
   'B站 URL 已过期，请等待房主重新解析': 'The Bilibili URL expired, wait for the host to resolve it again',
 
-  // ===== modules/player（98 条） =====
+  // ===== modules/player（99 条） =====
   '  缓冲范围: {{buffered}}\n': '  Buffered: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js error: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] Total size: video={{value}}MB, ',
@@ -1832,6 +1832,7 @@ const enUS: Record<string, string> = {
   '[direct-engine] 直连失败，回退到服务器代理:': '[direct-engine] Direct connection failed, falling back to the server proxy:',
   '[direct-engine] 直链模式：直连失败，不回退服务器代理:': '[direct-engine] Direct-link mode: connection failed, not falling back to the server proxy:',
   '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:': '[direct-engine] HTTPS direct link failed (likely a stale protocol upgrade: the origin no longer serves TLS), retrying over HTTP:',
+  '[flv-engine] 直播直连连续失败，回退服务器中转': '[flv-engine] live direct failed repeatedly, falling back to server relay',
   '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})': '[hls-ad-filter] Dropped {{size}}/{{length}} suspected ad segments (base={{baseHost}})',
   '[mpd-builder] 二次扫描失败: status={{status}}': '[mpd-builder] Second scan failed: status={{status}}',
   '[mpd-builder] 二次扫描异常:': '[mpd-builder] Second scan threw:',
@@ -1916,7 +1917,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（435 条） =====
+  // ===== modules/room（442 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1952,6 +1953,8 @@ const enUS: Record<string, string> = {
   '播放方式': 'Playback mode',
   '播放设置': 'Playback settings',
   '播放申请': 'Playback request',
+  '播放线路': 'Playback route',
+  '播放线路由房主统一设置': 'The host controls the playback route',
   '捕获源实测，近零开销': 'Measured from the capture source, near-zero overhead',
   '采集源': 'Capture source',
   '采集帧率': 'Capture frame rate',
@@ -2083,6 +2086,7 @@ const enUS: Record<string, string> = {
   '浏览服务器文件': 'Browse server files',
   '浏览器实际启用的实现': 'Implementation actually in use',
   '浏览器直连': 'Direct (browser-to-browser)',
+  '浏览器直连 B站 CDN，不占服务器带宽；个别节点拒绝直连时自动回退中转': 'The browser pulls from Bilibili\'s CDN directly; falls back to relaying if a node refuses',
   '浏览器转码': 'Browser transcoding',
   '浏览器转码引擎': 'Browser transcoding engine',
   '浏览文件': 'Browse files',
@@ -2091,6 +2095,7 @@ const enUS: Record<string, string> = {
   '没有影片管理权限': 'No permission to manage the movie',
   '没有影片切换权限': 'No permission to switch movies',
   '没有影片删除权限': 'No permission to delete movies',
+  '媒体流经本服务器转发；观众越多，服务器出口带宽占用越大': 'Media is relayed by this server; more viewers means more outbound bandwidth',
   '媒体流经服务器转发，可绕过防盗链限制': 'Media is relayed by the server, which bypasses hotlink protection',
   '每 2 秒采样一次 WebRTC 统计；帧率与码率为该窗口内的平均值。': 'WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.',
   '每帧平均，越高越吃 CPU': 'Average per frame — higher means more CPU',
@@ -2104,6 +2109,7 @@ const enUS: Record<string, string> = {
   '普通注册用户，可加入房间观看': 'A regular signed-up user who can join rooms',
   '强制原生播放，浏览器不支持的编码会没有画面或声音': 'Forced native playback; unsupported codecs will show no picture or sound',
   '切换播放设置失败': 'Failed to change the playback settings',
+  '切换播放线路失败': 'Failed to switch the playback route',
   '切换超时，请重试': 'Switching timed out, try again',
   '切换到{{label}}': 'Switch to {{label}}',
   '切换分集失败': 'Failed to switch the episode',
@@ -2231,6 +2237,8 @@ const enUS: Record<string, string> = {
   '已连播到影片列表末尾': 'Reached the end of the movie list',
   '已启用但未检测到本地 CLI，回退服务器 MP4 直链；请启动本地代理获取高画质': 'Enabled but no local CLI detected, falling back to the server MP4 direct link; start the local proxy for high quality',
   '已切换清晰度': 'Quality switched',
+  '已切换为直链，媒体流不再经服务器转发': 'Switched to direct: media no longer goes through the server',
+  '已切回服务器中转，观众将经本服务器拉流': 'Switched back to relaying: viewers now stream through this server',
   '已清空影片列表': 'Movie list cleared',
   '已任命 {{value}} 为房管': 'Appointed {{value}} as moderator',
   '已添加 {{added}} 部影片': 'Added {{added}} movies',

@@ -15,6 +15,7 @@
     "[direct-engine] Direct connection failed, falling back to the server proxy:",
     "[direct-engine] Direct-link mode: connection failed, not falling back to the server proxy:",
     "[direct-engine] HTTPS direct link failed (likely a stale protocol upgrade: the origin no longer serves TLS), retrying over HTTP:",
+    "[flv-engine] live direct failed repeatedly, falling back to server relay",
     "[hls-ad-filter] Dropped {{size}}/{{length}} suspected ad segments (base={{baseHost}})",
     "[mpd-builder] Second scan failed: status={{status}}",
     "[mpd-builder] Second scan threw:",

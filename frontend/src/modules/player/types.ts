@@ -106,6 +106,14 @@ export interface PlayerSource {
    */
   isLive?: boolean
   /**
+   * 直播线路直链：true 时浏览器直接拉 B站 直播 CDN，不经服务器中转。
+   *
+   * 直播每个观众各自拉流，服务器出口带宽 = 观众数 × 码率；直链可让这份带宽
+   * 归零，代价是依赖 CDN 的 CORS 策略（实测回显 CORS、不校验 Referer）。
+   * FLV 引擎连续失败会自动回退代理，因此该开关是「优先直连」而非「强制」。
+   */
+  liveDirect?: boolean
+  /**
    * FLV 直播运行时事件出口（仅 FLV 引擎 isLive 源使用）。
    *
    * 引擎内部 flv.js 实例的网络层事件经此上报，供 UI 层驱动连接

@@ -86,6 +86,11 @@ export interface ResolvedMovieSource {
    * duration 恒为 0，一起看侧按直播处理（不 seek、不做进度校正）。
    */
   isLive?: boolean
+  /**
+   * 直播线路直链（movie.serverProxy !== true）：浏览器直接拉 B站 直播 CDN，
+   * 不经服务器中转。观众数越多省下的服务器出口带宽越多。
+   */
+  liveDirect?: boolean
 }
 
 export interface ResolveMovieSourceOptions {
@@ -334,6 +339,10 @@ export async function resolveBilibiliOnline(
       headers: undefined,
       reusedRecoveryUrl: false,
       isLive: true,
+      // 线路由影片级开关决定（默认中转）：直播每个观众独立拉流，
+      // 直链可让服务器出口带宽归零，但依赖 CDN 的 CORS/Referer 策略，
+      // 因此默认仍走中转，由房主在影片卡片的设置里按需切换。
+      liveDirect: movie.serverProxy !== true,
     }
   }
 

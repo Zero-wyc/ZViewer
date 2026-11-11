@@ -243,6 +243,8 @@ function toPlayerSource(
     duration: state.duration,
     // 直播源：FLV 引擎据此启用 isLive（延迟追赶 / 断线重连 / 缓冲清理）
     isLive: state.isLive === true,
+    // 直播线路：直链时浏览器直接拉 CDN（失败由 FLV 引擎回退代理）
+    liveDirect: state.isLive === true && state.liveDirect === true,
   }
   // 直播中断提示：FLV 引擎内部会按指数退避重连，重连耗尽后必须让用户
   // 知道「不是卡了」——否则画面停住却没有进度条可看，只能干等。

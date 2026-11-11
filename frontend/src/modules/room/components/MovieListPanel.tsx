@@ -32,6 +32,7 @@ import {
 } from '@/modules/bilibili/cliApi'
 import type { ResolvedSource } from '@/modules/bilibili/types'
 import { BilibiliParseSettings } from './BilibiliParseSettings'
+import { BilibiliLiveSettings } from './BilibiliLiveSettings'
 import { MovieRuntimeSettings } from './MovieRuntimeSettings'
 import {
   getEffectivePreferMp4,
@@ -904,12 +905,15 @@ export function MovieListPanel({
                     />
                   )}
                 </div>
-                {/* B站解析设置：每个 B站 影片独享一份配置；房主可操作，观众可查看并独立开启 CLI 代理 */}
+                {/* B站解析设置：点播影片是解析偏好（MP4/DASH/CLI/缓冲），
+                    直播间只有「播放线路」一项（直链 / 中转） */}
                 {movie.sourceType === 'bilibili' &&
                   !isScreenShare &&
-                  extractLiveRoomId(movie.url) === 0 && (
+                  (extractLiveRoomId(movie.url) > 0 ? (
+                    <BilibiliLiveSettings movieId={movie.id} isHost={isHost} />
+                  ) : (
                     <BilibiliParseSettings movieId={movie.id} isHost={isHost} />
-                  )}
+                  ))}
                 {/* 影片级播放设置（服务器中转 / 浏览器转码）：即时生效的运行开关 */}
                 {movie.sourceType !== 'bilibili' && !isScreenShare && (
                   <MovieRuntimeSettings movieId={movie.id} isHost={isHost} />

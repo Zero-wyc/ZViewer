@@ -1,5 +1,10 @@
 {
   "items": [
+    "Failed to load the video",
+    "Failed to load the video source",
+    "Failed to resolve the video source",
+    "Video direct link",
+    "Collapse the sidebar",
     "Type a path, or use the button above to browse (multi-select for bulk adding)",
     "Enter manually",
     "Type a keyword to search",
@@ -74,6 +79,8 @@
     "Reached the end of the movie list",
     "Enabled but no local CLI detected, falling back to the server MP4 direct link; start the local proxy for high quality",
     "Quality switched",
+    "Switched to direct: media no longer goes through the server",
+    "Switched back to relaying: viewers now stream through this server",
     "Movie list cleared",
     "Appointed {{value}} as moderator",
     "Added {{added}} movies",
@@ -112,13 +119,6 @@
     "Pause request",
     "The pause request timed out; the host did not respond",
     "No other users online",
-    "No movies yet, add one on the right",
-    "No viewers online",
-    "Paste a {{name}} itemId (optional; usually picked by browsing)",
-    "Expand the sidebar",
-    "Expand to see the full movie list",
-    "Average time a frame sits in the buffer",
-    "Initializing resolution...",
-    "Waiting for the host to start sharing"
+    "No movies yet, add one on the right"
   ]
 }

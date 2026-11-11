@@ -1,5 +1,12 @@
 {
   "items": [
+    "No viewers online",
+    "Paste a {{name}} itemId (optional; usually picked by browsing)",
+    "Expand the sidebar",
+    "Expand to see the full movie list",
+    "Average time a frame sits in the buffer",
+    "Initializing resolution...",
+    "Waiting for the host to start sharing",
     "Buffering the video",
     "Restoring the room...",
     "Getting the {{label}} direct link...",

@@ -1,5 +1,7 @@
 {
   "items": [
+    "The viewer limit must be between 1 and 100",
+    "Viewer quality",
     "No connection yet",
     "Buffered mode",
     "Buffered mode is managed by the host",
@@ -46,6 +48,7 @@
     "Browse server files",
     "Implementation actually in use",
     "Direct (browser-to-browser)",
+    "The browser pulls from Bilibili's CDN directly; falls back to relaying if a node refuses",
     "Browser transcoding",
     "Browser transcoding engine",
     "Browse files",
@@ -54,6 +57,7 @@
     "No permission to manage the movie",
     "No permission to switch movies",
     "No permission to delete movies",
+    "Media is relayed by this server; more viewers means more outbound bandwidth",
     "Media is relayed by the server, which bypasses hotlink protection",
     "WebRTC stats are sampled every 2 seconds; frame rate and bitrate are averages over that window.",
     "Average per frame — higher means more CPU",
@@ -67,6 +71,7 @@
     "A regular signed-up user who can join rooms",
     "Forced native playback; unsupported codecs will show no picture or sound",
     "Failed to change the playback settings",
+    "Failed to switch the playback route",
     "Switching timed out, try again",
     "Switch to {{label}}",
     "Failed to switch the episode",
@@ -114,11 +119,6 @@
     "Use the saved FTP mount",
     "Use the saved OpenList mount",
     "Use the saved WebDAV mount",
-    "Video URL, BV id, or live room link",
-    "Failed to load the video",
-    "Failed to load the video source",
-    "Failed to resolve the video source",
-    "Video direct link",
-    "Collapse the sidebar"
+    "Video URL, BV id, or live room link"
   ]
 }

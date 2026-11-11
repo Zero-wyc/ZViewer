@@ -50,11 +50,15 @@ function canPlayNativeHls(video: HTMLVideoElement): boolean {
  * noProxyFallback（直链模式）：跨域请求保持源站直连，不走服务器代理——
  * 直链语义是源站直传、服务器零媒体流量；源站 CORS/防盗链不可直连时由
  * hls.js fatal error 直接向用户抛错，不静默转中转。
+ *
+ * liveDirect（直播线路=直链）：m3u8 与全部分片都直连 CDN。B站 直播 CDN
+ * 回显 CORS，浏览器可自取，服务器出口带宽归零。
  */
 function createProxyLoader(
   sourceUrl: string,
   headers?: Record<string, string>,
-  noProxyFallback?: boolean
+  noProxyFallback?: boolean,
+  liveDirect?: boolean
 ) {
   const BaseLoader = Hls.DefaultConfig.loader
   const logicalUrl = (value: string) => value
@@ -86,8 +90,8 @@ function createProxyLoader(
         context.url = transportUrl(
           buildHlsProxyRequest(manifestBaseUrl, proxySource)
         )
-      } else if (noProxyFallback) {
-        // 直链模式：子清单/分片/密钥一律源站直连，不经服务器中转。
+      } else if (noProxyFallback || liveDirect) {
+        // 直链模式 / 直播直连线路：子清单、分片、密钥一律源站直连。
         // context.url 保持 originalUrl，manifestBaseUrl 与之一致，
         // hls.js 基于原始 URL 解析 m3u8 相对路径分片，无拼接错误。
         context.url = transportUrl(originalUrl)
@@ -194,6 +198,8 @@ export const hlsEngine: PlayerEngine = {
     resetVideoElement(video)
 
     const noProxyFallback = source.noProxyFallback === true
+    // 直播线路=直链：m3u8 与分片直接由浏览器拉取（B站 直播 CDN 回显 CORS）
+    const liveDirect = source.isLive === true && source.liveDirect === true
     // 统一代理策略：直链模式（noProxyFallback）跳过混合内容代理分支，
     // 保持源站直传语义（服务器零媒体流量）
     const targetUrl = resolveProxyUrl(
@@ -202,6 +208,7 @@ export const hlsEngine: PlayerEngine = {
       source.format,
       {
         noProxyFallback,
+        liveDirect,
       }
     )
     // 直链模式前置校验：HTTPS 页面下的 http 直链必然失败（浏览器混合内容
@@ -221,7 +228,12 @@ export const hlsEngine: PlayerEngine = {
       const hls = new Hls({
         enableWorker: true,
         lowLatencyMode: false,
-        loader: createProxyLoader(targetUrl, source.headers, noProxyFallback),
+        loader: createProxyLoader(
+          targetUrl,
+          source.headers,
+          noProxyFallback,
+          liveDirect
+        ),
         // 内存控制：hls.js 默认 maxMaxBufferLength=600s、backBufferLength=Infinity——
         // 已播数据永不清理，长视频播放 1-2 小时后 MSE SourceBuffer 累积到 GB 级内存。
         // 前向缓冲 30s 保证平滑，硬上限 120s 兜底极低码率，已播仅保留 90s
