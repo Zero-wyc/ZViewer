@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2648 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2659 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -755,7 +755,7 @@ const enUS: Record<string, string> = {
   '解析播放地址失败': 'Failed to resolve the playback URL',
   'ani-subs 番剧源': 'ani-subs source',
 
-  // ===== modules/bilibili（45 条） =====
+  // ===== modules/bilibili（47 条） =====
   '[resolveBilibili] 读取响应体失败:': '[resolveBilibili] Failed to read the response body:',
   '[resolveBilibili] 解析进度行失败:': '[resolveBilibili] Failed to parse a progress line:',
   '[useBilibiliQuality] 切换清晰度失败:': '[useBilibiliQuality] Failed to switch quality:',
@@ -782,6 +782,8 @@ const enUS: Record<string, string> = {
   '解析 B站 视频未完成': 'Bilibili video resolution did not finish',
   '解析链接失败': 'Failed to resolve the link',
   '解析响应失败': 'Failed to parse the response',
+  '解析直播间超时，请稍后重试': 'Timed out resolving the live room, try again later',
+  '解析直播间失败': 'Failed to resolve the live room',
   '轮询二维码状态失败': 'Failed to poll the QR code status',
   '轮询状态失败，请重新获取': 'Failed to poll the status, get a new QR code',
   '轮询状态失败，正在重试…': 'Failed to poll the status, retrying…',
@@ -1024,7 +1026,7 @@ const enUS: Record<string, string> = {
   'Jellyfin 挂载更新成功': 'Jellyfin mount updated',
   'Jellyfin 挂载添加成功': 'Jellyfin mount added',
 
-  // ===== modules/movie-source（14 条） =====
+  // ===== modules/movie-source（15 条） =====
   '[movie-source-resolver] 实时直链解析失败，回退影片记录 URL:': '[movie-source-resolver] Live direct-link resolution failed, falling back to the movie\'s recorded URL:',
   '[movie-source-resolver] B站 解析命中缓存:': '[movie-source-resolver] Bilibili resolution hit the cache:',
   '[movie-source-resolver] B站 recovery 路径中清除非 B站 headers:': '[movie-source-resolver] Removing non-Bilibili headers on the Bilibili recovery path:',
@@ -1039,6 +1041,7 @@ const enUS: Record<string, string> = {
   '解析番剧播放地址失败': 'Failed to resolve the anime playback URL',
   '搜索番剧失败': 'Anime search failed',
   '未取得影片播放地址': 'No playback URL for the movie',
+  '主播当前未开播，请开播后再播放': 'The streamer is offline, try again once the stream starts',
 
   // ===== modules/music（729 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
@@ -1913,7 +1916,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（429 条） =====
+  // ===== modules/room（435 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -2148,7 +2151,7 @@ const enUS: Record<string, string> = {
   '使用已保存的 FTP 挂载': 'Use the saved FTP mount',
   '使用已保存的 OpenList 挂载': 'Use the saved OpenList mount',
   '使用已保存的 WebDAV 挂载': 'Use the saved WebDAV mount',
-  '视频 Url 或 bv 号': 'Video URL or BV id',
+  '视频 Url、bv 号或直播间链接': 'Video URL, BV id, or live room link',
   '视频加载失败': 'Failed to load the video',
   '视频源加载失败': 'Failed to load the video source',
   '视频源解析失败': 'Failed to resolve the video source',
@@ -2285,6 +2288,7 @@ const enUS: Record<string, string> = {
   '正在解析《{{name}}》第 1 集（共 {{length}} 集）...': 'Resolving episode 1 of “{{name}}” ({{length}} in total)...',
   '正在解析第 {{page}} 集 {{part}}...': 'Resolving episode {{page}} {{part}}...',
   '正在解析服务器文件...': 'Resolving server files...',
+  '正在解析直播间...': 'Resolving the live room...',
   '正在枚举《{{name}}》的分集...': 'Listing episodes of “{{name}}”...',
   '正在批量解析 {{length}} 个文件...': 'Resolving {{length}} files...',
   '正在切换清晰度...': 'Switching quality...',
@@ -2299,6 +2303,8 @@ const enUS: Record<string, string> = {
   '正在通过服务器解析...': 'Resolving through the server...',
   '正在通过服务器解析第 {{page}} 集...': 'Resolving episode {{page}} through the server...',
   '正在通过服务器切换清晰度...': 'Switching quality through the server...',
+  '直播': 'LIVE',
+  '直播清晰度由房主统一设置': 'The host controls the live quality',
   '直接流式播放，无需等待缓存': 'Stream directly, no need to wait for caching',
   '直连': 'Direct',
   '直连源站，不占用服务器带宽': 'Connects to the origin directly, using no server bandwidth',
@@ -2311,6 +2317,7 @@ const enUS: Record<string, string> = {
   '中转': 'Relay',
   '重新解析失败': 'Re-resolution failed',
   '重载视频': 'Reload the video',
+  '主播当前未开播，仍可添加到影片列表': 'The streamer is offline; you can still add it to the list',
   '转交房主': 'Transfer host',
   '转交房主确认': 'Confirm host transfer',
   '转交失败': 'Failed to transfer',
@@ -2326,6 +2333,8 @@ const enUS: Record<string, string> = {
   'B站 URL 已过期，请重新解析视频': 'The Bilibili URL expired, resolve the video again',
   'B站解析设置': 'Bilibili resolution settings',
   'B站视频解析失败': 'Failed to resolve the Bilibili video',
+  'B站已将清晰度降级为 {{q}}（该档位需登录或更高权限）': 'Bilibili downgraded the quality to {{q}} (this tier requires sign-in or higher permission)',
+  'B站直播 {{roomId}}': 'Bilibili live {{roomId}}',
   'CLI 代理未连接': 'CLI proxy not connected',
   'CLI 切换清晰度失败': 'The CLI failed to switch the quality',
   'CPU 不足': 'CPU limited',
@@ -2666,7 +2675,7 @@ const enUS: Record<string, string> = {
   'PGS RLE 图像不完整': 'Incomplete PGS RLE image',
   'PGS RLE 行长度无效': 'Invalid PGS RLE row length',
 
-  // ===== modules/sync-playback（21 条） =====
+  // ===== modules/sync-playback（23 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] Refusing to play a media element detached from the document (prevents orphan audio or doubled sound):',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload failed too:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek failed unrecoverably, calling forceReload:',
@@ -2688,6 +2697,8 @@ const enUS: Record<string, string> = {
   '正在解析容器与轨道': 'Parsing the container and tracks',
   '正在启动转码 worker': 'Starting the transcoding worker',
   '正在生成首个分段': 'Generating the first segment',
+  '直播流连接中断，点「重载」可重新连接': 'Live stream disconnected, click “Reload” to reconnect',
+  '直播已结束': 'The live stream ended',
 
   // ===== modules/voice-chat（28 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} online',

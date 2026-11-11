@@ -26,6 +26,8 @@
     "Bilibili video resolution did not finish",
     "Failed to resolve the link",
     "Failed to parse the response",
+    "Timed out resolving the live room, try again later",
+    "Failed to resolve the live room",
     "Failed to poll the QR code status",
     "Failed to poll the status, get a new QR code",
     "Failed to poll the status, retrying…",

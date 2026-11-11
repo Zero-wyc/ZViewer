@@ -91,15 +91,19 @@ export async function addBilibiliMovie(
   // 存展开后的完整地址：短链（b23.tv 等）由后端解析时 302 展开，
   // 下游 BV 号提取 / 分 P 解析 / 弹幕匹配不再依赖短链可达性
   const movieUrl = resolvedMovie.resolvedUrl || ctx.url.trim()
+  const isLive = resolvedMovie.isLive === true
   const added = await ctx.addMovie(ctx.roomId, {
     url: movieUrl,
     title,
     source: 'bilibili',
+    // 直播间用主播封面（列表卡片有图更易辨识）；点播仍由后端解析封面
+    cover: isLive ? resolvedMovie.cover : undefined,
     audioUrl: resolvedMovie.audioUrl,
     format: resolvedMovie.format,
     videoCodec: resolvedMovie.videoCodec,
     audioCodec: resolvedMovie.audioCodec,
-    duration: resolvedMovie.duration,
+    // 直播没有总时长：留空，播放端按 isLive 走直播模式
+    duration: isLive ? 0 : resolvedMovie.duration,
     cid: resolvedMovie.cid,
     currentQn: resolvedMovie.currentQn,
     acceptQuality: resolvedMovie.acceptQuality,
@@ -114,7 +118,8 @@ export async function addBilibiliMovie(
   // - 服务器路径：按管理员基础设置的默认解析参数物化
   //   （普通视频走「默认解析模式」，番剧/影视走「番剧/影视默认模式」）
   // 均可在影片的解析设置中手动更改。
-  if (added) {
+  // 直播没有 DASH/MP4/CLI 解析偏好可持久化（取流方式由 isLive 与 format 决定）
+  if (added && !isLive) {
     const sysSettings = useSystemSettingsStore.getState()
     const pgc = isBilibiliPgcMovie(added)
     // 番剧/影视默认模式为「仅 CLI」时物化 Movie.cliOnly：

@@ -101,6 +101,9 @@ export function useVideoEventBindings({
     }
     const handleSeeked = () => {
       if (suppressEventsRef.current) return
+      // 直播源没有可对齐的进度：seek 只影响本机缓冲，广播给观众毫无意义
+      //（观众收到 seek 会在自己的直播时间轴上跳，副作用只有卡顿）。
+      if (useRoomStore.getState().watchTogether.isLive === true) return
       if (seekDebounceRef.current) {
         clearTimeout(seekDebounceRef.current)
       }
@@ -111,6 +114,7 @@ export function useVideoEventBindings({
     }
     const handleRateChange = () => {
       if (suppressEventsRef.current) return
+      if (useRoomStore.getState().watchTogether.isLive === true) return
       sendControl('rate', video.playbackRate)
       updateAndBroadcast(true)
     }

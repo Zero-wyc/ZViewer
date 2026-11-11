@@ -20,6 +20,8 @@
     "Building the keyframe index",
     "Parsing the container and tracks",
     "Starting the transcoding worker",
-    "Generating the first segment"
+    "Generating the first segment",
+    "Live stream disconnected, click “Reload” to reconnect",
+    "The live stream ended"
   ]
 }

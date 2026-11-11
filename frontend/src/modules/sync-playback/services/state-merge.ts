@@ -91,6 +91,8 @@ export function buildStateFromVideo(
     bufferMode: storeState.bufferMode,
     playsvideoEnabled: storeState.playsvideoEnabled,
     noProxyFallback: storeState.noProxyFallback,
+    // 透传直播标记：换源后观众端仍要按直播模式处理（不 seek / 不校正进度）
+    isLive: storeState.isLive,
   }
 }
 
@@ -177,6 +179,7 @@ export function isStateEqual(
     a.audioCodec !== b.audioCodec ||
     a.cid !== b.cid ||
     a.noProxyFallback !== b.noProxyFallback ||
+    (a.isLive === true) !== (b.isLive === true) ||
     (a.playsvideoEnabled !== false) !== (b.playsvideoEnabled !== false)
   ) {
     return false

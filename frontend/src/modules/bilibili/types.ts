@@ -79,6 +79,49 @@ export interface ResolvedSource {
   seasonTitle?: string
   /** PGC：当前集为试看/预览流（会员专享集 + 非大会员账号） */
   preview?: boolean
+  /**
+   * 直播源标记（B站 直播间）。
+   *
+   * true 时 videoUrl 是直播 FLV/HLS 长连接地址，duration 为 0：
+   * 播放器按直播模式挂载（FLV 引擎 isLive：延迟追赶 + 断线重连），
+   * 一起看侧跳过进度校正与 seek 同步。
+   */
+  isLive?: boolean
+  /** 直播：房间号（非直播源为空） */
+  roomId?: number
+  /** 直播：主播昵称 */
+  uname?: string
+  /** 直播：封面 */
+  cover?: string
+  /** 直播：开播状态 0=未开播 1=直播中 2=轮播 */
+  liveStatus?: number
+  /** 直播：取流地址签名过期时间（Unix 秒，0 表示未知） */
+  expiresAt?: number
+}
+
+/** B站 直播解析结果（后端 /api/stream/resolve-bilibili-live） */
+export interface ResolvedLiveSource {
+  roomId: number
+  shortId?: number
+  uid?: number
+  title: string
+  uname?: string
+  cover?: string
+  keyframe?: string
+  area?: string
+  liveStatus: number
+  liveTime?: string
+  online?: number
+  /** flv | hls */
+  format: MediaFormat
+  protocol?: string
+  codec?: string
+  videoUrl: string
+  currentQn?: number
+  qualities?: QualityOption[]
+  expiresAt?: number
+  resolvedUrl?: string
+  message?: string
 }
 
 export interface BilibiliQrData {

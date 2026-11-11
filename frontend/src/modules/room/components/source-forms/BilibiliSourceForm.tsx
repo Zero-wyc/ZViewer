@@ -12,7 +12,7 @@ interface BilibiliSourceFormProps {
   disabled?: boolean
 }
 
-/** B站来源：地址输入 + 站内搜索入口 */
+/** B站来源：地址输入（视频 / 番剧 / 直播间）+ 站内搜索入口 */
 export function BilibiliSourceForm({
   url,
   onChangeUrl,
@@ -25,7 +25,7 @@ export function BilibiliSourceForm({
       <SingleLineInput
         value={url}
         onChange={onChangeUrl}
-        placeholder={t('视频 Url 或 bv 号')}
+        placeholder={t('视频 Url、bv 号或直播间链接')}
         onEnter={onResolve}
       />
       <Button

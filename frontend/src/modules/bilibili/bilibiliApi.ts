@@ -3,6 +3,7 @@ import type {
   BilibiliQrData,
   BilibiliUserInfo,
   ResolveProgressLine,
+  ResolvedLiveSource,
   ResolvedSource,
 } from './types'
 import { t } from '@/i18n'
@@ -762,4 +763,70 @@ export async function fetchBiliCommentReplies(
     throw new Error(data.message || t('获取回复失败'))
   }
   return { total: data.total ?? 0, replies: data.replies ?? [] }
+}
+
+/** B站 直播解析的超时（毫秒）：两次上游请求，正常 1~3s。 */
+const LIVE_RESOLVE_TIMEOUT_MS = 15000
+
+/**
+ * 解析 B站 直播间取流地址。
+ *
+ * 返回的 videoUrl 是直播 CDN 签名地址（需 Referer: live.bilibili.com），
+ * 播放时必须走服务器代理——前端按 format=flv + B站 域名自动包代理。
+ *
+ * 未开播不是错误：返回 liveStatus=0、videoUrl 为空，由调用方提示。
+ */
+export async function resolveBilibiliLive(
+  url: string,
+  options?: { qn?: number; movieId?: number }
+): Promise<ResolvedLiveSource> {
+  let fetchUrl = `/api/stream/resolve-bilibili-live?url=${encodeURIComponent(url)}`
+  if (options?.qn != null && Number.isFinite(options.qn) && options.qn > 0) {
+    fetchUrl += `&qn=${options.qn}`
+  }
+  if (options?.movieId != null && Number.isFinite(options.movieId)) {
+    fetchUrl += `&movieId=${options.movieId}`
+  }
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), LIVE_RESOLVE_TIMEOUT_MS)
+  try {
+    const res = await apiFetch(fetchUrl, { signal: controller.signal })
+    const data = (await res.json()) as ResolvedLiveSource & {
+      success: boolean
+      message?: string
+    }
+    if (!res.ok || !data.success) {
+      throw new Error(data.message || t('解析直播间失败'))
+    }
+    return {
+      roomId: data.roomId,
+      shortId: data.shortId,
+      uid: data.uid,
+      title: data.title,
+      uname: data.uname,
+      cover: data.cover,
+      keyframe: data.keyframe,
+      area: data.area,
+      liveStatus: data.liveStatus ?? 0,
+      liveTime: data.liveTime,
+      online: data.online,
+      format: data.format === 'hls' ? 'hls' : 'flv',
+      protocol: data.protocol,
+      codec: data.codec,
+      videoUrl: data.videoUrl ?? '',
+      currentQn: data.currentQn,
+      qualities: data.qualities,
+      expiresAt: data.expiresAt,
+      resolvedUrl: data.resolvedUrl,
+      message: data.message,
+    }
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new Error(t('解析直播间超时，请稍后重试'), { cause: err })
+    }
+    throw err
+  } finally {
+    clearTimeout(timer)
+  }
 }

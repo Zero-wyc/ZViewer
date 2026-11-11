@@ -17,7 +17,11 @@ import {
   resolveBangumiViaCli,
 } from '@/modules/bilibili/cliApi'
 import { resolveBilibili } from '@/modules/movie-source/resolveSource'
-import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
+import {
+  resolveBilibiliLive,
+  resolveBilibiliWithOptions,
+} from '@/modules/bilibili/bilibiliApi'
+import { extractLiveRoomId, bilibiliLiveRoomUrl } from '@/modules/bilibili/live'
 import { getActiveCliProxyUrl } from '@/modules/movie-source/resolver'
 import { resolveBilibiliWithCliFallback } from '@/modules/bilibili/resolveWithCliFallback'
 import {
@@ -81,6 +85,34 @@ export function useBilibiliResolve({
     setLoading(true)
     setResolveProgress(t('正在初始化解析...'))
     try {
+      // 直播间：直接取流（房间信息 + playurl 两次请求），
+      // 没有 BV/分 P/清晰度 qn 之外的点播概念。
+      const liveRoomId = extractLiveRoomId(targetUrl)
+      if (liveRoomId > 0) {
+        setResolveProgress(t('正在解析直播间...'))
+        const live = await resolveBilibiliLive(targetUrl)
+        const resolvedLive: ResolvedSource = {
+          title: live.title || t('B站直播 {{roomId}}', { roomId: live.roomId }),
+          videoUrl: live.videoUrl,
+          format: live.format,
+          duration: 0,
+          currentQn: live.currentQn,
+          acceptQuality: live.qualities,
+          resolvedUrl: live.resolvedUrl ?? bilibiliLiveRoomUrl(live.roomId),
+          isLive: true,
+          roomId: live.roomId,
+          uname: live.uname,
+          cover: live.cover,
+          liveStatus: live.liveStatus,
+          expiresAt: live.expiresAt,
+        }
+        setResolvedMovie(resolvedLive)
+        if (live.liveStatus !== 1) {
+          message.warning(t('主播当前未开播，仍可添加到影片列表'))
+        }
+        return
+      }
+
       const bvid = extractBvid(targetUrl)
       // PGC（番剧 ep/ss 链接）：CLI 分支按 epId 走番剧解析
       const bangumiId = extractBangumiId(targetUrl)
@@ -169,6 +201,47 @@ export function useBilibiliResolve({
     if (!resolvedMovie || !url.trim()) return
     const qn = Number(selectedQn)
     if (!Number.isFinite(qn)) return
+
+    // 直播间：按目标 qn 重新取一条流（没有 playurl / HDR 档位的概念）。
+    // 短链（b23.tv）解析后 URL 里才有房间号，这里以解析结果为准兜底。
+    const liveTarget =
+      extractLiveRoomId(url.trim()) > 0
+        ? url.trim()
+        : (resolvedMovie.resolvedUrl ?? '')
+    if (extractLiveRoomId(liveTarget) > 0) {
+      setQualityLoading(true)
+      setResolveProgress(t('正在切换清晰度...'))
+      try {
+        const live = await resolveBilibiliLive(liveTarget, { qn })
+        if (live.liveStatus !== 1 || !live.videoUrl) {
+          throw new Error(t('主播当前未开播，请开播后再播放'))
+        }
+        // 未登录/无权限时上游会降级到实际可用档位，以 currentQn 为准并给出说明
+        if (live.currentQn !== qn) {
+          const actual = live.qualities.find((q) => q.id === live.currentQn)
+          message.info(
+            t('B站已将清晰度降级为 {{q}}（该档位需登录或更高权限）', {
+              q: actual?.label ?? String(live.currentQn),
+            })
+          )
+        }
+        setResolvedMovie({
+          ...resolvedMovie,
+          videoUrl: live.videoUrl,
+          format: live.format,
+          currentQn: live.currentQn,
+          acceptQuality: live.qualities,
+          expiresAt: live.expiresAt,
+        })
+      } catch (err) {
+        console.error('[MoviePushPanel] live quality switch error:', err)
+        message.error(err instanceof Error ? err.message : t('切换清晰度失败'))
+      } finally {
+        setQualityLoading(false)
+        setResolveProgress('')
+      }
+      return
+    }
 
     // HDR 档位需要 HEVC Main10 解码能力，本机不支持时保持原档位并提示
     if (isHdrQn(qn) && getHdrSupport() === 'none') {

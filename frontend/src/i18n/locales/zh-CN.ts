@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2643 条。
+ * 当前共 2654 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -752,7 +752,7 @@ const zhCN: Record<string, string> = {
   '解析播放地址失败': '解析播放地址失败',
   'ani-subs 番剧源': 'ani-subs 番剧源',
 
-  // ===== modules/bilibili（45 条） =====
+  // ===== modules/bilibili（47 条） =====
   '[resolveBilibili] 读取响应体失败:': '[resolveBilibili] 读取响应体失败:',
   '[resolveBilibili] 解析进度行失败:': '[resolveBilibili] 解析进度行失败:',
   '[useBilibiliQuality] 切换清晰度失败:': '[useBilibiliQuality] 切换清晰度失败:',
@@ -779,6 +779,8 @@ const zhCN: Record<string, string> = {
   '解析 B站 视频未完成': '解析 B站 视频未完成',
   '解析链接失败': '解析链接失败',
   '解析响应失败': '解析响应失败',
+  '解析直播间超时，请稍后重试': '解析直播间超时，请稍后重试',
+  '解析直播间失败': '解析直播间失败',
   '轮询二维码状态失败': '轮询二维码状态失败',
   '轮询状态失败，请重新获取': '轮询状态失败，请重新获取',
   '轮询状态失败，正在重试…': '轮询状态失败，正在重试…',
@@ -1021,7 +1023,7 @@ const zhCN: Record<string, string> = {
   'Jellyfin 挂载更新成功': 'Jellyfin 挂载更新成功',
   'Jellyfin 挂载添加成功': 'Jellyfin 挂载添加成功',
 
-  // ===== modules/movie-source（14 条） =====
+  // ===== modules/movie-source（15 条） =====
   '[movie-source-resolver] 实时直链解析失败，回退影片记录 URL:': '[movie-source-resolver] 实时直链解析失败，回退影片记录 URL:',
   '[movie-source-resolver] B站 解析命中缓存:': '[movie-source-resolver] B站 解析命中缓存:',
   '[movie-source-resolver] B站 recovery 路径中清除非 B站 headers:': '[movie-source-resolver] B站 recovery 路径中清除非 B站 headers:',
@@ -1036,6 +1038,7 @@ const zhCN: Record<string, string> = {
   '解析番剧播放地址失败': '解析番剧播放地址失败',
   '搜索番剧失败': '搜索番剧失败',
   '未取得影片播放地址': '未取得影片播放地址',
+  '主播当前未开播，请开播后再播放': '主播当前未开播，请开播后再播放',
 
   // ===== modules/music（729 条） =====
   ' · 共 {{totalPages}} 页': ' · 共 {{totalPages}} 页',
@@ -1910,7 +1913,7 @@ const zhCN: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁',
   'seek 失败': 'seek 失败',
 
-  // ===== modules/room（429 条） =====
+  // ===== modules/room（435 条） =====
   ' 等 {{length}} 位观众': ' 等 {{length}} 位观众',
   '），是否允许？': '），是否允许？',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析',
@@ -2145,7 +2148,7 @@ const zhCN: Record<string, string> = {
   '使用已保存的 FTP 挂载': '使用已保存的 FTP 挂载',
   '使用已保存的 OpenList 挂载': '使用已保存的 OpenList 挂载',
   '使用已保存的 WebDAV 挂载': '使用已保存的 WebDAV 挂载',
-  '视频 Url 或 bv 号': '视频 Url 或 bv 号',
+  '视频 Url、bv 号或直播间链接': '视频 Url、bv 号或直播间链接',
   '视频加载失败': '视频加载失败',
   '视频源加载失败': '视频源加载失败',
   '视频源解析失败': '视频源解析失败',
@@ -2282,6 +2285,7 @@ const zhCN: Record<string, string> = {
   '正在解析《{{name}}》第 1 集（共 {{length}} 集）...': '正在解析《{{name}}》第 1 集（共 {{length}} 集）...',
   '正在解析第 {{page}} 集 {{part}}...': '正在解析第 {{page}} 集 {{part}}...',
   '正在解析服务器文件...': '正在解析服务器文件...',
+  '正在解析直播间...': '正在解析直播间...',
   '正在枚举《{{name}}》的分集...': '正在枚举《{{name}}》的分集...',
   '正在批量解析 {{length}} 个文件...': '正在批量解析 {{length}} 个文件...',
   '正在切换清晰度...': '正在切换清晰度...',
@@ -2296,6 +2300,8 @@ const zhCN: Record<string, string> = {
   '正在通过服务器解析...': '正在通过服务器解析...',
   '正在通过服务器解析第 {{page}} 集...': '正在通过服务器解析第 {{page}} 集...',
   '正在通过服务器切换清晰度...': '正在通过服务器切换清晰度...',
+  '直播': '直播',
+  '直播清晰度由房主统一设置': '直播清晰度由房主统一设置',
   '直接流式播放，无需等待缓存': '直接流式播放，无需等待缓存',
   '直连': '直连',
   '直连源站，不占用服务器带宽': '直连源站，不占用服务器带宽',
@@ -2308,6 +2314,7 @@ const zhCN: Record<string, string> = {
   '中转': '中转',
   '重新解析失败': '重新解析失败',
   '重载视频': '重载视频',
+  '主播当前未开播，仍可添加到影片列表': '主播当前未开播，仍可添加到影片列表',
   '转交房主': '转交房主',
   '转交房主确认': '转交房主确认',
   '转交失败': '转交失败',
@@ -2323,6 +2330,8 @@ const zhCN: Record<string, string> = {
   'B站 URL 已过期，请重新解析视频': 'B站 URL 已过期，请重新解析视频',
   'B站解析设置': 'B站解析设置',
   'B站视频解析失败': 'B站视频解析失败',
+  'B站已将清晰度降级为 {{q}}（该档位需登录或更高权限）': 'B站已将清晰度降级为 {{q}}（该档位需登录或更高权限）',
+  'B站直播 {{roomId}}': 'B站直播 {{roomId}}',
   'CLI 代理未连接': 'CLI 代理未连接',
   'CLI 切换清晰度失败': 'CLI 切换清晰度失败',
   'CPU 不足': 'CPU 不足',
@@ -2663,7 +2672,7 @@ const zhCN: Record<string, string> = {
   'PGS RLE 图像不完整': 'PGS RLE 图像不完整',
   'PGS RLE 行长度无效': 'PGS RLE 行长度无效',
 
-  // ===== modules/sync-playback（21 条） =====
+  // ===== modules/sync-playback（23 条） =====
   '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:': '[safePlay] 拒绝播放已脱离文档树的媒体元素（防游离声源/双声回声）:',
   '[seek-service] forceReload 也失败:': '[seek-service] forceReload 也失败:',
   '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:': '[seek-service] MSE seek 不可恢复失败，调用 forceReload 重新加载:',
@@ -2685,6 +2694,8 @@ const zhCN: Record<string, string> = {
   '正在解析容器与轨道': '正在解析容器与轨道',
   '正在启动转码 worker': '正在启动转码 worker',
   '正在生成首个分段': '正在生成首个分段',
+  '直播流连接中断，点「重载」可重新连接': '直播流连接中断，点「重载」可重新连接',
+  '直播已结束': '直播已结束',
 
   // ===== modules/voice-chat（28 条） =====
   '{{memberCount}} 人在线': '{{memberCount}} 人在线',

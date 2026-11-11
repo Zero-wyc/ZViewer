@@ -13,6 +13,7 @@
     "Failed to load your followed anime",
     "Failed to resolve the anime playback URL",
     "Anime search failed",
-    "No playback URL for the movie"
+    "No playback URL for the movie",
+    "The streamer is offline, try again once the stream starts"
   ]
 }

@@ -81,6 +81,14 @@ export interface WatchTogetherState {
    * 保持"源站直传、服务器零媒体流量"的直链语义。
    */
   noProxyFallback?: boolean
+  /**
+   * 直播源标记（B站 直播间，由房主解析结果广播）。
+   *
+   * true 时进度条/时长/倍速无意义：观众端跳过进度校正与 seek 同步
+   * （直播没有可对齐的时间轴，按房主 currentTime 校正只会把观众拉回旧画面），
+   * 各端各自贴近直播边缘播放。
+   */
+  isLive?: boolean
 }
 
 /** 房主发出的控制动作 */

@@ -19,7 +19,11 @@ import { Modal } from '@/components/ui/Modal'
 import { message } from '@/components/ui/message'
 import { useSocket } from '@/hooks/useSocket'
 import { useRoomStore, type Movie } from '@/store/roomStore'
-import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
+import {
+  resolveBilibiliWithOptions,
+  resolveBilibiliLive,
+} from '@/modules/bilibili/bilibiliApi'
+import { extractLiveRoomId } from '@/modules/bilibili/live'
 import {
   extractBvid,
   extractBangumiId,
@@ -289,6 +293,63 @@ export function MovieListPanel({
       return
     }
 
+    // 直播间：每个清晰度对应一条独立的签名地址，切换 = 重新取流。
+    // 不走 playurl / DASH / CLI 那套点播解析（直播间没有 cid、没有 m4s）。
+    if (extractLiveRoomId(movie.url) > 0) {
+      setQualityLoadingId(movie.id)
+      try {
+        const live = await resolveBilibiliLive(movie.url, {
+          qn,
+          movieId: movie.id,
+        })
+        if (live.liveStatus !== 1 || !live.videoUrl) {
+          throw new Error(t('主播当前未开播，请开播后再播放'))
+        }
+        // 未登录/无权限时上游会把请求档位降级（如要原画只给超清），
+        // currentQn 回传的是实际档位——明确告知，避免用户反复点击却「没变化」。
+        if (live.currentQn !== qn) {
+          const actual = live.qualities.find((q) => q.id === live.currentQn)
+          message.info(
+            t('B站已将清晰度降级为 {{q}}（该档位需登录或更高权限）', {
+              q: actual?.label ?? String(live.currentQn),
+            })
+          )
+        }
+        await updateMovie(roomId, movie.id, {
+          format: live.format,
+          duration: 0,
+          currentQn: live.currentQn,
+          acceptQuality: live.qualities,
+        })
+        if (movie.id === currentMovieId) {
+          setPendingQualityChange({
+            movieId: movie.id,
+            resolved: {
+              title: live.title,
+              videoUrl: live.videoUrl,
+              format: live.format,
+              duration: 0,
+              currentQn: live.currentQn,
+              acceptQuality: live.qualities,
+              isLive: true,
+              roomId: live.roomId,
+              uname: live.uname,
+              cover: live.cover,
+              liveStatus: live.liveStatus,
+              expiresAt: live.expiresAt,
+              resolvedUrl: live.resolvedUrl,
+            },
+          })
+        }
+      } catch (err) {
+        console.error('[MovieListPanel] live quality change error:', err)
+        message.error(err instanceof Error ? err.message : t('切换清晰度失败'))
+      } finally {
+        setQualityLoadingId(null)
+      }
+      return
+    }
+
     setQualityLoadingId(movie.id)
     try {
       // cliOnly 时强制走 CLI 解析分支（CLI 未连接已在上方拦截）
@@ -361,6 +422,12 @@ export function MovieListPanel({
    */
   const handleViewerQualityChange = async (movie: Movie, value: string) => {
     if (isHost || isScreenShare) return
+    // 直播间的清晰度对应不同的取流地址，观众端拿不到房主的 B站 身份，
+    // 各自切档会与房主广播的源互相覆盖——统一由房主设置。
+    if (extractLiveRoomId(movie.url) > 0) {
+      message.info(t('直播清晰度由房主统一设置'))
+      return
+    }
     const qn = Number(value)
     if (!Number.isFinite(qn) || qn === movie.currentQn) return
 
@@ -714,6 +781,19 @@ export function MovieListPanel({
                             movie.format.toUpperCase()
                           : SOURCE_LABELS[movie.sourceType] || movie.sourceType}
                       </Tag>
+                      {extractLiveRoomId(movie.url) > 0 && (
+                        <Tag
+                          className="inline-flex items-center gap-1"
+                          style={{
+                            backgroundColor:
+                              'color-mix(in srgb, var(--md-sys-color-error-container) calc(var(--glass-strength) * 100%), transparent)',
+                            color: 'var(--md-sys-color-on-error-container)',
+                          }}
+                        >
+                          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+                          {t('直播')}
+                        </Tag>
+                      )}
                       {movie.pages && movie.pages.length > 1 && (
                         <Tag
                           className="inline-flex items-center gap-1"
@@ -825,9 +905,11 @@ export function MovieListPanel({
                   )}
                 </div>
                 {/* B站解析设置：每个 B站 影片独享一份配置；房主可操作，观众可查看并独立开启 CLI 代理 */}
-                {movie.sourceType === 'bilibili' && !isScreenShare && (
-                  <BilibiliParseSettings movieId={movie.id} isHost={isHost} />
-                )}
+                {movie.sourceType === 'bilibili' &&
+                  !isScreenShare &&
+                  extractLiveRoomId(movie.url) === 0 && (
+                    <BilibiliParseSettings movieId={movie.id} isHost={isHost} />
+                  )}
                 {/* 影片级播放设置（服务器中转 / 浏览器转码）：即时生效的运行开关 */}
                 {movie.sourceType !== 'bilibili' && !isScreenShare && (
                   <MovieRuntimeSettings movieId={movie.id} isHost={isHost} />
@@ -983,8 +1065,10 @@ function BilibiliQualitySelect({
     (s) => s.localOnline && s.agents.length > 0
   )
 
-  // 使用生效的播放模式：CLI 未连接时强制 MP4，清晰度选择随之禁用
-  const effectivePreferMp4 = getEffectivePreferMp4(movie.id)
+  // 使用生效的播放模式：CLI 未连接时强制 MP4，清晰度选择随之禁用。
+  // 直播间不受此约束：直播没有 DASH/MP4 之分，每个清晰度都是独立的流地址。
+  const isLiveRoom = extractLiveRoomId(movie.url) > 0
+  const effectivePreferMp4 = !isLiveRoom && getEffectivePreferMp4(movie.id)
 
   // 观众端未启用 CLI 时不显示清晰度选择器
   if (!isHost && !parsePrefs.cliEnabled) {

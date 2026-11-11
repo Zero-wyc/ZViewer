@@ -12,8 +12,12 @@
 import type { Movie } from '@/store/roomStore'
 import { useRoomStore } from '@/store/roomStore'
 import { detectMediaFormat, type MediaFormat } from '@/lib/mediaFormat'
-import { resolveBilibiliWithOptions } from '@/modules/bilibili/bilibiliApi'
+import {
+  resolveBilibiliWithOptions,
+  resolveBilibiliLive,
+} from '@/modules/bilibili/bilibiliApi'
 import { extractBvid, resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
+import { extractLiveRoomId } from '@/modules/bilibili/live'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
 import { useSystemSettingsStore } from '@/store/systemSettingsStore'
@@ -77,6 +81,11 @@ export interface ResolvedMovieSource {
    * 直接向用户提示错误，保持"源站直传、服务器零媒体流量"的直链语义。
    */
   noProxyFallback?: boolean
+  /**
+   * 直播源标记（B站 直播间）：sourceUrl 是直播 FLV/HLS 长连接，
+   * duration 恒为 0，一起看侧按直播处理（不 seek、不做进度校正）。
+   */
+  isLive?: boolean
 }
 
 export interface ResolveMovieSourceOptions {
@@ -207,6 +216,7 @@ function mapResolvedSourceToMovieSource(
     duration?: number
     currentQn?: number
     acceptQuality?: QualityOption[]
+    isLive?: boolean
   },
   movie: Movie
 ): ResolvedMovieSource {
@@ -225,6 +235,7 @@ function mapResolvedSourceToMovieSource(
     acceptQuality: resolved.acceptQuality ?? movie.acceptQuality,
     headers: undefined,
     reusedRecoveryUrl: false,
+    isLive: resolved.isLive === true,
   }
 }
 
@@ -301,6 +312,31 @@ export async function resolveBilibiliOnline(
     useHostCookie?: boolean
   }
 ): Promise<ResolvedMovieSource> {
+  // 直播间影片：URL 里只有房间号，走独立的直播取流接口。
+  //
+  // 不缓存解析结果：直播地址带签名有效期，且每次开播/换流都会变，
+  // 复用旧地址只会让播放器对着已结束的流反复重连。
+  const liveRoomId = extractLiveRoomId(movie.url)
+  if (liveRoomId > 0) {
+    const live = await resolveBilibiliLive(movie.url, {
+      // 与点播同语义：用房主的 B站 身份取流（大会员能拿到原画）
+      movieId: options?.useHostCookie !== false ? movie.id : undefined,
+    })
+    if (live.liveStatus !== 1 || !live.videoUrl) {
+      throw new Error(t('主播当前未开播，请开播后再播放'))
+    }
+    return {
+      sourceUrl: live.videoUrl,
+      format: live.format,
+      duration: 0,
+      currentQn: live.currentQn,
+      acceptQuality: live.qualities,
+      headers: undefined,
+      reusedRecoveryUrl: false,
+      isLive: true,
+    }
+  }
+
   const { cliOnly, proxyUrl, cliEnabled } =
     resolveBilibiliCliProxyDecision(movie)
   if (cliOnly && !proxyUrl) {

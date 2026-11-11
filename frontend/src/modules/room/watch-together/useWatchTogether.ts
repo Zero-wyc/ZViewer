@@ -18,6 +18,7 @@ import {
 import { type QualityOption } from '@/modules/movie-source/resolveSource'
 import { useBilibiliQuality } from '@/modules/bilibili/useBilibiliQuality'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
+import { extractLiveRoomId } from '@/modules/bilibili/live'
 import {
   useHostSync,
   useViewerSync,
@@ -1004,11 +1005,15 @@ export function useWatchTogether({
     }
 
     const loadMovie = async () => {
+      // 直播影片：URL 里是房间号，每次播放都要重新取流（地址带签名且随开播变化），
+      // 也没有「上次看到第几秒」的概念——不参与刷新恢复。
+      const liveMovie = extractLiveRoomId(movie.url) > 0
       // 房主刷新恢复：若 initialPlayback.currentMovieId 与当前加载的影片 ID 匹配，
       // 则使用 initialPlayback.currentTime 替代 0，并强制暂停而非自动播放。
       // B站 URL 每次解析都会变，因此通过 currentMovieId 匹配而非 sourceUrl。
       const recovery = initialPlaybackRef.current
       const isRecovery =
+        !liveMovie &&
         !appliedPlaybackRef.current &&
         !!recovery &&
         typeof recovery.currentMovieId === 'number' &&
@@ -1037,7 +1042,10 @@ export function useWatchTogether({
       // - 其他源：直接使用影片记录字段
       let resolved: ResolvedMovieSource
       try {
-        if (sourceType === 'bilibili' && !(isRecovery && recovery?.sourceUrl)) {
+        if (
+          sourceType === 'bilibili' &&
+          (liveMovie || !(isRecovery && recovery?.sourceUrl))
+        ) {
           resolved = await resolveOnline()
         } else if (
           sourceType === 'anime' ||
@@ -1109,14 +1117,18 @@ export function useWatchTogether({
         currentQn: r.currentQn,
         acceptQuality: r.acceptQuality,
         // 缓冲模式：仅 B站 DASH 源启用，根据该影片的用户偏好决定
+        // （直播是无尽长连接，没有「完整下载」的概念，必须排除）
         bufferMode:
           sourceType === 'bilibili' &&
+          r.isLive !== true &&
           r.format === 'dash' &&
           getBilibiliParseOptions(movie.id).bufferMode === true,
         // 影片级浏览器播放引擎开关（添加影片时设置），随状态广播给观众
         playsvideoEnabled: r.playsvideoEnabled !== false,
         // 挂载直链模式：直连失败不回退服务器代理，直接提示错误
         noProxyFallback: r.noProxyFallback ?? false,
+        // 直播源：观众端据此跳过进度校正/seek，各自贴近直播边缘播放
+        isLive: r.isLive === true,
       })
 
       // 4. attach 并恢复进度 / 自动播放 / 广播

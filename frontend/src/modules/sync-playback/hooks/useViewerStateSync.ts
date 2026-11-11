@@ -179,18 +179,19 @@ export function useViewerStateSync({
         // 传入 state.currentTime 作为 startTime：DASH 引擎从该时间对应
         // 的字节位置开始下载，而非从文件头顺序下载到目标位置才播放
         // （房主切清晰度/换片时观众从房主当前进度起播，避免长缓冲）。
+        // 直播源没有进度概念：始终从直播边缘起播，不传 startTime。
         await applySourceToVideo(
           video,
           state,
-          state.currentTime || undefined,
+          state.isLive === true ? undefined : state.currentTime || undefined,
           blobs
         )
         // applySourceToVideo 后视频元素可能已替换，重新获取
         const currentVideo = videoRef.current
         if (!currentVideo) return
 
-        // 源变化时完整同步所有字段
-        if (state.currentTime > 0) {
+        // 源变化时完整同步所有字段（直播源只同步播放状态，不 seek）
+        if (state.currentTime > 0 && state.isLive !== true) {
           try {
             currentVideo.currentTime = state.currentTime
           } catch {
@@ -198,6 +199,7 @@ export function useViewerStateSync({
           }
         }
         if (
+          state.isLive !== true &&
           state.playbackRate > 0 &&
           currentVideo.playbackRate !== state.playbackRate
         ) {
@@ -250,7 +252,7 @@ export function useViewerStateSync({
       // 心跳校正链（useServerHeartbeat）在事件抑制/引擎卡死等场景会被静默拦截
       // 或长时间转圈等待，按钮必须能绕过它们把观众拉回房主进度——MSE seek
       // 失败时经 onSeekFailed → reloadVideo 重建引擎，与「重载视频」等效。
-      if (force && state.currentTime > 0) {
+      if (force && state.currentTime > 0 && state.isLive !== true) {
         const timeDiff = Math.abs(video.currentTime - state.currentTime)
         if (timeDiff > 0.5) {
           void executeSeek({

@@ -117,6 +117,8 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
 
       const preserveTime = video.currentTime
       const shouldPlay = !video.paused
+      // 直播源：切清晰度等于换一条流，没有可保留的播放位置
+      const isLive = state.isLive === true
 
       try {
         let resolved: ResolvedSource
@@ -193,7 +195,7 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
           currentQn: resolved.currentQn ?? qn,
           acceptQuality: resolved.acceptQuality,
           isPlaying: shouldPlay,
-          currentTime: preserveTime,
+          currentTime: isLive ? 0 : preserveTime,
           // 缓冲模式：清晰度切换后保持与用户偏好一致。仅 DASH 源启用。
           // 若缓冲下载失败则降级为 URL 播放（下方 if 块内重置）。
           bufferMode:
@@ -216,7 +218,9 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
 
         ctx.setWatchTogether(newState)
         await ctx.applySourceToVideo(video, newState, undefined, blobs)
-        video.currentTime = preserveTime
+        if (!isLive && preserveTime > 0) {
+          video.currentTime = preserveTime
+        }
         if (shouldPlay) {
           void safePlay(video)
         }
@@ -236,7 +240,7 @@ export function useBilibiliQuality(ctx: BilibiliQualityContext) {
         // 回退到原 source
         try {
           await ctx.applySourceToVideo(video, state)
-          if (preserveTime > 0) {
+          if (!isLive && preserveTime > 0) {
             video.currentTime = preserveTime
           }
           if (shouldPlay) {

@@ -114,7 +114,7 @@
     "Use the saved FTP mount",
     "Use the saved OpenList mount",
     "Use the saved WebDAV mount",
-    "Video URL or BV id",
+    "Video URL, BV id, or live room link",
     "Failed to load the video",
     "Failed to load the video source",
     "Failed to resolve the video source",

@@ -260,6 +260,14 @@ export function useServerHeartbeat({
       //    阈值 < diff ≤ 硬 seek 阈值 且播放中 → 软同步倍速渐进追赶；
       //    diff > 硬 seek 阈值 → 硬 seek（走统一 executeSeek，MSE Range seek
       //    / 缓冲区检测 / 失败重载，与旧 host 心跳路径同策略）。
+      //
+      // 直播源跳过：直播没有可对齐的时间轴——心跳里的 currentTime 是房主
+      // MSE 时间轴上的位置，各端拉流起点不同，按它校正只会把观众反复拽回
+      // 旧画面（每次硬 seek 都要重新缓冲）。直播的延迟由 flv.js 的
+      // liveBufferLatencyChasing 自己收敛到直播边缘。
+      if (state.isLive === true) {
+        return
+      }
       const rate = state.playbackRate > 0 ? state.playbackRate : 1
       const diff = Math.abs(video.currentTime - state.currentTime)
       const threshold = getAdaptiveSeekThreshold(rate)

@@ -241,6 +241,18 @@ function toPlayerSource(
     // 传入后端权威时长：B站 fMP4 流的 mvhd.duration 为 0，
     // MSE 引擎需用此值显式设置 mediaSource.duration
     duration: state.duration,
+    // 直播源：FLV 引擎据此启用 isLive（延迟追赶 / 断线重连 / 缓冲清理）
+    isLive: state.isLive === true,
+  }
+  // 直播中断提示：FLV 引擎内部会按指数退避重连，重连耗尽后必须让用户
+  // 知道「不是卡了」——否则画面停住却没有进度条可看，只能干等。
+  // 重载按钮（或重新播放该影片）会重新取流，主播换流地址后即可恢复。
+  if (state.isLive === true) {
+    source.flvRuntimeEvents = {
+      onStreamEnd: () => message.info(t('直播已结束')),
+      onExhausted: () =>
+        message.warning(t('直播流连接中断，点「重载」可重新连接')),
+    }
   }
   if (startTime !== undefined && startTime > 0) {
     source.startTime = startTime
