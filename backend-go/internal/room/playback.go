@@ -28,6 +28,9 @@ type PlaybackMetadata struct {
 	SeasonID          *int64  `json:"seasonId,omitempty"`
 	SeasonTitle       *string `json:"seasonTitle,omitempty"`
 	Preview           *bool   `json:"preview,omitempty"`
+	// IsLive 标记直播源（B站 直播间）：观众端据此跳过进度校正与 seek 同步，
+	// 直播没有可对齐的时间轴，按房主 currentTime 校正只会把观众拉回旧画面。
+	IsLive *bool `json:"isLive,omitempty"`
 }
 
 type Playback struct {

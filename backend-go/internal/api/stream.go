@@ -16,6 +16,8 @@ import (
 // registerStreamRoutes 挂载 /api/stream 下的解析端点。
 func (s *Server) registerStreamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/stream/resolve-bilibili", s.Auth.Require(s.handleResolveBilibili))
+	// 直播取流：独立端点，返回 JSON（无需 NDJSON 进度流）。
+	mux.HandleFunc("GET /api/stream/resolve-bilibili-live", s.Auth.Require(s.handleResolveBilibiliLive))
 }
 
 // ndjsonWriter 逐行写 NDJSON 并 flush。

@@ -15,6 +15,10 @@ func (s *Server) bilibiliMovieMatches(ctx context.Context, movie *store.Movie, t
 		return false
 	}
 	stored := bilibili.ExpandShortLink(ctx, movie.URL)
+	// 直播间影片：链接里没有 BV/ep，只有房间号，按房间号比对。
+	if roomID := bilibili.LiveRoomID(stored); roomID > 0 {
+		return roomID == bilibili.LiveRoomID(target)
+	}
 	bv := bilibili.ExtractBvid(stored)
 	if bv != "" {
 		return bv == bilibili.ExtractBvid(target)
