@@ -5,7 +5,8 @@
  * （roomStore.viewerCliRequiredMovieId）：覆盖播放器区域，与
  * useVideoSource.applySourceToVideo 的同标志挂载拦截配合——cliOnly
  * 语义下不回退服务器转发（服务器零媒体流量），观众必须自备
- * ZViewer CLI 并用自己的 CLI 解析播放。
+ * ZViewer CLI；解析来源由 CLI 配置页决定（房主直链或本地 Cookie），
+ * 两种模式下媒体流都由本地 CLI 直连 CDN 转发。
  *
  * 恢复路径：
  * - 手动：「我已连接，重试」触发观众端源重载；
@@ -45,7 +46,7 @@ export function ViewerCliRequiredOverlay() {
       </div>
       <div className="max-w-md text-xs leading-relaxed text-white/70">
         {t(
-          '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后使用自己的 CLI 解析播放。',
+          '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后播放（解析来源可在 CLI 配置页选择房主直链或本地 Cookie）。',
           { value: movie?.title ? `「${movie.title}」` : '' }
         )}
       </div>

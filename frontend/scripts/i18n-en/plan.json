@@ -1,5 +1,5 @@
 {
-  "total": 2663,
+  "total": 2668,
   "chunk": 120,
   "parts": [
     {
@@ -55,7 +55,7 @@
     {
       "id": "11-pages",
       "bucket": "pages",
-      "count": 8
+      "count": 10
     },
     {
       "id": "12-common",
@@ -210,7 +210,7 @@
     {
       "id": "42-room",
       "bucket": "modules/room",
-      "count": 82
+      "count": 85
     },
     {
       "id": "43-screen-sharing",

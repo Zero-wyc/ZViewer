@@ -400,6 +400,20 @@ export function BilibiliParseSettings({
                 : t('使用本地 ZViewer CLI 获取大会员等高画质')}
             </div>
 
+            {displayCliEnabled && cliAgent.available && (
+              <div
+                className="mt-1 text-[9px] leading-snug"
+                style={{ color: 'var(--md-sys-color-on-surface-variant)' }}
+              >
+                {t('解析来源：{{value}}', {
+                  value:
+                    cliAgent.agentInfo?.resolveSource === 'host'
+                      ? t('房主直链（无需登录 B站，画质由房主账号决定）')
+                      : t('本地 Cookie（延迟更低，画质由你的账号决定）'),
+                })}
+              </div>
+            )}
+
             <button
               type="button"
               onClick={openCliSetupPage}

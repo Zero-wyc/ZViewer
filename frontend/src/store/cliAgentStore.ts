@@ -8,6 +8,14 @@ export interface CliAgentInfo {
   version?: string
   /** 注册时归属的用户名（CLI 配置页经 ?user= 传入；旧版 CLI 无此字段=公共代理） */
   user?: string
+  /**
+   * CLI 配置页选择的解析来源：
+   * - host：房主直链（默认，服务端用房主 Cookie 解析，CLI 只做本地转发）
+   * - local：本地 Cookie 解析（延迟更低，画质由观众自己的账号决定）
+   *
+   * 旧版 CLI 不上报此字段，前端按 local 处理，保持升级前的行为。
+   */
+  resolveSource?: 'host' | 'local'
 }
 
 interface CliAgentState {

@@ -16,7 +16,11 @@ import {
   resolveBilibiliWithOptions,
   resolveBilibiliLive,
 } from '@/modules/bilibili/bilibiliApi'
-import { extractBvid, resolveBilibiliViaCli } from '@/modules/bilibili/cliApi'
+import {
+  extractBvid,
+  resolveBilibiliViaCli,
+  wrapResolvedSourceWithCliProxy,
+} from '@/modules/bilibili/cliApi'
 import { extractLiveRoomId } from '@/modules/bilibili/live'
 import { useCliAgentStore } from '@/store/cliAgentStore'
 import { getBilibiliParseOptions } from '@/modules/bilibili/parseOptions'
@@ -137,6 +141,21 @@ export function getActiveCliProxyUrl(): string | null {
 }
 
 /**
+ * 当前 CLI 选择的解析来源。
+ *
+ * host：服务端用房主的 B站 身份解析，观众自己不需要登录（媒体流仍由
+ * 本地 CLI 直连 CDN 转发，不占服务器带宽）。
+ * local：CLI 用本机 Cookie 解析，少一次服务端往返、首帧更快。
+ *
+ * 旧版 CLI 不上报 resolveSource —— 按 local 处理，避免升级服务端后
+ * 把老用户的画质静默降级成房主账号的档位。
+ */
+export function getActiveCliResolveSource(): 'host' | 'local' {
+  const { agents } = useCliAgentStore.getState()
+  return agents[0]?.resolveSource === 'host' ? 'host' : 'local'
+}
+
+/**
  * 计算 B站 影片的 CLI 代理解析决策（纯数据，不代为抛错）。
  *
  * CLI 代理在服务器全局注册，getActiveCliProxyUrl 取第一个可用代理地址；
@@ -148,11 +167,14 @@ export function resolveBilibiliCliProxyDecision(movie: Movie): {
   cliOnly: boolean
   proxyUrl: string | null
   cliEnabled: boolean
+  /** CLI 选择「房主直链」：解析走服务端房主身份，CLI 只负责转发 */
+  hostResolve: boolean
 } {
   const { cliEnabled } = getBilibiliParseOptions(movie.id)
   const cliOnly = movie.cliOnly === true
   const proxyUrl = cliOnly || cliEnabled ? getActiveCliProxyUrl() : null
-  return { cliOnly, proxyUrl, cliEnabled }
+  const hostResolve = !!proxyUrl && getActiveCliResolveSource() === 'host'
+  return { cliOnly, proxyUrl, cliEnabled, hostResolve }
 }
 
 /**
@@ -266,11 +288,14 @@ function buildBilibiliResolveCacheKey(
   preferMp4: boolean,
   cliProxyUrl: string | null,
   useHostCookie: boolean,
-  page: number | null | undefined
+  page: number | null | undefined,
+  cliHost: boolean
 ): string {
   return `${movieId}|${qn ?? '-'}|${preferMp4 ? 'mp4' : 'dash'}|${
     cliProxyUrl ?? 'server'
-  }|${useHostCookie ? 'host' : 'self'}|p${page ?? '-'}`
+  }|${useHostCookie ? 'host' : 'self'}|p${page ?? '-'}|${
+    cliHost ? 'clihost' : 'cliself'
+  }`
 }
 
 /** 强制绕过缓存时（旧 URL 已失败），清掉该影片的全部缓存条目避免膨胀 */
@@ -346,7 +371,7 @@ export async function resolveBilibiliOnline(
     }
   }
 
-  const { cliOnly, proxyUrl, cliEnabled } =
+  const { cliOnly, proxyUrl, cliEnabled, hostResolve } =
     resolveBilibiliCliProxyDecision(movie)
   if (cliOnly && !proxyUrl) {
     throw new Error(
@@ -382,7 +407,8 @@ export async function resolveBilibiliOnline(
     effectivePreferMp4,
     proxyUrl,
     useHostCookie,
-    options?.page ?? null
+    options?.page ?? null,
+    hostResolve
   )
   if (!forceRefresh) {
     const cached = bilibiliResolveCache.get(cacheKey)
@@ -396,7 +422,31 @@ export async function resolveBilibiliOnline(
 
   let resolvedSource: ResolvedMovieSource
   const bvid = extractBvid(movie.url)
-  if (proxyUrl && bvid && movie.cid) {
+  if (proxyUrl && hostResolve) {
+    // 房主直链：服务端用房间房主的 B站 身份解析（观众自己不需要登录），
+    // 拿到 CDN 地址后再包装成本地 CLI 代理——媒体流由 CLI 直连 CDN，
+    // 服务器只承担一次元数据解析，零媒体流量。
+    //
+    // skipCdnCheck：媒体流由观众本机拉取，机房侧探测结果不代表用户网络，
+    // 否则会因机房到某些 CDN 节点不通而误降级成 MP4。
+    const resolved = await resolveBilibiliWithOptions(
+      movie.url,
+      requestedQn,
+      onProgress,
+      {
+        preferMp4: effectivePreferMp4,
+        forceDash,
+        movieId: movie.id,
+        page: options?.page,
+        cliHost: true,
+        skipCdnCheck: true,
+      }
+    )
+    resolvedSource = mapResolvedSourceToMovieSource(
+      wrapResolvedSourceWithCliProxy(proxyUrl, resolved),
+      movie
+    )
+  } else if (proxyUrl && bvid && movie.cid) {
     const resolved = await resolveBilibiliViaCli(
       proxyUrl,
       bvid,

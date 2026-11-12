@@ -583,6 +583,27 @@ export function SettingsTab({
           </div>
 
           <Title level={5} className="mb-4 mt-6">
+            {t('CLI 高画质代理')}
+          </Title>
+          <div className="mb-6 max-w-md">
+            <Switch
+              label={t('允许 CLI 使用房主的 B站 身份解析直链')}
+              checked={settings.allowCliHostResolve}
+              onChange={(e) =>
+                onSettingsChange((prev) => ({
+                  ...prev,
+                  allowCliHostResolve: e.target.checked,
+                }))
+              }
+            />
+            <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
+              {t(
+                '开启后，观众可在 CLI 配置页选择「房主直链」：无需登录 B站，由服务器用房主账号解析、媒体流仍由本地 CLI 直连 CDN。关闭则只能使用观众自己的 Cookie 解析。'
+              )}
+            </p>
+          </div>
+
+          <Title level={5} className="mb-4 mt-6">
             {t('版本更新')}
           </Title>
           <div className="glass-card mb-6 p-4">

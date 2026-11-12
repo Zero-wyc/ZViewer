@@ -66,6 +66,7 @@ export default function AdminPage() {
     announceAutoPopupOnUpdate: true,
     showVoiceChatButton: true,
     showTrafficPanel: true,
+    allowCliHostResolve: true,
   })
   const [loading, setLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
@@ -528,6 +529,8 @@ export default function AdminPage() {
         // 房间悬浮入口显隐（后端落 config/ui-prefs.json，不写库）
         showVoiceChatButton: settings.showVoiceChatButton,
         showTrafficPanel: settings.showTrafficPanel,
+        // CLI 房主直链分发（后端落 config/cli-prefs.json，不写库）
+        allowCliHostResolve: settings.allowCliHostResolve,
       }
       if (settings.dataSourceConfig) {
         payload.dataSourceConfig = settings.dataSourceConfig

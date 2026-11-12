@@ -1,5 +1,7 @@
 {
   "items": [
+    "Once viewers join, each connection shows up here",
+    "Viewer limit",
     "The viewer limit must be between 1 and 100",
     "Viewer quality",
     "No connection yet",
@@ -21,6 +23,7 @@
     "Unmute",
     "Decode time",
     "Resolve",
+    "Resolve source: {{value}}",
     "Resolution failed",
     "View only",
     "CLI only",
@@ -116,9 +119,6 @@
     "Live bitrate",
     "Use the local ZViewer CLI for premium high quality",
     "Use the saved {{name}} mount",
-    "Use the saved FTP mount",
-    "Use the saved OpenList mount",
-    "Use the saved WebDAV mount",
-    "Video URL, BV id, or live room link"
+    "Use the saved FTP mount"
   ]
 }

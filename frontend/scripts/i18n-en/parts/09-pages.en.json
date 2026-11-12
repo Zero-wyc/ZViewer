@@ -10,6 +10,7 @@
     "Disable registration",
     "Mirror repository (GitCode / ZviewerRelease)",
     "Not needed when using the mirror source",
+    "When enabled, viewers can pick \"Host direct link\" in the CLI config page: no Bilibili login needed — the server resolves with the host's account while media still flows from the local CLI straight to the CDN. When disabled, viewers can only resolve with their own Cookie.",
     "When on, pre-release builds are included; otherwise only stable releases",
     "When on, server-side resolution uses MP4 only; it does not affect DASH in CLI proxy mode.",
     "Route update checks and downloads through the CDN proxy",
@@ -118,7 +119,6 @@
     "Signed in to NetEase Cloud Music",
     "NetEase Cloud Music login QR code",
     "NetEase Cloud Music user",
-    "No Bilibili account linked",
-    "No NetEase Cloud Music account linked"
+    "No Bilibili account linked"
   ]
 }

@@ -23,6 +23,7 @@
     "This window · overall {{value}}",
     "Share of this window",
     "This session · HTTP",
+    "Local Cookie (lower latency; quality follows your own account)",
     "Failed to load the local proxy",
     "Bilibili login QR code",
     "Encoder CPU limited",
@@ -86,12 +87,13 @@
     "The host declined your seek request",
     "The host declined your pause request",
     "The host changed",
-    "The host enabled “CLI only” for {{value}}: the stream is not relayed by the server, so every member must install and connect ZViewer CLI and resolve it locally.",
+    "The host enabled \"CLI-only mode\" for {{value}}: media does not pass through the server, so every member must install and connect ZViewer CLI to watch (the resolve source — host direct link or local Cookie — is chosen in the CLI config page).",
     "Enabled by the host: install and connect ZViewer CLI to watch this movie",
     "The host allowed resuming",
     "The host allowed seeking to {{value}}",
     "The host allowed pausing",
     "The host role was transferred; you are now a viewer",
+    "Host direct link (no Bilibili login; quality follows the host's account)",
     "Share",
     "Share link copied",
     "Server {{label}}",
@@ -117,8 +119,6 @@
     "Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.",
     "Watch request",
     "Viewer {{index}}",
-    "Viewers",
-    "Once viewers join, each connection shows up here",
-    "Viewer limit"
+    "Viewers"
   ]
 }

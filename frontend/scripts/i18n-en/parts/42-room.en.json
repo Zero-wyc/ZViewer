@@ -1,5 +1,8 @@
 {
   "items": [
+    "The pause request timed out; the host did not respond",
+    "No other users online",
+    "No movies yet, add one on the right",
     "No viewers online",
     "Paste a {{name}} itemId (optional; usually picked by browsing)",
     "Expand the sidebar",

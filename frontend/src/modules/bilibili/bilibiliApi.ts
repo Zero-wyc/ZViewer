@@ -434,6 +434,14 @@ function mapResolvedBilibili(data: ResolveProgressLine): ResolvedSource {
   }
 }
 
+/** 把后端错误码挂到 Error 上，供调用方区分可操作场景（如管理员关闭了 CLI 房主解析）。 */
+function withResolveCode(err: Error, code?: string): Error {
+  if (code) {
+    ;(err as Error & { code?: string }).code = code
+  }
+  return err
+}
+
 async function parseNdjsonStream(
   res: Response,
   onProgress?: (step: string, message: string) => void
@@ -467,7 +475,10 @@ async function parseNdjsonStream(
             data.message || t('无权限播放，可能需要大会员')
           )
         } else {
-          streamError = new Error(data.message || t('解析 B站 视频失败'))
+          streamError = withResolveCode(
+            new Error(data.message || t('解析 B站 视频失败')),
+            data.code
+          )
         }
       }
     } catch (err) {
@@ -512,6 +523,16 @@ export async function resolveBilibili(
      * 完整内容而非观众身份下的试看片段。Cookie 本身不回传。
      */
     movieId?: number
+    /**
+     * CLI「房主直链」模式标记：后端据此校验管理员开关、要求房主已绑定
+     * B站 账号。必须与 movieId 同时使用。
+     */
+    cliHost?: boolean
+    /**
+     * 跳过后端 CDN 连通性探测。媒体流由观众本机拉取时使用——机房探测
+     * 结果不代表用户网络，误判会无谓降级成 MP4。
+     */
+    skipCdnCheck?: boolean
   }
 ): Promise<ResolvedSource> {
   let fetchUrl = `/api/stream/resolve-bilibili?url=${encodeURIComponent(url)}`
@@ -540,6 +561,12 @@ export async function resolveBilibili(
   if (options?.movieId != null && Number.isFinite(options.movieId)) {
     fetchUrl += `&movieId=${options.movieId}`
   }
+  if (options?.cliHost) {
+    fetchUrl += `&cliHost=1`
+  }
+  if (options?.skipCdnCheck) {
+    fetchUrl += `&skipCdnCheck=1`
+  }
 
   // 整体超时兜底：后端流式响应永不结束时主动 abort，避免前端永久挂起。
   // 控制器在 parseNdjsonStream / res.json() 完成后由 finally 清理。
@@ -559,7 +586,10 @@ export async function resolveBilibili(
       if (data.code === 'NO_PERMISSION') {
         throw new Error(data.message || t('无权限播放，可能需要登录或大会员'))
       }
-      throw new Error(data.message || t('解析 B站 视频失败'))
+      throw withResolveCode(
+        new Error(data.message || t('解析 B站 视频失败')),
+        data.code
+      )
     }
     return mapResolvedBilibili(data)
   } catch (err) {
@@ -590,6 +620,10 @@ export async function resolveBilibiliWithOptions(
     cid?: number
     audioOnly?: boolean
     movieId?: number
+    /** CLI 房主直链模式（配合 movieId 使用），后端校验管理员开关 */
+    cliHost?: boolean
+    /** 跳过服务端 CDN 探测（媒体流由观众本机拉取时使用） */
+    skipCdnCheck?: boolean
   }
 ): Promise<ResolvedSource> {
   return resolveBilibili(url, qn, onProgress, {
@@ -599,6 +633,8 @@ export async function resolveBilibiliWithOptions(
     cid: extraOptions?.cid,
     audioOnly: extraOptions?.audioOnly,
     movieId: extraOptions?.movieId,
+    cliHost: extraOptions?.cliHost,
+    skipCdnCheck: extraOptions?.skipCdnCheck,
   })
 }
 

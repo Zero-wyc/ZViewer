@@ -122,6 +122,8 @@ export interface AdminSettings {
   showVoiceChatButton: boolean
   /** 房间左下角是否显示流量统计入口（config/ui-prefs.json） */
   showTrafficPanel: boolean
+  /** 允许 CLI 使用房主 B站 身份解析直链（config/cli-prefs.json，默认开启） */
+  allowCliHostResolve: boolean
   dataSourceConfig?: {
     aniSubsSubscriptions?: string[]
     kazumiRules?: string[]

@@ -1,5 +1,6 @@
 {
   "items": [
+    "No NetEase Cloud Music account linked",
     "Not sharing",
     "Could not get version info",
     "No cookies found, sign in to Bilibili again",
@@ -56,6 +57,7 @@
     "Pre-release",
     "Current password",
     "Remote version:",
+    "Allow the CLI to resolve direct links with the host's Bilibili identity",
     "Who may create rooms",
     "Allow one user to join the same room from several pages",
     "Repeat the new password",
@@ -117,8 +119,6 @@
     "Sign in to NetEase Cloud Music with cookies",
     "Cookies copied to clipboard",
     "DASH (server relay, high quality)",
-    "Kazumi rule, index or official repository URLs (one per line)",
-    "Kazumi rule sources",
-    "MP4 (default, server relay)"
+    "Kazumi rule, index or official repository URLs (one per line)"
   ]
 }

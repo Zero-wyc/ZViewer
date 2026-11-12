@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2668 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2673 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -342,7 +342,7 @@ const enUS: Record<string, string> = {
   '中': 'Medium',
   '重排序失败': 'Failed to reorder',
 
-  // ===== pages（368 条） =====
+  // ===== pages（370 条） =====
   ' 等': ' and others',
   '{{length}} 个进行中': '{{length}} active',
   '1. 在浏览器中登录 bilibili.com': '1. Sign in to bilibili.com in your browser',
@@ -473,6 +473,7 @@ const enUS: Record<string, string> = {
   '禁止注册': 'Disable registration',
   '镜像仓库（GitCode / ZviewerRelease）': 'Mirror repository (GitCode / ZviewerRelease)',
   '镜像源下无需代理': 'Not needed when using the mirror source',
+  '开启后，观众可在 CLI 配置页选择「房主直链」：无需登录 B站，由服务器用房主账号解析、媒体流仍由本地 CLI 直连 CDN。关闭则只能使用观众自己的 Cookie 解析。': 'When enabled, viewers can pick "Host direct link" in the CLI config page: no Bilibili login needed — the server resolves with the host\'s account while media still flows from the local CLI straight to the CDN. When disabled, viewers can only resolve with their own Cookie.',
   '开启后包含预发布构建，关闭则只更新正式版': 'When on, pre-release builds are included; otherwise only stable releases',
   '开启后服务器端解析只用 MP4，不影响 CLI 代理的 DASH 模式。': 'When on, server-side resolution uses MP4 only; it does not affect DASH in CLI proxy mode.',
   '开启后检测与下载走 CDN 代理': 'Route update checks and downloads through the CDN proxy',
@@ -639,6 +640,7 @@ const enUS: Record<string, string> = {
   '预发布版本': 'Pre-release',
   '原密码': 'Current password',
   '远程版本：': 'Remote version:',
+  '允许 CLI 使用房主的 B站 身份解析直链': 'Allow the CLI to resolve direct links with the host\'s Bilibili identity',
   '允许创建房间的用户范围': 'Who may create rooms',
   '允许单用户在多个页面同时登录同一房间': 'Allow one user to join the same room from several pages',
   '再次输入新密码': 'Repeat the new password',
@@ -1918,7 +1920,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（442 条） =====
+  // ===== modules/room（445 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -1942,6 +1944,7 @@ const enUS: Record<string, string> = {
   '本窗口 · 累计 {{value}}': 'This window · overall {{value}}',
   '本窗口占比': 'Share of this window',
   '本次会话 · HTTP': 'This session · HTTP',
+  '本地 Cookie（延迟更低，画质由你的账号决定）': 'Local Cookie (lower latency; quality follows your own account)',
   '本地代理加载失败': 'Failed to load the local proxy',
   '哔哩哔哩登录二维码': 'Bilibili login QR code',
   '编码 CPU 受限': 'Encoder CPU limited',
@@ -2005,12 +2008,13 @@ const enUS: Record<string, string> = {
   '房主拒绝了您的跳转申请': 'The host declined your seek request',
   '房主拒绝了您的暂停申请': 'The host declined your pause request',
   '房主已变更': 'The host changed',
-  '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后使用自己的 CLI 解析播放。': 'The host enabled “CLI only” for {{value}}: the stream is not relayed by the server, so every member must install and connect ZViewer CLI and resolve it locally.',
+  '房主已对本影片 {{value}} 开启「仅允许CLI模式」：媒体流不经服务器转发，每位成员需安装并连接 ZViewer CLI 后播放（解析来源可在 CLI 配置页选择房主直链或本地 Cookie）。': 'The host enabled "CLI-only mode" for {{value}}: media does not pass through the server, so every member must install and connect ZViewer CLI to watch (the resolve source — host direct link or local Cookie — is chosen in the CLI config page).',
   '房主已开启：本影片需自行安装并连接 ZViewer CLI 后才能观看': 'Enabled by the host: install and connect ZViewer CLI to watch this movie',
   '房主已同意继续播放': 'The host allowed resuming',
   '房主已同意跳转到 {{value}}': 'The host allowed seeking to {{value}}',
   '房主已同意暂停': 'The host allowed pausing',
   '房主已转交，您已成为观众': 'The host role was transferred; you are now a viewer',
+  '房主直链（无需登录 B站，画质由房主账号决定）': 'Host direct link (no Bilibili login; quality follows the host\'s account)',
   '分享': 'Share',
   '分享链接已复制': 'Share link copied',
   '服务端{{label}}': 'Server {{label}}',
@@ -2060,6 +2064,7 @@ const enUS: Record<string, string> = {
   '解除禁言': 'Unmute',
   '解码耗时': 'Decode time',
   '解析': 'Resolve',
+  '解析来源：{{value}}': 'Resolve source: {{value}}',
   '解析失败': 'Resolution failed',
   '仅查看': 'View only',
   '仅允许CLI模式': 'CLI only',
