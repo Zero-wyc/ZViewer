@@ -298,6 +298,10 @@ func TestAdminSettings(t *testing.T) {
 	if _, ok := settings["desktopManaged"]; !ok {
 		t.Fatal("缺少 desktopManaged")
 	}
+	// CLI 房主解析分发默认开启：新部署无需先去设置页开一次。
+	if settings["allowCliHostResolve"] != true {
+		t.Fatalf("allowCliHostResolve 默认应为 true，得到 %v", settings["allowCliHostResolve"])
+	}
 	// dataSourceConfig / roomPermissionMatrix 未配置时必须是显式 null。
 	if v, ok := settings["dataSourceConfig"]; !ok || v != nil {
 		t.Fatalf("dataSourceConfig 应为 null，得到 %v（键存在=%v）", v, ok)
@@ -357,6 +361,7 @@ func TestAdminSettings(t *testing.T) {
 		"announceAutoPopupOnUpdate": false,
 		"dataSourceConfig":          map[string]any{"anime": true},
 		"roomPermissionMatrix":      map[string]any{"kickViewer": map[string]any{"user": false}},
+		"allowCliHostResolve":       false,
 	}
 	resp = env.do(t, http.MethodPut, "/api/admin/settings", rootToken, good)
 	if resp.status != http.StatusOK {
@@ -372,6 +377,9 @@ func TestAdminSettings(t *testing.T) {
 	if saved["cdnProxyUrl"] != "https://gh-proxy.example.com" {
 		t.Fatalf("字符串列未生效: %v", saved)
 	}
+	if saved["allowCliHostResolve"] != false {
+		t.Fatalf("CLI 房主解析开关未生效: %v", saved["allowCliHostResolve"])
+	}
 
 	// 重新 GET，确认真的落库（而不是只在响应里改）。
 	resp = env.do(t, http.MethodGet, "/api/admin/settings", rootToken, nil)
@@ -386,6 +394,15 @@ func TestAdminSettings(t *testing.T) {
 	}
 	if _, ok := reloaded["dataSourceConfig"].(map[string]any); !ok {
 		t.Fatalf("dataSourceConfig 未落库: %v", reloaded["dataSourceConfig"])
+	}
+	if reloaded["allowCliHostResolve"] != false {
+		t.Fatalf("CLI 房主解析开关未落盘: %v", reloaded["allowCliHostResolve"])
+	}
+
+	// 非布尔 → 400。
+	if resp := env.do(t, http.MethodPut, "/api/admin/settings", rootToken,
+		map[string]any{"autoDeleteInactiveRooms": true, "autoDeleteAfterHours": 24, "allowCliHostResolve": "yes"}); resp.status != http.StatusBadRequest || resp.message() != "allowCliHostResolve 必须是布尔值" {
+		t.Fatalf("非法类型应 400，得到 %d/%q", resp.status, resp.message())
 	}
 
 	// 只提交必填两项：其余字段保持不变（Node 的 `!== undefined` 语义）。

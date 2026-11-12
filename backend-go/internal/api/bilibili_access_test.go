@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -105,4 +107,110 @@ func TestBilibiliSharedResolveAccess(t *testing.T) {
 	mustExec(`UPDATE "room" SET "status"='closed' WHERE "roomId"='BILI0001'`)
 	t.Run("closed room viewer", func(t *testing.T) { request(viewer, "user", id, video, 403, false) })
 	t.Run("closed room owner", func(t *testing.T) { request(owner, "user", id, video, 200, true) })
+}
+
+// TestCliHostResolveGuards 覆盖 CLI「房主直链」的四道闸门：
+// 必须带 movieId、管理员开关、房主必须有 B站 身份、正常放行且用房主 Cookie。
+func TestCliHostResolveGuards(t *testing.T) {
+	e := newTestEnv(t)
+	defer e.teardown()
+
+	owner := e.seedUser(t, "cli-owner", "fixture-pass", "user", "active")
+	noAccount := e.seedUser(t, "cli-noaccount", "fixture-pass", "user", "active")
+	viewer := e.seedUser(t, "cli-viewer", "fixture-pass", "user", "active")
+	e.seedRoom(t, "CLIHOST1", "active", &owner)
+	e.seedRoom(t, "CLIHOST2", "active", &noAccount)
+	shared := e.seedMovie(t, "CLIHOST1", "bilibili", "")
+	bare := e.seedMovie(t, "CLIHOST2", "bilibili", "")
+	video := "https://www.bilibili.com/video/BV17x411w7KC"
+
+	mustExec := func(query string, args ...any) {
+		t.Helper()
+		if _, err := e.conn.Exec(query, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	mustExec(`UPDATE "movie" SET "url"=? WHERE "id"=?`, video, shared)
+	mustExec(`UPDATE "movie" SET "url"=? WHERE "id"=?`, video, bare)
+	mustExec(`CREATE TABLE "bilibili_credential" ("userId" INTEGER PRIMARY KEY, "cookie" TEXT, "refreshToken" TEXT)`)
+	dummy := "SESSDATA=fixture-never-a-real-account"
+	mustExec(`INSERT INTO "bilibili_credential" ("userId","cookie") VALUES (?,?)`, owner, base64.StdEncoding.EncodeToString([]byte(dummy)))
+	mustExec(`INSERT INTO "session" ("roomId","socketId","role","userId") VALUES ('CLIHOST1','cli-s1','viewer',?)`, viewer)
+	mustExec(`INSERT INTO "session" ("roomId","socketId","role","userId") VALUES ('CLIHOST2','cli-s2','viewer',?)`, viewer)
+
+	svc := bilibili.NewService(e.conn)
+	capture := &boundaryTransport{}
+	svc.Client.SetTransport(capture)
+	dir := t.TempDir()
+	cfg := &config.Config{ProjectRoot: dir, ConfigDir: dir, UploadsDir: dir, AvatarsDir: dir, MediaDir: dir, FrontendDist: dir}
+	srv := api.New(api.Deps{Cfg: cfg, DB: e.conn, Users: e.users, Settings: store.NewSettings(e.conn), Tokens: e.tokens, Auth: auth.NewAuthenticator(e.tokens, e.users), Movies: store.NewMovies(e.conn), Rooms: store.NewRooms(e.conn), Bilibili: svc})
+	e.handler = srv.Handler()
+
+	setPrefs := func(allow bool) {
+		t.Helper()
+		raw := fmt.Sprintf(`{"allowHostResolveForCli":%t}`, allow)
+		if err := os.WriteFile(filepath.Join(dir, "cli-prefs.json"), []byte(raw), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := func(movieID int64, extra string) apiResponse {
+		t.Helper()
+		capture.mu.Lock()
+		capture.cookies = nil
+		capture.mu.Unlock()
+		path := "/api/stream/resolve-bilibili?url=" + video + "&cliHost=1" + extra
+		if movieID > 0 {
+			path += "&movieId=" + fmt.Sprint(movieID)
+		}
+		return e.do(t, http.MethodGet, path, e.token(t, viewer, "user", "fixture"), nil)
+	}
+	errCode := func(r apiResponse) string {
+		s, _ := r.body["code"].(string)
+		return s
+	}
+
+	setPrefs(true)
+	t.Run("requires movie", func(t *testing.T) {
+		r := call(0, "")
+		if r.status != 400 || errCode(r) != "CLI_HOST_RESOLVE_REQUIRES_MOVIE" {
+			t.Fatalf("status=%d body=%+v", r.status, r.body)
+		}
+	})
+
+	t.Run("admin disabled", func(t *testing.T) {
+		setPrefs(false)
+		defer setPrefs(true)
+		r := call(shared, "")
+		if r.status != 403 || errCode(r) != "CLI_HOST_RESOLVE_DISABLED" {
+			t.Fatalf("status=%d body=%+v", r.status, r.body)
+		}
+		if len(capture.cookies) != 0 {
+			t.Fatal("被拒绝的请求不应打到上游")
+		}
+	})
+
+	t.Run("host has no account", func(t *testing.T) {
+		r := call(bare, "")
+		if r.status != 400 || errCode(r) != "HOST_NO_BILIBILI_ACCOUNT" {
+			t.Fatalf("status=%d body=%+v", r.status, r.body)
+		}
+	})
+
+	t.Run("host resolve borrows cookie", func(t *testing.T) {
+		r := call(shared, "&skipCdnCheck=1&forceDash=1")
+		if r.status != 200 {
+			t.Fatalf("status=%d body=%+v", r.status, r.body)
+		}
+		capture.mu.Lock()
+		defer capture.mu.Unlock()
+		found := false
+		for _, cookie := range capture.cookies {
+			if strings.Contains(cookie, dummy) {
+				found = true
+			}
+		}
+		if !found {
+			t.Fatal("房主直链解析没有使用房主 Cookie")
+		}
+	})
 }

@@ -31,6 +31,10 @@ type cliAgentInfo struct {
 	Agent    *string `json:"agent,omitempty"`
 	Version  *string `json:"version,omitempty"`
 	User     *string `json:"user,omitempty"`
+	// ResolveSource 是 CLI 配置页选择的解析来源："host"（房主直链，默认）
+	// 或 "local"（本地 Cookie）。旧版 CLI 不上报此字段，前端按 local 处理，
+	// 避免升级服务端后把老用户的画质静默降级成房主账号的档位。
+	ResolveSource *string `json:"resolveSource,omitempty"`
 }
 
 // bindMisc 注册 CLI 代理、预览源、子模式切换与推流可用性查询。
@@ -121,6 +125,15 @@ func (s *Service) handleCliRegister(sc *sio.Socket, args []json.RawMessage) {
 			info.User = &trimmed
 		}
 	}
+	// 解析来源只接受 host / local；其它值（含旧版 CLI 的缺失）一律不下发，
+	// 前端按 local 处理以保持旧行为。
+	if v, ok := jsonStringField(raw, "resolveSource"); ok {
+		switch strings.TrimSpace(v) {
+		case "host", "local":
+			trimmed := strings.TrimSpace(v)
+			info.ResolveSource = &trimmed
+		}
+	}
 	sc.SetData("cliAgent", info)
 
 	// 加入聚合房间（替代旧的按用户房间 join），供 cli-list-agents 遍历。
@@ -130,8 +143,8 @@ func (s *Service) handleCliRegister(sc *sio.Socket, args []json.RawMessage) {
 	// 全局广播：所有房间的前端都能看到，各自按用户名过滤。
 	s.Hub.EmitGlobal("cli-agent-available", info)
 
-	s.Logger.Printf("[CLI] 代理注册: socketId=%s user=%s proxyUrl=%s",
-		sc.ID, derefString(info.User), normalized)
+	s.Logger.Printf("[CLI] 代理注册: socketId=%s user=%s source=%s proxyUrl=%s",
+		sc.ID, derefString(info.User), derefString(info.ResolveSource), normalized)
 }
 
 // handleCliListAgents 返回服务器上所有已注册的 CLI 代理。

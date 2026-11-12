@@ -167,13 +167,36 @@ func (s *Server) handleResolveBilibili(w http.ResponseWriter, r *http.Request) {
 		cookie = s.Bilibili.Creds.GetCookie(r.Context(), strconv.FormatInt(cookieOwnerID, 10))
 	}
 
+	// cliHost：观众本地 CLI 选择「房主直链」时的标记。
+	//
+	// CLI 本身不持有 ZViewer 登录态，解析由前端带着观众的身份发起；这个
+	// 参数只用于两件事：校验管理员开关、要求房主必须有可用的 B站 身份。
+	// skipCdnCheck：媒体流由观众本机从 CDN 拉取，机房侧的连通性探测结果
+	// 不能代表用户网络，误判会无谓降级成 MP4。
+	cliHost := query.Get("cliHost") == "1" || query.Get("cliHost") == "true"
+	skipCdnCheck := query.Get("skipCdnCheck") == "1" || query.Get("skipCdnCheck") == "true"
+	if cliHost {
+		if sharedMovie == nil {
+			httpx.FailWithCode(w, http.StatusBadRequest, "CLI 房主解析必须指定影片", "CLI_HOST_RESOLVE_REQUIRES_MOVIE")
+			return
+		}
+		if !s.cliPrefs().AllowHostResolveForCli {
+			httpx.FailWithCode(w, http.StatusForbidden, "管理员已关闭「CLI 使用房主身份解析」", "CLI_HOST_RESOLVE_DISABLED")
+			return
+		}
+		if cookie == "" {
+			httpx.FailWithCode(w, http.StatusBadRequest, "房主尚未绑定 B站 账号，无法提供直链", "HOST_NO_BILIBILI_ACCOUNT")
+			return
+		}
+	}
+
 	ownerLabel := "self"
 	if cookieOwnerID != requesterID {
 		ownerLabel = "host(" + strconv.FormatInt(cookieOwnerID, 10) + ")"
 	}
 	started := time.Now()
-	log.Printf("[bilibili] resolve-bilibili start preferMp4=%t forceDash=%t qn=%d cookie=%t cookieOwner=%s url=%s",
-		preferMp4, forceDash, qn, cookie != "", ownerLabel, truncate(expanded, 60))
+	log.Printf("[bilibili] resolve-bilibili start preferMp4=%t forceDash=%t cliHost=%t qn=%d cookie=%t cookieOwner=%s url=%s",
+		preferMp4, forceDash, cliHost, qn, cookie != "", ownerLabel, truncate(expanded, 60))
 
 	writer := newNDJSONWriter(w)
 	result, err := s.Bilibili.Resolve(r.Context(), bilibili.ResolveOptions{
@@ -186,8 +209,9 @@ func (s *Server) handleResolveBilibili(w http.ResponseWriter, r *http.Request) {
 		OnProgress: func(msg bilibili.ResolveProgress) {
 			writer.send(resolveProgressMessage{Status: msg.Status, Step: msg.Step, Message: msg.Message})
 		},
-		PreferMp4: preferMp4,
-		ForceDash: forceDash,
+		PreferMp4:    preferMp4,
+		ForceDash:    forceDash,
+		SkipCdnCheck: skipCdnCheck,
 	})
 	if err != nil {
 		log.Printf("[bilibili] resolve-bilibili error: %v", err)

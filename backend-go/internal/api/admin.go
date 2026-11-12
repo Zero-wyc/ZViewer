@@ -853,12 +853,16 @@ type adminSettingsDTO struct {
 	// 落在 config/ui-prefs.json（见 uiprefs.go）。
 	ShowVoiceChatButton bool `json:"showVoiceChatButton"`
 	ShowTrafficPanel    bool `json:"showTrafficPanel"`
+	// AllowCliHostResolve 是「允许 CLI 使用房主 B站 身份解析」开关。
+	// 与上面两个一样**不写库**，落在 config/cli-prefs.json（见 cliprefs.go）。
+	// 关闭后，CLI 的房主直链请求会被后端拒绝，观众只能用自己的 Cookie 解析。
+	AllowCliHostResolve bool `json:"allowCliHostResolve"`
 	// DesktopManaged 是运行时环境标识（非数据库设置）：桌面 GUI 托管时
 	// 前端要禁用网页端更新入口，否则网页更新只换 runtime/ 会和整包版本脱节。
 	DesktopManaged bool `json:"desktopManaged"`
 }
 
-func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool, prefs UIPrefs) adminSettingsDTO {
+func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool, prefs UIPrefs, cli CLIPrefs) adminSettingsDTO {
 	dataSource := cfg.DataSourceConfig
 	if len(dataSource) == 0 {
 		dataSource = json.RawMessage("null")
@@ -887,6 +891,7 @@ func adminSettingsOf(cfg *store.SystemSettings, updateUseGitCode bool, prefs UIP
 		AnnounceAutoPopupOnUpdate: cfg.AnnounceAutoPopupOnUpdate,
 		ShowVoiceChatButton:       prefs.ShowVoiceChatButton,
 		ShowTrafficPanel:          prefs.ShowTrafficPanel,
+		AllowCliHostResolve:       cli.AllowHostResolveForCli,
 		DesktopManaged:            isDesktopManaged(),
 	}
 }
@@ -897,7 +902,7 @@ func (s *Server) handleAdminGetSettings(w http.ResponseWriter, r *http.Request) 
 		httpx.InternalError(w, "admin-get-settings", err)
 		return
 	}
-	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode(), s.uiPrefs())})
+	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode(), s.uiPrefs(), s.cliPrefs())})
 }
 
 // updateUseGitCode 读取当前更新源开关；Updater 未装配时按默认（GitCode）返回。
@@ -1128,6 +1133,19 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 		prefsChanged = true
 	}
 
+	// 「允许 CLI 使用房主身份解析」落在 config/cli-prefs.json（不写库）。
+	cliPrefs := s.cliPrefs()
+	cliPrefsChanged := false
+	if raw, ok := body["allowCliHostResolve"]; ok {
+		v, valid := rawBool(raw)
+		if !valid {
+			httpx.BadRequest(w, "allowCliHostResolve 必须是布尔值")
+			return
+		}
+		cliPrefs.AllowHostResolveForCli = v
+		cliPrefsChanged = true
+	}
+
 	if err := s.Settings.Save(ctx, cfg); err != nil {
 		httpx.InternalError(w, "admin-update-settings", err)
 		return
@@ -1138,7 +1156,13 @@ func (s *Server) handleAdminUpdateSettings(w http.ResponseWriter, r *http.Reques
 			return
 		}
 	}
-	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode(), prefs)})
+	if cliPrefsChanged {
+		if err := writeCLIPrefs(s.Cfg.ConfigDir, cliPrefs); err != nil {
+			httpx.InternalError(w, "admin-update-settings", err)
+			return
+		}
+	}
+	httpx.OK(w, map[string]any{"success": true, "settings": adminSettingsOf(cfg, s.updateUseGitCode(), prefs, cliPrefs)})
 }
 
 // ---------------------------------------------------------------------------
