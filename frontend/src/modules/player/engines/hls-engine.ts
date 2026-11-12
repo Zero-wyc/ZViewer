@@ -277,6 +277,15 @@ export const hlsEngine: PlayerEngine = {
         } catch {
           /* ignore */
         }
+        if (liveDirect) {
+          // 直播直链：不回退服务器中转（线路由用户显式选择），
+          // 失败直接提示可操作动作——切回中转即可恢复。
+          const reason = err instanceof Error ? err.message : String(err)
+          throw new Error(
+            `${t('直播直链连接失败，请在影片卡片中切换为服务器中转')}（${reason}）`,
+            { cause: err }
+          )
+        }
         if (noProxyFallback) {
           // 直链模式：不回退服务器中转，错误直接透出并补充可操作指引
           const reason = err instanceof Error ? err.message : String(err)

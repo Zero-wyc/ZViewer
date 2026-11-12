@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2667 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2668 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -1816,7 +1816,7 @@ const enUS: Record<string, string> = {
   '状态恢复失败': 'Failed to restore the state',
   'B站 URL 已过期，请等待房主重新解析': 'The Bilibili URL expired, wait for the host to resolve it again',
 
-  // ===== modules/player（99 条） =====
+  // ===== modules/player（100 条） =====
   '  缓冲范围: {{buffered}}\n': '  Buffered: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js error: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] Total size: video={{value}}MB, ',
@@ -1832,7 +1832,7 @@ const enUS: Record<string, string> = {
   '[direct-engine] 直连失败，回退到服务器代理:': '[direct-engine] Direct connection failed, falling back to the server proxy:',
   '[direct-engine] 直链模式：直连失败，不回退服务器代理:': '[direct-engine] Direct-link mode: connection failed, not falling back to the server proxy:',
   '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:': '[direct-engine] HTTPS direct link failed (likely a stale protocol upgrade: the origin no longer serves TLS), retrying over HTTP:',
-  '[flv-engine] 直播直连连续失败，回退服务器中转': '[flv-engine] live direct failed repeatedly, falling back to server relay',
+  '[flv-engine] 直播直链连接失败，停止重连（不自动中转）': '[flv-engine] live direct connection failed, stopping retries (no automatic relay)',
   '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})': '[hls-ad-filter] Dropped {{size}}/{{length}} suspected ad segments (base={{baseHost}})',
   '[mpd-builder] 二次扫描失败: status={{status}}': '[mpd-builder] Second scan failed: status={{status}}',
   '[mpd-builder] 二次扫描异常:': '[mpd-builder] Second scan threw:',
@@ -1897,6 +1897,7 @@ const enUS: Record<string, string> = {
   '需换用 Edge/Chrome': 'Use Edge or Chrome',
   '引擎已清理': 'Engine disposed',
   '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）': 'Source unavailable: the URL expired, access is denied, the format is unsupported, or an HTTPS page cannot reach an HTTP source (mixed content)',
+  '直播直链连接失败，请在影片卡片中切换为服务器中转': 'Live direct connection failed. Switch the playback route to Relay in the movie card.',
   '直连失败且回退代理仍失败：{{value}}': 'Direct connection failed and the proxy fallback failed too: {{value}}',
   '直链播放失败': 'Direct playback failed',
   '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），': 'Direct playback failed: {{reason}}. The browser transcoding engine needs the origin to allow cross-origin requests (CORS), ',
@@ -2086,7 +2087,7 @@ const enUS: Record<string, string> = {
   '浏览服务器文件': 'Browse server files',
   '浏览器实际启用的实现': 'Implementation actually in use',
   '浏览器直连': 'Direct (browser-to-browser)',
-  '浏览器直连 B站 CDN，不占服务器带宽；个别节点拒绝直连时自动回退中转': 'The browser pulls from Bilibili\'s CDN directly; falls back to relaying if a node refuses',
+  '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转': 'The browser pulls from Bilibili\'s CDN directly, using no server bandwidth. Some CDN nodes refuse direct connections; switch back to Relay manually if it fails.',
   '浏览器转码': 'Browser transcoding',
   '浏览器转码引擎': 'Browser transcoding engine',
   '浏览文件': 'Browse files',

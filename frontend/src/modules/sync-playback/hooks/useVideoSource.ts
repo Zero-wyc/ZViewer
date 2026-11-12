@@ -243,17 +243,22 @@ function toPlayerSource(
     duration: state.duration,
     // 直播源：FLV 引擎据此启用 isLive（延迟追赶 / 断线重连 / 缓冲清理）
     isLive: state.isLive === true,
-    // 直播线路：直链时浏览器直接拉 CDN（失败由 FLV 引擎回退代理）
+    // 直播线路：直链时浏览器直接拉 CDN（失败不回退代理，由用户改线路）
     liveDirect: state.isLive === true && state.liveDirect === true,
   }
   // 直播中断提示：FLV 引擎内部会按指数退避重连，重连耗尽后必须让用户
   // 知道「不是卡了」——否则画面停住却没有进度条可看，只能干等。
-  // 重载按钮（或重新播放该影片）会重新取流，主播换流地址后即可恢复。
+  // 重载按钮（或重新播放该影片）会重新取流，主播换流地址后即可恢复；
+  // 直链线路的失败文案由引擎给出（提示切回中转），这里如实透传。
   if (state.isLive === true) {
     source.flvRuntimeEvents = {
       onStreamEnd: () => message.info(t('直播已结束')),
-      onExhausted: () =>
-        message.warning(t('直播流连接中断，点「重载」可重新连接')),
+      onExhausted: (reason) =>
+        // 直链失败后画面就停在那儿了，提示要留够时间让用户看清原因、
+        // 自己去切回中转（引擎不会代劳）。
+        message.warning(reason || t('直播流连接中断，点「重载」可重新连接'), {
+          duration: 10000,
+        }),
     }
   }
   if (startTime !== undefined && startTime > 0) {

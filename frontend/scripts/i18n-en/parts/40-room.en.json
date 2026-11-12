@@ -48,7 +48,7 @@
     "Browse server files",
     "Implementation actually in use",
     "Direct (browser-to-browser)",
-    "The browser pulls from Bilibili's CDN directly; falls back to relaying if a node refuses",
+    "The browser pulls from Bilibili's CDN directly, using no server bandwidth. Some CDN nodes refuse direct connections; switch back to Relay manually if it fails.",
     "Browser transcoding",
     "Browser transcoding engine",
     "Browse files",

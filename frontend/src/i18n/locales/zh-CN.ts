@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2662 条。
+ * 当前共 2663 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -1813,7 +1813,7 @@ const zhCN: Record<string, string> = {
   '状态恢复失败': '状态恢复失败',
   'B站 URL 已过期，请等待房主重新解析': 'B站 URL 已过期，请等待房主重新解析',
 
-  // ===== modules/player（99 条） =====
+  // ===== modules/player（100 条） =====
   '  缓冲范围: {{buffered}}\n': '  缓冲范围: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js 错误: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] 总大小: video={{value}}MB, ',
@@ -1829,7 +1829,7 @@ const zhCN: Record<string, string> = {
   '[direct-engine] 直连失败，回退到服务器代理:': '[direct-engine] 直连失败，回退到服务器代理:',
   '[direct-engine] 直链模式：直连失败，不回退服务器代理:': '[direct-engine] 直链模式：直连失败，不回退服务器代理:',
   '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:': '[direct-engine] https 直链加载失败（疑为失效的协议升级：源站 TLS 已移除），降级 http 直链重试:',
-  '[flv-engine] 直播直连连续失败，回退服务器中转': '[flv-engine] 直播直连连续失败，回退服务器中转',
+  '[flv-engine] 直播直链连接失败，停止重连（不自动中转）': '[flv-engine] 直播直链连接失败，停止重连（不自动中转）',
   '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})': '[hls-ad-filter] 剔除 {{size}}/{{length}} 个疑似广告分片 (base={{baseHost}})',
   '[mpd-builder] 二次扫描失败: status={{status}}': '[mpd-builder] 二次扫描失败: status={{status}}',
   '[mpd-builder] 二次扫描异常:': '[mpd-builder] 二次扫描异常:',
@@ -1894,6 +1894,7 @@ const zhCN: Record<string, string> = {
   '需换用 Edge/Chrome': '需换用 Edge/Chrome',
   '引擎已清理': '引擎已清理',
   '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）': '源不可用：地址失效、无访问权限、格式不支持，或 HTTPS 页面无法直连 HTTP 源（混合内容限制）',
+  '直播直链连接失败，请在影片卡片中切换为服务器中转': '直播直链连接失败，请在影片卡片中切换为服务器中转',
   '直连失败且回退代理仍失败：{{value}}': '直连失败且回退代理仍失败：{{value}}',
   '直链播放失败': '直链播放失败',
   '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），': '直链播放失败：{{reason}}。浏览器转码引擎需源站允许浏览器跨域直连（CORS），',
@@ -2083,7 +2084,7 @@ const zhCN: Record<string, string> = {
   '浏览服务器文件': '浏览服务器文件',
   '浏览器实际启用的实现': '浏览器实际启用的实现',
   '浏览器直连': '浏览器直连',
-  '浏览器直连 B站 CDN，不占服务器带宽；个别节点拒绝直连时自动回退中转': '浏览器直连 B站 CDN，不占服务器带宽；个别节点拒绝直连时自动回退中转',
+  '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转': '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转',
   '浏览器转码': '浏览器转码',
   '浏览器转码引擎': '浏览器转码引擎',
   '浏览文件': '浏览文件',

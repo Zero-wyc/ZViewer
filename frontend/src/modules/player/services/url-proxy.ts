@@ -256,7 +256,7 @@ export interface ResolvedMediaRoute {
  * @param options noProxyFallback：挂载直链模式——跳过混合内容代理分支，
  *   保持源站直传语义（浏览器升级失败由引擎直接抛错提示，不静默转代理）
  * @param options.liveDirect：直播线路选「直链」——B站 直播流直接由浏览器拉取，
- *   不经服务器中转（失败由 FLV 引擎回退代理）
+ *   不经服务器中转；直连失败由引擎报错提示用户手动切换线路，不自动回退
  */
 export function resolveMediaRoute(
   url: string,
@@ -297,9 +297,10 @@ export function resolveMediaRoute(
   // 直播直连（影片级「线路=直链」）：B站 直播 CDN 回显 CORS、且不校验 Referer
   // （实测 d1--cn-gotcha 系列对空 Referer / 任意 Referer 均 206/200，只拦非
   // 浏览器 UA），浏览器可自行拉流，服务器出口带宽归零。
-  // allowFallback=true：个别边缘节点若仍拒绝，FLV 引擎连续失败后自动切回代理。
+  // allowFallback=false：直链是硬约束——直连失败由引擎报错并提示用户手动
+  // 切回中转，绝不静默改走代理（否则「直链」名不副实，带宽照样压在服务器上）。
   if (isBili && options?.liveDirect === true) {
-    return { url, allowFallback: true }
+    return { url, allowFallback: false }
   }
 
   // 带防盗链 headers：浏览器无法设置 forbidden header，必须走服务器代理

@@ -9,6 +9,9 @@
  *   屏幕共享 FlvPlayer（ArtPlayer 壳）与本引擎共用同一条拉流路径，
  *   不再各自持有一份 flv.js 实例管理。
  *
+ * 直播「直链」线路（source.liveDirect）是硬约束：只拉 CDN 原地址，
+ * 连续失败即判失败并提示用户手动切回中转，绝不静默改走服务器代理。
+ *
  * cleanup 完整卸载 flv 实例（pause → unload → detach → destroy）。
  */
 import flvjs from 'flv.js'
@@ -19,12 +22,18 @@ import type {
   FlvRuntimeEvents,
 } from '../types'
 import { resetVideoElement, waitForMetadata } from '../utils'
-import { buildProxyUrl, resolveProxyUrl } from '../services/url-proxy'
+import { resolveProxyUrl } from '../services/url-proxy'
 import { t } from '@/i18n'
 
 /** 快速恢复之后保持低频重试，直到房间离线使播放器卸载。 */
 const LIVE_RETRY_DELAYS_MS = [1000, 2000, 4000, 8000, 16000]
 const LIVE_RETRY_INTERVAL_MS = 10000
+/**
+ * 直播直链的失败判定阈值：连续这么多次 ERROR 后不再重连。
+ * 直连被 CDN 拒绝（CORS / 边缘节点策略）是确定性失败，重试没有意义，
+ * 继续静默重连只会让画面一直黑着，不如尽早提示用户切回中转。
+ */
+const LIVE_DIRECT_FAIL_LIMIT = 2
 
 /** 直播模式 flv.js 配置（原 screen-sharing FlvPlayer 的行为对等迁移）。 */
 function buildLiveConfig(): Record<string, unknown> {
@@ -57,76 +66,43 @@ export const flvEngine: PlayerEngine = {
     resetVideoElement(video)
 
     const isLive = source.isLive === true
-    // 统一代理策略：由 url-proxy.ts 根据 URL 特征与源格式决定。
-    // 直播选「直链」时这里拿到的就是 CDN 原地址，下面为它准备一条代理回退路径。
+    // 直播线路=直链：拿到的就是 CDN 原地址，引擎只认这一条，不准备代理后路。
+    const liveDirect = isLive && source.liveDirect === true
     const targetUrl = resolveProxyUrl(
       source.url,
       source.headers,
       source.format,
-      { liveDirect: isLive && source.liveDirect === true }
+      { liveDirect }
     )
-    const direct =
-      isLive && source.liveDirect === true && targetUrl === source.url
-    const proxyFallbackUrl = direct ? buildProxyUrl(source.url) : null
 
-    let player: flvjs.Player | null = null
-    let disposeLive: (() => void) | null = null
+    const player = flvjs.createPlayer(
+      {
+        type: 'flv',
+        url: targetUrl,
+        isLive,
+        cors: true,
+      },
+      isLive ? buildLiveConfig() : { enableWorker: false, lazyLoad: false }
+    )
+
     let destroyed = false
-
-    const teardown = (instance: flvjs.Player) => {
-      try {
-        instance.pause()
-        instance.unload()
-        instance.detachMediaElement()
-        instance.destroy()
-      } catch {
-        /* ignore */
-      }
-    }
-
-    /**
-     * 创建并挂载一个 flv.js 实例。
-     *
-     * 直播直连失败时会被再次调用（换成代理地址重建），因此实例与事件监听
-     * 都放在闭包里，由 cleanup 销毁「当前这一个」。
-     */
-    const start = (url: string, viaProxy: boolean) => {
-      if (destroyed) return
-      disposeLive?.()
-      disposeLive = null
-      if (player) {
-        teardown(player)
-        player = null
-      }
-
-      const next = flvjs.createPlayer(
+    let disposeLive: (() => void) | null = null
+    // 直链判定失败时提前结束 attach：onFatal 让这里的 Promise 立即 reject，
+    // 不必干等 metadata 的 30s 超时（否则用户对着黑屏不知发生了什么）。
+    let rejectAttach: ((err: Error) => void) | null = null
+    const fatalAttach = new Promise<never>((_, reject) => {
+      rejectAttach = reject
+    })
+    if (isLive) {
+      disposeLive = attachLiveHandlers(
+        video,
+        player,
+        source.flvRuntimeEvents ?? {},
         {
-          type: 'flv',
-          url,
-          isLive,
-          cors: true,
-        },
-        isLive ? buildLiveConfig() : { enableWorker: false, lazyLoad: false }
+          liveDirect,
+          onFatal: (message) => rejectAttach?.(new Error(message)),
+        }
       )
-      player = next
-
-      if (isLive) {
-        disposeLive = attachLiveHandlers(
-          video,
-          next,
-          source.flvRuntimeEvents ?? {},
-          // 直连专属：连续两次拉流失败即回退服务器中转（仅尝试一次）
-          !viaProxy && proxyFallbackUrl
-            ? () => {
-                start(proxyFallbackUrl, true)
-                return true
-              }
-            : undefined
-        )
-      }
-
-      next.attachMediaElement(video)
-      next.load()
     }
 
     const destroy = () => {
@@ -134,18 +110,32 @@ export const flvEngine: PlayerEngine = {
       destroyed = true
       disposeLive?.()
       disposeLive = null
-      if (player) {
-        teardown(player)
-        player = null
+      try {
+        player.pause()
+        player.unload()
+        player.detachMediaElement()
+        player.destroy()
+      } catch {
+        /* ignore */
       }
     }
 
-    start(targetUrl, proxyFallbackUrl !== null)
+    player.attachMediaElement(video)
+    player.load()
 
     try {
-      await waitForMetadata(video)
+      await Promise.race([waitForMetadata(video), fatalAttach])
     } catch (err) {
       destroy()
+      // 直播直链：浏览器连不上这个 CDN 节点，直链语义不允许改走代理，
+      // 直接给出可操作指引（切回中转由用户决定）。
+      if (liveDirect) {
+        const reason = err instanceof Error ? err.message : String(err)
+        const hint = t('直播直链连接失败，请在影片卡片中切换为服务器中转')
+        throw reason.includes(hint)
+          ? err
+          : new Error(`${hint}（${reason}）`, { cause: err })
+      }
       throw err
     }
 
@@ -157,8 +147,10 @@ export const flvEngine: PlayerEngine = {
  * 直播模式事件接线：flv.js 实例事件 → FlvRuntimeEvents 出口 + 内部重连。
  *
  * - ERROR / LOADING_COMPLETE：指数退避重连，随后低频等待推流恢复；
+ * - 直链线路连续 ERROR 达到阈值：判定失败，停止重连并上报 onExhausted
+ *   （不换代理地址，线路选择权在用户手里）；
  * - MEDIA_INFO / loadedmetadata：重连成功计数复位 + onReady；
- * - STATISTICS_INFO：原始网络层统计转发（fps 由消费方计算）；
+ * - STATISTICS_INFO：原始网络层统计转发（fps 由消费方计算）。
  *
  * @returns 清理函数：移除 video 元素监听与重连定时器（destroy 时调用）。
  */
@@ -166,13 +158,15 @@ function attachLiveHandlers(
   video: HTMLVideoElement,
   player: flvjs.Player,
   events: FlvRuntimeEvents,
-  /** 直连线路的回退出口：返回 true 表示已换代理地址重建播放器 */
-  fallbackToProxy?: () => boolean
+  options: {
+    liveDirect: boolean
+    /** 直链判定失败：让 attach 立即失败（不等待 metadata 超时） */
+    onFatal?: (message: string) => void
+  }
 ): () => void {
   let retryCount = 0
   let retryTimer: ReturnType<typeof setTimeout> | null = null
   let disposed = false
-  let fallback = fallbackToProxy
 
   const clearRetryTimer = () => {
     if (retryTimer !== null) {
@@ -184,18 +178,20 @@ function attachLiveHandlers(
   const scheduleRetry = (errorType: string, errorDetail: string) => {
     if (disposed || retryTimer !== null) return
 
-    // 直连线路：连续两次拉流失败，基本可判定该 CDN 节点拒绝浏览器直连
-    // （CORS / Referer / 边缘节点策略差异），换服务器中转重建一次。
-    // 只尝试一次：代理再失败就是上游问题了，走正常重连节奏。
-    if (retryCount >= 2 && fallback) {
-      const rebuild = fallback
-      fallback = undefined
-      console.warn('[flv-engine] 直播直连连续失败，回退服务器中转')
-      if (rebuild()) {
-        disposed = true
-        clearRetryTimer()
-        return
-      }
+    // 直链线路：网络错误连续达到阈值即判失败。主播下播（LOADING_COMPLETE）
+    // 不在此列——那不是线路问题，继续低频等待推流恢复即可。
+    if (
+      options.liveDirect &&
+      errorType !== 'stream' &&
+      retryCount >= LIVE_DIRECT_FAIL_LIMIT
+    ) {
+      console.warn('[flv-engine] 直播直链连接失败，停止重连（不自动中转）')
+      disposed = true
+      clearRetryTimer()
+      const hint = t('直播直链连接失败，请在影片卡片中切换为服务器中转')
+      events.onExhausted?.(hint)
+      options.onFatal?.(hint)
+      return
     }
 
     const delay = LIVE_RETRY_DELAYS_MS[retryCount] ?? LIVE_RETRY_INTERVAL_MS

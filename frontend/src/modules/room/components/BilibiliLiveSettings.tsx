@@ -193,7 +193,7 @@ export function BilibiliLiveSettings({
                 : serverProxy
                   ? t('媒体流经本服务器转发；观众越多，服务器出口带宽占用越大')
                   : t(
-                      '浏览器直连 B站 CDN，不占服务器带宽；个别节点拒绝直连时自动回退中转'
+                      '浏览器直连 B站 CDN，不占服务器带宽；部分节点会拒绝直连，失败后需手动切回中转'
                     )}
             </div>
           </div>
