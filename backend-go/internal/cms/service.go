@@ -306,7 +306,7 @@ func NormalizePlaybackParams(raw map[string]any) PlaybackParams {
 // Resolve 解析播放地址（6 分钟缓存 + 单飞）。
 func (s *Service) Resolve(ctx context.Context, provider *Provider, params PlaybackParams) (*PlaybackURL, error) {
 	key := fmt.Sprintf("%s|%s|%d|%d", provider.Site.Key, params.VodID, params.PlayFromIndex, params.EpisodeIndex)
-	return s.resolve.run(key, func() (*PlaybackURL, error) {
+	result, err := s.resolve.run(key, func() (*PlaybackURL, error) {
 		result, err := provider.PlaybackURL(ctx, params)
 		if err != nil {
 			return nil, err
@@ -317,6 +317,15 @@ func (s *Service) Resolve(ctx context.Context, provider *Provider, params Playba
 		}
 		return result, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+	// 拿到的是分享页且没能还原成媒体地址时不驻留缓存：多抓一次页面失败
+	// 可能只是网络抖动，没必要把一个播不了的地址锁住 6 分钟。
+	if result.Format == FormatUnknown {
+		s.resolve.delete(key)
+	}
+	return result, nil
 }
 
 // jsString 复刻 `String(v ?? ”)` 在 JSON 输入上的语义。

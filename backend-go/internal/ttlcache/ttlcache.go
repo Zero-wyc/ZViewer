@@ -82,6 +82,19 @@ func (c *Cache[T]) Run(key string, fn func() (T, error)) (T, error) {
 	return value, err
 }
 
+// Delete 主动移除一个键（不影响正在进行中的 inflight）。
+//
+// 给「拿到结果了但不可用」的场景用：调用方判断结果没法用时不希望它在 TTL
+// 窗口内生效，下一次请求应当立即重试，而不是被一个坏值挡住几分钟。
+func (c *Cache[T]) Delete(key string) {
+	c.mu.Lock()
+	if _, ok := c.entries[key]; ok {
+		delete(c.entries, key)
+		c.removeOrder(key)
+	}
+	c.mu.Unlock()
+}
+
 // removeOrder 从插入序里摘掉一个键（O(n)，缓存规模 ≤500 可接受）。
 func (c *Cache[T]) removeOrder(key string) {
 	for index, candidate := range c.order {

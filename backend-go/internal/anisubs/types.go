@@ -58,9 +58,31 @@ type Provider interface {
 
 // Subscription 是订阅 JSON 的根结构。
 type Subscription struct {
+	// SchemaVersion 是订阅格式版本。2 起媒体源直接放在顶层 mediaSources。
+	SchemaVersion int `json:"schemaVersion"`
+	// MediaSources 是新版（schemaVersion >= 2）的媒体源列表。
+	MediaSources []MediaSource `json:"mediaSources"`
+	// ExportedMediaSourceDataList 是旧版（schemaVersion 1）的包装结构。
 	ExportedMediaSourceDataList *struct {
 		MediaSources []MediaSource `json:"mediaSources"`
 	} `json:"exportedMediaSourceDataList"`
+}
+
+// Sources 返回订阅里的媒体源列表。
+//
+// 上游订阅已升到 schemaVersion 2（`mediaSources` 提到顶层），只认旧字段会让
+// 服务端永远停在编译时的内置快照上——上游修好的规则一条也进不来。
+func (s *Subscription) Sources() []MediaSource {
+	if s == nil {
+		return nil
+	}
+	if len(s.MediaSources) > 0 {
+		return s.MediaSources
+	}
+	if s.ExportedMediaSourceDataList != nil {
+		return s.ExportedMediaSourceDataList.MediaSources
+	}
+	return nil
 }
 
 // MediaSource 是订阅里的单个媒体源。

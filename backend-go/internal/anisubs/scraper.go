@@ -2,6 +2,7 @@ package anisubs
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -35,6 +36,53 @@ var anyNumberPattern = regexp.MustCompile(`(\d+(?:\.\d+)?)`)
 
 // urlSchemePattern 判断是否已是绝对地址。
 var urlSchemePattern = regexp.MustCompile(`(?i)^[a-z][a-z0-9+.-]*:`)
+
+// unquotedAttrValue 匹配 `[attr=value]` / `[attr^=value]` 这类未加引号的属性值。
+var unquotedAttrValue = regexp.MustCompile(`\[([A-Za-z_][-\w:]*)([~^$*|]?=)([^"'\]][^\]]*)\]`)
+
+// normalizeSelector 给未加引号的属性值补上引号。
+//
+// ani-subs 的订阅里存在 `.nav-tabs a[href^=#playlist]` 这种写法：浏览器端
+// 的 querySelectorAll 能吃，cascadia（goquery 用的 CSS 解析器）直接解析失败
+// 并返回空集——不是「没匹配到」，是「选择器非法」。表现就是规则明明对得上
+// 页面结构，却一个剧集都取不出来。
+func normalizeSelector(selector string) string {
+	if !strings.Contains(selector, "[") {
+		return selector
+	}
+	return unquotedAttrValue.ReplaceAllStringFunc(selector, func(match string) string {
+		parts := unquotedAttrValue.FindStringSubmatch(match)
+		if len(parts) < 4 {
+			return match
+		}
+		value := strings.TrimSpace(parts[3])
+		if value == "" {
+			return match
+		}
+		return "[" + parts[1] + parts[2] + `"` + value + `"]`
+	})
+}
+
+// finder 抽象 goquery 的 Document 与 Selection（两者都有 Find）。
+type finder interface {
+	Find(selector string) *goquery.Selection
+}
+
+// findAll 是 doc.Find 的容错版本：选择器先过 normalizeSelector。
+func findAll(node finder, selector string) *goquery.Selection {
+	if strings.TrimSpace(selector) == "" {
+		return &goquery.Selection{}
+	}
+	return node.Find(normalizeSelector(selector))
+}
+
+// closest 是 Selection.Closest 的容错版本。
+func closest(node *goquery.Selection, selector string) *goquery.Selection {
+	if strings.TrimSpace(selector) == "" {
+		return &goquery.Selection{}
+	}
+	return node.Closest(normalizeSelector(selector))
+}
 
 // ToAbsoluteURL 把相对地址补成绝对地址；已是绝对地址时原样返回。
 func ToAbsoluteURL(rawURL, baseURL string) string {
@@ -184,7 +232,7 @@ func formatNumber(value float64) string {
 // selectSubjectLinksA 解析 `subjectFormatId: 'a'`：列表项本身就是链接。
 func selectSubjectLinksA(doc *goquery.Document, selector, baseURL string) []subjectLink {
 	results := make([]subjectLink, 0, 16)
-	doc.Find(selector).Each(func(_ int, item *goquery.Selection) {
+	findAll(doc, selector).Each(func(_ int, item *goquery.Selection) {
 		title := strings.TrimSpace(item.Text())
 		if title == "" {
 			title, _ = item.Attr("title")
@@ -207,11 +255,11 @@ func selectSubjectLinksA(doc *goquery.Document, selector, baseURL string) []subj
 // selectSubjectLinksIndexed 解析 `subjectFormatId: 'indexed'`：名称与链接分列两地，按下标对齐。
 func selectSubjectLinksIndexed(doc *goquery.Document, namesSelector, linksSelector, baseURL string) []subjectLink {
 	names := make([]string, 0, 16)
-	doc.Find(namesSelector).Each(func(_ int, item *goquery.Selection) {
+	findAll(doc, namesSelector).Each(func(_ int, item *goquery.Selection) {
 		names = append(names, strings.TrimSpace(item.Text()))
 	})
 	links := make([]string, 0, 16)
-	doc.Find(linksSelector).Each(func(_ int, item *goquery.Selection) {
+	findAll(doc, linksSelector).Each(func(_ int, item *goquery.Selection) {
 		href, _ := item.Attr("href")
 		links = append(links, href)
 	})
@@ -322,12 +370,12 @@ func ParseSearchResults(html string, config *SearchConfig, searchURL string) ([]
 // 第 N 个列表容器），这是 ani-subs 规则里约定俗成的写法。
 func extractEpisodesIndexGrouped(doc *goquery.Document, config *ChannelFormatFlattened, baseURL string) []episodeInfo {
 	channelNames := make([]string, 0, 8)
-	doc.Find(config.SelectChannelNames).Each(func(_ int, item *goquery.Selection) {
+	findAll(doc, config.SelectChannelNames).Each(func(_ int, item *goquery.Selection) {
 		channelNames = append(channelNames, strings.TrimSpace(item.Text()))
 	})
 
 	episodes := make([]episodeInfo, 0, 32)
-	doc.Find(config.SelectEpisodeLists).Each(func(listIndex int, list *goquery.Selection) {
+	findAll(doc, config.SelectEpisodeLists).Each(func(listIndex int, list *goquery.Selection) {
 		channelName := ""
 		if listIndex < len(channelNames) {
 			channelName = channelNames[listIndex]
@@ -335,13 +383,13 @@ func extractEpisodesIndexGrouped(doc *goquery.Document, config *ChannelFormatFla
 		if !MatchChannelName(channelName, config.MatchChannelName) {
 			return
 		}
-		list.Find(config.SelectEpisodesFromList).Each(func(_ int, item *goquery.Selection) {
+		findAll(list, config.SelectEpisodesFromList).Each(func(_ int, item *goquery.Selection) {
 			title := strings.TrimSpace(item.Text())
 			link, _ := item.Attr("href")
 			if link == "" && config.SelectEpisodeLinksFromList != "" {
-				if found, ok := item.Find(config.SelectEpisodeLinksFromList).Attr("href"); ok {
+				if found, ok := findAll(item, config.SelectEpisodeLinksFromList).Attr("href"); ok {
 					link = found
-				} else if found, ok := item.Closest(config.SelectEpisodeLinksFromList).Attr("href"); ok {
+				} else if found, ok := closest(item, config.SelectEpisodeLinksFromList).Attr("href"); ok {
 					link = found
 				} else {
 					link = ""
@@ -369,13 +417,13 @@ func extractEpisodesIndexGrouped(doc *goquery.Document, config *ChannelFormatFla
 // extractEpisodesNoChannel 解析「不分线路」的详情页。
 func extractEpisodesNoChannel(doc *goquery.Document, config *ChannelFormatNoChannel, baseURL string) []episodeInfo {
 	episodes := make([]episodeInfo, 0, 32)
-	doc.Find(config.SelectEpisodes).Each(func(_ int, item *goquery.Selection) {
+	findAll(doc, config.SelectEpisodes).Each(func(_ int, item *goquery.Selection) {
 		title := strings.TrimSpace(item.Text())
 		link, _ := item.Attr("href")
 		if link == "" && config.SelectEpisodeLinks != "" {
-			if found, ok := item.Find(config.SelectEpisodeLinks).Attr("href"); ok {
+			if found, ok := findAll(item, config.SelectEpisodeLinks).Attr("href"); ok {
 				link = found
-			} else if found, ok := item.Closest(config.SelectEpisodeLinks).Attr("href"); ok {
+			} else if found, ok := closest(item, config.SelectEpisodeLinks).Attr("href"); ok {
 				link = found
 			} else {
 				link = ""
@@ -449,9 +497,16 @@ func findVideoURL(html string, config *MatchVideo, pageURL string) *videoMatch {
 	}
 	absolute := ToAbsoluteURL(rawURL, pageURL)
 
+	return &videoMatch{URL: absolute, Headers: videoHeaders(config, pageURL), Format: DetectMediaFormat(absolute)}
+}
+
+// videoHeaders 按 matchVideo.addHeadersToVideo 构造播放请求头。
+//
+// 规则显式写了 referer 时以规则为准：空串表示「不带 Referer」，别回落。
+// 没写时才回落到剧集页地址。
+func videoHeaders(config *MatchVideo, pageURL string) map[string]string {
 	headers := map[string]string{}
 	if config.AddHeadersToVideo != nil && config.AddHeadersToVideo.Referer != nil {
-		// 规则显式写了 referer：空串表示「不带 Referer」，别回落。
 		if *config.AddHeadersToVideo.Referer != "" {
 			headers["Referer"] = *config.AddHeadersToVideo.Referer
 		}
@@ -466,8 +521,67 @@ func findVideoURL(html string, config *MatchVideo, pageURL string) *videoMatch {
 			headers["Origin"] = config.AddHeadersToVideo.Origin
 		}
 	}
+	return headers
+}
 
-	return &videoMatch{URL: absolute, Headers: headers, Format: DetectMediaFormat(absolute)}
+// playerConfigPattern 定位 MacCMS 播放页里的 player_aaaa 配置起点。
+var playerConfigPattern = regexp.MustCompile(`player_aaaa\s*=\s*\{`)
+
+// parsePlayerConfig 从 MacCMS 播放页的 player_aaaa 里取播放地址。
+//
+// 这些源站的播放页把地址放在一段固定结构的 JSON 里：
+//
+//	player_aaaa={"encrypt":0,"url":"https:\/\/play.example.com\/play\/xxx\/index.m3u8",...}
+//
+// 而订阅里的 matchVideoUrl 是给 WebView「拦截请求」写的，带 `^` 锚定，
+// 作用在整页 HTML 上时前面还有 `"url":"`，永远匹配不到——这是这些源在
+// HTTP 抓取模式下「规则明明有、就是解析不出来」的直接原因。
+//
+// encrypt 语义与官方播放器一致：1=URL 编码，2=base64，其余按明文。
+func parsePlayerConfig(htmlText string, config *MatchVideo, pageURL string) *videoMatch {
+	loc := playerConfigPattern.FindStringIndex(htmlText)
+	if loc == nil {
+		return nil
+	}
+	start := loc[1] - 1 // 回退到 '{'
+	decoder := json.NewDecoder(strings.NewReader(htmlText[start:]))
+	var payload struct {
+		Encrypt json.RawMessage `json:"encrypt"`
+		URL     string          `json:"url"`
+	}
+	if err := decoder.Decode(&payload); err != nil {
+		return nil
+	}
+	rawURL := decodePlayerURL(strings.TrimSpace(payload.URL), string(payload.Encrypt))
+	if rawURL == "" {
+		return nil
+	}
+	// 只接受「绝对地址」与「站内绝对路径」。这两个之外的值是站点自定义的
+	// 加密串（`MCZY-…`、`encrypt=3` 的 hex 串），拼成相对路径只会得到
+	// 一个 404 的假地址——那比解析失败更糟：用户会拿到一个永远播不了的链接。
+	lower := strings.ToLower(rawURL)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") &&
+		!strings.HasPrefix(rawURL, "/") {
+		return nil
+	}
+	absolute := ToAbsoluteURL(rawURL, pageURL)
+	return &videoMatch{URL: absolute, Headers: videoHeaders(config, pageURL), Format: DetectMediaFormat(absolute)}
+}
+
+// decodePlayerURL 按 encrypt 字段还原 player_aaaa.url。
+func decodePlayerURL(raw, encrypt string) string {
+	encrypt = strings.Trim(encrypt, `"`)
+	switch encrypt {
+	case "1":
+		if decoded, err := url.PathUnescape(raw); err == nil {
+			return decoded
+		}
+	case "2":
+		if decoded, err := base64.StdEncoding.DecodeString(raw); err == nil {
+			return string(decoded)
+		}
+	}
+	return raw
 }
 
 // ResolveVideoURL 抓剧集页并解析播放地址；配了嵌套规则时会再抓一层。
@@ -476,8 +590,8 @@ func ResolveVideoURL(ctx context.Context, episodeURL string, config *MatchVideo)
 	if err != nil {
 		return nil, err
 	}
-	if match := findVideoURL(html, config, episodeURL); match != nil {
-		return match, nil
+	if match := firstMatch(html, config, episodeURL); match != nil {
+		return resolveFromPlayPage(ctx, match, config), nil
 	}
 
 	if !config.EnableNestedURL || config.MatchNestedURL == "" {
@@ -497,5 +611,53 @@ func ResolveVideoURL(ctx context.Context, episodeURL string, config *MatchVideo)
 		// 嵌套层失败不该把整个解析判死：外层没匹配到地址就是「解析不到」。
 		return nil, nil
 	}
-	return findVideoURL(nestedHTML, config, nestedURL), nil
+	return resolveFromPlayPage(ctx, firstMatch(nestedHTML, config, nestedURL), config), nil
+}
+
+// firstMatch 依次尝试规则正则与 player_aaaa 提取，取第一个命中的。
+func firstMatch(htmlText string, config *MatchVideo, pageURL string) *videoMatch {
+	if match := findVideoURL(htmlText, config, pageURL); match != nil {
+		return match
+	}
+	return parsePlayerConfig(htmlText, config, pageURL)
+}
+
+var (
+	// pageAbsMediaPattern 匹配页面里引号包裹的绝对媒体地址。
+	pageAbsMediaPattern = regexp.MustCompile(
+		`(?i)["'](https?://[^"'\s<>]+?\.(?:m3u8|mp4|flv|mkv)(?:\?[^"'\s<>]*)?)["']`)
+	// pageRelMediaPattern 匹配页面里引号包裹的站内相对媒体地址。
+	pageRelMediaPattern = regexp.MustCompile(
+		`(?i)["'](/[^"'\s<>]+?\.(?:m3u8|mp4|flv|mkv)(?:\?[^"'\s<>]*)?)["']`)
+)
+
+// resolveFromPlayPage 把「播放页地址」再抓一层，从页面脚本里提取真实媒体地址。
+//
+// 部分源站的 player_aaaa.url 给的是自己的播放页（`/play/<id>.html`），
+// 真链写在页面内联脚本里。只在拿到的地址「不像媒体地址」时多抓一次，
+// 正常源站零额外开销。
+func resolveFromPlayPage(ctx context.Context, match *videoMatch, config *MatchVideo) *videoMatch {
+	if match == nil || match.Format != FormatUnknown {
+		return match
+	}
+	lower := strings.ToLower(match.URL)
+	if !strings.HasPrefix(lower, "http://") && !strings.HasPrefix(lower, "https://") {
+		return match
+	}
+	htmlText, err := fetchHTML(ctx, match.URL, config.Cookies)
+	if err != nil || htmlText == "" {
+		return match
+	}
+	// JSON 内联脚本把斜杠转义成 `\/`，先还原再匹配。
+	htmlText = strings.ReplaceAll(htmlText, `\/`, "/")
+	var found string
+	if m := pageAbsMediaPattern.FindStringSubmatch(htmlText); len(m) > 1 {
+		found = m[1]
+	} else if m := pageRelMediaPattern.FindStringSubmatch(htmlText); len(m) > 1 {
+		found = ToAbsoluteURL(m[1], match.URL)
+	}
+	if found == "" {
+		return match
+	}
+	return &videoMatch{URL: found, Headers: match.Headers, Format: DetectMediaFormat(found)}
 }

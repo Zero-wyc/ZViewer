@@ -279,7 +279,16 @@ func (p *Provider) PlaybackURL(ctx context.Context, params PlaybackParams) (*Pla
 	if p.origin != "" {
 		headers["Referer"] = p.origin
 	}
-	return &PlaybackURL{URL: link, Headers: headers, Format: DetectMediaFormat(link)}, nil
+
+	// 采集站常把第 0 条线路给成分享页（`/share/<hash>`），真链藏在页面里。
+	// 只有「不像媒体地址」时才多抓一次页面，命中率高的 m3u8 线路零额外开销。
+	format := DetectMediaFormat(link)
+	if format == FormatUnknown {
+		if resolved, resolvedFormat, ok := resolvePlayablePage(ctx, link, headers); ok {
+			link, format = resolved, resolvedFormat
+		}
+	}
+	return &PlaybackURL{URL: link, Headers: headers, Format: format}, nil
 }
 
 // isHTTPURL 判断是否 http(s) 绝对地址（大小写不敏感）。

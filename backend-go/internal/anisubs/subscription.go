@@ -156,10 +156,11 @@ func buildProviderFromMediaSource(source *MediaSource, index int) *builtProvider
 // BuildProvidersFromSubscription 把一个订阅展开成 provider 列表（保持订阅内顺序）。
 func BuildProvidersFromSubscription(subscription *Subscription, transform func(string, MediaSource) *MediaSource, sourceURL string) []builtProvider {
 	providers := make([]builtProvider, 0, 16)
-	if subscription == nil || subscription.ExportedMediaSourceDataList == nil {
+	sources := subscription.Sources()
+	if len(sources) == 0 {
 		return providers
 	}
-	for index, source := range subscription.ExportedMediaSourceDataList.MediaSources {
+	for index, source := range sources {
 		normalized := &source
 		if transform != nil {
 			normalized = transform(sourceURL, source)

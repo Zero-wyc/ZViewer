@@ -22,3 +22,8 @@ func newResolveCache[T any](ttlMs int64, maxSize int) *resolveCache[T] {
 func (c *resolveCache[T]) run(key string, fn func() (T, error)) (T, error) {
 	return c.cache.Run(key, fn)
 }
+
+// delete 移除一个缓存条目（用于「结果不可用、不该驻留」的场景）。
+func (c *resolveCache[T]) delete(key string) {
+	c.cache.Delete(key)
+}
