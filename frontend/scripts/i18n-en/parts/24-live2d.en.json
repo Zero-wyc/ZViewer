@@ -40,6 +40,7 @@
     "Couldn't open the camera",
     "Camera tracking",
     "Couldn't start camera tracking",
+    "Camera tracking needs localhost or HTTPS",
     "Camera permission denied",
     "Everyone will see it",
     "Show character",

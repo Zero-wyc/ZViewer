@@ -100,6 +100,11 @@ export class FaceTracker {
     if (!supportsWasmSimd()) {
       throw new FaceTrackError(t('浏览器不支持摄像头动捕'))
     }
+    // 非安全上下文（局域网 http://192.168.x.x）下 getUserMedia 根本不存在，
+    // 报「权限被拒绝」会让人去翻浏览器设置。这里先把话说清楚。
+    if (!window.isSecureContext) {
+      throw new FaceTrackError(t('摄像头动捕需要在本机或 HTTPS 下使用'))
+    }
 
     // 2) 摄像头。约束放得很松：动捕只需要脸够大，不需要高清。
     try {

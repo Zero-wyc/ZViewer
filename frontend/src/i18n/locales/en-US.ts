@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2719 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2720 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（51 条） =====
+  // ===== modules/live2d（52 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -1006,6 +1006,7 @@ const enUS: Record<string, string> = {
   '摄像头打开失败': 'Couldn\'t open the camera',
   '摄像头动捕': 'Camera tracking',
   '摄像头动捕启动失败': 'Couldn\'t start camera tracking',
+  '摄像头动捕需要在本机或 HTTPS 下使用': 'Camera tracking needs localhost or HTTPS',
   '摄像头权限被拒绝': 'Camera permission denied',
   '所有人都会看到': 'Everyone will see it',
   '显示角色': 'Show character',
