@@ -104,7 +104,9 @@ export function Live2DControlPanel({
 
       {builtins.length === 0 ? (
         <p className="mb-2 text-[11px] leading-relaxed opacity-70">
-          {t('还没有内置模型，可先用下面的地址加载一个')}
+          {canManageRoom
+            ? t('还没有内置模型，可以上传一个模型包，或填写下面的地址')
+            : t('还没有内置模型，等房主上传后再选')}
         </p>
       ) : (
         <div className="mb-2 grid grid-cols-2 gap-1.5">

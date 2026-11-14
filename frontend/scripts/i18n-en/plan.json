@@ -1,5 +1,5 @@
 {
-  "total": 2698,
+  "total": 2699,
   "chunk": 120,
   "parts": [
     {
@@ -120,7 +120,7 @@
     {
       "id": "24-live2d",
       "bucket": "modules/live2d",
-      "count": 34
+      "count": 35
     },
     {
       "id": "25-mounts",

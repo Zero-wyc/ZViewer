@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2703 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2704 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（34 条） =====
+  // ===== modules/live2d（35 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
@@ -975,7 +975,8 @@ const enUS: Record<string, string> = {
   '地址过长': 'URL is too long',
   '房间模型': 'Room models',
   '房主还没有上传模型': 'The host hasn\'t uploaded any model yet',
-  '还没有内置模型，可先用下面的地址加载一个': 'No built-in models yet — load one with the URL below',
+  '还没有内置模型，等房主上传后再选': 'No built-in models yet — wait for the host to upload one',
+  '还没有内置模型，可以上传一个模型包，或填写下面的地址': 'No built-in models yet — upload a model pack, or enter a URL below',
   '加载超时': 'Load timed out',
   '角色': 'Character',
   '角色设置': 'Character settings',
