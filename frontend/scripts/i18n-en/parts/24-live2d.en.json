@@ -2,6 +2,8 @@
   "items": [
     "[live2d] Failed to load model",
     "[live2d] Engine initialization failed",
+    "Expression",
+    "Expression {{index}}",
     "Protocol-relative URLs are not supported",
     "Size",
     "The URL must point to model3.json",
@@ -28,6 +30,7 @@
     "Upload failed",
     "Upload a zip and everyone in the room will see this model",
     "Uploading…",
+    "Everyone will see it",
     "Show character",
     "Apply URL",
     "Custom model URL",

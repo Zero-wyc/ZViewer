@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2704 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2707 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,9 +965,11 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（35 条） =====
+  // ===== modules/live2d（38 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
+  '表情': 'Expression',
+  '表情 {{index}}': 'Expression {{index}}',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
   '大小': 'Size',
   '地址必须指向 model3.json': 'The URL must point to model3.json',
@@ -994,6 +996,7 @@ const enUS: Record<string, string> = {
   '上传失败': 'Upload failed',
   '上传一个 zip，房间内所有人都会看到这个模型': 'Upload a zip and everyone in the room will see this model',
   '上传中…': 'Uploading…',
+  '所有人都会看到': 'Everyone will see it',
   '显示角色': 'Show character',
   '应用地址': 'Apply URL',
   '自定义模型地址': 'Custom model URL',
