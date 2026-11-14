@@ -82,8 +82,6 @@ export interface FacePreviewFrame {
   hasFace: boolean
   /** 是否还在做初始标定 */
   calibrating: boolean
-  /** 已跟踪的时长（毫秒），没跟上时是 0 */
-  trackingForMs: number
 }
 
 /** 带用户可读原因的失败：调用方直接展示 message。 */
@@ -103,7 +101,6 @@ export class FaceTracker {
   private neutralCount = 0
   private gaze = { x: 0.5, y: 0.5 }
   private blend: FaceBlend = { mouth: 0, eyes: 1 }
-  private hasBlend = false
   /** 表情细节（嘴形/眉毛），-1~1，平滑后 */
   private extras: FaceExtras = { form: 0, brow: 0 }
   /** 歪头，-1~1，已减掉标定基线 */
@@ -114,7 +111,6 @@ export class FaceTracker {
   private neutralRollCount = 0
   /** 最近一帧的关键点，只给监视窗画轮廓用（不参与上行） */
   private lastLandmarks: readonly FaceLandmark[] | null = null
-  private trackingSince = 0
   private onStatus?: (status: FaceTrackerStatus) => void
 
   // erasableSyntaxOnly：不能用参数属性，状态回调显式赋值
@@ -135,28 +131,12 @@ export class FaceTracker {
     return this.lastSeenAt > 0 && Date.now() - this.lastSeenAt < FACE_LOST_MS
   }
 
-  /** 当前注视点（0~1）。没人脸时返回 null。 */
-  getGaze(): { x: number; y: number } | null {
-    return this.hasFace() ? { ...this.gaze } : null
-  }
-
-  /**
-   * 当前面部表情（嘴型/睁眼）。没人脸、或运行时没给出 blendshape 时返回 null。
-   *
-   * 返回 null 时调用方**不能**按中性值处理：那会在检测器抖动的一帧里把
-   * 模型按成闭嘴全睁，看起来像挨了一下耳光。
-   */
-  getBlend(): FaceBlend | null {
-    if (!this.hasBlend || !this.hasFace()) return null
-    return { ...this.blend }
-  }
-
   /**
    * 当前这一帧能驱动的全部量。没人脸时返回 null（调用方交回鼠标）。
    *
-   * 与分别取 gaze/blend 的区别：这里把「有脸但这一帧没给 blendshape」和
-   * 「根本没脸」分开处理——前者仍然返回姿态（视线可用），嘴/眼/表情沿用
-   * 上一帧的平滑值，不会因为一帧缺数据就整脸僵一下。
+   * 注意「有脸但这一帧没给 blendshape」和「根本没脸」是两件事：前者仍然返回
+   * 姿态（视线可用），嘴/眼/表情沿用上一帧的平滑值，不会因为一帧缺数据就
+   * 整脸僵一下；后者返回 null，让调用方停发上行、把控制权交回鼠标。
    */
   getPose(): FacePose | null {
     if (!this.hasFace()) return null
@@ -195,7 +175,6 @@ export class FaceTracker {
       landmarks: this.lastLandmarks,
       hasFace: this.hasFace(),
       calibrating: this.neutral === null,
-      trackingForMs: this.trackingSince ? Date.now() - this.trackingSince : 0,
     }
   }
 
@@ -215,7 +194,6 @@ export class FaceTracker {
     this.stream = null
     this.lastSeenAt = 0
     this.lastLandmarks = null
-    this.trackingSince = 0
   }
 
   // -------------------------------------------------------------------------
@@ -322,7 +300,6 @@ export class FaceTracker {
     }
 
     this.lastSeenAt = Date.now()
-    if (!this.trackingSince) this.trackingSince = Date.now()
     this.lastLandmarks = marks
     this.trackBlend(result)
     this.trackExtras(result)
@@ -350,7 +327,6 @@ export class FaceTracker {
     }
     const target = faceBlendFromScores(scores)
     if (!target) return
-    this.hasBlend = true
     this.blend = {
       mouth:
         this.blend.mouth +
