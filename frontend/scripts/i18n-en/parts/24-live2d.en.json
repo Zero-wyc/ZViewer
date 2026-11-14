@@ -65,6 +65,8 @@
     "Custom model URL",
     "Failed to load Cubism Core",
     "Cubism Core loaded but not registered",
+    "Live2D engine failed to load",
+    "Live2D engine failed to load: {{reason}}",
     "The zip must contain model3.json (textures and motions are kept), at most {{size}}MB"
   ]
 }

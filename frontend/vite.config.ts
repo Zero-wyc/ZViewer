@@ -117,7 +117,12 @@ export default defineConfig({
         secure: false,
       },
       // 开发环境代理 NMS HTTP-FLV 拉流，匹配 /live/<streamKey>.flv
-      '/live': {
+      //
+      // key 必须带尾斜杠：vite 的字符串 context 是**前缀**匹配，写成 '/live'
+      // 会把前端的 `/live2d/...`（Cubism Core、内置模型清单、模型静态文件）
+      // 一起吞到 NMS 端口上。NMS 没起时那些请求全是 502，表现是房间页
+      // 「完全没有 Live2D」——引擎初始化直接失败，而且看不出跟 FLV 有关。
+      '/live/': {
         target: process.env.VITE_LIVE_TARGET || 'http://localhost:3335',
         changeOrigin: true,
         secure: false,

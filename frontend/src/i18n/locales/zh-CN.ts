@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2727 条。
+ * 当前共 2729 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -962,7 +962,7 @@ const zhCN: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi 番剧源',
 
-  // ===== modules/live2d（66 条） =====
+  // ===== modules/live2d（68 条） =====
   '[live2d] 模型加载失败': '[live2d] 模型加载失败',
   '[live2d] 人脸检测模型加载失败': '[live2d] 人脸检测模型加载失败',
   '[live2d] 引擎初始化失败': '[live2d] 引擎初始化失败',
@@ -1028,6 +1028,8 @@ const zhCN: Record<string, string> = {
   '自定义模型地址': '自定义模型地址',
   'Cubism Core 加载失败': 'Cubism Core 加载失败',
   'Cubism Core 已加载但未注册': 'Cubism Core 已加载但未注册',
+  'Live2D 引擎加载失败': 'Live2D 引擎加载失败',
+  'Live2D 引擎加载失败：{{reason}}': 'Live2D 引擎加载失败：{{reason}}',
   'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB': 'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB',
 
   // ===== modules/mounts（60 条） =====

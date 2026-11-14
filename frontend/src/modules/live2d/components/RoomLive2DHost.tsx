@@ -88,6 +88,12 @@ export function RoomLive2DHost({
   const hostRef = useRef<HTMLDivElement | null>(null)
   const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null)
   const [renderer, setRenderer] = useState<Live2DRenderer | null>(null)
+  // 引擎（pixi + Cubism Core）初始化失败的可见提示。
+  //
+  // 以前这条只进 console.warn，界面上什么都不发生：模型永远不出现、右键也
+  // 没有命中，用户只能看到「房间页没有角色」。而这类失败几乎都是**环境问题**
+  // （静态资源 404/502、WebGL 被禁用），必须在界面上说出来。
+  const [engineError, setEngineError] = useState('')
   const [builtins, setBuiltins] = useState<Live2DModelEntry[]>([])
   const [libraryModels, setLibraryModels] = useState<Live2DLibraryEntry[]>([])
   const [canUploadModels, setCanUploadModels] = useState(false)
@@ -256,6 +262,9 @@ export function RoomLive2DHost({
         setRenderer(instance)
       } catch (err) {
         console.warn('[live2d] 引擎初始化失败', err)
+        if (!cancelled) {
+          setEngineError(err instanceof Error ? err.message : String(err))
+        }
       }
     })()
     return () => {
@@ -614,6 +623,16 @@ export function RoomLive2DHost({
           （h-12 w-12 glass-card 圆钮）：语音面板固定在 bottom-6 right-6
           （48px 高）并带 gap-3，所以这里抬到 84px = 24 + 48 + 12，
           两个圆钮才对齐成一条竖列而不是错位。 */}
+      {engineError && (
+        <div
+          className="absolute right-6 bottom-[140px] max-w-[50vw] truncate rounded-md px-2 py-1 text-[10px] text-white/90"
+          style={{ background: 'rgba(0,0,0,0.55)', pointerEvents: 'auto' }}
+          title={t('Live2D 引擎加载失败：{{reason}}', { reason: engineError })}
+        >
+          {t('Live2D 引擎加载失败')}
+        </div>
+      )}
+
       <div
         className="absolute right-6 bottom-[84px]"
         style={{ pointerEvents: 'auto' }}

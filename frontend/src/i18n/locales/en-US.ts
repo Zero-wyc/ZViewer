@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2732 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2734 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（66 条） =====
+  // ===== modules/live2d（68 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -1031,6 +1031,8 @@ const enUS: Record<string, string> = {
   '自定义模型地址': 'Custom model URL',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',
   'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
+  'Live2D 引擎加载失败': 'Live2D engine failed to load',
+  'Live2D 引擎加载失败：{{reason}}': 'Live2D engine failed to load: {{reason}}',
   'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB': 'The zip must contain model3.json (textures and motions are kept), at most {{size}}MB',
 
   // ===== modules/mounts（60 条） =====
