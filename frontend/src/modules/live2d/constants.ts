@@ -25,6 +25,15 @@ export const LIVE2D_STATE_INTERVAL_MS = Math.round(1000 / LIVE2D_STATE_HZ)
 /** 指针移动小于该阈值就不发（归一化后 ~0.2% 屏宽，肉眼不可见）。 */
 export const LIVE2D_STATE_EPSILON = 0.002
 
+/**
+ * 面部数据的有效期。
+ *
+ * 超过这个时间没收到新的嘴型/睁眼数据，就认为对方不再动捕，把参数还给
+ * 引擎自己的眨眼与表情——否则关掉动捕后人会永远停在最后一帧的表情上。
+ * 比上报间隔（66ms）宽得多，只用于「断流」判断，正常抖动不会误判。
+ */
+export const LIVE2D_FACE_TTL_MS = 1200
+
 /** 房间内模型上限，与后端 live2dMaxModels 一致。 */
 export const LIVE2D_MAX_MODELS = 12
 

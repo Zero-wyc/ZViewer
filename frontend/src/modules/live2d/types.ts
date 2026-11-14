@@ -7,11 +7,14 @@
 export type Live2DModelKind = 'builtin' | 'url' | 'room'
 
 /**
- * 一行模型数据：
- * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio]
+ * 整行模型数据（快照的 models 与 patch 的 add 共用）：
+ * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes]
  *
  * ord 是服务端分配的排位序号，客户端据此等距摆位——位置本身不广播，
  * 只有序号同步，各端才会摆出同一幕。
+ *
+ * 末尾两位是摄像头动捕算出的面部姿态（张嘴幅度 / 睁眼程度，0~1），
+ * 没开动捕的成员一直是 0 / 1。
  */
 export type Live2DRow = [
   string,
@@ -23,7 +26,20 @@ export type Live2DRow = [
   number,
   number,
   number,
+  number,
+  number,
 ]
+
+/**
+ * patch 里的指针增量（只有变动的那几个字段）：
+ * [socketId, x, y, aspectRatio, mouth?, eyes?]
+ *
+ * 和整行**不同形状**：这里每 100ms 就要发全体成员一遍，带 name/kind 纯属浪费。
+ *
+ * 后两位是**可选的**：服务端只在对方正在动捕时（600ms 内收到过面部数据）
+ * 才带上它们。这个区分很重要——没有它，所有模型都会被按成"不眨眼"。
+ */
+export type Live2DStateRow = [string, number, number, number, number?, number?]
 
 export interface Live2DPeer {
   sid: string
@@ -37,6 +53,10 @@ export interface Live2DPeer {
   y: number
   /** 发送端视口宽高比 */
   ar: number
+  /** 张嘴幅度 0~1（动捕） */
+  mouth: number
+  /** 睁眼程度 0~1（动捕） */
+  eyes: number
 }
 
 export interface Live2DSnapshotPayload {
@@ -46,19 +66,29 @@ export interface Live2DSnapshotPayload {
 
 export interface Live2DPatchPayload {
   roomId: string
-  /** 指针更新：与快照同形状的 9 元组，取前 4 个字段 */
-  u?: Live2DRow[]
+  /** 指针/面部更新 */
+  u?: Live2DStateRow[]
   /** 被移除的 socketId */
   r?: string[]
   /** 新增/换模型的成员 */
   add?: Live2DRow[]
 }
 
-/** 表情触发：服务端只带 sid + 下标，下标在同模型的各端一致。 */
+/**
+ * 瞬时动作：表情（e）与动作组（g + i）共用一个通道。
+ *
+ * 表情只带下标；动作带「组名 + 组内下标」。服务端不做语义解释，原样广播，
+ * 因为**同一个模型**在各端解析出的下标一致（都来自同一份 model3.json）。
+ */
 export interface Live2DActionPayload {
   roomId: string
   sid: string
-  e: number
+  /** 表情下标；动作帧没有这个字段 */
+  e?: number
+  /** 动作组名（motions 的 key，如 "Idle"）；表情帧没有 */
+  g?: string
+  /** 动作在组内的下标 */
+  i?: number
 }
 
 export interface Live2DConfigAck {
@@ -78,6 +108,8 @@ export function rowToPeer(row: Live2DRow): Live2DPeer {
     x: clampUnit(Number(row[6])),
     y: clampUnit(Number(row[7])),
     ar: Number(row[8] ?? 1.78) || 1.78,
+    mouth: clampUnit(Number(row[9] ?? 0)),
+    eyes: clampUnit(Number(row[10] ?? 1)),
   }
 }
 

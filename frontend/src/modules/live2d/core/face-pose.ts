@@ -76,6 +76,67 @@ export function gazeFromMetrics(
   }
 }
 
+// ---------------------------------------------------------------------------
+// 面部表情（blendshape）
+// ---------------------------------------------------------------------------
+
+/**
+ * MediaPipe FaceLandmarker 的 blendshape 名字（ARKit 那套 52 组里我们用到的）。
+ *
+ * 这些是**检测输出**的类别名，不是 Live2D 的参数名；两者在 renderer 里对接
+ * （jawOpen → ParamMouthOpenY，eyeBlink* → ParamEyeL/ROpen）。
+ */
+export const FACE_BLEND_NAME = {
+  JAW_OPEN: 'jawOpen',
+  EYE_BLINK_LEFT: 'eyeBlinkLeft',
+  EYE_BLINK_RIGHT: 'eyeBlinkRight',
+} as const
+
+/** 驱动模型的一组面部姿态，全部归一化到 0~1。 */
+export interface FaceBlend {
+  /** 张嘴幅度：0 = 闭着，1 = 张到最大 */
+  mouth: number
+  /** 睁眼程度：0 = 闭眼，1 = 全睁 */
+  eyes: number
+}
+
+/** 闭嘴时 jawOpen 也有 0.02~0.1 的底噪，减掉它才不会一直半张嘴。 */
+const MOUTH_DEADZONE = 0.08
+/** jawOpen 到 0.58 就算「张到最大」——再往后表情已经变形，继续放大只会穿模。 */
+const MOUTH_SPAN = 0.5
+
+/**
+ * 从 blendshape 分数算嘴型/睁眼程度。
+ *
+ * 一个都没取到就返回 null：说明这一帧检测器没给出表情数据（老版本运行时不支持
+ * blendshape），此时调用方应当整帧跳过，而不是把模型按成闭嘴。
+ *
+ * 左右眼取**平均**而不是取更闭的那只：单眼眨（wink）平均下来是半闭，看起来像
+ * 眯一下；取 max 会把两只眼一起闭上，反而更怪。
+ */
+export function faceBlendFromScores(
+  scores: Record<string, number | undefined>
+): FaceBlend | null {
+  const jaw = scores[FACE_BLEND_NAME.JAW_OPEN]
+  const blinkL = scores[FACE_BLEND_NAME.EYE_BLINK_LEFT]
+  const blinkR = scores[FACE_BLEND_NAME.EYE_BLINK_RIGHT]
+  if (jaw === undefined && blinkL === undefined && blinkR === undefined) {
+    return null
+  }
+  const blink = ((clampScore(blinkL) ?? 0) + (clampScore(blinkR) ?? 0)) / 2
+  return {
+    mouth: clamp01(((clampScore(jaw) ?? 0) - MOUTH_DEADZONE) / MOUTH_SPAN),
+    eyes: clamp01(1 - blink),
+  }
+}
+
+function clampScore(v: number | undefined): number | undefined {
+  if (v === undefined || !Number.isFinite(v)) return undefined
+  if (v < 0) return 0
+  if (v > 1) return 1
+  return v
+}
+
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0.5
   if (v < 0) return 0

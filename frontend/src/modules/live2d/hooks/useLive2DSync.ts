@@ -12,6 +12,7 @@ import {
   clearScene,
   listEntries,
   removePeer,
+  setFace,
   setRemotePointer,
   upsertPeer,
 } from '../core/scene'
@@ -88,28 +89,38 @@ export function useLive2DSync({
         membershipChanged = true
       }
       if (payload.u?.length) {
-        // 指针增量走模块级场景，不经 React
+        // 指针/面部增量走模块级场景，不经 React
         const ar = aspectRatio()
         for (const row of payload.u) {
           const sid = String(row[0] ?? '')
           if (!sid) continue
           setRemotePointer(
             sid,
-            Number(row[6]),
-            Number(row[7]),
-            Number(row[8]),
+            Number(row[1]),
+            Number(row[2]),
+            Number(row[3]),
             ar
           )
+          const mouth = row[4]
+          const eyes = row[5]
+          // 没有面部字段 = 对方当前不在动捕，别去动他的嘴和眼
+          if (mouth !== undefined && eyes !== undefined) {
+            setFace(sid, Number(mouth), Number(eyes))
+          }
         }
       }
 
       if (membershipChanged) syncRenderer()
     }
 
-    // 表情是瞬时动作：不进名册、不进场景，直接交给渲染器播。
+    // 表情与动作都是瞬时事件：不进名册、不进场景，直接交给渲染器播。
     const onAction = (payload: Live2DActionPayload) => {
       if (!payload || payload.roomId !== roomId) return
       if (!payload.sid) return
+      if (payload.g) {
+        renderer?.playMotion(payload.sid, payload.g, Number(payload.i))
+        return
+      }
       renderer?.playExpression(payload.sid, Number(payload.e))
     }
 
@@ -167,4 +178,21 @@ export function emitLive2DAction(
   if (!socket || !roomId) return
   if (!Number.isInteger(index) || index < 0) return
   socket.emit(LIVE2D_EVENT.ACTION, { roomId, e: index })
+}
+
+/**
+ * 广播本人的动作（motion）。
+ *
+ * 和表情一样不做本地乐观应用——本人的模型本来就已经在播这个动作了，
+ * 服务端的回声会被渲染器按 `lastMotion` 丢掉。
+ */
+export function emitLive2DMotion(
+  socket: Socket | null,
+  roomId: string,
+  group: string,
+  index: number
+): void {
+  if (!socket || !roomId || !group) return
+  if (!Number.isInteger(index) || index < 0) return
+  socket.emit(LIVE2D_EVENT.ACTION, { roomId, g: group, i: index })
 }

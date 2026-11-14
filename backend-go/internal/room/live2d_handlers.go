@@ -44,20 +44,29 @@ type live2dConfigPayload struct {
 	Scale   *float64 `json:"scale"`
 }
 
-// live2dActionOut 是表情触发的下行：谁的哪个表情。
+// live2dActionOut 是一次「瞬时动作」的下行：谁做了什么事。
 //
-// 只带 sid + 表情下标，不带名字：表情在模型里就是按下标寻址的，
-// 而**同一个模型**在各端解析出的下标一致（都来自同一份 model3.json）。
+// 有两种，靠字段区分（两者互斥）：
+//   - 表情：E = 表情下标；
+//   - 动作：G/I = 动作组名与组内下标。
+//
+// 都只带下标不带名字：同一份 model3.json 在各端解析出的顺序相同，
+// 而表情名在导出时经常是空串或重名（官方素材也这样），不可靠。
 type live2dActionOut struct {
 	RoomID string `json:"roomId"`
 	SID    string `json:"sid"`
-	E      int    `json:"e"`
+	E      *int   `json:"e,omitempty"`
+	G      string `json:"g,omitempty"`
+	I      *int   `json:"i,omitempty"`
 }
 
 type live2dActionPayload struct {
 	RoomID string `json:"roomId"`
 	// E 是指针：缺省与 0 必须区分开（0 是合法的第一个表情）。
 	E *int `json:"e"`
+	// G/I 是动作（motion）组名与下标，动捕开着时由本人的客户端广播。
+	G string `json:"g"`
+	I *int   `json:"i"`
 }
 
 type live2dStatePayload struct {
@@ -65,6 +74,9 @@ type live2dStatePayload struct {
 	X      *float64 `json:"x"`
 	Y      *float64 `json:"y"`
 	AR     *float64 `json:"a"`
+	// Mouth/Eyes 是摄像头动捕的面部姿态，只在动捕开着时出现（见 live2dStateUpdate）。
+	Mouth *float64 `json:"m"`
+	Eyes  *float64 `json:"e"`
 }
 
 // Live2DModelChecker 判断某个房间模型是否存在（由 api 层注入，避免 room 包碰磁盘）。
@@ -76,15 +88,21 @@ func (s *Service) SetLive2DModelChecker(fn Live2DModelChecker) { s.live2dModelEx
 var (
 	live2dBuiltinIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 	live2dRoomIDPattern    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
+	// live2dMotionGroupPattern 是动作组名的白名单。组名来自 model3.json 的
+	// motions 键，实际只会是 Idle/tap_body 这类标识符；限制字符集是为了不让
+	// 任何人把任意字符串广播给全房间。
+	live2dMotionGroupPattern = regexp.MustCompile(`^[A-Za-z0-9_]{1,32}$`)
 )
 
-// live2dRow 把成员压成一行：[sid, name, kind, modelId, scale, ord, x, y, ar]。
+// live2dRow 把成员压成一行：
+// [sid, name, kind, modelId, scale, ord, x, y, ar, mouth, eyes]。
 // 快照的 models 与 patch 的 add 共用这个形状，前端只需要一个解析函数。
 func live2dRow(m live2dMember) []any {
 	return []any{
 		m.SocketID, m.Name, m.Kind, m.ModelID,
 		roundTo(m.Scale, 2), m.Ord,
 		roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2),
+		roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
 	}
 }
 
@@ -94,6 +112,19 @@ func live2dRows(list []live2dMember) [][]any {
 		out = append(out, live2dRow(m))
 	}
 	return out
+}
+
+// live2dStateRow 是合并下行的**紧凑**行：[sid, x, y, ar]，
+// 只有对方当前正在动捕时才追加 [m, e]。
+//
+// 可变长度是刻意的：客户端收到 m/e 就会接管模型的嘴与眼，所以「没有面部
+// 数据」必须能和「嘴闭着、眼全睁」区分开——否则整个房间的角色都不再眨眼。
+func live2dStateRow(m live2dMember, now time.Time) []any {
+	row := []any{m.SocketID, roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2)}
+	if !m.faceAt.IsZero() && now.Sub(m.faceAt) < live2dFaceTTL {
+		row = append(row, roundTo(m.Mouth, 2), roundTo(m.Eyes, 2))
+	}
+	return row
 }
 
 func (s *Service) bindLive2D(sc *sio.Socket) {
@@ -201,6 +232,7 @@ func (s *Service) handleLive2DConfig(sc *sio.Socket, args []json.RawMessage, ack
 		X:        0.5,
 		Y:        0.5,
 		AR:       live2dDefaultAR,
+		Eyes:     live2dDefaultEyes,
 	}
 	if !s.Live2DSet(payload.RoomID, member) {
 		ackFail(ack, "房间内角色数量已达上限")
@@ -233,10 +265,13 @@ func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
 	if payload.AR != nil {
 		ar = *payload.AR
 	}
-	s.Live2DUpdateState(payload.RoomID, sc.ID, *payload.X, *payload.Y, ar, time.Now())
+	s.Live2DUpdateState(payload.RoomID, sc.ID, live2dStateUpdate{
+		X: *payload.X, Y: *payload.Y, AR: ar,
+		Mouth: payload.Mouth, Eyes: payload.Eyes,
+	}, time.Now())
 }
 
-// handleLive2DAction 处理「我这边点了表情」，立刻广播给全房间（含自己）。
+// handleLive2DAction 处理「我这边触发了表情/动作」，立刻广播给全房间（含自己）。
 //
 // 为什么不走 live2d-patch 的 100ms 合并：动作是**瞬时事件**，攒 100ms 再发
 // 会让表情与点击错开、看起来像卡了一下；而且频率已经被 120ms 门限压住，
@@ -251,13 +286,33 @@ func (s *Service) handleLive2DAction(sc *sio.Socket, args []json.RawMessage) {
 	if err := json.Unmarshal(args[0], &payload); err != nil {
 		return
 	}
-	if payload.RoomID == "" || payload.E == nil {
+	if payload.RoomID == "" {
 		return
 	}
-	index := *payload.E
-	if index < 0 || index > live2dMaxExpressionIndex {
+
+	out := live2dActionOut{RoomID: payload.RoomID, SID: sc.ID}
+	switch {
+	case payload.E != nil:
+		index := *payload.E
+		if index < 0 || index > live2dMaxExpressionIndex {
+			return
+		}
+		out.E = &index
+	case payload.G != "" && payload.I != nil:
+		group := payload.G
+		index := *payload.I
+		if len(group) > live2dMaxMotionGroupLen || !live2dMotionGroupPattern.MatchString(group) {
+			return
+		}
+		if index < 0 || index > live2dMaxMotionIndex {
+			return
+		}
+		out.G = group
+		out.I = &index
+	default:
 		return
 	}
+
 	// 频控 + 成员资格一步完成：没声明模型、或连点太快的都直接丢弃。
 	if !s.Live2DAllowAction(payload.RoomID, sc.ID) {
 		return
@@ -265,11 +320,7 @@ func (s *Service) handleLive2DAction(sc *sio.Socket, args []json.RawMessage) {
 	if s.Hub == nil {
 		return
 	}
-	s.Hub.EmitRoom(payload.RoomID, "live2d-action", live2dActionOut{
-		RoomID: payload.RoomID,
-		SID:    sc.ID,
-		E:      index,
-	})
+	s.Hub.EmitRoom(payload.RoomID, "live2d-action", out)
 }
 
 // handleLive2DRequest 回发本房间的全量快照（无 ack，失败静默）。

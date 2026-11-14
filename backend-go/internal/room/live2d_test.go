@@ -85,7 +85,7 @@ func TestLive2DPatchIsolatedByRoom(t *testing.T) {
 	env.svc.FlushLive2D() // 把两条 add 排掉，下面只看变更
 
 	mark := len(env.hub.rooms)
-	env.svc.Live2DUpdateState("ROOM_A", "s1", 0.4, 0.6, 1.7, time.Now())
+	env.svc.Live2DUpdateState("ROOM_A", "s1", live2dStateUpdate{X: 0.4, Y: 0.6, AR: 1.7}, time.Now())
 	env.svc.FlushLive2D()
 
 	for _, e := range env.hub.rooms[mark:] {
@@ -225,8 +225,11 @@ func TestLive2DActionBroadcast(t *testing.T) {
 		t.Fatalf("应广播一条 live2d-action，实际 %v", env.hub.rooms)
 	}
 	out, _ := env.hub.payloads["ROOM_E|live2d-action"][0].(live2dActionOut)
-	if out.SID != "s1" || out.E != 2 {
+	if out.SID != "s1" || out.E == nil || *out.E != 2 {
 		t.Fatalf("广播内容不对：%+v", out)
+	}
+	if out.G != "" || out.I != nil {
+		t.Fatalf("表情帧不该带动作组：%+v", out)
 	}
 
 	// 连点：120ms 内的第二条必须被丢掉（否则一个人就能刷满整个房间）。
@@ -247,5 +250,130 @@ func TestLive2DActionBroadcast(t *testing.T) {
 	}
 	if len(env.hub.rooms) != 1 {
 		t.Fatalf("越界/缺参不应广播，实际 %v", env.hub.rooms)
+	}
+}
+
+// 8) 面部姿态：带 m/e 才更新，不带就保持原值（动捕关掉后不能突然闭嘴）；越界钳制。
+func TestLive2DFaceStickyAndClamped(t *testing.T) {
+	env := newTestEnv(t)
+	env.svc.Live2DSet("ROOM_F", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+
+	env.svc.handleLive2DState(&sio.Socket{ID: "s1"},
+		l2dArgs(t, `{"roomId":"ROOM_F","x":0.5,"y":0.5,"a":1.7,"m":0.6,"e":0.2}`))
+	m := env.svc.Live2DSnapshot("ROOM_F")[0]
+	if m.Mouth != 0.6 || m.Eyes != 0.2 {
+		t.Fatalf("面部姿态未写入：mouth=%v eyes=%v", m.Mouth, m.Eyes)
+	}
+
+	// 只指针、不带面部：必须保持，不能被当成「闭嘴全睁」
+	base := time.Now().Add(time.Second)
+	env.svc.Live2DUpdateState("ROOM_F", "s1", live2dStateUpdate{X: 0.2, Y: 0.3, AR: 1.6}, base)
+	m = env.svc.Live2DSnapshot("ROOM_F")[0]
+	if m.X != 0.2 {
+		t.Fatalf("指针应已更新，实际 x=%v", m.X)
+	}
+	if m.Mouth != 0.6 || m.Eyes != 0.2 {
+		t.Fatalf("不带面部数据时不应改动面部姿态：mouth=%v eyes=%v", m.Mouth, m.Eyes)
+	}
+
+	// 越界：钳到 0~1
+	badMouth, badEyes := 5.0, -3.0
+	env.svc.Live2DUpdateState("ROOM_F", "s1", live2dStateUpdate{
+		X: 0.2, Y: 0.3, AR: 1.6, Mouth: &badMouth, Eyes: &badEyes,
+	}, base.Add(time.Second))
+	m = env.svc.Live2DSnapshot("ROOM_F")[0]
+	if m.Mouth != 1 || m.Eyes != 0 {
+		t.Fatalf("面部姿态未钳制：mouth=%v eyes=%v", m.Mouth, m.Eyes)
+	}
+}
+
+// 9) 动作同步：g/i 原样广播；组名不在白名单、下标越界、缺字段一律丢弃。
+func TestLive2DMotionBroadcast(t *testing.T) {
+	env := newTestEnv(t)
+	env.svc.Live2DSet("ROOM_M", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+
+	env.svc.handleLive2DAction(&sio.Socket{ID: "s1"}, l2dArgs(t, `{"roomId":"ROOM_M","g":"Idle","i":1}`))
+	if len(env.hub.rooms) != 1 || env.hub.rooms[0] != "ROOM_M|live2d-action" {
+		t.Fatalf("应广播一条 live2d-action，实际 %v", env.hub.rooms)
+	}
+	out, _ := env.hub.payloads["ROOM_M|live2d-action"][0].(live2dActionOut)
+	if out.SID != "s1" || out.G != "Idle" || out.I == nil || *out.I != 1 {
+		t.Fatalf("动作广播内容不对：%+v", out)
+	}
+	if out.E != nil {
+		t.Fatalf("动作帧不该带表情下标：%+v", out)
+	}
+
+	// 换一条连接测非法输入（s1 的门限已经被上面那条用掉了）
+	env.svc.Live2DSet("ROOM_M", live2dMember{
+		SocketID: "s2", Name: "Bob", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	bad := []string{
+		`{"roomId":"ROOM_M","g":"Idle 1","i":0}`,
+		`{"roomId":"ROOM_M","g":"Idle;drop","i":0}`,
+		`{"roomId":"ROOM_M","g":"` + strings.Repeat("A", 33) + `","i":0}`,
+		`{"roomId":"ROOM_M","g":"Idle","i":-1}`,
+		`{"roomId":"ROOM_M","g":"Idle","i":64}`,
+		`{"roomId":"ROOM_M","g":"Idle"}`,
+		`{"roomId":"ROOM_M","i":0}`,
+	}
+	for _, raw := range bad {
+		env.svc.handleLive2DAction(&sio.Socket{ID: "s2"}, l2dArgs(t, raw))
+	}
+	if len(env.hub.rooms) != 1 {
+		t.Fatalf("非法动作不应广播，实际 %v", env.hub.rooms)
+	}
+}
+
+// 10) 合并下行：不在动捕时 u 行只有 4 项；动捕中才追加 m/e。
+//
+// 这一条守的是「整个房间都不再眨眼」那个坑：客户端只凭"有没有面部字段"
+// 判断该不该接管模型的眼睛，所以服务端绝不能无条件补 0/1。
+func TestLive2DStateRowFaceOptional(t *testing.T) {
+	env := newTestEnv(t)
+	env.hub.members["ROOM_U"] = []string{"s1"}
+	env.svc.Live2DSet("ROOM_U", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	env.svc.FlushLive2D() // 排掉 add
+
+	lastUpd := func() [][]any {
+		t.Helper()
+		list := env.hub.payloads["ROOM_U|live2d-patch"]
+		if len(list) == 0 {
+			t.Fatal("没有下发 patch")
+		}
+		patch, ok := list[len(list)-1].(live2dPatchOut)
+		if !ok {
+			t.Fatalf("payload 类型不对：%T", list[len(list)-1])
+		}
+		return patch.Upd
+	}
+
+	env.svc.Live2DUpdateState("ROOM_U", "s1", live2dStateUpdate{X: 0.3, Y: 0.4, AR: 1.7}, time.Now())
+	env.svc.FlushLive2D()
+	upd := lastUpd()
+	if len(upd) != 1 || len(upd[0]) != 4 {
+		t.Fatalf("不在动捕时 u 行应为 4 项，实际 %v", upd)
+	}
+
+	mouth, eyes := 0.5, 0.3
+	env.svc.Live2DUpdateState("ROOM_U", "s1", live2dStateUpdate{
+		X: 0.31, Y: 0.41, AR: 1.7, Mouth: &mouth, Eyes: &eyes,
+	}, time.Now().Add(time.Second))
+	env.svc.FlushLive2D()
+	upd = lastUpd()
+	if len(upd) != 1 || len(upd[0]) != 6 {
+		t.Fatalf("动捕中 u 行应带 m/e（6 项），实际 %v", upd)
+	}
+	if got := upd[0][4]; got != 0.5 {
+		t.Fatalf("m 值不对：%v", got)
+	}
+	if got := upd[0][5]; got != 0.3 {
+		t.Fatalf("e 值不对：%v", got)
 	}
 }

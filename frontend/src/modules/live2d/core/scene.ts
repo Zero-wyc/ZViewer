@@ -17,6 +17,21 @@ export interface SceneEntry {
   targetY: number
   /** 最近一次指针变化的时间戳（判定活跃/降级用） */
   lastActiveAt: number
+
+  // ---- 面部（动捕）----
+  // 和视线一样分「目标 / 当前」：网络上是 15Hz 的台阶，渲染要 60fps 的连续量。
+  currentMouth: number
+  currentEyes: number
+  targetMouth: number
+  targetEyes: number
+  /**
+   * 最近一次收到面部数据的时刻。
+   *
+   * 0 表示「这个成员没在动捕」。渲染器只在数据新鲜（FACE_TTL 内）时接管
+   * 嘴/眼参数，超时就还给引擎自己眨——否则对方关掉动捕后模型会一直保持
+   * 最后一帧的张嘴表情。
+   */
+  faceAt: number
 }
 
 const entries = new Map<string, SceneEntry>()
@@ -48,6 +63,13 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     targetX: peer.x,
     targetY: peer.y,
     lastActiveAt: now,
+    currentMouth: 0,
+    currentEyes: 1,
+    targetMouth: 0,
+    targetEyes: 1,
+    // 新条目先不接管面部参数：等这一路真的来了一帧动捕数据再说。
+    // 否则"刚从快照里看到别人张着嘴"会让我们凭空替他张嘴。
+    faceAt: 0,
   }
   entries.set(peer.sid, entry)
   return entry
@@ -88,6 +110,24 @@ export function setLocalPointer(sid: string, x: number, y: number): void {
   entry.targetX = x
   entry.targetY = y
   entry.lastActiveAt = Date.now()
+}
+
+/**
+ * 写入面部姿态（本机与远端共用一个入口：值已经是 0~1 的绝对值，
+ * 不需要像坐标那样做宽高比换算）。
+ */
+export function setFace(sid: string, mouth: number, eyes: number): void {
+  const entry = entries.get(sid)
+  if (!entry) return
+  if (Number.isFinite(mouth)) entry.targetMouth = clamp01(mouth)
+  if (Number.isFinite(eyes)) entry.targetEyes = clamp01(eyes)
+  entry.faceAt = Date.now()
+}
+
+function clamp01(v: number): number {
+  if (v < 0) return 0
+  if (v > 1) return 1
+  return v
 }
 
 /**

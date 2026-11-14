@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
+  faceBlendFromScores,
   faceMetrics,
   gazeFromMetrics,
+  FACE_BLEND_NAME,
   FACE_LANDMARK,
 } from '../core/face-pose.ts'
 
@@ -70,4 +72,58 @@ test('没人脸/脸太小/关键点缺失时返回 null', () => {
   const broken = marks({})
   broken[FACE_LANDMARK.NOSE_TIP] = { x: Number.NaN, y: 0.6 }
   assert.equal(faceMetrics(broken), null)
+})
+
+// ---- blendshape → 嘴型/睁眼程度 ----
+
+test('闭嘴的底噪不会让模型一直半张嘴', () => {
+  const idle = faceBlendFromScores({
+    [FACE_BLEND_NAME.JAW_OPEN]: 0.05,
+    [FACE_BLEND_NAME.EYE_BLINK_LEFT]: 0.02,
+    [FACE_BLEND_NAME.EYE_BLINK_RIGHT]: 0.03,
+  })
+  assert.ok(idle)
+  assert.equal(idle.mouth, 0)
+  assert.ok(idle.eyes > 0.95, `睁眼程度应接近 1，实际 ${idle.eyes}`)
+})
+
+test('张大嘴时 mouth 拉满，闭眼时 eyes 归零', () => {
+  const open = faceBlendFromScores({
+    [FACE_BLEND_NAME.JAW_OPEN]: 0.8,
+    [FACE_BLEND_NAME.EYE_BLINK_LEFT]: 1,
+    [FACE_BLEND_NAME.EYE_BLINK_RIGHT]: 1,
+  })
+  assert.ok(open)
+  assert.equal(open.mouth, 1)
+  assert.equal(open.eyes, 0)
+})
+
+test('单眼眨取平均：只闭一半，不会把两只眼一起闭上', () => {
+  const wink = faceBlendFromScores({
+    [FACE_BLEND_NAME.JAW_OPEN]: 0.1,
+    [FACE_BLEND_NAME.EYE_BLINK_LEFT]: 1,
+    [FACE_BLEND_NAME.EYE_BLINK_RIGHT]: 0,
+  })
+  assert.ok(wink)
+  assert.equal(wink.eyes, 0.5)
+})
+
+test('没有 blendshape 数据时返回 null，调用方才会整帧跳过', () => {
+  assert.equal(faceBlendFromScores({}), null)
+  assert.equal(faceBlendFromScores({ someOther: 0.5 }), null)
+  // 关键点用的键名不是 blendshape 名，同样视为没有
+  assert.equal(faceBlendFromScores({ jaw_open: 0.5 }), null)
+})
+
+test('越界与 NaN 分数被夹住/忽略', () => {
+  const weird = faceBlendFromScores({
+    [FACE_BLEND_NAME.JAW_OPEN]: Number.NaN,
+    [FACE_BLEND_NAME.EYE_BLINK_LEFT]: -1,
+    [FACE_BLEND_NAME.EYE_BLINK_RIGHT]: 9,
+  })
+  assert.ok(weird)
+  // jawOpen 是 NaN：当作没读到，嘴闭着（不是 0.5 那种「半个张嘴」）
+  assert.equal(weird.mouth, 0)
+  // -1 夹成 0、9 夹成 1，平均 0.5 → 半睁
+  assert.equal(weird.eyes, 0.5)
 })

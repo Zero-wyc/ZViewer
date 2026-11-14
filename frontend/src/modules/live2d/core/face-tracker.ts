@@ -4,17 +4,19 @@ import type {
 } from '@mediapipe/tasks-vision'
 import { t } from '@/i18n'
 import {
+  faceBlendFromScores,
   faceMetrics,
   gazeFromMetrics,
+  type FaceBlend,
   type FaceLandmark,
   type FaceMetrics,
 } from './face-pose'
 
-// 摄像头动捕：本地人脸检测 → 归一化注视点，交给上行链路当作指针位置。
+// 摄像头动捕：本地人脸检测 → 归一化注视点 + 面部表情，交给上行链路。
 //
 // 几条硬约束：
 //   - **画面不出本机**：getUserMedia 的流只喂给离屏 <video>，检测在本机跑，
-//     不发网络、不落盘。上行链路只发算出来的 0~1 坐标（和鼠标完全一样）。
+//     不发网络、不落盘。上行链路只发算出来的 0~1 坐标与张/闭程度。
 //   - **按需加载**：MediaPipe 的 JS 与 11MB wasm 只有在用户点开开关时才拉，
 //     而且用动态 import 单独切块，不进房间页的主链路。
 //   - **失败要能说清**：权限拒绝 / 没有摄像头 / 被占用是三种完全不同的处理，
@@ -29,6 +31,11 @@ const DETECT_INTERVAL_MS = 66
 const NEUTRAL_SAMPLES = 12
 /** 平滑系数：越小越稳但越迟钝。0.35 在 15fps 下手感比较自然。 */
 const SMOOTH_ALPHA = 0.35
+/**
+ * 表情的平滑系数要比视线大：说句话的时间尺度是 100ms 级，用 0.35 会把每个字
+ * 都磨平成一条缓慢起伏的曲线，看起来像慢动作。0.55 在 15fps 下仍能压住抖动。
+ */
+const BLEND_SMOOTH_ALPHA = 0.55
 /** 多久没检测到人脸就放弃接管（交回鼠标）。 */
 const FACE_LOST_MS = 1200
 
@@ -50,6 +57,8 @@ export class FaceTracker {
   private neutralSum: FaceMetrics | null = null
   private neutralCount = 0
   private gaze = { x: 0.5, y: 0.5 }
+  private blend: FaceBlend = { mouth: 0, eyes: 1 }
+  private hasBlend = false
   private onStatus?: (status: FaceTrackerStatus) => void
 
   // erasableSyntaxOnly：不能用参数属性，状态回调显式赋值
@@ -73,6 +82,17 @@ export class FaceTracker {
   /** 当前注视点（0~1）。没人脸时返回 null。 */
   getGaze(): { x: number; y: number } | null {
     return this.hasFace() ? { ...this.gaze } : null
+  }
+
+  /**
+   * 当前面部表情（嘴型/睁眼）。没人脸、或运行时没给出 blendshape 时返回 null。
+   *
+   * 返回 null 时调用方**不能**按中性值处理：那会在检测器抖动的一帧里把
+   * 模型按成闭嘴全睁，看起来像挨了一下耳光。
+   */
+  getBlend(): FaceBlend | null {
+    if (!this.hasBlend || !this.hasFace()) return null
+    return { ...this.blend }
   }
 
   stop(): void {
@@ -144,6 +164,9 @@ export class FaceTracker {
           baseOptions: { modelAssetPath: MODEL_URL, delegate },
           runningMode: 'VIDEO',
           numFaces: 1,
+          // 嘴型/眨眼要靠 blendshape 分数：关掉它就只能拿到关键点，
+          // 而关键点算张嘴幅度非常不稳（嘴唇厚度因人而异）。
+          outputFaceBlendshapes: true,
         })
       try {
         this.landmarker = await build('GPU')
@@ -191,6 +214,7 @@ export class FaceTracker {
     }
 
     this.lastSeenAt = Date.now()
+    this.trackBlend(result)
     if (!this.neutral) {
       this.accumulateNeutral(metrics)
       return
@@ -201,6 +225,26 @@ export class FaceTracker {
       y: this.gaze.y + (target.y - this.gaze.y) * SMOOTH_ALPHA,
     }
     this.onStatus?.('tracking')
+  }
+
+  /** blendshape 分类结果 → 平滑后的嘴型/睁眼程度。 */
+  private trackBlend(result: FaceLandmarkerResult): void {
+    const categories = result.faceBlendshapes?.[0]?.categories
+    if (!categories || categories.length === 0) return
+    const scores: Record<string, number | undefined> = {}
+    for (const item of categories) {
+      if (item.categoryName) scores[item.categoryName] = item.score
+    }
+    const target = faceBlendFromScores(scores)
+    if (!target) return
+    this.hasBlend = true
+    this.blend = {
+      mouth:
+        this.blend.mouth +
+        (target.mouth - this.blend.mouth) * BLEND_SMOOTH_ALPHA,
+      eyes:
+        this.blend.eyes + (target.eyes - this.blend.eyes) * BLEND_SMOOTH_ALPHA,
+    }
   }
 
   /** 前若干帧取平均作为「正对镜头」的基线。 */

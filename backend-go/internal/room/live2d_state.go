@@ -31,15 +31,20 @@ const (
 	// live2dMinStateGap 是单连接上报指针的最小间隔（25Hz 上限）。
 	// 客户端按 15Hz 发，超频的一律丢弃，避免有人写个循环把房间打满。
 	live2dMinStateGap = 40 * time.Millisecond
-	// live2dMinActionGap 是单连接触发表情的最小间隔。
+	// live2dMinActionGap 是单连接触发动作（表情/动作）的最小间隔。
 	//
 	// 表情是「点一下播一次」的低频动作，但按钮可以被按住连点：120ms 既
 	// 留出连点的手感，又保证一个人最多 8Hz，不会让房间里的 N-1 个人
-	// 每人每秒收几十条广播。
+	// 每人每秒收几十条广播。动作同步也走这条门限：只在 idle 动作切换时
+	// 发，实际频率是每几秒一次，远低于上限。
 	live2dMinActionGap = 120 * time.Millisecond
 	// live2dMaxExpressionIndex 是表情下标上限。一个模型的表情数极少超过 20，
 	// 63 只是把「有人传巨大下标」挡在外面。
 	live2dMaxExpressionIndex = 63
+	// live2dMaxMotionIndex 是动作下标上限（一个动作组里的条目数）。
+	live2dMaxMotionIndex = 63
+	// live2dMaxMotionGroupLen 是动作组名长度上限（motions 的 key，如 "Idle"）。
+	live2dMaxMotionGroupLen = 32
 
 	// live2dFlushInterval 是服务端合并下行的间隔。
 	//
@@ -52,6 +57,14 @@ const (
 	live2dMaxScale = 4.0
 	// live2dDefaultAR 是默认宽高比（16:9），只用于还没上报过指针的成员。
 	live2dDefaultAR = 1.78
+	// live2dDefaultEyes 是「没在做动捕」时的睁眼程度（1 = 全睁）。
+	live2dDefaultEyes = 1.0
+	// live2dFaceTTL 是「多久没收到面部数据就不再转发 m/e」的时限。
+	//
+	// 不转发（而不是转发 0/1）是必须的：客户端收到 m/e 就会接管模型的嘴与眼，
+	// 全房间都被接管成"永远不眨眼"，比不动捕还假。客户端也有同样量级的 TTL，
+	// 两者叠加出一条 1 秒出头的释放时间。
+	live2dFaceTTL = 600 * time.Millisecond
 )
 
 // live2dMember 是一个成员在当前房间里的模型状态。
@@ -69,6 +82,17 @@ type live2dMember struct {
 	X  float64
 	Y  float64
 	AR float64
+
+	// Mouth/Eyes 是摄像头动捕算出来的面部姿态：张嘴幅度 0~1、
+	// 睁眼程度 0~1。服务端只做转发与钳制，不理解语义。
+	//
+	// 这两项**只在动捕开着时才有意义**，关掉后客户端不再上报，值就冻在
+	// 最后一帧（脸上不会突然张嘴/闭眼）。判定"是否该由动捕接管"是客户端的
+	// 事——它按「多久没收到面部数据」处理（见前端 LIVE2D_FACE_TTL_MS）。
+	Mouth float64
+	Eyes  float64
+	// faceAt 是最近一次收到面部数据的时刻，只用于判断「要不要继续转发 m/e」。
+	faceAt time.Time
 
 	// pendingAdd 表示「这一轮 flush 要以 add 行下发」。
 	// 新成员、换过模型的成员都置位；只动指针的成员走 upd 行。
@@ -117,7 +141,8 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 
 	r := st.roomLocked(roomID)
 	if existing := r.models[m.SocketID]; existing != nil {
-		// 保留排位与指针状态：换模型不该让人在画面里换个位置站着。
+		// 保留排位、指针与面部状态：换模型不该让人在画面里换个位置站着，
+		// 也不该在换模型的一瞬间闭眼。
 		existing.Name = m.Name
 		existing.Kind = m.Kind
 		existing.ModelID = m.ModelID
@@ -134,6 +159,11 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	m.Ord = r.nextOrd
 	if m.AR <= 0 {
 		m.AR = live2dDefaultAR
+	}
+	// Eyes 为零值意味着「构造时没填」，按全睁处理；真正的闭眼只可能来自
+	// 动捕上报（走 UpdateState），不会经过这里。
+	if m.Eyes <= 0 {
+		m.Eyes = live2dDefaultEyes
 	}
 	m.pendingAdd = true
 	m.dirty = true
@@ -154,8 +184,17 @@ func (st *live2dStore) Has(roomID, socketID string) bool {
 	return ok
 }
 
-// UpdateState 写入指针位置，返回 false 表示被丢弃（不在房 / 超出频率）。
-func (st *live2dStore) UpdateState(roomID, socketID string, x, y, ar float64, now time.Time) bool {
+// live2dStateUpdate 是一次指针上报的内容。
+//
+// Mouth/Eyes 用指针表示「这一帧带没带面部数据」：动捕关掉后客户端就不发了，
+// 这时必须保持原值而不是清零——否则每次鼠标一动，模型就会突然把嘴闭上。
+type live2dStateUpdate struct {
+	X, Y, AR    float64
+	Mouth, Eyes *float64
+}
+
+// UpdateState 写入指针位置（和面部姿态），返回 false 表示被丢弃（不在房 / 超出频率）。
+func (st *live2dStore) UpdateState(roomID, socketID string, u live2dStateUpdate, now time.Time) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 
@@ -171,9 +210,18 @@ func (st *live2dStore) UpdateState(roomID, socketID string, x, y, ar float64, no
 		return false
 	}
 	m.lastState = now
-	m.X = clampFloat(x, 0, 1)
-	m.Y = clampFloat(y, 0, 1)
-	m.AR = clampFloat(ar, 0.2, 6)
+	m.X = clampFloat(u.X, 0, 1)
+	m.Y = clampFloat(u.Y, 0, 1)
+	m.AR = clampFloat(u.AR, 0.2, 6)
+	if u.Mouth != nil {
+		m.Mouth = clampFloat(*u.Mouth, 0, 1)
+	}
+	if u.Eyes != nil {
+		m.Eyes = clampFloat(*u.Eyes, 0, 1)
+	}
+	if u.Mouth != nil || u.Eyes != nil {
+		m.faceAt = now
+	}
 	m.dirty = true
 	return true
 }
@@ -352,11 +400,11 @@ func (s *Service) Live2DHas(roomID, socketID string) bool {
 	return s.live2d.Has(roomID, socketID)
 }
 
-func (s *Service) Live2DUpdateState(roomID, socketID string, x, y, ar float64, now time.Time) bool {
+func (s *Service) Live2DUpdateState(roomID, socketID string, u live2dStateUpdate, now time.Time) bool {
 	if s == nil || s.live2d == nil {
 		return false
 	}
-	return s.live2d.UpdateState(roomID, socketID, x, y, ar, now)
+	return s.live2d.UpdateState(roomID, socketID, u, now)
 }
 
 // Live2DAllowAction 是 AllowAction 的 Service 包装（频控 + 成员资格）。
@@ -408,9 +456,7 @@ func (s *Service) FlushLive2D() {
 				patch.Add = append(patch.Add, row)
 				continue
 			}
-			patch.Upd = append(patch.Upd, []any{
-				m.SocketID, roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2),
-			})
+			patch.Upd = append(patch.Upd, live2dStateRow(m, now))
 		}
 		s.Hub.EmitRoom(roomID, "live2d-patch", patch)
 	}

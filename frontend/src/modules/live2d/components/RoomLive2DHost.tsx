@@ -24,6 +24,7 @@ import { LIVE2D_MAX_RENDERED } from '../constants'
 import {
   emitLive2DAction,
   emitLive2DConfig,
+  emitLive2DMotion,
   useLive2DSync,
 } from '../hooks/useLive2DSync'
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
@@ -166,6 +167,16 @@ export function RoomLive2DHost({
   }, [myModelUrl])
 
   // ---- 5. 引擎与渲染器 ----
+  //
+  // 动作广播的出口走 ref：渲染器一创建就把回调固定下来，用 ref 传值才不会
+  // 因为 socket/roomId 变化而重建整个 WebGL 上下文。
+  const motionSinkRef = useRef<(group: string, index: number) => void>(() => {})
+  useEffect(() => {
+    motionSinkRef.current = (group, index) => {
+      emitLive2DMotion(socket, roomId, group, index)
+    }
+  }, [socket, roomId])
+
   useEffect(() => {
     if (!enabled || !canvasEl) return
     let cancelled = false
@@ -177,6 +188,8 @@ export function RoomLive2DHost({
         instance = await Live2DRenderer.create({
           engine,
           mount: canvasEl,
+          localSid: socket?.id ?? '',
+          onLocalMotion: (group, index) => motionSinkRef.current(group, index),
           onModelError: (sid) => {
             setFailed((prev) => (prev.includes(sid) ? prev : [...prev, sid]))
           },
@@ -196,7 +209,16 @@ export function RoomLive2DHost({
       instance?.destroy()
       setRenderer(null)
     }
+    // socket 只用于取初始的本机 id，之后由下面的 effect 跟进（重连会换 id）
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [enabled, canvasEl])
+
+  // 重连后 socket.id 会变：「本机模型」的判定必须跟着换，否则动作同步会断
+  // （自己的模型被当成别人的，自动挑 idle 也被关掉）。
+  useEffect(() => {
+    if (!renderer) return
+    renderer.setLocalSid(socket?.id ?? '')
+  }, [renderer, socket?.id])
 
   // ---- 6. 尺寸跟随 ----
   useEffect(() => {
