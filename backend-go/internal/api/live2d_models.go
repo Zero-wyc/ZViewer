@@ -18,6 +18,9 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
+
+	"golang.org/x/text/encoding/simplifiedchinese"
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
@@ -438,7 +441,7 @@ func planLive2DExtract(files []*zip.File) (live2dPlan, string) {
 		if f.FileInfo().IsDir() {
 			continue
 		}
-		name := strings.ReplaceAll(f.Name, "\\", "/")
+		name := normalizeLive2DZipName(f.Name)
 		if strings.ContainsRune(name, 0) {
 			return plan, "压缩包里有非法路径"
 		}
@@ -578,6 +581,7 @@ func validateLive2DReferences(entryPath, root string) string {
 	if err != nil {
 		return "模型入口读取失败"
 	}
+	raw = decodeLive2DJSON(raw)
 	var doc any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return "model3.json 不是合法的 JSON"
@@ -643,6 +647,7 @@ func enrichLive2DEntry(entryPath string, rels []string) (live2dEnrich, string) {
 	if err != nil {
 		return result, "模型入口读取失败"
 	}
+	raw = decodeLive2DJSON(raw)
 	var doc map[string]any
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		return result, "model3.json 不是合法的 JSON"
@@ -772,6 +777,47 @@ func isJunkEntry(name string) bool {
 
 func isLive2DEntryName(name string) bool {
 	return strings.HasSuffix(strings.ToLower(name), ".model3.json")
+}
+
+// normalizeLive2DZipName 把压缩包条目名统一成「斜杠分隔 + UTF-8」。
+//
+// 为什么必须有这一步：zip 规范要求文件名是 UTF-8（通用标志位 bit 11），但
+// Windows 上的中文压缩工具（好压/快压/部分 WinRAR 设置）会把名字按 GBK 写进去
+// **且不置标志位**。Go 的 archive/zip 于是原样返回那串 GBK 字节，`NonUTF8=true`。
+//
+// 后果非常隐蔽：落地时 Windows 会把非法 UTF-8 字节换成 U+FFFD，磁盘上就出现
+// 一个 `������.moc3`；而 model3.json 里的引用是正常的 UTF-8「大肥鱼.moc3」，
+// 引用校验 stat 不到，用户看到的是「model3.json 引用的文件不存在：大肥鱼.moc3」
+// ——模型包里明明有这个文件，却怎么传都传不上去。
+//
+// 只在字节**不是**合法 UTF-8 时才转码：有些工具名字是 UTF-8 却没置标志位，
+// 那种情况原样保留，绝不做二次解码。
+func normalizeLive2DZipName(name string) string {
+	name = strings.ReplaceAll(name, "\\", "/")
+	if utf8.ValidString(name) {
+		return name
+	}
+	// GB18030 是 GBK 的超集：GBK 能表示的它都能表示，还多认几个生僻字。
+	if decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes([]byte(name)); err == nil {
+		return strings.ReplaceAll(string(decoded), "\\", "/")
+	}
+	return name
+}
+
+// decodeLive2DJSON 在 JSON 内容不是合法 UTF-8 时按 GB18030 转一次。
+//
+// JSON 规范只认 UTF-8，但中文作者手改 model3.json 时用记事本存成 ANSI
+// （即 GBK）并不少见。这种情况 json.Unmarshal 会在字符串里撞上非法字节，
+// 报到用户面前是「model3.json 不是合法的 JSON」——而它其实是合法 JSON，
+// 只是编码不对。转码后再解析一次，把「文件坏了」和「编码不合规」分开。
+func decodeLive2DJSON(raw []byte) []byte {
+	if utf8.Valid(raw) {
+		return raw
+	}
+	if decoded, err := simplifiedchinese.GB18030.NewDecoder().Bytes(raw); err == nil {
+		return decoded
+	}
+	return raw
 }
 
 func isDocFile(name string) bool {
@@ -916,15 +962,6 @@ func (s *Server) live2DModelExists(modelID string) bool {
 // ==================== 静态下发 ====================
 
 // live2dModelsHandler 提供 /uploads/live2d/<modelId>/… 的只读访问。
-//
-// 与头像一样走公开 URL：模型是各个客户端（含游客）都要加载的资源，
-// 加鉴权就等于全部加载失败。目录名带 6 字节随机后缀，不可枚举。
-// 下发时强制 nosniff + CSP sandbox：上传目录里的文件即使被当成 HTML
-// 打开，也不能执行脚本。
-
-// ==================== 静态下发 ====================
-
-// live2dModelsHandler 提供 /uploads/live2d/<roomId>/<modelId>/… 的只读访问。
 //
 // 与头像一样走公开 URL：模型是各个客户端（含游客）都要加载的资源，
 // 加鉴权就等于全部加载失败。目录名带 6 字节随机后缀，不可枚举。
