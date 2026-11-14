@@ -231,12 +231,20 @@ export function RoomLive2DHost({
       if (!result.ok) return
       refreshRoomModels()
       // 正用着这个模型就退回第一个内置模型，否则自己和别人都会看到占位卡。
+      // 连内置模型都没有（未随包模型）时直接撤回声明，别让别人的名册里
+      // 留着一个永远加载不出来的条目。
       if (myKind === 'room' && myModelId === modelId) {
         setFailed([])
-        setMyModel('builtin', builtins[0]?.id ?? '')
+        const fallback = builtins[0]?.id
+        if (fallback) {
+          setMyModel('builtin', fallback)
+        } else {
+          setMyModel('builtin', '')
+          emitLive2DConfig(socket, roomId, { action: 'clear' })
+        }
       }
     },
-    [roomId, refreshRoomModels, myKind, myModelId, builtins, setMyModel]
+    [roomId, refreshRoomModels, myKind, myModelId, builtins, setMyModel, socket]
   )
 
   const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
