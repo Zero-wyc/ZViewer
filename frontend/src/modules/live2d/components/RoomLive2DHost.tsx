@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
 import { Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
+import { cn } from '@/lib/utils'
 import { loadLive2DEngine } from '../core/cubism-core'
 import { FaceTracker } from '../core/face-tracker'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
@@ -592,42 +593,39 @@ export function RoomLive2DHost({
       })}
 
       {hiddenCount > 0 && (
+        // 压在画面上的文字必须自己带底：这层浮在视频/网页上，继承来的
+        // on-surface 是深色，浅色画面里等于看不见（与角色名标签同一处理）。
         <div
-          style={{
-            position: 'absolute',
-            bottom: 10,
-            right: 12,
-            fontSize: 10,
-            opacity: 0.7,
-          }}
+          className="absolute right-3 bottom-2.5 truncate rounded-md px-1.5 py-px text-[10px] text-white/85"
+          style={{ background: 'rgba(0,0,0,0.35)' }}
         >
           {t('另有 {{count}} 个角色未显示', { count: hiddenCount })}
         </div>
       )}
 
       {showFab && (
+        // 与右下角语音聊天悬浮按钮同一列、同一规格（h-12 w-12 glass-card 圆钮）：
+        // 语音面板固定在 bottom-6 right-6（48px 高）并带 gap-3，所以这里抬到
+        // 84px = 24 + 48 + 12，两个圆钮才对齐成一条竖列而不是错位。
         <div
-          style={{
-            position: 'absolute',
-            right: 16,
-            bottom: 'calc(96px + env(safe-area-inset-bottom))',
-            pointerEvents: 'auto',
-          }}
+          className="absolute right-6 bottom-[84px]"
+          style={{ pointerEvents: 'auto' }}
         >
           <button
             type="button"
             onClick={openAdvanced}
             aria-label={t('角色设置')}
             title={t('角色设置')}
-            className="flex h-9 w-9 items-center justify-center rounded-full border shadow-md"
+            className={cn(
+              'glass-card flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-200',
+              'hover:scale-105 hover:shadow-xl active:scale-95'
+            )}
             style={{
-              background: 'var(--glass-bg)',
-              borderColor: 'var(--glass-border)',
+              backgroundColor: 'var(--glass-bg)',
               color: 'var(--md-sys-color-on-surface)',
-              opacity: 0.9,
             }}
           >
-            <Sparkles size={16} />
+            <Sparkles className="h-5 w-5" />
           </button>
         </div>
       )}
