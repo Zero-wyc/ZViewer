@@ -155,8 +155,29 @@ type live2dMember struct {
 }
 
 type live2dRoom struct {
-	models  map[string]*live2dMember
-	nextOrd int64
+	models map[string]*live2dMember
+}
+
+// nextOrdLocked 取最小的未占用排位（调用方必须已持锁）。
+//
+// 为什么不是"单调递增"：隐藏角色 = 从名册里删掉，显示 = 重新声明。单调递增
+// 会让「隐藏再显示」的人排到队尾，画面上表现成"我的角色跑到最右边去了"；
+// 人一多还会把自己挤出前 N 个渲染名额（前端只画 ord 最小的若干个），于是
+// 变成"我明明有角色，却看不见自己"——没有任何提示，最难自查的一种故障。
+//
+// 取最小空闲位让"回到原位"成为常态，也顺带让长期运行的房间里的 ord 不会
+// 无限膨胀。代价是新人会填进刚离开者留下的空位；这本来就无法避免——槽位
+// 是按人数均分的，人一多一少，所有人的位置都会重算。
+func (r *live2dRoom) nextOrdLocked() int64 {
+	used := make(map[int64]struct{}, len(r.models))
+	for _, m := range r.models {
+		used[m.Ord] = struct{}{}
+	}
+	for ord := int64(1); ; ord++ {
+		if _, taken := used[ord]; !taken {
+			return ord
+		}
+	}
 }
 
 // pendingAddRow 表示这一轮要以 add 行下发（新成员，或换过模型）。
@@ -216,8 +237,7 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	if len(r.models) >= live2dMaxModels {
 		return false
 	}
-	r.nextOrd++
-	m.Ord = r.nextOrd
+	m.Ord = r.nextOrdLocked()
 	if m.AR <= 0 {
 		m.AR = live2dDefaultAR
 	}
@@ -370,7 +390,7 @@ func (st *live2dStore) Remove(roomID, socketID string) bool {
 	}
 	delete(r.models, socketID)
 	if len(r.models) == 0 {
-		// 空房间不占内存：只剩 nextOrd 没有意义，下次重建即可
+		// 空房间不占内存：下次重建即可（排位从 1 重新分配）
 		delete(st.rooms, roomID)
 	}
 	return true

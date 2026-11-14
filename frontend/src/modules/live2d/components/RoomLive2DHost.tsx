@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
@@ -23,6 +23,11 @@ import {
 } from '../core/model-library'
 import { Live2DRenderer } from '../core/live2d-renderer'
 import { getEntry, listEntries, setLocalDrag, slotX } from '../core/scene'
+import {
+  pickVisiblePeers,
+  resolveEffectiveModel,
+  type Live2DHidden,
+} from '../core/visibility'
 import { LIVE2D_DRAG_INTERVAL_MS, LIVE2D_MAX_RENDERED } from '../constants'
 import {
   emitLive2DAction,
@@ -81,13 +86,39 @@ export function RoomLive2DHost({
   // 房主统一角色时，显示的模型不再是「我选的」而是房间定的；我自己的选择
   // 仍然留在 store 里，关掉统一角色就自动回来。
   //
-  // 拆成三个原始值而不是一个对象：这个组合会进 effect 依赖表，每次渲染新建
-  // 一个对象会让 effect 每帧都跑（react-hooks 也会警告）。
-  const unifiedId = policy.unified && policy.unifiedId ? policy.unifiedId : ''
-  const unifiedActive = unifiedId !== ''
-  const unifiedKind: Live2DModelKind = policy.unifiedKind ?? 'builtin'
-  const effKind = unifiedActive ? unifiedKind : myKind
-  const effModelId = unifiedActive ? unifiedId : myModelId
+  // 解算逻辑在 core/visibility.ts：这三个量（生效模型 / 是否统一 / 是否隐藏）
+  // 会被 effect 依赖表和 UI 同时用到，散着写必然出现「面板说隐藏了、实际上
+  // 还在发声明」这类不一致。
+  //
+  // 必须包在 useMemo 里，**不能裸调**：React Compiler 遇到组件体里对未知
+  // 外部函数的直接调用会推导出"可能修改任何值"，进而放弃保留所有 useCallback，
+  // 整个文件报一片 react-hooks/preserve-manual-memoization。useMemo 把"这是
+  // 纯计算"这件事显式告诉编译器，问题就消失了。
+  const eff = useMemo(
+    () =>
+      resolveEffectiveModel({
+        roomId,
+        unified: policy.unified,
+        unifiedKind: policy.unifiedKind,
+        unifiedId: policy.unifiedId,
+        myKind,
+        myModelId,
+        hidden,
+      }),
+    [
+      roomId,
+      policy.unified,
+      policy.unifiedKind,
+      policy.unifiedId,
+      myKind,
+      myModelId,
+      hidden,
+    ]
+  )
+  const unifiedActive = eff.unified
+  const effKind = eff.kind
+  const effModelId = eff.modelId
+  const hiddenNow = eff.hidden
   // 宿主的 DOM 由 React 自己渲染（portal 到 body），我们只在 effect 里
   // 搬动它的父节点。这样 canvas 永远在同一个 div 里：全屏时是「移动」而不是
   // 「重建」，WebGL 上下文与纹理解码结果都保得住。
@@ -318,11 +349,16 @@ export function RoomLive2DHost({
   }, [renderer, canvasEl])
 
   // ---- 7. 默认模型：进房即有角色（房主统一了角色就不用挑） ----
+  //
+  // 判断用 `myModelId` 而不是生效模型：统一角色时生效模型是房间定的，这里若
+  // 拿它做判断就永远不会补默认值，房主一关统一自己反而没角色了。
+  //
+  // `hiddenNow` 必须进依赖：隐藏期间不补默认模型（否则「隐藏」会被这条
+  // effect 立刻撤销——这正是之前"隐藏了又自己冒出来"的来源之一）。
   useEffect(() => {
-    // hidden：用户主动隐藏，别再自动塞一个回来
-    if (effModelId || unifiedActive || hidden || builtins.length === 0) return
+    if (hiddenNow || unifiedActive || myModelId || builtins.length === 0) return
     setMyModel('builtin', builtins[0].id)
-  }, [effModelId, unifiedActive, hidden, builtins, setMyModel])
+  }, [hiddenNow, unifiedActive, myModelId, builtins, setMyModel])
 
   // ---- 8. 声明自己的模型（换模型/改大小才发；没模型时撤回声明）----
   //
@@ -333,7 +369,7 @@ export function RoomLive2DHost({
     if (!effModelId) {
       // 只在「主动隐藏」时撤回声明：刚进房还没挑模型时不必先 clear 一次，
       // 否则别人那边会先看到角色消失再出现。
-      if (hidden) emitLive2DConfig(socket, roomId, { action: 'clear' })
+      if (hiddenNow) emitLive2DConfig(socket, roomId, { action: 'clear' })
       return
     }
     emitLive2DConfig(socket, roomId, {
@@ -342,7 +378,20 @@ export function RoomLive2DHost({
       modelId: effModelId,
       scale: myScale,
     })
-  }, [socket, roomId, effKind, effModelId, myScale, hidden])
+  }, [socket, roomId, effKind, effModelId, myScale, hiddenNow])
+
+  // ---- 8a. 统一角色吃掉隐藏记录 ----
+  //
+  // 房主开统一角色时，我这边会"被迫"重新看到角色（策略优先）。如果不动那条
+  // 记录，房主一关统一，角色又立刻消失——用户只会觉得"统一角色把我设置搞乱了"。
+  //
+  // 所以统一生效期间就把记录清掉，语义是「我接受这次统一，之后按正常状态来」。
+  // 只清本房间的记录：别的房间的隐藏记忆跟这次统一无关。
+  useEffect(() => {
+    if (!unifiedActive || !hidden || hidden.roomId !== roomId) return
+    const timer = window.setTimeout(() => setHidden(null), 0)
+    return () => window.clearTimeout(timer)
+  }, [unifiedActive, hidden, roomId, setHidden])
 
   // ---- 8b. 摄像头动捕 ----
   //
@@ -513,23 +562,52 @@ export function RoomLive2DHost({
   })
 
   // ---- 10. 动作 ----
+  //
+  // 注意这里**不能**写 `useLive2DStore.getState()`：编译器把手势回调里任何
+  // 以 use 开头的调用都当成 hook（"hook inside callback"），一旦出现就会
+  // 放弃编译整个组件，然后每个 useCallback 都被报成
+  // preserve-manual-memoization。所以隐藏记录一律通过 props/依赖表拿。
   const handleSelect = useCallback(
     (kind: Live2DModelKind, modelId: string) => {
       setFailed({})
       setMyModel(kind, modelId)
-      setHidden(false)
+      // 换模型 = 明确想看到它：本房间的隐藏记录就地作废
+      if (hidden?.roomId === roomId) setHidden(null)
     },
-    [setMyModel, setHidden]
+    [setMyModel, setHidden, hidden, roomId]
   )
 
+  /**
+   * 隐藏：只写一条"我在这个房间隐藏了"的记录，**不动 myModelId**。
+   *
+   * 这一点是整套修复的关键。以前这里顺手 setMyModel('builtin','')，于是：
+   *   - 恢复时回不到原来那个模型（尤其是上传的 room 模型）；
+   *   - 面板里「隐藏角色」按钮因为 `!myModelId` 直接变灰，唯一还能点的地方
+   *     是模型列表——等于逼用户"换一个模型"，而不是"把角色显示回来"。
+   */
   const handleHide = useCallback(() => {
-    setMyModel('builtin', '')
-    setHidden(true)
+    // 统一角色期间没有"隐藏自己"这回事：全房间同一个模型，藏起来只会变成
+    // "我不在画面里"。UI 已经不给入口，这里再挡一道，免得别的路径写进来。
+    if (unifiedActive || !effModelId) return
+    const rec: Live2DHidden = { roomId, kind: effKind, modelId: effModelId }
+    setHidden(rec)
     // 没有角色了，拖拽模式留着只会让下次换模型时突然冒出一个抓取层
     setDragMode(false)
     closeMenu()
     setAdvancedOpen(false)
-  }, [setMyModel, setHidden, closeMenu])
+  }, [roomId, unifiedActive, effKind, effModelId, setHidden, closeMenu])
+
+  /**
+   * 显示：丢掉本房间的隐藏记录。
+   *
+   * 不用恢复任何东西——myModelId 一直没被动过；若它本来就是空的（从没选过
+   * 模型），上面第 7 条 effect 会补一个默认模型。
+   */
+  const handleShow = useCallback(() => {
+    setHidden(null)
+    // 从右键菜单点进来时把菜单收掉：角色已经回来了，菜单还挂在原地没有意义
+    closeMenu()
+  }, [setHidden, closeMenu])
 
   // 表情不本地乐观应用：服务端会把同一条广播发回给自己，
   // 这样「自己看到的」和「别人看到的」永远是同一份事实。
@@ -587,7 +665,15 @@ export function RoomLive2DHost({
         setFailed({})
         const fallback = builtins[0]?.id
         setMyModel('builtin', fallback ?? '')
-        setHidden(!fallback)
+      }
+
+      // 隐藏记录指向的也可能是它：不跟着改的话，「显示角色」会去加载一个
+      // 已经删掉的模型，画面上只剩占位卡——用户根本看不出是模型没了。
+      if (hidden?.kind === 'room' && hidden.modelId === modelId) {
+        const fallback = builtins[0]
+        setHidden(
+          fallback ? { ...hidden, kind: 'builtin', modelId: fallback.id } : null
+        )
       }
     },
     [
@@ -596,6 +682,7 @@ export function RoomLive2DHost({
       effKind,
       effModelId,
       builtins,
+      hidden,
       setMyModel,
       setHidden,
       socket,
@@ -629,7 +716,14 @@ export function RoomLive2DHost({
     setAdvancedOpen(true)
   }, [])
 
-  const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
+  // 自己一定在 visible 里：人一多，按 ord 排到第 7 位的人就再也不会被画出来，
+  // 而画面上没有任何东西能说明"你的角色在，只是没画"
+  const visible = pickVisiblePeers(
+    peers,
+    mySid,
+    LIVE2D_MAX_RENDERED,
+    (p) => p.sid
+  )
   const hiddenCount = peers.length - visible.length
   // 拖拽模式的两个前提：有自己的模型，且模型当前真的在画面上。房主统一角色
   // 时模型是房间定的，但位置仍然是每个成员自己的，所以照拖不误。
@@ -826,11 +920,14 @@ export function RoomLive2DHost({
         expressions={myExpressions}
         myKind={effKind}
         myModelId={effModelId}
+        hidden={hiddenNow}
+        canToggleVisibility={!unifiedActive && Boolean(myModelId)}
+        onHide={handleHide}
+        onShow={handleShow}
         myScale={myScale}
         faceTracking={face}
         allowFace={policy.allowFace}
         unified={unifiedActive}
-        canHide={!unifiedActive && Boolean(myModelId)}
         canDrag={Boolean(effModelId)}
         dragMode={dragMode}
         canResetPosition={
@@ -843,7 +940,6 @@ export function RoomLive2DHost({
         onOpenAdvanced={openAdvanced}
         onToggleDrag={toggleDragMode}
         onResetPosition={handleResetPosition}
-        onHide={handleHide}
       />
 
       <Live2DAdvancedSettings
@@ -855,8 +951,10 @@ export function RoomLive2DHost({
         builtins={builtins}
         libraryModels={libraryModels}
         expressions={myExpressions}
-        myKind={effKind}
-        myModelId={effModelId}
+        selectedKind={myKind}
+        selectedModelId={myModelId}
+        hidden={hiddenNow}
+        canHide={!unifiedActive && Boolean(myModelId)}
         myScale={myScale}
         faceTracking={face}
         policy={policy}
@@ -866,6 +964,7 @@ export function RoomLive2DHost({
         onExpression={handleExpression}
         onToggleFaceTracking={toggleFaceTracking}
         onHide={handleHide}
+        onShow={handleShow}
         onPolicy={handlePolicy}
         onUpload={handleUpload}
         onDeleteModel={handleDeleteModel}

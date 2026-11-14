@@ -9,6 +9,7 @@ import {
 } from '../constants'
 import { alphaForDelta, smooth } from './pointer-map'
 import { getEntry, listEntries, slotX, type SceneEntry } from './scene'
+import { pickVisiblePeers } from './visibility'
 import { t as translate } from '@/i18n'
 
 // PIXI 渲染封装。React 完全不参与这里：宿主组件只负责创建/销毁，
@@ -232,7 +233,14 @@ export class Live2DRenderer {
    */
   pick(clientX: number, clientY: number): string | null {
     if (this.destroyed) return null
-    const visible = listEntries().slice(0, LIVE2D_MAX_RENDERED)
+    // 与 update() 用同一个裁剪口径（pickVisiblePeers）：两边不一致时会出现
+    // 「标签在这、模型在那」或者「看到模型却右键不到」
+    const visible = pickVisiblePeers(
+      listEntries(),
+      this.localSid,
+      LIVE2D_MAX_RENDERED,
+      (e) => e.peer.sid
+    )
     // 反向：后画的在上层，点到重叠区应该命中眼睛看到的那一个
     for (let i = visible.length - 1; i >= 0; i -= 1) {
       const sid = visible[i].peer.sid
@@ -357,7 +365,13 @@ export class Live2DRenderer {
   private update(): void {
     if (this.destroyed) return
     const entries = listEntries()
-    const visible = entries.slice(0, LIVE2D_MAX_RENDERED)
+    // 自己一定在内：人一多按 ord 裁到前 6 个时，第 7 位的人会完全看不到自己
+    const visible = pickVisiblePeers(
+      entries,
+      this.localSid,
+      LIVE2D_MAX_RENDERED,
+      (e) => e.peer.sid
+    )
     const now = Date.now()
     const delta = this.app.ticker.deltaMS
     const alpha = alphaForDelta(0.25, delta)

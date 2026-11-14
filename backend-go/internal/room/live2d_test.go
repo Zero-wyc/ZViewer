@@ -614,3 +614,74 @@ func TestLive2DDragSync(t *testing.T) {
 		}
 	}
 }
+
+// 10c) 隐藏再显示应回到原来的排位。
+//
+// 排位决定画面里的站位。如果"隐藏→显示"把人推到队尾，用户看到的是"我的角色
+// 跑到最右边去了"；人一多还会掉出前 N 个渲染名额（前端只画 ord 最小的若干
+// 个），于是"我明明有角色却看不见自己"——没有任何提示，最难自查的一类故障。
+func TestLive2DReappearKeepsSlot(t *testing.T) {
+	env := newTestEnv(t)
+	const room = "ROOM_ORD"
+	for _, id := range []string{"s1", "s2", "s3"} {
+		if !env.svc.Live2DSet(room, live2dMember{
+			SocketID: id, Name: id, Kind: "builtin", ModelID: "hiyori", Scale: 1,
+		}) {
+			t.Fatalf("声明 %s 失败", id)
+		}
+	}
+	before := map[string]int64{}
+	for _, m := range env.svc.Live2DSnapshot(room) {
+		before[m.SocketID] = m.Ord
+	}
+
+	// s2 隐藏（服务端就是移除名册条目）
+	if !env.svc.Live2DRemove(room, "s2") {
+		t.Fatal("移除 s2 失败")
+	}
+	// 再显示
+	if !env.svc.Live2DSet(room, live2dMember{
+		SocketID: "s2", Name: "s2", Kind: "builtin", ModelID: "hiyori", Scale: 1,
+	}) {
+		t.Fatal("重新声明 s2 失败")
+	}
+
+	var got int64
+	for _, m := range env.svc.Live2DSnapshot(room) {
+		if m.SocketID == "s2" {
+			got = m.Ord
+		}
+	}
+	if got != before["s2"] {
+		t.Fatalf("重新显示后应回到原排位 %d，实际 %d", before["s2"], got)
+	}
+}
+
+// 10d) 中间空出来的排位要被下一个人复用。
+//
+// 否则长期运行的房间里 ord 只增不减：先是数字膨胀，更要紧的是"第 40 号"这种
+// 排位一旦超过渲染名额，本人就永远排不上。
+func TestLive2DOrdReusesGap(t *testing.T) {
+	env := newTestEnv(t)
+	const room = "ROOM_ORD2"
+	for _, id := range []string{"s1", "s2", "s3"} {
+		env.svc.Live2DSet(room, live2dMember{
+			SocketID: id, Name: id, Kind: "builtin", ModelID: "hiyori", Scale: 1,
+		})
+	}
+	// 腾出中间那一格
+	env.svc.Live2DRemove(room, "s2")
+	env.svc.Live2DSet(room, live2dMember{
+		SocketID: "s4", Name: "s4", Kind: "builtin", ModelID: "hiyori", Scale: 1,
+	})
+
+	var ord int64
+	for _, m := range env.svc.Live2DSnapshot(room) {
+		if m.SocketID == "s4" {
+			ord = m.Ord
+		}
+	}
+	if ord != 2 {
+		t.Fatalf("新人应填进空出来的 2 号位，实际 %d", ord)
+	}
+}

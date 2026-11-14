@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2751 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2756 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（85 条） =====
+  // ===== modules/live2d（90 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -992,6 +992,7 @@ const enUS: Record<string, string> = {
   '回到原位': 'Reset position',
   '加载超时': 'Load timed out',
   '角色设置': 'Character settings',
+  '角色已隐藏，房间里其他成员也看不到它': 'Your character is hidden — other members cannot see it either',
   '仅支持 http/https 地址': 'Only http/https URLs are supported',
   '开启后角色会跟着你的头部转动': 'Once on, the character follows your head',
   '开启后可直接拖动角色调整位置': 'Drag the character to move it',
@@ -1034,9 +1035,12 @@ const enUS: Record<string, string> = {
   '完成': 'Done',
   '未检测到人脸': 'No face detected',
   '我的角色': 'My character',
+  '显示后会回到你之前选的角色': 'It comes back with the model you had before',
+  '显示角色': 'Show character',
+  '显示角色之后动捕才有作用': 'Face tracking only works once the character is shown',
   '笑': 'Smile',
   '眼': 'Eyes',
-  '隐藏后点右下角的角色按钮可以重新显示': 'Use the button at the bottom right to show it again',
+  '隐藏后房间里其他成员也看不到你的角色': 'Once hidden, other members cannot see your character either',
   '隐藏角色': 'Hide character',
   '应用地址': 'Apply URL',
   '允许成员开启摄像头动捕': 'Allow camera tracking for members',
@@ -1044,6 +1048,7 @@ const enUS: Record<string, string> = {
   '正在标定，请正对镜头': 'Calibrating…',
   '正在启动…': 'Starting…',
   '重新标定': 'Recalibrate',
+  '重新显示角色': 'Show the character again',
   '自定义模型地址': 'Custom model URL',
   '嘴': 'Mouth',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',

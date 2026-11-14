@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { EyeOff, Move, RotateCcw, Settings2, Sparkles, X } from 'lucide-react'
+import {
+  Eye,
+  EyeOff,
+  Move,
+  RotateCcw,
+  Settings2,
+  Sparkles,
+  X,
+} from 'lucide-react'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
@@ -39,7 +47,16 @@ export interface Live2DContextMenuProps {
   allowFace: boolean
   /** 房主已统一角色：选模型这一段换成说明 */
   unified: boolean
-  canHide: boolean
+  /**
+   * 我在本房间隐藏了自己的角色。
+   *
+   * 隐藏时右键其实打不到任何模型（画面上没有角色），所以这里大概率恒为
+   * false；留着它是为了让菜单永远是"当前真实状态"的投影——占位卡、将来的
+   * 名册入口都能复用它，不必各自维护一份"隐藏中"的判断。
+   */
+  hidden: boolean
+  /** 能否在隐藏/显示之间切换（统一角色时不能） */
+  canToggleVisibility: boolean
   /** 有角色才能拖（没模型时整个入口置灰） */
   canDrag: boolean
   /** 拖拽模式是否正在进行（决定这个入口是「进入」还是「退出」） */
@@ -54,6 +71,7 @@ export interface Live2DContextMenuProps {
   onToggleDrag: () => void
   onResetPosition: () => void
   onHide: () => void
+  onShow: () => void
 }
 
 const MENU_WIDTH = 272
@@ -74,7 +92,8 @@ export function Live2DContextMenu({
   faceTracking,
   allowFace,
   unified,
-  canHide,
+  hidden,
+  canToggleVisibility,
   canDrag,
   dragMode,
   canResetPosition,
@@ -86,6 +105,7 @@ export function Live2DContextMenu({
   onToggleDrag,
   onResetPosition,
   onHide,
+  onShow,
 }: Live2DContextMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -277,13 +297,16 @@ export function Live2DContextMenu({
         <MenuAction onClick={onOpenAdvanced} icon={<Settings2 size={13} />}>
           {t('高级设置')}
         </MenuAction>
-        {canHide && (
+        {/* 一个入口，两个方向：隐藏之后同一处就是「显示角色」。以前隐藏会把
+            模型选择清空，这个入口随即整条消失，用户只能去模型列表里"换一个"
+            才能让角色回来。 */}
+        {canToggleVisibility && (
           <MenuAction
-            onClick={onHide}
-            icon={<EyeOff size={13} />}
-            title={t('隐藏角色')}
+            onClick={hidden ? onShow : onHide}
+            icon={hidden ? <Eye size={13} /> : <EyeOff size={13} />}
+            title={hidden ? t('重新显示角色') : t('隐藏角色')}
           >
-            {t('隐藏角色')}
+            {hidden ? t('显示角色') : t('隐藏角色')}
           </MenuAction>
         )}
       </div>

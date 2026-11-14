@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Camera, EyeOff, Trash2, Upload, Users } from 'lucide-react'
+import { Camera, Eye, EyeOff, Trash2, Upload, Users } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
 import { ConfirmModal, Modal } from '@/components/ui/Modal'
 import { SegmentedToggle } from '@/components/ui/SegmentedToggle'
@@ -44,8 +44,19 @@ export interface Live2DAdvancedSettingsProps {
   builtins: Live2DModelEntry[]
   libraryModels: Live2DLibraryEntry[]
   expressions: ModelExpressionEntry[]
-  myKind: Live2DModelKind
-  myModelId: string
+  /**
+   * 我自己的选择（不受统一角色/隐藏影响）。
+   *
+   * 刻意不传「生效模型」：隐藏时它是空串、统一时它是房间的模型，两种情况下
+   * 拿它给选择器做高亮都会高亮错——一个像"从没选过"，一个像"我选了房间的
+   * 那个模型"。
+   */
+  selectedKind: Live2DModelKind
+  selectedModelId: string
+  /** 我在本房间隐藏了角色 */
+  hidden: boolean
+  /** 能否隐藏（统一角色时不行；已经隐藏时走的是「显示」） */
+  canHide: boolean
   myScale: number
   faceTracking: { on: boolean; busy: boolean; error: string }
   policy: Live2DPolicy
@@ -56,6 +67,7 @@ export interface Live2DAdvancedSettingsProps {
   onExpression: (index: number) => void
   onToggleFaceTracking: () => void
   onHide: () => void
+  onShow: () => void
   /* 房间设置（房主） */
   onPolicy: (patch: Partial<Live2DPolicy>) => void
   onUpload: (file: File) => void
@@ -71,8 +83,10 @@ export function Live2DAdvancedSettings({
   builtins,
   libraryModels,
   expressions,
-  myKind,
-  myModelId,
+  selectedKind,
+  selectedModelId,
+  hidden,
+  canHide,
   myScale,
   faceTracking,
   policy,
@@ -82,6 +96,7 @@ export function Live2DAdvancedSettings({
   onExpression,
   onToggleFaceTracking,
   onHide,
+  onShow,
   onPolicy,
   onUpload,
   onDeleteModel,
@@ -185,13 +200,21 @@ export function Live2DAdvancedSettings({
               {unified ? (
                 <Note>{t('房主已统一角色，全房间使用同一个模型')}</Note>
               ) : (
-                <Live2DModelPicker
-                  builtins={builtins}
-                  libraryModels={libraryModels}
-                  value={{ kind: myKind, id: myModelId }}
-                  onSelect={onSelect}
-                  allowUrl={canUploadModels}
-                />
+                <>
+                  {hidden && (
+                    <Note>{t('角色已隐藏，房间里其他成员也看不到它')}</Note>
+                  )}
+                  {/* 高亮用「我的选择」而不是「生效模型」：隐藏时生效模型是
+                      空串，用它当 value 会让选择器整片都不选中，看起来像"我从
+                      来没选过模型"——而实际上只是藏起来了。 */}
+                  <Live2DModelPicker
+                    builtins={builtins}
+                    libraryModels={libraryModels}
+                    value={{ kind: selectedKind, id: selectedModelId }}
+                    onSelect={onSelect}
+                    allowUrl={canUploadModels}
+                  />
+                </>
               )}
 
               {librarySection}
@@ -218,8 +241,11 @@ export function Live2DAdvancedSettings({
                         key={item.index}
                         type="button"
                         onClick={() => onExpression(item.index)}
+                        // 隐藏时服务端名册里没有我，动作会被直接丢掉：
+                        // 能点却没有任何反应比置灰更容易被当成 bug
+                        disabled={hidden}
                         title={t('所有人都会看到')}
-                        className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80"
+                        className="max-w-full truncate rounded-md border px-2 py-1 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
                         style={{
                           background: 'var(--md-sys-color-surface)',
                           borderColor: 'var(--md-sys-color-outline-variant)',
@@ -242,33 +268,57 @@ export function Live2DAdvancedSettings({
                       ? faceTracking.error
                       : !canUseFace
                         ? t('房主已关闭成员动捕')
-                        : faceTracking.on
-                          ? t('画面只在本机处理，不会上传')
-                          : t('开启后角色会跟着你的头部转动')}
+                        : hidden
+                          ? t('显示角色之后动捕才有作用')
+                          : faceTracking.on
+                            ? t('画面只在本机处理，不会上传')
+                            : t('开启后角色会跟着你的头部转动')}
                   </span>
                 </span>
                 <Switch
                   checked={faceTracking.on}
-                  disabled={!canUseFace || faceTracking.busy}
+                  // 隐藏时开动捕没有任何可驱动的对象（指针上报也跟着停了），
+                  // 让开关能点却毫无反应比直接置灰更让人怀疑坏了
+                  disabled={!canUseFace || hidden || faceTracking.busy}
                   onChange={onToggleFaceTracking}
                   aria-label={t('摄像头动捕')}
                 />
               </div>
 
-              <div>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  icon={<EyeOff size={13} />}
-                  onClick={onHide}
-                  disabled={unified || !myModelId}
-                >
-                  {t('隐藏角色')}
-                </Button>
-                <p className="mt-1 text-[10px] leading-snug opacity-45">
-                  {t('隐藏后点右下角的角色按钮可以重新显示')}
-                </p>
-              </div>
+              {/* 隐藏 / 显示是同一个位置的两个方向。
+                  以前这里只写「隐藏角色」，且隐藏后按钮因为没模型直接变灰，
+                  文案却让人去点右下角——而右下角打开的还是这块面板，等于
+                  把唯一的恢复入口也锁上了。 */}
+              {hidden ? (
+                <div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    icon={<Eye size={13} />}
+                    onClick={onShow}
+                  >
+                    {t('显示角色')}
+                  </Button>
+                  <p className="mt-1 text-[10px] leading-snug opacity-45">
+                    {t('显示后会回到你之前选的角色')}
+                  </p>
+                </div>
+              ) : (
+                <div>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    icon={<EyeOff size={13} />}
+                    onClick={onHide}
+                    disabled={!canHide}
+                  >
+                    {t('隐藏角色')}
+                  </Button>
+                  <p className="mt-1 text-[10px] leading-snug opacity-45">
+                    {t('隐藏后房间里其他成员也看不到你的角色')}
+                  </p>
+                </div>
+              )}
             </div>
           ) : (
             <div className="flex flex-col gap-4">
@@ -315,8 +365,11 @@ export function Live2DAdvancedSettings({
                       onPolicy({ unified: false })
                       return
                     }
-                    const kind = policy.unifiedKind ?? myKind
-                    const id = policy.unifiedId ?? myModelId
+                    // 打开时必须给一个模型：拿当前统一模型，退而用**我自己的
+                    // 选择**（不是生效模型——隐藏时它是空串、统一时它本来就
+                    // 是统一模型，两种都不该作为"统一哪个"的来源）
+                    const kind = policy.unifiedKind ?? selectedKind
+                    const id = policy.unifiedId ?? selectedModelId
                     if (!id) return
                     onPolicy({
                       unified: true,

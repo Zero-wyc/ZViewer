@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
+import type { Live2DHidden } from '../core/visibility'
 import {
   LIVE2D_DEFAULT_POLICY,
   type Live2DModelKind,
@@ -15,13 +16,18 @@ interface Live2DStoreState {
   myModelId: string
   myScale: number
   /**
-   * 用户主动隐藏了自己的角色。
+   * 我在某个房间隐藏了自己的角色。
    *
-   * 必须和「还没选过模型」区分开：两者都是 myModelId 为空，但前者要**保持**
-   * 空着，后者应当自动补一个默认模型。没有这个标记，「隐藏角色」会被
-   * 「进房自动给个角色」立刻撤销掉。
+   * 为什么不是布尔：
+   *   - 布尔分不清「还没选过模型」和「主动隐藏」，只能靠清空 myModelId 来表达，
+   *     而清空之后就再也回不到原来那个模型；
+   *   - 布尔不分房间，在 A 房隐藏会让 B 房也没有角色——而且它被持久化，
+   *     关掉浏览器第二天回来还是隐藏。
+   *
+   * 现在它是一条带 roomId 的记录，且**不动 myModelId**：隐藏只是让生效模型
+   * 暂时为空，恢复就是把它置回 null。跨房自动失效（roomId 不匹配）。
    */
-  hidden: boolean
+  hidden: Live2DHidden | null
   /** 名册：低频变化（加入/离开/换模型），高频指针不写这里 */
   peers: Live2DPeer[]
   /** 房间策略：房主设，低频，跟着快照/广播进来 */
@@ -29,7 +35,7 @@ interface Live2DStoreState {
 
   setMyModel: (kind: Live2DModelKind, modelId: string) => void
   setMyScale: (scale: number) => void
-  setHidden: (hidden: boolean) => void
+  setHidden: (hidden: Live2DHidden | null) => void
   setPeers: (peers: Live2DPeer[]) => void
   setPolicy: (policy: Live2DPolicy) => void
   reset: () => void
@@ -39,7 +45,7 @@ const DEFAULTS = {
   myKind: 'builtin' as Live2DModelKind,
   myModelId: '',
   myScale: 1,
-  hidden: false,
+  hidden: null as Live2DHidden | null,
 }
 
 export const useLive2DStore = create<Live2DStoreState>()(
@@ -58,17 +64,19 @@ export const useLive2DStore = create<Live2DStoreState>()(
     }),
     {
       name: 'zviewer.live2d.v1',
-      version: 2,
+      version: 3,
       // v1 里有个「整个悬浮层开关」enabled，现在改成「右键角色 → 设置」，
-      // 不再有全局开关（有开关却没有入口会把用户锁在外面）。这里只是把它丢掉，
-      // 其余本机偏好照旧保留。
+      // 不再有全局开关（有开关却没有入口会把用户锁在外面）。
+      // v2 的 hidden 是个布尔且不知道属于哪个房间：直接丢掉（置 null）。
+      // 留着它等于把「上次在某个房间隐藏过」变成「以后进任何房间都没角色」，
+      // 而界面上又没有任何地方能看出这件事是怎么发生的。
       migrate: (persisted) => {
         const old = (persisted ?? {}) as Partial<Live2DStoreState>
         return {
           myKind: old.myKind ?? DEFAULTS.myKind,
           myModelId: old.myModelId ?? DEFAULTS.myModelId,
           myScale: old.myScale ?? DEFAULTS.myScale,
-          hidden: false,
+          hidden: null,
         }
       },
       // 只持久化本机偏好：名册与策略是房间状态，写进 localStorage 只会让
