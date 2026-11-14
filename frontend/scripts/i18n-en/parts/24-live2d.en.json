@@ -7,6 +7,8 @@
     "The URL must point to model3.json",
     "Invalid URL format",
     "URL is too long",
+    "Room models",
+    "The host hasn't uploaded any model yet",
     "No built-in models yet — load one with the URL below",
     "Load timed out",
     "Character",
@@ -14,13 +16,23 @@
     "Character hidden",
     "Only http/https URLs are supported",
     "{{count}} more characters not shown",
+    "Model pack must be under {{size}}MB",
     "Model size",
+    "Model deleted",
+    "Model uploaded",
     "Enter a model URL",
+    "Delete this model",
+    "Failed to delete",
+    "Upload",
+    "Upload failed",
+    "Upload a zip and everyone in the room will see this model",
+    "Uploading…",
     "Show character",
     "Apply URL",
     "Custom model URL",
     "Custom model failed to load (possibly blocked by CORS)",
     "Failed to load Cubism Core",
-    "Cubism Core loaded but not registered"
+    "Cubism Core loaded but not registered",
+    "The zip must contain model3.json and be under {{size}}MB"
   ]
 }

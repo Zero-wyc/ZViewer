@@ -12,9 +12,7 @@
     "Delete the section {{name}}",
     "Delete the section “{{name}}”",
     "Delete the blocked word {{word}}",
-    "Failed to delete",
     "Delete the genre {{name}}",
-    "Upload",
     "Upload finished. Tracks may need transcoding, refresh in a moment.",
     "Tracks may need transcoding after upload, refresh in a moment",
     "Uploading...",
@@ -119,6 +117,8 @@
     "Exit fullscreen",
     "Failed to sign out",
     "Sign out of NetEase Cloud Music",
-    "External content"
+    "External content",
+    "Done",
+    "Fit"
   ]
 }

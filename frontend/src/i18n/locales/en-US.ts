@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2694 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2703 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（22 条） =====
+  // ===== modules/live2d（34 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
@@ -973,6 +973,8 @@ const enUS: Record<string, string> = {
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
+  '房间模型': 'Room models',
+  '房主还没有上传模型': 'The host hasn\'t uploaded any model yet',
   '还没有内置模型，可先用下面的地址加载一个': 'No built-in models yet — load one with the URL below',
   '加载超时': 'Load timed out',
   '角色': 'Character',
@@ -980,14 +982,24 @@ const enUS: Record<string, string> = {
   '角色已隐藏': 'Character hidden',
   '仅支持 http/https 地址': 'Only http/https URLs are supported',
   '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
+  '模型包不能超过 {{size}}MB': 'Model pack must be under {{size}}MB',
   '模型大小': 'Model size',
+  '模型已删除': 'Model deleted',
+  '模型已上传': 'Model uploaded',
   '请填写模型地址': 'Enter a model URL',
+  '删除该模型': 'Delete this model',
+  '删除失败': 'Failed to delete',
+  '上传': 'Upload',
+  '上传失败': 'Upload failed',
+  '上传一个 zip，房间内所有人都会看到这个模型': 'Upload a zip and everyone in the room will see this model',
+  '上传中…': 'Uploading…',
   '显示角色': 'Show character',
   '应用地址': 'Apply URL',
   '自定义模型地址': 'Custom model URL',
   '自定义模型未能加载（可能被跨域限制）': 'Custom model failed to load (possibly blocked by CORS)',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',
   'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
+  'zip 内需包含 model3.json，不超过 {{size}}MB': 'The zip must contain model3.json and be under {{size}}MB',
 
   // ===== modules/mounts（61 条） =====
   '，用户：{{userName}}': ', user: {{userName}}',
@@ -1069,7 +1081,7 @@ const enUS: Record<string, string> = {
   '未取得影片播放地址': 'No playback URL for the movie',
   '主播当前未开播，请开播后再播放': 'The streamer is offline, try again once the stream starts',
 
-  // ===== modules/music（729 条） =====
+  // ===== modules/music（727 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
   ' / 共 {{totalPages}} 页': ' / {{totalPages}} pages',
   ' 首分P歌曲…': ' first-part tracks…',
@@ -1442,9 +1454,7 @@ const enUS: Record<string, string> = {
   '删除栏目 {{name}}': 'Delete the section {{name}}',
   '删除栏目「{{name}}」': 'Delete the section “{{name}}”',
   '删除屏蔽词 {{word}}': 'Delete the blocked word {{word}}',
-  '删除失败': 'Failed to delete',
   '删除种类 {{name}}': 'Delete the genre {{name}}',
-  '上传': 'Upload',
   '上传完毕，上传完成后可能需要转码，请稍后刷新查看': 'Upload finished. Tracks may need transcoding, refresh in a moment.',
   '上传完成后可能需要转码，请稍后刷新查看': 'Tracks may need transcoding after upload, refresh in a moment',
   '上传中...': 'Uploading...',
@@ -2571,7 +2581,7 @@ const enUS: Record<string, string> = {
   'Socket 未连接': 'Socket not connected',
   'WebRTC 共享': 'WebRTC sharing',
 
-  // ===== modules/server-files（91 条） =====
+  // ===== modules/server-files（90 条） =====
   ' 该文件夹内所有内容将被一并删除，且不可恢复。': ' Everything inside this folder will be deleted permanently.',
   '[downloadBilibiliVideo] 解析进度行失败:': '[downloadBilibiliVideo] Failed to parse a progress line:',
   '保存到': 'Save to',
@@ -2616,7 +2626,6 @@ const enUS: Record<string, string> = {
   '如：我的视频': 'e.g. My videos',
   '如：影视库、下载目录': 'e.g. Library, Downloads',
   '删除根目录失败': 'Failed to delete the root directory',
-  '上传失败': 'Upload failed',
   '上传响应解析失败': 'Failed to parse the upload response',
   '上传中 {{uploadProgress}}%': 'Uploading {{uploadProgress}}%',
   '视频链接或 BV 号': 'Video link or BV id',

@@ -1,7 +1,5 @@
 {
   "items": [
-    "Done",
-    "Fit",
     "NetEase Cloud Music",
     "Signed in to NetEase Cloud Music",
     "NetEase Cloud Music login QR code",
@@ -119,6 +117,8 @@
     "Added to {{displayName}}",
     "Added to Liked Music",
     "In sync",
-    "Signed out"
+    "Signed out",
+    "Signed out of NetEase Cloud Music",
+    "Requested: {{value}}"
   ]
 }

@@ -1,5 +1,5 @@
 {
-  "total": 2689,
+  "total": 2698,
   "chunk": 120,
   "parts": [
     {
@@ -120,7 +120,7 @@
     {
       "id": "24-live2d",
       "bucket": "modules/live2d",
-      "count": 22
+      "count": 34
     },
     {
       "id": "25-mounts",
@@ -165,7 +165,7 @@
     {
       "id": "33-music",
       "bucket": "modules/music",
-      "count": 9
+      "count": 7
     },
     {
       "id": "34-openlist",
@@ -230,7 +230,7 @@
     {
       "id": "46-server-files",
       "bucket": "modules/server-files",
-      "count": 91
+      "count": 90
     },
     {
       "id": "47-subtitles",
