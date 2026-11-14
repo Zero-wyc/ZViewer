@@ -1,7 +1,6 @@
 {
   "bucket": "modules/music",
   "items": [
-    "已在{{displayName}}中",
     "已在播放队列",
     "已在我喜欢的音乐中",
     "已展示全部回复",
@@ -120,6 +119,7 @@
     "LOGIN FOR FULL COMMENTS（游客仅前 3 条）",
     "MP4 直链",
     "MP4 直链，seek 流畅，清晰度通常 480P/720P",
-    "UI 底部"
+    "UI 底部",
+    "UI 模糊浓度"
   ]
 }

@@ -1,7 +1,6 @@
 {
   "bucket": "modules/music",
   "items": [
-    "UI 模糊浓度",
     "UI 上方",
     "UI 透明度",
     "useMusicPlayer 必须在 MusicPlayerProvider 内使用",

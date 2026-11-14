@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2707 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2719 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,8 +965,9 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（38 条） =====
+  // ===== modules/live2d（51 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
+  '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
   '表情': 'Expression',
   '表情 {{index}}': 'Expression {{index}}',
@@ -979,26 +980,38 @@ const enUS: Record<string, string> = {
   '房主还没有上传模型': 'The host hasn\'t uploaded any model yet',
   '还没有内置模型，等房主上传后再选': 'No built-in models yet — wait for the host to upload one',
   '还没有内置模型，可以上传一个模型包，或填写下面的地址': 'No built-in models yet — upload a model pack, or enter a URL below',
+  '画面只在本机处理，不会上传': 'Frames stay on this device and are never uploaded',
   '加载超时': 'Load timed out',
   '角色': 'Character',
   '角色设置': 'Character settings',
   '角色已隐藏': 'Character hidden',
   '仅支持 http/https 地址': 'Only http/https URLs are supported',
+  '开启后角色会跟着你的头部转动': 'Once on, the character follows your head',
   '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
+  '浏览器不支持摄像头动捕': 'This browser doesn\'t support camera tracking',
+  '没有找到可用的摄像头': 'No camera found',
   '模型包不能超过 {{size}}MB': 'Model pack must be under {{size}}MB',
   '模型大小': 'Model size',
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
   '请填写模型地址': 'Enter a model URL',
+  '人脸检测模型加载失败': 'Failed to load the face model',
   '删除该模型': 'Delete this model',
   '删除失败': 'Failed to delete',
   '上传': 'Upload',
   '上传失败': 'Upload failed',
   '上传一个 zip，房间内所有人都会看到这个模型': 'Upload a zip and everyone in the room will see this model',
   '上传中…': 'Uploading…',
+  '摄像头被其他程序占用': 'The camera is in use by another app',
+  '摄像头打开失败': 'Couldn\'t open the camera',
+  '摄像头动捕': 'Camera tracking',
+  '摄像头动捕启动失败': 'Couldn\'t start camera tracking',
+  '摄像头权限被拒绝': 'Camera permission denied',
   '所有人都会看到': 'Everyone will see it',
   '显示角色': 'Show character',
+  '已开启': 'On',
   '应用地址': 'Apply URL',
+  '正在启动…': 'Starting…',
   '自定义模型地址': 'Custom model URL',
   '自定义模型未能加载（可能被跨域限制）': 'Custom model failed to load (possibly blocked by CORS)',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',
@@ -1085,7 +1098,7 @@ const enUS: Record<string, string> = {
   '未取得影片播放地址': 'No playback URL for the movie',
   '主播当前未开播，请开播后再播放': 'The streamer is offline, try again once the stream starts',
 
-  // ===== modules/music（727 条） =====
+  // ===== modules/music（726 条） =====
   ' · 共 {{totalPages}} 页': ' · {{totalPages}} pages',
   ' / 共 {{totalPages}} 页': ' / {{totalPages}} pages',
   ' 首分P歌曲…': ' first-part tracks…',
@@ -1662,7 +1675,6 @@ const enUS: Record<string, string> = {
   '已检测到可用外链': 'A playable external link was found',
   '已将 {{added}} 首推荐歌曲加入当前播放之后': 'Added {{added}} recommended tracks after the current one',
   '已解除该歌曲的视频关联': 'The video was unlinked from this track',
-  '已开启': 'On',
   '已开启随机排序：翻页将随机抽取一批视频并打乱顺序': 'Shuffle on: paging pulls a random batch and shuffles it',
   '已连接': 'Connected',
   '已连接本地代理 {{value}}': 'Connected to the local proxy {{value}}',

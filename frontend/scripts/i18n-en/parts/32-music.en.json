@@ -1,6 +1,5 @@
 {
   "items": [
-    "Already in {{displayName}}",
     "Already in the queue",
     "Already in Liked Music",
     "All replies shown",
@@ -119,6 +118,7 @@
     "LOG IN FOR ALL COMMENTS (guests see the first 3)",
     "MP4 direct link",
     "MP4 direct link, smooth seeking, usually 480P/720P",
-    "Bottom of the UI"
+    "Bottom of the UI",
+    "UI blur amount"
   ]
 }

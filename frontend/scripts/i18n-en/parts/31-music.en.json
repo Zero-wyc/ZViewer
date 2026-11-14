@@ -96,7 +96,6 @@
     "A playable external link was found",
     "Added {{added}} recommended tracks after the current one",
     "The video was unlinked from this track",
-    "On",
     "Shuffle on: paging pulls a random batch and shuffles it",
     "Connected",
     "Connected to the local proxy {{value}}",
@@ -119,6 +118,7 @@
     "In sync",
     "Signed out",
     "Signed out of NetEase Cloud Music",
-    "Requested: {{value}}"
+    "Requested: {{value}}",
+    "Already in {{displayName}}"
   ]
 }

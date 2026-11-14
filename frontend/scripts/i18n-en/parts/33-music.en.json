@@ -1,6 +1,5 @@
 {
   "items": [
-    "UI blur amount",
     "Top of the UI",
     "UI opacity",
     "useMusicPlayer must be used inside MusicPlayerProvider",

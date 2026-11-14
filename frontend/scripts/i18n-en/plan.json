@@ -1,5 +1,5 @@
 {
-  "total": 2702,
+  "total": 2714,
   "chunk": 120,
   "parts": [
     {
@@ -120,7 +120,7 @@
     {
       "id": "24-live2d",
       "bucket": "modules/live2d",
-      "count": 38
+      "count": 51
     },
     {
       "id": "25-mounts",
@@ -165,7 +165,7 @@
     {
       "id": "33-music",
       "bucket": "modules/music",
-      "count": 7
+      "count": 6
     },
     {
       "id": "34-openlist",
