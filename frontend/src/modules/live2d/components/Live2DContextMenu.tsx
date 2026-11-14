@@ -17,6 +17,9 @@ import { Live2DModelPicker } from './Live2DModelPicker'
 //
 // 位置与视觉沿用房间页的玻璃语言（glass-strong + --md-sys-color-*），与
 // 视频统计菜单同一套写法：portal 到 body、fixed 定位、按视口夹紧。
+//
+// z-[120] 是算出来的：视频控制条 80、评论浮层 85、一起听面板 100；
+// 全屏时宿主自己被抬到 110，菜单必须再高一层。
 
 export interface Live2DContextMenuProps {
   open: boolean
@@ -113,7 +116,7 @@ export function Live2DContextMenu({
       role="menu"
       aria-label={t('角色设置')}
       data-live2d-menu=""
-      className="glass-strong pointer-events-auto fixed z-[80] overflow-y-auto rounded-[var(--md-sys-shape-corner)] p-2.5 hide-scrollbar"
+      className="glass-strong pointer-events-auto fixed z-[120] overflow-y-auto rounded-[var(--md-sys-shape-corner)] p-2.5 hide-scrollbar"
       style={{
         left,
         top,

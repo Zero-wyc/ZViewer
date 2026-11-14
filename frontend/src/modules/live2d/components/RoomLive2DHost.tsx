@@ -90,7 +90,29 @@ export function RoomLive2DHost({
   const [roomCanManage, setRoomCanManage] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
-  const [menu, setMenu] = useState({ open: false, x: 0, y: 0 })
+  // root 是这条菜单的挂载容器，**在打开的那一刻**决定：
+  //   - 原生全屏时只有 fullscreenElement 子树会被渲染，必须挂进去；
+  //   - 非全屏时挂 body——宿主的 fixed 容器带 z-index:60，会把子节点的层级
+  //     整体压到 60 这一层，菜单（哪怕 z-[120]）也会被视频控制条（80）、
+  //     一起听面板（100）盖住，而角色恰好站在画面底部。
+  // 在事件回调里读 fullscreenElement 而不是存 state：不需要监听全屏切换，
+  // 也不会在 effect 里同步 setState。
+  const [menu, setMenu] = useState<{
+    open: boolean
+    x: number
+    y: number
+    root: HTMLElement | null
+  }>({ open: false, x: 0, y: 0, root: null })
+
+  const openMenuAt = useCallback((clientX: number, clientY: number) => {
+    const fs = document.fullscreenElement
+    setMenu({
+      open: true,
+      x: clientX,
+      y: clientY,
+      root: fs instanceof HTMLElement ? fs : null,
+    })
+  }, [])
   const [failed, setFailed] = useState<string[]>([])
   // 连带 url 一起存：换模型时旧清单不能先闪一下
   const [exprState, setExprState] = useState<{
@@ -357,11 +379,11 @@ export function RoomLive2DHost({
       if (!sid) return
       event.preventDefault()
       event.stopPropagation()
-      setMenu({ open: true, x: event.clientX, y: event.clientY })
+      openMenuAt(event.clientX, event.clientY)
     }
     window.addEventListener('contextmenu', onContextMenu, true)
     return () => window.removeEventListener('contextmenu', onContextMenu, true)
-  }, [renderer, advancedOpen])
+  }, [renderer, advancedOpen, openMenuAt])
 
   // ---- 9. 收发 ----
   useLive2DSync({ socket, roomId, renderer })
@@ -476,9 +498,17 @@ export function RoomLive2DHost({
   )
 
   const openAdvanced = useCallback(() => {
-    closeMenu()
+    // 右下角按钮和菜单里的「高级设置」都会进来：两条路都得在这里重算挂载点，
+    // 否则从按钮直接打开（或全屏切换之后再打开）会把面板挂到全屏子树外面，
+    // 表现就是「点了没反应」。
+    const fs = document.fullscreenElement
+    setMenu((prev) => ({
+      ...prev,
+      open: false,
+      root: fs instanceof HTMLElement ? fs : null,
+    }))
     setAdvancedOpen(true)
-  }, [closeMenu])
+  }, [])
 
   const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
   const hiddenCount = peers.length - visible.length
@@ -519,7 +549,7 @@ export function RoomLive2DHost({
                   // 加载失败的占位卡是 DOM，直接自己收右键；否则这个角色
                   // 就成了唯一没有入口的那一格。
                   event.preventDefault()
-                  setMenu({ open: true, x: event.clientX, y: event.clientY })
+                  openMenuAt(event.clientX, event.clientY)
                 }}
                 style={{
                   pointerEvents: 'auto',
@@ -602,7 +632,7 @@ export function RoomLive2DHost({
         open={menu.open}
         position={{ x: menu.x, y: menu.y }}
         onClose={closeMenu}
-        container={canvasEl}
+        container={menu.root}
         builtins={builtins}
         roomModels={roomModels}
         expressions={myExpressions}
@@ -624,7 +654,7 @@ export function RoomLive2DHost({
       <Live2DAdvancedSettings
         open={advancedOpen}
         onClose={() => setAdvancedOpen(false)}
-        container={canvasEl}
+        container={menu.root}
         isHost={isHost}
         canUploadModels={roomCanManage}
         builtins={builtins}
