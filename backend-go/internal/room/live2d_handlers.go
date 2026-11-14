@@ -85,6 +85,8 @@ type live2dStatePayload struct {
 	// Mouth/Eyes 是摄像头动捕的面部姿态，只在动捕开着时出现（见 live2dStateUpdate）。
 	Mouth *float64 `json:"m"`
 	Eyes  *float64 `json:"e"`
+	// Pose 是 [嘴形, 眉毛, 歪头]，0~1 编码。与 m/e 同时出现、同时缺席。
+	Pose []float64 `json:"p"`
 }
 
 // live2dDragPayload 是拖拽偏移上报：dx/dy 是相对视口宽/高的比例（正数向右/向下）。
@@ -115,11 +117,12 @@ var (
 )
 
 // live2dRow 把成员压成一行：
-// [sid, name, kind, modelId, scale, ord, x, y, ar, mouth, eyes, dragX, dragY]。
+// [sid, name, kind, modelId, scale, ord, x, y, ar, mouth, eyes, dragX, dragY,
+// form, brow, roll]。
 // 快照的 models 与 patch 的 add 共用这个形状，前端只需要一个解析函数。
 //
-// 末尾两位是拖拽偏移（相对槽位基准的比例）。追加在最后是为了让旧客户端
-// 只读前 11 项也不出错。
+// 末尾两位是拖拽偏移（相对槽位基准的比例），再往后是动捕的表情细节与歪头
+// （0~1，0.5 = 中性）。追加在最后是为了让旧客户端只读前面几项也不出错。
 func live2dRow(m live2dMember) []any {
 	return []any{
 		m.SocketID, m.Name, m.Kind, m.ModelID,
@@ -127,6 +130,7 @@ func live2dRow(m live2dMember) []any {
 		roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2),
 		roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
 		roundTo(m.DragX, 3), roundTo(m.DragY, 3),
+		roundTo(m.Form, 2), roundTo(m.Brow, 2), roundTo(m.Roll, 2),
 	}
 }
 
@@ -139,14 +143,21 @@ func live2dRows(list []live2dMember) [][]any {
 }
 
 // live2dStateRow 是合并下行的**紧凑**行：[sid, x, y, ar]，
-// 只有对方当前正在动捕时才追加 [m, e]。
+// 只有对方当前正在动捕时才追加 [m, e, p0, p1, p2]。
 //
-// 可变长度是刻意的：客户端收到 m/e 就会接管模型的嘴与眼，所以「没有面部
-// 数据」必须能和「嘴闭着、眼全睁」区分开——否则整个房间的角色都不再眨眼。
+// 可变长度是刻意的：客户端收到 m/e/p 就会接管模型的嘴、眼、表情与歪头，
+// 所以「没有面部数据」必须能和「嘴闭着、眼全睁、中性表情」区分开——否则
+// 整个房间的角色都不再眨眼、也不再有自己的小表情。
+//
+// 三项姿态（嘴形/眉毛/歪头）跟在 m/e 后面而不是新开一类行：它们与 m/e 同源
+// （同一帧检测结果）、同频率、同寿命，拆成两行只会多一条可能的乱序路径。
 func live2dStateRow(m live2dMember, now time.Time) []any {
 	row := []any{m.SocketID, roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2)}
 	if !m.faceAt.IsZero() && now.Sub(m.faceAt) < live2dFaceTTL {
-		row = append(row, roundTo(m.Mouth, 2), roundTo(m.Eyes, 2))
+		row = append(row,
+			roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
+			roundTo(m.Form, 2), roundTo(m.Brow, 2), roundTo(m.Roll, 2),
+		)
 	}
 	return row
 }
@@ -282,6 +293,7 @@ func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
 	s.Live2DUpdateState(payload.RoomID, sc.ID, live2dStateUpdate{
 		X: *payload.X, Y: *payload.Y, AR: ar,
 		Mouth: payload.Mouth, Eyes: payload.Eyes,
+		Pose: payload.Pose,
 	}, time.Now())
 }
 

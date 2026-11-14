@@ -368,14 +368,74 @@ func TestLive2DStateRowFaceOptional(t *testing.T) {
 	}, time.Now().Add(time.Second))
 	env.svc.FlushLive2D()
 	upd = lastUpd()
-	if len(upd) != 1 || len(upd[0]) != 6 {
-		t.Fatalf("动捕中 u 行应带 m/e（6 项），实际 %v", upd)
+	// 动捕中：m/e 后面固定跟三项姿态（嘴形/眉毛/歪头），共 9 项。
+	// 没上报 pose 时是中性值 0.5，而不是 0——0 是「撇嘴 + 皱眉 + 歪到底」。
+	if len(upd) != 1 || len(upd[0]) != 9 {
+		t.Fatalf("动捕中 u 行应带 m/e 与三项姿态（9 项），实际 %v", upd)
 	}
 	if got := upd[0][4]; got != 0.5 {
 		t.Fatalf("m 值不对：%v", got)
 	}
 	if got := upd[0][5]; got != 0.3 {
 		t.Fatalf("e 值不对：%v", got)
+	}
+	for i := 6; i < 9; i++ {
+		if got := upd[0][i]; got != live2dDefaultPose {
+			t.Fatalf("第 %d 项应为中性 %v，实际 %v", i, live2dDefaultPose, got)
+		}
+	}
+}
+
+// 10b) 表情细节/歪头：长度不对整条忽略；越界钳制；与 m/e 共享 faceAt 时效。
+func TestLive2DPoseClampedAndLengthChecked(t *testing.T) {
+	env := newTestEnv(t)
+	env.hub.members["ROOM_P"] = []string{"s1"}
+	env.svc.Live2DSet("ROOM_P", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	env.svc.FlushLive2D() // 排掉 add 行
+
+	mouth, eyes := 0.4, 0.8
+	base := time.Now()
+
+	// 长度 2：整条姿态忽略，m/e 仍生效
+	env.svc.Live2DUpdateState("ROOM_P", "s1", live2dStateUpdate{
+		X: 0.5, Y: 0.5, AR: 1.7, Mouth: &mouth, Eyes: &eyes,
+		Pose: []float64{0.9, 0.1},
+	}, base)
+	m := env.svc.Live2DSnapshot("ROOM_P")[0]
+	if m.Mouth != 0.4 {
+		t.Fatalf("m 应生效：%v", m.Mouth)
+	}
+	if m.Form != live2dDefaultPose || m.Brow != live2dDefaultPose {
+		t.Fatalf("长度不对时姿态不应被写入：form=%v brow=%v", m.Form, m.Brow)
+	}
+
+	// 正常三项，其中一项越界：逐项钳制
+	env.svc.Live2DUpdateState("ROOM_P", "s1", live2dStateUpdate{
+		X: 0.5, Y: 0.5, AR: 1.7,
+		Pose: []float64{1.7, -0.4, 0.25},
+	}, base.Add(time.Second))
+	m = env.svc.Live2DSnapshot("ROOM_P")[0]
+	if m.Form != 1 || m.Brow != 0 || m.Roll != 0.25 {
+		t.Fatalf("姿态未钳制：form=%v brow=%v roll=%v", m.Form, m.Brow, m.Roll)
+	}
+
+	// 只有姿态、没有 m/e：同样算一帧面部数据，u 行照样带满 9 项
+	env.svc.Live2DUpdateState("ROOM_P", "s1", live2dStateUpdate{
+		X: 0.5, Y: 0.5, AR: 1.7, Pose: []float64{0.5, 0.5, 0.7},
+	}, base.Add(2*time.Second))
+	env.svc.FlushLive2D()
+	list := env.hub.payloads["ROOM_P|live2d-patch"]
+	if len(list) == 0 {
+		t.Fatal("没有下发 patch")
+	}
+	patch := list[len(list)-1].(live2dPatchOut)
+	if len(patch.Upd) != 1 || len(patch.Upd[0]) != 9 {
+		t.Fatalf("带姿态的 u 行应为 9 项，实际 %v", patch.Upd)
+	}
+	if got := patch.Upd[0][8]; got != 0.7 {
+		t.Fatalf("歪头未下发：%v", got)
 	}
 }
 
@@ -543,11 +603,14 @@ func TestLive2DDragSync(t *testing.T) {
 			continue
 		}
 		row := live2dRow(m)
-		if len(row) != 13 {
-			t.Fatalf("整行应为 13 项（含 dragX/dragY），实际 %d 项", len(row))
+		if len(row) != 16 {
+			t.Fatalf("整行应为 16 项（含拖拽偏移与三项姿态），实际 %d 项", len(row))
 		}
 		if row[11] != live2dDragXLimit || row[12] != live2dDragYMin {
-			t.Fatalf("整行末尾应是拖拽偏移，实际 %v", row[11:])
+			t.Fatalf("整行第 11/12 项应是拖拽偏移，实际 %v", row[11:13])
+		}
+		if row[13] != live2dDefaultPose || row[14] != live2dDefaultPose || row[15] != live2dDefaultPose {
+			t.Fatalf("整行末尾应是中性姿态，实际 %v", row[13:])
 		}
 	}
 }

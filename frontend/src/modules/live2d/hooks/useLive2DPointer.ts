@@ -31,7 +31,7 @@ export interface UseLive2DPointerOptions {
   tracker?: FaceTracker | null
 }
 
-/** 上行 live2d-state 的形状（m/e 只在动捕时有）。 */
+/** 上行 live2d-state 的形状（m/e/p 只在动捕时有）。 */
 interface Live2DStatePayload {
   roomId: string
   x: number
@@ -39,6 +39,28 @@ interface Live2DStatePayload {
   a: number
   m?: number
   e?: number
+  /** [嘴形, 眉毛, 歪头]，0~1 编码（0.5 = 中性） */
+  p?: number[]
+}
+
+/** 一帧面部采样，全部 0~1（与协议同口径，本地场景也直接吃这个）。 */
+interface Live2DFaceSample {
+  mouth: number
+  eyes: number
+  form: number
+  brow: number
+  roll: number
+}
+
+/**
+ * -1~1 → 0~1。
+ *
+ * 本地算出来的是「带方向的偏离量」（-1 撇嘴 / +1 笑），而协议统一用 0~1
+ * 编码：服务端只需要一条 clamp(0,1)，不用为每个字段记住中位在哪。
+ */
+function encodeSigned(v: number): number {
+  const n = Number.isFinite(v) ? v : 0
+  return Math.min(1, Math.max(0, n / 2 + 0.5))
 }
 
 export function useLive2DPointer({
@@ -61,7 +83,7 @@ export function useLive2DPointer({
       x: number,
       y: number,
       ar: number,
-      face: { mouth: number; eyes: number } | null
+      face: Live2DFaceSample | null
     ) => {
       const now = performance.now()
       if (now - lastAt < LIVE2D_STATE_INTERVAL_MS) return
@@ -85,9 +107,18 @@ export function useLive2DPointer({
       }
       if (face) {
         sentFace = true
-        setFace(sid, face.mouth, face.eyes)
+        setFace(sid, face.mouth, face.eyes, {
+          form: face.form,
+          brow: face.brow,
+          roll: face.roll,
+        })
         payload.m = roundCoord(face.mouth)
         payload.e = roundCoord(face.eyes)
+        payload.p = [
+          roundCoord(face.form),
+          roundCoord(face.brow),
+          roundCoord(face.roll),
+        ]
       }
       socket.emit(LIVE2D_EVENT.STATE, payload)
     }
@@ -110,10 +141,16 @@ export function useLive2DPointer({
     const cameraTimer =
       tracker &&
       window.setInterval(() => {
-        const gaze = tracker.getGaze()
-        if (!gaze) return
+        const pose = tracker.getPose()
+        if (!pose) return
         const ar = window.innerWidth / Math.max(1, window.innerHeight)
-        send(gaze.x, gaze.y, ar, tracker.getBlend())
+        send(pose.gaze.x, pose.gaze.y, ar, {
+          mouth: pose.mouth,
+          eyes: pose.eyes,
+          form: encodeSigned(pose.form),
+          brow: encodeSigned(pose.brow),
+          roll: encodeSigned(pose.roll),
+        })
       }, LIVE2D_STATE_INTERVAL_MS)
 
     const onPointer = (event: PointerEvent) =>
@@ -130,10 +167,10 @@ export function useLive2DPointer({
       window.removeEventListener('pointermove', onPointer)
       window.removeEventListener('touchmove', onTouch)
       if (cameraTimer) window.clearInterval(cameraTimer)
-      // 关掉动捕的那一刻补一帧「闭嘴、睁眼」：不发的话对方模型会一直停在
-      // 最后一帧的表情上（服务端只在收到面部数据时才转发 m/e）。
+      // 关掉动捕的那一刻补一帧「闭嘴、睁眼、中性表情」：不发的话对方模型
+      // 会一直停在最后一帧的表情上（服务端只在收到面部数据时才转发 m/e/p）。
       if (sentFace) {
-        setFace(sid, 0, 1)
+        setFace(sid, 0, 1, { form: 0.5, brow: 0.5, roll: 0.5 })
         socket.emit(LIVE2D_EVENT.STATE, {
           roomId,
           x: roundCoord(Math.max(0, lastX)),
@@ -141,6 +178,7 @@ export function useLive2DPointer({
           a: roundCoord(window.innerWidth / Math.max(1, window.innerHeight), 2),
           m: 0,
           e: 1,
+          p: [0.5, 0.5, 0.5],
         })
       }
     }

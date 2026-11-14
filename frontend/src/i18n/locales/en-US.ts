@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2740 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2751 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（74 条） =====
+  // ===== modules/live2d（85 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -976,10 +976,13 @@ const enUS: Record<string, string> = {
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
+  '动捕预览': 'Capture preview',
+  '动捕中': 'Tracking',
   '对观众显示角色': 'Show characters to viewers',
   '房间设置': 'Room settings',
   '房主已关闭成员动捕': 'The host turned off tracking for members',
   '房主已统一角色，全房间使用同一个模型': 'The host picked one character for the whole room',
+  '关闭动捕预览': 'Close preview',
   '关闭后成员的动捕开关会被禁用': 'Members cannot turn on camera tracking',
   '关闭后观众看不到任何角色，你自己仍然看得到': 'Viewers see no characters; you still do',
   '还没有内置模型': 'No built-in models yet',
@@ -995,6 +998,7 @@ const enUS: Record<string, string> = {
   '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
   '浏览器不支持摄像头动捕': 'This browser doesn\'t support camera tracking',
   '没有找到可用的摄像头': 'No camera found',
+  '眉': 'Brows',
   '模型包不能超过 {{size}}MB': 'Model pack must be under {{size}}MB',
   '模型大小': 'Model size',
   '模型加载失败：{{reason}}': 'Could not load model: {{reason}}',
@@ -1026,15 +1030,22 @@ const enUS: Record<string, string> = {
   '退出拖拽模式': 'Exit drag mode',
   '拖动角色调整位置': 'Drag the character to where you want it',
   '拖拽模式': 'Drag mode',
+  '歪头': 'Tilt',
   '完成': 'Done',
+  '未检测到人脸': 'No face detected',
   '我的角色': 'My character',
+  '笑': 'Smile',
+  '眼': 'Eyes',
   '隐藏后点右下角的角色按钮可以重新显示': 'Use the button at the bottom right to show it again',
   '隐藏角色': 'Hide character',
   '应用地址': 'Apply URL',
   '允许成员开启摄像头动捕': 'Allow camera tracking for members',
   '这些设置作用于整个房间，服务重启后恢复默认': 'These apply to the whole room and reset when the server restarts',
+  '正在标定，请正对镜头': 'Calibrating…',
   '正在启动…': 'Starting…',
+  '重新标定': 'Recalibrate',
   '自定义模型地址': 'Custom model URL',
+  '嘴': 'Mouth',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',
   'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
   'Live2D 引擎加载失败': 'Live2D engine failed to load',

@@ -23,6 +23,12 @@ interface CubismParamIds {
   mouth: unknown
   eyeL: unknown
   eyeR: unknown
+  /** 嘴形（笑/撇嘴），中位 0 */
+  mouthForm: unknown
+  browL: unknown
+  browR: unknown
+  /** 歪头（度） */
+  angleZ: unknown
 }
 
 /** 引擎内部对象的最小可用面（只声明我们真的会碰的几个成员）。 */
@@ -359,6 +365,8 @@ export class Live2DRenderer {
     const faceAlpha = alphaForDelta(0.5, delta)
     // 拖拽位置只在别人拖的时候需要平滑（本人拖的时候目标与当前一起写）
     const dragAlpha = alphaForDelta(0.35, delta)
+    // 歪头比表情更慢：头部有物理惯性，跟得太紧会像抽搐
+    const rollAlpha = alphaForDelta(0.22, delta)
 
     for (let i = 0; i < visible.length; i += 1) {
       const entry = visible[i]
@@ -396,6 +404,10 @@ export class Live2DRenderer {
         faceAlpha
       )
       entry.currentEyes = smooth(entry.currentEyes, entry.targetEyes, faceAlpha)
+      entry.currentForm = smooth(entry.currentForm, entry.targetForm, faceAlpha)
+      entry.currentBrow = smooth(entry.currentBrow, entry.targetBrow, faceAlpha)
+      // 歪头是慢动作（颈椎有惯性），用更慢的系数才自然
+      entry.currentRoll = smooth(entry.currentRoll, entry.targetRoll, rollAlpha)
       // focus 用的是画布坐标：canvas 铺满视口，所以归一化 × 画布尺寸即可
       model.focus(entry.currentX * this.width, entry.currentY * this.height)
 
@@ -411,13 +423,16 @@ export class Live2DRenderer {
   }
 
   /**
-   * 把嘴型/睁眼接到 Cubism 参数上。
+   * 把嘴型/睁眼/表情细节接到 Cubism 参数上。
    *
    * 时机是关键：`beforeModelUpdate` 在动作、眨眼、呼吸都写完之后、`coreModel.update()`
    * 之前触发，所以在这里写入才是「最终值」，不会被引擎覆盖掉。
    *
    * 只在数据新鲜时接管（见 LIVE2D_FACE_TTL_MS）：对方关掉动捕、或者干脆断流了，
-   * 就把嘴/眼还给引擎自己的眨眼与表情，不会永远停在最后一帧的怪表情上。
+   * 就把这些参数还给引擎自己的眨眼与表情，不会永远停在最后一帧的怪表情上。
+   *
+   * 参数**存在才写**：眉毛、嘴形不是每个模型都有（很多免费模型只绑了
+   * ParamMouthOpenY），给不存在的 id 写值在 Cubism 核里会抛错并中断整帧。
    */
   private bindFaceParams(sid: string, loaded: LoadedModel): void {
     const im = loaded.model.internalModel as unknown as InternalModelLike
@@ -425,18 +440,34 @@ export class Live2DRenderer {
     const core = im.coreModel
     if (!core || typeof core.setParameterValueById !== 'function') return
 
-    loaded.params = {
+    const ids: CubismParamIds = {
       mouth: im.getIdSafe('ParamMouthOpenY'),
       eyeL: im.getIdSafe('ParamEyeLOpen'),
       eyeR: im.getIdSafe('ParamEyeROpen'),
+      mouthForm: im.getIdSafe('ParamMouthForm'),
+      browL: im.getIdSafe('ParamBrowLY'),
+      browR: im.getIdSafe('ParamBrowRY'),
+      angleZ: im.getIdSafe('ParamAngleZ'),
     }
-    const { params } = loaded
+    loaded.params = ids
+    const setIf = (id: unknown, value: number) => {
+      if (id === undefined || id === null) return
+      core.setParameterValueById(id, value)
+    }
     loaded.model.internalModel.on('beforeModelUpdate', () => {
       const entry = getEntry(sid)
       if (!entry || !isFaceFresh(entry)) return
-      core.setParameterValueById(params.mouth, entry.currentMouth)
-      core.setParameterValueById(params.eyeL, entry.currentEyes)
-      core.setParameterValueById(params.eyeR, entry.currentEyes)
+      setIf(ids.mouth, entry.currentMouth)
+      setIf(ids.eyeL, entry.currentEyes)
+      setIf(ids.eyeR, entry.currentEyes)
+      // 协议里是 0~1 编码，Cubism 的嘴形/眉毛是 -1~1，中位 0
+      setIf(ids.mouthForm, (entry.currentForm - 0.5) * 2)
+      const brow = (entry.currentBrow - 0.5) * 2
+      setIf(ids.browL, brow)
+      setIf(ids.browR, brow)
+      // 歪头：0~1 编码 → ±30°。几何上 roll 正值是「画面里顺时针（被拍者向左歪）」，
+      // 而 ParamAngleZ 正值让模型向左倒——同向，直接线性映射。
+      setIf(ids.angleZ, (entry.currentRoll - 0.5) * 2 * 30)
     })
   }
 

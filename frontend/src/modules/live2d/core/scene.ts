@@ -26,11 +26,24 @@ export interface SceneEntry {
   targetMouth: number
   targetEyes: number
   /**
+   * 表情细节与歪头：0~1 编码（0.5 = 中性）。
+   *
+   * 为什么和 mouth/eyes 同族却在协议里分开传：嘴/眼是「张开程度」，中位是
+   * 0 和 1；这三项是「偏离中性的方向」，中位是 0.5。混在一个通道里，
+   * 渲染端就得靠位置去猜语义，改一次协议错一次。
+   */
+  currentForm: number
+  currentBrow: number
+  currentRoll: number
+  targetForm: number
+  targetBrow: number
+  targetRoll: number
+  /**
    * 最近一次收到面部数据的时刻。
    *
    * 0 表示「这个成员没在动捕」。渲染器只在数据新鲜（FACE_TTL 内）时接管
-   * 嘴/眼参数，超时就还给引擎自己眨——否则对方关掉动捕后模型会一直保持
-   * 最后一帧的张嘴表情。
+   * 嘴/眼/表情参数，超时就还给引擎自己眨——否则对方关掉动捕后模型会一直
+   * 保持最后一帧的张嘴表情。
    */
   faceAt: number
 
@@ -80,6 +93,13 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     currentEyes: 1,
     targetMouth: 0,
     targetEyes: 1,
+    // 中性：不笑不撇嘴、眉毛平、头端正
+    currentForm: 0.5,
+    currentBrow: 0.5,
+    currentRoll: 0.5,
+    targetForm: 0.5,
+    targetBrow: 0.5,
+    targetRoll: 0.5,
     // 新条目先不接管面部参数：等这一路真的来了一帧动捕数据再说。
     // 否则"刚从快照里看到别人张着嘴"会让我们凭空替他张嘴。
     faceAt: 0,
@@ -132,13 +152,31 @@ export function setLocalPointer(sid: string, x: number, y: number): void {
 /**
  * 写入面部姿态（本机与远端共用一个入口：值已经是 0~1 的绝对值，
  * 不需要像坐标那样做宽高比换算）。
+ *
+ * extras 缺省时保持原值：鼠标上报（没有面部数据）走的就是这条路径，
+ * 不能因为一次指针移动就把别人的笑脸抹平成中性。
  */
-export function setFace(sid: string, mouth: number, eyes: number): void {
+export function setFace(
+  sid: string,
+  mouth: number,
+  eyes: number,
+  extras?: { form: number; brow: number; roll: number }
+): void {
   const entry = entries.get(sid)
   if (!entry) return
   if (Number.isFinite(mouth)) entry.targetMouth = clamp01(mouth)
   if (Number.isFinite(eyes)) entry.targetEyes = clamp01(eyes)
+  if (extras) {
+    if (Number.isFinite(extras.form)) entry.targetForm = clamp01(extras.form)
+    if (Number.isFinite(extras.brow)) entry.targetBrow = clamp01(extras.brow)
+    if (Number.isFinite(extras.roll)) entry.targetRoll = clamp01(extras.roll)
+  }
   entry.faceAt = Date.now()
+}
+
+/** 姿态是否由动捕接管（数据新鲜）。渲染器与「是否需要平滑」共用同一判据。 */
+export function isFaceActive(entry: SceneEntry, ttlMs: number): boolean {
+  return entry.faceAt > 0 && Date.now() - entry.faceAt < ttlMs
 }
 
 function clamp01(v: number): number {

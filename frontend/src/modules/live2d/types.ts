@@ -8,16 +8,19 @@ export type Live2DModelKind = 'builtin' | 'url' | 'room'
 
 /**
  * 整行模型数据（快照的 models 与 patch 的 add 共用）：
- * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes, dragX, dragY]
+ * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes, dragX, dragY, form, brow, roll]
  *
  * ord 是服务端分配的排位序号，客户端据此等距摆位——位置本身不广播，
  * 只有序号同步，各端才会摆出同一幕。
  *
- * 末尾两位是摄像头动捕算出的面部姿态（张嘴幅度 / 睁眼程度，0~1），
+ * 第 9、10 位是摄像头动捕算出的面部姿态（张嘴幅度 / 睁眼程度，0~1），
  * 没开动捕的成员一直是 0 / 1。
  *
- * 最后是拖拽偏移（相对槽位基准的视口比例）。追加在末尾而不是插在中间：
- * 少读两项的老客户端也能正常跑。
+ * 第 11、12 位是拖拽偏移（相对槽位基准的视口比例）。
+ *
+ * 最后三位是动捕的**表情细节与歪头**：嘴形、眉毛、歪头，0~1 编码、0.5 为中性。
+ * 它们与 m/e 同源同时效，放在这里让「刚进房的人」也能看到别人当下的表情，
+ * 不必等下一帧增量。全部追加在末尾：少读几项的老客户端也能正常跑。
  */
 export type Live2DRow = [
   string,
@@ -33,18 +36,31 @@ export type Live2DRow = [
   number,
   number,
   number,
+  number,
+  number,
+  number,
 ]
 
 /**
  * patch 里的指针增量（只有变动的那几个字段）：
- * [socketId, x, y, aspectRatio, mouth?, eyes?]
+ * [socketId, x, y, aspectRatio, mouth?, eyes?, form?, brow?, roll?]
  *
  * 和整行**不同形状**：这里每 100ms 就要发全体成员一遍，带 name/kind 纯属浪费。
  *
- * 后两位是**可选的**：服务端只在对方正在动捕时（600ms 内收到过面部数据）
+ * 后五位是**可选的**：服务端只在对方正在动捕时（600ms 内收到过面部数据）
  * 才带上它们。这个区分很重要——没有它，所有模型都会被按成"不眨眼"。
  */
-export type Live2DStateRow = [string, number, number, number, number?, number?]
+export type Live2DStateRow = [
+  string,
+  number,
+  number,
+  number,
+  number?,
+  number?,
+  number?,
+  number?,
+  number?,
+]
 
 /**
  * patch 里的拖拽偏移行：[socketId, dx, dy]。
@@ -70,6 +86,12 @@ export interface Live2DPeer {
   mouth: number
   /** 睁眼程度 0~1（动捕） */
   eyes: number
+  /** 嘴形 0~1，0.5 中性、>0.5 笑、<0.5 撇嘴（动捕） */
+  form: number
+  /** 眉毛 0~1，0.5 中性、>0.5 挑眉、<0.5 皱眉（动捕） */
+  brow: number
+  /** 歪头 0~1，0.5 端正、<0.5 向左倒、>0.5 向右倒（动捕） */
+  roll: number
   /** 拖拽偏移：正数向右（视口宽度的比例） */
   dragX: number
   /** 拖拽偏移：正数向下（视口高度的比例） */
@@ -162,6 +184,11 @@ export function rowToPeer(row: Live2DRow): Live2DPeer {
     eyes: clampUnit(Number(row[10] ?? 1)),
     dragX: finiteOffset(row[11]),
     dragY: finiteOffset(row[12]),
+    // 缺这三项（老服务端）时按中性处理：clampUnit 对 NaN 的兜底正好是 0.5，
+    // 不会让模型歪头或皱眉
+    form: clampUnit(Number(row[13])),
+    brow: clampUnit(Number(row[14])),
+    roll: clampUnit(Number(row[15])),
   }
 }
 

@@ -2,8 +2,10 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import {
   faceBlendFromScores,
+  faceExtrasFromScores,
   faceMetrics,
   gazeFromMetrics,
+  headRollFromLandmarks,
   FACE_BLEND_NAME,
   FACE_LANDMARK,
 } from '../core/face-pose.ts'
@@ -126,4 +128,101 @@ test('越界与 NaN 分数被夹住/忽略', () => {
   assert.equal(weird.mouth, 0)
   // -1 夹成 0、9 夹成 1，平均 0.5 → 半睁
   assert.equal(weird.eyes, 0.5)
+})
+
+// ---- 歪头 ----
+
+/** 造一组只有两个眼角的关键点。 */
+function eyeMarks(leftY: number, rightY: number) {
+  const list: Array<{ x: number; y: number }> = []
+  list[FACE_LANDMARK.EYE_LEFT_IN_IMAGE] = { x: 0.4, y: leftY }
+  list[FACE_LANDMARK.EYE_RIGHT_IN_IMAGE] = { x: 0.6, y: rightY }
+  return list
+}
+
+test('两眼等高时歪头角为 0', () => {
+  assert.equal(headRollFromLandmarks(eyeMarks(0.5, 0.5)), 0)
+})
+
+test('右眼更低时为正（画面里顺时针）', () => {
+  const roll = headRollFromLandmarks(eyeMarks(0.5, 0.6))
+  assert.ok(roll !== null && roll > 0.5, `应为明显正值，实际 ${roll}`)
+})
+
+test('歪头角被夹在 -1~1', () => {
+  const up = headRollFromLandmarks(eyeMarks(1, 0))
+  const down = headRollFromLandmarks(eyeMarks(0, 1))
+  assert.equal(up, -1)
+  assert.equal(down, 1)
+})
+
+test('关键点缺失或坐标非法时返回 null', () => {
+  assert.equal(headRollFromLandmarks([]), null)
+  assert.equal(
+    headRollFromLandmarks([
+      { x: 0.5, y: 0.5 },
+      { x: 0.5, y: 0.5 },
+    ]),
+    null
+  )
+  const broken = eyeMarks(0.5, 0.5)
+  broken[FACE_LANDMARK.EYE_RIGHT_IN_IMAGE] = { x: Number.NaN, y: 0.5 }
+  assert.equal(headRollFromLandmarks(broken), null)
+})
+
+// ---- 嘴形 / 眉毛 ----
+
+test('微笑时嘴形为正，撇嘴时为负', () => {
+  const smile = faceExtrasFromScores({
+    [FACE_BLEND_NAME.MOUTH_SMILE_LEFT]: 0.5,
+    [FACE_BLEND_NAME.MOUTH_SMILE_RIGHT]: 0.5,
+  })
+  assert.ok(smile)
+  assert.ok(smile.form > 0.8, `笑应接近满值，实际 ${smile.form}`)
+
+  const frown = faceExtrasFromScores({
+    [FACE_BLEND_NAME.MOUTH_FROWN_LEFT]: 0.5,
+    [FACE_BLEND_NAME.MOUTH_FROWN_RIGHT]: 0.5,
+  })
+  assert.ok(frown)
+  assert.ok(frown.form < -0.8, `撇嘴应接近负满值，实际 ${frown.form}`)
+})
+
+test('中性底噪被死区吃掉，不会一直挂着笑', () => {
+  const neutral = faceExtrasFromScores({
+    [FACE_BLEND_NAME.MOUTH_SMILE_LEFT]: 0.05,
+    [FACE_BLEND_NAME.MOUTH_SMILE_RIGHT]: 0.06,
+    [FACE_BLEND_NAME.BROW_INNER_UP]: 0.04,
+  })
+  assert.ok(neutral)
+  assert.equal(neutral.form, 0)
+  assert.equal(neutral.brow, 0)
+})
+
+test('挑眉为正、皱眉为负', () => {
+  const up = faceExtrasFromScores({
+    [FACE_BLEND_NAME.BROW_OUTER_UP_LEFT]: 0.6,
+    [FACE_BLEND_NAME.BROW_OUTER_UP_RIGHT]: 0.6,
+  })
+  assert.ok(up && up.brow > 0.8)
+
+  const down = faceExtrasFromScores({
+    [FACE_BLEND_NAME.BROW_DOWN_LEFT]: 0.6,
+    [FACE_BLEND_NAME.BROW_DOWN_RIGHT]: 0.6,
+  })
+  assert.ok(down && down.brow < -0.8)
+})
+
+test('完全没有相关 blendshape 时返回 null', () => {
+  assert.equal(faceExtrasFromScores({}), null)
+  assert.equal(faceExtrasFromScores({ jawOpen: 0.5 }), null)
+})
+
+test('嘴形与眉毛互不影响（一侧缺数据不拖累另一侧）', () => {
+  const onlySmile = faceExtrasFromScores({
+    [FACE_BLEND_NAME.MOUTH_SMILE_LEFT]: 0.5,
+  })
+  assert.ok(onlySmile)
+  assert.ok(onlySmile.form > 0)
+  assert.equal(onlySmile.brow, 0)
 })

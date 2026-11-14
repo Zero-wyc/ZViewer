@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
-import { Sparkles } from 'lucide-react'
+import { Camera, Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
@@ -38,6 +38,7 @@ import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DAdvancedSettings } from './Live2DAdvancedSettings'
 import { Live2DContextMenu } from './Live2DContextMenu'
 import { Live2DDragLayer } from './Live2DDragLayer'
+import { Live2DFaceMonitor } from './Live2DFaceMonitor'
 
 // 房间悬浮层的宿主。
 //
@@ -156,6 +157,9 @@ export function RoomLive2DHost({
   // 卸载后摄像头还在跑是最糟的泄漏：启停都是异步的，必须在 await 之后复查
   const disposedRef = useRef(false)
   const [tracker, setTracker] = useState<FaceTracker | null>(null)
+  // 监视窗是否展开。开启动捕时自动展开一次：用户刚点完开关，最想知道的是
+  // 「摄像头到底拍到我没有」，而不是先看到一个抽象的成功提示。
+  const [faceMonitor, setFaceMonitor] = useState(false)
   const [face, setFace] = useState<{
     on: boolean
     busy: boolean
@@ -349,6 +353,7 @@ export function RoomLive2DHost({
     trackerRef.current = null
     current?.stop()
     setTracker(null)
+    setFaceMonitor(false)
     setFace({ on: false, busy: false, error: '' })
   }, [])
 
@@ -364,6 +369,7 @@ export function RoomLive2DHost({
       }
       trackerRef.current = instance
       setTracker(instance)
+      setFaceMonitor(true)
       setFace({ on: true, busy: false, error: '' })
     } catch (err) {
       setFace({
@@ -372,6 +378,11 @@ export function RoomLive2DHost({
         error: err instanceof Error ? err.message : t('摄像头动捕启动失败'),
       })
     }
+  }, [])
+
+  /** 重新标定：换坐姿/挪了电脑之后不必关掉动捕重开。 */
+  const recalibrateFace = useCallback(() => {
+    trackerRef.current?.recalibrate()
   }, [])
 
   const toggleFaceTracking = useCallback(() => {
@@ -721,12 +732,51 @@ export function RoomLive2DHost({
           （48px 高）并带 gap-3，所以这里抬到 84px = 24 + 48 + 12，
           两个圆钮才对齐成一条竖列而不是错位。 */}
       {engineError && (
+        // 挪到左下角：右下角是「角色设置 / 动捕监视窗」的竖列，引擎失败时
+        // 监视窗仍然可能被打开（动捕与渲染是两条独立的链路），压在它下面
+        // 等于把这条唯一的线索藏起来。
         <div
-          className="absolute right-6 bottom-[140px] max-w-[50vw] truncate rounded-md px-2 py-1 text-[10px] text-white/90"
+          className="absolute bottom-16 left-3 max-w-[50vw] truncate rounded-md px-2 py-1 text-[10px] text-white/90"
           style={{ background: 'rgba(0,0,0,0.55)', pointerEvents: 'auto' }}
           title={t('Live2D 引擎加载失败：{{reason}}', { reason: engineError })}
         >
           {t('Live2D 引擎加载失败')}
+        </div>
+      )}
+
+      {/* 动捕监视窗 / 收起后的入口。与角色按钮同一列（bottom-6 语音 → 84
+          角色设置 → 这里 144），展开时向上生长，不会盖住下面两个圆钮。 */}
+      {tracker && (
+        <div
+          className="absolute right-6 bottom-[144px]"
+          style={{ pointerEvents: 'auto' }}
+        >
+          {faceMonitor ? (
+            <Live2DFaceMonitor
+              tracker={tracker}
+              onRecalibrate={recalibrateFace}
+              onClose={() => setFaceMonitor(false)}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setFaceMonitor(true)}
+              aria-label={t('动捕预览')}
+              title={t('动捕预览')}
+              className={cn(
+                'glass-card relative flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-200',
+                'hover:scale-105 hover:shadow-xl active:scale-95'
+              )}
+              style={{
+                backgroundColor: 'var(--glass-bg)',
+                color: 'var(--md-sys-color-on-surface)',
+              }}
+            >
+              <Camera className="h-5 w-5" />
+              {/* 绿点：动捕还在跑，只是预览收起来了 */}
+              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-emerald-400" />
+            </button>
+          )}
         </div>
       )}
 

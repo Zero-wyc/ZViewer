@@ -16,6 +16,32 @@ export const FACE_LANDMARK = {
   EYE_RIGHT_IN_IMAGE: 263,
   /** 鼻尖 */
   NOSE_TIP: 1,
+  /** 下巴尖（预览绘制与俯仰备用） */
+  CHIN: 152,
+  /** 眉间（预览绘制用） */
+  GLABELLA: 9,
+} as const
+
+/**
+ * 预览窗要描的关键点轮廓（FaceMesh 468 点里的固定下标）。
+ *
+ * 只描轮廓而不是全画 468 个点：全画在 160px 宽的小窗里糊成一片噪点，
+ * 看不出「检测到的是不是我的脸」。这几组是官方示例里最常用的拓扑。
+ */
+export const FACE_OUTLINE = {
+  /** 脸轮廓（从右耳根绕到左耳根） */
+  FACE: [
+    10, 338, 297, 332, 284, 251, 389, 356, 454, 323, 361, 288, 397, 365, 379,
+    378, 400, 377, 152, 148, 176, 149, 150, 136, 172, 58, 132, 93, 234, 127,
+    162, 21, 54, 103, 67, 109,
+  ],
+  EYE_LEFT: [33, 7, 163, 144, 145, 153, 154, 155, 133, 33],
+  EYE_RIGHT: [263, 249, 390, 373, 374, 380, 381, 382, 362, 263],
+  /** 嘴唇外圈 */
+  MOUTH: [
+    61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0,
+    37, 39, 40, 185, 61,
+  ],
 } as const
 
 export interface FaceMetrics {
@@ -90,6 +116,15 @@ export const FACE_BLEND_NAME = {
   JAW_OPEN: 'jawOpen',
   EYE_BLINK_LEFT: 'eyeBlinkLeft',
   EYE_BLINK_RIGHT: 'eyeBlinkRight',
+  MOUTH_SMILE_LEFT: 'mouthSmileLeft',
+  MOUTH_SMILE_RIGHT: 'mouthSmileRight',
+  MOUTH_FROWN_LEFT: 'mouthFrownLeft',
+  MOUTH_FROWN_RIGHT: 'mouthFrownRight',
+  BROW_INNER_UP: 'browInnerUp',
+  BROW_OUTER_UP_LEFT: 'browOuterUpLeft',
+  BROW_OUTER_UP_RIGHT: 'browOuterUpRight',
+  BROW_DOWN_LEFT: 'browDownLeft',
+  BROW_DOWN_RIGHT: 'browDownRight',
 } as const
 
 /** 驱动模型的一组面部姿态，全部归一化到 0~1。 */
@@ -140,6 +175,134 @@ function clampScore(v: number | undefined): number | undefined {
 function clamp01(v: number): number {
   if (!Number.isFinite(v)) return 0.5
   if (v < 0) return 0
+  if (v > 1) return 1
+  return v
+}
+
+// ---------------------------------------------------------------------------
+// 头部姿态：歪头
+// ---------------------------------------------------------------------------
+
+/**
+ * 两眼连线达到这个倾角就算「歪到底」。
+ *
+ * 0.61 rad ≈ 35°：正常人自然歪头在 ±20° 内，35° 已经是很夸张的撒娇姿势。
+ * 超过它按满值处理——检测器在侧脸/遮挡时会给出离谱的角度，钳住比放大好。
+ */
+const MAX_ROLL_RAD = 0.61
+
+/**
+ * 从两眼外眼角连线算歪头角，返回 -1（向左倒）~ 1（向右倒），0 为端正。
+ *
+ * 为什么不用 FaceMesh 的变换矩阵：那需要 4x4 位姿解算，而**歪头**恰好是
+ * 单凭两个点就能稳定拿到的一维量——眼线角度不受嘴、眉、发型影响，也几乎
+ * 不受距离影响。把它单独算出来，比让注视点顺便带一点扭转准得多。
+ *
+ * 图像坐标 y 向下，所以 atan2 的正值是「右侧更低」= 画面里顺时针，也就是
+ * 被拍者向左歪头。符号在 renderer 里统一反过来用，这里保持几何直觉。
+ */
+export function headRollFromLandmarks(
+  landmarks: readonly FaceLandmark[]
+): number | null {
+  const a = landmarks[FACE_LANDMARK.EYE_LEFT_IN_IMAGE]
+  const b = landmarks[FACE_LANDMARK.EYE_RIGHT_IN_IMAGE]
+  if (!a || !b) return null
+  if (![a.x, a.y, b.x, b.y].every(Number.isFinite)) return null
+  // 两点重合时角度无意义（检测崩溃的那一帧）
+  if (Math.abs(b.x - a.x) < 1e-6 && Math.abs(b.y - a.y) < 1e-6) return null
+  const rad = Math.atan2(b.y - a.y, b.x - a.x)
+  return clampSigned(rad / MAX_ROLL_RAD)
+}
+
+// ---------------------------------------------------------------------------
+// 表情细节：嘴形（笑/撇嘴）与眉毛（挑眉/皱眉）
+// ---------------------------------------------------------------------------
+
+/**
+ * 嘴形与眉毛，各自 -1~1。
+ *
+ * 与 FaceBlend 分开是因为它们**语义不同**：mouth/eyes 是「器官张开程度」，
+ * 直接写 ParamMouthOpenY / ParamEyeOpen；这两个是「表情形状」，写的是
+ * ParamMouthForm / ParamBrowLY/RY，中位是 0 而不是「张开」。
+ * 混在一个结构里很容易在 renderer 里把 0.5 当成「半张嘴」。
+ */
+export interface FaceExtras {
+  /** 嘴形：-1 撇嘴、0 中性、1 笑 */
+  form: number
+  /** 眉毛：-1 皱眉、0 中性、1 挑眉 */
+  brow: number
+}
+
+/** 笑/撇嘴、挑眉/皱眉各自超过这个分数才算「真的在做表情」。 */
+const EXPRESSION_DEADZONE = 0.12
+/** 归一化除数：分数 0.5 就基本做满（检测器的 1.0 很少出现）。 */
+const EXPRESSION_SPAN = 0.38
+
+/**
+ * 从 blendshape 分数算嘴形与眉毛。
+ *
+ * 全都没读到返回 null：与 faceBlendFromScores 同一条约定，调用方整帧跳过，
+ * 不能把「没数据」当成「中性表情」——那会在断流时把笑脸抹平。
+ */
+export function faceExtrasFromScores(
+  scores: Record<string, number | undefined>
+): FaceExtras | null {
+  const smile = pairMean(
+    scores[FACE_BLEND_NAME.MOUTH_SMILE_LEFT],
+    scores[FACE_BLEND_NAME.MOUTH_SMILE_RIGHT]
+  )
+  const frown = pairMean(
+    scores[FACE_BLEND_NAME.MOUTH_FROWN_LEFT],
+    scores[FACE_BLEND_NAME.MOUTH_FROWN_RIGHT]
+  )
+  const browUp = pairMean(
+    scores[FACE_BLEND_NAME.BROW_OUTER_UP_LEFT],
+    scores[FACE_BLEND_NAME.BROW_OUTER_UP_RIGHT],
+    scores[FACE_BLEND_NAME.BROW_INNER_UP]
+  )
+  const browDown = pairMean(
+    scores[FACE_BLEND_NAME.BROW_DOWN_LEFT],
+    scores[FACE_BLEND_NAME.BROW_DOWN_RIGHT]
+  )
+  if (
+    smile === undefined &&
+    frown === undefined &&
+    browUp === undefined &&
+    browDown === undefined
+  ) {
+    return null
+  }
+  return {
+    form: signedExpression((smile ?? 0) - (frown ?? 0)),
+    brow: signedExpression((browUp ?? 0) - (browDown ?? 0)),
+  }
+}
+
+/** 已定义分数的平均；一个都没有就是 undefined（不是 0）。 */
+function pairMean(...values: Array<number | undefined>): number | undefined {
+  let sum = 0
+  let count = 0
+  for (const raw of values) {
+    const v = clampScore(raw)
+    if (v === undefined) continue
+    sum += v
+    count += 1
+  }
+  if (count === 0) return undefined
+  return sum / count
+}
+
+/** 分数差 → -1~1：先减底噪再拉伸，最后钳住。 */
+function signedExpression(diff: number): number {
+  const magnitude = Math.abs(diff)
+  if (magnitude <= EXPRESSION_DEADZONE) return 0
+  const scaled = (magnitude - EXPRESSION_DEADZONE) / EXPRESSION_SPAN
+  return clampSigned(diff < 0 ? -scaled : scaled)
+}
+
+function clampSigned(v: number): number {
+  if (!Number.isFinite(v)) return 0
+  if (v < -1) return -1
   if (v > 1) return 1
   return v
 }

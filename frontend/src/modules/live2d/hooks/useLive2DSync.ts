@@ -129,7 +129,13 @@ export function useLive2DSync({
           const eyes = row[5]
           // 没有面部字段 = 对方当前不在动捕，别去动他的嘴和眼
           if (mouth !== undefined && eyes !== undefined) {
-            setFace(sid, Number(mouth), Number(eyes))
+            // 表情细节/歪头是可选的：老服务端只发 m/e，这时按「中性」处理
+            // 而不是保持上一帧——否则对方一说笑，旧端会永远停在笑脸上。
+            setFace(sid, Number(mouth), Number(eyes), {
+              form: row[6] === undefined ? 0.5 : Number(row[6]),
+              brow: row[7] === undefined ? 0.5 : Number(row[7]),
+              roll: row[8] === undefined ? 0.5 : Number(row[8]),
+            })
           }
         }
       }

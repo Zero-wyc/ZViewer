@@ -59,6 +59,16 @@ const (
 	live2dDefaultAR = 1.78
 	// live2dDefaultEyes 是「没在做动捕」时的睁眼程度（1 = 全睁）。
 	live2dDefaultEyes = 1.0
+	// live2dDefaultPose 是表情细节/歪头的中性值。
+	//
+	// 这三项在协议里是 0~1 编码（0.5 = 中性），所以「没动捕」必须给 0.5 而不是
+	// 0——0 的含义是「撇嘴 + 皱眉 + 向左歪到底」，会让新进房的人一脸苦相。
+	live2dDefaultPose = 0.5
+	// live2dPoseLen 是姿态数组长度：嘴形、眉毛、歪头。
+	//
+	// 定长而不是对象：这条走 15Hz 热路径，三个字段名加起来比数据本身还长；
+	// 定长也省掉「缺字段怎么补」的分支——长度不对就整条丢弃。
+	live2dPoseLen = 3
 	// live2dFaceTTL 是「多久没收到面部数据就不再转发 m/e」的时限。
 	//
 	// 不转发（而不是转发 0/1）是必须的：客户端收到 m/e 就会接管模型的嘴与眼，
@@ -107,7 +117,15 @@ type live2dMember struct {
 	// 事——它按「多久没收到面部数据」处理（见前端 LIVE2D_FACE_TTL_MS）。
 	Mouth float64
 	Eyes  float64
-	// faceAt 是最近一次收到面部数据的时刻，只用于判断「要不要继续转发 m/e」。
+	// Form/Brow/Roll 是动捕算出的**表情细节与歪头**，与 Mouth/Eyes 同时上报，
+	// 同样只在动捕开着时才有意义。全部按 0~1 编码（0.5 = 中性）：
+	//   Form = 嘴形（小→笑/撇嘴）、Brow = 眉毛（皱眉→挑眉）、Roll = 歪头（左→右）。
+	//
+	// 服务端不理解语义，只做长度校验与钳制；映射到 Cubism 参数是各客户端的事。
+	Form float64
+	Brow float64
+	Roll float64
+	// faceAt 是最近一次收到面部数据的时刻，只用于判断「要不要继续转发 m/e/p」。
 	faceAt time.Time
 
 	// DragX/DragY 是相对「槽位基准位置」的拖拽偏移（视口宽/高的比例，
@@ -208,6 +226,18 @@ func (st *live2dStore) Set(roomID string, m live2dMember, now time.Time) bool {
 	if m.Eyes <= 0 {
 		m.Eyes = live2dDefaultEyes
 	}
+	// 表情细节同理：零值在协议里是「撇嘴 + 皱眉 + 歪到底」，不是中性。
+	// 这里只在字段完全没填（正好为 0）时补中性值——真的是 0 的读数来自
+	// UpdateState，不走这条路径。
+	if m.Form == 0 {
+		m.Form = live2dDefaultPose
+	}
+	if m.Brow == 0 {
+		m.Brow = live2dDefaultPose
+	}
+	if m.Roll == 0 {
+		m.Roll = live2dDefaultPose
+	}
 	m.pendingAdd = true
 	m.dirty = true
 	m.updatedAt = now
@@ -231,9 +261,12 @@ func (st *live2dStore) Has(roomID, socketID string) bool {
 //
 // Mouth/Eyes 用指针表示「这一帧带没带面部数据」：动捕关掉后客户端就不发了，
 // 这时必须保持原值而不是清零——否则每次鼠标一动，模型就会突然把嘴闭上。
+// Pose 同理：nil 表示这一帧没有表情细节（老客户端、或这一帧没取到 blendshape）。
 type live2dStateUpdate struct {
 	X, Y, AR    float64
 	Mouth, Eyes *float64
+	// Pose 是 [嘴形, 眉毛, 歪头]，0~1 编码。长度不等于 3 时整条忽略。
+	Pose []float64
 }
 
 // UpdateState 写入指针位置（和面部姿态），返回 false 表示被丢弃（不在房 / 超出频率）。
@@ -262,7 +295,14 @@ func (st *live2dStore) UpdateState(roomID, socketID string, u live2dStateUpdate,
 	if u.Eyes != nil {
 		m.Eyes = clampFloat(*u.Eyes, 0, 1)
 	}
-	if u.Mouth != nil || u.Eyes != nil {
+	// 长度不对就整条忽略（而不是逐项尽力而为）：错位的数组会把嘴形写进眉毛，
+	// 用户看到的是"脸抽筋"，比不动捕难查得多。
+	if len(u.Pose) == live2dPoseLen {
+		m.Form = clampFloat(u.Pose[0], 0, 1)
+		m.Brow = clampFloat(u.Pose[1], 0, 1)
+		m.Roll = clampFloat(u.Pose[2], 0, 1)
+	}
+	if u.Mouth != nil || u.Eyes != nil || len(u.Pose) == live2dPoseLen {
 		m.faceAt = now
 	}
 	m.dirty = true

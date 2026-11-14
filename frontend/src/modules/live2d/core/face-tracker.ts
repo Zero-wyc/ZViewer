@@ -5,12 +5,16 @@ import type {
 import { t } from '@/i18n'
 import {
   faceBlendFromScores,
+  faceExtrasFromScores,
   faceMetrics,
   gazeFromMetrics,
+  headRollFromLandmarks,
   type FaceBlend,
+  type FaceExtras,
   type FaceLandmark,
   type FaceMetrics,
 } from './face-pose'
+import { supportsWasmSimd } from './wasm-simd'
 
 // 摄像头动捕：本地人脸检测 → 归一化注视点 + 面部表情，交给上行链路。
 //
@@ -36,10 +40,51 @@ const SMOOTH_ALPHA = 0.35
  * 都磨平成一条缓慢起伏的曲线，看起来像慢动作。0.55 在 15fps 下仍能压住抖动。
  */
 const BLEND_SMOOTH_ALPHA = 0.55
+/**
+ * 歪头的平滑系数：比视线稍快（歪头是主动动作，用户期望跟手），
+ * 但检测器对这种「单点噪声放大」很敏感，再快就会看到肉眼可见的抖动。
+ */
+const ROLL_SMOOTH_ALPHA = 0.4
 /** 多久没检测到人脸就放弃接管（交回鼠标）。 */
 const FACE_LOST_MS = 1200
 
 export type FaceTrackerStatus = 'starting' | 'tracking' | 'no-face'
+
+/**
+ * 一帧动捕的完整结果。
+ *
+ * 把原来分散的 gaze / blend 收进一个结构：调用方（上行链路）需要的是
+ * 「这一帧能驱动什么」，而不是三个各自可能为 null 的 getter——分开取时
+ * 很容易在某个为 null 的分支上把模型按成奇怪的表情。
+ */
+export interface FacePose {
+  /** 0~1 注视点 */
+  gaze: { x: number; y: number }
+  /** 张嘴幅度 0~1 */
+  mouth: number
+  /** 睁眼程度 0~1 */
+  eyes: number
+  /** 嘴形 -1（撇嘴）~ 1（笑） */
+  form: number
+  /** 眉毛 -1（皱眉）~ 1（挑眉） */
+  brow: number
+  /** 歪头 -1（向左倒）~ 1（向右倒） */
+  roll: number
+}
+
+/** 监视窗要画的东西：原始画面 + 最近一帧的关键点。 */
+export interface FacePreviewFrame {
+  /** 离屏 video（调用方只读，不要持有） */
+  video: HTMLVideoElement | null
+  /** 最近一帧的 468 个关键点（归一化坐标，可能为 null） */
+  landmarks: readonly FaceLandmark[] | null
+  /** 检测器当前有没有跟上人脸 */
+  hasFace: boolean
+  /** 是否还在做初始标定 */
+  calibrating: boolean
+  /** 已跟踪的时长（毫秒），没跟上时是 0 */
+  trackingForMs: number
+}
 
 /** 带用户可读原因的失败：调用方直接展示 message。 */
 export class FaceTrackError extends Error {}
@@ -59,6 +104,17 @@ export class FaceTracker {
   private gaze = { x: 0.5, y: 0.5 }
   private blend: FaceBlend = { mouth: 0, eyes: 1 }
   private hasBlend = false
+  /** 表情细节（嘴形/眉毛），-1~1，平滑后 */
+  private extras: FaceExtras = { form: 0, brow: 0 }
+  /** 歪头，-1~1，已减掉标定基线 */
+  private roll = 0
+  /** 标定期的歪头基线：用户本来歪着头坐，模型不该跟着歪 */
+  private neutralRoll: number | null = null
+  private neutralRollSum = 0
+  private neutralRollCount = 0
+  /** 最近一帧的关键点，只给监视窗画轮廓用（不参与上行） */
+  private lastLandmarks: readonly FaceLandmark[] | null = null
+  private trackingSince = 0
   private onStatus?: (status: FaceTrackerStatus) => void
 
   // erasableSyntaxOnly：不能用参数属性，状态回调显式赋值
@@ -95,6 +151,54 @@ export class FaceTracker {
     return { ...this.blend }
   }
 
+  /**
+   * 当前这一帧能驱动的全部量。没人脸时返回 null（调用方交回鼠标）。
+   *
+   * 与分别取 gaze/blend 的区别：这里把「有脸但这一帧没给 blendshape」和
+   * 「根本没脸」分开处理——前者仍然返回姿态（视线可用），嘴/眼/表情沿用
+   * 上一帧的平滑值，不会因为一帧缺数据就整脸僵一下。
+   */
+  getPose(): FacePose | null {
+    if (!this.hasFace()) return null
+    return {
+      gaze: { ...this.gaze },
+      mouth: this.blend.mouth,
+      eyes: this.blend.eyes,
+      form: this.extras.form,
+      brow: this.extras.brow,
+      roll: this.roll,
+    }
+  }
+
+  /**
+   * 重新标定「正对镜头」的基线。
+   *
+   * 用途很具体：用户换了坐姿、把笔记本挪了位置、或者干脆歪在椅背上，
+   * 原来的基线会让模型一直歪着头看人。重标后约 0.8 秒内回到端正。
+   */
+  recalibrate(): void {
+    this.neutral = null
+    this.neutralSum = null
+    this.neutralCount = 0
+    this.neutralRoll = null
+    this.neutralRollSum = 0
+    this.neutralRollCount = 0
+    // 平滑值一并归零，否则标定期间模型还挂在旧的角度上慢慢爬回来
+    this.roll = 0
+    this.extras = { form: 0, brow: 0 }
+  }
+
+  /** 监视窗用：原始画面 + 最近一帧关键点 + 状态。 */
+  getPreview(): FacePreviewFrame {
+    return {
+      video: this.video,
+      landmarks: this.lastLandmarks,
+      hasFace: this.hasFace(),
+      calibrating: this.neutral === null,
+      trackingForMs: this.trackingSince ? Date.now() - this.trackingSince : 0,
+    }
+  }
+
   stop(): void {
     this.stopped = true
     if (this.raf) cancelAnimationFrame(this.raf)
@@ -110,6 +214,8 @@ export class FaceTracker {
     for (const track of this.stream?.getTracks() ?? []) track.stop()
     this.stream = null
     this.lastSeenAt = 0
+    this.lastLandmarks = null
+    this.trackingSince = 0
   }
 
   // -------------------------------------------------------------------------
@@ -205,7 +311,9 @@ export class FaceTracker {
     }
     const marks = result.faceLandmarks?.[0] as FaceLandmark[] | undefined
     const metrics = marks ? faceMetrics(marks) : null
-    if (!metrics) {
+    // 有脸但比例不可信（侧到只剩半张脸）时也不更新关键点：监视窗宁可停在
+    // 上一帧，也不要画一个明显错位的骨架。
+    if (!metrics || !marks) {
       // 短暂丢失（低头看键盘）不该立刻把模型打回鼠标控制
       if (this.lastSeenAt && Date.now() - this.lastSeenAt >= FACE_LOST_MS) {
         this.onStatus?.('no-face')
@@ -214,11 +322,16 @@ export class FaceTracker {
     }
 
     this.lastSeenAt = Date.now()
+    if (!this.trackingSince) this.trackingSince = Date.now()
+    this.lastLandmarks = marks
     this.trackBlend(result)
+    this.trackExtras(result)
+    const roll = headRollFromLandmarks(marks)
     if (!this.neutral) {
-      this.accumulateNeutral(metrics)
+      this.accumulateNeutral(metrics, roll)
       return
     }
+    this.trackRoll(roll)
     const target = gazeFromMetrics(metrics, this.neutral)
     this.gaze = {
       x: this.gaze.x + (target.x - this.gaze.x) * SMOOTH_ALPHA,
@@ -248,30 +361,58 @@ export class FaceTracker {
   }
 
   /** 前若干帧取平均作为「正对镜头」的基线。 */
-  private accumulateNeutral(metrics: FaceMetrics): void {
+  private accumulateNeutral(metrics: FaceMetrics, roll: number | null): void {
     const sum = this.neutralSum ?? { yaw: 0, vert: 0, scale: 0 }
     sum.yaw += metrics.yaw
     sum.vert += metrics.vert
     sum.scale += metrics.scale
     this.neutralSum = sum
     this.neutralCount += 1
+    if (roll !== null) {
+      this.neutralRollSum += roll
+      this.neutralRollCount += 1
+    }
     if (this.neutralCount < NEUTRAL_SAMPLES) return
     this.neutral = {
       yaw: sum.yaw / this.neutralCount,
       vert: sum.vert / this.neutralCount,
       scale: sum.scale / this.neutralCount,
     }
+    // 一帧歪头角度都没拿到（运行时缺关键点）就按 0 处理：宁可跟着原始角度走，
+    // 也不要拿一个 null 去参与减法。
+    this.neutralRoll =
+      this.neutralRollCount > 0
+        ? this.neutralRollSum / this.neutralRollCount
+        : 0
   }
-}
 
-/** wasm SIMD 探测：这个字节序列只有支持 SIMD 的引擎才 validate 通过。 */
-function supportsWasmSimd(): boolean {
-  if (typeof WebAssembly === 'undefined' || !WebAssembly.validate) return false
-  const probe = new Uint8Array([
-    0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 10, 9, 1, 7, 0,
-    65, 0, 253, 15, 253, 98, 11,
-  ])
-  return WebAssembly.validate(probe)
+  /** 歪头：减掉标定基线后平滑。 */
+  private trackRoll(roll: number | null): void {
+    if (roll === null) return
+    const base = this.neutralRoll ?? 0
+    const target = clampSigned(roll - base)
+    this.roll = this.roll + (target - this.roll) * ROLL_SMOOTH_ALPHA
+  }
+
+  /** 嘴形/眉毛平滑。与表情用同一个系数：它们都是说话时的快变量。 */
+  private trackExtras(result: FaceLandmarkerResult): void {
+    const categories = result.faceBlendshapes?.[0]?.categories
+    if (!categories || categories.length === 0) return
+    const scores: Record<string, number | undefined> = {}
+    for (const item of categories) {
+      if (item.categoryName) scores[item.categoryName] = item.score
+    }
+    const target = faceExtrasFromScores(scores)
+    if (!target) return
+    this.extras = {
+      form:
+        this.extras.form +
+        (target.form - this.extras.form) * BLEND_SMOOTH_ALPHA,
+      brow:
+        this.extras.brow +
+        (target.brow - this.extras.brow) * BLEND_SMOOTH_ALPHA,
+    }
+  }
 }
 
 /** 把 getUserMedia 的 DOMException 翻成用户能照着处理的一句话。 */
@@ -289,4 +430,12 @@ function cameraErrorText(err: unknown): string {
     default:
       return t('摄像头打开失败')
   }
+}
+
+/** 夹到 -1~1；NaN 归零（这一帧的角度算不出来，就当没歪）。 */
+function clampSigned(v: number): number {
+  if (!Number.isFinite(v)) return 0
+  if (v < -1) return -1
+  if (v > 1) return 1
+  return v
 }
