@@ -1,4 +1,5 @@
 import type { Live2DPeer } from '../types'
+import { clampDragOffset } from './drag'
 import { mapPointerToAspect } from './pointer-map'
 
 // 场景状态：**高频数据唯一的家**。
@@ -32,6 +33,14 @@ export interface SceneEntry {
    * 最后一帧的张嘴表情。
    */
   faceAt: number
+
+  // ---- 拖拽偏移 ----
+  // 和视线一样分「目标 / 当前」：网络的台阶要磨成连续运动。唯一的例外是
+  // 本机拖拽——那时目标与当前一起写，否则拖起来会有一帧的延迟感。
+  targetDragX: number
+  targetDragY: number
+  currentDragX: number
+  currentDragY: number
 }
 
 const entries = new Map<string, SceneEntry>()
@@ -54,6 +63,10 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
   if (existing) {
     existing.peer = peer
     existing.lastActiveAt = now
+    // 位置跟着整行走（快照/add 都带）：换模型、重连补快照时也能回到别人
+    // 看到的那个位置，不会突然跳回槽位原点。
+    existing.targetDragX = peer.dragX
+    existing.targetDragY = peer.dragY
     return existing
   }
   const entry: SceneEntry = {
@@ -70,6 +83,10 @@ export function upsertPeer(peer: Live2DPeer, now = Date.now()): SceneEntry {
     // 新条目先不接管面部参数：等这一路真的来了一帧动捕数据再说。
     // 否则"刚从快照里看到别人张着嘴"会让我们凭空替他张嘴。
     faceAt: 0,
+    targetDragX: peer.dragX,
+    targetDragY: peer.dragY,
+    currentDragX: peer.dragX,
+    currentDragY: peer.dragY,
   }
   entries.set(peer.sid, entry)
   return entry
@@ -128,6 +145,34 @@ function clamp01(v: number): number {
   if (v < 0) return 0
   if (v > 1) return 1
   return v
+}
+
+/**
+ * 远端拖拽偏移（来自 patch 的 d 行）。
+ *
+ * 只写目标值：10Hz 的台阶交给渲染器平滑，直接跳到目标会让人看到"瞬移"。
+ */
+export function setRemoteDrag(sid: string, x: number, y: number): void {
+  const entry = entries.get(sid)
+  if (!entry) return
+  const next = clampDragOffset(x, y)
+  entry.targetDragX = next.x
+  entry.targetDragY = next.y
+}
+
+/**
+ * 本机拖拽偏移：目标与当前一起写。
+ *
+ * 必须跟手——拖动时如果也走平滑，模型会像被橡皮筋拽着，手感立刻变差。
+ */
+export function setLocalDrag(sid: string, x: number, y: number): void {
+  const entry = entries.get(sid)
+  if (!entry) return
+  const next = clampDragOffset(x, y)
+  entry.targetDragX = next.x
+  entry.targetDragY = next.y
+  entry.currentDragX = next.x
+  entry.currentDragY = next.y
 }
 
 /**

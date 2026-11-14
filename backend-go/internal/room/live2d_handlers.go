@@ -29,6 +29,11 @@ type live2dPatchOut struct {
 	Upd    [][]any  `json:"u,omitempty"`
 	Rem    []string `json:"r,omitempty"`
 	Add    [][]any  `json:"add,omitempty"`
+	// Drag 是拖拽偏移行 [sid, dx, dy]。
+	//
+	// 单开一类而不是塞进 u 行：u 行已经是变长的（末尾可选 m/e），再挂两个
+	// 可选字段就解析不出「第 5 项到底是 m 还是 dx」了。
+	Drag [][]any `json:"d,omitempty"`
 }
 
 type live2dSnapshotOut struct {
@@ -82,6 +87,15 @@ type live2dStatePayload struct {
 	Eyes  *float64 `json:"e"`
 }
 
+// live2dDragPayload 是拖拽偏移上报：dx/dy 是相对视口宽/高的比例（正数向右/向下）。
+//
+// 用指针而不是 float64：0 是合法值（拖回原位），缺字段与 0 必须能区分开。
+type live2dDragPayload struct {
+	RoomID string   `json:"roomId"`
+	X      *float64 `json:"x"`
+	Y      *float64 `json:"y"`
+}
+
 // Live2DModelChecker 判断某个模型是否存在（由 api 层注入，避免 room 包碰磁盘）。
 //
 // 只看 modelId：模型库是**服务端公共**的，与房间号无关——同一套模型任何
@@ -101,14 +115,18 @@ var (
 )
 
 // live2dRow 把成员压成一行：
-// [sid, name, kind, modelId, scale, ord, x, y, ar, mouth, eyes]。
+// [sid, name, kind, modelId, scale, ord, x, y, ar, mouth, eyes, dragX, dragY]。
 // 快照的 models 与 patch 的 add 共用这个形状，前端只需要一个解析函数。
+//
+// 末尾两位是拖拽偏移（相对槽位基准的比例）。追加在最后是为了让旧客户端
+// 只读前 11 项也不出错。
 func live2dRow(m live2dMember) []any {
 	return []any{
 		m.SocketID, m.Name, m.Kind, m.ModelID,
 		roundTo(m.Scale, 2), m.Ord,
 		roundTo(m.X, 3), roundTo(m.Y, 3), roundTo(m.AR, 2),
 		roundTo(m.Mouth, 2), roundTo(m.Eyes, 2),
+		roundTo(m.DragX, 3), roundTo(m.DragY, 3),
 	}
 }
 
@@ -133,12 +151,20 @@ func live2dStateRow(m live2dMember, now time.Time) []any {
 	return row
 }
 
+// live2dDragRow 是拖拽偏移行：[sid, dx, dy]（相对视口宽/高的比例）。
+func live2dDragRow(m live2dMember) []any {
+	return []any{m.SocketID, roundTo(m.DragX, 3), roundTo(m.DragY, 3)}
+}
+
 func (s *Service) bindLive2D(sc *sio.Socket) {
 	sc.On("live2d-config", func(args []json.RawMessage, ack func(...any)) {
 		s.handleLive2DConfig(sc, args, ack)
 	})
 	sc.On("live2d-state", func(args []json.RawMessage, _ func(...any)) {
 		s.handleLive2DState(sc, args)
+	})
+	sc.On("live2d-drag", func(args []json.RawMessage, _ func(...any)) {
+		s.handleLive2DDrag(sc, args)
 	})
 	sc.On("live2d-request", func(args []json.RawMessage, _ func(...any)) {
 		s.handleLive2DRequest(sc, args)
@@ -257,6 +283,34 @@ func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
 		X: *payload.X, Y: *payload.Y, AR: ar,
 		Mouth: payload.Mouth, Eyes: payload.Eyes,
 	}, time.Now())
+}
+
+// handleLive2DDrag 处理「我把自己的角色拖到了别处」。
+//
+// 和指针一样是热路径（拖动时约 16Hz），所以：不 ack、不查库、不碰
+// Service.mu，只写内存 + 置脏，由 100ms 的合并下发带到全房间。
+//
+// 为什么不复用 live2d-state：那是「注视方向」，每帧都在变、且是连续量；
+// 拖拽是低频手势结果，混进同一条事件会让 u 行的形状继续膨胀（它已经带
+// 可选的 m/e 了）。分开也更安全——指针丢了顶多是视线不动，位置丢了则是
+// 「我把角色挪走了，别人却看到它还在原位」。
+func (s *Service) handleLive2DDrag(sc *sio.Socket, args []json.RawMessage) {
+	if len(args) == 0 || len(args[0]) > 128 {
+		return
+	}
+	var payload live2dDragPayload
+	if err := json.Unmarshal(args[0], &payload); err != nil {
+		return
+	}
+	if payload.RoomID == "" || payload.X == nil || payload.Y == nil {
+		return
+	}
+	// 成员资格来自上一次 live2d-config：没声明过模型的连接不许写偏移，
+	// 否则任何人都能凭空改一个不存在成员的"位置"。
+	if !s.Live2DHas(payload.RoomID, sc.ID) {
+		return
+	}
+	s.Live2DSetDrag(payload.RoomID, sc.ID, *payload.X, *payload.Y)
 }
 
 // handleLive2DAction 处理「我这边触发了表情/动作」，立刻广播给全房间（含自己）。

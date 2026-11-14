@@ -8,19 +8,24 @@ export type Live2DModelKind = 'builtin' | 'url' | 'room'
 
 /**
  * 整行模型数据（快照的 models 与 patch 的 add 共用）：
- * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes]
+ * [socketId, name, kind, modelId, scale, ord, x, y, aspectRatio, mouth, eyes, dragX, dragY]
  *
  * ord 是服务端分配的排位序号，客户端据此等距摆位——位置本身不广播，
  * 只有序号同步，各端才会摆出同一幕。
  *
  * 末尾两位是摄像头动捕算出的面部姿态（张嘴幅度 / 睁眼程度，0~1），
  * 没开动捕的成员一直是 0 / 1。
+ *
+ * 最后是拖拽偏移（相对槽位基准的视口比例）。追加在末尾而不是插在中间：
+ * 少读两项的老客户端也能正常跑。
  */
 export type Live2DRow = [
   string,
   string,
   Live2DModelKind,
   string,
+  number,
+  number,
   number,
   number,
   number,
@@ -41,6 +46,14 @@ export type Live2DRow = [
  */
 export type Live2DStateRow = [string, number, number, number, number?, number?]
 
+/**
+ * patch 里的拖拽偏移行：[socketId, dx, dy]。
+ *
+ * 单开一类而不是塞进 u 行：u 行已经是变长的（末尾可选 m/e），再挂两个
+ * 可选字段就分不清「第 5 项是张嘴幅度还是横向偏移」了。
+ */
+export type Live2DDragRow = [string, number, number]
+
 export interface Live2DPeer {
   sid: string
   name: string
@@ -57,6 +70,10 @@ export interface Live2DPeer {
   mouth: number
   /** 睁眼程度 0~1（动捕） */
   eyes: number
+  /** 拖拽偏移：正数向右（视口宽度的比例） */
+  dragX: number
+  /** 拖拽偏移：正数向下（视口高度的比例） */
+  dragY: number
 }
 
 export interface Live2DSnapshotPayload {
@@ -103,6 +120,8 @@ export interface Live2DPatchPayload {
   r?: string[]
   /** 新增/换模型的成员 */
   add?: Live2DRow[]
+  /** 拖拽偏移变化 */
+  d?: Live2DDragRow[]
 }
 
 /**
@@ -141,6 +160,8 @@ export function rowToPeer(row: Live2DRow): Live2DPeer {
     ar: Number(row[8] ?? 1.78) || 1.78,
     mouth: clampUnit(Number(row[9] ?? 0)),
     eyes: clampUnit(Number(row[10] ?? 1)),
+    dragX: finiteOffset(row[11]),
+    dragY: finiteOffset(row[12]),
   }
 }
 
@@ -149,4 +170,10 @@ function clampUnit(v: number): number {
   if (v < 0) return 0
   if (v > 1) return 1
   return v
+}
+
+/** 偏移可以为负（向左/向上），所以不能走 clampUnit；NaN 一律当 0。 */
+function finiteOffset(v: unknown): number {
+  const n = Number(v ?? 0)
+  return Number.isFinite(n) ? n : 0
 }

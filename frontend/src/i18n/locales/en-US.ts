@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2734 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2740 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（68 条） =====
+  // ===== modules/live2d（74 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -985,10 +985,13 @@ const enUS: Record<string, string> = {
   '还没有内置模型': 'No built-in models yet',
   '还没有内置模型，可以上传一个模型包，或填写下面的地址': 'No built-in models yet — upload a model pack, or enter a URL below',
   '画面只在本机处理，不会上传': 'Frames stay on this device and are never uploaded',
+  '回到默认站位': 'Back to default spot',
+  '回到原位': 'Reset position',
   '加载超时': 'Load timed out',
   '角色设置': 'Character settings',
   '仅支持 http/https 地址': 'Only http/https URLs are supported',
   '开启后角色会跟着你的头部转动': 'Once on, the character follows your head',
+  '开启后可直接拖动角色调整位置': 'Drag the character to move it',
   '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
   '浏览器不支持摄像头动捕': 'This browser doesn\'t support camera tracking',
   '没有找到可用的摄像头': 'No camera found',
@@ -1020,6 +1023,9 @@ const enUS: Record<string, string> = {
   '所有人都会看到': 'Everyone will see it',
   '统一角色': 'Unified character',
   '统一使用的模型': 'Shared model',
+  '退出拖拽模式': 'Exit drag mode',
+  '拖动角色调整位置': 'Drag the character to where you want it',
+  '拖拽模式': 'Drag mode',
   '完成': 'Done',
   '我的角色': 'My character',
   '隐藏后点右下角的角色按钮可以重新显示': 'Use the button at the bottom right to show it again',

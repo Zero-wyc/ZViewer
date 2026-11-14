@@ -16,6 +16,7 @@ import {
   listEntries,
   removePeer,
   setFace,
+  setRemoteDrag,
   setRemotePointer,
   upsertPeer,
 } from '../core/scene'
@@ -133,6 +134,15 @@ export function useLive2DSync({
         }
       }
 
+      if (payload.d?.length) {
+        // 拖拽偏移同理：只写场景，不进 React（拖动时这里 10Hz）
+        for (const row of payload.d) {
+          const sid = String(row[0] ?? '')
+          if (!sid) continue
+          setRemoteDrag(sid, Number(row[1]), Number(row[2]))
+        }
+      }
+
       if (membershipChanged) syncRenderer()
     }
 
@@ -223,6 +233,27 @@ export function emitLive2DMotion(
   if (!socket || !roomId || !group) return
   if (!Number.isInteger(index) || index < 0) return
   socket.emit(LIVE2D_EVENT.ACTION, { roomId, g: group, i: index })
+}
+
+/**
+ * 广播本人的拖拽偏移（相对槽位基准的视口比例，正数向右/向下）。
+ *
+ * 本地已经先写进场景了（否则拖起来会跟手慢半拍），这里只负责让别人也
+ * 看到同一个位置。服务端按 40ms 门限丢超频，再合并进 100ms 一次的 patch。
+ */
+export function emitLive2DDrag(
+  socket: Socket | null,
+  roomId: string,
+  x: number,
+  y: number
+): void {
+  if (!socket || !roomId) return
+  socket.emit(LIVE2D_EVENT.DRAG, {
+    roomId,
+    // 偏移可以是负数，roundCoord 会把值夹到 0~1，这里自己压精度
+    x: Math.round(x * 1000) / 1000,
+    y: Math.round(y * 1000) / 1000,
+  })
 }
 
 /**

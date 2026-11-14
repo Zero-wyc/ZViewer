@@ -8,6 +8,8 @@ export const LIVE2D_EVENT = {
   CONFIG: 'live2d-config',
   /** C→S：指针位置（高频，无 ack） */
   STATE: 'live2d-state',
+  /** C→S：拖拽偏移（拖动时约 16Hz，无 ack） */
+  DRAG: 'live2d-drag',
   /** C→S：挂载/重连后补拉全量快照 */
   REQUEST: 'live2d-request',
   /** 表情/动作：C→S 触发，S→C 立刻广播给全房间（瞬时，不走 patch 合并） */
@@ -28,6 +30,15 @@ export const LIVE2D_STATE_INTERVAL_MS = Math.round(1000 / LIVE2D_STATE_HZ)
 
 /** 指针移动小于该阈值就不发（归一化后 ~0.2% 屏宽，肉眼不可见）。 */
 export const LIVE2D_STATE_EPSILON = 0.002
+
+/**
+ * 拖拽偏移的上行间隔。
+ *
+ * 拖动是连续手势，但位置不是每帧都要「实时」给别人看：100ms 一次的下行
+ * 合并已经把下行的颗粒度定在 10Hz，客户端发得更快只是多消耗上行带宽。
+ * 松手时客户端会无条件补发一帧终值，所以最终位置永远是准的。
+ */
+export const LIVE2D_DRAG_INTERVAL_MS = 60
 
 /**
  * 面部数据的有效期。

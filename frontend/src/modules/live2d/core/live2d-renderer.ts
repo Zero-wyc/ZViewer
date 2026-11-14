@@ -230,9 +230,8 @@ export class Live2DRenderer {
     // 反向：后画的在上层，点到重叠区应该命中眼睛看到的那一个
     for (let i = visible.length - 1; i >= 0; i -= 1) {
       const sid = visible[i].peer.sid
-      const loaded = this.models.get(sid)
-      if (!loaded || !loaded.model.visible) continue
-      const box = loaded.model.getBounds()
+      const box = this.boundsOf(sid)
+      if (!box) continue
       if (
         clientX >= box.x &&
         clientX <= box.x + box.width &&
@@ -243,6 +242,26 @@ export class Live2DRenderer {
       }
     }
     return null
+  }
+
+  /**
+   * 某个模型当前的包围盒（canvas 坐标 = 视口坐标，画布铺满视口）。
+   *
+   * 拖拽模式用它画虚线框，也用它判断"我点到的到底是不是自己"：`pick`
+   * 只返回最上层那一个，两个人重叠时按它判断会把自己的拖拽拦下来。
+   */
+  boundsOf(sid: string): {
+    x: number
+    y: number
+    width: number
+    height: number
+  } | null {
+    if (this.destroyed) return null
+    const loaded = this.models.get(sid)
+    if (!loaded || !loaded.model.visible) return null
+    const box = loaded.model.getBounds()
+    if (!(box.width > 0) || !(box.height > 0)) return null
+    return { x: box.x, y: box.y, width: box.width, height: box.height }
   }
 
   /** 同步移除场景里已经不存在的模型。 */
@@ -338,6 +357,8 @@ export class Live2DRenderer {
     const alpha = alphaForDelta(0.25, delta)
     // 表情比视线跟手：说话是 100ms 级的变化，用视线的平滑系数会糊成慢动作
     const faceAlpha = alphaForDelta(0.5, delta)
+    // 拖拽位置只在别人拖的时候需要平滑（本人拖的时候目标与当前一起写）
+    const dragAlpha = alphaForDelta(0.35, delta)
 
     for (let i = 0; i < visible.length; i += 1) {
       const entry = visible[i]
@@ -345,9 +366,20 @@ export class Live2DRenderer {
       if (!loaded) continue
       const { model } = loaded
 
-      // 槽位：按 ord 排好的顺序等距站开（各端一致）
-      const x = slotX(i, visible.length) * this.width
-      const y = this.height
+      // 槽位：按 ord 排好的顺序等距站开（各端一致），再加上本人的拖拽偏移
+      entry.currentDragX = smooth(
+        entry.currentDragX,
+        entry.targetDragX,
+        dragAlpha
+      )
+      entry.currentDragY = smooth(
+        entry.currentDragY,
+        entry.targetDragY,
+        dragAlpha
+      )
+      const x =
+        slotX(i, visible.length) * this.width + entry.currentDragX * this.width
+      const y = this.height + entry.currentDragY * this.height
       model.x = x
       model.y = y
 

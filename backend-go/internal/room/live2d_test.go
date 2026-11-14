@@ -465,3 +465,89 @@ func TestLive2DPolicyUnifiedModel(t *testing.T) {
 		t.Fatalf("快照没带策略：%+v", snap.Policy)
 	}
 }
+
+// 13) 拖拽偏移：本人可写、越界钳制、走独立的 d 行，快照里也带着。
+//
+// 这一条守两件事：一是「拖动位置必须同步给全房间」（否则别人看到的还是
+// 槽位原位，两个人对同一幕的认知就对不上了）；二是 d 行不能挤进 u 行——
+// u 行已经靠「有没有第 5 项」判断要不要接管模型的嘴和眼。
+func TestLive2DDragSync(t *testing.T) {
+	env := newTestEnv(t)
+	env.hub.members["ROOM_DRAG"] = []string{"s1", "s2"}
+	for _, sid := range []string{"s1", "s2"} {
+		env.svc.Live2DSet("ROOM_DRAG", live2dMember{
+			SocketID: sid, Name: sid, Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+		})
+	}
+	env.svc.FlushLive2D() // 排掉 add
+
+	lastPatch := func() live2dPatchOut {
+		t.Helper()
+		list := env.hub.payloads["ROOM_DRAG|live2d-patch"]
+		if len(list) == 0 {
+			t.Fatal("没有下发 patch")
+		}
+		patch, ok := list[len(list)-1].(live2dPatchOut)
+		if !ok {
+			t.Fatalf("payload 类型不对：%T", list[len(list)-1])
+		}
+		return patch
+	}
+
+	// 没声明过模型的连接写不进偏移（否则能凭空改一个不存在成员的位置）
+	env.svc.handleLive2DDrag(&sio.Socket{ID: "s-intruder"},
+		l2dArgs(t, `{"roomId":"ROOM_DRAG","x":0.2,"y":-0.2}`))
+	env.svc.FlushLive2D()
+	if rows := lastPatch(); len(rows.Drag) != 0 {
+		t.Fatalf("未声明的连接不应写着偏移：%v", rows.Drag)
+	}
+
+	// 本人拖动：只出 d 行，u 行保持干净
+	env.svc.handleLive2DDrag(&sio.Socket{ID: "s1"},
+		l2dArgs(t, `{"roomId":"ROOM_DRAG","x":0.2,"y":-0.3}`))
+	env.svc.FlushLive2D()
+	patch := lastPatch()
+	if len(patch.Drag) != 1 || len(patch.Drag[0]) != 3 {
+		t.Fatalf("应有一条三元的 d 行，实际 %v", patch.Drag)
+	}
+	if patch.Drag[0][0] != "s1" || patch.Drag[0][1] != 0.2 || patch.Drag[0][2] != -0.3 {
+		t.Fatalf("d 行内容不对：%v", patch.Drag[0])
+	}
+	if len(patch.Upd) != 0 {
+		t.Fatalf("只拖位置不该发 u 行：%v", patch.Upd)
+	}
+
+	// 越界钳制 + 40ms 频控：直接调 store，时间自己给，避免测试里 sleep
+	st := env.svc.live2d
+	base := time.Now().Add(2 * time.Second)
+	if !st.SetDrag("ROOM_DRAG", "s1", 1.0, -2.0, base) {
+		t.Fatal("第一次拖拽应写入")
+	}
+	if st.SetDrag("ROOM_DRAG", "s1", 0.1, 0.0, base.Add(10*time.Millisecond)) {
+		t.Fatal("40ms 内的重复上报应被丢弃")
+	}
+	env.svc.FlushLive2D()
+	patch = lastPatch()
+	if len(patch.Drag) != 1 {
+		t.Fatalf("应只有一条 d 行，实际 %v", patch.Drag)
+	}
+	// x 越界到 0.45、y 越界到 -0.55（向下只留 0.10 的余量，这里挤到最小值）
+	if patch.Drag[0][1] != live2dDragXLimit || patch.Drag[0][2] != live2dDragYMin {
+		t.Fatalf("越界没有钳制：%v", patch.Drag[0])
+	}
+
+	// 快照必须带着偏移（新进房的人要看到别人已经挪过的位置）
+	snap := env.svc.Live2DSnapshot("ROOM_DRAG")
+	for _, m := range snap {
+		if m.SocketID != "s1" {
+			continue
+		}
+		row := live2dRow(m)
+		if len(row) != 13 {
+			t.Fatalf("整行应为 13 项（含 dragX/dragY），实际 %d 项", len(row))
+		}
+		if row[11] != live2dDragXLimit || row[12] != live2dDragYMin {
+			t.Fatalf("整行末尾应是拖拽偏移，实际 %v", row[11:])
+		}
+	}
+}

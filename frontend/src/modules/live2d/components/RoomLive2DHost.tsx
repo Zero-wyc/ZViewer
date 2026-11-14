@@ -22,11 +22,12 @@ import {
   type Live2DLibraryEntry,
 } from '../core/model-library'
 import { Live2DRenderer } from '../core/live2d-renderer'
-import { slotX } from '../core/scene'
-import { LIVE2D_MAX_RENDERED } from '../constants'
+import { getEntry, listEntries, setLocalDrag, slotX } from '../core/scene'
+import { LIVE2D_DRAG_INTERVAL_MS, LIVE2D_MAX_RENDERED } from '../constants'
 import {
   emitLive2DAction,
   emitLive2DConfig,
+  emitLive2DDrag,
   emitLive2DMotion,
   emitLive2DPolicy,
   useLive2DSync,
@@ -36,6 +37,7 @@ import { useLive2DStore } from '../store/live2dStore'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DAdvancedSettings } from './Live2DAdvancedSettings'
 import { Live2DContextMenu } from './Live2DContextMenu'
+import { Live2DDragLayer } from './Live2DDragLayer'
 
 // 房间悬浮层的宿主。
 //
@@ -47,6 +49,9 @@ import { Live2DContextMenu } from './Live2DContextMenu'
 //   3. **引擎生命周期**：卸载就销毁 Application，把 WebGL 上下文还回去；
 //   4. **入口**：右键角色呼出设置菜单；右下角另有一个常驻圆钮直通「高级设置」
 //      （右键依赖包围盒命中，模型加载失败 / 命中漏判时它是唯一退路）。
+//   5. **拖拽模式**：菜单里开启后可把自己的角色拖到任意位置，偏移同步给
+//      全房间（各端看到的站位一致）。它会给角色套一层透明抓取层，所以只在
+//      用户主动开启时存在。
 //
 // canvas 是 `pointer-events: none` 的，否则房间的拖拽、双击全屏、视频控件全被
 // 吃掉；所以「右键落在哪个角色上」只能由渲染器的包围盒判定（renderer.pick）。
@@ -99,6 +104,9 @@ export function RoomLive2DHost({
   const [canUploadModels, setCanUploadModels] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
+  // 拖拽模式：只有用户从菜单里主动开启时才存在。它会给自己的角色套一层
+  // 透明的抓取层（挡住那块区域的其它点击），所以绝不能常驻。
+  const [dragMode, setDragMode] = useState(false)
   // root 是这条菜单的挂载容器，**在打开的那一刻**决定：
   //   - 原生全屏时只有 fullscreenElement 子树会被渲染，必须挂进去；
   //   - 非全屏时挂 body——宿主的 fixed 容器带 z-index:60，会把子节点的层级
@@ -111,17 +119,30 @@ export function RoomLive2DHost({
     x: number
     y: number
     root: HTMLElement | null
-  }>({ open: false, x: 0, y: 0, root: null })
+    /** 打开那一刻的拖拽偏移，用来决定要不要显示「回到原位」 */
+    offsetX: number
+    offsetY: number
+  }>({ open: false, x: 0, y: 0, root: null, offsetX: 0, offsetY: 0 })
 
-  const openMenuAt = useCallback((clientX: number, clientY: number) => {
-    const fs = document.fullscreenElement
-    setMenu({
-      open: true,
-      x: clientX,
-      y: clientY,
-      root: fs instanceof HTMLElement ? fs : null,
-    })
-  }, [])
+  const mySid = socket?.id ?? ''
+
+  const openMenuAt = useCallback(
+    (clientX: number, clientY: number) => {
+      const fs = document.fullscreenElement
+      // 偏移只在场景里（拖动时不进 React），所以打开菜单时读一次：
+      // 菜单是低频交互，取快照足够，也能避免每次拖动都让宿主重渲染。
+      const entry = mySid ? getEntry(mySid) : undefined
+      setMenu({
+        open: true,
+        x: clientX,
+        y: clientY,
+        root: fs instanceof HTMLElement ? fs : null,
+        offsetX: entry?.targetDragX ?? 0,
+        offsetY: entry?.targetDragY ?? 0,
+      })
+    },
+    [mySid]
+  )
   // sid → 加载失败原因。存原因而不是只存 sid：占位卡上那句「可能被跨域限制」
   // 对 4K 素材、moc3 版本、404 一视同仁，用户根本无从下手。
   const [failed, setFailed] = useState<Record<string, string>>({})
@@ -141,7 +162,6 @@ export function RoomLive2DHost({
     error: string
   }>({ on: false, busy: false, error: '' })
 
-  const mySid = socket?.id ?? ''
   const role = useAuthStore((s) => s.user?.role)
   const isServerAdmin = role === 'root' || role === 'admin'
   // 房主与服务器管理员自己永远看得到角色，否则他也没法再右键改回来；其余人
@@ -403,6 +423,74 @@ export function RoomLive2DHost({
     return () => window.removeEventListener('contextmenu', onContextMenu, true)
   }, [renderer, advancedOpen, openMenuAt])
 
+  // ---- 8d. 拖拽模式 ----
+  //
+  // 偏移只在场景里流转（拖动时 10Hz 级别，不进 React），这里只负责三件事：
+  // 开关模式、按节流把偏移发给房间、以及「回到原位」。
+  const dragEmitAt = useRef(0)
+
+  const handleDrag = useCallback(
+    (x: number, y: number, final: boolean) => {
+      const now = performance.now()
+      // 拖动中按 60ms 节流；松手那一帧无条件发，终值不能丢
+      if (!final && now - dragEmitAt.current < LIVE2D_DRAG_INTERVAL_MS) return
+      dragEmitAt.current = now
+      emitLive2DDrag(socket, roomId, x, y)
+    },
+    [socket, roomId]
+  )
+
+  const handleResetPosition = useCallback(() => {
+    if (mySid) setLocalDrag(mySid, 0, 0)
+    emitLive2DDrag(socket, roomId, 0, 0)
+    // 从菜单点进来时顺手收起：位置已经回原位，「回到原位」不该还挂在那儿
+    closeMenu()
+  }, [mySid, socket, roomId, closeMenu])
+
+  const exitDragMode = useCallback(() => setDragMode(false), [])
+
+  const toggleDragMode = useCallback(() => {
+    if (dragMode) {
+      // 从菜单退出时留着菜单：入口文案会变回「拖拽模式」，这是最直接的反馈
+      setDragMode(false)
+      return
+    }
+    if (!effModelId) return
+    setDragMode(true)
+    // 菜单会挡住角色，进模式就关掉
+    closeMenu()
+  }, [dragMode, effModelId, closeMenu])
+
+  // ---- 8e. 名字标签跟随拖拽偏移 ----
+  //
+  // 模型画在 canvas 里，标签与占位卡是 DOM（按槽位定位）。拖拽偏移只在场景
+  // 里流转、不进 React，所以这里用一个常驻 rAF 把位移写进 transform：
+  // 只在数值真的变了时才写，静止时这个循环几乎不做事。
+  const slotRefs = useRef(new Map<string, HTMLDivElement>())
+
+  useEffect(() => {
+    let raf = 0
+    const last = new Map<string, string>()
+    const tick = () => {
+      const w = window.innerWidth || 1
+      const h = window.innerHeight || 1
+      for (const entry of listEntries()) {
+        const el = slotRefs.current.get(entry.peer.sid)
+        if (!el) continue
+        // 偏移与 CSS 的 translate3d 同向（都向下为正），可以直接乘
+        const dx = entry.currentDragX * w
+        const dy = entry.currentDragY * h
+        const key = `${dx.toFixed(1)}|${dy.toFixed(1)}`
+        if (last.get(entry.peer.sid) === key) continue
+        last.set(entry.peer.sid, key)
+        el.style.transform = `translateX(-50%) translate3d(${dx}px, ${dy}px, 0)`
+      }
+      raf = requestAnimationFrame(tick)
+    }
+    raf = requestAnimationFrame(tick)
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
   // ---- 9. 收发 ----
   useLive2DSync({ socket, roomId, renderer })
   useLive2DPointer({
@@ -426,6 +514,8 @@ export function RoomLive2DHost({
   const handleHide = useCallback(() => {
     setMyModel('builtin', '')
     setHidden(true)
+    // 没有角色了，拖拽模式留着只会让下次换模型时突然冒出一个抓取层
+    setDragMode(false)
     closeMenu()
     setAdvancedOpen(false)
   }, [setMyModel, setHidden, closeMenu])
@@ -530,6 +620,9 @@ export function RoomLive2DHost({
 
   const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
   const hiddenCount = peers.length - visible.length
+  // 拖拽模式的两个前提：有自己的模型，且模型当前真的在画面上。房主统一角色
+  // 时模型是房间定的，但位置仍然是每个成员自己的，所以照拖不误。
+  const dragActive = dragMode && Boolean(effModelId) && Boolean(mySid)
   // 入口**常驻**，不再「有模型就收起来」：
   //   - 模型加载失败时画面上只剩占位小方块，`renderer.pick` 打不中，右键就没
   //     任何反应——这正是用户最需要打开设置（换/删模型）的时候，收起来等于
@@ -552,6 +645,10 @@ export function RoomLive2DHost({
         return (
           <div
             key={peer.sid}
+            ref={(el) => {
+              if (el) slotRefs.current.set(peer.sid, el)
+              else slotRefs.current.delete(peer.sid)
+            }}
             style={{
               position: 'absolute',
               left: `${slotX(index, visible.length) * 100}%`,
@@ -655,6 +752,20 @@ export function RoomLive2DHost({
         </button>
       </div>
 
+      {/* 拖拽模式：套在自己角色身上的抓取层 + 底部提示条。
+          提示条的门禁交给它自己：模型还没加载出来时框是隐藏的，但「完成 /
+          回到原位」仍然可点，用户不会被卡在模式里出不来。 */}
+      {dragActive && (
+        <Live2DDragLayer
+          renderer={renderer}
+          sid={mySid}
+          container={menu.root}
+          onDrag={handleDrag}
+          onReset={handleResetPosition}
+          onExit={exitDragMode}
+        />
+      )}
+
       <Live2DContextMenu
         open={menu.open}
         position={{ x: menu.x, y: menu.y }}
@@ -670,11 +781,18 @@ export function RoomLive2DHost({
         allowFace={policy.allowFace}
         unified={unifiedActive}
         canHide={!unifiedActive && Boolean(myModelId)}
+        canDrag={Boolean(effModelId)}
+        dragMode={dragMode}
+        canResetPosition={
+          Math.abs(menu.offsetX) > 0.005 || Math.abs(menu.offsetY) > 0.005
+        }
         onSelect={handleSelect}
         onScale={setMyScale}
         onExpression={handleExpression}
         onToggleFaceTracking={toggleFaceTracking}
         onOpenAdvanced={openAdvanced}
+        onToggleDrag={toggleDragMode}
+        onResetPosition={handleResetPosition}
         onHide={handleHide}
       />
 

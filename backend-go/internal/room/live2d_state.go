@@ -65,6 +65,22 @@ const (
 	// 全房间都被接管成"永远不眨眼"，比不动捕还假。客户端也有同样量级的 TTL，
 	// 两者叠加出一条 1 秒出头的释放时间。
 	live2dFaceTTL = 600 * time.Millisecond
+
+	// live2dMinDragGap 是拖拽偏移上报的最小间隔。
+	//
+	// 拖动是连续的手势，客户端按 60ms 节流发送、松手时再补一帧终值，所以
+	// 40ms 的门限只用来挡「有人写个循环把房间打满」；真正压带宽的是 100ms
+	// 一次的下行合并。
+	live2dMinDragGap = 40 * time.Millisecond
+
+	// 拖拽偏移的钳制范围（相对视口宽/高的比例，正数向右/向下）。
+	//
+	// 与前端 core/drag.ts 里的 LIVE2D_DRAG_* 是同一组值，改一处必须改另一处。
+	// 纵向只留很小的下沉余量：模型的锚点在脚底，再往下推只会把人推出画面，
+	// 手感上会像"拖不动"。
+	live2dDragXLimit = 0.45
+	live2dDragYMin   = -0.55
+	live2dDragYMax   = 0.10
 )
 
 // live2dMember 是一个成员在当前房间里的模型状态。
@@ -94,10 +110,26 @@ type live2dMember struct {
 	// faceAt 是最近一次收到面部数据的时刻，只用于判断「要不要继续转发 m/e」。
 	faceAt time.Time
 
+	// DragX/DragY 是相对「槽位基准位置」的拖拽偏移（视口宽/高的比例，
+	// 正数向右/向下）。
+	//
+	// 为什么不改成绝对坐标：基准位置由 Ord 决定，有人进出时会重排；偏移量
+	// 跟着人走才能保证「我把角色挪到左边一点」在所有人眼里都是同样的相对
+	// 位置，而不是"某人在第 3 个槽位、却被钉死在屏幕 20% 处"。
+	DragX float64
+	DragY float64
+	// dragAt 只用于拖拽上报的频控，不参与下发。
+	dragAt time.Time
+
 	// pendingAdd 表示「这一轮 flush 要以 add 行下发」。
 	// 新成员、换过模型的成员都置位；只动指针的成员走 upd 行。
 	pendingAdd bool
 	dirty      bool
+	// dirtyDrag 表示「这一轮 flush 要补一条拖拽行」。
+	//
+	// 与 dirty 分开：指针/面部走 u 行、拖拽走 d 行，两者形状不同；合成一种
+	// 脏标记就只能二选一，拖动时指针会一起被当成"状态变了"重发。
+	dirtyDrag  bool
 	lastState  time.Time
 	// lastAction 只用于表情频控，不参与下发。
 	lastAction time.Time
@@ -113,6 +145,11 @@ type live2dRoom struct {
 //
 // TakeDirty 返回的是清位之前的拷贝，所以这里读到的是「本轮要不要 add」。
 func (m live2dMember) pendingAddRow() bool { return m.pendingAdd }
+
+// stateDirtyRow / dragDirtyRow 同理：TakeDirty 返回的是清位之前的拷贝，
+// 所以这里读到的是「本轮要不要发这一类行」。
+func (m live2dMember) stateDirtyRow() bool { return m.dirty }
+func (m live2dMember) dragDirtyRow() bool  { return m.dirtyDrag }
 
 type live2dStore struct {
 	mu    sync.Mutex
@@ -232,8 +269,34 @@ func (st *live2dStore) UpdateState(roomID, socketID string, u live2dStateUpdate,
 	return true
 }
 
-// AllowAction 判断这条连接现在能不能触发表情（120ms 门限）。
+// SetDrag 写入拖拽偏移，返回 false 表示被丢弃（不在房 / 超出频率）。
 //
+// 偏移由**本人**决定：这里不做任何权限判断，socket id 就是归属——
+// payload 里根本没有 sid，伪造不了别人的位置。
+func (st *live2dStore) SetDrag(roomID, socketID string, dx, dy float64, now time.Time) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	r := st.rooms[roomID]
+	if r == nil {
+		return false
+	}
+	m := r.models[socketID]
+	if m == nil {
+		return false
+	}
+	if !m.dragAt.IsZero() && now.Sub(m.dragAt) < live2dMinDragGap {
+		return false
+	}
+	m.dragAt = now
+	m.DragX = clampFloat(dx, -live2dDragXLimit, live2dDragXLimit)
+	m.DragY = clampFloat(dy, live2dDragYMin, live2dDragYMax)
+	m.dirtyDrag = true
+	// 不动 updatedAt：它是「成员还活着」的证据，拖拽不是。
+	return true
+}
+
+// AllowAction 判断这条连接现在能不能触发表情（120ms 门限）。//
 // 顺便承担成员资格判断：没声明过模型的连接不该能广播动作。
 func (st *live2dStore) AllowAction(roomID, socketID string, now time.Time) bool {
 	st.mu.Lock()
@@ -301,13 +364,14 @@ func (st *live2dStore) TakeDirty(roomID string) []live2dMember {
 	}
 	var out []live2dMember
 	for _, m := range r.models {
-		if !m.dirty {
+		if !m.dirty && !m.dirtyDrag {
 			continue
 		}
 		cp := *m
 		out = append(out, cp)
 		m.dirty = false
 		m.pendingAdd = false
+		m.dirtyDrag = false
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Ord < out[j].Ord })
 	return out
@@ -414,6 +478,14 @@ func (s *Service) Live2DUpdateState(roomID, socketID string, u live2dStateUpdate
 	return s.live2d.UpdateState(roomID, socketID, u, now)
 }
 
+// Live2DSetDrag 写入拖拽偏移（本人），返回 false 表示被丢弃（不在房 / 超频）。
+func (s *Service) Live2DSetDrag(roomID, socketID string, dx, dy float64) bool {
+	if s == nil || s.live2d == nil {
+		return false
+	}
+	return s.live2d.SetDrag(roomID, socketID, dx, dy, time.Now())
+}
+
 // Live2DAllowAction 是 AllowAction 的 Service 包装（频控 + 成员资格）。
 func (s *Service) Live2DAllowAction(roomID, socketID string) bool {
 	if s == nil || s.live2d == nil {
@@ -458,12 +530,22 @@ func (s *Service) FlushLive2D() {
 		}
 		patch := live2dPatchOut{RoomID: roomID, Rem: removed}
 		for _, m := range changed {
-			row := live2dRow(m)
+			// add 行自带拖拽偏移，不必再补一条 d 行
 			if m.pendingAddRow() {
-				patch.Add = append(patch.Add, row)
+				patch.Add = append(patch.Add, live2dRow(m))
 				continue
 			}
-			patch.Upd = append(patch.Upd, live2dStateRow(m, now))
+			if m.stateDirtyRow() {
+				patch.Upd = append(patch.Upd, live2dStateRow(m, now))
+			}
+			if m.dragDirtyRow() {
+				patch.Drag = append(patch.Drag, live2dDragRow(m))
+			}
+		}
+		// 只改了拖拽的成员也会进 changed，但三类行都可能为空（例如读数与上次
+		// 完全相同）：那时没必要发一条空 patch 让房间每人多解析一次。
+		if len(patch.Upd) == 0 && len(patch.Add) == 0 && len(patch.Drag) == 0 && len(patch.Rem) == 0 {
+			continue
 		}
 		s.Hub.EmitRoom(roomID, "live2d-patch", patch)
 	}

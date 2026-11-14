@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { EyeOff, Settings2, Sparkles, X } from 'lucide-react'
+import { EyeOff, Move, RotateCcw, Settings2, Sparkles, X } from 'lucide-react'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
@@ -40,17 +40,25 @@ export interface Live2DContextMenuProps {
   /** 房主已统一角色：选模型这一段换成说明 */
   unified: boolean
   canHide: boolean
+  /** 有角色才能拖（没模型时整个入口置灰） */
+  canDrag: boolean
+  /** 拖拽模式是否正在进行（决定这个入口是「进入」还是「退出」） */
+  dragMode: boolean
+  /** 已经挪过位置，才显示「回到原位」 */
+  canResetPosition: boolean
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   onScale: (scale: number) => void
   onExpression: (index: number) => void
   onToggleFaceTracking: () => void
   onOpenAdvanced: () => void
+  onToggleDrag: () => void
+  onResetPosition: () => void
   onHide: () => void
 }
 
 const MENU_WIDTH = 272
 /** 估算高度只用于「别超出视口下沿」；实际高度由内容决定并可滚动。 */
-const MENU_HEIGHT_GUESS = 460
+const MENU_HEIGHT_GUESS = 500
 
 export function Live2DContextMenu({
   open,
@@ -67,11 +75,16 @@ export function Live2DContextMenu({
   allowFace,
   unified,
   canHide,
+  canDrag,
+  dragMode,
+  canResetPosition,
   onSelect,
   onScale,
   onExpression,
   onToggleFaceTracking,
   onOpenAdvanced,
+  onToggleDrag,
+  onResetPosition,
   onHide,
 }: Live2DContextMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -236,6 +249,30 @@ export function Live2DContextMenu({
 
       <Divider />
 
+      {/* 拖拽模式：拖完不会自己退出（用户往往要来回调），所以入口与退出
+          分开放——这里只负责「进入」，退出交给拖拽层上的「完成」/ ESC。 */}
+      <div className="mb-1 flex items-center gap-1">
+        <MenuAction
+          onClick={onToggleDrag}
+          disabled={!canDrag && !dragMode}
+          icon={<Move size={13} />}
+          title={t('开启后可直接拖动角色调整位置')}
+        >
+          {dragMode ? t('退出拖拽模式') : t('拖拽模式')}
+        </MenuAction>
+        {canResetPosition && (
+          <MenuAction
+            onClick={onResetPosition}
+            icon={<RotateCcw size={13} />}
+            title={t('回到默认站位')}
+          >
+            {t('回到原位')}
+          </MenuAction>
+        )}
+      </div>
+
+      <Divider />
+
       <div className="flex items-center gap-1">
         <MenuAction onClick={onOpenAdvanced} icon={<Settings2 size={13} />}>
           {t('高级设置')}
@@ -271,11 +308,13 @@ function MenuAction({
   onClick,
   icon,
   title,
+  disabled,
   children,
 }: {
   onClick: () => void
   icon: React.ReactNode
   title?: string
+  disabled?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -283,7 +322,8 @@ function MenuAction({
       type="button"
       onClick={onClick}
       title={title}
-      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] transition-opacity hover:opacity-80"
+      disabled={disabled}
+      className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border px-2 py-1.5 text-[11px] transition-opacity hover:opacity-80 disabled:cursor-not-allowed disabled:opacity-40"
       style={{
         background: 'var(--md-sys-color-surface)',
         borderColor: 'var(--md-sys-color-outline-variant)',
