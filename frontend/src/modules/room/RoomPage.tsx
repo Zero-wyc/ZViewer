@@ -87,6 +87,12 @@ function RoomPage() {
   const showTrafficPanel = useSystemSettingsStore(
     (state) => state.showTrafficPanel
   )
+  // Beta 功能总开关：Live2D 角色也归它管（与番剧源、B站下载同一口径）。
+  // 读到的是公开设置，App 启动时已拉过一次；管理员改完开关需要刷新才生效，
+  // 和其它 Beta 功能一致。
+  const betaFeaturesEnabled = useSystemSettingsStore(
+    (state) => state.betaFeaturesEnabled
+  )
 
   const storeMode = useRoomStore((state) => state.mode)
   // 共享中才把「共享设置」摆到下方卡片区（由 WebrtcSharePage 上报）
@@ -163,6 +169,16 @@ function RoomPage() {
   ])
   const { socket } = useSocket()
   useViewerList(roomId)
+
+  // Beta 开关决定 Live2D 宿主挂不挂载。App 启动时会拉一次公开设置，但那次
+  // 失败（后端刚起来、短暂离线）会让 Beta 功能在整段会话里一直不出现，
+  // 用户只会觉得「功能没了」。这里补一次：fetchSettings 自带 loading/fetched
+  // 守卫，已经拉到过就是空操作。
+  const fetchSettings = useSystemSettingsStore((state) => state.fetchSettings)
+  useEffect(() => {
+    void fetchSettings()
+  }, [fetchSettings])
+
   // 房间模式切换（房主 emit + ack/超时/断线兜底）：状态上移到页面级，
   // 滑块既渲染在 RoomLayout 顶栏（一起看/投屏），一起听时也注入音乐顶导航
   // （MusicAppShell → MusicTopNav 的 modeSwitchSlot），两处共用同一份状态
@@ -618,10 +634,15 @@ function RoomPage() {
   return (
     <>
       {pageBody}
-      {/* 独立悬浮层：不随模式/换片卸载，房主与观众共用同一份实现 */}
-      <Suspense fallback={null}>
-        <RoomLive2DHost roomId={roomId} socket={socket} isHost={isHost} />
-      </Suspense>
+      {/* 独立悬浮层：不随模式/换片卸载，房主与观众共用同一份实现。
+          Live2D 属于 Beta 功能：开关关掉时**整个宿主不挂载**——不只是不显示，
+          连事件订阅、15Hz 指针上报和约 1MB 的 pixi/Cubism 引擎都不会加载。
+          用条件挂载而不是在宿主内部提前 return：后者仍会把模块拉下来。 */}
+      {betaFeaturesEnabled && (
+        <Suspense fallback={null}>
+          <RoomLive2DHost roomId={roomId} socket={socket} isHost={isHost} />
+        </Suspense>
+      )}
     </>
   )
 }

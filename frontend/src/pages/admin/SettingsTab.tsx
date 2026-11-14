@@ -372,7 +372,7 @@ export function SettingsTab({
           <div className="mb-6">
             <Switch
               label={t(
-                '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载）'
+                '启用 Beta 功能（Kazumi / AniSubs 番剧源 / B站视频下载 / Live2D 角色）'
               )}
               checked={settings.betaFeaturesEnabled}
               onChange={(e) =>
@@ -383,7 +383,9 @@ export function SettingsTab({
               }
             />
             <p className="mt-1.5 text-xs text-[var(--md-sys-color-on-surface-variant)]">
-              {t('关闭后隐藏 Kazumi、AniSubs 番剧源与 B站视频下载入口。')}
+              {t(
+                '关闭后隐藏 Kazumi、AniSubs 番剧源、B站视频下载与房间内的 Live2D 角色。'
+              )}
             </p>
           </div>
 
