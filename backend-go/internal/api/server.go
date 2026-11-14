@@ -175,6 +175,8 @@ func (s *Server) Handler() http.Handler {
 	s.registerProxyRoutes(mux)
 	s.registerMovieRoutes(mux)
 	s.registerRoomRoutes(mux)
+	// 房间级 Live2D 模型库（上传/列表/删除），与实时同步的 live2d-* 事件配套。
+	s.registerLive2DModelRoutes(mux)
 	s.registerWebDAVRoutes(mux)
 	s.registerFTPRoutes(mux)
 	s.registerEmbyRoutes(mux)
@@ -210,6 +212,8 @@ func (s *Server) Handler() http.Handler {
 
 	// 头像静态资源无需鉴权（通过 URL 公开访问）
 	mux.Handle("/uploads/avatars/", s.avatarsHandler())
+	// 房间 Live2D 模型：同样公开（观众/游客都要加载），目录名带随机后缀
+	mux.Handle("/uploads/live2d/", s.live2dModelsHandler())
 	// 前端产物 + SPA 回退
 	mux.Handle("/", s.spaHandler())
 

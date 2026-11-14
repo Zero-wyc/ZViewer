@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。",
+  "note": "Node（Express）运行时路由表的冻结快照，由 backend-go/scripts/route-audit.js --snapshot 生成。backend/ 删除后，route-parity.sh 以此为准逐条探测 Go，保证「历史端点一条都没丢」。仅在确认要新增/废弃端点时才重新生成，并同步 MIGRATION.md。2026-11-01 语音改自建 SFU，删除 /api/voice/token、/mute、/kick（能力改由 voice 事件承担）。2026-11-06 追加管理端房管三条（186 条历史 + 3 条 Go 侧新增 = 189），登记进清单是为了让这三条也进入回归探测。2026-11-14 追加房间 Live2D 模型库三条（上传/列表/删除，房主专属写权限），契约 192 条。",
   "generatedAt": "2026-10-25T05:47:58.398Z",
-  "total": 189,
+  "total": 192,
   "routes": [
     {
       "method": "GET",
@@ -759,6 +759,18 @@
     {
       "method": "GET",
       "path": "/health"
+    },
+    {
+      "method": "GET",
+      "path": "/api/rooms/:roomId/live2d/models"
+    },
+    {
+      "method": "POST",
+      "path": "/api/rooms/:roomId/live2d/models"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/rooms/:roomId/live2d/models/:modelId"
     }
   ]
 }

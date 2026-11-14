@@ -5,6 +5,13 @@ import { t } from '@/i18n'
 import { Sparkles } from 'lucide-react'
 import { loadLive2DEngine } from '../core/cubism-core'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
+import {
+  LIVE2D_UPLOAD_MAX_BYTES,
+  deleteRoomModel,
+  loadRoomModels,
+  uploadRoomModel,
+  type RoomModelEntry,
+} from '../core/room-models'
 import { Live2DRenderer } from '../core/live2d-renderer'
 import { slotX } from '../core/scene'
 import { LIVE2D_MAX_RENDERED } from '../constants'
@@ -49,6 +56,11 @@ export function RoomLive2DHost({
   const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null)
   const [renderer, setRenderer] = useState<Live2DRenderer | null>(null)
   const [builtins, setBuiltins] = useState<Live2DModelEntry[]>([])
+  const [roomModels, setRoomModels] = useState<RoomModelEntry[]>([])
+  const [roomCanManage, setRoomCanManage] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [noticeError, setNoticeError] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [failed, setFailed] = useState<string[]>([])
 
@@ -83,7 +95,31 @@ export function RoomLive2DHost({
     }
   }, [])
 
-  // ---- 4. 引擎与渲染器 ----
+  // ---- 4. 房间模型库（房主上传，全房间共用）----
+  //
+  // 刷新用「版本号 + effect」而不是在事件里直接 setState：上传/删除之后
+  // 只是把版本号加一，真正的取数留在 effect 里，避免多处各写一遍 promise 链，
+  // 也满足 react-hooks 对「effect 内不要同步 setState」的要求。
+  const [roomModelsVersion, setRoomModelsVersion] = useState(0)
+  const refreshRoomModels = useCallback(
+    () => setRoomModelsVersion((v) => v + 1),
+    []
+  )
+
+  useEffect(() => {
+    if (!roomId) return
+    let cancelled = false
+    void loadRoomModels(roomId).then((list) => {
+      if (cancelled) return
+      setRoomModels(list.models)
+      setRoomCanManage(list.canManage)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [roomId, roomModelsVersion])
+
+  // ---- 5. 引擎与渲染器 ----
   useEffect(() => {
     if (!enabled || !canvasEl) return
     let cancelled = false
@@ -116,7 +152,7 @@ export function RoomLive2DHost({
     }
   }, [enabled, canvasEl])
 
-  // ---- 5. 尺寸跟随 ----
+  // ---- 6. 尺寸跟随 ----
   useEffect(() => {
     if (!renderer || !canvasEl) return
     const observer = new ResizeObserver(() => {
@@ -126,13 +162,13 @@ export function RoomLive2DHost({
     return () => observer.disconnect()
   }, [renderer, canvasEl])
 
-  // ---- 6. 默认模型：进房即有角色 ----
+  // ---- 7. 默认模型：进房即有角色 ----
   useEffect(() => {
     if (!enabled || myModelId || builtins.length === 0) return
     setMyModel('builtin', builtins[0].id)
   }, [enabled, myModelId, builtins, setMyModel])
 
-  // ---- 7. 声明自己的模型（换模型/改大小才发）----
+  // ---- 8. 声明自己的模型（换模型/改大小才发）----
   useEffect(() => {
     if (!enabled || !socket || !roomId || !myModelId) return
     emitLive2DConfig(socket, roomId, {
@@ -143,7 +179,7 @@ export function RoomLive2DHost({
     })
   }, [enabled, socket, roomId, myKind, myModelId, myScale])
 
-  // ---- 8. 收发 ----
+  // ---- 9. 收发 ----
   useLive2DSync({ socket, roomId, renderer })
   useLive2DPointer({
     socket,
@@ -158,6 +194,49 @@ export function RoomLive2DHost({
       setMyModel(kind, modelId)
     },
     [setMyModel]
+  )
+
+  // 上传：成功后立刻切到新模型——这是房主上传时唯一想做的事。
+  const handleUpload = useCallback(
+    async (file: File) => {
+      if (uploading || !roomId) return
+      if (file.size > LIVE2D_UPLOAD_MAX_BYTES) {
+        setNotice(
+          t('模型包不能超过 {{size}}MB', {
+            size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
+          })
+        )
+        setNoticeError(true)
+        return
+      }
+      setUploading(true)
+      setNotice('')
+      const result = await uploadRoomModel(roomId, file)
+      setUploading(false)
+      setNotice(result.message)
+      setNoticeError(!result.ok)
+      if (!result.ok) return
+      refreshRoomModels()
+      if (result.model) handleSelect('room', result.model.id)
+    },
+    [uploading, roomId, refreshRoomModels, handleSelect]
+  )
+
+  const handleDeleteRoomModel = useCallback(
+    async (modelId: string) => {
+      if (!roomId) return
+      const result = await deleteRoomModel(roomId, modelId)
+      setNotice(result.message)
+      setNoticeError(!result.ok)
+      if (!result.ok) return
+      refreshRoomModels()
+      // 正用着这个模型就退回第一个内置模型，否则自己和别人都会看到占位卡。
+      if (myKind === 'room' && myModelId === modelId) {
+        setFailed([])
+        setMyModel('builtin', builtins[0]?.id ?? '')
+      }
+    },
+    [roomId, refreshRoomModels, myKind, myModelId, builtins, setMyModel]
   )
 
   const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
@@ -257,12 +336,19 @@ export function RoomLive2DHost({
         {panelOpen && enabled && (
           <Live2DControlPanel
             builtins={builtins}
+            roomModels={roomModels}
+            canManageRoom={roomCanManage}
+            uploading={uploading}
+            notice={notice}
+            noticeError={noticeError}
             myKind={myKind}
             myModelId={myModelId}
             myScale={myScale}
             isHost={isHost}
             onSelect={handleSelect}
             onScale={setMyScale}
+            onUpload={handleUpload}
+            onDeleteRoomModel={handleDeleteRoomModel}
             onClose={() => setPanelOpen(false)}
           />
         )}
@@ -274,6 +360,8 @@ export function RoomLive2DHost({
               setPanelOpen(true)
               return
             }
+            // 打开面板时顺手刷新一次：别人新传的模型能立刻看到。
+            if (!panelOpen) refreshRoomModels()
             setPanelOpen((prev) => !prev)
           }}
           aria-label={enabled ? t('角色设置') : t('显示角色')}

@@ -806,6 +806,11 @@ func (s *Server) handleAdminCleanupUnused(w http.ResponseWriter, r *http.Request
 
 // deleteRoom 走房间层的物理删除（含内存清理、级联落库、room-closed 广播与踢人）。
 func (s *Server) deleteRoom(ctx context.Context, roomID string) error {
+	// 房间没了，房主上传的 Live2D 模型目录也要清掉：它按房间号落在磁盘上，
+	// 不跟着删就会随着"建了又删"的房间慢慢把 uploads 撑满。
+	// 放在删除动作之前：万一后面删库失败，最多是模型白删（可重传），
+	// 反过来则会留下再也不会被任何房间引用的孤儿目录。
+	s.removeLive2DRoomModels(roomID)
 	if s.RoomSvc == nil {
 		return s.Rooms.DeleteCascade(ctx, roomID)
 	}

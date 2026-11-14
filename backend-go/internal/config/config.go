@@ -34,6 +34,8 @@ type Config struct {
 	DatabasePath string
 	UploadsDir   string
 	AvatarsDir   string
+	// Live2DDir 是房间级 Live2D 模型库（房主上传的模型解压到这里）。
+	Live2DDir    string
 	MediaDir     string
 	FrontendDist string
 
@@ -131,6 +133,7 @@ func Load() (*Config, error) {
 		cfg.ShareMediaPort = port
 	}
 	cfg.AvatarsDir = envOr("AVATARS_DIR", filepath.Join(cfg.UploadsDir, "avatars"))
+	cfg.Live2DDir = envOr("LIVE2D_DIR", filepath.Join(cfg.UploadsDir, "live2d"))
 
 	if raw := os.Getenv("PORT"); raw != "" {
 		port, err := strconv.Atoi(raw)
@@ -152,8 +155,12 @@ func Load() (*Config, error) {
 
 // EnsureDirs 创建全部数据目录（与 paths.ts#ensureDataDirs 等价）。
 func (c *Config) EnsureDirs() error {
-	dirs := []string{c.ConfigDir, c.UploadsDir, c.AvatarsDir, c.MediaDir, filepath.Dir(c.DatabasePath)}
+	dirs := []string{c.ConfigDir, c.UploadsDir, c.AvatarsDir, c.Live2DDir, c.MediaDir, filepath.Dir(c.DatabasePath)}
 	for _, dir := range dirs {
+		// 空串说明调用方没走 Load（单测手搓 Config），跳过而不是尝试创建 ""。
+		if dir == "" {
+			continue
+		}
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return fmt.Errorf("创建目录失败 %s: %w", dir, err)
 		}
