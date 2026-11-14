@@ -31,6 +31,7 @@
     "No camera found",
     "Model pack must be under {{size}}MB",
     "Model size",
+    "Could not load model: {{reason}}",
     "Model deleted",
     "Model uploaded",
     "Built-in",
@@ -63,7 +64,6 @@
     "These apply to the whole room and reset when the server restarts",
     "Starting…",
     "Custom model URL",
-    "Custom model failed to load (possibly blocked by CORS)",
     "Failed to load Cubism Core",
     "Cubism Core loaded but not registered",
     "The zip must contain model3.json and be under {{size}}MB"

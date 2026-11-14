@@ -40,8 +40,13 @@ import (
 // 文件当脚本执行。
 
 const (
-	// 压缩包上限。Live2D 模型是贴图为主，48MB 足够放下 4K 贴图的整套。
-	live2dUploadMaxBytes = 48 << 20
+	// 压缩包上限。
+	//
+	// 曾经写死 48MB，理由是「4K 贴图的整套也放得下」——被现实否掉了：一个
+	// 4096 导出的皮（5 张贴图，其中一张 8192²）压完 47MB，几乎是踩着线过；
+	// 多一张贴图就上传失败，而用户看到的是「模型包不能超过 48MB」。
+	// 96MB 覆盖到 2 万像素级贴图的成品皮，同时仍然是有限的。
+	live2dUploadMaxBytes = 96 << 20
 	// 解压后总字节上限（zip bomb 的主要防线，配合条目数与逐文件限读）。
 	live2dExtractMaxBytes = 192 << 20
 	// 条目数上限：官方模型通常 < 200，3000 已经是宽松值。
@@ -54,8 +59,18 @@ const (
 	live2dUploadKey = "file"
 )
 
-// 允许落地的后缀。**白名单**而不是黑名单：压缩包里出现 .exe/.dll/.js
-// 一律整包拒绝，避免上传目录变成可执行落点。
+// 允许落地的后缀。白名单决定「哪些文件会被写到磁盘」。
+//
+// 白名单之外分两种处理（见 planLive2DExtract）：
+//   - 明确危险的类型 → 整包拒绝（live2dRejectExts）
+//   - 其余未知类型   → 跳过不落地
+//
+// 为什么未知类型不再整包拒绝：VTube Studio 的导出目录里固定带
+// AdvancedARKitSettings.vbridger、.vtube.json、items_pinned_to_model.json，
+// 这些宿主配置对 Cubism 载入毫无用处。按老规则整包被拒，用户看到的是
+// 「不支持的文件类型：AdvancedARKitSettings.vbridger」——他既不知道该删哪个，
+// 删掉之后下次导出又会回来。而模型真正依赖的文件仍会被逐个核对
+// （validateLive2DReferences），不会因为放宽而放进一个残缺的模型。
 var live2dAllowedExts = map[string]bool{
 	".moc3": true,
 	".json": true,
@@ -68,6 +83,15 @@ var live2dAllowedExts = map[string]bool{
 	".ogg":  true,
 	".txt":  true,
 	".md":   true,
+}
+
+// 明确危险的后缀：即使白名单机制保证它们不会落盘，也整包拒绝。
+// 一个模型包里夹着 .exe/.js，本身就说明来源不可信——留着比直接说明更糟。
+var live2dRejectExts = map[string]bool{
+	".exe": true, ".dll": true, ".so": true, ".dylib": true, ".scr": true,
+	".bat": true, ".cmd": true, ".ps1": true, ".vbs": true, ".hta": true,
+	".js": true, ".mjs": true, ".jar": true, ".msi": true, ".sh": true,
+	".cpl": true, ".lnk": true,
 }
 
 var (
@@ -265,6 +289,18 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	// 补登记表情/待机动作：必须在引用校验之后（先确认原包自洽，再谈补充）。
+	rels := make([]string, 0, len(plan.items))
+	for _, item := range plan.items {
+		rels = append(rels, item.rel)
+	}
+	enriched, problem := enrichLive2DEntry(filepath.Join(tmpDir, live2dEntryFile), rels)
+	if problem != "" {
+		cleanup()
+		httpx.BadRequest(w, problem)
+		return
+	}
+
 	label := modelLabelFromFilename(header.Filename)
 	meta := live2dModelMeta{
 		ID:        newLive2DModelID(label),
@@ -289,9 +325,30 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 
 	httpx.OK(w, map[string]any{
 		"success": true,
-		"message": "模型已上传",
+		"message": live2dUploadMessage(enriched, plan.skipped),
 		"model":   meta,
 	})
+}
+
+// live2dUploadMessage 把「补登记了什么、忽略了什么」说清楚。
+//
+// 这两件事都改变了用户看到的结果（多出表情按钮、不再有待机动作），
+// 静默处理会让人怀疑是模型有问题。
+func live2dUploadMessage(enriched live2dEnrich, skipped int) string {
+	var parts []string
+	if enriched.Expressions > 0 {
+		parts = append(parts, fmt.Sprintf("自动登记 %d 个表情", enriched.Expressions))
+	}
+	if enriched.Motions > 0 {
+		parts = append(parts, fmt.Sprintf("%d 个待机动作", enriched.Motions))
+	}
+	if skipped > 0 {
+		parts = append(parts, fmt.Sprintf("忽略 %d 个非模型文件", skipped))
+	}
+	if len(parts) == 0 {
+		return "模型已上传"
+	}
+	return "模型已上传，" + strings.Join(parts, "、")
 }
 
 // live2dPlan 是「压缩包里哪些条目要落地、落到哪个相对路径」的结论。
@@ -300,6 +357,8 @@ type live2dPlan struct {
 	entryRel string
 	items    []live2dPlanItem
 	total    int64
+	// skipped 是不在白名单里、被跳过的条目数（只用于回报，不落盘）。
+	skipped int
 }
 
 type live2dPlanItem struct {
@@ -386,8 +445,13 @@ func planLive2DExtract(files []*zip.File) (live2dPlan, string) {
 		if rel == "" {
 			continue
 		}
-		if !live2dAllowedExts[strings.ToLower(path.Ext(rel))] {
+		ext := strings.ToLower(path.Ext(rel))
+		if live2dRejectExts[ext] {
 			return plan, fmt.Sprintf("压缩包里含不支持的文件类型：%s", path.Base(rel))
+		}
+		if !live2dAllowedExts[ext] {
+			plan.skipped++
+			continue
 		}
 		if item.name == entryName {
 			plan.entryRel = rel
@@ -494,6 +558,124 @@ func validateLive2DReferences(entryPath, root string) string {
 		return fmt.Sprintf("model3.json 引用的文件不存在：%s", missing)
 	}
 	return ""
+}
+
+// ==================== 补登记表情 / 待机动作 ====================
+
+// live2dEnrich 记录补登记了什么，用于回报给用户。
+type live2dEnrich struct {
+	Expressions int
+	Motions     int
+}
+
+const (
+	live2dExpressionSuffix = ".exp3.json"
+	live2dMotionSuffix     = ".motion3.json"
+)
+
+// enrichLive2DEntry 在入口 JSON 缺 Expressions / Motions 时，按包里实际存在的
+// *.exp3.json 与 idle*.motion3.json 补上登记。
+//
+// 为什么需要：VTube Studio 的导出习惯是把表情与动画放在 Exp3/、Animation/
+// 子目录，model3.json 只写 Moc/Textures/Physics。这种包在任何 Cubism 载入器里
+// 都是「模型能显示，但一个表情都没有、也不会待机」——用户看到的就是「显示不对」。
+// 而 Cubism 的表情/动作只能由 model3.json 寻址，光有文件等于没有。
+//
+// 只在字段为空时补：已经有登记的模型一个字节都不改（尊重作者的显式选择，
+// 比如他故意不放 Idle 组）。
+func enrichLive2DEntry(entryPath string, rels []string) (live2dEnrich, string) {
+	var result live2dEnrich
+	raw, err := os.ReadFile(entryPath)
+	if err != nil {
+		return result, "模型入口读取失败"
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return result, "model3.json 不是合法的 JSON"
+	}
+	refs, ok := doc["FileReferences"].(map[string]any)
+	if !ok {
+		return result, ""
+	}
+
+	sorted := append([]string(nil), rels...)
+	sort.Strings(sorted)
+
+	if existing, _ := refs["Expressions"].([]any); len(existing) == 0 {
+		items := make([]any, 0, 8)
+		used := make(map[string]int, 8)
+		for _, rel := range sorted {
+			name, ok := live2dExpressionName(rel)
+			if !ok {
+				continue
+			}
+			// 同名表情（不同子目录各放一份）加序号，否则引擎只认第一个
+			if n := used[name]; n > 0 {
+				used[name] = n + 1
+				name = fmt.Sprintf("%s %d", name, n+1)
+			} else {
+				used[name] = 1
+			}
+			items = append(items, map[string]any{"Name": name, "File": rel})
+		}
+		if len(items) > 0 {
+			refs["Expressions"] = items
+			result.Expressions = len(items)
+		}
+	}
+
+	if existing, _ := refs["Motions"].(map[string]any); len(existing) == 0 {
+		idle := make([]any, 0, 4)
+		for _, rel := range sorted {
+			if isLive2DIdleMotion(rel) {
+				idle = append(idle, map[string]any{"File": rel})
+			}
+		}
+		if len(idle) > 0 {
+			refs["Motions"] = map[string]any{"Idle": idle}
+			result.Motions = len(idle)
+		}
+	}
+
+	if result.Expressions == 0 && result.Motions == 0 {
+		return result, ""
+	}
+	out, err := json.MarshalIndent(doc, "", "\t")
+	if err != nil {
+		return result, "model3.json 重写失败"
+	}
+	if err := os.WriteFile(entryPath, append(out, '\n'), 0o644); err != nil {
+		return result, "model3.json 重写失败"
+	}
+	return result, ""
+}
+
+// live2dExpressionName 从 Exp3/兔牙.exp3.json 取出「兔牙」。
+func live2dExpressionName(rel string) (string, bool) {
+	base := path.Base(rel)
+	lower := strings.ToLower(base)
+	if !strings.HasSuffix(lower, live2dExpressionSuffix) {
+		return "", false
+	}
+	name := strings.TrimSpace(base[:len(base)-len(live2dExpressionSuffix)])
+	if name == "" {
+		return "", false
+	}
+	return name, true
+}
+
+// isLive2DIdleMotion 判断是不是待机动作：文件名以 idle 开头（忽略大小写）。
+//
+// 只收 idle 前缀而不是把整目录都塞进 Idle 组：手势类的动作（举手、脱捕…）
+// 被当成待机随机播放会非常怪。
+func isLive2DIdleMotion(rel string) bool {
+	base := path.Base(rel)
+	lower := strings.ToLower(base)
+	if !strings.HasSuffix(lower, live2dMotionSuffix) {
+		return false
+	}
+	stem := strings.TrimSpace(base[:len(base)-len(live2dMotionSuffix)])
+	return len(stem) >= 4 && strings.EqualFold(stem[:4], "idle")
 }
 
 func walkJSONStrings(node any, visit func(string)) {

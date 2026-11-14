@@ -43,12 +43,18 @@ export const LIVE2D_MAX_MODELS = 12
 
 /** 同时渲染的上限：超过这个数量只渲染最近活跃的若干个。 */
 export const LIVE2D_MAX_RENDERED = 6
-
 /** 空闲多少毫秒后进入「轻摆」本地动画（不上行，纯观感）。 */
 export const LIVE2D_IDLE_MS = 3000
 
 /** 模型在画面里的高度占比（相对视口高），半身像的常见观感。 */
 export const LIVE2D_MODEL_HEIGHT_RATIO = 0.42
 
-/** 自定义模型加载超时。CORS 预检 + 几 MB 纹理的现实上限。 */
-export const LIVE2D_LOAD_TIMEOUT_MS = 8000
+/**
+ * 模型加载超时。
+ *
+ * 8 秒只够「几 MB 纹理」的普通模型；4K 素材的整套（moc3 十几 MB + 多张
+ * 4096/8192 贴图）光是把 PNG 解成位图就要好几秒，再上传到 GPU 又是几秒，
+ * 8 秒会把它判成失败、只留一张占位卡。宁可等久一点，也不要误报失败——
+ * 真正的失败（404/CORS/模型损坏）都是立刻返回的，不会拖满超时。
+ */
+export const LIVE2D_LOAD_TIMEOUT_MS = 45000

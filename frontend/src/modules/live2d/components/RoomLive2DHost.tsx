@@ -113,7 +113,9 @@ export function RoomLive2DHost({
       root: fs instanceof HTMLElement ? fs : null,
     })
   }, [])
-  const [failed, setFailed] = useState<string[]>([])
+  // sid → 加载失败原因。存原因而不是只存 sid：占位卡上那句「可能被跨域限制」
+  // 对 4K 素材、moc3 版本、404 一视同仁，用户根本无从下手。
+  const [failed, setFailed] = useState<Record<string, string>>({})
   // 连带 url 一起存：换模型时旧清单不能先闪一下
   const [exprState, setExprState] = useState<{
     url: string
@@ -235,8 +237,10 @@ export function RoomLive2DHost({
           mount: canvasEl,
           localSid: socket?.id ?? '',
           onLocalMotion: (group, index) => motionSinkRef.current(group, index),
-          onModelError: (sid) => {
-            setFailed((prev) => (prev.includes(sid) ? prev : [...prev, sid]))
+          onModelError: (sid, reason) => {
+            setFailed((prev) =>
+              prev[sid] === reason ? prev : { ...prev, [sid]: reason }
+            )
           },
         })
         if (cancelled) {
@@ -398,7 +402,7 @@ export function RoomLive2DHost({
   // ---- 10. 动作 ----
   const handleSelect = useCallback(
     (kind: Live2DModelKind, modelId: string) => {
-      setFailed([])
+      setFailed({})
       setMyModel(kind, modelId)
       setHidden(false)
     },
@@ -465,7 +469,7 @@ export function RoomLive2DHost({
       // 自己正用着就退回第一个内置模型；连内置模型都没有（未随包模型）时
       // 直接撤回声明，别让别人的名册里留一个永远加载不出来的条目。
       if (effKind === 'room' && effModelId === modelId) {
-        setFailed([])
+        setFailed({})
         const fallback = builtins[0]?.id
         setMyModel('builtin', fallback ?? '')
         setHidden(!fallback)
@@ -527,7 +531,7 @@ export function RoomLive2DHost({
       <div ref={setCanvasEl} style={{ position: 'absolute', inset: 0 }} />
 
       {visible.map((peer, index) => {
-        const isFailed = failed.includes(peer.sid)
+        const failureReason = failed[peer.sid]
         return (
           <div
             key={peer.sid}
@@ -542,9 +546,9 @@ export function RoomLive2DHost({
               gap: 4,
             }}
           >
-            {isFailed && (
+            {failureReason && (
               <div
-                title={t('自定义模型未能加载（可能被跨域限制）')}
+                title={t('模型加载失败：{{reason}}', { reason: failureReason })}
                 onContextMenu={(event) => {
                   // 加载失败的占位卡是 DOM，直接自己收右键；否则这个角色
                   // 就成了唯一没有入口的那一格。

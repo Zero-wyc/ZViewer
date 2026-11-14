@@ -114,4 +114,6 @@ export async function deleteRoomModel(
 }
 
 /** 压缩包上限，与后端 live2dUploadMaxBytes 一致。 */
-export const LIVE2D_UPLOAD_MAX_BYTES = 48 << 20
+// 与后端 live2dUploadMaxBytes 保持一致。48MB 曾是「4K 贴图也够」的估计，
+// 但实测一个 4096 导出的成品皮压完 47MB，几乎是踩着线过；96MB 才留出余量。
+export const LIVE2D_UPLOAD_MAX_BYTES = 96 << 20

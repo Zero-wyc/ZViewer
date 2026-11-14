@@ -283,15 +283,25 @@ export class Live2DRenderer {
   private async load(sid: string, url: string): Promise<void> {
     this.loading.add(sid)
     try {
-      const model = await withTimeout(
-        this.engine.Live2DModel.from(url, {
-          // 关掉引擎自带的交互系统：它会在 canvas 上挂全局指针监听，
-          // 把房间的拖拽/双击全屏全吃掉。注视由我们自己 focus()。
-          autoInteract: false,
-          textureOptions: { lod: 'single-auto' },
-        }),
-        LIVE2D_LOAD_TIMEOUT_MS
-      )
+      const pending = this.engine.Live2DModel.from(url, {
+        // 关掉引擎自带的交互系统：它会在 canvas 上挂全局指针监听，
+        // 把房间的拖拽/双击全屏全吃掉。注视由我们自己 focus()。
+        autoInteract: false,
+        textureOptions: { lod: 'single-auto' },
+      })
+      let model: Live2DModelInstance
+      try {
+        model = await withTimeout(pending, LIVE2D_LOAD_TIMEOUT_MS)
+      } catch (err) {
+        // 超时只是「我们不等了」，底层加载还在跑。等它落地就销毁，否则贴图与
+        // WebGL 纹理全漏在显存里——4K 素材一次能漏掉几百 MB。
+        void pending
+          .then((late) =>
+            late.destroy({ children: true, texture: true, baseTexture: true })
+          )
+          .catch(() => {})
+        throw err
+      }
       if (this.destroyed) {
         model.destroy({ children: true, texture: true, baseTexture: true })
         return
