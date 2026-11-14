@@ -79,14 +79,18 @@ func NewBroadcaster(svc *Service, logger *log.Logger) *Broadcaster {
 	}
 }
 
-// Start 启动两个定时器（心跳 2s / 清理 30s）。重复调用无副作用。
+// Start 启动三个定时器（心跳 2s / 清理 30s / 悬浮层合并 100ms）。重复调用无副作用。
 func (b *Broadcaster) Start() {
 	if b == nil || b.svc == nil {
 		return
 	}
-	b.wg.Add(2)
+	b.wg.Add(3)
 	go b.loop(serverHeartbeatInterval, b.broadcastAll)
 	go b.loop(cleanupInterval, b.cleanupOnce)
+	// 悬浮层指针是高频数据，服务端按 100ms 合并成一条 patch 再下发：
+	// 逐帧广播会让 internal/sio 对每个观众同步写 socket，一个慢客户端就能
+	// 拖住整个房间。
+	go b.loop(live2dFlushInterval, b.svc.FlushLive2D)
 }
 
 // Stop 停止定时器并等待在途的一轮结束。

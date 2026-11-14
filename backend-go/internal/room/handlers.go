@@ -181,6 +181,9 @@ func (s *Service) AttachSocket(sc *sio.Socket) {
 	s.bindVoiceRTC(sc)
 	// CLI 代理 / 预览源 / 投屏子模式（零散能力）。
 	s.bindMisc(sc)
+	// 房间悬浮层（Live2D）：模型声明 + 15Hz 指针上报 + 快照补拉。
+	// 事件名与前面无重叠，放末尾不影响任何既有归属。
+	s.bindLive2D(sc)
 }
 
 // ---------- 房间生命周期 ----------
@@ -850,6 +853,14 @@ func (s *Service) handleDisconnect(socketID, reason string) {
 	if sess == nil {
 		// 没进过房间的连接（只连了一下就断）没有会话要收尾。
 		return
+	}
+
+	// 悬浮层模型要在下面的房主分支 return **之前**清掉：房主断开后他的模型
+	// 会一直挂在别人屏幕上，而那条 return 后面不会再回来。
+	if s.Live2DRemove(sess.RoomID, socketID) && s.Hub != nil {
+		s.Hub.EmitRoom(sess.RoomID, "live2d-patch", live2dPatchOut{
+			RoomID: sess.RoomID, Rem: []string{socketID},
+		})
 	}
 
 	if sess.Role == store.SessionRoleSharer {

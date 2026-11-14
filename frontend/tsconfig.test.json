@@ -33,6 +33,7 @@
     "src/modules/piik-voice/__tests__",
     "src/modules/piik-share/__tests__",
     "src/modules/piik-signal/__tests__",
-    "src/modules/bilibili/__tests__"
+    "src/modules/bilibili/__tests__",
+    "src/modules/live2d/__tests__"
   ]
 }

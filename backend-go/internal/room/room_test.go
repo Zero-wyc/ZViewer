@@ -40,6 +40,9 @@ type fakeHub struct {
 	online      map[string]bool
 	members     map[string][]string
 	socketData  map[string]map[string]any
+	// payloads 按「目标|事件」记录载荷原文：多数用例只看发没发，
+	// 但快照/补丁这类要断言「内容对不对」，没有它就是瞎测。
+	payloads map[string][]any
 }
 
 func newFakeHub() *fakeHub {
@@ -47,10 +50,15 @@ func newFakeHub() *fakeHub {
 		online:     make(map[string]bool),
 		members:    make(map[string][]string),
 		socketData: make(map[string]map[string]any),
+		payloads:   make(map[string][]any),
 	}
 }
 
-func (h *fakeHub) EmitRoom(roomID, event string, _ any) { h.rooms = append(h.rooms, roomID+"|"+event) }
+func (h *fakeHub) EmitRoom(roomID, event string, payload any) {
+	h.rooms = append(h.rooms, roomID+"|"+event)
+	key := roomID + "|" + event
+	h.payloads[key] = append(h.payloads[key], payload)
+}
 func (h *fakeHub) EmitRoomExcept(roomID, exceptSocketID, event string, _ any) {
 	h.roomsExcept = append(h.roomsExcept, roomID+"|"+exceptSocketID+"|"+event)
 }
@@ -66,8 +74,10 @@ func (h *fakeHub) SetSocketData(id, key string, value any) {
 	}
 	h.socketData[id][key] = value
 }
-func (h *fakeHub) EmitTo(socketID, event string, _ any) {
+func (h *fakeHub) EmitTo(socketID, event string, payload any) {
 	h.direct = append(h.direct, socketID+"|"+event)
+	key := socketID + "|" + event
+	h.payloads[key] = append(h.payloads[key], payload)
 }
 func (h *fakeHub) EmitGlobal(event string, _ any) {
 	h.global = append(h.global, event)

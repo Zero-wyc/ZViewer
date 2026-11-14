@@ -1,8 +1,8 @@
 {
   "version": 1,
-  "note": "Node 侧 Socket 上行业务事件的冻结快照。由 backend-go/scripts/event-audit.js --snapshot 生成：用生产同一份 createSocketRegistry() 在假 socket 上跑 registerAll()，记录被 .on() 挂上的名字。backend/ 删除后，event-audit.js --fixture 用它核对 Go 是否仍然逐条注册。lifecycle 是 socket.io 框架级事件（disconnect 等），不计入业务事件：Go 用 OnDisconnect 处理。2026-11-01 屏幕共享切到 share 单一事件后，删除 signal-offer / signal-answer / signal-ice-candidate / viewer-ready 四条（前端已无收发方）。",
+  "note": "Node 侧 Socket 上行业务事件的冻结快照。由 backend-go/scripts/event-audit.js --snapshot 生成：用生产同一份 createSocketRegistry() 在假 socket 上跑 registerAll()，记录被 .on() 挂上的名字。backend/ 删除后，event-audit.js --fixture 用它核对 Go 是否仍然逐条注册。lifecycle 是 socket.io 框架级事件（disconnect 等），不计入业务事件：Go 用 OnDisconnect 处理。2026-11-01 屏幕共享切到 share 单一事件后，删除 signal-offer / signal-answer / signal-ice-candidate / viewer-ready 四条（前端已无收发方）。2026-11-14 删除 sharer-error：webrtc_handlers.go 的注释已说明它随旧链路一起删掉（唯一产消双方都在旧前端房主侧），冻结快照里这条一直挂着只让 events-parity 永久红灯。",
   "generatedAt": "2026-10-25T05:50:05.640Z",
-  "total": 61,
+  "total": 60,
   "lifecycle": [
     "disconnect"
   ],
@@ -74,7 +74,6 @@
     "seek-response",
     "send-comment",
     "send-danmaku",
-    "sharer-error",
     "sharer-ready",
     "subtitle-request",
     "subtitle-update",

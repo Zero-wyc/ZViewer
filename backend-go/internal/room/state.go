@@ -142,6 +142,10 @@ type Service struct {
 	timers          map[string]*time.Timer
 	streamOfflineAt map[string]time.Time
 
+	// live2d 是房间悬浮层的高频状态（每客户端 15Hz 上报指针）。
+	// 独立锁、独立生命周期：不参与 RuntimeState 的序列化，也不进 DB。
+	live2d *live2dStore
+
 	// admitMu 串行化「人数校验 + 插入会话」，避免并发进房时超员。
 	admitMu sync.Mutex
 	perm    *permCache
@@ -203,6 +207,7 @@ func NewService(deps Deps) *Service {
 		timers:          make(map[string]*time.Timer),
 		streamOfflineAt: make(map[string]time.Time),
 		perm:            newPermCache(),
+		live2d:          newLive2DStore(),
 	}
 	svc.voiceRTC = deps.VoiceRTC
 	return svc
@@ -351,6 +356,12 @@ func (s *Service) Delete(roomID string) {
 	delete(s.states, roomID)
 	delete(s.streamOfflineAt, roomID)
 	s.mu.Unlock()
+
+	// 房间没了，悬浮层的模型状态也必须跟着清：它不在 states 里，
+	// 少这一行就会在房主永不回来时永久占着内存。
+	if s.live2d != nil {
+		s.live2d.DeleteRoom(roomID)
+	}
 }
 
 // HasState 判断房间是否还留着运行时状态（不创建）。

@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "test": "tsc -p tsconfig.test.json && node --experimental-strip-types --test \"src/modules/music/utils/__tests__/*.test.ts\" \"src/modules/screen-sharing/__tests__/*.test.ts\" \"src/modules/voice-chat/__tests__/*.test.ts\" \"src/modules/piik-voice/__tests__/*.test.ts\" \"src/modules/piik-share/__tests__/*.test.ts\" \"src/modules/bilibili/__tests__/*.test.ts\"",
+    "test": "tsc -p tsconfig.test.json && node --experimental-strip-types --test \"src/modules/music/utils/__tests__/*.test.ts\" \"src/modules/screen-sharing/__tests__/*.test.ts\" \"src/modules/voice-chat/__tests__/*.test.ts\" \"src/modules/piik-voice/__tests__/*.test.ts\" \"src/modules/piik-share/__tests__/*.test.ts\" \"src/modules/bilibili/__tests__/*.test.ts\" \"src/modules/live2d/__tests__/*.test.ts\"",
     "lint": "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,css,json}\"",
@@ -49,6 +49,7 @@
     "i18next": "^26.5.12",
     "lucide-react": "^1.23.0",
     "mediabunny": "file:vendor/mediabunny",
+    "pixi.js": "^8.23.0",
     "playsvideo": "file:vendor/playsvideo",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -56,6 +57,7 @@
     "react-router-dom": "^6.30.4",
     "socket.io-client": "^4.8.3",
     "tailwind-merge": "^3.6.0",
+    "untitled-pixi-live2d-engine": "^1.4.0",
     "zustand": "^5.0.14"
   }
 }

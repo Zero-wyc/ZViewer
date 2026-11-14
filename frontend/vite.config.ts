@@ -71,6 +71,9 @@ export default defineConfig({
     // → "Playback worker crashed"（生产构建无此问题，Rollup + Vite worker 插件处理正常）。
     // 排除后改由 Vite 自己的管线处理，worker 会被正确单独打包，resolve.alias 也照样生效。
     exclude: ['playsvideo'],
+    // pixi 只在房间页按需动态 import，但它是 CJS/ESM 混合的大包：预构建一次
+    // 能避免 dev 首次进房时卡在依赖发现上（生产构建不受影响）。
+    include: ['pixi.js'],
     // rolldown-vite：依赖预构建改用 rolldown（esbuildOptions 已弃用），
     // dashjs 空指针补丁复用 rollup 风格 transform 插件（rolldown 兼容该钩子）
     rolldownOptions: {
