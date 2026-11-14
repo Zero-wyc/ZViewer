@@ -44,6 +44,22 @@ type live2dConfigPayload struct {
 	Scale   *float64 `json:"scale"`
 }
 
+// live2dActionOut 是表情触发的下行：谁的哪个表情。
+//
+// 只带 sid + 表情下标，不带名字：表情在模型里就是按下标寻址的，
+// 而**同一个模型**在各端解析出的下标一致（都来自同一份 model3.json）。
+type live2dActionOut struct {
+	RoomID string `json:"roomId"`
+	SID    string `json:"sid"`
+	E      int    `json:"e"`
+}
+
+type live2dActionPayload struct {
+	RoomID string `json:"roomId"`
+	// E 是指针：缺省与 0 必须区分开（0 是合法的第一个表情）。
+	E *int `json:"e"`
+}
+
 type live2dStatePayload struct {
 	RoomID string   `json:"roomId"`
 	X      *float64 `json:"x"`
@@ -89,6 +105,9 @@ func (s *Service) bindLive2D(sc *sio.Socket) {
 	})
 	sc.On("live2d-request", func(args []json.RawMessage, _ func(...any)) {
 		s.handleLive2DRequest(sc, args)
+	})
+	sc.On("live2d-action", func(args []json.RawMessage, _ func(...any)) {
+		s.handleLive2DAction(sc, args)
 	})
 }
 
@@ -215,6 +234,42 @@ func (s *Service) handleLive2DState(sc *sio.Socket, args []json.RawMessage) {
 		ar = *payload.AR
 	}
 	s.Live2DUpdateState(payload.RoomID, sc.ID, *payload.X, *payload.Y, ar, time.Now())
+}
+
+// handleLive2DAction 处理「我这边点了表情」，立刻广播给全房间（含自己）。
+//
+// 为什么不走 live2d-patch 的 100ms 合并：动作是**瞬时事件**，攒 100ms 再发
+// 会让表情与点击错开、看起来像卡了一下；而且频率已经被 120ms 门限压住，
+// 一人最多 8Hz，直发的量级完全可控。
+//
+// 只允许操作**自己的**模型：sid 取 socket id，payload 里根本没有 sid 字段。
+func (s *Service) handleLive2DAction(sc *sio.Socket, args []json.RawMessage) {
+	if len(args) == 0 || len(args[0]) > 256 {
+		return
+	}
+	var payload live2dActionPayload
+	if err := json.Unmarshal(args[0], &payload); err != nil {
+		return
+	}
+	if payload.RoomID == "" || payload.E == nil {
+		return
+	}
+	index := *payload.E
+	if index < 0 || index > live2dMaxExpressionIndex {
+		return
+	}
+	// 频控 + 成员资格一步完成：没声明模型、或连点太快的都直接丢弃。
+	if !s.Live2DAllowAction(payload.RoomID, sc.ID) {
+		return
+	}
+	if s.Hub == nil {
+		return
+	}
+	s.Hub.EmitRoom(payload.RoomID, "live2d-action", live2dActionOut{
+		RoomID: payload.RoomID,
+		SID:    sc.ID,
+		E:      index,
+	})
 }
 
 // handleLive2DRequest 回发本房间的全量快照（无 ack，失败静默）。

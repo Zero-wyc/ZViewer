@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent } from 'react'
 import { t } from '@/i18n'
 import { Check, Link2, Trash2, Upload, X } from 'lucide-react'
 import type { Live2DModelEntry } from '../core/model-catalog'
+import type { ModelExpressionEntry } from '../core/model-meta'
 import {
   LIVE2D_UPLOAD_MAX_BYTES,
   type RoomModelEntry,
@@ -29,7 +30,10 @@ export interface Live2DControlPanelProps {
   myModelId: string
   myScale: number
   isHost: boolean
+  /** 当前模型声明的表情（读 model3.json，未加载出时为空白不显示） */
+  expressions: ModelExpressionEntry[]
   onSelect: (kind: Live2DModelKind, modelId: string) => void
+  onExpression: (index: number) => void
   onScale: (scale: number) => void
   onUpload: (file: File) => void
   onDeleteRoomModel: (modelId: string) => void
@@ -47,7 +51,9 @@ export function Live2DControlPanel({
   myModelId,
   myScale,
   isHost,
+  expressions,
   onSelect,
+  onExpression,
   onScale,
   onUpload,
   onDeleteRoomModel,
@@ -271,6 +277,31 @@ export function Live2DControlPanel({
               {error}
             </p>
           )}
+        </div>
+      )}
+
+      {expressions.length > 0 && (
+        <div className="mb-2">
+          <label className="mb-1 block text-[10px] uppercase tracking-wide opacity-60">
+            {t('表情')}
+          </label>
+          <div className="flex flex-wrap gap-1">
+            {expressions.map((item) => (
+              <button
+                key={item.index}
+                type="button"
+                onClick={() => onExpression(item.index)}
+                title={t('所有人都会看到')}
+                className="max-w-full truncate rounded-md border px-1.5 py-0.5 text-[10px]"
+                style={{
+                  background: 'var(--md-sys-color-surface)',
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                {item.name || t('表情 {{index}}', { index: item.index + 1 })}
+              </button>
+            ))}
+          </div>
         </div>
       )}
 

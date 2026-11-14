@@ -111,6 +111,22 @@ export class Live2DRenderer {
     loaded.model.destroy({ children: true, texture: true, baseTexture: true })
   }
 
+  /**
+   * 播放某个成员模型的表情。
+   *
+   * 用下标而不是表情名：同一份 model3.json 在各端解析出的顺序相同，
+   * 而表情名在导出时经常是空串或重名（官方素材也这样），不可靠。
+   * 模型还没加载完就丢弃——表情是瞬时动作，补播反而更怪。
+   */
+  playExpression(sid: string, index: number): void {
+    if (this.destroyed) return
+    const loaded = this.models.get(sid)
+    if (!loaded || !Number.isInteger(index) || index < 0) return
+    void loaded.model.expression(index).catch(() => {
+      // 模型没这个下标的表情 / 正被动作覆盖：静默忽略，不值得报错
+    })
+  }
+
   /** 同步移除场景里已经不存在的模型。 */
   prune(alive: Set<string>): void {
     for (const sid of [...this.models.keys()]) {

@@ -29,14 +29,17 @@ export function validateModelUrl(raw: string): string | null {
 }
 
 /**
- * 把 peer 解析成引擎可加载的 model3.json 地?
+ * 把 peer 解析成引擎可加载的 model3.json 地址。
  *
  * 三种来源：
  * - builtin：随仓库放的前端静态资源；
  * - room：房主上传到本房间的模型（服务端把入口统一命名成 model.model3.json）；
  * - url：房主填的第三方地址（可能被 CORS 拦，加载失败由调用方降级）。
  */
-export function resolveModelUrl(peer: Live2DPeer, roomId: string): string {
+export function resolveModelUrl(
+  peer: Pick<Live2DPeer, 'kind' | 'modelId'>,
+  roomId: string
+): string {
   switch (peer.kind) {
     case 'url':
       return peer.modelId

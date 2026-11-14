@@ -3,6 +3,7 @@ import type { Socket } from 'socket.io-client'
 import { LIVE2D_EVENT } from '../constants'
 import {
   rowToPeer,
+  type Live2DActionPayload,
   type Live2DConfigAck,
   type Live2DPatchPayload,
   type Live2DSnapshotPayload,
@@ -105,8 +106,16 @@ export function useLive2DSync({
       if (membershipChanged) syncRenderer()
     }
 
+    // 表情是瞬时动作：不进名册、不进场景，直接交给渲染器播。
+    const onAction = (payload: Live2DActionPayload) => {
+      if (!payload || payload.roomId !== roomId) return
+      if (!payload.sid) return
+      renderer?.playExpression(payload.sid, Number(payload.e))
+    }
+
     socket.on(LIVE2D_EVENT.SNAPSHOT, onSnapshot)
     socket.on(LIVE2D_EVENT.PATCH, onPatch)
+    socket.on(LIVE2D_EVENT.ACTION, onAction)
 
     // 挂载即拉：join 时服务端的推送往往早于 effect 挂载，已经丢了
     socket.emit(LIVE2D_EVENT.REQUEST, { roomId })
@@ -114,6 +123,7 @@ export function useLive2DSync({
     return () => {
       socket.off(LIVE2D_EVENT.SNAPSHOT, onSnapshot)
       socket.off(LIVE2D_EVENT.PATCH, onPatch)
+      socket.off(LIVE2D_EVENT.ACTION, onAction)
     }
   }, [socket, roomId, renderer])
 
@@ -146,4 +156,15 @@ export function emitLive2DConfig(
       onDone?.(ack ?? null)
     }
   )
+}
+
+/** 触发表情：服务端会广播给整个房间（含自己），所以本地不做乐观应用。 */
+export function emitLive2DAction(
+  socket: Socket | null,
+  roomId: string,
+  index: number
+): void {
+  if (!socket || !roomId) return
+  if (!Number.isInteger(index) || index < 0) return
+  socket.emit(LIVE2D_EVENT.ACTION, { roomId, e: index })
 }

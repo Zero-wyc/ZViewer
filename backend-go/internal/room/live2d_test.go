@@ -212,3 +212,40 @@ func TestLive2DRoomModelSelectableByViewer(t *testing.T) {
 		t.Fatalf("房间模型应已写入，实际 %+v", list)
 	}
 }
+
+// 7) 表情：只在「自己是房内成员且声明了模型」时广播，且被 120ms 门限压住。
+func TestLive2DActionBroadcast(t *testing.T) {
+	env := newTestEnv(t)
+	env.svc.Live2DSet("ROOM_E", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+
+	env.svc.handleLive2DAction(&sio.Socket{ID: "s1"}, l2dArgs(t, `{"roomId":"ROOM_E","e":2}`))
+	if len(env.hub.rooms) != 1 || env.hub.rooms[0] != "ROOM_E|live2d-action" {
+		t.Fatalf("应广播一条 live2d-action，实际 %v", env.hub.rooms)
+	}
+	out, _ := env.hub.payloads["ROOM_E|live2d-action"][0].(live2dActionOut)
+	if out.SID != "s1" || out.E != 2 {
+		t.Fatalf("广播内容不对：%+v", out)
+	}
+
+	// 连点：120ms 内的第二条必须被丢掉（否则一个人就能刷满整个房间）。
+	env.svc.handleLive2DAction(&sio.Socket{ID: "s1"}, l2dArgs(t, `{"roomId":"ROOM_E","e":3}`))
+	if len(env.hub.rooms) != 1 {
+		t.Fatalf("门限内的第二条不应广播，实际 %v", env.hub.rooms)
+	}
+
+	// 没声明模型的连接：整条丢弃。
+	env.svc.handleLive2DAction(&sio.Socket{ID: "s-stranger"}, l2dArgs(t, `{"roomId":"ROOM_E","e":1}`))
+	if len(env.hub.rooms) != 1 {
+		t.Fatalf("非成员不应广播，实际 %v", env.hub.rooms)
+	}
+
+	// 越界下标：丢弃（0 是合法值，所以缺省与 0 必须区分）。
+	for _, raw := range []string{`{"roomId":"ROOM_E","e":-1}`, `{"roomId":"ROOM_E","e":64}`, `{"roomId":"ROOM_E"}`} {
+		env.svc.handleLive2DAction(&sio.Socket{ID: "s1"}, l2dArgs(t, raw))
+	}
+	if len(env.hub.rooms) != 1 {
+		t.Fatalf("越界/缺参不应广播，实际 %v", env.hub.rooms)
+	}
+}

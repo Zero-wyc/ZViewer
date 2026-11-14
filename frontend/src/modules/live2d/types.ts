@@ -54,6 +54,13 @@ export interface Live2DPatchPayload {
   add?: Live2DRow[]
 }
 
+/** 表情触发：服务端只带 sid + 下标，下标在同模型的各端一致。 */
+export interface Live2DActionPayload {
+  roomId: string
+  sid: string
+  e: number
+}
+
 export interface Live2DConfigAck {
   success: boolean
   message?: string

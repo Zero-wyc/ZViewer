@@ -6,6 +6,11 @@ import { Sparkles } from 'lucide-react'
 import { loadLive2DEngine } from '../core/cubism-core'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
+  loadModelExpressions,
+  type ModelExpressionEntry,
+} from '../core/model-meta'
+import { resolveModelUrl } from '../core/model-url'
+import {
   LIVE2D_UPLOAD_MAX_BYTES,
   deleteRoomModel,
   loadRoomModels,
@@ -15,7 +20,11 @@ import {
 import { Live2DRenderer } from '../core/live2d-renderer'
 import { slotX } from '../core/scene'
 import { LIVE2D_MAX_RENDERED } from '../constants'
-import { emitLive2DConfig, useLive2DSync } from '../hooks/useLive2DSync'
+import {
+  emitLive2DAction,
+  emitLive2DConfig,
+  useLive2DSync,
+} from '../hooks/useLive2DSync'
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
 import { useLive2DStore } from '../store/live2dStore'
 import { Live2DControlPanel } from './Live2DControlPanel'
@@ -63,6 +72,11 @@ export function RoomLive2DHost({
   const [noticeError, setNoticeError] = useState(false)
   const [panelOpen, setPanelOpen] = useState(false)
   const [failed, setFailed] = useState<string[]>([])
+  // 连带 url 一起存：换模型时旧清单不能先闪一下
+  const [exprState, setExprState] = useState<{
+    url: string
+    list: ModelExpressionEntry[]
+  }>({ url: '', list: [] })
 
   // ---- 2. 原生全屏时搬进 top layer ----
   useEffect(() => {
@@ -118,6 +132,27 @@ export function RoomLive2DHost({
       cancelled = true
     }
   }, [roomId, roomModelsVersion])
+
+  // ---- 4b. 我的模型有哪些表情 ----
+  const myModelUrl = myModelId
+    ? resolveModelUrl({ kind: myKind, modelId: myModelId }, roomId)
+    : ''
+  const myExpressions =
+    exprState.url === myModelUrl
+      ? exprState.list
+      : ([] as ModelExpressionEntry[])
+
+  useEffect(() => {
+    if (!myModelUrl) return
+    let cancelled = false
+    void loadModelExpressions(myModelUrl).then((list) => {
+      if (cancelled) return
+      setExprState({ url: myModelUrl, list })
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [myModelUrl])
 
   // ---- 5. 引擎与渲染器 ----
   useEffect(() => {
@@ -220,6 +255,15 @@ export function RoomLive2DHost({
       if (result.model) handleSelect('room', result.model.id)
     },
     [uploading, roomId, refreshRoomModels, handleSelect]
+  )
+
+  // 表情不本地乐观应用：服务端会把同一条广播发回给自己，
+  // 这样「自己看到的」和「别人看到的」永远是同一份事实。
+  const handleExpression = useCallback(
+    (index: number) => {
+      emitLive2DAction(socket, roomId, index)
+    },
+    [socket, roomId]
   )
 
   const handleDeleteRoomModel = useCallback(
@@ -357,6 +401,8 @@ export function RoomLive2DHost({
             onScale={setMyScale}
             onUpload={handleUpload}
             onDeleteRoomModel={handleDeleteRoomModel}
+            expressions={myExpressions}
+            onExpression={handleExpression}
             onClose={() => setPanelOpen(false)}
           />
         )}

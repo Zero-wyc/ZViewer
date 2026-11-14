@@ -31,6 +31,16 @@ const (
 	// live2dMinStateGap 是单连接上报指针的最小间隔（25Hz 上限）。
 	// 客户端按 15Hz 发，超频的一律丢弃，避免有人写个循环把房间打满。
 	live2dMinStateGap = 40 * time.Millisecond
+	// live2dMinActionGap 是单连接触发表情的最小间隔。
+	//
+	// 表情是「点一下播一次」的低频动作，但按钮可以被按住连点：120ms 既
+	// 留出连点的手感，又保证一个人最多 8Hz，不会让房间里的 N-1 个人
+	// 每人每秒收几十条广播。
+	live2dMinActionGap = 120 * time.Millisecond
+	// live2dMaxExpressionIndex 是表情下标上限。一个模型的表情数极少超过 20，
+	// 63 只是把「有人传巨大下标」挡在外面。
+	live2dMaxExpressionIndex = 63
+
 	// live2dFlushInterval 是服务端合并下行的间隔。
 	//
 	// 为什么要合并而不是来一帧发一帧：internal/sio 的 Broadcast.Emit
@@ -65,6 +75,8 @@ type live2dMember struct {
 	pendingAdd bool
 	dirty      bool
 	lastState  time.Time
+	// lastAction 只用于表情频控，不参与下发。
+	lastAction time.Time
 	updatedAt  time.Time
 }
 
@@ -163,6 +175,28 @@ func (st *live2dStore) UpdateState(roomID, socketID string, x, y, ar float64, no
 	m.Y = clampFloat(y, 0, 1)
 	m.AR = clampFloat(ar, 0.2, 6)
 	m.dirty = true
+	return true
+}
+
+// AllowAction 判断这条连接现在能不能触发表情（120ms 门限）。
+//
+// 顺便承担成员资格判断：没声明过模型的连接不该能广播动作。
+func (st *live2dStore) AllowAction(roomID, socketID string, now time.Time) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	r := st.rooms[roomID]
+	if r == nil {
+		return false
+	}
+	m := r.models[socketID]
+	if m == nil {
+		return false
+	}
+	if !m.lastAction.IsZero() && now.Sub(m.lastAction) < live2dMinActionGap {
+		return false
+	}
+	m.lastAction = now
 	return true
 }
 
@@ -323,6 +357,14 @@ func (s *Service) Live2DUpdateState(roomID, socketID string, x, y, ar float64, n
 		return false
 	}
 	return s.live2d.UpdateState(roomID, socketID, x, y, ar, now)
+}
+
+// Live2DAllowAction 是 AllowAction 的 Service 包装（频控 + 成员资格）。
+func (s *Service) Live2DAllowAction(roomID, socketID string) bool {
+	if s == nil || s.live2d == nil {
+		return false
+	}
+	return s.live2d.AllowAction(roomID, socketID, time.Now())
 }
 
 func (s *Service) Live2DSnapshot(roomID string) []live2dMember {

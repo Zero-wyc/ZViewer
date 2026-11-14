@@ -10,6 +10,8 @@ export const LIVE2D_EVENT = {
   STATE: 'live2d-state',
   /** C→S：挂载/重连后补拉全量快照 */
   REQUEST: 'live2d-request',
+  /** 表情：C→S 点一下，S→C 立刻广播给全房间（瞬时，不走 patch 合并） */
+  ACTION: 'live2d-action',
   /** S→C：全量快照（只回发起者） */
   SNAPSHOT: 'live2d-snapshot',
   /** S→C：服务端 100ms 合并后的增量 */
