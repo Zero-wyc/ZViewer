@@ -133,6 +133,10 @@ type Service struct {
 	// movieLister 由 api 层注入（DTO 定义在那边）。
 	movieLister MovieLister
 
+	// live2dModelExists 由 api 层注入：房间模型库落在 uploads 目录，
+	// room 包不该知道磁盘布局，只问「这个房间有没有这个模型」。
+	live2dModelExists Live2DModelChecker
+
 	// onRoomClosed 是房间关闭时的外部回调（Piik 房间回收等）。room 包
 	// 不该知道有哪几个外部房间，所以只留一个钩子，装配期由 main 挂上。
 	onRoomClosed []func(roomID string)

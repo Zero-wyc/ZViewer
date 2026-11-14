@@ -162,6 +162,8 @@ func New(deps Deps) *Server {
 	// 房间层需要「按房间读影片 DTO」，DTO 定义在 api 包里，只能反向注入。
 	if deps.RoomSvc != nil {
 		deps.RoomSvc.SetMovieLister(s.movieList)
+		// 房间模型库落在 uploads 目录，room 包不该知道磁盘布局。
+		deps.RoomSvc.SetLive2DModelChecker(s.live2DModelExists)
 	}
 	return s
 }

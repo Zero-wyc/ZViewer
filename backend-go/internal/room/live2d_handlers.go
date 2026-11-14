@@ -51,6 +51,12 @@ type live2dStatePayload struct {
 	AR     *float64 `json:"a"`
 }
 
+// Live2DModelChecker 判断某个房间模型是否存在（由 api 层注入，避免 room 包碰磁盘）。
+type Live2DModelChecker func(roomID, modelID string) bool
+
+// SetLive2DModelChecker 注入房间模型库查询（api.New 里挂上）。
+func (s *Service) SetLive2DModelChecker(fn Live2DModelChecker) { s.live2dModelExists = fn }
+
 var (
 	live2dBuiltinIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,32}$`)
 	live2dRoomIDPattern    = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -127,19 +133,26 @@ func (s *Service) handleLive2DConfig(sc *sio.Socket, args []json.RawMessage, ack
 			ackFail(ack, "模型标识不合法")
 			return
 		}
-	case "url", "room":
-		// 自定义模型只开给房主：URL 会让别人的浏览器去拉第三方资源，
-		// 房间上传模型则要占服务器磁盘，两者都不该由普通观众决定。
+	case "url":
+		// 外链模型只开给房主：它会让房间里每个人的浏览器去拉第三方资源，
+		// 这个决定不该由普通成员做。
 		if !s.requireHost(ctx, ack, sc, payload.RoomID, "只有房主可以设置自定义模型") {
 			return
 		}
-		if kind == "url" {
-			if problem := validateLive2DModelURL(modelID); problem != "" {
-				ackFail(ack, problem)
-				return
-			}
-		} else if !live2dRoomIDPattern.MatchString(modelID) {
+		if problem := validateLive2DModelURL(modelID); problem != "" {
+			ackFail(ack, problem)
+			return
+		}
+	case "room":
+		// 房间模型库是房主上传、全房间共用的**资源**，任何成员都可以选，
+		// 不构成额外磁盘开销。但必须真的存在：否则随便填一个 id 就会让
+		// 房间里所有人加载失败、只剩占位卡。
+		if !live2dRoomIDPattern.MatchString(modelID) {
 			ackFail(ack, "模型标识不合法")
+			return
+		}
+		if s.live2dModelExists != nil && !s.live2dModelExists(payload.RoomID, modelID) {
+			ackFail(ack, "该模型已不存在，请重新选择")
 			return
 		}
 	default:

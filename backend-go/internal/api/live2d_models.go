@@ -630,6 +630,18 @@ func (s *Server) removeLive2DRoomModels(roomID string) {
 	_ = os.RemoveAll(s.live2dRoomDir(roomID))
 }
 
+// live2DModelExists 供房间层校验 room 类型模型是否存在（socket 侧选择时调用）。
+//
+// 只查入口文件在不在：解压是「全部校验通过才改名落地」，所以入口存在
+// 就等于这个模型是完整的。
+func (s *Server) live2DModelExists(roomID, modelID string) bool {
+	if !live2dRoomPathPattern.MatchString(roomID) || !live2dModelIDPattern.MatchString(modelID) {
+		return false
+	}
+	info, err := os.Stat(filepath.Join(s.live2dRoomDir(roomID), modelID, live2dEntryFile))
+	return err == nil && info.Mode().IsRegular()
+}
+
 // ==================== 静态下发 ====================
 
 // live2dModelsHandler 提供 /uploads/live2d/<roomId>/<modelId>/… 的只读访问。

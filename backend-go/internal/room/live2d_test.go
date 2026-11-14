@@ -172,3 +172,43 @@ func TestLive2DURLLimitedToHost(t *testing.T) {
 		t.Fatalf("同源路径应放行，实际：%s", got)
 	}
 }
+
+// 6) 房间模型库是共享资源：观众也能选，但必须真的存在。
+//
+// 这一条守的是产品语义——房主上传的模型如果不让观众选，这个功能对他们
+// 就等于不存在；反过来如果不校验存在性，随便填 id 会让全房间加载失败。
+func TestLive2DRoomModelSelectableByViewer(t *testing.T) {
+	env := newTestEnv(t)
+	l2dSession(t, env, "ROOM_R", "s-viewer", store.SessionRoleViewer)
+	env.svc.SetLive2DModelChecker(func(roomID, modelID string) bool {
+		return roomID == "ROOM_R" && modelID == "hiyori-abc123"
+	})
+
+	var missingAck AckResponse
+	env.svc.handleLive2DConfig(&sio.Socket{ID: "s-viewer"},
+		l2dArgs(t, `{"roomId":"ROOM_R","action":"set","kind":"room","modelId":"nope-000000"}`),
+		func(v ...any) {
+			if len(v) > 0 {
+				missingAck, _ = v[0].(AckResponse)
+			}
+		})
+	if missingAck.Success {
+		t.Fatal("不存在的房间模型不应放行")
+	}
+
+	var okAck AckResponse
+	env.svc.handleLive2DConfig(&sio.Socket{ID: "s-viewer"},
+		l2dArgs(t, `{"roomId":"ROOM_R","action":"set","kind":"room","modelId":"hiyori-abc123"}`),
+		func(v ...any) {
+			if len(v) > 0 {
+				okAck, _ = v[0].(AckResponse)
+			}
+		})
+	if !okAck.Success {
+		t.Fatalf("观众应能选房间模型：%+v", okAck)
+	}
+	list := env.svc.Live2DSnapshot("ROOM_R")
+	if len(list) != 1 || list[0].Kind != "room" {
+		t.Fatalf("房间模型应已写入，实际 %+v", list)
+	}
+}
