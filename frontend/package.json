@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "predev": "node scripts/prepare-live2d-face.mjs",
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
@@ -15,7 +16,8 @@
     "i18n:dict": "node scripts/i18n-extract.mjs --dict-only",
     "i18n:plan": "node scripts/i18n-translate.mjs --plan --force",
     "i18n:build": "node scripts/i18n-translate.mjs --build",
-    "i18n:check": "node scripts/i18n-extract.mjs --check && node scripts/i18n-translate.mjs --check"
+    "i18n:check": "node scripts/i18n-extract.mjs --check && node scripts/i18n-translate.mjs --check",
+    "prebuild": "node scripts/prepare-live2d-face.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -38,6 +40,7 @@
   },
   "dependencies": {
     "@material/material-color-utilities": "^0.4.0",
+    "@mediapipe/tasks-vision": "^0.10.35",
     "@videojs/core": "^10.0.0-rc.4",
     "@videojs/dash-video": "10.0.0-rc.4",
     "@videojs/media": "10.0.0-rc.4",

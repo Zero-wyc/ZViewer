@@ -136,3 +136,41 @@ func TestSpaRejectsTraversalAndReportsMissingDist(t *testing.T) {
 		t.Errorf("产物缺失的提示文案变了: %s", rec.Body.String())
 	}
 }
+
+// /live2d/ 下缺文件不能回 SPA。
+//
+// 这条守的是摄像头动捕：wasm 与模型都从 /live2d/face/ 取，一旦缺失却回
+// index.html，MediaPipe 拿到的是 HTML，报的是 magic word 之类的错，
+// 排查时会一路怀疑到浏览器身上。
+func TestLive2DMissingAssetIs404(t *testing.T) {
+	env := newTestEnv(t)
+	defer env.teardown()
+	writeDist(t, env.dist)
+
+	rec := rawGet(t, env, http.MethodGet, "/live2d/face/wasm/vision_wasm_internal.wasm")
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("缺失的 wasm 应 404，得到 %d", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "ZViewer-SPA") {
+		t.Error("缺失资源不该回 index.html")
+	}
+
+	// 存在时按 wasm 的类型与缓存头下发
+	dir := filepath.Join(env.dist, "live2d", "face", "wasm")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("建目录失败: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "vision_wasm_internal.wasm"), []byte("wasm-bytes"), 0o644); err != nil {
+		t.Fatalf("写 wasm 失败: %v", err)
+	}
+	ok := rawGet(t, env, http.MethodGet, "/live2d/face/wasm/vision_wasm_internal.wasm")
+	if ok.Code != http.StatusOK {
+		t.Fatalf("wasm 应 200，得到 %d", ok.Code)
+	}
+	if ct := ok.Header().Get("Content-Type"); ct != "application/wasm" {
+		t.Errorf("Content-Type 应为 application/wasm，得到 %q", ct)
+	}
+	if cc := ok.Header().Get("Cache-Control"); !strings.Contains(cc, "max-age") {
+		t.Errorf("缺少缓存头: %q", cc)
+	}
+}

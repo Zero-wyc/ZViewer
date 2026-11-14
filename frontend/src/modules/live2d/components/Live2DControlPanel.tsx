@@ -1,6 +1,6 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { t } from '@/i18n'
-import { Check, Link2, Trash2, Upload, X } from 'lucide-react'
+import { Camera, Check, Link2, Trash2, Upload, X } from 'lucide-react'
 import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry } from '../core/model-meta'
 import {
@@ -32,6 +32,9 @@ export interface Live2DControlPanelProps {
   isHost: boolean
   /** 当前模型声明的表情（读 model3.json，未加载出时为空白不显示） */
   expressions: ModelExpressionEntry[]
+  /** 摄像头动捕的开关状态与失败原因 */
+  faceTracking: { on: boolean; busy: boolean; error: string }
+  onToggleFaceTracking: () => void
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   onExpression: (index: number) => void
   onScale: (scale: number) => void
@@ -52,8 +55,10 @@ export function Live2DControlPanel({
   myScale,
   isHost,
   expressions,
+  faceTracking,
   onSelect,
   onExpression,
+  onToggleFaceTracking,
   onScale,
   onUpload,
   onDeleteRoomModel,
@@ -279,6 +284,50 @@ export function Live2DControlPanel({
           )}
         </div>
       )}
+
+      <div className="mb-2">
+        <button
+          type="button"
+          onClick={onToggleFaceTracking}
+          aria-pressed={faceTracking.on}
+          className="flex w-full items-center justify-between gap-2 rounded-lg border px-2 py-1.5 text-[11px]"
+          style={{
+            background: 'var(--md-sys-color-surface)',
+            borderColor: faceTracking.on
+              ? 'var(--md-sys-color-primary)'
+              : 'var(--md-sys-color-outline-variant)',
+          }}
+        >
+          <span className="flex items-center gap-1.5">
+            <Camera size={13} />
+            {faceTracking.busy ? t('正在启动…') : t('摄像头动捕')}
+          </span>
+          <span
+            className="text-[10px]"
+            style={{
+              color: faceTracking.on
+                ? 'var(--md-sys-color-primary)'
+                : 'var(--md-sys-color-on-surface-variant)',
+            }}
+          >
+            {faceTracking.on ? t('已开启') : t('关闭')}
+          </span>
+        </button>
+        {faceTracking.error ? (
+          <p
+            className="mt-1 text-[10px] leading-snug"
+            style={{ color: 'var(--md-sys-color-error)' }}
+          >
+            {faceTracking.error}
+          </p>
+        ) : (
+          <p className="mt-1 text-[10px] leading-snug opacity-45">
+            {faceTracking.on
+              ? t('画面只在本机处理，不会上传')
+              : t('开启后角色会跟着你的头部转动')}
+          </p>
+        )}
+      </div>
 
       {expressions.length > 0 && (
         <div className="mb-2">

@@ -31,3 +31,6 @@ public/*.zip -text
 
 # Live2D Cubism Core：官方分发的 min 文件，保持字节原样（不要把行尾规范化）
 frontend/public/live2d/core/live2dcubismcore.min.js -text
+
+# MediaPipe 人脸模型（zip 容器）：二进制，保持字节原样
+frontend/public/live2d/face/face_landmarker.task -text

@@ -4,6 +4,7 @@ import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
 import { Sparkles } from 'lucide-react'
 import { loadLive2DEngine } from '../core/cubism-core'
+import { FaceTracker } from '../core/face-tracker'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
   loadModelExpressions,
@@ -77,6 +78,16 @@ export function RoomLive2DHost({
     url: string
     list: ModelExpressionEntry[]
   }>({ url: '', list: [] })
+  // 摄像头动捕：实例放 ref（不参与渲染），开关状态在 state 里
+  const trackerRef = useRef<FaceTracker | null>(null)
+  // 卸载后摄像头还在跑是最糟的泄漏：启停都是异步的，必须在 await 之后复查
+  const disposedRef = useRef(false)
+  const [tracker, setTracker] = useState<FaceTracker | null>(null)
+  const [face, setFace] = useState<{
+    on: boolean
+    busy: boolean
+    error: string
+  }>({ on: false, busy: false, error: '' })
 
   // ---- 2. 原生全屏时搬进 top layer ----
   useEffect(() => {
@@ -214,6 +225,62 @@ export function RoomLive2DHost({
     })
   }, [enabled, socket, roomId, myKind, myModelId, myScale])
 
+  // ---- 8b. 摄像头动捕 ----
+  //
+  // 只有用户点开关才会申请摄像头（这也是一次用户手势，权限弹窗才不会
+  // 被浏览器拦）。关掉、换房、卸载都要停：track 不停会一直亮着摄像头灯。
+  const stopFaceTracking = useCallback(() => {
+    const current = trackerRef.current
+    trackerRef.current = null
+    current?.stop()
+    setTracker(null)
+    setFace({ on: false, busy: false, error: '' })
+  }, [])
+
+  const startFaceTracking = useCallback(async () => {
+    if (trackerRef.current) return
+    setFace({ on: true, busy: true, error: '' })
+    try {
+      const instance = await FaceTracker.create()
+      // 启动期间用户可能已经关掉开关、离开了房间，或者组件已经被卸载
+      if (!enabled || disposedRef.current) {
+        instance.stop()
+        if (!disposedRef.current) setFace({ on: false, busy: false, error: '' })
+        return
+      }
+      trackerRef.current = instance
+      setTracker(instance)
+      setFace({ on: true, busy: false, error: '' })
+    } catch (err) {
+      setFace({
+        on: false,
+        busy: false,
+        error: err instanceof Error ? err.message : t('摄像头动捕启动失败'),
+      })
+    }
+  }, [enabled])
+
+  const toggleFaceTracking = useCallback(() => {
+    if (face.on || face.busy) stopFaceTracking()
+    else void startFaceTracking()
+  }, [face.on, face.busy, stopFaceTracking, startFaceTracking])
+
+  // 悬浮层被关掉时顺手关摄像头。放进 setTimeout 是为了不在 effect 里同步
+  // setState（react-hooks 会判"级联渲染"）——这里晚一个宏任务没有任何影响。
+  useEffect(() => {
+    if (enabled) return
+    const timer = window.setTimeout(stopFaceTracking, 0)
+    return () => window.clearTimeout(timer)
+  }, [enabled, stopFaceTracking])
+
+  useEffect(() => {
+    return () => {
+      disposedRef.current = true
+      trackerRef.current?.stop()
+      trackerRef.current = null
+    }
+  }, [])
+
   // ---- 9. 收发 ----
   useLive2DSync({ socket, roomId, renderer })
   useLive2DPointer({
@@ -221,6 +288,7 @@ export function RoomLive2DHost({
     roomId,
     sid: socket?.id ?? '',
     active: enabled && Boolean(myModelId),
+    tracker,
   })
 
   const handleSelect = useCallback(
@@ -403,6 +471,8 @@ export function RoomLive2DHost({
             onDeleteRoomModel={handleDeleteRoomModel}
             expressions={myExpressions}
             onExpression={handleExpression}
+            faceTracking={face}
+            onToggleFaceTracking={toggleFaceTracking}
             onClose={() => setPanelOpen(false)}
           />
         )}

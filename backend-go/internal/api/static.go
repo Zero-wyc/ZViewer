@@ -84,8 +84,24 @@ func (s *Server) spaHandler() http.Handler {
 		if info, err := os.Stat(full); err == nil && !info.IsDir() {
 			if strings.HasPrefix(clean, "/ffmpeg/") {
 				w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+			} else if strings.HasPrefix(clean, "/live2d/face/") {
+				// 人脸模型与 wasm 体积大（合计 15MB），但升级时文件名不变，
+				// 所以给一天缓存而不是 immutable。
+				w.Header().Set("Cache-Control", "public, max-age=86400")
+				// 有些系统的 mime 表里没有 .wasm，显式补上：
+				// instantiateStreaming 对 Content-Type 是严格的。
+				if strings.HasSuffix(clean, ".wasm") {
+					w.Header().Set("Content-Type", "application/wasm")
+				}
 			}
 			files.ServeHTTP(w, r)
+			return
+		}
+
+		// /live2d/ 下的都是「要么有、要么明确没有」的资源文件，不能回 SPA：
+		// 回 index.html 会让 wasm/模型报 magic word 之类的错误，离真相很远。
+		if strings.HasPrefix(clean, "/live2d/") {
+			httpx.NotFound(w, "资源不存在")
 			return
 		}
 

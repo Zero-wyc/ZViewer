@@ -66,6 +66,9 @@ apply-update.bat
 # ---- 本地测试产物 ----
 bili_test.json
 test-dev.sqlite
+# ---- 摄像头动捕运行时（predev/prebuild 从 node_modules 复制，不入库）----
+frontend/public/live2d/face/wasm/
+
 # ---- 编辑器与 IDE ----
 .vscode/
 .idea/
