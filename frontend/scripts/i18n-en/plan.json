@@ -1,5 +1,5 @@
 {
-  "total": 2715,
+  "total": 2728,
   "chunk": 120,
   "parts": [
     {
@@ -120,12 +120,12 @@
     {
       "id": "24-live2d",
       "bucket": "modules/live2d",
-      "count": 52
+      "count": 67
     },
     {
       "id": "25-mounts",
       "bucket": "modules/mounts",
-      "count": 61
+      "count": 60
     },
     {
       "id": "26-movie-source",
@@ -215,7 +215,7 @@
     {
       "id": "43-room",
       "bucket": "modules/room",
-      "count": 85
+      "count": 84
     },
     {
       "id": "44-screen-sharing",

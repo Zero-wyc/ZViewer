@@ -377,3 +377,90 @@ func TestLive2DStateRowFaceOptional(t *testing.T) {
 		t.Fatalf("e 值不对：%v", got)
 	}
 }
+
+// 11) 房间角色策略：只有房主能改；只带一个字段时其余保持不动。
+func TestLive2DPolicyHostOnlyAndMerge(t *testing.T) {
+	env := newTestEnv(t)
+	l2dSession(t, env, "ROOM_P", "s-host", store.SessionRoleSharer)
+	l2dSession(t, env, "ROOM_P", "s-viewer", store.SessionRoleViewer)
+
+	emit := func(socketID, raw string) AckResponse {
+		t.Helper()
+		var ack AckResponse
+		env.svc.handleLive2DPolicySet(&sio.Socket{ID: socketID}, l2dArgs(t, raw),
+			func(v ...any) {
+				if len(v) > 0 {
+					ack, _ = v[0].(AckResponse)
+				}
+			})
+		return ack
+	}
+
+	if ack := emit("s-viewer", `{"roomId":"ROOM_P","allowFace":false}`); ack.Success {
+		t.Fatal("观众不应能改房间角色策略")
+	}
+	if p := env.svc.Live2DPolicy("ROOM_P"); !p.AllowFace || !p.ShowToViewers {
+		t.Fatalf("被拒绝的请求不应改动策略：%+v", p)
+	}
+
+	if ack := emit("s-host", `{"roomId":"ROOM_P","allowFace":false}`); !ack.Success {
+		t.Fatalf("房主应能改策略：%+v", ack)
+	}
+	p := env.svc.Live2DPolicy("ROOM_P")
+	if p.AllowFace {
+		t.Fatal("allowFace 应已关闭")
+	}
+	if !p.ShowToViewers || p.Unified {
+		t.Fatalf("没提到的字段应保持默认：%+v", p)
+	}
+	if !env.hub.hasRoomEvent("ROOM_P", "live2d-policy") {
+		t.Fatal("策略变更应广播给全房间")
+	}
+}
+
+// 12) 统一角色：没选模型不放行；房间模型必须真的存在；切换后进房快照也带着策略。
+func TestLive2DPolicyUnifiedModel(t *testing.T) {
+	env := newTestEnv(t)
+	l2dSession(t, env, "ROOM_U2", "s-host", store.SessionRoleSharer)
+	env.svc.SetLive2DModelChecker(func(roomID, modelID string) bool {
+		return roomID == "ROOM_U2" && modelID == "m-ok"
+	})
+
+	emit := func(raw string) AckResponse {
+		t.Helper()
+		var ack AckResponse
+		env.svc.handleLive2DPolicySet(&sio.Socket{ID: "s-host"}, l2dArgs(t, raw),
+			func(v ...any) {
+				if len(v) > 0 {
+					ack, _ = v[0].(AckResponse)
+				}
+			})
+		return ack
+	}
+
+	if ack := emit(`{"roomId":"ROOM_U2","unified":true}`); ack.Success {
+		t.Fatal("打开统一角色但没选模型应被拒")
+	}
+	if ack := emit(`{"roomId":"ROOM_U2","unified":true,"unifiedKind":"room","unifiedId":"nope"}`); ack.Success {
+		t.Fatal("不存在的房间模型应被拒")
+	}
+	if ack := emit(`{"roomId":"ROOM_U2","unified":true,"unifiedKind":"room","unifiedId":"m-ok"}`); !ack.Success {
+		t.Fatalf("合法的统一模型应放行：%+v", ack)
+	}
+	p := env.svc.Live2DPolicy("ROOM_U2")
+	if !p.Unified || p.UnifiedKind != "room" || p.UnifiedID != "m-ok" {
+		t.Fatalf("统一模型没写进去：%+v", p)
+	}
+
+	// 进房快照必须带着策略（否则新人看到的还是各显示各的）
+	env.svc.handleLive2DRequest(&sio.Socket{ID: "s-host"}, l2dArgs(t, `{"roomId":"ROOM_U2"}`))
+	var snap live2dSnapshotOut
+	for _, item := range env.hub.payloads["s-host|live2d-snapshot"] {
+		if v, ok := item.(live2dSnapshotOut); ok {
+			snap = v
+		}
+	}
+	if !snap.Policy.Unified || snap.Policy.UnifiedID != "m-ok" {
+		t.Fatalf("快照没带策略：%+v", snap.Policy)
+	}
+}

@@ -1,6 +1,5 @@
 {
   "items": [
-    "NetEase Cloud Music",
     "Signed in to NetEase Cloud Music",
     "NetEase Cloud Music login QR code",
     "Your NetEase Cloud Music session expired, scan again",
@@ -96,6 +95,7 @@
     "A playable external link was found",
     "Added {{added}} recommended tracks after the current one",
     "The video was unlinked from this track",
+    "On",
     "Shuffle on: paging pulls a random batch and shuffles it",
     "Connected",
     "Connected to the local proxy {{value}}",

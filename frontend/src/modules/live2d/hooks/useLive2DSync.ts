@@ -2,10 +2,13 @@ import { useEffect } from 'react'
 import type { Socket } from 'socket.io-client'
 import { LIVE2D_EVENT } from '../constants'
 import {
+  LIVE2D_DEFAULT_POLICY,
   rowToPeer,
   type Live2DActionPayload,
   type Live2DConfigAck,
   type Live2DPatchPayload,
+  type Live2DPolicy,
+  type Live2DPolicyPayload,
   type Live2DSnapshotPayload,
 } from '../types'
 import {
@@ -47,6 +50,7 @@ export function useLive2DSync({
   useEffect(() => {
     if (!socket || !roomId) return
     const setPeers = useLive2DStore.getState().setPeers
+    const setPolicy = useLive2DStore.getState().setPolicy
 
     // 名册变化后同步一次渲染器：新增的加载、消失的移除、名册写回 store（低频）
     const syncRenderer = () => {
@@ -61,6 +65,19 @@ export function useLive2DSync({
       setPeers(entries.map((e) => e.peer))
     }
 
+    const applyPolicy = (raw?: Partial<Live2DPolicy>) => {
+      if (!raw) return
+      // 服务端只会发合法的零值/布尔；这里补默认值，缺字段按「不限制」处理，
+      // 免得某个字段没下发就把所有人的角色藏了。
+      setPolicy({
+        ...LIVE2D_DEFAULT_POLICY,
+        ...raw,
+        unified: raw.unified === true,
+        unifiedId: raw.unifiedId || undefined,
+        unifiedKind: raw.unifiedKind || undefined,
+      })
+    }
+
     const onSnapshot = (payload: Live2DSnapshotPayload) => {
       if (!payload || payload.roomId !== roomId) return
       clearScene()
@@ -68,7 +85,13 @@ export function useLive2DSync({
         const peer = rowToPeer(row)
         if (peer.sid) upsertPeer(peer)
       }
+      applyPolicy(payload.policy)
       syncRenderer()
+    }
+
+    const onPolicy = (payload: Live2DPolicyPayload) => {
+      if (!payload || payload.roomId !== roomId) return
+      applyPolicy(payload.policy)
     }
 
     const onPatch = (payload: Live2DPatchPayload) => {
@@ -127,6 +150,7 @@ export function useLive2DSync({
     socket.on(LIVE2D_EVENT.SNAPSHOT, onSnapshot)
     socket.on(LIVE2D_EVENT.PATCH, onPatch)
     socket.on(LIVE2D_EVENT.ACTION, onAction)
+    socket.on(LIVE2D_EVENT.POLICY, onPolicy)
 
     // 挂载即拉：join 时服务端的推送往往早于 effect 挂载，已经丢了
     socket.emit(LIVE2D_EVENT.REQUEST, { roomId })
@@ -135,14 +159,18 @@ export function useLive2DSync({
       socket.off(LIVE2D_EVENT.SNAPSHOT, onSnapshot)
       socket.off(LIVE2D_EVENT.PATCH, onPatch)
       socket.off(LIVE2D_EVENT.ACTION, onAction)
+      socket.off(LIVE2D_EVENT.POLICY, onPolicy)
     }
   }, [socket, roomId, renderer])
 
-  // 换房/卸载时清空：场景是模块级的，不清会串房
+  // 换房/卸载时清空：场景是模块级的，不清会串房；策略也一样，
+  // 否则进下一个房间会先按上一个房间的规矩渲染一帧。
   useEffect(() => {
     return () => {
       clearScene()
-      useLive2DStore.getState().setPeers([])
+      const store = useLive2DStore.getState()
+      store.setPeers([])
+      store.setPolicy(LIVE2D_DEFAULT_POLICY)
     }
   }, [roomId])
 }
@@ -195,4 +223,29 @@ export function emitLive2DMotion(
   if (!socket || !roomId || !group) return
   if (!Number.isInteger(index) || index < 0) return
   socket.emit(LIVE2D_EVENT.ACTION, { roomId, g: group, i: index })
+}
+
+/**
+ * 房主修改房间级策略：只发要改的字段（服务端按增量合并并广播给全房间）。
+ *
+ * 不走本地乐观更新：策略影响的是所有人，等回执/广播再落地才不会出现
+ * 「开关先跳一下又弹回来」。
+ */
+export function emitLive2DPolicy(
+  socket: Socket | null,
+  roomId: string,
+  patch: Partial<Omit<Live2DPolicy, 'unifiedKind' | 'unifiedId'>> & {
+    unifiedKind?: string
+    unifiedId?: string
+  },
+  onDone?: (ok: boolean, message?: string) => void
+): void {
+  if (!socket || !roomId) return
+  socket.emit(
+    LIVE2D_EVENT.POLICY_SET,
+    { roomId, ...patch },
+    (ack?: { success?: boolean; message?: string }) => {
+      onDone?.(ack?.success === true, ack?.message)
+    }
+  )
 }

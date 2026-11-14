@@ -214,6 +214,37 @@ export class Live2DRenderer {
     })
   }
 
+  /**
+   * 光标下是哪个角色（右键菜单用）。返回 null 表示点在空白处。
+   *
+   * 用渲染器自己的包围盒而不是在 canvas 上挂监听：canvas 是
+   * `pointer-events: none` 的（否则房间的拖拽、双击全屏、视频控件全被吃掉），
+   * 所以命中判定只能由知道每个模型摆在哪的一方来做。
+   *
+   * 包围盒来自 drawable（可见图形）而不是 canvas，但它含透明边距，所以判定
+   * 比贴图本身略宽松——右键这种低频操作宁可好点一些。
+   */
+  pick(clientX: number, clientY: number): string | null {
+    if (this.destroyed) return null
+    const visible = listEntries().slice(0, LIVE2D_MAX_RENDERED)
+    // 反向：后画的在上层，点到重叠区应该命中眼睛看到的那一个
+    for (let i = visible.length - 1; i >= 0; i -= 1) {
+      const sid = visible[i].peer.sid
+      const loaded = this.models.get(sid)
+      if (!loaded || !loaded.model.visible) continue
+      const box = loaded.model.getBounds()
+      if (
+        clientX >= box.x &&
+        clientX <= box.x + box.width &&
+        clientY >= box.y &&
+        clientY <= box.y + box.height
+      ) {
+        return sid
+      }
+    }
+    return null
+  }
+
   /** 同步移除场景里已经不存在的模型。 */
   prune(alive: Set<string>): void {
     for (const sid of [...this.models.keys()]) {

@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2720 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2733 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（52 条） =====
+  // ===== modules/live2d（67 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -976,15 +976,20 @@ const enUS: Record<string, string> = {
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
+  '对观众显示角色': 'Show characters to viewers',
   '房间模型': 'Room models',
+  '房间模型库': 'Room model library',
+  '房间设置': 'Room settings',
   '房主还没有上传模型': 'The host hasn\'t uploaded any model yet',
-  '还没有内置模型，等房主上传后再选': 'No built-in models yet — wait for the host to upload one',
+  '房主已关闭成员动捕': 'The host turned off tracking for members',
+  '房主已统一角色，全房间使用同一个模型': 'The host picked one character for the whole room',
+  '关闭后成员的动捕开关会被禁用': 'Members cannot turn on camera tracking',
+  '关闭后观众看不到任何角色，你自己仍然看得到': 'Viewers see no characters; you still do',
+  '还没有内置模型': 'No built-in models yet',
   '还没有内置模型，可以上传一个模型包，或填写下面的地址': 'No built-in models yet — upload a model pack, or enter a URL below',
   '画面只在本机处理，不会上传': 'Frames stay on this device and are never uploaded',
   '加载超时': 'Load timed out',
-  '角色': 'Character',
   '角色设置': 'Character settings',
-  '角色已隐藏': 'Character hidden',
   '仅支持 http/https 地址': 'Only http/https URLs are supported',
   '开启后角色会跟着你的头部转动': 'Once on, the character follows your head',
   '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
@@ -994,9 +999,13 @@ const enUS: Record<string, string> = {
   '模型大小': 'Model size',
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
+  '内置模型': 'Built-in',
   '请填写模型地址': 'Enter a model URL',
+  '全房间都显示同一个模型，成员不能再自己换': 'Everyone shows the same model and cannot change it',
   '人脸检测模型加载失败': 'Failed to load the face model',
+  '删除': 'Delete',
   '删除该模型': 'Delete this model',
+  '删除后正在使用它的人会退回默认角色，且无法恢复': 'Anyone using it falls back to the default character. This cannot be undone.',
   '删除失败': 'Failed to delete',
   '上传': 'Upload',
   '上传失败': 'Upload failed',
@@ -1009,9 +1018,15 @@ const enUS: Record<string, string> = {
   '摄像头动捕需要在本机或 HTTPS 下使用': 'Camera tracking needs localhost or HTTPS',
   '摄像头权限被拒绝': 'Camera permission denied',
   '所有人都会看到': 'Everyone will see it',
-  '显示角色': 'Show character',
-  '已开启': 'On',
+  '统一角色': 'Unified character',
+  '统一使用的模型': 'Shared model',
+  '完成': 'Done',
+  '我的角色': 'My character',
+  '隐藏后点右下角的角色按钮可以重新显示': 'Use the button at the bottom right to show it again',
+  '隐藏角色': 'Hide character',
   '应用地址': 'Apply URL',
+  '允许成员开启摄像头动捕': 'Allow camera tracking for members',
+  '这些设置作用于整个房间，服务重启后恢复默认': 'These apply to the whole room and reset when the server restarts',
   '正在启动…': 'Starting…',
   '自定义模型地址': 'Custom model URL',
   '自定义模型未能加载（可能被跨域限制）': 'Custom model failed to load (possibly blocked by CORS)',
@@ -1019,7 +1034,7 @@ const enUS: Record<string, string> = {
   'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
   'zip 内需包含 model3.json，不超过 {{size}}MB': 'The zip must contain model3.json and be under {{size}}MB',
 
-  // ===== modules/mounts（61 条） =====
+  // ===== modules/mounts（60 条） =====
   '，用户：{{userName}}': ', user: {{userName}}',
   '{{label}} 挂载更新成功': '{{label}} mount updated',
   '{{label}} 挂载添加成功': '{{label}} mount added',
@@ -1059,7 +1074,6 @@ const enUS: Record<string, string> = {
   '请填写 API Key，或用户名与密码': 'Enter an API key, or a username and password',
   '确定要删除挂载「{{name}}」吗？删除后不可恢复。': 'Delete the mount “{{name}}”? This cannot be undone.',
   '确认删除': 'Delete',
-  '删除': 'Delete',
   '删除挂载失败': 'Failed to delete the mount',
   '删除中...': 'Deleting...',
   '使用直链播放（不经过服务端转发）': 'Play via direct link (no server relay)',
@@ -1578,7 +1592,6 @@ const enUS: Record<string, string> = {
   '退出失败': 'Failed to sign out',
   '退出网易云账号': 'Sign out of NetEase Cloud Music',
   '外部内容': 'External content',
-  '完成': 'Done',
   '完整显示': 'Fit',
   '网易云': 'NetEase Cloud Music',
   '网易云登录成功': 'Signed in to NetEase Cloud Music',
@@ -1676,6 +1689,7 @@ const enUS: Record<string, string> = {
   '已检测到可用外链': 'A playable external link was found',
   '已将 {{added}} 首推荐歌曲加入当前播放之后': 'Added {{added}} recommended tracks after the current one',
   '已解除该歌曲的视频关联': 'The video was unlinked from this track',
+  '已开启': 'On',
   '已开启随机排序：翻页将随机抽取一批视频并打乱顺序': 'Shuffle on: paging pulls a random batch and shuffles it',
   '已连接': 'Connected',
   '已连接本地代理 {{value}}': 'Connected to the local proxy {{value}}',
@@ -1970,7 +1984,7 @@ const enUS: Record<string, string> = {
   'PLAYSVIDEO_ATTACH_CANCELLED: 引擎已被新加载销毁': 'PLAYSVIDEO_ATTACH_CANCELLED: the engine was destroyed by a new load',
   'seek 失败': 'Seek failed',
 
-  // ===== modules/room（445 条） =====
+  // ===== modules/room（444 条） =====
   ' 等 {{length}} 位观众': ' and {{length}} other viewers',
   '），是否允许？': '), allow it?',
   '[useWatchTogether] 复用旧 B站 URL 失败，回退到重新解析': '[useWatchTogether] Reusing the cached Bilibili URL failed, re-resolving',
@@ -2047,7 +2061,6 @@ const enUS: Record<string, string> = {
   '房间名称': 'Room name',
   '房间名称不能为空': 'Room name cannot be empty',
   '房间名称已更新': 'Room name updated',
-  '房间设置': 'Room settings',
   '房间设置已保存': 'Room settings saved',
   '房间信息': 'Room info',
   '房间已关闭,可关闭此窗口': 'The room is closed, you can close this window',

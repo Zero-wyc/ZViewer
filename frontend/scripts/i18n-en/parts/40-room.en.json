@@ -76,7 +76,6 @@
     "Room name",
     "Room name cannot be empty",
     "Room name updated",
-    "Room settings",
     "Room settings saved",
     "Room info",
     "The room is closed, you can close this window",
@@ -119,6 +118,7 @@
     "Off (default): always connect to the origin directly, with zero media traffic on the server; sources with hotlink protection need this on to play. On: all media goes through the server — the most compatible, but it uses server bandwidth.",
     "Watch request",
     "Viewer {{index}}",
-    "Viewers"
+    "Viewers",
+    "Once viewers join, each connection shows up here"
   ]
 }

@@ -34,6 +34,9 @@ type live2dPatchOut struct {
 type live2dSnapshotOut struct {
 	RoomID string  `json:"roomId"`
 	Models [][]any `json:"models"`
+	// Policy 跟着快照一起下发：新进房的人一次往返就能拿到「谁在场 + 房间规矩」，
+	// 不必再为策略单开一次请求。
+	Policy live2dPolicy `json:"policy"`
 }
 
 type live2dConfigPayload struct {
@@ -140,6 +143,9 @@ func (s *Service) bindLive2D(sc *sio.Socket) {
 	sc.On("live2d-action", func(args []json.RawMessage, _ func(...any)) {
 		s.handleLive2DAction(sc, args)
 	})
+	sc.On("live2d-policy-set", func(args []json.RawMessage, ack func(...any)) {
+		s.handleLive2DPolicySet(sc, args, ack)
+	})
 }
 
 // handleLive2DConfig 处理「我选了哪个模型」。低频（换模型才发），可以查库判权限。
@@ -177,36 +183,15 @@ func (s *Service) handleLive2DConfig(sc *sio.Socket, args []json.RawMessage, ack
 	}
 	modelID := strings.TrimSpace(payload.ModelID)
 
-	switch kind {
-	case "builtin":
-		if !live2dBuiltinIDPattern.MatchString(modelID) {
-			ackFail(ack, "模型标识不合法")
-			return
-		}
-	case "url":
-		// 外链模型只开给房主：它会让房间里每个人的浏览器去拉第三方资源，
-		// 这个决定不该由普通成员做。
+	// 外链模型只开给房主：它会让房间里每个人的浏览器去拉第三方资源，
+	// 这个决定不该由普通成员做（kind 的其余校验走共用函数）。
+	if kind == "url" {
 		if !s.requireHost(ctx, ack, sc, payload.RoomID, "只有房主可以设置自定义模型") {
 			return
 		}
-		if problem := validateLive2DModelURL(modelID); problem != "" {
-			ackFail(ack, problem)
-			return
-		}
-	case "room":
-		// 房间模型库是房主上传、全房间共用的**资源**，任何成员都可以选，
-		// 不构成额外磁盘开销。但必须真的存在：否则随便填一个 id 就会让
-		// 房间里所有人加载失败、只剩占位卡。
-		if !live2dRoomIDPattern.MatchString(modelID) {
-			ackFail(ack, "模型标识不合法")
-			return
-		}
-		if s.live2dModelExists != nil && !s.live2dModelExists(payload.RoomID, modelID) {
-			ackFail(ack, "该模型已不存在，请重新选择")
-			return
-		}
-	default:
-		ackFail(ack, "不支持的模型类型")
+	}
+	if problem := s.validateLive2DModelRef(payload.RoomID, kind, modelID); problem != "" {
+		ackFail(ack, problem)
 		return
 	}
 
@@ -344,7 +329,37 @@ func (s *Service) handleLive2DRequest(sc *sio.Socket, args []json.RawMessage) {
 	s.Hub.EmitTo(sc.ID, "live2d-snapshot", live2dSnapshotOut{
 		RoomID: payload.RoomID,
 		Models: live2dRows(s.Live2DSnapshot(payload.RoomID)),
+		Policy: s.Live2DPolicy(payload.RoomID),
 	})
+}
+
+// validateLive2DModelRef 校验「模型类型 + 标识」是否可用，返回空串表示合法。
+//
+// 成员声明自己的模型与房主设置「统一角色」共用这一份口径：两处放行的合集
+// 必须一致，否则会出现「自己能选、统一时却选不了」这种对不上的情况。
+func (s *Service) validateLive2DModelRef(roomID, kind, modelID string) string {
+	switch kind {
+	case "builtin":
+		if !live2dBuiltinIDPattern.MatchString(modelID) {
+			return "模型标识不合法"
+		}
+		return ""
+	case "url":
+		return validateLive2DModelURL(modelID)
+	case "room":
+		// 房间模型库是房主上传、全房间共用的**资源**，任何成员都可以选，
+		// 不构成额外磁盘开销。但必须真的存在：否则随便填一个 id 就会让
+		// 房间里所有人加载失败、只剩占位卡。
+		if !live2dRoomIDPattern.MatchString(modelID) {
+			return "模型标识不合法"
+		}
+		if s.live2dModelExists != nil && !s.live2dModelExists(roomID, modelID) {
+			return "该模型已不存在，请重新选择"
+		}
+		return ""
+	default:
+		return "不支持的模型类型"
+	}
 }
 
 // validateLive2DModelURL 校验自定义模型地址，返回空串表示合法。

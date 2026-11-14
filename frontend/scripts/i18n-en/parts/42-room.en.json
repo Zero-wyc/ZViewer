@@ -1,6 +1,5 @@
 {
   "items": [
-    "Use the saved OpenList mount",
     "Use the saved WebDAV mount",
     "Video URL, BV id, or live room link",
     "Failed to load the video",
@@ -119,6 +118,7 @@
     "Online ({{length}})",
     "Online viewers ({{length}})",
     "Online users",
-    "Pause request"
+    "Pause request",
+    "The pause request timed out; the host did not respond"
   ]
 }

@@ -10,12 +10,16 @@ export const LIVE2D_EVENT = {
   STATE: 'live2d-state',
   /** C→S：挂载/重连后补拉全量快照 */
   REQUEST: 'live2d-request',
-  /** 表情：C→S 点一下，S→C 立刻广播给全房间（瞬时，不走 patch 合并） */
+  /** 表情/动作：C→S 触发，S→C 立刻广播给全房间（瞬时，不走 patch 合并） */
   ACTION: 'live2d-action',
   /** S→C：全量快照（只回发起者） */
   SNAPSHOT: 'live2d-snapshot',
   /** S→C：服务端 100ms 合并后的增量 */
   PATCH: 'live2d-patch',
+  /** C→S：房主修改房间级策略（有 ack） */
+  POLICY_SET: 'live2d-policy-set',
+  /** S→C：房间级策略变更（含下发时的回执，房主自己也会收到） */
+  POLICY: 'live2d-policy',
 } as const
 
 /** 上行频率。服务端单连接有 40ms 门限，这里留余量。 */

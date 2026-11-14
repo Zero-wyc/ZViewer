@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom'
 import type { Socket } from 'socket.io-client'
 import { t } from '@/i18n'
 import { Sparkles } from 'lucide-react'
+import { message } from '@/components/ui/message'
 import { loadLive2DEngine } from '../core/cubism-core'
 import { FaceTracker } from '../core/face-tracker'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
@@ -25,20 +26,27 @@ import {
   emitLive2DAction,
   emitLive2DConfig,
   emitLive2DMotion,
+  emitLive2DPolicy,
   useLive2DSync,
 } from '../hooks/useLive2DSync'
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
 import { useLive2DStore } from '../store/live2dStore'
-import { Live2DControlPanel } from './Live2DControlPanel'
+import type { Live2DModelKind, Live2DPolicy } from '../types'
+import { Live2DAdvancedSettings } from './Live2DAdvancedSettings'
+import { Live2DContextMenu } from './Live2DContextMenu'
 
 // 房间悬浮层的宿主。
 //
-// 三件事必须由它负责，缺一个都会出问题：
+// 四件事必须由它负责，缺一个都会出问题：
 //   1. **挂载层级**：挂在 RoomPage（而不是 RoomLayout）上，切一起听/换片都不会卸载；
 //   2. **节点搬移**：原生全屏是 top layer，body 级 fixed 会被完全遮住，必须把
 //      同一个节点 appendChild 到 fullscreenElement 里（换 portal 目标会重建
 //      canvas，WebGL 上下文与纹理全部要重来）；
-//   3. **引擎生命周期**：enabled 关掉就销毁 Application，把 WebGL 上下文还回去。
+//   3. **引擎生命周期**：卸载就销毁 Application，把 WebGL 上下文还回去；
+//   4. **入口**：设置界面对角色右键呼出（自己还没角色时退化成右下角一个按钮）。
+//
+// canvas 是 `pointer-events: none` 的，否则房间的拖拽、双击全屏、视频控件全被
+// 吃掉；所以「右键落在哪个角色上」只能由渲染器的包围盒判定（renderer.pick）。
 
 export interface RoomLive2DHostProps {
   roomId: string
@@ -51,15 +59,26 @@ export function RoomLive2DHost({
   socket,
   isHost,
 }: RoomLive2DHostProps) {
-  const enabled = useLive2DStore((s) => s.enabled)
   const myKind = useLive2DStore((s) => s.myKind)
   const myModelId = useLive2DStore((s) => s.myModelId)
   const myScale = useLive2DStore((s) => s.myScale)
+  const hidden = useLive2DStore((s) => s.hidden)
   const peers = useLive2DStore((s) => s.peers)
-  const setEnabled = useLive2DStore((s) => s.setEnabled)
+  const policy = useLive2DStore((s) => s.policy)
   const setMyModel = useLive2DStore((s) => s.setMyModel)
   const setMyScale = useLive2DStore((s) => s.setMyScale)
+  const setHidden = useLive2DStore((s) => s.setHidden)
 
+  // 房主统一角色时，显示的模型不再是「我选的」而是房间定的；我自己的选择
+  // 仍然留在 store 里，关掉统一角色就自动回来。
+  //
+  // 拆成三个原始值而不是一个对象：这个组合会进 effect 依赖表，每次渲染新建
+  // 一个对象会让 effect 每帧都跑（react-hooks 也会警告）。
+  const unifiedId = policy.unified && policy.unifiedId ? policy.unifiedId : ''
+  const unifiedActive = unifiedId !== ''
+  const unifiedKind: Live2DModelKind = policy.unifiedKind ?? 'builtin'
+  const effKind = unifiedActive ? unifiedKind : myKind
+  const effModelId = unifiedActive ? unifiedId : myModelId
   // 宿主的 DOM 由 React 自己渲染（portal 到 body），我们只在 effect 里
   // 搬动它的父节点。这样 canvas 永远在同一个 div 里：全屏时是「移动」而不是
   // 「重建」，WebGL 上下文与纹理解码结果都保得住。
@@ -70,9 +89,8 @@ export function RoomLive2DHost({
   const [roomModels, setRoomModels] = useState<RoomModelEntry[]>([])
   const [roomCanManage, setRoomCanManage] = useState(false)
   const [uploading, setUploading] = useState(false)
-  const [notice, setNotice] = useState('')
-  const [noticeError, setNoticeError] = useState(false)
-  const [panelOpen, setPanelOpen] = useState(false)
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [menu, setMenu] = useState({ open: false, x: 0, y: 0 })
   const [failed, setFailed] = useState<string[]>([])
   // 连带 url 一起存：换模型时旧清单不能先闪一下
   const [exprState, setExprState] = useState<{
@@ -89,6 +107,11 @@ export function RoomLive2DHost({
     busy: boolean
     error: string
   }>({ on: false, busy: false, error: '' })
+
+  const mySid = socket?.id ?? ''
+  // 能管理房间的人（房主 / root）自己永远看得到角色，否则他也没法再右键改回来。
+  // roomCanManage 来自模型库接口（root 也算），所以只能在 state 之后算。
+  const canShowLayer = isHost || roomCanManage || policy.showToViewers
 
   // ---- 2. 原生全屏时搬进 top layer ----
   useEffect(() => {
@@ -146,8 +169,8 @@ export function RoomLive2DHost({
   }, [roomId, roomModelsVersion])
 
   // ---- 4b. 我的模型有哪些表情 ----
-  const myModelUrl = myModelId
-    ? resolveModelUrl({ kind: myKind, modelId: myModelId }, roomId)
+  const myModelUrl = effModelId
+    ? resolveModelUrl({ kind: effKind, modelId: effModelId }, roomId)
     : ''
   const myExpressions =
     exprState.url === myModelUrl
@@ -178,7 +201,7 @@ export function RoomLive2DHost({
   }, [socket, roomId])
 
   useEffect(() => {
-    if (!enabled || !canvasEl) return
+    if (!canvasEl) return
     let cancelled = false
     let instance: Live2DRenderer | null = null
     void (async () => {
@@ -211,14 +234,14 @@ export function RoomLive2DHost({
     }
     // socket 只用于取初始的本机 id，之后由下面的 effect 跟进（重连会换 id）
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [enabled, canvasEl])
+  }, [canvasEl])
 
   // 重连后 socket.id 会变：「本机模型」的判定必须跟着换，否则动作同步会断
   // （自己的模型被当成别人的，自动挑 idle 也被关掉）。
   useEffect(() => {
     if (!renderer) return
-    renderer.setLocalSid(socket?.id ?? '')
-  }, [renderer, socket?.id])
+    renderer.setLocalSid(mySid)
+  }, [renderer, mySid])
 
   // ---- 6. 尺寸跟随 ----
   useEffect(() => {
@@ -230,22 +253,32 @@ export function RoomLive2DHost({
     return () => observer.disconnect()
   }, [renderer, canvasEl])
 
-  // ---- 7. 默认模型：进房即有角色 ----
+  // ---- 7. 默认模型：进房即有角色（房主统一了角色就不用挑） ----
   useEffect(() => {
-    if (!enabled || myModelId || builtins.length === 0) return
+    // hidden：用户主动隐藏，别再自动塞一个回来
+    if (effModelId || unifiedActive || hidden || builtins.length === 0) return
     setMyModel('builtin', builtins[0].id)
-  }, [enabled, myModelId, builtins, setMyModel])
+  }, [effModelId, unifiedActive, hidden, builtins, setMyModel])
 
-  // ---- 8. 声明自己的模型（换模型/改大小才发）----
+  // ---- 8. 声明自己的模型（换模型/改大小才发；没模型时撤回声明）----
+  //
+  // 用「生效模型」而不是「我选的模型」：房主统一角色时服务端名册也跟着统一，
+  // 各端画出来的才是同一个。
   useEffect(() => {
-    if (!enabled || !socket || !roomId || !myModelId) return
+    if (!socket || !roomId) return
+    if (!effModelId) {
+      // 只在「主动隐藏」时撤回声明：刚进房还没挑模型时不必先 clear 一次，
+      // 否则别人那边会先看到角色消失再出现。
+      if (hidden) emitLive2DConfig(socket, roomId, { action: 'clear' })
+      return
+    }
     emitLive2DConfig(socket, roomId, {
       action: 'set',
-      kind: myKind,
-      modelId: myModelId,
+      kind: effKind,
+      modelId: effModelId,
       scale: myScale,
     })
-  }, [enabled, socket, roomId, myKind, myModelId, myScale])
+  }, [socket, roomId, effKind, effModelId, myScale, hidden])
 
   // ---- 8b. 摄像头动捕 ----
   //
@@ -265,9 +298,8 @@ export function RoomLive2DHost({
     try {
       const instance = await FaceTracker.create()
       // 启动期间用户可能已经关掉开关、离开了房间，或者组件已经被卸载
-      if (!enabled || disposedRef.current) {
+      if (disposedRef.current) {
         instance.stop()
-        if (!disposedRef.current) setFace({ on: false, busy: false, error: '' })
         return
       }
       trackerRef.current = instance
@@ -280,20 +312,20 @@ export function RoomLive2DHost({
         error: err instanceof Error ? err.message : t('摄像头动捕启动失败'),
       })
     }
-  }, [enabled])
+  }, [])
 
   const toggleFaceTracking = useCallback(() => {
     if (face.on || face.busy) stopFaceTracking()
     else void startFaceTracking()
   }, [face.on, face.busy, stopFaceTracking, startFaceTracking])
 
-  // 悬浮层被关掉时顺手关摄像头。放进 setTimeout 是为了不在 effect 里同步
-  // setState（react-hooks 会判"级联渲染"）——这里晚一个宏任务没有任何影响。
+  // 房主关掉「允许成员动捕」时立刻停：不能只是把按钮变灰，摄像头得真的关。
+  // 放进 setTimeout 是为了不在 effect 里同步 setState（react-hooks 会判级联渲染）。
   useEffect(() => {
-    if (enabled) return
+    if (policy.allowFace) return
     const timer = window.setTimeout(stopFaceTracking, 0)
     return () => window.clearTimeout(timer)
-  }, [enabled, stopFaceTracking])
+  }, [policy.allowFace, stopFaceTracking])
 
   useEffect(() => {
     return () => {
@@ -303,49 +335,60 @@ export function RoomLive2DHost({
     }
   }, [])
 
+  // ---- 8c. 右键角色呼出设置 ----
+  //
+  // 监听 window（capture）而不是宿主 div：div 是 pointer-events:none，收不到
+  // 事件。命中角色时 preventDefault + stopPropagation，否则底下的视频/列表会
+  // 同时弹出它们自己的右键菜单。
+  const closeMenu = useCallback(() => {
+    setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
+  }, [])
+
+  useEffect(() => {
+    if (!renderer) return
+    const onContextMenu = (event: MouseEvent) => {
+      // 详细设置是模态的，此时右键角色没有意义（菜单会被蒙层盖住）
+      if (advancedOpen) return
+      // 菜单自己内部的右键（比如点在滑块上）不要重新定位
+      if ((event.target as Element | null)?.closest?.('[data-live2d-menu]')) {
+        return
+      }
+      const sid = renderer.pick(event.clientX, event.clientY)
+      if (!sid) return
+      event.preventDefault()
+      event.stopPropagation()
+      setMenu({ open: true, x: event.clientX, y: event.clientY })
+    }
+    window.addEventListener('contextmenu', onContextMenu, true)
+    return () => window.removeEventListener('contextmenu', onContextMenu, true)
+  }, [renderer, advancedOpen])
+
   // ---- 9. 收发 ----
   useLive2DSync({ socket, roomId, renderer })
   useLive2DPointer({
     socket,
     roomId,
-    sid: socket?.id ?? '',
-    active: enabled && Boolean(myModelId),
+    sid: mySid,
+    active: canShowLayer && Boolean(effModelId),
     tracker,
   })
 
+  // ---- 10. 动作 ----
   const handleSelect = useCallback(
-    (kind: 'builtin' | 'url' | 'room', modelId: string) => {
+    (kind: Live2DModelKind, modelId: string) => {
       setFailed([])
       setMyModel(kind, modelId)
+      setHidden(false)
     },
-    [setMyModel]
+    [setMyModel, setHidden]
   )
 
-  // 上传：成功后立刻切到新模型——这是房主上传时唯一想做的事。
-  const handleUpload = useCallback(
-    async (file: File) => {
-      if (uploading || !roomId) return
-      if (file.size > LIVE2D_UPLOAD_MAX_BYTES) {
-        setNotice(
-          t('模型包不能超过 {{size}}MB', {
-            size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
-          })
-        )
-        setNoticeError(true)
-        return
-      }
-      setUploading(true)
-      setNotice('')
-      const result = await uploadRoomModel(roomId, file)
-      setUploading(false)
-      setNotice(result.message)
-      setNoticeError(!result.ok)
-      if (!result.ok) return
-      refreshRoomModels()
-      if (result.model) handleSelect('room', result.model.id)
-    },
-    [uploading, roomId, refreshRoomModels, handleSelect]
-  )
+  const handleHide = useCallback(() => {
+    setMyModel('builtin', '')
+    setHidden(true)
+    closeMenu()
+    setAdvancedOpen(false)
+  }, [setMyModel, setHidden, closeMenu])
 
   // 表情不本地乐观应用：服务端会把同一条广播发回给自己，
   // 这样「自己看到的」和「别人看到的」永远是同一份事实。
@@ -356,33 +399,94 @@ export function RoomLive2DHost({
     [socket, roomId]
   )
 
+  // 上传：成功后立刻切到新模型——这是房主上传时唯一想做的事。
+  const handleUpload = useCallback(
+    async (file: File) => {
+      if (uploading || !roomId) return
+      if (file.size > LIVE2D_UPLOAD_MAX_BYTES) {
+        message.error(
+          t('模型包不能超过 {{size}}MB', {
+            size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
+          })
+        )
+        return
+      }
+      setUploading(true)
+      const result = await uploadRoomModel(roomId, file)
+      setUploading(false)
+      if (!result.ok) {
+        message.error(result.message)
+        return
+      }
+      message.success(result.message)
+      refreshRoomModels()
+      if (result.model) handleSelect('room', result.model.id)
+    },
+    [uploading, roomId, refreshRoomModels, handleSelect]
+  )
+
   const handleDeleteRoomModel = useCallback(
     async (modelId: string) => {
       if (!roomId) return
       const result = await deleteRoomModel(roomId, modelId)
-      setNotice(result.message)
-      setNoticeError(!result.ok)
-      if (!result.ok) return
+      if (!result.ok) {
+        message.error(result.message)
+        return
+      }
+      message.success(result.message)
       refreshRoomModels()
-      // 正用着这个模型就退回第一个内置模型，否则自己和别人都会看到占位卡。
-      // 连内置模型都没有（未随包模型）时直接撤回声明，别让别人的名册里
-      // 留着一个永远加载不出来的条目。
-      if (myKind === 'room' && myModelId === modelId) {
+
+      // 统一角色用的正是它：先把统一关掉，否则全房间都会加载失败只剩占位卡
+      if (policy.unifiedKind === 'room' && policy.unifiedId === modelId) {
+        emitLive2DPolicy(socket, roomId, { unified: false })
+      }
+      // 自己正用着就退回第一个内置模型；连内置模型都没有（未随包模型）时
+      // 直接撤回声明，别让别人的名册里留一个永远加载不出来的条目。
+      if (effKind === 'room' && effModelId === modelId) {
         setFailed([])
         const fallback = builtins[0]?.id
-        if (fallback) {
-          setMyModel('builtin', fallback)
-        } else {
-          setMyModel('builtin', '')
-          emitLive2DConfig(socket, roomId, { action: 'clear' })
-        }
+        setMyModel('builtin', fallback ?? '')
+        setHidden(!fallback)
       }
     },
-    [roomId, refreshRoomModels, myKind, myModelId, builtins, setMyModel, socket]
+    [
+      roomId,
+      refreshRoomModels,
+      policy,
+      effKind,
+      effModelId,
+      builtins,
+      setMyModel,
+      setHidden,
+      socket,
+    ]
   )
+
+  // 房间策略：只发要改的字段，等广播回来才落地（不对开关做乐观更新，
+  // 免得「先跳一下又弹回来」）
+  const handlePolicy = useCallback(
+    (patch: Partial<Live2DPolicy>) => {
+      // 与后端 requireHost 同口径：会话角色必须是房主，否则请求会被拒
+      if (!isHost) return
+      emitLive2DPolicy(socket, roomId, patch, (ok, text) => {
+        if (!ok && text) message.error(text)
+      })
+    },
+    [isHost, socket, roomId]
+  )
+
+  const openAdvanced = useCallback(() => {
+    closeMenu()
+    setAdvancedOpen(true)
+  }, [closeMenu])
 
   const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
   const hiddenCount = peers.length - visible.length
+  // 没有角色时才给一个常驻入口：此时画面上没有东西可右键，否则用户会被
+  // 永久锁在外面（这也是取消「整个悬浮层开关」的原因）。
+  const showFab = !effModelId
+
+  if (!canShowLayer) return null
 
   return createPortal(
     <div
@@ -390,64 +494,68 @@ export function RoomLive2DHost({
       data-live2d-host=""
       style={{ position: 'fixed', inset: 0, pointerEvents: 'none', zIndex: 60 }}
     >
-      {enabled && (
-        <div ref={setCanvasEl} style={{ position: 'absolute', inset: 0 }} />
-      )}
+      <div ref={setCanvasEl} style={{ position: 'absolute', inset: 0 }} />
 
-      {enabled &&
-        visible.map((peer, index) => {
-          const isFailed = failed.includes(peer.sid)
-          return (
-            <div
-              key={peer.sid}
-              style={{
-                position: 'absolute',
-                left: `${slotX(index, visible.length) * 100}%`,
-                bottom: 8,
-                transform: 'translateX(-50%)',
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: 4,
-              }}
-            >
-              {isFailed && (
-                <div
-                  title={t('自定义模型未能加载（可能被跨域限制）')}
-                  style={{
-                    width: 44,
-                    height: 64,
-                    borderRadius: 10,
-                    border: '1px solid var(--md-sys-color-outline-variant)',
-                    background: 'var(--md-sys-color-surface-container)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    fontSize: 14,
-                    opacity: 0.85,
-                  }}
-                >
-                  {(peer.name || '?').slice(0, 1)}
-                </div>
-              )}
-              <span
+      {visible.map((peer, index) => {
+        const isFailed = failed.includes(peer.sid)
+        return (
+          <div
+            key={peer.sid}
+            style={{
+              position: 'absolute',
+              left: `${slotX(index, visible.length) * 100}%`,
+              bottom: 8,
+              transform: 'translateX(-50%)',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: 4,
+            }}
+          >
+            {isFailed && (
+              <div
+                title={t('自定义模型未能加载（可能被跨域限制）')}
+                onContextMenu={(event) => {
+                  // 加载失败的占位卡是 DOM，直接自己收右键；否则这个角色
+                  // 就成了唯一没有入口的那一格。
+                  event.preventDefault()
+                  setMenu({ open: true, x: event.clientX, y: event.clientY })
+                }}
                 style={{
-                  maxWidth: 96,
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  padding: '1px 6px',
-                  borderRadius: 6,
-                  background: 'rgba(0,0,0,0.35)',
-                  color: '#fff',
-                  fontSize: 10,
+                  pointerEvents: 'auto',
+                  width: 44,
+                  height: 64,
+                  borderRadius: 10,
+                  border: '1px solid var(--md-sys-color-outline-variant)',
+                  background: 'var(--md-sys-color-surface-container)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontSize: 14,
+                  opacity: 0.85,
                 }}
               >
-                {peer.name}
-              </span>
-            </div>
-          )
-        })}
+                {(peer.name || '?').slice(0, 1)}
+              </div>
+            )}
+            <span
+              style={{
+                maxWidth: 96,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                padding: '1px 6px',
+                borderRadius: 6,
+                background: 'rgba(0,0,0,0.35)',
+                color: '#fff',
+                fontSize: 10,
+              }}
+            >
+              {peer.name}
+            </span>
+          </div>
+        )
+      })}
 
       {hiddenCount > 0 && (
         <div
@@ -463,85 +571,80 @@ export function RoomLive2DHost({
         </div>
       )}
 
-      <div
-        style={{
-          position: 'absolute',
-          right: 16,
-          bottom: 'calc(96px + env(safe-area-inset-bottom))',
-          pointerEvents: 'auto',
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'flex-end',
-          gap: 8,
-        }}
-      >
-        {panelOpen && enabled && (
-          <Live2DControlPanel
-            builtins={builtins}
-            roomModels={roomModels}
-            canManageRoom={roomCanManage}
-            uploading={uploading}
-            notice={notice}
-            noticeError={noticeError}
-            myKind={myKind}
-            myModelId={myModelId}
-            myScale={myScale}
-            isHost={isHost}
-            onSelect={handleSelect}
-            onScale={setMyScale}
-            onUpload={handleUpload}
-            onDeleteRoomModel={handleDeleteRoomModel}
-            expressions={myExpressions}
-            onExpression={handleExpression}
-            faceTracking={face}
-            onToggleFaceTracking={toggleFaceTracking}
-            onClose={() => setPanelOpen(false)}
-          />
-        )}
-        <button
-          type="button"
-          onClick={() => {
-            if (!enabled) {
-              setEnabled(true)
-              setPanelOpen(true)
-              return
-            }
-            // 打开面板时顺手刷新一次：别人新传的模型能立刻看到。
-            if (!panelOpen) refreshRoomModels()
-            setPanelOpen((prev) => !prev)
-          }}
-          aria-label={enabled ? t('角色设置') : t('显示角色')}
-          title={enabled ? t('角色设置') : t('显示角色')}
-          className="flex h-9 w-9 items-center justify-center rounded-full border shadow-md"
-          style={{
-            background: 'var(--glass-bg)',
-            borderColor: 'var(--glass-border)',
-            color: 'var(--md-sys-color-on-surface)',
-            opacity: enabled ? 0.9 : 0.65,
-          }}
-        >
-          <Sparkles size={16} />
-        </button>
-      </div>
-
-      {!enabled && (
+      {showFab && (
         <div
           style={{
             position: 'absolute',
-            right: 64,
-            bottom: 'calc(102px + env(safe-area-inset-bottom))',
-            fontSize: 10,
-            color: 'var(--md-sys-color-on-surface-variant)',
-            background: 'var(--glass-bg)',
-            border: '1px solid var(--glass-border)',
-            borderRadius: 8,
-            padding: '2px 8px',
-            opacity: 0.85,
+            right: 16,
+            bottom: 'calc(96px + env(safe-area-inset-bottom))',
+            pointerEvents: 'auto',
           }}
         >
-          {t('角色已隐藏')}
+          <button
+            type="button"
+            onClick={openAdvanced}
+            aria-label={t('角色设置')}
+            title={t('角色设置')}
+            className="flex h-9 w-9 items-center justify-center rounded-full border shadow-md"
+            style={{
+              background: 'var(--glass-bg)',
+              borderColor: 'var(--glass-border)',
+              color: 'var(--md-sys-color-on-surface)',
+              opacity: 0.9,
+            }}
+          >
+            <Sparkles size={16} />
+          </button>
         </div>
       )}
+
+      <Live2DContextMenu
+        open={menu.open}
+        position={{ x: menu.x, y: menu.y }}
+        onClose={closeMenu}
+        container={canvasEl}
+        builtins={builtins}
+        roomModels={roomModels}
+        expressions={myExpressions}
+        myKind={effKind}
+        myModelId={effModelId}
+        myScale={myScale}
+        faceTracking={face}
+        allowFace={policy.allowFace}
+        unified={unifiedActive}
+        canHide={!unifiedActive && Boolean(myModelId)}
+        onSelect={handleSelect}
+        onScale={setMyScale}
+        onExpression={handleExpression}
+        onToggleFaceTracking={toggleFaceTracking}
+        onOpenAdvanced={openAdvanced}
+        onHide={handleHide}
+      />
+
+      <Live2DAdvancedSettings
+        open={advancedOpen}
+        onClose={() => setAdvancedOpen(false)}
+        container={canvasEl}
+        isHost={isHost}
+        canUploadModels={roomCanManage}
+        builtins={builtins}
+        roomModels={roomModels}
+        expressions={myExpressions}
+        myKind={effKind}
+        myModelId={effModelId}
+        myScale={myScale}
+        faceTracking={face}
+        policy={policy}
+        uploading={uploading}
+        onSelect={handleSelect}
+        onScale={setMyScale}
+        onExpression={handleExpression}
+        onToggleFaceTracking={toggleFaceTracking}
+        onHide={handleHide}
+        onPolicy={handlePolicy}
+        onUpload={handleUpload}
+        onDeleteRoomModel={handleDeleteRoomModel}
+      />
     </div>,
     document.body
   )

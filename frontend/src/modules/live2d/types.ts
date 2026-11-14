@@ -62,6 +62,37 @@ export interface Live2DPeer {
 export interface Live2DSnapshotPayload {
   roomId: string
   models?: Live2DRow[]
+  /** 房间级策略跟着快照一起下发，省一次往返 */
+  policy?: Partial<Live2DPolicy>
+}
+
+/**
+ * 房间级角色策略：房主设，全房间生效。
+ *
+ * 这是**协作约定**而不是安全边界——客户端遵守它，改客户端的人最多让自己
+ * 看到的画面不同，影响不到别人。所以前端拿到就照做，不必防作弊。
+ */
+export interface Live2DPolicy {
+  /** 允许成员开启摄像头动捕 */
+  allowFace: boolean
+  /** 对观众显示角色（房主自己永远看得到，否则他没法再右键改回来） */
+  showToViewers: boolean
+  /** 统一角色：全房间都显示房主选的那个模型 */
+  unified: boolean
+  unifiedKind?: Live2DModelKind
+  unifiedId?: string
+}
+
+export const LIVE2D_DEFAULT_POLICY: Live2DPolicy = {
+  allowFace: true,
+  showToViewers: true,
+  unified: false,
+}
+
+/** 策略广播的信封：带 roomId，方便丢弃别的房间的包。 */
+export interface Live2DPolicyPayload {
+  roomId: string
+  policy?: Partial<Live2DPolicy>
 }
 
 export interface Live2DPatchPayload {

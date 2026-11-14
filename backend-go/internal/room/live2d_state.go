@@ -117,10 +117,16 @@ func (m live2dMember) pendingAddRow() bool { return m.pendingAdd }
 type live2dStore struct {
 	mu    sync.Mutex
 	rooms map[string]*live2dRoom
+	// policies 按房间存角色策略。和 rooms 分开：房内一个人都没声明模型时
+	// rooms 里的条目会被删掉，但策略得留着。
+	policies map[string]live2dPolicy
 }
 
 func newLive2DStore() *live2dStore {
-	return &live2dStore{rooms: make(map[string]*live2dRoom)}
+	return &live2dStore{
+		rooms:    make(map[string]*live2dRoom),
+		policies: make(map[string]live2dPolicy),
+	}
 }
 
 func (st *live2dStore) roomLocked(roomID string) *live2dRoom {
@@ -350,6 +356,7 @@ func (st *live2dStore) DeleteRoom(roomID string) {
 	st.mu.Lock()
 	defer st.mu.Unlock()
 	delete(st.rooms, roomID)
+	delete(st.policies, roomID)
 }
 
 func (st *live2dStore) Count(roomID string) int {

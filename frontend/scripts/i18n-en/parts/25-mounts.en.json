@@ -39,7 +39,6 @@
     "Enter an API key, or a username and password",
     "Delete the mount “{{name}}”? This cannot be undone.",
     "Delete",
-    "Delete",
     "Failed to delete the mount",
     "Deleting...",
     "Play via direct link (no server relay)",

@@ -14,6 +14,8 @@ export interface ModalProps {
   className?: string
   /** 在关闭按钮旁显示「网页全屏」按钮(添加影片二级浏览弹窗等大面板使用) */
   fullscreenable?: boolean
+  /** 自定义挂载容器(默认 document.body);原生全屏时需指到全屏子树里 */
+  container?: HTMLElement | null
 }
 
 export function Modal({
@@ -24,6 +26,7 @@ export function Modal({
   footer,
   className,
   fullscreenable = false,
+  container,
 }: ModalProps) {
   const [webFullscreen, setWebFullscreen] = useState(false)
 
@@ -38,6 +41,7 @@ export function Modal({
       open={open}
       onClose={handleClose}
       align="center"
+      container={container}
       outerClassName={webFullscreen ? 'p-0' : undefined}
       className={cn(
         'flex flex-col p-6',

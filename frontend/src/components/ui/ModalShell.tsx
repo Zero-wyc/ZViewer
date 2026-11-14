@@ -23,6 +23,13 @@ export interface ModalShellProps {
   className?: string
   /** 面板容器内联样式(可覆盖默认 boxShadow) */
   style?: React.CSSProperties
+  /**
+   * 挂载容器,默认 document.body。
+   *
+   * 原生全屏时只有 fullscreenElement 子树会被渲染，body 级 portal 完全不可见；
+   * 需要在全屏画面里弹窗的调用方把这里指到 document.fullscreenElement。
+   */
+  container?: HTMLElement | null
   children?: React.ReactNode
 }
 
@@ -44,6 +51,7 @@ export function ModalShell({
   outerClassName,
   className,
   style,
+  container,
   children,
 }: ModalShellProps) {
   const [visible, setVisible] = useState(open)
@@ -118,6 +126,9 @@ export function ModalShell({
       style={{
         zIndex: 999,
         transform: 'translateZ(0)',
+        // 显式 auto：本组件可能被挂到 pointer-events:none 的容器里
+        // （例如全屏画面里的角色悬浮层），否则整个弹窗点不动。
+        pointerEvents: 'auto',
         ...(align === 'top' ? { paddingTop: '80px' } : {}),
       }}
       // 阻止滚轮事件冒泡到 document，防止触发底层页面滚动
@@ -157,6 +168,6 @@ export function ModalShell({
         {children}
       </div>
     </div>,
-    document.body
+    container ?? document.body
   )
 }
