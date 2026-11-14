@@ -44,7 +44,8 @@ import { Live2DContextMenu } from './Live2DContextMenu'
 //      同一个节点 appendChild 到 fullscreenElement 里（换 portal 目标会重建
 //      canvas，WebGL 上下文与纹理全部要重来）；
 //   3. **引擎生命周期**：卸载就销毁 Application，把 WebGL 上下文还回去；
-//   4. **入口**：设置界面对角色右键呼出（自己还没角色时退化成右下角一个按钮）。
+//   4. **入口**：右键角色呼出设置菜单；右下角另有一个常驻圆钮直通「高级设置」
+//      （右键依赖包围盒命中，模型加载失败 / 命中漏判时它是唯一退路）。
 //
 // canvas 是 `pointer-events: none` 的，否则房间的拖拽、双击全屏、视频控件全被
 // 吃掉；所以「右键落在哪个角色上」只能由渲染器的包围盒判定（renderer.pick）。
@@ -517,9 +518,12 @@ export function RoomLive2DHost({
 
   const visible = peers.slice(0, LIVE2D_MAX_RENDERED)
   const hiddenCount = peers.length - visible.length
-  // 没有角色时才给一个常驻入口：此时画面上没有东西可右键，否则用户会被
-  // 永久锁在外面（这也是取消「整个悬浮层开关」的原因）。
-  const showFab = !effModelId
+  // 入口**常驻**，不再「有模型就收起来」：
+  //   - 模型加载失败时画面上只剩占位小方块，`renderer.pick` 打不中，右键就没
+  //     任何反应——这正是用户最需要打开设置（换/删模型）的时候，收起来等于
+  //     把人锁在外面；
+  //   - 画布是 pointer-events:none，右键判定走包围盒，摄像头动捕在动、缩放
+  //     拉到很小、或者角色被别的浮层挡住时也会漏判，不能把入口押在命中上。
 
   if (!canShowLayer) return null
 
@@ -603,32 +607,31 @@ export function RoomLive2DHost({
         </div>
       )}
 
-      {showFab && (
-        // 与右下角语音聊天悬浮按钮同一列、同一规格（h-12 w-12 glass-card 圆钮）：
-        // 语音面板固定在 bottom-6 right-6（48px 高）并带 gap-3，所以这里抬到
-        // 84px = 24 + 48 + 12，两个圆钮才对齐成一条竖列而不是错位。
-        <div
-          className="absolute right-6 bottom-[84px]"
-          style={{ pointerEvents: 'auto' }}
+      {/* 角色设置入口：常驻。与右下角语音聊天悬浮按钮同一列、同一规格
+          （h-12 w-12 glass-card 圆钮）：语音面板固定在 bottom-6 right-6
+          （48px 高）并带 gap-3，所以这里抬到 84px = 24 + 48 + 12，
+          两个圆钮才对齐成一条竖列而不是错位。 */}
+      <div
+        className="absolute right-6 bottom-[84px]"
+        style={{ pointerEvents: 'auto' }}
+      >
+        <button
+          type="button"
+          onClick={openAdvanced}
+          aria-label={t('角色设置')}
+          title={t('角色设置')}
+          className={cn(
+            'glass-card flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-200',
+            'hover:scale-105 hover:shadow-xl active:scale-95'
+          )}
+          style={{
+            backgroundColor: 'var(--glass-bg)',
+            color: 'var(--md-sys-color-on-surface)',
+          }}
         >
-          <button
-            type="button"
-            onClick={openAdvanced}
-            aria-label={t('角色设置')}
-            title={t('角色设置')}
-            className={cn(
-              'glass-card flex h-12 w-12 items-center justify-center rounded-full shadow-lg transition-all duration-200',
-              'hover:scale-105 hover:shadow-xl active:scale-95'
-            )}
-            style={{
-              backgroundColor: 'var(--glass-bg)',
-              color: 'var(--md-sys-color-on-surface)',
-            }}
-          >
-            <Sparkles className="h-5 w-5" />
-          </button>
-        </div>
-      )}
+          <Sparkles className="h-5 w-5" />
+        </button>
+      </div>
 
       <Live2DContextMenu
         open={menu.open}
