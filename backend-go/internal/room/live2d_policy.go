@@ -109,7 +109,7 @@ func (s *Service) handleLive2DPolicySet(sc *sio.Socket, args []json.RawMessage, 
 			kind = "builtin"
 		}
 		modelID := payload.UnifiedID
-		if problem := s.validateLive2DModelRef(payload.RoomID, kind, modelID); problem != "" {
+		if problem := s.validateLive2DModelRef(kind, modelID); problem != "" {
 			ackFail(ack, problem)
 			return
 		}

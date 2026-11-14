@@ -6,7 +6,7 @@ import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
 import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry } from '../core/model-meta'
-import type { RoomModelEntry } from '../core/room-models'
+import type { Live2DLibraryEntry } from '../core/model-library'
 import type { Live2DModelKind } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
 
@@ -29,7 +29,7 @@ export interface Live2DContextMenuProps {
   /** 挂载容器（原生全屏时要进全屏子树，见 Live2DAdvancedSettings 的说明） */
   container?: HTMLElement | null
   builtins: Live2DModelEntry[]
-  roomModels: RoomModelEntry[]
+  libraryModels: Live2DLibraryEntry[]
   expressions: ModelExpressionEntry[]
   myKind: Live2DModelKind
   myModelId: string
@@ -58,7 +58,7 @@ export function Live2DContextMenu({
   onClose,
   container,
   builtins,
-  roomModels,
+  libraryModels,
   expressions,
   myKind,
   myModelId,
@@ -152,7 +152,7 @@ export function Live2DContextMenu({
         <div className="mb-2">
           <Live2DModelPicker
             builtins={builtins}
-            roomModels={roomModels}
+            libraryModels={libraryModels}
             value={{ kind: myKind, id: myModelId }}
             onSelect={onSelect}
             allowUrl={false}

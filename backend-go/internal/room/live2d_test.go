@@ -175,13 +175,14 @@ func TestLive2DURLLimitedToHost(t *testing.T) {
 
 // 6) 房间模型库是共享资源：观众也能选，但必须真的存在。
 //
-// 这一条守的是产品语义——房主上传的模型如果不让观众选，这个功能对他们
+// 这一条守的是产品语义——服务端模型库里的模型如果不让观众选，这个功能对他们
 // 就等于不存在；反过来如果不校验存在性，随便填 id 会让全房间加载失败。
 func TestLive2DRoomModelSelectableByViewer(t *testing.T) {
 	env := newTestEnv(t)
 	l2dSession(t, env, "ROOM_R", "s-viewer", store.SessionRoleViewer)
-	env.svc.SetLive2DModelChecker(func(roomID, modelID string) bool {
-		return roomID == "ROOM_R" && modelID == "hiyori-abc123"
+	// 模型库是服务端公共的：checker 只认 modelId，与房间号无关。
+	env.svc.SetLive2DModelChecker(func(modelID string) bool {
+		return modelID == "hiyori-abc123"
 	})
 
 	var missingAck AckResponse
@@ -418,12 +419,12 @@ func TestLive2DPolicyHostOnlyAndMerge(t *testing.T) {
 	}
 }
 
-// 12) 统一角色：没选模型不放行；房间模型必须真的存在；切换后进房快照也带着策略。
+// 12) 统一角色：没选模型不放行；模型库里的模型必须真的存在；切换后进房快照也带着策略。
 func TestLive2DPolicyUnifiedModel(t *testing.T) {
 	env := newTestEnv(t)
 	l2dSession(t, env, "ROOM_U2", "s-host", store.SessionRoleSharer)
-	env.svc.SetLive2DModelChecker(func(roomID, modelID string) bool {
-		return roomID == "ROOM_U2" && modelID == "m-ok"
+	env.svc.SetLive2DModelChecker(func(modelID string) bool {
+		return modelID == "m-ok"
 	})
 
 	emit := func(raw string) AckResponse {

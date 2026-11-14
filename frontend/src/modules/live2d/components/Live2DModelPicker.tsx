@@ -6,10 +6,10 @@ import { t } from '@/i18n'
 import { cn } from '@/lib/utils'
 import type { Live2DModelEntry } from '../core/model-catalog'
 import { validateModelUrl } from '../core/model-url'
-import type { RoomModelEntry } from '../core/room-models'
+import type { Live2DLibraryEntry } from '../core/model-library'
 import type { Live2DModelKind } from '../types'
 
-// 模型来源选择：内置 / 房间模型库 / 自定义地址，三段平铺。
+// 模型来源选择：内置 / 服务端模型库 / 自定义地址，三段平铺。
 //
 // 不用 Tab：切 Tab 就要维护「当前 Tab」状态，而当前选中项可能来自任意一段
 // （比如统一模型是房主在别的面板里选的），同步逻辑只会带来闪烁。平铺之后
@@ -22,7 +22,7 @@ export interface ModelPickerValue {
 
 export interface Live2DModelPickerProps {
   builtins: Live2DModelEntry[]
-  roomModels: RoomModelEntry[]
+  libraryModels: Live2DLibraryEntry[]
   value: ModelPickerValue
   onSelect: (kind: Live2DModelKind, modelId: string) => void
   /** 房主才能填自定义地址（外链会让每个人的浏览器都去拉第三方资源） */
@@ -34,7 +34,7 @@ export interface Live2DModelPickerProps {
 
 export function Live2DModelPicker({
   builtins,
-  roomModels,
+  libraryModels,
   value,
   onSelect,
   allowUrl,
@@ -64,10 +64,10 @@ export function Live2DModelPicker({
         )}
       </Group>
 
-      {roomModels.length > 0 && (
-        <Group label={t('房间模型')}>
+      {libraryModels.length > 0 && (
+        <Group label={t('模型库')}>
           <Chips
-            items={roomModels.map((item) => ({
+            items={libraryModels.map((item) => ({
               kind: 'room' as Live2DModelKind,
               id: item.id,
               label: item.label,

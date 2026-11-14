@@ -33,18 +33,19 @@ export function validateModelUrl(raw: string): string | null {
  *
  * 三种来源：
  * - builtin：随仓库放的前端静态资源；
- * - room：房主上传到本房间的模型（服务端把入口统一命名成 model.model3.json）；
+ * - room：服务端公共模型库（任何人都能上传，所有房间共用；'room' 是协议里
+ *   的历史名字，改动它会让已经持久化的 kind 失效）。服务端把入口统一命名成
+ *   model.model3.json，所以地址只跟 modelId 有关，**不带房间号**；
  * - url：房主填的第三方地址（可能被 CORS 拦，加载失败由调用方降级）。
  */
 export function resolveModelUrl(
-  peer: Pick<Live2DPeer, 'kind' | 'modelId'>,
-  roomId: string
+  peer: Pick<Live2DPeer, 'kind' | 'modelId'>
 ): string {
   switch (peer.kind) {
     case 'url':
       return peer.modelId
     case 'room':
-      return `/uploads/live2d/${encodeURIComponent(roomId)}/${encodeURIComponent(peer.modelId)}/model.model3.json`
+      return `/uploads/live2d/${encodeURIComponent(peer.modelId)}/model.model3.json`
     default:
       return `/live2d/models/${encodeURIComponent(peer.modelId)}/${encodeURIComponent(peer.modelId)}.model3.json`
   }

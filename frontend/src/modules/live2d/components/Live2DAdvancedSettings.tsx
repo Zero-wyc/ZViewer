@@ -11,8 +11,8 @@ import type { Live2DModelEntry } from '../core/model-catalog'
 import type { ModelExpressionEntry } from '../core/model-meta'
 import {
   LIVE2D_UPLOAD_MAX_BYTES,
-  type RoomModelEntry,
-} from '../core/room-models'
+  type Live2DLibraryEntry,
+} from '../core/model-library'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DModelPicker } from './Live2DModelPicker'
 
@@ -20,7 +20,7 @@ import { Live2DModelPicker } from './Live2DModelPicker'
 //   - 我的角色：每个人都能改，只影响自己看到的/别人看到的「我这一个」；
 //   - 房间设置：房主才能改，作用于全房间（统一角色、动捕许可、对观众可见）。
 //
-// 为什么用弹窗而不是继续挂在右键菜单里：模型清单、房间模型库、动捕状态这些
+// 为什么用弹窗而不是继续挂在右键菜单里：模型清单、模型库、动捕状态这些
 // 东西展开后有两三百像素，贴在光标上会盖住画面且容易误触。
 
 type Tab = 'me' | 'room'
@@ -39,10 +39,10 @@ export interface Live2DAdvancedSettingsProps {
    * 否则房间所有者以观众身份进房时会看到一堆点了就被拒的开关。
    */
   isHost: boolean
-  /** 能否上传/删除房间模型（服务端口径：root 或房间 owner） */
+  /** 能否往服务端公共模型库里上传（任何登录用户；游客不行） */
   canUploadModels: boolean
   builtins: Live2DModelEntry[]
-  roomModels: RoomModelEntry[]
+  libraryModels: Live2DLibraryEntry[]
   expressions: ModelExpressionEntry[]
   myKind: Live2DModelKind
   myModelId: string
@@ -59,7 +59,7 @@ export interface Live2DAdvancedSettingsProps {
   /* 房间设置（房主） */
   onPolicy: (patch: Partial<Live2DPolicy>) => void
   onUpload: (file: File) => void
-  onDeleteRoomModel: (modelId: string) => void
+  onDeleteModel: (modelId: string) => void
 }
 
 export function Live2DAdvancedSettings({
@@ -69,7 +69,7 @@ export function Live2DAdvancedSettings({
   isHost,
   canUploadModels,
   builtins,
-  roomModels,
+  libraryModels,
   expressions,
   myKind,
   myModelId,
@@ -84,7 +84,7 @@ export function Live2DAdvancedSettings({
   onHide,
   onPolicy,
   onUpload,
-  onDeleteRoomModel,
+  onDeleteModel,
 }: Live2DAdvancedSettingsProps) {
   const [tab, setTab] = useState<Tab>('me')
   const [pendingDelete, setPendingDelete] = useState<string>('')
@@ -93,6 +93,64 @@ export function Live2DAdvancedSettings({
   const activeTab: Tab = isHost ? tab : 'me'
   const unified = policy.unified && Boolean(policy.unifiedId)
   const canUseFace = policy.allowFace
+
+  // 模型库是**服务端公共**的素材，不属于房间设置，所以放在「我的角色」页：
+  // 观众也要能传自己的、删自己传错的，不能只给房主开。不可上传且库为空时
+  // 整块不渲染，免得给游客看一个空壳。
+  const librarySection =
+    canUploadModels || libraryModels.length > 0 ? (
+      <Section label={t('模型库')}>
+        {canUploadModels && (
+          <>
+            <p className="mb-1.5 text-[10px] leading-snug opacity-50">
+              {t('上传到服务端模型库，所有房间都能选')}
+            </p>
+            <div className="mb-1.5 flex items-center gap-1.5">
+              <UploadButton uploading={uploading} onUpload={onUpload} />
+              <span className="text-[10px] opacity-45">
+                {t(
+                  'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB',
+                  {
+                    size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
+                  }
+                )}
+              </span>
+            </div>
+          </>
+        )}
+        {libraryModels.length === 0 ? (
+          <p className="text-[11px] opacity-55">{t('模型库还是空的')}</p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {libraryModels.map((item) => (
+              <li
+                key={item.id}
+                className="flex items-center gap-2 rounded-lg border px-2 py-1.5"
+                style={{
+                  borderColor: 'var(--md-sys-color-outline-variant)',
+                }}
+              >
+                <span className="min-w-0 flex-1 truncate text-[11px]">
+                  {item.label}
+                </span>
+                {item.deletable && (
+                  <button
+                    type="button"
+                    onClick={() => setPendingDelete(item.id)}
+                    aria-label={t('删除该模型')}
+                    title={t('删除该模型')}
+                    className="shrink-0 rounded-md p-1 opacity-55 transition-opacity hover:opacity-100"
+                    style={{ color: 'var(--md-sys-color-error)' }}
+                  >
+                    <Trash2 size={12} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+    ) : null
 
   return (
     <>
@@ -129,12 +187,14 @@ export function Live2DAdvancedSettings({
               ) : (
                 <Live2DModelPicker
                   builtins={builtins}
-                  roomModels={roomModels}
+                  libraryModels={libraryModels}
                   value={{ kind: myKind, id: myModelId }}
                   onSelect={onSelect}
                   allowUrl={canUploadModels}
                 />
               )}
+
+              {librarySection}
 
               <Section label={t('大小')}>
                 <Slider
@@ -278,7 +338,7 @@ export function Live2DAdvancedSettings({
                   </p>
                   <Live2DModelPicker
                     builtins={builtins}
-                    roomModels={roomModels}
+                    libraryModels={libraryModels}
                     value={{
                       kind: policy.unifiedKind ?? 'builtin',
                       id: policy.unifiedId ?? '',
@@ -294,57 +354,6 @@ export function Live2DAdvancedSettings({
                   />
                 </div>
               )}
-
-              <Section label={t('房间模型库')}>
-                {canUploadModels && (
-                  <>
-                    <p className="mb-1.5 text-[10px] leading-snug opacity-50">
-                      {t('上传一个 zip，房间内所有人都会看到这个模型')}
-                    </p>
-                    <div className="mb-1.5 flex items-center gap-1.5">
-                      <UploadButton uploading={uploading} onUpload={onUpload} />
-                      <span className="text-[10px] opacity-45">
-                        {t('zip 内需包含 model3.json，不超过 {{size}}MB', {
-                          size: LIVE2D_UPLOAD_MAX_BYTES >> 20,
-                        })}
-                      </span>
-                    </div>
-                  </>
-                )}
-                {roomModels.length === 0 ? (
-                  <p className="text-[11px] opacity-55">
-                    {t('房主还没有上传模型')}
-                  </p>
-                ) : (
-                  <ul className="flex flex-col gap-1">
-                    {roomModels.map((item) => (
-                      <li
-                        key={item.id}
-                        className="flex items-center gap-2 rounded-lg border px-2 py-1.5"
-                        style={{
-                          borderColor: 'var(--md-sys-color-outline-variant)',
-                        }}
-                      >
-                        <span className="min-w-0 flex-1 truncate text-[11px]">
-                          {item.label}
-                        </span>
-                        {canUploadModels && (
-                          <button
-                            type="button"
-                            onClick={() => setPendingDelete(item.id)}
-                            aria-label={t('删除该模型')}
-                            title={t('删除该模型')}
-                            className="shrink-0 rounded-md p-1 opacity-55 transition-opacity hover:opacity-100"
-                            style={{ color: 'var(--md-sys-color-error)' }}
-                          >
-                            <Trash2 size={12} />
-                          </button>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Section>
             </div>
           )}
         </div>
@@ -361,7 +370,7 @@ export function Live2DAdvancedSettings({
         onOk={() => {
           const id = pendingDelete
           setPendingDelete('')
-          if (id) onDeleteRoomModel(id)
+          if (id) onDeleteModel(id)
         }}
       >
         <p className="text-sm leading-relaxed opacity-70">

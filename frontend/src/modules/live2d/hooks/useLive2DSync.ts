@@ -58,7 +58,7 @@ export function useLive2DSync({
       const alive = new Set(entries.map((e) => e.peer.sid))
       if (renderer) {
         for (const entry of entries) {
-          renderer.sync(entry.peer.sid, resolveModelUrl(entry.peer, roomId))
+          renderer.sync(entry.peer.sid, resolveModelUrl(entry.peer))
         }
         renderer.prune(alive)
       }

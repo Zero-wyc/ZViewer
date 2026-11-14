@@ -11,10 +11,7 @@
     "Invalid URL format",
     "URL is too long",
     "Show characters to viewers",
-    "Room models",
-    "Room model library",
     "Room settings",
-    "The host hasn't uploaded any model yet",
     "The host turned off tracking for members",
     "The host picked one character for the whole room",
     "Members cannot turn on camera tracking",
@@ -32,6 +29,8 @@
     "Model pack must be under {{size}}MB",
     "Model size",
     "Could not load model: {{reason}}",
+    "Model library",
+    "The model library is empty",
     "Model deleted",
     "Model uploaded",
     "Built-in",
@@ -43,8 +42,8 @@
     "Anyone using it falls back to the default character. This cannot be undone.",
     "Failed to delete",
     "Upload",
+    "Upload to the server model library — every room can use it",
     "Upload failed",
-    "Upload a zip and everyone in the room will see this model",
     "Uploading…",
     "The camera is in use by another app",
     "Couldn't open the camera",
@@ -66,6 +65,6 @@
     "Custom model URL",
     "Failed to load Cubism Core",
     "Cubism Core loaded but not registered",
-    "The zip must contain model3.json and be under {{size}}MB"
+    "The zip must contain model3.json (textures and motions are kept), at most {{size}}MB"
   ]
 }

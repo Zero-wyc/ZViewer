@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2733 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2732 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,7 +965,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（67 条） =====
+  // ===== modules/live2d（66 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -977,10 +977,7 @@ const enUS: Record<string, string> = {
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
   '对观众显示角色': 'Show characters to viewers',
-  '房间模型': 'Room models',
-  '房间模型库': 'Room model library',
   '房间设置': 'Room settings',
-  '房主还没有上传模型': 'The host hasn\'t uploaded any model yet',
   '房主已关闭成员动捕': 'The host turned off tracking for members',
   '房主已统一角色，全房间使用同一个模型': 'The host picked one character for the whole room',
   '关闭后成员的动捕开关会被禁用': 'Members cannot turn on camera tracking',
@@ -998,6 +995,8 @@ const enUS: Record<string, string> = {
   '模型包不能超过 {{size}}MB': 'Model pack must be under {{size}}MB',
   '模型大小': 'Model size',
   '模型加载失败：{{reason}}': 'Could not load model: {{reason}}',
+  '模型库': 'Model library',
+  '模型库还是空的': 'The model library is empty',
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
   '内置模型': 'Built-in',
@@ -1009,8 +1008,8 @@ const enUS: Record<string, string> = {
   '删除后正在使用它的人会退回默认角色，且无法恢复': 'Anyone using it falls back to the default character. This cannot be undone.',
   '删除失败': 'Failed to delete',
   '上传': 'Upload',
+  '上传到服务端模型库，所有房间都能选': 'Upload to the server model library — every room can use it',
   '上传失败': 'Upload failed',
-  '上传一个 zip，房间内所有人都会看到这个模型': 'Upload a zip and everyone in the room will see this model',
   '上传中…': 'Uploading…',
   '摄像头被其他程序占用': 'The camera is in use by another app',
   '摄像头打开失败': 'Couldn\'t open the camera',
@@ -1032,7 +1031,7 @@ const enUS: Record<string, string> = {
   '自定义模型地址': 'Custom model URL',
   'Cubism Core 加载失败': 'Failed to load Cubism Core',
   'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
-  'zip 内需包含 model3.json，不超过 {{size}}MB': 'The zip must contain model3.json and be under {{size}}MB',
+  'zip 需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB': 'The zip must contain model3.json (textures and motions are kept), at most {{size}}MB',
 
   // ===== modules/mounts（60 条） =====
   '，用户：{{userName}}': ', user: {{userName}}',

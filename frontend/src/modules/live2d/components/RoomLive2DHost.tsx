@@ -5,6 +5,7 @@ import { t } from '@/i18n'
 import { Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/store/authStore'
 import { loadLive2DEngine } from '../core/cubism-core'
 import { FaceTracker } from '../core/face-tracker'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
@@ -15,11 +16,11 @@ import {
 import { resolveModelUrl } from '../core/model-url'
 import {
   LIVE2D_UPLOAD_MAX_BYTES,
-  deleteRoomModel,
-  loadRoomModels,
-  uploadRoomModel,
-  type RoomModelEntry,
-} from '../core/room-models'
+  deleteLibraryModel,
+  loadLibraryModels,
+  uploadLibraryModel,
+  type Live2DLibraryEntry,
+} from '../core/model-library'
 import { Live2DRenderer } from '../core/live2d-renderer'
 import { slotX } from '../core/scene'
 import { LIVE2D_MAX_RENDERED } from '../constants'
@@ -88,8 +89,8 @@ export function RoomLive2DHost({
   const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null)
   const [renderer, setRenderer] = useState<Live2DRenderer | null>(null)
   const [builtins, setBuiltins] = useState<Live2DModelEntry[]>([])
-  const [roomModels, setRoomModels] = useState<RoomModelEntry[]>([])
-  const [roomCanManage, setRoomCanManage] = useState(false)
+  const [libraryModels, setLibraryModels] = useState<Live2DLibraryEntry[]>([])
+  const [canUploadModels, setCanUploadModels] = useState(false)
   const [uploading, setUploading] = useState(false)
   const [advancedOpen, setAdvancedOpen] = useState(false)
   // root 是这条菜单的挂载容器，**在打开的那一刻**决定：
@@ -135,9 +136,15 @@ export function RoomLive2DHost({
   }>({ on: false, busy: false, error: '' })
 
   const mySid = socket?.id ?? ''
-  // 能管理房间的人（房主 / root）自己永远看得到角色，否则他也没法再右键改回来。
-  // roomCanManage 来自模型库接口（root 也算），所以只能在 state 之后算。
-  const canShowLayer = isHost || roomCanManage || policy.showToViewers
+  const role = useAuthStore((s) => s.user?.role)
+  const isServerAdmin = role === 'root' || role === 'admin'
+  // 房主与服务器管理员自己永远看得到角色，否则他也没法再右键改回来；其余人
+  // 跟着房间策略走。
+  //
+  // 注意这里**不能**用「能上传模型」当豁免：模型库改成服务端公共之后，任何
+  // 登录用户都能上传，拿它当条件等于「对观众显示角色」这个开关对除游客以外
+  // 的所有人失效。
+  const canShowLayer = isHost || isServerAdmin || policy.showToViewers
 
   // ---- 2. 原生全屏时搬进 top layer ----
   useEffect(() => {
@@ -170,33 +177,29 @@ export function RoomLive2DHost({
     }
   }, [])
 
-  // ---- 4. 房间模型库（房主上传，全房间共用）----
+  // ---- 4. 公共模型库（服务端级，任何房间共用）----
   //
   // 刷新用「版本号 + effect」而不是在事件里直接 setState：上传/删除之后
   // 只是把版本号加一，真正的取数留在 effect 里，避免多处各写一遍 promise 链，
   // 也满足 react-hooks 对「effect 内不要同步 setState」的要求。
-  const [roomModelsVersion, setRoomModelsVersion] = useState(0)
-  const refreshRoomModels = useCallback(
-    () => setRoomModelsVersion((v) => v + 1),
-    []
-  )
+  const [libraryVersion, setLibraryVersion] = useState(0)
+  const refreshLibrary = useCallback(() => setLibraryVersion((v) => v + 1), [])
 
   useEffect(() => {
-    if (!roomId) return
     let cancelled = false
-    void loadRoomModels(roomId).then((list) => {
+    void loadLibraryModels().then((list) => {
       if (cancelled) return
-      setRoomModels(list.models)
-      setRoomCanManage(list.canManage)
+      setLibraryModels(list.models)
+      setCanUploadModels(list.canManage)
     })
     return () => {
       cancelled = true
     }
-  }, [roomId, roomModelsVersion])
+  }, [libraryVersion])
 
   // ---- 4b. 我的模型有哪些表情 ----
   const myModelUrl = effModelId
-    ? resolveModelUrl({ kind: effKind, modelId: effModelId }, roomId)
+    ? resolveModelUrl({ kind: effKind, modelId: effModelId })
     : ''
   const myExpressions =
     exprState.url === myModelUrl
@@ -427,10 +430,11 @@ export function RoomLive2DHost({
     [socket, roomId]
   )
 
-  // 上传：成功后立刻切到新模型——这是房主上传时唯一想做的事。
+  // 上传：成功后立刻切到新模型——这是用户上传时唯一想做的事。
+  // 传进公共库的模型所有房间都能选，所以这里不关心 roomId（也不再需要它）。
   const handleUpload = useCallback(
     async (file: File) => {
-      if (uploading || !roomId) return
+      if (uploading) return
       if (file.size > LIVE2D_UPLOAD_MAX_BYTES) {
         message.error(
           t('模型包不能超过 {{size}}MB', {
@@ -440,29 +444,28 @@ export function RoomLive2DHost({
         return
       }
       setUploading(true)
-      const result = await uploadRoomModel(roomId, file)
+      const result = await uploadLibraryModel(file)
       setUploading(false)
       if (!result.ok) {
         message.error(result.message)
         return
       }
       message.success(result.message)
-      refreshRoomModels()
+      refreshLibrary()
       if (result.model) handleSelect('room', result.model.id)
     },
-    [uploading, roomId, refreshRoomModels, handleSelect]
+    [uploading, refreshLibrary, handleSelect]
   )
 
-  const handleDeleteRoomModel = useCallback(
+  const handleDeleteModel = useCallback(
     async (modelId: string) => {
-      if (!roomId) return
-      const result = await deleteRoomModel(roomId, modelId)
+      const result = await deleteLibraryModel(modelId)
       if (!result.ok) {
         message.error(result.message)
         return
       }
       message.success(result.message)
-      refreshRoomModels()
+      refreshLibrary()
 
       // 统一角色用的正是它：先把统一关掉，否则全房间都会加载失败只剩占位卡
       if (policy.unifiedKind === 'room' && policy.unifiedId === modelId) {
@@ -478,8 +481,7 @@ export function RoomLive2DHost({
       }
     },
     [
-      roomId,
-      refreshRoomModels,
+      refreshLibrary,
       policy,
       effKind,
       effModelId,
@@ -487,6 +489,7 @@ export function RoomLive2DHost({
       setMyModel,
       setHidden,
       socket,
+      roomId,
     ]
   )
 
@@ -639,7 +642,7 @@ export function RoomLive2DHost({
         onClose={closeMenu}
         container={menu.root}
         builtins={builtins}
-        roomModels={roomModels}
+        libraryModels={libraryModels}
         expressions={myExpressions}
         myKind={effKind}
         myModelId={effModelId}
@@ -661,9 +664,9 @@ export function RoomLive2DHost({
         onClose={() => setAdvancedOpen(false)}
         container={menu.root}
         isHost={isHost}
-        canUploadModels={roomCanManage}
+        canUploadModels={canUploadModels}
         builtins={builtins}
-        roomModels={roomModels}
+        libraryModels={libraryModels}
         expressions={myExpressions}
         myKind={effKind}
         myModelId={effModelId}
@@ -678,7 +681,7 @@ export function RoomLive2DHost({
         onHide={handleHide}
         onPolicy={handlePolicy}
         onUpload={handleUpload}
-        onDeleteRoomModel={handleDeleteRoomModel}
+        onDeleteModel={handleDeleteModel}
       />
     </div>,
     document.body

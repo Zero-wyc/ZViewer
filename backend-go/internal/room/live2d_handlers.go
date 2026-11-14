@@ -82,8 +82,11 @@ type live2dStatePayload struct {
 	Eyes  *float64 `json:"e"`
 }
 
-// Live2DModelChecker 判断某个房间模型是否存在（由 api 层注入，避免 room 包碰磁盘）。
-type Live2DModelChecker func(roomID, modelID string) bool
+// Live2DModelChecker 判断某个模型是否存在（由 api 层注入，避免 room 包碰磁盘）。
+//
+// 只看 modelId：模型库是**服务端公共**的，与房间号无关——同一套模型任何
+// 房间都能选。
+type Live2DModelChecker func(modelID string) bool
 
 // SetLive2DModelChecker 注入房间模型库查询（api.New 里挂上）。
 func (s *Service) SetLive2DModelChecker(fn Live2DModelChecker) { s.live2dModelExists = fn }
@@ -190,7 +193,7 @@ func (s *Service) handleLive2DConfig(sc *sio.Socket, args []json.RawMessage, ack
 			return
 		}
 	}
-	if problem := s.validateLive2DModelRef(payload.RoomID, kind, modelID); problem != "" {
+	if problem := s.validateLive2DModelRef(kind, modelID); problem != "" {
 		ackFail(ack, problem)
 		return
 	}
@@ -337,7 +340,7 @@ func (s *Service) handleLive2DRequest(sc *sio.Socket, args []json.RawMessage) {
 //
 // 成员声明自己的模型与房主设置「统一角色」共用这一份口径：两处放行的合集
 // 必须一致，否则会出现「自己能选、统一时却选不了」这种对不上的情况。
-func (s *Service) validateLive2DModelRef(roomID, kind, modelID string) string {
+func (s *Service) validateLive2DModelRef(kind, modelID string) string {
 	switch kind {
 	case "builtin":
 		if !live2dBuiltinIDPattern.MatchString(modelID) {
@@ -347,13 +350,13 @@ func (s *Service) validateLive2DModelRef(roomID, kind, modelID string) string {
 	case "url":
 		return validateLive2DModelURL(modelID)
 	case "room":
-		// 房间模型库是房主上传、全房间共用的**资源**，任何成员都可以选，
-		// 不构成额外磁盘开销。但必须真的存在：否则随便填一个 id 就会让
-		// 房间里所有人加载失败、只剩占位卡。
+		// room = 服务端公共模型库（历史名字，协议里沿用以免老客户端/本地缓存
+		// 的 kind 失效）。任何成员都可以选，不构成额外磁盘开销。但必须真的
+		// 存在：否则随便填一个 id 就会让房间里所有人加载失败、只剩占位卡。
 		if !live2dRoomIDPattern.MatchString(modelID) {
 			return "模型标识不合法"
 		}
-		if s.live2dModelExists != nil && !s.live2dModelExists(roomID, modelID) {
+		if s.live2dModelExists != nil && !s.live2dModelExists(modelID) {
 			return "该模型已不存在，请重新选择"
 		}
 		return ""

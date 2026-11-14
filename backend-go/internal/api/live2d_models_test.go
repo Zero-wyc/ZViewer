@@ -66,25 +66,26 @@ func makeLive2DZip(t *testing.T, extra map[string]string) []byte {
 	return buf.Bytes()
 }
 
-// setupLive2DRoom 建一个用户+房间，返回房主令牌与所有者 id。
-func setupLive2DRoom(t *testing.T) (*testEnv, string, int64) {
+// setupLive2DLibrary 建环境 + 一个普通用户令牌。
+//
+// 模型库是**服务端公共**的，上传/删除不再需要房间，所以这里也不建房间。
+func setupLive2DLibrary(t *testing.T) (*testEnv, string, int64) {
 	t.Helper()
 	env := newTestEnv(t)
 	// 与现有用例一致：不 defer 的话 Windows 上 sqlite 还占着句柄，
 	// t.TempDir 的清理会失败（子测试尤其容易踩到）。
 	t.Cleanup(env.teardown)
-	owner := env.seedUser(t, "l2d-host", "pw123456", "user", "active")
-	env.seedRoom(t, "AB12CD", "active", &owner)
-	return env, env.token(t, owner, "user", "l2d-host"), owner
+	user := env.seedUser(t, "l2d-user", "pw123456", "user", "active")
+	return env, env.token(t, user, "user", "l2d-user"), user
 }
 
 func uploadLive2D(t *testing.T, env *testEnv, token string, content []byte) apiResponse {
 	t.Helper()
-	return env.doMultipart(t, "/api/rooms/AB12CD/live2d/models", token, "file", "Hiyori.zip", "application/zip", content)
+	return env.doMultipart(t, "/api/live2d/models", token, "file", "Hiyori.zip", "application/zip", content)
 }
 
 func TestLive2DUploadAndServe(t *testing.T) {
-	env, token, owner := setupLive2DRoom(t)
+	env, token, _ := setupLive2DLibrary(t)
 	resp := uploadLive2D(t, env, token, makeLive2DZip(t, nil))
 	if resp.status != http.StatusOK {
 		t.Fatalf("上传应成功，得到 %d: %s", resp.status, resp.raw)
@@ -101,11 +102,12 @@ func TestLive2DUploadAndServe(t *testing.T) {
 		t.Fatalf("显示名应取压缩包名，得到 %q", label)
 	}
 
-	// 落盘形状：入口固定名、贴图保留子目录、macOS 垃圾文件已被丢弃。
-	dir := filepath.Join(env.uploads, "live2d", "AB12CD", id)
+	// 落盘形状：直接躺在库根下（不再有房间号这一层），入口固定名、
+	// 贴图保留子目录、macOS 垃圾文件已被丢弃。
+	dir := filepath.Join(env.uploads, "live2d", id)
 	expect := []string{
 		"model.model3.json",
-		"_meta.json",
+		".meta.json",
 		"hiyori.moc3",
 		filepath.Join("hiyori.2048", "texture_00.png"),
 		"hiyori.physics3.json",
@@ -138,8 +140,7 @@ func TestLive2DUploadAndServe(t *testing.T) {
 	}
 
 	// 静态下发：公开可访问、带 nosniff、带长期缓存。
-	env.do(t, http.MethodGet, "/api/rooms/AB12CD/live2d/models", token, nil)
-	req, _ := http.NewRequest(http.MethodGet, "/uploads/live2d/AB12CD/"+id+"/model.model3.json", nil)
+	req, _ := http.NewRequest(http.MethodGet, "/uploads/live2d/"+id+"/model.model3.json", nil)
 	rec := httptest.NewRecorder()
 	env.handler.ServeHTTP(rec, req)
 	if rec.Code != http.StatusOK {
@@ -152,16 +153,24 @@ func TestLive2DUploadAndServe(t *testing.T) {
 		t.Errorf("缺少长期缓存头: %q", got)
 	}
 
+	// .meta.json 里带上传者 userId，它绝不能随模型一起被公开下载。
+	metaReq, _ := http.NewRequest(http.MethodGet, "/uploads/live2d/"+id+"/.meta.json", nil)
+	metaRec := httptest.NewRecorder()
+	env.handler.ServeHTTP(metaRec, metaReq)
+	if metaRec.Code != http.StatusNotFound {
+		t.Errorf("元数据文件应 404，得到 %d", metaRec.Code)
+	}
+
 	// 目录列表没有用途，直接 404（否则等于把整包文件清单公开）。
-	dirReq, _ := http.NewRequest(http.MethodGet, "/uploads/live2d/AB12CD/"+id+"/", nil)
+	dirReq, _ := http.NewRequest(http.MethodGet, "/uploads/live2d/"+id+"/", nil)
 	dirRec := httptest.NewRecorder()
 	env.handler.ServeHTTP(dirRec, dirReq)
 	if dirRec.Code != http.StatusNotFound {
 		t.Errorf("目录列表应 404，得到 %d", dirRec.Code)
 	}
 
-	// 列表能看到这个模型，并且房主拿到的 canManage 为 true。
-	list := env.do(t, http.MethodGet, "/api/rooms/AB12CD/live2d/models", token, nil)
+	// 列表能看到这个模型；上传者本人拿到 canManage（能再传）与 deletable（能删）。
+	list := env.do(t, http.MethodGet, "/api/live2d/models", token, nil)
 	if list.status != http.StatusOK {
 		t.Fatalf("列表应成功: %d %s", list.status, list.raw)
 	}
@@ -170,27 +179,53 @@ func TestLive2DUploadAndServe(t *testing.T) {
 		t.Fatalf("列表应有 1 个模型，得到 %d: %s", len(models), list.raw)
 	}
 	if manage, _ := list.body["canManage"].(bool); !manage {
-		t.Errorf("房主应拿到 canManage=true")
+		t.Errorf("登录用户应拿到 canManage=true")
 	}
-	_ = owner
+	first, _ := models[0].(map[string]any)
+	if deletable, _ := first["deletable"].(bool); !deletable {
+		t.Errorf("上传者本人应能删除自己的模型")
+	}
+	if owner, has := first["owner"]; has {
+		t.Errorf("列表不应外发 owner 字段，得到 %v", owner)
+	}
 }
 
-func TestLive2DUploadRejectsNonHost(t *testing.T) {
-	env, _, _ := setupLive2DRoom(t)
-	guest := env.seedUser(t, "l2d-viewer", "pw123456", "user", "active")
-	token := env.token(t, guest, "user", "l2d-viewer")
+// 库是全服务端共用的：A 传的模型，B（另一个用户、没进过任何房间）也能看到、
+// 也能自己再传一个。游客只能看，不能往库里写。
+func TestLive2DLibrarySharedAcrossUsers(t *testing.T) {
+	env, tokenA, _ := setupLive2DLibrary(t)
+	if resp := uploadLive2D(t, env, tokenA, makeLive2DZip(t, nil)); resp.status != http.StatusOK {
+		t.Fatalf("A 上传应成功，得到 %d: %s", resp.status, resp.raw)
+	}
 
-	resp := uploadLive2D(t, env, token, makeLive2DZip(t, nil))
-	if resp.status != http.StatusForbidden {
-		t.Fatalf("非房主上传应 403，得到 %d: %s", resp.status, resp.raw)
-	}
-	// 列表仍可读（观众要加载模型），但 canManage 为 false。
-	list := env.do(t, http.MethodGet, "/api/rooms/AB12CD/live2d/models", token, nil)
+	userB := env.seedUser(t, "l2d-other", "pw123456", "user", "active")
+	tokenB := env.token(t, userB, "user", "l2d-other")
+
+	list := env.do(t, http.MethodGet, "/api/live2d/models", tokenB, nil)
 	if list.status != http.StatusOK {
-		t.Fatalf("观众列表应成功: %d %s", list.status, list.raw)
+		t.Fatalf("B 列表应成功: %d %s", list.status, list.raw)
 	}
-	if manage, _ := list.body["canManage"].(bool); manage {
-		t.Errorf("观众不应拿到 canManage=true")
+	models, _ := list.body["models"].([]any)
+	if len(models) != 1 {
+		t.Fatalf("B 应看到 A 传的模型，得到 %d 条: %s", len(models), list.raw)
+	}
+	first, _ := models[0].(map[string]any)
+	if deletable, _ := first["deletable"].(bool); deletable {
+		t.Errorf("B 不应能删除 A 传的模型")
+	}
+	if resp := uploadLive2D(t, env, tokenB, makeLive2DZip(t, nil)); resp.status != http.StatusOK {
+		t.Fatalf("B 也应能上传，得到 %d: %s", resp.status, resp.raw)
+	}
+
+	// 游客：能看（要加载别人选的模型），不能写。
+	guest := env.guestToken(t)
+	if list := env.do(t, http.MethodGet, "/api/live2d/models", guest, nil); list.status != http.StatusOK {
+		t.Fatalf("游客列表应成功: %d %s", list.status, list.raw)
+	} else if manage, _ := list.body["canManage"].(bool); manage {
+		t.Errorf("游客不应拿到 canManage=true")
+	}
+	if resp := uploadLive2D(t, env, guest, makeLive2DZip(t, nil)); resp.status != http.StatusForbidden {
+		t.Fatalf("游客上传应 403，得到 %d: %s", resp.status, resp.raw)
 	}
 }
 
@@ -223,7 +258,7 @@ func TestLive2DUploadRejectsUnsafePackages(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			env, token, _ := setupLive2DRoom(t)
+			env, token, _ := setupLive2DLibrary(t)
 			resp := uploadLive2D(t, env, token, makeLive2DZip(t, tc.extra))
 			if resp.status != http.StatusBadRequest {
 				t.Fatalf("应 400，得到 %d: %s", resp.status, resp.raw)
@@ -231,9 +266,8 @@ func TestLive2DUploadRejectsUnsafePackages(t *testing.T) {
 			if msg := resp.message(); !strings.Contains(msg, tc.want) {
 				t.Fatalf("错误信息应包含 %q，得到 %q", tc.want, msg)
 			}
-			// 被拒绝的包不能在磁盘上留下任何东西。
-			roomDir := filepath.Join(env.uploads, "live2d", "AB12CD")
-			entries, _ := os.ReadDir(roomDir)
+			// 被拒绝的包不能在磁盘上留下任何东西（临时目录也要清掉）。
+			entries, _ := os.ReadDir(filepath.Join(env.uploads, "live2d"))
 			for _, entry := range entries {
 				t.Errorf("拒绝后不应残留目录: %s", entry.Name())
 			}
@@ -242,7 +276,7 @@ func TestLive2DUploadRejectsUnsafePackages(t *testing.T) {
 }
 
 func TestLive2DUploadRejectsMissingReference(t *testing.T) {
-	env, token, _ := setupLive2DRoom(t)
+	env, token, _ := setupLive2DLibrary(t)
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	w, _ := zw.Create("m/pack.model3.json")
@@ -261,38 +295,57 @@ func TestLive2DUploadRejectsMissingReference(t *testing.T) {
 }
 
 func TestLive2DDeleteModel(t *testing.T) {
-	env, token, _ := setupLive2DRoom(t)
+	env, token, _ := setupLive2DLibrary(t)
 	up := uploadLive2D(t, env, token, makeLive2DZip(t, nil))
 	model, _ := up.body["model"].(map[string]any)
 	id, _ := model["id"].(string)
 	if id == "" {
 		t.Fatalf("上传未返回 id: %s", up.raw)
 	}
+	path := fmt.Sprintf("/api/live2d/models/%s", id)
 
-	other := env.seedUser(t, "l2d-other", "pw123456", "user", "active")
-	otherToken := env.token(t, other, "user", "l2d-other")
-	if resp := env.do(t, http.MethodDelete, fmt.Sprintf("/api/rooms/AB12CD/live2d/models/%s", id), otherToken, nil); resp.status != http.StatusForbidden {
-		t.Fatalf("非房主删除应 403，得到 %d", resp.status)
+	// 别人删不了：模型库是公共的，但删除仍然只限本人或管理员。
+	other := env.seedUser(t, "l2d-thief", "pw123456", "user", "active")
+	otherToken := env.token(t, other, "user", "l2d-thief")
+	if resp := env.do(t, http.MethodDelete, path, otherToken, nil); resp.status != http.StatusForbidden {
+		t.Fatalf("删别人的模型应 403，得到 %d", resp.status)
+	}
+	if _, err := os.Stat(filepath.Join(env.uploads, "live2d", id)); err != nil {
+		t.Fatalf("被拒绝的删除不应动文件: %v", err)
 	}
 
-	if resp := env.do(t, http.MethodDelete, fmt.Sprintf("/api/rooms/AB12CD/live2d/models/%s", id), token, nil); resp.status != http.StatusOK {
-		t.Fatalf("房主删除应 200，得到 %d: %s", resp.status, resp.raw)
+	if resp := env.do(t, http.MethodDelete, path, token, nil); resp.status != http.StatusOK {
+		t.Fatalf("本人删除应 200，得到 %d: %s", resp.status, resp.raw)
 	}
-	if _, err := os.Stat(filepath.Join(env.uploads, "live2d", "AB12CD", id)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(env.uploads, "live2d", id)); !os.IsNotExist(err) {
 		t.Errorf("删除后目录应消失，stat err=%v", err)
 	}
-	if list := env.do(t, http.MethodGet, "/api/rooms/AB12CD/live2d/models", token, nil); list.status == http.StatusOK {
+	if list := env.do(t, http.MethodGet, "/api/live2d/models", token, nil); list.status == http.StatusOK {
 		if models, _ := list.body["models"].([]any); len(models) != 0 {
 			t.Errorf("删除后列表应为空，得到 %d 条", len(models))
 		}
 	}
 }
 
+// 管理员可以收拾任何一条：库里出了问题（模型损坏/传错）得有人能删。
+func TestLive2DDeleteByRoot(t *testing.T) {
+	env, token, _ := setupLive2DLibrary(t)
+	up := uploadLive2D(t, env, token, makeLive2DZip(t, nil))
+	model, _ := up.body["model"].(map[string]any)
+	id, _ := model["id"].(string)
+
+	root := env.seedUser(t, "l2d-root", "pw123456", "root", "active")
+	rootToken := env.token(t, root, "root", "l2d-root")
+	if resp := env.do(t, http.MethodDelete, fmt.Sprintf("/api/live2d/models/%s", id), rootToken, nil); resp.status != http.StatusOK {
+		t.Fatalf("root 删除应 200，得到 %d: %s", resp.status, resp.raw)
+	}
+}
+
 // TestLive2DModelIDRejectsTraversal 守住 id 正则：删除接口如果放过 `..%2F`，
 // 一条请求就能删掉整个 live2d 根目录。
 func TestLive2DModelIDRejectsTraversal(t *testing.T) {
-	env, token, _ := setupLive2DRoom(t)
-	resp := env.do(t, http.MethodDelete, "/api/rooms/AB12CD/live2d/models/..%2Fother", token, nil)
+	env, token, _ := setupLive2DLibrary(t)
+	resp := env.do(t, http.MethodDelete, "/api/live2d/models/..%2Fother", token, nil)
 	if resp.status == http.StatusOK {
 		t.Fatalf("非法 id 不应成功: %s", resp.raw)
 	}

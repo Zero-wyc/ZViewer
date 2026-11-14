@@ -162,9 +162,12 @@ func New(deps Deps) *Server {
 	// 房间层需要「按房间读影片 DTO」，DTO 定义在 api 包里，只能反向注入。
 	if deps.RoomSvc != nil {
 		deps.RoomSvc.SetMovieLister(s.movieList)
-		// 房间模型库落在 uploads 目录，room 包不该知道磁盘布局。
+		// 模型库落在 uploads 目录，room 包不该知道磁盘布局。
 		deps.RoomSvc.SetLive2DModelChecker(s.live2DModelExists)
 	}
+	// 模型库从「房间私有」改成「服务端公共」时的磁盘迁移：老布局
+	// live2d/<roomId>/<modelId>/ 会被列表整批跳过，启动时搬平一次。
+	s.migrateLegacyLive2DModels()
 	return s
 }
 

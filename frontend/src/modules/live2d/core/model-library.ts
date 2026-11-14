@@ -1,27 +1,34 @@
 import { apiFetch } from '@/lib/api'
 import { t } from '@/i18n'
 
-// 房间级模型库的读写（后端 internal/api/live2d_models.go）。
+// 服务端公共模型库的读写（后端 internal/api/live2d_models.go）。
 //
-// 上传与删除只开给房主；列表对所有成员开放——观众也要加载房主传的模型。
-// 落盘后入口固定叫 model.model3.json，所以这里的地址规则与
-// core/model-url.ts#resolveModelUrl 的 'room' 分支必须保持一致。
+// 「公共」是字面意思：模型不属于任何房间，任何登录用户传上去的模型，全服务端
+// 所有房间都能选。所以这里的接口**没有 roomId**，地址规则也与房间无关
+// （见 core/model-url.ts#resolveModelUrl 的 'room' 分支）。
+//
+// 写权限：上传=任何登录用户，删除=本人或管理员；列表对含游客在内的所有
+// 登录者开放（观众也要加载别人选的模型）。服务端把「这一条我能不能删」
+// 算好放在 deletable 里，前端不重复实现归属规则。
 
-export interface RoomModelEntry {
+export interface Live2DLibraryEntry {
   id: string
   label: string
   bytes: number
   createdAt: string
+  /** 服务端判定的「我能删这一条」 */
+  deletable: boolean
 }
 
-export interface RoomModelList {
-  models: RoomModelEntry[]
+export interface Live2DLibraryList {
+  models: Live2DLibraryEntry[]
+  /** 我能不能往库里上传 */
   canManage: boolean
 }
 
-const EMPTY: RoomModelList = { models: [], canManage: false }
+const EMPTY: Live2DLibraryList = { models: [], canManage: false }
 
-function normalizeEntry(raw: unknown): RoomModelEntry | null {
+function normalizeEntry(raw: unknown): Live2DLibraryEntry | null {
   if (!raw || typeof raw !== 'object') return null
   const item = raw as Record<string, unknown>
   const id = typeof item.id === 'string' ? item.id : ''
@@ -31,22 +38,20 @@ function normalizeEntry(raw: unknown): RoomModelEntry | null {
     label: typeof item.label === 'string' && item.label ? item.label : id,
     bytes: typeof item.bytes === 'number' ? item.bytes : 0,
     createdAt: typeof item.createdAt === 'string' ? item.createdAt : '',
+    deletable: item.deletable === true,
   }
 }
 
-/** 读取房间模型清单。失败一律返回空清单：面板照常可用，不阻塞房间。 */
-export async function loadRoomModels(roomId: string): Promise<RoomModelList> {
-  if (!roomId) return EMPTY
+/** 读取模型库清单。失败一律返回空清单：面板照常可用，不阻塞房间。 */
+export async function loadLibraryModels(): Promise<Live2DLibraryList> {
   try {
-    const res = await apiFetch(
-      `/api/rooms/${encodeURIComponent(roomId)}/live2d/models`
-    )
+    const res = await apiFetch('/api/live2d/models')
     if (!res.ok) return EMPTY
     const data = (await res.json()) as {
       models?: unknown
       canManage?: unknown
     }
-    const models: RoomModelEntry[] = []
+    const models: Live2DLibraryEntry[] = []
     if (Array.isArray(data.models)) {
       for (const raw of data.models) {
         const entry = normalizeEntry(raw)
@@ -59,24 +64,23 @@ export async function loadRoomModels(roomId: string): Promise<RoomModelList> {
   }
 }
 
-export interface RoomModelResult {
+export interface LibraryModelResult {
   ok: boolean
   message: string
-  model?: RoomModelEntry
+  model?: Live2DLibraryEntry
 }
 
 /** 上传模型压缩包。错误文案直接用后端返回的那句（它比前端猜的更准确）。 */
-export async function uploadRoomModel(
-  roomId: string,
+export async function uploadLibraryModel(
   file: File
-): Promise<RoomModelResult> {
+): Promise<LibraryModelResult> {
   const body = new FormData()
   body.append('file', file)
   try {
-    const res = await apiFetch(
-      `/api/rooms/${encodeURIComponent(roomId)}/live2d/models`,
-      { method: 'POST', body }
-    )
+    const res = await apiFetch('/api/live2d/models', {
+      method: 'POST',
+      body,
+    })
     const data = (await res.json().catch(() => null)) as {
       message?: unknown
       model?: unknown
@@ -93,13 +97,12 @@ export async function uploadRoomModel(
   }
 }
 
-export async function deleteRoomModel(
-  roomId: string,
+export async function deleteLibraryModel(
   modelId: string
-): Promise<RoomModelResult> {
+): Promise<LibraryModelResult> {
   try {
     const res = await apiFetch(
-      `/api/rooms/${encodeURIComponent(roomId)}/live2d/models/${encodeURIComponent(modelId)}`,
+      `/api/live2d/models/${encodeURIComponent(modelId)}`,
       { method: 'DELETE' }
     )
     const data = (await res.json().catch(() => null)) as {
@@ -114,6 +117,6 @@ export async function deleteRoomModel(
 }
 
 /** 压缩包上限，与后端 live2dUploadMaxBytes 一致。 */
-// 与后端 live2dUploadMaxBytes 保持一致。48MB 曾是「4K 贴图也够」的估计，
-// 但实测一个 4096 导出的成品皮压完 47MB，几乎是踩着线过；96MB 才留出余量。
+// 48MB 曾是「4K 贴图也够」的估计，但实测一个 4096 导出的成品皮压完 47MB，
+// 几乎是踩着线过；96MB 才留出余量。
 export const LIVE2D_UPLOAD_MAX_BYTES = 96 << 20

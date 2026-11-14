@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path"
@@ -20,16 +21,20 @@ import (
 
 	"zviewer/backend/internal/auth"
 	"zviewer/backend/internal/httpx"
-	"zviewer/backend/internal/store"
 )
 
-// 房间级 Live2D 模型库：房主把模型 zip 传上来，全房间共用一份。
+// 服务端公共 Live2D 模型库：任何登录用户上传，**所有房间共用同一份**。
 //
-// 落盘形状（UPLOADS_DIR/live2d/<roomId>/<modelId>/）：
+// 落盘形状（UPLOADS_DIR/live2d/<modelId>/）：
 //
 //	model.model3.json   入口固定名字，前端与协议只认这一个
-//	_meta.json          显示名 / 上传时间 / 解压后字节数
+//	.meta.json          显示名 / 上传时间 / 解压后字节数 / 上传者
 //	…                   纹理、动作、物理、音频，层级按压缩包原样保留
+//
+// 为什么不再按房间分目录：模型是**素材**，不是房间的运行时状态。房主 A 传的
+// 一套皮，房主 B 的房间也想用；按房间隔离的后果是同一套 60MB 的皮在每台
+// 机器上被反复上传，而房主换房（旧房被清理）时模型还会一起消失。目录名带
+// 6 字节随机后缀，全局唯一，URL 也因此天然不冲突。
 //
 // 为什么入口要固定名字：live2d-config 只同步 modelId，各客户端要靠
 // 同一套规则自己拼出地址（见前端 core/model-url.ts）。让服务端在解压时
@@ -51,12 +56,19 @@ const (
 	live2dExtractMaxBytes = 192 << 20
 	// 条目数上限：官方模型通常 < 200，3000 已经是宽松值。
 	live2dMaxEntries = 3000
-	// 每个房间的模型数量上限，防止磁盘被单房间吃掉。
-	live2dMaxModelsPerRoom = 8
+	// 单个上传者的配额。库是全局的，配额只能跟着「人」走：原来按房间算
+	// 8 个，改成服务端公共后若仍按房间计，一个人开 10 个房间就能塞 80 个。
+	live2dMaxModelsPerOwner = 8
+	// 整库上限，防止磁盘被无限撑大。
+	live2dMaxModelsTotal = 64
 
 	live2dEntryFile = "model.model3.json"
-	live2dMetaFile  = "_meta.json"
-	live2dUploadKey = "file"
+	// 元数据文件故意用点开头：静态下发会拒绝任何以 "." 开头的路径段，
+	// 所以上传者的 userId 不会随 /uploads/live2d/… 一起公开。
+	live2dMetaFile = ".meta.json"
+	// 老布局（房间私有）用的元数据名，只在迁移时被改写成上面那个。
+	live2dLegacyMetaFile = "_meta.json"
+	live2dUploadKey      = "file"
 )
 
 // 允许落地的后缀。白名单决定「哪些文件会被写到磁盘」。
@@ -96,25 +108,37 @@ var live2dRejectExts = map[string]bool{
 
 var (
 	live2dModelIDPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
-	// 房间号由系统生成，格式与 live2d_handlers.go 里的判定保持一致。
-	live2dRoomPathPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
 )
 
-// live2dModelMeta 是 _meta.json 的内容，同时也是列表接口的 DTO。
+// live2dModelMeta 是 .meta.json 的内容（只落盘，不外发）。
 type live2dModelMeta struct {
 	ID        string `json:"id"`
 	Label     string `json:"label"`
 	Entry     string `json:"entry"`
 	Bytes     int64  `json:"bytes"`
 	CreatedAt string `json:"createdAt"`
+	// Owner 是上传者的 userId，只用于「本人可删」的鉴权，不下发给前端。
+	Owner int64 `json:"owner,omitempty"`
+}
+
+// live2dModelDTO 是列表接口的一项。
+//
+// Deletable 由服务端算好：前端不该知道角色/归属规则，只该知道这一条能不能点。
+type live2dModelDTO struct {
+	ID        string `json:"id"`
+	Label     string `json:"label"`
+	Bytes     int64  `json:"bytes"`
+	CreatedAt string `json:"createdAt"`
+	Deletable bool   `json:"deletable"`
 }
 
 func (s *Server) registerLive2DModelRoutes(mux *http.ServeMux) {
-	// 列表对所有登录用户开放：观众也要加载房主传的模型。
-	mux.HandleFunc("GET /api/rooms/{roomId}/live2d/models", s.Auth.Require(s.handleListLive2DModels))
-	// 上传/删除只给房主（root 或房间创建者），与 socket 侧的 requireHost 同口径。
-	mux.HandleFunc("POST /api/rooms/{roomId}/live2d/models", s.Auth.Require(s.handleUploadLive2DModel))
-	mux.HandleFunc("DELETE /api/rooms/{roomId}/live2d/models/{modelId}", s.Auth.Require(s.handleDeleteLive2DModel))
+	// 列表对所有登录用户开放（含游客）：观众要加载别人选的模型。
+	mux.HandleFunc("GET /api/live2d/models", s.Auth.Require(s.handleListLive2DModels))
+	// 上传/删除：任何非游客用户都能上传（库是全服务端共用的素材），
+	// 但只能删自己传的；root / admin 可以删任何一条。
+	mux.HandleFunc("POST /api/live2d/models", s.Auth.Require(s.handleUploadLive2DModel))
+	mux.HandleFunc("DELETE /api/live2d/models/{modelId}", s.Auth.Require(s.handleDeleteLive2DModel))
 }
 
 // live2dRoot 返回模型库根目录。
@@ -128,40 +152,57 @@ func (s *Server) live2dRoot() string {
 	return filepath.Join(s.Cfg.UploadsDir, "live2d")
 }
 
-func (s *Server) live2dRoomDir(roomID string) string {
-	return filepath.Join(s.live2dRoot(), roomID)
+func (s *Server) live2dModelDir(modelID string) string {
+	return filepath.Join(s.live2dRoot(), modelID)
+}
+
+// live2dCanUpload 谁能往库里加模型：任何确实登录过的用户（游客没有 userId）。
+func live2dCanUpload(claims *auth.Claims) bool {
+	return claims != nil && claims.UserID > 0 && claims.Role != auth.RoleGuest
+}
+
+// live2dCanDelete 谁能删某一条：本人，或服务端管理员。
+//
+// 允许本人删是必要的——传错了、传坏了要能自己收拾，否则只能找管理员；
+// 而「删别人的」是破坏性操作，普通用户不该有。
+func live2dCanDelete(claims *auth.Claims, owner int64) bool {
+	if claims == nil {
+		return false
+	}
+	if claims.Role == auth.RoleRoot || claims.Role == auth.RoleAdmin {
+		return true
+	}
+	return owner > 0 && claims.UserID == owner
 }
 
 // ==================== 列表 ====================
 
 func (s *Server) handleListLive2DModels(w http.ResponseWriter, r *http.Request) {
-	roomID := r.PathValue("roomId")
-	if !live2dRoomPathPattern.MatchString(roomID) {
-		httpx.BadRequest(w, "房间号不正确")
-		return
-	}
-	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
-	if err != nil {
-		if errors.Is(err, store.ErrRoomNotFound) {
-			httpx.NotFound(w, "房间不存在")
-			return
-		}
-		httpx.InternalError(w, "live2d-models/list", err)
-		return
+	claims := auth.ClaimsFrom(r.Context())
+	models := s.readLive2DModels()
+	out := make([]live2dModelDTO, 0, len(models))
+	for _, meta := range models {
+		out = append(out, live2dModelDTO{
+			ID:        meta.ID,
+			Label:     meta.Label,
+			Bytes:     meta.Bytes,
+			CreatedAt: meta.CreatedAt,
+			Deletable: live2dCanDelete(claims, meta.Owner),
+		})
 	}
 	httpx.OK(w, map[string]any{
 		"success": true,
-		"models":  s.readLive2DModels(roomID),
-		// 房主才能在界面上传/删除，前端据此决定是否显示入口。
-		"canManage": canControlRoom(auth.ClaimsFrom(r.Context()), room),
+		"models":  out,
+		// 能不能往库里加模型，前端据此决定是否显示上传入口。
+		"canManage": live2dCanUpload(claims),
 	})
 }
 
-// readLive2DModels 扫描房间目录。坏掉/手改的目录一律跳过而不是报错：
+// readLive2DModels 扫描库根目录。坏掉/手改的目录一律跳过而不是报错：
 // 一个坏模型不该让整个面板打不开。
-func (s *Server) readLive2DModels(roomID string) []live2dModelMeta {
+func (s *Server) readLive2DModels() []live2dModelMeta {
 	out := make([]live2dModelMeta, 0, 4)
-	entries, err := os.ReadDir(s.live2dRoomDir(roomID))
+	entries, err := os.ReadDir(s.live2dRoot())
 	if err != nil {
 		return out
 	}
@@ -174,18 +215,16 @@ func (s *Server) readLive2DModels(roomID string) []live2dModelMeta {
 			continue
 		}
 		meta := live2dModelMeta{ID: id, Label: id, Entry: live2dEntryFile}
-		if raw, err := os.ReadFile(filepath.Join(s.live2dRoomDir(roomID), id, live2dMetaFile)); err == nil {
-			var stored live2dModelMeta
-			if json.Unmarshal(raw, &stored) == nil {
-				if strings.TrimSpace(stored.Label) != "" {
-					meta.Label = stored.Label
-				}
-				meta.Bytes = stored.Bytes
-				meta.CreatedAt = stored.CreatedAt
+		if stored, ok := s.readLive2DMeta(id); ok {
+			if strings.TrimSpace(stored.Label) != "" {
+				meta.Label = stored.Label
 			}
+			meta.Bytes = stored.Bytes
+			meta.CreatedAt = stored.CreatedAt
+			meta.Owner = stored.Owner
 		}
 		// 入口缺失说明目录不完整（删到一半 / 手工拷贝），列表里剔除。
-		if _, err := os.Stat(filepath.Join(s.live2dRoomDir(roomID), id, live2dEntryFile)); err != nil {
+		if _, err := os.Stat(filepath.Join(s.live2dModelDir(id), live2dEntryFile)); err != nil {
 			continue
 		}
 		out = append(out, meta)
@@ -199,31 +238,33 @@ func (s *Server) readLive2DModels(roomID string) []live2dModelMeta {
 	return out
 }
 
+// readLive2DMeta 读一条模型的元数据。两个文件名都认：`.meta.json` 是现役，
+// `_meta.json` 是房间私有时期的遗留（迁移不改名也能读出显示名）。
+func (s *Server) readLive2DMeta(modelID string) (live2dModelMeta, bool) {
+	for _, name := range []string{live2dMetaFile, live2dLegacyMetaFile} {
+		raw, err := os.ReadFile(filepath.Join(s.live2dModelDir(modelID), name))
+		if err != nil {
+			continue
+		}
+		var meta live2dModelMeta
+		if json.Unmarshal(raw, &meta) == nil {
+			return meta, true
+		}
+	}
+	return live2dModelMeta{}, false
+}
+
 // ==================== 上传 ====================
 
 func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request) {
-	roomID := r.PathValue("roomId")
-	if !live2dRoomPathPattern.MatchString(roomID) {
-		httpx.BadRequest(w, "房间号不正确")
-		return
-	}
 	claims := auth.ClaimsFrom(r.Context())
-	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
-	if err != nil {
-		if errors.Is(err, store.ErrRoomNotFound) {
-			httpx.NotFound(w, "房间不存在")
-			return
-		}
-		httpx.InternalError(w, "live2d-models/upload", err)
-		return
-	}
-	if !canControlRoom(claims, room) {
-		httpx.Forbidden(w, "无权限：只有房主可以上传模型")
+	if !live2dCanUpload(claims) {
+		httpx.Forbidden(w, "无权限：请登录后再上传模型")
 		return
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, live2dUploadMaxBytes+1<<20)
-	// 8MB 放内存，其余落临时文件：48MB 全塞内存对多人同时上传不友好。
+	// 8MB 放内存，其余落临时文件：96MB 全塞内存对多人同时上传不友好。
 	if err := r.ParseMultipartForm(8 << 20); err != nil {
 		httpx.BadRequest(w, "模型包上传失败："+multipartErrorText(err))
 		return
@@ -252,8 +293,19 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if len(s.readLive2DModels(roomID)) >= live2dMaxModelsPerRoom {
-		httpx.BadRequest(w, fmt.Sprintf("每个房间最多 %d 个模型，请先删掉不用的", live2dMaxModelsPerRoom))
+	models := s.readLive2DModels()
+	if len(models) >= live2dMaxModelsTotal {
+		httpx.BadRequest(w, fmt.Sprintf("模型库最多 %d 个模型，请先删掉不用的", live2dMaxModelsTotal))
+		return
+	}
+	mine := 0
+	for _, meta := range models {
+		if meta.Owner == claims.UserID {
+			mine++
+		}
+	}
+	if mine >= live2dMaxModelsPerOwner {
+		httpx.BadRequest(w, fmt.Sprintf("每人最多 %d 个模型，请先删掉不用的", live2dMaxModelsPerOwner))
 		return
 	}
 
@@ -263,14 +315,15 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	roomDir := s.live2dRoomDir(roomID)
-	if err := os.MkdirAll(roomDir, 0o755); err != nil {
+	root := s.live2dRoot()
+	if err := os.MkdirAll(root, 0o755); err != nil {
 		httpx.InternalError(w, "live2d-models/mkdir", err)
 		return
 	}
 	// 先解到 .upload-* 临时目录，全部校验通过才改名。中途失败不会留下
 	// 半个模型让列表出现"能选但加载不了"的条目。
-	tmpDir, err := os.MkdirTemp(roomDir, ".upload-*")
+	// 临时目录以 "." 开头：列表扫描与静态下发都会跳过它。
+	tmpDir, err := os.MkdirTemp(root, ".upload-*")
 	if err != nil {
 		httpx.InternalError(w, "live2d-models/tmpdir", err)
 		return
@@ -308,6 +361,7 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		Entry:     live2dEntryFile,
 		Bytes:     written,
 		CreatedAt: time.Now().UTC().Format(time.RFC3339),
+		Owner:     claims.UserID,
 	}
 	raw, _ := json.Marshal(meta)
 	if err := os.WriteFile(filepath.Join(tmpDir, live2dMetaFile), raw, 0o644); err != nil {
@@ -316,7 +370,7 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	finalDir := filepath.Join(roomDir, meta.ID)
+	finalDir := s.live2dModelDir(meta.ID)
 	if err := os.Rename(tmpDir, finalDir); err != nil {
 		cleanup()
 		httpx.InternalError(w, "live2d-models/commit", err)
@@ -770,59 +824,103 @@ func newLive2DModelID(label string) string {
 // ==================== 删除 ====================
 
 func (s *Server) handleDeleteLive2DModel(w http.ResponseWriter, r *http.Request) {
-	roomID := r.PathValue("roomId")
 	modelID := r.PathValue("modelId")
-	if !live2dRoomPathPattern.MatchString(roomID) {
-		httpx.BadRequest(w, "房间号不正确")
-		return
-	}
 	if !live2dModelIDPattern.MatchString(modelID) {
 		httpx.BadRequest(w, "模型标识不正确")
 		return
 	}
-	room, err := s.Rooms.FindByRoomID(r.Context(), roomID)
-	if err != nil {
-		if errors.Is(err, store.ErrRoomNotFound) {
-			httpx.NotFound(w, "房间不存在")
-			return
-		}
-		httpx.InternalError(w, "live2d-models/delete", err)
+	// 归属从元数据读：列表与删除必须用同一份事实，否则会出现
+	// 「列表显示能删、点了却 403」。
+	meta, _ := s.readLive2DMeta(modelID)
+	if !live2dCanDelete(auth.ClaimsFrom(r.Context()), meta.Owner) {
+		httpx.Forbidden(w, "无权限：只能删除自己上传的模型")
 		return
 	}
-	if !canControlRoom(auth.ClaimsFrom(r.Context()), room) {
-		httpx.Forbidden(w, "无权限：只有房主可以删除模型")
-		return
-	}
-	target := filepath.Join(s.live2dRoomDir(roomID), modelID)
-	if err := os.RemoveAll(target); err != nil {
+	if err := os.RemoveAll(s.live2dModelDir(modelID)); err != nil {
 		httpx.InternalError(w, "live2d-models/delete", err)
 		return
 	}
 	httpx.OK(w, map[string]any{"success": true, "message": "模型已删除"})
 }
 
-// removeLive2DRoomModels 在房间被真正删除时清掉该房间的模型目录。
+// migrateLegacyLive2DModels 把「房间级」老目录搬成全局布局。
 //
-// 注意**不能**挂在 room.Service.Delete（那是"运行时状态"过期清理）上：
-// 房间还在库里、只是暂时没人，模型要保留给下一次进房的人用。
-func (s *Server) removeLive2DRoomModels(roomID string) {
-	if !live2dRoomPathPattern.MatchString(roomID) {
+// v0 的形状是 live2d/<roomId>/<modelId>/（模型跟着房间走）。模型库改成服务端
+// 公共以后，根下这些 <roomId> 目录认不出入口，列表会整批跳过——等于用户刚传
+// 的模型凭空消失。启动时搬平一次即可：只搬「子目录里有入口」的，搬完删掉空壳
+// 房间目录，重复执行无副作用。
+func (s *Server) migrateLegacyLive2DModels() {
+	root := s.live2dRoot()
+	entries, err := os.ReadDir(root)
+	if err != nil {
 		return
 	}
-	_ = os.RemoveAll(s.live2dRoomDir(roomID))
+	moved := 0
+	for _, entry := range entries {
+		if !entry.IsDir() || strings.HasPrefix(entry.Name(), ".") {
+			continue
+		}
+		dir := filepath.Join(root, entry.Name())
+		// 有入口就是新布局，别再往下钻。
+		if _, err := os.Stat(filepath.Join(dir, live2dEntryFile)); err == nil {
+			continue
+		}
+		subs, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, sub := range subs {
+			if !sub.IsDir() || !live2dModelIDPattern.MatchString(sub.Name()) {
+				continue
+			}
+			src := filepath.Join(dir, sub.Name())
+			if _, err := os.Stat(filepath.Join(src, live2dEntryFile)); err != nil {
+				continue
+			}
+			dst := s.live2dModelDir(sub.Name())
+			// 目标已存在（同名 id 极小概率）就留着不动，人工处理。
+			if _, err := os.Stat(dst); err == nil {
+				continue
+			}
+			if err := os.Rename(src, dst); err == nil {
+				moved++
+				// 顺手把老元数据名改成现役的：不改也能读（readLive2DMeta 两个
+				// 名字都认），但改名之后静态下发同样打不开它。
+				if _, err := os.Stat(filepath.Join(dst, live2dMetaFile)); err != nil {
+					_ = os.Rename(filepath.Join(dst, live2dLegacyMetaFile), filepath.Join(dst, live2dMetaFile))
+				}
+			}
+		}
+		// 只在真的空了才删：还有非模型残留就留着，别吞用户文件。
+		if rest, err := os.ReadDir(dir); err == nil && len(rest) == 0 {
+			_ = os.Remove(dir)
+		}
+	}
+	if moved > 0 {
+		log.Printf("[live2d] 已将 %d 个房间级模型搬到全局模型库", moved)
+	}
 }
 
 // live2DModelExists 供房间层校验 room 类型模型是否存在（socket 侧选择时调用）。
 //
 // 只查入口文件在不在：解压是「全部校验通过才改名落地」，所以入口存在
 // 就等于这个模型是完整的。
-func (s *Server) live2DModelExists(roomID, modelID string) bool {
-	if !live2dRoomPathPattern.MatchString(roomID) || !live2dModelIDPattern.MatchString(modelID) {
+func (s *Server) live2DModelExists(modelID string) bool {
+	if !live2dModelIDPattern.MatchString(modelID) {
 		return false
 	}
-	info, err := os.Stat(filepath.Join(s.live2dRoomDir(roomID), modelID, live2dEntryFile))
+	info, err := os.Stat(filepath.Join(s.live2dModelDir(modelID), live2dEntryFile))
 	return err == nil && info.Mode().IsRegular()
 }
+
+// ==================== 静态下发 ====================
+
+// live2dModelsHandler 提供 /uploads/live2d/<modelId>/… 的只读访问。
+//
+// 与头像一样走公开 URL：模型是各个客户端（含游客）都要加载的资源，
+// 加鉴权就等于全部加载失败。目录名带 6 字节随机后缀，不可枚举。
+// 下发时强制 nosniff + CSP sandbox：上传目录里的文件即使被当成 HTML
+// 打开，也不能执行脚本。
 
 // ==================== 静态下发 ====================
 

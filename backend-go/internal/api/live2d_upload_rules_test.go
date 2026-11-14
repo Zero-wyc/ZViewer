@@ -60,7 +60,7 @@ func readEntryJSON(t *testing.T, dir string) (map[string]any, map[string]any) {
 // .vbridger / .vtube.json / items_pinned_to_model.json 这些宿主配置不属于
 // Cubism 模型，过去会让整包被「不支持的文件类型」退回。
 func TestLive2DUploadSkipsHostMetadata(t *testing.T) {
-	env, token, _ := setupLive2DRoom(t)
+	env, token, _ := setupLive2DLibrary(t)
 	resp := uploadLive2D(t, env, token, makeLive2DZip(t, map[string]string{
 		"pack/AdvancedARKitSettings.vbridger": "\x00\x01binary",
 		"pack/hiyori.vtube.json":              `{"Hotkeys":[]}`,
@@ -75,7 +75,7 @@ func TestLive2DUploadSkipsHostMetadata(t *testing.T) {
 
 	model, _ := resp.body["model"].(map[string]any)
 	id, _ := model["id"].(string)
-	dir := filepath.Join(env.uploads, "live2d", "AB12CD", id)
+	dir := filepath.Join(env.uploads, "live2d", id)
 	if _, err := os.Stat(filepath.Join(dir, "AdvancedARKitSettings.vbridger")); err == nil {
 		t.Error("非模型文件不应落盘")
 	}
@@ -89,7 +89,7 @@ func TestLive2DUploadSkipsHostMetadata(t *testing.T) {
 // 表情躺在 Exp3/、动画躺在 Animation/，model3.json 只列 Moc/Textures。
 // 不补登记的话，模型在任何 Cubism 载入器里都是「能显示但没有表情、不会待机」。
 func TestLive2DUploadRegistersExpressionsAndIdle(t *testing.T) {
-	env, token, _ := setupLive2DRoom(t)
+	env, token, _ := setupLive2DLibrary(t)
 	body := makeLive2DZipWithEntry(t,
 		`{"Version":3,"FileReferences":{"Moc":"deep.moc3","Textures":["deep.2048/texture_00.png"]}}`,
 		map[string]string{
@@ -104,7 +104,7 @@ func TestLive2DUploadRegistersExpressionsAndIdle(t *testing.T) {
 	}
 	model, _ := resp.body["model"].(map[string]any)
 	id, _ := model["id"].(string)
-	dir := filepath.Join(env.uploads, "live2d", "AB12CD", id)
+	dir := filepath.Join(env.uploads, "live2d", id)
 
 	_, refs := readEntryJSON(t, dir)
 
@@ -140,7 +140,7 @@ func TestLive2DUploadRegistersExpressionsAndIdle(t *testing.T) {
 // TestLive2DUploadKeepsExplicitRegistrations 守住「已有登记一个字节都不改」：
 // 作者显式写了表情/动作，服务端不该再往里塞。
 func TestLive2DUploadKeepsExplicitRegistrations(t *testing.T) {
-	env, token, _ := setupLive2DRoom(t)
+	env, token, _ := setupLive2DLibrary(t)
 	entry := `{"Version":3,"FileReferences":{"Moc":"deep.moc3",` +
 		`"Textures":["deep.2048/texture_00.png"],` +
 		`"Expressions":[{"Name":"官方命名","File":"Exp3/兔牙.exp3.json"}],` +
@@ -157,7 +157,7 @@ func TestLive2DUploadKeepsExplicitRegistrations(t *testing.T) {
 	}
 	model, _ := resp.body["model"].(map[string]any)
 	id, _ := model["id"].(string)
-	dir := filepath.Join(env.uploads, "live2d", "AB12CD", id)
+	dir := filepath.Join(env.uploads, "live2d", id)
 	_, refs := readEntryJSON(t, dir)
 
 	exprs, _ := refs["Expressions"].([]any)
