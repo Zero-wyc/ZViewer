@@ -1,0 +1,13 @@
+{
+  "items": [
+    "MP4 direct link, smooth seeking, usually 480P/720P",
+    "Bottom of the UI",
+    "UI blur amount",
+    "Top of the UI",
+    "UI opacity",
+    "useMusicPlayer must be used inside MusicPlayerProvider",
+    "Sign in to play VIP tracks",
+    "Sign in to preview VIP tracks",
+    "ZViewer cannot play MVs yet"
+  ]
+}

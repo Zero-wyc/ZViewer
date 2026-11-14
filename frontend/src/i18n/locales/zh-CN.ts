@@ -7,7 +7,7 @@
  * 它的作用是「一眼看全所有界面文字」——交给翻译、审文案、查重复都只看这一份；
  * 运行时也加载它（key 与 value 相同，等于把中文原文显式登记一遍）。
  *
- * 当前共 2668 条。
+ * 当前共 2689 条。
  */
 const zhCN: Record<string, string> = {
   // ===== components/ui（27 条） =====
@@ -962,6 +962,30 @@ const zhCN: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi 番剧源',
 
+  // ===== modules/live2d（22 条） =====
+  '[live2d] 模型加载失败': '[live2d] 模型加载失败',
+  '[live2d] 引擎初始化失败': '[live2d] 引擎初始化失败',
+  '不支持协议相对地址': '不支持协议相对地址',
+  '大小': '大小',
+  '地址必须指向 model3.json': '地址必须指向 model3.json',
+  '地址格式无效': '地址格式无效',
+  '地址过长': '地址过长',
+  '还没有内置模型，可先用下面的地址加载一个': '还没有内置模型，可先用下面的地址加载一个',
+  '加载超时': '加载超时',
+  '角色': '角色',
+  '角色设置': '角色设置',
+  '角色已隐藏': '角色已隐藏',
+  '仅支持 http/https 地址': '仅支持 http/https 地址',
+  '另有 {{count}} 个角色未显示': '另有 {{count}} 个角色未显示',
+  '模型大小': '模型大小',
+  '请填写模型地址': '请填写模型地址',
+  '显示角色': '显示角色',
+  '应用地址': '应用地址',
+  '自定义模型地址': '自定义模型地址',
+  '自定义模型未能加载（可能被跨域限制）': '自定义模型未能加载（可能被跨域限制）',
+  'Cubism Core 加载失败': 'Cubism Core 加载失败',
+  'Cubism Core 已加载但未注册': 'Cubism Core 已加载但未注册',
+
   // ===== modules/mounts（61 条） =====
   '，用户：{{userName}}': '，用户：{{userName}}',
   '{{label}} 挂载更新成功': '{{label}} 挂载更新成功',
@@ -1815,7 +1839,7 @@ const zhCN: Record<string, string> = {
   '状态恢复失败': '状态恢复失败',
   'B站 URL 已过期，请等待房主重新解析': 'B站 URL 已过期，请等待房主重新解析',
 
-  // ===== modules/player（100 条） =====
+  // ===== modules/player（99 条） =====
   '  缓冲范围: {{buffered}}\n': '  缓冲范围: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js 错误: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] 总大小: video={{value}}MB, ',
@@ -1870,7 +1894,6 @@ const zhCN: Record<string, string> = {
   '等待媒体 metadata 超时（30s）': '等待媒体 metadata 超时（30s）',
   '轨道 {{value}}': '轨道 {{value}}',
   '缓冲模式需要 DASH 源的 audioUrl 和 cid': '缓冲模式需要 DASH 源的 audioUrl 和 cid',
-  '加载超时': '加载超时',
   '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，': '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，',
   '加载超时：源站 {{value}}s 无响应': '加载超时：源站 {{value}}s 无响应',
   '解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片': '解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片',

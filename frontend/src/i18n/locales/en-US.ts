@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2673 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2694 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -965,6 +965,30 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
+  // ===== modules/live2d（22 条） =====
+  '[live2d] 模型加载失败': '[live2d] Failed to load model',
+  '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
+  '不支持协议相对地址': 'Protocol-relative URLs are not supported',
+  '大小': 'Size',
+  '地址必须指向 model3.json': 'The URL must point to model3.json',
+  '地址格式无效': 'Invalid URL format',
+  '地址过长': 'URL is too long',
+  '还没有内置模型，可先用下面的地址加载一个': 'No built-in models yet — load one with the URL below',
+  '加载超时': 'Load timed out',
+  '角色': 'Character',
+  '角色设置': 'Character settings',
+  '角色已隐藏': 'Character hidden',
+  '仅支持 http/https 地址': 'Only http/https URLs are supported',
+  '另有 {{count}} 个角色未显示': '{{count}} more characters not shown',
+  '模型大小': 'Model size',
+  '请填写模型地址': 'Enter a model URL',
+  '显示角色': 'Show character',
+  '应用地址': 'Apply URL',
+  '自定义模型地址': 'Custom model URL',
+  '自定义模型未能加载（可能被跨域限制）': 'Custom model failed to load (possibly blocked by CORS)',
+  'Cubism Core 加载失败': 'Failed to load Cubism Core',
+  'Cubism Core 已加载但未注册': 'Cubism Core loaded but not registered',
+
   // ===== modules/mounts（61 条） =====
   '，用户：{{userName}}': ', user: {{userName}}',
   '{{label}} 挂载更新成功': '{{label}} mount updated',
@@ -1818,7 +1842,7 @@ const enUS: Record<string, string> = {
   '状态恢复失败': 'Failed to restore the state',
   'B站 URL 已过期，请等待房主重新解析': 'The Bilibili URL expired, wait for the host to resolve it again',
 
-  // ===== modules/player（100 条） =====
+  // ===== modules/player（99 条） =====
   '  缓冲范围: {{buffered}}\n': '  Buffered: {{buffered}}\n',
   '  dash.js 错误: {{value}}\n': '  dash.js error: {{value}}\n',
   '[bilibili-downloader] 总大小: video={{value}}MB, ': '[bilibili-downloader] Total size: video={{value}}MB, ',
@@ -1873,7 +1897,6 @@ const enUS: Record<string, string> = {
   '等待媒体 metadata 超时（30s）': 'Timed out waiting for media metadata (30s)',
   '轨道 {{value}}': 'Track {{value}}',
   '缓冲模式需要 DASH 源的 audioUrl 和 cid': 'Buffered mode needs the DASH source\'s audioUrl and cid',
-  '加载超时': 'Load timed out',
   '加载超时：该 MKV 的编码（如 HEVC 视频 / FLAC 音轨）大概率不被当前浏览器原生支持，': 'Load timed out: this MKV\'s codecs (e.g. HEVC video / FLAC audio) are probably not natively supported by this browser, ',
   '加载超时：源站 {{value}}s 无响应': 'Load timed out: the origin did not respond for {{value}}s',
   '解决方式：使用支持 HTTPS 的源地址，或开启服务器中转后重新添加影片': 'Fix: use a source that supports HTTPS, or enable server relay and add the movie again',
