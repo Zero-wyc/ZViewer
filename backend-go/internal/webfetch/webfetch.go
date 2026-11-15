@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
@@ -13,14 +14,20 @@ import (
 
 	"golang.org/x/text/encoding/htmlindex"
 	"golang.org/x/text/transform"
+
+	"zviewer/backend/internal/netproxy"
 )
 
 // 上游文本获取，对应 services/anisubs/httpClient.ts 与 services/cms/http.ts。
 //
-// Node 版在 fetch 失败后会退到 PowerShell（借 .NET/Schannel 的 TLS 指纹绕过
-// Cloudflare）。Go 的 TLS 栈本来就是独立指纹，不存在「Node 指纹被拦」这个
-// 前提，所以这里**不迁 PowerShell 兜底**——真遇到按指纹拦的站点，该改的是
-// UA/Referer 或换源。
+// Node 版在 fetch 失败后会退到 PowerShell。当时归因成「Schannel 的 TLS 指纹
+// 能绕过 Cloudflare」，实际起作用的多半是另一件事：PowerShell 走 **WinINET
+// 系统代理**，而 Node 的 fetch 直连。Go 这边把这条通道做正了——所有出站请求
+// 统一走 internal/netproxy（环境变量 > 系统代理 > 直连），见该包的说明。
+//
+// 也就是说：**请求失败先看出口，不要先怀疑 TLS 指纹**。桌面端由 Explorer 拉起，
+// 环境里没有 HTTP_PROXY，用户开了系统代理时浏览器能打开、这里直连被 RST，
+// 是最常见的表象。
 
 // Result 是一次抓取的结果。
 //
@@ -51,13 +58,16 @@ type Options struct {
 const defaultTimeout = 20 * time.Second
 
 // httpClient 是包级客户端（单测用它注入假 transport）。
-var httpClient = http.DefaultClient
+//
+// 默认 transport 必须是 netproxy 的：桌面端由 Explorer 拉起，没有 HTTP_PROXY
+// 环境变量，走 http.DefaultClient 就等于永远直连（系统代理形同不存在）。
+var httpClient = &http.Client{Transport: netproxy.Transport()}
 
 // SetTransport 替换底层 transport（仅测试用）。
 func SetTransport(rt http.RoundTripper) func() {
 	previous := httpClient
 	if rt == nil {
-		httpClient = http.DefaultClient
+		httpClient = &http.Client{Transport: netproxy.Transport()}
 	} else {
 		httpClient = &http.Client{Transport: rt}
 	}
@@ -107,6 +117,11 @@ func Fetch(ctx context.Context, url string, opts Options) *Result {
 		if errors.Is(reqCtx.Err(), context.DeadlineExceeded) {
 			message = fmt.Sprintf("请求超时 (%dms)", timeout.Milliseconds())
 		}
+		// 网络层失败几乎都是「出口问题」，原文（wsarecv / connection refused）
+		// 对用户没有信息量：把当前出口一起写上，才知道是去开代理还是换源。
+		if exit := exitLabel(err); exit != "" {
+			message = exit + " → " + message
+		}
 		return &Result{Error: message, Headers: map[string]string{}}
 	}
 	defer resp.Body.Close()
@@ -136,8 +151,20 @@ func Fetch(ctx context.Context, url string, opts Options) *Result {
 	}
 }
 
-// IsCloudflareBlocked 判断响应是否被 Cloudflare 的 JS/Managed Challenge 拦下。
+// exitLabel 返回网络层失败时的出口描述（直连 / 系统代理 …），非传输层错误返回空串。
 //
+// 只给「连不上」这类错误补：URL 拼错、证书错误与出口无关，写了反而让人以为
+// 是代理配错了。
+func exitLabel(err error) string {
+	var opErr *net.OpError
+	var dnsErr *net.DNSError
+	if !errors.As(err, &opErr) && !errors.As(err, &dnsErr) {
+		return ""
+	}
+	return netproxy.Describe()
+}
+
+// IsCloudflareBlocked 判断响应是否被 Cloudflare 的 JS/Managed Challenge 拦下。
 // 只看 403/503 + `server: cloudflare`（或存在 `cf-ray`）。这套判定与 Node 一致：
 // 宁可漏判也别误判——误判会把「站点真的 403」说成「被 Cloudflare 拦」，
 // 让用户去关防护而不是换源。

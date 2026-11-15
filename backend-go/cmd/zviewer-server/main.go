@@ -32,6 +32,7 @@ import (
 	"zviewer/backend/internal/db"
 	"zviewer/backend/internal/kazumi"
 	"zviewer/backend/internal/ncm"
+	"zviewer/backend/internal/netproxy"
 	"zviewer/backend/internal/nms"
 	"zviewer/backend/internal/openlist"
 	"zviewer/backend/internal/proxy"
@@ -442,6 +443,9 @@ func main() {
 	log.Printf("[start] ZViewer Go 后端 平台=%s 项目根=%s", config.Platform(), cfg.ProjectRoot)
 	log.Printf("[start] 数据库=%s (journal=%s)", cfg.DatabasePath, journalLabel(cfg.SQLiteWAL))
 	log.Printf("[start] 一起听音乐接口=进程内实现（无外部服务、无子进程）")
+	// 出站出口要打出来：番剧源/订阅多数在墙外，用户报「浏览器能开、这里连不上」
+	// 时，第一件事就是确认进程到底走的哪个出口。
+	log.Printf("[start] 出站网络=%s（番剧源 / 订阅 / 弹幕）", netproxy.Describe())
 	log.Printf("[start] 监听 %s", httpServer.Addr)
 
 	errCh := make(chan error, 1)

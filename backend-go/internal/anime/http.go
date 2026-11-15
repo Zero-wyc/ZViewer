@@ -6,6 +6,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"zviewer/backend/internal/netproxy"
 )
 
 // 动漫源的外部取数（RSS 订阅、第三方 HTTP 源）。
@@ -18,7 +20,10 @@ import (
 const fetchTimeout = 30 * time.Second
 
 // httpClient 是包级客户端（单测用它注入假 transport）。
-var httpClient = http.DefaultClient
+//
+// 默认 transport 走 netproxy：第三方动漫源大半在墙外，直连会被 RST，
+// 而用户开着系统代理时浏览器是通的（见 internal/netproxy 的说明）。
+var httpClient = netproxy.NewClient(0)
 
 // fetchResponse 是一次上游响应。
 type fetchResponse struct {
