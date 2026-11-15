@@ -17,6 +17,7 @@ import { resolveModelUrl } from '../core/model-url'
 import {
   LIVE2D_UPLOAD_MAX_BYTES,
   deleteLibraryModel,
+  importLibraryModel,
   loadLibraryModels,
   uploadLibraryModel,
   type Live2DLibraryEntry,
@@ -846,6 +847,22 @@ export function RoomLive2DHost({
     [doUpload, handleSelect]
   )
 
+  // 从链接导入：落库这一步和上传完全一样（同一个公共库、同一组配额），
+  // 区别只在字节是从本地磁盘来还是从某个直链来。这里不碰选择，交给调用方。
+  const handleImportModel = useCallback(
+    async (url: string): Promise<string> => {
+      const result = await importLibraryModel(url)
+      if (!result.ok) {
+        message.error(result.message)
+        return ''
+      }
+      message.success(result.message)
+      refreshLibrary()
+      return result.model?.id ?? ''
+    },
+    [refreshLibrary]
+  )
+
   const handleDeleteModel = useCallback(
     async (modelId: string) => {
       const result = await deleteLibraryModel(modelId)
@@ -1189,6 +1206,7 @@ export function RoomLive2DHost({
         onPolicy={handlePolicy}
         onUpload={handleUpload}
         onUploadUnified={handleUploadUnified}
+        onImportModel={handleImportModel}
         onDeleteModel={handleDeleteModel}
       />
     </div>,

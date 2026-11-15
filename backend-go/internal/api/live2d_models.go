@@ -141,6 +141,8 @@ func (s *Server) registerLive2DModelRoutes(mux *http.ServeMux) {
 	// 上传/删除：任何非游客用户都能上传（库是全服务端共用的素材），
 	// 但只能删自己传的；root / admin 可以删任何一条。
 	mux.HandleFunc("POST /api/live2d/models", s.Auth.Require(s.handleUploadLive2DModel))
+	// 从链接导入：与上传同一份落库规则，只是字节的来源不同（见 live2d_import.go）。
+	s.registerLive2DImportRoute(mux)
 	mux.HandleFunc("DELETE /api/live2d/models/{modelId}", s.Auth.Require(s.handleDeleteLive2DModel))
 }
 
@@ -296,10 +298,33 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	meta, message, problem, err := s.installLive2DZip(claims, zr.File, header.Filename)
+	if err != nil {
+		httpx.InternalError(w, "live2d-models/install", err)
+		return
+	}
+	if problem != "" {
+		httpx.BadRequest(w, problem)
+		return
+	}
+
+	httpx.OK(w, map[string]any{
+		"success": true,
+		"message": message,
+		"model":   meta,
+	})
+}
+
+// installLive2DZip 是「上传」与「URL 导入」共用的落库流程：
+// 配额 → 解包计划 → 解压 → 引用校验 → 补登记 → 写元数据 → 原子改名。
+//
+// 两个入口只差「压缩包从哪来」，落库规则必须完全一致，否则同一个包换个
+// 导入方式就可能绕过配额或跳过引用校验。problem 表示用户输入有问题（400），
+// err 表示服务端自身故障（500）。
+func (s *Server) installLive2DZip(claims *auth.Claims, files []*zip.File, filename string) (live2dModelMeta, string, string, error) {
 	models := s.readLive2DModels()
 	if len(models) >= live2dMaxModelsTotal {
-		httpx.BadRequest(w, fmt.Sprintf("模型库最多 %d 个模型，请先删掉不用的", live2dMaxModelsTotal))
-		return
+		return live2dModelMeta{}, "", fmt.Sprintf("模型库最多 %d 个模型，请先删掉不用的", live2dMaxModelsTotal), nil
 	}
 	mine := 0
 	for _, meta := range models {
@@ -308,41 +333,35 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 		}
 	}
 	if mine >= live2dMaxModelsPerOwner {
-		httpx.BadRequest(w, fmt.Sprintf("每人最多 %d 个模型，请先删掉不用的", live2dMaxModelsPerOwner))
-		return
+		return live2dModelMeta{}, "", fmt.Sprintf("每人最多 %d 个模型，请先删掉不用的", live2dMaxModelsPerOwner), nil
 	}
 
-	plan, problem := planLive2DExtract(zr.File)
+	plan, problem := planLive2DExtract(files)
 	if problem != "" {
-		httpx.BadRequest(w, problem)
-		return
+		return live2dModelMeta{}, "", problem, nil
 	}
 
 	root := s.live2dRoot()
 	if err := os.MkdirAll(root, 0o755); err != nil {
-		httpx.InternalError(w, "live2d-models/mkdir", err)
-		return
+		return live2dModelMeta{}, "", "", err
 	}
 	// 先解到 .upload-* 临时目录，全部校验通过才改名。中途失败不会留下
 	// 半个模型让列表出现"能选但加载不了"的条目。
 	// 临时目录以 "." 开头：列表扫描与静态下发都会跳过它。
 	tmpDir, err := os.MkdirTemp(root, ".upload-*")
 	if err != nil {
-		httpx.InternalError(w, "live2d-models/tmpdir", err)
-		return
+		return live2dModelMeta{}, "", "", err
 	}
 	cleanup := func() { _ = os.RemoveAll(tmpDir) }
 
-	written, problem := extractLive2DZip(zr.File, plan, tmpDir)
+	written, problem := extractLive2DZip(files, plan, tmpDir)
 	if problem != "" {
 		cleanup()
-		httpx.BadRequest(w, problem)
-		return
+		return live2dModelMeta{}, "", problem, nil
 	}
 	if problem := validateLive2DReferences(filepath.Join(tmpDir, live2dEntryFile), tmpDir); problem != "" {
 		cleanup()
-		httpx.BadRequest(w, problem)
-		return
+		return live2dModelMeta{}, "", problem, nil
 	}
 
 	// 补登记表情/待机动作：必须在引用校验之后（先确认原包自洽，再谈补充）。
@@ -353,11 +372,10 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 	enriched, problem := enrichLive2DEntry(filepath.Join(tmpDir, live2dEntryFile), rels)
 	if problem != "" {
 		cleanup()
-		httpx.BadRequest(w, problem)
-		return
+		return live2dModelMeta{}, "", problem, nil
 	}
 
-	label := modelLabelFromFilename(header.Filename)
+	label := modelLabelFromFilename(filename)
 	meta := live2dModelMeta{
 		ID:        newLive2DModelID(label),
 		Label:     label,
@@ -369,22 +387,16 @@ func (s *Server) handleUploadLive2DModel(w http.ResponseWriter, r *http.Request)
 	raw, _ := json.Marshal(meta)
 	if err := os.WriteFile(filepath.Join(tmpDir, live2dMetaFile), raw, 0o644); err != nil {
 		cleanup()
-		httpx.InternalError(w, "live2d-models/meta", err)
-		return
+		return live2dModelMeta{}, "", "", err
 	}
 
 	finalDir := s.live2dModelDir(meta.ID)
 	if err := os.Rename(tmpDir, finalDir); err != nil {
 		cleanup()
-		httpx.InternalError(w, "live2d-models/commit", err)
-		return
+		return live2dModelMeta{}, "", "", err
 	}
 
-	httpx.OK(w, map[string]any{
-		"success": true,
-		"message": live2dUploadMessage(enriched, plan.skipped),
-		"model":   meta,
-	})
+	return meta, live2dUploadMessage(enriched, plan.skipped), "", nil
 }
 
 // live2dUploadMessage 把「补登记了什么、忽略了什么」说清楚。

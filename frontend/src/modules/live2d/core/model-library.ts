@@ -107,6 +107,37 @@ export async function uploadLibraryModel(
   }
 }
 
+/**
+ * 从链接导入模型包。
+ *
+ * 前端只做「非空」这一层：能不能下、是不是 zip、包里的引用全不全，全在服务端
+ * 判（那边还有 SSRF 闸门）。把判断拆成两处只会出现「前端说可以、后端说不行」。
+ */
+export async function importLibraryModel(
+  url: string
+): Promise<LibraryModelResult> {
+  try {
+    const res = await apiFetch('/api/live2d/models/import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: url.trim() }),
+    })
+    const data = (await res.json().catch(() => null)) as {
+      message?: unknown
+      model?: unknown
+    } | null
+    const message = typeof data?.message === 'string' ? data.message : ''
+    if (!res.ok) return { ok: false, message: message || t('导入失败') }
+    return {
+      ok: true,
+      message: message || t('模型已导入'),
+      model: normalizeEntry(data?.model) ?? undefined,
+    }
+  } catch {
+    return { ok: false, message: t('导入失败') }
+  }
+}
+
 export async function deleteLibraryModel(
   modelId: string
 ): Promise<LibraryModelResult> {

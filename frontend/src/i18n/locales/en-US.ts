@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2780 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2787 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -967,7 +967,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（108 条） =====
+  // ===== modules/live2d（115 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -976,7 +976,11 @@ const enUS: Record<string, string> = {
   '表情 {{index}}': 'Expression {{index}}',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
   '戳一下': 'Poke',
+  '从链接导入 zip 模型包': 'Import a zip model pack from a link',
   '大小': 'Size',
+  '导入': 'Import',
+  '导入失败': 'Import failed',
+  '导入中…': 'Importing…',
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
   '地址过长': 'URL is too long',
@@ -1023,11 +1027,13 @@ const enUS: Record<string, string> = {
   '模型包是 zip，需含 model3.json（贴图/动作一并保留），不超过 {{size}}MB；上传后所有房间都能选': 'The model pack is a zip containing model3.json (keep textures and motions inside), up to {{size}}MB; once uploaded it can be used in every room',
   '模型大小': 'Model size',
   '模型加载失败：{{reason}}（右键可以换一个模型）': 'Model failed to load: {{reason}} (right-click to pick another)',
+  '模型已导入': 'Model imported',
   '模型已删除': 'Model deleted',
   '模型已上传': 'Model uploaded',
   '模型由房主统一：{{name}}': 'Model set by the host: {{name}}',
   '你用的模型已被删除': 'The model you were using has been deleted',
   '你用的模型已被删除，已换成默认模型': 'The model you were using has been deleted — switched to the default',
+  '请填写模型包的下载链接': 'Enter the download link for the model pack',
   '请填写模型地址': 'Enter a model URL',
   '全房间都显示同一个模型，成员不能再自己换': 'Everyone shows the same model and cannot change it',
   '人脸检测模型加载失败': 'Failed to load the face model',
@@ -1047,6 +1053,7 @@ const enUS: Record<string, string> = {
   '摄像头动捕需要在本机或 HTTPS 下使用': 'Camera tracking needs localhost or HTTPS',
   '摄像头权限被拒绝': 'Camera permission denied',
   '所有人都会看到': 'Everyone will see it',
+  '填 zip 直链，服务端下载后加入模型库': 'Paste a direct zip link; the server downloads it into the model library',
   '统一角色': 'Unified character',
   '统一角色期间不能删除自己的角色': 'You can\'t remove your character while the host uses a room-wide one',
   '统一使用的模型': 'Shared model',

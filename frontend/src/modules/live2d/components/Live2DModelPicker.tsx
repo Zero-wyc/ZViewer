@@ -42,6 +42,11 @@ export interface Live2DModelPickerProps {
   disabled?: boolean
   /** 上传入口：只有登录用户能传，不传这个 prop 就不显示按钮 */
   upload?: { uploading: boolean; onUpload: (file: File) => void }
+  /**
+   * 从链接导入：由服务端去下载，成功后模型进库（不是直接切过去）。
+   * 返回 true 表示已入库，行会收起来。
+   */
+  urlImport?: { onImport: (url: string) => Promise<boolean> }
   /** 当前用户有权删除的模型 id（服务端下发的 deletable）；为空则没有管理入口 */
   removableIds?: string[]
   onDeleteModel?: (modelId: string) => void
@@ -55,12 +60,15 @@ export function Live2DModelPicker({
   allowUrl,
   disabled = false,
   upload,
+  urlImport,
   removableIds,
   onDeleteModel,
 }: Live2DModelPickerProps) {
   // 管理态是纯本机的临时视图，不进任何 store：它只决定"能不能删"，与选了
   // 哪个模型无关。
   const [managing, setManaging] = useState(false)
+  // 导入行同理，展开与否不影响房间里的任何状态。
+  const [importOpen, setImportOpen] = useState(false)
   const removable = new Set(removableIds ?? [])
   const canManage = removable.size > 0 && Boolean(onDeleteModel)
   const activeManaging = managing && canManage
@@ -107,6 +115,15 @@ export function Live2DModelPicker({
                 })}
               />
             )}
+            {urlImport && (
+              <ToolButton
+                onClick={() => setImportOpen((prev) => !prev)}
+                title={t('从链接导入 zip 模型包')}
+                active={importOpen}
+              >
+                {t('导入')}
+              </ToolButton>
+            )}
           </div>
         </div>
 
@@ -127,6 +144,13 @@ export function Live2DModelPicker({
               ? t('还没有可用的模型，上传一个模型包就能开始')
               : t('还没有可用的模型，等房主或别人上传一个')}
           </Hint>
+        )}
+
+        {urlImport && importOpen && (
+          <ImportRow
+            onImport={urlImport.onImport}
+            onClose={() => setImportOpen(false)}
+          />
         )}
 
         {activeManaging && (
@@ -249,22 +273,96 @@ function UploadButton({
 function ToolButton({
   onClick,
   children,
+  title,
+  active = false,
 }: {
   onClick: () => void
   children: React.ReactNode
+  title?: string
+  active?: boolean
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
+      title={title}
       className="rounded-md border px-1.5 py-0.5 text-[10px] transition-opacity hover:opacity-80"
       style={{
-        background: 'var(--md-sys-color-surface)',
-        borderColor: 'var(--md-sys-color-outline-variant)',
+        background: active
+          ? 'color-mix(in srgb, var(--md-sys-color-primary) 12%, var(--md-sys-color-surface))'
+          : 'var(--md-sys-color-surface)',
+        borderColor: active
+          ? 'var(--md-sys-color-primary)'
+          : 'var(--md-sys-color-outline-variant)',
+        color: active
+          ? 'var(--md-sys-color-primary)'
+          : 'var(--md-sys-color-on-surface)',
       }}
     >
       {children}
     </button>
+  )
+}
+
+// 从链接导入：填一个 zip 直链，服务端去下。
+//
+// 这里不校验 URL 形态：能下不能下、是不是 zip、包全不全，全在服务端判，
+// 前端提前拦一遍只会出现「前端说可以、后端说不行」和相反的假承诺。
+function ImportRow({
+  onImport,
+  onClose,
+}: {
+  onImport: (url: string) => Promise<boolean>
+  onClose: () => void
+}) {
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+
+  const submit = async () => {
+    if (busy) return
+    const trimmed = url.trim()
+    if (!trimmed) {
+      setError(t('请填写模型包的下载链接'))
+      return
+    }
+    setError('')
+    setBusy(true)
+    const ok = await onImport(trimmed)
+    setBusy(false)
+    if (!ok) return
+    setUrl('')
+    onClose()
+  }
+
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center gap-1.5">
+        <Input
+          value={url}
+          onChange={(event) => setUrl(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') void submit()
+          }}
+          placeholder="https://…/model.zip"
+          disabled={busy}
+          size="sm"
+          className="min-w-0 flex-1"
+        />
+        <Button size="sm" onClick={() => void submit()} disabled={busy}>
+          {busy ? t('导入中…') : t('导入')}
+        </Button>
+      </div>
+      {error && (
+        <p
+          className="mt-1 text-[10px]"
+          style={{ color: 'var(--md-sys-color-error)' }}
+        >
+          {error}
+        </p>
+      )}
+      <Hint>{t('填 zip 直链，服务端下载后加入模型库')}</Hint>
+    </div>
   )
 }
 

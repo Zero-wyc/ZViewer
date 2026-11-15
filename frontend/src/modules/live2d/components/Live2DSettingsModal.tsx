@@ -95,6 +95,13 @@ export interface Live2DSettingsModalProps {
    * 是写进策略。两个回调共用同一段上传逻辑，只有落地动作不一样。
    */
   onUploadUnified: (file: File) => void
+  /**
+   * 从链接导入模型包，返回新模型 id（失败返回空串）。
+   *
+   * 与上传一样，「导入之后干什么」由页面决定：个人页切过去、房间页设为统一，
+   * 所以这里只负责入库，落地动作留在本组件的两个包装函数里。
+   */
+  onImportModel: (url: string) => Promise<string>
   onDeleteModel: (modelId: string) => void
 }
 
@@ -128,10 +135,26 @@ export function Live2DSettingsModal({
   onPolicy,
   onUpload,
   onUploadUnified,
+  onImportModel,
   onDeleteModel,
 }: Live2DSettingsModalProps) {
   const [tab, setTab] = useState<Tab>('me')
   const [pendingDelete, setPendingDelete] = useState<string>('')
+
+  // 导入之后直接生效，和上传保持同一套手感：传完就切过去/设为统一，
+  // 否则用户还要在刚变长的列表里再找一次自己刚导入的那个。
+  const importForMe = async (url: string) => {
+    const modelId = await onImportModel(url)
+    if (!modelId) return false
+    onSelect('room', modelId)
+    return true
+  }
+  const importForRoom = async (url: string) => {
+    const modelId = await onImportModel(url)
+    if (!modelId) return false
+    onPolicy({ unified: true, unifiedKind: 'room', unifiedId: modelId })
+    return true
+  }
 
   const unified = policy.unified && Boolean(policy.unifiedId)
   const canUseFace = policy.allowFace
@@ -213,6 +236,9 @@ export function Live2DSettingsModal({
                     allowUrl={isHost}
                     upload={
                       canUploadModels ? { uploading, onUpload } : undefined
+                    }
+                    urlImport={
+                      canUploadModels ? { onImport: importForMe } : undefined
                     }
                     removableIds={removableIds}
                     onDeleteModel={(modelId) => setPendingDelete(modelId)}
@@ -453,6 +479,11 @@ export function Live2DSettingsModal({
                     upload={
                       canUploadModels && isHost
                         ? { uploading, onUpload: onUploadUnified }
+                        : undefined
+                    }
+                    urlImport={
+                      canUploadModels && isHost
+                        ? { onImport: importForRoom }
                         : undefined
                     }
                     removableIds={isHost ? removableIds : undefined}
