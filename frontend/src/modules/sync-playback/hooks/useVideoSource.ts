@@ -275,7 +275,15 @@ function toPlayerSource(
   // 房主广播原始 B站 CDN URL；观众/房主各自在 attach 前决定是否走自己的 CLI 代理。
   // cliOnly（仅允许CLI模式）影片强制包装——即使本机偏好未开 CLI，
   // 媒体流也必须经本机 CLI（观众无 CLI 时已被 ensureViewerLocalOverride 拦截）。
-  if (state.sourceType === 'bilibili' && movieId != null) {
+  //
+  // 直播不走这里：直播的线路只由 `liveDirect`（影片级 CLI/中转）决定，
+  // 下面的直播分支统一处理——两处都包会把 HLS 直播的 m3u8 地址也塞进
+  // `/proxy`，分片随之拼错。
+  if (
+    state.sourceType === 'bilibili' &&
+    movieId != null &&
+    state.isLive !== true
+  ) {
     const movie = useRoomStore.getState().movies.find((m) => m.id === movieId)
     const { cliEnabled } = getBilibiliParseOptions(movieId)
     const cliOnly = movie?.cliOnly === true
