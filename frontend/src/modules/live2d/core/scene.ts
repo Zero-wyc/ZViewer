@@ -135,6 +135,56 @@ export function clearScene(): void {
 }
 
 /**
+ * 取一份场景快照（浅拷贝），用于「全量重拉」时保住连续量。
+ *
+ * 为什么需要：服务端快照是 `clearScene()` + 逐行 upsert 重建的，新条目的
+ * 平滑状态全是初值。重连、`live2d-request` 补拉、以及任何一次快照重放，
+ * 都会让画面上所有人的模型**瞬移**回默认槽位/中性表情——明明什么都没变。
+ */
+export function captureSmooth(): Map<string, SceneEntry> {
+  const out = new Map<string, SceneEntry>()
+  for (const [sid, entry] of entries) out.set(sid, { ...entry })
+  return out
+}
+
+/**
+ * 把上一份快照里的连续量套回同名条目。
+ *
+ * 只恢复「当前/目标值」与时间戳这几类平滑用的量：名册部分（模型、缩放、
+ * 排序）必须用服务端刚发来的那一份，否则换模型会被旧快照顶回去。
+ *
+ * 拖拽只恢复 `current`：`target` 以名册为准——快照里的 dragX 就是服务端的
+ * 权威值，恢复成旧值等于让画面朝着一个已知过时的位置走一帧。
+ */
+export function restoreSmooth(prev: Map<string, SceneEntry>): void {
+  for (const [sid, entry] of entries) {
+    const old = prev.get(sid)
+    if (!old) continue
+    entry.currentX = old.currentX
+    entry.currentY = old.currentY
+    entry.targetX = old.targetX
+    entry.targetY = old.targetY
+    entry.lastActiveAt = old.lastActiveAt
+    entry.currentMouth = old.currentMouth
+    entry.currentEyes = old.currentEyes
+    entry.targetMouth = old.targetMouth
+    entry.targetEyes = old.targetEyes
+    entry.currentForm = old.currentForm
+    entry.currentBrow = old.currentBrow
+    entry.currentRoll = old.currentRoll
+    entry.targetForm = old.targetForm
+    entry.targetBrow = old.targetBrow
+    entry.targetRoll = old.targetRoll
+    entry.faceAt = old.faceAt
+    entry.currentVoiceMouth = old.currentVoiceMouth
+    entry.targetVoiceMouth = old.targetVoiceMouth
+    entry.voiceAt = old.voiceAt
+    entry.currentDragX = old.currentDragX
+    entry.currentDragY = old.currentDragY
+  }
+}
+
+/**
  * 写入远端指针。
  *
  * ar 是**发送端**的宽高比：这里立刻换算成本端坐标，之后渲染只认归一化值。

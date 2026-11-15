@@ -14,9 +14,11 @@ import {
   type Live2DSnapshotPayload,
 } from '../types'
 import {
+  captureSmooth,
   clearScene,
   listEntries,
   removePeer,
+  restoreSmooth,
   setFace,
   setRemoteDrag,
   setRemotePointer,
@@ -100,11 +102,15 @@ export function useLive2DSync({
 
     const onSnapshot = (payload: Live2DSnapshotPayload) => {
       if (!payload || payload.roomId !== roomId) return
+      // 先留一份连续量：快照重建出来的条目是初值，直接换掉会让画面上所有人
+      // 瞬移回默认槽位、表情瞬间归中性（重连补拉、换设备刷新都会看到）。
+      const prev = captureSmooth()
       clearScene()
       for (const row of payload.models ?? []) {
         const peer = rowToPeer(row)
         if (peer.sid) upsertPeer(peer)
       }
+      restoreSmooth(prev)
       applyPolicy(payload.policy)
       syncRenderer()
     }

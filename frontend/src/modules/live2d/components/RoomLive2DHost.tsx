@@ -6,8 +6,6 @@ import { Camera, Loader2, Sparkles } from 'lucide-react'
 import { message } from '@/components/ui/message'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/store/authStore'
-import { loadLive2DEngine } from '../core/cubism-core'
-import { FaceTracker } from '../core/face-tracker'
 import { loadBuiltinModels, type Live2DModelEntry } from '../core/model-catalog'
 import {
   loadModelMeta,
@@ -23,13 +21,11 @@ import {
   uploadLibraryModel,
   type Live2DLibraryEntry,
 } from '../core/model-library'
-import { Live2DRenderer } from '../core/live2d-renderer'
-import { clearDragPref, loadDragPref, saveDragPref } from '../core/drag-prefs'
+import { clearDragPref, saveDragPref } from '../core/drag-prefs'
 import { getEntry, listEntries, setLocalDrag, slotX } from '../core/scene'
 import { pickVisiblePeers, resolveEffectiveModel } from '../core/visibility'
 import {
   LIVE2D_DRAG_INTERVAL_MS,
-  LIVE2D_DRAG_PREF_APPLY_DELAY_MS,
   LIVE2D_MAX_RENDERED,
   LIVE2D_SCALE_COMMIT_MS,
 } from '../constants'
@@ -42,11 +38,15 @@ import {
   emitLive2DPolicy,
   useLive2DSync,
 } from '../hooks/useLive2DSync'
+import { useDragPref } from '../hooks/useDragPref'
+import { useFaceTracker } from '../hooks/useFaceTracker'
+import { useLive2DEngine } from '../hooks/useLive2DEngine'
 import { useSpeakingSids } from '../hooks/useSpeakingSids'
 import { useLive2DPointer } from '../hooks/useLive2DPointer'
 import { useLive2DStore } from '../store/live2dStore'
 import type { Live2DModelKind, Live2DPolicy } from '../types'
 import { Live2DContextMenu } from './Live2DContextMenu'
+import { Live2DBadge } from './Live2DBadge'
 import { Live2DDragLayer } from './Live2DDragLayer'
 import { Live2DFaceMonitor } from './Live2DFaceMonitor'
 import { Live2DSettingsModal } from './Live2DSettingsModal'
@@ -223,18 +223,14 @@ export function RoomLive2DHost({
   const effKind = eff.kind
   const effModelId = eff.modelId
   const removedNow = eff.removed
+  // 本机 socket id。所有「是不是我」的判定都看它，而它在重连时会变——所以
+  // 只算一次、放在最上面，别在各处各读一遍 `socket?.id`（那会在重连瞬间出现
+  // 「有的地方认我是我、有的地方不认」的半拍不一致）。
+  const mySid = socket?.id ?? ''
   // 宿主的 DOM 由 React 自己渲染（portal 到 body），我们只在 effect 里
   // 搬动它的父节点。这样 canvas 永远在同一个 div 里：全屏时是「移动」而不是
   // 「重建」，WebGL 上下文与纹理解码结果都保得住。
   const hostRef = useRef<HTMLDivElement | null>(null)
-  const [canvasEl, setCanvasEl] = useState<HTMLDivElement | null>(null)
-  const [renderer, setRenderer] = useState<Live2DRenderer | null>(null)
-  // 引擎（pixi + Cubism Core）初始化失败的可见提示。
-  //
-  // 以前这条只进 console.warn，界面上什么都不发生：模型永远不出现、右键也
-  // 没有命中，用户只能看到「房间页没有角色」。而这类失败几乎都是**环境问题**
-  // （静态资源 404/502、WebGL 被禁用），必须在界面上说出来。
-  const [engineError, setEngineError] = useState('')
   const [builtins, setBuiltins] = useState<Live2DModelEntry[]>([])
   const [libraryModels, setLibraryModels] = useState<Live2DLibraryEntry[]>([])
   const [canUploadModels, setCanUploadModels] = useState(false)
@@ -311,8 +307,6 @@ export function RoomLive2DHost({
     peer: null,
   })
 
-  const mySid = socket?.id ?? ''
-
   const openMenuAt = useCallback(
     (
       clientX: number,
@@ -386,6 +380,26 @@ export function RoomLive2DHost({
     }
   }, [patchPeerState])
 
+  // ---- 引擎与渲染器 ----
+  //
+  // 生命周期（加载 Core → 建 Application → 跟随尺寸 → 跟随 socket id）全部在
+  // 钩子里，这里只从三个回调里"接住"状态：加载态进占位卡，动作变化上行广播。
+  //
+  // 回调里读的都是本次渲染的闭包值（socket/roomId），钩子内部用 ref 转发，
+  // 所以这些内联箭头不会导致 WebGL 上下文重建。
+  const {
+    setCanvasEl,
+    renderer,
+    error: engineError,
+  } = useLive2DEngine({
+    localSid: mySid,
+    onLocalMotion: (group, index) =>
+      emitLive2DMotion(socket, roomId, group, index),
+    onModelError: (sid, reason) => peerStateSinkRef.current.failed(sid, reason),
+    onLoadingChange: (sid, loading) =>
+      peerStateSinkRef.current.loading(sid, loading),
+  })
+
   // 表情与动作来自同一次 model3.json 读取，放在一个状态里：分成两份会让
   // 「刚换模型」的那一帧出现表情是新的、动作还是旧的。
   // 连带 url 一起存：换模型时旧清单不能先闪一下。
@@ -394,19 +408,16 @@ export function RoomLive2DHost({
     expressions: ModelExpressionEntry[]
     motions: ModelMotionGroup[]
   }>({ url: '', expressions: [], motions: [] })
-  // 摄像头动捕：实例放 ref（不参与渲染），开关状态在 state 里
-  const trackerRef = useRef<FaceTracker | null>(null)
-  // 卸载后摄像头还在跑是最糟的泄漏：启停都是异步的，必须在 await 之后复查
-  const disposedRef = useRef(false)
-  const [tracker, setTracker] = useState<FaceTracker | null>(null)
-  // 监视窗是否展开。开启动捕时自动展开一次：用户刚点完开关，最想知道的是
-  // 「摄像头到底拍到我没有」，而不是先看到一个抽象的成功提示。
-  const [faceMonitor, setFaceMonitor] = useState(false)
-  const [face, setFace] = useState<{
-    on: boolean
-    busy: boolean
-    error: string
-  }>({ on: false, busy: false, error: '' })
+
+  // 摄像头动捕：启停、监视窗、房主策略联动都在钩子里。
+  const {
+    tracker,
+    monitorOpen: faceMonitor,
+    setMonitorOpen: setFaceMonitor,
+    face,
+    toggle: toggleFaceTracking,
+    recalibrate: recalibrateFace,
+  } = useFaceTracker({ allowFace: policy.allowFace })
 
   const role = useAuthStore((s) => s.user?.role)
   const isServerAdmin = role === 'root' || role === 'admin'
@@ -512,74 +523,6 @@ export function RoomLive2DHost({
     }
   }, [myModelUrl])
 
-  // ---- 5. 引擎与渲染器 ----
-  //
-  // 动作广播的出口走 ref：渲染器一创建就把回调固定下来，用 ref 传值才不会
-  // 因为 socket/roomId 变化而重建整个 WebGL 上下文。
-  const motionSinkRef = useRef<(group: string, index: number) => void>(() => {})
-  useEffect(() => {
-    motionSinkRef.current = (group, index) => {
-      emitLive2DMotion(socket, roomId, group, index)
-    }
-  }, [socket, roomId])
-
-  useEffect(() => {
-    if (!canvasEl) return
-    let cancelled = false
-    let instance: Live2DRenderer | null = null
-    void (async () => {
-      try {
-        const engine = await loadLive2DEngine()
-        if (cancelled) return
-        instance = await Live2DRenderer.create({
-          engine,
-          mount: canvasEl,
-          localSid: socket?.id ?? '',
-          onLocalMotion: (group, index) => motionSinkRef.current(group, index),
-          onModelError: (sid, reason) =>
-            peerStateSinkRef.current.failed(sid, reason),
-          onLoadingChange: (sid, loading) =>
-            peerStateSinkRef.current.loading(sid, loading),
-        })
-        if (cancelled) {
-          instance.destroy()
-          return
-        }
-        instance.resize(canvasEl.clientWidth, canvasEl.clientHeight)
-        setRenderer(instance)
-      } catch (err) {
-        console.warn('[live2d] 引擎初始化失败', err)
-        if (!cancelled) {
-          setEngineError(err instanceof Error ? err.message : String(err))
-        }
-      }
-    })()
-    return () => {
-      cancelled = true
-      instance?.destroy()
-      setRenderer(null)
-    }
-    // socket 只用于取初始的本机 id，之后由下面的 effect 跟进（重连会换 id）
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canvasEl])
-
-  // 重连后 socket.id 会变：「本机模型」的判定必须跟着换，否则动作同步会断
-  // （自己的模型被当成别人的，自动挑 idle 也被关掉）。
-  useEffect(() => {
-    if (!renderer) return
-    renderer.setLocalSid(mySid)
-  }, [renderer, mySid])
-
-  // ---- 6. 尺寸跟随 ----
-  useEffect(() => {
-    if (!renderer || !canvasEl) return
-    const observer = new ResizeObserver(() => {
-      renderer.resize(canvasEl.clientWidth, canvasEl.clientHeight)
-    })
-    observer.observe(canvasEl)
-    return () => observer.disconnect()
-  }, [renderer, canvasEl])
-
   // ---- 7. 默认模型：进房即有角色（房主统一了角色就不用挑） ----
   //
   // 判断用 `myModelId` 而不是生效模型：统一角色时生效模型是房间定的，这里若
@@ -657,71 +600,9 @@ export function RoomLive2DHost({
     )
   }, [socket, roomId, effKind, effModelId, myScale, removedNow])
 
-  // ---- 8b. 摄像头动捕 ----
-  //
-  // 只有用户点开关才会申请摄像头（这也是一次用户手势，权限弹窗才不会
-  // 被浏览器拦）。关掉、换房、卸载都要停：track 不停会一直亮着摄像头灯。
-  const stopFaceTracking = useCallback(() => {
-    const current = trackerRef.current
-    trackerRef.current = null
-    current?.stop()
-    setTracker(null)
-    setFaceMonitor(false)
-    setFace({ on: false, busy: false, error: '' })
-  }, [])
-
-  const startFaceTracking = useCallback(async () => {
-    if (trackerRef.current) return
-    setFace({ on: true, busy: true, error: '' })
-    try {
-      const instance = await FaceTracker.create()
-      // 启动期间用户可能已经关掉开关、离开了房间，或者组件已经被卸载
-      if (disposedRef.current) {
-        instance.stop()
-        return
-      }
-      trackerRef.current = instance
-      setTracker(instance)
-      setFaceMonitor(true)
-      setFace({ on: true, busy: false, error: '' })
-    } catch (err) {
-      setFace({
-        on: false,
-        busy: false,
-        error: err instanceof Error ? err.message : t('摄像头动捕启动失败'),
-      })
-    }
-  }, [])
-
-  /** 重新标定：换坐姿/挪了电脑之后不必关掉动捕重开。 */
-  const recalibrateFace = useCallback(() => {
-    trackerRef.current?.recalibrate()
-  }, [])
-
-  const toggleFaceTracking = useCallback(() => {
-    if (face.on || face.busy) stopFaceTracking()
-    else void startFaceTracking()
-  }, [face.on, face.busy, stopFaceTracking, startFaceTracking])
-
   const toggleVoiceLipSync = useCallback(() => {
     setVoiceLipSync(!voiceLipSync)
   }, [setVoiceLipSync, voiceLipSync])
-
-  // 房主关掉「允许成员动捕」时立刻停：不能只是把按钮变灰，摄像头得真的关。
-  // 放进 setTimeout 是为了不在 effect 里同步 setState（react-hooks 会判级联渲染）。
-  useEffect(() => {
-    if (policy.allowFace) return
-    const timer = window.setTimeout(stopFaceTracking, 0)
-    return () => window.clearTimeout(timer)
-  }, [policy.allowFace, stopFaceTracking])
-
-  useEffect(() => {
-    return () => {
-      disposedRef.current = true
-      trackerRef.current?.stop()
-      trackerRef.current = null
-    }
-  }, [])
 
   // ---- 8c. 右键角色呼出设置 ----
   //
@@ -802,32 +683,19 @@ export function RoomLive2DHost({
 
   // ---- 8e. 进房 / 换模型后应用本机的拖拽偏好 ----
   //
-  // 为什么延迟 800ms：刚声明完模型时 join 快照可能还没到，名册里没有我，
-  // 这时候写场景会被随后的 upsert 覆盖掉。代价是角色先出现在默认槽位、
-  // 再平滑滑到记忆里的位置——比"每次都回默认、人人重拖一遍"好得多。
-  //
-  // 每个 (sid, 模型) 只应用一次：否则用户手动拖到别处后，任何一次重连之外的
-  // 重渲染都会把他拽回记忆里的位置。
-  const dragPrefAppliedRef = useRef('')
-  useEffect(() => {
-    if (!mySid || !effModelId) return
-    const key = `${mySid}|${effKind}:${effModelId}`
-    if (dragPrefAppliedRef.current === key) return
-    const timer = window.setTimeout(() => {
-      const pref = loadDragPref(effKind, effModelId)
-      if (!pref) {
-        // 没记过（或原点）也要标记，免得每次依赖抖动都白等 800ms 再查一遍
-        dragPrefAppliedRef.current = key
-        return
-      }
-      // 名册里还没有我：不标记，等下一次依赖变化（快照到达/重连）再试
-      if (!getEntry(mySid)) return
-      setLocalDrag(mySid, pref.x, pref.y)
-      emitLive2DDrag(socket, roomId, pref.x, pref.y)
-      dragPrefAppliedRef.current = key
-    }, LIVE2D_DRAG_PREF_APPLY_DELAY_MS)
-    return () => window.clearTimeout(timer)
-  }, [mySid, effKind, effModelId, socket, roomId])
+  // 触发点是「我出现在名册里」，不是固定延时（判据在 hooks/useDragPref）。
+  const myInRoster = useMemo(
+    () => Boolean(mySid) && peers.some((item) => item.sid === mySid),
+    [peers, mySid]
+  )
+  useDragPref({
+    sid: mySid,
+    kind: effKind,
+    modelId: effModelId,
+    inRoster: myInRoster,
+    socket,
+    roomId,
+  })
 
   const exitDragMode = useCallback(() => setDragMode(false), [])
 
@@ -1211,57 +1079,27 @@ export function RoomLive2DHost({
                   }}
                 />
               )}
-              <span
+              <Live2DBadge
+                speaking={speaking}
                 style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: 3,
                   maxWidth: 96,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  padding: '1px 6px',
-                  borderRadius: 6,
-                  // 说话时加一圈白边 + 一个呼吸点：画面本身是视频，任何品牌色
-                  // 都可能被背景吃掉，白色描边是对比度最稳的做法。
-                  background: speaking
-                    ? 'rgba(0,0,0,0.62)'
-                    : 'rgba(0,0,0,0.35)',
-                  boxShadow: speaking
-                    ? '0 0 0 1px rgba(255,255,255,0.7)'
-                    : undefined,
-                  transition: 'background 140ms ease, box-shadow 140ms ease',
-                  color: '#fff',
-                  fontSize: 10,
                 }}
               >
-                {speaking && (
-                  <span
-                    className="animate-pulse"
-                    style={{
-                      width: 4,
-                      height: 4,
-                      borderRadius: 2,
-                      background: '#fff',
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
                 {peer.name}
-              </span>
+              </Live2DBadge>
             </div>
           )
         })}
 
       {canShowLayer && hiddenCount > 0 && (
-        // 压在画面上的文字必须自己带底：这层浮在视频/网页上，继承来的
-        // on-surface 是深色，浅色画面里等于看不见（与角色名标签同一处理）。
-        <div
-          className="absolute right-3 bottom-2.5 truncate rounded-md px-1.5 py-px text-[10px] text-white/85"
-          style={{ background: 'rgba(0,0,0,0.35)' }}
-        >
-          {t('另有 {{count}} 个角色未显示', { count: hiddenCount })}
-        </div>
+        <Live2DBadge className="absolute right-3 bottom-2.5 max-w-[40vw]">
+          <span className="truncate">
+            {t('另有 {{count}} 个角色未显示', { count: hiddenCount })}
+          </span>
+        </Live2DBadge>
       )}
 
       {/* 角色设置入口：常驻。与右下角语音聊天悬浮按钮同一列、同一规格
@@ -1272,13 +1110,14 @@ export function RoomLive2DHost({
         // 挪到左下角：右下角是「角色设置 / 动捕监视窗」的竖列，引擎失败时
         // 监视窗仍然可能被打开（动捕与渲染是两条独立的链路），压在它下面
         // 等于把这条唯一的线索藏起来。
-        <div
-          className="absolute bottom-16 left-3 max-w-[50vw] truncate rounded-md px-2 py-1 text-[10px] text-white/90"
-          style={{ background: 'rgba(0,0,0,0.55)', pointerEvents: 'auto' }}
+        <Live2DBadge
+          alert
+          className="absolute bottom-16 left-3 max-w-[50vw]"
+          style={{ pointerEvents: 'auto' }}
           title={t('Live2D 引擎加载失败：{{reason}}', { reason: engineError })}
         >
           {t('Live2D 引擎加载失败')}
-        </div>
+        </Live2DBadge>
       )}
 
       {/* 动捕监视窗 / 收起后的入口。与角色按钮同一列（bottom-6 语音 → 84

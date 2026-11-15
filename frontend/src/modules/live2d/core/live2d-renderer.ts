@@ -1,4 +1,5 @@
-import { Application, Container, extensions } from 'pixi.js'
+import { Application, Assets, Container, extensions } from 'pixi.js'
+import type { Texture } from 'pixi.js'
 import type { Live2DEngine, Live2DModelInstance } from './cubism-core'
 import {
   LIVE2D_FACE_TTL_MS,
@@ -22,6 +23,7 @@ import {
 } from './render-resolution'
 import { resolveLocalScale, type LocalScaleOverride } from './scale-override'
 import { pickPokeGroup } from './motion-pick'
+import { releaseTextureRefs, retainTextureRefs } from './texture-refs'
 import { pickVisiblePeers } from './visibility'
 import { t as translate } from '@/i18n'
 
@@ -31,6 +33,19 @@ import { t as translate } from '@/i18n'
 // 一个 Application 承载所有模型（单 WebGL 上下文）：浏览器对同时存在的
 // 上下文有上限（通常 8~16 个），每个模型一个 Application 很快会把上下文
 // 用光，而且每个上下文都有固定显存开销。
+//
+// ---- 贴图是**跨模型共享**的（实测结论，别再"优化"一遍）----
+//
+// 引擎的 `createTexture` 走的是 `Assets.load({ src, parser: 'texture' })`，
+// 而 Pixi 的 Loader 按**绝对 URL** 缓存 promise（`promiseCache[url]`），
+// 所以同一个 model3.json 被两个人加载时，得到的贴图是**同一个 Texture
+// 实例、同一份 GPU 纹理**——「同 URL 复用纹理以省显存」这件事不需要我们
+// 再做一遍，做了反而会绕开引擎的 LOD/翻转设置。
+//
+// 但这个共享有个必须自己兜的副作用：`model.destroy({ texture: true })` 会
+// 把 Texture 和它的 source 一起销毁。两个人用同一个模型时，其中一个人换
+// 模型/离开房间，另一个人当场变白（source 已销毁）。所以下面所有释放路径
+// 都走 `disposeModel()`，按引用计数决定"最后一个人走的时候才真正释放"。
 
 /** Cubism 参数 id 句柄。引擎不给类型（内部是 CubismId），只当作不透明值传递。 */
 interface CubismParamIds {
@@ -152,6 +167,11 @@ export class Live2DRenderer {
   private onLoadingChange?: (sid: string, loading: boolean) => void
   /** 已经通告为「加载中」的 sid（去重，避免同一状态重复推给 React） */
   private announcedLoading = new Set<string>()
+  /**
+   * 贴图引用计数：同一个 Texture 可能被多个模型共用（同一 URL 的第二个人
+   * 拿到的是同一个实例，见文件头）。只有计数归零才真正释放显存。
+   */
+  private textureRefs = new Map<Texture, number>()
   /**
    * 拖动滑杆期间对**本人**模型的临时缩放覆盖。
    *
@@ -320,7 +340,51 @@ export class Live2DRenderer {
     if (!loaded) return
     this.models.delete(sid)
     this.root.removeChild(loaded.model)
-    loaded.model.destroy({ children: true, texture: true, baseTexture: true })
+    this.disposeModel(loaded.model, true)
+  }
+
+  /**
+   * 销毁一个模型实例，贴图按引用计数释放。
+   *
+   * **不能**直接 `destroy({ texture: true })`：贴图是跨模型共享的，一个人
+   * 换模型会把别人的贴图一起销毁（画面上就是"忽然变白"）。
+   *
+   * registered 表示这份模型有没有走过 `retainTextures`：加载成功的都有，
+   * 超时之后迟到的那一份没有——那一份的贴图所有权可能整个在别人手里，
+   * 不能凭它去减计数。
+   */
+  private disposeModel(model: Live2DModelInstance, registered: boolean): void {
+    // destroy 会清空实例自己的 textures 数组，引用要先取出来
+    const textures = (model.textures ?? []).slice()
+    model.destroy({ children: true })
+    // 计数与「该不该释放」的判定在 core/texture-refs（有单测）：这里只负责
+    // 把判定结果真的执行掉。
+    const free = releaseTextureRefs(this.textureRefs, textures, registered)
+    for (const texture of free) this.destroyTexture(texture)
+  }
+
+  /** 登记一次使用；加载成功后调用，与 disposeModel 里的释放配对。 */
+  private retainTextures(model: Live2DModelInstance): void {
+    retainTextureRefs(this.textureRefs, model.textures ?? [])
+  }
+
+  /**
+   * 释放一张贴图。
+   *
+   * 走 `Assets.unload` 而不是 `texture.destroy`：前者会同时清掉 Loader 的
+   * promiseCache 与全局 Cache（下次同 URL 重新解码），后者会让 Pixi 刷一串
+   * "managed by Assets was destroyed instead of unloaded" 的警告，还在缓存
+   * 里留一个已销毁的对象。
+   */
+  private destroyTexture(texture: Texture): void {
+    const url = texture.label
+    if (url) {
+      void Assets.unload(url).catch(() => {
+        if (!texture.destroyed) texture.destroy(true)
+      })
+      return
+    }
+    if (!texture.destroyed) texture.destroy(true)
   }
 
   /** 加载态只通告变化，宿主不必为「同一个人又排了一次队」重渲染。 */
@@ -508,8 +572,11 @@ export class Live2DRenderer {
     if (this.destroyed) return
     this.destroyed = true
     this.queue = []
+    // 逐个走 disposeModel 而不是把 stage 整棵扔给 app.destroy：后者会连带
+    // 销毁共享贴图（并在控制台刷一串 Assets 警告），也会让引用计数失效。
     for (const sid of [...this.models.keys()]) this.remove(sid)
-    this.app.destroy(true, { children: true, texture: true })
+    this.textureRefs.clear()
+    this.app.destroy(true)
   }
 
   // -------------------------------------------------------------------------
@@ -551,19 +618,20 @@ export class Live2DRenderer {
       } catch (err) {
         // 超时只是「我们不等了」，底层加载还在跑。等它落地就销毁，否则贴图与
         // WebGL 纹理全漏在显存里——4K 素材一次能漏掉几百 MB。
+        // 走 disposeModel：这一份的贴图可能正被别人用着（同 URL 共享）。
         void pending
-          .then((late) =>
-            late.destroy({ children: true, texture: true, baseTexture: true })
-          )
+          .then((late) => this.disposeModel(late, false))
           .catch(() => {})
         throw err
       }
       if (this.destroyed) {
-        model.destroy({ children: true, texture: true, baseTexture: true })
+        this.disposeModel(model, false)
         return
       }
       model.anchor.set(0.5, 1)
       this.root.addChild(model)
+      // 登记贴图使用：与 disposeModel 里的 releaseTexture 配对
+      this.retainTextures(model)
       // 本地包围盒（未缩放）：宽高要在约束里用，取一次就够
       const lb = model.getLocalBounds()
       const entry: LoadedModel = {

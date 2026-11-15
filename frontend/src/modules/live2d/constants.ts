@@ -56,15 +56,6 @@ export const LIVE2D_STATE_EPSILON = 0.002
 export const LIVE2D_DRAG_INTERVAL_MS = 60
 
 /**
- * 进房后应用本机拖拽偏好的延迟。
- *
- * 刚声明完模型时服务端的 join 快照可能还没到，名册里没有我——这时候写场景
- * 会被随后的 upsert 覆盖。等快照落地再应用，代价是角色先站到默认槽位、
- * 再滑到记忆里的位置（这段位移本身也是平滑的，观感可接受）。
- */
-export const LIVE2D_DRAG_PREF_APPLY_DELAY_MS = 800
-
-/**
  * 停手后多久把「大小」提交上去。
  *
  * 滑杆是连续手势：0.5~2 每档 0.05，拖一次能经过二三十个值。以前每个值都直接
