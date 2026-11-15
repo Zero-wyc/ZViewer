@@ -8,6 +8,7 @@ import {
   type Live2DConfigAck,
   type Live2DModelRemovedPayload,
   type Live2DPatchPayload,
+  type Live2DPokePayload,
   type Live2DPolicy,
   type Live2DPolicyPayload,
   type Live2DSnapshotPayload,
@@ -193,11 +194,19 @@ export function useLive2DSync({
       removedSinkRef.current?.(payload.modelId)
     }
 
+    // 戳一下：各端都把**被戳的那个**角色抖一下。响应是纯本地的动画，
+    // 不进名册也不进场景状态——它没有"当前值"，只是一个瞬时反应。
+    const onPoke = (payload: Live2DPokePayload) => {
+      if (!payload || payload.roomId !== roomId || !payload.target) return
+      renderer?.poke(payload.target)
+    }
+
     socket.on(LIVE2D_EVENT.SNAPSHOT, onSnapshot)
     socket.on(LIVE2D_EVENT.PATCH, onPatch)
     socket.on(LIVE2D_EVENT.ACTION, onAction)
     socket.on(LIVE2D_EVENT.POLICY, onPolicy)
     socket.on(LIVE2D_EVENT.MODEL_REMOVED, onModelRemoved)
+    socket.on(LIVE2D_EVENT.POKE, onPoke)
 
     // 挂载即拉：join 时服务端的推送往往早于 effect 挂载，已经丢了
     socket.emit(LIVE2D_EVENT.REQUEST, { roomId })
@@ -208,6 +217,7 @@ export function useLive2DSync({
       socket.off(LIVE2D_EVENT.ACTION, onAction)
       socket.off(LIVE2D_EVENT.POLICY, onPolicy)
       socket.off(LIVE2D_EVENT.MODEL_REMOVED, onModelRemoved)
+      socket.off(LIVE2D_EVENT.POKE, onPoke)
     }
   }, [socket, roomId, renderer])
 
@@ -257,12 +267,27 @@ export function emitLive2DAction(
 }
 
 /**
+ * 戳一下某个人的角色。
+ *
+ * 不做本地乐观应用：响应由服务端广播回来再触发，这样"我看到的"和"别人看到的"
+ * 是同一次事件。戳失败（太快、对方刚离开）静默——这是玩笑性质的动作，
+ * 弹一条错误提示只会显得一本正经。
+ */
+export function emitLive2DPoke(
+  socket: Socket | null,
+  roomId: string,
+  target: string
+): void {
+  if (!socket || !roomId || !target) return
+  socket.emit(LIVE2D_EVENT.POKE, { roomId, target })
+}
+
+/**
  * 广播本人的动作（motion）。
  *
  * 和表情一样不做本地乐观应用——本人的模型本来就已经在播这个动作了，
  * 服务端的回声会被渲染器按 `lastMotion` 丢掉。
- */
-export function emitLive2DMotion(
+ */ export function emitLive2DMotion(
   socket: Socket | null,
   roomId: string,
   group: string,

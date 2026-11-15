@@ -180,6 +180,13 @@ export interface Live2DModelRemovedPayload {
   modelId: string
 }
 
+/** 「戳一下」的广播：from 是发起人，target 是被戳的角色。 */
+export interface Live2DPokePayload {
+  roomId: string
+  from: string
+  target: string
+}
+
 export function rowToPeer(row: Live2DRow): Live2DPeer {
   return {
     sid: String(row[0] ?? ''),

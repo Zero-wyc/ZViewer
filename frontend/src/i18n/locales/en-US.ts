@@ -2,7 +2,7 @@
  * 英文词条。
  *
  * key 是**中文原文**（与 `zh-CN.ts` 完全一致），value 是对应英文。
- * 当前 2777 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
+ * 当前 2780 条；没有条目的地方自动显示中文原文（i18next 找不到就返回 key）。
  *
  * 生成方式：`node scripts/i18n-translate.mjs --build`
  * 译文源文件在 `scripts/i18n-en/parts/*.en.json`（与中文清单等长、顺序一一对应），
@@ -967,7 +967,7 @@ const enUS: Record<string, string> = {
   // ===== modules/kazumi（1 条） =====
   'Kazumi 番剧源': 'Kazumi source',
 
-  // ===== modules/live2d（105 条） =====
+  // ===== modules/live2d（108 条） =====
   '[live2d] 模型加载失败': '[live2d] Failed to load model',
   '[live2d] 人脸检测模型加载失败': '[live2d] failed to load the face model',
   '[live2d] 引擎初始化失败': '[live2d] Engine initialization failed',
@@ -975,6 +975,7 @@ const enUS: Record<string, string> = {
   '表情': 'Expression',
   '表情 {{index}}': 'Expression {{index}}',
   '不支持协议相对地址': 'Protocol-relative URLs are not supported',
+  '戳一下': 'Poke',
   '大小': 'Size',
   '地址必须指向 model3.json': 'The URL must point to model3.json',
   '地址格式无效': 'Invalid URL format',
@@ -983,6 +984,7 @@ const enUS: Record<string, string> = {
   '动捕开着时以动捕为准': 'Face tracking takes over while it is on',
   '动捕预览': 'Capture preview',
   '动捕中': 'Tracking',
+  '对方的角色': 'Their character',
   '对观众显示角色': 'Show characters to viewers',
   '房间里还没有模型，先上传一个': 'This room has no models yet — upload one first',
   '房间设置': 'Room settings',
@@ -1003,6 +1005,7 @@ const enUS: Record<string, string> = {
   '回到原位': 'Reset position',
   '加入语音后说话会动嘴，不需要摄像头': 'Once you join voice, your character moves its mouth as you speak — no camera needed',
   '加载超时': 'Load timed out',
+  '角色互动': 'Character actions',
   '角色模型应用失败': 'Could not apply the character model',
   '角色设置': 'Character settings',
   '角色已删除，房间里所有人（包括你）都看不到它。在下面重新选一个模型即可恢复': 'Character deleted — nobody in the room (including you) can see it now. Pick a model below to bring it back',

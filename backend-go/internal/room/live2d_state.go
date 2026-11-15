@@ -76,6 +76,12 @@ const (
 	// 两者叠加出一条 1 秒出头的释放时间。
 	live2dFaceTTL = 600 * time.Millisecond
 
+	// live2dMinPokeGap 是「戳一下」的最小间隔。
+	//
+	// 比动作门限宽得多：动作是自己身上的表情，连点最多是脸抽筋；戳是**对别人**
+	// 的动作，连点就变成骚扰。一次互动本来就该是一下。
+	live2dMinPokeGap = 600 * time.Millisecond
+
 	// live2dMinDragGap 是拖拽偏移上报的最小间隔。
 	//
 	// 拖动是连续的手势，客户端按 60ms 节流发送、松手时再补一帧终值，所以
@@ -169,7 +175,10 @@ type live2dMember struct {
 	lastState time.Time
 	// lastAction 只用于表情频控，不参与下发。
 	lastAction time.Time
-	updatedAt  time.Time
+	// lastPoke 只用于「戳别人」的频控，与自己的动作各算各的：
+	// 共用一个时间戳会让「戳完立刻做个表情」被吞掉。
+	lastPoke  time.Time
+	updatedAt time.Time
 }
 
 type live2dRoom struct {
@@ -483,6 +492,30 @@ func (st *live2dStore) AllowAction(roomID, socketID string, now time.Time) bool 
 	return true
 }
 
+// AllowPoke 判定「这个人现在能不能戳别人」并记录时间。
+//
+// 同时兼作成员资格检查：没在名册里（没声明模型 / 已删除角色）就没有戳的资格。
+// 这条规则刻意与表情/动作一致——一个人如果连角色都没有，他的"戳"在别人屏幕上
+// 找不到任何可以解释的来源。
+func (st *live2dStore) AllowPoke(roomID, socketID string, now time.Time) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	r := st.rooms[roomID]
+	if r == nil {
+		return false
+	}
+	m := r.models[socketID]
+	if m == nil {
+		return false
+	}
+	if !m.lastPoke.IsZero() && now.Sub(m.lastPoke) < live2dMinPokeGap {
+		return false
+	}
+	m.lastPoke = now
+	return true
+}
+
 func (st *live2dStore) Remove(roomID, socketID string) bool {
 	st.mu.Lock()
 	defer st.mu.Unlock()
@@ -658,6 +691,14 @@ func (s *Service) Live2DAllowAction(roomID, socketID string) bool {
 		return false
 	}
 	return s.live2d.AllowAction(roomID, socketID, time.Now())
+}
+
+// Live2DAllowPoke 是「戳别人」的频控 + 成员资格判定。
+func (s *Service) Live2DAllowPoke(roomID, socketID string) bool {
+	if s == nil || s.live2d == nil {
+		return false
+	}
+	return s.live2d.AllowPoke(roomID, socketID, time.Now())
 }
 
 func (s *Service) Live2DSnapshot(roomID string) []live2dMember {

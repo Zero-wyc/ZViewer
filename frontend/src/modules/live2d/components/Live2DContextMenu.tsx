@@ -1,6 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { Move, RotateCcw, Settings2, Sparkles, Trash2, X } from 'lucide-react'
+import {
+  Hand,
+  Move,
+  RotateCcw,
+  Settings2,
+  Sparkles,
+  Trash2,
+  X,
+} from 'lucide-react'
 import { Slider } from '@/components/ui/Slider'
 import { Switch } from '@/components/ui/Switch'
 import { t } from '@/i18n'
@@ -63,11 +71,20 @@ export interface Live2DContextMenuProps {
   onToggleDrag: () => void
   onResetPosition: () => void
   onRemove: () => void
+  /**
+   * 右键的是**别人的**角色。
+   *
+   * 菜单随之切成「对他」的形态，只有互动动作。以前不管点到谁都是「我的角色」：
+   * 在别人的角色上右键，却看到自己的模型名和自己的大小滑杆。
+   */
+  peer?: { name: string; onPoke: () => void } | null
 }
 
 const MENU_WIDTH = 264
 /** 估算高度只用于「别超出视口下沿」；实际高度由内容决定并可滚动。 */
 const MENU_HEIGHT_GUESS = 380
+/** 「别人的角色」菜单只有标题 + 一个动作，高度估算单独给一个小值。 */
+const PEER_MENU_HEIGHT_GUESS = 96
 
 export function Live2DContextMenu({
   open,
@@ -92,6 +109,7 @@ export function Live2DContextMenu({
   onToggleDrag,
   onResetPosition,
   onRemove,
+  peer = null,
 }: Live2DContextMenuProps) {
   const menuRef = useRef<HTMLDivElement | null>(null)
 
@@ -119,6 +137,59 @@ export function Live2DContextMenu({
   }, [open, onClose])
 
   if (!open) return null
+
+  // 「别人的角色」只有一行，位置按小面板夹紧；早返回而不是在同一個 JSX 里分支，
+  // 是为了让「我的角色」那份菜单保持原样（分支会让整段代码重新缩进，
+  // 每次改一行都变成几百行的 diff）。
+  if (peer) {
+    const peerLeft = Math.min(
+      Math.max(8, position.x),
+      Math.max(8, window.innerWidth - MENU_WIDTH - 8)
+    )
+    const peerTop = Math.min(
+      Math.max(8, position.y),
+      Math.max(8, window.innerHeight - PEER_MENU_HEIGHT_GUESS - 8)
+    )
+    return createPortal(
+      <div
+        ref={menuRef}
+        role="menu"
+        aria-label={t('角色互动')}
+        data-live2d-menu=""
+        className="glass-strong pointer-events-auto fixed z-[120] rounded-[var(--md-sys-shape-corner)] p-2.5"
+        style={{
+          left: peerLeft,
+          top: peerTop,
+          width: MENU_WIDTH,
+          color: 'var(--md-sys-color-on-surface)',
+          boxShadow: '0 12px 32px -8px rgba(0, 0, 0, 0.45)',
+        }}
+      >
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="flex min-w-0 items-center gap-1.5 text-xs font-semibold">
+            <Sparkles
+              size={13}
+              className="shrink-0"
+              style={{ color: 'var(--md-sys-color-primary)' }}
+            />
+            <span className="truncate">{peer.name || t('对方的角色')}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t('关闭')}
+            className="rounded p-0.5 opacity-60 transition-opacity hover:opacity-100"
+          >
+            <X size={13} />
+          </button>
+        </div>
+        <MenuAction onClick={peer.onPoke} icon={<Hand size={13} />}>
+          {t('戳一下')}
+        </MenuAction>
+      </div>,
+      container ?? document.body
+    )
+  }
 
   const left = Math.min(
     Math.max(8, position.x),

@@ -35,6 +35,7 @@ import {
   emitLive2DConfig,
   emitLive2DDrag,
   emitLive2DMotion,
+  emitLive2DPoke,
   emitLive2DPolicy,
   useLive2DSync,
 } from '../hooks/useLive2DSync'
@@ -203,12 +204,29 @@ export function RoomLive2DHost({
     /** 打开那一刻的拖拽偏移，用来决定要不要显示「回到原位」 */
     offsetX: number
     offsetY: number
-  }>({ open: false, x: 0, y: 0, root: null, offsetX: 0, offsetY: 0 })
+    /**
+     * 右键命中的是**别人的**角色时记下它：菜单切成「对他」的形态。
+     * 为空 = 右键在空白处或自己身上，菜单是「我的角色」。
+     */
+    peer: { sid: string; name: string } | null
+  }>({
+    open: false,
+    x: 0,
+    y: 0,
+    root: null,
+    offsetX: 0,
+    offsetY: 0,
+    peer: null,
+  })
 
   const mySid = socket?.id ?? ''
 
   const openMenuAt = useCallback(
-    (clientX: number, clientY: number) => {
+    (
+      clientX: number,
+      clientY: number,
+      peer: { sid: string; name: string } | null = null
+    ) => {
       const fs = document.fullscreenElement
       // 偏移只在场景里（拖动时不进 React），所以打开菜单时读一次：
       // 菜单是低频交互，取快照足够，也能避免每次拖动都让宿主重渲染。
@@ -220,6 +238,7 @@ export function RoomLive2DHost({
         root: fs instanceof HTMLElement ? fs : null,
         offsetX: entry?.targetDragX ?? 0,
         offsetY: entry?.targetDragY ?? 0,
+        peer,
       })
     },
     [mySid]
@@ -541,6 +560,15 @@ export function RoomLive2DHost({
     setMenu((prev) => (prev.open ? { ...prev, open: false } : prev))
   }, [])
 
+  // 戳一下：只发事件，不本地乐观应用——各端的抖动都由服务端广播回来触发，
+  // 这样"我看到的"和"别人看到的"是同一次互动。
+  const handlePoke = useCallback(() => {
+    const target = menu.peer?.sid
+    if (!target) return
+    emitLive2DPoke(socket, roomId, target)
+    closeMenu()
+  }, [menu.peer, socket, roomId, closeMenu])
+
   useEffect(() => {
     if (!renderer) return
     const onContextMenu = (event: MouseEvent) => {
@@ -554,11 +582,21 @@ export function RoomLive2DHost({
       if (!sid) return
       event.preventDefault()
       event.stopPropagation()
+      // 别人的角色 → 「对他」的菜单（现在只有戳一下）。以前不管点到谁都是
+      // 「我的角色」，在别人身上右键却看到自己的模型名和大小滑杆。
+      if (sid !== mySid) {
+        const peer = peers.find((item) => item.sid === sid)
+        openMenuAt(event.clientX, event.clientY, {
+          sid,
+          name: peer?.name ?? '',
+        })
+        return
+      }
       openMenuAt(event.clientX, event.clientY)
     }
     window.addEventListener('contextmenu', onContextMenu, true)
     return () => window.removeEventListener('contextmenu', onContextMenu, true)
-  }, [renderer, settingsOpen, openMenuAt])
+  }, [renderer, settingsOpen, openMenuAt, mySid, peers])
 
   // ---- 8d. 拖拽模式 ----
   //
@@ -1118,6 +1156,7 @@ export function RoomLive2DHost({
         onOpenSettings={openSettings}
         onToggleDrag={toggleDragMode}
         onResetPosition={handleResetPosition}
+        peer={menu.peer ? { name: menu.peer.name, onPoke: handlePoke } : null}
       />
 
       <Live2DSettingsModal

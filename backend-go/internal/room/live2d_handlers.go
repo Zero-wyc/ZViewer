@@ -108,6 +108,25 @@ type live2dDragPayload struct {
 	Y      *float64 `json:"y"`
 }
 
+// live2dPokePayload 是「戳一下某人的角色」：目标是 socket id。
+//
+// 只带目标、不带"戳哪个动作"：动作组是**目标模型**自己的属性，戳的人看不到
+// 人家的 model3.json，让他指定组名等于给了一个任意的越界入口。
+type live2dPokePayload struct {
+	RoomID string `json:"roomId"`
+	Target string `json:"target"`
+}
+
+// live2dPokeOut 是戳一下的下行广播。
+//
+// 广播给全房间而不是只给目标：这是**公开的社交动作**，旁观的人也该看到被戳的
+// 那个角色抖一下，否则"我戳了他"在第三方视角里完全没有发生。
+type live2dPokeOut struct {
+	RoomID string `json:"roomId"`
+	From   string `json:"from"`
+	Target string `json:"target"`
+}
+
 // live2dIdentity 返回「这个人是谁」的稳定标识，用于「一个用户只能有一个角色」。
 //
 //   - 登录用户用 userId（游客共享 userId=0，不能按其判定，否则全房间游客
@@ -218,6 +237,46 @@ func (s *Service) bindLive2D(sc *sio.Socket) {
 	})
 	sc.On("live2d-policy-set", func(args []json.RawMessage, ack func(...any)) {
 		s.handleLive2DPolicySet(sc, args, ack)
+	})
+	sc.On("live2d-poke", func(args []json.RawMessage, _ func(...any)) {
+		s.handleLive2DPoke(sc, args)
+	})
+}
+
+// handleLive2DPoke 处理「我戳了一下别人的角色」。
+//
+// 无 ack：戳一下是个瞬时互动，失败（太快、对方刚走）静默即可——给用户弹一条
+// 「你戳得太快了」只会让一个玩笑性质的动作变得一本正经。
+func (s *Service) handleLive2DPoke(sc *sio.Socket, args []json.RawMessage) {
+	if len(args) == 0 || len(args[0]) > 128 {
+		return
+	}
+	var payload live2dPokePayload
+	if err := json.Unmarshal(args[0], &payload); err != nil {
+		return
+	}
+	if payload.RoomID == "" || payload.Target == "" || len(payload.Target) > 64 {
+		return
+	}
+	// 戳自己没意义：自己的角色本来就归自己，抖动只会让人以为程序抽了
+	if payload.Target == sc.ID {
+		return
+	}
+	// 目标必须有角色——否则"戳了一个不存在的人"会广播出去，各端查不到又能怎样
+	if !s.Live2DHas(payload.RoomID, payload.Target) {
+		return
+	}
+	// 频控 + 我自己的成员资格（没角色的人没有戳的资格）
+	if !s.Live2DAllowPoke(payload.RoomID, sc.ID) {
+		return
+	}
+	if s.Hub == nil {
+		return
+	}
+	s.Hub.EmitRoom(payload.RoomID, "live2d-poke", live2dPokeOut{
+		RoomID: payload.RoomID,
+		From:   sc.ID,
+		Target: payload.Target,
 	})
 }
 

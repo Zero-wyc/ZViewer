@@ -30,6 +30,13 @@ export const LIVE2D_EVENT = {
    * 模型（否则本地会一直指着一个已经不存在、也永远加载不出来的模型）。
    */
   MODEL_REMOVED: 'live2d-model-removed',
+  /**
+   * 戳一下别人的角色：C→S 上报目标，S→C 广播给全房间。
+   *
+   * 上下行同名：它是一个「谁戳了谁」的事件，两端看到的是同一件事，没必要
+   * 分成两个名字。服务端只做资格与频控判定，不关心里面是什么动作。
+   */
+  POKE: 'live2d-poke',
 } as const
 
 /** 上行频率。服务端单连接有 40ms 门限，这里留余量。 */
@@ -68,6 +75,14 @@ export const LIVE2D_FACE_TTL_MS = 1200
 
 /** 房间内模型上限，与后端 live2dMaxModels 一致。 */
 export const LIVE2D_MAX_MODELS = 12
+
+/**
+ * 「被戳」的抖动时长。
+ *
+ * 0.45 秒：短到像反射、长到能看清。再长就会和 idle 呼吸撞在一起，
+ * 看起来像模型自己在抽搐。
+ */
+export const LIVE2D_POKE_MS = 450
 
 /** 同时渲染的上限：超过这个数量只渲染最近活跃的若干个。 */
 export const LIVE2D_MAX_RENDERED = 6

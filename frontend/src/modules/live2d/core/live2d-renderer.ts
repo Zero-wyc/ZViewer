@@ -6,6 +6,7 @@ import {
   LIVE2D_LOAD_TIMEOUT_MS,
   LIVE2D_MAX_RENDERED,
   LIVE2D_MODEL_HEIGHT_RATIO,
+  LIVE2D_POKE_MS,
 } from '../constants'
 import { alphaForDelta, smooth } from './pointer-map'
 import {
@@ -88,6 +89,13 @@ interface LoadedModel {
   /** 实际画出来的锚点（已含可见性约束），DOM 标签跟随它 */
   px: number
   py: number
+  /**
+   * 被戳的时刻（Date.now()）。
+   *
+   * 纯本地动画：poke 事件各端都会收到，抖动由各自算、不进协议也不进场景。
+   * 它没有"当前值"，只是一个瞬时反应，所以不该占用名册的那种状态位。
+   */
+  pokeAt: number
 }
 
 export interface RendererOptions {
@@ -298,6 +306,23 @@ export class Live2DRenderer {
   }
 
   /**
+   * 戳一下某个角色：本地抖一下，模型自带 tap_body 动作组的话顺势播一个。
+   *
+   * 抖动是模型无关的（所有模型都有位置），而 tap_body 只有部分模型导出过，
+   * 所以两者叠加：没有动作组的模型也不会"戳了完全没反应"。
+   */
+  poke(sid: string): void {
+    if (this.destroyed) return
+    const loaded = this.models.get(sid)
+    if (!loaded) return
+    loaded.pokeAt = Date.now()
+    // 绕过 playMotion 的"本人模型不重播"判定：被戳的人自己也要看到反应
+    void loaded.model.motion('tap_body', 0, MOTION_PRIORITY_FORCE).catch(() => {
+      // 没有这个动作组就是常态，抖动已经足够表达"被戳到了"
+    })
+  }
+
+  /**
    * 光标下是哪个角色（右键菜单用）。返回 null 表示点在空白处。
    *
    * 用渲染器自己的包围盒而不是在 canvas 上挂监听：canvas 是
@@ -437,6 +462,7 @@ export class Live2DRenderer {
         boxH: 0,
         px: 0,
         py: 0,
+        pokeAt: 0,
       }
       this.applyMotionPolicy(sid, entry)
       this.bindFaceParams(sid, entry)
@@ -529,7 +555,7 @@ export class Live2DRenderer {
         this.width,
         this.height
       )
-      model.x = anchor.x
+      model.x = anchor.x + pokeWobble(loaded)
       model.y = anchor.y
       loaded.px = anchor.x
       loaded.py = anchor.y
@@ -711,6 +737,27 @@ function isFaceFresh(entry: SceneEntry): boolean {
 /** 语音嘴型的有效期与动捕同一把尺：都是 15Hz 上报 + 短 TTL 释放。 */
 function isVoiceFresh(entry: SceneEntry): boolean {
   return entry.voiceAt > 0 && Date.now() - entry.voiceAt < LIVE2D_FACE_TTL_MS
+}
+
+/**
+ * 被戳时的一小段横向抖动（像素）。
+ *
+ * 两个来回 + 平方衰减：收尾时 sin 回到 0，不会"停在一半的偏移上"；平方衰减
+ * 让它像弹簧而不是摆锤。幅度按模型宽度缩放——大模型抖 10px 看不出来，
+ * 小模型抖 10px 像抽搐。
+ *
+ * 只改 x 不改 y：半身像的锚点在脚底，纵向位移会看起来像在"踮脚跳"，
+ * 比横向更容易被误读成加载异常。
+ */
+function pokeWobble(loaded: LoadedModel): number {
+  if (!loaded.pokeAt) return 0
+  const elapsed = Date.now() - loaded.pokeAt
+  if (elapsed < 0 || elapsed >= LIVE2D_POKE_MS) return 0
+  const t = elapsed / LIVE2D_POKE_MS
+  const decay = (1 - t) ** 2
+  const width = loaded.boxW > 0 ? loaded.boxW : 160
+  const scale = Math.min(1.6, Math.max(0.6, width / 160))
+  return Math.sin(t * Math.PI * 4) * 10 * decay * scale
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {

@@ -929,3 +929,62 @@ func TestLive2DVoiceMouth(t *testing.T) {
 		t.Fatal("带姿态的是整脸动捕，不能算语音")
 	}
 }
+
+// 21) 戳一下：只能戳别人、目标必须有角色、自己要够资格、且被 600ms 门限压住。
+//
+// 这条事件的"权限"比其它几条都弱（没有房主概念），所以边界全靠这四道检查：
+// 少一道就能被脚本用来给整个房间刷抖动。
+func TestLive2DPoke(t *testing.T) {
+	env := newTestEnv(t)
+	env.svc.Live2DSet("ROOM_K", live2dMember{
+		SocketID: "s1", Name: "Alice", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+	env.svc.Live2DSet("ROOM_K", live2dMember{
+		SocketID: "s2", Name: "Bob", Kind: "builtin", ModelID: "hiyori", Scale: 1, AR: 1.7,
+	})
+
+	poke := func(socketID, raw string) {
+		t.Helper()
+		env.svc.handleLive2DPoke(&sio.Socket{ID: socketID}, l2dArgs(t, raw))
+	}
+
+	// 戳自己：不广播
+	poke("s1", `{"roomId":"ROOM_K","target":"s1"}`)
+	if len(env.hub.rooms) != 0 {
+		t.Fatalf("戳自己不该广播：%v", env.hub.rooms)
+	}
+
+	// 目标没有角色：不广播（各端会拿一个查不到的 sid 去抖）
+	poke("s1", `{"roomId":"ROOM_K","target":"s-ghost"}`)
+	if len(env.hub.rooms) != 0 {
+		t.Fatalf("目标不存在时不该广播：%v", env.hub.rooms)
+	}
+
+	// 自己没有角色：同样没资格（旁观的连接不该能扰动房间）
+	poke("s-stranger", `{"roomId":"ROOM_K","target":"s2"}`)
+	if len(env.hub.rooms) != 0 {
+		t.Fatalf("没有角色的人不该能戳：%v", env.hub.rooms)
+	}
+
+	// 正常一次
+	poke("s1", `{"roomId":"ROOM_K","target":"s2"}`)
+	if len(env.hub.rooms) != 1 || env.hub.rooms[0] != "ROOM_K|live2d-poke" {
+		t.Fatalf("应广播一条 live2d-poke，实际 %v", env.hub.rooms)
+	}
+	out, _ := env.hub.payloads["ROOM_K|live2d-poke"][0].(live2dPokeOut)
+	if out.From != "s1" || out.Target != "s2" {
+		t.Fatalf("广播内容不对：%+v", out)
+	}
+
+	// 600ms 内的第二次直接丢弃
+	poke("s1", `{"roomId":"ROOM_K","target":"s2"}`)
+	if n := len(env.hub.payloads["ROOM_K|live2d-poke"]); n != 1 {
+		t.Fatalf("连点应被频控，实际广播 %d 次", n)
+	}
+
+	// 被戳的人不受影响：他能立刻戳回来（频控是按人记的）
+	poke("s2", `{"roomId":"ROOM_K","target":"s1"}`)
+	if n := len(env.hub.payloads["ROOM_K|live2d-poke"]); n != 2 {
+		t.Fatalf("被戳的人应能立刻戳回去，实际 %d 次", n)
+	}
+}
