@@ -10,8 +10,12 @@ import type { FacePreviewFrame, FaceTracker } from '../core/face-tracker'
 // 为什么需要它：动捕是**看不见的输入**。用户开了开关之后，唯一的反馈是
 // 「模型跟着动了」——而模型可能在画面外、可能被别的浮层挡住、可能是模型本身
 // 对这些参数没绑定。这时用户无法区分「摄像头没拍到我」和「功能坏了」，
-// 只能反复开关。这里把检测器的原始画面、关键点、以及每一路通道的当前值
-// 直接摆出来，一眼就能定位是哪一段断了。
+// 只能反复开关。这里把检测器算出的**面部骨架**（脸/眉/眼/嘴轮廓 + 注视点）
+// 以及每一路通道的当前值直接摆出来，一眼就能定位是哪一段断了。
+//
+// 为什么不画摄像头画面：画面只对本机有意义，还让窗口变得像「在拍我」；
+// 骨架已经携带全部动捕信息（头朝向、张闭眼、嘴型、眉毛），少一路视频
+// 解码到 canvas 的开销，也更不侵犯隐私感。
 //
 // 性能约束：这一层每帧都在跑（摄像头 15Hz、绘制 60Hz），**不能进 React state**。
 // 画面与数值条都用 ref 直接写 DOM，只有「状态文案」这种低频变化才 setState。
@@ -57,23 +61,27 @@ export function Live2DFaceMonitor({
       const h = canvas.height
       ctx.clearRect(0, 0, w, h)
 
-      // 画面按「照镜子」镜像：用户抬左手，镜子里也是左边，符合直觉
-      const video = frame.video
-      if (video && video.readyState >= 2) {
-        ctx.save()
-        ctx.translate(w, 0)
-        ctx.scale(-1, 1)
-        ctx.drawImage(video, 0, 0, w, h)
-        ctx.restore()
-      }
-
       const marks = frame.landmarks
-      if (!marks) return
-      ctx.lineWidth = Math.max(1, w / 168)
+      if (!marks) {
+        // 没有骨架时给一个低调的占位脸型：让「等检测」和「窗口坏了」一眼可分
+        ctx.save()
+        ctx.setLineDash([4, 5])
+        ctx.lineWidth = Math.max(1, w / 176)
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.18)'
+        ctx.beginPath()
+        ctx.ellipse(w / 2, h / 2, w / 5, h / 3, 0, 0, TAU)
+        ctx.stroke()
+        ctx.restore()
+        return
+      }
+      // 坐标一律镜像：和照镜子一致，用户抬左手，骨架也是左边动
+      ctx.lineWidth = Math.max(1.5, w / 132)
       ctx.strokeStyle = 'rgba(126, 240, 190, 0.95)'
       ctx.beginPath()
       for (const group of [
         FACE_OUTLINE.FACE,
+        FACE_OUTLINE.BROW_LEFT,
+        FACE_OUTLINE.BROW_RIGHT,
         FACE_OUTLINE.EYE_LEFT,
         FACE_OUTLINE.EYE_RIGHT,
         FACE_OUTLINE.MOUTH,
@@ -81,9 +89,24 @@ export function Live2DFaceMonitor({
         tracePolyline(ctx, marks, group, w, h)
       }
       ctx.stroke()
-      // 眼睛与鼻尖点一下，方便判断「检测器认为我在看哪」
+      // 鼻尖画一个小十字，注视方向直接看鼻尖相对两眼的位置
+      const nose = marks[1]
+      if (nose) {
+        const x = (1 - nose.x) * w
+        const y = nose.y * h
+        const r = Math.max(2.5, w / 56)
+        ctx.strokeStyle = 'rgba(255, 214, 102, 0.95)'
+        ctx.lineWidth = Math.max(1, w / 176)
+        ctx.beginPath()
+        ctx.moveTo(x - r, y)
+        ctx.lineTo(x + r, y)
+        ctx.moveTo(x, y - r)
+        ctx.lineTo(x, y + r)
+        ctx.stroke()
+      }
+      // 两眼中心加亮一点，与鼻尖一起构成「检测器认为我在看哪」的三角
       ctx.fillStyle = 'rgba(255, 214, 102, 0.95)'
-      for (const index of [33, 263, 1]) {
+      for (const index of [33, 263]) {
         const mark = marks[index]
         if (!mark) continue
         ctx.beginPath()
