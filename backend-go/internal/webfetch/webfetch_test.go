@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 // roundTripFunc 让 http.RoundTripper 写成函数。
@@ -107,5 +108,26 @@ func TestProxyGitHubURL(t *testing.T) {
 				t.Errorf("ProxyGitHubURL(%q) = %q，期望 %q", c.raw, got, c.want)
 			}
 		})
+	}
+}
+
+// TestFetchReportsExitOnTransportFailure 锁住「连不上时错误里带出口」。
+//
+// 这条不是锦上添花：番剧源抓取失败的原始文案只有 wsarecv / connection refused，
+// 用户根本不知道该开代理还是换源。回环地址不会走代理，所以这里的出口只会是
+// 「直连」或环境变量里配的代理。
+func TestFetchReportsExitOnTransportFailure(t *testing.T) {
+	restore := SetTransport(nil)
+	defer restore()
+
+	result := Fetch(context.Background(), "https://127.0.0.1:1/none", Options{Timeout: 3000 * time.Millisecond})
+	if result.OK || result.Status != 0 || result.Error == "" {
+		t.Fatalf("期望网络层失败，得到 %+v", result)
+	}
+	if !strings.Contains(result.Error, "直连") && !strings.Contains(result.Error, "代理") {
+		t.Fatalf("错误文案缺少出口描述: %q", result.Error)
+	}
+	if !strings.Contains(result.Error, "→") {
+		t.Fatalf("错误文案缺少分隔符: %q", result.Error)
 	}
 }
