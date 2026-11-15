@@ -756,3 +756,28 @@ func TestLive2DIdentityDoesNotMergeStrangers(t *testing.T) {
 		t.Fatalf("不同身份不应互相顶替，实际只剩 %d 个", n)
 	}
 }
+
+// 13) 身份标识：登录用户按 userId，游客按 guestId，都没有才放弃归并。
+//
+// 游客共享 userId=0，若按它归并，房间里所有游客会一个接一个把对方挤掉——
+// 这是「一个用户一个角色」最容易写错的一处。
+func TestLive2DIdentityKey(t *testing.T) {
+	cases := []struct {
+		name string
+		data map[string]any
+		want string
+	}{
+		{"登录用户", map[string]any{"userId": int64(7), "guestId": "g1"}, "u:7"},
+		// float64 是 JSON 解码后的常见形态，必须一视同仁
+		{"登录用户（float 形态）", map[string]any{"userId": float64(7)}, "u:7"},
+		{"游客共享 userId=0", map[string]any{"userId": int64(0), "guestId": "g1"}, "g:g1"},
+		{"只有 guestId", map[string]any{"guestId": "g2"}, "g:g2"},
+		{"空身份不归并", map[string]any{"userId": int64(0)}, ""},
+		{"无任何身份", map[string]any{}, ""},
+	}
+	for _, tc := range cases {
+		if got := live2dIdentity(&sio.Socket{Data: tc.data}); got != tc.want {
+			t.Fatalf("%s: 期望 %q，实际 %q", tc.name, tc.want, got)
+		}
+	}
+}
